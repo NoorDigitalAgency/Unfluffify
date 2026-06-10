@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-10
 Branch at document creation: main
-Implementation status: IN_PROGRESS (Track A Phase 9 complete)
+Implementation status: IN_PROGRESS (Track A Phase 10 complete)
 Document commit scope: plan + handoff authoring only
 
 ## Read This First
@@ -60,7 +60,7 @@ Status values: TODO / IN_PROGRESS / DONE / BLOCKED.
 8. Phase 7 - popup-state-broker module (HIGH RISK): DONE.
 9. Phase 8 - render-mode-inspector module: DONE.
 10. Phase 9 - ai-run-orchestrator module (HIGHEST RISK): DONE.
-11. Phase 10 - async error reporting (hardening): TODO.
+11. Phase 10 - async error reporting (hardening): DONE.
 12. Phase 11 - per-tab state consolidation (hardening): TODO.
 13. Phase 12 - managed timeouts (hardening, optional last): TODO.
 
@@ -221,12 +221,19 @@ Phase 9 - ai-run-orchestrator module:
    Focused: node --test tests/ai-run-orchestrator.test.js tests/ai-run.test.js tests/popup-ai-run-gating.test.js tests/background-decomposition-boundary.test.js -> 35 pass / 0 fail
    Full:    npm test -> 791 pass / 0 fail
    Live:    skipped by current requirement scope (not required for non-marking slices)
+   Commit:  7f21649 refactor(background): extract ai run orchestrator
+
+Phase 10 - async error reporting (hardening):
+   Files:   background/async-tasks.js; background.js; tests/background-async-tasks.test.js; tests/device-emulation-lifecycle.test.js; tests/lifecycle-broker.test.js; tests/background-decomposition-boundary.test.js
+   Focused: node --test tests/background-async-tasks.test.js tests/background-decomposition-boundary.test.js tests/device-emulation-lifecycle.test.js tests/lifecycle-broker.test.js tests/page-motion-bridge-isolation.test.js -> 37 pass / 0 fail
+   Full:    npm test -> 793 pass / 0 fail
+   Live:    skipped by current requirement scope (not required for non-marking slices)
    Commit:  pending
 ```
 
 ## Next Action
 
-Commit and push Track A Phase 9 with:
-`refactor(background): extract ai run orchestrator`, then proceed to Track A
-Phase 10 (async error reporting hardening). Do not start Track B until Track A is
+Commit and push Track A Phase 10 with:
+`refactor(background): report background task failures`, then proceed to Track A
+Phase 11 (per-tab state consolidation hardening). Do not start Track B until Track A is
 complete and merged; do not start Track C until Track B is complete and merged.

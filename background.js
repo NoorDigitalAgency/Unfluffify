@@ -137,6 +137,7 @@ import {
 import { createPopupStateBroker } from "./background/popup-state-broker.js";
 import { createRenderModeInspector } from "./background/render-mode-inspector.js";
 import { createAiRunOrchestrator } from "./background/ai-run-orchestrator.js";
+import { runBackgroundTask } from "./background/async-tasks.js";
 import {
   clearTrackedTabSessionState as clearStoredTrackedTabSessionState,
   clearTabStateScope,
@@ -1499,8 +1500,10 @@ async function executePageMotionFreezeControl(message, sender) {
     : null;
   const queueKey = getPageMotionFreezeControlTargetKey(target);
   const previous = pageMotionFreezeControlQueueByTarget.get(queueKey) || Promise.resolve();
-  const next = previous
-    .catch(() => {})
+  const next = runBackgroundTask("page-motion-freeze-control-queue", previous, {
+    tabId: target.tabId,
+    appendTrace: appendWorldTraceEvent
+  })
     .then(() => executePageMotionFreezeControlNow(target, command, details));
   pageMotionFreezeControlQueueByTarget.set(queueKey, next);
   try {
@@ -2544,11 +2547,18 @@ chrome.debugger.onDetach.addListener(async (source) => {
   }
   const tabState = await utils.getTabState(source.tabId);
   if (tabState && tabState.enabled) {
-    updateDeviceEmulation(source.tabId, {
-      enabled: true,
-      mode: "mobile",
-      recalculateScale: true
-    }).catch(() => {});
+    runBackgroundTask(
+      "debugger-detach-restore-mobile-enabled-tab",
+      updateDeviceEmulation(source.tabId, {
+        enabled: true,
+        mode: "mobile",
+        recalculateScale: true
+      }),
+      {
+        tabId: source.tabId,
+        appendTrace: appendWorldTraceEvent
+      }
+    );
     return;
   }
   const initialState = await utils.getTabState(source.tabId, "initial");
@@ -2558,11 +2568,18 @@ chrome.debugger.onDetach.addListener(async (source) => {
       active: Boolean(initialState.active),
       desktopPreviewEnabled: false
     }, "initial");
-    updateDeviceEmulation(source.tabId, {
-      enabled: true,
-      mode: "mobile",
-      recalculateScale: true
-    }).catch(() => {});
+    runBackgroundTask(
+      "debugger-detach-restore-mobile-initial-state",
+      updateDeviceEmulation(source.tabId, {
+        enabled: true,
+        mode: "mobile",
+        recalculateScale: true
+      }),
+      {
+        tabId: source.tabId,
+        appendTrace: appendWorldTraceEvent
+      }
+    );
     return;
   }
   const state = await getDeviceEmulationState(source.tabId);
@@ -2679,7 +2696,14 @@ function restoreEnabledStateForTab(tabId, tabState, attempt = 0) {
         return;
       }
       void chrome.runtime.lastError;
-      clearReloadRestoreTabStateAfterActivation(tabId, tabState).catch(() => {});
+      runBackgroundTask(
+        "clear-reload-restore-tab-state-after-activation",
+        clearReloadRestoreTabStateAfterActivation(tabId, tabState),
+        {
+          tabId,
+          appendTrace: appendWorldTraceEvent
+        }
+      );
     }
   );
 }

@@ -91,7 +91,7 @@ test("background restore activation starts an operation and passes its id to con
   assert.match(block, /updateLifecycleState\(tabId, \{[\s\S]*?kind: LIFECYCLE_KINDS\.ACTIVATION[\s\S]*?phase: LIFECYCLE_PHASES\.STARTED[\s\S]*?busy: true/);
   assert.match(block, /operationId/);
   assert.match(block, /phase: LIFECYCLE_PHASES\.FAILED[\s\S]*?busy: false/);
-  assert.match(block, /clearReloadRestoreTabStateAfterActivation\(tabId, tabState\)\.catch\(\(\) => \{\}\);/);
+  assert.match(block, /runBackgroundTask\([\s\S]*?clearReloadRestoreTabStateAfterActivation\(tabId, tabState\)/);
 });
 
 test("content emits lifecycle events for readiness, activation, and render-mode inspection", () => {

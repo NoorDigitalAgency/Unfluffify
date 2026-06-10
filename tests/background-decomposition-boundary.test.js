@@ -35,6 +35,7 @@ test("background decomposition guard: baseline background modules are imported",
   assertImportsBackgroundModule("popup-state-broker");
   assertImportsBackgroundModule("render-mode-inspector");
   assertImportsBackgroundModule("ai-run-orchestrator");
+  assertImportsBackgroundModule("async-tasks");
   assertImportsBackgroundModule("tab-runtime");
   assertImportsBackgroundModule("tab-session-store");
   assertImportsBackgroundModule("spinner-operations");
@@ -99,4 +100,5 @@ test("background decomposition guard: baseline background modules are imported",
   assertBackgroundDoesNotDefine("isAiComputeLockActiveForTab");
   assertBackgroundDoesNotDefine("refreshAiRunHeartbeat");
   assertBackgroundDoesNotDefine("prepareAiRunPayloadSnapshot");
+  assertBackgroundDoesNotDefine("runBackgroundTask");
 });

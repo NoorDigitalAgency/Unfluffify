@@ -337,7 +337,7 @@ test("successful same-base restore activation clears restore intent after conten
   );
 
   assert.match(restoreBlock, /if \(chrome\.runtime\.lastError \|\| !response \|\| response\.ok === false\) \{/);
-  assert.match(restoreBlock, /clearReloadRestoreTabStateAfterActivation\(tabId, tabState\)\.catch\(\(\) => \{\}\);/);
+  assert.match(restoreBlock, /runBackgroundTask\([\s\S]*?clearReloadRestoreTabStateAfterActivation\(tabId, tabState\)/);
   assert.doesNotMatch(clearBlock, /getReloadRestoreTabState|restoreState|await getTabUrl/);
   assert.match(clearBlock, /await clearReloadRestoreTabState\(tabId\);/);
   assert.match(backgroundSource, /await clearTabStateScope\(tabId, TAB_RESTORE_SCOPE\);/);
@@ -463,5 +463,5 @@ test("debugger detach reapplies mobile emulation while marking stays enabled", (
 
   assert.match(detachBlock, /const tabState = await utils\.getTabState\(source\.tabId\);/);
   assert.match(detachBlock, /if \(tabState && tabState\.enabled\) \{/);
-  assert.match(detachBlock, /updateDeviceEmulation\(source\.tabId,\s*\{\s*enabled:\s*true,\s*mode:\s*"mobile",\s*recalculateScale:\s*true\s*\}\)\.catch\(\(\) => \{\}\);/);
+  assert.match(detachBlock, /runBackgroundTask\([\s\S]*?updateDeviceEmulation\(source\.tabId,\s*\{[\s\S]*?recalculateScale:\s*true[\s\S]*?\}\)/);
 });
