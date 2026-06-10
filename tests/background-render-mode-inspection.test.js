@@ -30,7 +30,7 @@ test("popup render mode inspection delegates to TAB_RUN_RENDER_MODE_INSPECTION",
 
 test("background TAB_RUN_RENDER_MODE_INSPECTION orchestrates reload, reveal, capture, and end", () => {
   const commandBlock = backgroundSource.match(
-    /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_RUN_RENDER_MODE_INSPECTION, async \(context, payload\) => \{([\s\S]*?)\n\}\);\n\nfunction maybeGetCommandPayloadForLedger/
+    /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_RUN_RENDER_MODE_INSPECTION, async \(context, payload\) => \{([\s\S]*?)\n\}, POPUP_TAB_COMMAND_POLICY\);\n\nfunction maybeGetCommandPayloadForLedger/
   )[1];
 
   assert.match(commandBlock, /withBackgroundTabSpinner\([\s\S]*?reason: "tab-render-mode-inspection"/);

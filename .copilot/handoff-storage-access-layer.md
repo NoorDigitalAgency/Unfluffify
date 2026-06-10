@@ -2,8 +2,8 @@
 
 Last updated: 2026-06-10
 Branch at document creation: main
-Implementation status: PLANNED, NOT STARTED
-Document commit scope: planning + active implementation handoff setup
+Implementation status: IN_PROGRESS (Phases 0-2 complete, not yet committed)
+Document commit scope: implementation handoff refresh after Phase 0-2 execution
 
 ## Read This First
 
@@ -31,7 +31,14 @@ As of this handoff:
    - `background/tab-runtime.js`
    - `popup/messages.js`
 5. Working tree was clean after review and before this planning update.
-6. Implementation of the storage-access track has not started.
+6. Phase 0 baseline setup has been executed on `main`:
+   - `git fetch origin`
+   - `git pull --ff-only`
+   - `npm ci`
+   - `npm test`
+7. Phase 1 command source/tab policy hardening is implemented and validated.
+8. Phase 2 command-ledger payload redaction is implemented and validated.
+9. Storage-domain migration phases have not started yet.
 
 ## Review Findings To Fix First
 
@@ -131,9 +138,9 @@ Status values:
 
 Current phase status:
 
-1. Phase 0 - Baseline and branch setup: TODO.
-2. Phase 1 - Harden background command source and tab policy: TODO.
-3. Phase 2 - Redact command ledger payloads: TODO.
+1. Phase 0 - Baseline and branch setup: DONE.
+2. Phase 1 - Harden background command source and tab policy: DONE.
+3. Phase 2 - Redact command ledger payloads: DONE.
 4. Phase 3 - Add storage access inventory guard: TODO.
 5. Phase 4 - Extract low-level storage core: TODO.
 6. Phase 5 - Transfer payload store: TODO.
@@ -147,7 +154,7 @@ Current phase status:
 
 ## Validation Baseline
 
-Last known validation before implementation:
+Last known validation after Phase 0-2 implementation:
 
 ```bash
 npm test
@@ -155,7 +162,17 @@ npm test
 
 Result:
 
-1. 707 tests passed.
+1. 712 tests passed.
+2. 0 failed.
+
+Focused validation executed after Phase 0-2 changes:
+
+1. `npm test -- tests/background-command-router.test.js tests/background-command-hardening.test.js tests/tab-isolation-hardening.test.js tests/background-render-mode-inspection.test.js`
+2. `npm test`
+
+Focused result:
+
+1. 23 passed.
 2. 0 failed.
 
 Focused validation from the review:
@@ -171,6 +188,42 @@ Focused validation from the review:
    - `common/property-lock-background.js`
    - `common/lynx-live-pages.js`
    - orchestration/smoke scripts
+
+## Phase 0-2 Implementation Delta
+
+Files changed:
+
+1. `background/command-router.js`
+2. `background.js`
+3. `tests/background-command-router.test.js`
+4. `tests/background-command-hardening.test.js` (new)
+5. `tests/background-render-mode-inspection.test.js`
+6. `tests/background-marking-activation.test.js`
+
+What changed:
+
+1. Added per-command registration options in command routing:
+   - `allowedSources`
+   - `tabIdPolicy` (`message-or-sender`, `message`, `sender`)
+   - `requireTab`
+2. Added dispatch notification callback support so caller can observe resolved
+   command context.
+3. Declared popup command policy in `background.js` and applied it to all
+   background command registrations that are popup-driven and tab-scoped.
+4. Updated command ledger tab-id resolution to prioritize resolved command
+   context tab id.
+5. Replaced raw command payload ledger logging with redacted/summarized payload
+   logging for debug mode.
+6. Added/updated tests for:
+   - source enforcement
+   - sender-tab policy resolution
+   - background hardening invariants
+   - updated source-shape boundaries after registration signature changes.
+
+Next exact command:
+
+1. `git switch -c refactor/storage-access-layer`
+2. `rg -n --glob '!.tmp/**' 'chrome\.storage|utils\.storage(Get|Set|Remove)' .`
 
 ## Implementation Notes
 

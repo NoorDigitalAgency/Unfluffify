@@ -98,6 +98,7 @@ import {
 import { createSpinnerOperations } from "./background/spinner-operations.js";
 import {
   MESSAGE_ERROR_CODES,
+  MESSAGE_SOURCES,
   MESSAGE_TARGETS,
   createFailureEnvelope,
   isRequestEnvelope
@@ -183,6 +184,11 @@ const TAB_SCOPED_BACKGROUND_COMMANDS = new Set([
   BACKGROUND_COMMANDS.TAB_RUN_AI,
   BACKGROUND_COMMANDS.POPUP_GET_TAB_VIEW_STATE
 ]);
+const POPUP_TAB_COMMAND_POLICY = Object.freeze({
+  allowedSources: [MESSAGE_SOURCES.POPUP],
+  tabIdPolicy: "message",
+  requireTab: true
+});
 const RENDER_MODE_INSPECTION_START_TIMEOUT_MS = 8000;
 const RENDER_MODE_INSPECTION_LOAD_TIMEOUT_MS = 15000;
 const UPDATE_SCRAPING_CONDITIONS_MUTATION = `
@@ -929,7 +935,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_BOOTSTRAP_CONTENT, async (cont
     ...result,
     runtime: getTabRuntimeSnapshot(context.tabId)
   };
-});
+}, POPUP_TAB_COMMAND_POLICY);
 
 registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_CONTENT_REQUEST, async (context, payload) => {
   const normalizedTabId = normalizeBrokerTabId(context.tabId);
@@ -971,7 +977,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_CONTENT_REQUEST, async (contex
     response,
     runtime: getTabRuntimeSnapshot(normalizedTabId)
   };
-});
+}, POPUP_TAB_COMMAND_POLICY);
 
 registerBackgroundCommand(BACKGROUND_COMMANDS.POPUP_GET_TAB_VIEW_STATE, async (context) => {
   appendWorldTraceEvent(context.tabId, "broker", "snapshot-requested", {
@@ -982,7 +988,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.POPUP_GET_TAB_VIEW_STATE, async (c
     state: buildBrokerState(context.tabId),
     runtime: getTabRuntimeSnapshot(context.tabId)
   };
-});
+}, POPUP_TAB_COMMAND_POLICY);
 
 registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_ACTIVATE_MARKING, async (context, payload) => {
   const normalizedTabId = normalizeBrokerTabId(context.tabId);
@@ -1160,7 +1166,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_ACTIVATE_MARKING, async (conte
       };
     }
   );
-});
+}, POPUP_TAB_COMMAND_POLICY);
 
 registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_DEACTIVATE_MARKING, async (context, payload) => {
   const normalizedTabId = normalizeBrokerTabId(context.tabId);
@@ -1256,7 +1262,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_DEACTIVATE_MARKING, async (con
       };
     }
   );
-});
+}, POPUP_TAB_COMMAND_POLICY);
 
 registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_APPLY_POST_SAVE_TRANSITION, async (context, payload) => {
   const normalizedTabId = normalizeBrokerTabId(context.tabId);
@@ -1313,7 +1319,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_APPLY_POST_SAVE_TRANSITION, as
     runtime: getTabRuntimeSnapshot(normalizedTabId),
     state: await utils.getTabState(normalizedTabId)
   };
-});
+}, POPUP_TAB_COMMAND_POLICY);
 
 registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_APPLY_LOCAL_DISCARD, async (context, payload) => {
   const normalizedTabId = normalizeBrokerTabId(context.tabId);
@@ -1348,7 +1354,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_APPLY_LOCAL_DISCARD, async (co
     contentAcknowledged: Boolean(response && response.ok),
     runtime: getTabRuntimeSnapshot(normalizedTabId)
   };
-});
+}, POPUP_TAB_COMMAND_POLICY);
 
 registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_SHOW_AI_PREVIEW, async (context, payload) => {
   const normalizedTabId = normalizeBrokerTabId(context.tabId);
@@ -1387,7 +1393,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_SHOW_AI_PREVIEW, async (contex
     previewState: response,
     runtime: getTabRuntimeSnapshot(normalizedTabId)
   };
-});
+}, POPUP_TAB_COMMAND_POLICY);
 
 registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_CLOSE_AI_PREVIEW, async (context) => {
   const normalizedTabId = normalizeBrokerTabId(context.tabId);
@@ -1413,7 +1419,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_CLOSE_AI_PREVIEW, async (conte
     previewState: response,
     runtime: getTabRuntimeSnapshot(normalizedTabId)
   };
-});
+}, POPUP_TAB_COMMAND_POLICY);
 
 registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_SET_AI_PREVIEW_EXPANDED_MODE, async (context, payload) => {
   const normalizedTabId = normalizeBrokerTabId(context.tabId);
@@ -1442,7 +1448,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_SET_AI_PREVIEW_EXPANDED_MODE, 
     previewState: response,
     runtime: getTabRuntimeSnapshot(normalizedTabId)
   };
-});
+}, POPUP_TAB_COMMAND_POLICY);
 
 registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_FOCUS_PREVIEW_ELEMENT, async (context, payload) => {
   const normalizedTabId = normalizeBrokerTabId(context.tabId);
@@ -1479,7 +1485,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_FOCUS_PREVIEW_ELEMENT, async (
     tabId: normalizedTabId,
     runtime: getTabRuntimeSnapshot(normalizedTabId)
   };
-});
+}, POPUP_TAB_COMMAND_POLICY);
 
 registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_BEGIN_RENDER_MODE_INSPECTION, async (context, payload) => {
   const normalizedTabId = normalizeBrokerTabId(context.tabId);
@@ -1504,7 +1510,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_BEGIN_RENDER_MODE_INSPECTION, 
     operationId,
     runtime: getTabRuntimeSnapshot(normalizedTabId)
   };
-});
+}, POPUP_TAB_COMMAND_POLICY);
 
 registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_REVEAL_FREEZE, async (context, payload) => {
   const normalizedTabId = normalizeBrokerTabId(context.tabId);
@@ -1537,7 +1543,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_REVEAL_FREEZE, async (cont
     operationId,
     pageUrl: revealResult.pageUrl || ""
   };
-});
+}, POPUP_TAB_COMMAND_POLICY);
 
 registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_CAPTURE_RENDER_MODE_HTML, async (context, payload) => {
   const normalizedTabId = normalizeBrokerTabId(context.tabId);
@@ -1567,7 +1573,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_CAPTURE_RENDER_MODE_HTML, asyn
     renderMode: captureResult.renderMode || "",
     hiddenCount: Number(captureResult.hiddenCount || 0)
   };
-});
+}, POPUP_TAB_COMMAND_POLICY);
 
 registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_END_RENDER_MODE_INSPECTION, async (context, payload) => {
   const normalizedTabId = normalizeBrokerTabId(context.tabId);
@@ -1598,7 +1604,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_END_RENDER_MODE_INSPECTION, as
     runtime: getTabRuntimeSnapshot(normalizedTabId),
     state: tabState
   };
-});
+}, POPUP_TAB_COMMAND_POLICY);
 
 registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, async (context, payload) => {
   const normalizedTabId = normalizeBrokerTabId(context.tabId);
@@ -1747,7 +1753,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
       }
     }
   );
-});
+}, POPUP_TAB_COMMAND_POLICY);
 
 registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_AI, async (context, payload) => {
   const normalizedTabId = normalizeBrokerTabId(context.tabId);
@@ -1810,7 +1816,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_AI, async (context, payloa
       };
     }
   );
-});
+}, POPUP_TAB_COMMAND_POLICY);
 
 function maybeGetCommandPayloadForLedger(message) {
   if (!isDebugFlagEnabled("fullWorldMessagingLogging")) {
@@ -1819,14 +1825,89 @@ function maybeGetCommandPayloadForLedger(message) {
   if (!message || !message.payload || typeof message.payload !== "object") {
     return undefined;
   }
-  return message.payload;
+  return redactCommandPayloadForLedger(message.payload);
 }
 
-function recordBackgroundCommandLedger(message, sender, reply, startedAt) {
+const LEDGER_SENSITIVE_KEY_PATTERN = /(token|password|secret|authorization|cookie|jwt|api[_-]?key|bearer|credential)/i;
+const LEDGER_BODY_KEY_PATTERN = /(html|body|payload|content|config|raw|rendered)/i;
+const LEDGER_MAX_STRING_LENGTH = 160;
+const LEDGER_MAX_ARRAY_PREVIEW = 5;
+const LEDGER_MAX_OBJECT_KEYS = 20;
+
+function looksLikeJwtToken(value) {
+  if (typeof value !== "string" || !value) {
+    return false;
+  }
+  return /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(value);
+}
+
+function summarizeLargeString(value) {
+  const normalized = typeof value === "string" ? value : "";
+  if (normalized.length <= LEDGER_MAX_STRING_LENGTH) {
+    return normalized;
+  }
+  return `[truncated:${normalized.length}] ${normalized.slice(0, LEDGER_MAX_STRING_LENGTH)}`;
+}
+
+function redactCommandPayloadValueForLedger(key, value, depth = 0) {
+  const normalizedKey = typeof key === "string" ? key : "";
+  if (LEDGER_SENSITIVE_KEY_PATTERN.test(normalizedKey)) {
+    return "[redacted]";
+  }
+  if (normalizedKey === "payloadKey") {
+    return "[redacted:payload-key]";
+  }
+  if (typeof value === "string") {
+    if (looksLikeJwtToken(value)) {
+      return "[redacted:jwt]";
+    }
+    if (LEDGER_BODY_KEY_PATTERN.test(normalizedKey) && value.length > 64) {
+      return `[redacted:${normalizedKey}:${value.length}]`;
+    }
+    return summarizeLargeString(value);
+  }
+  if (typeof value === "number" || typeof value === "boolean" || value === null) {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    if (depth >= 1) {
+      return `[array:${value.length}]`;
+    }
+    return {
+      summary: `[array:${value.length}]`,
+      preview: value.slice(0, LEDGER_MAX_ARRAY_PREVIEW).map((entry) => redactCommandPayloadValueForLedger(normalizedKey, entry, depth + 1))
+    };
+  }
+  if (!value || typeof value !== "object") {
+    return `[${typeof value}]`;
+  }
+  if (depth >= 1) {
+    return `[object:${Object.keys(value).length}]`;
+  }
+  return redactCommandPayloadForLedger(value, depth + 1);
+}
+
+function redactCommandPayloadForLedger(payload, depth = 0) {
+  if (!payload || typeof payload !== "object") {
+    return undefined;
+  }
+  const entries = Object.entries(payload).slice(0, LEDGER_MAX_OBJECT_KEYS);
+  const redacted = {};
+  for (const [key, value] of entries) {
+    redacted[key] = redactCommandPayloadValueForLedger(key, value, depth);
+  }
+  const totalKeys = Object.keys(payload).length;
+  if (totalKeys > entries.length) {
+    redacted.__truncatedKeys = totalKeys - entries.length;
+  }
+  return redacted;
+}
+
+function recordBackgroundCommandLedger(message, sender, reply, startedAt, resolvedContextTabId = null) {
   if (!message || typeof message !== "object") {
     return;
   }
-  const tabId = getMessageTabId(message, sender);
+  const tabId = normalizeBrokerTabId(resolvedContextTabId) || getMessageTabId(message, sender);
   if (!tabId) {
     return;
   }
@@ -1849,14 +1930,20 @@ function handleBackgroundCommandEnvelope(message, sender, sendResponse) {
   }
   const startedAt = Date.now();
   const expectsReply = message.expectsReply !== false;
+  let resolvedContextTabId = null;
   const dispatch = dispatchBackgroundCommand(message, sender, {
-    requireTabForTypes: TAB_SCOPED_BACKGROUND_COMMANDS
+    requireTabForTypes: TAB_SCOPED_BACKGROUND_COMMANDS,
+    onDispatched(context) {
+      if (context && Number.isFinite(context.tabId)) {
+        resolvedContextTabId = context.tabId;
+      }
+    }
   });
 
   if (!expectsReply) {
     dispatch
       .then((reply) => {
-        recordBackgroundCommandLedger(message, sender, reply, startedAt);
+        recordBackgroundCommandLedger(message, sender, reply, startedAt, resolvedContextTabId);
         sendResponse(undefined);
       })
       .catch((error) => {
@@ -1865,7 +1952,7 @@ function handleBackgroundCommandEnvelope(message, sender, sendResponse) {
           MESSAGE_ERROR_CODES.HANDLER_FAILED,
           (error && error.message) || "Background command failed"
         );
-        recordBackgroundCommandLedger(message, sender, reply, startedAt);
+        recordBackgroundCommandLedger(message, sender, reply, startedAt, resolvedContextTabId);
         sendResponse(undefined);
       });
     return true;
@@ -1873,7 +1960,7 @@ function handleBackgroundCommandEnvelope(message, sender, sendResponse) {
 
   dispatch
     .then((reply) => {
-      recordBackgroundCommandLedger(message, sender, reply, startedAt);
+      recordBackgroundCommandLedger(message, sender, reply, startedAt, resolvedContextTabId);
       sendResponse(reply);
     })
     .catch((error) => {
@@ -1882,7 +1969,7 @@ function handleBackgroundCommandEnvelope(message, sender, sendResponse) {
         MESSAGE_ERROR_CODES.HANDLER_FAILED,
         (error && error.message) || "Background command failed"
       );
-      recordBackgroundCommandLedger(message, sender, reply, startedAt);
+      recordBackgroundCommandLedger(message, sender, reply, startedAt, resolvedContextTabId);
       sendResponse(reply);
     });
   return true;

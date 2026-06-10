@@ -26,7 +26,7 @@ test("background registers TAB_ACTIVATE_MARKING as tab-scoped spinner command", 
 test("background TAB_ACTIVATE_MARKING routes content activation by requested tab id", () => {
   const source = readFileSync(new URL("../background.js", import.meta.url), "utf8");
   const commandBody = source.match(
-    /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_ACTIVATE_MARKING, async \(context, payload\) => \{([\s\S]*?)\n\}\);\n\nregisterBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_DEACTIVATE_MARKING/
+    /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_ACTIVATE_MARKING, async \(context, payload\) => \{([\s\S]*?)\n\}, POPUP_TAB_COMMAND_POLICY\);\n\nregisterBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_DEACTIVATE_MARKING/
   )[1];
 
   assert.match(commandBody, /ensureContentMainForTab\(normalizedTabId\)/);
@@ -37,7 +37,7 @@ test("background TAB_ACTIVATE_MARKING routes content activation by requested tab
 test("background TAB_ACTIVATE_MARKING clears state and reports lock details on content failure", () => {
   const source = readFileSync(new URL("../background.js", import.meta.url), "utf8");
   const commandBody = source.match(
-    /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_ACTIVATE_MARKING, async \(context, payload\) => \{([\s\S]*?)\n\}\);\n\nregisterBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_DEACTIVATE_MARKING/
+    /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_ACTIVATE_MARKING, async \(context, payload\) => \{([\s\S]*?)\n\}, POPUP_TAB_COMMAND_POLICY\);\n\nregisterBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_DEACTIVATE_MARKING/
   )[1];
 
   assert.match(commandBody, /await utils\.setTabState\(normalizedTabId, \{[\s\S]*?enabled: false/);
@@ -68,7 +68,7 @@ test("background registers TAB_DEACTIVATE_MARKING as tab-scoped spinner command"
 test("background TAB_DEACTIVATE_MARKING routes content disable and tab state update", () => {
   const source = readFileSync(new URL("../background.js", import.meta.url), "utf8");
   const commandBody = source.match(
-    /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_DEACTIVATE_MARKING, async \(context, payload\) => \{([\s\S]*?)\n\}\);\n\nregisterBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_APPLY_POST_SAVE_TRANSITION/
+    /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_DEACTIVATE_MARKING, async \(context, payload\) => \{([\s\S]*?)\n\}, POPUP_TAB_COMMAND_POLICY\);\n\nregisterBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_APPLY_POST_SAVE_TRANSITION/
   )[1];
 
   assert.match(commandBody, /await utils\.setTabState\(normalizedTabId, \{[\s\S]*?enabled: false/);

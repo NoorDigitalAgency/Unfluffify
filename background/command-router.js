@@ -7,6 +7,89 @@ import {
 } from "../common/message-protocol.js";
 
 const backgroundCommandHandlers = new Map();
+const TAB_ID_POLICIES = new Set([
+  "message-or-sender",
+  "message",
+  "sender"
+]);
+
+function isNonEmptyString(value) {
+  return typeof value === "string" && Boolean(value);
+}
+
+function normalizeMessageSource(message) {
+  return isNonEmptyString(message && message.source)
+    ? message.source
+    : "";
+}
+
+function resolveSourceFromSender(sender) {
+  if (Number.isFinite(sender && sender.tab && sender.tab.id)) {
+    return "content";
+  }
+
+  const senderUrl = isNonEmptyString(sender && sender.url)
+    ? sender.url
+    : "";
+  if (!senderUrl) {
+    return "";
+  }
+
+  if (/\/popup\.html(?:[?#]|$)/.test(senderUrl)) {
+    return "popup";
+  }
+
+  if (/^chrome-extension:\/\//.test(senderUrl)) {
+    return "popup";
+  }
+
+  return "";
+}
+
+function resolveTrustedSource(message, sender, options = {}) {
+  if (options && typeof options.resolveTrustedSource === "function") {
+    const resolved = options.resolveTrustedSource(message, sender);
+    if (isNonEmptyString(resolved)) {
+      return resolved;
+    }
+  }
+  const trustedFromSender = resolveSourceFromSender(sender);
+  if (trustedFromSender) {
+    return trustedFromSender;
+  }
+  return normalizeMessageSource(message);
+}
+
+function normalizeAllowedSources(value) {
+  if (!value) {
+    return null;
+  }
+  const input = value instanceof Set
+    ? [...value]
+    : Array.isArray(value)
+      ? value
+      : [value];
+  const allowedSources = new Set();
+  for (const candidate of input) {
+    if (isNonEmptyString(candidate)) {
+      allowedSources.add(candidate);
+    }
+  }
+  return allowedSources.size ? allowedSources : null;
+}
+
+function normalizeRegistrationOptions(options = {}) {
+  const allowedSources = normalizeAllowedSources(options.allowedSources);
+  const tabIdPolicy = TAB_ID_POLICIES.has(options.tabIdPolicy)
+    ? options.tabIdPolicy
+    : "message-or-sender";
+  const requireTab = options.requireTab === true;
+  return {
+    allowedSources,
+    tabIdPolicy,
+    requireTab
+  };
+}
 
 function getHandlerErrorMessage(error) {
   if (!error) {
@@ -31,11 +114,14 @@ function normalizeFrameId(message, sender) {
   return 0;
 }
 
-function normalizeTabId(message, sender) {
-  const candidates = [
-    message && message.tabId,
-    sender && sender.tab && sender.tab.id
-  ];
+function normalizeTabId(message, sender, tabIdPolicy = "message-or-sender") {
+  const candidates = [];
+  if (tabIdPolicy === "message" || tabIdPolicy === "message-or-sender") {
+    candidates.push(message && message.tabId);
+  }
+  if (tabIdPolicy === "sender" || tabIdPolicy === "message-or-sender") {
+    candidates.push(sender && sender.tab && sender.tab.id);
+  }
   for (const candidate of candidates) {
     const numeric = Number(candidate);
     if (Number.isFinite(numeric)) {
@@ -55,16 +141,24 @@ export function registerBackgroundCommand(type, handler) {
   if (typeof handler !== "function") {
     throw new TypeError("registerBackgroundCommand requires a handler function");
   }
-  backgroundCommandHandlers.set(type, handler);
+  const options = arguments.length >= 3 ? arguments[2] : {};
+  backgroundCommandHandlers.set(type, {
+    handler,
+    options: normalizeRegistrationOptions(options)
+  });
 }
 
-export function createCommandContext(message, sender) {
-  const tabId = normalizeTabId(message, sender);
+export function createCommandContext(message, sender, options = {}) {
+  const tabId = normalizeTabId(message, sender, options.tabIdPolicy);
   const frameId = normalizeFrameId(message, sender);
   const requestId = typeof message.id === "string" ? message.id : "";
+  const source = isNonEmptyString(options.source)
+    ? options.source
+    : normalizeMessageSource(message);
   return {
     message,
     sender,
+    source,
     tabId,
     frameId,
     requestId,
@@ -82,49 +176,86 @@ export function createCommandContext(message, sender) {
   };
 }
 
+function notifyDispatched(options, context, reply) {
+  if (options && typeof options.onDispatched === "function") {
+    try {
+      options.onDispatched(context, reply);
+    } catch {
+      // Notification callback errors must never alter command routing.
+    }
+  }
+  return reply;
+}
+
 export async function dispatchBackgroundCommand(message, sender, options = {}) {
   if (!isRequestEnvelope(message)) {
-    return createFailureEnvelope(
+    return notifyDispatched(options, null, createFailureEnvelope(
       message,
       MESSAGE_ERROR_CODES.INVALID_MESSAGE,
       "Invalid command envelope"
-    );
+    ));
   }
-
-  const context = createCommandContext(message, sender);
   const requireTabForTypes = options.requireTabForTypes instanceof Set
     ? options.requireTabForTypes
     : new Set();
 
-  if (requireTabForTypes.has(message.type) && !context.tabId) {
-    return context.replyFail(
+  const registration = backgroundCommandHandlers.get(message.type);
+  const handler = registration && typeof registration.handler === "function"
+    ? registration.handler
+    : typeof registration === "function"
+      ? registration
+      : null;
+  const commandOptions = registration && registration.options && typeof registration.options === "object"
+    ? registration.options
+    : normalizeRegistrationOptions();
+  const trustedSource = resolveTrustedSource(message, sender, options);
+
+  const context = createCommandContext(message, sender, {
+    tabIdPolicy: commandOptions.tabIdPolicy,
+    source: trustedSource
+  });
+
+  if (commandOptions.allowedSources && !commandOptions.allowedSources.has(context.source)) {
+    return notifyDispatched(options, context, context.replyFail(
+      MESSAGE_ERROR_CODES.INVALID_MESSAGE,
+      "Disallowed source for background command",
+      {
+        type: message.type,
+        source: context.source,
+        requestedSource: normalizeMessageSource(message)
+      }
+    ));
+  }
+
+  const requiresTab = commandOptions.requireTab || requireTabForTypes.has(message.type);
+  if (requiresTab && !context.tabId) {
+    return notifyDispatched(options, context, context.replyFail(
       MESSAGE_ERROR_CODES.INVALID_TAB,
       "Missing tab for tab-scoped command",
       { type: message.type }
-    );
+    ));
   }
 
-  const handler = backgroundCommandHandlers.get(message.type);
   if (!handler) {
-    return context.replyFail(
+    return notifyDispatched(options, context, context.replyFail(
       MESSAGE_ERROR_CODES.HANDLER_NOT_FOUND,
       `No background handler registered for ${message.type}`
-    );
+    ));
   }
 
   try {
     const result = await handler(context, message.payload || {});
     if (isReplyEnvelope(result)) {
-      return result;
+      return notifyDispatched(options, context, result);
     }
-    return context.replyOk(result && typeof result === "object" ? result : {});
+    return notifyDispatched(options, context, context.replyOk(result && typeof result === "object" ? result : {}));
   } catch (error) {
     const errorCode = typeof error.code === "string" && error.code
       ? error.code
       : MESSAGE_ERROR_CODES.HANDLER_FAILED;
-    return context.replyFail(errorCode, getHandlerErrorMessage(error), {
+    return notifyDispatched(options, context, context.replyFail(errorCode, getHandlerErrorMessage(error), {
       type: message.type
-    });
+    }));
   }
 }
 

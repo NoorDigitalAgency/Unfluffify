@@ -55,6 +55,111 @@ test("missing tab id for tab-scoped command fails with invalid_tab", async () =>
   assert.equal(reply.code, "invalid_tab");
 });
 
+test("command registration can enforce allowed sources", async () => {
+  registerBackgroundCommand(
+    "POPUP_ONLY",
+    async () => ({ ok: true }),
+    {
+      allowedSources: ["popup"]
+    }
+  );
+
+  const reply = await dispatchBackgroundCommand(
+    createEnvelope({
+      type: "POPUP_ONLY",
+      source: "content"
+    }),
+    {},
+    { requireTabForTypes: new Set() }
+  );
+
+  assert.equal(reply.ok, false);
+  assert.equal(reply.code, "invalid_message");
+});
+
+test("content commands can resolve tab id from sender instead of message", async () => {
+  registerBackgroundCommand(
+    "CONTENT_SENDER_TAB",
+    async (context) => ({ resolvedTabId: context.tabId }),
+    {
+      allowedSources: ["content"],
+      tabIdPolicy: "sender",
+      requireTab: true
+    }
+  );
+
+  const reply = await dispatchBackgroundCommand(
+    createEnvelope({
+      type: "CONTENT_SENDER_TAB",
+      source: "content",
+      tabId: 9991
+    }),
+    {
+      tab: { id: 6207 }
+    },
+    { requireTabForTypes: new Set() }
+  );
+
+  assert.equal(reply.ok, true);
+  assert.equal(reply.result.resolvedTabId, 6207);
+});
+
+test("popup-only command rejects content sender spoofing popup source", async () => {
+  registerBackgroundCommand(
+    "POPUP_ONLY_STRICT",
+    async (context) => ({ resolvedTabId: context.tabId }),
+    {
+      allowedSources: ["popup"],
+      tabIdPolicy: "message",
+      requireTab: true
+    }
+  );
+
+  const reply = await dispatchBackgroundCommand(
+    createEnvelope({
+      type: "POPUP_ONLY_STRICT",
+      source: "popup",
+      tabId: 4401
+    }),
+    {
+      tab: { id: 2202 },
+      url: "https://example.com/path"
+    },
+    { requireTabForTypes: new Set() }
+  );
+
+  assert.equal(reply.ok, false);
+  assert.equal(reply.code, "invalid_message");
+});
+
+test("popup-only command accepts popup sender metadata", async () => {
+  registerBackgroundCommand(
+    "POPUP_ONLY_ACCEPTED",
+    async (context) => ({ resolvedTabId: context.tabId, source: context.source }),
+    {
+      allowedSources: ["popup"],
+      tabIdPolicy: "message",
+      requireTab: true
+    }
+  );
+
+  const reply = await dispatchBackgroundCommand(
+    createEnvelope({
+      type: "POPUP_ONLY_ACCEPTED",
+      source: "popup",
+      tabId: 8801
+    }),
+    {
+      url: "chrome-extension://test-id/popup.html"
+    },
+    { requireTabForTypes: new Set() }
+  );
+
+  assert.equal(reply.ok, true);
+  assert.equal(reply.result.resolvedTabId, 8801);
+  assert.equal(reply.result.source, "popup");
+});
+
 test("same URL tabs keep separate runtimes", () => {
   const runtimeOne = updateTabRuntime(11, {
     contentReady: true,
