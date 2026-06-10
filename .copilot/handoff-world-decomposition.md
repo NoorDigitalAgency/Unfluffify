@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-10
 Branch at document creation: main
-Implementation status: IN_PROGRESS (Track A Phase 5 complete)
+Implementation status: IN_PROGRESS (Track A Phase 6 complete)
 Document commit scope: plan + handoff authoring only
 
 ## Read This First
@@ -56,7 +56,7 @@ Status values: TODO / IN_PROGRESS / DONE / BLOCKED.
 4. Phase 3 - network-core module: DONE.
 5. Phase 4 - remote-network module: DONE.
 6. Phase 5 - remote-config-sync module: DONE.
-7. Phase 6 - world-trace module: TODO.
+7. Phase 6 - world-trace module: DONE.
 8. Phase 7 - popup-state-broker module (HIGH RISK): TODO.
 9. Phase 8 - render-mode-inspector module: TODO.
 10. Phase 9 - ai-run-orchestrator module (HIGHEST RISK): TODO.
@@ -193,12 +193,19 @@ Phase 5 - remote-config-sync module:
    Focused: node --test tests/background-remote-config-sync.test.js tests/background-decomposition-boundary.test.js tests/popup-marking-refresh.test.js tests/property-lock.test.js tests/ai-run.test.js -> 95 pass / 0 fail
    Full:    npm test -> 780 pass / 0 fail
    Live:    skipped by current requirement scope (not required for non-marking slices)
+   Commit:  206d349 refactor(background): extract remote config sync
+
+Phase 6 - world-trace module:
+   Files:   background/world-trace.js; background.js; tests/world-trace.test.js; tests/world-trace-contract.test.js; tests/background-decomposition-boundary.test.js; tests/feature-flags.test.js
+   Focused: node --test tests/feature-flags.test.js tests/world-trace.test.js tests/world-trace-contract.test.js tests/background-decomposition-boundary.test.js -> 23 pass / 0 fail
+   Full:    npm test -> 783 pass / 0 fail
+   Live:    skipped by current requirement scope (not required for non-marking slices)
    Commit:  pending
 ```
 
 ## Next Action
 
-Commit and push Track A Phase 5 with:
-`refactor(background): extract remote config sync`, then proceed to Track A
-Phase 6 (world-trace extraction). Do not start Track B until Track A is
+Commit and push Track A Phase 6 with:
+`refactor(background): extract world trace store`, then proceed to Track A
+Phase 7 (popup-state-broker extraction). Do not start Track B until Track A is
 complete and merged; do not start Track C until Track B is complete and merged.

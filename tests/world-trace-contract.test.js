@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 
 const contractSource = readFileSync(new URL("../common/world-messaging-contract.js", import.meta.url), "utf8");
 const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
+const worldTraceSource = readFileSync(new URL("../background/world-trace.js", import.meta.url), "utf8");
 const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
 const popupUiSource = readFileSync(new URL("../popup/ui.js", import.meta.url), "utf8");
 const popupMessagesSource = readFileSync(new URL("../popup/messages.js", import.meta.url), "utf8");
@@ -17,16 +18,22 @@ test("world messaging contract no longer exposes runtime trace toggle message ty
 
 test("background keeps trace enablement fixed from feature and debug flags", () => {
   assert.match(backgroundSource, /const tabWorldTraceStateByTabId = new Map\(\);/);
-  assert.match(backgroundSource, /function isWorldTraceEnabled\(\) \{\s*return isFeatureEnabled\("traceDiagnostics"\) && isDebugFlagEnabled\("worldTraceEnabled"\);\s*\}/);
+  assert.match(backgroundSource, /from "\.\/background\/world-trace\.js"/);
+  assert.match(backgroundSource, /const worldTrace = createWorldTrace\(\{/);
+  assert.match(backgroundSource, /const isWorldTraceEnabled = worldTrace\.isWorldTraceEnabled;/);
+  assert.doesNotMatch(backgroundSource, /function isWorldTraceEnabled\(\) \{/);
+  assert.match(worldTraceSource, /export const WORLD_TRACE_EVENT_LIMIT = 160;/);
+  assert.match(worldTraceSource, /export function createWorldTrace\(options = \{\}\) \{/);
+  assert.match(worldTraceSource, /return isFeatureEnabled\("traceDiagnostics"\) && isDebugFlagEnabled\("worldTraceEnabled"\);/);
   assert.match(backgroundSource, /traceEnabled: isWorldTraceEnabled\(\),/);
   assert.match(backgroundSource, /registerBackgroundCommand\(BACKGROUND_COMMANDS\.POPUP_GET_TAB_VIEW_STATE, async \(context\) => \{/);
   assert.doesNotMatch(backgroundSource, /function setWorldTraceEnabled\(tabId, enabled\) \{/);
   assert.doesNotMatch(backgroundSource, /WORLD_MESSAGE_TYPES\.TRACE_SET/);
   assert.doesNotMatch(backgroundSource, /WORLD_MESSAGE_TYPES\.CONTENT_TRACE_SET/);
   assert.match(backgroundSource, /snapshot-requested/);
-  assert.match(backgroundSource, /reason: typeof payload\.reason === "string" \? payload\.reason : ""/);
-  assert.match(backgroundSource, /source: typeof payload\.source === "string" \? payload\.source : ""/);
-  assert.match(backgroundSource, /key: typeof payload\.key === "string" \? payload\.key : ""/);
+  assert.match(worldTraceSource, /reason: typeof payload\.reason === "string" \? payload\.reason : ""/);
+  assert.match(worldTraceSource, /source: typeof payload\.source === "string" \? payload\.source : ""/);
+  assert.match(worldTraceSource, /key: typeof payload\.key === "string" \? payload\.key : ""/);
   assert.match(backgroundSource, /traceEvents: traceState && Array\.isArray\(traceState\.events\) \? \[\.\.\.traceState\.events\] : \[\]/);
 });
 

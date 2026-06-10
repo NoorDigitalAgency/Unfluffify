@@ -31,6 +31,7 @@ test("background decomposition guard: baseline background modules are imported",
   assertImportsBackgroundModule("network-core");
   assertImportsBackgroundModule("remote-network");
   assertImportsBackgroundModule("remote-config-sync");
+  assertImportsBackgroundModule("world-trace");
   assertImportsBackgroundModule("tab-runtime");
   assertImportsBackgroundModule("tab-session-store");
   assertImportsBackgroundModule("spinner-operations");
@@ -69,4 +70,7 @@ test("background decomposition guard: baseline background modules are imported",
   assertBackgroundDoesNotDefine("replaceServerConfigIntoLocalSnapshot");
   assertBackgroundDoesNotDefine("mergeServerConfigIntoLocalSnapshot");
   assertBackgroundDoesNotDefine("preparePageTypeAssignmentsSnapshot");
+  assertBackgroundDoesNotDefine("ensureTraceState");
+  assertBackgroundDoesNotDefine("isWorldTraceEnabled");
+  assertBackgroundDoesNotDefine("appendWorldTraceEvent");
 });

@@ -134,6 +134,10 @@ import {
   replaceServerConfigIntoLocalSnapshot
 } from "./background/remote-config-sync.js";
 import {
+  createWorldTrace,
+  WORLD_TRACE_EVENT_LIMIT
+} from "./background/world-trace.js";
+import {
   clearTrackedTabSessionState as clearStoredTrackedTabSessionState,
   clearTabStateScope,
   getTabState as getStoredTabState,
@@ -183,7 +187,16 @@ const popupStatePortsByTabId = new Map();
 const tabWorldTraceStateByTabId = new Map();
 const aiComputeLockExpiresAtByTabId = new Map();
 const pageMotionFreezeControlQueueByTarget = new Map();
-const WORLD_TRACE_EVENT_LIMIT = 160;
+const worldTrace = createWorldTrace({
+  traceStateByTabId: tabWorldTraceStateByTabId,
+  normalizeTabId: normalizeBrokerTabId,
+  isFeatureEnabled,
+  isDebugFlagEnabled,
+  eventLimit: WORLD_TRACE_EVENT_LIMIT
+});
+const ensureTraceState = worldTrace.ensureTraceState;
+const isWorldTraceEnabled = worldTrace.isWorldTraceEnabled;
+const appendWorldTraceEvent = worldTrace.appendWorldTraceEvent;
 const BACKGROUND_COMMANDS = Object.freeze({
   TAB_BOOTSTRAP_CONTENT: "TAB_BOOTSTRAP_CONTENT",
   TAB_CONTENT_REQUEST: "TAB_CONTENT_REQUEST",
@@ -2103,58 +2116,6 @@ async function prepareAiRunPayloadSnapshot(options = {}) {
     };
   } catch {
     return { ok: false };
-  }
-}
-
-function ensureTraceState(tabId) {
-  const normalizedTabId = normalizeBrokerTabId(tabId);
-  if (!normalizedTabId) {
-    return { events: [] };
-  }
-  if (!tabWorldTraceStateByTabId.has(normalizedTabId)) {
-    tabWorldTraceStateByTabId.set(normalizedTabId, {
-      events: []
-    });
-  }
-  return tabWorldTraceStateByTabId.get(normalizedTabId);
-}
-
-function isWorldTraceEnabled() {
-  return isFeatureEnabled("traceDiagnostics") && isDebugFlagEnabled("worldTraceEnabled");
-}
-
-function appendWorldTraceEvent(tabId, channel, event, payload = null) {
-  const normalizedTabId = normalizeBrokerTabId(tabId);
-  if (!normalizedTabId || !isWorldTraceEnabled()) {
-    return;
-  }
-  const traceState = ensureTraceState(normalizedTabId);
-  const traceEvent = {
-    at: Date.now(),
-    channel: typeof channel === "string" ? channel : "broker",
-    event: typeof event === "string" ? event : "event",
-    payload: payload && typeof payload === "object"
-      ? {
-        type: payload.type || "",
-        kind: payload.kind || "",
-        phase: payload.phase || "",
-        operationId: payload.operationId || "",
-        busy: Object.prototype.hasOwnProperty.call(payload, "busy") ? Boolean(payload.busy) : undefined,
-        message: typeof payload.message === "string" ? payload.message : "",
-        reason: typeof payload.reason === "string" ? payload.reason : "",
-        source: typeof payload.source === "string" ? payload.source : "",
-        key: typeof payload.key === "string" ? payload.key : ""
-      }
-      : null
-  };
-  traceState.events.push(traceEvent);
-  if (traceState.events.length > WORLD_TRACE_EVENT_LIMIT) {
-    traceState.events.splice(0, traceState.events.length - WORLD_TRACE_EVENT_LIMIT);
-  }
-  try {
-    console.debug("[world-trace][background]", normalizedTabId, traceEvent.channel, traceEvent.event, traceEvent.payload || {});
-  } catch {
-    // Trace logging must never break runtime behavior.
   }
 }
 

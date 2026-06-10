@@ -16,6 +16,7 @@ import { isPopupFeatureEnabled } from "../popup/ui.js";
 const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
 const popupUiSource = readFileSync(new URL("../popup/ui.js", import.meta.url), "utf8");
 const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
+const worldTraceSource = readFileSync(new URL("../background/world-trace.js", import.meta.url), "utf8");
 const contentMainSource = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
 const emulationSource = readFileSync(new URL("../common/emulation.js", import.meta.url), "utf8");
 
@@ -128,10 +129,8 @@ test("disabled optional state cannot leak through hidden controls", () => {
   assert.match(popupSource, /async function loadTraceModeSetting\(\) \{\s*return isFeatureEnabled\("traceDiagnostics"\) && isDebugFlagEnabled\("worldTraceEnabled"\);\s*\}/);
   assert.match(popupSource, /async function applyTraceModePreferenceToTab\(tabId, enabled\) \{[\s\S]*?if \(!isFeatureEnabled\("traceDiagnostics"\)\) \{[\s\S]*?traceModeEnabled: false[\s\S]*?return null;/);
   assert.match(popupSource, /messages\.requestPopupTabViewState\(tabId\)/);
-  assert.match(
-    backgroundSource,
-    /function isWorldTraceEnabled\(\) \{\s*return isFeatureEnabled\("traceDiagnostics"\) && isDebugFlagEnabled\("worldTraceEnabled"\);\s*\}/
-  );
+  assert.match(backgroundSource, /from "\.\/background\/world-trace\.js"/);
+  assert.match(worldTraceSource, /return isFeatureEnabled\("traceDiagnostics"\) && isDebugFlagEnabled\("worldTraceEnabled"\);/);
   assert.doesNotMatch(backgroundSource, /if \(message\.type === WORLD_MESSAGE_TYPES\.TRACE_SET\) \{/);
 
   assert.match(popupSource, /function resetDisabledAppearanceCustomization\(\) \{[\s\S]*?state\.currentTheme = THEME_DEFAULT;[\s\S]*?state\.currentThemeMode = THEME_MODE_DEFAULT;[\s\S]*?applyPopupTheme\(state\.currentTheme, state\.currentThemeMode\);/);
