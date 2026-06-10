@@ -23,6 +23,11 @@ test("core render path and silent highlighting both honor selector suppression x
 
 test("content-main routes live-page GraphQL lookups through background runtime messages", () => {
   const contentSource = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const fetchPageTypesStart = contentSource.indexOf("async function fetchPropertyPageTypesForSiteId(siteId, stageBaseValue, tokenValue) {");
+  const fetchPageTypesEnd = contentSource.indexOf("async function resolveCurrentLivePageTarget", fetchPageTypesStart);
+  assert.ok(fetchPageTypesStart > -1);
+  assert.ok(fetchPageTypesEnd > fetchPageTypesStart);
+  const fetchPageTypesBlock = contentSource.slice(fetchPageTypesStart, fetchPageTypesEnd);
 
   assert.match(
     contentSource,
@@ -36,6 +41,7 @@ test("content-main routes live-page GraphQL lookups through background runtime m
     contentSource,
     /async function fetchPropertyPageTypesForSiteId\(siteId, stageBaseValue, tokenValue\) \{[\s\S]*?utils\.sendRuntimeMessage\(\{[\s\S]*?type: "fetchLivePagePropertyPageTypes"/
   );
+  assert.doesNotMatch(fetchPageTypesBlock, /utils\.sendRuntimeMessage\(\{[\s\S]*?tokenValue[\s\S]*?\}\);/);
   assert.doesNotMatch(
     contentSource,
     /async function fetchPropertyPageTypesForSiteId\(siteId, stageBaseValue, tokenValue\) \{[\s\S]*?fetch\(/

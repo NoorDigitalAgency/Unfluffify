@@ -2182,11 +2182,11 @@ async function recheckSiteIdForCurrentUrlPath(tabState) {
 }
 
 async function fetchPropertyPageTypesForSiteId(siteId, stageBaseValue, tokenValue) {
+  void tokenValue;
   const response = await utils.sendRuntimeMessage({
     type: "fetchLivePagePropertyPageTypes",
     siteId,
-    stageBase: stageBaseValue,
-    tokenValue
+    stageBase: stageBaseValue
   });
   if (!response || !response.ok) {
     return {

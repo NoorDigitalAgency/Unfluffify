@@ -3,7 +3,7 @@
 Last updated: 2026-06-10
 Branch at document creation: main
 Implementation status: IN_PROGRESS (Phases 0-7 complete, Phase 8 in progress)
-Document commit scope: Phase 8 second-slice handoff refresh
+Document commit scope: Phase 8 non-popup caller slice handoff refresh
 
 ## Read This First
 
@@ -47,8 +47,10 @@ As of this handoff:
    `TAB_RUN_AI`.
 15. Phase 8 second slice is implemented for runtime network handlers in
    `background.js` and popup runtime payload cleanup in `popup.js`.
-16. Next strict implementation step is to continue Phase 8 migration for any
-   remaining credential-bearing runtime message paths in non-popup callers.
+16. Phase 8 non-popup caller slice is implemented for content-side property-page
+   type fetch runtime payload ownership.
+17. Next strict implementation step is to complete any remaining credential-bearing
+   runtime message payload cleanup and then close Phase 8.
 
 ## Review Findings To Fix First
 
@@ -173,6 +175,16 @@ npm test
 Result:
 
 1. 741 tests passed.
+2. 0 failed.
+
+Focused validation executed for Phase 8 non-popup caller slice:
+
+1. `node --test tests/selector-suppression.test.js tests/popup-marking-refresh.test.js tests/ai-run.test.js`
+2. `npm test`
+
+Focused result:
+
+1. 80 passed.
 2. 0 failed.
 
 Focused validation executed for Phase 8 second slice:
