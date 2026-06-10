@@ -424,7 +424,7 @@ test("popup only skips periodic remote loads for the active editor tab and inclu
   const fetchEnd = source.indexOf("async function sendPropertyLockCommand", fetchStart);
   const fetchSource = source.slice(fetchStart, fetchEnd);
   const skipStart = source.indexOf("function shouldSkipRemoteConfigLoadForPropertyEditor");
-  const skipEnd = source.indexOf("async function syncBaseConfigToServer", skipStart);
+  const skipEnd = source.indexOf("function updateLoginActionState", skipStart);
   const skipSource = source.slice(skipStart, skipEnd);
 
   assert.match(fetchSource, /clientId: clientIdHint \|\| ""/);

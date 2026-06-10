@@ -32,6 +32,7 @@ test("popup decomposition guard: baseline popup modules are imported", () => {
   assertImportsPopupModule("helpers");
   assertImportsPopupModule("spinner");
   assertImportsPopupModule("site-resolution");
+  assertImportsPopupModule("remote-config");
   assertImportsPopupModule("ai-run");
   assertImportsPopupModule("render-mode");
   assertImportsPopupModule("state");
@@ -51,4 +52,7 @@ test("popup decomposition guard: baseline popup modules are imported", () => {
   assertPopupDoesNotDefine("resolveSiteIdFromGraphql");
   assertPopupDoesNotDefine("mergeConfigEntriesForResolvedBaseUrl");
   assertPopupDoesNotDefine("ensureBaseUrlSiteId");
+  assertPopupDoesNotDefine("scheduleRemoteConfigRetry");
+  assertPopupDoesNotDefine("loadRemoteConfigForCurrentPage");
+  assertPopupDoesNotDefine("syncBaseConfigToServer");
 });

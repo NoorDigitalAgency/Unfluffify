@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-10
 Branch at document creation: main
-Implementation status: IN_PROGRESS (Track A complete, Track B Phase B2 complete)
+Implementation status: IN_PROGRESS (Track A complete, Track B Phase B3 complete)
 Document commit scope: plan + handoff authoring only
 
 ## Read This First
@@ -69,8 +69,8 @@ Status values: TODO / IN_PROGRESS / DONE / BLOCKED.
 1. Phase B0 - Baseline + popup boundary guard: DONE.
 2. Phase B1 - popup/spinner.js: DONE.
 3. Phase B2 - popup/site-resolution.js: DONE.
-4. Phase B3 - popup/remote-config.js: IN_PROGRESS.
-5. Phase B4 - popup/render-mode-inspection.js: TODO.
+4. Phase B3 - popup/remote-config.js: DONE.
+5. Phase B4 - popup/render-mode-inspection.js: IN_PROGRESS.
 6. Phase B5 - popup/page-reconciliation.js: TODO.
 7. Phase B6 - popup/property-lock-ui.js (HIGH RISK): TODO.
 8. Phase B7 - popup/remote-support-ui.js: TODO.
@@ -263,12 +263,19 @@ Phase B2 - site and page-type resolution extraction:
    Focused: node --test tests/popup-site-resolution.test.js tests/popup-decomposition-boundary.test.js tests/selector-suppression.test.js tests/render-mode-inspection-order.test.js -> 30 pass / 0 fail
    Full:    npm test -> 809 pass / 0 fail
    Live:    skipped by current requirement scope (not required for non-marking slices)
+   Commit:  d0c96a5 refactor(popup): extract site and page-type resolution
+
+Phase B3 - remote config sync extraction:
+   Files:   popup/remote-config.js; popup.js; tests/popup-remote-config.test.js; tests/popup-decomposition-boundary.test.js; tests/popup-marking-refresh.test.js; tests/property-lock.test.js
+   Focused: node --test tests/popup-remote-config.test.js tests/popup-decomposition-boundary.test.js tests/popup-marking-refresh.test.js tests/property-lock.test.js tests/popup-ai-run-gating.test.js -> 98 pass / 0 fail
+   Full:    npm test -> 815 pass / 0 fail
+   Live:    skipped by current requirement scope (not required for non-marking slices)
    Commit:  pending
 ```
 
 ## Next Action
 
-Commit and push Track B Phase B2 with:
-`refactor(popup): extract site and page-type resolution`, then proceed to Track
-B Phase B3 (`popup/remote-config.js`). Do not start Track C until Track B is
+Commit and push Track B Phase B3 with:
+`refactor(popup): extract remote config sync`, then proceed to Track B Phase B4
+(`popup/render-mode-inspection.js`). Do not start Track C until Track B is
 complete and merged.

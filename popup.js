@@ -110,6 +110,11 @@ import {
   resolveSiteIdFromGraphql as resolveSiteIdFromGraphqlOperation
 } from "./popup/site-resolution.js";
 import {
+  loadRemoteConfigForCurrentPage as loadRemoteConfigForCurrentPageOperation,
+  scheduleRemoteConfigRetry as scheduleRemoteConfigRetryOperation,
+  syncBaseConfigToServer as syncBaseConfigToServerOperation
+} from "./popup/remote-config.js";
+import {
   refineXPathEntries
 } from "./common/xpath-utilities.js";
 import {
@@ -944,6 +949,40 @@ const mergeConfigEntriesForResolvedBaseUrl = (resolvedBaseUrl, preferredEntry, e
   );
 const ensureBaseUrlSiteId = (options = {}) =>
   ensureBaseUrlSiteIdOperation(getSiteResolutionDeps(), options);
+
+function getRemoteConfigDeps() {
+  return {
+    PopupText,
+    remoteConfigRetryDelayMs: REMOTE_CONFIG_RETRY_DELAY_MS,
+    windowRef: window,
+    ensureActiveTab: () => helpers.ensureActiveTab(),
+    refreshUi: (options) => refreshUi(options),
+    resolveRelativeEndpoint,
+    updateLastConfigLoadStatus,
+    invalidateTokenAndLockConfiguration,
+    showToast: (message) => {
+      uiModule.showToast(message);
+    },
+    ensureBaseUrlSiteId: (options) => ensureBaseUrlSiteId(options),
+    getStoredGlobalToken: (options) => getStoredGlobalToken(options),
+    ensurePropertyPageTypes: (options) => ensurePropertyPageTypes(options),
+    collectStoredPageMarkingItems,
+    buildLynxChecklistViewModel,
+    buildPageMarkingKey,
+    buildTransferPayloadKey,
+    putTransferPayload,
+    waitForRetryDelay,
+    isRetryableHttpStatus,
+    pruneRemoteInvalidPageMarkings
+  };
+}
+
+const scheduleRemoteConfigRetry = () =>
+  scheduleRemoteConfigRetryOperation(getRemoteConfigDeps());
+const loadRemoteConfigForCurrentPage = (options = {}) =>
+  loadRemoteConfigForCurrentPageOperation(getRemoteConfigDeps(), options);
+const syncBaseConfigToServer = (options = {}) =>
+  syncBaseConfigToServerOperation(getRemoteConfigDeps(), options);
 
 function buildSpinnerBusyDetails(key, entry) {
   const spinnerEntry = entry && typeof entry === "object" ? entry : {};
@@ -2805,17 +2844,6 @@ function setPreviewBlocked(active, message = ViewText.previewBlockedDefault) {
   uiModule.setPreviewBlocked(active, message);
 }
 
-function scheduleRemoteConfigRetry() {
-  if (state.remoteConfigConnectionRetryTimer) {
-    return;
-  }
-  state.remoteConfigConnectionRetryTimer = window.setTimeout(async () => {
-    state.remoteConfigConnectionRetryTimer = 0;
-    await helpers.ensureActiveTab();
-    await refreshUi();
-  }, REMOTE_CONFIG_RETRY_DELAY_MS);
-}
-
 function normalizeRenderModeDetectionResult(payload) {
   if (!payload || typeof payload !== "object") {
     return { result: "", accuracy: Number.NaN };
@@ -2893,107 +2921,6 @@ async function detectRenderModeViaEndpoint(options = {}) {
   return { ok: false, result: "", accuracy: Number.NaN };
 }
 
-function buildRemoteConfigLoadKey(tabId, siteId, endpointValue) {
-  return `${tabId || ""}|${siteId || ""}|${endpointValue || ""}`;
-}
-
-async function loadRemoteConfigForCurrentPage(options = {}) {
-  const {
-    tabId = null,
-    pageUrl = "",
-    baseUrl = "",
-    siteId = null,
-    endpointValue = "",
-    force = false,
-    notifyOnChange = false
-  } = options;
-  if (!tabId || !siteId || !endpointValue) {
-    const result = { status: "skipped", baseUrl: "" };
-    state.remoteConfigLoadResult = result;
-    updateLastConfigLoadStatus(result);
-    return result;
-  }
-  const loadKey = buildRemoteConfigLoadKey(tabId, siteId, endpointValue);
-  if (
-    !force &&
-    state.remoteConfigLoadKey === loadKey &&
-    state.remoteConfigLoadResult &&
-    (
-      state.remoteConfigLoadResult.status === "ok" ||
-      state.remoteConfigLoadResult.status === "not_found"
-    )
-  ) {
-    return state.remoteConfigLoadResult;
-  }
-  state.remoteConfigLoadKey = loadKey;
-  const loadUrl = resolveRelativeEndpoint(endpointValue, "/load");
-  if (!loadUrl) {
-    const result = { status: "error", baseUrl: "" };
-    state.remoteConfigLoadResult = result;
-    updateLastConfigLoadStatus(result);
-    return result;
-  }
-  try {
-    const response = await messages.sendRuntimeMessage({
-      type: "loadRemoteConfigSnapshot",
-      siteId
-    });
-    if (response && response.status === "auth_error") {
-      await invalidateTokenAndLockConfiguration(true);
-      const result = { status: "auth_error", baseUrl: "" };
-      state.remoteConfigLoadResult = result;
-      updateLastConfigLoadStatus(result);
-      return result;
-    }
-    if (response && response.status === "not_found") {
-      await config.clearBackendSavedPageMarkings(baseUrl || state.currentBaseUrl);
-      const result = { status: "not_found", baseUrl: "" };
-      state.remoteConfigLoadResult = result;
-      updateLastConfigLoadStatus(result);
-      return result;
-    }
-    if (!response || response.ok !== true || response.status !== "ok") {
-      const result = { status: "error", baseUrl: "" };
-      state.remoteConfigLoadResult = result;
-      updateLastConfigLoadStatus(result);
-      return result;
-    }
-    const replaceResult = await messages.sendRuntimeMessage({
-      type: "replaceServerConfigIntoLocalSnapshot",
-      payloadKey: typeof response.payloadKey === "string" ? response.payloadKey : "",
-      currentPageUrl: pageUrl,
-      siteId
-    });
-    if (!replaceResult.ok) {
-      const result = { status: "not_found", baseUrl: "" };
-      state.remoteConfigLoadResult = result;
-      updateLastConfigLoadStatus(result);
-      return result;
-    }
-    if (replaceResult.changed && replaceResult.baseUrl) {
-      await messages.sendTabMessageWithRetry({
-        type: "configUpdated",
-        baseUrl: replaceResult.baseUrl,
-        forceReloadPageEntry: replaceResult.replacedCurrentPage
-      }, 2);
-    }
-    if (replaceResult.changed && notifyOnChange) {
-      uiModule.showToast(PopupText.page.remoteDataUpdated);
-    }
-    const result = {
-      status: "ok",
-      baseUrl: replaceResult.baseUrl
-    };
-    state.remoteConfigLoadResult = result;
-    updateLastConfigLoadStatus(result);
-    return result;
-  } catch {
-    const result = { status: "error", baseUrl: "" };
-    state.remoteConfigLoadResult = result;
-    updateLastConfigLoadStatus(result);
-    return result;
-  }
-}
 
 function clearObserverRemoteConfigRefreshTimer() {
   if (!state.observerRemoteConfigRefreshTimer) {
@@ -3029,207 +2956,6 @@ function shouldSkipRemoteConfigLoadForPropertyEditor(siteId) {
       state.propertyLockState &&
       state.propertyLockState.isEditor
   );
-}
-
-async function syncBaseConfigToServer(options = {}) {
-  const {
-    baseUrl = "",
-    pageUrl = "",
-    endpointValue = "",
-    tokenValue = "",
-    stageBase = "",
-    alertOnCurrentReplacement = true,
-    includeCurrentPageMarking = false,
-    includeAllLocalPageMarkings = false,
-    maxAttempts = 5
-  } = options;
-  if (!baseUrl || !pageUrl || !endpointValue) {
-    return { ok: false, skipped: true };
-  }
-  if (!resolveRelativeEndpoint(endpointValue, "/save")) {
-    return { ok: false, skipped: true };
-  }
-  const attempts = Math.max(1, Number(maxAttempts) || 1);
-  let retryDelayMs = 1500;
-  let lastStatus = 0;
-  let currentTokenValue = tokenValue || "";
-  let currentBaseUrl = baseUrl;
-
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    const allConfigs = await config.getConfigs();
-    const siteIdResult = await ensureBaseUrlSiteId({
-      baseUrl: currentBaseUrl,
-      pageUrl,
-      stageBase,
-      tokenValue: currentTokenValue,
-      configs: allConfigs
-    });
-    if (!siteIdResult.ok || !siteIdResult.siteId) {
-      return { ok: false, skipped: true, reason: siteIdResult.reason || PopupText.status.missingSiteId };
-    }
-    const resolvedBaseUrl = siteIdResult.baseUrl || baseUrl;
-    currentBaseUrl = resolvedBaseUrl;
-    const workingConfigs = siteIdResult.configs || allConfigs;
-    try {
-      const refreshedToken = await getStoredGlobalToken({ trim: true });
-      if (refreshedToken) {
-        currentTokenValue = refreshedToken;
-      }
-    } catch {
-      // Ignore token refresh read errors; continue with the current in-memory token.
-    }
-    const normalized = config.normalizeConfig(resolvedBaseUrl, workingConfigs[resolvedBaseUrl]);
-    const sourceConfig = normalized.config;
-    if (!workingConfigs[resolvedBaseUrl] || normalized.changed) {
-      workingConfigs[resolvedBaseUrl] = sourceConfig;
-      await config.saveConfigs(workingConfigs);
-    }
-    const propertyPageTypesResult = await ensurePropertyPageTypes({
-      siteId: siteIdResult.siteId,
-      stageBase,
-      tokenValue: currentTokenValue,
-      force: false,
-      notifyOnChange: false
-    });
-    const backendSavedPageMarkings = await config.getBackendSavedPageMarkings(resolvedBaseUrl);
-    const backendSavedPageMarkingItems = collectStoredPageMarkingItems(
-      backendSavedPageMarkings,
-      resolvedBaseUrl
-    );
-    const localPageMarkingItems = collectStoredPageMarkingItems(
-      sourceConfig.pageMarkings,
-      resolvedBaseUrl
-    );
-    const backendSavedPageUrls = new Set(
-      Object.keys(backendSavedPageMarkings || {}).filter(Boolean)
-    );
-    const currentPageEntry =
-      pageUrl &&
-      sourceConfig.pageMarkings &&
-      typeof sourceConfig.pageMarkings === "object"
-        ? sourceConfig.pageMarkings[pageUrl]
-        : null;
-    let filterPageMarking = (url) =>
-      includeAllLocalPageMarkings ||
-      backendSavedPageUrls.has(url) ||
-      (includeCurrentPageMarking && url === pageUrl);
-    if (propertyPageTypesResult && propertyPageTypesResult.ok) {
-      const coverageModel = buildLynxChecklistViewModel({
-        aiAnswer: "yes",
-        pageTypes: propertyPageTypesResult.pageTypes,
-        markedPages: includeAllLocalPageMarkings
-          ? localPageMarkingItems
-          : backendSavedPageMarkingItems
-      });
-      const activePageMarkingKeys = new Set(
-        coverageModel.activeMarkedPages
-          .map((item) => buildPageMarkingKey(item.url, item.pageType))
-          .filter(Boolean)
-      );
-      if (includeCurrentPageMarking && currentPageEntry) {
-        activePageMarkingKeys.add(buildPageMarkingKey(pageUrl, currentPageEntry.pageType));
-      }
-      filterPageMarking = (url, entry) =>
-        activePageMarkingKeys.has(buildPageMarkingKey(url, entry && entry.pageType));
-    }
-    const payload = config.createConfigSyncPayload(resolvedBaseUrl, sourceConfig, {
-      filterPageMarking
-    });
-    try {
-      const requestPayloadKey = buildTransferPayloadKey("save-request");
-      const stored = await putTransferPayload("save-request", payload, {
-        payloadKey: requestPayloadKey
-      });
-      if (!stored.ok) {
-        throw new Error("Unable to persist remote-config save payload");
-      }
-      const response = await messages.sendRuntimeMessage({
-        type: "saveRemoteConfigSnapshot",
-        payloadKey: requestPayloadKey
-      });
-      try {
-        const refreshedToken = await getStoredGlobalToken({ trim: true });
-        if (refreshedToken) {
-          currentTokenValue = refreshedToken;
-        }
-      } catch {
-        // Ignore token refresh read errors; continue with the current in-memory token.
-      }
-      if (response && response.status === "auth_error") {
-        await invalidateTokenAndLockConfiguration(true);
-        return { ok: false, status: 401, authExpired: true };
-      }
-      if (!response || response.ok !== true) {
-        if (attempt + 1 < attempts) {
-          await waitForRetryDelay(retryDelayMs);
-          retryDelayMs = Math.min(retryDelayMs * 2, 10000);
-          continue;
-        }
-        return { ok: false };
-      }
-      if (response.status === "error") {
-        lastStatus = Number(response.httpStatus) || 0;
-        if (attempt + 1 < attempts && isRetryableHttpStatus(lastStatus)) {
-          await waitForRetryDelay(retryDelayMs);
-          retryDelayMs = Math.min(retryDelayMs * 2, 10000);
-          continue;
-        }
-        return { ok: false, status: lastStatus };
-      }
-      const responsePayloadKey = typeof response.payloadKey === "string" ? response.payloadKey : "";
-      if (response.status !== "ok" || !responsePayloadKey) {
-        const mergeResult = await messages.sendRuntimeMessage({
-          type: "mergeServerConfigIntoLocalSnapshot",
-          payload: {
-            ...payload,
-            pageMarkings: {}
-          },
-          currentPageUrl: pageUrl,
-          confirmedPageMarkings: payload.pageMarkings,
-          preferConfirmedPageMarkings: includeCurrentPageMarking || includeAllLocalPageMarkings
-        });
-        return { ok: mergeResult.ok, replacedCurrentPage: false };
-      }
-
-      const mergeResult = await messages.sendRuntimeMessage({
-        type: "mergeServerConfigIntoLocalSnapshot",
-        payloadKey: responsePayloadKey,
-        currentPageUrl: pageUrl,
-        confirmedPageMarkings: payload.pageMarkings,
-        preferConfirmedPageMarkings: includeCurrentPageMarking || includeAllLocalPageMarkings
-      });
-      if (!mergeResult.ok) {
-        return { ok: false };
-      }
-      await pruneRemoteInvalidPageMarkings({
-        siteId: siteIdResult.siteId,
-        invalidUrls: mergeResult.invalidLoadedUrls || []
-      });
-      if (mergeResult.changed && mergeResult.baseUrl) {
-        await messages.sendTabMessageWithRetry({
-          type: "configUpdated",
-          baseUrl: mergeResult.baseUrl,
-          forceReloadPageEntry: mergeResult.replacedCurrentPage
-        }, 2);
-      }
-      if (mergeResult.replacedCurrentPage && alertOnCurrentReplacement) {
-        window.alert(PopupText.alerts.newerRemoteDataReplacedLocal);
-      }
-      return {
-        ok: true,
-        replacedCurrentPage: mergeResult.replacedCurrentPage,
-        baseUrl: resolvedBaseUrl
-      };
-    } catch (error) {
-      if (attempt + 1 < attempts) {
-        await waitForRetryDelay(retryDelayMs);
-        retryDelayMs = Math.min(retryDelayMs * 2, 10000);
-        continue;
-      }
-      return { ok: false };
-    }
-  }
-  return { ok: false, status: lastStatus };
 }
 
 function updateLoginActionState(patch = {}) {
