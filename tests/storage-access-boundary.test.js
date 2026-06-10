@@ -98,6 +98,7 @@ function sortFindings(findings) {
 const APPROVED_WRAPPER_FILES = new Set([
   "common/storage-core.js",
   "background/transfer-payload-store.js",
+  "background/ai-run-record-store.js",
   "common/settings-store.js",
   "background/tab-session-store.js"
 ]);

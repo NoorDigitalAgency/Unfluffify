@@ -111,6 +111,11 @@ import {
   removeTransferPayload,
   sweepStaleTransferPayloads
 } from "./background/transfer-payload-store.js";
+import {
+  clearPersistedAiRunRecord,
+  getPersistedAiRunRecord,
+  savePersistedAiRunRecord
+} from "./background/ai-run-record-store.js";
 import { getGlobalAiSettings } from "./common/settings-store.js";
 import {
   clearTrackedTabSessionState as clearStoredTrackedTabSessionState,
@@ -313,27 +318,6 @@ function navigateTabToUrl(tabId, url) {
       });
     }
   });
-}
-
-async function getPersistedAiRunRecord() {
-  const stored = await utils.storageGet(chrome.storage.session, AI_RUN_PERSIST_KEY);
-  return normalizePersistedAiRunRecord(stored && stored[AI_RUN_PERSIST_KEY]);
-}
-
-async function savePersistedAiRunRecord(record) {
-  const normalized = normalizePersistedAiRunRecord(record);
-  if (!normalized) {
-    await utils.storageRemove(chrome.storage.session, AI_RUN_PERSIST_KEY);
-    return null;
-  }
-  await utils.storageSet(chrome.storage.session, {
-    [AI_RUN_PERSIST_KEY]: normalized
-  });
-  return normalized;
-}
-
-async function clearPersistedAiRunRecord() {
-  await utils.storageRemove(chrome.storage.session, AI_RUN_PERSIST_KEY);
 }
 
 function sendContentMessageToTab(tabId, message, timeoutMs = 15000) {

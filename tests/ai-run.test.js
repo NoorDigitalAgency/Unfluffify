@@ -231,10 +231,11 @@ test("AI run recovery metadata is persisted through background", () => {
   const popupPersistenceBlock = popupSource.slice(loadStart, loadEnd);
 
   assert.match(backgroundSource, /AI_RUN_PERSIST_KEY/);
-  assert.match(backgroundSource, /function getPersistedAiRunRecord|async function getPersistedAiRunRecord/);
+  assert.match(backgroundSource, /from "\.\/background\/ai-run-record-store\.js"/);
   assert.match(backgroundSource, /if \(message\.type === "getPersistedAiRunRecord"\) \{/);
   assert.match(backgroundSource, /if \(message\.type === "savePersistedAiRunRecord"\) \{/);
   assert.match(backgroundSource, /if \(message\.type === "clearPersistedAiRunRecord"\) \{/);
+  assert.match(backgroundSource, /clearPersistedAiRunRecord,\s*[\s\S]*getPersistedAiRunRecord,\s*[\s\S]*savePersistedAiRunRecord/);
   assert.match(backgroundSource, /if \(message\.type === "setAiComputeLockForTab"\) \{/);
   assert.match(backgroundSource, /if \(message\.type === "refreshAiRunHeartbeat"\) \{/);
   assert.match(popupPersistenceBlock, /type: "getPersistedAiRunRecord"/);

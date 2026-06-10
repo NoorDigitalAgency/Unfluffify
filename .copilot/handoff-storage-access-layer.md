@@ -3,7 +3,7 @@
 Last updated: 2026-06-10
 Branch at document creation: main
 Implementation status: IN_PROGRESS (Phases 0-11 complete, Phase 12 in progress)
-Document commit scope: Phase 12 transfer payload boundary cleanup slice
+Document commit scope: Phase 12 AI-run persisted record cleanup slice
 
 ## Read This First
 
@@ -56,7 +56,8 @@ As of this handoff:
 21. Phase 11 config write queue is complete and validated.
 22. Phase 12 strict boundary cleanup is in progress.
 23. Transfer payload calls in popup/background now route through `background/transfer-payload-store.js` helpers.
-24. Next strict implementation step is to continue Phase 12 by migrating remaining background popup raw storage debt and tightening bucket policy.
+24. Background persisted AI-run records now route through `background/ai-run-record-store.js` helpers.
+25. Next strict implementation step is to continue Phase 12 by migrating the remaining raw storage call in background tab cleanup and tightening bucket policy.
 
 ## Review Findings To Fix First
 
@@ -201,6 +202,16 @@ Focused validation executed for Phase 12 transfer payload cleanup slice:
 Focused result:
 
 1. 64 passed.
+2. 0 failed.
+
+Focused validation executed for Phase 12 AI-run persisted record cleanup slice:
+
+1. `node --test tests/ai-run.test.js tests/storage-access-boundary.test.js`
+2. `npm test`
+
+Focused result:
+
+1. 18 passed.
 2. 0 failed.
 
 Focused validation executed for Phase 9 runtime merge queue hardening:
