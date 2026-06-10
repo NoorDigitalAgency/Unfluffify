@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-10
 Branch at document creation: main
-Implementation status: IN_PROGRESS (Track A Phase 10 complete)
+Implementation status: IN_PROGRESS (Track A Phase 11 complete)
 Document commit scope: plan + handoff authoring only
 
 ## Read This First
@@ -61,7 +61,7 @@ Status values: TODO / IN_PROGRESS / DONE / BLOCKED.
 9. Phase 8 - render-mode-inspector module: DONE.
 10. Phase 9 - ai-run-orchestrator module (HIGHEST RISK): DONE.
 11. Phase 10 - async error reporting (hardening): DONE.
-12. Phase 11 - per-tab state consolidation (hardening): TODO.
+12. Phase 11 - per-tab state consolidation (hardening): DONE.
 13. Phase 12 - managed timeouts (hardening, optional last): TODO.
 
 ### Track B — Popup (`popup.js` -> `popup/*`) — starts after Track A is merged
@@ -228,12 +228,19 @@ Phase 10 - async error reporting (hardening):
    Focused: node --test tests/background-async-tasks.test.js tests/background-decomposition-boundary.test.js tests/device-emulation-lifecycle.test.js tests/lifecycle-broker.test.js tests/page-motion-bridge-isolation.test.js -> 37 pass / 0 fail
    Full:    npm test -> 793 pass / 0 fail
    Live:    skipped by current requirement scope (not required for non-marking slices)
+   Commit:  7df54bf refactor(background): report background task failures
+
+Phase 11 - per-tab state consolidation (hardening):
+   Files:   background/background-tab-state.js; background.js; tests/background-tab-state.test.js; tests/background-decomposition-boundary.test.js; tests/lifecycle-broker.test.js; tests/world-trace-contract.test.js
+   Focused: node --test tests/background-tab-state.test.js tests/background-decomposition-boundary.test.js tests/tab-isolation-hardening.test.js tests/page-motion-bridge-isolation.test.js tests/world-trace-contract.test.js -> 21 pass / 0 fail
+   Full:    npm test -> 795 pass / 0 fail
+   Live:    skipped by current requirement scope (not required for non-marking slices)
    Commit:  pending
 ```
 
 ## Next Action
 
-Commit and push Track A Phase 10 with:
-`refactor(background): report background task failures`, then proceed to Track A
-Phase 11 (per-tab state consolidation hardening). Do not start Track B until Track A is
+Commit and push Track A Phase 11 with:
+`refactor(background): consolidate per-tab state ownership`, then proceed to Track A
+Phase 12 (managed timeouts hardening). Do not start Track B until Track A is
 complete and merged; do not start Track C until Track B is complete and merged.

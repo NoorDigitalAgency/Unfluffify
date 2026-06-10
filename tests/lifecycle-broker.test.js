@@ -21,9 +21,10 @@ test("background owns per-tab lifecycle and spinner current state", () => {
   assert.match(contractSource, /export const LIFECYCLE_KINDS = Object\.freeze/);
   assert.match(contractSource, /export const LIFECYCLE_PHASES = Object\.freeze/);
   assert.match(contractSource, /export function buildPopupStatePortName\(tabId\)/);
-  assert.match(backgroundSource, /const tabLifecycleStateByTabId = new Map\(\);/);
-  assert.match(backgroundSource, /const tabSpinnerQueueByTabId = new Map\(\);/);
-  assert.match(backgroundSource, /const popupStatePortsByTabId = new Map\(\);/);
+  assert.match(backgroundSource, /from "\.\/background\/background-tab-state\.js"/);
+  assert.doesNotMatch(backgroundSource, /const tabLifecycleStateByTabId = new Map\(\);/);
+  assert.doesNotMatch(backgroundSource, /const tabSpinnerQueueByTabId = new Map\(\);/);
+  assert.doesNotMatch(backgroundSource, /const popupStatePortsByTabId = new Map\(\);/);
   assert.match(backgroundSource, /from "\.\/background\/popup-state-broker\.js"/);
   assert.match(backgroundSource, /const popupStateBroker = createPopupStateBroker\(\{/);
   assert.match(backgroundSource, /const updateLifecycleState = popupStateBroker\.updateLifecycleState;/);

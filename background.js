@@ -139,6 +139,15 @@ import { createRenderModeInspector } from "./background/render-mode-inspector.js
 import { createAiRunOrchestrator } from "./background/ai-run-orchestrator.js";
 import { runBackgroundTask } from "./background/async-tasks.js";
 import {
+  aiComputeLockExpiresAtByTabId,
+  disposeTabState,
+  pageMotionFreezeControlQueueByTarget,
+  popupStatePortsByTabId,
+  tabLifecycleStateByTabId,
+  tabSpinnerQueueByTabId,
+  tabWorldTraceStateByTabId
+} from "./background/background-tab-state.js";
+import {
   clearTrackedTabSessionState as clearStoredTrackedTabSessionState,
   clearTabStateScope,
   getTabState as getStoredTabState,
@@ -182,12 +191,6 @@ const PROPERTY_LOCK_MESSAGE_TYPES = new Set([
   "pageDraftChanged"
 ]);
 
-const tabLifecycleStateByTabId = new Map();
-const tabSpinnerQueueByTabId = new Map();
-const popupStatePortsByTabId = new Map();
-const tabWorldTraceStateByTabId = new Map();
-const aiComputeLockExpiresAtByTabId = new Map();
-const pageMotionFreezeControlQueueByTarget = new Map();
 const worldTrace = createWorldTrace({
   traceStateByTabId: tabWorldTraceStateByTabId,
   normalizeTabId: normalizeBrokerTabId,
@@ -2486,10 +2489,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
     handlePropertyLockBackgroundTabRemoved(tabId);
   }
   handleRemoteSupportTabRemoved(tabId).then();
-  tabLifecycleStateByTabId.delete(tabId);
-  tabSpinnerQueueByTabId.delete(tabId);
-  tabWorldTraceStateByTabId.delete(tabId);
-  aiComputeLockExpiresAtByTabId.delete(tabId);
+  disposeTabState(tabId);
   deleteTabRuntime(tabId);
 });
 

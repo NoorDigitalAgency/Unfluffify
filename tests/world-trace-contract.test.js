@@ -18,7 +18,8 @@ test("world messaging contract no longer exposes runtime trace toggle message ty
 });
 
 test("background keeps trace enablement fixed from feature and debug flags", () => {
-  assert.match(backgroundSource, /const tabWorldTraceStateByTabId = new Map\(\);/);
+  assert.match(backgroundSource, /from "\.\/background\/background-tab-state\.js"/);
+  assert.doesNotMatch(backgroundSource, /const tabWorldTraceStateByTabId = new Map\(\);/);
   assert.match(backgroundSource, /from "\.\/background\/world-trace\.js"/);
   assert.match(backgroundSource, /const worldTrace = createWorldTrace\(\{/);
   assert.match(backgroundSource, /const isWorldTraceEnabled = worldTrace\.isWorldTraceEnabled;/);

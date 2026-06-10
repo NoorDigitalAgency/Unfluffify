@@ -24,6 +24,16 @@ function assertBackgroundDoesNotDefine(functionName) {
   );
 }
 
+function assertBackgroundDoesNotDeclareConst(constName) {
+  const escapedConstName = constName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const constPattern = new RegExp(`const\\s+${escapedConstName}\\s*=\\s*new\\s+Map\\s*\\(`);
+  assert.doesNotMatch(
+    backgroundSource,
+    constPattern,
+    `expected background.js to not declare map ${constName}`
+  );
+}
+
 test("background decomposition guard: baseline background modules are imported", () => {
   assertImportsBackgroundModule("command-router");
   assertImportsBackgroundModule("command-ledger");
@@ -36,6 +46,7 @@ test("background decomposition guard: baseline background modules are imported",
   assertImportsBackgroundModule("render-mode-inspector");
   assertImportsBackgroundModule("ai-run-orchestrator");
   assertImportsBackgroundModule("async-tasks");
+  assertImportsBackgroundModule("background-tab-state");
   assertImportsBackgroundModule("tab-runtime");
   assertImportsBackgroundModule("tab-session-store");
   assertImportsBackgroundModule("spinner-operations");
@@ -101,4 +112,11 @@ test("background decomposition guard: baseline background modules are imported",
   assertBackgroundDoesNotDefine("refreshAiRunHeartbeat");
   assertBackgroundDoesNotDefine("prepareAiRunPayloadSnapshot");
   assertBackgroundDoesNotDefine("runBackgroundTask");
+  assertBackgroundDoesNotDefine("disposeTabState");
+  assertBackgroundDoesNotDeclareConst("tabLifecycleStateByTabId");
+  assertBackgroundDoesNotDeclareConst("tabSpinnerQueueByTabId");
+  assertBackgroundDoesNotDeclareConst("popupStatePortsByTabId");
+  assertBackgroundDoesNotDeclareConst("tabWorldTraceStateByTabId");
+  assertBackgroundDoesNotDeclareConst("aiComputeLockExpiresAtByTabId");
+  assertBackgroundDoesNotDeclareConst("pageMotionFreezeControlQueueByTarget");
 });
