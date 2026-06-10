@@ -7600,10 +7600,10 @@ async function handleEnableToggle(event) {
         if (!enableResponse || !enableResponse.ok) {
           uiModule.setViewState({ toggleEnabled: false });
           clearLastPopupEnabled();
-          if (enableResponse.locked) {
+          if (enableResponse?.locked) {
             uiModule.showToast(propertyLockText.lockedInteractionBlockedToast(state.propertyLockState?.editorName || "Someone"));
           } else {
-            uiModule.showToast(enableResponse.error || PopupText.helper.activateFailedOnPage);
+            uiModule.showToast(enableResponse?.error || PopupText.helper.activateFailedOnPage);
           }
           await refreshUi();
           return;
