@@ -445,13 +445,15 @@ test("invalid remote page pruning delegates the remove transport to background",
 test("token validation delegates the auth transport to background", () => {
   const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
   const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
+  const networkCoreSource = readFileSync(new URL("../background/network-core.js", import.meta.url), "utf8");
   const validateBody = popupSource.match(
     /async function validateStoredToken\(options = \{\}\) \{([\s\S]*?)\n\}\n\nasync function clearFocusedElement/
   )[1];
 
-  assert.match(backgroundSource, /function buildValidateEndpointFromStageBase\(stageBase\) \{/);
-  assert.match(backgroundSource, /async function validateAuthToken\(options = \{\}\) \{/);
-  assert.match(backgroundSource, /const validateUrl = buildValidateEndpointFromStageBase\(stageBase\);/);
+  assert.match(backgroundSource, /from "\.\/background\/network-core\.js"/);
+  assert.match(networkCoreSource, /export function buildValidateEndpointFromStageBase\(stageBase\) \{/);
+  assert.match(networkCoreSource, /export async function validateAuthToken\(options = \{\}\) \{/);
+  assert.match(networkCoreSource, /const validateUrl = buildValidateEndpointFromStageBase\(stageBase\);/);
   assert.match(backgroundSource, /if \(message\.type === "validateAuthToken"\) \{/);
   assert.match(validateBody, /type: "validateAuthToken"/);
   assert.match(validateBody, /messages\.sendRuntimeMessage/);
@@ -461,13 +463,15 @@ test("token validation delegates the auth transport to background", () => {
 test("login delegates the auth transport to background while popup keeps token persistence", () => {
   const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
   const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
+  const networkCoreSource = readFileSync(new URL("../background/network-core.js", import.meta.url), "utf8");
   const loginBody = popupSource.match(
     /async function handleLoginAction\(\) \{([\s\S]*?)\n\}\n\nasync function alignPopupToSilentMode/
   )[1];
 
-  assert.match(backgroundSource, /function buildLoginEndpointFromStageBase\(stageBase\) \{/);
-  assert.match(backgroundSource, /async function requestAuthLogin\(options = \{\}\) \{/);
-  assert.match(backgroundSource, /const loginUrl = buildLoginEndpointFromStageBase\(stageBase\);/);
+  assert.match(backgroundSource, /from "\.\/background\/network-core\.js"/);
+  assert.match(networkCoreSource, /export function buildLoginEndpointFromStageBase\(stageBase\) \{/);
+  assert.match(networkCoreSource, /export async function requestAuthLogin\(options = \{\}\) \{/);
+  assert.match(networkCoreSource, /const loginUrl = buildLoginEndpointFromStageBase\(stageBase\);/);
   assert.match(backgroundSource, /if \(message\.type === "requestAuthLogin"\) \{/);
   assert.match(loginBody, /type: "requestAuthLogin"/);
   assert.match(loginBody, /messages\.sendRuntimeMessage/);

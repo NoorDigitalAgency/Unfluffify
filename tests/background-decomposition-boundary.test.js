@@ -28,6 +28,7 @@ test("background decomposition guard: baseline background modules are imported",
   assertImportsBackgroundModule("command-router");
   assertImportsBackgroundModule("command-ledger");
   assertImportsBackgroundModule("live-page-client");
+  assertImportsBackgroundModule("network-core");
   assertImportsBackgroundModule("tab-runtime");
   assertImportsBackgroundModule("tab-session-store");
   assertImportsBackgroundModule("spinner-operations");
@@ -42,4 +43,11 @@ test("background decomposition guard: baseline background modules are imported",
   assertBackgroundDoesNotDefine("normalizeBaseUrlFromDomainName");
   assertBackgroundDoesNotDefine("buildPropertyPageTypesSignature");
   assertBackgroundDoesNotDefine("fetchLivePagePropertyPageTypes");
+  assertBackgroundDoesNotDefine("resolveBackgroundEndpoint");
+  assertBackgroundDoesNotDefine("createBackgroundJsonHeaders");
+  assertBackgroundDoesNotDefine("resolveBackgroundNetworkCredentials");
+  assertBackgroundDoesNotDefine("buildValidateEndpointFromStageBase");
+  assertBackgroundDoesNotDefine("buildLoginEndpointFromStageBase");
+  assertBackgroundDoesNotDefine("validateAuthToken");
+  assertBackgroundDoesNotDefine("requestAuthLogin");
 });

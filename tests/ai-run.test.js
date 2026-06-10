@@ -187,10 +187,13 @@ test("AI compute builds the request from stored local page snapshots only", () =
 
 test("TAB_RUN_AI resolves omitted credentials from fresh settings reads", () => {
   const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
+  const networkCoreSource = readFileSync(new URL("../background/network-core.js", import.meta.url), "utf8");
 
-  assert.match(backgroundSource, /async function resolveBackgroundNetworkCredentials\(options = \{\}\) \{/);
-  assert.match(backgroundSource, /const needsFreshSettings = !requestedEndpoint \|\| !requestedToken \|\| !requestedStageBase;/);
-  assert.match(backgroundSource, /getGlobalAiSettings\(\{ useCache: !needsFreshSettings \}\)/);
+  assert.match(backgroundSource, /from "\.\/background\/network-core\.js"/);
+  assert.doesNotMatch(backgroundSource, /async function resolveBackgroundNetworkCredentials\(options = \{\}\) \{/);
+  assert.match(networkCoreSource, /export async function resolveBackgroundNetworkCredentials\(options = \{\}\) \{/);
+  assert.match(networkCoreSource, /const needsFreshSettings = !requestedEndpoint \|\| !requestedToken \|\| !requestedStageBase;/);
+  assert.match(networkCoreSource, /getGlobalAiSettings\(\{ useCache: !needsFreshSettings \}\)/);
   assert.match(
     backgroundSource,
     /const credentials = await resolveBackgroundNetworkCredentials\(\{[\s\S]*?endpointValue: payload && payload\.endpointValue,[\s\S]*?tokenValue: payload && payload\.tokenValue,[\s\S]*?endpointPreference: "ai"[\s\S]*?\}\);/
