@@ -59,6 +59,8 @@
         "content/shared-selector-cache.js",
         "content/silent-highlight-rules.js",
         "content/submission-rules.js",
+        "content/content-command-router.js",
+        "content/page-world-relay.js",
         "common/config.js",
         "common/constants.js",
         "common/extension-telemetry.js",

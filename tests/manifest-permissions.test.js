@@ -71,3 +71,26 @@ test("every getURL-injected page resource is web-accessible (no under-scoping)",
     );
   }
 });
+
+test("every content/* module imported by content-main.js is web-accessible", async () => {
+  const manifest = JSON.parse(await fs.readFile(new URL("../manifest.json", import.meta.url), "utf8"));
+  const resources = manifest.web_accessible_resources.flatMap((entry) => entry.resources || []);
+  const contentMain = await fs.readFile(new URL("../content-main.js", import.meta.url), "utf8");
+
+  const importedContentModules = new Set();
+  for (const match of contentMain.matchAll(/from\s+"(\.\/content\/[^"]+\.js)"/g)) {
+    importedContentModules.add(match[1].replace(/^\.\//, ""));
+  }
+
+  assert.ok(
+    importedContentModules.size > 0,
+    "expected content-main.js to import at least one content/* module"
+  );
+
+  for (const modulePath of importedContentModules) {
+    assert.ok(
+      resources.includes(modulePath),
+      `${modulePath} is imported by content-main.js but is not web-accessible`
+    );
+  }
+});

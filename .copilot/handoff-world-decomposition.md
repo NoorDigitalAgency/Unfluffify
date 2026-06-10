@@ -78,7 +78,7 @@ Status values: TODO / IN_PROGRESS / DONE / BLOCKED.
 
 ### Track C — Content (peripheral only) — starts after Track B is merged
 
-1. Phase C0 - Baseline + content boundary guard + manifest allowlist assert: TODO.
+1. Phase C0 - Baseline + content boundary guard + manifest allowlist assert: DONE.
 2. Phase C1 - content/page-telemetry-bridge.js: TODO.
 3. Phase C2 - content/remote-support-client.js: TODO.
 4. Phase C3 - content/property-lock-banner.js: TODO.
@@ -258,12 +258,19 @@ Phase B1 - spinner module extraction:
    Live:    skipped by current requirement scope (not required for non-marking slices)
    Commit:  ddc63fe refactor(popup): extract spinner queue
 
+Phase C0 - Baseline + content boundary + manifest allowlist guard:
+   Files:   tests/content-decomposition-boundary.test.js; tests/manifest-permissions.test.js; manifest.json
+   Focused: node --test tests/content-decomposition-boundary.test.js tests/manifest-permissions.test.js -> 6 pass / 0 fail
+   Full:    npm test -> 837 pass / 0 fail
+   Live:    skipped by current requirement scope (guardrail-only slice; no runtime behavior moved)
+   Commit:  pending
+
 Phase B2 - site and page-type resolution extraction:
    Files:   popup/site-resolution.js; popup.js; tests/popup-site-resolution.test.js; tests/popup-decomposition-boundary.test.js; tests/selector-suppression.test.js; tests/render-mode-inspection-order.test.js
    Focused: node --test tests/popup-site-resolution.test.js tests/popup-decomposition-boundary.test.js tests/selector-suppression.test.js tests/render-mode-inspection-order.test.js -> 30 pass / 0 fail
-   Full:    npm test -> 809 pass / 0 fail
-   Live:    skipped by current requirement scope (not required for non-marking slices)
-   Commit:  d0c96a5 refactor(popup): extract site and page-type resolution
+Commit and push Track C Phase C0 with:
+`test(content): add decomposition boundary guard`, then proceed to Track C Phase C1
+(`content/page-telemetry-bridge.js`) with required live scenario gate.
 
 Phase B3 - remote config sync extraction:
    Files:   popup/remote-config.js; popup.js; tests/popup-remote-config.test.js; tests/popup-decomposition-boundary.test.js; tests/popup-marking-refresh.test.js; tests/property-lock.test.js
