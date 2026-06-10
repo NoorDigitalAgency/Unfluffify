@@ -1,5 +1,22 @@
 import {SCRIPT_INJECTED_PREFIX, TAB_STATE_PREFIX} from "./constants.js";
 import { isDebugFlagEnabled } from "./feature-flags.js";
+import {
+  getStorageAreaName,
+  isChromeStorageArea,
+  storageClear,
+  storageGet,
+  storageRemove,
+  storageSet
+} from "./storage-core.js";
+
+export {
+  getStorageAreaName,
+  isChromeStorageArea,
+  storageClear,
+  storageGet,
+  storageRemove,
+  storageSet
+};
 
 /**
  * Checks if the content script has been injected into a specific tab.
@@ -475,71 +492,6 @@ export function findMatchingBaseUrl(pageUrl, configs) {
   });
   return match;
 }
-
-// Storage utilities
-export const storageGet = (area, keys) =>
-    new Promise((resolve, reject) => {
-      try {
-        area.get(keys, (result) => {
-          let lastError = null;
-          try {
-            lastError = getChromeRuntimeLastError();
-          } catch (error) {
-            reject(error);
-            return;
-          }
-          if (lastError) {
-            reject(makeChromeRuntimeError(lastError));
-            return;
-          }
-          resolve(result);
-        });
-      } catch (error) {
-        reject(error);
-      }
-    });
-export const storageSet = (area, items) =>
-    new Promise((resolve, reject) => {
-      try {
-        area.set(items, () => {
-          let lastError = null;
-          try {
-            lastError = getChromeRuntimeLastError();
-          } catch (error) {
-            reject(error);
-            return;
-          }
-          if (lastError) {
-            reject(makeChromeRuntimeError(lastError));
-            return;
-          }
-          resolve();
-        });
-      } catch (error) {
-        reject(error);
-      }
-    });
-export const storageRemove = (area, keys) =>
-    new Promise((resolve, reject) => {
-      try {
-        area.remove(keys, () => {
-          let lastError = null;
-          try {
-            lastError = getChromeRuntimeLastError();
-          } catch (error) {
-            reject(error);
-            return;
-          }
-          if (lastError) {
-            reject(makeChromeRuntimeError(lastError));
-            return;
-          }
-          resolve();
-        });
-      } catch (error) {
-        reject(error);
-      }
-    });
 
 const IDB_NAME = "unfluffify";
 const IDB_VERSION = 1;

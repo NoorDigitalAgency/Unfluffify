@@ -2,8 +2,8 @@
 
 Last updated: 2026-06-10
 Branch at document creation: main
-Implementation status: IN_PROGRESS (Phases 0-2 complete, not yet committed)
-Document commit scope: implementation handoff refresh after Phase 0-2 execution
+Implementation status: IN_PROGRESS (Phases 0-2 committed; Phases 3-4 complete locally, not yet committed)
+Document commit scope: implementation handoff refresh after Phase 4 execution
 
 ## Read This First
 
@@ -38,7 +38,9 @@ As of this handoff:
    - `npm test`
 7. Phase 1 command source/tab policy hardening is implemented and validated.
 8. Phase 2 command-ledger payload redaction is implemented and validated.
-9. Storage-domain migration phases have not started yet.
+9. Phase 3 storage-access inventory guard is implemented and validated.
+10. Phase 4 low-level storage wrapper extraction is implemented and validated.
+11. Storage-domain migration beyond wrapper extraction has not started yet.
 
 ## Review Findings To Fix First
 
@@ -141,8 +143,8 @@ Current phase status:
 1. Phase 0 - Baseline and branch setup: DONE.
 2. Phase 1 - Harden background command source and tab policy: DONE.
 3. Phase 2 - Redact command ledger payloads: DONE.
-4. Phase 3 - Add storage access inventory guard: TODO.
-5. Phase 4 - Extract low-level storage core: TODO.
+4. Phase 3 - Add storage access inventory guard: DONE.
+5. Phase 4 - Extract low-level storage core: DONE.
 6. Phase 5 - Transfer payload store: TODO.
 7. Phase 6 - Settings store read path: TODO.
 8. Phase 7 - Settings store write path: TODO.
@@ -154,7 +156,7 @@ Current phase status:
 
 ## Validation Baseline
 
-Last known validation after Phase 0-2 implementation:
+Last known validation after Phase 4 implementation:
 
 ```bash
 npm test
@@ -162,7 +164,27 @@ npm test
 
 Result:
 
-1. 712 tests passed.
+1. 722 tests passed.
+2. 0 failed.
+
+Focused validation executed for Phase 4:
+
+1. `node --test tests/storage-core.test.js tests/utilities-runtime.test.js tests/storage-access-boundary.test.js`
+2. `npm test`
+
+Focused result:
+
+1. 12 passed.
+2. 0 failed.
+
+Focused validation executed for Phase 3:
+
+1. `node --test tests/storage-access-boundary.test.js`
+2. `npm test`
+
+Focused result:
+
+1. 2 passed.
 2. 0 failed.
 
 Focused validation executed after Phase 0-2 changes:
@@ -220,10 +242,86 @@ What changed:
    - background hardening invariants
    - updated source-shape boundaries after registration signature changes.
 
+## Phase 3 Implementation Delta
+
+Files changed:
+
+1. `tests/storage-access-boundary.test.js` (new)
+
+What changed:
+
+1. Added a recursive JavaScript storage boundary inventory test that excludes:
+   - `.tmp/**`
+   - `node_modules/**`
+   - `tests/**`
+   - `orchestration/**`
+   - `scripts/**`
+2. Added explicit bucket classification with comments for:
+   - approved wrapper modules
+   - current migration debt
+   - smoke/orchestration access
+3. Added guard assertions so every raw storage finding maps to exactly one
+   bucket and unmanaged new storage access fails the test.
+4. Added separate tracking for page-local `window.localStorage` and
+   `window.sessionStorage` usage in known files without forcing removal in this
+   phase.
+5. Added an ordered phase TODO list in the test to support bucket removals as
+   migration progresses.
+
+Inventory snapshot encoded by the test:
+
+1. Approved wrapper bucket:
+   - `common/storage-core.js`
+2. Current migration debt bucket:
+   - `background.js`
+   - `popup.js`
+   - `popup/helpers.js`
+   - `content-main.js`
+   - `common/emulation.js`
+   - `common/property-lock-background.js`
+   - `common/lynx-live-pages.js`
+   - `common/utilities.js`
+3. Page-local storage tracking bucket:
+   - `content-loader.js`
+   - `content-main.js`
+   - `content/core.js`
+   - `popup.js`
+   - `popup/ui.js`
+
+## Phase 4 Implementation Delta
+
+Files changed:
+
+1. `common/storage-core.js` (new)
+2. `common/utilities.js`
+3. `tests/storage-core.test.js` (new)
+4. `tests/storage-access-boundary.test.js`
+
+What changed:
+
+1. Added `common/storage-core.js` with extracted low-level storage wrappers:
+   - `storageGet`
+   - `storageSet`
+   - `storageRemove`
+   - `storageClear`
+   - `getStorageAreaName`
+   - `isChromeStorageArea`
+2. Preserved wrapper runtime error behavior, including `runtime.lastError`
+   rejection and extension-context invalidation rejection paths.
+3. Updated `common/utilities.js` to import and re-export storage wrappers from
+   `common/storage-core.js` while keeping existing utility call sites stable.
+4. Added `tests/storage-core.test.js` coverage for:
+   - get/set/remove success
+   - `runtime.lastError` rejection
+   - synchronous storage API throw rejection
+   - extension-context invalidation rejection
+5. Updated storage boundary allowlist to treat `common/storage-core.js` as the
+   approved wrapper module and moved `common/utilities.js` to migration debt.
+
 Next exact command:
 
-1. `git switch -c refactor/storage-access-layer`
-2. `rg -n --glob '!.tmp/**' 'chrome\.storage|utils\.storage(Get|Set|Remove)' .`
+1. `git switch -c refactor/storage-access-layer-phase5`
+2. `node --test tests/transfer-payload-store.test.js tests/ai-run.test.js tests/popup-marking-refresh.test.js tests/render-mode-inspection-order.test.js`
 
 ## Implementation Notes
 
