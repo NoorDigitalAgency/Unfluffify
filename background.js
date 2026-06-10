@@ -2109,14 +2109,16 @@ function createBackgroundJsonHeaders(tokenValue = "") {
 async function resolveBackgroundNetworkCredentials(options = {}) {
   const requestedEndpoint = typeof options.endpointValue === "string" ? options.endpointValue.trim() : "";
   const requestedToken = typeof options.tokenValue === "string" ? options.tokenValue : "";
+  const requestedStageBase = typeof options.stageBase === "string" ? options.stageBase.trim() : "";
   const endpointPreference = typeof options.endpointPreference === "string"
     ? options.endpointPreference
     : "ai";
-  const needsFreshSettings = !requestedEndpoint || !requestedToken;
+  const needsFreshSettings = !requestedEndpoint || !requestedToken || !requestedStageBase;
   const settings = await getGlobalAiSettings({ useCache: !needsFreshSettings }).catch(() => ({
     tokenValue: "",
     endpointValue: "",
-    configEndpointValue: ""
+    configEndpointValue: "",
+    stageBaseValue: ""
   }));
   const fallbackEndpoint = endpointPreference === "config"
     ? settings.configEndpointValue
@@ -2124,6 +2126,7 @@ async function resolveBackgroundNetworkCredentials(options = {}) {
   return {
     endpointValue: requestedEndpoint || fallbackEndpoint || "",
     tokenValue: requestedToken || settings.tokenValue || "",
+    stageBaseValue: requestedStageBase || settings.stageBaseValue || "",
     fromSettings: !requestedEndpoint || !requestedToken
   };
 }
@@ -2145,8 +2148,13 @@ function buildLoginEndpointFromStageBase(stageBase) {
 }
 
 async function requestAiRunStatus(options = {}) {
-  const endpointValue = typeof options.endpointValue === "string" ? options.endpointValue.trim() : "";
-  const tokenValue = typeof options.tokenValue === "string" ? options.tokenValue : "";
+  const credentials = await resolveBackgroundNetworkCredentials({
+    endpointValue: options.endpointValue,
+    tokenValue: options.tokenValue,
+    endpointPreference: "ai"
+  });
+  const endpointValue = credentials.endpointValue;
+  const tokenValue = credentials.tokenValue;
   const sessionId = typeof options.sessionId === "string" ? options.sessionId.trim() : "";
   const statusUrl = sessionId
     ? resolveBackgroundEndpoint(endpointValue, `/get_selectors/status/${encodeURIComponent(sessionId)}`)
@@ -2173,8 +2181,13 @@ async function requestAiRunStatus(options = {}) {
 }
 
 async function removeRemotePageMarking(options = {}) {
-  const endpointValue = typeof options.endpointValue === "string" ? options.endpointValue.trim() : "";
-  const tokenValue = typeof options.tokenValue === "string" ? options.tokenValue : "";
+  const credentials = await resolveBackgroundNetworkCredentials({
+    endpointValue: options.endpointValue,
+    tokenValue: options.tokenValue,
+    endpointPreference: "config"
+  });
+  const endpointValue = credentials.endpointValue;
+  const tokenValue = credentials.tokenValue;
   const normalizedSiteId = normalizeSiteIdValue(options.siteId);
   const pageUrl = typeof options.url === "string" ? options.url.trim() : "";
   const removeUrl = resolveBackgroundEndpoint(endpointValue, "/remove");
@@ -2194,8 +2207,13 @@ async function removeRemotePageMarking(options = {}) {
 }
 
 async function validateAuthToken(options = {}) {
-  const stageBase = typeof options.stageBase === "string" ? options.stageBase : "";
-  const tokenValue = typeof options.tokenValue === "string" ? options.tokenValue : "";
+  const credentials = await resolveBackgroundNetworkCredentials({
+    stageBase: options.stageBase,
+    tokenValue: options.tokenValue,
+    endpointPreference: "ai"
+  });
+  const stageBase = credentials.stageBaseValue;
+  const tokenValue = credentials.tokenValue;
   const validateUrl = buildValidateEndpointFromStageBase(stageBase);
   if (!validateUrl || !tokenValue.trim()) {
     return { ok: false, skipped: true };
@@ -2247,8 +2265,13 @@ async function requestAuthLogin(options = {}) {
 }
 
 async function submitSelectorSetGraphqlUpdate(options = {}) {
-  const stageBase = typeof options.stageBase === "string" ? options.stageBase : "";
-  const tokenValue = typeof options.tokenValue === "string" ? options.tokenValue : "";
+  const credentials = await resolveBackgroundNetworkCredentials({
+    stageBase: options.stageBase,
+    tokenValue: options.tokenValue,
+    endpointPreference: "ai"
+  });
+  const stageBase = credentials.stageBaseValue;
+  const tokenValue = credentials.tokenValue;
   const normalizedSiteId = normalizeSiteIdValue(options.siteId);
   const includeCss = typeof options.includeCss === "string" ? options.includeCss : "";
   const excludeCss = typeof options.excludeCss === "string" ? options.excludeCss : "";
@@ -2579,8 +2602,13 @@ async function mergeServerConfigIntoLocalSnapshot(options = {}) {
 }
 
 async function loadRemoteConfigSnapshot(options = {}) {
-  const endpointValue = typeof options.endpointValue === "string" ? options.endpointValue.trim() : "";
-  const tokenValue = typeof options.tokenValue === "string" ? options.tokenValue : "";
+  const credentials = await resolveBackgroundNetworkCredentials({
+    endpointValue: options.endpointValue,
+    tokenValue: options.tokenValue,
+    endpointPreference: "config"
+  });
+  const endpointValue = credentials.endpointValue;
+  const tokenValue = credentials.tokenValue;
   const normalizedSiteId = normalizeSiteIdValue(options.siteId);
   const loadUrl = resolveBackgroundEndpoint(endpointValue, "/load");
   if (!loadUrl || !normalizedSiteId) {
@@ -2619,8 +2647,13 @@ async function loadRemoteConfigSnapshot(options = {}) {
 }
 
 async function saveRemoteConfigSnapshot(options = {}) {
-  const endpointValue = typeof options.endpointValue === "string" ? options.endpointValue.trim() : "";
-  const tokenValue = typeof options.tokenValue === "string" ? options.tokenValue : "";
+  const credentials = await resolveBackgroundNetworkCredentials({
+    endpointValue: options.endpointValue,
+    tokenValue: options.tokenValue,
+    endpointPreference: "config"
+  });
+  const endpointValue = credentials.endpointValue;
+  const tokenValue = credentials.tokenValue;
   const requestPayloadKey = typeof options.payloadKey === "string" ? options.payloadKey.trim() : "";
   const saveUrl = resolveBackgroundEndpoint(endpointValue, "/save");
   if (!saveUrl || !requestPayloadKey) {
@@ -2667,8 +2700,13 @@ async function saveRemoteConfigSnapshot(options = {}) {
 }
 
 async function requestRenderModeDetection(options = {}) {
-  const endpointValue = typeof options.endpointValue === "string" ? options.endpointValue.trim() : "";
-  const tokenValue = typeof options.tokenValue === "string" ? options.tokenValue : "";
+  const credentials = await resolveBackgroundNetworkCredentials({
+    endpointValue: options.endpointValue,
+    tokenValue: options.tokenValue,
+    endpointPreference: "config"
+  });
+  const endpointValue = credentials.endpointValue;
+  const tokenValue = credentials.tokenValue;
   const requestPayloadKey = typeof options.payloadKey === "string" ? options.payloadKey.trim() : "";
   const detectUrl = resolveBackgroundEndpoint(endpointValue, "/is_js_rendered");
   if (!detectUrl || !requestPayloadKey) {
@@ -2704,8 +2742,13 @@ async function requestRenderModeDetection(options = {}) {
 }
 
 async function submitPageTypeAssignments(options = {}) {
-  const endpointValue = typeof options.endpointValue === "string" ? options.endpointValue.trim() : "";
-  const tokenValue = typeof options.tokenValue === "string" ? options.tokenValue : "";
+  const credentials = await resolveBackgroundNetworkCredentials({
+    endpointValue: options.endpointValue,
+    tokenValue: options.tokenValue,
+    endpointPreference: "config"
+  });
+  const endpointValue = credentials.endpointValue;
+  const tokenValue = credentials.tokenValue;
   const requestPayloadKey = typeof options.payloadKey === "string" ? options.payloadKey.trim() : "";
   const assignPageTypesUrl = resolveBackgroundEndpoint(endpointValue, "/assign_page_types");
   if (!assignPageTypesUrl || !requestPayloadKey) {
@@ -2735,8 +2778,13 @@ async function submitPageTypeAssignments(options = {}) {
 }
 
 async function requestAiRunStartSnapshot(options = {}) {
-  const endpointValue = typeof options.endpointValue === "string" ? options.endpointValue.trim() : "";
-  const tokenValue = typeof options.tokenValue === "string" ? options.tokenValue : "";
+  const credentials = await resolveBackgroundNetworkCredentials({
+    endpointValue: options.endpointValue,
+    tokenValue: options.tokenValue,
+    endpointPreference: "ai"
+  });
+  const endpointValue = credentials.endpointValue;
+  const tokenValue = credentials.tokenValue;
   const requestPayloadKey = typeof options.payloadKey === "string" ? options.payloadKey.trim() : "";
   const computeSelectorsUrl = resolveBackgroundEndpoint(endpointValue, "/get_selectors");
   if (!computeSelectorsUrl || !requestPayloadKey) {
@@ -2767,8 +2815,13 @@ async function requestAiRunStartSnapshot(options = {}) {
 }
 
 async function requestAiRunResultSnapshot(options = {}) {
-  const endpointValue = typeof options.endpointValue === "string" ? options.endpointValue.trim() : "";
-  const tokenValue = typeof options.tokenValue === "string" ? options.tokenValue : "";
+  const credentials = await resolveBackgroundNetworkCredentials({
+    endpointValue: options.endpointValue,
+    tokenValue: options.tokenValue,
+    endpointPreference: "ai"
+  });
+  const endpointValue = credentials.endpointValue;
+  const tokenValue = credentials.tokenValue;
   const sessionId = typeof options.sessionId === "string" ? options.sessionId.trim() : "";
   const resultUrl = sessionId
     ? resolveBackgroundEndpoint(endpointValue, `/get_selectors/result/${encodeURIComponent(sessionId)}`)
@@ -3557,8 +3610,13 @@ function buildPropertyPageTypesSignature(pageTypes) {
 
 async function fetchLivePagePropertyPageTypes(options = {}) {
   const normalizedSiteId = normalizeSiteIdValue(options.siteId);
-  const stageBase = typeof options.stageBase === "string" ? options.stageBase : "";
-  const tokenValue = typeof options.tokenValue === "string" ? options.tokenValue.trim() : "";
+  const credentials = await resolveBackgroundNetworkCredentials({
+    stageBase: options.stageBase,
+    tokenValue: options.tokenValue,
+    endpointPreference: "ai"
+  });
+  const stageBase = credentials.stageBaseValue;
+  const tokenValue = credentials.tokenValue;
   const graphqlEndpoint = buildGraphqlEndpointFromStageBase(stageBase);
   if (!normalizedSiteId || !graphqlEndpoint) {
     return {

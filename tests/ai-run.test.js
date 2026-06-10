@@ -189,7 +189,7 @@ test("TAB_RUN_AI resolves omitted credentials from fresh settings reads", () => 
   const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
 
   assert.match(backgroundSource, /async function resolveBackgroundNetworkCredentials\(options = \{\}\) \{/);
-  assert.match(backgroundSource, /const needsFreshSettings = !requestedEndpoint \|\| !requestedToken;/);
+  assert.match(backgroundSource, /const needsFreshSettings = !requestedEndpoint \|\| !requestedToken \|\| !requestedStageBase;/);
   assert.match(backgroundSource, /getGlobalAiSettings\(\{ useCache: !needsFreshSettings \}\)/);
   assert.match(
     backgroundSource,

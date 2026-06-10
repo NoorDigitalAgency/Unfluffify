@@ -2665,19 +2665,15 @@ async function stopAiRun(options = {}) {
 
 async function removePageMarkingFromRemote(options = {}) {
   const {
-    endpointValue = "",
-    tokenValue = "",
     siteId = null,
     url = ""
   } = options;
   const pageUrl = typeof url === "string" ? url.trim() : "";
-  if (!endpointValue || !normalizeSiteIdValue(siteId) || !pageUrl) {
+  if (!normalizeSiteIdValue(siteId) || !pageUrl) {
     return { ok: false, skipped: true };
   }
   const response = await messages.sendRuntimeMessage({
     type: "removeRemotePageMarking",
-    endpointValue,
-    tokenValue,
     siteId,
     url: pageUrl
   });
@@ -2686,13 +2682,11 @@ async function removePageMarkingFromRemote(options = {}) {
 
 async function pruneRemoteInvalidPageMarkings(options = {}) {
   const {
-    endpointValue = "",
-    tokenValue = "",
     siteId = null,
     invalidUrls = []
   } = options;
   const normalizedSiteId = normalizeSiteIdValue(siteId);
-  if (!endpointValue || !normalizedSiteId || !Array.isArray(invalidUrls) || !invalidUrls.length) {
+  if (!normalizedSiteId || !Array.isArray(invalidUrls) || !invalidUrls.length) {
     return;
   }
   for (const value of invalidUrls) {
@@ -2706,8 +2700,6 @@ async function pruneRemoteInvalidPageMarkings(options = {}) {
     }
     try {
       const result = await removePageMarkingFromRemote({
-        endpointValue,
-        tokenValue,
         siteId: normalizedSiteId,
         url: pageUrl
       });
@@ -3363,16 +3355,10 @@ function normalizeRenderModeDetectionResult(payload) {
 
 async function detectRenderModeViaEndpoint(options = {}) {
   const {
-    endpointValue = "",
-    tokenValue = "",
     rawHtml = "",
     renderedHtml = ""
   } = options;
-  if (!endpointValue || !rawHtml || !renderedHtml) {
-    return { ok: false, result: "", accuracy: Number.NaN };
-  }
-  const detectUrl = resolveRelativeEndpoint(endpointValue, "/is_js_rendered");
-  if (!detectUrl) {
+  if (!rawHtml || !renderedHtml) {
     return { ok: false, result: "", accuracy: Number.NaN };
   }
   for (let attempt = 0; attempt < RENDER_MODE_DETECTION_MAX_ATTEMPTS; attempt += 1) {
@@ -3386,8 +3372,6 @@ async function detectRenderModeViaEndpoint(options = {}) {
       });
       const response = await messages.sendRuntimeMessage({
         type: "requestRenderModeDetection",
-        endpointValue,
-        tokenValue,
         payloadKey: requestPayloadKey
       });
       if (!response || response.ok !== true) {
@@ -3441,11 +3425,10 @@ async function loadRemoteConfigForCurrentPage(options = {}) {
     baseUrl = "",
     siteId = null,
     endpointValue = "",
-    tokenValue = "",
     force = false,
     notifyOnChange = false
   } = options;
-  if (!tabId || !siteId || !endpointValue || !tokenValue) {
+  if (!tabId || !siteId || !endpointValue) {
     const result = { status: "skipped", baseUrl: "" };
     state.remoteConfigLoadResult = result;
     updateLastConfigLoadStatus(result);
@@ -3474,8 +3457,6 @@ async function loadRemoteConfigForCurrentPage(options = {}) {
   try {
     const response = await messages.sendRuntimeMessage({
       type: "loadRemoteConfigSnapshot",
-      endpointValue,
-      tokenValue,
       siteId
     });
     if (response && response.status === "auth_error") {
@@ -3680,8 +3661,6 @@ async function syncBaseConfigToServer(options = {}) {
       await utils.storageSet(chrome.storage.session, { [requestPayloadKey]: payload });
       const response = await messages.sendRuntimeMessage({
         type: "saveRemoteConfigSnapshot",
-        endpointValue,
-        tokenValue: currentTokenValue,
         payloadKey: requestPayloadKey
       });
       try {
@@ -3739,8 +3718,6 @@ async function syncBaseConfigToServer(options = {}) {
         return { ok: false };
       }
       await pruneRemoteInvalidPageMarkings({
-        endpointValue,
-        tokenValue: currentTokenValue,
         siteId: siteIdResult.siteId,
         invalidUrls: mergeResult.invalidLoadedUrls || []
       });
@@ -3822,8 +3799,7 @@ async function validateStoredToken(options = {}) {
   try {
     const response = await messages.sendRuntimeMessage({
       type: "validateAuthToken",
-      stageBase: normalizedStageBaseValue,
-      tokenValue
+      stageBase: normalizedStageBaseValue
     });
     if (response && response.ok && response.valid === false) {
       await invalidateTokenAndLockConfiguration(showToastOnInvalid);
@@ -8159,13 +8135,9 @@ async function handlePageRevert() {
 
 async function requestAiRunStart({
   endpointValue = "",
-  tokenValue = "",
   payload = null,
   payloadKey = ""
 } = {}) {
-  if (!resolveRelativeEndpoint(endpointValue, "/get_selectors")) {
-    return { ok: false };
-  }
   const requestPayloadKey =
     typeof payloadKey === "string" && payloadKey.trim()
       ? payloadKey.trim()
@@ -8175,8 +8147,6 @@ async function requestAiRunStart({
   }
   const response = await messages.sendRuntimeMessage({
     type: "requestAiRunStartSnapshot",
-    endpointValue,
-    tokenValue,
     payloadKey: requestPayloadKey
   });
   if (!response || response.ok !== true || response.status !== "ok") {
@@ -8189,28 +8159,20 @@ async function requestAiRunStart({
 }
 
 async function requestAiRunStatus({ endpointValue = "", tokenValue = "", sessionId = "" } = {}) {
+  void endpointValue;
+  void tokenValue;
   const response = await messages.sendRuntimeMessage({
     type: "requestAiRunStatus",
-    endpointValue,
-    tokenValue,
     sessionId
   });
   return response && typeof response === "object" ? response : { ok: false };
 }
 
 async function requestAiRunResult({ endpointValue = "", tokenValue = "", sessionId = "" } = {}) {
-  if (
-    !resolveRelativeEndpoint(
-      endpointValue,
-      `/get_selectors/result/${encodeURIComponent(sessionId)}`
-    )
-  ) {
-    return { ok: false };
-  }
+  void endpointValue;
+  void tokenValue;
   const response = await messages.sendRuntimeMessage({
     type: "requestAiRunResultSnapshot",
-    endpointValue,
-    tokenValue,
     sessionId
   });
   if (response && response.notFound) {
@@ -8498,15 +8460,10 @@ async function handleComputeSelectors() {
 
 async function postPageTypeAssignmentsToAiServer(options = {}) {
   const {
-    endpointValue = "",
-    tokenValue = "",
     baseUrl = state.currentBaseUrl,
     checklistPageTypes = state.lynxChecklistPageTypes
   } = options;
   try {
-    if (!resolveRelativeEndpoint(endpointValue, "/assign_page_types")) {
-      return;
-    }
     const preparedPayload = await messages.sendRuntimeMessage({
       type: "preparePageTypeAssignmentsSnapshot",
       baseUrl,
@@ -8523,8 +8480,6 @@ async function postPageTypeAssignmentsToAiServer(options = {}) {
     }
     const response = await messages.sendRuntimeMessage({
       type: "submitPageTypeAssignments",
-      endpointValue,
-      tokenValue,
       payloadKey: requestPayloadKey
     });
     if (!response || response.ok !== true || response.status !== "ok") {
@@ -8594,8 +8549,6 @@ async function submitSelectorSetToServer(options = {}) {
   await refreshUi();
   try {
     await postPageTypeAssignmentsToAiServer({
-      endpointValue,
-      tokenValue: submitTokenValue,
       baseUrl: effectiveBaseUrl,
       pageMarkings: (state.currentConfig && state.currentConfig.pageMarkings) || {},
       checklistPageTypes: state.lynxChecklistPageTypes
@@ -8604,7 +8557,6 @@ async function submitSelectorSetToServer(options = {}) {
     const response = await messages.sendRuntimeMessage({
       type: "submitSelectorSetGraphqlUpdate",
       stageBase: stageBaseValue,
-      tokenValue: submitTokenValue,
       siteId: siteIdResult.siteId,
       includeCss,
       excludeCss,
