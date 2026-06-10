@@ -39,10 +39,12 @@ Current implementation checkpoint status (branch `refactor/service-worker-author
 12. Phase 6F complete and pushed (`06cc6bd`).
 13. Phase 7 complete and pushed (`6b2b9ac`).
 14. Phase 8 complete and pushed (`ee4c0c0`).
-15. Phase 9 implemented and verified in working tree; checkpoint commit/push
-   is pending in this session.
-16. Next strict phase after Phase 9 push: Phase 10 (cleanup and
-   documentation).
+15. Phase 9 complete and pushed (`5c81356`).
+16. Phase 10 cleanup/documentation is in progress in this session and validated
+   in working tree (focused 98/98; full 705/705); checkpoint commit/push is
+   pending.
+17. Next strict step after Phase 10 push: close this refactor track unless new
+   scope is explicitly added.
 
 ## Debug Continuation Plan (Cross-Environment)
 

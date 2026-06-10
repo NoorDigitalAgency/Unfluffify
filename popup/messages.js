@@ -1,7 +1,6 @@
 import * as utils from "../common/utilities.js";
 import { requestRuntime } from "../common/async-messaging.js";
 import * as stateModule from "./state.js";
-import { WORLD_MESSAGE_TYPES } from "../common/world-messaging-contract.js";
 import { isDebugFlagEnabled } from "../common/feature-flags.js";
 
 const { state } = stateModule;
@@ -46,15 +45,9 @@ export function sendRuntimeMessage(message) {
       ok: Boolean(response && response.ok),
       responseType: response && response.type ? response.type : ""
     });
-    if (
-      message &&
-      message.type === WORLD_MESSAGE_TYPES.GET_BACKGROUND_STATE &&
-      response &&
-      response.ok &&
-      Array.isArray(response.traceEvents)
-    ) {
-      const tail = response.traceEvents.slice(-5);
-      logPopupMessageTrace("runtime:trace-tail", { count: tail.length, tail });
+    return response;
+  });
+}
 
 export function requestTabApplyPostSaveTransition(tabId, payload = {}, options = {}) {
   if (!tabId) {
@@ -227,9 +220,6 @@ export function requestTabFocusPreviewElement(tabId, payload = {}, options = {})
       error: (error && error.message) || (reply && reply.error) || "Unable to focus preview item",
       details: reply && reply.details && typeof reply.details === "object" ? reply.details : {}
     };
-  });
-    }
-    return response;
   });
 }
 

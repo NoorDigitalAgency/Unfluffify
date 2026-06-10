@@ -660,8 +660,9 @@ test("popup restores spinner state from background current state", () => {
     /function applyBackgroundStateSnapshot\(snapshot\) \{([\s\S]*?)\n\}/
   )[1];
 
-  assert.match(restoreBody, /type: WORLD_MESSAGE_TYPES\.GET_BACKGROUND_STATE/);
-  assert.match(restoreBody, /applyBackgroundStateSnapshot\(response\)/);
+  assert.match(restoreBody, /messages\.requestPopupTabViewState\(tabId\)/);
+  assert.match(restoreBody, /applyBackgroundStateSnapshot\(viewState\.state\)/);
+  assert.doesNotMatch(restoreBody, /WORLD_MESSAGE_TYPES\.GET_BACKGROUND_STATE/);
   assert.match(applyBody, /popupSpinnerQueue\.clear\(\);/);
   assert.match(applyBody, /Array\.isArray\(snapshot\.spinnerQueue\)/);
   assert.match(applyBody, /popupSpinnerQueue\.set\(entry\.key/);

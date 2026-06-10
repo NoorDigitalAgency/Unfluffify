@@ -70,7 +70,7 @@ test("background exposes lifecycle and spinner state over messages and popup por
   assert.match(backgroundSource, /port\.name\.startsWith\(WORLD_PORTS\.POPUP_STATE_PREFIX\)/);
   assert.match(backgroundSource, /port\.postMessage\(\{ type: WORLD_MESSAGE_TYPES\.BACKGROUND_STATE, state: buildBrokerState\(tabId\) \}\)/);
   assert.match(backgroundSource, /if \(message\.type === WORLD_MESSAGE_TYPES\.LIFECYCLE_EVENT\) \{/);
-  assert.match(backgroundSource, /if \(message\.type === WORLD_MESSAGE_TYPES\.GET_BACKGROUND_STATE\) \{/);
+  assert.doesNotMatch(backgroundSource, /if \(message\.type === WORLD_MESSAGE_TYPES\.GET_BACKGROUND_STATE\) \{/);
   assert.match(backgroundSource, /if \(message\.type === WORLD_MESSAGE_TYPES\.SPINNER_SET\) \{/);
   assert.match(backgroundSource, /if \(message\.type === WORLD_MESSAGE_TYPES\.SPINNER_REMOVE\) \{/);
   assert.match(backgroundSource, /if \(message\.type === WORLD_MESSAGE_TYPES\.SPINNER_CLEAR\) \{/);

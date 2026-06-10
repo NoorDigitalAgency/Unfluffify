@@ -974,6 +974,10 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_CONTENT_REQUEST, async (contex
 });
 
 registerBackgroundCommand(BACKGROUND_COMMANDS.POPUP_GET_TAB_VIEW_STATE, async (context) => {
+  appendWorldTraceEvent(context.tabId, "broker", "snapshot-requested", {
+    type: BACKGROUND_COMMANDS.POPUP_GET_TAB_VIEW_STATE,
+    message: "Popup requested background state"
+  });
   return {
     state: buildBrokerState(context.tabId),
     runtime: getTabRuntimeSnapshot(context.tabId)
@@ -3848,16 +3852,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const tabId = getMessageTabId(message, sender);
     const state = updateLifecycleState(tabId, message.event || {});
     sendResponse(state);
-    return;
-  }
-
-  if (message.type === WORLD_MESSAGE_TYPES.GET_BACKGROUND_STATE) {
-    const tabId = getMessageTabId(message, sender);
-    appendWorldTraceEvent(tabId, "broker", "snapshot-requested", {
-      type: WORLD_MESSAGE_TYPES.GET_BACKGROUND_STATE,
-      message: "Popup requested background state"
-    });
-    sendResponse(buildBrokerState(tabId));
     return;
   }
 
