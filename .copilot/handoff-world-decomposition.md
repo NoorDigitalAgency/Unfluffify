@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-10
 Branch at document creation: main
-Implementation status: IN_PROGRESS (Track A complete, Track B pending)
+Implementation status: IN_PROGRESS (Track A complete, Track B Phase B0 complete)
 Document commit scope: plan + handoff authoring only
 
 ## Read This First
@@ -66,7 +66,7 @@ Status values: TODO / IN_PROGRESS / DONE / BLOCKED.
 
 ### Track B — Popup (`popup.js` -> `popup/*`) — starts after Track A is merged
 
-1. Phase B0 - Baseline + popup boundary guard: TODO.
+1. Phase B0 - Baseline + popup boundary guard: DONE.
 2. Phase B1 - popup/spinner.js: TODO.
 3. Phase B2 - popup/site-resolution.js: TODO.
 4. Phase B3 - popup/remote-config.js: TODO.
@@ -242,12 +242,19 @@ Phase 12 - managed timeouts (hardening):
    Focused: node --test tests/background-managed-timeouts.test.js tests/render-mode-inspector.test.js tests/background-render-mode-inspection.test.js tests/render-mode-inspection-order.test.js tests/ai-run-orchestrator.test.js tests/ai-run.test.js tests/background-decomposition-boundary.test.js -> 34 pass / 0 fail
    Full:    npm test -> 798 pass / 0 fail
    Live:    skipped by current requirement scope (not required for non-marking slices)
+   Commit:  06c536a refactor(background): add managed timeout groups
+
+Phase B0 - Baseline + popup boundary guard:
+   Files:   tests/popup-decomposition-boundary.test.js
+   Focused: node --test tests/popup-decomposition-boundary.test.js -> 1 pass / 0 fail
+   Full:    npm test -> 799 pass / 0 fail
+   Live:    skipped by current requirement scope (not required for non-marking slices)
    Commit:  pending
 ```
 
 ## Next Action
 
-Commit and push Track A Phase 12 with:
-`refactor(background): add managed timeout groups`, then begin Track B Phase B0
-(popup baseline + boundary guard). Do not start Track C until Track B is
-complete and merged.
+Commit and push Track B Phase B0 with:
+`test(popup): add decomposition boundary guard`, then proceed to Track B Phase
+B1 (`popup/spinner.js`). Do not start Track C until Track B is complete and
+merged.
