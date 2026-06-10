@@ -679,7 +679,10 @@ async function loadAiRunSelectorSetFromPayloadKey(payloadKey) {
   if (!resultPayloadKey) {
     return null;
   }
-  const loaded = await consumeTransferPayload(resultPayloadKey, { expectedType: "object" });
+  const loaded = await consumeTransferPayload(resultPayloadKey, {
+    expectedType: "object",
+    removeInvalid: true
+  });
   const payload = loaded && loaded.ok ? loaded.payload : null;
   if (
     !payload ||
