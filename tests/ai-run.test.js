@@ -185,6 +185,20 @@ test("AI compute builds the request from stored local page snapshots only", () =
   );
 });
 
+test("TAB_RUN_AI resolves omitted credentials from fresh settings reads", () => {
+  const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
+
+  assert.match(backgroundSource, /async function resolveBackgroundNetworkCredentials\(options = \{\}\) \{/);
+  assert.match(backgroundSource, /const needsFreshSettings = !requestedEndpoint \|\| !requestedToken;/);
+  assert.match(backgroundSource, /getGlobalAiSettings\(\{ useCache: !needsFreshSettings \}\)/);
+  assert.match(
+    backgroundSource,
+    /const credentials = await resolveBackgroundNetworkCredentials\(\{[\s\S]*?endpointValue: payload && payload\.endpointValue,[\s\S]*?tokenValue: payload && payload\.tokenValue,[\s\S]*?endpointPreference: "ai"[\s\S]*?\}\);/
+  );
+  assert.match(backgroundSource, /const endpointValue = credentials\.endpointValue;/);
+  assert.match(backgroundSource, /const tokenValue = credentials\.tokenValue;/);
+});
+
 test("AI compute reports specific snapshot preparation blockers", () => {
   const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
   const failureStart = source.indexOf("function getAiRunCommandFailureMessage");

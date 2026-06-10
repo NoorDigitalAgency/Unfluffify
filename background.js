@@ -2112,7 +2112,8 @@ async function resolveBackgroundNetworkCredentials(options = {}) {
   const endpointPreference = typeof options.endpointPreference === "string"
     ? options.endpointPreference
     : "ai";
-  const settings = await getGlobalAiSettings({ useCache: true }).catch(() => ({
+  const needsFreshSettings = !requestedEndpoint || !requestedToken;
+  const settings = await getGlobalAiSettings({ useCache: !needsFreshSettings }).catch(() => ({
     tokenValue: "",
     endpointValue: "",
     configEndpointValue: ""
@@ -2122,7 +2123,8 @@ async function resolveBackgroundNetworkCredentials(options = {}) {
     : settings.endpointValue;
   return {
     endpointValue: requestedEndpoint || fallbackEndpoint || "",
-    tokenValue: requestedToken || settings.tokenValue || ""
+    tokenValue: requestedToken || settings.tokenValue || "",
+    fromSettings: !requestedEndpoint || !requestedToken
   };
 }
 
