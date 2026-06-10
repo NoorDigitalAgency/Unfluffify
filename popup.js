@@ -123,6 +123,11 @@ import {
   waitForTabLoadStart as waitForTabLoadStartOperation
 } from "./popup/render-mode-inspection.js";
 import {
+  handlePageRevert as handlePageRevertOperation,
+  handlePageSave as handlePageSaveOperation,
+  hasCurrentPagePendingChanges as hasCurrentPagePendingChangesOperation
+} from "./popup/page-reconciliation.js";
+import {
   refineXPathEntries
 } from "./common/xpath-utilities.js";
 import {
@@ -1041,6 +1046,51 @@ const waitForTabLoadComplete = (
 const completeRenderModeInspectionReloadFollowUp = (tabId, operationId = "") =>
   completeRenderModeInspectionReloadFollowUpOperation(getRenderModeInspectionDeps(), tabId, operationId);
 
+function getPageReconciliationDeps() {
+  return {
+    state,
+    PopupText,
+    PAGE_SAVE_SYNC_MAX_ATTEMPTS,
+    PAGE_SAVE_SYNC_INITIAL_RETRY_DELAY_MS,
+    PAGE_SAVE_SYNC_MAX_RETRY_DELAY_MS,
+    windowRef: window,
+    hasCurrentPageMarkingChanges,
+    ensureActiveTab: (options) => helpers.ensureActiveTab(options),
+    ensureBaseUrl: (message) => helpers.ensureBaseUrl(message),
+    refreshCurrentPageRuntimeStatus: (options) => refreshCurrentPageRuntimeStatus(options),
+    showToast: (message) => {
+      uiModule.showToast(message);
+    },
+    getViewState: () => uiModule.getViewState(),
+    updateLastConfigSaveStatus,
+    validateStoredToken,
+    runWithSpinner,
+    getCurrentPageUrl,
+    loadGlobalAiSettings: () => helpers.loadGlobalAiSettings(),
+    syncBaseConfigToServer: (options) => syncBaseConfigToServer(options),
+    clearCurrentPageSaveReconciliation,
+    resetAiRunMarkingsFingerprint,
+    applyPostSaveSilentTransition,
+    refreshUi: (options) => refreshUi(options),
+    setUiBusy: (busy, message, details) => {
+      uiModule.setUiBusy(busy, message, details);
+    },
+    waitForRetryDelay,
+    applyLocalPageDiscard
+  };
+}
+
+const hasCurrentPagePendingChanges = (localPageMarkings, backendSavedPageMarkings, options = {}) =>
+  hasCurrentPagePendingChangesOperation(
+    getPageReconciliationDeps(),
+    localPageMarkings,
+    backendSavedPageMarkings,
+    options
+  );
+
+const handlePageSave = () => handlePageSaveOperation(getPageReconciliationDeps());
+const handlePageRevert = () => handlePageRevertOperation(getPageReconciliationDeps());
+
 function buildSpinnerBusyDetails(key, entry) {
   const spinnerEntry = entry && typeof entry === "object" ? entry : {};
   return {
@@ -1757,14 +1807,6 @@ function hasSessionPendingChanges(sourceConfig, localPageMarkings, backendSavedP
     options.currentDraftDirty ||
       options.reconciliationPending ||
       hasSessionPageMarkingChanges(localPageMarkings, backendSavedPageMarkings)
-  );
-}
-
-function hasCurrentPagePendingChanges(localPageMarkings, backendSavedPageMarkings, options = {}) {
-  return Boolean(
-    options.currentDraftDirty ||
-      options.reconciliationPending ||
-      hasCurrentPageMarkingChanges(localPageMarkings, backendSavedPageMarkings, options.pageUrl)
   );
 }
 
@@ -6954,84 +6996,6 @@ async function applyPostSaveSilentTransition() {
   await alignPopupToSilentMode();
 }
 
-async function handlePageSave() {
-  if (!await helpers.ensureActiveTab({ requireId: true })) {
-    return;
-  }
-  if (!helpers.ensureBaseUrl()) {
-    return;
-  }
-  await refreshCurrentPageRuntimeStatus();
-  if (state.currentPageSaveReconciliationPending) {
-    uiModule.showToast(PopupText.page.statusServerSyncPending);
-    return;
-  }
-  const currentViewState = uiModule.getViewState();
-  if (!currentViewState.sessionHasPendingChanges) {
-    updateLastConfigSaveStatus(PopupText.page.noLocalChangesToSave);
-    uiModule.showToast(PopupText.page.noChangesToSave);
-    return;
-  }
-  if (currentViewState.sessionRequiresAiRun) {
-    uiModule.showToast(PopupText.page.noticeRunAiBeforeSaving);
-    return;
-  }
-  const tokenIsValid = await validateStoredToken({ force: true });
-  if (!tokenIsValid) {
-    return;
-  }
-  await runWithSpinner(null, PopupText.overlay.savingPage, async () => {
-    const pageUrl = getCurrentPageUrl();
-    const { tokenValue, configEndpointValue, stageBaseValue } =
-      await helpers.loadGlobalAiSettings();
-    let retryDelayMs = PAGE_SAVE_SYNC_INITIAL_RETRY_DELAY_MS;
-    for (let attempt = 0; attempt < PAGE_SAVE_SYNC_MAX_ATTEMPTS; attempt += 1) {
-      const syncResult = await syncBaseConfigToServer({
-        baseUrl: state.currentBaseUrl,
-        pageUrl,
-        endpointValue: configEndpointValue,
-        tokenValue,
-        stageBase: stageBaseValue,
-        alertOnCurrentReplacement: false,
-        includeAllLocalPageMarkings: true,
-        maxAttempts: 1
-      });
-      if (syncResult && syncResult.ok) {
-        await clearCurrentPageSaveReconciliation();
-        resetAiRunMarkingsFingerprint();
-        // Switch marking -> silent and reset the current page to the saved
-        // baseline so Discard is disabled and Run AI stays irrelevant in silent.
-        await applyPostSaveSilentTransition();
-        updateLastConfigSaveStatus(PopupText.page.savedAndSynced);
-        uiModule.showToast(PopupText.page.sessionSaved);
-        await refreshUi();
-        return;
-      }
-      if (syncResult && syncResult.authExpired) {
-        return;
-      }
-      if (syncResult && syncResult.skipped) {
-        updateLastConfigSaveStatus(PopupText.page.saveFailed);
-        uiModule.showToast(syncResult.reason || PopupText.page.saveFailedToast);
-        return;
-      }
-      if (attempt + 1 >= PAGE_SAVE_SYNC_MAX_ATTEMPTS) {
-        updateLastConfigSaveStatus(PopupText.page.saveFailed);
-        uiModule.showToast(PopupText.page.saveFailedToast);
-        await refreshUi();
-        return;
-      }
-      uiModule.setUiBusy(true, PopupText.status.remoteServerRetryNotice, {
-        reason: "page-save-remote-config-retry",
-        source: "popup-page-save",
-        spinnerKey: ""
-      });
-      await waitForRetryDelay(retryDelayMs);
-      retryDelayMs = Math.min(retryDelayMs * 2, PAGE_SAVE_SYNC_MAX_RETRY_DELAY_MS);
-    }
-  });
-}
-
 async function applyLocalPageDiscard() {
   const pageUrl = getCurrentPageUrl();
   const baseUrl = state.currentBaseUrl;
@@ -7065,35 +7029,6 @@ async function applyLocalPageDiscard() {
   state.aiSelectorsComputedSinceLastSubmit = false;
   state.aiSelectorsComputedBaseUrl = "";
   resetAiRunMarkingsFingerprint();
-}
-
-async function handlePageRevert() {
-  if (!await helpers.ensureActiveTab({ requireId: true })) {
-    return;
-  }
-  if (!helpers.ensureBaseUrl()) {
-    return;
-  }
-  await refreshCurrentPageRuntimeStatus();
-  if (state.currentPageSaveReconciliationPending) {
-    uiModule.showToast(PopupText.page.statusServerSyncPending);
-    return;
-  }
-  const currentViewState = uiModule.getViewState();
-  if (!currentViewState.currentPageHasPendingChanges) {
-    uiModule.showToast(PopupText.page.noChangesToSave);
-    return;
-  }
-  const confirmed = window.confirm(PopupText.page.revertConfirm);
-  if (!confirmed) {
-    return;
-  }
-  await runWithSpinner(null, PopupText.overlay.revertingPage, async () => {
-    await applyLocalPageDiscard();
-    updateLastConfigSaveStatus(PopupText.page.revertedToLastSaved);
-    uiModule.showToast(PopupText.page.revertedToLastSaved);
-    await refreshUi();
-  });
 }
 
 async function requestAiRunStart({

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+const pageReconciliationSource = readFileSync(new URL("../popup/page-reconciliation.js", import.meta.url), "utf8");
 const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
 const uiSource = readFileSync(new URL("../popup/ui.js", import.meta.url), "utf8");
 const stateSource = readFileSync(new URL("../popup/state.js", import.meta.url), "utf8");
@@ -44,8 +45,8 @@ test("entering marking mode, saving, and discarding reset the fingerprint", () =
   );
   // Save success.
   assert.match(
-    popupSource,
-    /await clearCurrentPageSaveReconciliation\(\);\s*resetAiRunMarkingsFingerprint\(\);\s*\/\/[\s\S]*?await applyPostSaveSilentTransition\(\);\s*updateLastConfigSaveStatus\(PopupText\.page\.savedAndSynced\);/
+    pageReconciliationSource,
+    /await deps\.clearCurrentPageSaveReconciliation\(\);\s*deps\.resetAiRunMarkingsFingerprint\(\);\s*await deps\.applyPostSaveSilentTransition\(\);\s*deps\.updateLastConfigSaveStatus\(deps\.PopupText\.page\.savedAndSynced\);/
   );
   // Discard (applyLocalPageDiscard, shared by manual discard + disable/nav confirm).
   assert.match(

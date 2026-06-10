@@ -34,6 +34,7 @@ test("popup decomposition guard: baseline popup modules are imported", () => {
   assertImportsPopupModule("site-resolution");
   assertImportsPopupModule("remote-config");
   assertImportsPopupModule("render-mode-inspection");
+  assertImportsPopupModule("page-reconciliation");
   assertImportsPopupModule("ai-run");
   assertImportsPopupModule("render-mode");
   assertImportsPopupModule("state");
@@ -61,4 +62,7 @@ test("popup decomposition guard: baseline popup modules are imported", () => {
   assertPopupDoesNotDefine("waitForTabLoadStart");
   assertPopupDoesNotDefine("waitForTabLoadComplete");
   assertPopupDoesNotDefine("completeRenderModeInspectionReloadFollowUp");
+  assertPopupDoesNotDefine("hasCurrentPagePendingChanges");
+  assertPopupDoesNotDefine("handlePageSave");
+  assertPopupDoesNotDefine("handlePageRevert");
 });

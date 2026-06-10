@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-10
 Branch at document creation: main
-Implementation status: IN_PROGRESS (Track A complete, Track B Phase B4 complete)
+Implementation status: IN_PROGRESS (Track A complete, Track B Phase B5 complete)
 Document commit scope: plan + handoff authoring only
 
 ## Read This First
@@ -71,8 +71,8 @@ Status values: TODO / IN_PROGRESS / DONE / BLOCKED.
 3. Phase B2 - popup/site-resolution.js: DONE.
 4. Phase B3 - popup/remote-config.js: DONE.
 5. Phase B4 - popup/render-mode-inspection.js: DONE.
-6. Phase B5 - popup/page-reconciliation.js: IN_PROGRESS.
-7. Phase B6 - popup/property-lock-ui.js (HIGH RISK): TODO.
+6. Phase B5 - popup/page-reconciliation.js: DONE.
+7. Phase B6 - popup/property-lock-ui.js (HIGH RISK): IN_PROGRESS.
 8. Phase B7 - popup/remote-support-ui.js: TODO.
 9. Phase B8 - popup/timers.js (hardening): TODO.
 
@@ -277,12 +277,19 @@ Phase B4 - render-mode inspection extraction:
    Focused: node --test tests/popup-render-mode-inspection.test.js tests/popup-decomposition-boundary.test.js tests/render-mode-inspection-order.test.js tests/popup-marking-refresh.test.js tests/popup-render-mode.test.js tests/background-render-mode-inspection.test.js -> 74 pass / 0 fail
    Full:    npm test -> 819 pass / 0 fail
    Live:    skipped by current requirement scope (not required for non-marking slices)
+   Commit:  9fccbb3 refactor(popup): extract render-mode inspection
+
+Phase B5 - page save reconciliation extraction:
+   Files:   popup/page-reconciliation.js; popup.js; tests/popup-page-reconciliation.test.js; tests/popup-decomposition-boundary.test.js; tests/popup-marking-refresh.test.js; tests/popup-ai-run-gating.test.js
+   Focused: node --test tests/popup-page-reconciliation.test.js tests/popup-decomposition-boundary.test.js tests/popup-marking-refresh.test.js tests/popup-ai-run-gating.test.js -> 67 pass / 0 fail
+   Full:    npm test -> 823 pass / 0 fail
+   Live:    skipped by current requirement scope (not required for non-marking slices)
    Commit:  pending
 ```
 
 ## Next Action
 
-Commit and push Track B Phase B4 with:
-`refactor(popup): extract render-mode inspection`, then proceed to Track B Phase
-B5 (`popup/page-reconciliation.js`). Do not start Track C until Track B is
+Commit and push Track B Phase B5 with:
+`refactor(popup): extract page save reconciliation`, then proceed to Track B
+Phase B6 (`popup/property-lock-ui.js`). Do not start Track C until Track B is
 complete and merged.
