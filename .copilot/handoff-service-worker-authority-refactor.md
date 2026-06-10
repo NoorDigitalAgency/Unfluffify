@@ -1,8 +1,8 @@
 # Handoff - Service Worker Authority Refactor
 
-Last updated: 2026-06-10 (implementation checkpoints through Phase 10 in progress)
+Last updated: 2026-06-10 (implementation checkpoints through Phase 10 complete)
 Branch at document creation: main
-Implementation status: IN PROGRESS
+Implementation status: COMPLETE
 Document commit scope: planning + active implementation handoff updates
 
 ## Implementation Checkpoints (2026-06-09)
@@ -264,32 +264,31 @@ Completed and pushed checkpoints:
       - `node --test tests/tab-isolation-hardening.test.js tests/background-command-router.test.js tests/background-spinner-operations.test.js tests/popup-authority-boundary.test.js` passed (21/21).
       - Full suite passed (705/705).
 
-Current in-progress phase (ready for checkpoint commit/push at this handoff update):
-
-1. Phase 10 (cleanup and documentation)
-    - Updated:
-       - Removed legacy popup fallback path using
-          `WORLD_MESSAGE_TYPES.GET_BACKGROUND_STATE`; popup snapshot and
-          trace-state sync now rely on `POPUP_GET_TAB_VIEW_STATE` command
-          snapshots only.
-       - Added snapshot-requested world trace logging to
-          `POPUP_GET_TAB_VIEW_STATE` command execution path in `background.js`.
-       - Removed legacy `GET_BACKGROUND_STATE` world message constant from
-          `common/world-messaging-contract.js`.
-       - Repaired malformed `popup/messages.js` runtime wrapper block and
-          retained command-routed messaging helpers.
-       - Updated architecture and contract docs:
-          - `README.md` message-passing notes
-          - `.copilot/knowledge.md` architecture decisions
-       - Updated tests to guard the cleanup contract:
-          - `tests/feature-flags.test.js`
-          - `tests/lifecycle-broker.test.js`
-          - `tests/popup-marking-refresh.test.js`
-          - `tests/world-trace-contract.test.js`
-    - Verification in working tree before checkpoint commit:
-       - `node --check popup/messages.js` passed.
-       - `node --test tests/popup-background-snapshot.test.js tests/popup-marking-refresh.test.js tests/feature-flags.test.js tests/world-trace-contract.test.js tests/lifecycle-broker.test.js tests/tab-runtime.test.js tests/tab-isolation-hardening.test.js tests/background-command-router.test.js tests/background-spinner-operations.test.js tests/popup-authority-boundary.test.js` passed (98/98).
-       - Full suite passed (705/705).
+16. Phase 10 checkpoint commit `8cef302`
+   - Message: `refactor: centralize tab command authority in service worker`
+   - Updated:
+      - Removed legacy popup fallback path using
+         `WORLD_MESSAGE_TYPES.GET_BACKGROUND_STATE`; popup snapshot and
+         trace-state sync now rely on `POPUP_GET_TAB_VIEW_STATE` command
+         snapshots only.
+      - Added snapshot-requested world trace logging to
+         `POPUP_GET_TAB_VIEW_STATE` command execution path in `background.js`.
+      - Removed legacy `GET_BACKGROUND_STATE` world message constant from
+         `common/world-messaging-contract.js`.
+      - Repaired malformed `popup/messages.js` runtime wrapper block and
+         retained command-routed messaging helpers.
+      - Updated architecture and contract docs:
+         - `README.md` message-passing notes
+         - `.copilot/knowledge.md` architecture decisions
+      - Updated tests to guard the cleanup contract:
+         - `tests/feature-flags.test.js`
+         - `tests/lifecycle-broker.test.js`
+         - `tests/popup-marking-refresh.test.js`
+         - `tests/world-trace-contract.test.js`
+   - Verification at checkpoint:
+      - `node --check popup/messages.js` passed.
+      - `node --test tests/popup-background-snapshot.test.js tests/popup-marking-refresh.test.js tests/feature-flags.test.js tests/world-trace-contract.test.js tests/lifecycle-broker.test.js tests/tab-runtime.test.js tests/tab-isolation-hardening.test.js tests/background-command-router.test.js tests/background-spinner-operations.test.js tests/popup-authority-boundary.test.js` passed (98/98).
+      - Full suite passed (705/705).
 
 ### Phase 8 Test Inventory (Initial)
 
@@ -360,7 +359,7 @@ As of this handoff:
 6. Page-world freeze/lazy-loading suppression now supports deterministic
    content->page-world relay with nonce-scoped request/reply; background
    executeScript remains as compatibility fallback.
-7. Next work is finishing the Phase 10 checkpoint commit/push.
+7. Refactor track is complete through Phase 10.
 
 ## First Commands For A Future Implementer
 
