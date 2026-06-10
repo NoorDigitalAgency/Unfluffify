@@ -79,6 +79,7 @@ test("persisted AI run records normalize and validate the current site", () => {
 test("AI compute shows busy feedback and locks marking before payload work", () => {
   const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
   const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
+  const aiRunOrchestratorSource = readFileSync(new URL("../background/ai-run-orchestrator.js", import.meta.url), "utf8");
   const match = source.match(
     /async function handleComputeSelectors\(\) \{([\s\S]*?)\n\}\n\nasync function postPageTypeAssignmentsToAiServer/
   );
@@ -88,28 +89,24 @@ test("AI compute shows busy feedback and locks marking before payload work", () 
   const firstPaintIndex = body.indexOf("await waitForPopupUiPaint();", activeIndex);
   const runCommandIndex = body.indexOf("messages.requestTabRunAi(tabId, {", firstPaintIndex);
 
-  const runAiStart = backgroundSource.indexOf("async function runAiCommandForTab(tabId, payload, update) {");
-  const runAiEnd = backgroundSource.indexOf("registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_BOOTSTRAP_CONTENT", runAiStart);
-  assert.ok(runAiStart > -1, "runAiCommandForTab should exist");
-  assert.ok(runAiEnd > runAiStart, "runAiCommandForTab block should terminate before command registration");
-  const runAiBlock = backgroundSource.slice(runAiStart, runAiEnd);
-  const lockIndex = runAiBlock.indexOf("await setAiComputeLockForTab(");
-  const prepareIndex = runAiBlock.indexOf("await prepareAiRunPayloadSnapshot({", lockIndex);
+  const runAiPattern = /async function runAiCommandForTab\(tabId, payload, update\) \{[\s\S]*?await setAiComputeLockForTab\([\s\S]*?await prepareAiRunPayloadSnapshot\(\{/;
 
   assert.ok(activeIndex >= 0, "AI run state should be activated");
   assert.ok(firstPaintIndex > activeIndex, "popup should yield for busy feedback before locking");
   assert.ok(runCommandIndex > firstPaintIndex, "AI command should run after busy feedback is visible");
-  assert.ok(lockIndex > -1, "background command should lock compute mode");
-  assert.ok(prepareIndex > lockIndex, "background should prepare payload after locking");
+  assert.match(aiRunOrchestratorSource, runAiPattern);
   assert.match(backgroundSource, /TAB_RUN_AI: "TAB_RUN_AI"/);
   assert.match(backgroundSource, /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_RUN_AI, async \(context, payload\) => \{/);
-  assert.match(backgroundSource, /async function prepareAiRunPayloadSnapshot\(options = \{\}\) \{/);
-  assert.match(backgroundSource, /fetchStaticPageHtmlForBackground/);
+  assert.match(backgroundSource, /from "\.\/background\/ai-run-orchestrator\.js"/);
+  assert.match(backgroundSource, /const aiRunOrchestrator = createAiRunOrchestrator\(\{/);
+  assert.match(aiRunOrchestratorSource, /async function prepareAiRunPayloadSnapshot\(options = \{\}\) \{/);
+  assert.match(aiRunOrchestratorSource, /fetchStaticPageHtmlForBackground/);
 });
 
 test("AI compute builds the request from stored local page snapshots only", () => {
   const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
   const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
+  const aiRunOrchestratorSource = readFileSync(new URL("../background/ai-run-orchestrator.js", import.meta.url), "utf8");
   const match = source.match(
     /async function handleComputeSelectors\(\) \{([\s\S]*?)\n\}\n\nasync function postPageTypeAssignmentsToAiServer/
   );
@@ -132,48 +129,48 @@ test("AI compute builds the request from stored local page snapshots only", () =
     /type: "capturePageSnapshot"|type: "prepareAiRunPayloadSnapshot"|type: "requestAiRunStartSnapshot"|type: "requestAiRunStatus"|type: "requestAiRunResultSnapshot"/
   );
   assert.match(
-    backgroundSource,
+    aiRunOrchestratorSource,
     /type: "capturePageSnapshot"[\s\S]*?persist: true/
   );
   assert.match(
-    backgroundSource,
+    aiRunOrchestratorSource,
     /await prepareAiRunPayloadSnapshot\(\{[\s\S]*?baseUrl,[\s\S]*?currentPageUrl,[\s\S]*?currentRenderMode/
   );
   assert.match(
-    backgroundSource,
+    aiRunOrchestratorSource,
     /preparedPayload\.requiresRawXPathRefinement/
   );
   assert.match(
-    backgroundSource,
+    aiRunOrchestratorSource,
     /refineAiRunPayloadXpathsInBackground\(startPayloadKey\)/
   );
   assert.match(
-    backgroundSource,
+    aiRunOrchestratorSource,
     /await requestAiRunStartSnapshot\(/ 
   );
   assert.match(
-    backgroundSource,
+    aiRunOrchestratorSource,
     /await requestAiRunStatus\(/ 
   );
   assert.match(
-    backgroundSource,
+    aiRunOrchestratorSource,
     /await requestAiRunResultSnapshot\(/ 
   );
   assert.match(
-    backgroundSource,
+    aiRunOrchestratorSource,
     /const storedPageEntries = Object\.entries\(pageMarkings\)/
   );
   assert.match(
-    backgroundSource,
+    aiRunOrchestratorSource,
     /const urlsMissingRawHtml = storedPageEntries/
   );
   assert.match(
-    backgroundSource,
+    aiRunOrchestratorSource,
     /renderedXPaths: buildAiSubmissionXpaths\(entry\)/
   );
   assert.match(
-    backgroundSource,
-    /defaultExclusionSelectors: constants\.DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS/
+    aiRunOrchestratorSource,
+    /defaultExclusionSelectors: defaultExcludedImmutableSelectors/
   );
   assert.doesNotMatch(
     body,
@@ -187,6 +184,7 @@ test("AI compute builds the request from stored local page snapshots only", () =
 
 test("TAB_RUN_AI resolves omitted credentials from fresh settings reads", () => {
   const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
+  const aiRunOrchestratorSource = readFileSync(new URL("../background/ai-run-orchestrator.js", import.meta.url), "utf8");
   const networkCoreSource = readFileSync(new URL("../background/network-core.js", import.meta.url), "utf8");
 
   assert.match(backgroundSource, /from "\.\/background\/network-core\.js"/);
@@ -195,11 +193,11 @@ test("TAB_RUN_AI resolves omitted credentials from fresh settings reads", () => 
   assert.match(networkCoreSource, /const needsFreshSettings = !requestedEndpoint \|\| !requestedToken \|\| !requestedStageBase;/);
   assert.match(networkCoreSource, /getGlobalAiSettings\(\{ useCache: !needsFreshSettings \}\)/);
   assert.match(
-    backgroundSource,
+    aiRunOrchestratorSource,
     /const credentials = await resolveBackgroundNetworkCredentials\(\{[\s\S]*?endpointValue: payload && payload\.endpointValue,[\s\S]*?tokenValue: payload && payload\.tokenValue,[\s\S]*?endpointPreference: "ai"[\s\S]*?\}\);/
   );
-  assert.match(backgroundSource, /const endpointValue = credentials\.endpointValue;/);
-  assert.match(backgroundSource, /const tokenValue = credentials\.tokenValue;/);
+  assert.match(aiRunOrchestratorSource, /const endpointValue = credentials\.endpointValue;/);
+  assert.match(aiRunOrchestratorSource, /const tokenValue = credentials\.tokenValue;/);
 });
 
 test("AI compute reports specific snapshot preparation blockers", () => {
@@ -250,6 +248,7 @@ test("AI run recovery metadata is persisted through background", () => {
 test("AI run recovery heartbeat and page lock are coordinated by background", () => {
   const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
   const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
+  const aiRunOrchestratorSource = readFileSync(new URL("../background/ai-run-orchestrator.js", import.meta.url), "utf8");
   const contentSource = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
   const heartbeatStart = popupSource.indexOf("async function refreshAiRunHeartbeat(options = {}) {");
   const heartbeatEnd = popupSource.indexOf("async function stopAiRun", heartbeatStart);
@@ -267,21 +266,21 @@ test("AI run recovery heartbeat and page lock are coordinated by background", ()
   assert.match(backgroundSource, /if \(settled\) \{[\s\S]*?return;[\s\S]*?\}/);
   assert.match(backgroundSource, /async function ensureContentMainForTab\(tabId\) \{/);
   assert.match(backgroundSource, /type: "activateContentMain"/);
-  assert.match(backgroundSource, /async function setAiComputeLockForTab\(tabId, active, expiresAt = 0, baseUrl = ""\) \{/);
-  assert.match(backgroundSource, /const activationResult = await ensureContentMainForTab\(normalizedTabId\);/);
+  assert.match(aiRunOrchestratorSource, /async function setAiComputeLockForTab\(tabId, active, expiresAt = 0, baseUrl = ""\) \{/);
+  assert.match(aiRunOrchestratorSource, /const activationResult = await ensureContentMainForTab\(normalizedTabId\);/);
   assert.match(
-    backgroundSource,
+    aiRunOrchestratorSource,
     /type: "setAiComputeLock",[\s\S]*?active: Boolean\(active\),[\s\S]*?expiresAt: Number\(expiresAt\) \|\| 0/
   );
-  assert.match(backgroundSource, /if \(!active && \(!response \|\| !response\.ok\)\) \{/);
-  assert.match(backgroundSource, /async function refreshAiRunHeartbeat\(options = \{\}\) \{/);
-  assert.match(backgroundSource, /const expiresAt = getAiRunResumeExpiresAt\(\);/);
+  assert.match(aiRunOrchestratorSource, /if \(!active && \(!response \|\| !response\.ok\)\) \{/);
+  assert.match(aiRunOrchestratorSource, /async function refreshAiRunHeartbeat\(options = \{\}\) \{/);
+  assert.match(aiRunOrchestratorSource, /const expiresAt = getAiRunResumeExpiresAt\(\);/);
   assert.match(
-    backgroundSource,
+    aiRunOrchestratorSource,
     /const record = await savePersistedAiRunRecord\(\{[\s\S]*?sessionId,[\s\S]*?siteId,[\s\S]*?expiresAt,[\s\S]*?deadlineAt[\s\S]*?\}\);/
   );
-  assert.match(backgroundSource, /const lockResult = await setAiComputeLockForTab\(tabId, true, expiresAt, baseUrl\);/);
-  assert.match(backgroundSource, /if \(!lockResult\.ok\) \{[\s\S]*?await clearPersistedAiRunRecord\(\);/);
+  assert.match(aiRunOrchestratorSource, /const lockResult = await setAiComputeLockForTab\(tabId, true, expiresAt, baseUrl\);/);
+  assert.match(aiRunOrchestratorSource, /if \(!lockResult\.ok\) \{[\s\S]*?await clearPersistedAiRunRecord\(\);/);
   assert.match(popupHeartbeatBlock, /type: "refreshAiRunHeartbeat"/);
   assert.match(popupHeartbeatBlock, /state\.aiRunResumeExpiresAt = expiresAt;/);
   assert.doesNotMatch(popupHeartbeatBlock, /savePersistedAiRunRecord|clearPersistedAiRunRecord|sendTabMessage\(\{[\s\S]*?setAiComputeLock/);

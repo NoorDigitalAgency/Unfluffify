@@ -34,6 +34,7 @@ test("background decomposition guard: baseline background modules are imported",
   assertImportsBackgroundModule("world-trace");
   assertImportsBackgroundModule("popup-state-broker");
   assertImportsBackgroundModule("render-mode-inspector");
+  assertImportsBackgroundModule("ai-run-orchestrator");
   assertImportsBackgroundModule("tab-runtime");
   assertImportsBackgroundModule("tab-session-store");
   assertImportsBackgroundModule("spinner-operations");
@@ -89,4 +90,13 @@ test("background decomposition guard: baseline background modules are imported",
   assertBackgroundDoesNotDefine("runRenderModeInspectionBeginStep");
   assertBackgroundDoesNotDefine("runRenderModeRevealFreezeStep");
   assertBackgroundDoesNotDefine("runRenderModeCaptureHtmlStep");
+  assertBackgroundDoesNotDefine("getAiRunCurrentPageEntry");
+  assertBackgroundDoesNotDefine("isAiRunCurrentPageSnapshotMissing");
+  assertBackgroundDoesNotDefine("refineAiRunPayloadXpathsInBackground");
+  assertBackgroundDoesNotDefine("loadAiRunSelectorSetFromPayloadKey");
+  assertBackgroundDoesNotDefine("runAiCommandForTab");
+  assertBackgroundDoesNotDefine("setAiComputeLockForTab");
+  assertBackgroundDoesNotDefine("isAiComputeLockActiveForTab");
+  assertBackgroundDoesNotDefine("refreshAiRunHeartbeat");
+  assertBackgroundDoesNotDefine("prepareAiRunPayloadSnapshot");
 });
