@@ -104,6 +104,7 @@ import {
 } from "./content/content-command-router.js";
 import { initializePageWorldRelay } from "./content/page-world-relay.js";
 import { createPageToast } from "./content/page-toast.js";
+import { createRenderModeInspectionClient } from "./content/render-mode-inspection-client.js";
 import {
   clearPropertyLockBannerCountdown as clearPropertyLockBannerCountdownOperation,
   ensurePropertyLockBannerStyle as ensurePropertyLockBannerStyleOperation,
@@ -385,6 +386,7 @@ let remoteSupportClient = null;
 let remoteSupportViewerClient = null;
 let remoteSupportSupportPage = null;
 let pageToastClient = null;
+let renderModeInspectionClient = null;
 let propertyLockPortClient = null;
 let propertyLockStateMachine = null;
 let pageTelemetryBridgeListenerBound = false;
@@ -510,6 +512,13 @@ function getPageToastClient() {
     pageToastClient = createPageToast(createPageToastDeps());
   }
   return pageToastClient;
+}
+
+function getRenderModeInspectionClient() {
+  if (!renderModeInspectionClient) {
+    renderModeInspectionClient = createRenderModeInspectionClient(createRenderModeInspectionClientDeps());
+  }
+  return renderModeInspectionClient;
 }
 
 function getPropertyLockPortClient() {
@@ -1579,24 +1588,12 @@ function getCurrentPageSnapshotXPath(node) {
 }
 
 function readRenderModeInspectionActive() {
-  try {
-    return window.sessionStorage.getItem(RENDER_MODE_INSPECTION_SESSION_KEY) === "1";
-  } catch {
-    return false;
-  }
+  return getRenderModeInspectionClient().readActiveFlag();
 }
 
 function setRenderModeInspectionActive(active) {
   renderModeInspectionActive = Boolean(active);
-  try {
-    if (renderModeInspectionActive) {
-      window.sessionStorage.setItem(RENDER_MODE_INSPECTION_SESSION_KEY, "1");
-    } else {
-      window.sessionStorage.removeItem(RENDER_MODE_INSPECTION_SESSION_KEY);
-    }
-  } catch {
-    // Some pages block sessionStorage; the in-memory guard still covers this document.
-  }
+  getRenderModeInspectionClient().writeActiveFlag(renderModeInspectionActive);
   if (renderModeInspectionActive) {
     armRenderModeInspectionWatchdog();
   } else {
@@ -1609,21 +1606,19 @@ function isRenderModeInspectionActive() {
 }
 
 function clearRenderModeInspectionWatchdog() {
-  if (renderModeInspectionWatchdogTimer) {
-    window.clearTimeout(renderModeInspectionWatchdogTimer);
-    renderModeInspectionWatchdogTimer = 0;
-  }
+  getRenderModeInspectionClient().clearWatchdog();
+  renderModeInspectionWatchdogTimer = 0;
 }
 
 function armRenderModeInspectionWatchdog() {
-  clearRenderModeInspectionWatchdog();
-  if (typeof window.setTimeout !== "function") {
-    return;
-  }
-  renderModeInspectionWatchdogTimer = window.setTimeout(() => {
-    renderModeInspectionWatchdogTimer = 0;
-    recoverFromStuckRenderModeInspection();
-  }, RENDER_MODE_INSPECTION_WATCHDOG_MS);
+  getRenderModeInspectionClient().armWatchdog({
+    timeoutMs: RENDER_MODE_INSPECTION_WATCHDOG_MS,
+    onTimeout: () => {
+      renderModeInspectionWatchdogTimer = 0;
+      recoverFromStuckRenderModeInspection();
+    }
+  });
+  renderModeInspectionWatchdogTimer = 1;
 }
 
 // Force-clear a render-mode inspection that never received its terminating
@@ -6101,6 +6096,13 @@ function createPageToastDeps() {
     PAGE_TOAST_STYLE_ID,
     TOAST_VISIBLE_MS: 3000,
     getDocument: () => document,
+    getWindow: () => window
+  };
+}
+
+function createRenderModeInspectionClientDeps() {
+  return {
+    RENDER_MODE_INSPECTION_SESSION_KEY,
     getWindow: () => window
   };
 }

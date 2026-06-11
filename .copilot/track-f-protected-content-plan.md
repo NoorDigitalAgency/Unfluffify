@@ -67,3 +67,55 @@ Commit message:
 ```text
 refactor(content): extract page toast helper
 ```
+
+## Phase F2 - Render-Mode Inspection Lifecycle Client (Session Flag + Watchdog)
+
+Why this phase:
+- `content-main.js` still directly owns render-mode inspection session flag storage
+  and watchdog timer plumbing.
+- This is a behavior-preserving extraction boundary that reduces lifecycle
+  mechanics in the main file without moving protected marking logic.
+
+New module:
+- `content/render-mode-inspection-client.js`
+
+Files to edit:
+- `content-main.js`
+- `content/render-mode-inspection-client.js`
+- `manifest.json`
+- `tests/content-decomposition-boundary.test.js`
+- Add `tests/render-mode-inspection-client.test.js`
+
+Exact function boundary:
+- Move only these mechanics into module:
+  - session flag read/write (`sessionStorage`)
+  - watchdog timer arm/clear
+- Keep these behaviors and call sites in `content-main.js`:
+  - `recoverFromStuckRenderModeInspection`
+  - command/runtime message handlers for begin/reveal/capture/end
+  - all marking/silent-highlight/reveal decision logic
+
+Rules:
+1. Preserve `isRenderModeInspectionActive()` semantics exactly (`in-memory || persisted`).
+2. Keep watchdog timeout value and recovery callback behavior unchanged.
+3. Do not move or edit protected marking/inspection command flow in this phase.
+4. Keep all existing message types and lifecycle event payloads unchanged.
+
+Focused validation:
+```bash
+npm test -- tests/render-mode-inspection-client.test.js tests/content-activation-order.test.js tests/render-mode-inspection-order.test.js tests/property-lock-render-mode.test.js tests/content-decomposition-boundary.test.js tests/manifest-permissions.test.js
+```
+
+Full validation:
+```bash
+npm test
+```
+
+Rollback criteria:
+- Any regression in render-mode inspection ordering, activation gating, or
+  property-lock reconnect behavior should trigger rollback of this phase.
+
+Commit message:
+```text
+refactor(content): extract render mode inspection lifecycle client
+```
