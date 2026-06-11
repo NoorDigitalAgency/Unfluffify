@@ -79,13 +79,13 @@ Status values: TODO / IN_PROGRESS / DONE / BLOCKED.
 ### Track C — Content (peripheral only) — starts after Track B is merged
 
 1. Phase C0 - Baseline + content boundary guard + manifest allowlist assert: DONE.
-2. Phase C1 - content/page-telemetry-bridge.js: TODO.
+2. Phase C1 - content/page-telemetry-bridge.js: DONE.
 3. Phase C2 - content/remote-support-client.js: TODO.
 4. Phase C3 - content/property-lock-banner.js: TODO.
 
-Track C live scenarios (remote-support / property-lock sessions) depend on the
-paused/flaky orchestration harness; Track C slices may legitimately BLOCK. Never
-skip the live gate or the `web_accessible_resources` update for content slices.
+Track C live scenarios are required for core unflagged behavior. Flag-gated flows
+such as remote support may defer live validation until that feature is prioritized,
+but every content slice still needs the `web_accessible_resources` update.
 
 ## First Commands For The Implementer
 
@@ -263,6 +263,14 @@ Phase C0 - Baseline + content boundary + manifest allowlist guard:
    Focused: node --test tests/content-decomposition-boundary.test.js tests/manifest-permissions.test.js -> 6 pass / 0 fail
    Full:    npm test -> 837 pass / 0 fail
    Live:    skipped by current requirement scope (guardrail-only slice; no runtime behavior moved)
+   Commit:  d81064f test(content): add decomposition boundary guard
+
+Phase C1 - page telemetry bridge extraction:
+   Files:   content/page-telemetry-bridge.js; content-main.js; manifest.json; tests/page-telemetry.test.js; tests/content-decomposition-boundary.test.js; tests/manifest-permissions.test.js
+   Focused: node --test tests/content-decomposition-boundary.test.js tests/manifest-permissions.test.js tests/page-telemetry.test.js -> 12 pass / 0 fail
+   Full:    npm test -> 837 pass / 0 fail
+   Live:    deferred by priority policy; remote-support path is behind FEATURE_FLAGS.remoteSupport=false and will be validated when flag-enabled features are prioritized.
+            Manual MCP attempts on 2026-06-11 reached screen capture but were blocked by Linux/Chrome capture cancellation.
    Commit:  pending
 
 Phase B2 - site and page-type resolution extraction:
@@ -317,6 +325,6 @@ Phase B8 - grouped popup timers hardening:
 
 ## Next Action
 
-Commit and push Track B Phase B8 with:
-`refactor(popup): group popup timers`, then proceed to Track C Phase C0
-(content baseline + boundary guard + manifest allowlist assert).
+Commit and push Track C Phase C1 with:
+`refactor(content): extract page telemetry bridge`, then proceed to Track C Phase C2
+only when the next prioritized slice is confirmed.

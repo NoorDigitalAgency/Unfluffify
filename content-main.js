@@ -104,6 +104,11 @@ import {
 } from "./content/content-command-router.js";
 import { initializePageWorldRelay } from "./content/page-world-relay.js";
 import {
+  ensurePageTelemetryBridge as ensurePageTelemetryBridgeOperation,
+  handlePageTelemetryWindowMessage as handlePageTelemetryWindowMessageOperation,
+  syncPageTelemetryControl as syncPageTelemetryControlOperation
+} from "./content/page-telemetry-bridge.js";
+import {
   MESSAGE_ERROR_CODES,
   MESSAGE_TARGETS,
   createFailureEnvelope,
@@ -1031,32 +1036,16 @@ function forwardPageTelemetryMessage(message) {
   });
 }
 
-function handlePageTelemetryWindowMessage(event) {
-  if (
-    extensionContextInvalidated ||
-    remoteSupportMode !== REMOTE_SUPPORT_MODE_BEING_SUPPORTED ||
-    !pageTelemetryBridgeNonce ||
-    !event ||
-    event.source !== window
-  ) {
-    return;
-  }
-
-  const data = event.data && typeof event.data === "object" ? event.data : null;
-  if (!data || data.__unfluffifyTelemetry !== PAGE_TELEMETRY_MESSAGE_MARKER) {
-    return;
-  }
-  if (data.nonce !== pageTelemetryBridgeNonce) {
-    return;
-  }
-
-  const message = data.message && typeof data.message === "object" ? data.message : null;
-  if (!message || message.type !== "remoteSupportExtensionTelemetry") {
-    return;
-  }
-
-  forwardPageTelemetryMessage(message);
-}
+const handlePageTelemetryWindowMessage = (event) => {
+  return handlePageTelemetryWindowMessageOperation({
+    isExtensionContextInvalidated: () => extensionContextInvalidated,
+    getRemoteSupportMode: () => remoteSupportMode,
+    getPageTelemetryBridgeNonce: () => pageTelemetryBridgeNonce,
+    REMOTE_SUPPORT_MODE_BEING_SUPPORTED,
+    PAGE_TELEMETRY_MESSAGE_MARKER,
+    forwardPageTelemetryMessage
+  }, event);
+};
 
 // Telemetry delivered over the private MessageChannel port. The port itself is
 // the capability — only a holder of the transferred port can post here — so no
@@ -1113,49 +1102,21 @@ function getPageTelemetryBridgeNonce() {
   return pageTelemetryBridgeNonce;
 }
 
-function syncPageTelemetryControl() {
-  if (
-    typeof window === "undefined" ||
-    typeof window.postMessage !== "function"
-  ) {
-    return;
-  }
-
-  const enabled = remoteSupportMode === REMOTE_SUPPORT_MODE_BEING_SUPPORTED;
-  const nonce = enabled ? getPageTelemetryBridgeNonce() : pageTelemetryBridgeNonce;
-  if (!nonce) {
-    return;
-  }
-
-  const control = {
-    __unfluffifyTelemetry: PAGE_TELEMETRY_CONTROL_MARKER,
-    nonce,
-    enabled,
-    includePayloads: enabled && remoteSupportIncludePayloads
-  };
-
-  // On the enable handshake, set up a private MessageChannel and transfer one
-  // end to the page-world script so the steady-state telemetry stream is not
-  // broadcast on window.postMessage. Only transfer once; later control updates
-  // (e.g. includePayloads toggles) reuse the established port.
-  const transfer = [];
-  if (
-    enabled &&
-    !pageTelemetryBridgePort &&
-    typeof MessageChannel === "function"
-  ) {
-    const channel = new MessageChannel();
-    pageTelemetryBridgePort = channel.port1;
-    pageTelemetryBridgePort.onmessage = handlePageTelemetryPortMessage;
-    transfer.push(channel.port2);
-  }
-
-  if (transfer.length) {
-    window.postMessage(control, "*", transfer);
-  } else {
-    window.postMessage(control, "*");
-  }
-}
+const syncPageTelemetryControl = () => {
+  return syncPageTelemetryControlOperation({
+    getRemoteSupportMode: () => remoteSupportMode,
+    getOrCreatePageTelemetryBridgeNonce: getPageTelemetryBridgeNonce,
+    getPageTelemetryBridgeNonce: () => pageTelemetryBridgeNonce,
+    getRemoteSupportIncludePayloads: () => remoteSupportIncludePayloads,
+    getPageTelemetryBridgePort: () => pageTelemetryBridgePort,
+    setPageTelemetryBridgePort: (port) => {
+      pageTelemetryBridgePort = port;
+    },
+    handlePageTelemetryPortMessage,
+    REMOTE_SUPPORT_MODE_BEING_SUPPORTED,
+    PAGE_TELEMETRY_CONTROL_MARKER
+  });
+};
 
 function teardownPageTelemetryBridge() {
   if (
@@ -1194,44 +1155,20 @@ function teardownPageTelemetryBridge() {
   pageTelemetryBridgeNonce = "";
 }
 
-function ensurePageTelemetryBridge() {
-  if (
-    extensionContextInvalidated ||
-    remoteSupportMode !== REMOTE_SUPPORT_MODE_BEING_SUPPORTED ||
-    typeof window === "undefined" ||
-    typeof document !== "object" ||
-    !globalThis.chrome ||
-    !chrome.runtime ||
-    typeof chrome.runtime.getURL !== "function"
-  ) {
-    return;
-  }
-
-  if (!pageTelemetryBridgeListenerBound) {
-    window.addEventListener("message", handlePageTelemetryWindowMessage);
-    pageTelemetryBridgeListenerBound = true;
-  }
-
-  const existingScript = document.getElementById(PAGE_TELEMETRY_SCRIPT_ID);
-  if (existingScript) {
-    syncPageTelemetryControl();
-    return;
-  }
-
-  const parent = document.head || document.documentElement;
-  if (!parent || typeof document.createElement !== "function") {
-    return;
-  }
-
-  const script = document.createElement("script");
-  script.id = PAGE_TELEMETRY_SCRIPT_ID;
-  script.type = "module";
-  script.src = chrome.runtime.getURL("common/page-telemetry.js");
-  script.addEventListener("load", () => {
-    syncPageTelemetryControl();
-  }, { once: true });
-  parent.appendChild(script);
-}
+const ensurePageTelemetryBridge = () => {
+  return ensurePageTelemetryBridgeOperation({
+    isExtensionContextInvalidated: () => extensionContextInvalidated,
+    getRemoteSupportMode: () => remoteSupportMode,
+    isPageTelemetryBridgeListenerBound: () => pageTelemetryBridgeListenerBound,
+    setPageTelemetryBridgeListenerBound: (value) => {
+      pageTelemetryBridgeListenerBound = Boolean(value);
+    },
+    handlePageTelemetryWindowMessage,
+    syncPageTelemetryControl,
+    REMOTE_SUPPORT_MODE_BEING_SUPPORTED,
+    PAGE_TELEMETRY_SCRIPT_ID
+  });
+};
 
 function syncPageTelemetryBridgeLifecycle() {
   if (remoteSupportMode === REMOTE_SUPPORT_MODE_BEING_SUPPORTED) {

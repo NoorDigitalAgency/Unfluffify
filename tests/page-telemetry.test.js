@@ -8,6 +8,7 @@ const PAGE_TELEMETRY_TEST_NONCE = "1234567890abcdef1234567890abcdef";
 const CONSOLE_LEVELS = ["log", "info", "warn", "error", "debug"];
 
 const contentMainSource = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+const pageTelemetryBridgeSource = readFileSync(new URL("../content/page-telemetry-bridge.js", import.meta.url), "utf8");
 const pageTelemetrySource = readFileSync(new URL("../common/page-telemetry.js", import.meta.url), "utf8");
 
 function extractSourceBlock(source, startNeedle, endNeedle) {
@@ -335,14 +336,9 @@ test("page telemetry uses the private port and stops broadcasting when one is tr
 
 test("content page telemetry bridge transfers and tears down a private port", () => {
   const syncControlBlock = extractSourceBlock(
-    contentMainSource,
-    "function syncPageTelemetryControl",
-    "function teardownPageTelemetryBridge"
-  );
-  const teardownBlock = extractSourceBlock(
-    contentMainSource,
-    "function teardownPageTelemetryBridge",
-    "function ensurePageTelemetryBridge"
+    pageTelemetryBridgeSource,
+    "export function syncPageTelemetryControl",
+    "export function ensurePageTelemetryBridge"
   );
   const portHandlerBlock = extractSourceBlock(
     contentMainSource,
@@ -352,11 +348,11 @@ test("content page telemetry bridge transfers and tears down a private port", ()
 
   // Handshake creates a MessageChannel and transfers one end (once).
   assert.match(syncControlBlock, /new MessageChannel\(\)/);
-  assert.match(syncControlBlock, /!pageTelemetryBridgePort/);
+  assert.match(syncControlBlock, /!deps\.getPageTelemetryBridgePort\(\)/);
   assert.match(syncControlBlock, /transfer\.push\(channel\.port2\)/);
-  assert.match(syncControlBlock, /window\.postMessage\(control, "\*", transfer\)/);
+  assert.match(syncControlBlock, /windowObject\.postMessage\(control, "\*", transfer\)/);
   // Teardown closes the port.
-  assert.match(teardownBlock, /closePageTelemetryBridgePort\(\)/);
+  assert.match(contentMainSource, /closePageTelemetryBridgePort\(\)/);
   // Port message handler still enforces the active-session + marker/shape guards.
   assert.match(portHandlerBlock, /remoteSupportMode !== REMOTE_SUPPORT_MODE_BEING_SUPPORTED/);
   assert.match(portHandlerBlock, /__unfluffifyTelemetry !== PAGE_TELEMETRY_MESSAGE_MARKER/);
@@ -375,30 +371,25 @@ test("content page telemetry bridge is active-session and nonce gated", () => {
     "function sendRuntimeMessageSafely"
   );
   const messageBlock = extractSourceBlock(
-    contentMainSource,
-    "function handlePageTelemetryWindowMessage",
-    "function createPageTelemetryBridgeNonce"
+    pageTelemetryBridgeSource,
+    "export function handlePageTelemetryWindowMessage",
+    "export function syncPageTelemetryControl"
   );
   const forwardBlock = extractSourceBlock(
     contentMainSource,
     "function forwardPageTelemetryMessage",
-    "function handlePageTelemetryWindowMessage"
-  );
-  const ensureBlock = extractSourceBlock(
-    contentMainSource,
-    "function ensurePageTelemetryBridge",
-    "function syncPageTelemetryBridgeLifecycle"
+    "const handlePageTelemetryWindowMessage"
   );
 
   assert.doesNotMatch(mainBlock, /ensurePageTelemetryBridge\(\)/);
   assert.match(applyStateBlock, /syncPageTelemetryBridgeLifecycle\(\);/);
-  assert.match(messageBlock, /remoteSupportMode !== REMOTE_SUPPORT_MODE_BEING_SUPPORTED/);
-  assert.match(messageBlock, /!pageTelemetryBridgeNonce/);
-  assert.match(messageBlock, /data\.nonce !== pageTelemetryBridgeNonce/);
+  assert.match(messageBlock, /deps\.getRemoteSupportMode\(\) !== deps\.REMOTE_SUPPORT_MODE_BEING_SUPPORTED/);
+  assert.match(messageBlock, /!deps\.getPageTelemetryBridgeNonce\(\)/);
+  assert.match(messageBlock, /data\.nonce !== deps\.getPageTelemetryBridgeNonce\(\)/);
   assert.match(forwardBlock, /type: "remoteSupportExtensionTelemetry"/);
   assert.doesNotMatch(forwardBlock, /sendRuntimeMessageSafely\(message\)/);
   assert.doesNotMatch(forwardBlock, /tabId/);
-  assert.match(ensureBlock, /remoteSupportMode !== REMOTE_SUPPORT_MODE_BEING_SUPPORTED/);
+  assert.match(pageTelemetryBridgeSource, /deps\.getRemoteSupportMode\(\) !== deps\.REMOTE_SUPPORT_MODE_BEING_SUPPORTED/);
   assert.match(pageTelemetrySource, /isEnabled: \(\) => enabled && Boolean\(telemetryNonce\)/);
   assert.match(pageTelemetrySource, /telemetryController\.uninstall\(\)/);
 });

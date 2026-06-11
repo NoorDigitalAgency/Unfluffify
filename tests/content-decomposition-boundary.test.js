@@ -32,8 +32,9 @@ test("content decomposition guard: baseline content modules are imported", () =>
   assertImportsContentModule("submission-rules");
   assertImportsContentModule("content-command-router");
   assertImportsContentModule("page-world-relay");
+  assertImportsContentModule("page-telemetry-bridge");
 
-  // Future Track C slices will append does-not-define assertions here as
-  // allowed domains move out of content-main.js into dedicated modules.
-  assert.equal(typeof assertContentDoesNotDefine, "function");
+  assertContentDoesNotDefine("handlePageTelemetryWindowMessage");
+  assertContentDoesNotDefine("syncPageTelemetryControl");
+  assertContentDoesNotDefine("ensurePageTelemetryBridge");
 });

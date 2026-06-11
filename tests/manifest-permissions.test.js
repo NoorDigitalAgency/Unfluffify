@@ -36,6 +36,7 @@ test("every getURL-injected page resource is web-accessible (no under-scoping)",
   const manifest = JSON.parse(await fs.readFile(new URL("../manifest.json", import.meta.url), "utf8"));
   const resources = manifest.web_accessible_resources.flatMap((entry) => entry.resources || []);
   const contentMain = await fs.readFile(new URL("../content-main.js", import.meta.url), "utf8");
+  const pageTelemetryBridge = await fs.readFile(new URL("../content/page-telemetry-bridge.js", import.meta.url), "utf8");
   const core = await fs.readFile(new URL("../content/core.js", import.meta.url), "utf8");
 
   // Any literal getURL("...") string loaded into the page world (e.g. <script
@@ -55,7 +56,7 @@ test("every getURL-injected page resource is web-accessible (no under-scoping)",
     });
 
   const literalGetUrls = new Set();
-  for (const source of [contentMain, core]) {
+  for (const source of [contentMain, pageTelemetryBridge, core]) {
     const matches = source.matchAll(/getURL\(\s*"([^"]+)"\s*\)/g);
     for (const match of matches) {
       literalGetUrls.add(match[1]);
