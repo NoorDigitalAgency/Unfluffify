@@ -16,6 +16,7 @@ import {
 } from "../common/property-lock.js";
 
 const propertyLockBannerSource = readFileSync(new URL("../content/property-lock-banner.js", import.meta.url), "utf8");
+const propertyLockBannerModeSource = readFileSync(new URL("../content/property-lock-banner-mode.js", import.meta.url), "utf8");
 
 test("buildPropertyLockWssUrl requires a stage base and token", () => {
   assert.equal(buildPropertyLockWssUrl("", "token"), "");
@@ -235,7 +236,7 @@ test("content-main starts and persists a cross-property editor cooldown before r
   assert.match(source, /function startPropertyLockCrossPropertyWarning\(recoveryState\) \{/);
   assert.match(source, /propertyLockRecoveryDeadlineAt = recoveryState\.deadlineAt > Date\.now\(\)\s*\?\s*recoveryState\.deadlineAt\s*:\s*Date\.now\(\) \+ PROPERTY_LOCK_CROSS_PROPERTY_COOLDOWN_TIMEOUT_MS;/);
   assert.match(source, /type: PROPERTY_LOCK_CONTENT_RELEASE,\s*siteId: recoverySiteId,\s*clientId: recoveryClientId/);
-  assert.match(source, /if \(propertyLockRecoveryDeadlineAt > Date\.now\(\)\) \{\s*propertyLockBannerMode = "editor_cross_property_countdown";/);
+  assert.match(propertyLockBannerModeSource, /if \(deps\.getPropertyLockRecoveryDeadlineAt\(\) > Date\.now\(\)\) \{[\s\S]*?deps\.setPropertyLockBannerMode\("editor_cross_property_countdown"\);/);
   assert.match(propertyLockBannerSource, /case "editor_cross_property_countdown":/);
   assert.match(propertyLockBannerSource, /propertyLockText\.editorCrossPropertyCountdownMessage\(propertyLockBannerCountdownValue\)/);
 });
@@ -262,12 +263,8 @@ test("content-main uses 70-second fallback countdown for inactivity warning and 
   const applyStart = source.indexOf("function applyPropertyLockServerMessage(serverMessage) {");
   const applyEnd = source.indexOf("function updatePropertyLockBannerMode()", applyStart);
   const applySource = source.slice(applyStart, applyEnd);
-  const updateStart = source.indexOf("function updatePropertyLockBannerMode() {");
-  const updateEnd = source.indexOf("function ensurePropertyLockBannerStyle()", updateStart);
-  const updateSource = source.slice(updateStart, updateEnd);
 
   assert.ok(applyStart >= 0);
-  assert.ok(updateStart >= 0);
   assert.match(
     applySource,
     /if \(type === PROPERTY_LOCK_WS_INACTIVITY_WARNING\) \{[\s\S]*?const defaultInactivityCountdownSeconds = Math\.ceil\(PROPERTY_LOCK_CONNECTION_LOSS_TIMEOUT_MS \/ 1000\);/
@@ -281,8 +278,8 @@ test("content-main uses 70-second fallback countdown for inactivity warning and 
     /\} else if \(!propertyLockBannerCountdownTimer\) \{[\s\S]*?restartPropertyLockBannerCountdown\(\);/
   );
   assert.match(
-    updateSource,
-    /if \(isEditor && lockState === PROPERTY_LOCK_STATE_EXPIRY_WARNING\) \{[\s\S]*?const defaultInactivityCountdownSeconds = Math\.ceil\(PROPERTY_LOCK_CONNECTION_LOSS_TIMEOUT_MS \/ 1000\);[\s\S]*?propertyLockBannerMode = "editor_inactivity_warning";/
+    propertyLockBannerModeSource,
+    /if \(isEditor && lockState === deps\.PROPERTY_LOCK_STATE_EXPIRY_WARNING\) \{[\s\S]*?const defaultInactivityCountdownSeconds = Math\.ceil\(deps\.PROPERTY_LOCK_CONNECTION_LOSS_TIMEOUT_MS \/ 1000\);[\s\S]*?deps\.setPropertyLockBannerMode\("editor_inactivity_warning"\);/
   );
 });
 

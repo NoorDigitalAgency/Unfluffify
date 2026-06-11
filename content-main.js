@@ -109,6 +109,7 @@ import {
   renderPropertyLockBanner as renderPropertyLockBannerOperation,
   restartPropertyLockBannerCountdown as restartPropertyLockBannerCountdownOperation
 } from "./content/property-lock-banner.js";
+import { updatePropertyLockBannerMode as updatePropertyLockBannerModeOperation } from "./content/property-lock-banner-mode.js";
 import { createRemoteSupportClient } from "./content/remote-support-client.js";
 import { createRemoteSupportViewerClient } from "./content/remote-support-viewer-client.js";
 import { createRemoteSupportSupportPage } from "./content/remote-support-support-page.js";
@@ -6319,85 +6320,34 @@ function applyPropertyLockServerMessage(serverMessage) {
 }
 
 function updatePropertyLockBannerMode() {
-  if (!isPropertyLockCollaborationEnabled()) {
-    propertyLockBannerMode = "no_banner";
-    clearPropertyLockBannerCountdown();
-    return;
-  }
-  const previousBannerMode = propertyLockBannerMode;
-  if (propertyLockRecoveryDeadlineAt > Date.now()) {
-    propertyLockBannerMode = "editor_cross_property_countdown";
-    propertyLockBannerCountdownValue = Math.max(
-      1,
-      Math.ceil((propertyLockRecoveryDeadlineAt - Date.now()) / 1000)
-    );
-    restartPropertyLockBannerCountdown();
-    return;
-  }
-  if (!propertyLockState) {
-    propertyLockBannerMode = "no_banner";
-    clearPropertyLockBannerCountdown();
-    return;
-  }
+  return updatePropertyLockBannerModeOperation(createPropertyLockBannerModeDeps());
+}
 
-  const { state: lockState, isEditor, secondsRemaining } = propertyLockState;
-  clearPropertyLockBannerCountdown();
-
-  if (lockState === PROPERTY_LOCK_STATE_UNLOCKED) {
-    propertyLockBannerMode = "no_banner";
-    return;
-  }
-
-  if (lockState === PROPERTY_LOCK_STATE_TAKEOVER_AVAILABLE) {
-    propertyLockBannerMode = "takeover_available";
-    return;
-  }
-
-  if (lockState === PROPERTY_LOCK_STATE_TRANSFER) {
-    clearPropertyLockCrossPropertyWarning();
-    clearPropertyLockOffCandidateWarning();
-    propertyLockBannerMode = "editor_transfer_countdown";
-    propertyLockBannerCountdownValue = secondsRemaining || 10;
-    restartPropertyLockBannerCountdown();
-    return;
-  }
-
-  if (isEditor && lockState === PROPERTY_LOCK_STATE_EXPIRY_WARNING) {
-    clearPropertyLockCrossPropertyWarning({ preserveSession: true });
-    clearPropertyLockOffCandidateWarning();
-    const defaultInactivityCountdownSeconds = Math.ceil(PROPERTY_LOCK_CONNECTION_LOSS_TIMEOUT_MS / 1000);
-    propertyLockBannerMode = "editor_inactivity_warning";
-    if (secondsRemaining !== null && secondsRemaining > 0) {
-      propertyLockBannerCountdownValue = secondsRemaining;
-    } else if (previousBannerMode !== "editor_inactivity_warning" || propertyLockBannerCountdownValue <= 0) {
-      propertyLockBannerCountdownValue = defaultInactivityCountdownSeconds;
-    }
-    restartPropertyLockBannerCountdown();
-    return;
-  }
-
-  if (!isEditor && lockState === PROPERTY_LOCK_STATE_EXPIRY_WARNING) {
-    clearPropertyLockCrossPropertyWarning();
-    clearPropertyLockOffCandidateWarning();
-    propertyLockBannerMode = "passive_expiry_countdown";
-    propertyLockBannerCountdownValue = secondsRemaining || 60;
-    restartPropertyLockBannerCountdown();
-    return;
-  }
-
-  if (isEditor && propertyLockOffCandidateDeadlineAt > Date.now()) {
-    propertyLockBannerMode = "editor_off_candidate_countdown";
-    propertyLockBannerCountdownValue = Math.max(
-      1,
-      Math.ceil((propertyLockOffCandidateDeadlineAt - Date.now()) / 1000)
-    );
-    restartPropertyLockBannerCountdown();
-    return;
-  }
-
-  propertyLockBannerMode = isEditor || lockState !== PROPERTY_LOCK_STATE_LOCKED
-    ? "no_banner"
-    : "passive_locked";
+function createPropertyLockBannerModeDeps() {
+  return {
+    isPropertyLockCollaborationEnabled,
+    clearPropertyLockBannerCountdown,
+    restartPropertyLockBannerCountdown,
+    clearPropertyLockCrossPropertyWarning,
+    clearPropertyLockOffCandidateWarning,
+    getPropertyLockRecoveryDeadlineAt: () => propertyLockRecoveryDeadlineAt,
+    getPropertyLockOffCandidateDeadlineAt: () => propertyLockOffCandidateDeadlineAt,
+    getPropertyLockState: () => propertyLockState,
+    getPropertyLockBannerMode: () => propertyLockBannerMode,
+    setPropertyLockBannerMode: (mode) => {
+      propertyLockBannerMode = mode;
+    },
+    getPropertyLockBannerCountdownValue: () => propertyLockBannerCountdownValue,
+    setPropertyLockBannerCountdownValue: (value) => {
+      propertyLockBannerCountdownValue = value;
+    },
+    PROPERTY_LOCK_STATE_UNLOCKED,
+    PROPERTY_LOCK_STATE_LOCKED,
+    PROPERTY_LOCK_STATE_EXPIRY_WARNING,
+    PROPERTY_LOCK_STATE_TAKEOVER_AVAILABLE,
+    PROPERTY_LOCK_STATE_TRANSFER,
+    PROPERTY_LOCK_CONNECTION_LOSS_TIMEOUT_MS
+  };
 }
 
 function createPropertyLockBannerDeps() {
