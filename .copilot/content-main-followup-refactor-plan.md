@@ -14,14 +14,11 @@ not repeated. Use git history for historical rationale if needed.
 
 ## Current State
 
-Baseline before this docs refresh:
+Current validated baseline:
 
 ```bash
-git log --oneline -1
-# 31fddb5 refactor(content): extract collect page data handler
-
 npm test
-# 903 pass / 0 fail
+# 904 pass / 0 fail
 ```
 
 Completed:
@@ -29,11 +26,11 @@ Completed:
 1. World-decomposition Tracks A and B.
 2. Content follow-up Track D through D2.
 3. Content follow-up Track E through E2.
-4. Track F through F19.
+4. Track F through F20.
 
 Current implementation plan:
 
-1. Start with F20 in `.copilot/track-f-protected-content-plan.md`.
+1. Start with F21 in `.copilot/track-f-protected-content-plan.md`.
 2. Follow one phase per commit.
 3. Run focused validation and full `npm test` for every phase.
 4. Update `.copilot/handoff-world-decomposition.md` with validation and commit
@@ -42,7 +39,7 @@ Current implementation plan:
 
 ## Review Summary
 
-The F1-F19 extraction series was reviewed on 2026-06-11.
+The F1-F19 extraction series was reviewed on 2026-06-11, and F20 completed with focused plus full-suite validation.
 
 Code review result:
 
@@ -55,7 +52,7 @@ Code review result:
 5. The real blocker for the next agent was documentation drift; the handoff and
    active plan have been refreshed.
 
-No pre-code bugfix phase is required before F20.
+No pre-code bugfix phase is required before F21.
 
 ## Required Baseline Before Any Next Phase
 

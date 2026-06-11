@@ -112,6 +112,7 @@ import { createCollectPageDataHandler } from "./content/collect-page-data-handle
 import { createDefaultExclusionsHandler } from "./content/default-exclusions-handler.js";
 import { createDescribeXpathsHandler } from "./content/describe-xpaths-handler.js";
 import { createFocusHandler } from "./content/focus-handler.js";
+import { createForceRefreshHandler } from "./content/force-refresh-handler.js";
 import { createInvisibleXpathsHandler } from "./content/invisible-xpaths-handler.js";
 import { createInspectionStatusResolver } from "./content/inspection-status.js";
 import { initializePageWorldRelay } from "./content/page-world-relay.js";
@@ -414,6 +415,7 @@ let collectPageDataHandler = null;
 let defaultExclusionsHandler = null;
 let describeXpathsHandler = null;
 let focusHandler = null;
+let forceRefreshHandler = null;
 let invisibleXpathsHandler = null;
 let propertyLockPortClient = null;
 let propertyLockStateMachine = null;
@@ -633,6 +635,13 @@ function getFocusHandler() {
     focusHandler = createFocusHandler(createFocusHandlerDeps());
   }
   return focusHandler;
+}
+
+function getForceRefreshHandler() {
+  if (!forceRefreshHandler) {
+    forceRefreshHandler = createForceRefreshHandler(createForceRefreshHandlerDeps());
+  }
+  return forceRefreshHandler;
 }
 
 function getInvisibleXpathsHandler() {
@@ -6365,6 +6374,15 @@ function createFocusHandlerDeps() {
   };
 }
 
+function createForceRefreshHandlerDeps() {
+  return {
+    refreshFromTabState: () => core.refreshFromTabState(),
+    refreshEnabledAiHighlights,
+    refreshSilentHighlightings,
+    runPropertyLockSync
+  };
+}
+
 function createRemoteSupportStateHandlerDeps() {
   return {
     applyRemoteSupportSessionState,
@@ -7016,12 +7034,8 @@ export function main() {
     }
 
     if (message.type === "forceRefresh") {
-      core.refreshFromTabState().then(() => {
-        refreshEnabledAiHighlights();
-        runPropertyLockSync({ forceSiteIdRefresh: true });
-        refreshSilentHighlightings().then(() => {
-          sendResponse({ ok: true });
-        });
+      getForceRefreshHandler().handleMessage().then((response) => {
+        sendResponse(response && typeof response === "object" ? response : { ok: false });
       });
       return true;
     }

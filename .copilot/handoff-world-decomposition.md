@@ -2,26 +2,22 @@
 
 Last updated: 2026-06-11
 Branch: `main`
-Status: world decomposition complete; content follow-up D0-D2, E0-E2, and Track F F1-F19 complete and pushed.
+Status: world decomposition complete; content follow-up D0-D2, E0-E2, and Track F F1-F20 complete and pushed per-slice.
 
 ## Current Repository State
 
-Known-good code baseline before this documentation refresh:
+Latest validated implementation baseline:
 
 ```bash
 git status --short --branch
 # ## main...origin/main
 
-git log --oneline -1
-# 31fddb5 refactor(content): extract collect page data handler
-
 npm test
-# 903 pass / 0 fail
+# 904 pass / 0 fail
 ```
 
-The working tree was clean before the review/documentation update. The only
-review fix to production metadata was a cosmetic indentation correction in
-`manifest.json`; it does not change JSON contents.
+This baseline includes F20 (`forceRefresh`) extracted into
+`content/force-refresh-handler.js` with focused tests plus a green full suite.
 
 ## Review Result
 
@@ -74,7 +70,7 @@ Track E is complete through E2:
 2. E1: property-lock port client extraction.
 3. E2: property-lock state-machine extraction.
 
-### Track F Completed Through F19
+### Track F Completed Through F20
 
 Track F now includes these completed, pushed phases:
 
@@ -97,20 +93,16 @@ Track F now includes these completed, pushed phases:
 17. F17 focus handler.
 18. F18 AI submission xpaths handler.
 19. F19 collect page data handler.
+20. F20 force refresh handler.
 
-Recent Track F commits at the review baseline:
+Recent validated Track F slices before the remaining high-coupling branches:
 
 ```text
-31fddb5 refactor(content): extract collect page data handler
-95282e5 refactor(content): extract ai submission xpaths handler
-9804039 refactor(content): extract focus handler
-e572536 refactor(content): extract describe xpaths handler
-1e0354e refactor(content): extract invisible xpaths handler
-e337dc9 refactor(content): extract visible xpaths handler
-6663f82 refactor(content): extract default exclusions handler
-378a972 refactor(content): extract ai preview get-state handler
-344d850 refactor(content): extract remote support state handler
-7aad64a refactor(content): extract ai preview expanded-mode handler
+F20 refactor(content): extract force refresh handler
+F19 refactor(content): extract collect page data handler
+F18 refactor(content): extract ai submission xpaths handler
+F17 refactor(content): extract focus handler
+F16 refactor(content): extract describe xpaths handler
 ```
 
 ## Active Documents
@@ -125,13 +117,13 @@ Use these files, in this order, before making any further implementation change:
 
 ## Next Exact Step
 
-Start with Phase F20 in `.copilot/track-f-protected-content-plan.md`.
+Start with Phase F21 in `.copilot/track-f-protected-content-plan.md`.
 
-F20 is the recommended next slice because it is the smallest remaining async
-runtime branch: extract `forceRefresh` into `content/force-refresh-handler.js`
-without changing its promise/error behavior.
+F21 is the recommended next slice because it keeps the validation/early-return
+logic local in `content-main.js` while moving the async reconciliation-pending
+write behind a narrow handler.
 
-Before editing F20, run:
+Before editing F21, run:
 
 ```bash
 git status --short --branch
@@ -142,7 +134,7 @@ npm test
 Expected baseline:
 
 1. clean `main...origin/main`
-2. full test suite passes
+2. full test suite passes (`904 pass / 0 fail` at the current baseline)
 3. `manifest.json` keeps explicit web-accessible resource entries, no broad
    `content/*.js` or `common/*.js` wildcards
 
