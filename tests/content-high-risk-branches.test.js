@@ -18,10 +18,13 @@ const remainingHighRiskBranches = new Map([
 ]);
 
 const plannedHandlerAccessors = new Map([
-  ["configUpdated", "getConfigUpdatedHandler"],
-  ["revertPageDraft", "getPageDraftRevertHandler"],
-  ["showAiPreview", "getAiPreviewShowHandler"]
+  ["configUpdated", /getConfigUpdatedHandler\(\)\.handleMessage\(message\)/],
+  ["revertPageDraft", /getPageDraftRevertHandler\(\)\.revert\(\{ targetBaseUrl \}\)/],
+  ["savePageDraft", /getPageDraftSaveHandler\(\)\.saveCurrentPageDraft\(\{/],
+  ["showAiPreview", /getAiPreviewShowHandler\(\)\.handleMessage\(message\)/]
 ]);
+
+const fullyDelegatedBranches = new Set(["configUpdated", "showAiPreview"]);
 
 const completedTrackFHandlers = [
   "force-refresh-handler",
@@ -117,12 +120,12 @@ function getMessageBranch(messageType) {
 function branchOrPlannedHandler(messageType) {
   const branch = getMessageBranch(messageType);
   if (branch) {
-    const handlerAccessor = plannedHandlerAccessors.get(messageType);
-    if (handlerAccessor && branch.includes(`${handlerAccessor}().handleMessage(message)`)) {
+    const handlerDelegation = plannedHandlerAccessors.get(messageType);
+    if (handlerDelegation && handlerDelegation.test(branch)) {
       const moduleName = remainingHighRiskBranches.get(messageType);
       assertImportsContentModule(moduleName);
       assertManifestExposesContentModule(moduleName);
-      return "";
+      return fullyDelegatedBranches.has(messageType) ? "" : branch;
     }
     return branch;
   }

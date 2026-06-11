@@ -63,11 +63,16 @@ test("mutation observer rescans consent widgets when late DOM insertions arrive"
 
 test("content-main warn/error diagnostics are trace-gated", () => {
   const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const saveHandlerSource = readFileSync(
+    new URL("../content/page-draft-save-handler.js", import.meta.url),
+    "utf8"
+  );
 
   assert.match(source, /function logContentDiagnostic\(level, \.\.\.args\) \{/);
   assert.match(source, /if \(!isWorldTraceEnabled\(\)\) \{\s*return;\s*\}/);
   assert.match(source, /const logger = level === "error" \? console\.error : console\.warn;/);
-  assert.match(source, /logContentDiagnostic\(\s*"warn",\s*"Failed to clear page-save reconciliation after save failure"/);
+  assert.match(source, /logContentDiagnostic,/);
+  assert.match(saveHandlerSource, /deps\.logContentDiagnostic\(\s*"warn",\s*"Failed to clear page-save reconciliation after save failure"/);
   assert.match(source, /logContentDiagnostic\("error", "Failed to enable marking from page:", error\);/);
   assert.match(source, /logContentDiagnostic\("warn", "\[Unfluffify\] Property lock sync failed; retrying\.", error\);/);
 });

@@ -120,6 +120,7 @@ import { createInvisibleXpathsHandler } from "./content/invisible-xpaths-handler
 import { createInspectionStatusResolver } from "./content/inspection-status.js";
 import { createPageDraftStatusHandler } from "./content/page-draft-status-handler.js";
 import { createPageDraftRevertHandler } from "./content/page-draft-revert-handler.js";
+import { createPageDraftSaveHandler } from "./content/page-draft-save-handler.js";
 import { createPageSaveReconciliationClearHandler } from "./content/page-save-reconciliation-clear-handler.js";
 import { createPageSaveReconciliationPendingHandler } from "./content/page-save-reconciliation-pending-handler.js";
 import { initializePageWorldRelay } from "./content/page-world-relay.js";
@@ -416,6 +417,7 @@ let renderModeInspectionHandlers = null;
 let inspectionStatusResolver = null;
 let pageDraftStatusHandler = null;
 let pageDraftRevertHandler = null;
+let pageDraftSaveHandler = null;
 let aiPreviewCloseHandler = null;
 let aiPreviewComputeLockHandler = null;
 let aiPreviewExpandedModeHandler = null;
@@ -604,6 +606,13 @@ function getPageDraftRevertHandler() {
     pageDraftRevertHandler = createPageDraftRevertHandler(createPageDraftRevertHandlerDeps());
   }
   return pageDraftRevertHandler;
+}
+
+function getPageDraftSaveHandler() {
+  if (!pageDraftSaveHandler) {
+    pageDraftSaveHandler = createPageDraftSaveHandler(createPageDraftSaveHandlerDeps());
+  }
+  return pageDraftSaveHandler;
 }
 
 function getPageDraftStatusHandler() {
@@ -2029,138 +2038,6 @@ async function toggleDeviceEmulationFromPage() {
   } else {
     showPageToast("Simulation disabled.");
   }
-}
-
-async function saveCurrentPageDraft(options) {
-  const { baseUrl, pageType = "", showToast = false } = options || {};
-  const resolvedPageType = typeof pageType === "string" && pageType ? pageType : state.currentPageType || "";
-  const targetBaseUrl = baseUrl || state.baseUrl || "";
-  if (!targetBaseUrl || !matchesActiveBaseUrl(targetBaseUrl) || !state.config) {
-    if (showToast) {
-      showPageToast("Enable marking to save this page.");
-    }
-    return { ok: false };
-  }
-  const pageUrl = location.href;
-  await core.refreshSavedPageEntryFromBackendCache(targetBaseUrl, pageUrl);
-  const savedEntry = core.getSavedPageEntry(pageUrl);
-  const draftEntry = core.getDraftPageEntry(pageUrl);
-  const draftEntryChanged = !core.areEntriesEquivalent(draftEntry, savedEntry);
-  const reconciliation = core.getPageSaveReconciliationState(pageUrl);
-  const reconciliationPending = Boolean(reconciliation);
-  const hasSavedEntry = Boolean(savedEntry);
-  const savedEntryHasAiSubmissionData = Boolean(
-    savedEntry &&
-    typeof savedEntry.renderedHtml === "string" &&
-    savedEntry.renderedHtml &&
-    Array.isArray(savedEntry.submissionXpaths) &&
-    savedEntry.submissionXpaths.length > 0
-  );
-  core.hideConsentElements();
-  const immutableExcluded = core.collectImmutableElements();
-  const syncResult = core.syncPageMarkings(state.config, pageUrl, immutableExcluded, {
-    allowCreate: true,
-    persist: true
-  });
-  const entry = core.getPageMarkingEntry(state.config, pageUrl);
-  const currentSnapshot = createCurrentPageSnapshot();
-  const currentRenderedHtml = currentSnapshot.renderedHtml;
-  const currentSubmissionXpaths = collectAiSubmissionXpathsForCurrentPage();
-  const currentRawHtml = await fetchCurrentPageRawHtml(pageUrl);
-  const savedEntryMatchesCurrentSnapshot = Boolean(
-    savedEntry &&
-    savedEntry.renderedHtml === currentRenderedHtml &&
-    (
-      currentRawHtml === null ||
-      (typeof savedEntry.rawHtml === "string" ? savedEntry.rawHtml : "") === currentRawHtml
-    ) &&
-    submissionXpathsEqual(savedEntry.submissionXpaths, currentSubmissionXpaths)
-  );
-  if (
-    !syncResult.changed &&
-    !draftEntryChanged &&
-    !reconciliationPending &&
-    hasSavedEntry &&
-    savedEntryHasAiSubmissionData &&
-    savedEntryMatchesCurrentSnapshot
-  ) {
-    if (showToast) {
-      showPageToast("No changes to save");
-    }
-    return { ok: true, saved: false, dirty: false };
-  }
-  if (
-    !syncResult.changed &&
-    reconciliationPending &&
-    !draftEntryChanged &&
-    hasSavedEntry &&
-    savedEntryHasAiSubmissionData &&
-    savedEntryMatchesCurrentSnapshot
-  ) {
-    if (showToast) {
-      showPageToast("Server sync pending");
-    }
-    return { ok: true, saved: true, dirty: true, reconciliationPending: true };
-  }
-  const hadReconciliationPending = reconciliationPending;
-  try {
-    if (!hadReconciliationPending) {
-      await core.setPageSaveReconciliationPending(targetBaseUrl, pageUrl, { reason: "saving" });
-    }
-    entry.renderedHtml = currentRenderedHtml;
-    entry.rawHtml = typeof currentRawHtml === "string"
-      ? currentRawHtml
-      : typeof entry.rawHtml === "string"
-        ? entry.rawHtml
-        : "";
-    entry.title =
-      typeof document.title === "string" &&
-      document.title.trim() &&
-      document.title.trim() !== pageUrl
-        ? document.title.trim()
-        : "";
-    entry.pageType = resolvedPageType || entry.pageType;
-    entry.submissionXpaths = currentSubmissionXpaths;
-    core.touchPageEntryTimestamp(entry);
-    state.config.pageMarkings[pageUrl] = entry;
-    await core.saveConfig(targetBaseUrl, state.config);
-  } catch (error) {
-    if (!hadReconciliationPending) {
-      try {
-        await core.clearPageSaveReconciliation(targetBaseUrl, pageUrl);
-      } catch (clearError) {
-        logContentDiagnostic(
-          "warn",
-          "Failed to clear page-save reconciliation after save failure",
-          clearError
-        );
-      }
-    }
-    if (showToast) {
-      showPageToast("Unable to save page");
-    }
-    return { ok: false };
-  }
-  core.setSavedPageEntry(pageUrl, entry);
-  try {
-    await core.setPageSaveReconciliationPending(targetBaseUrl, pageUrl, { reason: "pending" });
-  } catch (error) {
-    if (showToast) {
-      showPageToast("Unable to track server sync for saved page");
-    }
-    return { ok: false };
-  }
-  core.scheduleRender();
-  core.notifyDraftStatus(pageUrl);
-  if (showToast) {
-    showPageToast("Page saved locally; server sync pending");
-  }
-  return {
-    ok: true,
-    saved: true,
-    dirty: true,
-    reconciliationPending: true
-  };
 }
 
 async function toggleEnabledFromPage(options = {}) {
@@ -6571,6 +6448,43 @@ function createPageDraftRevertHandlerDeps() {
   };
 }
 
+function createPageDraftSaveHandlerDeps() {
+  return {
+    areEntriesEquivalent: (left, right) => core.areEntriesEquivalent(left, right),
+    clearPageSaveReconciliation: (baseUrl, pageUrl) =>
+      core.clearPageSaveReconciliation(baseUrl, pageUrl),
+    collectAiSubmissionXpathsForCurrentPage,
+    collectImmutableElements: () => core.collectImmutableElements(),
+    createCurrentPageSnapshot,
+    fetchCurrentPageRawHtml,
+    getBaseUrl: () => state.baseUrl,
+    getConfig: () => state.config,
+    getCurrentPageType: () => state.currentPageType,
+    getDocumentTitle: () => document.title,
+    getDraftPageEntry: (pageUrl) => core.getDraftPageEntry(pageUrl),
+    getPageMarkingEntry: (configValue, pageUrl) => core.getPageMarkingEntry(configValue, pageUrl),
+    getPageSaveReconciliationState: (pageUrl) => core.getPageSaveReconciliationState(pageUrl),
+    getPageUrl: () => location.href,
+    getSavedPageEntry: (pageUrl) => core.getSavedPageEntry(pageUrl),
+    hideConsentElements: () => core.hideConsentElements(),
+    logContentDiagnostic,
+    matchesActiveBaseUrl,
+    notifyDraftStatus: (pageUrl) => core.notifyDraftStatus(pageUrl),
+    refreshSavedPageEntryFromBackendCache: (baseUrl, pageUrl) =>
+      core.refreshSavedPageEntryFromBackendCache(baseUrl, pageUrl),
+    saveConfig: (baseUrl, configValue) => core.saveConfig(baseUrl, configValue),
+    scheduleRender: () => core.scheduleRender(),
+    setPageSaveReconciliationPending: (baseUrl, pageUrl, options) =>
+      core.setPageSaveReconciliationPending(baseUrl, pageUrl, options),
+    setSavedPageEntry: (pageUrl, entry) => core.setSavedPageEntry(pageUrl, entry),
+    showPageToast,
+    submissionXpathsEqual,
+    syncPageMarkings: (configValue, pageUrl, immutableExcluded, options) =>
+      core.syncPageMarkings(configValue, pageUrl, immutableExcluded, options),
+    touchPageEntryTimestamp: (entry) => core.touchPageEntryTimestamp(entry)
+  };
+}
+
 function createPageDraftStatusHandlerDeps() {
   return {
     areEntriesEquivalent: (left, right) => core.areEntriesEquivalent(left, right),
@@ -7539,7 +7453,7 @@ export function main() {
         sendResponse({ ok: false, locked: true });
         return;
       }
-      saveCurrentPageDraft({
+      getPageDraftSaveHandler().saveCurrentPageDraft({
         baseUrl: targetBaseUrl,
         pageType: typeof message.pageType === "string" ? message.pageType : ""
       }).then((result) => {

@@ -48,6 +48,7 @@ test("content decomposition guard: baseline content modules are imported", () =>
   assertImportsContentModule("invisible-xpaths-handler");
   assertImportsContentModule("inspection-status");
   assertImportsContentModule("page-draft-revert-handler");
+  assertImportsContentModule("page-draft-save-handler");
   assertImportsContentModule("page-draft-status-handler");
   assertImportsContentModule("page-save-reconciliation-clear-handler");
   assertImportsContentModule("page-world-relay");

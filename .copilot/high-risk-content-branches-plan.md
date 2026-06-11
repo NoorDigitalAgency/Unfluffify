@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-11
 Branch: main
-Status: G0-G3 complete; next phase is G4.
+Status: G0-G4 complete; next phase is G5.
 
 ## Scope
 
@@ -28,6 +28,9 @@ Progress:
    and close handling.
 - G3 extracted `revertPageDraft` into `content/page-draft-revert-handler.js`
    while preserving inline validation and the G0 failure fallback.
+- G4 extracted `savePageDraft` / `saveCurrentPageDraft` into
+   `content/page-draft-save-handler.js` while preserving inline validation and
+   property-lock activity on successful branch responses.
 
 Do not edit these branches as a continuation of Track F. Treat this as a new
 high-risk track that starts with audit-result hardening and a fresh review gate.
