@@ -102,6 +102,7 @@ import {
   dispatchContentCommand,
   registerContentCommand
 } from "./content/content-command-router.js";
+import { createAiPreviewStateResponseBuilder } from "./content/ai-preview-state-response.js";
 import { createInspectionStatusResolver } from "./content/inspection-status.js";
 import { initializePageWorldRelay } from "./content/page-world-relay.js";
 import { createPageToast } from "./content/page-toast.js";
@@ -391,6 +392,7 @@ let pageToastClient = null;
 let renderModeInspectionClient = null;
 let renderModeInspectionHandlers = null;
 let inspectionStatusResolver = null;
+let aiPreviewStateResponseBuilder = null;
 let propertyLockPortClient = null;
 let propertyLockStateMachine = null;
 let pageTelemetryBridgeListenerBound = false;
@@ -537,6 +539,13 @@ function getInspectionStatusResolver() {
     inspectionStatusResolver = createInspectionStatusResolver(createInspectionStatusDeps());
   }
   return inspectionStatusResolver;
+}
+
+function getAiPreviewStateResponseBuilder() {
+  if (!aiPreviewStateResponseBuilder) {
+    aiPreviewStateResponseBuilder = createAiPreviewStateResponseBuilder(createAiPreviewStateResponseDeps());
+  }
+  return aiPreviewStateResponseBuilder;
 }
 
 function getPropertyLockPortClient() {
@@ -6140,6 +6149,14 @@ function createInspectionStatusDeps() {
   };
 }
 
+function createAiPreviewStateResponseDeps() {
+  return {
+    FEATURE_DISABLED_REASON,
+    getAiPreviewState: () => aiPreviewState,
+    isPreviewExpandedStatesEnabled: () => isFeatureEnabled("previewExpandedStates")
+  };
+}
+
 function createRenderModeInspectionHandlersDeps() {
   return {
     armRenderModeInspectionWatchdog,
@@ -6688,59 +6705,18 @@ export function main() {
     }
 
     if (message.type === "getAiPreviewState") {
-      sendResponse({
-        ok: true,
-        active: aiPreviewState.active,
-        mode: aiPreviewState.mode || "",
-        previousEnabled: Boolean(aiPreviewState.previousEnabled),
-        restoreMarkingOnExit: Boolean(aiPreviewState.restoreMarkingOnExit),
-        previousBaseUrl: aiPreviewState.previousBaseUrl || "",
-        showAllCategories: isFeatureEnabled("previewExpandedStates") && aiPreviewState.showAllCategories,
-        items: aiPreviewState.items.map((item) => ({
-          xpath: item.xpath,
-          text: item.text,
-          title: item.title,
-          kind: item.kind
-        })),
-        focusedXpath: aiPreviewState.focusedXpath
-      });
+      sendResponse(getAiPreviewStateResponseBuilder().buildGetStateResponse());
       return;
     }
 
     if (message.type === "setAiPreviewExpandedMode") {
       if (!isFeatureEnabled("previewExpandedStates")) {
         setAiPreviewExpandedMode(false);
-        sendResponse({
-          ok: false,
-          reason: FEATURE_DISABLED_REASON,
-          feature: "previewExpandedStates",
-          active: aiPreviewState.active,
-          mode: aiPreviewState.mode || "",
-          showAllCategories: false,
-          items: aiPreviewState.items.map((item) => ({
-            xpath: item.xpath,
-            text: item.text,
-            title: item.title,
-            kind: item.kind
-          })),
-          focusedXpath: aiPreviewState.focusedXpath
-        });
+        sendResponse(getAiPreviewStateResponseBuilder().buildExpandedModeDisabledResponse());
         return;
       }
       const updated = setAiPreviewExpandedMode(Boolean(message.active));
-      sendResponse({
-        ok: updated,
-        active: aiPreviewState.active,
-        mode: aiPreviewState.mode || "",
-        showAllCategories: aiPreviewState.showAllCategories,
-        items: aiPreviewState.items.map((item) => ({
-          xpath: item.xpath,
-          text: item.text,
-          title: item.title,
-          kind: item.kind
-        })),
-        focusedXpath: aiPreviewState.focusedXpath
-      });
+      sendResponse(getAiPreviewStateResponseBuilder().buildExpandedModeResponse(updated));
       return;
     }
 

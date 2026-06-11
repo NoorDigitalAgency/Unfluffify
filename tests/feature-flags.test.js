@@ -140,7 +140,7 @@ test("disabled optional state cannot leak through hidden controls", () => {
 
   assert.match(contentMainSource, /FEATURE_DISABLED_REASON,[\s\S]*?isFeatureEnabled/);
   assert.match(contentMainSource, /function setAiPreviewExpandedMode\(active\) \{\s*if \(!isFeatureEnabled\("previewExpandedStates"\)\) \{[\s\S]*?aiPreviewState\.showAllCategories = false;[\s\S]*?return false;/);
-  assert.match(contentMainSource, /if \(message\.type === "setAiPreviewExpandedMode"\) \{[\s\S]*?if \(!isFeatureEnabled\("previewExpandedStates"\)\) \{[\s\S]*?reason: FEATURE_DISABLED_REASON,[\s\S]*?feature: "previewExpandedStates"/);
+  assert.match(contentMainSource, /if \(message\.type === "setAiPreviewExpandedMode"\) \{[\s\S]*?if \(!isFeatureEnabled\("previewExpandedStates"\)\) \{[\s\S]*?buildExpandedModeDisabledResponse\(\)/);
 });
 
 test("desktop preview and manual device switching are gated at runtime", () => {

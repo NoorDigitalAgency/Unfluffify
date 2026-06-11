@@ -315,3 +315,55 @@ Commit message:
 ```text
 refactor(content): dedupe runtime setEnabled handling
 ```
+
+## Phase F7 - AI Preview Runtime Response Builder Extraction
+
+Why this phase:
+- `content-main.js` runtime branches for `getAiPreviewState` and
+  `setAiPreviewExpandedMode` contained duplicated response-shaping logic.
+- Extracting response shaping lowers drift risk while preserving runtime message
+  contracts and feature-flag behavior.
+
+New module:
+- `content/ai-preview-state-response.js`
+
+Files to edit:
+- `content-main.js`
+- `content/ai-preview-state-response.js`
+- `manifest.json`
+- `tests/content-decomposition-boundary.test.js`
+- `tests/preview-tooltip.test.js`
+- `tests/feature-flags.test.js`
+- Add `tests/ai-preview-state-response.test.js`
+
+Exact function boundary:
+- Keep runtime message branches in `content-main.js`.
+- Delegate response shaping to module builder methods:
+  - `buildGetStateResponse`
+  - `buildExpandedModeDisabledResponse`
+  - `buildExpandedModeResponse`
+- Keep `setAiPreviewExpandedMode` state mutation logic in `content-main.js`.
+
+Rules:
+1. Preserve response payload fields and item mapping shape.
+2. Preserve `previewExpandedStates` feature-disabled behavior and reason fields.
+3. Do not alter preview state mutation flow.
+
+Focused validation:
+```bash
+npm test -- tests/ai-preview-state-response.test.js tests/preview-tooltip.test.js tests/feature-flags.test.js tests/content-decomposition-boundary.test.js tests/popup-mode-sync.test.js
+```
+
+Full validation:
+```bash
+npm test
+```
+
+Rollback criteria:
+- Any regression in popup preview controls, preview state sync, or disabled
+  feature response semantics should trigger rollback.
+
+Commit message:
+```text
+refactor(content): extract ai preview response builder
+```

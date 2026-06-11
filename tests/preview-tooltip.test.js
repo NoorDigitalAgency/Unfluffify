@@ -40,6 +40,7 @@ test("content-main applies the matching xpath as the preview target title", () =
 
 test("content-main tracks separate default and expanded preview item sets", () => {
   const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const previewResponseSource = readFileSync(new URL("../content/ai-preview-state-response.js", import.meta.url), "utf8");
 
   assert.match(
     source,
@@ -51,8 +52,11 @@ test("content-main tracks separate default and expanded preview item sets", () =
   );
   assert.match(
     source,
-    /if \(message\.type === "setAiPreviewExpandedMode"\) \{[\s\S]*?if \(!isFeatureEnabled\("previewExpandedStates"\)\) \{[\s\S]*?reason: FEATURE_DISABLED_REASON,[\s\S]*?feature: "previewExpandedStates",[\s\S]*?showAllCategories: false,[\s\S]*?return;[\s\S]*?showAllCategories: aiPreviewState\.showAllCategories,[\s\S]*?title: item\.title,[\s\S]*?kind: item\.kind/
+    /if \(message\.type === "setAiPreviewExpandedMode"\) \{[\s\S]*?if \(!isFeatureEnabled\("previewExpandedStates"\)\) \{[\s\S]*?buildExpandedModeDisabledResponse\(\)[\s\S]*?return;[\s\S]*?buildExpandedModeResponse\(updated\)/
   );
+  assert.match(previewResponseSource, /feature: "previewExpandedStates"/);
+  assert.match(previewResponseSource, /showAllCategories: false/);
+  assert.match(previewResponseSource, /title: item\.title,[\s\S]*?kind: item\.kind/);
 });
 
 test("popup.js sends preview list mode changes to the content script and normalizes the returned items", () => {
