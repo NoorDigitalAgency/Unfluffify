@@ -119,3 +119,52 @@ Commit message:
 ```text
 refactor(content): extract render mode inspection lifecycle client
 ```
+
+## Phase F3 - Runtime Inspection Handler Delegation
+
+Why this phase:
+- `content-main.js` still duplicated render-mode inspection behavior in two paths:
+  command-router handlers and legacy runtime-message branches.
+- This phase reduces divergence risk by reusing one authoritative handler set.
+
+Files to edit:
+- `content-main.js`
+- `tests/content-activation-order.test.js`
+- `tests/render-mode-inspection-order.test.js`
+- `tests/property-lock-render-mode.test.js`
+
+Exact function boundary:
+- Keep runtime listener branches (`if (message.type === "...")`) intact for
+  compatibility and source contracts.
+- Replace duplicated inspection logic inside runtime branches with delegation to:
+  - `handleGetInspectionStatusCommand`
+  - `handleRenderModeInspectionBeginCommand`
+  - `handleRunRenderModeRevealOnceCommand`
+  - `handleCaptureRenderModeInspectionHtmlCommand`
+  - `handleRenderModeInspectionEndCommand`
+  - `handleHideConsentForInspectionCommand`
+
+Rules:
+1. Preserve message type names and runtime response shapes.
+2. Preserve async reply behavior (`return true` for async branches).
+3. Do not alter reveal/capture/end semantics or lifecycle phases.
+4. Keep property-lock reconnect banner recovery behavior unchanged.
+
+Focused validation:
+```bash
+npm test -- tests/render-mode-inspection-order.test.js tests/content-activation-order.test.js tests/property-lock-render-mode.test.js tests/render-mode-inspector.test.js tests/popup-mode-sync.test.js
+```
+
+Full validation:
+```bash
+npm test
+```
+
+Rollback criteria:
+- Any regression in inspection ordering, popup inspection status polling, or
+  property-lock inspection reconnect handling should trigger rollback.
+
+Commit message:
+```text
+refactor(content): dedupe runtime inspection handlers
+```

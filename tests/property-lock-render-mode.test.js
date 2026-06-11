@@ -67,8 +67,8 @@ test("content suppresses page-side connection-loss countdown during render-mode 
     "export function renderPropertyLockBanner",
     "export function clearPropertyLockBannerCountdown"
   );
-  const endHandlerStart = contentSource.indexOf('if (message.type === "renderModeInspectionEnd") {');
-  const endHandlerEnd = contentSource.indexOf('if (message.type === "hideConsentForInspection") {', endHandlerStart);
+  const endHandlerStart = contentSource.indexOf("function handleRenderModeInspectionEndCommand(message = {}) {");
+  const endHandlerEnd = contentSource.indexOf("function handleHideConsentForInspectionCommand()", endHandlerStart);
   assert.ok(endHandlerStart > -1);
   assert.ok(endHandlerEnd > endHandlerStart);
   const endHandlerBlock = contentSource.slice(endHandlerStart, endHandlerEnd);

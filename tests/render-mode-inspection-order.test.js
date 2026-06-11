@@ -88,29 +88,34 @@ test("render mode auto detection consumes the explicit inspection snapshot", () 
 });
 
 test("content reveal and capture handlers preserve pre-highlight clean snapshot ordering", () => {
-  const messageStart = contentSource.indexOf('if (message.type === "runRenderModeRevealOnce") {');
-  const messageEnd = contentSource.indexOf('if (message.type === "hideConsentForInspection") {', messageStart);
-  assert.ok(messageStart > -1);
-  assert.ok(messageEnd > messageStart);
-  const messageBlock = contentSource.slice(messageStart, messageEnd);
+  const revealStart = contentSource.indexOf("async function handleRunRenderModeRevealOnceCommand(message = {}) {");
+  const revealEnd = contentSource.indexOf("async function handleCaptureRenderModeInspectionHtmlCommand(message = {}) {", revealStart);
+  assert.ok(revealStart > -1);
+  assert.ok(revealEnd > revealStart);
+  const revealBlock = contentSource.slice(revealStart, revealEnd);
 
-  const revealIndex = messageBlock.indexOf("warmupSilentHighlightingBeforeMotionPause(");
-  const captureIndex = messageBlock.indexOf('if (message.type === "captureRenderModeInspectionHtml") {');
-  const snapshotIndex = messageBlock.indexOf("const snapshot = createCurrentPageSnapshot();", captureIndex);
-  const rawIndex = messageBlock.indexOf("const rawHtml = await fetchCurrentPageRawHtml(location.href);", snapshotIndex);
-  const finishIndex = messageBlock.indexOf("core.finishPageInspectionUi();", rawIndex);
+  const captureStart = revealEnd;
+  const captureEnd = contentSource.indexOf("function handleRenderModeInspectionEndCommand(message = {}) {", captureStart);
+  assert.ok(captureEnd > captureStart);
+  const captureBlock = contentSource.slice(captureStart, captureEnd);
+
+  const revealIndex = revealBlock.indexOf("warmupSilentHighlightingBeforeMotionPause(");
+  const snapshotIndex = captureBlock.indexOf("const snapshot = createCurrentPageSnapshot();");
+  const rawIndex = captureBlock.indexOf("const rawHtml = await fetchCurrentPageRawHtml(location.href);", snapshotIndex);
+  const finishIndex = captureBlock.indexOf("core.finishPageInspectionUi();", rawIndex);
 
   assert.ok(revealIndex > -1);
-  assert.ok(captureIndex > revealIndex);
-  assert.ok(snapshotIndex > captureIndex);
+  assert.ok(snapshotIndex > -1);
   assert.ok(rawIndex > snapshotIndex);
   assert.ok(finishIndex > rawIndex);
-  assert.doesNotMatch(messageBlock, /refreshEnabledAiHighlights\(/);
-  assert.doesNotMatch(messageBlock, /refreshSilentHighlightings\(\)/);
+  assert.doesNotMatch(revealBlock, /refreshEnabledAiHighlights\(/);
+  assert.doesNotMatch(revealBlock, /refreshSilentHighlightings\(\)/);
+  assert.doesNotMatch(captureBlock, /refreshEnabledAiHighlights\(/);
+  assert.doesNotMatch(captureBlock, /refreshSilentHighlightings\(\)/);
 
   assert.match(coreSource, /const EXTENSION_SNAPSHOT_STRIP_SELECTORS = \[[\s\S]*?"\[data-uf-extension-ui=\\"true\\"\]"/);
   assert.match(coreSource, /"\[id\^=\\"unfluffify-\\"\]"/);
   assert.match(coreSource, /"#unfluffify-overlay"/);
   assert.match(coreSource, /"#unfluffify-ai-popover-style"/);
-  assert.match(messageBlock, /renderedHtml: snapshot && typeof snapshot\.renderedHtml === "string" \? snapshot\.renderedHtml : ""/);
+  assert.match(captureBlock, /renderedHtml: snapshot && typeof snapshot\.renderedHtml === "string" \? snapshot\.renderedHtml : ""/);
 });

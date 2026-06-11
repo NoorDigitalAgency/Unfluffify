@@ -16,12 +16,12 @@ function extractSourceBlock(source, startNeedle, endNeedle) {
 test("content inspection status reports the authoritative marking mode", () => {
   const statusBlock = extractSourceBlock(
     contentSource,
-    'if (message.type === "getInspectionStatus") {',
-    'if (message.type === "renderModeInspectionBegin") {'
+    "function handleGetInspectionStatusCommand() {",
+    "function handleRenderModeInspectionBeginCommand(message = {}) {"
   );
 
   assert.match(statusBlock, /markingEnabled: Boolean\(state\.enabled\)/);
-  assert.match(statusBlock, /mode: state\.enabled \? CONTENT_MODES\.MARKING : CONTENT_MODES\.SILENT/);
+  assert.match(statusBlock, /mode: getCurrentContentMode\(\)/);
 });
 
 test("popup refresh reconciles toggle state to content mode without setEnabled", () => {

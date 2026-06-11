@@ -6785,194 +6785,44 @@ export function main() {
     }
 
     if (message.type === "getInspectionStatus") {
-      const pageUrl = location.href;
-      const reconciliation = core.getPageSaveReconciliationState(pageUrl);
-      const reconciliationPending = core.isPageSaveReconciliationPending(pageUrl);
-      const inspectionActive = core.isPageInspectionUiActive();
-      const silentHighlightPreparationActive = Boolean(
-        reconciliation &&
-        reconciliation.reason === SILENT_HIGHLIGHTING_PREPARATION_REASON
-      );
-      const editorPreparationPending = Boolean(
-        silentHighlightPreparationActive ||
-        silentHighlightEditorActivationPromise
-      );
-      const lockClaimPending = Boolean(propertyLockEditorClaimPending);
-      const inspectionPending =
-        inspectionActive ||
-        editorPreparationPending ||
-        reconciliationPending;
-      sendResponse({
-        ok: true,
-        active: inspectionActive,
-        pending: inspectionPending,
-        renderModeInspectionActive: isRenderModeInspectionActive(),
-        markingEnabled: Boolean(state.enabled),
-        mode: state.enabled ? CONTENT_MODES.MARKING : CONTENT_MODES.SILENT,
-        lockClaimPending,
-        pendingReason: reconciliation && (reconciliationPending || editorPreparationPending)
-          ? reconciliation.reason || "pending"
-          : ""
-      });
+      sendResponse(handleGetInspectionStatusCommand());
       return;
     }
 
     if (message.type === "renderModeInspectionBegin") {
-      setRenderModeInspectionActive(true);
-      cancelSilentHighlightEditorActivation();
-      emitLifecycleEvent({
-        operationId: typeof message.operationId === "string" && message.operationId
-          ? message.operationId
-          : createLifecycleOperationId(LIFECYCLE_KINDS.RENDER_MODE_INSPECTION),
-        kind: LIFECYCLE_KINDS.RENDER_MODE_INSPECTION,
-        phase: LIFECYCLE_PHASES.STARTED,
-        busy: true,
-        message: "Inspecting page..."
-      });
-      sendResponse({ ok: true });
+      sendResponse(handleRenderModeInspectionBeginCommand(message));
       return;
     }
 
     if (message.type === "runRenderModeRevealOnce") {
-      (async () => {
-        const operationId = typeof message.operationId === "string" && message.operationId
-          ? message.operationId
-          : createLifecycleOperationId(LIFECYCLE_KINDS.RENDER_MODE_INSPECTION);
-        setRenderModeInspectionActive(true);
-        cancelSilentHighlightEditorActivation();
-        const pageUrl = location.href;
-        const baseUrl = message.baseUrl || await resolveBaseUrlForCurrentPage();
-        if (!baseUrl || !utils.isPageWithinBaseUrl(pageUrl, baseUrl)) {
-          core.finishPageInspectionUi();
-          emitLifecycleEvent({
-            operationId,
-            kind: LIFECYCLE_KINDS.RENDER_MODE_INSPECTION,
-            phase: LIFECYCLE_PHASES.FAILED,
-            busy: false,
-            message: ""
-          });
+      handleRunRenderModeRevealOnceCommand(message)
+        .then((response) => {
+          sendResponse(response && typeof response === "object" ? response : { ok: false });
+        })
+        .catch(() => {
           sendResponse({ ok: false });
-          return;
-        }
-        const revealId = ++silentHighlightEditorActivationIdCounter;
-        silentHighlightEditorRevealInFlight = revealId;
-        const isStillCurrent = () =>
-          renderModeInspectionActive &&
-          silentHighlightEditorRevealInFlight === revealId &&
-          location.href === pageUrl &&
-          utils.isPageWithinBaseUrl(location.href, baseUrl);
-        emitLifecycleEvent({
-          operationId,
-          kind: LIFECYCLE_KINDS.RENDER_MODE_INSPECTION,
-          phase: LIFECYCLE_PHASES.REVEAL_STARTED,
-          busy: true,
-          message: "Inspecting page..."
         });
-        armRenderModeInspectionWatchdog();
-        const prepared = await core.warmupSilentHighlightingBeforeMotionPause(
-          baseUrl,
-          pageUrl,
-          SILENT_HIGHLIGHTING_MOTION_PAUSE_REASON,
-          {
-            keepUiActive: true,
-            onRevealProgress: () => {
-              if (renderModeInspectionActive) {
-                armRenderModeInspectionWatchdog();
-              }
-            }
-          }
-        );
-        if (renderModeInspectionActive) {
-          armRenderModeInspectionWatchdog();
-        }
-        if (!prepared || !isStillCurrent()) {
-          core.finishPageInspectionUi();
-          emitLifecycleEvent({
-            operationId,
-            kind: LIFECYCLE_KINDS.RENDER_MODE_INSPECTION,
-            phase: LIFECYCLE_PHASES.FAILED,
-            busy: false,
-            message: ""
-          });
-          sendResponse({ ok: false });
-          return;
-        }
-        emitLifecycleEvent({
-          operationId,
-          kind: LIFECYCLE_KINDS.RENDER_MODE_INSPECTION,
-          phase: LIFECYCLE_PHASES.REVEAL_FINISHED,
-          busy: true,
-          message: "Inspecting page..."
-        });
-        sendResponse({ ok: true, pageUrl });
-      })().catch(() => {
-        core.finishPageInspectionUi();
-        sendResponse({ ok: false });
-      });
       return true;
     }
 
     if (message.type === "captureRenderModeInspectionHtml") {
-      (async () => {
-        const operationId = typeof message.operationId === "string" && message.operationId
-          ? message.operationId
-          : createLifecycleOperationId(LIFECYCLE_KINDS.RENDER_MODE_INSPECTION);
-        // Keep the self-healing watchdog fresh across the capture phase so a slow
-        // raw-HTML fetch cannot let the inspection flag expire mid-flight.
-        if (isRenderModeInspectionActive()) {
-          armRenderModeInspectionWatchdog();
-        }
-        const snapshot = createCurrentPageSnapshot();
-        const rawHtml = await fetchCurrentPageRawHtml(location.href);
-        core.finishPageInspectionUi();
-        emitLifecycleEvent({
-          operationId,
-          kind: LIFECYCLE_KINDS.RENDER_MODE_INSPECTION,
-          phase: LIFECYCLE_PHASES.HTML_CAPTURED,
-          busy: true,
-          message: "Inspecting page..."
+      handleCaptureRenderModeInspectionHtmlCommand(message)
+        .then((response) => {
+          sendResponse(response && typeof response === "object" ? response : { ok: false });
+        })
+        .catch(() => {
+          sendResponse({ ok: false });
         });
-        sendResponse({
-          ok: Boolean(snapshot && snapshot.renderedHtml && typeof rawHtml === "string"),
-          pageUrl: location.href,
-          renderedHtml: snapshot && typeof snapshot.renderedHtml === "string" ? snapshot.renderedHtml : "",
-          rawHtml: typeof rawHtml === "string" ? rawHtml : "",
-          renderMode: snapshot && typeof snapshot.renderMode === "string" ? snapshot.renderMode : ""
-        });
-      })().catch(() => {
-        core.finishPageInspectionUi();
-        sendResponse({ ok: false });
-      });
       return true;
     }
 
     if (message.type === "renderModeInspectionEnd") {
-      const operationId = typeof message.operationId === "string" && message.operationId
-        ? message.operationId
-        : createLifecycleOperationId(LIFECYCLE_KINDS.RENDER_MODE_INSPECTION);
-      setRenderModeInspectionActive(false);
-      if (silentHighlightEditorRevealInFlight) {
-        silentHighlightEditorRevealInFlight = 0;
-      }
-      core.finishPageInspectionUi();
-      if (propertyLockBannerMode === "editor_inspection_reconnecting") {
-        updatePropertyLockBannerMode();
-        renderPropertyLockBanner();
-      }
-      emitLifecycleEvent({
-        operationId,
-        kind: LIFECYCLE_KINDS.RENDER_MODE_INSPECTION,
-        phase: LIFECYCLE_PHASES.FINISHED,
-        busy: false,
-        message: ""
-      });
-      sendResponse({ ok: true });
+      sendResponse(handleRenderModeInspectionEndCommand(message));
       return;
     }
 
     if (message.type === "hideConsentForInspection") {
-      const hiddenCount = core.hideConsentElements();
-      sendResponse({ ok: true, hiddenCount });
+      sendResponse(handleHideConsentForInspectionCommand());
       return;
     }
 

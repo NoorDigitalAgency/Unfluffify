@@ -164,23 +164,28 @@ test("content exposes inspection status while reveal or reconciliation is pendin
   assert.ok(messageStart > -1);
   assert.ok(messageEnd > messageStart);
   const messageSource = mainSource.slice(messageStart, messageEnd);
-  assert.match(messageSource, /const pageUrl = location\.href;/);
-  assert.match(messageSource, /const reconciliation = core\.getPageSaveReconciliationState\(pageUrl\);/);
-  assert.match(messageSource, /const reconciliationPending = core\.isPageSaveReconciliationPending\(pageUrl\);/);
-  assert.match(messageSource, /const inspectionActive = core\.isPageInspectionUiActive\(\);/);
-  assert.match(messageSource, /const silentHighlightPreparationActive = Boolean\([\s\S]*?reconciliation\.reason === SILENT_HIGHLIGHTING_PREPARATION_REASON/);
-  const editorPreparationBlock = messageSource.match(
-    /const editorPreparationPending = Boolean\([\s\S]*?\n      \);/
-  );
+  assert.match(messageSource, /sendResponse\(handleGetInspectionStatusCommand\(\)\);/);
+
+  const handlerStart = mainSource.indexOf("function handleGetInspectionStatusCommand() {");
+  const handlerEnd = mainSource.indexOf("function handleRenderModeInspectionBeginCommand", handlerStart);
+  assert.ok(handlerStart > -1);
+  assert.ok(handlerEnd > handlerStart);
+  const handlerSource = mainSource.slice(handlerStart, handlerEnd);
+  assert.match(handlerSource, /const pageUrl = location\.href;/);
+  assert.match(handlerSource, /const reconciliation = core\.getPageSaveReconciliationState\(pageUrl\);/);
+  assert.match(handlerSource, /const reconciliationPending = core\.isPageSaveReconciliationPending\(pageUrl\);/);
+  assert.match(handlerSource, /const inspectionActive = core\.isPageInspectionUiActive\(\);/);
+  assert.match(handlerSource, /const silentHighlightPreparationActive = Boolean\([\s\S]*?reconciliation\.reason === SILENT_HIGHLIGHTING_PREPARATION_REASON/);
+  const editorPreparationBlock = handlerSource.match(/const editorPreparationPending = Boolean\([\s\S]*?\);/);
   assert.ok(editorPreparationBlock);
   assert.match(editorPreparationBlock[0], /silentHighlightPreparationActive \|\|[\s\S]*?silentHighlightEditorActivationPromise/);
   assert.doesNotMatch(editorPreparationBlock[0], /propertyLockEditorClaimPending/);
-  assert.match(messageSource, /const lockClaimPending = Boolean\(propertyLockEditorClaimPending\);/);
-  assert.match(messageSource, /const inspectionPending =[\s\S]*?inspectionActive \|\|[\s\S]*?editorPreparationPending \|\|[\s\S]*?reconciliationPending;/);
-  assert.match(messageSource, /silentHighlightEditorActivationPromise/);
-  assert.match(messageSource, /lockClaimPending,/);
-  assert.match(messageSource, /active: inspectionActive,/);
-  assert.match(messageSource, /pendingReason: reconciliation && \(reconciliationPending \|\| editorPreparationPending\)/);
+  assert.match(handlerSource, /const lockClaimPending = Boolean\(propertyLockEditorClaimPending\);/);
+  assert.match(handlerSource, /const inspectionPending =[\s\S]*?inspectionActive \|\|[\s\S]*?editorPreparationPending \|\|[\s\S]*?reconciliationPending;/);
+  assert.match(handlerSource, /silentHighlightEditorActivationPromise/);
+  assert.match(handlerSource, /lockClaimPending,/);
+  assert.match(handlerSource, /active: inspectionActive,/);
+  assert.match(handlerSource, /pendingReason: reconciliation && \(reconciliationPending \|\| editorPreparationPending\)/);
 });
 
 test("editor reveal is gated during render-mode inspection or before render mode is confirmed", () => {
