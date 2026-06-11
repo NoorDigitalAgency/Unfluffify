@@ -926,3 +926,54 @@ Commit message:
 ```text
 refactor(content): extract ai submission xpaths handler
 ```
+
+## Phase F19 - Collect Page Data Runtime Handler Extraction
+
+Why this phase:
+- `content-main.js` still directly owned `collectPageData` runtime payload
+  assembly.
+- Extracting this branch preserves behavior while reducing listener complexity
+  and isolating page-data response composition.
+
+New module:
+- `content/collect-page-data-handler.js`
+
+Files to edit:
+- `content-main.js`
+- `content/collect-page-data-handler.js`
+- `manifest.json`
+- `tests/content-decomposition-boundary.test.js`
+- Add `tests/collect-page-data-handler.test.js`
+
+Exact function boundary:
+- Keep runtime branch `if (message.type === "collectPageData")` in
+  `content-main.js`.
+- Delegate page-data payload assembly to `handleMessage(message)`.
+- Keep config/page-entry/snapshot authority in existing `core` and
+  `createCurrentPageSnapshot` APIs.
+
+Rules:
+1. Preserve target base URL resolution (`message.baseUrl || state.baseUrl`).
+2. Preserve response fields (`baseUrl`, `pageUrl`, `renderedHtml`, `rawHtml`,
+   `renderMode`, `immutableSelectors`, `xpaths`).
+3. Preserve runtime async flow (`return true` branch behavior).
+4. Preserve fallback normalization of `rawHtml`/`xpaths` fields.
+
+Focused validation:
+```bash
+npm test -- tests/collect-page-data-handler.test.js tests/content-decomposition-boundary.test.js tests/manifest-permissions.test.js tests/content-activation-order.test.js tests/popup-marking-refresh.test.js
+```
+
+Full validation:
+```bash
+npm test
+```
+
+Rollback criteria:
+- Any regression in collect-page-data response shape/content should trigger
+  rollback.
+
+Commit message:
+```text
+refactor(content): extract collect page data handler
+```

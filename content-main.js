@@ -108,6 +108,7 @@ import { createAiPreviewExpandedModeHandler } from "./content/ai-preview-expande
 import { createAiPreviewGetStateHandler } from "./content/ai-preview-get-state-handler.js";
 import { createAiPreviewStateResponseBuilder } from "./content/ai-preview-state-response.js";
 import { createAiSubmissionXpathsHandler } from "./content/ai-submission-xpaths-handler.js";
+import { createCollectPageDataHandler } from "./content/collect-page-data-handler.js";
 import { createDefaultExclusionsHandler } from "./content/default-exclusions-handler.js";
 import { createDescribeXpathsHandler } from "./content/describe-xpaths-handler.js";
 import { createFocusHandler } from "./content/focus-handler.js";
@@ -409,6 +410,7 @@ let aiPreviewExpandedModeHandler = null;
 let aiPreviewGetStateHandler = null;
 let aiPreviewStateResponseBuilder = null;
 let aiSubmissionXpathsHandler = null;
+let collectPageDataHandler = null;
 let defaultExclusionsHandler = null;
 let describeXpathsHandler = null;
 let focusHandler = null;
@@ -603,6 +605,13 @@ function getAiSubmissionXpathsHandler() {
     aiSubmissionXpathsHandler = createAiSubmissionXpathsHandler(createAiSubmissionXpathsHandlerDeps());
   }
   return aiSubmissionXpathsHandler;
+}
+
+function getCollectPageDataHandler() {
+  if (!collectPageDataHandler) {
+    collectPageDataHandler = createCollectPageDataHandler(createCollectPageDataHandlerDeps());
+  }
+  return collectPageDataHandler;
 }
 
 function getDefaultExclusionsHandler() {
@@ -6306,6 +6315,18 @@ function createAiSubmissionXpathsHandlerDeps() {
   };
 }
 
+function createCollectPageDataHandlerDeps() {
+  return {
+    createCurrentPageSnapshot,
+    getBaseUrl: () => state.baseUrl,
+    getImmutableSelectors: () => DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS.slice(),
+    getPageMarkingEntry: (configValue, pageUrl, options) =>
+      core.getPageMarkingEntry(configValue, pageUrl, options),
+    getPageUrl: () => location.href,
+    loadConfig: (baseUrl) => core.loadConfig(baseUrl)
+  };
+}
+
 function createDefaultExclusionsHandlerDeps() {
   return {
     getImmutableSelectors: () => DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS.slice()
@@ -7011,22 +7032,8 @@ export function main() {
     }
 
     if (message.type === "collectPageData") {
-      const targetBaseUrl = message.baseUrl || state.baseUrl;
-      core.loadConfig(targetBaseUrl).then((config) => {
-        const entry = core.getPageMarkingEntry(config, location.href, {
-          create: false,
-          persist: false
-        });
-        const snapshot = createCurrentPageSnapshot();
-        sendResponse({
-          baseUrl: targetBaseUrl,
-          pageUrl: location.href,
-          renderedHtml: snapshot.renderedHtml,
-          rawHtml: typeof entry.rawHtml === "string" ? entry.rawHtml : "",
-          renderMode: snapshot.renderMode,
-          immutableSelectors: DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS.slice(),
-          xpaths: entry.xpaths || []
-        });
+      getCollectPageDataHandler().handleMessage(message).then((response) => {
+        sendResponse(response && typeof response === "object" ? response : { ok: false });
       });
       return true;
     }
