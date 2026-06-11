@@ -65,6 +65,7 @@
         "content/property-lock-banner.js",
         "content/remote-support-client.js",
         "content/remote-support-viewer-client.js",
+        "content/remote-support-support-page.js",
         "common/config.js",
         "common/constants.js",
         "common/extension-telemetry.js",

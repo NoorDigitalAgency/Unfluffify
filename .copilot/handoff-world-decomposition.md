@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-11
 Branch: `main`
-Status: world-decomposition program complete; content follow-up D1 complete.
+Status: world-decomposition program complete; content follow-up D2 complete.
 
 ## Active Plan
 
@@ -23,17 +23,17 @@ git status --short --branch
 # ## main...origin/main
 
 npm test
-# 845 pass / 0 fail
+# 848 pass / 0 fail
 ```
 
 Recent completion commits:
 
-1. `refactor(content): extract remote support viewer client` (this handoff update)
-2. `45f4f45 refactor(content): inject remote support state request`
-3. `dde67f9 docs(copilot): remove stale historical plans`
-4. `425b6cb docs(copilot): add content follow-up refactor plan`
-5. `c6e49c7 refactor(content): extract property lock banner`
-6. `60ee4df refactor(content): extract remote support client`
+1. `refactor(content): extract remote support support page` (this handoff update)
+2. `82e9f84 refactor(content): extract remote support viewer client`
+3. `45f4f45 refactor(content): inject remote support state request`
+4. `dde67f9 docs(copilot): remove stale historical plans`
+5. `425b6cb docs(copilot): add content follow-up refactor plan`
+6. `c6e49c7 refactor(content): extract property lock banner`
 
 Feature flags relevant to the next work:
 
@@ -110,7 +110,15 @@ The active plan turns those findings into mechanical phases.
    - `npm test -- tests/content-remote-support-viewer-client.test.js tests/content-decomposition-boundary.test.js tests/manifest-permissions.test.js tests/content-remote-support-client.test.js`
      -> 14 pass / 0 fail
    - `npm test` -> 845 pass / 0 fail
-5. Live validation deferred by policy while `FEATURE_FLAGS.remoteSupport` is
+5. D2 complete: support-page state, UI, render cycle, and frame handling moved
+   from `content-main.js` into `content/remote-support-support-page.js`, with
+   `content-main.js` delegating support-page initialization and runtime message
+   branches through `getRemoteSupportSupportPage()`.
+6. D2 validation:
+   - `npm test -- tests/content-remote-support-support-page.test.js tests/remote-support-support-page.test.js tests/content-decomposition-boundary.test.js tests/manifest-permissions.test.js`
+     -> 11 pass / 0 fail
+   - `npm test` -> 848 pass / 0 fail
+7. Live validation deferred by policy while `FEATURE_FLAGS.remoteSupport` is
    false.
 
 ## Non-Negotiable Guardrails
@@ -152,21 +160,21 @@ Start with `.copilot/content-main-followup-refactor-plan.md`.
 Recommended next implementation phase:
 
 1. Run the standard phase baseline from the active plan.
-2. Begin Phase D2: extract remote-support support-page UI/state rendering into
-   `content/remote-support-support-page.js`.
+2. Begin Phase E0: extract property-lock banner mode operation into
+   `content/property-lock-banner-mode.js`.
 
-Do not start Track E before D2 is committed and pushed.
+Track D is complete through D2.
 
 ## Validation Commands For The Next Agent
 
-Use these before starting D2:
+Use these before starting E0:
 
 ```bash
 git status --short --branch
 git pull --ff-only
 npm test
 rg -n "remoteSupport:|propertyLockCollaboration:" common/feature-flags.js
-rg -n "content/page-telemetry-bridge.js|content/remote-support-client.js|content/remote-support-viewer-client.js|content/property-lock-banner.js" manifest.json
+rg -n "content/page-telemetry-bridge.js|content/remote-support-client.js|content/remote-support-viewer-client.js|content/remote-support-support-page.js|content/property-lock-banner.js" manifest.json
 ```
 
 Expected:

@@ -3,7 +3,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 test("support page no longer renders an inline join form and includes fullscreen support", () => {
-  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const contentMainSource = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../content/remote-support-support-page.js", import.meta.url), "utf8");
+
+  assert.match(contentMainSource, /from\s+"\.\/content\/remote-support-support-page\.js"/);
 
   assert.ok(!source.includes("uf-support-page-join-form"));
   assert.ok(!source.includes("uf-support-page__rail"));
