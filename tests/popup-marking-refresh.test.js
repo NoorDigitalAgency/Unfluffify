@@ -883,6 +883,10 @@ test("content-side save hotkey workflow is removed from the marking session", ()
 test("content saved baseline is refreshed from backend cache, not local drafts", () => {
   const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
   const contentSource = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const draftStatusHandlerSource = readFileSync(
+    new URL("../content/page-draft-status-handler.js", import.meta.url),
+    "utf8"
+  );
   const clearHandlerSource = readFileSync(
     new URL("../content/page-save-reconciliation-clear-handler.js", import.meta.url),
     "utf8"
@@ -894,11 +898,15 @@ test("content saved baseline is refreshed from backend cache, not local drafts",
   );
   assert.match(
     contentSource,
-    /if \(message\.type === "getPageDraftStatus"\) \{[\s\S]*?refreshSavedPageEntryFromBackendCache\(targetBaseUrl, pageUrl\)/
+    /if \(message\.type === "getPageDraftStatus"\) \{[\s\S]*?getPageDraftStatusHandler\(\)\.getStatus\(\{ targetBaseUrl \}\)/
   );
   assert.match(
-    contentSource,
-    /if \(message\.type === "getPageDraftStatus"\) \{[\s\S]*?reconciliationPending: core\.isPageSaveReconciliationPending\(pageUrl\)/
+    draftStatusHandlerSource,
+    /refreshSavedPageEntryFromBackendCache\(targetBaseUrl, pageUrl\)/
+  );
+  assert.match(
+    draftStatusHandlerSource,
+    /reconciliationPending: deps\.getPageSaveReconciliationPending\(pageUrl\)/
   );
   assert.match(
     contentSource,
@@ -912,9 +920,12 @@ test("content saved baseline is refreshed from backend cache, not local drafts",
 });
 
 test("submission-xpath staleness only counts when the entry already has prior run data", () => {
-  const contentSource = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
-  const block = contentSource.match(
-    /if \(message\.type === "getPageDraftStatus"\) \{[\s\S]*?reconciliationPending: core\.isPageSaveReconciliationPending\(pageUrl\)/
+  const draftStatusHandlerSource = readFileSync(
+    new URL("../content/page-draft-status-handler.js", import.meta.url),
+    "utf8"
+  );
+  const block = draftStatusHandlerSource.match(
+    /const entrySubmissionXpaths =[\s\S]*?reconciliationPending: deps\.getPageSaveReconciliationPending\(pageUrl\)/
   )[0];
 
   // The stale check must be gated on the entry carrying submission xpaths from a
@@ -927,7 +938,7 @@ test("submission-xpath staleness only counts when the entry already has prior ru
   );
   assert.match(
     block,
-    /const submissionXpathsStale = Boolean\([\s\S]*?entrySubmissionXpaths\.length > 0 &&[\s\S]*?submissionXpathsEqual\(\s*entrySubmissionXpaths,/
+    /const submissionXpathsStale = Boolean\([\s\S]*?entrySubmissionXpaths\.length > 0 &&[\s\S]*?deps\.submissionXpathsEqual\(\s*entrySubmissionXpaths,/
   );
 });
 

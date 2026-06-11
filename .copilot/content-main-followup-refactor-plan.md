@@ -18,7 +18,7 @@ Current validated baseline:
 
 ```bash
 npm test
-# 908 pass / 0 fail
+# 912 pass / 0 fail
 ```
 
 Completed:
@@ -26,11 +26,11 @@ Completed:
 1. World-decomposition Tracks A and B.
 2. Content follow-up Track D through D2.
 3. Content follow-up Track E through E2.
-4. Track F through F22.
+4. Track F through F23.
 
 Current implementation plan:
 
-1. Start with F23 in `.copilot/track-f-protected-content-plan.md`.
+1. Start with F24 in `.copilot/track-f-protected-content-plan.md`.
 2. Follow one phase per commit.
 3. Run focused validation and full `npm test` for every phase.
 4. Update `.copilot/handoff-world-decomposition.md` with validation and commit
@@ -39,7 +39,7 @@ Current implementation plan:
 
 ## Review Summary
 
-The F1-F19 extraction series was reviewed on 2026-06-11, and F20-F22 completed with focused plus full-suite validation.
+The F1-F19 extraction series was reviewed on 2026-06-11, and F20-F23 completed with focused plus full-suite validation.
 
 Code review result:
 
@@ -52,7 +52,7 @@ Code review result:
 5. The real blocker for the next agent was documentation drift; the handoff and
    active plan have been refreshed.
 
-No pre-code bugfix phase is required before F23.
+No pre-code bugfix phase is required before F24.
 
 ## Required Baseline Before Any Next Phase
 

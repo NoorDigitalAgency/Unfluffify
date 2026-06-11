@@ -115,6 +115,7 @@ import { createFocusHandler } from "./content/focus-handler.js";
 import { createForceRefreshHandler } from "./content/force-refresh-handler.js";
 import { createInvisibleXpathsHandler } from "./content/invisible-xpaths-handler.js";
 import { createInspectionStatusResolver } from "./content/inspection-status.js";
+import { createPageDraftStatusHandler } from "./content/page-draft-status-handler.js";
 import { createPageSaveReconciliationClearHandler } from "./content/page-save-reconciliation-clear-handler.js";
 import { createPageSaveReconciliationPendingHandler } from "./content/page-save-reconciliation-pending-handler.js";
 import { initializePageWorldRelay } from "./content/page-world-relay.js";
@@ -409,6 +410,7 @@ let pageSaveReconciliationPendingHandler = null;
 let renderModeInspectionClient = null;
 let renderModeInspectionHandlers = null;
 let inspectionStatusResolver = null;
+let pageDraftStatusHandler = null;
 let aiPreviewCloseHandler = null;
 let aiPreviewComputeLockHandler = null;
 let aiPreviewExpandedModeHandler = null;
@@ -587,6 +589,13 @@ function getInspectionStatusResolver() {
     inspectionStatusResolver = createInspectionStatusResolver(createInspectionStatusDeps());
   }
   return inspectionStatusResolver;
+}
+
+function getPageDraftStatusHandler() {
+  if (!pageDraftStatusHandler) {
+    pageDraftStatusHandler = createPageDraftStatusHandler(createPageDraftStatusHandlerDeps());
+  }
+  return pageDraftStatusHandler;
 }
 
 function getAiPreviewStateResponseBuilder() {
@@ -6433,6 +6442,29 @@ function createPageSaveReconciliationClearHandlerDeps() {
   };
 }
 
+function createPageDraftStatusHandlerDeps() {
+  return {
+    areEntriesEquivalent: (left, right) => core.areEntriesEquivalent(left, right),
+    clonePageEntry: (entry) => core.clonePageEntry(entry),
+    collectAiSubmissionXpathsForCurrentPage,
+    collectImmutableElements: () => core.collectImmutableElements(),
+    getConfig: () => state.config,
+    getDraftPageEntry: (pageUrl) => core.getDraftPageEntry(pageUrl),
+    getPageDraftDirty: (pageUrl) => core.isPageDraftDirty(pageUrl),
+    getPageSaveReconciliationPending: (pageUrl) => core.isPageSaveReconciliationPending(pageUrl),
+    getPageSaveReconciliationState: (pageUrl) => core.getPageSaveReconciliationState(pageUrl),
+    getPageUrl: () => location.href,
+    getSavedPageEntry: (pageUrl) => core.getSavedPageEntry(pageUrl),
+    hasPageMarkingEntry: (configValue, pageUrl) => core.hasPageMarkingEntry(configValue, pageUrl),
+    refreshSavedPageEntryFromBackendCache: (baseUrl, pageUrl) =>
+      core.refreshSavedPageEntryFromBackendCache(baseUrl, pageUrl),
+    setSavedPageEntry: (pageUrl, entry) => core.setSavedPageEntry(pageUrl, entry),
+    submissionXpathsEqual,
+    syncPageMarkings: (configValue, pageUrl, immutableExcluded, options) =>
+      core.syncPageMarkings(configValue, pageUrl, immutableExcluded, options)
+  };
+}
+
 function createRemoteSupportStateHandlerDeps() {
   return {
     applyRemoteSupportSessionState,
@@ -7215,50 +7247,9 @@ export function main() {
         sendResponse({ ok: false });
         return;
       }
-      (async () => {
-        const pageUrl = location.href;
-        await core.refreshSavedPageEntryFromBackendCache(targetBaseUrl, pageUrl);
-        const hasEntry = core.hasPageMarkingEntry(state.config, pageUrl);
-        const savedEntryBeforeSync = core.getSavedPageEntry(pageUrl);
-        const draftEntryBeforeSync = core.getDraftPageEntry(pageUrl);
-        const wasClean =
-          hasEntry && core.areEntriesEquivalent(draftEntryBeforeSync, savedEntryBeforeSync);
-        const immutableExcluded = core.collectImmutableElements();
-        const syncResult = core.syncPageMarkings(state.config, pageUrl, immutableExcluded, {
-          allowCreate: hasEntry,
-          persist: hasEntry
-        });
-        const entry = hasEntry ? syncResult.entry : null;
-        if (hasEntry && wasClean && syncResult.changed && entry) {
-          core.setSavedPageEntry(pageUrl, entry);
-        }
-        const savedEntry = core.getSavedPageEntry(pageUrl);
-        const reconciliation = core.getPageSaveReconciliationState(pageUrl);
-        // Submission-xpath staleness only signals a discardable change when the
-        // entry already carries submission data from a prior AI run/save. On a
-        // freshly enabled page the entry has no submissionXpaths yet, while the
-        // live page always reports submittable xpaths; comparing the two would
-        // otherwise mark the pristine page dirty and wrongly enable Discard.
-        const entrySubmissionXpaths =
-          entry && Array.isArray(entry.submissionXpaths) ? entry.submissionXpaths : [];
-        const submissionXpathsStale = Boolean(
-          hasEntry &&
-          entry &&
-          entrySubmissionXpaths.length > 0 &&
-          !submissionXpathsEqual(
-            entrySubmissionXpaths,
-            collectAiSubmissionXpathsForCurrentPage()
-          )
-        );
-        sendResponse({
-          ok: true,
-          entry: entry ? core.clonePageEntry(entry) : null,
-          savedEntry,
-          dirty: core.isPageDraftDirty(pageUrl) || submissionXpathsStale,
-          reconciliation,
-          reconciliationPending: core.isPageSaveReconciliationPending(pageUrl)
-        });
-      })().catch(() => {
+      getPageDraftStatusHandler().getStatus({ targetBaseUrl }).then((response) => {
+        sendResponse(response && typeof response === "object" ? response : { ok: false });
+      }).catch(() => {
         sendResponse({ ok: false });
       });
       return true;
