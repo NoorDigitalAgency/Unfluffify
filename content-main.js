@@ -108,6 +108,7 @@ import { createAiPreviewExpandedModeHandler } from "./content/ai-preview-expande
 import { createAiPreviewGetStateHandler } from "./content/ai-preview-get-state-handler.js";
 import { createAiPreviewStateResponseBuilder } from "./content/ai-preview-state-response.js";
 import { createDefaultExclusionsHandler } from "./content/default-exclusions-handler.js";
+import { createInvisibleXpathsHandler } from "./content/invisible-xpaths-handler.js";
 import { createInspectionStatusResolver } from "./content/inspection-status.js";
 import { initializePageWorldRelay } from "./content/page-world-relay.js";
 import { createPageToast } from "./content/page-toast.js";
@@ -405,6 +406,7 @@ let aiPreviewExpandedModeHandler = null;
 let aiPreviewGetStateHandler = null;
 let aiPreviewStateResponseBuilder = null;
 let defaultExclusionsHandler = null;
+let invisibleXpathsHandler = null;
 let propertyLockPortClient = null;
 let propertyLockStateMachine = null;
 let remoteSupportStateHandler = null;
@@ -595,6 +597,13 @@ function getDefaultExclusionsHandler() {
     defaultExclusionsHandler = createDefaultExclusionsHandler(createDefaultExclusionsHandlerDeps());
   }
   return defaultExclusionsHandler;
+}
+
+function getInvisibleXpathsHandler() {
+  if (!invisibleXpathsHandler) {
+    invisibleXpathsHandler = createInvisibleXpathsHandler(createInvisibleXpathsHandlerDeps());
+  }
+  return invisibleXpathsHandler;
 }
 
 function getVisibleXpathsHandler() {
@@ -6277,6 +6286,13 @@ function createVisibleXpathsHandlerDeps() {
   };
 }
 
+function createInvisibleXpathsHandlerDeps() {
+  return {
+    getElementFromXPath: (xpath) => core.getElementFromXPath(xpath),
+    isVisible: (element) => core.isVisible(element)
+  };
+}
+
 function createRemoteSupportStateHandlerDeps() {
   return {
     applyRemoteSupportSessionState,
@@ -6976,12 +6992,7 @@ export function main() {
     }
 
     if (message.type === "filterInvisibleXpathsOnPage") {
-      const xpaths = Array.isArray(message.xpaths) ? message.xpaths : [];
-      const filtered = xpaths.filter((xpath) => {
-        const el = core.getElementFromXPath(xpath);
-        return el && !core.isVisible(el);
-      });
-      sendResponse({ xpaths: filtered });
+      sendResponse(getInvisibleXpathsHandler().handleMessage(message));
       return;
     }
 

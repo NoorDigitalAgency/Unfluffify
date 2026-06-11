@@ -728,3 +728,52 @@ Commit message:
 ```text
 refactor(content): extract visible xpaths handler
 ```
+
+## Phase F15 - Invisible XPath Filter Runtime Handler Extraction
+
+Why this phase:
+- `content-main.js` still directly owned `filterInvisibleXpathsOnPage` runtime
+  filtering logic.
+- Extracting this branch preserves behavior while reducing listener complexity
+  and isolating inverse-visibility filtering logic.
+
+New module:
+- `content/invisible-xpaths-handler.js`
+
+Files to edit:
+- `content-main.js`
+- `content/invisible-xpaths-handler.js`
+- `manifest.json`
+- `tests/content-decomposition-boundary.test.js`
+- Add `tests/invisible-xpaths-handler.test.js`
+
+Exact function boundary:
+- Keep runtime branch `if (message.type === "filterInvisibleXpathsOnPage")` in
+  `content-main.js`.
+- Delegate xpath inverse-visibility filtering to `handleMessage(message)`.
+- Keep element/xpath and visibility authority in existing `core` APIs.
+
+Rules:
+1. Preserve request normalization for non-array `message.xpaths` (empty array).
+2. Preserve inverse visibility predicate (`getElementFromXPath` + `!isVisible`).
+3. Preserve response shape (`{ xpaths: [...] }`).
+4. Keep branch synchronous and return flow unchanged.
+
+Focused validation:
+```bash
+npm test -- tests/invisible-xpaths-handler.test.js tests/content-decomposition-boundary.test.js tests/manifest-permissions.test.js tests/popup-marking-refresh.test.js
+```
+
+Full validation:
+```bash
+npm test
+```
+
+Rollback criteria:
+- Any regression in popup inverse-xpath filtering behavior or runtime response
+  shape should trigger rollback.
+
+Commit message:
+```text
+refactor(content): extract invisible xpaths handler
+```

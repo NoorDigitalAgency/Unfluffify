@@ -66,6 +66,7 @@
         "content/ai-preview-get-state-handler.js",
         "content/ai-preview-state-response.js",
         "content/default-exclusions-handler.js",
+        "content/invisible-xpaths-handler.js",
         "content/inspection-status.js",
         "content/page-world-relay.js",
         "content/page-telemetry-bridge.js",
