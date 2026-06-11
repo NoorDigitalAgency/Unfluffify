@@ -15,6 +15,8 @@ import {
   normalizeLockStateMessage
 } from "../common/property-lock.js";
 
+const propertyLockBannerSource = readFileSync(new URL("../content/property-lock-banner.js", import.meta.url), "utf8");
+
 test("buildPropertyLockWssUrl requires a stage base and token", () => {
   assert.equal(buildPropertyLockWssUrl("", "token"), "");
   assert.equal(buildPropertyLockWssUrl("example.test", ""), "");
@@ -221,8 +223,8 @@ test("content-main starts and persists an off-candidate editor countdown before 
   assert.match(source, /window\.setTimeout\(\(\) => \{[\s\S]*?sendPropertyLockMessage\(PROPERTY_LOCK_CONTENT_RELEASE\);[\s\S]*?\}, PROPERTY_LOCK_OFF_CANDIDATE_WARNING_TIMEOUT_MS \+ 100\);/);
   assert.match(source, /async function syncPropertyLockOffCandidateWarning\(baseUrl, pageUrl = location\.href\) \{/);
   assert.match(source, /if \(propertyLockState && propertyLockState\.isEditor\) \{\s*startPropertyLockOffCandidateWarning\(\);/);
-  assert.match(source, /case "editor_off_candidate_countdown":/);
-  assert.match(source, /propertyLockText\.editorOffCandidateCountdownMessage\(propertyLockBannerCountdownValue\)/);
+  assert.match(propertyLockBannerSource, /case "editor_off_candidate_countdown":/);
+  assert.match(propertyLockBannerSource, /propertyLockText\.editorOffCandidateCountdownMessage\(propertyLockBannerCountdownValue\)/);
 });
 
 test("content-main starts and persists a cross-property editor cooldown before releasing the old lock", () => {
@@ -234,8 +236,8 @@ test("content-main starts and persists a cross-property editor cooldown before r
   assert.match(source, /propertyLockRecoveryDeadlineAt = recoveryState\.deadlineAt > Date\.now\(\)\s*\?\s*recoveryState\.deadlineAt\s*:\s*Date\.now\(\) \+ PROPERTY_LOCK_CROSS_PROPERTY_COOLDOWN_TIMEOUT_MS;/);
   assert.match(source, /type: PROPERTY_LOCK_CONTENT_RELEASE,\s*siteId: recoverySiteId,\s*clientId: recoveryClientId/);
   assert.match(source, /if \(propertyLockRecoveryDeadlineAt > Date\.now\(\)\) \{\s*propertyLockBannerMode = "editor_cross_property_countdown";/);
-  assert.match(source, /case "editor_cross_property_countdown":/);
-  assert.match(source, /propertyLockText\.editorCrossPropertyCountdownMessage\(propertyLockBannerCountdownValue\)/);
+  assert.match(propertyLockBannerSource, /case "editor_cross_property_countdown":/);
+  assert.match(propertyLockBannerSource, /propertyLockText\.editorCrossPropertyCountdownMessage\(propertyLockBannerCountdownValue\)/);
 });
 
 test("content-main does not reset disconnect countdown on repeated unavailable status updates", () => {

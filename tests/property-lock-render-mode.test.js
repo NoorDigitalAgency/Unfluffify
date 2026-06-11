@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
 const propertyLockUiSource = readFileSync(new URL("../popup/property-lock-ui.js", import.meta.url), "utf8");
 const contentSource = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+const propertyLockBannerSource = readFileSync(new URL("../content/property-lock-banner.js", import.meta.url), "utf8");
 const textSource = readFileSync(new URL("../common/text.js", import.meta.url), "utf8");
 
 function extractSourceBlock(source, startNeedle, endNeedle) {
@@ -61,9 +62,9 @@ test("content suppresses page-side connection-loss countdown during render-mode 
     "function updatePropertyLockBannerMode()"
   );
   const renderBlock = extractSourceBlock(
-    contentSource,
-    "function renderPropertyLockBanner()",
-    "function clearPropertyLockBannerCountdown()"
+    propertyLockBannerSource,
+    "export function renderPropertyLockBanner",
+    "export function clearPropertyLockBannerCountdown"
   );
   const endHandlerStart = contentSource.indexOf('if (message.type === "renderModeInspectionEnd") {');
   const endHandlerEnd = contentSource.indexOf('if (message.type === "hideConsentForInspection") {', endHandlerStart);

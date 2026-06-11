@@ -33,6 +33,7 @@ test("content decomposition guard: baseline content modules are imported", () =>
   assertImportsContentModule("content-command-router");
   assertImportsContentModule("page-world-relay");
   assertImportsContentModule("page-telemetry-bridge");
+  assertImportsContentModule("property-lock-banner");
   assertImportsContentModule("remote-support-client");
 
   assertContentDoesNotDefine("handlePageTelemetryWindowMessage");
@@ -42,4 +43,6 @@ test("content decomposition guard: baseline content modules are imported", () =>
   assertContentDoesNotDefine("quietRemoteSupportVideo");
   assertContentDoesNotDefine("startRemoteSupportMediaQuieting");
   assertContentDoesNotDefine("stopRemoteSupportMediaQuieting");
+  assertContentDoesNotDefine("createPropertyLockBannerButton");
+  assertContentDoesNotDefine("createPropertyLockBannerLabel");
 });

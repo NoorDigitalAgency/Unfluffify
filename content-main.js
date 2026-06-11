@@ -103,6 +103,12 @@ import {
   registerContentCommand
 } from "./content/content-command-router.js";
 import { initializePageWorldRelay } from "./content/page-world-relay.js";
+import {
+  clearPropertyLockBannerCountdown as clearPropertyLockBannerCountdownOperation,
+  ensurePropertyLockBannerStyle as ensurePropertyLockBannerStyleOperation,
+  renderPropertyLockBanner as renderPropertyLockBannerOperation,
+  restartPropertyLockBannerCountdown as restartPropertyLockBannerCountdownOperation
+} from "./content/property-lock-banner.js";
 import { createRemoteSupportClient } from "./content/remote-support-client.js";
 import {
   ensurePageTelemetryBridge as ensurePageTelemetryBridgeOperation,
@@ -7373,97 +7379,44 @@ function updatePropertyLockBannerMode() {
     : "passive_locked";
 }
 
+function createPropertyLockBannerDeps() {
+  return {
+    isPropertyLockCollaborationEnabled,
+    clearPropertyLockBannerCountdown,
+    renderPropertyLockBanner,
+    updatePropertyLockBannerMode,
+    sendPropertyLockMessage,
+    respondToPropertyLockTakeoverSuggestion,
+    getPropertyLockBannerElement: () => propertyLockBannerElement,
+    setPropertyLockBannerElement: (element) => {
+      propertyLockBannerElement = element;
+    },
+    getPropertyLockBannerMode: () => propertyLockBannerMode,
+    getPropertyLockBannerCountdownTimer: () => propertyLockBannerCountdownTimer,
+    setPropertyLockBannerCountdownTimer: (timer) => {
+      propertyLockBannerCountdownTimer = timer;
+    },
+    getPropertyLockBannerCountdownValue: () => propertyLockBannerCountdownValue,
+    setPropertyLockBannerCountdownValue: (value) => {
+      propertyLockBannerCountdownValue = value;
+    },
+    setPropertyLockBannerVisible: (visible) => {
+      propertyLockBannerVisible = Boolean(visible);
+    },
+    getPropertyLockState: () => propertyLockState,
+    getPropertyLockSuggestionFromName: () => propertyLockSuggestionFromName,
+    propertyLockText,
+    EXTENSION_UI_FONT_STACK,
+    PROPERTY_LOCK_BANNER_ID,
+    PROPERTY_LOCK_BANNER_STYLE_ID,
+    PROPERTY_LOCK_CONTENT_CONTINUE,
+    PROPERTY_LOCK_CONTENT_SUGGEST,
+    PROPERTY_LOCK_CONTENT_TAKE_LOCK
+  };
+}
+
 function ensurePropertyLockBannerStyle() {
-  if (document.getElementById(PROPERTY_LOCK_BANNER_STYLE_ID)) {
-    return;
-  }
-
-  const style = document.createElement("style");
-  style.id = PROPERTY_LOCK_BANNER_STYLE_ID;
-  style.textContent = `
-    #${PROPERTY_LOCK_BANNER_ID} {
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      padding: 12px 16px;
-      background: #fff3cd;
-      border-bottom: 1px solid #d39e00;
-      font-family: ${EXTENSION_UI_FONT_STACK};
-      font-size: 14px;
-      color: #4d3900;
-      z-index: 2147483645;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.16);
-    }
-    #${PROPERTY_LOCK_BANNER_ID}.uf-lock-banner-hidden {
-      display: none;
-    }
-    #${PROPERTY_LOCK_BANNER_ID} .uf-lock-banner-content {
-      flex: 1;
-      min-width: 0;
-      font-weight: 600;
-      line-height: 1.35;
-    }
-    #${PROPERTY_LOCK_BANNER_ID} .uf-lock-banner-actions {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-      justify-content: flex-end;
-    }
-    #${PROPERTY_LOCK_BANNER_ID} button {
-      padding: 6px 12px;
-      background: #f8b400;
-      border: 1px solid #bf8500;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 12px;
-      font-weight: 600;
-      color: #2f2200;
-    }
-    #${PROPERTY_LOCK_BANNER_ID} button:hover {
-      background: #e6a700;
-    }
-    #${PROPERTY_LOCK_BANNER_ID} button:disabled {
-      opacity: 0.55;
-      cursor: not-allowed;
-      background: #f5d886;
-    }
-    #${PROPERTY_LOCK_BANNER_ID} .uf-lock-banner-label {
-      display: inline-flex;
-      align-items: center;
-      font-size: 12px;
-      font-weight: 600;
-    }
-  `;
-  (document.head || document.documentElement).appendChild(style);
-}
-
-function createPropertyLockBannerButton(text, className, onClick, options = {}) {
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = className;
-  button.textContent = text;
-  button.disabled = Boolean(options.disabled);
-  button.addEventListener("click", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    if (button.disabled) {
-      return;
-    }
-    onClick();
-  });
-  return button;
-}
-
-function createPropertyLockBannerLabel(text) {
-  const label = document.createElement("span");
-  label.className = "uf-lock-banner-label";
-  label.textContent = text;
-  return label;
+  return ensurePropertyLockBannerStyleOperation(createPropertyLockBannerDeps());
 }
 
 async function respondToPropertyLockTakeoverSuggestion(accept) {
@@ -7494,183 +7447,15 @@ async function respondToPropertyLockTakeoverSuggestion(accept) {
 }
 
 function renderPropertyLockBanner() {
-  if (!isPropertyLockCollaborationEnabled()) {
-    if (propertyLockBannerElement) {
-      propertyLockBannerElement.classList.add("uf-lock-banner-hidden");
-      propertyLockBannerElement.replaceChildren();
-    }
-    propertyLockBannerVisible = false;
-    clearPropertyLockBannerCountdown();
-    return;
-  }
-  const shouldShow = propertyLockBannerMode !== "no_banner";
-  ensurePropertyLockBannerStyle();
-
-  if (!propertyLockBannerElement) {
-    propertyLockBannerElement = document.createElement("div");
-    propertyLockBannerElement.id = PROPERTY_LOCK_BANNER_ID;
-    propertyLockBannerElement.setAttribute("data-uf-extension-ui", "true");
-    (document.body || document.documentElement).insertBefore(
-      propertyLockBannerElement,
-      (document.body || document.documentElement).firstChild
-    );
-  }
-
-  if (!shouldShow) {
-    propertyLockBannerElement.classList.add("uf-lock-banner-hidden");
-    propertyLockBannerElement.replaceChildren();
-    propertyLockBannerVisible = false;
-    clearPropertyLockBannerCountdown();
-    return;
-  }
-
-  propertyLockBannerElement.classList.remove("uf-lock-banner-hidden");
-  propertyLockBannerVisible = true;
-  propertyLockBannerElement.replaceChildren();
-
-  const editorName = propertyLockState?.editorName || "Someone";
-  const sameUserEditor = Boolean(propertyLockState?.isSameUserEditor);
-  const otherTabHasUnsavedChanges = Boolean(propertyLockState?.otherTabHasUnsavedChanges);
-  const content = document.createElement("div");
-  const actions = document.createElement("div");
-  content.className = "uf-lock-banner-content";
-  actions.className = "uf-lock-banner-actions";
-
-  switch (propertyLockBannerMode) {
-    case "passive_locked":
-      content.textContent = sameUserEditor
-        ? propertyLockText.sameUserLockedMessage
-        : propertyLockText.passiveLockedMessage(editorName);
-      if (sameUserEditor) {
-        if (otherTabHasUnsavedChanges) {
-          actions.appendChild(createPropertyLockBannerButton(
-            propertyLockText.continueEditingHereButton,
-            "uf-lock-banner-continue-editing",
-            () => {},
-            { disabled: true }
-          ));
-          actions.appendChild(createPropertyLockBannerLabel(propertyLockText.otherTabUnsavedChangesLabel));
-          actions.appendChild(createPropertyLockBannerButton(propertyLockText.continueEditingHereAnywayButton, "uf-lock-banner-force-continue", () => {
-            sendPropertyLockMessage(PROPERTY_LOCK_CONTENT_CONTINUE, { force: true, discardPrevious: true });
-          }));
-        } else {
-          actions.appendChild(createPropertyLockBannerButton(propertyLockText.continueEditingHereButton, "uf-lock-banner-continue-editing", () => {
-            sendPropertyLockMessage(PROPERTY_LOCK_CONTENT_CONTINUE);
-          }));
-        }
-      } else {
-        actions.appendChild(createPropertyLockBannerButton(propertyLockText.takeoverSuggestButton, "uf-lock-banner-suggest", () => {
-          sendPropertyLockMessage(PROPERTY_LOCK_CONTENT_SUGGEST);
-        }));
-      }
-      break;
-    case "passive_expiry_countdown":
-      content.textContent = sameUserEditor
-        ? propertyLockText.sameUserLockedMessage
-        : propertyLockText.passiveExpiryCountdownMessage(editorName, propertyLockBannerCountdownValue);
-      if (sameUserEditor) {
-        actions.appendChild(createPropertyLockBannerButton(
-          otherTabHasUnsavedChanges
-            ? propertyLockText.continueEditingHereAnywayButton
-            : propertyLockText.continueEditingHereButton,
-          "uf-lock-banner-continue-editing",
-          () => {
-            sendPropertyLockMessage(PROPERTY_LOCK_CONTENT_CONTINUE, {
-              force: otherTabHasUnsavedChanges,
-              discardPrevious: otherTabHasUnsavedChanges
-            });
-          }
-        ));
-      } else {
-        actions.appendChild(createPropertyLockBannerButton(propertyLockText.takeoverSuggestButton, "uf-lock-banner-suggest", () => {
-          sendPropertyLockMessage(PROPERTY_LOCK_CONTENT_SUGGEST);
-        }));
-      }
-      break;
-    case "passive_suggestion_pending":
-      content.textContent = propertyLockText.passiveSuggestionPendingMessage(editorName);
-      break;
-    case "passive_suggestion_rejected":
-      content.textContent = propertyLockText.passiveSuggestionRejectedMessage(editorName);
-      actions.appendChild(createPropertyLockBannerButton(propertyLockText.okButton, "uf-lock-banner-ok", () => {
-        updatePropertyLockBannerMode();
-        renderPropertyLockBanner();
-      }));
-      break;
-    case "takeover_available": {
-      content.textContent = propertyLockState?.isRecentEditor
-        ? propertyLockText.recentEditorInactiveMessage
-        : propertyLockText.takeoverAvailableMessage;
-      const label = propertyLockState?.isRecentEditor
-        ? propertyLockText.continueEditingButton
-        : propertyLockText.takeoverButton;
-      actions.appendChild(createPropertyLockBannerButton(label, "uf-lock-banner-takeover", () => {
-        sendPropertyLockMessage(PROPERTY_LOCK_CONTENT_TAKE_LOCK);
-      }));
-      break;
-    }
-    case "editor_disconnect_countdown":
-      content.textContent = propertyLockText.editorDisconnectCountdownMessage(propertyLockBannerCountdownValue);
-      break;
-    case "editor_inspection_reconnecting":
-      content.textContent = propertyLockText.editorInspectionReconnectingMessage;
-      break;
-    case "editor_inactivity_warning":
-      content.textContent = propertyLockText.editorInactivityWarningMessage(propertyLockBannerCountdownValue);
-      actions.appendChild(createPropertyLockBannerButton(propertyLockText.continueEditingButton, "uf-lock-banner-continue-editing", () => {
-        sendPropertyLockMessage(PROPERTY_LOCK_CONTENT_CONTINUE);
-      }));
-      break;
-    case "editor_cross_property_countdown":
-      content.textContent = propertyLockText.editorCrossPropertyCountdownMessage(propertyLockBannerCountdownValue);
-      break;
-    case "editor_off_candidate_countdown":
-      content.textContent = propertyLockText.editorOffCandidateCountdownMessage(propertyLockBannerCountdownValue);
-      break;
-    case "editor_takeover_suggestion":
-      content.textContent = propertyLockText.takeoverSuggestionMessage(propertyLockSuggestionFromName || "Someone");
-      actions.appendChild(createPropertyLockBannerButton(propertyLockText.acceptButton, "uf-lock-banner-accept", () => {
-        respondToPropertyLockTakeoverSuggestion(true).then();
-      }));
-      actions.appendChild(createPropertyLockBannerButton(propertyLockText.rejectButton, "uf-lock-banner-reject", () => {
-        respondToPropertyLockTakeoverSuggestion(false).then();
-      }));
-      break;
-    case "editor_transfer_countdown":
-      content.textContent = propertyLockText.editorTransferCountdownMessage(
-        propertyLockState?.transferFromName || propertyLockSuggestionFromName || editorName,
-        propertyLockState?.transferToName || propertyLockSuggestionFromName || "the next editor",
-        propertyLockBannerCountdownValue
-      );
-      break;
-  }
-
-  propertyLockBannerElement.append(content, actions);
+  return renderPropertyLockBannerOperation(createPropertyLockBannerDeps());
 }
 
 function clearPropertyLockBannerCountdown() {
-  if (propertyLockBannerCountdownTimer) {
-    clearInterval(propertyLockBannerCountdownTimer);
-    propertyLockBannerCountdownTimer = 0;
-  }
+  return clearPropertyLockBannerCountdownOperation(createPropertyLockBannerDeps());
 }
 
 function restartPropertyLockBannerCountdown() {
-  if (!isPropertyLockCollaborationEnabled()) {
-    clearPropertyLockBannerCountdown();
-    return;
-  }
-  clearPropertyLockBannerCountdown();
-  if (propertyLockBannerCountdownValue <= 0) {
-    return;
-  }
-  propertyLockBannerCountdownTimer = setInterval(() => {
-    propertyLockBannerCountdownValue = Math.max(0, propertyLockBannerCountdownValue - 1);
-    renderPropertyLockBanner();
-    if (propertyLockBannerCountdownValue <= 0) {
-      clearPropertyLockBannerCountdown();
-    }
-  }, 1000);
+  return restartPropertyLockBannerCountdownOperation(createPropertyLockBannerDeps());
 }
 
 let contentCommandHandlersRegistered = false;

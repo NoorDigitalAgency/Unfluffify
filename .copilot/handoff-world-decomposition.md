@@ -81,7 +81,7 @@ Status values: TODO / IN_PROGRESS / DONE / BLOCKED.
 1. Phase C0 - Baseline + content boundary guard + manifest allowlist assert: DONE.
 2. Phase C1 - content/page-telemetry-bridge.js: DONE.
 3. Phase C2 - content/remote-support-client.js: DONE.
-4. Phase C3 - content/property-lock-banner.js: TODO.
+4. Phase C3 - content/property-lock-banner.js: DONE.
 
 Track C live scenarios are required for core unflagged behavior. Flag-gated flows
 such as remote support may defer live validation until that feature is prioritized,
@@ -278,6 +278,13 @@ Phase C2 - remote support client extraction:
    Focused: node --test tests/content-remote-support-client.test.js tests/content-decomposition-boundary.test.js tests/manifest-permissions.test.js tests/page-telemetry.test.js -> 15 pass / 0 fail
    Full:    npm test -> 840 pass / 0 fail
    Live:    deferred by priority policy; remote-support path is behind FEATURE_FLAGS.remoteSupport=false and will be validated when flag-enabled features are prioritized.
+   Commit:  60ee4df refactor(content): extract remote support client
+
+Phase C3 - property lock banner extraction:
+   Files:   content/property-lock-banner.js; content-main.js; manifest.json; tests/content-decomposition-boundary.test.js; tests/manifest-permissions.test.js; tests/property-lock.test.js; tests/property-lock-render-mode.test.js
+   Focused: node --test tests/content-decomposition-boundary.test.js tests/manifest-permissions.test.js tests/property-lock.test.js tests/property-lock-render-mode.test.js -> 38 pass / 0 fail
+   Full:    npm test -> 840 pass / 0 fail
+   Live:    skipped by priority policy; property-lock collaboration path is feature-gated and this slice moved banner rendering/countdown helpers only.
    Commit:  pending
 
 Phase B2 - site and page-type resolution extraction:
@@ -332,6 +339,6 @@ Phase B8 - grouped popup timers hardening:
 
 ## Next Action
 
-Commit and push Track C Phase C2 with:
-`refactor(content): extract remote support client`, then proceed to Track C Phase C3
-(`content/property-lock-banner.js`) under the core-feature live-validation policy.
+Commit and push Track C Phase C3 with:
+`refactor(content): extract property lock banner`. Track C planned peripheral slices
+are then complete; choose the next decomposition track or priority before continuing.
