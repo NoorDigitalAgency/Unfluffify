@@ -7730,6 +7730,3 @@ async function init() {
 }
 
 init();
-}
-
-init();

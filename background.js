@@ -139,6 +139,7 @@ import { createRenderModeInspector } from "./background/render-mode-inspector.js
 import { createAiRunOrchestrator } from "./background/ai-run-orchestrator.js";
 import { runBackgroundTask } from "./background/async-tasks.js";
 import { createManagedTimeoutGroup } from "./background/managed-timeouts.js";
+import { refineXPathEntries } from "./common/xpath-utilities.js";
 import {
   aiComputeLockExpiresAtByTabId,
   disposeTabState,
