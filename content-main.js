@@ -107,6 +107,7 @@ import { createAiPreviewComputeLockHandler } from "./content/ai-preview-compute-
 import { createAiPreviewExpandedModeHandler } from "./content/ai-preview-expanded-mode-handler.js";
 import { createAiPreviewGetStateHandler } from "./content/ai-preview-get-state-handler.js";
 import { createAiPreviewStateResponseBuilder } from "./content/ai-preview-state-response.js";
+import { createAiSubmissionXpathsHandler } from "./content/ai-submission-xpaths-handler.js";
 import { createDefaultExclusionsHandler } from "./content/default-exclusions-handler.js";
 import { createDescribeXpathsHandler } from "./content/describe-xpaths-handler.js";
 import { createFocusHandler } from "./content/focus-handler.js";
@@ -407,6 +408,7 @@ let aiPreviewComputeLockHandler = null;
 let aiPreviewExpandedModeHandler = null;
 let aiPreviewGetStateHandler = null;
 let aiPreviewStateResponseBuilder = null;
+let aiSubmissionXpathsHandler = null;
 let defaultExclusionsHandler = null;
 let describeXpathsHandler = null;
 let focusHandler = null;
@@ -594,6 +596,13 @@ function getAiPreviewGetStateHandler() {
     aiPreviewGetStateHandler = createAiPreviewGetStateHandler(createAiPreviewGetStateHandlerDeps());
   }
   return aiPreviewGetStateHandler;
+}
+
+function getAiSubmissionXpathsHandler() {
+  if (!aiSubmissionXpathsHandler) {
+    aiSubmissionXpathsHandler = createAiSubmissionXpathsHandler(createAiSubmissionXpathsHandlerDeps());
+  }
+  return aiSubmissionXpathsHandler;
 }
 
 function getDefaultExclusionsHandler() {
@@ -6291,6 +6300,12 @@ function createAiPreviewGetStateHandlerDeps() {
   };
 }
 
+function createAiSubmissionXpathsHandlerDeps() {
+  return {
+    collectAiSubmissionXpathsForCurrentPage
+  };
+}
+
 function createDefaultExclusionsHandlerDeps() {
   return {
     getImmutableSelectors: () => DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS.slice()
@@ -7022,8 +7037,7 @@ export function main() {
     }
 
     if (message.type === "collectAiSubmissionXpaths") {
-      const xpaths = collectAiSubmissionXpathsForCurrentPage();
-      sendResponse({ xpaths });
+      sendResponse(getAiSubmissionXpathsHandler().handleMessage());
       return;
     }
 

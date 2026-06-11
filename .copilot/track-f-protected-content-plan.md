@@ -876,3 +876,53 @@ Commit message:
 ```text
 refactor(content): extract focus handler
 ```
+
+## Phase F18 - AI Submission XPath Runtime Handler Extraction
+
+Why this phase:
+- `content-main.js` still directly owned `collectAiSubmissionXpaths` runtime
+  response wiring.
+- Extracting this tiny branch reduces listener surface while preserving
+  submission-xpath collection contracts.
+
+New module:
+- `content/ai-submission-xpaths-handler.js`
+
+Files to edit:
+- `content-main.js`
+- `content/ai-submission-xpaths-handler.js`
+- `manifest.json`
+- `tests/content-decomposition-boundary.test.js`
+- Add `tests/ai-submission-xpaths-handler.test.js`
+
+Exact function boundary:
+- Keep runtime branch `if (message.type === "collectAiSubmissionXpaths")` in
+  `content-main.js`.
+- Delegate response composition to `handleMessage()`.
+- Keep submission xpath collection authority in
+  `collectAiSubmissionXpathsForCurrentPage`.
+
+Rules:
+1. Preserve response field name (`xpaths`).
+2. Preserve current collection source and ordering.
+3. Keep branch synchronous and return flow unchanged.
+4. Do not alter submission-xpath detection logic.
+
+Focused validation:
+```bash
+npm test -- tests/ai-submission-xpaths-handler.test.js tests/content-decomposition-boundary.test.js tests/manifest-permissions.test.js tests/popup-marking-refresh.test.js tests/content-activation-order.test.js
+```
+
+Full validation:
+```bash
+npm test
+```
+
+Rollback criteria:
+- Any regression in submission-xpath collection contracts should trigger
+  rollback.
+
+Commit message:
+```text
+refactor(content): extract ai submission xpaths handler
+```

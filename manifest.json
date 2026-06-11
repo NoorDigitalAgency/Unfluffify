@@ -65,6 +65,7 @@
         "content/ai-preview-expanded-mode-handler.js",
         "content/ai-preview-get-state-handler.js",
         "content/ai-preview-state-response.js",
+        "content/ai-submission-xpaths-handler.js",
         "content/default-exclusions-handler.js",
         "content/describe-xpaths-handler.js",
         "content/focus-handler.js",
