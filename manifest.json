@@ -76,6 +76,7 @@
         "content/force-refresh-handler.js",
         "content/invisible-xpaths-handler.js",
         "content/inspection-status.js",
+        "content/page-draft-revert-handler.js",
         "content/page-draft-status-handler.js",
         "content/page-save-reconciliation-clear-handler.js",
         "content/page-world-relay.js",

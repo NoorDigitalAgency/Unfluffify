@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-11
 Branch: main
-Status: G0-G2 complete; next phase is G3.
+Status: G0-G3 complete; next phase is G4.
 
 ## Scope
 
@@ -26,6 +26,8 @@ Progress:
 - G2 extracted `showAiPreview` into `content/ai-preview-show-handler.js` with
    focused coverage for preview item construction, empty-preview degradation,
    and close handling.
+- G3 extracted `revertPageDraft` into `content/page-draft-revert-handler.js`
+   while preserving inline validation and the G0 failure fallback.
 
 Do not edit these branches as a continuation of Track F. Treat this as a new
 high-risk track that starts with audit-result hardening and a fresh review gate.

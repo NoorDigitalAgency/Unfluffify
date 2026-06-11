@@ -58,7 +58,7 @@
   `sessionStorage` usage is tracked separately from this Chrome storage rule.
 - Earlier world-decomposition work is complete. Content follow-up Tracks D/E are
   complete, Track F is complete through F24, and the high-risk plan is complete
-  through G2. Continue with G3 in `.copilot/high-risk-content-branches-plan.md`.
+  through G3. Continue with G4 in `.copilot/high-risk-content-branches-plan.md`.
   Hard rules
   remain: never edit `content/core.js` or locked marking/silent-highlight/
   visibility/reconciliation logic without a new high-risk plan; every new

@@ -119,6 +119,7 @@ import { createForceRefreshHandler } from "./content/force-refresh-handler.js";
 import { createInvisibleXpathsHandler } from "./content/invisible-xpaths-handler.js";
 import { createInspectionStatusResolver } from "./content/inspection-status.js";
 import { createPageDraftStatusHandler } from "./content/page-draft-status-handler.js";
+import { createPageDraftRevertHandler } from "./content/page-draft-revert-handler.js";
 import { createPageSaveReconciliationClearHandler } from "./content/page-save-reconciliation-clear-handler.js";
 import { createPageSaveReconciliationPendingHandler } from "./content/page-save-reconciliation-pending-handler.js";
 import { initializePageWorldRelay } from "./content/page-world-relay.js";
@@ -414,6 +415,7 @@ let renderModeInspectionClient = null;
 let renderModeInspectionHandlers = null;
 let inspectionStatusResolver = null;
 let pageDraftStatusHandler = null;
+let pageDraftRevertHandler = null;
 let aiPreviewCloseHandler = null;
 let aiPreviewComputeLockHandler = null;
 let aiPreviewExpandedModeHandler = null;
@@ -595,6 +597,13 @@ function getInspectionStatusResolver() {
     inspectionStatusResolver = createInspectionStatusResolver(createInspectionStatusDeps());
   }
   return inspectionStatusResolver;
+}
+
+function getPageDraftRevertHandler() {
+  if (!pageDraftRevertHandler) {
+    pageDraftRevertHandler = createPageDraftRevertHandler(createPageDraftRevertHandlerDeps());
+  }
+  return pageDraftRevertHandler;
 }
 
 function getPageDraftStatusHandler() {
@@ -6541,6 +6550,27 @@ function createPageSaveReconciliationClearHandlerDeps() {
   };
 }
 
+function createPageDraftRevertHandlerDeps() {
+  return {
+    collectImmutableElements: () => core.collectImmutableElements(),
+    getPageUrl: () => location.href,
+    getSavedPageEntry: (pageUrl) => core.getSavedPageEntry(pageUrl),
+    isPageDraftDirty: (pageUrl) => core.isPageDraftDirty(pageUrl),
+    loadConfig: (baseUrl) => core.loadConfig(baseUrl),
+    notifyDraftStatus: (pageUrl) => core.notifyDraftStatus(pageUrl),
+    scheduleRender: () => core.scheduleRender(),
+    setBaseUrl: (baseUrl) => {
+      state.baseUrl = baseUrl;
+    },
+    setConfig: (configValue) => {
+      state.config = configValue;
+    },
+    setSavedPageEntry: (pageUrl, entry) => core.setSavedPageEntry(pageUrl, entry),
+    syncPageMarkings: (configValue, pageUrl, immutableExcluded, options) =>
+      core.syncPageMarkings(configValue, pageUrl, immutableExcluded, options)
+  };
+}
+
 function createPageDraftStatusHandlerDeps() {
   return {
     areEntriesEquivalent: (left, right) => core.areEntriesEquivalent(left, right),
@@ -7531,31 +7561,9 @@ export function main() {
         sendResponse({ ok: false, locked: true });
         return;
       }
-      (async () => {
-        const pageUrl = location.href;
-        const config = await core.loadConfig(targetBaseUrl);
-        const storedEntry =
-          config.pageMarkings && config.pageMarkings[pageUrl]
-            ? config.pageMarkings[pageUrl]
-            : null;
-        core.setSavedPageEntry(pageUrl, storedEntry);
-        if (storedEntry) {
-          const immutableExcluded = core.collectImmutableElements();
-          core.syncPageMarkings(config, pageUrl, immutableExcluded, {
-            allowCreate: true,
-            persist: true
-          });
-        }
-        state.baseUrl = targetBaseUrl;
-        state.config = config;
-        core.scheduleRender();
-        core.notifyDraftStatus(pageUrl);
-        sendResponse({
-          ok: true,
-          dirty: core.isPageDraftDirty(pageUrl),
-          entry: core.getSavedPageEntry(pageUrl)
-        });
-      })().catch(() => {
+      getPageDraftRevertHandler().revert({ targetBaseUrl }).then((response) => {
+        sendResponse(response && typeof response === "object" ? response : { ok: false });
+      }).catch(() => {
         sendResponse({ ok: false });
       });
       return true;

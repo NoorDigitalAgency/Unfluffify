@@ -19,6 +19,7 @@ const remainingHighRiskBranches = new Map([
 
 const plannedHandlerAccessors = new Map([
   ["configUpdated", "getConfigUpdatedHandler"],
+  ["revertPageDraft", "getPageDraftRevertHandler"],
   ["showAiPreview", "getAiPreviewShowHandler"]
 ]);
 
@@ -185,13 +186,18 @@ function assertBranchHasCatchFallback(messageType, branch, required) {
 }
 
 test("revertPageDraft load failures answer ok false", () => {
-  const branch = branchOrPlannedHandler("revertPageDraft");
+  const branch = getMessageBranch("revertPageDraft");
+  const handlerSource = readFileSync(
+    new URL("../content/page-draft-revert-handler.js", import.meta.url),
+    "utf8"
+  );
 
-  assert.match(branch, /const config = await core\.loadConfig\(targetBaseUrl\);/);
+  assert.match(branch, /getPageDraftRevertHandler\(\)\.revert\(\{ targetBaseUrl \}\)/);
   assert.match(
     branch,
-    /\}\)\(\)\.catch\(\(\) => \{\s*sendResponse\(\{ ok: false \}\);\s*\}\);/
+    /\.catch\(\(\) => \{\s*sendResponse\(\{ ok: false \}\);\s*\}\);/
   );
+  assert.match(handlerSource, /const config = await deps\.loadConfig\(targetBaseUrl\);/);
 });
 
 test("high-risk branch inventory remains inline until planned handlers are exposed", () => {
