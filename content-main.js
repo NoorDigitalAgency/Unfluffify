@@ -109,6 +109,7 @@ import { createAiPreviewGetStateHandler } from "./content/ai-preview-get-state-h
 import { createAiPreviewStateResponseBuilder } from "./content/ai-preview-state-response.js";
 import { createAiSubmissionXpathsHandler } from "./content/ai-submission-xpaths-handler.js";
 import { createCollectPageDataHandler } from "./content/collect-page-data-handler.js";
+import { createCapturePageSnapshotHandler } from "./content/capture-page-snapshot-handler.js";
 import { createDefaultExclusionsHandler } from "./content/default-exclusions-handler.js";
 import { createDescribeXpathsHandler } from "./content/describe-xpaths-handler.js";
 import { createFocusHandler } from "./content/focus-handler.js";
@@ -417,6 +418,7 @@ let aiPreviewExpandedModeHandler = null;
 let aiPreviewGetStateHandler = null;
 let aiPreviewStateResponseBuilder = null;
 let aiSubmissionXpathsHandler = null;
+let capturePageSnapshotHandler = null;
 let collectPageDataHandler = null;
 let defaultExclusionsHandler = null;
 let describeXpathsHandler = null;
@@ -638,6 +640,13 @@ function getAiSubmissionXpathsHandler() {
     aiSubmissionXpathsHandler = createAiSubmissionXpathsHandler(createAiSubmissionXpathsHandlerDeps());
   }
   return aiSubmissionXpathsHandler;
+}
+
+function getCapturePageSnapshotHandler() {
+  if (!capturePageSnapshotHandler) {
+    capturePageSnapshotHandler = createCapturePageSnapshotHandler(createCapturePageSnapshotHandlerDeps());
+  }
+  return capturePageSnapshotHandler;
 }
 
 function getCollectPageDataHandler() {
@@ -6355,6 +6364,33 @@ function createAiSubmissionXpathsHandlerDeps() {
   };
 }
 
+function createCapturePageSnapshotHandlerDeps() {
+  return {
+    collectAiSubmissionXpathsForCurrentPage,
+    collectImmutableElements: () => core.collectImmutableElements(),
+    createCurrentPageSnapshot,
+    fetchCurrentPageRawHtml,
+    getActiveConfig: () => state.config,
+    getCurrentPageType: () => state.currentPageType,
+    getDocumentTitle: () => document.title,
+    getPageMarkingEntry: (configValue, pageUrl) => core.getPageMarkingEntry(configValue, pageUrl),
+    getPageUrl: () => location.href,
+    hasPageMarkingEntry: (configValue, pageUrl) => core.hasPageMarkingEntry(configValue, pageUrl),
+    loadConfig: (baseUrl) => core.loadConfig(baseUrl),
+    matchesActiveBaseUrl,
+    refreshSavedPageEntryFromBackendCache: (baseUrl, pageUrl) =>
+      core.refreshSavedPageEntryFromBackendCache(baseUrl, pageUrl),
+    saveConfig: (baseUrl, configValue) => core.saveConfig(baseUrl, configValue),
+    sendPropertyLockActivity,
+    setConfig: (configValue) => {
+      state.config = configValue;
+    },
+    syncPageMarkings: (configValue, pageUrl, immutableExcluded, options) =>
+      core.syncPageMarkings(configValue, pageUrl, immutableExcluded, options),
+    touchPageEntryTimestamp: (entry) => core.touchPageEntryTimestamp(entry)
+  };
+}
+
 function createCollectPageDataHandlerDeps() {
   return {
     createCurrentPageSnapshot,
@@ -7180,64 +7216,13 @@ export function main() {
         return;
       }
 
-      (async () => {
-        let config;
-        if (matchesActiveBaseUrl(targetBaseUrl) && state.config) {
-          // Use the in-memory config to preserve any unsaved changes
-          config = state.config;
-        } else {
-          // Load from storage if it's a different base URL
-          config = await core.loadConfig(targetBaseUrl);
-        }
-
-        const allowCreate = shouldPersist;
-        const hasEntry = core.hasPageMarkingEntry(config, location.href);
-        if (!allowCreate && !hasEntry) {
-          sendResponse({ ok: false });
-          return;
-        }
-
-        // Ensure page entry is synced first, then capture HTML
-        const immutableExcluded = core.collectImmutableElements();
-        const syncResult = core.syncPageMarkings(config, location.href, immutableExcluded, {
-          allowCreate,
-          persist: allowCreate || hasEntry
-        });
-
-        // Now capture the full HTML (after consent elements are removed)
-        const entry = syncResult.entry || core.getPageMarkingEntry(config, location.href);
-        const snapshot = createCurrentPageSnapshot();
-        const rawHtml = await fetchCurrentPageRawHtml(location.href);
-        entry.renderedHtml = snapshot.renderedHtml;
-        entry.pageType =
-          (typeof message.pageType === "string" && message.pageType) ||
-          state.currentPageType ||
-          entry.pageType;
-        entry.rawHtml = typeof rawHtml === "string"
-          ? rawHtml
-          : typeof entry.rawHtml === "string"
-            ? entry.rawHtml
-            : "";
-        entry.title = document.title || location.href;
-        entry.submissionXpaths = collectAiSubmissionXpathsForCurrentPage(config);
-        core.touchPageEntryTimestamp(entry);
-        config.pageMarkings[location.href] = entry;
-
-        if (shouldPersist) {
-          await core.saveConfig(targetBaseUrl, config);
-        }
-
-        if (matchesActiveBaseUrl(targetBaseUrl)) {
-          state.config = config;
-          if (shouldPersist) {
-            await core.refreshSavedPageEntryFromBackendCache(targetBaseUrl, location.href);
-          }
-        }
-        if (shouldPersist) {
-          sendPropertyLockActivity();
-        }
-        sendResponse({ ok: true });
-      })();
+      getCapturePageSnapshotHandler().capture({
+        targetBaseUrl,
+        shouldPersist,
+        pageType: typeof message.pageType === "string" ? message.pageType : ""
+      }).then((response) => {
+        sendResponse(response && typeof response === "object" ? response : { ok: false });
+      });
       return true;
     }
 

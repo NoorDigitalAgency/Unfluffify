@@ -246,6 +246,10 @@ test("runtime setEnabled can request an initial reveal when reload restoration r
 
 test("capturePageSnapshot collects AI submission rows from the target config", () => {
   const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const captureHandlerSource = readFileSync(
+    new URL("../content/capture-page-snapshot-handler.js", import.meta.url),
+    "utf8"
+  );
   const collectorStart = source.indexOf("function collectAiSubmissionXpathsForCurrentPage");
   const collectorEnd = source.indexOf("function refreshEnabledAiHighlights", collectorStart);
   const captureStart = source.indexOf('if (message.type === "capturePageSnapshot") {');
@@ -262,7 +266,8 @@ test("capturePageSnapshot collects AI submission rows from the target config", (
   assert.match(collectorSource, /const configValue = sourceConfig \|\| state\.config;/);
   assert.match(collectorSource, /core\.getPageMarkingEntry\(configValue, pageUrl, \{/);
   assert.match(collectorSource, /core\.isMarkableElement\(node, configValue, \{/);
-  assert.match(captureSource, /entry\.submissionXpaths = collectAiSubmissionXpathsForCurrentPage\(config\);/);
+  assert.match(captureSource, /getCapturePageSnapshotHandler\(\)\.capture\(/);
+  assert.match(captureHandlerSource, /entry\.submissionXpaths = deps\.collectAiSubmissionXpathsForCurrentPage\(config\);/);
 });
 
 test("AI submission collector guards implicit excluded ancestors with a visible markable descendant", () => {
@@ -291,18 +296,23 @@ test("AI submission collector guards implicit excluded ancestors with a visible 
 
 test("capturePageSnapshot persists heavy snapshot evidence without returning it", () => {
   const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const captureHandlerSource = readFileSync(
+    new URL("../content/capture-page-snapshot-handler.js", import.meta.url),
+    "utf8"
+  );
   const captureStart = source.indexOf('if (message.type === "capturePageSnapshot") {');
   const captureEnd = source.indexOf('if (message.type === "getPageDraftStatus") {', captureStart);
 
   assert.ok(captureStart > -1);
   assert.ok(captureEnd > captureStart);
   const captureSource = source.slice(captureStart, captureEnd);
-  assert.match(captureSource, /entry\.renderedHtml = snapshot\.renderedHtml;/);
-  assert.match(captureSource, /entry\.rawHtml = typeof rawHtml === "string"/);
-  assert.match(captureSource, /entry\.submissionXpaths = collectAiSubmissionXpathsForCurrentPage\(config\);/);
-  assert.match(captureSource, /await core\.saveConfig\(targetBaseUrl, config\);/);
-  assert.match(captureSource, /sendResponse\(\{ ok: true \}\);/);
-  const successResponseStart = captureSource.lastIndexOf("sendResponse({ ok: true });");
+  assert.match(captureSource, /getCapturePageSnapshotHandler\(\)\.capture\(/);
+  assert.match(captureHandlerSource, /entry\.renderedHtml = snapshot\.renderedHtml;/);
+  assert.match(captureHandlerSource, /entry\.rawHtml = typeof rawHtml === "string"/);
+  assert.match(captureHandlerSource, /entry\.submissionXpaths = deps\.collectAiSubmissionXpathsForCurrentPage\(config\);/);
+  assert.match(captureHandlerSource, /await deps\.saveConfig\(targetBaseUrl, config\);/);
+  assert.match(captureSource, /sendResponse\(response && typeof response === "object" \? response : \{ ok: false \}\);/);
+  const successResponseStart = captureSource.lastIndexOf("sendResponse(response && typeof response === \"object\" ? response : { ok: false });");
   const successResponse = captureSource.slice(successResponseStart);
   assert.doesNotMatch(successResponse, /renderedHtml|rawHtml|submissionXpaths|pageMarkings|xpaths/);
 });
