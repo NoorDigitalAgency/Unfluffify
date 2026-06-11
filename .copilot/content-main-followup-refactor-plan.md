@@ -1,13 +1,14 @@
 # Content Main Follow-Up Refactor Plan
 
 Last updated: 2026-06-11
-Status: CURRENT INDEX - implementation details live in `track-f-protected-content-plan.md`
+Status: CURRENT INDEX - Track F is complete; high-risk continuation lives in `high-risk-content-branches-plan.md`
 
 ## Purpose
 
 This document is the active index for the post-world-decomposition content-main
-follow-up. The detailed mechanical implementation phases are now maintained in
-`.copilot/track-f-protected-content-plan.md`.
+follow-up. The completed mechanical Track F phases are maintained in
+`.copilot/track-f-protected-content-plan.md`; the remaining high-risk branch
+plan lives in `.copilot/high-risk-content-branches-plan.md`.
 
 Older D/E/F instructions that once lived here are complete and are intentionally
 not repeated. Use git history for historical rationale if needed.
@@ -31,12 +32,15 @@ Completed:
 Current implementation plan:
 
 1. The written Track F phases are complete.
-2. Stop unless the user approves a new high-risk plan for the remaining branches.
-3. Follow one phase per commit.
-4. Run focused validation and full `npm test` for every phase.
-5. Update `.copilot/handoff-world-decomposition.md` with validation and commit
+2. The next high-risk plan is `.copilot/high-risk-content-branches-plan.md`.
+3. Do not start that plan until the user explicitly approves it.
+4. Start with G0 pre-start audit hardening before extracting any remaining
+   runtime branch.
+5. Follow one phase per commit.
+6. Run focused validation and full `npm test` for every phase.
+7. Update `.copilot/handoff-world-decomposition.md` with validation and commit
    results after each phase.
-6. Stop at the explicit stop conditions in the Track F plan.
+8. Stop at the explicit stop conditions in the high-risk plan.
 
 ## Review Summary
 
@@ -54,6 +58,10 @@ Code review result:
    active plan have been refreshed.
 
 No pre-code bugfix phase remains inside the written Track F plan.
+
+Post-F24 audit note: the next plan includes a G0 pre-start phase because the
+remaining branches have uneven guard coverage and one pre-existing async failure
+handling risk in `revertPageDraft`.
 
 ## Required Baseline Before Any Next Phase
 
@@ -90,8 +98,7 @@ Expected:
 
 Lowest acceptable executor:
 
-1. F20-F22: GPT-4.1-mini-class coding model at high effort, provided it can run
-   tests and patch source-contract drift mechanically.
-2. F23-F24: stronger coding model at high effort.
+1. The completed F20-F24 work is no longer the active executor target.
+2. The active high-risk plan should use GPT-5.4 at high effort.
 3. Explicit include/exclude, save/revert draft, and AI preview orchestration
-   should not be assigned to a low-capability model without a fresh senior plan.
+   should not be assigned to a low-capability model.

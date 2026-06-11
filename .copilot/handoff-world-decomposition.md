@@ -116,20 +116,23 @@ Use these files, in this order, before making any further implementation change:
 
 1. `.copilot/plan.md` - active architecture index and guardrails.
 2. `.copilot/content-main-followup-refactor-plan.md` - current status summary.
-3. `.copilot/track-f-protected-content-plan.md` - mechanical phase plan for the
-   next implementation slices.
-4. `.copilot/knowledge.md` - domain-specific rules that must not be violated.
+3. `.copilot/high-risk-content-branches-plan.md` - active post-F24 high-risk
+   plan for the remaining inline runtime branches.
+4. `.copilot/track-f-protected-content-plan.md` - completed mechanical Track F
+   plan through F24.
+5. `.copilot/knowledge.md` - domain-specific rules that must not be violated.
 
 ## Next Exact Step
 
 Track F mechanical slices are complete through F24.
 
-Stop here unless the user explicitly approves a new high-risk plan for the
-remaining branches.
+The next high-risk plan is now documented in
+`.copilot/high-risk-content-branches-plan.md`. Do not touch the remaining
+runtime branches until the user explicitly approves starting that plan.
 
-If a follow-up is requested, begin by reviewing the remaining branches called
-out in `.copilot/track-f-protected-content-plan.md` and require a fresh senior
-review gate before editing them.
+Start with Phase G0 in that plan. G0 is a pre-start audit hardening phase that
+adds missing branch-contract coverage and isolates any pre-existing bugfixes,
+especially `revertPageDraft` async failure handling, before extraction work.
 
 Current baseline expectations:
 
@@ -138,19 +141,25 @@ Current baseline expectations:
 3. `manifest.json` keeps explicit web-accessible resource entries, no broad
    `content/*.js` or `common/*.js` wildcards
 
+Post-F24 audit result:
+
+1. No confirmed behavioral regression was found in F20-F24.
+2. Remaining risk is concentrated in `configUpdated`, `setExplicitExclude`,
+   `setExplicitInclude`, `savePageDraft`, `revertPageDraft`, and
+   `showAiPreview`.
+3. Missing coverage should be addressed before extraction, not while extracting.
+4. The `revertPageDraft` branch has a pre-existing uncaught async body and needs
+   an isolated G0 fix/test before handler extraction.
+
 ## Model Capability Recommendation
 
-Lowest model to safely follow the next mechanical plan:
+Recommended model for the active high-risk plan:
 
-1. F20-F22: a mid-tier coding model with high effort is acceptable if it can
-   edit multiple files, run focused/full tests, and handle simple regex/source-
-   contract drift. A GPT-4.1-mini-class model at high effort is the lowest I
-   would trust.
-2. F23-F24: use a stronger coding model at high effort. These phases copy
-   larger transactional blocks and require careful preservation of async order,
-   cached state updates, and response shapes.
-3. Do not assign explicit include/exclude or marking-contract refactors to a
-   low-capability model. Those need a new high-risk plan and a senior model.
+1. Use GPT-5.4 at high effort for G0-G5.
+2. GPT-5.3-Codex at high effort may be acceptable for G0-G4 if a stronger
+   reviewer checks the plan before explicit marking work.
+3. Do not assign explicit include/exclude or other marking-contract refactors to
+   a low-capability model.
 
 ## Non-Negotiable Guardrails
 

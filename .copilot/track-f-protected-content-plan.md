@@ -4,6 +4,12 @@ Last updated: 2026-06-11
 Branch: main
 Status: F1-F24 complete and pushed per-slice; no further mechanical Track F phases remain.
 
+Post-F24 continuation:
+
+1. Remaining high-risk branch work no longer belongs in this document.
+2. Use `.copilot/high-risk-content-branches-plan.md` for the next plan.
+3. Start with G0 pre-start audit hardening before touching remaining branches.
+
 Current validation baseline:
 ```bash
 npm test

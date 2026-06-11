@@ -26,8 +26,10 @@ old archive files into the active `.copilot` folder.
 The service-worker authority refactor, storage-access layer refactor, and world
 decomposition program are complete and merged to `main`. Content follow-up
 Tracks D and E are complete, and Track F is complete through F24. The written
-runtime-branch decomposition plan is exhausted; any further content-main work
-now needs a new high-risk plan for the remaining tightly coupled branches.
+runtime-branch decomposition plan is exhausted. The next high-risk plan for the
+remaining tightly coupled branches is
+`.copilot/high-risk-content-branches-plan.md`; do not start it without explicit
+user approval.
 
 This track protects the 11 always-on core features, including reveal/freeze and
 lazy-loading stopping/restoration. Do not resume old implementation tracks unless
@@ -49,6 +51,10 @@ Review status on 2026-06-11: F1-F19 were reviewed with no behavioral regression
 found. F20-F24 then completed with focused validation and green full suites. The
 only earlier issue was stale `.copilot` documentation plus cosmetic manifest
 indentation, both already addressed.
+
+Post-F24 audit status on 2026-06-11: no confirmed regression was found, but the
+remaining inline branches need a G0 pre-start coverage/bugfix phase before any
+handler extraction.
 
 ## Guardrails
 
@@ -98,9 +104,10 @@ ancestors. Any legitimate contract change must update
 
 ## Model Capability Recommendation
 
-For the next plan in `.copilot/track-f-protected-content-plan.md`:
+For `.copilot/high-risk-content-branches-plan.md`:
 
-1. F20-F22 can be followed by a GPT-4.1-mini-class coding model at high effort.
-2. F23-F24 should use a stronger coding model at high effort.
+1. Use GPT-5.4 at high effort for G0-G5.
+2. GPT-5.3-Codex at high effort may be acceptable for G0-G4 if a stronger
+   reviewer checks the plan before explicit marking work.
 3. Do not give explicit include/exclude or marking-contract work to a small or
    low-effort model.
