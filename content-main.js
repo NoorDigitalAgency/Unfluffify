@@ -102,6 +102,7 @@ import {
   dispatchContentCommand,
   registerContentCommand
 } from "./content/content-command-router.js";
+import { createAiPreviewComputeLockHandler } from "./content/ai-preview-compute-lock-handler.js";
 import { createAiPreviewStateResponseBuilder } from "./content/ai-preview-state-response.js";
 import { createInspectionStatusResolver } from "./content/inspection-status.js";
 import { initializePageWorldRelay } from "./content/page-world-relay.js";
@@ -392,6 +393,7 @@ let pageToastClient = null;
 let renderModeInspectionClient = null;
 let renderModeInspectionHandlers = null;
 let inspectionStatusResolver = null;
+let aiPreviewComputeLockHandler = null;
 let aiPreviewStateResponseBuilder = null;
 let propertyLockPortClient = null;
 let propertyLockStateMachine = null;
@@ -546,6 +548,13 @@ function getAiPreviewStateResponseBuilder() {
     aiPreviewStateResponseBuilder = createAiPreviewStateResponseBuilder(createAiPreviewStateResponseDeps());
   }
   return aiPreviewStateResponseBuilder;
+}
+
+function getAiPreviewComputeLockHandler() {
+  if (!aiPreviewComputeLockHandler) {
+    aiPreviewComputeLockHandler = createAiPreviewComputeLockHandler(createAiPreviewComputeLockHandlerDeps());
+  }
+  return aiPreviewComputeLockHandler;
 }
 
 function getPropertyLockPortClient() {
@@ -6157,6 +6166,24 @@ function createAiPreviewStateResponseDeps() {
   };
 }
 
+function createAiPreviewComputeLockHandlerDeps() {
+  return {
+    beginAiPreviewMode,
+    clearComputeLockReleaseTimer: () => {
+      if (aiComputeLockReleaseTimer) {
+        window.clearTimeout(aiComputeLockReleaseTimer);
+        aiComputeLockReleaseTimer = 0;
+      }
+    },
+    exitAiPreviewMode,
+    hasComputeLockReleaseTimer: () => Boolean(aiComputeLockReleaseTimer),
+    isComputeLockPreviewActive: () => aiPreviewState.active && aiPreviewState.mode === "compute_lock",
+    refreshSilentHighlightings,
+    scheduleAiComputeLockRelease,
+    setAiPreviewItems
+  };
+}
+
 function createRenderModeInspectionHandlersDeps() {
   return {
     armRenderModeInspectionWatchdog,
@@ -6721,25 +6748,13 @@ export function main() {
     }
 
     if (message.type === "setAiComputeLock") {
-      (async () => {
-        if (message.active) {
-          beginAiPreviewMode({ mode: "compute_lock" });
-          setAiPreviewItems([]);
-          scheduleAiComputeLockRelease(Number(message.expiresAt) || 0);
-          sendResponse({ ok: true, active: true });
-          refreshSilentHighlightings().then();
-          return;
-        }
-        if (aiPreviewState.active && aiPreviewState.mode === "compute_lock") {
-          await exitAiPreviewMode();
-        } else if (aiComputeLockReleaseTimer) {
-          window.clearTimeout(aiComputeLockReleaseTimer);
-          aiComputeLockReleaseTimer = 0;
-        }
-        sendResponse({ ok: true, active: false });
-      })().catch(() => {
-        sendResponse({ ok: false });
-      });
+      getAiPreviewComputeLockHandler().handleMessage(message)
+        .then((response) => {
+          sendResponse(response && typeof response === "object" ? response : { ok: false });
+        })
+        .catch(() => {
+          sendResponse({ ok: false });
+        });
       return true;
     }
 

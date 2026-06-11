@@ -286,8 +286,8 @@ test("AI run recovery heartbeat and page lock are coordinated by background", ()
   assert.doesNotMatch(popupHeartbeatBlock, /savePersistedAiRunRecord|clearPersistedAiRunRecord|sendTabMessage\(\{[\s\S]*?setAiComputeLock/);
   assert.match(contentSource, /function beginAiPreviewMode\(options = \{\}\) \{/);
   assert.match(contentSource, /async function enterAiPreviewMode\(options = \{\}\) \{[\s\S]*?beginAiPreviewMode\(options\);[\s\S]*?await refreshSilentHighlightings\(\);/);
-  assert.match(contentComputeLockBlock, /beginAiPreviewMode\(\{ mode: "compute_lock" \}\);/);
-  assert.match(contentComputeLockBlock, /sendResponse\(\{ ok: true, active: true \}\);[\s\S]*?refreshSilentHighlightings\(\)\.then\(\);/);
+  assert.match(contentComputeLockBlock, /getAiPreviewComputeLockHandler\(\)\.handleMessage\(message\)/);
+  assert.match(contentComputeLockBlock, /sendResponse\(response && typeof response === "object" \? response : \{ ok: false \}\);/);
 });
 
 test("AI run start, status polling, and result transport use background messaging with staged heavy bodies", () => {

@@ -367,3 +367,56 @@ Commit message:
 ```text
 refactor(content): extract ai preview response builder
 ```
+
+## Phase F8 - AI Preview Compute-Lock Runtime Handler Extraction
+
+Why this phase:
+- `content-main.js` still directly owned `setAiComputeLock` runtime branch
+  control flow with AI preview mode transitions and timer cleanup.
+- Extracting this handler reduces main-listener complexity while preserving the
+  runtime message contract used by AI run heartbeat/orchestration paths.
+
+New module:
+- `content/ai-preview-compute-lock-handler.js`
+
+Files to edit:
+- `content-main.js`
+- `content/ai-preview-compute-lock-handler.js`
+- `manifest.json`
+- `tests/content-decomposition-boundary.test.js`
+- `tests/ai-run.test.js`
+- Add `tests/ai-preview-compute-lock-handler.test.js`
+
+Exact function boundary:
+- Keep runtime branch `if (message.type === "setAiComputeLock")` in
+  `content-main.js`.
+- Delegate in-branch behavior to module method `handleMessage(message)`.
+- Keep `beginAiPreviewMode`, `scheduleAiComputeLockRelease`, and
+  `exitAiPreviewMode` implementations in `content-main.js`.
+
+Rules:
+1. Preserve success/error response payloads (`{ ok, active }` on success).
+2. Preserve async runtime listener behavior (`return true`).
+3. Preserve compute-lock start side effects (`beginAiPreviewMode`, clear items,
+   release scheduling, silent highlighting refresh trigger).
+4. Preserve inactive cleanup semantics (exit compute-lock mode when active,
+   otherwise clear orphaned release timer).
+
+Focused validation:
+```bash
+npm test -- tests/ai-preview-compute-lock-handler.test.js tests/ai-run.test.js tests/content-decomposition-boundary.test.js tests/preview-tooltip.test.js tests/manifest-permissions.test.js
+```
+
+Full validation:
+```bash
+npm test
+```
+
+Rollback criteria:
+- Any regression in AI run recovery heartbeat/compute-lock coordination,
+  preview-mode restoration, or runtime contract behavior should trigger rollback.
+
+Commit message:
+```text
+refactor(content): extract ai preview compute-lock handler
+```
