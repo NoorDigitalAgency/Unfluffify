@@ -63,7 +63,7 @@ const guardMatrix = {
     requiresConfig: true,
     propertyLockBlock: true,
     reconciliationPendingBlock: false,
-    catchFallback: false
+    catchFallback: true
   },
   setExplicitExclude: {
     activeBaseUrlScope: true,

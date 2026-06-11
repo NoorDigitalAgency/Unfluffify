@@ -43,7 +43,7 @@ git status --short --branch
 # ## main...origin/main
 
 npm test
-# 945 pass / 0 fail
+# 946 pass / 0 fail
 ```
 
 Review status on 2026-06-11: F1-F19 were reviewed with no behavioral regression
@@ -61,6 +61,8 @@ validation and successful-response property-lock activity. G5 extracted
 explicit marking mutations while preserving inline guards, synchronous response
 timing, selector suppression, descendant cleanup, and successful-response
 property-lock activity.
+Post-review async content-message fallback hardening now covers `forceRefresh`,
+`collectPageData`, `capturePageSnapshot`, and `savePageDraft` rejection paths.
 
 ## Guardrails
 

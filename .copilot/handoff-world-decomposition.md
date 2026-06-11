@@ -13,12 +13,13 @@ git status --short --branch
 # ## main...origin/main
 
 npm test
-# 945 pass / 0 fail
+# 946 pass / 0 fail
 ```
 
 This baseline includes G5 (`setExplicitExclude` and `setExplicitInclude`)
 extracted into `content/explicit-marking-handler.js` with focused tests plus a
-green full suite.
+green full suite, plus post-review async content-message fallback hardening for
+rejectable delegated branches.
 
 ## Review Result
 
@@ -143,7 +144,7 @@ extraction.
 Current baseline expectations:
 
 1. clean `main...origin/main`
-2. full test suite passes (`945 pass / 0 fail` at the current baseline)
+2. full test suite passes (`946 pass / 0 fail` at the current baseline)
 3. `manifest.json` keeps explicit web-accessible resource entries, no broad
    `content/*.js` or `common/*.js` wildcards
 

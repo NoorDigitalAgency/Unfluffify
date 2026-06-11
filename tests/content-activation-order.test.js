@@ -2,6 +2,35 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
+function getMessageBranch(source, messageType) {
+  const start = source.indexOf(`if (message.type === "${messageType}") {`);
+  assert.ok(start > -1, `missing ${messageType} branch`);
+  const blockStart = source.indexOf("{", start);
+  let depth = 0;
+  for (let index = blockStart; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === "{") {
+      depth += 1;
+    } else if (char === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return source.slice(start, index + 1);
+      }
+    }
+  }
+  throw new Error(`unterminated ${messageType} branch`);
+}
+
+function assertAsyncBranchHasFailureResponse(source, messageType, delegatePattern) {
+  const branch = getMessageBranch(source, messageType);
+  assert.match(branch, delegatePattern);
+  assert.match(
+    branch,
+    /\.catch\(\(\) => \{\s*sendResponse\(\{ ok: false \}\);\s*\}\);/,
+    `${messageType} should answer ok false when delegated async work rejects`
+  );
+}
+
 test("refreshFromTabState restores enabled pages without re-running reveal/freeze", () => {
   const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
   const refreshStart = source.indexOf("export async function refreshFromTabState(options = {})");
@@ -320,6 +349,31 @@ test("capturePageSnapshot persists heavy snapshot evidence without returning it"
   const successResponseStart = captureSource.lastIndexOf("sendResponse(response && typeof response === \"object\" ? response : { ok: false });");
   const successResponse = captureSource.slice(successResponseStart);
   assert.doesNotMatch(successResponse, /renderedHtml|rawHtml|submissionXpaths|pageMarkings|xpaths/);
+});
+
+test("async content message branches answer ok false when delegated work rejects", () => {
+  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+
+  assertAsyncBranchHasFailureResponse(
+    source,
+    "forceRefresh",
+    /getForceRefreshHandler\(\)\.handleMessage\(\)/
+  );
+  assertAsyncBranchHasFailureResponse(
+    source,
+    "collectPageData",
+    /getCollectPageDataHandler\(\)\.handleMessage\(message\)/
+  );
+  assertAsyncBranchHasFailureResponse(
+    source,
+    "capturePageSnapshot",
+    /getCapturePageSnapshotHandler\(\)\.capture\(\{/
+  );
+  assertAsyncBranchHasFailureResponse(
+    source,
+    "savePageDraft",
+    /getPageDraftSaveHandler\(\)\.saveCurrentPageDraft\(\{/
+  );
 });
 
 test("silent-highlight mutation observer uses an O(1) tracked-node index instead of a per-call scan", () => {

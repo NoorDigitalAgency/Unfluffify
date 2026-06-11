@@ -19,7 +19,7 @@ Current validated baseline:
 
 ```bash
 npm test
-# 945 pass / 0 fail
+# 946 pass / 0 fail
 ```
 
 Completed:
@@ -29,6 +29,8 @@ Completed:
 3. Content follow-up Track E through E2.
 4. Track F through F24.
 5. High-risk plan G0 through G5.
+6. Post-review async content-message fallback hardening for rejectable delegated
+   branches.
 
 Current implementation plan:
 

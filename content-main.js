@@ -7075,6 +7075,8 @@ export function main() {
     if (message.type === "forceRefresh") {
       getForceRefreshHandler().handleMessage().then((response) => {
         sendResponse(response && typeof response === "object" ? response : { ok: false });
+      }).catch(() => {
+        sendResponse({ ok: false });
       });
       return true;
     }
@@ -7087,6 +7089,8 @@ export function main() {
     if (message.type === "collectPageData") {
       getCollectPageDataHandler().handleMessage(message).then((response) => {
         sendResponse(response && typeof response === "object" ? response : { ok: false });
+      }).catch(() => {
+        sendResponse({ ok: false });
       });
       return true;
     }
@@ -7143,6 +7147,8 @@ export function main() {
         pageType: typeof message.pageType === "string" ? message.pageType : ""
       }).then((response) => {
         sendResponse(response && typeof response === "object" ? response : { ok: false });
+      }).catch(() => {
+        sendResponse({ ok: false });
       });
       return true;
     }
@@ -7280,7 +7286,9 @@ export function main() {
         if (result && result.ok) {
           sendPropertyLockActivity();
         }
-        sendResponse(result);
+        sendResponse(result && typeof result === "object" ? result : { ok: false });
+      }).catch(() => {
+        sendResponse({ ok: false });
       });
       return true;
     }
