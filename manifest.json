@@ -62,6 +62,7 @@
         "content/content-command-router.js",
         "content/page-world-relay.js",
         "content/page-telemetry-bridge.js",
+        "content/page-toast.js",
         "content/property-lock-banner.js",
         "content/property-lock-banner-mode.js",
         "content/property-lock-port-client.js",

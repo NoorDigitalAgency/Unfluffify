@@ -2,13 +2,14 @@
 
 Last updated: 2026-06-11
 Branch: `main`
-Status: world-decomposition program complete; content follow-up D2 + E2 complete.
+Status: world-decomposition program complete; content follow-up D2 + E2 + F1 complete.
 
 ## Active Plan
 
 The active successor plan is:
 
 1. `.copilot/content-main-followup-refactor-plan.md`
+2. `.copilot/track-f-protected-content-plan.md`
 
 The completed world-decomposition summary below is retained here. The old
 step-by-step archive was removed from `.copilot`; use git history if its
@@ -23,7 +24,7 @@ git status --short --branch
 # ## main...origin/main
 
 npm test
-# 861 pass / 0 fail
+# 865 pass / 0 fail
 ```
 
 Recent completion commits:
@@ -152,6 +153,17 @@ The active plan turns those findings into mechanical phases.
 9. Live validation deferred by policy while
    `FEATURE_FLAGS.propertyLockCollaboration` is false.
 
+### Track F - Protected Content Follow-Up
+
+1. Dedicated Track F plan created: `.copilot/track-f-protected-content-plan.md`.
+2. F1 complete: page-toast style/DOM/timer helper moved from
+   `content-main.js` into `content/page-toast.js`, while `content-main.js`
+   preserves a thin `showPageToast` wrapper and snapshot strip behavior.
+3. F1 validation:
+   - `npm test -- tests/page-toast.test.js tests/content-decomposition-boundary.test.js tests/manifest-permissions.test.js tests/content-activation-order.test.js`
+     -> 33 pass / 0 fail
+   - `npm test` -> 865 pass / 0 fail
+
 ## Non-Negotiable Guardrails
 
 1. Do not edit `content/core.js`.
@@ -191,21 +203,23 @@ Start with `.copilot/content-main-followup-refactor-plan.md`.
 Recommended next implementation phase:
 
 1. Run the standard phase baseline from the active plan.
-2. Track E is complete through E2. Do not start Track F without explicit user
-   approval because it touches protected marking/silent-highlight behavior.
+2. Continue Track F under `.copilot/track-f-protected-content-plan.md`.
+3. Before any F2+ implementation, keep using dedicated per-phase scope,
+   validation, and rollback criteria.
 
-Track D is complete through D2. Track E is complete through E2.
+Track D is complete through D2. Track E is complete through E2. Track F is
+complete through F1.
 
 ## Validation Commands For The Next Agent
 
-Use these before any Track F proposal:
+Use these before any Track F phase after F1:
 
 ```bash
 git status --short --branch
 git pull --ff-only
 npm test
 rg -n "remoteSupport:|propertyLockCollaboration:" common/feature-flags.js
-rg -n "content/page-telemetry-bridge.js|content/remote-support-client.js|content/remote-support-viewer-client.js|content/remote-support-support-page.js|content/property-lock-banner.js|content/property-lock-banner-mode.js|content/property-lock-port-client.js|content/property-lock-state-machine.js" manifest.json
+rg -n "content/page-telemetry-bridge.js|content/page-toast.js|content/remote-support-client.js|content/remote-support-viewer-client.js|content/remote-support-support-page.js|content/property-lock-banner.js|content/property-lock-banner-mode.js|content/property-lock-port-client.js|content/property-lock-state-machine.js" manifest.json
 ```
 
 Expected:

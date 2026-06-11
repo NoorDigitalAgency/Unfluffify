@@ -103,6 +103,7 @@ import {
   registerContentCommand
 } from "./content/content-command-router.js";
 import { initializePageWorldRelay } from "./content/page-world-relay.js";
+import { createPageToast } from "./content/page-toast.js";
 import {
   clearPropertyLockBannerCountdown as clearPropertyLockBannerCountdownOperation,
   ensurePropertyLockBannerStyle as ensurePropertyLockBannerStyleOperation,
@@ -383,6 +384,7 @@ const PAGE_TELEMETRY_NONCE_BYTES = 16;
 let remoteSupportClient = null;
 let remoteSupportViewerClient = null;
 let remoteSupportSupportPage = null;
+let pageToastClient = null;
 let propertyLockPortClient = null;
 let propertyLockStateMachine = null;
 let pageTelemetryBridgeListenerBound = false;
@@ -501,6 +503,13 @@ function sendRuntimeMessageSafely(message) {
       }
       return null;
     });
+}
+
+function getPageToastClient() {
+  if (!pageToastClient) {
+    pageToastClient = createPageToast(createPageToastDeps());
+  }
+  return pageToastClient;
 }
 
 function getPropertyLockPortClient() {
@@ -1518,57 +1527,8 @@ const SILENT_HIGHLIGHTING_INTERNAL_ATTRS = new Set([
   core.CONSENT_HIDDEN_ATTR
 ]);
 
-function ensurePageToastStyle() {
-  if (document.getElementById(PAGE_TOAST_STYLE_ID)) {
-    return;
-  }
-  const style = document.createElement("style");
-  style.id = PAGE_TOAST_STYLE_ID;
-  style.textContent = `
-      #${PAGE_TOAST_ID} {
-        position: fixed;
-        left: 14px;
-        right: 14px;
-        top: 14px;
-        padding: 10px 12px;
-        background: rgba(47, 42, 36, 0.9);
-        color: #fdf6ed;
-        font-family: ${EXTENSION_UI_FONT_STACK};
-        font-size: 12px;
-        border-radius: 10px;
-        opacity: 0;
-        transform: translateY(8px);
-        transition: opacity 0.2s ease, transform 0.2s ease;
-        pointer-events: none;
-        z-index: 2147483646;
-        text-align: center;
-        box-shadow: 0 8px 10px rgba(0, 0, 0, 0.35);
-      }
-      #${PAGE_TOAST_ID}.uf-toast-show {
-        opacity: 1;
-        transform: translateY(0);
-      }
-    `;
-  (document.head || document.documentElement).appendChild(style);
-}
-
 function showPageToast(message) {
-  ensurePageToastStyle();
-  let toast = document.getElementById(PAGE_TOAST_ID);
-  if (!toast) {
-    toast = document.createElement("div");
-    toast.id = PAGE_TOAST_ID;
-    toast.setAttribute("data-uf-extension-ui", "true");
-    (document.body || document.documentElement).appendChild(toast);
-  }
-  toast.textContent = message;
-  toast.classList.add("uf-toast-show");
-  window.clearTimeout(showPageToast._timer);
-  showPageToast._timer = window.setTimeout(() => {
-    if (toast) {
-      toast.classList.remove("uf-toast-show");
-    }
-  }, 3000);
+  getPageToastClient().show(message);
 }
 
 function submissionXpathsEqual(left, right) {
@@ -1601,8 +1561,7 @@ function getCurrentPageSnapshotOptions() {
   return {
     renderMode: getConfiguredRenderMode(),
     extraStripSelectors: [
-      `#${PAGE_TOAST_ID}`,
-      `#${PAGE_TOAST_STYLE_ID}`,
+      ...getPageToastClient().getStripSelectors(),
       `#${SILENT_HIGHLIGHT_OVERLAY_ID}`,
       `#${SILENT_HIGHLIGHT_STYLE_ID}`
     ],
@@ -6132,6 +6091,17 @@ function createPropertyLockBannerModeDeps() {
     PROPERTY_LOCK_STATE_TAKEOVER_AVAILABLE,
     PROPERTY_LOCK_STATE_TRANSFER,
     PROPERTY_LOCK_CONNECTION_LOSS_TIMEOUT_MS
+  };
+}
+
+function createPageToastDeps() {
+  return {
+    EXTENSION_UI_FONT_STACK,
+    PAGE_TOAST_ID,
+    PAGE_TOAST_STYLE_ID,
+    TOAST_VISIBLE_MS: 3000,
+    getDocument: () => document,
+    getWindow: () => window
   };
 }
 
