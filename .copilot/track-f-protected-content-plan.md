@@ -580,3 +580,53 @@ Commit message:
 ```text
 refactor(content): extract remote support state handler
 ```
+
+## Phase F12 - AI Preview Get-State Runtime Handler Extraction
+
+Why this phase:
+- `content-main.js` still directly owned `getAiPreviewState` runtime branch
+  response flow.
+- Extracting this branch keeps runtime contracts stable while reducing listener
+  complexity and centralizing preview-state response delegation.
+
+New module:
+- `content/ai-preview-get-state-handler.js`
+
+Files to edit:
+- `content-main.js`
+- `content/ai-preview-get-state-handler.js`
+- `manifest.json`
+- `tests/content-decomposition-boundary.test.js`
+- Add `tests/ai-preview-get-state-handler.test.js`
+
+Exact function boundary:
+- Keep runtime branch `if (message.type === "getAiPreviewState")` in
+  `content-main.js`.
+- Delegate response retrieval to `handleMessage()`.
+- Keep response-shape authority in `content/ai-preview-state-response.js`.
+
+Rules:
+1. Preserve runtime response shape from `buildGetStateResponse`.
+2. Preserve fallback runtime response (`{ ok: false }`) for unexpected
+   non-object returns.
+3. Keep branch synchronous (`return;`), without async listener behavior changes.
+4. Do not alter AI preview state mutation or item mapping behavior.
+
+Focused validation:
+```bash
+npm test -- tests/ai-preview-get-state-handler.test.js tests/ai-preview-state-response.test.js tests/content-decomposition-boundary.test.js tests/preview-tooltip.test.js tests/popup-mode-sync.test.js tests/manifest-permissions.test.js
+```
+
+Full validation:
+```bash
+npm test
+```
+
+Rollback criteria:
+- Any regression in popup preview state hydration, preview sidebar render-state
+  sync, or runtime response contracts should trigger rollback.
+
+Commit message:
+```text
+refactor(content): extract ai preview get-state handler
+```

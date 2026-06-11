@@ -105,6 +105,7 @@ import {
 import { createAiPreviewCloseHandler } from "./content/ai-preview-close-handler.js";
 import { createAiPreviewComputeLockHandler } from "./content/ai-preview-compute-lock-handler.js";
 import { createAiPreviewExpandedModeHandler } from "./content/ai-preview-expanded-mode-handler.js";
+import { createAiPreviewGetStateHandler } from "./content/ai-preview-get-state-handler.js";
 import { createAiPreviewStateResponseBuilder } from "./content/ai-preview-state-response.js";
 import { createInspectionStatusResolver } from "./content/inspection-status.js";
 import { initializePageWorldRelay } from "./content/page-world-relay.js";
@@ -399,6 +400,7 @@ let inspectionStatusResolver = null;
 let aiPreviewCloseHandler = null;
 let aiPreviewComputeLockHandler = null;
 let aiPreviewExpandedModeHandler = null;
+let aiPreviewGetStateHandler = null;
 let aiPreviewStateResponseBuilder = null;
 let propertyLockPortClient = null;
 let propertyLockStateMachine = null;
@@ -575,6 +577,13 @@ function getAiPreviewExpandedModeHandler() {
     aiPreviewExpandedModeHandler = createAiPreviewExpandedModeHandler(createAiPreviewExpandedModeHandlerDeps());
   }
   return aiPreviewExpandedModeHandler;
+}
+
+function getAiPreviewGetStateHandler() {
+  if (!aiPreviewGetStateHandler) {
+    aiPreviewGetStateHandler = createAiPreviewGetStateHandler(createAiPreviewGetStateHandlerDeps());
+  }
+  return aiPreviewGetStateHandler;
 }
 
 function getPropertyLockPortClient() {
@@ -6231,6 +6240,12 @@ function createAiPreviewExpandedModeHandlerDeps() {
   };
 }
 
+function createAiPreviewGetStateHandlerDeps() {
+  return {
+    buildGetStateResponse: () => getAiPreviewStateResponseBuilder().buildGetStateResponse()
+  };
+}
+
 function createRemoteSupportStateHandlerDeps() {
   return {
     applyRemoteSupportSessionState,
@@ -6779,7 +6794,8 @@ export function main() {
     }
 
     if (message.type === "getAiPreviewState") {
-      sendResponse(getAiPreviewStateResponseBuilder().buildGetStateResponse());
+      const response = getAiPreviewGetStateHandler().handleMessage();
+      sendResponse(response && typeof response === "object" ? response : { ok: false });
       return;
     }
 
