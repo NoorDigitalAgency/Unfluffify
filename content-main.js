@@ -104,6 +104,7 @@ import {
 } from "./content/content-command-router.js";
 import { createAiPreviewCloseHandler } from "./content/ai-preview-close-handler.js";
 import { createAiPreviewComputeLockHandler } from "./content/ai-preview-compute-lock-handler.js";
+import { createAiPreviewExpandedModeHandler } from "./content/ai-preview-expanded-mode-handler.js";
 import { createAiPreviewStateResponseBuilder } from "./content/ai-preview-state-response.js";
 import { createInspectionStatusResolver } from "./content/inspection-status.js";
 import { initializePageWorldRelay } from "./content/page-world-relay.js";
@@ -396,6 +397,7 @@ let renderModeInspectionHandlers = null;
 let inspectionStatusResolver = null;
 let aiPreviewCloseHandler = null;
 let aiPreviewComputeLockHandler = null;
+let aiPreviewExpandedModeHandler = null;
 let aiPreviewStateResponseBuilder = null;
 let propertyLockPortClient = null;
 let propertyLockStateMachine = null;
@@ -564,6 +566,13 @@ function getAiPreviewComputeLockHandler() {
     aiPreviewComputeLockHandler = createAiPreviewComputeLockHandler(createAiPreviewComputeLockHandlerDeps());
   }
   return aiPreviewComputeLockHandler;
+}
+
+function getAiPreviewExpandedModeHandler() {
+  if (!aiPreviewExpandedModeHandler) {
+    aiPreviewExpandedModeHandler = createAiPreviewExpandedModeHandler(createAiPreviewExpandedModeHandlerDeps());
+  }
+  return aiPreviewExpandedModeHandler;
 }
 
 function getPropertyLockPortClient() {
@@ -6202,6 +6211,17 @@ function createAiPreviewComputeLockHandlerDeps() {
   };
 }
 
+function createAiPreviewExpandedModeHandlerDeps() {
+  return {
+    buildExpandedModeDisabledResponse: () =>
+      getAiPreviewStateResponseBuilder().buildExpandedModeDisabledResponse(),
+    buildExpandedModeResponse: (ok) =>
+      getAiPreviewStateResponseBuilder().buildExpandedModeResponse(ok),
+    isPreviewExpandedStatesEnabled: () => isFeatureEnabled("previewExpandedStates"),
+    setAiPreviewExpandedMode
+  };
+}
+
 function createRenderModeInspectionHandlersDeps() {
   return {
     armRenderModeInspectionWatchdog,
@@ -6755,13 +6775,12 @@ export function main() {
     }
 
     if (message.type === "setAiPreviewExpandedMode") {
-      if (!isFeatureEnabled("previewExpandedStates")) {
-        setAiPreviewExpandedMode(false);
-        sendResponse(getAiPreviewStateResponseBuilder().buildExpandedModeDisabledResponse());
-        return;
+      try {
+        const response = getAiPreviewExpandedModeHandler().handleMessage(message);
+        sendResponse(response && typeof response === "object" ? response : { ok: false });
+      } catch {
+        sendResponse({ ok: false });
       }
-      const updated = setAiPreviewExpandedMode(Boolean(message.active));
-      sendResponse(getAiPreviewStateResponseBuilder().buildExpandedModeResponse(updated));
       return;
     }
 

@@ -52,7 +52,7 @@ test("content-main tracks separate default and expanded preview item sets", () =
   );
   assert.match(
     source,
-    /if \(message\.type === "setAiPreviewExpandedMode"\) \{[\s\S]*?if \(!isFeatureEnabled\("previewExpandedStates"\)\) \{[\s\S]*?buildExpandedModeDisabledResponse\(\)[\s\S]*?return;[\s\S]*?buildExpandedModeResponse\(updated\)/
+    /if \(message\.type === "setAiPreviewExpandedMode"\) \{[\s\S]*?const response = getAiPreviewExpandedModeHandler\(\)\.handleMessage\(message\);[\s\S]*?sendResponse\(response && typeof response === "object" \? response : \{ ok: false \}\);/
   );
   assert.match(previewResponseSource, /feature: "previewExpandedStates"/);
   assert.match(previewResponseSource, /showAllCategories: false/);

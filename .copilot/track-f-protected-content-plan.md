@@ -470,3 +470,58 @@ Commit message:
 ```text
 refactor(content): extract ai preview close handler
 ```
+
+## Phase F10 - AI Preview Expanded-Mode Runtime Handler Extraction
+
+Why this phase:
+- `content-main.js` still directly owned `setAiPreviewExpandedMode` runtime
+  branch response/control flow.
+- Extracting this branch keeps message contracts intact while reducing main
+  listener complexity around feature-gated preview mode toggling.
+
+New module:
+- `content/ai-preview-expanded-mode-handler.js`
+
+Files to edit:
+- `content-main.js`
+- `content/ai-preview-expanded-mode-handler.js`
+- `manifest.json`
+- `tests/content-decomposition-boundary.test.js`
+- `tests/preview-tooltip.test.js`
+- `tests/feature-flags.test.js`
+- Add `tests/ai-preview-expanded-mode-handler.test.js`
+
+Exact function boundary:
+- Keep runtime branch `if (message.type === "setAiPreviewExpandedMode")` in
+  `content-main.js`.
+- Delegate branch response/control flow to module method
+  `handleMessage(message)`.
+- Keep `setAiPreviewExpandedMode` state mutation function in `content-main.js`.
+
+Rules:
+1. Preserve feature-disabled behavior (force false mode and return disabled
+   response shape).
+2. Preserve enabled behavior (normalize `message.active`, return expanded-mode
+   response with current state).
+3. Preserve runtime branch fallback response (`{ ok: false }`) on unexpected
+   handler failure.
+4. Do not alter `setAiPreviewExpandedMode` mutation semantics.
+
+Focused validation:
+```bash
+npm test -- tests/ai-preview-expanded-mode-handler.test.js tests/preview-tooltip.test.js tests/feature-flags.test.js tests/content-decomposition-boundary.test.js tests/popup-mode-sync.test.js tests/manifest-permissions.test.js
+```
+
+Full validation:
+```bash
+npm test
+```
+
+Rollback criteria:
+- Any regression in preview expanded-state toggling, popup preview list sync,
+  or feature-disabled response semantics should trigger rollback.
+
+Commit message:
+```text
+refactor(content): extract ai preview expanded-mode handler
+```

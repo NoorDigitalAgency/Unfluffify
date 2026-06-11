@@ -62,6 +62,7 @@
         "content/content-command-router.js",
         "content/ai-preview-close-handler.js",
         "content/ai-preview-compute-lock-handler.js",
+        "content/ai-preview-expanded-mode-handler.js",
         "content/ai-preview-state-response.js",
         "content/inspection-status.js",
         "content/page-world-relay.js",
