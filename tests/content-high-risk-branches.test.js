@@ -21,6 +21,8 @@ const plannedHandlerAccessors = new Map([
   ["configUpdated", /getConfigUpdatedHandler\(\)\.handleMessage\(message\)/],
   ["revertPageDraft", /getPageDraftRevertHandler\(\)\.revert\(\{ targetBaseUrl \}\)/],
   ["savePageDraft", /getPageDraftSaveHandler\(\)\.saveCurrentPageDraft\(\{/],
+  ["setExplicitExclude", /getExplicitMarkingHandler\(\)\.setExplicitExclude\(\{/],
+  ["setExplicitInclude", /getExplicitMarkingHandler\(\)\.setExplicitInclude\(\{/],
   ["showAiPreview", /getAiPreviewShowHandler\(\)\.handleMessage\(message\)/]
 ]);
 

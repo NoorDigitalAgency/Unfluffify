@@ -27,8 +27,8 @@ old archive files into the active `.copilot` folder.
 The service-worker authority refactor, storage-access layer refactor, and world
 decomposition program are complete and merged to `main`. Content follow-up
 Tracks D and E are complete, Track F is complete through F24, and the high-risk
-plan is complete through G4. Continue with G5 in
-`.copilot/high-risk-content-branches-plan.md`.
+plan is complete through G5. Run a fresh `content-main.js` review before
+planning additional branch extraction.
 
 This track protects the 11 always-on core features, including reveal/freeze and
 lazy-loading stopping/restoration. Do not resume old implementation tracks unless
@@ -43,7 +43,7 @@ git status --short --branch
 # ## main...origin/main
 
 npm test
-# 940 pass / 0 fail
+# 945 pass / 0 fail
 ```
 
 Review status on 2026-06-11: F1-F19 were reviewed with no behavioral regression
@@ -57,7 +57,10 @@ G1 extracted `configUpdated` while preserving response timing. G2 extracted
 `showAiPreview` while preserving popup-owned gating and preview close behavior.
 G3 extracted `revertPageDraft` while preserving inline validation and the G0
 async failure fallback. G4 extracted `savePageDraft` while preserving inline
-validation and successful-response property-lock activity.
+validation and successful-response property-lock activity. G5 extracted
+explicit marking mutations while preserving inline guards, synchronous response
+timing, selector suppression, descendant cleanup, and successful-response
+property-lock activity.
 
 ## Guardrails
 

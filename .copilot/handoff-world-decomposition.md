@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-11
 Branch: `main`
-Status: world decomposition complete; content follow-up D0-D2, E0-E2, Track F F1-F24, and high-risk phases G0-G4 complete through the current working slice.
+Status: world decomposition complete; content follow-up D0-D2, E0-E2, Track F F1-F24, and high-risk phases G0-G5 complete through the current working slice.
 
 ## Current Repository State
 
@@ -13,11 +13,12 @@ git status --short --branch
 # ## main...origin/main
 
 npm test
-# 940 pass / 0 fail
+# 945 pass / 0 fail
 ```
 
-This baseline includes G4 (`savePageDraft`) extracted into
-`content/page-draft-save-handler.js` with focused tests plus a green full suite.
+This baseline includes G5 (`setExplicitExclude` and `setExplicitInclude`)
+extracted into `content/explicit-marking-handler.js` with focused tests plus a
+green full suite.
 
 ## Review Result
 
@@ -134,12 +135,15 @@ Phase G1 extracted `configUpdated` into `content/config-updated-handler.js`.
 Phase G2 extracted `showAiPreview` into `content/ai-preview-show-handler.js`.
 Phase G3 extracted `revertPageDraft` into `content/page-draft-revert-handler.js`.
 Phase G4 extracted `savePageDraft` into `content/page-draft-save-handler.js`.
-The next implementation phase is G5, explicit marking handler extraction.
+Phase G5 extracted explicit marking mutations into
+`content/explicit-marking-handler.js`. The written high-risk plan is now at its
+stop point; review `content-main.js` again before planning any further branch
+extraction.
 
 Current baseline expectations:
 
 1. clean `main...origin/main`
-2. full test suite passes (`940 pass / 0 fail` at the current baseline)
+2. full test suite passes (`945 pass / 0 fail` at the current baseline)
 3. `manifest.json` keeps explicit web-accessible resource entries, no broad
    `content/*.js` or `common/*.js` wildcards
 

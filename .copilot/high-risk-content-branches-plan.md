@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-11
 Branch: main
-Status: G0-G4 complete; next phase is G5.
+Status: G0-G5 complete; stop for fresh `content-main.js` review before any further extraction.
 
 ## Scope
 
@@ -31,6 +31,10 @@ Progress:
 - G4 extracted `savePageDraft` / `saveCurrentPageDraft` into
    `content/page-draft-save-handler.js` while preserving inline validation and
    property-lock activity on successful branch responses.
+- G5 extracted `setExplicitExclude` and `setExplicitInclude` into
+   `content/explicit-marking-handler.js` while preserving inline guards,
+   synchronous response timing, selector suppression, descendant cleanup, and
+   property-lock activity on successful mutations.
 
 Do not edit these branches as a continuation of Track F. Treat this as a new
 high-risk track that starts with audit-result hardening and a fresh review gate.

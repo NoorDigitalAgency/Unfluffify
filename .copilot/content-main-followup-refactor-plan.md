@@ -1,7 +1,7 @@
 # Content Main Follow-Up Refactor Plan
 
 Last updated: 2026-06-11
-Status: CURRENT INDEX - Track F and high-risk phases G0-G4 are complete; high-risk continuation lives in `high-risk-content-branches-plan.md`
+Status: CURRENT INDEX - Track F and high-risk phases G0-G5 are complete; run a fresh `content-main.js` review before any further extraction
 
 ## Purpose
 
@@ -19,7 +19,7 @@ Current validated baseline:
 
 ```bash
 npm test
-# 940 pass / 0 fail
+# 945 pass / 0 fail
 ```
 
 Completed:
@@ -28,13 +28,13 @@ Completed:
 2. Content follow-up Track D through D2.
 3. Content follow-up Track E through E2.
 4. Track F through F24.
-5. High-risk plan G0 through G4.
+5. High-risk plan G0 through G5.
 
 Current implementation plan:
 
 1. The written Track F phases are complete.
-2. The active high-risk plan is `.copilot/high-risk-content-branches-plan.md`.
-3. Continue with G5, explicit marking handler extraction.
+2. The active high-risk plan is complete through its G5 stop point.
+3. Review `content-main.js` again before defining any further extraction phases.
 4. Follow one phase per commit.
 5. Run focused validation and full `npm test` for every phase.
 6. Update `.copilot/handoff-world-decomposition.md` with validation and commit

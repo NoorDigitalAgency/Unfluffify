@@ -3,12 +3,12 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { findPageMarkingEntry, state } from "../content/core.js";
 
-test("content-main stores page-scoped selector suppression when explicit marks are removed", () => {
-  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+test("explicit marking handler stores page-scoped selector suppression when explicit marks are removed", () => {
+  const source = readFileSync(new URL("../content/explicit-marking-handler.js", import.meta.url), "utf8");
 
-  assert.match(source, /function addSelectorSuppressedXpath\(entry, xpath\)/);
-  assert.match(source, /if \(excluded\) \{[\s\S]*?clearSelectorSuppressedXpathsWithin\(entry, xpath\);[\s\S]*?\} else \{[\s\S]*?addSelectorSuppressedXpath\(entry, xpath\);/);
-  assert.match(source, /if \(included\) \{[\s\S]*?clearSelectorSuppressedXpathsWithin\(entry, xpath\);[\s\S]*?\} else \{[\s\S]*?addSelectorSuppressedXpath\(entry, xpath\);/);
+  assert.match(source, /function addSelectorSuppressedXpath\(deps, entry, xpath\)/);
+  assert.match(source, /if \(excluded\) \{[\s\S]*?clearSelectorSuppressedXpathsWithin\(deps, entry, xpath\);[\s\S]*?\} else \{[\s\S]*?addSelectorSuppressedXpath\(deps, entry, xpath\);/);
+  assert.match(source, /if \(included\) \{[\s\S]*?clearSelectorSuppressedXpathsWithin\(deps, entry, xpath\);[\s\S]*?\} else \{[\s\S]*?addSelectorSuppressedXpath\(deps, entry, xpath\);/);
 });
 
 test("core render path and silent highlighting both honor selector suppression xpaths", () => {
@@ -245,7 +245,7 @@ test("marking mode refresh reconciles entries before drawing explicit overlays",
 
 test("marking mode stores default ancestors as unexcluded when descendants are marked", () => {
   const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
-  const contentSource = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const handlerSource = readFileSync(new URL("../content/explicit-marking-handler.js", import.meta.url), "utf8");
 
   assert.match(
     coreSource,
@@ -272,25 +272,28 @@ test("marking mode stores default ancestors as unexcluded when descendants are m
     /if \(existingEl && matchesToggleableDefaultExcluded\(existingEl\)\) \{\s*item\.excluded = false;/
   );
   assert.match(
-    contentSource,
-    /if \(existingEl && core\.isDefaultToggleableExcludedElement\(existingEl\)\) \{\s*item\.excluded = false;/
+    handlerSource,
+    /if \(existingEl && deps\.isDefaultToggleableExcludedElement\(existingEl\)\) \{\s*item\.excluded = false;/
   );
 });
 
 test("explicit marking toggles cache XPath element resolution per operation", () => {
   const contentSource = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
-  const excludeStart = contentSource.indexOf("if (message.type === \"setExplicitExclude\")");
-  const includeStart = contentSource.indexOf("if (message.type === \"setExplicitInclude\")");
-  const afterInclude = contentSource.indexOf("if (message.type === \"savePageDraft\")", includeStart);
-  const excludeSource = contentSource.slice(excludeStart, includeStart);
-  const includeSource = contentSource.slice(includeStart, afterInclude);
+  const handlerSource = readFileSync(new URL("../content/explicit-marking-handler.js", import.meta.url), "utf8");
+  const excludeStart = handlerSource.indexOf("function setExplicitExclude(options) {");
+  const includeStart = handlerSource.indexOf("function setExplicitInclude(options) {");
+  const afterInclude = handlerSource.indexOf("\n\n  return {", includeStart);
+  const excludeSource = handlerSource.slice(excludeStart, includeStart);
+  const includeSource = handlerSource.slice(includeStart, afterInclude);
 
-  assert.match(contentSource, /function createXPathElementCache\(\)/);
-  assert.match(contentSource, /function isSameOrDescendantByElementOrXPath\(/);
-  assert.match(excludeSource, /const getElement = createXPathElementCache\(\);/);
-  assert.match(includeSource, /const getElement = createXPathElementCache\(\);/);
-  assert.doesNotMatch(excludeSource, /core\.getElementFromXPath/);
-  assert.doesNotMatch(includeSource, /core\.getElementFromXPath/);
+  assert.match(contentSource, /getExplicitMarkingHandler\(\)\.setExplicitExclude\(\{/);
+  assert.match(contentSource, /getExplicitMarkingHandler\(\)\.setExplicitInclude\(\{/);
+  assert.match(handlerSource, /function createXPathElementCache\(deps\)/);
+  assert.match(handlerSource, /function isSameOrDescendantByElementOrXPath\(deps,/);
+  assert.match(excludeSource, /const getElement = createXPathElementCache\(deps\);/);
+  assert.match(includeSource, /const getElement = createXPathElementCache\(deps\);/);
+  assert.doesNotMatch(excludeSource, /deps\.getElementFromXPath/);
+  assert.doesNotMatch(includeSource, /deps\.getElementFromXPath/);
 });
 
 test("render collection hot paths avoid nested contains scans", () => {

@@ -114,6 +114,7 @@ import { createCapturePageSnapshotHandler } from "./content/capture-page-snapsho
 import { createConfigUpdatedHandler } from "./content/config-updated-handler.js";
 import { createDefaultExclusionsHandler } from "./content/default-exclusions-handler.js";
 import { createDescribeXpathsHandler } from "./content/describe-xpaths-handler.js";
+import { createExplicitMarkingHandler } from "./content/explicit-marking-handler.js";
 import { createFocusHandler } from "./content/focus-handler.js";
 import { createForceRefreshHandler } from "./content/force-refresh-handler.js";
 import { createInvisibleXpathsHandler } from "./content/invisible-xpaths-handler.js";
@@ -430,6 +431,7 @@ let collectPageDataHandler = null;
 let configUpdatedHandler = null;
 let defaultExclusionsHandler = null;
 let describeXpathsHandler = null;
+let explicitMarkingHandler = null;
 let focusHandler = null;
 let forceRefreshHandler = null;
 let invisibleXpathsHandler = null;
@@ -613,6 +615,13 @@ function getPageDraftSaveHandler() {
     pageDraftSaveHandler = createPageDraftSaveHandler(createPageDraftSaveHandlerDeps());
   }
   return pageDraftSaveHandler;
+}
+
+function getExplicitMarkingHandler() {
+  if (!explicitMarkingHandler) {
+    explicitMarkingHandler = createExplicitMarkingHandler(createExplicitMarkingHandlerDeps());
+  }
+  return explicitMarkingHandler;
 }
 
 function getPageDraftStatusHandler() {
@@ -5991,70 +6000,6 @@ async function fetchPropertyLockStateSnapshot(siteId) {
   }
 }
 
-function addSelectorSuppressedXpath(entry, xpath) {
-  if (!entry || typeof entry !== "object") {
-    return;
-  }
-  const currentXpaths = Array.isArray(entry.selectorSuppressedXpaths)
-    ? entry.selectorSuppressedXpaths.filter((value) => typeof value === "string" && value)
-    : [];
-  if (!xpath) {
-    entry.selectorSuppressedXpaths = currentXpaths;
-    return;
-  }
-  if (currentXpaths.some((existingXpath) =>
-    existingXpath === xpath || core.isXPathDescendant(existingXpath, xpath)
-  )) {
-    entry.selectorSuppressedXpaths = currentXpaths;
-    return;
-  }
-  entry.selectorSuppressedXpaths = currentXpaths
-    .filter((existingXpath) => !core.isXPathDescendant(xpath, existingXpath))
-    .concat(xpath);
-}
-
-function createXPathElementCache() {
-  const cache = new Map();
-  return (xpath) => {
-    if (!xpath) {
-      return null;
-    }
-    if (!cache.has(xpath)) {
-      cache.set(xpath, core.getElementFromXPath(xpath));
-    }
-    return cache.get(xpath);
-  };
-}
-
-function isSameOrDescendantByElementOrXPath(parentXpath, parentElement, childXpath, childElement) {
-  if (!parentXpath || !childXpath) {
-    return false;
-  }
-  if (parentXpath === childXpath) {
-    return true;
-  }
-  if (parentElement && childElement) {
-    return parentElement.contains(childElement);
-  }
-  return core.isXPathDescendant(parentXpath, childXpath);
-}
-
-function clearSelectorSuppressedXpathsWithin(entry, xpath) {
-  if (!entry || typeof entry !== "object") {
-    return;
-  }
-  const currentXpaths = Array.isArray(entry.selectorSuppressedXpaths)
-    ? entry.selectorSuppressedXpaths.filter((value) => typeof value === "string" && value)
-    : [];
-  if (!xpath) {
-    entry.selectorSuppressedXpaths = currentXpaths;
-    return;
-  }
-  entry.selectorSuppressedXpaths = currentXpaths.filter((existingXpath) =>
-    existingXpath !== xpath && !core.isXPathDescendant(xpath, existingXpath)
-  );
-}
-
 function applyPropertyLockServerMessage(serverMessage) {
   return getPropertyLockStateMachine().applyServerMessage(serverMessage);
 }
@@ -6396,6 +6341,26 @@ function createForceRefreshHandlerDeps() {
     refreshEnabledAiHighlights,
     refreshSilentHighlightings,
     runPropertyLockSync
+  };
+}
+
+function createExplicitMarkingHandlerDeps() {
+  return {
+    canApplyExplicitInclude: (target, configValue, pageUrl, entry) =>
+      core.canApplyExplicitInclude(target, configValue, pageUrl, entry),
+    getConfig: () => state.config,
+    getElementFromXPath: (xpath) => core.getElementFromXPath(xpath),
+    getPageMarkingEntry: (configValue, pageUrl) => core.getPageMarkingEntry(configValue, pageUrl),
+    getPageUrl: () => location.href,
+    isDefaultToggleableExcludedElement: (element) => core.isDefaultToggleableExcludedElement(element),
+    isPageDraftDirty: (pageUrl) => core.isPageDraftDirty(pageUrl),
+    isXPathDescendant: (parentXpath, childXpath) => core.isXPathDescendant(parentXpath, childXpath),
+    normalizePageEntryXpaths: (entry) => core.normalizePageEntryXpaths(entry),
+    notifyDraftStatus: (pageUrl) => core.notifyDraftStatus(pageUrl),
+    scheduleDraftPersist: (baseUrl) => core.scheduleDraftPersist(baseUrl),
+    scheduleRender: () => core.scheduleRender(),
+    scheduleSnapshotSave: () => core.scheduleSnapshotSave(),
+    touchPageEntryTimestamp: (entry) => core.touchPageEntryTimestamp(entry)
   };
 }
 
@@ -7255,108 +7220,15 @@ export function main() {
         sendResponse({ ok: false });
         return;
       }
-      const excluded = Boolean(message.excluded);
-      const entry = core.getPageMarkingEntry(state.config, location.href);
-      const items = Array.isArray(entry.xpaths) ? entry.xpaths : [];
-      const includeXpaths = Array.isArray(entry.includeXpaths) ? entry.includeXpaths : [];
-      let targetItem = items.find((item) => item && item.xpath === xpath);
-      if (!targetItem) {
-        targetItem = excluded
-          ? { xpath, excluded: true, explicit: true }
-          : { xpath, excluded: false };
-        items.push(targetItem);
-      } else {
-        targetItem.excluded = excluded;
-        if (excluded) {
-          targetItem.explicit = true;
-        } else {
-          delete targetItem.explicit;
-        }
+      const response = getExplicitMarkingHandler().setExplicitExclude({
+        targetBaseUrl,
+        xpath,
+        excluded: Boolean(message.excluded)
+      });
+      if (response && response.ok) {
+        sendPropertyLockActivity();
       }
-      const getElement = createXPathElementCache();
-      const target = getElement(xpath);
-      const cleanupDescendantIncludeOverrides = (currentXPath, currentTarget = null) => {
-        const boundaryTarget = currentTarget && currentTarget.nodeType === 1
-          ? currentTarget
-          : getElement(currentXPath);
-        for (let i = includeXpaths.length - 1; i >= 0; i -= 1) {
-          const includeXPath = includeXpaths[i];
-          if (!includeXPath || includeXPath === currentXPath) {
-            continue;
-          }
-          const includeEl = getElement(includeXPath);
-          if (isSameOrDescendantByElementOrXPath(currentXPath, boundaryTarget, includeXPath, includeEl)) {
-            includeXpaths.splice(i, 1);
-          }
-        }
-        for (let i = items.length - 1; i >= 0; i -= 1) {
-          const item = items[i];
-          if (!item || !item.xpath || item.excluded || item.xpath === currentXPath) {
-            continue;
-          }
-          const itemEl = getElement(item.xpath);
-          if (isSameOrDescendantByElementOrXPath(currentXPath, boundaryTarget, item.xpath, itemEl)) {
-            items.splice(i, 1);
-          }
-        }
-      };
-      if (excluded) {
-        for (let i = items.length - 1; i >= 0; i -= 1) {
-          const item = items[i];
-          if (!item || !item.xpath || item.xpath === xpath) {
-            continue;
-          }
-          const existingEl = getElement(item.xpath);
-          if (isSameOrDescendantByElementOrXPath(xpath, target, item.xpath, existingEl)) {
-            items.splice(i, 1);
-            continue;
-          }
-          if (
-            item.excluded &&
-            isSameOrDescendantByElementOrXPath(item.xpath, existingEl, xpath, target)
-          ) {
-            cleanupDescendantIncludeOverrides(item.xpath, existingEl);
-            if (existingEl && core.isDefaultToggleableExcludedElement(existingEl)) {
-              item.excluded = false;
-              delete item.explicit;
-            } else {
-              items.splice(i, 1);
-            }
-          }
-        }
-        for (let i = includeXpaths.length - 1; i >= 0; i -= 1) {
-          const includeXPath = includeXpaths[i];
-          if (!includeXPath) {
-            continue;
-          }
-          const includeEl = getElement(includeXPath);
-          if (
-            includeXPath === xpath ||
-            isSameOrDescendantByElementOrXPath(includeXPath, includeEl, xpath, target) ||
-            isSameOrDescendantByElementOrXPath(xpath, target, includeXPath, includeEl)
-          ) {
-            includeXpaths.splice(i, 1);
-          }
-        }
-      } else if (targetItem && !targetItem.excluded) {
-        cleanupDescendantIncludeOverrides(xpath, target);
-      }
-      if (excluded) {
-        clearSelectorSuppressedXpathsWithin(entry, xpath);
-      } else {
-        addSelectorSuppressedXpath(entry, xpath);
-      }
-      entry.includeXpaths = includeXpaths;
-      entry.xpaths = items;
-      core.touchPageEntryTimestamp(entry);
-      core.normalizePageEntryXpaths(entry);
-      state.config.pageMarkings[location.href] = entry;
-      core.scheduleRender();
-      core.scheduleSnapshotSave();
-      core.notifyDraftStatus(location.href);
-      core.scheduleDraftPersist(targetBaseUrl);
-      sendPropertyLockActivity();
-      sendResponse({ ok: true, dirty: core.isPageDraftDirty(location.href) });
+      sendResponse(response);
       return;
     }
 
@@ -7379,67 +7251,15 @@ export function main() {
         sendResponse({ ok: false });
         return;
       }
-      const included = Boolean(message.included);
-      const entry = core.getPageMarkingEntry(state.config, location.href);
-      const includeXpaths = Array.isArray(entry.includeXpaths) ? entry.includeXpaths : [];
-      const existingIndex = includeXpaths.indexOf(xpath);
-      const getElement = createXPathElementCache();
-      if (included) {
-        const target = getElement(xpath);
-        if (!target) {
-          sendResponse({ ok: false });
-          return;
-        }
-        if (
-          existingIndex === -1 &&
-          !core.canApplyExplicitInclude(target, state.config, location.href, entry)
-        ) {
-          sendResponse({ ok: false });
-          return;
-        }
-        if (existingIndex === -1) {
-          includeXpaths.push(xpath);
-        }
-        const items = Array.isArray(entry.xpaths) ? entry.xpaths : [];
-        for (let i = items.length - 1; i >= 0; i -= 1) {
-          const item = items[i];
-          if (!item || !item.xpath || item.xpath === xpath) {
-            continue;
-          }
-          const existingEl = getElement(item.xpath);
-          if (isSameOrDescendantByElementOrXPath(xpath, target, item.xpath, existingEl)) {
-            items.splice(i, 1);
-          }
-        }
-        entry.xpaths = items;
-        for (let i = includeXpaths.length - 1; i >= 0; i -= 1) {
-          const childXpath = includeXpaths[i];
-          if (!childXpath || childXpath === xpath) {
-            continue;
-          }
-          const existingEl = getElement(childXpath);
-          if (isSameOrDescendantByElementOrXPath(xpath, target, childXpath, existingEl)) {
-            includeXpaths.splice(i, 1);
-          }
-        }
-      } else if (existingIndex >= 0) {
-        includeXpaths.splice(existingIndex, 1);
+      const response = getExplicitMarkingHandler().setExplicitInclude({
+        targetBaseUrl,
+        xpath,
+        included: Boolean(message.included)
+      });
+      if (response && response.ok) {
+        sendPropertyLockActivity();
       }
-      if (included) {
-        clearSelectorSuppressedXpathsWithin(entry, xpath);
-      } else {
-        addSelectorSuppressedXpath(entry, xpath);
-      }
-      entry.includeXpaths = includeXpaths;
-      core.touchPageEntryTimestamp(entry);
-      core.normalizePageEntryXpaths(entry);
-      state.config.pageMarkings[location.href] = entry;
-      core.scheduleRender();
-      core.scheduleSnapshotSave();
-      core.notifyDraftStatus(location.href);
-      core.scheduleDraftPersist(targetBaseUrl);
-      sendPropertyLockActivity();
-      sendResponse({ ok: true, dirty: core.isPageDraftDirty(location.href) });
+      sendResponse(response);
       return;
     }
 
