@@ -18,7 +18,8 @@ const remainingHighRiskBranches = new Map([
 ]);
 
 const plannedHandlerAccessors = new Map([
-  ["configUpdated", "getConfigUpdatedHandler"]
+  ["configUpdated", "getConfigUpdatedHandler"],
+  ["showAiPreview", "getAiPreviewShowHandler"]
 ]);
 
 const completedTrackFHandlers = [

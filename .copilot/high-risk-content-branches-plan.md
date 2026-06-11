@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-11
 Branch: main
-Status: G0 and G1 complete; next phase is G2.
+Status: G0-G2 complete; next phase is G3.
 
 ## Scope
 
@@ -23,6 +23,9 @@ Progress:
    isolated `revertPageDraft` async failure fallback.
 - G1 extracted `configUpdated` into `content/config-updated-handler.js` with
    focused handler coverage and preserved mixed sync/async response timing.
+- G2 extracted `showAiPreview` into `content/ai-preview-show-handler.js` with
+   focused coverage for preview item construction, empty-preview degradation,
+   and close handling.
 
 Do not edit these branches as a continuation of Track F. Treat this as a new
 high-risk track that starts with audit-result hardening and a fresh review gate.

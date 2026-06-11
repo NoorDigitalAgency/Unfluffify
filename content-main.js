@@ -106,6 +106,7 @@ import { createAiPreviewCloseHandler } from "./content/ai-preview-close-handler.
 import { createAiPreviewComputeLockHandler } from "./content/ai-preview-compute-lock-handler.js";
 import { createAiPreviewExpandedModeHandler } from "./content/ai-preview-expanded-mode-handler.js";
 import { createAiPreviewGetStateHandler } from "./content/ai-preview-get-state-handler.js";
+import { createAiPreviewShowHandler } from "./content/ai-preview-show-handler.js";
 import { createAiPreviewStateResponseBuilder } from "./content/ai-preview-state-response.js";
 import { createAiSubmissionXpathsHandler } from "./content/ai-submission-xpaths-handler.js";
 import { createCollectPageDataHandler } from "./content/collect-page-data-handler.js";
@@ -417,6 +418,7 @@ let aiPreviewCloseHandler = null;
 let aiPreviewComputeLockHandler = null;
 let aiPreviewExpandedModeHandler = null;
 let aiPreviewGetStateHandler = null;
+let aiPreviewShowHandler = null;
 let aiPreviewStateResponseBuilder = null;
 let aiSubmissionXpathsHandler = null;
 let capturePageSnapshotHandler = null;
@@ -635,6 +637,13 @@ function getAiPreviewGetStateHandler() {
     aiPreviewGetStateHandler = createAiPreviewGetStateHandler(createAiPreviewGetStateHandlerDeps());
   }
   return aiPreviewGetStateHandler;
+}
+
+function getAiPreviewShowHandler() {
+  if (!aiPreviewShowHandler) {
+    aiPreviewShowHandler = createAiPreviewShowHandler(createAiPreviewShowHandlerDeps());
+  }
+  return aiPreviewShowHandler;
 }
 
 function getAiSubmissionXpathsHandler() {
@@ -6367,6 +6376,18 @@ function createAiPreviewGetStateHandlerDeps() {
   };
 }
 
+function createAiPreviewShowHandlerDeps() {
+  return {
+    buildAiPreviewItemsWithCategories,
+    collectPreviewItems: (selectorSet) => core.collectPreviewItems(selectorSet),
+    enterAiPreviewMode,
+    exitAiPreviewMode,
+    normalizeAiSelectorSet,
+    setAiPreviewItemSets,
+    showAiPopover: (items, options) => core.showAiPopover(items, options)
+  };
+}
+
 function createAiSubmissionXpathsHandlerDeps() {
   return {
     collectAiSubmissionXpathsForCurrentPage
@@ -7541,24 +7562,9 @@ export function main() {
     }
 
     if (message.type === "showAiPreview") {
-      (async () => {
-        const selectorSet = normalizeAiSelectorSet(message.selectorSet);
-        let defaultItems = [];
-        let expandedItems = [];
-        try {
-          defaultItems = core.collectPreviewItems(selectorSet);
-          expandedItems = buildAiPreviewItemsWithCategories(selectorSet, defaultItems);
-        } catch {
-          defaultItems = [];
-          expandedItems = [];
-        }
-        await enterAiPreviewMode({ mode: "preview" });
-        setAiPreviewItemSets(defaultItems, expandedItems, { showAllCategories: false });
-        core.showAiPopover(defaultItems, {
-          onClose: () => exitAiPreviewMode()
-        });
-        sendResponse({ ok: true, count: defaultItems.length });
-      })().catch(() => {
+      getAiPreviewShowHandler().handleMessage(message).then((response) => {
+        sendResponse(response && typeof response === "object" ? response : { ok: false });
+      }).catch(() => {
         sendResponse({ ok: false });
       });
       return true;
