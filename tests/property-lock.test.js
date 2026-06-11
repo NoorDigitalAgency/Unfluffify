@@ -17,6 +17,7 @@ import {
 
 const propertyLockBannerSource = readFileSync(new URL("../content/property-lock-banner.js", import.meta.url), "utf8");
 const propertyLockBannerModeSource = readFileSync(new URL("../content/property-lock-banner-mode.js", import.meta.url), "utf8");
+const propertyLockPortClientSource = readFileSync(new URL("../content/property-lock-port-client.js", import.meta.url), "utf8");
 
 test("buildPropertyLockWssUrl requires a stage base and token", () => {
   assert.equal(buildPropertyLockWssUrl("", "token"), "");
@@ -124,17 +125,18 @@ test("content-main reconnects property lock after an unexpected active port disc
 
   assert.match(
     source,
-    /nextPort\.onDisconnect\.addListener\(\(\) => \{[\s\S]*?resetPropertyLockUiState\(\);[\s\S]*?schedulePropertyLockReconnect\(\);[\s\S]*?\}\);/
+    /onDisconnect:\s*\(disconnectReason\) => \{[\s\S]*?resetPropertyLockUiState\(\);[\s\S]*?schedulePropertyLockReconnect\(\);[\s\S]*?\}/
   );
 });
 
 test("content-main consumes property lock port disconnect lastError without lifecycle hooks", () => {
   const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
 
-  assert.match(source, /function consumeRuntimeLastErrorMessage\(\) \{[\s\S]*?const lastError = chrome\.runtime\.lastError;[\s\S]*?\}/);
+  assert.match(source, /function createPropertyLockPortClientDeps\(\) \{[\s\S]*?consumeRuntimeLastErrorMessage:\s*\(\) => \{[\s\S]*?const lastError = chrome\.runtime\.lastError;[\s\S]*?\}/);
+  assert.match(propertyLockPortClientSource, /const disconnectReason = deps\.consumeRuntimeLastErrorMessage\(\);/);
   assert.match(
     source,
-    /nextPort\.onDisconnect\.addListener\(\(\) => \{[\s\S]*?consumeRuntimeLastErrorMessage\(\);[\s\S]*?resetPropertyLockUiState\(\);[\s\S]*?schedulePropertyLockReconnect\(\);[\s\S]*?\}\);/
+    /onDisconnect:\s*\(disconnectReason\) => \{[\s\S]*?if \(markExtensionContextInvalidated\(disconnectReason\)\) \{[\s\S]*?return;[\s\S]*?\}[\s\S]*?schedulePropertyLockReconnect\(\);/
   );
   assert.doesNotMatch(source, /window\.addEventListener\("pagehide", handlePropertyLockPageHide\);/);
   assert.doesNotMatch(source, /window\.addEventListener\("pageshow", handlePropertyLockPageShow\);/);
@@ -150,11 +152,11 @@ test("content-main stops property lock reconnects when extension context is inva
   );
   assert.match(
     source,
-    /function schedulePropertyLockReconnect\(options = \{\}\) \{[\s\S]*?if \(extensionContextInvalidated \|\| propertyLockReconnectTimer\)/
+    /function schedulePropertyLockReconnect\(options = \{\}\) \{[\s\S]*?getPropertyLockPortClient\(\)\.scheduleReconnect\(options\);/
   );
   assert.match(
     source,
-    /nextPort\.onDisconnect\.addListener\(\(\) => \{[\s\S]*?const disconnectReason = consumeRuntimeLastErrorMessage\(\);[\s\S]*?if \(markExtensionContextInvalidated\(disconnectReason\)\) \{[\s\S]*?return;[\s\S]*?\}[\s\S]*?schedulePropertyLockReconnect\(\);/
+    /function createPropertyLockPortClientDeps\(\) \{[\s\S]*?shouldSkipReconnect:\s*\(\) => extensionContextInvalidated,/
   );
   assert.doesNotMatch(source, /syncPropertyLockConnection\(\{[^}]*\}\)\.then\(\);/);
 });
@@ -164,11 +166,11 @@ test("content-main requests a reconnect when property lock activity or page comm
 
   assert.match(
     source,
-    /function sendPropertyLockActivity\(\) \{[\s\S]*?if \(!propertyLockPort\) \{[\s\S]*?schedulePropertyLockReconnect\(\);[\s\S]*?return;[\s\S]*?\}/
+    /function sendPropertyLockActivity\(\) \{[\s\S]*?const portClient = getPropertyLockPortClient\(\);[\s\S]*?if \(!portClient\.hasPort\(\)\) \{[\s\S]*?schedulePropertyLockReconnect\(\);[\s\S]*?return;[\s\S]*?\}/
   );
   assert.match(
     source,
-    /function sendPropertyLockMessage\(type, payload = \{\}\) \{[\s\S]*?if \(!propertyLockPort\) \{[\s\S]*?schedulePropertyLockReconnect\(\);[\s\S]*?return;[\s\S]*?\}/
+    /function sendPropertyLockMessage\(type, payload = \{\}\) \{[\s\S]*?const portClient = getPropertyLockPortClient\(\);[\s\S]*?if \(!portClient\.hasPort\(\)\) \{[\s\S]*?schedulePropertyLockReconnect\(\);[\s\S]*?return;[\s\S]*?\}/
   );
 });
 

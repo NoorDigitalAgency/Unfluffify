@@ -110,6 +110,7 @@ import {
   restartPropertyLockBannerCountdown as restartPropertyLockBannerCountdownOperation
 } from "./content/property-lock-banner.js";
 import { updatePropertyLockBannerMode as updatePropertyLockBannerModeOperation } from "./content/property-lock-banner-mode.js";
+import { createPropertyLockPortClient } from "./content/property-lock-port-client.js";
 import { createRemoteSupportClient } from "./content/remote-support-client.js";
 import { createRemoteSupportViewerClient } from "./content/remote-support-viewer-client.js";
 import { createRemoteSupportSupportPage } from "./content/remote-support-support-page.js";
@@ -195,7 +196,6 @@ const PROPERTY_LOCK_BANNER_ID = "unfluffify-lock-banner";
 const PROPERTY_LOCK_BANNER_STYLE_ID = "unfluffify-lock-banner-style";
 const PROPERTY_LOCK_RECONNECT_DELAY_MS = 150;
 
-let propertyLockPort = null;
 let propertyLockState = null;
 let propertyLockBannerMode = "no_banner";
 let propertyLockBannerCountdownTimer = 0;
@@ -220,7 +220,6 @@ let propertyLockEditorClaimPending = false;
 let propertyLockSyncToken = 0;
 let propertyLockSyncInFlight = false;
 let propertyLockQueuedSyncOptions = null;
-let propertyLockReconnectTimer = 0;
 let propertyLockClientId = "";
 let extensionContextInvalidated = false;
 let silentHighlightingObserver = null;
@@ -279,8 +278,9 @@ function resetDisabledPropertyLockRuntimeState() {
     window.clearTimeout(propertyLockPageActivityTimer);
     propertyLockPageActivityTimer = 0;
   }
-  const currentPort = propertyLockPort;
-  propertyLockPort = null;
+  if (propertyLockPortClient) {
+    propertyLockPortClient.disconnect({ notifyBackground: false });
+  }
   propertyLockConnectedSiteId = null;
   propertyLockConnectedBaseUrl = "";
   propertyLockEditorClaimPending = false;
@@ -299,13 +299,6 @@ function resetDisabledPropertyLockRuntimeState() {
   propertyLockBannerCountdownValue = 0;
   propertyLockBannerVisible = false;
   propertyLockLastBlockedToastAt = 0;
-  if (currentPort) {
-    try {
-      currentPort.disconnect();
-    } catch (error) {
-      // Port may already be disconnected.
-    }
-  }
   if (propertyLockBannerElement) {
     propertyLockBannerElement.classList.add("uf-lock-banner-hidden");
     propertyLockBannerElement.replaceChildren();
@@ -317,13 +310,15 @@ function ensurePropertyLockCollaborationActive() {
   if (isPropertyLockCollaborationEnabled()) {
     return true;
   }
+  const hasPort = propertyLockPortClient ? propertyLockPortClient.hasPort() : false;
+  const hasReconnectTimer = propertyLockPortClient ? propertyLockPortClient.hasReconnectTimer() : false;
   if (
-    propertyLockPort ||
+    hasPort ||
     propertyLockState ||
     propertyLockBannerMode !== "no_banner" ||
     propertyLockOffCandidateDeadlineAt ||
     propertyLockRecoveryDeadlineAt ||
-    propertyLockReconnectTimer ||
+    hasReconnectTimer ||
     propertyLockPageActivityTimer ||
     propertyLockRecoveryReleaseTimer ||
     propertyLockSyncInFlight ||
@@ -387,6 +382,7 @@ const PAGE_TELEMETRY_NONCE_BYTES = 16;
 let remoteSupportClient = null;
 let remoteSupportViewerClient = null;
 let remoteSupportSupportPage = null;
+let propertyLockPortClient = null;
 let pageTelemetryBridgeListenerBound = false;
 let pageTelemetryBridgeNonce = "";
 // Private MessageChannel port for the page-world telemetry stream. When
@@ -503,6 +499,13 @@ function sendRuntimeMessageSafely(message) {
       }
       return null;
     });
+}
+
+function getPropertyLockPortClient() {
+  if (!propertyLockPortClient) {
+    propertyLockPortClient = createPropertyLockPortClient(createPropertyLockPortClientDeps());
+  }
+  return propertyLockPortClient;
 }
 
 function getRemoteSupportClient() {
@@ -5402,11 +5405,12 @@ function sendPropertyLockDraftStatus() {
   if (!ensurePropertyLockCollaborationActive()) {
     return;
   }
-  if (!propertyLockPort) {
+  const portClient = getPropertyLockPortClient();
+  if (!portClient.hasPort()) {
     return;
   }
   try {
-    propertyLockPort.postMessage({
+    portClient.postMessage({
       type: PROPERTY_LOCK_CONTENT_DRAFT_STATUS,
       ...getPropertyLockDraftStatusPayload()
     });
@@ -5670,71 +5674,19 @@ function startPropertyLockOffCandidateWarning() {
 }
 
 function clearPropertyLockReconnectTimer() {
-  if (!propertyLockReconnectTimer) {
-    return;
-  }
-  window.clearTimeout(propertyLockReconnectTimer);
-  propertyLockReconnectTimer = 0;
+  getPropertyLockPortClient().clearReconnectTimer();
 }
 
 function schedulePropertyLockReconnect(options = {}) {
   if (!ensurePropertyLockCollaborationActive()) {
     return;
   }
-  const forceSiteIdRefresh = Boolean(options.forceSiteIdRefresh);
-  if (extensionContextInvalidated || propertyLockReconnectTimer) {
-    return;
-  }
-  propertyLockReconnectTimer = window.setTimeout(() => {
-    propertyLockReconnectTimer = 0;
-    runPropertyLockSync({ forceSiteIdRefresh });
-  }, PROPERTY_LOCK_RECONNECT_DELAY_MS);
-}
-
-function consumeRuntimeLastErrorMessage() {
-  try {
-    if (!globalThis.chrome || !chrome.runtime) {
-      return "";
-    }
-    const lastError = chrome.runtime.lastError;
-    return lastError && typeof lastError.message === "string" ? lastError.message : "";
-  } catch (error) {
-    if (utils.isExtensionContextInvalidatedError(error)) {
-      return error && error.message ? error.message : "Extension context invalidated.";
-    }
-    throw error;
-  }
+  getPropertyLockPortClient().scheduleReconnect(options);
 }
 
 function disconnectPropertyLockPort(options = {}) {
   const { notifyBackground = true } = options || {};
-  clearPropertyLockReconnectTimer();
-  const currentPort = propertyLockPort;
-  const currentSiteId = propertyLockConnectedSiteId;
-  propertyLockPort = null;
-  propertyLockConnectedSiteId = null;
-  propertyLockConnectedBaseUrl = "";
-  propertyLockEditorClaimPending = false;
-
-  if (currentPort) {
-    if (notifyBackground && currentSiteId) {
-      try {
-        currentPort.postMessage({
-          type: PROPERTY_LOCK_CONTENT_DISCONNECT,
-          siteId: currentSiteId,
-          clientId: getPropertyLockClientId()
-        });
-      } catch (error) {
-        // Background may already have torn down the port.
-      }
-    }
-    try {
-      currentPort.disconnect();
-    } catch (error) {
-      // Port may already be disconnected.
-    }
-  }
-
+  getPropertyLockPortClient().disconnect({ notifyBackground });
   resetPropertyLockUiState();
 }
 
@@ -5870,7 +5822,7 @@ async function syncPropertyLockConnection(options = {}) {
     recoveryState.clientId &&
     !utils.isPageWithinBaseUrl(pageUrl, recoveryState.baseUrl)
   ) {
-    if (propertyLockPort) {
+    if (getPropertyLockPortClient().hasPort()) {
       disconnectPropertyLockPort();
     }
     startPropertyLockCrossPropertyWarning(recoveryState);
@@ -5909,8 +5861,9 @@ async function syncPropertyLockConnection(options = {}) {
 
   const siteId = target.siteId;
   propertyLockConnectedBaseUrl = target.baseUrl || "";
-  if (!(propertyLockPort && propertyLockConnectedSiteId === siteId)) {
-    if (propertyLockPort) {
+  const portClient = getPropertyLockPortClient();
+  if (!(portClient.hasPort() && propertyLockConnectedSiteId === siteId)) {
+    if (portClient.hasPort()) {
       disconnectPropertyLockPort();
     }
 
@@ -5918,35 +5871,32 @@ async function syncPropertyLockConnection(options = {}) {
     propertyLockConnectedBaseUrl = target.baseUrl || "";
 
     try {
-      const nextPort = chrome.runtime.connect({ name: PROPERTY_LOCK_PORT_NAME });
-      propertyLockPort = nextPort;
-      nextPort.onMessage.addListener(handlePropertyLockPortMessage);
-      nextPort.onDisconnect.addListener(() => {
-        const disconnectReason = consumeRuntimeLastErrorMessage();
-        if (propertyLockPort !== nextPort) {
-          return;
+      portClient.connect({
+        connectPayload: {
+          type: PROPERTY_LOCK_CONTENT_CONNECT,
+          siteId,
+          ...getPropertyLockDraftStatusPayload()
+        },
+        onMessage: handlePropertyLockPortMessage,
+        onDisconnect: (disconnectReason) => {
+          propertyLockConnectedSiteId = null;
+          propertyLockConnectedBaseUrl = "";
+          propertyLockEditorClaimPending = false;
+          resetPropertyLockUiState();
+          if (markExtensionContextInvalidated(disconnectReason)) {
+            return;
+          }
+          schedulePropertyLockReconnect();
         }
-        propertyLockPort = null;
-        propertyLockConnectedSiteId = null;
-        propertyLockConnectedBaseUrl = "";
-        resetPropertyLockUiState();
-        if (markExtensionContextInvalidated(disconnectReason)) {
-          return;
-        }
-        schedulePropertyLockReconnect();
-      });
-      nextPort.postMessage({
-        type: PROPERTY_LOCK_CONTENT_CONNECT,
-        siteId,
-        ...getPropertyLockDraftStatusPayload()
       });
       queuePropertyLockEditorClaim();
     } catch (error) {
       if (markExtensionContextInvalidated(error)) {
         return;
       }
-      propertyLockPort = null;
       propertyLockConnectedSiteId = null;
+      propertyLockConnectedBaseUrl = "";
+      propertyLockEditorClaimPending = false;
       resetPropertyLockUiState();
       schedulePropertyLockReconnect({ forceSiteIdRefresh });
       return;
@@ -6027,12 +5977,13 @@ function sendPropertyLockActivity() {
   if (extensionContextInvalidated) {
     return;
   }
-  if (!propertyLockPort) {
+  const portClient = getPropertyLockPortClient();
+  if (!portClient.hasPort()) {
     schedulePropertyLockReconnect();
     return;
   }
   try {
-    propertyLockPort.postMessage({
+    portClient.postMessage({
       type: PROPERTY_LOCK_CONTENT_ACTIVITY,
       ...getPropertyLockDraftStatusPayload()
     });
@@ -6040,9 +5991,9 @@ function sendPropertyLockActivity() {
     if (markExtensionContextInvalidated(error)) {
       return;
     }
-    propertyLockPort = null;
     propertyLockConnectedSiteId = null;
     propertyLockConnectedBaseUrl = "";
+    propertyLockEditorClaimPending = false;
     resetPropertyLockUiState();
     schedulePropertyLockReconnect();
   }
@@ -6055,12 +6006,13 @@ function sendPropertyLockMessage(type, payload = {}) {
   if (extensionContextInvalidated) {
     return;
   }
-  if (!propertyLockPort) {
+  const portClient = getPropertyLockPortClient();
+  if (!portClient.hasPort()) {
     schedulePropertyLockReconnect();
     return;
   }
   try {
-    propertyLockPort.postMessage({
+    portClient.postMessage({
       type,
       ...getPropertyLockDraftStatusPayload(),
       ...payload
@@ -6069,9 +6021,9 @@ function sendPropertyLockMessage(type, payload = {}) {
     if (markExtensionContextInvalidated(error)) {
       return;
     }
-    propertyLockPort = null;
     propertyLockConnectedSiteId = null;
     propertyLockConnectedBaseUrl = "";
+    propertyLockEditorClaimPending = false;
     resetPropertyLockUiState();
     schedulePropertyLockReconnect();
   }
@@ -6347,6 +6299,41 @@ function createPropertyLockBannerModeDeps() {
     PROPERTY_LOCK_STATE_TAKEOVER_AVAILABLE,
     PROPERTY_LOCK_STATE_TRANSFER,
     PROPERTY_LOCK_CONNECTION_LOSS_TIMEOUT_MS
+  };
+}
+
+function createPropertyLockPortClientDeps() {
+  return {
+    connectRuntimePort: (options) => chrome.runtime.connect(options),
+    consumeRuntimeLastErrorMessage: () => {
+      try {
+        if (!globalThis.chrome || !chrome.runtime) {
+          return "";
+        }
+        const lastError = chrome.runtime.lastError;
+        return lastError && typeof lastError.message === "string" ? lastError.message : "";
+      } catch (error) {
+        if (utils.isExtensionContextInvalidatedError(error)) {
+          return error && error.message ? error.message : "Extension context invalidated.";
+        }
+        throw error;
+      }
+    },
+    getClientId: () => getPropertyLockClientId(),
+    getConnectedSiteId: () => propertyLockConnectedSiteId,
+    getTimerHost: () => window,
+    onPortCleared: () => {
+      propertyLockConnectedSiteId = null;
+      propertyLockConnectedBaseUrl = "";
+      propertyLockEditorClaimPending = false;
+    },
+    shouldSkipReconnect: () => extensionContextInvalidated,
+    runSync: ({ forceSiteIdRefresh = false } = {}) => {
+      runPropertyLockSync({ forceSiteIdRefresh });
+    },
+    PROPERTY_LOCK_CONTENT_DISCONNECT,
+    PROPERTY_LOCK_PORT_NAME,
+    PROPERTY_LOCK_RECONNECT_DELAY_MS
   };
 }
 
@@ -7973,7 +7960,7 @@ export function main() {
   // property-lock inactivity window. Debounce to at most once per 10 seconds
   // so we don't flood the background on busy pages.
   const handlePageActivity = () => {
-    if (!propertyLockPort || propertyLockPageActivityTimer) {
+    if (!getPropertyLockPortClient().hasPort() || propertyLockPageActivityTimer) {
       return;
     }
     propertyLockPageActivityTimer = window.setTimeout(() => {

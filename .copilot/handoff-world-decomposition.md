@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-11
 Branch: `main`
-Status: world-decomposition program complete; content follow-up D2 + E0 complete.
+Status: world-decomposition program complete; content follow-up D2 + E1 complete.
 
 ## Active Plan
 
@@ -23,7 +23,7 @@ git status --short --branch
 # ## main...origin/main
 
 npm test
-# 853 pass / 0 fail
+# 858 pass / 0 fail
 ```
 
 Recent completion commits:
@@ -132,6 +132,15 @@ The active plan turns those findings into mechanical phases.
    - `npm test` -> 853 pass / 0 fail
 3. Live validation deferred by policy while
    `FEATURE_FLAGS.propertyLockCollaboration` is false.
+4. E1 complete: property-lock port lifecycle moved from `content-main.js` into
+   `content/property-lock-port-client.js`, with `content-main.js` delegating
+   connect/disconnect/reconnect/send behavior through the injected client.
+5. E1 validation:
+   - `npm test -- tests/property-lock-port-client.test.js tests/property-lock.test.js tests/content-decomposition-boundary.test.js tests/manifest-permissions.test.js`
+     -> 40 pass / 0 fail
+   - `npm test` -> 858 pass / 0 fail
+6. Live validation deferred by policy while
+   `FEATURE_FLAGS.propertyLockCollaboration` is false.
 
 ## Non-Negotiable Guardrails
 
@@ -172,21 +181,21 @@ Start with `.copilot/content-main-followup-refactor-plan.md`.
 Recommended next implementation phase:
 
 1. Run the standard phase baseline from the active plan.
-2. Begin Phase E1: extract property-lock port lifecycle into
-   `content/property-lock-port-client.js`.
+2. Begin Phase E2: extract property-lock server message state machine into
+   `content/property-lock-state-machine.js`.
 
-Track D is complete through D2. Track E is complete through E0.
+Track D is complete through D2. Track E is complete through E1.
 
 ## Validation Commands For The Next Agent
 
-Use these before starting E1:
+Use these before starting E2:
 
 ```bash
 git status --short --branch
 git pull --ff-only
 npm test
 rg -n "remoteSupport:|propertyLockCollaboration:" common/feature-flags.js
-rg -n "content/page-telemetry-bridge.js|content/remote-support-client.js|content/remote-support-viewer-client.js|content/remote-support-support-page.js|content/property-lock-banner.js|content/property-lock-banner-mode.js" manifest.json
+rg -n "content/page-telemetry-bridge.js|content/remote-support-client.js|content/remote-support-viewer-client.js|content/remote-support-support-page.js|content/property-lock-banner.js|content/property-lock-banner-mode.js|content/property-lock-port-client.js" manifest.json
 ```
 
 Expected:
