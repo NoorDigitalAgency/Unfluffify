@@ -6621,73 +6621,13 @@ export function main() {
     }
 
     if (message.type === "setEnabled") {
-      if (message.enabled) {
-        if (isPropertyLockInteractionBlocked()) {
-          sendResponse({ ok: false, locked: true });
-          return;
-        }
-        const operationId = typeof message.operationId === "string" && message.operationId
-          ? message.operationId
-          : createLifecycleOperationId(LIFECYCLE_KINDS.ACTIVATION);
-        emitLifecycleEvent({
-          operationId,
-          kind: LIFECYCLE_KINDS.ACTIVATION,
-          phase: LIFECYCLE_PHASES.STARTED,
-          busy: true,
-          message: "Inspecting page..."
-        });
-        sendPropertyLockMessage(PROPERTY_LOCK_CONTENT_TAKE_LOCK);
-        state.currentPageType = typeof message.pageType === "string" ? message.pageType : state.currentPageType || "";
-        stopSilentHighlightingObserver();
-        clearSilentHighlightingMarks();
-        setSilentHighlightingsActive(false);
-        (async () => {
-          const skipInitialReveal = !Boolean(message.performInitialReveal);
-          const reconciliation = core.getPageSaveReconciliationState(location.href);
-          if (reconciliation && reconciliation.reason === SILENT_HIGHLIGHTING_PREPARATION_REASON) {
-            await core.clearPageSaveReconciliation(message.baseUrl || state.baseUrl || "", location.href);
-          }
-          await core.enableForBaseUrl(message.baseUrl, { skipInitialReveal });
-          refreshEnabledAiHighlights();
-          emitLifecycleEvent({
-            operationId,
-            kind: LIFECYCLE_KINDS.ACTIVATION,
-            phase: LIFECYCLE_PHASES.FINISHED,
-            busy: false,
-            message: "",
-            contentMode: state.enabled ? CONTENT_MODES.MARKING : CONTENT_MODES.SILENT,
-            markingEnabled: Boolean(state.enabled)
-          });
-          sendResponse({ ok: true });
-        })().catch(() => {
-          emitLifecycleEvent({
-            operationId,
-            kind: LIFECYCLE_KINDS.ACTIVATION,
-            phase: LIFECYCLE_PHASES.FAILED,
-            busy: false,
-            message: "",
-            contentMode: state.enabled ? CONTENT_MODES.MARKING : CONTENT_MODES.SILENT,
-            markingEnabled: Boolean(state.enabled)
-          });
+      handleSetEnabledCommand(message)
+        .then((response) => {
+          sendResponse(response && typeof response === "object" ? response : { ok: false });
+        })
+        .catch(() => {
           sendResponse({ ok: false });
         });
-        return true;
-      }
-      state.currentPageType = "";
-      clearAiPreviewState();
-      core.disable();
-      emitLifecycleEvent({
-        operationId: createLifecycleOperationId(LIFECYCLE_KINDS.MODE),
-        kind: LIFECYCLE_KINDS.MODE,
-        phase: LIFECYCLE_PHASES.FINISHED,
-        busy: false,
-        message: "",
-        contentMode: CONTENT_MODES.SILENT,
-        markingEnabled: false
-      });
-      refreshSilentHighlightings().then(() => {
-        sendResponse({ ok: true });
-      });
       return true;
     }
 

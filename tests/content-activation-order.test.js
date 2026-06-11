@@ -91,10 +91,16 @@ test("reveal activation starts on becameEditor transition and not on marking ena
   const messageStart = source.indexOf("if (message.type === \"setEnabled\") {");
   const messageEnd = source.indexOf("if (message.type === \"getInspectionStatus\") {", messageStart);
   const messageSource = source.slice(messageStart, messageEnd);
+  const handlerStart = source.indexOf("async function handleSetEnabledCommand(message = {}) {");
+  const handlerEnd = source.indexOf("function handleGetInspectionStatusCommand() {", handlerStart);
+  const handlerSource = source.slice(handlerStart, handlerEnd);
   assert.ok(messageStart > -1);
   assert.ok(messageEnd > messageStart);
-  assert.match(messageSource, /const skipInitialReveal = !Boolean\(message\.performInitialReveal\);/);
-  assert.match(messageSource, /await core\.enableForBaseUrl\(message\.baseUrl, \{ skipInitialReveal \}\);/);
+  assert.ok(handlerStart > -1);
+  assert.ok(handlerEnd > handlerStart);
+  assert.match(messageSource, /handleSetEnabledCommand\(message\)/);
+  assert.match(handlerSource, /const skipInitialReveal = !Boolean\(message\.performInitialReveal\);/);
+  assert.match(handlerSource, /await core\.enableForBaseUrl\(message\.baseUrl, \{ skipInitialReveal \}\);/);
   assert.doesNotMatch(messageSource, /warmupPageRevealBeforeMotionPause\(/);
   assert.doesNotMatch(messageSource, /warmupSilentHighlightingBeforeMotionPause\(/);
   assert.doesNotMatch(messageSource, /runEditorSilentHighlightingActivation\(/);
@@ -224,12 +230,18 @@ test("runtime setEnabled can request an initial reveal when reload restoration r
   const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
   const messageStart = source.indexOf('if (message.type === "setEnabled") {');
   const messageEnd = source.indexOf('if (message.type === "getInspectionStatus") {', messageStart);
+  const handlerStart = source.indexOf("async function handleSetEnabledCommand(message = {}) {");
+  const handlerEnd = source.indexOf("function handleGetInspectionStatusCommand() {", handlerStart);
 
   assert.ok(messageStart > -1);
   assert.ok(messageEnd > messageStart);
+  assert.ok(handlerStart > -1);
+  assert.ok(handlerEnd > handlerStart);
   const messageSource = source.slice(messageStart, messageEnd);
-  assert.match(messageSource, /const skipInitialReveal = !Boolean\(message\.performInitialReveal\);/);
-  assert.match(messageSource, /await core\.enableForBaseUrl\(message\.baseUrl, \{ skipInitialReveal \}\);/);
+  const handlerSource = source.slice(handlerStart, handlerEnd);
+  assert.match(messageSource, /handleSetEnabledCommand\(message\)/);
+  assert.match(handlerSource, /const skipInitialReveal = !Boolean\(message\.performInitialReveal\);/);
+  assert.match(handlerSource, /await core\.enableForBaseUrl\(message\.baseUrl, \{ skipInitialReveal \}\);/);
 });
 
 test("capturePageSnapshot collects AI submission rows from the target config", () => {

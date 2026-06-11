@@ -273,3 +273,45 @@ Commit message:
 ```text
 refactor(content): extract render mode inspection handlers
 ```
+
+## Phase F6 - Runtime setEnabled Delegation
+
+Why this phase:
+- `content-main.js` still duplicated setEnabled behavior between
+  `handleSetEnabledCommand` and the runtime listener branch.
+- Delegating runtime `setEnabled` to `handleSetEnabledCommand` removes another
+  divergence vector while preserving response contracts.
+
+Files to edit:
+- `content-main.js`
+- `tests/content-activation-order.test.js`
+
+Exact function boundary:
+- Keep runtime branch `if (message.type === "setEnabled")` in place.
+- Replace in-branch implementation with delegation to
+  `handleSetEnabledCommand(message)` and preserve async response behavior.
+- Keep `handleSetEnabledCommand` as the single implementation authority.
+
+Rules:
+1. Preserve `setEnabled` response payloads (including lock failure).
+2. Preserve async `return true` runtime listener behavior.
+3. Preserve activation and mode lifecycle event emission order.
+
+Focused validation:
+```bash
+npm test -- tests/content-activation-order.test.js tests/lifecycle-broker.test.js tests/popup-mode-sync.test.js tests/render-mode-inspection-order.test.js tests/content-decomposition-boundary.test.js
+```
+
+Full validation:
+```bash
+npm test
+```
+
+Rollback criteria:
+- Any regression in activation restore, mode reconciliation, or lifecycle event
+  sequencing should trigger rollback.
+
+Commit message:
+```text
+refactor(content): dedupe runtime setEnabled handling
+```
