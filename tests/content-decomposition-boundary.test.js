@@ -51,6 +51,7 @@ test("content decomposition guard: baseline content modules are imported", () =>
   assertImportsContentModule("remote-support-state-handler");
   assertImportsContentModule("remote-support-viewer-client");
   assertImportsContentModule("remote-support-support-page");
+  assertImportsContentModule("visible-xpaths-handler");
 
   assertContentDoesNotDefine("handlePageTelemetryWindowMessage");
   assertContentDoesNotDefine("syncPageTelemetryControl");

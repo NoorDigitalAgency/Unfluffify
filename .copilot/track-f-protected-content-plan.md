@@ -679,3 +679,52 @@ Commit message:
 ```text
 refactor(content): extract default exclusions handler
 ```
+
+## Phase F14 - Visible XPath Filter Runtime Handler Extraction
+
+Why this phase:
+- `content-main.js` still directly owned `filterXPathsOnPage` runtime filtering
+  logic.
+- Extracting this branch keeps runtime behavior stable while reducing listener
+  complexity and isolating visibility filtering logic.
+
+New module:
+- `content/visible-xpaths-handler.js`
+
+Files to edit:
+- `content-main.js`
+- `content/visible-xpaths-handler.js`
+- `manifest.json`
+- `tests/content-decomposition-boundary.test.js`
+- Add `tests/visible-xpaths-handler.test.js`
+
+Exact function boundary:
+- Keep runtime branch `if (message.type === "filterXPathsOnPage")` in
+  `content-main.js`.
+- Delegate xpath visibility filtering to `handleMessage(message)`.
+- Keep element/xpath and visibility authority in existing `core` APIs.
+
+Rules:
+1. Preserve request normalization for non-array `message.xpaths` (empty array).
+2. Preserve visibility predicate (`getElementFromXPath` + `isVisible`).
+3. Preserve response shape (`{ xpaths: [...] }`).
+4. Keep branch synchronous and return flow unchanged.
+
+Focused validation:
+```bash
+npm test -- tests/visible-xpaths-handler.test.js tests/content-decomposition-boundary.test.js tests/manifest-permissions.test.js tests/popup-marking-refresh.test.js
+```
+
+Full validation:
+```bash
+npm test
+```
+
+Rollback criteria:
+- Any regression in popup xpath filtering behavior or runtime response shape
+  should trigger rollback.
+
+Commit message:
+```text
+refactor(content): extract visible xpaths handler
+```

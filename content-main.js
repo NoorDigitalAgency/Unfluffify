@@ -113,6 +113,7 @@ import { initializePageWorldRelay } from "./content/page-world-relay.js";
 import { createPageToast } from "./content/page-toast.js";
 import { createRenderModeInspectionClient } from "./content/render-mode-inspection-client.js";
 import { createRenderModeInspectionHandlers } from "./content/render-mode-inspection-handlers.js";
+import { createVisibleXpathsHandler } from "./content/visible-xpaths-handler.js";
 import {
   clearPropertyLockBannerCountdown as clearPropertyLockBannerCountdownOperation,
   ensurePropertyLockBannerStyle as ensurePropertyLockBannerStyleOperation,
@@ -407,6 +408,7 @@ let defaultExclusionsHandler = null;
 let propertyLockPortClient = null;
 let propertyLockStateMachine = null;
 let remoteSupportStateHandler = null;
+let visibleXpathsHandler = null;
 let pageTelemetryBridgeListenerBound = false;
 let pageTelemetryBridgeNonce = "";
 // Private MessageChannel port for the page-world telemetry stream. When
@@ -593,6 +595,13 @@ function getDefaultExclusionsHandler() {
     defaultExclusionsHandler = createDefaultExclusionsHandler(createDefaultExclusionsHandlerDeps());
   }
   return defaultExclusionsHandler;
+}
+
+function getVisibleXpathsHandler() {
+  if (!visibleXpathsHandler) {
+    visibleXpathsHandler = createVisibleXpathsHandler(createVisibleXpathsHandlerDeps());
+  }
+  return visibleXpathsHandler;
 }
 
 function getPropertyLockPortClient() {
@@ -6261,6 +6270,13 @@ function createDefaultExclusionsHandlerDeps() {
   };
 }
 
+function createVisibleXpathsHandlerDeps() {
+  return {
+    getElementFromXPath: (xpath) => core.getElementFromXPath(xpath),
+    isVisible: (element) => core.isVisible(element)
+  };
+}
+
 function createRemoteSupportStateHandlerDeps() {
   return {
     applyRemoteSupportSessionState,
@@ -6949,12 +6965,7 @@ export function main() {
     }
 
     if (message.type === "filterXPathsOnPage") {
-      const xpaths = Array.isArray(message.xpaths) ? message.xpaths : [];
-      const filtered = xpaths.filter((xpath) => {
-        const el = core.getElementFromXPath(xpath);
-        return el && core.isVisible(el);
-      });
-      sendResponse({ xpaths: filtered });
+      sendResponse(getVisibleXpathsHandler().handleMessage(message));
       return;
     }
 
