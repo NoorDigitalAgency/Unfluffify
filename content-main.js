@@ -115,6 +115,7 @@ import { createFocusHandler } from "./content/focus-handler.js";
 import { createForceRefreshHandler } from "./content/force-refresh-handler.js";
 import { createInvisibleXpathsHandler } from "./content/invisible-xpaths-handler.js";
 import { createInspectionStatusResolver } from "./content/inspection-status.js";
+import { createPageSaveReconciliationClearHandler } from "./content/page-save-reconciliation-clear-handler.js";
 import { createPageSaveReconciliationPendingHandler } from "./content/page-save-reconciliation-pending-handler.js";
 import { initializePageWorldRelay } from "./content/page-world-relay.js";
 import { createPageToast } from "./content/page-toast.js";
@@ -403,6 +404,7 @@ let remoteSupportClient = null;
 let remoteSupportViewerClient = null;
 let remoteSupportSupportPage = null;
 let pageToastClient = null;
+let pageSaveReconciliationClearHandler = null;
 let pageSaveReconciliationPendingHandler = null;
 let renderModeInspectionClient = null;
 let renderModeInspectionHandlers = null;
@@ -546,6 +548,15 @@ function getPageToastClient() {
     pageToastClient = createPageToast(createPageToastDeps());
   }
   return pageToastClient;
+}
+
+function getPageSaveReconciliationClearHandler() {
+  if (!pageSaveReconciliationClearHandler) {
+    pageSaveReconciliationClearHandler = createPageSaveReconciliationClearHandler(
+      createPageSaveReconciliationClearHandlerDeps()
+    );
+  }
+  return pageSaveReconciliationClearHandler;
 }
 
 function getPageSaveReconciliationPendingHandler() {
@@ -6401,6 +6412,27 @@ function createPageSaveReconciliationPendingHandlerDeps() {
   };
 }
 
+function createPageSaveReconciliationClearHandlerDeps() {
+  return {
+    clearPageSaveReconciliation: (baseUrl, pageUrl) =>
+      core.clearPageSaveReconciliation(baseUrl, pageUrl),
+    clonePageEntry: (entry) => core.clonePageEntry(entry),
+    findPageMarkingEntry: (configValue, pageUrl, baseUrl) =>
+      core.findPageMarkingEntry(configValue, pageUrl, baseUrl),
+    getBackendSavedPageMarkings: (baseUrl) => config.getBackendSavedPageMarkings(baseUrl),
+    getPageUrl: () => location.href,
+    loadConfig: (baseUrl) => core.loadConfig(baseUrl),
+    notifyDraftStatus: (pageUrl) => core.notifyDraftStatus(pageUrl),
+    refreshPageSaveReconciliation: (baseUrl, pageUrl) =>
+      core.refreshPageSaveReconciliation(baseUrl, pageUrl),
+    scheduleRender: () => core.scheduleRender(),
+    setConfig: (nextConfig) => {
+      state.config = nextConfig;
+    },
+    setSavedPageEntry: (pageUrl, entry) => core.setSavedPageEntry(pageUrl, entry)
+  };
+}
+
 function createRemoteSupportStateHandlerDeps() {
   return {
     applyRemoteSupportSessionState,
@@ -7262,25 +7294,13 @@ export function main() {
         sendResponse({ ok: false });
         return;
       }
-      (async () => {
-        const currentPageUrl = location.href;
-        await core.clearPageSaveReconciliation(targetBaseUrl, pageUrl);
-        await core.refreshPageSaveReconciliation(targetBaseUrl, currentPageUrl);
-        const refreshedConfig = await core.loadConfig(targetBaseUrl);
-        const backendSavedPageMarkings = await config.getBackendSavedPageMarkings(targetBaseUrl);
-        const storedEntry = core.findPageMarkingEntry(
-          { pageMarkings: backendSavedPageMarkings },
-          currentPageUrl,
-          targetBaseUrl
-        );
-        state.config = refreshedConfig;
-        core.setSavedPageEntry(currentPageUrl, storedEntry || null);
-        core.scheduleRender();
-        core.notifyDraftStatus(currentPageUrl);
-        sendResponse({ ok: true, entry: storedEntry ? core.clonePageEntry(storedEntry) : null });
-      })().catch(() => {
+      getPageSaveReconciliationClearHandler().clear({ targetBaseUrl, pageUrl })
+        .then((response) => {
+          sendResponse(response && typeof response === "object" ? response : { ok: false });
+        })
+        .catch(() => {
         sendResponse({ ok: false });
-      });
+        });
       return true;
     }
 

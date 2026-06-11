@@ -2,12 +2,12 @@
 
 Last updated: 2026-06-11
 Branch: main
-Status: F1-F21 complete and pushed per-slice; F22-F24 are the next mechanical phases.
+Status: F1-F22 complete and pushed per-slice; F23-F24 are the next mechanical phases.
 
 Current validation baseline:
 ```bash
 npm test
-# 906 pass / 0 fail
+# 908 pass / 0 fail
 ```
 
 Review status:
@@ -16,7 +16,8 @@ Review status:
 - All new imported `content/*` modules had manifest entries and tests.
 - F20 completed with focused validation plus a green full suite.
 - F21 completed with focused validation plus a green full suite.
-- Pre-code fixes before F22 are not required.
+- F22 completed with focused validation plus a green full suite.
+- Pre-code fixes before F23 are not required.
 
 Lowest recommended model and effort:
 - F20-F22: GPT-4.1-mini-class coding model at high effort.

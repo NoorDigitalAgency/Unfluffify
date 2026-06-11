@@ -883,6 +883,10 @@ test("content-side save hotkey workflow is removed from the marking session", ()
 test("content saved baseline is refreshed from backend cache, not local drafts", () => {
   const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
   const contentSource = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const clearHandlerSource = readFileSync(
+    new URL("../content/page-save-reconciliation-clear-handler.js", import.meta.url),
+    "utf8"
+  );
 
   assert.match(
     coreSource,
@@ -898,7 +902,11 @@ test("content saved baseline is refreshed from backend cache, not local drafts",
   );
   assert.match(
     contentSource,
-    /if \(message\.type === "clearPageSaveReconciliation"\) \{[\s\S]*?config\.getBackendSavedPageMarkings\(targetBaseUrl\)/
+    /if \(message\.type === "clearPageSaveReconciliation"\) \{[\s\S]*?getPageSaveReconciliationClearHandler\(\)\.clear\(\{ targetBaseUrl, pageUrl \}\)/
+  );
+  assert.match(
+    clearHandlerSource,
+    /deps\.getBackendSavedPageMarkings\(targetBaseUrl\)/
   );
   assert.doesNotMatch(contentSource, /confirmed local snapshot|immediate post-save remote reload omits/);
 });
