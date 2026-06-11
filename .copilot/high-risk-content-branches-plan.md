@@ -163,6 +163,19 @@ Required steps:
    also used for save/discard/render-mode update flows, so any new gate must
    prove it does not block required config resync.
 
+G0 decisions recorded before extraction:
+- `configUpdated` keeps its existing content-side policy for G1: AI-preview
+   reloads remain allowed without `state.config`, enabled updates are scoped by
+   `utils.sameBaseUrl(message.baseUrl, state.baseUrl)`, and no property-lock or
+   reconciliation block is added in `content-main.js`.
+- `showAiPreview` keeps popup-owned gating for G2. The current content branch
+   intentionally has no base-url, config, property-lock, reconciliation, or
+   already-active-preview guard. Any later hardening must be added as a tested
+   behavior change before extraction.
+- `revertPageDraft` keeps its existing base-url, `state.config`, and
+   property-lock gates. The pre-existing missing async failure fallback is
+   tracked as the next isolated G0 bugfix commit.
+
 Focused validation:
 ```bash
 npm test -- tests/content-high-risk-branches.test.js tests/popup-marking-refresh.test.js tests/preview-tooltip.test.js tests/popup-ai-run-gating.test.js tests/selector-suppression.test.js

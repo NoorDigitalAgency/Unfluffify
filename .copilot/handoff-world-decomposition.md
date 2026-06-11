@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-11
 Branch: `main`
-Status: world decomposition complete; content follow-up D0-D2, E0-E2, and Track F F1-F24 complete and pushed per-slice.
+Status: world decomposition complete; content follow-up D0-D2, E0-E2, Track F F1-F24, and G0 guard-matrix contract coverage complete through the current working slice.
 
 ## Current Repository State
 
@@ -130,9 +130,10 @@ The next high-risk plan is now documented in
 `.copilot/high-risk-content-branches-plan.md`. Do not touch the remaining
 runtime branches until the user explicitly approves starting that plan.
 
-Start with Phase G0 in that plan. G0 is a pre-start audit hardening phase that
-adds missing branch-contract coverage and isolates any pre-existing bugfixes,
-especially `revertPageDraft` async failure handling, before extraction work.
+Continue Phase G0 in that plan. The branch inventory and guard-matrix contract
+coverage are in `tests/content-high-risk-branches.test.js`. The next isolated
+G0 commit is the `revertPageDraft` async failure fallback before extraction
+work.
 
 Current baseline expectations:
 
