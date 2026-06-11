@@ -75,6 +75,7 @@
         "content/property-lock-port-client.js",
         "content/property-lock-state-machine.js",
         "content/remote-support-client.js",
+        "content/remote-support-state-handler.js",
         "content/remote-support-viewer-client.js",
         "content/remote-support-support-page.js",
         "common/config.js",

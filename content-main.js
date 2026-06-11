@@ -121,6 +121,7 @@ import { updatePropertyLockBannerMode as updatePropertyLockBannerModeOperation }
 import { createPropertyLockPortClient } from "./content/property-lock-port-client.js";
 import { createPropertyLockStateMachine } from "./content/property-lock-state-machine.js";
 import { createRemoteSupportClient } from "./content/remote-support-client.js";
+import { createRemoteSupportStateHandler } from "./content/remote-support-state-handler.js";
 import { createRemoteSupportViewerClient } from "./content/remote-support-viewer-client.js";
 import { createRemoteSupportSupportPage } from "./content/remote-support-support-page.js";
 import {
@@ -401,6 +402,7 @@ let aiPreviewExpandedModeHandler = null;
 let aiPreviewStateResponseBuilder = null;
 let propertyLockPortClient = null;
 let propertyLockStateMachine = null;
+let remoteSupportStateHandler = null;
 let pageTelemetryBridgeListenerBound = false;
 let pageTelemetryBridgeNonce = "";
 // Private MessageChannel port for the page-world telemetry stream. When
@@ -621,6 +623,13 @@ const syncRemoteSupportSessionStateFromBackground = () => {
 const syncRemoteSupportTerminateButton = () => {
   getRemoteSupportClient().syncTerminateButton();
 };
+
+function getRemoteSupportStateHandler() {
+  if (!remoteSupportStateHandler) {
+    remoteSupportStateHandler = createRemoteSupportStateHandler(createRemoteSupportStateHandlerDeps());
+  }
+  return remoteSupportStateHandler;
+}
 
 function createLifecycleOperationId(kind) {
   lifecycleOperationCounter += 1;
@@ -6222,6 +6231,14 @@ function createAiPreviewExpandedModeHandlerDeps() {
   };
 }
 
+function createRemoteSupportStateHandlerDeps() {
+  return {
+    applyRemoteSupportSessionState,
+    getRemoteSupportMode,
+    getRemoteSupportRole
+  };
+}
+
 function createRenderModeInspectionHandlersDeps() {
   return {
     armRenderModeInspectionWatchdog,
@@ -6756,16 +6773,8 @@ export function main() {
     }
 
     if (message.type === "remoteSupportState" || message.type === "remoteSupportModeChanged") {
-      const remoteSupportState =
-        message.type === "remoteSupportState" && message.state && typeof message.state === "object"
-          ? message.state
-          : message;
-      applyRemoteSupportSessionState(remoteSupportState || null);
-      sendResponse({
-        ok: true,
-        mode: getRemoteSupportMode(),
-        role: getRemoteSupportRole()
-      });
+      const response = getRemoteSupportStateHandler().handleMessage(message);
+      sendResponse(response && typeof response === "object" ? response : { ok: false });
       return;
     }
 

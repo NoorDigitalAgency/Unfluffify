@@ -525,3 +525,58 @@ Commit message:
 ```text
 refactor(content): extract ai preview expanded-mode handler
 ```
+
+## Phase F11 - Remote Support State Runtime Handler Extraction
+
+Why this phase:
+- `content-main.js` still directly owned runtime handling for
+  `remoteSupportState` and `remoteSupportModeChanged` payload normalization and
+  response composition.
+- Extracting this branch keeps runtime contracts stable while reducing listener
+  complexity and centralizing state-message normalization.
+
+New module:
+- `content/remote-support-state-handler.js`
+
+Files to edit:
+- `content-main.js`
+- `content/remote-support-state-handler.js`
+- `manifest.json`
+- `tests/content-decomposition-boundary.test.js`
+- Add `tests/remote-support-state-handler.test.js`
+
+Exact function boundary:
+- Keep runtime branch `if (message.type === "remoteSupportState" ||
+  message.type === "remoteSupportModeChanged")` in `content-main.js`.
+- Delegate payload normalization and response building to
+  `handleMessage(message)`.
+- Keep remote support client session/mode/role state authority in existing
+  `content-main.js` client wrappers.
+
+Rules:
+1. Preserve `remoteSupportState` payload precedence for object-valued
+   `message.state`.
+2. Preserve `remoteSupportModeChanged` fallback behavior using the full message
+   payload.
+3. Preserve response shape (`{ ok, mode, role }`) and runtime branch return
+   flow.
+4. Do not alter support-page transport message handling in adjacent branches.
+
+Focused validation:
+```bash
+npm test -- tests/remote-support-state-handler.test.js tests/remote-support-support-page.test.js tests/orchestration-remote-support-scenario.test.js tests/popup-remote-support-ui.test.js tests/content-decomposition-boundary.test.js tests/manifest-permissions.test.js
+```
+
+Full validation:
+```bash
+npm test
+```
+
+Rollback criteria:
+- Any regression in remote-support state reconciliation, popup remote-support
+  mode UI updates, or runtime response contract behavior should trigger rollback.
+
+Commit message:
+```text
+refactor(content): extract remote support state handler
+```
