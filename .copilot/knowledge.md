@@ -56,17 +56,16 @@
   content production paths should call domain helpers rather than direct
   `chrome.storage` or `utils.storage*` wrappers. Page-local `localStorage` /
   `sessionStorage` usage is tracked separately from this Chrome storage rule.
-- Earlier world-decomposition work is complete. The active follow-up architecture
-  plan is `.copilot/content-main-followup-refactor-plan.md`: it continues only
-  through explicitly planned content seams such as remote-support support-page
-  code and property-lock collaboration code. Hard rules remain:
-  never edit `content/core.js` or locked marking/silent-highlight/visibility/
-  reconciliation logic without a new high-risk plan; every new imported
-  `content/*` module must be added to `web_accessible_resources` with
+- Earlier world-decomposition work is complete. Content follow-up Tracks D/E are
+  complete and Track F is complete through F19. The active implementation plan
+  is `.copilot/track-f-protected-content-plan.md`, starting at F20. Hard rules
+  remain: never edit `content/core.js` or locked marking/silent-highlight/
+  visibility/reconciliation logic without a new high-risk plan; every new
+  imported `content/*` module must be added to `web_accessible_resources` with
   `tests/manifest-permissions.test.js` green; live validation is required for
   core unflagged behavior when automated validation is not enough, while
-  flag-disabled remote-support/property-lock follow-ups may defer live validation
-  until those features are prioritized.
+  flag-disabled remote-support/property-lock follow-ups may defer live
+  validation until those features are prioritized.
 
 ## AI Submission Rules
 

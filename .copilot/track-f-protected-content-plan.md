@@ -2,6 +2,25 @@
 
 Last updated: 2026-06-11
 Branch: main
+Status: F1-F19 complete and pushed; F20-F24 are the next mechanical phases.
+
+Current validation baseline:
+```bash
+npm test
+# 903 pass / 0 fail
+```
+
+Review status:
+- F1-F19 were reviewed on 2026-06-11.
+- No behavioral regressions were found in the extracted handlers.
+- All new imported `content/*` modules had manifest entries and tests.
+- Pre-code fixes before F20 are not required.
+
+Lowest recommended model and effort:
+- F20-F22: GPT-4.1-mini-class coding model at high effort.
+- F23-F24: stronger coding model at high effort.
+- Do not assign explicit include/exclude or marking-contract work to a small or
+  low-effort model.
 
 ## Approval
 
@@ -977,3 +996,555 @@ Commit message:
 ```text
 refactor(content): extract collect page data handler
 ```
+
+## Pre-Phase R0 - Review Cleanup Before F20
+
+Status: completed by the 2026-06-11 documentation cleanup.
+
+Review findings:
+1. No behavioral code regression was found in F1-F19.
+2. `.copilot` documents were stale and described Track F as complete only
+   through F1.
+3. `manifest.json` had a cosmetic indentation issue for
+   `content/render-mode-inspection-handlers.js`.
+
+Actions completed:
+1. Refresh `.copilot/handoff-world-decomposition.md` to F19.
+2. Replace stale `.copilot/content-main-followup-refactor-plan.md` content with
+   a current index.
+3. Refresh `.copilot/plan.md` and `.copilot/knowledge.md` status language.
+4. Fix cosmetic manifest indentation.
+
+Validation for the next code phase must still start with:
+```bash
+git status --short --branch
+git pull --ff-only
+npm test
+```
+
+## Phase F20 - Force Refresh Runtime Handler Extraction
+
+Why this phase:
+- `content-main.js` still directly owns the `forceRefresh` runtime branch.
+- This is the smallest remaining async runtime branch after F19.
+- Extraction reduces listener complexity without touching marking decisions.
+
+New module:
+- `content/force-refresh-handler.js`
+
+Files to edit:
+- `content-main.js`
+- `content/force-refresh-handler.js`
+- `manifest.json`
+- `tests/content-decomposition-boundary.test.js`
+- Add `tests/force-refresh-handler.test.js`
+- Update `.copilot/handoff-world-decomposition.md` after validation.
+
+Exact function boundary:
+- Keep runtime branch `if (message.type === "forceRefresh")` in
+  `content-main.js`.
+- Move only the branch body into `content/force-refresh-handler.js`.
+- Keep all dependencies injected from `content-main.js`.
+
+Mechanical implementation steps:
+1. Create `content/force-refresh-handler.js` with:
+   ```js
+   export function createForceRefreshHandler(deps) {
+     async function handleMessage() {
+       await deps.refreshFromTabState();
+       deps.refreshEnabledAiHighlights();
+       deps.runPropertyLockSync({ forceSiteIdRefresh: true });
+       await deps.refreshSilentHighlightings();
+       return { ok: true };
+     }
+
+     return { handleMessage };
+   }
+   ```
+2. In `content-main.js`, add an import next to the other `content/*handler.js`
+   imports:
+   ```js
+   import { createForceRefreshHandler } from "./content/force-refresh-handler.js";
+   ```
+3. Add a cached variable near the other handler caches:
+   ```js
+   let forceRefreshHandler = null;
+   ```
+4. Add a getter near the other handler getters:
+   ```js
+   function getForceRefreshHandler() {
+     if (!forceRefreshHandler) {
+       forceRefreshHandler = createForceRefreshHandler(createForceRefreshHandlerDeps());
+     }
+     return forceRefreshHandler;
+   }
+   ```
+5. Add dependency factory near the other `create*Deps` functions:
+   ```js
+   function createForceRefreshHandlerDeps() {
+     return {
+       refreshFromTabState: () => core.refreshFromTabState(),
+       refreshEnabledAiHighlights,
+       refreshSilentHighlightings,
+       runPropertyLockSync
+     };
+   }
+   ```
+6. Replace the branch body with this exact pattern. Do not add a `.catch()`;
+   the existing branch had no rejection fallback.
+   ```js
+   if (message.type === "forceRefresh") {
+     getForceRefreshHandler().handleMessage().then((response) => {
+       sendResponse(response && typeof response === "object" ? response : { ok: false });
+     });
+     return true;
+   }
+   ```
+7. Add `content/force-refresh-handler.js` to `manifest.json` resources.
+8. Add `assertImportsContentModule("force-refresh-handler")` to
+   `tests/content-decomposition-boundary.test.js`.
+9. Add `tests/force-refresh-handler.test.js` covering:
+   - calls `refreshFromTabState` first
+   - calls `refreshEnabledAiHighlights` after refresh
+   - calls `runPropertyLockSync({ forceSiteIdRefresh: true })`
+   - awaits `refreshSilentHighlightings`
+   - returns `{ ok: true }`
+
+Rules:
+1. Do not alter force-refresh response shape.
+2. Do not add or remove property-lock sync calls.
+3. Do not add error handling that changes the old rejected-promise behavior.
+4. Keep runtime branch async behavior (`return true`).
+
+Focused validation:
+```bash
+npm test -- tests/force-refresh-handler.test.js tests/content-decomposition-boundary.test.js tests/manifest-permissions.test.js tests/content-activation-order.test.js tests/popup-marking-refresh.test.js
+```
+
+Full validation:
+```bash
+npm test
+```
+
+Commit message:
+```text
+refactor(content): extract force refresh handler
+```
+
+## Phase F21 - Page Save Reconciliation Pending Handler Extraction
+
+Why this phase:
+- `content-main.js` still directly owns the valid async operation for
+  `setPageSaveReconciliationPending`.
+- Validation and early synchronous failure responses should remain in
+  `content-main.js` to avoid changing runtime timing.
+
+New module:
+- `content/page-save-reconciliation-pending-handler.js`
+
+Files to edit:
+- `content-main.js`
+- `content/page-save-reconciliation-pending-handler.js`
+- `manifest.json`
+- `tests/content-decomposition-boundary.test.js`
+- Add `tests/page-save-reconciliation-pending-handler.test.js`
+- Update `.copilot/handoff-world-decomposition.md` after validation.
+
+Exact function boundary:
+- Keep this code in `content-main.js`:
+  - `targetBaseUrl` resolution
+  - `pageUrl` resolution
+  - invalid-target early `{ ok: false }` response
+- Move only the successful async pending operation and response composition.
+
+Mechanical implementation steps:
+1. Create `content/page-save-reconciliation-pending-handler.js`:
+   ```js
+   export function createPageSaveReconciliationPendingHandler(deps) {
+     async function setPending({ targetBaseUrl, pageUrl, reason }) {
+       const reconciliation = await deps.setPageSaveReconciliationPending(targetBaseUrl, pageUrl, {
+         reason: typeof reason === "string" ? reason : "pending"
+       });
+       return { ok: true, reconciliation };
+     }
+
+     return { setPending };
+   }
+   ```
+2. Import it in `content-main.js`.
+3. Add cached variable:
+   ```js
+   let pageSaveReconciliationPendingHandler = null;
+   ```
+4. Add getter:
+   ```js
+   function getPageSaveReconciliationPendingHandler() {
+     if (!pageSaveReconciliationPendingHandler) {
+       pageSaveReconciliationPendingHandler = createPageSaveReconciliationPendingHandler(
+         createPageSaveReconciliationPendingHandlerDeps()
+       );
+     }
+     return pageSaveReconciliationPendingHandler;
+   }
+   ```
+5. Add dependency factory:
+   ```js
+   function createPageSaveReconciliationPendingHandlerDeps() {
+     return {
+       setPageSaveReconciliationPending: (baseUrl, pageUrl, options) =>
+         core.setPageSaveReconciliationPending(baseUrl, pageUrl, options)
+     };
+   }
+   ```
+6. In the runtime branch, preserve the first 7 lines exactly through the invalid
+   target guard. Replace only the `.then` call with:
+   ```js
+   getPageSaveReconciliationPendingHandler().setPending({
+     targetBaseUrl,
+     pageUrl,
+     reason: message.reason
+   }).then((response) => {
+     sendResponse(response && typeof response === "object" ? response : { ok: false });
+   }).catch(() => {
+     sendResponse({ ok: false });
+   });
+   return true;
+   ```
+7. Add manifest and boundary-test entries.
+8. Add unit tests for:
+   - string reason is passed through
+   - missing/non-string reason becomes `"pending"`
+   - returned reconciliation is wrapped as `{ ok: true, reconciliation }`
+
+Rules:
+1. Do not move validation out of `content-main.js` in this phase.
+2. Preserve invalid target synchronous response behavior.
+3. Preserve `.catch(() => sendResponse({ ok: false }))`.
+
+Focused validation:
+```bash
+npm test -- tests/page-save-reconciliation-pending-handler.test.js tests/content-decomposition-boundary.test.js tests/manifest-permissions.test.js tests/popup-marking-refresh.test.js tests/inspection-status.test.js
+```
+
+Full validation:
+```bash
+npm test
+```
+
+Commit message:
+```text
+refactor(content): extract reconciliation pending handler
+```
+
+## Phase F22 - Page Save Reconciliation Clear Handler Extraction
+
+Why this phase:
+- `clearPageSaveReconciliation` has a self-contained async success path, but it
+  updates in-memory config, backend-saved baseline, render scheduling, and draft
+  notification.
+- Keep input validation in `content-main.js` to preserve early response timing.
+
+New module:
+- `content/page-save-reconciliation-clear-handler.js`
+
+Files to edit:
+- `content-main.js`
+- `content/page-save-reconciliation-clear-handler.js`
+- `manifest.json`
+- `tests/content-decomposition-boundary.test.js`
+- Add `tests/page-save-reconciliation-clear-handler.test.js`
+- Update `.copilot/handoff-world-decomposition.md` after validation.
+
+Exact function boundary:
+- Keep `targetBaseUrl`, `pageUrl`, and invalid-target guard in `content-main.js`.
+- Move only the async IIFE body into module method `clear({ targetBaseUrl, pageUrl })`.
+
+Mechanical module body:
+```js
+export function createPageSaveReconciliationClearHandler(deps) {
+  async function clear({ targetBaseUrl, pageUrl }) {
+    const currentPageUrl = deps.getPageUrl();
+    await deps.clearPageSaveReconciliation(targetBaseUrl, pageUrl);
+    await deps.refreshPageSaveReconciliation(targetBaseUrl, currentPageUrl);
+    const refreshedConfig = await deps.loadConfig(targetBaseUrl);
+    const backendSavedPageMarkings = await deps.getBackendSavedPageMarkings(targetBaseUrl);
+    const storedEntry = deps.findPageMarkingEntry(
+      { pageMarkings: backendSavedPageMarkings },
+      currentPageUrl,
+      targetBaseUrl
+    );
+    deps.setConfig(refreshedConfig);
+    deps.setSavedPageEntry(currentPageUrl, storedEntry || null);
+    deps.scheduleRender();
+    deps.notifyDraftStatus(currentPageUrl);
+    return { ok: true, entry: storedEntry ? deps.clonePageEntry(storedEntry) : null };
+  }
+
+  return { clear };
+}
+```
+
+Dependency factory in `content-main.js` must supply exactly:
+```js
+function createPageSaveReconciliationClearHandlerDeps() {
+  return {
+    clearPageSaveReconciliation: (baseUrl, pageUrl) =>
+      core.clearPageSaveReconciliation(baseUrl, pageUrl),
+    clonePageEntry: (entry) => core.clonePageEntry(entry),
+    findPageMarkingEntry: (configValue, pageUrl, baseUrl) =>
+      core.findPageMarkingEntry(configValue, pageUrl, baseUrl),
+    getBackendSavedPageMarkings: (baseUrl) => config.getBackendSavedPageMarkings(baseUrl),
+    getPageUrl: () => location.href,
+    loadConfig: (baseUrl) => core.loadConfig(baseUrl),
+    notifyDraftStatus: (pageUrl) => core.notifyDraftStatus(pageUrl),
+    refreshPageSaveReconciliation: (baseUrl, pageUrl) =>
+      core.refreshPageSaveReconciliation(baseUrl, pageUrl),
+    scheduleRender: () => core.scheduleRender(),
+    setConfig: (nextConfig) => {
+      state.config = nextConfig;
+    },
+    setSavedPageEntry: (pageUrl, entry) => core.setSavedPageEntry(pageUrl, entry)
+  };
+}
+```
+
+Runtime branch replacement after validation guard:
+```js
+getPageSaveReconciliationClearHandler().clear({ targetBaseUrl, pageUrl })
+  .then((response) => {
+    sendResponse(response && typeof response === "object" ? response : { ok: false });
+  })
+  .catch(() => {
+    sendResponse({ ok: false });
+  });
+return true;
+```
+
+Unit tests must verify call order using an array log:
+1. `clearPageSaveReconciliation`
+2. `refreshPageSaveReconciliation`
+3. `loadConfig`
+4. `getBackendSavedPageMarkings`
+5. `setConfig`
+6. `setSavedPageEntry`
+7. `scheduleRender`
+8. `notifyDraftStatus`
+
+Rules:
+1. Do not move validation out of `content-main.js`.
+2. Do not change current-page URL behavior; the module must call `getPageUrl()`
+   after clearing, as the old branch used `location.href` inside the async body.
+3. Preserve `{ ok: true, entry }` response shape and catch fallback.
+
+Focused validation:
+```bash
+npm test -- tests/page-save-reconciliation-clear-handler.test.js tests/content-decomposition-boundary.test.js tests/manifest-permissions.test.js tests/popup-marking-refresh.test.js tests/popup-mode-sync.test.js tests/inspection-status.test.js
+```
+
+Full validation:
+```bash
+npm test
+```
+
+Commit message:
+```text
+refactor(content): extract reconciliation clear handler
+```
+
+## Phase F23 - Page Draft Status Runtime Handler Extraction
+
+Why this phase:
+- `getPageDraftStatus` still owns a large but cohesive status/sync block.
+- It reads backend-saved baseline state, syncs current page markings, computes
+  dirty/reconciliation status, and returns a popup-facing payload.
+
+Risk level: high. Use a stronger model at high effort.
+
+New module:
+- `content/page-draft-status-handler.js`
+
+Files to edit:
+- `content-main.js`
+- `content/page-draft-status-handler.js`
+- `manifest.json`
+- `tests/content-decomposition-boundary.test.js`
+- Add `tests/page-draft-status-handler.test.js`
+- Update existing source-contract tests if they assert the old inline block.
+- Update `.copilot/handoff-world-decomposition.md` after validation.
+
+Exact function boundary:
+- Keep validation in `content-main.js`:
+  - `const targetBaseUrl = message.baseUrl || state.baseUrl;`
+  - `if (!targetBaseUrl || !matchesActiveBaseUrl(targetBaseUrl) || !state.config)`
+    early response.
+- Move the async IIFE body only.
+
+Dependency checklist:
+- `areEntriesEquivalent`
+- `clonePageEntry`
+- `collectAiSubmissionXpathsForCurrentPage`
+- `collectImmutableElements`
+- `getConfig`
+- `getDraftPageEntry`
+- `getPageDraftDirty`
+- `getPageSaveReconciliationPending`
+- `getPageSaveReconciliationState`
+- `getPageUrl`
+- `getSavedPageEntry`
+- `hasPageMarkingEntry`
+- `refreshSavedPageEntryFromBackendCache`
+- `setSavedPageEntry`
+- `submissionXpathsEqual`
+- `syncPageMarkings`
+
+Mechanical move steps:
+1. Copy the current async body exactly from the branch into module method:
+   `async function getStatus({ targetBaseUrl })`.
+2. Replace direct `state.config` reads with `deps.getConfig()`.
+3. Replace `location.href` with `deps.getPageUrl()`.
+4. Replace each `core.*` call with its dependency equivalent.
+5. Return the old `sendResponse({ ... })` payload instead of calling
+   `sendResponse` inside the module.
+6. Keep the old `.catch(() => sendResponse({ ok: false }))` in `content-main.js`.
+7. Do not change the submission-xpath staleness rule. Copy the explanatory
+   comment into the module above the same block.
+
+Unit tests must cover:
+1. no existing page entry returns a payload with `ok: true`, `entry: null`, the
+  current `savedEntry`, `dirty` equal to `deps.isPageDraftDirty(pageUrl)`, and
+  the reconciliation fields from deps.
+2. clean entry with sync changes updates saved entry when `wasClean` and
+   `syncResult.changed` are both true.
+3. stale submission xpaths mark dirty only when existing entry already has prior
+   `submissionXpaths`.
+4. response includes `reconciliation` and `reconciliationPending` from deps.
+
+Focused validation:
+```bash
+npm test -- tests/page-draft-status-handler.test.js tests/popup-marking-refresh.test.js tests/content-activation-order.test.js tests/popup-mode-sync.test.js tests/content-decomposition-boundary.test.js tests/manifest-permissions.test.js
+```
+
+Full validation:
+```bash
+npm test
+```
+
+Commit message:
+```text
+refactor(content): extract page draft status handler
+```
+
+## Phase F24 - Capture Page Snapshot Runtime Handler Extraction
+
+Why this phase:
+- `capturePageSnapshot` owns a larger transactional save/snapshot path.
+- It should be extracted only after F20-F23 are green because it touches config,
+  page entries, raw HTML capture, submission xpaths, backend cache refresh, and
+  property-lock activity.
+
+Risk level: high. Use a stronger model at high effort.
+
+New module:
+- `content/capture-page-snapshot-handler.js`
+
+Files to edit:
+- `content-main.js`
+- `content/capture-page-snapshot-handler.js`
+- `manifest.json`
+- `tests/content-decomposition-boundary.test.js`
+- Add `tests/capture-page-snapshot-handler.test.js`
+- Update existing source-contract tests if they assert the old inline block.
+- Update `.copilot/handoff-world-decomposition.md` after validation.
+
+Exact function boundary:
+- Keep early validation in `content-main.js`:
+  - `targetBaseUrl` resolution
+  - missing base URL response
+  - `shouldPersist` calculation
+  - property-lock blocking response
+  - reconciliation-pending response
+- Move only the async IIFE body into module method:
+  `capture({ targetBaseUrl, shouldPersist, pageType })`.
+
+Dependency checklist:
+- `collectAiSubmissionXpathsForCurrentPage`
+- `collectImmutableElements`
+- `createCurrentPageSnapshot`
+- `fetchCurrentPageRawHtml`
+- `getActiveConfig`
+- `getCurrentPageType`
+- `getDocumentTitle`
+- `getPageMarkingEntry`
+- `getPageUrl`
+- `hasPageMarkingEntry`
+- `loadConfig`
+- `matchesActiveBaseUrl`
+- `refreshSavedPageEntryFromBackendCache`
+- `saveConfig`
+- `sendPropertyLockActivity`
+- `setConfig`
+- `syncPageMarkings`
+- `touchPageEntryTimestamp`
+
+Mechanical move steps:
+1. Copy the current async IIFE body exactly into the module.
+2. Replace `sendResponse({ ok: false }); return;` inside the moved body with
+   `return { ok: false };`.
+3. Replace final `sendResponse({ ok: true });` with `return { ok: true };`.
+4. Replace `state.config` reads with `deps.getActiveConfig()`.
+5. Replace `state.config = config` with `deps.setConfig(config)`.
+6. Replace `state.currentPageType` with `deps.getCurrentPageType()`.
+7. Replace `document.title || location.href` with
+   `deps.getDocumentTitle() || deps.getPageUrl()`.
+8. Replace `location.href` with `deps.getPageUrl()`. Use a local `pageUrl` once
+   at the top of the method if that makes the copy safer.
+9. Keep the old branch catch behavior. The current branch does not catch the
+   async IIFE. If adding a catch is desired, stop and ask; do not change it
+   during this mechanical extraction.
+
+Runtime branch replacement after validation guard:
+```js
+getCapturePageSnapshotHandler().capture({
+  targetBaseUrl,
+  shouldPersist,
+  pageType: typeof message.pageType === "string" ? message.pageType : ""
+}).then((response) => {
+  sendResponse(response && typeof response === "object" ? response : { ok: false });
+});
+return true;
+```
+
+Unit tests must cover:
+1. non-persisting request with no existing entry returns `{ ok: false }`.
+2. existing entry path captures rendered/raw HTML and title.
+3. persisted request calls `saveConfig`, refreshes saved backend cache when the
+   base URL is active, and sends property-lock activity.
+4. non-persisted request does not call `saveConfig` or property-lock activity.
+5. `pageType` precedence matches old behavior: message page type, then current
+   page type, then existing entry page type.
+
+Focused validation:
+```bash
+npm test -- tests/capture-page-snapshot-handler.test.js tests/content-activation-order.test.js tests/popup-marking-refresh.test.js tests/ai-run.test.js tests/content-decomposition-boundary.test.js tests/manifest-permissions.test.js
+```
+
+Full validation:
+```bash
+npm test
+```
+
+Commit message:
+```text
+refactor(content): extract capture page snapshot handler
+```
+
+## Stop After F24
+
+After F24, stop and report status unless the user explicitly approves a new
+high-risk marking/draft plan.
+
+Remaining branches after F24 include `configUpdated`, `setExplicitExclude`,
+`setExplicitInclude`, `savePageDraft`, `revertPageDraft`, and `showAiPreview`.
+Those are more tightly coupled to marking contracts, draft persistence, or AI
+preview orchestration. A less capable model should not infer boundaries for
+those branches.

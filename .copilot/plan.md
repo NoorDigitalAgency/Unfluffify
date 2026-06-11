@@ -24,9 +24,10 @@ old archive files into the active `.copilot` folder.
 ## Current Architecture Track
 
 The service-worker authority refactor, storage-access layer refactor, and world
-decomposition program are complete and merged to `main`. The next active track
-is the content follow-up refactor: continue only through the remaining planned
-remote-support and property-lock content seams, behavior-preservingly.
+decomposition program are complete and merged to `main`. Content follow-up
+Tracks D and E are complete, and Track F is complete through F19. The active
+track is now the remaining Track F runtime-branch decomposition in
+`.copilot/track-f-protected-content-plan.md`, starting at F20.
 
 This track protects the 11 always-on core features, including reveal/freeze and
 lazy-loading stopping/restoration. Do not resume old implementation tracks unless
@@ -40,9 +41,16 @@ Known-good docs cleanup baseline:
 git status --short --branch
 # ## main...origin/main
 
+git log --oneline -1
+# 31fddb5 refactor(content): extract collect page data handler
+
 npm test
-# 840 pass / 0 fail
+# 903 pass / 0 fail
 ```
+
+Review status on 2026-06-11: F1-F19 were reviewed with no behavioral regression
+found. The only issue was stale `.copilot` documentation plus cosmetic manifest
+indentation, both addressed in the documentation cleanup commit.
 
 ## Guardrails
 
@@ -89,3 +97,12 @@ ancestors. Any legitimate contract change must update
    source review do not give high confidence.
 4. If a core live harness is needed and cannot be completed autonomously, stop
    and ask the user for collaborative live harness debugging.
+
+## Model Capability Recommendation
+
+For the next plan in `.copilot/track-f-protected-content-plan.md`:
+
+1. F20-F22 can be followed by a GPT-4.1-mini-class coding model at high effort.
+2. F23-F24 should use a stronger coding model at high effort.
+3. Do not give explicit include/exclude or marking-contract work to a small or
+   low-effort model.

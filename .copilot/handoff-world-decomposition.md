@@ -1,230 +1,196 @@
-# Handoff - World Decomposition And Content Follow-Up
+# Handoff - Content Main Decomposition
 
 Last updated: 2026-06-11
 Branch: `main`
-Status: world-decomposition program complete; content follow-up D2 + E2 + F1 complete.
-
-## Active Plan
-
-The active successor plan is:
-
-1. `.copilot/content-main-followup-refactor-plan.md`
-2. `.copilot/track-f-protected-content-plan.md`
-
-The completed world-decomposition summary below is retained here. The old
-step-by-step archive was removed from `.copilot`; use git history if its
-rationale is needed.
+Status: world decomposition complete; content follow-up D0-D2, E0-E2, and Track F F1-F19 complete and pushed.
 
 ## Current Repository State
 
-Known-good state at this handoff update:
+Known-good code baseline before this documentation refresh:
 
 ```bash
 git status --short --branch
 # ## main...origin/main
 
+git log --oneline -1
+# 31fddb5 refactor(content): extract collect page data handler
+
 npm test
-# 865 pass / 0 fail
+# 903 pass / 0 fail
 ```
 
-Recent completion commits:
+The working tree was clean before the review/documentation update. The only
+review fix to production metadata was a cosmetic indentation correction in
+`manifest.json`; it does not change JSON contents.
 
-1. `refactor(content): extract remote support support page` (this handoff update)
-2. `82e9f84 refactor(content): extract remote support viewer client`
-3. `45f4f45 refactor(content): inject remote support state request`
-4. `dde67f9 docs(copilot): remove stale historical plans`
-5. `425b6cb docs(copilot): add content follow-up refactor plan`
-6. `c6e49c7 refactor(content): extract property lock banner`
+## Review Result
 
-Feature flags relevant to the next work:
+The recent Track F extraction series was reviewed after F19. The review covered:
 
-1. `FEATURE_FLAGS.remoteSupport === false`
-2. `FEATURE_FLAGS.propertyLockCollaboration === false`
+1. `content-main.js` runtime branch delegation.
+2. All newly extracted `content/*handler.js` modules from F8-F19.
+3. Handler unit tests and source-contract tests.
+4. `manifest.json` web-accessible resource registration.
+5. `.copilot` handoff and plan documents.
 
-Because both of those features are currently disabled, live validation for those
-feature-specific refactors may be deferred until the user prioritizes those
-features again.
+Findings:
 
-## Completed World-Decomposition Summary
+1. No behavioral regressions were found in the recent handler extractions.
+2. Async response behavior is preserved for the reviewed branches:
+   - async branches still return `true`
+   - synchronous branches still return synchronously
+   - fallback response handling matches the local branch pattern used at the
+     time of extraction
+3. Every new imported `content/*` module has a manifest entry and boundary-test
+   coverage.
+4. Every extracted handler has focused unit coverage.
+5. The `.copilot` docs were stale and still described Track F as complete only
+   through F1. This handoff and the active plan now supersede that wording.
+6. `manifest.json` had one cosmetic indentation inconsistency around
+   `content/render-mode-inspection-handlers.js`; it was corrected in the docs
+   cleanup commit.
 
-### Track A - Background
+No pre-code bugfix phase is required before the next implementation slice.
 
-Complete. Background domains have been extracted into `background/*`, including
-command ledger, live-page client, network/remote/config sync, world trace,
-popup-state broker, render-mode inspector, AI-run orchestrator, async task
-reporting, tab state, and managed timeout hardening.
+## Completed Architecture Work
 
-### Track B - Popup
+### World Decomposition
 
-Complete. Popup domains have been extracted into `popup/*`, including spinner,
-site resolution, remote config, render-mode inspection, page reconciliation,
-property-lock UI, remote-support UI, and grouped timer hardening.
+Tracks A and B are complete. Background and popup domains have been moved into
+focused modules. Historical details are available in git history; do not restore
+old archive plans into `.copilot`.
 
-### Track C - Content Peripheral Slices
+### Content Follow-Up Tracks D and E
 
-Complete as implemented.
+Track D is complete through D2:
 
-1. C0: `d81064f test(content): add decomposition boundary guard`
-2. C1: `0e8bf99 refactor(content): extract page telemetry bridge`
-3. C2: `60ee4df refactor(content): extract remote support client`
-4. C3: `c6e49c7 refactor(content): extract property lock banner`
+1. D0: remote-support client runtime dependency injection.
+2. D1: remote-support viewer client extraction.
+3. D2: remote-support support-page extraction.
 
-Important scope note: C2 and C3 were implemented conservatively. The original
-world-decomposition plan listed a broader remote-support support-page extraction
-and a full `updatePropertyLockBannerMode` move. Those are not bugs in the current
-code; they are intentionally deferred follow-up work in the active plan.
+Track E is complete through E2:
 
-## Review Findings Already Addressed In The Active Plan
+1. E0: property-lock banner mode extraction.
+2. E1: property-lock port client extraction.
+3. E2: property-lock state-machine extraction.
 
-The 2026-06-11 review found:
+### Track F Completed Through F19
 
-1. The old handoff had stale status and pending commit lines after C3 was already
-   pushed.
-2. The old world-decomposition plan still claimed implementation had not started
-   and still carried mandatory Track C live-gate wording that no longer matched
-   the user's current policy.
-3. `content-main.js` is still large, but most of the remaining mass is protected
-   marking, silent-highlight, visibility, and reconciliation logic.
-4. D0 has addressed the direct `chrome.runtime.sendMessage` dependency in
-   `content/remote-support-client.js` by injecting `requestRemoteSupportState`.
-5. Remote-support support-page viewer/UI code and property-lock mode/state code
-   are the next sensible decoupling candidates, but they are flag-gated and must
-   remain behavior-preserving.
+Track F now includes these completed, pushed phases:
 
-The active plan turns those findings into mechanical phases.
+1. F1 page toast helper.
+2. F2 render-mode inspection lifecycle client.
+3. F3 runtime inspection handler delegation.
+4. F4 inspection status resolver.
+5. F5 render-mode inspection handlers.
+6. F6 runtime `setEnabled` delegation.
+7. F7 AI preview response builder.
+8. F8 AI preview compute-lock handler.
+9. F9 AI preview close handler.
+10. F10 AI preview expanded-mode handler.
+11. F11 remote support state handler.
+12. F12 AI preview get-state handler.
+13. F13 default exclusions handler.
+14. F14 visible xpaths handler.
+15. F15 invisible xpaths handler.
+16. F16 describe xpaths handler.
+17. F17 focus handler.
+18. F18 AI submission xpaths handler.
+19. F19 collect page data handler.
 
-## Content Follow-Up Progress
+Recent Track F commits at the review baseline:
 
-### Track D - Remote Support Content Follow-Up
+```text
+31fddb5 refactor(content): extract collect page data handler
+95282e5 refactor(content): extract ai submission xpaths handler
+9804039 refactor(content): extract focus handler
+e572536 refactor(content): extract describe xpaths handler
+1e0354e refactor(content): extract invisible xpaths handler
+e337dc9 refactor(content): extract visible xpaths handler
+6663f82 refactor(content): extract default exclusions handler
+378a972 refactor(content): extract ai preview get-state handler
+344d850 refactor(content): extract remote support state handler
+7aad64a refactor(content): extract ai preview expanded-mode handler
+```
 
-1. D0 complete: `content/remote-support-client.js` now requests initial
-   background state through the injected `requestRemoteSupportState` dependency
-   supplied by `content-main.js`.
-2. D0 validation:
-   - `npm test -- tests/content-remote-support-client.test.js tests/content-decomposition-boundary.test.js`
-     -> 5 pass / 0 fail
-   - `npm test` -> 841 pass / 0 fail
-3. D1 complete: viewer transport state and request/response wiring moved from
-   `content-main.js` into `content/remote-support-viewer-client.js`, with
-   `content-main.js` delegating through `getRemoteSupportViewerClient()`.
-4. D1 validation:
-   - `npm test -- tests/content-remote-support-viewer-client.test.js tests/content-decomposition-boundary.test.js tests/manifest-permissions.test.js tests/content-remote-support-client.test.js`
-     -> 14 pass / 0 fail
-   - `npm test` -> 845 pass / 0 fail
-5. D2 complete: support-page state, UI, render cycle, and frame handling moved
-   from `content-main.js` into `content/remote-support-support-page.js`, with
-   `content-main.js` delegating support-page initialization and runtime message
-   branches through `getRemoteSupportSupportPage()`.
-6. D2 validation:
-   - `npm test -- tests/content-remote-support-support-page.test.js tests/remote-support-support-page.test.js tests/content-decomposition-boundary.test.js tests/manifest-permissions.test.js`
-     -> 11 pass / 0 fail
-   - `npm test` -> 848 pass / 0 fail
-7. Live validation deferred by policy while `FEATURE_FLAGS.remoteSupport` is
-   false.
+## Active Documents
 
-### Track E - Property Lock Content Follow-Up
+Use these files, in this order, before making any further implementation change:
 
-1. E0 complete: `updatePropertyLockBannerMode` decision logic moved from
-   `content-main.js` into `content/property-lock-banner-mode.js`, with
-   `content-main.js` keeping a thin wrapper and injecting state deps.
-2. E0 validation:
-   - `npm test -- tests/property-lock-banner-mode.test.js tests/property-lock.test.js tests/property-lock-render-mode.test.js tests/content-decomposition-boundary.test.js tests/manifest-permissions.test.js`
-     -> 43 pass / 0 fail
-   - `npm test` -> 853 pass / 0 fail
-3. Live validation deferred by policy while
-   `FEATURE_FLAGS.propertyLockCollaboration` is false.
-4. E1 complete: property-lock port lifecycle moved from `content-main.js` into
-   `content/property-lock-port-client.js`, with `content-main.js` delegating
-   connect/disconnect/reconnect/send behavior through the injected client.
-5. E1 validation:
-   - `npm test -- tests/property-lock-port-client.test.js tests/property-lock.test.js tests/content-decomposition-boundary.test.js tests/manifest-permissions.test.js`
-     -> 40 pass / 0 fail
-   - `npm test` -> 858 pass / 0 fail
-6. Live validation deferred by policy while
-   `FEATURE_FLAGS.propertyLockCollaboration` is false.
-7. E2 complete: property-lock recovery/persistence/warning transitions and
-   server-message reducer moved from `content-main.js` into
-   `content/property-lock-state-machine.js`, with `content-main.js` delegating
-   through a dependency-injected state-machine factory.
-8. E2 validation:
-   - `npm test -- tests/property-lock-state-machine.test.js tests/property-lock.test.js tests/property-lock-render-mode.test.js tests/content-decomposition-boundary.test.js tests/manifest-permissions.test.js`
-     -> 41 pass / 0 fail
-   - `npm test` -> 861 pass / 0 fail
-9. Live validation deferred by policy while
-   `FEATURE_FLAGS.propertyLockCollaboration` is false.
-
-### Track F - Protected Content Follow-Up
-
-1. Dedicated Track F plan created: `.copilot/track-f-protected-content-plan.md`.
-2. F1 complete: page-toast style/DOM/timer helper moved from
-   `content-main.js` into `content/page-toast.js`, while `content-main.js`
-   preserves a thin `showPageToast` wrapper and snapshot strip behavior.
-3. F1 validation:
-   - `npm test -- tests/page-toast.test.js tests/content-decomposition-boundary.test.js tests/manifest-permissions.test.js tests/content-activation-order.test.js`
-     -> 33 pass / 0 fail
-   - `npm test` -> 865 pass / 0 fail
-
-## Non-Negotiable Guardrails
-
-1. Do not edit `content/core.js`.
-2. Do not move or alter marking, silent-highlighting, visibility, page-save
-   reconciliation, XPath, AI-submission, or overlay projection behavior unless
-   the user explicitly approves a new high-risk marking-contract plan.
-3. Do not enable `remoteSupport` or `propertyLockCollaboration` as part of a
-   refactor.
-4. Do not change runtime message names, payload shapes, storage keys, timeouts,
-   retry counts, or feature defaults unless a phase explicitly says so.
-5. Every new `content/*` module imported by `content-main.js` must be added to
-   `manifest.json` `web_accessible_resources.resources` in the same commit.
-6. Never add broad `content/*.js` or `common/*.js` web-accessible-resource
-   wildcards.
-7. Do not introduce a shared mutable content-state bucket. Use narrow dependency
-   injection, getters, setters, or factories.
-8. Do not commit generated MCP/browser profiles, screenshots, debug JSON,
-   orchestration run output, tokens, or secrets.
-
-## Live Validation Policy
-
-Use this policy for follow-up phases:
-
-1. Docs-only or tests-only phases do not need live validation.
-2. Flag-gated remote-support and property-lock collaboration phases may record
-   live validation as deferred while the corresponding feature flag remains
-   disabled.
-3. Core unflagged user behavior requires live validation when the automated tests
-   and source review do not give high confidence.
-4. If a core live harness is needed and cannot be completed autonomously, stop
-   and ask the user for collaborative live harness debugging.
+1. `.copilot/plan.md` - active architecture index and guardrails.
+2. `.copilot/content-main-followup-refactor-plan.md` - current status summary.
+3. `.copilot/track-f-protected-content-plan.md` - mechanical phase plan for the
+   next implementation slices.
+4. `.copilot/knowledge.md` - domain-specific rules that must not be violated.
 
 ## Next Exact Step
 
-Start with `.copilot/content-main-followup-refactor-plan.md`.
+Start with Phase F20 in `.copilot/track-f-protected-content-plan.md`.
 
-Recommended next implementation phase:
+F20 is the recommended next slice because it is the smallest remaining async
+runtime branch: extract `forceRefresh` into `content/force-refresh-handler.js`
+without changing its promise/error behavior.
 
-1. Run the standard phase baseline from the active plan.
-2. Continue Track F under `.copilot/track-f-protected-content-plan.md`.
-3. Before any F2+ implementation, keep using dedicated per-phase scope,
-   validation, and rollback criteria.
-
-Track D is complete through D2. Track E is complete through E2. Track F is
-complete through F1.
-
-## Validation Commands For The Next Agent
-
-Use these before any Track F phase after F1:
+Before editing F20, run:
 
 ```bash
 git status --short --branch
 git pull --ff-only
 npm test
-rg -n "remoteSupport:|propertyLockCollaboration:" common/feature-flags.js
-rg -n "content/page-telemetry-bridge.js|content/page-toast.js|content/remote-support-client.js|content/remote-support-viewer-client.js|content/remote-support-support-page.js|content/property-lock-banner.js|content/property-lock-banner-mode.js|content/property-lock-port-client.js|content/property-lock-state-machine.js" manifest.json
 ```
 
-Expected:
+Expected baseline:
 
 1. clean `main...origin/main`
 2. full test suite passes
-3. both relevant feature flags are `false`
-4. all current extracted content modules are listed in the manifest
+3. `manifest.json` keeps explicit web-accessible resource entries, no broad
+   `content/*.js` or `common/*.js` wildcards
+
+## Model Capability Recommendation
+
+Lowest model to safely follow the next mechanical plan:
+
+1. F20-F22: a mid-tier coding model with high effort is acceptable if it can
+   edit multiple files, run focused/full tests, and handle simple regex/source-
+   contract drift. A GPT-4.1-mini-class model at high effort is the lowest I
+   would trust.
+2. F23-F24: use a stronger coding model at high effort. These phases copy
+   larger transactional blocks and require careful preservation of async order,
+   cached state updates, and response shapes.
+3. Do not assign explicit include/exclude or marking-contract refactors to a
+   low-capability model. Those need a new high-risk plan and a senior model.
+
+## Non-Negotiable Guardrails
+
+1. Do not edit `content/core.js`.
+2. Do not change marking taxonomy, default exclusions, silent-highlighting,
+   visibility, overlay projection, page-save reconciliation semantics, XPath
+   calculation, or AI-submission behavior unless the user approves a new
+   high-risk marking-contract plan.
+3. Do not change runtime message names or payload field names.
+4. Do not change storage keys, feature defaults, retry counts, timer values, or
+   user-facing copy unless a phase explicitly says so.
+5. Every new `content/*` module imported by `content-main.js` must be added to
+   `manifest.json` `web_accessible_resources.resources` in the same commit.
+6. Do not add broad `content/*.js` or `common/*.js` web-accessible-resource
+   wildcards.
+7. Do not introduce a shared mutable content-state module. Use dependency
+   injection with narrow getters/setters.
+8. Keep one phase per commit. Run focused tests, full `npm test`, diagnostics,
+   commit, and push before moving to the next phase.
+
+## Stop Conditions
+
+Stop and ask the user before continuing if any of these occur:
+
+1. A phase appears to require editing `content/core.js`.
+2. A phase appears to change marking, silent-highlighting, visibility, XPath,
+   AI-submission, or page-save reconciliation behavior instead of only moving
+   code behind dependency injection.
+3. Focused tests fail for a reason other than expected source-contract drift.
+4. Full `npm test` fails and the cause is not obviously local to the current
+   phase.
+5. A new module would need to import `content-main.js`.
+6. A module cycle appears.
+7. Live validation is required for an unflagged core workflow and cannot be
+   completed autonomously.
