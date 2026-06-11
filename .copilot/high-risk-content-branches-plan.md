@@ -2,14 +2,14 @@
 
 Last updated: 2026-06-11
 Branch: main
-Status: plan only; do not implement without explicit user approval.
+Status: G0 and G1 complete; next phase is G2.
 
 ## Scope
 
 Track F completed the written mechanical runtime-handler extractions through
-F24. The remaining inline `content-main.js` runtime branches are higher risk
-because they touch marking contracts, draft persistence, AI preview state, or
-configuration reload ordering:
+F24. At the start of this plan, the remaining inline `content-main.js` runtime
+branches were higher risk because they touched marking contracts, draft
+persistence, AI preview state, or configuration reload ordering:
 
 1. `configUpdated`
 2. `setExplicitExclude`
@@ -17,6 +17,12 @@ configuration reload ordering:
 4. `savePageDraft`
 5. `revertPageDraft`
 6. `showAiPreview`
+
+Progress:
+- G0 locked the remaining branch inventory and guard matrix, then added the
+   isolated `revertPageDraft` async failure fallback.
+- G1 extracted `configUpdated` into `content/config-updated-handler.js` with
+   focused handler coverage and preserved mixed sync/async response timing.
 
 Do not edit these branches as a continuation of Track F. Treat this as a new
 high-risk track that starts with audit-result hardening and a fresh review gate.

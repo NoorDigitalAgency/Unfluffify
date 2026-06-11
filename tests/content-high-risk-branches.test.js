@@ -17,6 +17,10 @@ const remainingHighRiskBranches = new Map([
   ["setExplicitInclude", "explicit-marking-handler"]
 ]);
 
+const plannedHandlerAccessors = new Map([
+  ["configUpdated", "getConfigUpdatedHandler"]
+]);
+
 const completedTrackFHandlers = [
   "force-refresh-handler",
   "page-save-reconciliation-pending-handler",
@@ -111,6 +115,13 @@ function getMessageBranch(messageType) {
 function branchOrPlannedHandler(messageType) {
   const branch = getMessageBranch(messageType);
   if (branch) {
+    const handlerAccessor = plannedHandlerAccessors.get(messageType);
+    if (handlerAccessor && branch.includes(`${handlerAccessor}().handleMessage(message)`)) {
+      const moduleName = remainingHighRiskBranches.get(messageType);
+      assertImportsContentModule(moduleName);
+      assertManifestExposesContentModule(moduleName);
+      return "";
+    }
     return branch;
   }
   const moduleName = remainingHighRiskBranches.get(messageType);

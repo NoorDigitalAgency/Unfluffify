@@ -68,6 +68,7 @@
         "content/ai-submission-xpaths-handler.js",
         "content/capture-page-snapshot-handler.js",
         "content/collect-page-data-handler.js",
+        "content/config-updated-handler.js",
         "content/default-exclusions-handler.js",
         "content/describe-xpaths-handler.js",
         "content/focus-handler.js",

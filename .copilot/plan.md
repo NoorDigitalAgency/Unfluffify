@@ -15,7 +15,8 @@ Use these documents before making implementation changes:
 
 1. `.copilot/content-main-followup-refactor-plan.md`
 2. `.copilot/handoff-world-decomposition.md`
-3. `.copilot/knowledge.md`
+3. `.copilot/high-risk-content-branches-plan.md`
+4. `.copilot/knowledge.md`
 
 Historical and superseded `.copilot` plans/handoffs have been removed from the
 workspace. If earlier rationale is needed, use git history instead of restoring
@@ -25,11 +26,9 @@ old archive files into the active `.copilot` folder.
 
 The service-worker authority refactor, storage-access layer refactor, and world
 decomposition program are complete and merged to `main`. Content follow-up
-Tracks D and E are complete, and Track F is complete through F24. The written
-runtime-branch decomposition plan is exhausted. The next high-risk plan for the
-remaining tightly coupled branches is
-`.copilot/high-risk-content-branches-plan.md`; do not start it without explicit
-user approval.
+Tracks D and E are complete, Track F is complete through F24, and the high-risk
+plan is complete through G1. Continue with G2 in
+`.copilot/high-risk-content-branches-plan.md`.
 
 This track protects the 11 always-on core features, including reveal/freeze and
 lazy-loading stopping/restoration. Do not resume old implementation tracks unless
@@ -44,7 +43,7 @@ git status --short --branch
 # ## main...origin/main
 
 npm test
-# 917 pass / 0 fail
+# 928 pass / 0 fail
 ```
 
 Review status on 2026-06-11: F1-F19 were reviewed with no behavioral regression
@@ -52,9 +51,9 @@ found. F20-F24 then completed with focused validation and green full suites. The
 only earlier issue was stale `.copilot` documentation plus cosmetic manifest
 indentation, both already addressed.
 
-Post-F24 audit status on 2026-06-11: no confirmed regression was found, but the
-remaining inline branches need a G0 pre-start coverage/bugfix phase before any
-handler extraction.
+Post-F24 audit status on 2026-06-11: no confirmed regression was found. G0 added
+branch-contract coverage and the isolated `revertPageDraft` failure fallback;
+G1 extracted `configUpdated` while preserving response timing.
 
 ## Guardrails
 

@@ -11,6 +11,7 @@ test("preview sidebar buttons expose each detected content xpath as the button t
   );
 });
 
+
 test("preview sidebar gates the expanded content-state checkbox behind a feature flag", () => {
   const source = readFileSync(new URL("../popup/ui.js", import.meta.url), "utf8");
 
@@ -161,9 +162,25 @@ test("compute-lock preview pins marking restore intent and preserves enabled tab
 
 test("content-main keeps preview restore state when config updates during AI preview", () => {
   const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const handlerSource = readFileSync(
+    new URL("../content/config-updated-handler.js", import.meta.url),
+    "utf8"
+  );
 
   assert.match(
     source,
-    /if \(message\.type === "configUpdated"\) \{[\s\S]*?if \(aiPreviewState\.active\) \{[\s\S]*?core\.loadConfig\(message\.baseUrl\)\.then\(\(loadedConfig\) => \{[\s\S]*?state\.config = loadedConfig;[\s\S]*?sendResponse\(\{ ok: true \}\);[\s\S]*?return true;/
+    /if \(message\.type === "configUpdated"\) \{[\s\S]*?getConfigUpdatedHandler\(\)\.handleMessage\(message\)/
+  );
+  assert.match(
+    handlerSource,
+    /if \(deps\.isAiPreviewActive\(\)\) \{\s*return handleAiPreviewUpdate\(message\);\s*\}/
+  );
+  assert.match(
+    handlerSource,
+    /return deps\.loadConfig\(message\.baseUrl\)[\s\S]*?deps\.setConfig\(loadedConfig\);[\s\S]*?return \{ ok: true \};/
+  );
+  assert.doesNotMatch(
+    handlerSource.match(/function handleAiPreviewUpdate\(message\) \{([\s\S]*?)\n  \}/)[1],
+    /clearAiPreviewState/
   );
 });

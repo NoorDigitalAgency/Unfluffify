@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-11
 Branch: `main`
-Status: world decomposition complete; content follow-up D0-D2, E0-E2, Track F F1-F24, and Phase G0 complete through the current working slice.
+Status: world decomposition complete; content follow-up D0-D2, E0-E2, Track F F1-F24, G0, and G1 complete through the current working slice.
 
 ## Current Repository State
 
@@ -13,12 +13,11 @@ git status --short --branch
 # ## main...origin/main
 
 npm test
-# 917 pass / 0 fail
+# 928 pass / 0 fail
 ```
 
-This baseline includes F24 (`capturePageSnapshot`) extracted into
-`content/capture-page-snapshot-handler.js` with focused tests plus a
-green full suite.
+This baseline includes G1 (`configUpdated`) extracted into
+`content/config-updated-handler.js` with focused tests plus a green full suite.
 
 ## Review Result
 
@@ -126,18 +125,18 @@ Use these files, in this order, before making any further implementation change:
 
 Track F mechanical slices are complete through F24.
 
-The next high-risk plan is now documented in
-`.copilot/high-risk-content-branches-plan.md`. Do not touch the remaining
-runtime branches until the user explicitly approves starting that plan.
+The active high-risk plan is documented in
+`.copilot/high-risk-content-branches-plan.md`.
 
 Phase G0 in that plan is complete through branch inventory, guard-matrix
 contract coverage, and the isolated `revertPageDraft` async failure fallback.
-The next implementation phase is G1, `configUpdated` handler extraction.
+Phase G1 extracted `configUpdated` into `content/config-updated-handler.js`.
+The next implementation phase is G2, `showAiPreview` handler extraction.
 
 Current baseline expectations:
 
 1. clean `main...origin/main`
-2. full test suite passes (`917 pass / 0 fail` at the current baseline)
+2. full test suite passes (`928 pass / 0 fail` at the current baseline)
 3. `manifest.json` keeps explicit web-accessible resource entries, no broad
    `content/*.js` or `common/*.js` wildcards
 

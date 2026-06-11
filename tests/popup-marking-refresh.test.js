@@ -944,20 +944,28 @@ test("submission-xpath staleness only counts when the entry already has prior ru
 
 test("forced config reload replaces the current page entry without re-syncing live DOM", () => {
   const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const handlerSource = readFileSync(
+    new URL("../content/config-updated-handler.js", import.meta.url),
+    "utf8"
+  );
   const configUpdatedSource = source.match(
     /if \(message\.type === "configUpdated"\) \{([\s\S]*?)\n\s*\}\n\n\s*if \(message\.type === "forceRefresh"\)/
   )[1];
 
   assert.match(
     configUpdatedSource,
-    /if \(!forceReloadPageEntry\) \{[\s\S]*?core\.mergeDraftEntry\(loadedConfig, pageUrl, draftEntry, savedEntry\);/
+    /getConfigUpdatedHandler\(\)\.handleMessage\(message\)/
   );
   assert.match(
-    configUpdatedSource,
-    /const reloadedEntry = backendEntry \|\| loadedEntry \|\| null;[\s\S]*?core\.setSavedPageEntry\(pageUrl, reloadedEntry\);/
+    handlerSource,
+    /if \(!forceReloadPageEntry\) \{[\s\S]*?deps\.mergeDraftEntry\(loadedConfig, pageUrl, draftEntry, savedEntry\);/
+  );
+  assert.match(
+    handlerSource,
+    /const reloadedEntry = backendEntry \|\| loadedEntry \|\| null;[\s\S]*?deps\.setSavedPageEntry\(pageUrl, reloadedEntry\);/
   );
   assert.doesNotMatch(
-    configUpdatedSource,
+    handlerSource,
     /forceReloadPageEntry[\s\S]*?syncPageMarkings\(loadedConfig, pageUrl/
   );
 });

@@ -110,6 +110,7 @@ import { createAiPreviewStateResponseBuilder } from "./content/ai-preview-state-
 import { createAiSubmissionXpathsHandler } from "./content/ai-submission-xpaths-handler.js";
 import { createCollectPageDataHandler } from "./content/collect-page-data-handler.js";
 import { createCapturePageSnapshotHandler } from "./content/capture-page-snapshot-handler.js";
+import { createConfigUpdatedHandler } from "./content/config-updated-handler.js";
 import { createDefaultExclusionsHandler } from "./content/default-exclusions-handler.js";
 import { createDescribeXpathsHandler } from "./content/describe-xpaths-handler.js";
 import { createFocusHandler } from "./content/focus-handler.js";
@@ -420,6 +421,7 @@ let aiPreviewStateResponseBuilder = null;
 let aiSubmissionXpathsHandler = null;
 let capturePageSnapshotHandler = null;
 let collectPageDataHandler = null;
+let configUpdatedHandler = null;
 let defaultExclusionsHandler = null;
 let describeXpathsHandler = null;
 let focusHandler = null;
@@ -647,6 +649,13 @@ function getCapturePageSnapshotHandler() {
     capturePageSnapshotHandler = createCapturePageSnapshotHandler(createCapturePageSnapshotHandlerDeps());
   }
   return capturePageSnapshotHandler;
+}
+
+function getConfigUpdatedHandler() {
+  if (!configUpdatedHandler) {
+    configUpdatedHandler = createConfigUpdatedHandler(createConfigUpdatedHandlerDeps());
+  }
+  return configUpdatedHandler;
 }
 
 function getCollectPageDataHandler() {
@@ -6391,6 +6400,39 @@ function createCapturePageSnapshotHandlerDeps() {
   };
 }
 
+function createConfigUpdatedHandlerDeps() {
+  return {
+    clearAiPreviewState,
+    disable: () => core.disable(),
+    findPageMarkingEntry: (configValue, pageUrl, baseUrl) =>
+      core.findPageMarkingEntry(configValue, pageUrl, baseUrl),
+    getBackendSavedPageMarkings: (baseUrl) => config.getBackendSavedPageMarkings(baseUrl),
+    getBaseUrl: () => state.baseUrl,
+    getCurrentPageType: () => state.currentPageType,
+    getDraftPageEntry: (pageUrl) => core.getDraftPageEntry(pageUrl),
+    getPageUrl: () => location.href,
+    getSavedPageEntry: (pageUrl) => core.getSavedPageEntry(pageUrl),
+    isAiPreviewActive: () => aiPreviewState.active,
+    isEnabled: () => state.enabled,
+    loadConfig: (baseUrl) => core.loadConfig(baseUrl),
+    mergeDraftEntry: (configValue, pageUrl, draftEntry, savedEntry) =>
+      core.mergeDraftEntry(configValue, pageUrl, draftEntry, savedEntry),
+    notifyDraftStatus: (pageUrl) => core.notifyDraftStatus(pageUrl),
+    refreshEnabledAiHighlights,
+    refreshSilentHighlightings,
+    runPropertyLockSync,
+    sameBaseUrl: (left, right) => utils.sameBaseUrl(left, right),
+    scheduleRender: () => core.scheduleRender(),
+    setConfig: (configValue) => {
+      state.config = configValue;
+    },
+    setCurrentPageType: (pageType) => {
+      state.currentPageType = pageType;
+    },
+    setSavedPageEntry: (pageUrl, entry) => core.setSavedPageEntry(pageUrl, entry)
+  };
+}
+
 function createCollectPageDataHandlerDeps() {
   return {
     createCurrentPageSnapshot,
@@ -7087,67 +7129,16 @@ export function main() {
     }
 
     if (message.type === "configUpdated") {
-      if (aiPreviewState.active) {
-        if (message.baseUrl) {
-          core.loadConfig(message.baseUrl).then((loadedConfig) => {
-            state.config = loadedConfig;
-            sendResponse({ ok: true });
-          }).catch(() => {
-            sendResponse({ ok: false });
-          });
-          return true;
-        }
-        sendResponse({ ok: true });
-        return;
-      }
-      if (state.enabled && utils.sameBaseUrl(message.baseUrl, state.baseUrl)) {
-        const pageUrl = location.href;
-        const draftEntry = core.getDraftPageEntry(pageUrl);
-        const savedEntry = core.getSavedPageEntry(pageUrl);
-        const forceReloadPageEntry = Boolean(message.forceReloadPageEntry);
-        // Respond only AFTER the draft merge/reseed has fully settled so the
-        // popup's follow-up getPageDraftStatus reads the final markings entry.
-        // Responding early (while this work runs in a detached .then) made the
-        // post-AI-run fingerprint capture race the reshaped entry, which broke
-        // State C (Run AI wrongly re-enabled, Save/Show List disabled).
-        core.loadConfig(state.baseUrl).then(async (loadedConfig) => {
-          const backendSavedPageMarkings = await config.getBackendSavedPageMarkings(state.baseUrl);
-          const backendEntry = core.findPageMarkingEntry(
-            { pageMarkings: backendSavedPageMarkings },
-            pageUrl,
-            state.baseUrl
-          );
-          const loadedEntry = core.findPageMarkingEntry(loadedConfig, pageUrl, state.baseUrl);
-          if (!forceReloadPageEntry) {
-            core.mergeDraftEntry(loadedConfig, pageUrl, draftEntry, savedEntry);
-          } else {
-            const reloadedEntry = backendEntry || loadedEntry || null;
-            core.setSavedPageEntry(pageUrl, reloadedEntry);
-            state.currentPageType = (reloadedEntry && reloadedEntry.pageType) || state.currentPageType || "";
-          }
-          if (!forceReloadPageEntry) {
-            core.setSavedPageEntry(pageUrl, backendEntry || null);
-          }
-          state.config = loadedConfig;
-          refreshEnabledAiHighlights();
-          if (forceReloadPageEntry) {
-            core.scheduleRender();
-            core.notifyDraftStatus(pageUrl);
-          }
-        }).then(() => {
-          runPropertyLockSync({ forceSiteIdRefresh: true });
-          sendResponse({ ok: true });
+      const response = getConfigUpdatedHandler().handleMessage(message);
+      if (response && typeof response.then === "function") {
+        response.then((result) => {
+          sendResponse(result && typeof result === "object" ? result : { ok: false });
         }).catch(() => {
-          runPropertyLockSync({ forceSiteIdRefresh: true });
-          sendResponse({ ok: true });
+          sendResponse({ ok: false });
         });
         return true;
       }
-      clearAiPreviewState();
-      core.disable();
-      refreshSilentHighlightings().then();
-      runPropertyLockSync({ forceSiteIdRefresh: true });
-      sendResponse({ ok: true });
+      sendResponse(response && typeof response === "object" ? response : { ok: false });
       return;
     }
 

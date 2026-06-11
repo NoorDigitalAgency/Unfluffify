@@ -1,7 +1,7 @@
 # Content Main Follow-Up Refactor Plan
 
 Last updated: 2026-06-11
-Status: CURRENT INDEX - Track F is complete; high-risk continuation lives in `high-risk-content-branches-plan.md`
+Status: CURRENT INDEX - Track F, G0, and G1 are complete; high-risk continuation lives in `high-risk-content-branches-plan.md`
 
 ## Purpose
 
@@ -19,7 +19,7 @@ Current validated baseline:
 
 ```bash
 npm test
-# 917 pass / 0 fail
+# 928 pass / 0 fail
 ```
 
 Completed:
@@ -28,19 +28,18 @@ Completed:
 2. Content follow-up Track D through D2.
 3. Content follow-up Track E through E2.
 4. Track F through F24.
+5. High-risk plan G0 and G1.
 
 Current implementation plan:
 
 1. The written Track F phases are complete.
-2. The next high-risk plan is `.copilot/high-risk-content-branches-plan.md`.
-3. Do not start that plan until the user explicitly approves it.
-4. Start with G0 pre-start audit hardening before extracting any remaining
-   runtime branch.
-5. Follow one phase per commit.
-6. Run focused validation and full `npm test` for every phase.
-7. Update `.copilot/handoff-world-decomposition.md` with validation and commit
+2. The active high-risk plan is `.copilot/high-risk-content-branches-plan.md`.
+3. Continue with G2, `showAiPreview` handler extraction.
+4. Follow one phase per commit.
+5. Run focused validation and full `npm test` for every phase.
+6. Update `.copilot/handoff-world-decomposition.md` with validation and commit
    results after each phase.
-8. Stop at the explicit stop conditions in the high-risk plan.
+7. Stop at the explicit stop conditions in the high-risk plan.
 
 ## Review Summary
 

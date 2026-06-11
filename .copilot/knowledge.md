@@ -57,10 +57,9 @@
   `chrome.storage` or `utils.storage*` wrappers. Page-local `localStorage` /
   `sessionStorage` usage is tracked separately from this Chrome storage rule.
 - Earlier world-decomposition work is complete. Content follow-up Tracks D/E are
-  complete and Track F is complete through F24. The written implementation plan
-  is exhausted; the next high-risk plan is
-  `.copilot/high-risk-content-branches-plan.md` and must start with G0 audit
-  hardening before touching remaining branches. Hard rules
+  complete, Track F is complete through F24, and the high-risk plan is complete
+  through G1. Continue with G2 in `.copilot/high-risk-content-branches-plan.md`.
+  Hard rules
   remain: never edit `content/core.js` or locked marking/silent-highlight/
   visibility/reconciliation logic without a new high-risk plan; every new
   imported `content/*` module must be added to `web_accessible_resources` with
