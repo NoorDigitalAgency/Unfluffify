@@ -1,344 +1,157 @@
-# Handoff - World Decomposition Program
+# Handoff - World Decomposition And Content Follow-Up
 
-Last updated: 2026-06-10
-Branch at document creation: main
-Implementation status: IN_PROGRESS (Track A complete, Track B complete)
-Document commit scope: plan + handoff authoring only
+Last updated: 2026-06-11
+Branch: `main`
+Status: world-decomposition program complete; content follow-up plan ready.
 
-## Read This First
+## Active Plan
 
-The active successor architecture plan is:
+The active successor plan is:
 
-1. `.copilot/world-decomposition-plan.md`
+1. `.copilot/content-main-followup-refactor-plan.md`
 
-Follow that file exactly, in order, one phase per commit, one track at a time
-(A -> B -> C). This handoff records current status, validation evidence, and the
-next exact step. Do not design or re-group; the plan is prescriptive.
+The previous plan, `.copilot/world-decomposition-plan.md`, is now historical.
+Use it for rationale only, not as the active step list.
 
-## Predecessor Status
+## Current Repository State
 
-1. Storage-access-layer refactor is COMPLETE and merged to `main`
-   (`.copilot/storage-access-layer-plan.md`, last commit `2aaa641`).
-2. Post-review fixes for that track are merged (config cross-base write race,
-   command-router policy completeness, unscoped-command policy).
-3. Full suite at handoff authoring: `npm test` = 758 passed, 0 failed.
-4. Working tree clean; `main` aligned with `origin/main`.
-
-## Why This Program
-
-Three monoliths remain after the messaging/authority and storage layers were
-modularized: `background.js` (~4.8k), `popup.js` (~9.4k), and `content-main.js`
-(~9.5k, plus the locked `content/core.js` ~11.5k). The program decomposes them
-into single-responsibility modules behavior-preservingly, in three ordered
-tracks (Background -> Popup -> Content), with bounded hardening.
-
-Decision inputs (from the planning interview, 2026-06-10):
-
-1. Scope: all three worlds, as ordered tracks A/B/C. Background first.
-2. Depth: behavior-preserving extraction PLUS targeted hardening
-   (async error reporting, per-tab/popup state + timer consolidation, managed
-   timeouts).
-3. Validation: `node --test` source-contract + focused + full `npm test`,
-4. Guardrail: program-wide hard prohibition on touching locked marking/silent-
-   highlight/visibility/reconciliation logic and `content/core.js`. Track C may
-   only move explicitly-listed peripheral content domains and MUST keep them in
-   `web_accessible_resources`.
-
-## Phase Checklist
-
-Status values: TODO / IN_PROGRESS / DONE / BLOCKED.
-
-### Track A — Background (`background.js` -> `background/*`)
-
-1. Phase 0 - Baseline + boundary guard test: DONE.
-2. Phase 1 - command-ledger module: DONE.
-3. Phase 2 - live-page-client module: DONE.
-4. Phase 3 - network-core module: DONE.
-5. Phase 4 - remote-network module: DONE.
-6. Phase 5 - remote-config-sync module: DONE.
-7. Phase 6 - world-trace module: DONE.
-8. Phase 7 - popup-state-broker module (HIGH RISK): DONE.
-9. Phase 8 - render-mode-inspector module: DONE.
-10. Phase 9 - ai-run-orchestrator module (HIGHEST RISK): DONE.
-11. Phase 10 - async error reporting (hardening): DONE.
-12. Phase 11 - per-tab state consolidation (hardening): DONE.
-13. Phase 12 - managed timeouts (hardening, optional last): DONE.
-
-### Track B — Popup (`popup.js` -> `popup/*`) — starts after Track A is merged
-
-1. Phase B0 - Baseline + popup boundary guard: DONE.
-2. Phase B1 - popup/spinner.js: DONE.
-3. Phase B2 - popup/site-resolution.js: DONE.
-4. Phase B3 - popup/remote-config.js: DONE.
-5. Phase B4 - popup/render-mode-inspection.js: DONE.
-6. Phase B5 - popup/page-reconciliation.js: DONE.
-7. Phase B6 - popup/property-lock-ui.js (HIGH RISK): DONE.
-8. Phase B7 - popup/remote-support-ui.js: DONE.
-9. Phase B8 - popup/timers.js (hardening): DONE.
-
-### Track C — Content (peripheral only) — starts after Track B is merged
-
-1. Phase C0 - Baseline + content boundary guard + manifest allowlist assert: DONE.
-2. Phase C1 - content/page-telemetry-bridge.js: DONE.
-3. Phase C2 - content/remote-support-client.js: DONE.
-4. Phase C3 - content/property-lock-banner.js: DONE.
-
-Track C live scenarios are required for core unflagged behavior. Flag-gated flows
-such as remote support may defer live validation until that feature is prioritized,
-but every content slice still needs the `web_accessible_resources` update.
-
-## First Commands For The Implementer
+Known-good state at this handoff update:
 
 ```bash
-git status --short
-git fetch origin
+git status --short --branch
+# ## main...origin/main
+
+npm test
+# 840 pass / 0 fail
+```
+
+Recent completion commits:
+
+1. `c6e49c7 refactor(content): extract property lock banner`
+2. `60ee4df refactor(content): extract remote support client`
+3. `0e8bf99 refactor(content): extract page telemetry bridge`
+4. `e4eb958 fix(extension): restore background and popup startup`
+5. `d81064f test(content): add decomposition boundary guard`
+6. `713fe79 refactor(popup): group popup timers`
+
+Feature flags relevant to the next work:
+
+1. `FEATURE_FLAGS.remoteSupport === false`
+2. `FEATURE_FLAGS.propertyLockCollaboration === false`
+
+Because both of those features are currently disabled, live validation for those
+feature-specific refactors may be deferred until the user prioritizes those
+features again.
+
+## Completed World-Decomposition Summary
+
+### Track A - Background
+
+Complete. Background domains have been extracted into `background/*`, including
+command ledger, live-page client, network/remote/config sync, world trace,
+popup-state broker, render-mode inspector, AI-run orchestrator, async task
+reporting, tab state, and managed timeout hardening.
+
+### Track B - Popup
+
+Complete. Popup domains have been extracted into `popup/*`, including spinner,
+site resolution, remote config, render-mode inspection, page reconciliation,
+property-lock UI, remote-support UI, and grouped timer hardening.
+
+### Track C - Content Peripheral Slices
+
+Complete as implemented.
+
+1. C0: `d81064f test(content): add decomposition boundary guard`
+2. C1: `0e8bf99 refactor(content): extract page telemetry bridge`
+3. C2: `60ee4df refactor(content): extract remote support client`
+4. C3: `c6e49c7 refactor(content): extract property lock banner`
+
+Important scope note: C2 and C3 were implemented conservatively. The original
+world-decomposition plan listed a broader remote-support support-page extraction
+and a full `updatePropertyLockBannerMode` move. Those are not bugs in the current
+code; they are intentionally deferred follow-up work in the active plan.
+
+## Review Findings Already Addressed In The Active Plan
+
+The 2026-06-11 review found:
+
+1. The old handoff had stale status and pending commit lines after C3 was already
+   pushed.
+2. The old world-decomposition plan still claimed implementation had not started
+   and still carried mandatory Track C live-gate wording that no longer matched
+   the user's current policy.
+3. `content-main.js` is still large, but most of the remaining mass is protected
+   marking, silent-highlight, visibility, and reconciliation logic.
+4. `content/remote-support-client.js` still has one direct
+   `chrome.runtime.sendMessage` dependency that should be injected for testability.
+5. Remote-support support-page viewer/UI code and property-lock mode/state code
+   are the next sensible decoupling candidates, but they are flag-gated and must
+   remain behavior-preserving.
+
+The active plan turns those findings into mechanical phases.
+
+## Non-Negotiable Guardrails
+
+1. Do not edit `content/core.js`.
+2. Do not move or alter marking, silent-highlighting, visibility, page-save
+   reconciliation, XPath, AI-submission, or overlay projection behavior unless
+   the user explicitly approves a new high-risk marking-contract plan.
+3. Do not enable `remoteSupport` or `propertyLockCollaboration` as part of a
+   refactor.
+4. Do not change runtime message names, payload shapes, storage keys, timeouts,
+   retry counts, or feature defaults unless a phase explicitly says so.
+5. Every new `content/*` module imported by `content-main.js` must be added to
+   `manifest.json` `web_accessible_resources.resources` in the same commit.
+6. Never add broad `content/*.js` or `common/*.js` web-accessible-resource
+   wildcards.
+7. Do not introduce a shared mutable content-state bucket. Use narrow dependency
+   injection, getters, setters, or factories.
+8. Do not commit generated MCP/browser profiles, screenshots, debug JSON,
+   orchestration run output, tokens, or secrets.
+
+## Live Validation Policy
+
+Use this policy for follow-up phases:
+
+1. Docs-only or tests-only phases do not need live validation.
+2. Flag-gated remote-support and property-lock collaboration phases may record
+   live validation as deferred while the corresponding feature flag remains
+   disabled.
+3. Core unflagged user behavior requires live validation when the automated tests
+   and source review do not give high confidence.
+4. If a core live harness is needed and cannot be completed autonomously, stop
+   and ask the user for collaborative live harness debugging.
+
+## Next Exact Step
+
+Start with `.copilot/content-main-followup-refactor-plan.md`.
+
+Recommended next implementation phase:
+
+1. Run PRE0 from the active plan to verify the current baseline.
+2. PRE1 documentation drift is addressed by this docs cleanup commit. If future
+   edits reintroduce stale references, repeat PRE1 before code work.
+3. Begin Phase D0: inject the remote-support state request dependency into
+   `content/remote-support-client.js`.
+
+Do not start D1/D2 before D0 is committed and pushed.
+
+## Validation Commands For The Next Agent
+
+Use these before starting D0:
+
+```bash
+git status --short --branch
 git pull --ff-only
-npm ci
 npm test
-rg -n '^(async function|function) [A-Za-z0-9_]+|^registerBackgroundCommand\(' background.js
-rg -n 'readFileSync\(new URL\("\.\./background\.js"' tests
+rg -n "remoteSupport:|propertyLockCollaboration:" common/feature-flags.js
+rg -n "content/page-telemetry-bridge.js|content/remote-support-client.js|content/property-lock-banner.js" manifest.json
 ```
 
-If baseline `npm test` fails before any edit, STOP and record it here. Do not
-begin implementation on top of unexplained failures.
+Expected:
 
-## Hard Guardrails (repeat from plan)
-
-1. Behavior-preserving moves only; no contract/timeout/retry/key changes.
-2. Never edit `content/core.js` or any marking/silent-highlight/visibility/
-   reconciliation logic, in ANY track (program-wide invariant).
-3. Per-track file scope only: Track A = `background.js` + `background/` + tests;
-   Track B = `popup.js` + `popup/` + tests; Track C = `content-main.js` + the
-   allowed new `content/*` modules + `manifest.json` + tests.
-4. New modules must not access `chrome.storage` directly; route through the
-   approved stores (`tab-session-store`, `transfer-payload-store`,
-   `ai-run-record-store`, `storage-core`, `settings-store`).
-5. Every new `content/*` module MUST be added to `web_accessible_resources` in
-   the same slice (runtime footgun), with `tests/manifest-permissions.test.js`
-   updated.
-6. Update source-contract tests in lockstep with every move (tests that read
-   `background.js`/`popup.js`/`content-main.js` source will break otherwise).
-7. No circular imports. Background uses injected-state factories; popup uses the
-   shared `popup/state.js` singleton; content uses function injection for state.
-8. One phase per commit; focused + full + live validation before every push.
-
-## Validation Baseline
-
-Authoring baseline (no code changes yet):
-
-```bash
-npm test
-```
-
-Result: 758 passed, 0 failed (carried from the storage track's final state).
-
-Current run baseline (2026-06-10, start of Track A):
-
-```bash
-npm test
-```
-
-Result: 758 passed, 0 failed (pre-edit baseline confirmed).
-
-Record per-slice results here as the track progresses, using this template:
-
-```
-Phase N - <module>:
-  Focused: node --test <files> -> <pass>/<fail>
-  Full:    npm test -> <pass>/<fail>
-  Live:    <fixture flow exercised> -> <pass|blocked + reason>
-  Commit:  <hash> <message>
-```
-
-Progress log:
-
-```
-Phase 0 - Baseline + boundary guard:
-   Files:   tests/background-decomposition-boundary.test.js
-   Focused: node --test tests/background-decomposition-boundary.test.js -> 1 pass / 0 fail
-   Full:    npm test -> 759 pass / 0 fail
-   Live:    skipped by current requirement scope (not required for non-marking slices)
-   Commit:  49b3de6 test(background): add decomposition boundary guard
-
-Phase 1 - command-ledger module:
-   Files:   background/command-ledger.js; background.js; tests/command-ledger.test.js; tests/background-command-hardening.test.js; tests/background-decomposition-boundary.test.js
-   Focused: node --test tests/command-ledger.test.js tests/background-command-hardening.test.js tests/background-decomposition-boundary.test.js -> 7 pass / 0 fail
-   Full:    npm test -> 762 pass / 0 fail
-   Live:    skipped by current requirement scope (not required for non-marking slices)
-   Commit:  84adabe refactor(background): extract command ledger redaction
-
-Phase 2 - live-page-client module:
-   Files:   background/live-page-client.js; background.js; tests/live-page-client.test.js; tests/selector-suppression.test.js; tests/background-decomposition-boundary.test.js
-   Focused: node --test tests/live-page-client.test.js tests/selector-suppression.test.js tests/background-decomposition-boundary.test.js -> 24 pass / 0 fail
-   Full:    npm test -> 767 pass / 0 fail
-   Live:    skipped by current requirement scope (not required for non-marking slices)
-   Commit:  81715d1 refactor(background): extract live-page client
-
-Phase 3 - network-core module:
-   Files:   background/network-core.js; background.js; tests/background-network-core.test.js; tests/ai-run.test.js; tests/popup-marking-refresh.test.js; tests/background-decomposition-boundary.test.js
-   Focused: node --test tests/background-network-core.test.js tests/ai-run.test.js tests/popup-marking-refresh.test.js tests/background-decomposition-boundary.test.js -> 69 pass / 0 fail
-   Full:    npm test -> 773 pass / 0 fail
-   Live:    skipped by current requirement scope (not required for non-marking slices)
-   Commit:  30ede30 refactor(background): extract network core and auth
-
-Phase 4 - remote-network module:
-   Files:   background/remote-network.js; background.js; tests/background-remote-network.test.js; tests/ai-run.test.js; tests/popup-marking-refresh.test.js; tests/background-decomposition-boundary.test.js
-   Focused: node --test tests/background-remote-network.test.js tests/popup-marking-refresh.test.js tests/ai-run.test.js tests/property-lock.test.js tests/background-decomposition-boundary.test.js -> 96 pass / 0 fail
-   Full:    npm test -> 777 pass / 0 fail
-   Live:    skipped by current requirement scope (not required for non-marking slices)
-   Commit:  544c39d refactor(background): extract remote network client
-
-Phase 5 - remote-config-sync module:
-   Files:   background/remote-config-sync.js; background.js; tests/background-remote-config-sync.test.js; tests/ai-run.test.js; tests/popup-marking-refresh.test.js; tests/property-lock.test.js; tests/background-decomposition-boundary.test.js
-   Focused: node --test tests/background-remote-config-sync.test.js tests/background-decomposition-boundary.test.js tests/popup-marking-refresh.test.js tests/property-lock.test.js tests/ai-run.test.js -> 95 pass / 0 fail
-   Full:    npm test -> 780 pass / 0 fail
-   Live:    skipped by current requirement scope (not required for non-marking slices)
-   Commit:  206d349 refactor(background): extract remote config sync
-
-Phase 6 - world-trace module:
-   Files:   background/world-trace.js; background.js; tests/world-trace.test.js; tests/world-trace-contract.test.js; tests/background-decomposition-boundary.test.js; tests/feature-flags.test.js
-   Focused: node --test tests/feature-flags.test.js tests/world-trace.test.js tests/world-trace-contract.test.js tests/background-decomposition-boundary.test.js -> 23 pass / 0 fail
-   Full:    npm test -> 783 pass / 0 fail
-   Live:    skipped by current requirement scope (not required for non-marking slices)
-   Commit:  5529707 refactor(background): extract world trace store
-
-Phase 7 - popup-state-broker module:
-   Files:   background/popup-state-broker.js; background.js; tests/popup-state-broker.test.js; tests/lifecycle-broker.test.js; tests/world-trace-contract.test.js; tests/device-emulation-lifecycle.test.js; tests/background-decomposition-boundary.test.js
-   Focused: node --test tests/device-emulation-lifecycle.test.js tests/world-trace-contract.test.js tests/lifecycle-broker.test.js tests/popup-state-broker.test.js tests/background-decomposition-boundary.test.js -> 41 pass / 0 fail
-   Full:    npm test -> 786 pass / 0 fail
-   Live:    skipped by current requirement scope (not required for non-marking slices)
-   Commit:  87b5479 refactor(background): extract popup state broker
-
-Phase 8 - render-mode-inspector module:
-   Files:   background/render-mode-inspector.js; background.js; tests/render-mode-inspector.test.js; tests/background-render-mode-inspection.test.js; tests/render-mode-inspection-order.test.js; tests/background-decomposition-boundary.test.js
-   Focused: node --test tests/render-mode-inspector.test.js tests/background-render-mode-inspection.test.js tests/render-mode-inspection-order.test.js tests/background-decomposition-boundary.test.js -> 13 pass / 0 fail
-   Full:    npm test -> 789 pass / 0 fail
-   Live:    skipped by current requirement scope (not required for non-marking slices)
-   Commit:  0f03890 refactor(background): extract render-mode inspector
-
-Phase 9 - ai-run-orchestrator module:
-   Files:   background/ai-run-orchestrator.js; background.js; tests/ai-run-orchestrator.test.js; tests/ai-run.test.js; tests/background-decomposition-boundary.test.js
-   Focused: node --test tests/ai-run-orchestrator.test.js tests/ai-run.test.js tests/popup-ai-run-gating.test.js tests/background-decomposition-boundary.test.js -> 35 pass / 0 fail
-   Full:    npm test -> 791 pass / 0 fail
-   Live:    skipped by current requirement scope (not required for non-marking slices)
-   Commit:  7f21649 refactor(background): extract ai run orchestrator
-
-Phase 10 - async error reporting (hardening):
-   Files:   background/async-tasks.js; background.js; tests/background-async-tasks.test.js; tests/device-emulation-lifecycle.test.js; tests/lifecycle-broker.test.js; tests/background-decomposition-boundary.test.js
-   Focused: node --test tests/background-async-tasks.test.js tests/background-decomposition-boundary.test.js tests/device-emulation-lifecycle.test.js tests/lifecycle-broker.test.js tests/page-motion-bridge-isolation.test.js -> 37 pass / 0 fail
-   Full:    npm test -> 793 pass / 0 fail
-   Live:    skipped by current requirement scope (not required for non-marking slices)
-   Commit:  7df54bf refactor(background): report background task failures
-
-Phase 11 - per-tab state consolidation (hardening):
-   Files:   background/background-tab-state.js; background.js; tests/background-tab-state.test.js; tests/background-decomposition-boundary.test.js; tests/lifecycle-broker.test.js; tests/world-trace-contract.test.js
-   Focused: node --test tests/background-tab-state.test.js tests/background-decomposition-boundary.test.js tests/tab-isolation-hardening.test.js tests/page-motion-bridge-isolation.test.js tests/world-trace-contract.test.js -> 21 pass / 0 fail
-   Full:    npm test -> 795 pass / 0 fail
-   Live:    skipped by current requirement scope (not required for non-marking slices)
-   Commit:  835750b refactor(background): consolidate per-tab state ownership
-
-Phase 12 - managed timeouts (hardening):
-   Files:   background/managed-timeouts.js; background/render-mode-inspector.js; background/ai-run-orchestrator.js; background.js; tests/background-managed-timeouts.test.js; tests/background-decomposition-boundary.test.js
-   Focused: node --test tests/background-managed-timeouts.test.js tests/render-mode-inspector.test.js tests/background-render-mode-inspection.test.js tests/render-mode-inspection-order.test.js tests/ai-run-orchestrator.test.js tests/ai-run.test.js tests/background-decomposition-boundary.test.js -> 34 pass / 0 fail
-   Full:    npm test -> 798 pass / 0 fail
-   Live:    skipped by current requirement scope (not required for non-marking slices)
-   Commit:  06c536a refactor(background): add managed timeout groups
-
-Phase B0 - Baseline + popup boundary guard:
-   Files:   tests/popup-decomposition-boundary.test.js
-   Focused: node --test tests/popup-decomposition-boundary.test.js -> 1 pass / 0 fail
-   Full:    npm test -> 799 pass / 0 fail
-   Live:    skipped by current requirement scope (not required for non-marking slices)
-   Commit:  a7b9660 test(popup): add decomposition boundary guard
-
-Phase B1 - spinner module extraction:
-   Files:   popup/spinner.js; popup.js; tests/popup-spinner.test.js; tests/popup-decomposition-boundary.test.js; tests/popup-marking-refresh.test.js; tests/popup-render-mode.test.js
-   Focused: node --test tests/popup-spinner.test.js tests/popup-decomposition-boundary.test.js tests/popup-marking-refresh.test.js tests/popup-render-mode.test.js -> 65 pass / 0 fail
-   Full:    npm test -> 803 pass / 0 fail
-   Live:    skipped by current requirement scope (not required for non-marking slices)
-   Commit:  ddc63fe refactor(popup): extract spinner queue
-
-Phase C0 - Baseline + content boundary + manifest allowlist guard:
-   Files:   tests/content-decomposition-boundary.test.js; tests/manifest-permissions.test.js; manifest.json
-   Focused: node --test tests/content-decomposition-boundary.test.js tests/manifest-permissions.test.js -> 6 pass / 0 fail
-   Full:    npm test -> 837 pass / 0 fail
-   Live:    skipped by current requirement scope (guardrail-only slice; no runtime behavior moved)
-   Commit:  d81064f test(content): add decomposition boundary guard
-
-Phase C1 - page telemetry bridge extraction:
-   Files:   content/page-telemetry-bridge.js; content-main.js; manifest.json; tests/page-telemetry.test.js; tests/content-decomposition-boundary.test.js; tests/manifest-permissions.test.js
-   Focused: node --test tests/content-decomposition-boundary.test.js tests/manifest-permissions.test.js tests/page-telemetry.test.js -> 12 pass / 0 fail
-   Full:    npm test -> 837 pass / 0 fail
-   Live:    deferred by priority policy; remote-support path is behind FEATURE_FLAGS.remoteSupport=false and will be validated when flag-enabled features are prioritized.
-            Manual MCP attempts on 2026-06-11 reached screen capture but were blocked by Linux/Chrome capture cancellation.
-   Commit:  0e8bf99 refactor(content): extract page telemetry bridge
-
-Phase C2 - remote support client extraction:
-   Files:   content/remote-support-client.js; content-main.js; manifest.json; tests/content-remote-support-client.test.js; tests/content-decomposition-boundary.test.js; tests/manifest-permissions.test.js; tests/page-telemetry.test.js
-   Focused: node --test tests/content-remote-support-client.test.js tests/content-decomposition-boundary.test.js tests/manifest-permissions.test.js tests/page-telemetry.test.js -> 15 pass / 0 fail
-   Full:    npm test -> 840 pass / 0 fail
-   Live:    deferred by priority policy; remote-support path is behind FEATURE_FLAGS.remoteSupport=false and will be validated when flag-enabled features are prioritized.
-   Commit:  60ee4df refactor(content): extract remote support client
-
-Phase C3 - property lock banner extraction:
-   Files:   content/property-lock-banner.js; content-main.js; manifest.json; tests/content-decomposition-boundary.test.js; tests/manifest-permissions.test.js; tests/property-lock.test.js; tests/property-lock-render-mode.test.js
-   Focused: node --test tests/content-decomposition-boundary.test.js tests/manifest-permissions.test.js tests/property-lock.test.js tests/property-lock-render-mode.test.js -> 38 pass / 0 fail
-   Full:    npm test -> 840 pass / 0 fail
-   Live:    skipped by priority policy; property-lock collaboration path is feature-gated and this slice moved banner rendering/countdown helpers only.
-   Commit:  pending
-
-Phase B2 - site and page-type resolution extraction:
-   Files:   popup/site-resolution.js; popup.js; tests/popup-site-resolution.test.js; tests/popup-decomposition-boundary.test.js; tests/selector-suppression.test.js; tests/render-mode-inspection-order.test.js
-   Focused: node --test tests/popup-site-resolution.test.js tests/popup-decomposition-boundary.test.js tests/selector-suppression.test.js tests/render-mode-inspection-order.test.js -> 30 pass / 0 fail
-Commit and push Track C Phase C0 with:
-`test(content): add decomposition boundary guard`, then proceed to Track C Phase C1
-(`content/page-telemetry-bridge.js`) with required live scenario gate.
-
-Phase B3 - remote config sync extraction:
-   Files:   popup/remote-config.js; popup.js; tests/popup-remote-config.test.js; tests/popup-decomposition-boundary.test.js; tests/popup-marking-refresh.test.js; tests/property-lock.test.js
-   Focused: node --test tests/popup-remote-config.test.js tests/popup-decomposition-boundary.test.js tests/popup-marking-refresh.test.js tests/property-lock.test.js tests/popup-ai-run-gating.test.js -> 98 pass / 0 fail
-   Full:    npm test -> 815 pass / 0 fail
-   Live:    skipped by current requirement scope (not required for non-marking slices)
-   Commit:  25e5baf refactor(popup): extract remote config sync
-
-Phase B4 - render-mode inspection extraction:
-   Files:   popup/render-mode-inspection.js; popup.js; tests/popup-render-mode-inspection.test.js; tests/popup-decomposition-boundary.test.js; tests/render-mode-inspection-order.test.js; tests/popup-marking-refresh.test.js; tests/popup-render-mode.test.js
-   Focused: node --test tests/popup-render-mode-inspection.test.js tests/popup-decomposition-boundary.test.js tests/render-mode-inspection-order.test.js tests/popup-marking-refresh.test.js tests/popup-render-mode.test.js tests/background-render-mode-inspection.test.js -> 74 pass / 0 fail
-   Full:    npm test -> 819 pass / 0 fail
-   Live:    skipped by current requirement scope (not required for non-marking slices)
-   Commit:  9fccbb3 refactor(popup): extract render-mode inspection
-
-Phase B5 - page save reconciliation extraction:
-   Files:   popup/page-reconciliation.js; popup.js; tests/popup-page-reconciliation.test.js; tests/popup-decomposition-boundary.test.js; tests/popup-marking-refresh.test.js; tests/popup-ai-run-gating.test.js
-   Focused: node --test tests/popup-page-reconciliation.test.js tests/popup-decomposition-boundary.test.js tests/popup-marking-refresh.test.js tests/popup-ai-run-gating.test.js -> 67 pass / 0 fail
-   Full:    npm test -> 823 pass / 0 fail
-   Live:    skipped by current requirement scope (not required for non-marking slices)
-   Commit:  324a958 refactor(popup): extract page save reconciliation
-
-Phase B6 - property lock UI extraction:
-   Files:   popup/property-lock-ui.js; popup.js; tests/popup-property-lock-ui.test.js; tests/popup-decomposition-boundary.test.js; tests/property-lock.test.js; tests/property-lock-render-mode.test.js; tests/popup-marking-refresh.test.js
-   Focused: node --test tests/popup-property-lock-ui.test.js tests/popup-decomposition-boundary.test.js tests/property-lock.test.js tests/property-lock-render-mode.test.js tests/popup-marking-refresh.test.js tests/popup-render-mode.test.js -> 98 pass / 0 fail
-   Full:    npm test -> 828 pass / 0 fail
-   Live:    skipped by current requirement scope (not required for non-marking slices)
-   Commit:  1dbd3a2 refactor(popup): extract property lock UI
-
-Phase B7 - remote support UI extraction:
-   Files:   popup/remote-support-ui.js; popup.js; tests/popup-remote-support-ui.test.js; tests/popup-decomposition-boundary.test.js
-   Focused: node --test tests/popup-remote-support-ui.test.js tests/popup-decomposition-boundary.test.js tests/popup-marking-refresh.test.js tests/popup-render-mode.test.js -> 65 pass / 0 fail
-   Full:    npm test -> 832 pass / 0 fail
-   Live:    skipped by current requirement scope (not required for non-marking slices)
-   Commit:  4356ea8 refactor(popup): extract remote support UI
-
-Phase B8 - grouped popup timers hardening:
-   Files:   popup/timers.js; popup.js; popup/ui.js; tests/popup-timers.test.js; tests/popup-render-mode.test.js
-   Focused: node --test tests/popup-timers.test.js tests/popup-marking-refresh.test.js tests/popup-ai-run-gating.test.js tests/popup-decomposition-boundary.test.js -> 66 pass / 0 fail
-   Full:    npm test -> 835 pass / 0 fail
-   Live:    skipped by current requirement scope (not required for non-marking slices)
-   Commit:  pending
-```
-
-## Next Action
-
-Commit and push Track C Phase C3 with:
-`refactor(content): extract property lock banner`. Track C planned peripheral slices
-are then complete; choose the next decomposition track or priority before continuing.
+1. clean `main...origin/main`
+2. full test suite passes
+3. both relevant feature flags are `false`
+4. all current extracted content modules are listed in the manifest

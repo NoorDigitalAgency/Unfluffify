@@ -49,27 +49,25 @@
 - Popup tab-runtime snapshots must flow through the background command
   `POPUP_GET_TAB_VIEW_STATE`; do not reintroduce popup fallback reads through
   `WORLD_MESSAGE_TYPES.GET_BACKGROUND_STATE`.
-- The next architecture track is `.copilot/storage-access-layer-plan.md`:
-  first harden command source/tab-id policy and command-ledger redaction, then
-  centralize Chrome storage through domain stores instead of raw scattered
-  `chrome.storage` or `utils.storage*` calls.
+- The storage-access-layer plan is complete and historical. Its result is that
+  Chrome storage access is centralized through domain stores instead of raw
+  scattered `chrome.storage` or `utils.storage*` calls.
 - Chrome storage access is now restricted to approved storage/domain modules
   guarded by `tests/storage-access-boundary.test.js`; background, popup, and
   content production paths should call domain helpers rather than direct
   `chrome.storage` or `utils.storage*` wrappers. Page-local `localStorage` /
   `sessionStorage` usage is tracked separately from this Chrome storage rule.
-- The next architecture track is `.copilot/world-decomposition-plan.md`: a
-  three-track program decomposing `background.js` (Track A), then `popup.js`
-  (Track B), then peripheral `content-main.js` domains (Track C) into per-world
-  modules behavior-preservingly, then hardening (async reporting, state/timer
-  consolidation, managed timeouts). Background stateful domains use the
-  injected-state factory pattern from `background/spinner-operations.js`; popup
-  modules import the shared `popup/state.js` singleton; content modules use
-  function injection. Hard rules: never edit `content/core.js` or the locked
-  marking/visibility logic in any track; every new `content/*` module must be
-  added to `web_accessible_resources` (runtime footgun) with
-  `tests/manifest-permissions.test.js` updated; each slice needs focused + full
-  `npm test` + a live-harness check.
+- The world-decomposition plan is complete and historical. The active follow-up
+  architecture plan is `.copilot/content-main-followup-refactor-plan.md`: it
+  continues only through explicitly planned content seams such as remote-support
+  support-page code and property-lock collaboration code. Hard rules remain:
+  never edit `content/core.js` or locked marking/silent-highlight/visibility/
+  reconciliation logic without a new high-risk plan; every new imported
+  `content/*` module must be added to `web_accessible_resources` with
+  `tests/manifest-permissions.test.js` green; live validation is required for
+  core unflagged behavior when automated validation is not enough, while
+  flag-disabled remote-support/property-lock follow-ups may defer live validation
+  until those features are prioritized.
 
 ## AI Submission Rules
 

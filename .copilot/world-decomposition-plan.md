@@ -1,9 +1,41 @@
 # World Decomposition Program
 
-Last updated: 2026-06-10
-Status: READY FOR IMPLEMENTATION
-Scope: architectural refactor plan only. No implementation has started in this
-document commit.
+Last updated: 2026-06-11
+Status: COMPLETED / HISTORICAL
+Scope: historical architectural refactor plan. Tracks A, B, and the implemented
+Track C peripheral slices are complete on `main`.
+
+## Completion And Successor Plan
+
+This document is no longer the active implementation plan. It is retained for
+audit history and for the exact original decomposition rationale.
+
+Current completion state:
+
+1. Track A is complete.
+2. Track B is complete.
+3. Track C is complete as implemented:
+   - C0: `d81064f test(content): add decomposition boundary guard`
+   - C1: `0e8bf99 refactor(content): extract page telemetry bridge`
+   - C2: `60ee4df refactor(content): extract remote support client`
+   - C3: `c6e49c7 refactor(content): extract property lock banner`
+
+Important scope note: C2 and C3 were intentionally implemented more
+conservatively than this original prescriptive plan. Remote-support
+support-page UI/transport and property-lock banner mode/state-machine follow-up
+work is now planned in `.copilot/content-main-followup-refactor-plan.md`.
+
+Active successor plan:
+
+1. `.copilot/content-main-followup-refactor-plan.md`
+
+Validation-policy note: this historical plan required live validation for every
+Track C slice. The current user-approved policy is more specific: core
+unflagged behavior requires live validation when automated validation is not
+enough for confidence; flag-disabled remote-support and property-lock
+collaboration refactors may defer live validation until those features are
+prioritized. See the active successor plan and
+`.copilot/handoff-world-decomposition.md`.
 
 ## Program Objective
 

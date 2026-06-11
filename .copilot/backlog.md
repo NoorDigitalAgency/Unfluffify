@@ -1,11 +1,11 @@
 # Unfluffify Backlog
 
-Last updated: 2026-06-09
+Last updated: 2026-06-11
 
 This file holds work that used to be active in `.copilot/plan.md` and
 `.copilot/plan-core-hotfix-4h.md`. Do not treat any item here as active until
-the user explicitly asks to resume it. The active plan is now the feature-flag
-stabilization plan in `.copilot/plan.md`.
+the user explicitly asks to resume it. The active plan is recorded in
+`.copilot/plan.md`.
 
 ## Backlog Rules
 
@@ -51,8 +51,8 @@ Status: paused and superseded by feature-flag stabilization.
 
 The old hotfix sprint contained a large runtime-debug queue for spinner,
 silent-highlight, preview, property-lock, render-mode, trace, and debugger
-issues. It is no longer the active plan. Resume only after the feature-flag
-stabilization work is complete or if the user explicitly prioritizes one issue.
+issues. It is no longer the active plan. Resume only if the user explicitly
+prioritizes one issue.
 
 Backlogged open or uncertain items from the old priority queue:
 

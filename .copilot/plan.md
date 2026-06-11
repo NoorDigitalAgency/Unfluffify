@@ -1,14 +1,12 @@
 # Unfluffify Active Architecture Plan
 
-Last updated: 2026-06-10
+Last updated: 2026-06-11
 
 ## Objective
 
-Decompose the three remaining monoliths (`background.js`, `popup.js`,
-`content-main.js`) into small, single-responsibility modules under their world
-folders, behavior-preservingly, plus bounded hardening (async error reporting,
-state/timer consolidation, managed timeouts). Run as three ordered tracks
-(Background -> Popup -> Content).
+Continue the post-world-decomposition architecture work through the remaining
+explicitly planned `content-main.js` seams, without touching protected marking,
+silent-highlight, visibility, reconciliation, or `content/core.js` behavior.
 
 Previous feature-flag stabilization, main-plan, and hotfix-plan work remains
 available as historical context or backlog. Do not resume older tracks unless
@@ -16,21 +14,22 @@ the user explicitly asks for them.
 
 ## Successor Architecture Refactor
 
-The service-worker authority refactor and the storage-access layer refactor are
-both COMPLETE and merged to `main`. The next active architecture track is the
-world decomposition program: extract `background.js`, then `popup.js`, then the
-peripheral `content-main.js` domains into per-world modules (behavior-preserving)
-plus targeted hardening. The locked marking/visibility logic and `content/core.js`
+The service-worker authority refactor, storage-access layer refactor, and world
+decomposition program are COMPLETE and merged to `main`. The next active
+architecture track is the content follow-up refactor: continue only through the
+remaining explicitly planned remote-support and property-lock content seams,
+behavior-preservingly. The locked marking/visibility logic and `content/core.js`
 are never edited.
 
 Use these documents before making implementation changes:
 
-1. `.copilot/world-decomposition-plan.md`
+1. `.copilot/content-main-followup-refactor-plan.md`
 2. `.copilot/handoff-world-decomposition.md`
 
 Completed predecessor tracks (historical context only):
 
-1. `.copilot/storage-access-layer-plan.md` + `.copilot/handoff-storage-access-layer.md`
+1. `.copilot/world-decomposition-plan.md` + `.copilot/handoff-world-decomposition.md`
+2. `.copilot/storage-access-layer-plan.md` + `.copilot/handoff-storage-access-layer.md`
 
 Do not resume the old service-worker authority implementation track unless the
 user explicitly asks for it. Historical documents remain available for context:
