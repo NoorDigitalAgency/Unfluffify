@@ -33,8 +33,13 @@ test("content decomposition guard: baseline content modules are imported", () =>
   assertImportsContentModule("content-command-router");
   assertImportsContentModule("page-world-relay");
   assertImportsContentModule("page-telemetry-bridge");
+  assertImportsContentModule("remote-support-client");
 
   assertContentDoesNotDefine("handlePageTelemetryWindowMessage");
   assertContentDoesNotDefine("syncPageTelemetryControl");
   assertContentDoesNotDefine("ensurePageTelemetryBridge");
+  assertContentDoesNotDefine("restoreRemoteSupportQuietedVideo");
+  assertContentDoesNotDefine("quietRemoteSupportVideo");
+  assertContentDoesNotDefine("startRemoteSupportMediaQuieting");
+  assertContentDoesNotDefine("stopRemoteSupportMediaQuieting");
 });

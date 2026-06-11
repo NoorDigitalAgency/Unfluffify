@@ -354,7 +354,7 @@ test("content page telemetry bridge transfers and tears down a private port", ()
   // Teardown closes the port.
   assert.match(contentMainSource, /closePageTelemetryBridgePort\(\)/);
   // Port message handler still enforces the active-session + marker/shape guards.
-  assert.match(portHandlerBlock, /remoteSupportMode !== REMOTE_SUPPORT_MODE_BEING_SUPPORTED/);
+  assert.match(portHandlerBlock, /getRemoteSupportMode\(\) !== REMOTE_SUPPORT_MODE_BEING_SUPPORTED/);
   assert.match(portHandlerBlock, /__unfluffifyTelemetry !== PAGE_TELEMETRY_MESSAGE_MARKER/);
   assert.match(portHandlerBlock, /forwardPageTelemetryMessage\(message\)/);
 });
@@ -365,10 +365,10 @@ test("content page telemetry bridge is active-session and nonce gated", () => {
     "export function main()",
     "core.refreshFromTabState().then"
   );
-  const applyStateBlock = extractSourceBlock(
+  const clientFactoryBlock = extractSourceBlock(
     contentMainSource,
-    "function applyRemoteSupportSessionState",
-    "function sendRuntimeMessageSafely"
+    "function getRemoteSupportClient",
+    "const getRemoteSupportMode"
   );
   const messageBlock = extractSourceBlock(
     pageTelemetryBridgeSource,
@@ -382,7 +382,7 @@ test("content page telemetry bridge is active-session and nonce gated", () => {
   );
 
   assert.doesNotMatch(mainBlock, /ensurePageTelemetryBridge\(\)/);
-  assert.match(applyStateBlock, /syncPageTelemetryBridgeLifecycle\(\);/);
+  assert.match(clientFactoryBlock, /syncPageTelemetryBridgeLifecycle/);
   assert.match(messageBlock, /deps\.getRemoteSupportMode\(\) !== deps\.REMOTE_SUPPORT_MODE_BEING_SUPPORTED/);
   assert.match(messageBlock, /!deps\.getPageTelemetryBridgeNonce\(\)/);
   assert.match(messageBlock, /data\.nonce !== deps\.getPageTelemetryBridgeNonce\(\)/);

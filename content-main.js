@@ -103,6 +103,7 @@ import {
   registerContentCommand
 } from "./content/content-command-router.js";
 import { initializePageWorldRelay } from "./content/page-world-relay.js";
+import { createRemoteSupportClient } from "./content/remote-support-client.js";
 import {
   ensurePageTelemetryBridge as ensurePageTelemetryBridgeOperation,
   handlePageTelemetryWindowMessage as handlePageTelemetryWindowMessageOperation,
@@ -374,10 +375,6 @@ const PAGE_TELEMETRY_MESSAGE_MARKER = "unfluffify-page-telemetry";
 const PAGE_TELEMETRY_CONTROL_MARKER = "unfluffify-page-telemetry-control";
 const PAGE_TELEMETRY_NONCE_BYTES = 16;
 
-let remoteSupportMode = "inactive";
-let remoteSupportRole = "";
-let remoteSupportIncludePayloads = false;
-let remoteSupportTerminatePending = false;
 let remoteSupportSupportPageTabId = null;
 let remoteSupportSupportPageState = createRemoteSupportSupportPageState();
 let remoteSupportSupportPageLastFrame = "";
@@ -392,9 +389,7 @@ let remoteSupportSupportPageViewerIntrinsicWidth = 0;
 let remoteSupportSupportPageViewerIntrinsicHeight = 0;
 let remoteSupportSupportPageViewerVideoActive = false;
 let remoteSupportSupportPageFullscreenActive = false;
-let remoteSupportMediaQuietingActive = false;
-let remoteSupportMediaQuietObserver = null;
-const remoteSupportQuietedMediaElements = new Map();
+let remoteSupportClient = null;
 let pageTelemetryBridgeListenerBound = false;
 let pageTelemetryBridgeNonce = "";
 // Private MessageChannel port for the page-world telemetry stream. When
@@ -688,178 +683,6 @@ async function sendRemoteSupportSupportPageViewerRequest(requestType, payload = 
   });
 }
 
-function isBeingSupportedMode() {
-  return remoteSupportMode === REMOTE_SUPPORT_MODE_BEING_SUPPORTED;
-}
-
-function restoreRemoteSupportQuietedVideo(video) {
-  const quietedState = remoteSupportQuietedMediaElements.get(video);
-  if (!quietedState) {
-    return;
-  }
-
-  remoteSupportQuietedMediaElements.delete(video);
-  if (quietedState.wasPaused || typeof video.play !== "function") {
-    return;
-  }
-
-  try {
-    const playResult = video.play();
-    if (playResult && typeof playResult.catch === "function") {
-      playResult.catch(() => {});
-    }
-  } catch (error) {
-    // Ignore autoplay policy failures while restoring paused media.
-  }
-}
-
-function quietRemoteSupportVideo(video) {
-  if (!video || video.nodeType !== 1 || String(video.tagName || "").toLowerCase() !== "video") {
-    return;
-  }
-  if (!remoteSupportMediaQuietingActive) {
-    return;
-  }
-
-  if (!remoteSupportQuietedMediaElements.has(video)) {
-    if (video.paused) {
-      return;
-    }
-    remoteSupportQuietedMediaElements.set(video, { wasPaused: false });
-  }
-
-  if (!video.paused && typeof video.pause === "function") {
-    try {
-      video.pause();
-    } catch (error) {
-      // Ignore transient media state changes while the page is loading.
-    }
-  }
-}
-
-function quietRemoteSupportVideos(root = document) {
-  if (!remoteSupportMediaQuietingActive || !root) {
-    return;
-  }
-
-  if (root.nodeType === 1 && String(root.tagName || "").toLowerCase() === "video") {
-    quietRemoteSupportVideo(root);
-  }
-  if (typeof root.querySelectorAll !== "function") {
-    return;
-  }
-  root.querySelectorAll("video").forEach((video) => {
-    quietRemoteSupportVideo(video);
-  });
-}
-
-function handleRemoteSupportMediaPlay(event) {
-  if (!event || !remoteSupportMediaQuietingActive) {
-    return;
-  }
-  quietRemoteSupportVideo(event.target);
-}
-
-function handleRemoteSupportMediaQuietMutations(mutations) {
-  if (!remoteSupportMediaQuietingActive || !Array.isArray(mutations)) {
-    return;
-  }
-  mutations.forEach((mutation) => {
-    if (!mutation) {
-      return;
-    }
-    if (mutation.type === "attributes") {
-      quietRemoteSupportVideo(mutation.target);
-      return;
-    }
-    (mutation.addedNodes || []).forEach((node) => {
-      quietRemoteSupportVideos(node);
-    });
-  });
-}
-
-function startRemoteSupportMediaQuieting() {
-  if (remoteSupportMediaQuietingActive) {
-    quietRemoteSupportVideos(document);
-    return;
-  }
-
-  remoteSupportMediaQuietingActive = true;
-  quietRemoteSupportVideos(document);
-  document.addEventListener("play", handleRemoteSupportMediaPlay, true);
-  const root = document.documentElement || document.body;
-  if (!root || typeof MutationObserver !== "function") {
-    return;
-  }
-
-  remoteSupportMediaQuietObserver = new MutationObserver(handleRemoteSupportMediaQuietMutations);
-  remoteSupportMediaQuietObserver.observe(root, {
-    childList: true,
-    subtree: true,
-    attributes: true,
-    attributeFilter: ["autoplay", "controls", "loop", "muted", "src", "style", "class"]
-  });
-}
-
-function stopRemoteSupportMediaQuieting() {
-  if (
-    !remoteSupportMediaQuietingActive &&
-    !remoteSupportMediaQuietObserver &&
-    remoteSupportQuietedMediaElements.size === 0
-  ) {
-    return;
-  }
-
-  remoteSupportMediaQuietingActive = false;
-  document.removeEventListener("play", handleRemoteSupportMediaPlay, true);
-  if (remoteSupportMediaQuietObserver) {
-    remoteSupportMediaQuietObserver.disconnect();
-    remoteSupportMediaQuietObserver = null;
-  }
-
-  Array.from(remoteSupportQuietedMediaElements.keys()).forEach((video) => {
-    restoreRemoteSupportQuietedVideo(video);
-  });
-  remoteSupportQuietedMediaElements.clear();
-}
-
-function applyRemoteSupportSessionState(remoteSupportStateLike) {
-  if (!isFeatureEnabled("remoteSupport")) {
-    remoteSupportMode = "inactive";
-    remoteSupportRole = "";
-    remoteSupportIncludePayloads = false;
-    stopRemoteSupportMediaQuieting();
-    syncPageTelemetryBridgeLifecycle();
-    syncRemoteSupportTerminateButton();
-    return;
-  }
-  const remoteSupportState =
-    remoteSupportStateLike && typeof remoteSupportStateLike === "object"
-      ? remoteSupportStateLike
-      : {};
-  const active = Boolean(
-    typeof remoteSupportState.active === "boolean"
-      ? remoteSupportState.active
-      : String(remoteSupportState.mode || "inactive") !== "inactive"
-  );
-
-  remoteSupportMode = active ? String(remoteSupportState.mode || "inactive") : "inactive";
-  remoteSupportRole = active ? String(remoteSupportState.role || "") : "";
-  remoteSupportIncludePayloads = active ? Boolean(remoteSupportState.includePayloads) : false;
-
-  if (isBeingSupportedMode()) {
-    if (document.activeElement && typeof document.activeElement.blur === "function") {
-      document.activeElement.blur();
-    }
-    startRemoteSupportMediaQuieting();
-  } else {
-    stopRemoteSupportMediaQuieting();
-  }
-
-  syncPageTelemetryBridgeLifecycle();
-  syncRemoteSupportTerminateButton();
-}
-
 function sendRuntimeMessageSafely(message) {
   if (
     extensionContextInvalidated ||
@@ -911,6 +734,36 @@ function sendRuntimeMessageSafely(message) {
       return null;
     });
 }
+
+function getRemoteSupportClient() {
+  if (!remoteSupportClient) {
+    remoteSupportClient = createRemoteSupportClient({
+      isRemoteSupportFeatureEnabled: () => isFeatureEnabled("remoteSupport"),
+      sendRuntimeMessageSafely,
+      syncPageTelemetryBridgeLifecycle,
+      EXTENSION_UI_FONT_STACK,
+      REMOTE_SUPPORT_MODE_BEING_SUPPORTED,
+      REMOTE_SUPPORT_TERMINATE_BUTTON_ID,
+      REMOTE_SUPPORT_TERMINATE_STYLE_ID
+    });
+  }
+
+  return remoteSupportClient;
+}
+
+const getRemoteSupportMode = () => getRemoteSupportClient().getMode();
+const getRemoteSupportRole = () => getRemoteSupportClient().getRole();
+const getRemoteSupportIncludePayloads = () => getRemoteSupportClient().getIncludePayloads();
+const isBeingSupportedMode = () => getRemoteSupportClient().isBeingSupportedMode();
+const applyRemoteSupportSessionState = (remoteSupportStateLike) => {
+  getRemoteSupportClient().applySessionState(remoteSupportStateLike);
+};
+const syncRemoteSupportSessionStateFromBackground = () => {
+  return getRemoteSupportClient().syncSessionStateFromBackground();
+};
+const syncRemoteSupportTerminateButton = () => {
+  getRemoteSupportClient().syncTerminateButton();
+};
 
 function createLifecycleOperationId(kind) {
   lifecycleOperationCounter += 1;
@@ -1039,7 +892,7 @@ function forwardPageTelemetryMessage(message) {
 const handlePageTelemetryWindowMessage = (event) => {
   return handlePageTelemetryWindowMessageOperation({
     isExtensionContextInvalidated: () => extensionContextInvalidated,
-    getRemoteSupportMode: () => remoteSupportMode,
+    getRemoteSupportMode,
     getPageTelemetryBridgeNonce: () => pageTelemetryBridgeNonce,
     REMOTE_SUPPORT_MODE_BEING_SUPPORTED,
     PAGE_TELEMETRY_MESSAGE_MARKER,
@@ -1054,7 +907,7 @@ const handlePageTelemetryWindowMessage = (event) => {
 function handlePageTelemetryPortMessage(event) {
   if (
     extensionContextInvalidated ||
-    remoteSupportMode !== REMOTE_SUPPORT_MODE_BEING_SUPPORTED
+    getRemoteSupportMode() !== REMOTE_SUPPORT_MODE_BEING_SUPPORTED
   ) {
     return;
   }
@@ -1104,10 +957,10 @@ function getPageTelemetryBridgeNonce() {
 
 const syncPageTelemetryControl = () => {
   return syncPageTelemetryControlOperation({
-    getRemoteSupportMode: () => remoteSupportMode,
+    getRemoteSupportMode,
     getOrCreatePageTelemetryBridgeNonce: getPageTelemetryBridgeNonce,
     getPageTelemetryBridgeNonce: () => pageTelemetryBridgeNonce,
-    getRemoteSupportIncludePayloads: () => remoteSupportIncludePayloads,
+    getRemoteSupportIncludePayloads,
     getPageTelemetryBridgePort: () => pageTelemetryBridgePort,
     setPageTelemetryBridgePort: (port) => {
       pageTelemetryBridgePort = port;
@@ -1158,7 +1011,7 @@ function teardownPageTelemetryBridge() {
 const ensurePageTelemetryBridge = () => {
   return ensurePageTelemetryBridgeOperation({
     isExtensionContextInvalidated: () => extensionContextInvalidated,
-    getRemoteSupportMode: () => remoteSupportMode,
+    getRemoteSupportMode,
     isPageTelemetryBridgeListenerBound: () => pageTelemetryBridgeListenerBound,
     setPageTelemetryBridgeListenerBound: (value) => {
       pageTelemetryBridgeListenerBound = Boolean(value);
@@ -1171,115 +1024,16 @@ const ensurePageTelemetryBridge = () => {
 };
 
 function syncPageTelemetryBridgeLifecycle() {
-  if (remoteSupportMode === REMOTE_SUPPORT_MODE_BEING_SUPPORTED) {
+  if (getRemoteSupportMode() === REMOTE_SUPPORT_MODE_BEING_SUPPORTED) {
     ensurePageTelemetryBridge();
   } else {
     teardownPageTelemetryBridge();
   }
 }
 
-async function syncRemoteSupportSessionStateFromBackground() {
-  if (!isFeatureEnabled("remoteSupport")) {
-    applyRemoteSupportSessionState(null);
-    return;
-  }
-  try {
-    const response = await chrome.runtime.sendMessage({
-      type: "getRemoteSupportState"
-    });
-    if (!response || !response.ok) {
-      return;
-    }
-
-    applyRemoteSupportSessionState(response.state || null);
-  } catch (error) {
-    // Ignore initial sync failures caused by transient background reloads.
-  }
-}
-
 function isRemoteSupportSupportPage() {
   return isFeatureEnabled("remoteSupport") &&
     Boolean(document.querySelector(REMOTE_SUPPORT_SUPPORT_PAGE_META_SELECTOR));
-}
-
-function ensureRemoteSupportTerminateButton() {
-  if (!document.body) {
-    return null;
-  }
-
-  let style = document.getElementById(REMOTE_SUPPORT_TERMINATE_STYLE_ID);
-  if (!style) {
-    style = document.createElement("style");
-    style.id = REMOTE_SUPPORT_TERMINATE_STYLE_ID;
-    style.setAttribute("data-uf-extension-ui", "true");
-    style.textContent = `
-      #${REMOTE_SUPPORT_TERMINATE_BUTTON_ID} {
-        position: fixed;
-        right: 18px;
-        bottom: 18px;
-        z-index: 2147483647;
-        padding: 10px 14px;
-        border: 0;
-        border-radius: 999px;
-        background: #cf2338;
-        color: #ffffff;
-        font: 600 13px/1.1 ${EXTENSION_UI_FONT_STACK};
-        box-shadow: 0 12px 32px rgba(126, 14, 27, 0.35);
-        cursor: pointer;
-      }
-      #${REMOTE_SUPPORT_TERMINATE_BUTTON_ID}:hover {
-        background: #b91d31;
-      }
-      #${REMOTE_SUPPORT_TERMINATE_BUTTON_ID}:disabled {
-        cursor: wait;
-        opacity: 0.8;
-      }
-    `;
-    (document.head || document.documentElement).appendChild(style);
-  }
-
-  let button = document.getElementById(REMOTE_SUPPORT_TERMINATE_BUTTON_ID);
-  if (!button) {
-    button = document.createElement("button");
-    button.id = REMOTE_SUPPORT_TERMINATE_BUTTON_ID;
-    button.type = "button";
-    button.textContent = "Terminate session";
-    button.setAttribute("data-uf-extension-ui", "true");
-    button.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      if (remoteSupportTerminatePending) {
-        return;
-      }
-
-      remoteSupportTerminatePending = true;
-      syncRemoteSupportTerminateButton();
-      sendRuntimeMessageSafely({
-        type: "remoteSupportEnd"
-      }).finally(() => {
-        remoteSupportTerminatePending = false;
-        syncRemoteSupportTerminateButton();
-      });
-    });
-    (document.body || document.documentElement).appendChild(button);
-  }
-
-  return button;
-}
-
-function syncRemoteSupportTerminateButton() {
-  if (isBeingSupportedMode() && !document.body && document.readyState === "loading") {
-    window.addEventListener("DOMContentLoaded", syncRemoteSupportTerminateButton, { once: true });
-    return;
-  }
-
-  const button = isBeingSupportedMode() ? ensureRemoteSupportTerminateButton() : document.getElementById(REMOTE_SUPPORT_TERMINATE_BUTTON_ID);
-  if (!button) {
-    return;
-  }
-
-  button.hidden = !isBeingSupportedMode();
-  button.disabled = remoteSupportTerminatePending;
 }
 
 function ensureRemoteSupportSupportPageStyles() {
@@ -8218,7 +7972,7 @@ export function main() {
 
   installExtensionTelemetry({
     source: "content",
-    getIncludePayloads: () => remoteSupportIncludePayloads
+    getIncludePayloads: getRemoteSupportIncludePayloads
   });
 
   if (isFeatureEnabled("remoteSupport")) {
@@ -8691,8 +8445,8 @@ export function main() {
       applyRemoteSupportSessionState(remoteSupportState || null);
       sendResponse({
         ok: true,
-        mode: remoteSupportMode,
-        role: remoteSupportRole
+        mode: getRemoteSupportMode(),
+        role: getRemoteSupportRole()
       });
       return;
     }
