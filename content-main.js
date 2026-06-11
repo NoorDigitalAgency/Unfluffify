@@ -109,6 +109,7 @@ import { createAiPreviewGetStateHandler } from "./content/ai-preview-get-state-h
 import { createAiPreviewStateResponseBuilder } from "./content/ai-preview-state-response.js";
 import { createDefaultExclusionsHandler } from "./content/default-exclusions-handler.js";
 import { createDescribeXpathsHandler } from "./content/describe-xpaths-handler.js";
+import { createFocusHandler } from "./content/focus-handler.js";
 import { createInvisibleXpathsHandler } from "./content/invisible-xpaths-handler.js";
 import { createInspectionStatusResolver } from "./content/inspection-status.js";
 import { initializePageWorldRelay } from "./content/page-world-relay.js";
@@ -408,6 +409,7 @@ let aiPreviewGetStateHandler = null;
 let aiPreviewStateResponseBuilder = null;
 let defaultExclusionsHandler = null;
 let describeXpathsHandler = null;
+let focusHandler = null;
 let invisibleXpathsHandler = null;
 let propertyLockPortClient = null;
 let propertyLockStateMachine = null;
@@ -606,6 +608,13 @@ function getDescribeXpathsHandler() {
     describeXpathsHandler = createDescribeXpathsHandler(createDescribeXpathsHandlerDeps());
   }
   return describeXpathsHandler;
+}
+
+function getFocusHandler() {
+  if (!focusHandler) {
+    focusHandler = createFocusHandler(createFocusHandlerDeps());
+  }
+  return focusHandler;
 }
 
 function getInvisibleXpathsHandler() {
@@ -6310,6 +6319,16 @@ function createDescribeXpathsHandlerDeps() {
   };
 }
 
+function createFocusHandlerDeps() {
+  return {
+    clearFocusHighlight: () => core.clearFocusHighlight(),
+    focusPreviewElement: (element) => core.focusPreviewElement(element),
+    getElementFromXPath: (xpath) => core.getElementFromXPath(xpath),
+    isAiPreviewActive: () => aiPreviewState.active,
+    setAiPreviewFocusedXpath
+  };
+}
+
 function createRemoteSupportStateHandlerDeps() {
   return {
     applyRemoteSupportSessionState,
@@ -7019,26 +7038,12 @@ export function main() {
     }
 
     if (message.type === "focusElement") {
-      const xpath = message.xpath || "";
-      const target = xpath ? core.getElementFromXPath(xpath) : null;
-      if (!target) {
-        sendResponse({ ok: false });
-        return;
-      }
-      core.focusPreviewElement(target);
-      if (aiPreviewState.active) {
-        setAiPreviewFocusedXpath(xpath);
-      }
-      sendResponse({ ok: true });
+      sendResponse(getFocusHandler().handleFocusMessage(message));
       return;
     }
 
     if (message.type === "clearFocus") {
-      core.clearFocusHighlight();
-      if (aiPreviewState.active) {
-        setAiPreviewFocusedXpath("");
-      }
-      sendResponse({ ok: true });
+      sendResponse(getFocusHandler().handleClearFocusMessage());
       return;
     }
 

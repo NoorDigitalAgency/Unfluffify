@@ -826,3 +826,53 @@ Commit message:
 ```text
 refactor(content): extract describe xpaths handler
 ```
+
+## Phase F17 - Focus Runtime Handler Extraction
+
+Why this phase:
+- `content-main.js` still directly owned `focusElement` and `clearFocus` runtime
+  control flow.
+- Extracting these tightly-coupled branches preserves behavior while reducing
+  listener complexity and centralizing preview-focus synchronization.
+
+New module:
+- `content/focus-handler.js`
+
+Files to edit:
+- `content-main.js`
+- `content/focus-handler.js`
+- `manifest.json`
+- `tests/content-decomposition-boundary.test.js`
+- Add `tests/focus-handler.test.js`
+
+Exact function boundary:
+- Keep runtime branches `if (message.type === "focusElement")` and
+  `if (message.type === "clearFocus")` in `content-main.js`.
+- Delegate focus/clear-focus behavior to handler methods.
+- Keep preview focus state authority in existing `setAiPreviewFocusedXpath`
+  logic.
+
+Rules:
+1. Preserve failure response when xpath target cannot be resolved.
+2. Preserve success response shape (`{ ok: true }`) for focus/clear success.
+3. Preserve preview-focused-xpath synchronization only while preview is active.
+4. Keep branches synchronous and return flow unchanged.
+
+Focused validation:
+```bash
+npm test -- tests/focus-handler.test.js tests/content-decomposition-boundary.test.js tests/manifest-permissions.test.js tests/preview-tooltip.test.js tests/popup-marking-refresh.test.js
+```
+
+Full validation:
+```bash
+npm test
+```
+
+Rollback criteria:
+- Any regression in preview focus behavior, copy-on-focus UX, or runtime focus
+  response contracts should trigger rollback.
+
+Commit message:
+```text
+refactor(content): extract focus handler
+```
