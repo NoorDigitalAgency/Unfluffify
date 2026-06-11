@@ -75,6 +75,7 @@
         "content/inspection-status.js",
         "content/page-world-relay.js",
         "content/page-telemetry-bridge.js",
+        "content/page-save-reconciliation-pending-handler.js",
         "content/page-toast.js",
         "content/render-mode-inspection-handlers.js",
         "content/render-mode-inspection-client.js",

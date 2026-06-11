@@ -115,6 +115,7 @@ import { createFocusHandler } from "./content/focus-handler.js";
 import { createForceRefreshHandler } from "./content/force-refresh-handler.js";
 import { createInvisibleXpathsHandler } from "./content/invisible-xpaths-handler.js";
 import { createInspectionStatusResolver } from "./content/inspection-status.js";
+import { createPageSaveReconciliationPendingHandler } from "./content/page-save-reconciliation-pending-handler.js";
 import { initializePageWorldRelay } from "./content/page-world-relay.js";
 import { createPageToast } from "./content/page-toast.js";
 import { createRenderModeInspectionClient } from "./content/render-mode-inspection-client.js";
@@ -402,6 +403,7 @@ let remoteSupportClient = null;
 let remoteSupportViewerClient = null;
 let remoteSupportSupportPage = null;
 let pageToastClient = null;
+let pageSaveReconciliationPendingHandler = null;
 let renderModeInspectionClient = null;
 let renderModeInspectionHandlers = null;
 let inspectionStatusResolver = null;
@@ -544,6 +546,15 @@ function getPageToastClient() {
     pageToastClient = createPageToast(createPageToastDeps());
   }
   return pageToastClient;
+}
+
+function getPageSaveReconciliationPendingHandler() {
+  if (!pageSaveReconciliationPendingHandler) {
+    pageSaveReconciliationPendingHandler = createPageSaveReconciliationPendingHandler(
+      createPageSaveReconciliationPendingHandlerDeps()
+    );
+  }
+  return pageSaveReconciliationPendingHandler;
 }
 
 function getRenderModeInspectionClient() {
@@ -6383,6 +6394,13 @@ function createForceRefreshHandlerDeps() {
   };
 }
 
+function createPageSaveReconciliationPendingHandlerDeps() {
+  return {
+    setPageSaveReconciliationPending: (baseUrl, pageUrl, options) =>
+      core.setPageSaveReconciliationPending(baseUrl, pageUrl, options)
+  };
+}
+
 function createRemoteSupportStateHandlerDeps() {
   return {
     applyRemoteSupportSessionState,
@@ -7223,10 +7241,12 @@ export function main() {
         sendResponse({ ok: false });
         return;
       }
-      core.setPageSaveReconciliationPending(targetBaseUrl, pageUrl, {
-        reason: typeof message.reason === "string" ? message.reason : "pending"
-      }).then((reconciliation) => {
-        sendResponse({ ok: true, reconciliation });
+      getPageSaveReconciliationPendingHandler().setPending({
+        targetBaseUrl,
+        pageUrl,
+        reason: message.reason
+      }).then((response) => {
+        sendResponse(response && typeof response === "object" ? response : { ok: false });
       }).catch(() => {
         sendResponse({ ok: false });
       });

@@ -25,9 +25,9 @@ old archive files into the active `.copilot` folder.
 
 The service-worker authority refactor, storage-access layer refactor, and world
 decomposition program are complete and merged to `main`. Content follow-up
-Tracks D and E are complete, and Track F is complete through F20. The active
+Tracks D and E are complete, and Track F is complete through F21. The active
 track is now the remaining Track F runtime-branch decomposition in
-`.copilot/track-f-protected-content-plan.md`, starting at F21.
+`.copilot/track-f-protected-content-plan.md`, starting at F22.
 
 This track protects the 11 always-on core features, including reveal/freeze and
 lazy-loading stopping/restoration. Do not resume old implementation tracks unless
@@ -42,11 +42,11 @@ git status --short --branch
 # ## main...origin/main
 
 npm test
-# 904 pass / 0 fail
+# 906 pass / 0 fail
 ```
 
 Review status on 2026-06-11: F1-F19 were reviewed with no behavioral regression
-found. F20 then completed with focused validation and a green full suite. The
+found. F20-F21 then completed with focused validation and green full suites. The
 only earlier issue was stale `.copilot` documentation plus cosmetic manifest
 indentation, both already addressed.
 

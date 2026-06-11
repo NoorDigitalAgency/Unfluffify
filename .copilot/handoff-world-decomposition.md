@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-11
 Branch: `main`
-Status: world decomposition complete; content follow-up D0-D2, E0-E2, and Track F F1-F20 complete and pushed per-slice.
+Status: world decomposition complete; content follow-up D0-D2, E0-E2, and Track F F1-F21 complete and pushed per-slice.
 
 ## Current Repository State
 
@@ -13,11 +13,12 @@ git status --short --branch
 # ## main...origin/main
 
 npm test
-# 904 pass / 0 fail
+# 906 pass / 0 fail
 ```
 
-This baseline includes F20 (`forceRefresh`) extracted into
-`content/force-refresh-handler.js` with focused tests plus a green full suite.
+This baseline includes F21 (`setPageSaveReconciliationPending`) extracted into
+`content/page-save-reconciliation-pending-handler.js` with focused tests plus a
+green full suite.
 
 ## Review Result
 
@@ -70,7 +71,7 @@ Track E is complete through E2:
 2. E1: property-lock port client extraction.
 3. E2: property-lock state-machine extraction.
 
-### Track F Completed Through F20
+### Track F Completed Through F21
 
 Track F now includes these completed, pushed phases:
 
@@ -94,15 +95,16 @@ Track F now includes these completed, pushed phases:
 18. F18 AI submission xpaths handler.
 19. F19 collect page data handler.
 20. F20 force refresh handler.
+21. F21 page save reconciliation pending handler.
 
 Recent validated Track F slices before the remaining high-coupling branches:
 
 ```text
+F21 refactor(content): extract reconciliation pending handler
 F20 refactor(content): extract force refresh handler
 F19 refactor(content): extract collect page data handler
 F18 refactor(content): extract ai submission xpaths handler
 F17 refactor(content): extract focus handler
-F16 refactor(content): extract describe xpaths handler
 ```
 
 ## Active Documents
@@ -117,13 +119,13 @@ Use these files, in this order, before making any further implementation change:
 
 ## Next Exact Step
 
-Start with Phase F21 in `.copilot/track-f-protected-content-plan.md`.
+Start with Phase F22 in `.copilot/track-f-protected-content-plan.md`.
 
-F21 is the recommended next slice because it keeps the validation/early-return
-logic local in `content-main.js` while moving the async reconciliation-pending
-write behind a narrow handler.
+F22 is the recommended next slice because it keeps the input guard local in
+`content-main.js` while moving the clear-and-refresh success path behind a
+single handler.
 
-Before editing F21, run:
+Before editing F22, run:
 
 ```bash
 git status --short --branch
@@ -134,7 +136,7 @@ npm test
 Expected baseline:
 
 1. clean `main...origin/main`
-2. full test suite passes (`904 pass / 0 fail` at the current baseline)
+2. full test suite passes (`906 pass / 0 fail` at the current baseline)
 3. `manifest.json` keeps explicit web-accessible resource entries, no broad
    `content/*.js` or `common/*.js` wildcards
 
