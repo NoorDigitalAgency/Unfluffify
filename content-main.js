@@ -110,6 +110,7 @@ import {
   restartPropertyLockBannerCountdown as restartPropertyLockBannerCountdownOperation
 } from "./content/property-lock-banner.js";
 import { createRemoteSupportClient } from "./content/remote-support-client.js";
+import { createRemoteSupportViewerClient } from "./content/remote-support-viewer-client.js";
 import {
   ensurePageTelemetryBridge as ensurePageTelemetryBridgeOperation,
   handlePageTelemetryWindowMessage as handlePageTelemetryWindowMessageOperation,
@@ -386,16 +387,9 @@ let remoteSupportSupportPageState = createRemoteSupportSupportPageState();
 let remoteSupportSupportPageLastFrame = "";
 let remoteSupportSupportPageRenderedFrame = "";
 let remoteSupportSupportPageElements = null;
-let remoteSupportSupportPageViewerPort = null;
-let remoteSupportSupportPageViewerReady = false;
-let remoteSupportSupportPageViewerReadyWaiters = [];
-let remoteSupportSupportPageViewerRequestId = 0;
-let remoteSupportSupportPageViewerPendingRequests = new Map();
-let remoteSupportSupportPageViewerIntrinsicWidth = 0;
-let remoteSupportSupportPageViewerIntrinsicHeight = 0;
-let remoteSupportSupportPageViewerVideoActive = false;
 let remoteSupportSupportPageFullscreenActive = false;
 let remoteSupportClient = null;
+let remoteSupportViewerClient = null;
 let pageTelemetryBridgeListenerBound = false;
 let pageTelemetryBridgeNonce = "";
 // Private MessageChannel port for the page-world telemetry stream. When
@@ -446,247 +440,58 @@ function normalizeRemoteSupportSupportPageState(stateLike, fallbackTabId = remot
   return normalized;
 }
 
-function getRemoteSupportSupportPageViewerOrigin() {
-  try {
-    return new URL(chrome.runtime.getURL(REMOTE_SUPPORT_SUPPORT_PAGE_VIEWER_PATH)).origin;
-  } catch (error) {
-    return "*";
+function getRemoteSupportViewerClient() {
+  if (!remoteSupportViewerClient) {
+    remoteSupportViewerClient = createRemoteSupportViewerClient({
+      getViewerOrigin: () => {
+        try {
+          return new URL(chrome.runtime.getURL(REMOTE_SUPPORT_SUPPORT_PAGE_VIEWER_PATH)).origin;
+        } catch (error) {
+          return "*";
+        }
+      },
+      getViewerFrame: () => {
+        const elements = remoteSupportSupportPageElements || ensureRemoteSupportSupportPageUi();
+        return elements && elements.viewer ? elements.viewer : null;
+      },
+      getViewerElement: () => {
+        const elements = remoteSupportSupportPageElements || ensureRemoteSupportSupportPageUi();
+        return elements && elements.viewer ? elements.viewer : null;
+      },
+      isSupportPageActive: () => Boolean(remoteSupportSupportPageState.active),
+      onFrameMessage: (framePayload) => {
+        remoteSupportSupportPageLastFrame = typeof framePayload === "string"
+          ? framePayload
+          : (framePayload && typeof framePayload.dataUrl === "string" ? framePayload.dataUrl : "");
+        syncRemoteSupportSupportPageFrame();
+      },
+      renderFrame: () => {
+        syncRemoteSupportSupportPageFrame();
+      },
+      sendRuntimeMessageSafely,
+      updateStateFromBackground: refreshRemoteSupportSupportPageState,
+      REMOTE_SUPPORT_SUPPORT_PAGE_VIEWER_PATH,
+      REMOTE_SUPPORT_SUPPORT_PAGE_VIEWER_REQUEST_TIMEOUT_MS
+    });
   }
-}
 
-function resolveRemoteSupportSupportPageViewerWaiters(result) {
-  if (!remoteSupportSupportPageViewerReadyWaiters.length) {
-    return;
-  }
-
-  const waiters = remoteSupportSupportPageViewerReadyWaiters.slice();
-  remoteSupportSupportPageViewerReadyWaiters = [];
-  waiters.forEach((waiter) => {
-    try {
-      waiter(Boolean(result));
-    } catch (error) {
-      // Ignore waiter resolution failures.
-    }
-  });
-}
-
-function clearRemoteSupportSupportPageViewerPendingRequests(errorMessage = "Remote support viewer unavailable") {
-  if (!remoteSupportSupportPageViewerPendingRequests.size) {
-    return;
-  }
-
-  for (const pendingRequest of remoteSupportSupportPageViewerPendingRequests.values()) {
-    window.clearTimeout(pendingRequest.timeoutId);
-    pendingRequest.resolve({ ok: false, error: errorMessage });
-  }
-  remoteSupportSupportPageViewerPendingRequests.clear();
+  return remoteSupportViewerClient;
 }
 
 function syncRemoteSupportSupportPageViewerVisibility() {
-  const elements = remoteSupportSupportPageElements || ensureRemoteSupportSupportPageUi();
-  if (!elements || !elements.viewer) {
-    return;
-  }
-
-  elements.viewer.hidden = !(remoteSupportSupportPageState.active && remoteSupportSupportPageViewerVideoActive);
+  getRemoteSupportViewerClient().syncVisibility();
 }
 
 function updateRemoteSupportSupportPageViewerVideoState({ active = false, width = 0, height = 0 } = {}) {
-  remoteSupportSupportPageViewerVideoActive = Boolean(active);
-  remoteSupportSupportPageViewerIntrinsicWidth = Number.isFinite(Number(width)) ? Math.max(0, Math.trunc(Number(width))) : 0;
-  remoteSupportSupportPageViewerIntrinsicHeight = Number.isFinite(Number(height)) ? Math.max(0, Math.trunc(Number(height))) : 0;
-  syncRemoteSupportSupportPageViewerVisibility();
-  syncRemoteSupportSupportPageFrame();
-}
-
-function isRemoteSupportFrameBitmap(value) {
-  return Boolean(
-    value &&
-    typeof value === "object" &&
-    typeof value.width === "number" &&
-    typeof value.height === "number" &&
-    typeof value.close === "function"
-  );
-}
-
-function closeRemoteSupportFrameBitmap(bitmap) {
-  if (!bitmap || typeof bitmap.close !== "function") {
-    return;
-  }
-
-  try {
-    bitmap.close();
-  } catch (error) {
-    // Ignore decoded frame cleanup mismatches.
-  }
-}
-
-function resetRemoteSupportSupportPageViewerConnection(errorMessage = "Remote support viewer unavailable") {
-  if (remoteSupportSupportPageViewerPort) {
-    try {
-      remoteSupportSupportPageViewerPort.onmessage = null;
-      remoteSupportSupportPageViewerPort.close();
-    } catch (error) {
-      // Ignore viewer port shutdown races.
-    }
-  }
-
-  remoteSupportSupportPageViewerPort = null;
-  remoteSupportSupportPageViewerReady = false;
-  resolveRemoteSupportSupportPageViewerWaiters(false);
-  clearRemoteSupportSupportPageViewerPendingRequests(errorMessage);
-  updateRemoteSupportSupportPageViewerVideoState({ active: false, width: 0, height: 0 });
-}
-
-function handleRemoteSupportSupportPageViewerPortMessage(event) {
-  const message = event && event.data && typeof event.data === "object"
-    ? event.data
-    : null;
-  if (!message || typeof message.type !== "string") {
-    return;
-  }
-
-  if (message.type === "ready") {
-    remoteSupportSupportPageViewerReady = true;
-    resolveRemoteSupportSupportPageViewerWaiters(true);
-    return;
-  }
-
-  if (message.type === "response") {
-    const requestId = typeof message.requestId === "string" ? message.requestId : "";
-    const pendingRequest = requestId ? remoteSupportSupportPageViewerPendingRequests.get(requestId) : null;
-    if (!pendingRequest) {
-      return;
-    }
-
-    remoteSupportSupportPageViewerPendingRequests.delete(requestId);
-    window.clearTimeout(pendingRequest.timeoutId);
-    pendingRequest.resolve(message.response && typeof message.response === "object" ? message.response : { ok: false });
-    return;
-  }
-
-  if (message.type === "transport-event") {
-    sendRuntimeMessageSafely({
-      type: "remoteSupportTransportEvent",
-      source: "remoteSupportViewer",
-      event: message.event && typeof message.event === "object" ? message.event : {}
-    });
-    return;
-  }
-
-  if (message.type === "video-state") {
-    updateRemoteSupportSupportPageViewerVideoState({
-      active: Boolean(message.active),
-      width: message.width,
-      height: message.height
-    });
-    sendRuntimeMessageSafely({
-      type: "remoteSupportTransportEvent",
-      source: "remoteSupportViewer",
-      event: {
-        type: "video-state",
-        sessionId: typeof message.sessionId === "string" ? message.sessionId : "",
-        active: Boolean(message.active)
-      }
-    });
-    return;
-  }
+  getRemoteSupportViewerClient().updateVideoState({ active, width, height });
 }
 
 function initializeRemoteSupportSupportPageViewer(viewerFrame) {
-  if (!viewerFrame || viewerFrame.dataset.ufRemoteSupportViewerInitialized === "true") {
-    return;
-  }
-
-  viewerFrame.dataset.ufRemoteSupportViewerInitialized = "true";
-  viewerFrame.src = chrome.runtime.getURL(REMOTE_SUPPORT_SUPPORT_PAGE_VIEWER_PATH);
-  viewerFrame.addEventListener("load", () => {
-    resetRemoteSupportSupportPageViewerConnection();
-
-    if (!viewerFrame.contentWindow || typeof MessageChannel !== "function") {
-      return;
-    }
-
-    const channel = new MessageChannel();
-    remoteSupportSupportPageViewerPort = channel.port1;
-    remoteSupportSupportPageViewerPort.onmessage = handleRemoteSupportSupportPageViewerPortMessage;
-    if (typeof remoteSupportSupportPageViewerPort.start === "function") {
-      remoteSupportSupportPageViewerPort.start();
-    }
-
-    try {
-      viewerFrame.contentWindow.postMessage(
-        { type: "unfluffify:remote-support-viewer-init" },
-        getRemoteSupportSupportPageViewerOrigin(),
-        [channel.port2]
-      );
-    } catch (error) {
-      resetRemoteSupportSupportPageViewerConnection();
-    }
-  });
-}
-
-async function waitForRemoteSupportSupportPageViewerReady(timeoutMs = 4000) {
-  if (remoteSupportSupportPageViewerReady && remoteSupportSupportPageViewerPort) {
-    return true;
-  }
-
-  const elements = remoteSupportSupportPageElements || ensureRemoteSupportSupportPageUi();
-  if (!elements || !elements.viewer) {
-    return false;
-  }
-
-  return new Promise((resolve) => {
-    const timeoutId = window.setTimeout(() => {
-      remoteSupportSupportPageViewerReadyWaiters = remoteSupportSupportPageViewerReadyWaiters.filter(
-        (waiter) => waiter !== handleReady
-      );
-      resolve(false);
-    }, timeoutMs);
-
-    const handleReady = (ready) => {
-      window.clearTimeout(timeoutId);
-      resolve(Boolean(ready));
-    };
-
-    remoteSupportSupportPageViewerReadyWaiters.push(handleReady);
-  });
+  getRemoteSupportViewerClient().initializeViewer(viewerFrame);
 }
 
 async function sendRemoteSupportSupportPageViewerRequest(requestType, payload = {}) {
-  const ready = await waitForRemoteSupportSupportPageViewerReady();
-  if (!ready || !remoteSupportSupportPageViewerPort) {
-    return {
-      ok: false,
-      error: "Remote support viewer unavailable"
-    };
-  }
-
-  const requestId = `viewer-${Date.now()}-${(remoteSupportSupportPageViewerRequestId += 1)}`;
-  return new Promise((resolve) => {
-    const timeoutId = window.setTimeout(() => {
-      remoteSupportSupportPageViewerPendingRequests.delete(requestId);
-      resolve({ ok: false, error: "Remote support viewer timed out" });
-    }, REMOTE_SUPPORT_SUPPORT_PAGE_VIEWER_REQUEST_TIMEOUT_MS);
-
-    remoteSupportSupportPageViewerPendingRequests.set(requestId, {
-      resolve,
-      timeoutId
-    });
-
-    try {
-      remoteSupportSupportPageViewerPort.postMessage({
-        type: "request",
-        requestId,
-        requestType,
-        ...payload
-      });
-    } catch (error) {
-      remoteSupportSupportPageViewerPendingRequests.delete(requestId);
-      window.clearTimeout(timeoutId);
-      resolve({ ok: false, error: "Remote support viewer unavailable" });
-    }
-  });
+  return getRemoteSupportViewerClient().sendRequest(requestType, payload);
 }
 
 function sendRuntimeMessageSafely(message) {
@@ -1412,15 +1217,16 @@ function buildRemoteSupportSupportPageSurfaceText() {
 
 function getRemoteSupportSupportPageSurfaceRect(surface, frame, options = {}) {
   const fallbackRect = surface.getBoundingClientRect();
+  const remoteSupportViewerClient = getRemoteSupportViewerClient();
   const intrinsicWidth = Number.isFinite(Number(options.intrinsicWidth))
     ? Math.max(0, Math.trunc(Number(options.intrinsicWidth)))
-    : remoteSupportSupportPageViewerVideoActive
-      ? remoteSupportSupportPageViewerIntrinsicWidth
+    : remoteSupportViewerClient.isVideoActive()
+      ? remoteSupportViewerClient.getIntrinsicWidth()
       : (frame && !frame.hidden ? (frame.naturalWidth || frame.width || 0) : 0);
   const intrinsicHeight = Number.isFinite(Number(options.intrinsicHeight))
     ? Math.max(0, Math.trunc(Number(options.intrinsicHeight)))
-    : remoteSupportSupportPageViewerVideoActive
-      ? remoteSupportSupportPageViewerIntrinsicHeight
+    : remoteSupportViewerClient.isVideoActive()
+      ? remoteSupportViewerClient.getIntrinsicHeight()
       : (frame && !frame.hidden ? (frame.naturalHeight || frame.height || 0) : 0);
 
   if (!intrinsicWidth || !intrinsicHeight) {
@@ -1649,7 +1455,7 @@ function syncRemoteSupportSupportPageFrame() {
 
   syncRemoteSupportSupportPageViewerVisibility();
 
-  if (remoteSupportSupportPageViewerVideoActive) {
+  if (getRemoteSupportViewerClient().isVideoActive()) {
     remoteSupportSupportPageRenderedFrame = "";
     elements.frame.hidden = true;
     if (elements.frame.getAttribute("src")) {

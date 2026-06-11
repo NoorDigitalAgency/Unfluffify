@@ -35,6 +35,7 @@ test("content decomposition guard: baseline content modules are imported", () =>
   assertImportsContentModule("page-telemetry-bridge");
   assertImportsContentModule("property-lock-banner");
   assertImportsContentModule("remote-support-client");
+  assertImportsContentModule("remote-support-viewer-client");
 
   assertContentDoesNotDefine("handlePageTelemetryWindowMessage");
   assertContentDoesNotDefine("syncPageTelemetryControl");
@@ -45,4 +46,9 @@ test("content decomposition guard: baseline content modules are imported", () =>
   assertContentDoesNotDefine("stopRemoteSupportMediaQuieting");
   assertContentDoesNotDefine("createPropertyLockBannerButton");
   assertContentDoesNotDefine("createPropertyLockBannerLabel");
+  assertContentDoesNotDefine("getRemoteSupportSupportPageViewerOrigin");
+  assertContentDoesNotDefine("resolveRemoteSupportSupportPageViewerWaiters");
+  assertContentDoesNotDefine("clearRemoteSupportSupportPageViewerPendingRequests");
+  assertContentDoesNotDefine("handleRemoteSupportSupportPageViewerPortMessage");
+  assertContentDoesNotDefine("waitForRemoteSupportSupportPageViewerReady");
 });
