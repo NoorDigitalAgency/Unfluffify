@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-11
 Branch: `main`
-Status: world decomposition complete; content follow-up D0-D2, E0-E2, Track F F1-F24, and G0 guard-matrix contract coverage complete through the current working slice.
+Status: world decomposition complete; content follow-up D0-D2, E0-E2, Track F F1-F24, and Phase G0 complete through the current working slice.
 
 ## Current Repository State
 
@@ -130,10 +130,9 @@ The next high-risk plan is now documented in
 `.copilot/high-risk-content-branches-plan.md`. Do not touch the remaining
 runtime branches until the user explicitly approves starting that plan.
 
-Continue Phase G0 in that plan. The branch inventory and guard-matrix contract
-coverage are in `tests/content-high-risk-branches.test.js`. The next isolated
-G0 commit is the `revertPageDraft` async failure fallback before extraction
-work.
+Phase G0 in that plan is complete through branch inventory, guard-matrix
+contract coverage, and the isolated `revertPageDraft` async failure fallback.
+The next implementation phase is G1, `configUpdated` handler extraction.
 
 Current baseline expectations:
 
@@ -149,8 +148,8 @@ Post-F24 audit result:
    `setExplicitInclude`, `savePageDraft`, `revertPageDraft`, and
    `showAiPreview`.
 3. Missing coverage should be addressed before extraction, not while extracting.
-4. The `revertPageDraft` branch has a pre-existing uncaught async body and needs
-   an isolated G0 fix/test before handler extraction.
+4. The `revertPageDraft` branch now has an isolated async fallback test and
+   responds `{ ok: false }` when its async load/sync body fails.
 
 ## Model Capability Recommendation
 

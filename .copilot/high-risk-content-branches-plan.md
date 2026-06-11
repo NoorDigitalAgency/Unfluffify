@@ -173,8 +173,8 @@ G0 decisions recorded before extraction:
    already-active-preview guard. Any later hardening must be added as a tested
    behavior change before extraction.
 - `revertPageDraft` keeps its existing base-url, `state.config`, and
-   property-lock gates. The pre-existing missing async failure fallback is
-   tracked as the next isolated G0 bugfix commit.
+   property-lock gates. Its async load/sync body now catches failures and
+   responds `{ ok: false }` before the later G3 extraction.
 
 Focused validation:
 ```bash

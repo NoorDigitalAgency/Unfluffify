@@ -7543,7 +7543,9 @@ export function main() {
           dirty: core.isPageDraftDirty(pageUrl),
           entry: core.getSavedPageEntry(pageUrl)
         });
-      })();
+      })().catch(() => {
+        sendResponse({ ok: false });
+      });
       return true;
     }
 

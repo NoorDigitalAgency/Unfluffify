@@ -45,7 +45,7 @@ const guardMatrix = {
     requiresConfig: true,
     propertyLockBlock: true,
     reconciliationPendingBlock: false,
-    catchFallback: false
+    catchFallback: true
   },
   savePageDraft: {
     activeBaseUrlScope: true,
@@ -171,6 +171,16 @@ function assertBranchHasCatchFallback(messageType, branch, required) {
     `${messageType} should send an explicit response when async work fails`
   );
 }
+
+test("revertPageDraft load failures answer ok false", () => {
+  const branch = branchOrPlannedHandler("revertPageDraft");
+
+  assert.match(branch, /const config = await core\.loadConfig\(targetBaseUrl\);/);
+  assert.match(
+    branch,
+    /\}\)\(\)\.catch\(\(\) => \{\s*sendResponse\(\{ ok: false \}\);\s*\}\);/
+  );
+});
 
 test("high-risk branch inventory remains inline until planned handlers are exposed", () => {
   for (const messageType of remainingHighRiskBranches.keys()) {
