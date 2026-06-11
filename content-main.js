@@ -108,6 +108,7 @@ import { createAiPreviewExpandedModeHandler } from "./content/ai-preview-expande
 import { createAiPreviewGetStateHandler } from "./content/ai-preview-get-state-handler.js";
 import { createAiPreviewStateResponseBuilder } from "./content/ai-preview-state-response.js";
 import { createDefaultExclusionsHandler } from "./content/default-exclusions-handler.js";
+import { createDescribeXpathsHandler } from "./content/describe-xpaths-handler.js";
 import { createInvisibleXpathsHandler } from "./content/invisible-xpaths-handler.js";
 import { createInspectionStatusResolver } from "./content/inspection-status.js";
 import { initializePageWorldRelay } from "./content/page-world-relay.js";
@@ -406,6 +407,7 @@ let aiPreviewExpandedModeHandler = null;
 let aiPreviewGetStateHandler = null;
 let aiPreviewStateResponseBuilder = null;
 let defaultExclusionsHandler = null;
+let describeXpathsHandler = null;
 let invisibleXpathsHandler = null;
 let propertyLockPortClient = null;
 let propertyLockStateMachine = null;
@@ -597,6 +599,13 @@ function getDefaultExclusionsHandler() {
     defaultExclusionsHandler = createDefaultExclusionsHandler(createDefaultExclusionsHandlerDeps());
   }
   return defaultExclusionsHandler;
+}
+
+function getDescribeXpathsHandler() {
+  if (!describeXpathsHandler) {
+    describeXpathsHandler = createDescribeXpathsHandler(createDescribeXpathsHandlerDeps());
+  }
+  return describeXpathsHandler;
 }
 
 function getInvisibleXpathsHandler() {
@@ -6293,6 +6302,14 @@ function createInvisibleXpathsHandlerDeps() {
   };
 }
 
+function createDescribeXpathsHandlerDeps() {
+  return {
+    getElementFromXPath: (xpath) => core.getElementFromXPath(xpath),
+    getElementLabel: (element) => core.getElementLabel(element),
+    isVisible: (element) => core.isVisible(element)
+  };
+}
+
 function createRemoteSupportStateHandlerDeps() {
   return {
     applyRemoteSupportSessionState,
@@ -6997,16 +7014,7 @@ export function main() {
     }
 
     if (message.type === "describeXPathsOnPage") {
-      const xpaths = Array.isArray(message.xpaths) ? message.xpaths : [];
-      const items = [];
-      xpaths.forEach((xpath) => {
-        const el = core.getElementFromXPath(xpath);
-        if (!el || !core.isVisible(el)) {
-          return;
-        }
-        items.push({ xpath, text: core.getElementLabel(el) });
-      });
-      sendResponse({ items });
+      sendResponse(getDescribeXpathsHandler().handleMessage(message));
       return;
     }
 
