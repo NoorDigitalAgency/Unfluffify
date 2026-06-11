@@ -81,6 +81,7 @@ test("silent highlighting keeps immutable sources on a dedicated immutable overl
 
 test("silent highlighting owns page motion pause for matching pages even without overlay targets", () => {
   const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const stateMachineSource = readFileSync(new URL("../content/property-lock-state-machine.js", import.meta.url), "utf8");
 
   assert.match(source, /const SILENT_HIGHLIGHTING_MOTION_PAUSE_REASON = "silent-highlighting";/);
   assert.match(
@@ -100,8 +101,8 @@ test("silent highlighting owns page motion pause for matching pages even without
     /async function runEditorSilentHighlightingActivation\(\) \{[\s\S]*?core\.setPageSaveReconciliationPending\(baseUrl, pageUrl, \{[\s\S]*?reason: SILENT_HIGHLIGHTING_PREPARATION_REASON[\s\S]*?\}\);[\s\S]*?core\.warmupSilentHighlightingBeforeMotionPause\([\s\S]*?SILENT_HIGHLIGHTING_MOTION_PAUSE_REASON[\s\S]*?\);[\s\S]*?await refreshSilentHighlightings\(\);[\s\S]*?\}/
   );
   assert.match(
-    source,
-    /const becameEditor = \(!previousState \|\| !previousState\.isEditor\) && serverMessage\.isEditor;[\s\S]*?if \(becameEditor\) \{[\s\S]*?runEditorSilentHighlightingActivation\(\)\.catch\(\(\) => \{/
+    stateMachineSource,
+    /const becameEditor = \(!previousState \|\| !previousState\.isEditor\) && serverMessage\.isEditor;[\s\S]*?if \(becameEditor\) \{[\s\S]*?deps\.runEditorSilentHighlightingActivation\(\)\.catch\(\(\) => \{/
   );
   const noTargetsBlock = source.match(/const shouldObserve = hasSelectorHighlights \|\| hasHiddenConsent;[\s\S]*?if \(!shouldObserve\) \{[\s\S]*?return;[\s\S]*?\}/);
   assert.ok(noTargetsBlock);

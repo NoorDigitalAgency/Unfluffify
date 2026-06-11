@@ -86,6 +86,7 @@ test("manual page enable waits for activation reveal before refreshing highlight
 
 test("reveal activation starts on becameEditor transition and not on marking enable", () => {
   const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const stateMachineSource = readFileSync(new URL("../content/property-lock-state-machine.js", import.meta.url), "utf8");
 
   const messageStart = source.indexOf("if (message.type === \"setEnabled\") {");
   const messageEnd = source.indexOf("if (message.type === \"getInspectionStatus\") {", messageStart);
@@ -98,15 +99,15 @@ test("reveal activation starts on becameEditor transition and not on marking ena
   assert.doesNotMatch(messageSource, /warmupSilentHighlightingBeforeMotionPause\(/);
   assert.doesNotMatch(messageSource, /runEditorSilentHighlightingActivation\(/);
 
-  const lockStateStart = source.indexOf("if (type === PROPERTY_LOCK_WS_LOCK_STATE) {");
-  const lockStateEnd = source.indexOf("if (type === PROPERTY_LOCK_WS_DISCONNECT_WARNING) {", lockStateStart);
-  const lockStateSource = source.slice(lockStateStart, lockStateEnd);
+  const lockStateStart = stateMachineSource.indexOf("if (type === deps.PROPERTY_LOCK_WS_LOCK_STATE) {");
+  const lockStateEnd = stateMachineSource.indexOf("if (type === deps.PROPERTY_LOCK_WS_DISCONNECT_WARNING) {", lockStateStart);
+  const lockStateSource = stateMachineSource.slice(lockStateStart, lockStateEnd);
   assert.ok(lockStateStart > -1);
   assert.ok(lockStateEnd > lockStateStart);
   assert.match(lockStateSource, /const becameEditor = \(!previousState \|\| !previousState\.isEditor\) && serverMessage\.isEditor;/);
   assert.match(lockStateSource, /if \(!serverMessage\.isEditor && !serverMessage\.isSameUserEditor\) \{/);
-  assert.match(lockStateSource, /if \(becameEditor\) \{[\s\S]*?runEditorSilentHighlightingActivation\(\)\.catch\(\(\) => \{/);
-  assert.match(lockStateSource, /\} else if \(serverMessage\.isEditor\) \{[\s\S]*?runEditorSilentHighlightingActivation\(\)\.catch\(\(\) => \{/);
+  assert.match(lockStateSource, /if \(becameEditor\) \{[\s\S]*?deps\.runEditorSilentHighlightingActivation\(\)\.catch\(\(\) => \{/);
+  assert.match(lockStateSource, /\} else if \(serverMessage\.isEditor\) \{[\s\S]*?deps\.runEditorSilentHighlightingActivation\(\)\.catch\(\(\) => \{/);
   assert.doesNotMatch(lockStateSource, /\} else if \(serverMessage\.isEditor\) \{[\s\S]*?silentHighlightEditorRevealKey = "";/);
 
   const urlWatcherStart = source.indexOf("function startSilentHighlightingUrlWatcher() {");

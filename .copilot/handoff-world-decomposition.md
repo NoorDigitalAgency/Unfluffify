@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-11
 Branch: `main`
-Status: world-decomposition program complete; content follow-up D2 + E1 complete.
+Status: world-decomposition program complete; content follow-up D2 + E2 complete.
 
 ## Active Plan
 
@@ -23,7 +23,7 @@ git status --short --branch
 # ## main...origin/main
 
 npm test
-# 858 pass / 0 fail
+# 861 pass / 0 fail
 ```
 
 Recent completion commits:
@@ -141,6 +141,16 @@ The active plan turns those findings into mechanical phases.
    - `npm test` -> 858 pass / 0 fail
 6. Live validation deferred by policy while
    `FEATURE_FLAGS.propertyLockCollaboration` is false.
+7. E2 complete: property-lock recovery/persistence/warning transitions and
+   server-message reducer moved from `content-main.js` into
+   `content/property-lock-state-machine.js`, with `content-main.js` delegating
+   through a dependency-injected state-machine factory.
+8. E2 validation:
+   - `npm test -- tests/property-lock-state-machine.test.js tests/property-lock.test.js tests/property-lock-render-mode.test.js tests/content-decomposition-boundary.test.js tests/manifest-permissions.test.js`
+     -> 41 pass / 0 fail
+   - `npm test` -> 861 pass / 0 fail
+9. Live validation deferred by policy while
+   `FEATURE_FLAGS.propertyLockCollaboration` is false.
 
 ## Non-Negotiable Guardrails
 
@@ -181,21 +191,21 @@ Start with `.copilot/content-main-followup-refactor-plan.md`.
 Recommended next implementation phase:
 
 1. Run the standard phase baseline from the active plan.
-2. Begin Phase E2: extract property-lock server message state machine into
-   `content/property-lock-state-machine.js`.
+2. Track E is complete through E2. Do not start Track F without explicit user
+   approval because it touches protected marking/silent-highlight behavior.
 
-Track D is complete through D2. Track E is complete through E1.
+Track D is complete through D2. Track E is complete through E2.
 
 ## Validation Commands For The Next Agent
 
-Use these before starting E2:
+Use these before any Track F proposal:
 
 ```bash
 git status --short --branch
 git pull --ff-only
 npm test
 rg -n "remoteSupport:|propertyLockCollaboration:" common/feature-flags.js
-rg -n "content/page-telemetry-bridge.js|content/remote-support-client.js|content/remote-support-viewer-client.js|content/remote-support-support-page.js|content/property-lock-banner.js|content/property-lock-banner-mode.js|content/property-lock-port-client.js" manifest.json
+rg -n "content/page-telemetry-bridge.js|content/remote-support-client.js|content/remote-support-viewer-client.js|content/remote-support-support-page.js|content/property-lock-banner.js|content/property-lock-banner-mode.js|content/property-lock-port-client.js|content/property-lock-state-machine.js" manifest.json
 ```
 
 Expected:

@@ -18,6 +18,7 @@ import {
 const propertyLockBannerSource = readFileSync(new URL("../content/property-lock-banner.js", import.meta.url), "utf8");
 const propertyLockBannerModeSource = readFileSync(new URL("../content/property-lock-banner-mode.js", import.meta.url), "utf8");
 const propertyLockPortClientSource = readFileSync(new URL("../content/property-lock-port-client.js", import.meta.url), "utf8");
+const propertyLockStateMachineSource = readFileSync(new URL("../content/property-lock-state-machine.js", import.meta.url), "utf8");
 
 test("buildPropertyLockWssUrl requires a stage base and token", () => {
   assert.equal(buildPropertyLockWssUrl("", "token"), "");
@@ -218,12 +219,12 @@ test("property lock text includes disconnected interaction blocked message", () 
 test("content-main starts and persists an off-candidate editor countdown before releasing the lock", () => {
   const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
 
-  assert.match(source, /function persistPropertyLockOffCandidateDeadline\(deadlineAt\) \{/);
-  assert.match(source, /propertyLockOffCandidateDeadlineAt: Number\.isFinite\(deadlineAt\)/);
-  assert.match(source, /function startPropertyLockOffCandidateWarning\(\) \{/);
-  assert.match(source, /propertyLockOffCandidateDeadlineAt = Date\.now\(\) \+ PROPERTY_LOCK_OFF_CANDIDATE_WARNING_TIMEOUT_MS;/);
-  assert.match(source, /propertyLockBannerMode = "editor_off_candidate_countdown";/);
-  assert.match(source, /window\.setTimeout\(\(\) => \{[\s\S]*?sendPropertyLockMessage\(PROPERTY_LOCK_CONTENT_RELEASE\);[\s\S]*?\}, PROPERTY_LOCK_OFF_CANDIDATE_WARNING_TIMEOUT_MS \+ 100\);/);
+  assert.match(source, /function persistPropertyLockOffCandidateDeadline\(deadlineAt\) \{[\s\S]*?getPropertyLockStateMachine\(\)\.persistOffCandidateDeadline\(deadlineAt\);/);
+  assert.match(source, /function startPropertyLockOffCandidateWarning\(\) \{[\s\S]*?getPropertyLockStateMachine\(\)\.startOffCandidateWarning\(\);/);
+  assert.match(propertyLockStateMachineSource, /propertyLockOffCandidateDeadlineAt: Number\.isFinite\(deadlineAt\)/);
+  assert.match(propertyLockStateMachineSource, /deps\.setPropertyLockOffCandidateDeadlineAt\(Date\.now\(\) \+ deps\.PROPERTY_LOCK_OFF_CANDIDATE_WARNING_TIMEOUT_MS\);/);
+  assert.match(propertyLockStateMachineSource, /deps\.setPropertyLockBannerMode\("editor_off_candidate_countdown"\);/);
+  assert.match(propertyLockStateMachineSource, /deps\.getTimerHost\(\)\.setTimeout\(\(\) => \{[\s\S]*?deps\.sendPropertyLockMessage\(deps\.PROPERTY_LOCK_CONTENT_RELEASE\);[\s\S]*?\}, deps\.PROPERTY_LOCK_OFF_CANDIDATE_WARNING_TIMEOUT_MS \+ 100\);/);
   assert.match(source, /async function syncPropertyLockOffCandidateWarning\(baseUrl, pageUrl = location\.href\) \{/);
   assert.match(source, /if \(propertyLockState && propertyLockState\.isEditor\) \{\s*startPropertyLockOffCandidateWarning\(\);/);
   assert.match(propertyLockBannerSource, /case "editor_off_candidate_countdown":/);
@@ -233,10 +234,10 @@ test("content-main starts and persists an off-candidate editor countdown before 
 test("content-main starts and persists a cross-property editor cooldown before releasing the old lock", () => {
   const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
 
-  assert.match(source, /function normalizePropertyLockRecoveryTabState\(tabState\) \{/);
-  assert.match(source, /function persistPropertyLockRecoveryState\(\{ siteId = null, baseUrl = "", clientId = "", deadlineAt = 0 \} = \{\}\) \{/);
-  assert.match(source, /function startPropertyLockCrossPropertyWarning\(recoveryState\) \{/);
-  assert.match(source, /propertyLockRecoveryDeadlineAt = recoveryState\.deadlineAt > Date\.now\(\)\s*\?\s*recoveryState\.deadlineAt\s*:\s*Date\.now\(\) \+ PROPERTY_LOCK_CROSS_PROPERTY_COOLDOWN_TIMEOUT_MS;/);
+  assert.match(source, /function normalizePropertyLockRecoveryTabState\(tabState\) \{[\s\S]*?getPropertyLockStateMachine\(\)\.normalizeRecoveryTabState\(tabState\);/);
+  assert.match(source, /function persistPropertyLockRecoveryState\(\{ siteId = null, baseUrl = "", clientId = "", deadlineAt = 0 \} = \{\}\) \{[\s\S]*?getPropertyLockStateMachine\(\)\.persistRecoveryState\(\{/);
+  assert.match(source, /function startPropertyLockCrossPropertyWarning\(recoveryState\) \{[\s\S]*?getPropertyLockStateMachine\(\)\.startCrossPropertyWarning\(recoveryState\);/);
+  assert.match(propertyLockStateMachineSource, /deps\.setPropertyLockRecoveryDeadlineAt\([\s\S]*?Date\.now\(\) \+ deps\.PROPERTY_LOCK_CROSS_PROPERTY_COOLDOWN_TIMEOUT_MS/);
   assert.match(source, /type: PROPERTY_LOCK_CONTENT_RELEASE,\s*siteId: recoverySiteId,\s*clientId: recoveryClientId/);
   assert.match(propertyLockBannerModeSource, /if \(deps\.getPropertyLockRecoveryDeadlineAt\(\) > Date\.now\(\)\) \{[\s\S]*?deps\.setPropertyLockBannerMode\("editor_cross_property_countdown"\);/);
   assert.match(propertyLockBannerSource, /case "editor_cross_property_countdown":/);
@@ -244,40 +245,38 @@ test("content-main starts and persists a cross-property editor cooldown before r
 });
 
 test("content-main does not reset disconnect countdown on repeated unavailable status updates", () => {
-  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
-  const applyStart = source.indexOf("function applyPropertyLockServerMessage(serverMessage) {");
-  const applyEnd = source.indexOf("function updatePropertyLockBannerMode()", applyStart);
-  const applySource = source.slice(applyStart, applyEnd);
+  const applyStart = propertyLockStateMachineSource.indexOf("function applyServerMessage(serverMessage) {");
+  const applyEnd = propertyLockStateMachineSource.indexOf("return {", applyStart);
+  const applySource = propertyLockStateMachineSource.slice(applyStart, applyEnd);
 
   assert.ok(applyStart >= 0);
   assert.match(
     applySource,
-    /if \(propertyLockBannerMode !== "editor_disconnect_countdown" \|\| propertyLockBannerCountdownValue <= 0\) \{[\s\S]*?propertyLockBannerCountdownValue = defaultDisconnectCountdownSeconds;[\s\S]*?restartPropertyLockBannerCountdown\(\);/
+    /if \(deps\.getPropertyLockBannerMode\(\) !== "editor_disconnect_countdown" \|\| deps\.getPropertyLockBannerCountdownValue\(\) <= 0\) \{[\s\S]*?deps\.setPropertyLockBannerCountdownValue\(defaultDisconnectCountdownSeconds\);[\s\S]*?deps\.restartPropertyLockBannerCountdown\(\);/
   );
   assert.match(
     applySource,
-    /\} else if \(!propertyLockBannerCountdownTimer\) \{[\s\S]*?restartPropertyLockBannerCountdown\(\);/
+    /\} else if \(!deps\.getPropertyLockBannerCountdownTimer\(\)\) \{[\s\S]*?deps\.restartPropertyLockBannerCountdown\(\);/
   );
 });
 
 test("content-main uses 70-second fallback countdown for inactivity warning and keeps it running", () => {
-  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
-  const applyStart = source.indexOf("function applyPropertyLockServerMessage(serverMessage) {");
-  const applyEnd = source.indexOf("function updatePropertyLockBannerMode()", applyStart);
-  const applySource = source.slice(applyStart, applyEnd);
+  const applyStart = propertyLockStateMachineSource.indexOf("function applyServerMessage(serverMessage) {");
+  const applyEnd = propertyLockStateMachineSource.indexOf("return {", applyStart);
+  const applySource = propertyLockStateMachineSource.slice(applyStart, applyEnd);
 
   assert.ok(applyStart >= 0);
   assert.match(
     applySource,
-    /if \(type === PROPERTY_LOCK_WS_INACTIVITY_WARNING\) \{[\s\S]*?const defaultInactivityCountdownSeconds = Math\.ceil\(PROPERTY_LOCK_CONNECTION_LOSS_TIMEOUT_MS \/ 1000\);/
+    /if \(type === deps\.PROPERTY_LOCK_WS_INACTIVITY_WARNING\) \{[\s\S]*?const defaultInactivityCountdownSeconds = Math\.ceil\(deps\.PROPERTY_LOCK_CONNECTION_LOSS_TIMEOUT_MS \/ 1000\);/
   );
   assert.match(
     applySource,
-    /\} else if \(propertyLockBannerCountdownValue <= 0\) \{[\s\S]*?propertyLockBannerCountdownValue = defaultInactivityCountdownSeconds;[\s\S]*?restartPropertyLockBannerCountdown\(\);/
+    /\} else if \(deps\.getPropertyLockBannerCountdownValue\(\) <= 0\) \{[\s\S]*?deps\.setPropertyLockBannerCountdownValue\(defaultInactivityCountdownSeconds\);[\s\S]*?deps\.restartPropertyLockBannerCountdown\(\);/
   );
   assert.match(
     applySource,
-    /\} else if \(!propertyLockBannerCountdownTimer\) \{[\s\S]*?restartPropertyLockBannerCountdown\(\);/
+    /\} else if \(!deps\.getPropertyLockBannerCountdownTimer\(\)\) \{[\s\S]*?deps\.restartPropertyLockBannerCountdown\(\);/
   );
   assert.match(
     propertyLockBannerModeSource,
