@@ -265,9 +265,7 @@ export function createRemoteSupportClient(deps) {
       return;
     }
     try {
-      const response = await chrome.runtime.sendMessage({
-        type: "getRemoteSupportState"
-      });
+      const response = await deps.requestRemoteSupportState();
       if (!response || !response.ok) {
         return;
       }

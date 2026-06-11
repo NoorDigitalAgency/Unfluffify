@@ -114,9 +114,19 @@ function installDomHarness({ video } = {}) {
   };
 }
 
-function createClientDeps({ enabled = true, messages = [], syncs = [] } = {}) {
+function createClientDeps({
+  enabled = true,
+  messages = [],
+  stateRequests = [],
+  stateResponses = [],
+  syncs = []
+} = {}) {
   return {
     isRemoteSupportFeatureEnabled: () => enabled,
+    async requestRemoteSupportState() {
+      stateRequests.push("getRemoteSupportState");
+      return stateResponses.length ? stateResponses.shift() : { ok: true, state: null };
+    },
     sendRuntimeMessageSafely(message) {
       messages.push(message);
       return Promise.resolve({ ok: true });
@@ -143,6 +153,34 @@ test("remote support client resets state while the feature is disabled", () => {
     assert.equal(client.getRole(), "");
     assert.equal(client.getIncludePayloads(), false);
     assert.deepEqual(syncs, ["sync"]);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("remote support client syncs initial state through injected runtime request", async () => {
+  const harness = installDomHarness();
+  const stateRequests = [];
+  try {
+    const client = createRemoteSupportClient(createClientDeps({
+      stateRequests,
+      stateResponses: [{
+        ok: true,
+        state: {
+          active: true,
+          mode: REMOTE_SUPPORT_MODE_BEING_SUPPORTED,
+          role: "requester",
+          includePayloads: true
+        }
+      }]
+    }));
+
+    await client.syncSessionStateFromBackground();
+
+    assert.deepEqual(stateRequests, ["getRemoteSupportState"]);
+    assert.equal(client.getMode(), REMOTE_SUPPORT_MODE_BEING_SUPPORTED);
+    assert.equal(client.getRole(), "requester");
+    assert.equal(client.getIncludePayloads(), true);
   } finally {
     harness.restore();
   }

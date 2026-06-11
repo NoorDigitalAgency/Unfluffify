@@ -745,6 +745,9 @@ function getRemoteSupportClient() {
   if (!remoteSupportClient) {
     remoteSupportClient = createRemoteSupportClient({
       isRemoteSupportFeatureEnabled: () => isFeatureEnabled("remoteSupport"),
+      requestRemoteSupportState: () => chrome.runtime.sendMessage({
+        type: "getRemoteSupportState"
+      }),
       sendRuntimeMessageSafely,
       syncPageTelemetryBridgeLifecycle,
       EXTENSION_UI_FONT_STACK,

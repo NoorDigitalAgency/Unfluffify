@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-11
 Branch: `main`
-Status: world-decomposition program complete; content follow-up plan ready.
+Status: world-decomposition program complete; content follow-up D0 complete.
 
 ## Active Plan
 
@@ -23,17 +23,17 @@ git status --short --branch
 # ## main...origin/main
 
 npm test
-# 840 pass / 0 fail
+# 841 pass / 0 fail
 ```
 
 Recent completion commits:
 
-1. `c6e49c7 refactor(content): extract property lock banner`
-2. `60ee4df refactor(content): extract remote support client`
-3. `0e8bf99 refactor(content): extract page telemetry bridge`
-4. `e4eb958 fix(extension): restore background and popup startup`
-5. `d81064f test(content): add decomposition boundary guard`
-6. `713fe79 refactor(popup): group popup timers`
+1. `refactor(content): inject remote support state request` (this handoff update)
+2. `dde67f9 docs(copilot): remove stale historical plans`
+3. `425b6cb docs(copilot): add content follow-up refactor plan`
+4. `c6e49c7 refactor(content): extract property lock banner`
+5. `60ee4df refactor(content): extract remote support client`
+6. `0e8bf99 refactor(content): extract page telemetry bridge`
 
 Feature flags relevant to the next work:
 
@@ -84,13 +84,27 @@ The 2026-06-11 review found:
    the user's current policy.
 3. `content-main.js` is still large, but most of the remaining mass is protected
    marking, silent-highlight, visibility, and reconciliation logic.
-4. `content/remote-support-client.js` still has one direct
-   `chrome.runtime.sendMessage` dependency that should be injected for testability.
+4. D0 has addressed the direct `chrome.runtime.sendMessage` dependency in
+   `content/remote-support-client.js` by injecting `requestRemoteSupportState`.
 5. Remote-support support-page viewer/UI code and property-lock mode/state code
    are the next sensible decoupling candidates, but they are flag-gated and must
    remain behavior-preserving.
 
 The active plan turns those findings into mechanical phases.
+
+## Content Follow-Up Progress
+
+### Track D - Remote Support Content Follow-Up
+
+1. D0 complete: `content/remote-support-client.js` now requests initial
+   background state through the injected `requestRemoteSupportState` dependency
+   supplied by `content-main.js`.
+2. D0 validation:
+   - `npm test -- tests/content-remote-support-client.test.js tests/content-decomposition-boundary.test.js`
+     -> 5 pass / 0 fail
+   - `npm test` -> 841 pass / 0 fail
+3. Live validation deferred by policy while `FEATURE_FLAGS.remoteSupport` is
+   false.
 
 ## Non-Negotiable Guardrails
 
@@ -130,17 +144,15 @@ Start with `.copilot/content-main-followup-refactor-plan.md`.
 
 Recommended next implementation phase:
 
-1. Run PRE0 from the active plan to verify the current baseline.
-2. PRE1 documentation drift is addressed by this docs cleanup commit. If future
-   edits reintroduce stale references, repeat PRE1 before code work.
-3. Begin Phase D0: inject the remote-support state request dependency into
-   `content/remote-support-client.js`.
+1. Run the standard phase baseline from the active plan.
+2. Begin Phase D1: extract the remote-support support-page viewer transport into
+   `content/remote-support-viewer-client.js`.
 
-Do not start D1/D2 before D0 is committed and pushed.
+Do not start D2 before D1 is committed and pushed.
 
 ## Validation Commands For The Next Agent
 
-Use these before starting D0:
+Use these before starting D1:
 
 ```bash
 git status --short --branch
