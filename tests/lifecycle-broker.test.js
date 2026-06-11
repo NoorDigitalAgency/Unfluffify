@@ -6,6 +6,7 @@ const backgroundSource = readFileSync(new URL("../background.js", import.meta.ur
 const popupStateBrokerSource = readFileSync(new URL("../background/popup-state-broker.js", import.meta.url), "utf8");
 const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
 const contentSource = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+const renderModeHandlersSource = readFileSync(new URL("../content/render-mode-inspection-handlers.js", import.meta.url), "utf8");
 const contractSource = readFileSync(new URL("../common/world-messaging-contract.js", import.meta.url), "utf8");
 
 function extractSourceBlock(source, startNeedle, endNeedle) {
@@ -104,11 +105,12 @@ test("content emits lifecycle events for readiness, activation, and render-mode 
   );
   assert.match(contentSource, /kind: LIFECYCLE_KINDS\.ACTIVATION[\s\S]*?phase: LIFECYCLE_PHASES\.STARTED/);
   assert.match(contentSource, /kind: LIFECYCLE_KINDS\.ACTIVATION[\s\S]*?phase: LIFECYCLE_PHASES\.FINISHED/);
-  assert.match(contentSource, /kind: LIFECYCLE_KINDS\.RENDER_MODE_INSPECTION[\s\S]*?phase: LIFECYCLE_PHASES\.STARTED/);
-  assert.match(contentSource, /phase: LIFECYCLE_PHASES\.REVEAL_STARTED/);
-  assert.match(contentSource, /phase: LIFECYCLE_PHASES\.REVEAL_FINISHED/);
-  assert.match(contentSource, /phase: LIFECYCLE_PHASES\.HTML_CAPTURED/);
-  assert.match(contentSource, /phase: LIFECYCLE_PHASES\.FINISHED/);
+  assert.match(contentSource, /createRenderModeInspectionHandlers\(createRenderModeInspectionHandlersDeps\(\)\)/);
+  assert.match(renderModeHandlersSource, /kind: deps\.LIFECYCLE_KINDS\.RENDER_MODE_INSPECTION[\s\S]*?phase: deps\.LIFECYCLE_PHASES\.STARTED/);
+  assert.match(renderModeHandlersSource, /phase: deps\.LIFECYCLE_PHASES\.REVEAL_STARTED/);
+  assert.match(renderModeHandlersSource, /phase: deps\.LIFECYCLE_PHASES\.REVEAL_FINISHED/);
+  assert.match(renderModeHandlersSource, /phase: deps\.LIFECYCLE_PHASES\.HTML_CAPTURED/);
+  assert.match(renderModeHandlersSource, /phase: deps\.LIFECYCLE_PHASES\.FINISHED/);
 });
 
 test("popup spinner UI mirrors background current state instead of session storage", () => {

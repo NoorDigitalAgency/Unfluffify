@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
 const propertyLockUiSource = readFileSync(new URL("../popup/property-lock-ui.js", import.meta.url), "utf8");
 const contentSource = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+const renderModeHandlersSource = readFileSync(new URL("../content/render-mode-inspection-handlers.js", import.meta.url), "utf8");
 const propertyLockBannerSource = readFileSync(new URL("../content/property-lock-banner.js", import.meta.url), "utf8");
 const propertyLockStateMachineSource = readFileSync(new URL("../content/property-lock-state-machine.js", import.meta.url), "utf8");
 const textSource = readFileSync(new URL("../common/text.js", import.meta.url), "utf8");
@@ -67,11 +68,12 @@ test("content suppresses page-side connection-loss countdown during render-mode 
     "export function renderPropertyLockBanner",
     "export function clearPropertyLockBannerCountdown"
   );
-  const endHandlerStart = contentSource.indexOf("function handleRenderModeInspectionEndCommand(message = {}) {");
-  const endHandlerEnd = contentSource.indexOf("function handleHideConsentForInspectionCommand()", endHandlerStart);
+  assert.match(contentSource, /handleRenderModeInspectionEndCommand\(message = \{\}\) \{[\s\S]*?getRenderModeInspectionHandlers\(\)\.end\(message\)/);
+  const endHandlerStart = renderModeHandlersSource.indexOf("function end(message = {}) {");
+  const endHandlerEnd = renderModeHandlersSource.indexOf("function hideConsent()", endHandlerStart);
   assert.ok(endHandlerStart > -1);
   assert.ok(endHandlerEnd > endHandlerStart);
-  const endHandlerBlock = contentSource.slice(endHandlerStart, endHandlerEnd);
+  const endHandlerBlock = renderModeHandlersSource.slice(endHandlerStart, endHandlerEnd);
 
   assert.match(contentSource, /function isRenderModeInspectionActive\(\) \{[\s\S]*?renderModeInspectionActive \|\| readRenderModeInspectionActive\(\)/);
   assert.match(
@@ -83,7 +85,7 @@ test("content suppresses page-side connection-loss countdown during render-mode 
     /serverMessage\.connectionStatus === deps\.PROPERTY_LOCK_CONNECTION_UNAVAILABLE[\s\S]*?if \(deps\.isRenderModeInspectionActive\(\)\) \{[\s\S]*?deps\.setPropertyLockBannerMode\("editor_inspection_reconnecting"\);[\s\S]*?return;/
   );
   assert.match(renderBlock, /case "editor_inspection_reconnecting":[\s\S]*?propertyLockText\.editorInspectionReconnectingMessage/);
-  assert.match(endHandlerBlock, /propertyLockBannerMode === "editor_inspection_reconnecting"[\s\S]*?updatePropertyLockBannerMode\(\);[\s\S]*?renderPropertyLockBanner\(\);/);
+  assert.match(endHandlerBlock, /deps\.getPropertyLockBannerMode\(\) === "editor_inspection_reconnecting"[\s\S]*?deps\.updatePropertyLockBannerMode\(\);[\s\S]*?deps\.renderPropertyLockBanner\(\);/);
   assert.match(textSource, /popupInspectionReconnecting: "Reconnecting after inspection\.\.\."/);
   assert.match(textSource, /editorInspectionReconnectingMessage: "Reconnecting after inspection\.\.\."/);
 });

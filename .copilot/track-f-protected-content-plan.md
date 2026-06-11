@@ -218,3 +218,58 @@ Commit message:
 ```text
 refactor(content): extract inspection status resolver
 ```
+
+## Phase F5 - Render-Mode Inspection Handler Extraction
+
+Why this phase:
+- `content-main.js` still directly owned begin/reveal/capture/end/hide inspection
+  handler implementations.
+- Moving the logic into a dedicated module keeps the runtime and command-router
+  entrypoints stable while reducing high-risk duplication surface.
+
+New module:
+- `content/render-mode-inspection-handlers.js`
+
+Files to edit:
+- `content-main.js`
+- `content/render-mode-inspection-handlers.js`
+- `manifest.json`
+- `tests/content-decomposition-boundary.test.js`
+- `tests/render-mode-inspection-order.test.js`
+- `tests/property-lock-render-mode.test.js`
+- Add `tests/render-mode-inspection-handlers.test.js`
+
+Exact function boundary:
+- Keep wrapper functions in `content-main.js`:
+  - `handleRenderModeInspectionBeginCommand`
+  - `handleRunRenderModeRevealOnceCommand`
+  - `handleCaptureRenderModeInspectionHtmlCommand`
+  - `handleRenderModeInspectionEndCommand`
+  - `handleHideConsentForInspectionCommand`
+- Move implementation logic into `content/render-mode-inspection-handlers.js` via
+  dependency injection.
+
+Rules:
+1. Preserve runtime message type handling and response payloads.
+2. Preserve watchdog refresh behavior across reveal/capture phases.
+3. Preserve property-lock reconnect banner recovery on inspection end.
+4. Do not alter background inspector orchestration flow.
+
+Focused validation:
+```bash
+npm test -- tests/render-mode-inspection-handlers.test.js tests/render-mode-inspection-order.test.js tests/property-lock-render-mode.test.js tests/render-mode-inspector.test.js tests/content-decomposition-boundary.test.js tests/manifest-permissions.test.js tests/content-activation-order.test.js
+```
+
+Full validation:
+```bash
+npm test
+```
+
+Rollback criteria:
+- Any regression in reveal/capture ordering, inspection end cleanup, or popup
+  inspection reconcile behavior should trigger rollback.
+
+Commit message:
+```text
+refactor(content): extract render mode inspection handlers
+```

@@ -106,6 +106,7 @@ import { createInspectionStatusResolver } from "./content/inspection-status.js";
 import { initializePageWorldRelay } from "./content/page-world-relay.js";
 import { createPageToast } from "./content/page-toast.js";
 import { createRenderModeInspectionClient } from "./content/render-mode-inspection-client.js";
+import { createRenderModeInspectionHandlers } from "./content/render-mode-inspection-handlers.js";
 import {
   clearPropertyLockBannerCountdown as clearPropertyLockBannerCountdownOperation,
   ensurePropertyLockBannerStyle as ensurePropertyLockBannerStyleOperation,
@@ -388,6 +389,7 @@ let remoteSupportViewerClient = null;
 let remoteSupportSupportPage = null;
 let pageToastClient = null;
 let renderModeInspectionClient = null;
+let renderModeInspectionHandlers = null;
 let inspectionStatusResolver = null;
 let propertyLockPortClient = null;
 let propertyLockStateMachine = null;
@@ -521,6 +523,13 @@ function getRenderModeInspectionClient() {
     renderModeInspectionClient = createRenderModeInspectionClient(createRenderModeInspectionClientDeps());
   }
   return renderModeInspectionClient;
+}
+
+function getRenderModeInspectionHandlers() {
+  if (!renderModeInspectionHandlers) {
+    renderModeInspectionHandlers = createRenderModeInspectionHandlers(createRenderModeInspectionHandlersDeps());
+  }
+  return renderModeInspectionHandlers;
 }
 
 function getInspectionStatusResolver() {
@@ -6131,6 +6140,38 @@ function createInspectionStatusDeps() {
   };
 }
 
+function createRenderModeInspectionHandlersDeps() {
+  return {
+    armRenderModeInspectionWatchdog,
+    cancelSilentHighlightEditorActivation,
+    createCurrentPageSnapshot,
+    createLifecycleOperationId,
+    emitLifecycleEvent,
+    fetchCurrentPageRawHtml,
+    finishPageInspectionUi: () => core.finishPageInspectionUi(),
+    getPageUrl: () => location.href,
+    getPropertyLockBannerMode: () => propertyLockBannerMode,
+    getSilentHighlightEditorRevealInFlight: () => silentHighlightEditorRevealInFlight,
+    hideConsentElements: () => core.hideConsentElements(),
+    isPageWithinBaseUrl: (pageUrl, baseUrl) => utils.isPageWithinBaseUrl(pageUrl, baseUrl),
+    isRenderModeInspectionActive,
+    isRenderModeInspectionFlagSet: () => renderModeInspectionActive,
+    nextRevealId: () => ++silentHighlightEditorActivationIdCounter,
+    renderPropertyLockBanner,
+    resolveBaseUrlForCurrentPage,
+    setRenderModeInspectionActive,
+    setSilentHighlightEditorRevealInFlight: (value) => {
+      silentHighlightEditorRevealInFlight = value;
+    },
+    updatePropertyLockBannerMode,
+    warmupSilentHighlightingBeforeMotionPause: (baseUrl, pageUrl, reason, options) =>
+      core.warmupSilentHighlightingBeforeMotionPause(baseUrl, pageUrl, reason, options),
+    LIFECYCLE_KINDS,
+    LIFECYCLE_PHASES,
+    SILENT_HIGHLIGHTING_MOTION_PAUSE_REASON
+  };
+}
+
 function createPropertyLockPortClientDeps() {
   return {
     connectRuntimePort: (options) => chrome.runtime.connect(options),
@@ -6325,156 +6366,23 @@ function handleGetInspectionStatusCommand() {
 }
 
 function handleRenderModeInspectionBeginCommand(message = {}) {
-  setRenderModeInspectionActive(true);
-  cancelSilentHighlightEditorActivation();
-  emitLifecycleEvent({
-    operationId: typeof message.operationId === "string" && message.operationId
-      ? message.operationId
-      : createLifecycleOperationId(LIFECYCLE_KINDS.RENDER_MODE_INSPECTION),
-    kind: LIFECYCLE_KINDS.RENDER_MODE_INSPECTION,
-    phase: LIFECYCLE_PHASES.STARTED,
-    busy: true,
-    message: "Inspecting page..."
-  });
-  return { ok: true };
+  return getRenderModeInspectionHandlers().begin(message);
 }
 
 async function handleRunRenderModeRevealOnceCommand(message = {}) {
-  const operationId = typeof message.operationId === "string" && message.operationId
-    ? message.operationId
-    : createLifecycleOperationId(LIFECYCLE_KINDS.RENDER_MODE_INSPECTION);
-  setRenderModeInspectionActive(true);
-  cancelSilentHighlightEditorActivation();
-  const pageUrl = location.href;
-  const baseUrl = message.baseUrl || await resolveBaseUrlForCurrentPage();
-  if (!baseUrl || !utils.isPageWithinBaseUrl(pageUrl, baseUrl)) {
-    core.finishPageInspectionUi();
-    emitLifecycleEvent({
-      operationId,
-      kind: LIFECYCLE_KINDS.RENDER_MODE_INSPECTION,
-      phase: LIFECYCLE_PHASES.FAILED,
-      busy: false,
-      message: ""
-    });
-    return { ok: false };
-  }
-
-  const revealId = ++silentHighlightEditorActivationIdCounter;
-  silentHighlightEditorRevealInFlight = revealId;
-  const isStillCurrent = () =>
-    renderModeInspectionActive &&
-    silentHighlightEditorRevealInFlight === revealId &&
-    location.href === pageUrl &&
-    utils.isPageWithinBaseUrl(location.href, baseUrl);
-
-  emitLifecycleEvent({
-    operationId,
-    kind: LIFECYCLE_KINDS.RENDER_MODE_INSPECTION,
-    phase: LIFECYCLE_PHASES.REVEAL_STARTED,
-    busy: true,
-    message: "Inspecting page..."
-  });
-  armRenderModeInspectionWatchdog();
-
-  try {
-    const prepared = await core.warmupSilentHighlightingBeforeMotionPause(
-      baseUrl,
-      pageUrl,
-      SILENT_HIGHLIGHTING_MOTION_PAUSE_REASON,
-      {
-        keepUiActive: true,
-        onRevealProgress: () => {
-          if (renderModeInspectionActive) {
-            armRenderModeInspectionWatchdog();
-          }
-        }
-      }
-    );
-    if (renderModeInspectionActive) {
-      armRenderModeInspectionWatchdog();
-    }
-    if (!prepared || !isStillCurrent()) {
-      core.finishPageInspectionUi();
-      emitLifecycleEvent({
-        operationId,
-        kind: LIFECYCLE_KINDS.RENDER_MODE_INSPECTION,
-        phase: LIFECYCLE_PHASES.FAILED,
-        busy: false,
-        message: ""
-      });
-      return { ok: false };
-    }
-    emitLifecycleEvent({
-      operationId,
-      kind: LIFECYCLE_KINDS.RENDER_MODE_INSPECTION,
-      phase: LIFECYCLE_PHASES.REVEAL_FINISHED,
-      busy: true,
-      message: "Inspecting page..."
-    });
-    return { ok: true, pageUrl };
-  } catch {
-    core.finishPageInspectionUi();
-    return { ok: false };
-  }
+  return getRenderModeInspectionHandlers().revealOnce(message);
 }
 
 async function handleCaptureRenderModeInspectionHtmlCommand(message = {}) {
-  const operationId = typeof message.operationId === "string" && message.operationId
-    ? message.operationId
-    : createLifecycleOperationId(LIFECYCLE_KINDS.RENDER_MODE_INSPECTION);
-  if (isRenderModeInspectionActive()) {
-    armRenderModeInspectionWatchdog();
-  }
-  try {
-    const snapshot = createCurrentPageSnapshot();
-    const rawHtml = await fetchCurrentPageRawHtml(location.href);
-    core.finishPageInspectionUi();
-    emitLifecycleEvent({
-      operationId,
-      kind: LIFECYCLE_KINDS.RENDER_MODE_INSPECTION,
-      phase: LIFECYCLE_PHASES.HTML_CAPTURED,
-      busy: true,
-      message: "Inspecting page..."
-    });
-    return {
-      ok: Boolean(snapshot && snapshot.renderedHtml && typeof rawHtml === "string"),
-      pageUrl: location.href,
-      renderedHtml: snapshot && typeof snapshot.renderedHtml === "string" ? snapshot.renderedHtml : "",
-      rawHtml: typeof rawHtml === "string" ? rawHtml : "",
-      renderMode: snapshot && typeof snapshot.renderMode === "string" ? snapshot.renderMode : ""
-    };
-  } catch {
-    core.finishPageInspectionUi();
-    return { ok: false };
-  }
+  return getRenderModeInspectionHandlers().captureHtml(message);
 }
 
 function handleRenderModeInspectionEndCommand(message = {}) {
-  const operationId = typeof message.operationId === "string" && message.operationId
-    ? message.operationId
-    : createLifecycleOperationId(LIFECYCLE_KINDS.RENDER_MODE_INSPECTION);
-  setRenderModeInspectionActive(false);
-  if (silentHighlightEditorRevealInFlight) {
-    silentHighlightEditorRevealInFlight = 0;
-  }
-  core.finishPageInspectionUi();
-  if (propertyLockBannerMode === "editor_inspection_reconnecting") {
-    updatePropertyLockBannerMode();
-    renderPropertyLockBanner();
-  }
-  emitLifecycleEvent({
-    operationId,
-    kind: LIFECYCLE_KINDS.RENDER_MODE_INSPECTION,
-    phase: LIFECYCLE_PHASES.FINISHED,
-    busy: false,
-    message: ""
-  });
-  return { ok: true };
+  return getRenderModeInspectionHandlers().end(message);
 }
 
 function handleHideConsentForInspectionCommand() {
-  const hiddenCount = core.hideConsentElements();
-  return { ok: true, hiddenCount };
+  return getRenderModeInspectionHandlers().hideConsent();
 }
 
 function registerContentCommandHandlersOnce() {

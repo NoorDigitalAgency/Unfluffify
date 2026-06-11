@@ -6,6 +6,7 @@ const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8"
 const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
 const renderModeInspectorSource = readFileSync(new URL("../background/render-mode-inspector.js", import.meta.url), "utf8");
 const contentSource = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+const renderModeHandlersSource = readFileSync(new URL("../content/render-mode-inspection-handlers.js", import.meta.url), "utf8");
 const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
 
 function extractSourceBlock(source, startNeedle, endNeedle) {
@@ -88,21 +89,24 @@ test("render mode auto detection consumes the explicit inspection snapshot", () 
 });
 
 test("content reveal and capture handlers preserve pre-highlight clean snapshot ordering", () => {
-  const revealStart = contentSource.indexOf("async function handleRunRenderModeRevealOnceCommand(message = {}) {");
-  const revealEnd = contentSource.indexOf("async function handleCaptureRenderModeInspectionHtmlCommand(message = {}) {", revealStart);
+  assert.match(contentSource, /handleRunRenderModeRevealOnceCommand\(message = \{\}\) \{[\s\S]*?getRenderModeInspectionHandlers\(\)\.revealOnce\(message\)/);
+  assert.match(contentSource, /handleCaptureRenderModeInspectionHtmlCommand\(message = \{\}\) \{[\s\S]*?getRenderModeInspectionHandlers\(\)\.captureHtml\(message\)/);
+
+  const revealStart = renderModeHandlersSource.indexOf("async function revealOnce(message = {}) {");
+  const revealEnd = renderModeHandlersSource.indexOf("async function captureHtml(message = {}) {", revealStart);
   assert.ok(revealStart > -1);
   assert.ok(revealEnd > revealStart);
-  const revealBlock = contentSource.slice(revealStart, revealEnd);
+  const revealBlock = renderModeHandlersSource.slice(revealStart, revealEnd);
 
   const captureStart = revealEnd;
-  const captureEnd = contentSource.indexOf("function handleRenderModeInspectionEndCommand(message = {}) {", captureStart);
+  const captureEnd = renderModeHandlersSource.indexOf("function end(message = {}) {", captureStart);
   assert.ok(captureEnd > captureStart);
-  const captureBlock = contentSource.slice(captureStart, captureEnd);
+  const captureBlock = renderModeHandlersSource.slice(captureStart, captureEnd);
 
   const revealIndex = revealBlock.indexOf("warmupSilentHighlightingBeforeMotionPause(");
-  const snapshotIndex = captureBlock.indexOf("const snapshot = createCurrentPageSnapshot();");
-  const rawIndex = captureBlock.indexOf("const rawHtml = await fetchCurrentPageRawHtml(location.href);", snapshotIndex);
-  const finishIndex = captureBlock.indexOf("core.finishPageInspectionUi();", rawIndex);
+  const snapshotIndex = captureBlock.indexOf("const snapshot = deps.createCurrentPageSnapshot();");
+  const rawIndex = captureBlock.indexOf("const rawHtml = await deps.fetchCurrentPageRawHtml(pageUrl);", snapshotIndex);
+  const finishIndex = captureBlock.indexOf("deps.finishPageInspectionUi();", rawIndex);
 
   assert.ok(revealIndex > -1);
   assert.ok(snapshotIndex > -1);
