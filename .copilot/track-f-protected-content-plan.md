@@ -630,3 +630,52 @@ Commit message:
 ```text
 refactor(content): extract ai preview get-state handler
 ```
+
+## Phase F13 - Default Exclusions Runtime Handler Extraction
+
+Why this phase:
+- `content-main.js` still directly owned `getDefaultExclusions` runtime response
+  composition.
+- Extracting this tiny branch provides a low-risk reduction in listener surface
+  while preserving selector payload contracts.
+
+New module:
+- `content/default-exclusions-handler.js`
+
+Files to edit:
+- `content-main.js`
+- `content/default-exclusions-handler.js`
+- `manifest.json`
+- `tests/content-decomposition-boundary.test.js`
+- Add `tests/default-exclusions-handler.test.js`
+
+Exact function boundary:
+- Keep runtime branch `if (message.type === "getDefaultExclusions")` in
+  `content-main.js`.
+- Delegate immutable selector response composition to `handleMessage()`.
+- Keep selector constants as the source of truth in `common/constants.js`.
+
+Rules:
+1. Preserve response field name (`immutableSelectors`).
+2. Preserve array-copy behavior to avoid leaking mutable constant references.
+3. Keep branch synchronous and return flow unchanged.
+4. Do not alter default selector contents.
+
+Focused validation:
+```bash
+npm test -- tests/default-exclusions-handler.test.js tests/content-decomposition-boundary.test.js tests/manifest-permissions.test.js tests/content-activation-order.test.js
+```
+
+Full validation:
+```bash
+npm test
+```
+
+Rollback criteria:
+- Any regression in selector payload shape or default exclusion behavior should
+  trigger rollback.
+
+Commit message:
+```text
+refactor(content): extract default exclusions handler
+```

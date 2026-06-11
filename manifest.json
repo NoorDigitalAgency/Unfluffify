@@ -65,6 +65,7 @@
         "content/ai-preview-expanded-mode-handler.js",
         "content/ai-preview-get-state-handler.js",
         "content/ai-preview-state-response.js",
+        "content/default-exclusions-handler.js",
         "content/inspection-status.js",
         "content/page-world-relay.js",
         "content/page-telemetry-bridge.js",

@@ -107,6 +107,7 @@ import { createAiPreviewComputeLockHandler } from "./content/ai-preview-compute-
 import { createAiPreviewExpandedModeHandler } from "./content/ai-preview-expanded-mode-handler.js";
 import { createAiPreviewGetStateHandler } from "./content/ai-preview-get-state-handler.js";
 import { createAiPreviewStateResponseBuilder } from "./content/ai-preview-state-response.js";
+import { createDefaultExclusionsHandler } from "./content/default-exclusions-handler.js";
 import { createInspectionStatusResolver } from "./content/inspection-status.js";
 import { initializePageWorldRelay } from "./content/page-world-relay.js";
 import { createPageToast } from "./content/page-toast.js";
@@ -402,6 +403,7 @@ let aiPreviewComputeLockHandler = null;
 let aiPreviewExpandedModeHandler = null;
 let aiPreviewGetStateHandler = null;
 let aiPreviewStateResponseBuilder = null;
+let defaultExclusionsHandler = null;
 let propertyLockPortClient = null;
 let propertyLockStateMachine = null;
 let remoteSupportStateHandler = null;
@@ -584,6 +586,13 @@ function getAiPreviewGetStateHandler() {
     aiPreviewGetStateHandler = createAiPreviewGetStateHandler(createAiPreviewGetStateHandlerDeps());
   }
   return aiPreviewGetStateHandler;
+}
+
+function getDefaultExclusionsHandler() {
+  if (!defaultExclusionsHandler) {
+    defaultExclusionsHandler = createDefaultExclusionsHandler(createDefaultExclusionsHandlerDeps());
+  }
+  return defaultExclusionsHandler;
 }
 
 function getPropertyLockPortClient() {
@@ -6246,6 +6255,12 @@ function createAiPreviewGetStateHandlerDeps() {
   };
 }
 
+function createDefaultExclusionsHandlerDeps() {
+  return {
+    getImmutableSelectors: () => DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS.slice()
+  };
+}
+
 function createRemoteSupportStateHandlerDeps() {
   return {
     applyRemoteSupportSessionState,
@@ -6908,9 +6923,7 @@ export function main() {
     }
 
     if (message.type === "getDefaultExclusions") {
-      sendResponse({
-        immutableSelectors: DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS.slice()
-      });
+      sendResponse(getDefaultExclusionsHandler().handleMessage());
       return;
     }
 
