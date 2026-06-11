@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-11
 Status: READY FOR IMPLEMENTATION
-Scope: successor plan after `.copilot/world-decomposition-plan.md`
+Scope: successor plan after the completed world-decomposition program
 
 ## Purpose
 
@@ -23,7 +23,8 @@ in `.copilot/handoff-world-decomposition.md` before editing code.
 Current baseline at plan authoring:
 
 - Branch: `main`
-- Last reviewed commit: `c6e49c7 refactor(content): extract property lock banner`
+- Last reviewed code commit: `c6e49c7 refactor(content): extract property lock banner`
+- Last planning baseline commit: `425b6cb docs(copilot): add content follow-up refactor plan`
 - Full validation: `npm test` -> 840 pass / 0 fail
 - `remoteSupport`: disabled by default in `common/feature-flags.js`
 - `propertyLockCollaboration`: disabled by default in `common/feature-flags.js`
@@ -116,7 +117,7 @@ state.
 
 Files to read:
 
-- `.copilot/world-decomposition-plan.md`
+- `.copilot/plan.md`
 - `.copilot/handoff-world-decomposition.md`
 - `.copilot/knowledge.md`
 - `common/feature-flags.js`
@@ -154,19 +155,20 @@ Goal: make the repository documents say one consistent thing.
 
 Required document state:
 
-1. `.copilot/world-decomposition-plan.md` is historical and complete. It must no
-   longer claim implementation has not started.
-2. `.copilot/handoff-world-decomposition.md` is current. It must say Track A,
+1. `.copilot` contains only current working documents, not completed predecessor
+   archives.
+2. `.copilot/plan.md` points to this file as the active architecture plan.
+3. `.copilot/handoff-world-decomposition.md` is current. It must say Track A,
    Track B, and the implemented Track C peripheral slices are complete.
-3. The handoff must record:
+4. The handoff must record:
    - `c6e49c7 refactor(content): extract property lock banner`
    - `60ee4df refactor(content): extract remote support client`
    - `0e8bf99 refactor(content): extract page telemetry bridge`
    - current `npm test` result
-4. The handoff must point to this file as the next active plan.
-5. `.copilot/knowledge.md` must not say `.copilot/world-decomposition-plan.md` is
-   the next active architecture track. It should point to this plan instead.
-6. The old Track C live-gate wording should be treated as historical. The active
+5. The handoff must point to this file as the next active plan.
+6. `.copilot/knowledge.md` must point to this plan as the active architecture
+   track.
+7. The old Track C live-gate wording should be treated as historical. The active
    policy is:
    - core unflagged behavior requires live validation when confidence is not high
    - flag-gated remote-support/property-lock work may defer live validation until
@@ -175,21 +177,23 @@ Required document state:
 Validation:
 
 ```bash
-rg -n 'No implementation has started|Commit:  pending|Commit and push Track C|next architecture track is `\.copilot/world-decomposition-plan\.md`' \
-   .copilot/world-decomposition-plan.md \
-   .copilot/handoff-world-decomposition.md \
-   .copilot/knowledge.md
+find .copilot -maxdepth 1 -type f | sort
 ```
+
+Also search the remaining active `.copilot` files for stale pending-commit or
+old-next-track wording introduced by future edits.
 
 Expected result:
 
-- No stale line implies the completed world-decomposition work still needs to be
-  committed or is still the next active architecture track.
+- The file list contains only the current plan, current handoff, active index,
+   and knowledge document.
+- No remaining stale wording should imply completed work still needs to be
+   committed or is still the next active architecture track.
 
 Commit message if PRE1 is committed separately:
 
 ```text
-docs(copilot): add content follow-up refactor plan
+docs(copilot): remove stale historical plans
 ```
 
 # ACTUAL REFACTOR PLAN

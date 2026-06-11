@@ -10,8 +10,9 @@ The active successor plan is:
 
 1. `.copilot/content-main-followup-refactor-plan.md`
 
-The previous plan, `.copilot/world-decomposition-plan.md`, is now historical.
-Use it for rationale only, not as the active step list.
+The completed world-decomposition summary below is retained here. The old
+step-by-step archive was removed from `.copilot`; use git history if its
+rationale is needed.
 
 ## Current Repository State
 

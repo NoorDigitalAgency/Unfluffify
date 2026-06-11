@@ -49,18 +49,17 @@
 - Popup tab-runtime snapshots must flow through the background command
   `POPUP_GET_TAB_VIEW_STATE`; do not reintroduce popup fallback reads through
   `WORLD_MESSAGE_TYPES.GET_BACKGROUND_STATE`.
-- The storage-access-layer plan is complete and historical. Its result is that
-  Chrome storage access is centralized through domain stores instead of raw
-  scattered `chrome.storage` or `utils.storage*` calls.
+- Earlier storage-access work centralized Chrome storage access through domain
+  stores instead of raw scattered `chrome.storage` or `utils.storage*` calls.
 - Chrome storage access is now restricted to approved storage/domain modules
   guarded by `tests/storage-access-boundary.test.js`; background, popup, and
   content production paths should call domain helpers rather than direct
   `chrome.storage` or `utils.storage*` wrappers. Page-local `localStorage` /
   `sessionStorage` usage is tracked separately from this Chrome storage rule.
-- The world-decomposition plan is complete and historical. The active follow-up
-  architecture plan is `.copilot/content-main-followup-refactor-plan.md`: it
-  continues only through explicitly planned content seams such as remote-support
-  support-page code and property-lock collaboration code. Hard rules remain:
+- Earlier world-decomposition work is complete. The active follow-up architecture
+  plan is `.copilot/content-main-followup-refactor-plan.md`: it continues only
+  through explicitly planned content seams such as remote-support support-page
+  code and property-lock collaboration code. Hard rules remain:
   never edit `content/core.js` or locked marking/silent-highlight/visibility/
   reconciliation logic without a new high-risk plan; every new imported
   `content/*` module must be added to `web_accessible_resources` with
