@@ -420,3 +420,53 @@ Commit message:
 ```text
 refactor(content): extract ai preview compute-lock handler
 ```
+
+## Phase F9 - AI Preview Close Runtime Handler Extraction
+
+Why this phase:
+- `content-main.js` still directly owned `closeAiPreview` runtime branch
+  control flow with active checks, popover-close path, and preview exit path.
+- Extracting this branch trims listener complexity while preserving popup close
+  contracts and preview-exit behavior.
+
+New module:
+- `content/ai-preview-close-handler.js`
+
+Files to edit:
+- `content-main.js`
+- `content/ai-preview-close-handler.js`
+- `manifest.json`
+- `tests/content-decomposition-boundary.test.js`
+- Add `tests/ai-preview-close-handler.test.js`
+
+Exact function boundary:
+- Keep runtime branch `if (message.type === "closeAiPreview")` in
+  `content-main.js`.
+- Delegate close flow to module method `handleMessage()`.
+- Keep `exitAiPreviewMode` implementation in `content-main.js`.
+
+Rules:
+1. Preserve success response payload (`{ ok: true, active: false }`) for inactive
+   preview, popover-close path, and successful preview exit.
+2. Preserve error response fallback (`{ ok: false }`) when close flow fails.
+3. Preserve async runtime listener behavior (`return true`).
+4. Do not alter compute-lock restore semantics in `exitAiPreviewMode`.
+
+Focused validation:
+```bash
+npm test -- tests/ai-preview-close-handler.test.js tests/preview-tooltip.test.js tests/content-decomposition-boundary.test.js tests/popup-mode-sync.test.js tests/manifest-permissions.test.js
+```
+
+Full validation:
+```bash
+npm test
+```
+
+Rollback criteria:
+- Any regression in popup close behavior, preview teardown/restore sequencing,
+  or runtime close response contracts should trigger rollback.
+
+Commit message:
+```text
+refactor(content): extract ai preview close handler
+```

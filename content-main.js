@@ -102,6 +102,7 @@ import {
   dispatchContentCommand,
   registerContentCommand
 } from "./content/content-command-router.js";
+import { createAiPreviewCloseHandler } from "./content/ai-preview-close-handler.js";
 import { createAiPreviewComputeLockHandler } from "./content/ai-preview-compute-lock-handler.js";
 import { createAiPreviewStateResponseBuilder } from "./content/ai-preview-state-response.js";
 import { createInspectionStatusResolver } from "./content/inspection-status.js";
@@ -393,6 +394,7 @@ let pageToastClient = null;
 let renderModeInspectionClient = null;
 let renderModeInspectionHandlers = null;
 let inspectionStatusResolver = null;
+let aiPreviewCloseHandler = null;
 let aiPreviewComputeLockHandler = null;
 let aiPreviewStateResponseBuilder = null;
 let propertyLockPortClient = null;
@@ -548,6 +550,13 @@ function getAiPreviewStateResponseBuilder() {
     aiPreviewStateResponseBuilder = createAiPreviewStateResponseBuilder(createAiPreviewStateResponseDeps());
   }
   return aiPreviewStateResponseBuilder;
+}
+
+function getAiPreviewCloseHandler() {
+  if (!aiPreviewCloseHandler) {
+    aiPreviewCloseHandler = createAiPreviewCloseHandler(createAiPreviewCloseHandlerDeps());
+  }
+  return aiPreviewCloseHandler;
 }
 
 function getAiPreviewComputeLockHandler() {
@@ -6166,6 +6175,15 @@ function createAiPreviewStateResponseDeps() {
   };
 }
 
+function createAiPreviewCloseHandlerDeps() {
+  return {
+    exitAiPreviewMode,
+    hasAiPopover: () => core.hasAiPopover(),
+    isAiPreviewActive: () => aiPreviewState.active,
+    requestAiPopoverClose: () => core.requestAiPopoverClose()
+  };
+}
+
 function createAiPreviewComputeLockHandlerDeps() {
   return {
     beginAiPreviewMode,
@@ -6759,20 +6777,13 @@ export function main() {
     }
 
     if (message.type === "closeAiPreview") {
-      if (!aiPreviewState.active) {
-        sendResponse({ ok: true, active: false });
-        return;
-      }
-      if (core.hasAiPopover()) {
-        core.requestAiPopoverClose();
-        sendResponse({ ok: true, active: false });
-        return;
-      }
-      exitAiPreviewMode().then(() => {
-        sendResponse({ ok: true, active: false });
-      }).catch(() => {
-        sendResponse({ ok: false });
-      });
+      getAiPreviewCloseHandler().handleMessage()
+        .then((response) => {
+          sendResponse(response && typeof response === "object" ? response : { ok: false });
+        })
+        .catch(() => {
+          sendResponse({ ok: false });
+        });
       return true;
     }
 
