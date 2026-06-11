@@ -31,6 +31,7 @@ test("content decomposition guard: baseline content modules are imported", () =>
   assertImportsContentModule("shared-selector-cache");
   assertImportsContentModule("submission-rules");
   assertImportsContentModule("content-command-router");
+  assertImportsContentModule("inspection-status");
   assertImportsContentModule("page-world-relay");
   assertImportsContentModule("page-telemetry-bridge");
   assertImportsContentModule("page-toast");

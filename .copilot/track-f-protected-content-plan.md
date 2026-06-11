@@ -168,3 +168,53 @@ Commit message:
 ```text
 refactor(content): dedupe runtime inspection handlers
 ```
+
+## Phase F4 - Inspection Status Resolver Extraction
+
+Why this phase:
+- `handleGetInspectionStatusCommand` still held a concentrated status-composition
+  block in `content-main.js`.
+- Extracting this pure status computation lowers main-file complexity while
+  preserving all runtime and command-router contracts.
+
+New module:
+- `content/inspection-status.js`
+
+Files to edit:
+- `content-main.js`
+- `content/inspection-status.js`
+- `manifest.json`
+- `tests/content-decomposition-boundary.test.js`
+- `tests/content-activation-order.test.js`
+- `tests/popup-mode-sync.test.js`
+- Add `tests/inspection-status.test.js`
+
+Exact function boundary:
+- Move only inspection-status computation into module.
+- Keep `handleGetInspectionStatusCommand` as a thin wrapper in
+  `content-main.js`.
+- Leave begin/reveal/capture/end inspection handlers unchanged in this phase.
+
+Rules:
+1. Preserve `getInspectionStatus` response shape exactly.
+2. Preserve pending/active semantics and mode/markingEnabled fields.
+3. Do not alter lifecycle event flow or inspection reveal/capture ordering.
+
+Focused validation:
+```bash
+npm test -- tests/inspection-status.test.js tests/content-activation-order.test.js tests/popup-mode-sync.test.js tests/render-mode-inspection-order.test.js tests/render-mode-inspector.test.js tests/content-decomposition-boundary.test.js tests/manifest-permissions.test.js
+```
+
+Full validation:
+```bash
+npm test
+```
+
+Rollback criteria:
+- Any regression in popup mode reconciliation, inspection-status polling, or
+  render-mode orchestration should trigger rollback.
+
+Commit message:
+```text
+refactor(content): extract inspection status resolver
+```

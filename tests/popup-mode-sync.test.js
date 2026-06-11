@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 
 const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
 const contentSource = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+const inspectionStatusSource = readFileSync(new URL("../content/inspection-status.js", import.meta.url), "utf8");
 
 function extractSourceBlock(source, startNeedle, endNeedle) {
   const start = source.indexOf(startNeedle);
@@ -14,14 +15,9 @@ function extractSourceBlock(source, startNeedle, endNeedle) {
 }
 
 test("content inspection status reports the authoritative marking mode", () => {
-  const statusBlock = extractSourceBlock(
-    contentSource,
-    "function handleGetInspectionStatusCommand() {",
-    "function handleRenderModeInspectionBeginCommand(message = {}) {"
-  );
-
-  assert.match(statusBlock, /markingEnabled: Boolean\(state\.enabled\)/);
-  assert.match(statusBlock, /mode: getCurrentContentMode\(\)/);
+  assert.match(contentSource, /function handleGetInspectionStatusCommand\(\) \{[\s\S]*?getInspectionStatusResolver\(\)\.resolve\(\)/);
+  assert.match(inspectionStatusSource, /markingEnabled: Boolean\(deps\.isMarkingEnabled\(\)\)/);
+  assert.match(inspectionStatusSource, /mode: deps\.getCurrentContentMode\(\)/);
 });
 
 test("popup refresh reconciles toggle state to content mode without setEnabled", () => {

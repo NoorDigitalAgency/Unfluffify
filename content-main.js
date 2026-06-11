@@ -102,6 +102,7 @@ import {
   dispatchContentCommand,
   registerContentCommand
 } from "./content/content-command-router.js";
+import { createInspectionStatusResolver } from "./content/inspection-status.js";
 import { initializePageWorldRelay } from "./content/page-world-relay.js";
 import { createPageToast } from "./content/page-toast.js";
 import { createRenderModeInspectionClient } from "./content/render-mode-inspection-client.js";
@@ -387,6 +388,7 @@ let remoteSupportViewerClient = null;
 let remoteSupportSupportPage = null;
 let pageToastClient = null;
 let renderModeInspectionClient = null;
+let inspectionStatusResolver = null;
 let propertyLockPortClient = null;
 let propertyLockStateMachine = null;
 let pageTelemetryBridgeListenerBound = false;
@@ -519,6 +521,13 @@ function getRenderModeInspectionClient() {
     renderModeInspectionClient = createRenderModeInspectionClient(createRenderModeInspectionClientDeps());
   }
   return renderModeInspectionClient;
+}
+
+function getInspectionStatusResolver() {
+  if (!inspectionStatusResolver) {
+    inspectionStatusResolver = createInspectionStatusResolver(createInspectionStatusDeps());
+  }
+  return inspectionStatusResolver;
 }
 
 function getPropertyLockPortClient() {
@@ -6107,6 +6116,21 @@ function createRenderModeInspectionClientDeps() {
   };
 }
 
+function createInspectionStatusDeps() {
+  return {
+    getCurrentContentMode,
+    getPageSaveReconciliationState: (pageUrl) => core.getPageSaveReconciliationState(pageUrl),
+    getPageUrl: () => location.href,
+    getPropertyLockEditorClaimPending: () => propertyLockEditorClaimPending,
+    getSilentHighlightEditorActivationPromise: () => silentHighlightEditorActivationPromise,
+    isMarkingEnabled: () => Boolean(state.enabled),
+    isPageInspectionUiActive: () => core.isPageInspectionUiActive(),
+    isPageSaveReconciliationPending: (pageUrl) => core.isPageSaveReconciliationPending(pageUrl),
+    isRenderModeInspectionActive,
+    SILENT_HIGHLIGHTING_PREPARATION_REASON
+  };
+}
+
 function createPropertyLockPortClientDeps() {
   return {
     connectRuntimePort: (options) => chrome.runtime.connect(options),
@@ -6297,32 +6321,7 @@ async function handleSetEnabledCommand(message = {}) {
 }
 
 function handleGetInspectionStatusCommand() {
-  const pageUrl = location.href;
-  const reconciliation = core.getPageSaveReconciliationState(pageUrl);
-  const reconciliationPending = core.isPageSaveReconciliationPending(pageUrl);
-  const inspectionActive = core.isPageInspectionUiActive();
-  const silentHighlightPreparationActive = Boolean(
-    reconciliation &&
-    reconciliation.reason === SILENT_HIGHLIGHTING_PREPARATION_REASON
-  );
-  const editorPreparationPending = Boolean(
-    silentHighlightPreparationActive ||
-    silentHighlightEditorActivationPromise
-  );
-  const lockClaimPending = Boolean(propertyLockEditorClaimPending);
-  const inspectionPending = inspectionActive || editorPreparationPending || reconciliationPending;
-  return {
-    ok: true,
-    active: inspectionActive,
-    pending: inspectionPending,
-    renderModeInspectionActive: isRenderModeInspectionActive(),
-    markingEnabled: Boolean(state.enabled),
-    mode: getCurrentContentMode(),
-    lockClaimPending,
-    pendingReason: reconciliation && (reconciliationPending || editorPreparationPending)
-      ? reconciliation.reason || "pending"
-      : ""
-  };
+  return getInspectionStatusResolver().resolve();
 }
 
 function handleRenderModeInspectionBeginCommand(message = {}) {
