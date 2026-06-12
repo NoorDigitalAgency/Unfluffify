@@ -18,6 +18,10 @@ const popupUiSource = readFileSync(new URL("../popup/ui.js", import.meta.url), "
 const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
 const worldTraceSource = readFileSync(new URL("../background/world-trace.js", import.meta.url), "utf8");
 const contentMainSource = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+const runtimeMessageHandlerSource = readFileSync(
+  new URL("../content/runtime-message-handler.js", import.meta.url),
+  "utf8"
+);
 const emulationSource = readFileSync(new URL("../common/emulation.js", import.meta.url), "utf8");
 
 const EXPECTED_FLAGS = [
@@ -140,7 +144,7 @@ test("disabled optional state cannot leak through hidden controls", () => {
 
   assert.match(contentMainSource, /FEATURE_DISABLED_REASON,[\s\S]*?isFeatureEnabled/);
   assert.match(contentMainSource, /function setAiPreviewExpandedMode\(active\) \{\s*if \(!isFeatureEnabled\("previewExpandedStates"\)\) \{[\s\S]*?aiPreviewState\.showAllCategories = false;[\s\S]*?return false;/);
-  assert.match(contentMainSource, /if \(message\.type === "setAiPreviewExpandedMode"\) \{[\s\S]*?getAiPreviewExpandedModeHandler\(\)\.handleMessage\(message\)[\s\S]*?sendResponse\(response && typeof response === "object" \? response : \{ ok: false \}\);/);
+  assert.match(runtimeMessageHandlerSource, /if \(message\.type === "setAiPreviewExpandedMode"\) \{[\s\S]*?deps\.getAiPreviewExpandedModeHandler\(\)\.handleMessage\(message\)[\s\S]*?sendResponse\(response && typeof response === "object" \? response : \{ ok: false \}\);/);
 });
 
 test("desktop preview and manual device switching are gated at runtime", () => {

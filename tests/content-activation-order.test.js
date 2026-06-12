@@ -2,6 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
+const runtimeMessageHandlerSource = readFileSync(
+  new URL("../content/runtime-message-handler.js", import.meta.url),
+  "utf8"
+);
+
 function getMessageBranch(source, messageType) {
   const start = source.indexOf(`if (message.type === "${messageType}") {`);
   assert.ok(start > -1, `missing ${messageType} branch`);
@@ -122,9 +127,9 @@ test("reveal activation starts on becameEditor transition and not on marking ena
   const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
   const stateMachineSource = readFileSync(new URL("../content/property-lock-state-machine.js", import.meta.url), "utf8");
 
-  const messageStart = source.indexOf("if (message.type === \"setEnabled\") {");
-  const messageEnd = source.indexOf("if (message.type === \"getInspectionStatus\") {", messageStart);
-  const messageSource = source.slice(messageStart, messageEnd);
+  const messageStart = runtimeMessageHandlerSource.indexOf("if (message.type === \"setEnabled\") {");
+  const messageEnd = runtimeMessageHandlerSource.indexOf("if (message.type === \"getInspectionStatus\") {", messageStart);
+  const messageSource = runtimeMessageHandlerSource.slice(messageStart, messageEnd);
   const handlerStart = source.indexOf("async function handleSetEnabledCommand(message = {}) {");
   const handlerEnd = source.indexOf("function handleGetInspectionStatusCommand() {", handlerStart);
   const handlerSource = source.slice(handlerStart, handlerEnd);
@@ -132,7 +137,7 @@ test("reveal activation starts on becameEditor transition and not on marking ena
   assert.ok(messageEnd > messageStart);
   assert.ok(handlerStart > -1);
   assert.ok(handlerEnd > handlerStart);
-  assert.match(messageSource, /handleSetEnabledCommand\(message\)/);
+  assert.match(messageSource, /deps\.handleSetEnabledCommand\(message\)/);
   assert.match(handlerSource, /const skipInitialReveal = !Boolean\(message\.performInitialReveal\);/);
   assert.match(handlerSource, /await core\.enableForBaseUrl\(message\.baseUrl, \{ skipInitialReveal \}\);/);
   assert.doesNotMatch(messageSource, /warmupPageRevealBeforeMotionPause\(/);
@@ -200,12 +205,12 @@ test("content exposes inspection status while reveal or reconciliation is pendin
   assert.match(coreSource, /state\.pageInspectionNotice && !state\.pageInspectionNotice\.hidden/);
   assert.match(coreSource, /state\.inspectionBlocker/);
 
-  const messageStart = mainSource.indexOf('if (message.type === "getInspectionStatus") {');
-  const messageEnd = mainSource.indexOf('if (message.type === "hideConsentForInspection") {', messageStart);
+  const messageStart = runtimeMessageHandlerSource.indexOf('if (message.type === "getInspectionStatus") {');
+  const messageEnd = runtimeMessageHandlerSource.indexOf('if (message.type === "hideConsentForInspection") {', messageStart);
   assert.ok(messageStart > -1);
   assert.ok(messageEnd > messageStart);
-  const messageSource = mainSource.slice(messageStart, messageEnd);
-  assert.match(messageSource, /sendResponse\(handleGetInspectionStatusCommand\(\)\);/);
+  const messageSource = runtimeMessageHandlerSource.slice(messageStart, messageEnd);
+  assert.match(messageSource, /sendResponse\(deps\.handleGetInspectionStatusCommand\(\)\);/);
 
   const handlerStart = mainSource.indexOf("function handleGetInspectionStatusCommand() {");
   const handlerEnd = mainSource.indexOf("function handleRenderModeInspectionBeginCommand", handlerStart);
@@ -262,8 +267,8 @@ test("editor reveal is gated during render-mode inspection or before render mode
 
 test("runtime setEnabled can request an initial reveal when reload restoration re-enables marking", () => {
   const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
-  const messageStart = source.indexOf('if (message.type === "setEnabled") {');
-  const messageEnd = source.indexOf('if (message.type === "getInspectionStatus") {', messageStart);
+  const messageStart = runtimeMessageHandlerSource.indexOf('if (message.type === "setEnabled") {');
+  const messageEnd = runtimeMessageHandlerSource.indexOf('if (message.type === "getInspectionStatus") {', messageStart);
   const handlerStart = source.indexOf("async function handleSetEnabledCommand(message = {}) {");
   const handlerEnd = source.indexOf("function handleGetInspectionStatusCommand() {", handlerStart);
 
@@ -271,9 +276,9 @@ test("runtime setEnabled can request an initial reveal when reload restoration r
   assert.ok(messageEnd > messageStart);
   assert.ok(handlerStart > -1);
   assert.ok(handlerEnd > handlerStart);
-  const messageSource = source.slice(messageStart, messageEnd);
+  const messageSource = runtimeMessageHandlerSource.slice(messageStart, messageEnd);
   const handlerSource = source.slice(handlerStart, handlerEnd);
-  assert.match(messageSource, /handleSetEnabledCommand\(message\)/);
+  assert.match(messageSource, /deps\.handleSetEnabledCommand\(message\)/);
   assert.match(handlerSource, /const skipInitialReveal = !Boolean\(message\.performInitialReveal\);/);
   assert.match(handlerSource, /await core\.enableForBaseUrl\(message\.baseUrl, \{ skipInitialReveal \}\);/);
 });
@@ -286,21 +291,21 @@ test("capturePageSnapshot collects AI submission rows from the target config", (
   );
   const collectorStart = source.indexOf("function collectAiSubmissionXpathsForCurrentPage");
   const collectorEnd = source.indexOf("function refreshEnabledAiHighlights", collectorStart);
-  const captureStart = source.indexOf('if (message.type === "capturePageSnapshot") {');
-  const captureEnd = source.indexOf('if (message.type === "getPageDraftStatus") {', captureStart);
+  const captureStart = runtimeMessageHandlerSource.indexOf('if (message.type === "capturePageSnapshot") {');
+  const captureEnd = runtimeMessageHandlerSource.indexOf('if (message.type === "getPageDraftStatus") {', captureStart);
 
   assert.ok(collectorStart > -1);
   assert.ok(collectorEnd > collectorStart);
   assert.ok(captureStart > -1);
   assert.ok(captureEnd > captureStart);
   const collectorSource = source.slice(collectorStart, collectorEnd);
-  const captureSource = source.slice(captureStart, captureEnd);
+  const captureSource = runtimeMessageHandlerSource.slice(captureStart, captureEnd);
 
   assert.match(collectorSource, /function collectAiSubmissionXpathsForCurrentPage\(sourceConfig = state\.config\) \{/);
   assert.match(collectorSource, /const configValue = sourceConfig \|\| state\.config;/);
   assert.match(collectorSource, /core\.getPageMarkingEntry\(configValue, pageUrl, \{/);
   assert.match(collectorSource, /core\.isMarkableElement\(node, configValue, \{/);
-  assert.match(captureSource, /getCapturePageSnapshotHandler\(\)\.capture\(/);
+  assert.match(captureSource, /deps\.getCapturePageSnapshotHandler\(\)\.capture\(/);
   assert.match(captureHandlerSource, /entry\.submissionXpaths = deps\.collectAiSubmissionXpathsForCurrentPage\(config\);/);
 });
 
@@ -329,18 +334,17 @@ test("AI submission collector guards implicit excluded ancestors with a visible 
 });
 
 test("capturePageSnapshot persists heavy snapshot evidence without returning it", () => {
-  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
   const captureHandlerSource = readFileSync(
     new URL("../content/capture-page-snapshot-handler.js", import.meta.url),
     "utf8"
   );
-  const captureStart = source.indexOf('if (message.type === "capturePageSnapshot") {');
-  const captureEnd = source.indexOf('if (message.type === "getPageDraftStatus") {', captureStart);
+  const captureStart = runtimeMessageHandlerSource.indexOf('if (message.type === "capturePageSnapshot") {');
+  const captureEnd = runtimeMessageHandlerSource.indexOf('if (message.type === "getPageDraftStatus") {', captureStart);
 
   assert.ok(captureStart > -1);
   assert.ok(captureEnd > captureStart);
-  const captureSource = source.slice(captureStart, captureEnd);
-  assert.match(captureSource, /getCapturePageSnapshotHandler\(\)\.capture\(/);
+  const captureSource = runtimeMessageHandlerSource.slice(captureStart, captureEnd);
+  assert.match(captureSource, /deps\.getCapturePageSnapshotHandler\(\)\.capture\(/);
   assert.match(captureHandlerSource, /entry\.renderedHtml = snapshot\.renderedHtml;/);
   assert.match(captureHandlerSource, /entry\.rawHtml = typeof rawHtml === "string"/);
   assert.match(captureHandlerSource, /entry\.submissionXpaths = deps\.collectAiSubmissionXpathsForCurrentPage\(config\);/);
@@ -352,27 +356,27 @@ test("capturePageSnapshot persists heavy snapshot evidence without returning it"
 });
 
 test("async content message branches answer ok false when delegated work rejects", () => {
-  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const source = runtimeMessageHandlerSource;
 
   assertAsyncBranchHasFailureResponse(
     source,
     "forceRefresh",
-    /getForceRefreshHandler\(\)\.handleMessage\(\)/
+    /deps\.getForceRefreshHandler\(\)\.handleMessage\(\)/
   );
   assertAsyncBranchHasFailureResponse(
     source,
     "collectPageData",
-    /getCollectPageDataHandler\(\)\.handleMessage\(message\)/
+    /deps\.getCollectPageDataHandler\(\)\.handleMessage\(message\)/
   );
   assertAsyncBranchHasFailureResponse(
     source,
     "capturePageSnapshot",
-    /getCapturePageSnapshotHandler\(\)\.capture\(\{/
+    /deps\.getCapturePageSnapshotHandler\(\)\.capture\(\{/
   );
   assertAsyncBranchHasFailureResponse(
     source,
     "savePageDraft",
-    /getPageDraftSaveHandler\(\)\.saveCurrentPageDraft\(\{/
+    /deps\.getPageDraftSaveHandler\(\)\.saveCurrentPageDraft\(\{/
   );
 });
 

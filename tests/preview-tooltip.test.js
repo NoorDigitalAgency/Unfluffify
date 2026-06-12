@@ -41,6 +41,10 @@ test("content-main applies the matching xpath as the preview target title", () =
 
 test("content-main tracks separate default and expanded preview item sets", () => {
   const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const runtimeMessageHandlerSource = readFileSync(
+    new URL("../content/runtime-message-handler.js", import.meta.url),
+    "utf8"
+  );
   const previewResponseSource = readFileSync(new URL("../content/ai-preview-state-response.js", import.meta.url), "utf8");
 
   assert.match(
@@ -52,8 +56,8 @@ test("content-main tracks separate default and expanded preview item sets", () =
     /function setAiPreviewExpandedMode\(active\) \{[\s\S]*?if \(!isFeatureEnabled\("previewExpandedStates"\)\) \{[\s\S]*?aiPreviewState\.showAllCategories = false;[\s\S]*?return false;[\s\S]*?aiPreviewState\.showAllCategories = Boolean\(active\);[\s\S]*?aiPreviewState\.showAllCategories[\s\S]*?aiPreviewState\.expandedItems[\s\S]*?aiPreviewState\.defaultItems/
   );
   assert.match(
-    source,
-    /if \(message\.type === "setAiPreviewExpandedMode"\) \{[\s\S]*?const response = getAiPreviewExpandedModeHandler\(\)\.handleMessage\(message\);[\s\S]*?sendResponse\(response && typeof response === "object" \? response : \{ ok: false \}\);/
+    runtimeMessageHandlerSource,
+    /if \(message\.type === "setAiPreviewExpandedMode"\) \{[\s\S]*?const response = deps\.getAiPreviewExpandedModeHandler\(\)\.handleMessage\(message\);[\s\S]*?sendResponse\(response && typeof response === "object" \? response : \{ ok: false \}\);/
   );
   assert.match(previewResponseSource, /feature: "previewExpandedStates"/);
   assert.match(previewResponseSource, /showAllCategories: false/);
@@ -161,7 +165,7 @@ test("compute-lock preview pins marking restore intent and preserves enabled tab
 });
 
 test("content-main keeps preview restore state when config updates during AI preview", () => {
-  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../content/runtime-message-handler.js", import.meta.url), "utf8");
   const handlerSource = readFileSync(
     new URL("../content/config-updated-handler.js", import.meta.url),
     "utf8"
@@ -169,7 +173,7 @@ test("content-main keeps preview restore state when config updates during AI pre
 
   assert.match(
     source,
-    /if \(message\.type === "configUpdated"\) \{[\s\S]*?getConfigUpdatedHandler\(\)\.handleMessage\(message\)/
+    /if \(message\.type === "configUpdated"\) \{[\s\S]*?deps\.getConfigUpdatedHandler\(\)\.handleMessage\(message\)/
   );
   assert.match(
     handlerSource,

@@ -278,7 +278,7 @@ test("marking mode stores default ancestors as unexcluded when descendants are m
 });
 
 test("explicit marking toggles cache XPath element resolution per operation", () => {
-  const contentSource = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const contentSource = readFileSync(new URL("../content/runtime-message-handler.js", import.meta.url), "utf8");
   const handlerSource = readFileSync(new URL("../content/explicit-marking-handler.js", import.meta.url), "utf8");
   const excludeStart = handlerSource.indexOf("function setExplicitExclude(options) {");
   const includeStart = handlerSource.indexOf("function setExplicitInclude(options) {");
@@ -286,8 +286,8 @@ test("explicit marking toggles cache XPath element resolution per operation", ()
   const excludeSource = handlerSource.slice(excludeStart, includeStart);
   const includeSource = handlerSource.slice(includeStart, afterInclude);
 
-  assert.match(contentSource, /getExplicitMarkingHandler\(\)\.setExplicitExclude\(\{/);
-  assert.match(contentSource, /getExplicitMarkingHandler\(\)\.setExplicitInclude\(\{/);
+  assert.match(contentSource, /deps\.getExplicitMarkingHandler\(\)\.setExplicitExclude\(\{/);
+  assert.match(contentSource, /deps\.getExplicitMarkingHandler\(\)\.setExplicitInclude\(\{/);
   assert.match(handlerSource, /function createXPathElementCache\(deps\)/);
   assert.match(handlerSource, /function isSameOrDescendantByElementOrXPath\(deps,/);
   assert.match(excludeSource, /const getElement = createXPathElementCache\(deps\);/);

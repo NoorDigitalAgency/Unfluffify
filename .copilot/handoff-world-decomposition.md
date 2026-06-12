@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-12
 Branch: `main`
-Status: world decomposition complete; content follow-up D0-D2, E0-E2, Track F F1-F24, and high-risk phases G0-G5 complete. Track H runtime-router/service work is active; H0 is complete and H1 is next.
+Status: world decomposition complete; content follow-up D0-D2, E0-E2, Track F F1-F24, and high-risk phases G0-G5 complete. Track H runtime-router/service work is active; H0 and H1 are complete and H2 is next.
 
 ## Current Repository State
 
@@ -13,7 +13,7 @@ git status --short --branch
 # ## main...origin/main
 
 npm test
-# 949 pass / 0 fail
+# 955 pass / 0 fail
 ```
 
 This baseline includes G5 (`setExplicitExclude` and `setExplicitInclude`)
@@ -28,6 +28,11 @@ Track H progress:
    - `npm test -- tests/content-main-runtime-router-contract.test.js tests/content-command-router.test.js tests/content-high-risk-branches.test.js`
 3. H0 full validation passed:
    - `npm test` (`949 pass / 0 fail`)
+4. H1 complete with commit message `refactor(content): extract runtime message handler`.
+5. H1 focused validation passed:
+   - `npm test -- tests/content-main-runtime-router-contract.test.js tests/runtime-message-handler.test.js tests/content-command-router.test.js tests/content-activation-order.test.js tests/content-high-risk-branches.test.js tests/content-decomposition-boundary.test.js tests/manifest-permissions.test.js`
+6. H1 full validation passed:
+   - `npm test` (`955 pass / 0 fail`)
 
 ## Review Result
 
@@ -141,8 +146,8 @@ also complete and remain documented for history in
 The next exact step is Track H in
 `.copilot/content-main-followup-refactor-plan.md`.
 
-Track H is already scoped. Do not redesign it. H0 is complete. Execute H1, then
-H2, and H3 one phase per commit. The approved outcome is:
+Track H is already scoped. Do not redesign it. H0 and H1 are complete. Execute
+H2, then H3 one phase per commit. The approved outcome is:
 
 1. extract the legacy plain-message runtime router from `content-main.js`
 2. extract the support-page runtime-message subgroup from that router
@@ -152,7 +157,7 @@ H2, and H3 one phase per commit. The approved outcome is:
 Current baseline expectations:
 
 1. clean `main...origin/main`
-2. full test suite passes (`946 pass / 0 fail` at the current baseline)
+2. full test suite passes (`955 pass / 0 fail` at the current baseline)
 3. `manifest.json` keeps explicit web-accessible resource entries, no broad
    `content/*.js` or `common/*.js` wildcards
 

@@ -156,7 +156,12 @@ The executor must follow these rules literally.
    - Focused validation: pass (`npm test -- tests/content-main-runtime-router-contract.test.js tests/content-command-router.test.js tests/content-high-risk-branches.test.js`).
    - Full validation: pass (`npm test` => 949 pass / 0 fail).
    - Commit message: `test(content): lock runtime router contracts`.
-2. H1 pending.
+2. H1 complete (2026-06-12):
+   - Added `content/runtime-message-handler.js` and delegated legacy runtime chain from `content-main.js`.
+   - Added `tests/runtime-message-handler.test.js`; updated source-contract tests for router-location compatibility.
+   - Focused validation: pass (`npm test -- tests/content-main-runtime-router-contract.test.js tests/runtime-message-handler.test.js tests/content-command-router.test.js tests/content-activation-order.test.js tests/content-high-risk-branches.test.js tests/content-decomposition-boundary.test.js tests/manifest-permissions.test.js`).
+   - Full validation: pass (`npm test` => 955 pass / 0 fail).
+   - Commit message: `refactor(content): extract runtime message handler`.
 3. H2 pending.
 4. H3 pending.
 

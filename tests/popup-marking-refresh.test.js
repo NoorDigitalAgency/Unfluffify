@@ -883,6 +883,10 @@ test("content-side save hotkey workflow is removed from the marking session", ()
 test("content saved baseline is refreshed from backend cache, not local drafts", () => {
   const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
   const contentSource = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const runtimeMessageHandlerSource = readFileSync(
+    new URL("../content/runtime-message-handler.js", import.meta.url),
+    "utf8"
+  );
   const draftStatusHandlerSource = readFileSync(
     new URL("../content/page-draft-status-handler.js", import.meta.url),
     "utf8"
@@ -897,8 +901,8 @@ test("content saved baseline is refreshed from backend cache, not local drafts",
     /export async function refreshSavedPageEntryFromBackendCache[\s\S]*?config\.getBackendSavedPageMarkings\(baseUrl\)/
   );
   assert.match(
-    contentSource,
-    /if \(message\.type === "getPageDraftStatus"\) \{[\s\S]*?getPageDraftStatusHandler\(\)\.getStatus\(\{ targetBaseUrl \}\)/
+    runtimeMessageHandlerSource,
+    /if \(message\.type === "getPageDraftStatus"\) \{[\s\S]*?deps\.getPageDraftStatusHandler\(\)\.getStatus\(\{ targetBaseUrl \}\)/
   );
   assert.match(
     draftStatusHandlerSource,
@@ -909,8 +913,8 @@ test("content saved baseline is refreshed from backend cache, not local drafts",
     /reconciliationPending: deps\.getPageSaveReconciliationPending\(pageUrl\)/
   );
   assert.match(
-    contentSource,
-    /if \(message\.type === "clearPageSaveReconciliation"\) \{[\s\S]*?getPageSaveReconciliationClearHandler\(\)\.clear\(\{ targetBaseUrl, pageUrl \}\)/
+    runtimeMessageHandlerSource,
+    /if \(message\.type === "clearPageSaveReconciliation"\) \{[\s\S]*?deps\.getPageSaveReconciliationClearHandler\(\)\.clear\(\{ targetBaseUrl, pageUrl \}\)/
   );
   assert.match(
     clearHandlerSource,
@@ -943,7 +947,7 @@ test("submission-xpath staleness only counts when the entry already has prior ru
 });
 
 test("forced config reload replaces the current page entry without re-syncing live DOM", () => {
-  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../content/runtime-message-handler.js", import.meta.url), "utf8");
   const handlerSource = readFileSync(
     new URL("../content/config-updated-handler.js", import.meta.url),
     "utf8"
@@ -954,7 +958,7 @@ test("forced config reload replaces the current page entry without re-syncing li
 
   assert.match(
     configUpdatedSource,
-    /getConfigUpdatedHandler\(\)\.handleMessage\(message\)/
+    /deps\.getConfigUpdatedHandler\(\)\.handleMessage\(message\)/
   );
   assert.match(
     handlerSource,

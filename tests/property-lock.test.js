@@ -177,6 +177,10 @@ test("content-main requests a reconnect when property lock activity or page comm
 
 test("content-main blocks extension and page interaction while connection-loss banner is active", () => {
   const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const runtimeMessageHandlerSource = readFileSync(
+    new URL("../content/runtime-message-handler.js", import.meta.url),
+    "utf8"
+  );
 
   assert.match(source, /function isPropertyLockDisconnectedForInteractionBlock\(\) \{/);
   assert.match(source, /function isPropertyLockInactivityWarningForInteractionBlock\(\) \{/);
@@ -201,8 +205,8 @@ test("content-main blocks extension and page interaction while connection-loss b
     /if \(!currentlyEnabled && isPropertyLockInteractionBlocked\(\)\) \{[\s\S]*?showPropertyLockBlockedToast\(\);/
   );
   assert.match(
-    source,
-    /if \(isPropertyLockInteractionBlocked\(\)\) \{[\s\S]*?sendResponse\(\{ ok: false, locked: true \}\);/
+    runtimeMessageHandlerSource,
+    /if \(!deps\.checkPropertyLockBlocksMarking\(\)\) \{[\s\S]*?sendResponse\(\{ ok: false, locked: true \}\);/
   );
 });
 

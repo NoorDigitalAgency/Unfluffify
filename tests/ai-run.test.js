@@ -250,16 +250,20 @@ test("AI run recovery heartbeat and page lock are coordinated by background", ()
   const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
   const aiRunOrchestratorSource = readFileSync(new URL("../background/ai-run-orchestrator.js", import.meta.url), "utf8");
   const contentSource = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const runtimeMessageHandlerSource = readFileSync(
+    new URL("../content/runtime-message-handler.js", import.meta.url),
+    "utf8"
+  );
   const heartbeatStart = popupSource.indexOf("async function refreshAiRunHeartbeat(options = {}) {");
   const heartbeatEnd = popupSource.indexOf("async function stopAiRun", heartbeatStart);
-  const computeLockStart = contentSource.indexOf('if (message.type === "setAiComputeLock") {');
-  const computeLockEnd = contentSource.indexOf('if (message.type === "closeAiPreview") {', computeLockStart);
+  const computeLockStart = runtimeMessageHandlerSource.indexOf('if (message.type === "setAiComputeLock") {');
+  const computeLockEnd = runtimeMessageHandlerSource.indexOf('if (message.type === "closeAiPreview") {', computeLockStart);
   assert.ok(heartbeatStart > -1);
   assert.ok(heartbeatEnd > heartbeatStart);
   assert.ok(computeLockStart > -1);
   assert.ok(computeLockEnd > computeLockStart);
   const popupHeartbeatBlock = popupSource.slice(heartbeatStart, heartbeatEnd);
-  const contentComputeLockBlock = contentSource.slice(computeLockStart, computeLockEnd);
+  const contentComputeLockBlock = runtimeMessageHandlerSource.slice(computeLockStart, computeLockEnd);
 
   assert.match(backgroundSource, /function sendContentMessageToTab\(tabId, message, timeoutMs = 15000\) \{/);
   assert.match(backgroundSource, /Content message timed out/);
@@ -286,7 +290,7 @@ test("AI run recovery heartbeat and page lock are coordinated by background", ()
   assert.doesNotMatch(popupHeartbeatBlock, /savePersistedAiRunRecord|clearPersistedAiRunRecord|sendTabMessage\(\{[\s\S]*?setAiComputeLock/);
   assert.match(contentSource, /function beginAiPreviewMode\(options = \{\}\) \{/);
   assert.match(contentSource, /async function enterAiPreviewMode\(options = \{\}\) \{[\s\S]*?beginAiPreviewMode\(options\);[\s\S]*?await refreshSilentHighlightings\(\);/);
-  assert.match(contentComputeLockBlock, /getAiPreviewComputeLockHandler\(\)\.handleMessage\(message\)/);
+  assert.match(contentComputeLockBlock, /deps\.getAiPreviewComputeLockHandler\(\)\.handleMessage\(message\)/);
   assert.match(contentComputeLockBlock, /sendResponse\(response && typeof response === "object" \? response : \{ ok: false \}\);/);
 });
 

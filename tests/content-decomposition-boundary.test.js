@@ -63,6 +63,7 @@ test("content decomposition guard: baseline content modules are imported", () =>
   assertImportsContentModule("property-lock-port-client");
   assertImportsContentModule("property-lock-state-machine");
   assertImportsContentModule("remote-support-client");
+  assertImportsContentModule("runtime-message-handler");
   assertImportsContentModule("remote-support-state-handler");
   assertImportsContentModule("remote-support-viewer-client");
   assertImportsContentModule("remote-support-support-page");

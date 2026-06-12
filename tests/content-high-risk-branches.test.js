@@ -3,6 +3,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const contentMainSource = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+const runtimeMessageHandlerSource = readFileSync(
+  new URL("../content/runtime-message-handler.js", import.meta.url),
+  "utf8"
+);
 const manifest = JSON.parse(readFileSync(new URL("../manifest.json", import.meta.url), "utf8"));
 const manifestResources = new Set(
   manifest.web_accessible_resources.flatMap((entry) => entry.resources || [])
@@ -18,12 +22,12 @@ const remainingHighRiskBranches = new Map([
 ]);
 
 const plannedHandlerAccessors = new Map([
-  ["configUpdated", /getConfigUpdatedHandler\(\)\.handleMessage\(message\)/],
-  ["revertPageDraft", /getPageDraftRevertHandler\(\)\.revert\(\{ targetBaseUrl \}\)/],
-  ["savePageDraft", /getPageDraftSaveHandler\(\)\.saveCurrentPageDraft\(\{/],
-  ["setExplicitExclude", /getExplicitMarkingHandler\(\)\.setExplicitExclude\(\{/],
-  ["setExplicitInclude", /getExplicitMarkingHandler\(\)\.setExplicitInclude\(\{/],
-  ["showAiPreview", /getAiPreviewShowHandler\(\)\.handleMessage\(message\)/]
+  ["configUpdated", /(?:deps\.)?getConfigUpdatedHandler\(\)\.handleMessage\(message\)/],
+  ["revertPageDraft", /(?:deps\.)?getPageDraftRevertHandler\(\)\.revert\(\{ targetBaseUrl \}\)/],
+  ["savePageDraft", /(?:deps\.)?getPageDraftSaveHandler\(\)\.saveCurrentPageDraft\(\{/],
+  ["setExplicitExclude", /(?:deps\.)?getExplicitMarkingHandler\(\)\.setExplicitExclude\(\{/],
+  ["setExplicitInclude", /(?:deps\.)?getExplicitMarkingHandler\(\)\.setExplicitInclude\(\{/],
+  ["showAiPreview", /(?:deps\.)?getAiPreviewShowHandler\(\)\.handleMessage\(message\)/]
 ]);
 
 const fullyDelegatedBranches = new Set(["configUpdated", "showAiPreview"]);
@@ -98,25 +102,28 @@ function assertManifestExposesContentModule(moduleName) {
 }
 
 function getMessageBranch(messageType) {
-  const needle = `if (message.type === "${messageType}") {`;
-  const start = contentMainSource.indexOf(needle);
-  if (start < 0) {
-    return "";
-  }
-  const blockStart = contentMainSource.indexOf("{", start);
-  let depth = 0;
-  for (let index = blockStart; index < contentMainSource.length; index += 1) {
-    const char = contentMainSource[index];
-    if (char === "{") {
-      depth += 1;
-    } else if (char === "}") {
-      depth -= 1;
-      if (depth === 0) {
-        return contentMainSource.slice(start, index + 1);
+  for (const source of [contentMainSource, runtimeMessageHandlerSource]) {
+    const needle = `if (message.type === "${messageType}") {`;
+    const start = source.indexOf(needle);
+    if (start < 0) {
+      continue;
+    }
+    const blockStart = source.indexOf("{", start);
+    let depth = 0;
+    for (let index = blockStart; index < source.length; index += 1) {
+      const char = source[index];
+      if (char === "{") {
+        depth += 1;
+      } else if (char === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          return source.slice(start, index + 1);
+        }
       }
     }
+    throw new Error(`unterminated branch for ${messageType}`);
   }
-  throw new Error(`unterminated branch for ${messageType}`);
+  return "";
 }
 
 function branchOrPlannedHandler(messageType) {
@@ -140,31 +147,34 @@ function branchOrPlannedHandler(messageType) {
 
 function assertBranchHasBaseUrlGuard(messageType, branch, policy) {
   if (policy.activeBaseUrlScope === "enabled-same-base-only") {
-    assert.match(branch, /state\.enabled\s*&&\s*utils\.sameBaseUrl\(message\.baseUrl,\s*state\.baseUrl\)/);
+    assert.match(
+      branch,
+      /state\.enabled\s*&&\s*utils\.sameBaseUrl\(message\.baseUrl,\s*state\.baseUrl\)|deps\.state\.enabled\s*&&\s*deps\.sameBaseUrl\(message\.baseUrl,\s*deps\.state\.baseUrl\)/
+    );
     return;
   }
   if (!policy.activeBaseUrlScope) {
     assert.doesNotMatch(branch, /matchesActiveBaseUrl\(/);
     return;
   }
-  assert.match(branch, /const targetBaseUrl = message\.baseUrl \|\| state\.baseUrl;/);
-  assert.match(branch, /!targetBaseUrl \|\| !matchesActiveBaseUrl\(targetBaseUrl\)/);
+  assert.match(branch, /const targetBaseUrl = message\.baseUrl \|\| (?:state|deps\.state)\.baseUrl;/);
+  assert.match(branch, /!targetBaseUrl \|\| !(?:matchesActiveBaseUrl|deps\.matchesActiveBaseUrl)\(targetBaseUrl\)/);
 }
 
 function assertBranchHasConfigGuard(messageType, branch, required) {
   if (!required) {
-    assert.doesNotMatch(branch, /!state\.config/);
+    assert.doesNotMatch(branch, /!(?:state|deps\.state)\.config/);
     return;
   }
-  assert.match(branch, /!state\.config/, `${messageType} should guard missing state.config`);
+  assert.match(branch, /!(?:state|deps\.state)\.config/, `${messageType} should guard missing state.config`);
 }
 
 function assertBranchHasPropertyLockGuard(messageType, branch, required) {
   if (!required) {
-    assert.doesNotMatch(branch, /checkPropertyLockBlocksMarking\(\)/);
+    assert.doesNotMatch(branch, /(?:checkPropertyLockBlocksMarking|deps\.checkPropertyLockBlocksMarking)\(\)/);
     return;
   }
-  assert.match(branch, /if \(!checkPropertyLockBlocksMarking\(\)\) \{\s*sendResponse\(\{ ok: false, locked: true \}\);/);
+  assert.match(branch, /if \(!(?:checkPropertyLockBlocksMarking|deps\.checkPropertyLockBlocksMarking)\(\)\) \{\s*sendResponse\(\{ ok: false, locked: true \}\);/);
 }
 
 function assertBranchHasReconciliationGuard(messageType, branch, required) {
@@ -174,7 +184,7 @@ function assertBranchHasReconciliationGuard(messageType, branch, required) {
   }
   assert.match(
     branch,
-    /core\.isPageSaveReconciliationPending\(location\.href\)[\s\S]*?sendResponse\(\{ ok: false, reconciliationPending: true \}\);/
+    /core\.isPageSaveReconciliationPending\(location\.href\)|deps\.isPageSaveReconciliationPending\(deps\.locationHref\(\)\)[\s\S]*?sendResponse\(\{ ok: false, reconciliationPending: true \}\);/
   );
 }
 
@@ -197,7 +207,7 @@ test("revertPageDraft load failures answer ok false", () => {
     "utf8"
   );
 
-  assert.match(branch, /getPageDraftRevertHandler\(\)\.revert\(\{ targetBaseUrl \}\)/);
+  assert.match(branch, /(?:deps\.)?getPageDraftRevertHandler\(\)\.revert\(\{ targetBaseUrl \}\)/);
   assert.match(
     branch,
     /\.catch\(\(\) => \{\s*sendResponse\(\{ ok: false \}\);\s*\}\);/

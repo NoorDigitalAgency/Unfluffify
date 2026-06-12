@@ -102,6 +102,7 @@ import {
   dispatchContentCommand,
   registerContentCommand
 } from "./content/content-command-router.js";
+import { handleRuntimeMessage } from "./content/runtime-message-handler.js";
 import { createAiPreviewCloseHandler } from "./content/ai-preview-close-handler.js";
 import { createAiPreviewComputeLockHandler } from "./content/ai-preview-compute-lock-handler.js";
 import { createAiPreviewExpandedModeHandler } from "./content/ai-preview-expanded-mode-handler.js";
@@ -6745,6 +6746,47 @@ function registerContentCommandHandlersOnce() {
   registerContentCommand("hideConsentForInspection", async () => handleHideConsentForInspectionCommand());
 }
 
+function createRuntimeMessageHandlerDeps() {
+  return {
+    getRemoteSupportSupportPage,
+    handleSetEnabledCommand,
+    handleGetInspectionStatusCommand,
+    handleRenderModeInspectionBeginCommand,
+    handleRunRenderModeRevealOnceCommand,
+    handleCaptureRenderModeInspectionHtmlCommand,
+    handleRenderModeInspectionEndCommand,
+    handleHideConsentForInspectionCommand,
+    getRemoteSupportStateHandler,
+    getAiPreviewGetStateHandler,
+    getAiPreviewExpandedModeHandler,
+    getAiPreviewComputeLockHandler,
+    getAiPreviewCloseHandler,
+    getConfigUpdatedHandler,
+    getForceRefreshHandler,
+    getDefaultExclusionsHandler,
+    getCollectPageDataHandler,
+    getVisibleXpathsHandler,
+    getAiSubmissionXpathsHandler,
+    getInvisibleXpathsHandler,
+    getDescribeXpathsHandler,
+    getFocusHandler,
+    getCapturePageSnapshotHandler,
+    getPageDraftStatusHandler,
+    getPageSaveReconciliationPendingHandler,
+    getPageSaveReconciliationClearHandler,
+    getExplicitMarkingHandler,
+    getPageDraftSaveHandler,
+    getPageDraftRevertHandler,
+    getAiPreviewShowHandler,
+    state,
+    matchesActiveBaseUrl,
+    checkPropertyLockBlocksMarking,
+    sendPropertyLockActivity,
+    locationHref: () => location.href,
+    isPageSaveReconciliationPending: (pageUrl) => core.isPageSaveReconciliationPending(pageUrl)
+  };
+}
+
 
 export function main() {
   if (state.initialized) {
@@ -6904,421 +6946,9 @@ export function main() {
             (error && error.message) || "Content command failed"
           ));
         });
-      return true;
-    }
-
-    if (getRemoteSupportSupportPage().isSupportPage() && message.type === "remoteSupportViewerTransportStart") {
-      getRemoteSupportSupportPage().sendViewerRequest("remoteSupportTransportStart", {
-        session: message.session && typeof message.session === "object" ? message.session : null
-      }).then((response) => {
-        sendResponse(response && typeof response === "object" ? response : { ok: false });
-      });
-      return true;
-    }
-
-    if (getRemoteSupportSupportPage().isSupportPage() && message.type === "remoteSupportViewerTransportStop") {
-      getRemoteSupportSupportPage().sendViewerRequest("remoteSupportTransportStop", {
-        sessionId: typeof message.sessionId === "string" ? message.sessionId : "",
-        reason: typeof message.reason === "string" ? message.reason : "Session ended",
-        notifyPeer: Boolean(message.notifyPeer)
-      }).then((response) => {
-        sendResponse(response && typeof response === "object" ? response : { ok: false });
-      });
-      return true;
-    }
-
-    if (getRemoteSupportSupportPage().isSupportPage() && message.type === "remoteSupportViewerTransportSendData") {
-      getRemoteSupportSupportPage().sendViewerRequest("remoteSupportTransportSendData", {
-        sessionId: typeof message.sessionId === "string" ? message.sessionId : "",
-        messageType: typeof message.messageType === "string" ? message.messageType : "",
-        payload: message.payload,
-        channelKey: typeof message.channelKey === "string" ? message.channelKey : ""
-      }).then((response) => {
-        sendResponse(response && typeof response === "object" ? response : { ok: false });
-      });
-      return true;
-    }
-
-    if (getRemoteSupportSupportPage().isSupportPage() && message.type === "remoteSupportStateChanged") {
-      if (
-        Number.isFinite(getRemoteSupportSupportPage().getTabId()) &&
-        Number.isFinite(message.tabId) &&
-        Math.trunc(message.tabId) !== getRemoteSupportSupportPage().getTabId()
-      ) {
-        return;
-      }
-
-      getRemoteSupportSupportPage().applyState(message.state || null);
-      sendResponse({ ok: true });
-      return;
-    }
-
-    if (getRemoteSupportSupportPage().isSupportPage() && message.type === "remoteSupportFrame") {
-      if (!getRemoteSupportSupportPage().handleFrameMessage(message)) {
-        return;
-      }
-      sendResponse({ ok: true });
-      return;
-    }
-
-    if (message.type === "setEnabled") {
-      handleSetEnabledCommand(message)
-        .then((response) => {
-          sendResponse(response && typeof response === "object" ? response : { ok: false });
-        })
-        .catch(() => {
-          sendResponse({ ok: false });
-        });
-      return true;
-    }
-
-    if (message.type === "getInspectionStatus") {
-      sendResponse(handleGetInspectionStatusCommand());
-      return;
-    }
-
-    if (message.type === "renderModeInspectionBegin") {
-      sendResponse(handleRenderModeInspectionBeginCommand(message));
-      return;
-    }
-
-    if (message.type === "runRenderModeRevealOnce") {
-      handleRunRenderModeRevealOnceCommand(message)
-        .then((response) => {
-          sendResponse(response && typeof response === "object" ? response : { ok: false });
-        })
-        .catch(() => {
-          sendResponse({ ok: false });
-        });
-      return true;
-    }
-
-    if (message.type === "captureRenderModeInspectionHtml") {
-      handleCaptureRenderModeInspectionHtmlCommand(message)
-        .then((response) => {
-          sendResponse(response && typeof response === "object" ? response : { ok: false });
-        })
-        .catch(() => {
-          sendResponse({ ok: false });
-        });
-      return true;
-    }
-
-    if (message.type === "renderModeInspectionEnd") {
-      sendResponse(handleRenderModeInspectionEndCommand(message));
-      return;
-    }
-
-    if (message.type === "hideConsentForInspection") {
-      sendResponse(handleHideConsentForInspectionCommand());
-      return;
-    }
-
-    if (message.type === "remoteSupportState" || message.type === "remoteSupportModeChanged") {
-      const response = getRemoteSupportStateHandler().handleMessage(message);
-      sendResponse(response && typeof response === "object" ? response : { ok: false });
-      return;
-    }
-
-    if (message.type === "getAiPreviewState") {
-      const response = getAiPreviewGetStateHandler().handleMessage();
-      sendResponse(response && typeof response === "object" ? response : { ok: false });
-      return;
-    }
-
-    if (message.type === "setAiPreviewExpandedMode") {
-      try {
-        const response = getAiPreviewExpandedModeHandler().handleMessage(message);
-        sendResponse(response && typeof response === "object" ? response : { ok: false });
-      } catch {
-        sendResponse({ ok: false });
-      }
-      return;
-    }
-
-    if (message.type === "setAiComputeLock") {
-      getAiPreviewComputeLockHandler().handleMessage(message)
-        .then((response) => {
-          sendResponse(response && typeof response === "object" ? response : { ok: false });
-        })
-        .catch(() => {
-          sendResponse({ ok: false });
-        });
-      return true;
-    }
-
-    if (message.type === "closeAiPreview") {
-      getAiPreviewCloseHandler().handleMessage()
-        .then((response) => {
-          sendResponse(response && typeof response === "object" ? response : { ok: false });
-        })
-        .catch(() => {
-          sendResponse({ ok: false });
-        });
-      return true;
-    }
-
-    if (message.type === "configUpdated") {
-      const response = getConfigUpdatedHandler().handleMessage(message);
-      if (response && typeof response.then === "function") {
-        response.then((result) => {
-          sendResponse(result && typeof result === "object" ? result : { ok: false });
-        }).catch(() => {
-          sendResponse({ ok: false });
-        });
         return true;
-      }
-      sendResponse(response && typeof response === "object" ? response : { ok: false });
-      return;
     }
-
-    if (message.type === "forceRefresh") {
-      getForceRefreshHandler().handleMessage().then((response) => {
-        sendResponse(response && typeof response === "object" ? response : { ok: false });
-      }).catch(() => {
-        sendResponse({ ok: false });
-      });
-      return true;
-    }
-
-    if (message.type === "getDefaultExclusions") {
-      sendResponse(getDefaultExclusionsHandler().handleMessage());
-      return;
-    }
-
-    if (message.type === "collectPageData") {
-      getCollectPageDataHandler().handleMessage(message).then((response) => {
-        sendResponse(response && typeof response === "object" ? response : { ok: false });
-      }).catch(() => {
-        sendResponse({ ok: false });
-      });
-      return true;
-    }
-
-    if (message.type === "filterXPathsOnPage") {
-      sendResponse(getVisibleXpathsHandler().handleMessage(message));
-      return;
-    }
-
-    if (message.type === "collectAiSubmissionXpaths") {
-      sendResponse(getAiSubmissionXpathsHandler().handleMessage());
-      return;
-    }
-
-    if (message.type === "filterInvisibleXpathsOnPage") {
-      sendResponse(getInvisibleXpathsHandler().handleMessage(message));
-      return;
-    }
-
-    if (message.type === "describeXPathsOnPage") {
-      sendResponse(getDescribeXpathsHandler().handleMessage(message));
-      return;
-    }
-
-    if (message.type === "focusElement") {
-      sendResponse(getFocusHandler().handleFocusMessage(message));
-      return;
-    }
-
-    if (message.type === "clearFocus") {
-      sendResponse(getFocusHandler().handleClearFocusMessage());
-      return;
-    }
-
-    if (message.type === "capturePageSnapshot") {
-      const targetBaseUrl = message.baseUrl || state.baseUrl;
-      if (!targetBaseUrl) {
-        sendResponse({ ok: false });
-        return;
-      }
-      const shouldPersist = Boolean(message.persist);
-      if (shouldPersist && !checkPropertyLockBlocksMarking()) {
-        sendResponse({ ok: false, locked: true });
-        return;
-      }
-      if (shouldPersist && core.isPageSaveReconciliationPending(location.href)) {
-        sendResponse({ ok: false, reconciliationPending: true });
-        return;
-      }
-
-      getCapturePageSnapshotHandler().capture({
-        targetBaseUrl,
-        shouldPersist,
-        pageType: typeof message.pageType === "string" ? message.pageType : ""
-      }).then((response) => {
-        sendResponse(response && typeof response === "object" ? response : { ok: false });
-      }).catch(() => {
-        sendResponse({ ok: false });
-      });
-      return true;
-    }
-
-    if (message.type === "getPageDraftStatus") {
-      const targetBaseUrl = message.baseUrl || state.baseUrl;
-      if (!targetBaseUrl || !matchesActiveBaseUrl(targetBaseUrl) || !state.config) {
-        sendResponse({ ok: false });
-        return;
-      }
-      getPageDraftStatusHandler().getStatus({ targetBaseUrl }).then((response) => {
-        sendResponse(response && typeof response === "object" ? response : { ok: false });
-      }).catch(() => {
-        sendResponse({ ok: false });
-      });
-      return true;
-    }
-
-    if (message.type === "setPageSaveReconciliationPending") {
-      const targetBaseUrl = message.baseUrl || state.baseUrl;
-      const pageUrl = typeof message.pageUrl === "string" && message.pageUrl
-        ? message.pageUrl
-        : location.href;
-      if (!targetBaseUrl || !matchesActiveBaseUrl(targetBaseUrl) || pageUrl !== location.href) {
-        sendResponse({ ok: false });
-        return;
-      }
-      getPageSaveReconciliationPendingHandler().setPending({
-        targetBaseUrl,
-        pageUrl,
-        reason: message.reason
-      }).then((response) => {
-        sendResponse(response && typeof response === "object" ? response : { ok: false });
-      }).catch(() => {
-        sendResponse({ ok: false });
-      });
-      return true;
-    }
-
-    if (message.type === "clearPageSaveReconciliation") {
-      const targetBaseUrl = message.baseUrl || state.baseUrl;
-      const pageUrl = typeof message.pageUrl === "string" && message.pageUrl
-        ? message.pageUrl
-        : location.href;
-      if (!targetBaseUrl || !matchesActiveBaseUrl(targetBaseUrl) || pageUrl !== location.href) {
-        sendResponse({ ok: false });
-        return;
-      }
-      getPageSaveReconciliationClearHandler().clear({ targetBaseUrl, pageUrl })
-        .then((response) => {
-          sendResponse(response && typeof response === "object" ? response : { ok: false });
-        })
-        .catch(() => {
-        sendResponse({ ok: false });
-        });
-      return true;
-    }
-
-    if (message.type === "setExplicitExclude") {
-      const targetBaseUrl = message.baseUrl || state.baseUrl;
-      if (!targetBaseUrl || !matchesActiveBaseUrl(targetBaseUrl) || !state.config) {
-        sendResponse({ ok: false });
-        return;
-      }
-      if (!checkPropertyLockBlocksMarking()) {
-        sendResponse({ ok: false, locked: true });
-        return;
-      }
-      if (core.isPageSaveReconciliationPending(location.href)) {
-        sendResponse({ ok: false, reconciliationPending: true });
-        return;
-      }
-      const xpath = message.xpath || "";
-      if (!xpath) {
-        sendResponse({ ok: false });
-        return;
-      }
-      const response = getExplicitMarkingHandler().setExplicitExclude({
-        targetBaseUrl,
-        xpath,
-        excluded: Boolean(message.excluded)
-      });
-      if (response && response.ok) {
-        sendPropertyLockActivity();
-      }
-      sendResponse(response);
-      return;
-    }
-
-    if (message.type === "setExplicitInclude") {
-      const targetBaseUrl = message.baseUrl || state.baseUrl;
-      if (!targetBaseUrl || !matchesActiveBaseUrl(targetBaseUrl) || !state.config) {
-        sendResponse({ ok: false });
-        return;
-      }
-      if (!checkPropertyLockBlocksMarking()) {
-        sendResponse({ ok: false, locked: true });
-        return;
-      }
-      if (core.isPageSaveReconciliationPending(location.href)) {
-        sendResponse({ ok: false, reconciliationPending: true });
-        return;
-      }
-      const xpath = message.xpath || "";
-      if (!xpath) {
-        sendResponse({ ok: false });
-        return;
-      }
-      const response = getExplicitMarkingHandler().setExplicitInclude({
-        targetBaseUrl,
-        xpath,
-        included: Boolean(message.included)
-      });
-      if (response && response.ok) {
-        sendPropertyLockActivity();
-      }
-      sendResponse(response);
-      return;
-    }
-
-    if (message.type === "savePageDraft") {
-      const targetBaseUrl = message.baseUrl || state.baseUrl;
-      if (!targetBaseUrl || !matchesActiveBaseUrl(targetBaseUrl) || !state.config) {
-        sendResponse({ ok: false });
-        return;
-      }
-      if (!checkPropertyLockBlocksMarking()) {
-        sendResponse({ ok: false, locked: true });
-        return;
-      }
-      getPageDraftSaveHandler().saveCurrentPageDraft({
-        baseUrl: targetBaseUrl,
-        pageType: typeof message.pageType === "string" ? message.pageType : ""
-      }).then((result) => {
-        if (result && result.ok) {
-          sendPropertyLockActivity();
-        }
-        sendResponse(result && typeof result === "object" ? result : { ok: false });
-      }).catch(() => {
-        sendResponse({ ok: false });
-      });
-      return true;
-    }
-
-    if (message.type === "revertPageDraft") {
-      const targetBaseUrl = message.baseUrl || state.baseUrl;
-      if (!targetBaseUrl || !matchesActiveBaseUrl(targetBaseUrl) || !state.config) {
-        sendResponse({ ok: false });
-        return;
-      }
-      if (!checkPropertyLockBlocksMarking()) {
-        sendResponse({ ok: false, locked: true });
-        return;
-      }
-      getPageDraftRevertHandler().revert({ targetBaseUrl }).then((response) => {
-        sendResponse(response && typeof response === "object" ? response : { ok: false });
-      }).catch(() => {
-        sendResponse({ ok: false });
-      });
-      return true;
-    }
-
-    if (message.type === "showAiPreview") {
-      getAiPreviewShowHandler().handleMessage(message).then((response) => {
-        sendResponse(response && typeof response === "object" ? response : { ok: false });
-      }).catch(() => {
-        sendResponse({ ok: false });
-      });
-      return true;
-    }
+    return handleRuntimeMessage(message, _sender, sendResponse, createRuntimeMessageHandlerDeps());
   });
 
   window.addEventListener(URL_CHANGED_EVENT, () => {
