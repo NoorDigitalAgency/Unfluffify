@@ -1,8 +1,8 @@
 # Handoff - Content Main Decomposition
 
-Last updated: 2026-06-11
+Last updated: 2026-06-12
 Branch: `main`
-Status: world decomposition complete; content follow-up D0-D2, E0-E2, Track F F1-F24, and high-risk phases G0-G5 complete. Track H runtime-router/service work is now the active next slice.
+Status: world decomposition complete; content follow-up D0-D2, E0-E2, Track F F1-F24, and high-risk phases G0-G5 complete. Track H runtime-router/service work is active; H0 is complete and H1 is next.
 
 ## Current Repository State
 
@@ -13,13 +13,21 @@ git status --short --branch
 # ## main...origin/main
 
 npm test
-# 946 pass / 0 fail
+# 949 pass / 0 fail
 ```
 
 This baseline includes G5 (`setExplicitExclude` and `setExplicitInclude`)
 extracted into `content/explicit-marking-handler.js` with focused tests plus a
 green full suite, plus post-review async content-message fallback hardening for
 rejectable delegated branches.
+
+Track H progress:
+
+1. H0 complete with commit message `test(content): lock runtime router contracts`.
+2. H0 focused validation passed:
+   - `npm test -- tests/content-main-runtime-router-contract.test.js tests/content-command-router.test.js tests/content-high-risk-branches.test.js`
+3. H0 full validation passed:
+   - `npm test` (`949 pass / 0 fail`)
 
 ## Review Result
 
@@ -133,7 +141,7 @@ also complete and remain documented for history in
 The next exact step is Track H in
 `.copilot/content-main-followup-refactor-plan.md`.
 
-Track H is already scoped. Do not redesign it. Start at H0, then execute H1,
+Track H is already scoped. Do not redesign it. H0 is complete. Execute H1, then
 H2, and H3 one phase per commit. The approved outcome is:
 
 1. extract the legacy plain-message runtime router from `content-main.js`
