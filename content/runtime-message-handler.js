@@ -1,60 +1,13 @@
+import { handleRemoteSupportSupportPageMessage } from "./remote-support-support-page-message-handler.js";
+
 export function handleRuntimeMessage(message, _sender, sendResponse, deps) {
   if (!message || !message.type) {
     return;
   }
 
-  if (deps.getRemoteSupportSupportPage().isSupportPage() && message.type === "remoteSupportViewerTransportStart") {
-    deps.getRemoteSupportSupportPage().sendViewerRequest("remoteSupportTransportStart", {
-      session: message.session && typeof message.session === "object" ? message.session : null
-    }).then((response) => {
-      sendResponse(response && typeof response === "object" ? response : { ok: false });
-    });
-    return true;
-  }
-
-  if (deps.getRemoteSupportSupportPage().isSupportPage() && message.type === "remoteSupportViewerTransportStop") {
-    deps.getRemoteSupportSupportPage().sendViewerRequest("remoteSupportTransportStop", {
-      sessionId: typeof message.sessionId === "string" ? message.sessionId : "",
-      reason: typeof message.reason === "string" ? message.reason : "Session ended",
-      notifyPeer: Boolean(message.notifyPeer)
-    }).then((response) => {
-      sendResponse(response && typeof response === "object" ? response : { ok: false });
-    });
-    return true;
-  }
-
-  if (deps.getRemoteSupportSupportPage().isSupportPage() && message.type === "remoteSupportViewerTransportSendData") {
-    deps.getRemoteSupportSupportPage().sendViewerRequest("remoteSupportTransportSendData", {
-      sessionId: typeof message.sessionId === "string" ? message.sessionId : "",
-      messageType: typeof message.messageType === "string" ? message.messageType : "",
-      payload: message.payload,
-      channelKey: typeof message.channelKey === "string" ? message.channelKey : ""
-    }).then((response) => {
-      sendResponse(response && typeof response === "object" ? response : { ok: false });
-    });
-    return true;
-  }
-
-  if (deps.getRemoteSupportSupportPage().isSupportPage() && message.type === "remoteSupportStateChanged") {
-    if (
-      Number.isFinite(deps.getRemoteSupportSupportPage().getTabId()) &&
-      Number.isFinite(message.tabId) &&
-      Math.trunc(message.tabId) !== deps.getRemoteSupportSupportPage().getTabId()
-    ) {
-      return;
-    }
-
-    deps.getRemoteSupportSupportPage().applyState(message.state || null);
-    sendResponse({ ok: true });
-    return;
-  }
-
-  if (deps.getRemoteSupportSupportPage().isSupportPage() && message.type === "remoteSupportFrame") {
-    if (!deps.getRemoteSupportSupportPage().handleFrameMessage(message)) {
-      return;
-    }
-    sendResponse({ ok: true });
-    return;
+  const supportPageResult = handleRemoteSupportSupportPageMessage(message, sendResponse, deps);
+  if (supportPageResult !== null) {
+    return supportPageResult;
   }
 
   if (message.type === "setEnabled") {

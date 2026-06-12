@@ -162,7 +162,12 @@ The executor must follow these rules literally.
    - Focused validation: pass (`npm test -- tests/content-main-runtime-router-contract.test.js tests/runtime-message-handler.test.js tests/content-command-router.test.js tests/content-activation-order.test.js tests/content-high-risk-branches.test.js tests/content-decomposition-boundary.test.js tests/manifest-permissions.test.js`).
    - Full validation: pass (`npm test` => 955 pass / 0 fail).
    - Commit message: `refactor(content): extract runtime message handler`.
-3. H2 pending.
+3. H2 complete (2026-06-12):
+   - Added `content/remote-support-support-page-message-handler.js` and delegated the five support-page message types from `content/runtime-message-handler.js`.
+   - Added `tests/content-remote-support-support-page-message-handler.test.js`.
+   - Focused validation: pass (`npm test -- tests/content-main-runtime-router-contract.test.js tests/content-remote-support-support-page-message-handler.test.js tests/content-remote-support-support-page.test.js tests/runtime-message-handler.test.js tests/content-decomposition-boundary.test.js tests/manifest-permissions.test.js`).
+   - Full validation: pass (`npm test` => 959 pass / 0 fail).
+   - Commit message: `refactor(content): extract support page runtime messages`.
 4. H3 pending.
 
 ## Phase H0 - Lock The Runtime Router Contract
