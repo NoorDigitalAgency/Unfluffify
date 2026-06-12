@@ -5,9 +5,10 @@ Last updated: 2026-06-11
 ## Objective
 
 Continue the post-world-decomposition architecture work through the remaining
-explicitly planned `content-main.js` seams, without touching protected marking,
-silent-highlight, visibility, reconciliation, XPath, AI-submission, overlay
-projection, or `content/core.js` behavior.
+explicitly planned `content-main.js` runtime-router and lazy-service seams,
+without touching protected marking, silent-highlight, visibility,
+reconciliation, XPath, AI-submission, overlay projection, or `content/core.js`
+behavior.
 
 ## Active Documents
 
@@ -15,8 +16,8 @@ Use these documents before making implementation changes:
 
 1. `.copilot/content-main-followup-refactor-plan.md`
 2. `.copilot/handoff-world-decomposition.md`
-3. `.copilot/high-risk-content-branches-plan.md`
-4. `.copilot/knowledge.md`
+3. `.copilot/knowledge.md`
+4. `.copilot/high-risk-content-branches-plan.md` (historical G0-G5 reference only)
 
 Historical and superseded `.copilot` plans/handoffs have been removed from the
 workspace. If earlier rationale is needed, use git history instead of restoring
@@ -27,8 +28,13 @@ old archive files into the active `.copilot` folder.
 The service-worker authority refactor, storage-access layer refactor, and world
 decomposition program are complete and merged to `main`. Content follow-up
 Tracks D and E are complete, Track F is complete through F24, and the high-risk
-plan is complete through G5. Run a fresh `content-main.js` review before
-planning additional branch extraction.
+plan is complete through G5.
+
+The active work is now Track H in
+`.copilot/content-main-followup-refactor-plan.md`: shrink `content-main.js` by
+extracting the legacy plain-message runtime router, the support-page runtime
+message subgroup, and the lazy handler/client service registry. Keep popup and
+background plain runtime message callsites unchanged during this track.
 
 This track protects the 11 always-on core features, including reveal/freeze and
 lazy-loading stopping/restoration. Do not resume old implementation tracks unless
@@ -80,7 +86,9 @@ Post-review async content-message fallback hardening now covers `forceRefresh`,
    wildcards.
 7. Do not introduce a shared mutable content-state bucket; use narrow dependency
    injection, getters, setters, or factories.
-8. Do not commit generated MCP/browser profiles, screenshots, debug JSON,
+8. Do not migrate additional plain runtime messages to the envelope protocol as
+   part of Track H.
+9. Do not commit generated MCP/browser profiles, screenshots, debug JSON,
    orchestration run output, tokens, or secrets.
 
 ## Marking Contract Lock
@@ -112,10 +120,10 @@ ancestors. Any legitimate contract change must update
 
 ## Model Capability Recommendation
 
-For `.copilot/high-risk-content-branches-plan.md`:
+For `.copilot/content-main-followup-refactor-plan.md`:
 
-1. Use GPT-5.4 at high effort for G0-G5.
-2. GPT-5.3-Codex at high effort may be acceptable for G0-G4 if a stronger
-   reviewer checks the plan before explicit marking work.
-3. Do not give explicit include/exclude or marking-contract work to a small or
-   low-effort model.
+1. Use GPT-5.4 at high effort when available.
+2. A less capable model may execute H0-H3 only by following the written Track H
+   instructions literally.
+3. Do not let the executor redesign scope, migrate callsites, or infer a post-H3
+   plan.

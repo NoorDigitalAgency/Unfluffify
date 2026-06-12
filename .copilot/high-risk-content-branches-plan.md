@@ -1,8 +1,13 @@
 # High-Risk Content Branch Plan
 
+Historical status: completed through G5 on 2026-06-11. This file is no longer
+the active executor plan. Use `.copilot/content-main-followup-refactor-plan.md`
+for current work. Keep this file as the historical record for the completed
+high-risk branch extraction track.
+
 Last updated: 2026-06-11
 Branch: main
-Status: G0-G5 complete; stop for fresh `content-main.js` review before any further extraction.
+Status: historical record only. G0-G5 complete; superseded by the active Track H runtime-router/service plan.
 
 ## Scope
 

@@ -4,11 +4,17 @@ Last updated: 2026-06-11
 Branch: main
 Status: F1-F24 complete and pushed per-slice; no further mechanical Track F phases remain.
 
+Historical status: this file is a completed Track F record. It is no longer an
+active executor plan. Use `.copilot/content-main-followup-refactor-plan.md` for
+the current Track H runtime-router/service work.
+
 Post-F24 continuation:
 
 1. Remaining high-risk branch work no longer belongs in this document.
-2. Use `.copilot/high-risk-content-branches-plan.md` for the next plan.
-3. Start with G0 pre-start audit hardening before touching remaining branches.
+2. The high-risk branch plan in `.copilot/high-risk-content-branches-plan.md`
+  is complete through G5 and is now historical.
+3. Use `.copilot/content-main-followup-refactor-plan.md` for the active Track H
+  plan.
 
 Current validation baseline:
 ```bash

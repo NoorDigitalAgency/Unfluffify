@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-11
 Branch: `main`
-Status: world decomposition complete; content follow-up D0-D2, E0-E2, Track F F1-F24, and high-risk phases G0-G5 complete through the current working slice.
+Status: world decomposition complete; content follow-up D0-D2, E0-E2, Track F F1-F24, and high-risk phases G0-G5 complete. Track H runtime-router/service work is now the active next slice.
 
 ## Current Repository State
 
@@ -116,30 +116,30 @@ F20 refactor(content): extract force refresh handler
 Use these files, in this order, before making any further implementation change:
 
 1. `.copilot/plan.md` - active architecture index and guardrails.
-2. `.copilot/content-main-followup-refactor-plan.md` - current status summary.
-3. `.copilot/high-risk-content-branches-plan.md` - active post-F24 high-risk
-   plan for the remaining inline runtime branches.
-4. `.copilot/track-f-protected-content-plan.md` - completed mechanical Track F
-   plan through F24.
-5. `.copilot/knowledge.md` - domain-specific rules that must not be violated.
+2. `.copilot/content-main-followup-refactor-plan.md` - active Track H executor
+   plan for the remaining `content-main.js` router/service seams.
+3. `.copilot/knowledge.md` - domain-specific rules that must not be violated.
+4. `.copilot/high-risk-content-branches-plan.md` - completed G0-G5 historical
+   record.
+5. `.copilot/track-f-protected-content-plan.md` - completed mechanical Track F
+   record through F24.
 
 ## Next Exact Step
 
-Track F mechanical slices are complete through F24.
-
-The active high-risk plan is documented in
+Track F mechanical slices are complete through F24. High-risk phases G0-G5 are
+also complete and remain documented for history in
 `.copilot/high-risk-content-branches-plan.md`.
 
-Phase G0 in that plan is complete through branch inventory, guard-matrix
-contract coverage, and the isolated `revertPageDraft` async failure fallback.
-Phase G1 extracted `configUpdated` into `content/config-updated-handler.js`.
-Phase G2 extracted `showAiPreview` into `content/ai-preview-show-handler.js`.
-Phase G3 extracted `revertPageDraft` into `content/page-draft-revert-handler.js`.
-Phase G4 extracted `savePageDraft` into `content/page-draft-save-handler.js`.
-Phase G5 extracted explicit marking mutations into
-`content/explicit-marking-handler.js`. The written high-risk plan is now at its
-stop point; review `content-main.js` again before planning any further branch
-extraction.
+The next exact step is Track H in
+`.copilot/content-main-followup-refactor-plan.md`.
+
+Track H is already scoped. Do not redesign it. Start at H0, then execute H1,
+H2, and H3 one phase per commit. The approved outcome is:
+
+1. extract the legacy plain-message runtime router from `content-main.js`
+2. extract the support-page runtime-message subgroup from that router
+3. extract the lazy handler/client service registry
+4. stop after H3 and review again before any mutable-state extraction
 
 Current baseline expectations:
 
@@ -160,13 +160,12 @@ Post-F24 audit result:
 
 ## Model Capability Recommendation
 
-Recommended model for the active high-risk plan:
+Recommended model for the active Track H plan:
 
-1. Use GPT-5.4 at high effort for G0-G5.
-2. GPT-5.3-Codex at high effort may be acceptable for G0-G4 if a stronger
-   reviewer checks the plan before explicit marking work.
-3. Do not assign explicit include/exclude or other marking-contract refactors to
-   a low-capability model.
+1. Use GPT-5.4 at high effort when available.
+2. A less capable model may execute H0-H3 only by following the written Track H
+   instructions literally.
+3. Do not let the executor infer post-H3 work or redesign message transport.
 
 ## Non-Negotiable Guardrails
 
