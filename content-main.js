@@ -102,6 +102,7 @@ import {
   dispatchContentCommand,
   registerContentCommand
 } from "./content/content-command-router.js";
+import { createContentMainServiceRegistry } from "./content/content-main-service-registry.js";
 import { handleRuntimeMessage } from "./content/runtime-message-handler.js";
 import { createAiPreviewCloseHandler } from "./content/ai-preview-close-handler.js";
 import { createAiPreviewComputeLockHandler } from "./content/ai-preview-compute-lock-handler.js";
@@ -408,38 +409,6 @@ const PAGE_TELEMETRY_MESSAGE_MARKER = "unfluffify-page-telemetry";
 const PAGE_TELEMETRY_CONTROL_MARKER = "unfluffify-page-telemetry-control";
 const PAGE_TELEMETRY_NONCE_BYTES = 16;
 
-let remoteSupportClient = null;
-let remoteSupportViewerClient = null;
-let remoteSupportSupportPage = null;
-let pageToastClient = null;
-let pageSaveReconciliationClearHandler = null;
-let pageSaveReconciliationPendingHandler = null;
-let renderModeInspectionClient = null;
-let renderModeInspectionHandlers = null;
-let inspectionStatusResolver = null;
-let pageDraftStatusHandler = null;
-let pageDraftRevertHandler = null;
-let pageDraftSaveHandler = null;
-let aiPreviewCloseHandler = null;
-let aiPreviewComputeLockHandler = null;
-let aiPreviewExpandedModeHandler = null;
-let aiPreviewGetStateHandler = null;
-let aiPreviewShowHandler = null;
-let aiPreviewStateResponseBuilder = null;
-let aiSubmissionXpathsHandler = null;
-let capturePageSnapshotHandler = null;
-let collectPageDataHandler = null;
-let configUpdatedHandler = null;
-let defaultExclusionsHandler = null;
-let describeXpathsHandler = null;
-let explicitMarkingHandler = null;
-let focusHandler = null;
-let forceRefreshHandler = null;
-let invisibleXpathsHandler = null;
-let propertyLockPortClient = null;
-let propertyLockStateMachine = null;
-let remoteSupportStateHandler = null;
-let visibleXpathsHandler = null;
 let pageTelemetryBridgeListenerBound = false;
 let pageTelemetryBridgeNonce = "";
 // Private MessageChannel port for the page-world telemetry stream. When
@@ -448,62 +417,114 @@ let pageTelemetryBridgeNonce = "";
 // observe (or, without racing the one-time port handshake, forge) the stream.
 let pageTelemetryBridgePort = null;
 
-function getRemoteSupportViewerClient() {
-  if (!remoteSupportViewerClient) {
-    remoteSupportViewerClient = createRemoteSupportViewerClient({
-      getViewerOrigin: () => {
-        try {
-          return new URL(chrome.runtime.getURL(REMOTE_SUPPORT_SUPPORT_PAGE_VIEWER_PATH)).origin;
-        } catch (error) {
-          return "*";
-        }
-      },
-      getViewerFrame: () => {
-        const supportPage = getRemoteSupportSupportPage();
-        return supportPage.getViewerElement();
-      },
-      getViewerElement: () => {
-        const supportPage = getRemoteSupportSupportPage();
-        return supportPage.getViewerElement();
-      },
-      isSupportPageActive: () => getRemoteSupportSupportPage().isActive(),
-      onFrameMessage: (framePayload) => {
-        getRemoteSupportSupportPage().handleFramePayload(framePayload);
-      },
-      renderFrame: () => {
-        getRemoteSupportSupportPage().render();
-      },
-      sendRuntimeMessageSafely,
-      updateStateFromBackground: () => getRemoteSupportSupportPage().refreshState(),
-      REMOTE_SUPPORT_SUPPORT_PAGE_VIEWER_PATH,
-      REMOTE_SUPPORT_SUPPORT_PAGE_VIEWER_REQUEST_TIMEOUT_MS
-    });
-  }
+const contentMainServiceRegistry = createContentMainServiceRegistry({
+  createRemoteSupportViewerClient: () => createRemoteSupportViewerClient({
+    getViewerOrigin: () => {
+      try {
+        return new URL(chrome.runtime.getURL(REMOTE_SUPPORT_SUPPORT_PAGE_VIEWER_PATH)).origin;
+      } catch (error) {
+        return "*";
+      }
+    },
+    getViewerFrame: () => {
+      const supportPage = getRemoteSupportSupportPage();
+      return supportPage.getViewerElement();
+    },
+    getViewerElement: () => {
+      const supportPage = getRemoteSupportSupportPage();
+      return supportPage.getViewerElement();
+    },
+    isSupportPageActive: () => getRemoteSupportSupportPage().isActive(),
+    onFrameMessage: (framePayload) => {
+      getRemoteSupportSupportPage().handleFramePayload(framePayload);
+    },
+    renderFrame: () => {
+      getRemoteSupportSupportPage().render();
+    },
+    sendRuntimeMessageSafely,
+    updateStateFromBackground: () => getRemoteSupportSupportPage().refreshState(),
+    REMOTE_SUPPORT_SUPPORT_PAGE_VIEWER_PATH,
+    REMOTE_SUPPORT_SUPPORT_PAGE_VIEWER_REQUEST_TIMEOUT_MS
+  }),
+  createRemoteSupportSupportPage: () => createRemoteSupportSupportPage({
+    isRemoteSupportFeatureEnabled: () => isFeatureEnabled("remoteSupport"),
+    getViewerClient: () => getRemoteSupportViewerClient(),
+    sendRuntimeMessageSafely,
+    formatRemoteSupportCountdown,
+    normalizeRemoteSupportDockState,
+    REMOTE_SUPPORT_DOCK_STATE_EMBEDDED_MINIMIZED,
+    REMOTE_SUPPORT_DOCK_STATE_FULLSCREEN_ACTIVE,
+    EXTENSION_UI_FONT_STACK,
+    REMOTE_SUPPORT_SUPPORT_PAGE_META_SELECTOR,
+    REMOTE_SUPPORT_SUPPORT_PAGE_APP_ID,
+    REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID,
+    REMOTE_SUPPORT_SUPPORT_PAGE_STYLE_ID,
+    REMOTE_SUPPORT_SUPPORT_PAGE_FALLBACK_ID,
+    REMOTE_SUPPORT_SUPPORT_PAGE_VIEWER_FRAME_ID
+  }),
+  createPageToastClient: () => createPageToast(createPageToastDeps()),
+  createPageSaveReconciliationClearHandler: () => createPageSaveReconciliationClearHandler(
+    createPageSaveReconciliationClearHandlerDeps()
+  ),
+  createPageSaveReconciliationPendingHandler: () => createPageSaveReconciliationPendingHandler(
+    createPageSaveReconciliationPendingHandlerDeps()
+  ),
+  createRenderModeInspectionClient: () => createRenderModeInspectionClient(
+    createRenderModeInspectionClientDeps()
+  ),
+  createRenderModeInspectionHandlers: () => createRenderModeInspectionHandlers(
+    createRenderModeInspectionHandlersDeps()
+  ),
+  createInspectionStatusResolver: () => createInspectionStatusResolver(createInspectionStatusDeps()),
+  createPageDraftRevertHandler: () => createPageDraftRevertHandler(createPageDraftRevertHandlerDeps()),
+  createPageDraftSaveHandler: () => createPageDraftSaveHandler(createPageDraftSaveHandlerDeps()),
+  createExplicitMarkingHandler: () => createExplicitMarkingHandler(createExplicitMarkingHandlerDeps()),
+  createPageDraftStatusHandler: () => createPageDraftStatusHandler(createPageDraftStatusHandlerDeps()),
+  createAiPreviewStateResponseBuilder: () => createAiPreviewStateResponseBuilder(
+    createAiPreviewStateResponseDeps()
+  ),
+  createAiPreviewCloseHandler: () => createAiPreviewCloseHandler(createAiPreviewCloseHandlerDeps()),
+  createAiPreviewComputeLockHandler: () => createAiPreviewComputeLockHandler(
+    createAiPreviewComputeLockHandlerDeps()
+  ),
+  createAiPreviewExpandedModeHandler: () => createAiPreviewExpandedModeHandler(
+    createAiPreviewExpandedModeHandlerDeps()
+  ),
+  createAiPreviewGetStateHandler: () => createAiPreviewGetStateHandler(createAiPreviewGetStateHandlerDeps()),
+  createAiPreviewShowHandler: () => createAiPreviewShowHandler(createAiPreviewShowHandlerDeps()),
+  createAiSubmissionXpathsHandler: () => createAiSubmissionXpathsHandler(createAiSubmissionXpathsHandlerDeps()),
+  createCapturePageSnapshotHandler: () => createCapturePageSnapshotHandler(createCapturePageSnapshotHandlerDeps()),
+  createConfigUpdatedHandler: () => createConfigUpdatedHandler(createConfigUpdatedHandlerDeps()),
+  createCollectPageDataHandler: () => createCollectPageDataHandler(createCollectPageDataHandlerDeps()),
+  createDefaultExclusionsHandler: () => createDefaultExclusionsHandler(createDefaultExclusionsHandlerDeps()),
+  createDescribeXpathsHandler: () => createDescribeXpathsHandler(createDescribeXpathsHandlerDeps()),
+  createFocusHandler: () => createFocusHandler(createFocusHandlerDeps()),
+  createForceRefreshHandler: () => createForceRefreshHandler(createForceRefreshHandlerDeps()),
+  createInvisibleXpathsHandler: () => createInvisibleXpathsHandler(createInvisibleXpathsHandlerDeps()),
+  createVisibleXpathsHandler: () => createVisibleXpathsHandler(createVisibleXpathsHandlerDeps()),
+  createPropertyLockPortClient: () => createPropertyLockPortClient(createPropertyLockPortClientDeps()),
+  createPropertyLockStateMachine: () => createPropertyLockStateMachine(createPropertyLockStateMachineDeps()),
+  createRemoteSupportClient: () => createRemoteSupportClient({
+    isRemoteSupportFeatureEnabled: () => isFeatureEnabled("remoteSupport"),
+    requestRemoteSupportState: () => chrome.runtime.sendMessage({
+      type: "getRemoteSupportState"
+    }),
+    sendRuntimeMessageSafely,
+    syncPageTelemetryBridgeLifecycle,
+    EXTENSION_UI_FONT_STACK,
+    REMOTE_SUPPORT_MODE_BEING_SUPPORTED,
+    REMOTE_SUPPORT_TERMINATE_BUTTON_ID,
+    REMOTE_SUPPORT_TERMINATE_STYLE_ID
+  }),
+  createRemoteSupportStateHandler: () => createRemoteSupportStateHandler(createRemoteSupportStateHandlerDeps())
+});
 
-  return remoteSupportViewerClient;
+function getRemoteSupportViewerClient() {
+  return contentMainServiceRegistry.getRemoteSupportViewerClient();
 }
 
 function getRemoteSupportSupportPage() {
-  if (!remoteSupportSupportPage) {
-    remoteSupportSupportPage = createRemoteSupportSupportPage({
-      isRemoteSupportFeatureEnabled: () => isFeatureEnabled("remoteSupport"),
-      getViewerClient: () => getRemoteSupportViewerClient(),
-      sendRuntimeMessageSafely,
-      formatRemoteSupportCountdown,
-      normalizeRemoteSupportDockState,
-      REMOTE_SUPPORT_DOCK_STATE_EMBEDDED_MINIMIZED,
-      REMOTE_SUPPORT_DOCK_STATE_FULLSCREEN_ACTIVE,
-      EXTENSION_UI_FONT_STACK,
-      REMOTE_SUPPORT_SUPPORT_PAGE_META_SELECTOR,
-      REMOTE_SUPPORT_SUPPORT_PAGE_APP_ID,
-      REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID,
-      REMOTE_SUPPORT_SUPPORT_PAGE_STYLE_ID,
-      REMOTE_SUPPORT_SUPPORT_PAGE_FALLBACK_ID,
-      REMOTE_SUPPORT_SUPPORT_PAGE_VIEWER_FRAME_ID
-    });
-  }
-
-  return remoteSupportSupportPage;
+  return contentMainServiceRegistry.getRemoteSupportSupportPage();
 }
 
 function sendRuntimeMessageSafely(message) {
@@ -559,222 +580,119 @@ function sendRuntimeMessageSafely(message) {
 }
 
 function getPageToastClient() {
-  if (!pageToastClient) {
-    pageToastClient = createPageToast(createPageToastDeps());
-  }
-  return pageToastClient;
+  return contentMainServiceRegistry.getPageToastClient();
 }
 
 function getPageSaveReconciliationClearHandler() {
-  if (!pageSaveReconciliationClearHandler) {
-    pageSaveReconciliationClearHandler = createPageSaveReconciliationClearHandler(
-      createPageSaveReconciliationClearHandlerDeps()
-    );
-  }
-  return pageSaveReconciliationClearHandler;
+  return contentMainServiceRegistry.getPageSaveReconciliationClearHandler();
 }
 
 function getPageSaveReconciliationPendingHandler() {
-  if (!pageSaveReconciliationPendingHandler) {
-    pageSaveReconciliationPendingHandler = createPageSaveReconciliationPendingHandler(
-      createPageSaveReconciliationPendingHandlerDeps()
-    );
-  }
-  return pageSaveReconciliationPendingHandler;
+  return contentMainServiceRegistry.getPageSaveReconciliationPendingHandler();
 }
 
 function getRenderModeInspectionClient() {
-  if (!renderModeInspectionClient) {
-    renderModeInspectionClient = createRenderModeInspectionClient(createRenderModeInspectionClientDeps());
-  }
-  return renderModeInspectionClient;
+  return contentMainServiceRegistry.getRenderModeInspectionClient();
 }
 
 function getRenderModeInspectionHandlers() {
-  if (!renderModeInspectionHandlers) {
-    renderModeInspectionHandlers = createRenderModeInspectionHandlers(createRenderModeInspectionHandlersDeps());
-  }
-  return renderModeInspectionHandlers;
+  return contentMainServiceRegistry.getRenderModeInspectionHandlers();
 }
 
 function getInspectionStatusResolver() {
-  if (!inspectionStatusResolver) {
-    inspectionStatusResolver = createInspectionStatusResolver(createInspectionStatusDeps());
-  }
-  return inspectionStatusResolver;
+  return contentMainServiceRegistry.getInspectionStatusResolver();
 }
 
 function getPageDraftRevertHandler() {
-  if (!pageDraftRevertHandler) {
-    pageDraftRevertHandler = createPageDraftRevertHandler(createPageDraftRevertHandlerDeps());
-  }
-  return pageDraftRevertHandler;
+  return contentMainServiceRegistry.getPageDraftRevertHandler();
 }
 
 function getPageDraftSaveHandler() {
-  if (!pageDraftSaveHandler) {
-    pageDraftSaveHandler = createPageDraftSaveHandler(createPageDraftSaveHandlerDeps());
-  }
-  return pageDraftSaveHandler;
+  return contentMainServiceRegistry.getPageDraftSaveHandler();
 }
 
 function getExplicitMarkingHandler() {
-  if (!explicitMarkingHandler) {
-    explicitMarkingHandler = createExplicitMarkingHandler(createExplicitMarkingHandlerDeps());
-  }
-  return explicitMarkingHandler;
+  return contentMainServiceRegistry.getExplicitMarkingHandler();
 }
 
 function getPageDraftStatusHandler() {
-  if (!pageDraftStatusHandler) {
-    pageDraftStatusHandler = createPageDraftStatusHandler(createPageDraftStatusHandlerDeps());
-  }
-  return pageDraftStatusHandler;
+  return contentMainServiceRegistry.getPageDraftStatusHandler();
 }
 
 function getAiPreviewStateResponseBuilder() {
-  if (!aiPreviewStateResponseBuilder) {
-    aiPreviewStateResponseBuilder = createAiPreviewStateResponseBuilder(createAiPreviewStateResponseDeps());
-  }
-  return aiPreviewStateResponseBuilder;
+  return contentMainServiceRegistry.getAiPreviewStateResponseBuilder();
 }
 
 function getAiPreviewCloseHandler() {
-  if (!aiPreviewCloseHandler) {
-    aiPreviewCloseHandler = createAiPreviewCloseHandler(createAiPreviewCloseHandlerDeps());
-  }
-  return aiPreviewCloseHandler;
+  return contentMainServiceRegistry.getAiPreviewCloseHandler();
 }
 
 function getAiPreviewComputeLockHandler() {
-  if (!aiPreviewComputeLockHandler) {
-    aiPreviewComputeLockHandler = createAiPreviewComputeLockHandler(createAiPreviewComputeLockHandlerDeps());
-  }
-  return aiPreviewComputeLockHandler;
+  return contentMainServiceRegistry.getAiPreviewComputeLockHandler();
 }
 
 function getAiPreviewExpandedModeHandler() {
-  if (!aiPreviewExpandedModeHandler) {
-    aiPreviewExpandedModeHandler = createAiPreviewExpandedModeHandler(createAiPreviewExpandedModeHandlerDeps());
-  }
-  return aiPreviewExpandedModeHandler;
+  return contentMainServiceRegistry.getAiPreviewExpandedModeHandler();
 }
 
 function getAiPreviewGetStateHandler() {
-  if (!aiPreviewGetStateHandler) {
-    aiPreviewGetStateHandler = createAiPreviewGetStateHandler(createAiPreviewGetStateHandlerDeps());
-  }
-  return aiPreviewGetStateHandler;
+  return contentMainServiceRegistry.getAiPreviewGetStateHandler();
 }
 
 function getAiPreviewShowHandler() {
-  if (!aiPreviewShowHandler) {
-    aiPreviewShowHandler = createAiPreviewShowHandler(createAiPreviewShowHandlerDeps());
-  }
-  return aiPreviewShowHandler;
+  return contentMainServiceRegistry.getAiPreviewShowHandler();
 }
 
 function getAiSubmissionXpathsHandler() {
-  if (!aiSubmissionXpathsHandler) {
-    aiSubmissionXpathsHandler = createAiSubmissionXpathsHandler(createAiSubmissionXpathsHandlerDeps());
-  }
-  return aiSubmissionXpathsHandler;
+  return contentMainServiceRegistry.getAiSubmissionXpathsHandler();
 }
 
 function getCapturePageSnapshotHandler() {
-  if (!capturePageSnapshotHandler) {
-    capturePageSnapshotHandler = createCapturePageSnapshotHandler(createCapturePageSnapshotHandlerDeps());
-  }
-  return capturePageSnapshotHandler;
+  return contentMainServiceRegistry.getCapturePageSnapshotHandler();
 }
 
 function getConfigUpdatedHandler() {
-  if (!configUpdatedHandler) {
-    configUpdatedHandler = createConfigUpdatedHandler(createConfigUpdatedHandlerDeps());
-  }
-  return configUpdatedHandler;
+  return contentMainServiceRegistry.getConfigUpdatedHandler();
 }
 
 function getCollectPageDataHandler() {
-  if (!collectPageDataHandler) {
-    collectPageDataHandler = createCollectPageDataHandler(createCollectPageDataHandlerDeps());
-  }
-  return collectPageDataHandler;
+  return contentMainServiceRegistry.getCollectPageDataHandler();
 }
 
 function getDefaultExclusionsHandler() {
-  if (!defaultExclusionsHandler) {
-    defaultExclusionsHandler = createDefaultExclusionsHandler(createDefaultExclusionsHandlerDeps());
-  }
-  return defaultExclusionsHandler;
+  return contentMainServiceRegistry.getDefaultExclusionsHandler();
 }
 
 function getDescribeXpathsHandler() {
-  if (!describeXpathsHandler) {
-    describeXpathsHandler = createDescribeXpathsHandler(createDescribeXpathsHandlerDeps());
-  }
-  return describeXpathsHandler;
+  return contentMainServiceRegistry.getDescribeXpathsHandler();
 }
 
 function getFocusHandler() {
-  if (!focusHandler) {
-    focusHandler = createFocusHandler(createFocusHandlerDeps());
-  }
-  return focusHandler;
+  return contentMainServiceRegistry.getFocusHandler();
 }
 
 function getForceRefreshHandler() {
-  if (!forceRefreshHandler) {
-    forceRefreshHandler = createForceRefreshHandler(createForceRefreshHandlerDeps());
-  }
-  return forceRefreshHandler;
+  return contentMainServiceRegistry.getForceRefreshHandler();
 }
 
 function getInvisibleXpathsHandler() {
-  if (!invisibleXpathsHandler) {
-    invisibleXpathsHandler = createInvisibleXpathsHandler(createInvisibleXpathsHandlerDeps());
-  }
-  return invisibleXpathsHandler;
+  return contentMainServiceRegistry.getInvisibleXpathsHandler();
 }
 
 function getVisibleXpathsHandler() {
-  if (!visibleXpathsHandler) {
-    visibleXpathsHandler = createVisibleXpathsHandler(createVisibleXpathsHandlerDeps());
-  }
-  return visibleXpathsHandler;
+  return contentMainServiceRegistry.getVisibleXpathsHandler();
 }
 
 function getPropertyLockPortClient() {
-  if (!propertyLockPortClient) {
-    propertyLockPortClient = createPropertyLockPortClient(createPropertyLockPortClientDeps());
-  }
-  return propertyLockPortClient;
+  return contentMainServiceRegistry.getPropertyLockPortClient();
 }
 
 function getPropertyLockStateMachine() {
-  if (!propertyLockStateMachine) {
-    propertyLockStateMachine = createPropertyLockStateMachine(createPropertyLockStateMachineDeps());
-  }
-  return propertyLockStateMachine;
+  return contentMainServiceRegistry.getPropertyLockStateMachine();
 }
 
 function getRemoteSupportClient() {
-  if (!remoteSupportClient) {
-    remoteSupportClient = createRemoteSupportClient({
-      isRemoteSupportFeatureEnabled: () => isFeatureEnabled("remoteSupport"),
-      requestRemoteSupportState: () => chrome.runtime.sendMessage({
-        type: "getRemoteSupportState"
-      }),
-      sendRuntimeMessageSafely,
-      syncPageTelemetryBridgeLifecycle,
-      EXTENSION_UI_FONT_STACK,
-      REMOTE_SUPPORT_MODE_BEING_SUPPORTED,
-      REMOTE_SUPPORT_TERMINATE_BUTTON_ID,
-      REMOTE_SUPPORT_TERMINATE_STYLE_ID
-    });
-  }
-
-  return remoteSupportClient;
+  return contentMainServiceRegistry.getRemoteSupportClient();
 }
 
 const getRemoteSupportMode = () => getRemoteSupportClient().getMode();
@@ -792,10 +710,7 @@ const syncRemoteSupportTerminateButton = () => {
 };
 
 function getRemoteSupportStateHandler() {
-  if (!remoteSupportStateHandler) {
-    remoteSupportStateHandler = createRemoteSupportStateHandler(createRemoteSupportStateHandlerDeps());
-  }
-  return remoteSupportStateHandler;
+  return contentMainServiceRegistry.getRemoteSupportStateHandler();
 }
 
 function createLifecycleOperationId(kind) {

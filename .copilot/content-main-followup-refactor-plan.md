@@ -168,7 +168,13 @@ The executor must follow these rules literally.
    - Focused validation: pass (`npm test -- tests/content-main-runtime-router-contract.test.js tests/content-remote-support-support-page-message-handler.test.js tests/content-remote-support-support-page.test.js tests/runtime-message-handler.test.js tests/content-decomposition-boundary.test.js tests/manifest-permissions.test.js`).
    - Full validation: pass (`npm test` => 959 pass / 0 fail).
    - Commit message: `refactor(content): extract support page runtime messages`.
-4. H3 pending.
+4. H3 complete (2026-06-12):
+   - Added `content/content-main-service-registry.js` and moved lazy singleton cache/getter state from `content-main.js`.
+   - Kept `getX()` names in `content-main.js` as one-line wrappers to registry getters.
+   - Added `tests/content-main-service-registry.test.js`; updated source-contract tests for registry-backed getter locations.
+   - Focused validation: pass (`npm test -- tests/content-main-service-registry.test.js tests/content-main-runtime-router-contract.test.js tests/content-activation-order.test.js tests/content-high-risk-branches.test.js tests/content-decomposition-boundary.test.js tests/manifest-permissions.test.js`).
+   - Full validation: pass (`npm test` => 961 pass / 0 fail).
+   - Commit message: `refactor(content): extract content main service registry`.
 
 ## Phase H0 - Lock The Runtime Router Contract
 

@@ -367,8 +367,8 @@ test("content page telemetry bridge is active-session and nonce gated", () => {
   );
   const clientFactoryBlock = extractSourceBlock(
     contentMainSource,
-    "function getRemoteSupportClient",
-    "const getRemoteSupportMode"
+    "const contentMainServiceRegistry = createContentMainServiceRegistry({",
+    "function getRemoteSupportViewerClient()"
   );
   const messageBlock = extractSourceBlock(
     pageTelemetryBridgeSource,

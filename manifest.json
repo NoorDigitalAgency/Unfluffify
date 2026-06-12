@@ -60,6 +60,7 @@
         "content/silent-highlight-rules.js",
         "content/submission-rules.js",
         "content/content-command-router.js",
+        "content/content-main-service-registry.js",
         "content/ai-preview-close-handler.js",
         "content/ai-preview-compute-lock-handler.js",
         "content/ai-preview-expanded-mode-handler.js",

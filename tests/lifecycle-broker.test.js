@@ -105,7 +105,10 @@ test("content emits lifecycle events for readiness, activation, and render-mode 
   );
   assert.match(contentSource, /kind: LIFECYCLE_KINDS\.ACTIVATION[\s\S]*?phase: LIFECYCLE_PHASES\.STARTED/);
   assert.match(contentSource, /kind: LIFECYCLE_KINDS\.ACTIVATION[\s\S]*?phase: LIFECYCLE_PHASES\.FINISHED/);
-  assert.match(contentSource, /createRenderModeInspectionHandlers\(createRenderModeInspectionHandlersDeps\(\)\)/);
+  assert.match(
+    contentSource,
+    /createRenderModeInspectionHandlers\(createRenderModeInspectionHandlersDeps\(\)\)|contentMainServiceRegistry\.getRenderModeInspectionHandlers\(\)/
+  );
   assert.match(renderModeHandlersSource, /kind: deps\.LIFECYCLE_KINDS\.RENDER_MODE_INSPECTION[\s\S]*?phase: deps\.LIFECYCLE_PHASES\.STARTED/);
   assert.match(renderModeHandlersSource, /phase: deps\.LIFECYCLE_PHASES\.REVEAL_STARTED/);
   assert.match(renderModeHandlersSource, /phase: deps\.LIFECYCLE_PHASES\.REVEAL_FINISHED/);

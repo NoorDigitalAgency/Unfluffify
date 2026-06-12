@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-12
 Branch: `main`
-Status: world decomposition complete; content follow-up D0-D2, E0-E2, Track F F1-F24, and high-risk phases G0-G5 complete. Track H runtime-router/service work is active; H0-H2 are complete and H3 is next.
+Status: world decomposition complete; content follow-up D0-D2, E0-E2, Track F F1-F24, and high-risk phases G0-G5 complete. Track H runtime-router/service work H0-H3 is complete and now paused for post-H3 review.
 
 ## Current Repository State
 
@@ -13,7 +13,7 @@ git status --short --branch
 # ## main...origin/main
 
 npm test
-# 959 pass / 0 fail
+# 961 pass / 0 fail
 ```
 
 This baseline includes G5 (`setExplicitExclude` and `setExplicitInclude`)
@@ -38,6 +38,11 @@ Track H progress:
    - `npm test -- tests/content-main-runtime-router-contract.test.js tests/content-remote-support-support-page-message-handler.test.js tests/content-remote-support-support-page.test.js tests/runtime-message-handler.test.js tests/content-decomposition-boundary.test.js tests/manifest-permissions.test.js`
 9. H2 full validation passed:
    - `npm test` (`959 pass / 0 fail`)
+10. H3 complete with commit message `refactor(content): extract content main service registry`.
+11. H3 focused validation passed:
+    - `npm test -- tests/content-main-service-registry.test.js tests/content-main-runtime-router-contract.test.js tests/content-activation-order.test.js tests/content-high-risk-branches.test.js tests/content-decomposition-boundary.test.js tests/manifest-permissions.test.js`
+12. H3 full validation passed:
+    - `npm test` (`961 pass / 0 fail`)
 
 ## Review Result
 
@@ -151,8 +156,8 @@ also complete and remain documented for history in
 The next exact step is Track H in
 `.copilot/content-main-followup-refactor-plan.md`.
 
-Track H is already scoped. Do not redesign it. H0-H2 are complete. Execute H3
-one phase per commit. The approved outcome is:
+Track H is already scoped. Do not redesign it. H0-H3 are complete. Stop here
+and review before any deeper mutable-state extraction. The approved outcome is:
 
 1. extract the legacy plain-message runtime router from `content-main.js`
 2. extract the support-page runtime-message subgroup from that router
@@ -162,7 +167,7 @@ one phase per commit. The approved outcome is:
 Current baseline expectations:
 
 1. clean `main...origin/main`
-2. full test suite passes (`959 pass / 0 fail` at the current baseline)
+2. full test suite passes (`961 pass / 0 fail` at the current baseline)
 3. `manifest.json` keeps explicit web-accessible resource entries, no broad
    `content/*.js` or `common/*.js` wildcards
 
