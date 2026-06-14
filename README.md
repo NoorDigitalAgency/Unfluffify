@@ -6,7 +6,6 @@ Unfluffify targets recent Chrome browsers only. The extension intentionally reli
 
 The detailed source of truth for marking and highlighting behavior is documented in [MARKING_AND_HIGHLIGHTING_LOGIC.md](./MARKING_AND_HIGHLIGHTING_LOGIC.md). Those marking rules are a locked 052c-derived restored contract and should not be changed unless a task explicitly asks for a marking-rules contract change.
 Property edit-lock ownership, takeover, heartbeat, cloned-tab client rotation, and observer-refresh behavior is documented in [PROPERTY_LOCK.md](./PROPERTY_LOCK.md). That lock contract is also locked and should not be changed unless a task explicitly asks for property-lock behavior changes.
-Remote support design, security guarantees, and backend endpoint expectations are documented in [REMOTE_SUPPORT.md](./REMOTE_SUPPORT.md).
 
 ## Packaging Workflow
 
@@ -48,8 +47,6 @@ npm run package:extension -- --stage-dir .tmp/extension-package
 - **Property Edit Locking**: Coordinates one active marking editor per property with stable page-session ownership, same-user tab handoff, takeover suggestions, immediate eligible-page editor claiming for the current extension session, an editor bootstrap refresh when ownership changes, and passive observer refresh no more than once per minute
 - **Immediate Close Release**: Closing the editor tab releases that property's lock immediately instead of waiting for the normal port-disconnect grace window
 - **Cookie/Consent Management**: Hides consent interfaces before save so hidden textual content is handled by the same submission visibility rules as other invisible text
-- **Remote Support**: WebRTC-based, view-only session allowing a supporter to open the dedicated support page, enter a support code, view the supportee's shared Chrome window, use two-way camera/microphone guidance through standard browser prompts, and stream labeled console/network telemetry
-- **Remote Support Isolation**: Multiple support sessions can run concurrently in one profile as long as each requester/supporter flow stays in its own tab
 
 ## Installation (Developer Mode)
 
@@ -68,9 +65,8 @@ npm test
 
 The script uses Node's built-in test runner (`node --test`) with clean teardown so full subtest counts remain meaningful and deterministic.
 
-The tests cover the pure marking/highlighting and remote-support rules that have caused regressions during recent logic changes.
+The tests cover the pure marking/highlighting rules that have caused regressions during recent logic changes.
 Run this command before opening or updating a pull request to catch regressions early.
-The remote-support regressions also cover tab-scoped background state, concurrent offscreen transport sessions, view-only display sharing, page-world telemetry bridging, extension-side telemetry with headers/timing, and dismissible session notices.
 
 For marking-rule work, also run the focused guard suite:
 
@@ -95,15 +91,8 @@ node --test tests/core-visibility.test.js tests/core-motion-pause.test.js tests/
 - **`emulation.js`** - Device emulation state and debugger protocol management
 - **`selector-set.js`** - AI selector set operations and deduplication
 - **`xpath-utilities.js`** - XPath refinement and manipulation utilities
-- **`remote-support.js`** - Remote support constants, state factory, message helpers, and payload utilities
-- **`remote-support-background.js`** - Background-side per-tab session orchestration: tab-scoped state lookup, frame streaming, telemetry routing, view-only command rejection, DevTools attachment, and offscreen transport coordination
 - **`property-lock.js`** - Property edit-lock constants, timing windows, WebSocket protocol names, and normalized state helpers
 - **`property-lock-background.js`** - Background-side per-property/per-client lock WebSocket orchestration with stable page-session IDs and tab-local popup routing
-
-### Offscreen Transport
-
-- **`remote-support-offscreen.html`** - Hidden MV3 offscreen document used to host the WebRTC runtime
-- **`remote-support-offscreen.js`** - Multiplexed WebRTC signaling/data-channel transport running in the offscreen document because the service worker does not expose `RTCPeerConnection`
 
 ### Content Scripts (`/content`)
 
@@ -129,9 +118,6 @@ node --test tests/core-visibility.test.js tests/core-motion-pause.test.js tests/
 - **`property-lock-background.test.js`** - Coverage for background-side client-session lock routing, navigation grace windows, and lock protocol metadata
 - **`utilities-runtime.test.js`** - Coverage for Chrome runtime/storage wrappers, including extension-context invalidation handling
 - **`lynx-checklist.test.js`** - Coverage for Lynx checklist assignment and view-model building
-- **`remote-support.test.js`** - Coverage for remote support utilities: constants, support-page URL matching, inactive-state factory, AJAX type detection, support-code normalization, endpoint URL resolution, message serialization/parsing, and UTF-8-aware payload clamping
-- **`remote-support-background.test.js`** - Coverage for background-side remote-support bootstrap, tab-scoped session isolation, DevTools routing, and transport-event handling
-- **`remote-support-offscreen.test.js`** - Coverage for concurrent session handling in the offscreen WebRTC transport document
 
 ### Popup UI (`/popup`)
 
