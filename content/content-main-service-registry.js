@@ -1,6 +1,4 @@
 export function createContentMainServiceRegistry(factories) {
-  let remoteSupportViewerClient = null;
-  let remoteSupportSupportPage = null;
   let pageToastClient = null;
   let pageSaveReconciliationClearHandler = null;
   let pageSaveReconciliationPendingHandler = null;
@@ -28,23 +26,9 @@ export function createContentMainServiceRegistry(factories) {
   let invisibleXpathsHandler = null;
   let propertyLockPortClient = null;
   let propertyLockStateMachine = null;
-  let remoteSupportClient = null;
-  let remoteSupportStateHandler = null;
   let visibleXpathsHandler = null;
 
   return {
-    getRemoteSupportViewerClient() {
-      if (!remoteSupportViewerClient) {
-        remoteSupportViewerClient = factories.createRemoteSupportViewerClient();
-      }
-      return remoteSupportViewerClient;
-    },
-    getRemoteSupportSupportPage() {
-      if (!remoteSupportSupportPage) {
-        remoteSupportSupportPage = factories.createRemoteSupportSupportPage();
-      }
-      return remoteSupportSupportPage;
-    },
     getPageToastClient() {
       if (!pageToastClient) {
         pageToastClient = factories.createPageToastClient();
@@ -212,18 +196,6 @@ export function createContentMainServiceRegistry(factories) {
         propertyLockStateMachine = factories.createPropertyLockStateMachine();
       }
       return propertyLockStateMachine;
-    },
-    getRemoteSupportClient() {
-      if (!remoteSupportClient) {
-        remoteSupportClient = factories.createRemoteSupportClient();
-      }
-      return remoteSupportClient;
-    },
-    getRemoteSupportStateHandler() {
-      if (!remoteSupportStateHandler) {
-        remoteSupportStateHandler = factories.createRemoteSupportStateHandler();
-      }
-      return remoteSupportStateHandler;
     }
   };
 }
