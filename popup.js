@@ -87,8 +87,6 @@ import {
 import { resolveRenderModeInspectionReloadOutcome } from "./popup/render-mode.js";
 import * as stateModule from "./popup/state.js";
 import {
-  getPopupTelemetryIncludePayloads,
-  getPopupTelemetryTabId,
   logPopupReady
 } from "./popup/telemetry.js";
 import {
@@ -147,12 +145,6 @@ import {
   syncPropertyLockOffCandidateRefreshTimer as syncPropertyLockOffCandidateRefreshTimerOperation
 } from "./popup/property-lock-ui.js";
 import {
-  handleRemoteSupportJoin as handleRemoteSupportJoinOperation,
-  handleRemoteSupportJoinCodeInput as handleRemoteSupportJoinCodeInputOperation,
-  handleRemoteSupportRequest as handleRemoteSupportRequestOperation,
-  syncRemoteSupportViewState as syncRemoteSupportViewStateOperation
-} from "./popup/remote-support-ui.js";
-import {
   createPopupTimerGroup
 } from "./popup/timers.js";
 import {
@@ -163,25 +155,11 @@ import {
   combineAiSelectorSet,
   aiSelectorSetsEqual
 } from "./common/selector-set.js";
-import { installExtensionTelemetry } from "./common/extension-telemetry.js";
 import {
   SPINNER_OWNERS,
   WORLD_MESSAGE_TYPES,
   buildPopupStatePortName
 } from "./common/world-messaging-contract.js";
-import {
-  REMOTE_SUPPORT_DOCK_STATE_EMBEDDED,
-  REMOTE_SUPPORT_DOCK_STATE_EMBEDDED_MINIMIZED,
-  REMOTE_SUPPORT_DOCK_STATE_FLOATING_PIP,
-  getRemoteSupportDockFallbackState,
-  isRemoteSupportPageUrl,
-  REMOTE_SUPPORT_MODE_BEING_SUPPORTED,
-  REMOTE_SUPPORT_MODE_SUPPORTING,
-  formatRemoteSupportCountdown,
-  normalizeRemoteSupportDockState,
-  scopeRemoteSupportStateToTab,
-  shouldLockRemoteSupportConfigurationView
-} from "./common/remote-support.js";
 import {
   PROPERTY_LOCK_BACKGROUND_GET_STATE,
   PROPERTY_LOCK_BACKGROUND_STATE_UPDATE,
@@ -218,12 +196,6 @@ const PAGE_SAVE_SYNC_MAX_ATTEMPTS = 5;
 const PAGE_SAVE_SYNC_INITIAL_RETRY_DELAY_MS = 1500;
 const PAGE_SAVE_SYNC_MAX_RETRY_DELAY_MS = 10000;
 const AI_PREVIEW_MARKING_RESTORE_HOLD_MS = 5000;
-
-installExtensionTelemetry({
-  source: "popup",
-  getTabId: () => getPopupTelemetryTabId(state),
-  getIncludePayloads: () => getPopupTelemetryIncludePayloads(state)
-});
 
 function getPropertyLockUiDeps() {
   return {
@@ -315,40 +287,6 @@ const sendPropertyLockCommand = (type, payload = {}) =>
 const reconcilePropertyLockAfterCommand = (options = {}) =>
   reconcilePropertyLockAfterCommandOperation(getPropertyLockUiDeps(), options);
 
-function getRemoteSupportUiDeps() {
-  return {
-    PopupText,
-    REMOTE_SUPPORT_DOCK_STATE_EMBEDDED,
-    shouldBlockRemoteSupportFeature,
-    scopeRemoteSupportStateToTab,
-    buildRemoteSupportStatusText,
-    normalizeRemoteSupportDockState,
-    formatRemoteSupportCountdown,
-    stopRemoteSupportCameraMediaStreams,
-    requireRemoteSupportSetup,
-    sendRuntimeMessage: (payload) => messages.sendRuntimeMessage(payload),
-    refreshUi: (options) => refreshUi(options),
-    getViewState: () => uiModule.getViewState(),
-    setViewState: (viewState) => {
-      uiModule.setViewState(viewState);
-    },
-    showToast: (message) => {
-      uiModule.showToast(message);
-    },
-    syncRemoteSupportViewState: (remoteSupportState) =>
-      syncRemoteSupportViewState(remoteSupportState)
-  };
-}
-
-const syncRemoteSupportViewState = (remoteSupportState = null) =>
-  syncRemoteSupportViewStateOperation(getRemoteSupportUiDeps(), remoteSupportState);
-const handleRemoteSupportRequest = () =>
-  handleRemoteSupportRequestOperation(getRemoteSupportUiDeps());
-const handleRemoteSupportJoinCodeInput = (event) =>
-  handleRemoteSupportJoinCodeInputOperation(getRemoteSupportUiDeps(), event);
-const handleRemoteSupportJoin = () =>
-  handleRemoteSupportJoinOperation(getRemoteSupportUiDeps());
-
 const TOKEN_VALIDATION_INTERVAL_MS = 600 * 1000;
 const POPUP_BUSY_OVERLAY_DELAY_MS = 180;
 const REMOTE_CONFIG_RETRY_DELAY_MS = 2500;
@@ -432,15 +370,6 @@ let popupStaleInspectionBusyClearTimer = 0;
 let popupBackgroundStatePort = null;
 let popupBackgroundLifecycle = null;
 let propertyPageTypesRequest = null;
-let remoteSupportPopupMediaChannel = null;
-let remoteSupportDockPiPWindow = null;
-let remoteSupportDockPiPClosingProgrammatically = false;
-let remoteSupportLocalCameraCanvas = null;
-let remoteSupportLocalCameraCtx = null;
-let remoteSupportLocalCameraMediaStream = null;
-let remoteSupportRemoteCameraCanvas = null;
-let remoteSupportRemoteCameraCtx = null;
-let remoteSupportRemoteCameraMediaStream = null;
 const popupTimers = createPopupTimerGroup({ windowRef: window });
 
 function isEditableTarget(el) {
@@ -3194,22 +3123,6 @@ async function refreshUiInner(options = {}) {
 
   const view = uiModule.getViewState();
   const refs = uiModule.getRefs();
-  const remoteSupportFeatureEnabled = isFeatureEnabled("remoteSupport");
-  if (!remoteSupportFeatureEnabled) {
-    resetDisabledRemoteSupportState();
-  }
-  const remoteSupportState = remoteSupportFeatureEnabled ? await fetchRemoteSupportState() : null;
-  state.remoteSupportState = remoteSupportState;
-  const remoteSupportPageVisible = remoteSupportFeatureEnabled && isRemoteSupportPageUrl(pageUrl, configEndpointValue);
-  const scopedRemoteSupportState = remoteSupportFeatureEnabled
-    ? scopeRemoteSupportStateToTab(remoteSupportState, currentTabId)
-    : {};
-  const remoteSupportViewLocked = remoteSupportFeatureEnabled &&
-    shouldLockRemoteSupportConfigurationView(
-      remoteSupportPageVisible,
-      remoteSupportState,
-      currentTabId
-    );
   const nextViewState = {
     currentPageUrl: pageUrl || ViewText.unavailable,
     currentBaseUrl: state.currentBaseUrl,
@@ -3224,37 +3137,6 @@ async function refreshUiInner(options = {}) {
       ? PopupText.preview.blockedActive
       : ViewText.previewBlockedDefault
   };
-  const remoteSupportMode = scopedRemoteSupportState.mode || "inactive";
-  nextViewState.remoteSupportSessionActive = Boolean(scopedRemoteSupportState.active);
-  nextViewState.remoteSupportMode = remoteSupportMode;
-  nextViewState.remoteSupportRole = scopedRemoteSupportState.role || "";
-  nextViewState.remoteSupportVisible = remoteSupportFeatureEnabled && Boolean(tokenValue);
-  nextViewState.remoteSupportRequested = Boolean(scopedRemoteSupportState.supportCode);
-  nextViewState.remoteSupportCode = scopedRemoteSupportState.supportCode || "";
-  nextViewState.remoteSupportJoinCode = remoteSupportFeatureEnabled
-    ? state.remoteSupportJoinCode || view.remoteSupportJoinCode || ""
-    : "";
-  nextViewState.remoteSupportPageVisible = remoteSupportPageVisible;
-  nextViewState.remoteSupportConnected = Boolean(scopedRemoteSupportState.connected);
-  nextViewState.remoteSupportStreaming = Boolean(scopedRemoteSupportState.streaming);
-  nextViewState.remoteSupportCameraAvailable = Boolean(scopedRemoteSupportState.supporteeCameraAvailable);
-  nextViewState.remoteSupportCameraEnabled = Boolean(scopedRemoteSupportState.supporteeCameraEnabled);
-  nextViewState.remoteSupportMicrophoneAvailable = Boolean(scopedRemoteSupportState.supporteeMicrophoneAvailable);
-  nextViewState.remoteSupportMicrophoneEnabled = Boolean(scopedRemoteSupportState.supporteeMicrophoneEnabled);
-  nextViewState.remoteSupportSoundAvailable = Boolean(scopedRemoteSupportState.supporteeAudioAvailable);
-  nextViewState.remoteSupportSoundEnabled = Boolean(scopedRemoteSupportState.supporteeAudioEnabled);
-  nextViewState.remoteSupportDockState = normalizeRemoteSupportDockState(scopedRemoteSupportState.dockState);
-  nextViewState.remoteSupportLocalCameraActive = remoteSupportFeatureEnabled && Boolean(state.remoteSupportLocalCameraActive);
-  nextViewState.remoteSupportRemoteCameraActive = remoteSupportFeatureEnabled && Boolean(state.remoteSupportRemoteCameraActive);
-  nextViewState.remoteSupportPreviewImage = Boolean(scopedRemoteSupportState.active)
-    ? state.remoteSupportLastFrame || ""
-    : "";
-  nextViewState.remoteSupportStatusText = buildRemoteSupportStatusText({
-    active: nextViewState.remoteSupportSessionActive,
-    mode: remoteSupportMode,
-    connected: nextViewState.remoteSupportConnected
-  });
-  nextViewState.remoteSupportError = scopedRemoteSupportState.error || "";
   const baseUrlReady = Boolean(state.currentBaseUrl);
   const baseField = {
     value: state.currentBaseUrl || "",
@@ -3936,15 +3818,6 @@ async function refreshUiInner(options = {}) {
     resolvedView = uiModule.View.Marking;
     state.configViewLocked = false;
   }
-  if (remoteSupportViewLocked) {
-    resolvedView = uiModule.View.Configuration;
-    state.remoteSupportViewLocked = true;
-  } else if (state.remoteSupportViewLocked) {
-    state.remoteSupportViewLocked = false;
-    if (configurationComplete) {
-      resolvedView = uiModule.View.Marking;
-    }
-  }
   state.currentView = resolvedView;
 
   const remoteConfigRetryBlocked =
@@ -3957,7 +3830,7 @@ async function refreshUiInner(options = {}) {
 
   nextViewState.currentView = resolvedView;
   nextViewState.configurationContinueDisabled = !configurationComplete;
-  nextViewState.configurationBackDisabled = !configurationComplete || remoteSupportViewLocked;
+  nextViewState.configurationBackDisabled = !configurationComplete;
   nextViewState.configurationNoticeVisible =
     !configurationComplete ||
     remoteConfigRetryBlocked;
@@ -3970,14 +3843,12 @@ async function refreshUiInner(options = {}) {
   nextViewState.traceModeEnabled = traceDiagnosticsEnabled && Boolean(state.traceModeEnabled);
   nextViewState.traceEvents = traceDiagnosticsEnabled && Array.isArray(state.traceEvents) ? state.traceEvents : [];
   nextViewState.traceEventCount = nextViewState.traceEvents.length;
-  nextViewState.remoteSupportAutoFocus = remoteSupportViewLocked;
 
   const pageScopedUiDisabled =
     unsupportedByGraphql ||
     !tabInScope ||
     remoteConfigRetryBlocked ||
-    isPropertyLockBlockingEditing() ||
-    remoteSupportMode === REMOTE_SUPPORT_MODE_SUPPORTING;
+    isPropertyLockBlockingEditing();
   if (pageScopedUiDisabled) {
     clearLastPopupEnabled();
   }
@@ -5010,531 +4881,6 @@ function handleLoginPasswordKeyDown(event) {
     () => !uiModule.getViewState().loginActionDisabled,
     handleLoginAction
   );
-}
-
-function resetDisabledRemoteSupportState() {
-  state.remoteSupportState = null;
-  state.remoteSupportJoinCode = "";
-  state.remoteSupportLastFrame = "";
-  state.remoteSupportLocalCameraActive = false;
-  state.remoteSupportRemoteCameraActive = false;
-  stopRemoteSupportCameraMediaStreams();
-  uiModule.setViewState({
-    remoteSupportVisible: false,
-    remoteSupportPageVisible: false,
-    remoteSupportAutoFocus: false,
-    remoteSupportSessionActive: false,
-    remoteSupportMode: "inactive",
-    remoteSupportRole: "",
-    remoteSupportRequested: false,
-    remoteSupportCode: "",
-    remoteSupportJoinCode: "",
-    remoteSupportRequestLoading: false,
-    remoteSupportJoinLoading: false,
-    remoteSupportConnected: false,
-    remoteSupportStreaming: false,
-    remoteSupportCameraAvailable: false,
-    remoteSupportCameraEnabled: false,
-    remoteSupportMicrophoneAvailable: false,
-    remoteSupportMicrophoneEnabled: false,
-    remoteSupportSoundAvailable: false,
-    remoteSupportSoundEnabled: false,
-    remoteSupportDockState: REMOTE_SUPPORT_DOCK_STATE_EMBEDDED,
-    remoteSupportLocalCameraActive: false,
-    remoteSupportRemoteCameraActive: false,
-    remoteSupportPreviewImage: "",
-    remoteSupportStatusText: "",
-    remoteSupportInactivityCountdownActive: false,
-    remoteSupportInactivitySecondsRemaining: 0,
-    remoteSupportInactivityCountdownText: "0:00",
-    remoteSupportError: ""
-  });
-}
-
-function shouldBlockRemoteSupportFeature() {
-  if (isFeatureEnabled("remoteSupport")) {
-    return false;
-  }
-  resetDisabledRemoteSupportState();
-  return true;
-}
-
-
-function stopMediaStreamTracks(stream) {
-  if (!stream || typeof stream.getTracks !== "function") {
-    return;
-  }
-  for (const track of stream.getTracks()) {
-    try {
-      track.stop();
-    } catch {
-      // Ignore media track stop failures.
-    }
-  }
-}
-
-function stopRemoteSupportCameraMediaStreams() {
-  stopMediaStreamTracks(remoteSupportLocalCameraMediaStream);
-  stopMediaStreamTracks(remoteSupportRemoteCameraMediaStream);
-  remoteSupportLocalCameraCanvas = null;
-  remoteSupportLocalCameraCtx = null;
-  remoteSupportLocalCameraMediaStream = null;
-  remoteSupportRemoteCameraCanvas = null;
-  remoteSupportRemoteCameraCtx = null;
-  remoteSupportRemoteCameraMediaStream = null;
-  const refs = uiModule.getRefs();
-  if (refs.localCameraVideo) {
-    refs.localCameraVideo.srcObject = null;
-  }
-  if (refs.remoteCameraVideo) {
-    refs.remoteCameraVideo.srcObject = null;
-  }
-  if (remoteSupportDockPiPWindow && !remoteSupportDockPiPWindow.closed) {
-    const pipDocument = remoteSupportDockPiPWindow.document;
-    const localVideo = pipDocument.getElementById("uf-pip-local");
-    const remoteVideo = pipDocument.getElementById("uf-pip-remote");
-    if (localVideo) {
-      localVideo.srcObject = null;
-    }
-    if (remoteVideo) {
-      remoteVideo.srcObject = null;
-    }
-  }
-}
-
-function buildRemoteSupportStatusText(stateValue) {
-  if (!stateValue || !stateValue.active) {
-    return "";
-  }
-  const mode = stateValue.mode === REMOTE_SUPPORT_MODE_BEING_SUPPORTED
-    ? "Being supported"
-    : "Supporting";
-  const connectedLabel = stateValue.connected ? " • connected" : " • waiting for peer";
-  const streamLabel = stateValue.connected ? " • view-only" : "";
-  const countdownLabel = Boolean(stateValue.inactivityCountdownActive)
-    ? ` • session ends in ${formatRemoteSupportCountdown(stateValue.inactivitySecondsRemaining)}`
-    : "";
-  return `${mode}${connectedLabel}${streamLabel}${countdownLabel}`;
-}
-
-function ensureRemoteSupportPopupMediaChannel() {
-  if (!isFeatureEnabled("remoteSupport")) {
-    return null;
-  }
-  if (remoteSupportPopupMediaChannel || typeof BroadcastChannel !== "function") {
-    return remoteSupportPopupMediaChannel;
-  }
-
-  remoteSupportPopupMediaChannel = new BroadcastChannel("unfluffify-remote-support-popup-media");
-  remoteSupportPopupMediaChannel.onmessage = (event) => {
-    const message = event && event.data && typeof event.data === "object" ? event.data : null;
-    const currentTabId = state.currentTab && Number.isFinite(state.currentTab.id)
-      ? state.currentTab.id
-      : null;
-    const scopedRemoteSupportState = scopeRemoteSupportStateToTab(state.remoteSupportState, currentTabId);
-    const scopedSessionId = scopedRemoteSupportState && typeof scopedRemoteSupportState.sessionId === "string"
-      ? scopedRemoteSupportState.sessionId
-      : "";
-    if (
-      !message ||
-      currentTabId === null ||
-      Number(message.tabId) !== currentTabId ||
-      !scopedSessionId ||
-      message.sessionId !== scopedSessionId
-    ) {
-      return;
-    }
-
-    const { localCameraBitmap, remoteCameraBitmap } = message;
-
-    if ("localCameraBitmap" in message) {
-      if (localCameraBitmap instanceof ImageBitmap) {
-        try {
-          if (!remoteSupportLocalCameraCanvas) {
-            remoteSupportLocalCameraCanvas = document.createElement("canvas");
-            remoteSupportLocalCameraCtx = remoteSupportLocalCameraCanvas.getContext("2d");
-            remoteSupportLocalCameraMediaStream = remoteSupportLocalCameraCanvas.captureStream();
-          }
-          if (remoteSupportLocalCameraCanvas.width !== localCameraBitmap.width) {
-            remoteSupportLocalCameraCanvas.width = localCameraBitmap.width;
-          }
-          if (remoteSupportLocalCameraCanvas.height !== localCameraBitmap.height) {
-            remoteSupportLocalCameraCanvas.height = localCameraBitmap.height;
-          }
-          remoteSupportLocalCameraCtx?.drawImage(localCameraBitmap, 0, 0);
-          state.remoteSupportLocalCameraActive = true;
-        } finally {
-          localCameraBitmap.close();
-        }
-      } else {
-        state.remoteSupportLocalCameraActive = false;
-      }
-    }
-
-    if ("remoteCameraBitmap" in message) {
-      if (remoteCameraBitmap instanceof ImageBitmap) {
-        try {
-          if (!remoteSupportRemoteCameraCanvas) {
-            remoteSupportRemoteCameraCanvas = document.createElement("canvas");
-            remoteSupportRemoteCameraCtx = remoteSupportRemoteCameraCanvas.getContext("2d");
-            remoteSupportRemoteCameraMediaStream = remoteSupportRemoteCameraCanvas.captureStream();
-          }
-          if (remoteSupportRemoteCameraCanvas.width !== remoteCameraBitmap.width) {
-            remoteSupportRemoteCameraCanvas.width = remoteCameraBitmap.width;
-          }
-          if (remoteSupportRemoteCameraCanvas.height !== remoteCameraBitmap.height) {
-            remoteSupportRemoteCameraCanvas.height = remoteCameraBitmap.height;
-          }
-          remoteSupportRemoteCameraCtx?.drawImage(remoteCameraBitmap, 0, 0);
-          state.remoteSupportRemoteCameraActive = true;
-        } finally {
-          remoteCameraBitmap.close();
-        }
-      } else {
-        state.remoteSupportRemoteCameraActive = false;
-      }
-    }
-
-    uiModule.setViewState({
-      remoteSupportLocalCameraActive: state.remoteSupportLocalCameraActive,
-      remoteSupportRemoteCameraActive: state.remoteSupportRemoteCameraActive
-    });
-    syncRemoteSupportCameraVideoRefs();
-    syncRemoteSupportDockPiPWindow();
-  };
-  return remoteSupportPopupMediaChannel;
-}
-async function fetchRemoteSupportState(tabId = state.currentTab && state.currentTab.id) {
-  if (shouldBlockRemoteSupportFeature()) {
-    return null;
-  }
-  const response = await messages.sendRuntimeMessage({
-    type: "getRemoteSupportState",
-    tabId: Number.isFinite(tabId) ? tabId : undefined
-  });
-  if (!response || !response.ok) {
-    return null;
-  }
-  return response.state || null;
-}
-
-async function requireRemoteSupportSetup() {
-  if (shouldBlockRemoteSupportFeature()) {
-    return null;
-  }
-  if (!await helpers.ensureActiveTab({ requireId: true, requireUrl: true })) {
-    return null;
-  }
-  const { tokenValue, configEndpointValue } = await helpers.loadGlobalAiSettings();
-  if (!configEndpointValue) {
-    uiModule.showToast(PopupText.configuration.endpointEnter);
-    return null;
-  }
-  if (!tokenValue) {
-    uiModule.showToast(PopupText.authentication.statusLoginRequired);
-    return null;
-  }
-  return { tokenValue, configEndpointValue };
-}
-
-async function setRemoteSupportDockState(dockState) {
-  if (shouldBlockRemoteSupportFeature()) {
-    return { ok: false, reason: "feature_disabled", feature: "remoteSupport" };
-  }
-  const currentTabId = state.currentTab && Number.isFinite(state.currentTab.id)
-    ? state.currentTab.id
-    : undefined;
-  const scopedRemoteSupportState = scopeRemoteSupportStateToTab(state.remoteSupportState, currentTabId);
-  const response = await messages.sendRuntimeMessage({
-    type: "remoteSupportSetDockState",
-    tabId: currentTabId,
-    sessionId: typeof scopedRemoteSupportState.sessionId === "string"
-      ? scopedRemoteSupportState.sessionId
-      : "",
-    dockState
-  });
-  if (response && response.ok) {
-    state.remoteSupportState = response.state || state.remoteSupportState;
-    syncRemoteSupportViewState(state.remoteSupportState);
-  }
-  return response;
-}
-
-async function openRemoteSupportDockPiP() {
-  if (shouldBlockRemoteSupportFeature()) {
-    return;
-  }
-  const scopedRemoteSupportState = scopeRemoteSupportStateToTab(
-    state.remoteSupportState,
-    state.currentTab && Number.isFinite(state.currentTab.id) ? state.currentTab.id : null
-  );
-  if (!scopedRemoteSupportState.active || scopedRemoteSupportState.mode !== REMOTE_SUPPORT_MODE_BEING_SUPPORTED) {
-    return;
-  }
-
-  if (!window.documentPictureInPicture || typeof window.documentPictureInPicture.requestWindow !== "function") {
-    await setRemoteSupportDockState(REMOTE_SUPPORT_DOCK_STATE_EMBEDDED_MINIMIZED);
-    return;
-  }
-
-  if (remoteSupportDockPiPWindow && !remoteSupportDockPiPWindow.closed) {
-    return;
-  }
-
-  try {
-    remoteSupportDockPiPWindow = await window.documentPictureInPicture.requestWindow({
-      width: 360,
-      height: 260
-    });
-    const pipDocument = remoteSupportDockPiPWindow.document;
-    pipDocument.head.innerHTML = `
-      <style>
-        body{margin:0;padding:12px;background:#09111d;color:#e8edf6;font:500 13px/1.4 system-ui,sans-serif}
-        .dock{display:grid;gap:10px}
-        .tiles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
-        .tile{min-height:92px;overflow:hidden;border-radius:14px;border:1px solid rgba(255,255,255,.14);background:#101a2b}
-        .tile video,.tile span{display:block;width:100%;height:100%}
-        .tile video{object-fit:cover}
-        .tile span{display:grid;place-items:center;color:#9eb4d2}
-        .controls{display:flex;flex-wrap:wrap;gap:8px}
-        button{border:1px solid rgba(255,255,255,.16);border-radius:999px;padding:8px 10px;background:#101a2b;color:#fff;cursor:pointer}
-        button.warn{background:#7f1d2d}
-      </style>
-    `;
-    pipDocument.body.innerHTML = `
-      <div class="dock">
-        <div class="tiles">
-          <div class="tile"><video id="uf-pip-local" autoplay muted playsinline hidden aria-label="Local camera preview"></video><span id="uf-pip-local-empty">Local camera</span></div>
-          <div class="tile"><video id="uf-pip-remote" autoplay muted playsinline hidden aria-label="Supporter camera preview"></video><span id="uf-pip-remote-empty">Supporter camera</span></div>
-        </div>
-        <div class="controls">
-          <button id="uf-pip-camera">Camera</button>
-          <button id="uf-pip-mic">Mic</button>
-          <button id="uf-pip-sound">Sound</button>
-          <button id="uf-pip-end" class="warn">End</button>
-        </div>
-      </div>
-    `;
-    pipDocument.getElementById("uf-pip-camera").addEventListener("click", () => { handleRemoteSupportCameraToggle().then(); });
-    pipDocument.getElementById("uf-pip-mic").addEventListener("click", () => { handleRemoteSupportMicrophoneToggle().then(); });
-    pipDocument.getElementById("uf-pip-sound").addEventListener("click", () => { handleRemoteSupportSoundToggle().then(); });
-    pipDocument.getElementById("uf-pip-end").addEventListener("click", () => { handleRemoteSupportEnd().then(); });
-    remoteSupportDockPiPWindow.addEventListener("pagehide", () => {
-      remoteSupportDockPiPWindow = null;
-      if (remoteSupportDockPiPClosingProgrammatically) {
-        remoteSupportDockPiPClosingProgrammatically = false;
-        return;
-      }
-      setRemoteSupportDockState(REMOTE_SUPPORT_DOCK_STATE_EMBEDDED_MINIMIZED).then();
-    }, { once: true });
-    await setRemoteSupportDockState(REMOTE_SUPPORT_DOCK_STATE_FLOATING_PIP);
-    syncRemoteSupportDockPiPWindow();
-  } catch (error) {
-    remoteSupportDockPiPWindow = null;
-    await setRemoteSupportDockState(REMOTE_SUPPORT_DOCK_STATE_EMBEDDED_MINIMIZED);
-  }
-}
-
-function syncRemoteSupportCameraVideoRefs() {
-  const refs = uiModule.getRefs();
-  if (refs.localCameraVideo && remoteSupportLocalCameraMediaStream) {
-    if (refs.localCameraVideo.srcObject !== remoteSupportLocalCameraMediaStream) {
-      refs.localCameraVideo.srcObject = remoteSupportLocalCameraMediaStream;
-    }
-  }
-  if (refs.remoteCameraVideo && remoteSupportRemoteCameraMediaStream) {
-    if (refs.remoteCameraVideo.srcObject !== remoteSupportRemoteCameraMediaStream) {
-      refs.remoteCameraVideo.srcObject = remoteSupportRemoteCameraMediaStream;
-    }
-  }
-}
-
-function syncRemoteSupportDockPiPWindow() {
-  if (!remoteSupportDockPiPWindow || remoteSupportDockPiPWindow.closed) {
-    return;
-  }
-  const pipDocument = remoteSupportDockPiPWindow.document;
-  const localVideo = pipDocument.getElementById("uf-pip-local");
-  const remoteVideo = pipDocument.getElementById("uf-pip-remote");
-  const localEmpty = pipDocument.getElementById("uf-pip-local-empty");
-  const remoteEmpty = pipDocument.getElementById("uf-pip-remote-empty");
-  const localActive = Boolean(state.remoteSupportLocalCameraActive);
-  const remoteActive = Boolean(state.remoteSupportRemoteCameraActive);
-  if (localVideo) {
-    if (remoteSupportLocalCameraMediaStream && localVideo.srcObject !== remoteSupportLocalCameraMediaStream) {
-      localVideo.srcObject = remoteSupportLocalCameraMediaStream;
-    }
-    localVideo.hidden = !localActive;
-  }
-  if (remoteVideo) {
-    if (remoteSupportRemoteCameraMediaStream && remoteVideo.srcObject !== remoteSupportRemoteCameraMediaStream) {
-      remoteVideo.srcObject = remoteSupportRemoteCameraMediaStream;
-    }
-    remoteVideo.hidden = !remoteActive;
-  }
-  if (localEmpty) {
-    localEmpty.hidden = localActive;
-  }
-  if (remoteEmpty) {
-    remoteEmpty.hidden = remoteActive;
-  }
-}
-
-async function handleRemoteSupportDockExternalize() {
-  if (shouldBlockRemoteSupportFeature()) {
-    return;
-  }
-  await openRemoteSupportDockPiP();
-}
-
-async function handleRemoteSupportEnd() {
-  if (shouldBlockRemoteSupportFeature()) {
-    return;
-  }
-  const currentTabId = state.currentTab && Number.isFinite(state.currentTab.id)
-    ? state.currentTab.id
-    : undefined;
-  const scopedRemoteSupportState = scopeRemoteSupportStateToTab(state.remoteSupportState, currentTabId);
-  await messages.sendRuntimeMessage({
-    type: "remoteSupportEnd",
-    tabId: currentTabId,
-    sessionId: typeof scopedRemoteSupportState.sessionId === "string"
-      ? scopedRemoteSupportState.sessionId
-      : ""
-  });
-  state.remoteSupportState = await fetchRemoteSupportState();
-  state.remoteSupportLastFrame = "";
-  syncRemoteSupportViewState(state.remoteSupportState);
-  uiModule.setViewState({ remoteSupportPreviewImage: "" });
-  await refreshUi();
-}
-
-async function handleRemoteSupportContinue() {
-  if (shouldBlockRemoteSupportFeature()) {
-    return;
-  }
-  const currentTabId = state.currentTab && Number.isFinite(state.currentTab.id)
-    ? state.currentTab.id
-    : undefined;
-  const scopedRemoteSupportState = scopeRemoteSupportStateToTab(state.remoteSupportState, currentTabId);
-  const response = await messages.sendRuntimeMessage({
-    type: "remoteSupportContinueSession",
-    tabId: currentTabId,
-    sessionId: typeof scopedRemoteSupportState.sessionId === "string"
-      ? scopedRemoteSupportState.sessionId
-      : ""
-  });
-  if (!response || !response.ok) {
-    uiModule.showToast((response && response.error) || "Unable to continue remote support session");
-    return;
-  }
-  state.remoteSupportState = response.state || state.remoteSupportState;
-  syncRemoteSupportViewState(state.remoteSupportState);
-  await refreshUi();
-}
-
-async function handleRemoteSupportLocalMediaToggle(control) {
-  if (shouldBlockRemoteSupportFeature()) {
-    return;
-  }
-  const currentTabId = state.currentTab && Number.isFinite(state.currentTab.id)
-    ? state.currentTab.id
-    : undefined;
-  if (!Number.isFinite(currentTabId)) {
-    return;
-  }
-
-  const scopedState = scopeRemoteSupportStateToTab(state.remoteSupportState, currentTabId);
-  if (!scopedState.active || scopedState.mode !== REMOTE_SUPPORT_MODE_BEING_SUPPORTED) {
-    return;
-  }
-
-  const mediaStateByControl = {
-    camera: {
-      available: Boolean(scopedState.supporteeCameraAvailable),
-      enabled: Boolean(scopedState.supporteeCameraEnabled)
-    },
-    microphone: {
-      available: Boolean(scopedState.supporteeMicrophoneAvailable),
-      enabled: Boolean(scopedState.supporteeMicrophoneEnabled)
-    },
-    sound: {
-      available: Boolean(scopedState.supporteeAudioAvailable),
-      enabled: Boolean(scopedState.supporteeAudioEnabled)
-    }
-  };
-
-  const currentMediaState = mediaStateByControl[control];
-  if (!currentMediaState || !currentMediaState.available) {
-    return;
-  }
-
-  const response = await messages.sendRuntimeMessage({
-    type: "remoteSupportSetLocalMediaEnabled",
-    tabId: currentTabId,
-    sessionId: typeof scopedState.sessionId === "string" ? scopedState.sessionId : "",
-    control,
-    enabled: !currentMediaState.enabled
-  });
-
-  if (!response || !response.ok) {
-    uiModule.showToast((response && response.error) || "Unable to update remote support media");
-    return;
-  }
-
-  state.remoteSupportState = response.state || await fetchRemoteSupportState(currentTabId);
-  syncRemoteSupportViewState(state.remoteSupportState);
-}
-
-async function handleRemoteSupportCameraToggle() {
-  await handleRemoteSupportLocalMediaToggle("camera");
-}
-
-async function handleRemoteSupportMicrophoneToggle() {
-  await handleRemoteSupportLocalMediaToggle("microphone");
-}
-
-async function handleRemoteSupportSoundToggle() {
-  await handleRemoteSupportLocalMediaToggle("sound");
-}
-
-async function handleRemoteSupportErrorDismiss(event) {
-  if (event && typeof event.preventDefault === "function") {
-    event.preventDefault();
-  }
-  if (event && typeof event.stopPropagation === "function") {
-    event.stopPropagation();
-  }
-  if (shouldBlockRemoteSupportFeature()) {
-    return;
-  }
-
-  const currentTabId = state.currentTab && Number.isFinite(state.currentTab.id)
-    ? state.currentTab.id
-    : null;
-  if (currentTabId === null) {
-    uiModule.setViewState({ remoteSupportError: "" });
-    return;
-  }
-
-  const scopedState = scopeRemoteSupportStateToTab(state.remoteSupportState, currentTabId);
-  uiModule.setViewState({ remoteSupportError: "" });
-
-  try {
-    const response = await messages.sendRuntimeMessage({
-      type: "remoteSupportDismissError",
-      tabId: currentTabId,
-      sessionId: typeof scopedState.sessionId === "string" ? scopedState.sessionId : ""
-    });
-    if (response && response.ok) {
-      state.remoteSupportState = response.state || await fetchRemoteSupportState(currentTabId);
-      syncRemoteSupportViewState(state.remoteSupportState);
-      await refreshUi();
-      return;
-    }
-  } catch {
-    // Keep the local dismissal even if the background snapshot is already gone.
-  }
 }
 
 async function handlePropertyLockTake() {
@@ -7315,16 +6661,6 @@ async function init() {
     onLoginPasswordInput: handleLoginPasswordInput,
     onLoginPasswordKeyDown: handleLoginPasswordKeyDown,
     onLoginAction: handleLoginAction,
-    onRemoteSupportRequest: handleRemoteSupportRequest,
-    onRemoteSupportJoinCodeInput: handleRemoteSupportJoinCodeInput,
-    onRemoteSupportJoin: handleRemoteSupportJoin,
-    onRemoteSupportEnd: handleRemoteSupportEnd,
-    onRemoteSupportCameraToggle: handleRemoteSupportCameraToggle,
-    onRemoteSupportMicrophoneToggle: handleRemoteSupportMicrophoneToggle,
-    onRemoteSupportSoundToggle: handleRemoteSupportSoundToggle,
-    onRemoteSupportContinue: handleRemoteSupportContinue,
-    onRemoteSupportDockExternalize: handleRemoteSupportDockExternalize,
-    onRemoteSupportErrorDismiss: handleRemoteSupportErrorDismiss,
     onPropertyLockTake: handlePropertyLockTake,
     onPropertyLockSuggest: handlePropertyLockSuggest,
     onPropertyLockContinue: handlePropertyLockContinue,
@@ -7342,40 +6678,6 @@ async function init() {
     onExplicitIncludeView: handleExplicitIncludeView,
     onExplicitIncludeRemove: handleExplicitIncludeRemove,
     onMarkedPageNavigate: handleMarkedPageNavigate
-  });
-  if (isFeatureEnabled("remoteSupport")) {
-    ensureRemoteSupportPopupMediaChannel();
-  }
-
-  uiModule.onViewStateChange((viewState) => {
-    if (!isFeatureEnabled("remoteSupport")) {
-      return;
-    }
-    if (
-      viewState.remoteSupportMode === REMOTE_SUPPORT_MODE_BEING_SUPPORTED &&
-      viewState.remoteSupportSessionActive &&
-      viewState.remoteSupportDockState === REMOTE_SUPPORT_DOCK_STATE_FLOATING_PIP
-    ) {
-      openRemoteSupportDockPiP().catch(() => {});
-    } else if (
-      remoteSupportDockPiPWindow &&
-      (
-        remoteSupportDockPiPWindow.closed ||
-        !viewState.remoteSupportSessionActive ||
-        viewState.remoteSupportDockState !== REMOTE_SUPPORT_DOCK_STATE_FLOATING_PIP
-      )
-    ) {
-      if (!remoteSupportDockPiPWindow.closed) {
-        remoteSupportDockPiPClosingProgrammatically = true;
-        try {
-          remoteSupportDockPiPWindow.close();
-        } catch {
-          remoteSupportDockPiPClosingProgrammatically = false;
-        }
-      }
-      remoteSupportDockPiPWindow = null;
-    }
-    syncRemoteSupportDockPiPWindow();
   });
 
   document.addEventListener("click", () => {
@@ -7553,15 +6855,6 @@ async function init() {
       window.clearTimeout(popupSpinnerTimer);
       popupSpinnerTimer = 0;
     }
-    if (remoteSupportDockPiPWindow && !remoteSupportDockPiPWindow.closed) {
-      remoteSupportDockPiPClosingProgrammatically = true;
-      try {
-        remoteSupportDockPiPWindow.close();
-      } catch {
-        remoteSupportDockPiPClosingProgrammatically = false;
-      }
-      remoteSupportDockPiPWindow = null;
-    }
   });
 
   utils.addStorageChangeListener((changes, areaName) => {
@@ -7672,39 +6965,6 @@ async function init() {
     if (message && message.type === "aiPreviewFocusChanged") {
       uiModule.setViewState({
         previewFocusedXpath: typeof message.xpath === "string" ? message.xpath : ""
-      });
-      return;
-    }
-    if (message && message.type === "remoteSupportStateChanged") {
-      const currentTabId = state.currentTab && Number.isFinite(state.currentTab.id)
-        ? state.currentTab.id
-        : null;
-      if (currentTabId !== null && Number.isFinite(message.tabId) && Number(message.tabId) !== currentTabId) {
-        return;
-      }
-      state.remoteSupportState = message.state || null;
-      clearLastPopupEnabled();
-      syncRemoteSupportViewState(state.remoteSupportState);
-      scheduleRefresh();
-      return;
-    }
-    if (message && message.type === "remoteSupportFrame") {
-      const currentTabId = state.currentTab && Number.isFinite(state.currentTab.id)
-        ? state.currentTab.id
-        : null;
-      if (currentTabId !== null && Number.isFinite(message.tabId) && Number(message.tabId) !== currentTabId) {
-        return;
-      }
-      const image = typeof message.frame === "string"
-        ? message.frame
-        : (message.frame && typeof message.frame.dataUrl === "string" ? message.frame.dataUrl : "");
-      state.remoteSupportLastFrame = image;
-      const scopedState = scopeRemoteSupportStateToTab(
-        state.remoteSupportState,
-        state.currentTab && Number.isFinite(state.currentTab.id) ? state.currentTab.id : null
-      );
-      uiModule.setViewState({
-        remoteSupportPreviewImage: Boolean(scopedState.active) ? image : ""
       });
       return;
     }
