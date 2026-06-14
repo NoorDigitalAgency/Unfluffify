@@ -36,7 +36,6 @@ test("popup decomposition guard: baseline popup modules are imported", () => {
   assertImportsPopupModule("render-mode-inspection");
   assertImportsPopupModule("page-reconciliation");
   assertImportsPopupModule("property-lock-ui");
-  assertImportsPopupModule("remote-support-ui");
   assertImportsPopupModule("ai-run");
   assertImportsPopupModule("render-mode");
   assertImportsPopupModule("state");
@@ -84,8 +83,4 @@ test("popup decomposition guard: baseline popup modules are imported", () => {
   assertPopupDoesNotDefine("refreshPropertyLockSnapshot");
   assertPopupDoesNotDefine("sendPropertyLockCommand");
   assertPopupDoesNotDefine("reconcilePropertyLockAfterCommand");
-  assertPopupDoesNotDefine("syncRemoteSupportViewState");
-  assertPopupDoesNotDefine("handleRemoteSupportRequest");
-  assertPopupDoesNotDefine("handleRemoteSupportJoinCodeInput");
-  assertPopupDoesNotDefine("handleRemoteSupportJoin");
 });

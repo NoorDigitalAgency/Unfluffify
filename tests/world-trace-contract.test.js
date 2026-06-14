@@ -83,13 +83,6 @@ test("popup keeps trace diagnostics behind a disabled feature flag", () => {
   assert.doesNotMatch(popupUiSource, /trace-events-list/);
 });
 
-test("diagnostics feature gate stays after optional remote support section", () => {
-  const diagnosticsIndex = popupUiSource.indexOf("isPopupFeatureEnabled(view, \"traceDiagnostics\")");
-  const remoteSupportPushIndex = popupUiSource.indexOf("sections.push(renderRemoteSupportSection");
-  assert.ok(remoteSupportPushIndex > -1);
-  assert.ok(diagnosticsIndex > remoteSupportPushIndex);
-});
-
 test("popup message transport logs world traffic when trace mode is enabled", () => {
   assert.match(popupMessagesSource, /function shouldTraceWorldMessaging\(\) \{/);
   assert.match(popupMessagesSource, /\[world-trace\]\[popup:messages\]/);

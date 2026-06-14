@@ -25,7 +25,6 @@ const runtimeMessageHandlerSource = readFileSync(
 const emulationSource = readFileSync(new URL("../common/emulation.js", import.meta.url), "utf8");
 
 const EXPECTED_FLAGS = [
-  "remoteSupport",
   "desktopPreview",
   "deviceEmulationToggle",
   "traceDiagnostics",
@@ -91,10 +90,10 @@ test("getFeatureFlags returns an immutable copy", () => {
   assert.notEqual(flags, FEATURE_FLAGS);
   assert.deepEqual(flags, FEATURE_FLAGS);
   assert.throws(() => {
-    flags.remoteSupport = true;
+    flags.desktopPreview = true;
   }, TypeError);
-  assert.equal(FEATURE_FLAGS.remoteSupport, false);
-  assert.equal(getFeatureFlags().remoteSupport, false);
+  assert.equal(FEATURE_FLAGS.desktopPreview, false);
+  assert.equal(getFeatureFlags().desktopPreview, false);
 });
 
 test("popup refresh exposes a feature flag snapshot in view state", () => {
@@ -106,9 +105,9 @@ test("popup UI helper treats missing and unknown flags as disabled", () => {
   assert.match(popupUiSource, /featureFlags: FEATURE_FLAGS,/);
   assert.match(popupUiSource, /export function isPopupFeatureEnabled\(view, flagName\) \{/);
 
-  assert.equal(isPopupFeatureEnabled({}, "remoteSupport"), false);
-  assert.equal(isPopupFeatureEnabled({ featureFlags: {} }, "remoteSupport"), false);
-  assert.equal(isPopupFeatureEnabled({ featureFlags: { remoteSupport: true } }, "remoteSupport"), true);
+  assert.equal(isPopupFeatureEnabled({}, "desktopPreview"), false);
+  assert.equal(isPopupFeatureEnabled({ featureFlags: {} }, "desktopPreview"), false);
+  assert.equal(isPopupFeatureEnabled({ featureFlags: { desktopPreview: true } }, "desktopPreview"), true);
   assert.equal(isPopupFeatureEnabled({ featureFlags: { missingFeature: true } }, "missingFeature"), false);
 });
 
