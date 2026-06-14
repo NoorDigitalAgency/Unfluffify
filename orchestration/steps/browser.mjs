@@ -311,30 +311,13 @@ async function readBackgroundTabState(worker, tabId) {
   }, tabId);
 }
 
-async function readRemoteSupportState(worker, tabId) {
-  if (!worker || !Number.isFinite(tabId)) {
-    return { ok: false, error: "Missing worker or tab id" };
-  }
-  return worker.evaluate(async (targetTabId) => {
-    try {
-      return await chrome.runtime.sendMessage({
-        type: "getRemoteSupportState",
-        tabId: targetTabId
-      });
-    } catch (error) {
-      return { ok: false, error: String(error && error.message ? error.message : error) };
-    }
-  }, tabId);
-}
-
 async function readPageBanner(page) {
   if (!page) {
     return { ok: false, error: "No active page" };
   }
   return page.evaluate(() => ({
     href: location.href,
-    bannerText: document.querySelector("#unfluffify-lock-banner .uf-lock-banner-content")?.textContent?.trim() || "",
-    remoteSupportTerminateVisible: Boolean(document.querySelector("#unfluffify-remote-support-terminate"))
+    bannerText: document.querySelector("#unfluffify-lock-banner .uf-lock-banner-content")?.textContent?.trim() || ""
   }));
 }
 
@@ -354,7 +337,6 @@ async function readPopupState(popup) {
       markingToggleDisabled: Boolean(document.querySelector("#toggle-enabled")?.disabled),
       desktopPreviewVisible: Boolean(document.querySelector("#desktop-preview-enabled")),
       desktopPreviewEnabled: Boolean(document.querySelector("#desktop-preview-enabled")?.checked),
-      remoteSupportVisible: Boolean(document.querySelector("[data-remote-support-section], #remote-support-request")),
       candidates: candidateAnchors.map((anchor) => ({
         label: anchor.textContent?.trim() || "",
         url: anchor.getAttribute("href") || ""
@@ -461,11 +443,10 @@ export async function openPopup(context) {
 }
 
 export async function readState(context) {
-  const [pageBanner, popupState, tabState, remoteSupportState] = await Promise.all([
+  const [pageBanner, popupState, tabState] = await Promise.all([
     readPageBanner(context.page),
     readPopupState(context.popup),
-    readBackgroundTabState(context.worker, context.tabId),
-    readRemoteSupportState(context.worker, context.tabId)
+    readBackgroundTabState(context.worker, context.tabId)
   ]);
   const state = {
     ok: true,
@@ -475,8 +456,7 @@ export async function readState(context) {
     tabId: context.tabId,
     pageBanner,
     popupState,
-    tabState,
-    remoteSupportState
+    tabState
   };
   const artifactPath = await writeArtifact(context, "state-latest.json", state);
   return {

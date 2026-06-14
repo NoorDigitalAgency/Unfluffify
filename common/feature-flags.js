@@ -1,7 +1,6 @@
 export const FEATURE_DISABLED_REASON = "feature_disabled";
 
 export const FEATURE_FLAGS = Object.freeze({
-  remoteSupport: false,
   desktopPreview: false,
   deviceEmulationToggle: false,
   traceDiagnostics: false,

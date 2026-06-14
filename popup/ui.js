@@ -7,12 +7,6 @@ import {
   propertyLockText
 } from "../common/text.js";
 import {
-  REMOTE_SUPPORT_DOCK_STATE_EMBEDDED,
-  REMOTE_SUPPORT_DOCK_STATE_EMBEDDED_MINIMIZED,
-  REMOTE_SUPPORT_DOCK_STATE_FLOATING_PIP,
-  shouldShowRemoteSupportPopupJoin
-} from "../common/remote-support.js";
-import {
   buildLynxChecklistViewModel,
   createInitialLynxChecklistState
 } from "../common/lynx-checklist.js";
@@ -31,7 +25,6 @@ const refs = {};
 let uiTimers = null;
 const initialLynxChecklistState = createInitialLynxChecklistState();
 let lastPreviewScrolledXpath = "";
-let lastRemoteSupportSectionScrollKey = "";
 
 export const View = {
     Configuration: 'Configuration',
@@ -207,34 +200,6 @@ const initialViewState = {
   configMenuOpen: false,
   clearDomainCacheDisabled: false,
   unregisterCurrentTabDisabled: false,
-  remoteSupportCode: "",
-  remoteSupportRequested: false,
-  remoteSupportRequestLoading: false,
-  remoteSupportJoinCode: "",
-  remoteSupportJoinLoading: false,
-  remoteSupportVisible: false,
-  remoteSupportPageVisible: false,
-  remoteSupportAutoFocus: false,
-  remoteSupportMode: "inactive",
-  remoteSupportRole: "",
-  remoteSupportSessionActive: false,
-  remoteSupportStatusText: "",
-  remoteSupportConnected: false,
-  remoteSupportStreaming: false,
-  remoteSupportCameraAvailable: false,
-  remoteSupportCameraEnabled: false,
-  remoteSupportMicrophoneAvailable: false,
-  remoteSupportMicrophoneEnabled: false,
-  remoteSupportSoundAvailable: false,
-  remoteSupportSoundEnabled: false,
-  remoteSupportPreviewImage: "",
-  remoteSupportDockState: REMOTE_SUPPORT_DOCK_STATE_EMBEDDED,
-  remoteSupportLocalCameraActive: false,
-  remoteSupportRemoteCameraActive: false,
-  remoteSupportInactivityCountdownActive: false,
-  remoteSupportInactivitySecondsRemaining: 0,
-  remoteSupportInactivityCountdownText: "0:00",
-  remoteSupportError: "",
   isBusy: false,
   busyMessage: "",
   busyReason: "",
@@ -307,201 +272,6 @@ function extendIconClass(name, extraClass = "") {
 
 function editToggleIcon(label) {
   return label === ViewText.cancelAction ? "close" : "pencil";
-}
-
-function renderRemoteSupportErrorNotice(view, handlers) {
-  const message = typeof view.remoteSupportError === "string" ? view.remoteSupportError.trim() : "";
-  if (!message) {
-    return null;
-  }
-
-  return h(
-    "div",
-    { class: warningNoticeClass("u-alert--dismissible"), role: "status", "aria-live": "polite" },
-    h("span", { class: "u-alert__content" }, message),
-    h(
-      "button",
-      {
-        type: "button",
-        class: "u-alert__dismiss",
-        "aria-label": PopupText.configuration.dismissNoticeLabel,
-        title: PopupText.configuration.dismissNoticeLabel,
-        onClick: handlers.onRemoteSupportErrorDismiss
-      },
-      icon("close", "", true)
-    )
-  );
-}
-
-function renderRemoteSupportInactivityNotice(view, handlers) {
-  if (!view.remoteSupportInactivityCountdownActive) {
-    return null;
-  }
-
-  const isRequester = view.remoteSupportMode === "being_supported";
-  return h(
-    "div",
-    { class: warningNoticeClass(isRequester ? "u-alert--actionable" : null) },
-    h(
-      "span",
-      { class: "u-alert__content" },
-      PopupText.configuration.remoteSupportInactivityCountdownNotice(view.remoteSupportInactivityCountdownText || "0:00")
-    ),
-    isRequester
-      ? h(
-          "button",
-          {
-            id: "remote-support-continue",
-            type: "button",
-            class: "u-alert__action",
-            onClick: handlers.onRemoteSupportContinue
-          },
-          PopupText.configuration.remoteSupportContinueButton
-        )
-      : null
-  );
-}
-
-function renderRemoteSupportMediaButton({ id, title, iconName, active, available, onClick }) {
-  return h(
-    "button",
-    {
-      id,
-      type: "button",
-      class: classNames(
-        "remote-support-controller__media-button",
-        active && "is-active",
-        !active && "is-off"
-      ),
-      disabled: !available,
-      "aria-pressed": active ? "true" : "false",
-      "aria-label": title,
-      title,
-      onClick
-    },
-    icon(iconName, "", true)
-  );
-}
-
-function renderRemoteSupportedMediaControls(view, handlers) {
-  return h(
-    "div",
-    { class: "remote-support-controller__actions remote-support-controller__actions--compact" },
-    renderRemoteSupportMediaButton({
-      id: "remote-support-toggle-camera",
-      title: view.remoteSupportCameraEnabled
-        ? PopupText.configuration.remoteSupportDisableCameraButton
-        : PopupText.configuration.remoteSupportEnableCameraButton,
-      iconName: view.remoteSupportCameraEnabled ? "camera" : "camera-off",
-      active: Boolean(view.remoteSupportCameraEnabled),
-      available: Boolean(view.remoteSupportCameraAvailable),
-      onClick: handlers.onRemoteSupportCameraToggle
-    }),
-    renderRemoteSupportMediaButton({
-      id: "remote-support-toggle-microphone",
-      title: view.remoteSupportMicrophoneEnabled
-        ? PopupText.configuration.remoteSupportDisableMicrophoneButton
-        : PopupText.configuration.remoteSupportEnableMicrophoneButton,
-      iconName: view.remoteSupportMicrophoneEnabled ? "microphone" : "microphone-off",
-      active: Boolean(view.remoteSupportMicrophoneEnabled),
-      available: Boolean(view.remoteSupportMicrophoneAvailable),
-      onClick: handlers.onRemoteSupportMicrophoneToggle
-    }),
-    renderRemoteSupportMediaButton({
-      id: "remote-support-toggle-sound",
-      title: view.remoteSupportSoundEnabled
-        ? PopupText.configuration.remoteSupportMuteSoundButton
-        : PopupText.configuration.remoteSupportUnmuteSoundButton,
-      iconName: view.remoteSupportSoundEnabled ? "volume-high" : "volume-off",
-      active: Boolean(view.remoteSupportSoundEnabled),
-      available: Boolean(view.remoteSupportSoundAvailable),
-      onClick: handlers.onRemoteSupportSoundToggle
-    })
-  );
-}
-
-function renderRemoteSupportDock(view, handlers) {
-  const dockState = view.remoteSupportDockState || REMOTE_SUPPORT_DOCK_STATE_EMBEDDED;
-  const minimized = dockState === REMOTE_SUPPORT_DOCK_STATE_EMBEDDED_MINIMIZED;
-  const floating = dockState === REMOTE_SUPPORT_DOCK_STATE_FLOATING_PIP;
-  const localCameraActive = Boolean(view.remoteSupportLocalCameraActive);
-  const remoteCameraActive = Boolean(view.remoteSupportRemoteCameraActive);
-
-  return h(
-    "section",
-    {
-      class: classNames(
-        "remote-support-dock",
-        minimized && "remote-support-dock--minimized",
-        floating && "remote-support-dock--floating-intent"
-      )
-    },
-    h(
-      "div",
-      { class: "remote-support-dock__tiles" },
-      h(
-        "div",
-        { class: "remote-support-dock__tile" },
-        h("video", {
-          ref: (el) => { refs.localCameraVideo = el; },
-          class: "remote-support-dock__tile-image",
-          autoPlay: true,
-          muted: true,
-          playsInline: true,
-          hidden: !localCameraActive,
-          "aria-label": "Local camera preview"
-        }),
-        !localCameraActive
-          ? h("div", { class: "remote-support-dock__tile-placeholder" }, "Local camera")
-          : null,
-        minimized ? null : h("span", { class: "remote-support-dock__tile-label" }, "You")
-      ),
-      h(
-        "div",
-        { class: "remote-support-dock__tile" },
-        h("video", {
-          ref: (el) => { refs.remoteCameraVideo = el; },
-          class: "remote-support-dock__tile-image",
-          autoPlay: true,
-          muted: true,
-          playsInline: true,
-          hidden: !remoteCameraActive,
-          "aria-label": "Supporter camera preview"
-        }),
-        !remoteCameraActive
-          ? h("div", { class: "remote-support-dock__tile-placeholder" }, "Supporter camera")
-          : null,
-        minimized ? null : h("span", { class: "remote-support-dock__tile-label" }, "Supporter")
-      )
-    ),
-    h(
-      "div",
-      { class: "remote-support-dock__controls" },
-      renderRemoteSupportedMediaControls(view, handlers),
-      h(
-        "button",
-        {
-          id: "remote-support-externalize",
-          type: "button",
-          class: "u-btn-secondary remote-support-dock__externalize",
-          onClick: handlers.onRemoteSupportDockExternalize
-        },
-        icon("open-in-new", "", true),
-        minimized ? "External" : "Open in PiP"
-      ),
-      h(
-        "button",
-        {
-          id: "remote-support-end-dock",
-          type: "button",
-          class: "u-btn-danger remote-support-dock__end",
-          onClick: handlers.onRemoteSupportEnd
-        },
-        icon("lan-disconnect", "", true),
-        minimized ? null : PopupText.configuration.remoteSupportEndButton
-      )
-    )
-  );
 }
 
 function statusToneClass(tone) {
@@ -950,214 +720,6 @@ function renderThemeModeButtons(view, handlers) {
         h("span", null, option.label)
       )
     )
-  );
-}
-
-function renderRemoteSupportSection(view, handlers) {
-  if (!isPopupFeatureEnabled(view, "remoteSupport") || !view.remoteSupportVisible) {
-    return null;
-  }
-
-  const supporting = view.remoteSupportMode === "supporting";
-  const beingSupported = view.remoteSupportMode === "being_supported";
-  const requesting = Boolean(view.remoteSupportRequestLoading);
-  const sessionActive = Boolean(view.remoteSupportSessionActive);
-  const supportPageVisible = Boolean(view.remoteSupportPageVisible);
-  const showPopupJoin = shouldShowRemoteSupportPopupJoin(supportPageVisible, {
-    active: sessionActive
-  });
-  const sectionClass = view.remoteSupportEmbedded
-    ? "config-extra-subsection remote-support-card remote-support-card--embedded u-grid u-gap-4"
-    : "card remote-support-card u-grid u-gap-3";
-  return h(
-    "section",
-    {
-      class: sectionClass,
-      ref: (el) => {
-        refs.remoteSupportSection = el;
-      }
-    },
-    h("div", { class: "section-title" }, icon("lifebuoy", "field-icon"), PopupText.configuration.remoteSupportSectionTitle),
-    h("div", { class: "hint" }, PopupText.configuration.remoteSupportHint),
-    showPopupJoin
-      ? h(
-          "div",
-          { class: "remote-support-join" },
-          h(
-            "label",
-            { class: "field remote-support-join__field" },
-            h("span", { class: "control-label" }, PopupText.configuration.remoteSupportJoinCodeLabel),
-            h(
-              "div",
-              { class: "input-row" },
-              h("input", {
-                id: "remote-support-join-code",
-                type: "text",
-                value: view.remoteSupportJoinCode || "",
-                placeholder: PopupText.configuration.remoteSupportJoinCodePlaceholder,
-                disabled: Boolean(view.remoteSupportJoinLoading),
-                onInput: handlers.onRemoteSupportJoinCodeInput
-              }),
-              h(
-                "button",
-                {
-                  id: "remote-support-join",
-                  type: "button",
-                  class: classNames(view.remoteSupportJoinLoading && "loading"),
-                  disabled: Boolean(view.remoteSupportJoinLoading) || !(view.remoteSupportJoinCode || "").trim(),
-                  onClick: handlers.onRemoteSupportJoin
-                },
-                icon(view.remoteSupportJoinLoading ? "loading" : "login-variant", view.remoteSupportJoinLoading ? "mdi-spin" : ""),
-                PopupText.configuration.remoteSupportJoinButton
-              )
-            )
-          )
-        )
-      : supportPageVisible
-      ? h("div", { class: warningNoticeClass() }, PopupText.configuration.remoteSupportPageControlHint)
-      : h(
-          "button",
-          {
-            id: "remote-support-request",
-            type: "button",
-            class: classNames("u-full-width", requesting && "loading"),
-            disabled: sessionActive || requesting,
-            "aria-busy": requesting ? "true" : "false",
-            onClick: handlers.onRemoteSupportRequest
-          },
-          icon(requesting ? "loading" : "monitor-share", requesting ? "mdi-spin" : ""),
-          PopupText.configuration.remoteSupportButton
-        ),
-    view.remoteSupportRequested
-      ? h(
-          "div",
-          { class: "remote-support-code", role: "status", "aria-live": "polite" },
-          h("span", null, PopupText.configuration.remoteSupportCodeLabel),
-          h("strong", null, view.remoteSupportCode || "------"),
-          h("span", { class: "hint" }, PopupText.configuration.remoteSupportCodeHint)
-        )
-      : null,
-    view.remoteSupportStatusText
-      ? h("div", { class: "hint", role: "status", "aria-live": "polite" }, view.remoteSupportStatusText)
-      : null,
-    renderRemoteSupportErrorNotice(view, handlers),
-    renderRemoteSupportInactivityNotice(view, handlers),
-    supporting
-      ? h("div", { class: "hint" }, PopupText.configuration.remoteSupportPageControlHint)
-      : null,
-    sessionActive && !beingSupported
-      ? h(
-          "button",
-          {
-            id: "remote-support-end",
-            type: "button",
-            class: "u-full-width u-btn-danger",
-            onClick: handlers.onRemoteSupportEnd
-          },
-          icon("close-octagon"),
-          PopupText.configuration.remoteSupportEndButton
-        )
-      : null,
-    beingSupported
-      ? h(
-          Fragment,
-          null,
-          h("div", { class: "hint" }, PopupText.configuration.remoteSupportBeingSupportedHint),
-          renderRemoteSupportDock(view, handlers)
-        )
-      : null
-  );
-}
-
-function renderRemoteSupportControllerView(view, handlers) {
-  return h(
-    "section",
-    {
-      class: "remote-support-controller u-grid u-gap-4",
-      ref: (el) => {
-        refs.remoteSupportSection = el;
-      }
-    },
-    h(
-      "div",
-      { class: "remote-support-controller__toolbar u-flex u-items-start u-justify-between u-gap-4" },
-      h(
-        "div",
-        { class: "remote-support-controller__meta" },
-        h(
-          "div",
-          { class: "section-title" },
-          icon("monitor-share", "field-icon"),
-          PopupText.configuration.remoteSupportSectionTitle
-        ),
-        view.remoteSupportStatusText
-          ? h("div", { class: "hint", role: "status", "aria-live": "polite" }, view.remoteSupportStatusText)
-          : null,
-        view.remoteSupportRequested
-          ? h(
-              "div",
-              { class: "remote-support-code remote-support-code--compact", role: "status", "aria-live": "polite" },
-              h("span", null, PopupText.configuration.remoteSupportCodeLabel),
-              h("strong", null, view.remoteSupportCode || "------")
-            )
-          : null,
-        renderRemoteSupportErrorNotice(view, handlers),
-        renderRemoteSupportInactivityNotice(view, handlers)
-      ),
-      h(
-        "button",
-        {
-          id: "remote-support-end",
-          type: "button",
-          class: "u-btn-danger remote-support-controller__end",
-          onClick: handlers.onRemoteSupportEnd
-        },
-        icon("close-octagon"),
-        PopupText.configuration.remoteSupportEndButton
-      )
-    ),
-    h("div", { class: warningNoticeClass(), role: "status", "aria-live": "polite" }, PopupText.configuration.remoteSupportPageControlHint)
-  );
-}
-
-function renderRemoteSupportedView(view, handlers) {
-  return h(
-    "section",
-    {
-      class: "remote-support-controller u-grid u-gap-4",
-      ref: (el) => {
-        refs.remoteSupportSection = el;
-      }
-    },
-    h(
-      "div",
-      { class: "remote-support-controller__toolbar u-flex u-items-start u-justify-between u-gap-4" },
-      h(
-        "div",
-        { class: "remote-support-controller__meta" },
-        h(
-          "div",
-          { class: "section-title" },
-          icon("shield-account", "field-icon"),
-          PopupText.configuration.remoteSupportSectionTitle
-        ),
-        view.remoteSupportStatusText
-          ? h("div", { class: "hint", role: "status", "aria-live": "polite" }, view.remoteSupportStatusText)
-          : null,
-        view.remoteSupportRequested
-          ? h(
-              "div",
-              { class: "remote-support-code remote-support-code--compact", role: "status", "aria-live": "polite" },
-              h("span", null, PopupText.configuration.remoteSupportCodeLabel),
-              h("strong", null, view.remoteSupportCode || "------")
-            )
-          : null,
-        renderRemoteSupportErrorNotice(view, handlers),
-        renderRemoteSupportInactivityNotice(view, handlers)
-      ),
-      renderRemoteSupportedMediaControls(view, handlers)
-    ),
-    h("div", { class: "hint", role: "status", "aria-live": "polite" }, PopupText.configuration.remoteSupportBeingSupportedHint)
   );
 }
 
@@ -1676,15 +1238,6 @@ function App({ state: view, actions: handlers }) {
   logPopupBlockerReason("render", curtain);
   const previewVisible = view.previewBlocked || view.previewActive;
   const configurationView = view.currentView === View.Configuration;
-  const remoteSupportFeatureEnabled = isPopupFeatureEnabled(view, "remoteSupport");
-  const remoteControllerVisible =
-    remoteSupportFeatureEnabled &&
-    view.remoteSupportMode === "supporting" &&
-    view.remoteSupportSessionActive;
-  const remoteSupportedVisible =
-    remoteSupportFeatureEnabled &&
-    view.remoteSupportMode === "being_supported" &&
-    view.remoteSupportSessionActive;
 
   return h(
     Fragment,
@@ -1703,24 +1256,9 @@ function App({ state: view, actions: handlers }) {
                 type: "button",
                 class: "close-button",
                 title: PopupText.unregister.closeButtonTitle,
-                disabled: view.unregisterCurrentTabDisabled || previewVisible || configurationView || remoteControllerVisible,
+                disabled: view.unregisterCurrentTabDisabled || previewVisible || configurationView,
                 onClick: handlers.onUnregisterCurrentTab
               }
-            )
-          : null,
-        remoteSupportedVisible
-          ? h(
-              "button",
-              {
-                id: "remote-support-stop-sharing-top",
-                type: "button",
-                class: "close-bar__stop-sharing",
-                title: PopupText.configuration.remoteSupportStopSharingButton,
-                "aria-label": PopupText.configuration.remoteSupportStopSharingButton,
-                onClick: handlers.onRemoteSupportEnd
-              },
-              icon("lan-disconnect"),
-              PopupText.configuration.remoteSupportStopSharingButton
             )
           : null
       ),
@@ -1863,8 +1401,6 @@ function App({ state: view, actions: handlers }) {
       ),
       previewVisible
         ? renderPreviewSidebar(view, handlers)
-        : remoteControllerVisible
-          ? renderRemoteSupportControllerView(view, handlers)
         : view.currentView === View.Marking
           ? renderMarkingView({ state: view, actions: handlers })
           : view.currentView === View.Configuration
@@ -2352,7 +1888,7 @@ function renderConfigurationAppearanceSection(view, handlers) {
 }
 
 function renderConfigurationExtrasSection(view, handlers) {
-  const expanded = Boolean(view.configurationExtrasExpanded || view.remoteSupportAutoFocus);
+  const expanded = Boolean(view.configurationExtrasExpanded);
   const traceEvents = Array.isArray(view.traceEvents) ? view.traceEvents : [];
   const traceLines = traceEvents
     .slice(-20)
@@ -2376,10 +1912,6 @@ function renderConfigurationExtrasSection(view, handlers) {
 
   if (isPopupFeatureEnabled(view, "appearanceCustomization")) {
     sections.push(renderConfigurationAppearanceSection(view, handlers));
-  }
-
-  if (isPopupFeatureEnabled(view, "remoteSupport") && view.remoteSupportVisible) {
-    sections.push(renderRemoteSupportSection({ ...view, remoteSupportEmbedded: true }, handlers));
   }
 
   if (isPopupFeatureEnabled(view, "traceDiagnostics")) {
@@ -2766,22 +2298,6 @@ function renderApp() {
   } else {
     lastPreviewScrolledXpath = "";
   }
-  const remoteSupportScrollKey =
-    viewState.remoteSupportAutoFocus && viewState.currentView === View.Configuration
-      ? String(viewState.currentPageUrl || "")
-      : "";
-  if (!remoteSupportScrollKey) {
-    lastRemoteSupportSectionScrollKey = "";
-  } else if (
-    refs.remoteSupportSection &&
-    lastRemoteSupportSectionScrollKey !== remoteSupportScrollKey
-  ) {
-    refs.remoteSupportSection.scrollIntoView({
-      block: "center",
-      inline: "nearest"
-    });
-    lastRemoteSupportSectionScrollKey = remoteSupportScrollKey;
-  }
   // The curtain is rendered declaratively by Preact (see App / getBlockingUiCurtainState).
   // Do NOT imperatively mutate the curtain DOM here: doing so desyncs Preact's
   // virtual DOM and throws "insertBefore" on the next render. syncBlockingUiCurtainDom
@@ -2819,12 +2335,6 @@ function filterTodoSubsectionsExpanded(nextViewState) {
 
 function normalizeViewState(nextViewState) {
   let normalizedViewState = nextViewState;
-  if (normalizedViewState.remoteSupportAutoFocus) {
-    normalizedViewState = {
-      ...normalizedViewState,
-      configurationExtrasExpanded: true
-    };
-  }
   if (normalizedViewState.previewBlocked || normalizedViewState.previewActive) {
     normalizedViewState = {
       ...normalizedViewState,

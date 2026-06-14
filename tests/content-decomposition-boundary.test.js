@@ -54,7 +54,6 @@ test("content decomposition guard: baseline content modules are imported", () =>
   assertImportsContentModule("page-draft-status-handler");
   assertImportsContentModule("page-save-reconciliation-clear-handler");
   assertImportsContentModule("page-world-relay");
-  assertImportsContentModule("page-telemetry-bridge");
   assertImportsContentModule("page-save-reconciliation-pending-handler");
   assertImportsContentModule("page-toast");
   assertImportsContentModule("render-mode-inspection-handlers");
@@ -63,30 +62,11 @@ test("content decomposition guard: baseline content modules are imported", () =>
   assertImportsContentModule("property-lock-banner");
   assertImportsContentModule("property-lock-port-client");
   assertImportsContentModule("property-lock-state-machine");
-  assertImportsContentModule("remote-support-client");
   assertImportsContentModule("runtime-message-handler");
-  assertImportsContentModule("remote-support-state-handler");
-  assertImportsContentModule("remote-support-viewer-client");
-  assertImportsContentModule("remote-support-support-page");
   assertImportsContentModule("visible-xpaths-handler");
 
-  assertContentDoesNotDefine("handlePageTelemetryWindowMessage");
-  assertContentDoesNotDefine("syncPageTelemetryControl");
-  assertContentDoesNotDefine("ensurePageTelemetryBridge");
-  assertContentDoesNotDefine("restoreRemoteSupportQuietedVideo");
-  assertContentDoesNotDefine("quietRemoteSupportVideo");
-  assertContentDoesNotDefine("startRemoteSupportMediaQuieting");
-  assertContentDoesNotDefine("stopRemoteSupportMediaQuieting");
   assertContentDoesNotDefine("ensurePageToastStyle");
   assertContentDoesNotDefine("createPropertyLockBannerButton");
   assertContentDoesNotDefine("createPropertyLockBannerLabel");
-  assertContentDoesNotDefine("getRemoteSupportSupportPageViewerOrigin");
-  assertContentDoesNotDefine("resolveRemoteSupportSupportPageViewerWaiters");
-  assertContentDoesNotDefine("clearRemoteSupportSupportPageViewerPendingRequests");
-  assertContentDoesNotDefine("handleRemoteSupportSupportPageViewerPortMessage");
-  assertContentDoesNotDefine("waitForRemoteSupportSupportPageViewerReady");
-  assertContentDoesNotDefine("createRemoteSupportSupportPageState");
-  assertContentDoesNotDefine("ensureRemoteSupportSupportPageUi");
-  assertContentDoesNotDefine("initializeRemoteSupportSupportPage");
   assertContentDoesNotDefine("consumeRuntimeLastErrorMessage");
 });

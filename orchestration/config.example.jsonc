@@ -51,8 +51,8 @@
   // It must be a real page on a property that exists in the staging backend.
   "testPropertyUrl": "https://www.bonliva.no/",
 
-  // Optional support page URL used by remote-support scenarios and insecure
-  // origin derivation for local/http capture tests.
+  // Optional support page URL used for insecure origin derivation for
+  // local/http capture tests.
   "supportPageUrl": "",
 
   // Optional desktop-capture source title substring for automated screen

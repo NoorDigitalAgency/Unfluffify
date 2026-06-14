@@ -1,13 +1,6 @@
-import { handleRemoteSupportSupportPageMessage } from "./remote-support-support-page-message-handler.js";
-
 export function handleRuntimeMessage(message, _sender, sendResponse, deps) {
   if (!message || !message.type) {
     return;
-  }
-
-  const supportPageResult = handleRemoteSupportSupportPageMessage(message, sendResponse, deps);
-  if (supportPageResult !== null) {
-    return supportPageResult;
   }
 
   if (message.type === "setEnabled") {
@@ -60,12 +53,6 @@ export function handleRuntimeMessage(message, _sender, sendResponse, deps) {
 
   if (message.type === "hideConsentForInspection") {
     sendResponse(deps.handleHideConsentForInspectionCommand());
-    return;
-  }
-
-  if (message.type === "remoteSupportState" || message.type === "remoteSupportModeChanged") {
-    const response = deps.getRemoteSupportStateHandler().handleMessage(message);
-    sendResponse(response && typeof response === "object" ? response : { ok: false });
     return;
   }
 

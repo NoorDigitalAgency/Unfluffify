@@ -19,7 +19,6 @@ import {
   getNormalizedTextContent as getNormalizedNodeText,
   canUseCollapsedTextFallback as canUseCollapsedTextFallbackNode
 } from "./content/shared-inclusion.js";
-import { installExtensionTelemetry } from "./common/extension-telemetry.js";
 import {
   normalizeCandidatePageUrl,
   normalizePropertyPageTypes
@@ -29,13 +28,6 @@ import {
   normalizeSiteIdValue,
   normalizeStageBase as normalizeStageBaseValue
 } from "./common/lynx-live-pages.js";
-import {
-  REMOTE_SUPPORT_DOCK_STATE_EMBEDDED_MINIMIZED,
-  REMOTE_SUPPORT_DOCK_STATE_FULLSCREEN_ACTIVE,
-  REMOTE_SUPPORT_MODE_BEING_SUPPORTED,
-  formatRemoteSupportCountdown,
-  normalizeRemoteSupportDockState
-} from "./common/remote-support.js";
 import {
   DEFAULT_SILENT_HIGHLIGHT_SETTLE_MAX_WAIT_MS,
   DEFAULT_SILENT_HIGHLIGHT_SETTLE_STABLE_SAMPLES,
@@ -140,15 +132,6 @@ import {
 import { updatePropertyLockBannerMode as updatePropertyLockBannerModeOperation } from "./content/property-lock-banner-mode.js";
 import { createPropertyLockPortClient } from "./content/property-lock-port-client.js";
 import { createPropertyLockStateMachine } from "./content/property-lock-state-machine.js";
-import { createRemoteSupportClient } from "./content/remote-support-client.js";
-import { createRemoteSupportStateHandler } from "./content/remote-support-state-handler.js";
-import { createRemoteSupportViewerClient } from "./content/remote-support-viewer-client.js";
-import { createRemoteSupportSupportPage } from "./content/remote-support-support-page.js";
-import {
-  ensurePageTelemetryBridge as ensurePageTelemetryBridgeOperation,
-  handlePageTelemetryWindowMessage as handlePageTelemetryWindowMessageOperation,
-  syncPageTelemetryControl as syncPageTelemetryControlOperation
-} from "./content/page-telemetry-bridge.js";
 import {
   MESSAGE_ERROR_CODES,
   MESSAGE_TARGETS,
@@ -394,74 +377,8 @@ function createAiPreviewState() {
 }
 
 let aiPreviewState = createAiPreviewState();
-const REMOTE_SUPPORT_TERMINATE_BUTTON_ID = "unfluffify-remote-support-terminate";
-const REMOTE_SUPPORT_TERMINATE_STYLE_ID = "unfluffify-remote-support-terminate-style";
-const REMOTE_SUPPORT_SUPPORT_PAGE_META_SELECTOR = 'meta[name="unfluffify-remote-support-page"][content="support"]';
-const REMOTE_SUPPORT_SUPPORT_PAGE_APP_ID = "unfluffify-support-page-app";
-const REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID = "unfluffify-remote-support-page-root";
-const REMOTE_SUPPORT_SUPPORT_PAGE_STYLE_ID = "unfluffify-remote-support-page-style";
-const REMOTE_SUPPORT_SUPPORT_PAGE_FALLBACK_ID = "unfluffify-support-page-fallback";
-const REMOTE_SUPPORT_SUPPORT_PAGE_VIEWER_FRAME_ID = "uf-support-page-viewer";
-const REMOTE_SUPPORT_SUPPORT_PAGE_VIEWER_PATH = "remote-support-viewer.html";
-const REMOTE_SUPPORT_SUPPORT_PAGE_VIEWER_REQUEST_TIMEOUT_MS = 10000;
-const PAGE_TELEMETRY_SCRIPT_ID = "unfluffify-page-telemetry-script";
-const PAGE_TELEMETRY_MESSAGE_MARKER = "unfluffify-page-telemetry";
-const PAGE_TELEMETRY_CONTROL_MARKER = "unfluffify-page-telemetry-control";
-const PAGE_TELEMETRY_NONCE_BYTES = 16;
-
-let pageTelemetryBridgeListenerBound = false;
-let pageTelemetryBridgeNonce = "";
-// Private MessageChannel port for the page-world telemetry stream. When
-// available, steady-state telemetry travels over this port instead of being
-// broadcast on window.postMessage, so other page scripts cannot passively
-// observe (or, without racing the one-time port handshake, forge) the stream.
-let pageTelemetryBridgePort = null;
 
 const contentMainServiceRegistry = createContentMainServiceRegistry({
-  createRemoteSupportViewerClient: () => createRemoteSupportViewerClient({
-    getViewerOrigin: () => {
-      try {
-        return new URL(chrome.runtime.getURL(REMOTE_SUPPORT_SUPPORT_PAGE_VIEWER_PATH)).origin;
-      } catch (error) {
-        return "*";
-      }
-    },
-    getViewerFrame: () => {
-      const supportPage = getRemoteSupportSupportPage();
-      return supportPage.getViewerElement();
-    },
-    getViewerElement: () => {
-      const supportPage = getRemoteSupportSupportPage();
-      return supportPage.getViewerElement();
-    },
-    isSupportPageActive: () => getRemoteSupportSupportPage().isActive(),
-    onFrameMessage: (framePayload) => {
-      getRemoteSupportSupportPage().handleFramePayload(framePayload);
-    },
-    renderFrame: () => {
-      getRemoteSupportSupportPage().render();
-    },
-    sendRuntimeMessageSafely,
-    updateStateFromBackground: () => getRemoteSupportSupportPage().refreshState(),
-    REMOTE_SUPPORT_SUPPORT_PAGE_VIEWER_PATH,
-    REMOTE_SUPPORT_SUPPORT_PAGE_VIEWER_REQUEST_TIMEOUT_MS
-  }),
-  createRemoteSupportSupportPage: () => createRemoteSupportSupportPage({
-    isRemoteSupportFeatureEnabled: () => isFeatureEnabled("remoteSupport"),
-    getViewerClient: () => getRemoteSupportViewerClient(),
-    sendRuntimeMessageSafely,
-    formatRemoteSupportCountdown,
-    normalizeRemoteSupportDockState,
-    REMOTE_SUPPORT_DOCK_STATE_EMBEDDED_MINIMIZED,
-    REMOTE_SUPPORT_DOCK_STATE_FULLSCREEN_ACTIVE,
-    EXTENSION_UI_FONT_STACK,
-    REMOTE_SUPPORT_SUPPORT_PAGE_META_SELECTOR,
-    REMOTE_SUPPORT_SUPPORT_PAGE_APP_ID,
-    REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID,
-    REMOTE_SUPPORT_SUPPORT_PAGE_STYLE_ID,
-    REMOTE_SUPPORT_SUPPORT_PAGE_FALLBACK_ID,
-    REMOTE_SUPPORT_SUPPORT_PAGE_VIEWER_FRAME_ID
-  }),
   createPageToastClient: () => createPageToast(createPageToastDeps()),
   createPageSaveReconciliationClearHandler: () => createPageSaveReconciliationClearHandler(
     createPageSaveReconciliationClearHandlerDeps()
@@ -503,29 +420,8 @@ const contentMainServiceRegistry = createContentMainServiceRegistry({
   createInvisibleXpathsHandler: () => createInvisibleXpathsHandler(createInvisibleXpathsHandlerDeps()),
   createVisibleXpathsHandler: () => createVisibleXpathsHandler(createVisibleXpathsHandlerDeps()),
   createPropertyLockPortClient: () => createPropertyLockPortClient(createPropertyLockPortClientDeps()),
-  createPropertyLockStateMachine: () => createPropertyLockStateMachine(createPropertyLockStateMachineDeps()),
-  createRemoteSupportClient: () => createRemoteSupportClient({
-    isRemoteSupportFeatureEnabled: () => isFeatureEnabled("remoteSupport"),
-    requestRemoteSupportState: () => chrome.runtime.sendMessage({
-      type: "getRemoteSupportState"
-    }),
-    sendRuntimeMessageSafely,
-    syncPageTelemetryBridgeLifecycle,
-    EXTENSION_UI_FONT_STACK,
-    REMOTE_SUPPORT_MODE_BEING_SUPPORTED,
-    REMOTE_SUPPORT_TERMINATE_BUTTON_ID,
-    REMOTE_SUPPORT_TERMINATE_STYLE_ID
-  }),
-  createRemoteSupportStateHandler: () => createRemoteSupportStateHandler(createRemoteSupportStateHandlerDeps())
+  createPropertyLockStateMachine: () => createPropertyLockStateMachine(createPropertyLockStateMachineDeps())
 });
-
-function getRemoteSupportViewerClient() {
-  return contentMainServiceRegistry.getRemoteSupportViewerClient();
-}
-
-function getRemoteSupportSupportPage() {
-  return contentMainServiceRegistry.getRemoteSupportSupportPage();
-}
 
 function sendRuntimeMessageSafely(message) {
   if (
@@ -691,28 +587,6 @@ function getPropertyLockStateMachine() {
   return contentMainServiceRegistry.getPropertyLockStateMachine();
 }
 
-function getRemoteSupportClient() {
-  return contentMainServiceRegistry.getRemoteSupportClient();
-}
-
-const getRemoteSupportMode = () => getRemoteSupportClient().getMode();
-const getRemoteSupportRole = () => getRemoteSupportClient().getRole();
-const getRemoteSupportIncludePayloads = () => getRemoteSupportClient().getIncludePayloads();
-const isBeingSupportedMode = () => getRemoteSupportClient().isBeingSupportedMode();
-const applyRemoteSupportSessionState = (remoteSupportStateLike) => {
-  getRemoteSupportClient().applySessionState(remoteSupportStateLike);
-};
-const syncRemoteSupportSessionStateFromBackground = () => {
-  return getRemoteSupportClient().syncSessionStateFromBackground();
-};
-const syncRemoteSupportTerminateButton = () => {
-  getRemoteSupportClient().syncTerminateButton();
-};
-
-function getRemoteSupportStateHandler() {
-  return contentMainServiceRegistry.getRemoteSupportStateHandler();
-}
-
 function createLifecycleOperationId(kind) {
   lifecycleOperationCounter += 1;
   return `${kind || "operation"}:${Date.now()}:${lifecycleOperationCounter}`;
@@ -808,174 +682,6 @@ function logContentDiagnostic(level, ...args) {
     logger(...args);
   } catch {
     // Ignore logging failures.
-  }
-}
-
-function forwardPageTelemetryMessage(message) {
-  if (!isFeatureEnabled("remoteSupport")) {
-    return;
-  }
-  if (!message || typeof message !== "object") {
-    return;
-  }
-
-  const channel = message.channel === "network"
-    ? "network"
-    : message.channel === "console"
-      ? "console"
-      : "";
-  if (!channel) {
-    return;
-  }
-
-  void sendRuntimeMessageSafely({
-    type: "remoteSupportExtensionTelemetry",
-    channel,
-    entry: message.entry && typeof message.entry === "object" && !Array.isArray(message.entry)
-      ? { ...message.entry }
-      : {}
-  });
-}
-
-const handlePageTelemetryWindowMessage = (event) => {
-  return handlePageTelemetryWindowMessageOperation({
-    isExtensionContextInvalidated: () => extensionContextInvalidated,
-    getRemoteSupportMode,
-    getPageTelemetryBridgeNonce: () => pageTelemetryBridgeNonce,
-    REMOTE_SUPPORT_MODE_BEING_SUPPORTED,
-    PAGE_TELEMETRY_MESSAGE_MARKER,
-    forwardPageTelemetryMessage
-  }, event);
-};
-
-// Telemetry delivered over the private MessageChannel port. The port itself is
-// the capability — only a holder of the transferred port can post here — so no
-// per-message nonce is required, but the marker/shape are still validated and
-// the active-session guard still applies.
-function handlePageTelemetryPortMessage(event) {
-  if (
-    extensionContextInvalidated ||
-    getRemoteSupportMode() !== REMOTE_SUPPORT_MODE_BEING_SUPPORTED
-  ) {
-    return;
-  }
-
-  const data = event && event.data && typeof event.data === "object" ? event.data : null;
-  if (!data || data.__unfluffifyTelemetry !== PAGE_TELEMETRY_MESSAGE_MARKER) {
-    return;
-  }
-
-  const message = data.message && typeof data.message === "object" ? data.message : null;
-  if (!message || message.type !== "remoteSupportExtensionTelemetry") {
-    return;
-  }
-
-  forwardPageTelemetryMessage(message);
-}
-
-function closePageTelemetryBridgePort() {
-  if (pageTelemetryBridgePort) {
-    try {
-      pageTelemetryBridgePort.onmessage = null;
-      pageTelemetryBridgePort.close();
-    } catch (error) {
-      // Best-effort teardown; never block disable on a failed port close.
-    }
-    pageTelemetryBridgePort = null;
-  }
-}
-
-function createPageTelemetryBridgeNonce() {
-  const cryptoObject = globalThis.crypto;
-  if (cryptoObject && typeof cryptoObject.getRandomValues === "function") {
-    const bytes = new Uint8Array(PAGE_TELEMETRY_NONCE_BYTES);
-    cryptoObject.getRandomValues(bytes);
-    return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
-  }
-
-  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`;
-}
-
-function getPageTelemetryBridgeNonce() {
-  if (!pageTelemetryBridgeNonce) {
-    pageTelemetryBridgeNonce = createPageTelemetryBridgeNonce();
-  }
-  return pageTelemetryBridgeNonce;
-}
-
-const syncPageTelemetryControl = () => {
-  return syncPageTelemetryControlOperation({
-    getRemoteSupportMode,
-    getOrCreatePageTelemetryBridgeNonce: getPageTelemetryBridgeNonce,
-    getPageTelemetryBridgeNonce: () => pageTelemetryBridgeNonce,
-    getRemoteSupportIncludePayloads,
-    getPageTelemetryBridgePort: () => pageTelemetryBridgePort,
-    setPageTelemetryBridgePort: (port) => {
-      pageTelemetryBridgePort = port;
-    },
-    handlePageTelemetryPortMessage,
-    REMOTE_SUPPORT_MODE_BEING_SUPPORTED,
-    PAGE_TELEMETRY_CONTROL_MARKER
-  });
-};
-
-function teardownPageTelemetryBridge() {
-  if (
-    pageTelemetryBridgeNonce &&
-    typeof window !== "undefined" &&
-    typeof window.postMessage === "function"
-  ) {
-    window.postMessage({
-      __unfluffifyTelemetry: PAGE_TELEMETRY_CONTROL_MARKER,
-      nonce: pageTelemetryBridgeNonce,
-      enabled: false,
-      includePayloads: false
-    }, "*");
-  }
-
-  if (
-    pageTelemetryBridgeListenerBound &&
-    typeof window !== "undefined" &&
-    typeof window.removeEventListener === "function"
-  ) {
-    window.removeEventListener("message", handlePageTelemetryWindowMessage);
-    pageTelemetryBridgeListenerBound = false;
-  }
-
-  closePageTelemetryBridgePort();
-
-  const existingScript = typeof document === "object"
-    ? document.getElementById(PAGE_TELEMETRY_SCRIPT_ID)
-    : null;
-  if (existingScript && typeof existingScript.remove === "function") {
-    existingScript.remove();
-  } else if (existingScript && existingScript.parentNode) {
-    existingScript.parentNode.removeChild(existingScript);
-  }
-
-  pageTelemetryBridgeNonce = "";
-}
-
-const ensurePageTelemetryBridge = () => {
-  return ensurePageTelemetryBridgeOperation({
-    isExtensionContextInvalidated: () => extensionContextInvalidated,
-    getRemoteSupportMode,
-    isPageTelemetryBridgeListenerBound: () => pageTelemetryBridgeListenerBound,
-    setPageTelemetryBridgeListenerBound: (value) => {
-      pageTelemetryBridgeListenerBound = Boolean(value);
-    },
-    handlePageTelemetryWindowMessage,
-    syncPageTelemetryControl,
-    REMOTE_SUPPORT_MODE_BEING_SUPPORTED,
-    PAGE_TELEMETRY_SCRIPT_ID
-  });
-};
-
-function syncPageTelemetryBridgeLifecycle() {
-  if (getRemoteSupportMode() === REMOTE_SUPPORT_MODE_BEING_SUPPORTED) {
-    ensurePageTelemetryBridge();
-  } else {
-    teardownPageTelemetryBridge();
   }
 }
 
@@ -2277,10 +1983,6 @@ function clearSilentHighlightOverlay() {
 
 function setSilentHighlightOverlayHidden(hidden) {
   if (!silentHighlightOverlay) {
-    return;
-  }
-  if (hidden && isBeingSupportedMode()) {
-    silentHighlightOverlay.classList.remove("uf-silent-hidden");
     return;
   }
   if (hidden) {
@@ -5563,7 +5265,6 @@ function markExtensionContextInvalidated(error) {
     return false;
   }
   extensionContextInvalidated = true;
-  teardownPageTelemetryBridge();
   propertyLockSyncToken += 1;
   disconnectPropertyLockPort({ notifyBackground: false });
   return true;
@@ -6389,14 +6090,6 @@ function createPageDraftStatusHandlerDeps() {
   };
 }
 
-function createRemoteSupportStateHandlerDeps() {
-  return {
-    applyRemoteSupportSessionState,
-    getRemoteSupportMode,
-    getRemoteSupportRole
-  };
-}
-
 function createRenderModeInspectionHandlersDeps() {
   return {
     armRenderModeInspectionWatchdog,
@@ -6663,7 +6356,6 @@ function registerContentCommandHandlersOnce() {
 
 function createRuntimeMessageHandlerDeps() {
   return {
-    getRemoteSupportSupportPage,
     handleSetEnabledCommand,
     handleGetInspectionStatusCommand,
     handleRenderModeInspectionBeginCommand,
@@ -6671,7 +6363,6 @@ function createRuntimeMessageHandlerDeps() {
     handleCaptureRenderModeInspectionHtmlCommand,
     handleRenderModeInspectionEndCommand,
     handleHideConsentForInspectionCommand,
-    getRemoteSupportStateHandler,
     getAiPreviewGetStateHandler,
     getAiPreviewExpandedModeHandler,
     getAiPreviewComputeLockHandler,
@@ -6723,15 +6414,6 @@ export function main() {
     armRenderModeInspectionWatchdog();
   }
 
-  installExtensionTelemetry({
-    source: "content",
-    getIncludePayloads: getRemoteSupportIncludePayloads
-  });
-
-  if (isFeatureEnabled("remoteSupport")) {
-    getRemoteSupportSupportPage().initialize();
-    syncRemoteSupportSessionStateFromBackground().then();
-  }
   if (isPropertyLockCollaborationEnabled()) {
     runPropertyLockSync({ forceSiteIdRefresh: true });
   } else {
@@ -6882,7 +6564,7 @@ export function main() {
   });
   const handleSilentOrMarkingScroll = (event) => {
     if (state.enabled) {
-      core.handleScroll(event, { hideDuringScroll: !isBeingSupportedMode() });
+      core.handleScroll(event, { hideDuringScroll: true });
       return;
     }
     if (!isViewportScrollEvent(event)) {

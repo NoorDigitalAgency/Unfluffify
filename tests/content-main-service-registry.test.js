@@ -5,8 +5,6 @@ import { readFileSync } from "node:fs";
 import { createContentMainServiceRegistry } from "../content/content-main-service-registry.js";
 
 const getterFactoryPairs = [
-  ["getRemoteSupportViewerClient", "createRemoteSupportViewerClient"],
-  ["getRemoteSupportSupportPage", "createRemoteSupportSupportPage"],
   ["getPageToastClient", "createPageToastClient"],
   ["getPageSaveReconciliationClearHandler", "createPageSaveReconciliationClearHandler"],
   ["getPageSaveReconciliationPendingHandler", "createPageSaveReconciliationPendingHandler"],
@@ -34,9 +32,7 @@ const getterFactoryPairs = [
   ["getInvisibleXpathsHandler", "createInvisibleXpathsHandler"],
   ["getVisibleXpathsHandler", "createVisibleXpathsHandler"],
   ["getPropertyLockPortClient", "createPropertyLockPortClient"],
-  ["getPropertyLockStateMachine", "createPropertyLockStateMachine"],
-  ["getRemoteSupportClient", "createRemoteSupportClient"],
-  ["getRemoteSupportStateHandler", "createRemoteSupportStateHandler"]
+  ["getPropertyLockStateMachine", "createPropertyLockStateMachine"]
 ];
 
 test("content-main service registry lazily creates and caches each getter independently", () => {
@@ -76,12 +72,10 @@ test("content-main sources the registry and keeps mutable truth clusters inline"
   const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
 
   assert.match(source, /from "\.\/content\/content-main-service-registry\.js"/);
-  assert.doesNotMatch(source, /let remoteSupportClient = null;/);
   assert.doesNotMatch(source, /let pageToastClient = null;/);
   assert.doesNotMatch(source, /let configUpdatedHandler = null;/);
 
   assert.match(source, /let aiPreviewState = createAiPreviewState\(\);/);
-  assert.match(source, /let pageTelemetryBridgePort = null;/);
   assert.match(source, /let propertyLockConnectedSiteId = null;/);
   assert.match(source, /let silentHighlightEditorActivationPromise = null;/);
 });

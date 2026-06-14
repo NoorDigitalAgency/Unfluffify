@@ -2,8 +2,7 @@
 
 This plan replaces the follower-agent workflow for two-machine testing with a
 director-owned SSH bootstrap and a long-lived Playwright RPC worker on the
-remote machine. It is only test/debug orchestration. It does not replace or
-change the product remote-support transport.
+remote machine. It is only test/debug orchestration.
 
 ## Goals
 
@@ -28,7 +27,6 @@ change the product remote-support transport.
 
 - Do not expose the remote RPC server on a LAN interface by default.
 - Do not store passwords, tokens, or private keys in tracked files.
-- Do not make product remote support depend on Playwright or SSH.
 - Do not require the remote machine to run Codex or another LLM session.
 
 ## Decisions (2026-06-07)
@@ -309,22 +307,6 @@ include `durationMs` and relevant artifact paths when generated.
   Stage Base through the extension UI or storage contract.
 - `config.readExtensionSettings`: return redacted current extension settings.
 
-### Remote support test helpers
-
-- `remoteSupport.openRequester`: open a property page and popup as account A.
-- `remoteSupport.requestCode`: call the runtime request-code contract and wait
-  for a support code.
-- `remoteSupport.openSupportPage`: open the support page as account B.
-- `remoteSupport.join`: call the runtime join contract with a support code.
-- `remoteSupport.readState`: return requester/supporter runtime state.
-- `remoteSupport.waitForState`: wait for active, connected, partnerConnected,
-  streaming, error, role, or supportCode predicates.
-- `remoteSupport.end`: end the session and verify inactive state.
-- `remoteSupport.mediaSnapshot`: collect video/audio element state, WebRTC
-  stats, track labels, ready states, dimensions, and muted/enabled flags.
-- `remoteSupport.getWebRtcStats`: return selected `RTCPeerConnection.getStats`
-  metrics from viewer/offscreen contexts when reachable.
-
 ### Property lock test helpers
 
 - `property.open`: open a property URL and activate content.
@@ -432,7 +414,7 @@ Create `orchestration/two-host-debug.mjs`.
 2. Add JSON-RPC framing helpers and unit tests.
 3. Add remote RPC server with `system.*`, `browser.*`, `page.*`, and
    `debug.snapshotAll`.
-4. Add extension/auth/remote-support/property-lock method groups.
+4. Add extension/auth/property-lock method groups.
 5. Add SSH setup script and gitignored config/secrets files.
 6. Add director two-host scenario runner.
 7. Retire the two-agent follower instructions from `setup.md` after the SSH RPC
@@ -448,7 +430,5 @@ Create `orchestration/two-host-debug.mjs`.
   `system.ping`.
 - The director can launch both browsers with extension profiles and no media
   permission prompts.
-- The director can run a remote-support request/join handshake without any
-  second agent prompt.
 - On failure, the run directory contains enough artifacts to inspect both
   browsers without accessing the remote desktop manually.

@@ -8,9 +8,7 @@
   },
   "permissions": [
     "storage",
-    "offscreen",
     "sidePanel",
-    "desktopCapture",
     "tabs",
     "scripting",
     "debugger",
@@ -25,7 +23,6 @@
     "service_worker": "background.js",
     "type": "module"
   },
-  "devtools_page": "devtools/devtools.html",
   "content_scripts": [
     {
       "matches": [
@@ -83,7 +80,6 @@
         "content/page-draft-status-handler.js",
         "content/page-save-reconciliation-clear-handler.js",
         "content/page-world-relay.js",
-        "content/page-telemetry-bridge.js",
         "content/page-save-reconciliation-pending-handler.js",
         "content/page-toast.js",
         "content/render-mode-inspection-handlers.js",
@@ -92,29 +88,19 @@
         "content/property-lock-banner-mode.js",
         "content/property-lock-port-client.js",
         "content/property-lock-state-machine.js",
-        "content/remote-support-client.js",
-        "content/remote-support-support-page-message-handler.js",
         "content/runtime-message-handler.js",
-        "content/remote-support-state-handler.js",
-        "content/remote-support-viewer-client.js",
-        "content/remote-support-support-page.js",
         "content/visible-xpaths-handler.js",
         "common/config.js",
         "common/constants.js",
-        "common/extension-telemetry.js",
         "common/feature-flags.js",
-        "common/page-telemetry.js",
         "common/lynx-checklist.js",
         "common/lynx-live-pages.js",
         "common/property-lock.js",
-        "common/remote-support.js",
         "common/selector-set.js",
         "common/text.js",
         "common/utilities.js",
         "common/world-messaging-contract.js",
         "assets/materialdesignicons-webfont.woff2",
-        "remote-support-viewer.html",
-        "remote-support-viewer.js",
         "cursors/*.svg"
       ],
       "matches": [

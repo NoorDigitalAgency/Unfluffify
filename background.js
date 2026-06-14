@@ -45,12 +45,6 @@ import {
   normalizeSiteIdValue
 } from "./common/lynx-live-pages.js";
 import {
-  handleRemoteSupportBackgroundMessage,
-  handleRemoteSupportTabRemoved,
-  initRemoteSupportBackground
-} from "./common/remote-support-background.js";
-import { installExtensionTelemetry } from "./common/extension-telemetry.js";
-import {
   handlePropertyLockBackgroundMessage,
   handlePropertyLockBackgroundTabRemoved,
   initPropertyLockBackground
@@ -157,21 +151,6 @@ import {
   queueTabSessionWrite,
   setTabState as setStoredTabState
 } from "./background/tab-session-store.js";
-
-const REMOTE_SUPPORT_MESSAGE_TYPES = new Set([
-  "getRemoteSupportState",
-  "remoteSupportRequestCode",
-  "remoteSupportJoin",
-  "remoteSupportEnd",
-  "remoteSupportSetDockState",
-  "remoteSupportContinueSession",
-  "remoteSupportSetLocalMediaEnabled",
-  "remoteSupportSetControlOwner",
-  "remoteSupportSendCommand",
-  "remoteSupportDismissError",
-  "remoteSupportExtensionTelemetry",
-  "remoteSupportTransportEvent"
-]);
 
 function buildFeatureDisabledResponse(featureName) {
   return {
@@ -1672,19 +1651,9 @@ chrome.runtime.onConnect.addListener((port) => {
   });
 });
 
-initRemoteSupportBackground();
 if (isFeatureEnabled("propertyLockCollaboration")) {
   initPropertyLockBackground();
 }
-installExtensionTelemetry({
-  source: "worker",
-  sendTelemetry(message) {
-    if (!isFeatureEnabled("remoteSupport")) {
-      return Promise.resolve(buildFeatureDisabledResponse("remoteSupport"));
-    }
-    return handleRemoteSupportBackgroundMessage(message, {});
-  }
-});
 console.info("Unfluffify background worker ready");
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -1709,21 +1678,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (handleBackgroundCommandEnvelope(message, sender, sendResponse)) {
-    return true;
-  }
-
-  if (REMOTE_SUPPORT_MESSAGE_TYPES.has(message.type)) {
-    if (!isFeatureEnabled("remoteSupport")) {
-      sendResponse(buildFeatureDisabledResponse("remoteSupport"));
-      return;
-    }
-    handleRemoteSupportBackgroundMessage(message, sender)
-      .then((result) => {
-        sendResponse(result || { ok: false, error: "Remote support request failed" });
-      })
-      .catch(() => {
-        sendResponse({ ok: false, error: "Remote support request failed" });
-      });
     return true;
   }
 
@@ -2491,7 +2445,6 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   if (isFeatureEnabled("propertyLockCollaboration")) {
     handlePropertyLockBackgroundTabRemoved(tabId);
   }
-  handleRemoteSupportTabRemoved(tabId).then();
   disposeTabState(tabId);
   deleteTabRuntime(tabId);
 });
