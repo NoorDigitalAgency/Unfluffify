@@ -1,7 +1,7 @@
 # Two-host orchestration setup
 
-This folder is repo-local test infrastructure for coordinated property-lock and
-remote-support validation. It is not referenced by `manifest.json` and must not
+This folder is repo-local test infrastructure for coordinated property-lock
+validation. It is not referenced by `manifest.json` and must not
 ship in the extension package.
 
 ## Files
@@ -147,35 +147,6 @@ non-candidate URL. Do not mark that sub-check green from an arbitrary generated
 same-origin URL; those can remain in editor state without an off-candidate
 deadline.
 
-## Remote-support one-machine handshake
-
-After seeding both profiles, run the Phase 5 remote-support handshake harness:
-
-```bash
-node orchestration/scenarios/remote-support-one-machine.mjs --property-url https://www.bonliva.no/ --director-profile-dir orchestration/profiles/director --follower-profile-dir orchestration/profiles/follower --capture-source-title "Screen"
-```
-
-The scenario opens the director profile on the property, calls the extension's
-remote-support request-code runtime contract with the stored token, opens the
-follower profile on the configured `/support` page, joins with the generated
-code when available, writes state snapshots, and marks same-host media assertions
-as gated/skipped.
-
-Current live status as of 2026-06-06: the harness reaches the runtime request
-path with a seeded token, but the current real display (`DISPLAY=:0`, GNOME
-Wayland remote desktop) returns `Screen sharing was cancelled or unavailable`
-before a support code is issued. The `captureSourceTitle` values
-`Entire screen`, `Screen 1`, `Entire Screen`, and `Screen` all failed. The
-Wayland/PipeWire flags below also failed in the same capture step. Re-run after
-verifying the exact host desktop-capture source/portal behavior.
-
-For host-specific capture experiments, pass extra Chrome flags with repeated
-`--chrome-arg` values:
-
-```bash
-node orchestration/scenarios/remote-support-one-machine.mjs --property-url https://www.bonliva.no/ --director-profile-dir orchestration/profiles/director --follower-profile-dir orchestration/profiles/follower --capture-source-title "Screen" --chrome-arg "--enable-features=WebRTCPipeWireCapturer" --chrome-arg "--ozone-platform=wayland"
-```
-
 ## Two-machine bring-up
 
 1. Start `bus-server.mjs` on the director machine using a LAN-reachable host,
@@ -183,9 +154,6 @@ node orchestration/scenarios/remote-support-one-machine.mjs --property-url https
 2. Set the follower host's `busHost` to the director LAN IP.
 3. Validate the bus with `mock-client.mjs` from both machines before running
    browser scenarios.
-
-Remote-support media assertions remain two-machine-gated. Same-host WebRTC is
-expected to validate only request/join/signaling up to the media connection.
 
 ## SSH RPC transition decisions
 
@@ -206,5 +174,5 @@ is now pinned to these defaults:
 
 `captureSourceTitle` is matched by Chrome against the available screen-share
 source title. It is locale and host dependent. Use straight quotes in JSONC. If
-the token does not match, Chrome silently selects nothing and remote-support
+the token does not match, Chrome silently selects nothing and desktop-capture
 media assertions will hang or fail.
