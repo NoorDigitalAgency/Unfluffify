@@ -15,6 +15,7 @@ export const LIFECYCLE_KINDS = Object.freeze({
   CONTENT_READY: "content-ready",
   MODE: "mode",
   RENDER_MODE_INSPECTION: "render-mode-inspection",
+  SILENT_HIGHLIGHTING: "silent-highlighting",
   UNKNOWN: "unknown"
 });
 
@@ -50,7 +51,8 @@ export const SPINNER_KEYS = Object.freeze({
 // content-ready, which fires on every load) must not clear the curtain.
 export const CURTAIN_BEARING_LIFECYCLE_KINDS = Object.freeze([
   LIFECYCLE_KINDS.ACTIVATION,
-  LIFECYCLE_KINDS.RENDER_MODE_INSPECTION
+  LIFECYCLE_KINDS.RENDER_MODE_INSPECTION,
+  LIFECYCLE_KINDS.SILENT_HIGHLIGHTING
 ]);
 
 export function isCurtainBearingLifecycleKind(kind) {

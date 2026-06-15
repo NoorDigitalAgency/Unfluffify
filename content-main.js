@@ -1864,6 +1864,29 @@ async function runEditorSilentHighlightingActivationOnce() {
   const activationId = ++silentHighlightEditorActivationIdCounter;
   silentHighlightEditorRevealInFlight = activationId;
   let shouldRefreshAfterActivation = false;
+  let lifecycleOperationId = "";
+  let lifecycleStarted = false;
+  let lifecycleFinished = false;
+  let lifecyclePhase = LIFECYCLE_PHASES.FINISHED;
+  const emitSilentHighlightLifecycle = (phase, busy, message = "") => {
+    if (!lifecycleOperationId) {
+      lifecycleOperationId = createLifecycleOperationId(LIFECYCLE_KINDS.SILENT_HIGHLIGHTING);
+    }
+    emitLifecycleEvent({
+      operationId: lifecycleOperationId,
+      kind: LIFECYCLE_KINDS.SILENT_HIGHLIGHTING,
+      phase,
+      busy,
+      message
+    });
+  };
+  const finishSilentHighlightLifecycle = () => {
+    if (!lifecycleStarted || lifecycleFinished) {
+      return;
+    }
+    lifecycleFinished = true;
+    emitSilentHighlightLifecycle(lifecyclePhase, false, "");
+  };
   try {
     const pageUrl = location.href;
     const configs = await config.getConfigs();
@@ -1892,6 +1915,12 @@ async function runEditorSilentHighlightingActivationOnce() {
       shouldRunSilentHighlightEditorActivation() &&
       location.href === pageUrl &&
       utils.isPageWithinBaseUrl(location.href, baseUrl);
+    lifecycleStarted = true;
+    emitSilentHighlightLifecycle(
+      LIFECYCLE_PHASES.REVEAL_STARTED,
+      true,
+      "Inspecting page..."
+    );
     await core.setPageSaveReconciliationPending(baseUrl, pageUrl, {
       reason: SILENT_HIGHLIGHTING_PREPARATION_REASON
     });
@@ -1916,6 +1945,11 @@ async function runEditorSilentHighlightingActivationOnce() {
         // Best-effort reconciliation cleanup.
       });
     }
+  } catch (error) {
+    lifecyclePhase = LIFECYCLE_PHASES.FAILED;
+    core.finishPageInspectionUi();
+    finishSilentHighlightLifecycle();
+    throw error;
   } finally {
     if (silentHighlightEditorRevealInFlight === activationId) {
       silentHighlightEditorRevealInFlight = 0;
@@ -1926,10 +1960,12 @@ async function runEditorSilentHighlightingActivationOnce() {
       await refreshSilentHighlightings();
     } finally {
       core.finishPageInspectionUi();
+      finishSilentHighlightLifecycle();
     }
     return;
   }
   core.finishPageInspectionUi();
+  finishSilentHighlightLifecycle();
 }
 
 function ensureSilentHighlightOverlay() {

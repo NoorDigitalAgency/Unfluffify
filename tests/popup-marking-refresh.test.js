@@ -572,7 +572,10 @@ test("popup blocks the interface with a spinner while page inspection is running
     source,
     /const pageInspectionBusy =[\s\S]*?contentInspectionPending[\s\S]*?pageSaveReconciliationPending[\s\S]*?state\.currentPageSaveReconciliation\.reason === SILENT_HIGHLIGHTING_PREPARATION_REASON/
   );
-  assert.match(source, /nextViewState\.isBusy = popupBusyActive \|\| remoteConfigRetryBlocked \|\| pageInspectionBusy;/);
+  assert.match(
+    source,
+    /nextViewState\.isBusy = popupBusyActive \|\| backgroundLifecycleBusy \|\| remoteConfigRetryBlocked \|\| pageInspectionBusy;/
+  );
   assert.match(
     source,
     /nextViewState\.busyMessage = popupBusyActive[\s\S]*?PopupText\.overlay\.pageInspection/
@@ -601,6 +604,15 @@ test("popup blocks the interface with a spinner while page inspection is running
   assert.match(source, /const renderModeNavSpinnerStuck =\s*reconcileRenderModeNavSpinner &&\s*popupSpinnerQueue\.size === 1 &&\s*popupSpinnerQueue\.has\("navInspect"\);/);
   assert.match(source, /render-mode-nav-curtain-clear/);
   assert.match(source, /popSpinner\("navInspect"\);/);
+  assert.match(source, /const backgroundLifecycleBusy = Boolean\(popupBackgroundLifecycle && popupBackgroundLifecycle\.busy\);/);
+  assert.match(
+    source,
+    /nextViewState\.isBusy = popupBusyActive \|\| backgroundLifecycleBusy \|\| remoteConfigRetryBlocked \|\| pageInspectionBusy;/
+  );
+  assert.match(
+    source,
+    /backgroundLifecycleBusy[\s\S]*?\? \(popupBackgroundLifecycle\.message \|\| PopupText\.overlay\.pleaseWait\)/
+  );
 });
 
 test("popup spinner queue pushSpinner returns key and handles delays correctly", () => {

@@ -104,6 +104,19 @@ test("silent highlighting owns page motion pause for matching pages even without
     stateMachineSource,
     /const becameEditor = \(!previousState \|\| !previousState\.isEditor\) && serverMessage\.isEditor;[\s\S]*?if \(becameEditor\) \{[\s\S]*?deps\.runEditorSilentHighlightingActivation\(\)\.catch\(\(\) => \{/
   );
+  assert.match(source, /createLifecycleOperationId\(LIFECYCLE_KINDS\.SILENT_HIGHLIGHTING\)/);
+  assert.match(
+    source,
+    /emitSilentHighlightLifecycle\(\s*LIFECYCLE_PHASES\.REVEAL_STARTED,\s*true,\s*"Inspecting page\.\.\."\s*\);/
+  );
+  assert.match(
+    source,
+    /const finishSilentHighlightLifecycle = \(\) => \{[\s\S]*?emitSilentHighlightLifecycle\(lifecyclePhase, false, ""\);[\s\S]*?\}/
+  );
+  assert.match(
+    source,
+    /core\.finishPageInspectionUi\(\);\s*finishSilentHighlightLifecycle\(\);/
+  );
   const noTargetsBlock = source.match(/const shouldObserve = hasSelectorHighlights \|\| hasHiddenConsent;[\s\S]*?if \(!shouldObserve\) \{[\s\S]*?return;[\s\S]*?\}/);
   assert.ok(noTargetsBlock);
   assert.match(noTargetsBlock[0], /setSilentHighlightingsActive\(holdSilentMotionPause\);/);

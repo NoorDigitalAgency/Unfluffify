@@ -4086,14 +4086,31 @@ async function refreshUiInner(options = {}) {
   nextViewState.syncSaveStatusText = state.lastConfigSaveStatusText || ViewText.syncSaveIdle;
   nextViewState.syncSaveStatusTone = state.lastConfigSaveStatusTone || "muted";
   const popupBusyActive = popupSpinnerVisible;
-  nextViewState.isBusy = popupBusyActive || remoteConfigRetryBlocked || pageInspectionBusy;
+  const popupSpinnerSnapshot = currentSpinnerSnapshot();
+  const backgroundLifecycleBusy = Boolean(popupBackgroundLifecycle && popupBackgroundLifecycle.busy);
+  nextViewState.isBusy = popupBusyActive || backgroundLifecycleBusy || remoteConfigRetryBlocked || pageInspectionBusy;
   nextViewState.busyMessage = popupBusyActive
     ? currentSpinnerMessage()
+    : backgroundLifecycleBusy
+      ? (popupBackgroundLifecycle.message || PopupText.overlay.pleaseWait)
     : remoteConfigRetryBlocked
       ? PopupText.status.remoteServerRetryNotice
       : pageInspectionBusy
         ? PopupText.overlay.pageInspection
         : "";
+  nextViewState.busyReason = popupBusyActive
+    ? normalizeSpinnerReason(popupSpinnerSnapshot?.entry?.reason, popupSpinnerSnapshot?.key, currentSpinnerMessage())
+    : backgroundLifecycleBusy
+      ? normalizeSpinnerReason(popupBackgroundLifecycle.reason, popupBackgroundLifecycle.kind || "lifecycle", popupBackgroundLifecycle.message)
+      : "";
+  nextViewState.busySource = popupBusyActive
+    ? (popupSpinnerSnapshot?.entry?.source || "popup-spinner")
+    : backgroundLifecycleBusy
+      ? "background-lifecycle"
+      : "";
+  nextViewState.busySpinnerKey = popupBusyActive
+    ? (popupSpinnerSnapshot?.key || "")
+    : "";
   nextViewState.pageDataNewNoticeHidden = pageSaveUiState.pageDataNewNoticeHidden;
   nextViewState.deviceEmulationEnabled = normalizedDeviceState.enabled;
   nextViewState.deviceMode = normalizedDeviceState.mode;
