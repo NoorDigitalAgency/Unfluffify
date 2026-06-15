@@ -1274,7 +1274,6 @@ function App({ state: view, actions: handlers }) {
             h("img", { src: "logo.png", alt: PopupText.branding.logoAlt, class: "header-logo" })
           ),
           !previewVisible &&
-            !remoteControllerVisible &&
             h(
               "div",
               { class: "header-actions u-flex u-items-start" },
@@ -1365,7 +1364,7 @@ function App({ state: view, actions: handlers }) {
           "div",
           {
             class: "header-property-url",
-            hidden: previewVisible || remoteControllerVisible || configurationView
+            hidden: previewVisible || configurationView
           },
           h(
             "label",

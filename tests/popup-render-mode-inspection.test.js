@@ -132,6 +132,40 @@ test("popup render-mode inspection auto-detect returns undetermined without snap
   assert.equal(deps.state.renderModeSuggestedKey, "https://example.com|https://example.com/page");
 });
 
+test("popup render-mode inspection keeps unconfirmed skipped detection undetermined", async () => {
+  const deps = createBaseDeps({
+    shouldAutoDetectRenderMode: () => false
+  });
+
+  const result = await maybeAutoDetectRenderMode(deps, "https://example.com/page");
+
+  assert.equal(result, "undetermined");
+  assert.equal(deps.state.renderModeSuggestedValue, "undetermined");
+});
+
+test("popup render-mode inspection preserves confirmed render mode when detection is skipped", async () => {
+  const state = {
+    ...createBaseDeps().state,
+    currentBaseUrlHasConfirmedRenderMode: true,
+    currentConfig: {
+      renderMode: "rendered"
+    }
+  };
+  const deps = createBaseDeps({
+    state,
+    shouldAutoDetectRenderMode: () => false,
+    config: {
+      getConfigRenderMode: (sourceConfig) => sourceConfig.renderMode || "static",
+      normalizeRenderMode: (value) => value
+    }
+  });
+
+  const result = await maybeAutoDetectRenderMode(deps, "https://example.com/page");
+
+  assert.equal(result, "rendered");
+  assert.equal(deps.state.renderModeSuggestedValue, "rendered");
+});
+
 test("popup render-mode inspection wait helpers resolve on tab lifecycle signals", async () => {
   const harness = createChromeHarness("complete");
   const deps = createBaseDeps({

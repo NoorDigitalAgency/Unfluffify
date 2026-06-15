@@ -83,7 +83,9 @@ export async function maybeAutoDetectRenderMode(deps, pageUrl) {
     !state.currentConfig ||
     !deps.shouldAutoDetectRenderMode(state.currentConfig)
   ) {
-    const fallbackRenderMode = deps.config.getConfigRenderMode(state.currentConfig);
+    const fallbackRenderMode = state.currentBaseUrlHasConfirmedRenderMode
+      ? deps.config.getConfigRenderMode(state.currentConfig)
+      : deps.RENDER_MODE_UNDETERMINED;
     state.renderModeSuggestedKey = "";
     state.renderModeSuggestedValue = fallbackRenderMode;
     state.renderModeDetectionUnsure = false;
