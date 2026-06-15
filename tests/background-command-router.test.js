@@ -251,6 +251,63 @@ test("popup-only command accepts popup sender metadata", async () => {
   assert.equal(reply.result.source, "popup");
 });
 
+test("popup-only command accepts extension page tabs as popup senders", async () => {
+  registerBackgroundCommand(
+    "POPUP_ONLY_EXTENSION_TAB",
+    async (context) => ({ resolvedTabId: context.tabId, source: context.source }),
+    {
+      allowedSources: ["popup"],
+      tabIdPolicy: "message",
+      requireTab: true
+    }
+  );
+
+  const reply = await dispatchBackgroundCommand(
+    createEnvelope({
+      type: "POPUP_ONLY_EXTENSION_TAB",
+      source: "popup",
+      tabId: 8801
+    }),
+    {
+      tab: { id: 9902, url: "chrome-extension://test-id/popup.html?debugTabId=8801" }
+    },
+    { requireTabForTypes: new Set() }
+  );
+
+  assert.equal(reply.ok, true);
+  assert.equal(reply.result.resolvedTabId, 8801);
+  assert.equal(reply.result.source, "popup");
+});
+
+test("popup-only command accepts extension origins as popup senders", async () => {
+  registerBackgroundCommand(
+    "POPUP_ONLY_EXTENSION_ORIGIN",
+    async (context) => ({ resolvedTabId: context.tabId, source: context.source }),
+    {
+      allowedSources: ["popup"],
+      tabIdPolicy: "message",
+      requireTab: true
+    }
+  );
+
+  const reply = await dispatchBackgroundCommand(
+    createEnvelope({
+      type: "POPUP_ONLY_EXTENSION_ORIGIN",
+      source: "popup",
+      tabId: 8801
+    }),
+    {
+      tab: { id: 9902 },
+      origin: "chrome-extension://test-id"
+    },
+    { requireTabForTypes: new Set() }
+  );
+
+  assert.equal(reply.ok, true);
+  assert.equal(reply.result.resolvedTabId, 8801);
+  assert.equal(reply.result.source, "popup");
+});
+
 test("same URL tabs keep separate runtimes", () => {
   const runtimeOne = updateTabRuntime(11, {
     contentReady: true,

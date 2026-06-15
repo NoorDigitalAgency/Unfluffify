@@ -19,6 +19,10 @@ function isNonEmptyString(value) {
   return typeof value === "string" && Boolean(value);
 }
 
+function isExtensionUrl(value) {
+  return isNonEmptyString(value) && /^chrome-extension:\/\//.test(value);
+}
+
 function normalizeMessageSource(message) {
   return isNonEmptyString(message && message.source)
     ? message.source
@@ -26,23 +30,16 @@ function normalizeMessageSource(message) {
 }
 
 function resolveSourceFromSender(sender) {
+  if (
+    isExtensionUrl(sender && sender.url) ||
+    isExtensionUrl(sender && sender.origin) ||
+    isExtensionUrl(sender && sender.tab && sender.tab.url)
+  ) {
+    return "popup";
+  }
+
   if (Number.isFinite(sender && sender.tab && sender.tab.id)) {
     return "content";
-  }
-
-  const senderUrl = isNonEmptyString(sender && sender.url)
-    ? sender.url
-    : "";
-  if (!senderUrl) {
-    return "";
-  }
-
-  if (/\/popup\.html(?:[?#]|$)/.test(senderUrl)) {
-    return "popup";
-  }
-
-  if (/^chrome-extension:\/\//.test(senderUrl)) {
-    return "popup";
   }
 
   return "";
