@@ -677,6 +677,60 @@ test("page inspection reveal scrolls to top, bottom, and then the reserved point
   }
 });
 
+test("page inspection reveal restores reserved scroll without an extra bottom dwell", () => {
+  const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+  const start = source.indexOf("export async function revealPageContentBeforeMotionPause(");
+  const end = source.indexOf("function blockPageInspectionInput", start);
+  assert.ok(start >= 0 && end > start, "Expected to locate reveal function body");
+  const fnBody = source.slice(start, end);
+  const bottomLoopIndex = fnBody.indexOf("while (scrollCount < maxScrolls && isStillCurrent())");
+  const finalRestoreIndex = fnBody.indexOf('if (direction === "both" && isStillCurrent())', bottomLoopIndex);
+  assert.ok(bottomLoopIndex > -1);
+  assert.ok(finalRestoreIndex > bottomLoopIndex);
+  const betweenBottomLoopAndRestore = fnBody.slice(bottomLoopIndex, finalRestoreIndex);
+
+  assert.doesNotMatch(
+    betweenBottomLoopAndRestore,
+    /await waitForPageInspectionDelay\(pauseDelay, isStillCurrent\);\s*$/
+  );
+});
+
+test("page inspection bottom scroll settles when the page is at bottom", () => {
+  const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+
+  assert.match(
+    source,
+    /const targetKind = typeof options\.targetKind === "string" \? options\.targetKind : "";/
+  );
+  assert.match(
+    source,
+    /if \(targetKind === "end"\) \{[\s\S]*?if \(isPageInspectionAtBottom\(\)\) \{[\s\S]*?return true;[\s\S]*?\}[\s\S]*?currentScrollY >= targetY - PAGE_INSPECTION_SCROLL_TOLERANCE_PX;[\s\S]*?\}/
+  );
+  assert.match(
+    source,
+    /await waitForPageInspectionScrollEnd\(isStillCurrent, \{[\s\S]*?targetKind: target,[\s\S]*?targetY: targetScrollY[\s\S]*?\}\);/
+  );
+});
+
+test("page inspection scroll finishes after dwelling at the reveal goal", () => {
+  const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+
+  assert.match(source, /let goalReachedAt = 0;/);
+  assert.match(
+    source,
+    /const noteGoalReached = \(\) => \{[\s\S]*?if \(goalReachedAt === 0 && isAtGoal\(\)\) \{[\s\S]*?goalReachedAt = Date\.now\(\);[\s\S]*?\}/
+  );
+  assert.match(
+    source,
+    /const hasDwelledAtGoal = \(\) =>\s*goalReachedAt !== 0 && Date\.now\(\) - goalReachedAt >= settleMs;/
+  );
+  // scrollend is authoritative: reaching the goal finishes immediately.
+  assert.match(
+    source,
+    /const onScrollEnd = \(\) => \{[\s\S]*?if \(isAtGoal\(\)\) \{[\s\S]*?finish\(\);[\s\S]*?return;[\s\S]*?\}/
+  );
+});
+
 test("page inspection reveal hides consent before styling or scrolling", () => {
   const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
   const start = source.indexOf("export async function revealPageContentBeforeMotionPause(");
@@ -1298,7 +1352,7 @@ test("marking enable inspects and blocks input before freezing and rendering ove
   assert.match(source, /const PAGE_INSPECTION_SCROLL_SETTLE_MS = 220;/);
   assert.match(source, /const PAGE_INSPECTION_SCROLL_TOLERANCE_PX = 2;/);
   assert.match(source, /const targetY = Number\.isFinite\(options\.targetY\) \? Number\(options\.targetY\) : null;/);
-  assert.match(source, /const pollUntilSettled = \(\) => \{[\s\S]*?if \(hasSettled\(\) && isNearTarget\(\)\) \{[\s\S]*?finish\(\);/);
+  assert.match(source, /const pollUntilSettled = \(\) => \{[\s\S]*?if \(hasDwelledAtGoal\(\)\) \{[\s\S]*?finish\(\);/);
   assert.match(source, /await waitForPageInspectionScrollEnd\(isStillCurrent, \{[\s\S]*?targetY: targetScrollY[\s\S]*?\}\);/);
 });
 

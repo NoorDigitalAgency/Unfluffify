@@ -3983,12 +3983,12 @@ function waitForPageInspectionScrollEnd(isStillCurrent, options = {}) {
     )
   );
   const targetY = Number.isFinite(options.targetY) ? Number(options.targetY) : null;
+  const targetKind = typeof options.targetKind === "string" ? options.targetKind : "";
   return new Promise((resolve) => {
     let resolved = false;
     let timeoutHandle = 0;
     let rafHandle = 0;
-    let lastScrollY = Number(window.scrollY) || 0;
-    let lastMovementAt = Date.now();
+    let goalReachedAt = 0;
     const finish = () => {
       if (resolved) {
         return;
@@ -4006,28 +4006,39 @@ function waitForPageInspectionScrollEnd(isStillCurrent, options = {}) {
       }
       resolve();
     };
-    const updateMovement = () => {
+    const isAtGoal = () => {
       const currentScrollY = Number(window.scrollY) || 0;
-      if (Math.abs(currentScrollY - lastScrollY) > PAGE_INSPECTION_SCROLL_TOLERANCE_PX) {
-        lastScrollY = currentScrollY;
-        lastMovementAt = Date.now();
+      if (targetKind === "end") {
+        if (isPageInspectionAtBottom()) {
+          return true;
+        }
+        return targetY !== null
+          && currentScrollY >= targetY - PAGE_INSPECTION_SCROLL_TOLERANCE_PX;
       }
-    };
-    const isNearTarget = () => {
       if (targetY === null) {
         return true;
       }
-      const currentScrollY = Number(window.scrollY) || 0;
       return Math.abs(currentScrollY - targetY) <= PAGE_INSPECTION_SCROLL_TOLERANCE_PX;
     };
-    const hasSettled = () => Date.now() - lastMovementAt >= settleMs;
+    // Once the smooth scroll first reaches the requested offset (or the page
+    // bottom for "end" scrolls), the reveal goal is met. We finish after a
+    // short dwell even when lazy-loading or scroll anchoring keeps nudging the
+    // position, so heavy pages never stall at the bottom for the full
+    // scroll-end timeout.
+    const noteGoalReached = () => {
+      if (goalReachedAt === 0 && isAtGoal()) {
+        goalReachedAt = Date.now();
+      }
+    };
+    const hasDwelledAtGoal = () =>
+      goalReachedAt !== 0 && Date.now() - goalReachedAt >= settleMs;
     const pollUntilSettled = () => {
       if (!isStillCurrent()) {
         finish();
         return;
       }
-      updateMovement();
-      if (hasSettled() && isNearTarget()) {
+      noteGoalReached();
+      if (hasDwelledAtGoal()) {
         finish();
         return;
       }
@@ -4038,13 +4049,19 @@ function waitForPageInspectionScrollEnd(isStillCurrent, options = {}) {
         finish();
         return;
       }
-      updateMovement();
-      if (hasSettled() && isNearTarget()) {
+      // scrollend is the authoritative signal that the smooth scroll animation
+      // finished, so the goal is reached as soon as we are at the target.
+      if (isAtGoal()) {
+        finish();
+        return;
+      }
+      noteGoalReached();
+      if (hasDwelledAtGoal()) {
         finish();
       }
     };
     const onScroll = () => {
-      updateMovement();
+      noteGoalReached();
     };
     window.addEventListener("scroll", onScroll);
     window.addEventListener("scrollend", onScrollEnd);
@@ -4079,7 +4096,7 @@ function isPageInspectionAtBottom() {
   if (scrollHeight <= viewportHeight) {
     return true;
   }
-  return currentY + viewportHeight >= scrollHeight;
+  return currentY + viewportHeight >= scrollHeight - PAGE_INSPECTION_SCROLL_TOLERANCE_PX;
 }
 
 function getPageInspectionScrollTarget(target) {
@@ -4144,6 +4161,7 @@ async function scrollPageInspectionTo(target, isStillCurrent, options = {}) {
   window.scrollTo({ top: targetScrollY, behavior: "smooth" });
   await waitForPageInspectionScrollEnd(isStillCurrent, {
     ...options,
+    targetKind: target,
     targetY: targetScrollY
   });
   return true;
@@ -4204,7 +4222,6 @@ export async function revealPageContentBeforeMotionPause(
         }
         scrollCount++;
       }
-      await waitForPageInspectionDelay(pauseDelay, isStillCurrent);
       if (direction === "both" && isStillCurrent()) {
         visited = await scrollPageInspectionTo(reservedScrollY, isStillCurrent, options) || visited;
         await waitForPageInspectionDelay(pauseDelay, isStillCurrent);
