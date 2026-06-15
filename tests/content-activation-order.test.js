@@ -258,15 +258,21 @@ test("editor reveal is gated during render-mode inspection or before render mode
     activationSource,
     /if \(!isRenderModeConfirmedForBaseUrl\(baseUrl, configs\)\) \{[\s\S]*?return;[\s\S]*?\}/
   );
+  assert.match(
+    activationSource,
+    /const pageTypeResult = await resolveCurrentPageTypeForMarking\(baseUrl, pageUrl\);[\s\S]*?if \(!pageTypeResult\.ok \|\| !pageTypeResult\.pageType\) \{[\s\S]*?silentHighlightEditorRevealKey = "";[\s\S]*?shouldRefreshAfterActivation = true;[\s\S]*?return;[\s\S]*?\}/
+  );
   const inspectionGuardIndex = activationSource.indexOf("isRenderModeInspectionActive()");
   const confirmedGuardIndex = activationSource.indexOf("!isRenderModeConfirmedForBaseUrl(baseUrl, configs)");
+  const candidateGuardIndex = activationSource.indexOf("resolveCurrentPageTypeForMarking(baseUrl, pageUrl)");
   const warmupIndex = activationSource.indexOf("warmupSilentHighlightingBeforeMotionPause");
   const activationAllowedIndex = activationSource.indexOf("!shouldRunSilentHighlightEditorActivation()");
   assert.ok(activationAllowedIndex > -1);
   assert.ok(inspectionGuardIndex > -1);
   assert.ok(inspectionGuardIndex > activationAllowedIndex);
   assert.ok(confirmedGuardIndex > inspectionGuardIndex);
-  assert.ok(warmupIndex > confirmedGuardIndex);
+  assert.ok(candidateGuardIndex > confirmedGuardIndex);
+  assert.ok(warmupIndex > candidateGuardIndex);
 });
 
 test("runtime setEnabled can request an initial reveal when reload restoration re-enables marking", () => {

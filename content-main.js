@@ -1874,6 +1874,13 @@ async function runEditorSilentHighlightingActivationOnce() {
     if (!isRenderModeConfirmedForBaseUrl(baseUrl, configs)) {
       return;
     }
+    const pageTypeResult = await resolveCurrentPageTypeForMarking(baseUrl, pageUrl);
+    if (!pageTypeResult.ok || !pageTypeResult.pageType) {
+      silentHighlightEditorRevealKey = "";
+      shouldRefreshAfterActivation = true;
+      return;
+    }
+    state.currentPageType = pageTypeResult.pageType;
     const revealKey = getSilentHighlightEditorRevealKey(baseUrl, pageUrl);
     if (revealKey && revealKey === silentHighlightEditorRevealKey) {
       shouldRefreshAfterActivation = true;
@@ -4790,8 +4797,12 @@ async function refreshSilentHighlightings() {
     setSilentHighlightingsActive(false);
     return;
   }
+  const currentSilentRevealKey = getSilentHighlightEditorRevealKey(baseUrl, pageUrl);
   const holdSilentMotionPause = Boolean(
-    shouldRunSilentHighlightEditorActivation() && !silentHighlightEditorRevealInFlight
+    shouldRunSilentHighlightEditorActivation() &&
+      !silentHighlightEditorRevealInFlight &&
+      currentSilentRevealKey &&
+      currentSilentRevealKey === silentHighlightEditorRevealKey
   );
   setSilentHighlightingPageMotionPaused(holdSilentMotionPause);
   const normalized = config.normalizeConfig(baseUrl, configs[baseUrl]);
