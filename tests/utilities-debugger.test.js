@@ -1,7 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { detachDebugger } from "../common/utilities.js";
+import {
+  detachDebugger,
+  reloadPageWithJavaScriptControl,
+  setPageJavaScriptExecutionDisabled
+} from "../common/utilities.js";
 
 test("detachDebugger treats an already-detached tab as a successful cleanup", async () => {
   const originalChrome = globalThis.chrome;
@@ -63,5 +67,70 @@ test("detachDebugger still reports unexpected detach failures", async () => {
       globalThis.chrome = originalChrome;
     }
     console.error = originalConsoleError;
+  }
+});
+
+test("setPageJavaScriptExecutionDisabled attaches and updates script execution", async () => {
+  const originalChrome = globalThis.chrome;
+  const calls = [];
+
+  globalThis.chrome = {
+    debugger: {
+      async attach(target, version) {
+        calls.push(["attach", target, version]);
+      },
+      async sendCommand(target, command, params) {
+        calls.push(["sendCommand", target, command, params]);
+      }
+    }
+  };
+
+  try {
+    const result = await setPageJavaScriptExecutionDisabled(789, false);
+
+    assert.deepEqual(result, { ok: true });
+    assert.deepEqual(calls, [
+      ["attach", { tabId: 789 }, "1.3"],
+      ["sendCommand", { tabId: 789 }, "Emulation.setScriptExecutionDisabled", { value: false }]
+    ]);
+  } finally {
+    if (typeof originalChrome === "undefined") {
+      delete globalThis.chrome;
+    } else {
+      globalThis.chrome = originalChrome;
+    }
+  }
+});
+
+test("reloadPageWithJavaScriptControl sets script state before reload", async () => {
+  const originalChrome = globalThis.chrome;
+  const calls = [];
+
+  globalThis.chrome = {
+    debugger: {
+      async attach(target, version) {
+        calls.push(["attach", target, version]);
+      },
+      async sendCommand(target, command, params) {
+        calls.push(["sendCommand", target, command, params]);
+      }
+    }
+  };
+
+  try {
+    const result = await reloadPageWithJavaScriptControl(321, true);
+
+    assert.deepEqual(result, { ok: true });
+    assert.deepEqual(calls, [
+      ["attach", { tabId: 321 }, "1.3"],
+      ["sendCommand", { tabId: 321 }, "Emulation.setScriptExecutionDisabled", { value: true }],
+      ["sendCommand", { tabId: 321 }, "Page.reload", { ignoreCache: true }]
+    ]);
+  } finally {
+    if (typeof originalChrome === "undefined") {
+      delete globalThis.chrome;
+    } else {
+      globalThis.chrome = originalChrome;
+    }
   }
 });

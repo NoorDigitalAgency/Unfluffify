@@ -291,9 +291,7 @@ function resetDisabledPropertyLockRuntimeState() {
     window.clearTimeout(propertyLockPageActivityTimer);
     propertyLockPageActivityTimer = 0;
   }
-  if (propertyLockPortClient) {
-    propertyLockPortClient.disconnect({ notifyBackground: false });
-  }
+  getPropertyLockPortClient().disconnect({ notifyBackground: false });
   propertyLockConnectedSiteId = null;
   propertyLockConnectedBaseUrl = "";
   propertyLockEditorClaimPending = false;
@@ -323,8 +321,9 @@ function ensurePropertyLockCollaborationActive() {
   if (isPropertyLockCollaborationEnabled()) {
     return true;
   }
-  const hasPort = propertyLockPortClient ? propertyLockPortClient.hasPort() : false;
-  const hasReconnectTimer = propertyLockPortClient ? propertyLockPortClient.hasReconnectTimer() : false;
+  const portClient = getPropertyLockPortClient();
+  const hasPort = portClient.hasPort();
+  const hasReconnectTimer = portClient.hasReconnectTimer();
   if (
     hasPort ||
     propertyLockState ||

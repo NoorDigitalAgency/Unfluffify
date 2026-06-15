@@ -93,3 +93,11 @@ test("content-main keeps a legacy onMessage listener registration", () => {
     "expected content-main.js to keep legacy runtime listener registration"
   );
 });
+
+test("content-main uses the property lock port client accessor", () => {
+  assert.doesNotMatch(
+    contentMainSource,
+    /\bpropertyLockPortClient\s*(?:\.|\?)/,
+    "content-main.js should not reference the old propertyLockPortClient variable directly"
+  );
+});

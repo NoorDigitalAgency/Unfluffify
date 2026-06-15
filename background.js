@@ -375,6 +375,15 @@ async function ensureContentMainForTab(tabId) {
     if (response && response.ok) {
       return { ok: true, tabId: normalizedTabId };
     }
+    const injection = await utils.injectContentScript(normalizedTabId, { force: true });
+    if (injection && injection.ok) {
+      const retryResponse = await sendContentMessageToTab(normalizedTabId, {
+        type: "activateContentMain"
+      });
+      if (retryResponse && retryResponse.ok) {
+        return { ok: true, tabId: normalizedTabId };
+      }
+    }
     if (attempt < 4) {
       await waitForBackgroundRetryDelay(150 * (attempt + 1));
     }
@@ -1171,10 +1180,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
         tabId: normalizedTabId,
         operationId,
         loadStarted: false,
-        reloadResult: {
-          ok: false,
-          error: "Unable to reload page for render mode inspection"
-        },
+        reloadResult: null,
         followUpCompleted: false,
         followUpError: "Unable to inspect page",
         inspectionSnapshot: null,
@@ -1182,6 +1188,17 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
       };
 
       try {
+        if (!javaScriptDisabled) {
+          const scriptEnableResult = await utils.setPageJavaScriptExecutionDisabled(
+            normalizedTabId,
+            false
+          );
+          if (!scriptEnableResult.ok) {
+            commandResult.followUpError = scriptEnableResult.error || "Unable to enable JavaScript for render mode inspection";
+            return commandResult;
+          }
+        }
+
         const beginResult = await runRenderModeInspectionBeginStep(normalizedTabId, operationId);
         if (!beginResult.ok) {
           commandResult.followUpError = beginResult.error || "Unable to begin render mode inspection";
@@ -1222,6 +1239,16 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
           normalizedTabId,
           RENDER_MODE_INSPECTION_LOAD_TIMEOUT_MS
         );
+        if (javaScriptDisabled) {
+          const scriptEnableResult = await utils.setPageJavaScriptExecutionDisabled(
+            normalizedTabId,
+            false
+          );
+          if (!scriptEnableResult.ok) {
+            commandResult.followUpError = scriptEnableResult.error || "Unable to re-enable JavaScript after render mode inspection reload";
+            return commandResult;
+          }
+        }
         if (!loadCompleted) {
           commandResult.followUpError = "Render mode inspection timed out while waiting for page load";
           return commandResult;

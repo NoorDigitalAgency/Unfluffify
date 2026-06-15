@@ -270,6 +270,7 @@ test("AI run recovery heartbeat and page lock are coordinated by background", ()
   assert.match(backgroundSource, /if \(settled\) \{[\s\S]*?return;[\s\S]*?\}/);
   assert.match(backgroundSource, /async function ensureContentMainForTab\(tabId\) \{/);
   assert.match(backgroundSource, /type: "activateContentMain"/);
+  assert.match(backgroundSource, /utils\.injectContentScript\(normalizedTabId, \{ force: true \}\)/);
   assert.match(aiRunOrchestratorSource, /async function setAiComputeLockForTab\(tabId, active, expiresAt = 0, baseUrl = ""\) \{/);
   assert.match(aiRunOrchestratorSource, /const activationResult = await ensureContentMainForTab\(normalizedTabId\);/);
   assert.match(

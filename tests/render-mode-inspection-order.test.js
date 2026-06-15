@@ -41,15 +41,21 @@ test("background render mode command preserves reveal -> capture -> consent-hide
   );
 
   const beginIndex = block.indexOf("runRenderModeInspectionBeginStep(");
+  const enableJavaScriptIndex = block.indexOf("utils.setPageJavaScriptExecutionDisabled(");
   const reloadIndex = block.indexOf("utils.reloadPageWithJavaScriptControl(");
   const loadCompleteIndex = block.indexOf("waitForTabLoadCompleteInBackground(");
+  const postLoadEnableJavaScriptIndex = block.indexOf("utils.setPageJavaScriptExecutionDisabled(", enableJavaScriptIndex + 1);
   const revealIndex = block.indexOf("runRenderModeRevealFreezeStep(");
   const captureIndex = block.indexOf("runRenderModeCaptureHtmlStep(");
   const endIndex = block.indexOf("sendRenderModeInspectionEndWithRetry(");
 
   assert.ok(beginIndex > -1);
+  assert.ok(enableJavaScriptIndex > -1);
+  assert.ok(enableJavaScriptIndex < beginIndex);
   assert.ok(reloadIndex > beginIndex);
   assert.ok(loadCompleteIndex > reloadIndex);
+  assert.ok(postLoadEnableJavaScriptIndex > loadCompleteIndex);
+  assert.ok(postLoadEnableJavaScriptIndex < revealIndex);
   assert.ok(revealIndex > loadCompleteIndex);
   assert.ok(captureIndex > revealIndex);
   assert.ok(endIndex > captureIndex);

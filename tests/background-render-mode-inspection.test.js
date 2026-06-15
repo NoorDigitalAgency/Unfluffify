@@ -37,10 +37,12 @@ test("background TAB_RUN_RENDER_MODE_INSPECTION orchestrates reload, reveal, cap
   assert.match(commandBlock, /withBackgroundTabSpinner\([\s\S]*?reason: "tab-render-mode-inspection"/);
   assert.match(backgroundSource, /from "\.\/background\/render-mode-inspector\.js"/);
   assert.match(backgroundSource, /const renderModeInspector = createRenderModeInspector\(\{/);
+  assert.match(commandBlock, /if \(!javaScriptDisabled\) \{[\s\S]*?utils\.setPageJavaScriptExecutionDisabled\([\s\S]*?normalizedTabId,[\s\S]*?false/);
   assert.match(commandBlock, /runRenderModeInspectionBeginStep\(normalizedTabId, operationId\)/);
   assert.match(commandBlock, /waitForTabLoadStartInBackground\(/);
   assert.match(commandBlock, /utils\.reloadPageWithJavaScriptControl\(/);
   assert.match(commandBlock, /waitForTabLoadCompleteInBackground\(/);
+  assert.match(commandBlock, /if \(javaScriptDisabled\) \{[\s\S]*?utils\.setPageJavaScriptExecutionDisabled\([\s\S]*?normalizedTabId,[\s\S]*?false/);
   assert.match(commandBlock, /runRenderModeRevealFreezeStep\(\s*normalizedTabId,\s*baseUrl,\s*operationId\s*\)/);
   assert.match(commandBlock, /runRenderModeCaptureHtmlStep\(\s*normalizedTabId,\s*baseUrl,\s*operationId\s*\)/);
   assert.match(commandBlock, /sendRenderModeInspectionEndWithRetry\(\s*normalizedTabId,\s*operationId\s*\)/);

@@ -4564,11 +4564,14 @@ async function runRenderModeInspectionReload(javaScriptDisabled) {
       const inspectionResult = inspectionResponse && inspectionResponse.ok && inspectionResponse.result
         ? inspectionResponse.result
         : null;
+      const inspectionFailureError = inspectionResult && typeof inspectionResult.followUpError === "string" && inspectionResult.followUpError
+        ? inspectionResult.followUpError
+        : (inspectionResponse && inspectionResponse.error) || "";
       const reloadResult = inspectionResult && inspectionResult.reloadResult && typeof inspectionResult.reloadResult === "object"
         ? inspectionResult.reloadResult
         : {
           ok: false,
-          error: (inspectionResponse && inspectionResponse.error) || PopupText.renderMode.toastInspectReloadFailed
+          error: inspectionFailureError || PopupText.renderMode.toastInspectReloadFailed
         };
       const loadStarted = Boolean(inspectionResult && inspectionResult.loadStarted);
       const outcome = resolveRenderModeInspectionReloadOutcome(reloadResult, loadStarted, javaScriptDisabled);

@@ -44,9 +44,10 @@ export async function isScriptInjected(tabId) {
  * @param {number} tabId - The Chrome tab ID to inject the script into
  * @returns {Promise<{ok: boolean, alreadyInjected?: boolean, error?: string}>} Result of injection attempt
  */
-export async function injectContentScript(tabId) {
+export async function injectContentScript(tabId, options = {}) {
+  const force = Boolean(options && options.force);
   const alreadyInjected = await isScriptInjected(tabId);
-  if (alreadyInjected) {
+  if (alreadyInjected && !force) {
     return { ok: true, alreadyInjected: true };
   }
   try {
@@ -766,6 +767,29 @@ export async function detachDebugger(tabId) {
   }
 }
 
+export async function setPageJavaScriptExecutionDisabled(tabId, disabled) {
+  if (!tabId) {
+    return { ok: false, error: "Missing tab ID" };
+  }
+
+  try {
+    const target = { tabId };
+    const attachResult = await attachDebugger(tabId);
+    if (!attachResult.ok && !attachResult.alreadyAttached) {
+      return { ok: false, error: attachResult.error };
+    }
+
+    await chrome.debugger.sendCommand(target, "Emulation.setScriptExecutionDisabled", {
+      value: Boolean(disabled)
+    });
+    return { ok: true };
+  } catch (error) {
+    const errorMessage = (error && error.message) || "Failed to update JavaScript execution state";
+    console.error("Error updating JavaScript execution state:", errorMessage);
+    return { ok: false, error: errorMessage };
+  }
+}
+
 /**
  * Reloads a page with optional JavaScript execution disabled via debugger.
  * Keeps the debugger attached and leaves the page in the specified state.
@@ -781,17 +805,10 @@ export async function reloadPageWithJavaScriptControl(tabId, javaScriptDisabled 
 
   try {
     const target = { tabId };
-    
-    // Attach debugger (try to attach if not already attached)
-    const attachResult = await attachDebugger(tabId);
-    if (!attachResult.ok && !attachResult.alreadyAttached) {
-      return { ok: false, error: attachResult.error };
+    const scriptStateResult = await setPageJavaScriptExecutionDisabled(tabId, javaScriptDisabled);
+    if (!scriptStateResult.ok) {
+      return scriptStateResult;
     }
-
-    // Set JavaScript execution state as requested
-    await chrome.debugger.sendCommand(target, "Emulation.setScriptExecutionDisabled", {
-      value: javaScriptDisabled
-    });
 
     // Reload the page
     await chrome.debugger.sendCommand(target, "Page.reload", {

@@ -74,6 +74,17 @@ test("render mode inspection reload outcome uses the explicit reload error when 
   );
 });
 
+test("popup render mode inspection surfaces follow-up errors before reload", () => {
+  const inspectionBlock = extractSourceBlock(
+    popupSource,
+    "async function runRenderModeInspectionReload",
+    "async function normalizeRenderModeDebuggerPage"
+  );
+
+  assert.match(inspectionBlock, /const inspectionFailureError = inspectionResult && typeof inspectionResult\.followUpError === "string"/);
+  assert.match(inspectionBlock, /error: inspectionFailureError \|\| PopupText\.renderMode\.toastInspectReloadFailed/);
+});
+
 test("render mode inspection reload outcome fails when navigation never starts", () => {
   assert.deepEqual(
     resolveRenderModeInspectionReloadOutcome(
