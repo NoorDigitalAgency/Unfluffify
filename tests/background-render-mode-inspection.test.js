@@ -29,7 +29,7 @@ test("popup render mode inspection delegates to TAB_RUN_RENDER_MODE_INSPECTION",
   assert.doesNotMatch(block, /type: "renderModeInspectionEnd"/);
 });
 
-test("background TAB_RUN_RENDER_MODE_INSPECTION orchestrates reload, reveal, capture, and end", () => {
+test("background TAB_RUN_RENDER_MODE_INSPECTION orchestrates reload, consent hide, capture, and end", () => {
   const commandBlock = backgroundSource.match(
     /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_RUN_RENDER_MODE_INSPECTION, async \(context, payload\) => \{([\s\S]*?)\n\}, POPUP_TAB_COMMAND_POLICY\);\n\nfunction maybeGetCommandPayloadForLedger/
   )[1];
@@ -43,19 +43,21 @@ test("background TAB_RUN_RENDER_MODE_INSPECTION orchestrates reload, reveal, cap
   assert.match(commandBlock, /utils\.reloadPageWithJavaScriptControl\(/);
   assert.match(commandBlock, /waitForTabLoadCompleteInBackground\(/);
   assert.match(commandBlock, /if \(javaScriptDisabled\) \{[\s\S]*?utils\.setPageJavaScriptExecutionDisabled\([\s\S]*?normalizedTabId,[\s\S]*?false/);
-  assert.match(commandBlock, /runRenderModeRevealFreezeStep\(\s*normalizedTabId,\s*baseUrl,\s*operationId\s*\)/);
+  assert.doesNotMatch(commandBlock, /runRenderModeRevealFreezeStep\(/);
+  assert.match(commandBlock, /runRenderModeHideConsentStep\(normalizedTabId\)/);
   assert.match(commandBlock, /runRenderModeCaptureHtmlStep\(\s*normalizedTabId,\s*baseUrl,\s*operationId\s*\)/);
   assert.match(commandBlock, /sendRenderModeInspectionEndWithRetry\(\s*normalizedTabId,\s*operationId\s*\)/);
 });
 
-test("background render-mode capture hides consent after HTML capture", () => {
+test("background render-mode consent hide is separate from HTML capture", () => {
+  assert.match(
+    renderModeInspectorSource,
+    /async function runRenderModeHideConsentStep\(tabId\) \{[\s\S]*?type: "hideConsentForInspection"/
+  );
   const helperBlock = renderModeInspectorSource.match(
-    /async function runRenderModeCaptureHtmlStep\(tabId, baseUrl, operationId\) \{([\s\S]*?)\n\}/
+    /async function runRenderModeCaptureHtmlStep\(tabId, baseUrl, operationId\) \{([\s\S]*?)\n  \}/
   )[1];
 
-  const captureIndex = helperBlock.indexOf('type: "captureRenderModeInspectionHtml"');
-  const hideIndex = helperBlock.indexOf('type: "hideConsentForInspection"');
-
-  assert.ok(captureIndex > -1);
-  assert.ok(hideIndex > captureIndex);
+  assert.match(helperBlock, /type: "captureRenderModeInspectionHtml"/);
+  assert.doesNotMatch(helperBlock, /hideConsentForInspection/);
 });

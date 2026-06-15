@@ -271,14 +271,7 @@ export async function completeRenderModeInspectionReloadFollowUp(deps, tabId, op
   if (!contentReady) {
     return false;
   }
-  const revealResponse = await deps.messages.sendTabMessageToTab(tabId, {
-    type: "runRenderModeRevealOnce",
-    baseUrl: deps.state.currentBaseUrl,
-    operationId
-  });
-  if (!revealResponse || !revealResponse.ok) {
-    return false;
-  }
+  await deps.hideConsentForRenderModeInspection(tabId);
   const htmlResponse = await deps.messages.sendTabMessageToTab(tabId, {
     type: "captureRenderModeInspectionHtml",
     baseUrl: deps.state.currentBaseUrl,
@@ -292,7 +285,6 @@ export async function completeRenderModeInspectionReloadFollowUp(deps, tabId, op
     htmlResponse.pageUrl || (deps.state.currentTab && deps.state.currentTab.url) || "",
     htmlResponse
   );
-  await deps.hideConsentForRenderModeInspection(tabId);
   await deps.reconcilePropertyLockAfterRenderModeReload();
   deps.scheduleStaleInspectionBusyClear(tabId, deps.state.currentBaseUrl, {
     reconcileRenderModeNavSpinner: true

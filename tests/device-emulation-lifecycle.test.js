@@ -409,6 +409,8 @@ test("render mode lifecycle reuses shared page normalization on close and tab sw
   );
 
   assert.match(lifecycleBlock, /await normalizeRenderModeDebuggerPage\(managedTabId\);/);
+  assert.match(lifecycleBlock, /if \(managedTabId === currentTabId\) \{[\s\S]*?await hideConsentForRenderModeInspection\(\);/);
+  assert.match(lifecycleBlock, /if \(attachResult\.ok \|\| attachResult\.alreadyAttached\) \{[\s\S]*?await hideConsentForRenderModeInspection\(\);/);
 });
 
 test("disabled mobile emulation remains a per-session choice after navigation cleanup", () => {

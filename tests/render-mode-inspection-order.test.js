@@ -33,7 +33,7 @@ test("render mode reload delegates inspection orchestration to background", () =
   assert.doesNotMatch(block, /type: "renderModeInspectionEnd"/);
 });
 
-test("background render mode command preserves reveal -> capture -> consent-hide ordering", () => {
+test("background render mode command skips reveal and hides consent before capture", () => {
   const block = extractSourceBlock(
     backgroundSource,
     "registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION",
@@ -45,7 +45,7 @@ test("background render mode command preserves reveal -> capture -> consent-hide
   const reloadIndex = block.indexOf("utils.reloadPageWithJavaScriptControl(");
   const loadCompleteIndex = block.indexOf("waitForTabLoadCompleteInBackground(");
   const postLoadEnableJavaScriptIndex = block.indexOf("utils.setPageJavaScriptExecutionDisabled(", enableJavaScriptIndex + 1);
-  const revealIndex = block.indexOf("runRenderModeRevealFreezeStep(");
+  const hideConsentIndex = block.indexOf("runRenderModeHideConsentStep(");
   const captureIndex = block.indexOf("runRenderModeCaptureHtmlStep(");
   const endIndex = block.indexOf("sendRenderModeInspectionEndWithRetry(");
 
@@ -55,13 +55,13 @@ test("background render mode command preserves reveal -> capture -> consent-hide
   assert.ok(reloadIndex > beginIndex);
   assert.ok(loadCompleteIndex > reloadIndex);
   assert.ok(postLoadEnableJavaScriptIndex > loadCompleteIndex);
-  assert.ok(postLoadEnableJavaScriptIndex < revealIndex);
-  assert.ok(revealIndex > loadCompleteIndex);
-  assert.ok(captureIndex > revealIndex);
+  assert.ok(hideConsentIndex > loadCompleteIndex);
+  assert.ok(hideConsentIndex < captureIndex);
   assert.ok(endIndex > captureIndex);
+  assert.doesNotMatch(block, /runRenderModeRevealFreezeStep\(/);
   assert.match(
     renderModeInspectorSource,
-    /async function runRenderModeCaptureHtmlStep\(tabId, baseUrl, operationId\) \{[\s\S]*?captureRenderModeInspectionHtml[\s\S]*?hideConsentForInspection/
+    /async function runRenderModeHideConsentStep\(tabId\) \{[\s\S]*?hideConsentForInspection/
   );
 });
 

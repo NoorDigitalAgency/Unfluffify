@@ -421,6 +421,7 @@ const ensureContentReadyForRenderModeInspectionInBackground = renderModeInspecto
 const sendRenderModeInspectionEndWithRetry = renderModeInspector.sendRenderModeInspectionEndWithRetry;
 const runRenderModeInspectionBeginStep = renderModeInspector.runRenderModeInspectionBeginStep;
 const runRenderModeRevealFreezeStep = renderModeInspector.runRenderModeRevealFreezeStep;
+const runRenderModeHideConsentStep = renderModeInspector.runRenderModeHideConsentStep;
 const runRenderModeCaptureHtmlStep = renderModeInspector.runRenderModeCaptureHtmlStep;
 
 const aiRunOrchestrator = createAiRunOrchestrator({
@@ -1256,17 +1257,13 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
 
         await update({
           message: "Inspecting page...",
-          reason: "tab-render-mode-reveal",
+          reason: "tab-render-mode-consent",
           source: "background-command-router"
         });
 
-        const revealResult = await runRenderModeRevealFreezeStep(
-          normalizedTabId,
-          baseUrl,
-          operationId
-        );
-        if (!revealResult.ok) {
-          commandResult.followUpError = revealResult.error || "Unable to inspect page";
+        const hideConsentResult = await runRenderModeHideConsentStep(normalizedTabId);
+        if (!hideConsentResult.ok) {
+          commandResult.followUpError = hideConsentResult.error || "Unable to hide consent form";
           return commandResult;
         }
 
@@ -1289,7 +1286,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
             renderedHtml: captureResult.renderedHtml || "",
             rawHtml: captureResult.rawHtml || "",
             renderMode: captureResult.renderMode || "",
-            hiddenCount: Number(captureResult.hiddenCount || 0)
+            hiddenCount: Number(hideConsentResult.hiddenCount || 0)
           }
         });
         return commandResult;

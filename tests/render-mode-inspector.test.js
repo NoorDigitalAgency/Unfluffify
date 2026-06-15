@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import { createRenderModeInspector } from "../background/render-mode-inspector.js";
 
-test("render-mode inspector runs begin, reveal, capture, and end through injected messaging", async () => {
+test("render-mode inspector runs begin, consent hide, capture, and end through injected messaging", async () => {
   const messageTypes = [];
   const runtimeUpdates = [];
   const inspector = createRenderModeInspector({
@@ -19,9 +19,6 @@ test("render-mode inspector runs begin, reveal, capture, and end through injecte
       }
       if (message.type === "renderModeInspectionBegin") {
         return { ok: true };
-      }
-      if (message.type === "runRenderModeRevealOnce") {
-        return { ok: true, pageUrl: "https://example.test/page" };
       }
       if (message.type === "captureRenderModeInspectionHtml") {
         return {
@@ -43,19 +40,19 @@ test("render-mode inspector runs begin, reveal, capture, and end through injecte
   });
 
   const begin = await inspector.runRenderModeInspectionBeginStep(5, "op-1");
-  const reveal = await inspector.runRenderModeRevealFreezeStep(5, "https://example.test", "op-1");
+  const hideConsent = await inspector.runRenderModeHideConsentStep(5);
   const capture = await inspector.runRenderModeCaptureHtmlStep(5, "https://example.test", "op-1");
   const ended = await inspector.sendRenderModeInspectionEndWithRetry(5, "op-1");
 
   assert.equal(begin.ok, true);
-  assert.equal(reveal.ok, true);
+  assert.equal(hideConsent.ok, true);
+  assert.equal(hideConsent.hiddenCount, 2);
   assert.equal(capture.ok, true);
-  assert.equal(capture.hiddenCount, 2);
   assert.equal(ended, true);
   assert.equal(runtimeUpdates.length, 1);
   assert.deepEqual(runtimeUpdates[0], { tabId: 5, patch: { mode: "inspection" } });
   assert.equal(messageTypes.includes("renderModeInspectionBegin"), true);
-  assert.equal(messageTypes.includes("runRenderModeRevealOnce"), true);
+  assert.equal(messageTypes.includes("runRenderModeRevealOnce"), false);
   assert.equal(messageTypes.includes("captureRenderModeInspectionHtml"), true);
   assert.equal(messageTypes.includes("hideConsentForInspection"), true);
   assert.equal(messageTypes.includes("renderModeInspectionEnd"), true);

@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  completeRenderModeInspectionReloadFollowUp,
   detectRenderModeViaEndpoint,
   maybeAutoDetectRenderMode,
   normalizeRenderModeDetectionResult,
@@ -187,4 +188,35 @@ test("popup render-mode inspection wait helpers resolve on tab lifecycle signals
 
   assert.equal(started, true);
   assert.equal(completed, true);
+});
+
+test("popup render-mode follow-up hides consent before capture without reveal", async () => {
+  const calls = [];
+  const deps = createBaseDeps({
+    messages: {
+      sendTabMessageToTab: async (_tabId, message) => {
+        calls.push(message.type);
+        if (message.type === "captureRenderModeInspectionHtml") {
+          return {
+            ok: true,
+            pageUrl: "https://example.com/page",
+            renderedHtml: "<html>rendered</html>",
+            rawHtml: "<html>raw</html>"
+          };
+        }
+        return { ok: true };
+      }
+    },
+    hideConsentForRenderModeInspection: async () => {
+      calls.push("hideConsentForRenderModeInspection");
+    }
+  });
+
+  const result = await completeRenderModeInspectionReloadFollowUp(deps, 7, "op-1");
+
+  assert.equal(result, true);
+  assert.deepEqual(calls, [
+    "hideConsentForRenderModeInspection",
+    "captureRenderModeInspectionHtml"
+  ]);
 });

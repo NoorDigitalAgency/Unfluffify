@@ -229,6 +229,25 @@ export function createRenderModeInspector(options = {}) {
     };
   }
 
+  async function runRenderModeHideConsentStep(tabId) {
+    const contentReady = await ensureContentReadyForRenderModeInspectionInBackground(tabId);
+    if (!contentReady) {
+      return { ok: false, error: "Content activation failed" };
+    }
+    const response = await sendContentMessageToTab(tabId, {
+      type: "hideConsentForInspection"
+    });
+    if (!response || !response.ok) {
+      return { ok: false, error: (response && response.error) || "Unable to hide consent form" };
+    }
+    return {
+      ok: true,
+      hiddenCount: Number.isFinite(response.hiddenCount)
+        ? Number(response.hiddenCount)
+        : 0
+    };
+  }
+
   async function runRenderModeCaptureHtmlStep(tabId, baseUrl, operationId) {
     const contentReady = await ensureContentReadyForRenderModeInspectionInBackground(tabId);
     if (!contentReady) {
@@ -242,18 +261,12 @@ export function createRenderModeInspector(options = {}) {
     if (!response || !response.ok) {
       return { ok: false, error: (response && response.error) || "Unable to capture render mode HTML" };
     }
-    const hideResponse = await sendContentMessageToTab(tabId, {
-      type: "hideConsentForInspection"
-    });
     return {
       ok: true,
       pageUrl: typeof response.pageUrl === "string" ? response.pageUrl : "",
       renderedHtml: typeof response.renderedHtml === "string" ? response.renderedHtml : "",
       rawHtml: typeof response.rawHtml === "string" ? response.rawHtml : "",
-      renderMode: typeof response.renderMode === "string" ? response.renderMode : "",
-      hiddenCount: hideResponse && Number.isFinite(hideResponse.hiddenCount)
-        ? Number(hideResponse.hiddenCount)
-        : 0
+      renderMode: typeof response.renderMode === "string" ? response.renderMode : ""
     };
   }
 
@@ -265,6 +278,7 @@ export function createRenderModeInspector(options = {}) {
     sendRenderModeInspectionEndWithRetry,
     runRenderModeInspectionBeginStep,
     runRenderModeRevealFreezeStep,
+    runRenderModeHideConsentStep,
     runRenderModeCaptureHtmlStep
   };
 }
