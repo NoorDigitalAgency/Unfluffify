@@ -182,7 +182,7 @@ test("reveal activation starts on becameEditor transition and not on marking ena
     );
     assert.match(
       source,
-      /const runActivationLoop = async \(\) => \{[\s\S]*?do \{[\s\S]*?silentHighlightEditorActivationQueued = false;[\s\S]*?await runEditorSilentHighlightingActivationOnce\(\);[\s\S]*?\} while \([\s\S]*?silentHighlightEditorActivationQueued[\s\S]*?\);/
+      /const runActivationLoop = async \(\) => \{[\s\S]*?do \{[\s\S]*?silentHighlightEditorActivationQueued = false;[\s\S]*?await runEditorSilentHighlightingActivationOnce\(\);[\s\S]*?\} while \([\s\S]*?silentHighlightEditorActivationQueued &&[\s\S]*?shouldRunSilentHighlightEditorActivation\(\)[\s\S]*?\);/
     );
 
   const syncStart = source.indexOf("async function syncPropertyLockConnection(options = {}) {");
@@ -245,9 +245,10 @@ test("editor reveal is gated during render-mode inspection or before render mode
   assert.ok(activationEnd > activationStart);
   const activationSource = source.slice(activationStart, activationEnd);
   assert.match(source, /function isRenderModeInspectionActive\(\) \{[\s\S]*?renderModeInspectionActive \|\| readRenderModeInspectionActive\(\)/);
+  assert.match(source, /function shouldRunSilentHighlightEditorActivation\(\) \{[\s\S]*?!isPropertyLockCollaborationEnabled\(\)[\s\S]*?return true;[\s\S]*?propertyLockState && propertyLockState\.isEditor/);
   assert.match(
     activationSource,
-    /if \(isRenderModeInspectionActive\(\)\) \{[\s\S]*?return;[\s\S]*?\}/
+    /if \(!shouldRunSilentHighlightEditorActivation\(\)\) \{[\s\S]*?return;[\s\S]*?\}[\s\S]*?if \(isRenderModeInspectionActive\(\)\) \{[\s\S]*?return;[\s\S]*?\}/
   );
   assert.doesNotMatch(
     activationSource,
@@ -260,7 +261,10 @@ test("editor reveal is gated during render-mode inspection or before render mode
   const inspectionGuardIndex = activationSource.indexOf("isRenderModeInspectionActive()");
   const confirmedGuardIndex = activationSource.indexOf("!isRenderModeConfirmedForBaseUrl(baseUrl, configs)");
   const warmupIndex = activationSource.indexOf("warmupSilentHighlightingBeforeMotionPause");
+  const activationAllowedIndex = activationSource.indexOf("!shouldRunSilentHighlightEditorActivation()");
+  assert.ok(activationAllowedIndex > -1);
   assert.ok(inspectionGuardIndex > -1);
+  assert.ok(inspectionGuardIndex > activationAllowedIndex);
   assert.ok(confirmedGuardIndex > inspectionGuardIndex);
   assert.ok(warmupIndex > confirmedGuardIndex);
 });

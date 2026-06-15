@@ -1818,6 +1818,16 @@ function getSilentHighlightEditorRevealKey(baseUrl, pageUrl) {
   return `${normalizedBaseUrl}|${pageUrl}`;
 }
 
+function shouldRunSilentHighlightEditorActivation() {
+  if (state.enabled) {
+    return false;
+  }
+  if (!isPropertyLockCollaborationEnabled()) {
+    return true;
+  }
+  return Boolean(propertyLockState && propertyLockState.isEditor);
+}
+
 async function runEditorSilentHighlightingActivation() {
   if (silentHighlightEditorActivationPromise) {
     silentHighlightEditorActivationQueued = true;
@@ -1830,7 +1840,7 @@ async function runEditorSilentHighlightingActivation() {
       await runEditorSilentHighlightingActivationOnce();
     } while (
       silentHighlightEditorActivationQueued &&
-      Boolean(propertyLockState && propertyLockState.isEditor)
+      shouldRunSilentHighlightEditorActivation()
     );
   };
 
@@ -1842,7 +1852,7 @@ async function runEditorSilentHighlightingActivation() {
 }
 
 async function runEditorSilentHighlightingActivationOnce() {
-  if (!propertyLockState || !propertyLockState.isEditor) {
+  if (!shouldRunSilentHighlightEditorActivation()) {
     return;
   }
   if (isRenderModeInspectionActive()) {
@@ -1872,7 +1882,7 @@ async function runEditorSilentHighlightingActivationOnce() {
     const previousReconciliation = core.getPageSaveReconciliationState(pageUrl);
     const isStillCurrent = () =>
       silentHighlightEditorRevealInFlight === activationId &&
-      Boolean(propertyLockState && propertyLockState.isEditor) &&
+      shouldRunSilentHighlightEditorActivation() &&
       location.href === pageUrl &&
       utils.isPageWithinBaseUrl(location.href, baseUrl);
     await core.setPageSaveReconciliationPending(baseUrl, pageUrl, {
@@ -4781,9 +4791,7 @@ async function refreshSilentHighlightings() {
     return;
   }
   const holdSilentMotionPause = Boolean(
-    propertyLockState &&
-    propertyLockState.isEditor &&
-    !silentHighlightEditorRevealInFlight
+    shouldRunSilentHighlightEditorActivation() && !silentHighlightEditorRevealInFlight
   );
   setSilentHighlightingPageMotionPaused(holdSilentMotionPause);
   const normalized = config.normalizeConfig(baseUrl, configs[baseUrl]);
@@ -6453,7 +6461,9 @@ export function main() {
       resetDisabledPropertyLockRuntimeState();
     }
     refreshEnabledAiHighlights();
-    refreshSilentHighlightings().then();
+    runEditorSilentHighlightingActivation().catch(() => {
+      refreshSilentHighlightings().then();
+    });
     emitLifecycleEvent({
       kind: LIFECYCLE_KINDS.CONTENT_READY,
       phase: LIFECYCLE_PHASES.FINISHED,
