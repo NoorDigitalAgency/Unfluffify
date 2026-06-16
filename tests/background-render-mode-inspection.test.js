@@ -53,9 +53,12 @@ test("background TAB_RUN_RENDER_MODE_INSPECTION orchestrates reload, consent hid
   assert.match(commandBlock, /waitForTabLoadStartInBackground\(/);
   assert.match(commandBlock, /utils\.reloadPageWithJavaScriptControl\(/);
   assert.doesNotMatch(commandBlock, /if \(javaScriptDisabled\) \{\s*const scriptEnableResult = await restoreJavaScriptAfterNoJsReload\(\);/);
-  assert.match(commandBlock, /const reloadResult = await utils\.reloadPageWithJavaScriptControl\([\s\S]*?normalizedTabId,[\s\S]*?false[\s\S]*?\);[\s\S]*?waitForTabLoadCompleteInBackground\([\s\S]*?\{ awaitNextLoad: true \}/);
+  // The render-mode recovery reload sets up its load-complete waiter (awaitNextLoad)
+  // BEFORE issuing the reload so it observes that reload's loading -> complete
+  // cycle; creating it afterwards would wait for a second navigation and time out.
+  assert.match(commandBlock, /const loadCompletePromise = requireLoadComplete[\s\S]*?waitForTabLoadCompleteInBackground\([\s\S]*?\{ awaitNextLoad: true \}[\s\S]*?const reloadResult = await utils\.reloadPageWithJavaScriptControl\(\s*normalizedTabId,\s*false[\s\S]*?loadCompleted = await loadCompletePromise;/);
   assert.match(commandBlock, /requireLoadComplete = options\.requireLoadComplete !== false/);
-  assert.match(commandBlock, /if \(requireLoadComplete\) \{[\s\S]*?waitForTabLoadCompleteInBackground\([\s\S]*?if \(!loadCompleted\) \{/);
+  assert.match(commandBlock, /if \(requireLoadComplete\) \{[\s\S]*?loadCompleted = await loadCompletePromise;[\s\S]*?if \(!loadCompleted\) \{/);
   assert.match(commandBlock, /const detachResult = await detachRenderModeDebuggerIfIdle\(\{[\s\S]*?waitForDetach: requireLoadComplete[\s\S]*?\}\);/);
   assert.match(commandBlock, /if \(!waitForDetach\) \{[\s\S]*?return \{ ok: true, detachPending: true \};/);
   assert.match(commandBlock, /getDeviceEmulationState\(normalizedTabId\)/);
@@ -74,6 +77,11 @@ test("background TAB_RUN_RENDER_MODE_INSPECTION orchestrates reload, consent hid
   // tab so JavaScript is restored on the next genuine navigation (not its own reload).
   assert.match(commandBlock, /renderModeNoJsInspectionTabIds\.delete\(normalizedTabId\)/);
   assert.match(commandBlock, /if \(javaScriptDisabled && javaScriptReloadAttempted\) \{[\s\S]*?renderModeNoJsInspectionTabIds\.add\(normalizedTabId\)/);
+  // "With JavaScript" on a tab held in no-JS mode reloads with JavaScript first so
+  // content scripts are present before the begin handshake (otherwise it retries
+  // content readiness for tens of seconds against the stale no-JS page).
+  assert.match(commandBlock, /const wasHeldInNoJsMode = renderModeNoJsInspectionTabIds\.has\(normalizedTabId\);/);
+  assert.match(commandBlock, /if \(wasHeldInNoJsMode\) \{[\s\S]*?reloadPageWithJavaScriptForRenderModeRecovery\(\)/);
   assert.match(
     commandBlock,
     /finally \{[\s\S]*?sendRenderModeInspectionEndWithRetry\([\s\S]*?updateLifecycleState\(normalizedTabId, \{[\s\S]*?kind: LIFECYCLE_KINDS\.RENDER_MODE_INSPECTION,[\s\S]*?phase: commandResult\.ok \? LIFECYCLE_PHASES\.FINISHED : LIFECYCLE_PHASES\.FAILED,[\s\S]*?busy: false/

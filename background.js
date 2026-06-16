@@ -1260,6 +1260,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
       // This inspection's own reload also fires webNavigation events, so the tab
       // must NOT be in the set while we reload — it is re-added in `finally` only
       // after the reload's navigation events have already been dispatched.
+      const wasHeldInNoJsMode = renderModeNoJsInspectionTabIds.has(normalizedTabId);
       renderModeNoJsInspectionTabIds.delete(normalizedTabId);
       let commandResult = {
         ok: false,
@@ -1309,6 +1310,17 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
           normalizedTabId,
           RENDER_MODE_INSPECTION_START_TIMEOUT_MS
         );
+        // Set up the load-complete waiter BEFORE issuing the reload so it observes
+        // this reload's loading -> complete cycle. Creating it after the reload (and
+        // after the loading event already fired) makes awaitNextLoad wait for a
+        // second navigation that never happens, which would time out.
+        const loadCompletePromise = requireLoadComplete
+          ? waitForTabLoadCompleteInBackground(
+            normalizedTabId,
+            RENDER_MODE_INSPECTION_LOAD_TIMEOUT_MS,
+            { awaitNextLoad: true }
+          )
+          : Promise.resolve(true);
         const reloadResult = await utils.reloadPageWithJavaScriptControl(
           normalizedTabId,
           false
@@ -1323,11 +1335,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
         }
         let loadCompleted = false;
         if (requireLoadComplete) {
-          loadCompleted = await waitForTabLoadCompleteInBackground(
-            normalizedTabId,
-            RENDER_MODE_INSPECTION_LOAD_TIMEOUT_MS,
-            { awaitNextLoad: true }
-          );
+          loadCompleted = await loadCompletePromise;
           if (!loadCompleted) {
             return { ok: false, error: "Timed out while loading page with JavaScript" };
           }
@@ -1350,6 +1358,20 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
           if (!scriptEnableResult.ok) {
             commandResult.followUpError = scriptEnableResult.error || "Unable to enable JavaScript for render mode inspection";
             return commandResult;
+          }
+          if (wasHeldInNoJsMode) {
+            // The page was left in "Without JavaScript" mode, so it loaded with
+            // JavaScript disabled and never ran content scripts. Reload it with
+            // JavaScript now so content is injected at document_start; otherwise
+            // the begin handshake below would retry content readiness for tens of
+            // seconds against the stale no-JS page and the spinner would appear
+            // stuck. After this, the normal begin/reload/capture flow runs against
+            // a hydrated page.
+            const noJsRecoveryResult = await reloadPageWithJavaScriptForRenderModeRecovery();
+            if (!noJsRecoveryResult.ok) {
+              commandResult.followUpError = noJsRecoveryResult.error || "Unable to reload page with JavaScript";
+              return commandResult;
+            }
           }
         }
 
