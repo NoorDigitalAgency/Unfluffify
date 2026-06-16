@@ -58,12 +58,29 @@ matches, and explicit XPath choices, but rendering precedence is a separate
 locked contract:
 
 1. defaults,
-2. fetched backend-saved explicit markings,
-3. CSS/AI selector influence,
-4. current marking-session explicit markings.
+2. CSS/AI selector influence,
+3. current marking-session explicit markings.
 
-`current marking-session explicit markings` means local draft deltas relative to
-the fetched saved baseline for the same page in the same base URL.
+`current marking-session explicit markings` means local draft deltas the user
+makes after marking is enabled, relative to the freshly computed session
+baseline for the same page in the same base URL.
+
+### Marking data is session-scoped and recomputed fresh on every enable
+
+Page marking data only lives for the duration that marking is enabled. Each time
+marking is enabled for a page, the per-page entry is recomputed fresh from
+defaults plus CSS/AI-selector influence (selector influence only when a selector
+set is present), and any stale persisted `config.pageMarkings[pageUrl]` draft is
+discarded. Previously backend-saved explicit markings do not pre-populate the
+fresh session entry and must not seed the clean baseline; the first render after
+enable adopts the freshly synced defaults + selector entry as the clean baseline,
+so a freshly enabled page never starts in a dirty state. Because each enable
+starts fresh, no unsaved-draft cache is preserved across a disable, and marking
+is disabled on any navigation or page reload regardless of whether the same page
+or property is involved. The render-time layer split (`saved-explicit-*` vs
+`session-explicit-*`) is retained, but the `saved-explicit-*` layer now reflects
+that fresh session baseline rather than separately fetched backend-saved
+markings.
 
 The resulting model renders marking overlays while marking mode is enabled and
 stores normalized XPath rows in `config.pageMarkings[pageUrl]`.

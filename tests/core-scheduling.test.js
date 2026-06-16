@@ -469,7 +469,7 @@ test("disable does not persist when no draft or snapshot timer is pending", asyn
   });
 });
 
-test("URL watcher preserves dirty drafts across same-base same-document URL changes", async () => {
+test("URL watcher disables marking without preserving drafts across same-base same-document URL changes", async () => {
   const cases = [
     ["pushState", "https://example.com/page/details"],
     ["replaceState", "https://example.com/page?step=2"],
@@ -483,7 +483,6 @@ test("URL watcher preserves dirty drafts across same-base same-document URL chan
       clearedIntervals,
       dispatchedEvents
     }) => {
-      const draftEntry = state.config.pageMarkings[pageUrl];
       state.cleanBaselineFingerprintByPageUrl.set(pageUrl, "clean-before-user-edit");
 
       startUrlWatcher();
@@ -492,13 +491,9 @@ test("URL watcher preserves dirty drafts across same-base same-document URL chan
       intervals[0].fn();
 
       assert.equal(state.enabled, false, label);
-      assert.equal(state.disabledUnsavedDraft && state.disabledUnsavedDraft.pageUrl, pageUrl, label);
-      assert.equal(state.disabledUnsavedDraft && state.disabledUnsavedDraft.baseUrl, "https://example.com", label);
-      assert.deepEqual(
-        state.disabledUnsavedDraft && state.disabledUnsavedDraft.draftEntry.xpaths,
-        draftEntry.xpaths,
-        label
-      );
+      // Marking data only lives while marking is enabled: no unsaved-draft cache
+      // survives the navigation, so the next enable starts fresh.
+      assert.equal(state.disabledUnsavedDraft || null, null, label);
       assert.deepEqual(clearedIntervals, [intervals[0].id], label);
       assert.deepEqual(dispatchedEvents, ["unfluffify:url-changed"], label);
     });
@@ -838,6 +833,34 @@ test("marking enable schedules settle renders that force invalidating rebuilds",
   assert.match(source, /scheduleRender\(\{[\s\S]*?reason: "marking-settle",[\s\S]*?invalidate: true/);
   assert.match(source, /export async function enableForBaseUrl\(baseUrl, options = \{\}\) \{[\s\S]*?scheduleRender\(\);[\s\S]*?scheduleMarkingSettleRenders\(\);/);
   assert.match(source, /export function disable\(options = \{\}\) \{[\s\S]*?clearMarkingSettleRenders\(\);/);
+});
+
+test("marking enable starts fresh: wipes stale page draft and reseeds the clean baseline", () => {
+  const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+  const enableStart = source.indexOf("export async function enableForBaseUrl(baseUrl, options = {}) {");
+  const enableEnd = source.indexOf("export function handleBeforeUnload", enableStart);
+  assert.ok(enableStart > -1);
+  assert.ok(enableEnd > enableStart);
+  const enableBody = source.slice(enableStart, enableEnd);
+
+  // Stale persisted page-marking data is discarded on every enable so the entry
+  // is recomputed purely from defaults + CSS/AI-selector influence.
+  assert.match(enableBody, /delete state\.config\.pageMarkings\[pageUrl\];/);
+  // Backend-saved markings must not seed the clean baseline; the fresh render
+  // establishes it instead.
+  assert.match(enableBody, /setSavedPageEntry\(pageUrl, null\);/);
+  assert.match(enableBody, /state\.cleanBaselineFingerprintByPageUrl\.delete\(pageUrl\);/);
+  assert.match(enableBody, /state\.pendingFreshBaselinePageUrl = pageUrl;/);
+  // The disabled cross-navigation unsaved-draft cache is gone entirely.
+  assert.doesNotMatch(source, /state\.disabledUnsavedDraft = \{/);
+  assert.doesNotMatch(source, /function cacheUnsavedDraftBeforeDisable/);
+
+  // The first render after enable adopts the freshly synced entry as the
+  // clean baseline.
+  assert.match(
+    source,
+    /if \(state\.pendingFreshBaselinePageUrl === pageUrl\) \{[\s\S]*?state\.pendingFreshBaselinePageUrl = "";[\s\S]*?setSavedPageEntry\(\s*pageUrl,\s*hasPageMarkingEntry\(state\.config, pageUrl\) \? entry : null\s*\);/
+  );
 });
 
 test("paint reachability allows in-path hits deeper in the hit stack and falls back when all checks reject", () => {

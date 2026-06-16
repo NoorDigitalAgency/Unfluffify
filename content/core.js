@@ -82,7 +82,9 @@ export const state = {
   // backend-confirmed entry lands via setSavedPageEntry. Cleared in disable().
   cleanBaselineFingerprintByPageUrl: new Map(),
   pageSaveReconciliation: null,
-  disabledUnsavedDraft: null,
+  // Page URL whose clean baseline must be (re)established from the freshly
+  // synced defaults + selector entry on the next render after a marking enable.
+  pendingFreshBaselinePageUrl: "",
   consentSyncedPageUrl: "",
   consentRootElements: new Set(),
   initialized: false,
@@ -8979,6 +8981,14 @@ function renderHighlightsInner() {
   const entry =
       syncResult.entry || getPageMarkingEntry(state.config, pageUrl, { create: false });
   state.currentPageEntry = entry || null;
+  if (state.pendingFreshBaselinePageUrl === pageUrl) {
+    // First render after a marking enable: the page-marking entry has now been
+    // rebuilt purely from defaults + CSS/AI-selector influence. Adopt it as the
+    // clean session baseline so the page starts clean and later user edits flip
+    // the dirty signal.
+    state.pendingFreshBaselinePageUrl = "";
+    setSavedPageEntry(pageUrl, hasPageMarkingEntry(state.config, pageUrl) ? entry : null);
+  }
   const selectorContext = resolveMarkingSelectorContext(state.config, entry);
   const selectorSetForMarking = selectorContext.selectorSet;
   const normalizedAiSelectorSet = selectorSetForMarking;
@@ -9367,25 +9377,12 @@ function stopObservers() {
   }
 }
 
-function shouldPreserveDraftCacheForUrlChange(previousUrl, nextUrl) {
-  if (!state.enabled || !state.baseUrl || !previousUrl || !nextUrl) {
-    return false;
-  }
-  if (!utils.isPageWithinBaseUrl(previousUrl, state.baseUrl)) {
-    return false;
-  }
-  if (!utils.isPageWithinBaseUrl(nextUrl, state.baseUrl)) {
-    return false;
-  }
-  return isPageDraftDirty(previousUrl);
-}
-
 export function handleUrlWatcherTransition(previousUrl, nextUrl) {
-  const preserveUnsavedDraftCache = shouldPreserveDraftCacheForUrlChange(previousUrl, nextUrl);
-  disable({
-    preserveUnsavedDraftCache,
-    pageUrl: previousUrl
-  });
+  void nextUrl;
+  // Marking is disabled on any navigation. Unsaved page-marking drafts are not
+  // preserved across the transition, so the next enable starts fresh from
+  // defaults + selector influence.
+  disable({ pageUrl: previousUrl });
 }
 
 export function startUrlWatcher() {
@@ -10189,17 +10186,6 @@ export async function loadConfig(baseUrl) {
   return configs[baseUrl];
 }
 
-function cloneDraftEntryForDisableCache(entry) {
-  const cloned = clonePageEntry(entry);
-  if (!cloned) {
-    return null;
-  }
-  // Keep disable/enable cache small; saved HTML is not needed for draft restoration.
-  cloned.renderedHtml = "";
-  cloned.rawHtml = "";
-  return cloned;
-}
-
 function clearMarkingSettleRenders() {
   if (!Array.isArray(state.markingSettleTimers) || state.markingSettleTimers.length === 0) {
     state.markingSettleTimers = [];
@@ -10233,24 +10219,6 @@ function scheduleMarkingSettleRenders() {
   state.markingSettleTimers = timers;
 }
 
-function cacheUnsavedDraftBeforeDisable(pageUrl = location.href) {
-  if (!state.enabled || !state.baseUrl || !state.config) {
-    return;
-  }
-  const draftEntry = getDraftPageEntry(pageUrl);
-  const savedEntry = getSavedPageEntry(pageUrl);
-  if (!draftEntry || areEntriesEquivalent(draftEntry, savedEntry)) {
-    state.disabledUnsavedDraft = null;
-    return;
-  }
-  state.disabledUnsavedDraft = {
-    baseUrl: state.baseUrl,
-    pageUrl,
-    draftEntry: cloneDraftEntryForDisableCache(draftEntry),
-    savedEntry: cloneDraftEntryForDisableCache(savedEntry)
-  };
-}
-
 export function disable(options = {}) {
   const optionPageUrl =
     typeof options.pageUrl === "string" && options.pageUrl
@@ -10264,12 +10232,6 @@ export function disable(options = {}) {
       ? location.href
       : state.currentPageUrl);
   flushPendingTeardownPersistence(teardownBaseUrl, teardownConfig, teardownPageUrl);
-  const preserveUnsavedDraftCache = options.preserveUnsavedDraftCache !== false;
-  if (preserveUnsavedDraftCache) {
-    cacheUnsavedDraftBeforeDisable(teardownPageUrl);
-  } else {
-    state.disabledUnsavedDraft = null;
-  }
   state.enabled = false;
   state.baseUrl = "";
   state.currentPageType = "";
@@ -10282,6 +10244,7 @@ export function disable(options = {}) {
   state.toggleQueuedActionKey = "";
   state.lastToggleActionKey = "";
   state.lastToggleActionAt = 0;
+  state.pendingFreshBaselinePageUrl = "";
   state.pageSaveReconciliation = null;
   state.altPassThrough = false;
   state.consentSyncedPageUrl = "";
@@ -10352,32 +10315,29 @@ export async function enableForBaseUrl(baseUrl, options = {}) {
   state.config = await loadConfig(normalizedBaseUrl);
   state.consentRootElements = new Set();
   const pageUrl = location.href;
-  const storedEntry =
-      state.config &&
-      state.config.pageMarkings &&
-      state.config.pageMarkings[pageUrl];
+  // Marking data only lives for the duration that marking is enabled. Discard
+  // any stale persisted page-marking draft so the entry is recomputed fresh
+  // from defaults + CSS/AI-selector influence and the page never starts dirty.
+  if (
+    state.config &&
+    state.config.pageMarkings &&
+    typeof state.config.pageMarkings === "object"
+  ) {
+    delete state.config.pageMarkings[pageUrl];
+  }
   const savedEntry = await refreshSavedPageEntryFromBackendCache(normalizedBaseUrl, pageUrl);
   if (!state.currentPageType) {
     state.currentPageType = normalizePageEntryPageType(
-      (savedEntry && savedEntry.pageType) || (storedEntry && storedEntry.pageType)
+      (savedEntry && savedEntry.pageType) || ""
     );
   }
+  // Backend-saved markings do not pre-populate the fresh session entry and must
+  // not seed the clean baseline. The first render establishes the baseline from
+  // the freshly synced defaults + selector entry.
+  setSavedPageEntry(pageUrl, null);
+  state.cleanBaselineFingerprintByPageUrl.delete(pageUrl);
+  state.pendingFreshBaselinePageUrl = pageUrl;
   await refreshPageSaveReconciliation(normalizedBaseUrl, pageUrl);
-  const cachedDraft = state.disabledUnsavedDraft;
-  if (
-    cachedDraft &&
-    utils.sameBaseUrl(cachedDraft.baseUrl, normalizedBaseUrl) &&
-    cachedDraft.pageUrl === pageUrl &&
-    cachedDraft.draftEntry
-  ) {
-    mergeDraftEntry(
-      state.config,
-      pageUrl,
-      cachedDraft.draftEntry,
-      cachedDraft.savedEntry
-    );
-  }
-  state.disabledUnsavedDraft = null;
 
   hideConsentOnEnable(pageUrl);
   if (hasPageMotionPauseReason("silent-highlighting")) {

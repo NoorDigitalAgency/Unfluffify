@@ -583,7 +583,7 @@ test("refreshSilentHighlightings bails out after each await when superseded by a
   );
 });
 
-test("URL watcher preserves only dirty same-base temporary draft cache on navigation", () => {
+test("URL watcher disables marking on navigation without preserving a draft cache", () => {
   const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
   const watcherStart = source.indexOf("function startUrlWatcher() {");
   const watcherEnd = source.indexOf("function stopUrlWatcher()", watcherStart);
@@ -591,13 +591,13 @@ test("URL watcher preserves only dirty same-base temporary draft cache on naviga
   assert.ok(watcherStart > -1);
   assert.ok(watcherEnd > watcherStart);
   const watcherSource = source.slice(watcherStart, watcherEnd);
-  assert.match(source, /function shouldPreserveDraftCacheForUrlChange\(previousUrl, nextUrl\) \{/);
-  assert.match(source, /utils\.isPageWithinBaseUrl\(previousUrl, state\.baseUrl\)/);
-  assert.match(source, /utils\.isPageWithinBaseUrl\(nextUrl, state\.baseUrl\)/);
-  assert.match(source, /return isPageDraftDirty\(previousUrl\);/);
+  // The cross-navigation unsaved-draft cache was removed: each marking enable
+  // starts fresh, so the watcher must not consult any preservation predicate.
+  assert.doesNotMatch(source, /function shouldPreserveDraftCacheForUrlChange/);
+  assert.doesNotMatch(source, /preserveUnsavedDraftCache/);
   assert.match(
     source,
-    /disable\(\{[\s\S]*?preserveUnsavedDraftCache,[\s\S]*?pageUrl: previousUrl[\s\S]*?\}\);/
+    /export function handleUrlWatcherTransition\(previousUrl, nextUrl\) \{[\s\S]*?disable\(\{ pageUrl: previousUrl \}\);[\s\S]*?\}/
   );
   assert.match(watcherSource, /const previousUrl = lastUrl;/);
   assert.match(watcherSource, /const nextUrl = location\.href;/);
