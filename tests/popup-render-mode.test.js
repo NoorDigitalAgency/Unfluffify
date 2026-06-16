@@ -31,6 +31,23 @@ test("render mode text copy uses the updated manual comparison wording", () => {
   );
 });
 
+test("popup startup hides configuration view until destination view is known", () => {
+  assert.match(uiSource, /Loading:\s*'Loading'/);
+  assert.match(uiSource, /currentView:\s*View\.Loading/);
+  assert.match(uiSource, /function renderPopupLoadingView\(view\) \{/);
+
+  const appBlock = extractSourceBlock(
+    uiSource,
+    "function App({ state: view, actions: handlers })",
+    "function renderAiControlsContent"
+  );
+
+  assert.match(appBlock, /const loadingView = view\.currentView === View\.Loading;/);
+  assert.match(appBlock, /hidden: previewVisible \|\| configurationView \|\| loadingView/);
+  assert.match(appBlock, /: loadingView\s*\? renderPopupLoadingView\(view\)/);
+  assert.match(appBlock, /: view\.currentView === View\.Configuration\s*\? renderConfigurationView/);
+});
+
 test("render mode inspect buttons alternate by the tab's current JavaScript mode", () => {
   // The popup derives the per-button disabled flags from the persisted no-JS-held
   // state so the same JavaScript mode cannot be triggered twice in a row.

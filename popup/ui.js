@@ -27,12 +27,13 @@ const initialLynxChecklistState = createInitialLynxChecklistState();
 let lastPreviewScrolledXpath = "";
 
 export const View = {
+    Loading: 'Loading',
     Configuration: 'Configuration',
     Marking: 'Marking'
 }
 
 const initialViewState = {
-  currentView: View.Configuration,
+  currentView: View.Loading,
   featureFlags: FEATURE_FLAGS,
   configurationContinueDisabled: true,
   configurationBackDisabled: true,
@@ -1235,11 +1236,26 @@ function renderPreviewSidebar(view, handlers) {
   );
 }
 
+function renderPopupLoadingView(view) {
+  return h(
+    "section",
+    {
+      id: "popup-loading-view",
+      class: "popup-loading-view",
+      role: "status",
+      "aria-live": "polite"
+    },
+    h("div", { class: "popup-loading-view__spinner", "aria-hidden": "true" }),
+    h("div", { class: "popup-loading-view__title" }, view.busyMessage || PopupText.overlay.loadingPopup)
+  );
+}
+
 function App({ state: view, actions: handlers }) {
   const curtain = getBlockingUiCurtainState(view);
   logPopupBlockerReason("render", curtain);
   const previewVisible = view.previewBlocked || view.previewActive;
   const configurationView = view.currentView === View.Configuration;
+  const loadingView = view.currentView === View.Loading;
 
   return h(
     Fragment,
@@ -1247,23 +1263,25 @@ function App({ state: view, actions: handlers }) {
     h(
       "div",
       { class: classNames("app", "u-grid", "u-gap-4") },
-      h(
-        "div",
-        { class: "close-bar u-flex u-items-center u-gap-3" },
-        isPopupFeatureEnabled(view, "cacheAndUnregisterTools")
-          ? h(
-              "button",
-              {
-                id: "close-tab",
-                type: "button",
-                class: "close-button",
-                title: PopupText.unregister.closeButtonTitle,
-                disabled: view.unregisterCurrentTabDisabled || previewVisible || configurationView,
-                onClick: handlers.onUnregisterCurrentTab
-              }
-            )
-          : null
-      ),
+      loadingView
+        ? null
+        : h(
+            "div",
+            { class: "close-bar u-flex u-items-center u-gap-3" },
+            isPopupFeatureEnabled(view, "cacheAndUnregisterTools")
+              ? h(
+                  "button",
+                  {
+                    id: "close-tab",
+                    type: "button",
+                    class: "close-button",
+                    title: PopupText.unregister.closeButtonTitle,
+                    disabled: view.unregisterCurrentTabDisabled || previewVisible || configurationView,
+                    onClick: handlers.onUnregisterCurrentTab
+                  }
+                )
+              : null
+          ),
       h(
         "header",
         { class: "app-header" },
@@ -1275,7 +1293,7 @@ function App({ state: view, actions: handlers }) {
             { class: "header-text" },
             h("img", { src: "logo.png", alt: PopupText.branding.logoAlt, class: "header-logo" })
           ),
-          !previewVisible &&
+          !previewVisible && !loadingView &&
             h(
               "div",
               { class: "header-actions u-flex u-items-start" },
@@ -1366,7 +1384,7 @@ function App({ state: view, actions: handlers }) {
           "div",
           {
             class: "header-property-url",
-            hidden: previewVisible || configurationView
+            hidden: previewVisible || configurationView || loadingView
           },
           h(
             "label",
@@ -1402,7 +1420,9 @@ function App({ state: view, actions: handlers }) {
       ),
       previewVisible
         ? renderPreviewSidebar(view, handlers)
-        : view.currentView === View.Marking
+        : loadingView
+          ? renderPopupLoadingView(view)
+          : view.currentView === View.Marking
           ? renderMarkingView({ state: view, actions: handlers })
           : view.currentView === View.Configuration
             ? renderConfigurationView({ state: view, actions: handlers })
