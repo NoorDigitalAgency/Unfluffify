@@ -43,8 +43,8 @@ test("background render mode command skips reveal and hides consent before captu
   const beginIndex = block.indexOf("runRenderModeInspectionBeginStep(");
   const enableJavaScriptIndex = block.indexOf("utils.setPageJavaScriptExecutionDisabled(");
   const reloadIndex = block.indexOf("utils.reloadPageWithJavaScriptControl(");
+  const postReloadRestoreJavaScriptIndex = block.indexOf("restoreJavaScriptAfterNoJsReload();", reloadIndex);
   const loadCompleteIndex = block.indexOf("waitForTabLoadCompleteInBackground(");
-  const postLoadEnableJavaScriptIndex = block.indexOf("utils.setPageJavaScriptExecutionDisabled(", enableJavaScriptIndex + 1);
   const hideConsentIndex = block.indexOf("runRenderModeHideConsentStep(");
   const captureIndex = block.indexOf("runRenderModeCaptureHtmlStep(");
   const endIndex = block.indexOf("sendRenderModeInspectionEndWithRetry(");
@@ -53,8 +53,9 @@ test("background render mode command skips reveal and hides consent before captu
   assert.ok(enableJavaScriptIndex > -1);
   assert.ok(enableJavaScriptIndex < beginIndex);
   assert.ok(reloadIndex > beginIndex);
-  assert.ok(loadCompleteIndex > reloadIndex);
-  assert.ok(postLoadEnableJavaScriptIndex > loadCompleteIndex);
+  assert.ok(postReloadRestoreJavaScriptIndex > reloadIndex);
+  assert.ok(postReloadRestoreJavaScriptIndex < loadCompleteIndex);
+  assert.match(block, /if \(javaScriptReloadAttempted && !javaScriptRestored\) \{[\s\S]*?restoreJavaScriptAfterNoJsReload\(\)\.catch\(\(\) => null\);/);
   assert.ok(hideConsentIndex > loadCompleteIndex);
   assert.ok(hideConsentIndex < captureIndex);
   assert.ok(endIndex > captureIndex);

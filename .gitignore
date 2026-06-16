@@ -55,6 +55,7 @@ dlldata.c
 # Benchmark Results
 BenchmarkDotNet.Artifacts/
 .tmp/
+.mcp-browser-profile-reuse/
 
 # .NET Core
 project.lock.json

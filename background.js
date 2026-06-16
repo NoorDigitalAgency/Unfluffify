@@ -1187,6 +1187,21 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
         inspectionSnapshot: null,
         endAcknowledged: false
       };
+      let javaScriptReloadAttempted = false;
+      let javaScriptRestored = !javaScriptDisabled;
+      const restoreJavaScriptAfterNoJsReload = async () => {
+        if (javaScriptRestored) {
+          return { ok: true };
+        }
+        const scriptEnableResult = await utils.setPageJavaScriptExecutionDisabled(
+          normalizedTabId,
+          false
+        );
+        if (scriptEnableResult.ok) {
+          javaScriptRestored = true;
+        }
+        return scriptEnableResult;
+      };
 
       try {
         if (!javaScriptDisabled) {
@@ -1216,6 +1231,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
           normalizedTabId,
           RENDER_MODE_INSPECTION_START_TIMEOUT_MS
         );
+        javaScriptReloadAttempted = true;
         const reloadResult = await utils.reloadPageWithJavaScriptControl(
           normalizedTabId,
           javaScriptDisabled
@@ -1235,21 +1251,17 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
             "Unable to reload page for render mode inspection";
           return commandResult;
         }
-
-        const loadCompleted = await waitForTabLoadCompleteInBackground(
-          normalizedTabId,
-          RENDER_MODE_INSPECTION_LOAD_TIMEOUT_MS
-        );
         if (javaScriptDisabled) {
-          const scriptEnableResult = await utils.setPageJavaScriptExecutionDisabled(
-            normalizedTabId,
-            false
-          );
+          const scriptEnableResult = await restoreJavaScriptAfterNoJsReload();
           if (!scriptEnableResult.ok) {
             commandResult.followUpError = scriptEnableResult.error || "Unable to re-enable JavaScript after render mode inspection reload";
             return commandResult;
           }
         }
+        const loadCompleted = await waitForTabLoadCompleteInBackground(
+          normalizedTabId,
+          RENDER_MODE_INSPECTION_LOAD_TIMEOUT_MS
+        );
         if (!loadCompleted) {
           commandResult.followUpError = "Render mode inspection timed out while waiting for page load";
           return commandResult;
@@ -1291,6 +1303,9 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
         });
         return commandResult;
       } finally {
+        if (javaScriptReloadAttempted && !javaScriptRestored) {
+          await restoreJavaScriptAfterNoJsReload().catch(() => null);
+        }
         const endAcknowledged = await sendRenderModeInspectionEndWithRetry(
           normalizedTabId,
           operationId

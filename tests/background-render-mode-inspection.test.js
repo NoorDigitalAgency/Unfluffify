@@ -41,8 +41,8 @@ test("background TAB_RUN_RENDER_MODE_INSPECTION orchestrates reload, consent hid
   assert.match(commandBlock, /runRenderModeInspectionBeginStep\(normalizedTabId, operationId\)/);
   assert.match(commandBlock, /waitForTabLoadStartInBackground\(/);
   assert.match(commandBlock, /utils\.reloadPageWithJavaScriptControl\(/);
-  assert.match(commandBlock, /waitForTabLoadCompleteInBackground\(/);
-  assert.match(commandBlock, /if \(javaScriptDisabled\) \{[\s\S]*?utils\.setPageJavaScriptExecutionDisabled\([\s\S]*?normalizedTabId,[\s\S]*?false/);
+  assert.match(commandBlock, /const scriptEnableResult = await restoreJavaScriptAfterNoJsReload\(\);[\s\S]*?waitForTabLoadCompleteInBackground\(/);
+  assert.match(commandBlock, /if \(javaScriptReloadAttempted && !javaScriptRestored\) \{[\s\S]*?restoreJavaScriptAfterNoJsReload\(\)\.catch\(\(\) => null\);/);
   assert.doesNotMatch(commandBlock, /runRenderModeRevealFreezeStep\(/);
   assert.match(commandBlock, /runRenderModeHideConsentStep\(normalizedTabId\)/);
   assert.match(commandBlock, /runRenderModeCaptureHtmlStep\(\s*normalizedTabId,\s*baseUrl,\s*operationId\s*\)/);
