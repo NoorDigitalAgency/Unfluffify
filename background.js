@@ -130,6 +130,7 @@ import {
 } from "./background/world-trace.js";
 import { createPopupStateBroker } from "./background/popup-state-broker.js";
 import { createRenderModeInspector } from "./background/render-mode-inspector.js";
+import { createTabInactivityObserver } from "./background/tab-inactivity-observer.js";
 import { createAiRunOrchestrator } from "./background/ai-run-orchestrator.js";
 import { runBackgroundTask } from "./background/async-tasks.js";
 import { createManagedTimeoutGroup } from "./background/managed-timeouts.js";
@@ -146,6 +147,7 @@ import {
 import {
   clearRenderModeNoJsHeld,
   isRenderModeNoJsHeld,
+  listRenderModeNoJsHeldTabIds,
   setRenderModeNoJsHeld
 } from "./common/render-mode-js-state.js";
 import {
@@ -176,6 +178,8 @@ const PROPERTY_LOCK_MESSAGE_TYPES = new Set([
   "propertyLockDraftStatus",
   "pageDraftChanged"
 ]);
+const RENDER_MODE_NO_JS_INACTIVITY_SCOPE = "render-mode-no-js";
+const RENDER_MODE_NO_JS_INACTIVITY_TIMEOUT_MS = 30_000;
 
 const worldTrace = createWorldTrace({
   traceStateByTabId: tabWorldTraceStateByTabId,
@@ -428,6 +432,108 @@ const runRenderModeInspectionBeginStep = renderModeInspector.runRenderModeInspec
 const runRenderModeRevealFreezeStep = renderModeInspector.runRenderModeRevealFreezeStep;
 const runRenderModeHideConsentStep = renderModeInspector.runRenderModeHideConsentStep;
 const runRenderModeCaptureHtmlStep = renderModeInspector.runRenderModeCaptureHtmlStep;
+
+const tabInactivityObserver = createTabInactivityObserver({
+  defaultTimeoutMs: RENDER_MODE_NO_JS_INACTIVITY_TIMEOUT_MS
+});
+
+async function isTabActiveInFocusedWindow(tabId) {
+  const normalizedTabId = normalizeBrokerTabId(tabId);
+  if (!normalizedTabId) {
+    return false;
+  }
+  try {
+    const tab = await chrome.tabs.get(normalizedTabId);
+    if (!tab || !tab.active || !Number.isFinite(tab.windowId)) {
+      return false;
+    }
+    const windowInfo = await chrome.windows.get(tab.windowId);
+    return Boolean(windowInfo && windowInfo.focused);
+  } catch {
+    return false;
+  }
+}
+
+async function updateRenderModeNoJsInactivityWatch(tabId) {
+  const normalizedTabId = normalizeBrokerTabId(tabId);
+  if (!normalizedTabId) {
+    return;
+  }
+  if (!(await isRenderModeNoJsHeld(normalizedTabId))) {
+    await tabInactivityObserver.clearTab(normalizedTabId, {
+      scope: RENDER_MODE_NO_JS_INACTIVITY_SCOPE
+    });
+    return;
+  }
+  if (await isTabActiveInFocusedWindow(normalizedTabId)) {
+    await tabInactivityObserver.clearTab(normalizedTabId, {
+      scope: RENDER_MODE_NO_JS_INACTIVITY_SCOPE
+    });
+    return;
+  }
+  await tabInactivityObserver.scheduleInactive(normalizedTabId, {
+    scope: RENDER_MODE_NO_JS_INACTIVITY_SCOPE,
+    reason: "render-mode-no-js-held-inactive",
+    timeoutMs: RENDER_MODE_NO_JS_INACTIVITY_TIMEOUT_MS
+  });
+}
+
+async function updateRenderModeNoJsInactivityWatches() {
+  const heldTabIds = await listRenderModeNoJsHeldTabIds();
+  await Promise.all(heldTabIds.map((tabId) => updateRenderModeNoJsInactivityWatch(tabId)));
+}
+
+async function restoreRenderModeJavaScriptAfterNoJsInactivity(tabId) {
+  const normalizedTabId = normalizeBrokerTabId(tabId);
+  if (!normalizedTabId || !(await isRenderModeNoJsHeld(normalizedTabId))) {
+    return { ok: true, skipped: true };
+  }
+  // The tab may have become active and focused between the alarm firing and this
+  // restore running. Never reload a page the user is actively viewing; just drop
+  // the watch so it reschedules once the tab goes idle again.
+  if (await isTabActiveInFocusedWindow(normalizedTabId)) {
+    await tabInactivityObserver.clearTab(normalizedTabId, {
+      scope: RENDER_MODE_NO_JS_INACTIVITY_SCOPE
+    });
+    return { ok: true, skipped: true };
+  }
+  await clearRenderModeNoJsHeld(normalizedTabId);
+  const reloadResult = await utils.reloadPageWithJavaScriptControl(normalizedTabId, false)
+    .catch((error) => ({
+      ok: false,
+      error: (error && error.message) || "Unable to reload page with JavaScript"
+    }));
+  if (!reloadResult || !reloadResult.ok) {
+    const fallback = await utils.setPageJavaScriptExecutionDisabled(normalizedTabId, false)
+      .catch(() => null);
+    if (!fallback || !fallback.ok) {
+      // Both the reload and the direct re-enable failed, so the page is still in
+      // no-JS mode. Re-mark it held and reschedule the watch so a later focus
+      // change or alarm retries the restore instead of leaving it stuck.
+      await setRenderModeNoJsHeld(normalizedTabId, true).catch(() => null);
+      await updateRenderModeNoJsInactivityWatch(normalizedTabId);
+      return reloadResult || { ok: false, error: "Unable to reload page with JavaScript" };
+    }
+  }
+  const deviceState = await getDeviceEmulationState(normalizedTabId).catch(() => null);
+  if (!deviceState || !deviceState.enabled) {
+    await utils.detachDebugger(normalizedTabId).catch(() => null);
+  }
+  return reloadResult || { ok: false, error: "Unable to reload page with JavaScript" };
+}
+
+tabInactivityObserver.subscribe(async (event) => {
+  if (!event || event.type !== "inactive" || event.scope !== RENDER_MODE_NO_JS_INACTIVITY_SCOPE) {
+    return;
+  }
+  await restoreRenderModeJavaScriptAfterNoJsInactivity(event.tabId);
+});
+
+if (chrome.alarms && chrome.alarms.onAlarm && typeof chrome.alarms.onAlarm.addListener === "function") {
+  chrome.alarms.onAlarm.addListener((alarm) => {
+    tabInactivityObserver.handleAlarm(alarm).catch(() => {});
+  });
+}
 
 async function captureRenderModeHtmlWithDebugger(tabId) {
   const normalizedTabId = normalizeBrokerTabId(tabId);
@@ -1191,6 +1297,9 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_END_RENDER_MODE_INSPECTION, as
   // when device emulation is not relying on it.
   if (await isRenderModeNoJsHeld(normalizedTabId)) {
     await clearRenderModeNoJsHeld(normalizedTabId);
+    await tabInactivityObserver.clearTab(normalizedTabId, {
+      scope: RENDER_MODE_NO_JS_INACTIVITY_SCOPE
+    });
     await utils.setPageJavaScriptExecutionDisabled(normalizedTabId, false).catch(() => null);
     const deviceState = await getDeviceEmulationState(normalizedTabId).catch(() => null);
     if (!deviceState || !deviceState.enabled) {
@@ -1266,6 +1375,9 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
       // after the reload's navigation events have already been dispatched.
       const wasHeldInNoJsMode = await isRenderModeNoJsHeld(normalizedTabId);
       await clearRenderModeNoJsHeld(normalizedTabId);
+      await tabInactivityObserver.clearTab(normalizedTabId, {
+        scope: RENDER_MODE_NO_JS_INACTIVITY_SCOPE
+      });
       let commandResult = {
         ok: false,
         tabId: normalizedTabId,
@@ -1485,6 +1597,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
           // which has already fired its navigation events by now), and so the popup
           // can show the page as currently held in "Without JavaScript" mode.
           await setRenderModeNoJsHeld(normalizedTabId, true);
+          await updateRenderModeNoJsInactivityWatch(normalizedTabId);
         }
         const endAcknowledged = javaScriptDisabled
           ? false
@@ -1906,6 +2019,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (handleBackgroundCommandEnvelope(message, sender, sendResponse)) {
+    return true;
+  }
+
+  if (message.type === "pageActivityObserved") {
+    const tabId = getMessageTabId(message, sender);
+    tabInactivityObserver.recordActivity(tabId, {
+      source: "content",
+      pageUrl: typeof message.pageUrl === "string" ? message.pageUrl : ""
+    })
+      .then(() => updateRenderModeNoJsInactivityWatch(tabId))
+      .then(() => sendResponse({ ok: Boolean(tabId) }))
+      .catch(() => sendResponse({ ok: false }));
     return true;
   }
 
@@ -2671,6 +2796,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 chrome.tabs.onRemoved.addListener((tabId) => {
   clearTrackedTabSessionState(tabId, { includeDeviceState: true }).then();
   clearRenderModeNoJsHeld(tabId).catch(() => null);
+  tabInactivityObserver.clearTab(tabId, {
+    scope: RENDER_MODE_NO_JS_INACTIVITY_SCOPE
+  }).catch(() => null);
   if (isFeatureEnabled("propertyLockCollaboration")) {
     handlePropertyLockBackgroundTabRemoved(tabId);
   }
@@ -2721,6 +2849,9 @@ async function normalizeRenderModeJavaScriptOnTopLevelNavigation(details) {
     return;
   }
   await clearRenderModeNoJsHeld(details.tabId);
+  await tabInactivityObserver.clearTab(details.tabId, {
+    scope: RENDER_MODE_NO_JS_INACTIVITY_SCOPE
+  });
   await utils.setPageJavaScriptExecutionDisabled(details.tabId, false).catch(() => null);
   const deviceState = await getDeviceEmulationState(details.tabId).catch(() => null);
   if (!deviceState || !deviceState.enabled) {
@@ -2814,10 +2945,12 @@ async function refreshActionIconsForWindow(windowId) {
 
 chrome.tabs.onActivated.addListener(async ({ windowId }) => {
   await refreshActionIconsForWindow(windowId);
+  await updateRenderModeNoJsInactivityWatches();
 });
 
 chrome.windows.onFocusChanged.addListener(async (windowId) => {
   await refreshActionIconsForWindow(windowId);
+  await updateRenderModeNoJsInactivityWatches();
 });
 
 const TAB_RESTORE_SCOPE = "restore";
@@ -3020,6 +3153,7 @@ chrome.action.onClicked.addListener((tab) => {
 // This keeps session storage tidy when an AI run or config sync was aborted
 // mid-flight and did not reach the consume-purge step.
 sweepStaleTransferPayloads().then();
+updateRenderModeNoJsInactivityWatches().catch(() => {});
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || message.type !== "activateContentForTab") {

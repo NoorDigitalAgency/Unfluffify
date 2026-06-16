@@ -61,3 +61,19 @@ export async function isRenderModeNoJsHeld(tabId) {
     return false;
   }
 }
+
+export async function listRenderModeNoJsHeldTabIds() {
+  const session = getSessionArea();
+  if (!session) {
+    return [];
+  }
+  try {
+    const data = await session.get(null);
+    return Object.keys(data || {})
+      .filter((key) => key.startsWith(RENDER_MODE_NO_JS_HELD_PREFIX) && data[key])
+      .map((key) => normalizeTabId(key.slice(RENDER_MODE_NO_JS_HELD_PREFIX.length)))
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}

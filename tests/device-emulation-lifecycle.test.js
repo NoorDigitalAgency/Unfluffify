@@ -213,21 +213,30 @@ test("desktop preview visibility is gated by silent mode", () => {
   );
 });
 
-test("content main registers general page activity listeners for 30-min inactivity reset", () => {
+test("content main registers central page activity listeners for inactivity subscribers", () => {
   const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
   const mainStart = source.indexOf("export function main()");
   const mainEnd = source.lastIndexOf("}");
   const mainBody = source.slice(mainStart, mainEnd);
 
-  // Activity debounce timer declared at module scope
-  assert.match(source, /let propertyLockPageActivityTimer = 0;/);
-  // General page inputs (not just marking actions) trigger the debounced ping
+  // Activity debounce timer and subscriber set are declared at module scope.
+  assert.match(source, /let pageActivityTimer = 0;/);
+  assert.match(source, /const pageActivitySubscribers = new Set\(\);/);
+  assert.match(source, /function sendPageActivityObserved\(\) \{/);
+  assert.match(source, /type: "pageActivityObserved"/);
+  assert.match(source, /function publishPageActivity\(\) \{/);
+  assert.match(mainBody, /subscribePageActivity\(sendPropertyLockActivity\);/);
+  // General page inputs (not just marking actions) trigger the debounced central ping.
   assert.match(mainBody, /addEventListener\("mousemove", handlePageActivity/);
   assert.match(mainBody, /addEventListener\("keydown", handlePageActivity/);
   assert.match(mainBody, /addEventListener\("pointerdown", handlePageActivity/);
   assert.match(mainBody, /addEventListener\("scroll", handlePageActivity/);
-  // Activity is debounced — not fired on every event
-  assert.match(mainBody, /propertyLockPageActivityTimer = window\.setTimeout/);
+  // Activity is debounced — not fired on every event.
+  assert.match(mainBody, /pageActivityTimer = window\.setTimeout/);
+  assert.match(mainBody, /publishPageActivity\(\);/);
+  // Debounced pings only run when a content-side consumer (property-lock port)
+  // is listening, so normal pages don't wake the service worker every 10s.
+  assert.match(mainBody, /if \(pageActivityTimer \|\| !getPropertyLockPortClient\(\)\.hasPort\(\)\)/);
 });
 
 test("popup delegates active tab context resolution to the background", () => {
@@ -255,8 +264,12 @@ test("popup delegates active tab context resolution to the background", () => {
   assert.match(backgroundResolveBlock, /chrome\.tabs\.query\(\{ active: true, lastFocusedWindow: true \}\)/);
   assert.match(loadActiveTabBlock, /type: "resolvePopupTabContext"/);
   assert.match(loadActiveTabBlock, /debugTabId: Number\.isFinite\(debugTabIdParam\)/);
-  assert.match(loadActiveTabBlock, /state\.currentTab = response && response\.ok && response\.tab \? response\.tab : null;/);
-  assert.doesNotMatch(loadActiveTabBlock, /utils\.tabsQuery|chrome\.tabs\.get|chrome\.runtime\.getContexts|getSidePanelBoundTab/);
+  assert.match(loadActiveTabBlock, /state\.currentTab = response && response\.ok && response\.tab[\s\S]*?\? response\.tab[\s\S]*?: await loadActiveTabFallback\(debugTabIdParam\);/);
+  assert.match(popupMessagesSource, /async function loadActiveTabFallback\(debugTabId\) \{/);
+  assert.match(popupMessagesSource, /tabsApi\.get\(tabId/);
+  assert.match(popupMessagesSource, /tabsApi\.query\(\{ active: true, currentWindow: true \}/);
+  assert.match(popupMessagesSource, /tabsApi\.query\(\{ active: true, lastFocusedWindow: true \}/);
+  assert.doesNotMatch(loadActiveTabBlock, /utils\.tabsQuery|chrome\.runtime\.getContexts|getSidePanelBoundTab/);
   assert.doesNotMatch(popupMessagesSource, /async function getSidePanelBoundTab\(\)/);
 });
 

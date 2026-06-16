@@ -6,6 +6,7 @@ const backgroundSource = readFileSync(new URL("../background.js", import.meta.ur
 const renderModeInspectorSource = readFileSync(new URL("../background/render-mode-inspector.js", import.meta.url), "utf8");
 const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
 const popupMessagesSource = readFileSync(new URL("../popup/messages.js", import.meta.url), "utf8");
+const manifestSource = readFileSync(new URL("../manifest.json", import.meta.url), "utf8");
 
 test("background registers render-mode inspection commands as tab-scoped", () => {
   assert.match(backgroundSource, /TAB_BEGIN_RENDER_MODE_INSPECTION: "TAB_BEGIN_RENDER_MODE_INSPECTION"/);
@@ -99,9 +100,37 @@ test("background TAB_END_RENDER_MODE_INSPECTION restores JavaScript and clears t
   // does not need the debugger.
   assert.match(endBlock, /if \(await isRenderModeNoJsHeld\(normalizedTabId\)\) \{/);
   assert.match(endBlock, /clearRenderModeNoJsHeld\(normalizedTabId\)/);
+  assert.match(endBlock, /tabInactivityObserver\.clearTab\(normalizedTabId,[\s\S]*?scope: RENDER_MODE_NO_JS_INACTIVITY_SCOPE/);
   assert.match(endBlock, /utils\.setPageJavaScriptExecutionDisabled\(normalizedTabId, false\)/);
   assert.match(endBlock, /getDeviceEmulationState\(normalizedTabId\)/);
   assert.match(endBlock, /utils\.detachDebugger\(normalizedTabId\)/);
+});
+
+test("background restores no-JS render-mode holds after central tab inactivity", () => {
+  const manifest = JSON.parse(manifestSource);
+  const commandBlock = backgroundSource.match(
+    /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_RUN_RENDER_MODE_INSPECTION, async \(context, payload\) => \{([\s\S]*?)\n\}, POPUP_TAB_COMMAND_POLICY\);\n\nfunction maybeGetCommandPayloadForLedger/
+  )[1];
+  const activityMessageBlock = backgroundSource.match(
+    /if \(message\.type === "pageActivityObserved"\) \{([\s\S]*?)\n  \}\n\n  if \(PROPERTY_LOCK_MESSAGE_TYPES/
+  )[1];
+
+  assert.equal(manifest.permissions.includes("alarms"), true);
+  assert.match(backgroundSource, /from "\.\/background\/tab-inactivity-observer\.js"/);
+  assert.match(backgroundSource, /const RENDER_MODE_NO_JS_INACTIVITY_SCOPE = "render-mode-no-js";/);
+  assert.match(backgroundSource, /const RENDER_MODE_NO_JS_INACTIVITY_TIMEOUT_MS = 30_000;/);
+  assert.match(backgroundSource, /const tabInactivityObserver = createTabInactivityObserver\(\{/);
+  assert.match(backgroundSource, /chrome\.alarms\.onAlarm\.addListener\(\(alarm\) => \{[\s\S]*?tabInactivityObserver\.handleAlarm\(alarm\)/);
+  assert.match(backgroundSource, /async function updateRenderModeNoJsInactivityWatch\(tabId\) \{[\s\S]*?isTabActiveInFocusedWindow\(normalizedTabId\)[\s\S]*?tabInactivityObserver\.scheduleInactive\(normalizedTabId, \{[\s\S]*?scope: RENDER_MODE_NO_JS_INACTIVITY_SCOPE/);
+  assert.match(backgroundSource, /async function restoreRenderModeJavaScriptAfterNoJsInactivity\(tabId\) \{[\s\S]*?isTabActiveInFocusedWindow\(normalizedTabId\)[\s\S]*?clearRenderModeNoJsHeld\(normalizedTabId\)[\s\S]*?utils\.reloadPageWithJavaScriptControl\(normalizedTabId, false\)[\s\S]*?utils\.detachDebugger\(normalizedTabId\)/);
+  assert.match(backgroundSource, /async function restoreRenderModeJavaScriptAfterNoJsInactivity\(tabId\) \{[\s\S]*?setPageJavaScriptExecutionDisabled\(normalizedTabId, false\)[\s\S]*?setRenderModeNoJsHeld\(normalizedTabId, true\)[\s\S]*?updateRenderModeNoJsInactivityWatch\(normalizedTabId\)/);
+  assert.match(backgroundSource, /tabInactivityObserver\.subscribe\(async \(event\) => \{[\s\S]*?event\.scope !== RENDER_MODE_NO_JS_INACTIVITY_SCOPE[\s\S]*?restoreRenderModeJavaScriptAfterNoJsInactivity\(event\.tabId\)/);
+  assert.match(commandBlock, /setRenderModeNoJsHeld\(normalizedTabId, true\)[\s\S]*?updateRenderModeNoJsInactivityWatch\(normalizedTabId\)/);
+  assert.match(activityMessageBlock, /tabInactivityObserver\.recordActivity\(tabId, \{[\s\S]*?source: "content"/);
+  assert.match(activityMessageBlock, /updateRenderModeNoJsInactivityWatch\(tabId\)/);
+  assert.match(backgroundSource, /chrome\.tabs\.onActivated\.addListener\(async \(\{ windowId \}\) => \{[\s\S]*?updateRenderModeNoJsInactivityWatches\(\);/);
+  assert.match(backgroundSource, /chrome\.windows\.onFocusChanged\.addListener\(async \(windowId\) => \{[\s\S]*?updateRenderModeNoJsInactivityWatches\(\);/);
+  assert.match(backgroundSource, /updateRenderModeNoJsInactivityWatches\(\)\.catch\(\(\) => \{\}\);/);
 });
 
 test("background render-mode consent hide is separate from HTML capture", () => {

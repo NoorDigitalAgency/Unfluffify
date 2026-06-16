@@ -226,9 +226,10 @@ let propertyLockSuggestionFromName = "";
 let propertyLockLastBlockedToastAt = 0;
 let propertyLockConnectedSiteId = null;
 let propertyLockConnectedBaseUrl = "";
-// Debounce timer for page-level activity pings (mouse/keyboard/scroll).
-// General page interactions reset the 30-min inactivity window per spec.
-let propertyLockPageActivityTimer = 0;
+// Debounce timer for central page-level activity pings (mouse/keyboard/scroll).
+// Property lock and background inactivity observers subscribe to this signal.
+let pageActivityTimer = 0;
+const pageActivitySubscribers = new Set();
 let propertyLockEditorClaimPending = false;
 let propertyLockSyncToken = 0;
 let propertyLockSyncInFlight = false;
@@ -288,10 +289,6 @@ function resetDisabledPropertyLockRuntimeState() {
   clearPropertyLockReconnectTimer();
   clearPropertyLockBannerCountdown();
   clearPropertyLockRecoveryReleaseTimer();
-  if (propertyLockPageActivityTimer) {
-    window.clearTimeout(propertyLockPageActivityTimer);
-    propertyLockPageActivityTimer = 0;
-  }
   getPropertyLockPortClient().disconnect({ notifyBackground: false });
   propertyLockConnectedSiteId = null;
   propertyLockConnectedBaseUrl = "";
@@ -332,7 +329,6 @@ function ensurePropertyLockCollaborationActive() {
     propertyLockOffCandidateDeadlineAt ||
     propertyLockRecoveryDeadlineAt ||
     hasReconnectTimer ||
-    propertyLockPageActivityTimer ||
     propertyLockRecoveryReleaseTimer ||
     propertyLockSyncInFlight ||
     propertyLockQueuedSyncOptions
@@ -5628,6 +5624,39 @@ function handlePropertyLockPortMessage(message) {
   }
 }
 
+function subscribePageActivity(listener) {
+  if (typeof listener === "function") {
+    pageActivitySubscribers.add(listener);
+  }
+}
+
+function sendPageActivityObserved() {
+  if (extensionContextInvalidated) {
+    return;
+  }
+  try {
+    const response = chrome.runtime.sendMessage({
+      type: "pageActivityObserved",
+      pageUrl: location.href,
+      observedAt: Date.now()
+    });
+    if (response && typeof response.catch === "function") {
+      response.catch((error) => {
+        markExtensionContextInvalidated(error);
+      });
+    }
+  } catch (error) {
+    markExtensionContextInvalidated(error);
+  }
+}
+
+function publishPageActivity() {
+  sendPageActivityObserved();
+  for (const listener of pageActivitySubscribers) {
+    listener();
+  }
+}
+
 function sendPropertyLockActivity() {
   if (!ensurePropertyLockCollaborationActive()) {
     return;
@@ -6507,6 +6536,7 @@ export function main() {
   }
   state.initialized = true;
   registerContentCommandHandlersOnce();
+  subscribePageActivity(sendPropertyLockActivity);
 
   initializePageWorldRelay().catch(() => {
     // Best-effort initialization. Core operations keep a background relay
@@ -6688,16 +6718,20 @@ export function main() {
   });
   window.addEventListener("beforeunload", core.handleBeforeUnload);
 
-  // Per-spec: any page input (mouse/keyboard/scroll) resets the 30-minute
-  // property-lock inactivity window. Debounce to at most once per 10 seconds
-  // so we don't flood the background on busy pages.
+  // Per-spec: any page input (mouse/keyboard/scroll) is a central activity
+  // signal. Debounce to at most once per 10 seconds so busy pages do not flood
+  // the background or feature-specific subscribers.
   const handlePageActivity = () => {
-    if (!getPropertyLockPortClient().hasPort() || propertyLockPageActivityTimer) {
+    // Only emit the debounced activity signal when a content-side consumer is
+    // actually listening (property-lock collaboration has a live port). The
+    // background no-JS inactivity watch is driven by tab/window focus events, so
+    // pinging from every injected page would wake the service worker for no gain.
+    if (pageActivityTimer || !getPropertyLockPortClient().hasPort()) {
       return;
     }
-    propertyLockPageActivityTimer = window.setTimeout(() => {
-      propertyLockPageActivityTimer = 0;
-      sendPropertyLockActivity();
+    pageActivityTimer = window.setTimeout(() => {
+      pageActivityTimer = 0;
+      publishPageActivity();
     }, 10_000);
   };
   window.addEventListener("mousemove", handlePageActivity, { passive: true, capture: false });

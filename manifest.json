@@ -12,6 +12,7 @@
     "tabs",
     "scripting",
     "debugger",
+    "alarms",
     "browsingData",
     "webNavigation",
     "activeTab"

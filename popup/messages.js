@@ -448,9 +448,79 @@ export async function sendTabMessageWithRetry(message, attempts = 3) {
   return null;
 }
 
-export async function loadActiveTab() {
+function getPopupChromeTabsApi() {
   try {
-    const debugTabIdParam = typeof location !== "undefined"
+    return typeof chrome !== "undefined" && chrome.tabs ? chrome.tabs : null;
+  } catch {
+    return null;
+  }
+}
+
+function getTabById(tabId) {
+  const tabsApi = getPopupChromeTabsApi();
+  if (!tabsApi || typeof tabsApi.get !== "function" || !tabId) {
+    return Promise.resolve(null);
+  }
+  return new Promise((resolve) => {
+    try {
+      tabsApi.get(tabId, (tab) => {
+        if (chrome.runtime && chrome.runtime.lastError) {
+          resolve(null);
+          return;
+        }
+        resolve(tab && tab.id ? tab : null);
+      });
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+function queryActiveTabFallback() {
+  const tabsApi = getPopupChromeTabsApi();
+  if (!tabsApi || typeof tabsApi.query !== "function") {
+    return Promise.resolve(null);
+  }
+  return new Promise((resolve) => {
+    const finish = (tabs) => {
+      resolve(Array.isArray(tabs) && tabs[0] && tabs[0].id ? tabs[0] : null);
+    };
+    try {
+      tabsApi.query({ active: true, currentWindow: true }, (tabs) => {
+        if (chrome.runtime && chrome.runtime.lastError) {
+          finish([]);
+          return;
+        }
+        if (Array.isArray(tabs) && tabs.length) {
+          finish(tabs);
+          return;
+        }
+        tabsApi.query({ active: true, lastFocusedWindow: true }, (fallbackTabs) => {
+          if (chrome.runtime && chrome.runtime.lastError) {
+            finish([]);
+            return;
+          }
+          finish(fallbackTabs);
+        });
+      });
+    } catch {
+      finish([]);
+    }
+  });
+}
+
+async function loadActiveTabFallback(debugTabId) {
+  const debugTab = await getTabById(debugTabId);
+  if (debugTab) {
+    return debugTab;
+  }
+  return queryActiveTabFallback();
+}
+
+export async function loadActiveTab() {
+  let debugTabIdParam = 0;
+  try {
+    debugTabIdParam = typeof location !== "undefined"
       ? Number(new URLSearchParams(location.search).get("debugTabId") || "")
       : 0;
     const response = await sendRuntimeMessage({
@@ -459,8 +529,10 @@ export async function loadActiveTab() {
         ? Math.trunc(debugTabIdParam)
         : null
     });
-    state.currentTab = response && response.ok && response.tab ? response.tab : null;
+    state.currentTab = response && response.ok && response.tab
+      ? response.tab
+      : await loadActiveTabFallback(debugTabIdParam);
   } catch (error) {
-    state.currentTab = null;
+    state.currentTab = await loadActiveTabFallback(debugTabIdParam);
   }
 }

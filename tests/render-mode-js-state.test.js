@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   clearRenderModeNoJsHeld,
   isRenderModeNoJsHeld,
+  listRenderModeNoJsHeldTabIds,
   renderModeNoJsHeldStorageKey,
   setRenderModeNoJsHeld
 } from "../common/render-mode-js-state.js";
@@ -13,6 +14,9 @@ function makeMockSession() {
   return {
     store,
     async get(keys) {
+      if (keys === null) {
+        return Object.fromEntries(store.entries());
+      }
       const keyList = Array.isArray(keys) ? keys : [keys];
       const out = {};
       for (const key of keyList) {
@@ -65,7 +69,9 @@ test("render mode no-JS held state round-trips through chrome.storage.session", 
 
   // Held state is per-tab.
   await setRenderModeNoJsHeld(7, true);
+  await setRenderModeNoJsHeld(12, true);
   assert.equal(await isRenderModeNoJsHeld(8), false);
+  assert.deepEqual(await listRenderModeNoJsHeldTabIds(), [7, 12]);
 });
 
 test("render mode no-JS held state ignores invalid ids and missing session storage", async () => {
@@ -78,6 +84,7 @@ test("render mode no-JS held state ignores invalid ids and missing session stora
 
   globalThis.chrome = { storage: {} };
   assert.equal(await isRenderModeNoJsHeld(7), false);
+  assert.deepEqual(await listRenderModeNoJsHeldTabIds(), []);
   await setRenderModeNoJsHeld(7, true);
   await clearRenderModeNoJsHeld(7);
 });
