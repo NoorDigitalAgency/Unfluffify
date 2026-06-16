@@ -15,6 +15,7 @@ const TAB_CLOSE_AI_PREVIEW_COMMAND = "TAB_CLOSE_AI_PREVIEW";
 const TAB_SET_AI_PREVIEW_EXPANDED_MODE_COMMAND = "TAB_SET_AI_PREVIEW_EXPANDED_MODE";
 const TAB_FOCUS_PREVIEW_ELEMENT_COMMAND = "TAB_FOCUS_PREVIEW_ELEMENT";
 const TAB_RUN_RENDER_MODE_INSPECTION_COMMAND = "TAB_RUN_RENDER_MODE_INSPECTION";
+const TAB_END_RENDER_MODE_INSPECTION_COMMAND = "TAB_END_RENDER_MODE_INSPECTION";
 const TAB_RUN_AI_COMMAND = "TAB_RUN_AI";
 
 export const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -328,16 +329,28 @@ export function requestTabRunRenderModeInspection(tabId, payload = {}, options =
       error: "Missing tab"
     });
   }
+  const normalizedPayload = payload && typeof payload === "object" ? payload : {};
   return requestRuntime({
     type: TAB_RUN_RENDER_MODE_INSPECTION_COMMAND,
-    payload: payload && typeof payload === "object" ? payload : {}
+    payload: normalizedPayload
   }, {
     tabId,
-    timeoutMs: Number.isFinite(options.timeoutMs) ? Math.trunc(options.timeoutMs) : 30000
+    timeoutMs: Number.isFinite(options.timeoutMs) ? Math.trunc(options.timeoutMs) : 120000
   }).then((result) => ({
     ok: true,
     result: result && typeof result === "object" ? result : {}
-  })).catch((error) => {
+  })).catch(async (error) => {
+    if (typeof normalizedPayload.operationId === "string" && normalizedPayload.operationId) {
+      await requestRuntime({
+        type: TAB_END_RENDER_MODE_INSPECTION_COMMAND,
+        payload: {
+          operationId: normalizedPayload.operationId
+        }
+      }, {
+        tabId,
+        timeoutMs: 5000
+      }).catch(() => null);
+    }
     const reply = error && error.details && error.details.reply && typeof error.details.reply === "object"
       ? error.details.reply
       : null;

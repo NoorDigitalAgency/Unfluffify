@@ -36,6 +36,27 @@ test("top-level navigation preserves user-controlled device emulation", () => {
   assert.doesNotMatch(block, /DEVICE_EMULATION_PREFIX/);
 });
 
+test("top-level navigation normalizes render-mode JavaScript debugging state", () => {
+  const normalizeBlock = extractSourceBlock(
+    backgroundSource,
+    "async function normalizeRenderModeJavaScriptOnTopLevelNavigation",
+    "chrome.webNavigation.onBeforeNavigate.addListener"
+  );
+
+  assert.match(backgroundSource, /chrome\.webNavigation\.onBeforeNavigate\.addListener\(normalizeRenderModeJavaScriptOnTopLevelNavigation\)/);
+  // Only act on tabs intentionally left in "Without JavaScript" render mode. The
+  // inspection's own reload also fires onBeforeNavigate, but those tabs are not in
+  // the set yet, so JavaScript is never re-enabled mid-inspection.
+  assert.match(normalizeBlock, /if \(!renderModeNoJsInspectionTabIds\.has\(details\.tabId\)\)/);
+  assert.match(normalizeBlock, /renderModeNoJsInspectionTabIds\.delete\(details\.tabId\)/);
+  assert.match(normalizeBlock, /utils\.setPageJavaScriptExecutionDisabled\(details\.tabId, false\)/);
+  assert.match(normalizeBlock, /getDeviceEmulationState\(details\.tabId\)/);
+  assert.match(normalizeBlock, /utils\.detachDebugger\(details\.tabId\)/);
+  // The set guard replaces the old debugger-attachment probe so the handler never
+  // fires for device-emulation-only tabs or for the inspection's own reload.
+  assert.doesNotMatch(normalizeBlock, /chrome\.debugger\.getTargets\(\)/);
+});
+
 test("unregister-and-reload preserves user-controlled device emulation state", () => {
   const block = extractSourceBlock(
     backgroundSource,

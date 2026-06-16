@@ -42,9 +42,9 @@ test("background render mode command skips reveal and hides consent before captu
 
   const beginIndex = block.indexOf("runRenderModeInspectionBeginStep(");
   const enableJavaScriptIndex = block.indexOf("utils.setPageJavaScriptExecutionDisabled(");
-  const reloadIndex = block.indexOf("utils.reloadPageWithJavaScriptControl(");
-  const postReloadRestoreJavaScriptIndex = block.indexOf("restoreJavaScriptAfterNoJsReload();", reloadIndex);
-  const loadCompleteIndex = block.indexOf("waitForTabLoadCompleteInBackground(");
+  const reloadIndex = block.indexOf("utils.reloadPageWithJavaScriptControl(", beginIndex);
+  const loadCompleteIndex = block.indexOf("waitForTabLoadCompleteInBackground(", reloadIndex);
+  const debuggerCaptureIndex = block.indexOf("captureRenderModeHtmlWithDebugger(", loadCompleteIndex);
   const hideConsentIndex = block.indexOf("runRenderModeHideConsentStep(");
   const captureIndex = block.indexOf("runRenderModeCaptureHtmlStep(");
   const endIndex = block.indexOf("sendRenderModeInspectionEndWithRetry(");
@@ -53,11 +53,12 @@ test("background render mode command skips reveal and hides consent before captu
   assert.ok(enableJavaScriptIndex > -1);
   assert.ok(enableJavaScriptIndex < beginIndex);
   assert.ok(reloadIndex > beginIndex);
-  assert.ok(postReloadRestoreJavaScriptIndex > reloadIndex);
-  assert.ok(postReloadRestoreJavaScriptIndex < loadCompleteIndex);
-  assert.match(block, /if \(javaScriptReloadAttempted && !javaScriptRestored\) \{[\s\S]*?restoreJavaScriptAfterNoJsReload\(\)\.catch\(\(\) => null\);/);
+  assert.ok(loadCompleteIndex > reloadIndex);
+  assert.match(block, /if \(!javaScriptDisabled && javaScriptReloadAttempted && !javaScriptRestored\) \{[\s\S]*?restoreJavaScriptAfterNoJsReload\(\)\.catch\(\(\) => null\);/);
+  assert.ok(debuggerCaptureIndex > loadCompleteIndex);
   assert.ok(hideConsentIndex > loadCompleteIndex);
   assert.ok(hideConsentIndex < captureIndex);
+  assert.match(block, /if \(javaScriptDisabled\) \{[\s\S]*?captureRenderModeHtmlWithDebugger\([\s\S]*?\} else \{[\s\S]*?runRenderModeHideConsentStep\([\s\S]*?runRenderModeCaptureHtmlStep\(/);
   assert.ok(endIndex > captureIndex);
   assert.doesNotMatch(block, /runRenderModeRevealFreezeStep\(/);
   assert.match(

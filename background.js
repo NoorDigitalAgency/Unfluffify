@@ -139,6 +139,7 @@ import {
   disposeTabState,
   pageMotionFreezeControlQueueByTarget,
   popupStatePortsByTabId,
+  renderModeNoJsInspectionTabIds,
   tabLifecycleStateByTabId,
   tabSpinnerQueueByTabId,
   tabWorldTraceStateByTabId
@@ -423,6 +424,62 @@ const runRenderModeInspectionBeginStep = renderModeInspector.runRenderModeInspec
 const runRenderModeRevealFreezeStep = renderModeInspector.runRenderModeRevealFreezeStep;
 const runRenderModeHideConsentStep = renderModeInspector.runRenderModeHideConsentStep;
 const runRenderModeCaptureHtmlStep = renderModeInspector.runRenderModeCaptureHtmlStep;
+
+async function captureRenderModeHtmlWithDebugger(tabId) {
+  const normalizedTabId = normalizeBrokerTabId(tabId);
+  if (!normalizedTabId) {
+    return { ok: false, error: "Missing tab" };
+  }
+  const target = { tabId: normalizedTabId };
+  let tab = null;
+  try {
+    tab = await chrome.tabs.get(normalizedTabId);
+  } catch {
+    tab = null;
+  }
+  const pageUrl = tab && typeof tab.url === "string" ? tab.url : "";
+  try {
+    const documentResult = await chrome.debugger.sendCommand(target, "DOM.getDocument", {
+      depth: -1,
+      pierce: true
+    });
+    const rootNodeId = documentResult && documentResult.root && Number.isFinite(documentResult.root.nodeId)
+      ? documentResult.root.nodeId
+      : 0;
+    if (!rootNodeId) {
+      return { ok: false, error: "Unable to read inspected document" };
+    }
+    const htmlResult = await chrome.debugger.sendCommand(target, "DOM.getOuterHTML", {
+      nodeId: rootNodeId
+    });
+    const renderedHtml = htmlResult && typeof htmlResult.outerHTML === "string"
+      ? htmlResult.outerHTML
+      : "";
+    const rawResult = pageUrl ? await fetchStaticPageHtmlForBackground(pageUrl).catch(() => null) : null;
+    const rawHtml = rawResult && rawResult.ok && typeof rawResult.html === "string"
+      ? rawResult.html
+      : "";
+    return {
+      ok: Boolean(renderedHtml && rawHtml),
+      pageUrl,
+      renderedHtml,
+      rawHtml,
+      renderMode: "",
+      hiddenCount: 0,
+      error: renderedHtml ? "" : "Unable to capture inspected document HTML"
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      pageUrl,
+      renderedHtml: "",
+      rawHtml: "",
+      renderMode: "",
+      hiddenCount: 0,
+      error: (error && error.message) || "Unable to capture inspected document HTML"
+    };
+  }
+}
 
 const aiRunOrchestrator = createAiRunOrchestrator({
   aiComputeLockExpiresAtByTabId,
@@ -1124,18 +1181,41 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_END_RENDER_MODE_INSPECTION, as
     );
   }
   const operationId = normalizeRenderModeOperationId(payload, normalizedTabId);
-  const endAcknowledged = await sendRenderModeInspectionEndWithRetry(normalizedTabId, operationId);
-  if (!endAcknowledged) {
-    return context.replyFail(
-      MESSAGE_ERROR_CODES.CONTENT_UNAVAILABLE,
-      "Unable to end render mode inspection",
-      { tabId: normalizedTabId }
-    );
+  // Ending render-mode inspection is an explicit exit, so always restore
+  // JavaScript and clear any "Without JavaScript" hold for this tab. Restoring is
+  // a no-op when JavaScript is already enabled, and we only detach the debugger
+  // when device emulation is not relying on it.
+  if (renderModeNoJsInspectionTabIds.has(normalizedTabId)) {
+    renderModeNoJsInspectionTabIds.delete(normalizedTabId);
+    await utils.setPageJavaScriptExecutionDisabled(normalizedTabId, false).catch(() => null);
+    const deviceState = await getDeviceEmulationState(normalizedTabId).catch(() => null);
+    if (!deviceState || !deviceState.enabled) {
+      await utils.detachDebugger(normalizedTabId).catch(() => null);
+    }
   }
+  const endAcknowledged = await sendRenderModeInspectionEndWithRetry(normalizedTabId, operationId);
   const tabState = await utils.getTabState(normalizedTabId);
   updateTabRuntime(normalizedTabId, {
     mode: tabState && tabState.enabled ? "marking" : "silent"
   });
+  updateLifecycleState(normalizedTabId, {
+    operationId,
+    kind: LIFECYCLE_KINDS.RENDER_MODE_INSPECTION,
+    phase: endAcknowledged ? LIFECYCLE_PHASES.FINISHED : LIFECYCLE_PHASES.FAILED,
+    busy: false,
+    message: ""
+  });
+  if (!endAcknowledged) {
+    return context.replyFail(
+      MESSAGE_ERROR_CODES.CONTENT_UNAVAILABLE,
+      "Unable to end render mode inspection",
+      {
+        tabId: normalizedTabId,
+        runtime: getTabRuntimeSnapshot(normalizedTabId),
+        state: tabState
+      }
+    );
+  }
   return {
     ok: true,
     tabId: normalizedTabId,
@@ -1176,6 +1256,11 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
       persistent: false
     },
     async ({ update }) => {
+      // Clear any prior "Without JavaScript" hold for this tab before we start.
+      // This inspection's own reload also fires webNavigation events, so the tab
+      // must NOT be in the set while we reload — it is re-added in `finally` only
+      // after the reload's navigation events have already been dispatched.
+      renderModeNoJsInspectionTabIds.delete(normalizedTabId);
       let commandResult = {
         ok: false,
         tabId: normalizedTabId,
@@ -1202,6 +1287,59 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
         }
         return scriptEnableResult;
       };
+      const detachRenderModeDebuggerIfIdle = async (options = {}) => {
+        const waitForDetach = options.waitForDetach !== false;
+        const deviceState = await getDeviceEmulationState(normalizedTabId).catch(() => null);
+        if (deviceState && deviceState.enabled) {
+          return { ok: true, keptForDeviceEmulation: true };
+        }
+        const detachPromise = utils.detachDebugger(normalizedTabId).catch((error) => ({
+          ok: false,
+          error: (error && error.message) || "Unable to detach debugger"
+        }));
+        if (!waitForDetach) {
+          detachPromise.catch(() => null);
+          return { ok: true, detachPending: true };
+        }
+        return detachPromise;
+      };
+      const reloadPageWithJavaScriptForRenderModeRecovery = async (options = {}) => {
+        const requireLoadComplete = options.requireLoadComplete !== false;
+        const loadStartPromise = waitForTabLoadStartInBackground(
+          normalizedTabId,
+          RENDER_MODE_INSPECTION_START_TIMEOUT_MS
+        );
+        const reloadResult = await utils.reloadPageWithJavaScriptControl(
+          normalizedTabId,
+          false
+        );
+        javaScriptRestored = Boolean(reloadResult && reloadResult.ok);
+        const loadStarted = await loadStartPromise;
+        if (!reloadResult || !reloadResult.ok || (requireLoadComplete && !loadStarted)) {
+          return {
+            ok: false,
+            error: (reloadResult && reloadResult.error) || "Unable to reload page with JavaScript"
+          };
+        }
+        let loadCompleted = false;
+        if (requireLoadComplete) {
+          loadCompleted = await waitForTabLoadCompleteInBackground(
+            normalizedTabId,
+            RENDER_MODE_INSPECTION_LOAD_TIMEOUT_MS,
+            { awaitNextLoad: true }
+          );
+          if (!loadCompleted) {
+            return { ok: false, error: "Timed out while loading page with JavaScript" };
+          }
+        }
+        const detachResult = await detachRenderModeDebuggerIfIdle({
+          waitForDetach: requireLoadComplete
+        });
+        if (!detachResult.ok && requireLoadComplete) {
+          return detachResult;
+        }
+        return { ok: true, loadCompleted, detachResult };
+      };
 
       try {
         if (!javaScriptDisabled) {
@@ -1215,7 +1353,13 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
           }
         }
 
-        const beginResult = await runRenderModeInspectionBeginStep(normalizedTabId, operationId);
+        let beginResult = await runRenderModeInspectionBeginStep(normalizedTabId, operationId);
+        if (!beginResult.ok && beginResult.error === "Content activation failed") {
+          const recoveryResult = await reloadPageWithJavaScriptForRenderModeRecovery();
+          if (recoveryResult.ok) {
+            beginResult = await runRenderModeInspectionBeginStep(normalizedTabId, operationId);
+          }
+        }
         if (!beginResult.ok) {
           commandResult.followUpError = beginResult.error || "Unable to begin render mode inspection";
           return commandResult;
@@ -1251,13 +1395,6 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
             "Unable to reload page for render mode inspection";
           return commandResult;
         }
-        if (javaScriptDisabled) {
-          const scriptEnableResult = await restoreJavaScriptAfterNoJsReload();
-          if (!scriptEnableResult.ok) {
-            commandResult.followUpError = scriptEnableResult.error || "Unable to re-enable JavaScript after render mode inspection reload";
-            return commandResult;
-          }
-        }
         const loadCompleted = await waitForTabLoadCompleteInBackground(
           normalizedTabId,
           RENDER_MODE_INSPECTION_LOAD_TIMEOUT_MS
@@ -1267,26 +1404,35 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
           return commandResult;
         }
 
-        await update({
-          message: "Inspecting page...",
-          reason: "tab-render-mode-consent",
-          source: "background-command-router"
-        });
+        let hideConsentResult = { ok: true, hiddenCount: 0 };
+        let captureResult = null;
+        if (javaScriptDisabled) {
+          captureResult = await captureRenderModeHtmlWithDebugger(normalizedTabId);
+        } else {
+          await update({
+            message: "Inspecting page...",
+            reason: "tab-render-mode-consent",
+            source: "background-command-router"
+          });
 
-        const hideConsentResult = await runRenderModeHideConsentStep(normalizedTabId);
-        if (!hideConsentResult.ok) {
-          commandResult.followUpError = hideConsentResult.error || "Unable to hide consent form";
-          return commandResult;
+          hideConsentResult = await runRenderModeHideConsentStep(normalizedTabId);
+          if (!hideConsentResult.ok) {
+            commandResult.followUpError = hideConsentResult.error || "Unable to hide consent form";
+            return commandResult;
+          }
+
+          captureResult = await runRenderModeCaptureHtmlStep(
+            normalizedTabId,
+            baseUrl,
+            operationId
+          );
         }
-
-        const captureResult = await runRenderModeCaptureHtmlStep(
-          normalizedTabId,
-          baseUrl,
-          operationId
-        );
         if (!captureResult.ok) {
           commandResult.followUpError = captureResult.error || "Unable to capture render mode HTML";
           return commandResult;
+        }
+        if (!javaScriptDisabled) {
+          await detachRenderModeDebuggerIfIdle({ waitForDetach: false });
         }
 
         Object.assign(commandResult, {
@@ -1303,13 +1449,22 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
         });
         return commandResult;
       } finally {
-        if (javaScriptReloadAttempted && !javaScriptRestored) {
+        if (!javaScriptDisabled && javaScriptReloadAttempted && !javaScriptRestored) {
           await restoreJavaScriptAfterNoJsReload().catch(() => null);
         }
-        const endAcknowledged = await sendRenderModeInspectionEndWithRetry(
-          normalizedTabId,
-          operationId
-        );
+        if (javaScriptDisabled && javaScriptReloadAttempted) {
+          // The page is now reloaded with JavaScript disabled and is left that
+          // way for inspection. Remember the tab so JavaScript is restored on the
+          // next genuine top-level navigation (not on this inspection's own reload,
+          // which has already fired its navigation events by now).
+          renderModeNoJsInspectionTabIds.add(normalizedTabId);
+        }
+        const endAcknowledged = javaScriptDisabled
+          ? false
+          : await sendRenderModeInspectionEndWithRetry(
+            normalizedTabId,
+            operationId
+          );
         const tabState = await utils.getTabState(normalizedTabId);
         updateTabRuntime(normalizedTabId, {
           mode: tabState && tabState.enabled ? "marking" : "silent"
@@ -2525,6 +2680,28 @@ async function disableExtensionOnTopLevelNavigation(details) {
 // the "Leave site?" dialog; if the user clicks "Stay", the navigation is
 // cancelled but we would have already torn down the marking session.
 chrome.webNavigation.onCommitted.addListener(disableExtensionOnTopLevelNavigation);
+
+async function normalizeRenderModeJavaScriptOnTopLevelNavigation(details) {
+  if (details.frameId !== 0 || !details.tabId) {
+    return;
+  }
+  // Only act on tabs that were intentionally left in "Without JavaScript" render
+  // mode. The inspection's own reload also fires onBeforeNavigate, but the tab is
+  // not added to this set until the inspection command finishes (after that reload
+  // has navigated), so this handler never re-enables JavaScript mid-inspection.
+  // It restores JavaScript only when the user navigates away from the no-JS page.
+  if (!renderModeNoJsInspectionTabIds.has(details.tabId)) {
+    return;
+  }
+  renderModeNoJsInspectionTabIds.delete(details.tabId);
+  await utils.setPageJavaScriptExecutionDisabled(details.tabId, false).catch(() => null);
+  const deviceState = await getDeviceEmulationState(details.tabId).catch(() => null);
+  if (!deviceState || !deviceState.enabled) {
+    await utils.detachDebugger(details.tabId).catch(() => null);
+  }
+}
+
+chrome.webNavigation.onBeforeNavigate.addListener(normalizeRenderModeJavaScriptOnTopLevelNavigation);
 
 chrome.webNavigation.onCompleted.addListener(async (details) => {
   if (details.frameId !== 0) {
