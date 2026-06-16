@@ -5257,14 +5257,49 @@ async function handleEnableToggle(event) {
   if (desiredEnabled !== currentViewState.toggleEnabled) {
     collapseTodoListForAutoCollapse();
   }
-  const tab = await helpers.ensureActiveTab({ requireId: true, requireUrl: true });
+  let latestViewState = currentViewState;
+  const pendingKnownFromCurrentView = Boolean(
+    !desiredEnabled && currentViewState.sessionHasPendingChanges
+  );
+  let immediateDisableSpinnerKey = null;
+  const showImmediateDisableSpinner = () => {
+    if (desiredEnabled || immediateDisableSpinnerKey) {
+      return immediateDisableSpinnerKey;
+    }
+    immediateDisableSpinnerKey = pushSpinner(null, PopupText.overlay.disablingMarking, {
+      delayMs: 0,
+      reason: "marking-disable"
+    });
+    return immediateDisableSpinnerKey;
+  };
+  const clearImmediateDisableSpinner = () => {
+    if (!immediateDisableSpinnerKey) {
+      return;
+    }
+    popSpinner(immediateDisableSpinnerKey);
+    immediateDisableSpinnerKey = null;
+  };
+
+  if (!desiredEnabled) {
+    showImmediateDisableSpinner();
+  }
+
+  let tab = null;
+  try {
+    tab = await helpers.ensureActiveTab({ requireId: true, requireUrl: true });
+  } catch (error) {
+    clearImmediateDisableSpinner();
+    throw error;
+  }
   if (!tab) {
+    clearImmediateDisableSpinner();
     return;
   }
   uiModule.setViewState({ toggleEnabled: desiredEnabled });
   if (!helpers.ensureBaseUrl(ViewText.noMappedBaseUrlOrSiteId)) {
     uiModule.setViewState({ toggleEnabled: false });
     clearLastPopupEnabled();
+    clearImmediateDisableSpinner();
     return;
   }
   if (desiredEnabled && !isCurrentRenderModeReady()) {
@@ -5284,130 +5319,134 @@ async function handleEnableToggle(event) {
     return;
   }
 
-  let latestViewState = currentViewState;
-  const pendingKnownFromCurrentView = Boolean(
-    !desiredEnabled && currentViewState.sessionHasPendingChanges
-  );
-  if (!desiredEnabled && !pendingKnownFromCurrentView) {
-    // If pending changes are already known in the current view state, show the
-    // discard confirm immediately. Otherwise refresh first to avoid false
-    // negatives when the pending state has not been computed yet.
-    await refreshCurrentPageRuntimeStatus({
-      tabId: tab.id,
-      baseUrl: state.currentBaseUrl
-    });
-    await refreshUi({ useBusyOverlay: false, skipPropertyLockFetch: true });
-    latestViewState = uiModule.getViewState();
-  }
-
-  if (!desiredEnabled && latestViewState.sessionHasPendingChanges) {
-    uiModule.showToast(
-      latestViewState.sessionRequiresAiRun
-        ? PopupText.page.exitRequiresAiResolution
-        : PopupText.page.exitRequiresResolution
-    );
-    const confirmedDiscard = window.confirm(PopupText.page.disableDiscardConfirm);
-    if (!confirmedDiscard) {
-      // Cancel: stay in marking mode with the pending session intact.
-      uiModule.setViewState({ toggleEnabled: true });
-      setLastPopupEnabled(true, buildPopupEnabledContext(tab, state.currentBaseUrl));
-      await refreshUi();
-      return;
+  try {
+    if (!desiredEnabled && !pendingKnownFromCurrentView) {
+      // If pending changes are already known in the current view state, show the
+      // discard confirm immediately. Otherwise refresh first to avoid false
+      // negatives when the pending state has not been computed yet.
+      showImmediateDisableSpinner();
+      await refreshCurrentPageRuntimeStatus({
+        tabId: tab.id,
+        baseUrl: state.currentBaseUrl
+      });
+      await refreshUi({ useBusyOverlay: false, skipPropertyLockFetch: true });
+      latestViewState = uiModule.getViewState();
     }
-    // OK: discard the pending CSS selectors/markings locally, then fall through
-    // to disable marking (which drops to silent highlighting mode).
-    await applyLocalPageDiscard();
-  }
-  setLastPopupEnabled(desiredEnabled, buildPopupEnabledContext(tab, state.currentBaseUrl));
-  const baseUrlValue = state.currentBaseUrl;
-  const currentPageTypeKey = desiredEnabled ? state.currentPageTypeKey || "" : "";
-  await runWithSpinner(
-    null,
-    desiredEnabled ? PopupText.overlay.enablingMarking : PopupText.overlay.disablingMarking,
-    async (spinnerKey) => {
-      if (desiredEnabled) {
-        const parsed = utils.parseBaseUrl(baseUrlValue);
-        if (!parsed) {
-          uiModule.showToast(PopupText.baseUrl.toastInvalid);
-          uiModule.setViewState({ toggleEnabled: false });
-          clearLastPopupEnabled();
-          await refreshUi();
-          return;
-        }
-        if (!utils.isPageWithinBaseUrl(tab.url, baseUrlValue)) {
-          uiModule.showToast(PopupText.baseUrl.toastOutsideCurrentPage);
-          uiModule.setViewState({ toggleEnabled: false });
-          clearLastPopupEnabled();
-          await refreshUi();
-          return;
-        }
-        {
-          const currentConfigs = await config.getConfigs();
-          const normalizedCurrent = config.normalizeConfig(baseUrlValue, currentConfigs[baseUrlValue]);
-          state.currentConfig = normalizedCurrent.config;
-        }
-        const { stageBaseValue, tokenValue } = await helpers.loadGlobalAiSettings();
-        const siteIdResult = await ensureBaseUrlSiteId({
-          baseUrl: baseUrlValue,
-          pageUrl: tab.url,
-          stageBase: stageBaseValue,
-          tokenValue,
-          persist: false
-        });
-        if (!siteIdResult.ok || !siteIdResult.siteId) {
-          uiModule.showToast(siteIdResult.reason || ViewText.noDomainIdForBaseUrl);
-          uiModule.setViewState({ toggleEnabled: false });
-          clearLastPopupEnabled();
-          await refreshUi();
-          return;
-        }
-        const effectiveBaseUrl = siteIdResult.baseUrl || baseUrlValue;
-        state.currentBaseUrl = effectiveBaseUrl;
-        state.currentConfig = siteIdResult.config || state.currentConfig;
-        if (uiModule.getViewState().desktopPreviewEnabled) {
-          uiModule.showToast(PopupText.device.desktopPreviewDisableMarkingToast);
-          uiModule.setViewState({ toggleEnabled: false });
-          clearLastPopupEnabled();
-          await refreshUi();
-          return;
-        }
-        setSpinnerMessage(spinnerKey, PopupText.overlay.pageInspection);
-        const enableResponse = await messages.requestTabActivateMarking(tab.id, {
-          baseUrl: effectiveBaseUrl,
-          pageType: currentPageTypeKey,
-          desktopPreviewEnabled: Boolean(uiModule.getViewState().desktopPreviewEnabled)
-        });
-        if (!enableResponse || !enableResponse.ok) {
-          uiModule.setViewState({ toggleEnabled: false });
-          clearLastPopupEnabled();
-          if (enableResponse?.locked) {
-            uiModule.showToast(propertyLockText.lockedInteractionBlockedToast(state.propertyLockState?.editorName || "Someone"));
-          } else {
-            uiModule.showToast(enableResponse?.error || PopupText.helper.activateFailedOnPage);
-          }
-          await refreshUi();
-          return;
-        }
-        // Fresh entry into marking mode: Run AI starts enabled (no successful
-        // run yet for the current markings), Save/Preview start disabled.
-        resetAiRunMarkingsFingerprint();
-      } else {
-        const disableResponse = await messages.requestTabDeactivateMarking(tab.id, {
-          baseUrl: baseUrlValue,
-          pageType: ""
-        });
-        if (!disableResponse || !disableResponse.ok) {
-          uiModule.setViewState({ toggleEnabled: true });
-          setLastPopupEnabled(true, buildPopupEnabledContext(tab, state.currentBaseUrl));
-          uiModule.showToast((disableResponse && disableResponse.error) || "Unable to disable marking");
-          await refreshUi();
-          return;
-        }
+
+    if (!desiredEnabled && latestViewState.sessionHasPendingChanges) {
+      clearImmediateDisableSpinner();
+      uiModule.showToast(
+        latestViewState.sessionRequiresAiRun
+          ? PopupText.page.exitRequiresAiResolution
+          : PopupText.page.exitRequiresResolution
+      );
+      const confirmedDiscard = window.confirm(PopupText.page.disableDiscardConfirm);
+      if (!confirmedDiscard) {
+        // Cancel: stay in marking mode with the pending session intact.
+        uiModule.setViewState({ toggleEnabled: true });
+        setLastPopupEnabled(true, buildPopupEnabledContext(tab, state.currentBaseUrl));
+        await refreshUi();
+        return;
       }
-      await refreshUi();
-    },
-    { delayMs: POPUP_BUSY_OVERLAY_DELAY_MS }
-  );
+      // OK: discard the pending CSS selectors/markings locally, then fall through
+      // to disable marking (which drops to silent highlighting mode).
+      showImmediateDisableSpinner();
+      await applyLocalPageDiscard();
+    }
+    setLastPopupEnabled(desiredEnabled, buildPopupEnabledContext(tab, state.currentBaseUrl));
+    const baseUrlValue = state.currentBaseUrl;
+    const currentPageTypeKey = desiredEnabled ? state.currentPageTypeKey || "" : "";
+    await runWithSpinner(
+      desiredEnabled ? null : immediateDisableSpinnerKey,
+      desiredEnabled ? PopupText.overlay.enablingMarking : PopupText.overlay.disablingMarking,
+      async (spinnerKey) => {
+        if (desiredEnabled) {
+          const parsed = utils.parseBaseUrl(baseUrlValue);
+          if (!parsed) {
+            uiModule.showToast(PopupText.baseUrl.toastInvalid);
+            uiModule.setViewState({ toggleEnabled: false });
+            clearLastPopupEnabled();
+            await refreshUi();
+            return;
+          }
+          if (!utils.isPageWithinBaseUrl(tab.url, baseUrlValue)) {
+            uiModule.showToast(PopupText.baseUrl.toastOutsideCurrentPage);
+            uiModule.setViewState({ toggleEnabled: false });
+            clearLastPopupEnabled();
+            await refreshUi();
+            return;
+          }
+          {
+            const currentConfigs = await config.getConfigs();
+            const normalizedCurrent = config.normalizeConfig(baseUrlValue, currentConfigs[baseUrlValue]);
+            state.currentConfig = normalizedCurrent.config;
+          }
+          const { stageBaseValue, tokenValue } = await helpers.loadGlobalAiSettings();
+          const siteIdResult = await ensureBaseUrlSiteId({
+            baseUrl: baseUrlValue,
+            pageUrl: tab.url,
+            stageBase: stageBaseValue,
+            tokenValue,
+            persist: false
+          });
+          if (!siteIdResult.ok || !siteIdResult.siteId) {
+            uiModule.showToast(siteIdResult.reason || ViewText.noDomainIdForBaseUrl);
+            uiModule.setViewState({ toggleEnabled: false });
+            clearLastPopupEnabled();
+            await refreshUi();
+            return;
+          }
+          const effectiveBaseUrl = siteIdResult.baseUrl || baseUrlValue;
+          state.currentBaseUrl = effectiveBaseUrl;
+          state.currentConfig = siteIdResult.config || state.currentConfig;
+          if (uiModule.getViewState().desktopPreviewEnabled) {
+            uiModule.showToast(PopupText.device.desktopPreviewDisableMarkingToast);
+            uiModule.setViewState({ toggleEnabled: false });
+            clearLastPopupEnabled();
+            await refreshUi();
+            return;
+          }
+          setSpinnerMessage(spinnerKey, PopupText.overlay.pageInspection);
+          const enableResponse = await messages.requestTabActivateMarking(tab.id, {
+            baseUrl: effectiveBaseUrl,
+            pageType: currentPageTypeKey,
+            desktopPreviewEnabled: Boolean(uiModule.getViewState().desktopPreviewEnabled)
+          });
+          if (!enableResponse || !enableResponse.ok) {
+            uiModule.setViewState({ toggleEnabled: false });
+            clearLastPopupEnabled();
+            if (enableResponse?.locked) {
+              uiModule.showToast(propertyLockText.lockedInteractionBlockedToast(state.propertyLockState?.editorName || "Someone"));
+            } else {
+              uiModule.showToast(enableResponse?.error || PopupText.helper.activateFailedOnPage);
+            }
+            await refreshUi();
+            return;
+          }
+          // Fresh entry into marking mode: Run AI starts enabled (no successful
+          // run yet for the current markings), Save/Preview start disabled.
+          resetAiRunMarkingsFingerprint();
+        } else {
+          const disableResponse = await messages.requestTabDeactivateMarking(tab.id, {
+            baseUrl: baseUrlValue,
+            pageType: ""
+          });
+          if (!disableResponse || !disableResponse.ok) {
+            uiModule.setViewState({ toggleEnabled: true });
+            setLastPopupEnabled(true, buildPopupEnabledContext(tab, state.currentBaseUrl));
+            uiModule.showToast((disableResponse && disableResponse.error) || "Unable to disable marking");
+            await refreshUi();
+            return;
+          }
+        }
+        await refreshUi();
+      },
+      { delayMs: desiredEnabled ? POPUP_BUSY_OVERLAY_DELAY_MS : 0 }
+    );
+    immediateDisableSpinnerKey = null;
+  } finally {
+    clearImmediateDisableSpinner();
+  }
 }
 
 async function handleDeviceEmulationEnabledToggle(event) {

@@ -853,8 +853,11 @@ test("disabling marking with a pending session prompts to discard before exiting
   )[1];
 
   assert.match(enableBody, /const pendingKnownFromCurrentView = Boolean\([\s\S]*?!desiredEnabled && currentViewState\.sessionHasPendingChanges[\s\S]*?\);/);
-  assert.match(enableBody, /if \(!desiredEnabled && !pendingKnownFromCurrentView\) \{[\s\S]*?await refreshCurrentPageRuntimeStatus\(\{[\s\S]*?tabId: tab\.id,[\s\S]*?baseUrl: state\.currentBaseUrl[\s\S]*?await refreshUi\(\{ useBusyOverlay: false, skipPropertyLockFetch: true \}\);[\s\S]*?latestViewState = uiModule\.getViewState\(\);/);
+  assert.match(enableBody, /const showImmediateDisableSpinner = \(\) => \{[\s\S]*?pushSpinner\(null, PopupText\.overlay\.disablingMarking, \{[\s\S]*?delayMs: 0,[\s\S]*?reason: "marking-disable"/);
+  assert.match(enableBody, /if \(!desiredEnabled\) \{\s*showImmediateDisableSpinner\(\);\s*\}[\s\S]*?tab = await helpers\.ensureActiveTab\(\{ requireId: true, requireUrl: true \}\);/);
+  assert.match(enableBody, /if \(!desiredEnabled && !pendingKnownFromCurrentView\) \{[\s\S]*?showImmediateDisableSpinner\(\);[\s\S]*?await refreshCurrentPageRuntimeStatus\(\{[\s\S]*?tabId: tab\.id,[\s\S]*?baseUrl: state\.currentBaseUrl[\s\S]*?await refreshUi\(\{ useBusyOverlay: false, skipPropertyLockFetch: true \}\);[\s\S]*?latestViewState = uiModule\.getViewState\(\);/);
   assert.match(enableBody, /if \(!desiredEnabled && latestViewState\.sessionHasPendingChanges\)/);
+  assert.match(enableBody, /clearImmediateDisableSpinner\(\);[\s\S]*?const confirmedDiscard = window\.confirm\(PopupText\.page\.disableDiscardConfirm\);/);
   assert.match(enableBody, /PopupText\.page\.exitRequiresAiResolution/);
   assert.match(enableBody, /PopupText\.page\.exitRequiresResolution/);
   // A toast is shown, then a confirm dialog gates discard+disable.
@@ -862,7 +865,8 @@ test("disabling marking with a pending session prompts to discard before exiting
   // Cancel keeps the session and stays in marking mode.
   assert.match(enableBody, /if \(!confirmedDiscard\) \{[\s\S]*?uiModule\.setViewState\(\{ toggleEnabled: true \}\)[\s\S]*?setLastPopupEnabled\(true, buildPopupEnabledContext\(tab, state\.currentBaseUrl\)\)[\s\S]*?return;/);
   // OK discards locally, then falls through to disable.
-  assert.match(enableBody, /await applyLocalPageDiscard\(\);/);
+  assert.match(enableBody, /showImmediateDisableSpinner\(\);[\s\S]*?await applyLocalPageDiscard\(\);/);
+  assert.match(enableBody, /desiredEnabled \? null : immediateDisableSpinnerKey,[\s\S]*?\{ delayMs: desiredEnabled \? POPUP_BUSY_OVERLAY_DELAY_MS : 0 \}/);
 });
 
 test("popup scopes optimistic enabled state to the current tab page and base URL", () => {
