@@ -6413,6 +6413,13 @@ function handleGetInspectionStatusCommand() {
   return getInspectionStatusResolver().resolve();
 }
 
+function handleSetPopupBusyOnPageCommand(message = {}) {
+  return core.setPopupBusyOnPage(
+    Boolean(message.active),
+    typeof message.message === "string" ? message.message : ""
+  );
+}
+
 function handleRenderModeInspectionBeginCommand(message = {}) {
   return getRenderModeInspectionHandlers().begin(message);
 }
@@ -6445,6 +6452,7 @@ function registerContentCommandHandlersOnce() {
   }));
   registerContentCommand("setEnabled", async (_context, payload) => handleSetEnabledCommand(payload));
   registerContentCommand("getInspectionStatus", async () => handleGetInspectionStatusCommand());
+  registerContentCommand("setPopupBusyOnPage", async (_context, payload) => handleSetPopupBusyOnPageCommand(payload));
   registerContentCommand("renderModeInspectionBegin", async (_context, payload) => handleRenderModeInspectionBeginCommand(payload));
   registerContentCommand("runRenderModeRevealOnce", async (_context, payload) => handleRunRenderModeRevealOnceCommand(payload));
   registerContentCommand("captureRenderModeInspectionHtml", async (_context, payload) => handleCaptureRenderModeInspectionHtmlCommand(payload));
@@ -6456,6 +6464,7 @@ function createRuntimeMessageHandlerDeps() {
   return {
     handleSetEnabledCommand,
     handleGetInspectionStatusCommand,
+    handleSetPopupBusyOnPageCommand,
     handleRenderModeInspectionBeginCommand,
     handleRunRenderModeRevealOnceCommand,
     handleCaptureRenderModeInspectionHtmlCommand,

@@ -863,6 +863,24 @@ test("marking enable starts fresh: wipes stale page draft and reseeds the clean 
   );
 });
 
+test("page popup-busy overlay is independent from reveal inspection and freeze UI", () => {
+  const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+  const busyStart = source.indexOf("export function setPopupBusyOnPage(active, message = \"\")");
+  const busyEnd = source.indexOf("export function isPopupBusyOnPageActive", busyStart);
+  assert.ok(busyStart > -1);
+  assert.ok(busyEnd > busyStart);
+  const busySource = source.slice(busyStart, busyEnd);
+
+  assert.match(source, /popupBusyOverlay: null/);
+  assert.match(source, /popupBusyBlocker: null/);
+  assert.match(source, /const POPUP_BUSY_OVERLAY_ID = "unfluffify-popup-busy-overlay";/);
+  assert.match(source, /function startPopupBusyInputBlocker\(\) \{[\s\S]*?PAGE_INSPECTION_INPUT_EVENTS/);
+  assert.match(source, /function stopPopupBusyInputBlocker\(\) \{/);
+  assert.match(source, /state\.popupBusyFailOpenTimer = extensionSetTimeout\(\(\) => \{[\s\S]*?setPopupBusyOnPage\(false\);/);
+  assert.match(source, /setPopupBusyOnPage\(false\);[\s\S]*?stopPageInspectionInputBlocker\(\);/);
+  assert.doesNotMatch(busySource, /setPageInspectionUiActive|PAGE_INSPECTION_OVERLAY_CLASS|pausePageMotion|PAGE_MOTION_PAUSE/);
+});
+
 test("paint reachability allows in-path hits deeper in the hit stack and falls back when all checks reject", () => {
   const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
 

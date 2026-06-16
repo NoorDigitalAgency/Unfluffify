@@ -51,6 +51,17 @@ export function armSpinnerWatchdog(deps, key) {
   deps.popupSpinnerWatchdogByKey.set(key, timer);
 }
 
+function syncPageBusyFromPopupSpinner(deps) {
+  if (typeof deps.syncPageBusyFromPopupSpinner !== "function") {
+    return;
+  }
+  try {
+    deps.syncPageBusyFromPopupSpinner();
+  } catch {
+    // Page-busy mirroring is best effort; popup spinner state remains authoritative.
+  }
+}
+
 export function pushSpinner(deps, key, message, options = {}) {
   const effectiveKey = (typeof key === "string" && key) ? key : deps.cryptoRef.randomUUID();
   const msg = (typeof message === "string" && message.trim()) ? message.trim() : "";
@@ -88,13 +99,16 @@ export function pushSpinner(deps, key, message, options = {}) {
       if (!deps.getPopupSpinnerVisible()) {
         deps.setPopupSpinnerVisible(true);
         deps.setUiBusyFromCurrentSpinner();
+        syncPageBusyFromPopupSpinner(deps);
       } else {
         deps.setUiBusyFromCurrentSpinner();
+        syncPageBusyFromPopupSpinner(deps);
       }
     } else if (deps.getPopupSpinnerVisible()) {
       const topKey = [...deps.popupSpinnerQueue.keys()].at(-1);
       if (topKey === effectiveKey) {
         deps.setUiBusyFromCurrentSpinner();
+        syncPageBusyFromPopupSpinner(deps);
       }
     }
     if (tabId) {
@@ -114,6 +128,7 @@ export function pushSpinner(deps, key, message, options = {}) {
   if (deps.getPopupSpinnerVisible()) {
     deps.logPopupSpinnerDebug("push:update-visible", { key: effectiveKey, message: msg, persistent, reason, source, startedAt });
     deps.setUiBusyFromCurrentSpinner();
+    syncPageBusyFromPopupSpinner(deps);
     deps.syncSpinnerEntryToBackground(effectiveKey).catch(() => {});
     return effectiveKey;
   }
@@ -128,6 +143,7 @@ export function pushSpinner(deps, key, message, options = {}) {
         deps.setPopupSpinnerVisible(true);
         deps.logPopupSpinnerDebug("push:delayed-show", { key: effectiveKey, message: msg, persistent, reason, source, startedAt });
         deps.setUiBusyFromCurrentSpinner();
+        syncPageBusyFromPopupSpinner(deps);
         deps.syncSpinnerEntryToBackground(effectiveKey).catch(() => {});
       }, delayMs));
     }
@@ -141,6 +157,7 @@ export function pushSpinner(deps, key, message, options = {}) {
   deps.setPopupSpinnerVisible(true);
   deps.logPopupSpinnerDebug("push:show", { key: effectiveKey, message: msg, persistent, reason, source, startedAt });
   deps.setUiBusyFromCurrentSpinner();
+  syncPageBusyFromPopupSpinner(deps);
   if (tabId) {
     deps.popupSpinnerKeyTabIds.set(effectiveKey, tabId);
   }
@@ -166,6 +183,7 @@ export function setSpinnerMessage(deps, key, message) {
     const topKey = [...deps.popupSpinnerQueue.keys()].at(-1);
     if (topKey === key) {
       deps.setUiBusyFromCurrentSpinner();
+      syncPageBusyFromPopupSpinner(deps);
     }
   }
 }
@@ -191,6 +209,7 @@ export function popSpinner(deps, key) {
     if (deps.getPopupSpinnerVisible()) {
       deps.setUiBusyFromCurrentSpinner();
       deps.syncUiBusyFromBrokerState();
+      syncPageBusyFromPopupSpinner(deps);
     }
     return;
   }
@@ -204,6 +223,7 @@ export function popSpinner(deps, key) {
     deps.setPopupSpinnerVisible(false);
     deps.logPopupSpinnerDebug("pop:hide", { key, mappedTabId });
     deps.uiModule.setUiBusy(false);
+    syncPageBusyFromPopupSpinner(deps);
   }
   deps.scheduleStaleInspectionBusyClear(mappedTabId || tabId);
 }

@@ -57,6 +57,10 @@ export const state = {
   markingDisabledNotice: null,
   pageInspectionNotice: null,
   inspectionBlocker: null,
+  popupBusyOverlay: null,
+  popupBusyNotice: null,
+  popupBusyBlocker: null,
+  popupBusyFailOpenTimer: 0,
   altPassThrough: false,
   altHeld: false,
   shiftHeld: false,
@@ -202,6 +206,9 @@ const PAGE_MOTION_PAUSE_MAX_LOCKED_ELEMENTS = 800;
 const PAGE_MOTION_PAUSE_MAX_HOVER_TARGETS = 500;
 const PAGE_INSPECTION_STYLE_ID = "unfluffify-page-inspection-style";
 const PAGE_INSPECTION_OVERLAY_CLASS = "uf-page-inspection-active";
+const POPUP_BUSY_STYLE_ID = "unfluffify-popup-busy-style";
+const POPUP_BUSY_OVERLAY_ID = "unfluffify-popup-busy-overlay";
+const POPUP_BUSY_PAGE_WATCHDOG_MS = 65000;
 const PAGE_INSPECTION_DEFAULT_MAX_SCROLLS = 10;
 const PAGE_INSPECTION_DEFAULT_PAUSE_MS = 1000;
 const PAGE_INSPECTION_LAZY_LOAD_SUPPRESSION_SCROLL_RATIO = 0.5;
@@ -4315,6 +4322,215 @@ function stopPageInspectionInputBlocker() {
     }
   }
   state.inspectionBlocker = null;
+}
+
+function blockPopupBusyInput(event) {
+  if (!state.popupBusyBlocker) {
+    return;
+  }
+  if (event && event.cancelable && typeof event.preventDefault === "function") {
+    event.preventDefault();
+  }
+  if (event && typeof event.stopImmediatePropagation === "function") {
+    event.stopImmediatePropagation();
+    return;
+  }
+  if (event && typeof event.stopPropagation === "function") {
+    event.stopPropagation();
+  }
+}
+
+function startPopupBusyInputBlocker() {
+  if (state.popupBusyBlocker) {
+    return;
+  }
+  const targets = [window, document].filter((target) =>
+    target && typeof target.addEventListener === "function"
+  );
+  const options = { capture: true, passive: false };
+  for (const target of targets) {
+    for (const eventName of PAGE_INSPECTION_INPUT_EVENTS) {
+      target.addEventListener(eventName, blockPopupBusyInput, options);
+    }
+  }
+  state.popupBusyBlocker = { targets, options };
+}
+
+function stopPopupBusyInputBlocker() {
+  const blocker = state.popupBusyBlocker;
+  if (!blocker) {
+    return;
+  }
+  for (const target of blocker.targets) {
+    if (!target || typeof target.removeEventListener !== "function") {
+      continue;
+    }
+    for (const eventName of PAGE_INSPECTION_INPUT_EVENTS) {
+      target.removeEventListener(eventName, blockPopupBusyInput, blocker.options);
+    }
+  }
+  state.popupBusyBlocker = null;
+}
+
+function ensurePopupBusyStyle() {
+  if (typeof document === "undefined") {
+    return null;
+  }
+  const existing = typeof document.getElementById === "function"
+    ? document.getElementById(POPUP_BUSY_STYLE_ID)
+    : null;
+  if (existing) {
+    return existing;
+  }
+  if (typeof document.createElement !== "function") {
+    return null;
+  }
+  const style = document.createElement("style");
+  style.id = POPUP_BUSY_STYLE_ID;
+  if (typeof style.setAttribute === "function") {
+    style.setAttribute("data-uf-extension-ui", "true");
+  }
+  style.textContent = `
+    #${POPUP_BUSY_OVERLAY_ID} {
+      position: fixed !important;
+      inset: 0 !important;
+      z-index: 2147483647 !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      box-sizing: border-box !important;
+      padding: 16px !important;
+      background: rgba(16, 20, 28, 0.2) !important;
+      pointer-events: auto !important;
+      cursor: progress !important;
+    }
+    #${POPUP_BUSY_OVERLAY_ID}[hidden] {
+      display: none !important;
+    }
+    #${POPUP_BUSY_OVERLAY_ID} .uf-popup-busy-notice {
+      display: flex !important;
+      align-items: center !important;
+      gap: 12px !important;
+      max-width: min(460px, calc(100vw - 32px)) !important;
+      box-sizing: border-box !important;
+      padding: 14px 16px !important;
+      border-radius: 12px !important;
+      border: 1px solid rgba(255, 255, 255, 0.24) !important;
+      background: rgba(22, 26, 34, 0.96) !important;
+      color: #ffffff !important;
+      box-shadow: 0 18px 44px rgba(0, 0, 0, 0.28) !important;
+      font-family: ${EXTENSION_UI_FONT_STACK} !important;
+      font-size: 14px !important;
+      font-weight: 650 !important;
+      line-height: 1.3 !important;
+      pointer-events: none !important;
+    }
+    #${POPUP_BUSY_OVERLAY_ID} .uf-popup-busy-spinner {
+      width: 20px !important;
+      height: 20px !important;
+      box-sizing: border-box !important;
+      border: 2px solid rgba(255, 255, 255, 0.28) !important;
+      border-top-color: #ffffff !important;
+      border-radius: 999px !important;
+      animation: uf-popup-busy-spin 0.8s linear infinite !important;
+      flex: 0 0 auto !important;
+    }
+    @keyframes uf-popup-busy-spin {
+      to { transform: rotate(360deg); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      #${POPUP_BUSY_OVERLAY_ID} .uf-popup-busy-spinner {
+        animation: none !important;
+      }
+    }
+  `;
+  const parent = document.head || document.documentElement || document.body;
+  if (parent && typeof parent.appendChild === "function") {
+    parent.appendChild(style);
+  }
+  return style;
+}
+
+function ensurePopupBusyOverlay() {
+  if (typeof document === "undefined") {
+    return null;
+  }
+  const existing = typeof document.getElementById === "function"
+    ? document.getElementById(POPUP_BUSY_OVERLAY_ID)
+    : null;
+  if (existing) {
+    state.popupBusyOverlay = existing;
+    state.popupBusyNotice = existing.querySelector(".uf-popup-busy-message");
+    return existing;
+  }
+  if (typeof document.createElement !== "function") {
+    return null;
+  }
+  const overlay = document.createElement("div");
+  overlay.id = POPUP_BUSY_OVERLAY_ID;
+  overlay.hidden = true;
+  overlay.setAttribute("data-uf-extension-ui", "true");
+  overlay.setAttribute("role", "presentation");
+  const notice = document.createElement("div");
+  notice.className = "uf-popup-busy-notice";
+  notice.setAttribute("role", "status");
+  notice.setAttribute("aria-live", "assertive");
+  const spinner = document.createElement("span");
+  spinner.className = "uf-popup-busy-spinner";
+  spinner.setAttribute("aria-hidden", "true");
+  const message = document.createElement("span");
+  message.className = "uf-popup-busy-message";
+  message.textContent = ContentText.marking.popupBusy;
+  notice.appendChild(spinner);
+  notice.appendChild(message);
+  overlay.appendChild(notice);
+  const parent = document.body || document.documentElement;
+  if (parent && typeof parent.appendChild === "function") {
+    parent.appendChild(overlay);
+  }
+  state.popupBusyOverlay = overlay;
+  state.popupBusyNotice = message;
+  return overlay;
+}
+
+function clearPopupBusyFailOpenTimer() {
+  if (state.popupBusyFailOpenTimer) {
+    extensionClearTimeout(state.popupBusyFailOpenTimer);
+    state.popupBusyFailOpenTimer = 0;
+  }
+}
+
+export function setPopupBusyOnPage(active, message = "") {
+  const enabled = Boolean(active);
+  clearPopupBusyFailOpenTimer();
+  if (!enabled) {
+    stopPopupBusyInputBlocker();
+    if (state.popupBusyOverlay) {
+      state.popupBusyOverlay.hidden = true;
+    }
+    return { ok: true, active: false };
+  }
+  ensurePopupBusyStyle();
+  const overlay = ensurePopupBusyOverlay();
+  if (!overlay) {
+    return { ok: false };
+  }
+  const normalizedMessage = typeof message === "string" && message.trim()
+    ? message.trim()
+    : ContentText.marking.popupBusy;
+  if (state.popupBusyNotice) {
+    state.popupBusyNotice.textContent = normalizedMessage;
+  }
+  overlay.hidden = false;
+  startPopupBusyInputBlocker();
+  state.popupBusyFailOpenTimer = extensionSetTimeout(() => {
+    setPopupBusyOnPage(false);
+  }, POPUP_BUSY_PAGE_WATCHDOG_MS);
+  return { ok: true, active: true };
+}
+
+export function isPopupBusyOnPageActive() {
+  return Boolean(state.popupBusyOverlay && !state.popupBusyOverlay.hidden);
 }
 
 function ensurePageMotionPauseStyle() {
@@ -10249,6 +10465,7 @@ export function disable(options = {}) {
   state.altPassThrough = false;
   state.consentSyncedPageUrl = "";
   state.pageRevealWarmupId += 1;
+  setPopupBusyOnPage(false);
   stopPageInspectionInputBlocker();
   if (state.renderTimer) {
     extensionClearTimeout(state.renderTimer);

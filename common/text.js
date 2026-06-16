@@ -160,6 +160,7 @@ export const ContentText = Object.freeze({
     explicitIncludeBlocked: "Element cannot be explicitly included", // Toast shown when an element fails the explicit-include eligibility rules.
     pageInteractionMode: "Page interaction mode", // Toast shown while Space is held to let clicks reach page UI.
     pageInspection: "Inspecting page... it will be ready soon", // Persistent page-overlay notice while the extension reveals lazy content before marking starts.
+    popupBusy: "Working... page controls are temporarily paused", // Persistent page-overlay notice mirrored from the popup busy spinner.
     saveReconciliationBlocked: "Finish server sync before editing", // Toast shown when page editing is locked after a local save.
     temporarilyDisabledSaving: "Saving page... marking paused", // Persistent page-overlay notice while a save is in progress.
     temporarilyDisabledSyncing: "Save sync pending... marking paused", // Persistent page-overlay notice while saved page sync is pending.

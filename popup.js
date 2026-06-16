@@ -373,6 +373,9 @@ const popupRenderModeSetNavGuardByTabId = new Map();
 let popupStaleInspectionBusyClearTimer = 0;
 let popupBackgroundStatePort = null;
 let popupBackgroundLifecycle = null;
+let popupPageBusyMirrorTabId = null;
+let popupPageBusyMirrorActive = false;
+let popupPageBusyMirrorSignature = "";
 let propertyPageTypesRequest = null;
 const popupTimers = createPopupTimerGroup({ windowRef: window });
 
@@ -409,7 +412,8 @@ function getSpinnerDeps() {
     syncSpinnerEntryToBackground,
     removeSpinnerEntryFromBackground,
     clearSpinnerQueueInBackground,
-    scheduleStaleInspectionBusyClear
+    scheduleStaleInspectionBusyClear,
+    syncPageBusyFromPopupSpinner
   };
 }
 
@@ -640,10 +644,65 @@ function getCurrentPopupTabId() {
     : null;
 }
 
+function isRenderDetectionPopupSpinner(snapshot) {
+  const message = snapshot && snapshot.entry && typeof snapshot.entry.message === "string"
+    ? snapshot.entry.message
+    : "";
+  return message === PopupText.overlay.detectingRenderMode;
+}
+
+function sendPopupBusyMirrorMessage(tabId, active, message = "") {
+  if (!tabId) {
+    return;
+  }
+  messages.sendTabMessageToTab(tabId, {
+    type: "setPopupBusyOnPage",
+    active: Boolean(active),
+    message: typeof message === "string" ? message : ""
+  }).catch(() => {});
+}
+
+function syncPageBusyFromPopupSpinner() {
+  const tabId = getCurrentPopupTabId();
+  const snapshot = currentSpinnerSnapshot();
+  const active = Boolean(
+    tabId &&
+      popupSpinnerVisible &&
+      snapshot &&
+      !isRenderDetectionPopupSpinner(snapshot)
+  );
+
+  if (active) {
+    const message = currentSpinnerMessage() || PopupText.overlay.pleaseWait;
+    const signature = `${tabId}|${message}`;
+    if (popupPageBusyMirrorActive && popupPageBusyMirrorTabId && popupPageBusyMirrorTabId !== tabId) {
+      sendPopupBusyMirrorMessage(popupPageBusyMirrorTabId, false);
+    }
+    if (popupPageBusyMirrorSignature === signature) {
+      return;
+    }
+    popupPageBusyMirrorActive = true;
+    popupPageBusyMirrorTabId = tabId;
+    popupPageBusyMirrorSignature = signature;
+    sendPopupBusyMirrorMessage(tabId, true, message);
+    return;
+  }
+
+  if (!popupPageBusyMirrorActive && !popupPageBusyMirrorTabId) {
+    return;
+  }
+  const clearTabId = popupPageBusyMirrorTabId || tabId;
+  popupPageBusyMirrorActive = false;
+  popupPageBusyMirrorTabId = null;
+  popupPageBusyMirrorSignature = "";
+  sendPopupBusyMirrorMessage(clearTabId, false);
+}
+
 function syncUiBusyFromBrokerState() {
   if (popupSpinnerQueue.size > 0) {
     popupSpinnerVisible = true;
     setUiBusyFromCurrentSpinner();
+    syncPageBusyFromPopupSpinner();
     return;
   }
   const lifecycleBusy = Boolean(popupBackgroundLifecycle && popupBackgroundLifecycle.busy);
@@ -654,10 +713,12 @@ function syncUiBusyFromBrokerState() {
       source: "background-lifecycle",
       spinnerKey: ""
     });
+    syncPageBusyFromPopupSpinner();
     return;
   }
   popupSpinnerVisible = false;
   uiModule.setUiBusy(false);
+  syncPageBusyFromPopupSpinner();
 }
 
 function isWorldTraceEnabled() {
@@ -6826,6 +6887,7 @@ async function init() {
     if (popupSpinnerVisible) {
       popupSpinnerVisible = false;
       uiModule.setUiBusy(false);
+      syncPageBusyFromPopupSpinner();
     }
     popupNavigationInspectionOverlayStarted = false;
     popupNavigationInspectionOverlayTabId = null;

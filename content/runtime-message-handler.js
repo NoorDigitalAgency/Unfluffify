@@ -19,6 +19,11 @@ export function handleRuntimeMessage(message, _sender, sendResponse, deps) {
     return;
   }
 
+  if (message.type === "setPopupBusyOnPage") {
+    sendResponse(deps.handleSetPopupBusyOnPageCommand(message));
+    return;
+  }
+
   if (message.type === "renderModeInspectionBegin") {
     sendResponse(deps.handleRenderModeInspectionBeginCommand(message));
     return;

@@ -10,6 +10,7 @@ import {
 } from "../popup/render-mode.js";
 
 const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+const popupSpinnerSource = readFileSync(new URL("../popup/spinner.js", import.meta.url), "utf8");
 const uiSource = readFileSync(new URL("../popup/ui.js", import.meta.url), "utf8");
 
 function extractSourceBlock(source, startNeedle, endNeedle) {
@@ -84,6 +85,22 @@ test("render mode inspect buttons alternate by the tab's current JavaScript mode
     editorBlock,
     /id: "render-mode-inspect-with-javascript",[\s\S]*?disabled: view\.renderModeInspectWithJavaScriptDisabled/
   );
+});
+
+test("popup page-busy mirror skips render detection spinners", () => {
+  assert.match(
+    popupSource,
+    /function isRenderDetectionPopupSpinner\(snapshot\) \{[\s\S]*?PopupText\.overlay\.detectingRenderMode[\s\S]*?\}/
+  );
+  assert.match(
+    popupSource,
+    /function syncPageBusyFromPopupSpinner\(\) \{[\s\S]*?!isRenderDetectionPopupSpinner\(snapshot\)[\s\S]*?sendPopupBusyMirrorMessage\(tabId, true, message\)/
+  );
+  assert.match(popupSource, /type: "setPopupBusyOnPage"/);
+  assert.match(popupSource, /syncPageBusyFromPopupSpinner/);
+  assert.match(popupSpinnerSource, /function syncPageBusyFromPopupSpinner\(deps\)/);
+  assert.match(popupSpinnerSource, /deps\.setUiBusyFromCurrentSpinner\(\);[\s\S]*?syncPageBusyFromPopupSpinner\(deps\);/);
+  assert.match(popupSpinnerSource, /deps\.uiModule\.setUiBusy\(false\);[\s\S]*?syncPageBusyFromPopupSpinner\(deps\);/);
 });
 
 test("render mode editor shows a textual selected-mode summary instead of a visible dropdown", () => {

@@ -7,6 +7,7 @@ function createDeps(overrides = {}) {
   const deps = {
     handleSetEnabledCommand: async () => ({ ok: true }),
     handleGetInspectionStatusCommand: () => ({ ok: true }),
+    handleSetPopupBusyOnPageCommand: () => ({ ok: true, active: true }),
     handleRenderModeInspectionBeginCommand: () => ({ ok: true }),
     handleRunRenderModeRevealOnceCommand: async () => ({ ok: true }),
     handleCaptureRenderModeInspectionHtmlCommand: async () => ({ ok: true }),
@@ -74,6 +75,26 @@ test("getDefaultExclusions responds synchronously", () => {
 
   assert.equal(result, undefined);
   assert.deepEqual(responses, [{ ok: true, selectors: ["body"] }]);
+});
+
+test("setPopupBusyOnPage responds synchronously", () => {
+  const calls = [];
+  const deps = createDeps({
+    handleSetPopupBusyOnPageCommand: (message) => {
+      calls.push(message);
+      return { ok: true, active: Boolean(message.active) };
+    }
+  });
+  const responses = [];
+
+  const message = { type: "setPopupBusyOnPage", active: true, message: "Saving session..." };
+  const result = handleRuntimeMessage(message, {}, (response) => {
+    responses.push(response);
+  }, deps);
+
+  assert.equal(result, undefined);
+  assert.deepEqual(calls, [message]);
+  assert.deepEqual(responses, [{ ok: true, active: true }]);
 });
 
 test("setAiComputeLock returns true and responds on success", async () => {
