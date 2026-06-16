@@ -47,6 +47,10 @@ test("background TAB_RUN_RENDER_MODE_INSPECTION orchestrates reload, consent hid
   assert.match(commandBlock, /runRenderModeHideConsentStep\(normalizedTabId\)/);
   assert.match(commandBlock, /runRenderModeCaptureHtmlStep\(\s*normalizedTabId,\s*baseUrl,\s*operationId\s*\)/);
   assert.match(commandBlock, /sendRenderModeInspectionEndWithRetry\(\s*normalizedTabId,\s*operationId\s*\)/);
+  assert.match(
+    commandBlock,
+    /finally \{[\s\S]*?sendRenderModeInspectionEndWithRetry\([\s\S]*?updateLifecycleState\(normalizedTabId, \{[\s\S]*?kind: LIFECYCLE_KINDS\.RENDER_MODE_INSPECTION,[\s\S]*?phase: commandResult\.ok \? LIFECYCLE_PHASES\.FINISHED : LIFECYCLE_PHASES\.FAILED,[\s\S]*?busy: false/
+  );
 });
 
 test("background render-mode consent hide is separate from HTML capture", () => {

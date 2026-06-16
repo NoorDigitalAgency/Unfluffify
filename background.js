@@ -1319,6 +1319,13 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
           runtime: getTabRuntimeSnapshot(normalizedTabId),
           state: tabState
         });
+        updateLifecycleState(normalizedTabId, {
+          operationId,
+          kind: LIFECYCLE_KINDS.RENDER_MODE_INSPECTION,
+          phase: commandResult.ok ? LIFECYCLE_PHASES.FINISHED : LIFECYCLE_PHASES.FAILED,
+          busy: false,
+          message: ""
+        });
       }
     }
   );
