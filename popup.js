@@ -5388,7 +5388,6 @@ async function handleEnableToggle(event) {
           await refreshUi();
           return;
         }
-        await waitForEnableMarkingInspectionToSettle(tab.id, effectiveBaseUrl);
         // Fresh entry into marking mode: Run AI starts enabled (no successful
         // run yet for the current markings), Save/Preview start disabled.
         resetAiRunMarkingsFingerprint();

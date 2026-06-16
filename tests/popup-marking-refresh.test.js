@@ -839,7 +839,11 @@ test("marking enable upgrades the popup spinner to page inspection during reveal
     /setSpinnerMessage\(spinnerKey, PopupText\.overlay\.pageInspection\);[\s\S]*?const enableResponse = await messages\.requestTabActivateMarking\(tab\.id, \{[\s\S]*?baseUrl: effectiveBaseUrl/
   );
   assert.match(enableBody, /desktopPreviewEnabled: Boolean\(uiModule\.getViewState\(\)\.desktopPreviewEnabled\)/);
-  assert.match(enableBody, /await waitForEnableMarkingInspectionToSettle\(tab\.id, effectiveBaseUrl\);/);
+  assert.doesNotMatch(enableBody, /await waitForEnableMarkingInspectionToSettle\(tab\.id, effectiveBaseUrl\);/);
+  assert.match(
+    enableBody,
+    /const enableResponse = await messages\.requestTabActivateMarking[\s\S]*?resetAiRunMarkingsFingerprint\(\);[\s\S]*?await refreshUi\(\);/
+  );
 });
 
 test("disabling marking with a pending session prompts to discard before exiting", () => {

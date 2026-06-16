@@ -41,7 +41,7 @@ test("entering marking mode, saving, and discarding reset the fingerprint", () =
   // Enabling marking: Run AI starts enabled.
   assert.match(
     popupSource,
-    /await waitForEnableMarkingInspectionToSettle\(tab\.id, effectiveBaseUrl\);\s*\/\/[\s\S]*?resetAiRunMarkingsFingerprint\(\);/
+    /const enableResponse = await messages\.requestTabActivateMarking[\s\S]*?if \(!enableResponse \|\| !enableResponse\.ok\) \{[\s\S]*?return;[\s\S]*?\}\s*\/\/[\s\S]*?resetAiRunMarkingsFingerprint\(\);/
   );
   // Save success.
   assert.match(
