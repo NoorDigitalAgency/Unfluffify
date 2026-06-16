@@ -74,13 +74,14 @@ test("background TAB_RUN_RENDER_MODE_INSPECTION orchestrates reload, consent hid
   assert.match(commandBlock, /if \(!javaScriptDisabled\) \{[\s\S]*?await detachRenderModeDebuggerIfIdle\(\{ waitForDetach: false \}\);/);
   assert.match(commandBlock, /sendRenderModeInspectionEndWithRetry\(\s*normalizedTabId,\s*operationId\s*\)/);
   // "With JavaScript" clears the no-JS hold; a completed no-JS reload records the
-  // tab so JavaScript is restored on the next genuine navigation (not its own reload).
-  assert.match(commandBlock, /renderModeNoJsInspectionTabIds\.delete\(normalizedTabId\)/);
-  assert.match(commandBlock, /if \(javaScriptDisabled && javaScriptReloadAttempted\) \{[\s\S]*?renderModeNoJsInspectionTabIds\.add\(normalizedTabId\)/);
+  // tab (in chrome.storage.session) so JavaScript is restored on the next genuine
+  // navigation (not its own reload) and the popup can show the current JS mode.
+  assert.match(commandBlock, /clearRenderModeNoJsHeld\(normalizedTabId\)/);
+  assert.match(commandBlock, /if \(javaScriptDisabled && javaScriptReloadAttempted\) \{[\s\S]*?setRenderModeNoJsHeld\(normalizedTabId, true\)/);
   // "With JavaScript" on a tab held in no-JS mode reloads with JavaScript first so
   // content scripts are present before the begin handshake (otherwise it retries
   // content readiness for tens of seconds against the stale no-JS page).
-  assert.match(commandBlock, /const wasHeldInNoJsMode = renderModeNoJsInspectionTabIds\.has\(normalizedTabId\);/);
+  assert.match(commandBlock, /const wasHeldInNoJsMode = await isRenderModeNoJsHeld\(normalizedTabId\);/);
   assert.match(commandBlock, /if \(wasHeldInNoJsMode\) \{[\s\S]*?reloadPageWithJavaScriptForRenderModeRecovery\(\)/);
   assert.match(
     commandBlock,
@@ -96,8 +97,8 @@ test("background TAB_END_RENDER_MODE_INSPECTION restores JavaScript and clears t
   // Ending render-mode inspection is an explicit exit, so JavaScript must be
   // restored and the no-JS hold cleared, detaching only when device emulation
   // does not need the debugger.
-  assert.match(endBlock, /if \(renderModeNoJsInspectionTabIds\.has\(normalizedTabId\)\) \{/);
-  assert.match(endBlock, /renderModeNoJsInspectionTabIds\.delete\(normalizedTabId\)/);
+  assert.match(endBlock, /if \(await isRenderModeNoJsHeld\(normalizedTabId\)\) \{/);
+  assert.match(endBlock, /clearRenderModeNoJsHeld\(normalizedTabId\)/);
   assert.match(endBlock, /utils\.setPageJavaScriptExecutionDisabled\(normalizedTabId, false\)/);
   assert.match(endBlock, /getDeviceEmulationState\(normalizedTabId\)/);
   assert.match(endBlock, /utils\.detachDebugger\(normalizedTabId\)/);

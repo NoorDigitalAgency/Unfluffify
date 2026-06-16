@@ -77,6 +77,7 @@ export const state = {
   renderModeInspectionSnapshotKey: "",
   renderModeInspectionSnapshot: null,
   renderModeInspectionActive: false,
+  renderModeTabJsDisabled: false,
   renderModeUndeterminedNoticeKey: "",
   renderModeWarningDismissedKey: "",
   renderModeManualStepsVisible: false,

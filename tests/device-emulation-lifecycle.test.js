@@ -44,11 +44,12 @@ test("top-level navigation normalizes render-mode JavaScript debugging state", (
   );
 
   assert.match(backgroundSource, /chrome\.webNavigation\.onBeforeNavigate\.addListener\(normalizeRenderModeJavaScriptOnTopLevelNavigation\)/);
-  // Only act on tabs intentionally left in "Without JavaScript" render mode. The
-  // inspection's own reload also fires onBeforeNavigate, but those tabs are not in
-  // the set yet, so JavaScript is never re-enabled mid-inspection.
-  assert.match(normalizeBlock, /if \(!renderModeNoJsInspectionTabIds\.has\(details\.tabId\)\)/);
-  assert.match(normalizeBlock, /renderModeNoJsInspectionTabIds\.delete\(details\.tabId\)/);
+  // Only act on tabs intentionally left in "Without JavaScript" render mode (tracked
+  // in chrome.storage.session). The inspection's own reload also fires
+  // onBeforeNavigate, but those tabs are not held yet, so JavaScript is never
+  // re-enabled mid-inspection.
+  assert.match(normalizeBlock, /if \(!\(await isRenderModeNoJsHeld\(details\.tabId\)\)\)/);
+  assert.match(normalizeBlock, /clearRenderModeNoJsHeld\(details\.tabId\)/);
   assert.match(normalizeBlock, /utils\.setPageJavaScriptExecutionDisabled\(details\.tabId, false\)/);
   assert.match(normalizeBlock, /getDeviceEmulationState\(details\.tabId\)/);
   assert.match(normalizeBlock, /utils\.detachDebugger\(details\.tabId\)/);

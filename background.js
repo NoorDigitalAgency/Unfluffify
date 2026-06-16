@@ -139,11 +139,15 @@ import {
   disposeTabState,
   pageMotionFreezeControlQueueByTarget,
   popupStatePortsByTabId,
-  renderModeNoJsInspectionTabIds,
   tabLifecycleStateByTabId,
   tabSpinnerQueueByTabId,
   tabWorldTraceStateByTabId
 } from "./background/background-tab-state.js";
+import {
+  clearRenderModeNoJsHeld,
+  isRenderModeNoJsHeld,
+  setRenderModeNoJsHeld
+} from "./common/render-mode-js-state.js";
 import {
   clearTrackedTabSessionState as clearStoredTrackedTabSessionState,
   clearTabStateScope,
@@ -1185,8 +1189,8 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_END_RENDER_MODE_INSPECTION, as
   // JavaScript and clear any "Without JavaScript" hold for this tab. Restoring is
   // a no-op when JavaScript is already enabled, and we only detach the debugger
   // when device emulation is not relying on it.
-  if (renderModeNoJsInspectionTabIds.has(normalizedTabId)) {
-    renderModeNoJsInspectionTabIds.delete(normalizedTabId);
+  if (await isRenderModeNoJsHeld(normalizedTabId)) {
+    await clearRenderModeNoJsHeld(normalizedTabId);
     await utils.setPageJavaScriptExecutionDisabled(normalizedTabId, false).catch(() => null);
     const deviceState = await getDeviceEmulationState(normalizedTabId).catch(() => null);
     if (!deviceState || !deviceState.enabled) {
@@ -1258,10 +1262,10 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
     async ({ update }) => {
       // Clear any prior "Without JavaScript" hold for this tab before we start.
       // This inspection's own reload also fires webNavigation events, so the tab
-      // must NOT be in the set while we reload — it is re-added in `finally` only
+      // must NOT be marked held while we reload — it is re-marked in `finally` only
       // after the reload's navigation events have already been dispatched.
-      const wasHeldInNoJsMode = renderModeNoJsInspectionTabIds.has(normalizedTabId);
-      renderModeNoJsInspectionTabIds.delete(normalizedTabId);
+      const wasHeldInNoJsMode = await isRenderModeNoJsHeld(normalizedTabId);
+      await clearRenderModeNoJsHeld(normalizedTabId);
       let commandResult = {
         ok: false,
         tabId: normalizedTabId,
@@ -1478,8 +1482,9 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
           // The page is now reloaded with JavaScript disabled and is left that
           // way for inspection. Remember the tab so JavaScript is restored on the
           // next genuine top-level navigation (not on this inspection's own reload,
-          // which has already fired its navigation events by now).
-          renderModeNoJsInspectionTabIds.add(normalizedTabId);
+          // which has already fired its navigation events by now), and so the popup
+          // can show the page as currently held in "Without JavaScript" mode.
+          await setRenderModeNoJsHeld(normalizedTabId, true);
         }
         const endAcknowledged = javaScriptDisabled
           ? false
@@ -2665,6 +2670,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   clearTrackedTabSessionState(tabId, { includeDeviceState: true }).then();
+  clearRenderModeNoJsHeld(tabId).catch(() => null);
   if (isFeatureEnabled("propertyLockCollaboration")) {
     handlePropertyLockBackgroundTabRemoved(tabId);
   }
@@ -2708,14 +2714,13 @@ async function normalizeRenderModeJavaScriptOnTopLevelNavigation(details) {
     return;
   }
   // Only act on tabs that were intentionally left in "Without JavaScript" render
-  // mode. The inspection's own reload also fires onBeforeNavigate, but the tab is
-  // not added to this set until the inspection command finishes (after that reload
-  // has navigated), so this handler never re-enables JavaScript mid-inspection.
+  // mode. The inspection's own reload also fires onBeforeNavigate, but those tabs
+  // are not marked held yet, so JavaScript is never re-enabled mid-inspection.
   // It restores JavaScript only when the user navigates away from the no-JS page.
-  if (!renderModeNoJsInspectionTabIds.has(details.tabId)) {
+  if (!(await isRenderModeNoJsHeld(details.tabId))) {
     return;
   }
-  renderModeNoJsInspectionTabIds.delete(details.tabId);
+  await clearRenderModeNoJsHeld(details.tabId);
   await utils.setPageJavaScriptExecutionDisabled(details.tabId, false).catch(() => null);
   const deviceState = await getDeviceEmulationState(details.tabId).catch(() => null);
   if (!deviceState || !deviceState.enabled) {

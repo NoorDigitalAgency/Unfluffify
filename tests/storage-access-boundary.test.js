@@ -101,7 +101,8 @@ const APPROVED_WRAPPER_FILES = new Set([
   "background/ai-run-record-store.js",
   "common/settings-store.js",
   "background/tab-session-store.js",
-  "common/emulation.js"
+  "common/emulation.js",
+  "common/render-mode-js-state.js"
 ]);
 
 // Bucket: current migration debt. Phase 12 keeps this empty so any new raw

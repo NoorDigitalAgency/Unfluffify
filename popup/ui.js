@@ -157,6 +157,8 @@ const initialViewState = {
   renderModeReady: false,
   renderModeInputDisabled: false,
   renderModeInspectButtonsDisabled: false,
+  renderModeInspectWithoutJavaScriptDisabled: false,
+  renderModeInspectWithJavaScriptDisabled: true,
   renderModeSetDisabled: false,
   renderModeEditDisabled: false,
   renderModeSummaryOpen: false,
@@ -749,7 +751,7 @@ function renderRenderModeEditor(view, handlers) {
             id: "render-mode-inspect-without-javascript",
             type: "button",
             class: "u-btn-secondary",
-            disabled: view.renderModeInspectButtonsDisabled,
+            disabled: view.renderModeInspectWithoutJavaScriptDisabled,
             onClick: handlers.onRenderModeInspectWithoutJavaScript
           },
           PopupText.renderMode.inspectWithoutJavaScriptButton
@@ -760,7 +762,7 @@ function renderRenderModeEditor(view, handlers) {
             id: "render-mode-inspect-with-javascript",
             type: "button",
             class: "u-btn-secondary",
-            disabled: view.renderModeInspectButtonsDisabled,
+            disabled: view.renderModeInspectWithJavaScriptDisabled,
             onClick: handlers.onRenderModeInspectWithJavaScript
           },
           PopupText.renderMode.inspectWithJavaScriptButton

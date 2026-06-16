@@ -6,7 +6,6 @@ import {
   disposeTabState,
   pageMotionFreezeControlQueueByTarget,
   popupStatePortsByTabId,
-  renderModeNoJsInspectionTabIds,
   tabLifecycleStateByTabId,
   tabSpinnerQueueByTabId,
   tabWorldTraceStateByTabId
@@ -19,7 +18,6 @@ function clearAllTabStateMaps() {
   tabWorldTraceStateByTabId.clear();
   aiComputeLockExpiresAtByTabId.clear();
   pageMotionFreezeControlQueueByTarget.clear();
-  renderModeNoJsInspectionTabIds.clear();
 }
 
 test("disposeTabState removes only the target tab across all maps", () => {
@@ -38,8 +36,6 @@ test("disposeTabState removes only the target tab across all maps", () => {
   pageMotionFreezeControlQueueByTarget.set("1:0", Promise.resolve());
   pageMotionFreezeControlQueueByTarget.set("1:all", Promise.resolve());
   pageMotionFreezeControlQueueByTarget.set("2:0", Promise.resolve());
-  renderModeNoJsInspectionTabIds.add(1);
-  renderModeNoJsInspectionTabIds.add(2);
 
   disposeTabState(1);
 
@@ -50,7 +46,6 @@ test("disposeTabState removes only the target tab across all maps", () => {
   assert.equal(aiComputeLockExpiresAtByTabId.has(1), false);
   assert.equal(pageMotionFreezeControlQueueByTarget.has("1:0"), false);
   assert.equal(pageMotionFreezeControlQueueByTarget.has("1:all"), false);
-  assert.equal(renderModeNoJsInspectionTabIds.has(1), false);
 
   assert.equal(tabLifecycleStateByTabId.has(2), true);
   assert.equal(tabSpinnerQueueByTabId.has(2), true);

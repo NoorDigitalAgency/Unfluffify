@@ -31,6 +31,44 @@ test("render mode text copy uses the updated manual comparison wording", () => {
   );
 });
 
+test("render mode inspect buttons alternate by the tab's current JavaScript mode", () => {
+  // The popup derives the per-button disabled flags from the persisted no-JS-held
+  // state so the same JavaScript mode cannot be triggered twice in a row.
+  assert.match(
+    popupSource,
+    /import \{[\s\S]*?isRenderModeNoJsHeld,[\s\S]*?renderModeNoJsHeldStorageKey[\s\S]*?\} from "\.\/common\/render-mode-js-state\.js";/
+  );
+  assert.match(
+    popupSource,
+    /state\.renderModeTabJsDisabled = currentTabId[\s\S]*?await isRenderModeNoJsHeld\(currentTabId\)/
+  );
+  assert.match(
+    popupSource,
+    /nextViewState\.renderModeInspectWithoutJavaScriptDisabled =[\s\S]*?Boolean\(state\.renderModeTabJsDisabled\)/
+  );
+  assert.match(
+    popupSource,
+    /nextViewState\.renderModeInspectWithJavaScriptDisabled =[\s\S]*?!Boolean\(state\.renderModeTabJsDisabled\)/
+  );
+  // The popup refreshes when the persisted no-JS-held key changes for the current tab.
+  assert.match(popupSource, /changes\[renderModeNoJsHeldStorageKey\(state\.currentTab\.id\)\]/);
+
+  // Each button is wired to its own disabled flag.
+  const editorBlock = extractSourceBlock(
+    uiSource,
+    "function renderRenderModeEditor",
+    "function getTodoProgress"
+  );
+  assert.match(
+    editorBlock,
+    /id: "render-mode-inspect-without-javascript",[\s\S]*?disabled: view\.renderModeInspectWithoutJavaScriptDisabled/
+  );
+  assert.match(
+    editorBlock,
+    /id: "render-mode-inspect-with-javascript",[\s\S]*?disabled: view\.renderModeInspectWithJavaScriptDisabled/
+  );
+});
+
 test("render mode editor shows a textual selected-mode summary instead of a visible dropdown", () => {
   const editorBlock = extractSourceBlock(
     uiSource,

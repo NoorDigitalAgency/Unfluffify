@@ -85,6 +85,10 @@ import {
   shouldResumePersistedAiRun
 } from "./popup/ai-run.js";
 import { resolveRenderModeInspectionReloadOutcome } from "./popup/render-mode.js";
+import {
+  isRenderModeNoJsHeld,
+  renderModeNoJsHeldStorageKey
+} from "./common/render-mode-js-state.js";
 import * as stateModule from "./popup/state.js";
 import {
   logPopupReady
@@ -2742,6 +2746,11 @@ async function refreshUiInner(options = {}) {
   }
   state.lastPopupPageUrl = pageUrl;
   state.lastTabId = currentTabId;
+  // Whether this tab is currently held in "Without JavaScript" render mode. Drives
+  // which inspect button is disabled so the user cannot click the same mode twice.
+  state.renderModeTabJsDisabled = currentTabId
+    ? await isRenderModeNoJsHeld(currentTabId)
+    : false;
   const {
     tokenValue,
     endpointValue,
@@ -3935,6 +3944,14 @@ async function refreshUiInner(options = {}) {
     pageScopedUiDisabled ||
     !renderModeRequired ||
     !Boolean(state.currentTab && state.currentTab.id);
+  // Alternate the two inspect buttons by the tab's current JavaScript mode so the
+  // same mode cannot be triggered twice: while the page runs JavaScript only
+  // "Without JavaScript" is enabled, and once it is held in no-JS mode only "With
+  // JavaScript" is enabled.
+  nextViewState.renderModeInspectWithoutJavaScriptDisabled =
+    nextViewState.renderModeInspectButtonsDisabled || Boolean(state.renderModeTabJsDisabled);
+  nextViewState.renderModeInspectWithJavaScriptDisabled =
+    nextViewState.renderModeInspectButtonsDisabled || !Boolean(state.renderModeTabJsDisabled);
   nextViewState.renderModeSetDisabled =
     aiBusy ||
     pageScopedUiDisabled ||
@@ -6947,7 +6964,8 @@ async function init() {
       (areaName === "session" &&
         state.currentTab &&
         (changes[`${constants.TAB_STATE_PREFIX}${state.currentTab.id}`] ||
-          changes[`${constants.DEVICE_EMULATION_PREFIX}${state.currentTab.id}`]))
+          changes[`${constants.DEVICE_EMULATION_PREFIX}${state.currentTab.id}`] ||
+          changes[renderModeNoJsHeldStorageKey(state.currentTab.id)]))
     ) {
       scheduleRefresh();
     }
