@@ -874,6 +874,9 @@ test("page popup-busy overlay is independent from reveal inspection and freeze U
   assert.match(source, /popupBusyOverlay: null/);
   assert.match(source, /popupBusyBlocker: null/);
   assert.match(source, /const POPUP_BUSY_OVERLAY_ID = "unfluffify-popup-busy-overlay";/);
+  assert.match(source, /const preferredParent = state\.overlay \|\| document\.body \|\| document\.documentElement;/);
+  assert.match(source, /existing\.parentElement !== preferredParent[\s\S]*?preferredParent\.appendChild\(existing\);/);
+  assert.match(source, /state\.overlay = overlay;[\s\S]*?overlay\.appendChild\(state\.popupBusyOverlay\);/);
   assert.match(source, /function startPopupBusyInputBlocker\(\) \{[\s\S]*?PAGE_INSPECTION_INPUT_EVENTS/);
   assert.match(source, /function stopPopupBusyInputBlocker\(\) \{/);
   assert.match(source, /state\.popupBusyFailOpenTimer = extensionSetTimeout\(\(\) => \{[\s\S]*?setPopupBusyOnPage\(false\);/);

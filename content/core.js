@@ -4455,10 +4455,18 @@ function ensurePopupBusyOverlay() {
   if (typeof document === "undefined") {
     return null;
   }
+  const preferredParent = state.overlay || document.body || document.documentElement;
   const existing = typeof document.getElementById === "function"
     ? document.getElementById(POPUP_BUSY_OVERLAY_ID)
     : null;
   if (existing) {
+    if (
+      preferredParent &&
+      existing.parentElement !== preferredParent &&
+      typeof preferredParent.appendChild === "function"
+    ) {
+      preferredParent.appendChild(existing);
+    }
     state.popupBusyOverlay = existing;
     state.popupBusyNotice = existing.querySelector(".uf-popup-busy-message");
     return existing;
@@ -4484,9 +4492,8 @@ function ensurePopupBusyOverlay() {
   notice.appendChild(spinner);
   notice.appendChild(message);
   overlay.appendChild(notice);
-  const parent = document.body || document.documentElement;
-  if (parent && typeof parent.appendChild === "function") {
-    parent.appendChild(overlay);
+  if (preferredParent && typeof preferredParent.appendChild === "function") {
+    preferredParent.appendChild(overlay);
   }
   state.popupBusyOverlay = overlay;
   state.popupBusyNotice = message;
@@ -6241,6 +6248,9 @@ function createOverlay() {
   overlay.addEventListener("contextmenu", handleContextMenu, true);
   (document.body || document.documentElement).appendChild(overlay);
   state.overlay = overlay;
+  if (state.popupBusyOverlay && typeof overlay.appendChild === "function") {
+    overlay.appendChild(state.popupBusyOverlay);
+  }
   updateMarkingTemporarilyDisabledUi();
   updateAltPassThroughFromModifiers();
   updateCursorMode();
@@ -6470,6 +6480,8 @@ function removeOverlay() {
     state.toast = null;
     state.markingDisabledNotice = null;
     state.pageInspectionNotice = null;
+    state.popupBusyOverlay = null;
+    state.popupBusyNotice = null;
   }
   state.lastPointer = null;
   if (state.toggleAckTimer) {

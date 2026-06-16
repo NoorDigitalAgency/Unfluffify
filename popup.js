@@ -365,6 +365,7 @@ let popupSpinnerTimer = 0;
 // message changes (progress), so legitimately long multi-stage operations are
 // not cut off mid-flight.
 const SPINNER_WATCHDOG_MS = 60000;
+const POPUP_PAGE_BUSY_MIRROR_DELAY_MS = 3500;
 const popupSpinnerWatchdogByKey = new Map();
 let popupNavigationInspectionOverlayStarted = false;
 let popupNavigationInspectionOverlayTabId = null;
@@ -376,6 +377,8 @@ let popupBackgroundLifecycle = null;
 let popupPageBusyMirrorTabId = null;
 let popupPageBusyMirrorActive = false;
 let popupPageBusyMirrorSignature = "";
+let popupPageBusyMirrorPendingSignature = "";
+let popupPageBusyMirrorShowTimer = 0;
 let propertyPageTypesRequest = null;
 const popupTimers = createPopupTimerGroup({ windowRef: window });
 
@@ -662,6 +665,14 @@ function sendPopupBusyMirrorMessage(tabId, active, message = "") {
   }).catch(() => {});
 }
 
+function clearPopupPageBusyMirrorShowTimer() {
+  if (popupPageBusyMirrorShowTimer) {
+    window.clearTimeout(popupPageBusyMirrorShowTimer);
+    popupPageBusyMirrorShowTimer = 0;
+  }
+  popupPageBusyMirrorPendingSignature = "";
+}
+
 function syncPageBusyFromPopupSpinner() {
   const tabId = getCurrentPopupTabId();
   const snapshot = currentSpinnerSnapshot();
@@ -677,17 +688,52 @@ function syncPageBusyFromPopupSpinner() {
     const signature = `${tabId}|${message}`;
     if (popupPageBusyMirrorActive && popupPageBusyMirrorTabId && popupPageBusyMirrorTabId !== tabId) {
       sendPopupBusyMirrorMessage(popupPageBusyMirrorTabId, false);
+      popupPageBusyMirrorActive = false;
+      popupPageBusyMirrorSignature = "";
     }
-    if (popupPageBusyMirrorSignature === signature) {
+    if (popupPageBusyMirrorActive && popupPageBusyMirrorSignature === signature) {
       return;
     }
-    popupPageBusyMirrorActive = true;
+    if (popupPageBusyMirrorActive) {
+      popupPageBusyMirrorTabId = tabId;
+      popupPageBusyMirrorSignature = signature;
+      sendPopupBusyMirrorMessage(tabId, true, message);
+      return;
+    }
+    if (popupPageBusyMirrorPendingSignature === signature && popupPageBusyMirrorShowTimer) {
+      return;
+    }
+    clearPopupPageBusyMirrorShowTimer();
     popupPageBusyMirrorTabId = tabId;
-    popupPageBusyMirrorSignature = signature;
-    sendPopupBusyMirrorMessage(tabId, true, message);
+    popupPageBusyMirrorPendingSignature = signature;
+    popupPageBusyMirrorShowTimer = window.setTimeout(() => {
+      popupPageBusyMirrorShowTimer = 0;
+      if (popupPageBusyMirrorPendingSignature !== signature) {
+        return;
+      }
+      const currentTabId = getCurrentPopupTabId();
+      const currentSnapshot = currentSpinnerSnapshot();
+      if (
+        currentTabId !== tabId ||
+        !popupSpinnerVisible ||
+        !currentSnapshot ||
+        isRenderDetectionPopupSpinner(currentSnapshot) ||
+        currentSpinnerMessage() !== message
+      ) {
+        popupPageBusyMirrorPendingSignature = "";
+        syncPageBusyFromPopupSpinner();
+        return;
+      }
+      popupPageBusyMirrorPendingSignature = "";
+      popupPageBusyMirrorActive = true;
+      popupPageBusyMirrorTabId = tabId;
+      popupPageBusyMirrorSignature = signature;
+      sendPopupBusyMirrorMessage(tabId, true, message);
+    }, POPUP_PAGE_BUSY_MIRROR_DELAY_MS);
     return;
   }
 
+  clearPopupPageBusyMirrorShowTimer();
   if (!popupPageBusyMirrorActive && !popupPageBusyMirrorTabId) {
     return;
   }

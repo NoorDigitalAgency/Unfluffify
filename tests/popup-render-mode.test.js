@@ -96,6 +96,9 @@ test("popup page-busy mirror skips render detection spinners", () => {
     popupSource,
     /function syncPageBusyFromPopupSpinner\(\) \{[\s\S]*?!isRenderDetectionPopupSpinner\(snapshot\)[\s\S]*?sendPopupBusyMirrorMessage\(tabId, true, message\)/
   );
+  assert.match(popupSource, /const POPUP_PAGE_BUSY_MIRROR_DELAY_MS = 3500;/);
+  assert.match(popupSource, /popupPageBusyMirrorShowTimer = window\.setTimeout\(\(\) => \{[\s\S]*?sendPopupBusyMirrorMessage\(tabId, true, message\);[\s\S]*?\}, POPUP_PAGE_BUSY_MIRROR_DELAY_MS\);/);
+  assert.match(popupSource, /function clearPopupPageBusyMirrorShowTimer\(\) \{[\s\S]*?popupPageBusyMirrorPendingSignature = "";/);
   assert.match(popupSource, /type: "setPopupBusyOnPage"/);
   assert.match(popupSource, /syncPageBusyFromPopupSpinner/);
   assert.match(popupSpinnerSource, /function syncPageBusyFromPopupSpinner\(deps\)/);
