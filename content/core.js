@@ -202,7 +202,7 @@ const PAGE_INSPECTION_STYLE_ID = "unfluffify-page-inspection-style";
 const PAGE_INSPECTION_OVERLAY_CLASS = "uf-page-inspection-active";
 const PAGE_INSPECTION_DEFAULT_MAX_SCROLLS = 10;
 const PAGE_INSPECTION_DEFAULT_PAUSE_MS = 1000;
-const PAGE_INSPECTION_LAZY_LOAD_PHASES = 1;
+const PAGE_INSPECTION_LAZY_LOAD_SUPPRESSION_SCROLL_RATIO = 0.5;
 const SILENT_HIGHLIGHT_WARMUP_SETTLE_DELAY_MS = 2000;
 const PAGE_INSPECTION_SCROLL_END_TIMEOUT_MS = 8000;
 const PAGE_INSPECTION_SCROLL_SETTLE_MS = 220;
@@ -4113,6 +4113,14 @@ function getPageInspectionScrollTarget(target) {
   return Math.max(0, Math.round(Number(target) || 0));
 }
 
+function getPageInspectionLazyLoadSuppressionTarget() {
+  const initialEndTarget = getPageInspectionScrollTarget("end");
+  if (!initialEndTarget) {
+    return 0;
+  }
+  return Math.max(0, Math.round(initialEndTarget * PAGE_INSPECTION_LAZY_LOAD_SUPPRESSION_SCROLL_RATIO));
+}
+
 function suppressPageInspectionLazyLoading() {
   const applied = setPageMotionFreezeLazyLoadingSuppressed(true);
   let restored = false;
@@ -4140,6 +4148,21 @@ async function waitForPageInspectionLazyLoadingLock(restorer) {
   } catch {
     // Lock confirmation is best-effort; reveal proceeds regardless.
   }
+}
+
+async function ensurePageInspectionLazyLoadingSuppressed(currentRestorer) {
+  if (typeof currentRestorer === "function") {
+    return currentRestorer;
+  }
+  if (typeof state.lazyLoadSuppressRestorer === "function") {
+    return state.lazyLoadSuppressRestorer;
+  }
+  const restorer = suppressPageInspectionLazyLoading();
+  state.lazyLoadSuppressRestorer = restorer;
+  // Wait for the page-world lock to actually apply before scrolling again;
+  // otherwise lazy loading keeps firing for every scroll pass.
+  await waitForPageInspectionLazyLoadingLock(restorer);
+  return restorer;
 }
 
 function notifyPageInspectionProgress(options = {}) {
@@ -4185,8 +4208,12 @@ export async function revealPageContentBeforeMotionPause(
   const maxScrolls = Math.max(1, Math.trunc(Number(maximumScrollCount) || PAGE_INSPECTION_DEFAULT_MAX_SCROLLS));
   const pauseDelay = Math.max(0, Math.trunc(Number(pauseMs) || 0));
   const reservedScrollY = Math.max(0, Math.round(getWindowScrollOffset().y));
+  const lazyLoadSuppressionTargetY = getPageInspectionLazyLoadSuppressionTarget();
+  const retainLazyLoadSuppression = Boolean(options.retainLazyLoadSuppression);
   let visited = false;
   let lazyLoadRestorer = null;
+  let completedReveal = false;
+  let suppressionScrollVisited = false;
   ensurePageInspectionStyle();
   try {
     if (direction === "top") {
@@ -4202,12 +4229,13 @@ export async function revealPageContentBeforeMotionPause(
       }
       let scrollCount = 0;
       while (scrollCount < maxScrolls && isStillCurrent()) {
-        if (scrollCount === PAGE_INSPECTION_LAZY_LOAD_PHASES && !lazyLoadRestorer && !state.lazyLoadSuppressRestorer) {
-          lazyLoadRestorer = suppressPageInspectionLazyLoading();
-          state.lazyLoadSuppressRestorer = lazyLoadRestorer;
-          // Wait for the page-world lock to actually apply before scrolling
-          // again; otherwise lazy loading keeps firing for every scroll pass.
-          await waitForPageInspectionLazyLoadingLock(lazyLoadRestorer);
+        if (!suppressionScrollVisited && !lazyLoadRestorer && !state.lazyLoadSuppressRestorer) {
+          suppressionScrollVisited = true;
+          if (lazyLoadSuppressionTargetY > Math.max(0, Math.round(getWindowScrollOffset().y))) {
+            visited = await scrollPageInspectionTo(lazyLoadSuppressionTargetY, isStillCurrent, options) || visited;
+            await waitForPageInspectionDelay(pauseDelay, isStillCurrent);
+          }
+          lazyLoadRestorer = await ensurePageInspectionLazyLoadingSuppressed(lazyLoadRestorer);
           if (!isStillCurrent()) {
             break;
           }
@@ -4227,10 +4255,13 @@ export async function revealPageContentBeforeMotionPause(
         await waitForPageInspectionDelay(pauseDelay, isStillCurrent);
       }
     }
+    completedReveal = isStillCurrent();
   } finally {
-    // Reveal may arm lazy-loading suppression mid-run; always restore it when
-    // the inspection walk exits so silent/normal flows do not stay suppressed.
-    restorePageInspectionLazyLoadingSuppression();
+    // Standalone/aborted reveal walks restore suppression. Successful reveal
+    // handoffs into page-motion pause keep suppression until resumePageMotion.
+    if (!retainLazyLoadSuppression || !completedReveal || !isStillCurrent()) {
+      restorePageInspectionLazyLoadingSuppression();
+    }
     removePageInspectionStyle();
   }
   return visited;
@@ -5479,6 +5510,7 @@ export function refreshPageMotionPause() {
   ensurePageMotionPauseIndicator();
   setPageMotionPauseClass(true);
   setPageMotionFreezeTimersPaused(true);
+  setPageMotionFreezeLazyLoadingSuppressed(true);
   pauseDocumentAnimations(pauseState);
   pauseSvgAnimations(pauseState);
   pauseMediaElements(pauseState);
@@ -5493,6 +5525,7 @@ export function resumePageMotion(reason = PAGE_MOTION_PAUSE_DEFAULT_REASON) {
   const pauseState = state.pageMotionPause;
   if (!pauseState) {
     setPageMotionFreezeTimersPaused(false);
+    restorePageInspectionLazyLoadingSuppression();
     removePageMotionPauseStyle();
     removePageMotionPauseIndicator();
     setPageMotionPauseClass(false);
@@ -5514,6 +5547,7 @@ export function resumePageMotion(reason = PAGE_MOTION_PAUSE_DEFAULT_REASON) {
   removePageMotionPauseIndicator();
   setPageMotionPauseClass(false);
   setPageMotionFreezeTimersPaused(false);
+  restorePageInspectionLazyLoadingSuppression();
   resumeSvgAnimations(pauseState);
   resumeMediaElements(pauseState);
   resumeDocumentAnimations(pauseState);
@@ -6023,8 +6057,9 @@ export function isPageInspectionUiActive() {
   );
 }
 
-async function inspectPageBeforeMotionPause(isStillCurrent) {
-  const keepUiActive = arguments.length > 1 && Boolean(arguments[1]?.keepUiActive);
+async function inspectPageBeforeMotionPause(isStillCurrent, options = {}) {
+  const keepUiActive = Boolean(options.keepUiActive);
+  const retainLazyLoadSuppression = Boolean(options.retainLazyLoadSuppression);
   startPageInspectionInputBlocker();
   try {
     createOverlay();
@@ -6033,7 +6068,8 @@ async function inspectPageBeforeMotionPause(isStillCurrent) {
       "both",
       PAGE_INSPECTION_DEFAULT_MAX_SCROLLS,
       PAGE_INSPECTION_DEFAULT_PAUSE_MS,
-      isStillCurrent
+      isStillCurrent,
+      { retainLazyLoadSuppression }
     );
   } finally {
     if (!keepUiActive) {
@@ -6052,7 +6088,10 @@ async function warmupPageRevealBeforeMotionPause(baseUrl, pageUrl, options = {})
     state.enabled &&
     state.baseUrl === baseUrl &&
     location.href === pageUrl;
-  await inspectPageBeforeMotionPause(isRevealWarmupCurrent, { keepUiActive });
+  await inspectPageBeforeMotionPause(isRevealWarmupCurrent, {
+    keepUiActive,
+    retainLazyLoadSuppression: true
+  });
   if (!isRevealWarmupCurrent()) {
     if (keepUiActive) {
       finishPageInspectionUi();
@@ -6103,7 +6142,10 @@ export async function warmupSilentHighlightingBeforeMotionPause(
       PAGE_INSPECTION_DEFAULT_MAX_SCROLLS,
       PAGE_INSPECTION_DEFAULT_PAUSE_MS,
       isRevealWarmupCurrent,
-      onRevealProgress ? { onProgress: onRevealProgress } : {}
+      {
+        ...(onRevealProgress ? { onProgress: onRevealProgress } : {}),
+        retainLazyLoadSuppression: true
+      }
     );
     if (!isRevealWarmupCurrent()) {
       return false;

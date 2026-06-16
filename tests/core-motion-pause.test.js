@@ -882,6 +882,68 @@ test("page inspection reveal restores page-world lazy-load suppression in finall
   }
 });
 
+test("page inspection reveal can retain lazy-load suppression until motion resumes", async () => {
+  const dom = installMotionDom();
+  const originalChrome = globalThis.chrome;
+  const previousLazyLoadSuppressRestorer = state.lazyLoadSuppressRestorer;
+  const runtimeMessages = [];
+  dom.html.clientHeight = 500;
+  dom.html.scrollHeight = 3000;
+  dom.body.clientHeight = 500;
+  dom.body.scrollHeight = 3000;
+  dom.window.innerHeight = 500;
+  globalThis.chrome = {
+    runtime: {
+      getURL(path) {
+        return `chrome-extension://unfluffify/${path}`;
+      },
+      sendMessage(message) {
+        runtimeMessages.push(message);
+        return Promise.resolve({ ok: true });
+      }
+    }
+  };
+
+  try {
+    state.lazyLoadSuppressRestorer = null;
+
+    const inspected = await revealPageContentBeforeMotionPause(
+      "bottom",
+      4,
+      0,
+      () => true,
+      {
+        retainLazyLoadSuppression: true,
+        scrollEndTimeoutMs: 0
+      }
+    );
+
+    assert.equal(inspected, true);
+    let suppressionCommands = runtimeMessages.filter((message) => message.command === "setLazyLoadingSuppressed");
+    assert.deepEqual(suppressionCommands.at(0).details, { suppressed: true });
+    assert.equal(suppressionCommands.some((message) => message.details?.suppressed === false), false);
+    assert.equal(typeof state.lazyLoadSuppressRestorer, "function");
+
+    pausePageMotion();
+    resumePageMotion();
+    suppressionCommands = runtimeMessages.filter((message) => message.command === "setLazyLoadingSuppressed");
+    assert.deepEqual(suppressionCommands.at(-1).details, { suppressed: false });
+    assert.equal(state.lazyLoadSuppressRestorer, null);
+  } finally {
+    if (typeof state.lazyLoadSuppressRestorer === "function") {
+      state.lazyLoadSuppressRestorer();
+    }
+    state.lazyLoadSuppressRestorer = previousLazyLoadSuppressRestorer;
+    resumePageMotion();
+    if (typeof originalChrome === "undefined") {
+      delete globalThis.chrome;
+    } else {
+      globalThis.chrome = originalChrome;
+    }
+    dom.restore();
+  }
+});
+
 test("page inspection reveal restores page-world lazy-load suppression in finally on thrown reveal", async () => {
   const dom = installMotionDom();
   const originalChrome = globalThis.chrome;
@@ -963,17 +1025,23 @@ test("page inspection reveal waits for the page-world lazy-load lock before scro
   const end = source.indexOf("function blockPageInspectionInput", start);
   assert.ok(start >= 0 && end > start, "Expected to locate reveal function body");
   const fnBody = source.slice(start, end);
+  const helperStart = source.indexOf("async function ensurePageInspectionLazyLoadingSuppressed(");
+  const helperEnd = source.indexOf("function notifyPageInspectionProgress", helperStart);
+  assert.ok(helperStart >= 0 && helperEnd > helperStart, "Expected to locate suppression helper");
+  const helperBody = source.slice(helperStart, helperEnd);
 
-  const suppressIndex = fnBody.indexOf("suppressPageInspectionLazyLoading();");
-  const lockWaitIndex = fnBody.indexOf("await waitForPageInspectionLazyLoadingLock(");
+  const halfScrollIndex = fnBody.indexOf("scrollPageInspectionTo(lazyLoadSuppressionTargetY");
+  const suppressIndex = fnBody.indexOf("await ensurePageInspectionLazyLoadingSuppressed(");
   const scrollEndIndex = fnBody.indexOf("scrollPageInspectionTo(\"end\"");
 
+  assert.ok(halfScrollIndex > 0, "Expected reveal to scroll halfway before suppressing lazy loading");
   assert.ok(suppressIndex > 0, "Expected reveal to suppress lazy loading");
-  assert.ok(lockWaitIndex > suppressIndex, "Lock wait must follow suppression");
+  assert.ok(suppressIndex > halfScrollIndex, "Suppression must follow the halfway scroll");
   assert.ok(
-    scrollEndIndex > lockWaitIndex,
-    "Reveal must await the page-world lock before scrolling to end again"
+    scrollEndIndex > suppressIndex,
+    "Reveal must await the suppression helper before scrolling to end"
   );
+  assert.match(helperBody, /const restorer = suppressPageInspectionLazyLoading\(\);[\s\S]*?await waitForPageInspectionLazyLoadingLock\(restorer\);/);
 });
 
 test("page inspection reveal stops scrolling once the page-world lazy-load lock applies", async () => {
@@ -1037,13 +1105,13 @@ test("page inspection reveal stops scrolling once the page-world lazy-load lock 
     );
 
     assert.equal(inspected, true);
-    // One lazy load is allowed before the lock applies; the reveal must then stop
-    // instead of scrolling for all 10 passes.
+    // The lock now applies at halfway through the initial scroll range, before
+    // the first bottom scroll can trigger a lazy-load expansion.
     assert.ok(
       dom.scrollCalls.length <= 3,
       `Expected reveal to stop after the lock applied, saw ${dom.scrollCalls.length} scrolls`
     );
-    assert.equal(Math.max(...dom.scrollCalls.map((call) => call.y)), 1500);
+    assert.equal(Math.max(...dom.scrollCalls.map((call) => call.y)), 500);
     assert.equal(locked, true);
   } finally {
     if (typeof state.lazyLoadSuppressRestorer === "function") {
@@ -1241,8 +1309,10 @@ test("page motion pause controls the page-world timer freeze bridge", () => {
     assert.equal(pauseIndicator.getAttribute("class"), "uf-page-motion-pause-indicator");
     assert.equal(dom.document.getElementById(PAGE_MOTION_PAUSE_SCRIPT_ID), null);
     const bridgeMessages = runtimeMessages.filter((message) => message.type === "pageMotionFreezeControl");
-    assert.equal(bridgeMessages.at(-1).command, "setPaused");
-    assert.deepEqual(bridgeMessages.at(-1).details, { paused: true });
+    assert.equal(bridgeMessages.at(-2).command, "setPaused");
+    assert.deepEqual(bridgeMessages.at(-2).details, { paused: true });
+    assert.equal(bridgeMessages.at(-1).command, "setLazyLoadingSuppressed");
+    assert.deepEqual(bridgeMessages.at(-1).details, { suppressed: true });
 
     const staleScript = new FakeElement("script", {
       id: PAGE_MOTION_PAUSE_SCRIPT_ID,
@@ -1256,8 +1326,10 @@ test("page motion pause controls the page-world timer freeze bridge", () => {
     resumePageMotion("marking");
 
     const bridgeMessagesAfterResume = runtimeMessages.filter((message) => message.type === "pageMotionFreezeControl");
-    assert.equal(bridgeMessagesAfterResume.at(-1).command, "setPaused");
-    assert.deepEqual(bridgeMessagesAfterResume.at(-1).details, { paused: false });
+    assert.equal(bridgeMessagesAfterResume.at(-2).command, "setPaused");
+    assert.deepEqual(bridgeMessagesAfterResume.at(-2).details, { paused: false });
+    assert.equal(bridgeMessagesAfterResume.at(-1).command, "setLazyLoadingSuppressed");
+    assert.deepEqual(bridgeMessagesAfterResume.at(-1).details, { suppressed: false });
     assert.equal(dom.document.getElementById(PAGE_MOTION_PAUSE_SCRIPT_ID), null);
   } finally {
     if (typeof originalChrome === "undefined") {
@@ -1342,7 +1414,7 @@ test("marking enable inspects and blocks input before freezing and rendering ove
   assert.match(inspectSource, /revealPageContentBeforeMotionPause\(\s*"both",/);
   assert.match(inspectSource, /if \(!keepUiActive\) \{[\s\S]*?setPageInspectionUiActive\(false\);[\s\S]*?stopPageInspectionInputBlocker\(\);[\s\S]*?\}/);
   assert.match(warmupSource, /const keepUiActive = Boolean\(options\.keepUiActive\);/);
-  assert.match(warmupSource, /await inspectPageBeforeMotionPause\(isRevealWarmupCurrent, \{ keepUiActive \}\);[\s\S]*?pausePageMotion\(\);/);
+  assert.match(warmupSource, /await inspectPageBeforeMotionPause\(isRevealWarmupCurrent, \{[\s\S]*?keepUiActive,[\s\S]*?retainLazyLoadSuppression: true[\s\S]*?\}\);[\s\S]*?pausePageMotion\(\);/);
   assert.match(source, /await finishPageInspectionUiAfterRender\(\);/);
   assert.match(source, /ContentText\.marking\.pageInspection/);
   assert.match(source, /PAGE_INSPECTION_INPUT_EVENTS = \[[\s\S]*?"wheel"/);
