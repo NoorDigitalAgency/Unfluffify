@@ -24,6 +24,8 @@ function createBaseDeps(overrides = {}) {
     isPageWithinBaseUrl: () => true,
     isRenderModeInspectionActive: () => inspectionActive,
     isRenderModeInspectionFlagSet: () => inspectionActive,
+    consumePageVisitRevealFreezeAttempt: () => true,
+    markSilentHighlightEditorRevealPrepared: () => {},
     nextRevealId: () => {
       revealCounter += 1;
       return revealCounter;
@@ -91,4 +93,43 @@ test("render-mode handlers hideConsent reports hidden count", () => {
 
   const response = handlers.hideConsent();
   assert.deepEqual(response, { ok: true, hiddenCount: 7 });
+});
+
+test("render-mode reveal skips warmup after page visit already consumed reveal", async () => {
+  let warmupCalls = 0;
+  let preparedCalls = 0;
+  const { deps } = createBaseDeps({
+    consumePageVisitRevealFreezeAttempt: () => false,
+    markSilentHighlightEditorRevealPrepared: () => {
+      preparedCalls += 1;
+    },
+    warmupSilentHighlightingBeforeMotionPause: async () => {
+      warmupCalls += 1;
+      return true;
+    }
+  });
+  const handlers = createRenderModeInspectionHandlers(deps);
+
+  const response = await handlers.revealOnce({ operationId: "op-skip" });
+
+  assert.equal(response.ok, true);
+  assert.equal(response.skippedReveal, true);
+  assert.equal(warmupCalls, 0);
+  assert.equal(preparedCalls, 0);
+});
+
+test("render-mode reveal marks page visit prepared after successful warmup", async () => {
+  let preparedCalls = 0;
+  const { deps } = createBaseDeps({
+    markSilentHighlightEditorRevealPrepared: () => {
+      preparedCalls += 1;
+    }
+  });
+  const handlers = createRenderModeInspectionHandlers(deps);
+
+  const response = await handlers.revealOnce({ operationId: "op-reveal" });
+
+  assert.equal(response.ok, true);
+  assert.equal(response.skippedReveal, undefined);
+  assert.equal(preparedCalls, 1);
 });

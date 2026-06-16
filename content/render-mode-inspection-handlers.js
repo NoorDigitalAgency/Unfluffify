@@ -35,6 +35,17 @@ export function createRenderModeInspectionHandlers(deps) {
       });
       return { ok: false };
     }
+    if (!deps.consumePageVisitRevealFreezeAttempt(baseUrl, pageUrl)) {
+      deps.finishPageInspectionUi();
+      deps.emitLifecycleEvent({
+        operationId,
+        kind: deps.LIFECYCLE_KINDS.RENDER_MODE_INSPECTION,
+        phase: deps.LIFECYCLE_PHASES.REVEAL_FINISHED,
+        busy: true,
+        message: "Inspecting page..."
+      });
+      return { ok: true, pageUrl, skippedReveal: true };
+    }
 
     const revealId = deps.nextRevealId();
     deps.setSilentHighlightEditorRevealInFlight(revealId);
@@ -81,6 +92,7 @@ export function createRenderModeInspectionHandlers(deps) {
         });
         return { ok: false };
       }
+      deps.markSilentHighlightEditorRevealPrepared(baseUrl, pageUrl);
       deps.emitLifecycleEvent({
         operationId,
         kind: deps.LIFECYCLE_KINDS.RENDER_MODE_INSPECTION,

@@ -262,6 +262,7 @@ let lastTrackedUrlHostname = "";
 let silentHighlightLegacyAttrsCleaned = false;
 let silentHighlightEditorRevealInFlight = 0;
 let silentHighlightEditorRevealKey = "";
+let pageVisitRevealFreezeAttemptKey = "";
 let silentHighlightEditorActivationPromise = null;
 let silentHighlightEditorActivationQueued = false;
 let silentHighlightEditorActivationIdCounter = 0;
@@ -1485,7 +1486,7 @@ function recoverFromStuckRenderModeInspection() {
   if (silentHighlightEditorRevealInFlight) {
     silentHighlightEditorRevealInFlight = 0;
   }
-  silentHighlightEditorRevealKey = "";
+  resetPageVisitRevealFreezeKeys();
   core.finishPageInspectionUi();
   if (propertyLockBannerMode === "editor_inspection_reconnecting") {
     updatePropertyLockBannerMode();
@@ -1818,6 +1819,36 @@ function getSilentHighlightEditorRevealKey(baseUrl, pageUrl) {
   return `${normalizedBaseUrl}|${pageUrl}`;
 }
 
+function getPageVisitRevealFreezeKey(baseUrl, pageUrl) {
+  return getSilentHighlightEditorRevealKey(baseUrl, pageUrl);
+}
+
+function consumePageVisitRevealFreezeAttempt(baseUrl, pageUrl) {
+  const revealKey = getPageVisitRevealFreezeKey(baseUrl, pageUrl);
+  if (!revealKey || !baseUrl || !utils.isPageWithinBaseUrl(pageUrl, baseUrl)) {
+    return false;
+  }
+  if (pageVisitRevealFreezeAttemptKey === revealKey) {
+    return false;
+  }
+  pageVisitRevealFreezeAttemptKey = revealKey;
+  return true;
+}
+
+function markSilentHighlightEditorRevealPrepared(baseUrl, pageUrl) {
+  const revealKey = getSilentHighlightEditorRevealKey(baseUrl, pageUrl);
+  if (!revealKey) {
+    return;
+  }
+  pageVisitRevealFreezeAttemptKey = revealKey;
+  silentHighlightEditorRevealKey = revealKey;
+}
+
+function resetPageVisitRevealFreezeKeys() {
+  silentHighlightEditorRevealKey = "";
+  pageVisitRevealFreezeAttemptKey = "";
+}
+
 function shouldRunSilentHighlightEditorActivation() {
   if (state.enabled) {
     return false;
@@ -1899,13 +1930,17 @@ async function runEditorSilentHighlightingActivationOnce() {
     }
     const pageTypeResult = await resolveCurrentPageTypeForMarking(baseUrl, pageUrl);
     if (!pageTypeResult.ok || !pageTypeResult.pageType) {
-      silentHighlightEditorRevealKey = "";
+      resetPageVisitRevealFreezeKeys();
       shouldRefreshAfterActivation = true;
       return;
     }
     state.currentPageType = pageTypeResult.pageType;
     const revealKey = getSilentHighlightEditorRevealKey(baseUrl, pageUrl);
     if (revealKey && revealKey === silentHighlightEditorRevealKey) {
+      shouldRefreshAfterActivation = true;
+      return;
+    }
+    if (!consumePageVisitRevealFreezeAttempt(baseUrl, pageUrl)) {
       shouldRefreshAfterActivation = true;
       return;
     }
@@ -1931,7 +1966,7 @@ async function runEditorSilentHighlightingActivationOnce() {
       { keepUiActive: true }
     );
     if (isStillCurrent() && prepared && revealKey) {
-      silentHighlightEditorRevealKey = revealKey;
+      markSilentHighlightEditorRevealPrepared(baseUrl, pageUrl);
     }
     shouldRefreshAfterActivation = true;
     if (previousReconciliation) {
@@ -3035,7 +3070,7 @@ function startSilentHighlightingUrlWatcher() {
   silentHighlightingUrlTimer = window.setInterval(() => {
     if (location.href !== lastUrl) {
       lastUrl = location.href;
-      silentHighlightEditorRevealKey = "";
+      resetPageVisitRevealFreezeKeys();
       runPropertyLockSync({
         pageUrl: lastUrl,
         forceSiteIdRefresh: true
@@ -4826,7 +4861,7 @@ async function refreshSilentHighlightings() {
   }
   const baseUrl = utils.findMatchingBaseUrl(pageUrl, configs);
   if (!baseUrl) {
-    silentHighlightEditorRevealKey = "";
+    resetPageVisitRevealFreezeKeys();
     setSilentHighlightingPageMotionPaused(false);
     stopSilentHighlightingObserver();
     clearSilentHighlightingMarks();
@@ -5681,7 +5716,7 @@ function createPropertyLockStateMachineDeps() {
     clearPropertyLockBannerCountdown,
     clearPropertyLockRecoveryReleaseTimer,
     clearSilentHighlightEditorRevealKey: () => {
-      silentHighlightEditorRevealKey = "";
+      resetPageVisitRevealFreezeKeys();
     },
     ensurePropertyLockCollaborationActive,
     getBaseUrl: () => state.baseUrl,
@@ -6160,6 +6195,8 @@ function createRenderModeInspectionHandlersDeps() {
     isPageWithinBaseUrl: (pageUrl, baseUrl) => utils.isPageWithinBaseUrl(pageUrl, baseUrl),
     isRenderModeInspectionActive,
     isRenderModeInspectionFlagSet: () => renderModeInspectionActive,
+    consumePageVisitRevealFreezeAttempt,
+    markSilentHighlightEditorRevealPrepared,
     nextRevealId: () => ++silentHighlightEditorActivationIdCounter,
     renderPropertyLockBanner,
     resolveBaseUrlForCurrentPage,
@@ -6318,12 +6355,19 @@ async function handleSetEnabledCommand(message = {}) {
     setSilentHighlightingsActive(false);
 
     try {
-      const skipInitialReveal = !Boolean(message.performInitialReveal);
+      const shouldPerformInitialReveal = Boolean(
+        message.performInitialReveal &&
+          consumePageVisitRevealFreezeAttempt(message.baseUrl, location.href)
+      );
+      const skipInitialReveal = !shouldPerformInitialReveal;
       const reconciliation = core.getPageSaveReconciliationState(location.href);
       if (reconciliation && reconciliation.reason === SILENT_HIGHLIGHTING_PREPARATION_REASON) {
         await core.clearPageSaveReconciliation(message.baseUrl || state.baseUrl || "", location.href);
       }
       await core.enableForBaseUrl(message.baseUrl, { skipInitialReveal });
+      if (shouldPerformInitialReveal) {
+        markSilentHighlightEditorRevealPrepared(message.baseUrl, location.href);
+      }
       refreshEnabledAiHighlights();
       emitLifecycleEvent({
         operationId,
@@ -6605,7 +6649,7 @@ export function main() {
   });
 
   window.addEventListener(URL_CHANGED_EVENT, () => {
-    silentHighlightEditorRevealKey = "";
+    resetPageVisitRevealFreezeKeys();
     runPropertyLockSync({ forceSiteIdRefresh: true });
   });
 

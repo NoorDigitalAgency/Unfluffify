@@ -138,8 +138,9 @@ test("reveal activation starts on becameEditor transition and not on marking ena
   assert.ok(handlerStart > -1);
   assert.ok(handlerEnd > handlerStart);
   assert.match(messageSource, /deps\.handleSetEnabledCommand\(message\)/);
-  assert.match(handlerSource, /const skipInitialReveal = !Boolean\(message\.performInitialReveal\);/);
-  assert.match(handlerSource, /await core\.enableForBaseUrl\(message\.baseUrl, \{ skipInitialReveal \}\);/);
+  assert.match(handlerSource, /const shouldPerformInitialReveal = Boolean\([\s\S]*?message\.performInitialReveal &&[\s\S]*?consumePageVisitRevealFreezeAttempt\(message\.baseUrl, location\.href\)[\s\S]*?\);/);
+  assert.match(handlerSource, /const skipInitialReveal = !shouldPerformInitialReveal;/);
+  assert.match(handlerSource, /await core\.enableForBaseUrl\(message\.baseUrl, \{ skipInitialReveal \}\);[\s\S]*?if \(shouldPerformInitialReveal\) \{[\s\S]*?markSilentHighlightEditorRevealPrepared\(message\.baseUrl, location\.href\);/);
   assert.doesNotMatch(messageSource, /warmupPageRevealBeforeMotionPause\(/);
   assert.doesNotMatch(messageSource, /warmupSilentHighlightingBeforeMotionPause\(/);
   assert.doesNotMatch(messageSource, /runEditorSilentHighlightingActivation\(/);
@@ -160,7 +161,7 @@ test("reveal activation starts on becameEditor transition and not on marking ena
   const urlWatcherSource = source.slice(urlWatcherStart, urlWatcherEnd);
   assert.ok(urlWatcherStart > -1);
   assert.ok(urlWatcherEnd > urlWatcherStart);
-  assert.match(urlWatcherSource, /runPropertyLockSync\(\{\s*pageUrl:\s*lastUrl,\s*forceSiteIdRefresh:\s*true\s*\}\);/);
+  assert.match(urlWatcherSource, /resetPageVisitRevealFreezeKeys\(\);[\s\S]*?runPropertyLockSync\(\{\s*pageUrl:\s*lastUrl,\s*forceSiteIdRefresh:\s*true\s*\}\);/);
   assert.doesNotMatch(urlWatcherSource, /const shouldRunEditorActivation/);
   assert.doesNotMatch(urlWatcherSource, /runEditorSilentHighlightingActivation\(/);
 
@@ -169,7 +170,7 @@ test("reveal activation starts on becameEditor transition and not on marking ena
   const urlEventSource = source.slice(urlEventStart, urlEventEnd);
   assert.ok(urlEventStart > -1);
   assert.ok(urlEventEnd > urlEventStart);
-  assert.match(urlEventSource, /silentHighlightEditorRevealKey = "";/);
+  assert.match(urlEventSource, /resetPageVisitRevealFreezeKeys\(\);/);
   assert.match(urlEventSource, /runPropertyLockSync\(\{\s*forceSiteIdRefresh:\s*true\s*\}\);/);
   assert.doesNotMatch(urlEventSource, /const shouldRunEditorActivation/);
   assert.doesNotMatch(urlEventSource, /runEditorSilentHighlightingActivation\(/);
@@ -260,7 +261,7 @@ test("editor reveal is gated during render-mode inspection or before render mode
   );
   assert.match(
     activationSource,
-    /const pageTypeResult = await resolveCurrentPageTypeForMarking\(baseUrl, pageUrl\);[\s\S]*?if \(!pageTypeResult\.ok \|\| !pageTypeResult\.pageType\) \{[\s\S]*?silentHighlightEditorRevealKey = "";[\s\S]*?shouldRefreshAfterActivation = true;[\s\S]*?return;[\s\S]*?\}/
+    /const pageTypeResult = await resolveCurrentPageTypeForMarking\(baseUrl, pageUrl\);[\s\S]*?if \(!pageTypeResult\.ok \|\| !pageTypeResult\.pageType\) \{[\s\S]*?resetPageVisitRevealFreezeKeys\(\);[\s\S]*?shouldRefreshAfterActivation = true;[\s\S]*?return;[\s\S]*?\}/
   );
   const inspectionGuardIndex = activationSource.indexOf("isRenderModeInspectionActive()");
   const confirmedGuardIndex = activationSource.indexOf("!isRenderModeConfirmedForBaseUrl(baseUrl, configs)");
@@ -289,8 +290,9 @@ test("runtime setEnabled can request an initial reveal when reload restoration r
   const messageSource = runtimeMessageHandlerSource.slice(messageStart, messageEnd);
   const handlerSource = source.slice(handlerStart, handlerEnd);
   assert.match(messageSource, /deps\.handleSetEnabledCommand\(message\)/);
-  assert.match(handlerSource, /const skipInitialReveal = !Boolean\(message\.performInitialReveal\);/);
-  assert.match(handlerSource, /await core\.enableForBaseUrl\(message\.baseUrl, \{ skipInitialReveal \}\);/);
+  assert.match(handlerSource, /const shouldPerformInitialReveal = Boolean\([\s\S]*?message\.performInitialReveal &&[\s\S]*?consumePageVisitRevealFreezeAttempt\(message\.baseUrl, location\.href\)[\s\S]*?\);/);
+  assert.match(handlerSource, /const skipInitialReveal = !shouldPerformInitialReveal;/);
+  assert.match(handlerSource, /await core\.enableForBaseUrl\(message\.baseUrl, \{ skipInitialReveal \}\);[\s\S]*?if \(shouldPerformInitialReveal\) \{[\s\S]*?markSilentHighlightEditorRevealPrepared\(message\.baseUrl, location\.href\);/);
 });
 
 test("capturePageSnapshot collects AI submission rows from the target config", () => {
