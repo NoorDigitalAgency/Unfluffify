@@ -20,7 +20,6 @@ background.ts
 background/world-trace.ts
 common/config.ts
 common/emulation.ts
-common/lynx-checklist.ts
 common/page-motion-freeze-bridge.ts
 common/page-motion-freeze-control.ts
 common/property-lock-background.ts

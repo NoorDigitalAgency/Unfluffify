@@ -1,5 +1,52 @@
-// @ts-nocheck
-function normalizeAiAnswer(value) {
+type AiAnswer = "" | "yes" | "no";
+
+type RawCandidate = {
+  url?: unknown;
+  wordsCount?: unknown;
+};
+
+type NormalizedCandidate = {
+  url: string;
+  wordsCount: number;
+};
+
+type ViewCandidate = NormalizedCandidate & {
+  duplicate: boolean;
+  duplicatePageTypes: string[];
+};
+
+type RawPageType = {
+  pageType?: unknown;
+  key?: unknown;
+  title?: unknown;
+  candidates?: unknown;
+  pages?: unknown;
+};
+
+type NormalizedPageType = {
+  key: string;
+  title: string;
+  candidates: NormalizedCandidate[];
+};
+
+type ViewPageType = {
+  key: string;
+  title: string;
+  candidates: ViewCandidate[];
+};
+
+type MarkedPage = {
+  url: string;
+  pageType: string;
+  title: string;
+};
+
+type LynxChecklistState = {
+  aiAnswer: AiAnswer;
+  pageTypes: ViewPageType[];
+};
+
+function normalizeAiAnswer(value: unknown): AiAnswer {
   return value === "yes" || value === "no" ? value : "";
 }
 
@@ -14,10 +61,11 @@ const ALLOWED_PAGE_TYPE_LABELS = Object.freeze({
   landing_page: "Landing Page",
   utility: "Utility"
 });
+const PAGE_TYPE_LABELS: Readonly<Record<string, string>> = ALLOWED_PAGE_TYPE_LABELS;
 
 const ALLOWED_PAGE_TYPE_ORDER = Object.freeze(Object.keys(ALLOWED_PAGE_TYPE_LABELS));
 
-export function normalizePageTypeKey(value) {
+export function normalizePageTypeKey(value: unknown): string {
   if (typeof value !== "string") {
     return "";
   }
@@ -30,7 +78,7 @@ export function normalizePageTypeKey(value) {
     .toLowerCase();
 }
 
-export function normalizeCandidatePageUrl(value) {
+export function normalizeCandidatePageUrl(value: unknown): string {
   if (typeof value !== "string") {
     return "";
   }
@@ -55,13 +103,13 @@ export function normalizeCandidatePageUrl(value) {
   }
 }
 
-function formatPageTypeTitleFromKey(value) {
+function formatPageTypeTitleFromKey(value: unknown): string {
   const key = normalizePageTypeKey(value);
   if (!key) {
     return "";
   }
-  if (ALLOWED_PAGE_TYPE_LABELS[key]) {
-    return ALLOWED_PAGE_TYPE_LABELS[key];
+  if (PAGE_TYPE_LABELS[key]) {
+    return PAGE_TYPE_LABELS[key];
   }
   return key
     .split("_")
@@ -75,10 +123,10 @@ function formatPageTypeTitleFromKey(value) {
     .join(" ");
 }
 
-function normalizePageTypeTitle(value, fallbackKey) {
+function normalizePageTypeTitle(value: unknown, fallbackKey: unknown): string {
   const key = normalizePageTypeKey(fallbackKey);
-  if (ALLOWED_PAGE_TYPE_LABELS[key]) {
-    return ALLOWED_PAGE_TYPE_LABELS[key];
+  if (PAGE_TYPE_LABELS[key]) {
+    return PAGE_TYPE_LABELS[key];
   }
   if (typeof value === "string" && value.trim()) {
     return value.trim();
@@ -86,32 +134,36 @@ function normalizePageTypeTitle(value, fallbackKey) {
   return formatPageTypeTitleFromKey(key);
 }
 
-function normalizeWordsCount(value) {
+function normalizeWordsCount(value: unknown): number {
   const parsed = Number.parseInt(String(value), 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
 }
 
-function normalizeCandidate(rawCandidate) {
+function normalizeCandidate(rawCandidate: unknown): NormalizedCandidate | null {
   if (!rawCandidate || typeof rawCandidate !== "object") {
     return null;
   }
-  const url = normalizeCandidatePageUrl(rawCandidate.url);
+  const candidate = rawCandidate as RawCandidate;
+  const url = normalizeCandidatePageUrl(candidate.url);
   if (!url) {
     return null;
   }
   return {
     url,
-    wordsCount: normalizeWordsCount(rawCandidate.wordsCount)
+    wordsCount: normalizeWordsCount(candidate.wordsCount)
   };
 }
 
-function normalizePageTypeCandidates(rawPageType) {
-  const rawCandidates = Array.isArray(rawPageType && rawPageType.candidates)
-    ? rawPageType.candidates
-    : Array.isArray(rawPageType && rawPageType.pages)
-      ? rawPageType.pages
+function normalizePageTypeCandidates(rawPageType: unknown): NormalizedCandidate[] {
+  const pageType = (rawPageType && typeof rawPageType === "object")
+    ? (rawPageType as RawPageType)
+    : {};
+  const rawCandidates = Array.isArray(pageType.candidates)
+    ? pageType.candidates as unknown[]
+    : Array.isArray(pageType.pages)
+      ? pageType.pages as unknown[]
       : [];
-  const candidatesByUrl = new Map();
+  const candidatesByUrl = new Map<string, NormalizedCandidate>();
   rawCandidates.forEach((rawCandidate) => {
     const candidate = normalizeCandidate(rawCandidate);
     if (!candidate) {
@@ -130,27 +182,34 @@ function normalizePageTypeCandidates(rawPageType) {
   });
 }
 
-export function normalizePropertyPageTypes(value = []) {
+export function normalizePropertyPageTypes(value: unknown = []): {
+  pageTypes: ViewPageType[];
+  duplicateUrls: string[];
+} {
+  const root = (value && typeof value === "object")
+    ? (value as { pageTypes?: unknown[] })
+    : {};
   const rawPageTypes = Array.isArray(value)
     ? value
-    : Array.isArray(value && value.pageTypes)
-      ? value.pageTypes
+    : Array.isArray(root.pageTypes)
+      ? root.pageTypes || []
       : [];
-  const pageTypesByKey = new Map();
+  const pageTypesByKey = new Map<string, NormalizedPageType>();
 
   rawPageTypes.forEach((rawPageType) => {
     if (!rawPageType || typeof rawPageType !== "object") {
       return;
     }
-    const key = normalizePageTypeKey(rawPageType.pageType || rawPageType.key);
-    if (!key || !ALLOWED_PAGE_TYPE_LABELS[key]) {
+    const pageType = rawPageType as RawPageType;
+    const key = normalizePageTypeKey(pageType.pageType || pageType.key);
+    if (!key || !PAGE_TYPE_LABELS[key]) {
       return;
     }
     const existing = pageTypesByKey.get(key);
     if (!existing) {
       pageTypesByKey.set(key, {
         key,
-        title: normalizePageTypeTitle(rawPageType.title, key),
+        title: normalizePageTypeTitle(pageType.title, key),
         candidates: normalizePageTypeCandidates(rawPageType)
       });
       return;
@@ -165,7 +224,7 @@ export function normalizePropertyPageTypes(value = []) {
     return ALLOWED_PAGE_TYPE_ORDER.indexOf(left.key) - ALLOWED_PAGE_TYPE_ORDER.indexOf(right.key);
   });
 
-  const duplicateUrlToKeys = new Map();
+  const duplicateUrlToKeys = new Map<string, string[]>();
   pageTypes.forEach((pageType) => {
     pageType.candidates.forEach((candidate) => {
       const keys = duplicateUrlToKeys.get(candidate.url) || [];
@@ -177,7 +236,7 @@ export function normalizePropertyPageTypes(value = []) {
   const duplicateUrls = Array.from(duplicateUrlToKeys.entries())
     .filter(([, keys]) => keys.length > 1)
     .map(([url]) => url);
-  const duplicateUrlSet = new Set(duplicateUrls);
+  const duplicateUrlSet = new Set<string>(duplicateUrls);
   const pageTypeTitleByKey = new Map(pageTypes.map((pageType) => [pageType.key, pageType.title]));
 
   return {
@@ -200,12 +259,19 @@ export function normalizePropertyPageTypes(value = []) {
   };
 }
 
-function normalizeMarkedPages(markedPages, normalizedPageTypes) {
-  const candidatesByPageType = new Map();
-  const duplicateUrlSet = new Set();
-  const candidatePageTypeByUrl = new Map();
+function normalizeMarkedPages(
+  markedPages: unknown,
+  normalizedPageTypes: ViewPageType[]
+): {
+  activeMarkedPages: MarkedPage[];
+  invalidMarkedPages: Array<Record<string, unknown>>;
+  repairedMarkedPages: Array<{ url: string; pageType: string; previousPageType: string }>;
+} {
+  const candidatesByPageType = new Map<string, Set<string>>();
+  const duplicateUrlSet = new Set<string>();
+  const candidatePageTypeByUrl = new Map<string, string>();
   normalizedPageTypes.forEach((pageType) => {
-    const urls = new Set();
+    const urls = new Set<string>();
     pageType.candidates.forEach((candidate) => {
       urls.add(candidate.url);
       if (candidate.duplicate) {
@@ -220,18 +286,19 @@ function normalizeMarkedPages(markedPages, normalizedPageTypes) {
     candidatesByPageType.set(pageType.key, urls);
   });
 
-  const activeMarkedPages = [];
-  const invalidMarkedPages = [];
-  const repairedMarkedPages = [];
-  const seenKeys = new Set();
+  const activeMarkedPages: MarkedPage[] = [];
+  const invalidMarkedPages: Array<Record<string, unknown>> = [];
+  const repairedMarkedPages: Array<{ url: string; pageType: string; previousPageType: string }> = [];
+  const seenKeys = new Set<string>();
   const rawMarkedPages = Array.isArray(markedPages) ? markedPages : [];
 
   rawMarkedPages.forEach((item) => {
     if (!item || typeof item !== "object") {
       return;
     }
-    const url = normalizeCandidatePageUrl(item.url);
-    const pageType = normalizePageTypeKey(item.pageType);
+    const marked = item as { url?: unknown; pageType?: unknown; title?: unknown };
+    const url = normalizeCandidatePageUrl(marked.url);
+    const pageType = normalizePageTypeKey(marked.pageType);
     if (!url) {
       invalidMarkedPages.push(item);
       return;
@@ -243,7 +310,7 @@ function normalizeMarkedPages(markedPages, normalizedPageTypes) {
         ? pageType
         : candidatePageType;
     if (!resolvedPageType) {
-      invalidMarkedPages.push({ ...item, url, pageType: pageType || "" });
+      invalidMarkedPages.push({ ...(item as Record<string, unknown>), url, pageType: pageType || "" });
       return;
     }
     const dedupeKey = `${resolvedPageType}|${url}`;
@@ -261,7 +328,7 @@ function normalizeMarkedPages(markedPages, normalizedPageTypes) {
     activeMarkedPages.push({
       url,
       pageType: resolvedPageType,
-      title: typeof item.title === "string" && item.title.trim() ? item.title.trim() : url
+      title: typeof marked.title === "string" && marked.title.trim() ? marked.title.trim() : url
     });
   });
 
@@ -283,21 +350,26 @@ export function buildLynxChecklistPromptState(options = {}) {
   };
 }
 
-export function normalizeLynxChecklistState(value = {}) {
-  const normalizedPageTypes = normalizePropertyPageTypes(value.pageTypes);
+export function normalizeLynxChecklistState(value: unknown = {}): LynxChecklistState {
+  const checklistState = value as { pageTypes?: unknown; aiAnswer?: unknown };
+  const normalizedPageTypes = normalizePropertyPageTypes(checklistState.pageTypes);
   return {
-    aiAnswer: normalizeAiAnswer(value.aiAnswer),
+    aiAnswer: normalizeAiAnswer(checklistState.aiAnswer),
     pageTypes: normalizedPageTypes.pageTypes
   };
 }
 
-export function buildLynxChecklistViewModel(options = {}) {
+export function buildLynxChecklistViewModel(options: {
+  aiAnswer?: unknown;
+  pageTypes?: unknown;
+  markedPages?: unknown;
+} = {}) {
   const normalized = normalizeLynxChecklistState(options);
   const { activeMarkedPages, invalidMarkedPages, repairedMarkedPages } = normalizeMarkedPages(
     options.markedPages,
     normalized.pageTypes
   );
-  const markedPagesByType = activeMarkedPages.reduce((result, item) => {
+  const markedPagesByType = activeMarkedPages.reduce<Record<string, MarkedPage[]>>((result, item) => {
     if (!result[item.pageType]) {
       result[item.pageType] = [];
     }
@@ -317,7 +389,7 @@ export function buildLynxChecklistViewModel(options = {}) {
   });
   const missingPageTypes = pageTypes.filter((pageType) => pageType.missing);
 
-  let blockingReason = { code: "" };
+  let blockingReason: { code: string; pageTypeKeys?: string[] } = { code: "" };
   if (!pageTypes.length) {
     blockingReason = { code: "no_candidates" };
   } else if (missingPageTypes.length) {
@@ -344,7 +416,7 @@ export function buildLynxChecklistViewModel(options = {}) {
   };
 }
 
-export function buildLynxChecklistAssignments(value = {}) {
+export function buildLynxChecklistAssignments(value: { aiAnswer?: unknown; pageTypes?: unknown; markedPages?: unknown } = {}) {
   const normalized = normalizeLynxChecklistState(value);
   const { activeMarkedPages } = normalizeMarkedPages(value.markedPages, normalized.pageTypes);
   const orderByPageType = new Map(normalized.pageTypes.map((item, index) => [item.key, index]));
@@ -353,8 +425,10 @@ export function buildLynxChecklistAssignments(value = {}) {
     .sort((left, right) => {
       const leftOrder = orderByPageType.has(left.pageType) ? orderByPageType.get(left.pageType) : Number.MAX_SAFE_INTEGER;
       const rightOrder = orderByPageType.has(right.pageType) ? orderByPageType.get(right.pageType) : Number.MAX_SAFE_INTEGER;
-      if (leftOrder !== rightOrder) {
-        return leftOrder - rightOrder;
+      const resolvedLeftOrder = typeof leftOrder === "number" ? leftOrder : Number.MAX_SAFE_INTEGER;
+      const resolvedRightOrder = typeof rightOrder === "number" ? rightOrder : Number.MAX_SAFE_INTEGER;
+      if (resolvedLeftOrder !== resolvedRightOrder) {
+        return resolvedLeftOrder - resolvedRightOrder;
       }
       return left.url.localeCompare(right.url);
     })

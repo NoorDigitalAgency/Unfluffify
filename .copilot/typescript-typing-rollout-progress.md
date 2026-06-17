@@ -6,7 +6,7 @@ Current phase: Phase 1 (leaf modules)
 ## Baseline
 - Branch: feat/typescript-deno-port
 - Full tests baseline: 847 pass / 0 fail
-- Current runtime @ts-nocheck count: 89
+- Current runtime @ts-nocheck count: 88
 - Ratchet allowlist: tests/fixtures/expected-ts-nocheck.txt
 
 ## Checkpoints
@@ -21,6 +21,7 @@ Current phase: Phase 1 (leaf modules)
 - [2026-06-17] Phase 1 batch 5 completed: removed `@ts-nocheck` from `common/async-messaging.ts` with strict request/reply and error-context typings.
 - [2026-06-17] Phase 1 batch 6 completed: removed `@ts-nocheck` from `common/property-lock.ts` with typed lock-state normalization and predicate helpers.
 - [2026-06-17] Phase 1 batch 7 completed: removed `@ts-nocheck` from `common/settings-store.ts` and retained default-object sync reads required by settings-store tests.
+- [2026-06-17] Phase 1 batch 8 completed: removed `@ts-nocheck` from `common/lynx-checklist.ts` with typed candidate/page-type normalization and checklist view-model outputs.
 
 ## Notes
 - PoC typed module already merged: background/tab-operation-runner.ts and types/operations.ts.
