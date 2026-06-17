@@ -545,7 +545,7 @@ test("render-mode detection delegates the heavy html transport to background", (
   const backgroundSource = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
   const remoteNetworkSource = readFileSync(new URL("../background/remote-network.ts", import.meta.url), "utf8");
   const detectBody = popupSource.match(
-    /export async function detectRenderModeViaEndpoint\(deps, options = \{\}\) \{([\s\S]*?)\n\}\n\nexport async function maybeAutoDetectRenderMode/
+    /export async function detectRenderModeViaEndpoint\(deps(?:\s*:\s*[^,]+)?, options(?:\s*:\s*[^)]+)? = \{\}\)(?:\s*:\s*[^{]+)? \{([\s\S]*?)\n\}\n\nexport async function maybeAutoDetectRenderMode/
   )[1];
 
   assert.match(backgroundSource, /from "\.\/background\/remote-network\.js"/);

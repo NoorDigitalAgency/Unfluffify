@@ -1,10 +1,89 @@
+import type { Config } from "../types/config.ts";
+import type {
+  PopupState,
+  RenderModeInspectionSnapshot
+} from "../types/popup-state.ts";
+
 type RenderModeDetectionResult = {
   result: string;
   accuracy: number;
 };
 
+interface RenderModeDetectionResponse {
+  ok?: boolean;
+  status?: string;
+  httpStatus?: number;
+  payload?: unknown;
+}
+
+interface RenderModeInspectionHtmlResponse {
+  ok?: boolean;
+  pageUrl?: string;
+  [key: string]: unknown;
+}
+
+interface RenderModeInspectionDeps {
+  state: PopupState;
+  config: {
+    getConfigRenderMode(config: Config | null): string;
+    normalizeRenderMode(value: unknown): string;
+  };
+  PopupText: Record<string, Record<string, string>>;
+  RENDER_MODE_DETECTION_MAX_ATTEMPTS: number;
+  RENDER_MODE_DETECTION_MIN_ENDPOINT_ACCURACY: number;
+  RENDER_MODE_INSPECTION_START_TIMEOUT_MS: number;
+  RENDER_MODE_INSPECTION_LOAD_TIMEOUT_MS: number;
+  RENDER_MODE_UNDETERMINED: string;
+  windowRef: Window;
+  chromeRef: typeof chrome;
+  messages: {
+    sendRuntimeMessage(
+      message: { type: string; payloadKey?: string }
+    ): Promise<RenderModeDetectionResponse | null>;
+    sendTabMessageToTab(
+      tabId: number,
+      message: { type: string; baseUrl?: string; operationId?: string }
+    ): Promise<RenderModeInspectionHtmlResponse | null>;
+  };
+  shouldAutoDetectRenderMode(config: Config | null): boolean;
+  getCurrentRenderModeInspectionSnapshot(
+    detectionKey: string
+  ): RenderModeInspectionSnapshot | null;
+  getSuggestedRenderModeForPage(pageUrl: unknown): string;
+  loadGlobalAiSettings(): Promise<{ tokenValue: string; endpointValue: string }>;
+  markRenderModeUndetermined(detectionKey: string): void;
+  runWithSpinner(
+    spinnerTarget: unknown,
+    message: unknown,
+    task: (spinnerKey: string | null) => Promise<unknown>,
+    options?: { delayMs?: number }
+  ): Promise<unknown>;
+  buildTransferPayloadKey(label: string): string;
+  putTransferPayload(
+    kind: string,
+    payload: unknown,
+    options: { payloadKey?: string }
+  ): Promise<{ ok: boolean }>;
+  waitForRetryDelay(delayMs?: number): Promise<unknown>;
+  getRetryDelayMs(attempt: number, minDelayMs: number, maxDelayMs: number): number;
+  isRetryableHttpStatus(status: unknown): boolean;
+  ensureContentReadyForRenderModeInspection(tabId: number): Promise<boolean>;
+  hideConsentForRenderModeInspection(tabId: number): Promise<unknown>;
+  rememberRenderModeInspectionSnapshot(
+    baseUrl: string,
+    pageUrl: string,
+    response: unknown
+  ): void;
+  reconcilePropertyLockAfterRenderModeReload(): Promise<unknown>;
+  scheduleStaleInspectionBusyClear(
+    tabId: number,
+    baseUrl: string,
+    options: { reconcileRenderModeNavSpinner?: boolean }
+  ): void;
+}
+
 export function normalizeRenderModeDetectionResult(
-  deps: any,
+  deps: RenderModeInspectionDeps,
   payload: unknown
 ): RenderModeDetectionResult {
   if (!payload || typeof payload !== "object") {
@@ -27,8 +106,13 @@ export function normalizeRenderModeDetectionResult(
   };
 }
 
-// export async function detectRenderModeViaEndpoint(deps, options = {}) {
-export async function detectRenderModeViaEndpoint(deps: any, options: Record<string, unknown> = {}) {
+type RenderModeEndpointDetection = {
+  ok: boolean;
+  result: string;
+  accuracy: number;
+};
+
+export async function detectRenderModeViaEndpoint(deps: RenderModeInspectionDeps, options: Record<string, unknown> = {}): Promise<RenderModeEndpointDetection> {
   const {
     rawHtml = "",
     renderedHtml = ""
@@ -85,7 +169,7 @@ export async function detectRenderModeViaEndpoint(deps: any, options: Record<str
   return { ok: false, result: "", accuracy: Number.NaN };
 }
 
-export async function maybeAutoDetectRenderMode(deps: any, pageUrl: unknown) {
+export async function maybeAutoDetectRenderMode(deps: RenderModeInspectionDeps, pageUrl: unknown) {
   const { state } = deps;
   if (
     !pageUrl ||
@@ -143,7 +227,7 @@ export async function maybeAutoDetectRenderMode(deps: any, pageUrl: unknown) {
         renderedHtml: inspectionSnapshot.renderedHtml
       }),
       { delayMs: 0 }
-    );
+    ) as RenderModeEndpointDetection;
     if (!detectionResult.ok) {
       deps.markRenderModeUndetermined(detectionKey);
       return deps.RENDER_MODE_UNDETERMINED;
@@ -166,7 +250,7 @@ export async function maybeAutoDetectRenderMode(deps: any, pageUrl: unknown) {
 }
 
 export async function waitForTabLoadStart(
-  deps: any,
+  deps: RenderModeInspectionDeps,
   tabId: number,
   timeoutMs = deps.RENDER_MODE_INSPECTION_START_TIMEOUT_MS
 ) {
@@ -187,7 +271,7 @@ export async function waitForTabLoadStart(
       resolve(value);
     };
 
-    const onUpdated = (updatedTabId: number, changeInfo: any) => {
+    const onUpdated = (updatedTabId: number, changeInfo: chrome.tabs.OnUpdatedInfo) => {
       if (updatedTabId !== tabId) {
         return;
       }
@@ -204,7 +288,7 @@ export async function waitForTabLoadStart(
     }, timeoutMs);
 
     deps.chromeRef.tabs.onUpdated.addListener(onUpdated);
-    deps.chromeRef.tabs.get(tabId, (tab: any) => {
+    deps.chromeRef.tabs.get(tabId, (tab: chrome.tabs.Tab) => {
       if (deps.chromeRef.runtime.lastError) {
         finish(false);
         return;
@@ -217,7 +301,7 @@ export async function waitForTabLoadStart(
 }
 
 export async function waitForTabLoadComplete(
-  deps: any,
+  deps: RenderModeInspectionDeps,
   tabId: number,
   timeoutMs = deps.RENDER_MODE_INSPECTION_LOAD_TIMEOUT_MS,
   options: Record<string, unknown> = {}
@@ -242,7 +326,7 @@ export async function waitForTabLoadComplete(
       resolve(value);
     };
 
-    const onUpdated = (updatedTabId: number, changeInfo: any) => {
+    const onUpdated = (updatedTabId: number, changeInfo: chrome.tabs.OnUpdatedInfo) => {
       if (updatedTabId !== tabId) {
         return;
       }
@@ -260,7 +344,7 @@ export async function waitForTabLoadComplete(
     }, timeoutMs);
 
     deps.chromeRef.tabs.onUpdated.addListener(onUpdated);
-    deps.chromeRef.tabs.get(tabId, (tab: any) => {
+    deps.chromeRef.tabs.get(tabId, (tab: chrome.tabs.Tab) => {
       if (deps.chromeRef.runtime.lastError) {
         finish(false);
         return;
@@ -272,7 +356,7 @@ export async function waitForTabLoadComplete(
   });
 }
 
-export async function completeRenderModeInspectionReloadFollowUp(deps: any, tabId: number, operationId = "") {
+export async function completeRenderModeInspectionReloadFollowUp(deps: RenderModeInspectionDeps, tabId: number, operationId = "") {
   const loadCompleted = await waitForTabLoadComplete(
     deps,
     tabId,
