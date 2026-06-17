@@ -1,5 +1,56 @@
-// @ts-nocheck
-function addSelectorSuppressedXpath(deps, entry, xpath) {
+type ExplicitMarkingEntryItem = {
+  xpath?: string;
+  excluded?: boolean;
+  explicit?: boolean;
+};
+
+type ExplicitMarkingEntry = {
+  xpaths?: ExplicitMarkingEntryItem[];
+  includeXpaths?: string[];
+  selectorSuppressedXpaths?: string[];
+  [key: string]: unknown;
+};
+
+type ExplicitMarkingConfig = {
+  pageMarkings: Record<string, ExplicitMarkingEntry>;
+};
+
+type ExplicitMarkingDeps = {
+  canApplyExplicitInclude: (
+    target: Element,
+    config: ExplicitMarkingConfig,
+    pageUrl: string,
+    entry: ExplicitMarkingEntry
+  ) => boolean;
+  getConfig: () => ExplicitMarkingConfig;
+  getElementFromXPath: (xpath: string) => Element | null;
+  getPageMarkingEntry: (config: ExplicitMarkingConfig, pageUrl: string) => ExplicitMarkingEntry;
+  getPageUrl: () => string;
+  isDefaultToggleableExcludedElement: (element: Element | null) => boolean;
+  isPageDraftDirty: (pageUrl: string) => boolean;
+  isXPathDescendant: (parent: string, child: string) => boolean;
+  normalizePageEntryXpaths: (entry: ExplicitMarkingEntry) => void;
+  notifyDraftStatus: (pageUrl: string) => void;
+  scheduleDraftPersist: (targetBaseUrl: string) => void;
+  scheduleRender: () => void;
+  scheduleSnapshotSave: () => void;
+  touchPageEntryTimestamp: (entry: ExplicitMarkingEntry) => void;
+};
+
+type ExplicitExcludeOptions = {
+  targetBaseUrl?: string;
+  xpath?: string;
+  excluded?: boolean;
+};
+
+type ExplicitIncludeOptions = {
+  targetBaseUrl?: string;
+  xpath?: string;
+  included?: boolean;
+};
+
+// function addSelectorSuppressedXpath(deps, entry, xpath)
+function addSelectorSuppressedXpath(deps: ExplicitMarkingDeps, entry: ExplicitMarkingEntry, xpath: string | undefined) {
   if (!entry || typeof entry !== "object") {
     return;
   }
@@ -21,20 +72,28 @@ function addSelectorSuppressedXpath(deps, entry, xpath) {
     .concat(xpath);
 }
 
-function createXPathElementCache(deps) {
-  const cache = new Map();
-  return (xpath) => {
+// function createXPathElementCache(deps)
+function createXPathElementCache(deps: ExplicitMarkingDeps): (xpath: string | undefined) => Element | null {
+  const cache = new Map<string, Element | null>();
+  return (xpath: string | undefined) => {
     if (!xpath) {
       return null;
     }
     if (!cache.has(xpath)) {
       cache.set(xpath, deps.getElementFromXPath(xpath));
     }
-    return cache.get(xpath);
+    return cache.get(xpath) || null;
   };
 }
 
-function isSameOrDescendantByElementOrXPath(deps, parentXpath, parentElement, childXpath, childElement) {
+// function isSameOrDescendantByElementOrXPath(deps,
+function isSameOrDescendantByElementOrXPath(
+  deps: ExplicitMarkingDeps,
+  parentXpath: string | undefined,
+  parentElement: Element | null,
+  childXpath: string | undefined,
+  childElement: Element | null
+): boolean {
   if (!parentXpath || !childXpath) {
     return false;
   }
@@ -47,7 +106,7 @@ function isSameOrDescendantByElementOrXPath(deps, parentXpath, parentElement, ch
   return deps.isXPathDescendant(parentXpath, childXpath);
 }
 
-function clearSelectorSuppressedXpathsWithin(deps, entry, xpath) {
+function clearSelectorSuppressedXpathsWithin(deps: ExplicitMarkingDeps, entry: ExplicitMarkingEntry, xpath: string | undefined) {
   if (!entry || typeof entry !== "object") {
     return;
   }
@@ -63,8 +122,13 @@ function clearSelectorSuppressedXpathsWithin(deps, entry, xpath) {
   );
 }
 
-export function createExplicitMarkingHandler(deps) {
-  function finishUpdate(targetBaseUrl, pageUrl, config, entry) {
+export function createExplicitMarkingHandler(deps: ExplicitMarkingDeps) {
+  function finishUpdate(
+    targetBaseUrl: string,
+    pageUrl: string,
+    config: ExplicitMarkingConfig,
+    entry: ExplicitMarkingEntry
+  ): { ok: boolean; dirty: boolean } {
     deps.touchPageEntryTimestamp(entry);
     deps.normalizePageEntryXpaths(entry);
     config.pageMarkings[pageUrl] = entry;
@@ -75,18 +139,20 @@ export function createExplicitMarkingHandler(deps) {
     return { ok: true, dirty: deps.isPageDraftDirty(pageUrl) };
   }
 
-  function setExplicitExclude(options) {
+  // function setExplicitExclude(options) {
+  function setExplicitExclude(options: ExplicitExcludeOptions = {}): { ok: boolean; dirty?: boolean } {
     const { targetBaseUrl, xpath, excluded } = options || {};
+    const effectiveXpath = typeof xpath === "string" ? xpath : "";
     const config = deps.getConfig();
     const pageUrl = deps.getPageUrl();
     const entry = deps.getPageMarkingEntry(config, pageUrl);
     const items = Array.isArray(entry.xpaths) ? entry.xpaths : [];
     const includeXpaths = Array.isArray(entry.includeXpaths) ? entry.includeXpaths : [];
-    let targetItem = items.find((item) => item && item.xpath === xpath);
+    let targetItem = items.find((item) => item && item.xpath === effectiveXpath);
     if (!targetItem) {
       targetItem = excluded
-        ? { xpath, excluded: true, explicit: true }
-        : { xpath, excluded: false };
+        ? { xpath: effectiveXpath, excluded: true, explicit: true }
+        : { xpath: effectiveXpath, excluded: false };
       items.push(targetItem);
     } else {
       targetItem.excluded = excluded;
@@ -97,8 +163,8 @@ export function createExplicitMarkingHandler(deps) {
       }
     }
     const getElement = createXPathElementCache(deps);
-    const target = getElement(xpath);
-    const cleanupDescendantIncludeOverrides = (currentXPath, currentTarget = null) => {
+    const target = getElement(effectiveXpath);
+    const cleanupDescendantIncludeOverrides = (currentXPath: string, currentTarget: Element | null = null) => {
       const boundaryTarget = currentTarget && currentTarget.nodeType === 1
         ? currentTarget
         : getElement(currentXPath);
@@ -126,17 +192,17 @@ export function createExplicitMarkingHandler(deps) {
     if (excluded) {
       for (let index = items.length - 1; index >= 0; index -= 1) {
         const item = items[index];
-        if (!item || !item.xpath || item.xpath === xpath) {
+        if (!item || !item.xpath || item.xpath === effectiveXpath) {
           continue;
         }
         const existingEl = getElement(item.xpath);
-        if (isSameOrDescendantByElementOrXPath(deps, xpath, target, item.xpath, existingEl)) {
+        if (isSameOrDescendantByElementOrXPath(deps, effectiveXpath, target, item.xpath, existingEl)) {
           items.splice(index, 1);
           continue;
         }
         if (
           item.excluded &&
-          isSameOrDescendantByElementOrXPath(deps, item.xpath, existingEl, xpath, target)
+          isSameOrDescendantByElementOrXPath(deps, item.xpath, existingEl, effectiveXpath, target)
         ) {
           cleanupDescendantIncludeOverrides(item.xpath, existingEl);
           if (existingEl && deps.isDefaultToggleableExcludedElement(existingEl)) {
@@ -154,36 +220,43 @@ export function createExplicitMarkingHandler(deps) {
         }
         const includeEl = getElement(includeXPath);
         if (
-          includeXPath === xpath ||
-          isSameOrDescendantByElementOrXPath(deps, includeXPath, includeEl, xpath, target) ||
-          isSameOrDescendantByElementOrXPath(deps, xpath, target, includeXPath, includeEl)
+          includeXPath === effectiveXpath ||
+          isSameOrDescendantByElementOrXPath(deps, includeXPath, includeEl, effectiveXpath, target) ||
+          isSameOrDescendantByElementOrXPath(deps, effectiveXpath, target, includeXPath, includeEl)
         ) {
           includeXpaths.splice(index, 1);
         }
       }
     } else if (targetItem && !targetItem.excluded) {
-      cleanupDescendantIncludeOverrides(xpath, target);
+      cleanupDescendantIncludeOverrides(effectiveXpath, target);
     }
+    // if (excluded) {
+    //   clearSelectorSuppressedXpathsWithin(deps, entry, xpath);
+    // } else {
+    //   addSelectorSuppressedXpath(deps, entry, xpath);
+    // }
     if (excluded) {
-      clearSelectorSuppressedXpathsWithin(deps, entry, xpath);
+      clearSelectorSuppressedXpathsWithin(deps, entry, effectiveXpath);
     } else {
-      addSelectorSuppressedXpath(deps, entry, xpath);
+      addSelectorSuppressedXpath(deps, entry, effectiveXpath);
     }
     entry.includeXpaths = includeXpaths;
     entry.xpaths = items;
-    return finishUpdate(targetBaseUrl, pageUrl, config, entry);
+    return finishUpdate(targetBaseUrl || "", pageUrl, config, entry);
   }
 
-  function setExplicitInclude(options) {
+  // function setExplicitInclude(options) {
+  function setExplicitInclude(options: ExplicitIncludeOptions = {}): { ok: boolean; dirty?: boolean } {
     const { targetBaseUrl, xpath, included } = options || {};
+    const effectiveXpath = typeof xpath === "string" ? xpath : "";
     const config = deps.getConfig();
     const pageUrl = deps.getPageUrl();
     const entry = deps.getPageMarkingEntry(config, pageUrl);
     const includeXpaths = Array.isArray(entry.includeXpaths) ? entry.includeXpaths : [];
-    const existingIndex = includeXpaths.indexOf(xpath);
+    const existingIndex = includeXpaths.indexOf(effectiveXpath);
     const getElement = createXPathElementCache(deps);
     if (included) {
-      const target = getElement(xpath);
+      const target = getElement(effectiveXpath);
       if (!target) {
         return { ok: false };
       }
@@ -194,40 +267,45 @@ export function createExplicitMarkingHandler(deps) {
         return { ok: false };
       }
       if (existingIndex === -1) {
-        includeXpaths.push(xpath);
+        includeXpaths.push(effectiveXpath);
       }
       const items = Array.isArray(entry.xpaths) ? entry.xpaths : [];
       for (let index = items.length - 1; index >= 0; index -= 1) {
         const item = items[index];
-        if (!item || !item.xpath || item.xpath === xpath) {
+        if (!item || !item.xpath || item.xpath === effectiveXpath) {
           continue;
         }
         const existingEl = getElement(item.xpath);
-        if (isSameOrDescendantByElementOrXPath(deps, xpath, target, item.xpath, existingEl)) {
+        if (isSameOrDescendantByElementOrXPath(deps, effectiveXpath, target, item.xpath, existingEl)) {
           items.splice(index, 1);
         }
       }
       entry.xpaths = items;
       for (let index = includeXpaths.length - 1; index >= 0; index -= 1) {
         const childXpath = includeXpaths[index];
-        if (!childXpath || childXpath === xpath) {
+        if (!childXpath || childXpath === effectiveXpath) {
           continue;
         }
         const existingEl = getElement(childXpath);
-        if (isSameOrDescendantByElementOrXPath(deps, xpath, target, childXpath, existingEl)) {
+        if (isSameOrDescendantByElementOrXPath(deps, effectiveXpath, target, childXpath, existingEl)) {
           includeXpaths.splice(index, 1);
         }
       }
     } else if (existingIndex >= 0) {
       includeXpaths.splice(existingIndex, 1);
     }
+    // if (included) {
+    //   clearSelectorSuppressedXpathsWithin(deps, entry, xpath);
+    // } else {
+    //   addSelectorSuppressedXpath(deps, entry, xpath);
+    // }
     if (included) {
-      clearSelectorSuppressedXpathsWithin(deps, entry, xpath);
+      clearSelectorSuppressedXpathsWithin(deps, entry, effectiveXpath);
     } else {
-      addSelectorSuppressedXpath(deps, entry, xpath);
+      addSelectorSuppressedXpath(deps, entry, effectiveXpath);
     }
     entry.includeXpaths = includeXpaths;
-    return finishUpdate(targetBaseUrl, pageUrl, config, entry);
+    return finishUpdate(targetBaseUrl || "", pageUrl, config, entry);
   }
 
   return {
