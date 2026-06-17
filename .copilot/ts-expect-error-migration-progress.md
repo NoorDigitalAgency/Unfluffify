@@ -5,3 +5,4 @@
 
 ## Log
 - [2026-06-17] Phase 0: branch created, baseline green (check + 849 tests), total 2619.
+- [2026-06-17] Phase 1: suppression tooling renamed to generic suppression budget/counter and now counts both @ts-ignore and @ts-expect-error; source-contract tolerance regexes updated to accept either directive token; all gates green (targeted + full + ratchets). Reseeded suppression total is 2622 because 3 runtime @ts-expect-error lines were already present before conversion work.

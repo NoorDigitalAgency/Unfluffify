@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 test("popup enable delegates marking activation to TAB_ACTIVATE_MARKING command", () => {
   const source = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
   const enableBody = source.match(
-    /async function handleEnableToggle\(event\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-ignore[^\n]*\n)?(?:\n|\r\n)*async function handleDeviceEmulationEnabledToggle/
+    /async function handleEnableToggle\(event\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?(?:\n|\r\n)*async function handleDeviceEmulationEnabledToggle/
   )[1];
 
   assert.match(enableBody, /messages\.requestTabActivateMarking\(tab\.id, \{/);
@@ -48,7 +48,7 @@ test("background TAB_ACTIVATE_MARKING clears state and reports lock details on c
 test("popup disable delegates marking deactivation to TAB_DEACTIVATE_MARKING command", () => {
   const source = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
   const enableBody = source.match(
-    /async function handleEnableToggle\(event\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-ignore[^\n]*\n)?(?:\n|\r\n)*async function handleDeviceEmulationEnabledToggle/
+    /async function handleEnableToggle\(event\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?(?:\n|\r\n)*async function handleDeviceEmulationEnabledToggle/
   )[1];
 
   assert.match(enableBody, /messages\.requestTabDeactivateMarking\(tab\.id, \{/);

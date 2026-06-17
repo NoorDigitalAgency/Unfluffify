@@ -14,7 +14,7 @@ test("popup scheduleRefresh uses the quiet refresh path", () => {
 test("quiet popup refresh skips redundant property lock fetches", () => {
   const source = readFileSync(new URL("../popup/property-lock-ui.ts", import.meta.url), "utf8");
   const refreshSource = source.match(
-    /export async function refreshPropertyLockSnapshot\(deps, siteId, options = \{\}\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-ignore[^\n]*\n)?(?:\n|\r\n)*export async function sendPropertyLockCommand/
+    /export async function refreshPropertyLockSnapshot\(deps, siteId, options = \{\}\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?(?:\n|\r\n)*export async function sendPropertyLockCommand/
   )[1];
 
   assert.match(refreshSource, /const \{ skipFetch = false \} = options;/);
@@ -267,7 +267,7 @@ test("Todo List marks the current candidate's parent subsection", () => {
 test("periodic page-type refresh stays quiet unless candidates change", () => {
   const source = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
   const refreshBody = source.match(
-    /function schedulePropertyPageTypesRefresh\(options = \{\}\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-ignore[^\n]*\n)?(?:\n|\r\n)*function formatPageTypeCandidateLabel/
+    /function schedulePropertyPageTypesRefresh\(options = \{\}\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?(?:\n|\r\n)*function formatPageTypeCandidateLabel/
   )[1];
 
   assert.match(refreshBody, /force: true,[\s\S]*?notifyOnChange: false/);
@@ -324,7 +324,7 @@ test("session save uploads all local page markings while default sync stays back
   const pageReconciliationSource = readFileSync(new URL("../popup/page-reconciliation.ts", import.meta.url), "utf8");
   const backgroundSource = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
   const handlePageSaveBody = pageReconciliationSource.match(
-    /export async function handlePageSave\(deps(?:\s*:\s*[^)]+)?\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-ignore[^\n]*\n)?export async function handlePageRevert/
+    /export async function handlePageSave\(deps(?:\s*:\s*[^)]+)?\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?export async function handlePageRevert/
   )[1];
   const handlePageRevertHandlerBody = pageReconciliationSource.match(
     /export async function handlePageRevert\(deps(?:\s*:\s*[^)]+)?\) \{([\s\S]*?)\n\}/
@@ -392,7 +392,7 @@ test("session save uploads all local page markings while default sync stays back
 test("session save terminal retry failure leaves the local draft dirty for retry", () => {
   const source = readFileSync(new URL("../popup/page-reconciliation.ts", import.meta.url), "utf8");
   const handlePageSaveBody = source.match(
-    /export async function handlePageSave\(deps(?:\s*:\s*[^)]+)?\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-ignore[^\n]*\n)?export async function handlePageRevert/
+    /export async function handlePageSave\(deps(?:\s*:\s*[^)]+)?\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?export async function handlePageRevert/
   )[1];
   const terminalFailureStart = handlePageSaveBody.indexOf("if (attempt + 1 >= deps.PAGE_SAVE_SYNC_MAX_ATTEMPTS)");
   const terminalFailureEnd = handlePageSaveBody.indexOf(
@@ -491,7 +491,7 @@ test("remote config load delegates transport to background and hydrates the payl
   const remoteNetworkSource = readFileSync(new URL("../background/remote-network.ts", import.meta.url), "utf8");
   const remoteConfigSyncSource = readFileSync(new URL("../background/remote-config-sync.ts", import.meta.url), "utf8");
   const loadBody = popupSource.match(
-    /export async function loadRemoteConfigForCurrentPage\(deps(?:\s*:\s*[^,]+)?, options(?:\s*:\s*[^=]+)? = \{\}\) \{([\s\S]*?)\n\}\n\n(?:\/\/ @ts-ignore[^\n]*\n)?export async function syncBaseConfigToServer/
+    /export async function loadRemoteConfigForCurrentPage\(deps(?:\s*:\s*[^,]+)?, options(?:\s*:\s*[^=]+)? = \{\}\) \{([\s\S]*?)\n\}\n\n(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?export async function syncBaseConfigToServer/
   )[1];
 
   assert.match(backgroundSource, /from "\.\/background\/remote-network\.js"/);
@@ -816,7 +816,7 @@ test("observer remote config polling stays passive-only and runs once a minute",
 test("marking enable does not send a redundant force refresh after TAB_ACTIVATE_MARKING", () => {
   const source = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
   const enableBody = source.match(
-    /async function handleEnableToggle\(event\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-ignore[^\n]*\n)?(?:\n|\r\n)*async function handleDeviceEmulationEnabledToggle/
+    /async function handleEnableToggle\(event\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?(?:\n|\r\n)*async function handleDeviceEmulationEnabledToggle/
   )[1];
 
   assert.match(enableBody, /messages\.requestTabActivateMarking\(tab\.id, \{/);
@@ -830,7 +830,7 @@ test("marking enable upgrades the popup spinner to page inspection during reveal
     /export async function runWithSpinner\(deps, key, message, task, options = \{\}\) \{([\s\S]*?)\n\}/
   )[1];
   const enableBody = source.match(
-    /async function handleEnableToggle\(event\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-ignore[^\n]*\n)?(?:\n|\r\n)*async function handleDeviceEmulationEnabledToggle/
+    /async function handleEnableToggle\(event\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?(?:\n|\r\n)*async function handleDeviceEmulationEnabledToggle/
   )[1];
 
   assert.match(runWithSpinnerBody, /return await task\(pushed\);/);
@@ -849,7 +849,7 @@ test("marking enable upgrades the popup spinner to page inspection during reveal
 test("disabling marking with a pending session prompts to discard before exiting", () => {
   const source = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
   const enableBody = source.match(
-    /async function handleEnableToggle\(event\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-ignore[^\n]*\n)?(?:\n|\r\n)*async function handleDeviceEmulationEnabledToggle/
+    /async function handleEnableToggle\(event\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?(?:\n|\r\n)*async function handleDeviceEmulationEnabledToggle/
   )[1];
 
   assert.match(enableBody, /const pendingKnownFromCurrentView = Boolean\([\s\S]*?!desiredEnabled && currentViewState\.sessionHasPendingChanges[\s\S]*?\);/);

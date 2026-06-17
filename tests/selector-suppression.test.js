@@ -137,7 +137,7 @@ test("marking mode keeps immutable hard elements eligible without requiring rend
 
   assert.match(
     coreSource,
-    /hardElements: Array\.from\(hardExcludedSet\)\.filter\(\(el\) =>(?:\n|\r\n)+(?:\/\/ @ts-ignore[^\n]*\n)?(?:\n|\r\n)*\s*!isWithinElementSet\(el, consentExcluded\)\s*\),/
+    /hardElements: Array\.from\(hardExcludedSet\)\.filter\(\(el\) =>(?:\n|\r\n)+(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?(?:\n|\r\n)*\s*!isWithinElementSet\(el, consentExcluded\)\s*\),/
   );
   assert.doesNotMatch(
     coreSource,

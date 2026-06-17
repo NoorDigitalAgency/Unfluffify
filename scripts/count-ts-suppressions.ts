@@ -1,11 +1,12 @@
 import { extname, join, relative } from "node:path";
+// Tracks runtime @ts-ignore AND @ts-expect-error suppressions (migration in progress)
 
 const REPO_ROOT = Deno.cwd();
 const FIXTURE_PATH = join(
   REPO_ROOT,
   "tests",
   "fixtures",
-  "ts-ignore-budget.json",
+  "ts-suppression-budget.json",
 );
 const RUNTIME_SCAN_TARGETS = [
   "background",
@@ -46,7 +47,7 @@ async function collectTsIgnoreCounts(): Promise<Record<string, number>> {
 
   async function scanFile(absPath: string): Promise<void> {
     const source = await Deno.readTextFile(absPath);
-    const matchCount = source.match(/@ts-ignore\b/g)?.length ?? 0;
+    const matchCount = source.match(/@ts-(?:ignore|expect-error)\b/g)?.length ?? 0;
     if (matchCount <= 0) {
       return;
     }

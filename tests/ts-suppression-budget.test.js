@@ -1,4 +1,5 @@
 import test from "node:test";
+// Tracks runtime @ts-ignore AND @ts-expect-error suppressions (migration in progress)
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -8,7 +9,7 @@ const TESTS_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(TESTS_DIR, "..");
 const BUDGET_PATH = path.join(
   REPO_ROOT,
-  "tests/fixtures/ts-ignore-budget.json",
+  "tests/fixtures/ts-suppression-budget.json",
 );
 
 const RUNTIME_SCAN_TARGETS = [
@@ -45,7 +46,7 @@ function collectTsIgnoreCounts() {
 
   function scanFile(absolutePath) {
     const source = readFileSync(absolutePath, "utf8");
-    const count = (source.match(/@ts-ignore\b/g) || []).length;
+    const count = (source.match(/@ts-(?:ignore|expect-error)\b/g) || []).length;
     if (!count) {
       return;
     }
@@ -84,7 +85,7 @@ function readBudgetFixture() {
   };
 }
 
-test("runtime @ts-ignore lines stay within the tracked budget", () => {
+test("runtime suppression directives stay within the tracked budget", () => {
   const { budgets, exempt } = readBudgetFixture();
   const actual = collectTsIgnoreCounts();
 
@@ -108,18 +109,18 @@ test("runtime @ts-ignore lines stay within the tracked budget", () => {
   assert.deepEqual(
     unexpectedFiles,
     [],
-    `new runtime @ts-ignore files detected:\n${unexpectedFiles.join("\n")}`,
+    `new runtime suppression files detected:\n${unexpectedFiles.join("\n")}`,
   );
 
   assert.deepEqual(
     overBudget,
     [],
-    `runtime @ts-ignore budget exceeded:\n${overBudget.join("\n")}`,
+    `runtime suppression budget exceeded:\n${overBudget.join("\n")}`,
   );
 
   assert.ok(
     totalActual <= totalBudget,
-    `runtime @ts-ignore total should only decrease (${totalActual} > ${totalBudget})`,
+    `runtime suppression total should only decrease (${totalActual} > ${totalBudget})`,
   );
 
   const exemptMismatches = exempt
@@ -134,6 +135,6 @@ test("runtime @ts-ignore lines stay within the tracked budget", () => {
   assert.deepEqual(
     exemptMismatches,
     [],
-    `exempt runtime @ts-ignore floors drifted:\n${exemptMismatches.join("\n")}`,
+    `exempt runtime suppression floors drifted:\n${exemptMismatches.join("\n")}`,
   );
 });
