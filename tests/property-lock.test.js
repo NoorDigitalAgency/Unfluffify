@@ -214,10 +214,10 @@ test("property lock text includes disconnected interaction blocked message", () 
   const textSource = readFileSync(new URL("../common/text.ts", import.meta.url), "utf8");
   assert.match(textSource, /disconnectedInteractionBlockedToast:\s*"Editing is temporarily blocked while the property lock reconnects\."/);
   assert.match(textSource, /inactivityInteractionBlockedToast:\s*"Editing is temporarily blocked due to inactivity\. Continue editing from the warning banner\."/);
-  assert.match(textSource, /editorOffCandidateCountdownMessage:\s*\(secondsRemaining\) => `This page is not a current Live Page candidate\./);
-  assert.match(textSource, /editorCrossPropertyCountdownMessage:\s*\(secondsRemaining\) => `You left the previous property\./);
-  assert.match(textSource, /popupOffCandidateWarning:\s*\(secondsRemaining\) => `Off candidate page • editor role ends in \$\{secondsRemaining\}s`/);
-  assert.match(textSource, /popupCrossPropertyWarning:\s*\(secondsRemaining\) => `Previous property held • editor role ends in \$\{secondsRemaining\}s`/);
+  assert.match(textSource, /editorOffCandidateCountdownMessage:\s*\(secondsRemaining(?:\s*:\s*[^)]+)?\) => `This page is not a current Live Page candidate\./);
+  assert.match(textSource, /editorCrossPropertyCountdownMessage:\s*\(secondsRemaining(?:\s*:\s*[^)]+)?\) => `You left the previous property\./);
+  assert.match(textSource, /popupOffCandidateWarning:\s*\(secondsRemaining(?:\s*:\s*[^)]+)?\) => `Off candidate page • editor role ends in \$\{secondsRemaining\}s`/);
+  assert.match(textSource, /popupCrossPropertyWarning:\s*\(secondsRemaining(?:\s*:\s*[^)]+)?\) => `Previous property held • editor role ends in \$\{secondsRemaining\}s`/);
 });
 
 test("content-main starts and persists an off-candidate editor countdown before releasing the lock", () => {
