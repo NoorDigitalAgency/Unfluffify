@@ -1,6 +1,12 @@
-// @ts-nocheck
-export function createAiPreviewCloseHandler(deps) {
-  async function handleMessage() {
+type AiPreviewCloseDeps = {
+  isAiPreviewActive: () => boolean;
+  hasAiPopover: () => boolean;
+  requestAiPopoverClose: () => void;
+  exitAiPreviewMode: () => Promise<void>;
+};
+
+export function createAiPreviewCloseHandler(deps: AiPreviewCloseDeps) {
+  async function handleMessage(): Promise<{ ok: true; active: false }> {
     if (!deps.isAiPreviewActive()) {
       return { ok: true, active: false };
     }

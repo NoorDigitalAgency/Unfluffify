@@ -1,6 +1,9 @@
-// @ts-nocheck
-export function createAiSubmissionXpathsHandler(deps) {
-  function handleMessage() {
+type AiSubmissionXpathsDeps = {
+  collectAiSubmissionXpathsForCurrentPage: () => string[];
+};
+
+export function createAiSubmissionXpathsHandler(deps: AiSubmissionXpathsDeps) {
+  function handleMessage(): { xpaths: string[] } {
     return {
       xpaths: deps.collectAiSubmissionXpathsForCurrentPage()
     };
