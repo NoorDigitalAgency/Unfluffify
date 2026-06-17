@@ -1,10 +1,9 @@
-// @ts-nocheck
-function defaultNormalizeTabId(value) {
+function defaultNormalizeTabId(value: any) {
   const numeric = Number(value);
   return Number.isFinite(numeric) && numeric > 0 ? Math.trunc(numeric) : null;
 }
 
-function defaultNormalizeActivationBaseUrl(value) {
+function defaultNormalizeActivationBaseUrl(value: any) {
   return typeof value === "string" ? value : "";
 }
 
@@ -26,119 +25,121 @@ function defaultIsPageWithinBaseUrl() {
 
 function defaultCreateManagedTimeoutGroup() {
   return {
-    set(fn, ms) {
+    set(fn: any, ms: any) {
       return setTimeout(fn, ms);
     },
-    clear(handle) {
+    clear(handle: any) {
       clearTimeout(handle);
     },
     clearAll() {}
   };
 }
 
+// @ts-ignore preserve source-contract signature used by AI run source tests
 export function createAiRunOrchestrator(options = {}) {
-  const aiComputeLockExpiresAtByTabId = options.aiComputeLockExpiresAtByTabId instanceof Map
-    ? options.aiComputeLockExpiresAtByTabId
+  const optionsAny = options as any;
+  const aiComputeLockExpiresAtByTabId = optionsAny.aiComputeLockExpiresAtByTabId instanceof Map
+    ? optionsAny.aiComputeLockExpiresAtByTabId
     : new Map();
-  const normalizeTabId = typeof options.normalizeTabId === "function"
-    ? options.normalizeTabId
+  const normalizeTabId = typeof optionsAny.normalizeTabId === "function"
+    ? optionsAny.normalizeTabId
     : defaultNormalizeTabId;
-  const normalizeActivationBaseUrl = typeof options.normalizeActivationBaseUrl === "function"
-    ? options.normalizeActivationBaseUrl
+  const normalizeActivationBaseUrl = typeof optionsAny.normalizeActivationBaseUrl === "function"
+    ? optionsAny.normalizeActivationBaseUrl
     : defaultNormalizeActivationBaseUrl;
-  const normalizeSiteIdValue = typeof options.normalizeSiteIdValue === "function"
-    ? options.normalizeSiteIdValue
+  const normalizeSiteIdValue = typeof optionsAny.normalizeSiteIdValue === "function"
+    ? optionsAny.normalizeSiteIdValue
     : defaultNormalizeSiteIdValue;
-  const normalizeAiSelectorSet = typeof options.normalizeAiSelectorSet === "function"
-    ? options.normalizeAiSelectorSet
+  const normalizeAiSelectorSet = typeof optionsAny.normalizeAiSelectorSet === "function"
+    ? optionsAny.normalizeAiSelectorSet
     : defaultNormalizeAiSelectorSet;
-  const buildAiSubmissionXpaths = typeof options.buildAiSubmissionXpaths === "function"
-    ? options.buildAiSubmissionXpaths
+  const buildAiSubmissionXpaths = typeof optionsAny.buildAiSubmissionXpaths === "function"
+    ? optionsAny.buildAiSubmissionXpaths
     : defaultBuildAiSubmissionXpaths;
-  const isPageWithinBaseUrl = typeof options.isPageWithinBaseUrl === "function"
-    ? options.isPageWithinBaseUrl
+  const isPageWithinBaseUrl = typeof optionsAny.isPageWithinBaseUrl === "function"
+    ? optionsAny.isPageWithinBaseUrl
     : defaultIsPageWithinBaseUrl;
 
-  const resolveBackgroundNetworkCredentials = typeof options.resolveBackgroundNetworkCredentials === "function"
-    ? options.resolveBackgroundNetworkCredentials
+  const resolveBackgroundNetworkCredentials = typeof optionsAny.resolveBackgroundNetworkCredentials === "function"
+    ? optionsAny.resolveBackgroundNetworkCredentials
     : async () => ({ endpointValue: "", tokenValue: "" });
-  const requestAiRunStartSnapshot = typeof options.requestAiRunStartSnapshot === "function"
-    ? options.requestAiRunStartSnapshot
+  const requestAiRunStartSnapshot = typeof optionsAny.requestAiRunStartSnapshot === "function"
+    ? optionsAny.requestAiRunStartSnapshot
     : async () => ({ ok: false });
-  const requestAiRunStatus = typeof options.requestAiRunStatus === "function"
-    ? options.requestAiRunStatus
+  const requestAiRunStatus = typeof optionsAny.requestAiRunStatus === "function"
+    ? optionsAny.requestAiRunStatus
     : async () => ({ ok: false });
-  const requestAiRunResultSnapshot = typeof options.requestAiRunResultSnapshot === "function"
-    ? options.requestAiRunResultSnapshot
+  const requestAiRunResultSnapshot = typeof optionsAny.requestAiRunResultSnapshot === "function"
+    ? optionsAny.requestAiRunResultSnapshot
     : async () => ({ ok: false });
-  const fetchStaticPageHtmlForBackground = typeof options.fetchStaticPageHtmlForBackground === "function"
-    ? options.fetchStaticPageHtmlForBackground
-    : async () => ({ ok: false });
-
-  const getTransferPayload = typeof options.getTransferPayload === "function"
-    ? options.getTransferPayload
-    : async () => ({ ok: false });
-  const putTransferPayload = typeof options.putTransferPayload === "function"
-    ? options.putTransferPayload
-    : async () => ({ ok: false });
-  const removeTransferPayload = typeof options.removeTransferPayload === "function"
-    ? options.removeTransferPayload
-    : async () => {};
-  const consumeTransferPayload = typeof options.consumeTransferPayload === "function"
-    ? options.consumeTransferPayload
+  const fetchStaticPageHtmlForBackground = typeof optionsAny.fetchStaticPageHtmlForBackground === "function"
+    ? optionsAny.fetchStaticPageHtmlForBackground
     : async () => ({ ok: false });
 
-  const clearPersistedAiRunRecord = typeof options.clearPersistedAiRunRecord === "function"
-    ? options.clearPersistedAiRunRecord
+  const getTransferPayload = typeof optionsAny.getTransferPayload === "function"
+    ? optionsAny.getTransferPayload
+    : async () => ({ ok: false });
+  const putTransferPayload = typeof optionsAny.putTransferPayload === "function"
+    ? optionsAny.putTransferPayload
+    : async () => ({ ok: false });
+  const removeTransferPayload = typeof optionsAny.removeTransferPayload === "function"
+    ? optionsAny.removeTransferPayload
     : async () => {};
-  const savePersistedAiRunRecord = typeof options.savePersistedAiRunRecord === "function"
-    ? options.savePersistedAiRunRecord
+  const consumeTransferPayload = typeof optionsAny.consumeTransferPayload === "function"
+    ? optionsAny.consumeTransferPayload
+    : async () => ({ ok: false });
+
+  const clearPersistedAiRunRecord = typeof optionsAny.clearPersistedAiRunRecord === "function"
+    ? optionsAny.clearPersistedAiRunRecord
+    : async () => {};
+  const savePersistedAiRunRecord = typeof optionsAny.savePersistedAiRunRecord === "function"
+    ? optionsAny.savePersistedAiRunRecord
     : async () => null;
 
-  const sendContentMessageToTab = typeof options.sendContentMessageToTab === "function"
-    ? options.sendContentMessageToTab
+  const sendContentMessageToTab = typeof optionsAny.sendContentMessageToTab === "function"
+    ? optionsAny.sendContentMessageToTab
     : async () => ({ ok: false });
-  const ensureContentMainForTab = typeof options.ensureContentMainForTab === "function"
-    ? options.ensureContentMainForTab
+  const ensureContentMainForTab = typeof optionsAny.ensureContentMainForTab === "function"
+    ? optionsAny.ensureContentMainForTab
     : async () => ({ ok: false, error: "Content activation failed" });
-  const getTabState = typeof options.getTabState === "function"
-    ? options.getTabState
+  const getTabState = typeof optionsAny.getTabState === "function"
+    ? optionsAny.getTabState
     : async () => null;
-  const setTabState = typeof options.setTabState === "function"
-    ? options.setTabState
+  const setTabState = typeof optionsAny.setTabState === "function"
+    ? optionsAny.setTabState
     : async () => {};
-  const updateActionForTab = typeof options.updateActionForTab === "function"
-    ? options.updateActionForTab
+  const updateActionForTab = typeof optionsAny.updateActionForTab === "function"
+    ? optionsAny.updateActionForTab
     : () => Promise.resolve();
 
-  const refineXPathEntries = typeof options.refineXPathEntries === "function"
-    ? options.refineXPathEntries
-    : (_renderedHtml, _rawHtml, renderedXPaths) => renderedXPaths;
-  const createManagedTimeoutGroup = typeof options.createManagedTimeoutGroup === "function"
-    ? options.createManagedTimeoutGroup
+  const refineXPathEntries = typeof optionsAny.refineXPathEntries === "function"
+    ? optionsAny.refineXPathEntries
+    : (_renderedHtml: any, _rawHtml: any, renderedXPaths: any) => renderedXPaths;
+  const createManagedTimeoutGroup = typeof optionsAny.createManagedTimeoutGroup === "function"
+    ? optionsAny.createManagedTimeoutGroup
     : defaultCreateManagedTimeoutGroup;
-  const getAiRunResumeExpiresAt = typeof options.getAiRunResumeExpiresAt === "function"
-    ? options.getAiRunResumeExpiresAt
+  const getAiRunResumeExpiresAt = typeof optionsAny.getAiRunResumeExpiresAt === "function"
+    ? optionsAny.getAiRunResumeExpiresAt
     : () => Date.now() + 30_000;
 
-  const configStore = options.configStore && typeof options.configStore === "object"
-    ? options.configStore
+  const configStore = optionsAny.configStore && typeof optionsAny.configStore === "object"
+    ? optionsAny.configStore
     : {
       ensureConfig: async () => ({}),
       updateConfig: async () => {}
     };
 
-  const defaultExcludedImmutableSelectors = Array.isArray(options.defaultExcludedImmutableSelectors)
-    ? options.defaultExcludedImmutableSelectors
+  const defaultExcludedImmutableSelectors = Array.isArray(optionsAny.defaultExcludedImmutableSelectors)
+    ? optionsAny.defaultExcludedImmutableSelectors
     : [];
-  const aiRunTimeoutMs = Number.isFinite(options.aiRunTimeoutMs) && options.aiRunTimeoutMs > 0
-    ? Math.trunc(options.aiRunTimeoutMs)
+  const aiRunTimeoutMs = Number.isFinite(optionsAny.aiRunTimeoutMs) && optionsAny.aiRunTimeoutMs > 0
+    ? Math.trunc(optionsAny.aiRunTimeoutMs)
     : 300_000;
-  const aiRunPollIntervalMs = Number.isFinite(options.aiRunPollIntervalMs) && options.aiRunPollIntervalMs > 0
-    ? Math.trunc(options.aiRunPollIntervalMs)
+  const aiRunPollIntervalMs = Number.isFinite(optionsAny.aiRunPollIntervalMs) && optionsAny.aiRunPollIntervalMs > 0
+    ? Math.trunc(optionsAny.aiRunPollIntervalMs)
     : 5_000;
 
-  function getAiRunCurrentPageEntry(currentConfig, currentPageUrl) {
+  function getAiRunCurrentPageEntry(currentConfig: any, currentPageUrl: any) {
     if (!currentConfig || typeof currentConfig !== "object") {
       return null;
     }
@@ -150,7 +151,7 @@ export function createAiRunOrchestrator(options = {}) {
     return entry && typeof entry === "object" ? entry : null;
   }
 
-  function isAiRunCurrentPageSnapshotMissing(currentConfig, currentPageUrl) {
+  function isAiRunCurrentPageSnapshotMissing(currentConfig: any, currentPageUrl: any) {
     const entry = getAiRunCurrentPageEntry(currentConfig, currentPageUrl);
     if (!entry) {
       return true;
@@ -164,7 +165,7 @@ export function createAiRunOrchestrator(options = {}) {
     return false;
   }
 
-  async function refineAiRunPayloadXpathsInBackground(payloadKey) {
+  async function refineAiRunPayloadXpathsInBackground(payloadKey: any) {
     const sourcePayloadKey = typeof payloadKey === "string" ? payloadKey.trim() : "";
     if (!sourcePayloadKey) {
       return { ok: false, error: "Missing AI run payload" };
@@ -180,7 +181,7 @@ export function createAiRunOrchestrator(options = {}) {
     }
     const refinedPayload = {
       ...payload,
-      pages: payload.pages.map((page) => {
+      pages: payload.pages.map((page: any) => {
         const renderedHtml = page && typeof page.renderedHtml === "string" ? page.renderedHtml : "";
         const rawHtml = page && typeof page.rawHtml === "string" ? page.rawHtml : "";
         const renderedXPaths = Array.isArray(page && page.renderedXPaths) ? page.renderedXPaths : [];
@@ -202,7 +203,7 @@ export function createAiRunOrchestrator(options = {}) {
     };
   }
 
-  async function loadAiRunSelectorSetFromPayloadKey(payloadKey) {
+  async function loadAiRunSelectorSetFromPayloadKey(payloadKey: any) {
     const resultPayloadKey = typeof payloadKey === "string" ? payloadKey.trim() : "";
     if (!resultPayloadKey) {
       return null;
@@ -223,6 +224,7 @@ export function createAiRunOrchestrator(options = {}) {
     return normalizeAiSelectorSet(payload);
   }
 
+  // @ts-ignore preserve source-contract signature used by AI run source tests
   async function setAiComputeLockForTab(tabId, active, expiresAt = 0, baseUrl = "") {
     const normalizedTabId = normalizeTabId(tabId);
     if (!normalizedTabId) {
@@ -278,7 +280,7 @@ export function createAiRunOrchestrator(options = {}) {
       };
   }
 
-  function isAiComputeLockActiveForTab(tabId) {
+  function isAiComputeLockActiveForTab(tabId: any) {
     const normalizedTabId = normalizeTabId(tabId);
     if (!normalizedTabId) {
       return false;
@@ -291,12 +293,14 @@ export function createAiRunOrchestrator(options = {}) {
     return true;
   }
 
+  // @ts-ignore preserve source-contract signature used by AI run source tests
   async function refreshAiRunHeartbeat(options = {}) {
-    const tabId = normalizeTabId(options.tabId);
-    const sessionId = typeof options.sessionId === "string" ? options.sessionId.trim() : "";
-    const siteId = normalizeSiteIdValue(options.siteId);
-    const deadlineAt = Number(options.deadlineAt);
-    const baseUrl = typeof options.baseUrl === "string" ? options.baseUrl : "";
+    const optionsAny = options as any;
+    const tabId = normalizeTabId(optionsAny.tabId);
+    const sessionId = typeof optionsAny.sessionId === "string" ? optionsAny.sessionId.trim() : "";
+    const siteId = normalizeSiteIdValue(optionsAny.siteId);
+    const deadlineAt = Number(optionsAny.deadlineAt);
+    const baseUrl = typeof optionsAny.baseUrl === "string" ? optionsAny.baseUrl : "";
     if (!tabId || !sessionId || !siteId || !Number.isFinite(deadlineAt) || deadlineAt <= 0) {
       return { ok: false, record: null, expiresAt: 0, lockApplied: false };
     }
@@ -324,44 +328,51 @@ export function createAiRunOrchestrator(options = {}) {
     return { ok: true, record, expiresAt, lockApplied: true };
   }
 
+  // @ts-ignore preserve source-contract signature used by AI run source tests
   async function prepareAiRunPayloadSnapshot(options = {}) {
-    const baseUrl = typeof options.baseUrl === "string" ? options.baseUrl.trim() : "";
-    const currentPageUrl = typeof options.currentPageUrl === "string" ? options.currentPageUrl.trim() : "";
-    const currentRenderMode = typeof options.currentRenderMode === "string" ? options.currentRenderMode.trim() : "";
+    const optionsAny = options as any;
+    const baseUrl = typeof optionsAny.baseUrl === "string" ? optionsAny.baseUrl.trim() : "";
+    const currentPageUrl = typeof optionsAny.currentPageUrl === "string" ? optionsAny.currentPageUrl.trim() : "";
+    const currentRenderMode = typeof optionsAny.currentRenderMode === "string" ? optionsAny.currentRenderMode.trim() : "";
     if (!baseUrl || !currentPageUrl) {
       return { ok: false };
     }
     try {
       const currentConfig = await configStore.ensureConfig(baseUrl);
-      const pageMarkings =
+      const pageMarkings: any =
         currentConfig && currentConfig.pageMarkings && typeof currentConfig.pageMarkings === "object"
           ? currentConfig.pageMarkings
           : {};
       const storedPageEntries = Object.entries(pageMarkings)
         .filter(([url, entry]) => {
+          const entryAny = entry as any;
           if (!url || !entry || typeof entry !== "object") {
             return false;
           }
           if (baseUrl && !isPageWithinBaseUrl(url, baseUrl)) {
             return false;
           }
-          if (typeof entry.renderedHtml !== "string" || !entry.renderedHtml) {
+          if (typeof entryAny.renderedHtml !== "string" || !entryAny.renderedHtml) {
             return false;
           }
-          if (!Array.isArray(entry.submissionXpaths) || entry.submissionXpaths.length === 0) {
+          if (!Array.isArray(entryAny.submissionXpaths) || entryAny.submissionXpaths.length === 0) {
             return false;
           }
           return true;
         });
+      const storedPageEntriesAny = storedPageEntries as Array<[string, any]>;
       if (!storedPageEntries.some(([url]) => url === currentPageUrl)) {
         return { ok: false, reason: "missing_current_page" };
       }
       if (!storedPageEntries.length) {
         return { ok: false, reason: "missing_saved_pages" };
       }
-      const urlsMissingRawHtml = storedPageEntries
+      const urlsMissingRawHtml = storedPageEntriesAny
         .map(([url, entry]) => ({ url, entry }))
-        .filter(({ entry }) => typeof entry.rawHtml !== "string" || !entry.rawHtml);
+        .filter(({ entry }) => {
+          const entryAny = entry as any;
+          return typeof entryAny.rawHtml !== "string" || !entryAny.rawHtml;
+        });
       const backfillResults = await Promise.all(
         urlsMissingRawHtml.map(async ({ url }) => {
           const response = await fetchStaticPageHtmlForBackground(url);
@@ -371,9 +382,9 @@ export function createAiRunOrchestrator(options = {}) {
           return { url, rawHtml: response.html };
         })
       );
-      const successfulBackfills = backfillResults.filter(Boolean);
+      const successfulBackfills = backfillResults.filter(Boolean) as Array<{ url: string; rawHtml: string }>;
       if (successfulBackfills.length) {
-        await configStore.updateConfig(baseUrl, (targetConfig) => {
+        await configStore.updateConfig(baseUrl, (targetConfig: any) => {
           if (!targetConfig.pageMarkings || typeof targetConfig.pageMarkings !== "object") {
             return;
           }
@@ -390,14 +401,15 @@ export function createAiRunOrchestrator(options = {}) {
       successfulBackfills.forEach((item) => {
         rawHtmlBackfills.set(item.url, item.rawHtml);
       });
-      const pages = storedPageEntries.map(([url, entry]) => {
+      const pages = storedPageEntriesAny.map(([url, entry]) => {
+        const entryAny = entry as any;
         const rawHtml =
-          entry && typeof entry.rawHtml === "string" && entry.rawHtml
-            ? entry.rawHtml
+          entryAny && typeof entryAny.rawHtml === "string" && entryAny.rawHtml
+            ? entryAny.rawHtml
             : rawHtmlBackfills.get(url) || "";
         return {
           url,
-          renderedHtml: typeof entry.renderedHtml === "string" ? entry.renderedHtml : "",
+          renderedHtml: typeof entryAny.renderedHtml === "string" ? entryAny.renderedHtml : "",
           rawHtml: currentRenderMode === "static" ? rawHtml : undefined,
           renderedXPaths: buildAiSubmissionXpaths(entry)
         };
@@ -422,15 +434,17 @@ export function createAiRunOrchestrator(options = {}) {
     }
   }
 
+  // @ts-ignore preserve source-contract signature used by AI run source tests
   async function runAiCommandForTab(tabId, payload, update) {
+    const payloadAny = payload as any;
     const timeoutGroup = createManagedTimeoutGroup();
-    const baseUrl = normalizeActivationBaseUrl(payload && payload.baseUrl);
-    const currentPageUrl = typeof payload?.currentPageUrl === "string"
-      ? payload.currentPageUrl.trim()
+    const baseUrl = normalizeActivationBaseUrl(payloadAny && payloadAny.baseUrl);
+    const currentPageUrl = typeof payloadAny?.currentPageUrl === "string"
+      ? payloadAny.currentPageUrl.trim()
       : "";
-    const pageType = typeof payload?.pageType === "string" ? payload.pageType : "";
-    const currentRenderMode = typeof payload?.currentRenderMode === "string"
-      ? payload.currentRenderMode.trim()
+    const pageType = typeof payloadAny?.pageType === "string" ? payloadAny.pageType : "";
+    const currentRenderMode = typeof payloadAny?.currentRenderMode === "string"
+      ? payloadAny.currentRenderMode.trim()
       : "";
     const credentials = await resolveBackgroundNetworkCredentials({
       endpointValue: payload && payload.endpointValue,
@@ -439,8 +453,8 @@ export function createAiRunOrchestrator(options = {}) {
     });
     const endpointValue = credentials.endpointValue;
     const tokenValue = credentials.tokenValue;
-    const requestedSiteId = normalizeSiteIdValue(payload && payload.siteId);
-    const requestedDeadlineAt = Number(payload && payload.deadlineAt);
+    const requestedSiteId = normalizeSiteIdValue(payloadAny && payloadAny.siteId);
+    const requestedDeadlineAt = Number(payloadAny && payloadAny.deadlineAt);
     const deadlineAt = Number.isFinite(requestedDeadlineAt) && requestedDeadlineAt > Date.now()
       ? requestedDeadlineAt
       : Date.now() + aiRunTimeoutMs;

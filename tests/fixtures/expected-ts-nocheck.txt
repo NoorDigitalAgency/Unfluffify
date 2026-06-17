@@ -1,4 +1,3 @@
-background/ai-run-orchestrator.ts
 background.ts
 common/config.ts
 common/page-motion-freeze-bridge.ts
