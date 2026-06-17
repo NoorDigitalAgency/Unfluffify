@@ -3,21 +3,18 @@ import * as stateModule from "./state.js";
 const { state } = stateModule;
 const stateAny = state as any;
 
-// @ts-expect-error preserve source-contract signature used by popup/property-lock tests
-export function isPropertyLockCollaborationEnabled(deps) {
+export function isPropertyLockCollaborationEnabled(deps: any) {
   return deps.isFeatureEnabled("propertyLockCollaboration");
 }
 
-// @ts-expect-error preserve source-contract signature used by popup/property-lock tests
-export function resetDisabledPropertyLockState(deps) {
+export function resetDisabledPropertyLockState(deps: any) {
   deps.clearPropertyLockOffCandidateRefreshTimer();
   deps.resetPropertyLockState();
   state.propertyLockState = deps.createInactiveLockState();
   state.propertyLockEditorBootstrapPending = false;
 }
 
-// @ts-expect-error preserve source-contract signature used by popup/property-lock tests
-export function resetPropertyLockState(deps) {
+export function resetPropertyLockState(deps: any) {
   state.propertyLockSiteId = null;
   state.propertyLockState = null;
   state.propertyLockConnectionStatus = deps.PROPERTY_LOCK_CONNECTION_INACTIVE;
@@ -55,8 +52,7 @@ export function clearPropertyLockTransientState() {
   state.propertyLockOffCandidateDeadlineAt = 0;
 }
 
-// @ts-expect-error preserve source-contract signature used by popup/property-lock tests
-export function clearPropertyLockOffCandidateRefreshTimer(deps) {
+export function clearPropertyLockOffCandidateRefreshTimer(deps: any) {
   if (!state.propertyLockOffCandidateRefreshTimer) {
     return;
   }
@@ -64,8 +60,7 @@ export function clearPropertyLockOffCandidateRefreshTimer(deps) {
   state.propertyLockOffCandidateRefreshTimer = 0;
 }
 
-// @ts-expect-error preserve source-contract signature used by popup/property-lock tests
-export function syncPropertyLockOffCandidateRefreshTimer(deps, active) {
+export function syncPropertyLockOffCandidateRefreshTimer(deps: any, active: any) {
   if (!deps.isPropertyLockCollaborationEnabled()) {
     deps.clearPropertyLockOffCandidateRefreshTimer();
     return;
@@ -94,8 +89,7 @@ export function syncPropertyLockOffCandidateRefreshTimer(deps, active) {
   }, 1000);
 }
 
-// @ts-expect-error preserve source-contract signature used by popup/property-lock tests
-export async function persistPropertyLockRecoveryMetadata(deps, tabId, recoveryState = {}) {
+export async function persistPropertyLockRecoveryMetadata(deps: any, tabId: any, recoveryState = {}) {
   const recoveryStateAny = recoveryState as any;
   if (!deps.isPropertyLockCollaborationEnabled()) {
     return;
@@ -120,8 +114,7 @@ export async function persistPropertyLockRecoveryMetadata(deps, tabId, recoveryS
   }, "initial");
 }
 
-// @ts-expect-error preserve source-contract signature used by popup/property-lock tests
-export function applyPropertyLockState(deps, lockStateLike) {
+export function applyPropertyLockState(deps: any, lockStateLike: any) {
   if (!deps.isPropertyLockCollaborationEnabled()) {
     deps.resetDisabledPropertyLockState();
     return;
@@ -136,8 +129,7 @@ export function applyPropertyLockState(deps, lockStateLike) {
   deps.clearPropertyLockTransientState();
 }
 
-// @ts-expect-error preserve source-contract signature used by popup/property-lock tests
-export function queueEditorBootstrapOnLockTransition(deps, previousLockState, nextLockState) {
+export function queueEditorBootstrapOnLockTransition(deps: any, previousLockState: any, nextLockState: any) {
   if (!deps.isPropertyLockCollaborationEnabled()) {
     return;
   }
@@ -151,8 +143,7 @@ export function queueEditorBootstrapOnLockTransition(deps, previousLockState, ne
   }
 }
 
-// @ts-expect-error preserve source-contract signature used by popup/property-lock tests
-export function applyPropertyLockConnectionStatus(deps, status, error = "") {
+export function applyPropertyLockConnectionStatus(deps: any, status: any, error = "") {
   if (!deps.isPropertyLockCollaborationEnabled()) {
     state.propertyLockConnectionStatus = deps.PROPERTY_LOCK_CONNECTION_INACTIVE;
     state.propertyLockConnectionError = "";
@@ -164,8 +155,7 @@ export function applyPropertyLockConnectionStatus(deps, status, error = "") {
   state.propertyLockConnectionError = typeof error === "string" ? error : "";
 }
 
-// @ts-expect-error preserve source-contract signature used by popup/property-lock tests
-export function applyPropertyLockServerMessage(deps, serverMessage, siteId = null) {
+export function applyPropertyLockServerMessage(deps: any, serverMessage: any, siteId = null) {
   if (!deps.isPropertyLockCollaborationEnabled()) {
     deps.resetDisabledPropertyLockState();
     return false;
@@ -268,8 +258,7 @@ export function applyPropertyLockServerMessage(deps, serverMessage, siteId = nul
   return false;
 }
 
-// @ts-expect-error preserve source-contract signature used by popup/property-lock tests
-export function isPropertyLockBlockingEditing(deps) {
+export function isPropertyLockBlockingEditing(deps: any) {
   if (!deps.isPropertyLockCollaborationEnabled()) {
     return false;
   }
@@ -287,8 +276,7 @@ export function isPropertyLockBlockingEditing(deps) {
   );
 }
 
-// @ts-expect-error preserve source-contract signature used by popup/property-lock tests
-export function buildPropertyLockViewState(deps) {
+export function buildPropertyLockViewState(deps: any) {
   const propertyLockFeatureEnabled = deps.isPropertyLockCollaborationEnabled();
   const lockState: any = propertyLockFeatureEnabled
     ? (state.propertyLockState || deps.createInactiveLockState())
@@ -494,8 +482,7 @@ export function buildPropertyLockViewState(deps) {
   return viewState;
 }
 
-// @ts-expect-error preserve source-contract signature used by popup/property-lock tests
-export async function fetchPropertyLockState(deps, siteId) {
+export async function fetchPropertyLockState(deps: any, siteId: any) {
   if (!deps.isPropertyLockCollaborationEnabled()) {
     return {
       state: deps.createInactiveLockState(),
@@ -534,13 +521,11 @@ export async function fetchPropertyLockState(deps, siteId) {
   }
 }
 
-// @ts-expect-error preserve source-contract signature used by popup/property-lock tests
-export async function refreshPropertyLockSnapshot(deps, siteId, options = {}) {
+export async function refreshPropertyLockSnapshot(deps: any, siteId: any, options: any = {}) {
   if (!deps.isPropertyLockCollaborationEnabled()) {
     deps.resetDisabledPropertyLockState();
     return deps.createInactiveLockState();
   }
-  // @ts-expect-error preserve source-contract destructuring used by popup property-lock tests
   const { skipFetch = false } = options;
   const normalizedSiteId = deps.normalizeSiteIdValue(siteId);
   if (!normalizedSiteId) {
@@ -588,8 +573,7 @@ export async function refreshPropertyLockSnapshot(deps, siteId, options = {}) {
   return nextLockState;
 }
 
-// @ts-expect-error preserve source-contract signature used by popup/property-lock tests
-export async function sendPropertyLockCommand(deps, type, payload = {}) {
+export async function sendPropertyLockCommand(deps: any, type: any, payload = {}) {
   if (!deps.isPropertyLockCollaborationEnabled()) {
     return {
       ok: false,
@@ -621,8 +605,7 @@ export async function sendPropertyLockCommand(deps, type, payload = {}) {
   }
 }
 
-// @ts-expect-error preserve source-contract signature used by popup/property-lock tests
-export async function reconcilePropertyLockAfterCommand(deps, options = {}) {
+export async function reconcilePropertyLockAfterCommand(deps: any, options = {}) {
   const opts = options as any;
   const { useBusyOverlay = false } = opts;
   if (!deps.isPropertyLockCollaborationEnabled()) {

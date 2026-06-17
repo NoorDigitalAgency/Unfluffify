@@ -14,7 +14,7 @@ test("popup scheduleRefresh uses the quiet refresh path", () => {
 test("quiet popup refresh skips redundant property lock fetches", () => {
   const source = readFileSync(new URL("../popup/property-lock-ui.ts", import.meta.url), "utf8");
   const refreshSource = source.match(
-    /export async function refreshPropertyLockSnapshot\(deps, siteId, options = \{\}\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?(?:\n|\r\n)*export async function sendPropertyLockCommand/
+    /export async function refreshPropertyLockSnapshot\(deps(?:\s*:\s*[^,]+)?, siteId(?:\s*:\s*[^,]+)?, options(?:\s*:\s*[^=]+)? = \{\}\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?(?:\n|\r\n)*export async function sendPropertyLockCommand/
   )[1];
 
   assert.match(refreshSource, /const \{ skipFetch = false \} = options;/);
@@ -119,7 +119,7 @@ test("popup mirrors the off-candidate editor countdown from initial tab state", 
   const propertyLockUiSource = readFileSync(new URL("../popup/property-lock-ui.ts", import.meta.url), "utf8");
   const backgroundSource = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
 
-  assert.match(propertyLockUiSource, /export function syncPropertyLockOffCandidateRefreshTimer\(deps, active\) \{/);
+  assert.match(propertyLockUiSource, /export function syncPropertyLockOffCandidateRefreshTimer\(deps(?:\s*:\s*[^,]+)?, active(?:\s*:\s*[^)]+)?\) \{/);
   assert.match(propertyLockUiSource, /state\.propertyLockOffCandidateRefreshTimer = deps\.windowRef\.setInterval\(\(\) => \{/);
   assert.match(popupSource, /state\.propertyLockOffCandidateDeadlineAt =\s*initialTabState && Number\.isFinite\(initialTabState\.propertyLockOffCandidateDeadlineAt\)/);
   assert.match(
