@@ -37,7 +37,7 @@ test("popup render mode inspection uses long timeout and fail-open end cleanup",
   )[1];
 
   assert.match(helperBlock, /const normalizedPayload(?:\s*:\s*[^=]+)? = payload && typeof payload === "object" \? payload : \{\};/);
-  assert.match(helperBlock, /timeoutMs: Number\.isFinite\(options\.timeoutMs\) \? Math\.trunc\(options\.timeoutMs\) : 120000/);
+  assert.match(helperBlock, /timeoutMs: (?:Number\.isFinite\(options\.timeoutMs\) \? Math\.trunc\(options\.timeoutMs\) : 120000|resolveTimeoutMs\(options, 120000\))/);
   assert.match(helperBlock, /catch\(async \(error\) => \{[\s\S]*?normalizedPayload\.operationId[\s\S]*?type: TAB_END_RENDER_MODE_INSPECTION_COMMAND,[\s\S]*?operationId: normalizedPayload\.operationId/);
 });
 

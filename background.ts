@@ -338,7 +338,7 @@ function navigateTabToUrl(tabId, url) {
 
 // @ts-expect-error
 function sendContentMessageToTab(tabId, message, timeoutMs = 15000) {
-  return new Promise((resolve) => {
+  return new Promise<{ ok: boolean; error?: string; reconciliationPending?: boolean; locked?: boolean }>((resolve) => {
     const normalizedTabId = normalizeBrokerTabId(tabId);
     if (!normalizedTabId) {
       resolve({ ok: false, error: "Missing tab" });
@@ -395,7 +395,6 @@ async function ensureContentMainForTab(tabId) {
     const response = await sendContentMessageToTab(normalizedTabId, {
       type: "activateContentMain"
     });
-// @ts-expect-error
     if (response && response.ok) {
       return { ok: true, tabId: normalizedTabId };
     }
@@ -404,7 +403,6 @@ async function ensureContentMainForTab(tabId) {
       const retryResponse = await sendContentMessageToTab(normalizedTabId, {
         type: "activateContentMain"
       });
-// @ts-expect-error
       if (retryResponse && retryResponse.ok) {
         return { ok: true, tabId: normalizedTabId };
       }
@@ -435,7 +433,6 @@ function normalizeActivationBaseUrl(value) {
 }
 
 const renderModeInspector = createRenderModeInspector({
-// @ts-expect-error
   sendContentMessageToTab,
   ensureContentMainForTab,
 // @ts-expect-error
@@ -855,7 +852,6 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_ACTIVATE_MARKING, async (conte
         operationId
       });
 
-// @ts-expect-error
       if (!enableResponse || !enableResponse.ok) {
         await utils.setTabState(normalizedTabId, {
           enabled: false,
@@ -872,7 +868,6 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_ACTIVATE_MARKING, async (conte
           busy: false,
           message: ""
         });
-// @ts-expect-error
         if (enableResponse && enableResponse.locked) {
           return context.replyFail(
             MESSAGE_ERROR_CODES.FEATURE_DISABLED,
@@ -885,7 +880,6 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_ACTIVATE_MARKING, async (conte
         }
         throw createBackgroundCommandError(
           MESSAGE_ERROR_CODES.HANDLER_FAILED,
-// @ts-expect-error
           (enableResponse && enableResponse.error) || "Unable to activate marking",
           { tabId: normalizedTabId }
         );
@@ -1000,7 +994,6 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_DEACTIVATE_MARKING, async (con
         tabId: normalizedTabId,
         baseUrl,
         pageType: "",
-// @ts-expect-error
         contentAcknowledged: Boolean(disableResponse && disableResponse.ok),
         runtime: getTabRuntimeSnapshot(normalizedTabId),
         state: await utils.getTabState(normalizedTabId)
@@ -1059,9 +1052,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_APPLY_POST_SAVE_TRANSITION, as
   return {
     ok: true,
     tabId: normalizedTabId,
-// @ts-expect-error
     configUpdatedAcknowledged: Boolean(configUpdatedResponse && configUpdatedResponse.ok),
-// @ts-expect-error
     contentAcknowledged: Boolean(disableResponse && disableResponse.ok),
     runtime: getTabRuntimeSnapshot(normalizedTabId),
     state: await utils.getTabState(normalizedTabId)
@@ -1098,7 +1089,6 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_APPLY_LOCAL_DISCARD, async (co
   return {
     ok: true,
     tabId: normalizedTabId,
-// @ts-expect-error
     contentAcknowledged: Boolean(response && response.ok),
     runtime: getTabRuntimeSnapshot(normalizedTabId)
   };
@@ -1127,11 +1117,9 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_SHOW_AI_PREVIEW, async (contex
     type: "showAiPreview",
     selectorSet
   });
-// @ts-expect-error
   if (!response || !response.ok) {
     return context.replyFail(
       MESSAGE_ERROR_CODES.HANDLER_FAILED,
-// @ts-expect-error
       (response && response.error) || "Unable to open preview",
       { tabId: normalizedTabId }
     );
@@ -1155,11 +1143,9 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_CLOSE_AI_PREVIEW, async (conte
   }
 
   const response = await sendContentMessageToTab(normalizedTabId, { type: "closeAiPreview" });
-// @ts-expect-error
   if (!response || !response.ok) {
     return context.replyFail(
       MESSAGE_ERROR_CODES.HANDLER_FAILED,
-// @ts-expect-error
       (response && response.error) || "Unable to close preview",
       { tabId: normalizedTabId }
     );
@@ -1186,11 +1172,9 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_SET_AI_PREVIEW_EXPANDED_MODE, 
     type: "setAiPreviewExpandedMode",
     active: Boolean(payload && payload.active)
   });
-// @ts-expect-error
   if (!response || !response.ok) {
     return context.replyFail(
       MESSAGE_ERROR_CODES.HANDLER_FAILED,
-// @ts-expect-error
       (response && response.error) || "Unable to update preview mode",
       { tabId: normalizedTabId }
     );
@@ -1226,11 +1210,9 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_FOCUS_PREVIEW_ELEMENT, async (
     type: "focusElement",
     xpath
   });
-// @ts-expect-error
   if (!response || !response.ok) {
     return context.replyFail(
       MESSAGE_ERROR_CODES.HANDLER_FAILED,
-// @ts-expect-error
       (response && response.error) || "Unable to focus element",
       { tabId: normalizedTabId }
     );

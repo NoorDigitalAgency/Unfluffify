@@ -2,7 +2,7 @@ export const tabLifecycleStateByTabId = new Map<number, unknown>();
 export const tabSpinnerQueueByTabId = new Map<number, unknown>();
 export const popupStatePortsByTabId = new Map<number, unknown>();
 export const tabWorldTraceStateByTabId = new Map<number, unknown>();
-export const aiComputeLockExpiresAtByTabId = new Map<number, unknown>();
+export const aiComputeLockExpiresAtByTabId = new Map<number, number>();
 export const pageMotionFreezeControlQueueByTarget = new Map<string, unknown>();
 
 function normalizeTabId(value: unknown): number | null {

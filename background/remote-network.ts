@@ -31,8 +31,21 @@ mutation updateScrapingConditions($domainId: Int!, $includeCss: String!, $exclud
 }
 `;
 
+export interface RemoteNetworkOptions {
+  endpointValue?: string;
+  tokenValue?: string;
+  sessionId?: string;
+  siteId?: string | number | null;
+  url?: string;
+  stageBase?: string;
+  includeCss?: string;
+  excludeCss?: string;
+  renderMode?: string;
+  payloadKey?: string;
+}
+
 export async function requestAiRunStatus(options = {}) {
-  const opts = options as any;
+  const opts = options as RemoteNetworkOptions;
   const credentials = await resolveBackgroundNetworkCredentials({
     endpointValue: opts.endpointValue,
     tokenValue: opts.tokenValue,
@@ -66,7 +79,7 @@ export async function requestAiRunStatus(options = {}) {
 }
 
 export async function removeRemotePageMarking(options = {}) {
-  const opts = options as any;
+  const opts = options as RemoteNetworkOptions;
   const credentials = await resolveBackgroundNetworkCredentials({
     endpointValue: opts.endpointValue,
     tokenValue: opts.tokenValue,
@@ -93,7 +106,7 @@ export async function removeRemotePageMarking(options = {}) {
 }
 
 export async function submitSelectorSetGraphqlUpdate(options = {}) {
-  const opts = options as any;
+  const opts = options as RemoteNetworkOptions;
   const credentials = await resolveBackgroundNetworkCredentials({
     stageBase: opts.stageBase,
     tokenValue: opts.tokenValue,
@@ -141,7 +154,7 @@ export async function submitSelectorSetGraphqlUpdate(options = {}) {
 }
 
 export async function loadRemoteConfigSnapshot(options = {}) {
-  const opts = options as any;
+  const opts = options as RemoteNetworkOptions;
   const credentials = await resolveBackgroundNetworkCredentials({
     endpointValue: opts.endpointValue,
     tokenValue: opts.tokenValue,
@@ -186,10 +199,8 @@ export async function loadRemoteConfigSnapshot(options = {}) {
   }
 }
 
-export async function saveRemoteConfigSnapshot(
-  options: { payloadKey?: unknown; [key: string]: unknown } = {}
-) {
-  const opts = options as any;
+export async function saveRemoteConfigSnapshot(options: RemoteNetworkOptions = {}) {
+  const opts = options;
   const credentials = await resolveBackgroundNetworkCredentials({
     endpointValue: opts.endpointValue,
     tokenValue: opts.tokenValue,
@@ -242,7 +253,7 @@ export async function saveRemoteConfigSnapshot(
 }
 
 export async function requestRenderModeDetection(options = {}) {
-  const opts = options as any;
+  const opts = options as RemoteNetworkOptions;
   const credentials = await resolveBackgroundNetworkCredentials({
     endpointValue: opts.endpointValue,
     tokenValue: opts.tokenValue,
@@ -285,7 +296,7 @@ export async function requestRenderModeDetection(options = {}) {
 }
 
 export async function submitPageTypeAssignments(options = {}) {
-  const opts = options as any;
+  const opts = options as RemoteNetworkOptions;
   const credentials = await resolveBackgroundNetworkCredentials({
     endpointValue: opts.endpointValue,
     tokenValue: opts.tokenValue,
@@ -322,7 +333,7 @@ export async function submitPageTypeAssignments(options = {}) {
 }
 
 export async function requestAiRunStartSnapshot(options = {}) {
-  const opts = options as any;
+  const opts = options as RemoteNetworkOptions;
   const credentials = await resolveBackgroundNetworkCredentials({
     endpointValue: opts.endpointValue,
     tokenValue: opts.tokenValue,
@@ -360,7 +371,7 @@ export async function requestAiRunStartSnapshot(options = {}) {
 }
 
 export async function requestAiRunResultSnapshot(options = {}) {
-  const opts = options as any;
+  const opts = options as RemoteNetworkOptions;
   const credentials = await resolveBackgroundNetworkCredentials({
     endpointValue: opts.endpointValue,
     tokenValue: opts.tokenValue,
