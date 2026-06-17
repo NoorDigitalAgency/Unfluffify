@@ -18,6 +18,7 @@ Use these documents before making implementation changes:
 2. `.copilot/handoff-world-decomposition.md`
 3. `.copilot/knowledge.md`
 4. `.copilot/high-risk-content-branches-plan.md` (historical G0-G5 reference only)
+5. `.copilot/typescript-deno-port-plan.md` (autonomous plan to port to TypeScript with a Deno build/watch/hot-reload toolchain; execute on branch `feat/typescript-deno-port`)
 
 Historical and superseded `.copilot` plans/handoffs have been removed from the
 workspace. If earlier rationale is needed, use git history instead of restoring
