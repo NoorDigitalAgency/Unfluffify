@@ -10,8 +10,7 @@ function buildRemoteConfigLoadKey(tabId: unknown, siteId: unknown, endpointValue
   return `${tabId || ""}|${siteId || ""}|${endpointValue || ""}`;
 }
 
-// @ts-ignore preserve source-contract signature used by popup source-shape tests
-export function scheduleRemoteConfigRetry(deps) {
+export function scheduleRemoteConfigRetry(deps: any) {
   if (stateAny.remoteConfigConnectionRetryTimer) {
     return;
   }
@@ -25,8 +24,7 @@ export function scheduleRemoteConfigRetry(deps) {
   }, retryDelayMs);
 }
 
-// @ts-ignore preserve source-contract signature used by popup source-shape tests
-export async function loadRemoteConfigForCurrentPage(deps, options = {}) {
+export async function loadRemoteConfigForCurrentPage(deps: any, options: any = {}) {
   const opts = (options || {}) as any;
   const {
     tabId = null,
@@ -129,8 +127,7 @@ export async function loadRemoteConfigForCurrentPage(deps, options = {}) {
   }
 }
 
-// @ts-ignore preserve source-contract signature used by popup source-shape tests
-export async function syncBaseConfigToServer(deps, options = {}) {
+export async function syncBaseConfigToServer(deps: any, options: any = {}) {
   const opts = (options || {}) as any;
   const {
     baseUrl = "",

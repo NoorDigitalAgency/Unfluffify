@@ -491,7 +491,7 @@ test("remote config load delegates transport to background and hydrates the payl
   const remoteNetworkSource = readFileSync(new URL("../background/remote-network.ts", import.meta.url), "utf8");
   const remoteConfigSyncSource = readFileSync(new URL("../background/remote-config-sync.ts", import.meta.url), "utf8");
   const loadBody = popupSource.match(
-    /export async function loadRemoteConfigForCurrentPage\(deps, options = \{\}\) \{([\s\S]*?)\n\}\n\n(?:\/\/ @ts-ignore[^\n]*\n)?export async function syncBaseConfigToServer/
+    /export async function loadRemoteConfigForCurrentPage\(deps(?:\s*:\s*[^,]+)?, options(?:\s*:\s*[^=]+)? = \{\}\) \{([\s\S]*?)\n\}\n\n(?:\/\/ @ts-ignore[^\n]*\n)?export async function syncBaseConfigToServer/
   )[1];
 
   assert.match(backgroundSource, /from "\.\/background\/remote-network\.js"/);
@@ -516,7 +516,7 @@ test("remote config save delegates transport to background and hydrates the resp
   const remoteNetworkSource = readFileSync(new URL("../background/remote-network.ts", import.meta.url), "utf8");
   const remoteConfigSyncSource = readFileSync(new URL("../background/remote-config-sync.ts", import.meta.url), "utf8");
   const saveBody = popupSource.match(
-    /export async function syncBaseConfigToServer\(deps, options = \{\}\) \{([\s\S]*?)\n\}/
+    /export async function syncBaseConfigToServer\(deps(?:\s*:\s*[^,]+)?, options(?:\s*:\s*[^=]+)? = \{\}\) \{([\s\S]*?)\n\}/
   )[1];
 
   assert.match(backgroundSource, /from "\.\/background\/remote-network\.js"/);

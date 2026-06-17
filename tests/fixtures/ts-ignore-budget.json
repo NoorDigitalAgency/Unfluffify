@@ -15,8 +15,7 @@
     "content/property-lock-state-machine.ts": 8,
     "background/ai-run-orchestrator.ts": 5,
     "common/emulation.ts": 5,
-    "popup/site-resolution.ts": 4,
-    "popup/remote-config.ts": 3
+    "popup/site-resolution.ts": 4
   },
   "exempt": [
     "common/page-motion-freeze-bridge.ts",
