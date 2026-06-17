@@ -252,7 +252,7 @@ const PAGE_MOTION_REVEAL_INTERACTION_ATTRIBUTE_NAMES = new Set(["data-ix", "data
 const PAGE_MOTION_PAUSE_INLINE_STYLE_RE = /(^|;|\s)(animation|transition|transform|translate|rotate|scale|offset|opacity|filter|clip-path|top|right|bottom|left)\s*:/i;
 let pageMotionFreezeTimersPaused = false;
 let pageMotionFreezeLazyLoadingSuppressed = false;
-// @ts-ignore
+// @ts-expect-error
 let pageMotionRelayInitializationPromise = null;
 const PAGE_MOTION_PAUSE_BASE_LOCK_PROPERTIES = [
   "transform",
@@ -302,9 +302,9 @@ const SILENT_HIGHLIGHTING_PREPARATION_REASON = "editor_preparing";
 
 const capturedExtensionTimers = (() => {
   const root = typeof window !== "undefined" ? window : globalThis;
-// @ts-ignore
+// @ts-expect-error
   const bindTimer = (name) => {
-// @ts-ignore
+// @ts-expect-error
     const value = root && typeof root[name] === "function" ? root[name] : null;
     return value ? value.bind(root) : null;
   };
@@ -320,7 +320,7 @@ const capturedExtensionTimers = (() => {
   };
 })();
 
-// @ts-ignore
+// @ts-expect-error
 function isPageMotionFreezeTimerFunction(value) {
   const name = value && typeof value === "function" ? value.name || "" : "";
   return name.startsWith("unfluffifySet") ||
@@ -329,16 +329,16 @@ function isPageMotionFreezeTimerFunction(value) {
     name.startsWith("unfluffifyCancel");
 }
 
-// @ts-ignore
+// @ts-expect-error
 function getExtensionTimer(name) {
   const current = typeof window !== "undefined" && typeof window[name] === "function"
     ? window[name]
     : null;
   if (current && !isPageMotionFreezeTimerFunction(current)) {
-// @ts-ignore
+// @ts-expect-error
     return current.bind(window);
   }
-// @ts-ignore
+// @ts-expect-error
   return capturedExtensionTimers[name] || (current ? current.bind(window) : null);
 }
 
@@ -349,25 +349,25 @@ function getExtensionNow() {
   return Date.now();
 }
 
-// @ts-ignore
+// @ts-expect-error
 function extensionSetTimeout(callback, delay, ...args) {
   const timer = getExtensionTimer("setTimeout") || setTimeout;
   return timer(callback, delay, ...args);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function extensionClearTimeout(handle) {
   const timer = getExtensionTimer("clearTimeout") || clearTimeout;
   timer(handle);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function extensionSetInterval(callback, delay, ...args) {
   const timer = getExtensionTimer("setInterval") || setInterval;
   return timer(callback, delay, ...args);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function extensionClearInterval(handle) {
   const timer = getExtensionTimer("clearInterval") || clearInterval;
   timer(handle);
@@ -377,7 +377,7 @@ function getExtensionRequestAnimationFrame() {
   return getExtensionTimer("requestAnimationFrame");
 }
 
-// @ts-ignore
+// @ts-expect-error
 function extensionRequestAnimationFrame(callback) {
   const requestFrame = getExtensionRequestAnimationFrame();
   if (requestFrame) {
@@ -386,7 +386,7 @@ function extensionRequestAnimationFrame(callback) {
   return extensionSetTimeout(() => callback(getExtensionNow()), 16);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function extensionCancelAnimationFrame(handle) {
   const cancelFrame = getExtensionTimer("cancelAnimationFrame");
   if (cancelFrame) {
@@ -396,7 +396,7 @@ function extensionCancelAnimationFrame(handle) {
   extensionClearTimeout(handle);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function extensionRequestIdleCallback(callback, options) {
   const requestIdle = getExtensionTimer("requestIdleCallback");
   if (requestIdle) {
@@ -405,19 +405,19 @@ function extensionRequestIdleCallback(callback, options) {
   return extensionSetTimeout(callback, 0);
 }
 
-// @ts-ignore
+// @ts-expect-error
 let aiPreviewFocusElement = null;
 
 function createCurrentTimestamp() {
   return config.createTimestampNow();
 }
 
-// @ts-ignore
+// @ts-expect-error
 function normalizeEntryTimestampValue(value) {
   return config.normalizeEntryTimestamp(value);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function normalizePageEntryTitle(value, fallbackUrl = "") {
   if (typeof value !== "string") {
     return "";
@@ -441,22 +441,22 @@ function isTogglePerfEnabled() {
     return state.perfEnabled;
   }
   try {
-// @ts-ignore
+// @ts-expect-error
     state.perfEnabled = Boolean(
       window && (
-// @ts-ignore
+// @ts-expect-error
         window.__UNFLUFFIFY_TOGGLE_PERF__ ||
         (window.localStorage && window.localStorage.getItem("unfluffify:toggle-perf") === "1")
       )
     );
   } catch {
-// @ts-ignore
+// @ts-expect-error
     state.perfEnabled = false;
   }
   return state.perfEnabled;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function logTogglePerf(label, startedAt, details = null) {
   if (!isTogglePerfEnabled()) {
     return;
@@ -479,18 +479,18 @@ function createTextualOptionCache() {
   };
 }
 
-// @ts-ignore
+// @ts-expect-error
 function getTextualOptionCache(cache, options = {}) {
   if (!cache) {
     return null;
   }
-// @ts-ignore
+// @ts-expect-error
   return options && options.ignoreVisibilityForInclusionDetection
     ? cache.ignoreVisibility
     : cache.visible;
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function withElementComputationCache(callback) {
   const outermost = state.elementComputationCacheDepth === 0;
   const previous = outermost
@@ -509,27 +509,27 @@ export function withElementComputationCache(callback) {
     }
     : null;
   if (outermost) {
-// @ts-ignore
+// @ts-expect-error
     state.visibilityCache = new Map();
-// @ts-ignore
+// @ts-expect-error
     state.ancestorVisStateCache = new Map();
-// @ts-ignore
+// @ts-expect-error
     state.ancestorOverflowCache = new Map();
-// @ts-ignore
+// @ts-expect-error
     state.directTextCache = new WeakMap();
-// @ts-ignore
+// @ts-expect-error
     state.normalizedTextCache = new WeakMap();
-// @ts-ignore
+// @ts-expect-error
     state.toggleableDefaultCache = new WeakMap();
-// @ts-ignore
+// @ts-expect-error
     state.immutableMatchCache = new WeakMap();
-// @ts-ignore
+// @ts-expect-error
     state.immutableAncestorCache = new WeakMap();
-// @ts-ignore
+// @ts-expect-error
     state.textualContainerCache = createTextualOptionCache();
-// @ts-ignore
+// @ts-expect-error
     state.textualDescendantCache = createTextualOptionCache();
-// @ts-ignore
+// @ts-expect-error
     state.textualImmutableDescendantCache = createTextualOptionCache();
   }
   state.elementComputationCacheDepth += 1;
@@ -538,33 +538,33 @@ export function withElementComputationCache(callback) {
   } finally {
     state.elementComputationCacheDepth -= 1;
     if (outermost) {
-// @ts-ignore
+// @ts-expect-error
       state.visibilityCache = previous.visibilityCache;
-// @ts-ignore
+// @ts-expect-error
       state.ancestorVisStateCache = previous.ancestorVisStateCache;
-// @ts-ignore
+// @ts-expect-error
       state.ancestorOverflowCache = previous.ancestorOverflowCache;
-// @ts-ignore
+// @ts-expect-error
       state.directTextCache = previous.directTextCache;
-// @ts-ignore
+// @ts-expect-error
       state.normalizedTextCache = previous.normalizedTextCache;
-// @ts-ignore
+// @ts-expect-error
       state.toggleableDefaultCache = previous.toggleableDefaultCache;
-// @ts-ignore
+// @ts-expect-error
       state.immutableMatchCache = previous.immutableMatchCache;
-// @ts-ignore
+// @ts-expect-error
       state.immutableAncestorCache = previous.immutableAncestorCache;
-// @ts-ignore
+// @ts-expect-error
       state.textualContainerCache = previous.textualContainerCache;
-// @ts-ignore
+// @ts-expect-error
       state.textualDescendantCache = previous.textualDescendantCache;
-// @ts-ignore
+// @ts-expect-error
       state.textualImmutableDescendantCache = previous.textualImmutableDescendantCache;
     }
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 async function withElementComputationCacheAsync(callback) {
   const outermost = state.elementComputationCacheDepth === 0;
   const previous = outermost
@@ -583,27 +583,27 @@ async function withElementComputationCacheAsync(callback) {
     }
     : null;
   if (outermost) {
-// @ts-ignore
+// @ts-expect-error
     state.visibilityCache = new Map();
-// @ts-ignore
+// @ts-expect-error
     state.ancestorVisStateCache = new Map();
-// @ts-ignore
+// @ts-expect-error
     state.ancestorOverflowCache = new Map();
-// @ts-ignore
+// @ts-expect-error
     state.directTextCache = new WeakMap();
-// @ts-ignore
+// @ts-expect-error
     state.normalizedTextCache = new WeakMap();
-// @ts-ignore
+// @ts-expect-error
     state.toggleableDefaultCache = new WeakMap();
-// @ts-ignore
+// @ts-expect-error
     state.immutableMatchCache = new WeakMap();
-// @ts-ignore
+// @ts-expect-error
     state.immutableAncestorCache = new WeakMap();
-// @ts-ignore
+// @ts-expect-error
     state.textualContainerCache = createTextualOptionCache();
-// @ts-ignore
+// @ts-expect-error
     state.textualDescendantCache = createTextualOptionCache();
-// @ts-ignore
+// @ts-expect-error
     state.textualImmutableDescendantCache = createTextualOptionCache();
   }
   state.elementComputationCacheDepth += 1;
@@ -612,27 +612,27 @@ async function withElementComputationCacheAsync(callback) {
   } finally {
     state.elementComputationCacheDepth -= 1;
     if (outermost) {
-// @ts-ignore
+// @ts-expect-error
       state.visibilityCache = previous.visibilityCache;
-// @ts-ignore
+// @ts-expect-error
       state.ancestorVisStateCache = previous.ancestorVisStateCache;
-// @ts-ignore
+// @ts-expect-error
       state.ancestorOverflowCache = previous.ancestorOverflowCache;
-// @ts-ignore
+// @ts-expect-error
       state.directTextCache = previous.directTextCache;
-// @ts-ignore
+// @ts-expect-error
       state.normalizedTextCache = previous.normalizedTextCache;
-// @ts-ignore
+// @ts-expect-error
       state.toggleableDefaultCache = previous.toggleableDefaultCache;
-// @ts-ignore
+// @ts-expect-error
       state.immutableMatchCache = previous.immutableMatchCache;
-// @ts-ignore
+// @ts-expect-error
       state.immutableAncestorCache = previous.immutableAncestorCache;
-// @ts-ignore
+// @ts-expect-error
       state.textualContainerCache = previous.textualContainerCache;
-// @ts-ignore
+// @ts-expect-error
       state.textualDescendantCache = previous.textualDescendantCache;
-// @ts-ignore
+// @ts-expect-error
       state.textualImmutableDescendantCache = previous.textualImmutableDescendantCache;
     }
   }
@@ -641,67 +641,67 @@ async function withElementComputationCacheAsync(callback) {
 function yieldForToggleReconcileWork() {
   return new Promise((resolve) => {
     if (getExtensionRequestAnimationFrame()) {
-// @ts-ignore
+// @ts-expect-error
       extensionRequestAnimationFrame(() => resolve());
       return;
     }
     if (getExtensionTimer("setTimeout")) {
-// @ts-ignore
+// @ts-expect-error
       extensionSetTimeout(() => resolve(), 0);
       return;
     }
-// @ts-ignore
+// @ts-expect-error
     resolve();
   });
 }
 
-// @ts-ignore
+// @ts-expect-error
 function runWhenIdle(callback, timeout = SNAPSHOT_IDLE_TIMEOUT_MS) {
   return extensionRequestIdleCallback(callback, { timeout });
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isTagSelector (selector){
   return /^[a-z]+$/i.test(selector);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function toQuerySelector (selector){
   return isTagSelector(selector) ? selector.toLowerCase() : selector;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function getEntryFingerprint(entry) {
   if (!entry || !Array.isArray(entry.xpaths)) {
     return [];
   }
   const xpathFingerprint = entry.xpaths
-// @ts-ignore
+// @ts-expect-error
       .filter((item) => item && typeof item.xpath === "string")
-// @ts-ignore
+// @ts-expect-error
       .map((item) => `${item.xpath}|${item.excluded ? "1" : "0"}|${item.explicit === true ? "1" : "0"}`)
       .sort();
   const includeFingerprint = Array.isArray(entry.includeXpaths)
       ? entry.includeXpaths
-// @ts-ignore
+// @ts-expect-error
           .filter((xpath) => typeof xpath === "string" && xpath)
-// @ts-ignore
+// @ts-expect-error
           .map((xpath) => `include:${xpath}`)
           .sort()
       : [];
   const selectorSuppressedFingerprint = Array.isArray(entry.selectorSuppressedXpaths)
       ? entry.selectorSuppressedXpaths
-// @ts-ignore
+// @ts-expect-error
           .filter((xpath) => typeof xpath === "string" && xpath)
-// @ts-ignore
+// @ts-expect-error
           .map((xpath) => `selectorSuppressed:${xpath}`)
           .sort()
       : [];
   const silentWhitespaceFingerprint = Array.isArray(entry.silentWhitespaceExcludedXpaths)
       ? entry.silentWhitespaceExcludedXpaths
-// @ts-ignore
+// @ts-expect-error
           .filter((xpath) => typeof xpath === "string" && xpath)
-// @ts-ignore
+// @ts-expect-error
           .map((xpath) => `silentWhitespace:${xpath}`)
           .sort()
       : [];
@@ -714,7 +714,7 @@ function getEntryFingerprint(entry) {
   );
 }
 
-// @ts-ignore
+// @ts-expect-error
 function getSelectorSetFingerprint(selectorSet) {
   const normalized = normalizeAiSelectorSet(selectorSet);
   if (combineAiSelectorSet(normalized).length === 0) {
@@ -732,13 +732,13 @@ function buildMarkingCollectionsCacheKey({ pageUrl = "", selectorSet = null, ent
   ].join("\u001f");
 }
 
-// @ts-ignore
+// @ts-expect-error
 function resolveMarkingSelectorContext(configValue, entry = null) {
   const selectorSet = config.getNewestConfigSelectorSet(configValue).selectorSet;
   const hasAiSelectors = combineAiSelectorSet(selectorSet).length > 0;
-// @ts-ignore
+// @ts-expect-error
   const selectorSuppressedXpaths = Array.isArray(entry && entry.selectorSuppressedXpaths)
-// @ts-ignore
+// @ts-expect-error
     ? entry.selectorSuppressedXpaths
     : [];
   return {
@@ -748,7 +748,7 @@ function resolveMarkingSelectorContext(configValue, entry = null) {
   };
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isClippedByOverflow(el) {
   if (!el || el.nodeType !== 1) {
     return false;
@@ -762,9 +762,9 @@ function isClippedByOverflow(el) {
       break;
     }
     let overflow, overflowX, overflowY;
-// @ts-ignore
+// @ts-expect-error
     if (ovCache && ovCache.has(parent)) {
-// @ts-ignore
+// @ts-expect-error
       ({ overflow, overflowX, overflowY } = ovCache.get(parent));
     } else {
       const parentStyle = window.getComputedStyle(parent);
@@ -772,7 +772,7 @@ function isClippedByOverflow(el) {
       overflowX = parentStyle.overflowX;
       overflowY = parentStyle.overflowY;
       if (ovCache) {
-// @ts-ignore
+// @ts-expect-error
         ovCache.set(parent, { overflow, overflowX, overflowY });
       }
     }
@@ -815,9 +815,9 @@ function getViewportBounds() {
   };
 }
 
-// @ts-ignore
+// @ts-expect-error
 function getPositiveFiniteMax(values) {
-// @ts-ignore
+// @ts-expect-error
   return values.reduce((maxValue, value) => {
     const numericValue = Number(value);
     if (!Number.isFinite(numericValue) || numericValue <= 0) {
@@ -879,7 +879,7 @@ function getWindowScrollOffset() {
   };
 }
 
-// @ts-ignore
+// @ts-expect-error
 function toDocumentCoordinateRect(rect) {
   const scrollOffset = getWindowScrollOffset();
   return {
@@ -892,7 +892,7 @@ function toDocumentCoordinateRect(rect) {
   };
 }
 
-// @ts-ignore
+// @ts-expect-error
 function hasFixedPositionAncestor(el) {
   let node = el;
   while (node && node.nodeType === 1) {
@@ -905,13 +905,13 @@ function hasFixedPositionAncestor(el) {
   return false;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isReachableInDocumentVisualArea(rect, bounds = getDocumentVisualBounds()) {
   const documentRect = toDocumentCoordinateRect(rect);
   return Boolean(intersectRects(documentRect, bounds));
 }
 
-// @ts-ignore
+// @ts-expect-error
 function intersectRects(rectA, rectB) {
   const left = Math.max(rectA.left, rectB.left);
   const top = Math.max(rectA.top, rectB.top);
@@ -932,7 +932,7 @@ function intersectRects(rectA, rectB) {
   };
 }
 
-// @ts-ignore
+// @ts-expect-error
 function hasOverflowClipping(style) {
   if (!style) {
     return false;
@@ -947,12 +947,12 @@ function hasOverflowClipping(style) {
   );
 }
 
-// @ts-ignore
+// @ts-expect-error
 function getElementEffectiveVisibleRect(el, options = {}) {
   if (!el || el.nodeType !== 1) {
     return null;
   }
-// @ts-ignore
+// @ts-expect-error
   const clipToViewport = options.clipToViewport !== false;
   const baseRect = el.getBoundingClientRect();
   if (baseRect.width <= 0 || baseRect.height <= 0) {
@@ -989,7 +989,7 @@ function getElementEffectiveVisibleRect(el, options = {}) {
   return visibleRect;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isTheoreticallyInvisibleNode(node, style) {
   if (!node || node.nodeType !== 1) {
     return true;
@@ -1015,7 +1015,7 @@ function isTheoreticallyInvisibleNode(node, style) {
   return isVisuallyHiddenByStyle(style);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isElementInHitPath(target, element) {
   if (!target || !element) {
     return false;
@@ -1029,19 +1029,19 @@ function isElementInHitPath(target, element) {
   return false;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isIgnoredHitTestElement(element) {
   if (!element || element.nodeType !== 1) {
     return true;
   }
-// @ts-ignore
+// @ts-expect-error
   if (state.overlay && (element === state.overlay || state.overlay.contains(element))) {
     return true;
   }
   return isWithinExtensionUi(element) || isWithinAiPopover(element);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function getPageHitElementsAtPoint(x, y) {
   const rawHits = typeof document.elementsFromPoint === "function"
     ? document.elementsFromPoint(x, y)
@@ -1051,7 +1051,7 @@ function getPageHitElementsAtPoint(x, y) {
   return rawHits.filter((hit) => hit && hit.nodeType === 1 && !isIgnoredHitTestElement(hit));
 }
 
-// @ts-ignore
+// @ts-expect-error
 function getPaintReachabilityForRect(el, rect) {
   if (!el || el.nodeType !== 1 || !rect) {
     return null;
@@ -1077,7 +1077,7 @@ function getPaintReachabilityForRect(el, rect) {
   return sawPageHit ? false : null;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function reportPaintReachabilityFallback(el, rectCount) {
   state.paintReachabilityFallbackCount += 1;
   if (!isTogglePerfEnabled()) {
@@ -1093,7 +1093,7 @@ function reportPaintReachabilityFallback(el, rectCount) {
     return;
   }
   state.paintReachabilityFallbackLastLoggedAt = now;
-// @ts-ignore
+// @ts-expect-error
   logTogglePerf("render.reachability-fallback", nowMs(), {
     count,
     rectCount,
@@ -1105,7 +1105,7 @@ function reportPaintReachabilityFallback(el, rectCount) {
   });
 }
 
-// @ts-ignore
+// @ts-expect-error
 function filterPaintReachableRects(el, rects) {
   if (!Array.isArray(rects) || rects.length === 0) {
     return [];
@@ -1128,7 +1128,7 @@ function filterPaintReachableRects(el, rects) {
   return reachableRects;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isPaintReachableInCurrentViewport(el) {
   if (!el || el.nodeType !== 1) {
     return false;
@@ -1150,7 +1150,7 @@ function isPaintReachableInCurrentViewport(el) {
   return sawUnknown;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function getRealityCheckPoints(rect) {
   const inset = 1;
   const left = rect.left + inset;
@@ -1168,7 +1168,7 @@ function getRealityCheckPoints(rect) {
   ];
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isActuallyVisibleToUser(el) {
   const visibleRect = getElementEffectiveVisibleRect(el, { clipToViewport: true });
   if (!visibleRect) {
@@ -1190,7 +1190,7 @@ function isActuallyVisibleToUser(el) {
   return false;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isActuallyVisibleInDocument(el) {
   const visibleRect = getElementEffectiveVisibleRect(el, { clipToViewport: false });
   if (!visibleRect) {
@@ -1202,7 +1202,7 @@ function isActuallyVisibleInDocument(el) {
   return isReachableInDocumentVisualArea(visibleRect, getSubmissionVisualBounds());
 }
 
-// @ts-ignore
+// @ts-expect-error
 function anyClientRectIntersectsSubmissionArea(el) {
   if (!el || el.nodeType !== 1 || typeof el.getClientRects !== "function") {
     return false;
@@ -1237,7 +1237,7 @@ function anyClientRectIntersectsSubmissionArea(el) {
   return false;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function getTheoreticalVisibilityState(node, style) {
   if (!node || node.nodeType !== 1) {
     return { definitiveHidden: true, ambiguousHidden: false };
@@ -1256,7 +1256,7 @@ function getTheoreticalVisibilityState(node, style) {
   return { definitiveHidden, ambiguousHidden };
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isVisuallyHiddenByStyle(style) {
   if (!style) {
     return false;
@@ -1265,7 +1265,7 @@ function isVisuallyHiddenByStyle(style) {
   if (clip && clip !== "auto" && clip.includes("rect(")) {
     const numbers = clip.match(/-?\d*\.?\d+/g);
     if (numbers && numbers.length >= 4) {
-// @ts-ignore
+// @ts-expect-error
       const allZero = numbers.every((value) => Number(value) === 0);
       if (allZero) {
         return true;
@@ -1300,12 +1300,12 @@ function isVisuallyHiddenByStyle(style) {
   return false;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function hasDirectText(el) {
   const cache = state.directTextCache;
-// @ts-ignore
+// @ts-expect-error
   if (cache && cache.has(el)) {
-// @ts-ignore
+// @ts-expect-error
     return cache.get(el);
   }
   let result = false;
@@ -1316,37 +1316,37 @@ function hasDirectText(el) {
     }
   }
   if (cache) {
-// @ts-ignore
+// @ts-expect-error
     cache.set(el, result);
   }
   return result;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function getCachedNormalizedElementText(el) {
   const cache = state.normalizedTextCache;
-// @ts-ignore
+// @ts-expect-error
   if (cache && cache.has(el)) {
-// @ts-ignore
+// @ts-expect-error
     return cache.get(el);
   }
   const value = getNormalizedElementText(el);
   if (cache) {
-// @ts-ignore
+// @ts-expect-error
     cache.set(el, value);
   }
   return value;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function matchesToggleableDefaultExcluded(el) {
   if (!el || el.nodeType !== 1) {
     return false;
   }
   const cache = state.toggleableDefaultCache;
-// @ts-ignore
+// @ts-expect-error
   if (cache && cache.has(el)) {
-// @ts-ignore
+// @ts-expect-error
     return cache.get(el);
   }
   let result = false;
@@ -1366,13 +1366,13 @@ function matchesToggleableDefaultExcluded(el) {
     }
   }
   if (cache) {
-// @ts-ignore
+// @ts-expect-error
     cache.set(el, result);
   }
   return result;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function hasNestedToggleableDefaultExcludedDescendant(el) {
   if (!el || el.nodeType !== 1) {
     return false;
@@ -1380,7 +1380,7 @@ function hasNestedToggleableDefaultExcludedDescendant(el) {
   const stack = Array.from(el.children || []);
   while (stack.length) {
     const node = stack.pop();
-// @ts-ignore
+// @ts-expect-error
     if (!node || node.nodeType !== 1) {
       continue;
     }
@@ -1390,23 +1390,23 @@ function hasNestedToggleableDefaultExcludedDescendant(el) {
     if (matchesToggleableDefaultExcluded(node)) {
       return true;
     }
-// @ts-ignore
+// @ts-expect-error
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
-// @ts-ignore
+// @ts-expect-error
       stack.push(node.children[i]);
     }
   }
   return false;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isTextualContainer(el, options = {}) {
   const cache = getTextualOptionCache(state.textualContainerCache, options);
   if (cache && cache.has(el)) {
     return cache.get(el);
   }
   const ignoreVisibilityForInclusionDetection = Boolean(
-// @ts-ignore
+// @ts-expect-error
     options && options.ignoreVisibilityForInclusionDetection
   );
   if (!ignoreVisibilityForInclusionDetection && !isVisible(el)) {
@@ -1434,7 +1434,7 @@ function isTextualContainer(el, options = {}) {
   return result;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function hasTextualDescendant(el, options = {}) {
   if (!el || el.nodeType !== 1) {
     return false;
@@ -1447,7 +1447,7 @@ function hasTextualDescendant(el, options = {}) {
   const stack = Array.from(el.children || []);
   while (stack.length) {
     const node = stack.pop();
-// @ts-ignore
+// @ts-expect-error
     if (!node || node.nodeType !== 1) {
       continue;
     }
@@ -1464,9 +1464,9 @@ function hasTextualDescendant(el, options = {}) {
       result = true;
       break;
     }
-// @ts-ignore
+// @ts-expect-error
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
-// @ts-ignore
+// @ts-expect-error
       stack.push(node.children[i]);
     }
   }
@@ -1476,7 +1476,7 @@ function hasTextualDescendant(el, options = {}) {
   return result;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function hasTextualImmutableDescendant(el, options = {}) {
   if (!el || el.nodeType !== 1) {
     return false;
@@ -1489,7 +1489,7 @@ function hasTextualImmutableDescendant(el, options = {}) {
   const stack = Array.from(el.children || []);
   while (stack.length) {
     const node = stack.pop();
-// @ts-ignore
+// @ts-expect-error
     if (!node || node.nodeType !== 1) {
       continue;
     }
@@ -1503,9 +1503,9 @@ function hasTextualImmutableDescendant(el, options = {}) {
       result = true;
       break;
     }
-// @ts-ignore
+// @ts-expect-error
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
-// @ts-ignore
+// @ts-expect-error
       stack.push(node.children[i]);
     }
   }
@@ -1515,7 +1515,7 @@ function hasTextualImmutableDescendant(el, options = {}) {
   return result;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function hasVisibleImmutableDescendant(el) {
   if (!el || el.nodeType !== 1) {
     return false;
@@ -1523,7 +1523,7 @@ function hasVisibleImmutableDescendant(el) {
   const stack = Array.from(el.children || []);
   while (stack.length) {
     const node = stack.pop();
-// @ts-ignore
+// @ts-expect-error
     if (!node || node.nodeType !== 1) {
       continue;
     }
@@ -1533,16 +1533,16 @@ function hasVisibleImmutableDescendant(el) {
     if (matchesImmutableExcluded(node) && isVisible(node)) {
       return true;
     }
-// @ts-ignore
+// @ts-expect-error
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
-// @ts-ignore
+// @ts-expect-error
       stack.push(node.children[i]);
     }
   }
   return false;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function matchesAutoToggleableDefaultExcluded(el) {
   if (!matchesToggleableDefaultExcluded(el)) {
     return false;
@@ -1559,7 +1559,7 @@ function matchesAutoToggleableDefaultExcluded(el) {
   return !hasVisibleImmutableDescendant(el);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function hasExplicitlyMarkedDescendant(el) {
   if (!el || el.nodeType !== 1 || !state.config) {
     return false;
@@ -1572,7 +1572,7 @@ function hasExplicitlyMarkedDescendant(el) {
   const stack = Array.from(el.children || []);
   while (stack.length) {
     const node = stack.pop();
-// @ts-ignore
+// @ts-expect-error
     if (!node || node.nodeType !== 1) {
       continue;
     }
@@ -1592,18 +1592,18 @@ function hasExplicitlyMarkedDescendant(el) {
     ) {
       return true;
     }
-// @ts-ignore
+// @ts-expect-error
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
-// @ts-ignore
+// @ts-expect-error
       stack.push(node.children[i]);
     }
   }
   return false;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isSelfMarkableWithoutParentMode(el, options = {}) {
-// @ts-ignore
+// @ts-expect-error
   const diagnostics = options && options.__diagnostics ? options.__diagnostics : null;
   const textualContainerStartedAt = diagnostics ? nowMs() : 0;
   const textualContainer = isTextualContainer(el, options);
@@ -1626,7 +1626,7 @@ function isSelfMarkableWithoutParentMode(el, options = {}) {
   // Preserve the previous shallowest-ancestor behavior: hidden responsive
   // descendants should not suppress a visible ancestor just because preview/
   // silent inclusion detection is configured to ignore visibility.
-// @ts-ignore
+// @ts-expect-error
   const descendantShapeOptions = options && options.ignoreVisibilityForInclusionDetection
     ? {
       ...options,
@@ -1675,7 +1675,7 @@ function isSelfMarkableWithoutParentMode(el, options = {}) {
   });
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isExplicitIncludeBoundaryCandidate(el, options = {}) {
   if (!el || el.nodeType !== 1) {
     return false;
@@ -1692,7 +1692,7 @@ function isExplicitIncludeBoundaryCandidate(el, options = {}) {
   return matchesToggleableDefaultExcluded(el) && hasDirectText(el) && isTextualContainer(el, options);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isGroupedBoundaryChildCandidate(el, options = {}) {
   if (!el || el.nodeType !== 1) {
     return false;
@@ -1709,7 +1709,7 @@ function isGroupedBoundaryChildCandidate(el, options = {}) {
   return matchesToggleableDefaultExcluded(el) && hasDirectText(el);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isStructuredGroupExclusionCandidate(el, options = {}) {
   if (!el || el.nodeType !== 1) {
     return false;
@@ -1727,7 +1727,7 @@ function isStructuredGroupExclusionCandidate(el, options = {}) {
     return false;
   }
   const children = Array.from(el.children || []).filter((child) => {
-// @ts-ignore
+// @ts-expect-error
     if (!child || child.nodeType !== 1) {
       return false;
     }
@@ -1745,15 +1745,15 @@ function isStructuredGroupExclusionCandidate(el, options = {}) {
   return children.every((child) => isGroupedBoundaryChildCandidate(child, options));
 }
 
-// @ts-ignore
+// @ts-expect-error
 function matchesImmutableExcluded(el) {
   if (!el || el.nodeType !== 1) {
     return false;
   }
   const cache = state.immutableMatchCache;
-// @ts-ignore
+// @ts-expect-error
   if (cache && cache.has(el)) {
-// @ts-ignore
+// @ts-expect-error
     return cache.get(el);
   }
   let result = false;
@@ -1773,18 +1773,18 @@ function matchesImmutableExcluded(el) {
     }
   }
   if (cache) {
-// @ts-ignore
+// @ts-expect-error
     cache.set(el, result);
   }
   return result;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isWithinImmutableExcluded(el) {
   const cache = state.immutableAncestorCache;
-// @ts-ignore
+// @ts-expect-error
   if (cache && cache.has(el)) {
-// @ts-ignore
+// @ts-expect-error
     return cache.get(el);
   }
   let result = false;
@@ -1797,18 +1797,18 @@ function isWithinImmutableExcluded(el) {
     node = node.parentElement;
   }
   if (cache) {
-// @ts-ignore
+// @ts-expect-error
     cache.set(el, result);
   }
   return result;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isToggleableDefaultExcludedElement(el, includedElements) {
   return matchesAutoToggleableDefaultExcluded(el) && !isWithinElementSet(el, includedElements);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isWithinToggleableDefaultExcludedElement(el, includedElements) {
   if (isWithinElementSet(el, includedElements)) {
     return false;
@@ -1823,18 +1823,18 @@ function isWithinToggleableDefaultExcludedElement(el, includedElements) {
   return false;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isWithinAiPopover(el) {
   return Boolean(
       state.aiPopover &&
       el &&
       el.nodeType === 1 &&
-// @ts-ignore
+// @ts-expect-error
       state.aiPopover.contains(el)
   );
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isWithinExtensionUi(el) {
   if (!el || el.nodeType !== 1) {
     return false;
@@ -1842,7 +1842,7 @@ function isWithinExtensionUi(el) {
   return Boolean(el.closest("[data-uf-extension-ui=\"true\"]"));
 }
 
-// @ts-ignore
+// @ts-expect-error
 function registerConsentRoot(element) {
   if (!element || element.nodeType !== 1) {
     return false;
@@ -1852,12 +1852,12 @@ function registerConsentRoot(element) {
   }
   const roots = state.consentRootElements;
   for (const root of roots) {
-// @ts-ignore
+// @ts-expect-error
     if (!root || root.isConnected === false) {
       roots.delete(root);
       continue;
     }
-// @ts-ignore
+// @ts-expect-error
     if (root === element || root.contains(element)) {
       return false;
     }
@@ -1893,7 +1893,7 @@ function removeConsentBypassStyle() {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 function hideConsentElementVisibility(element) {
   if (!element || element.nodeType !== 1) {
     return;
@@ -1911,7 +1911,7 @@ function hideConsentElementVisibility(element) {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 function markConsentElementHidden(element) {
   if (!element || element.nodeType !== 1) {
     return false;
@@ -1922,7 +1922,7 @@ function markConsentElementHidden(element) {
   return !wasAlreadyMarked;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function hideConsentElement(element) {
   if (isWithinAiPopover(element) || isWithinExtensionUi(element)) {
     return false;
@@ -1937,7 +1937,7 @@ function hideConsentElement(element) {
   }
 
   const descendants = element.querySelectorAll("*");
-// @ts-ignore
+// @ts-expect-error
   descendants.forEach((node) => {
     if (!node || node.nodeType !== 1) {
       return;
@@ -1957,7 +1957,7 @@ function hideConsentElement(element) {
   return changed;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isWithinConsentElement(el) {
   if (!el || el.nodeType !== 1) {
     return false;
@@ -1965,12 +1965,12 @@ function isWithinConsentElement(el) {
   const roots = state.consentRootElements;
   if (roots && roots.size) {
     for (const root of roots) {
-// @ts-ignore
+// @ts-expect-error
       if (!root || (root.isConnected === false)) {
         roots.delete(root);
         continue;
       }
-// @ts-ignore
+// @ts-expect-error
       if (root === el || root.contains(el)) {
         return true;
       }
@@ -1984,7 +1984,7 @@ export function collectConsentExcludedElements() {
   const roots = state.consentRootElements;
   if (roots && roots.size) {
     for (const root of roots) {
-// @ts-ignore
+// @ts-expect-error
       if (!root || root.nodeType !== 1 || root.isConnected === false) {
         continue;
       }
@@ -1999,7 +1999,7 @@ export function collectConsentExcludedElements() {
   return elements;
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function getXPath(el) {
   if (!el || el.nodeType !== 1) {
     return "";
@@ -2026,15 +2026,15 @@ export function getXPath(el) {
 }
 
 function getSnapshotStripSelectors(options = {}) {
-// @ts-ignore
+// @ts-expect-error
   const extraStripSelectors = Array.isArray(options.extraStripSelectors)
-// @ts-ignore
+// @ts-expect-error
     ? options.extraStripSelectors.filter((value) => typeof value === "string" && value)
     : [];
   return EXTENSION_SNAPSHOT_STRIP_SELECTORS.concat(extraStripSelectors);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function matchesAnySelector(el, selectors) {
   if (!el || el.nodeType !== 1 || typeof el.matches !== "function") {
     return false;
@@ -2051,7 +2051,7 @@ function matchesAnySelector(el, selectors) {
   return false;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isStrippedFromSnapshot(el, options = {}) {
   const stripSelectors = getSnapshotStripSelectors(options);
   let node = el;
@@ -2064,7 +2064,7 @@ function isStrippedFromSnapshot(el, options = {}) {
   return false;
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function getSnapshotXPath(el, options = {}) {
   if (!el || el.nodeType !== 1 || isStrippedFromSnapshot(el, options)) {
     return "";
@@ -2096,7 +2096,7 @@ export function getSnapshotXPath(el, options = {}) {
   return `/${parts.join("/")}`;
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function isXPathDescendant(parentXpath, childXpath) {
   if (!parentXpath || !childXpath) {
     return false;
@@ -2105,7 +2105,7 @@ export function isXPathDescendant(parentXpath, childXpath) {
   return childXpath.startsWith(prefix);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isWithinExplicitExcludedXpath(xpath, excludedSet) {
   if (!xpath || !excludedSet || excludedSet.size === 0) {
     return false;
@@ -2121,22 +2121,22 @@ function isWithinExplicitExcludedXpath(xpath, excludedSet) {
   return false;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function escapeCssIdentifier(value) {
   if (window.CSS && typeof window.CSS.escape === "function") {
     return window.CSS.escape(value);
   }
-// @ts-ignore
+// @ts-expect-error
   return value.replace(/[^a-zA-Z0-9_-]/g, (char) => `\\${char}`);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function getClassSelector(node) {
   if (!node || !node.classList) {
     return "";
   }
   const classes = Array.from(node.classList)
-// @ts-ignore
+// @ts-expect-error
     .map((value) => value.trim())
     .filter((value) => value.length > 0 && !value.startsWith("uf-"));
   if (!classes.length) {
@@ -2148,7 +2148,7 @@ function getClassSelector(node) {
   };
 }
 
-// @ts-ignore
+// @ts-expect-error
 function getNthOfTypeIndex(el) {
   let index = 1;
   let sibling = el.previousElementSibling;
@@ -2168,7 +2168,7 @@ function getNthOfTypeIndex(el) {
  * @param {Element} el - The element to build a selector path for
  * @returns {string} A CSS selector path from body to the element
  */
-// @ts-ignore
+// @ts-expect-error
 function buildCssSelectorPath(el) {
   if (!el || el.nodeType !== 1) {
     return "";
@@ -2191,11 +2191,11 @@ function buildCssSelectorPath(el) {
       segment = `${tag}:nth-of-type(${index})`;
     } else if (node.parentElement) {
       const siblings = Array.from(node.parentElement.children).filter((sibling) => {
-// @ts-ignore
+// @ts-expect-error
         if (sibling.tagName !== node.tagName) {
           return false;
         }
-// @ts-ignore
+// @ts-expect-error
         return classInfo.classes.every((cls) => sibling.classList.contains(cls));
       });
       if (siblings.length > 1) {
@@ -2212,7 +2212,7 @@ function buildCssSelectorPath(el) {
   return parts.join(" > ");
 }
 
-// @ts-ignore
+// @ts-expect-error
 function collectXPathElements(xpaths) {
   const elements = new Set();
   for (const xpath of xpaths || []) {
@@ -2224,13 +2224,13 @@ function collectXPathElements(xpaths) {
   return elements;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function hasExplicitUserMarkings(entry) {
   if (!entry || typeof entry !== "object") {
     return false;
   }
   const includeXpaths = Array.isArray(entry.includeXpaths) ? entry.includeXpaths : [];
-// @ts-ignore
+// @ts-expect-error
   if (includeXpaths.some((xpath) => typeof xpath === "string" && xpath)) {
     return true;
   }
@@ -2244,7 +2244,7 @@ function hasExplicitUserMarkings(entry) {
       // Missing elements are typically preserved explicit markings from older snapshots.
       return true;
     }
-// @ts-ignore
+// @ts-expect-error
     if (isSilentWhitespaceExplicitExclusion(entry, item, el)) {
       continue;
     }
@@ -2259,7 +2259,7 @@ function hasExplicitUserMarkings(entry) {
   return false;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isWithinExcludedParents(el, excludedParents) {
   if (!el || !excludedParents || excludedParents.size === 0) {
     return false;
@@ -2272,7 +2272,7 @@ function isWithinExcludedParents(el, excludedParents) {
   return false;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function collectExcludedParentElements(items) {
   const parents = new Set();
   if (!Array.isArray(items)) {
@@ -2297,17 +2297,17 @@ function collectExcludedParentElements(items) {
   return parents;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function scanReconcileDocumentCandidates(immutableExcluded, excludedParents) {
-// @ts-ignore
+// @ts-expect-error
   const toggleableCandidates = [];
-// @ts-ignore
+// @ts-expect-error
   const silentWhitespaceCandidates = [];
   if (!document.body) {
     return {
-// @ts-ignore
+// @ts-expect-error
       toggleableCandidates,
-// @ts-ignore
+// @ts-expect-error
       silentWhitespaceCandidates,
       stats: {
         visitedCount: 0,
@@ -2393,7 +2393,7 @@ function scanReconcileDocumentCandidates(immutableExcluded, excludedParents) {
     }
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
       stack.push({
-// @ts-ignore
+// @ts-expect-error
         node: node.children[i],
         withinExcludedParent: current.withinExcludedParent || isExcludedParentBoundary
       });
@@ -2406,17 +2406,17 @@ function scanReconcileDocumentCandidates(immutableExcluded, excludedParents) {
   };
 }
 
-// @ts-ignore
+// @ts-expect-error
 async function scanReconcileDocumentCandidatesAsync(immutableExcluded, excludedParents, options = {}) {
-// @ts-ignore
+// @ts-expect-error
   const toggleableCandidates = [];
-// @ts-ignore
+// @ts-expect-error
   const silentWhitespaceCandidates = [];
   if (!document.body) {
     return {
-// @ts-ignore
+// @ts-expect-error
       toggleableCandidates,
-// @ts-ignore
+// @ts-expect-error
       silentWhitespaceCandidates,
       stats: {
         visitedCount: 0,
@@ -2437,9 +2437,9 @@ async function scanReconcileDocumentCandidatesAsync(immutableExcluded, excludedP
       }
     };
   }
-// @ts-ignore
+// @ts-expect-error
   const shouldAbort = typeof options.shouldAbort === "function"
-// @ts-ignore
+// @ts-expect-error
     ? options.shouldAbort
     : null;
   const stack = [{ node: document.body, withinExcludedParent: false }];
@@ -2511,7 +2511,7 @@ async function scanReconcileDocumentCandidatesAsync(immutableExcluded, excludedP
     }
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
       stack.push({
-// @ts-ignore
+// @ts-expect-error
         node: node.children[i],
         withinExcludedParent: current.withinExcludedParent || isExcludedParentBoundary
       });
@@ -2529,18 +2529,18 @@ async function scanReconcileDocumentCandidatesAsync(immutableExcluded, excludedP
   };
 }
 
-// @ts-ignore
+// @ts-expect-error
 function collectToggleableTargets(immutableExcluded, excludedParents) {
   return scanReconcileDocumentCandidates(immutableExcluded, excludedParents).toggleableCandidates;
 }
 
-// @ts-ignore
+// @ts-expect-error
 async function collectToggleableTargetsAsync(immutableExcluded, excludedParents, options = {}) {
   const scanned = await scanReconcileDocumentCandidatesAsync(immutableExcluded, excludedParents, options);
   return scanned.toggleableCandidates;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function collectDefaultHighlightTargets(root, options) {
   if (!root) {
     return [];
@@ -2609,25 +2609,25 @@ function collectDefaultHighlightTargets(root, options) {
   return results;
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function collectDefaultLayerElements(root, options = {}) {
-// @ts-ignore
+// @ts-expect-error
   const immutableExcluded = new Set(options.immutableExcluded || []);
-// @ts-ignore
+// @ts-expect-error
   const consentExcluded = new Set(options.consentExcluded || []);
-// @ts-ignore
+// @ts-expect-error
   const explicitExclude = new Set(options.explicitExclude || []);
-// @ts-ignore
+// @ts-expect-error
   const explicitInclude = new Set(options.explicitInclude || []);
-// @ts-ignore
+// @ts-expect-error
   const excludedByStateAncestors = new Set(options.excludedByStateAncestors || []);
-// @ts-ignore
+// @ts-expect-error
   const aiContent = new Set(options.aiContent || []);
-// @ts-ignore
+// @ts-expect-error
   const selectorExcluded = new Set(options.selectorExcluded || options.selectorExcludedSet || []);
-// @ts-ignore
+// @ts-expect-error
   const hiddenStoredExplicitExclude = new Set(options.hiddenStoredExplicitExclude || []);
-// @ts-ignore
+// @ts-expect-error
   const unexcludedToggleableDefault = new Set(options.unexcludedToggleableDefault || []);
   const precedenceSet = new Set([
     ...immutableExcluded,
@@ -2647,7 +2647,7 @@ export function collectDefaultLayerElements(root, options = {}) {
   return collectDefaultHighlightTargets(root, {
     excludedSet: precedenceSet,
     hardExcludedSet,
-// @ts-ignore
+// @ts-expect-error
     hasHigherPrecedence: (el) => precedenceSet.has(el),
     // Selector-excluded elements do not render their own marking-mode layer, so
     // only the matched element should suppress the default layer, not its whole subtree.
@@ -2663,7 +2663,7 @@ export function collectDefaultLayerElements(root, options = {}) {
   });
 }
 
-// @ts-ignore
+// @ts-expect-error
 function collectSelectorElements(selectors) {
   return collectCachedSelectorMatches({
     root: document,
@@ -2677,13 +2677,13 @@ function collectSelectorElements(selectors) {
 }
 
 function seedMarkingsFromAiSelectorsForUnmarkedPage(
-// @ts-ignore
+// @ts-expect-error
   configValue,
-// @ts-ignore
+// @ts-expect-error
   pageUrl,
-// @ts-ignore
+// @ts-expect-error
   selectorSet,
-// @ts-ignore
+// @ts-expect-error
   immutableExcluded
 ) {
   if (!configValue || !pageUrl) {
@@ -2712,20 +2712,20 @@ function seedMarkingsFromAiSelectorsForUnmarkedPage(
   // This seeding path is only for pages without explicit saved marks. Reset any
   // previously generated/default-only rows first so CSS-seeded explicit marks become
   // the true precedence baseline for the subsequent default sync pass.
-// @ts-ignore
+// @ts-expect-error
   const items = [];
-// @ts-ignore
+// @ts-expect-error
   const includeXpaths = [];
   let changed = existingItems.length > 0 || existingIncludeXpaths.length > 0;
 
-// @ts-ignore
+// @ts-expect-error
   const removeItemByXpath = (xpath) => {
     let removed = false;
     for (let i = items.length - 1; i >= 0; i -= 1) {
-// @ts-ignore
+// @ts-expect-error
       const item = items[i];
       if (item && item.xpath === xpath) {
-// @ts-ignore
+// @ts-expect-error
         items.splice(i, 1);
         removed = true;
       }
@@ -2736,13 +2736,13 @@ function seedMarkingsFromAiSelectorsForUnmarkedPage(
     return removed;
   };
 
-// @ts-ignore
+// @ts-expect-error
   const removeIncludeByXpath = (xpath) => {
     let removed = false;
     for (let i = includeXpaths.length - 1; i >= 0; i -= 1) {
-// @ts-ignore
+// @ts-expect-error
       if (includeXpaths[i] === xpath) {
-// @ts-ignore
+// @ts-expect-error
         includeXpaths.splice(i, 1);
         removed = true;
       }
@@ -2753,28 +2753,28 @@ function seedMarkingsFromAiSelectorsForUnmarkedPage(
     return removed;
   };
 
-// @ts-ignore
+// @ts-expect-error
   const removeDescendants = (xpath) => {
     for (let i = items.length - 1; i >= 0; i -= 1) {
-// @ts-ignore
+// @ts-expect-error
       const item = items[i];
       if (!item || !item.xpath || item.xpath === xpath) {
         continue;
       }
       if (isXPathDescendant(xpath, item.xpath)) {
-// @ts-ignore
+// @ts-expect-error
         items.splice(i, 1);
         changed = true;
       }
     }
     for (let i = includeXpaths.length - 1; i >= 0; i -= 1) {
-// @ts-ignore
+// @ts-expect-error
       const childXpath = includeXpaths[i];
       if (!childXpath || childXpath === xpath) {
         continue;
       }
       if (isXPathDescendant(xpath, childXpath)) {
-// @ts-ignore
+// @ts-expect-error
         includeXpaths.splice(i, 1);
         changed = true;
       }
@@ -2783,15 +2783,15 @@ function seedMarkingsFromAiSelectorsForUnmarkedPage(
 
   const getExplicitExcludeXPathSet = () =>
     new Set(
-// @ts-ignore
+// @ts-expect-error
       items
         .filter((item) => item && item.xpath && item.excluded)
         .map((item) => item.xpath)
     );
 
-// @ts-ignore
+// @ts-expect-error
   const setExplicitExclude = (xpath) => {
-// @ts-ignore
+// @ts-expect-error
     let targetItem = items.find((item) => item && item.xpath === xpath);
     if (!targetItem) {
       items.push({ xpath, excluded: true });
@@ -2858,7 +2858,7 @@ function seedMarkingsFromAiSelectorsForUnmarkedPage(
     }
     const entryOverride = {
       ...entry,
-// @ts-ignore
+// @ts-expect-error
       xpaths: items,
       includeXpaths
     };
@@ -2866,7 +2866,7 @@ function seedMarkingsFromAiSelectorsForUnmarkedPage(
       continue;
     }
     removeItemByXpath(xpath);
-// @ts-ignore
+// @ts-expect-error
     if (!includeXpaths.includes(xpath)) {
       includeXpaths.push(xpath);
       changed = true;
@@ -2874,7 +2874,7 @@ function seedMarkingsFromAiSelectorsForUnmarkedPage(
     removeDescendants(xpath);
   }
 
-// @ts-ignore
+// @ts-expect-error
   entry.xpaths = items;
   entry.includeXpaths = includeXpaths;
   normalizePageEntryXpaths(entry);
@@ -2885,32 +2885,32 @@ function seedMarkingsFromAiSelectorsForUnmarkedPage(
   return { createdEntry: true, changed };
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isRawSelectorExcludedElement(el, excludedElements, includedElements) {
   return isWithinElementSet(el, excludedElements) && !isWithinElementSet(el, includedElements);
 }
 
 function isSelectorExcludedElement(
-// @ts-ignore
+// @ts-expect-error
   el,
-// @ts-ignore
+// @ts-expect-error
   excludedElements,
-// @ts-ignore
+// @ts-expect-error
   includedElements,
-// @ts-ignore
+// @ts-expect-error
   inclusionContextSet
 ) {
   return isRawSelectorExcludedElement(el, excludedElements, includedElements);
 }
 
 function isExcludedNatureElement(
-// @ts-ignore
+// @ts-expect-error
   el,
-// @ts-ignore
+// @ts-expect-error
   excludedElements,
-// @ts-ignore
+// @ts-expect-error
   includedElements,
-// @ts-ignore
+// @ts-expect-error
   inclusionContextSet
 ) {
   return matchesImmutableExcluded(el) ||
@@ -2924,18 +2924,18 @@ function isExcludedNatureElement(
 }
 
 function isInclusionEligibleElement(
-// @ts-ignore
+// @ts-expect-error
   el,
-// @ts-ignore
+// @ts-expect-error
   excludedElements,
-// @ts-ignore
+// @ts-expect-error
   includedElements,
-// @ts-ignore
+// @ts-expect-error
   inclusionContextSet,
   options = {}
 ) {
   const ignoreVisibilityForInclusionDetection = Boolean(
-// @ts-ignore
+// @ts-expect-error
     options && options.ignoreVisibilityForInclusionDetection
   );
   if (!el || el.nodeType !== 1) {
@@ -2962,7 +2962,7 @@ function isInclusionEligibleElement(
     Boolean(inclusionContextSet && inclusionContextSet.has(el));
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isDefinitelyHiddenSubtreeElement(el) {
   if (!el || el.nodeType !== 1) {
     return true;
@@ -2980,18 +2980,18 @@ function isDefinitelyHiddenSubtreeElement(el) {
 }
 
 function hasRenderableTextOutsideExcludedNature(
-// @ts-ignore
+// @ts-expect-error
   el,
-// @ts-ignore
+// @ts-expect-error
   excludedElements,
-// @ts-ignore
+// @ts-expect-error
   includedElements,
-// @ts-ignore
+// @ts-expect-error
   inclusionContextSet,
   options = {}
 ) {
   const ignoreVisibilityForInclusionDetection = Boolean(
-// @ts-ignore
+// @ts-expect-error
     options && options.ignoreVisibilityForInclusionDetection
   );
   if (!el || el.nodeType !== 1) {
@@ -3036,13 +3036,13 @@ function hasRenderableTextOutsideExcludedNature(
 }
 
 function hasRenderableTextForHighlight(
-// @ts-ignore
+// @ts-expect-error
   el,
-// @ts-ignore
+// @ts-expect-error
   excludedElements,
-// @ts-ignore
+// @ts-expect-error
   includedElements,
-// @ts-ignore
+// @ts-expect-error
   inclusionContextSet,
   options = {}
 ) {
@@ -3062,11 +3062,11 @@ function hasRenderableTextForHighlight(
 }
 
 function hasRenderableTextForExcludedHighlight(
-// @ts-ignore
+// @ts-expect-error
   el,
-// @ts-ignore
+// @ts-expect-error
   includedElements,
-// @ts-ignore
+// @ts-expect-error
   inclusionContextSet
 ) {
   if (!el || el.nodeType !== 1) {
@@ -3108,19 +3108,19 @@ function hasRenderableTextForExcludedHighlight(
 }
 
 function collectExcludedChildrenInsideIncludedParents(
-// @ts-ignore
+// @ts-expect-error
   includedParents,
-// @ts-ignore
+// @ts-expect-error
   excludedElements,
-// @ts-ignore
+// @ts-expect-error
   includedElements,
-// @ts-ignore
+// @ts-expect-error
   inclusionContextSet
 ) {
-// @ts-ignore
+// @ts-expect-error
   const marked = [];
   const seen = new Set();
-// @ts-ignore
+// @ts-expect-error
   includedParents.forEach((parent) => {
     if (!parent || parent.nodeType !== 1) {
       return;
@@ -3128,7 +3128,7 @@ function collectExcludedChildrenInsideIncludedParents(
     const stack = Array.from(parent.children || []);
     while (stack.length) {
       const el = stack.pop();
-// @ts-ignore
+// @ts-expect-error
       if (!el || el.nodeType !== 1) {
         continue;
       }
@@ -3156,23 +3156,23 @@ function collectExcludedChildrenInsideIncludedParents(
         }
         continue;
       }
-// @ts-ignore
+// @ts-expect-error
       for (let i = el.children.length - 1; i >= 0; i -= 1) {
-// @ts-ignore
+// @ts-expect-error
         stack.push(el.children[i]);
       }
     }
   });
-// @ts-ignore
+// @ts-expect-error
   return marked;
 }
 
 function collectSelectorExcludedElements(
-// @ts-ignore
+// @ts-expect-error
   excludedElements,
-// @ts-ignore
+// @ts-expect-error
   includedElements,
-// @ts-ignore
+// @ts-expect-error
   inclusionContextSet
 ) {
   const marked = new Set();
@@ -3197,17 +3197,17 @@ function collectSelectorExcludedElements(
   return Array.from(marked).sort(compareDocumentOrder);
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function collectToggleableDefaultExcludedElements(includedElements, options = {}) {
   if (!document.body) {
     return [];
   }
   const boundarySelfSkipSet = new Set(
-// @ts-ignore
+// @ts-expect-error
     options.boundarySelfSkip || includedElements || []
   );
   const boundarySubtreeSkipSet = new Set(
-// @ts-ignore
+// @ts-expect-error
     options.boundarySubtreeSkip || includedElements || []
   );
   const results = [];
@@ -3219,7 +3219,7 @@ export function collectToggleableDefaultExcludedElements(includedElements, optio
     }
     const isToggleableDefaultExcluded = matchesAutoToggleableDefaultExcluded(el);
     const isBoundarySelfSkipped = boundarySelfSkipSet.has(el);
-// @ts-ignore
+// @ts-expect-error
     const isWithinBoundarySubtreeSkip = isWithinElementSet(el, boundarySubtreeSkipSet);
     const isWithinImmutableBoundary = isWithinImmutableExcluded(el);
     if (shouldCollectToggleableDefaultBoundary({
@@ -3248,7 +3248,7 @@ export function collectToggleableDefaultExcludedElements(includedElements, optio
       continue;
     }
     for (let i = el.children.length - 1; i >= 0; i -= 1) {
-// @ts-ignore
+// @ts-expect-error
       stack.push(el.children[i]);
     }
   }
@@ -3256,33 +3256,33 @@ export function collectToggleableDefaultExcludedElements(includedElements, optio
 }
 
 function collectExplicitIncludedElements(
-// @ts-ignore
+// @ts-expect-error
   explicitIncludedMatches,
-// @ts-ignore
+// @ts-expect-error
   excludedElements,
-// @ts-ignore
+// @ts-expect-error
   includedElements,
-// @ts-ignore
+// @ts-expect-error
   inclusionContextSet,
   options = {}
 ) {
   const preserveExplicitIncludedDescendants = Boolean(
-// @ts-ignore
+// @ts-expect-error
     options && options.preserveExplicitIncludedDescendants
   );
-// @ts-ignore
+// @ts-expect-error
   const includeAllExplicitMatches = Boolean(options && options.includeAllExplicitMatches);
   const selected = new Set();
   const ordered = preserveExplicitIncludedDescendants
     ? Array.from(new Set(explicitIncludedMatches || []))
-// @ts-ignore
+// @ts-expect-error
       .filter((el) => el && el.nodeType === 1)
       .sort(compareDocumentOrder)
     : collapseElementsByNesting(explicitIncludedMatches, {
       prefer: "shallowest"
     });
   for (const el of ordered) {
-// @ts-ignore
+// @ts-expect-error
     if (!el || el.nodeType !== 1) {
       continue;
     }
@@ -3326,13 +3326,13 @@ function collectExplicitIncludedElements(
 }
 
 function collectImplicitIncludedElementsOutsideExplicit(
-// @ts-ignore
+// @ts-expect-error
   explicitIncluded,
-// @ts-ignore
+// @ts-expect-error
   excludedElements,
-// @ts-ignore
+// @ts-expect-error
   includedElements,
-// @ts-ignore
+// @ts-expect-error
   inclusionContextSet,
   options = {}
 ) {
@@ -3347,7 +3347,7 @@ function collectImplicitIncludedElementsOutsideExplicit(
     if (
       explicitIncludedSet.size > 0 &&
       !explicitIncludedSet.has(el) &&
-// @ts-ignore
+// @ts-expect-error
       isWithinElementSet(el, explicitIncludedSet)
     ) {
       continue;
@@ -3388,7 +3388,7 @@ function collectImplicitIncludedElementsOutsideExplicit(
       baseSelected.add(el);
     }
     for (let i = el.children.length - 1; i >= 0; i -= 1) {
-// @ts-ignore
+// @ts-expect-error
       stack.push(el.children[i]);
     }
   }
@@ -3403,16 +3403,16 @@ function collectImplicitIncludedElementsOutsideExplicit(
   );
 }
 
-// @ts-ignore
+// @ts-expect-error
 function collectIncludedElementsFromSelectorSet(selectorSet, options = {}) {
   const normalized = normalizeAiSelectorSet(selectorSet);
-// @ts-ignore
+// @ts-expect-error
   const suppressedXpaths = Array.isArray(options && options.suppressedXpaths)
-// @ts-ignore
+// @ts-expect-error
     ? options.suppressedXpaths.filter((xpath) => typeof xpath === "string" && xpath)
     : [];
   const suppressedElementsByXpath = new Map();
-// @ts-ignore
+// @ts-expect-error
   suppressedXpaths.forEach((xpath) => {
     const element = getElementFromXPath(xpath);
     if (element && element.nodeType === 1) {
@@ -3420,11 +3420,11 @@ function collectIncludedElementsFromSelectorSet(selectorSet, options = {}) {
     }
   });
   const suppressedElementSet = new Set(suppressedElementsByXpath.values());
-// @ts-ignore
+// @ts-expect-error
   const unresolvedSuppressedXpaths = suppressedXpaths.filter((xpath) =>
     !suppressedElementsByXpath.has(xpath)
   );
-// @ts-ignore
+// @ts-expect-error
   const isSuppressedSelectorElement = (element) => {
     if (!element || !suppressedXpaths.length) {
       return false;
@@ -3439,7 +3439,7 @@ function collectIncludedElementsFromSelectorSet(selectorSet, options = {}) {
     if (!xpath) {
       return false;
     }
-// @ts-ignore
+// @ts-expect-error
     return unresolvedSuppressedXpaths.some((suppressedXpath) =>
       suppressedXpath === xpath || isXPathDescendant(suppressedXpath, xpath)
     );
@@ -3466,7 +3466,7 @@ function collectIncludedElementsFromSelectorSet(selectorSet, options = {}) {
       includedElements.add(el);
     }
   });
-// @ts-ignore
+// @ts-expect-error
   const inclusionContextSet = buildInclusionContextSet(includedElements);
   const explicitIncluded = collectExplicitIncludedElements(
     includedElements,
@@ -3476,7 +3476,7 @@ function collectIncludedElementsFromSelectorSet(selectorSet, options = {}) {
     options
   );
   const explicitIncludedSet = new Set(explicitIncluded);
-// @ts-ignore
+// @ts-expect-error
   const explicitIncludedContextSet = buildInclusionContextSet(explicitIncludedSet);
   const toggleableDefaultExcluded = collectToggleableDefaultExcludedElements(explicitIncludedSet);
   const excludedBoundaryElements = new Set([
@@ -3491,7 +3491,7 @@ function collectIncludedElementsFromSelectorSet(selectorSet, options = {}) {
     options
   );
   const preserveExplicitIncludedDescendants = Boolean(
-// @ts-ignore
+// @ts-expect-error
     options && options.preserveExplicitIncludedDescendants
   );
   const included = (
@@ -3544,7 +3544,7 @@ function collectIncludedElementsFromSelectorSet(selectorSet, options = {}) {
   return { included, excluded };
 }
 
-// @ts-ignore
+// @ts-expect-error
 function getElementDepth(el) {
   let depth = 0;
   let current = el;
@@ -3555,7 +3555,7 @@ function getElementDepth(el) {
   return depth;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function compareDocumentOrder(left, right) {
   if (left === right) {
     return 0;
@@ -3570,7 +3570,7 @@ function compareDocumentOrder(left, right) {
   return 0;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function addElementAndAncestorsToSet(targetSet, element) {
   let current = element;
   while (current && current.nodeType === 1) {
@@ -3588,12 +3588,12 @@ function addElementAndAncestorsToSet(targetSet, element) {
  * @param {string} [options.prefer='shallowest'] - 'shallowest' to keep ancestors or 'deepest' to keep descendants
  * @returns {Element[]} Collapsed array of elements
  */
-// @ts-ignore
+// @ts-expect-error
 export function collapseElementsByNesting(elements, options = {}) {
-// @ts-ignore
+// @ts-expect-error
   const { onlyVisible = false, prefer = "shallowest" } = options;
   const list = Array.from(new Set(elements || [])).filter((el) => {
-// @ts-ignore
+// @ts-expect-error
     if (!el || el.nodeType !== 1) {
       return false;
     }
@@ -3631,7 +3631,7 @@ export function collapseElementsByNesting(elements, options = {}) {
   const kept = [];
   const keptSet = new Set();
   for (const candidate of list) {
-// @ts-ignore
+// @ts-expect-error
     let current = candidate.parentElement;
     let hasAncestor = false;
     while (current && current.nodeType === 1) {
@@ -3650,10 +3650,10 @@ export function collapseElementsByNesting(elements, options = {}) {
   return kept;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function collapseElementsByNestingPreservingExplicit(elements, explicitElements) {
   const explicitSet = new Set(explicitElements || []);
-// @ts-ignore
+// @ts-expect-error
   const list = Array.from(new Set(elements || [])).filter((el) => el && el.nodeType === 1);
   list.sort((left, right) => {
     const depthDiff = getElementDepth(left) - getElementDepth(right);
@@ -3672,7 +3672,7 @@ function collapseElementsByNestingPreservingExplicit(elements, explicitElements)
       }
       continue;
     }
-// @ts-ignore
+// @ts-expect-error
     let current = candidate.parentElement;
     let suppressed = false;
     while (current && current.nodeType === 1) {
@@ -3692,10 +3692,10 @@ function collapseElementsByNestingPreservingExplicit(elements, explicitElements)
   return kept;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function collapseElementsByNestingWithOppositeBoundary(elements, oppositeElements) {
   const oppositeSet = new Set(oppositeElements || []);
-// @ts-ignore
+// @ts-expect-error
   const list = Array.from(new Set(elements || [])).filter((el) => el && el.nodeType === 1);
   list.sort((left, right) => {
     const depthDiff = getElementDepth(left) - getElementDepth(right);
@@ -3707,7 +3707,7 @@ function collapseElementsByNestingWithOppositeBoundary(elements, oppositeElement
   const kept = [];
   const keptSet = new Set();
   for (const candidate of list) {
-// @ts-ignore
+// @ts-expect-error
     let current = candidate.parentElement;
     while (current && current.nodeType === 1) {
       if (oppositeSet.has(current)) {
@@ -3729,7 +3729,7 @@ function collapseElementsByNestingWithOppositeBoundary(elements, oppositeElement
   return kept;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function collectExcludedXPaths(items) {
   if (!Array.isArray(items)) {
     return [];
@@ -3743,7 +3743,7 @@ function collectExcludedXPaths(items) {
   return results;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function collectExplicitExcludedXPaths(items) {
   if (!Array.isArray(items)) {
     return [];
@@ -3757,12 +3757,12 @@ function collectExplicitExcludedXPaths(items) {
   return results;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function collectSilentWhitespaceExcludedXPaths(entry) {
   return normalizeXPathList(entry && entry.silentWhitespaceExcludedXpaths);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function hasVisibleNonTextualContent(el) {
   if (!el || el.nodeType !== 1) {
     return false;
@@ -3798,7 +3798,7 @@ function hasVisibleNonTextualContent(el) {
   return false;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isSilentWhitespaceExclusionCandidate(el) {
   if (!el || el.nodeType !== 1) {
     return false;
@@ -3829,7 +3829,7 @@ function isSilentWhitespaceExclusionCandidate(el) {
   return !hasVisibleNonTextualContent(el);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isSilentWhitespaceExplicitExclusion(entry, item, el = null) {
   if (!item || !item.xpath || item.excluded !== true || item.explicit !== true) {
     return false;
@@ -3842,7 +3842,7 @@ function isSilentWhitespaceExplicitExclusion(entry, item, el = null) {
   return isSilentWhitespaceExclusionCandidate(resolved);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function setEntrySilentWhitespaceExcludedXpaths(entry, xpaths) {
   if (!entry || typeof entry !== "object" || entry === Object.prototype) {
     return;
@@ -3855,7 +3855,7 @@ function setEntrySilentWhitespaceExcludedXpaths(entry, xpaths) {
   });
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isXpathCoveredByAncestor(xpath, ancestorXpaths) {
   if (!xpath || !ancestorXpaths) {
     return false;
@@ -3868,7 +3868,7 @@ function isXpathCoveredByAncestor(xpath, ancestorXpaths) {
   return false;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isStaleSilentWhitespaceExclusion(xpath, el, previousSilentWhitespaceExcludedSet) {
   return Boolean(
     previousSilentWhitespaceExcludedSet &&
@@ -3881,15 +3881,15 @@ function collectSilentWhitespaceExclusionCandidates(options = {}) {
   if (!document.body) {
     return [];
   }
-// @ts-ignore
+// @ts-expect-error
   const excludedXpaths = options.excludedXpaths || new Set();
-// @ts-ignore
+// @ts-expect-error
   const includeXpaths = options.includeXpaths || new Set();
-// @ts-ignore
+// @ts-expect-error
   const results = [];
-// @ts-ignore
+// @ts-expect-error
   const prefetchedCandidates = Array.isArray(options.prefetchedCandidates)
-// @ts-ignore
+// @ts-expect-error
     ? options.prefetchedCandidates
     : null;
   const excludedElements = new Set();
@@ -3910,7 +3910,7 @@ function collectSilentWhitespaceExclusionCandidates(options = {}) {
       if (isWithinImmutableExcluded(node)) {
         continue;
       }
-// @ts-ignore
+// @ts-expect-error
       if (isWithinElementSet(node, excludedElements)) {
         continue;
       }
@@ -3919,7 +3919,7 @@ function collectSilentWhitespaceExclusionCandidates(options = {}) {
         xpath &&
         !includeXpaths.has(xpath) &&
         !excludedXpaths.has(xpath) &&
-// @ts-ignore
+// @ts-expect-error
         !results.some((resultEl) => resultEl !== node && resultEl.contains(node))
       ) {
         results.push(node);
@@ -3948,7 +3948,7 @@ function collectSilentWhitespaceExclusionCandidates(options = {}) {
     if (!isSilentWhitespaceExclusionCandidate(node)) {
       for (let i = node.children.length - 1; i >= 0; i -= 1) {
         stack.push({
-// @ts-ignore
+// @ts-expect-error
           node: node.children[i],
           withinExcludedSubtree: isExcludedBoundary
         });
@@ -3966,7 +3966,7 @@ function collectSilentWhitespaceExclusionCandidates(options = {}) {
     }
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
       stack.push({
-// @ts-ignore
+// @ts-expect-error
         node: node.children[i],
         withinExcludedSubtree: isExcludedBoundary
       });
@@ -3976,7 +3976,7 @@ function collectSilentWhitespaceExclusionCandidates(options = {}) {
   return results;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function normalizeXPathItems(items) {
   if (!Array.isArray(items)) {
     return [];
@@ -4003,7 +4003,7 @@ function normalizeXPathItems(items) {
   return normalized;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function normalizeXPathList(list) {
   if (!Array.isArray(list)) {
     return [];
@@ -4024,7 +4024,7 @@ function normalizeXPathList(list) {
   return normalized;
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function normalizePageEntryXpaths(entry) {
   if (!entry || typeof entry !== "object") {
     return entry;
@@ -4039,7 +4039,7 @@ export function normalizePageEntryXpaths(entry) {
       item.xpath
     )
     .map((item) => item.xpath);
-// @ts-ignore
+// @ts-expect-error
   const appendUnique = (values, xpath) => {
     if (!xpath) {
       return;
@@ -4070,7 +4070,7 @@ export function normalizePageEntryXpaths(entry) {
   return entry;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function normalizePageEntryPageType(value) {
   if (typeof value !== "string") {
     return "";
@@ -4085,7 +4085,7 @@ function normalizePageEntryPageType(value) {
 }
 
 export function createSanitizedPageSnapshot(options = {}) {
-// @ts-ignore
+// @ts-expect-error
   const normalizedRenderMode = config.normalizeRenderMode(options.renderMode);
   const root = document.documentElement;
   if (!root) {
@@ -4098,39 +4098,39 @@ export function createSanitizedPageSnapshot(options = {}) {
   const clone = root.cloneNode(true);
   const stripSelectors = getSnapshotStripSelectors(options);
   if (stripSelectors.length) {
-// @ts-ignore
+// @ts-expect-error
     clone.querySelectorAll(stripSelectors.join(",")).forEach((node) => {
       node.remove();
     });
   }
 
   const rootClasses = EXTENSION_SNAPSHOT_ROOT_CLASSES.concat(
-// @ts-ignore
+// @ts-expect-error
     Array.isArray(options.extraRootClasses)
-// @ts-ignore
+// @ts-expect-error
       ? options.extraRootClasses.filter((value) => typeof value === "string" && value)
       : []
   );
-// @ts-ignore
+// @ts-expect-error
   if (clone.classList && rootClasses.length) {
-// @ts-ignore
+// @ts-expect-error
     clone.classList.remove(...rootClasses);
   }
 
   restorePageMotionLocksInSnapshotClone(clone);
 
-// @ts-ignore
+// @ts-expect-error
   const titlePrefix = typeof options.titlePrefix === "string" ? options.titlePrefix : "";
-// @ts-ignore
+// @ts-expect-error
   const elements = [clone, ...clone.querySelectorAll("*")];
   for (const element of elements) {
     if (!element || element.nodeType !== 1) {
       continue;
     }
     for (const attribute of Array.from(element.attributes || [])) {
-// @ts-ignore
+// @ts-expect-error
       const attributeName = attribute && typeof attribute.name === "string"
-// @ts-ignore
+// @ts-expect-error
         ? attribute.name
         : "";
       if (!attributeName) {
@@ -4143,9 +4143,9 @@ export function createSanitizedPageSnapshot(options = {}) {
       if (
         titlePrefix &&
         attributeName === "title" &&
-// @ts-ignore
+// @ts-expect-error
         typeof attribute.value === "string" &&
-// @ts-ignore
+// @ts-expect-error
         attribute.value.startsWith(titlePrefix)
       ) {
         element.removeAttribute(attributeName);
@@ -4154,7 +4154,7 @@ export function createSanitizedPageSnapshot(options = {}) {
   }
 
   return {
-// @ts-ignore
+// @ts-expect-error
     renderedHtml: clone.outerHTML,
     renderMode: normalizedRenderMode
   };
@@ -4176,14 +4176,14 @@ function createPageMotionPauseState() {
   };
 }
 
-// @ts-ignore
+// @ts-expect-error
 function normalizePageMotionPauseReason(reason) {
   return typeof reason === "string" && reason.trim()
     ? reason.trim()
     : PAGE_MOTION_PAUSE_DEFAULT_REASON;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function getExtensionResourceUrl(path) {
   if (
     !path ||
@@ -4254,7 +4254,7 @@ function getMaxScrollYForPageInspection() {
   return Math.max(0, Math.round(documentHeight - viewportHeight));
 }
 
-// @ts-ignore
+// @ts-expect-error
 function scrollWindowInstantlyTo(x, y) {
   if (typeof window === "undefined") {
     return false;
@@ -4320,7 +4320,7 @@ function removePageInspectionStyle() {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 function waitForPageInspectionDelay(ms, isStillCurrent = () => true) {
   const delay = Math.max(0, Math.trunc(Number(ms) || 0));
   if (delay === 0 || !isStillCurrent()) {
@@ -4330,13 +4330,13 @@ function waitForPageInspectionDelay(ms, isStillCurrent = () => true) {
     const startedAt = Date.now();
     const tick = () => {
       if (!isStillCurrent()) {
-// @ts-ignore
+// @ts-expect-error
         resolve();
         return;
       }
       const elapsed = Date.now() - startedAt;
       if (elapsed >= delay) {
-// @ts-ignore
+// @ts-expect-error
         resolve();
         return;
       }
@@ -4346,7 +4346,7 @@ function waitForPageInspectionDelay(ms, isStillCurrent = () => true) {
   });
 }
 
-// @ts-ignore
+// @ts-expect-error
 function normalizePageInspectionScrollDirection(value) {
   const direction = typeof value === "string" ? value.trim().toLowerCase() : "";
   return direction === "top" || direction === "bottom" || direction === "both"
@@ -4354,15 +4354,15 @@ function normalizePageInspectionScrollDirection(value) {
     : "both";
 }
 
-// @ts-ignore
+// @ts-expect-error
 function waitForPageInspectionScrollEnd(isStillCurrent, options = {}) {
   const timeout = Math.max(
     0,
     Math.trunc(
-// @ts-ignore
+// @ts-expect-error
       options.scrollEndTimeoutMs === undefined
         ? PAGE_INSPECTION_SCROLL_END_TIMEOUT_MS
-// @ts-ignore
+// @ts-expect-error
         : Number(options.scrollEndTimeoutMs) || 0
     )
   );
@@ -4372,16 +4372,16 @@ function waitForPageInspectionScrollEnd(isStillCurrent, options = {}) {
   const settleMs = Math.max(
     0,
     Math.trunc(
-// @ts-ignore
+// @ts-expect-error
       options.scrollSettleMs === undefined
         ? PAGE_INSPECTION_SCROLL_SETTLE_MS
-// @ts-ignore
+// @ts-expect-error
         : Number(options.scrollSettleMs) || 0
     )
   );
-// @ts-ignore
+// @ts-expect-error
   const targetY = Number.isFinite(options.targetY) ? Number(options.targetY) : null;
-// @ts-ignore
+// @ts-expect-error
   const targetKind = typeof options.targetKind === "string" ? options.targetKind : "";
   return new Promise((resolve) => {
     let resolved = false;
@@ -4403,7 +4403,7 @@ function waitForPageInspectionScrollEnd(isStillCurrent, options = {}) {
         extensionClearTimeout(timeoutHandle);
         timeoutHandle = 0;
       }
-// @ts-ignore
+// @ts-expect-error
       resolve();
     };
     const isAtGoal = () => {
@@ -4499,7 +4499,7 @@ function isPageInspectionAtBottom() {
   return currentY + viewportHeight >= scrollHeight - PAGE_INSPECTION_SCROLL_TOLERANCE_PX;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function getPageInspectionScrollTarget(target) {
   if (target === "end") {
     const viewportHeight = (
@@ -4539,7 +4539,7 @@ function suppressPageInspectionLazyLoading() {
   return restore;
 }
 
-// @ts-ignore
+// @ts-expect-error
 async function waitForPageInspectionLazyLoadingLock(restorer) {
   const applied = restorer && restorer.lazyLoadingSuppressionApplied;
   if (!applied || typeof applied.then !== "function") {
@@ -4552,7 +4552,7 @@ async function waitForPageInspectionLazyLoadingLock(restorer) {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 async function ensurePageInspectionLazyLoadingSuppressed(currentRestorer) {
   if (typeof currentRestorer === "function") {
     return currentRestorer;
@@ -4561,7 +4561,7 @@ async function ensurePageInspectionLazyLoadingSuppressed(currentRestorer) {
     return state.lazyLoadSuppressRestorer;
   }
   const restorer = suppressPageInspectionLazyLoading();
-// @ts-ignore
+// @ts-expect-error
   state.lazyLoadSuppressRestorer = restorer;
   // Wait for the page-world lock to actually apply before scrolling again;
   // otherwise lazy loading keeps firing for every scroll pass.
@@ -4570,10 +4570,10 @@ async function ensurePageInspectionLazyLoadingSuppressed(currentRestorer) {
 }
 
 function notifyPageInspectionProgress(options = {}) {
-// @ts-ignore
+// @ts-expect-error
   if (options && typeof options.onProgress === "function") {
     try {
-// @ts-ignore
+// @ts-expect-error
       options.onProgress();
     } catch {
       // Progress hooks are best-effort and must not affect reveal/freeze.
@@ -4581,7 +4581,7 @@ function notifyPageInspectionProgress(options = {}) {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 async function scrollPageInspectionTo(target, isStillCurrent, options = {}) {
   if (!isStillCurrent() || typeof window === "undefined" || typeof window.scrollTo !== "function") {
     return false;
@@ -4616,7 +4616,7 @@ export async function revealPageContentBeforeMotionPause(
   const pauseDelay = Math.max(0, Math.trunc(Number(pauseMs) || 0));
   const reservedScrollY = Math.max(0, Math.round(getWindowScrollOffset().y));
   const lazyLoadSuppressionTargetY = getPageInspectionLazyLoadSuppressionTarget();
-// @ts-ignore
+// @ts-expect-error
   const retainLazyLoadSuppression = Boolean(options.retainLazyLoadSuppression);
   let visited = false;
   let lazyLoadRestorer = null;
@@ -4675,7 +4675,7 @@ export async function revealPageContentBeforeMotionPause(
   return visited;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function blockPageInspectionInput(event) {
   if (!state.inspectionBlocker) {
     return;
@@ -4705,7 +4705,7 @@ function startPageInspectionInputBlocker() {
       target.addEventListener(eventName, blockPageInspectionInput, options);
     }
   }
-// @ts-ignore
+// @ts-expect-error
   state.inspectionBlocker = { targets, options };
 }
 
@@ -4714,20 +4714,20 @@ function stopPageInspectionInputBlocker() {
   if (!blocker) {
     return;
   }
-// @ts-ignore
+// @ts-expect-error
   for (const target of blocker.targets) {
     if (!target || typeof target.removeEventListener !== "function") {
       continue;
     }
     for (const eventName of PAGE_INSPECTION_INPUT_EVENTS) {
-// @ts-ignore
+// @ts-expect-error
       target.removeEventListener(eventName, blockPageInspectionInput, blocker.options);
     }
   }
   state.inspectionBlocker = null;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function blockPopupBusyInput(event) {
   if (!state.popupBusyBlocker) {
     return;
@@ -4757,7 +4757,7 @@ function startPopupBusyInputBlocker() {
       target.addEventListener(eventName, blockPopupBusyInput, options);
     }
   }
-// @ts-ignore
+// @ts-expect-error
   state.popupBusyBlocker = { targets, options };
 }
 
@@ -4766,13 +4766,13 @@ function stopPopupBusyInputBlocker() {
   if (!blocker) {
     return;
   }
-// @ts-ignore
+// @ts-expect-error
   for (const target of blocker.targets) {
     if (!target || typeof target.removeEventListener !== "function") {
       continue;
     }
     for (const eventName of PAGE_INSPECTION_INPUT_EVENTS) {
-// @ts-ignore
+// @ts-expect-error
       target.removeEventListener(eventName, blockPopupBusyInput, blocker.options);
     }
   }
@@ -4874,9 +4874,9 @@ function ensurePopupBusyOverlay() {
     ) {
       preferredParent.appendChild(existing);
     }
-// @ts-ignore
+// @ts-expect-error
     state.popupBusyOverlay = existing;
-// @ts-ignore
+// @ts-expect-error
     state.popupBusyNotice = existing.querySelector(".uf-popup-busy-message");
     return existing;
   }
@@ -4904,9 +4904,9 @@ function ensurePopupBusyOverlay() {
   if (preferredParent && typeof preferredParent.appendChild === "function") {
     preferredParent.appendChild(overlay);
   }
-// @ts-ignore
+// @ts-expect-error
   state.popupBusyOverlay = overlay;
-// @ts-ignore
+// @ts-expect-error
   state.popupBusyNotice = message;
   return overlay;
 }
@@ -4918,14 +4918,14 @@ function clearPopupBusyFailOpenTimer() {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function setPopupBusyOnPage(active, message = "") {
   const enabled = Boolean(active);
   clearPopupBusyFailOpenTimer();
   if (!enabled) {
     stopPopupBusyInputBlocker();
     if (state.popupBusyOverlay) {
-// @ts-ignore
+// @ts-expect-error
       state.popupBusyOverlay.hidden = true;
     }
     return { ok: true, active: false };
@@ -4939,7 +4939,7 @@ export function setPopupBusyOnPage(active, message = "") {
     ? message.trim()
     : ContentText.marking.popupBusy;
   if (state.popupBusyNotice) {
-// @ts-ignore
+// @ts-expect-error
     state.popupBusyNotice.textContent = normalizedMessage;
   }
   overlay.hidden = false;
@@ -4951,7 +4951,7 @@ export function setPopupBusyOnPage(active, message = "") {
 }
 
 export function isPopupBusyOnPageActive() {
-// @ts-ignore
+// @ts-expect-error
   return Boolean(state.popupBusyOverlay && !state.popupBusyOverlay.hidden);
 }
 
@@ -5070,7 +5070,7 @@ function ensurePageMotionPauseIndicator() {
   return indicator;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function setPageMotionPauseClass(paused) {
   const root = typeof document !== "undefined" ? document.documentElement : null;
   if (!root || !root.classList) {
@@ -5083,7 +5083,7 @@ function setPageMotionPauseClass(paused) {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 function setElementClassPresence(element, className, enabled) {
   if (!element || !element.classList) {
     return;
@@ -5117,7 +5117,7 @@ function removePageMotionPauseIndicator() {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 function sendPageMotionFreezeControl(command, details = null) {
   if (typeof command !== "string" || !command) {
     return Promise.resolve();
@@ -5130,11 +5130,11 @@ function sendPageMotionFreezeControl(command, details = null) {
       .then(() => requestPageWorldCommand(relayCommand, normalizedDetails, {
         timeoutMs: PAGE_MOTION_PAUSE_RELAY_TIMEOUT_MS
       }))
-// @ts-ignore
+// @ts-expect-error
       .catch(() => sendPageMotionFreezeControlThroughBackground(command, normalizedDetails));
   }
 
-// @ts-ignore
+// @ts-expect-error
   return sendPageMotionFreezeControlThroughBackground(command, normalizedDetails);
 }
 
@@ -5144,7 +5144,7 @@ function canUsePageWorldRelayTransport() {
     && typeof window.addEventListener === "function";
 }
 
-// @ts-ignore
+// @ts-expect-error
 function mapPageMotionFreezeCommandToRelay(command) {
   if (command === PAGE_MOTION_PAUSE_CONTROL_COMMAND_SET_PAUSED) {
     return PAGE_WORLD_COMMANDS.SET_MOTION_PAUSED;
@@ -5159,7 +5159,7 @@ function ensurePageMotionRelaySession() {
   if (isPageWorldRelayReady()) {
     return Promise.resolve();
   }
-// @ts-ignore
+// @ts-expect-error
   if (pageMotionRelayInitializationPromise) {
     return pageMotionRelayInitializationPromise;
   }
@@ -5176,7 +5176,7 @@ function ensurePageMotionRelaySession() {
   return pageMotionRelayInitializationPromise;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function sendPageMotionFreezeControlThroughBackground(command, details = null) {
   if (
     !globalThis.chrome ||
@@ -5192,7 +5192,7 @@ function sendPageMotionFreezeControlThroughBackground(command, details = null) {
     command
   };
   if (details && typeof details === "object") {
-// @ts-ignore
+// @ts-expect-error
     message.details = details;
   }
   try {
@@ -5205,7 +5205,7 @@ function sendPageMotionFreezeControlThroughBackground(command, details = null) {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 function setPageMotionFreezeTimersPaused(paused) {
   const shouldPause = Boolean(paused);
   if (pageMotionFreezeTimersPaused === shouldPause) {
@@ -5214,12 +5214,12 @@ function setPageMotionFreezeTimersPaused(paused) {
   pageMotionFreezeTimersPaused = shouldPause;
   sendPageMotionFreezeControl(
     PAGE_MOTION_PAUSE_CONTROL_COMMAND_SET_PAUSED,
-// @ts-ignore
+// @ts-expect-error
     { paused: shouldPause }
   );
 }
 
-// @ts-ignore
+// @ts-expect-error
 function setPageMotionFreezeLazyLoadingSuppressed(suppressed) {
   const shouldSuppress = Boolean(suppressed);
   if (pageMotionFreezeLazyLoadingSuppressed === shouldSuppress) {
@@ -5228,7 +5228,7 @@ function setPageMotionFreezeLazyLoadingSuppressed(suppressed) {
   pageMotionFreezeLazyLoadingSuppressed = shouldSuppress;
   return sendPageMotionFreezeControl(
     PAGE_MOTION_PAUSE_CONTROL_COMMAND_SET_LAZY_LOADING_SUPPRESSED,
-// @ts-ignore
+// @ts-expect-error
     { suppressed: shouldSuppress }
   );
 }
@@ -5238,7 +5238,7 @@ function restorePageInspectionLazyLoadingSuppression() {
   state.lazyLoadSuppressRestorer = null;
   if (typeof restorer === "function") {
     try {
-// @ts-ignore
+// @ts-expect-error
       restorer();
       return;
     } catch (error) {
@@ -5253,7 +5253,7 @@ function getDocumentAnimations() {
     return [];
   }
   try {
-// @ts-ignore
+// @ts-expect-error
     return Array.from(document.getAnimations({ subtree: true }) || []);
   } catch (error) {
     try {
@@ -5264,7 +5264,7 @@ function getDocumentAnimations() {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 function pauseDocumentAnimations(pauseState) {
   for (const animation of getDocumentAnimations()) {
     if (!animation || typeof animation.pause !== "function") {
@@ -5289,7 +5289,7 @@ function pauseDocumentAnimations(pauseState) {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 function resumeDocumentAnimations(pauseState) {
   for (const animation of pauseState.animations) {
     if (!animation || typeof animation.play !== "function") {
@@ -5303,7 +5303,7 @@ function resumeDocumentAnimations(pauseState) {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 function createSyntheticPageMotionEvent(type, bubbles) {
   const eventOptions = {
     bubbles: Boolean(bubbles),
@@ -5332,7 +5332,7 @@ function createSyntheticPageMotionEvent(type, bubbles) {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 function dispatchPageMotionEvents(target, events) {
   if (!target || typeof target.dispatchEvent !== "function") {
     return;
@@ -5350,12 +5350,12 @@ function dispatchPageMotionEvents(target, events) {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isIgnoredPageMotionElement(element) {
   if (!element || element.nodeType !== 1) {
     return true;
   }
-// @ts-ignore
+// @ts-expect-error
   if (state.overlay && (element === state.overlay || state.overlay.contains(element))) {
     return true;
   }
@@ -5375,7 +5375,7 @@ function isIgnoredPageMotionElement(element) {
   return false;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function getComputedCssStyle(element) {
   if (typeof window === "undefined" || typeof window.getComputedStyle !== "function") {
     return null;
@@ -5387,12 +5387,12 @@ function getComputedCssStyle(element) {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 function toStylePropertyName(property) {
   return String(property || "").replace(/-([a-z])/g, (match, letter) => letter.toUpperCase());
 }
 
-// @ts-ignore
+// @ts-expect-error
 function getComputedCssValue(computedStyle, property) {
   if (!computedStyle || !property) {
     return "";
@@ -5403,7 +5403,7 @@ function getComputedCssValue(computedStyle, property) {
   return computedStyle[toStylePropertyName(property)] || "";
 }
 
-// @ts-ignore
+// @ts-expect-error
 function parseCssTimeMs(value) {
   const normalized = String(value || "").trim().toLowerCase();
   if (!normalized) {
@@ -5416,14 +5416,14 @@ function parseCssTimeMs(value) {
   return normalized.endsWith("ms") ? amount : amount * 1000;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function cssTimeListHasPositiveValue(value) {
   return String(value || "")
     .split(",")
     .some((part) => parseCssTimeMs(part) > 0);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function cssNameListHasValue(value) {
   return String(value || "")
     .split(",")
@@ -5433,7 +5433,7 @@ function cssNameListHasValue(value) {
     });
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isNonDefaultMotionCssValue(property, value) {
   const normalized = String(value || "").trim().toLowerCase();
   if (!normalized || normalized === "none" || normalized === "normal" || normalized === "auto") {
@@ -5451,13 +5451,13 @@ function isNonDefaultMotionCssValue(property, value) {
   return !/^0(?:px|%|deg|rad|turn|s|ms)?$/.test(normalized);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function hasMotionWillChange(computedStyle) {
   const willChange = getComputedCssValue(computedStyle, "will-change");
   return /transform|translate|rotate|scale|top|right|bottom|left|opacity|filter|clip-path|offset/i.test(willChange);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function hasTimedMotionStyle(computedStyle) {
   if (!computedStyle) {
     return false;
@@ -5473,7 +5473,7 @@ function hasTimedMotionStyle(computedStyle) {
   );
 }
 
-// @ts-ignore
+// @ts-expect-error
 function getElementAttributePairs(element) {
   if (!element || !element.attributes) {
     return [];
@@ -5481,9 +5481,9 @@ function getElementAttributePairs(element) {
   try {
     return Array.from(element.attributes)
       .map((attribute) => ({
-// @ts-ignore
+// @ts-expect-error
         name: attribute && typeof attribute.name === "string" ? attribute.name : "",
-// @ts-ignore
+// @ts-expect-error
         value: attribute && typeof attribute.value === "string" ? attribute.value : ""
       }))
       .filter((attribute) => attribute.name);
@@ -5492,7 +5492,7 @@ function getElementAttributePairs(element) {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 function getElementMotionDescriptorText(element) {
   const descriptorParts = [];
   for (const attribute of getElementAttributePairs(element)) {
@@ -5512,12 +5512,12 @@ function getElementMotionDescriptorText(element) {
   return descriptorParts.join(" ");
 }
 
-// @ts-ignore
+// @ts-expect-error
 function elementMatchesMotionDescriptor(element) {
   return PAGE_MOTION_PAUSE_DESCRIPTOR_RE.test(getElementMotionDescriptorText(element));
 }
 
-// @ts-ignore
+// @ts-expect-error
 function elementOrAncestorMatchesRevealExcludedDescriptor(element) {
   let current = element;
   let depth = 0;
@@ -5531,21 +5531,21 @@ function elementOrAncestorMatchesRevealExcludedDescriptor(element) {
   return false;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function elementHasRevealInteractionAttribute(element) {
   return getElementAttributePairs(element).some((attribute) =>
     PAGE_MOTION_REVEAL_INTERACTION_ATTRIBUTE_NAMES.has(attribute.name.toLowerCase())
   );
 }
 
-// @ts-ignore
+// @ts-expect-error
 function elementMatchesRevealDescriptor(element) {
   const descriptorText = getElementMotionDescriptorText(element);
   return (PAGE_MOTION_REVEAL_DESCRIPTOR_RE.test(descriptorText) || elementHasRevealInteractionAttribute(element)) &&
     !elementOrAncestorMatchesRevealExcludedDescriptor(element);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function elementHasInlineMotionStyle(element) {
   const styleText = element && typeof element.getAttribute === "function"
     ? element.getAttribute("style") || ""
@@ -5553,7 +5553,7 @@ function elementHasInlineMotionStyle(element) {
   return PAGE_MOTION_PAUSE_INLINE_STYLE_RE.test(styleText);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function computedStyleIndicatesMotion(computedStyle) {
   if (!computedStyle) {
     return false;
@@ -5575,7 +5575,7 @@ function computedStyleIndicatesMotion(computedStyle) {
   );
 }
 
-// @ts-ignore
+// @ts-expect-error
 function mergePageMotionCandidate(candidates, element, options = {}) {
   if (isIgnoredPageMotionElement(element)) {
     return;
@@ -5586,16 +5586,16 @@ function mergePageMotionCandidate(candidates, element, options = {}) {
     computedStyle: null
   };
   candidates.set(element, {
-// @ts-ignore
+// @ts-expect-error
     descriptorMatched: existing.descriptorMatched || Boolean(options.descriptorMatched),
-// @ts-ignore
+// @ts-expect-error
     inlineMotion: existing.inlineMotion || Boolean(options.inlineMotion),
-// @ts-ignore
+// @ts-expect-error
     computedStyle: existing.computedStyle || options.computedStyle || null
   });
 }
 
-// @ts-ignore
+// @ts-expect-error
 function getAnimationEffectTarget(animation) {
   if (!animation || !animation.effect) {
     return null;
@@ -5619,7 +5619,7 @@ function collectPageMotionCandidates() {
   if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
     return candidates;
   }
-// @ts-ignore
+// @ts-expect-error
   let elements = [];
   try {
     elements = Array.from(document.querySelectorAll("*") || []);
@@ -5627,7 +5627,7 @@ function collectPageMotionCandidates() {
     elements = [];
   }
   const inspectComputedStyle = elements.length <= PAGE_MOTION_PAUSE_MAX_LOCKED_ELEMENTS * 3;
-// @ts-ignore
+// @ts-expect-error
   for (const element of elements) {
     if (isIgnoredPageMotionElement(element)) {
       continue;
@@ -5649,7 +5649,7 @@ function collectPageMotionCandidates() {
   return candidates;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function getDefaultLockValue(property, computedValue) {
   const normalized = String(computedValue || "").trim();
   if (normalized) {
@@ -5664,7 +5664,7 @@ function getDefaultLockValue(property, computedValue) {
   return "none";
 }
 
-// @ts-ignore
+// @ts-expect-error
 function shouldLockBaseMotionProperty(property, computedStyle, descriptorMatched) {
   const value = getComputedCssValue(computedStyle, property);
   if (isNonDefaultMotionCssValue(property, value)) {
@@ -5679,7 +5679,7 @@ function shouldLockBaseMotionProperty(property, computedStyle, descriptorMatched
   );
 }
 
-// @ts-ignore
+// @ts-expect-error
 function getPageMotionLockProperties(computedStyle, descriptorMatched) {
   if (!computedStyle) {
     return [];
@@ -5703,7 +5703,7 @@ function getPageMotionLockProperties(computedStyle, descriptorMatched) {
   return properties;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function createPageMotionLockRecord(pauseState, element) {
   const id = `ufm-${pauseState.lockIdCounter}`;
   pauseState.lockIdCounter += 1;
@@ -5721,7 +5721,7 @@ function createPageMotionLockRecord(pauseState, element) {
   return record;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function applyPageMotionLockProperty(record, element, property, lockValue) {
   let lock = record.properties.get(property);
   if (!lock) {
@@ -5756,13 +5756,13 @@ function applyPageMotionLockProperty(record, element, property, lockValue) {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 function parseCssNumber(value) {
   const parsed = Number.parseFloat(String(value || "").trim());
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function elementHasMotionLayoutBox(element) {
   if (!element || element.nodeType !== 1) {
     return false;
@@ -5771,7 +5771,7 @@ function elementHasMotionLayoutBox(element) {
     if (typeof element.getClientRects === "function") {
       const rects = Array.from(element.getClientRects() || []);
       if (rects.length > 0) {
-// @ts-ignore
+// @ts-expect-error
         return rects.some((rect) => Number(rect.width) > 1 && Number(rect.height) > 1);
       }
     }
@@ -5785,7 +5785,7 @@ function elementHasMotionLayoutBox(element) {
   return true;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isSemanticallyHiddenForReveal(element, computedStyle) {
   if (!element || element.nodeType !== 1) {
     return true;
@@ -5800,7 +5800,7 @@ function isSemanticallyHiddenForReveal(element, computedStyle) {
   return display === "none";
 }
 
-// @ts-ignore
+// @ts-expect-error
 function getPageMotionRevealNormalizationProperties(computedStyle) {
   if (!computedStyle) {
     return [];
@@ -5838,7 +5838,7 @@ function getPageMotionRevealNormalizationProperties(computedStyle) {
   return properties;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function shouldNormalizePageMotionRevealCandidate(element, candidate, computedStyle) {
   if (!elementMatchesRevealDescriptor(element)) {
     return false;
@@ -5852,7 +5852,7 @@ function shouldNormalizePageMotionRevealCandidate(element, candidate, computedSt
   return getPageMotionRevealNormalizationProperties(computedStyle).length > 0;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function normalizePageMotionRevealElement(pauseState, element, computedStyle) {
   const properties = getPageMotionRevealNormalizationProperties(computedStyle);
   if (!properties.length) {
@@ -5865,7 +5865,7 @@ function normalizePageMotionRevealElement(pauseState, element, computedStyle) {
   return true;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function lockPageMotionElement(pauseState, element, candidate) {
   if (!element || !element.style) {
     return;
@@ -5893,7 +5893,7 @@ function lockPageMotionElement(pauseState, element, candidate) {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 function restorePageMotionLockRecordOnElement(element, record) {
   if (!element || !element.style || !record) {
     return;
@@ -5917,7 +5917,7 @@ function restorePageMotionLockRecordOnElement(element, record) {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 function restorePageMotionLocks(pauseState) {
   for (const record of pauseState.lockedElements.values()) {
     restorePageMotionLockRecordOnElement(record.element, record);
@@ -5926,10 +5926,10 @@ function restorePageMotionLocks(pauseState) {
   pauseState.lockedElementsById.clear();
 }
 
-// @ts-ignore
+// @ts-expect-error
 function restorePageMotionLocksInSnapshotClone(clone) {
   const pauseState = state.pageMotionPause;
-// @ts-ignore
+// @ts-expect-error
   if (!pauseState || !pauseState.lockedElementsById || !clone) {
     return;
   }
@@ -5948,7 +5948,7 @@ function restorePageMotionLocksInSnapshotClone(clone) {
     const id = typeof cloneElement.getAttribute === "function"
       ? cloneElement.getAttribute(PAGE_MOTION_PAUSE_LOCK_ATTR)
       : "";
-// @ts-ignore
+// @ts-expect-error
     const record = id ? pauseState.lockedElementsById.get(id) : null;
     if (record) {
       restorePageMotionLockRecordOnElement(cloneElement, record);
@@ -5956,14 +5956,14 @@ function restorePageMotionLocksInSnapshotClone(clone) {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 function lockPageMotionCandidates(pauseState, candidates) {
   for (const [element, candidate] of candidates) {
     lockPageMotionElement(pauseState, element, candidate);
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 function collectPageMotionHoverTargets(candidates) {
   const targets = new Set();
   for (const element of candidates.keys()) {
@@ -5984,7 +5984,7 @@ function collectPageMotionHoverTargets(candidates) {
   return targets;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function pauseInteractiveMotionTargets(pauseState, candidates) {
   for (const target of collectPageMotionHoverTargets(candidates)) {
     pauseState.hoverTargets.add(target);
@@ -5996,7 +5996,7 @@ function pauseInteractiveMotionTargets(pauseState, candidates) {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 function resumeInteractiveMotionTargets(pauseState) {
   for (const target of pauseState.hoverTargets) {
     dispatchPageMotionEvents(target, [
@@ -6008,7 +6008,7 @@ function resumeInteractiveMotionTargets(pauseState) {
   pauseState.hoverTargets.clear();
 }
 
-// @ts-ignore
+// @ts-expect-error
 function queryPageMotionElements(selector) {
   if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
     return [];
@@ -6020,7 +6020,7 @@ function queryPageMotionElements(selector) {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 function pauseSvgAnimations(pauseState) {
   for (const svgElement of queryPageMotionElements("svg")) {
     if (!svgElement || isIgnoredPageMotionElement(svgElement) || typeof svgElement.pauseAnimations !== "function") {
@@ -6045,7 +6045,7 @@ function pauseSvgAnimations(pauseState) {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 function resumeSvgAnimations(pauseState) {
   for (const [svgElement, svgState] of pauseState.svgElements) {
     if (!svgElement || svgState.wasPaused || typeof svgElement.unpauseAnimations !== "function") {
@@ -6060,7 +6060,7 @@ function resumeSvgAnimations(pauseState) {
   pauseState.svgElements.clear();
 }
 
-// @ts-ignore
+// @ts-expect-error
 function shouldPauseMediaElement(element) {
   const tagName = element && element.tagName ? String(element.tagName).toUpperCase() : "";
   if (!element || (tagName !== "VIDEO" && tagName !== "AUDIO")) {
@@ -6075,7 +6075,7 @@ function shouldPauseMediaElement(element) {
   return Boolean(element.autoplay || element.loop || element.muted);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function pauseMediaElements(pauseState) {
   for (const mediaElement of queryPageMotionElements("video, audio")) {
     if (isIgnoredPageMotionElement(mediaElement) || !shouldPauseMediaElement(mediaElement) || typeof mediaElement.pause !== "function") {
@@ -6092,7 +6092,7 @@ function pauseMediaElements(pauseState) {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 function resumeMediaElements(pauseState) {
   for (const [mediaElement, mediaState] of pauseState.mediaElements) {
     if (!mediaElement || mediaState.wasPaused || typeof mediaElement.play !== "function") {
@@ -6111,7 +6111,7 @@ function resumeMediaElements(pauseState) {
 }
 
 function schedulePageMotionPauseRefresh(pauseState = state.pageMotionPause) {
-// @ts-ignore
+// @ts-expect-error
   if (!pauseState || pauseState.refreshScheduled) {
     return;
   }
@@ -6119,11 +6119,11 @@ function schedulePageMotionPauseRefresh(pauseState = state.pageMotionPause) {
     if (state.pageMotionPause !== pauseState) {
       return;
     }
-// @ts-ignore
+// @ts-expect-error
     pauseState.refreshScheduled = false;
     refreshPageMotionPause();
   };
-// @ts-ignore
+// @ts-expect-error
   pauseState.refreshScheduled = true;
   try {
     extensionRequestAnimationFrame(run);
@@ -6133,7 +6133,7 @@ function schedulePageMotionPauseRefresh(pauseState = state.pageMotionPause) {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 function startPageMotionPauseRefreshTimer(pauseState) {
   if (pauseState.refreshTimer) {
     return;
@@ -6145,7 +6145,7 @@ function startPageMotionPauseRefreshTimer(pauseState) {
   }, PAGE_MOTION_PAUSE_REFRESH_MS);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function stopPageMotionPauseRefreshTimer(pauseState) {
   if (!pauseState.refreshTimer) {
     pauseState.refreshTimer = 0;
@@ -6155,7 +6155,7 @@ function stopPageMotionPauseRefreshTimer(pauseState) {
   pauseState.refreshTimer = 0;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function startPageMotionPauseObserver(pauseState) {
   if (pauseState.observer || typeof document === "undefined") {
     return;
@@ -6203,7 +6203,7 @@ function startPageMotionPauseObserver(pauseState) {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 function stopPageMotionPauseObserver(pauseState) {
   if (!pauseState.observer) {
     return;
@@ -6219,14 +6219,14 @@ function stopPageMotionPauseObserver(pauseState) {
 export function pausePageMotion(reason = PAGE_MOTION_PAUSE_DEFAULT_REASON) {
   const pauseState = state.pageMotionPause || createPageMotionPauseState();
   pauseState.reasons.add(normalizePageMotionPauseReason(reason));
-// @ts-ignore
+// @ts-expect-error
   state.pageMotionPause = pauseState;
   refreshPageMotionPause();
 }
 
 export function refreshPageMotionPause() {
   const pauseState = state.pageMotionPause;
-// @ts-ignore
+// @ts-expect-error
   if (!pauseState || !pauseState.reasons || pauseState.reasons.size === 0) {
     return;
   }
@@ -6255,11 +6255,11 @@ export function resumePageMotion(reason = PAGE_MOTION_PAUSE_DEFAULT_REASON) {
     setPageMotionPauseClass(false);
     return;
   }
-// @ts-ignore
+// @ts-expect-error
   if (pauseState.reasons) {
-// @ts-ignore
+// @ts-expect-error
     pauseState.reasons.delete(normalizePageMotionPauseReason(reason));
-// @ts-ignore
+// @ts-expect-error
     if (pauseState.reasons.size > 0) {
       refreshPageMotionPause();
       return;
@@ -6280,12 +6280,12 @@ export function resumePageMotion(reason = PAGE_MOTION_PAUSE_DEFAULT_REASON) {
   resumeDocumentAnimations(pauseState);
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function touchPageEntryTimestamp(entry, timestamp = null) {
   if (!entry || typeof entry !== "object") {
     return "";
   }
-// @ts-ignore
+// @ts-expect-error
   if (typeof timestamp === "string" && timestamp.trim()) {
     entry.timestamp = config.normalizeEntryTimestamp(timestamp);
     return entry.timestamp;
@@ -6304,7 +6304,7 @@ export function touchPageEntryTimestamp(entry, timestamp = null) {
   return entry.timestamp;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function getExcludedXPathSet(config, pageUrl) {
   const entry =
     config &&
@@ -6319,7 +6319,7 @@ function getExcludedXPathSet(config, pageUrl) {
   return new Set(collectExcludedXPaths(items));
 }
 
-// @ts-ignore
+// @ts-expect-error
 function getIncludeXPathSet(config, pageUrl) {
   const entry =
     config &&
@@ -6331,13 +6331,13 @@ function getIncludeXPathSet(config, pageUrl) {
         ? state.currentPageEntry
         : null;
   const includeXpaths = entry && Array.isArray(entry.includeXpaths)
-// @ts-ignore
+// @ts-expect-error
     ? entry.includeXpaths.filter((xpath) => typeof xpath === "string" && xpath)
     : [];
   return new Set(includeXpaths);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function getSilentWhitespaceExcludedXPathSet(config, pageUrl) {
   const entry =
     config &&
@@ -6351,7 +6351,7 @@ function getSilentWhitespaceExcludedXPathSet(config, pageUrl) {
   return new Set(collectSilentWhitespaceExcludedXPaths(entry));
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isExplicitlyExcludedElement(el, excludedSet) {
   if (!el || !excludedSet || excludedSet.size === 0) {
     return false;
@@ -6360,7 +6360,7 @@ function isExplicitlyExcludedElement(el, excludedSet) {
   return Boolean(xpath && excludedSet.has(xpath));
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function getMutationRenderMode(mutations) {
   let mode = "none";
   for (const mutation of mutations) {
@@ -6421,7 +6421,7 @@ export function getMutationRenderMode(mutations) {
   return mode;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isExplicitlyIncludedElement(el, includeSet) {
   if (!el || !includeSet || includeSet.size === 0) {
     return false;
@@ -6716,7 +6716,7 @@ function createOverlay() {
     layer.className = "uf-layer";
     layer.dataset.layer = key;
     overlay.appendChild(layer);
-// @ts-ignore
+// @ts-expect-error
     state.layers[key] = layer;
   });
 
@@ -6727,7 +6727,7 @@ function createOverlay() {
   const toast = document.createElement("div");
   toast.className = "uf-toast";
   overlay.appendChild(toast);
-// @ts-ignore
+// @ts-expect-error
   state.toast = toast;
 
   const disabledNotice = document.createElement("div");
@@ -6737,7 +6737,7 @@ function createOverlay() {
   disabledNotice.setAttribute("role", "status");
   disabledNotice.setAttribute("aria-live", "polite");
   overlay.appendChild(disabledNotice);
-// @ts-ignore
+// @ts-expect-error
   state.markingDisabledNotice = disabledNotice;
 
   const inspectionNotice = document.createElement("div");
@@ -6755,14 +6755,14 @@ function createOverlay() {
   inspectionNotice.appendChild(inspectionSpinner);
   inspectionNotice.appendChild(inspectionMessage);
   overlay.appendChild(inspectionNotice);
-// @ts-ignore
+// @ts-expect-error
   state.pageInspectionNotice = inspectionNotice;
 
   overlay.addEventListener("mousemove", handleMouseMove, true);
   overlay.addEventListener("click", handleClick, true);
   overlay.addEventListener("contextmenu", handleContextMenu, true);
   (document.body || document.documentElement).appendChild(overlay);
-// @ts-ignore
+// @ts-expect-error
   state.overlay = overlay;
   if (state.popupBusyOverlay && typeof overlay.appendChild === "function") {
     overlay.appendChild(state.popupBusyOverlay);
@@ -6779,7 +6779,7 @@ function createOverlay() {
   updateOverlayGutter();
 }
 
-// @ts-ignore
+// @ts-expect-error
 function setPageInspectionUiActive(active) {
   const enabled = Boolean(active);
   if (typeof document !== "undefined" && document.documentElement) {
@@ -6787,11 +6787,11 @@ function setPageInspectionUiActive(active) {
   }
   if (state.overlay) {
     setElementClassPresence(state.overlay, PAGE_INSPECTION_OVERLAY_CLASS, enabled);
-// @ts-ignore
+// @ts-expect-error
     state.overlay.setAttribute("aria-busy", enabled ? "true" : "false");
   }
   if (state.pageInspectionNotice) {
-// @ts-ignore
+// @ts-expect-error
     state.pageInspectionNotice.hidden = !enabled;
   }
   updateCursorMode();
@@ -6799,17 +6799,17 @@ function setPageInspectionUiActive(active) {
 
 export function isPageInspectionUiActive() {
   return Boolean(
-// @ts-ignore
+// @ts-expect-error
     (state.pageInspectionNotice && !state.pageInspectionNotice.hidden) ||
       state.inspectionBlocker
   );
 }
 
-// @ts-ignore
+// @ts-expect-error
 async function inspectPageBeforeMotionPause(isStillCurrent, options = {}) {
-// @ts-ignore
+// @ts-expect-error
   const keepUiActive = Boolean(options.keepUiActive);
-// @ts-ignore
+// @ts-expect-error
   const retainLazyLoadSuppression = Boolean(options.retainLazyLoadSuppression);
   startPageInspectionInputBlocker();
   try {
@@ -6830,9 +6830,9 @@ async function inspectPageBeforeMotionPause(isStillCurrent, options = {}) {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 async function warmupPageRevealBeforeMotionPause(baseUrl, pageUrl, options = {}) {
-// @ts-ignore
+// @ts-expect-error
   const keepUiActive = Boolean(options.keepUiActive);
   const revealWarmupId = state.pageRevealWarmupId + 1;
   state.pageRevealWarmupId = revealWarmupId;
@@ -6855,30 +6855,30 @@ async function warmupPageRevealBeforeMotionPause(baseUrl, pageUrl, options = {})
   return true;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function hasPageMotionPauseReason(reason) {
   const pauseState = state.pageMotionPause;
-// @ts-ignore
+// @ts-expect-error
   if (!pauseState || !pauseState.reasons || pauseState.reasons.size === 0) {
     return false;
   }
-// @ts-ignore
+// @ts-expect-error
   return pauseState.reasons.has(normalizePageMotionPauseReason(reason));
 }
 
 export async function warmupSilentHighlightingBeforeMotionPause(
-// @ts-ignore
+// @ts-expect-error
   baseUrl,
-// @ts-ignore
+// @ts-expect-error
   pageUrl,
   reason = PAGE_MOTION_PAUSE_DEFAULT_REASON,
   options = {}
 ) {
-// @ts-ignore
+// @ts-expect-error
   const keepUiActive = Boolean(options.keepUiActive);
-// @ts-ignore
+// @ts-expect-error
   const onRevealProgress = typeof options.onRevealProgress === "function"
-// @ts-ignore
+// @ts-expect-error
     ? options.onRevealProgress
     : null;
   const revealWarmupId = state.pageRevealWarmupId + 1;
@@ -6991,7 +6991,7 @@ export function finishPageInspectionUiAfterRender() {
         return;
       }
       finishPageInspectionUi();
-// @ts-ignore
+// @ts-expect-error
       resolve();
     };
     pollUntilRendered();
@@ -7002,13 +7002,13 @@ export function finishPageInspectionUiAfterRender() {
 function removeOverlay() {
   setPageInspectionUiActive(false);
   if (state.overlay) {
-// @ts-ignore
+// @ts-expect-error
     state.overlay.removeEventListener("mousemove", handleMouseMove, true);
-// @ts-ignore
+// @ts-expect-error
     state.overlay.removeEventListener("click", handleClick, true);
-// @ts-ignore
+// @ts-expect-error
     state.overlay.removeEventListener("contextmenu", handleContextMenu, true);
-// @ts-ignore
+// @ts-expect-error
     state.overlay.remove();
     state.overlay = null;
     state.layers = {};
@@ -7050,26 +7050,26 @@ function updateOverlayGutter() {
   const verticalGutter = window.innerWidth - document.documentElement.clientWidth;
   const horizontalGutter =
       window.innerHeight - document.documentElement.clientHeight;
-// @ts-ignore
+// @ts-expect-error
   state.overlay.style.right = verticalGutter > 0 ? `${verticalGutter}px` : "0px";
-// @ts-ignore
+// @ts-expect-error
   state.overlay.style.bottom =
       horizontalGutter > 0 ? `${horizontalGutter}px` : "0px";
 }
 
-// @ts-ignore
+// @ts-expect-error
 function showToast(message) {
   if (!state.toast) {
     return;
   }
-// @ts-ignore
+// @ts-expect-error
   state.toast.textContent = message;
-// @ts-ignore
+// @ts-expect-error
   state.toast.classList.add("uf-toast-show");
   extensionClearTimeout(state.toastHideTimer);
   state.toastHideTimer = extensionSetTimeout(() => {
     if (state.toast) {
-// @ts-ignore
+// @ts-expect-error
       state.toast.classList.remove("uf-toast-show");
     }
   }, 1800);
@@ -7082,13 +7082,13 @@ function getMarkingTemporarilyDisabledReason() {
     if (reconciliation && reconciliation.reason === SILENT_HIGHLIGHTING_PREPARATION_REASON) {
       return "";
     }
-// @ts-ignore
+// @ts-expect-error
     return reconciliation.reason || "pending";
   }
   return "";
 }
 
-// @ts-ignore
+// @ts-expect-error
 function getMarkingTemporarilyDisabledMessage(reason) {
   if (reason === "saving") {
     return ContentText.marking.temporarilyDisabledSaving;
@@ -7113,18 +7113,18 @@ function updateMarkingTemporarilyDisabledUi() {
   if (disabled && state.altPassThrough) {
     setAltPassThrough(false);
   }
-// @ts-ignore
+// @ts-expect-error
   state.overlay.classList.toggle(MARKING_DISABLED_OVERLAY_CLASS, disabled);
   if (disabled) {
-// @ts-ignore
+// @ts-expect-error
     state.overlay.setAttribute("aria-disabled", "true");
-// @ts-ignore
+// @ts-expect-error
     clearLayer(state.layers["hover"]);
   } else {
-// @ts-ignore
+// @ts-expect-error
     state.overlay.removeAttribute("aria-disabled");
   }
-// @ts-ignore
+// @ts-expect-error
   const notice = state.markingDisabledNotice || state.overlay.querySelector(".uf-marking-disabled-notice");
   if (notice) {
     notice.hidden = !disabled;
@@ -7149,7 +7149,7 @@ function getMarkMode() {
   return "exclude";
 }
 
-// @ts-ignore
+// @ts-expect-error
 function getMarkModeFromEvent(event) {
   if (!event) {
     return getMarkMode();
@@ -7160,7 +7160,7 @@ function getMarkModeFromEvent(event) {
   return "exclude";
 }
 
-// @ts-ignore
+// @ts-expect-error
 function shouldAllowParentMarking(mode, shiftHeld) {
   return mode !== "include" && Boolean(shiftHeld);
 }
@@ -7200,7 +7200,7 @@ function updateAltPassThroughFromModifiers() {
   updateCursorMode();
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isPageInteractionKeyEvent(event) {
   if (!event || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {
     return false;
@@ -7210,7 +7210,7 @@ function isPageInteractionKeyEvent(event) {
     event.key === PAGE_INTERACTION_LEGACY_KEY;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isEditableKeyEventTarget(target) {
   if (!target || target.nodeType !== 1) {
     return false;
@@ -7241,7 +7241,7 @@ function isEditableKeyEventTarget(target) {
   ].includes(inputType);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function syncModifierState(event) {
   if (!event) {
     return;
@@ -7293,7 +7293,7 @@ function handleVisibilityChange() {
 }
 
 function updateFocusHighlight() {
-// @ts-ignore
+// @ts-expect-error
   const layerFocus = state.layers["focus"];
   if (!layerFocus) {
     syncAiPreviewFocusElement(state.focusElement);
@@ -7320,9 +7320,9 @@ function updateFocusHighlight() {
   finalizeLayerRender(layerState);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function showImmediateToggleAcknowledgement(target, mode) {
-// @ts-ignore
+// @ts-expect-error
   const interactionLayer = state.layers["interaction"];
   if (!interactionLayer || !target || target.nodeType !== 1) {
     return;
@@ -7346,7 +7346,7 @@ function showImmediateToggleAcknowledgement(target, mode) {
   }
   state.toggleAckTimer = extensionSetTimeout(() => {
     state.toggleAckTimer = 0;
-// @ts-ignore
+// @ts-expect-error
     clearLayer(state.layers["interaction"]);
   }, TOGGLE_ACK_CLEAR_MS);
 }
@@ -7558,7 +7558,7 @@ function ensureAiPopoverStyle() {
   document.documentElement.appendChild(style);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function createAiPopoverPanelIcon(direction) {
   const svgNs = "http://www.w3.org/2000/svg";
   const svg = document.createElementNS(svgNs, "svg");
@@ -7621,17 +7621,17 @@ function ensureAiPreviewFocusStyle() {
 }
 
 function clearAiPreviewFocusElement() {
-// @ts-ignore
+// @ts-expect-error
   if (aiPreviewFocusElement && aiPreviewFocusElement.classList) {
     aiPreviewFocusElement.classList.remove(AI_PREVIEW_FOCUS_CLASS);
   }
   aiPreviewFocusElement = null;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function syncAiPreviewFocusElement(target) {
   ensureAiPreviewFocusStyle();
-// @ts-ignore
+// @ts-expect-error
   if (aiPreviewFocusElement && aiPreviewFocusElement !== target && aiPreviewFocusElement.classList) {
     aiPreviewFocusElement.classList.remove(AI_PREVIEW_FOCUS_CLASS);
   }
@@ -7642,9 +7642,9 @@ function syncAiPreviewFocusElement(target) {
 }
 
 function closeAiPopover(options = {}) {
-// @ts-ignore
+// @ts-expect-error
   const notify = options.notify !== false;
-// @ts-ignore
+// @ts-expect-error
   const suppressCallback = options.suppressCallback === true;
   if (!state.aiPopover) {
     return;
@@ -7654,13 +7654,13 @@ function closeAiPopover(options = {}) {
   state.aiPopoverOnClose = null;
   state.aiPopoverOnCollapsedChange = null;
   clearFocusHighlight();
-// @ts-ignore
+// @ts-expect-error
   popover.remove();
   state.aiPopover = null;
   state.aiPopoverCollapsed = false;
   const afterClose = !suppressCallback && typeof onClose === "function"
     ? Promise.resolve()
-// @ts-ignore
+// @ts-expect-error
         .then(() => onClose())
         .catch(() => {
           // Ignore preview restore callback failures during teardown.
@@ -7678,7 +7678,7 @@ function closeAiPopover(options = {}) {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 function setAiPopoverCollapsed(collapsed) {
   if (!state.aiPopover) {
     return;
@@ -7687,11 +7687,11 @@ function setAiPopoverCollapsed(collapsed) {
     clearFocusHighlight();
   }
   state.aiPopoverCollapsed = Boolean(collapsed);
-// @ts-ignore
+// @ts-expect-error
   state.aiPopover.classList.toggle("uf-ai-popover--collapsed", state.aiPopoverCollapsed);
   if (typeof state.aiPopoverOnCollapsedChange === "function") {
     try {
-// @ts-ignore
+// @ts-expect-error
       state.aiPopoverOnCollapsedChange(state.aiPopoverCollapsed);
     } catch {
       // Ignore preview collapse state sync failures.
@@ -7707,14 +7707,14 @@ export function requestAiPopoverClose(options = {}) {
   closeAiPopover(options);
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function focusPreviewElement(target, options = {}) {
   if (!target || target.nodeType !== 1) {
     return false;
   }
   state.focusElement = target;
   syncAiPreviewFocusElement(target);
-// @ts-ignore
+// @ts-expect-error
   if (options.center !== false && typeof target.scrollIntoView === "function") {
     target.scrollIntoView({ block: "center", inline: "center" });
   }
@@ -7722,28 +7722,28 @@ export function focusPreviewElement(target, options = {}) {
   return true;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function recordPageSnapshot(configValue, pageUrl) {
   if (!configValue || !pageUrl) {
     return;
   }
   const snapshotStartedAt = nowMs();
   const immutableExcluded = collectImmutableElements();
-// @ts-ignore
+// @ts-expect-error
   syncPageMarkings(configValue, pageUrl, immutableExcluded);
-// @ts-ignore
+// @ts-expect-error
   const entry = getPageMarkingEntry(configValue, pageUrl);
   const snapshot = createSanitizedPageSnapshot({
     renderMode: config.getConfigRenderMode(configValue)
   });
-// @ts-ignore
+// @ts-expect-error
   logTogglePerf("snapshot.serialize", snapshotStartedAt, { pageUrl });
   entry.renderedHtml = snapshot.renderedHtml;
   entry.title = normalizePageEntryTitle(document.title, pageUrl);
   setPageMarkingEntry(configValue.pageMarkings, pageUrl, entry);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function getMarkId(el) {
   if (!el || el.nodeType !== 1) {
     return "";
@@ -7762,25 +7762,25 @@ function clearMarkedElements() {
     return;
   }
   for (const el of state.markedElements) {
-// @ts-ignore
+// @ts-expect-error
     if (el && el.nodeType === 1) {
-// @ts-ignore
+// @ts-expect-error
       el.removeAttribute("data-uf-mark-id");
     }
   }
   state.markedElements = new Set();
 }
 
-// @ts-ignore
+// @ts-expect-error
 function updateMarkedElements(currentMarked) {
   if (!currentMarked) {
     return;
   }
   const previous = state.markedElements || new Set();
   for (const el of previous) {
-// @ts-ignore
+// @ts-expect-error
     if (!currentMarked.has(el) && el && el.nodeType === 1) {
-// @ts-ignore
+// @ts-expect-error
       el.removeAttribute("data-uf-mark-id");
     }
   }
@@ -7795,14 +7795,14 @@ function updateMarkedElements(currentMarked) {
   state.markedElements = currentMarked;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function getTargetElement(x, y) {
   const elements = document.elementsFromPoint(x, y);
   for (const el of elements) {
     if (!el || el.nodeType !== 1) {
       continue;
     }
-// @ts-ignore
+// @ts-expect-error
     if (state.overlay && (el === state.overlay || state.overlay.contains(el))) {
       continue;
     }
@@ -7815,7 +7815,7 @@ function getTargetElement(x, y) {
 }
 
 
-// @ts-ignore
+// @ts-expect-error
 function hasMultipleMarkableDescendants(el, options = {}) {
   if (!el || el.nodeType !== 1) {
     return false;
@@ -7824,7 +7824,7 @@ function hasMultipleMarkableDescendants(el, options = {}) {
   let markableDescendantCount = 0;
   while (stack.length) {
     const node = stack.pop();
-// @ts-ignore
+// @ts-expect-error
     if (!node || node.nodeType !== 1) {
       continue;
     }
@@ -7846,16 +7846,16 @@ function hasMultipleMarkableDescendants(el, options = {}) {
         return true;
       }
     }
-// @ts-ignore
+// @ts-expect-error
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
-// @ts-ignore
+// @ts-expect-error
       stack.push(node.children[i]);
     }
   }
   return false;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function getDepthBelowBody(el) {
   if (!el || el.nodeType !== 1 || typeof document === "undefined" || !document.body) {
     return Number.POSITIVE_INFINITY;
@@ -7869,30 +7869,30 @@ function getDepthBelowBody(el) {
   return node === document.body ? depth : Number.POSITIVE_INFINITY;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isParentMarkingContentBoundary(el) {
   const tagName = el && el.tagName ? String(el.tagName).toUpperCase() : "";
   return PARENT_MARKING_CONTENT_BOUNDARY_TAGS.has(tagName) || matchesToggleableDefaultExcluded(el);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function getElementRole(el) {
   return el && typeof el.getAttribute === "function"
     ? String(el.getAttribute("role") || "").trim().toLowerCase()
     : "";
 }
 
-// @ts-ignore
+// @ts-expect-error
 function containsPageShellLandmark(el) {
   const landmarkKinds = new Set();
   const stack = Array.from(el && el.children ? el.children : []);
   while (stack.length && landmarkKinds.size < 2) {
     const node = stack.pop();
-// @ts-ignore
+// @ts-expect-error
     if (!node || node.nodeType !== 1) {
       continue;
     }
-// @ts-ignore
+// @ts-expect-error
     const tagName = node.tagName ? String(node.tagName).toUpperCase() : "";
     if (PARENT_MARKING_PAGE_SHELL_LANDMARK_TAGS.has(tagName)) {
       landmarkKinds.add(tagName);
@@ -7901,16 +7901,16 @@ function containsPageShellLandmark(el) {
     if (PARENT_MARKING_PAGE_SHELL_ROLES.has(role)) {
       landmarkKinds.add(role);
     }
-// @ts-ignore
+// @ts-expect-error
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
-// @ts-ignore
+// @ts-expect-error
       stack.push(node.children[i]);
     }
   }
   return landmarkKinds.size >= 2;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function hasBroadParentMarkingFootprint(el) {
   if (!el || typeof el.getBoundingClientRect !== "function") {
     return false;
@@ -7935,9 +7935,9 @@ function hasBroadParentMarkingFootprint(el) {
   return widthRatio >= 0.85 && heightRatio >= 0.65;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isUnsafeShallowParentMarkingTarget(el, options = {}) {
-// @ts-ignore
+// @ts-expect-error
   if (!options || !options.allowParent || !el || el.nodeType !== 1) {
     return false;
   }
@@ -7955,11 +7955,11 @@ function isUnsafeShallowParentMarkingTarget(el, options = {}) {
 }
 
 function createExcludedAncestorChecker(options = {}) {
-// @ts-ignore
+// @ts-expect-error
   const configValue = options.config || state.config;
-// @ts-ignore
+// @ts-expect-error
   const pageUrl = options.pageUrl || location.href;
-// @ts-ignore
+// @ts-expect-error
   const entry = options.entry || (
     configValue &&
     configValue.pageMarkings &&
@@ -7987,7 +7987,7 @@ function createExcludedAncestorChecker(options = {}) {
       }
     }
   }
-// @ts-ignore
+// @ts-expect-error
   return (element) => {
     if (!element || element.nodeType !== 1) {
       return false;
@@ -8019,7 +8019,7 @@ function createExcludedAncestorChecker(options = {}) {
   };
 }
 
-// @ts-ignore
+// @ts-expect-error
 function resolveMarkableElement(el, config, options) {
   if (!el || el.nodeType !== 1) {
     return null;
@@ -8111,7 +8111,7 @@ function resolveMarkableElement(el, config, options) {
   return el;
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function getMarkableTarget(x, y, options) {
   const allowParent = options && options.allowParent;
   const allowExplicitTarget = options && options.allowExplicitTarget;
@@ -8137,7 +8137,7 @@ export function getMarkableTarget(x, y, options) {
       if (!el || el.nodeType !== 1) {
         continue;
       }
-// @ts-ignore
+// @ts-expect-error
       if (state.overlay && (el === state.overlay || state.overlay.contains(el))) {
         continue;
       }
@@ -8183,7 +8183,7 @@ export function getMarkableTarget(x, y, options) {
     if (!el || el.nodeType !== 1) {
       continue;
     }
-// @ts-ignore
+// @ts-expect-error
     if (state.overlay && (el === state.overlay || state.overlay.contains(el))) {
       continue;
     }
@@ -8227,28 +8227,28 @@ export function getMarkableTarget(x, y, options) {
 }
 
 function updateHoverHighlight(
-// @ts-ignore
+// @ts-expect-error
   x,
-// @ts-ignore
+// @ts-expect-error
   y,
-// @ts-ignore
+// @ts-expect-error
   allowParent,
-// @ts-ignore
+// @ts-expect-error
   allowExcludedParentChildren,
-// @ts-ignore
+// @ts-expect-error
   allowImmutableChildren
 ) {
   if (!state.enabled || state.altPassThrough) {
     return;
   }
-// @ts-ignore
+// @ts-expect-error
   const layerHover = state.layers["hover"];
   if (!layerHover) {
     return;
   }
   const savedVisibilityCache = state.visibilityCache;
   if (!savedVisibilityCache) {
-// @ts-ignore
+// @ts-expect-error
     state.visibilityCache = new Map();
   }
   const layerState = beginLayerRender(layerHover);
@@ -8292,7 +8292,7 @@ function refreshHoverHighlight() {
     return;
   }
   updateMarkingTemporarilyDisabledUi();
-// @ts-ignore
+// @ts-expect-error
   const layerHover = state.layers["hover"];
   if (!layerHover) {
     return;
@@ -8310,9 +8310,9 @@ function refreshHoverHighlight() {
   const allowImmutableChildren = false;
   const allowParent = shouldAllowParentMarking(mode, state.shiftHeld);
   updateHoverHighlight(
-// @ts-ignore
+// @ts-expect-error
       state.lastPointer.x,
-// @ts-ignore
+// @ts-expect-error
       state.lastPointer.y,
       allowParent,
       allowExcludedParentChildren,
@@ -8320,20 +8320,20 @@ function refreshHoverHighlight() {
   );
 }
 
-// @ts-ignore
+// @ts-expect-error
 function handleMouseMove(event) {
   if (!state.enabled) {
     return;
   }
   if (isPageSaveReconciliationPending(location.href)) {
     updateMarkingTemporarilyDisabledUi();
-// @ts-ignore
+// @ts-expect-error
     clearLayer(state.layers["hover"]);
     return;
   }
   event.stopPropagation();
   syncModifierState(event);
-// @ts-ignore
+// @ts-expect-error
   state.lastPointer = {
     x: event.clientX,
     y: event.clientY,
@@ -8350,12 +8350,12 @@ function handleMouseMove(event) {
     const mode = getMarkModeFromEvent(event);
     const allowExcludedParentChildren = mode === "include";
     const allowImmutableChildren = false;
-// @ts-ignore
+// @ts-expect-error
     const allowParent = shouldAllowParentMarking(mode, state.lastPointer.shiftKey);
     updateHoverHighlight(
-// @ts-ignore
+// @ts-expect-error
       state.lastPointer.x,
-// @ts-ignore
+// @ts-expect-error
       state.lastPointer.y,
       allowParent,
       allowExcludedParentChildren,
@@ -8364,7 +8364,7 @@ function handleMouseMove(event) {
   });
 }
 
-// @ts-ignore
+// @ts-expect-error
 function toggleExplicitExclude(target, options = {}) {
   if (!state.baseUrl || !state.config) {
     return;
@@ -8386,12 +8386,12 @@ function toggleExplicitExclude(target, options = {}) {
 
   const mutationStartedAt = nowMs();
   const config = state.config;
-// @ts-ignore
+// @ts-expect-error
   const entry = getPageMarkingEntry(config, location.href);
   const items = Array.isArray(entry.xpaths) ? entry.xpaths : [];
   const includeXpaths = Array.isArray(entry.includeXpaths) ? entry.includeXpaths : [];
   const xpathElementCache = new Map();
-// @ts-ignore
+// @ts-expect-error
   const getCachedElementFromXPath = (value) => {
     if (typeof value !== "string" || !value) {
       return null;
@@ -8416,13 +8416,13 @@ function toggleExplicitExclude(target, options = {}) {
     entry.xpaths = items;
     touchPageEntryTimestamp(entry);
     normalizePageEntryXpaths(entry);
-// @ts-ignore
+// @ts-expect-error
     setPageMarkingEntry(config.pageMarkings, location.href, entry);
     state.config = config;
     completeExplicitToggle(entry, target, "exclude", mutationStartedAt, options);
     return;
   }
-// @ts-ignore
+// @ts-expect-error
   const cleanupHierarchy = (currentXPath) => {
     for (let i = items.length - 1; i >= 0; i -= 1) {
       const item = items[i];
@@ -8438,9 +8438,9 @@ function toggleExplicitExclude(target, options = {}) {
       }
     }
   };
-// @ts-ignore
+// @ts-expect-error
   const cleanupDescendantIncludeOverrides = (currentXPath, currentTarget = null) => {
-// @ts-ignore
+// @ts-expect-error
     const boundaryTarget = currentTarget && currentTarget.nodeType === 1
       ? currentTarget
       : getCachedElementFromXPath(currentXPath);
@@ -8471,7 +8471,7 @@ function toggleExplicitExclude(target, options = {}) {
       }
     }
   };
-// @ts-ignore
+// @ts-expect-error
   const cleanupAncestorHierarchy = (currentXPath) => {
     for (let i = items.length - 1; i >= 0; i -= 1) {
       const item = items[i];
@@ -8493,7 +8493,7 @@ function toggleExplicitExclude(target, options = {}) {
       }
     }
   };
-// @ts-ignore
+// @ts-expect-error
   const cleanupIncludeHierarchy = (currentXPath) => {
     for (let i = includeXpaths.length - 1; i >= 0; i -= 1) {
       const includeXPath = includeXpaths[i];
@@ -8532,7 +8532,7 @@ function toggleExplicitExclude(target, options = {}) {
   };
 
   let addedExclude;
-// @ts-ignore
+// @ts-expect-error
   let targetItem = items.find((item) => item && item.xpath === xpath);
   if (!targetItem) {
     targetItem = { xpath, excluded: true, explicit: true };
@@ -8552,7 +8552,7 @@ function toggleExplicitExclude(target, options = {}) {
     cleanupAncestorHierarchy(xpath);
     cleanupIncludeHierarchy(xpath);
     if (Array.isArray(entry.includeXpaths)) {
-// @ts-ignore
+// @ts-expect-error
       entry.includeXpaths = entry.includeXpaths.filter((value) => value !== xpath);
     }
   } else if (targetItem && !targetItem.excluded) {
@@ -8562,13 +8562,13 @@ function toggleExplicitExclude(target, options = {}) {
   entry.xpaths = items;
   touchPageEntryTimestamp(entry);
   normalizePageEntryXpaths(entry);
-// @ts-ignore
+// @ts-expect-error
   setPageMarkingEntry(config.pageMarkings, location.href, entry);
   state.config = config;
   completeExplicitToggle(entry, target, "exclude", mutationStartedAt, options);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function toggleExplicitInclude(target, options = {}) {
   if (!state.baseUrl || !state.config) {
     return;
@@ -8590,12 +8590,12 @@ function toggleExplicitInclude(target, options = {}) {
 
   const mutationStartedAt = nowMs();
   const config = state.config;
-// @ts-ignore
+// @ts-expect-error
   const entry = getPageMarkingEntry(config, location.href);
   const includeXpaths = Array.isArray(entry.includeXpaths) ? entry.includeXpaths : [];
   const items = Array.isArray(entry.xpaths) ? entry.xpaths : [];
   const xpathElementCache = new Map();
-// @ts-ignore
+// @ts-expect-error
   const getCachedElementFromXPath = (value) => {
     if (typeof value !== "string" || !value) {
       return null;
@@ -8607,7 +8607,7 @@ function toggleExplicitInclude(target, options = {}) {
     xpathElementCache.set(value, resolved);
     return resolved;
   };
-// @ts-ignore
+// @ts-expect-error
   const targetItemIndex = items.findIndex((item) => item && item.xpath === xpath);
   const targetItem = targetItemIndex >= 0 ? items[targetItemIndex] : null;
   let convertedFromExcluded = false;
@@ -8625,7 +8625,7 @@ function toggleExplicitInclude(target, options = {}) {
       entry.xpaths = items;
       touchPageEntryTimestamp(entry);
       normalizePageEntryXpaths(entry);
-// @ts-ignore
+// @ts-expect-error
       setPageMarkingEntry(config.pageMarkings, location.href, entry);
       state.config = config;
       completeExplicitToggle(entry, target, "include", mutationStartedAt, options);
@@ -8677,13 +8677,13 @@ function toggleExplicitInclude(target, options = {}) {
   entry.xpaths = items;
   touchPageEntryTimestamp(entry);
   normalizePageEntryXpaths(entry);
-// @ts-ignore
+// @ts-expect-error
   setPageMarkingEntry(config.pageMarkings, location.href, entry);
   state.config = config;
   completeExplicitToggle(entry, target, "include", mutationStartedAt, options);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function handleToggleEvent(event) {
   if (!state.enabled || state.altPassThrough) {
     return;
@@ -8696,13 +8696,13 @@ function handleToggleEvent(event) {
   if (isPageSaveReconciliationPending(location.href)) {
     updateMarkingTemporarilyDisabledUi();
     showToast(ContentText.marking.saveReconciliationBlocked);
-// @ts-ignore
+// @ts-expect-error
     clearLayer(state.layers["hover"]);
     return;
   }
   if (state.focusElement) {
     const rawTarget = getTargetElement(event.clientX, event.clientY);
-// @ts-ignore
+// @ts-expect-error
     if (!rawTarget || !state.focusElement.contains(rawTarget)) {
       clearFocusHighlight();
     }
@@ -8729,7 +8729,7 @@ function handleToggleEvent(event) {
     allowImmutableChildren,
     requireExcludedAncestor: false
   });
-// @ts-ignore
+// @ts-expect-error
   logTogglePerf("toggle.target-resolution", targetResolutionStartedAt, {
     mode,
     hasTarget: Boolean(target)
@@ -8746,7 +8746,7 @@ function handleToggleEvent(event) {
       lastActionKey: state.lastToggleActionKey,
       lastActionAt: state.lastToggleActionAt
     })) {
-// @ts-ignore
+// @ts-expect-error
       logTogglePerf("toggle.duplicate-click-suppressed", toggleStartedAt, { mode });
       return;
     }
@@ -8758,24 +8758,24 @@ function handleToggleEvent(event) {
       interactionNow
     });
   }
-// @ts-ignore
+// @ts-expect-error
   logTogglePerf("toggle.total", toggleStartedAt, {
     mode,
     hadTarget: Boolean(target)
   });
 }
 
-// @ts-ignore
+// @ts-expect-error
 function handleClick(event) {
   handleToggleEvent(event);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function handleContextMenu(event) {
   handleToggleEvent(event);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function handleKeydown(event) {
   if (!state.enabled) {
     return;
@@ -8802,7 +8802,7 @@ function handleKeydown(event) {
   syncModifierState(event);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function handleKeyup(event) {
   if (!state.enabled) {
     return;
@@ -8824,7 +8824,7 @@ function handleKeyup(event) {
   syncModifierState(event);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function handleAltClick(event) {
   if (!state.enabled || !state.altPassThrough) {
     return;
@@ -8859,7 +8859,7 @@ function handleAltClick(event) {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 function clearLayer(layer) {
   if (!layer) {
     return;
@@ -8875,7 +8875,7 @@ function clearLayer(layer) {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 function getLayerBoxMap(layer) {
   if (!state.layerBoxes) {
     state.layerBoxes = new WeakMap();
@@ -8888,12 +8888,12 @@ function getLayerBoxMap(layer) {
   return map;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function beginLayerRender(layer) {
   return { layer, map: getLayerBoxMap(layer), used: new Set() };
 }
 
-// @ts-ignore
+// @ts-expect-error
 function finalizeLayerRender(layerState) {
   const { map, used } = layerState;
   for (const [key, box] of map) {
@@ -8904,7 +8904,7 @@ function finalizeLayerRender(layerState) {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 function drawRectReuse(layerState, rect, className, el, kind, markedSet, index) {
   const { layer, map, used } = layerState;
   const markId = el ? getMarkId(el) : "";
@@ -8936,7 +8936,7 @@ function drawRectReuse(layerState, rect, className, el, kind, markedSet, index) 
   used.add(key);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function drawMultiRectReuse(layerState, rects, className, el, kind, markedSet) {
   if (rects.length === 0) {
     return;
@@ -8950,7 +8950,7 @@ function drawMultiRectReuse(layerState, rects, className, el, kind, markedSet) {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 function collectRectsFromClientRects(clientRects) {
   const visibleRects = [];
   for (let i = 0; i < clientRects.length; i++) {
@@ -8978,7 +8978,7 @@ function collectRectsFromClientRects(clientRects) {
   return visibleRects;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function getCollapsedTextualFallbackRects(el) {
   if (!getCachedNormalizedElementText(el)) {
     return [];
@@ -8989,28 +8989,28 @@ function getCollapsedTextualFallbackRects(el) {
   while (stack.length && inspected < MAX_INSPECTED) {
     const node = stack.shift();
     inspected += 1;
-// @ts-ignore
+// @ts-expect-error
     if (!node || node.nodeType !== 1) {
       continue;
     }
     if (!isVisible(node)) {
       continue;
     }
-// @ts-ignore
+// @ts-expect-error
     const rects = collectRectsFromClientRects(node.getClientRects());
     if (rects.length > 0) {
       return rects;
     }
-// @ts-ignore
+// @ts-expect-error
     for (let i = 0; i < node.children.length; i += 1) {
-// @ts-ignore
+// @ts-expect-error
       stack.push(node.children[i]);
     }
   }
   return [];
 }
 
-// @ts-ignore
+// @ts-expect-error
 function getVisibleRects(el) {
   const allowCollapsedTextFallback = Boolean(getCachedNormalizedElementText(el));
   if (!isVisible(el)) {
@@ -9028,7 +9028,7 @@ function getVisibleRects(el) {
   return [];
 }
 
-// @ts-ignore
+// @ts-expect-error
 function hasRenderableMarkingTargetGeometry(el, options = {}) {
   if (!el || el.nodeType !== 1) {
     return false;
@@ -9036,20 +9036,20 @@ function hasRenderableMarkingTargetGeometry(el, options = {}) {
   if (getVisibleRects(el).length > 0) {
     return true;
   }
-// @ts-ignore
+// @ts-expect-error
   return Boolean(options.allowGhost && getGhostRects(el).length > 0);
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function collectExplicitMarkingElements(entry) {
   const items = Array.isArray(entry && entry.xpaths) ? entry.xpaths : [];
   const explicitInclude = collectXPathElements(entry && entry.includeXpaths);
   const consentExcluded = collectConsentExcludedElements();
   const explicitIncludeSet = new Set(explicitInclude);
-// @ts-ignore
+// @ts-expect-error
   const isWithinExplicitInclude = (el) => {
     for (const includeEl of explicitIncludeSet) {
-// @ts-ignore
+// @ts-expect-error
       if (includeEl && includeEl !== el && includeEl.contains(el)) {
         return true;
       }
@@ -9066,7 +9066,7 @@ export function collectExplicitMarkingElements(entry) {
     if (!el) {
       continue;
     }
-// @ts-ignore
+// @ts-expect-error
     if (isSilentWhitespaceExplicitExclusion(entry, item, el)) {
       continue;
     }
@@ -9077,7 +9077,7 @@ export function collectExplicitMarkingElements(entry) {
     }
     if (
       consentExcluded.has(el) ||
-// @ts-ignore
+// @ts-expect-error
       isWithinElementSet(el, consentExcluded) ||
       isWithinExplicitInclude(el) ||
       isWithinImmutableExcluded(el)
@@ -9100,9 +9100,9 @@ export function collectExplicitMarkingElements(entry) {
     if (
       isWithinImmutableExcluded(el) ||
       consentExcluded.has(el) ||
-// @ts-ignore
+// @ts-expect-error
       isWithinElementSet(el, consentExcluded) ||
-// @ts-ignore
+// @ts-expect-error
       localExplicitExcludeSet.has(el)
     ) {
       continue;
@@ -9121,14 +9121,14 @@ export function collectExplicitMarkingElements(entry) {
   };
 }
 
-// @ts-ignore
+// @ts-expect-error
 function collectEntryExplicitXpathSets(entry) {
   const excludedXpaths = new Set(
     collectExcludedXPaths(Array.isArray(entry && entry.xpaths) ? entry.xpaths : [])
   );
   const includeXpaths = new Set(
     Array.isArray(entry && entry.includeXpaths)
-// @ts-ignore
+// @ts-expect-error
       ? entry.includeXpaths.filter((xpath) => typeof xpath === "string" && xpath)
       : []
   );
@@ -9138,10 +9138,10 @@ function collectEntryExplicitXpathSets(entry) {
   };
 }
 
-// @ts-ignore
+// @ts-expect-error
 function splitExplicitMarkingCollectionsBySavedState(currentCollections, savedEntry) {
   const savedSets = collectEntryExplicitXpathSets(savedEntry);
-// @ts-ignore
+// @ts-expect-error
   const splitByXpath = (items, savedXpathSet) => {
     const fetched = [];
     const session = [];
@@ -9179,20 +9179,20 @@ function splitExplicitMarkingCollectionsBySavedState(currentCollections, savedEn
   };
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function collectAiContentElementsForRender(aiCollections, options = {}) {
-// @ts-ignore
+// @ts-expect-error
   const immutableExcluded = options.immutableExcluded || new Set();
-// @ts-ignore
+// @ts-expect-error
   const consentExcluded = options.consentExcluded || new Set();
-// @ts-ignore
+// @ts-expect-error
   const excludedByState = options.excludedByState || new Set();
-// @ts-ignore
+// @ts-expect-error
   const explicitInclude = options.explicitInclude || new Set();
   const aiContent = new Set();
   const hiddenAiContent = new Set();
   const selectorExcludedSet = new Set();
-// @ts-ignore
+// @ts-expect-error
   const isWithinExplicitInclude = (el) => {
     if (!el || explicitInclude.size === 0) {
       return false;
@@ -9205,7 +9205,7 @@ export function collectAiContentElementsForRender(aiCollections, options = {}) {
     return false;
   };
   const shouldSkipAiCollectionElement = (
-// @ts-ignore
+// @ts-expect-error
     el,
     { skipExplicitExcludedUnlessIncluded = false } = {}
   ) => {
@@ -9224,7 +9224,7 @@ export function collectAiContentElementsForRender(aiCollections, options = {}) {
     }
     return false;
   };
-// @ts-ignore
+// @ts-expect-error
   const addAiContentElement = (el) => {
     if (shouldSkipAiCollectionElement(el, { skipExplicitExcludedUnlessIncluded: true })) {
       return;
@@ -9259,7 +9259,7 @@ export function collectAiContentElementsForRender(aiCollections, options = {}) {
   };
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function collectStoredUnexcludedToggleableDefaultElements(entry) {
   const items = Array.isArray(entry && entry.xpaths) ? entry.xpaths : [];
   const elements = [];
@@ -9285,29 +9285,29 @@ export function collectStoredUnexcludedToggleableDefaultElements(entry) {
 }
 
 function drawExplicitMarkingLayers(
-// @ts-ignore
+// @ts-expect-error
   fetchedExplicitExcludeElements,
-// @ts-ignore
+// @ts-expect-error
   fetchedExplicitIncludeElements,
-// @ts-ignore
+// @ts-expect-error
   hiddenFetchedExplicitIncludeElements,
-// @ts-ignore
+// @ts-expect-error
   sessionExplicitExcludeElements,
-// @ts-ignore
+// @ts-expect-error
   sessionExplicitIncludeElements,
-// @ts-ignore
+// @ts-expect-error
   hiddenSessionExplicitIncludeElements,
-// @ts-ignore
+// @ts-expect-error
   computeElementRects
 ) {
   const drawStartedAt = nowMs();
-// @ts-ignore
+// @ts-expect-error
   const layerSavedExplicitExcludeState = beginLayerRender(state.layers["saved-explicit-exclude"]);
-// @ts-ignore
+// @ts-expect-error
   const layerSavedExplicitIncludeState = beginLayerRender(state.layers["saved-explicit-include"]);
-// @ts-ignore
+// @ts-expect-error
   const layerSessionExplicitExcludeState = beginLayerRender(state.layers["session-explicit-exclude"]);
-// @ts-ignore
+// @ts-expect-error
   const layerSessionExplicitIncludeState = beginLayerRender(state.layers["session-explicit-include"]);
 
   for (const el of fetchedExplicitExcludeElements) {
@@ -9404,7 +9404,7 @@ function drawExplicitMarkingLayers(
   finalizeLayerRender(layerSavedExplicitIncludeState);
   finalizeLayerRender(layerSessionExplicitExcludeState);
   finalizeLayerRender(layerSessionExplicitIncludeState);
-// @ts-ignore
+// @ts-expect-error
   logTogglePerf("draw.explicit-layers", drawStartedAt, {
     savedExcludeCount: fetchedExplicitExcludeElements.length,
     savedIncludeCount: fetchedExplicitIncludeElements.length + (hiddenFetchedExplicitIncludeElements || []).length,
@@ -9420,11 +9420,11 @@ function shouldUseImmediateFullRenderForExplicitToggle(options = {}) {
 }
 
 function applyExplicitStateToCachedCollections(
-// @ts-ignore
+// @ts-expect-error
   cachedCollections,
-// @ts-ignore
+// @ts-expect-error
   explicitExcludeElements,
-// @ts-ignore
+// @ts-expect-error
   explicitIncludeElements
 ) {
   if (!cachedCollections) {
@@ -9435,15 +9435,15 @@ function applyExplicitStateToCachedCollections(
     return;
   }
   const explicitIncludeSet = new Set(explicitIncludeElements || []);
-// @ts-ignore
+// @ts-expect-error
   const isProtectedByExplicitInclude = (el) =>
-// @ts-ignore
+// @ts-expect-error
     explicitIncludeSet.size > 0 && isWithinElementSet(el, explicitIncludeSet);
-// @ts-ignore
+// @ts-expect-error
   const isSuppressedByExplicitExclude = (el) =>
-// @ts-ignore
+// @ts-expect-error
     isWithinElementSet(el, explicitExcludeSet) && !isProtectedByExplicitInclude(el);
-// @ts-ignore
+// @ts-expect-error
   const filterSuppressed = (items) =>
     Array.isArray(items) ? items.filter((el) => !isSuppressedByExplicitExclude(el)) : [];
 
@@ -9453,7 +9453,7 @@ function applyExplicitStateToCachedCollections(
   cachedCollections.selectorExcludedElements = filterSuppressed(cachedCollections.selectorExcludedElements);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function refreshExplicitMarkingOverlay(entry, context = null) {
   if (!state.enabled || !state.overlay) {
     return;
@@ -9490,30 +9490,30 @@ function refreshExplicitMarkingOverlay(entry, context = null) {
     if (cachedCollections) {
       const selectorContext = resolveMarkingSelectorContext(state.config, syncedEntry);
       const consentExcluded = collectConsentExcludedElements();
-// @ts-ignore
+// @ts-expect-error
       const aiContentSet = new Set(cachedCollections.aiContentElements || []);
-// @ts-ignore
+// @ts-expect-error
       const hiddenAiContentSet = new Set(cachedCollections.hiddenAiContentElements || []);
       const hiddenStoredExplicitExclude = new Set(hiddenExplicitExcludeElements || []);
-// @ts-ignore
+// @ts-expect-error
       cachedCollections.explicitExcludeElements = explicitExcludeElements;
-// @ts-ignore
+// @ts-expect-error
       cachedCollections.explicitIncludeElements = explicitIncludeElements;
-// @ts-ignore
+// @ts-expect-error
       cachedCollections.hiddenExplicitIncludeElements = hiddenExplicitIncludeElements;
-// @ts-ignore
+// @ts-expect-error
       cachedCollections.fetchedExplicitExcludeElements = explicitLayerSplit.fetchedExplicitExcludeElements;
-// @ts-ignore
+// @ts-expect-error
       cachedCollections.fetchedExplicitIncludeElements = explicitLayerSplit.fetchedExplicitIncludeElements;
-// @ts-ignore
+// @ts-expect-error
       cachedCollections.hiddenFetchedExplicitIncludeElements = explicitLayerSplit.hiddenFetchedExplicitIncludeElements;
-// @ts-ignore
+// @ts-expect-error
       cachedCollections.sessionExplicitExcludeElements = explicitLayerSplit.sessionExplicitExcludeElements;
-// @ts-ignore
+// @ts-expect-error
       cachedCollections.sessionExplicitIncludeElements = explicitLayerSplit.sessionExplicitIncludeElements;
-// @ts-ignore
+// @ts-expect-error
       cachedCollections.hiddenSessionExplicitIncludeElements = explicitLayerSplit.hiddenSessionExplicitIncludeElements;
-// @ts-ignore
+// @ts-expect-error
       if (context && context.immediateFullRender === false) {
         applyExplicitStateToCachedCollections(
           cachedCollections,
@@ -9521,23 +9521,23 @@ function refreshExplicitMarkingOverlay(entry, context = null) {
           explicitLayerSplit.sessionExplicitIncludeElements
         );
       }
-// @ts-ignore
+// @ts-expect-error
       cachedCollections.hardElements = Array.from(new Set([
         ...immutableExcluded,
         ...hiddenStoredExplicitExclude
       ])).filter((el) =>
-// @ts-ignore
+// @ts-expect-error
         !isWithinElementSet(el, consentExcluded)
       );
-// @ts-ignore
+// @ts-expect-error
       cachedCollections.aiAnimatedExplicitIncludeElements =
         explicitLayerSplit.sessionExplicitIncludeElements.filter((el) => aiContentSet.has(el));
-// @ts-ignore
+// @ts-expect-error
       cachedCollections.hiddenAiAnimatedExplicitIncludeElements =
         explicitLayerSplit.hiddenSessionExplicitIncludeElements.filter((el) => hiddenAiContentSet.has(el));
       state.cachedCollectionsKey = buildMarkingCollectionsCacheKey({
         pageUrl,
-// @ts-ignore
+// @ts-expect-error
         selectorSet: selectorContext.selectorSet,
         entry: syncedEntry
       });
@@ -9555,7 +9555,7 @@ function refreshExplicitMarkingOverlay(entry, context = null) {
   });
 }
 
-// @ts-ignore
+// @ts-expect-error
 async function refreshExplicitMarkingOverlayAsync(entry, context = null) {
   if (!state.enabled || !state.overlay) {
     return { ok: false, aborted: false };
@@ -9569,9 +9569,9 @@ async function refreshExplicitMarkingOverlayAsync(entry, context = null) {
       const syncResult = await syncPageMarkingsAsync(state.config, pageUrl, immutableExcluded, {
         allowCreate: true,
         persist: true,
-// @ts-ignore
+// @ts-expect-error
         shouldAbort: context && typeof context.shouldAbort === "function"
-// @ts-ignore
+// @ts-expect-error
           ? context.shouldAbort
           : null
       });
@@ -9581,7 +9581,7 @@ async function refreshExplicitMarkingOverlayAsync(entry, context = null) {
       syncedEntry = syncResult.entry || syncedEntry;
       state.currentPageEntry = syncedEntry || null;
     }
-// @ts-ignore
+// @ts-expect-error
     if (context && typeof context.shouldAbort === "function" && context.shouldAbort()) {
       return { ok: false, aborted: true };
     }
@@ -9604,30 +9604,30 @@ async function refreshExplicitMarkingOverlayAsync(entry, context = null) {
     if (cachedCollections) {
       const selectorContext = resolveMarkingSelectorContext(state.config, syncedEntry);
       const consentExcluded = collectConsentExcludedElements();
-// @ts-ignore
+// @ts-expect-error
       const aiContentSet = new Set(cachedCollections.aiContentElements || []);
-// @ts-ignore
+// @ts-expect-error
       const hiddenAiContentSet = new Set(cachedCollections.hiddenAiContentElements || []);
       const hiddenStoredExplicitExclude = new Set(hiddenExplicitExcludeElements || []);
-// @ts-ignore
+// @ts-expect-error
       cachedCollections.explicitExcludeElements = explicitExcludeElements;
-// @ts-ignore
+// @ts-expect-error
       cachedCollections.explicitIncludeElements = explicitIncludeElements;
-// @ts-ignore
+// @ts-expect-error
       cachedCollections.hiddenExplicitIncludeElements = hiddenExplicitIncludeElements;
-// @ts-ignore
+// @ts-expect-error
       cachedCollections.fetchedExplicitExcludeElements = explicitLayerSplit.fetchedExplicitExcludeElements;
-// @ts-ignore
+// @ts-expect-error
       cachedCollections.fetchedExplicitIncludeElements = explicitLayerSplit.fetchedExplicitIncludeElements;
-// @ts-ignore
+// @ts-expect-error
       cachedCollections.hiddenFetchedExplicitIncludeElements = explicitLayerSplit.hiddenFetchedExplicitIncludeElements;
-// @ts-ignore
+// @ts-expect-error
       cachedCollections.sessionExplicitExcludeElements = explicitLayerSplit.sessionExplicitExcludeElements;
-// @ts-ignore
+// @ts-expect-error
       cachedCollections.sessionExplicitIncludeElements = explicitLayerSplit.sessionExplicitIncludeElements;
-// @ts-ignore
+// @ts-expect-error
       cachedCollections.hiddenSessionExplicitIncludeElements = explicitLayerSplit.hiddenSessionExplicitIncludeElements;
-// @ts-ignore
+// @ts-expect-error
       if (context && context.immediateFullRender === false) {
         applyExplicitStateToCachedCollections(
           cachedCollections,
@@ -9635,23 +9635,23 @@ async function refreshExplicitMarkingOverlayAsync(entry, context = null) {
           explicitLayerSplit.sessionExplicitIncludeElements
         );
       }
-// @ts-ignore
+// @ts-expect-error
       cachedCollections.hardElements = Array.from(new Set([
         ...immutableExcluded,
         ...hiddenStoredExplicitExclude
       ])).filter((el) =>
-// @ts-ignore
+// @ts-expect-error
         !isWithinElementSet(el, consentExcluded)
       );
-// @ts-ignore
+// @ts-expect-error
       cachedCollections.aiAnimatedExplicitIncludeElements =
         explicitLayerSplit.sessionExplicitIncludeElements.filter((el) => aiContentSet.has(el));
-// @ts-ignore
+// @ts-expect-error
       cachedCollections.hiddenAiAnimatedExplicitIncludeElements =
         explicitLayerSplit.hiddenSessionExplicitIncludeElements.filter((el) => hiddenAiContentSet.has(el));
       state.cachedCollectionsKey = buildMarkingCollectionsCacheKey({
         pageUrl,
-// @ts-ignore
+// @ts-expect-error
         selectorSet: selectorContext.selectorSet,
         entry: syncedEntry
       });
@@ -9665,14 +9665,14 @@ async function refreshExplicitMarkingOverlayAsync(entry, context = null) {
       explicitLayerSplit.hiddenSessionExplicitIncludeElements,
       getVisibleRects
     );
-// @ts-ignore
+// @ts-expect-error
     logTogglePerf("toggle.explicit-overlay-refresh", refreshStartedAt, { async: true });
     return { ok: true, aborted: false };
   });
 }
 
 function scheduleExplicitToggleFullRender(options = {}) {
-// @ts-ignore
+// @ts-expect-error
   const immediate = options.immediate !== false;
   if (immediate && state.explicitFullRenderTimer) {
     extensionClearTimeout(state.explicitFullRenderTimer);
@@ -9692,7 +9692,7 @@ function scheduleExplicitToggleFullRender(options = {}) {
   }, EXPLICIT_TOGGLE_DEFERRED_FULL_RENDER_DELAY_MS);
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function scheduleExplicitOverlayRefresh(entry, context = null) {
   state.explicitOverlayRefreshEntry = entry;
   state.explicitOverlayRefreshContext = context;
@@ -9714,7 +9714,7 @@ export function scheduleExplicitOverlayRefresh(entry, context = null) {
     const coalesceStartedAt = nowMs();
     refreshExplicitMarkingOverlay(pendingEntry, pendingContext);
     scheduleExplicitToggleFullRender({
-// @ts-ignore
+// @ts-expect-error
       immediate: !pendingContext || pendingContext.immediateFullRender !== false
     });
     logTogglePerf("toggle.coalesced-refresh", coalesceStartedAt);
@@ -9750,12 +9750,12 @@ function cancelExplicitOverlayRefresh() {
   state.explicitOverlayRefreshContext = null;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function scheduleAsyncExplicitToggleReconcile(entry, context = null) {
   const generation = state.toggleReconcileGeneration + 1;
   state.toggleReconcileGeneration = generation;
   const runReconcile = async () => {
-// @ts-ignore
+// @ts-expect-error
     const result = await refreshExplicitMarkingOverlayAsync(entry, {
       ...(context || {}),
       shouldAbort: () => generation !== state.toggleReconcileGeneration
@@ -9764,27 +9764,27 @@ function scheduleAsyncExplicitToggleReconcile(entry, context = null) {
       return;
     }
     scheduleExplicitToggleFullRender({
-// @ts-ignore
+// @ts-expect-error
       immediate: !context || context.immediateFullRender !== false
     });
   };
   runReconcile().catch(() => {});
 }
 
-// @ts-ignore
+// @ts-expect-error
 function completeExplicitToggle(entry, target, type, mutationStartedAt, options = {}) {
-// @ts-ignore
+// @ts-expect-error
   logTogglePerf("toggle.mutation", mutationStartedAt, {
     type,
     hasTarget: Boolean(target)
   });
   const immediateFullRender = Object.prototype.hasOwnProperty.call(options, "immediateFullRender")
-// @ts-ignore
+// @ts-expect-error
     ? Boolean(options.immediateFullRender)
     : shouldUseImmediateFullRenderForExplicitToggle({ target, type });
-// @ts-ignore
+// @ts-expect-error
   if (options && options.deferMarkingRefresh && !immediateFullRender) {
-// @ts-ignore
+// @ts-expect-error
     scheduleAsyncExplicitToggleReconcile(entry, {
       target,
       type,
@@ -9795,7 +9795,7 @@ function completeExplicitToggle(entry, target, type, mutationStartedAt, options 
     // appears immediately. The async reconcile path delayed the visible mark by
     // up to ~2s on large pages (the explicit layer only drew after the chunked
     // document re-scan), which made clicks feel unregistered (issue #6).
-// @ts-ignore
+// @ts-expect-error
     scheduleExplicitOverlayRefresh(entry, {
       target,
       type,
@@ -9822,38 +9822,38 @@ function scheduleQueuedToggleMutationDrain() {
       return;
     }
     const applyStartedAt = nowMs();
-// @ts-ignore
+// @ts-expect-error
     state.toggleInFlightKey = nextJob.key || "";
     try {
-// @ts-ignore
+// @ts-expect-error
       if (!nextJob.target || nextJob.target.nodeType !== 1 || nextJob.target.isConnected === false) {
         return;
       }
-// @ts-ignore
+// @ts-expect-error
       if (nextJob.mode === "include") {
-// @ts-ignore
+// @ts-expect-error
         toggleExplicitInclude(nextJob.target, { deferMarkingRefresh: true, immediateFullRender: true });
       } else {
-// @ts-ignore
+// @ts-expect-error
         toggleExplicitExclude(nextJob.target, { deferMarkingRefresh: true, immediateFullRender: true });
       }
       if (state.toggleInFlightKey) {
         state.lastToggleActionKey = state.toggleInFlightKey;
-// @ts-ignore
+// @ts-expect-error
         state.lastToggleActionAt = Number(nextJob.interactionNow) || nowMs();
       }
     } finally {
       state.toggleInFlightKey = "";
-// @ts-ignore
+// @ts-expect-error
       logTogglePerf("toggle.apply", applyStartedAt, {
-// @ts-ignore
+// @ts-expect-error
         mode: nextJob.mode,
         queued: true,
         remainingQueue: Array.isArray(state.toggleMutationQueue) ? state.toggleMutationQueue.length : 0
       });
       if (Array.isArray(state.toggleMutationQueue) && state.toggleMutationQueue.length) {
         const pendingJob = state.toggleMutationQueue[state.toggleMutationQueue.length - 1];
-// @ts-ignore
+// @ts-expect-error
         state.toggleQueuedActionKey = pendingJob && pendingJob.key ? pendingJob.key : "";
         scheduleQueuedToggleMutationDrain();
       } else {
@@ -9874,7 +9874,7 @@ function scheduleQueuedToggleMutationDrain() {
   runDrain();
 }
 
-// @ts-ignore
+// @ts-expect-error
 function scheduleQueuedToggleMutation(job) {
   if (!job || !job.target || (job.mode !== "include" && job.mode !== "exclude")) {
     return;
@@ -9882,7 +9882,7 @@ function scheduleQueuedToggleMutation(job) {
   if (!Array.isArray(state.toggleMutationQueue)) {
     state.toggleMutationQueue = [];
   }
-// @ts-ignore
+// @ts-expect-error
   state.toggleMutationQueue.push(job);
   state.toggleQueuedActionKey = job.key || state.toggleQueuedActionKey;
   scheduleQueuedToggleMutationDrain();
@@ -9931,7 +9931,7 @@ function renderHighlightsInner() {
   const latestSelectorContext = resolveMarkingSelectorContext(state.config, latestEntry);
   const nextCollectionsCacheKey = buildMarkingCollectionsCacheKey({
     pageUrl,
-// @ts-ignore
+// @ts-expect-error
     selectorSet: latestSelectorContext.selectorSet,
     entry: latestEntry
   });
@@ -9940,7 +9940,7 @@ function renderHighlightsInner() {
   if (cached && state.cachedCollectionsKey === nextCollectionsCacheKey) {
     const drawStartedAt = nowMs();
     repositionHighlights(cached);
-// @ts-ignore
+// @ts-expect-error
     logTogglePerf("render.reposition", drawStartedAt, { pageUrl: location.href });
     return;
   }
@@ -9978,7 +9978,7 @@ function renderHighlightsInner() {
     allowCreate: hasEntry,
     persist: hasEntry
   });
-// @ts-ignore
+// @ts-expect-error
   logTogglePerf("render.sync", syncStartedAt, { pageUrl });
   const entry =
       syncResult.entry || getPageMarkingEntry(state.config, pageUrl, { create: false });
@@ -10081,7 +10081,7 @@ function renderHighlightsInner() {
 
   const collections = {
     hardElements: Array.from(hardExcludedSet).filter((el) =>
-// @ts-ignore
+// @ts-expect-error
       !isWithinElementSet(el, consentExcluded)
     ),
     explicitExcludeElements: filteredExplicitExclude,
@@ -10100,15 +10100,15 @@ function renderHighlightsInner() {
     selectorExcludedElements: Array.from(selectorExcludedSet),
     defaultElements: defaultTargets
   };
-// @ts-ignore
+// @ts-expect-error
   state.cachedCollections = collections;
   state.cachedCollectionsKey = buildMarkingCollectionsCacheKey({
     pageUrl,
-// @ts-ignore
+// @ts-expect-error
     selectorSet: selectorSetForMarking,
     entry
   });
-// @ts-ignore
+// @ts-expect-error
   logTogglePerf("render.rebuild", rebuildStartedAt, { pageUrl });
 
   if (autoSeededFromAiSelectors) {
@@ -10119,13 +10119,13 @@ function renderHighlightsInner() {
 
   const drawStartedAt = nowMs();
   drawCollections(collections, getVisibleRects);
-// @ts-ignore
+// @ts-expect-error
   logTogglePerf("draw.collections", drawStartedAt, { pageUrl });
-// @ts-ignore
+// @ts-expect-error
   logTogglePerf("render.total", renderStartedAt, { pageUrl });
 }
 
-// @ts-ignore
+// @ts-expect-error
 function getRectsInViewport(el) {
   const visibleRects = collectRectsFromClientRects(el.getClientRects());
   if (visibleRects.length > 0) {
@@ -10137,7 +10137,7 @@ function getRectsInViewport(el) {
   return [];
 }
 
-// @ts-ignore
+// @ts-expect-error
 function getGhostRects(el) {
   if (!el || el.nodeType !== 1) {
     return [];
@@ -10145,26 +10145,26 @@ function getGhostRects(el) {
   return collectRectsFromClientRects(el.getClientRects());
 }
 
-// @ts-ignore
+// @ts-expect-error
 function repositionHighlights(collections) {
   drawCollections(collections, getRectsInViewport);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function drawCollections(collections, getRects) {
-// @ts-ignore
+// @ts-expect-error
   const layerHardState = beginLayerRender(state.layers["hard"]);
-// @ts-ignore
+// @ts-expect-error
   const layerSavedExplicitExcludeState = beginLayerRender(state.layers["saved-explicit-exclude"]);
-// @ts-ignore
+// @ts-expect-error
   const layerSavedExplicitIncludeState = beginLayerRender(state.layers["saved-explicit-include"]);
-// @ts-ignore
+// @ts-expect-error
   const layerAiContentState = beginLayerRender(state.layers["ai-content"]);
-// @ts-ignore
+// @ts-expect-error
   const layerSessionExplicitExcludeState = beginLayerRender(state.layers["session-explicit-exclude"]);
-// @ts-ignore
+// @ts-expect-error
   const layerSessionExplicitIncludeState = beginLayerRender(state.layers["session-explicit-include"]);
-// @ts-ignore
+// @ts-expect-error
   const layerDefaultState = beginLayerRender(state.layers["default"]);
   const markedElements = new Set();
 
@@ -10344,13 +10344,13 @@ function startObservers() {
   if (state.mutationObserver) {
     return;
   }
-// @ts-ignore
+// @ts-expect-error
   state.mutationObserver = new MutationObserver((mutations) => {
     try {
       if (state.overlay) {
         const hasNonOverlayChange = mutations.some((mutation) => {
           const target = mutation.target;
-// @ts-ignore
+// @ts-expect-error
           return !(target === state.overlay || state.overlay.contains(target));
         });
         if (!hasNonOverlayChange) {
@@ -10378,7 +10378,7 @@ function startObservers() {
   });
   if (document.body) {
     try {
-// @ts-ignore
+// @ts-expect-error
       state.mutationObserver.observe(document.body, {
         childList: true,
         subtree: true,
@@ -10394,13 +10394,13 @@ function startObservers() {
 
 function stopObservers() {
   if (state.mutationObserver) {
-// @ts-ignore
+// @ts-expect-error
     state.mutationObserver.disconnect();
     state.mutationObserver = null;
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function handleUrlWatcherTransition(previousUrl, nextUrl) {
   void nextUrl;
   // Marking is disabled on any navigation. Unsaved page-marking drafts are not
@@ -10457,7 +10457,7 @@ function restorePageScrolling() {
 
   if (!html || !body) return;
 
-// @ts-ignore
+// @ts-expect-error
   const setStyle = (el, prop, value) => {
     el.style.setProperty(prop, value, "important");
   };
@@ -10490,7 +10490,7 @@ function restorePageScrolling() {
   });
 }
 
-// @ts-ignore
+// @ts-expect-error
 function hideConsentOnEnable(pageUrl) {
   if (!pageUrl || state.consentSyncedPageUrl === pageUrl) {
     return 0;
@@ -10516,7 +10516,7 @@ function hideConsentBeforeReveal() {
  * @param {Element} el - The element to check
  * @returns {boolean} True if the element matches a toggleable default exclusion
  */
-// @ts-ignore
+// @ts-expect-error
 export function isDefaultToggleableExcludedElement(el) {
   return matchesToggleableDefaultExcluded(el);
 }
@@ -10526,12 +10526,12 @@ export function isDefaultToggleableExcludedElement(el) {
  * @param {Element} el - The element to check
  * @returns {boolean} True if the element matches an immutable exclusion
  */
-// @ts-ignore
+// @ts-expect-error
 export function isImmutableExcludedElement(el) {
   return matchesImmutableExcluded(el);
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function isPageDraftDirty(pageUrl) {
   if (pageUrl && state.autoSeededPendingSavePageUrl === pageUrl) {
     return true;
@@ -10579,7 +10579,7 @@ export async function refreshPageSaveReconciliation(baseUrl = state.baseUrl, pag
     return null;
   }
   const reconciliation = await config.getPageSaveReconciliation(baseUrl, pageUrl);
-// @ts-ignore
+// @ts-expect-error
   state.pageSaveReconciliation = reconciliation;
   updateMarkingTemporarilyDisabledUi();
   return reconciliation;
@@ -10590,10 +10590,10 @@ export async function setPageSaveReconciliationPending(baseUrl = state.baseUrl, 
     return null;
   }
   const reconciliation = await config.setPageSaveReconciliation(baseUrl, pageUrl, {
-// @ts-ignore
+// @ts-expect-error
     reason: typeof options.reason === "string" ? options.reason : "pending"
   });
-// @ts-ignore
+// @ts-expect-error
   state.pageSaveReconciliation = reconciliation;
   updateMarkingTemporarilyDisabledUi();
   notifyDraftStatus(pageUrl);
@@ -10612,7 +10612,7 @@ export async function clearPageSaveReconciliation(baseUrl = state.baseUrl, pageU
   notifyDraftStatus(pageUrl);
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function areEntriesEquivalent(left, right) {
   const leftFingerprint = getEntryFingerprint(left);
   const rightFingerprint = getEntryFingerprint(right);
@@ -10627,7 +10627,7 @@ export function areEntriesEquivalent(left, right) {
   return true;
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function clonePageEntry(entry) {
   if (!entry || typeof entry !== "object") {
     return null;
@@ -10651,7 +10651,7 @@ export function clonePageEntry(entry) {
   return normalizePageEntryXpaths(cloned);
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function setSavedPageEntry(pageUrl, entry) {
   state.savedPageUrl = pageUrl || "";
   state.savedPageEntry = clonePageEntry(entry);
@@ -10685,7 +10685,7 @@ export async function refreshSavedPageEntryFromBackendCache(baseUrl = state.base
   return getSavedPageEntry(pageUrl);
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function notifyDraftStatus(pageUrl) {
   if (!state.enabled || !state.baseUrl || !state.config) {
     return;
@@ -10740,7 +10740,7 @@ export function scheduleDraftPersist(baseUrl = state.baseUrl, delayMs = 220) {
   }, Math.max(0, Math.trunc(delayMs)));
 }
 
-// @ts-ignore
+// @ts-expect-error
 function flushPendingSnapshotSave(configValue, pageUrl) {
   if (!configValue || !pageUrl) {
     return false;
@@ -10753,7 +10753,7 @@ function flushPendingSnapshotSave(configValue, pageUrl) {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 function persistTeardownConfig(baseUrl, configValue) {
   if (!baseUrl || !configValue) {
     return;
@@ -10763,7 +10763,7 @@ function persistTeardownConfig(baseUrl, configValue) {
   });
 }
 
-// @ts-ignore
+// @ts-expect-error
 function flushPendingTeardownPersistence(baseUrl, configValue, pageUrl) {
   let shouldPersist = false;
   if (state.snapshotTimer) {
@@ -10781,24 +10781,24 @@ function flushPendingTeardownPersistence(baseUrl, configValue, pageUrl) {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 function setAltPassThrough(enabled) {
   const changed = state.altPassThrough !== enabled;
   state.altPassThrough = enabled;
   if (!state.overlay) {
     return;
   }
-// @ts-ignore
+// @ts-expect-error
   state.overlay.style.pointerEvents = enabled ? "none" : "auto";
-// @ts-ignore
+// @ts-expect-error
   state.overlay.style.opacity = enabled ? "0.5" : "1";
-// @ts-ignore
+// @ts-expect-error
   if (enabled && state.layers["hover"]) {
-// @ts-ignore
+// @ts-expect-error
     clearLayer(state.layers["hover"]);
   }
   if (!enabled) {
-// @ts-ignore
+// @ts-expect-error
     scheduleRender();
   }
   if (changed) {
@@ -10806,7 +10806,7 @@ function setAltPassThrough(enabled) {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function isMarkableElement(el, config, options) {
   if (!config) {
     return false;
@@ -10843,7 +10843,7 @@ export function isMarkableElement(el, config, options) {
 }
 
 export function canApplyExplicitInclude(
-// @ts-ignore
+// @ts-expect-error
   el,
   configValue = state.config,
   pageUrl = location.href,
@@ -10867,12 +10867,12 @@ export function canApplyExplicitInclude(
   const xpath = getXPath(el);
   const configEntry =
     configValue &&
-// @ts-ignore
+// @ts-expect-error
     configValue.pageMarkings &&
-// @ts-ignore
+// @ts-expect-error
     typeof configValue.pageMarkings === "object" &&
     pageUrl
-// @ts-ignore
+// @ts-expect-error
       ? configValue.pageMarkings[pageUrl] || null
       : null;
   const sourceEntries = [configEntry, entryOverride];
@@ -10916,14 +10916,14 @@ export function clearFocusHighlight() {
   updateFocusHighlight();
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function isVisible(el) {
   if (!el || el.nodeType !== 1) {
     return false;
   }
   const cache = state.visibilityCache;
   if (cache) {
-// @ts-ignore
+// @ts-expect-error
     const cached = cache.get(el);
     if (cached !== undefined) {
       return cached;
@@ -10931,13 +10931,13 @@ export function isVisible(el) {
   }
   const result = isVisibleUncached(el);
   if (cache) {
-// @ts-ignore
+// @ts-expect-error
     cache.set(el, result);
   }
   return result;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isVisibleUncached(el) {
   if (isWithinExtensionUi(el)) {
     return false;
@@ -10947,15 +10947,15 @@ function isVisibleUncached(el) {
   const visCache = state.ancestorVisStateCache;
   while (node && node.nodeType === 1) {
     let visState;
-// @ts-ignore
+// @ts-expect-error
     if (visCache && visCache.has(node)) {
-// @ts-ignore
+// @ts-expect-error
       visState = visCache.get(node);
     } else {
       const style = window.getComputedStyle(node);
       visState = getTheoreticalVisibilityState(node, style);
       if (visCache) {
-// @ts-ignore
+// @ts-expect-error
         visCache.set(node, visState);
       }
     }
@@ -10980,7 +10980,7 @@ function isVisibleUncached(el) {
   return isActuallyVisibleToUser(el);
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function isVisibleForSubmission(el) {
   if (!el || el.nodeType !== 1) {
     return false;
@@ -11032,7 +11032,7 @@ export function isVisibleForSubmission(el) {
   return anyClientRectIntersectsSubmissionArea(el);
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function getElementFromXPath(xpath) {
   try {
     const result = document.evaluate(
@@ -11052,7 +11052,7 @@ export function getElementFromXPath(xpath) {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function hasPageMarkingEntry(config, pageUrl) {
   if (!config || !config.pageMarkings || typeof config.pageMarkings !== "object") {
     return false;
@@ -11061,7 +11061,7 @@ export function hasPageMarkingEntry(config, pageUrl) {
 }
 
 // Normalize URL paths so "/page" and "/page/" resolve to the same page-marking entry.
-// @ts-ignore
+// @ts-expect-error
 function normalizeUrlPath(pathname) {
   if (typeof pathname !== "string" || !pathname) {
     return "/";
@@ -11071,7 +11071,7 @@ function normalizeUrlPath(pathname) {
 }
 
 // Build a stable page-marking key for equivalent URLs by ignoring trailing slashes.
-// @ts-ignore
+// @ts-expect-error
 function toLooseUrlKey(value, baseUrl) {
   if (typeof value !== "string" || !value) {
     return "";
@@ -11086,7 +11086,7 @@ function toLooseUrlKey(value, baseUrl) {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function findPageMarkingEntry(configValue, pageUrl, baseUrl = state.baseUrl || pageUrl) {
   const pageMarkings = configValue && configValue.pageMarkings;
   if (!pageMarkings || typeof pageMarkings !== "object" || !pageUrl) {
@@ -11117,7 +11117,7 @@ export function findPageMarkingEntry(configValue, pageUrl, baseUrl = state.baseU
 
 // Write an entry into a pageMarkings object and evict its loose-lookup cache
 // so that the next findPageMarkingEntry call rebuilds with up-to-date data.
-// @ts-ignore
+// @ts-expect-error
 function setPageMarkingEntry(pageMarkings, url, entry) {
   pageMarkings[url] = entry;
   pageMarkingEntryLookupCache.delete(pageMarkings);
@@ -11143,13 +11143,13 @@ export function collectImmutableElements() {
   return immutable;
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function scheduleRender(options) {
   const scheduleStartedAt = nowMs();
   const shouldInvalidate = !options || options.invalidate !== false;
   state.pendingRenderInvalidate = state.pendingRenderInvalidate || shouldInvalidate;
   if (state.renderTimer) {
-// @ts-ignore
+// @ts-expect-error
     logTogglePerf("scheduleRender.skipped-existing", scheduleStartedAt, {
       reason: options && options.reason ? options.reason : "unknown"
     });
@@ -11162,7 +11162,7 @@ export function scheduleRender(options) {
   const waitForInterval =
     minInterval > 0 && sinceLast < minInterval ? minInterval - sinceLast : 0;
   const effectiveDelay = Math.max(delay, waitForInterval);
-// @ts-ignore
+// @ts-expect-error
   logTogglePerf("scheduleRender.queued", scheduleStartedAt, {
     reason,
     delay,
@@ -11186,7 +11186,7 @@ export function scheduleRender(options) {
   }, effectiveDelay);
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function mergeDraftEntry(config, pageUrl, draftEntry, savedEntry) {
   if (!config || !pageUrl || !draftEntry) {
     return;
@@ -11200,7 +11200,7 @@ export function mergeDraftEntry(config, pageUrl, draftEntry, savedEntry) {
   setPageMarkingEntry(config.pageMarkings, pageUrl, clonePageEntry(draftEntry));
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function getPageMarkingEntry(configValue, pageUrl, options) {
   const { create = true, persist = true } = options || {};
   const currentPageType = normalizePageEntryPageType(state.currentPageType);
@@ -11244,7 +11244,7 @@ export function getPageMarkingEntry(configValue, pageUrl, options) {
   return entry;
 }
 
-// @ts-ignore
+// @ts-expect-error
 export async function loadConfig(baseUrl) {
   const result = await utils.idbGet("configs");
   const configs = result.configs || {};
@@ -11286,15 +11286,15 @@ function scheduleMarkingSettleRenders() {
     }, delay);
     timers.push(timerId);
   }
-// @ts-ignore
+// @ts-expect-error
   state.markingSettleTimers = timers;
 }
 
 export function disable(options = {}) {
   const optionPageUrl =
-// @ts-ignore
+// @ts-expect-error
     typeof options.pageUrl === "string" && options.pageUrl
-// @ts-ignore
+// @ts-expect-error
       ? options.pageUrl
       : "";
   const teardownBaseUrl = state.baseUrl;
@@ -11375,9 +11375,9 @@ export function disable(options = {}) {
   stopUrlWatcher();
 }
 
-// @ts-ignore
+// @ts-expect-error
 export async function enableForBaseUrl(baseUrl, options = {}) {
-// @ts-ignore
+// @ts-expect-error
   const skipInitialReveal = Boolean(options && options.skipInitialReveal);
   const normalizedBaseUrl = utils.normalizeBaseUrl(baseUrl) || baseUrl;
   if (!normalizedBaseUrl || !utils.isPageWithinBaseUrl(location.href, normalizedBaseUrl)) {
@@ -11396,12 +11396,12 @@ export async function enableForBaseUrl(baseUrl, options = {}) {
   // from defaults + CSS/AI-selector influence and the page never starts dirty.
   if (
     state.config &&
-// @ts-ignore
+// @ts-expect-error
     state.config.pageMarkings &&
-// @ts-ignore
+// @ts-expect-error
     typeof state.config.pageMarkings === "object"
   ) {
-// @ts-ignore
+// @ts-expect-error
     delete state.config.pageMarkings[pageUrl];
   }
   const savedEntry = await refreshSavedPageEntryFromBackendCache(normalizedBaseUrl, pageUrl);
@@ -11429,7 +11429,7 @@ export async function enableForBaseUrl(baseUrl, options = {}) {
       return;
     }
   }
-// @ts-ignore
+// @ts-expect-error
   scheduleRender();
   scheduleMarkingSettleRenders();
   startObservers();
@@ -11439,7 +11439,7 @@ export async function enableForBaseUrl(baseUrl, options = {}) {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function handleBeforeUnload(event) {
   if (!state.enabled) {
     return;
@@ -11451,7 +11451,7 @@ export function handleBeforeUnload(event) {
   event.returnValue = "";
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isViewportScrollEvent(event) {
   if (!event) {
     return true;
@@ -11470,7 +11470,7 @@ function isViewportScrollEvent(event) {
   return false;
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function handleScroll(event, options = {}) {
   if (!state.enabled || state.aiPopover || !state.overlay) {
     return;
@@ -11479,15 +11479,15 @@ export function handleScroll(event, options = {}) {
   // Nested scroll containers still need a debounced redraw so partially visible
   // marked content tracks carousels and internal panes. Only viewport scrolls
   // hide the overlay during motion to avoid full-page flicker.
-// @ts-ignore
+// @ts-expect-error
   const hideDuringScroll = isViewportScroll && (!options || options.hideDuringScroll !== false);
   if (hideDuringScroll && !state.isScrolling) {
     state.isScrolling = true;
-// @ts-ignore
+// @ts-expect-error
     state.overlay.classList.add("uf-scrolling");
   } else if (!hideDuringScroll && state.isScrolling) {
     state.isScrolling = false;
-// @ts-ignore
+// @ts-expect-error
     state.overlay.classList.remove("uf-scrolling");
   }
   if (state.scrollHideTimer) {
@@ -11507,7 +11507,7 @@ export function handleScroll(event, options = {}) {
           state.isScrolling = false;
         }
         if (state.overlay) {
-// @ts-ignore
+// @ts-expect-error
           state.overlay.classList.remove("uf-scrolling");
         }
       });
@@ -11515,7 +11515,7 @@ export function handleScroll(event, options = {}) {
   }, SCROLL_DEBOUNCE_MS);
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function collectPreviewItems(selectorSet) {
   const normalized = normalizeAiSelectorSet(selectorSet);
   const excludedElements = collectSelectorElements(normalized.exclusionSelectors);
@@ -11525,7 +11525,7 @@ export function collectPreviewItems(selectorSet) {
       includedElements.add(el);
     }
   });
-// @ts-ignore
+// @ts-expect-error
   const inclusionContextSet = buildInclusionContextSet(includedElements);
   // Preview mirrors silent highlighting inclusion detection: implicit
   // non-excluded content plus explicit includes, while ignoring visibility for
@@ -11546,7 +11546,7 @@ export function collectPreviewItems(selectorSet) {
     if (!text) {
       continue;
     }
-// @ts-ignore
+// @ts-expect-error
     const rect = el.getBoundingClientRect();
     rows.push({
       xpath: getXPath(el),
@@ -11567,13 +11567,13 @@ export function collectPreviewItems(selectorSet) {
 }
 
 function getPreviewTextForIncludedElement(
-// @ts-ignore
+// @ts-expect-error
   root,
-// @ts-ignore
+// @ts-expect-error
   excludedElements,
-// @ts-ignore
+// @ts-expect-error
   includedElements,
-// @ts-ignore
+// @ts-expect-error
   inclusionContextSet
 ) {
   if (!root || root.nodeType !== 1) {
@@ -11643,7 +11643,7 @@ function getPreviewTextForIncludedElement(
     .trim();
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function getElementLabel(el) {
   if (!el || el.nodeType !== 1) {
     return "";
@@ -11664,7 +11664,7 @@ export function getElementLabel(el) {
   return text;
 }
 
-// @ts-ignore
+// @ts-expect-error
 export async function saveConfig(baseUrl, configValue) {
   const result = await utils.idbGet("configs");
   const configs = result.configs || {};
@@ -11672,7 +11672,7 @@ export async function saveConfig(baseUrl, configValue) {
   await utils.idbSet({ configs });
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function showAiPopover(items, options = {}) {
   clearFocusHighlight();
   closeAiPopover({ notify: false, suppressCallback: true });
@@ -11680,22 +11680,22 @@ export function showAiPopover(items, options = {}) {
   marker.hidden = true;
   marker.setAttribute("data-uf-extension-ui", "true");
   document.documentElement.appendChild(marker);
-// @ts-ignore
+// @ts-expect-error
   state.aiPopover = marker;
-// @ts-ignore
+// @ts-expect-error
   state.aiPopoverOnClose = typeof options.onClose === "function" ? options.onClose : null;
   state.aiPopoverOnCollapsedChange = null;
   state.aiPopoverCollapsed = false;
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function getDraftPageEntry(pageUrl) {
   if (
       !pageUrl ||
       !state.config ||
-// @ts-ignore
+// @ts-expect-error
       !state.config.pageMarkings ||
-// @ts-ignore
+// @ts-expect-error
       typeof state.config.pageMarkings !== "object"
   ) {
     return null;
@@ -11703,7 +11703,7 @@ export function getDraftPageEntry(pageUrl) {
   return findPageMarkingEntry(state.config, pageUrl);
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function getSavedPageEntry(pageUrl) {
   if (!pageUrl || state.savedPageUrl !== pageUrl) {
     return null;
@@ -11763,7 +11763,7 @@ export async function refreshFromTabState(options = {}) {
       // silent-highlighting activation gate (and to manual marking enable), so a
       // marking-restore reload (e.g. render-mode inspection) does not re-trigger
       // the scroll-reveal routine.
-// @ts-ignore
+// @ts-expect-error
       scheduleRender();
       startObservers();
       startUrlWatcher();
@@ -11773,21 +11773,21 @@ export async function refreshFromTabState(options = {}) {
   disable();
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function syncPageMarkings(config, pageUrl, immutableExcluded, options) {
   return withElementComputationCache(() =>
     syncPageMarkingsInner(config, pageUrl, immutableExcluded, options)
   );
 }
 
-// @ts-ignore
+// @ts-expect-error
 export async function syncPageMarkingsAsync(config, pageUrl, immutableExcluded, options) {
   return withElementComputationCacheAsync(() =>
     syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, options)
   );
 }
 
-// @ts-ignore
+// @ts-expect-error
 function appendSyncedCandidateItem(el, context) {
   const {
     seen,
@@ -11865,18 +11865,18 @@ function appendSyncedCandidateItem(el, context) {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 function appendSyncedCandidateItems(candidates, context) {
   for (const el of candidates) {
     appendSyncedCandidateItem(el, context);
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 async function appendSyncedCandidateItemsAsync(candidates, context, options = {}) {
-// @ts-ignore
+// @ts-expect-error
   const shouldAbort = typeof options.shouldAbort === "function"
-// @ts-ignore
+// @ts-expect-error
     ? options.shouldAbort
     : null;
   let processedCount = 0;
@@ -11894,7 +11894,7 @@ async function appendSyncedCandidateItemsAsync(candidates, context, options = {}
   return true;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function collectReconcilePreviousItemState(previousItems, getCachedElementFromXPath) {
   const excludedLookup = new Map();
   const explicitXpathSet = new Set();
@@ -11938,7 +11938,7 @@ function collectReconcilePreviousItemState(previousItems, getCachedElementFromXP
   };
 }
 
-// @ts-ignore
+// @ts-expect-error
 function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
   const syncStartedAt = nowMs();
   if (!config || !pageUrl) {
@@ -11958,7 +11958,7 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
   const entrySetupStartedAt = nowMs();
   const xpathElementCache = new Map();
   let xpathLookupCount = 0;
-// @ts-ignore
+// @ts-expect-error
   const getCachedElementFromXPath = (value) => {
     if (typeof value !== "string" || !value) {
       return null;
@@ -11994,7 +11994,7 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
     }
   }
   const rawIncludeXpaths = Array.isArray(entry.includeXpaths)
-// @ts-ignore
+// @ts-expect-error
     ? entry.includeXpaths.filter((xpath) => typeof xpath === "string" && xpath)
     : [];
   const filteredIncludeXpaths = [];
@@ -12032,7 +12032,7 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
       current = current.parentElement;
     }
   }
-// @ts-ignore
+// @ts-expect-error
   const isExplicitlyMarkedXpath = (xpath) => {
     if (!xpath) {
       return false;
@@ -12042,7 +12042,7 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
     }
     return explicitXpathSet.has(xpath);
   };
-// @ts-ignore
+// @ts-expect-error
   const explicitIncludeElements = [];
   for (const xpath of explicitIncludeSet) {
     const el = getCachedElementFromXPath(xpath);
@@ -12050,7 +12050,7 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
       explicitIncludeElements.push(el);
     }
   }
-// @ts-ignore
+// @ts-expect-error
   const isWithinExplicitIncludeXpath = (xpath) => {
     if (!xpath || explicitIncludeSet.size === 0) {
       return false;
@@ -12062,12 +12062,12 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
     }
     return false;
   };
-// @ts-ignore
+// @ts-expect-error
   const isWithinExplicitInclude = (el) => {
     if (!el || explicitIncludeElements.length === 0) {
       return false;
     }
-// @ts-ignore
+// @ts-expect-error
     for (const includeEl of explicitIncludeElements) {
       if (includeEl && includeEl !== el && includeEl.contains(el)) {
         return true;
@@ -12075,24 +12075,24 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
     }
     return false;
   };
-// @ts-ignore
+// @ts-expect-error
   logTogglePerf("sync.entry-setup", entrySetupStartedAt, {
     previousItemCount: previousItems.length,
     xpathLookupCount
   });
-// @ts-ignore
+// @ts-expect-error
   const items = [];
   const seen = new Set();
   const generatedExcludedSet = new Set();
   const candidateCollectionStartedAt = nowMs();
   const scannedCandidates = scanReconcileDocumentCandidates(immutableExcluded, excludedParents);
   const candidates = scannedCandidates.toggleableCandidates;
-// @ts-ignore
+// @ts-expect-error
   logTogglePerf("sync.candidate-collection", candidateCollectionStartedAt, {
     candidateCount: candidates.length,
     excludedParentCount: excludedParents.size
   });
-// @ts-ignore
+// @ts-expect-error
   logTogglePerf("sync.candidate-evaluation", candidateCollectionStartedAt, {
     visitedCount: scannedCandidates.stats.visitedCount,
     autoDefaultCount: scannedCandidates.stats.autoDefaultCount,
@@ -12100,7 +12100,7 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
     selfMarkableCount: scannedCandidates.stats.selfMarkableCount,
     selfMarkableElapsedMs: Number(scannedCandidates.stats.selfMarkableElapsedMs.toFixed(1))
   });
-// @ts-ignore
+// @ts-expect-error
   logTogglePerf("sync.candidate-self-markable", candidateCollectionStartedAt, {
     textualContainerElapsedMs: Number(scannedCandidates.stats.textualContainerElapsedMs.toFixed(1)),
     paintReachableElapsedMs: Number(scannedCandidates.stats.paintReachableElapsedMs.toFixed(1)),
@@ -12119,20 +12119,20 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
     excludedLookup,
     explicitXpathSet,
     getCachedElementFromXPath,
-// @ts-ignore
+// @ts-expect-error
     items,
     previousSilentWhitespaceExcludedSet,
     isExplicitlyMarkedXpath,
     isWithinExplicitInclude,
     isWithinExplicitIncludeXpath
   });
-// @ts-ignore
+// @ts-expect-error
   logTogglePerf("sync.candidate-merge", candidateMergeStartedAt, {
     candidateCount: candidates.length,
     itemCount: items.length
   });
   const currentExcludedXpaths = new Set(
-// @ts-ignore
+// @ts-expect-error
     items
       .filter((item) => item && item.xpath && item.excluded)
       .map((item) => item.xpath)
@@ -12144,7 +12144,7 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
     includeXpaths: explicitIncludeSet,
     prefetchedCandidates: scannedCandidates.silentWhitespaceCandidates
   });
-// @ts-ignore
+// @ts-expect-error
   logTogglePerf("sync.silent-whitespace-collection", silentWhitespaceCollectionStartedAt, {
     candidateCount: silentWhitespaceCandidates.length,
     excludedCount: currentExcludedXpaths.size
@@ -12163,7 +12163,7 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
     currentExcludedXpaths.add(xpath);
     silentWhitespaceExcludedXpaths.push(xpath);
   }
-// @ts-ignore
+// @ts-expect-error
   logTogglePerf("sync.silent-whitespace-merge", silentWhitespaceMergeStartedAt, {
     candidateCount: silentWhitespaceCandidates.length,
     addedCount: silentWhitespaceExcludedXpaths.length
@@ -12257,12 +12257,12 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
   if (shouldPersist) {
     setPageMarkingEntry(config.pageMarkings, pageUrl, entry);
   }
-// @ts-ignore
+// @ts-expect-error
   logTogglePerf("sync.total", syncStartedAt, { pageUrl });
   return { changed, entry, persisted: shouldPersist, hadEntry };
 }
 
-// @ts-ignore
+// @ts-expect-error
 async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, options) {
   const syncStartedAt = nowMs();
   const shouldAbort = options && typeof options.shouldAbort === "function"
@@ -12287,7 +12287,7 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
   const entrySetupStartedAt = nowMs();
   const xpathElementCache = new Map();
   let xpathLookupCount = 0;
-// @ts-ignore
+// @ts-expect-error
   const getCachedElementFromXPath = (value) => {
     if (typeof value !== "string" || !value) {
       return null;
@@ -12323,7 +12323,7 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
     }
   }
   const rawIncludeXpaths = Array.isArray(entry.includeXpaths)
-// @ts-ignore
+// @ts-expect-error
     ? entry.includeXpaths.filter((xpath) => typeof xpath === "string" && xpath)
     : [];
   const filteredIncludeXpaths = [];
@@ -12360,7 +12360,7 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
       current = current.parentElement;
     }
   }
-// @ts-ignore
+// @ts-expect-error
   const isExplicitlyMarkedXpath = (xpath) => {
     if (!xpath) {
       return false;
@@ -12370,7 +12370,7 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
     }
     return explicitXpathSet.has(xpath);
   };
-// @ts-ignore
+// @ts-expect-error
   const explicitIncludeElements = [];
   for (const xpath of explicitIncludeSet) {
     const el = getCachedElementFromXPath(xpath);
@@ -12378,7 +12378,7 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
       explicitIncludeElements.push(el);
     }
   }
-// @ts-ignore
+// @ts-expect-error
   const isWithinExplicitIncludeXpath = (xpath) => {
     if (!xpath || explicitIncludeSet.size === 0) {
       return false;
@@ -12390,12 +12390,12 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
     }
     return false;
   };
-// @ts-ignore
+// @ts-expect-error
   const isWithinExplicitInclude = (el) => {
     if (!el || explicitIncludeElements.length === 0) {
       return false;
     }
-// @ts-ignore
+// @ts-expect-error
     for (const includeEl of explicitIncludeElements) {
       if (includeEl && includeEl !== el && includeEl.contains(el)) {
         return true;
@@ -12403,13 +12403,13 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
     }
     return false;
   };
-// @ts-ignore
+// @ts-expect-error
   logTogglePerf("sync.entry-setup", entrySetupStartedAt, {
     previousItemCount: previousItems.length,
     xpathLookupCount,
     async: true
   });
-// @ts-ignore
+// @ts-expect-error
   const items = [];
   const seen = new Set();
   const generatedExcludedSet = new Set();
@@ -12418,13 +12418,13 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
     shouldAbort
   });
   const candidates = scannedCandidates.toggleableCandidates;
-// @ts-ignore
+// @ts-expect-error
   logTogglePerf("sync.candidate-collection", candidateCollectionStartedAt, {
     candidateCount: candidates.length,
     excludedParentCount: excludedParents.size,
     async: true
   });
-// @ts-ignore
+// @ts-expect-error
   logTogglePerf("sync.candidate-evaluation", candidateCollectionStartedAt, {
     visitedCount: scannedCandidates.stats.visitedCount,
     autoDefaultCount: scannedCandidates.stats.autoDefaultCount,
@@ -12433,7 +12433,7 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
     selfMarkableElapsedMs: Number(scannedCandidates.stats.selfMarkableElapsedMs.toFixed(1)),
     async: true
   });
-// @ts-ignore
+// @ts-expect-error
   logTogglePerf("sync.candidate-self-markable", candidateCollectionStartedAt, {
     textualContainerElapsedMs: Number(scannedCandidates.stats.textualContainerElapsedMs.toFixed(1)),
     paintReachableElapsedMs: Number(scannedCandidates.stats.paintReachableElapsedMs.toFixed(1)),
@@ -12456,7 +12456,7 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
     excludedLookup,
     explicitXpathSet,
     getCachedElementFromXPath,
-// @ts-ignore
+// @ts-expect-error
     items,
     previousSilentWhitespaceExcludedSet,
     isExplicitlyMarkedXpath,
@@ -12465,7 +12465,7 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
   }, {
     shouldAbort
   });
-// @ts-ignore
+// @ts-expect-error
   logTogglePerf("sync.candidate-merge", candidateMergeStartedAt, {
     candidateCount: candidates.length,
     itemCount: items.length,
@@ -12475,7 +12475,7 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
     return abortResult();
   }
   const currentExcludedXpaths = new Set(
-// @ts-ignore
+// @ts-expect-error
     items
       .filter((item) => item && item.xpath && item.excluded)
       .map((item) => item.xpath)
@@ -12487,7 +12487,7 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
     includeXpaths: explicitIncludeSet,
     prefetchedCandidates: scannedCandidates.silentWhitespaceCandidates
   });
-// @ts-ignore
+// @ts-expect-error
   logTogglePerf("sync.silent-whitespace-collection", silentWhitespaceCollectionStartedAt, {
     candidateCount: silentWhitespaceCandidates.length,
     excludedCount: currentExcludedXpaths.size,
@@ -12529,7 +12529,7 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
       return abortResult();
     }
   }
-// @ts-ignore
+// @ts-expect-error
   logTogglePerf("sync.silent-whitespace-merge", silentWhitespaceMergeStartedAt, {
     candidateCount: silentWhitespaceCandidates.length,
     addedCount: silentWhitespaceExcludedXpaths.length,
@@ -12687,7 +12687,7 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
   if (shouldPersist) {
     setPageMarkingEntry(config.pageMarkings, pageUrl, entry);
   }
-// @ts-ignore
+// @ts-expect-error
   logTogglePerf("sync.total", syncStartedAt, { pageUrl, async: true });
   return { changed, entry, persisted: shouldPersist, hadEntry, aborted: false };
 }
