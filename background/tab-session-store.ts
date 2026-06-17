@@ -1,10 +1,18 @@
-// @ts-nocheck
 import { SCRIPT_INJECTED_PREFIX, TAB_STATE_PREFIX } from "../common/constants.js";
 import { storageGet, storageRemove, storageSet } from "../common/storage-core.js";
 
-const TAB_SESSION_WRITE_QUEUE_BY_TAB_ID = new Map();
+type TabSessionState = Record<string, unknown> | null;
+type QueueableWork<T> = () => Promise<T> | T;
+type TabSessionOptions = {
+  normalize?: boolean;
+  skipQueue?: boolean;
+  includeRestoreScope?: boolean;
+  includeScriptInjected?: boolean;
+};
 
-function normalizeTabId(tabId) {
+const TAB_SESSION_WRITE_QUEUE_BY_TAB_ID = new Map<number, Promise<unknown>>();
+
+function normalizeTabId(tabId: unknown): number {
   const normalized = Number(tabId);
   if (!Number.isFinite(normalized)) {
     return 0;
@@ -13,7 +21,7 @@ function normalizeTabId(tabId) {
   return truncated > 0 ? truncated : 0;
 }
 
-function normalizePathForMatch(pathname) {
+function normalizePathForMatch(pathname: unknown): string {
   if (typeof pathname !== "string" || !pathname) {
     return "/";
   }
@@ -21,8 +29,8 @@ function normalizePathForMatch(pathname) {
   return trimmed || "/";
 }
 
-function normalizeTabStateBaseUrl(value) {
-  if (!value) {
+function normalizeTabStateBaseUrl(value: unknown): string {
+  if (typeof value !== "string" || !value) {
     return "";
   }
   let parsed = null;
@@ -45,7 +53,7 @@ function normalizeTabStateBaseUrl(value) {
   return `${parsed.protocol}//${hostname}${pathname === "/" ? "" : pathname}`;
 }
 
-export function getTabStateKey(tabId, scope = null) {
+export function getTabStateKey(tabId: unknown, scope: string | null = null): string {
   const normalizedTabId = normalizeTabId(tabId);
   if (!normalizedTabId) {
     return "";
@@ -54,7 +62,7 @@ export function getTabStateKey(tabId, scope = null) {
   return `${TAB_STATE_PREFIX}${normalizedScope}${normalizedTabId}`;
 }
 
-export function getScriptInjectedKey(tabId) {
+export function getScriptInjectedKey(tabId: unknown): string {
   const normalizedTabId = normalizeTabId(tabId);
   if (!normalizedTabId) {
     return "";
@@ -62,7 +70,7 @@ export function getScriptInjectedKey(tabId) {
   return `${SCRIPT_INJECTED_PREFIX}${normalizedTabId}`;
 }
 
-export function parseTabStateStorageKey(key) {
+export function parseTabStateStorageKey(key: unknown): { tabId: number; scope: string | null } | null {
   if (typeof key !== "string" || !key.startsWith(TAB_STATE_PREFIX)) {
     return null;
   }
@@ -83,7 +91,7 @@ export function parseTabStateStorageKey(key) {
   };
 }
 
-export function normalizeTabSessionState(value) {
+export function normalizeTabSessionState(value: TabSessionState): TabSessionState {
   if (!value || typeof value !== "object") {
     return value;
   }
@@ -103,12 +111,12 @@ export function normalizeTabSessionState(value) {
   };
 }
 
-export function queueTabSessionWrite(tabId, work) {
+export function queueTabSessionWrite<T>(tabId: unknown, work: QueueableWork<T>): Promise<T | null> {
   const normalizedTabId = normalizeTabId(tabId);
   if (!normalizedTabId || typeof work !== "function") {
     return Promise.resolve(null);
   }
-  const previous = TAB_SESSION_WRITE_QUEUE_BY_TAB_ID.get(normalizedTabId) || Promise.resolve();
+  const previous = TAB_SESSION_WRITE_QUEUE_BY_TAB_ID.get(normalizedTabId) || Promise.resolve<unknown>(undefined);
   const queued = previous
     .catch(() => {})
     .then(() => work());
@@ -118,21 +126,26 @@ export function queueTabSessionWrite(tabId, work) {
     }
   });
   TAB_SESSION_WRITE_QUEUE_BY_TAB_ID.set(normalizedTabId, settled);
-  return settled;
+  return settled as Promise<T | null>;
 }
 
-export async function getTabState(tabId, scope = null, options = {}) {
+export async function getTabState(tabId: unknown, scope: string | null = null, options: TabSessionOptions = {}): Promise<TabSessionState> {
   const key = getTabStateKey(tabId, scope);
   if (!key) {
     return null;
   }
   const useNormalization = options && options.normalize !== false;
   const result = await storageGet(chrome.storage.session, key);
-  const value = result[key] || null;
+  const value = (result[key] as TabSessionState) || null;
   return useNormalization ? normalizeTabSessionState(value) : value;
 }
 
-export async function setTabState(tabId, state, scope = null, options = {}) {
+export async function setTabState(
+  tabId: unknown,
+  state: TabSessionState,
+  scope: string | null = null,
+  options: TabSessionOptions = {}
+): Promise<void> {
   const key = getTabStateKey(tabId, scope);
   if (!key) {
     return;
@@ -145,7 +158,7 @@ export async function setTabState(tabId, state, scope = null, options = {}) {
   await queueTabSessionWrite(tabId, () => storageSet(chrome.storage.session, { [key]: normalizedState }));
 }
 
-export async function clearTabState(tabId, options = {}) {
+export async function clearTabState(tabId: unknown, options: TabSessionOptions = {}): Promise<void> {
   const includeRestoreScope = Boolean(options && options.includeRestoreScope);
   const keys = [
     getTabStateKey(tabId),
@@ -161,7 +174,7 @@ export async function clearTabState(tabId, options = {}) {
   await queueTabSessionWrite(tabId, () => storageRemove(chrome.storage.session, keysToRemove));
 }
 
-export async function clearTabStateScope(tabId, scope = null) {
+export async function clearTabStateScope(tabId: unknown, scope: string | null = null): Promise<void> {
   const key = getTabStateKey(tabId, scope);
   if (!key) {
     return;
@@ -169,7 +182,7 @@ export async function clearTabStateScope(tabId, scope = null) {
   await queueTabSessionWrite(tabId, () => storageRemove(chrome.storage.session, key));
 }
 
-export async function isScriptInjected(tabId) {
+export async function isScriptInjected(tabId: unknown): Promise<boolean> {
   const key = getScriptInjectedKey(tabId);
   if (!key) {
     return false;
@@ -178,7 +191,7 @@ export async function isScriptInjected(tabId) {
   return Boolean(result[key]);
 }
 
-export async function setScriptInjected(tabId, injected) {
+export async function setScriptInjected(tabId: unknown, injected: unknown): Promise<void> {
   const key = getScriptInjectedKey(tabId);
   if (!key) {
     return;
@@ -190,7 +203,7 @@ export async function setScriptInjected(tabId, injected) {
   await queueTabSessionWrite(tabId, () => storageRemove(chrome.storage.session, key));
 }
 
-export async function clearScriptInjected(tabId) {
+export async function clearScriptInjected(tabId: unknown): Promise<void> {
   const key = getScriptInjectedKey(tabId);
   if (!key) {
     return;
@@ -198,7 +211,7 @@ export async function clearScriptInjected(tabId) {
   await queueTabSessionWrite(tabId, () => storageRemove(chrome.storage.session, key));
 }
 
-export async function clearTrackedTabSessionState(tabId, options = {}) {
+export async function clearTrackedTabSessionState(tabId: unknown, options: TabSessionOptions = {}): Promise<void> {
   const includeScriptInjected = options.includeScriptInjected !== false;
   const includeRestoreScope = Boolean(options.includeRestoreScope);
   const keys = [

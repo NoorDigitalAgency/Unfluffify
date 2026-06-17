@@ -5,7 +5,6 @@ background/remote-config-sync.ts
 background/remote-network.ts
 background/render-mode-inspector.ts
 background/spinner-operations.ts
-background/tab-session-store.ts
 background.ts
 common/config.ts
 common/emulation.ts
@@ -15,7 +14,6 @@ common/property-lock-background.ts
 common/text.ts
 common/utilities.ts
 common/xpath-utilities.ts
-content/content-main-service-registry.ts
 content/core.ts
 content/explicit-marking-handler.ts
 content-main.ts

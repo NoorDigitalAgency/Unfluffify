@@ -1,33 +1,65 @@
-// @ts-nocheck
-export function createContentMainServiceRegistry(factories) {
-  let pageToastClient = null;
-  let pageSaveReconciliationClearHandler = null;
-  let pageSaveReconciliationPendingHandler = null;
-  let renderModeInspectionClient = null;
-  let renderModeInspectionHandlers = null;
-  let inspectionStatusResolver = null;
-  let pageDraftStatusHandler = null;
-  let pageDraftRevertHandler = null;
-  let pageDraftSaveHandler = null;
-  let aiPreviewCloseHandler = null;
-  let aiPreviewComputeLockHandler = null;
-  let aiPreviewExpandedModeHandler = null;
-  let aiPreviewGetStateHandler = null;
-  let aiPreviewShowHandler = null;
-  let aiPreviewStateResponseBuilder = null;
-  let aiSubmissionXpathsHandler = null;
-  let capturePageSnapshotHandler = null;
-  let collectPageDataHandler = null;
-  let configUpdatedHandler = null;
-  let defaultExclusionsHandler = null;
-  let describeXpathsHandler = null;
-  let explicitMarkingHandler = null;
-  let focusHandler = null;
-  let forceRefreshHandler = null;
-  let invisibleXpathsHandler = null;
-  let propertyLockPortClient = null;
-  let propertyLockStateMachine = null;
-  let visibleXpathsHandler = null;
+type ContentMainServiceFactory = () => unknown;
+
+type ContentMainServiceFactories = {
+  createPageToastClient: ContentMainServiceFactory;
+  createPageSaveReconciliationClearHandler: ContentMainServiceFactory;
+  createPageSaveReconciliationPendingHandler: ContentMainServiceFactory;
+  createRenderModeInspectionClient: ContentMainServiceFactory;
+  createRenderModeInspectionHandlers: ContentMainServiceFactory;
+  createInspectionStatusResolver: ContentMainServiceFactory;
+  createPageDraftStatusHandler: ContentMainServiceFactory;
+  createPageDraftRevertHandler: ContentMainServiceFactory;
+  createPageDraftSaveHandler: ContentMainServiceFactory;
+  createAiPreviewCloseHandler: ContentMainServiceFactory;
+  createAiPreviewComputeLockHandler: ContentMainServiceFactory;
+  createAiPreviewExpandedModeHandler: ContentMainServiceFactory;
+  createAiPreviewGetStateHandler: ContentMainServiceFactory;
+  createAiPreviewShowHandler: ContentMainServiceFactory;
+  createAiPreviewStateResponseBuilder: ContentMainServiceFactory;
+  createAiSubmissionXpathsHandler: ContentMainServiceFactory;
+  createCapturePageSnapshotHandler: ContentMainServiceFactory;
+  createCollectPageDataHandler: ContentMainServiceFactory;
+  createConfigUpdatedHandler: ContentMainServiceFactory;
+  createDefaultExclusionsHandler: ContentMainServiceFactory;
+  createDescribeXpathsHandler: ContentMainServiceFactory;
+  createExplicitMarkingHandler: ContentMainServiceFactory;
+  createFocusHandler: ContentMainServiceFactory;
+  createForceRefreshHandler: ContentMainServiceFactory;
+  createInvisibleXpathsHandler: ContentMainServiceFactory;
+  createPropertyLockPortClient: ContentMainServiceFactory;
+  createPropertyLockStateMachine: ContentMainServiceFactory;
+  createVisibleXpathsHandler: ContentMainServiceFactory;
+};
+
+export function createContentMainServiceRegistry(factories: ContentMainServiceFactories) {
+  let pageToastClient: unknown = null;
+  let pageSaveReconciliationClearHandler: unknown = null;
+  let pageSaveReconciliationPendingHandler: unknown = null;
+  let renderModeInspectionClient: unknown = null;
+  let renderModeInspectionHandlers: unknown = null;
+  let inspectionStatusResolver: unknown = null;
+  let pageDraftStatusHandler: unknown = null;
+  let pageDraftRevertHandler: unknown = null;
+  let pageDraftSaveHandler: unknown = null;
+  let aiPreviewCloseHandler: unknown = null;
+  let aiPreviewComputeLockHandler: unknown = null;
+  let aiPreviewExpandedModeHandler: unknown = null;
+  let aiPreviewGetStateHandler: unknown = null;
+  let aiPreviewShowHandler: unknown = null;
+  let aiPreviewStateResponseBuilder: unknown = null;
+  let aiSubmissionXpathsHandler: unknown = null;
+  let capturePageSnapshotHandler: unknown = null;
+  let collectPageDataHandler: unknown = null;
+  let configUpdatedHandler: unknown = null;
+  let defaultExclusionsHandler: unknown = null;
+  let describeXpathsHandler: unknown = null;
+  let explicitMarkingHandler: unknown = null;
+  let focusHandler: unknown = null;
+  let forceRefreshHandler: unknown = null;
+  let invisibleXpathsHandler: unknown = null;
+  let propertyLockPortClient: unknown = null;
+  let propertyLockStateMachine: unknown = null;
+  let visibleXpathsHandler: unknown = null;
 
   return {
     getPageToastClient() {
