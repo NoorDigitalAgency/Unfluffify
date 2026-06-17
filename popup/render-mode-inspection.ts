@@ -1,25 +1,34 @@
-// @ts-nocheck
-export function normalizeRenderModeDetectionResult(deps, payload) {
+type RenderModeDetectionResult = {
+  result: string;
+  accuracy: number;
+};
+
+export function normalizeRenderModeDetectionResult(
+  deps: any,
+  payload: unknown
+): RenderModeDetectionResult {
   if (!payload || typeof payload !== "object") {
     return { result: "", accuracy: Number.NaN };
   }
-  const accuracy = Number(payload.accuracy);
+  const payloadRecord = payload as { accuracy?: unknown; rendered?: unknown };
+  const accuracy = Number(payloadRecord.accuracy);
   if (!Number.isFinite(accuracy)) {
     return { result: "", accuracy: Number.NaN };
   }
   if (accuracy < deps.RENDER_MODE_DETECTION_MIN_ENDPOINT_ACCURACY) {
     return { result: "unsure", accuracy };
   }
-  if (typeof payload.rendered !== "boolean") {
+  if (typeof payloadRecord.rendered !== "boolean") {
     return { result: "", accuracy: Number.NaN };
   }
   return {
-    result: payload.rendered ? "rendered" : "static",
+    result: payloadRecord.rendered ? "rendered" : "static",
     accuracy
   };
 }
 
-export async function detectRenderModeViaEndpoint(deps, options = {}) {
+// export async function detectRenderModeViaEndpoint(deps, options = {}) {
+export async function detectRenderModeViaEndpoint(deps: any, options: Record<string, unknown> = {}) {
   const {
     rawHtml = "",
     renderedHtml = ""
@@ -76,7 +85,7 @@ export async function detectRenderModeViaEndpoint(deps, options = {}) {
   return { ok: false, result: "", accuracy: Number.NaN };
 }
 
-export async function maybeAutoDetectRenderMode(deps, pageUrl) {
+export async function maybeAutoDetectRenderMode(deps: any, pageUrl: unknown) {
   const { state } = deps;
   if (
     !pageUrl ||
@@ -156,7 +165,11 @@ export async function maybeAutoDetectRenderMode(deps, pageUrl) {
   }
 }
 
-export async function waitForTabLoadStart(deps, tabId, timeoutMs = deps.RENDER_MODE_INSPECTION_START_TIMEOUT_MS) {
+export async function waitForTabLoadStart(
+  deps: any,
+  tabId: number,
+  timeoutMs = deps.RENDER_MODE_INSPECTION_START_TIMEOUT_MS
+) {
   if (!tabId) {
     return false;
   }
@@ -164,7 +177,7 @@ export async function waitForTabLoadStart(deps, tabId, timeoutMs = deps.RENDER_M
   return new Promise((resolve) => {
     let settled = false;
 
-    const finish = (value) => {
+    const finish = (value: boolean) => {
       if (settled) {
         return;
       }
@@ -174,7 +187,7 @@ export async function waitForTabLoadStart(deps, tabId, timeoutMs = deps.RENDER_M
       resolve(value);
     };
 
-    const onUpdated = (updatedTabId, changeInfo) => {
+    const onUpdated = (updatedTabId: number, changeInfo: any) => {
       if (updatedTabId !== tabId) {
         return;
       }
@@ -191,7 +204,7 @@ export async function waitForTabLoadStart(deps, tabId, timeoutMs = deps.RENDER_M
     }, timeoutMs);
 
     deps.chromeRef.tabs.onUpdated.addListener(onUpdated);
-    deps.chromeRef.tabs.get(tabId, (tab) => {
+    deps.chromeRef.tabs.get(tabId, (tab: any) => {
       if (deps.chromeRef.runtime.lastError) {
         finish(false);
         return;
@@ -204,10 +217,10 @@ export async function waitForTabLoadStart(deps, tabId, timeoutMs = deps.RENDER_M
 }
 
 export async function waitForTabLoadComplete(
-  deps,
-  tabId,
+  deps: any,
+  tabId: number,
   timeoutMs = deps.RENDER_MODE_INSPECTION_LOAD_TIMEOUT_MS,
-  options = {}
+  options: Record<string, unknown> = {}
 ) {
   if (!tabId) {
     return false;
@@ -219,7 +232,7 @@ export async function waitForTabLoadComplete(
     let settled = false;
     let sawLoading = !awaitNextLoad;
 
-    const finish = (value) => {
+    const finish = (value: boolean) => {
       if (settled) {
         return;
       }
@@ -229,7 +242,7 @@ export async function waitForTabLoadComplete(
       resolve(value);
     };
 
-    const onUpdated = (updatedTabId, changeInfo) => {
+    const onUpdated = (updatedTabId: number, changeInfo: any) => {
       if (updatedTabId !== tabId) {
         return;
       }
@@ -247,7 +260,7 @@ export async function waitForTabLoadComplete(
     }, timeoutMs);
 
     deps.chromeRef.tabs.onUpdated.addListener(onUpdated);
-    deps.chromeRef.tabs.get(tabId, (tab) => {
+    deps.chromeRef.tabs.get(tabId, (tab: any) => {
       if (deps.chromeRef.runtime.lastError) {
         finish(false);
         return;
@@ -259,7 +272,7 @@ export async function waitForTabLoadComplete(
   });
 }
 
-export async function completeRenderModeInspectionReloadFollowUp(deps, tabId, operationId = "") {
+export async function completeRenderModeInspectionReloadFollowUp(deps: any, tabId: number, operationId = "") {
   const loadCompleted = await waitForTabLoadComplete(
     deps,
     tabId,

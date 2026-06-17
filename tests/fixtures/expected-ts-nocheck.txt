@@ -19,7 +19,6 @@ popup/messages.ts
 popup/page-reconciliation.ts
 popup/property-lock-ui.ts
 popup/remote-config.ts
-popup/render-mode-inspection.ts
 popup/site-resolution.ts
 popup.ts
 popup/ui.ts
