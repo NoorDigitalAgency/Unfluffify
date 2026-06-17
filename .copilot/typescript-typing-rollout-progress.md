@@ -6,7 +6,7 @@ Current phase: Phase 1 (leaf modules)
 ## Baseline
 - Branch: feat/typescript-deno-port
 - Full tests baseline: 847 pass / 0 fail
-- Current runtime @ts-nocheck count: 8
+- Current runtime @ts-nocheck count: 7
 - Ratchet allowlist: tests/fixtures/expected-ts-nocheck.txt
 
 ## Checkpoints
@@ -54,6 +54,7 @@ Current phase: Phase 1 (leaf modules)
 - [2026-06-17] Phase 1 batch 38 completed (micro): removed `@ts-nocheck` from `background/remote-config-sync.ts` while preserving regex-locked exported signatures by using targeted signature suppressions plus local `options`/config/indexed-object casts and normalized-entry guards; strict check, background-remote-config-sync/popup-marking-refresh/ai-run/property-lock suites, and full-suite coverage passing.
 - [2026-06-17] Phase 1 batch 39 completed (micro): removed `@ts-nocheck` from `background/ai-run-orchestrator.ts` with targeted source-contract suppressions plus local options/payload casting and typed snapshot/backfill guards, while restoring regex-locked source expressions (`storedPageEntries = Object.entries(pageMarkings)`, credential payload fields, and `renderedXPaths: buildAiSubmissionXpaths(entry)`); strict check, ai-run-orchestrator/ai-run/background-decomposition/popup-marking-refresh suites, and full-suite coverage passing.
 - [2026-06-17] Phase 1 batch 40 completed (micro): removed `@ts-nocheck` from `common/utilities.ts` with explicit parameter annotations and targeted signature-preserving suppressions for regex-locked tab-state helpers, while keeping source-contract lines unchanged for device-emulation lifecycle assertions; strict check, device-emulation/storage/settings/popup-marking-refresh suites, and full-suite coverage passing.
+- [2026-06-17] Phase 1 batch 41 completed (micro): removed `@ts-nocheck` from `common/page-motion-freeze-control.ts` using JS-safe line-level suppressions (no TS syntax) mirrored into the bridge copy to preserve enforced control/bridge function-body parity and avoid document_start eval syntax regressions; strict check, page-motion-freeze/page-motion-freeze-bridge/page-motion-bridge-isolation suites, and full-suite coverage passing.
 
 ## Notes
 - PoC typed module already merged: background/tab-operation-runner.ts and types/operations.ts.
