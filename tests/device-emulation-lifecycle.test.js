@@ -463,17 +463,17 @@ test("disabled mobile emulation remains a per-session choice after navigation cl
 test("device emulation debugger operations serialize per tab", () => {
   const queueBlock = extractSourceBlock(
     emulationSource,
-    "async function runDeviceEmulationOperation(tabId: any, operation: any) {",
+    "async function runDeviceEmulationOperation(tabId: number, operation: () => unknown) {",
     "function getDebuggerTargets()"
   );
   const updateBlock = extractSourceBlock(
     emulationSource,
-    "export async function updateDeviceEmulation(tabId: any, updates: any) {",
+    "export async function updateDeviceEmulation(tabId: number, updates: DeviceEmulationUpdate): Promise<DeviceEmulationResult> {",
     "export async function ensureDefaultMobileDeviceEmulation"
   );
   const cleanupBlock = extractSourceBlock(
     emulationSource,
-    "export async function clearDeviceEmulationAfterNavigation(tabId: any) {",
+    "export async function clearDeviceEmulationAfterNavigation(tabId: number) {",
     "\n  });\n}"
   );
 
@@ -487,7 +487,7 @@ test("device emulation debugger operations serialize per tab", () => {
   assert.match(emulationSource, /export async function clearDeviceEmulationState\(tabId(?:\s*:\s*[^)]+)?\) \{/);
   assert.match(emulationSource, /runDeviceEmulationOperation\(tabId, async \(\) => \{/);
   assert.match(emulationSource, /runDeviceEmulationOperation\(tabId, \(\) => storageRemove\(chrome\.storage\.session, key\)\)/);
-  assert.match(updateBlock, /return runDeviceEmulationOperation\(tabId, async \(\) => \{/);
+  assert.match(updateBlock, /return runDeviceEmulationOperation\(tabId, async \(\)(?:\s*:\s*[^=]+)? => \{/);
   assert.match(cleanupBlock, /return runDeviceEmulationOperation\(tabId, async \(\) => \{/);
 });
 
