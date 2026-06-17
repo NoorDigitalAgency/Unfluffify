@@ -1,19 +1,18 @@
-// @ts-nocheck
 import * as utils from "../common/utilities.js";
 
 export const TRANSFER_PAYLOAD_KEY_PREFIX = "remote-config-";
 const DEFAULT_TRANSFER_PAYLOAD_MAX_AGE_MS = 5 * 60_000;
 
-function normalizePayloadKey(payloadKey) {
+function normalizePayloadKey(payloadKey: unknown): string {
   return typeof payloadKey === "string" ? payloadKey.trim() : "";
 }
 
-function normalizeScope(scope) {
+function normalizeScope(scope: unknown): string {
   const normalized = typeof scope === "string" ? scope.trim() : "";
   return normalized || "payload";
 }
 
-function normalizeExpectedType(expectedType) {
+function normalizeExpectedType(expectedType: unknown): "array" | "object" | "any" {
   if (expectedType === "array") {
     return "array";
   }
@@ -23,7 +22,7 @@ function normalizeExpectedType(expectedType) {
   return "any";
 }
 
-function payloadMatchesExpectedType(payload, expectedType) {
+function payloadMatchesExpectedType(payload: unknown, expectedType: "array" | "object" | "any"): boolean {
   if (expectedType === "array") {
     return Array.isArray(payload);
   }
@@ -33,12 +32,17 @@ function payloadMatchesExpectedType(payload, expectedType) {
   return true;
 }
 
-export function buildTransferPayloadKey(scope = "payload") {
+export function buildTransferPayloadKey(scope = "payload"): string {
   const normalizedScope = normalizeScope(scope);
   return `${TRANSFER_PAYLOAD_KEY_PREFIX}${normalizedScope}:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`;
 }
 
-export function parseTransferPayloadKey(key) {
+export function parseTransferPayloadKey(key: unknown): {
+  key: string;
+  scope: string;
+  timestamp: number;
+  nonce: string;
+} | null {
   const normalizedKey = normalizePayloadKey(key);
   if (!normalizedKey.startsWith(TRANSFER_PAYLOAD_KEY_PREFIX)) {
     return null;
@@ -62,8 +66,13 @@ export function parseTransferPayloadKey(key) {
   };
 }
 
-export async function putTransferPayload(scope, payload, options = {}) {
-  const payloadKey = normalizePayloadKey(options.payloadKey) || buildTransferPayloadKey(scope);
+export async function putTransferPayload(
+  scope: unknown,
+  payload: unknown,
+  options: { payloadKey?: unknown } = {}
+): Promise<{ ok: boolean; reason?: string; payloadKey: string }> {
+  const scopeForKey = typeof scope === "string" ? scope : "payload";
+  const payloadKey = normalizePayloadKey(options.payloadKey) || buildTransferPayloadKey(scopeForKey);
   try {
     await utils.storageSet(chrome.storage.session, { [payloadKey]: payload });
     return { ok: true, payloadKey };
@@ -72,7 +81,10 @@ export async function putTransferPayload(scope, payload, options = {}) {
   }
 }
 
-export async function getTransferPayload(payloadKey, options = {}) {
+export async function getTransferPayload(
+  payloadKey: unknown,
+  options: { expectedType?: unknown; removeInvalid?: boolean } = {}
+): Promise<{ ok: boolean; reason?: string; payloadKey: string; payload?: unknown }> {
   const normalizedPayloadKey = normalizePayloadKey(payloadKey);
   if (!normalizedPayloadKey) {
     return { ok: false, reason: "missing_key", payloadKey: "" };
@@ -107,7 +119,10 @@ export async function getTransferPayload(payloadKey, options = {}) {
   };
 }
 
-export async function consumeTransferPayload(payloadKey, options = {}) {
+export async function consumeTransferPayload(
+  payloadKey: unknown,
+  options: { expectedType?: unknown; removeInvalid?: boolean } = {}
+): Promise<{ ok: boolean; reason?: string; payloadKey: string; payload?: unknown }> {
   const loaded = await getTransferPayload(payloadKey, options);
   if (!loaded.ok) {
     return loaded;
@@ -121,7 +136,7 @@ export async function consumeTransferPayload(payloadKey, options = {}) {
   return loaded;
 }
 
-export async function removeTransferPayload(payloadKey) {
+export async function removeTransferPayload(payloadKey: unknown): Promise<{ ok: boolean; reason?: string; payloadKey: string }> {
   const normalizedPayloadKey = normalizePayloadKey(payloadKey);
   if (!normalizedPayloadKey) {
     return { ok: false, reason: "missing_key", payloadKey: "" };
@@ -135,11 +150,12 @@ export async function removeTransferPayload(payloadKey) {
 }
 
 export async function sweepStaleTransferPayloads(options = {}) {
-  const maxAgeMs = Number(options.maxAgeMs);
+  const resolvedOptions = options as { maxAgeMs?: unknown; now?: unknown };
+  const maxAgeMs = Number(resolvedOptions.maxAgeMs);
   const effectiveMaxAgeMs = Number.isFinite(maxAgeMs) && maxAgeMs > 0
     ? maxAgeMs
     : DEFAULT_TRANSFER_PAYLOAD_MAX_AGE_MS;
-  const nowValue = Number(options.now);
+  const nowValue = Number(resolvedOptions.now);
   const now = Number.isFinite(nowValue) ? nowValue : Date.now();
 
   let allSession = null;
@@ -177,7 +193,11 @@ export async function sweepStaleTransferPayloads(options = {}) {
   }
 }
 
-export function summarizeTransferPayloadForLog(payload) {
+export function summarizeTransferPayloadForLog(payload: unknown): {
+  type: string;
+  keys: string[];
+  byteEstimate: number;
+} {
   const type = Array.isArray(payload) ? "array" : typeof payload;
   const keys = payload && typeof payload === "object" && !Array.isArray(payload)
     ? Object.keys(payload)

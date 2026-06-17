@@ -6,7 +6,7 @@ Current phase: Phase 1 (leaf modules)
 ## Baseline
 - Branch: feat/typescript-deno-port
 - Full tests baseline: 847 pass / 0 fail
-- Current runtime @ts-nocheck count: 38
+- Current runtime @ts-nocheck count: 34
 - Ratchet allowlist: tests/fixtures/expected-ts-nocheck.txt
 
 ## Checkpoints
@@ -28,6 +28,7 @@ Current phase: Phase 1 (leaf modules)
 - [2026-06-17] Phase 1 batch 12 completed: removed `@ts-nocheck` from nine medium modules (command ledger, shared inclusion, world trace, config-updated handler, property-lock banner mode, page toast, content loader, popup ai-run helpers, and content command router), while preserving source-contract signatures used by tests.
 - [2026-06-17] Phase 1 batch 13 completed (micro): removed `@ts-nocheck` from four modules (`background/network-core.ts`, `content/marking-rules.ts`, `content/property-lock-port-client.ts`, `popup/state.ts`) and kept `popup/page-reconciliation.ts` deferred due strict source-contract matching constraints.
 - [2026-06-17] Phase 1 batch 14 completed (micro): removed `@ts-nocheck` from four modules (`popup/helpers.ts`, `content/page-draft-save-handler.ts`, `content/render-mode-inspection-handlers.ts`, `background/tab-runtime.ts`) with source-contract-compatible handler signatures preserved where required.
+- [2026-06-17] Phase 1 batch 15 completed (micro): removed `@ts-nocheck` from four modules (`background/popup-state-broker.ts`, `background/tab-inactivity-observer.ts`, `content/shared-selector-cache.ts`, `background/transfer-payload-store.ts`) while preserving source-contract regex compatibility in lifecycle and transfer-payload tests.
 
 ## Notes
 - PoC typed module already merged: background/tab-operation-runner.ts and types/operations.ts.

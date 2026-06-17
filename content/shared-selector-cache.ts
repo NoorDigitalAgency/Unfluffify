@@ -1,6 +1,5 @@
-// @ts-nocheck
-const selectorQueryCache = new Map()
-const selectorQueryRootIds = new WeakMap()
+const selectorQueryCache = new Map<string, { nodes: Set<Element>; selectorByNode: Map<Element, string> }>()
+const selectorQueryRootIds = new WeakMap<object, string>()
 
 let selectorQueryRootIdCounter = 1
 
@@ -16,11 +15,11 @@ export const SELECTOR_LIST_DELIMITER = "\u001f"
 // higher-level cache dimensions from the selector list delimiter above.
 export const CACHE_KEY_COMPONENT_SEPARATOR = "\u001e"
 
-function normalizeSelectorList(selectors) {
+function normalizeSelectorList(selectors: unknown): string[] {
   if (!Array.isArray(selectors)) {
     return []
   }
-  const normalized = []
+  const normalized: string[] = []
   const seen = new Set()
   selectors.forEach((rawSelector) => {
     if (typeof rawSelector !== "string") {
@@ -36,19 +35,19 @@ function normalizeSelectorList(selectors) {
   return normalized
 }
 
-function getSelectorQueryRootId(root) {
+function getSelectorQueryRootId(root: unknown): string {
   if (!root || (typeof root !== "object" && typeof root !== "function")) {
     return ""
   }
   if (selectorQueryRootIds.has(root)) {
-    return selectorQueryRootIds.get(root)
+    return selectorQueryRootIds.get(root) || ""
   }
   const nextId = `selector-root-${selectorQueryRootIdCounter++}`
   selectorQueryRootIds.set(root, nextId)
   return nextId
 }
 
-export function getSelectorFingerprint(selectors) {
+export function getSelectorFingerprint(selectors: unknown): string {
   return normalizeSelectorList(selectors).join(SELECTOR_LIST_DELIMITER)
 }
 
@@ -58,7 +57,13 @@ function buildSelectorCacheKey({
   rootId = "",
   selectors = "",
   suppressionFingerprint = ""
-} = {}) {
+}: {
+  pageUrl?: string;
+  scope?: string;
+  rootId?: string;
+  selectors?: string;
+  suppressionFingerprint?: string;
+} = {}): string {
   return [
     pageUrl,
     scope,
@@ -77,7 +82,13 @@ export function invalidateSharedSelectorCache({
   config = false,
   pageMarkings = false,
   reset = false
-} = {}) {
+}: {
+  domStructure?: boolean;
+  geometry?: boolean;
+  config?: boolean;
+  pageMarkings?: boolean;
+  reset?: boolean;
+} = {}): void {
   if (reset) {
     domStructureGeneration = 0
     geometryGeneration = 0
@@ -119,7 +130,15 @@ export function collectCachedSelectorMatches({
   suppressionFingerprint = "",
   includeSelectorByNode = false,
   shouldIncludeNode = null
-} = {}) {
+}: {
+  root?: ParentNode | null;
+  selectors?: unknown;
+  pageUrl?: unknown;
+  scope?: unknown;
+  suppressionFingerprint?: unknown;
+  includeSelectorByNode?: boolean;
+  shouldIncludeNode?: ((node: Element, selector: string) => boolean) | null;
+} = {}): { nodes: Set<Element>; selectorByNode: Map<Element, string>; fingerprint: string } {
   if (!root || typeof root.querySelectorAll !== "function") {
     return { nodes: new Set(), selectorByNode: new Map(), fingerprint: "" }
   }
@@ -150,8 +169,8 @@ export function collectCachedSelectorMatches({
     }
   }
 
-  const nodes = new Set()
-  const selectorByNode = new Map()
+  const nodes = new Set<Element>()
+  const selectorByNode = new Map<Element, string>()
   normalizedSelectors.forEach((selector) => {
     try {
       for (const node of root.querySelectorAll(selector)) {

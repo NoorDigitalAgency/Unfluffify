@@ -1,45 +1,52 @@
-// @ts-nocheck
 const DEFAULT_ALARM_PREFIX = "unfluffify-tab-inactivity:";
 const DEFAULT_INACTIVITY_TIMEOUT_MS = 30_000;
 
-function normalizeTabId(value) {
+function normalizeTabId(value: unknown): number | null {
   const numeric = Number(value);
   return Number.isFinite(numeric) && numeric > 0 ? Math.trunc(numeric) : null;
 }
 
-function normalizeScope(value) {
+function normalizeScope(value: unknown): string {
   return typeof value === "string" && value.trim() ? value.trim() : "default";
 }
 
-function getAlarmsApi(chromeRef) {
+function getAlarmsApi(chromeRef: typeof chrome | null): typeof chrome.alarms | null {
   return chromeRef && chromeRef.alarms && typeof chromeRef.alarms.create === "function"
     ? chromeRef.alarms
     : null;
 }
 
-export function createTabInactivityObserver(options = {}) {
+type TabInactivityObserverOptions = {
+  chromeRef?: typeof chrome | null;
+  alarmPrefix?: unknown;
+  defaultTimeoutMs?: unknown;
+  now?: () => number;
+};
+
+export function createTabInactivityObserver(options: TabInactivityObserverOptions = {}) {
   const chromeRef = options.chromeRef || globalThis.chrome || null;
   const alarmPrefix = typeof options.alarmPrefix === "string" && options.alarmPrefix
     ? options.alarmPrefix
     : DEFAULT_ALARM_PREFIX;
-  const defaultTimeoutMs = Number.isFinite(options.defaultTimeoutMs) && options.defaultTimeoutMs > 0
-    ? Math.trunc(options.defaultTimeoutMs)
+  const defaultTimeoutMsValue = options.defaultTimeoutMs;
+  const defaultTimeoutMs = Number.isFinite(defaultTimeoutMsValue) && (defaultTimeoutMsValue as number) > 0
+    ? Math.trunc(defaultTimeoutMsValue as number)
     : DEFAULT_INACTIVITY_TIMEOUT_MS;
   const now = typeof options.now === "function" ? options.now : () => Date.now();
-  const listeners = new Set();
-  const scheduledByKey = new Map();
+  const listeners = new Set<(event: Record<string, unknown>) => unknown>();
+  const scheduledByKey = new Map<string, Record<string, unknown>>();
 
-  function buildKey(tabId, scope) {
+  function buildKey(tabId: unknown, scope: unknown): string {
     const normalizedTabId = normalizeTabId(tabId);
     return normalizedTabId ? `${normalizeScope(scope)}:${normalizedTabId}` : "";
   }
 
-  function buildAlarmName(tabId, scope) {
+  function buildAlarmName(tabId: unknown, scope: unknown): string {
     const key = buildKey(tabId, scope);
     return key ? `${alarmPrefix}${key}` : "";
   }
 
-  function parseAlarmName(alarmName) {
+  function parseAlarmName(alarmName: unknown): { key: string; scope: string; tabId: number } | null {
     if (typeof alarmName !== "string" || !alarmName.startsWith(alarmPrefix)) {
       return null;
     }
@@ -59,7 +66,7 @@ export function createTabInactivityObserver(options = {}) {
     };
   }
 
-  async function notify(event) {
+  async function notify(event: Record<string, unknown>): Promise<void> {
     const normalizedEvent = {
       observedAt: now(),
       ...event
@@ -69,7 +76,7 @@ export function createTabInactivityObserver(options = {}) {
     }
   }
 
-  async function clearTab(tabId, options = {}) {
+  async function clearTab(tabId: unknown, options: { scope?: unknown } = {}): Promise<boolean> {
     const normalizedTabId = normalizeTabId(tabId);
     if (!normalizedTabId) {
       return false;
@@ -84,7 +91,7 @@ export function createTabInactivityObserver(options = {}) {
     return true;
   }
 
-  async function hasPendingSchedule(key, alarmName) {
+  async function hasPendingSchedule(key: string, alarmName: string): Promise<boolean> {
     if (scheduledByKey.has(key)) {
       return true;
     }
@@ -98,7 +105,10 @@ export function createTabInactivityObserver(options = {}) {
     return false;
   }
 
-  async function scheduleInactive(tabId, options = {}) {
+  async function scheduleInactive(
+    tabId: unknown,
+    options: { scope?: unknown; refresh?: unknown; timeoutMs?: unknown; reason?: unknown } = {}
+  ): Promise<boolean> {
     const normalizedTabId = normalizeTabId(tabId);
     if (!normalizedTabId) {
       return false;
@@ -114,8 +124,9 @@ export function createTabInactivityObserver(options = {}) {
     if (!options.refresh && (await hasPendingSchedule(key, alarmName))) {
       return true;
     }
-    const timeoutMs = Number.isFinite(options.timeoutMs) && options.timeoutMs > 0
-      ? Math.trunc(options.timeoutMs)
+    const timeoutMsValue = options.timeoutMs;
+    const timeoutMs = Number.isFinite(timeoutMsValue) && (timeoutMsValue as number) > 0
+      ? Math.trunc(timeoutMsValue as number)
       : defaultTimeoutMs;
     const deadlineAt = now() + timeoutMs;
     scheduledByKey.set(key, {
@@ -138,7 +149,10 @@ export function createTabInactivityObserver(options = {}) {
     return true;
   }
 
-  async function recordActivity(tabId, options = {}) {
+  async function recordActivity(
+    tabId: unknown,
+    options: { scope?: unknown; source?: unknown; pageUrl?: unknown } = {}
+  ): Promise<boolean> {
     const normalizedTabId = normalizeTabId(tabId);
     if (!normalizedTabId) {
       return false;
@@ -153,7 +167,7 @@ export function createTabInactivityObserver(options = {}) {
     return true;
   }
 
-  async function handleAlarm(alarm) {
+  async function handleAlarm(alarm: { name?: unknown } | null | undefined): Promise<boolean> {
     const parsed = parseAlarmName(alarm && alarm.name);
     if (!parsed) {
       return false;
@@ -166,18 +180,19 @@ export function createTabInactivityObserver(options = {}) {
       scope: parsed.scope,
       reason: typeof scheduled.reason === "string" ? scheduled.reason : "",
       deadlineAt: Number.isFinite(scheduled.deadlineAt) ? scheduled.deadlineAt : 0,
-      alarmName: alarm.name
+      alarmName: alarm?.name
     });
     return true;
   }
 
-  function subscribe(listener) {
+  function subscribe(listener: unknown): () => void {
     if (typeof listener !== "function") {
       return () => {};
     }
-    listeners.add(listener);
+    const normalizedListener = listener as (event: Record<string, unknown>) => unknown;
+    listeners.add(normalizedListener);
     return () => {
-      listeners.delete(listener);
+      listeners.delete(normalizedListener);
     };
   }
 

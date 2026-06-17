@@ -1,14 +1,11 @@
 background/ai-run-orchestrator.ts
 background/command-router.ts
 background/live-page-client.ts
-background/popup-state-broker.ts
 background/remote-config-sync.ts
 background/remote-network.ts
 background/render-mode-inspector.ts
 background/spinner-operations.ts
-background/tab-inactivity-observer.ts
 background/tab-session-store.ts
-background/transfer-payload-store.ts
 background.ts
 common/config.ts
 common/emulation.ts
@@ -26,7 +23,6 @@ content/page-world-relay.ts
 content/property-lock-banner.ts
 content/property-lock-state-machine.ts
 content/runtime-message-handler.ts
-content/shared-selector-cache.ts
 popup/messages.ts
 popup/page-reconciliation.ts
 popup/property-lock-ui.ts

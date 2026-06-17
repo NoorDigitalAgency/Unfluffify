@@ -1,4 +1,3 @@
-// @ts-nocheck
 import {
   LIFECYCLE_KINDS,
   LIFECYCLE_PHASES,
@@ -8,59 +7,75 @@ import {
   isLifecycleTerminalPhase
 } from "../common/world-messaging-contract.js";
 
-function defaultNormalizeTabId(value) {
+type LifecycleState = Record<string, unknown>;
+type SpinnerEntry = Record<string, unknown>;
+type TraceState = { events: unknown[] };
+
+type PopupStateBrokerOptions = {
+  lifecycleStateByTabId?: Map<number, LifecycleState>;
+  spinnerQueueByTabId?: Map<number, Map<string, SpinnerEntry>>;
+  popupStatePortsByTabId?: Map<number, Set<chrome.runtime.Port>>;
+  normalizeTabId?: (value: unknown) => number | null;
+  appendTrace?: (tabId: number, channel: string, event: string, payload: Record<string, unknown>) => void;
+  ensureTraceState?: (tabId: number | null) => TraceState;
+  isWorldTraceEnabled?: () => boolean;
+  updateRuntime?: (tabId: number, patch: Record<string, unknown>) => void;
+};
+
+function defaultNormalizeTabId(value: unknown): number | null {
   const numeric = Number(value);
   return Number.isFinite(numeric) && numeric > 0 ? Math.trunc(numeric) : null;
 }
 
-function defaultEnsureTraceState() {
+function defaultEnsureTraceState(): TraceState {
   return { events: [] };
 }
 
-function defaultUpdateRuntime() {}
+function defaultUpdateRuntime(): void {}
 
-function defaultIsWorldTraceEnabled() {
+function defaultIsWorldTraceEnabled(): boolean {
   return false;
 }
 
 export function createPopupStateBroker(options = {}) {
-  const lifecycleStateByTabId = options.lifecycleStateByTabId instanceof Map
-    ? options.lifecycleStateByTabId
-    : new Map();
-  const spinnerQueueByTabId = options.spinnerQueueByTabId instanceof Map
-    ? options.spinnerQueueByTabId
-    : new Map();
-  const popupStatePortsByTabId = options.popupStatePortsByTabId instanceof Map
-    ? options.popupStatePortsByTabId
-    : new Map();
-  const normalizeTabId = typeof options.normalizeTabId === "function"
-    ? options.normalizeTabId
+  const typedOptions = options as PopupStateBrokerOptions;
+  const lifecycleStateByTabId = typedOptions.lifecycleStateByTabId instanceof Map
+    ? typedOptions.lifecycleStateByTabId
+    : new Map<number, LifecycleState>();
+  const spinnerQueueByTabId = typedOptions.spinnerQueueByTabId instanceof Map
+    ? typedOptions.spinnerQueueByTabId
+    : new Map<number, Map<string, SpinnerEntry>>();
+  const popupStatePortsByTabId = typedOptions.popupStatePortsByTabId instanceof Map
+    ? typedOptions.popupStatePortsByTabId
+    : new Map<number, Set<chrome.runtime.Port>>();
+  const normalizeTabId = typeof typedOptions.normalizeTabId === "function"
+    ? typedOptions.normalizeTabId
     : defaultNormalizeTabId;
-  const appendTrace = typeof options.appendTrace === "function"
-    ? options.appendTrace
-    : () => {};
-  const ensureTraceState = typeof options.ensureTraceState === "function"
-    ? options.ensureTraceState
+  const appendTrace = typeof typedOptions.appendTrace === "function"
+    ? typedOptions.appendTrace
+    : () => undefined;
+  const ensureTraceState = typeof typedOptions.ensureTraceState === "function"
+    ? typedOptions.ensureTraceState
     : defaultEnsureTraceState;
-  const isWorldTraceEnabled = typeof options.isWorldTraceEnabled === "function"
-    ? options.isWorldTraceEnabled
+  const isWorldTraceEnabled = typeof typedOptions.isWorldTraceEnabled === "function"
+    ? typedOptions.isWorldTraceEnabled
     : defaultIsWorldTraceEnabled;
-  const updateRuntime = typeof options.updateRuntime === "function"
-    ? options.updateRuntime
+  const updateRuntime = typeof typedOptions.updateRuntime === "function"
+    ? typedOptions.updateRuntime
     : defaultUpdateRuntime;
 
-  function getSpinnerQueueForTab(tabId) {
+  function getSpinnerQueueForTab(tabId: unknown): Map<string, SpinnerEntry> | null {
     const normalizedTabId = normalizeTabId(tabId);
     if (!normalizedTabId) {
       return null;
     }
     if (!spinnerQueueByTabId.has(normalizedTabId)) {
-      spinnerQueueByTabId.set(normalizedTabId, new Map());
+      spinnerQueueByTabId.set(normalizedTabId, new Map<string, SpinnerEntry>());
     }
-    return spinnerQueueByTabId.get(normalizedTabId);
+    return spinnerQueueByTabId.get(normalizedTabId) || null;
   }
 
-  function serializeSpinnerQueue(tabId) {
+  function serializeSpinnerQueue(tabId: number): Array<Record<string, unknown>> {
     const queue = spinnerQueueByTabId.get(tabId);
     if (!queue || queue.size === 0) {
       return [];
@@ -76,7 +91,7 @@ export function createPopupStateBroker(options = {}) {
     }));
   }
 
-  function buildBrokerState(tabId) {
+  function buildBrokerState(tabId: unknown): Record<string, unknown> {
     const normalizedTabId = normalizeTabId(tabId);
     const traceState = ensureTraceState(normalizedTabId);
     return {
@@ -89,7 +104,7 @@ export function createPopupStateBroker(options = {}) {
     };
   }
 
-  function broadcastBrokerState(tabId) {
+  function broadcastBrokerState(tabId: unknown): void {
     const normalizedTabId = normalizeTabId(tabId);
     if (!normalizedTabId) {
       return;
@@ -108,7 +123,10 @@ export function createPopupStateBroker(options = {}) {
     });
   }
 
-  function clearNavInspectCurtain(normalizedTabId) {
+  // function clearNavInspectCurtain(normalizedTabId) {
+  //   queue.delete(SPINNER_KEYS.NAV_INSPECT)
+  // }
+  function clearNavInspectCurtain(normalizedTabId: number): boolean {
     const queue = spinnerQueueByTabId.get(normalizedTabId);
     if (!queue || !queue.delete(SPINNER_KEYS.NAV_INSPECT)) {
       return false;
@@ -127,17 +145,19 @@ export function createPopupStateBroker(options = {}) {
     return true;
   }
 
-  function updateLifecycleState(tabId, event = {}) {
+  // function updateLifecycleState(tabId, event = {}) {
+  function updateLifecycleState(tabId: unknown, event: unknown = {}) {
     const normalizedTabId = normalizeTabId(tabId);
     if (!normalizedTabId || !event || typeof event !== "object") {
       return buildBrokerState(normalizedTabId);
     }
+    const eventRecord = event as Record<string, unknown>;
     const previous = lifecycleStateByTabId.get(normalizedTabId) || {};
-    const eventOperationId = typeof event.operationId === "string" && event.operationId
-      ? event.operationId
+    const eventOperationId = typeof eventRecord.operationId === "string" && eventRecord.operationId
+      ? eventRecord.operationId
       : "";
-    const eventPhase = typeof event.phase === "string" && event.phase ? event.phase : "";
-    const eventKind = typeof event.kind === "string" && event.kind ? event.kind : "";
+    const eventPhase = typeof eventRecord.phase === "string" && eventRecord.phase ? eventRecord.phase : "";
+    const eventKind = typeof eventRecord.kind === "string" && eventRecord.kind ? eventRecord.kind : "";
     const isTerminalEvent = isLifecycleTerminalPhase(eventPhase);
     if (
       eventOperationId &&
@@ -160,17 +180,19 @@ export function createPopupStateBroker(options = {}) {
       clearNavInspectCurtain(normalizedTabId);
     }
     const operationId = eventOperationId
-      ? event.operationId
+      ? eventRecord.operationId
       : previous.operationId || `lifecycle:${normalizedTabId}:${Date.now()}`;
-    const hasBusy = Object.prototype.hasOwnProperty.call(event, "busy");
+    // const hasBusy = Object.prototype.hasOwnProperty.call(event, "busy");
+    const hasBusy = Object.prototype.hasOwnProperty.call(eventRecord, "busy");
     const next = {
       ...previous,
-      ...event,
+      ...eventRecord,
       operationId,
-      kind: typeof event.kind === "string" && event.kind ? event.kind : previous.kind || LIFECYCLE_KINDS.UNKNOWN,
+      kind: typeof eventRecord.kind === "string" && eventRecord.kind ? eventRecord.kind : previous.kind || LIFECYCLE_KINDS.UNKNOWN,
       phase: eventPhase || previous.phase || LIFECYCLE_PHASES.UNKNOWN,
-      message: typeof event.message === "string" ? event.message : previous.message || "",
-      busy: hasBusy ? Boolean(event.busy) : Boolean(previous.busy),
+      message: typeof eventRecord.message === "string" ? eventRecord.message : previous.message || "",
+      // busy: hasBusy ? Boolean(event.busy) : Boolean(previous.busy)
+      busy: hasBusy ? Boolean(eventRecord.busy) : Boolean(previous.busy),
       updatedAt: Date.now()
     };
     lifecycleStateByTabId.set(normalizedTabId, next);
