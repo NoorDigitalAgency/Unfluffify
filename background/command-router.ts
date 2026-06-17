@@ -174,14 +174,17 @@ function isSenderPolicyTabSpoofAttempt(message: any, sender: any, context: any) 
   return !senderTabId || messageTabId !== senderTabId;
 }
 
-export function registerBackgroundCommand(type: string, handler: (...args: any[]) => any) {
+export function registerBackgroundCommand(
+  type: string,
+  handler: (...args: any[]) => any,
+  options: Record<string, unknown> = {}
+) {
   if (typeof type !== "string" || !type) {
     throw new TypeError("registerBackgroundCommand requires a non-empty command type");
   }
   if (typeof handler !== "function") {
     throw new TypeError("registerBackgroundCommand requires a handler function");
   }
-  const options = arguments.length >= 3 ? arguments[2] : {};
   backgroundCommandHandlers.set(type, {
     handler,
     options: normalizeRegistrationOptions(options)

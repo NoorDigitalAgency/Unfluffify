@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * @fileoverview Background service worker for the Unfluffify extension.
  * 
@@ -161,6 +160,7 @@ import {
   setTabState as setStoredTabState
 } from "./background/tab-session-store.js";
 
+// @ts-ignore
 function buildFeatureDisabledResponse(featureName) {
   return {
     ok: false,
@@ -239,6 +239,7 @@ const POPUP_TAB_COMMAND_POLICY = Object.freeze({
 const RENDER_MODE_INSPECTION_START_TIMEOUT_MS = 8000;
 const RENDER_MODE_INSPECTION_LOAD_TIMEOUT_MS = 15000;
 const RENDER_MODE_INSPECTION_OPERATION_TIMEOUT_MS = 60000;
+// @ts-ignore
 function clearBrowsingDataForOrigin(origin) {
   return new Promise((resolve) => {
     if (!origin || typeof origin !== "string") {
@@ -269,12 +270,14 @@ function clearBrowsingDataForOrigin(origin) {
     } catch (error) {
       resolve({
         ok: false,
+// @ts-ignore
         error: (error && error.message) || "Unable to clear cache"
       });
     }
   });
 }
 
+// @ts-ignore
 function reloadTab(tabId) {
   return new Promise((resolve) => {
     const normalizedTabId = normalizeBrokerTabId(tabId);
@@ -296,12 +299,14 @@ function reloadTab(tabId) {
     } catch (error) {
       resolve({
         ok: false,
+// @ts-ignore
         error: (error && error.message) || "Unable to reload tab"
       });
     }
   });
 }
 
+// @ts-ignore
 function navigateTabToUrl(tabId, url) {
   return new Promise((resolve) => {
     const normalizedTabId = normalizeBrokerTabId(tabId);
@@ -324,12 +329,14 @@ function navigateTabToUrl(tabId, url) {
     } catch (error) {
       resolve({
         ok: false,
+// @ts-ignore
         error: (error && error.message) || "Unable to navigate tab"
       });
     }
   });
 }
 
+// @ts-ignore
 function sendContentMessageToTab(tabId, message, timeoutMs = 15000) {
   return new Promise((resolve) => {
     const normalizedTabId = normalizeBrokerTabId(tabId);
@@ -338,6 +345,7 @@ function sendContentMessageToTab(tabId, message, timeoutMs = 15000) {
       return;
     }
     let settled = false;
+// @ts-ignore
     const finish = (result) => {
       if (settled) {
         return;
@@ -363,18 +371,21 @@ function sendContentMessageToTab(tabId, message, timeoutMs = 15000) {
     } catch (error) {
       finish({
         ok: false,
+// @ts-ignore
         error: (error && error.message) || "Content message failed"
       });
     }
   });
 }
 
+// @ts-ignore
 function waitForBackgroundRetryDelay(delayMs) {
   return new Promise((resolve) => {
     setTimeout(resolve, delayMs);
   });
 }
 
+// @ts-ignore
 async function ensureContentMainForTab(tabId) {
   const normalizedTabId = normalizeBrokerTabId(tabId);
   if (!normalizedTabId) {
@@ -384,6 +395,7 @@ async function ensureContentMainForTab(tabId) {
     const response = await sendContentMessageToTab(normalizedTabId, {
       type: "activateContentMain"
     });
+// @ts-ignore
     if (response && response.ok) {
       return { ok: true, tabId: normalizedTabId };
     }
@@ -392,6 +404,7 @@ async function ensureContentMainForTab(tabId) {
       const retryResponse = await sendContentMessageToTab(normalizedTabId, {
         type: "activateContentMain"
       });
+// @ts-ignore
       if (retryResponse && retryResponse.ok) {
         return { ok: true, tabId: normalizedTabId };
       }
@@ -403,13 +416,17 @@ async function ensureContentMainForTab(tabId) {
   return { ok: false, tabId: normalizedTabId, error: "Content activation failed" };
 }
 
+// @ts-ignore
 function createBackgroundCommandError(code, message, details = {}) {
   const error = new Error(message || "Background command failed");
+// @ts-ignore
   error.code = typeof code === "string" && code ? code : MESSAGE_ERROR_CODES.HANDLER_FAILED;
+// @ts-ignore
   error.details = details && typeof details === "object" ? details : {};
   return error;
 }
 
+// @ts-ignore
 function normalizeActivationBaseUrl(value) {
   if (typeof value !== "string") {
     return "";
@@ -418,8 +435,10 @@ function normalizeActivationBaseUrl(value) {
 }
 
 const renderModeInspector = createRenderModeInspector({
+// @ts-ignore
   sendContentMessageToTab,
   ensureContentMainForTab,
+// @ts-ignore
   waitForBackgroundRetryDelay,
   updateTabRuntime,
   createManagedTimeoutGroup,
@@ -440,6 +459,7 @@ const tabInactivityObserver = createTabInactivityObserver({
   defaultTimeoutMs: RENDER_MODE_NO_JS_INACTIVITY_TIMEOUT_MS
 });
 
+// @ts-ignore
 async function isTabActiveInFocusedWindow(tabId) {
   const normalizedTabId = normalizeBrokerTabId(tabId);
   if (!normalizedTabId) {
@@ -457,6 +477,7 @@ async function isTabActiveInFocusedWindow(tabId) {
   }
 }
 
+// @ts-ignore
 async function updateRenderModeNoJsInactivityWatch(tabId) {
   const normalizedTabId = normalizeBrokerTabId(tabId);
   if (!normalizedTabId) {
@@ -486,6 +507,7 @@ async function updateRenderModeNoJsInactivityWatches() {
   await Promise.all(heldTabIds.map((tabId) => updateRenderModeNoJsInactivityWatch(tabId)));
 }
 
+// @ts-ignore
 async function restoreRenderModeJavaScriptAfterNoJsInactivity(tabId) {
   const normalizedTabId = normalizeBrokerTabId(tabId);
   if (!normalizedTabId || !(await isRenderModeNoJsHeld(normalizedTabId))) {
@@ -525,6 +547,7 @@ async function restoreRenderModeJavaScriptAfterNoJsInactivity(tabId) {
   return reloadResult || { ok: false, error: "Unable to reload page with JavaScript" };
 }
 
+// @ts-ignore
 tabInactivityObserver.subscribe(async (event) => {
   if (!event || event.type !== "inactive" || event.scope !== RENDER_MODE_NO_JS_INACTIVITY_SCOPE) {
     return;
@@ -538,6 +561,7 @@ if (chrome.alarms && chrome.alarms.onAlarm && typeof chrome.alarms.onAlarm.addLi
   });
 }
 
+// @ts-ignore
 async function captureRenderModeHtmlWithDebugger(tabId) {
   const normalizedTabId = normalizeBrokerTabId(tabId);
   if (!normalizedTabId) {
@@ -556,7 +580,9 @@ async function captureRenderModeHtmlWithDebugger(tabId) {
       depth: -1,
       pierce: true
     });
+// @ts-ignore
     const rootNodeId = documentResult && documentResult.root && Number.isFinite(documentResult.root.nodeId)
+// @ts-ignore
       ? documentResult.root.nodeId
       : 0;
     if (!rootNodeId) {
@@ -565,7 +591,9 @@ async function captureRenderModeHtmlWithDebugger(tabId) {
     const htmlResult = await chrome.debugger.sendCommand(target, "DOM.getOuterHTML", {
       nodeId: rootNodeId
     });
+// @ts-ignore
     const renderedHtml = htmlResult && typeof htmlResult.outerHTML === "string"
+// @ts-ignore
       ? htmlResult.outerHTML
       : "";
     const rawResult = pageUrl ? await fetchStaticPageHtmlForBackground(pageUrl).catch(() => null) : null;
@@ -589,6 +617,7 @@ async function captureRenderModeHtmlWithDebugger(tabId) {
       rawHtml: "",
       renderMode: "",
       hiddenCount: 0,
+// @ts-ignore
       error: (error && error.message) || "Unable to capture inspected document HTML"
     };
   }
@@ -645,6 +674,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_BOOTSTRAP_CONTENT, async (cont
     ...result,
     runtime: getTabRuntimeSnapshot(context.tabId)
   };
+// @ts-ignore
 }, POPUP_TAB_COMMAND_POLICY);
 
 registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_CONTENT_REQUEST, async (context, payload) => {
@@ -687,6 +717,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_CONTENT_REQUEST, async (contex
     response,
     runtime: getTabRuntimeSnapshot(normalizedTabId)
   };
+// @ts-ignore
 }, POPUP_TAB_COMMAND_POLICY);
 
 registerBackgroundCommand(BACKGROUND_COMMANDS.POPUP_GET_TAB_VIEW_STATE, async (context) => {
@@ -698,6 +729,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.POPUP_GET_TAB_VIEW_STATE, async (c
     state: buildBrokerState(context.tabId),
     runtime: getTabRuntimeSnapshot(context.tabId)
   };
+// @ts-ignore
 }, POPUP_TAB_COMMAND_POLICY);
 
 registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_ACTIVATE_MARKING, async (context, payload) => {
@@ -767,6 +799,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_ACTIVATE_MARKING, async (conte
       source: "background-command-router",
       persistent: false
     },
+// @ts-ignore
     async ({ update }) => {
       await update({
         message: "Applying device emulation...",
@@ -825,6 +858,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_ACTIVATE_MARKING, async (conte
         operationId
       });
 
+// @ts-ignore
       if (!enableResponse || !enableResponse.ok) {
         await utils.setTabState(normalizedTabId, {
           enabled: false,
@@ -841,6 +875,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_ACTIVATE_MARKING, async (conte
           busy: false,
           message: ""
         });
+// @ts-ignore
         if (enableResponse && enableResponse.locked) {
           return context.replyFail(
             MESSAGE_ERROR_CODES.FEATURE_DISABLED,
@@ -853,6 +888,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_ACTIVATE_MARKING, async (conte
         }
         throw createBackgroundCommandError(
           MESSAGE_ERROR_CODES.HANDLER_FAILED,
+// @ts-ignore
           (enableResponse && enableResponse.error) || "Unable to activate marking",
           { tabId: normalizedTabId }
         );
@@ -876,6 +912,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_ACTIVATE_MARKING, async (conte
       };
     }
   );
+// @ts-ignore
 }, POPUP_TAB_COMMAND_POLICY);
 
 registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_DEACTIVATE_MARKING, async (context, payload) => {
@@ -916,6 +953,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_DEACTIVATE_MARKING, async (con
       source: "background-command-router",
       persistent: false
     },
+// @ts-ignore
     async ({ update }) => {
       await update({
         message: "Disabling marking...",
@@ -966,12 +1004,14 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_DEACTIVATE_MARKING, async (con
         tabId: normalizedTabId,
         baseUrl,
         pageType: "",
+// @ts-ignore
         contentAcknowledged: Boolean(disableResponse && disableResponse.ok),
         runtime: getTabRuntimeSnapshot(normalizedTabId),
         state: await utils.getTabState(normalizedTabId)
       };
     }
   );
+// @ts-ignore
 }, POPUP_TAB_COMMAND_POLICY);
 
 registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_APPLY_POST_SAVE_TRANSITION, async (context, payload) => {
@@ -1024,11 +1064,14 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_APPLY_POST_SAVE_TRANSITION, as
   return {
     ok: true,
     tabId: normalizedTabId,
+// @ts-ignore
     configUpdatedAcknowledged: Boolean(configUpdatedResponse && configUpdatedResponse.ok),
+// @ts-ignore
     contentAcknowledged: Boolean(disableResponse && disableResponse.ok),
     runtime: getTabRuntimeSnapshot(normalizedTabId),
     state: await utils.getTabState(normalizedTabId)
   };
+// @ts-ignore
 }, POPUP_TAB_COMMAND_POLICY);
 
 registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_APPLY_LOCAL_DISCARD, async (context, payload) => {
@@ -1061,9 +1104,11 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_APPLY_LOCAL_DISCARD, async (co
   return {
     ok: true,
     tabId: normalizedTabId,
+// @ts-ignore
     contentAcknowledged: Boolean(response && response.ok),
     runtime: getTabRuntimeSnapshot(normalizedTabId)
   };
+// @ts-ignore
 }, POPUP_TAB_COMMAND_POLICY);
 
 registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_SHOW_AI_PREVIEW, async (context, payload) => {
@@ -1089,9 +1134,11 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_SHOW_AI_PREVIEW, async (contex
     type: "showAiPreview",
     selectorSet
   });
+// @ts-ignore
   if (!response || !response.ok) {
     return context.replyFail(
       MESSAGE_ERROR_CODES.HANDLER_FAILED,
+// @ts-ignore
       (response && response.error) || "Unable to open preview",
       { tabId: normalizedTabId }
     );
@@ -1103,6 +1150,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_SHOW_AI_PREVIEW, async (contex
     previewState: response,
     runtime: getTabRuntimeSnapshot(normalizedTabId)
   };
+// @ts-ignore
 }, POPUP_TAB_COMMAND_POLICY);
 
 registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_CLOSE_AI_PREVIEW, async (context) => {
@@ -1115,9 +1163,11 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_CLOSE_AI_PREVIEW, async (conte
   }
 
   const response = await sendContentMessageToTab(normalizedTabId, { type: "closeAiPreview" });
+// @ts-ignore
   if (!response || !response.ok) {
     return context.replyFail(
       MESSAGE_ERROR_CODES.HANDLER_FAILED,
+// @ts-ignore
       (response && response.error) || "Unable to close preview",
       { tabId: normalizedTabId }
     );
@@ -1129,6 +1179,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_CLOSE_AI_PREVIEW, async (conte
     previewState: response,
     runtime: getTabRuntimeSnapshot(normalizedTabId)
   };
+// @ts-ignore
 }, POPUP_TAB_COMMAND_POLICY);
 
 registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_SET_AI_PREVIEW_EXPANDED_MODE, async (context, payload) => {
@@ -1144,9 +1195,11 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_SET_AI_PREVIEW_EXPANDED_MODE, 
     type: "setAiPreviewExpandedMode",
     active: Boolean(payload && payload.active)
   });
+// @ts-ignore
   if (!response || !response.ok) {
     return context.replyFail(
       MESSAGE_ERROR_CODES.HANDLER_FAILED,
+// @ts-ignore
       (response && response.error) || "Unable to update preview mode",
       { tabId: normalizedTabId }
     );
@@ -1158,6 +1211,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_SET_AI_PREVIEW_EXPANDED_MODE, 
     previewState: response,
     runtime: getTabRuntimeSnapshot(normalizedTabId)
   };
+// @ts-ignore
 }, POPUP_TAB_COMMAND_POLICY);
 
 registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_FOCUS_PREVIEW_ELEMENT, async (context, payload) => {
@@ -1182,9 +1236,11 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_FOCUS_PREVIEW_ELEMENT, async (
     type: "focusElement",
     xpath
   });
+// @ts-ignore
   if (!response || !response.ok) {
     return context.replyFail(
       MESSAGE_ERROR_CODES.HANDLER_FAILED,
+// @ts-ignore
       (response && response.error) || "Unable to focus element",
       { tabId: normalizedTabId }
     );
@@ -1195,6 +1251,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_FOCUS_PREVIEW_ELEMENT, async (
     tabId: normalizedTabId,
     runtime: getTabRuntimeSnapshot(normalizedTabId)
   };
+// @ts-ignore
 }, POPUP_TAB_COMMAND_POLICY);
 
 registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_BEGIN_RENDER_MODE_INSPECTION, async (context, payload) => {
@@ -1220,6 +1277,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_BEGIN_RENDER_MODE_INSPECTION, 
     operationId,
     runtime: getTabRuntimeSnapshot(normalizedTabId)
   };
+// @ts-ignore
 }, POPUP_TAB_COMMAND_POLICY);
 
 registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_REVEAL_FREEZE, async (context, payload) => {
@@ -1253,6 +1311,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_REVEAL_FREEZE, async (cont
     operationId,
     pageUrl: revealResult.pageUrl || ""
   };
+// @ts-ignore
 }, POPUP_TAB_COMMAND_POLICY);
 
 registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_CAPTURE_RENDER_MODE_HTML, async (context, payload) => {
@@ -1281,10 +1340,13 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_CAPTURE_RENDER_MODE_HTML, asyn
     renderedHtml: captureResult.renderedHtml || "",
     rawHtml: captureResult.rawHtml || "",
     renderMode: captureResult.renderMode || "",
+// @ts-ignore
     hiddenCount: Number(captureResult.hiddenCount || 0)
   };
+// @ts-ignore
 }, POPUP_TAB_COMMAND_POLICY);
 
+// @ts-ignore
 registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_END_RENDER_MODE_INSPECTION, async (context, payload) => {
   const normalizedTabId = normalizeBrokerTabId(context.tabId);
   if (!normalizedTabId) {
@@ -1342,6 +1404,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_END_RENDER_MODE_INSPECTION, as
   };
 }, POPUP_TAB_COMMAND_POLICY);
 
+// @ts-ignore
 registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, async (context, payload) => {
   const normalizedTabId = normalizeBrokerTabId(context.tabId);
   if (!normalizedTabId) {
@@ -1376,7 +1439,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
         persistent: false
       }
     },
-    async ({ update }) => {
+  async ({ update }: any) => {
       // Clear any prior "Without JavaScript" hold for this tab before we start.
       // This inspection's own reload also fires webNavigation events, so the tab
       // must NOT be marked held while we reload — it is re-marked in `finally` only
@@ -1413,6 +1476,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
         return scriptEnableResult;
       };
       const detachRenderModeDebuggerIfIdle = async (options = {}) => {
+// @ts-ignore
         const waitForDetach = options.waitForDetach !== false;
         const deviceState = await getDeviceEmulationState(normalizedTabId).catch(() => null);
         if (deviceState && deviceState.enabled) {
@@ -1429,6 +1493,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
         return detachPromise;
       };
       const reloadPageWithJavaScriptForRenderModeRecovery = async (options = {}) => {
+// @ts-ignore
         const requireLoadComplete = options.requireLoadComplete !== false;
         const loadStartPromise = waitForTabLoadStartInBackground(
           normalizedTabId,
@@ -1459,6 +1524,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
         }
         let loadCompleted = false;
         if (requireLoadComplete) {
+// @ts-ignore
           loadCompleted = await loadCompletePromise;
           if (!loadCompleted) {
             return { ok: false, error: "Timed out while loading page with JavaScript" };
@@ -1493,6 +1559,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
             // a hydrated page.
             const noJsRecoveryResult = await reloadPageWithJavaScriptForRenderModeRecovery();
             if (!noJsRecoveryResult.ok) {
+// @ts-ignore
               commandResult.followUpError = noJsRecoveryResult.error || "Unable to reload page with JavaScript";
               return commandResult;
             }
@@ -1507,6 +1574,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
           }
         }
         if (!beginResult.ok) {
+// @ts-ignore
           commandResult.followUpError = beginResult.error || "Unable to begin render mode inspection";
           return commandResult;
         }
@@ -1535,8 +1603,10 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
             : { ok: false, error: "Unable to reload page for render mode inspection" }
         });
 
+// @ts-ignore
         if (!commandResult.reloadResult.ok || !loadStarted) {
           commandResult.followUpError =
+// @ts-ignore
             (commandResult.reloadResult && commandResult.reloadResult.error) ||
             "Unable to reload page for render mode inspection";
           return commandResult;
@@ -1561,8 +1631,10 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
             source: "background-command-router"
           });
 
+// @ts-ignore
           hideConsentResult = await runRenderModeHideConsentStep(normalizedTabId);
           if (!hideConsentResult.ok) {
+// @ts-ignore
             commandResult.followUpError = hideConsentResult.error || "Unable to hide consent form";
             return commandResult;
           }
@@ -1627,6 +1699,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
   );
 }, POPUP_TAB_COMMAND_POLICY);
 
+// @ts-ignore
 registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_AI, async (context, payload) => {
   const normalizedTabId = normalizeBrokerTabId(context.tabId);
   if (!normalizedTabId) {
@@ -1660,7 +1733,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_AI, async (context, payloa
       source: "background-command-router",
       persistent: false
     },
-    async ({ update }) => {
+  async ({ update }: any) => {
       const result = await runAiCommandForTab(normalizedTabId, payload, update);
       if (!result || !result.ok) {
         return context.replyFail(
@@ -1690,7 +1763,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_AI, async (context, payloa
   );
 }, POPUP_TAB_COMMAND_POLICY);
 
-function maybeGetCommandPayloadForLedger(message) {
+function maybeGetCommandPayloadForLedger(message: any) {
   if (!isDebugFlagEnabled("fullWorldMessagingLogging")) {
     return undefined;
   }
@@ -1700,7 +1773,7 @@ function maybeGetCommandPayloadForLedger(message) {
   return redactCommandPayloadForLedger(message.payload);
 }
 
-function recordBackgroundCommandLedger(message, sender, reply, startedAt, resolvedContextTabId = null) {
+function recordBackgroundCommandLedger(message: any, sender: any, reply: any, startedAt: any, resolvedContextTabId: any = null) {
   if (!message || typeof message !== "object") {
     return;
   }
@@ -1721,15 +1794,18 @@ function recordBackgroundCommandLedger(message, sender, reply, startedAt, resolv
   });
 }
 
+// @ts-ignore
 function handleBackgroundCommandEnvelope(message, sender, sendResponse) {
   if (!isRequestEnvelope(message) || message.target !== MESSAGE_TARGETS.BACKGROUND) {
     return false;
   }
   const startedAt = Date.now();
   const expectsReply = message.expectsReply !== false;
+// @ts-ignore
   let resolvedContextTabId = null;
   const dispatch = dispatchBackgroundCommand(message, sender, {
     requireTabForTypes: TAB_SCOPED_BACKGROUND_COMMANDS,
+// @ts-ignore
     onDispatched(context) {
       if (context && Number.isFinite(context.tabId)) {
         resolvedContextTabId = context.tabId;
@@ -1740,6 +1816,7 @@ function handleBackgroundCommandEnvelope(message, sender, sendResponse) {
   if (!expectsReply) {
     dispatch
       .then((reply) => {
+// @ts-ignore
         recordBackgroundCommandLedger(message, sender, reply, startedAt, resolvedContextTabId);
         sendResponse(undefined);
       })
@@ -1749,6 +1826,7 @@ function handleBackgroundCommandEnvelope(message, sender, sendResponse) {
           MESSAGE_ERROR_CODES.HANDLER_FAILED,
           (error && error.message) || "Background command failed"
         );
+// @ts-ignore
         recordBackgroundCommandLedger(message, sender, reply, startedAt, resolvedContextTabId);
         sendResponse(undefined);
       });
@@ -1757,6 +1835,7 @@ function handleBackgroundCommandEnvelope(message, sender, sendResponse) {
 
   dispatch
     .then((reply) => {
+// @ts-ignore
       recordBackgroundCommandLedger(message, sender, reply, startedAt, resolvedContextTabId);
       sendResponse(reply);
     })
@@ -1766,22 +1845,26 @@ function handleBackgroundCommandEnvelope(message, sender, sendResponse) {
         MESSAGE_ERROR_CODES.HANDLER_FAILED,
         (error && error.message) || "Background command failed"
       );
+// @ts-ignore
       recordBackgroundCommandLedger(message, sender, reply, startedAt, resolvedContextTabId);
       sendResponse(reply);
     });
   return true;
 }
 
+// @ts-ignore
 function normalizeBrokerTabId(value) {
   const numeric = Number(value);
   return Number.isFinite(numeric) && numeric > 0 ? Math.trunc(numeric) : null;
 }
 
+// @ts-ignore
 function getMessageTabId(message, sender) {
   return normalizeBrokerTabId(message && message.tabId) ||
     normalizeBrokerTabId(sender && sender.tab && sender.tab.id);
 }
 
+// @ts-ignore
 function getPageMotionFreezeControlTarget(message, sender) {
   const tabId = getMessageTabId(message, sender);
   if (!tabId) {
@@ -1789,11 +1872,13 @@ function getPageMotionFreezeControlTarget(message, sender) {
   }
   const target = { tabId };
   if (Number.isInteger(sender && sender.frameId) && sender.frameId >= 0) {
+// @ts-ignore
     target.frameIds = [sender.frameId];
   }
   return target;
 }
 
+// @ts-ignore
 function getPageMotionFreezeControlTargetKey(target) {
   const frameId = Array.isArray(target.frameIds) && target.frameIds.length
     ? target.frameIds[0]
@@ -1801,6 +1886,7 @@ function getPageMotionFreezeControlTargetKey(target) {
   return `${target.tabId}:${frameId}`;
 }
 
+// @ts-ignore
 async function executePageMotionFreezeControlNow(target, command, details) {
   if (!chrome.scripting || typeof chrome.scripting.executeScript !== "function") {
     return { ok: false, error: "Scripting API unavailable" };
@@ -1814,6 +1900,7 @@ async function executePageMotionFreezeControlNow(target, command, details) {
   return { ok: true };
 }
 
+// @ts-ignore
 async function executePageMotionFreezeControl(message, sender) {
   const target = getPageMotionFreezeControlTarget(message, sender);
   if (!target) {
@@ -1842,6 +1929,7 @@ async function executePageMotionFreezeControl(message, sender) {
   }
 }
 
+// @ts-ignore
 function getExtensionContextWindowId(context) {
   return Number.isFinite(context && context.windowId) ? Math.trunc(context.windowId) : null;
 }
@@ -1863,6 +1951,7 @@ async function resolvePopupSidePanelBoundTab(sender = {}) {
     if (!Array.isArray(contexts)) {
       return null;
     }
+// @ts-ignore
     const senderDocumentId = typeof sender.documentId === "string" ? sender.documentId : "";
     const senderContext = senderDocumentId
       ? contexts.find((context) => context && context.documentId === senderDocumentId)
@@ -1882,6 +1971,7 @@ async function resolvePopupSidePanelBoundTab(sender = {}) {
 }
 
 async function resolvePopupTabContext(message = {}, sender = {}) {
+// @ts-ignore
   const debugTabId = normalizeBrokerTabId(message.debugTabId);
   if (debugTabId) {
     try {
@@ -1899,6 +1989,7 @@ async function resolvePopupTabContext(message = {}, sender = {}) {
     return { ok: true, tab: sidePanelBoundTab, source: "sidePanel" };
   }
 
+// @ts-ignore
   let tabs = [];
   try {
     tabs = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -1908,6 +1999,7 @@ async function resolvePopupTabContext(message = {}, sender = {}) {
   } catch {
     tabs = [];
   }
+// @ts-ignore
   return { ok: Boolean(tabs[0] && tabs[0].id), tab: tabs[0] || null, source: tabs[0] ? "activeTab" : "none" };
 }
 
@@ -1929,7 +2021,9 @@ const updateLifecycleState = popupStateBroker.updateLifecycleState;
 const clearNavInspectCurtain = popupStateBroker.clearNavInspectCurtain;
 
 const spinnerOperations = createSpinnerOperations({
+// @ts-ignore
   queueByTabId: tabSpinnerQueueByTabId,
+// @ts-ignore
   normalizeTabId: normalizeBrokerTabId,
   appendTrace: appendWorldTraceEvent,
   broadcastState: broadcastBrokerState,
@@ -1941,32 +2035,41 @@ const spinnerOperations = createSpinnerOperations({
   }
 });
 
+// @ts-ignore
 function setBackgroundSpinnerEntry(tabId, key, entry = {}) {
   return spinnerOperations.setBackgroundSpinnerEntry(tabId, key, {
     ...entry,
+// @ts-ignore
     reason: typeof entry.reason === "string" && entry.reason ? entry.reason : `spinner:${String(key)}`,
+// @ts-ignore
     source: typeof entry.source === "string" && entry.source ? entry.source : "background-spinner-broker"
   });
 }
 
+// @ts-ignore
 function removeBackgroundSpinnerEntry(tabId, key) {
   return spinnerOperations.removeBackgroundSpinnerEntry(tabId, key);
 }
 
+// @ts-ignore
 function clearBackgroundSpinnerQueue(tabId, options = {}) {
   return spinnerOperations.clearBackgroundSpinnerQueue(tabId, options);
 }
 
+// @ts-ignore
 async function withBackgroundTabSpinner(tabId, descriptor, work) {
   return spinnerOperations.withTabSpinner(tabId, descriptor, work);
 }
 
 const tabOperationRunner = createTabOperationRunner({
+// @ts-ignore
   normalizeTabId: normalizeBrokerTabId,
   updateLifecycleState,
+// @ts-ignore
   withTabSpinner: withBackgroundTabSpinner
 });
 
+// @ts-ignore
 async function runBackgroundTabOperation(tabId, descriptor, work) {
   return tabOperationRunner.runTabOperation(tabId, descriptor, work);
 }
@@ -1988,14 +2091,18 @@ chrome.runtime.onConnect.addListener((port) => {
     popupStatePortsByTabId.set(tabId, new Set());
   }
   const ports = popupStatePortsByTabId.get(tabId);
+// @ts-ignore
   ports.add(port);
   try {
     port.postMessage({ type: WORLD_MESSAGE_TYPES.BACKGROUND_STATE, state: buildBrokerState(tabId) });
   } catch {
+// @ts-ignore
     ports.delete(port);
   }
   port.onDisconnect.addListener(() => {
+// @ts-ignore
     ports.delete(port);
+// @ts-ignore
     if (ports.size === 0) {
       popupStatePortsByTabId.delete(tabId);
       clearBackgroundSpinnerQueue(tabId, { transientOnly: true });
@@ -2018,9 +2125,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       console.debug("[world-trace][background] runtime:inbound", {
         type: message.type,
         tabId: Number.isFinite(sender && sender.tab && sender.tab.id)
+// @ts-ignore
           ? Math.trunc(sender.tab.id)
           : null,
         frameId: Number.isFinite(sender && sender.frameId)
+// @ts-ignore
           ? Math.trunc(sender.frameId)
           : null
       });
@@ -2494,6 +2603,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             baseUrl: message.baseUrl || ""
           };
           if (Object.prototype.hasOwnProperty.call(message, "pageType")) {
+// @ts-ignore
             nextState.pageType = typeof message.pageType === "string" ? message.pageType : "";
           }
         }
@@ -2641,6 +2751,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             reject(new Error(chrome.runtime.lastError.message || "Unable to reload tab"));
             return;
           }
+// @ts-ignore
           resolve();
         });
       });
@@ -2795,6 +2906,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       } catch (error) {
         sendResponse({
           ok: false,
+// @ts-ignore
           error: (error && error.message) || "Static HTML request failed"
         });
       }
@@ -2817,6 +2929,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   deleteTabRuntime(tabId);
 });
 
+// @ts-ignore
 async function disableExtensionOnTopLevelNavigation(details) {
   if (details.frameId !== 0) {
     return;
@@ -2848,6 +2961,7 @@ async function disableExtensionOnTopLevelNavigation(details) {
 // cancelled but we would have already torn down the marking session.
 chrome.webNavigation.onCommitted.addListener(disableExtensionOnTopLevelNavigation);
 
+// @ts-ignore
 async function normalizeRenderModeJavaScriptOnTopLevelNavigation(details) {
   if (details.frameId !== 0 || !details.tabId) {
     return;
@@ -2915,6 +3029,7 @@ chrome.debugger.onDetach.addListener(async (source) => {
       ...initialState,
       active: Boolean(initialState.active),
       desktopPreviewEnabled: false
+// @ts-ignore
     }, "initial");
     runBackgroundTask(
       "debugger-detach-restore-mobile-initial-state",
@@ -2937,10 +3052,12 @@ chrome.debugger.onDetach.addListener(async (source) => {
   await setDeviceEmulationEnabled(source.tabId, false);
 });
 
+// @ts-ignore
 async function refreshActionIconsForWindow(windowId) {
   if (!windowId || windowId === chrome.windows.WINDOW_ID_NONE) {
     return;
   }
+// @ts-ignore
   let tabs = [];
   try {
     tabs = await chrome.tabs.query({ windowId });
@@ -2948,6 +3065,7 @@ async function refreshActionIconsForWindow(windowId) {
     tabs = [];
   }
   await Promise.all(
+// @ts-ignore
     tabs
       .map((tab) => (tab && tab.id ? utils.updateActionForTab(tab.id) : null))
       .filter(Boolean)
@@ -2966,10 +3084,12 @@ chrome.windows.onFocusChanged.addListener(async (windowId) => {
 
 const TAB_RESTORE_SCOPE = "restore";
 
+// @ts-ignore
 async function clearTrackedTabSessionState(tabId, options = {}) {
   if (!tabId) {
     return;
   }
+// @ts-ignore
   const { includeDeviceState = false } = options;
   await clearStoredTrackedTabSessionState(tabId, {
     includeRestoreScope: true,
@@ -2980,6 +3100,7 @@ async function clearTrackedTabSessionState(tabId, options = {}) {
   }
 }
 
+// @ts-ignore
 async function clearReloadRestoreTabState(tabId) {
   if (!tabId) {
     return;
@@ -2987,6 +3108,7 @@ async function clearReloadRestoreTabState(tabId) {
   await clearTabStateScope(tabId, TAB_RESTORE_SCOPE);
 }
 
+// @ts-ignore
 async function clearReloadRestoreTabStateAfterActivation(tabId, tabState) {
   if (!tabId || !tabState || !tabState.enabled || !tabState.baseUrl) {
     return;
@@ -2994,6 +3116,7 @@ async function clearReloadRestoreTabStateAfterActivation(tabId, tabState) {
   await clearReloadRestoreTabState(tabId);
 }
 
+// @ts-ignore
 function requestContentActivation(tabId, attempt = 0) {
   if (!tabId) {
     return;
@@ -3007,6 +3130,7 @@ function requestContentActivation(tabId, attempt = 0) {
   });
 }
 
+// @ts-ignore
 function restoreEnabledStateForTab(tabId, tabState, attempt = 0) {
   if (!tabId || !tabState || !tabState.enabled || !tabState.baseUrl) {
     return;
@@ -3058,6 +3182,7 @@ function restoreEnabledStateForTab(tabId, tabState, attempt = 0) {
   );
 }
 
+// @ts-ignore
 async function getTabUrl(tabId) {
   try {
     const tab = await chrome.tabs.get(tabId);
@@ -3067,6 +3192,7 @@ async function getTabUrl(tabId) {
   }
 }
 
+// @ts-ignore
 async function ensureDefaultMobileEmulationForTab(tabId, tabUrl = "") {
   if (!tabId) {
     return null;
@@ -3092,10 +3218,12 @@ async function ensureDefaultMobileEmulationForTab(tabId, tabUrl = "") {
   }
 }
 
+// @ts-ignore
 async function activateExtensionForTab(tabId, tabUrl = "") {
   if (!tabId) {
     return { ok: false };
   }
+// @ts-ignore
   await utils.setTabState(tabId, { active: true }, "initial");
   await utils.updateActionForTab(tabId);
   await ensureDefaultMobileEmulationForTab(tabId, tabUrl);
@@ -3140,6 +3268,7 @@ utils.addStorageChangeListener((changes, areaName) => {
   if (areaName !== "session") {
     return;
   }
+// @ts-ignore
   Object.keys(changes).forEach((key) => {
     const parsed = parseTabStateStorageKey(key);
     if (!parsed || !parsed.tabId) {
@@ -3177,6 +3306,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         tabId: Number.isFinite(message && message.tabId)
           ? Math.trunc(message.tabId)
           : (Number.isFinite(sender && sender.tab && sender.tab.id)
+// @ts-ignore
             ? Math.trunc(sender.tab.id)
             : null)
       });
