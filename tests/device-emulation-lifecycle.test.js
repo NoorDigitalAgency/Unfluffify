@@ -463,17 +463,17 @@ test("disabled mobile emulation remains a per-session choice after navigation cl
 test("device emulation debugger operations serialize per tab", () => {
   const queueBlock = extractSourceBlock(
     emulationSource,
-    "async function runDeviceEmulationOperation(tabId, operation) {",
+    "async function runDeviceEmulationOperation(tabId: any, operation: any) {",
     "function getDebuggerTargets()"
   );
   const updateBlock = extractSourceBlock(
     emulationSource,
-    "export async function updateDeviceEmulation(tabId, updates) {",
+    "export async function updateDeviceEmulation(tabId: any, updates: any) {",
     "export async function ensureDefaultMobileDeviceEmulation"
   );
   const cleanupBlock = extractSourceBlock(
     emulationSource,
-    "export async function clearDeviceEmulationAfterNavigation(tabId) {",
+    "export async function clearDeviceEmulationAfterNavigation(tabId: any) {",
     "\n  });\n}"
   );
 
@@ -483,8 +483,8 @@ test("device emulation debugger operations serialize per tab", () => {
   assert.match(queueBlock, /deviceEmulationQueueByTabId\.set\(queueKey, next\);/);
   assert.match(queueBlock, /if \(deviceEmulationQueueByTabId\.get\(queueKey\) === next\) \{/);
   assert.match(queueBlock, /deviceEmulationQueueByTabId\.delete\(queueKey\);/);
-  assert.match(emulationSource, /export async function setDeviceEmulationEnabled\(tabId, enabled\) \{/);
-  assert.match(emulationSource, /export async function clearDeviceEmulationState\(tabId\) \{/);
+  assert.match(emulationSource, /export async function setDeviceEmulationEnabled\(tabId(?:\s*:\s*[^,]+)?, enabled(?:\s*:\s*[^)]+)?\) \{/);
+  assert.match(emulationSource, /export async function clearDeviceEmulationState\(tabId(?:\s*:\s*[^)]+)?\) \{/);
   assert.match(emulationSource, /runDeviceEmulationOperation\(tabId, async \(\) => \{/);
   assert.match(emulationSource, /runDeviceEmulationOperation\(tabId, \(\) => storageRemove\(chrome\.storage\.session, key\)\)/);
   assert.match(updateBlock, /return runDeviceEmulationOperation\(tabId, async \(\) => \{/);

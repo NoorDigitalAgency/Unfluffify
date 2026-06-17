@@ -174,8 +174,7 @@ async function setDeviceEmulationState(tabId: number, state: DeviceState) {
   await storageSet(chrome.storage.session, { [key]: state });
 }
 
-// @ts-ignore preserve source-contract signature used by device emulation lifecycle tests
-export async function setDeviceEmulationEnabled(tabId, enabled) {
+export async function setDeviceEmulationEnabled(tabId: any, enabled: any) {
   if (!tabId) {
     return null;
   }
@@ -190,8 +189,7 @@ export async function setDeviceEmulationEnabled(tabId, enabled) {
   });
 }
 
-// @ts-ignore preserve source-contract signature used by device emulation lifecycle tests
-export async function clearDeviceEmulationState(tabId) {
+export async function clearDeviceEmulationState(tabId: any) {
   if (!tabId) {
     return;
   }
@@ -206,8 +204,7 @@ function getDeviceEmulationQueueKey(tabId: number) {
     : "";
 }
 
-// @ts-ignore preserve source-contract signature used by device emulation lifecycle tests
-async function runDeviceEmulationOperation(tabId, operation) {
+async function runDeviceEmulationOperation(tabId: any, operation: any) {
   const queueKey = getDeviceEmulationQueueKey(tabId);
   if (!queueKey) {
     return operation();
@@ -362,8 +359,7 @@ async function clearDeviceEmulation(tabId: number) {
   return { ok: true };
 }
 
-// @ts-ignore preserve source-contract signature used by device emulation lifecycle tests
-export async function updateDeviceEmulation(tabId, updates) {
+export async function updateDeviceEmulation(tabId: any, updates: any) {
   return runDeviceEmulationOperation(tabId, async () => {
     const current = await getDeviceEmulationState(tabId);
     if (
@@ -438,8 +434,7 @@ export function normalizeDeviceEmulationStateForUi(value: unknown) {
 // Chrome can re-apply setDeviceMetricsOverride to a newly loaded page even after
 // clearDeviceMetricsOverride + detach. Call this after onCompleted to fix the
 // new page's renderer if emulation was previously used but is now disabled.
-// @ts-ignore preserve source-contract signature used by device emulation lifecycle tests
-export async function clearDeviceEmulationAfterNavigation(tabId) {
+export async function clearDeviceEmulationAfterNavigation(tabId: any) {
   return runDeviceEmulationOperation(tabId, async () => {
     const hasState = await hasStoredDeviceEmulationState(tabId);
     if (!hasState) {
