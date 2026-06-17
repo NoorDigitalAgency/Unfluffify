@@ -1,5 +1,92 @@
-export function createPropertyLockStateMachine(deps: any) {
-  function normalizeRecoveryTabState(tabState: any) {
+interface PropertyLockTimerHost {
+  setTimeout(handler: (...args: unknown[]) => unknown, timeout?: number): unknown;
+}
+
+interface PropertyLockText {
+  editorNowToast: string;
+  editorTransferredToast(...args: unknown[]): string;
+}
+
+interface PropertyLockStateMachineDeps {
+  PROPERTY_LOCK_BACKGROUND_CONNECTION_STATUS: string;
+  PROPERTY_LOCK_CONNECTION_LOSS_TIMEOUT_MS: number;
+  PROPERTY_LOCK_CONNECTION_UNAVAILABLE: string;
+  PROPERTY_LOCK_CONTENT_RELEASE: string;
+  PROPERTY_LOCK_CROSS_PROPERTY_COOLDOWN_TIMEOUT_MS: number;
+  PROPERTY_LOCK_OFF_CANDIDATE_WARNING_TIMEOUT_MS: number;
+  PROPERTY_LOCK_WS_DISCONNECT_WARNING: string;
+  PROPERTY_LOCK_WS_ERROR: string;
+  PROPERTY_LOCK_WS_INACTIVITY_WARNING: string;
+  PROPERTY_LOCK_WS_LOCK_STATE: string;
+  PROPERTY_LOCK_WS_SUGGESTION_ACCEPTED: string;
+  PROPERTY_LOCK_WS_SUGGESTION_PENDING: string;
+  PROPERTY_LOCK_WS_SUGGESTION_RESPONSE: string;
+  PROPERTY_LOCK_WS_TAKEOVER_SUGGESTION: string;
+  PROPERTY_LOCK_WS_TRANSFER_COUNTDOWN: string;
+  propertyLockText: PropertyLockText;
+  getPropertyLockState(...args: unknown[]): Record<string, unknown>;
+  getTimerHost(...args: unknown[]): PropertyLockTimerHost;
+  armPropertyLockCrossPropertyRelease(...args: unknown[]): unknown;
+  clearPropertyLockBannerCountdown(...args: unknown[]): unknown;
+  clearPropertyLockRecoveryReleaseTimer(...args: unknown[]): unknown;
+  clearSilentHighlightEditorRevealKey(...args: unknown[]): unknown;
+  ensurePropertyLockCollaborationActive(...args: unknown[]): unknown;
+  getBaseUrl(...args: unknown[]): unknown;
+  getCurrentUrl(...args: unknown[]): unknown;
+  getPropertyLockBannerCountdownTimer(...args: unknown[]): unknown;
+  getPropertyLockBannerCountdownValue(...args: unknown[]): number;
+  getPropertyLockBannerMode(...args: unknown[]): unknown;
+  getPropertyLockClientId(...args: unknown[]): unknown;
+  getPropertyLockConnectedBaseUrl(...args: unknown[]): unknown;
+  getPropertyLockConnectedSiteId(...args: unknown[]): unknown;
+  getPropertyLockOffCandidateDeadlineAt(...args: unknown[]): number;
+  getPropertyLockRecoveryBaseUrl(...args: unknown[]): string;
+  getPropertyLockRecoveryClientId(...args: unknown[]): string;
+  getPropertyLockRecoveryDeadlineAt(...args: unknown[]): number;
+  getPropertyLockRecoverySiteId(...args: unknown[]): number | null;
+  getPropertyLockSuggestionFromName(...args: unknown[]): unknown;
+  getPropertyLockSuggestionId(...args: unknown[]): unknown;
+  isPropertyLockCollaborationEnabled(...args: unknown[]): unknown;
+  isRenderModeInspectionActive(...args: unknown[]): unknown;
+  normalizePropertyLockClientId(...args: unknown[]): unknown;
+  refreshSilentHighlightings(...args: unknown[]): Promise<unknown>;
+  renderPropertyLockBanner(...args: unknown[]): unknown;
+  restartPropertyLockBannerCountdown(...args: unknown[]): unknown;
+  runEditorSilentHighlightingActivation(...args: unknown[]): Promise<unknown>;
+  sendPropertyLockMessage(...args: unknown[]): unknown;
+  sendRuntimeMessage(...args: unknown[]): Promise<unknown>;
+  setPropertyLockBannerCountdownValue(...args: unknown[]): unknown;
+  setPropertyLockBannerMode(...args: unknown[]): unknown;
+  setPropertyLockOffCandidateDeadlineAt(...args: unknown[]): unknown;
+  setPropertyLockRecoveryBaseUrl(...args: unknown[]): unknown;
+  setPropertyLockRecoveryClientId(...args: unknown[]): unknown;
+  setPropertyLockRecoveryDeadlineAt(...args: unknown[]): unknown;
+  setPropertyLockRecoverySiteId(...args: unknown[]): unknown;
+  setPropertyLockState(...args: unknown[]): unknown;
+  setPropertyLockSuggestionFromName(...args: unknown[]): unknown;
+  setPropertyLockSuggestionId(...args: unknown[]): unknown;
+  showPageToast(...args: unknown[]): unknown;
+  syncPropertyLockOffCandidateWarning(...args: unknown[]): Promise<unknown>;
+  updatePropertyLockBannerMode(...args: unknown[]): unknown;
+}
+
+interface PropertyLockRecoveryTabStateInput {
+  propertyLockRecoverySiteId: number;
+  propertyLockRecoveryBaseUrl: unknown;
+  propertyLockRecoveryClientId: unknown;
+  propertyLockRecoveryDeadlineAt: number;
+  propertyLockOffCandidateDeadlineAt: number;
+}
+
+interface PropertyLockRecoveryStateInput {
+  siteId?: unknown;
+  clientId?: unknown;
+  baseUrl?: unknown;
+  deadlineAt: number;
+}
+
+export function createPropertyLockStateMachine(deps: PropertyLockStateMachineDeps) {
+  function normalizeRecoveryTabState(tabState: PropertyLockRecoveryTabStateInput) {
     const nextSiteId = Number.isFinite(tabState && tabState.propertyLockRecoverySiteId)
       ? Math.trunc(tabState.propertyLockRecoverySiteId)
       : null;
@@ -78,7 +165,7 @@ export function createPropertyLockStateMachine(deps: any) {
   }
 
   function clearCrossPropertyWarning(options = {}) {
-    const { preserveSession = false } = (options || {}) as any;
+    const { preserveSession = false } = (options || {}) as Record<string, unknown>;
     deps.setPropertyLockRecoveryDeadlineAt(0);
     deps.clearPropertyLockRecoveryReleaseTimer();
     if (deps.getPropertyLockBannerMode() === "editor_cross_property_countdown") {
@@ -100,7 +187,7 @@ export function createPropertyLockStateMachine(deps: any) {
     }
   }
 
-  function startCrossPropertyWarning(recoveryState: any) {
+  function startCrossPropertyWarning(recoveryState: PropertyLockRecoveryStateInput | null | undefined) {
     if (!deps.ensurePropertyLockCollaborationActive()) {
       return;
     }
@@ -166,7 +253,7 @@ export function createPropertyLockStateMachine(deps: any) {
     }, deps.PROPERTY_LOCK_OFF_CANDIDATE_WARNING_TIMEOUT_MS + 100);
   }
 
-  function applyServerMessage(serverMessage: any) {
+  function applyServerMessage(serverMessage: Record<string, unknown>) {
     if (!deps.ensurePropertyLockCollaborationActive()) {
       return;
     }
