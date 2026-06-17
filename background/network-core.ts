@@ -72,8 +72,7 @@ export async function resolveBackgroundNetworkCredentials(options = {}) {
   };
 }
 
-// @ts-expect-error Preserve source-contract signature used by tests.
-export function buildValidateEndpointFromStageBase(stageBase) {
+export function buildValidateEndpointFromStageBase(stageBase: unknown) {
   const normalized = normalizeStageBase(stageBase);
   if (!normalized) {
     return "";
@@ -81,8 +80,7 @@ export function buildValidateEndpointFromStageBase(stageBase) {
   return `https://accounts.${normalized}/api/account/validate`;
 }
 
-// @ts-expect-error Preserve source-contract signature used by tests.
-export function buildLoginEndpointFromStageBase(stageBase) {
+export function buildLoginEndpointFromStageBase(stageBase: unknown) {
   const normalized = normalizeStageBase(stageBase);
   if (!normalized) {
     return "";
