@@ -1,0 +1,28 @@
+{
+  "budgets": {
+    "content/core.ts": 921,
+    "popup.ts": 612,
+    "content-main.ts": 592,
+    "common/config.ts": 157,
+    "background.ts": 131,
+    "popup/ui.ts": 54,
+    "common/page-motion-freeze-bridge.ts": 47,
+    "common/page-motion-freeze-control.ts": 41,
+    "popup/property-lock-ui.ts": 17,
+    "popup/messages.ts": 16,
+    "common/text.ts": 14,
+    "background/remote-config-sync.ts": 9,
+    "content/property-lock-state-machine.ts": 8,
+    "background/ai-run-orchestrator.ts": 5,
+    "common/emulation.ts": 5,
+    "popup/site-resolution.ts": 4,
+    "popup/remote-config.ts": 3,
+    "common/utilities.ts": 2,
+    "popup/page-reconciliation.ts": 2,
+    "background/remote-network.ts": 2
+  },
+  "exempt": [
+    "common/page-motion-freeze-bridge.ts",
+    "common/page-motion-freeze-control.ts"
+  ]
+}

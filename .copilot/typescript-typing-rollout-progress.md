@@ -1,7 +1,7 @@
 # TypeScript Strict-Typing Rollout Progress
 
 Last updated: 2026-06-17
-Current phase: Phase 1 (leaf modules)
+Current phase: Phase 2 (type-safety hardening)
 
 ## Baseline
 - Branch: feat/typescript-deno-port
@@ -10,6 +10,7 @@ Current phase: Phase 1 (leaf modules)
 - Ratchet allowlist: tests/fixtures/expected-ts-nocheck.txt
 
 ## Checkpoints
+- [2026-06-17] Phase 2 batch 0 completed (setup): created branch `feat/ts-typesafety-hardening` and added a monotonic `@ts-ignore` budget ratchet (`scripts/count-ts-ignore.ts`, `tests/ts-ignore-budget.test.js`, `tests/fixtures/ts-ignore-budget.json`) seeded to the current runtime baseline (2,642 lines across 20 files, including exempt `page-motion-freeze-*` floors). This complements the existing `@ts-nocheck` ratchet and blocks new suppressions/regressions while enabling autonomous budget reseeding as files are hardened.
 - [2026-06-17] Phase 0 completed.
 - [2026-06-17] Added `@types/chrome` foundation (`types/globals.d.ts`, `tsconfig.json`, `package.json`, `deno.lock`).
 - [2026-06-17] Added `@ts-nocheck` ratchet test and baseline fixture (`tests/typing-ratchet.test.js`, `tests/fixtures/expected-ts-nocheck.txt`).
