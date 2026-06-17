@@ -1,9 +1,10 @@
 import { DEVICE_SCALE_DEFAULTS } from "../common/constants.js";
 import { createInitialLynxChecklistState } from "../common/lynx-checklist.js";
+import type { PopupState } from "../types/popup-state.ts";
 
 const initialLynxChecklistState = createInitialLynxChecklistState();
 
-export const state = {
+export const state: PopupState = {
   currentView: "Marking",
   currentTheme: "nordic",
   currentThemeMode: "system",

@@ -1,7 +1,6 @@
 import * as stateModule from "./state.js";
 
 const { state } = stateModule;
-const stateAny = state as any;
 
 export function isPropertyLockCollaborationEnabled(deps: any) {
   return deps.isFeatureEnabled("propertyLockCollaboration");
@@ -189,14 +188,14 @@ export function applyPropertyLockServerMessage(deps: any, serverMessage: any, si
   }
 
   if (type === deps.PROPERTY_LOCK_WS_DISCONNECT_WARNING) {
-    stateAny.propertyLockDisconnectCountdown = secondsRemaining;
-    stateAny.propertyLockSecondsRemaining = secondsRemaining;
+    state.propertyLockDisconnectCountdown = secondsRemaining;
+    state.propertyLockSecondsRemaining = secondsRemaining;
     return true;
   }
 
   if (type === deps.PROPERTY_LOCK_WS_INACTIVITY_WARNING) {
     state.propertyLockInactivityWarningVisible = true;
-    stateAny.propertyLockSecondsRemaining = secondsRemaining;
+    state.propertyLockSecondsRemaining = secondsRemaining;
     return true;
   }
 
@@ -231,19 +230,19 @@ export function applyPropertyLockServerMessage(deps: any, serverMessage: any, si
       transferFromName: String(
         serverMessage.transferFromName ||
         serverMessage.fromName ||
-          stateAny.propertyLockState?.transferFromName ||
+          state.propertyLockState?.transferFromName ||
         ""
       ),
       transferToName: String(
         serverMessage.transferToName ||
         serverMessage.toName ||
-          stateAny.propertyLockState?.transferToName ||
+          state.propertyLockState?.transferToName ||
         state.propertyLockSuggestionFromName ||
         ""
       )
     };
-    stateAny.propertyLockTransferCountdown = secondsRemaining;
-    stateAny.propertyLockSecondsRemaining = secondsRemaining;
+    state.propertyLockTransferCountdown = secondsRemaining;
+    state.propertyLockSecondsRemaining = secondsRemaining;
     state.propertyLockSuggestionVisible = false;
     state.propertyLockSuggestionPending = false;
     state.propertyLockSuggestionRejected = false;

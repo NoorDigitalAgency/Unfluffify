@@ -3,7 +3,6 @@ import * as messages from "./messages.js";
 import * as stateModule from "./state.js";
 
 const { state } = stateModule;
-const stateAny = state as any;
 const DEFAULT_REMOTE_CONFIG_RETRY_DELAY_MS = 2500;
 
 function buildRemoteConfigLoadKey(tabId: unknown, siteId: unknown, endpointValue: unknown) {
@@ -11,14 +10,14 @@ function buildRemoteConfigLoadKey(tabId: unknown, siteId: unknown, endpointValue
 }
 
 export function scheduleRemoteConfigRetry(deps: any) {
-  if (stateAny.remoteConfigConnectionRetryTimer) {
+  if (state.remoteConfigConnectionRetryTimer) {
     return;
   }
   const retryDelayMs = Number.isFinite(deps.remoteConfigRetryDelayMs)
     ? Math.trunc(deps.remoteConfigRetryDelayMs)
     : DEFAULT_REMOTE_CONFIG_RETRY_DELAY_MS;
-  stateAny.remoteConfigConnectionRetryTimer = deps.windowRef.setTimeout(async () => {
-    stateAny.remoteConfigConnectionRetryTimer = 0;
+  state.remoteConfigConnectionRetryTimer = deps.windowRef.setTimeout(async () => {
+    state.remoteConfigConnectionRetryTimer = 0;
     await deps.ensureActiveTab();
     await deps.refreshUi();
   }, retryDelayMs);
@@ -37,27 +36,27 @@ export async function loadRemoteConfigForCurrentPage(deps: any, options: any = {
   } = opts;
   if (!tabId || !siteId || !endpointValue) {
     const result = { status: "skipped", baseUrl: "" };
-    stateAny.remoteConfigLoadResult = result;
+    state.remoteConfigLoadResult = result;
     deps.updateLastConfigLoadStatus(result);
     return result;
   }
   const loadKey = buildRemoteConfigLoadKey(tabId, siteId, endpointValue);
   if (
     !force &&
-    stateAny.remoteConfigLoadKey === loadKey &&
-    stateAny.remoteConfigLoadResult &&
+    state.remoteConfigLoadKey === loadKey &&
+    state.remoteConfigLoadResult &&
     (
-      stateAny.remoteConfigLoadResult.status === "ok" ||
-      stateAny.remoteConfigLoadResult.status === "not_found"
+      state.remoteConfigLoadResult.status === "ok" ||
+      state.remoteConfigLoadResult.status === "not_found"
     )
   ) {
-    return stateAny.remoteConfigLoadResult;
+    return state.remoteConfigLoadResult;
   }
-  stateAny.remoteConfigLoadKey = loadKey;
+  state.remoteConfigLoadKey = loadKey;
   const loadUrl = deps.resolveRelativeEndpoint(endpointValue, "/load");
   if (!loadUrl) {
     const result = { status: "error", baseUrl: "" };
-    stateAny.remoteConfigLoadResult = result;
+    state.remoteConfigLoadResult = result;
     deps.updateLastConfigLoadStatus(result);
     return result;
   }
@@ -69,7 +68,7 @@ export async function loadRemoteConfigForCurrentPage(deps: any, options: any = {
     if (response && response.status === "auth_error") {
       await deps.invalidateTokenAndLockConfiguration(true);
       const result = { status: "auth_error", baseUrl: "" };
-      stateAny.remoteConfigLoadResult = result;
+      state.remoteConfigLoadResult = result;
       deps.updateLastConfigLoadStatus(result);
       return result;
     }
@@ -80,13 +79,13 @@ export async function loadRemoteConfigForCurrentPage(deps: any, options: any = {
           : config.clearBackendSavedPageMarkings;
       await clearBackendSavedPageMarkings(baseUrl || state.currentBaseUrl);
       const result = { status: "not_found", baseUrl: "" };
-      stateAny.remoteConfigLoadResult = result;
+      state.remoteConfigLoadResult = result;
       deps.updateLastConfigLoadStatus(result);
       return result;
     }
     if (!response || response.ok !== true || response.status !== "ok") {
       const result = { status: "error", baseUrl: "" };
-      stateAny.remoteConfigLoadResult = result;
+      state.remoteConfigLoadResult = result;
       deps.updateLastConfigLoadStatus(result);
       return result;
     }
@@ -98,7 +97,7 @@ export async function loadRemoteConfigForCurrentPage(deps: any, options: any = {
     });
     if (!replaceResult.ok) {
       const result = { status: "not_found", baseUrl: "" };
-      stateAny.remoteConfigLoadResult = result;
+      state.remoteConfigLoadResult = result;
       deps.updateLastConfigLoadStatus(result);
       return result;
     }
@@ -116,12 +115,12 @@ export async function loadRemoteConfigForCurrentPage(deps: any, options: any = {
       status: "ok",
       baseUrl: replaceResult.baseUrl
     };
-    stateAny.remoteConfigLoadResult = result;
+    state.remoteConfigLoadResult = result;
     deps.updateLastConfigLoadStatus(result);
     return result;
   } catch {
     const result = { status: "error", baseUrl: "" };
-    stateAny.remoteConfigLoadResult = result;
+    state.remoteConfigLoadResult = result;
     deps.updateLastConfigLoadStatus(result);
     return result;
   }

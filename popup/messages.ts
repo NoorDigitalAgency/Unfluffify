@@ -4,7 +4,6 @@ import * as stateModule from "./state.js";
 import { isDebugFlagEnabled } from "../common/feature-flags.js";
 
 const { state } = stateModule;
-const stateAny = state as any;
 const POPUP_GET_TAB_VIEW_STATE_COMMAND = "POPUP_GET_TAB_VIEW_STATE";
 const TAB_CONTENT_REQUEST_COMMAND = "TAB_CONTENT_REQUEST";
 const TAB_ACTIVATE_MARKING_COMMAND = "TAB_ACTIVATE_MARKING";
@@ -22,7 +21,7 @@ const TAB_RUN_AI_COMMAND = "TAB_RUN_AI";
 export const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function shouldTraceWorldMessaging() {
-  return isDebugFlagEnabled("fullWorldMessagingLogging") || Boolean(stateAny.traceModeEnabled);
+  return isDebugFlagEnabled("fullWorldMessagingLogging") || Boolean(state.traceModeEnabled);
 }
 
 function logPopupMessageTrace(direction: string, details: any = {}) {
@@ -404,7 +403,7 @@ export function requestTabRunAi(tabId: any, payload: any = {}, options: any = {}
 }
 
 export function sendTabMessage(message: any) {
-  const tabId = stateAny.currentTab && stateAny.currentTab.id;
+  const tabId = state.currentTab && state.currentTab.id;
   if (!tabId) {
     return Promise.resolve(null);
   }
@@ -472,7 +471,7 @@ function getTabById(tabId: any) {
   if (!tabsApi || typeof tabsApi.get !== "function" || !tabId) {
     return Promise.resolve(null);
   }
-  return new Promise((resolve) => {
+  return new Promise<chrome.tabs.Tab | null>((resolve) => {
     try {
       tabsApi.get(tabId, (tab: any) => {
         if (chrome.runtime && chrome.runtime.lastError) {
@@ -492,7 +491,7 @@ function queryActiveTabFallback() {
   if (!tabsApi || typeof tabsApi.query !== "function") {
     return Promise.resolve(null);
   }
-  return new Promise((resolve) => {
+  return new Promise<chrome.tabs.Tab | null>((resolve) => {
     const finish = (tabs: any[]) => {
       resolve(Array.isArray(tabs) && tabs[0] && tabs[0].id ? tabs[0] : null);
     };
@@ -540,10 +539,10 @@ export async function loadActiveTab() {
         ? Math.trunc(debugTabIdParam)
         : null
     });
-    stateAny.currentTab = response && response.ok && response.tab
+    state.currentTab = response && response.ok && response.tab
       ? response.tab
       : await loadActiveTabFallback(debugTabIdParam);
   } catch (error) {
-    stateAny.currentTab = await loadActiveTabFallback(debugTabIdParam);
+    state.currentTab = await loadActiveTabFallback(debugTabIdParam);
   }
 }

@@ -8,7 +8,6 @@ import * as messages from "./messages.js";
 import * as stateModule from "./state.js";
 
 const { state } = stateModule;
-const stateAny = state as any;
 const FALLBACK_PROPERTY_PAGE_TYPES_REFRESH_INTERVAL_MS = 120 * 1000;
 
 function buildPropertyPageTypesSignature(pageTypes: any) {
@@ -29,16 +28,16 @@ function buildPropertyPageTypesSignature(pageTypes: any) {
 }
 
 function resetPropertyPageTypesState() {
-  stateAny.propertyPageTypes = [];
-  stateAny.propertyPageTypesDuplicateUrls = [];
-  stateAny.propertyPageTypesSiteId = null;
-  stateAny.propertyPageTypesStageBase = "";
-  stateAny.propertyPageTypesSignature = "";
-  stateAny.propertyPageTypesFetchedAt = 0;
-  stateAny.propertyPageTypesLastError = "";
-  stateAny.propertyPageTypesChangeNoticeVisible = false;
-  stateAny.propertyPageTypesInvalidAlertPending = false;
-  stateAny.propertyPageTypesChangeForceTodoOpen = false;
+  state.propertyPageTypes = [];
+  state.propertyPageTypesDuplicateUrls = [];
+  state.propertyPageTypesSiteId = null;
+  state.propertyPageTypesStageBase = "";
+  state.propertyPageTypesSignature = "";
+  state.propertyPageTypesFetchedAt = 0;
+  state.propertyPageTypesLastError = "";
+  state.propertyPageTypesChangeNoticeVisible = false;
+  state.propertyPageTypesInvalidAlertPending = false;
+  state.propertyPageTypesChangeForceTodoOpen = false;
 }
 
 function getRefreshIntervalMs(deps: any) {
@@ -117,16 +116,16 @@ export async function ensurePropertyPageTypes(deps: any, options: any = {}) {
   const cacheKey = `${normalizedStageBase}|${normalizedSiteId}`;
   const cacheFresh =
     !force &&
-    stateAny.propertyPageTypesSiteId === normalizedSiteId &&
-    stateAny.propertyPageTypesStageBase === normalizedStageBase &&
-    stateAny.propertyPageTypesFetchedAt > 0 &&
-    Date.now() - stateAny.propertyPageTypesFetchedAt < refreshIntervalMs &&
-    !stateAny.propertyPageTypesLastError;
+    state.propertyPageTypesSiteId === normalizedSiteId &&
+    state.propertyPageTypesStageBase === normalizedStageBase &&
+    state.propertyPageTypesFetchedAt > 0 &&
+    Date.now() - state.propertyPageTypesFetchedAt < refreshIntervalMs &&
+    !state.propertyPageTypesLastError;
   if (cacheFresh) {
     return {
       ok: true,
-      pageTypes: stateAny.propertyPageTypes,
-      duplicateUrls: stateAny.propertyPageTypesDuplicateUrls,
+      pageTypes: state.propertyPageTypes,
+      duplicateUrls: state.propertyPageTypesDuplicateUrls,
       changed: false,
       fromCache: true
     };
@@ -141,19 +140,19 @@ export async function ensurePropertyPageTypes(deps: any, options: any = {}) {
     tokenValue
   }).then((result) => {
     if (!result.ok) {
-      stateAny.propertyPageTypesLastError = result.error || deps.PopupText.pageTypes.refreshFailed;
+      state.propertyPageTypesLastError = result.error || deps.PopupText.pageTypes.refreshFailed;
       if (
-        stateAny.propertyPageTypesSiteId === normalizedSiteId &&
-        stateAny.propertyPageTypesStageBase === normalizedStageBase &&
-        Array.isArray(stateAny.propertyPageTypes)
+        state.propertyPageTypesSiteId === normalizedSiteId &&
+        state.propertyPageTypesStageBase === normalizedStageBase &&
+        Array.isArray(state.propertyPageTypes)
       ) {
         return {
           ok: true,
-          pageTypes: stateAny.propertyPageTypes,
-          duplicateUrls: stateAny.propertyPageTypesDuplicateUrls,
+          pageTypes: state.propertyPageTypes,
+          duplicateUrls: state.propertyPageTypesDuplicateUrls,
           changed: false,
           stale: true,
-          error: stateAny.propertyPageTypesLastError
+          error: state.propertyPageTypesLastError
         };
       }
       return {
@@ -161,26 +160,26 @@ export async function ensurePropertyPageTypes(deps: any, options: any = {}) {
         pageTypes: [],
         duplicateUrls: [],
         changed: false,
-            error: stateAny.propertyPageTypesLastError
+            error: state.propertyPageTypesLastError
       };
     }
-          const previousSignature = stateAny.propertyPageTypesSignature;
+          const previousSignature = state.propertyPageTypesSignature;
     const nextSignature = result.signature || "";
     const changed = Boolean(previousSignature) && previousSignature !== nextSignature;
-          stateAny.propertyPageTypes = result.pageTypes;
-          stateAny.propertyPageTypesDuplicateUrls = result.duplicateUrls;
-          stateAny.propertyPageTypesSiteId = normalizedSiteId;
-          stateAny.propertyPageTypesStageBase = normalizedStageBase;
-          stateAny.propertyPageTypesSignature = nextSignature;
-          stateAny.propertyPageTypesFetchedAt = Date.now();
-          stateAny.propertyPageTypesLastError = "";
+          state.propertyPageTypes = result.pageTypes;
+          state.propertyPageTypesDuplicateUrls = result.duplicateUrls;
+          state.propertyPageTypesSiteId = normalizedSiteId;
+          state.propertyPageTypesStageBase = normalizedStageBase;
+          state.propertyPageTypesSignature = nextSignature;
+          state.propertyPageTypesFetchedAt = Date.now();
+          state.propertyPageTypesLastError = "";
     if (changed && notifyOnChange) {
       deps.showToast(deps.PopupText.pageTypes.updatedToast);
     }
     return {
       ok: true,
-      pageTypes: stateAny.propertyPageTypes,
-      duplicateUrls: stateAny.propertyPageTypesDuplicateUrls,
+      pageTypes: state.propertyPageTypes,
+      duplicateUrls: state.propertyPageTypesDuplicateUrls,
       changed,
       stale: false
     };
@@ -319,7 +318,7 @@ export async function ensureBaseUrlSiteId(deps: any, options: any = {}) {
   }
   const existingSiteId = normalizeSiteIdValue(sourceConfigs[requestedBaseUrl].siteId);
   if (existingSiteId) {
-    stateAny.siteIdLookupByBaseUrl.set(requestedBaseUrl, existingSiteId);
+    state.siteIdLookupByBaseUrl.set(requestedBaseUrl, existingSiteId);
     return {
       ok: true,
       siteId: existingSiteId,
@@ -339,8 +338,8 @@ export async function ensureBaseUrlSiteId(deps: any, options: any = {}) {
       config: sourceConfigs[requestedBaseUrl]
     };
   }
-  if (stateAny.siteIdLookupByBaseUrl.has(requestedBaseUrl)) {
-    const cached = normalizeSiteIdValue(stateAny.siteIdLookupByBaseUrl.get(requestedBaseUrl));
+  if (state.siteIdLookupByBaseUrl.has(requestedBaseUrl)) {
+    const cached = normalizeSiteIdValue(state.siteIdLookupByBaseUrl.get(requestedBaseUrl));
     if (cached) {
       if (shouldPersist) {
         sourceConfigs[requestedBaseUrl] = await config.updateConfig(requestedBaseUrl, (target: any) => {
@@ -362,7 +361,7 @@ export async function ensureBaseUrlSiteId(deps: any, options: any = {}) {
         config: sourceConfigs[requestedBaseUrl]
       };
     }
-    stateAny.siteIdLookupByBaseUrl.delete(requestedBaseUrl);
+    state.siteIdLookupByBaseUrl.delete(requestedBaseUrl);
   }
   const queryUrl = pageUrl && typeof pageUrl === "string" ? pageUrl : requestedBaseUrl;
   const lookupResult = await resolveSiteIdFromGraphql(deps, {
@@ -395,9 +394,9 @@ export async function ensureBaseUrlSiteId(deps: any, options: any = {}) {
       config: sourceConfigs[requestedBaseUrl]
     };
   }
-  stateAny.siteIdLookupByBaseUrl.set(resolvedBaseUrl, resolvedSiteId);
+  state.siteIdLookupByBaseUrl.set(resolvedBaseUrl, resolvedSiteId);
   if (requestedBaseUrl !== resolvedBaseUrl) {
-    stateAny.siteIdLookupByBaseUrl.delete(requestedBaseUrl);
+    state.siteIdLookupByBaseUrl.delete(requestedBaseUrl);
   }
   let didChangeConfigs = false;
   if (requestedBaseUrl !== resolvedBaseUrl) {
