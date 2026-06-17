@@ -103,43 +103,43 @@ export function formatSelectorsComputedLocally(reason: string) {
 }
 
 export const propertyLockText = Object.freeze({
-  // @ts-ignore preserve source-contract lambda signature used by property-lock tests
+  // @ts-expect-error preserve source-contract lambda signature used by property-lock tests
   passiveLockedMessage: (editorName) => `${editorName} is currently editing this property`,
   sameUserLockedMessage: "You are already editing this property in another tab",
-  // @ts-ignore preserve source-contract lambda signature used by property-lock tests
+  // @ts-expect-error preserve source-contract lambda signature used by property-lock tests
   passiveExpiryCountdownMessage: (_editorName, secondsRemaining) => `This property will be released for editing in ${secondsRemaining}s`,
-  // @ts-ignore preserve source-contract lambda signature used by property-lock tests
+  // @ts-expect-error preserve source-contract lambda signature used by property-lock tests
   passiveSuggestionPendingMessage: (editorName) => `Waiting for ${editorName}'s response...`,
-  // @ts-ignore preserve source-contract lambda signature used by property-lock tests
+  // @ts-expect-error preserve source-contract lambda signature used by property-lock tests
   passiveSuggestionRejectedMessage: (editorName) => `${editorName} prefers to continue editing.`,
-  // @ts-ignore preserve source-contract lambda signature used by property-lock tests
+  // @ts-expect-error preserve source-contract lambda signature used by property-lock tests
   takeoverSuggestionMessage: (fromName) => `${fromName} would like to edit this property`,
   takeoverSuggestButton: "Suggest to take over",
   takeoverAvailableMessage: "This property is not being actively edited anymore.",
   recentEditorInactiveMessage: "You have been inactive for too long.",
   takeoverButton: "Take over",
   startEditingAgainButton: "Start editing again",
-  // @ts-ignore preserve source-contract lambda signature used by property-lock tests
+  // @ts-expect-error preserve source-contract lambda signature used by property-lock tests
   editorDisconnectCountdownMessage: (secondsRemaining) => `Connection lost. You will lose the editor role in ${secondsRemaining}s unless the connection recovers.`,
-  // @ts-ignore preserve source-contract lambda signature used by property-lock tests
+  // @ts-expect-error preserve source-contract lambda signature used by property-lock tests
   editorInactivityWarningMessage: (secondsRemaining) => `No recent page interaction. You will lose the editor role in ${secondsRemaining}s unless you continue editing.`,
-  // @ts-ignore preserve source-contract lambda signature used by property-lock tests
+  // @ts-expect-error preserve source-contract lambda signature used by property-lock tests
   editorOffCandidateCountdownMessage: (secondsRemaining) => `This page is not a current Live Page candidate. Return to a candidate page within ${secondsRemaining}s or you will lose the editor role.`,
-  // @ts-ignore preserve source-contract lambda signature used by property-lock tests
+  // @ts-expect-error preserve source-contract lambda signature used by property-lock tests
   editorCrossPropertyCountdownMessage: (secondsRemaining) => `You left the previous property. Return to it within ${secondsRemaining}s or you will lose the editor role.`,
   continueEditingButton: "Continue editing",
   continueEditingHereButton: "Continue editing here",
   continueEditingHereAnywayButton: "Continue editing here anyway",
   otherTabUnsavedChangesLabel: "Other tab has unsaved changes",
-  // @ts-ignore preserve source-contract lambda signature used by property-lock tests
+  // @ts-expect-error preserve source-contract lambda signature used by property-lock tests
   editorTransferCountdownMessage: (fromName, toName, secondsRemaining) => `Editing is being transferred from ${fromName} to ${toName}${secondsRemaining ? ` (${secondsRemaining}s)` : ""}.`,
   editorNowToast: "You are the editor now",
-  // @ts-ignore preserve source-contract lambda signature used by property-lock tests
+  // @ts-expect-error preserve source-contract lambda signature used by property-lock tests
   editorTransferredToast: (editorName) => `Editing has been transferred to ${editorName}.`,
   transferSaveBeforeAcceptConfirm: "Save your changes before transferring editing?",
   transferSaveBeforeAcceptToast: "Save from the extension popup before accepting the transfer.",
   transferDiscardBeforeAcceptConfirm: "Discard unsaved changes and transfer editing?",
-  // @ts-ignore preserve source-contract lambda signature used by property-lock tests
+  // @ts-expect-error preserve source-contract lambda signature used by property-lock tests
   lockedInteractionBlockedToast: (editorName) => `Property is being edited by ${editorName}`,
   disconnectedInteractionBlockedToast: "Editing is temporarily blocked while the property lock reconnects.",
   inactivityInteractionBlockedToast: "Editing is temporarily blocked due to inactivity. Continue editing from the warning banner.",
@@ -149,9 +149,9 @@ export const propertyLockText = Object.freeze({
   popupUnavailableDetail: "Marking controls are paused until coordination reconnects.",
   popupInspectionReconnecting: "Reconnecting after inspection...",
   editorInspectionReconnectingMessage: "Reconnecting after inspection...",
-  // @ts-ignore preserve source-contract lambda signature used by property-lock tests
+  // @ts-expect-error preserve source-contract lambda signature used by property-lock tests
   popupOffCandidateWarning: (secondsRemaining) => `Off candidate page • editor role ends in ${secondsRemaining}s`,
-  // @ts-ignore preserve source-contract lambda signature used by property-lock tests
+  // @ts-expect-error preserve source-contract lambda signature used by property-lock tests
   popupCrossPropertyWarning: (secondsRemaining) => `Previous property held • editor role ends in ${secondsRemaining}s`,
   popupEditorActive: "You are editing this property",
   popupEditorDetail: "Changes are reserved to your session.",
