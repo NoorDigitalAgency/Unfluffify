@@ -1,0 +1,13 @@
+{
+  "tasks": {
+    "test": "node --test",
+    "test:deno": "deno test -A --no-check tests",
+    "package": "node ./scripts/package-extension.mjs",
+    "check": "deno eval \"console.log('Phase 2: check task pending')\"",
+    "build:dev": "deno eval \"console.log('Phase 3: dev build task pending')\"",
+    "build:release": "deno eval \"console.log('Phase 3: release build task pending')\"",
+    "watch": "deno eval \"console.log('Phase 9: watch task pending')\"",
+    "fmt": "deno fmt",
+    "lint": "deno lint"
+  }
+}
