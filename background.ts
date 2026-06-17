@@ -705,7 +705,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_CONTENT_REQUEST, async (contex
     return context.replyFail(
       MESSAGE_ERROR_CODES.CONTENT_UNAVAILABLE,
       "Unable to reach content script",
-      { tabId: normalizedTabId, type: message.type || "" }
+      { tabId: normalizedTabId, type: (message as { type?: string }).type || "" }
     );
   }
 
@@ -1114,7 +1114,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_SHOW_AI_PREVIEW, async (contex
     );
   }
 
-  const selectorSet = normalizeAiSelectorSet(payload && payload.selectorSet);
+  const selectorSet = normalizeAiSelectorSet((payload && payload.selectorSet) as Parameters<typeof normalizeAiSelectorSet>[0]);
   const response = await sendContentMessageToTab(normalizedTabId, {
     type: "showAiPreview",
     selectorSet
