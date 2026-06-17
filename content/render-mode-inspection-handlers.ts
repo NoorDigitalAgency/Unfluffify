@@ -1,8 +1,49 @@
-// @ts-nocheck
-export function createRenderModeInspectionHandlers(deps) {
+type RenderModeInspectionDeps = {
+  createLifecycleOperationId: (kind: string) => string;
+  LIFECYCLE_KINDS: { RENDER_MODE_INSPECTION: string };
+  LIFECYCLE_PHASES: {
+    STARTED: string;
+    FAILED: string;
+    REVEAL_FINISHED: string;
+    REVEAL_STARTED: string;
+    HTML_CAPTURED: string;
+    FINISHED: string;
+  };
+  setRenderModeInspectionActive: (active: boolean) => void;
+  cancelSilentHighlightEditorActivation: () => void;
+  emitLifecycleEvent: (event: Record<string, unknown>) => void;
+  getPageUrl: () => string;
+  resolveBaseUrlForCurrentPage: () => Promise<string>;
+  isPageWithinBaseUrl: (pageUrl: string, baseUrl: string) => boolean;
+  finishPageInspectionUi: () => void;
+  consumePageVisitRevealFreezeAttempt: (baseUrl: string, pageUrl: string) => boolean;
+  nextRevealId: () => number;
+  setSilentHighlightEditorRevealInFlight: (value: number) => void;
+  isRenderModeInspectionFlagSet: () => boolean;
+  getSilentHighlightEditorRevealInFlight: () => number;
+  SILENT_HIGHLIGHTING_MOTION_PAUSE_REASON: string;
+  warmupSilentHighlightingBeforeMotionPause: (
+    baseUrl: string,
+    pageUrl: string,
+    reason: string,
+    options: { keepUiActive: boolean; onRevealProgress: () => void }
+  ) => Promise<boolean>;
+  armRenderModeInspectionWatchdog: () => void;
+  markSilentHighlightEditorRevealPrepared: (baseUrl: string, pageUrl: string) => void;
+  isRenderModeInspectionActive: () => boolean;
+  createCurrentPageSnapshot: () => { renderedHtml?: unknown; renderMode?: unknown };
+  fetchCurrentPageRawHtml: (pageUrl: string) => Promise<unknown>;
+  getPropertyLockBannerMode: () => string;
+  updatePropertyLockBannerMode: () => void;
+  renderPropertyLockBanner: () => void;
+  hideConsentElements: () => number;
+};
+
+export function createRenderModeInspectionHandlers(deps: RenderModeInspectionDeps) {
   function resolveOperationId(message = {}) {
-    return typeof message.operationId === "string" && message.operationId
-      ? message.operationId
+    const messageRecord = message as { operationId?: unknown };
+    return typeof messageRecord.operationId === "string" && messageRecord.operationId
+      ? messageRecord.operationId
       : deps.createLifecycleOperationId(deps.LIFECYCLE_KINDS.RENDER_MODE_INSPECTION);
   }
 
@@ -20,11 +61,14 @@ export function createRenderModeInspectionHandlers(deps) {
   }
 
   async function revealOnce(message = {}) {
+    const messageRecord = message as { operationId?: unknown; baseUrl?: unknown };
     const operationId = resolveOperationId(message);
     deps.setRenderModeInspectionActive(true);
     deps.cancelSilentHighlightEditorActivation();
     const pageUrl = deps.getPageUrl();
-    const baseUrl = message.baseUrl || await deps.resolveBaseUrlForCurrentPage();
+    const baseUrl =
+      (typeof messageRecord.baseUrl === "string" && messageRecord.baseUrl) ||
+      await deps.resolveBaseUrlForCurrentPage();
     if (!baseUrl || !deps.isPageWithinBaseUrl(pageUrl, baseUrl)) {
       deps.finishPageInspectionUi();
       deps.emitLifecycleEvent({

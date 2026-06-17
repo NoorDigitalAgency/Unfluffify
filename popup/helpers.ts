@@ -1,4 +1,3 @@
-// @ts-nocheck
 import * as emulation from "./emulation.js";
 import * as messages from "./messages.js";
 import * as stateModule from "./state.js";
@@ -9,10 +8,14 @@ import { getGlobalAiSettings } from "../common/settings-store.js";
 
 const { state } = stateModule;
 
-export async function ensureActiveTab(options = {}) {
+export async function ensureActiveTab(options: {
+  requireId?: boolean;
+  requireUrl?: boolean;
+  toastOnMissing?: string;
+} = {}): Promise<chrome.tabs.Tab | null> {
   const { requireId = false, requireUrl = false, toastOnMissing = "" } = options;
   await messages.loadActiveTab();
-  const tab = state.currentTab;
+  const tab = state.currentTab as chrome.tabs.Tab | null;
   if (!tab || (requireId && !tab.id) || (requireUrl && !tab.url)) {
     if (toastOnMissing) {
       uiModule.showToast(toastOnMissing);
@@ -22,7 +25,7 @@ export async function ensureActiveTab(options = {}) {
   return tab;
 }
 
-export function ensureBaseUrl(message = ViewText.noMappedBaseUrlOrSiteId) {
+export function ensureBaseUrl(message = ViewText.noMappedBaseUrlOrSiteId): boolean {
   if (!state.currentBaseUrl) {
     uiModule.showToast(message);
     return false;
@@ -31,12 +34,13 @@ export function ensureBaseUrl(message = ViewText.noMappedBaseUrlOrSiteId) {
 }
 
 export async function injectContentScriptIfNeeded() {
-  if (!state.currentTab || !state.currentTab.id) {
+  const currentTab = state.currentTab as chrome.tabs.Tab | null;
+  if (!currentTab || !currentTab.id) {
     return { ok: false, error: PopupText.helper.injectNoActiveTab };
   }
   const response = await messages.sendRuntimeMessage({
     type: "injectContentScript",
-    tabId: state.currentTab.id
+    tabId: currentTab.id
   });
   return response || { ok: false, error: PopupText.helper.injectFailed };
 }
@@ -46,11 +50,17 @@ export async function updateDeviceEmulation({
   mode,
   scale,
   recalculateScale = false
-}) {
-  if (!state.currentTab || !state.currentTab.id) {
+}: {
+  enabled: boolean;
+  mode: string;
+  scale: number;
+  recalculateScale?: boolean;
+}): Promise<{ enabled: boolean; mode: string; scale: number } | null> {
+  const currentTab = state.currentTab as chrome.tabs.Tab | null;
+  if (!currentTab || !currentTab.id) {
     return null;
   }
-  const supportedUrl = utils.getOriginFromUrl(state.currentTab.url || "");
+  const supportedUrl = utils.getOriginFromUrl(currentTab.url || "");
   if (enabled && !supportedUrl) {
     uiModule.showToast(PopupText.device.unsupportedToast);
     const normalized = emulation.syncDeviceEmulationState({
@@ -66,7 +76,7 @@ export async function updateDeviceEmulation({
     });
     return null;
   }
-  const syncDeviceView = (normalized) => {
+  const syncDeviceView = (normalized: { enabled: boolean; mode: string; scale: number }) => {
     uiModule.setViewState({
       deviceEmulationEnabled: normalized.enabled,
       deviceMode: normalized.mode,
@@ -83,12 +93,17 @@ export async function updateDeviceEmulation({
   // can hang (e.g. a slow/again-attaching target). Bound it so a hang cannot
   // wedge the caller's spinner ("Applying device emulation...") indefinitely;
   // on timeout we fall through to the failure path which reconciles + toasts.
-  let response;
+  let response: {
+    ok?: boolean;
+    error?: string;
+    timedOut?: boolean;
+    state?: unknown;
+  } | null | undefined;
   try {
     response = await Promise.race([
       messages.sendRuntimeMessage({
         type: "updateDeviceEmulation",
-        tabId: state.currentTab.id,
+        tabId: currentTab.id,
         enabled,
         mode,
         scale,
@@ -107,8 +122,8 @@ export async function updateDeviceEmulation({
   }
   if (!response || !response.ok) {
     uiModule.showToast((response && response.error) || PopupText.device.emulationFailed);
-    const reconciledState = state.currentTab && state.currentTab.id
-      ? await emulation.reconcileDeviceEmulationState(state.currentTab.id)
+    const reconciledState = currentTab && currentTab.id
+      ? await emulation.reconcileDeviceEmulationState(currentTab.id)
       : {
           enabled: state.currentDeviceEmulationEnabled,
           mode: state.currentDeviceMode,

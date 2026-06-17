@@ -7,7 +7,6 @@ background/remote-network.ts
 background/render-mode-inspector.ts
 background/spinner-operations.ts
 background/tab-inactivity-observer.ts
-background/tab-runtime.ts
 background/tab-session-store.ts
 background/transfer-payload-store.ts
 background.ts
@@ -23,14 +22,11 @@ content/content-main-service-registry.ts
 content/core.ts
 content/explicit-marking-handler.ts
 content-main.ts
-content/page-draft-save-handler.ts
 content/page-world-relay.ts
 content/property-lock-banner.ts
 content/property-lock-state-machine.ts
-content/render-mode-inspection-handlers.ts
 content/runtime-message-handler.ts
 content/shared-selector-cache.ts
-popup/helpers.ts
 popup/messages.ts
 popup/page-reconciliation.ts
 popup/property-lock-ui.ts

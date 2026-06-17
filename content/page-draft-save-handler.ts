@@ -1,6 +1,54 @@
-// @ts-nocheck
-export function createPageDraftSaveHandler(deps) {
-  async function saveCurrentPageDraft(options) {
+type PageDraftSaveEntry = {
+  renderedHtml?: unknown;
+  rawHtml?: unknown;
+  title?: unknown;
+  pageType?: unknown;
+  submissionXpaths?: unknown;
+  [key: string]: unknown;
+};
+
+type PageDraftSaveDeps = {
+  getCurrentPageType: () => string;
+  getBaseUrl: () => string;
+  getConfig: () => { pageMarkings: Record<string, PageDraftSaveEntry> } | null;
+  matchesActiveBaseUrl: (baseUrl: string) => boolean;
+  showPageToast: (message: string) => void;
+  getPageUrl: () => string;
+  refreshSavedPageEntryFromBackendCache: (baseUrl: string, pageUrl: string) => Promise<void>;
+  getSavedPageEntry: (pageUrl: string) => PageDraftSaveEntry | null;
+  getDraftPageEntry: (pageUrl: string) => PageDraftSaveEntry | null;
+  areEntriesEquivalent: (a: unknown, b: unknown) => boolean;
+  getPageSaveReconciliationState: (pageUrl: string) => unknown;
+  hideConsentElements: () => void;
+  collectImmutableElements: () => unknown;
+  syncPageMarkings: (
+    config: { pageMarkings: Record<string, PageDraftSaveEntry> },
+    pageUrl: string,
+    immutableExcluded: unknown,
+    options: { allowCreate: boolean; persist: boolean }
+  ) => { changed: boolean };
+  getPageMarkingEntry: (config: { pageMarkings: Record<string, PageDraftSaveEntry> }, pageUrl: string) => PageDraftSaveEntry;
+  createCurrentPageSnapshot: () => { renderedHtml: unknown };
+  collectAiSubmissionXpathsForCurrentPage: () => unknown[];
+  fetchCurrentPageRawHtml: (pageUrl: string) => Promise<unknown>;
+  submissionXpathsEqual: (a: unknown, b: unknown) => boolean;
+  setPageSaveReconciliationPending: (baseUrl: string, pageUrl: string, options: { reason: string }) => Promise<void>;
+  touchPageEntryTimestamp: (entry: PageDraftSaveEntry) => void;
+  saveConfig: (baseUrl: string, config: { pageMarkings: Record<string, PageDraftSaveEntry> }) => Promise<void>;
+  clearPageSaveReconciliation: (baseUrl: string, pageUrl: string) => Promise<void>;
+  logContentDiagnostic: (level: string, message: string, error: unknown) => void;
+  setSavedPageEntry: (pageUrl: string, entry: PageDraftSaveEntry) => void;
+  scheduleRender: () => void;
+  notifyDraftStatus: (pageUrl: string) => void;
+  getDocumentTitle: () => string;
+};
+
+export function createPageDraftSaveHandler(deps: PageDraftSaveDeps) {
+  async function saveCurrentPageDraft(options: {
+    baseUrl?: string;
+    pageType?: string;
+    showToast?: boolean;
+  } | null | undefined) {
     const { baseUrl, pageType = "", showToast = false } = options || {};
     const resolvedPageType = typeof pageType === "string" && pageType
       ? pageType
