@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * Property Edit Lock constants and helpers.
  * 
@@ -82,7 +81,36 @@ export const PROPERTY_LOCK_BACKGROUND_GET_STATE = "getPropertyLockState";
 export const PROPERTY_LOCK_BACKGROUND_STATE_UPDATE = "propertyLockStateUpdate";
 export const PROPERTY_LOCK_BACKGROUND_CONNECTION_STATUS = "propertyLockConnectionStatus";
 
-export function normalizePropertyLockSiteId(value) {
+type PropertyLockOptions = {
+  ownIdentity?: unknown;
+  clientId?: unknown;
+  ownClientId?: unknown;
+};
+
+type PropertyLockMessage = Record<string, unknown>;
+
+type NormalizedLockState = {
+  state: string;
+  editorIdentity: string;
+  editorClientId: string;
+  editorName: string;
+  isEditor: boolean;
+  isRecentEditor: boolean;
+  isSameUserEditor: boolean;
+  otherTabHasUnsavedChanges: boolean;
+  canContinueHere: boolean;
+  transferFromName: string;
+  transferToName: string;
+  expiresAtUtc: string;
+  secondsRemaining: number | null;
+};
+
+type TakeoverSuggestion = {
+  suggestionId: string;
+  fromName: string;
+};
+
+export function normalizePropertyLockSiteId(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) {
     return value > 0 ? Math.trunc(value) : null;
   }
@@ -93,7 +121,7 @@ export function normalizePropertyLockSiteId(value) {
   return null;
 }
 
-export function normalizePropertyLockClientId(value) {
+export function normalizePropertyLockClientId(value: unknown): string {
   if (typeof value !== "string") {
     return "";
   }
@@ -114,7 +142,7 @@ export function createPropertyLockClientId() {
  * @param {string} tokenValue - JWT token for authorization
  * @returns {string} WSS URL or empty string if invalid
  */
-export function buildPropertyLockWssUrl(endpointUrl, tokenValue) {
+export function buildPropertyLockWssUrl(endpointUrl: unknown, tokenValue: unknown): string {
   if (!endpointUrl || typeof endpointUrl !== "string") {
     return "";
   }
@@ -158,36 +186,40 @@ export function buildPropertyLockWssUrl(endpointUrl, tokenValue) {
  * @param {object} message - Raw message from server
  * @returns {object} Normalized lock state
  */
-export function normalizeLockStateMessage(message, options = {}) {
+export function normalizeLockStateMessage(
+  message: unknown,
+  options: PropertyLockOptions = {}
+): NormalizedLockState {
   if (!message || typeof message !== "object") {
     return createInactiveLockState();
   }
+  const input = message as PropertyLockMessage;
   const ownIdentity = String(options.ownIdentity || "");
   const ownClientId = normalizePropertyLockClientId(options.clientId || options.ownClientId || "");
-  const editorIdentity = String(message.editorIdentity || "");
-  const editorClientId = normalizePropertyLockClientId(message.editorClientId || "");
-  const rawIsEditor = Boolean(message.isEditor);
+  const editorIdentity = String(input.editorIdentity || "");
+  const editorClientId = normalizePropertyLockClientId(input.editorClientId || "");
+  const rawIsEditor = Boolean(input.isEditor);
   const isEditor = editorClientId && ownClientId && editorClientId !== ownClientId
     ? false
     : rawIsEditor;
 
   return {
-    state: String(message.state || PROPERTY_LOCK_STATE_UNLOCKED),
+    state: String(input.state || PROPERTY_LOCK_STATE_UNLOCKED),
     editorIdentity,
     editorClientId,
-    editorName: String(message.editorName || ""),
+    editorName: String(input.editorName || ""),
     isEditor,
-    isRecentEditor: Boolean(message.isRecentEditor),
+    isRecentEditor: Boolean(input.isRecentEditor),
     isSameUserEditor: Boolean(
-      message.isSameUserEditor ||
+      input.isSameUserEditor ||
         (!isEditor && ownIdentity && editorIdentity && ownIdentity === editorIdentity)
     ),
-    otherTabHasUnsavedChanges: Boolean(message.otherTabHasUnsavedChanges),
-    canContinueHere: Boolean(message.canContinueHere),
-    transferFromName: String(message.transferFromName || message.fromName || ""),
-    transferToName: String(message.transferToName || message.toName || ""),
-    expiresAtUtc: String(message.expiresAtUtc || ""),
-    secondsRemaining: typeof message.secondsRemaining === "number" ? Math.max(0, Math.floor(message.secondsRemaining)) : null
+    otherTabHasUnsavedChanges: Boolean(input.otherTabHasUnsavedChanges),
+    canContinueHere: Boolean(input.canContinueHere),
+    transferFromName: String(input.transferFromName || input.fromName || ""),
+    transferToName: String(input.transferToName || input.toName || ""),
+    expiresAtUtc: String(input.expiresAtUtc || ""),
+    secondsRemaining: typeof input.secondsRemaining === "number" ? Math.max(0, Math.floor(input.secondsRemaining)) : null
   };
 }
 
@@ -197,14 +229,15 @@ export function normalizeLockStateMessage(message, options = {}) {
  * @param {object} message - Raw message from server
  * @returns {object} Normalized suggestion
  */
-export function normalizeTakeoverSuggestionMessage(message) {
+export function normalizeTakeoverSuggestionMessage(message: unknown): TakeoverSuggestion | null {
   if (!message || typeof message !== "object") {
     return null;
   }
+  const input = message as PropertyLockMessage;
 
   return {
-    suggestionId: String(message.suggestionId || ""),
-    fromName: String(message.fromName || "")
+    suggestionId: String(input.suggestionId || ""),
+    fromName: String(input.fromName || "")
   };
 }
 
@@ -213,7 +246,7 @@ export function normalizeTakeoverSuggestionMessage(message) {
  * 
  * @returns {object} Inactive lock state
  */
-export function createInactiveLockState() {
+export function createInactiveLockState(): NormalizedLockState {
   return {
     state: PROPERTY_LOCK_STATE_UNLOCKED,
     editorIdentity: "",
@@ -237,8 +270,8 @@ export function createInactiveLockState() {
  * @param {object} lockState - Normalized lock state
  * @returns {boolean}
  */
-export function isLockStateUnlocked(lockState) {
-  return lockState && lockState.state === PROPERTY_LOCK_STATE_UNLOCKED;
+export function isLockStateUnlocked(lockState: NormalizedLockState | null | undefined): boolean {
+  return Boolean(lockState && lockState.state === PROPERTY_LOCK_STATE_UNLOCKED);
 }
 
 /**
@@ -247,11 +280,11 @@ export function isLockStateUnlocked(lockState) {
  * @param {object} lockState - Normalized lock state
  * @returns {boolean}
  */
-export function isLockStateLockedByOther(lockState) {
-  return lockState && 
+export function isLockStateLockedByOther(lockState: NormalizedLockState | null | undefined): boolean {
+  return Boolean(lockState &&
          !lockState.isEditor && 
          (lockState.state === PROPERTY_LOCK_STATE_LOCKED || 
-          lockState.state === PROPERTY_LOCK_STATE_EXPIRY_WARNING);
+          lockState.state === PROPERTY_LOCK_STATE_EXPIRY_WARNING));
 }
 
 /**
@@ -260,10 +293,10 @@ export function isLockStateLockedByOther(lockState) {
  * @param {object} lockState - Normalized lock state
  * @returns {boolean}
  */
-export function canTakeoverLock(lockState) {
-  return lockState && 
+export function canTakeoverLock(lockState: NormalizedLockState | null | undefined): boolean {
+  return Boolean(lockState &&
          !lockState.isEditor && 
-         lockState.state === PROPERTY_LOCK_STATE_TAKEOVER_AVAILABLE;
+         lockState.state === PROPERTY_LOCK_STATE_TAKEOVER_AVAILABLE);
 }
 
 /**
@@ -272,8 +305,8 @@ export function canTakeoverLock(lockState) {
  * @param {object} lockState - Normalized lock state
  * @returns {boolean}
  */
-export function canContinueEditingAsRecentEditor(lockState) {
-  return lockState && 
+export function canContinueEditingAsRecentEditor(lockState: NormalizedLockState | null | undefined): boolean {
+  return Boolean(lockState &&
          lockState.isRecentEditor && 
-         lockState.state === PROPERTY_LOCK_STATE_TAKEOVER_AVAILABLE;
+         lockState.state === PROPERTY_LOCK_STATE_TAKEOVER_AVAILABLE);
 }
