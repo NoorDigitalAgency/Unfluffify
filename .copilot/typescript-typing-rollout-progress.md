@@ -6,7 +6,7 @@ Current phase: Phase 1 (leaf modules)
 ## Baseline
 - Branch: feat/typescript-deno-port
 - Full tests baseline: 847 pass / 0 fail
-- Current runtime @ts-nocheck count: 24
+- Current runtime @ts-nocheck count: 23
 - Ratchet allowlist: tests/fixtures/expected-ts-nocheck.txt
 
 ## Checkpoints
@@ -38,6 +38,7 @@ Current phase: Phase 1 (leaf modules)
 - [2026-06-17] Phase 1 batch 22 completed (micro): removed `@ts-nocheck` from `content/page-world-relay.ts` with typed relay session/pending-request handling and relay/bridge/full-suite coverage passing.
 - [2026-06-17] Phase 1 batch 23 completed (micro): removed `@ts-nocheck` from `popup/spinner.ts` with typed spinner helpers and source-contract-compatible signature anchors for popup render-mode/marking tests.
 - [2026-06-17] Phase 1 batch 24 completed (micro): removed `@ts-nocheck` from `popup/render-mode-inspection.ts` with typed popup inspection helpers and render-mode/popup/full-suite coverage passing.
+- [2026-06-17] Phase 1 batch 25 completed (micro): removed `@ts-nocheck` from `background/command-router.ts` with typed command registration/dispatch helpers and command-router/tab-isolation/full-suite coverage passing.
 
 ## Notes
 - PoC typed module already merged: background/tab-operation-runner.ts and types/operations.ts.

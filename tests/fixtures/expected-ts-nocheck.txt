@@ -1,5 +1,4 @@
 background/ai-run-orchestrator.ts
-background/command-router.ts
 background/remote-config-sync.ts
 background/remote-network.ts
 background.ts

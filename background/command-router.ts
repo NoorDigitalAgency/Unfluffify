@@ -1,4 +1,3 @@
-// @ts-nocheck
 import {
   MESSAGE_ERROR_CODES,
   createFailureEnvelope,
@@ -7,7 +6,13 @@ import {
   isRequestEnvelope
 } from "../common/message-protocol.js";
 
-const backgroundCommandHandlers = new Map();
+type RegistrationOptions = {
+  allowedSources: Set<string> | null;
+  tabIdPolicy: string;
+  requireTab: boolean;
+};
+
+const backgroundCommandHandlers = new Map<string, { handler: (...args: any[]) => any; options: RegistrationOptions }>();
 const TAB_ID_POLICIES = new Set([
   "message-or-sender",
   "sender-or-message",
@@ -16,21 +21,21 @@ const TAB_ID_POLICIES = new Set([
   "none"
 ]);
 
-function isNonEmptyString(value) {
+function isNonEmptyString(value: unknown) {
   return typeof value === "string" && Boolean(value);
 }
 
-function isExtensionUrl(value) {
-  return isNonEmptyString(value) && /^chrome-extension:\/\//.test(value);
+function isExtensionUrl(value: unknown) {
+  return isNonEmptyString(value) && /^chrome-extension:\/\//.test(value as string);
 }
 
-function normalizeMessageSource(message) {
+function normalizeMessageSource(message: any) {
   return isNonEmptyString(message && message.source)
     ? message.source
     : "";
 }
 
-function resolveSourceFromSender(sender) {
+function resolveSourceFromSender(sender: any) {
   if (
     isExtensionUrl(sender && sender.url) ||
     isExtensionUrl(sender && sender.origin) ||
@@ -46,7 +51,7 @@ function resolveSourceFromSender(sender) {
   return "";
 }
 
-function resolveTrustedSource(message, sender, options = {}) {
+function resolveTrustedSource(message: any, sender: any, options: Record<string, unknown> = {}) {
   if (options && typeof options.resolveTrustedSource === "function") {
     const resolved = options.resolveTrustedSource(message, sender);
     if (isNonEmptyString(resolved)) {
@@ -60,7 +65,7 @@ function resolveTrustedSource(message, sender, options = {}) {
   return normalizeMessageSource(message);
 }
 
-function normalizeAllowedSources(value) {
+function normalizeAllowedSources(value: unknown): Set<string> | null {
   if (!value) {
     return null;
   }
@@ -69,7 +74,7 @@ function normalizeAllowedSources(value) {
     : Array.isArray(value)
       ? value
       : [value];
-  const allowedSources = new Set();
+  const allowedSources = new Set<string>();
   for (const candidate of input) {
     if (isNonEmptyString(candidate)) {
       allowedSources.add(candidate);
@@ -78,10 +83,14 @@ function normalizeAllowedSources(value) {
   return allowedSources.size ? allowedSources : null;
 }
 
-function normalizeRegistrationOptions(options = {}) {
+function normalizeRegistrationOptions(options: Record<string, unknown> = {}): RegistrationOptions {
+  const tabIdPolicyCandidate = options.tabIdPolicy;
+  const tabIdPolicyValue = typeof tabIdPolicyCandidate === "string"
+    ? tabIdPolicyCandidate
+    : "";
   const allowedSources = normalizeAllowedSources(options.allowedSources);
-  const tabIdPolicy = TAB_ID_POLICIES.has(options.tabIdPolicy)
-    ? options.tabIdPolicy
+  const tabIdPolicy = TAB_ID_POLICIES.has(tabIdPolicyValue)
+    ? tabIdPolicyValue
     : "message-or-sender";
   const requireTab = options.requireTab === true;
   return {
@@ -91,7 +100,7 @@ function normalizeRegistrationOptions(options = {}) {
   };
 }
 
-function getHandlerErrorMessage(error) {
+function getHandlerErrorMessage(error: any) {
   if (!error) {
     return "Background command failed";
   }
@@ -104,7 +113,7 @@ function getHandlerErrorMessage(error) {
   return "Background command failed";
 }
 
-function normalizeFrameId(message, sender) {
+function normalizeFrameId(message: any, sender: any) {
   if (Number.isFinite(message && message.frameId)) {
     return Math.trunc(message.frameId);
   }
@@ -114,7 +123,7 @@ function normalizeFrameId(message, sender) {
   return 0;
 }
 
-function normalizePositiveTabId(value) {
+function normalizePositiveTabId(value: unknown) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) {
     return 0;
@@ -123,7 +132,7 @@ function normalizePositiveTabId(value) {
   return normalized > 0 ? normalized : 0;
 }
 
-function resolveTabId(message, sender, tabIdPolicy = "message-or-sender") {
+function resolveTabId(message: any, sender: any, tabIdPolicy = "message-or-sender") {
   if (tabIdPolicy === "none") {
     return { tabId: 0, tabIdSource: "none" };
   }
@@ -150,7 +159,7 @@ function resolveTabId(message, sender, tabIdPolicy = "message-or-sender") {
   return { tabId: 0, tabIdSource: "none" };
 }
 
-function isSenderPolicyTabSpoofAttempt(message, sender, context) {
+function isSenderPolicyTabSpoofAttempt(message: any, sender: any, context: any) {
   if (!context || context.policy !== "sender") {
     return false;
   }
@@ -165,7 +174,7 @@ function isSenderPolicyTabSpoofAttempt(message, sender, context) {
   return !senderTabId || messageTabId !== senderTabId;
 }
 
-export function registerBackgroundCommand(type, handler) {
+export function registerBackgroundCommand(type: string, handler: (...args: any[]) => any) {
   if (typeof type !== "string" || !type) {
     throw new TypeError("registerBackgroundCommand requires a non-empty command type");
   }
@@ -179,9 +188,13 @@ export function registerBackgroundCommand(type, handler) {
   });
 }
 
-export function createCommandContext(message, sender, options = {}) {
-  const policy = TAB_ID_POLICIES.has(options.tabIdPolicy)
-    ? options.tabIdPolicy
+export function createCommandContext(message: any, sender: any, options: Record<string, unknown> = {}) {
+  const tabIdPolicyCandidate = options.tabIdPolicy;
+  const tabIdPolicyValue = typeof tabIdPolicyCandidate === "string"
+    ? tabIdPolicyCandidate
+    : "";
+  const policy = TAB_ID_POLICIES.has(tabIdPolicyValue)
+    ? tabIdPolicyValue
     : "message-or-sender";
   const { tabId, tabIdSource } = resolveTabId(message, sender, policy);
   const frameId = normalizeFrameId(message, sender);
@@ -198,10 +211,10 @@ export function createCommandContext(message, sender, options = {}) {
     policy,
     frameId,
     requestId,
-    replyOk(result = {}) {
+    replyOk(result: Record<string, unknown> = {}) {
       return createSuccessEnvelope(message, result);
     },
-    replyFail(code, error, details = {}) {
+    replyFail(code: string, error: string, details: Record<string, unknown> = {}) {
       return createFailureEnvelope(
         message,
         code || MESSAGE_ERROR_CODES.HANDLER_FAILED,
@@ -212,7 +225,7 @@ export function createCommandContext(message, sender, options = {}) {
   };
 }
 
-function notifyDispatched(options, context, reply) {
+function notifyDispatched(options: Record<string, unknown> | undefined, context: any, reply: any) {
   if (options && typeof options.onDispatched === "function") {
     try {
       options.onDispatched(context, reply);
@@ -223,7 +236,7 @@ function notifyDispatched(options, context, reply) {
   return reply;
 }
 
-export async function dispatchBackgroundCommand(message, sender, options = {}) {
+export async function dispatchBackgroundCommand(message: any, sender: any, options: Record<string, unknown> = {}) {
   if (!isRequestEnvelope(message)) {
     return notifyDispatched(options, null, createFailureEnvelope(
       message,
@@ -297,8 +310,8 @@ export async function dispatchBackgroundCommand(message, sender, options = {}) {
       return notifyDispatched(options, context, result);
     }
     return notifyDispatched(options, context, context.replyOk(result && typeof result === "object" ? result : {}));
-  } catch (error) {
-    const errorCode = typeof error.code === "string" && error.code
+  } catch (error: any) {
+    const errorCode = typeof error?.code === "string" && error.code
       ? error.code
       : MESSAGE_ERROR_CODES.HANDLER_FAILED;
     return notifyDispatched(options, context, context.replyFail(errorCode, getHandlerErrorMessage(error), {
