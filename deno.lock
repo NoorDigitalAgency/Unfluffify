@@ -1,7 +1,8 @@
 {
   "version": "5",
   "specifiers": {
-    "npm:esbuild@*": "0.28.1"
+    "npm:esbuild@*": "0.28.1",
+    "npm:typescript@*": "6.0.3"
   },
   "npm": {
     "@esbuild/aix-ppc64@0.28.1": {
@@ -165,6 +166,10 @@
         "@esbuild/win32-x64"
       ],
       "scripts": true,
+      "bin": true
+    },
+    "typescript@6.0.3": {
+      "integrity": "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw==",
       "bin": true
     }
   }
