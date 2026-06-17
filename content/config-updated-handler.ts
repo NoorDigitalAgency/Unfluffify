@@ -34,8 +34,7 @@ type ConfigUpdatedMessage = {
 };
 
 export function createConfigUpdatedHandler(deps: ConfigUpdatedHandlerDeps) {
-  // @ts-expect-error Preserve source-contract signature used by tests.
-  function handleAiPreviewUpdate(message) {
+  function handleAiPreviewUpdate(message: ConfigUpdatedMessage) {
     if (!message.baseUrl) {
       return { ok: true };
     }

@@ -6,3 +6,4 @@
 ## Log
 - [2026-06-17] Phase 0: branch created and baseline green (deno task check + 850 tests), suppression total 2585.
 - [2026-06-17] Phase 1: added global Window augmentation in `types/globals.d.ts` for `__UNFLUFFIFY_TOGGLE_PERF__`; removed 3 stale directives in `content/core.ts`; gates + full suite + ratchets green; suppression total 2582.
+- [2026-06-17] Phase 2.1: fully typed `content/config-updated-handler.ts` (removed final directive, typed `handleAiPreviewUpdate` message param); updated source-contract regex in `tests/preview-tooltip.test.js`; gates + full suite + ratchets green; suppression total 2581.

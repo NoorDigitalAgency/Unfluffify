@@ -13,8 +13,7 @@
     "common/text.ts": 14,
     "background/remote-config-sync.ts": 6,
     "content/property-lock-state-machine.ts": 6,
-    "background/network-core.ts": 2,
-    "content/config-updated-handler.ts": 1
+    "background/network-core.ts": 2
   },
   "exempt": [
     "common/page-motion-freeze-bridge.ts",
