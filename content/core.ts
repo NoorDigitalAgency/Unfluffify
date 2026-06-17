@@ -132,7 +132,7 @@ export const state = {
   pageMotionPause: null,
   pageRevealWarmupId: 0,
   lazyLoadSuppressRestorer: null,
-  perfEnabled: null
+  perfEnabled: null as boolean | null
 };
 
 export const CONSENT_HIDDEN_ATTR = "data-uf-consent-hidden";
@@ -441,16 +441,13 @@ function isTogglePerfEnabled() {
     return state.perfEnabled;
   }
   try {
-// @ts-expect-error
     state.perfEnabled = Boolean(
       window && (
-// @ts-expect-error
         window.__UNFLUFFIFY_TOGGLE_PERF__ ||
         (window.localStorage && window.localStorage.getItem("unfluffify:toggle-perf") === "1")
       )
     );
   } catch {
-// @ts-expect-error
     state.perfEnabled = false;
   }
   return state.perfEnabled;

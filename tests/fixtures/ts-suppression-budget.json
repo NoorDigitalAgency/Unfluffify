@@ -1,6 +1,6 @@
 {
   "budgets": {
-    "content/core.ts": 921,
+    "content/core.ts": 918,
     "popup.ts": 612,
     "content-main.ts": 592,
     "common/config.ts": 157,
