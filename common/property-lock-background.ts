@@ -67,13 +67,83 @@ import {
 import * as utils from "./utilities.js";
 import { getPropertyLockConnectionSettings } from "./settings-store.js";
 
+/** Normalized lock-state shape produced by the property-lock helpers. */
+type LockState = ReturnType<typeof createInactiveLockState>;
+
+/** A property-lock message exchanged over content ports, the WebSocket, or runtime messaging. */
+interface PropertyLockMessage {
+  type?: string;
+  siteId?: unknown;
+  clientId?: unknown;
+  tabId?: unknown;
+  pageUrl?: unknown;
+  hasUnsavedChanges?: unknown;
+  accept?: unknown;
+  suggestionId?: string;
+  discardUnsaved?: unknown;
+  discardPrevious?: unknown;
+  force?: unknown;
+  dirty?: unknown;
+  identity?: unknown;
+  name?: unknown;
+  fromName?: unknown;
+  [key: string]: unknown;
+}
+
+/** Outbound message payload serialized to the WebSocket or forwarded to ports/popup. */
+type OutboundMessage = Record<string, unknown>;
+
+/** Per-port bookkeeping for a connected content script. */
+interface PortEntry {
+  port: chrome.runtime.Port;
+  siteId: number | null;
+  clientId: string;
+  connectionKey: string;
+  tabId: number | null;
+  pageUrl: string;
+  hasUnsavedChanges: boolean;
+}
+
+/** A pending takeover suggestion tracked per runtime. */
+interface TakeoverSuggestionEntry {
+  fromName: string;
+  createdAt: number;
+}
+
+/**
+ * Coerce an arbitrary tab-id value to a finite integer tab id, or `null`.
+ */
+function normalizeTabId(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? Math.trunc(value) : null;
+}
+
 /**
  * WebSocket connection runtime for a single siteId.
  */
 class PropertyLockConnectionRuntime {
-  [key: string]: any;
+  siteId: number | null;
+  clientId: string;
+  connectionKey: string;
+  socket: WebSocket | null;
+  state: LockState;
+  myIdentity: string;
+  myName: string;
+  pageUrl: string;
+  tabId: number | null;
+  hasUnsavedChanges: boolean;
+  isConnected: boolean;
+  connectionStatus: string;
+  connectionError: string;
+  heartbeatTimer: ReturnType<typeof setInterval> | null;
+  activityDebounceTimer: ReturnType<typeof setTimeout> | null;
+  reconnectTimer: ReturnType<typeof setTimeout> | null;
+  connectionLossTimer: ReturnType<typeof setTimeout> | null;
+  networkCheckAbortController: AbortController | null;
+  lastActivityAt: number;
+  reconnectAttempts: number;
+  pendingSuggestions: Map<string, TakeoverSuggestionEntry>;
 
-  constructor(siteId: any, clientId: any) {
+  constructor(siteId: number | null, clientId: string) {
     this.siteId = siteId;
     this.clientId = clientId;
     this.connectionKey = buildConnectionKey(siteId, clientId);
@@ -134,8 +204,8 @@ class PropertyLockConnectionRuntime {
 }
 
 // Global state
-const lockConnections = new Map(); // `${siteId}:${clientId}` → PropertyLockConnectionRuntime
-const contentScriptPorts = new Map(); // portId → {port, siteId, clientId, connectionKey, tabId}
+const lockConnections = new Map<string, PropertyLockConnectionRuntime>(); // `${siteId}:${clientId}` → PropertyLockConnectionRuntime
+const contentScriptPorts = new Map<number, PortEntry>(); // portId → {port, siteId, clientId, connectionKey, tabId}
 let portIdCounter = 0;
 const PROPERTY_LOCK_FEATURE_NAME = "propertyLockCollaboration";
 
@@ -184,13 +254,13 @@ function ensurePropertyLockBackgroundActive() {
   return false;
 }
 
-function buildConnectionKey(siteId: any, clientId: any) {
+function buildConnectionKey(siteId: unknown, clientId: unknown) {
   const normalizedSiteId = normalizePropertyLockSiteId(siteId);
   const normalizedClientId = normalizePropertyLockClientId(clientId);
   return normalizedSiteId && normalizedClientId ? `${normalizedSiteId}:${normalizedClientId}` : "";
 }
 
-function createUniqueClientIdForSite(siteId: any) {
+function createUniqueClientIdForSite(siteId: unknown) {
   const normalizedSiteId = normalizePropertyLockSiteId(siteId);
   if (!normalizedSiteId) {
     return "";
@@ -202,7 +272,7 @@ function createUniqueClientIdForSite(siteId: any) {
   return nextClientId;
 }
 
-function resolveConnectionIdentityForPort(portId: any, portEntry: any, siteId: any, requestedClientId: any) {
+function resolveConnectionIdentityForPort(portId: number, portEntry: PortEntry, siteId: number | null, requestedClientId: string) {
   const normalizedSiteId = normalizePropertyLockSiteId(siteId);
   const normalizedClientId = normalizePropertyLockClientId(requestedClientId);
   const requestedConnectionKey = buildConnectionKey(normalizedSiteId, normalizedClientId);
@@ -231,7 +301,7 @@ function resolveConnectionIdentityForPort(portId: any, portEntry: any, siteId: a
   };
 }
 
-function hasContentPortsForConnection(connectionKey: any) {
+function hasContentPortsForConnection(connectionKey: string) {
   return Array.from(contentScriptPorts.values()).some(
     (entry) => entry.connectionKey === connectionKey
   );
@@ -245,7 +315,7 @@ function consumeRuntimeLastErrorMessage() {
   return lastError && typeof lastError.message === "string" ? lastError.message : "";
 }
 
-function detachPortFromConnection(portId: any, portEntry: any) {
+function detachPortFromConnection(portId: number, portEntry: PortEntry) {
   const currentConnectionKey = typeof (portEntry && portEntry.connectionKey) === "string"
     ? portEntry.connectionKey
     : "";
@@ -259,7 +329,7 @@ function detachPortFromConnection(portId: any, portEntry: any) {
   return currentConnectionKey;
 }
 
-function releaseAndDisposeConnection(connectionKey: any, options: any = {}) {
+function releaseAndDisposeConnection(connectionKey: string, options: { releaseLock?: boolean } = {}) {
   const { releaseLock = false } = options;
   if (!connectionKey) {
     return;
@@ -293,7 +363,7 @@ export function initPropertyLockBackground() {
 /**
  * Handle a new connection from content script.
  */
-function handlePropertyLockPortConnect(port: any) {
+function handlePropertyLockPortConnect(port: chrome.runtime.Port) {
   if (!ensurePropertyLockBackgroundActive()) {
     try {
       port.disconnect();
@@ -303,24 +373,22 @@ function handlePropertyLockPortConnect(port: any) {
     return;
   }
   const portId = ++portIdCounter;
-  let siteId: any = null;
+  let siteId: number | null = null;
   let clientId = "";
   let connectionKey = "";
 
   // Track port metadata
-  const portEntry = {
+  const portEntry: PortEntry = {
     port,
     siteId: null,
     clientId: "",
     connectionKey: "",
-    tabId: Number.isFinite(port && port.sender && port.sender.tab && port.sender.tab.id)
-      ? Math.trunc(port.sender.tab.id)
-      : null,
+    tabId: normalizeTabId(port.sender?.tab?.id),
     pageUrl: "",
     hasUnsavedChanges: false
   };
 
-  function onPortMessage(message: any) {
+  function onPortMessage(message: PropertyLockMessage) {
     if (!ensurePropertyLockBackgroundActive()) {
       try {
         port.postMessage({
@@ -482,15 +550,15 @@ function handlePropertyLockPortConnect(port: any) {
   port.onDisconnect.addListener(onPortDisconnect);
 }
 
-export function handlePropertyLockBackgroundTabRemoved(tabId: any) {
+export function handlePropertyLockBackgroundTabRemoved(tabId: number) {
   if (!ensurePropertyLockBackgroundActive()) {
     return;
   }
-  const normalizedTabId = Number.isFinite(tabId) ? Math.trunc(tabId) : null;
+  const normalizedTabId = normalizeTabId(tabId);
   if (normalizedTabId === null) {
     return;
   }
-  const connectionKeysToDispose = new Set();
+  const connectionKeysToDispose = new Set<string>();
   for (const [portId, portEntry] of contentScriptPorts.entries()) {
     if (!portEntry || portEntry.tabId !== normalizedTabId) {
       continue;
@@ -505,7 +573,7 @@ export function handlePropertyLockBackgroundTabRemoved(tabId: any) {
   });
 }
 
-function createClientPayload(runtime: any, type: any) {
+function createClientPayload(runtime: PropertyLockConnectionRuntime, type: string) {
   return {
     type,
     siteId: runtime.siteId,
@@ -515,7 +583,7 @@ function createClientPayload(runtime: any, type: any) {
   };
 }
 
-function markRuntimeActive(runtime: any) {
+function markRuntimeActive(runtime: PropertyLockConnectionRuntime) {
   if (runtime) {
     runtime.lastActivityAt = Date.now();
   }
@@ -525,7 +593,7 @@ function markRuntimeActive(runtime: any) {
  * Ensure WebSocket connection exists for a property client session.
  * Create if missing, reuse if the same page session reconnects.
  */
-function ensureConnectionForClient(siteId: any, clientId: any) {
+function ensureConnectionForClient(siteId: number | null, clientId: string) {
   if (!ensurePropertyLockBackgroundActive()) {
     return null;
   }
@@ -552,7 +620,7 @@ function ensureConnectionForClient(siteId: any, clientId: any) {
   return runtime;
 }
 
-function setConnectionStatus(runtime: any, status: any, error = "") {
+function setConnectionStatus(runtime: PropertyLockConnectionRuntime, status: string, error = "") {
   if (!runtime || (runtime.connectionStatus === status && runtime.connectionError === error)) {
     return;
   }
@@ -568,7 +636,7 @@ function setConnectionStatus(runtime: any, status: any, error = "") {
 /**
  * Establish WebSocket connection for a runtime.
  */
-function connectWebSocket(runtime: any) {
+function connectWebSocket(runtime: PropertyLockConnectionRuntime) {
   if (!ensurePropertyLockBackgroundActive()) {
     return;
   }
@@ -592,7 +660,7 @@ function connectWebSocket(runtime: any) {
     try {
       runtime.socket = new WebSocket(wssUrl);
       runtime.socket.onopen = () => onWebSocketOpen(runtime);
-      runtime.socket.onmessage = (event: any) => onWebSocketMessage(runtime, event);
+      runtime.socket.onmessage = (event: MessageEvent) => onWebSocketMessage(runtime, event);
       runtime.socket.onerror = () => onWebSocketError(runtime);
       runtime.socket.onclose = () => onWebSocketClose(runtime);
     } catch (e) {
@@ -608,7 +676,7 @@ function connectWebSocket(runtime: any) {
 /**
  * Handle WebSocket open.
  */
-function onWebSocketOpen(runtime: any) {
+function onWebSocketOpen(runtime: PropertyLockConnectionRuntime) {
   runtime.isConnected = true;
   runtime.reconnectAttempts = 0;
   if (runtime.connectionLossTimer) {
@@ -634,7 +702,7 @@ function onWebSocketOpen(runtime: any) {
   }, PROPERTY_LOCK_HEARTBEAT_INTERVAL_MS);
 }
 
-function findLocalEditorRuntime(runtime: any) {
+function findLocalEditorRuntime(runtime: PropertyLockConnectionRuntime) {
   if (!runtime || !runtime.myIdentity) {
     return null;
   }
@@ -648,7 +716,7 @@ function findLocalEditorRuntime(runtime: any) {
   ) || null;
 }
 
-function promoteRuntimeAsLocalEditor(runtime: any) {
+function promoteRuntimeAsLocalEditor(runtime: PropertyLockConnectionRuntime) {
   if (!runtime || !runtime.myIdentity) {
     return;
   }
@@ -684,7 +752,7 @@ function promoteRuntimeAsLocalEditor(runtime: any) {
   });
 }
 
-function enrichLockStateForRuntime(runtime: any, lockState: any) {
+function enrichLockStateForRuntime(runtime: PropertyLockConnectionRuntime, lockState: LockState): LockState {
   if (!runtime || !lockState || typeof lockState !== "object") {
     return lockState;
   }
@@ -713,7 +781,7 @@ function enrichLockStateForRuntime(runtime: any, lockState: any) {
   return nextState;
 }
 
-function decorateServerMessageForRuntime(runtime: any, message: any) {
+function decorateServerMessageForRuntime(runtime: PropertyLockConnectionRuntime, message: PropertyLockMessage) {
   if (!message || typeof message !== "object") {
     return message;
   }
@@ -730,14 +798,14 @@ function decorateServerMessageForRuntime(runtime: any, message: any) {
   };
 }
 
-function sendClientStatus(runtime: any) {
+function sendClientStatus(runtime: PropertyLockConnectionRuntime) {
   if (!runtime || !runtime.isConnected) {
     return;
   }
   sendToServer(runtime, createClientPayload(runtime, PROPERTY_LOCK_WS_CLIENT_STATUS));
 }
 
-async function checkNetworkConnectivity(runtime: any) {
+async function checkNetworkConnectivity(runtime: PropertyLockConnectionRuntime) {
   if (typeof fetch !== "function") {
     return true;
   }
@@ -777,7 +845,7 @@ async function checkNetworkConnectivity(runtime: any) {
   }
 }
 
-function startConnectionLossWatch(runtime: any, reason: any) {
+function startConnectionLossWatch(runtime: PropertyLockConnectionRuntime, reason: string) {
   if (!ensurePropertyLockBackgroundActive()) {
     return;
   }
@@ -814,8 +882,8 @@ function startConnectionLossWatch(runtime: any, reason: any) {
 /**
  * Handle WebSocket message from server.
  */
-function onWebSocketMessage(runtime: any, event: any) {
-  let message;
+function onWebSocketMessage(runtime: PropertyLockConnectionRuntime, event: MessageEvent) {
+  let message: PropertyLockMessage;
   try {
     message = JSON.parse(event.data);
   } catch (e) {
@@ -865,7 +933,7 @@ function onWebSocketMessage(runtime: any, event: any) {
 /**
  * Handle WebSocket error.
  */
-function onWebSocketError(runtime: any) {
+function onWebSocketError(runtime: PropertyLockConnectionRuntime) {
   runtime.isConnected = false;
   setConnectionStatus(runtime, PROPERTY_LOCK_CONNECTION_UNAVAILABLE, "socket_error");
   startConnectionLossWatch(runtime, "socket_error");
@@ -875,7 +943,7 @@ function onWebSocketError(runtime: any) {
 /**
  * Handle WebSocket close.
  */
-function onWebSocketClose(runtime: any) {
+function onWebSocketClose(runtime: PropertyLockConnectionRuntime) {
   runtime.isConnected = false;
   if (runtime.heartbeatTimer) {
     clearInterval(runtime.heartbeatTimer);
@@ -889,7 +957,7 @@ function onWebSocketClose(runtime: any) {
 /**
  * Send message to WebSocket server.
  */
-function sendToServer(runtime: any, message: any) {
+function sendToServer(runtime: PropertyLockConnectionRuntime, message: OutboundMessage) {
   if (!runtime.isConnected || !runtime.socket) {
     return;
   }
@@ -901,7 +969,7 @@ function sendToServer(runtime: any, message: any) {
   }
 }
 
-function getRuntimePortTabId(runtime: any) {
+function getRuntimePortTabId(runtime: PropertyLockConnectionRuntime | null | undefined) {
   if (!runtime) {
     return null;
   }
@@ -917,7 +985,7 @@ function getRuntimePortTabId(runtime: any) {
 /**
  * Broadcast server message to ports for one client session.
  */
-function broadcastToContentScriptPorts(connectionKey: any, message: any) {
+function broadcastToContentScriptPorts(connectionKey: string, message: OutboundMessage) {
   const runtime = lockConnections.get(connectionKey);
   const siteId = runtime ? runtime.siteId : null;
   const clientId = runtime ? runtime.clientId : "";
@@ -957,7 +1025,7 @@ function broadcastToContentScriptPorts(connectionKey: any, message: any) {
 /**
  * Debounce activity messages (5s window).
  */
-function debounceActivity(connectionKey: any) {
+function debounceActivity(connectionKey: string) {
   const runtime = lockConnections.get(connectionKey);
   if (!runtime) {
     return;
@@ -975,7 +1043,7 @@ function debounceActivity(connectionKey: any) {
 /**
  * Schedule WebSocket reconnect with exponential backoff.
  */
-function scheduleReconnect(runtime: any) {
+function scheduleReconnect(runtime: PropertyLockConnectionRuntime) {
   if (!ensurePropertyLockBackgroundActive()) {
     return;
   }
@@ -1013,7 +1081,7 @@ function scheduleReconnect(runtime: any) {
  * Schedule check for port disconnection after the navigation grace delay.
  * Close WebSocket if no ports remain connected for this siteId.
  */
-function scheduleDisconnectCheck(connectionKey: any) {
+function scheduleDisconnectCheck(connectionKey: string) {
   setTimeout(() => {
     const portsForConnection = Array.from(contentScriptPorts.values()).filter(
       (entry) => entry.connectionKey === connectionKey
@@ -1028,7 +1096,7 @@ function scheduleDisconnectCheck(connectionKey: any) {
 /**
  * Handle getPropertyLockState message from popup.
  */
-export async function handleGetPropertyLockState(message: any, sender: any) {
+export async function handleGetPropertyLockState(message: PropertyLockMessage, sender?: chrome.runtime.MessageSender) {
   if (!ensurePropertyLockBackgroundActive()) {
     return {
       state: createInactiveLockState(),
@@ -1066,17 +1134,13 @@ export async function handleGetPropertyLockState(message: any, sender: any) {
   };
 }
 
-function findRuntimeForRequest(message: any, sender: any) {
+function findRuntimeForRequest(message: PropertyLockMessage, sender?: chrome.runtime.MessageSender) {
   const siteId = normalizePropertyLockSiteId(message.siteId);
   if (!siteId) {
     return null;
   }
-  const senderTabId = sender && sender.tab && Number.isFinite(sender.tab.id)
-    ? Math.trunc(sender.tab.id)
-    : null;
-  const tabId = Number.isFinite(message.tabId)
-    ? Math.trunc(message.tabId)
-    : senderTabId;
+  const senderTabId = normalizeTabId(sender?.tab?.id);
+  const tabId = normalizeTabId(message.tabId) ?? senderTabId;
   if (tabId !== null) {
     const portEntry = Array.from(contentScriptPorts.values()).find(
       (entry) => entry.siteId === siteId && entry.tabId === tabId && entry.connectionKey
@@ -1095,7 +1159,7 @@ function findRuntimeForRequest(message: any, sender: any) {
   return runtimes.length === 1 ? runtimes[0] : null;
 }
 
-function handlePropertyLockCommand(message: any, sender: any) {
+function handlePropertyLockCommand(message: PropertyLockMessage, sender?: chrome.runtime.MessageSender) {
   if (!ensurePropertyLockBackgroundActive()) {
     return buildDisabledPropertyLockResponse();
   }
@@ -1150,7 +1214,7 @@ function handlePropertyLockCommand(message: any, sender: any) {
 /**
  * Message handler for all property lock background messages.
  */
-export async function handlePropertyLockBackgroundMessage(message: any, sender: any) {
+export async function handlePropertyLockBackgroundMessage(message: PropertyLockMessage, sender?: chrome.runtime.MessageSender) {
   if (!ensurePropertyLockBackgroundActive()) {
     return buildDisabledPropertyLockResponse();
   }
@@ -1182,13 +1246,11 @@ export async function handlePropertyLockBackgroundMessage(message: any, sender: 
   return { ok: false };
 }
 
-function handlePageDraftStatusMessage(message: any, sender: any) {
+function handlePageDraftStatusMessage(message: PropertyLockMessage, sender?: chrome.runtime.MessageSender) {
   if (!ensurePropertyLockBackgroundActive()) {
     return buildDisabledPropertyLockResponse();
   }
-  const senderTabId = sender && sender.tab && Number.isFinite(sender.tab.id)
-    ? Math.trunc(sender.tab.id)
-    : null;
+  const senderTabId = normalizeTabId(sender?.tab?.id);
   if (senderTabId === null) {
     return { ok: false };
   }
