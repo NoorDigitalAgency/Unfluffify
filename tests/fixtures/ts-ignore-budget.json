@@ -16,8 +16,7 @@
     "background/ai-run-orchestrator.ts": 5,
     "common/emulation.ts": 5,
     "popup/site-resolution.ts": 4,
-    "popup/remote-config.ts": 3,
-    "popup/page-reconciliation.ts": 2
+    "popup/remote-config.ts": 3
   },
   "exempt": [
     "common/page-motion-freeze-bridge.ts",

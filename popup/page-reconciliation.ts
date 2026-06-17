@@ -20,8 +20,7 @@ export function hasCurrentPagePendingChanges(
   );
 }
 
-// @ts-ignore preserve source-contract signature used by popup source-shape tests
-export async function handlePageSave(deps) {
+export async function handlePageSave(deps: any) {
   const ensureActiveTab =
     typeof deps.ensureActiveTab === "function"
       ? deps.ensureActiveTab
@@ -101,8 +100,7 @@ export async function handlePageSave(deps) {
   });
 }
 
-// @ts-ignore preserve source-contract signature used by popup source-shape tests
-export async function handlePageRevert(deps) {
+export async function handlePageRevert(deps: any) {
   const ensureActiveTab =
     typeof deps.ensureActiveTab === "function"
       ? deps.ensureActiveTab
