@@ -4,7 +4,6 @@ background.ts
 common/config.ts
 common/page-motion-freeze-bridge.ts
 common/page-motion-freeze-control.ts
-common/property-lock-background.ts
 common/utilities.ts
 content/core.ts
 content-main.ts

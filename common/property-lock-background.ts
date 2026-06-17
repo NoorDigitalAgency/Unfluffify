@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * Property Edit Lock background module.
  * 
@@ -72,7 +71,9 @@ import { getPropertyLockConnectionSettings } from "./settings-store.js";
  * WebSocket connection runtime for a single siteId.
  */
 class PropertyLockConnectionRuntime {
-  constructor(siteId, clientId) {
+  [key: string]: any;
+
+  constructor(siteId: any, clientId: any) {
     this.siteId = siteId;
     this.clientId = clientId;
     this.connectionKey = buildConnectionKey(siteId, clientId);
@@ -183,13 +184,13 @@ function ensurePropertyLockBackgroundActive() {
   return false;
 }
 
-function buildConnectionKey(siteId, clientId) {
+function buildConnectionKey(siteId: any, clientId: any) {
   const normalizedSiteId = normalizePropertyLockSiteId(siteId);
   const normalizedClientId = normalizePropertyLockClientId(clientId);
   return normalizedSiteId && normalizedClientId ? `${normalizedSiteId}:${normalizedClientId}` : "";
 }
 
-function createUniqueClientIdForSite(siteId) {
+function createUniqueClientIdForSite(siteId: any) {
   const normalizedSiteId = normalizePropertyLockSiteId(siteId);
   if (!normalizedSiteId) {
     return "";
@@ -201,7 +202,7 @@ function createUniqueClientIdForSite(siteId) {
   return nextClientId;
 }
 
-function resolveConnectionIdentityForPort(portId, portEntry, siteId, requestedClientId) {
+function resolveConnectionIdentityForPort(portId: any, portEntry: any, siteId: any, requestedClientId: any) {
   const normalizedSiteId = normalizePropertyLockSiteId(siteId);
   const normalizedClientId = normalizePropertyLockClientId(requestedClientId);
   const requestedConnectionKey = buildConnectionKey(normalizedSiteId, normalizedClientId);
@@ -230,7 +231,7 @@ function resolveConnectionIdentityForPort(portId, portEntry, siteId, requestedCl
   };
 }
 
-function hasContentPortsForConnection(connectionKey) {
+function hasContentPortsForConnection(connectionKey: any) {
   return Array.from(contentScriptPorts.values()).some(
     (entry) => entry.connectionKey === connectionKey
   );
@@ -244,7 +245,7 @@ function consumeRuntimeLastErrorMessage() {
   return lastError && typeof lastError.message === "string" ? lastError.message : "";
 }
 
-function detachPortFromConnection(portId, portEntry) {
+function detachPortFromConnection(portId: any, portEntry: any) {
   const currentConnectionKey = typeof (portEntry && portEntry.connectionKey) === "string"
     ? portEntry.connectionKey
     : "";
@@ -258,7 +259,7 @@ function detachPortFromConnection(portId, portEntry) {
   return currentConnectionKey;
 }
 
-function releaseAndDisposeConnection(connectionKey, options = {}) {
+function releaseAndDisposeConnection(connectionKey: any, options: any = {}) {
   const { releaseLock = false } = options;
   if (!connectionKey) {
     return;
@@ -292,7 +293,7 @@ export function initPropertyLockBackground() {
 /**
  * Handle a new connection from content script.
  */
-function handlePropertyLockPortConnect(port) {
+function handlePropertyLockPortConnect(port: any) {
   if (!ensurePropertyLockBackgroundActive()) {
     try {
       port.disconnect();
@@ -302,7 +303,7 @@ function handlePropertyLockPortConnect(port) {
     return;
   }
   const portId = ++portIdCounter;
-  let siteId = null;
+  let siteId: any = null;
   let clientId = "";
   let connectionKey = "";
 
@@ -319,7 +320,7 @@ function handlePropertyLockPortConnect(port) {
     hasUnsavedChanges: false
   };
 
-  function onPortMessage(message) {
+  function onPortMessage(message: any) {
     if (!ensurePropertyLockBackgroundActive()) {
       try {
         port.postMessage({
@@ -481,7 +482,7 @@ function handlePropertyLockPortConnect(port) {
   port.onDisconnect.addListener(onPortDisconnect);
 }
 
-export function handlePropertyLockBackgroundTabRemoved(tabId) {
+export function handlePropertyLockBackgroundTabRemoved(tabId: any) {
   if (!ensurePropertyLockBackgroundActive()) {
     return;
   }
@@ -504,7 +505,7 @@ export function handlePropertyLockBackgroundTabRemoved(tabId) {
   });
 }
 
-function createClientPayload(runtime, type) {
+function createClientPayload(runtime: any, type: any) {
   return {
     type,
     siteId: runtime.siteId,
@@ -514,7 +515,7 @@ function createClientPayload(runtime, type) {
   };
 }
 
-function markRuntimeActive(runtime) {
+function markRuntimeActive(runtime: any) {
   if (runtime) {
     runtime.lastActivityAt = Date.now();
   }
@@ -524,7 +525,7 @@ function markRuntimeActive(runtime) {
  * Ensure WebSocket connection exists for a property client session.
  * Create if missing, reuse if the same page session reconnects.
  */
-function ensureConnectionForClient(siteId, clientId) {
+function ensureConnectionForClient(siteId: any, clientId: any) {
   if (!ensurePropertyLockBackgroundActive()) {
     return null;
   }
@@ -551,7 +552,7 @@ function ensureConnectionForClient(siteId, clientId) {
   return runtime;
 }
 
-function setConnectionStatus(runtime, status, error = "") {
+function setConnectionStatus(runtime: any, status: any, error = "") {
   if (!runtime || (runtime.connectionStatus === status && runtime.connectionError === error)) {
     return;
   }
@@ -567,7 +568,7 @@ function setConnectionStatus(runtime, status, error = "") {
 /**
  * Establish WebSocket connection for a runtime.
  */
-function connectWebSocket(runtime) {
+function connectWebSocket(runtime: any) {
   if (!ensurePropertyLockBackgroundActive()) {
     return;
   }
@@ -591,7 +592,7 @@ function connectWebSocket(runtime) {
     try {
       runtime.socket = new WebSocket(wssUrl);
       runtime.socket.onopen = () => onWebSocketOpen(runtime);
-      runtime.socket.onmessage = (event) => onWebSocketMessage(runtime, event);
+      runtime.socket.onmessage = (event: any) => onWebSocketMessage(runtime, event);
       runtime.socket.onerror = () => onWebSocketError(runtime);
       runtime.socket.onclose = () => onWebSocketClose(runtime);
     } catch (e) {
@@ -607,7 +608,7 @@ function connectWebSocket(runtime) {
 /**
  * Handle WebSocket open.
  */
-function onWebSocketOpen(runtime) {
+function onWebSocketOpen(runtime: any) {
   runtime.isConnected = true;
   runtime.reconnectAttempts = 0;
   if (runtime.connectionLossTimer) {
@@ -633,7 +634,7 @@ function onWebSocketOpen(runtime) {
   }, PROPERTY_LOCK_HEARTBEAT_INTERVAL_MS);
 }
 
-function findLocalEditorRuntime(runtime) {
+function findLocalEditorRuntime(runtime: any) {
   if (!runtime || !runtime.myIdentity) {
     return null;
   }
@@ -647,7 +648,7 @@ function findLocalEditorRuntime(runtime) {
   ) || null;
 }
 
-function promoteRuntimeAsLocalEditor(runtime) {
+function promoteRuntimeAsLocalEditor(runtime: any) {
   if (!runtime || !runtime.myIdentity) {
     return;
   }
@@ -683,7 +684,7 @@ function promoteRuntimeAsLocalEditor(runtime) {
   });
 }
 
-function enrichLockStateForRuntime(runtime, lockState) {
+function enrichLockStateForRuntime(runtime: any, lockState: any) {
   if (!runtime || !lockState || typeof lockState !== "object") {
     return lockState;
   }
@@ -712,7 +713,7 @@ function enrichLockStateForRuntime(runtime, lockState) {
   return nextState;
 }
 
-function decorateServerMessageForRuntime(runtime, message) {
+function decorateServerMessageForRuntime(runtime: any, message: any) {
   if (!message || typeof message !== "object") {
     return message;
   }
@@ -729,14 +730,14 @@ function decorateServerMessageForRuntime(runtime, message) {
   };
 }
 
-function sendClientStatus(runtime) {
+function sendClientStatus(runtime: any) {
   if (!runtime || !runtime.isConnected) {
     return;
   }
   sendToServer(runtime, createClientPayload(runtime, PROPERTY_LOCK_WS_CLIENT_STATUS));
 }
 
-async function checkNetworkConnectivity(runtime) {
+async function checkNetworkConnectivity(runtime: any) {
   if (typeof fetch !== "function") {
     return true;
   }
@@ -776,7 +777,7 @@ async function checkNetworkConnectivity(runtime) {
   }
 }
 
-function startConnectionLossWatch(runtime, reason) {
+function startConnectionLossWatch(runtime: any, reason: any) {
   if (!ensurePropertyLockBackgroundActive()) {
     return;
   }
@@ -813,7 +814,7 @@ function startConnectionLossWatch(runtime, reason) {
 /**
  * Handle WebSocket message from server.
  */
-function onWebSocketMessage(runtime, event) {
+function onWebSocketMessage(runtime: any, event: any) {
   let message;
   try {
     message = JSON.parse(event.data);
@@ -864,7 +865,7 @@ function onWebSocketMessage(runtime, event) {
 /**
  * Handle WebSocket error.
  */
-function onWebSocketError(runtime) {
+function onWebSocketError(runtime: any) {
   runtime.isConnected = false;
   setConnectionStatus(runtime, PROPERTY_LOCK_CONNECTION_UNAVAILABLE, "socket_error");
   startConnectionLossWatch(runtime, "socket_error");
@@ -874,7 +875,7 @@ function onWebSocketError(runtime) {
 /**
  * Handle WebSocket close.
  */
-function onWebSocketClose(runtime) {
+function onWebSocketClose(runtime: any) {
   runtime.isConnected = false;
   if (runtime.heartbeatTimer) {
     clearInterval(runtime.heartbeatTimer);
@@ -888,7 +889,7 @@ function onWebSocketClose(runtime) {
 /**
  * Send message to WebSocket server.
  */
-function sendToServer(runtime, message) {
+function sendToServer(runtime: any, message: any) {
   if (!runtime.isConnected || !runtime.socket) {
     return;
   }
@@ -900,7 +901,7 @@ function sendToServer(runtime, message) {
   }
 }
 
-function getRuntimePortTabId(runtime) {
+function getRuntimePortTabId(runtime: any) {
   if (!runtime) {
     return null;
   }
@@ -916,7 +917,7 @@ function getRuntimePortTabId(runtime) {
 /**
  * Broadcast server message to ports for one client session.
  */
-function broadcastToContentScriptPorts(connectionKey, message) {
+function broadcastToContentScriptPorts(connectionKey: any, message: any) {
   const runtime = lockConnections.get(connectionKey);
   const siteId = runtime ? runtime.siteId : null;
   const clientId = runtime ? runtime.clientId : "";
@@ -956,7 +957,7 @@ function broadcastToContentScriptPorts(connectionKey, message) {
 /**
  * Debounce activity messages (5s window).
  */
-function debounceActivity(connectionKey) {
+function debounceActivity(connectionKey: any) {
   const runtime = lockConnections.get(connectionKey);
   if (!runtime) {
     return;
@@ -974,7 +975,7 @@ function debounceActivity(connectionKey) {
 /**
  * Schedule WebSocket reconnect with exponential backoff.
  */
-function scheduleReconnect(runtime) {
+function scheduleReconnect(runtime: any) {
   if (!ensurePropertyLockBackgroundActive()) {
     return;
   }
@@ -1012,7 +1013,7 @@ function scheduleReconnect(runtime) {
  * Schedule check for port disconnection after the navigation grace delay.
  * Close WebSocket if no ports remain connected for this siteId.
  */
-function scheduleDisconnectCheck(connectionKey) {
+function scheduleDisconnectCheck(connectionKey: any) {
   setTimeout(() => {
     const portsForConnection = Array.from(contentScriptPorts.values()).filter(
       (entry) => entry.connectionKey === connectionKey
@@ -1027,7 +1028,7 @@ function scheduleDisconnectCheck(connectionKey) {
 /**
  * Handle getPropertyLockState message from popup.
  */
-export async function handleGetPropertyLockState(message, sender) {
+export async function handleGetPropertyLockState(message: any, sender: any) {
   if (!ensurePropertyLockBackgroundActive()) {
     return {
       state: createInactiveLockState(),
@@ -1065,7 +1066,7 @@ export async function handleGetPropertyLockState(message, sender) {
   };
 }
 
-function findRuntimeForRequest(message, sender) {
+function findRuntimeForRequest(message: any, sender: any) {
   const siteId = normalizePropertyLockSiteId(message.siteId);
   if (!siteId) {
     return null;
@@ -1094,7 +1095,7 @@ function findRuntimeForRequest(message, sender) {
   return runtimes.length === 1 ? runtimes[0] : null;
 }
 
-function handlePropertyLockCommand(message, sender) {
+function handlePropertyLockCommand(message: any, sender: any) {
   if (!ensurePropertyLockBackgroundActive()) {
     return buildDisabledPropertyLockResponse();
   }
@@ -1149,7 +1150,7 @@ function handlePropertyLockCommand(message, sender) {
 /**
  * Message handler for all property lock background messages.
  */
-export async function handlePropertyLockBackgroundMessage(message, sender) {
+export async function handlePropertyLockBackgroundMessage(message: any, sender: any) {
   if (!ensurePropertyLockBackgroundActive()) {
     return buildDisabledPropertyLockResponse();
   }
@@ -1181,7 +1182,7 @@ export async function handlePropertyLockBackgroundMessage(message, sender) {
   return { ok: false };
 }
 
-function handlePageDraftStatusMessage(message, sender) {
+function handlePageDraftStatusMessage(message: any, sender: any) {
   if (!ensurePropertyLockBackgroundActive()) {
     return buildDisabledPropertyLockResponse();
   }
