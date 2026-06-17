@@ -1,7 +1,5 @@
-// @ts-expect-error preserve source-contract signature used by property lock tests
-export function createPropertyLockStateMachine(deps) {
-  // @ts-expect-error preserve source-contract signature used by property lock tests
-  function normalizeRecoveryTabState(tabState) {
+export function createPropertyLockStateMachine(deps: any) {
+  function normalizeRecoveryTabState(tabState: any) {
     const nextSiteId = Number.isFinite(tabState && tabState.propertyLockRecoverySiteId)
       ? Math.trunc(tabState.propertyLockRecoverySiteId)
       : null;
@@ -20,7 +18,19 @@ export function createPropertyLockStateMachine(deps) {
     };
   }
 
-  function persistRecoveryState({ siteId = null, baseUrl = "", clientId = "", deadlineAt = 0 } = {}) {
+  function persistRecoveryState(
+    {
+      siteId = null,
+      baseUrl = "",
+      clientId = "",
+      deadlineAt = 0
+    }: {
+      siteId?: number | null;
+      baseUrl?: string;
+      clientId?: string;
+      deadlineAt?: number;
+    } = {}
+  ) {
     if (!deps.isPropertyLockCollaborationEnabled()) {
       return Promise.resolve(null);
     }
@@ -29,8 +39,10 @@ export function createPropertyLockStateMachine(deps) {
       scope: "initial",
       state: {
         active: true,
-        // @ts-expect-error keep source-contract literal while allowing nullable site id
-        propertyLockRecoverySiteId: Number.isFinite(siteId) ? Math.trunc(siteId) : null,
+        //
+        propertyLockRecoverySiteId: typeof siteId === "number" && Number.isFinite(siteId)
+          ? Math.trunc(siteId)
+          : null,
         propertyLockRecoveryBaseUrl: typeof baseUrl === "string" ? baseUrl : "",
         propertyLockRecoveryClientId: deps.normalizePropertyLockClientId(clientId),
         propertyLockRecoveryDeadlineAt: Number.isFinite(deadlineAt) ? Math.max(0, Math.trunc(deadlineAt)) : 0
@@ -38,8 +50,7 @@ export function createPropertyLockStateMachine(deps) {
     }).catch(() => null);
   }
 
-  // @ts-expect-error preserve source-contract signature used by property lock tests
-  function persistOffCandidateDeadline(deadlineAt) {
+  function persistOffCandidateDeadline(deadlineAt: unknown) {
     if (!deps.isPropertyLockCollaborationEnabled()) {
       return Promise.resolve(null);
     }
@@ -48,7 +59,10 @@ export function createPropertyLockStateMachine(deps) {
       scope: "initial",
       state: {
         active: true,
-        propertyLockOffCandidateDeadlineAt: Number.isFinite(deadlineAt) ? Math.max(0, Math.trunc(deadlineAt)) : 0
+        propertyLockOffCandidateDeadlineAt:
+          typeof deadlineAt === "number" && Number.isFinite(deadlineAt)
+            ? Math.max(0, Math.trunc(deadlineAt))
+            : 0
       }
     }).catch(() => null);
   }
@@ -87,8 +101,7 @@ export function createPropertyLockStateMachine(deps) {
     }
   }
 
-  // @ts-expect-error preserve source-contract signature used by property lock tests
-  function startCrossPropertyWarning(recoveryState) {
+  function startCrossPropertyWarning(recoveryState: any) {
     if (!deps.ensurePropertyLockCollaborationActive()) {
       return;
     }
@@ -154,8 +167,7 @@ export function createPropertyLockStateMachine(deps) {
     }, deps.PROPERTY_LOCK_OFF_CANDIDATE_WARNING_TIMEOUT_MS + 100);
   }
 
-  // @ts-expect-error preserve source-contract signature used by property lock tests
-  function applyServerMessage(serverMessage) {
+  function applyServerMessage(serverMessage: any) {
     if (!deps.ensurePropertyLockCollaborationActive()) {
       return;
     }
