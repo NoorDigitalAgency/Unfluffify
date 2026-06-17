@@ -1,5 +1,4 @@
 background.ts
-common/config.ts
 content/core.ts
 content-main.ts
 popup.ts
