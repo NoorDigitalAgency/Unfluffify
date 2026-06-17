@@ -14,8 +14,7 @@
     "background/remote-config-sync.ts": 9,
     "content/property-lock-state-machine.ts": 8,
     "background/ai-run-orchestrator.ts": 5,
-    "common/emulation.ts": 5,
-    "popup/site-resolution.ts": 4
+    "common/emulation.ts": 5
   },
   "exempt": [
     "common/page-motion-freeze-bridge.ts",

@@ -62,9 +62,9 @@ test("background owns the live-page GraphQL transport handlers", () => {
   const backgroundDispatchResolveEnd = backgroundSource.indexOf("if (message.type === \"fetchLivePagePropertyPageTypes\") {", backgroundDispatchResolveStart);
   const livePageResolveStart = livePageClientSource.indexOf("export async function resolveLivePageSiteId(options = {}) {");
   const livePageResolveEnd = livePageClientSource.indexOf("export async function fetchLivePagePropertyPageTypes(options = {}) {", livePageResolveStart);
-  const popupResolveStart = popupSource.indexOf("export async function resolveSiteIdFromGraphql(_deps, options = {}) {");
+  const popupResolveStart = popupSource.search(/export async function resolveSiteIdFromGraphql\(_deps(?:\s*:\s*[^,]+)?, options(?:\s*:\s*[^=]+)? = \{\}\) \{/);
   const popupResolveEnd = popupSource.indexOf("export function mergeConfigEntriesForResolvedBaseUrl", popupResolveStart);
-  const popupFetchStart = popupSource.indexOf("export async function fetchPropertyPageTypesFromGraphql(_deps, options = {}) {");
+  const popupFetchStart = popupSource.search(/export async function fetchPropertyPageTypesFromGraphql\(_deps(?:\s*:\s*[^,]+)?, options(?:\s*:\s*[^=]+)? = \{\}\) \{/);
   const popupFetchEnd = popupSource.indexOf("export async function ensurePropertyPageTypes", popupFetchStart);
   assert.ok(backgroundDispatchResolveStart > -1);
   assert.ok(backgroundDispatchResolveEnd > backgroundDispatchResolveStart);

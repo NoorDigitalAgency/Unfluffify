@@ -60,8 +60,7 @@ function setPendingPropertyPageTypesRequest(deps: any, nextRequest: any) {
   }
 }
 
-// @ts-ignore preserve source-contract signature used by popup/content source-shape tests
-export async function fetchPropertyPageTypesFromGraphql(_deps, options = {}) {
+export async function fetchPropertyPageTypesFromGraphql(_deps: any, options: any = {}) {
   const opts = (options || {}) as any;
   const {
     siteId = null,
@@ -99,8 +98,7 @@ export async function fetchPropertyPageTypesFromGraphql(_deps, options = {}) {
   };
 }
 
-// @ts-ignore preserve source-contract signature used by popup/content source-shape tests
-export async function ensurePropertyPageTypes(deps, options = {}) {
+export async function ensurePropertyPageTypes(deps: any, options: any = {}) {
   const opts = (options || {}) as any;
   const {
     siteId = null,
@@ -199,8 +197,7 @@ export async function ensurePropertyPageTypes(deps, options = {}) {
   return request;
 }
 
-// @ts-ignore preserve source-contract signature used by popup/content source-shape tests
-export async function resolveSiteIdFromGraphql(_deps, options = {}) {
+export async function resolveSiteIdFromGraphql(_deps: any, options: any = {}) {
   const opts = (options || {}) as any;
   const {
     stageBase = "",
@@ -286,8 +283,7 @@ export function mergeConfigEntriesForResolvedBaseUrl(
   return config.normalizeConfig(resolvedBaseUrl, merged).config;
 }
 
-// @ts-ignore preserve source-contract signature used by popup source-shape tests
-export async function ensureBaseUrlSiteId(deps, options = {}) {
+export async function ensureBaseUrlSiteId(deps: any, options: any = {}) {
   const opts = (options || {}) as any;
   const {
     baseUrl = "",
