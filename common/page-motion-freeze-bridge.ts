@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * @fileoverview Page-world (MAIN) document_start bridge for page-motion freeze.
  *
@@ -611,9 +610,11 @@ function runPageMotionFreezeControl(command = "setPaused", details = null) {
   const PAGE_WORLD_COMMAND_SET_MOTION_PAUSED = "PAGE_WORLD_SET_MOTION_PAUSED";
   const PAGE_WORLD_COMMAND_SET_LAZY_LOADING_SUPPRESSED = "PAGE_WORLD_SET_LAZY_LOADING_SUPPRESSED";
   const PAGE_WORLD_COMMAND_DESTROY = "PAGE_WORLD_DESTROY";
+  const windowAny = window;
 
   function getRelayBridgeState() {
-    if (!window[PAGE_WORLD_RELAY_STATE_KEY] || typeof window[PAGE_WORLD_RELAY_STATE_KEY] !== "object") {
+    // @ts-ignore window is used as a string-keyed bag for relay state
+    if (!windowAny[PAGE_WORLD_RELAY_STATE_KEY] || typeof windowAny[PAGE_WORLD_RELAY_STATE_KEY] !== "object") {
       Object.defineProperty(window, PAGE_WORLD_RELAY_STATE_KEY, {
         value: {
           nonce: ""
@@ -623,9 +624,11 @@ function runPageMotionFreezeControl(command = "setPaused", details = null) {
         writable: false
       });
     }
-    return window[PAGE_WORLD_RELAY_STATE_KEY];
+    // @ts-ignore window is used as a string-keyed bag for relay state
+    return windowAny[PAGE_WORLD_RELAY_STATE_KEY];
   }
 
+  // @ts-ignore preserve JS-runtime signature for page-world relay helper
   function postRelayResponse(request, response) {
     if (typeof window.postMessage !== "function") {
       return;
@@ -640,6 +643,7 @@ function runPageMotionFreezeControl(command = "setPaused", details = null) {
     }, "*");
   }
 
+  // @ts-ignore preserve JS-runtime signature for page-world relay helper
   function mapRelayCommand(command) {
     if (command === PAGE_WORLD_COMMAND_ARM) {
       return "arm";
@@ -656,6 +660,7 @@ function runPageMotionFreezeControl(command = "setPaused", details = null) {
     return "";
   }
 
+  // @ts-ignore preserve JS-runtime signature for page-world relay helper
   function handlePageWorldRelayRequest(event) {
     if (!event || event.source !== window) {
       return;
@@ -721,11 +726,13 @@ function runPageMotionFreezeControl(command = "setPaused", details = null) {
       ? request.payload
       : null;
     const result = runPageMotionFreezeControl(mappedCommand, details);
+    const resultAny = result;
     if (!result || result.ok !== true) {
       postRelayResponse(request, {
         ok: false,
         code: "handler_failed",
-        error: (result && result.error) || "Page-world control failed",
+        // @ts-ignore control result is union-typed and error is only on failure branch
+        error: (resultAny && resultAny.error) || "Page-world control failed",
         details: result && typeof result === "object" ? result : {}
       });
       return;

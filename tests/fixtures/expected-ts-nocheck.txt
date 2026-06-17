@@ -1,6 +1,5 @@
 background.ts
 common/config.ts
-common/page-motion-freeze-bridge.ts
 content/core.ts
 content-main.ts
 popup.ts
