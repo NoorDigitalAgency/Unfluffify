@@ -44,9 +44,9 @@ export interface PopupState {
   endpointEditMode: boolean;
   configEndpointEditMode: boolean;
   renderModeEditMode: boolean;
-  aiRequestInFlight: Promise<unknown> | null;
+  aiRequestInFlight: string | Promise<unknown> | null;
   aiComputeStartPending: boolean;
-  aiRunPhase: AiRunPhase;
+  aiRunPhase: AiRunPhase | string;
   aiRunSessionId: string;
   aiRunSiteId: string;
   aiRunDeadlineAt: number;
@@ -110,10 +110,10 @@ export interface PopupState {
   lastConfigLoadStatusTone: PopupTone;
   lastConfigSaveStatusText: string;
   lastConfigSaveStatusTone: PopupTone;
-  siteIdLookupByBaseUrl: Map<string, string>;
+  siteIdLookupByBaseUrl: Map<string, string | number>;
   propertyPageTypes: Array<Record<string, unknown>>;
   propertyPageTypesDuplicateUrls: string[];
-  propertyPageTypesSiteId: string | null;
+  propertyPageTypesSiteId: string | number | null;
   propertyPageTypesStageBase: string;
   propertyPageTypesSignature: string;
   propertyPageTypesFetchedAt: number;
@@ -150,9 +150,11 @@ export interface PopupState {
   propertyLockOffCandidateRefreshTimer: number;
   propertyLockEditorBootstrapPending: boolean;
   lynxChecklistVisible: boolean;
-  lynxChecklistAiAnswer: "" | "yes" | "no";
-  lynxChecklistPageTypes: LynxChecklistPageType[];
+  lynxChecklistAiAnswer: string;
+  lynxChecklistPageTypes: Array<Record<string, unknown>>;
   lynxChecklistAiQuestionDisabled: boolean;
   lynxChecklistAiQuestionHidden: boolean;
   lynxChecklistNoticeText: string;
+  todoSubsectionsExpanded?: Record<string, boolean>;
+  [key: string]: unknown;
 }
