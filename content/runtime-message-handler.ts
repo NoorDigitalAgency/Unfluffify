@@ -1,11 +1,97 @@
-export function handleRuntimeMessage(message: any, _sender: any, sendResponse: any, deps: any) {
+import type { RuntimeMessage } from "../types/messaging.ts";
+interface AsyncMessageHandler {
+  handleMessage(message?: RuntimeMessage): Promise<unknown>;
+}
+
+interface SyncMessageHandler {
+  handleMessage(message?: RuntimeMessage): unknown;
+}
+
+interface ExplicitMarkingResult {
+  ok?: boolean;
+  [key: string]: unknown;
+}
+
+interface RuntimeMessageHandlerDeps {
+  state: { baseUrl: string; config: unknown };
+  locationHref(): string;
+  matchesActiveBaseUrl(baseUrl: unknown): boolean;
+  checkPropertyLockBlocksMarking(): boolean;
+  isPageSaveReconciliationPending(pageUrl: unknown): boolean;
+  sendPropertyLockActivity(): void;
+  handleSetEnabledCommand(message: RuntimeMessage): Promise<unknown>;
+  handleGetInspectionStatusCommand(): unknown;
+  handleSetPopupBusyOnPageCommand(message: RuntimeMessage): unknown;
+  handleRenderModeInspectionBeginCommand(message: RuntimeMessage): unknown;
+  handleRunRenderModeRevealOnceCommand(message: RuntimeMessage): Promise<unknown>;
+  handleCaptureRenderModeInspectionHtmlCommand(message: RuntimeMessage): Promise<unknown>;
+  handleRenderModeInspectionEndCommand(message: RuntimeMessage): unknown;
+  handleHideConsentForInspectionCommand(): unknown;
+  getAiPreviewGetStateHandler(): SyncMessageHandler;
+  getAiPreviewExpandedModeHandler(): SyncMessageHandler;
+  getAiPreviewComputeLockHandler(): AsyncMessageHandler;
+  getAiPreviewCloseHandler(): AsyncMessageHandler;
+  getConfigUpdatedHandler(): SyncMessageHandler;
+  getForceRefreshHandler(): AsyncMessageHandler;
+  getDefaultExclusionsHandler(): SyncMessageHandler;
+  getCollectPageDataHandler(): AsyncMessageHandler;
+  getVisibleXpathsHandler(): SyncMessageHandler;
+  getAiSubmissionXpathsHandler(): SyncMessageHandler;
+  getInvisibleXpathsHandler(): SyncMessageHandler;
+  getDescribeXpathsHandler(): SyncMessageHandler;
+  getFocusHandler(): {
+    handleFocusMessage(message: RuntimeMessage): unknown;
+    handleClearFocusMessage(): unknown;
+  };
+  getCapturePageSnapshotHandler(): {
+    capture(options: {
+      targetBaseUrl: unknown;
+      shouldPersist: boolean;
+      pageType: string;
+    }): Promise<unknown>;
+  };
+  getPageDraftStatusHandler(): {
+    getStatus(options: { targetBaseUrl: unknown }): Promise<unknown>;
+  };
+  getPageSaveReconciliationPendingHandler(): {
+    setPending(options: {
+      targetBaseUrl: unknown;
+      pageUrl: string;
+      reason: unknown;
+    }): Promise<unknown>;
+  };
+  getPageSaveReconciliationClearHandler(): {
+    clear(options: { targetBaseUrl: unknown; pageUrl: string }): Promise<unknown>;
+  };
+  getExplicitMarkingHandler(): {
+    setExplicitExclude(options: {
+      targetBaseUrl: unknown;
+      xpath: unknown;
+      excluded: boolean;
+    }): ExplicitMarkingResult | null;
+    setExplicitInclude(options: {
+      targetBaseUrl: unknown;
+      xpath: unknown;
+      included: boolean;
+    }): ExplicitMarkingResult | null;
+  };
+  getPageDraftSaveHandler(): {
+    saveCurrentPageDraft(options: { baseUrl: unknown; pageType: string }): Promise<unknown>;
+  };
+  getPageDraftRevertHandler(): {
+    revert(options: { targetBaseUrl: unknown }): Promise<unknown>;
+  };
+  getAiPreviewShowHandler(): AsyncMessageHandler;
+}
+
+export function handleRuntimeMessage(message: RuntimeMessage, _sender: chrome.runtime.MessageSender, sendResponse: (response?: unknown) => void, deps: RuntimeMessageHandlerDeps) {
   if (!message || !message.type) {
     return;
   }
 
   if (message.type === "setEnabled") {
     deps.handleSetEnabledCommand(message)
-      .then((response: any) => {
+      .then((response: unknown) => {
         sendResponse(response && typeof response === "object" ? response : { ok: false });
       })
       .catch(() => {
@@ -31,7 +117,7 @@ export function handleRuntimeMessage(message: any, _sender: any, sendResponse: a
 
   if (message.type === "runRenderModeRevealOnce") {
     deps.handleRunRenderModeRevealOnceCommand(message)
-      .then((response: any) => {
+      .then((response: unknown) => {
         sendResponse(response && typeof response === "object" ? response : { ok: false });
       })
       .catch(() => {
@@ -42,7 +128,7 @@ export function handleRuntimeMessage(message: any, _sender: any, sendResponse: a
 
   if (message.type === "captureRenderModeInspectionHtml") {
     deps.handleCaptureRenderModeInspectionHtmlCommand(message)
-      .then((response: any) => {
+      .then((response: unknown) => {
         sendResponse(response && typeof response === "object" ? response : { ok: false });
       })
       .catch(() => {
@@ -79,7 +165,7 @@ export function handleRuntimeMessage(message: any, _sender: any, sendResponse: a
 
   if (message.type === "setAiComputeLock") {
     deps.getAiPreviewComputeLockHandler().handleMessage(message)
-      .then((response: any) => {
+      .then((response: unknown) => {
         sendResponse(response && typeof response === "object" ? response : { ok: false });
       })
       .catch(() => {
@@ -90,7 +176,7 @@ export function handleRuntimeMessage(message: any, _sender: any, sendResponse: a
 
   if (message.type === "closeAiPreview") {
     deps.getAiPreviewCloseHandler().handleMessage()
-      .then((response: any) => {
+      .then((response: unknown) => {
         sendResponse(response && typeof response === "object" ? response : { ok: false });
       })
       .catch(() => {
@@ -100,9 +186,9 @@ export function handleRuntimeMessage(message: any, _sender: any, sendResponse: a
   }
 
   if (message.type === "configUpdated") {
-    const response = deps.getConfigUpdatedHandler().handleMessage(message);
-    if (response && typeof response.then === "function") {
-      response.then((result: any) => {
+    const response: unknown = deps.getConfigUpdatedHandler().handleMessage(message);
+    if (response && typeof (response as { then?: unknown }).then === "function") {
+      (response as Promise<unknown>).then((result: unknown) => {
         sendResponse(result && typeof result === "object" ? result : { ok: false });
       }).catch(() => {
         sendResponse({ ok: false });
@@ -114,7 +200,7 @@ export function handleRuntimeMessage(message: any, _sender: any, sendResponse: a
   }
 
   if (message.type === "forceRefresh") {
-    deps.getForceRefreshHandler().handleMessage().then((response: any) => {
+    deps.getForceRefreshHandler().handleMessage().then((response: unknown) => {
       sendResponse(response && typeof response === "object" ? response : { ok: false });
     }).catch(() => {
       sendResponse({ ok: false });
@@ -128,7 +214,7 @@ export function handleRuntimeMessage(message: any, _sender: any, sendResponse: a
   }
 
   if (message.type === "collectPageData") {
-    deps.getCollectPageDataHandler().handleMessage(message).then((response: any) => {
+    deps.getCollectPageDataHandler().handleMessage(message).then((response: unknown) => {
       sendResponse(response && typeof response === "object" ? response : { ok: false });
     }).catch(() => {
       sendResponse({ ok: false });
@@ -186,7 +272,7 @@ export function handleRuntimeMessage(message: any, _sender: any, sendResponse: a
       targetBaseUrl,
       shouldPersist,
       pageType: typeof message.pageType === "string" ? message.pageType : ""
-    }).then((response: any) => {
+    }).then((response: unknown) => {
       sendResponse(response && typeof response === "object" ? response : { ok: false });
     }).catch(() => {
       sendResponse({ ok: false });
@@ -200,7 +286,7 @@ export function handleRuntimeMessage(message: any, _sender: any, sendResponse: a
       sendResponse({ ok: false });
       return;
     }
-    deps.getPageDraftStatusHandler().getStatus({ targetBaseUrl }).then((response: any) => {
+    deps.getPageDraftStatusHandler().getStatus({ targetBaseUrl }).then((response: unknown) => {
       sendResponse(response && typeof response === "object" ? response : { ok: false });
     }).catch(() => {
       sendResponse({ ok: false });
@@ -221,7 +307,7 @@ export function handleRuntimeMessage(message: any, _sender: any, sendResponse: a
       targetBaseUrl,
       pageUrl,
       reason: message.reason
-    }).then((response: any) => {
+    }).then((response: unknown) => {
       sendResponse(response && typeof response === "object" ? response : { ok: false });
     }).catch(() => {
       sendResponse({ ok: false });
@@ -239,7 +325,7 @@ export function handleRuntimeMessage(message: any, _sender: any, sendResponse: a
       return;
     }
     deps.getPageSaveReconciliationClearHandler().clear({ targetBaseUrl, pageUrl })
-      .then((response: any) => {
+      .then((response: unknown) => {
         sendResponse(response && typeof response === "object" ? response : { ok: false });
       })
       .catch(() => {
@@ -323,8 +409,8 @@ export function handleRuntimeMessage(message: any, _sender: any, sendResponse: a
     deps.getPageDraftSaveHandler().saveCurrentPageDraft({
       baseUrl: targetBaseUrl,
       pageType: typeof message.pageType === "string" ? message.pageType : ""
-    }).then((result: any) => {
-      if (result && result.ok) {
+    }).then((result: unknown) => {
+      if (result && (result as { ok?: unknown }).ok) {
         deps.sendPropertyLockActivity();
       }
       sendResponse(result && typeof result === "object" ? result : { ok: false });
@@ -344,7 +430,7 @@ export function handleRuntimeMessage(message: any, _sender: any, sendResponse: a
       sendResponse({ ok: false, locked: true });
       return;
     }
-    deps.getPageDraftRevertHandler().revert({ targetBaseUrl }).then((response: any) => {
+    deps.getPageDraftRevertHandler().revert({ targetBaseUrl }).then((response: unknown) => {
       sendResponse(response && typeof response === "object" ? response : { ok: false });
     }).catch(() => {
       sendResponse({ ok: false });
@@ -353,7 +439,7 @@ export function handleRuntimeMessage(message: any, _sender: any, sendResponse: a
   }
 
   if (message.type === "showAiPreview") {
-    deps.getAiPreviewShowHandler().handleMessage(message).then((response: any) => {
+    deps.getAiPreviewShowHandler().handleMessage(message).then((response: unknown) => {
       sendResponse(response && typeof response === "object" ? response : { ok: false });
     }).catch(() => {
       sendResponse({ ok: false });
