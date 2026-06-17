@@ -34,7 +34,7 @@ export {
  * @param {number} tabId - The Chrome tab ID to check
  * @returns {Promise<boolean>} True if the script is injected, false otherwise
  */
-export async function isScriptInjected(tabId: any) {
+export async function isScriptInjected(tabId: number) {
   return getScriptInjectedState(tabId);
 }
 
@@ -44,9 +44,8 @@ export async function isScriptInjected(tabId: any) {
  * @param {number} tabId - The Chrome tab ID to inject the script into
  * @returns {Promise<{ok: boolean, alreadyInjected?: boolean, error?: string}>} Result of injection attempt
  */
-export async function injectContentScript(tabId: any, options = {}) {
-  const optionsAny = options as any;
-  const force = Boolean(optionsAny && optionsAny.force);
+export async function injectContentScript(tabId: number, options: { force?: unknown } = {}) {
+  const force = Boolean(options && options.force);
   const alreadyInjected = await isScriptInjected(tabId);
   if (alreadyInjected && !force) {
     return { ok: true, alreadyInjected: true };
@@ -58,13 +57,13 @@ export async function injectContentScript(tabId: any, options = {}) {
     });
     await setStoredScriptInjectedState(tabId, true);
     return { ok: true };
-  } catch (error: any) {
-    return { ok: false, error: error.message || "Script injection failed" };
+  } catch (error: unknown) {
+    return { ok: false, error: getErrorMessage(error) || "Script injection failed" };
   }
 }
 
 // Browser utilities
-export async function disableExtensionForTab(tabId: any) {
+export async function disableExtensionForTab(tabId: number) {
   await Promise.all([
     clearTabStateScope(tabId),
     clearStoredScriptInjectedState(tabId)
@@ -76,25 +75,25 @@ export async function disableExtensionForTab(tabId: any) {
     // Content script may not be loaded
   }
 }
-export const tabsQuery = (query: any) =>
-    new Promise((resolve) => chrome.tabs.query(query, resolve));
+export const tabsQuery = (query: chrome.tabs.QueryInfo) =>
+    new Promise<chrome.tabs.Tab[]>((resolve) => chrome.tabs.query(query, resolve));
 
 const EXTENSION_CONTEXT_INVALIDATED_PATTERN = /extension context invalidated|context invalidated/i;
 
-function getErrorMessage(value: any) {
+function getErrorMessage(value: unknown) {
   if (!value) {
     return "";
   }
   if (typeof value === "string") {
     return value;
   }
-  if (typeof value.message === "string") {
-    return value.message;
+  if (typeof value === "object" && typeof (value as { message?: unknown }).message === "string") {
+    return (value as { message: string }).message;
   }
   return "";
 }
 
-export function isExtensionContextInvalidatedError(error: any) {
+export function isExtensionContextInvalidatedError(error: unknown) {
   return EXTENSION_CONTEXT_INVALIDATED_PATTERN.test(getErrorMessage(error));
 }
 
@@ -112,11 +111,11 @@ function getChromeRuntimeLastError() {
   }
 }
 
-function makeChromeRuntimeError(error: any) {
+function makeChromeRuntimeError(error: unknown) {
   return new Error(getErrorMessage(error) || "Chrome runtime operation failed");
 }
 
-function makeInvalidatedRuntimeResponse(error: any) {
+function makeInvalidatedRuntimeResponse(error: unknown) {
   return {
     ok: false,
     error: getErrorMessage(error) || "Extension context invalidated.",
@@ -128,11 +127,13 @@ function isFullWorldMessagingLoggingEnabled() {
   return isDebugFlagEnabled("fullWorldMessagingLogging");
 }
 
-function getMessageTypeForLog(message: any) {
-  return message && typeof message.type === "string" ? message.type : "";
+function getMessageTypeForLog(message: unknown) {
+  return message && typeof message === "object" && typeof (message as { type?: unknown }).type === "string"
+    ? (message as { type: string }).type
+    : "";
 }
 
-function logRuntimeMessage(direction: any, message: any, details = {}) {
+function logRuntimeMessage(direction: string, message: unknown, details: Record<string, unknown> = {}) {
   if (!isFullWorldMessagingLoggingEnabled()) {
     return;
   }
@@ -146,7 +147,7 @@ function logRuntimeMessage(direction: any, message: any, details = {}) {
   }
 }
 
-export function sendRuntimeMessage(message: any) {
+export function sendRuntimeMessage(message: unknown) {
   logRuntimeMessage("send", message);
   try {
     const promise = chrome.runtime.sendMessage(message);
@@ -246,7 +247,7 @@ export function sendRuntimeMessage(message: any) {
 }
 
 // General utilities
-export function arraysEqual(left: any, right: any) {
+export function arraysEqual(left: unknown, right: unknown) {
   if (left === right) {
     return true;
   }
@@ -267,7 +268,7 @@ export function arraysEqual(left: any, right: any) {
   return true;
 }
 
-export function parseBaseUrl(value: any) {
+export function parseBaseUrl(value: unknown) {
   const normalized = normalizeBaseUrl(value);
   if (!normalized) {
     return null;
@@ -279,8 +280,8 @@ export function parseBaseUrl(value: any) {
   }
 }
 
-function parseHttpUrl(value: any) {
-  if (!value) {
+function parseHttpUrl(value: unknown) {
+  if (!value || typeof value !== "string") {
     return null;
   }
   try {
@@ -294,7 +295,7 @@ function parseHttpUrl(value: any) {
   }
 }
 
-export function normalizeBaseUrl(value: any) {
+export function normalizeBaseUrl(value: unknown) {
   const parsed = parseHttpUrl(value);
   if (!parsed) {
     return "";
@@ -311,7 +312,7 @@ export function normalizeBaseUrl(value: any) {
   return `${parsed.protocol}//${hostname}${pathname === "/" ? "" : pathname}`;
 }
 
-export function normalizeCanonicalBaseUrl(value: any) {
+export function normalizeCanonicalBaseUrl(value: unknown) {
   const normalized = normalizeBaseUrl(value);
   if (!normalized) {
     return "";
@@ -332,7 +333,7 @@ export function normalizeCanonicalBaseUrl(value: any) {
   return `${parsed.protocol}//${canonicalHostname}${pathname === "/" ? "" : pathname}`;
 }
 
-function normalizeBaseMatchHostname(hostname: any) {
+function normalizeBaseMatchHostname(hostname: unknown) {
   if (typeof hostname !== "string") {
     return "";
   }
@@ -343,7 +344,7 @@ function normalizeBaseMatchHostname(hostname: any) {
   return lower.startsWith("www.") ? lower.slice(4) : lower;
 }
 
-function hostnamesEquivalentForBaseMatch(leftHostname: any, rightHostname: any) {
+function hostnamesEquivalentForBaseMatch(leftHostname: string, rightHostname: string) {
   if (!leftHostname || !rightHostname) {
     return false;
   }
@@ -361,7 +362,7 @@ function hostnamesEquivalentForBaseMatch(leftHostname: any, rightHostname: any) 
   return leftHostname.startsWith("www.") || rightHostname.startsWith("www.");
 }
 
-function normalizedHttpPort(parsed: any) {
+function normalizedHttpPort(parsed: URL | null) {
   if (!parsed) {
     return "";
   }
@@ -377,7 +378,7 @@ function normalizedHttpPort(parsed: any) {
   return "";
 }
 
-function originsEquivalentForBaseMatch(left: any, right: any) {
+function originsEquivalentForBaseMatch(left: URL | null, right: URL | null) {
   if (!left || !right) {
     return false;
   }
@@ -393,7 +394,7 @@ function originsEquivalentForBaseMatch(left: any, right: any) {
   return hostnamesEquivalentForBaseMatch(left.hostname, right.hostname);
 }
 
-function normalizePathForMatch(pathname: any) {
+function normalizePathForMatch(pathname: unknown) {
   if (typeof pathname !== "string" || !pathname) {
     return "/";
   }
@@ -401,7 +402,7 @@ function normalizePathForMatch(pathname: any) {
   return trimmed || "/";
 }
 
-function getBaseUrlSpecificity(baseUrl: any) {
+function getBaseUrlSpecificity(baseUrl: unknown) {
   const parsed = parseHttpUrl(baseUrl);
   if (!parsed) {
     return 0;
@@ -410,7 +411,7 @@ function getBaseUrlSpecificity(baseUrl: any) {
   return `${parsed.origin}${normalizedPath}`.length;
 }
 
-export function isPageWithinBaseUrl(pageUrl: any, baseUrl: any) {
+export function isPageWithinBaseUrl(pageUrl: unknown, baseUrl: unknown) {
   const page = parseHttpUrl(pageUrl);
   const base = parseHttpUrl(normalizeBaseUrl(baseUrl) || baseUrl);
   if (!page || !base) {
@@ -430,7 +431,7 @@ export function isPageWithinBaseUrl(pageUrl: any, baseUrl: any) {
   return pagePath.startsWith(`${basePath}/`);
 }
 
-export function sameBaseUrl(left: any, right: any) {
+export function sameBaseUrl(left: unknown, right: unknown) {
   if (!left || !right) {
     return false;
   }
@@ -453,8 +454,8 @@ export function sameBaseUrl(left: any, right: any) {
   return String(left).trim() === String(right).trim();
 }
 
-export function getOriginFromUrl(url: any) {
-  if (!url) {
+export function getOriginFromUrl(url: unknown) {
+  if (!url || typeof url !== "string") {
     return null;
   }
   try {
@@ -468,7 +469,7 @@ export function getOriginFromUrl(url: any) {
   }
 }
 
-export function findMatchingBaseUrl(pageUrl: any, configs: any) {
+export function findMatchingBaseUrl(pageUrl: unknown, configs: Record<string, unknown>) {
   if (!pageUrl) {
     return "";
   }
@@ -490,7 +491,7 @@ export function findMatchingBaseUrl(pageUrl: any, configs: any) {
 const IDB_NAME = "unfluffify";
 const IDB_VERSION = 1;
 const IDB_STORE = "kv";
-let idbPromise: Promise<any> | null = null;
+let idbPromise: Promise<IDBDatabase> | null = null;
 
 function getExtensionOrigin() {
   try {
@@ -518,7 +519,7 @@ function openIdb() {
   if (idbPromise) {
     return idbPromise;
   }
-  idbPromise = new Promise((resolve, reject) => {
+  idbPromise = new Promise<IDBDatabase>((resolve, reject) => {
     const request = indexedDB.open(IDB_NAME, IDB_VERSION);
     request.onupgradeneeded = () => {
       const db = request.result;
@@ -532,7 +533,7 @@ function openIdb() {
   return idbPromise;
 }
 
-function normalizeIdbKeys(keys: any) {
+function normalizeIdbKeys(keys: unknown) {
   if (keys === null || keys === undefined) {
     return { keys: null, defaults: null };
   }
@@ -550,10 +551,10 @@ function normalizeIdbKeys(keys: any) {
 
 async function idbGetAll() {
   const db = await openIdb();
-  return new Promise((resolve) => {
+  return new Promise<Record<string, unknown>>((resolve) => {
     const tx = db.transaction(IDB_STORE, "readonly");
     const store = tx.objectStore(IDB_STORE);
-    const result: any = {};
+    const result: Record<string, unknown> = {};
     const request = store.openCursor();
     request.onsuccess = () => {
       const cursor = request.result;
@@ -561,7 +562,7 @@ async function idbGetAll() {
         resolve(result);
         return;
       }
-      result[cursor.key] = cursor.value;
+      result[cursor.key as string] = cursor.value;
       cursor.continue();
     };
     request.onerror = () => resolve(result);
@@ -569,7 +570,7 @@ async function idbGetAll() {
   });
 }
 
-export async function idbGet(keys: any) {
+export async function idbGet(keys: unknown) {
   if (!isExtensionContext()) {
     const response = await sendRuntimeMessage({ type: "idbGet", keys });
     if (response && response.ok) {
@@ -585,7 +586,7 @@ export async function idbGet(keys: any) {
   return new Promise((resolve) => {
     const tx = db.transaction(IDB_STORE, "readonly");
     const store = tx.objectStore(IDB_STORE);
-    const result = normalized.defaults ? { ...normalized.defaults } : {};
+    const result: Record<string, unknown> = normalized.defaults ? { ...normalized.defaults } : {};
     let pending = normalized.keys.length;
     if (!pending) {
       resolve(result);
@@ -611,7 +612,7 @@ export async function idbGet(keys: any) {
   });
 }
 
-export async function idbSet(items: any) {
+export async function idbSet(items: unknown) {
   if (!items || typeof items !== "object") {
     return;
   }
@@ -635,7 +636,7 @@ export async function idbSet(items: any) {
   });
 }
 
-export async function idbRemove(keys: any) {
+export async function idbRemove(keys: unknown) {
   if (keys === null || keys === undefined) {
     return;
   }
@@ -664,20 +665,20 @@ export async function idbRemove(keys: any) {
 }
 
 // Tab state utilities
-export async function getTabState(tabId: any, scope: any = null) {
+export async function getTabState(tabId: number, scope: string | null = null) {
   return getStoredTabState(tabId, scope);
 }
 
-export async function setTabState(tabId: any, state: any, scope: any = null) {
+export async function setTabState(tabId: number, state: Record<string, unknown> | null, scope: string | null = null) {
   await setStoredTabState(tabId, state, scope);
 }
 
-export async function clearTabState(tabId: any) {
+export async function clearTabState(tabId: number) {
   await clearTabSessionState(tabId);
 }
 
 // Action icon utilities
-export async function updateActionForTab(tabId: any) {
+export async function updateActionForTab(tabId: number) {
   if (!chrome.action || !tabId) {
     return;
   }
@@ -723,7 +724,7 @@ export async function updateActionForTab(tabId: any) {
  * @param {number} tabId - The Chrome tab ID to attach to
  * @returns {Promise<{ok: boolean, error?: string, alreadyAttached?: boolean}>} Result of the attach operation
  */
-export async function attachDebugger(tabId: any) {
+export async function attachDebugger(tabId: number) {
   if (!tabId) {
     return { ok: false, error: "Missing tab ID" };
   }
@@ -732,14 +733,15 @@ export async function attachDebugger(tabId: any) {
     const target = { tabId };
     await chrome.debugger.attach(target, "1.3");
     return { ok: true };
-  } catch (error: any) {
+  } catch (error: unknown) {
     // Check if already attached
-    if (error && error.message && error.message.includes("already attached")) {
+    const errorMessage = getErrorMessage(error);
+    if (errorMessage.includes("already attached")) {
       return { ok: true, alreadyAttached: true };
     }
-    const errorMessage = (error && error.message) || "Failed to attach debugger";
-    console.error("Error attaching debugger:", errorMessage);
-    return { ok: false, error: errorMessage };
+    const resolvedMessage = errorMessage || "Failed to attach debugger";
+    console.error("Error attaching debugger:", resolvedMessage);
+    return { ok: false, error: resolvedMessage };
   }
 }
 
@@ -749,7 +751,7 @@ export async function attachDebugger(tabId: any) {
  * @param {number} tabId - The Chrome tab ID to detach from
  * @returns {Promise<{ok: boolean, alreadyDetached?: boolean, error?: string}>} Result of the detach operation
  */
-export async function detachDebugger(tabId: any) {
+export async function detachDebugger(tabId: number) {
   if (!tabId) {
     return { ok: false, error: "Missing tab ID" };
   }
@@ -758,8 +760,8 @@ export async function detachDebugger(tabId: any) {
     const target = { tabId };
     await chrome.debugger.detach(target);
     return { ok: true };
-  } catch (error: any) {
-    const errorMessage = (error && error.message) || "Failed to detach debugger";
+  } catch (error: unknown) {
+    const errorMessage = getErrorMessage(error) || "Failed to detach debugger";
     if (/not attached/i.test(errorMessage)) {
       return { ok: true, alreadyDetached: true };
     }
@@ -768,7 +770,7 @@ export async function detachDebugger(tabId: any) {
   }
 }
 
-export async function setPageJavaScriptExecutionDisabled(tabId: any, disabled: any) {
+export async function setPageJavaScriptExecutionDisabled(tabId: number, disabled: unknown) {
   if (!tabId) {
     return { ok: false, error: "Missing tab ID" };
   }
@@ -784,8 +786,8 @@ export async function setPageJavaScriptExecutionDisabled(tabId: any, disabled: a
       value: Boolean(disabled)
     });
     return { ok: true };
-  } catch (error: any) {
-    const errorMessage = (error && error.message) || "Failed to update JavaScript execution state";
+  } catch (error: unknown) {
+    const errorMessage = getErrorMessage(error) || "Failed to update JavaScript execution state";
     console.error("Error updating JavaScript execution state:", errorMessage);
     return { ok: false, error: errorMessage };
   }
@@ -799,7 +801,7 @@ export async function setPageJavaScriptExecutionDisabled(tabId: any, disabled: a
  * @param {boolean} [javaScriptDisabled=false] - Whether to disable JavaScript during reload
  * @returns {Promise<{ok: boolean, error?: string}>} Result of the reload operation
  */
-export async function reloadPageWithJavaScriptControl(tabId: any, javaScriptDisabled = false) {
+export async function reloadPageWithJavaScriptControl(tabId: number, javaScriptDisabled = false) {
   if (!tabId) {
     return { ok: false, error: "Missing tab ID" };
   }
@@ -819,8 +821,8 @@ export async function reloadPageWithJavaScriptControl(tabId: any, javaScriptDisa
     console.log(`Page is reloading with JavaScript ${javaScriptDisabled ? "disabled" : "enabled"}.`);
 
     return { ok: true };
-  } catch (error: any) {
-    const errorMessage = (error && error.message) || "Failed to reload page";
+  } catch (error: unknown) {
+    const errorMessage = getErrorMessage(error) || "Failed to reload page";
     console.error("Error reloading page:", errorMessage);
     return { ok: false, error: errorMessage };
   }
