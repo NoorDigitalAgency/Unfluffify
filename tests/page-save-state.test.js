@@ -47,7 +47,7 @@ test("keeps pending reconciliation messaging without blocking save and discard",
 });
 
 test("page-save UI and config share the non-blocking reconciliation reasons", () => {
-  const pageSaveStateSource = readFileSync(new URL("../common/page-save-state.js", import.meta.url), "utf8");
+  const pageSaveStateSource = readFileSync(new URL("../common/page-save-state.ts", import.meta.url), "utf8");
 
   assert.match(pageSaveStateSource, /import \{ NON_BLOCKING_PAGE_SAVE_RECONCILIATION_REASONS \} from "\.\/config\.js";/);
   assert.doesNotMatch(pageSaveStateSource, /\[\s*""[\s\S]*?"load_failed"[\s\S]*?\]\.includes/);

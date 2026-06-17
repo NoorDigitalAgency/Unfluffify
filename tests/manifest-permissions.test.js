@@ -32,8 +32,8 @@ test("manifest web-accessible resources avoid broad common/content wildcards", a
 test("every getURL-injected page resource is web-accessible (no under-scoping)", async () => {
   const manifest = JSON.parse(await fs.readFile(new URL("../manifest.json", import.meta.url), "utf8"));
   const resources = manifest.web_accessible_resources.flatMap((entry) => entry.resources || []);
-  const contentMain = await fs.readFile(new URL("../content-main.js", import.meta.url), "utf8");
-  const core = await fs.readFile(new URL("../content/core.js", import.meta.url), "utf8");
+  const contentMain = await fs.readFile(new URL("../content-main.ts", import.meta.url), "utf8");
+  const core = await fs.readFile(new URL("../content/core.ts", import.meta.url), "utf8");
 
   // Any literal getURL("...") string loaded into the page world (e.g. cursor
   // image url) MUST be web-accessible or the browser blocks the load. Guards
@@ -70,7 +70,7 @@ test("every getURL-injected page resource is web-accessible (no under-scoping)",
 test("every content/* module imported by content-main.js is web-accessible", async () => {
   const manifest = JSON.parse(await fs.readFile(new URL("../manifest.json", import.meta.url), "utf8"));
   const resources = manifest.web_accessible_resources.flatMap((entry) => entry.resources || []);
-  const contentMain = await fs.readFile(new URL("../content-main.js", import.meta.url), "utf8");
+  const contentMain = await fs.readFile(new URL("../content-main.ts", import.meta.url), "utf8");
 
   const importedContentModules = new Set();
   for (const match of contentMain.matchAll(/from\s+"(\.\/content\/[^"]+\.js)"/g)) {

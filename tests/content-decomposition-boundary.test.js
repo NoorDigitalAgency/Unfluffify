@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-const contentMainSource = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+const contentMainSource = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
 
 function assertImportsContentModule(moduleName) {
   const escapedModuleName = moduleName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

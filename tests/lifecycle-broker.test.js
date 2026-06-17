@@ -2,12 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
-const popupStateBrokerSource = readFileSync(new URL("../background/popup-state-broker.js", import.meta.url), "utf8");
-const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
-const contentSource = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
-const renderModeHandlersSource = readFileSync(new URL("../content/render-mode-inspection-handlers.js", import.meta.url), "utf8");
-const contractSource = readFileSync(new URL("../common/world-messaging-contract.js", import.meta.url), "utf8");
+const backgroundSource = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
+const popupStateBrokerSource = readFileSync(new URL("../background/popup-state-broker.ts", import.meta.url), "utf8");
+const popupSource = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
+const contentSource = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
+const renderModeHandlersSource = readFileSync(new URL("../content/render-mode-inspection-handlers.ts", import.meta.url), "utf8");
+const contractSource = readFileSync(new URL("../common/world-messaging-contract.ts", import.meta.url), "utf8");
 
 function extractSourceBlock(source, startNeedle, endNeedle) {
   const start = source.indexOf(startNeedle);

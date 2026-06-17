@@ -2,13 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
-const propertyLockUiSource = readFileSync(new URL("../popup/property-lock-ui.js", import.meta.url), "utf8");
-const contentSource = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
-const renderModeHandlersSource = readFileSync(new URL("../content/render-mode-inspection-handlers.js", import.meta.url), "utf8");
-const propertyLockBannerSource = readFileSync(new URL("../content/property-lock-banner.js", import.meta.url), "utf8");
-const propertyLockStateMachineSource = readFileSync(new URL("../content/property-lock-state-machine.js", import.meta.url), "utf8");
-const textSource = readFileSync(new URL("../common/text.js", import.meta.url), "utf8");
+const popupSource = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
+const propertyLockUiSource = readFileSync(new URL("../popup/property-lock-ui.ts", import.meta.url), "utf8");
+const contentSource = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
+const renderModeHandlersSource = readFileSync(new URL("../content/render-mode-inspection-handlers.ts", import.meta.url), "utf8");
+const propertyLockBannerSource = readFileSync(new URL("../content/property-lock-banner.ts", import.meta.url), "utf8");
+const propertyLockStateMachineSource = readFileSync(new URL("../content/property-lock-state-machine.ts", import.meta.url), "utf8");
+const textSource = readFileSync(new URL("../common/text.ts", import.meta.url), "utf8");
 
 function extractSourceBlock(source, startNeedle, endNeedle) {
   const start = source.indexOf(startNeedle);

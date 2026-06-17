@@ -3,11 +3,11 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const backgroundSource = readFileSync(
-  new URL("../background.js", import.meta.url),
+  new URL("../background.ts", import.meta.url),
   "utf8"
 );
 const transferPayloadStoreSource = readFileSync(
-  new URL("../background/transfer-payload-store.js", import.meta.url),
+  new URL("../background/transfer-payload-store.ts", import.meta.url),
   "utf8"
 );
 

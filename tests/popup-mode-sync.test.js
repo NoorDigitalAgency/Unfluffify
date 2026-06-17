@@ -2,9 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
-const contentSource = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
-const inspectionStatusSource = readFileSync(new URL("../content/inspection-status.js", import.meta.url), "utf8");
+const popupSource = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
+const contentSource = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
+const inspectionStatusSource = readFileSync(new URL("../content/inspection-status.ts", import.meta.url), "utf8");
 
 function extractSourceBlock(source, startNeedle, endNeedle) {
   const start = source.indexOf(startNeedle);

@@ -81,7 +81,7 @@ async function withChromeMock(chromeMock, callback) {
 
 async function loadSettingsStoreModule() {
   settingsStoreImportCounter += 1;
-  return import(new URL(`../common/settings-store.js?case=${settingsStoreImportCounter}`, import.meta.url));
+  return import(new URL(`../common/settings-store.ts?case=${settingsStoreImportCounter}`, import.meta.url));
 }
 
 test("settings store reads global AI settings in one storage call", async () => {

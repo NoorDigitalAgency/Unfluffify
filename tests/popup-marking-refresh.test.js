@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 test("popup scheduleRefresh uses the quiet refresh path", () => {
-  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
 
   assert.match(
     source,
@@ -12,7 +12,7 @@ test("popup scheduleRefresh uses the quiet refresh path", () => {
 });
 
 test("quiet popup refresh skips redundant property lock fetches", () => {
-  const source = readFileSync(new URL("../popup/property-lock-ui.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../popup/property-lock-ui.ts", import.meta.url), "utf8");
   const refreshSource = source.match(
     /export async function refreshPropertyLockSnapshot\(deps, siteId, options = \{\}\) \{([\s\S]*?)\n\}\n\nexport async function sendPropertyLockCommand/
   )[1];
@@ -23,7 +23,7 @@ test("quiet popup refresh skips redundant property lock fetches", () => {
 });
 
 test("explicit include and exclude removals use the quiet refresh path", () => {
-  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
 
   assert.match(
     source,
@@ -36,7 +36,7 @@ test("explicit include and exclude removals use the quiet refresh path", () => {
 });
 
 test("Todo List completion is sourced from backend-saved markings only", () => {
-  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
 
   assert.match(
     source,
@@ -58,8 +58,8 @@ test("Todo List completion is sourced from backend-saved markings only", () => {
 });
 
 test("silent Preview Contents and Send to Lynx actions are exposed from silent mode only", () => {
-  const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
-  const uiSource = readFileSync(new URL("../popup/ui.js", import.meta.url), "utf8");
+  const popupSource = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
+  const uiSource = readFileSync(new URL("../popup/ui.ts", import.meta.url), "utf8");
   const previewBody = popupSource.match(
     /async function handlePreviewLatest\(\) \{([\s\S]*?)\n\}\n\nasync function handleExitPreviewMode/
   )[1];
@@ -94,7 +94,7 @@ test("silent Preview Contents and Send to Lynx actions are exposed from silent m
 });
 
 test("same-property non-candidate pages keep silent mode and property-lock scope while marking stays blocked", () => {
-  const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const popupSource = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
 
   assert.match(
     popupSource,
@@ -115,9 +115,9 @@ test("same-property non-candidate pages keep silent mode and property-lock scope
 });
 
 test("popup mirrors the off-candidate editor countdown from initial tab state", () => {
-  const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
-  const propertyLockUiSource = readFileSync(new URL("../popup/property-lock-ui.js", import.meta.url), "utf8");
-  const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
+  const popupSource = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
+  const propertyLockUiSource = readFileSync(new URL("../popup/property-lock-ui.ts", import.meta.url), "utf8");
+  const backgroundSource = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
 
   assert.match(propertyLockUiSource, /export function syncPropertyLockOffCandidateRefreshTimer\(deps, active\) \{/);
   assert.match(propertyLockUiSource, /state\.propertyLockOffCandidateRefreshTimer = deps\.windowRef\.setInterval\(\(\) => \{/);
@@ -132,9 +132,9 @@ test("popup mirrors the off-candidate editor countdown from initial tab state", 
 });
 
 test("popup mirrors the cross-property editor cooldown from initial tab state and recovery scope", () => {
-  const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
-  const propertyLockUiSource = readFileSync(new URL("../popup/property-lock-ui.js", import.meta.url), "utf8");
-  const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
+  const popupSource = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
+  const propertyLockUiSource = readFileSync(new URL("../popup/property-lock-ui.ts", import.meta.url), "utf8");
+  const backgroundSource = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
 
   assert.match(popupSource, /const persistedRecoveryState = \{\s*siteId: state\.propertyLockRecoverySiteId,\s*baseUrl: state\.propertyLockRecoveryBaseUrl,\s*clientId: state\.propertyLockRecoveryClientId,\s*deadlineAt: state\.propertyLockRecoveryDeadlineAt\s*\};/);
   assert.match(popupSource, /const recoverySiteId = normalizeSiteIdValue\(\s*state\.propertyLockRecoverySiteId \|\| persistedRecoveryState\.siteId\s*\);/);
@@ -156,8 +156,8 @@ test("popup mirrors the cross-property editor cooldown from initial tab state an
 });
 
 test("desktop preview is a separate popup section that disables marking entry while active", () => {
-  const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
-  const uiSource = readFileSync(new URL("../popup/ui.js", import.meta.url), "utf8");
+  const popupSource = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
+  const uiSource = readFileSync(new URL("../popup/ui.ts", import.meta.url), "utf8");
   const desktopToggleStart = popupSource.indexOf("async function handleDesktopPreviewEnabledToggle(event) {");
   const desktopToggleEnd = popupSource.indexOf("function handleDeviceScaleInput", desktopToggleStart);
   assert.ok(desktopToggleStart >= 0 && desktopToggleEnd > desktopToggleStart);
@@ -190,8 +190,8 @@ test("desktop preview is a separate popup section that disables marking entry wh
 });
 
 test("marking-mode Preview Contents stays separate from silent Preview and Send to Lynx", () => {
-  const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
-  const uiSource = readFileSync(new URL("../popup/ui.js", import.meta.url), "utf8");
+  const popupSource = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
+  const uiSource = readFileSync(new URL("../popup/ui.ts", import.meta.url), "utf8");
   const markingPreviewBody = popupSource.match(
     /async function handleMarkingPreview\(\) \{([\s\S]*?)\n\}\n\nasync function handleExitPreviewMode/
   )[1];
@@ -215,7 +215,7 @@ test("marking-mode Preview Contents stays separate from silent Preview and Send 
 });
 
 test("Preview Contents uses the latest stored selector set and stays disabled without stored selectors", () => {
-  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
   const previewBody = source.match(
     /async function handlePreviewLatest\(\) \{([\s\S]*?)\n\}\n\nasync function handleExitPreviewMode/
   )[1];
@@ -229,8 +229,8 @@ test("Preview Contents uses the latest stored selector set and stays disabled wi
 });
 
 test("Lynx checklist submission uses the current view's marked-page coverage without AI-answer gating", () => {
-  const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
-  const uiSource = readFileSync(new URL("../popup/ui.js", import.meta.url), "utf8");
+  const popupSource = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
+  const uiSource = readFileSync(new URL("../popup/ui.ts", import.meta.url), "utf8");
   const sendBody = popupSource.match(
     /async function handleLynxChecklistSend\(\) \{([\s\S]*?)\n\}\n\nasync function handleSaveExcludes/
   )[1];
@@ -243,8 +243,8 @@ test("Lynx checklist submission uses the current view's marked-page coverage wit
 });
 
 test("Todo List marks the current candidate's parent subsection", () => {
-  const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
-  const uiSource = readFileSync(new URL("../popup/ui.js", import.meta.url), "utf8");
+  const popupSource = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
+  const uiSource = readFileSync(new URL("../popup/ui.ts", import.meta.url), "utf8");
 
   assert.match(
     popupSource,
@@ -265,7 +265,7 @@ test("Todo List marks the current candidate's parent subsection", () => {
 });
 
 test("periodic page-type refresh stays quiet unless candidates change", () => {
-  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
   const refreshBody = source.match(
     /function schedulePropertyPageTypesRefresh\(options = \{\}\) \{([\s\S]*?)\n\}\n\nfunction formatPageTypeCandidateLabel/
   )[1];
@@ -283,7 +283,7 @@ test("periodic page-type refresh stays quiet unless candidates change", () => {
 });
 
 test("changed page-type refresh alerts before rendering the warning notice", () => {
-  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
   const refreshBody = source.match(
     /async function refreshUiInner\(options = \{\}\) \{([\s\S]*?)\n\}\n\nasync function maybeResumePersistedAiRun/
   )[1];
@@ -303,7 +303,7 @@ test("changed page-type refresh alerts before rendering the warning notice", () 
 });
 
 test("changed page-type refresh expands the Todo List root", () => {
-  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
 
   assert.match(
     source,
@@ -312,17 +312,17 @@ test("changed page-type refresh expands the Todo List root", () => {
 });
 
 test("page-type refresh change copy is documented in shared text", () => {
-  const textSource = readFileSync(new URL("../common/text.js", import.meta.url), "utf8");
+  const textSource = readFileSync(new URL("../common/text.ts", import.meta.url), "utf8");
 
   assert.match(textSource, /changedNotice: "Live Page candidates changed in Lynx\./);
   assert.match(textSource, /currentPageInvalidAfterRefreshAlert: "Live Page candidates changed in Lynx,[\s\S]*?Marking has been stopped/);
 });
 
 test("session save uploads all local page markings while default sync stays backend-scoped", () => {
-  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
-  const remoteConfigSource = readFileSync(new URL("../popup/remote-config.js", import.meta.url), "utf8");
-  const pageReconciliationSource = readFileSync(new URL("../popup/page-reconciliation.js", import.meta.url), "utf8");
-  const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
+  const remoteConfigSource = readFileSync(new URL("../popup/remote-config.ts", import.meta.url), "utf8");
+  const pageReconciliationSource = readFileSync(new URL("../popup/page-reconciliation.ts", import.meta.url), "utf8");
+  const backgroundSource = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
   const handlePageSaveBody = pageReconciliationSource.match(
     /export async function handlePageSave\(deps\) \{([\s\S]*?)\n\}\n\nexport async function handlePageRevert/
   )[1];
@@ -390,7 +390,7 @@ test("session save uploads all local page markings while default sync stays back
 });
 
 test("session save terminal retry failure leaves the local draft dirty for retry", () => {
-  const source = readFileSync(new URL("../popup/page-reconciliation.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../popup/page-reconciliation.ts", import.meta.url), "utf8");
   const handlePageSaveBody = source.match(
     /export async function handlePageSave\(deps\) \{([\s\S]*?)\n\}\n\nexport async function handlePageRevert/
   )[1];
@@ -410,7 +410,7 @@ test("session save terminal retry failure leaves the local draft dirty for retry
 });
 
 test("todo completion backend cache ignores local confirmed page markings unless explicitly enabled", () => {
-  const source = readFileSync(new URL("../background/remote-config-sync.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../background/remote-config-sync.ts", import.meta.url), "utf8");
   const mergeBody = source.match(
     /async function mergeServerConfigIntoLocalSnapshot\(options = \{\}\) \{([\s\S]*?)\n\}/
   )[1];
@@ -426,9 +426,9 @@ test("todo completion backend cache ignores local confirmed page markings unless
 });
 
 test("invalid remote page pruning delegates the remove transport to background", () => {
-  const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
-  const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
-  const remoteNetworkSource = readFileSync(new URL("../background/remote-network.js", import.meta.url), "utf8");
+  const popupSource = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
+  const backgroundSource = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
+  const remoteNetworkSource = readFileSync(new URL("../background/remote-network.ts", import.meta.url), "utf8");
   const removeBody = popupSource.match(
     /async function removePageMarkingFromRemote\(options = \{\}\) \{([\s\S]*?)\n\}\n\nasync function pruneRemoteInvalidPageMarkings/
   )[1];
@@ -449,9 +449,9 @@ test("invalid remote page pruning delegates the remove transport to background",
 });
 
 test("token validation delegates the auth transport to background", () => {
-  const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
-  const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
-  const networkCoreSource = readFileSync(new URL("../background/network-core.js", import.meta.url), "utf8");
+  const popupSource = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
+  const backgroundSource = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
+  const networkCoreSource = readFileSync(new URL("../background/network-core.ts", import.meta.url), "utf8");
   const validateBody = popupSource.match(
     /async function validateStoredToken\(options = \{\}\) \{([\s\S]*?)\n\}\n\nasync function clearFocusedElement/
   )[1];
@@ -467,9 +467,9 @@ test("token validation delegates the auth transport to background", () => {
 });
 
 test("login delegates the auth transport to background while popup keeps token persistence", () => {
-  const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
-  const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
-  const networkCoreSource = readFileSync(new URL("../background/network-core.js", import.meta.url), "utf8");
+  const popupSource = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
+  const backgroundSource = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
+  const networkCoreSource = readFileSync(new URL("../background/network-core.ts", import.meta.url), "utf8");
   const loginBody = popupSource.match(
     /async function handleLoginAction\(\) \{([\s\S]*?)\n\}\n\nasync function alignPopupToSilentMode/
   )[1];
@@ -486,10 +486,10 @@ test("login delegates the auth transport to background while popup keeps token p
 });
 
 test("remote config load delegates transport to background and hydrates the payload from session storage", () => {
-  const popupSource = readFileSync(new URL("../popup/remote-config.js", import.meta.url), "utf8");
-  const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
-  const remoteNetworkSource = readFileSync(new URL("../background/remote-network.js", import.meta.url), "utf8");
-  const remoteConfigSyncSource = readFileSync(new URL("../background/remote-config-sync.js", import.meta.url), "utf8");
+  const popupSource = readFileSync(new URL("../popup/remote-config.ts", import.meta.url), "utf8");
+  const backgroundSource = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
+  const remoteNetworkSource = readFileSync(new URL("../background/remote-network.ts", import.meta.url), "utf8");
+  const remoteConfigSyncSource = readFileSync(new URL("../background/remote-config-sync.ts", import.meta.url), "utf8");
   const loadBody = popupSource.match(
     /export async function loadRemoteConfigForCurrentPage\(deps, options = \{\}\) \{([\s\S]*?)\n\}\n\nexport async function syncBaseConfigToServer/
   )[1];
@@ -511,10 +511,10 @@ test("remote config load delegates transport to background and hydrates the payl
 });
 
 test("remote config save delegates transport to background and hydrates the response from session storage", () => {
-  const popupSource = readFileSync(new URL("../popup/remote-config.js", import.meta.url), "utf8");
-  const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
-  const remoteNetworkSource = readFileSync(new URL("../background/remote-network.js", import.meta.url), "utf8");
-  const remoteConfigSyncSource = readFileSync(new URL("../background/remote-config-sync.js", import.meta.url), "utf8");
+  const popupSource = readFileSync(new URL("../popup/remote-config.ts", import.meta.url), "utf8");
+  const backgroundSource = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
+  const remoteNetworkSource = readFileSync(new URL("../background/remote-network.ts", import.meta.url), "utf8");
+  const remoteConfigSyncSource = readFileSync(new URL("../background/remote-config-sync.ts", import.meta.url), "utf8");
   const saveBody = popupSource.match(
     /export async function syncBaseConfigToServer\(deps, options = \{\}\) \{([\s\S]*?)\n\}/
   )[1];
@@ -541,9 +541,9 @@ test("remote config save delegates transport to background and hydrates the resp
 });
 
 test("render-mode detection delegates the heavy html transport to background", () => {
-  const popupSource = readFileSync(new URL("../popup/render-mode-inspection.js", import.meta.url), "utf8");
-  const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
-  const remoteNetworkSource = readFileSync(new URL("../background/remote-network.js", import.meta.url), "utf8");
+  const popupSource = readFileSync(new URL("../popup/render-mode-inspection.ts", import.meta.url), "utf8");
+  const backgroundSource = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
+  const remoteNetworkSource = readFileSync(new URL("../background/remote-network.ts", import.meta.url), "utf8");
   const detectBody = popupSource.match(
     /export async function detectRenderModeViaEndpoint\(deps, options = \{\}\) \{([\s\S]*?)\n\}\n\nexport async function maybeAutoDetectRenderMode/
   )[1];
@@ -562,8 +562,8 @@ test("render-mode detection delegates the heavy html transport to background", (
 });
 
 test("popup blocks the interface with a spinner while page inspection is running", () => {
-  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
-  const uiSource = readFileSync(new URL("../popup/ui.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
+  const uiSource = readFileSync(new URL("../popup/ui.ts", import.meta.url), "utf8");
 
   assert.match(source, /const SILENT_HIGHLIGHTING_PREPARATION_REASON = "editor_preparing";/);
   assert.match(source, /let contentInspectionPending = Boolean\(/);
@@ -616,7 +616,7 @@ test("popup blocks the interface with a spinner while page inspection is running
 });
 
 test("popup spinner queue pushSpinner returns key and handles delays correctly", () => {
-  const source = readFileSync(new URL("../popup/spinner.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../popup/spinner.ts", import.meta.url), "utf8");
   const pushBody = source.match(
     /export function pushSpinner\(deps, key, message, options = \{\}\) \{([\s\S]*?)\n\}/
   )[1];
@@ -635,7 +635,7 @@ test("popup spinner queue pushSpinner returns key and handles delays correctly",
 });
 
 test("popup spinner pop removes entries from the background broker", () => {
-  const source = readFileSync(new URL("../popup/spinner.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../popup/spinner.ts", import.meta.url), "utf8");
   const popBody = source.match(
     /export function popSpinner\(deps, key\) \{([\s\S]*?)\n\}/
   )[1];
@@ -646,7 +646,7 @@ test("popup spinner pop removes entries from the background broker", () => {
 });
 
 test("popup delegates spinner queue state to the background broker", () => {
-  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
   const setBody = source.match(
     /function syncSpinnerEntryToBackground\(key\) \{([\s\S]*?)\n\}/
   )[1];
@@ -666,7 +666,7 @@ test("popup delegates spinner queue state to the background broker", () => {
 });
 
 test("popup ignores stale spinner-set broker snapshots after local removal", () => {
-  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
   const sendBody = source.match(
     /function sendSpinnerBrokerMessage\(message, options = \{\}\) \{([\s\S]*?)\n\}/
   )[1];
@@ -687,7 +687,7 @@ test("popup ignores stale spinner-set broker snapshots after local removal", () 
 });
 
 test("popup restores spinner state from background current state", () => {
-  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
   const restoreBody = source.match(
     /async function restoreSpinnerQueueFromBackground\(tabId\) \{([\s\S]*?)\n\}/
   )[1];
@@ -705,7 +705,7 @@ test("popup restores spinner state from background current state", () => {
 });
 
 test("tab reload keeps the inspection curtain active while enabled pages re-inspect", () => {
-  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
 
   assert.match(source, /async function waitForEnableMarkingInspectionToSettle\(tabId, baseUrl\) \{/);
   assert.match(source, /type: "getInspectionStatus"/);
@@ -766,7 +766,7 @@ test("tab reload keeps the inspection curtain active while enabled pages re-insp
 });
 
 test("tab activation does not end persisted inspection overlay before old-tab spinner state is cleared", () => {
-  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
   const onActivatedBlock = source.match(
     /chrome\.tabs\.onActivated\.addListener\(async \(\{ tabId \}\) => \{([\s\S]*?)\n  \}\);\n\n  chrome\.tabs\.onUpdated/
   )[1];
@@ -779,7 +779,7 @@ test("tab activation does not end persisted inspection overlay before old-tab sp
 });
 
 test("popup unload clears navigation inspection settle polls", () => {
-  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
   const beforeUnloadBlock = source.match(
     /window\.addEventListener\("beforeunload", \(\) => \{([\s\S]*?)\n  \}\);\n\n  utils\.addStorageChangeListener/
   )[1];
@@ -788,7 +788,7 @@ test("popup unload clears navigation inspection settle polls", () => {
 });
 
 test("session pending is no longer tied to Lynx selector submission state", () => {
-  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
   const pendingBody = source.match(
     /function hasSessionPendingChanges\(sourceConfig, localPageMarkings, backendSavedPageMarkings, options = \{\}\) \{([\s\S]*?)\n\}/
   )[1];
@@ -800,7 +800,7 @@ test("session pending is no longer tied to Lynx selector submission state", () =
 });
 
 test("observer remote config polling stays passive-only and runs once a minute", () => {
-  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
 
   assert.match(source, /const OBSERVER_REMOTE_CONFIG_REFRESH_INTERVAL_MS = 60 \* 1000;/);
   assert.match(
@@ -814,7 +814,7 @@ test("observer remote config polling stays passive-only and runs once a minute",
 });
 
 test("marking enable does not send a redundant force refresh after TAB_ACTIVATE_MARKING", () => {
-  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
   const enableBody = source.match(
     /async function handleEnableToggle\(event\) \{([\s\S]*?)\n\}\n\nasync function handleDeviceEmulationEnabledToggle/
   )[1];
@@ -824,8 +824,8 @@ test("marking enable does not send a redundant force refresh after TAB_ACTIVATE_
 });
 
 test("marking enable upgrades the popup spinner to page inspection during reveal warmup", () => {
-  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
-  const spinnerSource = readFileSync(new URL("../popup/spinner.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
+  const spinnerSource = readFileSync(new URL("../popup/spinner.ts", import.meta.url), "utf8");
   const runWithSpinnerBody = spinnerSource.match(
     /export async function runWithSpinner\(deps, key, message, task, options = \{\}\) \{([\s\S]*?)\n\}/
   )[1];
@@ -847,7 +847,7 @@ test("marking enable upgrades the popup spinner to page inspection during reveal
 });
 
 test("disabling marking with a pending session prompts to discard before exiting", () => {
-  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
   const enableBody = source.match(
     /async function handleEnableToggle\(event\) \{([\s\S]*?)\n\}\n\nasync function handleDeviceEmulationEnabledToggle/
   )[1];
@@ -870,7 +870,7 @@ test("disabling marking with a pending session prompts to discard before exiting
 });
 
 test("popup scopes optimistic enabled state to the current tab page and base URL", () => {
-  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
 
   assert.match(source, /lastPopupEnabledContext/);
   assert.match(source, /function buildPopupEnabledContext\(tab = state\.currentTab, baseUrl = state\.currentBaseUrl\) \{/);
@@ -882,7 +882,7 @@ test("popup scopes optimistic enabled state to the current tab page and base URL
 });
 
 test("run ai refreshes page runtime status before honoring reconciliation gates", () => {
-  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
   const computeBody = source.match(
     /async function handleComputeSelectors\(\) \{([\s\S]*?)\n\}\n\nasync function postPageTypeAssignmentsToAiServer/
   )[1];
@@ -891,7 +891,7 @@ test("run ai refreshes page runtime status before honoring reconciliation gates"
 });
 
 test("content-side save hotkey workflow is removed from the marking session", () => {
-  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
   const keydownBody = source.match(
     /document\.addEventListener\("keydown", \(event\) => \{([\s\S]*?)\n\s*\}, true\);/
   )[1];
@@ -901,18 +901,18 @@ test("content-side save hotkey workflow is removed from the marking session", ()
 });
 
 test("content saved baseline is refreshed from backend cache, not local drafts", () => {
-  const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
-  const contentSource = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const coreSource = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
+  const contentSource = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
   const runtimeMessageHandlerSource = readFileSync(
-    new URL("../content/runtime-message-handler.js", import.meta.url),
+    new URL("../content/runtime-message-handler.ts", import.meta.url),
     "utf8"
   );
   const draftStatusHandlerSource = readFileSync(
-    new URL("../content/page-draft-status-handler.js", import.meta.url),
+    new URL("../content/page-draft-status-handler.ts", import.meta.url),
     "utf8"
   );
   const clearHandlerSource = readFileSync(
-    new URL("../content/page-save-reconciliation-clear-handler.js", import.meta.url),
+    new URL("../content/page-save-reconciliation-clear-handler.ts", import.meta.url),
     "utf8"
   );
 
@@ -945,7 +945,7 @@ test("content saved baseline is refreshed from backend cache, not local drafts",
 
 test("submission-xpath staleness only counts when the entry already has prior run data", () => {
   const draftStatusHandlerSource = readFileSync(
-    new URL("../content/page-draft-status-handler.js", import.meta.url),
+    new URL("../content/page-draft-status-handler.ts", import.meta.url),
     "utf8"
   );
   const block = draftStatusHandlerSource.match(
@@ -967,9 +967,9 @@ test("submission-xpath staleness only counts when the entry already has prior ru
 });
 
 test("forced config reload replaces the current page entry without re-syncing live DOM", () => {
-  const source = readFileSync(new URL("../content/runtime-message-handler.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../content/runtime-message-handler.ts", import.meta.url), "utf8");
   const handlerSource = readFileSync(
-    new URL("../content/config-updated-handler.js", import.meta.url),
+    new URL("../content/config-updated-handler.ts", import.meta.url),
     "utf8"
   );
   const configUpdatedSource = source.match(

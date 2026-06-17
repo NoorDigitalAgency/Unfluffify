@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { findPageMarkingEntry, state } from "../content/core.js";
 
 test("explicit marking handler stores page-scoped selector suppression when explicit marks are removed", () => {
-  const source = readFileSync(new URL("../content/explicit-marking-handler.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../content/explicit-marking-handler.ts", import.meta.url), "utf8");
 
   assert.match(source, /function addSelectorSuppressedXpath\(deps, entry, xpath\)/);
   assert.match(source, /if \(excluded\) \{[\s\S]*?clearSelectorSuppressedXpathsWithin\(deps, entry, xpath\);[\s\S]*?\} else \{[\s\S]*?addSelectorSuppressedXpath\(deps, entry, xpath\);/);
@@ -12,8 +12,8 @@ test("explicit marking handler stores page-scoped selector suppression when expl
 });
 
 test("core render path and silent highlighting both honor selector suppression xpaths", () => {
-  const contentSource = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
-  const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+  const contentSource = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
+  const coreSource = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
 
   assert.match(contentSource, /function getEffectiveAiSelectorSet\(baseConfig\) \{[\s\S]*?suppressedXpaths/);
   assert.match(contentSource, /collectNodesFromSelectors\(normalized\.exclusionSelectors, \{[\s\S]*?suppressedXpaths/);
@@ -22,7 +22,7 @@ test("core render path and silent highlighting both honor selector suppression x
 });
 
 test("content-main routes live-page GraphQL lookups through background runtime messages", () => {
-  const contentSource = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const contentSource = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
   const resolveSiteIdStart = contentSource.indexOf("async function resolveSiteIdFromGraphql(options = {}) {");
   const resolveSiteIdEnd = contentSource.indexOf("function extractUrlPathAndHostname", resolveSiteIdStart);
   assert.ok(resolveSiteIdStart > -1);
@@ -55,9 +55,9 @@ test("content-main routes live-page GraphQL lookups through background runtime m
 });
 
 test("background owns the live-page GraphQL transport handlers", () => {
-  const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
-  const livePageClientSource = readFileSync(new URL("../background/live-page-client.js", import.meta.url), "utf8");
-  const popupSource = readFileSync(new URL("../popup/site-resolution.js", import.meta.url), "utf8");
+  const backgroundSource = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
+  const livePageClientSource = readFileSync(new URL("../background/live-page-client.ts", import.meta.url), "utf8");
+  const popupSource = readFileSync(new URL("../popup/site-resolution.ts", import.meta.url), "utf8");
   const backgroundDispatchResolveStart = backgroundSource.indexOf("if (message.type === \"resolveLivePageSiteId\") {");
   const backgroundDispatchResolveEnd = backgroundSource.indexOf("if (message.type === \"fetchLivePagePropertyPageTypes\") {", backgroundDispatchResolveStart);
   const livePageResolveStart = livePageClientSource.indexOf("export async function resolveLivePageSiteId(options = {}) {");
@@ -108,7 +108,7 @@ test("background owns the live-page GraphQL transport handlers", () => {
 });
 
 test("marking mode keeps selector-matched elements off the default layer without suppressing their whole subtree", () => {
-  const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+  const coreSource = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
 
   assert.match(
     coreSource,
@@ -133,7 +133,7 @@ test("marking mode keeps selector-matched elements off the default layer without
 });
 
 test("marking mode keeps immutable hard elements eligible without requiring renderable text", () => {
-  const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+  const coreSource = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
 
   assert.match(
     coreSource,
@@ -146,7 +146,7 @@ test("marking mode keeps immutable hard elements eligible without requiring rend
 });
 
 test("marking mode keeps default exclusions out of a generated render collection", () => {
-  const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+  const coreSource = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
 
   assert.match(
     coreSource,
@@ -157,7 +157,7 @@ test("marking mode keeps default exclusions out of a generated render collection
 });
 
 test("marking mode renders synced default exclusions as ordinary exclude markings", () => {
-  const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+  const coreSource = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
   const collectorStart = coreSource.indexOf("function collectExplicitMarkingElements");
   const collectorEnd = coreSource.indexOf("export function collectStoredUnexcludedToggleableDefaultElements", collectorStart);
   const collectorSource = coreSource.slice(collectorStart, collectorEnd);
@@ -177,7 +177,7 @@ test("marking mode renders synced default exclusions as ordinary exclude marking
 });
 
 test("marking precedence contract is enforced as defaults then saved then css then session", () => {
-  const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+  const coreSource = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
 
   assert.match(coreSource, /saved-explicit-exclude/);
   assert.match(coreSource, /saved-explicit-include/);
@@ -199,7 +199,7 @@ test("marking precedence contract is enforced as defaults then saved then css th
 });
 
 test("marking runtime keeps default exclusions decision-only", () => {
-  const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+  const coreSource = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
   const defaultLayerStart = coreSource.indexOf("export function collectDefaultLayerElements");
   const defaultLayerEnd = coreSource.indexOf("function collectSelectorElements", defaultLayerStart);
   const defaultLayerSource = coreSource.slice(defaultLayerStart, defaultLayerEnd);
@@ -220,7 +220,7 @@ test("marking runtime keeps default exclusions decision-only", () => {
 });
 
 test("marking mode refresh reconciles entries before drawing explicit overlays", () => {
-  const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+  const coreSource = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
   const refreshStart = coreSource.indexOf("function refreshExplicitMarkingOverlay");
   const refreshEnd = coreSource.indexOf("function scheduleExplicitToggleFullRender", refreshStart);
   const refreshSource = coreSource.slice(refreshStart, refreshEnd);
@@ -244,8 +244,8 @@ test("marking mode refresh reconciles entries before drawing explicit overlays",
 });
 
 test("marking mode stores default ancestors as unexcluded when descendants are marked", () => {
-  const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
-  const handlerSource = readFileSync(new URL("../content/explicit-marking-handler.js", import.meta.url), "utf8");
+  const coreSource = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
+  const handlerSource = readFileSync(new URL("../content/explicit-marking-handler.ts", import.meta.url), "utf8");
 
   assert.match(
     coreSource,
@@ -278,8 +278,8 @@ test("marking mode stores default ancestors as unexcluded when descendants are m
 });
 
 test("explicit marking toggles cache XPath element resolution per operation", () => {
-  const contentSource = readFileSync(new URL("../content/runtime-message-handler.js", import.meta.url), "utf8");
-  const handlerSource = readFileSync(new URL("../content/explicit-marking-handler.js", import.meta.url), "utf8");
+  const contentSource = readFileSync(new URL("../content/runtime-message-handler.ts", import.meta.url), "utf8");
+  const handlerSource = readFileSync(new URL("../content/explicit-marking-handler.ts", import.meta.url), "utf8");
   const excludeStart = handlerSource.indexOf("function setExplicitExclude(options) {");
   const includeStart = handlerSource.indexOf("function setExplicitInclude(options) {");
   const afterInclude = handlerSource.indexOf("\n\n  return {", includeStart);
@@ -297,7 +297,7 @@ test("explicit marking toggles cache XPath element resolution per operation", ()
 });
 
 test("render collection hot paths avoid nested contains scans", () => {
-  const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+  const coreSource = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
   const collapseStart = coreSource.indexOf("export function collapseElementsByNesting");
   const collapseEnd = coreSource.indexOf("function collapseElementsByNestingPreservingExplicit", collapseStart);
   const collapseSource = coreSource.slice(collapseStart, collapseEnd);
@@ -314,7 +314,7 @@ test("render collection hot paths avoid nested contains scans", () => {
 });
 
 test("marking mode keeps unexcluded default ancestors off the default layer", () => {
-  const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+  const coreSource = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
 
   assert.doesNotMatch(coreSource, /filterDefaultElementsForExplicitMarks/);
   assert.match(
@@ -387,7 +387,7 @@ test("marking contract is locked across docs, memory, plan, and README", () => {
   );
   const readmeSource = readFileSync(new URL("../README.md", import.meta.url), "utf8");
   const constantsSource = readFileSync(
-    new URL("../common/constants.js", import.meta.url),
+    new URL("../common/constants.ts", import.meta.url),
     "utf8"
   );
 

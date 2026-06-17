@@ -2,9 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-const contentMainSource = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+const contentMainSource = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
 const runtimeMessageHandlerSource = readFileSync(
-  new URL("../content/runtime-message-handler.js", import.meta.url),
+  new URL("../content/runtime-message-handler.ts", import.meta.url),
   "utf8"
 );
 const manifest = JSON.parse(readFileSync(new URL("../manifest.json", import.meta.url), "utf8"));
@@ -203,7 +203,7 @@ function assertBranchHasCatchFallback(messageType, branch, required) {
 test("revertPageDraft load failures answer ok false", () => {
   const branch = getMessageBranch("revertPageDraft");
   const handlerSource = readFileSync(
-    new URL("../content/page-draft-revert-handler.js", import.meta.url),
+    new URL("../content/page-draft-revert-handler.ts", import.meta.url),
     "utf8"
   );
 

@@ -1,6 +1,6 @@
 # Unfluffify Active Architecture Plan
 
-Last updated: 2026-06-11
+Last updated: 2026-06-17
 
 ## Objective
 
@@ -49,8 +49,10 @@ Known-good current validation baseline:
 git status --short --branch
 # ## main...origin/main
 
-npm test
-# 946 pass / 0 fail
+deno task check
+deno task build:release
+deno task test
+# 847 pass / 0 fail
 ```
 
 Review status on 2026-06-11: F1-F19 were reviewed with no behavioral regression

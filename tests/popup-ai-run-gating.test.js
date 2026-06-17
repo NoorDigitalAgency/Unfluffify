@@ -2,11 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
-const pageReconciliationSource = readFileSync(new URL("../popup/page-reconciliation.js", import.meta.url), "utf8");
-const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
-const uiSource = readFileSync(new URL("../popup/ui.js", import.meta.url), "utf8");
-const stateSource = readFileSync(new URL("../popup/state.js", import.meta.url), "utf8");
+const popupSource = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
+const pageReconciliationSource = readFileSync(new URL("../popup/page-reconciliation.ts", import.meta.url), "utf8");
+const backgroundSource = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
+const uiSource = readFileSync(new URL("../popup/ui.ts", import.meta.url), "utf8");
+const stateSource = readFileSync(new URL("../popup/state.ts", import.meta.url), "utf8");
 
 test("state tracks the AI-run markings fingerprint", () => {
   assert.match(stateSource, /aiRunMarkingsFingerprint: null/);

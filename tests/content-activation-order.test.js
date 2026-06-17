@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const runtimeMessageHandlerSource = readFileSync(
-  new URL("../content/runtime-message-handler.js", import.meta.url),
+  new URL("../content/runtime-message-handler.ts", import.meta.url),
   "utf8"
 );
 
@@ -37,7 +37,7 @@ function assertAsyncBranchHasFailureResponse(source, messageType, delegatePatter
 }
 
 test("refreshFromTabState restores enabled pages without re-running reveal/freeze", () => {
-  const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
   const refreshStart = source.indexOf("export async function refreshFromTabState(options = {})");
   const refreshEnd = source.indexOf("export function syncPageMarkings", refreshStart);
 
@@ -56,7 +56,7 @@ test("refreshFromTabState restores enabled pages without re-running reveal/freez
 });
 
 test("main restores tab state then refreshes highlight state without an initial reveal", () => {
-  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
   const mainStart = source.indexOf("export function main()");
   const mainEnd = source.indexOf("document.addEventListener(\"keydown\"", mainStart);
 
@@ -72,8 +72,8 @@ test("main restores tab state then refreshes highlight state without an initial 
 });
 
 test("content loader and consent scroll restore avoid production page-console logs", () => {
-  const loaderSource = readFileSync(new URL("../content-loader.js", import.meta.url), "utf8");
-  const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+  const loaderSource = readFileSync(new URL("../content-loader.ts", import.meta.url), "utf8");
+  const coreSource = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
   const restoreStart = coreSource.indexOf("function restorePageScrolling() {");
   const restoreEnd = coreSource.indexOf("function hideConsentOnEnable(pageUrl)", restoreStart);
 
@@ -84,7 +84,7 @@ test("content loader and consent scroll restore avoid production page-console lo
 });
 
 test("mutation observer rescans consent widgets when late DOM insertions arrive", () => {
-  const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
   const start = source.indexOf("function startObservers() {");
   const end = source.indexOf("function stopObservers()", start);
 
@@ -96,9 +96,9 @@ test("mutation observer rescans consent widgets when late DOM insertions arrive"
 });
 
 test("content-main warn/error diagnostics are trace-gated", () => {
-  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
   const saveHandlerSource = readFileSync(
-    new URL("../content/page-draft-save-handler.js", import.meta.url),
+    new URL("../content/page-draft-save-handler.ts", import.meta.url),
     "utf8"
   );
 
@@ -112,7 +112,7 @@ test("content-main warn/error diagnostics are trace-gated", () => {
 });
 
 test("manual page enable waits for activation reveal before refreshing highlight state", () => {
-  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
   const toggleStart = source.indexOf("async function toggleEnabledFromPage(options = {})");
   const toggleEnd = source.indexOf("function ensureSilentHighlightingStyles()", toggleStart);
 
@@ -124,8 +124,8 @@ test("manual page enable waits for activation reveal before refreshing highlight
 });
 
 test("reveal activation starts on becameEditor transition and not on marking enable", () => {
-  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
-  const stateMachineSource = readFileSync(new URL("../content/property-lock-state-machine.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
+  const stateMachineSource = readFileSync(new URL("../content/property-lock-state-machine.ts", import.meta.url), "utf8");
 
   const messageStart = runtimeMessageHandlerSource.indexOf("if (message.type === \"setEnabled\") {");
   const messageEnd = runtimeMessageHandlerSource.indexOf("if (message.type === \"getInspectionStatus\") {", messageStart);
@@ -198,9 +198,9 @@ test("reveal activation starts on becameEditor transition and not on marking ena
 });
 
 test("content exposes inspection status while reveal or reconciliation is pending", () => {
-  const mainSource = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
-  const inspectionStatusSource = readFileSync(new URL("../content/inspection-status.js", import.meta.url), "utf8");
-  const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+  const mainSource = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
+  const inspectionStatusSource = readFileSync(new URL("../content/inspection-status.ts", import.meta.url), "utf8");
+  const coreSource = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
 
   assert.match(coreSource, /export function isPageInspectionUiActive\(\) \{/);
   assert.match(coreSource, /state\.pageInspectionNotice && !state\.pageInspectionNotice\.hidden/);
@@ -238,7 +238,7 @@ test("content exposes inspection status while reveal or reconciliation is pendin
 });
 
 test("editor reveal is gated during render-mode inspection or before render mode is confirmed", () => {
-  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
   const activationStart = source.indexOf("async function runEditorSilentHighlightingActivationOnce() {");
   const activationEnd = source.indexOf("function ensureSilentHighlightOverlay()", activationStart);
 
@@ -277,7 +277,7 @@ test("editor reveal is gated during render-mode inspection or before render mode
 });
 
 test("runtime setEnabled can request an initial reveal when reload restoration re-enables marking", () => {
-  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
   const messageStart = runtimeMessageHandlerSource.indexOf('if (message.type === "setEnabled") {');
   const messageEnd = runtimeMessageHandlerSource.indexOf('if (message.type === "getInspectionStatus") {', messageStart);
   const handlerStart = source.indexOf("async function handleSetEnabledCommand(message = {}) {");
@@ -296,9 +296,9 @@ test("runtime setEnabled can request an initial reveal when reload restoration r
 });
 
 test("capturePageSnapshot collects AI submission rows from the target config", () => {
-  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
   const captureHandlerSource = readFileSync(
-    new URL("../content/capture-page-snapshot-handler.js", import.meta.url),
+    new URL("../content/capture-page-snapshot-handler.ts", import.meta.url),
     "utf8"
   );
   const collectorStart = source.indexOf("function collectAiSubmissionXpathsForCurrentPage");
@@ -322,7 +322,7 @@ test("capturePageSnapshot collects AI submission rows from the target config", (
 });
 
 test("AI submission collector guards implicit excluded ancestors with a visible markable descendant", () => {
-  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
   const collectorStart = source.indexOf("function collectAiSubmissionXpathsForCurrentPage");
   const collectorEnd = source.indexOf("function refreshEnabledAiHighlights", collectorStart);
   assert.ok(collectorStart > -1 && collectorEnd > collectorStart);
@@ -347,7 +347,7 @@ test("AI submission collector guards implicit excluded ancestors with a visible 
 
 test("capturePageSnapshot persists heavy snapshot evidence without returning it", () => {
   const captureHandlerSource = readFileSync(
-    new URL("../content/capture-page-snapshot-handler.js", import.meta.url),
+    new URL("../content/capture-page-snapshot-handler.ts", import.meta.url),
     "utf8"
   );
   const captureStart = runtimeMessageHandlerSource.indexOf('if (message.type === "capturePageSnapshot") {');
@@ -393,7 +393,7 @@ test("async content message branches answer ok false when delegated work rejects
 });
 
 test("silent-highlight mutation observer uses an O(1) tracked-node index instead of a per-call scan", () => {
-  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
 
   // Module-scope index, reset alongside the render-target cache.
   assert.match(source, /let silentHighlightTrackedNodeIndex = null;/);
@@ -418,7 +418,7 @@ test("silent-highlight mutation observer uses an O(1) tracked-node index instead
 });
 
 test("silent-highlight reposition reuses cached render targets between settle samples", () => {
-  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
 
   // Cache state exists at module scope.
   assert.match(source, /let silentHighlightRenderTargetCache = new Map\(\);/);
@@ -441,7 +441,7 @@ test("silent-highlight reposition reuses cached render targets between settle sa
 });
 
 test("refreshSilentHighlightings yields between source-set collection and renderable expansion", () => {
-  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
   const fnStart = source.indexOf("async function refreshSilentHighlightings() {");
   assert.ok(fnStart > -1);
   const fnEnd = source.indexOf("\n}\n", fnStart);
@@ -464,7 +464,7 @@ test("refreshSilentHighlightings yields between source-set collection and render
 });
 
 test("collectIncludedNodesFromSelectorSet memoizes core.isVisible per call", () => {
-  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
   const fnStart = source.indexOf("function collectIncludedNodesFromSelectorSet(");
   assert.ok(fnStart > -1);
   // Use the next top-level `let` declaration (silentRenderNodeIdCounter) as the
@@ -481,7 +481,7 @@ test("collectIncludedNodesFromSelectorSet memoizes core.isVisible per call", () 
 });
 
 test("silent-highlight collection runs inside the shared element-computation cache (sub-6)", () => {
-  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
   // Both full-page collection call sites (refresh + preview) wrap the
   // synchronous collector in core.withElementComputationCache so the deep
   // helper graph memoizes visibility/text/immutable lookups per pass.
@@ -493,12 +493,12 @@ test("silent-highlight collection runs inside the shared element-computation cac
     `expected both collector call sites wrapped in the computation cache; saw ${wrappedCalls.length}`
   );
 
-  const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+  const coreSource = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
   assert.match(coreSource, /export function withElementComputationCache\(callback\) \{/);
 });
 
 test("silent-highlight observer demotes class mutations on non-tracked targets to reposition", () => {
-  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
   const obsStart = source.indexOf("silentHighlightingObserver = new MutationObserver(");
   assert.ok(obsStart > -1);
   const obsEnd = source.indexOf("silentHighlightingObserver.observe(", obsStart);
@@ -512,7 +512,7 @@ test("silent-highlight observer demotes class mutations on non-tracked targets t
 });
 
 test("silent-highlight observer routes inline style mutations through the reposition path", () => {
-  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
 
   // Inline style mutations are in the position-refresh attribute set so a
   // transform/visibility tweak on a tracked-touching node reposition-refreshes
@@ -537,7 +537,7 @@ test("silent-highlight observer routes inline style mutations through the reposi
 });
 
 test("refreshSilentHighlightings yields to a paint frame before the overlay DOM write", () => {
-  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
   const fnStart = source.indexOf("async function refreshSilentHighlightings() {");
   assert.ok(fnStart > -1);
   const fnEnd = source.indexOf("\n}\n", fnStart);
@@ -562,7 +562,7 @@ test("refreshSilentHighlightings yields to a paint frame before the overlay DOM 
 });
 
 test("refreshSilentHighlightings bails out after each await when superseded by a newer call", () => {
-  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
   const fnStart = source.indexOf("async function refreshSilentHighlightings() {");
   assert.ok(fnStart > -1);
   const fnEnd = source.indexOf("\n}\n", fnStart);
@@ -584,7 +584,7 @@ test("refreshSilentHighlightings bails out after each await when superseded by a
 });
 
 test("URL watcher disables marking on navigation without preserving a draft cache", () => {
-  const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
   const watcherStart = source.indexOf("function startUrlWatcher() {");
   const watcherEnd = source.indexOf("function stopUrlWatcher()", watcherStart);
 

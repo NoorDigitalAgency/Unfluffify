@@ -7,11 +7,11 @@ import { runPageMotionFreezeControl } from "../common/page-motion-freeze-control
 const STATE_KEY = "__unfluffifyPageMotionFreezeState";
 
 const bridgeSource = readFileSync(
-  new URL("../common/page-motion-freeze-bridge.js", import.meta.url),
+  new URL("../common/page-motion-freeze-bridge.ts", import.meta.url),
   "utf8"
 );
 const controlSource = readFileSync(
-  new URL("../common/page-motion-freeze-control.js", import.meta.url),
+  new URL("../common/page-motion-freeze-control.ts", import.meta.url),
   "utf8"
 );
 

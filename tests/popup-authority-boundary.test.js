@@ -31,8 +31,8 @@ test("popup files do not call chrome.tabs.sendMessage directly", () => {
 });
 
 test("popup content messages are routed through TAB_CONTENT_REQUEST background command", () => {
-  const popupMessagesSource = readFileSync(new URL("../popup/messages.js", import.meta.url), "utf8");
-  const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
+  const popupMessagesSource = readFileSync(new URL("../popup/messages.ts", import.meta.url), "utf8");
+  const backgroundSource = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
 
   assert.match(popupMessagesSource, /TAB_CONTENT_REQUEST_COMMAND = "TAB_CONTENT_REQUEST"/);
   assert.match(popupMessagesSource, /requestRuntime\(\{[\s\S]*?type: TAB_CONTENT_REQUEST_COMMAND/);

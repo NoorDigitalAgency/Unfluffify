@@ -15,10 +15,10 @@ import {
   normalizeLockStateMessage
 } from "../common/property-lock.js";
 
-const propertyLockBannerSource = readFileSync(new URL("../content/property-lock-banner.js", import.meta.url), "utf8");
-const propertyLockBannerModeSource = readFileSync(new URL("../content/property-lock-banner-mode.js", import.meta.url), "utf8");
-const propertyLockPortClientSource = readFileSync(new URL("../content/property-lock-port-client.js", import.meta.url), "utf8");
-const propertyLockStateMachineSource = readFileSync(new URL("../content/property-lock-state-machine.js", import.meta.url), "utf8");
+const propertyLockBannerSource = readFileSync(new URL("../content/property-lock-banner.ts", import.meta.url), "utf8");
+const propertyLockBannerModeSource = readFileSync(new URL("../content/property-lock-banner-mode.ts", import.meta.url), "utf8");
+const propertyLockPortClientSource = readFileSync(new URL("../content/property-lock-port-client.ts", import.meta.url), "utf8");
+const propertyLockStateMachineSource = readFileSync(new URL("../content/property-lock-state-machine.ts", import.meta.url), "utf8");
 
 test("buildPropertyLockWssUrl requires a stage base and token", () => {
   assert.equal(buildPropertyLockWssUrl("", "token"), "");
@@ -122,7 +122,7 @@ test("createInactiveLockState returns an unlocked non-editor snapshot", () => {
 });
 
 test("content-main reconnects property lock after an unexpected active port disconnect", () => {
-  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
 
   assert.match(
     source,
@@ -131,7 +131,7 @@ test("content-main reconnects property lock after an unexpected active port disc
 });
 
 test("content-main consumes property lock port disconnect lastError without lifecycle hooks", () => {
-  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
 
   assert.match(source, /function createPropertyLockPortClientDeps\(\) \{[\s\S]*?consumeRuntimeLastErrorMessage:\s*\(\) => \{[\s\S]*?const lastError = chrome\.runtime\.lastError;[\s\S]*?\}/);
   assert.match(propertyLockPortClientSource, /const disconnectReason = deps\.consumeRuntimeLastErrorMessage\(\);/);
@@ -144,7 +144,7 @@ test("content-main consumes property lock port disconnect lastError without life
 });
 
 test("content-main stops property lock reconnects when extension context is invalidated", () => {
-  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
 
   assert.match(source, /let extensionContextInvalidated = false;/);
   assert.match(
@@ -163,7 +163,7 @@ test("content-main stops property lock reconnects when extension context is inva
 });
 
 test("content-main requests a reconnect when property lock activity or page commands have no active port", () => {
-  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
 
   assert.match(
     source,
@@ -176,9 +176,9 @@ test("content-main requests a reconnect when property lock activity or page comm
 });
 
 test("content-main blocks extension and page interaction while connection-loss banner is active", () => {
-  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
   const runtimeMessageHandlerSource = readFileSync(
-    new URL("../content/runtime-message-handler.js", import.meta.url),
+    new URL("../content/runtime-message-handler.ts", import.meta.url),
     "utf8"
   );
 
@@ -211,7 +211,7 @@ test("content-main blocks extension and page interaction while connection-loss b
 });
 
 test("property lock text includes disconnected interaction blocked message", () => {
-  const textSource = readFileSync(new URL("../common/text.js", import.meta.url), "utf8");
+  const textSource = readFileSync(new URL("../common/text.ts", import.meta.url), "utf8");
   assert.match(textSource, /disconnectedInteractionBlockedToast:\s*"Editing is temporarily blocked while the property lock reconnects\."/);
   assert.match(textSource, /inactivityInteractionBlockedToast:\s*"Editing is temporarily blocked due to inactivity\. Continue editing from the warning banner\."/);
   assert.match(textSource, /editorOffCandidateCountdownMessage:\s*\(secondsRemaining\) => `This page is not a current Live Page candidate\./);
@@ -221,7 +221,7 @@ test("property lock text includes disconnected interaction blocked message", () 
 });
 
 test("content-main starts and persists an off-candidate editor countdown before releasing the lock", () => {
-  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
 
   assert.match(source, /function persistPropertyLockOffCandidateDeadline\(deadlineAt\) \{[\s\S]*?getPropertyLockStateMachine\(\)\.persistOffCandidateDeadline\(deadlineAt\);/);
   assert.match(source, /function startPropertyLockOffCandidateWarning\(\) \{[\s\S]*?getPropertyLockStateMachine\(\)\.startOffCandidateWarning\(\);/);
@@ -236,7 +236,7 @@ test("content-main starts and persists an off-candidate editor countdown before 
 });
 
 test("content-main starts and persists a cross-property editor cooldown before releasing the old lock", () => {
-  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
 
   assert.match(source, /function normalizePropertyLockRecoveryTabState\(tabState\) \{[\s\S]*?getPropertyLockStateMachine\(\)\.normalizeRecoveryTabState\(tabState\);/);
   assert.match(source, /function persistPropertyLockRecoveryState\(\{ siteId = null, baseUrl = "", clientId = "", deadlineAt = 0 \} = \{\}\) \{[\s\S]*?getPropertyLockStateMachine\(\)\.persistRecoveryState\(\{/);
@@ -289,7 +289,7 @@ test("content-main uses 70-second fallback countdown for inactivity warning and 
 });
 
 test("content-main connects property lock without gating on Live Page candidate verification", () => {
-  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
   const syncStart = source.indexOf("async function syncPropertyLockConnection");
   const connectIndex = source.indexOf("type: PROPERTY_LOCK_CONTENT_CONNECT", syncStart);
   const candidateIndex = source.indexOf("resolvePropertyLockCandidateState(target)", syncStart);
@@ -300,7 +300,7 @@ test("content-main connects property lock without gating on Live Page candidate 
 });
 
 test("content-main connects property lock with a stable client identity and auto-claims on eligible-page connect", () => {
-  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
   const syncStart = source.indexOf("async function syncPropertyLockConnection");
   const syncEnd = source.indexOf("function handlePropertyLockPortMessage", syncStart);
   const syncSource = source.slice(syncStart, syncEnd);
@@ -325,7 +325,7 @@ test("content-main connects property lock with a stable client identity and auto
 });
 
 test("content-main resolves property lock targets without requiring current extension base-url state", () => {
-  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
   const resolverStart = source.indexOf("async function resolveCurrentPropertyLockConnectionTarget");
   const resolverEnd = source.indexOf("async function resolveCurrentPageTypeForMarking", resolverStart);
   const resolverSource = source.slice(resolverStart, resolverEnd);
@@ -339,7 +339,7 @@ test("content-main resolves property lock targets without requiring current exte
 });
 
 test("content-main treats property lock site-id fetch failures as a null lookup", () => {
-  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
   const resolverStart = source.indexOf("async function resolveSiteIdFromGraphql");
   const resolverEnd = source.indexOf("function extractUrlPathAndHostname", resolverStart);
   const resolverSource = source.slice(resolverStart, resolverEnd);
@@ -350,7 +350,7 @@ test("content-main treats property lock site-id fetch failures as a null lookup"
 });
 
 test("content-main starts property lock sync immediately during content-script initialization", () => {
-  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
   const mainStart = source.indexOf("export function main()");
   const immediateSyncIndex = source.indexOf("runPropertyLockSync({ forceSiteIdRefresh: true });", mainStart);
   const refreshMatch = source.slice(mainStart).match(
@@ -364,7 +364,7 @@ test("content-main starts property lock sync immediately during content-script i
 });
 
 test("content-main coalesces concurrent property lock sync requests", () => {
-  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
   const runSyncStart = source.indexOf("function runPropertyLockSync(options = {}) {");
   const runSyncEnd = source.indexOf("async function syncPropertyLockConnection(options = {}) {", runSyncStart);
   const runSyncSource = source.slice(runSyncStart, runSyncEnd);
@@ -379,7 +379,7 @@ test("content-main coalesces concurrent property lock sync requests", () => {
 });
 
 test("content-main re-queues property lock sync when URL changes during a sync", () => {
-  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
   const syncStart = source.indexOf("async function syncPropertyLockConnection(options = {}) {");
   const syncEnd = source.indexOf("function handlePropertyLockPortMessage(message) {", syncStart);
   const syncSource = source.slice(syncStart, syncEnd);
@@ -410,7 +410,7 @@ test("property lock contract is documented with stable client and editor source-
 });
 
 test("background remote merges reconcile page markings by timestamp without wiping local saved pages", () => {
-  const source = readFileSync(new URL("../background/remote-config-sync.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../background/remote-config-sync.ts", import.meta.url), "utf8");
   const mergeStart = source.indexOf("async function mergeServerConfigIntoLocalSnapshot");
   const mergeEnd = source.indexOf("export async function preparePageTypeAssignmentsSnapshot", mergeStart);
   const mergeSource = source.slice(mergeStart, mergeEnd);
@@ -423,11 +423,11 @@ test("background remote merges reconcile page markings by timestamp without wipi
 });
 
 test("popup only skips periodic remote loads for the active editor tab and includes the routed client hint", () => {
-  const source = readFileSync(new URL("../popup/property-lock-ui.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../popup/property-lock-ui.ts", import.meta.url), "utf8");
   const fetchStart = source.indexOf("export async function fetchPropertyLockState");
   const fetchEnd = source.indexOf("export async function refreshPropertyLockSnapshot", fetchStart);
   const fetchSource = source.slice(fetchStart, fetchEnd);
-  const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const popupSource = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
   const skipStart = popupSource.indexOf("function shouldSkipRemoteConfigLoadForPropertyEditor");
   const skipEnd = popupSource.indexOf("function updateLoginActionState", skipStart);
   const skipSource = popupSource.slice(skipStart, skipEnd);
@@ -438,13 +438,13 @@ test("popup only skips periodic remote loads for the active editor tab and inclu
 });
 
 test("popup property lock commands refresh draft status and reconcile lock state", () => {
-  const source = readFileSync(new URL("../popup/property-lock-ui.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../popup/property-lock-ui.ts", import.meta.url), "utf8");
   const commandStart = source.indexOf("export async function sendPropertyLockCommand");
   const commandEnd = source.indexOf("export async function reconcilePropertyLockAfterCommand", commandStart);
   const commandSource = source.slice(commandStart, commandEnd);
   const reconcileStart = source.indexOf("export async function reconcilePropertyLockAfterCommand");
   const reconcileSource = source.slice(reconcileStart);
-  const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const popupSource = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
 
   assert.match(commandSource, /await deps\.refreshCurrentPageRuntimeStatus\(\)\.catch\(\(\) => null\);/);
   assert.match(reconcileSource, /await deps\.refreshPropertyLockSnapshot\(siteId\)\.catch\(\(\) => null\);/);

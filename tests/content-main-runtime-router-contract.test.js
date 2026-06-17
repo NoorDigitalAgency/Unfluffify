@@ -2,8 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 
-const contentMainPath = new URL("../content-main.js", import.meta.url);
-const runtimeMessageHandlerPath = new URL("../content/runtime-message-handler.js", import.meta.url);
+const contentMainPath = new URL("../content-main.ts", import.meta.url);
+const runtimeMessageHandlerPath = new URL("../content/runtime-message-handler.ts", import.meta.url);
 
 const contentMainSource = readFileSync(contentMainPath, "utf8");
 const runtimeMessageHandlerSource = existsSync(runtimeMessageHandlerPath)

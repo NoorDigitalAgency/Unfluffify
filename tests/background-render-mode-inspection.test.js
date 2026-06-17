@@ -2,10 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
-const renderModeInspectorSource = readFileSync(new URL("../background/render-mode-inspector.js", import.meta.url), "utf8");
-const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
-const popupMessagesSource = readFileSync(new URL("../popup/messages.js", import.meta.url), "utf8");
+const backgroundSource = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
+const renderModeInspectorSource = readFileSync(new URL("../background/render-mode-inspector.ts", import.meta.url), "utf8");
+const popupSource = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
+const popupMessagesSource = readFileSync(new URL("../popup/messages.ts", import.meta.url), "utf8");
 const manifestSource = readFileSync(new URL("../manifest.json", import.meta.url), "utf8");
 
 test("background registers render-mode inspection commands as tab-scoped", () => {

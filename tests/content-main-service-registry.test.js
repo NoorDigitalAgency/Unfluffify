@@ -69,7 +69,7 @@ test("content-main service registry lazily creates and caches each getter indepe
 });
 
 test("content-main sources the registry and keeps mutable truth clusters inline", () => {
-  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
 
   assert.match(source, /from "\.\/content\/content-main-service-registry\.js"/);
   assert.doesNotMatch(source, /let pageToastClient = null;/);

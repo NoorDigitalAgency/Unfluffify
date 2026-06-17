@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const remoteConfigSyncSource = readFileSync(
-  new URL("../background/remote-config-sync.js", import.meta.url),
+  new URL("../background/remote-config-sync.ts", import.meta.url),
   "utf8"
 );
 

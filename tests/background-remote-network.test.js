@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-const remoteNetworkSource = readFileSync(new URL("../background/remote-network.js", import.meta.url), "utf8");
+const remoteNetworkSource = readFileSync(new URL("../background/remote-network.ts", import.meta.url), "utf8");
 
 test("remote-network module exports remote transport handlers", () => {
   assert.match(remoteNetworkSource, /export async function requestAiRunStatus\(options = \{\}\) \{/);

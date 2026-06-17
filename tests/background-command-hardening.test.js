@@ -2,8 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
-const commandLedgerSource = readFileSync(new URL("../background/command-ledger.js", import.meta.url), "utf8");
+const backgroundSource = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
+const commandLedgerSource = readFileSync(new URL("../background/command-ledger.ts", import.meta.url), "utf8");
 
 test("popup background commands declare explicit source and tab-id policy", () => {
   assert.match(

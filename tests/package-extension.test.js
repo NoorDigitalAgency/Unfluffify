@@ -16,8 +16,12 @@ test("package script stages runtime files and excludes repo-only files", async (
   const metadataPath = path.join(tempDir, "metadata.json");
 
   try {
+    await execFileAsync("deno", ["task", "build:release"], { cwd: REPO_ROOT });
+
     await execFileAsync(process.execPath, [
       "./scripts/package-extension.mjs",
+      "--source-root",
+      "dist/extension",
       "--timestamp",
       "240101-1200",
       "--stage-dir",
@@ -64,8 +68,12 @@ test("package script adds a release-only build display version to the staged man
   const metadataPath = path.join(tempDir, "metadata.json");
 
   try {
+    await execFileAsync("deno", ["task", "build:release"], { cwd: REPO_ROOT });
+
     await execFileAsync(process.execPath, [
       "./scripts/package-extension.mjs",
+      "--source-root",
+      "dist/extension",
       "--timestamp",
       "240101-1200",
       "--build-version",
