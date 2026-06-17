@@ -520,7 +520,7 @@ test("remote config save delegates transport to background and hydrates the resp
   )[1];
 
   assert.match(backgroundSource, /from "\.\/background\/remote-network\.js"/);
-  assert.match(remoteNetworkSource, /export async function saveRemoteConfigSnapshot\(options = \{\}\) \{/);
+  assert.match(remoteNetworkSource, /export async function saveRemoteConfigSnapshot\(\s*options(?:\s*:\s*[^=]+)? = \{\}\s*\) \{/);
   assert.match(remoteNetworkSource, /const saveUrl = resolveBackgroundEndpoint\(endpointValue, "\/save"\);/);
   assert.match(remoteNetworkSource, /const requestPayloadKey = typeof options\.payloadKey === "string" \? options\.payloadKey\.trim\(\) : "";/);
   assert.match(remoteNetworkSource, /const loaded = await getTransferPayload\(requestPayloadKey, \{ expectedType: "object" \}\);/);

@@ -186,7 +186,9 @@ export async function loadRemoteConfigSnapshot(options = {}) {
   }
 }
 
-export async function saveRemoteConfigSnapshot(options = {}) {
+export async function saveRemoteConfigSnapshot(
+  options: { payloadKey?: unknown; [key: string]: unknown } = {}
+) {
   const opts = options as any;
   const credentials = await resolveBackgroundNetworkCredentials({
     endpointValue: opts.endpointValue,
@@ -195,7 +197,6 @@ export async function saveRemoteConfigSnapshot(options = {}) {
   });
   const endpointValue = credentials.endpointValue;
   const tokenValue = credentials.tokenValue;
-  // @ts-ignore preserve source-contract expression used by popup remote-config transport tests
   const requestPayloadKey = typeof options.payloadKey === "string" ? options.payloadKey.trim() : "";
   const saveUrl = resolveBackgroundEndpoint(endpointValue, "/save");
   if (!saveUrl || !requestPayloadKey) {
@@ -410,8 +411,7 @@ export async function requestAiRunResultSnapshot(options = {}) {
   }
 }
 
-// @ts-ignore preserve source-contract signature used by remote-network tests
-export async function fetchStaticPageHtmlForBackground(url) {
+export async function fetchStaticPageHtmlForBackground(url: unknown) {
   const targetUrl = typeof url === "string" ? url.trim() : "";
   let parsedUrl = null;
   try {
