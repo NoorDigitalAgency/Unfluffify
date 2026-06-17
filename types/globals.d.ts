@@ -1,1 +1,1 @@
-declare const chrome: any;
+/// <reference types="chrome" />

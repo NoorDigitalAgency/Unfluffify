@@ -1,4 +1,3 @@
-// @ts-nocheck
 // Shared font stack for extension-owned UI that is injected into the page
 // (toasts, banners, notices, popovers, motion-pause indicator text). Page-world
 // injected styles cannot read the popup theme's `--font-sans` custom property,

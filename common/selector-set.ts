@@ -1,7 +1,11 @@
-// @ts-nocheck
 import * as utils from "./utilities.js";
 
-export function normalizeSelectorList(selectors) {
+type AiSelectorSetLike = {
+  exclusionSelectors?: unknown;
+  inclusionSelectors?: unknown;
+};
+
+export function normalizeSelectorList(selectors: unknown): string[] {
   const values = [];
   const seen = new Set();
   for (const selector of Array.isArray(selectors) ? selectors : []) {
@@ -18,7 +22,9 @@ export function normalizeSelectorList(selectors) {
   return values;
 }
 
-export function normalizeAiSelectorSet(value) {
+export function normalizeAiSelectorSet(
+  value: AiSelectorSetLike | null | undefined
+): { exclusionSelectors: string[]; inclusionSelectors: string[] } {
   if (!value || typeof value !== "object") {
     return { exclusionSelectors: [], inclusionSelectors: [] };
   }
@@ -28,12 +34,17 @@ export function normalizeAiSelectorSet(value) {
   };
 }
 
-export function combineAiSelectorSet(selectorSet) {
+export function combineAiSelectorSet(
+  selectorSet: AiSelectorSetLike | null | undefined
+): string[] {
   const normalized = normalizeAiSelectorSet(selectorSet);
   return [...normalized.exclusionSelectors, ...normalized.inclusionSelectors];
 }
 
-export function aiSelectorSetsEqual(left, right) {
+export function aiSelectorSetsEqual(
+  left: AiSelectorSetLike | null | undefined,
+  right: AiSelectorSetLike | null | undefined
+): boolean {
   const normalizedLeft = normalizeAiSelectorSet(left);
   const normalizedRight = normalizeAiSelectorSet(right);
   return (
