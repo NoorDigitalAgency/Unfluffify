@@ -17,12 +17,12 @@ export function runPageMotionFreezeControl(command = "setPaused", details = null
     ? command
     : COMMAND_SET_PAUSED;
 
-  // @ts-ignore preserve JS-runtime signature parity with bridge copy
+  // @ts-expect-error preserve JS-runtime signature parity with bridge copy
   function hasOwn(object, key) {
     return Object.prototype.hasOwnProperty.call(object, key);
   }
 
-  // @ts-ignore preserve JS-runtime signature parity with bridge copy
+  // @ts-expect-error preserve JS-runtime signature parity with bridge copy
   function getBooleanDetail(name) {
     if (typeof details === "boolean") {
       return Boolean(details);
@@ -34,14 +34,14 @@ export function runPageMotionFreezeControl(command = "setPaused", details = null
   }
 
   function getManagedState() {
-    // @ts-ignore root is runtime-mutable and indexed by internal state key
+    // @ts-expect-error root is runtime-mutable and indexed by internal state key
     const state = root[STATE_KEY];
     return state && typeof state === "object" && state.version === VERSION
       ? state
       : null;
   }
 
-  // @ts-ignore preserve JS-runtime signature parity with bridge copy
+  // @ts-expect-error preserve JS-runtime signature parity with bridge copy
   function defineManagedState(state) {
     Object.defineProperty(root, STATE_KEY, {
       value: state,
@@ -99,19 +99,19 @@ export function runPageMotionFreezeControl(command = "setPaused", details = null
     return state;
   }
 
-  // @ts-ignore preserve JS-runtime signature parity with bridge copy
+  // @ts-expect-error preserve JS-runtime signature parity with bridge copy
   function nextTimerId(state) {
     state.nextDeferredTimerId -= 1;
     return state.nextDeferredTimerId;
   }
 
-  // @ts-ignore preserve JS-runtime signature parity with bridge copy
+  // @ts-expect-error preserve JS-runtime signature parity with bridge copy
   function nextFrameId(state) {
     state.nextDeferredFrameId -= 1;
     return state.nextDeferredFrameId;
   }
 
-  // @ts-ignore preserve JS-runtime signature parity with bridge copy
+  // @ts-expect-error preserve JS-runtime signature parity with bridge copy
   function runCallback(state, callback, args) {
     try {
       callback.apply(state.root, args);
@@ -126,7 +126,7 @@ export function runPageMotionFreezeControl(command = "setPaused", details = null
     }
   }
 
-  // @ts-ignore preserve JS-runtime signature parity with bridge copy
+  // @ts-expect-error preserve JS-runtime signature parity with bridge copy
   function runAnimationFrame(state, callback, timestamp) {
     try {
       callback.call(state.root, timestamp);
@@ -141,7 +141,7 @@ export function runPageMotionFreezeControl(command = "setPaused", details = null
     }
   }
 
-  // @ts-ignore preserve JS-runtime signature parity with bridge copy
+  // @ts-expect-error preserve JS-runtime signature parity with bridge copy
   function deferTimeout(state, callback, args) {
     const id = nextTimerId(state);
     state.deferredTimeouts.set(id, {
@@ -153,7 +153,7 @@ export function runPageMotionFreezeControl(command = "setPaused", details = null
     return id;
   }
 
-  // @ts-ignore preserve JS-runtime signature parity with bridge copy
+  // @ts-expect-error preserve JS-runtime signature parity with bridge copy
   function scheduleDeferredTimeout(state, record) {
     if (!record || record.nativeId !== null || !state.originalSetTimeout) {
       return;
@@ -164,7 +164,7 @@ export function runPageMotionFreezeControl(command = "setPaused", details = null
     }, 0);
   }
 
-  // @ts-ignore preserve JS-runtime signature parity with bridge copy
+  // @ts-expect-error preserve JS-runtime signature parity with bridge copy
   function deferAnimationFrame(state, callback) {
     const id = nextFrameId(state);
     state.deferredFrames.set(id, {
@@ -175,19 +175,19 @@ export function runPageMotionFreezeControl(command = "setPaused", details = null
     return id;
   }
 
-  // @ts-ignore preserve JS-runtime signature parity with bridge copy
+  // @ts-expect-error preserve JS-runtime signature parity with bridge copy
   function scheduleDeferredFrame(state, record) {
     if (!record || record.nativeId !== null || !state.originalRequestAnimationFrame) {
       return;
     }
-    // @ts-ignore preserve JS-runtime callback signature parity
+    // @ts-expect-error preserve JS-runtime callback signature parity
     record.nativeId = state.originalRequestAnimationFrame.call(state.root, (timestamp) => {
       state.deferredFrames.delete(record.id);
       runAnimationFrame(state, record.callback, timestamp);
     });
   }
 
-  // @ts-ignore preserve JS-runtime signature parity with bridge copy
+  // @ts-expect-error preserve JS-runtime signature parity with bridge copy
   function flushDeferredCallbacks(state) {
     for (const record of Array.from(state.deferredTimeouts.values())) {
       scheduleDeferredTimeout(state, record);
@@ -197,13 +197,12 @@ export function runPageMotionFreezeControl(command = "setPaused", details = null
     }
   }
 
-  // @ts-ignore preserve JS-runtime signature parity with bridge copy
+  // @ts-expect-error preserve JS-runtime signature parity with bridge copy
   function initTimerBridge(state) {
     if (state.timerBridgeInitialized) {
       return true;
     }
     if (state.originalSetTimeout) {
-      // @ts-ignore preserve JS-runtime wrapper signature parity
       root.setTimeout = function unfluffifySetTimeout(callback, delay, ...args) {
         if (typeof callback !== "function") {
           return state.originalSetTimeout.call(root, callback, delay, ...args);
@@ -221,7 +220,6 @@ export function runPageMotionFreezeControl(command = "setPaused", details = null
       };
     }
     if (state.originalClearTimeout) {
-      // @ts-ignore preserve JS-runtime wrapper signature parity
       root.clearTimeout = function unfluffifyClearTimeout(id) {
         const record = state.deferredTimeouts.get(id);
         if (record) {
@@ -235,7 +233,6 @@ export function runPageMotionFreezeControl(command = "setPaused", details = null
       };
     }
     if (state.originalSetInterval) {
-      // @ts-ignore preserve JS-runtime wrapper signature parity
       root.setInterval = function unfluffifySetInterval(callback, delay, ...args) {
         if (typeof callback !== "function") {
           return state.originalSetInterval.call(root, callback, delay, ...args);
@@ -249,13 +246,11 @@ export function runPageMotionFreezeControl(command = "setPaused", details = null
       };
     }
     if (state.originalClearInterval) {
-      // @ts-ignore preserve JS-runtime wrapper signature parity
       root.clearInterval = function unfluffifyClearInterval(id) {
         state.originalClearInterval.call(root, id);
       };
     }
     if (state.originalRequestAnimationFrame) {
-      // @ts-ignore preserve JS-runtime wrapper signature parity
       root.requestAnimationFrame = function unfluffifyRequestAnimationFrame(callback) {
         if (typeof callback !== "function") {
           return state.originalRequestAnimationFrame.call(root, callback);
@@ -263,7 +258,7 @@ export function runPageMotionFreezeControl(command = "setPaused", details = null
         if (state.paused) {
           return deferAnimationFrame(state, callback);
         }
-        // @ts-ignore preserve JS-runtime callback signature parity
+        // @ts-expect-error preserve JS-runtime callback signature parity
         return state.originalRequestAnimationFrame.call(root, (timestamp) => {
           if (state.paused) {
             deferAnimationFrame(state, callback);
@@ -274,7 +269,6 @@ export function runPageMotionFreezeControl(command = "setPaused", details = null
       };
     }
     if (state.originalCancelAnimationFrame) {
-      // @ts-ignore preserve JS-runtime wrapper signature parity
       root.cancelAnimationFrame = function unfluffifyCancelAnimationFrame(id) {
         const record = state.deferredFrames.get(id);
         if (record) {
@@ -294,15 +288,15 @@ export function runPageMotionFreezeControl(command = "setPaused", details = null
     return true;
   }
 
-  // @ts-ignore preserve JS-runtime signature parity with bridge copy
+  // @ts-expect-error preserve JS-runtime signature parity with bridge copy
   function createObserverConstructor(state, OriginalObserver) {
     if (typeof OriginalObserver !== "function") {
       return OriginalObserver;
     }
-    // @ts-ignore preserve JS-runtime signature parity with bridge copy
+    // @ts-expect-error preserve JS-runtime signature parity with bridge copy
     function UnfluffifyObserver(callback, options) {
       const wrappedCallback = typeof callback === "function"
-        // @ts-ignore preserve JS-runtime callback signature parity
+        // @ts-expect-error preserve JS-runtime callback signature parity
         ? (...args) => {
           if (state.lazyLoadingSuppressed) {
             return;
@@ -324,26 +318,26 @@ export function runPageMotionFreezeControl(command = "setPaused", details = null
     return UnfluffifyObserver;
   }
 
-  // @ts-ignore preserve JS-runtime signature parity with bridge copy
+  // @ts-expect-error preserve JS-runtime signature parity with bridge copy
   function getLazyLoadListenerKey(type, options) {
     return `${type}:${Boolean(options === true || (options && options.capture))}`;
   }
 
-  // @ts-ignore preserve JS-runtime signature parity with bridge copy
+  // @ts-expect-error preserve JS-runtime signature parity with bridge copy
   function createWrappedLazyLoadListener(state, listener) {
     if (typeof listener === "function") {
-      // @ts-ignore preserve JS-runtime wrapper signature parity
+      // @ts-expect-error preserve JS-runtime wrapper signature parity
       return function unfluffifyLazyLoadWrappedListener(...args) {
         if (state.lazyLoadingSuppressed) {
           return;
         }
-        // @ts-ignore this is runtime-bound by event target semantics
+        // @ts-expect-error this is runtime-bound by event target semantics
         return listener.apply(this, args);
       };
     }
     if (listener && typeof listener.handleEvent === "function") {
       return {
-        // @ts-ignore preserve JS-runtime handler signature parity
+        // @ts-expect-error preserve JS-runtime handler signature parity
         handleEvent(...args) {
           if (state.lazyLoadingSuppressed) {
             return;
@@ -355,7 +349,7 @@ export function runPageMotionFreezeControl(command = "setPaused", details = null
     return listener;
   }
 
-  // @ts-ignore preserve JS-runtime signature parity with bridge copy
+  // @ts-expect-error preserve JS-runtime signature parity with bridge copy
   function getWrappedLazyLoadListener(state, listener, type, options) {
     if (!listener || (typeof listener !== "function" && typeof listener.handleEvent !== "function")) {
       return listener;
@@ -372,7 +366,7 @@ export function runPageMotionFreezeControl(command = "setPaused", details = null
     return entry.get(key);
   }
 
-  // @ts-ignore preserve JS-runtime signature parity with bridge copy
+  // @ts-expect-error preserve JS-runtime signature parity with bridge copy
   function wrapLazyLoadEventTarget(state, target, originalAddEventListener, originalRemoveEventListener) {
     if (
       !target ||
@@ -381,7 +375,7 @@ export function runPageMotionFreezeControl(command = "setPaused", details = null
     ) {
       return;
     }
-    // @ts-ignore preserve JS-runtime wrapper signature parity
+    // @ts-expect-error preserve JS-runtime wrapper signature parity
     target.addEventListener = function unfluffifyAddEventListener(type, listener, options) {
       if (LAZY_LOAD_EVENT_TYPES.includes(type)) {
         return originalAddEventListener.call(
@@ -393,7 +387,7 @@ export function runPageMotionFreezeControl(command = "setPaused", details = null
       }
       return originalAddEventListener.call(this, type, listener, options);
     };
-    // @ts-ignore preserve JS-runtime wrapper signature parity
+    // @ts-expect-error preserve JS-runtime wrapper signature parity
     target.removeEventListener = function unfluffifyRemoveEventListener(type, listener, options) {
       if (LAZY_LOAD_EVENT_TYPES.includes(type)) {
         return originalRemoveEventListener.call(
@@ -407,7 +401,7 @@ export function runPageMotionFreezeControl(command = "setPaused", details = null
     };
   }
 
-  // @ts-ignore preserve JS-runtime signature parity with bridge copy
+  // @ts-expect-error preserve JS-runtime signature parity with bridge copy
   function initLazyLoadingBridge(state) {
     if (state.lazyLoadingBridgeInitialized) {
       return true;
@@ -434,7 +428,7 @@ export function runPageMotionFreezeControl(command = "setPaused", details = null
     return true;
   }
 
-  // @ts-ignore preserve JS-runtime signature parity with bridge copy
+  // @ts-expect-error preserve JS-runtime signature parity with bridge copy
   function restoreTimerBridge(state) {
     if (state.originalSetTimeout) {
       root.setTimeout = state.originalSetTimeout;
@@ -456,7 +450,7 @@ export function runPageMotionFreezeControl(command = "setPaused", details = null
     }
   }
 
-  // @ts-ignore preserve JS-runtime signature parity with bridge copy
+  // @ts-expect-error preserve JS-runtime signature parity with bridge copy
   function restoreLazyLoadingBridge(state) {
     if (state.originalIntersectionObserver) {
       root.IntersectionObserver = state.originalIntersectionObserver;
@@ -478,7 +472,7 @@ export function runPageMotionFreezeControl(command = "setPaused", details = null
     }
   }
 
-  // @ts-ignore preserve JS-runtime signature parity with bridge copy
+  // @ts-expect-error preserve JS-runtime signature parity with bridge copy
   function destroyState(state) {
     state.paused = false;
     state.lazyLoadingSuppressed = false;
@@ -488,7 +482,7 @@ export function runPageMotionFreezeControl(command = "setPaused", details = null
     state.deferredTimeouts.clear();
     state.deferredFrames.clear();
     try {
-      // @ts-ignore root is runtime-mutable and indexed by internal state key
+      // @ts-expect-error root is runtime-mutable and indexed by internal state key
       delete root[STATE_KEY];
     } catch (error) {
       Object.defineProperty(root, STATE_KEY, {
@@ -497,12 +491,12 @@ export function runPageMotionFreezeControl(command = "setPaused", details = null
         enumerable: false,
         writable: true
       });
-      // @ts-ignore root is runtime-mutable and indexed by internal state key
+      // @ts-expect-error root is runtime-mutable and indexed by internal state key
       delete root[STATE_KEY];
     }
   }
 
-  // @ts-ignore preserve JS-runtime signature parity with bridge copy
+  // @ts-expect-error preserve JS-runtime signature parity with bridge copy
   function maybeDestroyInactiveState(state) {
     if (state && !state.armed && !state.paused && !state.lazyLoadingSuppressed) {
       destroyState(state);

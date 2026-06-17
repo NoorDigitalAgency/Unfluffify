@@ -7,7 +7,7 @@
     "background.ts": 112,
     "popup/ui.ts": 54,
     "common/page-motion-freeze-bridge.ts": 41,
-    "common/page-motion-freeze-control.ts": 41,
+    "common/page-motion-freeze-control.ts": 35,
     "popup/property-lock-ui.ts": 17,
     "popup/messages.ts": 15,
     "common/text.ts": 14,
