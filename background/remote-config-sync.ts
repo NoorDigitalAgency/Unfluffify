@@ -9,8 +9,7 @@ import {
 } from "./transfer-payload-store.js";
 import { fetchStaticPageHtmlForBackground } from "./remote-network.js";
 
-// @ts-expect-error preserve source-contract export signature used by background remote-config tests
-export function collectStoredPageMarkingItems(pageMarkings, baseUrl = "") {
+export function collectStoredPageMarkingItems(pageMarkings: unknown, baseUrl = "") {
   const items: any[] = [];
   const pageMarkingsAny = pageMarkings as any;
   Object.entries(pageMarkingsAny && typeof pageMarkingsAny === "object" ? pageMarkingsAny : {}).forEach(([url, entry]) => {
@@ -37,8 +36,7 @@ export function collectStoredPageMarkingItems(pageMarkings, baseUrl = "") {
   return items;
 }
 
-// @ts-expect-error preserve source-contract export signature used by background remote-config tests
-export function mergeSelectorsIntoConfig(targetConfig, incomingConfig) {
+export function mergeSelectorsIntoConfig(targetConfig: unknown, incomingConfig: unknown) {
   const targetConfigAny = targetConfig as any;
   const incomingConfigAny = incomingConfig as any;
   if (!targetConfigAny || typeof targetConfigAny !== "object") {
@@ -74,8 +72,7 @@ export function mergeSelectorsIntoConfig(targetConfig, incomingConfig) {
   return didChange;
 }
 
-// @ts-expect-error preserve source-contract export signature used by background remote-config tests
-export function getRemoteManagedConfigSignature(baseUrl, sourceConfig) {
+export function getRemoteManagedConfigSignature(baseUrl: unknown, sourceConfig: unknown) {
   const normalizedBaseUrl = utils.normalizeBaseUrl(baseUrl) || baseUrl;
   if (!normalizedBaseUrl) {
     return "";
@@ -87,13 +84,13 @@ export function getRemoteManagedConfigSignature(baseUrl, sourceConfig) {
   return JSON.stringify(configStore.createConfigSyncPayload(normalizedBaseUrl, normalizedConfig));
 }
 
-// @ts-expect-error preserve source-contract export signature used by background remote-config tests
-export function getNormalizedPageEntrySignature(pageUrl, entry) {
-  if (!pageUrl) {
+export function getNormalizedPageEntrySignature(pageUrl: unknown, entry: unknown) {
+  const normalizedPageUrl = typeof pageUrl === "string" ? pageUrl : "";
+  if (!normalizedPageUrl) {
     return "null";
   }
-  const normalizedEntriesAny = configStore.normalizePageMarkings({ [pageUrl]: entry }).normalized as any;
-  const normalizedEntry = normalizedEntriesAny[pageUrl] || null;
+  const normalizedEntriesAny = configStore.normalizePageMarkings({ [normalizedPageUrl]: entry }).normalized as any;
+  const normalizedEntry = normalizedEntriesAny[normalizedPageUrl] || null;
   return JSON.stringify(normalizedEntry);
 }
 
@@ -180,10 +177,8 @@ export async function mergeServerConfigIntoLocalSnapshot(options = {}) {
   const confirmedPageMarkings = configStore.normalizePageMarkings(
     optionsAny && optionsAny.confirmedPageMarkings
   ).normalized;
-  // @ts-expect-error preserve source-contract expression used by popup marking refresh tests
-  const preferConfirmedPageMarkings = Boolean(options && options.preferConfirmedPageMarkings);
-  // @ts-expect-error preserve source-contract expression used by popup marking refresh tests
-  const applyConfirmedToBackendSaved = Boolean(options && options.applyConfirmedToBackendSaved);
+  const preferConfirmedPageMarkings = Boolean(optionsAny.preferConfirmedPageMarkings);
+  const applyConfirmedToBackendSaved = Boolean(optionsAny.applyConfirmedToBackendSaved);
   const normalizedPayload = configStore.normalizeConfigSyncPayload(payload, "");
   if (!normalizedPayload.baseUrl) {
     return {

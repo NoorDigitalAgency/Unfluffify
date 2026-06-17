@@ -8,10 +8,10 @@ const remoteConfigSyncSource = readFileSync(
 );
 
 test("remote-config-sync module exports config reconciliation handlers", () => {
-  assert.match(remoteConfigSyncSource, /export function collectStoredPageMarkingItems\(pageMarkings, baseUrl = ""\) \{/);
-  assert.match(remoteConfigSyncSource, /export function mergeSelectorsIntoConfig\(targetConfig, incomingConfig\) \{/);
-  assert.match(remoteConfigSyncSource, /export function getRemoteManagedConfigSignature\(baseUrl, sourceConfig\) \{/);
-  assert.match(remoteConfigSyncSource, /export function getNormalizedPageEntrySignature\(pageUrl, entry\) \{/);
+  assert.match(remoteConfigSyncSource, /export function collectStoredPageMarkingItems\(pageMarkings(?:\s*:\s*[^,)]+)?, baseUrl = ""\) \{/);
+  assert.match(remoteConfigSyncSource, /export function mergeSelectorsIntoConfig\(targetConfig(?:\s*:\s*[^,)]+)?, incomingConfig(?:\s*:\s*[^,)]+)?\) \{/);
+  assert.match(remoteConfigSyncSource, /export function getRemoteManagedConfigSignature\(baseUrl(?:\s*:\s*[^,)]+)?, sourceConfig(?:\s*:\s*[^,)]+)?\) \{/);
+  assert.match(remoteConfigSyncSource, /export function getNormalizedPageEntrySignature\(pageUrl(?:\s*:\s*[^,)]+)?, entry(?:\s*:\s*[^,)]+)?\) \{/);
   assert.match(remoteConfigSyncSource, /export async function replaceServerConfigIntoLocalSnapshot\(options = \{\}\) \{/);
   assert.match(remoteConfigSyncSource, /export async function mergeServerConfigIntoLocalSnapshot\(options = \{\}\) \{/);
   assert.match(remoteConfigSyncSource, /export async function preparePageTypeAssignmentsSnapshot\(options = \{\}\) \{/);

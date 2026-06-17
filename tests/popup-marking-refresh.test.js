@@ -415,7 +415,7 @@ test("todo completion backend cache ignores local confirmed page markings unless
     /async function mergeServerConfigIntoLocalSnapshot\(options = \{\}\) \{([\s\S]*?)\n\}/
   )[1];
 
-  assert.match(mergeBody, /const applyConfirmedToBackendSaved = Boolean\(options && options\.applyConfirmedToBackendSaved\);/);
+  assert.match(mergeBody, /const applyConfirmedToBackendSaved = Boolean\((?:optionsAny\.applyConfirmedToBackendSaved|options && options\.applyConfirmedToBackendSaved)\);/);
   assert.match(mergeBody, /const existingBackendSavedPageMarkings = await configStore\.getBackendSavedPageMarkings\(baseUrl\);/);
   assert.match(mergeBody, /let mergedBackendSavedPageMarkings = configStore\.mergePageMarkingsByTimestamp\([\s\S]*?incomingPageMarkings/);
   assert.match(mergeBody, /if \(applyConfirmedToBackendSaved\) \{[\s\S]*?confirmedPageMarkings/);
@@ -457,7 +457,7 @@ test("token validation delegates the auth transport to background", () => {
   )[1];
 
   assert.match(backgroundSource, /from "\.\/background\/network-core\.js"/);
-  assert.match(networkCoreSource, /export function buildValidateEndpointFromStageBase\(stageBase\) \{/);
+  assert.match(networkCoreSource, /export function buildValidateEndpointFromStageBase\(stageBase(?:\s*:\s*[^)]+)?\) \{/);
   assert.match(networkCoreSource, /export async function validateAuthToken\(options = \{\}\) \{/);
   assert.match(networkCoreSource, /const validateUrl = buildValidateEndpointFromStageBase\(stageBase\);/);
   assert.match(backgroundSource, /if \(message\.type === "validateAuthToken"\) \{/);
@@ -475,7 +475,7 @@ test("login delegates the auth transport to background while popup keeps token p
   )[1];
 
   assert.match(backgroundSource, /from "\.\/background\/network-core\.js"/);
-  assert.match(networkCoreSource, /export function buildLoginEndpointFromStageBase\(stageBase\) \{/);
+  assert.match(networkCoreSource, /export function buildLoginEndpointFromStageBase\(stageBase(?:\s*:\s*[^)]+)?\) \{/);
   assert.match(networkCoreSource, /export async function requestAuthLogin\(options = \{\}\) \{/);
   assert.match(networkCoreSource, /const loginUrl = buildLoginEndpointFromStageBase\(stageBase\);/);
   assert.match(backgroundSource, /if \(message\.type === "requestAuthLogin"\) \{/);

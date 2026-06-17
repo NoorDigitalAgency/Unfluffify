@@ -60,7 +60,7 @@ test("popup suppresses the disconnect countdown while render-mode inspection is 
 test("content suppresses page-side connection-loss countdown during render-mode inspection", () => {
   const applyBlock = extractSourceBlock(
     propertyLockStateMachineSource,
-    "function applyServerMessage(serverMessage) {",
+    "function applyServerMessage(serverMessage",
     "return {"
   );
   const renderBlock = extractSourceBlock(

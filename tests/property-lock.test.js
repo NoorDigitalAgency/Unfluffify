@@ -225,7 +225,7 @@ test("content-main starts and persists an off-candidate editor countdown before 
 
   assert.match(source, /function persistPropertyLockOffCandidateDeadline\(deadlineAt\) \{[\s\S]*?getPropertyLockStateMachine\(\)\.persistOffCandidateDeadline\(deadlineAt\);/);
   assert.match(source, /function startPropertyLockOffCandidateWarning\(\) \{[\s\S]*?getPropertyLockStateMachine\(\)\.startOffCandidateWarning\(\);/);
-  assert.match(propertyLockStateMachineSource, /propertyLockOffCandidateDeadlineAt: Number\.isFinite\(deadlineAt\)/);
+  assert.match(propertyLockStateMachineSource, /propertyLockOffCandidateDeadlineAt:[\s\S]*?typeof deadlineAt === "number" && Number\.isFinite\(deadlineAt\)/);
   assert.match(propertyLockStateMachineSource, /deps\.setPropertyLockOffCandidateDeadlineAt\(Date\.now\(\) \+ deps\.PROPERTY_LOCK_OFF_CANDIDATE_WARNING_TIMEOUT_MS\);/);
   assert.match(propertyLockStateMachineSource, /deps\.setPropertyLockBannerMode\("editor_off_candidate_countdown"\);/);
   assert.match(propertyLockStateMachineSource, /deps\.getTimerHost\(\)\.setTimeout\(\(\) => \{[\s\S]*?deps\.sendPropertyLockMessage\(deps\.PROPERTY_LOCK_CONTENT_RELEASE\);[\s\S]*?\}, deps\.PROPERTY_LOCK_OFF_CANDIDATE_WARNING_TIMEOUT_MS \+ 100\);/);
@@ -249,7 +249,7 @@ test("content-main starts and persists a cross-property editor cooldown before r
 });
 
 test("content-main does not reset disconnect countdown on repeated unavailable status updates", () => {
-  const applyStart = propertyLockStateMachineSource.indexOf("function applyServerMessage(serverMessage) {");
+  const applyStart = propertyLockStateMachineSource.indexOf("function applyServerMessage(serverMessage");
   const applyEnd = propertyLockStateMachineSource.indexOf("return {", applyStart);
   const applySource = propertyLockStateMachineSource.slice(applyStart, applyEnd);
 
@@ -265,7 +265,7 @@ test("content-main does not reset disconnect countdown on repeated unavailable s
 });
 
 test("content-main uses 70-second fallback countdown for inactivity warning and keeps it running", () => {
-  const applyStart = propertyLockStateMachineSource.indexOf("function applyServerMessage(serverMessage) {");
+  const applyStart = propertyLockStateMachineSource.indexOf("function applyServerMessage(serverMessage");
   const applyEnd = propertyLockStateMachineSource.indexOf("return {", applyStart);
   const applySource = propertyLockStateMachineSource.slice(applyStart, applyEnd);
 

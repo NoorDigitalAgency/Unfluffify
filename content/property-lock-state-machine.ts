@@ -39,7 +39,6 @@ export function createPropertyLockStateMachine(deps: any) {
       scope: "initial",
       state: {
         active: true,
-        //
         propertyLockRecoverySiteId: typeof siteId === "number" && Number.isFinite(siteId)
           ? Math.trunc(siteId)
           : null,
