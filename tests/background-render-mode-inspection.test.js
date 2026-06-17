@@ -19,7 +19,7 @@ test("background registers render-mode inspection commands as tab-scoped", () =>
 
 test("popup render mode inspection delegates to TAB_RUN_RENDER_MODE_INSPECTION", () => {
   const block = popupSource.match(
-    /async function runRenderModeInspectionReload\(javaScriptDisabled\) \{([\s\S]*?)\n\}\n\nasync function normalizeRenderModeDebuggerPage/
+    /async function runRenderModeInspectionReload\(javaScriptDisabled\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-ignore[^\n]*\n)?(?:\n|\r\n)*async function normalizeRenderModeDebuggerPage/
   )[1];
 
   assert.match(block, /messages\.requestTabRunRenderModeInspection\(tabId, \{/);

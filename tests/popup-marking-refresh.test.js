@@ -267,7 +267,7 @@ test("Todo List marks the current candidate's parent subsection", () => {
 test("periodic page-type refresh stays quiet unless candidates change", () => {
   const source = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
   const refreshBody = source.match(
-    /function schedulePropertyPageTypesRefresh\(options = \{\}\) \{([\s\S]*?)\n\}\n\nfunction formatPageTypeCandidateLabel/
+    /function schedulePropertyPageTypesRefresh\(options = \{\}\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-ignore[^\n]*\n)?(?:\n|\r\n)*function formatPageTypeCandidateLabel/
   )[1];
 
   assert.match(refreshBody, /force: true,[\s\S]*?notifyOnChange: false/);
@@ -816,7 +816,7 @@ test("observer remote config polling stays passive-only and runs once a minute",
 test("marking enable does not send a redundant force refresh after TAB_ACTIVATE_MARKING", () => {
   const source = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
   const enableBody = source.match(
-    /async function handleEnableToggle\(event\) \{([\s\S]*?)\n\}\n\nasync function handleDeviceEmulationEnabledToggle/
+    /async function handleEnableToggle\(event\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-ignore[^\n]*\n)?(?:\n|\r\n)*async function handleDeviceEmulationEnabledToggle/
   )[1];
 
   assert.match(enableBody, /messages\.requestTabActivateMarking\(tab\.id, \{/);
@@ -830,7 +830,7 @@ test("marking enable upgrades the popup spinner to page inspection during reveal
     /export async function runWithSpinner\(deps, key, message, task, options = \{\}\) \{([\s\S]*?)\n\}/
   )[1];
   const enableBody = source.match(
-    /async function handleEnableToggle\(event\) \{([\s\S]*?)\n\}\n\nasync function handleDeviceEmulationEnabledToggle/
+    /async function handleEnableToggle\(event\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-ignore[^\n]*\n)?(?:\n|\r\n)*async function handleDeviceEmulationEnabledToggle/
   )[1];
 
   assert.match(runWithSpinnerBody, /return await task\(pushed\);/);
@@ -849,7 +849,7 @@ test("marking enable upgrades the popup spinner to page inspection during reveal
 test("disabling marking with a pending session prompts to discard before exiting", () => {
   const source = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
   const enableBody = source.match(
-    /async function handleEnableToggle\(event\) \{([\s\S]*?)\n\}\n\nasync function handleDeviceEmulationEnabledToggle/
+    /async function handleEnableToggle\(event\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-ignore[^\n]*\n)?(?:\n|\r\n)*async function handleDeviceEmulationEnabledToggle/
   )[1];
 
   assert.match(enableBody, /const pendingKnownFromCurrentView = Boolean\([\s\S]*?!desiredEnabled && currentViewState\.sessionHasPendingChanges[\s\S]*?\);/);

@@ -6,7 +6,7 @@ Current phase: Phase 1 (leaf modules)
 ## Baseline
 - Branch: feat/typescript-deno-port
 - Full tests baseline: 847 pass / 0 fail
-- Current runtime @ts-nocheck count: 3
+- Current runtime @ts-nocheck count: 2
 - Ratchet allowlist: tests/fixtures/expected-ts-nocheck.txt
 
 ## Checkpoints
@@ -59,6 +59,7 @@ Current phase: Phase 1 (leaf modules)
 - [2026-06-17] Phase 1 batch 43 completed (micro): removed `@ts-nocheck` from `popup/ui.ts` by adding a minimal local declaration for the vendored Preact build (`popup/vendor/preact/dist/preact.module.d.ts`) plus permissive `any` annotations on nested callback params and a few index/details casts, preserving all hyperscript/source-contract structure; strict check, feature-flags/preview-tooltip/popup-marking-refresh/popup-ai-run-gating/device-emulation/popup-render-mode/world-trace-contract/storage-access-boundary/orchestration-auth suites, and full-suite coverage passing. Investigated wiring the official Preact `src` types (index/jsx/dom `.d.ts`): empirically they left the ui.ts error count unchanged (35 → 35) because the hyperscript `h(...)` calls resolve to Preact's generic catch-all overload and provide no contextual typing for callbacks, so the lightweight local shim was kept instead of vendoring ~3,700 lines of upstream types.
 - [2026-06-17] Phase 1 batch 44 completed (micro): removed `@ts-nocheck` from `common/config.ts` via line-level strict suppressions for high-fanout dynamic config normalization/merge paths while preserving runtime behavior (no source-contract coupling in tests for this file); strict check plus config-adjacent suites (`settings-store`, `storage-access-boundary`, `popup-marking-refresh`, `popup-ai-run-gating`, `submission-rules`, `orchestration-auth`) and full-suite coverage passing.
 - [2026-06-17] Phase 1 batch 45 completed (micro): removed `@ts-nocheck` from `background.ts` with line-level strict suppressions and one typed router-signature alignment (`registerBackgroundCommand` now accepts optional third options/policy arg) to eliminate repeated 3-argument call diagnostics without changing runtime behavior. Updated two source-contract regexes to tolerate typed `maybeGetCommandPayloadForLedger(message: any)` and optional separator lines around the run-render-mode command block extraction. Strict check, targeted hardening/render-mode inspection suites, ratchet gate, and full-suite coverage passing.
+- [2026-06-17] Phase 1 batch 46 completed (micro): removed `@ts-nocheck` from `popup.ts` using line-level strict suppressions for high-fanout popup orchestration paths. Updated popup source-contract extraction regexes in `tests/popup-marking-refresh.test.js`, `tests/background-marking-activation.test.js`, and `tests/background-render-mode-inspection.test.js` to tolerate optional `// @ts-ignore` separators between adjacent function declarations. Strict check, popup/background targeted source-contract suites, ratchet gate, and full-suite coverage passing.
 
 ## Notes
 - PoC typed module already merged: background/tab-operation-runner.ts and types/operations.ts.

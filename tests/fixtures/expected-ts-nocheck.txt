@@ -1,3 +1,2 @@
 content/core.ts
 content-main.ts
-popup.ts

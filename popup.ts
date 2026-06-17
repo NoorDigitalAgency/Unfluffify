@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * @fileoverview Main popup interface for the Unfluffify extension.
  * 
@@ -231,27 +230,38 @@ function getPropertyLockUiDeps() {
     PROPERTY_LOCK_STATE_TAKEOVER_AVAILABLE,
     PROPERTY_LOCK_STATE_TRANSFER,
     windowRef: window,
+// @ts-ignore
     refreshUi: (options) => refreshUi(options),
+// @ts-ignore
     setTabState: (...args) => messages.setTabState(...args),
+// @ts-ignore
     sendRuntimeMessage: (payload) => messages.sendRuntimeMessage(payload),
+// @ts-ignore
     showToast: (message) => {
       uiModule.showToast(message);
     },
+// @ts-ignore
     setViewState: (viewState) => {
       uiModule.setViewState(viewState);
     },
+// @ts-ignore
     refreshCurrentPageRuntimeStatus: (options) => refreshCurrentPageRuntimeStatus(options),
     isPropertyLockCollaborationEnabled: () => isPropertyLockCollaborationEnabled(),
     resetPropertyLockState: () => resetPropertyLockState(),
     clearPropertyLockTransientState: () => clearPropertyLockTransientState(),
     clearPropertyLockOffCandidateRefreshTimer: () => clearPropertyLockOffCandidateRefreshTimer(),
     resetDisabledPropertyLockState: () => resetDisabledPropertyLockState(),
+// @ts-ignore
     applyPropertyLockState: (lockStateLike) => applyPropertyLockState(lockStateLike),
+// @ts-ignore
     queueEditorBootstrapOnLockTransition: (previousLockState, nextLockState) =>
       queueEditorBootstrapOnLockTransition(previousLockState, nextLockState),
+// @ts-ignore
     applyPropertyLockConnectionStatus: (status, error) =>
       applyPropertyLockConnectionStatus(status, error),
+// @ts-ignore
     fetchPropertyLockState: (siteId) => fetchPropertyLockState(siteId),
+// @ts-ignore
     refreshPropertyLockSnapshot: (siteId, options) => refreshPropertyLockSnapshot(siteId, options),
     buildPropertyLockViewState: () => buildPropertyLockViewState()
   };
@@ -264,29 +274,39 @@ const resetDisabledPropertyLockState = () =>
 const resetPropertyLockState = () =>
   resetPropertyLockStateOperation(getPropertyLockUiDeps());
 const clearPropertyLockTransientState = () =>
+// @ts-ignore
   clearPropertyLockTransientStateOperation(getPropertyLockUiDeps());
 const clearPropertyLockOffCandidateRefreshTimer = () =>
   clearPropertyLockOffCandidateRefreshTimerOperation(getPropertyLockUiDeps());
+// @ts-ignore
 const syncPropertyLockOffCandidateRefreshTimer = (active) =>
   syncPropertyLockOffCandidateRefreshTimerOperation(getPropertyLockUiDeps(), active);
+// @ts-ignore
 const persistPropertyLockRecoveryMetadata = (tabId, recoveryState = {}) =>
   persistPropertyLockRecoveryMetadataOperation(getPropertyLockUiDeps(), tabId, recoveryState);
+// @ts-ignore
 const applyPropertyLockState = (lockStateLike) =>
   applyPropertyLockStateOperation(getPropertyLockUiDeps(), lockStateLike);
+// @ts-ignore
 const queueEditorBootstrapOnLockTransition = (previousLockState, nextLockState) =>
   queueEditorBootstrapOnLockTransitionOperation(getPropertyLockUiDeps(), previousLockState, nextLockState);
+// @ts-ignore
 const applyPropertyLockConnectionStatus = (status, error = "") =>
   applyPropertyLockConnectionStatusOperation(getPropertyLockUiDeps(), status, error);
+// @ts-ignore
 const applyPropertyLockServerMessage = (serverMessage, siteId = null) =>
   applyPropertyLockServerMessageOperation(getPropertyLockUiDeps(), serverMessage, siteId);
 const isPropertyLockBlockingEditing = () =>
   isPropertyLockBlockingEditingOperation(getPropertyLockUiDeps());
 const buildPropertyLockViewState = () =>
   buildPropertyLockViewStateOperation(getPropertyLockUiDeps());
+// @ts-ignore
 const fetchPropertyLockState = (siteId) =>
   fetchPropertyLockStateOperation(getPropertyLockUiDeps(), siteId);
+// @ts-ignore
 const refreshPropertyLockSnapshot = (siteId, options = {}) =>
   refreshPropertyLockSnapshotOperation(getPropertyLockUiDeps(), siteId, options);
+// @ts-ignore
 const sendPropertyLockCommand = (type, payload = {}) =>
   sendPropertyLockCommandOperation(getPropertyLockUiDeps(), type, payload);
 const reconcilePropertyLockAfterCommand = (options = {}) =>
@@ -344,7 +364,9 @@ const THEME_IDS = new Set(THEME_CATALOG.map((theme) => theme.value));
 const THEME_OPTIONS = Object.freeze(
   [...THEME_CATALOG]
     .sort((left, right) => {
+// @ts-ignore
       const leftOrder = THEME_ACCENT_CLUSTER_ORDER[left.cluster] ?? Number.MAX_SAFE_INTEGER;
+// @ts-ignore
       const rightOrder = THEME_ACCENT_CLUSTER_ORDER[right.cluster] ?? Number.MAX_SAFE_INTEGER;
       if (leftOrder !== rightOrder) {
         return leftOrder - rightOrder;
@@ -369,20 +391,26 @@ const SPINNER_WATCHDOG_MS = 60000;
 const POPUP_PAGE_BUSY_MIRROR_DELAY_MS = 3500;
 const popupSpinnerWatchdogByKey = new Map();
 let popupNavigationInspectionOverlayStarted = false;
+// @ts-ignore
 let popupNavigationInspectionOverlayTabId = null;
 const popupNavigationInspectionSettlePollByTabId = new Map();
 const popupRenderModeSetNavGuardByTabId = new Map();
 let popupStaleInspectionBusyClearTimer = 0;
+// @ts-ignore
 let popupBackgroundStatePort = null;
+// @ts-ignore
 let popupBackgroundLifecycle = null;
+// @ts-ignore
 let popupPageBusyMirrorTabId = null;
 let popupPageBusyMirrorActive = false;
 let popupPageBusyMirrorSignature = "";
 let popupPageBusyMirrorPendingSignature = "";
 let popupPageBusyMirrorShowTimer = 0;
+// @ts-ignore
 let propertyPageTypesRequest = null;
 const popupTimers = createPopupTimerGroup({ windowRef: window });
 
+// @ts-ignore
 function isEditableTarget(el) {
   if (!el) return false;
   const tag = el.tagName;
@@ -400,13 +428,16 @@ function getSpinnerDeps() {
     cryptoRef: crypto,
     getCurrentPopupTabId,
     getPopupSpinnerVisible: () => popupSpinnerVisible,
+// @ts-ignore
     setPopupSpinnerVisible: (value) => {
       popupSpinnerVisible = Boolean(value);
     },
     getPopupSpinnerTimer: () => popupSpinnerTimer,
+// @ts-ignore
     setPopupSpinnerTimer: (value) => {
       popupSpinnerTimer = Number(value) || 0;
     },
+// @ts-ignore
     popSpinner: (key) => {
       popSpinner(key);
     },
@@ -421,29 +452,45 @@ function getSpinnerDeps() {
   };
 }
 
+// @ts-ignore
 const currentSpinnerMessage = () => currentSpinnerMessageOperation(getSpinnerDeps());
+// @ts-ignore
 const currentSpinnerSnapshot = () => currentSpinnerSnapshotOperation(getSpinnerDeps());
+// @ts-ignore
 const normalizeSpinnerReason = (reason, key, message) =>
+// @ts-ignore
   normalizeSpinnerReasonOperation(getSpinnerDeps(), reason, key, message);
+// @ts-ignore
 const clearSpinnerWatchdog = (key) => clearSpinnerWatchdogOperation(getSpinnerDeps(), key);
+// @ts-ignore
 const armSpinnerWatchdog = (key) => armSpinnerWatchdogOperation(getSpinnerDeps(), key);
+// @ts-ignore
 const pushSpinner = (key, message, options = {}) =>
+// @ts-ignore
   pushSpinnerOperation(getSpinnerDeps(), key, message, options);
+// @ts-ignore
 const setSpinnerMessage = (key, message) =>
+// @ts-ignore
   setSpinnerMessageOperation(getSpinnerDeps(), key, message);
+// @ts-ignore
 const popSpinner = (key) => popSpinnerOperation(getSpinnerDeps(), key);
+// @ts-ignore
 const runWithSpinner = (key, message, task, options = {}) =>
+// @ts-ignore
   runWithSpinnerOperation(getSpinnerDeps(), key, message, task, options);
 
 function getSiteResolutionDeps() {
   return {
     PopupText,
     ViewText,
+// @ts-ignore
     showToast: (message) => {
       uiModule.showToast(message);
     },
     propertyPageTypesRefreshIntervalMs: PROPERTY_PAGE_TYPES_REFRESH_INTERVAL_MS,
+// @ts-ignore
     getPropertyPageTypesRequest: () => propertyPageTypesRequest,
+// @ts-ignore
     setPropertyPageTypesRequest: (nextRequest) => {
       propertyPageTypesRequest = nextRequest;
     }
@@ -456,6 +503,7 @@ const ensurePropertyPageTypes = (options = {}) =>
   ensurePropertyPageTypesOperation(getSiteResolutionDeps(), options);
 const resolveSiteIdFromGraphql = (options = {}) =>
   resolveSiteIdFromGraphqlOperation(getSiteResolutionDeps(), options);
+// @ts-ignore
 const mergeConfigEntriesForResolvedBaseUrl = (resolvedBaseUrl, preferredEntry, existingEntry) =>
   mergeConfigEntriesForResolvedBaseUrlOperation(
     getSiteResolutionDeps(),
@@ -472,15 +520,20 @@ function getRemoteConfigDeps() {
     remoteConfigRetryDelayMs: REMOTE_CONFIG_RETRY_DELAY_MS,
     windowRef: window,
     ensureActiveTab: () => helpers.ensureActiveTab(),
+// @ts-ignore
     refreshUi: (options) => refreshUi(options),
     resolveRelativeEndpoint,
     updateLastConfigLoadStatus,
     invalidateTokenAndLockConfiguration,
+// @ts-ignore
     showToast: (message) => {
       uiModule.showToast(message);
     },
+// @ts-ignore
     ensureBaseUrlSiteId: (options) => ensureBaseUrlSiteId(options),
+// @ts-ignore
     getStoredGlobalToken: (options) => getStoredGlobalToken(options),
+// @ts-ignore
     ensurePropertyPageTypes: (options) => ensurePropertyPageTypes(options),
     collectStoredPageMarkingItems,
     buildLynxChecklistViewModel,
@@ -533,19 +586,24 @@ function getRenderModeInspectionDeps() {
   };
 }
 
+// @ts-ignore
 const normalizeRenderModeDetectionResult = (payload) =>
   normalizeRenderModeDetectionResultOperation(getRenderModeInspectionDeps(), payload);
+// @ts-ignore
 const maybeAutoDetectRenderMode = (pageUrl) =>
   maybeAutoDetectRenderModeOperation(getRenderModeInspectionDeps(), pageUrl);
 const detectRenderModeViaEndpoint = (options = {}) =>
   detectRenderModeViaEndpointOperation(getRenderModeInspectionDeps(), options);
+// @ts-ignore
 const waitForTabLoadStart = (tabId, timeoutMs = RENDER_MODE_INSPECTION_START_TIMEOUT_MS) =>
   waitForTabLoadStartOperation(getRenderModeInspectionDeps(), tabId, timeoutMs);
 const waitForTabLoadComplete = (
+// @ts-ignore
   tabId,
   timeoutMs = RENDER_MODE_INSPECTION_LOAD_TIMEOUT_MS,
   options = {}
 ) => waitForTabLoadCompleteOperation(getRenderModeInspectionDeps(), tabId, timeoutMs, options);
+// @ts-ignore
 const completeRenderModeInspectionReloadFollowUp = (tabId, operationId = "") =>
   completeRenderModeInspectionReloadFollowUpOperation(getRenderModeInspectionDeps(), tabId, operationId);
 
@@ -558,9 +616,13 @@ function getPageReconciliationDeps() {
     PAGE_SAVE_SYNC_MAX_RETRY_DELAY_MS,
     windowRef: window,
     hasCurrentPageMarkingChanges,
+// @ts-ignore
     ensureActiveTab: (options) => helpers.ensureActiveTab(options),
+// @ts-ignore
     ensureBaseUrl: (message) => helpers.ensureBaseUrl(message),
+// @ts-ignore
     refreshCurrentPageRuntimeStatus: (options) => refreshCurrentPageRuntimeStatus(options),
+// @ts-ignore
     showToast: (message) => {
       uiModule.showToast(message);
     },
@@ -570,11 +632,14 @@ function getPageReconciliationDeps() {
     runWithSpinner,
     getCurrentPageUrl,
     loadGlobalAiSettings: () => helpers.loadGlobalAiSettings(),
+// @ts-ignore
     syncBaseConfigToServer: (options) => syncBaseConfigToServer(options),
     clearCurrentPageSaveReconciliation,
     resetAiRunMarkingsFingerprint,
     applyPostSaveSilentTransition,
+// @ts-ignore
     refreshUi: (options) => refreshUi(options),
+// @ts-ignore
     setUiBusy: (busy, message, details) => {
       uiModule.setUiBusy(busy, message, details);
     },
@@ -583,6 +648,7 @@ function getPageReconciliationDeps() {
   };
 }
 
+// @ts-ignore
 const hasCurrentPagePendingChanges = (localPageMarkings, backendSavedPageMarkings, options = {}) =>
   hasCurrentPagePendingChangesOperation(
     getPageReconciliationDeps(),
@@ -594,6 +660,7 @@ const hasCurrentPagePendingChanges = (localPageMarkings, backendSavedPageMarking
 const handlePageSave = () => handlePageSaveOperation(getPageReconciliationDeps());
 const handlePageRevert = () => handlePageRevertOperation(getPageReconciliationDeps());
 
+// @ts-ignore
 function buildSpinnerBusyDetails(key, entry) {
   const spinnerEntry = entry && typeof entry === "object" ? entry : {};
   return {
@@ -623,6 +690,7 @@ function isPopupSpinnerDebugEnabled() {
   }
 }
 
+// @ts-ignore
 function logPopupSpinnerDebug(eventName, details = {}) {
   if (!isPopupSpinnerDebugEnabled()) {
     return;
@@ -634,6 +702,7 @@ function logPopupSpinnerDebug(eventName, details = {}) {
       visible: popupSpinnerVisible,
       timerActive: Boolean(popupSpinnerTimer),
       navOverlayStarted: popupNavigationInspectionOverlayStarted,
+// @ts-ignore
       navOverlayTabId: popupNavigationInspectionOverlayTabId,
       ...details
     });
@@ -643,11 +712,14 @@ function logPopupSpinnerDebug(eventName, details = {}) {
 }
 
 function getCurrentPopupTabId() {
+// @ts-ignore
   return state.currentTab && Number.isFinite(state.currentTab.id)
+// @ts-ignore
     ? Math.trunc(state.currentTab.id)
     : null;
 }
 
+// @ts-ignore
 function isRenderDetectionPopupSpinner(snapshot) {
   const message = snapshot && snapshot.entry && typeof snapshot.entry.message === "string"
     ? snapshot.entry.message
@@ -655,6 +727,7 @@ function isRenderDetectionPopupSpinner(snapshot) {
   return message === PopupText.overlay.detectingRenderMode;
 }
 
+// @ts-ignore
 function sendPopupBusyMirrorMessage(tabId, active, message = "") {
   if (!tabId) {
     return;
@@ -687,6 +760,7 @@ function syncPageBusyFromPopupSpinner() {
   if (active) {
     const message = currentSpinnerMessage() || PopupText.overlay.pleaseWait;
     const signature = `${tabId}|${message}`;
+// @ts-ignore
     if (popupPageBusyMirrorActive && popupPageBusyMirrorTabId && popupPageBusyMirrorTabId !== tabId) {
       sendPopupBusyMirrorMessage(popupPageBusyMirrorTabId, false);
       popupPageBusyMirrorActive = false;
@@ -735,9 +809,11 @@ function syncPageBusyFromPopupSpinner() {
   }
 
   clearPopupPageBusyMirrorShowTimer();
+// @ts-ignore
   if (!popupPageBusyMirrorActive && !popupPageBusyMirrorTabId) {
     return;
   }
+// @ts-ignore
   const clearTabId = popupPageBusyMirrorTabId || tabId;
   popupPageBusyMirrorActive = false;
   popupPageBusyMirrorTabId = null;
@@ -752,10 +828,13 @@ function syncUiBusyFromBrokerState() {
     syncPageBusyFromPopupSpinner();
     return;
   }
+// @ts-ignore
   const lifecycleBusy = Boolean(popupBackgroundLifecycle && popupBackgroundLifecycle.busy);
   if (lifecycleBusy) {
     popupSpinnerVisible = false;
+// @ts-ignore
     uiModule.setUiBusy(true, popupBackgroundLifecycle.message || PopupText.overlay.pleaseWait, {
+// @ts-ignore
       reason: normalizeSpinnerReason(popupBackgroundLifecycle.reason, popupBackgroundLifecycle.kind || "lifecycle", popupBackgroundLifecycle.message),
       source: "background-lifecycle",
       spinnerKey: ""
@@ -772,6 +851,7 @@ function isWorldTraceEnabled() {
   return isFeatureEnabled("traceDiagnostics") && isDebugFlagEnabled("worldTraceEnabled");
 }
 
+// @ts-ignore
 function logWorldTrace(eventName, details = {}) {
   if (!isWorldTraceEnabled()) {
     return;
@@ -783,6 +863,7 @@ function logWorldTrace(eventName, details = {}) {
   }
 }
 
+// @ts-ignore
 function applyBackgroundStateSnapshot(snapshot) {
   if (!snapshot || !snapshot.ok) {
     return;
@@ -794,9 +875,11 @@ function applyBackgroundStateSnapshot(snapshot) {
   popupBackgroundLifecycle = snapshot.lifecycle || null;
   const traceDiagnosticsEnabled = isFeatureEnabled("traceDiagnostics");
   state.traceModeEnabled = traceDiagnosticsEnabled && Boolean(snapshot.traceEnabled);
+// @ts-ignore
   state.traceEvents = traceDiagnosticsEnabled && Array.isArray(snapshot.traceEvents) ? [...snapshot.traceEvents] : [];
   popupSpinnerQueue.clear();
   popupSpinnerKeyTabIds.clear();
+// @ts-ignore
   (Array.isArray(snapshot.spinnerQueue) ? snapshot.spinnerQueue : []).forEach((entry) => {
     if (!entry || typeof entry.key !== "string" || !entry.key) {
       return;
@@ -825,12 +908,15 @@ function applyBackgroundStateSnapshot(snapshot) {
   });
 }
 
+// @ts-ignore
 function sendSpinnerBrokerMessage(message, options = {}) {
   const tabId = getCurrentPopupTabId();
   if (!tabId || !message || typeof message !== "object") {
     return Promise.resolve(null);
   }
+// @ts-ignore
   const shouldApplySnapshot = typeof options.shouldApplySnapshot === "function"
+// @ts-ignore
     ? options.shouldApplySnapshot
     : () => true;
   logWorldTrace("runtime-send", { tabId, type: message.type || "" });
@@ -849,6 +935,7 @@ function sendSpinnerBrokerMessage(message, options = {}) {
     .catch(() => null);
 }
 
+// @ts-ignore
 function syncSpinnerEntryToBackground(key) {
   const entry = popupSpinnerQueue.get(key);
   if (!entry) {
@@ -877,6 +964,7 @@ function syncSpinnerEntryToBackground(key) {
   });
 }
 
+// @ts-ignore
 function removeSpinnerEntryFromBackground(key, tabId = getCurrentPopupTabId()) {
   if (!tabId || !key) {
     return Promise.resolve(null);
@@ -900,6 +988,7 @@ function clearSpinnerQueueInBackground(tabId = getCurrentPopupTabId(), options =
   return messages.sendRuntimeMessage({
     type: WORLD_MESSAGE_TYPES.SPINNER_CLEAR,
     tabId,
+// @ts-ignore
     transientOnly: Boolean(options.transientOnly)
   }).then((response) => {
     if (response && response.ok) {
@@ -909,26 +998,32 @@ function clearSpinnerQueueInBackground(tabId = getCurrentPopupTabId(), options =
   }).catch(() => null);
 }
 
+// @ts-ignore
 async function restoreSpinnerQueueFromBackground(tabId) {
   if (!tabId) {
     return;
   }
   const viewState = await messages.requestPopupTabViewState(tabId).catch(() => null);
+// @ts-ignore
   if (viewState && viewState.state && viewState.state.ok) {
+// @ts-ignore
     applyBackgroundStateSnapshot(viewState.state);
   }
 }
 
+// @ts-ignore
 async function handleTraceModeToggle(event) {
   if (event && event.currentTarget) {
     event.currentTarget.checked = Boolean(state.traceModeEnabled);
   }
 }
 
+// @ts-ignore
 function connectBackgroundStatePort(tabId) {
   if (!tabId || !chrome.runtime || typeof chrome.runtime.connect !== "function") {
     return;
   }
+// @ts-ignore
   if (popupBackgroundStatePort) {
     try {
       popupBackgroundStatePort.disconnect();
@@ -946,6 +1041,7 @@ function connectBackgroundStatePort(tabId) {
       }
     });
     port.onDisconnect.addListener(() => {
+// @ts-ignore
       if (popupBackgroundStatePort === port) {
         popupBackgroundStatePort = null;
       }
@@ -965,6 +1061,7 @@ function clearStaleInspectionBusyClearTimer() {
 }
 
 function scheduleStaleInspectionBusyClear(
+// @ts-ignore
   tabId = state.currentTab && state.currentTab.id,
   baseUrl = state.currentBaseUrl,
   { reconcileSilentNavSpinner = false, reconcileRenderModeNavSpinner = false } = {}
@@ -1073,10 +1170,12 @@ function scheduleStaleInspectionBusyClear(
   }, 150);
 }
 
+// @ts-ignore
 function isValidEmail(value) {
   return EMAIL_REGEX.test(value);
 }
 
+// @ts-ignore
 function isMobileSimulationActive(deviceState) {
   if (!deviceState || typeof deviceState !== "object") {
     return false;
@@ -1113,6 +1212,7 @@ async function ensureEditorMobileSimulation() {
   return Boolean(normalized && normalized.enabled && normalized.mode === "mobile");
 }
 
+// @ts-ignore
 async function persistDesktopPreviewEnabled(tabId, enabled) {
   if (!tabId) {
     return;
@@ -1125,6 +1225,7 @@ async function persistDesktopPreviewEnabled(tabId, enabled) {
   state.currentDesktopPreviewEnabled = normalizedEnabled;
 }
 
+// @ts-ignore
 function resolveRelativeEndpoint(baseUrl, path) {
   try {
     return new URL(path, baseUrl).toString();
@@ -1133,6 +1234,7 @@ function resolveRelativeEndpoint(baseUrl, path) {
   }
 }
 
+// @ts-ignore
 function normalizeThemeValue(value) {
   if (typeof value !== "string") {
     return THEME_DEFAULT;
@@ -1141,6 +1243,7 @@ function normalizeThemeValue(value) {
   return THEME_IDS.has(normalized) ? normalized : THEME_DEFAULT;
 }
 
+// @ts-ignore
 function normalizeThemeModeValue(value) {
   if (value === THEME_MODE_LIGHT || value === THEME_MODE_DARK || value === THEME_MODE_SYSTEM) {
     return value;
@@ -1148,6 +1251,7 @@ function normalizeThemeModeValue(value) {
   return THEME_MODE_DEFAULT;
 }
 
+// @ts-ignore
 function applyPopupTheme(themeValue, modeValue) {
   const root = document.documentElement;
   if (!root) {
@@ -1179,6 +1283,7 @@ async function loadThemeSettings() {
   });
 }
 
+// @ts-ignore
 async function persistThemeSettings(themeValue, themeModeValue) {
   await setThemeSettings(themeValue, themeModeValue, {
     normalizeThemeValue,
@@ -1202,6 +1307,7 @@ async function loadTraceModeSetting() {
   return isFeatureEnabled("traceDiagnostics") && isDebugFlagEnabled("worldTraceEnabled");
 }
 
+// @ts-ignore
 async function applyTraceModePreferenceToTab(tabId, enabled) {
   void enabled;
   if (!isFeatureEnabled("traceDiagnostics")) {
@@ -1214,13 +1320,17 @@ async function applyTraceModePreferenceToTab(tabId, enabled) {
     return null;
   }
   const viewState = await messages.requestPopupTabViewState(tabId).catch(() => null);
+// @ts-ignore
   if (viewState && viewState.state && viewState.state.ok) {
+// @ts-ignore
     applyBackgroundStateSnapshot(viewState.state);
+// @ts-ignore
     return viewState.state;
   }
   return null;
 }
 
+// @ts-ignore
 function buildPageMarkingKey(url, pageType) {
   const normalizedUrl = normalizeCandidatePageUrl(url);
   const normalizedPageType = normalizePageTypeKey(pageType);
@@ -1251,7 +1361,9 @@ function clearPropertyPageTypesRefreshTimer() {
 
 function schedulePropertyPageTypesRefresh(options = {}) {
   const {
+// @ts-ignore
     siteId = null,
+// @ts-ignore
     stageBase = ""
   } = options;
   const normalizedSiteId = normalizeSiteIdValue(siteId);
@@ -1296,6 +1408,7 @@ function schedulePropertyPageTypesRefresh(options = {}) {
   }, PROPERTY_PAGE_TYPES_REFRESH_INTERVAL_MS);
 }
 
+// @ts-ignore
 function formatPageTypeCandidateLabel(url) {
   if (typeof url !== "string" || !url) {
     return "";
@@ -1308,7 +1421,9 @@ function formatPageTypeCandidateLabel(url) {
   }
 }
 
+// @ts-ignore
 function collectStoredPageMarkingItems(pageMarkings, baseUrl = "") {
+// @ts-ignore
   const items = [];
   Object.entries(pageMarkings && typeof pageMarkings === "object" ? pageMarkings : {}).forEach(([url, entry]) => {
     if (!url || !entry || typeof entry !== "object") {
@@ -1317,35 +1432,46 @@ function collectStoredPageMarkingItems(pageMarkings, baseUrl = "") {
     if (baseUrl && !utils.isPageWithinBaseUrl(url, baseUrl)) {
       return;
     }
+// @ts-ignore
     const excludedCount = Array.isArray(entry.xpaths)
+// @ts-ignore
       ? entry.xpaths.filter((item) => item && item.excluded && item.xpath).length
       : 0;
+// @ts-ignore
     const includedCount = Array.isArray(entry.includeXpaths)
+// @ts-ignore
       ? entry.includeXpaths.filter((xpath) => typeof xpath === "string" && xpath).length
       : 0;
     items.push({
       url,
+// @ts-ignore
       title: entry.title || url,
+// @ts-ignore
       pageType: entry.pageType || "",
       count: excludedCount + includedCount
     });
   });
+// @ts-ignore
   return items;
 }
 
+// @ts-ignore
 function createNormalizedPageMarkingsSnapshot(pageMarkings) {
   return config.createBackendSavedPageMarkingsSnapshot(pageMarkings);
 }
 
+// @ts-ignore
 function arePageMarkingSnapshotsEqual(left, right) {
   return JSON.stringify(createNormalizedPageMarkingsSnapshot(left)) ===
     JSON.stringify(createNormalizedPageMarkingsSnapshot(right));
 }
 
+// @ts-ignore
 function hasSessionPageMarkingChanges(localPageMarkings, backendSavedPageMarkings) {
   return !arePageMarkingSnapshotsEqual(localPageMarkings, backendSavedPageMarkings);
 }
 
+// @ts-ignore
 function getNormalizedPageMarkingSnapshotEntry(pageMarkings, pageUrl) {
   const normalizedTargetUrl = normalizeCandidatePageUrl(pageUrl);
   if (!normalizedTargetUrl) {
@@ -1358,17 +1484,21 @@ function getNormalizedPageMarkingSnapshotEntry(pageMarkings, pageUrl) {
   const snapshot = createNormalizedPageMarkingsSnapshot({
     [normalizedTargetUrl]: entry
   });
+// @ts-ignore
   return snapshot[normalizedTargetUrl] || null;
 }
 
+// @ts-ignore
 function hasCurrentPageMarkingChanges(localPageMarkings, backendSavedPageMarkings, pageUrl) {
   return JSON.stringify(getNormalizedPageMarkingSnapshotEntry(localPageMarkings, pageUrl)) !==
     JSON.stringify(getNormalizedPageMarkingSnapshotEntry(backendSavedPageMarkings, pageUrl));
 }
 
+// @ts-ignore
 function getLatestPageMarkingTimestamp(pageMarkings) {
   let latestTimestamp = config.PAGE_TIMESTAMP_FALLBACK;
   Object.values(createNormalizedPageMarkingsSnapshot(pageMarkings)).forEach((entry) => {
+// @ts-ignore
     const timestamp = config.normalizeEntryTimestamp(entry && entry.timestamp);
     if (config.isIncomingTimestampNewer(timestamp, latestTimestamp)) {
       latestTimestamp = timestamp;
@@ -1377,6 +1507,7 @@ function getLatestPageMarkingTimestamp(pageMarkings) {
   return latestTimestamp;
 }
 
+// @ts-ignore
 function doesSessionRequireAiRun(sourceConfig, localPageMarkings, backendSavedPageMarkings, options = {}) {
   // A dirty current-page draft normally means the markings changed and the
   // selectors are stale, so an AI run is required before Save. But once a
@@ -1385,6 +1516,7 @@ function doesSessionRequireAiRun(sourceConfig, localPageMarkings, backendSavedPa
   // backend-saved yet - it does NOT need another run. Skipping the early
   // return in that case lets Save enable right after a clean run (State C)
   // while still demanding a run after any new mark/unmark change (State B).
+// @ts-ignore
   if (options.currentDraftDirty && !options.aiRunUpToDate) {
     return true;
   }
@@ -1403,14 +1535,18 @@ function doesSessionRequireAiRun(sourceConfig, localPageMarkings, backendSavedPa
   );
 }
 
+// @ts-ignore
 function hasSessionPendingChanges(sourceConfig, localPageMarkings, backendSavedPageMarkings, options = {}) {
   return Boolean(
+// @ts-ignore
     options.currentDraftDirty ||
+// @ts-ignore
       options.reconciliationPending ||
       hasSessionPageMarkingChanges(localPageMarkings, backendSavedPageMarkings)
   );
 }
 
+// @ts-ignore
 function hasBackendSavedPageMarking(pageMarkings, pageUrl) {
   const normalizedTargetUrl = normalizeCandidatePageUrl(pageUrl);
   if (!normalizedTargetUrl || !pageMarkings || typeof pageMarkings !== "object") {
@@ -1419,6 +1555,7 @@ function hasBackendSavedPageMarking(pageMarkings, pageUrl) {
   return Object.keys(pageMarkings).some((url) => normalizeCandidatePageUrl(url) === normalizedTargetUrl);
 }
 
+// @ts-ignore
 function findBackendSavedPageMarkingEntry(pageMarkings, pageUrl) {
   const normalizedTargetUrl = normalizeCandidatePageUrl(pageUrl);
   if (!normalizedTargetUrl || !pageMarkings || typeof pageMarkings !== "object") {
@@ -1430,6 +1567,7 @@ function findBackendSavedPageMarkingEntry(pageMarkings, pageUrl) {
   return matchingUrl ? pageMarkings[matchingUrl] || null : null;
 }
 
+// @ts-ignore
 function clonePageMarkingEntry(entry) {
   if (!entry || typeof entry !== "object") {
     return null;
@@ -1437,6 +1575,7 @@ function clonePageMarkingEntry(entry) {
   return JSON.parse(JSON.stringify(entry));
 }
 
+// @ts-ignore
 function fingerprintPageMarkingEntry(entry) {
   // Stable signature of the element-level markings only (exclude + include
   // xpaths). CSS-selector edits intentionally do not affect this fingerprint,
@@ -1447,6 +1586,7 @@ function fingerprintPageMarkingEntry(entry) {
   // and disable Show Content List/Save right after a clean run).
   const excludeXpaths = entry && Array.isArray(entry.xpaths)
     ? entry.xpaths
+// @ts-ignore
         .map((item) => {
           if (typeof item === "string") {
             return item ? `${item}|0` : "";
@@ -1456,9 +1596,11 @@ function fingerprintPageMarkingEntry(entry) {
           }
           return "";
         })
+// @ts-ignore
         .filter((value) => value)
     : [];
   const includeXpaths = entry && Array.isArray(entry.includeXpaths)
+// @ts-ignore
     ? entry.includeXpaths.filter((xpath) => typeof xpath === "string" && xpath)
     : [];
   excludeXpaths.sort();
@@ -1478,6 +1620,7 @@ function isAiRunUpToDateForCurrentMarkings() {
 }
 
 function captureAiRunMarkingsFingerprint() {
+// @ts-ignore
   state.aiRunMarkingsFingerprint = getCurrentPageMarkingsFingerprint();
 }
 
@@ -1486,9 +1629,13 @@ function resetAiRunMarkingsFingerprint() {
 }
 
 function mergeSelectorSetForBaseUrlMigration(
+// @ts-ignore
   preferredSelectorSet,
+// @ts-ignore
   preferredUpdatedAt,
+// @ts-ignore
   existingSelectorSet,
+// @ts-ignore
   existingUpdatedAt
 ) {
   return config.mergeSelectorSetsByTimestamp(
@@ -1499,11 +1646,13 @@ function mergeSelectorSetForBaseUrlMigration(
   );
 }
 
+// @ts-ignore
 function getSelectorSetFingerprint(selectorSet) {
   const normalized = normalizeAiSelectorSet(selectorSet);
   return combineAiSelectorSet(normalized).length ? JSON.stringify(normalized) : "";
 }
 
+// @ts-ignore
 function buildSelectorSetForGraphqlSubmit(selectorSet) {
   const normalized = normalizeAiSelectorSet(selectorSet);
   return normalizeAiSelectorSet({
@@ -1515,16 +1664,19 @@ function buildSelectorSetForGraphqlSubmit(selectorSet) {
   });
 }
 
+// @ts-ignore
 function buildGraphqlRenderModeValue(renderMode) {
   return config.normalizeRenderMode(renderMode) === config.RENDER_MODE_RENDERED
     ? "RENDERED"
     : "STATIC";
 }
 
+// @ts-ignore
 function isUndeterminedRenderMode(value) {
   return typeof value === "string" && value.trim().toLowerCase() === RENDER_MODE_UNDETERMINED;
 }
 
+// @ts-ignore
 function normalizeUiRenderModeValue(value, fallback = config.DEFAULT_RENDER_MODE) {
   if (isUndeterminedRenderMode(value)) {
     return RENDER_MODE_UNDETERMINED;
@@ -1532,6 +1684,7 @@ function normalizeUiRenderModeValue(value, fallback = config.DEFAULT_RENDER_MODE
   return config.normalizeRenderMode(typeof value === "string" ? value : fallback);
 }
 
+// @ts-ignore
 function markRenderModeUndetermined(detectionKey) {
   state.renderModeSuggestedValue = RENDER_MODE_UNDETERMINED;
   state.renderModeDetectionUnsure = true;
@@ -1543,12 +1696,14 @@ function markRenderModeUndetermined(detectionKey) {
   uiModule.showToast(PopupText.renderMode.toastUndeterminedManual);
 }
 
+// @ts-ignore
 function isRenderModeDetectionLowConfidence(accuracy) {
   return Number.isFinite(accuracy) &&
     accuracy >= RENDER_MODE_DETECTION_MIN_ENDPOINT_ACCURACY &&
     accuracy < RENDER_MODE_DETECTION_REVIEW_ACCURACY;
 }
 
+// @ts-ignore
 function hasConfirmedRenderModeForBaseUrl(configs, baseUrl) {
   const normalizedBaseUrl =
     utils.normalizeCanonicalBaseUrl(baseUrl) ||
@@ -1568,6 +1723,7 @@ function hasConfirmedRenderModeForBaseUrl(configs, baseUrl) {
   return config.isRenderModeConfirmed(normalizedConfig);
 }
 
+// @ts-ignore
 function getSuggestedRenderModeForPage(pageUrl, sourceConfig = state.currentConfig) {
   const suggestionKey = `${state.currentBaseUrl || ""}|${pageUrl || ""}`;
   if (!state.currentBaseUrlHasConfirmedRenderMode) {
@@ -1585,6 +1741,7 @@ function getSuggestedRenderModeForPage(pageUrl, sourceConfig = state.currentConf
   return config.getConfigRenderMode(sourceConfig);
 }
 
+// @ts-ignore
 function shouldAutoDetectRenderMode(sourceConfig) {
   if (!isFeatureEnabled("renderModeAutoDetection")) {
     return false;
@@ -1601,10 +1758,12 @@ function shouldAutoDetectRenderMode(sourceConfig) {
   );
 }
 
+// @ts-ignore
 function getRenderModeInspectionSnapshotKey(baseUrl, pageUrl) {
   return baseUrl && pageUrl ? `${baseUrl}|${pageUrl}` : "";
 }
 
+// @ts-ignore
 function getCurrentRenderModeInspectionSnapshot(detectionKey) {
   const snapshot = state.renderModeInspectionSnapshot;
   if (
@@ -1612,8 +1771,11 @@ function getCurrentRenderModeInspectionSnapshot(detectionKey) {
     state.renderModeInspectionSnapshotKey !== detectionKey ||
     !snapshot ||
     typeof snapshot !== "object" ||
+// @ts-ignore
     typeof snapshot.renderedHtml !== "string" ||
+// @ts-ignore
     !snapshot.renderedHtml ||
+// @ts-ignore
     typeof snapshot.rawHtml !== "string"
   ) {
     return null;
@@ -1621,6 +1783,7 @@ function getCurrentRenderModeInspectionSnapshot(detectionKey) {
   return snapshot;
 }
 
+// @ts-ignore
 function rememberRenderModeInspectionSnapshot(baseUrl, pageUrl, snapshot) {
   const snapshotKey = getRenderModeInspectionSnapshotKey(baseUrl, pageUrl);
   if (
@@ -1633,6 +1796,7 @@ function rememberRenderModeInspectionSnapshot(baseUrl, pageUrl, snapshot) {
     return false;
   }
   state.renderModeInspectionSnapshotKey = snapshotKey;
+// @ts-ignore
   state.renderModeInspectionSnapshot = {
     renderedHtml: snapshot.renderedHtml,
     rawHtml: snapshot.rawHtml,
@@ -1644,9 +1808,11 @@ function rememberRenderModeInspectionSnapshot(baseUrl, pageUrl, snapshot) {
   return true;
 }
 
+// @ts-ignore
 function createConfigSyncHeaders(token) {
   const headers = { "Content-Type": "application/json" };
   if (token) {
+// @ts-ignore
     headers.Authorization = `Bearer ${token}`;
   }
   return headers;
@@ -1734,6 +1900,7 @@ function setAiRunActiveState({
   phase = "starting"
 } = {}) {
   state.aiComputeStartPending = false;
+// @ts-ignore
   state.aiRequestInFlight = "compute";
   state.aiRunPhase = phase;
   state.aiRunSessionId = sessionId;
@@ -1753,6 +1920,7 @@ async function clearPersistedAiRunRecord() {
   await messages.sendRuntimeMessage({ type: "clearPersistedAiRunRecord" });
 }
 
+// @ts-ignore
 async function syncAiComputeLock(active, expiresAt = 0) {
   const response = await messages.sendRuntimeMessage({
     type: "setAiComputeLockForTab",
@@ -1765,14 +1933,21 @@ async function syncAiComputeLock(active, expiresAt = 0) {
 }
 
 async function refreshAiRunHeartbeat(options = {}) {
+// @ts-ignore
   const sessionId = typeof options.sessionId === "string"
+// @ts-ignore
     ? options.sessionId.trim()
     : state.aiRunSessionId;
+// @ts-ignore
   const siteId = normalizeSiteIdValue(options.siteId || state.aiRunSiteId);
+// @ts-ignore
   const deadlineAt = Number.isFinite(options.deadlineAt)
+// @ts-ignore
     ? options.deadlineAt
     : state.aiRunDeadlineAt;
+// @ts-ignore
   const baseUrl = typeof options.baseUrl === "string"
+// @ts-ignore
     ? options.baseUrl
     : state.currentBaseUrl || "";
   if (!sessionId || !siteId || !Number.isFinite(deadlineAt) || deadlineAt <= 0) {
@@ -1799,6 +1974,7 @@ async function refreshAiRunHeartbeat(options = {}) {
 }
 
 async function stopAiRun(options = {}) {
+// @ts-ignore
   const { unlockPage = true } = options;
   resetAiRunState();
   await clearPersistedAiRunRecord();
@@ -1810,7 +1986,9 @@ async function stopAiRun(options = {}) {
 
 async function removePageMarkingFromRemote(options = {}) {
   const {
+// @ts-ignore
     siteId = null,
+// @ts-ignore
     url = ""
   } = options;
   const pageUrl = typeof url === "string" ? url.trim() : "";
@@ -1827,7 +2005,9 @@ async function removePageMarkingFromRemote(options = {}) {
 
 async function pruneRemoteInvalidPageMarkings(options = {}) {
   const {
+// @ts-ignore
     siteId = null,
+// @ts-ignore
     invalidUrls = []
   } = options;
   const normalizedSiteId = normalizeSiteIdValue(siteId);
@@ -1859,7 +2039,9 @@ async function pruneRemoteInvalidPageMarkings(options = {}) {
 
 async function pruneLocalInvalidPageMarkings(options = {}) {
   const {
+// @ts-ignore
     baseUrl = "",
+// @ts-ignore
     invalidUrls = []
   } = options;
   const normalizedBaseUrl = utils.normalizeBaseUrl(baseUrl) || baseUrl;
@@ -1880,29 +2062,36 @@ async function pruneLocalInvalidPageMarkings(options = {}) {
     return [];
   }
   const configs = await config.getConfigs();
+// @ts-ignore
   const sourceConfig = configs[normalizedBaseUrl];
   if (!sourceConfig || !sourceConfig.pageMarkings || typeof sourceConfig.pageMarkings !== "object") {
     return [];
   }
   const nextConfig = config.normalizeConfig(normalizedBaseUrl, sourceConfig).config;
+// @ts-ignore
   const removedUrls = [];
   Object.keys(nextConfig.pageMarkings || {}).forEach((url) => {
     const normalizedUrl = normalizeCandidatePageUrl(url);
     if (exactInvalidUrls.has(url) || (normalizedUrl && normalizedInvalidUrls.has(normalizedUrl))) {
+// @ts-ignore
       delete nextConfig.pageMarkings[url];
       removedUrls.push(url);
     }
   });
   if (removedUrls.length) {
+// @ts-ignore
     configs[normalizedBaseUrl] = nextConfig;
     await config.saveConfigs(configs);
   }
+// @ts-ignore
   return removedUrls;
 }
 
 async function repairLocalPageMarkingPageTypes(options = {}) {
   const {
+// @ts-ignore
     baseUrl = "",
+// @ts-ignore
     repairedMarkedPages = []
   } = options;
   const normalizedBaseUrl = utils.normalizeBaseUrl(baseUrl) || baseUrl;
@@ -1910,6 +2099,7 @@ async function repairLocalPageMarkingPageTypes(options = {}) {
     return [];
   }
   const repairsByUrl = new Map(
+// @ts-ignore
     repairedMarkedPages
       .map((item) => {
         const url = normalizeCandidatePageUrl(item && item.url);
@@ -1924,11 +2114,13 @@ async function repairLocalPageMarkingPageTypes(options = {}) {
     return [];
   }
   const configs = await config.getConfigs();
+// @ts-ignore
   const sourceConfig = configs[normalizedBaseUrl];
   if (!sourceConfig || !sourceConfig.pageMarkings || typeof sourceConfig.pageMarkings !== "object") {
     return [];
   }
   const nextConfig = config.normalizeConfig(normalizedBaseUrl, sourceConfig).config;
+// @ts-ignore
   const repairedUrls = [];
   Object.entries(nextConfig.pageMarkings || {}).forEach(([url, entry]) => {
     if (!entry || typeof entry !== "object") {
@@ -1936,19 +2128,24 @@ async function repairLocalPageMarkingPageTypes(options = {}) {
     }
     const normalizedUrl = normalizeCandidatePageUrl(url);
     const repairedPageType = normalizedUrl ? repairsByUrl.get(normalizedUrl) : "";
+// @ts-ignore
     if (!repairedPageType || entry.pageType === repairedPageType) {
       return;
     }
+// @ts-ignore
     entry.pageType = repairedPageType;
     repairedUrls.push(url);
   });
   if (repairedUrls.length) {
+// @ts-ignore
     configs[normalizedBaseUrl] = nextConfig;
     await config.saveConfigs(configs);
   }
+// @ts-ignore
   return repairedUrls;
 }
 
+// @ts-ignore
 function getConfigLoadStatusTone(status) {
   switch (status) {
     case "ok":
@@ -1966,6 +2163,7 @@ function getConfigLoadStatusTone(status) {
   }
 }
 
+// @ts-ignore
 function getConfigSaveStatusTone(label) {
   switch (label) {
     case PopupText.page.savedAndSynced:
@@ -1995,6 +2193,7 @@ function getConfigSaveStatusTone(label) {
   }
 }
 
+// @ts-ignore
 function updateLastConfigLoadStatus(result) {
   const status = result && typeof result.status === "string" ? result.status : "";
   const baseUrl = result && typeof result.baseUrl === "string" ? result.baseUrl : "";
@@ -2008,6 +2207,7 @@ function updateLastConfigLoadStatus(result) {
   state.lastConfigLoadStatusText = formatTimestampedStatus(label, at);
 }
 
+// @ts-ignore
 function updateLastConfigSaveStatus(label) {
   const safeLabel = typeof label === "string" && label ? label : PopupText.sync.unknown;
   state.lastConfigSaveStatusTone = getConfigSaveStatusTone(safeLabel);
@@ -2015,26 +2215,32 @@ function updateLastConfigSaveStatus(label) {
   state.lastConfigSaveStatusText = formatTimestampedStatus(safeLabel, at);
 }
 
+// @ts-ignore
 function isSuccessfulConfigSyncResult(syncResult) {
   return Boolean(syncResult && (syncResult.ok || syncResult.skipped));
 }
 
+// @ts-ignore
 function isCompletedPageConfigSyncResult(syncResult) {
   return Boolean(syncResult && syncResult.ok && !syncResult.skipped);
 }
 
 function getCurrentPageUrl() {
+// @ts-ignore
   return (state.currentTab && state.currentTab.url) || "";
 }
 
 function buildPopupEnabledContext(tab = state.currentTab, baseUrl = state.currentBaseUrl) {
   return {
+// @ts-ignore
     tabId: tab && Number.isFinite(tab.id) ? Math.trunc(tab.id) : null,
+// @ts-ignore
     pageUrl: tab && typeof tab.url === "string" ? tab.url : "",
     baseUrl: typeof baseUrl === "string" ? baseUrl : ""
   };
 }
 
+// @ts-ignore
 function isPopupEnabledContextCurrent(context, currentContext = buildPopupEnabledContext()) {
   if (!context || typeof context !== "object") {
     return false;
@@ -2044,13 +2250,16 @@ function isPopupEnabledContextCurrent(context, currentContext = buildPopupEnable
     utils.sameBaseUrl(context.baseUrl || "", currentContext.baseUrl || "");
 }
 
+// @ts-ignore
 function setLastPopupEnabled(value, context = buildPopupEnabledContext()) {
   if (value === null) {
     state.lastPopupEnabled = null;
     state.lastPopupEnabledContext = null;
     return;
   }
+// @ts-ignore
   state.lastPopupEnabled = Boolean(value);
+// @ts-ignore
   state.lastPopupEnabledContext = { ...context };
 }
 
@@ -2058,6 +2267,7 @@ function clearLastPopupEnabled() {
   setLastPopupEnabled(null);
 }
 
+// @ts-ignore
 async function setCurrentPageSaveReconciliationReason(reason) {
   const pageUrl = getCurrentPageUrl();
   if (!state.currentBaseUrl || !pageUrl) {
@@ -2066,6 +2276,7 @@ async function setCurrentPageSaveReconciliationReason(reason) {
   const reconciliation = await config.setPageSaveReconciliation(state.currentBaseUrl, pageUrl, {
     reason: typeof reason === "string" ? reason : "pending"
   });
+// @ts-ignore
   state.currentPageSaveReconciliation = reconciliation;
   state.currentPageSaveReconciliationPending = config.isPageSaveReconciliationPending(reconciliation);
   await messages.sendTabMessage({
@@ -2097,12 +2308,18 @@ async function clearCurrentPageSaveReconciliation(baseUrl = state.currentBaseUrl
 }
 
 async function refreshCurrentPageRuntimeStatus(options = {}) {
+// @ts-ignore
   const tabId = Number.isFinite(options.tabId)
+// @ts-ignore
     ? Math.trunc(options.tabId)
+// @ts-ignore
     : state.currentTab && Number.isFinite(state.currentTab.id)
+// @ts-ignore
       ? Math.trunc(state.currentTab.id)
       : null;
+// @ts-ignore
   const baseUrl = typeof options.baseUrl === "string" && options.baseUrl
+// @ts-ignore
     ? options.baseUrl
     : state.currentBaseUrl;
   if (!tabId) {
@@ -2152,12 +2369,14 @@ async function refreshCurrentPageRuntimeStatus(options = {}) {
   };
 }
 
+// @ts-ignore
 function waitForRetryDelay(delayMs) {
   return new Promise((resolve) => {
     window.setTimeout(resolve, delayMs);
   });
 }
 
+// @ts-ignore
 async function waitForEnableMarkingInspectionToSettle(tabId, baseUrl) {
   let inspectionObserved = false;
   let responseObserved = false;
@@ -2210,6 +2429,7 @@ async function waitForEnableMarkingInspectionToSettle(tabId, baseUrl) {
   };
 }
 
+// @ts-ignore
 function clearNavigationInspectionSettlePoll(tabId) {
   const timer = popupNavigationInspectionSettlePollByTabId.get(tabId);
   if (!timer) {
@@ -2229,6 +2449,7 @@ function clearNavigationInspectionSettlePollsExcept(tabIdToKeep = null) {
   });
 }
 
+// @ts-ignore
 function startRenderModeSetNavGuard(tabId) {
   if (!tabId) {
     return;
@@ -2240,6 +2461,7 @@ function startRenderModeSetNavGuard(tabId) {
   logPopupSpinnerDebug("render-mode-set-nav-guard-start", { tabId });
 }
 
+// @ts-ignore
 function clearRenderModeSetNavGuard(tabId) {
   if (!tabId) {
     return;
@@ -2249,6 +2471,7 @@ function clearRenderModeSetNavGuard(tabId) {
   }
 }
 
+// @ts-ignore
 function noteRenderModeSetNavGuardInspection(tabId) {
   if (!tabId) {
     return;
@@ -2262,6 +2485,7 @@ function noteRenderModeSetNavGuardInspection(tabId) {
   logPopupSpinnerDebug("render-mode-set-nav-guard-observed", { tabId });
 }
 
+// @ts-ignore
 function shouldHoldNavInspectUntilRenderModeInspectionSeen(tabId) {
   if (!tabId) {
     return false;
@@ -2286,6 +2510,7 @@ function shouldHoldNavInspectUntilRenderModeInspectionSeen(tabId) {
 // expired). Used by the tab onUpdated listener so it keeps the navInspect overlay
 // alive across the post-Set reload even in silent mode, where the tab is not
 // marking-enabled and the listener would otherwise tear the overlay down.
+// @ts-ignore
 function isRenderModeSetNavGuardActive(tabId) {
   if (!tabId) {
     return false;
@@ -2302,6 +2527,7 @@ function isRenderModeSetNavGuardActive(tabId) {
   return true;
 }
 
+// @ts-ignore
 function scheduleNavigationInspectionSettlePoll(tabId, baseUrl) {
   if (!tabId) {
     return;
@@ -2311,6 +2537,7 @@ function scheduleNavigationInspectionSettlePoll(tabId, baseUrl) {
   let attempt = 0;
   const maxAttempts = 30;
   const run = async () => {
+// @ts-ignore
     if (popupNavigationInspectionOverlayTabId !== tabId) {
       clearNavigationInspectionSettlePoll(tabId);
       return;
@@ -2374,6 +2601,7 @@ function scheduleNavigationInspectionSettlePoll(tabId, baseUrl) {
   logPopupSpinnerDebug("nav-settle-poll-scheduled", { tabId, baseUrl });
 }
 
+// @ts-ignore
 function beginNavigationInspectionOverlay(tabId) {
   if (!tabId) {
     return false;
@@ -2394,10 +2622,13 @@ function beginNavigationInspectionOverlay(tabId) {
   return popupNavigationInspectionOverlayStarted;
 }
 
+// @ts-ignore
 function endNavigationInspectionOverlay(tabId = popupNavigationInspectionOverlayTabId) {
   if (
+// @ts-ignore
     popupNavigationInspectionOverlayTabId !== null &&
     tabId !== null &&
+// @ts-ignore
     popupNavigationInspectionOverlayTabId !== tabId
   ) {
     return;
@@ -2422,6 +2653,7 @@ function waitForPopupUiPaint() {
         return;
       }
       settled = true;
+// @ts-ignore
       resolve();
     };
     window.setTimeout(finish, 75);
@@ -2434,6 +2666,7 @@ function waitForPopupUiPaint() {
   });
 }
 
+// @ts-ignore
 function isRetryableHttpStatus(status) {
   if (!Number.isFinite(status) || status <= 0) {
     return true;
@@ -2441,6 +2674,7 @@ function isRetryableHttpStatus(status) {
   return RETRYABLE_HTTP_STATUSES.has(status);
 }
 
+// @ts-ignore
 function getRetryDelayMs(attempt, baseDelayMs = 450, maxDelayMs = 10000) {
   const boundedAttempt = Math.max(0, Number(attempt) || 0);
   const exponentialDelay = Math.min(baseDelayMs * (2 ** boundedAttempt), maxDelayMs);
@@ -2456,6 +2690,7 @@ function clearRemoteConfigRetryTimer() {
   state.remoteConfigConnectionRetryTimer = 0;
 }
 
+// @ts-ignore
 function setRemoteConfigConnectionIssue(active) {
   const nextActive = Boolean(active);
   state.remoteConfigConnectionIssue = nextActive;
@@ -2464,6 +2699,7 @@ function setRemoteConfigConnectionIssue(active) {
   }
 }
 
+// @ts-ignore
 function setPreviewBlocked(active, message = ViewText.previewBlockedDefault) {
   uiModule.setPreviewBlocked(active, message);
 }
@@ -2476,6 +2712,7 @@ function clearObserverRemoteConfigRefreshTimer() {
   state.observerRemoteConfigRefreshTimer = 0;
 }
 
+// @ts-ignore
 function syncObserverRemoteConfigRefreshTimer(active) {
   if (!active) {
     clearObserverRemoteConfigRefreshTimer();
@@ -2494,12 +2731,14 @@ function syncObserverRemoteConfigRefreshTimer(active) {
   }, OBSERVER_REMOTE_CONFIG_REFRESH_INTERVAL_MS);
 }
 
+// @ts-ignore
 function shouldSkipRemoteConfigLoadForPropertyEditor(siteId) {
   const normalizedSiteId = normalizeSiteIdValue(siteId);
   return Boolean(
     normalizedSiteId &&
       state.propertyLockSiteId === normalizedSiteId &&
       state.propertyLockState &&
+// @ts-ignore
       state.propertyLockState.isEditor
   );
 }
@@ -2537,6 +2776,7 @@ async function invalidateTokenAndLockConfiguration(showToast = true) {
 }
 
 async function validateStoredToken(options = {}) {
+// @ts-ignore
   const { force = false, showToastOnInvalid = true } = options;
   if (state.tokenValidationInFlight) {
     return true;
@@ -2573,6 +2813,7 @@ async function clearFocusedElement() {
   await messages.sendTabMessage({ type: "clearFocus" });
 }
 
+// @ts-ignore
 function getEditableFieldState(options) {
   const {
     inputRef,
@@ -2620,6 +2861,7 @@ function getCurrentSelectorsFromConfig(sourceConfig = state.currentConfig) {
   if (!config.isSelectorSetCurrentForRenderMode(sourceConfig, "selectors")) {
     return normalizeAiSelectorSet(null);
   }
+// @ts-ignore
   return normalizeAiSelectorSet(sourceConfig && sourceConfig.selectors);
 }
 
@@ -2628,6 +2870,7 @@ function getLastSubmittedSelectorsFromConfig(sourceConfig = state.currentConfig)
     return normalizeAiSelectorSet(null);
   }
   return config.areCurrentSelectorsSubmitted(sourceConfig)
+// @ts-ignore
     ? normalizeAiSelectorSet(sourceConfig && sourceConfig.selectors)
     : normalizeAiSelectorSet(null);
 }
@@ -2641,22 +2884,27 @@ function hasCalculatedSelectorsFromConfig(sourceConfig = state.currentConfig) {
     return false;
   }
   const updatedAt = config.normalizeEntryTimestamp(
+// @ts-ignore
     sourceConfig && sourceConfig.selectorsUpdatedAt
   );
   if (updatedAt === config.PAGE_TIMESTAMP_FALLBACK) {
     return false;
   }
+// @ts-ignore
   return combineAiSelectorSet(sourceConfig && sourceConfig.selectors).length > 0;
 }
 
+// @ts-ignore
 async function hideConsentForRenderModeInspection(targetTabId = state.currentTab && state.currentTab.id) {
   const tabId = Number.isFinite(targetTabId)
+// @ts-ignore
     ? Math.trunc(targetTabId)
     : null;
   if (!tabId) {
     return false;
   }
 
+// @ts-ignore
   const sendHideMessageWithRetry = async (attempts) => {
     for (let index = 0; index < attempts; index += 1) {
       const response = await messages.sendTabMessageToTab(tabId, {
@@ -2678,6 +2926,7 @@ async function hideConsentForRenderModeInspection(targetTabId = state.currentTab
   return Boolean(hideResponse && hideResponse.ok);
 }
 
+// @ts-ignore
 async function ensureContentReadyForRenderModeInspection(tabId) {
   if (!tabId) {
     return false;
@@ -2737,6 +2986,7 @@ async function reconcilePropertyLockAfterRenderModeReload() {
 }
 
 function buildTodoExpansionContextKey(tabId = null, baseUrl = "") {
+// @ts-ignore
   const normalizedTabId = tabId || (state.currentTab && state.currentTab.id) || null;
   const normalizedBaseUrl = typeof baseUrl === "string" && baseUrl
     ? baseUrl
@@ -2787,6 +3037,7 @@ function getCollapsedTodoExpansionState() {
   };
 }
 
+// @ts-ignore
 function getSavedTodoExpansionState(key) {
   if (!key || !(state.todoExpansionStateByContext instanceof Map)) {
     return null;
@@ -2816,9 +3067,13 @@ function collapseTodoListForAutoCollapse() {
 }
 
 async function refreshUiInner(options = {}) {
+// @ts-ignore
   const skipPropertyLockFetch = Boolean(options.skipPropertyLockFetch);
+// @ts-ignore
   const propertyPageTypesRefreshChanged = Boolean(options.propertyPageTypesRefreshChanged);
+// @ts-ignore
   const remoteConfigLoadMode = typeof options.remoteConfigLoadMode === "string"
+// @ts-ignore
     ? options.remoteConfigLoadMode
     : "";
   if (!state.currentTab) {
@@ -2826,6 +3081,7 @@ async function refreshUiInner(options = {}) {
   }
   const previousBaseUrl = state.currentBaseUrl;
   await validateStoredToken({ force: false, showToastOnInvalid: true });
+// @ts-ignore
   const currentTabId = state.currentTab.id || null;
   const tabChanged = Boolean(currentTabId && state.lastTabId !== currentTabId);
   saveCurrentTodoExpansionState();
@@ -2837,6 +3093,7 @@ async function refreshUiInner(options = {}) {
     state.remoteConfigLoadResult = null;
     clearLastPopupEnabled();
   }
+// @ts-ignore
   const pageUrl = state.currentTab.url || "";
   if (pageUrl !== state.lastPopupPageUrl) {
     clearLastPopupEnabled();
@@ -2867,6 +3124,7 @@ async function refreshUiInner(options = {}) {
   } = await helpers.loadGlobalAiSettings();
   const normalizedStageBaseValue = normalizeStageBase(stageBaseValue);
   let configs = await config.getConfigs();
+// @ts-ignore
   const persistedTabState = await messages.getTabState(state.currentTab.id);
   if (currentTabId) {
     await messages.sendRuntimeMessage({
@@ -2908,6 +3166,7 @@ async function refreshUiInner(options = {}) {
       initialTabState && Number.isFinite(initialTabState.propertyLockOffCandidateDeadlineAt)
         ? Number(initialTabState.propertyLockOffCandidateDeadlineAt)
         : 0;
+// @ts-ignore
     state.propertyLockRecoverySiteId =
       initialTabState && Number.isFinite(initialTabState.propertyLockRecoverySiteId)
         ? Number(initialTabState.propertyLockRecoverySiteId)
@@ -2971,6 +3230,7 @@ async function refreshUiInner(options = {}) {
     !utils.isPageWithinBaseUrl(pageUrl, tabState.baseUrl)
   ) {
     effectiveTabState = { enabled: false, baseUrl: "" };
+// @ts-ignore
     await messages.setTabState(state.currentTab.id, effectiveTabState);
   }
   if (
@@ -3010,11 +3270,15 @@ async function refreshUiInner(options = {}) {
     ? (effectiveTabState.baseUrl || fallbackBaseUrl || "")
     : "";
   if (state.currentBaseUrl) {
+// @ts-ignore
     const normalized = config.normalizeConfig(state.currentBaseUrl, configs[state.currentBaseUrl]);
+// @ts-ignore
     if (configs[state.currentBaseUrl] && normalized.changed) {
+// @ts-ignore
       configs[state.currentBaseUrl] = normalized.config;
       await config.saveConfigs(configs);
     }
+// @ts-ignore
     state.currentConfig = configs[state.currentBaseUrl] || normalized.config;
     const siteIdResult = await ensureBaseUrlSiteId({
       baseUrl: state.currentBaseUrl,
@@ -3106,15 +3370,19 @@ async function refreshUiInner(options = {}) {
       }
       if (remoteLoadResult && remoteLoadResult.status === "ok") {
         configs = await config.getConfigs();
+// @ts-ignore
         if (state.currentBaseUrl && configs[state.currentBaseUrl]) {
           const normalizedCurrent = config.normalizeConfig(
             state.currentBaseUrl,
+// @ts-ignore
             configs[state.currentBaseUrl]
           );
           if (normalizedCurrent.changed) {
+// @ts-ignore
             configs[state.currentBaseUrl] = normalizedCurrent.config;
             await config.saveConfigs(configs);
           }
+// @ts-ignore
           state.currentConfig = configs[state.currentBaseUrl];
         }
       }
@@ -3144,6 +3412,7 @@ async function refreshUiInner(options = {}) {
   ) {
     const wasEnabled = Boolean(effectiveTabState.enabled);
     effectiveTabState = { ...effectiveTabState, enabled: false, baseUrl: "" };
+// @ts-ignore
     await messages.setTabState(state.currentTab.id, effectiveTabState);
     if (wasEnabled) {
       await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
@@ -3156,6 +3425,7 @@ async function refreshUiInner(options = {}) {
   if (unsupportedByGraphql && !aiComputeRunActive && !aiPreviewSessionActive) {
     if (effectiveTabState.enabled) {
       effectiveTabState = { ...effectiveTabState, enabled: false, baseUrl: "" };
+// @ts-ignore
       await messages.setTabState(state.currentTab.id, effectiveTabState);
       await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
     }
@@ -3191,8 +3461,10 @@ async function refreshUiInner(options = {}) {
         state.siteIdLookupByBaseUrl.set(fallbackBaseUrl, fallbackSiteId);
         state.currentBaseUrl = fallbackBaseUrl;
         currentSiteId = fallbackSiteId;
+// @ts-ignore
         state.currentConfig = config.normalizeConfig(
           fallbackBaseUrl,
+// @ts-ignore
           configs[fallbackBaseUrl]
         ).config;
       }
@@ -3422,6 +3694,7 @@ async function refreshUiInner(options = {}) {
     state.renderModeEditMode = false;
   }
   const siteIdReady = Boolean(
+// @ts-ignore
     currentSiteId || normalizeSiteIdValue(state.currentConfig && state.currentConfig.siteId)
   );
   const effectiveSiteIdBlockedReason = unsupportedByGraphql
@@ -3433,9 +3706,11 @@ async function refreshUiInner(options = {}) {
       : "";
   const liveSiteId = normalizeSiteIdValue(
     currentSiteId ||
+// @ts-ignore
       (state.currentConfig && state.currentConfig.siteId) ||
       (state.currentBaseUrl ? state.siteIdLookupByBaseUrl.get(state.currentBaseUrl) : null)
   );
+// @ts-ignore
   state.currentSiteId = liveSiteId;
   if (
     !propertyPageTypesLoaded &&
@@ -3477,11 +3752,13 @@ async function refreshUiInner(options = {}) {
       resetPropertyPageTypesState();
     }
   }
+// @ts-ignore
   let pageMarkings = (state.currentConfig && state.currentConfig.pageMarkings) || {};
   const backendSavedPageMarkings = state.currentBaseUrl
     ? await config.getBackendSavedPageMarkings(state.currentBaseUrl)
     : {};
   const normalizedCurrentPageUrl = normalizeCandidatePageUrl(pageUrl);
+// @ts-ignore
   let invalidStoredPageUrlsForRemote = [];
   let currentPageEntryMarkedInvalid = false;
   let repairedStoredPageUrls = [];
@@ -3543,6 +3820,7 @@ async function refreshUiInner(options = {}) {
       const nextRecoveryDeadlineAt = recoveryDeadlineAt > Date.now()
         ? recoveryDeadlineAt
         : Date.now() + PROPERTY_LOCK_CROSS_PROPERTY_COOLDOWN_TIMEOUT_MS;
+// @ts-ignore
       state.propertyLockRecoverySiteId = recoverySiteId;
       state.propertyLockRecoveryBaseUrl = recoveryBaseUrl;
       state.propertyLockRecoveryClientId = recoveryClientId;
@@ -3555,6 +3833,7 @@ async function refreshUiInner(options = {}) {
       });
     } else if (
       state.propertyLockState &&
+// @ts-ignore
       state.propertyLockState.isEditor &&
       activeEditorSiteId &&
       state.currentBaseUrl &&
@@ -3588,10 +3867,13 @@ async function refreshUiInner(options = {}) {
       if (repairedStoredPageUrls.length) {
         didReconcileStoredPageMarkings = true;
         configs = await config.getConfigs();
+// @ts-ignore
         state.currentConfig = config.normalizeConfig(
           state.currentBaseUrl,
+// @ts-ignore
           configs[state.currentBaseUrl]
         ).config;
+// @ts-ignore
         pageMarkings = (state.currentConfig && state.currentConfig.pageMarkings) || {};
         coverageModel = buildLynxChecklistViewModel({
           pageTypes: propertyPageTypes,
@@ -3617,10 +3899,13 @@ async function refreshUiInner(options = {}) {
       if (removedInvalidUrls.length) {
         didReconcileStoredPageMarkings = true;
         configs = await config.getConfigs();
+// @ts-ignore
         state.currentConfig = config.normalizeConfig(
           state.currentBaseUrl,
+// @ts-ignore
           configs[state.currentBaseUrl]
         ).config;
+// @ts-ignore
         pageMarkings = (state.currentConfig && state.currentConfig.pageMarkings) || {};
       }
     }
@@ -3668,6 +3953,7 @@ async function refreshUiInner(options = {}) {
         tokenValue &&
         state.propertyLockSiteId === propertyLockScopeSiteId &&
         state.propertyLockState &&
+// @ts-ignore
         !state.propertyLockState.isEditor
     )
   );
@@ -3782,6 +4068,7 @@ async function refreshUiInner(options = {}) {
   const navigationInspectionPending = Boolean(
     (currentTabId &&
       popupNavigationInspectionOverlayStarted &&
+// @ts-ignore
       popupNavigationInspectionOverlayTabId === currentTabId &&
       toggleEnabled &&
       effectiveTabState.enabled &&
@@ -3791,6 +4078,7 @@ async function refreshUiInner(options = {}) {
   if (
     popupSpinnerVisible &&
     popupNavigationInspectionOverlayStarted &&
+// @ts-ignore
     popupNavigationInspectionOverlayTabId === currentTabId
   ) {
     setSpinnerMessage("navInspect", PopupText.overlay.pageInspection);
@@ -3878,6 +4166,7 @@ async function refreshUiInner(options = {}) {
     (pageSaveReconciliationPending &&
       Boolean(
         state.currentPageSaveReconciliation &&
+// @ts-ignore
         state.currentPageSaveReconciliation.reason === SILENT_HIGHLIGHTING_PREPARATION_REASON
       ));
   // In silent mode no spinner key drives the curtain, so keep polling until the
@@ -3945,20 +4234,28 @@ async function refreshUiInner(options = {}) {
     clearRemoteConfigRetryTimer();
   }
 
+// @ts-ignore
   nextViewState.currentView = resolvedView;
+// @ts-ignore
   nextViewState.configurationContinueDisabled = !configurationComplete;
+// @ts-ignore
   nextViewState.configurationBackDisabled = !configurationComplete;
+// @ts-ignore
   nextViewState.configurationNoticeVisible =
     !configurationComplete ||
     remoteConfigRetryBlocked;
+// @ts-ignore
   nextViewState.configurationNoticeText = remoteConfigRetryBlocked
     ? PopupText.configuration.remoteConfigRetryNotice
     : configurationComplete
       ? ""
       : PopupText.configuration.continueSetupNotice;
   const traceDiagnosticsEnabled = isFeatureEnabled("traceDiagnostics");
+// @ts-ignore
   nextViewState.traceModeEnabled = traceDiagnosticsEnabled && Boolean(state.traceModeEnabled);
+// @ts-ignore
   nextViewState.traceEvents = traceDiagnosticsEnabled && Array.isArray(state.traceEvents) ? state.traceEvents : [];
+// @ts-ignore
   nextViewState.traceEventCount = nextViewState.traceEvents.length;
 
   const pageScopedUiDisabled =
@@ -3986,198 +4283,299 @@ async function refreshUiInner(options = {}) {
   const desktopPreviewActive = Boolean(
     desktopPreviewVisible && state.currentDesktopPreviewEnabled
   );
+// @ts-ignore
   nextViewState.toggleEnabled = pageScopedUiDisabled ? false : isEnabled;
+// @ts-ignore
   nextViewState.toggleEnabledDisabled =
     pageScopedUiDisabled ||
     pageSaveReconciliationPending ||
     !baseUrlReady ||
     (!navigationInspectionPending && (!siteIdReady || !renderModeReady || pageTypeUiBlocked)) ||
     desktopPreviewActive;
+// @ts-ignore
   nextViewState.mainUiHidden =
     pageScopedUiDisabled ||
     !isEnabled ||
     (!navigationInspectionPending && (!siteIdReady || !renderModeReady));
+// @ts-ignore
   nextViewState.silentModeActive = silentModeActive;
+// @ts-ignore
   nextViewState.computeButtonDisabled =
     pageScopedUiDisabled ||
     aiBusy ||
     !aiReady ||
     pageSaveReconciliationPending ||
     aiRunUpToDate;
+// @ts-ignore
   nextViewState.saveExcludesButtonDisabled =
     !silentModeActive ||
     aiBusy ||
     !baseUrlReady ||
     !siteIdReady;
+// @ts-ignore
   nextViewState.previewLatestButtonDisabled =
     !silentModeActive ||
     aiBusy ||
     !baseUrlReady ||
     !siteIdReady ||
     !hasStoredSelectors;
+// @ts-ignore
   nextViewState.renderModeReady = renderModeReady;
+// @ts-ignore
   nextViewState.todoListVisible = siteIdReady && renderModeReady;
+// @ts-ignore
   nextViewState.renderModeValue = renderModeField.value;
+// @ts-ignore
   nextViewState.renderModeReadOnly = !renderModeField.isEditing;
+// @ts-ignore
   nextViewState.renderModeSetVisible = renderModeRequired && renderModeField.isEditing;
+// @ts-ignore
   nextViewState.renderModeEditVisible = renderModeSet && renderModeRequired;
+// @ts-ignore
   nextViewState.renderModeEditText = state.renderModeEditMode
     ? ViewText.cancelAction
     : ViewText.changeAction;
+// @ts-ignore
   nextViewState.renderModeNoticeText = renderModeNoticeText;
+// @ts-ignore
   nextViewState.renderModeNoticeVisible = renderModeNoticeVisible;
+// @ts-ignore
   nextViewState.renderModeUndeterminedVisible =
     renderModeValueUndetermined || state.renderModeDetectionUnsure;
+// @ts-ignore
   nextViewState.renderModeWarningVisible = false;
+// @ts-ignore
   nextViewState.renderModeWarningAcknowledgeChecked = false;
+// @ts-ignore
   nextViewState.renderModeWarningOkDisabled = true;
+// @ts-ignore
   nextViewState.lynxChecklistVisible = Boolean(state.lynxChecklistVisible);
+// @ts-ignore
   nextViewState.lynxChecklistAiAnswer = state.lynxChecklistAiAnswer || "";
+// @ts-ignore
   nextViewState.lynxChecklistPageTypes = Array.isArray(state.lynxChecklistPageTypes)
     ? state.lynxChecklistPageTypes
     : [];
+// @ts-ignore
   nextViewState.lynxChecklistAiQuestionDisabled = Boolean(state.lynxChecklistAiQuestionDisabled);
+// @ts-ignore
   nextViewState.lynxChecklistAiQuestionHidden = Boolean(state.lynxChecklistAiQuestionHidden);
+// @ts-ignore
   nextViewState.lynxChecklistNoticeText = state.lynxChecklistNoticeText || "";
+// @ts-ignore
   nextViewState.sessionHasPendingChanges = sessionHasPendingChanges;
+// @ts-ignore
   nextViewState.currentPageHasPendingChanges = currentPageHasPendingChanges;
+// @ts-ignore
   nextViewState.sessionRequiresAiRun = sessionRequiresAiRun;
+// @ts-ignore
   nextViewState.renderModeInputDisabled =
     aiBusy ||
     pageScopedUiDisabled ||
     !renderModeRequired ||
     !Boolean(state.currentConfig);
+// @ts-ignore
   nextViewState.renderModeInspectButtonsDisabled =
     aiBusy ||
     pageScopedUiDisabled ||
     !renderModeRequired ||
+// @ts-ignore
     !Boolean(state.currentTab && state.currentTab.id);
   // Alternate the two inspect buttons by the tab's current JavaScript mode so the
   // same mode cannot be triggered twice: while the page runs JavaScript only
   // "Without JavaScript" is enabled, and once it is held in no-JS mode only "With
   // JavaScript" is enabled.
+// @ts-ignore
   nextViewState.renderModeInspectWithoutJavaScriptDisabled =
+// @ts-ignore
     nextViewState.renderModeInspectButtonsDisabled || Boolean(state.renderModeTabJsDisabled);
+// @ts-ignore
   nextViewState.renderModeInspectWithJavaScriptDisabled =
+// @ts-ignore
     nextViewState.renderModeInspectButtonsDisabled || !Boolean(state.renderModeTabJsDisabled);
+// @ts-ignore
   nextViewState.renderModeSetDisabled =
     aiBusy ||
     pageScopedUiDisabled ||
     !renderModeRequired ||
     renderModeValueUndetermined ||
     !Boolean(state.currentConfig);
+// @ts-ignore
   nextViewState.renderModeEditDisabled =
     aiBusy ||
     pageScopedUiDisabled ||
     !renderModeRequired ||
     !Boolean(state.currentConfig);
+// @ts-ignore
   nextViewState.renderModeSummaryTitle = PopupText.renderMode.title;
+// @ts-ignore
   nextViewState.renderModeSummaryOpen =
     !renderModeSet || state.renderModeEditMode || state.renderModeSummaryOpen;
+// @ts-ignore
   nextViewState.renderModeSectionVisible = renderModeRequired && (!renderModeSet || state.renderModeEditMode);
+// @ts-ignore
   nextViewState.renderModeChangeMenuVisible =
     resolvedView === uiModule.View.Marking &&
     renderModeRequired &&
     renderModeSet &&
     !pageScopedUiDisabled &&
     currentPageMarkingAllowed;
+// @ts-ignore
   nextViewState.stageBaseValue = stageBaseField.value;
+// @ts-ignore
   nextViewState.stageBaseReadOnly = !stageBaseField.isEditing;
+// @ts-ignore
   nextViewState.stageBaseSetVisible = stageBaseField.isEditing;
+// @ts-ignore
   nextViewState.stageBaseEditVisible = stageBaseSet;
+// @ts-ignore
   nextViewState.stageBaseEditText = state.stageBaseEditMode
     ? ViewText.cancelAction
     : ViewText.changeAction;
+// @ts-ignore
   nextViewState.stageBaseNoticeText = stageBaseField.noticeText;
+// @ts-ignore
   nextViewState.stageBaseNoticeVisible = stageBaseField.noticeVisible;
+// @ts-ignore
   nextViewState.stageBaseInputDisabled = configurationUiDisabled;
+// @ts-ignore
   nextViewState.stageBaseSetDisabled = configurationUiDisabled;
+// @ts-ignore
   nextViewState.stageBaseEditDisabled = configurationUiDisabled;
+// @ts-ignore
   nextViewState.themeValue = normalizeThemeValue(state.currentTheme);
+// @ts-ignore
   nextViewState.themeModeValue = normalizeThemeModeValue(state.currentThemeMode);
+// @ts-ignore
   nextViewState.themeOptions = THEME_OPTIONS;
+// @ts-ignore
   nextViewState.themeModeOptions = themeModeOptions;
+// @ts-ignore
   nextViewState.themeControlsDisabled = configurationUiDisabled;
+// @ts-ignore
   nextViewState.loginEmailValue = loginEmailValue;
+// @ts-ignore
   nextViewState.loginPasswordValue = loginPasswordValue;
+// @ts-ignore
   nextViewState.loginCredentialsDisabled =
     configurationUiDisabled || !loginCredentialsEnabled;
+// @ts-ignore
   nextViewState.loginStatusText = tokenValue
     ? PopupText.authentication.statusTokenSaved
     : PopupText.authentication.statusLoginRequired;
+// @ts-ignore
   nextViewState.loginStatusTone = tokenValue ? "success" : "warning";
+// @ts-ignore
   nextViewState.loginActionDisabled =
     configurationUiDisabled ||
     !loginCredentialsEnabled ||
     !isValidEmail(loginEmailValue.trim()) ||
     !loginPasswordValue.trim();
+// @ts-ignore
   nextViewState.configEndpointUrlValue = configEndpointField.value;
+// @ts-ignore
   nextViewState.configEndpointUrlReadOnly = !configEndpointField.isEditing;
+// @ts-ignore
   nextViewState.configEndpointSetVisible = configEndpointField.isEditing;
+// @ts-ignore
   nextViewState.configEndpointEditVisible = configEndpointSet;
+// @ts-ignore
   nextViewState.configEndpointEditText = state.configEndpointEditMode
     ? ViewText.cancelAction
     : ViewText.changeAction;
+// @ts-ignore
   nextViewState.configEndpointNoticeText = configEndpointField.noticeText;
+// @ts-ignore
   nextViewState.configEndpointNoticeVisible = configEndpointField.noticeVisible;
+// @ts-ignore
   nextViewState.configEndpointInputDisabled = configurationUiDisabled;
+// @ts-ignore
   nextViewState.configEndpointSetDisabled = configurationUiDisabled;
+// @ts-ignore
   nextViewState.configEndpointEditDisabled = configurationUiDisabled;
 
+// @ts-ignore
   nextViewState.endpointUrlValue = endpointField.value;
+// @ts-ignore
   nextViewState.endpointUrlReadOnly = !endpointField.isEditing;
+// @ts-ignore
   nextViewState.endpointSetVisible = endpointField.isEditing;
+// @ts-ignore
   nextViewState.endpointEditVisible = endpointSet;
+// @ts-ignore
   nextViewState.endpointEditText = state.endpointEditMode
     ? ViewText.cancelAction
     : ViewText.changeAction;
+// @ts-ignore
   nextViewState.endpointNoticeText = endpointField.noticeText;
+// @ts-ignore
   nextViewState.endpointNoticeVisible = endpointField.noticeVisible;
+// @ts-ignore
   nextViewState.endpointInputDisabled = configurationUiDisabled;
+// @ts-ignore
   nextViewState.endpointSetDisabled = configurationUiDisabled;
+// @ts-ignore
   nextViewState.endpointEditDisabled = configurationUiDisabled;
+// @ts-ignore
   nextViewState.clearDomainCacheDisabled =
     !isFeatureEnabled("cacheAndUnregisterTools") || state.clearDomainCacheDisabled;
+// @ts-ignore
   nextViewState.unregisterCurrentTabDisabled =
     !isFeatureEnabled("cacheAndUnregisterTools") ||
+// @ts-ignore
     state.unregisterCurrentTabDisabled || !state.currentTab || !state.currentTab.id;
+// @ts-ignore
   nextViewState.computeButtonText =
     state.aiRequestInFlight === "compute"
       ? ViewText.computeButtonBusy
       : ViewText.computeButtonIdle;
+// @ts-ignore
   nextViewState.saveExcludesButtonText =
     state.aiRequestInFlight === "save"
       ? ViewText.saveExcludesBusy
       : ViewText.saveExcludesIdle;
+// @ts-ignore
   nextViewState.computeButtonLoading = state.aiRequestInFlight === "compute";
+// @ts-ignore
   nextViewState.saveExcludesButtonLoading = state.aiRequestInFlight === "save";
+// @ts-ignore
   nextViewState.aiRunSpinnerNote =
     state.aiRequestInFlight === "compute"
       ? PopupText.overlay.computingSelectorsNote
       : "";
+// @ts-ignore
   nextViewState.aiRunCountdownVisible =
     state.aiRequestInFlight === "compute" && state.aiRunDeadlineAt > 0;
+// @ts-ignore
   nextViewState.aiRunCountdownText =
     state.aiRequestInFlight === "compute"
       ? formatAiRunCountdown(
           state.aiRunRemainingMs || getAiRunRemainingMs(state.aiRunDeadlineAt)
         )
       : "0:00";
+// @ts-ignore
   nextViewState.aiControlsBusy = aiBusy;
+// @ts-ignore
   nextViewState.aiDirtyNoticeVisible = pageSaveReconciliationPending;
+// @ts-ignore
   nextViewState.aiDirtyNoticeText = pageSaveReconciliationPending
     ? PopupText.page.statusServerSyncPending
     : PopupText.ai.dirtyNotice;
+// @ts-ignore
   nextViewState.cssSelectorsVisible = silentModeActive;
+// @ts-ignore
   nextViewState.baseUrlInputValue = baseField.value;
+// @ts-ignore
   nextViewState.baseUrlNoticeText =
     state.remoteConfigConnectionIssue
       ? PopupText.status.remoteConfigRetryNotice
       : effectiveSiteIdBlockedReason || baseField.noticeText;
+// @ts-ignore
   nextViewState.baseUrlNoticeVisible =
     state.remoteConfigConnectionIssue ||
     Boolean(effectiveSiteIdBlockedReason) ||
     baseField.noticeVisible;
+// @ts-ignore
   const pageControlsVisible = !nextViewState.mainUiHidden && nextViewState.renderModeReady;
   const pageSaveUiState = buildPageSaveUiState({
     pageControlsVisible,
@@ -4187,71 +4585,106 @@ async function refreshUiInner(options = {}) {
     pageHasSavedBaseline: hasBackendSavedPageMarking(backendSavedPageMarkings, pageUrl),
     reconciliation: state.currentPageSaveReconciliation
   });
+// @ts-ignore
   nextViewState.pageSaveDisabled = pageSaveUiState.pageSaveDisabled;
+// @ts-ignore
   nextViewState.pageSaveMobileSimulationRequiredVisible =
     pageSaveUiState.pageSaveMobileSimulationRequiredVisible;
+// @ts-ignore
   nextViewState.pageSaveMobileSimulationRequiredText =
     PopupText.page.mobileSimulationRequired;
+// @ts-ignore
   nextViewState.pageRevertDisabled = pageSaveUiState.pageRevertDisabled;
   // Marking-mode "Preview Content": let the user see the AI content detection
   // without leaving marking mode. Mirrors Save gating - only available once a
   // successful AI run matches the live markings (and before the next change).
+// @ts-ignore
   nextViewState.markingPreviewVisible = pageControlsVisible && Boolean(isEnabled);
+// @ts-ignore
   nextViewState.markingPreviewDisabled =
     aiBusy ||
     pageSaveReconciliationPending ||
     !aiRunUpToDate;
+// @ts-ignore
   nextViewState.pageDraftStatusText = pageSaveUiState.pageDraftStatusText;
+// @ts-ignore
   nextViewState.pageDraftStatusTone = pageSaveUiState.pageDraftStatusTone;
+// @ts-ignore
   nextViewState.pageSessionNoticeVisible = pageSaveUiState.pageSessionNoticeVisible;
+// @ts-ignore
   nextViewState.pageSessionNoticeText = pageSaveUiState.pageSessionNoticeText;
+// @ts-ignore
   nextViewState.aiDirtyNoticeText = pageSaveUiState.aiDirtyNoticeText;
+// @ts-ignore
   nextViewState.syncLoadStatusText = state.lastConfigLoadStatusText || ViewText.syncLoadIdle;
+// @ts-ignore
   nextViewState.syncLoadStatusTone = state.lastConfigLoadStatusTone || "muted";
+// @ts-ignore
   nextViewState.syncSaveStatusText = state.lastConfigSaveStatusText || ViewText.syncSaveIdle;
+// @ts-ignore
   nextViewState.syncSaveStatusTone = state.lastConfigSaveStatusTone || "muted";
   const popupBusyActive = popupSpinnerVisible;
   const popupSpinnerSnapshot = currentSpinnerSnapshot();
+// @ts-ignore
   const backgroundLifecycleBusy = Boolean(popupBackgroundLifecycle && popupBackgroundLifecycle.busy);
+// @ts-ignore
   nextViewState.isBusy = popupBusyActive || backgroundLifecycleBusy || remoteConfigRetryBlocked || pageInspectionBusy;
+// @ts-ignore
   nextViewState.busyMessage = popupBusyActive
     ? currentSpinnerMessage()
     : backgroundLifecycleBusy
+// @ts-ignore
       ? (popupBackgroundLifecycle.message || PopupText.overlay.pleaseWait)
     : remoteConfigRetryBlocked
       ? PopupText.status.remoteServerRetryNotice
       : pageInspectionBusy
         ? PopupText.overlay.pageInspection
         : "";
+// @ts-ignore
   nextViewState.busyReason = popupBusyActive
     ? normalizeSpinnerReason(popupSpinnerSnapshot?.entry?.reason, popupSpinnerSnapshot?.key, currentSpinnerMessage())
     : backgroundLifecycleBusy
+// @ts-ignore
       ? normalizeSpinnerReason(popupBackgroundLifecycle.reason, popupBackgroundLifecycle.kind || "lifecycle", popupBackgroundLifecycle.message)
       : "";
+// @ts-ignore
   nextViewState.busySource = popupBusyActive
     ? (popupSpinnerSnapshot?.entry?.source || "popup-spinner")
     : backgroundLifecycleBusy
       ? "background-lifecycle"
       : "";
+// @ts-ignore
   nextViewState.busySpinnerKey = popupBusyActive
     ? (popupSpinnerSnapshot?.key || "")
     : "";
+// @ts-ignore
   nextViewState.pageDataNewNoticeHidden = pageSaveUiState.pageDataNewNoticeHidden;
+// @ts-ignore
   nextViewState.deviceEmulationEnabled = normalizedDeviceState.enabled;
+// @ts-ignore
   nextViewState.deviceMode = normalizedDeviceState.mode;
+// @ts-ignore
   nextViewState.deviceScale = normalizedDeviceState.scale.toFixed(2);
+// @ts-ignore
   nextViewState.deviceScaleValue = formatScalePercent(normalizedDeviceState.scale);
+// @ts-ignore
   nextViewState.deviceControlsDisabled = Boolean(state.deviceControlsDisabled || isEnabled);
+// @ts-ignore
   nextViewState.desktopPreviewVisible = desktopPreviewVisible;
+// @ts-ignore
   nextViewState.desktopPreviewEnabled = desktopPreviewActive;
+// @ts-ignore
   nextViewState.desktopPreviewDisabled =
     aiBusy ||
     !currentTabId ||
     !renderModeReady ||
     pageInspectionBusy ||
     state.deviceControlsDisabled;
+// @ts-ignore
   nextViewState.desktopPreviewNoticeVisible = desktopPreviewActive;
+// @ts-ignore
   nextViewState.desktopPreviewNoticeText = PopupText.device.desktopPreviewNotice;
+// @ts-ignore
   nextViewState.pageTypeGroups = pageTypeCoverageModel.pageTypes.map((pageType) => {
     const groupCurrent =
       currentPageMarkingAllowed &&
@@ -4281,6 +4714,7 @@ async function refreshUiInner(options = {}) {
       })
     };
   });
+// @ts-ignore
   nextViewState.pageTypeGroupsEmptyText = propertyPageTypesFetchError && !pageTypeCoverageModel.pageTypes.length
     ? propertyPageTypesFetchError
     : baseUrlReady
@@ -4297,11 +4731,15 @@ async function refreshUiInner(options = {}) {
         : pageTypeCoverageModel.invalidMarkedPages.length
           ? PopupText.pageTypes.invalidStoredNotice
           : "";
+// @ts-ignore
   nextViewState.pageTypeNoticeText = state.propertyPageTypesChangeNoticeVisible
     ? PopupText.pageTypes.changedNotice
     : pageTypeCandidateNoticeText;
+// @ts-ignore
   nextViewState.pageTypeNoticeVisible = Boolean(nextViewState.pageTypeNoticeText);
+// @ts-ignore
   nextViewState.lynxChecklistPageTypes = propertyPageTypes;
+// @ts-ignore
   nextViewState.markedPages = pageTypeCoverageModel.activeMarkedPages
     .map((item) => {
       const key = buildPageMarkingKey(item.url, item.pageType);
@@ -4314,6 +4752,7 @@ async function refreshUiInner(options = {}) {
       };
     })
     .sort((left, right) => left.title.localeCompare(right.title));
+// @ts-ignore
   nextViewState.markedPagesEmptyText = baseUrlReady
     ? PopupText.pageTypes.markRequirement
     : effectiveSiteIdBlockedReason || ViewText.noMappedBaseUrlOrSiteId;
@@ -4328,6 +4767,7 @@ async function refreshUiInner(options = {}) {
       endpointValue: configEndpointValue,
       tokenValue,
       siteId: liveSiteId,
+// @ts-ignore
       invalidUrls: invalidStoredPageUrlsForRemote
     }).then();
   }
@@ -4356,6 +4796,7 @@ async function refreshUiInner(options = {}) {
   const hasNoTodoExpansionContext = !nextTodoExpansionKey;
   const movedToDifferentProperty = state.currentBaseUrl !== previousBaseUrl;
   const shouldAutoCollapseOnContextChange =
+// @ts-ignore
     todoExpansionContextChanged && nextViewState.todoAutoCollapse;
   const todoExpansionShouldCollapse =
     hasNoTodoExpansionContext ||
@@ -4372,9 +4813,12 @@ async function refreshUiInner(options = {}) {
   if (
     propertyPageTypesRefreshChanged &&
     state.propertyPageTypesChangeForceTodoOpen &&
+// @ts-ignore
     nextViewState.todoListVisible
   ) {
+// @ts-ignore
     nextViewState.todoControlsMenuOpen = false;
+// @ts-ignore
     nextViewState.todoSectionExpanded = true;
     state.propertyPageTypesChangeForceTodoOpen = false;
   }
@@ -4382,6 +4826,7 @@ async function refreshUiInner(options = {}) {
 
   await syncRenderModeDebuggerLifecycle({
     wasVisible: Boolean(view.renderModeSectionVisible),
+// @ts-ignore
     isVisible: Boolean(nextViewState.renderModeSectionVisible),
     currentTabId
   });
@@ -4393,7 +4838,9 @@ async function maybeResumePersistedAiRun() {
   if (state.aiRequestInFlight || state.aiRunResumeInFlight) {
     return;
   }
+// @ts-ignore
   const currentTabId = state.currentTab && Number.isFinite(state.currentTab.id)
+// @ts-ignore
     ? state.currentTab.id
     : null;
   const siteId = normalizeSiteIdValue(state.currentSiteId);
@@ -4450,6 +4897,7 @@ async function maybeResumePersistedAiRun() {
     const currentPageUrl = getCurrentPageUrl();
     setAiRunActiveState({
       sessionId: persistedRun.sessionId,
+// @ts-ignore
       siteId,
       deadlineAt: persistedRun.deadlineAt,
       resumed: true,
@@ -4472,10 +4920,12 @@ async function maybeResumePersistedAiRun() {
           sessionId: persistedRun.sessionId
         });
       } catch {
+// @ts-ignore
         await failAiRun(PopupText.ai.runUnavailable);
         return;
       }
       if (!result.ok) {
+// @ts-ignore
         await failAiRun(result.notFound ? PopupText.ai.runUnavailable : PopupText.ai.runFailed);
         return;
       }
@@ -4497,11 +4947,16 @@ async function maybeResumePersistedAiRun() {
 }
 
 async function refreshUi(options = {}) {
+// @ts-ignore
   const useBusyOverlay = options.useBusyOverlay !== false;
   const refreshOptions = {
+// @ts-ignore
     skipPropertyLockFetch: Boolean(options.skipPropertyLockFetch),
+// @ts-ignore
     propertyPageTypesRefreshChanged: Boolean(options.propertyPageTypesRefreshChanged),
+// @ts-ignore
     remoteConfigLoadMode: typeof options.remoteConfigLoadMode === "string"
+// @ts-ignore
       ? options.remoteConfigLoadMode
       : ""
   };
@@ -4520,18 +4975,22 @@ async function refreshUi(options = {}) {
   return response;
 }
 
+// @ts-ignore
 function handleConfigEndpointInput(event) {
   uiModule.setViewState({ configEndpointUrlValue: event.target.value });
 }
 
+// @ts-ignore
 function handleEndpointInput(event) {
   uiModule.setViewState({ endpointUrlValue: event.target.value });
 }
 
+// @ts-ignore
 function handleStageBaseInput(event) {
   uiModule.setViewState({ stageBaseValue: event.target.value });
 }
 
+// @ts-ignore
 async function handleThemeInput(event) {
   if (!isFeatureEnabled("appearanceCustomization")) {
     resetDisabledAppearanceCustomization();
@@ -4543,6 +5002,7 @@ async function handleThemeInput(event) {
   await applyThemeValue(nextThemeValue);
 }
 
+// @ts-ignore
 async function applyThemeValue(nextThemeValue) {
   if (!isFeatureEnabled("appearanceCustomization")) {
     resetDisabledAppearanceCustomization();
@@ -4571,6 +5031,7 @@ function getThemeMenuPlacement() {
   return spaceBelow < 220 && spaceAbove > spaceBelow ? "top" : "bottom";
 }
 
+// @ts-ignore
 function handleThemeMenuToggle(event) {
   if (!isFeatureEnabled("appearanceCustomization")) {
     resetDisabledAppearanceCustomization();
@@ -4581,6 +5042,7 @@ function handleThemeMenuToggle(event) {
   uiModule.setThemeMenuOpen(!view.themeMenuOpen, getThemeMenuPlacement());
 }
 
+// @ts-ignore
 function handleThemeMenuKeyDown(event) {
   const key = event && typeof event.key === "string" ? event.key : "";
   let indexDelta = null;
@@ -4612,6 +5074,7 @@ function handleThemeMenuKeyDown(event) {
   });
 }
 
+// @ts-ignore
 async function handleThemeOptionSelect(value) {
   if (!isFeatureEnabled("appearanceCustomization")) {
     resetDisabledAppearanceCustomization();
@@ -4620,6 +5083,7 @@ async function handleThemeOptionSelect(value) {
   await applyThemeValue(normalizeThemeValue(value));
 }
 
+// @ts-ignore
 async function cycleTheme(direction) {
   if (!isFeatureEnabled("appearanceCustomization")) {
     resetDisabledAppearanceCustomization();
@@ -4652,6 +5116,7 @@ async function handleThemeNext() {
   await cycleTheme(1);
 }
 
+// @ts-ignore
 async function handleThemeModeInput(event) {
   if (!isFeatureEnabled("appearanceCustomization")) {
     resetDisabledAppearanceCustomization();
@@ -4671,6 +5136,7 @@ async function handleThemeModeInput(event) {
   await persistThemeSettings(state.currentTheme, state.currentThemeMode);
 }
 
+// @ts-ignore
 function handleRenderModeInput(event) {
   const nextRenderMode = normalizeUiRenderModeValue(
     event && event.target ? event.target.value : uiModule.getViewState().renderModeValue
@@ -4687,7 +5153,9 @@ function handleRenderModeInput(event) {
   });
 }
 
+// @ts-ignore
 async function runRenderModeInspectionReload(javaScriptDisabled) {
+// @ts-ignore
   const tabId = state.currentTab && state.currentTab.id;
   if (!tabId) {
     uiModule.showToast(PopupText.renderMode.toastUnavailable);
@@ -4704,7 +5172,9 @@ async function runRenderModeInspectionReload(javaScriptDisabled) {
           javaScriptDisabled,
           operationId
         });
+// @ts-ignore
         const operationResult = inspectionResponse && inspectionResponse.ok && inspectionResponse.result
+// @ts-ignore
           ? inspectionResponse.result
           : null;
         const inspectionResult = operationResult && operationResult.result && typeof operationResult.result === "object"
@@ -4713,6 +5183,7 @@ async function runRenderModeInspectionReload(javaScriptDisabled) {
         const inspectionFailureError = inspectionResult && typeof inspectionResult.followUpError === "string" && inspectionResult.followUpError
           ? inspectionResult.followUpError
           : (operationResult && typeof operationResult.error === "string" && operationResult.error) ||
+// @ts-ignore
             (inspectionResponse && inspectionResponse.error) || "";
         const reloadResult = inspectionResult && inspectionResult.reloadResult && typeof inspectionResult.reloadResult === "object"
           ? inspectionResult.reloadResult
@@ -4735,6 +5206,7 @@ async function runRenderModeInspectionReload(javaScriptDisabled) {
           if (snapshot) {
             rememberRenderModeInspectionSnapshot(
               state.currentBaseUrl,
+// @ts-ignore
               snapshot.pageUrl || (state.currentTab && state.currentTab.url) || "",
               snapshot
             );
@@ -4755,6 +5227,7 @@ async function runRenderModeInspectionReload(javaScriptDisabled) {
   }
 }
 
+// @ts-ignore
 async function normalizeRenderModeDebuggerPage(tabId) {
   if (!tabId) {
     return;
@@ -4783,6 +5256,7 @@ async function normalizeRenderModeDebuggerPage(tabId) {
   }
 }
 
+// @ts-ignore
 async function syncRenderModeDebuggerLifecycle({ wasVisible, isVisible, currentTabId }) {
   const managedTabId = state.renderModeDebuggerTabId;
 
@@ -4863,11 +5337,13 @@ function closeLynxChecklistPopover() {
   setLynxChecklistViewState();
 }
 
+// @ts-ignore
 function handleLynxChecklistPageTypeDecisionChange(pageTypeKey, event) {
   void pageTypeKey;
   void event;
 }
 
+// @ts-ignore
 function handleLynxChecklistPageTypePageChange(pageTypeKey, event) {
   void pageTypeKey;
   void event;
@@ -4879,6 +5355,7 @@ function handleLynxChecklistCancel() {
 
 async function handleRenderModeSet() {
   await runWithSpinner(null, PopupText.overlay.savingRenderMode, async () => {
+// @ts-ignore
     const tabId = state.currentTab && state.currentTab.id;
     const nextRenderMode = normalizeUiRenderModeValue(uiModule.getViewState().renderModeValue);
     if (isUndeterminedRenderMode(nextRenderMode)) {
@@ -4903,6 +5380,7 @@ async function handleRenderModeSet() {
       return;
     }
     const renderModeUpdatedAt = config.createTimestampNow();
+// @ts-ignore
     state.currentConfig = await config.updateConfig(state.currentBaseUrl, (targetConfig) => {
       targetConfig.renderMode = nextRenderMode;
       targetConfig.renderModeUpdatedAt = renderModeUpdatedAt;
@@ -4927,7 +5405,9 @@ async function handleRenderModeSet() {
     if (tabId) {
       const tabState = await messages.getTabState(tabId);
       const candidateUrl =
+// @ts-ignore
         (state.currentTab && typeof state.currentTab.url === "string"
+// @ts-ignore
           ? state.currentTab.url
           : "");
       const settleBaseUrl =
@@ -4974,6 +5454,7 @@ async function handleOpenRenderModeSection() {
   await refreshUi({ useBusyOverlay: false });
 }
 
+// @ts-ignore
 function handleRenderModeSummaryToggle(event) {
   const target = event && event.currentTarget;
   const nextOpen = Boolean(target && target.open);
@@ -4985,14 +5466,17 @@ function handleRenderModeSummaryToggle(event) {
   uiModule.setViewState({ renderModeSummaryOpen: resolvedOpen });
 }
 
+// @ts-ignore
 function handleLoginEmailInput(event) {
   updateLoginActionState({ loginEmailValue: event.target.value });
 }
 
+// @ts-ignore
 function handleLoginPasswordInput(event) {
   updateLoginActionState({ loginPasswordValue: event.target.value });
 }
 
+// @ts-ignore
 function handleEnterKeyDown(event, shouldHandle, handler) {
   if (event.key !== "Enter") {
     return;
@@ -5003,6 +5487,7 @@ function handleEnterKeyDown(event, shouldHandle, handler) {
   handler();
 }
 
+// @ts-ignore
 function handleConfigEndpointKeyDown(event) {
   handleEnterKeyDown(
     event,
@@ -5011,6 +5496,7 @@ function handleConfigEndpointKeyDown(event) {
   );
 }
 
+// @ts-ignore
 function handleEndpointKeyDown(event) {
   handleEnterKeyDown(
     event,
@@ -5019,6 +5505,7 @@ function handleEndpointKeyDown(event) {
   );
 }
 
+// @ts-ignore
 function handleStageBaseKeyDown(event) {
   handleEnterKeyDown(
     event,
@@ -5027,6 +5514,7 @@ function handleStageBaseKeyDown(event) {
   );
 }
 
+// @ts-ignore
 function handleLoginPasswordKeyDown(event) {
   handleEnterKeyDown(
     event,
@@ -5141,16 +5629,19 @@ async function handlePropertyLockRejectSuggestion() {
   await reconcilePropertyLockAfterCommand();
 }
 
+// @ts-ignore
 function handleConfigToggle(event) {
   event.stopPropagation();
   uiModule.setTodoControlsMenuOpen(false);
   uiModule.setConfigMenuOpen(!state.configMenuOpen);
 }
 
+// @ts-ignore
 function handleConfigMenuClick(event) {
   event.stopPropagation();
 }
 
+// @ts-ignore
 function handleTodoControlsMenuToggle(event) {
   event.stopPropagation();
   const view = uiModule.getViewState();
@@ -5158,6 +5649,7 @@ function handleTodoControlsMenuToggle(event) {
   uiModule.setTodoControlsMenuOpen(!Boolean(view.todoControlsMenuOpen));
 }
 
+// @ts-ignore
 function handleTodoControlsMenuClick(event) {
   event.stopPropagation();
 }
@@ -5168,6 +5660,7 @@ function handleTodoSectionToggle() {
   saveCurrentTodoExpansionState();
 }
 
+// @ts-ignore
 function handleTodoSubsectionToggle(key) {
   const view = uiModule.getViewState();
   const expanded = Boolean(view.todoSubsectionsExpanded && view.todoSubsectionsExpanded[key]);
@@ -5231,6 +5724,7 @@ async function handleConfigurationContinue() {
   await refreshUi();
 }
 
+// @ts-ignore
 async function handleExplicitExcludeView(xpath) {
   await runWithSpinner(null, PopupText.overlay.locatingElement, async () => {
     const response = await messages.sendTabMessage({
@@ -5243,6 +5737,7 @@ async function handleExplicitExcludeView(xpath) {
   }, { delayMs: POPUP_BUSY_OVERLAY_DELAY_MS });
 }
 
+// @ts-ignore
 async function handleExplicitExcludeRemove(xpath) {
   if (!state.currentBaseUrl) {
     return;
@@ -5266,6 +5761,7 @@ async function handleExplicitExcludeRemove(xpath) {
   await refreshUi({ useBusyOverlay: false, skipPropertyLockFetch: true });
 }
 
+// @ts-ignore
 async function handleExplicitIncludeView(xpath) {
   await runWithSpinner(null, PopupText.overlay.locatingElement, async () => {
     const response = await messages.sendTabMessage({
@@ -5278,6 +5774,7 @@ async function handleExplicitIncludeView(xpath) {
   }, { delayMs: POPUP_BUSY_OVERLAY_DELAY_MS });
 }
 
+// @ts-ignore
 async function handleExplicitIncludeRemove(xpath) {
   if (!state.currentBaseUrl) {
     return;
@@ -5301,6 +5798,7 @@ async function handleExplicitIncludeRemove(xpath) {
   await refreshUi({ useBusyOverlay: false, skipPropertyLockFetch: true });
 }
 
+// @ts-ignore
 async function navigateActiveTabToUrl(url) {
   const tab = await helpers.ensureActiveTab({ requireId: true });
   if (!tab) {
@@ -5357,6 +5855,7 @@ async function confirmNavigationAwayFromMarking() {
   return true;
 }
 
+// @ts-ignore
 async function navigateActiveTabToUrlWithTodoCollapse(url) {
   if (!(await confirmNavigationAwayFromMarking())) {
     return false;
@@ -5368,10 +5867,12 @@ async function navigateActiveTabToUrlWithTodoCollapse(url) {
   return navigated;
 }
 
+// @ts-ignore
 async function handleMarkedPageNavigate(url) {
   await navigateActiveTabToUrlWithTodoCollapse(url);
 }
 
+// @ts-ignore
 async function handleLynxChecklistCandidateNavigate(url) {
   if (!url) {
     return;
@@ -5380,6 +5881,7 @@ async function handleLynxChecklistCandidateNavigate(url) {
   await navigateActiveTabToUrlWithTodoCollapse(url);
 }
 
+// @ts-ignore
 async function handleEnableToggle(event) {
   const source = event && (event.currentTarget || event.target);
   const currentViewState = uiModule.getViewState();
@@ -5393,9 +5895,12 @@ async function handleEnableToggle(event) {
   const pendingKnownFromCurrentView = Boolean(
     !desiredEnabled && currentViewState.sessionHasPendingChanges
   );
+// @ts-ignore
   let immediateDisableSpinnerKey = null;
   const showImmediateDisableSpinner = () => {
+// @ts-ignore
     if (desiredEnabled || immediateDisableSpinnerKey) {
+// @ts-ignore
       return immediateDisableSpinnerKey;
     }
     immediateDisableSpinnerKey = pushSpinner(null, PopupText.overlay.disablingMarking, {
@@ -5405,6 +5910,7 @@ async function handleEnableToggle(event) {
     return immediateDisableSpinnerKey;
   };
   const clearImmediateDisableSpinner = () => {
+// @ts-ignore
     if (!immediateDisableSpinnerKey) {
       return;
     }
@@ -5476,6 +5982,7 @@ async function handleEnableToggle(event) {
       if (!confirmedDiscard) {
         // Cancel: stay in marking mode with the pending session intact.
         uiModule.setViewState({ toggleEnabled: true });
+// @ts-ignore
         setLastPopupEnabled(true, buildPopupEnabledContext(tab, state.currentBaseUrl));
         await refreshUi();
         return;
@@ -5485,12 +5992,14 @@ async function handleEnableToggle(event) {
       showImmediateDisableSpinner();
       await applyLocalPageDiscard();
     }
+// @ts-ignore
     setLastPopupEnabled(desiredEnabled, buildPopupEnabledContext(tab, state.currentBaseUrl));
     const baseUrlValue = state.currentBaseUrl;
     const currentPageTypeKey = desiredEnabled ? state.currentPageTypeKey || "" : "";
     await runWithSpinner(
       desiredEnabled ? null : immediateDisableSpinnerKey,
       desiredEnabled ? PopupText.overlay.enablingMarking : PopupText.overlay.disablingMarking,
+// @ts-ignore
       async (spinnerKey) => {
         if (desiredEnabled) {
           const parsed = utils.parseBaseUrl(baseUrlValue);
@@ -5510,7 +6019,9 @@ async function handleEnableToggle(event) {
           }
           {
             const currentConfigs = await config.getConfigs();
+// @ts-ignore
             const normalizedCurrent = config.normalizeConfig(baseUrlValue, currentConfigs[baseUrlValue]);
+// @ts-ignore
             state.currentConfig = normalizedCurrent.config;
           }
           const { stageBaseValue, tokenValue } = await helpers.loadGlobalAiSettings();
@@ -5547,9 +6058,12 @@ async function handleEnableToggle(event) {
           if (!enableResponse || !enableResponse.ok) {
             uiModule.setViewState({ toggleEnabled: false });
             clearLastPopupEnabled();
+// @ts-ignore
             if (enableResponse?.locked) {
+// @ts-ignore
               uiModule.showToast(propertyLockText.lockedInteractionBlockedToast(state.propertyLockState?.editorName || "Someone"));
             } else {
+// @ts-ignore
               uiModule.showToast(enableResponse?.error || PopupText.helper.activateFailedOnPage);
             }
             await refreshUi();
@@ -5565,7 +6079,9 @@ async function handleEnableToggle(event) {
           });
           if (!disableResponse || !disableResponse.ok) {
             uiModule.setViewState({ toggleEnabled: true });
+// @ts-ignore
             setLastPopupEnabled(true, buildPopupEnabledContext(tab, state.currentBaseUrl));
+// @ts-ignore
             uiModule.showToast((disableResponse && disableResponse.error) || "Unable to disable marking");
             await refreshUi();
             return;
@@ -5581,6 +6097,7 @@ async function handleEnableToggle(event) {
   }
 }
 
+// @ts-ignore
 async function handleDeviceEmulationEnabledToggle(event) {
   if (!isFeatureEnabled("deviceEmulationToggle")) {
     return;
@@ -5605,6 +6122,7 @@ async function handleDeviceEmulationEnabledToggle(event) {
   });
 }
 
+// @ts-ignore
 async function handleDesktopPreviewEnabledToggle(event) {
   if (!isFeatureEnabled("desktopPreview")) {
     return;
@@ -5616,6 +6134,7 @@ async function handleDesktopPreviewEnabledToggle(event) {
     return;
   }
   const tab = state.currentTab;
+// @ts-ignore
   if (!tab || !tab.id) {
     return;
   }
@@ -5650,6 +6169,7 @@ async function handleDesktopPreviewEnabledToggle(event) {
         await refreshUi({ useBusyOverlay: false, skipPropertyLockFetch: true });
         return;
       }
+// @ts-ignore
       await persistDesktopPreviewEnabled(tab.id, desiredEnabled);
       await refreshUi({ useBusyOverlay: false, skipPropertyLockFetch: true });
     },
@@ -5658,6 +6178,7 @@ async function handleDesktopPreviewEnabledToggle(event) {
 }
 
 
+// @ts-ignore
 function handleDeviceScaleInput(event) {
   const value = event && event.currentTarget
     ? event.currentTarget.value
@@ -5672,6 +6193,7 @@ function handleDeviceScaleInput(event) {
   });
 }
 
+// @ts-ignore
 async function handleDeviceScaleChange(event) {
   const value = event && event.currentTarget
     ? event.currentTarget.value
@@ -5725,6 +6247,7 @@ async function handleClearDomainCache() {
   }
   let hostname = origin;
   try {
+// @ts-ignore
     hostname = new URL(tab.url).hostname;
   } catch (error) {
     hostname = origin;
@@ -5749,6 +6272,7 @@ async function handleClearDomainCache() {
     }
   } catch (error) {
     uiModule.showToast(
+// @ts-ignore
       (error && error.message) || PopupText.cache.toastClearFailed
     );
   } finally {
@@ -5894,6 +6418,7 @@ async function handleLoginAction() {
     return;
   }
 
+// @ts-ignore
   state.aiRequestInFlight = "login";
   await refreshUi();
   let loginSucceeded = false;
@@ -5946,7 +6471,9 @@ async function alignPopupToSilentMode() {
   // so the next refresh renders silent controls. Used by the post-save transition
   // and when navigating away from marking mode.
   const baseUrl = state.currentBaseUrl;
+// @ts-ignore
   const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
+// @ts-ignore
     ? state.currentTab.id
     : null;
   if (tabId !== null) {
@@ -5963,7 +6490,9 @@ async function applyPostSaveSilentTransition() {
   // silent highlighting, and the user stays in silent until Enable Marking
   // re-enters marking from scratch.
   const baseUrl = state.currentBaseUrl;
+// @ts-ignore
   const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
+// @ts-ignore
     ? state.currentTab.id
     : null;
   // Reset + mode drop are owned by background command authority for this tab.
@@ -5984,6 +6513,7 @@ async function applyLocalPageDiscard() {
   const backendSavedPageMarkings = await config.getBackendSavedPageMarkings(baseUrl);
   const backendEntry = findBackendSavedPageMarkingEntry(backendSavedPageMarkings, pageUrl);
   const normalizedTargetUrl = normalizeCandidatePageUrl(pageUrl);
+// @ts-ignore
   state.currentConfig = await config.updateConfig(baseUrl, (targetConfig) => {
     if (!targetConfig.pageMarkings || typeof targetConfig.pageMarkings !== "object") {
       targetConfig.pageMarkings = {};
@@ -5997,7 +6527,9 @@ async function applyLocalPageDiscard() {
       targetConfig.pageMarkings[pageUrl] = clonePageMarkingEntry(backendEntry);
     }
   });
+// @ts-ignore
   const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
+// @ts-ignore
     ? state.currentTab.id
     : null;
   if (tabId !== null) {
@@ -6065,6 +6597,7 @@ async function requestAiRunResult({ sessionId = "" } = {}) {
       removeInvalid: true
     })
     : { ok: false };
+// @ts-ignore
   const data = loaded.ok ? loaded.payload : null;
   if (
     !data ||
@@ -6077,18 +6610,22 @@ async function requestAiRunResult({ sessionId = "" } = {}) {
   return { ok: true, selectorSet: normalizeAiSelectorSet(data) };
 }
 
+// @ts-ignore
 async function applyComputedSelectorSet(selectorSet, { currentPageUrl = "", tokenValue = "" } = {}) {
   const selectorsChanged =
     !config.isSelectorSetCurrentForRenderMode(state.currentConfig, "selectors") ||
     !aiSelectorSetsEqual(
       selectorSet,
+// @ts-ignore
       state.currentConfig && state.currentConfig.selectors
     );
   const selectorSetUpdatedAt = selectorsChanged
     ? config.createTimestampNow()
     : config.normalizeEntryTimestamp(
+// @ts-ignore
         state.currentConfig && state.currentConfig.selectorsUpdatedAt
       );
+// @ts-ignore
   state.currentConfig = await config.updateConfig(state.currentBaseUrl, (targetConfig) => {
     targetConfig.selectors = normalizeAiSelectorSet(selectorSet);
     targetConfig.selectorsUpdatedAt = selectorSetUpdatedAt;
@@ -6109,12 +6646,15 @@ async function applyComputedSelectorSet(selectorSet, { currentPageUrl = "", toke
   // Save/Preview enable until the next mark/unmark change.
   captureAiRunMarkingsFingerprint();
 
+// @ts-ignore
   const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
+// @ts-ignore
     ? state.currentTab.id
     : null;
   const previewResponse = await messages.requestTabShowAiPreview(tabId, {
     selectorSet
   });
+// @ts-ignore
   const previewOpened = Boolean(previewResponse && previewResponse.ok && previewResponse.result);
   updateLastConfigSaveStatus(PopupText.ai.selectorsComputedLocally);
   // This state is intentionally unsynced; keep the tone non-muted until Save runs.
@@ -6128,6 +6668,7 @@ async function failAiRun(message = PopupText.ai.runFailed) {
   uiModule.showToast(message);
 }
 
+// @ts-ignore
 function getAiRunCommandFailureMessage(response) {
   const details = response && response.details && typeof response.details === "object"
     ? response.details
@@ -6136,6 +6677,7 @@ function getAiRunCommandFailureMessage(response) {
     return PopupText.page.statusServerSyncPending;
   }
   if (details.locked) {
+// @ts-ignore
     return propertyLockText.lockedInteractionBlockedToast(state.propertyLockState?.editorName || "Someone");
   }
   if (details.reason === "missing_current_page") {
@@ -6158,6 +6700,7 @@ async function continueAiRunPolling({ endpointValue = "", tokenValue = "", curre
     const sessionId = state.aiRunSessionId;
     const remainingMs = getAiRunRemainingMs(state.aiRunDeadlineAt);
     if (!remainingMs) {
+// @ts-ignore
       await failAiRun(PopupText.ai.runTimedOut);
       return;
     }
@@ -6169,6 +6712,7 @@ async function continueAiRunPolling({ endpointValue = "", tokenValue = "", curre
       return;
     }
     if (!getAiRunRemainingMs(state.aiRunDeadlineAt)) {
+// @ts-ignore
       await failAiRun(PopupText.ai.runTimedOut);
       return;
     }
@@ -6182,6 +6726,7 @@ async function continueAiRunPolling({ endpointValue = "", tokenValue = "", curre
       return;
     }
     if (statusResult.notFound) {
+// @ts-ignore
       await failAiRun(state.aiRunResumed ? PopupText.ai.runUnavailable : PopupText.ai.runFailed);
       return;
     }
@@ -6212,6 +6757,7 @@ async function continueAiRunPolling({ endpointValue = "", tokenValue = "", curre
       return;
     }
     if (result.notFound) {
+// @ts-ignore
       await failAiRun(state.aiRunResumed ? PopupText.ai.runUnavailable : PopupText.ai.runFailed);
       return;
     }
@@ -6256,11 +6802,13 @@ async function handleComputeSelectors() {
     const { tokenValue } = credentials;
 
     state.currentConfig = await config.ensureConfig(state.currentBaseUrl);
+// @ts-ignore
     const currentPageUrl = (state.currentTab && state.currentTab.url) || "";
     if (!currentPageUrl) {
       uiModule.showToast(PopupText.ai.currentPageUnavailable);
       return;
     }
+// @ts-ignore
     let pageMarkings = state.currentConfig.pageMarkings || {};
     let currentPageEntry = pageMarkings[currentPageUrl];
     const currentRenderMode = config.getConfigRenderMode(state.currentConfig);
@@ -6281,9 +6829,11 @@ async function handleComputeSelectors() {
       return;
     }
 
+// @ts-ignore
     const siteId = normalizeSiteIdValue(state.currentSiteId || (state.currentConfig && state.currentConfig.siteId));
     const deadlineAt = Date.now() + AI_RUN_TIMEOUT_MS;
     setAiRunActiveState({
+// @ts-ignore
       siteId,
       deadlineAt,
       resumed: false,
@@ -6291,6 +6841,7 @@ async function handleComputeSelectors() {
     });
     await waitForPopupUiPaint();
     try {
+// @ts-ignore
       const tabId = state.currentTab && state.currentTab.id;
       const aiRunResponse = await messages.requestTabRunAi(tabId, {
         baseUrl: state.currentBaseUrl,
@@ -6300,11 +6851,13 @@ async function handleComputeSelectors() {
         siteId,
         deadlineAt
       });
+// @ts-ignore
       if (!aiRunResponse || !aiRunResponse.ok || !aiRunResponse.result) {
         await failAiRun(getAiRunCommandFailureMessage(aiRunResponse));
         return;
       }
 
+// @ts-ignore
       const runResult = aiRunResponse.result;
       if (!Array.isArray(runResult.selectorSet?.exclusionSelectors) || !Array.isArray(runResult.selectorSet?.inclusionSelectors)) {
         await failAiRun(PopupText.ai.runFailed);
@@ -6331,7 +6884,9 @@ async function handleComputeSelectors() {
 
 async function postPageTypeAssignmentsToAiServer(options = {}) {
   const {
+// @ts-ignore
     baseUrl = state.currentBaseUrl,
+// @ts-ignore
     checklistPageTypes = state.lynxChecklistPageTypes
   } = options;
   try {
@@ -6363,8 +6918,11 @@ async function postPageTypeAssignmentsToAiServer(options = {}) {
 
 async function submitSelectorSetToServer(options = {}) {
   const {
+// @ts-ignore
     baseUrl = state.currentBaseUrl,
+// @ts-ignore
     selectorSet = getCurrentSelectorsFromConfig(),
+// @ts-ignore
     tokenValue = ""
   } = options;
 
@@ -6416,11 +6974,13 @@ async function submitSelectorSetToServer(options = {}) {
   );
   let submitTokenValue = (await getStoredGlobalToken()) || tokenValue;
 
+// @ts-ignore
   state.aiRequestInFlight = "save";
   await refreshUi();
   try {
     await postPageTypeAssignmentsToAiServer({
       baseUrl: effectiveBaseUrl,
+// @ts-ignore
       pageMarkings: (state.currentConfig && state.currentConfig.pageMarkings) || {},
       checklistPageTypes: state.lynxChecklistPageTypes
     });
@@ -6468,14 +7028,17 @@ async function submitSelectorSetToServer(options = {}) {
       !config.isSelectorSetCurrentForRenderMode(state.currentConfig, "selectors") ||
       !aiSelectorSetsEqual(
         normalizedSelectorSet,
+// @ts-ignore
         state.currentConfig && state.currentConfig.selectors
       );
     const selectorSetUpdatedAt = selectorsNeedRefresh
       ? config.createTimestampNow()
       : config.normalizeEntryTimestamp(
+// @ts-ignore
           state.currentConfig && state.currentConfig.selectorsUpdatedAt
         );
     const submittedSelectorsFingerprint = getSelectorSetFingerprint(normalizedSelectorSet);
+// @ts-ignore
     state.currentConfig = await config.updateConfig(effectiveBaseUrl, (targetConfig) => {
       targetConfig.selectors = normalizeAiSelectorSet(normalizedSelectorSet);
       targetConfig.selectorsUpdatedAt = selectorSetUpdatedAt;
@@ -6483,6 +7046,7 @@ async function submitSelectorSetToServer(options = {}) {
     });
     state.aiSelectorsComputedSinceLastSubmit = false;
     state.aiSelectorsComputedBaseUrl = "";
+// @ts-ignore
     const currentPageUrl = (state.currentTab && state.currentTab.url) || "";
     const configSyncResult = await syncBaseConfigToServer({
       baseUrl: effectiveBaseUrl,
@@ -6601,20 +7165,25 @@ async function handlePreviewLatest() {
   }
   clearLastPopupEnabled();
   collapseTodoListForAutoCollapse();
+// @ts-ignore
   setPreviewBlocked(true, PopupText.preview.blockedActive);
   try {
+// @ts-ignore
     const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
+// @ts-ignore
       ? state.currentTab.id
       : null;
     const response = await messages.requestTabShowAiPreview(tabId, {
       selectorSet
     });
+// @ts-ignore
     if (!response || !response.ok || !response.result) {
       throw new Error(PopupText.preview.openFailed);
     }
     await refreshUi();
   } catch (error) {
     setPreviewBlocked(false);
+// @ts-ignore
     uiModule.showToast((error && error.message) || PopupText.preview.openFailed);
     await refreshUi();
   }
@@ -6649,20 +7218,25 @@ async function handleMarkingPreview() {
     return;
   }
   collapseTodoListForAutoCollapse();
+// @ts-ignore
   setPreviewBlocked(true, PopupText.preview.blockedActive);
   try {
+// @ts-ignore
     const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
+// @ts-ignore
       ? state.currentTab.id
       : null;
     const response = await messages.requestTabShowAiPreview(tabId, {
       selectorSet
     });
+// @ts-ignore
     if (!response || !response.ok || !response.result) {
       throw new Error(PopupText.preview.openFailed);
     }
     await refreshUi();
   } catch (error) {
     setPreviewBlocked(false);
+// @ts-ignore
     uiModule.showToast((error && error.message) || PopupText.preview.openFailed);
     await refreshUi();
   }
@@ -6672,15 +7246,19 @@ async function handleExitPreviewMode() {
   if (!await helpers.ensureActiveTab({ requireId: true })) {
     return;
   }
+// @ts-ignore
   const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
+// @ts-ignore
     ? state.currentTab.id
     : null;
   const response = await messages.requestTabCloseAiPreview(tabId);
+// @ts-ignore
   if (!response || !response.ok || !response.result) {
     uiModule.showToast(PopupText.preview.exitFailed);
   }
 }
 
+// @ts-ignore
 function normalizePreviewItems(items) {
   if (!Array.isArray(items)) {
     return [];
@@ -6695,6 +7273,7 @@ function normalizePreviewItems(items) {
     }));
 }
 
+// @ts-ignore
 function buildPreviewViewState(previewState) {
   const previewMode = typeof (previewState && previewState.mode) === "string"
     ? previewState.mode
@@ -6716,6 +7295,7 @@ function buildPreviewViewState(previewState) {
   };
 }
 
+// @ts-ignore
 async function handlePreviewShowAllCategoriesChange(event) {
   if (!isFeatureEnabled("previewExpandedStates")) {
     uiModule.setViewState({ previewShowAllCategories: false });
@@ -6729,34 +7309,43 @@ async function handlePreviewShowAllCategoriesChange(event) {
     return;
   }
   try {
+// @ts-ignore
     const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
+// @ts-ignore
       ? state.currentTab.id
       : null;
     const response = await messages.requestTabSetAiPreviewExpandedMode(tabId, {
       active: nextChecked
     });
+// @ts-ignore
     if (!response || !response.ok || !response.result) {
       throw new Error(PopupText.preview.updateFailed);
     }
+// @ts-ignore
     uiModule.setViewState(buildPreviewViewState(response.result.previewState || null));
   } catch (error) {
     uiModule.setViewState({ previewShowAllCategories: previousChecked });
+// @ts-ignore
     uiModule.showToast((error && error.message) || PopupText.preview.updateFailed);
     await refreshUi({ useBusyOverlay: false, skipPropertyLockFetch: true });
   }
 }
 
+// @ts-ignore
 async function handlePreviewItemFocus(xpath) {
   if (!xpath || !await helpers.ensureActiveTab({ requireId: true })) {
     return;
   }
   uiModule.setViewState({ previewFocusedXpath: xpath });
+// @ts-ignore
   const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
+// @ts-ignore
     ? state.currentTab.id
     : null;
   const response = await messages.requestTabFocusPreviewElement(tabId, {
     xpath
   });
+// @ts-ignore
   if (!response || !response.ok || !response.result) {
     uiModule.showToast(PopupText.explicitSelection.focusFailed);
     await refreshUi();
@@ -6778,6 +7367,7 @@ async function init() {
   state.traceEvents = [];
   state.traceModeEnabled = await loadTraceModeSetting().catch(() => false);
   await helpers.ensureActiveTab();
+// @ts-ignore
   const initTabId = state.currentTab && state.currentTab.id;
   if (initTabId) {
     connectBackgroundStatePort(initTabId);
@@ -6924,10 +7514,12 @@ async function init() {
       return;
     }
     const tab = await chrome.tabs.get(tabId);
+// @ts-ignore
     if (state.currentTab && tab.windowId !== state.currentTab.windowId) {
       return;
     }
     // Remove old-tab spinner storage when switching tabs; the popup keeps only the active tab queue.
+// @ts-ignore
     const oldTabId = state.currentTab && state.currentTab.id;
     if (oldTabId) {
       clearSpinnerQueueInBackground(oldTabId, { transientOnly: true }).catch(() => {});
@@ -6947,6 +7539,7 @@ async function init() {
     popupNavigationInspectionOverlayTabId = null;
     await helpers.ensureActiveTab();
     // Restore spinner queue for the newly active tab.
+// @ts-ignore
     const newTabId = state.currentTab && state.currentTab.id;
     if (newTabId) {
       try {
@@ -6964,12 +7557,14 @@ async function init() {
   });
 
   chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+// @ts-ignore
     if (!state.currentTab || tabId !== state.currentTab.id) {
       return;
     }
     if (!(changeInfo.url || changeInfo.status === "loading" || changeInfo.status === "complete")) {
       return;
     }
+// @ts-ignore
     state.currentTab = tab;
     await messages.sendRuntimeMessage({
       type: "clearReloadRestoreTabState",
@@ -6996,6 +7591,7 @@ async function init() {
         (!candidateUrl || utils.isPageWithinBaseUrl(candidateUrl, settleBaseUrl)))
     );
     if (!inspectionExpected) {
+// @ts-ignore
       if (popupNavigationInspectionOverlayTabId === tabId) {
         endNavigationInspectionOverlay(tabId);
       }
@@ -7037,6 +7633,7 @@ async function init() {
   window.addEventListener("beforeunload", () => {
     clearObserverRemoteConfigRefreshTimer();
     clearPropertyLockOffCandidateRefreshTimer();
+// @ts-ignore
     const tabId = state.currentTab && state.currentTab.id;
     if (tabId) {
       clearSpinnerQueueInBackground(tabId, { transientOnly: true }).catch(() => {});
@@ -7050,18 +7647,24 @@ async function init() {
 
   utils.addStorageChangeListener((changes, areaName) => {
     if (areaName === "sync") {
+// @ts-ignore
       if (changes[GLOBAL_THEME_KEY] || changes[GLOBAL_THEME_MODE_KEY]) {
         const appearanceCustomizationEnabled = isFeatureEnabled("appearanceCustomization");
+// @ts-ignore
         if (!appearanceCustomizationEnabled && (changes[GLOBAL_THEME_KEY] || changes[GLOBAL_THEME_MODE_KEY])) {
           resetDisabledAppearanceCustomization();
         }
+// @ts-ignore
         if (appearanceCustomizationEnabled && changes[GLOBAL_THEME_KEY]) {
           state.currentTheme = normalizeThemeValue(
+// @ts-ignore
             changes[GLOBAL_THEME_KEY].newValue
           );
         }
+// @ts-ignore
         if (appearanceCustomizationEnabled && changes[GLOBAL_THEME_MODE_KEY]) {
           state.currentThemeMode = normalizeThemeModeValue(
+// @ts-ignore
             changes[GLOBAL_THEME_MODE_KEY].newValue
           );
         }
@@ -7076,11 +7679,15 @@ async function init() {
       return;
     }
     if (
+// @ts-ignore
       (areaName === "local" && changes.configs) ||
       (areaName === "session" &&
         state.currentTab &&
+// @ts-ignore
         (changes[`${constants.TAB_STATE_PREFIX}${state.currentTab.id}`] ||
+// @ts-ignore
           changes[`${constants.DEVICE_EMULATION_PREFIX}${state.currentTab.id}`] ||
+// @ts-ignore
           changes[renderModeNoJsHeldStorageKey(state.currentTab.id)]))
     ) {
       scheduleRefresh();
@@ -7093,6 +7700,7 @@ async function init() {
       sender &&
       sender.tab &&
       sender.tab.id &&
+// @ts-ignore
       sender.tab.id !== state.currentTab.id
     ) {
       return;
@@ -7108,7 +7716,9 @@ async function init() {
       if (
         messageTabId !== null &&
         state.currentTab &&
+// @ts-ignore
         Number.isFinite(state.currentTab.id) &&
+// @ts-ignore
         messageTabId !== Math.trunc(state.currentTab.id)
       ) {
         return;
@@ -7123,6 +7733,7 @@ async function init() {
       if (typeof message.clientId === "string" && message.clientId) {
         state.propertyLockClientId = message.clientId;
       }
+// @ts-ignore
       const applied = applyPropertyLockServerMessage(message.message || null, messageSiteId);
       if (applied) {
         uiModule.setViewState(buildPropertyLockViewState());
