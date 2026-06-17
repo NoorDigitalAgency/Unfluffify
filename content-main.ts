@@ -209,25 +209,25 @@ const PROPERTY_LOCK_BANNER_ID = "unfluffify-lock-banner";
 const PROPERTY_LOCK_BANNER_STYLE_ID = "unfluffify-lock-banner-style";
 const PROPERTY_LOCK_RECONNECT_DELAY_MS = 150;
 
-// @ts-ignore
+// @ts-expect-error
 let propertyLockState = null;
 let propertyLockBannerMode = "no_banner";
 let propertyLockBannerCountdownTimer = 0;
 let propertyLockBannerCountdownValue = 0;
 let propertyLockOffCandidateDeadlineAt = 0;
-// @ts-ignore
+// @ts-expect-error
 let propertyLockRecoverySiteId = null;
 let propertyLockRecoveryBaseUrl = "";
 let propertyLockRecoveryClientId = "";
 let propertyLockRecoveryDeadlineAt = 0;
 let propertyLockRecoveryReleaseTimer = 0;
-// @ts-ignore
+// @ts-expect-error
 let propertyLockBannerElement = null;
 let propertyLockBannerVisible = false;
 let propertyLockSuggestionId = "";
 let propertyLockSuggestionFromName = "";
 let propertyLockLastBlockedToastAt = 0;
-// @ts-ignore
+// @ts-expect-error
 let propertyLockConnectedSiteId = null;
 let propertyLockConnectedBaseUrl = "";
 // Debounce timer for central page-level activity pings (mouse/keyboard/scroll).
@@ -237,13 +237,13 @@ const pageActivitySubscribers = new Set();
 let propertyLockEditorClaimPending = false;
 let propertyLockSyncToken = 0;
 let propertyLockSyncInFlight = false;
-// @ts-ignore
+// @ts-expect-error
 let propertyLockQueuedSyncOptions = null;
 let propertyLockClientId = "";
 let extensionContextInvalidated = false;
-// @ts-ignore
+// @ts-expect-error
 let silentHighlightingObserver = null;
-// @ts-ignore
+// @ts-expect-error
 let silentHighlightingLayoutShiftObserver = null;
 let silentHighlightingRefreshTimer = 0;
 let silentHighlightingRefreshDueAt = 0;
@@ -252,14 +252,14 @@ let lastSilentHighlightingRefreshAt = 0;
 let lastSilentHighlightingRenderKey = "";
 let lastSilentHighlightingsActive = false;
 let silentHighlightingPositionRefreshPending = false;
-// @ts-ignore
+// @ts-expect-error
 let silentHighlightOverlay = null;
 let silentHighlightLayers = {};
 let silentHighlightLayerBoxes = {};
-// @ts-ignore
+// @ts-expect-error
 let silentHighlightCollections = null;
 let silentHighlightRenderTargetCache = new Map();
-// @ts-ignore
+// @ts-expect-error
 let silentHighlightTrackedNodeIndex = null;
 let silentHighlightScrollTimer = 0;
 let silentHighlightRepositionRaf = 0;
@@ -274,7 +274,7 @@ let silentHighlightLegacyAttrsCleaned = false;
 let silentHighlightEditorRevealInFlight = 0;
 let silentHighlightEditorRevealKey = "";
 let pageVisitRevealFreezeAttemptKey = "";
-// @ts-ignore
+// @ts-expect-error
 let silentHighlightEditorActivationPromise = null;
 let silentHighlightEditorActivationQueued = false;
 let silentHighlightEditorActivationIdCounter = 0;
@@ -300,7 +300,7 @@ function resetDisabledPropertyLockRuntimeState() {
   clearPropertyLockReconnectTimer();
   clearPropertyLockBannerCountdown();
   clearPropertyLockRecoveryReleaseTimer();
-// @ts-ignore
+// @ts-expect-error
   getPropertyLockPortClient().disconnect({ notifyBackground: false });
   propertyLockConnectedSiteId = null;
   propertyLockConnectedBaseUrl = "";
@@ -320,7 +320,7 @@ function resetDisabledPropertyLockRuntimeState() {
   propertyLockBannerCountdownValue = 0;
   propertyLockBannerVisible = false;
   propertyLockLastBlockedToastAt = 0;
-// @ts-ignore
+// @ts-expect-error
   if (propertyLockBannerElement) {
     propertyLockBannerElement.classList.add("uf-lock-banner-hidden");
     propertyLockBannerElement.replaceChildren();
@@ -333,13 +333,13 @@ function ensurePropertyLockCollaborationActive() {
     return true;
   }
   const portClient = getPropertyLockPortClient();
-// @ts-ignore
+// @ts-expect-error
   const hasPort = portClient.hasPort();
-// @ts-ignore
+// @ts-expect-error
   const hasReconnectTimer = portClient.hasReconnectTimer();
   if (
     hasPort ||
-// @ts-ignore
+// @ts-expect-error
     propertyLockState ||
     propertyLockBannerMode !== "no_banner" ||
     propertyLockOffCandidateDeadlineAt ||
@@ -347,7 +347,7 @@ function ensurePropertyLockCollaborationActive() {
     hasReconnectTimer ||
     propertyLockRecoveryReleaseTimer ||
     propertyLockSyncInFlight ||
-// @ts-ignore
+// @ts-expect-error
     propertyLockQueuedSyncOptions
   ) {
     resetDisabledPropertyLockRuntimeState();
@@ -394,7 +394,7 @@ let aiPreviewState = createAiPreviewState();
 const contentMainServiceRegistry = createContentMainServiceRegistry({
   createPageToastClient: () => createPageToast(createPageToastDeps()),
   createPageSaveReconciliationClearHandler: () => createPageSaveReconciliationClearHandler(
-// @ts-ignore
+// @ts-expect-error
     createPageSaveReconciliationClearHandlerDeps()
   ),
   createPageSaveReconciliationPendingHandler: () => createPageSaveReconciliationPendingHandler(
@@ -408,9 +408,9 @@ const contentMainServiceRegistry = createContentMainServiceRegistry({
   ),
   createInspectionStatusResolver: () => createInspectionStatusResolver(createInspectionStatusDeps()),
   createPageDraftRevertHandler: () => createPageDraftRevertHandler(createPageDraftRevertHandlerDeps()),
-// @ts-ignore
+// @ts-expect-error
   createPageDraftSaveHandler: () => createPageDraftSaveHandler(createPageDraftSaveHandlerDeps()),
-// @ts-ignore
+// @ts-expect-error
   createExplicitMarkingHandler: () => createExplicitMarkingHandler(createExplicitMarkingHandlerDeps()),
   createPageDraftStatusHandler: () => createPageDraftStatusHandler(createPageDraftStatusHandlerDeps()),
   createAiPreviewStateResponseBuilder: () => createAiPreviewStateResponseBuilder(
@@ -424,28 +424,28 @@ const contentMainServiceRegistry = createContentMainServiceRegistry({
     createAiPreviewExpandedModeHandlerDeps()
   ),
   createAiPreviewGetStateHandler: () => createAiPreviewGetStateHandler(createAiPreviewGetStateHandlerDeps()),
-// @ts-ignore
+// @ts-expect-error
   createAiPreviewShowHandler: () => createAiPreviewShowHandler(createAiPreviewShowHandlerDeps()),
   createAiSubmissionXpathsHandler: () => createAiSubmissionXpathsHandler(createAiSubmissionXpathsHandlerDeps()),
-// @ts-ignore
+// @ts-expect-error
   createCapturePageSnapshotHandler: () => createCapturePageSnapshotHandler(createCapturePageSnapshotHandlerDeps()),
   createConfigUpdatedHandler: () => createConfigUpdatedHandler(createConfigUpdatedHandlerDeps()),
   createCollectPageDataHandler: () => createCollectPageDataHandler(createCollectPageDataHandlerDeps()),
   createDefaultExclusionsHandler: () => createDefaultExclusionsHandler(createDefaultExclusionsHandlerDeps()),
-// @ts-ignore
+// @ts-expect-error
   createDescribeXpathsHandler: () => createDescribeXpathsHandler(createDescribeXpathsHandlerDeps()),
-// @ts-ignore
+// @ts-expect-error
   createFocusHandler: () => createFocusHandler(createFocusHandlerDeps()),
   createForceRefreshHandler: () => createForceRefreshHandler(createForceRefreshHandlerDeps()),
-// @ts-ignore
+// @ts-expect-error
   createInvisibleXpathsHandler: () => createInvisibleXpathsHandler(createInvisibleXpathsHandlerDeps()),
-// @ts-ignore
+// @ts-expect-error
   createVisibleXpathsHandler: () => createVisibleXpathsHandler(createVisibleXpathsHandlerDeps()),
   createPropertyLockPortClient: () => createPropertyLockPortClient(createPropertyLockPortClientDeps()),
   createPropertyLockStateMachine: () => createPropertyLockStateMachine(createPropertyLockStateMachineDeps())
 });
 
-// @ts-ignore
+// @ts-expect-error
 function sendRuntimeMessageSafely(message) {
   if (
     extensionContextInvalidated ||
@@ -610,7 +610,7 @@ function getPropertyLockStateMachine() {
   return contentMainServiceRegistry.getPropertyLockStateMachine();
 }
 
-// @ts-ignore
+// @ts-expect-error
 function createLifecycleOperationId(kind) {
   lifecycleOperationCounter += 1;
   return `${kind || "operation"}:${Date.now()}:${lifecycleOperationCounter}`;
@@ -628,19 +628,19 @@ function isPageBlockerDebugEnabled() {
 }
 
 function normalizePageBlockingReason(event = {}) {
-// @ts-ignore
+// @ts-expect-error
   if (typeof event.reason === "string" && event.reason.trim()) {
-// @ts-ignore
+// @ts-expect-error
     return event.reason.trim();
   }
-// @ts-ignore
+// @ts-expect-error
   if (typeof event.kind === "string" && event.kind.trim()) {
-// @ts-ignore
+// @ts-expect-error
     return `lifecycle:${event.kind.trim()}`;
   }
-// @ts-ignore
+// @ts-expect-error
   if (typeof event.message === "string" && event.message.trim()) {
-// @ts-ignore
+// @ts-expect-error
     return `message:${event.message.trim()}`;
   }
   return "page-lifecycle-blocker";
@@ -655,18 +655,18 @@ function logPageBlockerReason(event = {}) {
     return;
   }
   try {
-// @ts-ignore
+// @ts-expect-error
     console.debug("[page-blocker]", event.busy ? "start-or-update" : "clear", {
       reason: normalizePageBlockingReason(event),
-// @ts-ignore
+// @ts-expect-error
       source: typeof event.source === "string" && event.source ? event.source : "content-lifecycle",
-// @ts-ignore
+// @ts-expect-error
       kind: event && event.kind ? event.kind : "",
-// @ts-ignore
+// @ts-expect-error
       phase: event && event.phase ? event.phase : "",
-// @ts-ignore
+// @ts-expect-error
       operationId: event && event.operationId ? event.operationId : "",
-// @ts-ignore
+// @ts-expect-error
       message: event && event.message ? event.message : "",
       pageUrl: location.href
     });
@@ -679,21 +679,21 @@ function emitLifecycleEvent(event = {}) {
   const normalizedEvent = {
     ...event,
     reason: normalizePageBlockingReason(event),
-// @ts-ignore
+// @ts-expect-error
     source: typeof event.source === "string" && event.source ? event.source : "content-lifecycle"
   };
   logPageBlockerReason(normalizedEvent);
   if (isWorldTraceEnabled()) {
     try {
       console.debug("[world-trace][content] lifecycle:emit", {
-// @ts-ignore
+// @ts-expect-error
         kind: normalizedEvent && normalizedEvent.kind ? normalizedEvent.kind : "",
-// @ts-ignore
+// @ts-expect-error
         phase: normalizedEvent && normalizedEvent.phase ? normalizedEvent.phase : "",
-// @ts-ignore
+// @ts-expect-error
         operationId: normalizedEvent && normalizedEvent.operationId ? normalizedEvent.operationId : "",
         busy: Object.prototype.hasOwnProperty.call(normalizedEvent || {}, "busy")
-// @ts-ignore
+// @ts-expect-error
           ? Boolean(normalizedEvent.busy)
           : undefined,
         reason: normalizedEvent.reason || "",
@@ -714,7 +714,7 @@ function emitLifecycleEvent(event = {}) {
   });
 }
 
-// @ts-ignore
+// @ts-expect-error
 function logContentDiagnostic(level, ...args) {
   if (!isWorldTraceEnabled()) {
     return;
@@ -738,9 +738,9 @@ async function loadGlobalAiSettingsForContent() {
 
 async function resolveSiteIdFromGraphql(options = {}) {
   const {
-// @ts-ignore
+// @ts-expect-error
     stageBase = "",
-// @ts-ignore
+// @ts-expect-error
     pageUrl = ""
   } = options;
   if (!stageBase || !pageUrl) {
@@ -774,7 +774,7 @@ function extractUrlPathAndHostname(url = location.href) {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isSignificantUrlPathChange(currentUrl, lastPath, lastHostname) {
   const current = extractUrlPathAndHostname(currentUrl);
   if (!current.hostname) {
@@ -792,7 +792,7 @@ function isSignificantUrlPathChange(currentUrl, lastPath, lastHostname) {
   return true;
 }
 
-// @ts-ignore
+// @ts-expect-error
 async function recheckSiteIdForCurrentUrlPath(tabState) {
   if (!tabState || !tabState.baseUrl) {
     return null;
@@ -812,7 +812,7 @@ async function recheckSiteIdForCurrentUrlPath(tabState) {
   }
   const currentConfigs = await config.getConfigs();
   const normalizedBaseUrl = utils.normalizeBaseUrl(tabState.baseUrl) || tabState.baseUrl;
-// @ts-ignore
+// @ts-expect-error
   const currentConfig = config.normalizeConfig(normalizedBaseUrl, currentConfigs[normalizedBaseUrl]).config;
   const oldSiteId = normalizeSiteIdValue(currentConfig.siteId);
   if (oldSiteId && oldSiteId !== newSiteId) {
@@ -826,7 +826,7 @@ async function recheckSiteIdForCurrentUrlPath(tabState) {
   return null;
 }
 
-// @ts-ignore
+// @ts-expect-error
 async function fetchPropertyPageTypesForSiteId(siteId, stageBaseValue, tokenValue) {
   void tokenValue;
   const response = await utils.sendRuntimeMessage({
@@ -850,11 +850,11 @@ async function fetchPropertyPageTypesForSiteId(siteId, stageBaseValue, tokenValu
   };
 }
 
-// @ts-ignore
+// @ts-expect-error
 async function resolveCurrentLivePageTarget(baseUrl, options = {}) {
-// @ts-ignore
+// @ts-expect-error
   const pageUrl = typeof options.pageUrl === "string" && options.pageUrl
-// @ts-ignore
+// @ts-expect-error
     ? options.pageUrl
     : location.href;
   const normalizedBaseUrl = utils.normalizeBaseUrl(baseUrl) || baseUrl;
@@ -870,12 +870,12 @@ async function resolveCurrentLivePageTarget(baseUrl, options = {}) {
   const currentConfigs = await config.getConfigs();
   const normalizedConfig = config.normalizeConfig(
     normalizedBaseUrl,
-// @ts-ignore
+// @ts-expect-error
     currentConfigs[normalizedBaseUrl]
   ).config;
   const storedSiteId = normalizeSiteIdValue(normalizedConfig.siteId);
   let siteId = storedSiteId;
-// @ts-ignore
+// @ts-expect-error
   if (Boolean(options.forceSiteIdRefresh) || !siteId) {
     const resolvedSiteId = await resolveSiteIdFromGraphql({
       stageBase: stageBaseValue,
@@ -885,7 +885,7 @@ async function resolveCurrentLivePageTarget(baseUrl, options = {}) {
     if (resolvedSiteId) {
       siteId = resolvedSiteId;
       if (siteId !== storedSiteId) {
-// @ts-ignore
+// @ts-expect-error
         await config.updateConfig(normalizedBaseUrl, (targetConfig) => {
           targetConfig.siteId = siteId;
         });
@@ -929,9 +929,9 @@ async function resolveCurrentLivePageTarget(baseUrl, options = {}) {
 }
 
 async function resolveCurrentPropertyLockConnectionTarget(options = {}) {
-// @ts-ignore
+// @ts-expect-error
   const pageUrl = typeof options.pageUrl === "string" && options.pageUrl
-// @ts-ignore
+// @ts-expect-error
     ? options.pageUrl
     : location.href;
   if (!pageUrl) {
@@ -949,13 +949,13 @@ async function resolveCurrentPropertyLockConnectionTarget(options = {}) {
   const normalizedConfig = normalizedBaseUrl
     ? config.normalizeConfig(
       normalizedBaseUrl,
-// @ts-ignore
+// @ts-expect-error
       currentConfigs[normalizedBaseUrl]
     ).config
     : null;
   const storedSiteId = normalizeSiteIdValue(normalizedConfig && normalizedConfig.siteId);
   let siteId = storedSiteId;
-// @ts-ignore
+// @ts-expect-error
   if (Boolean(options.forceSiteIdRefresh) || !siteId) {
     const resolvedSiteId = await resolveSiteIdFromGraphql({
       stageBase: stageBaseValue,
@@ -965,7 +965,7 @@ async function resolveCurrentPropertyLockConnectionTarget(options = {}) {
     if (resolvedSiteId) {
       siteId = resolvedSiteId;
       if (normalizedBaseUrl && siteId !== storedSiteId) {
-// @ts-ignore
+// @ts-expect-error
         await config.updateConfig(normalizedBaseUrl, (targetConfig) => {
           targetConfig.siteId = siteId;
         });
@@ -985,7 +985,7 @@ async function resolveCurrentPropertyLockConnectionTarget(options = {}) {
   };
 }
 
-// @ts-ignore
+// @ts-expect-error
 async function resolveCurrentPageTypeForMarking(baseUrl, pageUrl = location.href) {
   const target = await resolveCurrentLivePageTarget(baseUrl, { pageUrl });
   if (!target.ok || !target.pageType) {
@@ -994,7 +994,7 @@ async function resolveCurrentPageTypeForMarking(baseUrl, pageUrl = location.href
   return { ok: true, pageType: target.pageType };
 }
 
-// @ts-ignore
+// @ts-expect-error
 async function syncPropertyLockOffCandidateWarning(baseUrl, pageUrl = location.href) {
   if (!ensurePropertyLockCollaborationActive()) {
     return;
@@ -1008,7 +1008,7 @@ async function syncPropertyLockOffCandidateWarning(baseUrl, pageUrl = location.h
     clearPropertyLockOffCandidateWarning();
     return;
   }
-// @ts-ignore
+// @ts-expect-error
   if (propertyLockState && propertyLockState.isEditor) {
     startPropertyLockOffCandidateWarning();
     return;
@@ -1016,7 +1016,7 @@ async function syncPropertyLockOffCandidateWarning(baseUrl, pageUrl = location.h
   clearPropertyLockOffCandidateWarning();
 }
 
-// @ts-ignore
+// @ts-expect-error
 function normalizeAiPreviewItems(items) {
   if (!Array.isArray(items)) {
     return [];
@@ -1034,10 +1034,10 @@ function normalizeAiPreviewItems(items) {
     .filter((item) => item.xpath);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function mapAiPreviewItemsToRenderableTargets(items) {
   const normalized = normalizeAiPreviewItems(items);
-// @ts-ignore
+// @ts-expect-error
   const rows = [];
   const seenXpaths = new Set();
   normalized.forEach((item) => {
@@ -1083,30 +1083,30 @@ function mapAiPreviewItemsToRenderableTargets(items) {
       seenXpaths.add(xpath);
     });
   });
-// @ts-ignore
+// @ts-expect-error
   rows.sort((left, right) => {
     if (left.top === right.top) {
       return left.left - right.left;
     }
     return left.top - right.top;
   });
-// @ts-ignore
+// @ts-expect-error
   return rows.map(({ xpath, text, title, kind }) => ({ xpath, text, title, kind }));
 }
 
-// @ts-ignore
+// @ts-expect-error
 function setAiPreviewItems(items, options = {}) {
   const normalized = normalizeAiPreviewItems(items);
   const previousFocusedXpath = aiPreviewState.focusedXpath;
   const nextItemXpathSet = new Set(normalized.map((item) => item.xpath));
-// @ts-ignore
+// @ts-expect-error
   const preserveFocusedXpath = Boolean(options.preserveFocusedXpath);
   const keepFocusedXpath = Boolean(
     preserveFocusedXpath &&
       previousFocusedXpath &&
       nextItemXpathSet.has(previousFocusedXpath)
   );
-// @ts-ignore
+// @ts-expect-error
   aiPreviewState.items = normalized;
   aiPreviewState.itemXpathSet = nextItemXpathSet;
   aiPreviewState.focusedXpath = keepFocusedXpath ? previousFocusedXpath : "";
@@ -1117,13 +1117,13 @@ function setAiPreviewItems(items, options = {}) {
   syncAiPreviewClickableTargets(normalized);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function setAiPreviewItemSets(defaultItems, expandedItems, options = {}) {
-// @ts-ignore
+// @ts-expect-error
   aiPreviewState.defaultItems = mapAiPreviewItemsToRenderableTargets(defaultItems);
-// @ts-ignore
+// @ts-expect-error
   aiPreviewState.expandedItems = mapAiPreviewItemsToRenderableTargets(expandedItems);
-// @ts-ignore
+// @ts-expect-error
   aiPreviewState.showAllCategories = Boolean(options.showAllCategories);
   setAiPreviewItems(
     aiPreviewState.showAllCategories
@@ -1133,7 +1133,7 @@ function setAiPreviewItemSets(defaultItems, expandedItems, options = {}) {
   );
 }
 
-// @ts-ignore
+// @ts-expect-error
 function setAiPreviewExpandedMode(active) {
   if (!isFeatureEnabled("previewExpandedStates")) {
     aiPreviewState.showAllCategories = false;
@@ -1153,7 +1153,7 @@ function setAiPreviewExpandedMode(active) {
   return true;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function setAiPreviewClickableTitle(node, title) {
   if (!node || node.nodeType !== 1 || typeof title !== "string" || !title) {
     return;
@@ -1181,20 +1181,20 @@ function clearAiPreviewClickableTargets() {
     return;
   }
   for (const node of aiPreviewClickableNodes) {
-// @ts-ignore
+// @ts-expect-error
     if (!node || node.nodeType !== 1) {
       continue;
     }
-// @ts-ignore
+// @ts-expect-error
     node.removeAttribute(AI_PREVIEW_CLICKABLE_ATTR);
     const originalTitleState = aiPreviewOriginalTitles.get(node);
     if (originalTitleState && typeof originalTitleState === "object") {
       if (originalTitleState.hadTitle) {
-// @ts-ignore
+// @ts-expect-error
         node.setAttribute("title", originalTitleState.title || "");
-// @ts-ignore
+// @ts-expect-error
       } else if (node.getAttribute("title") === originalTitleState.previewTitle) {
-// @ts-ignore
+// @ts-expect-error
         node.removeAttribute("title");
       }
       aiPreviewOriginalTitles.delete(node);
@@ -1203,7 +1203,7 @@ function clearAiPreviewClickableTargets() {
   aiPreviewClickableNodes.clear();
 }
 
-// @ts-ignore
+// @ts-expect-error
 function syncAiPreviewClickableTargets(items) {
   clearAiPreviewClickableTargets();
   if (!Array.isArray(items) || !items.length) {
@@ -1221,14 +1221,14 @@ function syncAiPreviewClickableTargets(items) {
     if (!node || node.nodeType !== 1 || isExtensionUiNode(node)) {
       return;
     }
-// @ts-ignore
+// @ts-expect-error
     node.setAttribute(AI_PREVIEW_CLICKABLE_ATTR, "on");
     setAiPreviewClickableTitle(node, title);
     aiPreviewClickableNodes.add(node);
   });
 }
 
-// @ts-ignore
+// @ts-expect-error
 function notifyAiPreviewFocusChanged(xpath) {
   void sendRuntimeMessageSafely({
     type: "aiPreviewFocusChanged",
@@ -1238,7 +1238,7 @@ function notifyAiPreviewFocusChanged(xpath) {
   });
 }
 
-// @ts-ignore
+// @ts-expect-error
 function setAiPreviewFocusedXpath(xpath, options = {}) {
   if (!aiPreviewState.active) {
     return false;
@@ -1248,14 +1248,14 @@ function setAiPreviewFocusedXpath(xpath, options = {}) {
     return false;
   }
   aiPreviewState.focusedXpath = nextXpath;
-// @ts-ignore
+// @ts-expect-error
   if (options.notify !== false) {
     notifyAiPreviewFocusChanged(nextXpath);
   }
   return true;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function getAiPreviewClickTarget(eventTarget) {
   let node = eventTarget && eventTarget.nodeType === 1
     ? eventTarget
@@ -1275,7 +1275,7 @@ function getAiPreviewClickTarget(eventTarget) {
   return null;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function handleAiPreviewClick(event) {
   if (!aiPreviewState.active || !event || event.button !== 0) {
     return false;
@@ -1295,7 +1295,7 @@ function handleAiPreviewClick(event) {
   return true;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function resolveAiPreviewSelectorForNode(node, selectorByNode) {
   if (!node || node.nodeType !== 1 || !(selectorByNode instanceof Map) || !selectorByNode.size) {
     return "";
@@ -1340,7 +1340,7 @@ function resolveAiPreviewSelectorForNode(node, selectorByNode) {
   return nearestAncestorSelector || nearestDescendantSelector;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isWithinTrackedPreviewNode(node, trackedNodes) {
   for (const trackedNode of trackedNodes) {
     if (trackedNode === node || trackedNode.contains(node)) {
@@ -1350,7 +1350,7 @@ function isWithinTrackedPreviewNode(node, trackedNodes) {
   return false;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function hasTrackedPreviewDescendant(node, trackedNodes) {
   for (const trackedNode of trackedNodes) {
     if (trackedNode !== node && node.contains(trackedNode)) {
@@ -1360,7 +1360,7 @@ function hasTrackedPreviewDescendant(node, trackedNodes) {
   return false;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function collectUndetectedAiPreviewNodes(trackedNodes) {
   if (!document.body) {
     return [];
@@ -1388,14 +1388,14 @@ function collectUndetectedAiPreviewNodes(trackedNodes) {
       continue;
     }
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
-// @ts-ignore
+// @ts-expect-error
       stack.push(node.children[i]);
     }
   }
   return results.sort(compareNodeOrder);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function buildAiPreviewItemsWithCategories(selectorSet, defaultItems = []) {
   const defaultPreviewItems = normalizeAiPreviewItems(defaultItems);
   const defaultTextByXpath = new Map(
@@ -1405,17 +1405,17 @@ function buildAiPreviewItemsWithCategories(selectorSet, defaultItems = []) {
     collectIncludedNodesFromSelectorSet(selectorSet)
   );
   const explicitIncludedSet = new Set(collections.explicitIncluded || []);
-// @ts-ignore
+// @ts-expect-error
   const implicitIncluded = (collections.included || []).filter((node) => !explicitIncludedSet.has(node));
   const trackedNodes = [
     ...(collections.excluded || []),
     ...(collections.included || [])
   ].filter((node) => node && node.nodeType === 1);
-// @ts-ignore
+// @ts-expect-error
   const rows = [];
   const seenXpaths = new Set();
 
-// @ts-ignore
+// @ts-expect-error
   function pushRow(node, kind, selector = "") {
     if (!node || node.nodeType !== 1) {
       return;
@@ -1443,7 +1443,7 @@ function buildAiPreviewItemsWithCategories(selectorSet, defaultItems = []) {
     seenXpaths.add(xpath);
   }
 
-// @ts-ignore
+// @ts-expect-error
   (collections.excluded || []).forEach((node) => {
     pushRow(
       node,
@@ -1451,7 +1451,7 @@ function buildAiPreviewItemsWithCategories(selectorSet, defaultItems = []) {
       resolveAiPreviewSelectorForNode(node, collections.exclusionSelectorByNode)
     );
   });
-// @ts-ignore
+// @ts-expect-error
   (collections.explicitIncluded || []).forEach((node) => {
     pushRow(
       node,
@@ -1459,7 +1459,7 @@ function buildAiPreviewItemsWithCategories(selectorSet, defaultItems = []) {
       resolveAiPreviewSelectorForNode(node, collections.inclusionSelectorByNode)
     );
   });
-// @ts-ignore
+// @ts-expect-error
   implicitIncluded.forEach((node) => {
     pushRow(node, AI_PREVIEW_KIND_IMPLICIT_INCLUDED);
   });
@@ -1467,14 +1467,14 @@ function buildAiPreviewItemsWithCategories(selectorSet, defaultItems = []) {
     pushRow(node, AI_PREVIEW_KIND_UNDETECTED);
   });
 
-// @ts-ignore
+// @ts-expect-error
   rows.sort((left, right) => {
     if (left.top === right.top) {
       return left.left - right.left;
     }
     return left.top - right.top;
   });
-// @ts-ignore
+// @ts-expect-error
   return rows.map(({ xpath, text, title, kind }) => ({ xpath, text, title, kind }));
 }
 
@@ -1489,13 +1489,13 @@ const SILENT_HIGHLIGHTING_INTERNAL_ATTRS = new Set([
   core.CONSENT_HIDDEN_ATTR
 ]);
 
-// @ts-ignore
+// @ts-expect-error
 function showPageToast(message) {
-// @ts-ignore
+// @ts-expect-error
   getPageToastClient().show(message);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function submissionXpathsEqual(left, right) {
   if (left === right) {
     return true;
@@ -1526,7 +1526,7 @@ function getCurrentPageSnapshotOptions() {
   return {
     renderMode: getConfiguredRenderMode(),
     extraStripSelectors: [
-// @ts-ignore
+// @ts-expect-error
       ...getPageToastClient().getStripSelectors(),
       `#${SILENT_HIGHLIGHT_OVERLAY_ID}`,
       `#${SILENT_HIGHLIGHT_STYLE_ID}`
@@ -1540,20 +1540,20 @@ function createCurrentPageSnapshot() {
   return core.createSanitizedPageSnapshot(getCurrentPageSnapshotOptions());
 }
 
-// @ts-ignore
+// @ts-expect-error
 function getCurrentPageSnapshotXPath(node) {
   return core.getSnapshotXPath(node, getCurrentPageSnapshotOptions());
 }
 
 function readRenderModeInspectionActive() {
-// @ts-ignore
+// @ts-expect-error
   return getRenderModeInspectionClient().readActiveFlag();
 }
 
-// @ts-ignore
+// @ts-expect-error
 function setRenderModeInspectionActive(active) {
   renderModeInspectionActive = Boolean(active);
-// @ts-ignore
+// @ts-expect-error
   getRenderModeInspectionClient().writeActiveFlag(renderModeInspectionActive);
   if (renderModeInspectionActive) {
     armRenderModeInspectionWatchdog();
@@ -1567,13 +1567,13 @@ function isRenderModeInspectionActive() {
 }
 
 function clearRenderModeInspectionWatchdog() {
-// @ts-ignore
+// @ts-expect-error
   getRenderModeInspectionClient().clearWatchdog();
   renderModeInspectionWatchdogTimer = 0;
 }
 
 function armRenderModeInspectionWatchdog() {
-// @ts-ignore
+// @ts-expect-error
   getRenderModeInspectionClient().armWatchdog({
     timeoutMs: RENDER_MODE_INSPECTION_WATCHDOG_MS,
     onTimeout: () => {
@@ -1615,7 +1615,7 @@ function recoverFromStuckRenderModeInspection() {
     busy: false,
     message: ""
   });
-// @ts-ignore
+// @ts-expect-error
   if (inspectionUiWasActive && propertyLockState && propertyLockState.isEditor) {
     runEditorSilentHighlightingActivation().catch(() => {});
   } else {
@@ -1628,7 +1628,7 @@ function cancelSilentHighlightEditorActivation() {
   silentHighlightEditorRevealInFlight = ++silentHighlightEditorActivationIdCounter;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isRenderModeConfirmedForBaseUrl(baseUrl, configs) {
   if (!baseUrl || !configs || !Object.prototype.hasOwnProperty.call(configs, baseUrl)) {
     return false;
@@ -1656,7 +1656,7 @@ async function fetchCurrentPageRawHtml(pageUrl = location.href) {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 function matchesActiveBaseUrl(baseUrl) {
   return Boolean(baseUrl && state.baseUrl && utils.sameBaseUrl(baseUrl, state.baseUrl));
 }
@@ -1702,7 +1702,7 @@ async function isEnableHotkeyAllowedOnPage() {
   return { allowed: true, baseUrl, pageType: pageTypeResult.pageType };
 }
 
-// @ts-ignore
+// @ts-expect-error
 function hasSavedPageDataForHotkey(entry) {
   return Boolean(
     entry &&
@@ -1712,7 +1712,7 @@ function hasSavedPageDataForHotkey(entry) {
   );
 }
 
-// @ts-ignore
+// @ts-expect-error
 function hasSavedAiSnapshotForHotkey(entry) {
   return Boolean(
     entry &&
@@ -1789,7 +1789,7 @@ async function toggleDeviceEmulationFromPage() {
 }
 
 async function toggleEnabledFromPage(options = {}) {
-// @ts-ignore
+// @ts-expect-error
   const { gate = null, showDisabledToast = true } = options || {};
   const tabState = await utils.sendRuntimeMessage({ type: "getTabState" });
   const currentlyEnabled = Boolean(state.enabled || (tabState && tabState.enabled));
@@ -1913,7 +1913,7 @@ function ensureSilentHighlightingStyles() {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 function setSilentHighlightingsActive(active) {
   if (active) {
     document.documentElement.setAttribute(SILENT_HIGHLIGHTINGS_ACTIVE_ATTR, "on");
@@ -1922,7 +1922,7 @@ function setSilentHighlightingsActive(active) {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 function setSilentHighlightingPageMotionPaused(paused) {
   if (paused) {
     core.pausePageMotion(SILENT_HIGHLIGHTING_MOTION_PAUSE_REASON);
@@ -1931,7 +1931,7 @@ function setSilentHighlightingPageMotionPaused(paused) {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 function getSilentHighlightEditorRevealKey(baseUrl, pageUrl) {
   const normalizedBaseUrl = utils.normalizeBaseUrl(baseUrl) || baseUrl;
   if (!normalizedBaseUrl || !pageUrl) {
@@ -1940,12 +1940,12 @@ function getSilentHighlightEditorRevealKey(baseUrl, pageUrl) {
   return `${normalizedBaseUrl}|${pageUrl}`;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function getPageVisitRevealFreezeKey(baseUrl, pageUrl) {
   return getSilentHighlightEditorRevealKey(baseUrl, pageUrl);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function consumePageVisitRevealFreezeAttempt(baseUrl, pageUrl) {
   const revealKey = getPageVisitRevealFreezeKey(baseUrl, pageUrl);
   if (!revealKey || !baseUrl || !utils.isPageWithinBaseUrl(pageUrl, baseUrl)) {
@@ -1958,7 +1958,7 @@ function consumePageVisitRevealFreezeAttempt(baseUrl, pageUrl) {
   return true;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function markSilentHighlightEditorRevealPrepared(baseUrl, pageUrl) {
   const revealKey = getSilentHighlightEditorRevealKey(baseUrl, pageUrl);
   if (!revealKey) {
@@ -1980,12 +1980,12 @@ function shouldRunSilentHighlightEditorActivation() {
   if (!isPropertyLockCollaborationEnabled()) {
     return true;
   }
-// @ts-ignore
+// @ts-expect-error
   return Boolean(propertyLockState && propertyLockState.isEditor);
 }
 
 async function runEditorSilentHighlightingActivation() {
-// @ts-ignore
+// @ts-expect-error
   if (silentHighlightEditorActivationPromise) {
     silentHighlightEditorActivationQueued = true;
     return silentHighlightEditorActivationPromise;
@@ -2025,7 +2025,7 @@ async function runEditorSilentHighlightingActivationOnce() {
   let lifecycleStarted = false;
   let lifecycleFinished = false;
   let lifecyclePhase = LIFECYCLE_PHASES.FINISHED;
-// @ts-ignore
+// @ts-expect-error
   const emitSilentHighlightLifecycle = (phase, busy, message = "") => {
     if (!lifecycleOperationId) {
       lifecycleOperationId = createLifecycleOperationId(LIFECYCLE_KINDS.SILENT_HIGHLIGHTING);
@@ -2108,7 +2108,7 @@ async function runEditorSilentHighlightingActivationOnce() {
       });
     }
   } catch (error) {
-// @ts-ignore
+// @ts-expect-error
     lifecyclePhase = LIFECYCLE_PHASES.FAILED;
     core.finishPageInspectionUi();
     finishSilentHighlightLifecycle();
@@ -2142,7 +2142,7 @@ function ensureSilentHighlightOverlay() {
       const layer = document.createElement("div");
       layer.className = "uf-silent-layer";
       layer.dataset.layer = key;
-// @ts-ignore
+// @ts-expect-error
       overlay.appendChild(layer);
     });
   }
@@ -2154,14 +2154,14 @@ function ensureSilentHighlightOverlay() {
     host.appendChild(overlay);
   }
   overlay.style.zIndex = SILENT_HIGHLIGHT_OVERLAY_Z_INDEX;
-// @ts-ignore
+// @ts-expect-error
   if (silentHighlightOverlay !== overlay) {
     silentHighlightOverlay = overlay;
     silentHighlightLayers = {};
     silentHighlightLayerBoxes = {};
   }
   overlay.querySelectorAll(".uf-silent-layer[data-layer]").forEach((layer) => {
-// @ts-ignore
+// @ts-expect-error
     if (!SILENT_HIGHLIGHT_LAYER_KEYS.includes(layer.dataset.layer || "")) {
       layer.remove();
     }
@@ -2171,16 +2171,16 @@ function ensureSilentHighlightOverlay() {
     if (!layer) {
       layer = document.createElement("div");
       layer.className = "uf-silent-layer";
-// @ts-ignore
+// @ts-expect-error
       layer.dataset.layer = key;
     }
     // Enforce stacking order: later siblings render above earlier ones.
     overlay.appendChild(layer);
-// @ts-ignore
+// @ts-expect-error
     silentHighlightLayers[key] = layer;
-// @ts-ignore
+// @ts-expect-error
     if (!silentHighlightLayerBoxes[key]) {
-// @ts-ignore
+// @ts-expect-error
       silentHighlightLayerBoxes[key] = new Map();
     }
   });
@@ -2203,9 +2203,9 @@ function clearSilentHighlightOverlay() {
   clearSilentSelectorAnnotations();
 }
 
-// @ts-ignore
+// @ts-expect-error
 function setSilentHighlightOverlayHidden(hidden) {
-// @ts-ignore
+// @ts-expect-error
   if (!silentHighlightOverlay) {
     return;
   }
@@ -2260,21 +2260,21 @@ function clearSilentHighlightRepositionTimers() {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 function beginSilentLayerRender(key) {
-// @ts-ignore
+// @ts-expect-error
   const layer = silentHighlightLayers[key];
   if (!layer) {
     return null;
   }
-// @ts-ignore
+// @ts-expect-error
   const map = silentHighlightLayerBoxes[key] || new Map();
-// @ts-ignore
+// @ts-expect-error
   silentHighlightLayerBoxes[key] = map;
   return { layer, map, used: new Set() };
 }
 
-// @ts-ignore
+// @ts-expect-error
 function finalizeSilentLayerRender(layerState) {
   if (!layerState) {
     return;
@@ -2288,7 +2288,7 @@ function finalizeSilentLayerRender(layerState) {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 function collectSilentHighlightRects(node) {
   if (!node || node.nodeType !== 1 || !core.isVisible(node)) {
     return [];
@@ -2340,18 +2340,18 @@ function collectSilentHighlightRects(node) {
   ];
 }
 
-// @ts-ignore
+// @ts-expect-error
 function cloneSilentHighlightNodes(nodes) {
-// @ts-ignore
+// @ts-expect-error
   return Array.from(nodes || []).filter((node) => node && node.nodeType === 1);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function cloneSilentHighlightNodeValueMap(valueByNode) {
   return valueByNode instanceof Map ? new Map(valueByNode) : new Map();
 }
 
-// @ts-ignore
+// @ts-expect-error
 function buildSilentHighlightRenderableCollections(collections) {
   const sourceImmutableNodes = cloneSilentHighlightNodes(
     Array.isArray(collections && collections.sourceImmutableNodes)
@@ -2396,7 +2396,7 @@ function buildSilentHighlightRenderableCollections(collections) {
   const contentNodes = toRenderableNodeList(sourceContentNodes);
   const explicitIncludedRenderable = toRenderableNodeListWithSelectors(
     sourceExplicitIncludeNodes,
-// @ts-ignore
+// @ts-expect-error
     (node) => resolveSelectorForNode(node, sourceInclusionSelectorByNode, false)
   );
   const sourceHiddenExplicitIncludeSet = new Set(sourceHiddenExplicitIncludeNodes);
@@ -2409,7 +2409,7 @@ function buildSilentHighlightRenderableCollections(collections) {
   );
   const excludedRenderable = toRenderableNodeListWithSelectors(
     sourceExcludedNodes,
-// @ts-ignore
+// @ts-expect-error
     (node) => resolveSelectorForNode(node, sourceExclusionSelectorByNode, true)
   );
   const excludedNodes = excludedRenderable.nodes;
@@ -2438,7 +2438,7 @@ function buildSilentHighlightRenderableCollections(collections) {
   };
 }
 
-// @ts-ignore
+// @ts-expect-error
 function drawSilentRectsForNode(layerState, node, className, keySalt = "") {
   if (!layerState || !node || node.nodeType !== 1 || !className) {
     return;
@@ -2465,7 +2465,7 @@ function drawSilentRectsForNode(layerState, node, className, keySalt = "") {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 function renderSilentHighlightOverlay(collections, options = {}) {
   const overlay = ensureSilentHighlightOverlay();
   if (!overlay) {
@@ -2475,7 +2475,7 @@ function renderSilentHighlightOverlay(collections, options = {}) {
   // untouched: boxes are reused DOM nodes whose positions update atomically in
   // this synchronous pass, so there is no half-built frame to hide. The
   // hide->reveal cycle is reserved for full rebuilds and scroll repositions.
-// @ts-ignore
+// @ts-expect-error
   const keepVisible = Boolean(options.keepVisible);
   if (!keepVisible) {
     setSilentHighlightOverlayHidden(true);
@@ -2565,7 +2565,7 @@ function renderSilentHighlightOverlay(collections, options = {}) {
 }
 
 function repositionSilentHighlightOverlay(options = {}) {
-// @ts-ignore
+// @ts-expect-error
   if (!lastSilentHighlightingsActive || state.enabled || !silentHighlightCollections) {
     return;
   }
@@ -2573,7 +2573,7 @@ function repositionSilentHighlightOverlay(options = {}) {
   // place without the hide->reveal cycle, which is what produced the periodic
   // silent-highlight blink (#1). Scroll/resize repositions still hide first
   // because their viewport-fixed rects go stale during the gesture.
-// @ts-ignore
+// @ts-expect-error
   const keepVisible = Boolean(options.keepVisible);
   if (!keepVisible) {
     setSilentHighlightOverlayHidden(true);
@@ -2582,16 +2582,16 @@ function repositionSilentHighlightOverlay(options = {}) {
   renderSilentHighlightOverlay(nextCollections, { keepVisible });
 }
 
-// @ts-ignore
+// @ts-expect-error
 function buildSilentHighlightPositionSignature(collections = silentHighlightCollections) {
   if (!collections) {
     return "";
   }
-// @ts-ignore
+// @ts-expect-error
   const entries = [];
-// @ts-ignore
+// @ts-expect-error
   const appendNodes = (nodes, prefix) => {
-// @ts-ignore
+// @ts-expect-error
     (nodes || []).forEach((node, nodeIndex) => {
       let targets = silentHighlightRenderTargetCache.get(node);
       if (!targets) {
@@ -2601,7 +2601,7 @@ function buildSilentHighlightPositionSignature(collections = silentHighlightColl
         silentHighlightRenderTargetCache.set(node, targets);
       }
       const renderTargets = targets.length > 0 ? targets : [node];
-// @ts-ignore
+// @ts-expect-error
       renderTargets.forEach((target, targetIndex) => {
         if (!target || target.nodeType !== 1) {
           return;
@@ -2623,15 +2623,15 @@ function buildSilentHighlightPositionSignature(collections = silentHighlightColl
   appendNodes(collections.immutableNodes, "immutable");
   appendNodes(collections.contentNodes, "content");
   appendNodes(collections.excludedNodes, "excluded");
-// @ts-ignore
+// @ts-expect-error
   entries.sort();
-// @ts-ignore
+// @ts-expect-error
   return entries.join("|");
 }
 
 function runSilentHighlightSettledRepositionSample() {
   silentHighlightSettleTimer = 0;
-// @ts-ignore
+// @ts-expect-error
   if (state.enabled || !lastSilentHighlightingsActive || !silentHighlightCollections) {
     resetSilentHighlightSettleTracking();
     return;
@@ -2672,11 +2672,11 @@ function runSilentHighlightSettledRepositionSample() {
 }
 
 function scheduleSilentHighlightReposition(options = {}) {
-// @ts-ignore
+// @ts-expect-error
   if (state.enabled || !lastSilentHighlightingsActive || !silentHighlightCollections) {
     return;
   }
-// @ts-ignore
+// @ts-expect-error
   if (options && options.waitForSettle) {
     // Settle-driven repositions (layout-shift / DOM mutation) keep the overlay
     // visible and reposition in place when settled, so they do not blink. Only
@@ -2712,7 +2712,7 @@ function scheduleSilentHighlightReposition(options = {}) {
   }, SILENT_SCROLL_REPOSITION_DEBOUNCE_MS);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isViewportScrollEvent(event) {
   if (!event) {
     return true;
@@ -2755,41 +2755,41 @@ function clearSilentSelectorAnnotations() {
     return;
   }
   for (const node of silentSelectorAnnotatedNodes) {
-// @ts-ignore
+// @ts-expect-error
     if (!node || node.nodeType !== 1) {
       continue;
     }
-// @ts-ignore
+// @ts-expect-error
     node.removeAttribute(SILENT_SELECTOR_EXPLICIT_INCLUDE_ATTR);
-// @ts-ignore
+// @ts-expect-error
     node.removeAttribute(SILENT_SELECTOR_EXCLUDE_ATTR);
-// @ts-ignore
+// @ts-expect-error
     node.removeAttribute(SILENT_TITLE_COPY_ATTR);
     const originalTitleState = silentSelectorOriginalTitles.get(node);
     if (originalTitleState && typeof originalTitleState === "object") {
       if (originalTitleState.hadTitle) {
-// @ts-ignore
+// @ts-expect-error
         node.setAttribute("title", originalTitleState.title || "");
       } else if (
-// @ts-ignore
+// @ts-expect-error
         node.getAttribute("title") === originalTitleState.annotationTitle ||
-// @ts-ignore
+// @ts-expect-error
         (node.getAttribute("title") || "").startsWith(SILENT_SELECTOR_TITLE_PREFIX)
       ) {
-// @ts-ignore
+// @ts-expect-error
         node.removeAttribute("title");
       }
       silentSelectorOriginalTitles.delete(node);
-// @ts-ignore
+// @ts-expect-error
     } else if ((node.getAttribute("title") || "").startsWith(SILENT_SELECTOR_TITLE_PREFIX)) {
-// @ts-ignore
+// @ts-expect-error
       node.removeAttribute("title");
     }
   }
   silentSelectorAnnotatedNodes.clear();
 }
 
-// @ts-ignore
+// @ts-expect-error
 function buildSilentHighlightTitle(selector, xpath) {
   const normalizedSelector = typeof selector === "string"
     ? selector
@@ -2817,7 +2817,7 @@ function buildSilentHighlightTitle(selector, xpath) {
   return normalizedXpath || normalizedSelector;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function setSilentSelectorAnnotation(node, kind, selector = "", xpath = "") {
   if (!node || node.nodeType !== 1) {
     return;
@@ -2856,7 +2856,7 @@ function setSilentSelectorAnnotation(node, kind, selector = "", xpath = "") {
   silentSelectorAnnotatedNodes.add(node);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function buildSilentHighlightXpathByNode(nodes) {
   const xpathByNode = new Map();
   for (const node of nodes || []) {
@@ -2871,7 +2871,7 @@ function buildSilentHighlightXpathByNode(nodes) {
   return xpathByNode;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function applySilentSelectorAnnotations(collections) {
   clearSilentSelectorAnnotations();
   if (!collections || typeof collections !== "object") {
@@ -2897,7 +2897,7 @@ function applySilentSelectorAnnotations(collections) {
     collections.implicitIncludeXpathByNode instanceof Map
       ? collections.implicitIncludeXpathByNode
       : new Map();
-// @ts-ignore
+// @ts-expect-error
   explicitIncludeXpathByNode.forEach((xpath, node) => {
     setSilentSelectorAnnotation(
       node,
@@ -2906,7 +2906,7 @@ function applySilentSelectorAnnotations(collections) {
       xpath
     );
   });
-// @ts-ignore
+// @ts-expect-error
   excludedXpathByNode.forEach((xpath, node) => {
     setSilentSelectorAnnotation(
       node,
@@ -2915,13 +2915,13 @@ function applySilentSelectorAnnotations(collections) {
       xpath
     );
   });
-// @ts-ignore
+// @ts-expect-error
   implicitIncludeXpathByNode.forEach((xpath, node) => {
     setSilentSelectorAnnotation(node, "implicit", "", xpath);
   });
 }
 
-// @ts-ignore
+// @ts-expect-error
 async function copyTextToClipboard(text) {
   if (typeof text !== "string" || !text) {
     return false;
@@ -2953,7 +2953,7 @@ async function copyTextToClipboard(text) {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 function handleSilentSelectorClickCopy(event) {
   if (!event || event.defaultPrevented || event.button !== 0) {
     return;
@@ -2988,12 +2988,12 @@ function clearSilentHighlightingMarks() {
 }
 
 function stopSilentHighlightingObserver() {
-// @ts-ignore
+// @ts-expect-error
   if (silentHighlightingObserver) {
     silentHighlightingObserver.disconnect();
     silentHighlightingObserver = null;
   }
-// @ts-ignore
+// @ts-expect-error
   if (silentHighlightingLayoutShiftObserver) {
     silentHighlightingLayoutShiftObserver.disconnect();
     silentHighlightingLayoutShiftObserver = null;
@@ -3007,14 +3007,14 @@ function stopSilentHighlightingObserver() {
 }
 
 function scheduleSilentHighlightingsRefresh(options = {}) {
-// @ts-ignore
+// @ts-expect-error
   const debounceMs = Number.isFinite(options && options.debounceMs)
-// @ts-ignore
+// @ts-expect-error
     ? Math.max(0, Math.trunc(options.debounceMs))
     : SILENT_HIGHLIGHTING_MUTATION_DEBOUNCE_MS;
-// @ts-ignore
+// @ts-expect-error
   const minIntervalMs = Number.isFinite(options && options.minIntervalMs)
-// @ts-ignore
+// @ts-expect-error
     ? Math.max(0, Math.trunc(options.minIntervalMs))
     : SILENT_HIGHLIGHTING_MUTATION_MIN_INTERVAL_MS;
   const now = Date.now();
@@ -3045,7 +3045,7 @@ function scheduleSilentHighlightingsRefresh(options = {}) {
   }, delay);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isExtensionUiNode(node) {
   if (!node || node.nodeType !== 1) {
     return false;
@@ -3056,7 +3056,7 @@ function isExtensionUiNode(node) {
   return Boolean(node.closest("[data-uf-extension-ui=\"true\"]"));
 }
 
-// @ts-ignore
+// @ts-expect-error
 function shouldRefreshForSilentMutation(mutation) {
   if (!mutation) {
     return false;
@@ -3097,7 +3097,7 @@ function buildSilentHighlightTrackedNodeIndex() {
   //   in O(1) instead of O(N).
   const tracked = new Set();
   const ancestors = new Set();
-// @ts-ignore
+// @ts-expect-error
   if (!silentHighlightCollections) {
     return { tracked, ancestors };
   }
@@ -3128,13 +3128,13 @@ function buildSilentHighlightTrackedNodeIndex() {
   return { tracked, ancestors };
 }
 
-// @ts-ignore
+// @ts-expect-error
 function mutationTargetTouchesSilentCollections(target) {
-// @ts-ignore
+// @ts-expect-error
   if (!target || target.nodeType !== 1 || !silentHighlightCollections) {
     return false;
   }
-// @ts-ignore
+// @ts-expect-error
   if (!silentHighlightTrackedNodeIndex) {
     silentHighlightTrackedNodeIndex = buildSilentHighlightTrackedNodeIndex();
   }
@@ -3154,7 +3154,7 @@ function mutationTargetTouchesSilentCollections(target) {
 }
 
 function startSilentHighlightingObserver() {
-// @ts-ignore
+// @ts-expect-error
   if (silentHighlightingObserver) {
     return;
   }
@@ -3228,7 +3228,7 @@ if (needsFullRefresh) {
           !list ||
           state.enabled ||
           !lastSilentHighlightingsActive ||
-// @ts-ignore
+// @ts-expect-error
           !silentHighlightCollections
         ) {
           return;
@@ -3240,9 +3240,9 @@ if (needsFullRefresh) {
           return;
         }
         const hasLayoutShift = entries.some((entry) =>
-// @ts-ignore
+// @ts-expect-error
           entry && typeof entry.value === "number"
-// @ts-ignore
+// @ts-expect-error
             ? entry.value > 0
             : Boolean(entry)
         );
@@ -3254,7 +3254,7 @@ if (needsFullRefresh) {
       });
       silentHighlightingLayoutShiftObserver.observe({ type: "layout-shift" });
     } catch {
-// @ts-ignore
+// @ts-expect-error
       if (silentHighlightingLayoutShiftObserver) {
         silentHighlightingLayoutShiftObserver.disconnect();
         silentHighlightingLayoutShiftObserver = null;
@@ -3297,7 +3297,7 @@ function clearAiPreviewState() {
   return true;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function restoreAiPreviewDraftState(restoreState) {
   if (
     !restoreState ||
@@ -3310,17 +3310,17 @@ function restoreAiPreviewDraftState(restoreState) {
   if (!pageUrl || location.href !== pageUrl) {
     return;
   }
-// @ts-ignore
+// @ts-expect-error
   if (!state.config.pageMarkings || typeof state.config.pageMarkings !== "object") {
-// @ts-ignore
+// @ts-expect-error
     state.config.pageMarkings = {};
   }
   const previousDraftEntry = core.clonePageEntry(restoreState.previousDraftEntry);
   if (previousDraftEntry) {
-// @ts-ignore
+// @ts-expect-error
     state.config.pageMarkings[pageUrl] = previousDraftEntry;
   } else {
-// @ts-ignore
+// @ts-expect-error
     delete state.config.pageMarkings[pageUrl];
   }
   core.setSavedPageEntry(pageUrl, restoreState.previousSavedEntry || null);
@@ -3329,7 +3329,7 @@ function restoreAiPreviewDraftState(restoreState) {
     restoreState.previousAutoSeededPendingSavePageUrl || "";
 }
 
-// @ts-ignore
+// @ts-expect-error
 function scheduleAiComputeLockRelease(expiresAt) {
   if (aiComputeLockReleaseTimer) {
     window.clearTimeout(aiComputeLockReleaseTimer);
@@ -3348,7 +3348,7 @@ function scheduleAiComputeLockRelease(expiresAt) {
 }
 
 function beginAiPreviewMode(options = {}) {
-// @ts-ignore
+// @ts-expect-error
   const nextMode = typeof options.mode === "string" ? options.mode : "preview";
   const restoreMarkingOnExit = nextMode === "compute_lock";
   if (!aiPreviewState.active) {
@@ -3462,7 +3462,7 @@ async function exitAiPreviewMode() {
   resetAiPreviewState();
 }
 
-// @ts-ignore
+// @ts-expect-error
 function normalizeUrlPath(pathname) {
   if (typeof pathname !== "string" || !pathname) {
     return "/";
@@ -3471,7 +3471,7 @@ function normalizeUrlPath(pathname) {
   return trimmed || "/";
 }
 
-// @ts-ignore
+// @ts-expect-error
 function toLooseUrlKey(value, baseUrl) {
   if (typeof value !== "string" || !value) {
     return "";
@@ -3486,7 +3486,7 @@ function toLooseUrlKey(value, baseUrl) {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 function getStoredAiSelectorSet(baseConfig) {
   if (!baseConfig || typeof baseConfig !== "object") {
     return { exclusionSelectors: [], inclusionSelectors: [] };
@@ -3494,19 +3494,19 @@ function getStoredAiSelectorSet(baseConfig) {
   return config.getNewestConfigSelectorSet(baseConfig).selectorSet;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function getSelectorSuppressedXpaths(baseConfig, pageUrl = location.href) {
   const pageMarkings = baseConfig && typeof baseConfig === "object"
     ? baseConfig.pageMarkings
     : null;
   const entry = core.findPageMarkingEntry({ pageMarkings }, pageUrl, state.baseUrl || "");
   return Array.isArray(entry && entry.selectorSuppressedXpaths)
-// @ts-ignore
+// @ts-expect-error
     ? entry.selectorSuppressedXpaths.filter((xpath) => typeof xpath === "string" && xpath)
     : [];
 }
 
-// @ts-ignore
+// @ts-expect-error
 function getEffectiveAiSelectorSet(baseConfig) {
   const storedSelectors = getStoredAiSelectorSet(baseConfig);
   const suppressedXpaths = getSelectorSuppressedXpaths(baseConfig);
@@ -3519,7 +3519,7 @@ function getEffectiveAiSelectorSet(baseConfig) {
   };
 }
 
-// @ts-ignore
+// @ts-expect-error
 function resolveSuppressedSelectorBoundaries(suppressedXpaths) {
   const xpaths = Array.isArray(suppressedXpaths)
     ? suppressedXpaths.filter((xpath) => typeof xpath === "string" && xpath)
@@ -3532,7 +3532,7 @@ function resolveSuppressedSelectorBoundaries(suppressedXpaths) {
   };
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isSuppressedSelectorNode(node, suppressedBoundaries) {
   if (!node || node.nodeType !== 1 || !suppressedBoundaries || !suppressedBoundaries.xpaths.length) {
     return false;
@@ -3546,13 +3546,13 @@ function isSuppressedSelectorNode(node, suppressedBoundaries) {
   if (!xpath) {
     return false;
   }
-// @ts-ignore
+// @ts-expect-error
   return suppressedBoundaries.xpaths.some((suppressedXpath) =>
     suppressedXpath === xpath || core.isXPathDescendant(suppressedXpath, xpath)
   );
 }
 
-// @ts-ignore
+// @ts-expect-error
 function getSuppressedSelectorFingerprint(suppressedXpaths) {
   if (!Array.isArray(suppressedXpaths)) {
     return "";
@@ -3564,9 +3564,9 @@ function getSuppressedSelectorFingerprint(suppressedXpaths) {
     .join(SELECTOR_LIST_DELIMITER);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function collectNodesFromSelectors(selectors, options = {}) {
-// @ts-ignore
+// @ts-expect-error
   const suppressedBoundaries = resolveSuppressedSelectorBoundaries(options.suppressedXpaths);
   return collectCachedSelectorMatches({
     root: document,
@@ -3575,7 +3575,7 @@ function collectNodesFromSelectors(selectors, options = {}) {
     scope: "silent-highlight-selectors",
     suppressionFingerprint: [
       getSelectorFingerprint(selectors),
-// @ts-ignore
+// @ts-expect-error
       getSuppressedSelectorFingerprint(options.suppressedXpaths)
     ].join(SELECTOR_CACHE_SCOPE_FINGERPRINT_SEPARATOR),
     includeSelectorByNode: true,
@@ -3585,7 +3585,7 @@ function collectNodesFromSelectors(selectors, options = {}) {
   });
 }
 
-// @ts-ignore
+// @ts-expect-error
 function resolveSelectorForNode(node, selectorByNode, allowAncestorMatch = false) {
   if (!node || !selectorByNode || selectorByNode.size === 0) {
     return "";
@@ -3606,7 +3606,7 @@ function resolveSelectorForNode(node, selectorByNode, allowAncestorMatch = false
   return "";
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isWithinExcludedNode(node, excluded) {
   if (!node || !excluded || excluded.size === 0) {
     return false;
@@ -3621,7 +3621,7 @@ function isWithinExcludedNode(node, excluded) {
   return false;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isWithinConsentBoundary(node) {
   return Boolean(
     node &&
@@ -3631,7 +3631,7 @@ function isWithinConsentBoundary(node) {
   );
 }
 
-// @ts-ignore
+// @ts-expect-error
 function hasDirectRenderableText(node) {
   if (!node || node.nodeType !== 1) {
     return false;
@@ -3655,7 +3655,7 @@ function hasDirectRenderableText(node) {
   return false;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isDefinitelyHiddenSubtreeNode(node) {
   if (!node || node.nodeType !== 1) {
     return true;
@@ -3688,7 +3688,7 @@ function isDefinitelyHiddenSubtreeNode(node) {
   return false;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function matchesImmutableDefaultSelector(node) {
   if (!node || node.nodeType !== 1) {
     return false;
@@ -3706,7 +3706,7 @@ function matchesImmutableDefaultSelector(node) {
   return false;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function matchesToggleableDefaultSelector(node) {
   if (!node || node.nodeType !== 1) {
     return false;
@@ -3724,7 +3724,7 @@ function matchesToggleableDefaultSelector(node) {
   return false;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function hasNestedToggleableDefaultExcludedDescendant(node) {
   if (!node || node.nodeType !== 1) {
     return false;
@@ -3732,7 +3732,7 @@ function hasNestedToggleableDefaultExcludedDescendant(node) {
   const stack = Array.from(node.children || []);
   while (stack.length) {
     const current = stack.pop();
-// @ts-ignore
+// @ts-expect-error
     if (!current || current.nodeType !== 1) {
       continue;
     }
@@ -3742,16 +3742,16 @@ function hasNestedToggleableDefaultExcludedDescendant(node) {
     if (matchesToggleableDefaultSelector(current)) {
       return true;
     }
-// @ts-ignore
+// @ts-expect-error
     for (let i = current.children.length - 1; i >= 0; i -= 1) {
-// @ts-ignore
+// @ts-expect-error
       stack.push(current.children[i]);
     }
   }
   return false;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function hasVisibleImmutableDescendant(node) {
   if (!node || node.nodeType !== 1) {
     return false;
@@ -3759,7 +3759,7 @@ function hasVisibleImmutableDescendant(node) {
   const stack = Array.from(node.children || []);
   while (stack.length) {
     const current = stack.pop();
-// @ts-ignore
+// @ts-expect-error
     if (!current || current.nodeType !== 1) {
       continue;
     }
@@ -3769,16 +3769,16 @@ function hasVisibleImmutableDescendant(node) {
     if (matchesImmutableDefaultSelector(current) && core.isVisible(current)) {
       return true;
     }
-// @ts-ignore
+// @ts-expect-error
     for (let i = current.children.length - 1; i >= 0; i -= 1) {
-// @ts-ignore
+// @ts-expect-error
       stack.push(current.children[i]);
     }
   }
   return false;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function matchesAutoToggleableDefaultSelector(node) {
   if (!matchesToggleableDefaultSelector(node)) {
     return false;
@@ -3795,7 +3795,7 @@ function matchesAutoToggleableDefaultSelector(node) {
   return !hasVisibleImmutableDescendant(node);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isWithinImmutableDefaultNode(node) {
   let current = node;
   while (current && current.nodeType === 1) {
@@ -3807,12 +3807,12 @@ function isWithinImmutableDefaultNode(node) {
   return false;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isToggleableDefaultExcludedNode(node, includedNodes) {
   return matchesAutoToggleableDefaultSelector(node) && !isWithinNodeSet(node, includedNodes);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isWithinToggleableDefaultExcludedNode(node, includedNodes) {
   if (isWithinNodeSet(node, includedNodes)) {
     return false;
@@ -3827,17 +3827,17 @@ function isWithinToggleableDefaultExcludedNode(node, includedNodes) {
   return false;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isRawSelectorExcludedNode(node, excludedNodes, includedNodes) {
   return isWithinNodeSet(node, excludedNodes) && !isWithinNodeSet(node, includedNodes);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isSelectorExcludedNode(node, excludedNodes, includedNodes, inclusionContextSet) {
   return isRawSelectorExcludedNode(node, excludedNodes, includedNodes);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isExcludedNatureNode(node, excludedNodes, includedNodes, inclusionContextSet) {
   return matchesImmutableDefaultSelector(node) ||
     isToggleableDefaultExcludedNode(node, includedNodes) ||
@@ -3845,18 +3845,18 @@ function isExcludedNatureNode(node, excludedNodes, includedNodes, inclusionConte
 }
 
 function isInclusionEligibleNode(
-// @ts-ignore
+// @ts-expect-error
   node,
-// @ts-ignore
+// @ts-expect-error
   excludedNodes,
-// @ts-ignore
+// @ts-expect-error
   includedNodes,
-// @ts-ignore
+// @ts-expect-error
   inclusionContextSet,
   options = {}
 ) {
   const ignoreVisibilityForInclusionDetection = Boolean(
-// @ts-ignore
+// @ts-expect-error
     options && options.ignoreVisibilityForInclusionDetection
   );
   if (!node || node.nodeType !== 1) {
@@ -3886,10 +3886,10 @@ function isInclusionEligibleNode(
     Boolean(inclusionContextSet && inclusionContextSet.has(node));
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isTextualContainerForInclusion(node, options = {}) {
   const ignoreVisibilityForInclusionDetection = Boolean(
-// @ts-ignore
+// @ts-expect-error
     options && options.ignoreVisibilityForInclusionDetection
   );
   if (!node || node.nodeType !== 1) {
@@ -3911,7 +3911,7 @@ function isTextualContainerForInclusion(node, options = {}) {
   return Boolean(getNormalizedNodeText(node));
 }
 
-// @ts-ignore
+// @ts-expect-error
 function hasTextualDescendantForInclusion(node, options = {}) {
   if (!node || node.nodeType !== 1) {
     return false;
@@ -3919,7 +3919,7 @@ function hasTextualDescendantForInclusion(node, options = {}) {
   const stack = Array.from(node.children || []);
   while (stack.length) {
     const current = stack.pop();
-// @ts-ignore
+// @ts-expect-error
     if (!current || current.nodeType !== 1) {
       continue;
     }
@@ -3932,16 +3932,16 @@ function hasTextualDescendantForInclusion(node, options = {}) {
     if (isTextualContainerForInclusion(current, options)) {
       return true;
     }
-// @ts-ignore
+// @ts-expect-error
     for (let i = current.children.length - 1; i >= 0; i -= 1) {
-// @ts-ignore
+// @ts-expect-error
       stack.push(current.children[i]);
     }
   }
   return false;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function hasTextualImmutableDescendantForInclusion(node, options = {}) {
   if (!node || node.nodeType !== 1) {
     return false;
@@ -3949,7 +3949,7 @@ function hasTextualImmutableDescendantForInclusion(node, options = {}) {
   const stack = Array.from(node.children || []);
   while (stack.length) {
     const current = stack.pop();
-// @ts-ignore
+// @ts-expect-error
     if (!current || current.nodeType !== 1) {
       continue;
     }
@@ -3962,16 +3962,16 @@ function hasTextualImmutableDescendantForInclusion(node, options = {}) {
     ) {
       return true;
     }
-// @ts-ignore
+// @ts-expect-error
     for (let i = current.children.length - 1; i >= 0; i -= 1) {
-// @ts-ignore
+// @ts-expect-error
       stack.push(current.children[i]);
     }
   }
   return false;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isSelfMarkableInclusionNode(node, options = {}) {
   if (!isTextualContainerForInclusion(node, options)) {
     return false;
@@ -3979,7 +3979,7 @@ function isSelfMarkableInclusionNode(node, options = {}) {
   // Keep ancestor/descendant self-markable decisions stable even when
   // inclusion detection ignores visibility (used by silent highlight/preview).
   // Otherwise hidden responsive descendants can suppress a visible ancestor.
-// @ts-ignore
+// @ts-expect-error
   const descendantShapeOptions = options && options.ignoreVisibilityForInclusionDetection
     ? {
       ...options,
@@ -4010,18 +4010,18 @@ function isSelfMarkableInclusionNode(node, options = {}) {
 }
 
 function hasRenderableTextOutsideExcludedNature(
-// @ts-ignore
+// @ts-expect-error
   node,
-// @ts-ignore
+// @ts-expect-error
   excludedNodes,
-// @ts-ignore
+// @ts-expect-error
   includedNodes,
-// @ts-ignore
+// @ts-expect-error
   inclusionContextSet,
   options = {}
 ) {
   const ignoreVisibilityForInclusionDetection = Boolean(
-// @ts-ignore
+// @ts-expect-error
     options && options.ignoreVisibilityForInclusionDetection
   );
   if (!node || node.nodeType !== 1) {
@@ -4066,13 +4066,13 @@ function hasRenderableTextOutsideExcludedNature(
 }
 
 function hasRenderableTextForHighlight(
-// @ts-ignore
+// @ts-expect-error
   node,
-// @ts-ignore
+// @ts-expect-error
   excludedNodes,
-// @ts-ignore
+// @ts-expect-error
   includedNodes,
-// @ts-ignore
+// @ts-expect-error
   inclusionContextSet,
   options = {}
 ) {
@@ -4092,11 +4092,11 @@ function hasRenderableTextForHighlight(
 }
 
 function hasRenderableTextForExcludedHighlight(
-// @ts-ignore
+// @ts-expect-error
   node,
-// @ts-ignore
+// @ts-expect-error
   includedNodes,
-// @ts-ignore
+// @ts-expect-error
   inclusionContextSet
 ) {
   if (!node || node.nodeType !== 1) {
@@ -4137,7 +4137,7 @@ function hasRenderableTextForExcludedHighlight(
   return false;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function getNodeDepth(node) {
   let depth = 0;
   let current = node;
@@ -4148,7 +4148,7 @@ function getNodeDepth(node) {
   return depth;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function collapseToShallowest(nodes) {
   const sorted = Array.from(nodes || []).sort((left, right) => {
     const depthDiff = getNodeDepth(left) - getNodeDepth(right);
@@ -4157,24 +4157,24 @@ function collapseToShallowest(nodes) {
     }
     return 0;
   });
-// @ts-ignore
+// @ts-expect-error
   const kept = [];
   sorted.forEach((node) => {
-// @ts-ignore
+// @ts-expect-error
     if (!node || node.nodeType !== 1) {
       return;
     }
-// @ts-ignore
+// @ts-expect-error
     const hasAncestor = kept.some((ancestor) => ancestor.contains(node));
     if (!hasAncestor) {
       kept.push(node);
     }
   });
-// @ts-ignore
+// @ts-expect-error
   return kept;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function collapseToShallowestWithOppositeBoundary(nodes, oppositeNodes) {
   const oppositeSet = new Set(oppositeNodes || []);
   const sorted = Array.from(new Set(nodes || [])).sort((left, right) => {
@@ -4184,15 +4184,15 @@ function collapseToShallowestWithOppositeBoundary(nodes, oppositeNodes) {
     }
     return compareNodeOrder(left, right);
   });
-// @ts-ignore
+// @ts-expect-error
   const kept = [];
   const keptSet = new Set();
   sorted.forEach((node) => {
-// @ts-ignore
+// @ts-expect-error
     if (!node || node.nodeType !== 1) {
       return;
     }
-// @ts-ignore
+// @ts-expect-error
     let current = node.parentElement;
     while (current && current.nodeType === 1) {
       if (oppositeSet.has(current)) {
@@ -4206,13 +4206,13 @@ function collapseToShallowestWithOppositeBoundary(nodes, oppositeNodes) {
     kept.push(node);
     keptSet.add(node);
   });
-// @ts-ignore
+// @ts-expect-error
   kept.sort(compareNodeOrder);
-// @ts-ignore
+// @ts-expect-error
   return kept;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function collapseToShallowestPreservingExplicitNodes(nodes, explicitNodes) {
   const explicitSet = new Set(explicitNodes || []);
   const sorted = Array.from(new Set(nodes || [])).sort((left, right) => {
@@ -4222,11 +4222,11 @@ function collapseToShallowestPreservingExplicitNodes(nodes, explicitNodes) {
     }
     return compareNodeOrder(left, right);
   });
-// @ts-ignore
+// @ts-expect-error
   const kept = [];
   const keptSet = new Set();
   sorted.forEach((node) => {
-// @ts-ignore
+// @ts-expect-error
     if (!node || node.nodeType !== 1) {
       return;
     }
@@ -4237,7 +4237,7 @@ function collapseToShallowestPreservingExplicitNodes(nodes, explicitNodes) {
       }
       return;
     }
-// @ts-ignore
+// @ts-expect-error
     let current = node.parentElement;
     while (current && current.nodeType === 1) {
       if (keptSet.has(current)) {
@@ -4248,13 +4248,13 @@ function collapseToShallowestPreservingExplicitNodes(nodes, explicitNodes) {
     kept.push(node);
     keptSet.add(node);
   });
-// @ts-ignore
+// @ts-expect-error
   kept.sort(compareNodeOrder);
-// @ts-ignore
+// @ts-expect-error
   return kept;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function compareNodeOrder(left, right) {
   if (left === right) {
     return 0;
@@ -4269,7 +4269,7 @@ function compareNodeOrder(left, right) {
   return 0;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function collapseToDeepest(nodes) {
   const sorted = Array.from(nodes || []).sort((left, right) => {
     const depthDiff = getNodeDepth(right) - getNodeDepth(left);
@@ -4278,39 +4278,39 @@ function collapseToDeepest(nodes) {
     }
     return compareNodeOrder(left, right);
   });
-// @ts-ignore
+// @ts-expect-error
   const kept = [];
   sorted.forEach((node) => {
-// @ts-ignore
+// @ts-expect-error
     if (!node || node.nodeType !== 1) {
       return;
     }
-// @ts-ignore
+// @ts-expect-error
     const isAncestorOfKept = kept.some((descendant) => node.contains(descendant));
     if (!isAncestorOfKept) {
       kept.push(node);
     }
   });
-// @ts-ignore
+// @ts-expect-error
   kept.sort(compareNodeOrder);
-// @ts-ignore
+// @ts-expect-error
   return kept;
 }
 
 function collectExcludedChildrenInsideIncludedParents(
-// @ts-ignore
+// @ts-expect-error
   includedParents,
-// @ts-ignore
+// @ts-expect-error
   excludedNodes,
-// @ts-ignore
+// @ts-expect-error
   includedNodes,
-// @ts-ignore
+// @ts-expect-error
   inclusionContextSet
 ) {
-// @ts-ignore
+// @ts-expect-error
   const marked = [];
   const seen = new Set();
-// @ts-ignore
+// @ts-expect-error
   includedParents.forEach((parent) => {
     if (!parent || parent.nodeType !== 1) {
       return;
@@ -4318,7 +4318,7 @@ function collectExcludedChildrenInsideIncludedParents(
     const stack = Array.from(parent.children || []);
     while (stack.length) {
       const node = stack.pop();
-// @ts-ignore
+// @ts-expect-error
       if (!node || node.nodeType !== 1) {
         continue;
       }
@@ -4345,23 +4345,23 @@ function collectExcludedChildrenInsideIncludedParents(
         }
         continue;
       }
-// @ts-ignore
+// @ts-expect-error
       for (let i = node.children.length - 1; i >= 0; i -= 1) {
-// @ts-ignore
+// @ts-expect-error
         stack.push(node.children[i]);
       }
     }
   });
-// @ts-ignore
+// @ts-expect-error
   return marked;
 }
 
 function collectSelectorExcludedNodes(
-// @ts-ignore
+// @ts-expect-error
   excludedNodes,
-// @ts-ignore
+// @ts-expect-error
   includedNodes,
-// @ts-ignore
+// @ts-expect-error
   inclusionContextSet
 ) {
   const marked = new Set();
@@ -4387,7 +4387,7 @@ function collectSelectorExcludedNodes(
   return Array.from(marked).sort(compareNodeOrder);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function collectToggleableDefaultExcludedNodes(includedNodes) {
   if (!document.body) {
     return [];
@@ -4413,14 +4413,14 @@ function collectToggleableDefaultExcludedNodes(includedNodes) {
       continue;
     }
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
-// @ts-ignore
+// @ts-expect-error
       stack.push(node.children[i]);
     }
   }
   return results.sort(compareNodeOrder);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function collectImmutableDefaultExcludedNodes(includedNodes) {
   if (!document.body) {
     return [];
@@ -4445,7 +4445,7 @@ function collectImmutableDefaultExcludedNodes(includedNodes) {
       continue;
     }
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
-// @ts-ignore
+// @ts-expect-error
       stack.push(node.children[i]);
     }
   }
@@ -4453,20 +4453,20 @@ function collectImmutableDefaultExcludedNodes(includedNodes) {
 }
 
 function collectExplicitIncludedNodes(
-// @ts-ignore
+// @ts-expect-error
   explicitIncludedMatches,
-// @ts-ignore
+// @ts-expect-error
   excludedNodes,
-// @ts-ignore
+// @ts-expect-error
   includedNodes,
-// @ts-ignore
+// @ts-expect-error
   inclusionContextSet,
   options = {}
 ) {
-// @ts-ignore
+// @ts-expect-error
   const keepAllExplicitMatches = Boolean(options && options.keepAllExplicitMatches);
   const preserveNestedExplicitIncludedDescendants = Boolean(
-// @ts-ignore
+// @ts-expect-error
     options && options.preserveNestedExplicitIncludedDescendants
   );
   const selected = new Set();
@@ -4516,13 +4516,13 @@ function collectExplicitIncludedNodes(
 }
 
 function collectImplicitIncludedNodesOutsideExplicit(
-// @ts-ignore
+// @ts-expect-error
   explicitIncluded,
-// @ts-ignore
+// @ts-expect-error
   excludedNodes,
-// @ts-ignore
+// @ts-expect-error
   includedNodes,
-// @ts-ignore
+// @ts-expect-error
   inclusionContextSet,
   options = {}
 ) {
@@ -4537,7 +4537,7 @@ function collectImplicitIncludedNodesOutsideExplicit(
     if (
       explicitIncludedSet.size > 0 &&
       !explicitIncludedSet.has(node) &&
-// @ts-ignore
+// @ts-expect-error
       isWithinNodeSet(node, explicitIncludedSet)
     ) {
       continue;
@@ -4577,7 +4577,7 @@ function collectImplicitIncludedNodesOutsideExplicit(
       baseSelected.add(node);
     }
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
-// @ts-ignore
+// @ts-expect-error
       stack.push(node.children[i]);
     }
   }
@@ -4592,7 +4592,7 @@ function collectImplicitIncludedNodesOutsideExplicit(
   );
 }
 
-// @ts-ignore
+// @ts-expect-error
 function collectIncludedNodesFromSelectorSet(selectorSet) {
   // Silent highlighting inclusion selection is visibility-agnostic:
   // implicit non-excluded content + all explicit inclusion selector matches.
@@ -4628,7 +4628,7 @@ function collectIncludedNodesFromSelectorSet(selectorSet) {
   // them through the existing boundary rules.
   const excludedNodes = new Set(rawExcludedNodes);
   const includedNodes = filteredIncludedNodes;
-// @ts-ignore
+// @ts-expect-error
   const inclusionContextSet = buildInclusionContextSet(includedNodes);
   const explicitIncluded = collectExplicitIncludedNodes(
     includedNodes,
@@ -4643,7 +4643,7 @@ function collectIncludedNodesFromSelectorSet(selectorSet) {
   // times in one collection pass. The WeakMap is scoped to this invocation
   // and discarded with the closure, so there is no staleness window.
   const visibilityMemo = new WeakMap();
-// @ts-ignore
+// @ts-expect-error
   const memoIsVisible = (node) => {
     if (!node || node.nodeType !== 1) return false;
     const cached = visibilityMemo.get(node);
@@ -4652,7 +4652,7 @@ function collectIncludedNodesFromSelectorSet(selectorSet) {
     visibilityMemo.set(node, visible);
     return visible;
   };
-// @ts-ignore
+// @ts-expect-error
   const isIncludedNodeAvailableForUser = (node) =>
     memoIsVisible(node) || !isDefinitelyHiddenSubtreeNode(node);
   const explicitIncludedSet = new Set(explicitIncluded);
@@ -4725,7 +4725,7 @@ function collectIncludedNodesFromSelectorSet(selectorSet) {
 let silentRenderNodeIdCounter = 0;
 const silentRenderNodeIds = new WeakMap();
 
-// @ts-ignore
+// @ts-expect-error
 function getSilentRenderNodeId(node) {
   if (!node || node.nodeType !== 1) {
     return 0;
@@ -4739,11 +4739,11 @@ function getSilentRenderNodeId(node) {
 }
 
 function buildSilentHighlightingRenderKey(
-// @ts-ignore
+// @ts-expect-error
   immutableNodes,
-// @ts-ignore
+// @ts-expect-error
   contentNodes,
-// @ts-ignore
+// @ts-expect-error
   excludedNodes,
   ghostContentNodes = [],
   explicitIncludeSelectorByNode = null,
@@ -4755,23 +4755,23 @@ function buildSilentHighlightingRenderKey(
   const immutableIds = immutableNodes
     .map(getSilentRenderNodeId)
     .filter(Boolean)
-// @ts-ignore
+// @ts-expect-error
     .sort((a, b) => a - b);
   const contentIds = contentNodes
     .map(getSilentRenderNodeId)
     .filter(Boolean)
-// @ts-ignore
+// @ts-expect-error
     .sort((a, b) => a - b);
   const excludedIds = excludedNodes
     .map(getSilentRenderNodeId)
     .filter(Boolean)
-// @ts-ignore
+// @ts-expect-error
     .sort((a, b) => a - b);
   const ghostContentIds = ghostContentNodes
     .map(getSilentRenderNodeId)
     .filter(Boolean)
     .sort((a, b) => a - b);
-// @ts-ignore
+// @ts-expect-error
   const buildNodeValueKey = (valueByNode) => JSON.stringify(
     (valueByNode instanceof Map ? Array.from(valueByNode.entries()) : [])
       .map(([node, value]) => [getSilentRenderNodeId(node), value || ""])
@@ -4801,7 +4801,7 @@ function buildSilentHighlightingRenderKey(
   ].join("|");
 }
 
-// @ts-ignore
+// @ts-expect-error
 function hasRenderableClientBox(node) {
   if (!node || node.nodeType !== 1) {
     return false;
@@ -4810,9 +4810,9 @@ function hasRenderableClientBox(node) {
   return rect.width > 0 && rect.height > 0;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function collectSilentHighlightRenderTargets(node, options = {}) {
-// @ts-ignore
+// @ts-expect-error
   const keepShallowestOnly = !options || options.keepShallowestOnly !== false;
   if (!node || node.nodeType !== 1) {
     return [];
@@ -4827,7 +4827,7 @@ function collectSilentHighlightRenderTargets(node, options = {}) {
   while (stack.length && inspected < MAX_INSPECTED) {
     const current = stack.shift();
     inspected += 1;
-// @ts-ignore
+// @ts-expect-error
     if (!current || current.nodeType !== 1) {
       continue;
     }
@@ -4844,9 +4844,9 @@ function collectSilentHighlightRenderTargets(node, options = {}) {
         continue;
       }
     }
-// @ts-ignore
+// @ts-expect-error
     for (let i = 0; i < current.children.length; i += 1) {
-// @ts-ignore
+// @ts-expect-error
       stack.push(current.children[i]);
     }
   }
@@ -4854,21 +4854,21 @@ function collectSilentHighlightRenderTargets(node, options = {}) {
 }
 
 function toRenderableNodeListWithSelectors(
-// @ts-ignore
+// @ts-expect-error
   nodes,
   selectorResolver = null,
   options = {}
 ) {
-// @ts-ignore
+// @ts-expect-error
   const dedupeTargets = !options || options.dedupeTargets !== false;
   const keepShallowestFallbackTargets =
-// @ts-ignore
+// @ts-expect-error
     !options || options.keepShallowestFallbackTargets !== false;
   const results = [];
   const seen = new Set();
   const selectorByNode = new Map();
   const sourceByTarget = new Map();
-// @ts-ignore
+// @ts-expect-error
   const appendSelector = (targetNode, selector) => {
     if (
       !targetNode ||
@@ -4896,7 +4896,7 @@ function toRenderableNodeListWithSelectors(
       keepShallowestOnly: keepShallowestFallbackTargets
     });
     const selector = typeof selectorResolver === "function"
-// @ts-ignore
+// @ts-expect-error
       ? selectorResolver(node)
       : "";
     if (!targets.length) {
@@ -4926,7 +4926,7 @@ function toRenderableNodeListWithSelectors(
   return { nodes: results, selectorByNode, sourceByTarget };
 }
 
-// @ts-ignore
+// @ts-expect-error
 function toRenderableNodeList(nodes) {
   return toRenderableNodeListWithSelectors(nodes).nodes;
 }
@@ -4945,12 +4945,12 @@ function collectAiSubmissionXpathsForCurrentPage(sourceConfig = state.config) {
   const explicitExcludedXpaths = new Set();
   const explicitIncludedXpaths = new Set();
   const rowIndexByXpath = new Map();
-// @ts-ignore
+// @ts-expect-error
   const excludedRowXpaths = [];
   const excludedRowXpathSet = new Set();
-// @ts-ignore
+// @ts-expect-error
   const rows = [];
-// @ts-ignore
+// @ts-expect-error
   const pushRow = (xpath, excluded) => {
     if (typeof xpath !== "string" || !xpath) {
       return;
@@ -4980,9 +4980,9 @@ function collectAiSubmissionXpathsForCurrentPage(sourceConfig = state.config) {
       excludedRowXpaths.push(xpath);
     }
   };
-// @ts-ignore
+// @ts-expect-error
   const normalizeXPath = (value) => (typeof value === "string" ? value.trim() : "");
-// @ts-ignore
+// @ts-expect-error
   const isWithinImmutableExcludedBoundary = (element) => {
     let current = element;
     while (current && current.nodeType === 1) {
@@ -4993,7 +4993,7 @@ function collectAiSubmissionXpathsForCurrentPage(sourceConfig = state.config) {
     }
     return false;
   };
-// @ts-ignore
+// @ts-expect-error
   const toSnapshotXPath = (value) => {
     const xpath = normalizeXPath(value);
     if (!xpath) {
@@ -5009,7 +5009,7 @@ function collectAiSubmissionXpathsForCurrentPage(sourceConfig = state.config) {
     return getCurrentPageSnapshotXPath(element);
   };
   const explicitRows = Array.isArray(entry && entry.xpaths) ? entry.xpaths : [];
-// @ts-ignore
+// @ts-expect-error
   explicitRows.forEach((item) => {
     if (!item || typeof item.xpath !== "string" || !item.excluded) {
       return;
@@ -5026,7 +5026,7 @@ function collectAiSubmissionXpathsForCurrentPage(sourceConfig = state.config) {
       explicitExcludedXpaths.add(xpath);
     }
   });
-// @ts-ignore
+// @ts-expect-error
   (Array.isArray(entry && entry.includeXpaths) ? entry.includeXpaths : []).forEach((xpath) => {
     const normalized = toSnapshotXPath(xpath);
     if (normalized) {
@@ -5036,12 +5036,12 @@ function collectAiSubmissionXpathsForCurrentPage(sourceConfig = state.config) {
 
   explicitExcludedXpaths.forEach((xpath) => pushRow(xpath, true));
 
-// @ts-ignore
+// @ts-expect-error
   const hasExcludedAncestorRow = (xpath) => {
     if (!xpath || excludedRowXpaths.length === 0) {
       return false;
     }
-// @ts-ignore
+// @ts-expect-error
     for (const excludedXpath of excludedRowXpaths) {
       if (
         excludedXpath &&
@@ -5055,7 +5055,7 @@ function collectAiSubmissionXpathsForCurrentPage(sourceConfig = state.config) {
   };
 
   if (!document.body) {
-// @ts-ignore
+// @ts-expect-error
     return rows;
   }
   const stack = [{ node: document.body, insideImmutableExcluded: false }];
@@ -5076,7 +5076,7 @@ function collectAiSubmissionXpathsForCurrentPage(sourceConfig = state.config) {
     }
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
       stack.push({
-// @ts-ignore
+// @ts-expect-error
         node: node.children[i],
         insideImmutableExcluded: immutableExcludedRoot
       });
@@ -5109,7 +5109,7 @@ function collectAiSubmissionXpathsForCurrentPage(sourceConfig = state.config) {
       insideExcludedAncestor: insideExcludedAncestorRow,
       visibleToUser,
       immutableExcludedRoot: false,
-// @ts-ignore
+// @ts-expect-error
       hiddenToggleableRoot: false,
       markableTextual: isMarkableTextual
     });
@@ -5134,11 +5134,11 @@ function collectAiSubmissionXpathsForCurrentPage(sourceConfig = state.config) {
     }
     pushRow(xpath, submissionRow.excluded);
   }
-// @ts-ignore
+// @ts-expect-error
   return rows;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function hasVisibleMarkableTextualSubmissionDescendant(root, configValue) {
   if (!root || root.nodeType !== 1) {
     return false;
@@ -5152,7 +5152,7 @@ function hasVisibleMarkableTextualSubmissionDescendant(root, configValue) {
     stack.push(children[i]);
   }
   while (stack.length) {
-// @ts-ignore
+// @ts-expect-error
     const node = stack.pop();
     if (!node || node.nodeType !== 1) {
       continue;
@@ -5171,7 +5171,7 @@ function hasVisibleMarkableTextualSubmissionDescendant(root, configValue) {
         return true;
       }
     }
-// @ts-ignore
+// @ts-expect-error
     const childList = node.children;
     if (!childList || childList.length === 0) {
       continue;
@@ -5192,17 +5192,17 @@ function refreshEnabledAiHighlights() {
   clearSilentHighlightingMarks();
   setSilentHighlightingsActive(false);
   const selectorSet = getEffectiveAiSelectorSet(state.config);
-// @ts-ignore
+// @ts-expect-error
   if (!state.config.selectors || typeof state.config.selectors !== "object") {
-// @ts-ignore
+// @ts-expect-error
     state.config.selectors = {
       exclusionSelectors: [],
       inclusionSelectors: []
     };
   }
-// @ts-ignore
+// @ts-expect-error
   state.config.selectors = selectorSet;
-// @ts-ignore
+// @ts-expect-error
   core.scheduleRender();
 }
 
@@ -5247,11 +5247,11 @@ async function refreshSilentHighlightings() {
       currentSilentRevealKey === silentHighlightEditorRevealKey
   );
   setSilentHighlightingPageMotionPaused(holdSilentMotionPause);
-// @ts-ignore
+// @ts-expect-error
   const normalized = config.normalizeConfig(baseUrl, configs[baseUrl]);
   const baseConfig = normalized.config || {};
   if (normalized.changed) {
-// @ts-ignore
+// @ts-expect-error
     configs[baseUrl] = baseConfig;
     await config.saveConfigs(configs);
     if (refreshGeneration !== silentHighlightingRefreshGeneration) {
@@ -5316,7 +5316,7 @@ async function refreshSilentHighlightings() {
       // while we were computing source nodes wins and this older call bails.
       await new Promise((resolve) => {
         if (typeof window.setTimeout !== "function") {
-// @ts-ignore
+// @ts-expect-error
           resolve();
           return;
         }
@@ -5367,7 +5367,7 @@ async function refreshSilentHighlightings() {
     immutableNodes,
     contentNodes,
     excludedNodes,
-// @ts-ignore
+// @ts-expect-error
     renderCollections.ghostContentNodes,
     renderCollections.explicitIncludeSelectorByNode,
     renderCollections.excludedSelectorByNode,
@@ -5382,7 +5382,7 @@ async function refreshSilentHighlightings() {
     shouldBeActive,
     renderChanged,
     positionRefreshPending: silentHighlightingPositionRefreshPending,
-// @ts-ignore
+// @ts-expect-error
     hasOverlay: Boolean(silentHighlightOverlay),
     isFullRefresh: true
   });
@@ -5404,7 +5404,7 @@ async function refreshSilentHighlightings() {
       // Only the initial paint (inactive -> active, or no overlay yet) uses the
       // hide->reveal transition so the first reveal is correctly scheduled.
       const overlayAlreadyLive =
-// @ts-ignore
+// @ts-expect-error
         lastSilentHighlightingsActive && shouldBeActive && Boolean(silentHighlightOverlay);
       renderSilentHighlightOverlay(renderCollections, { keepVisible: overlayAlreadyLive });
     } else if (renderChanged) {
@@ -5425,13 +5425,13 @@ async function refreshSilentHighlightings() {
   await new Promise((resolve) => {
     if (typeof window.requestAnimationFrame !== "function") {
       applyOverlayUpdate();
-// @ts-ignore
+// @ts-expect-error
       resolve();
       return;
     }
     window.requestAnimationFrame(() => {
       applyOverlayUpdate();
-// @ts-ignore
+// @ts-expect-error
       resolve();
     });
   });
@@ -5446,7 +5446,7 @@ function isMarkingBlockedByPropertyLock() {
   }
   return propertyLockBannerVisible &&
     propertyLockBannerMode !== "no_banner" &&
-// @ts-ignore
+// @ts-expect-error
     propertyLockState &&
     !propertyLockState.isEditor;
 }
@@ -5491,7 +5491,7 @@ function showPropertyLockBlockedToast() {
     showPageToast(propertyLockText.inactivityInteractionBlockedToast);
     return;
   }
-// @ts-ignore
+// @ts-expect-error
   const editorName = propertyLockState?.editorName || "Someone";
   showPageToast(propertyLockText.lockedInteractionBlockedToast(editorName));
 }
@@ -5526,7 +5526,7 @@ function getPropertyLockClientId() {
   return setPropertyLockClientId(createPropertyLockClientId());
 }
 
-// @ts-ignore
+// @ts-expect-error
 function setPropertyLockClientId(nextClientId) {
   const normalizedClientId = normalizePropertyLockClientId(nextClientId);
   if (!normalizedClientId) {
@@ -5555,12 +5555,12 @@ function sendPropertyLockDraftStatus() {
     return;
   }
   const portClient = getPropertyLockPortClient();
-// @ts-ignore
+// @ts-expect-error
   if (!portClient.hasPort()) {
     return;
   }
   try {
-// @ts-ignore
+// @ts-expect-error
     portClient.postMessage({
       type: PROPERTY_LOCK_CONTENT_DRAFT_STATUS,
       ...getPropertyLockDraftStatusPayload()
@@ -5570,7 +5570,7 @@ function sendPropertyLockDraftStatus() {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 function handleBlockedPropertyLockInteraction(event) {
   if (!isPropertyLockCollaborationEnabled()) {
     return;
@@ -5629,9 +5629,9 @@ function resetPropertyLockUiState() {
   renderPropertyLockBanner();
 }
 
-// @ts-ignore
+// @ts-expect-error
 function normalizePropertyLockRecoveryTabState(tabState) {
-// @ts-ignore
+// @ts-expect-error
   return getPropertyLockStateMachine().normalizeRecoveryTabState(tabState);
 }
 
@@ -5649,7 +5649,7 @@ function loadPropertyLockRecoveryTabState() {
 }
 
 function persistPropertyLockRecoveryState({ siteId = null, baseUrl = "", clientId = "", deadlineAt = 0 } = {}) {
-// @ts-ignore
+// @ts-expect-error
   return getPropertyLockStateMachine().persistRecoveryState({
     siteId,
     baseUrl,
@@ -5658,14 +5658,14 @@ function persistPropertyLockRecoveryState({ siteId = null, baseUrl = "", clientI
   });
 }
 
-// @ts-ignore
+// @ts-expect-error
 function persistPropertyLockOffCandidateDeadline(deadlineAt) {
-// @ts-ignore
+// @ts-expect-error
   return getPropertyLockStateMachine().persistOffCandidateDeadline(deadlineAt);
 }
 
 function clearPropertyLockOffCandidateWarning() {
-// @ts-ignore
+// @ts-expect-error
   return getPropertyLockStateMachine().clearOffCandidateWarning();
 }
 
@@ -5678,7 +5678,7 @@ function clearPropertyLockRecoveryReleaseTimer() {
 }
 
 function clearPropertyLockCrossPropertyWarning(options = {}) {
-// @ts-ignore
+// @ts-expect-error
   return getPropertyLockStateMachine().clearCrossPropertyWarning(options);
 }
 
@@ -5688,7 +5688,7 @@ function armPropertyLockCrossPropertyRelease() {
   }
   clearPropertyLockRecoveryReleaseTimer();
   if (
-// @ts-ignore
+// @ts-expect-error
     !propertyLockRecoverySiteId ||
     !propertyLockRecoveryClientId ||
     propertyLockRecoveryDeadlineAt <= Date.now()
@@ -5698,7 +5698,7 @@ function armPropertyLockCrossPropertyRelease() {
   propertyLockRecoveryReleaseTimer = window.setTimeout(() => {
     propertyLockRecoveryReleaseTimer = 0;
     if (
-// @ts-ignore
+// @ts-expect-error
       !propertyLockRecoverySiteId ||
       !propertyLockRecoveryClientId ||
       propertyLockRecoveryDeadlineAt <= 0 ||
@@ -5718,19 +5718,19 @@ function armPropertyLockCrossPropertyRelease() {
   }, Math.max(1, propertyLockRecoveryDeadlineAt - Date.now() + 100));
 }
 
-// @ts-ignore
+// @ts-expect-error
 function startPropertyLockCrossPropertyWarning(recoveryState) {
-// @ts-ignore
+// @ts-expect-error
   return getPropertyLockStateMachine().startCrossPropertyWarning(recoveryState);
 }
 
 function startPropertyLockOffCandidateWarning() {
-// @ts-ignore
+// @ts-expect-error
   return getPropertyLockStateMachine().startOffCandidateWarning();
 }
 
 function clearPropertyLockReconnectTimer() {
-// @ts-ignore
+// @ts-expect-error
   getPropertyLockPortClient().clearReconnectTimer();
 }
 
@@ -5738,19 +5738,19 @@ function schedulePropertyLockReconnect(options = {}) {
   if (!ensurePropertyLockCollaborationActive()) {
     return;
   }
-// @ts-ignore
+// @ts-expect-error
   getPropertyLockPortClient().scheduleReconnect(options);
 }
 
 function disconnectPropertyLockPort(options = {}) {
-// @ts-ignore
+// @ts-expect-error
   const { notifyBackground = true } = options || {};
-// @ts-ignore
+// @ts-expect-error
   getPropertyLockPortClient().disconnect({ notifyBackground });
   resetPropertyLockUiState();
 }
 
-// @ts-ignore
+// @ts-expect-error
 function markExtensionContextInvalidated(error) {
   if (!utils.isExtensionContextInvalidatedError(error)) {
     return false;
@@ -5761,7 +5761,7 @@ function markExtensionContextInvalidated(error) {
   return true;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function handlePropertyLockSyncError(error, options = {}) {
   if (markExtensionContextInvalidated(error)) {
     return;
@@ -5780,24 +5780,24 @@ function queuePropertyLockEditorClaim() {
 
 function mergePropertyLockSyncOptions(currentOptions = {}, incomingOptions = {}) {
   const mergedOptions = {};
-// @ts-ignore
+// @ts-expect-error
   const currentPageUrl = typeof currentOptions.pageUrl === "string" && currentOptions.pageUrl
-// @ts-ignore
+// @ts-expect-error
     ? currentOptions.pageUrl
     : "";
-// @ts-ignore
+// @ts-expect-error
   const incomingPageUrl = typeof incomingOptions.pageUrl === "string" && incomingOptions.pageUrl
-// @ts-ignore
+// @ts-expect-error
     ? incomingOptions.pageUrl
     : "";
   const mergedPageUrl = incomingPageUrl || currentPageUrl;
   if (mergedPageUrl) {
-// @ts-ignore
+// @ts-expect-error
     mergedOptions.pageUrl = mergedPageUrl;
   }
-// @ts-ignore
+// @ts-expect-error
   if (Boolean(currentOptions.forceSiteIdRefresh) || Boolean(incomingOptions.forceSiteIdRefresh)) {
-// @ts-ignore
+// @ts-expect-error
     mergedOptions.forceSiteIdRefresh = true;
   }
   return mergedOptions;
@@ -5811,7 +5811,7 @@ function flushQueuedPropertyLockEditorClaim() {
   if (!propertyLockEditorClaimPending) {
     return;
   }
-// @ts-ignore
+// @ts-expect-error
   if (propertyLockState && propertyLockState.isEditor) {
     propertyLockEditorClaimPending = false;
     return;
@@ -5830,7 +5830,7 @@ function runPropertyLockSync(options = {}) {
   const nextOptions = mergePropertyLockSyncOptions({}, options);
   if (propertyLockSyncInFlight) {
     propertyLockQueuedSyncOptions = mergePropertyLockSyncOptions(
-// @ts-ignore
+// @ts-expect-error
       propertyLockQueuedSyncOptions || {},
       nextOptions
     );
@@ -5846,7 +5846,7 @@ function runPropertyLockSync(options = {}) {
       } catch (error) {
         handlePropertyLockSyncError(error, activeOptions);
       }
-// @ts-ignore
+// @ts-expect-error
       if (!propertyLockQueuedSyncOptions) {
         break;
       }
@@ -5854,7 +5854,7 @@ function runPropertyLockSync(options = {}) {
       propertyLockQueuedSyncOptions = null;
     }
     propertyLockSyncInFlight = false;
-// @ts-ignore
+// @ts-expect-error
     if (propertyLockQueuedSyncOptions && !extensionContextInvalidated) {
       const queuedOptions = propertyLockQueuedSyncOptions;
       propertyLockQueuedSyncOptions = null;
@@ -5872,12 +5872,12 @@ async function syncPropertyLockConnection(options = {}) {
   }
   const syncToken = ++propertyLockSyncToken;
   clearPropertyLockReconnectTimer();
-// @ts-ignore
+// @ts-expect-error
   const pageUrl = typeof options.pageUrl === "string" && options.pageUrl
-// @ts-ignore
+// @ts-expect-error
     ? options.pageUrl
     : location.href;
-// @ts-ignore
+// @ts-expect-error
   const forceSiteIdRefresh = Boolean(options.forceSiteIdRefresh);
   const recoveryState = await loadPropertyLockRecoveryTabState();
   if (recoveryState.clientId && recoveryState.baseUrl && utils.isPageWithinBaseUrl(pageUrl, recoveryState.baseUrl)) {
@@ -5897,7 +5897,7 @@ async function syncPropertyLockConnection(options = {}) {
     recoveryState.clientId &&
     !utils.isPageWithinBaseUrl(pageUrl, recoveryState.baseUrl)
   ) {
-// @ts-ignore
+// @ts-expect-error
     if (getPropertyLockPortClient().hasPort()) {
       disconnectPropertyLockPort();
     }
@@ -5938,9 +5938,9 @@ async function syncPropertyLockConnection(options = {}) {
   const siteId = target.siteId;
   propertyLockConnectedBaseUrl = target.baseUrl || "";
   const portClient = getPropertyLockPortClient();
-// @ts-ignore
+// @ts-expect-error
   if (!(portClient.hasPort() && propertyLockConnectedSiteId === siteId)) {
-// @ts-ignore
+// @ts-expect-error
     if (portClient.hasPort()) {
       disconnectPropertyLockPort();
     }
@@ -5949,7 +5949,7 @@ async function syncPropertyLockConnection(options = {}) {
     propertyLockConnectedBaseUrl = target.baseUrl || "";
 
     try {
-// @ts-ignore
+// @ts-expect-error
       portClient.connect({
         connectPayload: {
           type: PROPERTY_LOCK_CONTENT_CONNECT,
@@ -5957,7 +5957,7 @@ async function syncPropertyLockConnection(options = {}) {
           ...getPropertyLockDraftStatusPayload()
         },
         onMessage: handlePropertyLockPortMessage,
-// @ts-ignore
+// @ts-expect-error
         onDisconnect: (disconnectReason) => {
           propertyLockConnectedSiteId = null;
           propertyLockConnectedBaseUrl = "";
@@ -5988,7 +5988,7 @@ async function syncPropertyLockConnection(options = {}) {
   // Re-run activation/refresh so reveal+freeze still executes per visited page.
   clearPropertyLockCrossPropertyWarning({ preserveSession: true });
   sendPropertyLockActivity();
-// @ts-ignore
+// @ts-expect-error
   let shouldRunEditorActivation = Boolean(propertyLockState && propertyLockState.isEditor);
   if (!shouldRunEditorActivation) {
     const snapshot = await fetchPropertyLockStateSnapshot(siteId);
@@ -6020,7 +6020,7 @@ async function syncPropertyLockConnection(options = {}) {
   refreshSilentHighlightings().then();
 }
 
-// @ts-ignore
+// @ts-expect-error
 function handlePropertyLockPortMessage(message) {
   if (!ensurePropertyLockCollaborationActive()) {
     return;
@@ -6052,7 +6052,7 @@ function handlePropertyLockPortMessage(message) {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 function subscribePageActivity(listener) {
   if (typeof listener === "function") {
     pageActivitySubscribers.add(listener);
@@ -6082,7 +6082,7 @@ function sendPageActivityObserved() {
 function publishPageActivity() {
   sendPageActivityObserved();
   for (const listener of pageActivitySubscribers) {
-// @ts-ignore
+// @ts-expect-error
     listener();
   }
 }
@@ -6095,13 +6095,13 @@ function sendPropertyLockActivity() {
     return;
   }
   const portClient = getPropertyLockPortClient();
-// @ts-ignore
+// @ts-expect-error
   if (!portClient.hasPort()) {
     schedulePropertyLockReconnect();
     return;
   }
   try {
-// @ts-ignore
+// @ts-expect-error
     portClient.postMessage({
       type: PROPERTY_LOCK_CONTENT_ACTIVITY,
       ...getPropertyLockDraftStatusPayload()
@@ -6118,7 +6118,7 @@ function sendPropertyLockActivity() {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 function sendPropertyLockMessage(type, payload = {}) {
   if (!ensurePropertyLockCollaborationActive()) {
     return;
@@ -6127,13 +6127,13 @@ function sendPropertyLockMessage(type, payload = {}) {
     return;
   }
   const portClient = getPropertyLockPortClient();
-// @ts-ignore
+// @ts-expect-error
   if (!portClient.hasPort()) {
     schedulePropertyLockReconnect();
     return;
   }
   try {
-// @ts-ignore
+// @ts-expect-error
     portClient.postMessage({
       type,
       ...getPropertyLockDraftStatusPayload(),
@@ -6151,7 +6151,7 @@ function sendPropertyLockMessage(type, payload = {}) {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 async function fetchPropertyLockStateSnapshot(siteId) {
   if (!ensurePropertyLockCollaborationActive()) {
     return null;
@@ -6171,9 +6171,9 @@ async function fetchPropertyLockStateSnapshot(siteId) {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 function applyPropertyLockServerMessage(serverMessage) {
-// @ts-ignore
+// @ts-expect-error
   return getPropertyLockStateMachine().applyServerMessage(serverMessage);
 }
 
@@ -6193,15 +6193,15 @@ function createPropertyLockStateMachineDeps() {
     getPropertyLockBannerMode: () => propertyLockBannerMode,
     getPropertyLockClientId: () => getPropertyLockClientId(),
     getPropertyLockConnectedBaseUrl: () => propertyLockConnectedBaseUrl,
-// @ts-ignore
+// @ts-expect-error
     getPropertyLockConnectedSiteId: () => propertyLockConnectedSiteId,
     getPropertyLockOffCandidateDeadlineAt: () => propertyLockOffCandidateDeadlineAt,
     getPropertyLockRecoveryBaseUrl: () => propertyLockRecoveryBaseUrl,
     getPropertyLockRecoveryClientId: () => propertyLockRecoveryClientId,
     getPropertyLockRecoveryDeadlineAt: () => propertyLockRecoveryDeadlineAt,
-// @ts-ignore
+// @ts-expect-error
     getPropertyLockRecoverySiteId: () => propertyLockRecoverySiteId,
-// @ts-ignore
+// @ts-expect-error
     getPropertyLockState: () => propertyLockState,
     getPropertyLockSuggestionFromName: () => propertyLockSuggestionFromName,
     getPropertyLockSuggestionId: () => propertyLockSuggestionId,
@@ -6215,45 +6215,45 @@ function createPropertyLockStateMachineDeps() {
     restartPropertyLockBannerCountdown,
     runEditorSilentHighlightingActivation,
     sendPropertyLockMessage,
-// @ts-ignore
+// @ts-expect-error
     sendRuntimeMessage: (message) => utils.sendRuntimeMessage(message),
-// @ts-ignore
+// @ts-expect-error
     setPropertyLockBannerCountdownValue: (value) => {
       propertyLockBannerCountdownValue = value;
     },
-// @ts-ignore
+// @ts-expect-error
     setPropertyLockBannerMode: (mode) => {
       propertyLockBannerMode = mode;
     },
-// @ts-ignore
+// @ts-expect-error
     setPropertyLockOffCandidateDeadlineAt: (deadlineAt) => {
       propertyLockOffCandidateDeadlineAt = deadlineAt;
     },
-// @ts-ignore
+// @ts-expect-error
     setPropertyLockRecoveryBaseUrl: (baseUrl) => {
       propertyLockRecoveryBaseUrl = baseUrl;
     },
-// @ts-ignore
+// @ts-expect-error
     setPropertyLockRecoveryClientId: (clientId) => {
       propertyLockRecoveryClientId = clientId;
     },
-// @ts-ignore
+// @ts-expect-error
     setPropertyLockRecoveryDeadlineAt: (deadlineAt) => {
       propertyLockRecoveryDeadlineAt = deadlineAt;
     },
-// @ts-ignore
+// @ts-expect-error
     setPropertyLockRecoverySiteId: (siteId) => {
       propertyLockRecoverySiteId = siteId;
     },
-// @ts-ignore
+// @ts-expect-error
     setPropertyLockState: (nextState) => {
       propertyLockState = nextState;
     },
-// @ts-ignore
+// @ts-expect-error
     setPropertyLockSuggestionFromName: (fromName) => {
       propertyLockSuggestionFromName = fromName;
     },
-// @ts-ignore
+// @ts-expect-error
     setPropertyLockSuggestionId: (suggestionId) => {
       propertyLockSuggestionId = suggestionId;
     },
@@ -6291,15 +6291,15 @@ function createPropertyLockBannerModeDeps() {
     clearPropertyLockOffCandidateWarning,
     getPropertyLockRecoveryDeadlineAt: () => propertyLockRecoveryDeadlineAt,
     getPropertyLockOffCandidateDeadlineAt: () => propertyLockOffCandidateDeadlineAt,
-// @ts-ignore
+// @ts-expect-error
     getPropertyLockState: () => propertyLockState,
     getPropertyLockBannerMode: () => propertyLockBannerMode,
-// @ts-ignore
+// @ts-expect-error
     setPropertyLockBannerMode: (mode) => {
       propertyLockBannerMode = mode;
     },
     getPropertyLockBannerCountdownValue: () => propertyLockBannerCountdownValue,
-// @ts-ignore
+// @ts-expect-error
     setPropertyLockBannerCountdownValue: (value) => {
       propertyLockBannerCountdownValue = value;
     },
@@ -6333,15 +6333,15 @@ function createRenderModeInspectionClientDeps() {
 function createInspectionStatusDeps() {
   return {
     getCurrentContentMode,
-// @ts-ignore
+// @ts-expect-error
     getPageSaveReconciliationState: (pageUrl) => core.getPageSaveReconciliationState(pageUrl),
     getPageUrl: () => location.href,
     getPropertyLockEditorClaimPending: () => propertyLockEditorClaimPending,
-// @ts-ignore
+// @ts-expect-error
     getSilentHighlightEditorActivationPromise: () => silentHighlightEditorActivationPromise,
     isMarkingEnabled: () => Boolean(state.enabled),
     isPageInspectionUiActive: () => core.isPageInspectionUiActive(),
-// @ts-ignore
+// @ts-expect-error
     isPageSaveReconciliationPending: (pageUrl) => core.isPageSaveReconciliationPending(pageUrl),
     isRenderModeInspectionActive,
     SILENT_HIGHLIGHTING_PREPARATION_REASON
@@ -6386,11 +6386,11 @@ function createAiPreviewComputeLockHandlerDeps() {
 function createAiPreviewExpandedModeHandlerDeps() {
   return {
     buildExpandedModeDisabledResponse: () =>
-// @ts-ignore
+// @ts-expect-error
       getAiPreviewStateResponseBuilder().buildExpandedModeDisabledResponse(),
-// @ts-ignore
+// @ts-expect-error
     buildExpandedModeResponse: (ok) =>
-// @ts-ignore
+// @ts-expect-error
       getAiPreviewStateResponseBuilder().buildExpandedModeResponse(ok),
     isPreviewExpandedStatesEnabled: () => isFeatureEnabled("previewExpandedStates"),
     setAiPreviewExpandedMode
@@ -6399,7 +6399,7 @@ function createAiPreviewExpandedModeHandlerDeps() {
 
 function createAiPreviewGetStateHandlerDeps() {
   return {
-// @ts-ignore
+// @ts-expect-error
     buildGetStateResponse: () => getAiPreviewStateResponseBuilder().buildGetStateResponse()
   };
 }
@@ -6407,13 +6407,13 @@ function createAiPreviewGetStateHandlerDeps() {
 function createAiPreviewShowHandlerDeps() {
   return {
     buildAiPreviewItemsWithCategories,
-// @ts-ignore
+// @ts-expect-error
     collectPreviewItems: (selectorSet) => core.collectPreviewItems(selectorSet),
     enterAiPreviewMode,
     exitAiPreviewMode,
     normalizeAiSelectorSet,
     setAiPreviewItemSets,
-// @ts-ignore
+// @ts-expect-error
     showAiPopover: (items, options) => core.showAiPopover(items, options)
   };
 }
@@ -6433,28 +6433,28 @@ function createCapturePageSnapshotHandlerDeps() {
     getActiveConfig: () => state.config,
     getCurrentPageType: () => state.currentPageType,
     getDocumentTitle: () => document.title,
-// @ts-ignore
+// @ts-expect-error
     getPageMarkingEntry: (configValue, pageUrl) => core.getPageMarkingEntry(configValue, pageUrl),
     getPageUrl: () => location.href,
-// @ts-ignore
+// @ts-expect-error
     hasPageMarkingEntry: (configValue, pageUrl) => core.hasPageMarkingEntry(configValue, pageUrl),
-// @ts-ignore
+// @ts-expect-error
     loadConfig: (baseUrl) => core.loadConfig(baseUrl),
     matchesActiveBaseUrl,
-// @ts-ignore
+// @ts-expect-error
     refreshSavedPageEntryFromBackendCache: (baseUrl, pageUrl) =>
       core.refreshSavedPageEntryFromBackendCache(baseUrl, pageUrl),
-// @ts-ignore
+// @ts-expect-error
     saveConfig: (baseUrl, configValue) => core.saveConfig(baseUrl, configValue),
     sendPropertyLockActivity,
-// @ts-ignore
+// @ts-expect-error
     setConfig: (configValue) => {
       state.config = configValue;
     },
-// @ts-ignore
+// @ts-expect-error
     syncPageMarkings: (configValue, pageUrl, immutableExcluded, options) =>
       core.syncPageMarkings(configValue, pageUrl, immutableExcluded, options),
-// @ts-ignore
+// @ts-expect-error
     touchPageEntryTimestamp: (entry) => core.touchPageEntryTimestamp(entry)
   };
 }
@@ -6463,43 +6463,43 @@ function createConfigUpdatedHandlerDeps() {
   return {
     clearAiPreviewState,
     disable: () => core.disable(),
-// @ts-ignore
+// @ts-expect-error
     findPageMarkingEntry: (configValue, pageUrl, baseUrl) =>
       core.findPageMarkingEntry(configValue, pageUrl, baseUrl),
-// @ts-ignore
+// @ts-expect-error
     getBackendSavedPageMarkings: (baseUrl) => config.getBackendSavedPageMarkings(baseUrl),
     getBaseUrl: () => state.baseUrl,
     getCurrentPageType: () => state.currentPageType,
-// @ts-ignore
+// @ts-expect-error
     getDraftPageEntry: (pageUrl) => core.getDraftPageEntry(pageUrl),
     getPageUrl: () => location.href,
-// @ts-ignore
+// @ts-expect-error
     getSavedPageEntry: (pageUrl) => core.getSavedPageEntry(pageUrl),
     isAiPreviewActive: () => aiPreviewState.active,
     isEnabled: () => state.enabled,
-// @ts-ignore
+// @ts-expect-error
     loadConfig: (baseUrl) => core.loadConfig(baseUrl),
-// @ts-ignore
+// @ts-expect-error
     mergeDraftEntry: (configValue, pageUrl, draftEntry, savedEntry) =>
       core.mergeDraftEntry(configValue, pageUrl, draftEntry, savedEntry),
-// @ts-ignore
+// @ts-expect-error
     notifyDraftStatus: (pageUrl) => core.notifyDraftStatus(pageUrl),
     refreshEnabledAiHighlights,
     refreshSilentHighlightings,
     runPropertyLockSync,
-// @ts-ignore
+// @ts-expect-error
     sameBaseUrl: (left, right) => utils.sameBaseUrl(left, right),
-// @ts-ignore
+// @ts-expect-error
     scheduleRender: () => core.scheduleRender(),
-// @ts-ignore
+// @ts-expect-error
     setConfig: (configValue) => {
       state.config = configValue;
     },
-// @ts-ignore
+// @ts-expect-error
     setCurrentPageType: (pageType) => {
       state.currentPageType = pageType;
     },
-// @ts-ignore
+// @ts-expect-error
     setSavedPageEntry: (pageUrl, entry) => core.setSavedPageEntry(pageUrl, entry)
   };
 }
@@ -6509,11 +6509,11 @@ function createCollectPageDataHandlerDeps() {
     createCurrentPageSnapshot,
     getBaseUrl: () => state.baseUrl,
     getImmutableSelectors: () => DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS.slice(),
-// @ts-ignore
+// @ts-expect-error
     getPageMarkingEntry: (configValue, pageUrl, options) =>
       core.getPageMarkingEntry(configValue, pageUrl, options),
     getPageUrl: () => location.href,
-// @ts-ignore
+// @ts-expect-error
     loadConfig: (baseUrl) => core.loadConfig(baseUrl)
   };
 }
@@ -6526,29 +6526,29 @@ function createDefaultExclusionsHandlerDeps() {
 
 function createVisibleXpathsHandlerDeps() {
   return {
-// @ts-ignore
+// @ts-expect-error
     getElementFromXPath: (xpath) => core.getElementFromXPath(xpath),
-// @ts-ignore
+// @ts-expect-error
     isVisible: (element) => core.isVisible(element)
   };
 }
 
 function createInvisibleXpathsHandlerDeps() {
   return {
-// @ts-ignore
+// @ts-expect-error
     getElementFromXPath: (xpath) => core.getElementFromXPath(xpath),
-// @ts-ignore
+// @ts-expect-error
     isVisible: (element) => core.isVisible(element)
   };
 }
 
 function createDescribeXpathsHandlerDeps() {
   return {
-// @ts-ignore
+// @ts-expect-error
     getElementFromXPath: (xpath) => core.getElementFromXPath(xpath),
-// @ts-ignore
+// @ts-expect-error
     getElementLabel: (element) => core.getElementLabel(element),
-// @ts-ignore
+// @ts-expect-error
     isVisible: (element) => core.isVisible(element)
   };
 }
@@ -6556,9 +6556,9 @@ function createDescribeXpathsHandlerDeps() {
 function createFocusHandlerDeps() {
   return {
     clearFocusHighlight: () => core.clearFocusHighlight(),
-// @ts-ignore
+// @ts-expect-error
     focusPreviewElement: (element) => core.focusPreviewElement(element),
-// @ts-ignore
+// @ts-expect-error
     getElementFromXPath: (xpath) => core.getElementFromXPath(xpath),
     isAiPreviewActive: () => aiPreviewState.active,
     setAiPreviewFocusedXpath
@@ -6576,38 +6576,38 @@ function createForceRefreshHandlerDeps() {
 
 function createExplicitMarkingHandlerDeps() {
   return {
-// @ts-ignore
+// @ts-expect-error
     canApplyExplicitInclude: (target, configValue, pageUrl, entry) =>
       core.canApplyExplicitInclude(target, configValue, pageUrl, entry),
     getConfig: () => state.config,
-// @ts-ignore
+// @ts-expect-error
     getElementFromXPath: (xpath) => core.getElementFromXPath(xpath),
-// @ts-ignore
+// @ts-expect-error
     getPageMarkingEntry: (configValue, pageUrl) => core.getPageMarkingEntry(configValue, pageUrl),
     getPageUrl: () => location.href,
-// @ts-ignore
+// @ts-expect-error
     isDefaultToggleableExcludedElement: (element) => core.isDefaultToggleableExcludedElement(element),
-// @ts-ignore
+// @ts-expect-error
     isPageDraftDirty: (pageUrl) => core.isPageDraftDirty(pageUrl),
-// @ts-ignore
+// @ts-expect-error
     isXPathDescendant: (parentXpath, childXpath) => core.isXPathDescendant(parentXpath, childXpath),
-// @ts-ignore
+// @ts-expect-error
     normalizePageEntryXpaths: (entry) => core.normalizePageEntryXpaths(entry),
-// @ts-ignore
+// @ts-expect-error
     notifyDraftStatus: (pageUrl) => core.notifyDraftStatus(pageUrl),
-// @ts-ignore
+// @ts-expect-error
     scheduleDraftPersist: (baseUrl) => core.scheduleDraftPersist(baseUrl),
-// @ts-ignore
+// @ts-expect-error
     scheduleRender: () => core.scheduleRender(),
     scheduleSnapshotSave: () => core.scheduleSnapshotSave(),
-// @ts-ignore
+// @ts-expect-error
     touchPageEntryTimestamp: (entry) => core.touchPageEntryTimestamp(entry)
   };
 }
 
 function createPageSaveReconciliationPendingHandlerDeps() {
   return {
-// @ts-ignore
+// @ts-expect-error
     setPageSaveReconciliationPending: (baseUrl, pageUrl, options) =>
       core.setPageSaveReconciliationPending(baseUrl, pageUrl, options)
   };
@@ -6615,31 +6615,31 @@ function createPageSaveReconciliationPendingHandlerDeps() {
 
 function createPageSaveReconciliationClearHandlerDeps() {
   return {
-// @ts-ignore
+// @ts-expect-error
     clearPageSaveReconciliation: (baseUrl, pageUrl) =>
       core.clearPageSaveReconciliation(baseUrl, pageUrl),
-// @ts-ignore
+// @ts-expect-error
     clonePageEntry: (entry) => core.clonePageEntry(entry),
-// @ts-ignore
+// @ts-expect-error
     findPageMarkingEntry: (configValue, pageUrl, baseUrl) =>
       core.findPageMarkingEntry(configValue, pageUrl, baseUrl),
-// @ts-ignore
+// @ts-expect-error
     getBackendSavedPageMarkings: (baseUrl) => config.getBackendSavedPageMarkings(baseUrl),
     getPageUrl: () => location.href,
-// @ts-ignore
+// @ts-expect-error
     loadConfig: (baseUrl) => core.loadConfig(baseUrl),
-// @ts-ignore
+// @ts-expect-error
     notifyDraftStatus: (pageUrl) => core.notifyDraftStatus(pageUrl),
-// @ts-ignore
+// @ts-expect-error
     refreshPageSaveReconciliation: (baseUrl, pageUrl) =>
       core.refreshPageSaveReconciliation(baseUrl, pageUrl),
-// @ts-ignore
+// @ts-expect-error
     scheduleRender: () => core.scheduleRender(),
-// @ts-ignore
+// @ts-expect-error
     setConfig: (nextConfig) => {
       state.config = nextConfig;
     },
-// @ts-ignore
+// @ts-expect-error
     setSavedPageEntry: (pageUrl, entry) => core.setSavedPageEntry(pageUrl, entry)
   };
 }
@@ -6648,27 +6648,27 @@ function createPageDraftRevertHandlerDeps() {
   return {
     collectImmutableElements: () => core.collectImmutableElements(),
     getPageUrl: () => location.href,
-// @ts-ignore
+// @ts-expect-error
     getSavedPageEntry: (pageUrl) => core.getSavedPageEntry(pageUrl),
-// @ts-ignore
+// @ts-expect-error
     isPageDraftDirty: (pageUrl) => core.isPageDraftDirty(pageUrl),
-// @ts-ignore
+// @ts-expect-error
     loadConfig: (baseUrl) => core.loadConfig(baseUrl),
-// @ts-ignore
+// @ts-expect-error
     notifyDraftStatus: (pageUrl) => core.notifyDraftStatus(pageUrl),
-// @ts-ignore
+// @ts-expect-error
     scheduleRender: () => core.scheduleRender(),
-// @ts-ignore
+// @ts-expect-error
     setBaseUrl: (baseUrl) => {
       state.baseUrl = baseUrl;
     },
-// @ts-ignore
+// @ts-expect-error
     setConfig: (configValue) => {
       state.config = configValue;
     },
-// @ts-ignore
+// @ts-expect-error
     setSavedPageEntry: (pageUrl, entry) => core.setSavedPageEntry(pageUrl, entry),
-// @ts-ignore
+// @ts-expect-error
     syncPageMarkings: (configValue, pageUrl, immutableExcluded, options) =>
       core.syncPageMarkings(configValue, pageUrl, immutableExcluded, options)
   };
@@ -6676,9 +6676,9 @@ function createPageDraftRevertHandlerDeps() {
 
 function createPageDraftSaveHandlerDeps() {
   return {
-// @ts-ignore
+// @ts-expect-error
     areEntriesEquivalent: (left, right) => core.areEntriesEquivalent(left, right),
-// @ts-ignore
+// @ts-expect-error
     clearPageSaveReconciliation: (baseUrl, pageUrl) =>
       core.clearPageSaveReconciliation(baseUrl, pageUrl),
     collectAiSubmissionXpathsForCurrentPage,
@@ -6689,71 +6689,71 @@ function createPageDraftSaveHandlerDeps() {
     getConfig: () => state.config,
     getCurrentPageType: () => state.currentPageType,
     getDocumentTitle: () => document.title,
-// @ts-ignore
+// @ts-expect-error
     getDraftPageEntry: (pageUrl) => core.getDraftPageEntry(pageUrl),
-// @ts-ignore
+// @ts-expect-error
     getPageMarkingEntry: (configValue, pageUrl) => core.getPageMarkingEntry(configValue, pageUrl),
-// @ts-ignore
+// @ts-expect-error
     getPageSaveReconciliationState: (pageUrl) => core.getPageSaveReconciliationState(pageUrl),
     getPageUrl: () => location.href,
-// @ts-ignore
+// @ts-expect-error
     getSavedPageEntry: (pageUrl) => core.getSavedPageEntry(pageUrl),
     hideConsentElements: () => core.hideConsentElements(),
     logContentDiagnostic,
     matchesActiveBaseUrl,
-// @ts-ignore
+// @ts-expect-error
     notifyDraftStatus: (pageUrl) => core.notifyDraftStatus(pageUrl),
-// @ts-ignore
+// @ts-expect-error
     refreshSavedPageEntryFromBackendCache: (baseUrl, pageUrl) =>
       core.refreshSavedPageEntryFromBackendCache(baseUrl, pageUrl),
-// @ts-ignore
+// @ts-expect-error
     saveConfig: (baseUrl, configValue) => core.saveConfig(baseUrl, configValue),
-// @ts-ignore
+// @ts-expect-error
     scheduleRender: () => core.scheduleRender(),
-// @ts-ignore
+// @ts-expect-error
     setPageSaveReconciliationPending: (baseUrl, pageUrl, options) =>
       core.setPageSaveReconciliationPending(baseUrl, pageUrl, options),
-// @ts-ignore
+// @ts-expect-error
     setSavedPageEntry: (pageUrl, entry) => core.setSavedPageEntry(pageUrl, entry),
     showPageToast,
     submissionXpathsEqual,
-// @ts-ignore
+// @ts-expect-error
     syncPageMarkings: (configValue, pageUrl, immutableExcluded, options) =>
       core.syncPageMarkings(configValue, pageUrl, immutableExcluded, options),
-// @ts-ignore
+// @ts-expect-error
     touchPageEntryTimestamp: (entry) => core.touchPageEntryTimestamp(entry)
   };
 }
 
 function createPageDraftStatusHandlerDeps() {
   return {
-// @ts-ignore
+// @ts-expect-error
     areEntriesEquivalent: (left, right) => core.areEntriesEquivalent(left, right),
-// @ts-ignore
+// @ts-expect-error
     clonePageEntry: (entry) => core.clonePageEntry(entry),
     collectAiSubmissionXpathsForCurrentPage,
     collectImmutableElements: () => core.collectImmutableElements(),
     getConfig: () => state.config,
-// @ts-ignore
+// @ts-expect-error
     getDraftPageEntry: (pageUrl) => core.getDraftPageEntry(pageUrl),
-// @ts-ignore
+// @ts-expect-error
     getPageDraftDirty: (pageUrl) => core.isPageDraftDirty(pageUrl),
-// @ts-ignore
+// @ts-expect-error
     getPageSaveReconciliationPending: (pageUrl) => core.isPageSaveReconciliationPending(pageUrl),
-// @ts-ignore
+// @ts-expect-error
     getPageSaveReconciliationState: (pageUrl) => core.getPageSaveReconciliationState(pageUrl),
     getPageUrl: () => location.href,
-// @ts-ignore
+// @ts-expect-error
     getSavedPageEntry: (pageUrl) => core.getSavedPageEntry(pageUrl),
-// @ts-ignore
+// @ts-expect-error
     hasPageMarkingEntry: (configValue, pageUrl) => core.hasPageMarkingEntry(configValue, pageUrl),
-// @ts-ignore
+// @ts-expect-error
     refreshSavedPageEntryFromBackendCache: (baseUrl, pageUrl) =>
       core.refreshSavedPageEntryFromBackendCache(baseUrl, pageUrl),
-// @ts-ignore
+// @ts-expect-error
     setSavedPageEntry: (pageUrl, entry) => core.setSavedPageEntry(pageUrl, entry),
     submissionXpathsEqual,
-// @ts-ignore
+// @ts-expect-error
     syncPageMarkings: (configValue, pageUrl, immutableExcluded, options) =>
       core.syncPageMarkings(configValue, pageUrl, immutableExcluded, options)
   };
@@ -6772,7 +6772,7 @@ function createRenderModeInspectionHandlersDeps() {
     getPropertyLockBannerMode: () => propertyLockBannerMode,
     getSilentHighlightEditorRevealInFlight: () => silentHighlightEditorRevealInFlight,
     hideConsentElements: () => core.hideConsentElements(),
-// @ts-ignore
+// @ts-expect-error
     isPageWithinBaseUrl: (pageUrl, baseUrl) => utils.isPageWithinBaseUrl(pageUrl, baseUrl),
     isRenderModeInspectionActive,
     isRenderModeInspectionFlagSet: () => renderModeInspectionActive,
@@ -6782,12 +6782,12 @@ function createRenderModeInspectionHandlersDeps() {
     renderPropertyLockBanner,
     resolveBaseUrlForCurrentPage,
     setRenderModeInspectionActive,
-// @ts-ignore
+// @ts-expect-error
     setSilentHighlightEditorRevealInFlight: (value) => {
       silentHighlightEditorRevealInFlight = value;
     },
     updatePropertyLockBannerMode,
-// @ts-ignore
+// @ts-expect-error
     warmupSilentHighlightingBeforeMotionPause: (baseUrl, pageUrl, reason, options) =>
       core.warmupSilentHighlightingBeforeMotionPause(baseUrl, pageUrl, reason, options),
     LIFECYCLE_KINDS,
@@ -6798,7 +6798,7 @@ function createRenderModeInspectionHandlersDeps() {
 
 function createPropertyLockPortClientDeps() {
   return {
-// @ts-ignore
+// @ts-expect-error
     connectRuntimePort: (options) => chrome.runtime.connect(options),
     consumeRuntimeLastErrorMessage: () => {
       try {
@@ -6809,14 +6809,14 @@ function createPropertyLockPortClientDeps() {
         return lastError && typeof lastError.message === "string" ? lastError.message : "";
       } catch (error) {
         if (utils.isExtensionContextInvalidatedError(error)) {
-// @ts-ignore
+// @ts-expect-error
           return error && error.message ? error.message : "Extension context invalidated.";
         }
         throw error;
       }
     },
     getClientId: () => getPropertyLockClientId(),
-// @ts-ignore
+// @ts-expect-error
     getConnectedSiteId: () => propertyLockConnectedSiteId,
     getTimerHost: () => window,
     onPortCleared: () => {
@@ -6842,28 +6842,28 @@ function createPropertyLockBannerDeps() {
     updatePropertyLockBannerMode,
     sendPropertyLockMessage,
     respondToPropertyLockTakeoverSuggestion,
-// @ts-ignore
+// @ts-expect-error
     getPropertyLockBannerElement: () => propertyLockBannerElement,
-// @ts-ignore
+// @ts-expect-error
     setPropertyLockBannerElement: (element) => {
       propertyLockBannerElement = element;
     },
     getPropertyLockBannerMode: () => propertyLockBannerMode,
     getPropertyLockBannerCountdownTimer: () => propertyLockBannerCountdownTimer,
-// @ts-ignore
+// @ts-expect-error
     setPropertyLockBannerCountdownTimer: (timer) => {
       propertyLockBannerCountdownTimer = timer;
     },
     getPropertyLockBannerCountdownValue: () => propertyLockBannerCountdownValue,
-// @ts-ignore
+// @ts-expect-error
     setPropertyLockBannerCountdownValue: (value) => {
       propertyLockBannerCountdownValue = value;
     },
-// @ts-ignore
+// @ts-expect-error
     setPropertyLockBannerVisible: (visible) => {
       propertyLockBannerVisible = Boolean(visible);
     },
-// @ts-ignore
+// @ts-expect-error
     getPropertyLockState: () => propertyLockState,
     getPropertyLockSuggestionFromName: () => propertyLockSuggestionFromName,
     propertyLockText,
@@ -6880,7 +6880,7 @@ function ensurePropertyLockBannerStyle() {
   return ensurePropertyLockBannerStyleOperation(createPropertyLockBannerDeps());
 }
 
-// @ts-ignore
+// @ts-expect-error
 async function respondToPropertyLockTakeoverSuggestion(accept) {
   if (!ensurePropertyLockCollaborationActive()) {
     return;
@@ -6927,14 +6927,14 @@ function getCurrentContentMode() {
 }
 
 async function handleSetEnabledCommand(message = {}) {
-// @ts-ignore
+// @ts-expect-error
   if (message.enabled) {
     if (isPropertyLockInteractionBlocked()) {
       return { ok: false, locked: true };
     }
-// @ts-ignore
+// @ts-expect-error
     const operationId = typeof message.operationId === "string" && message.operationId
-// @ts-ignore
+// @ts-expect-error
       ? message.operationId
       : createLifecycleOperationId(LIFECYCLE_KINDS.ACTIVATION);
     emitLifecycleEvent({
@@ -6945,7 +6945,7 @@ async function handleSetEnabledCommand(message = {}) {
       message: "Inspecting page..."
     });
     sendPropertyLockMessage(PROPERTY_LOCK_CONTENT_TAKE_LOCK);
-// @ts-ignore
+// @ts-expect-error
     state.currentPageType = typeof message.pageType === "string" ? message.pageType : state.currentPageType || "";
     stopSilentHighlightingObserver();
     clearSilentHighlightingMarks();
@@ -6953,21 +6953,21 @@ async function handleSetEnabledCommand(message = {}) {
 
     try {
       const shouldPerformInitialReveal = Boolean(
-// @ts-ignore
+// @ts-expect-error
         message.performInitialReveal &&
-// @ts-ignore
+// @ts-expect-error
           consumePageVisitRevealFreezeAttempt(message.baseUrl, location.href)
       );
       const skipInitialReveal = !shouldPerformInitialReveal;
       const reconciliation = core.getPageSaveReconciliationState(location.href);
       if (reconciliation && reconciliation.reason === SILENT_HIGHLIGHTING_PREPARATION_REASON) {
-// @ts-ignore
+// @ts-expect-error
         await core.clearPageSaveReconciliation(message.baseUrl || state.baseUrl || "", location.href);
       }
-// @ts-ignore
+// @ts-expect-error
       await core.enableForBaseUrl(message.baseUrl, { skipInitialReveal });
       if (shouldPerformInitialReveal) {
-// @ts-ignore
+// @ts-expect-error
         markSilentHighlightEditorRevealPrepared(message.baseUrl, location.href);
       }
       refreshEnabledAiHighlights();
@@ -7012,41 +7012,41 @@ async function handleSetEnabledCommand(message = {}) {
 }
 
 function handleGetInspectionStatusCommand() {
-// @ts-ignore
+// @ts-expect-error
   return getInspectionStatusResolver().resolve();
 }
 
 function handleSetPopupBusyOnPageCommand(message = {}) {
   return core.setPopupBusyOnPage(
-// @ts-ignore
+// @ts-expect-error
     Boolean(message.active),
-// @ts-ignore
+// @ts-expect-error
     typeof message.message === "string" ? message.message : ""
   );
 }
 
 function handleRenderModeInspectionBeginCommand(message = {}) {
-// @ts-ignore
+// @ts-expect-error
   return getRenderModeInspectionHandlers().begin(message);
 }
 
 async function handleRunRenderModeRevealOnceCommand(message = {}) {
-// @ts-ignore
+// @ts-expect-error
   return getRenderModeInspectionHandlers().revealOnce(message);
 }
 
 async function handleCaptureRenderModeInspectionHtmlCommand(message = {}) {
-// @ts-ignore
+// @ts-expect-error
   return getRenderModeInspectionHandlers().captureHtml(message);
 }
 
 function handleRenderModeInspectionEndCommand(message = {}) {
-// @ts-ignore
+// @ts-expect-error
   return getRenderModeInspectionHandlers().end(message);
 }
 
 function handleHideConsentForInspectionCommand() {
-// @ts-ignore
+// @ts-expect-error
   return getRenderModeInspectionHandlers().hideConsent();
 }
 
@@ -7060,18 +7060,18 @@ function registerContentCommandHandlersOnce() {
     ok: true,
     initialized: Boolean(state.initialized)
   }));
-// @ts-ignore
+// @ts-expect-error
   registerContentCommand("setEnabled", async (_context, payload) => handleSetEnabledCommand(payload));
   registerContentCommand("getInspectionStatus", async () => handleGetInspectionStatusCommand());
-// @ts-ignore
+// @ts-expect-error
   registerContentCommand("setPopupBusyOnPage", async (_context, payload) => handleSetPopupBusyOnPageCommand(payload));
-// @ts-ignore
+// @ts-expect-error
   registerContentCommand("renderModeInspectionBegin", async (_context, payload) => handleRenderModeInspectionBeginCommand(payload));
-// @ts-ignore
+// @ts-expect-error
   registerContentCommand("runRenderModeRevealOnce", async (_context, payload) => handleRunRenderModeRevealOnceCommand(payload));
-// @ts-ignore
+// @ts-expect-error
   registerContentCommand("captureRenderModeInspectionHtml", async (_context, payload) => handleCaptureRenderModeInspectionHtmlCommand(payload));
-// @ts-ignore
+// @ts-expect-error
   registerContentCommand("renderModeInspectionEnd", async (_context, payload) => handleRenderModeInspectionEndCommand(payload));
   registerContentCommand("hideConsentForInspection", async () => handleHideConsentForInspectionCommand());
 }
@@ -7112,7 +7112,7 @@ function createRuntimeMessageHandlerDeps() {
     checkPropertyLockBlocksMarking,
     sendPropertyLockActivity,
     locationHref: () => location.href,
-// @ts-ignore
+// @ts-expect-error
     isPageSaveReconciliationPending: (pageUrl) => core.isPageSaveReconciliationPending(pageUrl)
   };
 }
@@ -7160,9 +7160,9 @@ export function main() {
                               utils.normalizeBaseUrl(siteIdCheckResult.currentUrl) ||
                               state.baseUrl;
           const configs = await config.getConfigs();
-// @ts-ignore
+// @ts-expect-error
           configs[normBaseUrl] = configs[normBaseUrl] || {};
-// @ts-ignore
+// @ts-expect-error
           await config.updateConfig(normBaseUrl, (targetConfig) => {
             targetConfig.siteId = siteIdCheckResult.newSiteId;
           });
@@ -7291,7 +7291,7 @@ export function main() {
     }
     scheduleSilentHighlightReposition();
   });
-// @ts-ignore
+// @ts-expect-error
   const handleSilentOrMarkingScroll = (event) => {
     if (state.enabled) {
       core.handleScroll(event, { hideDuringScroll: true });
@@ -7317,7 +7317,7 @@ export function main() {
     // actually listening (property-lock collaboration has a live port). The
     // background no-JS inactivity watch is driven by tab/window focus events, so
     // pinging from every injected page would wake the service worker for no gain.
-// @ts-ignore
+// @ts-expect-error
     if (pageActivityTimer || !getPropertyLockPortClient().hasPort()) {
       return;
     }
