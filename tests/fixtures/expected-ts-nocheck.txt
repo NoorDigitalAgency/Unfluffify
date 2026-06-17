@@ -2,7 +2,6 @@ background/ai-run-orchestrator.ts
 background/command-router.ts
 background/remote-config-sync.ts
 background/remote-network.ts
-background/render-mode-inspector.ts
 background.ts
 common/config.ts
 common/emulation.ts

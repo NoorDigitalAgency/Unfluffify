@@ -1,4 +1,21 @@
-// @ts-nocheck
+type ContentMessageResult = Record<string, unknown>;
+
+type ManagedTimeoutGroup = {
+  set: (fn: () => void, ms: number) => ReturnType<typeof setTimeout>;
+  clear: (handle: ReturnType<typeof setTimeout>) => void;
+  clearAll: () => void;
+};
+
+type RenderModeInspectorOptions = {
+  sendContentMessageToTab?: (tabId: number, message: Record<string, unknown>) => Promise<ContentMessageResult>;
+  ensureContentMainForTab?: (tabId: number) => Promise<{ ok?: boolean }>;
+  waitForBackgroundRetryDelay?: (ms: number) => Promise<void>;
+  updateTabRuntime?: (tabId: number, patch: Record<string, unknown>) => void;
+  createManagedTimeoutGroup?: () => ManagedTimeoutGroup;
+  startTimeoutMs?: unknown;
+  loadTimeoutMs?: unknown;
+};
+
 function defaultSendContentMessageToTab() {
   return Promise.resolve({ ok: false, error: "Content message failed" });
 }
@@ -13,19 +30,19 @@ function defaultWaitForBackgroundRetryDelay() {
 
 function defaultUpdateTabRuntime() {}
 
-function defaultCreateManagedTimeoutGroup() {
+function defaultCreateManagedTimeoutGroup(): ManagedTimeoutGroup {
   return {
-    set(fn, ms) {
+    set(fn: () => void, ms: number) {
       return setTimeout(fn, ms);
     },
-    clear(handle) {
+    clear(handle: ReturnType<typeof setTimeout>) {
       clearTimeout(handle);
     },
     clearAll() {}
   };
 }
 
-export function createRenderModeInspector(options = {}) {
+export function createRenderModeInspector(options: RenderModeInspectorOptions = {}) {
   const sendContentMessageToTab = typeof options.sendContentMessageToTab === "function"
     ? options.sendContentMessageToTab
     : defaultSendContentMessageToTab;
@@ -41,28 +58,30 @@ export function createRenderModeInspector(options = {}) {
   const createManagedTimeoutGroup = typeof options.createManagedTimeoutGroup === "function"
     ? options.createManagedTimeoutGroup
     : defaultCreateManagedTimeoutGroup;
-  const startTimeoutMs = Number.isFinite(options.startTimeoutMs) && options.startTimeoutMs > 0
-    ? Math.trunc(options.startTimeoutMs)
+  const startTimeoutValue = Number(options.startTimeoutMs);
+  const startTimeoutMs = Number.isFinite(startTimeoutValue) && startTimeoutValue > 0
+    ? Math.trunc(startTimeoutValue)
     : 8000;
-  const loadTimeoutMs = Number.isFinite(options.loadTimeoutMs) && options.loadTimeoutMs > 0
-    ? Math.trunc(options.loadTimeoutMs)
+  const loadTimeoutValue = Number(options.loadTimeoutMs);
+  const loadTimeoutMs = Number.isFinite(loadTimeoutValue) && loadTimeoutValue > 0
+    ? Math.trunc(loadTimeoutValue)
     : 15000;
 
-  function normalizeRenderModeOperationId(payload, tabId) {
+  function normalizeRenderModeOperationId(payload: Record<string, unknown> | null | undefined, tabId: number) {
     if (payload && typeof payload.operationId === "string" && payload.operationId) {
       return payload.operationId;
     }
     return `render-mode-inspection:${tabId}:${Date.now()}`;
   }
 
-  async function waitForTabLoadStartInBackground(tabId, timeoutMs = startTimeoutMs) {
+  async function waitForTabLoadStartInBackground(tabId: number, timeoutMs = startTimeoutMs) {
     if (!tabId) {
       return false;
     }
     return new Promise((resolve) => {
       const timeoutGroup = createManagedTimeoutGroup();
       let settled = false;
-      const finish = (value) => {
+      const finish = (value: unknown) => {
         if (settled) {
           return;
         }
@@ -72,7 +91,7 @@ export function createRenderModeInspector(options = {}) {
         chrome.tabs.onUpdated.removeListener(onUpdated);
         resolve(Boolean(value));
       };
-      const onUpdated = (updatedTabId, changeInfo) => {
+      const onUpdated = (updatedTabId: number, changeInfo: any) => {
         if (updatedTabId !== tabId) {
           return;
         }
@@ -100,9 +119,9 @@ export function createRenderModeInspector(options = {}) {
   }
 
   async function waitForTabLoadCompleteInBackground(
-    tabId,
+    tabId: number,
     timeoutMs = loadTimeoutMs,
-    options = {}
+    options: { awaitNextLoad?: unknown } = {}
   ) {
     if (!tabId) {
       return false;
@@ -113,7 +132,7 @@ export function createRenderModeInspector(options = {}) {
       let settled = false;
       let sawLoading = !awaitNextLoad;
 
-      const finish = (value) => {
+      const finish = (value: unknown) => {
         if (settled) {
           return;
         }
@@ -124,7 +143,7 @@ export function createRenderModeInspector(options = {}) {
         resolve(Boolean(value));
       };
 
-      const onUpdated = (updatedTabId, changeInfo) => {
+      const onUpdated = (updatedTabId: number, changeInfo: any) => {
         if (updatedTabId !== tabId) {
           return;
         }
@@ -154,7 +173,7 @@ export function createRenderModeInspector(options = {}) {
     });
   }
 
-  async function ensureContentReadyForRenderModeInspectionInBackground(tabId) {
+  async function ensureContentReadyForRenderModeInspectionInBackground(tabId: number) {
     if (!tabId) {
       return false;
     }
@@ -176,7 +195,7 @@ export function createRenderModeInspector(options = {}) {
     return false;
   }
 
-  async function sendRenderModeInspectionEndWithRetry(tabId, operationId) {
+  async function sendRenderModeInspectionEndWithRetry(tabId: number, operationId: string) {
     for (let attempt = 0; attempt < 3; attempt += 1) {
       await ensureContentMainForTab(tabId).catch(() => ({ ok: false }));
       const response = await sendContentMessageToTab(tabId, {
@@ -193,7 +212,7 @@ export function createRenderModeInspector(options = {}) {
     return false;
   }
 
-  async function runRenderModeInspectionBeginStep(tabId, operationId) {
+  async function runRenderModeInspectionBeginStep(tabId: number, operationId: string) {
     const contentReady = await ensureContentReadyForRenderModeInspectionInBackground(tabId);
     if (!contentReady) {
       return { ok: false, error: "Content activation failed" };
@@ -211,7 +230,7 @@ export function createRenderModeInspector(options = {}) {
     return { ok: true };
   }
 
-  async function runRenderModeRevealFreezeStep(tabId, baseUrl, operationId) {
+  async function runRenderModeRevealFreezeStep(tabId: number, baseUrl: string, operationId: string) {
     const contentReady = await ensureContentReadyForRenderModeInspectionInBackground(tabId);
     if (!contentReady) {
       return { ok: false, error: "Content activation failed" };
@@ -221,16 +240,18 @@ export function createRenderModeInspector(options = {}) {
       baseUrl,
       operationId
     });
+    const responseRecord = (response || {}) as Record<string, unknown>;
     if (!response || !response.ok) {
       return { ok: false, error: (response && response.error) || "Unable to inspect page" };
     }
     return {
       ok: true,
-      pageUrl: typeof response.pageUrl === "string" ? response.pageUrl : ""
+      pageUrl: typeof responseRecord.pageUrl === "string" ? responseRecord.pageUrl : ""
     };
   }
 
-  async function runRenderModeHideConsentStep(tabId) {
+  // async function runRenderModeHideConsentStep(tabId) {
+  async function runRenderModeHideConsentStep(tabId: number) {
     const contentReady = await ensureContentReadyForRenderModeInspectionInBackground(tabId);
     if (!contentReady) {
       return { ok: false, error: "Content activation failed" };
@@ -238,18 +259,20 @@ export function createRenderModeInspector(options = {}) {
     const response = await sendContentMessageToTab(tabId, {
       type: "hideConsentForInspection"
     });
+    const responseRecord = (response || {}) as Record<string, unknown>;
     if (!response || !response.ok) {
       return { ok: false, error: (response && response.error) || "Unable to hide consent form" };
     }
     return {
       ok: true,
-      hiddenCount: Number.isFinite(response.hiddenCount)
-        ? Number(response.hiddenCount)
+      hiddenCount: Number.isFinite(responseRecord.hiddenCount)
+        ? Number(responseRecord.hiddenCount)
         : 0
     };
   }
 
-  async function runRenderModeCaptureHtmlStep(tabId, baseUrl, operationId) {
+  // async function runRenderModeCaptureHtmlStep(tabId, baseUrl, operationId) {
+  async function runRenderModeCaptureHtmlStep(tabId: number, baseUrl: string, operationId: string) {
     const contentReady = await ensureContentReadyForRenderModeInspectionInBackground(tabId);
     if (!contentReady) {
       return { ok: false, error: "Content activation failed" };
@@ -259,15 +282,16 @@ export function createRenderModeInspector(options = {}) {
       baseUrl,
       operationId
     });
+    const responseRecord = (response || {}) as Record<string, unknown>;
     if (!response || !response.ok) {
       return { ok: false, error: (response && response.error) || "Unable to capture render mode HTML" };
     }
     return {
       ok: true,
-      pageUrl: typeof response.pageUrl === "string" ? response.pageUrl : "",
-      renderedHtml: typeof response.renderedHtml === "string" ? response.renderedHtml : "",
-      rawHtml: typeof response.rawHtml === "string" ? response.rawHtml : "",
-      renderMode: typeof response.renderMode === "string" ? response.renderMode : ""
+      pageUrl: typeof responseRecord.pageUrl === "string" ? responseRecord.pageUrl : "",
+      renderedHtml: typeof responseRecord.renderedHtml === "string" ? responseRecord.renderedHtml : "",
+      rawHtml: typeof responseRecord.rawHtml === "string" ? responseRecord.rawHtml : "",
+      renderMode: typeof responseRecord.renderMode === "string" ? responseRecord.renderMode : ""
     };
   }
 
