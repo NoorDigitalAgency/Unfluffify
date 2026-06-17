@@ -1,20 +1,45 @@
-// @ts-nocheck
 import { getGlobalAiSettings } from "../common/settings-store.js";
 import {
   maybeUpdateStoredTokenFromResponse,
   normalizeStageBase
 } from "../common/lynx-live-pages.js";
 
-export function resolveBackgroundEndpoint(baseUrl, path) {
+type BackgroundNetworkCredentials = {
+  endpointValue: string;
+  tokenValue: string;
+  stageBaseValue: string;
+};
+
+type ResolveBackgroundNetworkCredentialsOptions = {
+  endpointValue?: unknown;
+  tokenValue?: unknown;
+  stageBase?: unknown;
+  endpointPreference?: unknown;
+};
+
+type ValidateAuthTokenOptions = {
+  stageBase?: unknown;
+  tokenValue?: unknown;
+};
+
+type RequestAuthLoginOptions = {
+  stageBase?: unknown;
+  email?: unknown;
+  password?: unknown;
+};
+
+export function resolveBackgroundEndpoint(baseUrl: unknown, path: unknown): string {
+  const normalizedBaseUrl = typeof baseUrl === "string" ? baseUrl : "";
+  const normalizedPath = typeof path === "string" ? path : "";
   try {
-    return new URL(path, baseUrl).toString();
+    return new URL(normalizedPath, normalizedBaseUrl).toString();
   } catch {
     return "";
   }
 }
 
-export function createBackgroundJsonHeaders(tokenValue = "") {
-  const headers = { "Content-Type": "application/json" };
+export function createBackgroundJsonHeaders(tokenValue: unknown = ""): Record<string, string> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
   const token = typeof tokenValue === "string" ? tokenValue.trim() : "";
   if (token) {
     headers.Authorization = `Bearer ${token}`;
@@ -23,11 +48,12 @@ export function createBackgroundJsonHeaders(tokenValue = "") {
 }
 
 export async function resolveBackgroundNetworkCredentials(options = {}) {
-  const requestedEndpoint = typeof options.endpointValue === "string" ? options.endpointValue.trim() : "";
-  const requestedToken = typeof options.tokenValue === "string" ? options.tokenValue : "";
-  const requestedStageBase = typeof options.stageBase === "string" ? options.stageBase.trim() : "";
-  const endpointPreference = typeof options.endpointPreference === "string"
-    ? options.endpointPreference
+  const resolvedOptions = options as ResolveBackgroundNetworkCredentialsOptions;
+  const requestedEndpoint = typeof resolvedOptions.endpointValue === "string" ? resolvedOptions.endpointValue.trim() : "";
+  const requestedToken = typeof resolvedOptions.tokenValue === "string" ? resolvedOptions.tokenValue : "";
+  const requestedStageBase = typeof resolvedOptions.stageBase === "string" ? resolvedOptions.stageBase.trim() : "";
+  const endpointPreference = typeof resolvedOptions.endpointPreference === "string"
+    ? resolvedOptions.endpointPreference
     : "ai";
   const needsFreshSettings = !requestedEndpoint || !requestedToken || !requestedStageBase;
   const settings = await getGlobalAiSettings({ useCache: !needsFreshSettings }).catch(() => ({
@@ -46,6 +72,7 @@ export async function resolveBackgroundNetworkCredentials(options = {}) {
   };
 }
 
+// @ts-expect-error Preserve source-contract signature used by tests.
 export function buildValidateEndpointFromStageBase(stageBase) {
   const normalized = normalizeStageBase(stageBase);
   if (!normalized) {
@@ -54,6 +81,7 @@ export function buildValidateEndpointFromStageBase(stageBase) {
   return `https://accounts.${normalized}/api/account/validate`;
 }
 
+// @ts-expect-error Preserve source-contract signature used by tests.
 export function buildLoginEndpointFromStageBase(stageBase) {
   const normalized = normalizeStageBase(stageBase);
   if (!normalized) {
@@ -63,9 +91,10 @@ export function buildLoginEndpointFromStageBase(stageBase) {
 }
 
 export async function validateAuthToken(options = {}) {
+  const resolvedOptions = options as ValidateAuthTokenOptions;
   const credentials = await resolveBackgroundNetworkCredentials({
-    stageBase: options.stageBase,
-    tokenValue: options.tokenValue,
+    stageBase: resolvedOptions.stageBase,
+    tokenValue: resolvedOptions.tokenValue,
     endpointPreference: "ai"
   });
   const stageBase = credentials.stageBaseValue;
@@ -90,9 +119,10 @@ export async function validateAuthToken(options = {}) {
 }
 
 export async function requestAuthLogin(options = {}) {
-  const stageBase = typeof options.stageBase === "string" ? options.stageBase : "";
-  const email = typeof options.email === "string" ? options.email.trim() : "";
-  const password = typeof options.password === "string" ? options.password : "";
+  const resolvedOptions = options as RequestAuthLoginOptions;
+  const stageBase = typeof resolvedOptions.stageBase === "string" ? resolvedOptions.stageBase : "";
+  const email = typeof resolvedOptions.email === "string" ? resolvedOptions.email.trim() : "";
+  const password = typeof resolvedOptions.password === "string" ? resolvedOptions.password : "";
   const loginUrl = buildLoginEndpointFromStageBase(stageBase);
   if (!loginUrl || !email || !password.trim()) {
     return { ok: false, skipped: true };
@@ -113,7 +143,7 @@ export async function requestAuthLogin(options = {}) {
     return {
       ok: response.ok,
       status: response.status || 0,
-      payload: payload && typeof payload === "object" ? payload : null
+      payload: payload && typeof payload === "object" ? (payload as Record<string, unknown>) : null
     };
   } catch {
     return { ok: false };

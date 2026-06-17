@@ -1,7 +1,25 @@
-// @ts-nocheck
-export function createPropertyLockPortClient(deps) {
-  let port = null;
-  let reconnectTimer = 0;
+type PropertyLockTimerHost = {
+  setTimeout: (fn: () => void, ms?: number) => ReturnType<typeof setTimeout>;
+  clearTimeout: (id: ReturnType<typeof setTimeout>) => void;
+};
+
+type PropertyLockPortClientDeps = {
+  getTimerHost?: () => PropertyLockTimerHost | null;
+  onPortCleared?: () => void;
+  shouldSkipReconnect?: () => boolean;
+  runSync: (options: { forceSiteIdRefresh: boolean }) => void;
+  PROPERTY_LOCK_RECONNECT_DELAY_MS: number;
+  getConnectedSiteId?: () => number | null;
+  PROPERTY_LOCK_CONTENT_DISCONNECT: string;
+  getClientId: () => string;
+  connectRuntimePort: (options: { name: string }) => chrome.runtime.Port;
+  PROPERTY_LOCK_PORT_NAME: string;
+  consumeRuntimeLastErrorMessage: () => string;
+};
+
+export function createPropertyLockPortClient(deps: PropertyLockPortClientDeps) {
+  let port: chrome.runtime.Port | null = null;
+  let reconnectTimer: ReturnType<typeof setTimeout> | 0 = 0;
 
   const getTimerHost = () => {
     if (typeof deps.getTimerHost === "function") {
@@ -19,15 +37,15 @@ export function createPropertyLockPortClient(deps) {
     }
   };
 
-  const clearReconnectTimer = () => {
+  const clearReconnectTimer = (): void => {
     if (!reconnectTimer) {
       return;
     }
-    getTimerHost().clearTimeout(reconnectTimer);
+    getTimerHost().clearTimeout(reconnectTimer as ReturnType<typeof setTimeout>);
     reconnectTimer = 0;
   };
 
-  const scheduleReconnect = (options = {}) => {
+  const scheduleReconnect = (options: { forceSiteIdRefresh?: unknown } = {}): void => {
     const forceSiteIdRefresh = Boolean(options.forceSiteIdRefresh);
     if ((typeof deps.shouldSkipReconnect === "function" && deps.shouldSkipReconnect()) || reconnectTimer) {
       return;
@@ -38,7 +56,7 @@ export function createPropertyLockPortClient(deps) {
     }, deps.PROPERTY_LOCK_RECONNECT_DELAY_MS);
   };
 
-  const disconnect = ({ notifyBackground = true } = {}) => {
+  const disconnect = ({ notifyBackground = true }: { notifyBackground?: boolean } = {}): void => {
     clearReconnectTimer();
     const currentPort = port;
     const currentSiteId = typeof deps.getConnectedSiteId === "function"
@@ -59,20 +77,30 @@ export function createPropertyLockPortClient(deps) {
           siteId: currentSiteId,
           clientId: deps.getClientId()
         });
-      } catch (error) {
+      } catch {
         // Background may already have torn down the port.
       }
     }
 
     try {
       currentPort.disconnect();
-    } catch (error) {
+    } catch {
       // Port may already be disconnected.
     }
   };
 
-  const connect = ({ connectPayload, onMessage, onDisconnect, forceSiteIdRefresh = false } = {}) => {
-    let nextPort = null;
+  const connect = ({
+    connectPayload,
+    onMessage,
+    onDisconnect,
+    forceSiteIdRefresh = false
+  }: {
+    connectPayload?: unknown;
+    onMessage?: ((message: unknown, port: chrome.runtime.Port) => void) | null;
+    onDisconnect?: ((reason: string, options: { forceSiteIdRefresh: boolean }) => void) | null;
+    forceSiteIdRefresh?: boolean;
+  } = {}): chrome.runtime.Port => {
+    let nextPort: chrome.runtime.Port | null = null;
     try {
       nextPort = deps.connectRuntimePort({ name: deps.PROPERTY_LOCK_PORT_NAME });
       port = nextPort;
@@ -114,7 +142,7 @@ export function createPropertyLockPortClient(deps) {
     }
   };
 
-  const postMessage = (message) => {
+  const postMessage = (message: unknown): void => {
     if (!port) {
       throw new Error("Property lock port unavailable");
     }

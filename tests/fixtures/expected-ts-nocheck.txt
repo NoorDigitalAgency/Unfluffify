@@ -1,7 +1,6 @@
 background/ai-run-orchestrator.ts
 background/command-router.ts
 background/live-page-client.ts
-background/network-core.ts
 background/popup-state-broker.ts
 background/remote-config-sync.ts
 background/remote-network.ts
@@ -24,11 +23,9 @@ content/content-main-service-registry.ts
 content/core.ts
 content/explicit-marking-handler.ts
 content-main.ts
-content/marking-rules.ts
 content/page-draft-save-handler.ts
 content/page-world-relay.ts
 content/property-lock-banner.ts
-content/property-lock-port-client.ts
 content/property-lock-state-machine.ts
 content/render-mode-inspection-handlers.ts
 content/runtime-message-handler.ts
@@ -41,6 +38,5 @@ popup/remote-config.ts
 popup/render-mode-inspection.ts
 popup/site-resolution.ts
 popup/spinner.ts
-popup/state.ts
 popup.ts
 popup/ui.ts
