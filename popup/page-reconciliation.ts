@@ -8,10 +8,56 @@ interface PageReconciliationOptions {
   pageUrl?: unknown;
 }
 
+type PageReconciliationViewState = {
+  sessionHasPendingChanges?: unknown;
+  sessionRequiresAiRun?: unknown;
+  currentPageHasPendingChanges?: unknown;
+};
+
+type PageSaveSyncResult = {
+  ok?: unknown;
+  authExpired?: unknown;
+  skipped?: unknown;
+  reason?: unknown;
+};
+
+type GlobalAiSettingsSnapshot = {
+  tokenValue?: unknown;
+  configEndpointValue?: unknown;
+  stageBaseValue?: unknown;
+};
+
+interface PageReconciliationDeps {
+  hasCurrentPageMarkingChanges?: (...args: unknown[]) => unknown;
+  ensureActiveTab?: (options?: unknown) => unknown;
+  ensureBaseUrl: (message?: unknown) => unknown;
+  refreshCurrentPageRuntimeStatus: (options?: unknown) => unknown;
+  showToast: (message?: unknown) => unknown;
+  getViewState: () => PageReconciliationViewState;
+  updateLastConfigSaveStatus: (message?: unknown) => unknown;
+  validateStoredToken: (options?: Record<string, unknown>) => unknown;
+  runWithSpinner: (key: unknown, label: unknown, task: (...args: unknown[]) => unknown) => unknown;
+  getCurrentPageUrl: () => unknown;
+  loadGlobalAiSettings: () => Promise<GlobalAiSettingsSnapshot> | GlobalAiSettingsSnapshot;
+  syncBaseConfigToServer: (options?: Record<string, unknown>) => Promise<PageSaveSyncResult> | PageSaveSyncResult;
+  clearCurrentPageSaveReconciliation: () => unknown;
+  resetAiRunMarkingsFingerprint: () => unknown;
+  applyPostSaveSilentTransition: () => unknown;
+  refreshUi: (options?: unknown) => unknown;
+  setUiBusy: (busy?: unknown, message?: unknown, details?: unknown) => unknown;
+  waitForRetryDelay: (delayMs?: unknown) => unknown;
+  applyLocalPageDiscard: () => unknown;
+  windowRef: { confirm: (message?: string) => boolean };
+  PopupText: Record<string, Record<string, string>>;
+  PAGE_SAVE_SYNC_INITIAL_RETRY_DELAY_MS: number;
+  PAGE_SAVE_SYNC_MAX_ATTEMPTS: number;
+  PAGE_SAVE_SYNC_MAX_RETRY_DELAY_MS: number;
+}
+
 export function hasCurrentPagePendingChanges(
-  deps: any,
-  localPageMarkings: any,
-  backendSavedPageMarkings: any,
+  deps: PageReconciliationDeps,
+  localPageMarkings: unknown,
+  backendSavedPageMarkings: unknown,
   options: PageReconciliationOptions = {}
 ) {
   const opts = options;
@@ -26,7 +72,7 @@ export function hasCurrentPagePendingChanges(
   );
 }
 
-export async function handlePageSave(deps: any) {
+export async function handlePageSave(deps: PageReconciliationDeps) {
   const ensureActiveTab =
     typeof deps.ensureActiveTab === "function"
       ? deps.ensureActiveTab
@@ -106,7 +152,7 @@ export async function handlePageSave(deps: any) {
   });
 }
 
-export async function handlePageRevert(deps: any) {
+export async function handlePageRevert(deps: PageReconciliationDeps) {
   const ensureActiveTab =
     typeof deps.ensureActiveTab === "function"
       ? deps.ensureActiveTab
