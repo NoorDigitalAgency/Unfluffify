@@ -6,7 +6,7 @@ Current phase: Phase 1 (leaf modules)
 ## Baseline
 - Branch: feat/typescript-deno-port
 - Full tests baseline: 847 pass / 0 fail
-- Current runtime @ts-nocheck count: 32
+- Current runtime @ts-nocheck count: 31
 - Ratchet allowlist: tests/fixtures/expected-ts-nocheck.txt
 
 ## Checkpoints
@@ -30,6 +30,7 @@ Current phase: Phase 1 (leaf modules)
 - [2026-06-17] Phase 1 batch 14 completed (micro): removed `@ts-nocheck` from four modules (`popup/helpers.ts`, `content/page-draft-save-handler.ts`, `content/render-mode-inspection-handlers.ts`, `background/tab-runtime.ts`) with source-contract-compatible handler signatures preserved where required.
 - [2026-06-17] Phase 1 batch 15 completed (micro): removed `@ts-nocheck` from four modules (`background/popup-state-broker.ts`, `background/tab-inactivity-observer.ts`, `content/shared-selector-cache.ts`, `background/transfer-payload-store.ts`) while preserving source-contract regex compatibility in lifecycle and transfer-payload tests.
 - [2026-06-17] Phase 1 batch 16 completed (micro): removed `@ts-nocheck` from `content/content-main-service-registry.ts` and `background/tab-session-store.ts` with explicit factory/session-store typings and no behavioral regressions.
+- [2026-06-17] Phase 1 batch 17 completed (micro): removed `@ts-nocheck` from `background/spinner-operations.ts` with typed spinner queue operations and tab-isolation/full-suite coverage passing.
 
 ## Notes
 - PoC typed module already merged: background/tab-operation-runner.ts and types/operations.ts.
