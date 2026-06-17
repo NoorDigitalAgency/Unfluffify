@@ -1,4 +1,3 @@
-// @ts-nocheck
 import * as config from "../common/config.js";
 import * as utils from "../common/utilities.js";
 import {
@@ -253,6 +252,7 @@ const PAGE_MOTION_REVEAL_INTERACTION_ATTRIBUTE_NAMES = new Set(["data-ix", "data
 const PAGE_MOTION_PAUSE_INLINE_STYLE_RE = /(^|;|\s)(animation|transition|transform|translate|rotate|scale|offset|opacity|filter|clip-path|top|right|bottom|left)\s*:/i;
 let pageMotionFreezeTimersPaused = false;
 let pageMotionFreezeLazyLoadingSuppressed = false;
+// @ts-ignore
 let pageMotionRelayInitializationPromise = null;
 const PAGE_MOTION_PAUSE_BASE_LOCK_PROPERTIES = [
   "transform",
@@ -302,7 +302,9 @@ const SILENT_HIGHLIGHTING_PREPARATION_REASON = "editor_preparing";
 
 const capturedExtensionTimers = (() => {
   const root = typeof window !== "undefined" ? window : globalThis;
+// @ts-ignore
   const bindTimer = (name) => {
+// @ts-ignore
     const value = root && typeof root[name] === "function" ? root[name] : null;
     return value ? value.bind(root) : null;
   };
@@ -318,6 +320,7 @@ const capturedExtensionTimers = (() => {
   };
 })();
 
+// @ts-ignore
 function isPageMotionFreezeTimerFunction(value) {
   const name = value && typeof value === "function" ? value.name || "" : "";
   return name.startsWith("unfluffifySet") ||
@@ -326,13 +329,16 @@ function isPageMotionFreezeTimerFunction(value) {
     name.startsWith("unfluffifyCancel");
 }
 
+// @ts-ignore
 function getExtensionTimer(name) {
   const current = typeof window !== "undefined" && typeof window[name] === "function"
     ? window[name]
     : null;
   if (current && !isPageMotionFreezeTimerFunction(current)) {
+// @ts-ignore
     return current.bind(window);
   }
+// @ts-ignore
   return capturedExtensionTimers[name] || (current ? current.bind(window) : null);
 }
 
@@ -343,21 +349,25 @@ function getExtensionNow() {
   return Date.now();
 }
 
+// @ts-ignore
 function extensionSetTimeout(callback, delay, ...args) {
   const timer = getExtensionTimer("setTimeout") || setTimeout;
   return timer(callback, delay, ...args);
 }
 
+// @ts-ignore
 function extensionClearTimeout(handle) {
   const timer = getExtensionTimer("clearTimeout") || clearTimeout;
   timer(handle);
 }
 
+// @ts-ignore
 function extensionSetInterval(callback, delay, ...args) {
   const timer = getExtensionTimer("setInterval") || setInterval;
   return timer(callback, delay, ...args);
 }
 
+// @ts-ignore
 function extensionClearInterval(handle) {
   const timer = getExtensionTimer("clearInterval") || clearInterval;
   timer(handle);
@@ -367,6 +377,7 @@ function getExtensionRequestAnimationFrame() {
   return getExtensionTimer("requestAnimationFrame");
 }
 
+// @ts-ignore
 function extensionRequestAnimationFrame(callback) {
   const requestFrame = getExtensionRequestAnimationFrame();
   if (requestFrame) {
@@ -375,6 +386,7 @@ function extensionRequestAnimationFrame(callback) {
   return extensionSetTimeout(() => callback(getExtensionNow()), 16);
 }
 
+// @ts-ignore
 function extensionCancelAnimationFrame(handle) {
   const cancelFrame = getExtensionTimer("cancelAnimationFrame");
   if (cancelFrame) {
@@ -384,6 +396,7 @@ function extensionCancelAnimationFrame(handle) {
   extensionClearTimeout(handle);
 }
 
+// @ts-ignore
 function extensionRequestIdleCallback(callback, options) {
   const requestIdle = getExtensionTimer("requestIdleCallback");
   if (requestIdle) {
@@ -392,16 +405,19 @@ function extensionRequestIdleCallback(callback, options) {
   return extensionSetTimeout(callback, 0);
 }
 
+// @ts-ignore
 let aiPreviewFocusElement = null;
 
 function createCurrentTimestamp() {
   return config.createTimestampNow();
 }
 
+// @ts-ignore
 function normalizeEntryTimestampValue(value) {
   return config.normalizeEntryTimestamp(value);
 }
 
+// @ts-ignore
 function normalizePageEntryTitle(value, fallbackUrl = "") {
   if (typeof value !== "string") {
     return "";
@@ -425,18 +441,22 @@ function isTogglePerfEnabled() {
     return state.perfEnabled;
   }
   try {
+// @ts-ignore
     state.perfEnabled = Boolean(
       window && (
+// @ts-ignore
         window.__UNFLUFFIFY_TOGGLE_PERF__ ||
         (window.localStorage && window.localStorage.getItem("unfluffify:toggle-perf") === "1")
       )
     );
   } catch {
+// @ts-ignore
     state.perfEnabled = false;
   }
   return state.perfEnabled;
 }
 
+// @ts-ignore
 function logTogglePerf(label, startedAt, details = null) {
   if (!isTogglePerfEnabled()) {
     return;
@@ -459,15 +479,18 @@ function createTextualOptionCache() {
   };
 }
 
+// @ts-ignore
 function getTextualOptionCache(cache, options = {}) {
   if (!cache) {
     return null;
   }
+// @ts-ignore
   return options && options.ignoreVisibilityForInclusionDetection
     ? cache.ignoreVisibility
     : cache.visible;
 }
 
+// @ts-ignore
 export function withElementComputationCache(callback) {
   const outermost = state.elementComputationCacheDepth === 0;
   const previous = outermost
@@ -486,16 +509,27 @@ export function withElementComputationCache(callback) {
     }
     : null;
   if (outermost) {
+// @ts-ignore
     state.visibilityCache = new Map();
+// @ts-ignore
     state.ancestorVisStateCache = new Map();
+// @ts-ignore
     state.ancestorOverflowCache = new Map();
+// @ts-ignore
     state.directTextCache = new WeakMap();
+// @ts-ignore
     state.normalizedTextCache = new WeakMap();
+// @ts-ignore
     state.toggleableDefaultCache = new WeakMap();
+// @ts-ignore
     state.immutableMatchCache = new WeakMap();
+// @ts-ignore
     state.immutableAncestorCache = new WeakMap();
+// @ts-ignore
     state.textualContainerCache = createTextualOptionCache();
+// @ts-ignore
     state.textualDescendantCache = createTextualOptionCache();
+// @ts-ignore
     state.textualImmutableDescendantCache = createTextualOptionCache();
   }
   state.elementComputationCacheDepth += 1;
@@ -504,21 +538,33 @@ export function withElementComputationCache(callback) {
   } finally {
     state.elementComputationCacheDepth -= 1;
     if (outermost) {
+// @ts-ignore
       state.visibilityCache = previous.visibilityCache;
+// @ts-ignore
       state.ancestorVisStateCache = previous.ancestorVisStateCache;
+// @ts-ignore
       state.ancestorOverflowCache = previous.ancestorOverflowCache;
+// @ts-ignore
       state.directTextCache = previous.directTextCache;
+// @ts-ignore
       state.normalizedTextCache = previous.normalizedTextCache;
+// @ts-ignore
       state.toggleableDefaultCache = previous.toggleableDefaultCache;
+// @ts-ignore
       state.immutableMatchCache = previous.immutableMatchCache;
+// @ts-ignore
       state.immutableAncestorCache = previous.immutableAncestorCache;
+// @ts-ignore
       state.textualContainerCache = previous.textualContainerCache;
+// @ts-ignore
       state.textualDescendantCache = previous.textualDescendantCache;
+// @ts-ignore
       state.textualImmutableDescendantCache = previous.textualImmutableDescendantCache;
     }
   }
 }
 
+// @ts-ignore
 async function withElementComputationCacheAsync(callback) {
   const outermost = state.elementComputationCacheDepth === 0;
   const previous = outermost
@@ -537,16 +583,27 @@ async function withElementComputationCacheAsync(callback) {
     }
     : null;
   if (outermost) {
+// @ts-ignore
     state.visibilityCache = new Map();
+// @ts-ignore
     state.ancestorVisStateCache = new Map();
+// @ts-ignore
     state.ancestorOverflowCache = new Map();
+// @ts-ignore
     state.directTextCache = new WeakMap();
+// @ts-ignore
     state.normalizedTextCache = new WeakMap();
+// @ts-ignore
     state.toggleableDefaultCache = new WeakMap();
+// @ts-ignore
     state.immutableMatchCache = new WeakMap();
+// @ts-ignore
     state.immutableAncestorCache = new WeakMap();
+// @ts-ignore
     state.textualContainerCache = createTextualOptionCache();
+// @ts-ignore
     state.textualDescendantCache = createTextualOptionCache();
+// @ts-ignore
     state.textualImmutableDescendantCache = createTextualOptionCache();
   }
   state.elementComputationCacheDepth += 1;
@@ -555,16 +612,27 @@ async function withElementComputationCacheAsync(callback) {
   } finally {
     state.elementComputationCacheDepth -= 1;
     if (outermost) {
+// @ts-ignore
       state.visibilityCache = previous.visibilityCache;
+// @ts-ignore
       state.ancestorVisStateCache = previous.ancestorVisStateCache;
+// @ts-ignore
       state.ancestorOverflowCache = previous.ancestorOverflowCache;
+// @ts-ignore
       state.directTextCache = previous.directTextCache;
+// @ts-ignore
       state.normalizedTextCache = previous.normalizedTextCache;
+// @ts-ignore
       state.toggleableDefaultCache = previous.toggleableDefaultCache;
+// @ts-ignore
       state.immutableMatchCache = previous.immutableMatchCache;
+// @ts-ignore
       state.immutableAncestorCache = previous.immutableAncestorCache;
+// @ts-ignore
       state.textualContainerCache = previous.textualContainerCache;
+// @ts-ignore
       state.textualDescendantCache = previous.textualDescendantCache;
+// @ts-ignore
       state.textualImmutableDescendantCache = previous.textualImmutableDescendantCache;
     }
   }
@@ -573,52 +641,67 @@ async function withElementComputationCacheAsync(callback) {
 function yieldForToggleReconcileWork() {
   return new Promise((resolve) => {
     if (getExtensionRequestAnimationFrame()) {
+// @ts-ignore
       extensionRequestAnimationFrame(() => resolve());
       return;
     }
     if (getExtensionTimer("setTimeout")) {
+// @ts-ignore
       extensionSetTimeout(() => resolve(), 0);
       return;
     }
+// @ts-ignore
     resolve();
   });
 }
 
+// @ts-ignore
 function runWhenIdle(callback, timeout = SNAPSHOT_IDLE_TIMEOUT_MS) {
   return extensionRequestIdleCallback(callback, { timeout });
 }
 
+// @ts-ignore
 function isTagSelector (selector){
   return /^[a-z]+$/i.test(selector);
 }
 
+// @ts-ignore
 function toQuerySelector (selector){
   return isTagSelector(selector) ? selector.toLowerCase() : selector;
 }
 
+// @ts-ignore
 function getEntryFingerprint(entry) {
   if (!entry || !Array.isArray(entry.xpaths)) {
     return [];
   }
   const xpathFingerprint = entry.xpaths
+// @ts-ignore
       .filter((item) => item && typeof item.xpath === "string")
+// @ts-ignore
       .map((item) => `${item.xpath}|${item.excluded ? "1" : "0"}|${item.explicit === true ? "1" : "0"}`)
       .sort();
   const includeFingerprint = Array.isArray(entry.includeXpaths)
       ? entry.includeXpaths
+// @ts-ignore
           .filter((xpath) => typeof xpath === "string" && xpath)
+// @ts-ignore
           .map((xpath) => `include:${xpath}`)
           .sort()
       : [];
   const selectorSuppressedFingerprint = Array.isArray(entry.selectorSuppressedXpaths)
       ? entry.selectorSuppressedXpaths
+// @ts-ignore
           .filter((xpath) => typeof xpath === "string" && xpath)
+// @ts-ignore
           .map((xpath) => `selectorSuppressed:${xpath}`)
           .sort()
       : [];
   const silentWhitespaceFingerprint = Array.isArray(entry.silentWhitespaceExcludedXpaths)
       ? entry.silentWhitespaceExcludedXpaths
+// @ts-ignore
           .filter((xpath) => typeof xpath === "string" && xpath)
+// @ts-ignore
           .map((xpath) => `silentWhitespace:${xpath}`)
           .sort()
       : [];
@@ -631,6 +714,7 @@ function getEntryFingerprint(entry) {
   );
 }
 
+// @ts-ignore
 function getSelectorSetFingerprint(selectorSet) {
   const normalized = normalizeAiSelectorSet(selectorSet);
   if (combineAiSelectorSet(normalized).length === 0) {
@@ -648,10 +732,13 @@ function buildMarkingCollectionsCacheKey({ pageUrl = "", selectorSet = null, ent
   ].join("\u001f");
 }
 
+// @ts-ignore
 function resolveMarkingSelectorContext(configValue, entry = null) {
   const selectorSet = config.getNewestConfigSelectorSet(configValue).selectorSet;
   const hasAiSelectors = combineAiSelectorSet(selectorSet).length > 0;
+// @ts-ignore
   const selectorSuppressedXpaths = Array.isArray(entry && entry.selectorSuppressedXpaths)
+// @ts-ignore
     ? entry.selectorSuppressedXpaths
     : [];
   return {
@@ -661,6 +748,7 @@ function resolveMarkingSelectorContext(configValue, entry = null) {
   };
 }
 
+// @ts-ignore
 function isClippedByOverflow(el) {
   if (!el || el.nodeType !== 1) {
     return false;
@@ -674,7 +762,9 @@ function isClippedByOverflow(el) {
       break;
     }
     let overflow, overflowX, overflowY;
+// @ts-ignore
     if (ovCache && ovCache.has(parent)) {
+// @ts-ignore
       ({ overflow, overflowX, overflowY } = ovCache.get(parent));
     } else {
       const parentStyle = window.getComputedStyle(parent);
@@ -682,6 +772,7 @@ function isClippedByOverflow(el) {
       overflowX = parentStyle.overflowX;
       overflowY = parentStyle.overflowY;
       if (ovCache) {
+// @ts-ignore
         ovCache.set(parent, { overflow, overflowX, overflowY });
       }
     }
@@ -724,7 +815,9 @@ function getViewportBounds() {
   };
 }
 
+// @ts-ignore
 function getPositiveFiniteMax(values) {
+// @ts-ignore
   return values.reduce((maxValue, value) => {
     const numericValue = Number(value);
     if (!Number.isFinite(numericValue) || numericValue <= 0) {
@@ -786,6 +879,7 @@ function getWindowScrollOffset() {
   };
 }
 
+// @ts-ignore
 function toDocumentCoordinateRect(rect) {
   const scrollOffset = getWindowScrollOffset();
   return {
@@ -798,6 +892,7 @@ function toDocumentCoordinateRect(rect) {
   };
 }
 
+// @ts-ignore
 function hasFixedPositionAncestor(el) {
   let node = el;
   while (node && node.nodeType === 1) {
@@ -810,11 +905,13 @@ function hasFixedPositionAncestor(el) {
   return false;
 }
 
+// @ts-ignore
 function isReachableInDocumentVisualArea(rect, bounds = getDocumentVisualBounds()) {
   const documentRect = toDocumentCoordinateRect(rect);
   return Boolean(intersectRects(documentRect, bounds));
 }
 
+// @ts-ignore
 function intersectRects(rectA, rectB) {
   const left = Math.max(rectA.left, rectB.left);
   const top = Math.max(rectA.top, rectB.top);
@@ -835,6 +932,7 @@ function intersectRects(rectA, rectB) {
   };
 }
 
+// @ts-ignore
 function hasOverflowClipping(style) {
   if (!style) {
     return false;
@@ -849,10 +947,12 @@ function hasOverflowClipping(style) {
   );
 }
 
+// @ts-ignore
 function getElementEffectiveVisibleRect(el, options = {}) {
   if (!el || el.nodeType !== 1) {
     return null;
   }
+// @ts-ignore
   const clipToViewport = options.clipToViewport !== false;
   const baseRect = el.getBoundingClientRect();
   if (baseRect.width <= 0 || baseRect.height <= 0) {
@@ -889,6 +989,7 @@ function getElementEffectiveVisibleRect(el, options = {}) {
   return visibleRect;
 }
 
+// @ts-ignore
 function isTheoreticallyInvisibleNode(node, style) {
   if (!node || node.nodeType !== 1) {
     return true;
@@ -914,6 +1015,7 @@ function isTheoreticallyInvisibleNode(node, style) {
   return isVisuallyHiddenByStyle(style);
 }
 
+// @ts-ignore
 function isElementInHitPath(target, element) {
   if (!target || !element) {
     return false;
@@ -927,16 +1029,19 @@ function isElementInHitPath(target, element) {
   return false;
 }
 
+// @ts-ignore
 function isIgnoredHitTestElement(element) {
   if (!element || element.nodeType !== 1) {
     return true;
   }
+// @ts-ignore
   if (state.overlay && (element === state.overlay || state.overlay.contains(element))) {
     return true;
   }
   return isWithinExtensionUi(element) || isWithinAiPopover(element);
 }
 
+// @ts-ignore
 function getPageHitElementsAtPoint(x, y) {
   const rawHits = typeof document.elementsFromPoint === "function"
     ? document.elementsFromPoint(x, y)
@@ -946,6 +1051,7 @@ function getPageHitElementsAtPoint(x, y) {
   return rawHits.filter((hit) => hit && hit.nodeType === 1 && !isIgnoredHitTestElement(hit));
 }
 
+// @ts-ignore
 function getPaintReachabilityForRect(el, rect) {
   if (!el || el.nodeType !== 1 || !rect) {
     return null;
@@ -971,6 +1077,7 @@ function getPaintReachabilityForRect(el, rect) {
   return sawPageHit ? false : null;
 }
 
+// @ts-ignore
 function reportPaintReachabilityFallback(el, rectCount) {
   state.paintReachabilityFallbackCount += 1;
   if (!isTogglePerfEnabled()) {
@@ -986,6 +1093,7 @@ function reportPaintReachabilityFallback(el, rectCount) {
     return;
   }
   state.paintReachabilityFallbackLastLoggedAt = now;
+// @ts-ignore
   logTogglePerf("render.reachability-fallback", nowMs(), {
     count,
     rectCount,
@@ -997,6 +1105,7 @@ function reportPaintReachabilityFallback(el, rectCount) {
   });
 }
 
+// @ts-ignore
 function filterPaintReachableRects(el, rects) {
   if (!Array.isArray(rects) || rects.length === 0) {
     return [];
@@ -1019,6 +1128,7 @@ function filterPaintReachableRects(el, rects) {
   return reachableRects;
 }
 
+// @ts-ignore
 function isPaintReachableInCurrentViewport(el) {
   if (!el || el.nodeType !== 1) {
     return false;
@@ -1040,6 +1150,7 @@ function isPaintReachableInCurrentViewport(el) {
   return sawUnknown;
 }
 
+// @ts-ignore
 function getRealityCheckPoints(rect) {
   const inset = 1;
   const left = rect.left + inset;
@@ -1057,6 +1168,7 @@ function getRealityCheckPoints(rect) {
   ];
 }
 
+// @ts-ignore
 function isActuallyVisibleToUser(el) {
   const visibleRect = getElementEffectiveVisibleRect(el, { clipToViewport: true });
   if (!visibleRect) {
@@ -1078,6 +1190,7 @@ function isActuallyVisibleToUser(el) {
   return false;
 }
 
+// @ts-ignore
 function isActuallyVisibleInDocument(el) {
   const visibleRect = getElementEffectiveVisibleRect(el, { clipToViewport: false });
   if (!visibleRect) {
@@ -1089,6 +1202,7 @@ function isActuallyVisibleInDocument(el) {
   return isReachableInDocumentVisualArea(visibleRect, getSubmissionVisualBounds());
 }
 
+// @ts-ignore
 function anyClientRectIntersectsSubmissionArea(el) {
   if (!el || el.nodeType !== 1 || typeof el.getClientRects !== "function") {
     return false;
@@ -1123,6 +1237,7 @@ function anyClientRectIntersectsSubmissionArea(el) {
   return false;
 }
 
+// @ts-ignore
 function getTheoreticalVisibilityState(node, style) {
   if (!node || node.nodeType !== 1) {
     return { definitiveHidden: true, ambiguousHidden: false };
@@ -1141,6 +1256,7 @@ function getTheoreticalVisibilityState(node, style) {
   return { definitiveHidden, ambiguousHidden };
 }
 
+// @ts-ignore
 function isVisuallyHiddenByStyle(style) {
   if (!style) {
     return false;
@@ -1149,6 +1265,7 @@ function isVisuallyHiddenByStyle(style) {
   if (clip && clip !== "auto" && clip.includes("rect(")) {
     const numbers = clip.match(/-?\d*\.?\d+/g);
     if (numbers && numbers.length >= 4) {
+// @ts-ignore
       const allZero = numbers.every((value) => Number(value) === 0);
       if (allZero) {
         return true;
@@ -1183,9 +1300,12 @@ function isVisuallyHiddenByStyle(style) {
   return false;
 }
 
+// @ts-ignore
 function hasDirectText(el) {
   const cache = state.directTextCache;
+// @ts-ignore
   if (cache && cache.has(el)) {
+// @ts-ignore
     return cache.get(el);
   }
   let result = false;
@@ -1196,29 +1316,37 @@ function hasDirectText(el) {
     }
   }
   if (cache) {
+// @ts-ignore
     cache.set(el, result);
   }
   return result;
 }
 
+// @ts-ignore
 function getCachedNormalizedElementText(el) {
   const cache = state.normalizedTextCache;
+// @ts-ignore
   if (cache && cache.has(el)) {
+// @ts-ignore
     return cache.get(el);
   }
   const value = getNormalizedElementText(el);
   if (cache) {
+// @ts-ignore
     cache.set(el, value);
   }
   return value;
 }
 
+// @ts-ignore
 function matchesToggleableDefaultExcluded(el) {
   if (!el || el.nodeType !== 1) {
     return false;
   }
   const cache = state.toggleableDefaultCache;
+// @ts-ignore
   if (cache && cache.has(el)) {
+// @ts-ignore
     return cache.get(el);
   }
   let result = false;
@@ -1238,11 +1366,13 @@ function matchesToggleableDefaultExcluded(el) {
     }
   }
   if (cache) {
+// @ts-ignore
     cache.set(el, result);
   }
   return result;
 }
 
+// @ts-ignore
 function hasNestedToggleableDefaultExcludedDescendant(el) {
   if (!el || el.nodeType !== 1) {
     return false;
@@ -1250,6 +1380,7 @@ function hasNestedToggleableDefaultExcludedDescendant(el) {
   const stack = Array.from(el.children || []);
   while (stack.length) {
     const node = stack.pop();
+// @ts-ignore
     if (!node || node.nodeType !== 1) {
       continue;
     }
@@ -1259,19 +1390,23 @@ function hasNestedToggleableDefaultExcludedDescendant(el) {
     if (matchesToggleableDefaultExcluded(node)) {
       return true;
     }
+// @ts-ignore
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
+// @ts-ignore
       stack.push(node.children[i]);
     }
   }
   return false;
 }
 
+// @ts-ignore
 function isTextualContainer(el, options = {}) {
   const cache = getTextualOptionCache(state.textualContainerCache, options);
   if (cache && cache.has(el)) {
     return cache.get(el);
   }
   const ignoreVisibilityForInclusionDetection = Boolean(
+// @ts-ignore
     options && options.ignoreVisibilityForInclusionDetection
   );
   if (!ignoreVisibilityForInclusionDetection && !isVisible(el)) {
@@ -1299,6 +1434,7 @@ function isTextualContainer(el, options = {}) {
   return result;
 }
 
+// @ts-ignore
 function hasTextualDescendant(el, options = {}) {
   if (!el || el.nodeType !== 1) {
     return false;
@@ -1311,6 +1447,7 @@ function hasTextualDescendant(el, options = {}) {
   const stack = Array.from(el.children || []);
   while (stack.length) {
     const node = stack.pop();
+// @ts-ignore
     if (!node || node.nodeType !== 1) {
       continue;
     }
@@ -1327,7 +1464,9 @@ function hasTextualDescendant(el, options = {}) {
       result = true;
       break;
     }
+// @ts-ignore
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
+// @ts-ignore
       stack.push(node.children[i]);
     }
   }
@@ -1337,6 +1476,7 @@ function hasTextualDescendant(el, options = {}) {
   return result;
 }
 
+// @ts-ignore
 function hasTextualImmutableDescendant(el, options = {}) {
   if (!el || el.nodeType !== 1) {
     return false;
@@ -1349,6 +1489,7 @@ function hasTextualImmutableDescendant(el, options = {}) {
   const stack = Array.from(el.children || []);
   while (stack.length) {
     const node = stack.pop();
+// @ts-ignore
     if (!node || node.nodeType !== 1) {
       continue;
     }
@@ -1362,7 +1503,9 @@ function hasTextualImmutableDescendant(el, options = {}) {
       result = true;
       break;
     }
+// @ts-ignore
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
+// @ts-ignore
       stack.push(node.children[i]);
     }
   }
@@ -1372,6 +1515,7 @@ function hasTextualImmutableDescendant(el, options = {}) {
   return result;
 }
 
+// @ts-ignore
 function hasVisibleImmutableDescendant(el) {
   if (!el || el.nodeType !== 1) {
     return false;
@@ -1379,6 +1523,7 @@ function hasVisibleImmutableDescendant(el) {
   const stack = Array.from(el.children || []);
   while (stack.length) {
     const node = stack.pop();
+// @ts-ignore
     if (!node || node.nodeType !== 1) {
       continue;
     }
@@ -1388,13 +1533,16 @@ function hasVisibleImmutableDescendant(el) {
     if (matchesImmutableExcluded(node) && isVisible(node)) {
       return true;
     }
+// @ts-ignore
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
+// @ts-ignore
       stack.push(node.children[i]);
     }
   }
   return false;
 }
 
+// @ts-ignore
 function matchesAutoToggleableDefaultExcluded(el) {
   if (!matchesToggleableDefaultExcluded(el)) {
     return false;
@@ -1411,6 +1559,7 @@ function matchesAutoToggleableDefaultExcluded(el) {
   return !hasVisibleImmutableDescendant(el);
 }
 
+// @ts-ignore
 function hasExplicitlyMarkedDescendant(el) {
   if (!el || el.nodeType !== 1 || !state.config) {
     return false;
@@ -1423,6 +1572,7 @@ function hasExplicitlyMarkedDescendant(el) {
   const stack = Array.from(el.children || []);
   while (stack.length) {
     const node = stack.pop();
+// @ts-ignore
     if (!node || node.nodeType !== 1) {
       continue;
     }
@@ -1442,14 +1592,18 @@ function hasExplicitlyMarkedDescendant(el) {
     ) {
       return true;
     }
+// @ts-ignore
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
+// @ts-ignore
       stack.push(node.children[i]);
     }
   }
   return false;
 }
 
+// @ts-ignore
 function isSelfMarkableWithoutParentMode(el, options = {}) {
+// @ts-ignore
   const diagnostics = options && options.__diagnostics ? options.__diagnostics : null;
   const textualContainerStartedAt = diagnostics ? nowMs() : 0;
   const textualContainer = isTextualContainer(el, options);
@@ -1472,6 +1626,7 @@ function isSelfMarkableWithoutParentMode(el, options = {}) {
   // Preserve the previous shallowest-ancestor behavior: hidden responsive
   // descendants should not suppress a visible ancestor just because preview/
   // silent inclusion detection is configured to ignore visibility.
+// @ts-ignore
   const descendantShapeOptions = options && options.ignoreVisibilityForInclusionDetection
     ? {
       ...options,
@@ -1520,6 +1675,7 @@ function isSelfMarkableWithoutParentMode(el, options = {}) {
   });
 }
 
+// @ts-ignore
 function isExplicitIncludeBoundaryCandidate(el, options = {}) {
   if (!el || el.nodeType !== 1) {
     return false;
@@ -1536,6 +1692,7 @@ function isExplicitIncludeBoundaryCandidate(el, options = {}) {
   return matchesToggleableDefaultExcluded(el) && hasDirectText(el) && isTextualContainer(el, options);
 }
 
+// @ts-ignore
 function isGroupedBoundaryChildCandidate(el, options = {}) {
   if (!el || el.nodeType !== 1) {
     return false;
@@ -1552,6 +1709,7 @@ function isGroupedBoundaryChildCandidate(el, options = {}) {
   return matchesToggleableDefaultExcluded(el) && hasDirectText(el);
 }
 
+// @ts-ignore
 function isStructuredGroupExclusionCandidate(el, options = {}) {
   if (!el || el.nodeType !== 1) {
     return false;
@@ -1569,6 +1727,7 @@ function isStructuredGroupExclusionCandidate(el, options = {}) {
     return false;
   }
   const children = Array.from(el.children || []).filter((child) => {
+// @ts-ignore
     if (!child || child.nodeType !== 1) {
       return false;
     }
@@ -1586,12 +1745,15 @@ function isStructuredGroupExclusionCandidate(el, options = {}) {
   return children.every((child) => isGroupedBoundaryChildCandidate(child, options));
 }
 
+// @ts-ignore
 function matchesImmutableExcluded(el) {
   if (!el || el.nodeType !== 1) {
     return false;
   }
   const cache = state.immutableMatchCache;
+// @ts-ignore
   if (cache && cache.has(el)) {
+// @ts-ignore
     return cache.get(el);
   }
   let result = false;
@@ -1611,14 +1773,18 @@ function matchesImmutableExcluded(el) {
     }
   }
   if (cache) {
+// @ts-ignore
     cache.set(el, result);
   }
   return result;
 }
 
+// @ts-ignore
 function isWithinImmutableExcluded(el) {
   const cache = state.immutableAncestorCache;
+// @ts-ignore
   if (cache && cache.has(el)) {
+// @ts-ignore
     return cache.get(el);
   }
   let result = false;
@@ -1631,15 +1797,18 @@ function isWithinImmutableExcluded(el) {
     node = node.parentElement;
   }
   if (cache) {
+// @ts-ignore
     cache.set(el, result);
   }
   return result;
 }
 
+// @ts-ignore
 function isToggleableDefaultExcludedElement(el, includedElements) {
   return matchesAutoToggleableDefaultExcluded(el) && !isWithinElementSet(el, includedElements);
 }
 
+// @ts-ignore
 function isWithinToggleableDefaultExcludedElement(el, includedElements) {
   if (isWithinElementSet(el, includedElements)) {
     return false;
@@ -1654,15 +1823,18 @@ function isWithinToggleableDefaultExcludedElement(el, includedElements) {
   return false;
 }
 
+// @ts-ignore
 function isWithinAiPopover(el) {
   return Boolean(
       state.aiPopover &&
       el &&
       el.nodeType === 1 &&
+// @ts-ignore
       state.aiPopover.contains(el)
   );
 }
 
+// @ts-ignore
 function isWithinExtensionUi(el) {
   if (!el || el.nodeType !== 1) {
     return false;
@@ -1670,6 +1842,7 @@ function isWithinExtensionUi(el) {
   return Boolean(el.closest("[data-uf-extension-ui=\"true\"]"));
 }
 
+// @ts-ignore
 function registerConsentRoot(element) {
   if (!element || element.nodeType !== 1) {
     return false;
@@ -1679,10 +1852,12 @@ function registerConsentRoot(element) {
   }
   const roots = state.consentRootElements;
   for (const root of roots) {
+// @ts-ignore
     if (!root || root.isConnected === false) {
       roots.delete(root);
       continue;
     }
+// @ts-ignore
     if (root === element || root.contains(element)) {
       return false;
     }
@@ -1718,6 +1893,7 @@ function removeConsentBypassStyle() {
   }
 }
 
+// @ts-ignore
 function hideConsentElementVisibility(element) {
   if (!element || element.nodeType !== 1) {
     return;
@@ -1735,6 +1911,7 @@ function hideConsentElementVisibility(element) {
   }
 }
 
+// @ts-ignore
 function markConsentElementHidden(element) {
   if (!element || element.nodeType !== 1) {
     return false;
@@ -1745,6 +1922,7 @@ function markConsentElementHidden(element) {
   return !wasAlreadyMarked;
 }
 
+// @ts-ignore
 function hideConsentElement(element) {
   if (isWithinAiPopover(element) || isWithinExtensionUi(element)) {
     return false;
@@ -1759,6 +1937,7 @@ function hideConsentElement(element) {
   }
 
   const descendants = element.querySelectorAll("*");
+// @ts-ignore
   descendants.forEach((node) => {
     if (!node || node.nodeType !== 1) {
       return;
@@ -1778,6 +1957,7 @@ function hideConsentElement(element) {
   return changed;
 }
 
+// @ts-ignore
 function isWithinConsentElement(el) {
   if (!el || el.nodeType !== 1) {
     return false;
@@ -1785,10 +1965,12 @@ function isWithinConsentElement(el) {
   const roots = state.consentRootElements;
   if (roots && roots.size) {
     for (const root of roots) {
+// @ts-ignore
       if (!root || (root.isConnected === false)) {
         roots.delete(root);
         continue;
       }
+// @ts-ignore
       if (root === el || root.contains(el)) {
         return true;
       }
@@ -1802,6 +1984,7 @@ export function collectConsentExcludedElements() {
   const roots = state.consentRootElements;
   if (roots && roots.size) {
     for (const root of roots) {
+// @ts-ignore
       if (!root || root.nodeType !== 1 || root.isConnected === false) {
         continue;
       }
@@ -1816,6 +1999,7 @@ export function collectConsentExcludedElements() {
   return elements;
 }
 
+// @ts-ignore
 export function getXPath(el) {
   if (!el || el.nodeType !== 1) {
     return "";
@@ -1842,12 +2026,15 @@ export function getXPath(el) {
 }
 
 function getSnapshotStripSelectors(options = {}) {
+// @ts-ignore
   const extraStripSelectors = Array.isArray(options.extraStripSelectors)
+// @ts-ignore
     ? options.extraStripSelectors.filter((value) => typeof value === "string" && value)
     : [];
   return EXTENSION_SNAPSHOT_STRIP_SELECTORS.concat(extraStripSelectors);
 }
 
+// @ts-ignore
 function matchesAnySelector(el, selectors) {
   if (!el || el.nodeType !== 1 || typeof el.matches !== "function") {
     return false;
@@ -1864,6 +2051,7 @@ function matchesAnySelector(el, selectors) {
   return false;
 }
 
+// @ts-ignore
 function isStrippedFromSnapshot(el, options = {}) {
   const stripSelectors = getSnapshotStripSelectors(options);
   let node = el;
@@ -1876,6 +2064,7 @@ function isStrippedFromSnapshot(el, options = {}) {
   return false;
 }
 
+// @ts-ignore
 export function getSnapshotXPath(el, options = {}) {
   if (!el || el.nodeType !== 1 || isStrippedFromSnapshot(el, options)) {
     return "";
@@ -1907,6 +2096,7 @@ export function getSnapshotXPath(el, options = {}) {
   return `/${parts.join("/")}`;
 }
 
+// @ts-ignore
 export function isXPathDescendant(parentXpath, childXpath) {
   if (!parentXpath || !childXpath) {
     return false;
@@ -1915,6 +2105,7 @@ export function isXPathDescendant(parentXpath, childXpath) {
   return childXpath.startsWith(prefix);
 }
 
+// @ts-ignore
 function isWithinExplicitExcludedXpath(xpath, excludedSet) {
   if (!xpath || !excludedSet || excludedSet.size === 0) {
     return false;
@@ -1930,18 +2121,22 @@ function isWithinExplicitExcludedXpath(xpath, excludedSet) {
   return false;
 }
 
+// @ts-ignore
 function escapeCssIdentifier(value) {
   if (window.CSS && typeof window.CSS.escape === "function") {
     return window.CSS.escape(value);
   }
+// @ts-ignore
   return value.replace(/[^a-zA-Z0-9_-]/g, (char) => `\\${char}`);
 }
 
+// @ts-ignore
 function getClassSelector(node) {
   if (!node || !node.classList) {
     return "";
   }
   const classes = Array.from(node.classList)
+// @ts-ignore
     .map((value) => value.trim())
     .filter((value) => value.length > 0 && !value.startsWith("uf-"));
   if (!classes.length) {
@@ -1953,6 +2148,7 @@ function getClassSelector(node) {
   };
 }
 
+// @ts-ignore
 function getNthOfTypeIndex(el) {
   let index = 1;
   let sibling = el.previousElementSibling;
@@ -1972,6 +2168,7 @@ function getNthOfTypeIndex(el) {
  * @param {Element} el - The element to build a selector path for
  * @returns {string} A CSS selector path from body to the element
  */
+// @ts-ignore
 function buildCssSelectorPath(el) {
   if (!el || el.nodeType !== 1) {
     return "";
@@ -1994,9 +2191,11 @@ function buildCssSelectorPath(el) {
       segment = `${tag}:nth-of-type(${index})`;
     } else if (node.parentElement) {
       const siblings = Array.from(node.parentElement.children).filter((sibling) => {
+// @ts-ignore
         if (sibling.tagName !== node.tagName) {
           return false;
         }
+// @ts-ignore
         return classInfo.classes.every((cls) => sibling.classList.contains(cls));
       });
       if (siblings.length > 1) {
@@ -2013,6 +2212,7 @@ function buildCssSelectorPath(el) {
   return parts.join(" > ");
 }
 
+// @ts-ignore
 function collectXPathElements(xpaths) {
   const elements = new Set();
   for (const xpath of xpaths || []) {
@@ -2024,11 +2224,13 @@ function collectXPathElements(xpaths) {
   return elements;
 }
 
+// @ts-ignore
 function hasExplicitUserMarkings(entry) {
   if (!entry || typeof entry !== "object") {
     return false;
   }
   const includeXpaths = Array.isArray(entry.includeXpaths) ? entry.includeXpaths : [];
+// @ts-ignore
   if (includeXpaths.some((xpath) => typeof xpath === "string" && xpath)) {
     return true;
   }
@@ -2042,6 +2244,7 @@ function hasExplicitUserMarkings(entry) {
       // Missing elements are typically preserved explicit markings from older snapshots.
       return true;
     }
+// @ts-ignore
     if (isSilentWhitespaceExplicitExclusion(entry, item, el)) {
       continue;
     }
@@ -2056,6 +2259,7 @@ function hasExplicitUserMarkings(entry) {
   return false;
 }
 
+// @ts-ignore
 function isWithinExcludedParents(el, excludedParents) {
   if (!el || !excludedParents || excludedParents.size === 0) {
     return false;
@@ -2068,6 +2272,7 @@ function isWithinExcludedParents(el, excludedParents) {
   return false;
 }
 
+// @ts-ignore
 function collectExcludedParentElements(items) {
   const parents = new Set();
   if (!Array.isArray(items)) {
@@ -2092,12 +2297,17 @@ function collectExcludedParentElements(items) {
   return parents;
 }
 
+// @ts-ignore
 function scanReconcileDocumentCandidates(immutableExcluded, excludedParents) {
+// @ts-ignore
   const toggleableCandidates = [];
+// @ts-ignore
   const silentWhitespaceCandidates = [];
   if (!document.body) {
     return {
+// @ts-ignore
       toggleableCandidates,
+// @ts-ignore
       silentWhitespaceCandidates,
       stats: {
         visitedCount: 0,
@@ -2183,6 +2393,7 @@ function scanReconcileDocumentCandidates(immutableExcluded, excludedParents) {
     }
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
       stack.push({
+// @ts-ignore
         node: node.children[i],
         withinExcludedParent: current.withinExcludedParent || isExcludedParentBoundary
       });
@@ -2195,12 +2406,17 @@ function scanReconcileDocumentCandidates(immutableExcluded, excludedParents) {
   };
 }
 
+// @ts-ignore
 async function scanReconcileDocumentCandidatesAsync(immutableExcluded, excludedParents, options = {}) {
+// @ts-ignore
   const toggleableCandidates = [];
+// @ts-ignore
   const silentWhitespaceCandidates = [];
   if (!document.body) {
     return {
+// @ts-ignore
       toggleableCandidates,
+// @ts-ignore
       silentWhitespaceCandidates,
       stats: {
         visitedCount: 0,
@@ -2221,7 +2437,9 @@ async function scanReconcileDocumentCandidatesAsync(immutableExcluded, excludedP
       }
     };
   }
+// @ts-ignore
   const shouldAbort = typeof options.shouldAbort === "function"
+// @ts-ignore
     ? options.shouldAbort
     : null;
   const stack = [{ node: document.body, withinExcludedParent: false }];
@@ -2293,6 +2511,7 @@ async function scanReconcileDocumentCandidatesAsync(immutableExcluded, excludedP
     }
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
       stack.push({
+// @ts-ignore
         node: node.children[i],
         withinExcludedParent: current.withinExcludedParent || isExcludedParentBoundary
       });
@@ -2310,15 +2529,18 @@ async function scanReconcileDocumentCandidatesAsync(immutableExcluded, excludedP
   };
 }
 
+// @ts-ignore
 function collectToggleableTargets(immutableExcluded, excludedParents) {
   return scanReconcileDocumentCandidates(immutableExcluded, excludedParents).toggleableCandidates;
 }
 
+// @ts-ignore
 async function collectToggleableTargetsAsync(immutableExcluded, excludedParents, options = {}) {
   const scanned = await scanReconcileDocumentCandidatesAsync(immutableExcluded, excludedParents, options);
   return scanned.toggleableCandidates;
 }
 
+// @ts-ignore
 function collectDefaultHighlightTargets(root, options) {
   if (!root) {
     return [];
@@ -2387,15 +2609,25 @@ function collectDefaultHighlightTargets(root, options) {
   return results;
 }
 
+// @ts-ignore
 export function collectDefaultLayerElements(root, options = {}) {
+// @ts-ignore
   const immutableExcluded = new Set(options.immutableExcluded || []);
+// @ts-ignore
   const consentExcluded = new Set(options.consentExcluded || []);
+// @ts-ignore
   const explicitExclude = new Set(options.explicitExclude || []);
+// @ts-ignore
   const explicitInclude = new Set(options.explicitInclude || []);
+// @ts-ignore
   const excludedByStateAncestors = new Set(options.excludedByStateAncestors || []);
+// @ts-ignore
   const aiContent = new Set(options.aiContent || []);
+// @ts-ignore
   const selectorExcluded = new Set(options.selectorExcluded || options.selectorExcludedSet || []);
+// @ts-ignore
   const hiddenStoredExplicitExclude = new Set(options.hiddenStoredExplicitExclude || []);
+// @ts-ignore
   const unexcludedToggleableDefault = new Set(options.unexcludedToggleableDefault || []);
   const precedenceSet = new Set([
     ...immutableExcluded,
@@ -2415,6 +2647,7 @@ export function collectDefaultLayerElements(root, options = {}) {
   return collectDefaultHighlightTargets(root, {
     excludedSet: precedenceSet,
     hardExcludedSet,
+// @ts-ignore
     hasHigherPrecedence: (el) => precedenceSet.has(el),
     // Selector-excluded elements do not render their own marking-mode layer, so
     // only the matched element should suppress the default layer, not its whole subtree.
@@ -2430,6 +2663,7 @@ export function collectDefaultLayerElements(root, options = {}) {
   });
 }
 
+// @ts-ignore
 function collectSelectorElements(selectors) {
   return collectCachedSelectorMatches({
     root: document,
@@ -2443,9 +2677,13 @@ function collectSelectorElements(selectors) {
 }
 
 function seedMarkingsFromAiSelectorsForUnmarkedPage(
+// @ts-ignore
   configValue,
+// @ts-ignore
   pageUrl,
+// @ts-ignore
   selectorSet,
+// @ts-ignore
   immutableExcluded
 ) {
   if (!configValue || !pageUrl) {
@@ -2474,15 +2712,20 @@ function seedMarkingsFromAiSelectorsForUnmarkedPage(
   // This seeding path is only for pages without explicit saved marks. Reset any
   // previously generated/default-only rows first so CSS-seeded explicit marks become
   // the true precedence baseline for the subsequent default sync pass.
+// @ts-ignore
   const items = [];
+// @ts-ignore
   const includeXpaths = [];
   let changed = existingItems.length > 0 || existingIncludeXpaths.length > 0;
 
+// @ts-ignore
   const removeItemByXpath = (xpath) => {
     let removed = false;
     for (let i = items.length - 1; i >= 0; i -= 1) {
+// @ts-ignore
       const item = items[i];
       if (item && item.xpath === xpath) {
+// @ts-ignore
         items.splice(i, 1);
         removed = true;
       }
@@ -2493,10 +2736,13 @@ function seedMarkingsFromAiSelectorsForUnmarkedPage(
     return removed;
   };
 
+// @ts-ignore
   const removeIncludeByXpath = (xpath) => {
     let removed = false;
     for (let i = includeXpaths.length - 1; i >= 0; i -= 1) {
+// @ts-ignore
       if (includeXpaths[i] === xpath) {
+// @ts-ignore
         includeXpaths.splice(i, 1);
         removed = true;
       }
@@ -2507,23 +2753,28 @@ function seedMarkingsFromAiSelectorsForUnmarkedPage(
     return removed;
   };
 
+// @ts-ignore
   const removeDescendants = (xpath) => {
     for (let i = items.length - 1; i >= 0; i -= 1) {
+// @ts-ignore
       const item = items[i];
       if (!item || !item.xpath || item.xpath === xpath) {
         continue;
       }
       if (isXPathDescendant(xpath, item.xpath)) {
+// @ts-ignore
         items.splice(i, 1);
         changed = true;
       }
     }
     for (let i = includeXpaths.length - 1; i >= 0; i -= 1) {
+// @ts-ignore
       const childXpath = includeXpaths[i];
       if (!childXpath || childXpath === xpath) {
         continue;
       }
       if (isXPathDescendant(xpath, childXpath)) {
+// @ts-ignore
         includeXpaths.splice(i, 1);
         changed = true;
       }
@@ -2532,12 +2783,15 @@ function seedMarkingsFromAiSelectorsForUnmarkedPage(
 
   const getExplicitExcludeXPathSet = () =>
     new Set(
+// @ts-ignore
       items
         .filter((item) => item && item.xpath && item.excluded)
         .map((item) => item.xpath)
     );
 
+// @ts-ignore
   const setExplicitExclude = (xpath) => {
+// @ts-ignore
     let targetItem = items.find((item) => item && item.xpath === xpath);
     if (!targetItem) {
       items.push({ xpath, excluded: true });
@@ -2604,6 +2858,7 @@ function seedMarkingsFromAiSelectorsForUnmarkedPage(
     }
     const entryOverride = {
       ...entry,
+// @ts-ignore
       xpaths: items,
       includeXpaths
     };
@@ -2611,6 +2866,7 @@ function seedMarkingsFromAiSelectorsForUnmarkedPage(
       continue;
     }
     removeItemByXpath(xpath);
+// @ts-ignore
     if (!includeXpaths.includes(xpath)) {
       includeXpaths.push(xpath);
       changed = true;
@@ -2618,6 +2874,7 @@ function seedMarkingsFromAiSelectorsForUnmarkedPage(
     removeDescendants(xpath);
   }
 
+// @ts-ignore
   entry.xpaths = items;
   entry.includeXpaths = includeXpaths;
   normalizePageEntryXpaths(entry);
@@ -2628,23 +2885,32 @@ function seedMarkingsFromAiSelectorsForUnmarkedPage(
   return { createdEntry: true, changed };
 }
 
+// @ts-ignore
 function isRawSelectorExcludedElement(el, excludedElements, includedElements) {
   return isWithinElementSet(el, excludedElements) && !isWithinElementSet(el, includedElements);
 }
 
 function isSelectorExcludedElement(
+// @ts-ignore
   el,
+// @ts-ignore
   excludedElements,
+// @ts-ignore
   includedElements,
+// @ts-ignore
   inclusionContextSet
 ) {
   return isRawSelectorExcludedElement(el, excludedElements, includedElements);
 }
 
 function isExcludedNatureElement(
+// @ts-ignore
   el,
+// @ts-ignore
   excludedElements,
+// @ts-ignore
   includedElements,
+// @ts-ignore
   inclusionContextSet
 ) {
   return matchesImmutableExcluded(el) ||
@@ -2658,13 +2924,18 @@ function isExcludedNatureElement(
 }
 
 function isInclusionEligibleElement(
+// @ts-ignore
   el,
+// @ts-ignore
   excludedElements,
+// @ts-ignore
   includedElements,
+// @ts-ignore
   inclusionContextSet,
   options = {}
 ) {
   const ignoreVisibilityForInclusionDetection = Boolean(
+// @ts-ignore
     options && options.ignoreVisibilityForInclusionDetection
   );
   if (!el || el.nodeType !== 1) {
@@ -2691,6 +2962,7 @@ function isInclusionEligibleElement(
     Boolean(inclusionContextSet && inclusionContextSet.has(el));
 }
 
+// @ts-ignore
 function isDefinitelyHiddenSubtreeElement(el) {
   if (!el || el.nodeType !== 1) {
     return true;
@@ -2708,13 +2980,18 @@ function isDefinitelyHiddenSubtreeElement(el) {
 }
 
 function hasRenderableTextOutsideExcludedNature(
+// @ts-ignore
   el,
+// @ts-ignore
   excludedElements,
+// @ts-ignore
   includedElements,
+// @ts-ignore
   inclusionContextSet,
   options = {}
 ) {
   const ignoreVisibilityForInclusionDetection = Boolean(
+// @ts-ignore
     options && options.ignoreVisibilityForInclusionDetection
   );
   if (!el || el.nodeType !== 1) {
@@ -2759,9 +3036,13 @@ function hasRenderableTextOutsideExcludedNature(
 }
 
 function hasRenderableTextForHighlight(
+// @ts-ignore
   el,
+// @ts-ignore
   excludedElements,
+// @ts-ignore
   includedElements,
+// @ts-ignore
   inclusionContextSet,
   options = {}
 ) {
@@ -2781,8 +3062,11 @@ function hasRenderableTextForHighlight(
 }
 
 function hasRenderableTextForExcludedHighlight(
+// @ts-ignore
   el,
+// @ts-ignore
   includedElements,
+// @ts-ignore
   inclusionContextSet
 ) {
   if (!el || el.nodeType !== 1) {
@@ -2824,13 +3108,19 @@ function hasRenderableTextForExcludedHighlight(
 }
 
 function collectExcludedChildrenInsideIncludedParents(
+// @ts-ignore
   includedParents,
+// @ts-ignore
   excludedElements,
+// @ts-ignore
   includedElements,
+// @ts-ignore
   inclusionContextSet
 ) {
+// @ts-ignore
   const marked = [];
   const seen = new Set();
+// @ts-ignore
   includedParents.forEach((parent) => {
     if (!parent || parent.nodeType !== 1) {
       return;
@@ -2838,6 +3128,7 @@ function collectExcludedChildrenInsideIncludedParents(
     const stack = Array.from(parent.children || []);
     while (stack.length) {
       const el = stack.pop();
+// @ts-ignore
       if (!el || el.nodeType !== 1) {
         continue;
       }
@@ -2865,17 +3156,23 @@ function collectExcludedChildrenInsideIncludedParents(
         }
         continue;
       }
+// @ts-ignore
       for (let i = el.children.length - 1; i >= 0; i -= 1) {
+// @ts-ignore
         stack.push(el.children[i]);
       }
     }
   });
+// @ts-ignore
   return marked;
 }
 
 function collectSelectorExcludedElements(
+// @ts-ignore
   excludedElements,
+// @ts-ignore
   includedElements,
+// @ts-ignore
   inclusionContextSet
 ) {
   const marked = new Set();
@@ -2900,14 +3197,17 @@ function collectSelectorExcludedElements(
   return Array.from(marked).sort(compareDocumentOrder);
 }
 
+// @ts-ignore
 export function collectToggleableDefaultExcludedElements(includedElements, options = {}) {
   if (!document.body) {
     return [];
   }
   const boundarySelfSkipSet = new Set(
+// @ts-ignore
     options.boundarySelfSkip || includedElements || []
   );
   const boundarySubtreeSkipSet = new Set(
+// @ts-ignore
     options.boundarySubtreeSkip || includedElements || []
   );
   const results = [];
@@ -2919,6 +3219,7 @@ export function collectToggleableDefaultExcludedElements(includedElements, optio
     }
     const isToggleableDefaultExcluded = matchesAutoToggleableDefaultExcluded(el);
     const isBoundarySelfSkipped = boundarySelfSkipSet.has(el);
+// @ts-ignore
     const isWithinBoundarySubtreeSkip = isWithinElementSet(el, boundarySubtreeSkipSet);
     const isWithinImmutableBoundary = isWithinImmutableExcluded(el);
     if (shouldCollectToggleableDefaultBoundary({
@@ -2947,6 +3248,7 @@ export function collectToggleableDefaultExcludedElements(includedElements, optio
       continue;
     }
     for (let i = el.children.length - 1; i >= 0; i -= 1) {
+// @ts-ignore
       stack.push(el.children[i]);
     }
   }
@@ -2954,25 +3256,33 @@ export function collectToggleableDefaultExcludedElements(includedElements, optio
 }
 
 function collectExplicitIncludedElements(
+// @ts-ignore
   explicitIncludedMatches,
+// @ts-ignore
   excludedElements,
+// @ts-ignore
   includedElements,
+// @ts-ignore
   inclusionContextSet,
   options = {}
 ) {
   const preserveExplicitIncludedDescendants = Boolean(
+// @ts-ignore
     options && options.preserveExplicitIncludedDescendants
   );
+// @ts-ignore
   const includeAllExplicitMatches = Boolean(options && options.includeAllExplicitMatches);
   const selected = new Set();
   const ordered = preserveExplicitIncludedDescendants
     ? Array.from(new Set(explicitIncludedMatches || []))
+// @ts-ignore
       .filter((el) => el && el.nodeType === 1)
       .sort(compareDocumentOrder)
     : collapseElementsByNesting(explicitIncludedMatches, {
       prefer: "shallowest"
     });
   for (const el of ordered) {
+// @ts-ignore
     if (!el || el.nodeType !== 1) {
       continue;
     }
@@ -3016,9 +3326,13 @@ function collectExplicitIncludedElements(
 }
 
 function collectImplicitIncludedElementsOutsideExplicit(
+// @ts-ignore
   explicitIncluded,
+// @ts-ignore
   excludedElements,
+// @ts-ignore
   includedElements,
+// @ts-ignore
   inclusionContextSet,
   options = {}
 ) {
@@ -3033,6 +3347,7 @@ function collectImplicitIncludedElementsOutsideExplicit(
     if (
       explicitIncludedSet.size > 0 &&
       !explicitIncludedSet.has(el) &&
+// @ts-ignore
       isWithinElementSet(el, explicitIncludedSet)
     ) {
       continue;
@@ -3073,6 +3388,7 @@ function collectImplicitIncludedElementsOutsideExplicit(
       baseSelected.add(el);
     }
     for (let i = el.children.length - 1; i >= 0; i -= 1) {
+// @ts-ignore
       stack.push(el.children[i]);
     }
   }
@@ -3087,12 +3403,16 @@ function collectImplicitIncludedElementsOutsideExplicit(
   );
 }
 
+// @ts-ignore
 function collectIncludedElementsFromSelectorSet(selectorSet, options = {}) {
   const normalized = normalizeAiSelectorSet(selectorSet);
+// @ts-ignore
   const suppressedXpaths = Array.isArray(options && options.suppressedXpaths)
+// @ts-ignore
     ? options.suppressedXpaths.filter((xpath) => typeof xpath === "string" && xpath)
     : [];
   const suppressedElementsByXpath = new Map();
+// @ts-ignore
   suppressedXpaths.forEach((xpath) => {
     const element = getElementFromXPath(xpath);
     if (element && element.nodeType === 1) {
@@ -3100,9 +3420,11 @@ function collectIncludedElementsFromSelectorSet(selectorSet, options = {}) {
     }
   });
   const suppressedElementSet = new Set(suppressedElementsByXpath.values());
+// @ts-ignore
   const unresolvedSuppressedXpaths = suppressedXpaths.filter((xpath) =>
     !suppressedElementsByXpath.has(xpath)
   );
+// @ts-ignore
   const isSuppressedSelectorElement = (element) => {
     if (!element || !suppressedXpaths.length) {
       return false;
@@ -3117,6 +3439,7 @@ function collectIncludedElementsFromSelectorSet(selectorSet, options = {}) {
     if (!xpath) {
       return false;
     }
+// @ts-ignore
     return unresolvedSuppressedXpaths.some((suppressedXpath) =>
       suppressedXpath === xpath || isXPathDescendant(suppressedXpath, xpath)
     );
@@ -3143,6 +3466,7 @@ function collectIncludedElementsFromSelectorSet(selectorSet, options = {}) {
       includedElements.add(el);
     }
   });
+// @ts-ignore
   const inclusionContextSet = buildInclusionContextSet(includedElements);
   const explicitIncluded = collectExplicitIncludedElements(
     includedElements,
@@ -3152,6 +3476,7 @@ function collectIncludedElementsFromSelectorSet(selectorSet, options = {}) {
     options
   );
   const explicitIncludedSet = new Set(explicitIncluded);
+// @ts-ignore
   const explicitIncludedContextSet = buildInclusionContextSet(explicitIncludedSet);
   const toggleableDefaultExcluded = collectToggleableDefaultExcludedElements(explicitIncludedSet);
   const excludedBoundaryElements = new Set([
@@ -3166,6 +3491,7 @@ function collectIncludedElementsFromSelectorSet(selectorSet, options = {}) {
     options
   );
   const preserveExplicitIncludedDescendants = Boolean(
+// @ts-ignore
     options && options.preserveExplicitIncludedDescendants
   );
   const included = (
@@ -3218,6 +3544,7 @@ function collectIncludedElementsFromSelectorSet(selectorSet, options = {}) {
   return { included, excluded };
 }
 
+// @ts-ignore
 function getElementDepth(el) {
   let depth = 0;
   let current = el;
@@ -3228,6 +3555,7 @@ function getElementDepth(el) {
   return depth;
 }
 
+// @ts-ignore
 function compareDocumentOrder(left, right) {
   if (left === right) {
     return 0;
@@ -3242,6 +3570,7 @@ function compareDocumentOrder(left, right) {
   return 0;
 }
 
+// @ts-ignore
 function addElementAndAncestorsToSet(targetSet, element) {
   let current = element;
   while (current && current.nodeType === 1) {
@@ -3259,9 +3588,12 @@ function addElementAndAncestorsToSet(targetSet, element) {
  * @param {string} [options.prefer='shallowest'] - 'shallowest' to keep ancestors or 'deepest' to keep descendants
  * @returns {Element[]} Collapsed array of elements
  */
+// @ts-ignore
 export function collapseElementsByNesting(elements, options = {}) {
+// @ts-ignore
   const { onlyVisible = false, prefer = "shallowest" } = options;
   const list = Array.from(new Set(elements || [])).filter((el) => {
+// @ts-ignore
     if (!el || el.nodeType !== 1) {
       return false;
     }
@@ -3299,6 +3631,7 @@ export function collapseElementsByNesting(elements, options = {}) {
   const kept = [];
   const keptSet = new Set();
   for (const candidate of list) {
+// @ts-ignore
     let current = candidate.parentElement;
     let hasAncestor = false;
     while (current && current.nodeType === 1) {
@@ -3317,8 +3650,10 @@ export function collapseElementsByNesting(elements, options = {}) {
   return kept;
 }
 
+// @ts-ignore
 function collapseElementsByNestingPreservingExplicit(elements, explicitElements) {
   const explicitSet = new Set(explicitElements || []);
+// @ts-ignore
   const list = Array.from(new Set(elements || [])).filter((el) => el && el.nodeType === 1);
   list.sort((left, right) => {
     const depthDiff = getElementDepth(left) - getElementDepth(right);
@@ -3337,6 +3672,7 @@ function collapseElementsByNestingPreservingExplicit(elements, explicitElements)
       }
       continue;
     }
+// @ts-ignore
     let current = candidate.parentElement;
     let suppressed = false;
     while (current && current.nodeType === 1) {
@@ -3356,8 +3692,10 @@ function collapseElementsByNestingPreservingExplicit(elements, explicitElements)
   return kept;
 }
 
+// @ts-ignore
 function collapseElementsByNestingWithOppositeBoundary(elements, oppositeElements) {
   const oppositeSet = new Set(oppositeElements || []);
+// @ts-ignore
   const list = Array.from(new Set(elements || [])).filter((el) => el && el.nodeType === 1);
   list.sort((left, right) => {
     const depthDiff = getElementDepth(left) - getElementDepth(right);
@@ -3369,6 +3707,7 @@ function collapseElementsByNestingWithOppositeBoundary(elements, oppositeElement
   const kept = [];
   const keptSet = new Set();
   for (const candidate of list) {
+// @ts-ignore
     let current = candidate.parentElement;
     while (current && current.nodeType === 1) {
       if (oppositeSet.has(current)) {
@@ -3390,6 +3729,7 @@ function collapseElementsByNestingWithOppositeBoundary(elements, oppositeElement
   return kept;
 }
 
+// @ts-ignore
 function collectExcludedXPaths(items) {
   if (!Array.isArray(items)) {
     return [];
@@ -3403,6 +3743,7 @@ function collectExcludedXPaths(items) {
   return results;
 }
 
+// @ts-ignore
 function collectExplicitExcludedXPaths(items) {
   if (!Array.isArray(items)) {
     return [];
@@ -3416,10 +3757,12 @@ function collectExplicitExcludedXPaths(items) {
   return results;
 }
 
+// @ts-ignore
 function collectSilentWhitespaceExcludedXPaths(entry) {
   return normalizeXPathList(entry && entry.silentWhitespaceExcludedXpaths);
 }
 
+// @ts-ignore
 function hasVisibleNonTextualContent(el) {
   if (!el || el.nodeType !== 1) {
     return false;
@@ -3455,6 +3798,7 @@ function hasVisibleNonTextualContent(el) {
   return false;
 }
 
+// @ts-ignore
 function isSilentWhitespaceExclusionCandidate(el) {
   if (!el || el.nodeType !== 1) {
     return false;
@@ -3485,6 +3829,7 @@ function isSilentWhitespaceExclusionCandidate(el) {
   return !hasVisibleNonTextualContent(el);
 }
 
+// @ts-ignore
 function isSilentWhitespaceExplicitExclusion(entry, item, el = null) {
   if (!item || !item.xpath || item.excluded !== true || item.explicit !== true) {
     return false;
@@ -3497,6 +3842,7 @@ function isSilentWhitespaceExplicitExclusion(entry, item, el = null) {
   return isSilentWhitespaceExclusionCandidate(resolved);
 }
 
+// @ts-ignore
 function setEntrySilentWhitespaceExcludedXpaths(entry, xpaths) {
   if (!entry || typeof entry !== "object" || entry === Object.prototype) {
     return;
@@ -3509,6 +3855,7 @@ function setEntrySilentWhitespaceExcludedXpaths(entry, xpaths) {
   });
 }
 
+// @ts-ignore
 function isXpathCoveredByAncestor(xpath, ancestorXpaths) {
   if (!xpath || !ancestorXpaths) {
     return false;
@@ -3521,6 +3868,7 @@ function isXpathCoveredByAncestor(xpath, ancestorXpaths) {
   return false;
 }
 
+// @ts-ignore
 function isStaleSilentWhitespaceExclusion(xpath, el, previousSilentWhitespaceExcludedSet) {
   return Boolean(
     previousSilentWhitespaceExcludedSet &&
@@ -3533,10 +3881,15 @@ function collectSilentWhitespaceExclusionCandidates(options = {}) {
   if (!document.body) {
     return [];
   }
+// @ts-ignore
   const excludedXpaths = options.excludedXpaths || new Set();
+// @ts-ignore
   const includeXpaths = options.includeXpaths || new Set();
+// @ts-ignore
   const results = [];
+// @ts-ignore
   const prefetchedCandidates = Array.isArray(options.prefetchedCandidates)
+// @ts-ignore
     ? options.prefetchedCandidates
     : null;
   const excludedElements = new Set();
@@ -3557,6 +3910,7 @@ function collectSilentWhitespaceExclusionCandidates(options = {}) {
       if (isWithinImmutableExcluded(node)) {
         continue;
       }
+// @ts-ignore
       if (isWithinElementSet(node, excludedElements)) {
         continue;
       }
@@ -3565,6 +3919,7 @@ function collectSilentWhitespaceExclusionCandidates(options = {}) {
         xpath &&
         !includeXpaths.has(xpath) &&
         !excludedXpaths.has(xpath) &&
+// @ts-ignore
         !results.some((resultEl) => resultEl !== node && resultEl.contains(node))
       ) {
         results.push(node);
@@ -3593,6 +3948,7 @@ function collectSilentWhitespaceExclusionCandidates(options = {}) {
     if (!isSilentWhitespaceExclusionCandidate(node)) {
       for (let i = node.children.length - 1; i >= 0; i -= 1) {
         stack.push({
+// @ts-ignore
           node: node.children[i],
           withinExcludedSubtree: isExcludedBoundary
         });
@@ -3610,6 +3966,7 @@ function collectSilentWhitespaceExclusionCandidates(options = {}) {
     }
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
       stack.push({
+// @ts-ignore
         node: node.children[i],
         withinExcludedSubtree: isExcludedBoundary
       });
@@ -3619,6 +3976,7 @@ function collectSilentWhitespaceExclusionCandidates(options = {}) {
   return results;
 }
 
+// @ts-ignore
 function normalizeXPathItems(items) {
   if (!Array.isArray(items)) {
     return [];
@@ -3645,6 +4003,7 @@ function normalizeXPathItems(items) {
   return normalized;
 }
 
+// @ts-ignore
 function normalizeXPathList(list) {
   if (!Array.isArray(list)) {
     return [];
@@ -3665,6 +4024,7 @@ function normalizeXPathList(list) {
   return normalized;
 }
 
+// @ts-ignore
 export function normalizePageEntryXpaths(entry) {
   if (!entry || typeof entry !== "object") {
     return entry;
@@ -3679,6 +4039,7 @@ export function normalizePageEntryXpaths(entry) {
       item.xpath
     )
     .map((item) => item.xpath);
+// @ts-ignore
   const appendUnique = (values, xpath) => {
     if (!xpath) {
       return;
@@ -3709,6 +4070,7 @@ export function normalizePageEntryXpaths(entry) {
   return entry;
 }
 
+// @ts-ignore
 function normalizePageEntryPageType(value) {
   if (typeof value !== "string") {
     return "";
@@ -3723,6 +4085,7 @@ function normalizePageEntryPageType(value) {
 }
 
 export function createSanitizedPageSnapshot(options = {}) {
+// @ts-ignore
   const normalizedRenderMode = config.normalizeRenderMode(options.renderMode);
   const root = document.documentElement;
   if (!root) {
@@ -3735,30 +4098,39 @@ export function createSanitizedPageSnapshot(options = {}) {
   const clone = root.cloneNode(true);
   const stripSelectors = getSnapshotStripSelectors(options);
   if (stripSelectors.length) {
+// @ts-ignore
     clone.querySelectorAll(stripSelectors.join(",")).forEach((node) => {
       node.remove();
     });
   }
 
   const rootClasses = EXTENSION_SNAPSHOT_ROOT_CLASSES.concat(
+// @ts-ignore
     Array.isArray(options.extraRootClasses)
+// @ts-ignore
       ? options.extraRootClasses.filter((value) => typeof value === "string" && value)
       : []
   );
+// @ts-ignore
   if (clone.classList && rootClasses.length) {
+// @ts-ignore
     clone.classList.remove(...rootClasses);
   }
 
   restorePageMotionLocksInSnapshotClone(clone);
 
+// @ts-ignore
   const titlePrefix = typeof options.titlePrefix === "string" ? options.titlePrefix : "";
+// @ts-ignore
   const elements = [clone, ...clone.querySelectorAll("*")];
   for (const element of elements) {
     if (!element || element.nodeType !== 1) {
       continue;
     }
     for (const attribute of Array.from(element.attributes || [])) {
+// @ts-ignore
       const attributeName = attribute && typeof attribute.name === "string"
+// @ts-ignore
         ? attribute.name
         : "";
       if (!attributeName) {
@@ -3771,7 +4143,9 @@ export function createSanitizedPageSnapshot(options = {}) {
       if (
         titlePrefix &&
         attributeName === "title" &&
+// @ts-ignore
         typeof attribute.value === "string" &&
+// @ts-ignore
         attribute.value.startsWith(titlePrefix)
       ) {
         element.removeAttribute(attributeName);
@@ -3780,6 +4154,7 @@ export function createSanitizedPageSnapshot(options = {}) {
   }
 
   return {
+// @ts-ignore
     renderedHtml: clone.outerHTML,
     renderMode: normalizedRenderMode
   };
@@ -3801,12 +4176,14 @@ function createPageMotionPauseState() {
   };
 }
 
+// @ts-ignore
 function normalizePageMotionPauseReason(reason) {
   return typeof reason === "string" && reason.trim()
     ? reason.trim()
     : PAGE_MOTION_PAUSE_DEFAULT_REASON;
 }
 
+// @ts-ignore
 function getExtensionResourceUrl(path) {
   if (
     !path ||
@@ -3877,6 +4254,7 @@ function getMaxScrollYForPageInspection() {
   return Math.max(0, Math.round(documentHeight - viewportHeight));
 }
 
+// @ts-ignore
 function scrollWindowInstantlyTo(x, y) {
   if (typeof window === "undefined") {
     return false;
@@ -3942,6 +4320,7 @@ function removePageInspectionStyle() {
   }
 }
 
+// @ts-ignore
 function waitForPageInspectionDelay(ms, isStillCurrent = () => true) {
   const delay = Math.max(0, Math.trunc(Number(ms) || 0));
   if (delay === 0 || !isStillCurrent()) {
@@ -3951,11 +4330,13 @@ function waitForPageInspectionDelay(ms, isStillCurrent = () => true) {
     const startedAt = Date.now();
     const tick = () => {
       if (!isStillCurrent()) {
+// @ts-ignore
         resolve();
         return;
       }
       const elapsed = Date.now() - startedAt;
       if (elapsed >= delay) {
+// @ts-ignore
         resolve();
         return;
       }
@@ -3965,6 +4346,7 @@ function waitForPageInspectionDelay(ms, isStillCurrent = () => true) {
   });
 }
 
+// @ts-ignore
 function normalizePageInspectionScrollDirection(value) {
   const direction = typeof value === "string" ? value.trim().toLowerCase() : "";
   return direction === "top" || direction === "bottom" || direction === "both"
@@ -3972,12 +4354,15 @@ function normalizePageInspectionScrollDirection(value) {
     : "both";
 }
 
+// @ts-ignore
 function waitForPageInspectionScrollEnd(isStillCurrent, options = {}) {
   const timeout = Math.max(
     0,
     Math.trunc(
+// @ts-ignore
       options.scrollEndTimeoutMs === undefined
         ? PAGE_INSPECTION_SCROLL_END_TIMEOUT_MS
+// @ts-ignore
         : Number(options.scrollEndTimeoutMs) || 0
     )
   );
@@ -3987,12 +4372,16 @@ function waitForPageInspectionScrollEnd(isStillCurrent, options = {}) {
   const settleMs = Math.max(
     0,
     Math.trunc(
+// @ts-ignore
       options.scrollSettleMs === undefined
         ? PAGE_INSPECTION_SCROLL_SETTLE_MS
+// @ts-ignore
         : Number(options.scrollSettleMs) || 0
     )
   );
+// @ts-ignore
   const targetY = Number.isFinite(options.targetY) ? Number(options.targetY) : null;
+// @ts-ignore
   const targetKind = typeof options.targetKind === "string" ? options.targetKind : "";
   return new Promise((resolve) => {
     let resolved = false;
@@ -4014,6 +4403,7 @@ function waitForPageInspectionScrollEnd(isStillCurrent, options = {}) {
         extensionClearTimeout(timeoutHandle);
         timeoutHandle = 0;
       }
+// @ts-ignore
       resolve();
     };
     const isAtGoal = () => {
@@ -4109,6 +4499,7 @@ function isPageInspectionAtBottom() {
   return currentY + viewportHeight >= scrollHeight - PAGE_INSPECTION_SCROLL_TOLERANCE_PX;
 }
 
+// @ts-ignore
 function getPageInspectionScrollTarget(target) {
   if (target === "end") {
     const viewportHeight = (
@@ -4148,6 +4539,7 @@ function suppressPageInspectionLazyLoading() {
   return restore;
 }
 
+// @ts-ignore
 async function waitForPageInspectionLazyLoadingLock(restorer) {
   const applied = restorer && restorer.lazyLoadingSuppressionApplied;
   if (!applied || typeof applied.then !== "function") {
@@ -4160,6 +4552,7 @@ async function waitForPageInspectionLazyLoadingLock(restorer) {
   }
 }
 
+// @ts-ignore
 async function ensurePageInspectionLazyLoadingSuppressed(currentRestorer) {
   if (typeof currentRestorer === "function") {
     return currentRestorer;
@@ -4168,6 +4561,7 @@ async function ensurePageInspectionLazyLoadingSuppressed(currentRestorer) {
     return state.lazyLoadSuppressRestorer;
   }
   const restorer = suppressPageInspectionLazyLoading();
+// @ts-ignore
   state.lazyLoadSuppressRestorer = restorer;
   // Wait for the page-world lock to actually apply before scrolling again;
   // otherwise lazy loading keeps firing for every scroll pass.
@@ -4176,8 +4570,10 @@ async function ensurePageInspectionLazyLoadingSuppressed(currentRestorer) {
 }
 
 function notifyPageInspectionProgress(options = {}) {
+// @ts-ignore
   if (options && typeof options.onProgress === "function") {
     try {
+// @ts-ignore
       options.onProgress();
     } catch {
       // Progress hooks are best-effort and must not affect reveal/freeze.
@@ -4185,6 +4581,7 @@ function notifyPageInspectionProgress(options = {}) {
   }
 }
 
+// @ts-ignore
 async function scrollPageInspectionTo(target, isStillCurrent, options = {}) {
   if (!isStillCurrent() || typeof window === "undefined" || typeof window.scrollTo !== "function") {
     return false;
@@ -4219,6 +4616,7 @@ export async function revealPageContentBeforeMotionPause(
   const pauseDelay = Math.max(0, Math.trunc(Number(pauseMs) || 0));
   const reservedScrollY = Math.max(0, Math.round(getWindowScrollOffset().y));
   const lazyLoadSuppressionTargetY = getPageInspectionLazyLoadSuppressionTarget();
+// @ts-ignore
   const retainLazyLoadSuppression = Boolean(options.retainLazyLoadSuppression);
   let visited = false;
   let lazyLoadRestorer = null;
@@ -4277,6 +4675,7 @@ export async function revealPageContentBeforeMotionPause(
   return visited;
 }
 
+// @ts-ignore
 function blockPageInspectionInput(event) {
   if (!state.inspectionBlocker) {
     return;
@@ -4306,6 +4705,7 @@ function startPageInspectionInputBlocker() {
       target.addEventListener(eventName, blockPageInspectionInput, options);
     }
   }
+// @ts-ignore
   state.inspectionBlocker = { targets, options };
 }
 
@@ -4314,17 +4714,20 @@ function stopPageInspectionInputBlocker() {
   if (!blocker) {
     return;
   }
+// @ts-ignore
   for (const target of blocker.targets) {
     if (!target || typeof target.removeEventListener !== "function") {
       continue;
     }
     for (const eventName of PAGE_INSPECTION_INPUT_EVENTS) {
+// @ts-ignore
       target.removeEventListener(eventName, blockPageInspectionInput, blocker.options);
     }
   }
   state.inspectionBlocker = null;
 }
 
+// @ts-ignore
 function blockPopupBusyInput(event) {
   if (!state.popupBusyBlocker) {
     return;
@@ -4354,6 +4757,7 @@ function startPopupBusyInputBlocker() {
       target.addEventListener(eventName, blockPopupBusyInput, options);
     }
   }
+// @ts-ignore
   state.popupBusyBlocker = { targets, options };
 }
 
@@ -4362,11 +4766,13 @@ function stopPopupBusyInputBlocker() {
   if (!blocker) {
     return;
   }
+// @ts-ignore
   for (const target of blocker.targets) {
     if (!target || typeof target.removeEventListener !== "function") {
       continue;
     }
     for (const eventName of PAGE_INSPECTION_INPUT_EVENTS) {
+// @ts-ignore
       target.removeEventListener(eventName, blockPopupBusyInput, blocker.options);
     }
   }
@@ -4468,7 +4874,9 @@ function ensurePopupBusyOverlay() {
     ) {
       preferredParent.appendChild(existing);
     }
+// @ts-ignore
     state.popupBusyOverlay = existing;
+// @ts-ignore
     state.popupBusyNotice = existing.querySelector(".uf-popup-busy-message");
     return existing;
   }
@@ -4496,7 +4904,9 @@ function ensurePopupBusyOverlay() {
   if (preferredParent && typeof preferredParent.appendChild === "function") {
     preferredParent.appendChild(overlay);
   }
+// @ts-ignore
   state.popupBusyOverlay = overlay;
+// @ts-ignore
   state.popupBusyNotice = message;
   return overlay;
 }
@@ -4508,12 +4918,14 @@ function clearPopupBusyFailOpenTimer() {
   }
 }
 
+// @ts-ignore
 export function setPopupBusyOnPage(active, message = "") {
   const enabled = Boolean(active);
   clearPopupBusyFailOpenTimer();
   if (!enabled) {
     stopPopupBusyInputBlocker();
     if (state.popupBusyOverlay) {
+// @ts-ignore
       state.popupBusyOverlay.hidden = true;
     }
     return { ok: true, active: false };
@@ -4527,6 +4939,7 @@ export function setPopupBusyOnPage(active, message = "") {
     ? message.trim()
     : ContentText.marking.popupBusy;
   if (state.popupBusyNotice) {
+// @ts-ignore
     state.popupBusyNotice.textContent = normalizedMessage;
   }
   overlay.hidden = false;
@@ -4538,6 +4951,7 @@ export function setPopupBusyOnPage(active, message = "") {
 }
 
 export function isPopupBusyOnPageActive() {
+// @ts-ignore
   return Boolean(state.popupBusyOverlay && !state.popupBusyOverlay.hidden);
 }
 
@@ -4656,6 +5070,7 @@ function ensurePageMotionPauseIndicator() {
   return indicator;
 }
 
+// @ts-ignore
 function setPageMotionPauseClass(paused) {
   const root = typeof document !== "undefined" ? document.documentElement : null;
   if (!root || !root.classList) {
@@ -4668,6 +5083,7 @@ function setPageMotionPauseClass(paused) {
   }
 }
 
+// @ts-ignore
 function setElementClassPresence(element, className, enabled) {
   if (!element || !element.classList) {
     return;
@@ -4701,6 +5117,7 @@ function removePageMotionPauseIndicator() {
   }
 }
 
+// @ts-ignore
 function sendPageMotionFreezeControl(command, details = null) {
   if (typeof command !== "string" || !command) {
     return Promise.resolve();
@@ -4713,9 +5130,11 @@ function sendPageMotionFreezeControl(command, details = null) {
       .then(() => requestPageWorldCommand(relayCommand, normalizedDetails, {
         timeoutMs: PAGE_MOTION_PAUSE_RELAY_TIMEOUT_MS
       }))
+// @ts-ignore
       .catch(() => sendPageMotionFreezeControlThroughBackground(command, normalizedDetails));
   }
 
+// @ts-ignore
   return sendPageMotionFreezeControlThroughBackground(command, normalizedDetails);
 }
 
@@ -4725,6 +5144,7 @@ function canUsePageWorldRelayTransport() {
     && typeof window.addEventListener === "function";
 }
 
+// @ts-ignore
 function mapPageMotionFreezeCommandToRelay(command) {
   if (command === PAGE_MOTION_PAUSE_CONTROL_COMMAND_SET_PAUSED) {
     return PAGE_WORLD_COMMANDS.SET_MOTION_PAUSED;
@@ -4739,6 +5159,7 @@ function ensurePageMotionRelaySession() {
   if (isPageWorldRelayReady()) {
     return Promise.resolve();
   }
+// @ts-ignore
   if (pageMotionRelayInitializationPromise) {
     return pageMotionRelayInitializationPromise;
   }
@@ -4755,6 +5176,7 @@ function ensurePageMotionRelaySession() {
   return pageMotionRelayInitializationPromise;
 }
 
+// @ts-ignore
 function sendPageMotionFreezeControlThroughBackground(command, details = null) {
   if (
     !globalThis.chrome ||
@@ -4770,6 +5192,7 @@ function sendPageMotionFreezeControlThroughBackground(command, details = null) {
     command
   };
   if (details && typeof details === "object") {
+// @ts-ignore
     message.details = details;
   }
   try {
@@ -4782,6 +5205,7 @@ function sendPageMotionFreezeControlThroughBackground(command, details = null) {
   }
 }
 
+// @ts-ignore
 function setPageMotionFreezeTimersPaused(paused) {
   const shouldPause = Boolean(paused);
   if (pageMotionFreezeTimersPaused === shouldPause) {
@@ -4790,10 +5214,12 @@ function setPageMotionFreezeTimersPaused(paused) {
   pageMotionFreezeTimersPaused = shouldPause;
   sendPageMotionFreezeControl(
     PAGE_MOTION_PAUSE_CONTROL_COMMAND_SET_PAUSED,
+// @ts-ignore
     { paused: shouldPause }
   );
 }
 
+// @ts-ignore
 function setPageMotionFreezeLazyLoadingSuppressed(suppressed) {
   const shouldSuppress = Boolean(suppressed);
   if (pageMotionFreezeLazyLoadingSuppressed === shouldSuppress) {
@@ -4802,6 +5228,7 @@ function setPageMotionFreezeLazyLoadingSuppressed(suppressed) {
   pageMotionFreezeLazyLoadingSuppressed = shouldSuppress;
   return sendPageMotionFreezeControl(
     PAGE_MOTION_PAUSE_CONTROL_COMMAND_SET_LAZY_LOADING_SUPPRESSED,
+// @ts-ignore
     { suppressed: shouldSuppress }
   );
 }
@@ -4811,6 +5238,7 @@ function restorePageInspectionLazyLoadingSuppression() {
   state.lazyLoadSuppressRestorer = null;
   if (typeof restorer === "function") {
     try {
+// @ts-ignore
       restorer();
       return;
     } catch (error) {
@@ -4825,6 +5253,7 @@ function getDocumentAnimations() {
     return [];
   }
   try {
+// @ts-ignore
     return Array.from(document.getAnimations({ subtree: true }) || []);
   } catch (error) {
     try {
@@ -4835,6 +5264,7 @@ function getDocumentAnimations() {
   }
 }
 
+// @ts-ignore
 function pauseDocumentAnimations(pauseState) {
   for (const animation of getDocumentAnimations()) {
     if (!animation || typeof animation.pause !== "function") {
@@ -4859,6 +5289,7 @@ function pauseDocumentAnimations(pauseState) {
   }
 }
 
+// @ts-ignore
 function resumeDocumentAnimations(pauseState) {
   for (const animation of pauseState.animations) {
     if (!animation || typeof animation.play !== "function") {
@@ -4872,6 +5303,7 @@ function resumeDocumentAnimations(pauseState) {
   }
 }
 
+// @ts-ignore
 function createSyntheticPageMotionEvent(type, bubbles) {
   const eventOptions = {
     bubbles: Boolean(bubbles),
@@ -4900,6 +5332,7 @@ function createSyntheticPageMotionEvent(type, bubbles) {
   }
 }
 
+// @ts-ignore
 function dispatchPageMotionEvents(target, events) {
   if (!target || typeof target.dispatchEvent !== "function") {
     return;
@@ -4917,10 +5350,12 @@ function dispatchPageMotionEvents(target, events) {
   }
 }
 
+// @ts-ignore
 function isIgnoredPageMotionElement(element) {
   if (!element || element.nodeType !== 1) {
     return true;
   }
+// @ts-ignore
   if (state.overlay && (element === state.overlay || state.overlay.contains(element))) {
     return true;
   }
@@ -4940,6 +5375,7 @@ function isIgnoredPageMotionElement(element) {
   return false;
 }
 
+// @ts-ignore
 function getComputedCssStyle(element) {
   if (typeof window === "undefined" || typeof window.getComputedStyle !== "function") {
     return null;
@@ -4951,10 +5387,12 @@ function getComputedCssStyle(element) {
   }
 }
 
+// @ts-ignore
 function toStylePropertyName(property) {
   return String(property || "").replace(/-([a-z])/g, (match, letter) => letter.toUpperCase());
 }
 
+// @ts-ignore
 function getComputedCssValue(computedStyle, property) {
   if (!computedStyle || !property) {
     return "";
@@ -4965,6 +5403,7 @@ function getComputedCssValue(computedStyle, property) {
   return computedStyle[toStylePropertyName(property)] || "";
 }
 
+// @ts-ignore
 function parseCssTimeMs(value) {
   const normalized = String(value || "").trim().toLowerCase();
   if (!normalized) {
@@ -4977,12 +5416,14 @@ function parseCssTimeMs(value) {
   return normalized.endsWith("ms") ? amount : amount * 1000;
 }
 
+// @ts-ignore
 function cssTimeListHasPositiveValue(value) {
   return String(value || "")
     .split(",")
     .some((part) => parseCssTimeMs(part) > 0);
 }
 
+// @ts-ignore
 function cssNameListHasValue(value) {
   return String(value || "")
     .split(",")
@@ -4992,6 +5433,7 @@ function cssNameListHasValue(value) {
     });
 }
 
+// @ts-ignore
 function isNonDefaultMotionCssValue(property, value) {
   const normalized = String(value || "").trim().toLowerCase();
   if (!normalized || normalized === "none" || normalized === "normal" || normalized === "auto") {
@@ -5009,11 +5451,13 @@ function isNonDefaultMotionCssValue(property, value) {
   return !/^0(?:px|%|deg|rad|turn|s|ms)?$/.test(normalized);
 }
 
+// @ts-ignore
 function hasMotionWillChange(computedStyle) {
   const willChange = getComputedCssValue(computedStyle, "will-change");
   return /transform|translate|rotate|scale|top|right|bottom|left|opacity|filter|clip-path|offset/i.test(willChange);
 }
 
+// @ts-ignore
 function hasTimedMotionStyle(computedStyle) {
   if (!computedStyle) {
     return false;
@@ -5029,6 +5473,7 @@ function hasTimedMotionStyle(computedStyle) {
   );
 }
 
+// @ts-ignore
 function getElementAttributePairs(element) {
   if (!element || !element.attributes) {
     return [];
@@ -5036,7 +5481,9 @@ function getElementAttributePairs(element) {
   try {
     return Array.from(element.attributes)
       .map((attribute) => ({
+// @ts-ignore
         name: attribute && typeof attribute.name === "string" ? attribute.name : "",
+// @ts-ignore
         value: attribute && typeof attribute.value === "string" ? attribute.value : ""
       }))
       .filter((attribute) => attribute.name);
@@ -5045,6 +5492,7 @@ function getElementAttributePairs(element) {
   }
 }
 
+// @ts-ignore
 function getElementMotionDescriptorText(element) {
   const descriptorParts = [];
   for (const attribute of getElementAttributePairs(element)) {
@@ -5064,10 +5512,12 @@ function getElementMotionDescriptorText(element) {
   return descriptorParts.join(" ");
 }
 
+// @ts-ignore
 function elementMatchesMotionDescriptor(element) {
   return PAGE_MOTION_PAUSE_DESCRIPTOR_RE.test(getElementMotionDescriptorText(element));
 }
 
+// @ts-ignore
 function elementOrAncestorMatchesRevealExcludedDescriptor(element) {
   let current = element;
   let depth = 0;
@@ -5081,18 +5531,21 @@ function elementOrAncestorMatchesRevealExcludedDescriptor(element) {
   return false;
 }
 
+// @ts-ignore
 function elementHasRevealInteractionAttribute(element) {
   return getElementAttributePairs(element).some((attribute) =>
     PAGE_MOTION_REVEAL_INTERACTION_ATTRIBUTE_NAMES.has(attribute.name.toLowerCase())
   );
 }
 
+// @ts-ignore
 function elementMatchesRevealDescriptor(element) {
   const descriptorText = getElementMotionDescriptorText(element);
   return (PAGE_MOTION_REVEAL_DESCRIPTOR_RE.test(descriptorText) || elementHasRevealInteractionAttribute(element)) &&
     !elementOrAncestorMatchesRevealExcludedDescriptor(element);
 }
 
+// @ts-ignore
 function elementHasInlineMotionStyle(element) {
   const styleText = element && typeof element.getAttribute === "function"
     ? element.getAttribute("style") || ""
@@ -5100,6 +5553,7 @@ function elementHasInlineMotionStyle(element) {
   return PAGE_MOTION_PAUSE_INLINE_STYLE_RE.test(styleText);
 }
 
+// @ts-ignore
 function computedStyleIndicatesMotion(computedStyle) {
   if (!computedStyle) {
     return false;
@@ -5121,6 +5575,7 @@ function computedStyleIndicatesMotion(computedStyle) {
   );
 }
 
+// @ts-ignore
 function mergePageMotionCandidate(candidates, element, options = {}) {
   if (isIgnoredPageMotionElement(element)) {
     return;
@@ -5131,12 +5586,16 @@ function mergePageMotionCandidate(candidates, element, options = {}) {
     computedStyle: null
   };
   candidates.set(element, {
+// @ts-ignore
     descriptorMatched: existing.descriptorMatched || Boolean(options.descriptorMatched),
+// @ts-ignore
     inlineMotion: existing.inlineMotion || Boolean(options.inlineMotion),
+// @ts-ignore
     computedStyle: existing.computedStyle || options.computedStyle || null
   });
 }
 
+// @ts-ignore
 function getAnimationEffectTarget(animation) {
   if (!animation || !animation.effect) {
     return null;
@@ -5160,6 +5619,7 @@ function collectPageMotionCandidates() {
   if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
     return candidates;
   }
+// @ts-ignore
   let elements = [];
   try {
     elements = Array.from(document.querySelectorAll("*") || []);
@@ -5167,6 +5627,7 @@ function collectPageMotionCandidates() {
     elements = [];
   }
   const inspectComputedStyle = elements.length <= PAGE_MOTION_PAUSE_MAX_LOCKED_ELEMENTS * 3;
+// @ts-ignore
   for (const element of elements) {
     if (isIgnoredPageMotionElement(element)) {
       continue;
@@ -5188,6 +5649,7 @@ function collectPageMotionCandidates() {
   return candidates;
 }
 
+// @ts-ignore
 function getDefaultLockValue(property, computedValue) {
   const normalized = String(computedValue || "").trim();
   if (normalized) {
@@ -5202,6 +5664,7 @@ function getDefaultLockValue(property, computedValue) {
   return "none";
 }
 
+// @ts-ignore
 function shouldLockBaseMotionProperty(property, computedStyle, descriptorMatched) {
   const value = getComputedCssValue(computedStyle, property);
   if (isNonDefaultMotionCssValue(property, value)) {
@@ -5216,6 +5679,7 @@ function shouldLockBaseMotionProperty(property, computedStyle, descriptorMatched
   );
 }
 
+// @ts-ignore
 function getPageMotionLockProperties(computedStyle, descriptorMatched) {
   if (!computedStyle) {
     return [];
@@ -5239,6 +5703,7 @@ function getPageMotionLockProperties(computedStyle, descriptorMatched) {
   return properties;
 }
 
+// @ts-ignore
 function createPageMotionLockRecord(pauseState, element) {
   const id = `ufm-${pauseState.lockIdCounter}`;
   pauseState.lockIdCounter += 1;
@@ -5256,6 +5721,7 @@ function createPageMotionLockRecord(pauseState, element) {
   return record;
 }
 
+// @ts-ignore
 function applyPageMotionLockProperty(record, element, property, lockValue) {
   let lock = record.properties.get(property);
   if (!lock) {
@@ -5290,11 +5756,13 @@ function applyPageMotionLockProperty(record, element, property, lockValue) {
   }
 }
 
+// @ts-ignore
 function parseCssNumber(value) {
   const parsed = Number.parseFloat(String(value || "").trim());
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+// @ts-ignore
 function elementHasMotionLayoutBox(element) {
   if (!element || element.nodeType !== 1) {
     return false;
@@ -5303,6 +5771,7 @@ function elementHasMotionLayoutBox(element) {
     if (typeof element.getClientRects === "function") {
       const rects = Array.from(element.getClientRects() || []);
       if (rects.length > 0) {
+// @ts-ignore
         return rects.some((rect) => Number(rect.width) > 1 && Number(rect.height) > 1);
       }
     }
@@ -5316,6 +5785,7 @@ function elementHasMotionLayoutBox(element) {
   return true;
 }
 
+// @ts-ignore
 function isSemanticallyHiddenForReveal(element, computedStyle) {
   if (!element || element.nodeType !== 1) {
     return true;
@@ -5330,6 +5800,7 @@ function isSemanticallyHiddenForReveal(element, computedStyle) {
   return display === "none";
 }
 
+// @ts-ignore
 function getPageMotionRevealNormalizationProperties(computedStyle) {
   if (!computedStyle) {
     return [];
@@ -5367,6 +5838,7 @@ function getPageMotionRevealNormalizationProperties(computedStyle) {
   return properties;
 }
 
+// @ts-ignore
 function shouldNormalizePageMotionRevealCandidate(element, candidate, computedStyle) {
   if (!elementMatchesRevealDescriptor(element)) {
     return false;
@@ -5380,6 +5852,7 @@ function shouldNormalizePageMotionRevealCandidate(element, candidate, computedSt
   return getPageMotionRevealNormalizationProperties(computedStyle).length > 0;
 }
 
+// @ts-ignore
 function normalizePageMotionRevealElement(pauseState, element, computedStyle) {
   const properties = getPageMotionRevealNormalizationProperties(computedStyle);
   if (!properties.length) {
@@ -5392,6 +5865,7 @@ function normalizePageMotionRevealElement(pauseState, element, computedStyle) {
   return true;
 }
 
+// @ts-ignore
 function lockPageMotionElement(pauseState, element, candidate) {
   if (!element || !element.style) {
     return;
@@ -5419,6 +5893,7 @@ function lockPageMotionElement(pauseState, element, candidate) {
   }
 }
 
+// @ts-ignore
 function restorePageMotionLockRecordOnElement(element, record) {
   if (!element || !element.style || !record) {
     return;
@@ -5442,6 +5917,7 @@ function restorePageMotionLockRecordOnElement(element, record) {
   }
 }
 
+// @ts-ignore
 function restorePageMotionLocks(pauseState) {
   for (const record of pauseState.lockedElements.values()) {
     restorePageMotionLockRecordOnElement(record.element, record);
@@ -5450,8 +5926,10 @@ function restorePageMotionLocks(pauseState) {
   pauseState.lockedElementsById.clear();
 }
 
+// @ts-ignore
 function restorePageMotionLocksInSnapshotClone(clone) {
   const pauseState = state.pageMotionPause;
+// @ts-ignore
   if (!pauseState || !pauseState.lockedElementsById || !clone) {
     return;
   }
@@ -5470,6 +5948,7 @@ function restorePageMotionLocksInSnapshotClone(clone) {
     const id = typeof cloneElement.getAttribute === "function"
       ? cloneElement.getAttribute(PAGE_MOTION_PAUSE_LOCK_ATTR)
       : "";
+// @ts-ignore
     const record = id ? pauseState.lockedElementsById.get(id) : null;
     if (record) {
       restorePageMotionLockRecordOnElement(cloneElement, record);
@@ -5477,12 +5956,14 @@ function restorePageMotionLocksInSnapshotClone(clone) {
   }
 }
 
+// @ts-ignore
 function lockPageMotionCandidates(pauseState, candidates) {
   for (const [element, candidate] of candidates) {
     lockPageMotionElement(pauseState, element, candidate);
   }
 }
 
+// @ts-ignore
 function collectPageMotionHoverTargets(candidates) {
   const targets = new Set();
   for (const element of candidates.keys()) {
@@ -5503,6 +5984,7 @@ function collectPageMotionHoverTargets(candidates) {
   return targets;
 }
 
+// @ts-ignore
 function pauseInteractiveMotionTargets(pauseState, candidates) {
   for (const target of collectPageMotionHoverTargets(candidates)) {
     pauseState.hoverTargets.add(target);
@@ -5514,6 +5996,7 @@ function pauseInteractiveMotionTargets(pauseState, candidates) {
   }
 }
 
+// @ts-ignore
 function resumeInteractiveMotionTargets(pauseState) {
   for (const target of pauseState.hoverTargets) {
     dispatchPageMotionEvents(target, [
@@ -5525,6 +6008,7 @@ function resumeInteractiveMotionTargets(pauseState) {
   pauseState.hoverTargets.clear();
 }
 
+// @ts-ignore
 function queryPageMotionElements(selector) {
   if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
     return [];
@@ -5536,6 +6020,7 @@ function queryPageMotionElements(selector) {
   }
 }
 
+// @ts-ignore
 function pauseSvgAnimations(pauseState) {
   for (const svgElement of queryPageMotionElements("svg")) {
     if (!svgElement || isIgnoredPageMotionElement(svgElement) || typeof svgElement.pauseAnimations !== "function") {
@@ -5560,6 +6045,7 @@ function pauseSvgAnimations(pauseState) {
   }
 }
 
+// @ts-ignore
 function resumeSvgAnimations(pauseState) {
   for (const [svgElement, svgState] of pauseState.svgElements) {
     if (!svgElement || svgState.wasPaused || typeof svgElement.unpauseAnimations !== "function") {
@@ -5574,6 +6060,7 @@ function resumeSvgAnimations(pauseState) {
   pauseState.svgElements.clear();
 }
 
+// @ts-ignore
 function shouldPauseMediaElement(element) {
   const tagName = element && element.tagName ? String(element.tagName).toUpperCase() : "";
   if (!element || (tagName !== "VIDEO" && tagName !== "AUDIO")) {
@@ -5588,6 +6075,7 @@ function shouldPauseMediaElement(element) {
   return Boolean(element.autoplay || element.loop || element.muted);
 }
 
+// @ts-ignore
 function pauseMediaElements(pauseState) {
   for (const mediaElement of queryPageMotionElements("video, audio")) {
     if (isIgnoredPageMotionElement(mediaElement) || !shouldPauseMediaElement(mediaElement) || typeof mediaElement.pause !== "function") {
@@ -5604,6 +6092,7 @@ function pauseMediaElements(pauseState) {
   }
 }
 
+// @ts-ignore
 function resumeMediaElements(pauseState) {
   for (const [mediaElement, mediaState] of pauseState.mediaElements) {
     if (!mediaElement || mediaState.wasPaused || typeof mediaElement.play !== "function") {
@@ -5622,6 +6111,7 @@ function resumeMediaElements(pauseState) {
 }
 
 function schedulePageMotionPauseRefresh(pauseState = state.pageMotionPause) {
+// @ts-ignore
   if (!pauseState || pauseState.refreshScheduled) {
     return;
   }
@@ -5629,9 +6119,11 @@ function schedulePageMotionPauseRefresh(pauseState = state.pageMotionPause) {
     if (state.pageMotionPause !== pauseState) {
       return;
     }
+// @ts-ignore
     pauseState.refreshScheduled = false;
     refreshPageMotionPause();
   };
+// @ts-ignore
   pauseState.refreshScheduled = true;
   try {
     extensionRequestAnimationFrame(run);
@@ -5641,6 +6133,7 @@ function schedulePageMotionPauseRefresh(pauseState = state.pageMotionPause) {
   }
 }
 
+// @ts-ignore
 function startPageMotionPauseRefreshTimer(pauseState) {
   if (pauseState.refreshTimer) {
     return;
@@ -5652,6 +6145,7 @@ function startPageMotionPauseRefreshTimer(pauseState) {
   }, PAGE_MOTION_PAUSE_REFRESH_MS);
 }
 
+// @ts-ignore
 function stopPageMotionPauseRefreshTimer(pauseState) {
   if (!pauseState.refreshTimer) {
     pauseState.refreshTimer = 0;
@@ -5661,6 +6155,7 @@ function stopPageMotionPauseRefreshTimer(pauseState) {
   pauseState.refreshTimer = 0;
 }
 
+// @ts-ignore
 function startPageMotionPauseObserver(pauseState) {
   if (pauseState.observer || typeof document === "undefined") {
     return;
@@ -5708,6 +6203,7 @@ function startPageMotionPauseObserver(pauseState) {
   }
 }
 
+// @ts-ignore
 function stopPageMotionPauseObserver(pauseState) {
   if (!pauseState.observer) {
     return;
@@ -5723,12 +6219,14 @@ function stopPageMotionPauseObserver(pauseState) {
 export function pausePageMotion(reason = PAGE_MOTION_PAUSE_DEFAULT_REASON) {
   const pauseState = state.pageMotionPause || createPageMotionPauseState();
   pauseState.reasons.add(normalizePageMotionPauseReason(reason));
+// @ts-ignore
   state.pageMotionPause = pauseState;
   refreshPageMotionPause();
 }
 
 export function refreshPageMotionPause() {
   const pauseState = state.pageMotionPause;
+// @ts-ignore
   if (!pauseState || !pauseState.reasons || pauseState.reasons.size === 0) {
     return;
   }
@@ -5757,8 +6255,11 @@ export function resumePageMotion(reason = PAGE_MOTION_PAUSE_DEFAULT_REASON) {
     setPageMotionPauseClass(false);
     return;
   }
+// @ts-ignore
   if (pauseState.reasons) {
+// @ts-ignore
     pauseState.reasons.delete(normalizePageMotionPauseReason(reason));
+// @ts-ignore
     if (pauseState.reasons.size > 0) {
       refreshPageMotionPause();
       return;
@@ -5779,10 +6280,12 @@ export function resumePageMotion(reason = PAGE_MOTION_PAUSE_DEFAULT_REASON) {
   resumeDocumentAnimations(pauseState);
 }
 
+// @ts-ignore
 export function touchPageEntryTimestamp(entry, timestamp = null) {
   if (!entry || typeof entry !== "object") {
     return "";
   }
+// @ts-ignore
   if (typeof timestamp === "string" && timestamp.trim()) {
     entry.timestamp = config.normalizeEntryTimestamp(timestamp);
     return entry.timestamp;
@@ -5801,6 +6304,7 @@ export function touchPageEntryTimestamp(entry, timestamp = null) {
   return entry.timestamp;
 }
 
+// @ts-ignore
 function getExcludedXPathSet(config, pageUrl) {
   const entry =
     config &&
@@ -5815,6 +6319,7 @@ function getExcludedXPathSet(config, pageUrl) {
   return new Set(collectExcludedXPaths(items));
 }
 
+// @ts-ignore
 function getIncludeXPathSet(config, pageUrl) {
   const entry =
     config &&
@@ -5826,11 +6331,13 @@ function getIncludeXPathSet(config, pageUrl) {
         ? state.currentPageEntry
         : null;
   const includeXpaths = entry && Array.isArray(entry.includeXpaths)
+// @ts-ignore
     ? entry.includeXpaths.filter((xpath) => typeof xpath === "string" && xpath)
     : [];
   return new Set(includeXpaths);
 }
 
+// @ts-ignore
 function getSilentWhitespaceExcludedXPathSet(config, pageUrl) {
   const entry =
     config &&
@@ -5844,6 +6351,7 @@ function getSilentWhitespaceExcludedXPathSet(config, pageUrl) {
   return new Set(collectSilentWhitespaceExcludedXPaths(entry));
 }
 
+// @ts-ignore
 function isExplicitlyExcludedElement(el, excludedSet) {
   if (!el || !excludedSet || excludedSet.size === 0) {
     return false;
@@ -5852,6 +6360,7 @@ function isExplicitlyExcludedElement(el, excludedSet) {
   return Boolean(xpath && excludedSet.has(xpath));
 }
 
+// @ts-ignore
 export function getMutationRenderMode(mutations) {
   let mode = "none";
   for (const mutation of mutations) {
@@ -5912,6 +6421,7 @@ export function getMutationRenderMode(mutations) {
   return mode;
 }
 
+// @ts-ignore
 function isExplicitlyIncludedElement(el, includeSet) {
   if (!el || !includeSet || includeSet.size === 0) {
     return false;
@@ -6206,6 +6716,7 @@ function createOverlay() {
     layer.className = "uf-layer";
     layer.dataset.layer = key;
     overlay.appendChild(layer);
+// @ts-ignore
     state.layers[key] = layer;
   });
 
@@ -6216,6 +6727,7 @@ function createOverlay() {
   const toast = document.createElement("div");
   toast.className = "uf-toast";
   overlay.appendChild(toast);
+// @ts-ignore
   state.toast = toast;
 
   const disabledNotice = document.createElement("div");
@@ -6225,6 +6737,7 @@ function createOverlay() {
   disabledNotice.setAttribute("role", "status");
   disabledNotice.setAttribute("aria-live", "polite");
   overlay.appendChild(disabledNotice);
+// @ts-ignore
   state.markingDisabledNotice = disabledNotice;
 
   const inspectionNotice = document.createElement("div");
@@ -6242,12 +6755,14 @@ function createOverlay() {
   inspectionNotice.appendChild(inspectionSpinner);
   inspectionNotice.appendChild(inspectionMessage);
   overlay.appendChild(inspectionNotice);
+// @ts-ignore
   state.pageInspectionNotice = inspectionNotice;
 
   overlay.addEventListener("mousemove", handleMouseMove, true);
   overlay.addEventListener("click", handleClick, true);
   overlay.addEventListener("contextmenu", handleContextMenu, true);
   (document.body || document.documentElement).appendChild(overlay);
+// @ts-ignore
   state.overlay = overlay;
   if (state.popupBusyOverlay && typeof overlay.appendChild === "function") {
     overlay.appendChild(state.popupBusyOverlay);
@@ -6264,6 +6779,7 @@ function createOverlay() {
   updateOverlayGutter();
 }
 
+// @ts-ignore
 function setPageInspectionUiActive(active) {
   const enabled = Boolean(active);
   if (typeof document !== "undefined" && document.documentElement) {
@@ -6271,9 +6787,11 @@ function setPageInspectionUiActive(active) {
   }
   if (state.overlay) {
     setElementClassPresence(state.overlay, PAGE_INSPECTION_OVERLAY_CLASS, enabled);
+// @ts-ignore
     state.overlay.setAttribute("aria-busy", enabled ? "true" : "false");
   }
   if (state.pageInspectionNotice) {
+// @ts-ignore
     state.pageInspectionNotice.hidden = !enabled;
   }
   updateCursorMode();
@@ -6281,13 +6799,17 @@ function setPageInspectionUiActive(active) {
 
 export function isPageInspectionUiActive() {
   return Boolean(
+// @ts-ignore
     (state.pageInspectionNotice && !state.pageInspectionNotice.hidden) ||
       state.inspectionBlocker
   );
 }
 
+// @ts-ignore
 async function inspectPageBeforeMotionPause(isStillCurrent, options = {}) {
+// @ts-ignore
   const keepUiActive = Boolean(options.keepUiActive);
+// @ts-ignore
   const retainLazyLoadSuppression = Boolean(options.retainLazyLoadSuppression);
   startPageInspectionInputBlocker();
   try {
@@ -6308,7 +6830,9 @@ async function inspectPageBeforeMotionPause(isStillCurrent, options = {}) {
   }
 }
 
+// @ts-ignore
 async function warmupPageRevealBeforeMotionPause(baseUrl, pageUrl, options = {}) {
+// @ts-ignore
   const keepUiActive = Boolean(options.keepUiActive);
   const revealWarmupId = state.pageRevealWarmupId + 1;
   state.pageRevealWarmupId = revealWarmupId;
@@ -6331,22 +6855,30 @@ async function warmupPageRevealBeforeMotionPause(baseUrl, pageUrl, options = {})
   return true;
 }
 
+// @ts-ignore
 function hasPageMotionPauseReason(reason) {
   const pauseState = state.pageMotionPause;
+// @ts-ignore
   if (!pauseState || !pauseState.reasons || pauseState.reasons.size === 0) {
     return false;
   }
+// @ts-ignore
   return pauseState.reasons.has(normalizePageMotionPauseReason(reason));
 }
 
 export async function warmupSilentHighlightingBeforeMotionPause(
+// @ts-ignore
   baseUrl,
+// @ts-ignore
   pageUrl,
   reason = PAGE_MOTION_PAUSE_DEFAULT_REASON,
   options = {}
 ) {
+// @ts-ignore
   const keepUiActive = Boolean(options.keepUiActive);
+// @ts-ignore
   const onRevealProgress = typeof options.onRevealProgress === "function"
+// @ts-ignore
     ? options.onRevealProgress
     : null;
   const revealWarmupId = state.pageRevealWarmupId + 1;
@@ -6459,6 +6991,7 @@ export function finishPageInspectionUiAfterRender() {
         return;
       }
       finishPageInspectionUi();
+// @ts-ignore
       resolve();
     };
     pollUntilRendered();
@@ -6469,9 +7002,13 @@ export function finishPageInspectionUiAfterRender() {
 function removeOverlay() {
   setPageInspectionUiActive(false);
   if (state.overlay) {
+// @ts-ignore
     state.overlay.removeEventListener("mousemove", handleMouseMove, true);
+// @ts-ignore
     state.overlay.removeEventListener("click", handleClick, true);
+// @ts-ignore
     state.overlay.removeEventListener("contextmenu", handleContextMenu, true);
+// @ts-ignore
     state.overlay.remove();
     state.overlay = null;
     state.layers = {};
@@ -6513,20 +7050,26 @@ function updateOverlayGutter() {
   const verticalGutter = window.innerWidth - document.documentElement.clientWidth;
   const horizontalGutter =
       window.innerHeight - document.documentElement.clientHeight;
+// @ts-ignore
   state.overlay.style.right = verticalGutter > 0 ? `${verticalGutter}px` : "0px";
+// @ts-ignore
   state.overlay.style.bottom =
       horizontalGutter > 0 ? `${horizontalGutter}px` : "0px";
 }
 
+// @ts-ignore
 function showToast(message) {
   if (!state.toast) {
     return;
   }
+// @ts-ignore
   state.toast.textContent = message;
+// @ts-ignore
   state.toast.classList.add("uf-toast-show");
   extensionClearTimeout(state.toastHideTimer);
   state.toastHideTimer = extensionSetTimeout(() => {
     if (state.toast) {
+// @ts-ignore
       state.toast.classList.remove("uf-toast-show");
     }
   }, 1800);
@@ -6539,11 +7082,13 @@ function getMarkingTemporarilyDisabledReason() {
     if (reconciliation && reconciliation.reason === SILENT_HIGHLIGHTING_PREPARATION_REASON) {
       return "";
     }
+// @ts-ignore
     return reconciliation.reason || "pending";
   }
   return "";
 }
 
+// @ts-ignore
 function getMarkingTemporarilyDisabledMessage(reason) {
   if (reason === "saving") {
     return ContentText.marking.temporarilyDisabledSaving;
@@ -6568,13 +7113,18 @@ function updateMarkingTemporarilyDisabledUi() {
   if (disabled && state.altPassThrough) {
     setAltPassThrough(false);
   }
+// @ts-ignore
   state.overlay.classList.toggle(MARKING_DISABLED_OVERLAY_CLASS, disabled);
   if (disabled) {
+// @ts-ignore
     state.overlay.setAttribute("aria-disabled", "true");
+// @ts-ignore
     clearLayer(state.layers["hover"]);
   } else {
+// @ts-ignore
     state.overlay.removeAttribute("aria-disabled");
   }
+// @ts-ignore
   const notice = state.markingDisabledNotice || state.overlay.querySelector(".uf-marking-disabled-notice");
   if (notice) {
     notice.hidden = !disabled;
@@ -6599,6 +7149,7 @@ function getMarkMode() {
   return "exclude";
 }
 
+// @ts-ignore
 function getMarkModeFromEvent(event) {
   if (!event) {
     return getMarkMode();
@@ -6609,6 +7160,7 @@ function getMarkModeFromEvent(event) {
   return "exclude";
 }
 
+// @ts-ignore
 function shouldAllowParentMarking(mode, shiftHeld) {
   return mode !== "include" && Boolean(shiftHeld);
 }
@@ -6648,6 +7200,7 @@ function updateAltPassThroughFromModifiers() {
   updateCursorMode();
 }
 
+// @ts-ignore
 function isPageInteractionKeyEvent(event) {
   if (!event || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {
     return false;
@@ -6657,6 +7210,7 @@ function isPageInteractionKeyEvent(event) {
     event.key === PAGE_INTERACTION_LEGACY_KEY;
 }
 
+// @ts-ignore
 function isEditableKeyEventTarget(target) {
   if (!target || target.nodeType !== 1) {
     return false;
@@ -6687,6 +7241,7 @@ function isEditableKeyEventTarget(target) {
   ].includes(inputType);
 }
 
+// @ts-ignore
 function syncModifierState(event) {
   if (!event) {
     return;
@@ -6738,6 +7293,7 @@ function handleVisibilityChange() {
 }
 
 function updateFocusHighlight() {
+// @ts-ignore
   const layerFocus = state.layers["focus"];
   if (!layerFocus) {
     syncAiPreviewFocusElement(state.focusElement);
@@ -6764,7 +7320,9 @@ function updateFocusHighlight() {
   finalizeLayerRender(layerState);
 }
 
+// @ts-ignore
 function showImmediateToggleAcknowledgement(target, mode) {
+// @ts-ignore
   const interactionLayer = state.layers["interaction"];
   if (!interactionLayer || !target || target.nodeType !== 1) {
     return;
@@ -6788,6 +7346,7 @@ function showImmediateToggleAcknowledgement(target, mode) {
   }
   state.toggleAckTimer = extensionSetTimeout(() => {
     state.toggleAckTimer = 0;
+// @ts-ignore
     clearLayer(state.layers["interaction"]);
   }, TOGGLE_ACK_CLEAR_MS);
 }
@@ -6999,6 +7558,7 @@ function ensureAiPopoverStyle() {
   document.documentElement.appendChild(style);
 }
 
+// @ts-ignore
 function createAiPopoverPanelIcon(direction) {
   const svgNs = "http://www.w3.org/2000/svg";
   const svg = document.createElementNS(svgNs, "svg");
@@ -7061,14 +7621,17 @@ function ensureAiPreviewFocusStyle() {
 }
 
 function clearAiPreviewFocusElement() {
+// @ts-ignore
   if (aiPreviewFocusElement && aiPreviewFocusElement.classList) {
     aiPreviewFocusElement.classList.remove(AI_PREVIEW_FOCUS_CLASS);
   }
   aiPreviewFocusElement = null;
 }
 
+// @ts-ignore
 function syncAiPreviewFocusElement(target) {
   ensureAiPreviewFocusStyle();
+// @ts-ignore
   if (aiPreviewFocusElement && aiPreviewFocusElement !== target && aiPreviewFocusElement.classList) {
     aiPreviewFocusElement.classList.remove(AI_PREVIEW_FOCUS_CLASS);
   }
@@ -7079,7 +7642,9 @@ function syncAiPreviewFocusElement(target) {
 }
 
 function closeAiPopover(options = {}) {
+// @ts-ignore
   const notify = options.notify !== false;
+// @ts-ignore
   const suppressCallback = options.suppressCallback === true;
   if (!state.aiPopover) {
     return;
@@ -7089,11 +7654,13 @@ function closeAiPopover(options = {}) {
   state.aiPopoverOnClose = null;
   state.aiPopoverOnCollapsedChange = null;
   clearFocusHighlight();
+// @ts-ignore
   popover.remove();
   state.aiPopover = null;
   state.aiPopoverCollapsed = false;
   const afterClose = !suppressCallback && typeof onClose === "function"
     ? Promise.resolve()
+// @ts-ignore
         .then(() => onClose())
         .catch(() => {
           // Ignore preview restore callback failures during teardown.
@@ -7111,6 +7678,7 @@ function closeAiPopover(options = {}) {
   }
 }
 
+// @ts-ignore
 function setAiPopoverCollapsed(collapsed) {
   if (!state.aiPopover) {
     return;
@@ -7119,9 +7687,11 @@ function setAiPopoverCollapsed(collapsed) {
     clearFocusHighlight();
   }
   state.aiPopoverCollapsed = Boolean(collapsed);
+// @ts-ignore
   state.aiPopover.classList.toggle("uf-ai-popover--collapsed", state.aiPopoverCollapsed);
   if (typeof state.aiPopoverOnCollapsedChange === "function") {
     try {
+// @ts-ignore
       state.aiPopoverOnCollapsedChange(state.aiPopoverCollapsed);
     } catch {
       // Ignore preview collapse state sync failures.
@@ -7137,12 +7707,14 @@ export function requestAiPopoverClose(options = {}) {
   closeAiPopover(options);
 }
 
+// @ts-ignore
 export function focusPreviewElement(target, options = {}) {
   if (!target || target.nodeType !== 1) {
     return false;
   }
   state.focusElement = target;
   syncAiPreviewFocusElement(target);
+// @ts-ignore
   if (options.center !== false && typeof target.scrollIntoView === "function") {
     target.scrollIntoView({ block: "center", inline: "center" });
   }
@@ -7150,23 +7722,28 @@ export function focusPreviewElement(target, options = {}) {
   return true;
 }
 
+// @ts-ignore
 function recordPageSnapshot(configValue, pageUrl) {
   if (!configValue || !pageUrl) {
     return;
   }
   const snapshotStartedAt = nowMs();
   const immutableExcluded = collectImmutableElements();
+// @ts-ignore
   syncPageMarkings(configValue, pageUrl, immutableExcluded);
+// @ts-ignore
   const entry = getPageMarkingEntry(configValue, pageUrl);
   const snapshot = createSanitizedPageSnapshot({
     renderMode: config.getConfigRenderMode(configValue)
   });
+// @ts-ignore
   logTogglePerf("snapshot.serialize", snapshotStartedAt, { pageUrl });
   entry.renderedHtml = snapshot.renderedHtml;
   entry.title = normalizePageEntryTitle(document.title, pageUrl);
   setPageMarkingEntry(configValue.pageMarkings, pageUrl, entry);
 }
 
+// @ts-ignore
 function getMarkId(el) {
   if (!el || el.nodeType !== 1) {
     return "";
@@ -7185,20 +7762,25 @@ function clearMarkedElements() {
     return;
   }
   for (const el of state.markedElements) {
+// @ts-ignore
     if (el && el.nodeType === 1) {
+// @ts-ignore
       el.removeAttribute("data-uf-mark-id");
     }
   }
   state.markedElements = new Set();
 }
 
+// @ts-ignore
 function updateMarkedElements(currentMarked) {
   if (!currentMarked) {
     return;
   }
   const previous = state.markedElements || new Set();
   for (const el of previous) {
+// @ts-ignore
     if (!currentMarked.has(el) && el && el.nodeType === 1) {
+// @ts-ignore
       el.removeAttribute("data-uf-mark-id");
     }
   }
@@ -7213,12 +7795,14 @@ function updateMarkedElements(currentMarked) {
   state.markedElements = currentMarked;
 }
 
+// @ts-ignore
 function getTargetElement(x, y) {
   const elements = document.elementsFromPoint(x, y);
   for (const el of elements) {
     if (!el || el.nodeType !== 1) {
       continue;
     }
+// @ts-ignore
     if (state.overlay && (el === state.overlay || state.overlay.contains(el))) {
       continue;
     }
@@ -7231,6 +7815,7 @@ function getTargetElement(x, y) {
 }
 
 
+// @ts-ignore
 function hasMultipleMarkableDescendants(el, options = {}) {
   if (!el || el.nodeType !== 1) {
     return false;
@@ -7239,6 +7824,7 @@ function hasMultipleMarkableDescendants(el, options = {}) {
   let markableDescendantCount = 0;
   while (stack.length) {
     const node = stack.pop();
+// @ts-ignore
     if (!node || node.nodeType !== 1) {
       continue;
     }
@@ -7260,13 +7846,16 @@ function hasMultipleMarkableDescendants(el, options = {}) {
         return true;
       }
     }
+// @ts-ignore
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
+// @ts-ignore
       stack.push(node.children[i]);
     }
   }
   return false;
 }
 
+// @ts-ignore
 function getDepthBelowBody(el) {
   if (!el || el.nodeType !== 1 || typeof document === "undefined" || !document.body) {
     return Number.POSITIVE_INFINITY;
@@ -7280,25 +7869,30 @@ function getDepthBelowBody(el) {
   return node === document.body ? depth : Number.POSITIVE_INFINITY;
 }
 
+// @ts-ignore
 function isParentMarkingContentBoundary(el) {
   const tagName = el && el.tagName ? String(el.tagName).toUpperCase() : "";
   return PARENT_MARKING_CONTENT_BOUNDARY_TAGS.has(tagName) || matchesToggleableDefaultExcluded(el);
 }
 
+// @ts-ignore
 function getElementRole(el) {
   return el && typeof el.getAttribute === "function"
     ? String(el.getAttribute("role") || "").trim().toLowerCase()
     : "";
 }
 
+// @ts-ignore
 function containsPageShellLandmark(el) {
   const landmarkKinds = new Set();
   const stack = Array.from(el && el.children ? el.children : []);
   while (stack.length && landmarkKinds.size < 2) {
     const node = stack.pop();
+// @ts-ignore
     if (!node || node.nodeType !== 1) {
       continue;
     }
+// @ts-ignore
     const tagName = node.tagName ? String(node.tagName).toUpperCase() : "";
     if (PARENT_MARKING_PAGE_SHELL_LANDMARK_TAGS.has(tagName)) {
       landmarkKinds.add(tagName);
@@ -7307,13 +7901,16 @@ function containsPageShellLandmark(el) {
     if (PARENT_MARKING_PAGE_SHELL_ROLES.has(role)) {
       landmarkKinds.add(role);
     }
+// @ts-ignore
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
+// @ts-ignore
       stack.push(node.children[i]);
     }
   }
   return landmarkKinds.size >= 2;
 }
 
+// @ts-ignore
 function hasBroadParentMarkingFootprint(el) {
   if (!el || typeof el.getBoundingClientRect !== "function") {
     return false;
@@ -7338,7 +7935,9 @@ function hasBroadParentMarkingFootprint(el) {
   return widthRatio >= 0.85 && heightRatio >= 0.65;
 }
 
+// @ts-ignore
 function isUnsafeShallowParentMarkingTarget(el, options = {}) {
+// @ts-ignore
   if (!options || !options.allowParent || !el || el.nodeType !== 1) {
     return false;
   }
@@ -7356,8 +7955,11 @@ function isUnsafeShallowParentMarkingTarget(el, options = {}) {
 }
 
 function createExcludedAncestorChecker(options = {}) {
+// @ts-ignore
   const configValue = options.config || state.config;
+// @ts-ignore
   const pageUrl = options.pageUrl || location.href;
+// @ts-ignore
   const entry = options.entry || (
     configValue &&
     configValue.pageMarkings &&
@@ -7385,6 +7987,7 @@ function createExcludedAncestorChecker(options = {}) {
       }
     }
   }
+// @ts-ignore
   return (element) => {
     if (!element || element.nodeType !== 1) {
       return false;
@@ -7416,6 +8019,7 @@ function createExcludedAncestorChecker(options = {}) {
   };
 }
 
+// @ts-ignore
 function resolveMarkableElement(el, config, options) {
   if (!el || el.nodeType !== 1) {
     return null;
@@ -7507,6 +8111,7 @@ function resolveMarkableElement(el, config, options) {
   return el;
 }
 
+// @ts-ignore
 export function getMarkableTarget(x, y, options) {
   const allowParent = options && options.allowParent;
   const allowExplicitTarget = options && options.allowExplicitTarget;
@@ -7532,6 +8137,7 @@ export function getMarkableTarget(x, y, options) {
       if (!el || el.nodeType !== 1) {
         continue;
       }
+// @ts-ignore
       if (state.overlay && (el === state.overlay || state.overlay.contains(el))) {
         continue;
       }
@@ -7577,6 +8183,7 @@ export function getMarkableTarget(x, y, options) {
     if (!el || el.nodeType !== 1) {
       continue;
     }
+// @ts-ignore
     if (state.overlay && (el === state.overlay || state.overlay.contains(el))) {
       continue;
     }
@@ -7620,21 +8227,28 @@ export function getMarkableTarget(x, y, options) {
 }
 
 function updateHoverHighlight(
+// @ts-ignore
   x,
+// @ts-ignore
   y,
+// @ts-ignore
   allowParent,
+// @ts-ignore
   allowExcludedParentChildren,
+// @ts-ignore
   allowImmutableChildren
 ) {
   if (!state.enabled || state.altPassThrough) {
     return;
   }
+// @ts-ignore
   const layerHover = state.layers["hover"];
   if (!layerHover) {
     return;
   }
   const savedVisibilityCache = state.visibilityCache;
   if (!savedVisibilityCache) {
+// @ts-ignore
     state.visibilityCache = new Map();
   }
   const layerState = beginLayerRender(layerHover);
@@ -7678,6 +8292,7 @@ function refreshHoverHighlight() {
     return;
   }
   updateMarkingTemporarilyDisabledUi();
+// @ts-ignore
   const layerHover = state.layers["hover"];
   if (!layerHover) {
     return;
@@ -7695,7 +8310,9 @@ function refreshHoverHighlight() {
   const allowImmutableChildren = false;
   const allowParent = shouldAllowParentMarking(mode, state.shiftHeld);
   updateHoverHighlight(
+// @ts-ignore
       state.lastPointer.x,
+// @ts-ignore
       state.lastPointer.y,
       allowParent,
       allowExcludedParentChildren,
@@ -7703,17 +8320,20 @@ function refreshHoverHighlight() {
   );
 }
 
+// @ts-ignore
 function handleMouseMove(event) {
   if (!state.enabled) {
     return;
   }
   if (isPageSaveReconciliationPending(location.href)) {
     updateMarkingTemporarilyDisabledUi();
+// @ts-ignore
     clearLayer(state.layers["hover"]);
     return;
   }
   event.stopPropagation();
   syncModifierState(event);
+// @ts-ignore
   state.lastPointer = {
     x: event.clientX,
     y: event.clientY,
@@ -7730,9 +8350,12 @@ function handleMouseMove(event) {
     const mode = getMarkModeFromEvent(event);
     const allowExcludedParentChildren = mode === "include";
     const allowImmutableChildren = false;
+// @ts-ignore
     const allowParent = shouldAllowParentMarking(mode, state.lastPointer.shiftKey);
     updateHoverHighlight(
+// @ts-ignore
       state.lastPointer.x,
+// @ts-ignore
       state.lastPointer.y,
       allowParent,
       allowExcludedParentChildren,
@@ -7741,6 +8364,7 @@ function handleMouseMove(event) {
   });
 }
 
+// @ts-ignore
 function toggleExplicitExclude(target, options = {}) {
   if (!state.baseUrl || !state.config) {
     return;
@@ -7762,10 +8386,12 @@ function toggleExplicitExclude(target, options = {}) {
 
   const mutationStartedAt = nowMs();
   const config = state.config;
+// @ts-ignore
   const entry = getPageMarkingEntry(config, location.href);
   const items = Array.isArray(entry.xpaths) ? entry.xpaths : [];
   const includeXpaths = Array.isArray(entry.includeXpaths) ? entry.includeXpaths : [];
   const xpathElementCache = new Map();
+// @ts-ignore
   const getCachedElementFromXPath = (value) => {
     if (typeof value !== "string" || !value) {
       return null;
@@ -7790,11 +8416,13 @@ function toggleExplicitExclude(target, options = {}) {
     entry.xpaths = items;
     touchPageEntryTimestamp(entry);
     normalizePageEntryXpaths(entry);
+// @ts-ignore
     setPageMarkingEntry(config.pageMarkings, location.href, entry);
     state.config = config;
     completeExplicitToggle(entry, target, "exclude", mutationStartedAt, options);
     return;
   }
+// @ts-ignore
   const cleanupHierarchy = (currentXPath) => {
     for (let i = items.length - 1; i >= 0; i -= 1) {
       const item = items[i];
@@ -7810,7 +8438,9 @@ function toggleExplicitExclude(target, options = {}) {
       }
     }
   };
+// @ts-ignore
   const cleanupDescendantIncludeOverrides = (currentXPath, currentTarget = null) => {
+// @ts-ignore
     const boundaryTarget = currentTarget && currentTarget.nodeType === 1
       ? currentTarget
       : getCachedElementFromXPath(currentXPath);
@@ -7841,6 +8471,7 @@ function toggleExplicitExclude(target, options = {}) {
       }
     }
   };
+// @ts-ignore
   const cleanupAncestorHierarchy = (currentXPath) => {
     for (let i = items.length - 1; i >= 0; i -= 1) {
       const item = items[i];
@@ -7862,6 +8493,7 @@ function toggleExplicitExclude(target, options = {}) {
       }
     }
   };
+// @ts-ignore
   const cleanupIncludeHierarchy = (currentXPath) => {
     for (let i = includeXpaths.length - 1; i >= 0; i -= 1) {
       const includeXPath = includeXpaths[i];
@@ -7900,6 +8532,7 @@ function toggleExplicitExclude(target, options = {}) {
   };
 
   let addedExclude;
+// @ts-ignore
   let targetItem = items.find((item) => item && item.xpath === xpath);
   if (!targetItem) {
     targetItem = { xpath, excluded: true, explicit: true };
@@ -7919,6 +8552,7 @@ function toggleExplicitExclude(target, options = {}) {
     cleanupAncestorHierarchy(xpath);
     cleanupIncludeHierarchy(xpath);
     if (Array.isArray(entry.includeXpaths)) {
+// @ts-ignore
       entry.includeXpaths = entry.includeXpaths.filter((value) => value !== xpath);
     }
   } else if (targetItem && !targetItem.excluded) {
@@ -7928,11 +8562,13 @@ function toggleExplicitExclude(target, options = {}) {
   entry.xpaths = items;
   touchPageEntryTimestamp(entry);
   normalizePageEntryXpaths(entry);
+// @ts-ignore
   setPageMarkingEntry(config.pageMarkings, location.href, entry);
   state.config = config;
   completeExplicitToggle(entry, target, "exclude", mutationStartedAt, options);
 }
 
+// @ts-ignore
 function toggleExplicitInclude(target, options = {}) {
   if (!state.baseUrl || !state.config) {
     return;
@@ -7954,10 +8590,12 @@ function toggleExplicitInclude(target, options = {}) {
 
   const mutationStartedAt = nowMs();
   const config = state.config;
+// @ts-ignore
   const entry = getPageMarkingEntry(config, location.href);
   const includeXpaths = Array.isArray(entry.includeXpaths) ? entry.includeXpaths : [];
   const items = Array.isArray(entry.xpaths) ? entry.xpaths : [];
   const xpathElementCache = new Map();
+// @ts-ignore
   const getCachedElementFromXPath = (value) => {
     if (typeof value !== "string" || !value) {
       return null;
@@ -7969,6 +8607,7 @@ function toggleExplicitInclude(target, options = {}) {
     xpathElementCache.set(value, resolved);
     return resolved;
   };
+// @ts-ignore
   const targetItemIndex = items.findIndex((item) => item && item.xpath === xpath);
   const targetItem = targetItemIndex >= 0 ? items[targetItemIndex] : null;
   let convertedFromExcluded = false;
@@ -7986,6 +8625,7 @@ function toggleExplicitInclude(target, options = {}) {
       entry.xpaths = items;
       touchPageEntryTimestamp(entry);
       normalizePageEntryXpaths(entry);
+// @ts-ignore
       setPageMarkingEntry(config.pageMarkings, location.href, entry);
       state.config = config;
       completeExplicitToggle(entry, target, "include", mutationStartedAt, options);
@@ -8037,11 +8677,13 @@ function toggleExplicitInclude(target, options = {}) {
   entry.xpaths = items;
   touchPageEntryTimestamp(entry);
   normalizePageEntryXpaths(entry);
+// @ts-ignore
   setPageMarkingEntry(config.pageMarkings, location.href, entry);
   state.config = config;
   completeExplicitToggle(entry, target, "include", mutationStartedAt, options);
 }
 
+// @ts-ignore
 function handleToggleEvent(event) {
   if (!state.enabled || state.altPassThrough) {
     return;
@@ -8054,11 +8696,13 @@ function handleToggleEvent(event) {
   if (isPageSaveReconciliationPending(location.href)) {
     updateMarkingTemporarilyDisabledUi();
     showToast(ContentText.marking.saveReconciliationBlocked);
+// @ts-ignore
     clearLayer(state.layers["hover"]);
     return;
   }
   if (state.focusElement) {
     const rawTarget = getTargetElement(event.clientX, event.clientY);
+// @ts-ignore
     if (!rawTarget || !state.focusElement.contains(rawTarget)) {
       clearFocusHighlight();
     }
@@ -8085,6 +8729,7 @@ function handleToggleEvent(event) {
     allowImmutableChildren,
     requireExcludedAncestor: false
   });
+// @ts-ignore
   logTogglePerf("toggle.target-resolution", targetResolutionStartedAt, {
     mode,
     hasTarget: Boolean(target)
@@ -8101,6 +8746,7 @@ function handleToggleEvent(event) {
       lastActionKey: state.lastToggleActionKey,
       lastActionAt: state.lastToggleActionAt
     })) {
+// @ts-ignore
       logTogglePerf("toggle.duplicate-click-suppressed", toggleStartedAt, { mode });
       return;
     }
@@ -8112,20 +8758,24 @@ function handleToggleEvent(event) {
       interactionNow
     });
   }
+// @ts-ignore
   logTogglePerf("toggle.total", toggleStartedAt, {
     mode,
     hadTarget: Boolean(target)
   });
 }
 
+// @ts-ignore
 function handleClick(event) {
   handleToggleEvent(event);
 }
 
+// @ts-ignore
 function handleContextMenu(event) {
   handleToggleEvent(event);
 }
 
+// @ts-ignore
 function handleKeydown(event) {
   if (!state.enabled) {
     return;
@@ -8152,6 +8802,7 @@ function handleKeydown(event) {
   syncModifierState(event);
 }
 
+// @ts-ignore
 function handleKeyup(event) {
   if (!state.enabled) {
     return;
@@ -8173,6 +8824,7 @@ function handleKeyup(event) {
   syncModifierState(event);
 }
 
+// @ts-ignore
 function handleAltClick(event) {
   if (!state.enabled || !state.altPassThrough) {
     return;
@@ -8207,6 +8859,7 @@ function handleAltClick(event) {
   }
 }
 
+// @ts-ignore
 function clearLayer(layer) {
   if (!layer) {
     return;
@@ -8222,6 +8875,7 @@ function clearLayer(layer) {
   }
 }
 
+// @ts-ignore
 function getLayerBoxMap(layer) {
   if (!state.layerBoxes) {
     state.layerBoxes = new WeakMap();
@@ -8234,10 +8888,12 @@ function getLayerBoxMap(layer) {
   return map;
 }
 
+// @ts-ignore
 function beginLayerRender(layer) {
   return { layer, map: getLayerBoxMap(layer), used: new Set() };
 }
 
+// @ts-ignore
 function finalizeLayerRender(layerState) {
   const { map, used } = layerState;
   for (const [key, box] of map) {
@@ -8248,6 +8904,7 @@ function finalizeLayerRender(layerState) {
   }
 }
 
+// @ts-ignore
 function drawRectReuse(layerState, rect, className, el, kind, markedSet, index) {
   const { layer, map, used } = layerState;
   const markId = el ? getMarkId(el) : "";
@@ -8279,6 +8936,7 @@ function drawRectReuse(layerState, rect, className, el, kind, markedSet, index) 
   used.add(key);
 }
 
+// @ts-ignore
 function drawMultiRectReuse(layerState, rects, className, el, kind, markedSet) {
   if (rects.length === 0) {
     return;
@@ -8292,6 +8950,7 @@ function drawMultiRectReuse(layerState, rects, className, el, kind, markedSet) {
   }
 }
 
+// @ts-ignore
 function collectRectsFromClientRects(clientRects) {
   const visibleRects = [];
   for (let i = 0; i < clientRects.length; i++) {
@@ -8319,6 +8978,7 @@ function collectRectsFromClientRects(clientRects) {
   return visibleRects;
 }
 
+// @ts-ignore
 function getCollapsedTextualFallbackRects(el) {
   if (!getCachedNormalizedElementText(el)) {
     return [];
@@ -8329,23 +8989,28 @@ function getCollapsedTextualFallbackRects(el) {
   while (stack.length && inspected < MAX_INSPECTED) {
     const node = stack.shift();
     inspected += 1;
+// @ts-ignore
     if (!node || node.nodeType !== 1) {
       continue;
     }
     if (!isVisible(node)) {
       continue;
     }
+// @ts-ignore
     const rects = collectRectsFromClientRects(node.getClientRects());
     if (rects.length > 0) {
       return rects;
     }
+// @ts-ignore
     for (let i = 0; i < node.children.length; i += 1) {
+// @ts-ignore
       stack.push(node.children[i]);
     }
   }
   return [];
 }
 
+// @ts-ignore
 function getVisibleRects(el) {
   const allowCollapsedTextFallback = Boolean(getCachedNormalizedElementText(el));
   if (!isVisible(el)) {
@@ -8363,6 +9028,7 @@ function getVisibleRects(el) {
   return [];
 }
 
+// @ts-ignore
 function hasRenderableMarkingTargetGeometry(el, options = {}) {
   if (!el || el.nodeType !== 1) {
     return false;
@@ -8370,16 +9036,20 @@ function hasRenderableMarkingTargetGeometry(el, options = {}) {
   if (getVisibleRects(el).length > 0) {
     return true;
   }
+// @ts-ignore
   return Boolean(options.allowGhost && getGhostRects(el).length > 0);
 }
 
+// @ts-ignore
 export function collectExplicitMarkingElements(entry) {
   const items = Array.isArray(entry && entry.xpaths) ? entry.xpaths : [];
   const explicitInclude = collectXPathElements(entry && entry.includeXpaths);
   const consentExcluded = collectConsentExcludedElements();
   const explicitIncludeSet = new Set(explicitInclude);
+// @ts-ignore
   const isWithinExplicitInclude = (el) => {
     for (const includeEl of explicitIncludeSet) {
+// @ts-ignore
       if (includeEl && includeEl !== el && includeEl.contains(el)) {
         return true;
       }
@@ -8396,6 +9066,7 @@ export function collectExplicitMarkingElements(entry) {
     if (!el) {
       continue;
     }
+// @ts-ignore
     if (isSilentWhitespaceExplicitExclusion(entry, item, el)) {
       continue;
     }
@@ -8406,6 +9077,7 @@ export function collectExplicitMarkingElements(entry) {
     }
     if (
       consentExcluded.has(el) ||
+// @ts-ignore
       isWithinElementSet(el, consentExcluded) ||
       isWithinExplicitInclude(el) ||
       isWithinImmutableExcluded(el)
@@ -8428,7 +9100,9 @@ export function collectExplicitMarkingElements(entry) {
     if (
       isWithinImmutableExcluded(el) ||
       consentExcluded.has(el) ||
+// @ts-ignore
       isWithinElementSet(el, consentExcluded) ||
+// @ts-ignore
       localExplicitExcludeSet.has(el)
     ) {
       continue;
@@ -8447,12 +9121,14 @@ export function collectExplicitMarkingElements(entry) {
   };
 }
 
+// @ts-ignore
 function collectEntryExplicitXpathSets(entry) {
   const excludedXpaths = new Set(
     collectExcludedXPaths(Array.isArray(entry && entry.xpaths) ? entry.xpaths : [])
   );
   const includeXpaths = new Set(
     Array.isArray(entry && entry.includeXpaths)
+// @ts-ignore
       ? entry.includeXpaths.filter((xpath) => typeof xpath === "string" && xpath)
       : []
   );
@@ -8462,8 +9138,10 @@ function collectEntryExplicitXpathSets(entry) {
   };
 }
 
+// @ts-ignore
 function splitExplicitMarkingCollectionsBySavedState(currentCollections, savedEntry) {
   const savedSets = collectEntryExplicitXpathSets(savedEntry);
+// @ts-ignore
   const splitByXpath = (items, savedXpathSet) => {
     const fetched = [];
     const session = [];
@@ -8501,14 +9179,20 @@ function splitExplicitMarkingCollectionsBySavedState(currentCollections, savedEn
   };
 }
 
+// @ts-ignore
 export function collectAiContentElementsForRender(aiCollections, options = {}) {
+// @ts-ignore
   const immutableExcluded = options.immutableExcluded || new Set();
+// @ts-ignore
   const consentExcluded = options.consentExcluded || new Set();
+// @ts-ignore
   const excludedByState = options.excludedByState || new Set();
+// @ts-ignore
   const explicitInclude = options.explicitInclude || new Set();
   const aiContent = new Set();
   const hiddenAiContent = new Set();
   const selectorExcludedSet = new Set();
+// @ts-ignore
   const isWithinExplicitInclude = (el) => {
     if (!el || explicitInclude.size === 0) {
       return false;
@@ -8521,6 +9205,7 @@ export function collectAiContentElementsForRender(aiCollections, options = {}) {
     return false;
   };
   const shouldSkipAiCollectionElement = (
+// @ts-ignore
     el,
     { skipExplicitExcludedUnlessIncluded = false } = {}
   ) => {
@@ -8539,6 +9224,7 @@ export function collectAiContentElementsForRender(aiCollections, options = {}) {
     }
     return false;
   };
+// @ts-ignore
   const addAiContentElement = (el) => {
     if (shouldSkipAiCollectionElement(el, { skipExplicitExcludedUnlessIncluded: true })) {
       return;
@@ -8573,6 +9259,7 @@ export function collectAiContentElementsForRender(aiCollections, options = {}) {
   };
 }
 
+// @ts-ignore
 export function collectStoredUnexcludedToggleableDefaultElements(entry) {
   const items = Array.isArray(entry && entry.xpaths) ? entry.xpaths : [];
   const elements = [];
@@ -8598,18 +9285,29 @@ export function collectStoredUnexcludedToggleableDefaultElements(entry) {
 }
 
 function drawExplicitMarkingLayers(
+// @ts-ignore
   fetchedExplicitExcludeElements,
+// @ts-ignore
   fetchedExplicitIncludeElements,
+// @ts-ignore
   hiddenFetchedExplicitIncludeElements,
+// @ts-ignore
   sessionExplicitExcludeElements,
+// @ts-ignore
   sessionExplicitIncludeElements,
+// @ts-ignore
   hiddenSessionExplicitIncludeElements,
+// @ts-ignore
   computeElementRects
 ) {
   const drawStartedAt = nowMs();
+// @ts-ignore
   const layerSavedExplicitExcludeState = beginLayerRender(state.layers["saved-explicit-exclude"]);
+// @ts-ignore
   const layerSavedExplicitIncludeState = beginLayerRender(state.layers["saved-explicit-include"]);
+// @ts-ignore
   const layerSessionExplicitExcludeState = beginLayerRender(state.layers["session-explicit-exclude"]);
+// @ts-ignore
   const layerSessionExplicitIncludeState = beginLayerRender(state.layers["session-explicit-include"]);
 
   for (const el of fetchedExplicitExcludeElements) {
@@ -8706,6 +9404,7 @@ function drawExplicitMarkingLayers(
   finalizeLayerRender(layerSavedExplicitIncludeState);
   finalizeLayerRender(layerSessionExplicitExcludeState);
   finalizeLayerRender(layerSessionExplicitIncludeState);
+// @ts-ignore
   logTogglePerf("draw.explicit-layers", drawStartedAt, {
     savedExcludeCount: fetchedExplicitExcludeElements.length,
     savedIncludeCount: fetchedExplicitIncludeElements.length + (hiddenFetchedExplicitIncludeElements || []).length,
@@ -8721,8 +9420,11 @@ function shouldUseImmediateFullRenderForExplicitToggle(options = {}) {
 }
 
 function applyExplicitStateToCachedCollections(
+// @ts-ignore
   cachedCollections,
+// @ts-ignore
   explicitExcludeElements,
+// @ts-ignore
   explicitIncludeElements
 ) {
   if (!cachedCollections) {
@@ -8733,10 +9435,15 @@ function applyExplicitStateToCachedCollections(
     return;
   }
   const explicitIncludeSet = new Set(explicitIncludeElements || []);
+// @ts-ignore
   const isProtectedByExplicitInclude = (el) =>
+// @ts-ignore
     explicitIncludeSet.size > 0 && isWithinElementSet(el, explicitIncludeSet);
+// @ts-ignore
   const isSuppressedByExplicitExclude = (el) =>
+// @ts-ignore
     isWithinElementSet(el, explicitExcludeSet) && !isProtectedByExplicitInclude(el);
+// @ts-ignore
   const filterSuppressed = (items) =>
     Array.isArray(items) ? items.filter((el) => !isSuppressedByExplicitExclude(el)) : [];
 
@@ -8746,6 +9453,7 @@ function applyExplicitStateToCachedCollections(
   cachedCollections.selectorExcludedElements = filterSuppressed(cachedCollections.selectorExcludedElements);
 }
 
+// @ts-ignore
 function refreshExplicitMarkingOverlay(entry, context = null) {
   if (!state.enabled || !state.overlay) {
     return;
@@ -8782,18 +9490,30 @@ function refreshExplicitMarkingOverlay(entry, context = null) {
     if (cachedCollections) {
       const selectorContext = resolveMarkingSelectorContext(state.config, syncedEntry);
       const consentExcluded = collectConsentExcludedElements();
+// @ts-ignore
       const aiContentSet = new Set(cachedCollections.aiContentElements || []);
+// @ts-ignore
       const hiddenAiContentSet = new Set(cachedCollections.hiddenAiContentElements || []);
       const hiddenStoredExplicitExclude = new Set(hiddenExplicitExcludeElements || []);
+// @ts-ignore
       cachedCollections.explicitExcludeElements = explicitExcludeElements;
+// @ts-ignore
       cachedCollections.explicitIncludeElements = explicitIncludeElements;
+// @ts-ignore
       cachedCollections.hiddenExplicitIncludeElements = hiddenExplicitIncludeElements;
+// @ts-ignore
       cachedCollections.fetchedExplicitExcludeElements = explicitLayerSplit.fetchedExplicitExcludeElements;
+// @ts-ignore
       cachedCollections.fetchedExplicitIncludeElements = explicitLayerSplit.fetchedExplicitIncludeElements;
+// @ts-ignore
       cachedCollections.hiddenFetchedExplicitIncludeElements = explicitLayerSplit.hiddenFetchedExplicitIncludeElements;
+// @ts-ignore
       cachedCollections.sessionExplicitExcludeElements = explicitLayerSplit.sessionExplicitExcludeElements;
+// @ts-ignore
       cachedCollections.sessionExplicitIncludeElements = explicitLayerSplit.sessionExplicitIncludeElements;
+// @ts-ignore
       cachedCollections.hiddenSessionExplicitIncludeElements = explicitLayerSplit.hiddenSessionExplicitIncludeElements;
+// @ts-ignore
       if (context && context.immediateFullRender === false) {
         applyExplicitStateToCachedCollections(
           cachedCollections,
@@ -8801,18 +9521,23 @@ function refreshExplicitMarkingOverlay(entry, context = null) {
           explicitLayerSplit.sessionExplicitIncludeElements
         );
       }
+// @ts-ignore
       cachedCollections.hardElements = Array.from(new Set([
         ...immutableExcluded,
         ...hiddenStoredExplicitExclude
       ])).filter((el) =>
+// @ts-ignore
         !isWithinElementSet(el, consentExcluded)
       );
+// @ts-ignore
       cachedCollections.aiAnimatedExplicitIncludeElements =
         explicitLayerSplit.sessionExplicitIncludeElements.filter((el) => aiContentSet.has(el));
+// @ts-ignore
       cachedCollections.hiddenAiAnimatedExplicitIncludeElements =
         explicitLayerSplit.hiddenSessionExplicitIncludeElements.filter((el) => hiddenAiContentSet.has(el));
       state.cachedCollectionsKey = buildMarkingCollectionsCacheKey({
         pageUrl,
+// @ts-ignore
         selectorSet: selectorContext.selectorSet,
         entry: syncedEntry
       });
@@ -8830,6 +9555,7 @@ function refreshExplicitMarkingOverlay(entry, context = null) {
   });
 }
 
+// @ts-ignore
 async function refreshExplicitMarkingOverlayAsync(entry, context = null) {
   if (!state.enabled || !state.overlay) {
     return { ok: false, aborted: false };
@@ -8843,7 +9569,9 @@ async function refreshExplicitMarkingOverlayAsync(entry, context = null) {
       const syncResult = await syncPageMarkingsAsync(state.config, pageUrl, immutableExcluded, {
         allowCreate: true,
         persist: true,
+// @ts-ignore
         shouldAbort: context && typeof context.shouldAbort === "function"
+// @ts-ignore
           ? context.shouldAbort
           : null
       });
@@ -8853,6 +9581,7 @@ async function refreshExplicitMarkingOverlayAsync(entry, context = null) {
       syncedEntry = syncResult.entry || syncedEntry;
       state.currentPageEntry = syncedEntry || null;
     }
+// @ts-ignore
     if (context && typeof context.shouldAbort === "function" && context.shouldAbort()) {
       return { ok: false, aborted: true };
     }
@@ -8875,18 +9604,30 @@ async function refreshExplicitMarkingOverlayAsync(entry, context = null) {
     if (cachedCollections) {
       const selectorContext = resolveMarkingSelectorContext(state.config, syncedEntry);
       const consentExcluded = collectConsentExcludedElements();
+// @ts-ignore
       const aiContentSet = new Set(cachedCollections.aiContentElements || []);
+// @ts-ignore
       const hiddenAiContentSet = new Set(cachedCollections.hiddenAiContentElements || []);
       const hiddenStoredExplicitExclude = new Set(hiddenExplicitExcludeElements || []);
+// @ts-ignore
       cachedCollections.explicitExcludeElements = explicitExcludeElements;
+// @ts-ignore
       cachedCollections.explicitIncludeElements = explicitIncludeElements;
+// @ts-ignore
       cachedCollections.hiddenExplicitIncludeElements = hiddenExplicitIncludeElements;
+// @ts-ignore
       cachedCollections.fetchedExplicitExcludeElements = explicitLayerSplit.fetchedExplicitExcludeElements;
+// @ts-ignore
       cachedCollections.fetchedExplicitIncludeElements = explicitLayerSplit.fetchedExplicitIncludeElements;
+// @ts-ignore
       cachedCollections.hiddenFetchedExplicitIncludeElements = explicitLayerSplit.hiddenFetchedExplicitIncludeElements;
+// @ts-ignore
       cachedCollections.sessionExplicitExcludeElements = explicitLayerSplit.sessionExplicitExcludeElements;
+// @ts-ignore
       cachedCollections.sessionExplicitIncludeElements = explicitLayerSplit.sessionExplicitIncludeElements;
+// @ts-ignore
       cachedCollections.hiddenSessionExplicitIncludeElements = explicitLayerSplit.hiddenSessionExplicitIncludeElements;
+// @ts-ignore
       if (context && context.immediateFullRender === false) {
         applyExplicitStateToCachedCollections(
           cachedCollections,
@@ -8894,18 +9635,23 @@ async function refreshExplicitMarkingOverlayAsync(entry, context = null) {
           explicitLayerSplit.sessionExplicitIncludeElements
         );
       }
+// @ts-ignore
       cachedCollections.hardElements = Array.from(new Set([
         ...immutableExcluded,
         ...hiddenStoredExplicitExclude
       ])).filter((el) =>
+// @ts-ignore
         !isWithinElementSet(el, consentExcluded)
       );
+// @ts-ignore
       cachedCollections.aiAnimatedExplicitIncludeElements =
         explicitLayerSplit.sessionExplicitIncludeElements.filter((el) => aiContentSet.has(el));
+// @ts-ignore
       cachedCollections.hiddenAiAnimatedExplicitIncludeElements =
         explicitLayerSplit.hiddenSessionExplicitIncludeElements.filter((el) => hiddenAiContentSet.has(el));
       state.cachedCollectionsKey = buildMarkingCollectionsCacheKey({
         pageUrl,
+// @ts-ignore
         selectorSet: selectorContext.selectorSet,
         entry: syncedEntry
       });
@@ -8919,12 +9665,14 @@ async function refreshExplicitMarkingOverlayAsync(entry, context = null) {
       explicitLayerSplit.hiddenSessionExplicitIncludeElements,
       getVisibleRects
     );
+// @ts-ignore
     logTogglePerf("toggle.explicit-overlay-refresh", refreshStartedAt, { async: true });
     return { ok: true, aborted: false };
   });
 }
 
 function scheduleExplicitToggleFullRender(options = {}) {
+// @ts-ignore
   const immediate = options.immediate !== false;
   if (immediate && state.explicitFullRenderTimer) {
     extensionClearTimeout(state.explicitFullRenderTimer);
@@ -8944,6 +9692,7 @@ function scheduleExplicitToggleFullRender(options = {}) {
   }, EXPLICIT_TOGGLE_DEFERRED_FULL_RENDER_DELAY_MS);
 }
 
+// @ts-ignore
 export function scheduleExplicitOverlayRefresh(entry, context = null) {
   state.explicitOverlayRefreshEntry = entry;
   state.explicitOverlayRefreshContext = context;
@@ -8965,6 +9714,7 @@ export function scheduleExplicitOverlayRefresh(entry, context = null) {
     const coalesceStartedAt = nowMs();
     refreshExplicitMarkingOverlay(pendingEntry, pendingContext);
     scheduleExplicitToggleFullRender({
+// @ts-ignore
       immediate: !pendingContext || pendingContext.immediateFullRender !== false
     });
     logTogglePerf("toggle.coalesced-refresh", coalesceStartedAt);
@@ -9000,10 +9750,12 @@ function cancelExplicitOverlayRefresh() {
   state.explicitOverlayRefreshContext = null;
 }
 
+// @ts-ignore
 function scheduleAsyncExplicitToggleReconcile(entry, context = null) {
   const generation = state.toggleReconcileGeneration + 1;
   state.toggleReconcileGeneration = generation;
   const runReconcile = async () => {
+// @ts-ignore
     const result = await refreshExplicitMarkingOverlayAsync(entry, {
       ...(context || {}),
       shouldAbort: () => generation !== state.toggleReconcileGeneration
@@ -9012,21 +9764,27 @@ function scheduleAsyncExplicitToggleReconcile(entry, context = null) {
       return;
     }
     scheduleExplicitToggleFullRender({
+// @ts-ignore
       immediate: !context || context.immediateFullRender !== false
     });
   };
   runReconcile().catch(() => {});
 }
 
+// @ts-ignore
 function completeExplicitToggle(entry, target, type, mutationStartedAt, options = {}) {
+// @ts-ignore
   logTogglePerf("toggle.mutation", mutationStartedAt, {
     type,
     hasTarget: Boolean(target)
   });
   const immediateFullRender = Object.prototype.hasOwnProperty.call(options, "immediateFullRender")
+// @ts-ignore
     ? Boolean(options.immediateFullRender)
     : shouldUseImmediateFullRenderForExplicitToggle({ target, type });
+// @ts-ignore
   if (options && options.deferMarkingRefresh && !immediateFullRender) {
+// @ts-ignore
     scheduleAsyncExplicitToggleReconcile(entry, {
       target,
       type,
@@ -9037,6 +9795,7 @@ function completeExplicitToggle(entry, target, type, mutationStartedAt, options 
     // appears immediately. The async reconcile path delayed the visible mark by
     // up to ~2s on large pages (the explicit layer only drew after the chunked
     // document re-scan), which made clicks feel unregistered (issue #6).
+// @ts-ignore
     scheduleExplicitOverlayRefresh(entry, {
       target,
       type,
@@ -9063,29 +9822,38 @@ function scheduleQueuedToggleMutationDrain() {
       return;
     }
     const applyStartedAt = nowMs();
+// @ts-ignore
     state.toggleInFlightKey = nextJob.key || "";
     try {
+// @ts-ignore
       if (!nextJob.target || nextJob.target.nodeType !== 1 || nextJob.target.isConnected === false) {
         return;
       }
+// @ts-ignore
       if (nextJob.mode === "include") {
+// @ts-ignore
         toggleExplicitInclude(nextJob.target, { deferMarkingRefresh: true, immediateFullRender: true });
       } else {
+// @ts-ignore
         toggleExplicitExclude(nextJob.target, { deferMarkingRefresh: true, immediateFullRender: true });
       }
       if (state.toggleInFlightKey) {
         state.lastToggleActionKey = state.toggleInFlightKey;
+// @ts-ignore
         state.lastToggleActionAt = Number(nextJob.interactionNow) || nowMs();
       }
     } finally {
       state.toggleInFlightKey = "";
+// @ts-ignore
       logTogglePerf("toggle.apply", applyStartedAt, {
+// @ts-ignore
         mode: nextJob.mode,
         queued: true,
         remainingQueue: Array.isArray(state.toggleMutationQueue) ? state.toggleMutationQueue.length : 0
       });
       if (Array.isArray(state.toggleMutationQueue) && state.toggleMutationQueue.length) {
         const pendingJob = state.toggleMutationQueue[state.toggleMutationQueue.length - 1];
+// @ts-ignore
         state.toggleQueuedActionKey = pendingJob && pendingJob.key ? pendingJob.key : "";
         scheduleQueuedToggleMutationDrain();
       } else {
@@ -9106,6 +9874,7 @@ function scheduleQueuedToggleMutationDrain() {
   runDrain();
 }
 
+// @ts-ignore
 function scheduleQueuedToggleMutation(job) {
   if (!job || !job.target || (job.mode !== "include" && job.mode !== "exclude")) {
     return;
@@ -9113,6 +9882,7 @@ function scheduleQueuedToggleMutation(job) {
   if (!Array.isArray(state.toggleMutationQueue)) {
     state.toggleMutationQueue = [];
   }
+// @ts-ignore
   state.toggleMutationQueue.push(job);
   state.toggleQueuedActionKey = job.key || state.toggleQueuedActionKey;
   scheduleQueuedToggleMutationDrain();
@@ -9161,6 +9931,7 @@ function renderHighlightsInner() {
   const latestSelectorContext = resolveMarkingSelectorContext(state.config, latestEntry);
   const nextCollectionsCacheKey = buildMarkingCollectionsCacheKey({
     pageUrl,
+// @ts-ignore
     selectorSet: latestSelectorContext.selectorSet,
     entry: latestEntry
   });
@@ -9169,6 +9940,7 @@ function renderHighlightsInner() {
   if (cached && state.cachedCollectionsKey === nextCollectionsCacheKey) {
     const drawStartedAt = nowMs();
     repositionHighlights(cached);
+// @ts-ignore
     logTogglePerf("render.reposition", drawStartedAt, { pageUrl: location.href });
     return;
   }
@@ -9206,6 +9978,7 @@ function renderHighlightsInner() {
     allowCreate: hasEntry,
     persist: hasEntry
   });
+// @ts-ignore
   logTogglePerf("render.sync", syncStartedAt, { pageUrl });
   const entry =
       syncResult.entry || getPageMarkingEntry(state.config, pageUrl, { create: false });
@@ -9308,6 +10081,7 @@ function renderHighlightsInner() {
 
   const collections = {
     hardElements: Array.from(hardExcludedSet).filter((el) =>
+// @ts-ignore
       !isWithinElementSet(el, consentExcluded)
     ),
     explicitExcludeElements: filteredExplicitExclude,
@@ -9326,12 +10100,15 @@ function renderHighlightsInner() {
     selectorExcludedElements: Array.from(selectorExcludedSet),
     defaultElements: defaultTargets
   };
+// @ts-ignore
   state.cachedCollections = collections;
   state.cachedCollectionsKey = buildMarkingCollectionsCacheKey({
     pageUrl,
+// @ts-ignore
     selectorSet: selectorSetForMarking,
     entry
   });
+// @ts-ignore
   logTogglePerf("render.rebuild", rebuildStartedAt, { pageUrl });
 
   if (autoSeededFromAiSelectors) {
@@ -9342,10 +10119,13 @@ function renderHighlightsInner() {
 
   const drawStartedAt = nowMs();
   drawCollections(collections, getVisibleRects);
+// @ts-ignore
   logTogglePerf("draw.collections", drawStartedAt, { pageUrl });
+// @ts-ignore
   logTogglePerf("render.total", renderStartedAt, { pageUrl });
 }
 
+// @ts-ignore
 function getRectsInViewport(el) {
   const visibleRects = collectRectsFromClientRects(el.getClientRects());
   if (visibleRects.length > 0) {
@@ -9357,6 +10137,7 @@ function getRectsInViewport(el) {
   return [];
 }
 
+// @ts-ignore
 function getGhostRects(el) {
   if (!el || el.nodeType !== 1) {
     return [];
@@ -9364,17 +10145,26 @@ function getGhostRects(el) {
   return collectRectsFromClientRects(el.getClientRects());
 }
 
+// @ts-ignore
 function repositionHighlights(collections) {
   drawCollections(collections, getRectsInViewport);
 }
 
+// @ts-ignore
 function drawCollections(collections, getRects) {
+// @ts-ignore
   const layerHardState = beginLayerRender(state.layers["hard"]);
+// @ts-ignore
   const layerSavedExplicitExcludeState = beginLayerRender(state.layers["saved-explicit-exclude"]);
+// @ts-ignore
   const layerSavedExplicitIncludeState = beginLayerRender(state.layers["saved-explicit-include"]);
+// @ts-ignore
   const layerAiContentState = beginLayerRender(state.layers["ai-content"]);
+// @ts-ignore
   const layerSessionExplicitExcludeState = beginLayerRender(state.layers["session-explicit-exclude"]);
+// @ts-ignore
   const layerSessionExplicitIncludeState = beginLayerRender(state.layers["session-explicit-include"]);
+// @ts-ignore
   const layerDefaultState = beginLayerRender(state.layers["default"]);
   const markedElements = new Set();
 
@@ -9554,11 +10344,13 @@ function startObservers() {
   if (state.mutationObserver) {
     return;
   }
+// @ts-ignore
   state.mutationObserver = new MutationObserver((mutations) => {
     try {
       if (state.overlay) {
         const hasNonOverlayChange = mutations.some((mutation) => {
           const target = mutation.target;
+// @ts-ignore
           return !(target === state.overlay || state.overlay.contains(target));
         });
         if (!hasNonOverlayChange) {
@@ -9586,6 +10378,7 @@ function startObservers() {
   });
   if (document.body) {
     try {
+// @ts-ignore
       state.mutationObserver.observe(document.body, {
         childList: true,
         subtree: true,
@@ -9601,11 +10394,13 @@ function startObservers() {
 
 function stopObservers() {
   if (state.mutationObserver) {
+// @ts-ignore
     state.mutationObserver.disconnect();
     state.mutationObserver = null;
   }
 }
 
+// @ts-ignore
 export function handleUrlWatcherTransition(previousUrl, nextUrl) {
   void nextUrl;
   // Marking is disabled on any navigation. Unsaved page-marking drafts are not
@@ -9662,6 +10457,7 @@ function restorePageScrolling() {
 
   if (!html || !body) return;
 
+// @ts-ignore
   const setStyle = (el, prop, value) => {
     el.style.setProperty(prop, value, "important");
   };
@@ -9694,6 +10490,7 @@ function restorePageScrolling() {
   });
 }
 
+// @ts-ignore
 function hideConsentOnEnable(pageUrl) {
   if (!pageUrl || state.consentSyncedPageUrl === pageUrl) {
     return 0;
@@ -9719,6 +10516,7 @@ function hideConsentBeforeReveal() {
  * @param {Element} el - The element to check
  * @returns {boolean} True if the element matches a toggleable default exclusion
  */
+// @ts-ignore
 export function isDefaultToggleableExcludedElement(el) {
   return matchesToggleableDefaultExcluded(el);
 }
@@ -9728,10 +10526,12 @@ export function isDefaultToggleableExcludedElement(el) {
  * @param {Element} el - The element to check
  * @returns {boolean} True if the element matches an immutable exclusion
  */
+// @ts-ignore
 export function isImmutableExcludedElement(el) {
   return matchesImmutableExcluded(el);
 }
 
+// @ts-ignore
 export function isPageDraftDirty(pageUrl) {
   if (pageUrl && state.autoSeededPendingSavePageUrl === pageUrl) {
     return true;
@@ -9779,6 +10579,7 @@ export async function refreshPageSaveReconciliation(baseUrl = state.baseUrl, pag
     return null;
   }
   const reconciliation = await config.getPageSaveReconciliation(baseUrl, pageUrl);
+// @ts-ignore
   state.pageSaveReconciliation = reconciliation;
   updateMarkingTemporarilyDisabledUi();
   return reconciliation;
@@ -9789,8 +10590,10 @@ export async function setPageSaveReconciliationPending(baseUrl = state.baseUrl, 
     return null;
   }
   const reconciliation = await config.setPageSaveReconciliation(baseUrl, pageUrl, {
+// @ts-ignore
     reason: typeof options.reason === "string" ? options.reason : "pending"
   });
+// @ts-ignore
   state.pageSaveReconciliation = reconciliation;
   updateMarkingTemporarilyDisabledUi();
   notifyDraftStatus(pageUrl);
@@ -9809,6 +10612,7 @@ export async function clearPageSaveReconciliation(baseUrl = state.baseUrl, pageU
   notifyDraftStatus(pageUrl);
 }
 
+// @ts-ignore
 export function areEntriesEquivalent(left, right) {
   const leftFingerprint = getEntryFingerprint(left);
   const rightFingerprint = getEntryFingerprint(right);
@@ -9823,6 +10627,7 @@ export function areEntriesEquivalent(left, right) {
   return true;
 }
 
+// @ts-ignore
 export function clonePageEntry(entry) {
   if (!entry || typeof entry !== "object") {
     return null;
@@ -9846,6 +10651,7 @@ export function clonePageEntry(entry) {
   return normalizePageEntryXpaths(cloned);
 }
 
+// @ts-ignore
 export function setSavedPageEntry(pageUrl, entry) {
   state.savedPageUrl = pageUrl || "";
   state.savedPageEntry = clonePageEntry(entry);
@@ -9879,6 +10685,7 @@ export async function refreshSavedPageEntryFromBackendCache(baseUrl = state.base
   return getSavedPageEntry(pageUrl);
 }
 
+// @ts-ignore
 export function notifyDraftStatus(pageUrl) {
   if (!state.enabled || !state.baseUrl || !state.config) {
     return;
@@ -9933,6 +10740,7 @@ export function scheduleDraftPersist(baseUrl = state.baseUrl, delayMs = 220) {
   }, Math.max(0, Math.trunc(delayMs)));
 }
 
+// @ts-ignore
 function flushPendingSnapshotSave(configValue, pageUrl) {
   if (!configValue || !pageUrl) {
     return false;
@@ -9945,6 +10753,7 @@ function flushPendingSnapshotSave(configValue, pageUrl) {
   }
 }
 
+// @ts-ignore
 function persistTeardownConfig(baseUrl, configValue) {
   if (!baseUrl || !configValue) {
     return;
@@ -9954,6 +10763,7 @@ function persistTeardownConfig(baseUrl, configValue) {
   });
 }
 
+// @ts-ignore
 function flushPendingTeardownPersistence(baseUrl, configValue, pageUrl) {
   let shouldPersist = false;
   if (state.snapshotTimer) {
@@ -9971,18 +10781,24 @@ function flushPendingTeardownPersistence(baseUrl, configValue, pageUrl) {
   }
 }
 
+// @ts-ignore
 function setAltPassThrough(enabled) {
   const changed = state.altPassThrough !== enabled;
   state.altPassThrough = enabled;
   if (!state.overlay) {
     return;
   }
+// @ts-ignore
   state.overlay.style.pointerEvents = enabled ? "none" : "auto";
+// @ts-ignore
   state.overlay.style.opacity = enabled ? "0.5" : "1";
+// @ts-ignore
   if (enabled && state.layers["hover"]) {
+// @ts-ignore
     clearLayer(state.layers["hover"]);
   }
   if (!enabled) {
+// @ts-ignore
     scheduleRender();
   }
   if (changed) {
@@ -9990,6 +10806,7 @@ function setAltPassThrough(enabled) {
   }
 }
 
+// @ts-ignore
 export function isMarkableElement(el, config, options) {
   if (!config) {
     return false;
@@ -10026,6 +10843,7 @@ export function isMarkableElement(el, config, options) {
 }
 
 export function canApplyExplicitInclude(
+// @ts-ignore
   el,
   configValue = state.config,
   pageUrl = location.href,
@@ -10049,9 +10867,12 @@ export function canApplyExplicitInclude(
   const xpath = getXPath(el);
   const configEntry =
     configValue &&
+// @ts-ignore
     configValue.pageMarkings &&
+// @ts-ignore
     typeof configValue.pageMarkings === "object" &&
     pageUrl
+// @ts-ignore
       ? configValue.pageMarkings[pageUrl] || null
       : null;
   const sourceEntries = [configEntry, entryOverride];
@@ -10095,12 +10916,14 @@ export function clearFocusHighlight() {
   updateFocusHighlight();
 }
 
+// @ts-ignore
 export function isVisible(el) {
   if (!el || el.nodeType !== 1) {
     return false;
   }
   const cache = state.visibilityCache;
   if (cache) {
+// @ts-ignore
     const cached = cache.get(el);
     if (cached !== undefined) {
       return cached;
@@ -10108,11 +10931,13 @@ export function isVisible(el) {
   }
   const result = isVisibleUncached(el);
   if (cache) {
+// @ts-ignore
     cache.set(el, result);
   }
   return result;
 }
 
+// @ts-ignore
 function isVisibleUncached(el) {
   if (isWithinExtensionUi(el)) {
     return false;
@@ -10122,12 +10947,15 @@ function isVisibleUncached(el) {
   const visCache = state.ancestorVisStateCache;
   while (node && node.nodeType === 1) {
     let visState;
+// @ts-ignore
     if (visCache && visCache.has(node)) {
+// @ts-ignore
       visState = visCache.get(node);
     } else {
       const style = window.getComputedStyle(node);
       visState = getTheoreticalVisibilityState(node, style);
       if (visCache) {
+// @ts-ignore
         visCache.set(node, visState);
       }
     }
@@ -10152,6 +10980,7 @@ function isVisibleUncached(el) {
   return isActuallyVisibleToUser(el);
 }
 
+// @ts-ignore
 export function isVisibleForSubmission(el) {
   if (!el || el.nodeType !== 1) {
     return false;
@@ -10203,6 +11032,7 @@ export function isVisibleForSubmission(el) {
   return anyClientRectIntersectsSubmissionArea(el);
 }
 
+// @ts-ignore
 export function getElementFromXPath(xpath) {
   try {
     const result = document.evaluate(
@@ -10222,6 +11052,7 @@ export function getElementFromXPath(xpath) {
   }
 }
 
+// @ts-ignore
 export function hasPageMarkingEntry(config, pageUrl) {
   if (!config || !config.pageMarkings || typeof config.pageMarkings !== "object") {
     return false;
@@ -10230,6 +11061,7 @@ export function hasPageMarkingEntry(config, pageUrl) {
 }
 
 // Normalize URL paths so "/page" and "/page/" resolve to the same page-marking entry.
+// @ts-ignore
 function normalizeUrlPath(pathname) {
   if (typeof pathname !== "string" || !pathname) {
     return "/";
@@ -10239,6 +11071,7 @@ function normalizeUrlPath(pathname) {
 }
 
 // Build a stable page-marking key for equivalent URLs by ignoring trailing slashes.
+// @ts-ignore
 function toLooseUrlKey(value, baseUrl) {
   if (typeof value !== "string" || !value) {
     return "";
@@ -10253,6 +11086,7 @@ function toLooseUrlKey(value, baseUrl) {
   }
 }
 
+// @ts-ignore
 export function findPageMarkingEntry(configValue, pageUrl, baseUrl = state.baseUrl || pageUrl) {
   const pageMarkings = configValue && configValue.pageMarkings;
   if (!pageMarkings || typeof pageMarkings !== "object" || !pageUrl) {
@@ -10283,6 +11117,7 @@ export function findPageMarkingEntry(configValue, pageUrl, baseUrl = state.baseU
 
 // Write an entry into a pageMarkings object and evict its loose-lookup cache
 // so that the next findPageMarkingEntry call rebuilds with up-to-date data.
+// @ts-ignore
 function setPageMarkingEntry(pageMarkings, url, entry) {
   pageMarkings[url] = entry;
   pageMarkingEntryLookupCache.delete(pageMarkings);
@@ -10308,11 +11143,13 @@ export function collectImmutableElements() {
   return immutable;
 }
 
+// @ts-ignore
 export function scheduleRender(options) {
   const scheduleStartedAt = nowMs();
   const shouldInvalidate = !options || options.invalidate !== false;
   state.pendingRenderInvalidate = state.pendingRenderInvalidate || shouldInvalidate;
   if (state.renderTimer) {
+// @ts-ignore
     logTogglePerf("scheduleRender.skipped-existing", scheduleStartedAt, {
       reason: options && options.reason ? options.reason : "unknown"
     });
@@ -10325,6 +11162,7 @@ export function scheduleRender(options) {
   const waitForInterval =
     minInterval > 0 && sinceLast < minInterval ? minInterval - sinceLast : 0;
   const effectiveDelay = Math.max(delay, waitForInterval);
+// @ts-ignore
   logTogglePerf("scheduleRender.queued", scheduleStartedAt, {
     reason,
     delay,
@@ -10348,6 +11186,7 @@ export function scheduleRender(options) {
   }, effectiveDelay);
 }
 
+// @ts-ignore
 export function mergeDraftEntry(config, pageUrl, draftEntry, savedEntry) {
   if (!config || !pageUrl || !draftEntry) {
     return;
@@ -10361,6 +11200,7 @@ export function mergeDraftEntry(config, pageUrl, draftEntry, savedEntry) {
   setPageMarkingEntry(config.pageMarkings, pageUrl, clonePageEntry(draftEntry));
 }
 
+// @ts-ignore
 export function getPageMarkingEntry(configValue, pageUrl, options) {
   const { create = true, persist = true } = options || {};
   const currentPageType = normalizePageEntryPageType(state.currentPageType);
@@ -10404,6 +11244,7 @@ export function getPageMarkingEntry(configValue, pageUrl, options) {
   return entry;
 }
 
+// @ts-ignore
 export async function loadConfig(baseUrl) {
   const result = await utils.idbGet("configs");
   const configs = result.configs || {};
@@ -10445,12 +11286,15 @@ function scheduleMarkingSettleRenders() {
     }, delay);
     timers.push(timerId);
   }
+// @ts-ignore
   state.markingSettleTimers = timers;
 }
 
 export function disable(options = {}) {
   const optionPageUrl =
+// @ts-ignore
     typeof options.pageUrl === "string" && options.pageUrl
+// @ts-ignore
       ? options.pageUrl
       : "";
   const teardownBaseUrl = state.baseUrl;
@@ -10531,7 +11375,9 @@ export function disable(options = {}) {
   stopUrlWatcher();
 }
 
+// @ts-ignore
 export async function enableForBaseUrl(baseUrl, options = {}) {
+// @ts-ignore
   const skipInitialReveal = Boolean(options && options.skipInitialReveal);
   const normalizedBaseUrl = utils.normalizeBaseUrl(baseUrl) || baseUrl;
   if (!normalizedBaseUrl || !utils.isPageWithinBaseUrl(location.href, normalizedBaseUrl)) {
@@ -10550,9 +11396,12 @@ export async function enableForBaseUrl(baseUrl, options = {}) {
   // from defaults + CSS/AI-selector influence and the page never starts dirty.
   if (
     state.config &&
+// @ts-ignore
     state.config.pageMarkings &&
+// @ts-ignore
     typeof state.config.pageMarkings === "object"
   ) {
+// @ts-ignore
     delete state.config.pageMarkings[pageUrl];
   }
   const savedEntry = await refreshSavedPageEntryFromBackendCache(normalizedBaseUrl, pageUrl);
@@ -10580,6 +11429,7 @@ export async function enableForBaseUrl(baseUrl, options = {}) {
       return;
     }
   }
+// @ts-ignore
   scheduleRender();
   scheduleMarkingSettleRenders();
   startObservers();
@@ -10589,6 +11439,7 @@ export async function enableForBaseUrl(baseUrl, options = {}) {
   }
 }
 
+// @ts-ignore
 export function handleBeforeUnload(event) {
   if (!state.enabled) {
     return;
@@ -10600,6 +11451,7 @@ export function handleBeforeUnload(event) {
   event.returnValue = "";
 }
 
+// @ts-ignore
 function isViewportScrollEvent(event) {
   if (!event) {
     return true;
@@ -10618,6 +11470,7 @@ function isViewportScrollEvent(event) {
   return false;
 }
 
+// @ts-ignore
 export function handleScroll(event, options = {}) {
   if (!state.enabled || state.aiPopover || !state.overlay) {
     return;
@@ -10626,12 +11479,15 @@ export function handleScroll(event, options = {}) {
   // Nested scroll containers still need a debounced redraw so partially visible
   // marked content tracks carousels and internal panes. Only viewport scrolls
   // hide the overlay during motion to avoid full-page flicker.
+// @ts-ignore
   const hideDuringScroll = isViewportScroll && (!options || options.hideDuringScroll !== false);
   if (hideDuringScroll && !state.isScrolling) {
     state.isScrolling = true;
+// @ts-ignore
     state.overlay.classList.add("uf-scrolling");
   } else if (!hideDuringScroll && state.isScrolling) {
     state.isScrolling = false;
+// @ts-ignore
     state.overlay.classList.remove("uf-scrolling");
   }
   if (state.scrollHideTimer) {
@@ -10651,6 +11507,7 @@ export function handleScroll(event, options = {}) {
           state.isScrolling = false;
         }
         if (state.overlay) {
+// @ts-ignore
           state.overlay.classList.remove("uf-scrolling");
         }
       });
@@ -10658,6 +11515,7 @@ export function handleScroll(event, options = {}) {
   }, SCROLL_DEBOUNCE_MS);
 }
 
+// @ts-ignore
 export function collectPreviewItems(selectorSet) {
   const normalized = normalizeAiSelectorSet(selectorSet);
   const excludedElements = collectSelectorElements(normalized.exclusionSelectors);
@@ -10667,6 +11525,7 @@ export function collectPreviewItems(selectorSet) {
       includedElements.add(el);
     }
   });
+// @ts-ignore
   const inclusionContextSet = buildInclusionContextSet(includedElements);
   // Preview mirrors silent highlighting inclusion detection: implicit
   // non-excluded content plus explicit includes, while ignoring visibility for
@@ -10687,6 +11546,7 @@ export function collectPreviewItems(selectorSet) {
     if (!text) {
       continue;
     }
+// @ts-ignore
     const rect = el.getBoundingClientRect();
     rows.push({
       xpath: getXPath(el),
@@ -10707,9 +11567,13 @@ export function collectPreviewItems(selectorSet) {
 }
 
 function getPreviewTextForIncludedElement(
+// @ts-ignore
   root,
+// @ts-ignore
   excludedElements,
+// @ts-ignore
   includedElements,
+// @ts-ignore
   inclusionContextSet
 ) {
   if (!root || root.nodeType !== 1) {
@@ -10779,6 +11643,7 @@ function getPreviewTextForIncludedElement(
     .trim();
 }
 
+// @ts-ignore
 export function getElementLabel(el) {
   if (!el || el.nodeType !== 1) {
     return "";
@@ -10799,6 +11664,7 @@ export function getElementLabel(el) {
   return text;
 }
 
+// @ts-ignore
 export async function saveConfig(baseUrl, configValue) {
   const result = await utils.idbGet("configs");
   const configs = result.configs || {};
@@ -10806,6 +11672,7 @@ export async function saveConfig(baseUrl, configValue) {
   await utils.idbSet({ configs });
 }
 
+// @ts-ignore
 export function showAiPopover(items, options = {}) {
   clearFocusHighlight();
   closeAiPopover({ notify: false, suppressCallback: true });
@@ -10813,17 +11680,22 @@ export function showAiPopover(items, options = {}) {
   marker.hidden = true;
   marker.setAttribute("data-uf-extension-ui", "true");
   document.documentElement.appendChild(marker);
+// @ts-ignore
   state.aiPopover = marker;
+// @ts-ignore
   state.aiPopoverOnClose = typeof options.onClose === "function" ? options.onClose : null;
   state.aiPopoverOnCollapsedChange = null;
   state.aiPopoverCollapsed = false;
 }
 
+// @ts-ignore
 export function getDraftPageEntry(pageUrl) {
   if (
       !pageUrl ||
       !state.config ||
+// @ts-ignore
       !state.config.pageMarkings ||
+// @ts-ignore
       typeof state.config.pageMarkings !== "object"
   ) {
     return null;
@@ -10831,6 +11703,7 @@ export function getDraftPageEntry(pageUrl) {
   return findPageMarkingEntry(state.config, pageUrl);
 }
 
+// @ts-ignore
 export function getSavedPageEntry(pageUrl) {
   if (!pageUrl || state.savedPageUrl !== pageUrl) {
     return null;
@@ -10890,6 +11763,7 @@ export async function refreshFromTabState(options = {}) {
       // silent-highlighting activation gate (and to manual marking enable), so a
       // marking-restore reload (e.g. render-mode inspection) does not re-trigger
       // the scroll-reveal routine.
+// @ts-ignore
       scheduleRender();
       startObservers();
       startUrlWatcher();
@@ -10899,18 +11773,21 @@ export async function refreshFromTabState(options = {}) {
   disable();
 }
 
+// @ts-ignore
 export function syncPageMarkings(config, pageUrl, immutableExcluded, options) {
   return withElementComputationCache(() =>
     syncPageMarkingsInner(config, pageUrl, immutableExcluded, options)
   );
 }
 
+// @ts-ignore
 export async function syncPageMarkingsAsync(config, pageUrl, immutableExcluded, options) {
   return withElementComputationCacheAsync(() =>
     syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, options)
   );
 }
 
+// @ts-ignore
 function appendSyncedCandidateItem(el, context) {
   const {
     seen,
@@ -10988,14 +11865,18 @@ function appendSyncedCandidateItem(el, context) {
   }
 }
 
+// @ts-ignore
 function appendSyncedCandidateItems(candidates, context) {
   for (const el of candidates) {
     appendSyncedCandidateItem(el, context);
   }
 }
 
+// @ts-ignore
 async function appendSyncedCandidateItemsAsync(candidates, context, options = {}) {
+// @ts-ignore
   const shouldAbort = typeof options.shouldAbort === "function"
+// @ts-ignore
     ? options.shouldAbort
     : null;
   let processedCount = 0;
@@ -11013,6 +11894,7 @@ async function appendSyncedCandidateItemsAsync(candidates, context, options = {}
   return true;
 }
 
+// @ts-ignore
 function collectReconcilePreviousItemState(previousItems, getCachedElementFromXPath) {
   const excludedLookup = new Map();
   const explicitXpathSet = new Set();
@@ -11056,6 +11938,7 @@ function collectReconcilePreviousItemState(previousItems, getCachedElementFromXP
   };
 }
 
+// @ts-ignore
 function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
   const syncStartedAt = nowMs();
   if (!config || !pageUrl) {
@@ -11075,6 +11958,7 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
   const entrySetupStartedAt = nowMs();
   const xpathElementCache = new Map();
   let xpathLookupCount = 0;
+// @ts-ignore
   const getCachedElementFromXPath = (value) => {
     if (typeof value !== "string" || !value) {
       return null;
@@ -11110,6 +11994,7 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
     }
   }
   const rawIncludeXpaths = Array.isArray(entry.includeXpaths)
+// @ts-ignore
     ? entry.includeXpaths.filter((xpath) => typeof xpath === "string" && xpath)
     : [];
   const filteredIncludeXpaths = [];
@@ -11147,6 +12032,7 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
       current = current.parentElement;
     }
   }
+// @ts-ignore
   const isExplicitlyMarkedXpath = (xpath) => {
     if (!xpath) {
       return false;
@@ -11156,6 +12042,7 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
     }
     return explicitXpathSet.has(xpath);
   };
+// @ts-ignore
   const explicitIncludeElements = [];
   for (const xpath of explicitIncludeSet) {
     const el = getCachedElementFromXPath(xpath);
@@ -11163,6 +12050,7 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
       explicitIncludeElements.push(el);
     }
   }
+// @ts-ignore
   const isWithinExplicitIncludeXpath = (xpath) => {
     if (!xpath || explicitIncludeSet.size === 0) {
       return false;
@@ -11174,10 +12062,12 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
     }
     return false;
   };
+// @ts-ignore
   const isWithinExplicitInclude = (el) => {
     if (!el || explicitIncludeElements.length === 0) {
       return false;
     }
+// @ts-ignore
     for (const includeEl of explicitIncludeElements) {
       if (includeEl && includeEl !== el && includeEl.contains(el)) {
         return true;
@@ -11185,20 +12075,24 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
     }
     return false;
   };
+// @ts-ignore
   logTogglePerf("sync.entry-setup", entrySetupStartedAt, {
     previousItemCount: previousItems.length,
     xpathLookupCount
   });
+// @ts-ignore
   const items = [];
   const seen = new Set();
   const generatedExcludedSet = new Set();
   const candidateCollectionStartedAt = nowMs();
   const scannedCandidates = scanReconcileDocumentCandidates(immutableExcluded, excludedParents);
   const candidates = scannedCandidates.toggleableCandidates;
+// @ts-ignore
   logTogglePerf("sync.candidate-collection", candidateCollectionStartedAt, {
     candidateCount: candidates.length,
     excludedParentCount: excludedParents.size
   });
+// @ts-ignore
   logTogglePerf("sync.candidate-evaluation", candidateCollectionStartedAt, {
     visitedCount: scannedCandidates.stats.visitedCount,
     autoDefaultCount: scannedCandidates.stats.autoDefaultCount,
@@ -11206,6 +12100,7 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
     selfMarkableCount: scannedCandidates.stats.selfMarkableCount,
     selfMarkableElapsedMs: Number(scannedCandidates.stats.selfMarkableElapsedMs.toFixed(1))
   });
+// @ts-ignore
   logTogglePerf("sync.candidate-self-markable", candidateCollectionStartedAt, {
     textualContainerElapsedMs: Number(scannedCandidates.stats.textualContainerElapsedMs.toFixed(1)),
     paintReachableElapsedMs: Number(scannedCandidates.stats.paintReachableElapsedMs.toFixed(1)),
@@ -11224,17 +12119,20 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
     excludedLookup,
     explicitXpathSet,
     getCachedElementFromXPath,
+// @ts-ignore
     items,
     previousSilentWhitespaceExcludedSet,
     isExplicitlyMarkedXpath,
     isWithinExplicitInclude,
     isWithinExplicitIncludeXpath
   });
+// @ts-ignore
   logTogglePerf("sync.candidate-merge", candidateMergeStartedAt, {
     candidateCount: candidates.length,
     itemCount: items.length
   });
   const currentExcludedXpaths = new Set(
+// @ts-ignore
     items
       .filter((item) => item && item.xpath && item.excluded)
       .map((item) => item.xpath)
@@ -11246,6 +12144,7 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
     includeXpaths: explicitIncludeSet,
     prefetchedCandidates: scannedCandidates.silentWhitespaceCandidates
   });
+// @ts-ignore
   logTogglePerf("sync.silent-whitespace-collection", silentWhitespaceCollectionStartedAt, {
     candidateCount: silentWhitespaceCandidates.length,
     excludedCount: currentExcludedXpaths.size
@@ -11264,6 +12163,7 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
     currentExcludedXpaths.add(xpath);
     silentWhitespaceExcludedXpaths.push(xpath);
   }
+// @ts-ignore
   logTogglePerf("sync.silent-whitespace-merge", silentWhitespaceMergeStartedAt, {
     candidateCount: silentWhitespaceCandidates.length,
     addedCount: silentWhitespaceExcludedXpaths.length
@@ -11357,10 +12257,12 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
   if (shouldPersist) {
     setPageMarkingEntry(config.pageMarkings, pageUrl, entry);
   }
+// @ts-ignore
   logTogglePerf("sync.total", syncStartedAt, { pageUrl });
   return { changed, entry, persisted: shouldPersist, hadEntry };
 }
 
+// @ts-ignore
 async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, options) {
   const syncStartedAt = nowMs();
   const shouldAbort = options && typeof options.shouldAbort === "function"
@@ -11385,6 +12287,7 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
   const entrySetupStartedAt = nowMs();
   const xpathElementCache = new Map();
   let xpathLookupCount = 0;
+// @ts-ignore
   const getCachedElementFromXPath = (value) => {
     if (typeof value !== "string" || !value) {
       return null;
@@ -11420,6 +12323,7 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
     }
   }
   const rawIncludeXpaths = Array.isArray(entry.includeXpaths)
+// @ts-ignore
     ? entry.includeXpaths.filter((xpath) => typeof xpath === "string" && xpath)
     : [];
   const filteredIncludeXpaths = [];
@@ -11456,6 +12360,7 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
       current = current.parentElement;
     }
   }
+// @ts-ignore
   const isExplicitlyMarkedXpath = (xpath) => {
     if (!xpath) {
       return false;
@@ -11465,6 +12370,7 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
     }
     return explicitXpathSet.has(xpath);
   };
+// @ts-ignore
   const explicitIncludeElements = [];
   for (const xpath of explicitIncludeSet) {
     const el = getCachedElementFromXPath(xpath);
@@ -11472,6 +12378,7 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
       explicitIncludeElements.push(el);
     }
   }
+// @ts-ignore
   const isWithinExplicitIncludeXpath = (xpath) => {
     if (!xpath || explicitIncludeSet.size === 0) {
       return false;
@@ -11483,10 +12390,12 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
     }
     return false;
   };
+// @ts-ignore
   const isWithinExplicitInclude = (el) => {
     if (!el || explicitIncludeElements.length === 0) {
       return false;
     }
+// @ts-ignore
     for (const includeEl of explicitIncludeElements) {
       if (includeEl && includeEl !== el && includeEl.contains(el)) {
         return true;
@@ -11494,11 +12403,13 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
     }
     return false;
   };
+// @ts-ignore
   logTogglePerf("sync.entry-setup", entrySetupStartedAt, {
     previousItemCount: previousItems.length,
     xpathLookupCount,
     async: true
   });
+// @ts-ignore
   const items = [];
   const seen = new Set();
   const generatedExcludedSet = new Set();
@@ -11507,11 +12418,13 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
     shouldAbort
   });
   const candidates = scannedCandidates.toggleableCandidates;
+// @ts-ignore
   logTogglePerf("sync.candidate-collection", candidateCollectionStartedAt, {
     candidateCount: candidates.length,
     excludedParentCount: excludedParents.size,
     async: true
   });
+// @ts-ignore
   logTogglePerf("sync.candidate-evaluation", candidateCollectionStartedAt, {
     visitedCount: scannedCandidates.stats.visitedCount,
     autoDefaultCount: scannedCandidates.stats.autoDefaultCount,
@@ -11520,6 +12433,7 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
     selfMarkableElapsedMs: Number(scannedCandidates.stats.selfMarkableElapsedMs.toFixed(1)),
     async: true
   });
+// @ts-ignore
   logTogglePerf("sync.candidate-self-markable", candidateCollectionStartedAt, {
     textualContainerElapsedMs: Number(scannedCandidates.stats.textualContainerElapsedMs.toFixed(1)),
     paintReachableElapsedMs: Number(scannedCandidates.stats.paintReachableElapsedMs.toFixed(1)),
@@ -11542,6 +12456,7 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
     excludedLookup,
     explicitXpathSet,
     getCachedElementFromXPath,
+// @ts-ignore
     items,
     previousSilentWhitespaceExcludedSet,
     isExplicitlyMarkedXpath,
@@ -11550,6 +12465,7 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
   }, {
     shouldAbort
   });
+// @ts-ignore
   logTogglePerf("sync.candidate-merge", candidateMergeStartedAt, {
     candidateCount: candidates.length,
     itemCount: items.length,
@@ -11559,6 +12475,7 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
     return abortResult();
   }
   const currentExcludedXpaths = new Set(
+// @ts-ignore
     items
       .filter((item) => item && item.xpath && item.excluded)
       .map((item) => item.xpath)
@@ -11570,6 +12487,7 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
     includeXpaths: explicitIncludeSet,
     prefetchedCandidates: scannedCandidates.silentWhitespaceCandidates
   });
+// @ts-ignore
   logTogglePerf("sync.silent-whitespace-collection", silentWhitespaceCollectionStartedAt, {
     candidateCount: silentWhitespaceCandidates.length,
     excludedCount: currentExcludedXpaths.size,
@@ -11611,6 +12529,7 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
       return abortResult();
     }
   }
+// @ts-ignore
   logTogglePerf("sync.silent-whitespace-merge", silentWhitespaceMergeStartedAt, {
     candidateCount: silentWhitespaceCandidates.length,
     addedCount: silentWhitespaceExcludedXpaths.length,
@@ -11768,6 +12687,7 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
   if (shouldPersist) {
     setPageMarkingEntry(config.pageMarkings, pageUrl, entry);
   }
+// @ts-ignore
   logTogglePerf("sync.total", syncStartedAt, { pageUrl, async: true });
   return { changed, entry, persisted: shouldPersist, hadEntry, aborted: false };
 }

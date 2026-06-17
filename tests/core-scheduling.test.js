@@ -535,10 +535,10 @@ test("URL watcher discards temporary draft cache for clean or cross-base URL cha
 test("disable teardown persistence captures state before clearing it", () => {
   const source = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
   const disableBody = source.match(
-    /export function disable\(options = \{\}\) \{([\s\S]*?)\n\}\n\nexport async function enableForBaseUrl/
+    /export function disable\(options = \{\}\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-ignore[^\n]*\n)?(?:\n|\r\n)*export async function enableForBaseUrl/
   )[1];
   const flushBody = source.match(
-    /function flushPendingTeardownPersistence\(baseUrl, configValue, pageUrl\) \{([\s\S]*?)\n\}\n\nfunction setAltPassThrough/
+    /function flushPendingTeardownPersistence\(baseUrl, configValue, pageUrl\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-ignore[^\n]*\n)?(?:\n|\r\n)*function setAltPassThrough/
   )[1];
 
   assert.match(disableBody, /const teardownBaseUrl = state\.baseUrl;/);
@@ -577,7 +577,7 @@ test("explicit toggle full rebuild is deferred and coalesced for responsiveness"
   const rulesSource = readFileSync(new URL("../content/marking-rules.ts", import.meta.url), "utf8");
 
   const fullRenderBody = coreSource.match(
-    /function scheduleExplicitToggleFullRender\(options = \{\}\) \{([\s\S]*?)\n\}\n\nexport function scheduleExplicitOverlayRefresh/
+    /function scheduleExplicitToggleFullRender\(options = \{\}\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-ignore[^\n]*\n)?(?:\n|\r\n)*export function scheduleExplicitOverlayRefresh/
   )[1];
   assert.match(fullRenderBody, /if \(immediate\) \{[\s\S]*?scheduleRender\(getExplicitMarkingFullRenderOptions\(\)\)/);
   assert.match(fullRenderBody, /state\.explicitFullRenderTimer = extensionSetTimeout\([\s\S]*?EXPLICIT_TOGGLE_DEFERRED_FULL_RENDER_DELAY_MS/);
@@ -639,7 +639,7 @@ test("user-driven explicit toggles draw the marking overlay synchronously (issue
 test("marking UI scheduling uses extension-owned timers during page motion pause", () => {
   const coreSource = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
   const scheduleRenderBody = coreSource.match(
-    /export function scheduleRender\(options\) \{([\s\S]*?)\n\}\n\nexport function mergeDraftEntry/
+    /export function scheduleRender\(options\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-ignore[^\n]*\n)?(?:\n|\r\n)*export function mergeDraftEntry/
   )[1];
 
   assert.match(coreSource, /capturedExtensionTimers/);
@@ -676,7 +676,7 @@ test("page inspection completion waits for a real render before lifting the curt
   // Force-flushes after the timeout so the curtain cannot outlive the enable response.
   assert.match(finishBody, /Date\.now\(\) - startedAt >= PAGE_INSPECTION_RENDER_WAIT_TIMEOUT_MS/);
   assert.match(finishBody, /flushPendingInspectionRender\(\);/);
-  assert.match(finishBody, /finishPageInspectionUi\(\);\s*resolve\(\);/);
+  assert.match(finishBody, /finishPageInspectionUi\(\);(?:\n|\r\n)+(?:\/\/ @ts-ignore[^\n]*\n)?(?:\n|\r\n)*\s*resolve\(\);/);
 });
 
 test("marking passes share broad per-pass element caches", () => {
@@ -724,7 +724,7 @@ test("marking mode uses Space-held page interaction without changing Alt include
 test("explicit toggles yield after the immediate acknowledgement before running the heavy mutation", () => {
   const source = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
   const handleToggleEventBody = source.match(
-    /function handleToggleEvent\(event\) \{([\s\S]*?)\n\}\n\nfunction handleClick/
+    /function handleToggleEvent\(event\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-ignore[^\n]*\n)?(?:\n|\r\n)*function handleClick/
   )[1];
 
   assert.match(source, /toggleQueuedActionKey: "",[\s\S]*?toggleMutationQueue: \[\],[\s\S]*?toggleMutationHandle: 0/);
