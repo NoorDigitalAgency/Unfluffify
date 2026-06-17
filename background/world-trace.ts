@@ -1,29 +1,49 @@
-// @ts-nocheck
 export const WORLD_TRACE_EVENT_LIMIT = 160;
 
-function defaultNormalizeTabId(value) {
+type WorldTraceEvent = {
+  at: number;
+  channel: string;
+  event: string;
+  payload: Record<string, unknown> | null;
+};
+
+type WorldTraceState = {
+  events: WorldTraceEvent[];
+};
+
+type WorldTraceOptions = {
+  traceStateByTabId?: Map<number, WorldTraceState>;
+  normalizeTabId?: (value: unknown) => number | null;
+  isFeatureEnabled?: (flag: string) => boolean;
+  isDebugFlagEnabled?: (flag: string) => boolean;
+  eventLimit?: unknown;
+};
+
+function defaultNormalizeTabId(value: unknown): number | null {
   const numeric = Number(value);
   return Number.isFinite(numeric) && numeric > 0 ? Math.trunc(numeric) : null;
 }
 
 export function createWorldTrace(options = {}) {
-  const traceStateByTabId = options.traceStateByTabId instanceof Map
-    ? options.traceStateByTabId
-    : new Map();
-  const normalizeTabId = typeof options.normalizeTabId === "function"
-    ? options.normalizeTabId
+  const typedOptions = options as WorldTraceOptions;
+  const traceStateByTabId = typedOptions.traceStateByTabId instanceof Map
+    ? typedOptions.traceStateByTabId
+    : new Map<number, WorldTraceState>();
+  const normalizeTabId = typeof typedOptions.normalizeTabId === "function"
+    ? typedOptions.normalizeTabId
     : defaultNormalizeTabId;
-  const isFeatureEnabled = typeof options.isFeatureEnabled === "function"
-    ? options.isFeatureEnabled
+  const isFeatureEnabled = typeof typedOptions.isFeatureEnabled === "function"
+    ? typedOptions.isFeatureEnabled
     : () => false;
-  const isDebugFlagEnabled = typeof options.isDebugFlagEnabled === "function"
-    ? options.isDebugFlagEnabled
+  const isDebugFlagEnabled = typeof typedOptions.isDebugFlagEnabled === "function"
+    ? typedOptions.isDebugFlagEnabled
     : () => false;
-  const eventLimit = Number.isFinite(options.eventLimit) && options.eventLimit > 0
-    ? Math.trunc(options.eventLimit)
+  const eventLimitCandidate = typedOptions.eventLimit;
+  const eventLimit = Number.isFinite(eventLimitCandidate) && (eventLimitCandidate as number) > 0
+    ? Math.trunc(eventLimitCandidate as number)
     : WORLD_TRACE_EVENT_LIMIT;
 
-  function ensureTraceState(tabId) {
+  function ensureTraceState(tabId: unknown): WorldTraceState {
     const normalizedTabId = normalizeTabId(tabId);
     if (!normalizedTabId) {
       return { events: [] };
@@ -33,20 +53,20 @@ export function createWorldTrace(options = {}) {
         events: []
       });
     }
-    return traceStateByTabId.get(normalizedTabId);
+    return traceStateByTabId.get(normalizedTabId) as WorldTraceState;
   }
 
-  function isWorldTraceEnabled() {
+  function isWorldTraceEnabled(): boolean {
     return isFeatureEnabled("traceDiagnostics") && isDebugFlagEnabled("worldTraceEnabled");
   }
 
-  function appendWorldTraceEvent(tabId, channel, event, payload = null) {
+  function appendWorldTraceEvent(tabId: unknown, channel: unknown, event: unknown, payload: any = null): void {
     const normalizedTabId = normalizeTabId(tabId);
     if (!normalizedTabId || !isWorldTraceEnabled()) {
       return;
     }
     const traceState = ensureTraceState(normalizedTabId);
-    const traceEvent = {
+    const traceEvent: WorldTraceEvent = {
       at: Date.now(),
       channel: typeof channel === "string" ? channel : "broker",
       event: typeof event === "string" ? event : "event",

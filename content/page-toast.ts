@@ -1,6 +1,19 @@
-// @ts-nocheck
-export function createPageToast(deps) {
-  let toastTimer = 0;
+type PageToastWindow = {
+  clearTimeout: (id: ReturnType<typeof setTimeout>) => void;
+  setTimeout: (fn: () => void, ms?: number) => ReturnType<typeof setTimeout>;
+};
+
+type PageToastDeps = {
+  getDocument?: () => Document | null;
+  getWindow?: () => PageToastWindow | null;
+  PAGE_TOAST_STYLE_ID: string;
+  PAGE_TOAST_ID: string;
+  EXTENSION_UI_FONT_STACK: string;
+  TOAST_VISIBLE_MS: unknown;
+};
+
+export function createPageToast(deps: PageToastDeps) {
+  let toastTimer: ReturnType<typeof setTimeout> | 0 = 0;
 
   const getDocument = () => {
     if (typeof deps.getDocument === "function") {
@@ -9,7 +22,7 @@ export function createPageToast(deps) {
     return globalThis.document || null;
   };
 
-  const getWindow = () => {
+  const getWindow = (): PageToastWindow | null => {
     if (typeof deps.getWindow === "function") {
       return deps.getWindow();
     }
@@ -55,7 +68,7 @@ export function createPageToast(deps) {
     (documentRef.head || documentRef.documentElement).appendChild(style);
   }
 
-  function show(message) {
+  function show(message: string): void {
     const documentRef = getDocument();
     const windowRef = getWindow();
     if (!documentRef || !windowRef) {
@@ -74,9 +87,11 @@ export function createPageToast(deps) {
 
     toast.textContent = message;
     toast.classList.add("uf-toast-show");
-    windowRef.clearTimeout(toastTimer);
+    if (toastTimer) {
+      windowRef.clearTimeout(toastTimer as ReturnType<typeof setTimeout>);
+    }
     const toastVisibleMs = Number.isFinite(deps.TOAST_VISIBLE_MS)
-      ? deps.TOAST_VISIBLE_MS
+      ? (deps.TOAST_VISIBLE_MS as number)
       : 3000;
     toastTimer = windowRef.setTimeout(() => {
       if (toast) {

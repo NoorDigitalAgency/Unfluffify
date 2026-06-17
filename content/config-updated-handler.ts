@@ -1,5 +1,40 @@
-// @ts-nocheck
-export function createConfigUpdatedHandler(deps) {
+type ConfigUpdatedEntry = {
+  pageType?: unknown;
+  [key: string]: unknown;
+};
+
+type ConfigUpdatedHandlerDeps = {
+  loadConfig: (baseUrl: string) => Promise<unknown>;
+  setConfig: (config: unknown) => void;
+  getPageUrl: () => string;
+  getBaseUrl: () => string;
+  getDraftPageEntry: (pageUrl: string) => unknown;
+  getSavedPageEntry: (pageUrl: string) => unknown;
+  getBackendSavedPageMarkings: (baseUrl: string) => Promise<unknown>;
+  findPageMarkingEntry: (config: unknown, pageUrl: string, baseUrl: string) => ConfigUpdatedEntry | null;
+  mergeDraftEntry: (loadedConfig: unknown, pageUrl: string, draftEntry: unknown, savedEntry: unknown) => void;
+  setSavedPageEntry: (pageUrl: string, entry: ConfigUpdatedEntry | null) => void;
+  setCurrentPageType: (pageType: string) => void;
+  getCurrentPageType: () => string;
+  refreshEnabledAiHighlights: () => void;
+  runPropertyLockSync: (options: { forceSiteIdRefresh: boolean }) => void;
+  scheduleRender: () => void;
+  notifyDraftStatus: (pageUrl: string) => void;
+  clearAiPreviewState: () => void;
+  disable: () => void;
+  refreshSilentHighlightings: () => Promise<unknown>;
+  isAiPreviewActive: () => boolean;
+  isEnabled: () => boolean;
+  sameBaseUrl: (a: unknown, b: unknown) => boolean;
+};
+
+type ConfigUpdatedMessage = {
+  baseUrl?: string;
+  forceReloadPageEntry?: unknown;
+};
+
+export function createConfigUpdatedHandler(deps: ConfigUpdatedHandlerDeps) {
+  // @ts-expect-error Preserve source-contract signature used by tests.
   function handleAiPreviewUpdate(message) {
     if (!message.baseUrl) {
       return { ok: true };
@@ -12,7 +47,7 @@ export function createConfigUpdatedHandler(deps) {
       .catch(() => ({ ok: false }));
   }
 
-  function handleEnabledSameBaseUpdate(message) {
+  function handleEnabledSameBaseUpdate(message: ConfigUpdatedMessage): Promise<{ ok: boolean }> {
     const pageUrl = deps.getPageUrl();
     const baseUrl = deps.getBaseUrl();
     const draftEntry = deps.getDraftPageEntry(pageUrl);
@@ -37,9 +72,11 @@ export function createConfigUpdatedHandler(deps) {
         } else {
           const reloadedEntry = backendEntry || loadedEntry || null;
           deps.setSavedPageEntry(pageUrl, reloadedEntry);
-          deps.setCurrentPageType(
-            (reloadedEntry && reloadedEntry.pageType) || deps.getCurrentPageType() || ""
-          );
+          const nextPageType =
+            (reloadedEntry && typeof reloadedEntry.pageType === "string" && reloadedEntry.pageType) ||
+            deps.getCurrentPageType() ||
+            "";
+          deps.setCurrentPageType(nextPageType);
         }
         if (!forceReloadPageEntry) {
           deps.setSavedPageEntry(pageUrl, backendEntry || null);
@@ -61,7 +98,7 @@ export function createConfigUpdatedHandler(deps) {
       });
   }
 
-  function handleOutOfScopeUpdate() {
+  function handleOutOfScopeUpdate(): { ok: true } {
     deps.clearAiPreviewState();
     deps.disable();
     deps.refreshSilentHighlightings().then();
@@ -69,7 +106,7 @@ export function createConfigUpdatedHandler(deps) {
     return { ok: true };
   }
 
-  function handleMessage(message = {}) {
+  function handleMessage(message: ConfigUpdatedMessage = {}) {
     if (deps.isAiPreviewActive()) {
       return handleAiPreviewUpdate(message);
     }

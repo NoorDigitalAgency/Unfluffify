@@ -1,4 +1,3 @@
-// @ts-nocheck
 import {
   MESSAGE_ERROR_CODES,
   createFailureEnvelope,
@@ -7,24 +6,39 @@ import {
   isRequestEnvelope
 } from "../common/message-protocol.js";
 
-const contentCommandHandlers = new Map();
+type ContentCommandContext = {
+  message: unknown;
+  sender: chrome.runtime.MessageSender | undefined;
+  tabId: number;
+  frameId: number;
+  pageUrl: string;
+  mode: string;
+  requestId: string;
+  replyOk: (result?: Record<string, unknown>) => unknown;
+  replyFail: (code: string, error: string, details?: Record<string, unknown>) => unknown;
+};
 
-function getErrorMessage(error) {
+type ContentCommandHandler = (context: ContentCommandContext, payload: unknown) => unknown;
+
+const contentCommandHandlers = new Map<string, ContentCommandHandler>();
+
+function getErrorMessage(error: unknown): string {
   if (!error) {
     return "Content command failed";
   }
   if (typeof error === "string") {
     return error;
   }
-  if (typeof error.message === "string" && error.message) {
+  if (error instanceof Error && error.message) {
     return error.message;
   }
   return "Content command failed";
 }
 
-function normalizeTabId(message, sender) {
+function normalizeTabId(message: unknown, sender: chrome.runtime.MessageSender | undefined): number {
+  const messageRecord = (message || {}) as Record<string, unknown>;
   const candidates = [
-    message && message.tabId,
+    messageRecord.tabId,
     sender && sender.tab && sender.tab.id
   ];
   for (const candidate of candidates) {
@@ -39,17 +53,19 @@ function normalizeTabId(message, sender) {
   return 0;
 }
 
-function normalizeFrameId(message, sender) {
-  if (Number.isFinite(message && message.frameId)) {
-    return Math.trunc(message.frameId);
+function normalizeFrameId(message: unknown, sender: chrome.runtime.MessageSender | undefined): number {
+  const messageRecord = (message || {}) as Record<string, unknown>;
+  if (Number.isFinite(messageRecord.frameId)) {
+    return Math.trunc(messageRecord.frameId as number);
   }
-  if (Number.isFinite(sender && sender.frameId)) {
-    return Math.trunc(sender.frameId);
+  const senderFrameId = sender?.frameId;
+  if (Number.isFinite(senderFrameId)) {
+    return Math.trunc(senderFrameId as number);
   }
   return 0;
 }
 
-export function registerContentCommand(type, handler) {
+export function registerContentCommand(type: string, handler: ContentCommandHandler): void {
   if (typeof type !== "string" || !type) {
     throw new TypeError("registerContentCommand requires a non-empty command type");
   }
@@ -59,21 +75,26 @@ export function registerContentCommand(type, handler) {
   contentCommandHandlers.set(type, handler);
 }
 
-export function dispatchContentCommand(message, sender, options = {}) {
+export function dispatchContentCommand(
+  message: unknown,
+  sender: chrome.runtime.MessageSender | undefined,
+  options: { pageUrl?: () => string; mode?: () => string } = {}
+): Promise<unknown> {
   if (!isRequestEnvelope(message)) {
     return Promise.resolve(
       createFailureEnvelope(message, MESSAGE_ERROR_CODES.INVALID_MESSAGE, "Invalid command envelope")
     );
   }
 
-  const context = {
+  const messageRecord = message as Record<string, unknown>;
+  const context: ContentCommandContext = {
     message,
     sender,
     tabId: normalizeTabId(message, sender),
     frameId: normalizeFrameId(message, sender),
     pageUrl: typeof options.pageUrl === "function" ? options.pageUrl() : "",
     mode: typeof options.mode === "function" ? options.mode() : "",
-    requestId: typeof message.id === "string" ? message.id : "",
+    requestId: typeof messageRecord.id === "string" ? messageRecord.id : "",
     replyOk(result = {}) {
       return createSuccessEnvelope(message, result);
     },
@@ -87,30 +108,32 @@ export function dispatchContentCommand(message, sender, options = {}) {
     }
   };
 
-  const handler = contentCommandHandlers.get(message.type);
+  const commandType = typeof messageRecord.type === "string" ? messageRecord.type : "";
+  const handler = contentCommandHandlers.get(commandType);
   if (!handler) {
     return Promise.resolve(
       context.replyFail(
         MESSAGE_ERROR_CODES.HANDLER_NOT_FOUND,
-        `No content handler registered for ${message.type}`
+        `No content handler registered for ${commandType}`
       )
     );
   }
 
   return Promise.resolve()
-    .then(() => handler(context, message.payload || {}))
+    .then(() => handler(context, messageRecord.payload || {}))
     .then((result) => {
       if (isReplyEnvelope(result)) {
         return result;
       }
-      return context.replyOk(result && typeof result === "object" ? result : {});
+      return context.replyOk(result && typeof result === "object" ? (result as Record<string, unknown>) : {});
     })
     .catch((error) => {
-      const errorCode = typeof error.code === "string" && error.code
-        ? error.code
+      const errorCodeCandidate = (error as { code?: unknown } | null | undefined)?.code;
+      const errorCode = typeof errorCodeCandidate === "string" && errorCodeCandidate
+        ? errorCodeCandidate
         : MESSAGE_ERROR_CODES.HANDLER_FAILED;
       return context.replyFail(errorCode, getErrorMessage(error), {
-        type: message.type
+        type: commandType
       });
     });
 }

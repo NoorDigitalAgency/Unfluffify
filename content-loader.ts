@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * @fileoverview Content loader script for the Unfluffify extension.
  * 
@@ -12,9 +11,11 @@
  * in the page's isolated world to access page content properly.
  */
 
+const loaderState = globalThis as unknown as Record<string, unknown>;
+
 // Avoid re-declaring globals if content-loader is injected multiple times.
-if (!globalThis.__unfluffifyContentLoaderInitialized) {
-  globalThis.__unfluffifyContentLoaderInitialized = true;
+if (!loaderState.__unfluffifyContentLoaderInitialized) {
+  loaderState.__unfluffifyContentLoaderInitialized = true;
 
   const CONTENT_MAIN_FLAG = "__unfluffifyContentMainLoaded";
   const CONTENT_MAIN_LOADING = "__unfluffifyContentMainLoading";
@@ -26,11 +27,11 @@ if (!globalThis.__unfluffifyContentLoaderInitialized) {
    * @returns {Promise<{ok: boolean, alreadyLoaded?: boolean}>}
    */
   async function ensureContentMainLoaded() {
-    if (globalThis[CONTENT_MAIN_FLAG]) {
+    if (loaderState[CONTENT_MAIN_FLAG]) {
       return { ok: true, alreadyLoaded: true };
     }
-    if (globalThis[CONTENT_MAIN_LOADING]) {
-      await globalThis[CONTENT_MAIN_LOADING];
+    if (loaderState[CONTENT_MAIN_LOADING]) {
+      await (loaderState[CONTENT_MAIN_LOADING] as Promise<void>);
       return { ok: true, alreadyLoaded: true };
     }
     const loadPromise = (async () => {
@@ -39,13 +40,13 @@ if (!globalThis.__unfluffifyContentLoaderInitialized) {
       if (contentMain && typeof contentMain.main === "function") {
         contentMain.main();
       }
-      globalThis[CONTENT_MAIN_FLAG] = true;
+      loaderState[CONTENT_MAIN_FLAG] = true;
     })();
-    globalThis[CONTENT_MAIN_LOADING] = loadPromise;
+    loaderState[CONTENT_MAIN_LOADING] = loadPromise;
     try {
       await loadPromise;
     } finally {
-      globalThis[CONTENT_MAIN_LOADING] = null;
+      loaderState[CONTENT_MAIN_LOADING] = null;
     }
     return { ok: true };
   }

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import {
   normalizeSelectorList,
   normalizeAiSelectorSet,
@@ -7,11 +6,11 @@ import {
 
 export { normalizeSelectorList, normalizeAiSelectorSet, combineAiSelectorSet };
 
-export function isWithinAncestorSet(node, nodes) {
+export function isWithinAncestorSet(node: Element | null | undefined, nodes: Set<Element> | null | undefined): boolean {
   if (!node || !nodes || nodes.size === 0) {
     return false;
   }
-  let current = node;
+  let current: Element | null = node;
   while (current && current.nodeType === 1) {
     if (nodes.has(current)) {
       return true;
@@ -21,10 +20,10 @@ export function isWithinAncestorSet(node, nodes) {
   return false;
 }
 
-export function buildInclusionContextSet(includedNodes) {
-  const context = new Set();
+export function buildInclusionContextSet(includedNodes: Iterable<Element> | null | undefined): Set<Element> {
+  const context = new Set<Element>();
   for (const node of includedNodes || []) {
-    let current = node;
+    let current: Element | null = node;
     while (current && current.nodeType === 1) {
       context.add(current);
       current = current.parentElement;
@@ -33,15 +32,15 @@ export function buildInclusionContextSet(includedNodes) {
   return context;
 }
 
-export function getNormalizedTextContent(node) {
+export function getNormalizedTextContent(node: Element | null | undefined): string {
   if (!node || node.nodeType !== 1) {
     return "";
   }
   if (!node.querySelector("script,style,noscript,template")) {
     return (node.textContent || "").replace(/\s+/g, " ").trim();
   }
-  const chunks = [];
-  const stack = [node];
+  const chunks: string[] = [];
+  const stack: Node[] = [node];
   while (stack.length) {
     const current = stack.pop();
     if (!current) {
@@ -57,18 +56,19 @@ export function getNormalizedTextContent(node) {
     if (current.nodeType !== 1) {
       continue;
     }
-    const tag = current.tagName;
+    const element = current as Element;
+    const tag = element.tagName;
     if (tag === "SCRIPT" || tag === "STYLE" || tag === "NOSCRIPT" || tag === "TEMPLATE") {
       continue;
     }
-    for (let i = current.childNodes.length - 1; i >= 0; i -= 1) {
-      stack.push(current.childNodes[i]);
+    for (let i = element.childNodes.length - 1; i >= 0; i -= 1) {
+      stack.push(element.childNodes[i]);
     }
   }
   return chunks.join(" ").replace(/\s+/g, " ").trim();
 }
 
-export function canUseCollapsedTextFallback(node) {
+export function canUseCollapsedTextFallback(node: Element | null | undefined): boolean {
   if (!node || node.nodeType !== 1) {
     return false;
   }

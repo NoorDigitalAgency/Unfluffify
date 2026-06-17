@@ -1,18 +1,17 @@
-// @ts-nocheck
 export const LEDGER_SENSITIVE_KEY_PATTERN = /(token|password|secret|authorization|cookie|jwt|api[_-]?key|bearer|credential)/i;
 export const LEDGER_BODY_KEY_PATTERN = /(html|body|payload|content|config|raw|rendered)/i;
 export const LEDGER_MAX_STRING_LENGTH = 160;
 export const LEDGER_MAX_ARRAY_PREVIEW = 5;
 export const LEDGER_MAX_OBJECT_KEYS = 20;
 
-function looksLikeJwtToken(value) {
+function looksLikeJwtToken(value: unknown): boolean {
   if (typeof value !== "string" || !value) {
     return false;
   }
   return /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(value);
 }
 
-function summarizeLargeString(value) {
+function summarizeLargeString(value: unknown): string {
   const normalized = typeof value === "string" ? value : "";
   if (normalized.length <= LEDGER_MAX_STRING_LENGTH) {
     return normalized;
@@ -20,7 +19,7 @@ function summarizeLargeString(value) {
   return `[truncated:${normalized.length}] ${normalized.slice(0, LEDGER_MAX_STRING_LENGTH)}`;
 }
 
-function redactCommandPayloadValueForLedger(key, value, depth = 0) {
+function redactCommandPayloadValueForLedger(key: unknown, value: unknown, depth = 0): unknown {
   const normalizedKey = typeof key === "string" ? key : "";
   if (LEDGER_SENSITIVE_KEY_PATTERN.test(normalizedKey)) {
     return "[redacted]";
@@ -58,16 +57,18 @@ function redactCommandPayloadValueForLedger(key, value, depth = 0) {
   return redactCommandPayloadForLedger(value, depth + 1);
 }
 
-export function redactCommandPayloadForLedger(payload, depth = 0) {
+// export function redactCommandPayloadForLedger(payload, depth = 0) {
+export function redactCommandPayloadForLedger(payload: unknown, depth = 0): Record<string, unknown> | undefined {
   if (!payload || typeof payload !== "object") {
     return undefined;
   }
-  const entries = Object.entries(payload).slice(0, LEDGER_MAX_OBJECT_KEYS);
-  const redacted = {};
+  const payloadRecord = payload as Record<string, unknown>;
+  const entries = Object.entries(payloadRecord).slice(0, LEDGER_MAX_OBJECT_KEYS);
+  const redacted: Record<string, unknown> = {};
   for (const [key, value] of entries) {
     redacted[key] = redactCommandPayloadValueForLedger(key, value, depth);
   }
-  const totalKeys = Object.keys(payload).length;
+  const totalKeys = Object.keys(payloadRecord).length;
   if (totalKeys > entries.length) {
     redacted.__truncatedKeys = totalKeys - entries.length;
   }

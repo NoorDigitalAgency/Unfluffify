@@ -1,5 +1,31 @@
-// @ts-nocheck
-export function updatePropertyLockBannerMode(deps) {
+type PropertyLockStateSnapshot = {
+  state: string;
+  isEditor: boolean;
+  secondsRemaining: number | null;
+};
+
+type PropertyLockBannerDeps = {
+  isPropertyLockCollaborationEnabled: () => boolean;
+  setPropertyLockBannerMode: (mode: string) => void;
+  clearPropertyLockBannerCountdown: () => void;
+  getPropertyLockBannerMode: () => string;
+  getPropertyLockRecoveryDeadlineAt: () => number;
+  setPropertyLockBannerCountdownValue: (seconds: number) => void;
+  restartPropertyLockBannerCountdown: () => void;
+  getPropertyLockState: () => PropertyLockStateSnapshot | null;
+  PROPERTY_LOCK_STATE_UNLOCKED: string;
+  PROPERTY_LOCK_STATE_TAKEOVER_AVAILABLE: string;
+  PROPERTY_LOCK_STATE_TRANSFER: string;
+  PROPERTY_LOCK_STATE_EXPIRY_WARNING: string;
+  PROPERTY_LOCK_STATE_LOCKED: string;
+  clearPropertyLockCrossPropertyWarning: (options?: { preserveSession?: boolean }) => void;
+  clearPropertyLockOffCandidateWarning: () => void;
+  PROPERTY_LOCK_CONNECTION_LOSS_TIMEOUT_MS: number;
+  getPropertyLockBannerCountdownValue: () => number;
+  getPropertyLockOffCandidateDeadlineAt: () => number;
+};
+
+export function updatePropertyLockBannerMode(deps: PropertyLockBannerDeps): void {
   if (!deps.isPropertyLockCollaborationEnabled()) {
     deps.setPropertyLockBannerMode("no_banner");
     deps.clearPropertyLockBannerCountdown();
