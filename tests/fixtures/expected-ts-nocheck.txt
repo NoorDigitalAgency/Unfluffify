@@ -18,7 +18,6 @@ background/tab-session-store.ts
 background/transfer-payload-store.ts
 background.ts
 background/world-trace.ts
-common/async-messaging.ts
 common/config.ts
 common/emulation.ts
 common/lynx-checklist.ts

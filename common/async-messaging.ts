@@ -1,4 +1,3 @@
-// @ts-nocheck
 import {
   MESSAGE_ERROR_CODES,
   createFailureEnvelope,
@@ -6,60 +5,113 @@ import {
   isReplyEnvelope
 } from "./message-protocol.js";
 
-function getErrorMessage(value) {
+type MessageLike = {
+  id?: string;
+  type?: string;
+  payload?: unknown;
+};
+
+type RequestOptions = {
+  source?: string;
+  target?: string;
+  tabId?: unknown;
+  frameId?: unknown;
+  expectsReply?: boolean;
+  timeoutMs?: unknown;
+  code?: string;
+  details?: unknown;
+  fullResponse?: boolean;
+};
+
+type RequestEnvelopeLike = ReturnType<typeof createRequestEnvelope>;
+
+type RequestContext = {
+  tabId: number | null;
+  frameId: number | null;
+  timeoutMs: number;
+};
+
+type MessageRequestErrorOptions = {
+  code?: string;
+  type?: string;
+  tabId?: unknown;
+  frameId?: unknown;
+  timeoutMs?: unknown;
+  details?: unknown;
+};
+
+type TimeoutHandle = {
+  promise: Promise<never>;
+  clear: () => void;
+};
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object";
+}
+
+function getErrorMessage(value: unknown): string {
   if (!value) {
     return "";
   }
   if (typeof value === "string") {
     return value;
   }
-  if (typeof value.message === "string") {
+  if (isObject(value) && typeof value.message === "string") {
     return value.message;
   }
   return "";
 }
 
-function getRuntimeLastError() {
+function getRuntimeLastError(): { message?: string } | null {
   if (!globalThis.chrome || !chrome.runtime) {
     return null;
   }
   return chrome.runtime.lastError || null;
 }
 
-function normalizeRequest(message, options = {}) {
-  if (message && typeof message === "object" && typeof message.type === "string" && message.type) {
-    return createRequestEnvelope(message.type, message.payload, {
-      id: typeof message.id === "string" ? message.id : undefined,
+function normalizeRequest(message: unknown, options: RequestOptions = {}): RequestEnvelopeLike {
+  if (isObject(message) && typeof message.type === "string" && message.type) {
+    const request = message as MessageLike;
+    return createRequestEnvelope(request.type as string, request.payload, {
+      id: typeof request.id === "string" ? request.id : undefined,
       source: options.source,
       target: options.target,
-      tabId: Number.isFinite(options.tabId) ? Math.trunc(options.tabId) : undefined,
-      frameId: Number.isFinite(options.frameId) ? Math.trunc(options.frameId) : undefined,
+      tabId: Number.isFinite(options.tabId) ? Math.trunc(options.tabId as number) : undefined,
+      frameId: Number.isFinite(options.frameId) ? Math.trunc(options.frameId as number) : undefined,
       expectsReply: options.expectsReply
     });
   }
   throw new TypeError("Message request requires an object with a non-empty string type");
 }
 
-function toMessageRequestError(message, options, envelope) {
-  const requestType = envelope && typeof envelope.type === "string" ? envelope.type : "";
+function toMessageRequestError(
+  message: unknown,
+  options: RequestOptions,
+  envelope: RequestEnvelopeLike
+): MessageRequestError {
+  const requestType = typeof envelope.type === "string" ? envelope.type : "";
   const normalizedMessage = getErrorMessage(message) || "Message request failed";
   return new MessageRequestError(normalizedMessage, {
     code: options.code || MESSAGE_ERROR_CODES.HANDLER_FAILED,
     type: requestType,
-    tabId: Number.isFinite(options.tabId) ? Math.trunc(options.tabId) : null,
-    frameId: Number.isFinite(options.frameId) ? Math.trunc(options.frameId) : null,
-    timeoutMs: Number.isFinite(options.timeoutMs) ? Math.trunc(options.timeoutMs) : null,
-    details: options.details && typeof options.details === "object" ? options.details : {}
+    tabId: Number.isFinite(options.tabId) ? Math.trunc(options.tabId as number) : null,
+    frameId: Number.isFinite(options.frameId) ? Math.trunc(options.frameId as number) : null,
+    timeoutMs: Number.isFinite(options.timeoutMs) ? Math.trunc(options.timeoutMs as number) : null,
+    details: isObject(options.details) ? options.details : {}
   });
 }
 
-function createTimeoutPromise(timeoutMs, envelope, context) {
+function createTimeoutPromise(
+  timeoutMs: number,
+  envelope: RequestEnvelopeLike,
+  context: RequestContext
+): TimeoutHandle | null {
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
     return null;
   }
   const normalizedTimeoutMs = Math.trunc(timeoutMs);
   let timer = 0;
-  const timeoutPromise = new Promise((_, reject) => {
+  const timeoutPromise = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
       reject(toMessageRequestError("Message request timed out", {
         code: MESSAGE_ERROR_CODES.TIMEOUT,
@@ -74,7 +126,7 @@ function createTimeoutPromise(timeoutMs, envelope, context) {
   });
   return {
     promise: timeoutPromise,
-    clear() {
+    clear(): void {
       if (timer) {
         clearTimeout(timer);
         timer = 0;
@@ -83,13 +135,30 @@ function createTimeoutPromise(timeoutMs, envelope, context) {
   };
 }
 
-function normalizeFailureResponse(response, envelope, context) {
-  if (response && typeof response === "object" && response.ok === false) {
+function normalizeFailureResponse(
+  response: unknown,
+  envelope: RequestEnvelopeLike,
+  context: RequestContext
+): unknown {
+  if (isObject(response) && response.ok === false) {
     const reply = isReplyEnvelope(response)
       ? response
-      : createFailureEnvelope(envelope, MESSAGE_ERROR_CODES.HANDLER_FAILED, getErrorMessage(response.error), response.details);
-    throw toMessageRequestError(reply.error || "Message request failed", {
-      code: reply.code || MESSAGE_ERROR_CODES.HANDLER_FAILED,
+      : createFailureEnvelope(
+        envelope,
+        MESSAGE_ERROR_CODES.HANDLER_FAILED,
+        getErrorMessage(isObject(response) ? response.error : ""),
+        isObject(response) ? response.details : {}
+      );
+
+    const replyError = "error" in reply && typeof reply.error === "string"
+      ? reply.error
+      : "Message request failed";
+    const replyCode = "code" in reply && typeof reply.code === "string"
+      ? reply.code
+      : MESSAGE_ERROR_CODES.HANDLER_FAILED;
+
+    throw toMessageRequestError(replyError, {
+      code: replyCode,
       tabId: context.tabId,
       frameId: context.frameId,
       timeoutMs: context.timeoutMs,
@@ -102,7 +171,12 @@ function normalizeFailureResponse(response, envelope, context) {
   return response;
 }
 
-function normalizeSuccessResponse(response, envelope, context, options) {
+function normalizeSuccessResponse(
+  response: unknown,
+  envelope: RequestEnvelopeLike,
+  context: RequestContext,
+  options: RequestOptions
+): unknown {
   const normalized = normalizeFailureResponse(response, envelope, context);
   if (envelope.expectsReply !== false && typeof normalized === "undefined") {
     throw toMessageRequestError("Missing response for acknowledged request", {
@@ -118,56 +192,73 @@ function normalizeSuccessResponse(response, envelope, context, options) {
   if (options.fullResponse) {
     return normalized;
   }
-  if (normalized && typeof normalized === "object" && Object.prototype.hasOwnProperty.call(normalized, "result")) {
+  if (isObject(normalized) && Object.prototype.hasOwnProperty.call(normalized, "result")) {
     return normalized.result;
   }
   return normalized;
 }
 
 export class MessageRequestError extends Error {
-  constructor(message, options = {}) {
+  code: string;
+  type: string;
+  tabId: number | null;
+  frameId: number | null;
+  timeoutMs: number | null;
+  details: Record<string, unknown>;
+
+  constructor(message: string, options: MessageRequestErrorOptions = {}) {
     super(message || "Message request failed");
     this.name = "MessageRequestError";
     this.code = typeof options.code === "string" && options.code
       ? options.code
       : MESSAGE_ERROR_CODES.HANDLER_FAILED;
     this.type = typeof options.type === "string" ? options.type : "";
-    this.tabId = Number.isFinite(options.tabId) ? Math.trunc(options.tabId) : null;
-    this.frameId = Number.isFinite(options.frameId) ? Math.trunc(options.frameId) : null;
-    this.timeoutMs = Number.isFinite(options.timeoutMs) ? Math.trunc(options.timeoutMs) : null;
-    this.details = options.details && typeof options.details === "object" ? options.details : {};
+    this.tabId = Number.isFinite(options.tabId) ? Math.trunc(options.tabId as number) : null;
+    this.frameId = Number.isFinite(options.frameId) ? Math.trunc(options.frameId as number) : null;
+    this.timeoutMs = Number.isFinite(options.timeoutMs) ? Math.trunc(options.timeoutMs as number) : null;
+    this.details = isObject(options.details) ? options.details : {};
   }
 }
 
-export function requestWithChromeCallback(startSend, message, options = {}) {
+export function requestWithChromeCallback(
+  startSend: (
+    envelope: RequestEnvelopeLike,
+    callback: (response: unknown) => void
+  ) => void | Promise<unknown>,
+  message: unknown,
+  options: RequestOptions = {}
+): Promise<unknown> {
   if (typeof startSend !== "function") {
     return Promise.reject(new TypeError("requestWithChromeCallback requires a startSend callback"));
   }
 
   const envelope = normalizeRequest(message, options);
-  const timeoutMs = Number.isFinite(options.timeoutMs) ? Math.trunc(options.timeoutMs) : 0;
-  const context = {
-    tabId: Number.isFinite(options.tabId) ? Math.trunc(options.tabId) : null,
-    frameId: Number.isFinite(options.frameId) ? Math.trunc(options.frameId) : null,
+  const timeoutMs = Number.isFinite(options.timeoutMs) ? Math.trunc(options.timeoutMs as number) : 0;
+  const context: RequestContext = {
+    tabId: Number.isFinite(options.tabId) ? Math.trunc(options.tabId as number) : null,
+    frameId: Number.isFinite(options.frameId) ? Math.trunc(options.frameId as number) : null,
     timeoutMs
   };
 
-  const sendPromise = new Promise((resolve, reject) => {
+  const sendPromise = new Promise<unknown>((resolve, reject) => {
     let settled = false;
-    function settleReject(error) {
+
+    function settleReject(error: unknown): void {
       if (settled) {
         return;
       }
       settled = true;
       reject(error);
     }
-    function settleResolve(response) {
+
+    function settleResolve(response: unknown): void {
       if (settled) {
         return;
       }
       settled = true;
       resolve(response);
     }
+
     try {
       const maybePromise = startSend(envelope, (response) => {
         const lastError = getRuntimeLastError();
@@ -218,7 +309,6 @@ export function requestWithChromeCallback(startSend, message, options = {}) {
   });
 
   const timeoutHandle = createTimeoutPromise(timeoutMs, envelope, context);
-
   const racedPromise = timeoutHandle
     ? Promise.race([sendPromise, timeoutHandle.promise])
     : sendPromise;
@@ -232,7 +322,7 @@ export function requestWithChromeCallback(startSend, message, options = {}) {
     });
 }
 
-export function requestRuntime(message, options = {}) {
+export function requestRuntime(message: unknown, options: RequestOptions = {}): Promise<unknown> {
   return requestWithChromeCallback((envelope, callback) => {
     return chrome.runtime.sendMessage(envelope, callback);
   }, message, {
@@ -241,18 +331,19 @@ export function requestRuntime(message, options = {}) {
   });
 }
 
-export function requestTab(tabId, message, options = {}) {
-  const normalizedTabId = Number.isFinite(tabId) ? Math.trunc(tabId) : 0;
+export function requestTab(tabId: unknown, message: unknown, options: RequestOptions = {}): Promise<unknown> {
+  const normalizedTabId = Number.isFinite(tabId) ? Math.trunc(tabId as number) : 0;
   if (!normalizedTabId) {
+    const request = isObject(message) ? (message as MessageLike) : null;
     return Promise.reject(new MessageRequestError("Invalid tab id for tab request", {
       code: MESSAGE_ERROR_CODES.INVALID_TAB,
-      type: message && typeof message.type === "string" ? message.type : "",
+      type: typeof request?.type === "string" ? request.type : "",
       tabId: normalizedTabId,
-      frameId: Number.isFinite(options.frameId) ? Math.trunc(options.frameId) : 0,
-      timeoutMs: Number.isFinite(options.timeoutMs) ? Math.trunc(options.timeoutMs) : null
+      frameId: Number.isFinite(options.frameId) ? Math.trunc(options.frameId as number) : 0,
+      timeoutMs: Number.isFinite(options.timeoutMs) ? Math.trunc(options.timeoutMs as number) : null
     }));
   }
-  const frameId = Number.isFinite(options.frameId) ? Math.trunc(options.frameId) : 0;
+  const frameId = Number.isFinite(options.frameId) ? Math.trunc(options.frameId as number) : 0;
   return requestWithChromeCallback((envelope, callback) => {
     return chrome.tabs.sendMessage(normalizedTabId, envelope, { frameId }, callback);
   }, message, {
@@ -263,10 +354,10 @@ export function requestTab(tabId, message, options = {}) {
   });
 }
 
-export function requestContent(tabId, message, options = {}) {
+export function requestContent(tabId: unknown, message: unknown, options: RequestOptions = {}): Promise<unknown> {
   return requestTab(tabId, message, {
     ...options,
-    frameId: Number.isFinite(options.frameId) ? Math.trunc(options.frameId) : 0,
+    frameId: Number.isFinite(options.frameId) ? Math.trunc(options.frameId as number) : 0,
     target: options.target || "content"
   });
 }
