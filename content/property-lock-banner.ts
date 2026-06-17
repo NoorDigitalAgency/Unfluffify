@@ -1,5 +1,4 @@
-// @ts-nocheck
-function createPropertyLockBannerButton(deps, text, className, onClick, options = {}) {
+function createPropertyLockBannerButton(_deps: any, text: string, className: string, onClick: () => void, options: { disabled?: unknown } = {}) {
   const button = document.createElement("button");
   button.type = "button";
   button.className = className;
@@ -16,14 +15,14 @@ function createPropertyLockBannerButton(deps, text, className, onClick, options 
   return button;
 }
 
-function createPropertyLockBannerLabel(text) {
+function createPropertyLockBannerLabel(text: string) {
   const label = document.createElement("span");
   label.className = "uf-lock-banner-label";
   label.textContent = text;
   return label;
 }
 
-export function ensurePropertyLockBannerStyle(deps) {
+export function ensurePropertyLockBannerStyle(deps: any): void {
   if (document.getElementById(deps.PROPERTY_LOCK_BANNER_STYLE_ID)) {
     return;
   }
@@ -92,7 +91,7 @@ export function ensurePropertyLockBannerStyle(deps) {
   (document.head || document.documentElement).appendChild(style);
 }
 
-export function renderPropertyLockBanner(deps) {
+export function renderPropertyLockBanner(deps: any): void {
   let propertyLockBannerElement = deps.getPropertyLockBannerElement();
   if (!deps.isPropertyLockCollaborationEnabled()) {
     if (propertyLockBannerElement) {
@@ -255,7 +254,7 @@ export function renderPropertyLockBanner(deps) {
   propertyLockBannerElement.append(content, actions);
 }
 
-export function clearPropertyLockBannerCountdown(deps) {
+export function clearPropertyLockBannerCountdown(deps: any): void {
   const propertyLockBannerCountdownTimer = deps.getPropertyLockBannerCountdownTimer();
   if (propertyLockBannerCountdownTimer) {
     clearInterval(propertyLockBannerCountdownTimer);
@@ -263,7 +262,7 @@ export function clearPropertyLockBannerCountdown(deps) {
   }
 }
 
-export function restartPropertyLockBannerCountdown(deps) {
+export function restartPropertyLockBannerCountdown(deps: any): void {
   if (!deps.isPropertyLockCollaborationEnabled()) {
     deps.clearPropertyLockBannerCountdown();
     return;

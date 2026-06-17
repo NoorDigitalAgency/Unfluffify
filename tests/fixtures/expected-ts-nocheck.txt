@@ -15,7 +15,6 @@ common/xpath-utilities.ts
 content/core.ts
 content-main.ts
 content/page-world-relay.ts
-content/property-lock-banner.ts
 content/property-lock-state-machine.ts
 content/runtime-message-handler.ts
 popup/messages.ts
