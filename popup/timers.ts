@@ -1,5 +1,15 @@
-// @ts-nocheck
-function toSafeDelay(value, fallback = 0) {
+type PopupTimerWindow = {
+  setTimeout: (fn: () => void, delay?: number) => ReturnType<typeof setTimeout>;
+  clearTimeout: (id: ReturnType<typeof setTimeout>) => void;
+  setInterval: (fn: () => void, delay?: number) => ReturnType<typeof setInterval>;
+  clearInterval: (id: ReturnType<typeof setInterval>) => void;
+};
+
+type PopupTimerRecord =
+  | { kind: "timeout"; id: ReturnType<typeof setTimeout> }
+  | { kind: "interval"; id: ReturnType<typeof setInterval> };
+
+function toSafeDelay(value: unknown, fallback: unknown = 0): number {
   const numeric = Number(value);
   if (!Number.isFinite(numeric) || numeric < 0) {
     return Math.max(0, Number(fallback) || 0);
@@ -7,11 +17,11 @@ function toSafeDelay(value, fallback = 0) {
   return Math.trunc(numeric);
 }
 
-export function createPopupTimerGroup(options = {}) {
-  const windowRef = options.windowRef || window;
-  const timersByKey = new Map();
+export function createPopupTimerGroup(options: { windowRef?: PopupTimerWindow } = {}) {
+  const windowRef = options.windowRef || (window as unknown as PopupTimerWindow);
+  const timersByKey = new Map<unknown, PopupTimerRecord>();
 
-  function clear(key) {
+  function clear(key: unknown): void {
     if (!timersByKey.has(key)) {
       return;
     }
@@ -27,11 +37,11 @@ export function createPopupTimerGroup(options = {}) {
     windowRef.clearTimeout(timer.id);
   }
 
-  function has(key) {
+  function has(key: unknown): boolean {
     return timersByKey.has(key);
   }
 
-  function setTimeoutTimer(key, callback, delayMs = 0) {
+  function setTimeoutTimer(key: unknown, callback: () => void, delayMs: unknown = 0): ReturnType<typeof setTimeout> {
     clear(key);
     const id = windowRef.setTimeout(() => {
       timersByKey.delete(key);
@@ -44,7 +54,7 @@ export function createPopupTimerGroup(options = {}) {
     return id;
   }
 
-  function setIntervalTimer(key, callback, intervalMs = 0) {
+  function setIntervalTimer(key: unknown, callback: () => void, intervalMs: unknown = 0): ReturnType<typeof setInterval> {
     clear(key);
     const id = windowRef.setInterval(callback, toSafeDelay(intervalMs));
     timersByKey.set(key, {
@@ -54,7 +64,7 @@ export function createPopupTimerGroup(options = {}) {
     return id;
   }
 
-  function clearAll() {
+  function clearAll(): void {
     for (const key of [...timersByKey.keys()]) {
       clear(key);
     }

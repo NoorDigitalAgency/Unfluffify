@@ -1,32 +1,51 @@
-// @ts-nocheck
 import { PopupText } from "../common/text.js";
 
 const RENDER_MODE_DEFAULT_ICON = "monitor-dashboard";
 
-const RENDER_MODE_METADATA = {
+type RenderModeMetadata = {
+  label: () => string;
+  icon: string;
+};
+
+type ReloadOutcome = {
+  ok: boolean;
+  toast: string;
+};
+
+const RENDER_MODE_METADATA: Record<string, RenderModeMetadata> = {
   static: { label: () => PopupText.renderMode.optionStatic, icon: "language-html5" },
   rendered: { label: () => PopupText.renderMode.optionRendered, icon: "language-javascript" }
 };
 
-function getRenderModeMetadata(renderModeValue) {
+function getRenderModeMetadata(renderModeValue: unknown): RenderModeMetadata | null {
+  if (typeof renderModeValue !== "string") {
+    return null;
+  }
   return RENDER_MODE_METADATA[renderModeValue] || null;
 }
 
-export function getRenderModeOptionLabel(renderModeValue) {
+export function getRenderModeOptionLabel(renderModeValue: unknown): string {
   const metadata = getRenderModeMetadata(renderModeValue);
   return metadata ? metadata.label() : PopupText.renderMode.optionUndetermined;
 }
 
-export function getRenderModeOptionIcon(renderModeValue) {
+export function getRenderModeOptionIcon(renderModeValue: unknown): string {
   const metadata = getRenderModeMetadata(renderModeValue);
   return metadata ? metadata.icon : RENDER_MODE_DEFAULT_ICON;
 }
 
-export function resolveRenderModeInspectionReloadOutcome(reloadResult, loadStarted, javaScriptDisabled) {
+export function resolveRenderModeInspectionReloadOutcome(
+  reloadResult: { ok?: unknown; error?: unknown } | null | undefined,
+  loadStarted: unknown,
+  javaScriptDisabled: unknown
+): ReloadOutcome {
   if (!reloadResult || !reloadResult.ok) {
     return {
       ok: false,
-      toast: (reloadResult && reloadResult.error) || PopupText.renderMode.toastInspectReloadFailed
+      toast:
+        typeof reloadResult?.error === "string" && reloadResult.error
+          ? reloadResult.error
+          : PopupText.renderMode.toastInspectReloadFailed
     };
   }
 

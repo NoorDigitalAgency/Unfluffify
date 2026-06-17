@@ -6,7 +6,7 @@ Current phase: Phase 1 (leaf modules)
 ## Baseline
 - Branch: feat/typescript-deno-port
 - Full tests baseline: 847 pass / 0 fail
-- Current runtime @ts-nocheck count: 66
+- Current runtime @ts-nocheck count: 55
 - Ratchet allowlist: tests/fixtures/expected-ts-nocheck.txt
 
 ## Checkpoints
@@ -24,6 +24,7 @@ Current phase: Phase 1 (leaf modules)
 - [2026-06-17] Phase 1 batch 8 completed: removed `@ts-nocheck` from `common/lynx-checklist.ts` with typed candidate/page-type normalization and checklist view-model outputs.
 - [2026-06-17] Phase 1 batch 9 completed: removed `@ts-nocheck` from eleven small content handlers (ai-preview get/show/close/expanded/compute-lock, submission xpaths, default exclusions, force refresh, visible/invisible xpaths, and page-save pending handler).
 - [2026-06-17] Phase 1 batch 10 completed: removed `@ts-nocheck` from eleven additional lightweight popup/background/content modules (telemetry, describe xpaths, ai-run record store, popup emulation, collect page data, page-save clear, focus, background tab state, page draft revert, inspection status, and managed timeouts).
+- [2026-06-17] Phase 1 batch 11 completed: removed `@ts-nocheck` from eleven additional utility/handler modules (content constants, submission rules, ai-preview state response, page-draft status, capture snapshot, silent-highlight rules, render-mode inspection client, popup render-mode metadata, popup chrome helpers, popup timers, and background async tasks).
 
 ## Notes
 - PoC typed module already merged: background/tab-operation-runner.ts and types/operations.ts.

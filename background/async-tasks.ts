@@ -1,5 +1,16 @@
-// @ts-nocheck
-function normalizeTaskLabel(label) {
+type BackgroundTaskTraceAppender = (
+  tabId: number,
+  scope: string,
+  status: string,
+  payload: { label: string; message: string }
+) => void;
+
+type BackgroundTaskOptions = {
+  tabId?: unknown;
+  appendTrace?: BackgroundTaskTraceAppender;
+};
+
+function normalizeTaskLabel(label: unknown): string {
   if (typeof label !== "string") {
     return "background-task";
   }
@@ -7,8 +18,8 @@ function normalizeTaskLabel(label) {
   return trimmed || "background-task";
 }
 
-function normalizeTaskErrorMessage(error) {
-  if (error && typeof error.message === "string" && error.message) {
+function normalizeTaskErrorMessage(error: unknown): string {
+  if (error instanceof Error && typeof error.message === "string" && error.message) {
     return error.message;
   }
   if (typeof error === "string" && error) {
@@ -17,19 +28,22 @@ function normalizeTaskErrorMessage(error) {
   return "Unknown background task failure";
 }
 
-async function executeTaskWork(work) {
+async function executeTaskWork<T>(work: (() => T | Promise<T>) | Promise<T> | T): Promise<T> {
   if (typeof work === "function") {
-    return await work();
+    return await (work as () => T | Promise<T>)();
   }
   return await work;
 }
 
-export async function runBackgroundTask(label, work, options = {}) {
+export async function runBackgroundTask<T>(
+  label: unknown,
+  work: (() => T | Promise<T>) | Promise<T> | T,
+  options: BackgroundTaskOptions = {}
+): Promise<T | undefined> {
   const normalizedLabel = normalizeTaskLabel(label);
-  const tabId = Number.isFinite(options && options.tabId) ? Math.trunc(options.tabId) : null;
-  const appendTrace = options && typeof options.appendTrace === "function"
-    ? options.appendTrace
-    : null;
+  const tabIdRaw = options?.tabId;
+  const tabId = Number.isFinite(tabIdRaw) ? Math.trunc(tabIdRaw as number) : null;
+  const appendTrace = typeof options?.appendTrace === "function" ? options.appendTrace : null;
 
   try {
     return await executeTaskWork(work);

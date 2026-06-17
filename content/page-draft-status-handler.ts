@@ -1,6 +1,45 @@
-// @ts-nocheck
-export function createPageDraftStatusHandler(deps) {
-  async function getStatus({ targetBaseUrl }) {
+type PageDraftStatusEntry = {
+  submissionXpaths?: unknown[];
+  [key: string]: unknown;
+};
+
+type PageDraftStatusDeps = {
+  getPageUrl: () => string;
+  refreshSavedPageEntryFromBackendCache: (targetBaseUrl: unknown, pageUrl: string) => Promise<void>;
+  getConfig: () => unknown;
+  hasPageMarkingEntry: (config: unknown, pageUrl: string) => boolean;
+  getSavedPageEntry: (pageUrl: string) => unknown;
+  getDraftPageEntry: (pageUrl: string) => unknown;
+  areEntriesEquivalent: (draftEntry: unknown, savedEntry: unknown) => boolean;
+  collectImmutableElements: () => unknown;
+  syncPageMarkings: (
+    config: unknown,
+    pageUrl: string,
+    immutableExcluded: unknown,
+    options: { allowCreate: boolean; persist: boolean }
+  ) => { entry: PageDraftStatusEntry | null; changed: boolean };
+  setSavedPageEntry: (pageUrl: string, entry: PageDraftStatusEntry) => void;
+  getPageSaveReconciliationState: (pageUrl: string) => unknown;
+  submissionXpathsEqual: (a: unknown[], b: unknown[]) => boolean;
+  collectAiSubmissionXpathsForCurrentPage: () => unknown[];
+  clonePageEntry: (entry: PageDraftStatusEntry) => PageDraftStatusEntry;
+  getPageDraftDirty: (pageUrl: string) => boolean;
+  getPageSaveReconciliationPending: (pageUrl: string) => boolean;
+};
+
+type PageDraftStatusMessage = {
+  targetBaseUrl?: unknown;
+};
+
+export function createPageDraftStatusHandler(deps: PageDraftStatusDeps) {
+  async function getStatus({ targetBaseUrl }: PageDraftStatusMessage): Promise<{
+    ok: true;
+    entry: PageDraftStatusEntry | null;
+    savedEntry: unknown;
+    dirty: boolean;
+    reconciliation: unknown;
+    reconciliationPending: boolean;
+  }> {
     const pageUrl = deps.getPageUrl();
     await deps.refreshSavedPageEntryFromBackendCache(targetBaseUrl, pageUrl);
     const config = deps.getConfig();

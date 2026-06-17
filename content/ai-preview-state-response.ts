@@ -1,26 +1,56 @@
-// @ts-nocheck
-export function createAiPreviewStateResponseBuilder(deps) {
-  const mapItems = (items) => {
-    const source = Array.isArray(items) ? items : [];
-    return source.map((item) => ({
-      xpath: item.xpath,
-      text: item.text,
-      title: item.title,
-      kind: item.kind
-    }));
+type AiPreviewItem = {
+  xpath?: unknown;
+  text?: unknown;
+  title?: unknown;
+  kind?: unknown;
+};
+
+type AiPreviewState = {
+  active?: unknown;
+  mode?: unknown;
+  previousEnabled?: unknown;
+  restoreMarkingOnExit?: unknown;
+  previousBaseUrl?: unknown;
+  items?: unknown;
+  focusedXpath?: unknown;
+  showAllCategories?: unknown;
+};
+
+type AiPreviewStateResponseDeps = {
+  getAiPreviewState: () => AiPreviewState;
+  isPreviewExpandedStatesEnabled: () => boolean;
+  FEATURE_DISABLED_REASON: string;
+};
+
+export function createAiPreviewStateResponseBuilder(deps: AiPreviewStateResponseDeps) {
+  const mapItems = (items: unknown): Array<{
+    xpath: unknown;
+    text: unknown;
+    title: unknown;
+    kind: unknown;
+  }> => {
+    const source = (Array.isArray(items) ? items : []) as AiPreviewItem[];
+    return source.map((item) => {
+      return {
+        xpath: item.xpath,
+        text: item.text,
+        title: item.title,
+        kind: item.kind
+      };
+    });
   };
 
-  const buildBase = ({ showAllCategories } = {}) => {
+  const buildBase = ({ showAllCategories }: { showAllCategories: boolean }) => {
     const state = deps.getAiPreviewState();
     return {
-      active: state.active,
-      mode: state.mode || "",
+      active: Boolean(state.active),
+      mode: typeof state.mode === "string" ? state.mode : "",
       previousEnabled: Boolean(state.previousEnabled),
       restoreMarkingOnExit: Boolean(state.restoreMarkingOnExit),
-      previousBaseUrl: state.previousBaseUrl || "",
+      previousBaseUrl: typeof state.previousBaseUrl === "string" ? state.previousBaseUrl : "",
       showAllCategories,
       items: mapItems(state.items),
-      focusedXpath: state.focusedXpath
+      focusedXpath: typeof state.focusedXpath === "string" ? state.focusedXpath : ""
     };
   };
 
@@ -39,7 +69,7 @@ export function createAiPreviewStateResponseBuilder(deps) {
     ...buildBase({ showAllCategories: false })
   });
 
-  const buildExpandedModeResponse = (ok) => ({
+  const buildExpandedModeResponse = (ok: boolean) => ({
     ok,
     ...buildBase({ showAllCategories: Boolean(deps.getAiPreviewState().showAllCategories) })
   });

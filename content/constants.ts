@@ -1,4 +1,3 @@
-// @ts-nocheck
 // Selectors for late-injected overlay/consent chrome that the marking and
 // silent-highlight passes hide before measuring content. Entries are chosen for
 // HIGH PRECISION: each one signals "this is overlay/modal/consent chrome", not

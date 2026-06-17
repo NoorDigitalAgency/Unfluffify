@@ -1,16 +1,30 @@
-// @ts-nocheck
-const AI_SUBMISSION_DOCUMENT_ROOT_XPATHS = new Set([
+const AI_SUBMISSION_DOCUMENT_ROOT_XPATHS = new Set<string>([
   "/html[1]",
   "/html[1]/body[1]"
 ]);
 
-export function isAiSubmissionDocumentRootXpath(xpath) {
+type AiSubmissionRowStateOptions = {
+  explicitlyIncluded?: unknown;
+  excludedRow?: unknown;
+  explicitlyExcluded?: unknown;
+  immutableExcludedRoot?: unknown;
+  insideExcludedAncestor?: unknown;
+  markableTextual?: unknown;
+  visibleToUser?: unknown;
+};
+
+type AiSubmissionRowState = {
+  shouldSubmit: boolean;
+  excluded: boolean;
+};
+
+export function isAiSubmissionDocumentRootXpath(xpath: unknown): boolean {
   return AI_SUBMISSION_DOCUMENT_ROOT_XPATHS.has(
     typeof xpath === "string" ? xpath.trim() : ""
   );
 }
 
-export function resolveAiSubmissionRowState(options = {}) {
+export function resolveAiSubmissionRowState(options: AiSubmissionRowStateOptions = {}): AiSubmissionRowState {
   const explicitlyIncluded = Boolean(options.explicitlyIncluded);
   const excludedRow = Boolean(options.excludedRow || options.explicitlyExcluded);
 

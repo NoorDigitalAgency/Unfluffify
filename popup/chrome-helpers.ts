@@ -1,13 +1,27 @@
-// @ts-nocheck
 import * as utils from "../common/utilities.js";
 
 const CLEAR_BROWSING_DATA_TIMEOUT_MS = 20000;
 const RELOAD_TAB_TIMEOUT_MS = 10000;
 
-function sendRuntimeMessageWithTimeout(message, timeoutMs, timeoutError) {
+type RuntimeMessage = {
+  type: string;
+  origin?: string;
+  tabId?: number;
+};
+
+type RuntimeResponse = {
+  ok: boolean;
+  error?: string;
+};
+
+function sendRuntimeMessageWithTimeout(
+  message: RuntimeMessage,
+  timeoutMs: number,
+  timeoutError: string
+): Promise<RuntimeResponse> {
   return new Promise((resolve) => {
     let settled = false;
-    const finish = (result) => {
+    const finish = (result: RuntimeResponse) => {
       if (settled) {
         return;
       }
@@ -31,7 +45,7 @@ function sendRuntimeMessageWithTimeout(message, timeoutMs, timeoutError) {
   });
 }
 
-export function clearBrowsingDataForOrigin(origin) {
+export function clearBrowsingDataForOrigin(origin: unknown): Promise<RuntimeResponse> {
   if (!origin || typeof origin !== "string") {
     return Promise.resolve({ ok: false, error: "Missing origin" });
   }
@@ -42,12 +56,13 @@ export function clearBrowsingDataForOrigin(origin) {
   );
 }
 
-export function reloadTab(tabId) {
-  if (!tabId) {
+export function reloadTab(tabId: unknown): Promise<RuntimeResponse> {
+  const normalizedTabId = Number.isFinite(tabId) ? Math.trunc(tabId as number) : 0;
+  if (!normalizedTabId) {
     return Promise.resolve({ ok: false, error: "Missing tab" });
   }
   return sendRuntimeMessageWithTimeout(
-    { type: "reloadTab", tabId },
+    { type: "reloadTab", tabId: normalizedTabId },
     RELOAD_TAB_TIMEOUT_MS,
     "Timed out while reloading tab"
   );
