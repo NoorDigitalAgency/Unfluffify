@@ -17,7 +17,6 @@
     "common/emulation.ts": 5,
     "popup/site-resolution.ts": 4,
     "popup/remote-config.ts": 3,
-    "common/utilities.ts": 2,
     "popup/page-reconciliation.ts": 2
   },
   "exempt": [

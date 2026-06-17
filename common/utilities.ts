@@ -668,13 +668,11 @@ export async function getTabState(tabId: any, scope: any = null) {
   return getStoredTabState(tabId, scope);
 }
 
-// @ts-ignore preserve source-contract signature used by device emulation lifecycle tests
-export async function setTabState(tabId, state, scope = null) {
+export async function setTabState(tabId: any, state: any, scope: any = null) {
   await setStoredTabState(tabId, state, scope);
 }
 
-// @ts-ignore preserve source-contract signature used by device emulation lifecycle tests
-export async function clearTabState(tabId) {
+export async function clearTabState(tabId: any) {
   await clearTabSessionState(tabId);
 }
 

@@ -298,7 +298,7 @@ test("setTabState no longer mirrors enabled sessions into reload restore state",
   );
   const setTabStateBlock = extractSourceBlock(
     utilitiesSource,
-    "export async function setTabState(tabId, state, scope = null) {",
+    "export async function setTabState(tabId: any, state: any, scope: any = null) {",
     "export async function clearTabState"
   );
 
@@ -314,7 +314,7 @@ test("setTabState no longer mirrors enabled sessions into reload restore state",
 test("shared clearTabState removes initial tab lifecycle state as well as live tab state", () => {
   const clearTabStateBlock = extractSourceBlock(
     utilitiesSource,
-    "export async function clearTabState(tabId) {",
+    "export async function clearTabState(tabId: any) {",
     "// Action icon utilities"
   );
   const clearMessageBlock = extractSourceBlock(
