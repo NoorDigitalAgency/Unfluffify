@@ -51,8 +51,7 @@ export function sendRuntimeMessage(message: any) {
   });
 }
 
-// @ts-expect-error preserve source-contract signature used by popup source-shape tests
-export function requestTabApplyPostSaveTransition(tabId, payload = {}, options = {}) {
+export function requestTabApplyPostSaveTransition(tabId: any, payload = {}, options = {}) {
   const opts = options as any;
   if (!tabId) {
     return Promise.resolve({
@@ -82,8 +81,7 @@ export function requestTabApplyPostSaveTransition(tabId, payload = {}, options =
   });
 }
 
-// @ts-expect-error preserve source-contract signature used by popup source-shape tests
-export function requestTabApplyLocalDiscard(tabId, payload = {}, options = {}) {
+export function requestTabApplyLocalDiscard(tabId: any, payload = {}, options = {}) {
   const opts = options as any;
   if (!tabId) {
     return Promise.resolve({
@@ -113,8 +111,7 @@ export function requestTabApplyLocalDiscard(tabId, payload = {}, options = {}) {
   });
 }
 
-// @ts-expect-error preserve source-contract signature used by popup source-shape tests
-export function requestTabShowAiPreview(tabId, payload = {}, options = {}) {
+export function requestTabShowAiPreview(tabId: any, payload = {}, options = {}) {
   const opts = options as any;
   if (!tabId) {
     return Promise.resolve({
@@ -144,8 +141,7 @@ export function requestTabShowAiPreview(tabId, payload = {}, options = {}) {
   });
 }
 
-// @ts-expect-error preserve source-contract signature used by popup source-shape tests
-export function requestTabCloseAiPreview(tabId, payload = {}, options = {}) {
+export function requestTabCloseAiPreview(tabId: any, payload = {}, options = {}) {
   const opts = options as any;
   if (!tabId) {
     return Promise.resolve({
@@ -175,8 +171,7 @@ export function requestTabCloseAiPreview(tabId, payload = {}, options = {}) {
   });
 }
 
-// @ts-expect-error preserve source-contract signature used by popup source-shape tests
-export function requestTabSetAiPreviewExpandedMode(tabId, payload = {}, options = {}) {
+export function requestTabSetAiPreviewExpandedMode(tabId: any, payload = {}, options = {}) {
   const opts = options as any;
   if (!tabId) {
     return Promise.resolve({
@@ -206,8 +201,7 @@ export function requestTabSetAiPreviewExpandedMode(tabId, payload = {}, options 
   });
 }
 
-// @ts-expect-error preserve source-contract signature used by popup source-shape tests
-export function requestTabFocusPreviewElement(tabId, payload = {}, options = {}) {
+export function requestTabFocusPreviewElement(tabId: any, payload = {}, options = {}) {
   const opts = options as any;
   if (!tabId) {
     return Promise.resolve({
@@ -261,8 +255,7 @@ export function setTabState(tabId: any, tabState: any, scope: any = null) {
   });
 }
 
-// @ts-expect-error preserve source-contract signature used by popup source-shape tests
-export function requestPopupTabViewState(tabId, options = {}) {
+export function requestPopupTabViewState(tabId: any, options = {}) {
   const opts = options as any;
   if (!tabId) {
     return Promise.resolve(null);
@@ -278,8 +271,7 @@ export function requestPopupTabViewState(tabId, options = {}) {
   )).catch(() => null);
 }
 
-// @ts-expect-error preserve source-contract signature used by popup source-shape tests
-export function requestTabActivateMarking(tabId, payload = {}, options = {}) {
+export function requestTabActivateMarking(tabId: any, payload = {}, options = {}) {
   const opts = options as any;
   if (!tabId) {
     return Promise.resolve({
@@ -310,8 +302,7 @@ export function requestTabActivateMarking(tabId, payload = {}, options = {}) {
   });
 }
 
-// @ts-expect-error preserve source-contract signature used by popup source-shape tests
-export function requestTabDeactivateMarking(tabId, payload = {}, options = {}) {
+export function requestTabDeactivateMarking(tabId: any, payload = {}, options = {}) {
   const opts = options as any;
   if (!tabId) {
     return Promise.resolve({
@@ -341,32 +332,28 @@ export function requestTabDeactivateMarking(tabId, payload = {}, options = {}) {
   });
 }
 
-// @ts-expect-error preserve source-contract signature used by popup source-shape tests
-export function requestTabRunRenderModeInspection(tabId, payload = {}, options = {}) {
+export function requestTabRunRenderModeInspection(tabId: any, payload = {}, options: any = {}) {
   if (!tabId) {
     return Promise.resolve({
       ok: false,
       error: "Missing tab"
     });
   }
-  const normalizedPayload = payload && typeof payload === "object" ? payload : {};
+  const normalizedPayload: any = payload && typeof payload === "object" ? payload : {};
   return requestRuntime({
     type: TAB_RUN_RENDER_MODE_INSPECTION_COMMAND,
     payload: normalizedPayload
   }, {
     tabId,
-    // @ts-expect-error preserve source-contract timeout expression used by render-mode inspection tests
     timeoutMs: Number.isFinite(options.timeoutMs) ? Math.trunc(options.timeoutMs) : 120000
   }).then((result) => ({
     ok: true,
     result: result && typeof result === "object" ? result : {}
   })).catch(async (error) => {
-    // @ts-expect-error preserve source-contract operationId access used by render-mode inspection tests
     if (typeof normalizedPayload.operationId === "string" && normalizedPayload.operationId) {
       await requestRuntime({
         type: TAB_END_RENDER_MODE_INSPECTION_COMMAND,
         payload: {
-          // @ts-expect-error preserve source-contract operationId access used by render-mode inspection tests
           operationId: normalizedPayload.operationId
         }
       }, {
@@ -533,8 +520,7 @@ function queryActiveTabFallback() {
   });
 }
 
-// @ts-expect-error preserve source-contract signature used by popup source-shape tests
-async function loadActiveTabFallback(debugTabId) {
+async function loadActiveTabFallback(debugTabId: any) {
   const debugTab = await getTabById(debugTabId);
   if (debugTab) {
     return debugTab;
@@ -554,11 +540,10 @@ export async function loadActiveTab() {
         ? Math.trunc(debugTabIdParam)
         : null
     });
-    state.currentTab = response && response.ok && response.tab
+    stateAny.currentTab = response && response.ok && response.tab
       ? response.tab
       : await loadActiveTabFallback(debugTabIdParam);
   } catch (error) {
-    // @ts-expect-error preserve source-contract literal assignment used by device-emulation lifecycle tests
-    state.currentTab = await loadActiveTabFallback(debugTabIdParam);
+    stateAny.currentTab = await loadActiveTabFallback(debugTabIdParam);
   }
 }

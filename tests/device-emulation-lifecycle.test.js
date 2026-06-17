@@ -264,8 +264,8 @@ test("popup delegates active tab context resolution to the background", () => {
   assert.match(backgroundResolveBlock, /chrome\.tabs\.query\(\{ active: true, lastFocusedWindow: true \}\)/);
   assert.match(loadActiveTabBlock, /type: "resolvePopupTabContext"/);
   assert.match(loadActiveTabBlock, /debugTabId: Number\.isFinite\(debugTabIdParam\)/);
-  assert.match(loadActiveTabBlock, /state\.currentTab = response && response\.ok && response\.tab[\s\S]*?\? response\.tab[\s\S]*?: await loadActiveTabFallback\(debugTabIdParam\);/);
-  assert.match(popupMessagesSource, /async function loadActiveTabFallback\(debugTabId\) \{/);
+  assert.match(loadActiveTabBlock, /state(?:Any)?\.currentTab = response && response\.ok && response\.tab[\s\S]*?\? response\.tab[\s\S]*?: await loadActiveTabFallback\(debugTabIdParam\);/);
+  assert.match(popupMessagesSource, /async function loadActiveTabFallback\(debugTabId(?:\s*:\s*[^)]+)?\) \{/);
   assert.match(popupMessagesSource, /tabsApi\.get\(tabId/);
   assert.match(popupMessagesSource, /tabsApi\.query\(\{ active: true, currentWindow: true \}/);
   assert.match(popupMessagesSource, /tabsApi\.query\(\{ active: true, lastFocusedWindow: true \}/);
