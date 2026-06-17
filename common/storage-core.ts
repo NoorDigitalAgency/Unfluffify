@@ -1,6 +1,6 @@
 const EXTENSION_CONTEXT_INVALIDATED_PATTERN = /extension context invalidated|context invalidated/i;
 
-type StorageKeys = string | string[] | null;
+type StorageKeys = string | string[] | null | Record<string, unknown>;
 
 type ChromeStorageAreaLike = {
   get?: (keys: StorageKeys, callback: (result: Record<string, unknown>) => void) => void;

@@ -24,7 +24,6 @@ common/lynx-checklist.ts
 common/page-motion-freeze-bridge.ts
 common/page-motion-freeze-control.ts
 common/property-lock-background.ts
-common/settings-store.ts
 common/text.ts
 common/utilities.ts
 common/xpath-utilities.ts

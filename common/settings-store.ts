@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { storageGet, storageSet } from "./storage-core.js";
 import { normalizeStageBase } from "./lynx-live-pages.js";
 
@@ -13,18 +12,58 @@ const GLOBAL_THEME_SETTINGS_SYNC_DEFAULTS = {
   globalThemeMode: ""
 };
 
-let cachedGlobalAiSettings = null;
+let cachedGlobalAiSettings: GlobalAiSettings | null = null;
 let syncChangeListenerInstalled = false;
 
-function normalizeStringValue(value) {
+type GlobalAiSettings = {
+  tokenValue: string;
+  endpointValue: string;
+  configEndpointValue: string;
+  stageBaseValue: string;
+};
+
+type GlobalSettingsWriteSnapshot = {
+  tokenValue: string;
+  endpointValue: string;
+  configEndpointValue: string;
+  stageBaseValue: string;
+};
+
+type GlobalAiSettingsOptions = {
+  useCache?: boolean;
+};
+
+type ThemeSettingsOptions = {
+  normalizeThemeValue?: (value: unknown) => string;
+  normalizeThemeModeValue?: (value: unknown) => string;
+};
+
+type SaveLoginSettingsOptions = {
+  stageBase?: unknown;
+  token?: unknown;
+};
+
+type SyncAiStoredValues = {
+  globalToken?: unknown;
+  globalEndpoint?: unknown;
+  globalConfigEndpoint?: unknown;
+  globalStageBase?: unknown;
+};
+
+type SyncThemeStoredValues = {
+  globalTheme?: unknown;
+  globalThemeMode?: unknown;
+};
+
+function normalizeStringValue(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function normalizeStoredTokenValue(value) {
+function normalizeStoredTokenValue(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
-function getEndpointOrigin(value) {
+function getEndpointOrigin(value: unknown): string {
   const normalized = normalizeStringValue(value);
   if (!normalized) {
     return "";
@@ -36,17 +75,17 @@ function getEndpointOrigin(value) {
   }
 }
 
-function normalizeGlobalAiSettings(stored) {
+function normalizeGlobalAiSettings(stored: unknown): GlobalAiSettings {
   const normalized = stored && typeof stored === "object" ? stored : {};
   return {
-    tokenValue: normalizeStringValue(normalized.globalToken),
-    endpointValue: normalizeStringValue(normalized.globalEndpoint),
-    configEndpointValue: normalizeStringValue(normalized.globalConfigEndpoint),
-    stageBaseValue: normalizeStringValue(normalized.globalStageBase)
+    tokenValue: normalizeStringValue((normalized as Record<string, unknown>).globalToken),
+    endpointValue: normalizeStringValue((normalized as Record<string, unknown>).globalEndpoint),
+    configEndpointValue: normalizeStringValue((normalized as Record<string, unknown>).globalConfigEndpoint),
+    stageBaseValue: normalizeStringValue((normalized as Record<string, unknown>).globalStageBase)
   };
 }
 
-function hasRelevantSyncSettingsChange(changes) {
+function hasRelevantSyncSettingsChange(changes: unknown): boolean {
   if (!changes || typeof changes !== "object") {
     return false;
   }
@@ -58,7 +97,7 @@ function hasRelevantSyncSettingsChange(changes) {
   ].some((key) => Object.prototype.hasOwnProperty.call(changes, key));
 }
 
-function updateCachedGlobalAiSettings(patch = {}) {
+function updateCachedGlobalAiSettings(patch: Partial<GlobalAiSettings> = {}): void {
   if (!cachedGlobalAiSettings || typeof cachedGlobalAiSettings !== "object") {
     return;
   }
@@ -68,13 +107,16 @@ function updateCachedGlobalAiSettings(patch = {}) {
   };
 }
 
-async function getGlobalSettingsWriteSnapshot() {
-  const stored = await storageGet(chrome.storage.sync, GLOBAL_AI_SETTINGS_SYNC_DEFAULTS);
+async function getGlobalSettingsWriteSnapshot(): Promise<GlobalSettingsWriteSnapshot> {
+  const stored = (await storageGet(
+    chrome.storage.sync,
+    GLOBAL_AI_SETTINGS_SYNC_DEFAULTS as unknown as Record<string, unknown>
+  )) as SyncAiStoredValues;
   return {
-    tokenValue: normalizeStoredTokenValue(stored && stored.globalToken),
-    endpointValue: normalizeStringValue(stored && stored.globalEndpoint),
-    configEndpointValue: normalizeStringValue(stored && stored.globalConfigEndpoint),
-    stageBaseValue: normalizeStringValue(stored && stored.globalStageBase)
+    tokenValue: normalizeStoredTokenValue(stored.globalToken),
+    endpointValue: normalizeStringValue(stored.globalEndpoint),
+    configEndpointValue: normalizeStringValue(stored.globalConfigEndpoint),
+    stageBaseValue: normalizeStringValue(stored.globalStageBase)
   };
 }
 
@@ -100,11 +142,11 @@ function installSyncSettingsCacheInvalidationListener() {
   syncChangeListenerInstalled = true;
 }
 
-export function invalidateSettingsCache() {
+export function invalidateSettingsCache(): void {
   cachedGlobalAiSettings = null;
 }
 
-export async function getGlobalAiSettings(options = {}) {
+export async function getGlobalAiSettings(options: GlobalAiSettingsOptions = {}): Promise<GlobalAiSettings> {
   const useCache = Boolean(options.useCache);
   if (useCache) {
     installSyncSettingsCacheInvalidationListener();
@@ -113,7 +155,10 @@ export async function getGlobalAiSettings(options = {}) {
     }
   }
 
-  const stored = await storageGet(chrome.storage.sync, GLOBAL_AI_SETTINGS_SYNC_DEFAULTS);
+  const stored = (await storageGet(
+    chrome.storage.sync,
+    GLOBAL_AI_SETTINGS_SYNC_DEFAULTS as unknown as Record<string, unknown>
+  )) as SyncAiStoredValues;
   const normalized = normalizeGlobalAiSettings(stored);
   if (useCache) {
     cachedGlobalAiSettings = { ...normalized };
@@ -121,7 +166,9 @@ export async function getGlobalAiSettings(options = {}) {
   return normalized;
 }
 
-export async function getPropertyLockConnectionSettings(options = {}) {
+export async function getPropertyLockConnectionSettings(
+  options: GlobalAiSettingsOptions = {}
+): Promise<{ endpointBase: string; tokenValue: string }> {
   const settings = await getGlobalAiSettings(options);
   return {
     endpointBase: settings.configEndpointValue || settings.stageBaseValue || "",
@@ -129,27 +176,32 @@ export async function getPropertyLockConnectionSettings(options = {}) {
   };
 }
 
-export async function getGlobalToken(options = {}) {
+export async function getGlobalToken(options: { trim?: boolean } = {}): Promise<string> {
   if (options.trim) {
-    const settings = await getGlobalAiSettings(options);
+    const settings = await getGlobalAiSettings({ useCache: false });
     return settings.tokenValue;
   }
-  const stored = await storageGet(chrome.storage.sync, { globalToken: "" });
-  return normalizeStoredTokenValue(stored && stored.globalToken);
+  const stored = (await storageGet(
+    chrome.storage.sync,
+    { globalToken: "" } as unknown as Record<string, unknown>
+  )) as SyncAiStoredValues;
+  return normalizeStoredTokenValue(stored.globalToken);
 }
 
-export async function setGlobalToken(tokenValue) {
+export async function setGlobalToken(tokenValue: unknown): Promise<string> {
   const nextToken = normalizeStoredTokenValue(tokenValue);
   await storageSet(chrome.storage.sync, { globalToken: nextToken });
   updateCachedGlobalAiSettings({ tokenValue: nextToken.trim() });
   return nextToken;
 }
 
-export async function clearGlobalToken() {
+export async function clearGlobalToken(): Promise<void> {
   await setGlobalToken("");
 }
 
-export async function saveLoginSettings(options = {}) {
+export async function saveLoginSettings(
+  options: SaveLoginSettingsOptions = {}
+): Promise<{ stageBaseValue: string; tokenValue: string }> {
   const stageBaseValue = normalizeStringValue(options.stageBase);
   const tokenValue = normalizeStoredTokenValue(options.token);
   await storageSet(chrome.storage.sync, {
@@ -166,13 +218,17 @@ export async function saveLoginSettings(options = {}) {
   };
 }
 
-export async function saveGlobalConfigEndpoint(endpointValue) {
+export async function saveGlobalConfigEndpoint(endpointValue: unknown): Promise<{
+  tokenCleared: boolean;
+  previousEndpoint: string;
+  endpointValue: string;
+}> {
   const nextEndpointValue = normalizeStringValue(endpointValue);
   const stored = await getGlobalSettingsWriteSnapshot();
   const previousEndpoint = stored.configEndpointValue;
   const endpointOriginChanged =
-    getEndpointOrigin(previousEndpoint) &&
-    getEndpointOrigin(nextEndpointValue) &&
+    Boolean(getEndpointOrigin(previousEndpoint)) &&
+    Boolean(getEndpointOrigin(nextEndpointValue)) &&
     getEndpointOrigin(previousEndpoint) !== getEndpointOrigin(nextEndpointValue);
   const tokenCleared = Boolean(stored.tokenValue) && endpointOriginChanged;
   const nextTokenValue = tokenCleared ? "" : stored.tokenValue;
@@ -191,13 +247,17 @@ export async function saveGlobalConfigEndpoint(endpointValue) {
   };
 }
 
-export async function saveGlobalEndpoint(endpointValue) {
+export async function saveGlobalEndpoint(endpointValue: unknown): Promise<{
+  tokenCleared: boolean;
+  previousEndpoint: string;
+  endpointValue: string;
+}> {
   const nextEndpointValue = normalizeStringValue(endpointValue);
   const stored = await getGlobalSettingsWriteSnapshot();
   const previousEndpoint = stored.endpointValue;
   const endpointOriginChanged =
-    getEndpointOrigin(previousEndpoint) &&
-    getEndpointOrigin(nextEndpointValue) &&
+    Boolean(getEndpointOrigin(previousEndpoint)) &&
+    Boolean(getEndpointOrigin(nextEndpointValue)) &&
     getEndpointOrigin(previousEndpoint) !== getEndpointOrigin(nextEndpointValue);
   const tokenCleared = Boolean(stored.tokenValue) && endpointOriginChanged;
   const nextTokenValue = tokenCleared ? "" : stored.tokenValue;
@@ -216,7 +276,11 @@ export async function saveGlobalEndpoint(endpointValue) {
   };
 }
 
-export async function saveGlobalStageBase(stageBaseValue) {
+export async function saveGlobalStageBase(stageBaseValue: unknown): Promise<{
+  tokenCleared: boolean;
+  previousStageBase: string;
+  stageBaseValue: string;
+}> {
   const nextStageBaseValue = normalizeStageBase(stageBaseValue);
   const stored = await getGlobalSettingsWriteSnapshot();
   const previousStageBase = normalizeStageBase(stored.stageBaseValue);
@@ -237,31 +301,40 @@ export async function saveGlobalStageBase(stageBaseValue) {
   };
 }
 
-export async function getThemeSettings(options = {}) {
+export async function getThemeSettings(
+  options: ThemeSettingsOptions = {}
+): Promise<{ themeValue: string; themeModeValue: string }> {
   const normalizeThemeValue =
     typeof options.normalizeThemeValue === "function"
       ? options.normalizeThemeValue
-      : (value) => normalizeStringValue(value);
+      : (value: unknown) => normalizeStringValue(value);
   const normalizeThemeModeValue =
     typeof options.normalizeThemeModeValue === "function"
       ? options.normalizeThemeModeValue
-      : (value) => normalizeStringValue(value);
-  const stored = await storageGet(chrome.storage.sync, GLOBAL_THEME_SETTINGS_SYNC_DEFAULTS);
+      : (value: unknown) => normalizeStringValue(value);
+  const stored = (await storageGet(
+    chrome.storage.sync,
+    GLOBAL_THEME_SETTINGS_SYNC_DEFAULTS as unknown as Record<string, unknown>
+  )) as SyncThemeStoredValues;
   return {
-    themeValue: normalizeThemeValue(stored && stored.globalTheme),
-    themeModeValue: normalizeThemeModeValue(stored && stored.globalThemeMode)
+    themeValue: normalizeThemeValue(stored.globalTheme),
+    themeModeValue: normalizeThemeModeValue(stored.globalThemeMode)
   };
 }
 
-export async function setThemeSettings(themeValue, themeModeValue, options = {}) {
+export async function setThemeSettings(
+  themeValue: unknown,
+  themeModeValue: unknown,
+  options: ThemeSettingsOptions = {}
+): Promise<{ themeValue: string; themeModeValue: string }> {
   const normalizeThemeValue =
     typeof options.normalizeThemeValue === "function"
       ? options.normalizeThemeValue
-      : (value) => normalizeStringValue(value);
+      : (value: unknown) => normalizeStringValue(value);
   const normalizeThemeModeValue =
     typeof options.normalizeThemeModeValue === "function"
       ? options.normalizeThemeModeValue
-      : (value) => normalizeStringValue(value);
+      : (value: unknown) => normalizeStringValue(value);
   const nextThemeValue = normalizeThemeValue(themeValue);
   const nextThemeModeValue = normalizeThemeModeValue(themeModeValue);
   await storageSet(chrome.storage.sync, {
@@ -274,8 +347,15 @@ export async function setThemeSettings(themeValue, themeModeValue, options = {})
   };
 }
 
-export function summarizeGlobalAiSettingsForLog(settings) {
-  const normalized = settings && typeof settings === "object" ? settings : {};
+export function summarizeGlobalAiSettingsForLog(settings: unknown): {
+  tokenValue: string;
+  endpointValue: string;
+  configEndpointValue: string;
+  stageBaseValue: string;
+} {
+  const normalized = (settings && typeof settings === "object"
+    ? settings
+    : {}) as Partial<GlobalAiSettings>;
   return {
     tokenValue: normalizeStringValue(normalized.tokenValue) ? "[redacted]" : "",
     endpointValue: normalizeStringValue(normalized.endpointValue),
