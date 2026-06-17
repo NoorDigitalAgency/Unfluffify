@@ -26,8 +26,11 @@ interface AiRunManagedTimeoutGroup {
 
 interface AiRunConfigStore {
   ensureConfig(baseUrl: string): Promise<Record<string, unknown>>;
-  updateConfig(baseUrl: string, mutate: (config: any) => void): Promise<void>;
+  updateConfig(baseUrl: string, mutate: (config: Record<string, unknown>) => void): Promise<void>;
 }
+
+type AiRunProgressUpdate = (value: Record<string, unknown>) => unknown;
+type AiRunCommandPayload = Record<string, unknown>;
 
 interface AiRunOrchestratorOptions {
   aiComputeLockExpiresAtByTabId?: Map<number, number>;
@@ -71,12 +74,12 @@ interface AiRunOrchestratorOptions {
   aiRunPollIntervalMs?: number;
 }
 
-function defaultNormalizeTabId(value: any) {
+function defaultNormalizeTabId(value: unknown) {
   const numeric = Number(value);
   return Number.isFinite(numeric) && numeric > 0 ? Math.trunc(numeric) : null;
 }
 
-function defaultNormalizeActivationBaseUrl(value: any) {
+function defaultNormalizeActivationBaseUrl(value: unknown) {
   return typeof value === "string" ? value : "";
 }
 
@@ -98,11 +101,11 @@ function defaultIsPageWithinBaseUrl() {
 
 function defaultCreateManagedTimeoutGroup() {
   return {
-    set(fn: any, ms: any) {
+    set(fn: (value?: unknown) => void, ms: number) {
       return setTimeout(fn, ms);
     },
-    clear(handle: any) {
-      clearTimeout(handle);
+    clear(handle: unknown) {
+      clearTimeout(handle as ReturnType<typeof setTimeout>);
     },
     clearAll() {}
   };
@@ -213,20 +216,22 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
     ? Math.trunc(aiRunPollIntervalMsOption)
     : 5_000;
 
-  function getAiRunCurrentPageEntry(currentConfig: any, currentPageUrl: any) {
+  function getAiRunCurrentPageEntry(currentConfig: unknown, currentPageUrl: unknown) {
     if (!currentConfig || typeof currentConfig !== "object") {
       return null;
     }
-    const pageMarkings = currentConfig.pageMarkings;
+    const pageMarkings = (currentConfig as { pageMarkings?: unknown }).pageMarkings;
     if (!pageMarkings || typeof pageMarkings !== "object") {
       return null;
     }
-    const entry = pageMarkings[currentPageUrl];
+    const entry = (pageMarkings as Record<string, unknown>)[currentPageUrl as string];
     return entry && typeof entry === "object" ? entry : null;
   }
 
-  function isAiRunCurrentPageSnapshotMissing(currentConfig: any, currentPageUrl: any) {
-    const entry = getAiRunCurrentPageEntry(currentConfig, currentPageUrl);
+  function isAiRunCurrentPageSnapshotMissing(currentConfig: unknown, currentPageUrl: unknown) {
+    const entry = getAiRunCurrentPageEntry(currentConfig, currentPageUrl) as
+      | { renderedHtml?: unknown; submissionXpaths?: unknown }
+      | null;
     if (!entry) {
       return true;
     }
@@ -239,7 +244,7 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
     return false;
   }
 
-  async function refineAiRunPayloadXpathsInBackground(payloadKey: any) {
+  async function refineAiRunPayloadXpathsInBackground(payloadKey: unknown) {
     const sourcePayloadKey = typeof payloadKey === "string" ? payloadKey.trim() : "";
     if (!sourcePayloadKey) {
       return { ok: false, error: "Missing AI run payload" };
@@ -257,7 +262,7 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
     }
     const refinedPayload = {
       ...payload,
-      pages: payload.pages.map((page: any) => {
+      pages: payload.pages.map((page) => {
         const renderedHtml = page && typeof page.renderedHtml === "string" ? page.renderedHtml : "";
         const rawHtml = page && typeof page.rawHtml === "string" ? page.rawHtml : "";
         const renderedXPaths = Array.isArray(page && page.renderedXPaths) ? page.renderedXPaths : [];
@@ -279,7 +284,7 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
     };
   }
 
-  async function loadAiRunSelectorSetFromPayloadKey(payloadKey: any) {
+  async function loadAiRunSelectorSetFromPayloadKey(payloadKey: unknown) {
     const resultPayloadKey = typeof payloadKey === "string" ? payloadKey.trim() : "";
     if (!resultPayloadKey) {
       return null;
@@ -301,7 +306,7 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
     return normalizeAiSelectorSet(payload);
   }
 
-  async function setAiComputeLockForTab(tabId: any, active: any, expiresAt: any = 0, baseUrl: any = "") {
+  async function setAiComputeLockForTab(tabId: unknown, active: unknown, expiresAt: unknown = 0, baseUrl: unknown = "") {
     const normalizedTabId = normalizeTabId(tabId);
     if (!normalizedTabId) {
       return { ok: false, active: Boolean(active), error: "Missing tab" };
@@ -356,7 +361,7 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
       };
   }
 
-  function isAiComputeLockActiveForTab(tabId: any) {
+  function isAiComputeLockActiveForTab(tabId: unknown) {
     const normalizedTabId = normalizeTabId(tabId);
     if (!normalizedTabId) {
       return false;
@@ -411,13 +416,13 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
     }
     try {
       const currentConfig = await configStore.ensureConfig(baseUrl);
-      const pageMarkings: any =
+      const pageMarkings: Record<string, unknown> =
         currentConfig && currentConfig.pageMarkings && typeof currentConfig.pageMarkings === "object"
-          ? currentConfig.pageMarkings
+          ? (currentConfig.pageMarkings as Record<string, unknown>)
           : {};
       const storedPageEntries = Object.entries(pageMarkings)
         .filter(([url, entry]) => {
-          const entryAny = entry as any;
+          const entryAny = entry as Record<string, unknown>;
           if (!url || !entry || typeof entry !== "object") {
             return false;
           }
@@ -432,7 +437,7 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
           }
           return true;
         });
-      const storedPageEntriesAny = storedPageEntries as Array<[string, any]>;
+      const storedPageEntriesAny = storedPageEntries as Array<[string, Record<string, unknown>]>;
       if (!storedPageEntries.some(([url]) => url === currentPageUrl)) {
         return { ok: false, reason: "missing_current_page" };
       }
@@ -442,7 +447,7 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
       const urlsMissingRawHtml = storedPageEntriesAny
         .map(([url, entry]) => ({ url, entry }))
         .filter(({ entry }) => {
-          const entryAny = entry as any;
+          const entryAny = entry as Record<string, unknown>;
           return typeof entryAny.rawHtml !== "string" || !entryAny.rawHtml;
         });
       const backfillResults = await Promise.all(
@@ -456,16 +461,17 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
       );
       const successfulBackfills = backfillResults.filter(Boolean) as Array<{ url: string; rawHtml: string }>;
       if (successfulBackfills.length) {
-        await configStore.updateConfig(baseUrl, (targetConfig: any) => {
+        await configStore.updateConfig(baseUrl, (targetConfig: Record<string, unknown>) => {
           if (!targetConfig.pageMarkings || typeof targetConfig.pageMarkings !== "object") {
             return;
           }
+          const targetPageMarkings = targetConfig.pageMarkings as Record<string, unknown>;
           successfulBackfills.forEach((item) => {
-            const targetEntry = targetConfig.pageMarkings[item.url];
+            const targetEntry = targetPageMarkings[item.url];
             if (!targetEntry || typeof targetEntry !== "object") {
               return;
             }
-            targetEntry.rawHtml = item.rawHtml;
+            (targetEntry as Record<string, unknown>).rawHtml = item.rawHtml;
           });
         });
       }
@@ -474,7 +480,7 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
         rawHtmlBackfills.set(item.url, item.rawHtml);
       });
       const pages = storedPageEntriesAny.map(([url, entry]) => {
-        const entryAny = entry as any;
+        const entryAny = entry as Record<string, unknown>;
         const rawHtml =
           entryAny && typeof entryAny.rawHtml === "string" && entryAny.rawHtml
             ? entryAny.rawHtml
@@ -506,8 +512,8 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
     }
   }
 
-  async function runAiCommandForTab(tabId: any, payload: any, update: any) {
-    const payloadAny = payload as any;
+  async function runAiCommandForTab(tabId: unknown, payload: AiRunCommandPayload, update: AiRunProgressUpdate) {
+    const payloadAny = payload as Record<string, unknown>;
     const timeoutGroup = createManagedTimeoutGroup();
     const baseUrl = normalizeActivationBaseUrl(payloadAny && payloadAny.baseUrl);
     const currentPageUrl = typeof payloadAny?.currentPageUrl === "string"
