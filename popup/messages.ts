@@ -51,7 +51,7 @@ export function sendRuntimeMessage(message: any) {
   });
 }
 
-// @ts-ignore preserve source-contract signature used by popup source-shape tests
+// @ts-expect-error preserve source-contract signature used by popup source-shape tests
 export function requestTabApplyPostSaveTransition(tabId, payload = {}, options = {}) {
   const opts = options as any;
   if (!tabId) {
@@ -82,7 +82,7 @@ export function requestTabApplyPostSaveTransition(tabId, payload = {}, options =
   });
 }
 
-// @ts-ignore preserve source-contract signature used by popup source-shape tests
+// @ts-expect-error preserve source-contract signature used by popup source-shape tests
 export function requestTabApplyLocalDiscard(tabId, payload = {}, options = {}) {
   const opts = options as any;
   if (!tabId) {
@@ -113,7 +113,7 @@ export function requestTabApplyLocalDiscard(tabId, payload = {}, options = {}) {
   });
 }
 
-// @ts-ignore preserve source-contract signature used by popup source-shape tests
+// @ts-expect-error preserve source-contract signature used by popup source-shape tests
 export function requestTabShowAiPreview(tabId, payload = {}, options = {}) {
   const opts = options as any;
   if (!tabId) {
@@ -144,7 +144,7 @@ export function requestTabShowAiPreview(tabId, payload = {}, options = {}) {
   });
 }
 
-// @ts-ignore preserve source-contract signature used by popup source-shape tests
+// @ts-expect-error preserve source-contract signature used by popup source-shape tests
 export function requestTabCloseAiPreview(tabId, payload = {}, options = {}) {
   const opts = options as any;
   if (!tabId) {
@@ -175,7 +175,7 @@ export function requestTabCloseAiPreview(tabId, payload = {}, options = {}) {
   });
 }
 
-// @ts-ignore preserve source-contract signature used by popup source-shape tests
+// @ts-expect-error preserve source-contract signature used by popup source-shape tests
 export function requestTabSetAiPreviewExpandedMode(tabId, payload = {}, options = {}) {
   const opts = options as any;
   if (!tabId) {
@@ -206,7 +206,7 @@ export function requestTabSetAiPreviewExpandedMode(tabId, payload = {}, options 
   });
 }
 
-// @ts-ignore preserve source-contract signature used by popup source-shape tests
+// @ts-expect-error preserve source-contract signature used by popup source-shape tests
 export function requestTabFocusPreviewElement(tabId, payload = {}, options = {}) {
   const opts = options as any;
   if (!tabId) {
@@ -261,7 +261,7 @@ export function setTabState(tabId: any, tabState: any, scope: any = null) {
   });
 }
 
-// @ts-ignore preserve source-contract signature used by popup source-shape tests
+// @ts-expect-error preserve source-contract signature used by popup source-shape tests
 export function requestPopupTabViewState(tabId, options = {}) {
   const opts = options as any;
   if (!tabId) {
@@ -278,7 +278,7 @@ export function requestPopupTabViewState(tabId, options = {}) {
   )).catch(() => null);
 }
 
-// @ts-ignore preserve source-contract signature used by popup source-shape tests
+// @ts-expect-error preserve source-contract signature used by popup source-shape tests
 export function requestTabActivateMarking(tabId, payload = {}, options = {}) {
   const opts = options as any;
   if (!tabId) {
@@ -310,7 +310,7 @@ export function requestTabActivateMarking(tabId, payload = {}, options = {}) {
   });
 }
 
-// @ts-ignore preserve source-contract signature used by popup source-shape tests
+// @ts-expect-error preserve source-contract signature used by popup source-shape tests
 export function requestTabDeactivateMarking(tabId, payload = {}, options = {}) {
   const opts = options as any;
   if (!tabId) {
@@ -341,7 +341,7 @@ export function requestTabDeactivateMarking(tabId, payload = {}, options = {}) {
   });
 }
 
-// @ts-ignore preserve source-contract signature used by popup source-shape tests
+// @ts-expect-error preserve source-contract signature used by popup source-shape tests
 export function requestTabRunRenderModeInspection(tabId, payload = {}, options = {}) {
   if (!tabId) {
     return Promise.resolve({
@@ -355,18 +355,18 @@ export function requestTabRunRenderModeInspection(tabId, payload = {}, options =
     payload: normalizedPayload
   }, {
     tabId,
-    // @ts-ignore preserve source-contract timeout expression used by render-mode inspection tests
+    // @ts-expect-error preserve source-contract timeout expression used by render-mode inspection tests
     timeoutMs: Number.isFinite(options.timeoutMs) ? Math.trunc(options.timeoutMs) : 120000
   }).then((result) => ({
     ok: true,
     result: result && typeof result === "object" ? result : {}
   })).catch(async (error) => {
-    // @ts-ignore preserve source-contract operationId access used by render-mode inspection tests
+    // @ts-expect-error preserve source-contract operationId access used by render-mode inspection tests
     if (typeof normalizedPayload.operationId === "string" && normalizedPayload.operationId) {
       await requestRuntime({
         type: TAB_END_RENDER_MODE_INSPECTION_COMMAND,
         payload: {
-          // @ts-ignore preserve source-contract operationId access used by render-mode inspection tests
+          // @ts-expect-error preserve source-contract operationId access used by render-mode inspection tests
           operationId: normalizedPayload.operationId
         }
       }, {
@@ -533,7 +533,7 @@ function queryActiveTabFallback() {
   });
 }
 
-// @ts-ignore preserve source-contract signature used by popup source-shape tests
+// @ts-expect-error preserve source-contract signature used by popup source-shape tests
 async function loadActiveTabFallback(debugTabId) {
   const debugTab = await getTabById(debugTabId);
   if (debugTab) {
@@ -554,12 +554,11 @@ export async function loadActiveTab() {
         ? Math.trunc(debugTabIdParam)
         : null
     });
-    // @ts-ignore preserve source-contract literal assignment used by device-emulation lifecycle tests
     state.currentTab = response && response.ok && response.tab
       ? response.tab
       : await loadActiveTabFallback(debugTabIdParam);
   } catch (error) {
-    // @ts-ignore preserve source-contract literal assignment used by device-emulation lifecycle tests
+    // @ts-expect-error preserve source-contract literal assignment used by device-emulation lifecycle tests
     state.currentTab = await loadActiveTabFallback(debugTabIdParam);
   }
 }

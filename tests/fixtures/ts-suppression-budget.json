@@ -9,7 +9,7 @@
     "common/page-motion-freeze-bridge.ts": 47,
     "common/page-motion-freeze-control.ts": 41,
     "popup/property-lock-ui.ts": 17,
-    "popup/messages.ts": 16,
+    "popup/messages.ts": 15,
     "common/text.ts": 14,
     "background/remote-config-sync.ts": 6,
     "content/property-lock-state-machine.ts": 6,
