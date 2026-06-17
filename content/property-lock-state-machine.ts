@@ -1,6 +1,6 @@
-// @ts-ignore preserve source-contract signature used by property lock tests
+// @ts-expect-error preserve source-contract signature used by property lock tests
 export function createPropertyLockStateMachine(deps) {
-  // @ts-ignore preserve source-contract signature used by property lock tests
+  // @ts-expect-error preserve source-contract signature used by property lock tests
   function normalizeRecoveryTabState(tabState) {
     const nextSiteId = Number.isFinite(tabState && tabState.propertyLockRecoverySiteId)
       ? Math.trunc(tabState.propertyLockRecoverySiteId)
@@ -20,7 +20,6 @@ export function createPropertyLockStateMachine(deps) {
     };
   }
 
-  // @ts-ignore preserve source-contract signature used by property lock tests
   function persistRecoveryState({ siteId = null, baseUrl = "", clientId = "", deadlineAt = 0 } = {}) {
     if (!deps.isPropertyLockCollaborationEnabled()) {
       return Promise.resolve(null);
@@ -30,7 +29,7 @@ export function createPropertyLockStateMachine(deps) {
       scope: "initial",
       state: {
         active: true,
-        // @ts-ignore keep source-contract literal while allowing nullable site id
+        // @ts-expect-error keep source-contract literal while allowing nullable site id
         propertyLockRecoverySiteId: Number.isFinite(siteId) ? Math.trunc(siteId) : null,
         propertyLockRecoveryBaseUrl: typeof baseUrl === "string" ? baseUrl : "",
         propertyLockRecoveryClientId: deps.normalizePropertyLockClientId(clientId),
@@ -39,7 +38,7 @@ export function createPropertyLockStateMachine(deps) {
     }).catch(() => null);
   }
 
-  // @ts-ignore preserve source-contract signature used by property lock tests
+  // @ts-expect-error preserve source-contract signature used by property lock tests
   function persistOffCandidateDeadline(deadlineAt) {
     if (!deps.isPropertyLockCollaborationEnabled()) {
       return Promise.resolve(null);
@@ -65,7 +64,6 @@ export function createPropertyLockStateMachine(deps) {
     }
   }
 
-  // @ts-ignore preserve source-contract signature used by property lock tests
   function clearCrossPropertyWarning(options = {}) {
     const { preserveSession = false } = (options || {}) as any;
     deps.setPropertyLockRecoveryDeadlineAt(0);
@@ -89,7 +87,7 @@ export function createPropertyLockStateMachine(deps) {
     }
   }
 
-  // @ts-ignore preserve source-contract signature used by property lock tests
+  // @ts-expect-error preserve source-contract signature used by property lock tests
   function startCrossPropertyWarning(recoveryState) {
     if (!deps.ensurePropertyLockCollaborationActive()) {
       return;
@@ -156,7 +154,7 @@ export function createPropertyLockStateMachine(deps) {
     }, deps.PROPERTY_LOCK_OFF_CANDIDATE_WARNING_TIMEOUT_MS + 100);
   }
 
-  // @ts-ignore preserve source-contract signature used by property lock tests
+  // @ts-expect-error preserve source-contract signature used by property lock tests
   function applyServerMessage(serverMessage) {
     if (!deps.ensurePropertyLockCollaborationActive()) {
       return;
