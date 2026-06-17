@@ -47,7 +47,7 @@ export const NON_BLOCKING_PAGE_SAVE_RECONCILIATION_REASONS = new Set([
   "load_failed"
 ]);
 
-// @ts-ignore
+// @ts-expect-error
 export function buildPageSaveReconciliationKey(baseUrl, pageUrl) {
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl) || baseUrl;
   const normalizedPageUrl = typeof pageUrl === "string" ? pageUrl.trim() : "";
@@ -57,7 +57,7 @@ export function buildPageSaveReconciliationKey(baseUrl, pageUrl) {
   return JSON.stringify([normalizedBaseUrl, normalizedPageUrl]);
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function normalizePageSaveReconciliation(value) {
   if (!value || typeof value !== "object") {
     return null;
@@ -83,7 +83,7 @@ export function normalizePageSaveReconciliation(value) {
   };
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function isPageSaveReconciliationPending(value) {
   const normalized = normalizePageSaveReconciliation(value);
   if (!normalized || normalized.status !== PAGE_SAVE_RECONCILIATION_STATUS_PENDING) {
@@ -98,7 +98,7 @@ async function getPageSaveReconciliations() {
   return raw && typeof raw === "object" ? raw : {};
 }
 
-// @ts-ignore
+// @ts-expect-error
 export async function getPageSaveReconciliation(baseUrl, pageUrl) {
   const key = buildPageSaveReconciliationKey(baseUrl, pageUrl);
   if (!key) {
@@ -108,7 +108,7 @@ export async function getPageSaveReconciliation(baseUrl, pageUrl) {
   return normalizePageSaveReconciliation(reconciliations[key]);
 }
 
-// @ts-ignore
+// @ts-expect-error
 export async function setPageSaveReconciliation(baseUrl, pageUrl, value = {}) {
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl) || baseUrl;
   const normalizedPageUrl = typeof pageUrl === "string" ? pageUrl.trim() : "";
@@ -121,7 +121,7 @@ export async function setPageSaveReconciliation(baseUrl, pageUrl, value = {}) {
     status: PAGE_SAVE_RECONCILIATION_STATUS_PENDING,
     baseUrl: normalizedBaseUrl,
     pageUrl: normalizedPageUrl,
-// @ts-ignore
+// @ts-expect-error
     updatedAt: value && value.updatedAt ? value.updatedAt : createTimestampNow()
   });
   if (!nextValue) {
@@ -133,7 +133,7 @@ export async function setPageSaveReconciliation(baseUrl, pageUrl, value = {}) {
   return nextValue;
 }
 
-// @ts-ignore
+// @ts-expect-error
 export async function clearPageSaveReconciliation(baseUrl, pageUrl) {
   const key = buildPageSaveReconciliationKey(baseUrl, pageUrl);
   if (!key) {
@@ -147,39 +147,39 @@ export async function clearPageSaveReconciliation(baseUrl, pageUrl) {
   await idbSet({ [PAGE_SAVE_RECONCILIATIONS_KEY]: reconciliations });
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function createBackendSavedPageMarkingsSnapshot(pageMarkings) {
   const normalized = normalizePageMarkings(pageMarkings).normalized;
   const snapshot = {};
   Object.entries(normalized).forEach(([url, entry]) => {
-// @ts-ignore
+// @ts-expect-error
     snapshot[url] = {
-// @ts-ignore
+// @ts-expect-error
       timestamp: normalizeEntryTimestamp(entry.timestamp),
-// @ts-ignore
+// @ts-expect-error
       xpaths: Array.isArray(entry.xpaths) ? entry.xpaths : [],
-// @ts-ignore
+// @ts-expect-error
       includeXpaths: Array.isArray(entry.includeXpaths) ? entry.includeXpaths : [],
-// @ts-ignore
+// @ts-expect-error
       selectorSuppressedXpaths: Array.isArray(entry.selectorSuppressedXpaths)
-// @ts-ignore
+// @ts-expect-error
         ? entry.selectorSuppressedXpaths
         : [],
-// @ts-ignore
+// @ts-expect-error
       submissionXpaths: Array.isArray(entry.submissionXpaths) ? entry.submissionXpaths : [],
-// @ts-ignore
+// @ts-expect-error
       renderedHtml: typeof entry.renderedHtml === "string" ? entry.renderedHtml : "",
-// @ts-ignore
+// @ts-expect-error
       rawHtml: typeof entry.rawHtml === "string" ? entry.rawHtml : ""
     };
-// @ts-ignore
+// @ts-expect-error
     if (entry.title) {
-// @ts-ignore
+// @ts-expect-error
       snapshot[url].title = entry.title;
     }
-// @ts-ignore
+// @ts-expect-error
     if (entry.pageType) {
-// @ts-ignore
+// @ts-expect-error
       snapshot[url].pageType = entry.pageType;
     }
   });
@@ -192,7 +192,7 @@ async function getBackendSavedPageMarkingsStore() {
   return store && typeof store === "object" ? store : {};
 }
 
-// @ts-ignore
+// @ts-expect-error
 export async function getBackendSavedPageMarkings(baseUrl) {
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl) || (typeof baseUrl === "string" ? baseUrl : "");
   if (!normalizedBaseUrl) {
@@ -202,7 +202,7 @@ export async function getBackendSavedPageMarkings(baseUrl) {
   return createBackendSavedPageMarkingsSnapshot(store[normalizedBaseUrl]);
 }
 
-// @ts-ignore
+// @ts-expect-error
 export async function setBackendSavedPageMarkings(baseUrl, pageMarkings) {
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl) || (typeof baseUrl === "string" ? baseUrl : "");
   if (!normalizedBaseUrl) {
@@ -215,7 +215,7 @@ export async function setBackendSavedPageMarkings(baseUrl, pageMarkings) {
   return snapshot;
 }
 
-// @ts-ignore
+// @ts-expect-error
 export async function clearBackendSavedPageMarkings(baseUrl) {
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl) || (typeof baseUrl === "string" ? baseUrl : "");
   if (!normalizedBaseUrl) {
@@ -234,7 +234,7 @@ export async function clearBackendSavedPageMarkings(baseUrl) {
  * @param {string} value - The render mode value to normalize
  * @returns {string} Either RENDER_MODE_STATIC or RENDER_MODE_RENDERED
  */
-// @ts-ignore
+// @ts-expect-error
 export function normalizeRenderMode(value) {
   if (typeof value !== "string") {
     return DEFAULT_RENDER_MODE;
@@ -250,7 +250,7 @@ export function normalizeRenderMode(value) {
  * @param {Object} sourceConfig - The configuration object
  * @returns {string} The render mode from the config or DEFAULT_RENDER_MODE
  */
-// @ts-ignore
+// @ts-expect-error
 export function getConfigRenderMode(sourceConfig) {
   if (!sourceConfig || typeof sourceConfig !== "object") {
     return DEFAULT_RENDER_MODE;
@@ -258,7 +258,7 @@ export function getConfigRenderMode(sourceConfig) {
   return normalizeRenderMode(sourceConfig.renderMode);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function parseTimestampMillis(value) {
   if (typeof value === "number") {
     return Number.isFinite(value) ? value : Number.NaN;
@@ -283,7 +283,7 @@ function parseTimestampMillis(value) {
   return parsed;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function toTimestampMillis(value) {
   const parsed = parseTimestampMillis(value);
   if (!Number.isFinite(parsed)) {
@@ -292,7 +292,7 @@ function toTimestampMillis(value) {
   return parsed;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function toUtcTimestampString(value) {
   const date = value instanceof Date ? value : new Date(value);
   return `${date.toISOString().slice(0, 19)}Z`;
@@ -312,7 +312,7 @@ export function createTimestampNow() {
  * @param {string|Date|number} value - The timestamp value to normalize
  * @returns {string} Normalized timestamp in UTC format (YYYY-MM-DDTHH:mm:ssZ)
  */
-// @ts-ignore
+// @ts-expect-error
 export function normalizeEntryTimestamp(value) {
   const parsed = parseTimestampMillis(value);
   if (!Number.isFinite(parsed)) {
@@ -327,19 +327,19 @@ export function normalizeEntryTimestamp(value) {
  * @param {string|Date|number} localTimestamp - The local timestamp to compare
  * @returns {boolean} True if incomingTimestamp is newer than localTimestamp
  */
-// @ts-ignore
+// @ts-expect-error
 export function isIncomingTimestampNewer(incomingTimestamp, localTimestamp) {
   return toTimestampMillis(incomingTimestamp) > toTimestampMillis(localTimestamp);
 }
 
 export function mergeRenderModeByTimestamp(
-// @ts-ignore
+// @ts-expect-error
   existingMode,
-// @ts-ignore
+// @ts-expect-error
   existingUpdatedAt,
-// @ts-ignore
+// @ts-expect-error
   incomingMode,
-// @ts-ignore
+// @ts-expect-error
   incomingUpdatedAt
 ) {
   const normalizedExistingMode = normalizeRenderMode(existingMode);
@@ -371,7 +371,7 @@ export function mergeRenderModeByTimestamp(
   };
 }
 
-// @ts-ignore
+// @ts-expect-error
 function normalizeUniqueXpathList(list) {
   const values = [];
   const seen = new Set();
@@ -399,7 +399,7 @@ function normalizeUniqueXpathList(list) {
   return { values, changed };
 }
 
-// @ts-ignore
+// @ts-expect-error
 function normalizeStoredPageTitle(value, fallbackUrl = "") {
   if (typeof value !== "string") {
     return "";
@@ -411,7 +411,7 @@ function normalizeStoredPageTitle(value, fallbackUrl = "") {
   return trimmed;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function normalizePageTypeValue(value) {
   if (typeof value !== "string") {
     return "";
@@ -425,35 +425,35 @@ function normalizePageTypeValue(value) {
     .toLowerCase();
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function isSupportedPageTypeValue(value) {
   const normalized = normalizePageTypeValue(value);
   return Boolean(normalized && SUPPORTED_PAGE_TYPE_KEYS.has(normalized));
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function collectInvalidPageMarkingUrls(pageMarkings) {
-// @ts-ignore
+// @ts-expect-error
   const invalidUrls = [];
   if (!pageMarkings || typeof pageMarkings !== "object") {
-// @ts-ignore
+// @ts-expect-error
     return invalidUrls;
   }
   Object.entries(pageMarkings).forEach(([url, entry]) => {
     if (!url || !entry || typeof entry !== "object") {
       return;
     }
-// @ts-ignore
+// @ts-expect-error
     const pageType = normalizePageTypeValue(entry.pageType);
     if (!pageType || !SUPPORTED_PAGE_TYPE_KEYS.has(pageType)) {
       invalidUrls.push(url);
     }
   });
-// @ts-ignore
+// @ts-expect-error
   return invalidUrls;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function normalizeXpathItems(rawXpaths) {
   const parsed = [];
   let changed = false;
@@ -493,7 +493,7 @@ function normalizeXpathItems(rawXpaths) {
   return { values, changed };
 }
 
-// @ts-ignore
+// @ts-expect-error
 function extractExplicitIncludeXpaths(xpathItems) {
   return (Array.isArray(xpathItems) ? xpathItems : [])
     .filter((item) =>
@@ -506,13 +506,13 @@ function extractExplicitIncludeXpaths(xpathItems) {
     .map((item) => item.xpath);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function removeExplicitIncludeXpathItems(xpathItems) {
   return (Array.isArray(xpathItems) ? xpathItems : [])
     .filter((item) => !(item && item.explicit === true && item.excluded === false));
 }
 
-// @ts-ignore
+// @ts-expect-error
 function appendUniqueXpath(values, xpath) {
   if (typeof xpath !== "string" || !xpath) {
     return;
@@ -524,11 +524,11 @@ function appendUniqueXpath(values, xpath) {
   values.push(xpath);
 }
 
-// @ts-ignore
+// @ts-expect-error
 function buildConfigSyncXpathItems(entry) {
-// @ts-ignore
+// @ts-expect-error
   const items = [];
-// @ts-ignore
+// @ts-expect-error
   const upsertItem = (item) => {
     if (!item || typeof item.xpath !== "string" || !item.xpath) {
       return;
@@ -538,10 +538,10 @@ function buildConfigSyncXpathItems(entry) {
       excluded: Boolean(item.excluded),
       ...(item.explicit === true ? { explicit: true } : {})
     };
-// @ts-ignore
+// @ts-expect-error
     const existingIndex = items.findIndex((existing) => existing.xpath === normalizedItem.xpath);
     if (existingIndex >= 0) {
-// @ts-ignore
+// @ts-expect-error
       items.splice(existingIndex, 1);
     }
     items.push(normalizedItem);
@@ -558,18 +558,18 @@ function buildConfigSyncXpathItems(entry) {
     : []) {
     upsertItem({ xpath, excluded: false, explicit: true });
   }
-// @ts-ignore
+// @ts-expect-error
   return items;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function normalizeSelectorList(list) {
-// @ts-ignore
+// @ts-expect-error
   const values = [];
   const seen = new Set();
   let changed = false;
   if (!Array.isArray(list)) {
-// @ts-ignore
+// @ts-expect-error
     return { values, changed: true };
   }
   for (const value of list) {
@@ -599,7 +599,7 @@ export function createEmptyAiSelectorSet() {
   return { exclusionSelectors: [], inclusionSelectors: [] };
 }
 
-// @ts-ignore
+// @ts-expect-error
 function cloneAiSelectorSet(selectorSet) {
   const normalized = normalizeAiSelectorSet(selectorSet).normalized;
   return {
@@ -608,7 +608,7 @@ function cloneAiSelectorSet(selectorSet) {
   };
 }
 
-// @ts-ignore
+// @ts-expect-error
 function hasAnySelectors(selectorSet) {
   return Boolean(
     selectorSet &&
@@ -621,7 +621,7 @@ function hasAnySelectors(selectorSet) {
   );
 }
 
-// @ts-ignore
+// @ts-expect-error
 function selectorSetsEqual(left, right) {
   const normalizedLeft = normalizeAiSelectorSet(left).normalized;
   const normalizedRight = normalizeAiSelectorSet(right).normalized;
@@ -631,30 +631,30 @@ function selectorSetsEqual(left, right) {
   );
 }
 
-// @ts-ignore
+// @ts-expect-error
 function createAiSelectorSetFingerprint(selectorSet) {
   const normalized = normalizeAiSelectorSet(selectorSet).normalized;
   return hasAnySelectors(normalized) ? JSON.stringify(normalized) : "";
 }
 
-// @ts-ignore
+// @ts-expect-error
 function normalizeSubmittedSelectorsFingerprint(value) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-// @ts-ignore
+// @ts-expect-error
 function isSelectorTimestampCurrent(selectorUpdatedAt, renderModeUpdatedAt) {
   const normalizedSelectorUpdatedAt = normalizeEntryTimestamp(selectorUpdatedAt);
   const normalizedRenderModeUpdatedAt = normalizeEntryTimestamp(renderModeUpdatedAt);
   return !isIncomingTimestampNewer(normalizedRenderModeUpdatedAt, normalizedSelectorUpdatedAt);
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function getSelectorSetTimestampFieldName(fieldName) {
   return fieldName === SELECTOR_SET_FIELD ? SELECTOR_SET_UPDATED_AT_FIELD : "";
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function isSelectorSetCurrentForRenderMode(sourceConfig, fieldName) {
   if (!sourceConfig || typeof sourceConfig !== "object") {
     return false;
@@ -670,13 +670,13 @@ export function isSelectorSetCurrentForRenderMode(sourceConfig, fieldName) {
 }
 
 export function mergeSelectorSetsByTimestamp(
-// @ts-ignore
+// @ts-expect-error
   existingSet,
-// @ts-ignore
+// @ts-expect-error
   existingUpdatedAt,
-// @ts-ignore
+// @ts-expect-error
   incomingSet,
-// @ts-ignore
+// @ts-expect-error
   incomingUpdatedAt
 ) {
   const normalizedExistingSet = normalizeAiSelectorSet(existingSet).normalized;
@@ -725,17 +725,17 @@ export function mergeSelectorSetsByTimestamp(
 }
 
 export function mergeConfigSelectorStateByTimestamp(
-// @ts-ignore
+// @ts-expect-error
   existingSelectors,
-// @ts-ignore
+// @ts-expect-error
   existingUpdatedAt,
-// @ts-ignore
+// @ts-expect-error
   existingSubmittedFingerprint,
-// @ts-ignore
+// @ts-expect-error
   incomingSelectors,
-// @ts-ignore
+// @ts-expect-error
   incomingUpdatedAt,
-// @ts-ignore
+// @ts-expect-error
   incomingSubmittedFingerprint
 ) {
   const mergedSelectors = mergeSelectorSetsByTimestamp(
@@ -764,7 +764,7 @@ export function mergeConfigSelectorStateByTimestamp(
   };
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function areCurrentSelectorsSubmitted(sourceConfig) {
   if (!sourceConfig || typeof sourceConfig !== "object") {
     return true;
@@ -779,7 +779,7 @@ export function areCurrentSelectorsSubmitted(sourceConfig) {
 }
 
 export function getNewestConfigSelectorSet(
-// @ts-ignore
+// @ts-expect-error
   sourceConfig,
   fieldNames = [SELECTOR_SET_FIELD]
 ) {
@@ -815,7 +815,7 @@ export function getNewestConfigSelectorSet(
   };
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function createDefaultConfig(baseUrl) {
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl) || (typeof baseUrl === "string" ? baseUrl : "");
   let domain = "";
@@ -837,14 +837,14 @@ export function createDefaultConfig(baseUrl) {
   };
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function normalizePageMarkings(pageMarkings) {
   const normalized = {};
-// @ts-ignore
+// @ts-expect-error
   const removedUrls = [];
   let changed = false;
   if (!pageMarkings || typeof pageMarkings !== "object") {
-// @ts-ignore
+// @ts-expect-error
     return { normalized, changed, removedUrls };
   }
   Object.entries(pageMarkings).forEach(([url, entry]) => {
@@ -852,11 +852,11 @@ export function normalizePageMarkings(pageMarkings) {
       changed = true;
       return;
     }
-// @ts-ignore
+// @ts-expect-error
     if (!Array.isArray(entry.xpaths) && entry.xpaths !== undefined) {
       changed = true;
     }
-// @ts-ignore
+// @ts-expect-error
     const rawXpaths = Array.isArray(entry.xpaths) ? entry.xpaths : [];
     const normalizedXpaths = normalizeXpathItems(rawXpaths);
     const explicitIncludeXpaths = extractExplicitIncludeXpaths(normalizedXpaths.values);
@@ -867,33 +867,33 @@ export function normalizePageMarkings(pageMarkings) {
     if (explicitIncludeXpaths.length > 0) {
       changed = true;
     }
-// @ts-ignore
+// @ts-expect-error
     const timestamp = normalizeEntryTimestamp(entry.timestamp);
-// @ts-ignore
+// @ts-expect-error
     if (entry.timestamp !== timestamp) {
       changed = true;
     }
-// @ts-ignore
+// @ts-expect-error
     const renderedHtml = typeof entry.renderedHtml === "string" ? entry.renderedHtml : "";
-// @ts-ignore
+// @ts-expect-error
     if (entry.renderedHtml !== undefined && typeof entry.renderedHtml !== "string") {
       changed = true;
     }
-// @ts-ignore
+// @ts-expect-error
     const rawHtml = typeof entry.rawHtml === "string" ? entry.rawHtml : "";
-// @ts-ignore
+// @ts-expect-error
     if (entry.rawHtml !== undefined && typeof entry.rawHtml !== "string") {
       changed = true;
     }
-// @ts-ignore
+// @ts-expect-error
     if (entry.consentXpaths !== undefined) {
       changed = true;
     }
-// @ts-ignore
+// @ts-expect-error
     if (!Array.isArray(entry.includeXpaths) && entry.includeXpaths !== undefined) {
       changed = true;
     }
-// @ts-ignore
+// @ts-expect-error
     const rawInclude = Array.isArray(entry.includeXpaths) ? [...entry.includeXpaths] : [];
     explicitIncludeXpaths.forEach((xpath) => appendUniqueXpath(rawInclude, xpath));
     const includeResult = normalizeUniqueXpathList(rawInclude);
@@ -901,13 +901,13 @@ export function normalizePageMarkings(pageMarkings) {
     if (includeResult.changed) {
       changed = true;
     }
-// @ts-ignore
+// @ts-expect-error
     if (!Array.isArray(entry.selectorSuppressedXpaths) && entry.selectorSuppressedXpaths !== undefined) {
       changed = true;
     }
-// @ts-ignore
+// @ts-expect-error
     const rawSelectorSuppressed = Array.isArray(entry.selectorSuppressedXpaths)
-// @ts-ignore
+// @ts-expect-error
       ? [...entry.selectorSuppressedXpaths]
       : [];
     explicitIncludeXpaths.forEach((xpath) => appendUniqueXpath(rawSelectorSuppressed, xpath));
@@ -916,13 +916,13 @@ export function normalizePageMarkings(pageMarkings) {
     if (selectorSuppressedResult.changed) {
       changed = true;
     }
-// @ts-ignore
+// @ts-expect-error
     if (!Array.isArray(entry.submissionXpaths) && entry.submissionXpaths !== undefined) {
       changed = true;
     }
-// @ts-ignore
+// @ts-expect-error
     const rawSubmission = Array.isArray(entry.submissionXpaths)
-// @ts-ignore
+// @ts-expect-error
       ? entry.submissionXpaths
       : [];
     const normalizedSubmission = normalizeXpathItems(rawSubmission);
@@ -930,13 +930,13 @@ export function normalizePageMarkings(pageMarkings) {
     if (normalizedSubmission.changed) {
       changed = true;
     }
-// @ts-ignore
+// @ts-expect-error
     if (!Array.isArray(entry.silentWhitespaceExcludedXpaths) && entry.silentWhitespaceExcludedXpaths !== undefined) {
       changed = true;
     }
-// @ts-ignore
+// @ts-expect-error
     const rawSilentWhitespaceExcluded = Array.isArray(entry.silentWhitespaceExcludedXpaths)
-// @ts-ignore
+// @ts-expect-error
       ? [...entry.silentWhitespaceExcludedXpaths]
       : [];
     const silentWhitespaceExcludedResult = normalizeUniqueXpathList(rawSilentWhitespaceExcluded);
@@ -944,26 +944,26 @@ export function normalizePageMarkings(pageMarkings) {
     if (silentWhitespaceExcludedResult.changed) {
       changed = true;
     }
-// @ts-ignore
+// @ts-expect-error
     const title = normalizeStoredPageTitle(entry.title, url);
-// @ts-ignore
+// @ts-expect-error
     const pageType = normalizePageTypeValue(entry.pageType);
     if (Object.prototype.hasOwnProperty.call(entry, "url")) {
       changed = true;
     }
     if (
-// @ts-ignore
+// @ts-expect-error
       entry.title !== undefined &&
-// @ts-ignore
+// @ts-expect-error
       title !== entry.title
     ) {
       changed = true;
     }
-// @ts-ignore
+// @ts-expect-error
     if (entry.pageType !== undefined && pageType !== entry.pageType) {
       changed = true;
     }
-// @ts-ignore
+// @ts-expect-error
     if (entry.renderMode !== undefined) {
       changed = true;
     }
@@ -978,21 +978,21 @@ export function normalizePageMarkings(pageMarkings) {
       rawHtml
     };
     if (title) {
-// @ts-ignore
+// @ts-expect-error
       normalizedEntry.title = title;
     }
     if (pageType) {
-// @ts-ignore
+// @ts-expect-error
       normalizedEntry.pageType = pageType;
     }
-// @ts-ignore
+// @ts-expect-error
     normalized[url] = normalizedEntry;
   });
-// @ts-ignore
+// @ts-expect-error
   return { normalized, changed, removedUrls };
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function normalizeAiSelectorSet(value) {
   const normalized = createEmptyAiSelectorSet();
   let changed = true;
@@ -1002,14 +1002,14 @@ export function normalizeAiSelectorSet(value) {
   changed = false;
 
   const exclusionResult = normalizeSelectorList(value.exclusionSelectors);
-// @ts-ignore
+// @ts-expect-error
   normalized.exclusionSelectors = exclusionResult.values;
   if (exclusionResult.changed) {
     changed = true;
   }
 
   const inclusionResult = normalizeSelectorList(value.inclusionSelectors);
-// @ts-ignore
+// @ts-expect-error
   normalized.inclusionSelectors = inclusionResult.values;
   if (inclusionResult.changed) {
     changed = true;
@@ -1022,7 +1022,7 @@ export function normalizeAiSelectorSet(value) {
   return { normalized, changed };
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function normalizeConfig(baseUrl, incoming) {
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl) || (typeof baseUrl === "string" ? baseUrl : "");
   let changed = false;
@@ -1048,7 +1048,7 @@ export function normalizeConfig(baseUrl, incoming) {
     changed = true;
   }
   const siteId = normalizeSiteIdValue(incoming.siteId);
-// @ts-ignore
+// @ts-expect-error
   normalized.siteId = siteId;
   if (incoming.siteId !== undefined && siteId !== incoming.siteId) {
     changed = true;
@@ -1096,7 +1096,7 @@ export function normalizeConfig(baseUrl, incoming) {
   return { config: normalized, changed };
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function isRenderModeConfirmed(sourceConfig) {
   if (!sourceConfig || typeof sourceConfig !== "object") {
     return false;
@@ -1104,13 +1104,13 @@ export function isRenderModeConfirmed(sourceConfig) {
   return normalizeEntryTimestamp(sourceConfig.renderModeUpdatedAt) !== PAGE_TIMESTAMP_FALLBACK;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function cloneNormalizedPageEntry(entry, fallbackUrl = "") {
   const normalized = normalizePageMarkings({
     [fallbackUrl || ""]: entry || {}
   }).normalized;
   const key = Object.keys(normalized)[0];
-// @ts-ignore
+// @ts-expect-error
   return key ? normalized[key] : {
     title: "",
     timestamp: PAGE_TIMESTAMP_FALLBACK,
@@ -1124,7 +1124,7 @@ function cloneNormalizedPageEntry(entry, fallbackUrl = "") {
   };
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function normalizeConfigSyncPayload(payload, fallbackBaseUrl = "") {
   const normalizedFallbackBaseUrl =
     normalizeCanonicalBaseUrl(fallbackBaseUrl) ||
@@ -1167,7 +1167,7 @@ export function normalizeConfigSyncPayload(payload, fallbackBaseUrl = "") {
   };
 }
 
-// @ts-ignore
+// @ts-expect-error
 export function createConfigSyncPayload(baseUrl, sourceConfig, options = {}) {
   const normalizedBaseUrl =
     normalizeCanonicalBaseUrl(baseUrl) ||
@@ -1177,9 +1177,9 @@ export function createConfigSyncPayload(baseUrl, sourceConfig, options = {}) {
   const pageMarkings = normalized.pageMarkings || {};
   const payloadMarkings = {};
   const filterPageMarking =
-// @ts-ignore
+// @ts-expect-error
     options && typeof options.filterPageMarking === "function"
-// @ts-ignore
+// @ts-expect-error
       ? options.filterPageMarking
       : null;
   Object.entries(pageMarkings).forEach(([url, entry]) => {
@@ -1187,7 +1187,7 @@ export function createConfigSyncPayload(baseUrl, sourceConfig, options = {}) {
     if (typeof filterPageMarking === "function" && !filterPageMarking(url, safeEntry)) {
       return;
     }
-// @ts-ignore
+// @ts-expect-error
     payloadMarkings[url] = {
       timestamp: normalizeEntryTimestamp(safeEntry.timestamp),
       title: safeEntry.title || undefined,
@@ -1198,12 +1198,12 @@ export function createConfigSyncPayload(baseUrl, sourceConfig, options = {}) {
       xpaths: buildConfigSyncXpathItems(safeEntry),
       submissionXpaths: Array.isArray(safeEntry.submissionXpaths)
         ? safeEntry.submissionXpaths
-// @ts-ignore
+// @ts-expect-error
           .map((item) => ({
             xpath: item && typeof item.xpath === "string" ? item.xpath : "",
             excluded: Boolean(item && item.excluded)
           }))
-// @ts-ignore
+// @ts-expect-error
           .filter((item) => item.xpath)
         : []
     };
@@ -1224,23 +1224,23 @@ export function createConfigSyncPayload(baseUrl, sourceConfig, options = {}) {
 }
 
 export function mergePageMarkingsByTimestamp(
-// @ts-ignore
+// @ts-expect-error
   localPageMarkings,
-// @ts-ignore
+// @ts-expect-error
   incomingPageMarkings,
   options = {}
 ) {
   const localNormalized = normalizePageMarkings(localPageMarkings).normalized;
   const incomingNormalized = normalizePageMarkings(incomingPageMarkings).normalized;
   const merged = { ...localNormalized };
-// @ts-ignore
+// @ts-expect-error
   const replacedUrls = [];
-// @ts-ignore
+// @ts-expect-error
   const replacedExistingUrls = [];
-// @ts-ignore
+// @ts-expect-error
   const preferIncomingOnTimestampTie = Boolean(options.preferIncomingOnTimestampTie);
 
-// @ts-ignore
+// @ts-expect-error
   const hasSnapshotData = (entry) =>
     Boolean(
       entry &&
@@ -1252,16 +1252,16 @@ export function mergePageMarkingsByTimestamp(
     );
 
   Object.entries(incomingNormalized).forEach(([url, incomingEntry]) => {
-// @ts-ignore
+// @ts-expect-error
     const localEntry = merged[url];
     if (!localEntry) {
-// @ts-ignore
+// @ts-expect-error
       merged[url] = cloneNormalizedPageEntry(incomingEntry, url);
       replacedUrls.push(url);
       return;
     }
     const timestampsMatch =
-// @ts-ignore
+// @ts-expect-error
       normalizeEntryTimestamp(incomingEntry.timestamp) === normalizeEntryTimestamp(localEntry.timestamp);
     const incomingHasRicherSnapshot =
       timestampsMatch && hasSnapshotData(incomingEntry) && !hasSnapshotData(localEntry);
@@ -1271,14 +1271,14 @@ export function mergePageMarkingsByTimestamp(
       JSON.stringify(cloneNormalizedPageEntry(incomingEntry, url)) !==
         JSON.stringify(cloneNormalizedPageEntry(localEntry, url));
     if (
-// @ts-ignore
+// @ts-expect-error
       !isIncomingTimestampNewer(incomingEntry.timestamp, localEntry.timestamp) &&
       !incomingHasRicherSnapshot &&
       !incomingWinsTimestampTie
     ) {
       return;
     }
-// @ts-ignore
+// @ts-expect-error
     merged[url] = cloneNormalizedPageEntry(incomingEntry, url);
     replacedUrls.push(url);
     replacedExistingUrls.push(url);
@@ -1286,9 +1286,9 @@ export function mergePageMarkingsByTimestamp(
 
   return {
     pageMarkings: merged,
-// @ts-ignore
+// @ts-expect-error
     replacedUrls,
-// @ts-ignore
+// @ts-expect-error
     replacedExistingUrls
   };
 }
@@ -1303,10 +1303,10 @@ export async function getConfigs() {
     if (normalizedKey !== key) {
       changed = true;
     }
-// @ts-ignore
+// @ts-expect-error
     if (!normalizedConfigs[normalizedKey]) {
       const normalizedValue = normalizeConfig(normalizedKey, value);
-// @ts-ignore
+// @ts-expect-error
       normalizedConfigs[normalizedKey] = normalizedValue.config;
       if (normalizedValue.changed) {
         changed = true;
@@ -1314,7 +1314,7 @@ export async function getConfigs() {
       return;
     }
     changed = true;
-// @ts-ignore
+// @ts-expect-error
     const existing = normalizeConfig(normalizedKey, normalizedConfigs[normalizedKey]).config;
     const incoming = normalizeConfig(normalizedKey, value).config;
     const mergedPageMarkings = mergePageMarkingsByTimestamp(
@@ -1335,7 +1335,7 @@ export async function getConfigs() {
       incoming.renderMode,
       incoming.renderModeUpdatedAt
     );
-// @ts-ignore
+// @ts-expect-error
     normalizedConfigs[normalizedKey] = {
       ...existing,
       siteId: existing.siteId || incoming.siteId || null,
@@ -1353,24 +1353,24 @@ export async function getConfigs() {
   return normalizedConfigs;
 }
 
-// @ts-ignore
+// @ts-expect-error
 function normalizeConfigsForStorage(configs) {
   const normalizedConfigs = {};
   Object.entries(configs || {}).forEach(([key, value]) => {
     const normalizedKey = normalizeBaseUrl(key) || key;
-// @ts-ignore
+// @ts-expect-error
     normalizedConfigs[normalizedKey] = normalizeConfig(normalizedKey, value).config;
   });
   return normalizedConfigs;
 }
 
-// @ts-ignore
+// @ts-expect-error
 async function saveConfigsDirect(configs) {
   const normalizedConfigs = normalizeConfigsForStorage(configs);
   await idbSet({ configs: normalizedConfigs });
 }
 
-// @ts-ignore
+// @ts-expect-error
 async function queueConfigPersistence(work) {
   const next = configPersistenceQueue
     .catch(() => {})
@@ -1379,31 +1379,31 @@ async function queueConfigPersistence(work) {
   return next;
 }
 
-// @ts-ignore
+// @ts-expect-error
 export async function saveConfigs(configs) {
   await queueConfigPersistence(() => saveConfigsDirect(configs));
 }
 
-// @ts-ignore
+// @ts-expect-error
 async function saveConfigEntry(baseUrl, config) {
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl) || baseUrl;
   return queueConfigPersistence(async () => {
     const configs = await getConfigs();
     const normalizedConfig = normalizeConfig(normalizedBaseUrl, config).config;
-// @ts-ignore
+// @ts-expect-error
     configs[normalizedBaseUrl] = normalizedConfig;
     await saveConfigsDirect(configs);
     return normalizedConfig;
   });
 }
 
-// @ts-ignore
+// @ts-expect-error
 function getConfigQueueKey(baseUrl) {
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl) || (typeof baseUrl === "string" ? baseUrl : "");
   return typeof normalizedBaseUrl === "string" ? normalizedBaseUrl : "";
 }
 
-// @ts-ignore
+// @ts-expect-error
 async function queueConfigWrite(baseUrl, work) {
   const queueKey = getConfigQueueKey(baseUrl);
   if (!queueKey) {
@@ -1423,17 +1423,17 @@ async function queueConfigWrite(baseUrl, work) {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error
 export async function ensureConfig(baseUrl) {
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl) || baseUrl;
   return queueConfigWrite(normalizedBaseUrl, async () => {
     const configs = await getConfigs();
-// @ts-ignore
+// @ts-expect-error
     if (!configs[normalizedBaseUrl]) {
       const defaultConfig = createDefaultConfig(normalizedBaseUrl);
       return saveConfigEntry(normalizedBaseUrl, defaultConfig);
     }
-// @ts-ignore
+// @ts-expect-error
     const { config, changed } = normalizeConfig(normalizedBaseUrl, configs[normalizedBaseUrl]);
     if (changed) {
       return saveConfigEntry(normalizedBaseUrl, config);
@@ -1442,12 +1442,12 @@ export async function ensureConfig(baseUrl) {
   });
 }
 
-// @ts-ignore
+// @ts-expect-error
 export async function updateConfig(baseUrl, updater) {
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl) || baseUrl;
   return queueConfigWrite(normalizedBaseUrl, async () => {
     const configs = await getConfigs();
-// @ts-ignore
+// @ts-expect-error
     const { config } = normalizeConfig(normalizedBaseUrl, configs[normalizedBaseUrl]);
     updater(config);
     return saveConfigEntry(normalizedBaseUrl, config);
