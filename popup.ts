@@ -3193,7 +3193,7 @@ async function refreshUiInner(options = {}) {
       baseUrl: preservedBaseUrl
     };
   }
-  let propertyPageTypes = [];
+  let propertyPageTypes: Array<Record<string, unknown>> = [];
   let propertyPageTypesFetchError = "";
   let propertyPageTypesLoaded = false;
   if (
