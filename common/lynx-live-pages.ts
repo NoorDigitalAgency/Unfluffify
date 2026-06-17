@@ -1,7 +1,24 @@
-// @ts-nocheck
 import { setGlobalToken } from "./settings-store.js";
 
 import { normalizeCandidatePageUrl } from "./lynx-checklist.js";
+
+type CandidatePage = {
+  url?: string;
+  duplicate?: boolean;
+};
+
+type PropertyPageType = {
+  key?: string;
+  title?: string;
+  candidates?: CandidatePage[];
+};
+
+type CurrentPageCandidateState = {
+  status: "empty" | "missing" | "duplicate" | "candidate";
+  pageTypeKey: string;
+  pageTypeTitle: string;
+  url: string;
+};
 
 export const URL_SEARCH_INFO_QUERY = `
 query getUrlSearchInfo($url: String!, $includePageInfo: Boolean!) {
@@ -26,7 +43,7 @@ query getPropertyPageTypes($domainId: Int!) {
 }
 `;
 
-export function normalizeStageBase(value) {
+export function normalizeStageBase(value: unknown): string {
   if (typeof value !== "string") {
     return "";
   }
@@ -52,7 +69,7 @@ export function normalizeStageBase(value) {
   return domainPattern.test(normalized) ? normalized : "";
 }
 
-export function buildGraphqlEndpointFromStageBase(stageBase) {
+export function buildGraphqlEndpointFromStageBase(stageBase: unknown): string {
   const normalized = normalizeStageBase(stageBase);
   if (!normalized) {
     return "";
@@ -60,7 +77,7 @@ export function buildGraphqlEndpointFromStageBase(stageBase) {
   return `https://api.${normalized}/graphql`;
 }
 
-export function normalizeSiteIdValue(value) {
+export function normalizeSiteIdValue(value: unknown): number | null {
   if (value === null || value === undefined || value === "") {
     return null;
   }
@@ -68,7 +85,10 @@ export function normalizeSiteIdValue(value) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
-export function getCurrentPageCandidateState(pageUrl, pageTypes) {
+export function getCurrentPageCandidateState(
+  pageUrl: string,
+  pageTypes: PropertyPageType[] | null | undefined
+): CurrentPageCandidateState {
   const normalizedUrl = normalizeCandidatePageUrl(pageUrl);
   if (!normalizedUrl || !Array.isArray(pageTypes) || !pageTypes.length) {
     return {
@@ -78,9 +98,10 @@ export function getCurrentPageCandidateState(pageUrl, pageTypes) {
       url: normalizedUrl
     };
   }
-  const matches = [];
+  const matches: Array<{ pageType: PropertyPageType; candidate: CandidatePage }> = [];
   pageTypes.forEach((pageType) => {
-    (Array.isArray(pageType && pageType.candidates) ? pageType.candidates : []).forEach((candidate) => {
+    const candidates = Array.isArray(pageType.candidates) ? pageType.candidates : [];
+    candidates.forEach((candidate) => {
       if (candidate && candidate.url === normalizedUrl) {
         matches.push({ pageType, candidate });
       }
@@ -92,15 +113,19 @@ export function getCurrentPageCandidateState(pageUrl, pageTypes) {
   if (matches.length > 1 || matches.some((item) => item.candidate && item.candidate.duplicate)) {
     return { status: "duplicate", pageTypeKey: "", pageTypeTitle: "", url: normalizedUrl };
   }
+  const firstMatch = matches[0];
   return {
     status: "candidate",
-    pageTypeKey: matches[0].pageType.key,
-    pageTypeTitle: matches[0].pageType.title,
+    pageTypeKey: typeof firstMatch?.pageType.key === "string" ? firstMatch.pageType.key : "",
+    pageTypeTitle: typeof firstMatch?.pageType.title === "string" ? firstMatch.pageType.title : "",
     url: normalizedUrl
   };
 }
 
-export async function maybeUpdateStoredTokenFromResponse(response, currentToken = "") {
+export async function maybeUpdateStoredTokenFromResponse(
+  response: Response | { headers?: { get?: (name: string) => string | null } } | null | undefined,
+  currentToken = ""
+): Promise<string> {
   if (!response || !response.headers || typeof response.headers.get !== "function") {
     return currentToken || "";
   }

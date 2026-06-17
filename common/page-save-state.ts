@@ -1,15 +1,30 @@
-// @ts-nocheck
 import { NON_BLOCKING_PAGE_SAVE_RECONCILIATION_REASONS } from "./config.js";
 import { PopupText } from "./text.js";
 
-function isBlockingPageSaveReconciliation(reconciliation) {
+type PageSaveReconciliation = {
+  status?: string;
+  reason?: string;
+} | null;
+
+type BuildPageSaveUiStateOptions = {
+  pageControlsVisible?: boolean;
+  sessionHasPendingChanges?: boolean;
+  pageHasPendingChanges?: boolean;
+  sessionRequiresAiRun?: boolean;
+  pageHasSavedBaseline?: boolean;
+  reconciliation?: PageSaveReconciliation;
+};
+
+function isBlockingPageSaveReconciliation(reconciliation: PageSaveReconciliation): boolean {
   if (!reconciliation || reconciliation.status !== "pending") {
     return false;
   }
-  return !NON_BLOCKING_PAGE_SAVE_RECONCILIATION_REASONS.has(reconciliation.reason);
+  return !NON_BLOCKING_PAGE_SAVE_RECONCILIATION_REASONS.has(reconciliation.reason ?? "");
 }
 
-export function getPageSaveReconciliationStatusText(reconciliation) {
+export function getPageSaveReconciliationStatusText(
+  reconciliation: PageSaveReconciliation
+): string {
   const reason = reconciliation && typeof reconciliation.reason === "string"
     ? reconciliation.reason
     : "";
@@ -25,7 +40,7 @@ export function getPageSaveReconciliationStatusText(reconciliation) {
   return PopupText.page.statusServerSyncPending;
 }
 
-export function buildPageSaveUiState(options = {}) {
+export function buildPageSaveUiState(options: BuildPageSaveUiStateOptions = {}) {
   const {
     pageControlsVisible = false,
     sessionHasPendingChanges = false,

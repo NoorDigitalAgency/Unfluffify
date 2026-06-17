@@ -1,6 +1,43 @@
-// @ts-nocheck
 const FALLBACK_REQUEST_PREFIX = "uf-msg";
 let fallbackRequestCounter = 0;
+
+type EnvelopePayload = Record<string, unknown>;
+
+type EnvelopeOptions = {
+  expectsReply?: boolean;
+  id?: string;
+  source?: string;
+  target?: string;
+  tabId?: unknown;
+  frameId?: unknown;
+};
+
+type RequestEnvelope = {
+  id: string;
+  type: string;
+  source: string;
+  target: string;
+  tabId: number | null;
+  frameId: number;
+  expectsReply: boolean;
+  payload: EnvelopePayload;
+};
+
+type SuccessEnvelope = {
+  id: string;
+  ok: true;
+  result: Record<string, unknown>;
+};
+
+type FailureEnvelope = {
+  id: string;
+  ok: false;
+  code: string;
+  error: string;
+  details: Record<string, unknown>;
+};
+
+type ReplyEnvelope = SuccessEnvelope | FailureEnvelope;
 
 export const MESSAGE_SOURCES = Object.freeze({
   POPUP: "popup",
@@ -28,15 +65,15 @@ export const MESSAGE_ERROR_CODES = Object.freeze({
   HANDLER_NOT_FOUND: "handler_not_found"
 });
 
-function isObject(value) {
+function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object";
 }
 
-function isFiniteInteger(value) {
+function isFiniteInteger(value: unknown): value is number {
   return Number.isFinite(value) && Number.isInteger(value);
 }
 
-function nextRequestId() {
+function nextRequestId(): string {
   const webCrypto = globalThis.crypto;
   if (webCrypto && typeof webCrypto.randomUUID === "function") {
     return webCrypto.randomUUID();
@@ -45,15 +82,19 @@ function nextRequestId() {
   return `${FALLBACK_REQUEST_PREFIX}-${Date.now()}-${fallbackRequestCounter}`;
 }
 
-function normalizePayload(payload) {
+function normalizePayload(payload: unknown): EnvelopePayload {
   return isObject(payload) ? payload : {};
 }
 
-function normalizeReplyCode(value) {
+function normalizeReplyCode(value: unknown): string {
   return typeof value === "string" && value ? value : MESSAGE_ERROR_CODES.HANDLER_FAILED;
 }
 
-export function createRequestEnvelope(type, payload, options = {}) {
+export function createRequestEnvelope(
+  type: string,
+  payload: unknown,
+  options: EnvelopeOptions = {}
+): RequestEnvelope {
   if (typeof type !== "string" || !type) {
     throw new TypeError("createRequestEnvelope requires a non-empty string type");
   }
@@ -79,7 +120,10 @@ export function createRequestEnvelope(type, payload, options = {}) {
   return envelope;
 }
 
-export function createSuccessEnvelope(request, result = {}) {
+export function createSuccessEnvelope(
+  request: unknown,
+  result: Record<string, unknown> = {}
+): SuccessEnvelope {
   return {
     id: isObject(request) && typeof request.id === "string" ? request.id : "",
     ok: true,
@@ -87,7 +131,12 @@ export function createSuccessEnvelope(request, result = {}) {
   };
 }
 
-export function createFailureEnvelope(request, code, error, details = {}) {
+export function createFailureEnvelope(
+  request: unknown,
+  code: unknown,
+  error: unknown,
+  details: unknown = {}
+): FailureEnvelope {
   return {
     id: isObject(request) && typeof request.id === "string" ? request.id : "",
     ok: false,
@@ -97,7 +146,7 @@ export function createFailureEnvelope(request, code, error, details = {}) {
   };
 }
 
-export function isRequestEnvelope(value) {
+export function isRequestEnvelope(value: unknown): value is RequestEnvelope {
   if (!isObject(value)) {
     return false;
   }
@@ -128,7 +177,7 @@ export function isRequestEnvelope(value) {
   return true;
 }
 
-export function isReplyEnvelope(value) {
+export function isReplyEnvelope(value: unknown): value is ReplyEnvelope {
   if (!isObject(value) || typeof value.ok !== "boolean") {
     return false;
   }
@@ -138,5 +187,5 @@ export function isReplyEnvelope(value) {
   if (value.ok) {
     return Object.prototype.hasOwnProperty.call(value, "result");
   }
-  return typeof value.code === "string" && value.code && typeof value.error === "string";
+  return typeof value.code === "string" && Boolean(value.code) && typeof value.error === "string";
 }
