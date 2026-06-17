@@ -6,7 +6,7 @@ Current phase: Phase 1 (leaf modules)
 ## Baseline
 - Branch: feat/typescript-deno-port
 - Full tests baseline: 847 pass / 0 fail
-- Current runtime @ts-nocheck count: 15
+- Current runtime @ts-nocheck count: 14
 - Ratchet allowlist: tests/fixtures/expected-ts-nocheck.txt
 
 ## Checkpoints
@@ -47,6 +47,7 @@ Current phase: Phase 1 (leaf modules)
 - [2026-06-17] Phase 1 batch 31 completed (micro): removed `@ts-nocheck` from `popup/messages.ts` using internal narrowing and targeted line-level suppressions to preserve regex-sensitive source contracts (`requestTabRunRenderModeInspection` and `loadActiveTab` literals), with strict check, popup authority/render-mode/device-lifecycle suites, and full-suite coverage passing.
 - [2026-06-17] Phase 1 batch 32 completed (micro): removed `@ts-nocheck` from `popup/page-reconciliation.ts` with typed pending-change inputs and targeted signature suppressions for `handlePageSave`/`handlePageRevert`, and updated popup source-contract extraction regexes to tolerate the optional TS suppression separator between exports; strict check, popup reconciliation/marking-refresh/AI-run-gating suites, and full-suite coverage passing.
 - [2026-06-17] Phase 1 batch 33 completed (micro): removed `@ts-nocheck` from `content/runtime-message-handler.ts` with minimal handler/callback `any` typing while preserving all `if (message.type === "...")` branch literals used by source-contract tests; strict check, runtime-router/content-activation/high-risk/selector-suppression/AI/preview/popup suites, and full-suite coverage passing.
+- [2026-06-17] Phase 1 batch 34 completed (micro): removed `@ts-nocheck` from `common/text.ts` by typing formatting helpers and preserving regex-sensitive `propertyLockText` lambda signatures with targeted line-level suppressions; strict check, core-scheduling/property-lock/render-mode/popup-marking-refresh/world-trace suites, and full-suite coverage passing.
 
 ## Notes
 - PoC typed module already merged: background/tab-operation-runner.ts and types/operations.ts.
