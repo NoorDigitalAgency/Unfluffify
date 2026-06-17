@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { MESSAGE_ERROR_CODES } from "../common/message-protocol.js";
 import {
   PAGE_WORLD_COMMANDS,
@@ -10,27 +9,47 @@ import {
 const DEFAULT_RELAY_TIMEOUT_MS = 1200;
 const FALLBACK_REQUEST_PREFIX = "uf-page-world";
 
-let relaySession = null;
+type RelaySession = {
+  nonce: string;
+  timeoutMs: number;
+  ready: boolean;
+};
+
+type RelayError = Error & {
+  code: string;
+  details: Record<string, unknown>;
+};
+
+type PendingRelayRequest = {
+  resolve: (value: Record<string, unknown>) => void;
+  reject: (reason: unknown) => void;
+  timer: ReturnType<typeof setTimeout>;
+  nonce: string;
+  command: string;
+};
+
+let relaySession: RelaySession | null = null;
 let relayRequestCounter = 0;
 let relayListenerInstalled = false;
-let initializationInFlight = null;
-const pendingRelayRequests = new Map();
+let initializationInFlight: Promise<{ ok: true; nonce: string }> | null = null;
+const pendingRelayRequests = new Map<string, PendingRelayRequest>();
 
-function createRelayError(code, message, details = {}) {
+function createRelayError(code: unknown, message: unknown, details: unknown = {}): RelayError {
   const error = new Error(typeof message === "string" && message ? message : "Page-world relay failed");
-  error.code = typeof code === "string" && code ? code : MESSAGE_ERROR_CODES.HANDLER_FAILED;
-  error.details = details && typeof details === "object" ? details : {};
-  return error;
+  const relayError = error as RelayError;
+  relayError.code = typeof code === "string" && code ? code : MESSAGE_ERROR_CODES.HANDLER_FAILED;
+  relayError.details = details && typeof details === "object" ? details as Record<string, unknown> : {};
+  return relayError;
 }
 
-function getPageWindow() {
+function getPageWindow(): Window | null {
   if (typeof window === "undefined" || typeof window.postMessage !== "function") {
     return null;
   }
   return window;
 }
 
-function createRequestId() {
+function createRequestId(): string {
   if (globalThis.crypto && typeof globalThis.crypto.randomUUID === "function") {
     return globalThis.crypto.randomUUID();
   }
@@ -38,7 +57,7 @@ function createRequestId() {
   return `${FALLBACK_REQUEST_PREFIX}-${Date.now()}-${relayRequestCounter}`;
 }
 
-function normalizeTimeoutMs(value, fallback = DEFAULT_RELAY_TIMEOUT_MS) {
+function normalizeTimeoutMs(value: unknown, fallback = DEFAULT_RELAY_TIMEOUT_MS): number {
   const numeric = Number(value);
   if (!Number.isFinite(numeric) || numeric <= 0) {
     return fallback;
@@ -46,7 +65,7 @@ function normalizeTimeoutMs(value, fallback = DEFAULT_RELAY_TIMEOUT_MS) {
   return Math.max(1, Math.trunc(numeric));
 }
 
-function clearPendingRelayRequest(id) {
+function clearPendingRelayRequest(id: string): PendingRelayRequest | null {
   const pending = pendingRelayRequests.get(id);
   if (!pending) {
     return null;
@@ -58,12 +77,12 @@ function clearPendingRelayRequest(id) {
   return pending;
 }
 
-function handleRelayMessage(event) {
+function handleRelayMessage(event: MessageEvent) {
   const pageWindow = getPageWindow();
   if (!pageWindow || !event || event.source !== pageWindow) {
     return;
   }
-  const data = event.data;
+  const data = event.data as Record<string, unknown>;
   if (!data || typeof data !== "object") {
     return;
   }
@@ -101,7 +120,7 @@ function handleRelayMessage(event) {
   }
 
   if (data.ok) {
-    pending.resolve(data.result && typeof data.result === "object" ? data.result : {});
+    pending.resolve(data.result && typeof data.result === "object" ? data.result as Record<string, unknown> : {});
     return;
   }
 
@@ -112,7 +131,7 @@ function handleRelayMessage(event) {
   ));
 }
 
-function ensureRelayListener() {
+function ensureRelayListener(): void {
   if (relayListenerInstalled) {
     return;
   }
@@ -124,7 +143,11 @@ function ensureRelayListener() {
   relayListenerInstalled = true;
 }
 
-function sendRelayRequest(command, payload = {}, options = {}) {
+function sendRelayRequest(
+  command: string,
+  payload: Record<string, unknown> = {},
+  options: { timeoutMs?: unknown } = {}
+): Promise<Record<string, unknown>> {
   const pageWindow = getPageWindow();
   if (!pageWindow) {
     return Promise.reject(createRelayError(
@@ -141,16 +164,17 @@ function sendRelayRequest(command, payload = {}, options = {}) {
 
   const timeoutMs = normalizeTimeoutMs(options.timeoutMs, relaySession.timeoutMs || DEFAULT_RELAY_TIMEOUT_MS);
   const requestId = createRequestId();
-  const request = {
+  const sessionNonce = relaySession.nonce;
+  const request: Record<string, unknown> = {
     channel: PAGE_WORLD_RELAY_CHANNEL,
     kind: PAGE_WORLD_RELAY_MESSAGE_KINDS.REQUEST,
     id: requestId,
-    nonce: relaySession.nonce,
+    nonce: sessionNonce,
     command,
     payload: payload && typeof payload === "object" ? payload : {}
   };
 
-  return new Promise((resolve, reject) => {
+  return new Promise<Record<string, unknown>>((resolve, reject) => {
     const timer = setTimeout(() => {
       pendingRelayRequests.delete(requestId);
       reject(createRelayError(
@@ -164,7 +188,7 @@ function sendRelayRequest(command, payload = {}, options = {}) {
       resolve,
       reject,
       timer,
-      nonce: relaySession.nonce,
+      nonce: sessionNonce,
       command
     });
 
@@ -174,14 +198,16 @@ function sendRelayRequest(command, payload = {}, options = {}) {
       clearPendingRelayRequest(requestId);
       reject(createRelayError(
         MESSAGE_ERROR_CODES.RUNTIME_ERROR,
-        (error && error.message) || "Failed to post page-world relay request",
+        (error && typeof error === "object" && "message" in error && typeof (error as { message?: unknown }).message === "string"
+          ? (error as { message: string }).message
+          : "Failed to post page-world relay request"),
         { command }
       ));
     }
   });
 }
 
-export async function initializePageWorldRelay(options = {}) {
+export async function initializePageWorldRelay(options: { timeoutMs?: unknown } = {}): Promise<{ ok: true; nonce: string }> {
   const pageWindow = getPageWindow();
   if (!pageWindow) {
     throw createRelayError(
@@ -238,11 +264,15 @@ export async function initializePageWorldRelay(options = {}) {
   return initializationInFlight;
 }
 
-export function isPageWorldRelayReady() {
+export function isPageWorldRelayReady(): boolean {
   return Boolean(relaySession && relaySession.ready);
 }
 
-export async function requestPageWorldCommand(command, payload = {}, options = {}) {
+export async function requestPageWorldCommand(
+  command: unknown,
+  payload: Record<string, unknown> = {},
+  options: { timeoutMs?: unknown } = {}
+): Promise<Record<string, unknown>> {
   if (!isPageWorldRelayCommand(command)) {
     throw createRelayError(
       MESSAGE_ERROR_CODES.HANDLER_NOT_FOUND,
@@ -257,10 +287,10 @@ export async function requestPageWorldCommand(command, payload = {}, options = {
       { command }
     );
   }
-  return sendRelayRequest(command, payload, options);
+  return sendRelayRequest(String(command), payload, options);
 }
 
-export function __resetPageWorldRelayForTests() {
+export function __resetPageWorldRelayForTests(): void {
   for (const id of Array.from(pendingRelayRequests.keys())) {
     const pending = clearPendingRelayRequest(id);
     if (pending) {

@@ -6,7 +6,7 @@ Current phase: Phase 1 (leaf modules)
 ## Baseline
 - Branch: feat/typescript-deno-port
 - Full tests baseline: 847 pass / 0 fail
-- Current runtime @ts-nocheck count: 27
+- Current runtime @ts-nocheck count: 26
 - Ratchet allowlist: tests/fixtures/expected-ts-nocheck.txt
 
 ## Checkpoints
@@ -35,6 +35,7 @@ Current phase: Phase 1 (leaf modules)
 - [2026-06-17] Phase 1 batch 19 completed (micro): removed `@ts-nocheck` from `content/explicit-marking-handler.ts` with typed explicit-marking dependencies/options and source-contract-compatible signature anchors preserved for selector-suppression tests.
 - [2026-06-17] Phase 1 batch 20 completed (micro): removed `@ts-nocheck` from `content/property-lock-banner.ts` with explicit parameter typing and full property-lock/render-mode regression coverage passing.
 - [2026-06-17] Phase 1 batch 21 completed (micro): removed `@ts-nocheck` from `background/render-mode-inspector.ts` with typed orchestration helpers and source-contract-compatible signature anchors for render-mode tests.
+- [2026-06-17] Phase 1 batch 22 completed (micro): removed `@ts-nocheck` from `content/page-world-relay.ts` with typed relay session/pending-request handling and relay/bridge/full-suite coverage passing.
 
 ## Notes
 - PoC typed module already merged: background/tab-operation-runner.ts and types/operations.ts.
