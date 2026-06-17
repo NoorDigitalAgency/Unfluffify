@@ -1,10 +1,15 @@
-interface PropertyLockTimerHost {
-  setTimeout(handler: (...args: unknown[]) => unknown, timeout?: number): unknown;
+interface PropertyLockMachineState {
+  isEditor?: boolean;
+  isSameUserEditor?: boolean;
+  editorName?: string;
+  transferFromName?: string;
+  transferToName?: string;
+  [key: string]: unknown;
 }
 
 interface PropertyLockText {
   editorNowToast: string;
-  editorTransferredToast(...args: unknown[]): string;
+  editorTransferredToast(editorName: unknown): string;
 }
 
 interface PropertyLockStateMachineDeps {
@@ -24,50 +29,50 @@ interface PropertyLockStateMachineDeps {
   PROPERTY_LOCK_WS_TAKEOVER_SUGGESTION: string;
   PROPERTY_LOCK_WS_TRANSFER_COUNTDOWN: string;
   propertyLockText: PropertyLockText;
-  getPropertyLockState(...args: unknown[]): Record<string, unknown>;
-  getTimerHost(...args: unknown[]): PropertyLockTimerHost;
-  armPropertyLockCrossPropertyRelease(...args: unknown[]): unknown;
-  clearPropertyLockBannerCountdown(...args: unknown[]): unknown;
-  clearPropertyLockRecoveryReleaseTimer(...args: unknown[]): unknown;
-  clearSilentHighlightEditorRevealKey(...args: unknown[]): unknown;
-  ensurePropertyLockCollaborationActive(...args: unknown[]): unknown;
-  getBaseUrl(...args: unknown[]): unknown;
-  getCurrentUrl(...args: unknown[]): unknown;
-  getPropertyLockBannerCountdownTimer(...args: unknown[]): unknown;
-  getPropertyLockBannerCountdownValue(...args: unknown[]): number;
-  getPropertyLockBannerMode(...args: unknown[]): unknown;
-  getPropertyLockClientId(...args: unknown[]): unknown;
-  getPropertyLockConnectedBaseUrl(...args: unknown[]): unknown;
-  getPropertyLockConnectedSiteId(...args: unknown[]): unknown;
-  getPropertyLockOffCandidateDeadlineAt(...args: unknown[]): number;
-  getPropertyLockRecoveryBaseUrl(...args: unknown[]): string;
-  getPropertyLockRecoveryClientId(...args: unknown[]): string;
-  getPropertyLockRecoveryDeadlineAt(...args: unknown[]): number;
-  getPropertyLockRecoverySiteId(...args: unknown[]): number | null;
-  getPropertyLockSuggestionFromName(...args: unknown[]): unknown;
-  getPropertyLockSuggestionId(...args: unknown[]): unknown;
-  isPropertyLockCollaborationEnabled(...args: unknown[]): unknown;
-  isRenderModeInspectionActive(...args: unknown[]): unknown;
-  normalizePropertyLockClientId(...args: unknown[]): unknown;
-  refreshSilentHighlightings(...args: unknown[]): Promise<unknown>;
-  renderPropertyLockBanner(...args: unknown[]): unknown;
-  restartPropertyLockBannerCountdown(...args: unknown[]): unknown;
-  runEditorSilentHighlightingActivation(...args: unknown[]): Promise<unknown>;
-  sendPropertyLockMessage(...args: unknown[]): unknown;
-  sendRuntimeMessage(...args: unknown[]): Promise<unknown>;
-  setPropertyLockBannerCountdownValue(...args: unknown[]): unknown;
-  setPropertyLockBannerMode(...args: unknown[]): unknown;
-  setPropertyLockOffCandidateDeadlineAt(...args: unknown[]): unknown;
-  setPropertyLockRecoveryBaseUrl(...args: unknown[]): unknown;
-  setPropertyLockRecoveryClientId(...args: unknown[]): unknown;
-  setPropertyLockRecoveryDeadlineAt(...args: unknown[]): unknown;
-  setPropertyLockRecoverySiteId(...args: unknown[]): unknown;
-  setPropertyLockState(...args: unknown[]): unknown;
-  setPropertyLockSuggestionFromName(...args: unknown[]): unknown;
-  setPropertyLockSuggestionId(...args: unknown[]): unknown;
-  showPageToast(...args: unknown[]): unknown;
-  syncPropertyLockOffCandidateWarning(...args: unknown[]): Promise<unknown>;
-  updatePropertyLockBannerMode(...args: unknown[]): unknown;
+  getTimerHost(): Window;
+  getPropertyLockState(): PropertyLockMachineState;
+  setPropertyLockState(nextState: Record<string, unknown>): void;
+  armPropertyLockCrossPropertyRelease(): void;
+  clearPropertyLockBannerCountdown(): void;
+  clearPropertyLockRecoveryReleaseTimer(): void;
+  clearSilentHighlightEditorRevealKey(): void;
+  ensurePropertyLockCollaborationActive(): boolean;
+  getBaseUrl(): string;
+  getCurrentUrl(): string;
+  getPropertyLockBannerCountdownTimer(): number;
+  getPropertyLockBannerCountdownValue(): number;
+  getPropertyLockBannerMode(): string;
+  getPropertyLockClientId(): string;
+  getPropertyLockConnectedBaseUrl(): string;
+  getPropertyLockConnectedSiteId(): number | null;
+  getPropertyLockOffCandidateDeadlineAt(): number;
+  getPropertyLockRecoveryBaseUrl(): string;
+  getPropertyLockRecoveryClientId(): string;
+  getPropertyLockRecoveryDeadlineAt(): number;
+  getPropertyLockRecoverySiteId(): number | null;
+  getPropertyLockSuggestionFromName(): string;
+  getPropertyLockSuggestionId(): string;
+  isPropertyLockCollaborationEnabled(): boolean;
+  isRenderModeInspectionActive(): boolean;
+  normalizePropertyLockClientId(value: unknown): string;
+  refreshSilentHighlightings(): Promise<unknown>;
+  renderPropertyLockBanner(): void;
+  restartPropertyLockBannerCountdown(): void;
+  runEditorSilentHighlightingActivation(): Promise<unknown>;
+  sendPropertyLockMessage(type: string, payload?: Record<string, unknown>): void;
+  sendRuntimeMessage(message: Record<string, unknown>): Promise<unknown>;
+  setPropertyLockBannerCountdownValue(value: number): void;
+  setPropertyLockBannerMode(mode: string): void;
+  setPropertyLockOffCandidateDeadlineAt(deadlineAt: number): void;
+  setPropertyLockRecoveryBaseUrl(baseUrl: string): void;
+  setPropertyLockRecoveryClientId(clientId: string): void;
+  setPropertyLockRecoveryDeadlineAt(deadlineAt: number): void;
+  setPropertyLockRecoverySiteId(siteId: number | null): void;
+  setPropertyLockSuggestionFromName(fromName: string): void;
+  setPropertyLockSuggestionId(suggestionId: string): void;
+  showPageToast(message: string): void;
+  syncPropertyLockOffCandidateWarning(baseUrl: string, currentUrl: string): Promise<unknown>;
+  updatePropertyLockBannerMode(): void;
 }
 
 interface PropertyLockRecoveryTabStateInput {
@@ -79,9 +84,9 @@ interface PropertyLockRecoveryTabStateInput {
 }
 
 interface PropertyLockRecoveryStateInput {
-  siteId?: unknown;
-  clientId?: unknown;
-  baseUrl?: unknown;
+  siteId?: number | null;
+  clientId?: string;
+  baseUrl?: string;
   deadlineAt: number;
 }
 

@@ -3,51 +3,51 @@ import * as stateModule from "./state.js";
 const { state } = stateModule;
 
 interface PageReconciliationOptions {
-  currentDraftDirty?: unknown;
-  reconciliationPending?: unknown;
-  pageUrl?: unknown;
+  currentDraftDirty?: boolean;
+  reconciliationPending?: boolean;
+  pageUrl?: string;
 }
 
 type PageReconciliationViewState = {
-  sessionHasPendingChanges?: unknown;
-  sessionRequiresAiRun?: unknown;
-  currentPageHasPendingChanges?: unknown;
+  sessionHasPendingChanges?: boolean;
+  sessionRequiresAiRun?: boolean;
+  currentPageHasPendingChanges?: boolean;
 };
 
 type PageSaveSyncResult = {
-  ok?: unknown;
-  authExpired?: unknown;
-  skipped?: unknown;
-  reason?: unknown;
+  ok?: boolean;
+  authExpired?: boolean;
+  skipped?: boolean;
+  reason?: string;
 };
 
 type GlobalAiSettingsSnapshot = {
-  tokenValue?: unknown;
-  configEndpointValue?: unknown;
-  stageBaseValue?: unknown;
+  tokenValue?: string;
+  configEndpointValue?: string;
+  stageBaseValue?: string;
 };
 
 interface PageReconciliationDeps {
-  hasCurrentPageMarkingChanges?: (...args: unknown[]) => unknown;
-  ensureActiveTab?: (options?: unknown) => unknown;
-  ensureBaseUrl: (message?: unknown) => unknown;
-  refreshCurrentPageRuntimeStatus: (options?: unknown) => unknown;
-  showToast: (message?: unknown) => unknown;
+  hasCurrentPageMarkingChanges?: (localPageMarkings: unknown, backendSavedPageMarkings: unknown, pageUrl?: string) => boolean;
+  ensureActiveTab?: (options?: { requireId?: boolean }) => Promise<unknown>;
+  ensureBaseUrl: (message?: string) => boolean;
+  refreshCurrentPageRuntimeStatus: (options?: Record<string, unknown>) => Promise<unknown>;
+  showToast: (message: string) => void;
   getViewState: () => PageReconciliationViewState;
-  updateLastConfigSaveStatus: (message?: unknown) => unknown;
-  validateStoredToken: (options?: Record<string, unknown>) => unknown;
-  runWithSpinner: (key: unknown, label: unknown, task: (...args: unknown[]) => unknown) => unknown;
-  getCurrentPageUrl: () => unknown;
+  updateLastConfigSaveStatus: (message: string) => void;
+  validateStoredToken: (options?: { force?: boolean }) => Promise<unknown>;
+  runWithSpinner: (key: string | null, label: string, task: () => Promise<unknown>) => Promise<unknown>;
+  getCurrentPageUrl: () => string | null;
   loadGlobalAiSettings: () => Promise<GlobalAiSettingsSnapshot> | GlobalAiSettingsSnapshot;
   syncBaseConfigToServer: (options?: Record<string, unknown>) => Promise<PageSaveSyncResult> | PageSaveSyncResult;
-  clearCurrentPageSaveReconciliation: () => unknown;
-  resetAiRunMarkingsFingerprint: () => unknown;
-  applyPostSaveSilentTransition: () => unknown;
-  refreshUi: (options?: unknown) => unknown;
-  setUiBusy: (busy?: unknown, message?: unknown, details?: unknown) => unknown;
-  waitForRetryDelay: (delayMs?: unknown) => unknown;
-  applyLocalPageDiscard: () => unknown;
-  windowRef: { confirm: (message?: string) => boolean };
+  clearCurrentPageSaveReconciliation: () => Promise<unknown>;
+  resetAiRunMarkingsFingerprint: () => void;
+  applyPostSaveSilentTransition: () => Promise<unknown>;
+  refreshUi: (options?: Record<string, unknown>) => Promise<unknown>;
+  setUiBusy: (busy?: boolean, message?: string, details?: Record<string, unknown>) => void;
+  waitForRetryDelay: (delayMs?: number) => Promise<unknown>;
+  applyLocalPageDiscard: () => Promise<unknown>;
+  windowRef: Window;
   PopupText: Record<string, Record<string, string>>;
   PAGE_SAVE_SYNC_INITIAL_RETRY_DELAY_MS: number;
   PAGE_SAVE_SYNC_MAX_ATTEMPTS: number;
