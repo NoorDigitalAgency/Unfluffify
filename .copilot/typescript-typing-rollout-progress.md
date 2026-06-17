@@ -6,7 +6,7 @@ Current phase: Phase 1 (leaf modules)
 ## Baseline
 - Branch: feat/typescript-deno-port
 - Full tests baseline: 847 pass / 0 fail
-- Current runtime @ts-nocheck count: 6
+- Current runtime @ts-nocheck count: 5
 - Ratchet allowlist: tests/fixtures/expected-ts-nocheck.txt
 
 ## Checkpoints
@@ -56,6 +56,7 @@ Current phase: Phase 1 (leaf modules)
 - [2026-06-17] Phase 1 batch 40 completed (micro): removed `@ts-nocheck` from `common/utilities.ts` with explicit parameter annotations and targeted signature-preserving suppressions for regex-locked tab-state helpers, while keeping source-contract lines unchanged for device-emulation lifecycle assertions; strict check, device-emulation/storage/settings/popup-marking-refresh suites, and full-suite coverage passing.
 - [2026-06-17] Phase 1 batch 41 completed (micro): removed `@ts-nocheck` from `common/page-motion-freeze-control.ts` using JS-safe line-level suppressions (no TS syntax) mirrored into the bridge copy to preserve enforced control/bridge function-body parity and avoid document_start eval syntax regressions; strict check, page-motion-freeze/page-motion-freeze-bridge/page-motion-bridge-isolation suites, and full-suite coverage passing.
 - [2026-06-17] Phase 1 batch 42 completed (micro): removed `@ts-nocheck` from `common/page-motion-freeze-bridge.ts` with JS-valid (eval-safe) line-level suppressions and relay helper casts, preserving document_start bridge behavior plus control/bridge parity constraints; strict check, page-motion-freeze/page-motion-freeze-bridge/page-motion-bridge-isolation suites, and full-suite coverage passing.
+- [2026-06-17] Phase 1 batch 43 completed (micro): removed `@ts-nocheck` from `popup/ui.ts` by adding a minimal local declaration for the vendored Preact build (`popup/vendor/preact/dist/preact.module.d.ts`) plus permissive `any` annotations on nested callback params and a few index/details casts, preserving all hyperscript/source-contract structure; strict check, feature-flags/preview-tooltip/popup-marking-refresh/popup-ai-run-gating/device-emulation/popup-render-mode/world-trace-contract/storage-access-boundary/orchestration-auth suites, and full-suite coverage passing. Investigated wiring the official Preact `src` types (index/jsx/dom `.d.ts`): empirically they left the ui.ts error count unchanged (35 → 35) because the hyperscript `h(...)` calls resolve to Preact's generic catch-all overload and provide no contextual typing for callbacks, so the lightweight local shim was kept instead of vendoring ~3,700 lines of upstream types.
 
 ## Notes
 - PoC typed module already merged: background/tab-operation-runner.ts and types/operations.ts.

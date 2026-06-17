@@ -3,4 +3,3 @@ common/config.ts
 content/core.ts
 content-main.ts
 popup.ts
-popup/ui.ts

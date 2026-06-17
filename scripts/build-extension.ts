@@ -133,6 +133,13 @@ async function main(): Promise<void> {
     const ext = extname(relPath).toLowerCase();
     const outPath = join(outDir, relPath);
 
+    // Type-only declaration files describe vendored/runtime modules for the
+    // strict TypeScript build; they are never shipped or used as esbuild entry
+    // points (esbuild would try to emit them and fail on body-less declarations).
+    if (relPath.endsWith(".d.ts")) {
+      continue;
+    }
+
     if (CODE_EXTENSIONS.has(ext)) {
       codeEntryPoints.push(filePath);
       continue;
