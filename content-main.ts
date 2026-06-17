@@ -1,4 +1,3 @@
-// @ts-nocheck
 import * as core from "./content/core.js";
 import * as config from "./common/config.js";
 import {
@@ -210,21 +209,25 @@ const PROPERTY_LOCK_BANNER_ID = "unfluffify-lock-banner";
 const PROPERTY_LOCK_BANNER_STYLE_ID = "unfluffify-lock-banner-style";
 const PROPERTY_LOCK_RECONNECT_DELAY_MS = 150;
 
+// @ts-ignore
 let propertyLockState = null;
 let propertyLockBannerMode = "no_banner";
 let propertyLockBannerCountdownTimer = 0;
 let propertyLockBannerCountdownValue = 0;
 let propertyLockOffCandidateDeadlineAt = 0;
+// @ts-ignore
 let propertyLockRecoverySiteId = null;
 let propertyLockRecoveryBaseUrl = "";
 let propertyLockRecoveryClientId = "";
 let propertyLockRecoveryDeadlineAt = 0;
 let propertyLockRecoveryReleaseTimer = 0;
+// @ts-ignore
 let propertyLockBannerElement = null;
 let propertyLockBannerVisible = false;
 let propertyLockSuggestionId = "";
 let propertyLockSuggestionFromName = "";
 let propertyLockLastBlockedToastAt = 0;
+// @ts-ignore
 let propertyLockConnectedSiteId = null;
 let propertyLockConnectedBaseUrl = "";
 // Debounce timer for central page-level activity pings (mouse/keyboard/scroll).
@@ -234,10 +237,13 @@ const pageActivitySubscribers = new Set();
 let propertyLockEditorClaimPending = false;
 let propertyLockSyncToken = 0;
 let propertyLockSyncInFlight = false;
+// @ts-ignore
 let propertyLockQueuedSyncOptions = null;
 let propertyLockClientId = "";
 let extensionContextInvalidated = false;
+// @ts-ignore
 let silentHighlightingObserver = null;
+// @ts-ignore
 let silentHighlightingLayoutShiftObserver = null;
 let silentHighlightingRefreshTimer = 0;
 let silentHighlightingRefreshDueAt = 0;
@@ -246,11 +252,14 @@ let lastSilentHighlightingRefreshAt = 0;
 let lastSilentHighlightingRenderKey = "";
 let lastSilentHighlightingsActive = false;
 let silentHighlightingPositionRefreshPending = false;
+// @ts-ignore
 let silentHighlightOverlay = null;
 let silentHighlightLayers = {};
 let silentHighlightLayerBoxes = {};
+// @ts-ignore
 let silentHighlightCollections = null;
 let silentHighlightRenderTargetCache = new Map();
+// @ts-ignore
 let silentHighlightTrackedNodeIndex = null;
 let silentHighlightScrollTimer = 0;
 let silentHighlightRepositionRaf = 0;
@@ -265,6 +274,7 @@ let silentHighlightLegacyAttrsCleaned = false;
 let silentHighlightEditorRevealInFlight = 0;
 let silentHighlightEditorRevealKey = "";
 let pageVisitRevealFreezeAttemptKey = "";
+// @ts-ignore
 let silentHighlightEditorActivationPromise = null;
 let silentHighlightEditorActivationQueued = false;
 let silentHighlightEditorActivationIdCounter = 0;
@@ -290,6 +300,7 @@ function resetDisabledPropertyLockRuntimeState() {
   clearPropertyLockReconnectTimer();
   clearPropertyLockBannerCountdown();
   clearPropertyLockRecoveryReleaseTimer();
+// @ts-ignore
   getPropertyLockPortClient().disconnect({ notifyBackground: false });
   propertyLockConnectedSiteId = null;
   propertyLockConnectedBaseUrl = "";
@@ -309,6 +320,7 @@ function resetDisabledPropertyLockRuntimeState() {
   propertyLockBannerCountdownValue = 0;
   propertyLockBannerVisible = false;
   propertyLockLastBlockedToastAt = 0;
+// @ts-ignore
   if (propertyLockBannerElement) {
     propertyLockBannerElement.classList.add("uf-lock-banner-hidden");
     propertyLockBannerElement.replaceChildren();
@@ -321,10 +333,13 @@ function ensurePropertyLockCollaborationActive() {
     return true;
   }
   const portClient = getPropertyLockPortClient();
+// @ts-ignore
   const hasPort = portClient.hasPort();
+// @ts-ignore
   const hasReconnectTimer = portClient.hasReconnectTimer();
   if (
     hasPort ||
+// @ts-ignore
     propertyLockState ||
     propertyLockBannerMode !== "no_banner" ||
     propertyLockOffCandidateDeadlineAt ||
@@ -332,6 +347,7 @@ function ensurePropertyLockCollaborationActive() {
     hasReconnectTimer ||
     propertyLockRecoveryReleaseTimer ||
     propertyLockSyncInFlight ||
+// @ts-ignore
     propertyLockQueuedSyncOptions
   ) {
     resetDisabledPropertyLockRuntimeState();
@@ -378,6 +394,7 @@ let aiPreviewState = createAiPreviewState();
 const contentMainServiceRegistry = createContentMainServiceRegistry({
   createPageToastClient: () => createPageToast(createPageToastDeps()),
   createPageSaveReconciliationClearHandler: () => createPageSaveReconciliationClearHandler(
+// @ts-ignore
     createPageSaveReconciliationClearHandlerDeps()
   ),
   createPageSaveReconciliationPendingHandler: () => createPageSaveReconciliationPendingHandler(
@@ -391,7 +408,9 @@ const contentMainServiceRegistry = createContentMainServiceRegistry({
   ),
   createInspectionStatusResolver: () => createInspectionStatusResolver(createInspectionStatusDeps()),
   createPageDraftRevertHandler: () => createPageDraftRevertHandler(createPageDraftRevertHandlerDeps()),
+// @ts-ignore
   createPageDraftSaveHandler: () => createPageDraftSaveHandler(createPageDraftSaveHandlerDeps()),
+// @ts-ignore
   createExplicitMarkingHandler: () => createExplicitMarkingHandler(createExplicitMarkingHandlerDeps()),
   createPageDraftStatusHandler: () => createPageDraftStatusHandler(createPageDraftStatusHandlerDeps()),
   createAiPreviewStateResponseBuilder: () => createAiPreviewStateResponseBuilder(
@@ -405,21 +424,28 @@ const contentMainServiceRegistry = createContentMainServiceRegistry({
     createAiPreviewExpandedModeHandlerDeps()
   ),
   createAiPreviewGetStateHandler: () => createAiPreviewGetStateHandler(createAiPreviewGetStateHandlerDeps()),
+// @ts-ignore
   createAiPreviewShowHandler: () => createAiPreviewShowHandler(createAiPreviewShowHandlerDeps()),
   createAiSubmissionXpathsHandler: () => createAiSubmissionXpathsHandler(createAiSubmissionXpathsHandlerDeps()),
+// @ts-ignore
   createCapturePageSnapshotHandler: () => createCapturePageSnapshotHandler(createCapturePageSnapshotHandlerDeps()),
   createConfigUpdatedHandler: () => createConfigUpdatedHandler(createConfigUpdatedHandlerDeps()),
   createCollectPageDataHandler: () => createCollectPageDataHandler(createCollectPageDataHandlerDeps()),
   createDefaultExclusionsHandler: () => createDefaultExclusionsHandler(createDefaultExclusionsHandlerDeps()),
+// @ts-ignore
   createDescribeXpathsHandler: () => createDescribeXpathsHandler(createDescribeXpathsHandlerDeps()),
+// @ts-ignore
   createFocusHandler: () => createFocusHandler(createFocusHandlerDeps()),
   createForceRefreshHandler: () => createForceRefreshHandler(createForceRefreshHandlerDeps()),
+// @ts-ignore
   createInvisibleXpathsHandler: () => createInvisibleXpathsHandler(createInvisibleXpathsHandlerDeps()),
+// @ts-ignore
   createVisibleXpathsHandler: () => createVisibleXpathsHandler(createVisibleXpathsHandlerDeps()),
   createPropertyLockPortClient: () => createPropertyLockPortClient(createPropertyLockPortClientDeps()),
   createPropertyLockStateMachine: () => createPropertyLockStateMachine(createPropertyLockStateMachineDeps())
 });
 
+// @ts-ignore
 function sendRuntimeMessageSafely(message) {
   if (
     extensionContextInvalidated ||
@@ -584,6 +610,7 @@ function getPropertyLockStateMachine() {
   return contentMainServiceRegistry.getPropertyLockStateMachine();
 }
 
+// @ts-ignore
 function createLifecycleOperationId(kind) {
   lifecycleOperationCounter += 1;
   return `${kind || "operation"}:${Date.now()}:${lifecycleOperationCounter}`;
@@ -601,13 +628,19 @@ function isPageBlockerDebugEnabled() {
 }
 
 function normalizePageBlockingReason(event = {}) {
+// @ts-ignore
   if (typeof event.reason === "string" && event.reason.trim()) {
+// @ts-ignore
     return event.reason.trim();
   }
+// @ts-ignore
   if (typeof event.kind === "string" && event.kind.trim()) {
+// @ts-ignore
     return `lifecycle:${event.kind.trim()}`;
   }
+// @ts-ignore
   if (typeof event.message === "string" && event.message.trim()) {
+// @ts-ignore
     return `message:${event.message.trim()}`;
   }
   return "page-lifecycle-blocker";
@@ -622,12 +655,18 @@ function logPageBlockerReason(event = {}) {
     return;
   }
   try {
+// @ts-ignore
     console.debug("[page-blocker]", event.busy ? "start-or-update" : "clear", {
       reason: normalizePageBlockingReason(event),
+// @ts-ignore
       source: typeof event.source === "string" && event.source ? event.source : "content-lifecycle",
+// @ts-ignore
       kind: event && event.kind ? event.kind : "",
+// @ts-ignore
       phase: event && event.phase ? event.phase : "",
+// @ts-ignore
       operationId: event && event.operationId ? event.operationId : "",
+// @ts-ignore
       message: event && event.message ? event.message : "",
       pageUrl: location.href
     });
@@ -640,16 +679,21 @@ function emitLifecycleEvent(event = {}) {
   const normalizedEvent = {
     ...event,
     reason: normalizePageBlockingReason(event),
+// @ts-ignore
     source: typeof event.source === "string" && event.source ? event.source : "content-lifecycle"
   };
   logPageBlockerReason(normalizedEvent);
   if (isWorldTraceEnabled()) {
     try {
       console.debug("[world-trace][content] lifecycle:emit", {
+// @ts-ignore
         kind: normalizedEvent && normalizedEvent.kind ? normalizedEvent.kind : "",
+// @ts-ignore
         phase: normalizedEvent && normalizedEvent.phase ? normalizedEvent.phase : "",
+// @ts-ignore
         operationId: normalizedEvent && normalizedEvent.operationId ? normalizedEvent.operationId : "",
         busy: Object.prototype.hasOwnProperty.call(normalizedEvent || {}, "busy")
+// @ts-ignore
           ? Boolean(normalizedEvent.busy)
           : undefined,
         reason: normalizedEvent.reason || "",
@@ -670,6 +714,7 @@ function emitLifecycleEvent(event = {}) {
   });
 }
 
+// @ts-ignore
 function logContentDiagnostic(level, ...args) {
   if (!isWorldTraceEnabled()) {
     return;
@@ -693,7 +738,9 @@ async function loadGlobalAiSettingsForContent() {
 
 async function resolveSiteIdFromGraphql(options = {}) {
   const {
+// @ts-ignore
     stageBase = "",
+// @ts-ignore
     pageUrl = ""
   } = options;
   if (!stageBase || !pageUrl) {
@@ -727,6 +774,7 @@ function extractUrlPathAndHostname(url = location.href) {
   }
 }
 
+// @ts-ignore
 function isSignificantUrlPathChange(currentUrl, lastPath, lastHostname) {
   const current = extractUrlPathAndHostname(currentUrl);
   if (!current.hostname) {
@@ -744,6 +792,7 @@ function isSignificantUrlPathChange(currentUrl, lastPath, lastHostname) {
   return true;
 }
 
+// @ts-ignore
 async function recheckSiteIdForCurrentUrlPath(tabState) {
   if (!tabState || !tabState.baseUrl) {
     return null;
@@ -763,6 +812,7 @@ async function recheckSiteIdForCurrentUrlPath(tabState) {
   }
   const currentConfigs = await config.getConfigs();
   const normalizedBaseUrl = utils.normalizeBaseUrl(tabState.baseUrl) || tabState.baseUrl;
+// @ts-ignore
   const currentConfig = config.normalizeConfig(normalizedBaseUrl, currentConfigs[normalizedBaseUrl]).config;
   const oldSiteId = normalizeSiteIdValue(currentConfig.siteId);
   if (oldSiteId && oldSiteId !== newSiteId) {
@@ -776,6 +826,7 @@ async function recheckSiteIdForCurrentUrlPath(tabState) {
   return null;
 }
 
+// @ts-ignore
 async function fetchPropertyPageTypesForSiteId(siteId, stageBaseValue, tokenValue) {
   void tokenValue;
   const response = await utils.sendRuntimeMessage({
@@ -799,8 +850,11 @@ async function fetchPropertyPageTypesForSiteId(siteId, stageBaseValue, tokenValu
   };
 }
 
+// @ts-ignore
 async function resolveCurrentLivePageTarget(baseUrl, options = {}) {
+// @ts-ignore
   const pageUrl = typeof options.pageUrl === "string" && options.pageUrl
+// @ts-ignore
     ? options.pageUrl
     : location.href;
   const normalizedBaseUrl = utils.normalizeBaseUrl(baseUrl) || baseUrl;
@@ -816,10 +870,12 @@ async function resolveCurrentLivePageTarget(baseUrl, options = {}) {
   const currentConfigs = await config.getConfigs();
   const normalizedConfig = config.normalizeConfig(
     normalizedBaseUrl,
+// @ts-ignore
     currentConfigs[normalizedBaseUrl]
   ).config;
   const storedSiteId = normalizeSiteIdValue(normalizedConfig.siteId);
   let siteId = storedSiteId;
+// @ts-ignore
   if (Boolean(options.forceSiteIdRefresh) || !siteId) {
     const resolvedSiteId = await resolveSiteIdFromGraphql({
       stageBase: stageBaseValue,
@@ -829,6 +885,7 @@ async function resolveCurrentLivePageTarget(baseUrl, options = {}) {
     if (resolvedSiteId) {
       siteId = resolvedSiteId;
       if (siteId !== storedSiteId) {
+// @ts-ignore
         await config.updateConfig(normalizedBaseUrl, (targetConfig) => {
           targetConfig.siteId = siteId;
         });
@@ -872,7 +929,9 @@ async function resolveCurrentLivePageTarget(baseUrl, options = {}) {
 }
 
 async function resolveCurrentPropertyLockConnectionTarget(options = {}) {
+// @ts-ignore
   const pageUrl = typeof options.pageUrl === "string" && options.pageUrl
+// @ts-ignore
     ? options.pageUrl
     : location.href;
   if (!pageUrl) {
@@ -890,11 +949,13 @@ async function resolveCurrentPropertyLockConnectionTarget(options = {}) {
   const normalizedConfig = normalizedBaseUrl
     ? config.normalizeConfig(
       normalizedBaseUrl,
+// @ts-ignore
       currentConfigs[normalizedBaseUrl]
     ).config
     : null;
   const storedSiteId = normalizeSiteIdValue(normalizedConfig && normalizedConfig.siteId);
   let siteId = storedSiteId;
+// @ts-ignore
   if (Boolean(options.forceSiteIdRefresh) || !siteId) {
     const resolvedSiteId = await resolveSiteIdFromGraphql({
       stageBase: stageBaseValue,
@@ -904,6 +965,7 @@ async function resolveCurrentPropertyLockConnectionTarget(options = {}) {
     if (resolvedSiteId) {
       siteId = resolvedSiteId;
       if (normalizedBaseUrl && siteId !== storedSiteId) {
+// @ts-ignore
         await config.updateConfig(normalizedBaseUrl, (targetConfig) => {
           targetConfig.siteId = siteId;
         });
@@ -923,6 +985,7 @@ async function resolveCurrentPropertyLockConnectionTarget(options = {}) {
   };
 }
 
+// @ts-ignore
 async function resolveCurrentPageTypeForMarking(baseUrl, pageUrl = location.href) {
   const target = await resolveCurrentLivePageTarget(baseUrl, { pageUrl });
   if (!target.ok || !target.pageType) {
@@ -931,6 +994,7 @@ async function resolveCurrentPageTypeForMarking(baseUrl, pageUrl = location.href
   return { ok: true, pageType: target.pageType };
 }
 
+// @ts-ignore
 async function syncPropertyLockOffCandidateWarning(baseUrl, pageUrl = location.href) {
   if (!ensurePropertyLockCollaborationActive()) {
     return;
@@ -944,6 +1008,7 @@ async function syncPropertyLockOffCandidateWarning(baseUrl, pageUrl = location.h
     clearPropertyLockOffCandidateWarning();
     return;
   }
+// @ts-ignore
   if (propertyLockState && propertyLockState.isEditor) {
     startPropertyLockOffCandidateWarning();
     return;
@@ -951,6 +1016,7 @@ async function syncPropertyLockOffCandidateWarning(baseUrl, pageUrl = location.h
   clearPropertyLockOffCandidateWarning();
 }
 
+// @ts-ignore
 function normalizeAiPreviewItems(items) {
   if (!Array.isArray(items)) {
     return [];
@@ -968,8 +1034,10 @@ function normalizeAiPreviewItems(items) {
     .filter((item) => item.xpath);
 }
 
+// @ts-ignore
 function mapAiPreviewItemsToRenderableTargets(items) {
   const normalized = normalizeAiPreviewItems(items);
+// @ts-ignore
   const rows = [];
   const seenXpaths = new Set();
   normalized.forEach((item) => {
@@ -1015,25 +1083,30 @@ function mapAiPreviewItemsToRenderableTargets(items) {
       seenXpaths.add(xpath);
     });
   });
+// @ts-ignore
   rows.sort((left, right) => {
     if (left.top === right.top) {
       return left.left - right.left;
     }
     return left.top - right.top;
   });
+// @ts-ignore
   return rows.map(({ xpath, text, title, kind }) => ({ xpath, text, title, kind }));
 }
 
+// @ts-ignore
 function setAiPreviewItems(items, options = {}) {
   const normalized = normalizeAiPreviewItems(items);
   const previousFocusedXpath = aiPreviewState.focusedXpath;
   const nextItemXpathSet = new Set(normalized.map((item) => item.xpath));
+// @ts-ignore
   const preserveFocusedXpath = Boolean(options.preserveFocusedXpath);
   const keepFocusedXpath = Boolean(
     preserveFocusedXpath &&
       previousFocusedXpath &&
       nextItemXpathSet.has(previousFocusedXpath)
   );
+// @ts-ignore
   aiPreviewState.items = normalized;
   aiPreviewState.itemXpathSet = nextItemXpathSet;
   aiPreviewState.focusedXpath = keepFocusedXpath ? previousFocusedXpath : "";
@@ -1044,9 +1117,13 @@ function setAiPreviewItems(items, options = {}) {
   syncAiPreviewClickableTargets(normalized);
 }
 
+// @ts-ignore
 function setAiPreviewItemSets(defaultItems, expandedItems, options = {}) {
+// @ts-ignore
   aiPreviewState.defaultItems = mapAiPreviewItemsToRenderableTargets(defaultItems);
+// @ts-ignore
   aiPreviewState.expandedItems = mapAiPreviewItemsToRenderableTargets(expandedItems);
+// @ts-ignore
   aiPreviewState.showAllCategories = Boolean(options.showAllCategories);
   setAiPreviewItems(
     aiPreviewState.showAllCategories
@@ -1056,6 +1133,7 @@ function setAiPreviewItemSets(defaultItems, expandedItems, options = {}) {
   );
 }
 
+// @ts-ignore
 function setAiPreviewExpandedMode(active) {
   if (!isFeatureEnabled("previewExpandedStates")) {
     aiPreviewState.showAllCategories = false;
@@ -1075,6 +1153,7 @@ function setAiPreviewExpandedMode(active) {
   return true;
 }
 
+// @ts-ignore
 function setAiPreviewClickableTitle(node, title) {
   if (!node || node.nodeType !== 1 || typeof title !== "string" || !title) {
     return;
@@ -1102,15 +1181,20 @@ function clearAiPreviewClickableTargets() {
     return;
   }
   for (const node of aiPreviewClickableNodes) {
+// @ts-ignore
     if (!node || node.nodeType !== 1) {
       continue;
     }
+// @ts-ignore
     node.removeAttribute(AI_PREVIEW_CLICKABLE_ATTR);
     const originalTitleState = aiPreviewOriginalTitles.get(node);
     if (originalTitleState && typeof originalTitleState === "object") {
       if (originalTitleState.hadTitle) {
+// @ts-ignore
         node.setAttribute("title", originalTitleState.title || "");
+// @ts-ignore
       } else if (node.getAttribute("title") === originalTitleState.previewTitle) {
+// @ts-ignore
         node.removeAttribute("title");
       }
       aiPreviewOriginalTitles.delete(node);
@@ -1119,6 +1203,7 @@ function clearAiPreviewClickableTargets() {
   aiPreviewClickableNodes.clear();
 }
 
+// @ts-ignore
 function syncAiPreviewClickableTargets(items) {
   clearAiPreviewClickableTargets();
   if (!Array.isArray(items) || !items.length) {
@@ -1136,12 +1221,14 @@ function syncAiPreviewClickableTargets(items) {
     if (!node || node.nodeType !== 1 || isExtensionUiNode(node)) {
       return;
     }
+// @ts-ignore
     node.setAttribute(AI_PREVIEW_CLICKABLE_ATTR, "on");
     setAiPreviewClickableTitle(node, title);
     aiPreviewClickableNodes.add(node);
   });
 }
 
+// @ts-ignore
 function notifyAiPreviewFocusChanged(xpath) {
   void sendRuntimeMessageSafely({
     type: "aiPreviewFocusChanged",
@@ -1151,6 +1238,7 @@ function notifyAiPreviewFocusChanged(xpath) {
   });
 }
 
+// @ts-ignore
 function setAiPreviewFocusedXpath(xpath, options = {}) {
   if (!aiPreviewState.active) {
     return false;
@@ -1160,12 +1248,14 @@ function setAiPreviewFocusedXpath(xpath, options = {}) {
     return false;
   }
   aiPreviewState.focusedXpath = nextXpath;
+// @ts-ignore
   if (options.notify !== false) {
     notifyAiPreviewFocusChanged(nextXpath);
   }
   return true;
 }
 
+// @ts-ignore
 function getAiPreviewClickTarget(eventTarget) {
   let node = eventTarget && eventTarget.nodeType === 1
     ? eventTarget
@@ -1185,6 +1275,7 @@ function getAiPreviewClickTarget(eventTarget) {
   return null;
 }
 
+// @ts-ignore
 function handleAiPreviewClick(event) {
   if (!aiPreviewState.active || !event || event.button !== 0) {
     return false;
@@ -1204,6 +1295,7 @@ function handleAiPreviewClick(event) {
   return true;
 }
 
+// @ts-ignore
 function resolveAiPreviewSelectorForNode(node, selectorByNode) {
   if (!node || node.nodeType !== 1 || !(selectorByNode instanceof Map) || !selectorByNode.size) {
     return "";
@@ -1248,6 +1340,7 @@ function resolveAiPreviewSelectorForNode(node, selectorByNode) {
   return nearestAncestorSelector || nearestDescendantSelector;
 }
 
+// @ts-ignore
 function isWithinTrackedPreviewNode(node, trackedNodes) {
   for (const trackedNode of trackedNodes) {
     if (trackedNode === node || trackedNode.contains(node)) {
@@ -1257,6 +1350,7 @@ function isWithinTrackedPreviewNode(node, trackedNodes) {
   return false;
 }
 
+// @ts-ignore
 function hasTrackedPreviewDescendant(node, trackedNodes) {
   for (const trackedNode of trackedNodes) {
     if (trackedNode !== node && node.contains(trackedNode)) {
@@ -1266,6 +1360,7 @@ function hasTrackedPreviewDescendant(node, trackedNodes) {
   return false;
 }
 
+// @ts-ignore
 function collectUndetectedAiPreviewNodes(trackedNodes) {
   if (!document.body) {
     return [];
@@ -1293,12 +1388,14 @@ function collectUndetectedAiPreviewNodes(trackedNodes) {
       continue;
     }
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
+// @ts-ignore
       stack.push(node.children[i]);
     }
   }
   return results.sort(compareNodeOrder);
 }
 
+// @ts-ignore
 function buildAiPreviewItemsWithCategories(selectorSet, defaultItems = []) {
   const defaultPreviewItems = normalizeAiPreviewItems(defaultItems);
   const defaultTextByXpath = new Map(
@@ -1308,14 +1405,17 @@ function buildAiPreviewItemsWithCategories(selectorSet, defaultItems = []) {
     collectIncludedNodesFromSelectorSet(selectorSet)
   );
   const explicitIncludedSet = new Set(collections.explicitIncluded || []);
+// @ts-ignore
   const implicitIncluded = (collections.included || []).filter((node) => !explicitIncludedSet.has(node));
   const trackedNodes = [
     ...(collections.excluded || []),
     ...(collections.included || [])
   ].filter((node) => node && node.nodeType === 1);
+// @ts-ignore
   const rows = [];
   const seenXpaths = new Set();
 
+// @ts-ignore
   function pushRow(node, kind, selector = "") {
     if (!node || node.nodeType !== 1) {
       return;
@@ -1343,6 +1443,7 @@ function buildAiPreviewItemsWithCategories(selectorSet, defaultItems = []) {
     seenXpaths.add(xpath);
   }
 
+// @ts-ignore
   (collections.excluded || []).forEach((node) => {
     pushRow(
       node,
@@ -1350,6 +1451,7 @@ function buildAiPreviewItemsWithCategories(selectorSet, defaultItems = []) {
       resolveAiPreviewSelectorForNode(node, collections.exclusionSelectorByNode)
     );
   });
+// @ts-ignore
   (collections.explicitIncluded || []).forEach((node) => {
     pushRow(
       node,
@@ -1357,6 +1459,7 @@ function buildAiPreviewItemsWithCategories(selectorSet, defaultItems = []) {
       resolveAiPreviewSelectorForNode(node, collections.inclusionSelectorByNode)
     );
   });
+// @ts-ignore
   implicitIncluded.forEach((node) => {
     pushRow(node, AI_PREVIEW_KIND_IMPLICIT_INCLUDED);
   });
@@ -1364,12 +1467,14 @@ function buildAiPreviewItemsWithCategories(selectorSet, defaultItems = []) {
     pushRow(node, AI_PREVIEW_KIND_UNDETECTED);
   });
 
+// @ts-ignore
   rows.sort((left, right) => {
     if (left.top === right.top) {
       return left.left - right.left;
     }
     return left.top - right.top;
   });
+// @ts-ignore
   return rows.map(({ xpath, text, title, kind }) => ({ xpath, text, title, kind }));
 }
 
@@ -1384,10 +1489,13 @@ const SILENT_HIGHLIGHTING_INTERNAL_ATTRS = new Set([
   core.CONSENT_HIDDEN_ATTR
 ]);
 
+// @ts-ignore
 function showPageToast(message) {
+// @ts-ignore
   getPageToastClient().show(message);
 }
 
+// @ts-ignore
 function submissionXpathsEqual(left, right) {
   if (left === right) {
     return true;
@@ -1418,6 +1526,7 @@ function getCurrentPageSnapshotOptions() {
   return {
     renderMode: getConfiguredRenderMode(),
     extraStripSelectors: [
+// @ts-ignore
       ...getPageToastClient().getStripSelectors(),
       `#${SILENT_HIGHLIGHT_OVERLAY_ID}`,
       `#${SILENT_HIGHLIGHT_STYLE_ID}`
@@ -1431,16 +1540,20 @@ function createCurrentPageSnapshot() {
   return core.createSanitizedPageSnapshot(getCurrentPageSnapshotOptions());
 }
 
+// @ts-ignore
 function getCurrentPageSnapshotXPath(node) {
   return core.getSnapshotXPath(node, getCurrentPageSnapshotOptions());
 }
 
 function readRenderModeInspectionActive() {
+// @ts-ignore
   return getRenderModeInspectionClient().readActiveFlag();
 }
 
+// @ts-ignore
 function setRenderModeInspectionActive(active) {
   renderModeInspectionActive = Boolean(active);
+// @ts-ignore
   getRenderModeInspectionClient().writeActiveFlag(renderModeInspectionActive);
   if (renderModeInspectionActive) {
     armRenderModeInspectionWatchdog();
@@ -1454,11 +1567,13 @@ function isRenderModeInspectionActive() {
 }
 
 function clearRenderModeInspectionWatchdog() {
+// @ts-ignore
   getRenderModeInspectionClient().clearWatchdog();
   renderModeInspectionWatchdogTimer = 0;
 }
 
 function armRenderModeInspectionWatchdog() {
+// @ts-ignore
   getRenderModeInspectionClient().armWatchdog({
     timeoutMs: RENDER_MODE_INSPECTION_WATCHDOG_MS,
     onTimeout: () => {
@@ -1500,6 +1615,7 @@ function recoverFromStuckRenderModeInspection() {
     busy: false,
     message: ""
   });
+// @ts-ignore
   if (inspectionUiWasActive && propertyLockState && propertyLockState.isEditor) {
     runEditorSilentHighlightingActivation().catch(() => {});
   } else {
@@ -1512,6 +1628,7 @@ function cancelSilentHighlightEditorActivation() {
   silentHighlightEditorRevealInFlight = ++silentHighlightEditorActivationIdCounter;
 }
 
+// @ts-ignore
 function isRenderModeConfirmedForBaseUrl(baseUrl, configs) {
   if (!baseUrl || !configs || !Object.prototype.hasOwnProperty.call(configs, baseUrl)) {
     return false;
@@ -1539,6 +1656,7 @@ async function fetchCurrentPageRawHtml(pageUrl = location.href) {
   }
 }
 
+// @ts-ignore
 function matchesActiveBaseUrl(baseUrl) {
   return Boolean(baseUrl && state.baseUrl && utils.sameBaseUrl(baseUrl, state.baseUrl));
 }
@@ -1584,6 +1702,7 @@ async function isEnableHotkeyAllowedOnPage() {
   return { allowed: true, baseUrl, pageType: pageTypeResult.pageType };
 }
 
+// @ts-ignore
 function hasSavedPageDataForHotkey(entry) {
   return Boolean(
     entry &&
@@ -1593,6 +1712,7 @@ function hasSavedPageDataForHotkey(entry) {
   );
 }
 
+// @ts-ignore
 function hasSavedAiSnapshotForHotkey(entry) {
   return Boolean(
     entry &&
@@ -1669,6 +1789,7 @@ async function toggleDeviceEmulationFromPage() {
 }
 
 async function toggleEnabledFromPage(options = {}) {
+// @ts-ignore
   const { gate = null, showDisabledToast = true } = options || {};
   const tabState = await utils.sendRuntimeMessage({ type: "getTabState" });
   const currentlyEnabled = Boolean(state.enabled || (tabState && tabState.enabled));
@@ -1792,6 +1913,7 @@ function ensureSilentHighlightingStyles() {
   }
 }
 
+// @ts-ignore
 function setSilentHighlightingsActive(active) {
   if (active) {
     document.documentElement.setAttribute(SILENT_HIGHLIGHTINGS_ACTIVE_ATTR, "on");
@@ -1800,6 +1922,7 @@ function setSilentHighlightingsActive(active) {
   }
 }
 
+// @ts-ignore
 function setSilentHighlightingPageMotionPaused(paused) {
   if (paused) {
     core.pausePageMotion(SILENT_HIGHLIGHTING_MOTION_PAUSE_REASON);
@@ -1808,6 +1931,7 @@ function setSilentHighlightingPageMotionPaused(paused) {
   }
 }
 
+// @ts-ignore
 function getSilentHighlightEditorRevealKey(baseUrl, pageUrl) {
   const normalizedBaseUrl = utils.normalizeBaseUrl(baseUrl) || baseUrl;
   if (!normalizedBaseUrl || !pageUrl) {
@@ -1816,10 +1940,12 @@ function getSilentHighlightEditorRevealKey(baseUrl, pageUrl) {
   return `${normalizedBaseUrl}|${pageUrl}`;
 }
 
+// @ts-ignore
 function getPageVisitRevealFreezeKey(baseUrl, pageUrl) {
   return getSilentHighlightEditorRevealKey(baseUrl, pageUrl);
 }
 
+// @ts-ignore
 function consumePageVisitRevealFreezeAttempt(baseUrl, pageUrl) {
   const revealKey = getPageVisitRevealFreezeKey(baseUrl, pageUrl);
   if (!revealKey || !baseUrl || !utils.isPageWithinBaseUrl(pageUrl, baseUrl)) {
@@ -1832,6 +1958,7 @@ function consumePageVisitRevealFreezeAttempt(baseUrl, pageUrl) {
   return true;
 }
 
+// @ts-ignore
 function markSilentHighlightEditorRevealPrepared(baseUrl, pageUrl) {
   const revealKey = getSilentHighlightEditorRevealKey(baseUrl, pageUrl);
   if (!revealKey) {
@@ -1853,10 +1980,12 @@ function shouldRunSilentHighlightEditorActivation() {
   if (!isPropertyLockCollaborationEnabled()) {
     return true;
   }
+// @ts-ignore
   return Boolean(propertyLockState && propertyLockState.isEditor);
 }
 
 async function runEditorSilentHighlightingActivation() {
+// @ts-ignore
   if (silentHighlightEditorActivationPromise) {
     silentHighlightEditorActivationQueued = true;
     return silentHighlightEditorActivationPromise;
@@ -1896,6 +2025,7 @@ async function runEditorSilentHighlightingActivationOnce() {
   let lifecycleStarted = false;
   let lifecycleFinished = false;
   let lifecyclePhase = LIFECYCLE_PHASES.FINISHED;
+// @ts-ignore
   const emitSilentHighlightLifecycle = (phase, busy, message = "") => {
     if (!lifecycleOperationId) {
       lifecycleOperationId = createLifecycleOperationId(LIFECYCLE_KINDS.SILENT_HIGHLIGHTING);
@@ -1978,6 +2108,7 @@ async function runEditorSilentHighlightingActivationOnce() {
       });
     }
   } catch (error) {
+// @ts-ignore
     lifecyclePhase = LIFECYCLE_PHASES.FAILED;
     core.finishPageInspectionUi();
     finishSilentHighlightLifecycle();
@@ -2011,6 +2142,7 @@ function ensureSilentHighlightOverlay() {
       const layer = document.createElement("div");
       layer.className = "uf-silent-layer";
       layer.dataset.layer = key;
+// @ts-ignore
       overlay.appendChild(layer);
     });
   }
@@ -2022,12 +2154,14 @@ function ensureSilentHighlightOverlay() {
     host.appendChild(overlay);
   }
   overlay.style.zIndex = SILENT_HIGHLIGHT_OVERLAY_Z_INDEX;
+// @ts-ignore
   if (silentHighlightOverlay !== overlay) {
     silentHighlightOverlay = overlay;
     silentHighlightLayers = {};
     silentHighlightLayerBoxes = {};
   }
   overlay.querySelectorAll(".uf-silent-layer[data-layer]").forEach((layer) => {
+// @ts-ignore
     if (!SILENT_HIGHLIGHT_LAYER_KEYS.includes(layer.dataset.layer || "")) {
       layer.remove();
     }
@@ -2037,12 +2171,16 @@ function ensureSilentHighlightOverlay() {
     if (!layer) {
       layer = document.createElement("div");
       layer.className = "uf-silent-layer";
+// @ts-ignore
       layer.dataset.layer = key;
     }
     // Enforce stacking order: later siblings render above earlier ones.
     overlay.appendChild(layer);
+// @ts-ignore
     silentHighlightLayers[key] = layer;
+// @ts-ignore
     if (!silentHighlightLayerBoxes[key]) {
+// @ts-ignore
       silentHighlightLayerBoxes[key] = new Map();
     }
   });
@@ -2065,7 +2203,9 @@ function clearSilentHighlightOverlay() {
   clearSilentSelectorAnnotations();
 }
 
+// @ts-ignore
 function setSilentHighlightOverlayHidden(hidden) {
+// @ts-ignore
   if (!silentHighlightOverlay) {
     return;
   }
@@ -2120,16 +2260,21 @@ function clearSilentHighlightRepositionTimers() {
   }
 }
 
+// @ts-ignore
 function beginSilentLayerRender(key) {
+// @ts-ignore
   const layer = silentHighlightLayers[key];
   if (!layer) {
     return null;
   }
+// @ts-ignore
   const map = silentHighlightLayerBoxes[key] || new Map();
+// @ts-ignore
   silentHighlightLayerBoxes[key] = map;
   return { layer, map, used: new Set() };
 }
 
+// @ts-ignore
 function finalizeSilentLayerRender(layerState) {
   if (!layerState) {
     return;
@@ -2143,6 +2288,7 @@ function finalizeSilentLayerRender(layerState) {
   }
 }
 
+// @ts-ignore
 function collectSilentHighlightRects(node) {
   if (!node || node.nodeType !== 1 || !core.isVisible(node)) {
     return [];
@@ -2194,14 +2340,18 @@ function collectSilentHighlightRects(node) {
   ];
 }
 
+// @ts-ignore
 function cloneSilentHighlightNodes(nodes) {
+// @ts-ignore
   return Array.from(nodes || []).filter((node) => node && node.nodeType === 1);
 }
 
+// @ts-ignore
 function cloneSilentHighlightNodeValueMap(valueByNode) {
   return valueByNode instanceof Map ? new Map(valueByNode) : new Map();
 }
 
+// @ts-ignore
 function buildSilentHighlightRenderableCollections(collections) {
   const sourceImmutableNodes = cloneSilentHighlightNodes(
     Array.isArray(collections && collections.sourceImmutableNodes)
@@ -2246,6 +2396,7 @@ function buildSilentHighlightRenderableCollections(collections) {
   const contentNodes = toRenderableNodeList(sourceContentNodes);
   const explicitIncludedRenderable = toRenderableNodeListWithSelectors(
     sourceExplicitIncludeNodes,
+// @ts-ignore
     (node) => resolveSelectorForNode(node, sourceInclusionSelectorByNode, false)
   );
   const sourceHiddenExplicitIncludeSet = new Set(sourceHiddenExplicitIncludeNodes);
@@ -2258,6 +2409,7 @@ function buildSilentHighlightRenderableCollections(collections) {
   );
   const excludedRenderable = toRenderableNodeListWithSelectors(
     sourceExcludedNodes,
+// @ts-ignore
     (node) => resolveSelectorForNode(node, sourceExclusionSelectorByNode, true)
   );
   const excludedNodes = excludedRenderable.nodes;
@@ -2286,6 +2438,7 @@ function buildSilentHighlightRenderableCollections(collections) {
   };
 }
 
+// @ts-ignore
 function drawSilentRectsForNode(layerState, node, className, keySalt = "") {
   if (!layerState || !node || node.nodeType !== 1 || !className) {
     return;
@@ -2312,6 +2465,7 @@ function drawSilentRectsForNode(layerState, node, className, keySalt = "") {
   }
 }
 
+// @ts-ignore
 function renderSilentHighlightOverlay(collections, options = {}) {
   const overlay = ensureSilentHighlightOverlay();
   if (!overlay) {
@@ -2321,6 +2475,7 @@ function renderSilentHighlightOverlay(collections, options = {}) {
   // untouched: boxes are reused DOM nodes whose positions update atomically in
   // this synchronous pass, so there is no half-built frame to hide. The
   // hide->reveal cycle is reserved for full rebuilds and scroll repositions.
+// @ts-ignore
   const keepVisible = Boolean(options.keepVisible);
   if (!keepVisible) {
     setSilentHighlightOverlayHidden(true);
@@ -2410,6 +2565,7 @@ function renderSilentHighlightOverlay(collections, options = {}) {
 }
 
 function repositionSilentHighlightOverlay(options = {}) {
+// @ts-ignore
   if (!lastSilentHighlightingsActive || state.enabled || !silentHighlightCollections) {
     return;
   }
@@ -2417,6 +2573,7 @@ function repositionSilentHighlightOverlay(options = {}) {
   // place without the hide->reveal cycle, which is what produced the periodic
   // silent-highlight blink (#1). Scroll/resize repositions still hide first
   // because their viewport-fixed rects go stale during the gesture.
+// @ts-ignore
   const keepVisible = Boolean(options.keepVisible);
   if (!keepVisible) {
     setSilentHighlightOverlayHidden(true);
@@ -2425,12 +2582,16 @@ function repositionSilentHighlightOverlay(options = {}) {
   renderSilentHighlightOverlay(nextCollections, { keepVisible });
 }
 
+// @ts-ignore
 function buildSilentHighlightPositionSignature(collections = silentHighlightCollections) {
   if (!collections) {
     return "";
   }
+// @ts-ignore
   const entries = [];
+// @ts-ignore
   const appendNodes = (nodes, prefix) => {
+// @ts-ignore
     (nodes || []).forEach((node, nodeIndex) => {
       let targets = silentHighlightRenderTargetCache.get(node);
       if (!targets) {
@@ -2440,6 +2601,7 @@ function buildSilentHighlightPositionSignature(collections = silentHighlightColl
         silentHighlightRenderTargetCache.set(node, targets);
       }
       const renderTargets = targets.length > 0 ? targets : [node];
+// @ts-ignore
       renderTargets.forEach((target, targetIndex) => {
         if (!target || target.nodeType !== 1) {
           return;
@@ -2461,12 +2623,15 @@ function buildSilentHighlightPositionSignature(collections = silentHighlightColl
   appendNodes(collections.immutableNodes, "immutable");
   appendNodes(collections.contentNodes, "content");
   appendNodes(collections.excludedNodes, "excluded");
+// @ts-ignore
   entries.sort();
+// @ts-ignore
   return entries.join("|");
 }
 
 function runSilentHighlightSettledRepositionSample() {
   silentHighlightSettleTimer = 0;
+// @ts-ignore
   if (state.enabled || !lastSilentHighlightingsActive || !silentHighlightCollections) {
     resetSilentHighlightSettleTracking();
     return;
@@ -2507,9 +2672,11 @@ function runSilentHighlightSettledRepositionSample() {
 }
 
 function scheduleSilentHighlightReposition(options = {}) {
+// @ts-ignore
   if (state.enabled || !lastSilentHighlightingsActive || !silentHighlightCollections) {
     return;
   }
+// @ts-ignore
   if (options && options.waitForSettle) {
     // Settle-driven repositions (layout-shift / DOM mutation) keep the overlay
     // visible and reposition in place when settled, so they do not blink. Only
@@ -2545,6 +2712,7 @@ function scheduleSilentHighlightReposition(options = {}) {
   }, SILENT_SCROLL_REPOSITION_DEBOUNCE_MS);
 }
 
+// @ts-ignore
 function isViewportScrollEvent(event) {
   if (!event) {
     return true;
@@ -2587,30 +2755,41 @@ function clearSilentSelectorAnnotations() {
     return;
   }
   for (const node of silentSelectorAnnotatedNodes) {
+// @ts-ignore
     if (!node || node.nodeType !== 1) {
       continue;
     }
+// @ts-ignore
     node.removeAttribute(SILENT_SELECTOR_EXPLICIT_INCLUDE_ATTR);
+// @ts-ignore
     node.removeAttribute(SILENT_SELECTOR_EXCLUDE_ATTR);
+// @ts-ignore
     node.removeAttribute(SILENT_TITLE_COPY_ATTR);
     const originalTitleState = silentSelectorOriginalTitles.get(node);
     if (originalTitleState && typeof originalTitleState === "object") {
       if (originalTitleState.hadTitle) {
+// @ts-ignore
         node.setAttribute("title", originalTitleState.title || "");
       } else if (
+// @ts-ignore
         node.getAttribute("title") === originalTitleState.annotationTitle ||
+// @ts-ignore
         (node.getAttribute("title") || "").startsWith(SILENT_SELECTOR_TITLE_PREFIX)
       ) {
+// @ts-ignore
         node.removeAttribute("title");
       }
       silentSelectorOriginalTitles.delete(node);
+// @ts-ignore
     } else if ((node.getAttribute("title") || "").startsWith(SILENT_SELECTOR_TITLE_PREFIX)) {
+// @ts-ignore
       node.removeAttribute("title");
     }
   }
   silentSelectorAnnotatedNodes.clear();
 }
 
+// @ts-ignore
 function buildSilentHighlightTitle(selector, xpath) {
   const normalizedSelector = typeof selector === "string"
     ? selector
@@ -2638,6 +2817,7 @@ function buildSilentHighlightTitle(selector, xpath) {
   return normalizedXpath || normalizedSelector;
 }
 
+// @ts-ignore
 function setSilentSelectorAnnotation(node, kind, selector = "", xpath = "") {
   if (!node || node.nodeType !== 1) {
     return;
@@ -2676,6 +2856,7 @@ function setSilentSelectorAnnotation(node, kind, selector = "", xpath = "") {
   silentSelectorAnnotatedNodes.add(node);
 }
 
+// @ts-ignore
 function buildSilentHighlightXpathByNode(nodes) {
   const xpathByNode = new Map();
   for (const node of nodes || []) {
@@ -2690,6 +2871,7 @@ function buildSilentHighlightXpathByNode(nodes) {
   return xpathByNode;
 }
 
+// @ts-ignore
 function applySilentSelectorAnnotations(collections) {
   clearSilentSelectorAnnotations();
   if (!collections || typeof collections !== "object") {
@@ -2715,6 +2897,7 @@ function applySilentSelectorAnnotations(collections) {
     collections.implicitIncludeXpathByNode instanceof Map
       ? collections.implicitIncludeXpathByNode
       : new Map();
+// @ts-ignore
   explicitIncludeXpathByNode.forEach((xpath, node) => {
     setSilentSelectorAnnotation(
       node,
@@ -2723,6 +2906,7 @@ function applySilentSelectorAnnotations(collections) {
       xpath
     );
   });
+// @ts-ignore
   excludedXpathByNode.forEach((xpath, node) => {
     setSilentSelectorAnnotation(
       node,
@@ -2731,11 +2915,13 @@ function applySilentSelectorAnnotations(collections) {
       xpath
     );
   });
+// @ts-ignore
   implicitIncludeXpathByNode.forEach((xpath, node) => {
     setSilentSelectorAnnotation(node, "implicit", "", xpath);
   });
 }
 
+// @ts-ignore
 async function copyTextToClipboard(text) {
   if (typeof text !== "string" || !text) {
     return false;
@@ -2767,6 +2953,7 @@ async function copyTextToClipboard(text) {
   }
 }
 
+// @ts-ignore
 function handleSilentSelectorClickCopy(event) {
   if (!event || event.defaultPrevented || event.button !== 0) {
     return;
@@ -2801,10 +2988,12 @@ function clearSilentHighlightingMarks() {
 }
 
 function stopSilentHighlightingObserver() {
+// @ts-ignore
   if (silentHighlightingObserver) {
     silentHighlightingObserver.disconnect();
     silentHighlightingObserver = null;
   }
+// @ts-ignore
   if (silentHighlightingLayoutShiftObserver) {
     silentHighlightingLayoutShiftObserver.disconnect();
     silentHighlightingLayoutShiftObserver = null;
@@ -2818,10 +3007,14 @@ function stopSilentHighlightingObserver() {
 }
 
 function scheduleSilentHighlightingsRefresh(options = {}) {
+// @ts-ignore
   const debounceMs = Number.isFinite(options && options.debounceMs)
+// @ts-ignore
     ? Math.max(0, Math.trunc(options.debounceMs))
     : SILENT_HIGHLIGHTING_MUTATION_DEBOUNCE_MS;
+// @ts-ignore
   const minIntervalMs = Number.isFinite(options && options.minIntervalMs)
+// @ts-ignore
     ? Math.max(0, Math.trunc(options.minIntervalMs))
     : SILENT_HIGHLIGHTING_MUTATION_MIN_INTERVAL_MS;
   const now = Date.now();
@@ -2852,6 +3045,7 @@ function scheduleSilentHighlightingsRefresh(options = {}) {
   }, delay);
 }
 
+// @ts-ignore
 function isExtensionUiNode(node) {
   if (!node || node.nodeType !== 1) {
     return false;
@@ -2862,6 +3056,7 @@ function isExtensionUiNode(node) {
   return Boolean(node.closest("[data-uf-extension-ui=\"true\"]"));
 }
 
+// @ts-ignore
 function shouldRefreshForSilentMutation(mutation) {
   if (!mutation) {
     return false;
@@ -2902,6 +3097,7 @@ function buildSilentHighlightTrackedNodeIndex() {
   //   in O(1) instead of O(N).
   const tracked = new Set();
   const ancestors = new Set();
+// @ts-ignore
   if (!silentHighlightCollections) {
     return { tracked, ancestors };
   }
@@ -2932,10 +3128,13 @@ function buildSilentHighlightTrackedNodeIndex() {
   return { tracked, ancestors };
 }
 
+// @ts-ignore
 function mutationTargetTouchesSilentCollections(target) {
+// @ts-ignore
   if (!target || target.nodeType !== 1 || !silentHighlightCollections) {
     return false;
   }
+// @ts-ignore
   if (!silentHighlightTrackedNodeIndex) {
     silentHighlightTrackedNodeIndex = buildSilentHighlightTrackedNodeIndex();
   }
@@ -2955,6 +3154,7 @@ function mutationTargetTouchesSilentCollections(target) {
 }
 
 function startSilentHighlightingObserver() {
+// @ts-ignore
   if (silentHighlightingObserver) {
     return;
   }
@@ -3028,6 +3228,7 @@ if (needsFullRefresh) {
           !list ||
           state.enabled ||
           !lastSilentHighlightingsActive ||
+// @ts-ignore
           !silentHighlightCollections
         ) {
           return;
@@ -3039,7 +3240,9 @@ if (needsFullRefresh) {
           return;
         }
         const hasLayoutShift = entries.some((entry) =>
+// @ts-ignore
           entry && typeof entry.value === "number"
+// @ts-ignore
             ? entry.value > 0
             : Boolean(entry)
         );
@@ -3051,6 +3254,7 @@ if (needsFullRefresh) {
       });
       silentHighlightingLayoutShiftObserver.observe({ type: "layout-shift" });
     } catch {
+// @ts-ignore
       if (silentHighlightingLayoutShiftObserver) {
         silentHighlightingLayoutShiftObserver.disconnect();
         silentHighlightingLayoutShiftObserver = null;
@@ -3093,6 +3297,7 @@ function clearAiPreviewState() {
   return true;
 }
 
+// @ts-ignore
 function restoreAiPreviewDraftState(restoreState) {
   if (
     !restoreState ||
@@ -3105,13 +3310,17 @@ function restoreAiPreviewDraftState(restoreState) {
   if (!pageUrl || location.href !== pageUrl) {
     return;
   }
+// @ts-ignore
   if (!state.config.pageMarkings || typeof state.config.pageMarkings !== "object") {
+// @ts-ignore
     state.config.pageMarkings = {};
   }
   const previousDraftEntry = core.clonePageEntry(restoreState.previousDraftEntry);
   if (previousDraftEntry) {
+// @ts-ignore
     state.config.pageMarkings[pageUrl] = previousDraftEntry;
   } else {
+// @ts-ignore
     delete state.config.pageMarkings[pageUrl];
   }
   core.setSavedPageEntry(pageUrl, restoreState.previousSavedEntry || null);
@@ -3120,6 +3329,7 @@ function restoreAiPreviewDraftState(restoreState) {
     restoreState.previousAutoSeededPendingSavePageUrl || "";
 }
 
+// @ts-ignore
 function scheduleAiComputeLockRelease(expiresAt) {
   if (aiComputeLockReleaseTimer) {
     window.clearTimeout(aiComputeLockReleaseTimer);
@@ -3138,6 +3348,7 @@ function scheduleAiComputeLockRelease(expiresAt) {
 }
 
 function beginAiPreviewMode(options = {}) {
+// @ts-ignore
   const nextMode = typeof options.mode === "string" ? options.mode : "preview";
   const restoreMarkingOnExit = nextMode === "compute_lock";
   if (!aiPreviewState.active) {
@@ -3251,6 +3462,7 @@ async function exitAiPreviewMode() {
   resetAiPreviewState();
 }
 
+// @ts-ignore
 function normalizeUrlPath(pathname) {
   if (typeof pathname !== "string" || !pathname) {
     return "/";
@@ -3259,6 +3471,7 @@ function normalizeUrlPath(pathname) {
   return trimmed || "/";
 }
 
+// @ts-ignore
 function toLooseUrlKey(value, baseUrl) {
   if (typeof value !== "string" || !value) {
     return "";
@@ -3273,6 +3486,7 @@ function toLooseUrlKey(value, baseUrl) {
   }
 }
 
+// @ts-ignore
 function getStoredAiSelectorSet(baseConfig) {
   if (!baseConfig || typeof baseConfig !== "object") {
     return { exclusionSelectors: [], inclusionSelectors: [] };
@@ -3280,16 +3494,19 @@ function getStoredAiSelectorSet(baseConfig) {
   return config.getNewestConfigSelectorSet(baseConfig).selectorSet;
 }
 
+// @ts-ignore
 function getSelectorSuppressedXpaths(baseConfig, pageUrl = location.href) {
   const pageMarkings = baseConfig && typeof baseConfig === "object"
     ? baseConfig.pageMarkings
     : null;
   const entry = core.findPageMarkingEntry({ pageMarkings }, pageUrl, state.baseUrl || "");
   return Array.isArray(entry && entry.selectorSuppressedXpaths)
+// @ts-ignore
     ? entry.selectorSuppressedXpaths.filter((xpath) => typeof xpath === "string" && xpath)
     : [];
 }
 
+// @ts-ignore
 function getEffectiveAiSelectorSet(baseConfig) {
   const storedSelectors = getStoredAiSelectorSet(baseConfig);
   const suppressedXpaths = getSelectorSuppressedXpaths(baseConfig);
@@ -3302,6 +3519,7 @@ function getEffectiveAiSelectorSet(baseConfig) {
   };
 }
 
+// @ts-ignore
 function resolveSuppressedSelectorBoundaries(suppressedXpaths) {
   const xpaths = Array.isArray(suppressedXpaths)
     ? suppressedXpaths.filter((xpath) => typeof xpath === "string" && xpath)
@@ -3314,6 +3532,7 @@ function resolveSuppressedSelectorBoundaries(suppressedXpaths) {
   };
 }
 
+// @ts-ignore
 function isSuppressedSelectorNode(node, suppressedBoundaries) {
   if (!node || node.nodeType !== 1 || !suppressedBoundaries || !suppressedBoundaries.xpaths.length) {
     return false;
@@ -3327,11 +3546,13 @@ function isSuppressedSelectorNode(node, suppressedBoundaries) {
   if (!xpath) {
     return false;
   }
+// @ts-ignore
   return suppressedBoundaries.xpaths.some((suppressedXpath) =>
     suppressedXpath === xpath || core.isXPathDescendant(suppressedXpath, xpath)
   );
 }
 
+// @ts-ignore
 function getSuppressedSelectorFingerprint(suppressedXpaths) {
   if (!Array.isArray(suppressedXpaths)) {
     return "";
@@ -3343,7 +3564,9 @@ function getSuppressedSelectorFingerprint(suppressedXpaths) {
     .join(SELECTOR_LIST_DELIMITER);
 }
 
+// @ts-ignore
 function collectNodesFromSelectors(selectors, options = {}) {
+// @ts-ignore
   const suppressedBoundaries = resolveSuppressedSelectorBoundaries(options.suppressedXpaths);
   return collectCachedSelectorMatches({
     root: document,
@@ -3352,6 +3575,7 @@ function collectNodesFromSelectors(selectors, options = {}) {
     scope: "silent-highlight-selectors",
     suppressionFingerprint: [
       getSelectorFingerprint(selectors),
+// @ts-ignore
       getSuppressedSelectorFingerprint(options.suppressedXpaths)
     ].join(SELECTOR_CACHE_SCOPE_FINGERPRINT_SEPARATOR),
     includeSelectorByNode: true,
@@ -3361,6 +3585,7 @@ function collectNodesFromSelectors(selectors, options = {}) {
   });
 }
 
+// @ts-ignore
 function resolveSelectorForNode(node, selectorByNode, allowAncestorMatch = false) {
   if (!node || !selectorByNode || selectorByNode.size === 0) {
     return "";
@@ -3381,6 +3606,7 @@ function resolveSelectorForNode(node, selectorByNode, allowAncestorMatch = false
   return "";
 }
 
+// @ts-ignore
 function isWithinExcludedNode(node, excluded) {
   if (!node || !excluded || excluded.size === 0) {
     return false;
@@ -3395,6 +3621,7 @@ function isWithinExcludedNode(node, excluded) {
   return false;
 }
 
+// @ts-ignore
 function isWithinConsentBoundary(node) {
   return Boolean(
     node &&
@@ -3404,6 +3631,7 @@ function isWithinConsentBoundary(node) {
   );
 }
 
+// @ts-ignore
 function hasDirectRenderableText(node) {
   if (!node || node.nodeType !== 1) {
     return false;
@@ -3427,6 +3655,7 @@ function hasDirectRenderableText(node) {
   return false;
 }
 
+// @ts-ignore
 function isDefinitelyHiddenSubtreeNode(node) {
   if (!node || node.nodeType !== 1) {
     return true;
@@ -3459,6 +3688,7 @@ function isDefinitelyHiddenSubtreeNode(node) {
   return false;
 }
 
+// @ts-ignore
 function matchesImmutableDefaultSelector(node) {
   if (!node || node.nodeType !== 1) {
     return false;
@@ -3476,6 +3706,7 @@ function matchesImmutableDefaultSelector(node) {
   return false;
 }
 
+// @ts-ignore
 function matchesToggleableDefaultSelector(node) {
   if (!node || node.nodeType !== 1) {
     return false;
@@ -3493,6 +3724,7 @@ function matchesToggleableDefaultSelector(node) {
   return false;
 }
 
+// @ts-ignore
 function hasNestedToggleableDefaultExcludedDescendant(node) {
   if (!node || node.nodeType !== 1) {
     return false;
@@ -3500,6 +3732,7 @@ function hasNestedToggleableDefaultExcludedDescendant(node) {
   const stack = Array.from(node.children || []);
   while (stack.length) {
     const current = stack.pop();
+// @ts-ignore
     if (!current || current.nodeType !== 1) {
       continue;
     }
@@ -3509,13 +3742,16 @@ function hasNestedToggleableDefaultExcludedDescendant(node) {
     if (matchesToggleableDefaultSelector(current)) {
       return true;
     }
+// @ts-ignore
     for (let i = current.children.length - 1; i >= 0; i -= 1) {
+// @ts-ignore
       stack.push(current.children[i]);
     }
   }
   return false;
 }
 
+// @ts-ignore
 function hasVisibleImmutableDescendant(node) {
   if (!node || node.nodeType !== 1) {
     return false;
@@ -3523,6 +3759,7 @@ function hasVisibleImmutableDescendant(node) {
   const stack = Array.from(node.children || []);
   while (stack.length) {
     const current = stack.pop();
+// @ts-ignore
     if (!current || current.nodeType !== 1) {
       continue;
     }
@@ -3532,13 +3769,16 @@ function hasVisibleImmutableDescendant(node) {
     if (matchesImmutableDefaultSelector(current) && core.isVisible(current)) {
       return true;
     }
+// @ts-ignore
     for (let i = current.children.length - 1; i >= 0; i -= 1) {
+// @ts-ignore
       stack.push(current.children[i]);
     }
   }
   return false;
 }
 
+// @ts-ignore
 function matchesAutoToggleableDefaultSelector(node) {
   if (!matchesToggleableDefaultSelector(node)) {
     return false;
@@ -3555,6 +3795,7 @@ function matchesAutoToggleableDefaultSelector(node) {
   return !hasVisibleImmutableDescendant(node);
 }
 
+// @ts-ignore
 function isWithinImmutableDefaultNode(node) {
   let current = node;
   while (current && current.nodeType === 1) {
@@ -3566,10 +3807,12 @@ function isWithinImmutableDefaultNode(node) {
   return false;
 }
 
+// @ts-ignore
 function isToggleableDefaultExcludedNode(node, includedNodes) {
   return matchesAutoToggleableDefaultSelector(node) && !isWithinNodeSet(node, includedNodes);
 }
 
+// @ts-ignore
 function isWithinToggleableDefaultExcludedNode(node, includedNodes) {
   if (isWithinNodeSet(node, includedNodes)) {
     return false;
@@ -3584,14 +3827,17 @@ function isWithinToggleableDefaultExcludedNode(node, includedNodes) {
   return false;
 }
 
+// @ts-ignore
 function isRawSelectorExcludedNode(node, excludedNodes, includedNodes) {
   return isWithinNodeSet(node, excludedNodes) && !isWithinNodeSet(node, includedNodes);
 }
 
+// @ts-ignore
 function isSelectorExcludedNode(node, excludedNodes, includedNodes, inclusionContextSet) {
   return isRawSelectorExcludedNode(node, excludedNodes, includedNodes);
 }
 
+// @ts-ignore
 function isExcludedNatureNode(node, excludedNodes, includedNodes, inclusionContextSet) {
   return matchesImmutableDefaultSelector(node) ||
     isToggleableDefaultExcludedNode(node, includedNodes) ||
@@ -3599,13 +3845,18 @@ function isExcludedNatureNode(node, excludedNodes, includedNodes, inclusionConte
 }
 
 function isInclusionEligibleNode(
+// @ts-ignore
   node,
+// @ts-ignore
   excludedNodes,
+// @ts-ignore
   includedNodes,
+// @ts-ignore
   inclusionContextSet,
   options = {}
 ) {
   const ignoreVisibilityForInclusionDetection = Boolean(
+// @ts-ignore
     options && options.ignoreVisibilityForInclusionDetection
   );
   if (!node || node.nodeType !== 1) {
@@ -3635,8 +3886,10 @@ function isInclusionEligibleNode(
     Boolean(inclusionContextSet && inclusionContextSet.has(node));
 }
 
+// @ts-ignore
 function isTextualContainerForInclusion(node, options = {}) {
   const ignoreVisibilityForInclusionDetection = Boolean(
+// @ts-ignore
     options && options.ignoreVisibilityForInclusionDetection
   );
   if (!node || node.nodeType !== 1) {
@@ -3658,6 +3911,7 @@ function isTextualContainerForInclusion(node, options = {}) {
   return Boolean(getNormalizedNodeText(node));
 }
 
+// @ts-ignore
 function hasTextualDescendantForInclusion(node, options = {}) {
   if (!node || node.nodeType !== 1) {
     return false;
@@ -3665,6 +3919,7 @@ function hasTextualDescendantForInclusion(node, options = {}) {
   const stack = Array.from(node.children || []);
   while (stack.length) {
     const current = stack.pop();
+// @ts-ignore
     if (!current || current.nodeType !== 1) {
       continue;
     }
@@ -3677,13 +3932,16 @@ function hasTextualDescendantForInclusion(node, options = {}) {
     if (isTextualContainerForInclusion(current, options)) {
       return true;
     }
+// @ts-ignore
     for (let i = current.children.length - 1; i >= 0; i -= 1) {
+// @ts-ignore
       stack.push(current.children[i]);
     }
   }
   return false;
 }
 
+// @ts-ignore
 function hasTextualImmutableDescendantForInclusion(node, options = {}) {
   if (!node || node.nodeType !== 1) {
     return false;
@@ -3691,6 +3949,7 @@ function hasTextualImmutableDescendantForInclusion(node, options = {}) {
   const stack = Array.from(node.children || []);
   while (stack.length) {
     const current = stack.pop();
+// @ts-ignore
     if (!current || current.nodeType !== 1) {
       continue;
     }
@@ -3703,13 +3962,16 @@ function hasTextualImmutableDescendantForInclusion(node, options = {}) {
     ) {
       return true;
     }
+// @ts-ignore
     for (let i = current.children.length - 1; i >= 0; i -= 1) {
+// @ts-ignore
       stack.push(current.children[i]);
     }
   }
   return false;
 }
 
+// @ts-ignore
 function isSelfMarkableInclusionNode(node, options = {}) {
   if (!isTextualContainerForInclusion(node, options)) {
     return false;
@@ -3717,6 +3979,7 @@ function isSelfMarkableInclusionNode(node, options = {}) {
   // Keep ancestor/descendant self-markable decisions stable even when
   // inclusion detection ignores visibility (used by silent highlight/preview).
   // Otherwise hidden responsive descendants can suppress a visible ancestor.
+// @ts-ignore
   const descendantShapeOptions = options && options.ignoreVisibilityForInclusionDetection
     ? {
       ...options,
@@ -3747,13 +4010,18 @@ function isSelfMarkableInclusionNode(node, options = {}) {
 }
 
 function hasRenderableTextOutsideExcludedNature(
+// @ts-ignore
   node,
+// @ts-ignore
   excludedNodes,
+// @ts-ignore
   includedNodes,
+// @ts-ignore
   inclusionContextSet,
   options = {}
 ) {
   const ignoreVisibilityForInclusionDetection = Boolean(
+// @ts-ignore
     options && options.ignoreVisibilityForInclusionDetection
   );
   if (!node || node.nodeType !== 1) {
@@ -3798,9 +4066,13 @@ function hasRenderableTextOutsideExcludedNature(
 }
 
 function hasRenderableTextForHighlight(
+// @ts-ignore
   node,
+// @ts-ignore
   excludedNodes,
+// @ts-ignore
   includedNodes,
+// @ts-ignore
   inclusionContextSet,
   options = {}
 ) {
@@ -3820,8 +4092,11 @@ function hasRenderableTextForHighlight(
 }
 
 function hasRenderableTextForExcludedHighlight(
+// @ts-ignore
   node,
+// @ts-ignore
   includedNodes,
+// @ts-ignore
   inclusionContextSet
 ) {
   if (!node || node.nodeType !== 1) {
@@ -3862,6 +4137,7 @@ function hasRenderableTextForExcludedHighlight(
   return false;
 }
 
+// @ts-ignore
 function getNodeDepth(node) {
   let depth = 0;
   let current = node;
@@ -3872,6 +4148,7 @@ function getNodeDepth(node) {
   return depth;
 }
 
+// @ts-ignore
 function collapseToShallowest(nodes) {
   const sorted = Array.from(nodes || []).sort((left, right) => {
     const depthDiff = getNodeDepth(left) - getNodeDepth(right);
@@ -3880,19 +4157,24 @@ function collapseToShallowest(nodes) {
     }
     return 0;
   });
+// @ts-ignore
   const kept = [];
   sorted.forEach((node) => {
+// @ts-ignore
     if (!node || node.nodeType !== 1) {
       return;
     }
+// @ts-ignore
     const hasAncestor = kept.some((ancestor) => ancestor.contains(node));
     if (!hasAncestor) {
       kept.push(node);
     }
   });
+// @ts-ignore
   return kept;
 }
 
+// @ts-ignore
 function collapseToShallowestWithOppositeBoundary(nodes, oppositeNodes) {
   const oppositeSet = new Set(oppositeNodes || []);
   const sorted = Array.from(new Set(nodes || [])).sort((left, right) => {
@@ -3902,12 +4184,15 @@ function collapseToShallowestWithOppositeBoundary(nodes, oppositeNodes) {
     }
     return compareNodeOrder(left, right);
   });
+// @ts-ignore
   const kept = [];
   const keptSet = new Set();
   sorted.forEach((node) => {
+// @ts-ignore
     if (!node || node.nodeType !== 1) {
       return;
     }
+// @ts-ignore
     let current = node.parentElement;
     while (current && current.nodeType === 1) {
       if (oppositeSet.has(current)) {
@@ -3921,10 +4206,13 @@ function collapseToShallowestWithOppositeBoundary(nodes, oppositeNodes) {
     kept.push(node);
     keptSet.add(node);
   });
+// @ts-ignore
   kept.sort(compareNodeOrder);
+// @ts-ignore
   return kept;
 }
 
+// @ts-ignore
 function collapseToShallowestPreservingExplicitNodes(nodes, explicitNodes) {
   const explicitSet = new Set(explicitNodes || []);
   const sorted = Array.from(new Set(nodes || [])).sort((left, right) => {
@@ -3934,9 +4222,11 @@ function collapseToShallowestPreservingExplicitNodes(nodes, explicitNodes) {
     }
     return compareNodeOrder(left, right);
   });
+// @ts-ignore
   const kept = [];
   const keptSet = new Set();
   sorted.forEach((node) => {
+// @ts-ignore
     if (!node || node.nodeType !== 1) {
       return;
     }
@@ -3947,6 +4237,7 @@ function collapseToShallowestPreservingExplicitNodes(nodes, explicitNodes) {
       }
       return;
     }
+// @ts-ignore
     let current = node.parentElement;
     while (current && current.nodeType === 1) {
       if (keptSet.has(current)) {
@@ -3957,10 +4248,13 @@ function collapseToShallowestPreservingExplicitNodes(nodes, explicitNodes) {
     kept.push(node);
     keptSet.add(node);
   });
+// @ts-ignore
   kept.sort(compareNodeOrder);
+// @ts-ignore
   return kept;
 }
 
+// @ts-ignore
 function compareNodeOrder(left, right) {
   if (left === right) {
     return 0;
@@ -3975,6 +4269,7 @@ function compareNodeOrder(left, right) {
   return 0;
 }
 
+// @ts-ignore
 function collapseToDeepest(nodes) {
   const sorted = Array.from(nodes || []).sort((left, right) => {
     const depthDiff = getNodeDepth(right) - getNodeDepth(left);
@@ -3983,28 +4278,39 @@ function collapseToDeepest(nodes) {
     }
     return compareNodeOrder(left, right);
   });
+// @ts-ignore
   const kept = [];
   sorted.forEach((node) => {
+// @ts-ignore
     if (!node || node.nodeType !== 1) {
       return;
     }
+// @ts-ignore
     const isAncestorOfKept = kept.some((descendant) => node.contains(descendant));
     if (!isAncestorOfKept) {
       kept.push(node);
     }
   });
+// @ts-ignore
   kept.sort(compareNodeOrder);
+// @ts-ignore
   return kept;
 }
 
 function collectExcludedChildrenInsideIncludedParents(
+// @ts-ignore
   includedParents,
+// @ts-ignore
   excludedNodes,
+// @ts-ignore
   includedNodes,
+// @ts-ignore
   inclusionContextSet
 ) {
+// @ts-ignore
   const marked = [];
   const seen = new Set();
+// @ts-ignore
   includedParents.forEach((parent) => {
     if (!parent || parent.nodeType !== 1) {
       return;
@@ -4012,6 +4318,7 @@ function collectExcludedChildrenInsideIncludedParents(
     const stack = Array.from(parent.children || []);
     while (stack.length) {
       const node = stack.pop();
+// @ts-ignore
       if (!node || node.nodeType !== 1) {
         continue;
       }
@@ -4038,17 +4345,23 @@ function collectExcludedChildrenInsideIncludedParents(
         }
         continue;
       }
+// @ts-ignore
       for (let i = node.children.length - 1; i >= 0; i -= 1) {
+// @ts-ignore
         stack.push(node.children[i]);
       }
     }
   });
+// @ts-ignore
   return marked;
 }
 
 function collectSelectorExcludedNodes(
+// @ts-ignore
   excludedNodes,
+// @ts-ignore
   includedNodes,
+// @ts-ignore
   inclusionContextSet
 ) {
   const marked = new Set();
@@ -4074,6 +4387,7 @@ function collectSelectorExcludedNodes(
   return Array.from(marked).sort(compareNodeOrder);
 }
 
+// @ts-ignore
 function collectToggleableDefaultExcludedNodes(includedNodes) {
   if (!document.body) {
     return [];
@@ -4099,12 +4413,14 @@ function collectToggleableDefaultExcludedNodes(includedNodes) {
       continue;
     }
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
+// @ts-ignore
       stack.push(node.children[i]);
     }
   }
   return results.sort(compareNodeOrder);
 }
 
+// @ts-ignore
 function collectImmutableDefaultExcludedNodes(includedNodes) {
   if (!document.body) {
     return [];
@@ -4129,6 +4445,7 @@ function collectImmutableDefaultExcludedNodes(includedNodes) {
       continue;
     }
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
+// @ts-ignore
       stack.push(node.children[i]);
     }
   }
@@ -4136,14 +4453,20 @@ function collectImmutableDefaultExcludedNodes(includedNodes) {
 }
 
 function collectExplicitIncludedNodes(
+// @ts-ignore
   explicitIncludedMatches,
+// @ts-ignore
   excludedNodes,
+// @ts-ignore
   includedNodes,
+// @ts-ignore
   inclusionContextSet,
   options = {}
 ) {
+// @ts-ignore
   const keepAllExplicitMatches = Boolean(options && options.keepAllExplicitMatches);
   const preserveNestedExplicitIncludedDescendants = Boolean(
+// @ts-ignore
     options && options.preserveNestedExplicitIncludedDescendants
   );
   const selected = new Set();
@@ -4193,9 +4516,13 @@ function collectExplicitIncludedNodes(
 }
 
 function collectImplicitIncludedNodesOutsideExplicit(
+// @ts-ignore
   explicitIncluded,
+// @ts-ignore
   excludedNodes,
+// @ts-ignore
   includedNodes,
+// @ts-ignore
   inclusionContextSet,
   options = {}
 ) {
@@ -4210,6 +4537,7 @@ function collectImplicitIncludedNodesOutsideExplicit(
     if (
       explicitIncludedSet.size > 0 &&
       !explicitIncludedSet.has(node) &&
+// @ts-ignore
       isWithinNodeSet(node, explicitIncludedSet)
     ) {
       continue;
@@ -4249,6 +4577,7 @@ function collectImplicitIncludedNodesOutsideExplicit(
       baseSelected.add(node);
     }
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
+// @ts-ignore
       stack.push(node.children[i]);
     }
   }
@@ -4263,6 +4592,7 @@ function collectImplicitIncludedNodesOutsideExplicit(
   );
 }
 
+// @ts-ignore
 function collectIncludedNodesFromSelectorSet(selectorSet) {
   // Silent highlighting inclusion selection is visibility-agnostic:
   // implicit non-excluded content + all explicit inclusion selector matches.
@@ -4298,6 +4628,7 @@ function collectIncludedNodesFromSelectorSet(selectorSet) {
   // them through the existing boundary rules.
   const excludedNodes = new Set(rawExcludedNodes);
   const includedNodes = filteredIncludedNodes;
+// @ts-ignore
   const inclusionContextSet = buildInclusionContextSet(includedNodes);
   const explicitIncluded = collectExplicitIncludedNodes(
     includedNodes,
@@ -4312,6 +4643,7 @@ function collectIncludedNodesFromSelectorSet(selectorSet) {
   // times in one collection pass. The WeakMap is scoped to this invocation
   // and discarded with the closure, so there is no staleness window.
   const visibilityMemo = new WeakMap();
+// @ts-ignore
   const memoIsVisible = (node) => {
     if (!node || node.nodeType !== 1) return false;
     const cached = visibilityMemo.get(node);
@@ -4320,6 +4652,7 @@ function collectIncludedNodesFromSelectorSet(selectorSet) {
     visibilityMemo.set(node, visible);
     return visible;
   };
+// @ts-ignore
   const isIncludedNodeAvailableForUser = (node) =>
     memoIsVisible(node) || !isDefinitelyHiddenSubtreeNode(node);
   const explicitIncludedSet = new Set(explicitIncluded);
@@ -4392,6 +4725,7 @@ function collectIncludedNodesFromSelectorSet(selectorSet) {
 let silentRenderNodeIdCounter = 0;
 const silentRenderNodeIds = new WeakMap();
 
+// @ts-ignore
 function getSilentRenderNodeId(node) {
   if (!node || node.nodeType !== 1) {
     return 0;
@@ -4405,8 +4739,11 @@ function getSilentRenderNodeId(node) {
 }
 
 function buildSilentHighlightingRenderKey(
+// @ts-ignore
   immutableNodes,
+// @ts-ignore
   contentNodes,
+// @ts-ignore
   excludedNodes,
   ghostContentNodes = [],
   explicitIncludeSelectorByNode = null,
@@ -4418,19 +4755,23 @@ function buildSilentHighlightingRenderKey(
   const immutableIds = immutableNodes
     .map(getSilentRenderNodeId)
     .filter(Boolean)
+// @ts-ignore
     .sort((a, b) => a - b);
   const contentIds = contentNodes
     .map(getSilentRenderNodeId)
     .filter(Boolean)
+// @ts-ignore
     .sort((a, b) => a - b);
   const excludedIds = excludedNodes
     .map(getSilentRenderNodeId)
     .filter(Boolean)
+// @ts-ignore
     .sort((a, b) => a - b);
   const ghostContentIds = ghostContentNodes
     .map(getSilentRenderNodeId)
     .filter(Boolean)
     .sort((a, b) => a - b);
+// @ts-ignore
   const buildNodeValueKey = (valueByNode) => JSON.stringify(
     (valueByNode instanceof Map ? Array.from(valueByNode.entries()) : [])
       .map(([node, value]) => [getSilentRenderNodeId(node), value || ""])
@@ -4460,6 +4801,7 @@ function buildSilentHighlightingRenderKey(
   ].join("|");
 }
 
+// @ts-ignore
 function hasRenderableClientBox(node) {
   if (!node || node.nodeType !== 1) {
     return false;
@@ -4468,7 +4810,9 @@ function hasRenderableClientBox(node) {
   return rect.width > 0 && rect.height > 0;
 }
 
+// @ts-ignore
 function collectSilentHighlightRenderTargets(node, options = {}) {
+// @ts-ignore
   const keepShallowestOnly = !options || options.keepShallowestOnly !== false;
   if (!node || node.nodeType !== 1) {
     return [];
@@ -4483,6 +4827,7 @@ function collectSilentHighlightRenderTargets(node, options = {}) {
   while (stack.length && inspected < MAX_INSPECTED) {
     const current = stack.shift();
     inspected += 1;
+// @ts-ignore
     if (!current || current.nodeType !== 1) {
       continue;
     }
@@ -4499,7 +4844,9 @@ function collectSilentHighlightRenderTargets(node, options = {}) {
         continue;
       }
     }
+// @ts-ignore
     for (let i = 0; i < current.children.length; i += 1) {
+// @ts-ignore
       stack.push(current.children[i]);
     }
   }
@@ -4507,17 +4854,21 @@ function collectSilentHighlightRenderTargets(node, options = {}) {
 }
 
 function toRenderableNodeListWithSelectors(
+// @ts-ignore
   nodes,
   selectorResolver = null,
   options = {}
 ) {
+// @ts-ignore
   const dedupeTargets = !options || options.dedupeTargets !== false;
   const keepShallowestFallbackTargets =
+// @ts-ignore
     !options || options.keepShallowestFallbackTargets !== false;
   const results = [];
   const seen = new Set();
   const selectorByNode = new Map();
   const sourceByTarget = new Map();
+// @ts-ignore
   const appendSelector = (targetNode, selector) => {
     if (
       !targetNode ||
@@ -4545,6 +4896,7 @@ function toRenderableNodeListWithSelectors(
       keepShallowestOnly: keepShallowestFallbackTargets
     });
     const selector = typeof selectorResolver === "function"
+// @ts-ignore
       ? selectorResolver(node)
       : "";
     if (!targets.length) {
@@ -4574,6 +4926,7 @@ function toRenderableNodeListWithSelectors(
   return { nodes: results, selectorByNode, sourceByTarget };
 }
 
+// @ts-ignore
 function toRenderableNodeList(nodes) {
   return toRenderableNodeListWithSelectors(nodes).nodes;
 }
@@ -4592,9 +4945,12 @@ function collectAiSubmissionXpathsForCurrentPage(sourceConfig = state.config) {
   const explicitExcludedXpaths = new Set();
   const explicitIncludedXpaths = new Set();
   const rowIndexByXpath = new Map();
+// @ts-ignore
   const excludedRowXpaths = [];
   const excludedRowXpathSet = new Set();
+// @ts-ignore
   const rows = [];
+// @ts-ignore
   const pushRow = (xpath, excluded) => {
     if (typeof xpath !== "string" || !xpath) {
       return;
@@ -4624,7 +4980,9 @@ function collectAiSubmissionXpathsForCurrentPage(sourceConfig = state.config) {
       excludedRowXpaths.push(xpath);
     }
   };
+// @ts-ignore
   const normalizeXPath = (value) => (typeof value === "string" ? value.trim() : "");
+// @ts-ignore
   const isWithinImmutableExcludedBoundary = (element) => {
     let current = element;
     while (current && current.nodeType === 1) {
@@ -4635,6 +4993,7 @@ function collectAiSubmissionXpathsForCurrentPage(sourceConfig = state.config) {
     }
     return false;
   };
+// @ts-ignore
   const toSnapshotXPath = (value) => {
     const xpath = normalizeXPath(value);
     if (!xpath) {
@@ -4650,6 +5009,7 @@ function collectAiSubmissionXpathsForCurrentPage(sourceConfig = state.config) {
     return getCurrentPageSnapshotXPath(element);
   };
   const explicitRows = Array.isArray(entry && entry.xpaths) ? entry.xpaths : [];
+// @ts-ignore
   explicitRows.forEach((item) => {
     if (!item || typeof item.xpath !== "string" || !item.excluded) {
       return;
@@ -4666,6 +5026,7 @@ function collectAiSubmissionXpathsForCurrentPage(sourceConfig = state.config) {
       explicitExcludedXpaths.add(xpath);
     }
   });
+// @ts-ignore
   (Array.isArray(entry && entry.includeXpaths) ? entry.includeXpaths : []).forEach((xpath) => {
     const normalized = toSnapshotXPath(xpath);
     if (normalized) {
@@ -4675,10 +5036,12 @@ function collectAiSubmissionXpathsForCurrentPage(sourceConfig = state.config) {
 
   explicitExcludedXpaths.forEach((xpath) => pushRow(xpath, true));
 
+// @ts-ignore
   const hasExcludedAncestorRow = (xpath) => {
     if (!xpath || excludedRowXpaths.length === 0) {
       return false;
     }
+// @ts-ignore
     for (const excludedXpath of excludedRowXpaths) {
       if (
         excludedXpath &&
@@ -4692,6 +5055,7 @@ function collectAiSubmissionXpathsForCurrentPage(sourceConfig = state.config) {
   };
 
   if (!document.body) {
+// @ts-ignore
     return rows;
   }
   const stack = [{ node: document.body, insideImmutableExcluded: false }];
@@ -4712,6 +5076,7 @@ function collectAiSubmissionXpathsForCurrentPage(sourceConfig = state.config) {
     }
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
       stack.push({
+// @ts-ignore
         node: node.children[i],
         insideImmutableExcluded: immutableExcludedRoot
       });
@@ -4744,6 +5109,7 @@ function collectAiSubmissionXpathsForCurrentPage(sourceConfig = state.config) {
       insideExcludedAncestor: insideExcludedAncestorRow,
       visibleToUser,
       immutableExcludedRoot: false,
+// @ts-ignore
       hiddenToggleableRoot: false,
       markableTextual: isMarkableTextual
     });
@@ -4768,9 +5134,11 @@ function collectAiSubmissionXpathsForCurrentPage(sourceConfig = state.config) {
     }
     pushRow(xpath, submissionRow.excluded);
   }
+// @ts-ignore
   return rows;
 }
 
+// @ts-ignore
 function hasVisibleMarkableTextualSubmissionDescendant(root, configValue) {
   if (!root || root.nodeType !== 1) {
     return false;
@@ -4784,6 +5152,7 @@ function hasVisibleMarkableTextualSubmissionDescendant(root, configValue) {
     stack.push(children[i]);
   }
   while (stack.length) {
+// @ts-ignore
     const node = stack.pop();
     if (!node || node.nodeType !== 1) {
       continue;
@@ -4802,6 +5171,7 @@ function hasVisibleMarkableTextualSubmissionDescendant(root, configValue) {
         return true;
       }
     }
+// @ts-ignore
     const childList = node.children;
     if (!childList || childList.length === 0) {
       continue;
@@ -4822,13 +5192,17 @@ function refreshEnabledAiHighlights() {
   clearSilentHighlightingMarks();
   setSilentHighlightingsActive(false);
   const selectorSet = getEffectiveAiSelectorSet(state.config);
+// @ts-ignore
   if (!state.config.selectors || typeof state.config.selectors !== "object") {
+// @ts-ignore
     state.config.selectors = {
       exclusionSelectors: [],
       inclusionSelectors: []
     };
   }
+// @ts-ignore
   state.config.selectors = selectorSet;
+// @ts-ignore
   core.scheduleRender();
 }
 
@@ -4873,9 +5247,11 @@ async function refreshSilentHighlightings() {
       currentSilentRevealKey === silentHighlightEditorRevealKey
   );
   setSilentHighlightingPageMotionPaused(holdSilentMotionPause);
+// @ts-ignore
   const normalized = config.normalizeConfig(baseUrl, configs[baseUrl]);
   const baseConfig = normalized.config || {};
   if (normalized.changed) {
+// @ts-ignore
     configs[baseUrl] = baseConfig;
     await config.saveConfigs(configs);
     if (refreshGeneration !== silentHighlightingRefreshGeneration) {
@@ -4940,6 +5316,7 @@ async function refreshSilentHighlightings() {
       // while we were computing source nodes wins and this older call bails.
       await new Promise((resolve) => {
         if (typeof window.setTimeout !== "function") {
+// @ts-ignore
           resolve();
           return;
         }
@@ -4990,6 +5367,7 @@ async function refreshSilentHighlightings() {
     immutableNodes,
     contentNodes,
     excludedNodes,
+// @ts-ignore
     renderCollections.ghostContentNodes,
     renderCollections.explicitIncludeSelectorByNode,
     renderCollections.excludedSelectorByNode,
@@ -5004,6 +5382,7 @@ async function refreshSilentHighlightings() {
     shouldBeActive,
     renderChanged,
     positionRefreshPending: silentHighlightingPositionRefreshPending,
+// @ts-ignore
     hasOverlay: Boolean(silentHighlightOverlay),
     isFullRefresh: true
   });
@@ -5025,6 +5404,7 @@ async function refreshSilentHighlightings() {
       // Only the initial paint (inactive -> active, or no overlay yet) uses the
       // hide->reveal transition so the first reveal is correctly scheduled.
       const overlayAlreadyLive =
+// @ts-ignore
         lastSilentHighlightingsActive && shouldBeActive && Boolean(silentHighlightOverlay);
       renderSilentHighlightOverlay(renderCollections, { keepVisible: overlayAlreadyLive });
     } else if (renderChanged) {
@@ -5045,11 +5425,13 @@ async function refreshSilentHighlightings() {
   await new Promise((resolve) => {
     if (typeof window.requestAnimationFrame !== "function") {
       applyOverlayUpdate();
+// @ts-ignore
       resolve();
       return;
     }
     window.requestAnimationFrame(() => {
       applyOverlayUpdate();
+// @ts-ignore
       resolve();
     });
   });
@@ -5064,6 +5446,7 @@ function isMarkingBlockedByPropertyLock() {
   }
   return propertyLockBannerVisible &&
     propertyLockBannerMode !== "no_banner" &&
+// @ts-ignore
     propertyLockState &&
     !propertyLockState.isEditor;
 }
@@ -5108,6 +5491,7 @@ function showPropertyLockBlockedToast() {
     showPageToast(propertyLockText.inactivityInteractionBlockedToast);
     return;
   }
+// @ts-ignore
   const editorName = propertyLockState?.editorName || "Someone";
   showPageToast(propertyLockText.lockedInteractionBlockedToast(editorName));
 }
@@ -5142,6 +5526,7 @@ function getPropertyLockClientId() {
   return setPropertyLockClientId(createPropertyLockClientId());
 }
 
+// @ts-ignore
 function setPropertyLockClientId(nextClientId) {
   const normalizedClientId = normalizePropertyLockClientId(nextClientId);
   if (!normalizedClientId) {
@@ -5170,10 +5555,12 @@ function sendPropertyLockDraftStatus() {
     return;
   }
   const portClient = getPropertyLockPortClient();
+// @ts-ignore
   if (!portClient.hasPort()) {
     return;
   }
   try {
+// @ts-ignore
     portClient.postMessage({
       type: PROPERTY_LOCK_CONTENT_DRAFT_STATUS,
       ...getPropertyLockDraftStatusPayload()
@@ -5183,6 +5570,7 @@ function sendPropertyLockDraftStatus() {
   }
 }
 
+// @ts-ignore
 function handleBlockedPropertyLockInteraction(event) {
   if (!isPropertyLockCollaborationEnabled()) {
     return;
@@ -5241,7 +5629,9 @@ function resetPropertyLockUiState() {
   renderPropertyLockBanner();
 }
 
+// @ts-ignore
 function normalizePropertyLockRecoveryTabState(tabState) {
+// @ts-ignore
   return getPropertyLockStateMachine().normalizeRecoveryTabState(tabState);
 }
 
@@ -5259,6 +5649,7 @@ function loadPropertyLockRecoveryTabState() {
 }
 
 function persistPropertyLockRecoveryState({ siteId = null, baseUrl = "", clientId = "", deadlineAt = 0 } = {}) {
+// @ts-ignore
   return getPropertyLockStateMachine().persistRecoveryState({
     siteId,
     baseUrl,
@@ -5267,11 +5658,14 @@ function persistPropertyLockRecoveryState({ siteId = null, baseUrl = "", clientI
   });
 }
 
+// @ts-ignore
 function persistPropertyLockOffCandidateDeadline(deadlineAt) {
+// @ts-ignore
   return getPropertyLockStateMachine().persistOffCandidateDeadline(deadlineAt);
 }
 
 function clearPropertyLockOffCandidateWarning() {
+// @ts-ignore
   return getPropertyLockStateMachine().clearOffCandidateWarning();
 }
 
@@ -5284,6 +5678,7 @@ function clearPropertyLockRecoveryReleaseTimer() {
 }
 
 function clearPropertyLockCrossPropertyWarning(options = {}) {
+// @ts-ignore
   return getPropertyLockStateMachine().clearCrossPropertyWarning(options);
 }
 
@@ -5293,6 +5688,7 @@ function armPropertyLockCrossPropertyRelease() {
   }
   clearPropertyLockRecoveryReleaseTimer();
   if (
+// @ts-ignore
     !propertyLockRecoverySiteId ||
     !propertyLockRecoveryClientId ||
     propertyLockRecoveryDeadlineAt <= Date.now()
@@ -5302,6 +5698,7 @@ function armPropertyLockCrossPropertyRelease() {
   propertyLockRecoveryReleaseTimer = window.setTimeout(() => {
     propertyLockRecoveryReleaseTimer = 0;
     if (
+// @ts-ignore
       !propertyLockRecoverySiteId ||
       !propertyLockRecoveryClientId ||
       propertyLockRecoveryDeadlineAt <= 0 ||
@@ -5321,15 +5718,19 @@ function armPropertyLockCrossPropertyRelease() {
   }, Math.max(1, propertyLockRecoveryDeadlineAt - Date.now() + 100));
 }
 
+// @ts-ignore
 function startPropertyLockCrossPropertyWarning(recoveryState) {
+// @ts-ignore
   return getPropertyLockStateMachine().startCrossPropertyWarning(recoveryState);
 }
 
 function startPropertyLockOffCandidateWarning() {
+// @ts-ignore
   return getPropertyLockStateMachine().startOffCandidateWarning();
 }
 
 function clearPropertyLockReconnectTimer() {
+// @ts-ignore
   getPropertyLockPortClient().clearReconnectTimer();
 }
 
@@ -5337,15 +5738,19 @@ function schedulePropertyLockReconnect(options = {}) {
   if (!ensurePropertyLockCollaborationActive()) {
     return;
   }
+// @ts-ignore
   getPropertyLockPortClient().scheduleReconnect(options);
 }
 
 function disconnectPropertyLockPort(options = {}) {
+// @ts-ignore
   const { notifyBackground = true } = options || {};
+// @ts-ignore
   getPropertyLockPortClient().disconnect({ notifyBackground });
   resetPropertyLockUiState();
 }
 
+// @ts-ignore
 function markExtensionContextInvalidated(error) {
   if (!utils.isExtensionContextInvalidatedError(error)) {
     return false;
@@ -5356,6 +5761,7 @@ function markExtensionContextInvalidated(error) {
   return true;
 }
 
+// @ts-ignore
 function handlePropertyLockSyncError(error, options = {}) {
   if (markExtensionContextInvalidated(error)) {
     return;
@@ -5374,17 +5780,24 @@ function queuePropertyLockEditorClaim() {
 
 function mergePropertyLockSyncOptions(currentOptions = {}, incomingOptions = {}) {
   const mergedOptions = {};
+// @ts-ignore
   const currentPageUrl = typeof currentOptions.pageUrl === "string" && currentOptions.pageUrl
+// @ts-ignore
     ? currentOptions.pageUrl
     : "";
+// @ts-ignore
   const incomingPageUrl = typeof incomingOptions.pageUrl === "string" && incomingOptions.pageUrl
+// @ts-ignore
     ? incomingOptions.pageUrl
     : "";
   const mergedPageUrl = incomingPageUrl || currentPageUrl;
   if (mergedPageUrl) {
+// @ts-ignore
     mergedOptions.pageUrl = mergedPageUrl;
   }
+// @ts-ignore
   if (Boolean(currentOptions.forceSiteIdRefresh) || Boolean(incomingOptions.forceSiteIdRefresh)) {
+// @ts-ignore
     mergedOptions.forceSiteIdRefresh = true;
   }
   return mergedOptions;
@@ -5398,6 +5811,7 @@ function flushQueuedPropertyLockEditorClaim() {
   if (!propertyLockEditorClaimPending) {
     return;
   }
+// @ts-ignore
   if (propertyLockState && propertyLockState.isEditor) {
     propertyLockEditorClaimPending = false;
     return;
@@ -5416,6 +5830,7 @@ function runPropertyLockSync(options = {}) {
   const nextOptions = mergePropertyLockSyncOptions({}, options);
   if (propertyLockSyncInFlight) {
     propertyLockQueuedSyncOptions = mergePropertyLockSyncOptions(
+// @ts-ignore
       propertyLockQueuedSyncOptions || {},
       nextOptions
     );
@@ -5431,6 +5846,7 @@ function runPropertyLockSync(options = {}) {
       } catch (error) {
         handlePropertyLockSyncError(error, activeOptions);
       }
+// @ts-ignore
       if (!propertyLockQueuedSyncOptions) {
         break;
       }
@@ -5438,6 +5854,7 @@ function runPropertyLockSync(options = {}) {
       propertyLockQueuedSyncOptions = null;
     }
     propertyLockSyncInFlight = false;
+// @ts-ignore
     if (propertyLockQueuedSyncOptions && !extensionContextInvalidated) {
       const queuedOptions = propertyLockQueuedSyncOptions;
       propertyLockQueuedSyncOptions = null;
@@ -5455,9 +5872,12 @@ async function syncPropertyLockConnection(options = {}) {
   }
   const syncToken = ++propertyLockSyncToken;
   clearPropertyLockReconnectTimer();
+// @ts-ignore
   const pageUrl = typeof options.pageUrl === "string" && options.pageUrl
+// @ts-ignore
     ? options.pageUrl
     : location.href;
+// @ts-ignore
   const forceSiteIdRefresh = Boolean(options.forceSiteIdRefresh);
   const recoveryState = await loadPropertyLockRecoveryTabState();
   if (recoveryState.clientId && recoveryState.baseUrl && utils.isPageWithinBaseUrl(pageUrl, recoveryState.baseUrl)) {
@@ -5477,6 +5897,7 @@ async function syncPropertyLockConnection(options = {}) {
     recoveryState.clientId &&
     !utils.isPageWithinBaseUrl(pageUrl, recoveryState.baseUrl)
   ) {
+// @ts-ignore
     if (getPropertyLockPortClient().hasPort()) {
       disconnectPropertyLockPort();
     }
@@ -5517,7 +5938,9 @@ async function syncPropertyLockConnection(options = {}) {
   const siteId = target.siteId;
   propertyLockConnectedBaseUrl = target.baseUrl || "";
   const portClient = getPropertyLockPortClient();
+// @ts-ignore
   if (!(portClient.hasPort() && propertyLockConnectedSiteId === siteId)) {
+// @ts-ignore
     if (portClient.hasPort()) {
       disconnectPropertyLockPort();
     }
@@ -5526,6 +5949,7 @@ async function syncPropertyLockConnection(options = {}) {
     propertyLockConnectedBaseUrl = target.baseUrl || "";
 
     try {
+// @ts-ignore
       portClient.connect({
         connectPayload: {
           type: PROPERTY_LOCK_CONTENT_CONNECT,
@@ -5533,6 +5957,7 @@ async function syncPropertyLockConnection(options = {}) {
           ...getPropertyLockDraftStatusPayload()
         },
         onMessage: handlePropertyLockPortMessage,
+// @ts-ignore
         onDisconnect: (disconnectReason) => {
           propertyLockConnectedSiteId = null;
           propertyLockConnectedBaseUrl = "";
@@ -5563,6 +5988,7 @@ async function syncPropertyLockConnection(options = {}) {
   // Re-run activation/refresh so reveal+freeze still executes per visited page.
   clearPropertyLockCrossPropertyWarning({ preserveSession: true });
   sendPropertyLockActivity();
+// @ts-ignore
   let shouldRunEditorActivation = Boolean(propertyLockState && propertyLockState.isEditor);
   if (!shouldRunEditorActivation) {
     const snapshot = await fetchPropertyLockStateSnapshot(siteId);
@@ -5594,6 +6020,7 @@ async function syncPropertyLockConnection(options = {}) {
   refreshSilentHighlightings().then();
 }
 
+// @ts-ignore
 function handlePropertyLockPortMessage(message) {
   if (!ensurePropertyLockCollaborationActive()) {
     return;
@@ -5625,6 +6052,7 @@ function handlePropertyLockPortMessage(message) {
   }
 }
 
+// @ts-ignore
 function subscribePageActivity(listener) {
   if (typeof listener === "function") {
     pageActivitySubscribers.add(listener);
@@ -5654,6 +6082,7 @@ function sendPageActivityObserved() {
 function publishPageActivity() {
   sendPageActivityObserved();
   for (const listener of pageActivitySubscribers) {
+// @ts-ignore
     listener();
   }
 }
@@ -5666,11 +6095,13 @@ function sendPropertyLockActivity() {
     return;
   }
   const portClient = getPropertyLockPortClient();
+// @ts-ignore
   if (!portClient.hasPort()) {
     schedulePropertyLockReconnect();
     return;
   }
   try {
+// @ts-ignore
     portClient.postMessage({
       type: PROPERTY_LOCK_CONTENT_ACTIVITY,
       ...getPropertyLockDraftStatusPayload()
@@ -5687,6 +6118,7 @@ function sendPropertyLockActivity() {
   }
 }
 
+// @ts-ignore
 function sendPropertyLockMessage(type, payload = {}) {
   if (!ensurePropertyLockCollaborationActive()) {
     return;
@@ -5695,11 +6127,13 @@ function sendPropertyLockMessage(type, payload = {}) {
     return;
   }
   const portClient = getPropertyLockPortClient();
+// @ts-ignore
   if (!portClient.hasPort()) {
     schedulePropertyLockReconnect();
     return;
   }
   try {
+// @ts-ignore
     portClient.postMessage({
       type,
       ...getPropertyLockDraftStatusPayload(),
@@ -5717,6 +6151,7 @@ function sendPropertyLockMessage(type, payload = {}) {
   }
 }
 
+// @ts-ignore
 async function fetchPropertyLockStateSnapshot(siteId) {
   if (!ensurePropertyLockCollaborationActive()) {
     return null;
@@ -5736,7 +6171,9 @@ async function fetchPropertyLockStateSnapshot(siteId) {
   }
 }
 
+// @ts-ignore
 function applyPropertyLockServerMessage(serverMessage) {
+// @ts-ignore
   return getPropertyLockStateMachine().applyServerMessage(serverMessage);
 }
 
@@ -5756,12 +6193,15 @@ function createPropertyLockStateMachineDeps() {
     getPropertyLockBannerMode: () => propertyLockBannerMode,
     getPropertyLockClientId: () => getPropertyLockClientId(),
     getPropertyLockConnectedBaseUrl: () => propertyLockConnectedBaseUrl,
+// @ts-ignore
     getPropertyLockConnectedSiteId: () => propertyLockConnectedSiteId,
     getPropertyLockOffCandidateDeadlineAt: () => propertyLockOffCandidateDeadlineAt,
     getPropertyLockRecoveryBaseUrl: () => propertyLockRecoveryBaseUrl,
     getPropertyLockRecoveryClientId: () => propertyLockRecoveryClientId,
     getPropertyLockRecoveryDeadlineAt: () => propertyLockRecoveryDeadlineAt,
+// @ts-ignore
     getPropertyLockRecoverySiteId: () => propertyLockRecoverySiteId,
+// @ts-ignore
     getPropertyLockState: () => propertyLockState,
     getPropertyLockSuggestionFromName: () => propertyLockSuggestionFromName,
     getPropertyLockSuggestionId: () => propertyLockSuggestionId,
@@ -5775,34 +6215,45 @@ function createPropertyLockStateMachineDeps() {
     restartPropertyLockBannerCountdown,
     runEditorSilentHighlightingActivation,
     sendPropertyLockMessage,
+// @ts-ignore
     sendRuntimeMessage: (message) => utils.sendRuntimeMessage(message),
+// @ts-ignore
     setPropertyLockBannerCountdownValue: (value) => {
       propertyLockBannerCountdownValue = value;
     },
+// @ts-ignore
     setPropertyLockBannerMode: (mode) => {
       propertyLockBannerMode = mode;
     },
+// @ts-ignore
     setPropertyLockOffCandidateDeadlineAt: (deadlineAt) => {
       propertyLockOffCandidateDeadlineAt = deadlineAt;
     },
+// @ts-ignore
     setPropertyLockRecoveryBaseUrl: (baseUrl) => {
       propertyLockRecoveryBaseUrl = baseUrl;
     },
+// @ts-ignore
     setPropertyLockRecoveryClientId: (clientId) => {
       propertyLockRecoveryClientId = clientId;
     },
+// @ts-ignore
     setPropertyLockRecoveryDeadlineAt: (deadlineAt) => {
       propertyLockRecoveryDeadlineAt = deadlineAt;
     },
+// @ts-ignore
     setPropertyLockRecoverySiteId: (siteId) => {
       propertyLockRecoverySiteId = siteId;
     },
+// @ts-ignore
     setPropertyLockState: (nextState) => {
       propertyLockState = nextState;
     },
+// @ts-ignore
     setPropertyLockSuggestionFromName: (fromName) => {
       propertyLockSuggestionFromName = fromName;
     },
+// @ts-ignore
     setPropertyLockSuggestionId: (suggestionId) => {
       propertyLockSuggestionId = suggestionId;
     },
@@ -5840,12 +6291,15 @@ function createPropertyLockBannerModeDeps() {
     clearPropertyLockOffCandidateWarning,
     getPropertyLockRecoveryDeadlineAt: () => propertyLockRecoveryDeadlineAt,
     getPropertyLockOffCandidateDeadlineAt: () => propertyLockOffCandidateDeadlineAt,
+// @ts-ignore
     getPropertyLockState: () => propertyLockState,
     getPropertyLockBannerMode: () => propertyLockBannerMode,
+// @ts-ignore
     setPropertyLockBannerMode: (mode) => {
       propertyLockBannerMode = mode;
     },
     getPropertyLockBannerCountdownValue: () => propertyLockBannerCountdownValue,
+// @ts-ignore
     setPropertyLockBannerCountdownValue: (value) => {
       propertyLockBannerCountdownValue = value;
     },
@@ -5879,12 +6333,15 @@ function createRenderModeInspectionClientDeps() {
 function createInspectionStatusDeps() {
   return {
     getCurrentContentMode,
+// @ts-ignore
     getPageSaveReconciliationState: (pageUrl) => core.getPageSaveReconciliationState(pageUrl),
     getPageUrl: () => location.href,
     getPropertyLockEditorClaimPending: () => propertyLockEditorClaimPending,
+// @ts-ignore
     getSilentHighlightEditorActivationPromise: () => silentHighlightEditorActivationPromise,
     isMarkingEnabled: () => Boolean(state.enabled),
     isPageInspectionUiActive: () => core.isPageInspectionUiActive(),
+// @ts-ignore
     isPageSaveReconciliationPending: (pageUrl) => core.isPageSaveReconciliationPending(pageUrl),
     isRenderModeInspectionActive,
     SILENT_HIGHLIGHTING_PREPARATION_REASON
@@ -5929,8 +6386,11 @@ function createAiPreviewComputeLockHandlerDeps() {
 function createAiPreviewExpandedModeHandlerDeps() {
   return {
     buildExpandedModeDisabledResponse: () =>
+// @ts-ignore
       getAiPreviewStateResponseBuilder().buildExpandedModeDisabledResponse(),
+// @ts-ignore
     buildExpandedModeResponse: (ok) =>
+// @ts-ignore
       getAiPreviewStateResponseBuilder().buildExpandedModeResponse(ok),
     isPreviewExpandedStatesEnabled: () => isFeatureEnabled("previewExpandedStates"),
     setAiPreviewExpandedMode
@@ -5939,6 +6399,7 @@ function createAiPreviewExpandedModeHandlerDeps() {
 
 function createAiPreviewGetStateHandlerDeps() {
   return {
+// @ts-ignore
     buildGetStateResponse: () => getAiPreviewStateResponseBuilder().buildGetStateResponse()
   };
 }
@@ -5946,11 +6407,13 @@ function createAiPreviewGetStateHandlerDeps() {
 function createAiPreviewShowHandlerDeps() {
   return {
     buildAiPreviewItemsWithCategories,
+// @ts-ignore
     collectPreviewItems: (selectorSet) => core.collectPreviewItems(selectorSet),
     enterAiPreviewMode,
     exitAiPreviewMode,
     normalizeAiSelectorSet,
     setAiPreviewItemSets,
+// @ts-ignore
     showAiPopover: (items, options) => core.showAiPopover(items, options)
   };
 }
@@ -5970,20 +6433,28 @@ function createCapturePageSnapshotHandlerDeps() {
     getActiveConfig: () => state.config,
     getCurrentPageType: () => state.currentPageType,
     getDocumentTitle: () => document.title,
+// @ts-ignore
     getPageMarkingEntry: (configValue, pageUrl) => core.getPageMarkingEntry(configValue, pageUrl),
     getPageUrl: () => location.href,
+// @ts-ignore
     hasPageMarkingEntry: (configValue, pageUrl) => core.hasPageMarkingEntry(configValue, pageUrl),
+// @ts-ignore
     loadConfig: (baseUrl) => core.loadConfig(baseUrl),
     matchesActiveBaseUrl,
+// @ts-ignore
     refreshSavedPageEntryFromBackendCache: (baseUrl, pageUrl) =>
       core.refreshSavedPageEntryFromBackendCache(baseUrl, pageUrl),
+// @ts-ignore
     saveConfig: (baseUrl, configValue) => core.saveConfig(baseUrl, configValue),
     sendPropertyLockActivity,
+// @ts-ignore
     setConfig: (configValue) => {
       state.config = configValue;
     },
+// @ts-ignore
     syncPageMarkings: (configValue, pageUrl, immutableExcluded, options) =>
       core.syncPageMarkings(configValue, pageUrl, immutableExcluded, options),
+// @ts-ignore
     touchPageEntryTimestamp: (entry) => core.touchPageEntryTimestamp(entry)
   };
 }
@@ -5992,31 +6463,43 @@ function createConfigUpdatedHandlerDeps() {
   return {
     clearAiPreviewState,
     disable: () => core.disable(),
+// @ts-ignore
     findPageMarkingEntry: (configValue, pageUrl, baseUrl) =>
       core.findPageMarkingEntry(configValue, pageUrl, baseUrl),
+// @ts-ignore
     getBackendSavedPageMarkings: (baseUrl) => config.getBackendSavedPageMarkings(baseUrl),
     getBaseUrl: () => state.baseUrl,
     getCurrentPageType: () => state.currentPageType,
+// @ts-ignore
     getDraftPageEntry: (pageUrl) => core.getDraftPageEntry(pageUrl),
     getPageUrl: () => location.href,
+// @ts-ignore
     getSavedPageEntry: (pageUrl) => core.getSavedPageEntry(pageUrl),
     isAiPreviewActive: () => aiPreviewState.active,
     isEnabled: () => state.enabled,
+// @ts-ignore
     loadConfig: (baseUrl) => core.loadConfig(baseUrl),
+// @ts-ignore
     mergeDraftEntry: (configValue, pageUrl, draftEntry, savedEntry) =>
       core.mergeDraftEntry(configValue, pageUrl, draftEntry, savedEntry),
+// @ts-ignore
     notifyDraftStatus: (pageUrl) => core.notifyDraftStatus(pageUrl),
     refreshEnabledAiHighlights,
     refreshSilentHighlightings,
     runPropertyLockSync,
+// @ts-ignore
     sameBaseUrl: (left, right) => utils.sameBaseUrl(left, right),
+// @ts-ignore
     scheduleRender: () => core.scheduleRender(),
+// @ts-ignore
     setConfig: (configValue) => {
       state.config = configValue;
     },
+// @ts-ignore
     setCurrentPageType: (pageType) => {
       state.currentPageType = pageType;
     },
+// @ts-ignore
     setSavedPageEntry: (pageUrl, entry) => core.setSavedPageEntry(pageUrl, entry)
   };
 }
@@ -6026,9 +6509,11 @@ function createCollectPageDataHandlerDeps() {
     createCurrentPageSnapshot,
     getBaseUrl: () => state.baseUrl,
     getImmutableSelectors: () => DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS.slice(),
+// @ts-ignore
     getPageMarkingEntry: (configValue, pageUrl, options) =>
       core.getPageMarkingEntry(configValue, pageUrl, options),
     getPageUrl: () => location.href,
+// @ts-ignore
     loadConfig: (baseUrl) => core.loadConfig(baseUrl)
   };
 }
@@ -6041,22 +6526,29 @@ function createDefaultExclusionsHandlerDeps() {
 
 function createVisibleXpathsHandlerDeps() {
   return {
+// @ts-ignore
     getElementFromXPath: (xpath) => core.getElementFromXPath(xpath),
+// @ts-ignore
     isVisible: (element) => core.isVisible(element)
   };
 }
 
 function createInvisibleXpathsHandlerDeps() {
   return {
+// @ts-ignore
     getElementFromXPath: (xpath) => core.getElementFromXPath(xpath),
+// @ts-ignore
     isVisible: (element) => core.isVisible(element)
   };
 }
 
 function createDescribeXpathsHandlerDeps() {
   return {
+// @ts-ignore
     getElementFromXPath: (xpath) => core.getElementFromXPath(xpath),
+// @ts-ignore
     getElementLabel: (element) => core.getElementLabel(element),
+// @ts-ignore
     isVisible: (element) => core.isVisible(element)
   };
 }
@@ -6064,7 +6556,9 @@ function createDescribeXpathsHandlerDeps() {
 function createFocusHandlerDeps() {
   return {
     clearFocusHighlight: () => core.clearFocusHighlight(),
+// @ts-ignore
     focusPreviewElement: (element) => core.focusPreviewElement(element),
+// @ts-ignore
     getElementFromXPath: (xpath) => core.getElementFromXPath(xpath),
     isAiPreviewActive: () => aiPreviewState.active,
     setAiPreviewFocusedXpath
@@ -6082,26 +6576,38 @@ function createForceRefreshHandlerDeps() {
 
 function createExplicitMarkingHandlerDeps() {
   return {
+// @ts-ignore
     canApplyExplicitInclude: (target, configValue, pageUrl, entry) =>
       core.canApplyExplicitInclude(target, configValue, pageUrl, entry),
     getConfig: () => state.config,
+// @ts-ignore
     getElementFromXPath: (xpath) => core.getElementFromXPath(xpath),
+// @ts-ignore
     getPageMarkingEntry: (configValue, pageUrl) => core.getPageMarkingEntry(configValue, pageUrl),
     getPageUrl: () => location.href,
+// @ts-ignore
     isDefaultToggleableExcludedElement: (element) => core.isDefaultToggleableExcludedElement(element),
+// @ts-ignore
     isPageDraftDirty: (pageUrl) => core.isPageDraftDirty(pageUrl),
+// @ts-ignore
     isXPathDescendant: (parentXpath, childXpath) => core.isXPathDescendant(parentXpath, childXpath),
+// @ts-ignore
     normalizePageEntryXpaths: (entry) => core.normalizePageEntryXpaths(entry),
+// @ts-ignore
     notifyDraftStatus: (pageUrl) => core.notifyDraftStatus(pageUrl),
+// @ts-ignore
     scheduleDraftPersist: (baseUrl) => core.scheduleDraftPersist(baseUrl),
+// @ts-ignore
     scheduleRender: () => core.scheduleRender(),
     scheduleSnapshotSave: () => core.scheduleSnapshotSave(),
+// @ts-ignore
     touchPageEntryTimestamp: (entry) => core.touchPageEntryTimestamp(entry)
   };
 }
 
 function createPageSaveReconciliationPendingHandlerDeps() {
   return {
+// @ts-ignore
     setPageSaveReconciliationPending: (baseUrl, pageUrl, options) =>
       core.setPageSaveReconciliationPending(baseUrl, pageUrl, options)
   };
@@ -6109,21 +6615,31 @@ function createPageSaveReconciliationPendingHandlerDeps() {
 
 function createPageSaveReconciliationClearHandlerDeps() {
   return {
+// @ts-ignore
     clearPageSaveReconciliation: (baseUrl, pageUrl) =>
       core.clearPageSaveReconciliation(baseUrl, pageUrl),
+// @ts-ignore
     clonePageEntry: (entry) => core.clonePageEntry(entry),
+// @ts-ignore
     findPageMarkingEntry: (configValue, pageUrl, baseUrl) =>
       core.findPageMarkingEntry(configValue, pageUrl, baseUrl),
+// @ts-ignore
     getBackendSavedPageMarkings: (baseUrl) => config.getBackendSavedPageMarkings(baseUrl),
     getPageUrl: () => location.href,
+// @ts-ignore
     loadConfig: (baseUrl) => core.loadConfig(baseUrl),
+// @ts-ignore
     notifyDraftStatus: (pageUrl) => core.notifyDraftStatus(pageUrl),
+// @ts-ignore
     refreshPageSaveReconciliation: (baseUrl, pageUrl) =>
       core.refreshPageSaveReconciliation(baseUrl, pageUrl),
+// @ts-ignore
     scheduleRender: () => core.scheduleRender(),
+// @ts-ignore
     setConfig: (nextConfig) => {
       state.config = nextConfig;
     },
+// @ts-ignore
     setSavedPageEntry: (pageUrl, entry) => core.setSavedPageEntry(pageUrl, entry)
   };
 }
@@ -6132,18 +6648,27 @@ function createPageDraftRevertHandlerDeps() {
   return {
     collectImmutableElements: () => core.collectImmutableElements(),
     getPageUrl: () => location.href,
+// @ts-ignore
     getSavedPageEntry: (pageUrl) => core.getSavedPageEntry(pageUrl),
+// @ts-ignore
     isPageDraftDirty: (pageUrl) => core.isPageDraftDirty(pageUrl),
+// @ts-ignore
     loadConfig: (baseUrl) => core.loadConfig(baseUrl),
+// @ts-ignore
     notifyDraftStatus: (pageUrl) => core.notifyDraftStatus(pageUrl),
+// @ts-ignore
     scheduleRender: () => core.scheduleRender(),
+// @ts-ignore
     setBaseUrl: (baseUrl) => {
       state.baseUrl = baseUrl;
     },
+// @ts-ignore
     setConfig: (configValue) => {
       state.config = configValue;
     },
+// @ts-ignore
     setSavedPageEntry: (pageUrl, entry) => core.setSavedPageEntry(pageUrl, entry),
+// @ts-ignore
     syncPageMarkings: (configValue, pageUrl, immutableExcluded, options) =>
       core.syncPageMarkings(configValue, pageUrl, immutableExcluded, options)
   };
@@ -6151,7 +6676,9 @@ function createPageDraftRevertHandlerDeps() {
 
 function createPageDraftSaveHandlerDeps() {
   return {
+// @ts-ignore
     areEntriesEquivalent: (left, right) => core.areEntriesEquivalent(left, right),
+// @ts-ignore
     clearPageSaveReconciliation: (baseUrl, pageUrl) =>
       core.clearPageSaveReconciliation(baseUrl, pageUrl),
     collectAiSubmissionXpathsForCurrentPage,
@@ -6162,48 +6689,71 @@ function createPageDraftSaveHandlerDeps() {
     getConfig: () => state.config,
     getCurrentPageType: () => state.currentPageType,
     getDocumentTitle: () => document.title,
+// @ts-ignore
     getDraftPageEntry: (pageUrl) => core.getDraftPageEntry(pageUrl),
+// @ts-ignore
     getPageMarkingEntry: (configValue, pageUrl) => core.getPageMarkingEntry(configValue, pageUrl),
+// @ts-ignore
     getPageSaveReconciliationState: (pageUrl) => core.getPageSaveReconciliationState(pageUrl),
     getPageUrl: () => location.href,
+// @ts-ignore
     getSavedPageEntry: (pageUrl) => core.getSavedPageEntry(pageUrl),
     hideConsentElements: () => core.hideConsentElements(),
     logContentDiagnostic,
     matchesActiveBaseUrl,
+// @ts-ignore
     notifyDraftStatus: (pageUrl) => core.notifyDraftStatus(pageUrl),
+// @ts-ignore
     refreshSavedPageEntryFromBackendCache: (baseUrl, pageUrl) =>
       core.refreshSavedPageEntryFromBackendCache(baseUrl, pageUrl),
+// @ts-ignore
     saveConfig: (baseUrl, configValue) => core.saveConfig(baseUrl, configValue),
+// @ts-ignore
     scheduleRender: () => core.scheduleRender(),
+// @ts-ignore
     setPageSaveReconciliationPending: (baseUrl, pageUrl, options) =>
       core.setPageSaveReconciliationPending(baseUrl, pageUrl, options),
+// @ts-ignore
     setSavedPageEntry: (pageUrl, entry) => core.setSavedPageEntry(pageUrl, entry),
     showPageToast,
     submissionXpathsEqual,
+// @ts-ignore
     syncPageMarkings: (configValue, pageUrl, immutableExcluded, options) =>
       core.syncPageMarkings(configValue, pageUrl, immutableExcluded, options),
+// @ts-ignore
     touchPageEntryTimestamp: (entry) => core.touchPageEntryTimestamp(entry)
   };
 }
 
 function createPageDraftStatusHandlerDeps() {
   return {
+// @ts-ignore
     areEntriesEquivalent: (left, right) => core.areEntriesEquivalent(left, right),
+// @ts-ignore
     clonePageEntry: (entry) => core.clonePageEntry(entry),
     collectAiSubmissionXpathsForCurrentPage,
     collectImmutableElements: () => core.collectImmutableElements(),
     getConfig: () => state.config,
+// @ts-ignore
     getDraftPageEntry: (pageUrl) => core.getDraftPageEntry(pageUrl),
+// @ts-ignore
     getPageDraftDirty: (pageUrl) => core.isPageDraftDirty(pageUrl),
+// @ts-ignore
     getPageSaveReconciliationPending: (pageUrl) => core.isPageSaveReconciliationPending(pageUrl),
+// @ts-ignore
     getPageSaveReconciliationState: (pageUrl) => core.getPageSaveReconciliationState(pageUrl),
     getPageUrl: () => location.href,
+// @ts-ignore
     getSavedPageEntry: (pageUrl) => core.getSavedPageEntry(pageUrl),
+// @ts-ignore
     hasPageMarkingEntry: (configValue, pageUrl) => core.hasPageMarkingEntry(configValue, pageUrl),
+// @ts-ignore
     refreshSavedPageEntryFromBackendCache: (baseUrl, pageUrl) =>
       core.refreshSavedPageEntryFromBackendCache(baseUrl, pageUrl),
+// @ts-ignore
     setSavedPageEntry: (pageUrl, entry) => core.setSavedPageEntry(pageUrl, entry),
     submissionXpathsEqual,
+// @ts-ignore
     syncPageMarkings: (configValue, pageUrl, immutableExcluded, options) =>
       core.syncPageMarkings(configValue, pageUrl, immutableExcluded, options)
   };
@@ -6222,6 +6772,7 @@ function createRenderModeInspectionHandlersDeps() {
     getPropertyLockBannerMode: () => propertyLockBannerMode,
     getSilentHighlightEditorRevealInFlight: () => silentHighlightEditorRevealInFlight,
     hideConsentElements: () => core.hideConsentElements(),
+// @ts-ignore
     isPageWithinBaseUrl: (pageUrl, baseUrl) => utils.isPageWithinBaseUrl(pageUrl, baseUrl),
     isRenderModeInspectionActive,
     isRenderModeInspectionFlagSet: () => renderModeInspectionActive,
@@ -6231,10 +6782,12 @@ function createRenderModeInspectionHandlersDeps() {
     renderPropertyLockBanner,
     resolveBaseUrlForCurrentPage,
     setRenderModeInspectionActive,
+// @ts-ignore
     setSilentHighlightEditorRevealInFlight: (value) => {
       silentHighlightEditorRevealInFlight = value;
     },
     updatePropertyLockBannerMode,
+// @ts-ignore
     warmupSilentHighlightingBeforeMotionPause: (baseUrl, pageUrl, reason, options) =>
       core.warmupSilentHighlightingBeforeMotionPause(baseUrl, pageUrl, reason, options),
     LIFECYCLE_KINDS,
@@ -6245,6 +6798,7 @@ function createRenderModeInspectionHandlersDeps() {
 
 function createPropertyLockPortClientDeps() {
   return {
+// @ts-ignore
     connectRuntimePort: (options) => chrome.runtime.connect(options),
     consumeRuntimeLastErrorMessage: () => {
       try {
@@ -6255,12 +6809,14 @@ function createPropertyLockPortClientDeps() {
         return lastError && typeof lastError.message === "string" ? lastError.message : "";
       } catch (error) {
         if (utils.isExtensionContextInvalidatedError(error)) {
+// @ts-ignore
           return error && error.message ? error.message : "Extension context invalidated.";
         }
         throw error;
       }
     },
     getClientId: () => getPropertyLockClientId(),
+// @ts-ignore
     getConnectedSiteId: () => propertyLockConnectedSiteId,
     getTimerHost: () => window,
     onPortCleared: () => {
@@ -6286,22 +6842,28 @@ function createPropertyLockBannerDeps() {
     updatePropertyLockBannerMode,
     sendPropertyLockMessage,
     respondToPropertyLockTakeoverSuggestion,
+// @ts-ignore
     getPropertyLockBannerElement: () => propertyLockBannerElement,
+// @ts-ignore
     setPropertyLockBannerElement: (element) => {
       propertyLockBannerElement = element;
     },
     getPropertyLockBannerMode: () => propertyLockBannerMode,
     getPropertyLockBannerCountdownTimer: () => propertyLockBannerCountdownTimer,
+// @ts-ignore
     setPropertyLockBannerCountdownTimer: (timer) => {
       propertyLockBannerCountdownTimer = timer;
     },
     getPropertyLockBannerCountdownValue: () => propertyLockBannerCountdownValue,
+// @ts-ignore
     setPropertyLockBannerCountdownValue: (value) => {
       propertyLockBannerCountdownValue = value;
     },
+// @ts-ignore
     setPropertyLockBannerVisible: (visible) => {
       propertyLockBannerVisible = Boolean(visible);
     },
+// @ts-ignore
     getPropertyLockState: () => propertyLockState,
     getPropertyLockSuggestionFromName: () => propertyLockSuggestionFromName,
     propertyLockText,
@@ -6318,6 +6880,7 @@ function ensurePropertyLockBannerStyle() {
   return ensurePropertyLockBannerStyleOperation(createPropertyLockBannerDeps());
 }
 
+// @ts-ignore
 async function respondToPropertyLockTakeoverSuggestion(accept) {
   if (!ensurePropertyLockCollaborationActive()) {
     return;
@@ -6364,11 +6927,14 @@ function getCurrentContentMode() {
 }
 
 async function handleSetEnabledCommand(message = {}) {
+// @ts-ignore
   if (message.enabled) {
     if (isPropertyLockInteractionBlocked()) {
       return { ok: false, locked: true };
     }
+// @ts-ignore
     const operationId = typeof message.operationId === "string" && message.operationId
+// @ts-ignore
       ? message.operationId
       : createLifecycleOperationId(LIFECYCLE_KINDS.ACTIVATION);
     emitLifecycleEvent({
@@ -6379,6 +6945,7 @@ async function handleSetEnabledCommand(message = {}) {
       message: "Inspecting page..."
     });
     sendPropertyLockMessage(PROPERTY_LOCK_CONTENT_TAKE_LOCK);
+// @ts-ignore
     state.currentPageType = typeof message.pageType === "string" ? message.pageType : state.currentPageType || "";
     stopSilentHighlightingObserver();
     clearSilentHighlightingMarks();
@@ -6386,16 +6953,21 @@ async function handleSetEnabledCommand(message = {}) {
 
     try {
       const shouldPerformInitialReveal = Boolean(
+// @ts-ignore
         message.performInitialReveal &&
+// @ts-ignore
           consumePageVisitRevealFreezeAttempt(message.baseUrl, location.href)
       );
       const skipInitialReveal = !shouldPerformInitialReveal;
       const reconciliation = core.getPageSaveReconciliationState(location.href);
       if (reconciliation && reconciliation.reason === SILENT_HIGHLIGHTING_PREPARATION_REASON) {
+// @ts-ignore
         await core.clearPageSaveReconciliation(message.baseUrl || state.baseUrl || "", location.href);
       }
+// @ts-ignore
       await core.enableForBaseUrl(message.baseUrl, { skipInitialReveal });
       if (shouldPerformInitialReveal) {
+// @ts-ignore
         markSilentHighlightEditorRevealPrepared(message.baseUrl, location.href);
       }
       refreshEnabledAiHighlights();
@@ -6440,33 +7012,41 @@ async function handleSetEnabledCommand(message = {}) {
 }
 
 function handleGetInspectionStatusCommand() {
+// @ts-ignore
   return getInspectionStatusResolver().resolve();
 }
 
 function handleSetPopupBusyOnPageCommand(message = {}) {
   return core.setPopupBusyOnPage(
+// @ts-ignore
     Boolean(message.active),
+// @ts-ignore
     typeof message.message === "string" ? message.message : ""
   );
 }
 
 function handleRenderModeInspectionBeginCommand(message = {}) {
+// @ts-ignore
   return getRenderModeInspectionHandlers().begin(message);
 }
 
 async function handleRunRenderModeRevealOnceCommand(message = {}) {
+// @ts-ignore
   return getRenderModeInspectionHandlers().revealOnce(message);
 }
 
 async function handleCaptureRenderModeInspectionHtmlCommand(message = {}) {
+// @ts-ignore
   return getRenderModeInspectionHandlers().captureHtml(message);
 }
 
 function handleRenderModeInspectionEndCommand(message = {}) {
+// @ts-ignore
   return getRenderModeInspectionHandlers().end(message);
 }
 
 function handleHideConsentForInspectionCommand() {
+// @ts-ignore
   return getRenderModeInspectionHandlers().hideConsent();
 }
 
@@ -6480,12 +7060,18 @@ function registerContentCommandHandlersOnce() {
     ok: true,
     initialized: Boolean(state.initialized)
   }));
+// @ts-ignore
   registerContentCommand("setEnabled", async (_context, payload) => handleSetEnabledCommand(payload));
   registerContentCommand("getInspectionStatus", async () => handleGetInspectionStatusCommand());
+// @ts-ignore
   registerContentCommand("setPopupBusyOnPage", async (_context, payload) => handleSetPopupBusyOnPageCommand(payload));
+// @ts-ignore
   registerContentCommand("renderModeInspectionBegin", async (_context, payload) => handleRenderModeInspectionBeginCommand(payload));
+// @ts-ignore
   registerContentCommand("runRenderModeRevealOnce", async (_context, payload) => handleRunRenderModeRevealOnceCommand(payload));
+// @ts-ignore
   registerContentCommand("captureRenderModeInspectionHtml", async (_context, payload) => handleCaptureRenderModeInspectionHtmlCommand(payload));
+// @ts-ignore
   registerContentCommand("renderModeInspectionEnd", async (_context, payload) => handleRenderModeInspectionEndCommand(payload));
   registerContentCommand("hideConsentForInspection", async () => handleHideConsentForInspectionCommand());
 }
@@ -6526,6 +7112,7 @@ function createRuntimeMessageHandlerDeps() {
     checkPropertyLockBlocksMarking,
     sendPropertyLockActivity,
     locationHref: () => location.href,
+// @ts-ignore
     isPageSaveReconciliationPending: (pageUrl) => core.isPageSaveReconciliationPending(pageUrl)
   };
 }
@@ -6573,7 +7160,9 @@ export function main() {
                               utils.normalizeBaseUrl(siteIdCheckResult.currentUrl) ||
                               state.baseUrl;
           const configs = await config.getConfigs();
+// @ts-ignore
           configs[normBaseUrl] = configs[normBaseUrl] || {};
+// @ts-ignore
           await config.updateConfig(normBaseUrl, (targetConfig) => {
             targetConfig.siteId = siteIdCheckResult.newSiteId;
           });
@@ -6702,6 +7291,7 @@ export function main() {
     }
     scheduleSilentHighlightReposition();
   });
+// @ts-ignore
   const handleSilentOrMarkingScroll = (event) => {
     if (state.enabled) {
       core.handleScroll(event, { hideDuringScroll: true });
@@ -6727,6 +7317,7 @@ export function main() {
     // actually listening (property-lock collaboration has a live port). The
     // background no-JS inactivity watch is driven by tab/window focus events, so
     // pinging from every injected page would wake the service worker for no gain.
+// @ts-ignore
     if (pageActivityTimer || !getPropertyLockPortClient().hasPort()) {
       return;
     }

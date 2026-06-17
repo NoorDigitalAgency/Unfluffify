@@ -6,7 +6,7 @@ Current phase: Phase 1 (leaf modules)
 ## Baseline
 - Branch: feat/typescript-deno-port
 - Full tests baseline: 847 pass / 0 fail
-- Current runtime @ts-nocheck count: 2
+- Current runtime @ts-nocheck count: 1
 - Ratchet allowlist: tests/fixtures/expected-ts-nocheck.txt
 
 ## Checkpoints
@@ -60,6 +60,7 @@ Current phase: Phase 1 (leaf modules)
 - [2026-06-17] Phase 1 batch 44 completed (micro): removed `@ts-nocheck` from `common/config.ts` via line-level strict suppressions for high-fanout dynamic config normalization/merge paths while preserving runtime behavior (no source-contract coupling in tests for this file); strict check plus config-adjacent suites (`settings-store`, `storage-access-boundary`, `popup-marking-refresh`, `popup-ai-run-gating`, `submission-rules`, `orchestration-auth`) and full-suite coverage passing.
 - [2026-06-17] Phase 1 batch 45 completed (micro): removed `@ts-nocheck` from `background.ts` with line-level strict suppressions and one typed router-signature alignment (`registerBackgroundCommand` now accepts optional third options/policy arg) to eliminate repeated 3-argument call diagnostics without changing runtime behavior. Updated two source-contract regexes to tolerate typed `maybeGetCommandPayloadForLedger(message: any)` and optional separator lines around the run-render-mode command block extraction. Strict check, targeted hardening/render-mode inspection suites, ratchet gate, and full-suite coverage passing.
 - [2026-06-17] Phase 1 batch 46 completed (micro): removed `@ts-nocheck` from `popup.ts` using line-level strict suppressions for high-fanout popup orchestration paths. Updated popup source-contract extraction regexes in `tests/popup-marking-refresh.test.js`, `tests/background-marking-activation.test.js`, and `tests/background-render-mode-inspection.test.js` to tolerate optional `// @ts-ignore` separators between adjacent function declarations. Strict check, popup/background targeted source-contract suites, ratchet gate, and full-suite coverage passing.
+- [2026-06-17] Phase 1 batch 47 completed (micro): removed `@ts-nocheck` from `content-main.ts` using line-level strict suppressions across high-fanout orchestration and handler wiring paths to preserve runtime/source-contract behavior while satisfying strict TypeScript. Strict check, full-suite coverage (`848 passed`), and ratchet gate passing.
 
 ## Notes
 - PoC typed module already merged: background/tab-operation-runner.ts and types/operations.ts.
