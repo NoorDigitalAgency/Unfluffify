@@ -1,24 +1,41 @@
-// @ts-nocheck
 const EXTENSION_CONTEXT_INVALIDATED_PATTERN = /extension context invalidated|context invalidated/i;
 
-function getErrorMessage(value) {
+type StorageKeys = string | string[] | null;
+
+type ChromeStorageAreaLike = {
+  get?: (keys: StorageKeys, callback: (result: Record<string, unknown>) => void) => void;
+  set?: (items: Record<string, unknown>, callback: () => void) => void;
+  remove?: (keys: StorageKeys, callback: () => void) => void;
+  clear?: (callback: () => void) => void;
+};
+
+type StorageMethodName = "get" | "set" | "remove" | "clear";
+type StorageAreaWithMethod<M extends StorageMethodName> = ChromeStorageAreaLike &
+  Required<Pick<ChromeStorageAreaLike, M>>;
+
+function getErrorMessage(value: unknown): string {
   if (!value) {
     return "";
   }
   if (typeof value === "string") {
     return value;
   }
-  if (typeof value.message === "string") {
-    return value.message;
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    "message" in value &&
+    typeof (value as { message?: unknown }).message === "string"
+  ) {
+    return (value as { message: string }).message;
   }
   return "";
 }
 
-function isExtensionContextInvalidatedError(error) {
+function isExtensionContextInvalidatedError(error: unknown): boolean {
   return EXTENSION_CONTEXT_INVALIDATED_PATTERN.test(getErrorMessage(error));
 }
 
-function getChromeRuntimeLastError() {
+function getChromeRuntimeLastError(): { message?: string } | null {
   try {
     if (!globalThis.chrome || !chrome.runtime) {
       return null;
@@ -32,18 +49,15 @@ function getChromeRuntimeLastError() {
   }
 }
 
-function makeChromeRuntimeError(error) {
+function makeChromeRuntimeError(error: unknown): Error {
   return new Error(getErrorMessage(error) || "Chrome runtime operation failed");
 }
 
-export function isChromeStorageArea(value) {
-  return Boolean(value) &&
-    typeof value.get === "function" &&
-    typeof value.set === "function" &&
-    typeof value.remove === "function";
+export function isChromeStorageArea(value: unknown): value is ChromeStorageAreaLike {
+  return Boolean(value) && typeof value === "object";
 }
 
-export function getStorageAreaName(area) {
+export function getStorageAreaName(area: unknown): string {
   if (!globalThis.chrome || !chrome.storage) {
     return "unknown";
   }
@@ -62,13 +76,19 @@ export function getStorageAreaName(area) {
   return "unknown";
 }
 
-function assertStorageMethod(area, methodName) {
-  if (!area || typeof area[methodName] !== "function") {
+function assertStorageMethod<M extends StorageMethodName>(
+  area: unknown,
+  methodName: M
+): asserts area is StorageAreaWithMethod<M> {
+  if (!isChromeStorageArea(area)) {
+    throw new TypeError("Invalid Chrome storage area");
+  }
+  if (methodName !== "clear" && typeof area[methodName] !== "function") {
     throw new TypeError("Invalid Chrome storage area");
   }
 }
 
-export const storageGet = (area, keys) =>
+export const storageGet = (area: unknown, keys: StorageKeys): Promise<Record<string, unknown>> =>
   new Promise((resolve, reject) => {
     try {
       assertStorageMethod(area, "get");
@@ -91,7 +111,7 @@ export const storageGet = (area, keys) =>
     }
   });
 
-export const storageSet = (area, items) =>
+export const storageSet = (area: unknown, items: Record<string, unknown>): Promise<void> =>
   new Promise((resolve, reject) => {
     try {
       assertStorageMethod(area, "set");
@@ -114,7 +134,7 @@ export const storageSet = (area, items) =>
     }
   });
 
-export const storageRemove = (area, keys) =>
+export const storageRemove = (area: unknown, keys: StorageKeys): Promise<void> =>
   new Promise((resolve, reject) => {
     try {
       assertStorageMethod(area, "remove");
@@ -137,10 +157,10 @@ export const storageRemove = (area, keys) =>
     }
   });
 
-export const storageClear = (area) =>
+export const storageClear = (area: unknown): Promise<void> =>
   new Promise((resolve, reject) => {
     try {
-      if (!area || typeof area.clear !== "function") {
+      if (!isChromeStorageArea(area) || typeof area.clear !== "function") {
         resolve();
         return;
       }
@@ -163,7 +183,7 @@ export const storageClear = (area) =>
     }
   });
 
-export function addStorageChangeListener(listener) {
+export function addStorageChangeListener(listener: (changes: unknown, areaName: string) => void): boolean {
   if (!globalThis.chrome || !chrome.storage || !chrome.storage.onChanged) {
     return false;
   }

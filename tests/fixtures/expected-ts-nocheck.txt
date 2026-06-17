@@ -27,7 +27,6 @@ common/page-motion-freeze-control.ts
 common/property-lock-background.ts
 common/property-lock.ts
 common/settings-store.ts
-common/storage-core.ts
 common/text.ts
 common/utilities.ts
 common/xpath-utilities.ts

@@ -6,7 +6,7 @@ Current phase: Phase 1 (leaf modules)
 ## Baseline
 - Branch: feat/typescript-deno-port
 - Full tests baseline: 847 pass / 0 fail
-- Current runtime @ts-nocheck count: 93
+- Current runtime @ts-nocheck count: 92
 - Ratchet allowlist: tests/fixtures/expected-ts-nocheck.txt
 
 ## Checkpoints
@@ -17,6 +17,7 @@ Current phase: Phase 1 (leaf modules)
 - [2026-06-17] Phase 1 batch 2 completed: removed `@ts-nocheck` from `common/page-world-protocol.ts`, `common/feature-flags.ts`, `common/world-messaging-contract.ts`, and `common/render-mode-js-state.ts`.
 - [2026-06-17] Updated `tests/lifecycle-broker.test.js` source-contract regexes to accept TypeScript annotations.
 - [2026-06-17] Phase 1 batch 3 completed: removed `@ts-nocheck` from `common/page-save-state.ts`, `common/lynx-live-pages.ts`, and `common/message-protocol.ts`.
+- [2026-06-17] Phase 1 batch 4 completed: removed `@ts-nocheck` from `common/storage-core.ts` and preserved method-specific runtime validation semantics.
 
 ## Notes
 - PoC typed module already merged: background/tab-operation-runner.ts and types/operations.ts.
