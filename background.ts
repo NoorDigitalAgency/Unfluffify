@@ -159,6 +159,8 @@ import {
   queueTabSessionWrite,
   setTabState as setStoredTabState
 } from "./background/tab-session-store.js";
+import type { TabOperationContext } from "./types/operations.js";
+import type { RuntimeMessage, RuntimeMessageReply } from "./types/messaging.js";
 
 // @ts-expect-error
 function buildFeatureDisabledResponse(featureName) {
@@ -1405,7 +1407,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
         persistent: false
       }
     },
-  async ({ update }: any) => {
+  async ({ update }: TabOperationContext) => {
       // Clear any prior "Without JavaScript" hold for this tab before we start.
       // This inspection's own reload also fires webNavigation events, so the tab
       // must NOT be marked held while we reload — it is re-marked in `finally` only
@@ -1698,7 +1700,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_AI, async (context, payloa
       source: "background-command-router",
       persistent: false
     },
-  async ({ update }: any) => {
+  async ({ update }: TabOperationContext) => {
       const result = await runAiCommandForTab(normalizedTabId, payload, update);
       if (!result || !result.ok) {
         return context.replyFail(
@@ -1728,7 +1730,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_AI, async (context, payloa
   );
 }, POPUP_TAB_COMMAND_POLICY);
 
-function maybeGetCommandPayloadForLedger(message: any) {
+function maybeGetCommandPayloadForLedger(message: RuntimeMessage) {
   if (!isDebugFlagEnabled("fullWorldMessagingLogging")) {
     return undefined;
   }
@@ -1738,7 +1740,7 @@ function maybeGetCommandPayloadForLedger(message: any) {
   return redactCommandPayloadForLedger(message.payload);
 }
 
-function recordBackgroundCommandLedger(message: any, sender: any, reply: any, startedAt: any, resolvedContextTabId: any = null) {
+function recordBackgroundCommandLedger(message: RuntimeMessage, sender: chrome.runtime.MessageSender, reply: RuntimeMessageReply | null, startedAt: number, resolvedContextTabId: number | null = null) {
   if (!message || typeof message !== "object") {
     return;
   }

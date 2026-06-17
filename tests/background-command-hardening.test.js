@@ -22,7 +22,7 @@ test("popup background commands declare explicit source and tab-id policy", () =
 });
 
 test("command ledger payloads are redacted before persistence", () => {
-  assert.match(backgroundSource, /function maybeGetCommandPayloadForLedger\(message(?:\s*:\s*any)?\) \{/);
+  assert.match(backgroundSource, /function maybeGetCommandPayloadForLedger\(message(?:\s*:\s*[^)]+)?\) \{/);
   assert.match(backgroundSource, /return redactCommandPayloadForLedger\(message\.payload\);/);
   assert.match(commandLedgerSource, /LEDGER_SENSITIVE_KEY_PATTERN\s*=\s*\/\(token\|password\|secret\|authorization\|cookie\|jwt/);
   assert.match(commandLedgerSource, /if \(normalizedKey === "payloadKey"\) \{/);
