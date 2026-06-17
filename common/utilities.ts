@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { isDebugFlagEnabled } from "./feature-flags.js";
 import {
   addStorageChangeListener,
@@ -35,7 +34,7 @@ export {
  * @param {number} tabId - The Chrome tab ID to check
  * @returns {Promise<boolean>} True if the script is injected, false otherwise
  */
-export async function isScriptInjected(tabId) {
+export async function isScriptInjected(tabId: any) {
   return getScriptInjectedState(tabId);
 }
 
@@ -45,8 +44,9 @@ export async function isScriptInjected(tabId) {
  * @param {number} tabId - The Chrome tab ID to inject the script into
  * @returns {Promise<{ok: boolean, alreadyInjected?: boolean, error?: string}>} Result of injection attempt
  */
-export async function injectContentScript(tabId, options = {}) {
-  const force = Boolean(options && options.force);
+export async function injectContentScript(tabId: any, options = {}) {
+  const optionsAny = options as any;
+  const force = Boolean(optionsAny && optionsAny.force);
   const alreadyInjected = await isScriptInjected(tabId);
   if (alreadyInjected && !force) {
     return { ok: true, alreadyInjected: true };
@@ -58,13 +58,13 @@ export async function injectContentScript(tabId, options = {}) {
     });
     await setStoredScriptInjectedState(tabId, true);
     return { ok: true };
-  } catch (error) {
+  } catch (error: any) {
     return { ok: false, error: error.message || "Script injection failed" };
   }
 }
 
 // Browser utilities
-export async function disableExtensionForTab(tabId) {
+export async function disableExtensionForTab(tabId: any) {
   await Promise.all([
     clearTabStateScope(tabId),
     clearStoredScriptInjectedState(tabId)
@@ -76,12 +76,12 @@ export async function disableExtensionForTab(tabId) {
     // Content script may not be loaded
   }
 }
-export const tabsQuery = (query) =>
+export const tabsQuery = (query: any) =>
     new Promise((resolve) => chrome.tabs.query(query, resolve));
 
 const EXTENSION_CONTEXT_INVALIDATED_PATTERN = /extension context invalidated|context invalidated/i;
 
-function getErrorMessage(value) {
+function getErrorMessage(value: any) {
   if (!value) {
     return "";
   }
@@ -94,7 +94,7 @@ function getErrorMessage(value) {
   return "";
 }
 
-export function isExtensionContextInvalidatedError(error) {
+export function isExtensionContextInvalidatedError(error: any) {
   return EXTENSION_CONTEXT_INVALIDATED_PATTERN.test(getErrorMessage(error));
 }
 
@@ -112,11 +112,11 @@ function getChromeRuntimeLastError() {
   }
 }
 
-function makeChromeRuntimeError(error) {
+function makeChromeRuntimeError(error: any) {
   return new Error(getErrorMessage(error) || "Chrome runtime operation failed");
 }
 
-function makeInvalidatedRuntimeResponse(error) {
+function makeInvalidatedRuntimeResponse(error: any) {
   return {
     ok: false,
     error: getErrorMessage(error) || "Extension context invalidated.",
@@ -128,11 +128,11 @@ function isFullWorldMessagingLoggingEnabled() {
   return isDebugFlagEnabled("fullWorldMessagingLogging");
 }
 
-function getMessageTypeForLog(message) {
+function getMessageTypeForLog(message: any) {
   return message && typeof message.type === "string" ? message.type : "";
 }
 
-function logRuntimeMessage(direction, message, details = {}) {
+function logRuntimeMessage(direction: any, message: any, details = {}) {
   if (!isFullWorldMessagingLoggingEnabled()) {
     return;
   }
@@ -146,7 +146,7 @@ function logRuntimeMessage(direction, message, details = {}) {
   }
 }
 
-export function sendRuntimeMessage(message) {
+export function sendRuntimeMessage(message: any) {
   logRuntimeMessage("send", message);
   try {
     const promise = chrome.runtime.sendMessage(message);
@@ -246,7 +246,7 @@ export function sendRuntimeMessage(message) {
 }
 
 // General utilities
-export function arraysEqual(left, right) {
+export function arraysEqual(left: any, right: any) {
   if (left === right) {
     return true;
   }
@@ -267,7 +267,7 @@ export function arraysEqual(left, right) {
   return true;
 }
 
-export function parseBaseUrl(value) {
+export function parseBaseUrl(value: any) {
   const normalized = normalizeBaseUrl(value);
   if (!normalized) {
     return null;
@@ -279,7 +279,7 @@ export function parseBaseUrl(value) {
   }
 }
 
-function parseHttpUrl(value) {
+function parseHttpUrl(value: any) {
   if (!value) {
     return null;
   }
@@ -294,7 +294,7 @@ function parseHttpUrl(value) {
   }
 }
 
-export function normalizeBaseUrl(value) {
+export function normalizeBaseUrl(value: any) {
   const parsed = parseHttpUrl(value);
   if (!parsed) {
     return "";
@@ -311,7 +311,7 @@ export function normalizeBaseUrl(value) {
   return `${parsed.protocol}//${hostname}${pathname === "/" ? "" : pathname}`;
 }
 
-export function normalizeCanonicalBaseUrl(value) {
+export function normalizeCanonicalBaseUrl(value: any) {
   const normalized = normalizeBaseUrl(value);
   if (!normalized) {
     return "";
@@ -332,7 +332,7 @@ export function normalizeCanonicalBaseUrl(value) {
   return `${parsed.protocol}//${canonicalHostname}${pathname === "/" ? "" : pathname}`;
 }
 
-function normalizeBaseMatchHostname(hostname) {
+function normalizeBaseMatchHostname(hostname: any) {
   if (typeof hostname !== "string") {
     return "";
   }
@@ -343,7 +343,7 @@ function normalizeBaseMatchHostname(hostname) {
   return lower.startsWith("www.") ? lower.slice(4) : lower;
 }
 
-function hostnamesEquivalentForBaseMatch(leftHostname, rightHostname) {
+function hostnamesEquivalentForBaseMatch(leftHostname: any, rightHostname: any) {
   if (!leftHostname || !rightHostname) {
     return false;
   }
@@ -361,7 +361,7 @@ function hostnamesEquivalentForBaseMatch(leftHostname, rightHostname) {
   return leftHostname.startsWith("www.") || rightHostname.startsWith("www.");
 }
 
-function normalizedHttpPort(parsed) {
+function normalizedHttpPort(parsed: any) {
   if (!parsed) {
     return "";
   }
@@ -377,7 +377,7 @@ function normalizedHttpPort(parsed) {
   return "";
 }
 
-function originsEquivalentForBaseMatch(left, right) {
+function originsEquivalentForBaseMatch(left: any, right: any) {
   if (!left || !right) {
     return false;
   }
@@ -393,7 +393,7 @@ function originsEquivalentForBaseMatch(left, right) {
   return hostnamesEquivalentForBaseMatch(left.hostname, right.hostname);
 }
 
-function normalizePathForMatch(pathname) {
+function normalizePathForMatch(pathname: any) {
   if (typeof pathname !== "string" || !pathname) {
     return "/";
   }
@@ -401,7 +401,7 @@ function normalizePathForMatch(pathname) {
   return trimmed || "/";
 }
 
-function getBaseUrlSpecificity(baseUrl) {
+function getBaseUrlSpecificity(baseUrl: any) {
   const parsed = parseHttpUrl(baseUrl);
   if (!parsed) {
     return 0;
@@ -410,7 +410,7 @@ function getBaseUrlSpecificity(baseUrl) {
   return `${parsed.origin}${normalizedPath}`.length;
 }
 
-export function isPageWithinBaseUrl(pageUrl, baseUrl) {
+export function isPageWithinBaseUrl(pageUrl: any, baseUrl: any) {
   const page = parseHttpUrl(pageUrl);
   const base = parseHttpUrl(normalizeBaseUrl(baseUrl) || baseUrl);
   if (!page || !base) {
@@ -430,7 +430,7 @@ export function isPageWithinBaseUrl(pageUrl, baseUrl) {
   return pagePath.startsWith(`${basePath}/`);
 }
 
-export function sameBaseUrl(left, right) {
+export function sameBaseUrl(left: any, right: any) {
   if (!left || !right) {
     return false;
   }
@@ -453,7 +453,7 @@ export function sameBaseUrl(left, right) {
   return String(left).trim() === String(right).trim();
 }
 
-export function getOriginFromUrl(url) {
+export function getOriginFromUrl(url: any) {
   if (!url) {
     return null;
   }
@@ -468,7 +468,7 @@ export function getOriginFromUrl(url) {
   }
 }
 
-export function findMatchingBaseUrl(pageUrl, configs) {
+export function findMatchingBaseUrl(pageUrl: any, configs: any) {
   if (!pageUrl) {
     return "";
   }
@@ -490,7 +490,7 @@ export function findMatchingBaseUrl(pageUrl, configs) {
 const IDB_NAME = "unfluffify";
 const IDB_VERSION = 1;
 const IDB_STORE = "kv";
-let idbPromise = null;
+let idbPromise: Promise<any> | null = null;
 
 function getExtensionOrigin() {
   try {
@@ -532,7 +532,7 @@ function openIdb() {
   return idbPromise;
 }
 
-function normalizeIdbKeys(keys) {
+function normalizeIdbKeys(keys: any) {
   if (keys === null || keys === undefined) {
     return { keys: null, defaults: null };
   }
@@ -553,7 +553,7 @@ async function idbGetAll() {
   return new Promise((resolve) => {
     const tx = db.transaction(IDB_STORE, "readonly");
     const store = tx.objectStore(IDB_STORE);
-    const result = {};
+    const result: any = {};
     const request = store.openCursor();
     request.onsuccess = () => {
       const cursor = request.result;
@@ -569,7 +569,7 @@ async function idbGetAll() {
   });
 }
 
-export async function idbGet(keys) {
+export async function idbGet(keys: any) {
   if (!isExtensionContext()) {
     const response = await sendRuntimeMessage({ type: "idbGet", keys });
     if (response && response.ok) {
@@ -611,7 +611,7 @@ export async function idbGet(keys) {
   });
 }
 
-export async function idbSet(items) {
+export async function idbSet(items: any) {
   if (!items || typeof items !== "object") {
     return;
   }
@@ -623,7 +623,7 @@ export async function idbSet(items) {
     return;
   }
   const db = await openIdb();
-  await new Promise((resolve, reject) => {
+  await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(IDB_STORE, "readwrite");
     const store = tx.objectStore(IDB_STORE);
     Object.entries(items).forEach(([key, value]) => {
@@ -635,7 +635,7 @@ export async function idbSet(items) {
   });
 }
 
-export async function idbRemove(keys) {
+export async function idbRemove(keys: any) {
   if (keys === null || keys === undefined) {
     return;
   }
@@ -651,7 +651,7 @@ export async function idbRemove(keys) {
     return;
   }
   const db = await openIdb();
-  await new Promise((resolve, reject) => {
+  await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(IDB_STORE, "readwrite");
     const store = tx.objectStore(IDB_STORE);
     normalized.keys.forEach((key) => {
@@ -664,20 +664,22 @@ export async function idbRemove(keys) {
 }
 
 // Tab state utilities
-export async function getTabState(tabId, scope = null) {
+export async function getTabState(tabId: any, scope: any = null) {
   return getStoredTabState(tabId, scope);
 }
 
+// @ts-ignore preserve source-contract signature used by device emulation lifecycle tests
 export async function setTabState(tabId, state, scope = null) {
   await setStoredTabState(tabId, state, scope);
 }
 
+// @ts-ignore preserve source-contract signature used by device emulation lifecycle tests
 export async function clearTabState(tabId) {
   await clearTabSessionState(tabId);
 }
 
 // Action icon utilities
-export async function updateActionForTab(tabId) {
+export async function updateActionForTab(tabId: any) {
   if (!chrome.action || !tabId) {
     return;
   }
@@ -723,7 +725,7 @@ export async function updateActionForTab(tabId) {
  * @param {number} tabId - The Chrome tab ID to attach to
  * @returns {Promise<{ok: boolean, error?: string, alreadyAttached?: boolean}>} Result of the attach operation
  */
-export async function attachDebugger(tabId) {
+export async function attachDebugger(tabId: any) {
   if (!tabId) {
     return { ok: false, error: "Missing tab ID" };
   }
@@ -732,7 +734,7 @@ export async function attachDebugger(tabId) {
     const target = { tabId };
     await chrome.debugger.attach(target, "1.3");
     return { ok: true };
-  } catch (error) {
+  } catch (error: any) {
     // Check if already attached
     if (error && error.message && error.message.includes("already attached")) {
       return { ok: true, alreadyAttached: true };
@@ -749,7 +751,7 @@ export async function attachDebugger(tabId) {
  * @param {number} tabId - The Chrome tab ID to detach from
  * @returns {Promise<{ok: boolean, alreadyDetached?: boolean, error?: string}>} Result of the detach operation
  */
-export async function detachDebugger(tabId) {
+export async function detachDebugger(tabId: any) {
   if (!tabId) {
     return { ok: false, error: "Missing tab ID" };
   }
@@ -758,7 +760,7 @@ export async function detachDebugger(tabId) {
     const target = { tabId };
     await chrome.debugger.detach(target);
     return { ok: true };
-  } catch (error) {
+  } catch (error: any) {
     const errorMessage = (error && error.message) || "Failed to detach debugger";
     if (/not attached/i.test(errorMessage)) {
       return { ok: true, alreadyDetached: true };
@@ -768,7 +770,7 @@ export async function detachDebugger(tabId) {
   }
 }
 
-export async function setPageJavaScriptExecutionDisabled(tabId, disabled) {
+export async function setPageJavaScriptExecutionDisabled(tabId: any, disabled: any) {
   if (!tabId) {
     return { ok: false, error: "Missing tab ID" };
   }
@@ -784,7 +786,7 @@ export async function setPageJavaScriptExecutionDisabled(tabId, disabled) {
       value: Boolean(disabled)
     });
     return { ok: true };
-  } catch (error) {
+  } catch (error: any) {
     const errorMessage = (error && error.message) || "Failed to update JavaScript execution state";
     console.error("Error updating JavaScript execution state:", errorMessage);
     return { ok: false, error: errorMessage };
@@ -799,7 +801,7 @@ export async function setPageJavaScriptExecutionDisabled(tabId, disabled) {
  * @param {boolean} [javaScriptDisabled=false] - Whether to disable JavaScript during reload
  * @returns {Promise<{ok: boolean, error?: string}>} Result of the reload operation
  */
-export async function reloadPageWithJavaScriptControl(tabId, javaScriptDisabled = false) {
+export async function reloadPageWithJavaScriptControl(tabId: any, javaScriptDisabled = false) {
   if (!tabId) {
     return { ok: false, error: "Missing tab ID" };
   }
@@ -819,7 +821,7 @@ export async function reloadPageWithJavaScriptControl(tabId, javaScriptDisabled 
     console.log(`Page is reloading with JavaScript ${javaScriptDisabled ? "disabled" : "enabled"}.`);
 
     return { ok: true };
-  } catch (error) {
+  } catch (error: any) {
     const errorMessage = (error && error.message) || "Failed to reload page";
     console.error("Error reloading page:", errorMessage);
     return { ok: false, error: errorMessage };
