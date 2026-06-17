@@ -6,10 +6,16 @@
     "test:node": "node --test",
     "package": "node ./scripts/package-extension.mjs --source-root dist/extension",
     "check": "deno run -A npm:typescript/bin/tsc --noEmit -p tsconfig.json",
+    "lint:no-any": "deno lint --rules-tags= --rules-include=no-explicit-any",
     "build:dev": "deno run -A ./scripts/build-extension.ts --dev",
     "build:release": "deno run -A ./scripts/build-extension.ts --release",
     "watch": "deno run -A ./scripts/watch-extension.ts",
     "fmt": "deno fmt",
     "lint": "deno lint"
+  },
+  "lint": {
+    "exclude": [
+      "popup/vendor"
+    ]
   }
 }
