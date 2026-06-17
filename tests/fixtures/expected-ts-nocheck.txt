@@ -1,6 +1,5 @@
 background/ai-run-orchestrator.ts
 background/remote-config-sync.ts
-background/remote-network.ts
 background.ts
 common/config.ts
 common/page-motion-freeze-bridge.ts
