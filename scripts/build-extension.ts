@@ -51,6 +51,60 @@ async function ensureParent(path: string): Promise<void> {
   await Deno.mkdir(dirname(path), { recursive: true });
 }
 
+async function addDevReloadArtifacts(targetDir: string): Promise<void> {
+  const buildId = new Date().toISOString();
+  const clientPath = join(targetDir, "dev-reload-client.js");
+  const markerPath = join(targetDir, "__dev_reload__.json");
+  const backgroundPath = join(targetDir, "background.js");
+  const clientSource = `const POLL_MS = 1500;
+let lastBuildId = "";
+
+async function readBuildMarker() {
+  try {
+    const response = await fetch(chrome.runtime.getURL("__dev_reload__.json"), { cache: "no-store" });
+    if (!response.ok) {
+      return "";
+    }
+    const payload = await response.json();
+    return payload && typeof payload.buildId === "string" ? payload.buildId : "";
+  } catch {
+    return "";
+  }
+}
+
+async function pollForReload() {
+  const nextBuildId = await readBuildMarker();
+  if (!nextBuildId) {
+    return;
+  }
+  if (!lastBuildId) {
+    lastBuildId = nextBuildId;
+    return;
+  }
+  if (nextBuildId !== lastBuildId) {
+    chrome.runtime.reload();
+  }
+}
+
+setInterval(() => {
+  pollForReload();
+}, POLL_MS);
+`;
+
+  await Deno.writeTextFile(clientPath, clientSource);
+  await Deno.writeTextFile(markerPath, `${JSON.stringify({ buildId }, null, 2)}\n`);
+
+  try {
+    const backgroundSource = await Deno.readTextFile(backgroundPath);
+    const importLine = 'import "./dev-reload-client.js";\n';
+    if (!backgroundSource.startsWith(importLine)) {
+      await Deno.writeTextFile(backgroundPath, `${importLine}${backgroundSource}`);
+    }
+  } catch {
+    // Ignore background injection if background.js does not exist in the output.
+  }
+}
+
 async function main(): Promise<void> {
   await Deno.remove(outDir, { recursive: true }).catch(() => {});
   await Deno.mkdir(outDir, { recursive: true });
@@ -100,6 +154,10 @@ async function main(): Promise<void> {
       sourcemap: isDev ? "inline" : false,
       logLevel: "info"
     });
+  }
+
+  if (isDev) {
+    await addDevReloadArtifacts(outDir);
   }
 
   console.log(`Built ${codeEntryPoints.length} code files to ${outDir}`);

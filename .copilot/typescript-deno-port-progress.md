@@ -1,7 +1,7 @@
 # TypeScript + Deno Port Progress
 
 Last updated: 2026-06-17
-Current phase: Phase 4 (Test runner migration)
+Current phase: Phase 5-8 pending (runtime file-by-file TypeScript conversion)
 
 ## Baseline (Phase 0)
 - Branch: feat/typescript-deno-port
@@ -20,6 +20,9 @@ Current phase: Phase 4 (Test runner migration)
 - [2026-06-17] Phase 2 complete: added strict tsconfig and shared contract types under types/ with green deno task check scope.
 - [2026-06-17] Phase 3 complete: added Deno/esbuild build script, dist packaging path, and artifact parity test.
 - [2026-06-17] Phase 3 validation: deno task build:release succeeded, package from dist succeeded (129 staged files), full suite green at 845/845.
+- [2026-06-17] Phase 4 complete: primary regression runner switched to deno test, node fallback retained as deno task test:node.
+- [2026-06-17] Phase 9 baseline complete: added dev watch script and dev-only reload artifact injection guarded from release builds.
+- [2026-06-17] Post-phase9 validation: deno task build:release and deno task build:dev succeeded; full deno suite green at 847/847.
 
 ## Notes
 - Interactive shell startup was blocked by stale oh-my-posh init in ~/.bashrc; guarded with command-exists check to restore terminal reliability.

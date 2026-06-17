@@ -8,7 +8,7 @@
     "check": "deno run -A npm:typescript/bin/tsc --noEmit -p tsconfig.json",
     "build:dev": "deno run -A ./scripts/build-extension.ts --dev",
     "build:release": "deno run -A ./scripts/build-extension.ts --release",
-    "watch": "deno eval \"console.log('Phase 9: watch task pending')\"",
+    "watch": "deno run -A ./scripts/watch-extension.ts",
     "fmt": "deno fmt",
     "lint": "deno lint"
   }
