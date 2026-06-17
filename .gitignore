@@ -55,7 +55,7 @@ dlldata.c
 # Benchmark Results
 BenchmarkDotNet.Artifacts/
 .tmp/
-dist/
+/dist/
 .mcp-browser-profile-reuse/
 
 # .NET Core
