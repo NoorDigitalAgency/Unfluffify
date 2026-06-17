@@ -11,7 +11,7 @@
     "popup/property-lock-ui.ts": 17,
     "popup/messages.ts": 16,
     "common/text.ts": 14,
-    "background/remote-config-sync.ts": 9,
+    "background/remote-config-sync.ts": 6,
     "content/property-lock-state-machine.ts": 6,
     "background/network-core.ts": 2,
     "content/config-updated-handler.ts": 1

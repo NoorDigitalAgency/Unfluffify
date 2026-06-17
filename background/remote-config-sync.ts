@@ -9,7 +9,7 @@ import {
 } from "./transfer-payload-store.js";
 import { fetchStaticPageHtmlForBackground } from "./remote-network.js";
 
-// @ts-ignore preserve source-contract export signature used by background remote-config tests
+// @ts-expect-error preserve source-contract export signature used by background remote-config tests
 export function collectStoredPageMarkingItems(pageMarkings, baseUrl = "") {
   const items: any[] = [];
   const pageMarkingsAny = pageMarkings as any;
@@ -37,7 +37,7 @@ export function collectStoredPageMarkingItems(pageMarkings, baseUrl = "") {
   return items;
 }
 
-// @ts-ignore preserve source-contract export signature used by background remote-config tests
+// @ts-expect-error preserve source-contract export signature used by background remote-config tests
 export function mergeSelectorsIntoConfig(targetConfig, incomingConfig) {
   const targetConfigAny = targetConfig as any;
   const incomingConfigAny = incomingConfig as any;
@@ -74,7 +74,7 @@ export function mergeSelectorsIntoConfig(targetConfig, incomingConfig) {
   return didChange;
 }
 
-// @ts-ignore preserve source-contract export signature used by background remote-config tests
+// @ts-expect-error preserve source-contract export signature used by background remote-config tests
 export function getRemoteManagedConfigSignature(baseUrl, sourceConfig) {
   const normalizedBaseUrl = utils.normalizeBaseUrl(baseUrl) || baseUrl;
   if (!normalizedBaseUrl) {
@@ -87,7 +87,7 @@ export function getRemoteManagedConfigSignature(baseUrl, sourceConfig) {
   return JSON.stringify(configStore.createConfigSyncPayload(normalizedBaseUrl, normalizedConfig));
 }
 
-// @ts-ignore preserve source-contract export signature used by background remote-config tests
+// @ts-expect-error preserve source-contract export signature used by background remote-config tests
 export function getNormalizedPageEntrySignature(pageUrl, entry) {
   if (!pageUrl) {
     return "null";
@@ -97,7 +97,6 @@ export function getNormalizedPageEntrySignature(pageUrl, entry) {
   return JSON.stringify(normalizedEntry);
 }
 
-// @ts-ignore preserve source-contract export signature used by background remote-config tests
 export async function replaceServerConfigIntoLocalSnapshot(options = {}) {
   const optionsAny = options as any;
   const payloadKey = typeof optionsAny.payloadKey === "string" ? optionsAny.payloadKey.trim() : "";
@@ -163,7 +162,6 @@ export async function replaceServerConfigIntoLocalSnapshot(options = {}) {
   };
 }
 
-// @ts-ignore preserve source-contract export signature used by background remote-config tests
 export async function mergeServerConfigIntoLocalSnapshot(options = {}) {
   const optionsAny = options as any;
   const payloadKey = typeof optionsAny.payloadKey === "string" ? optionsAny.payloadKey.trim() : "";
@@ -182,9 +180,9 @@ export async function mergeServerConfigIntoLocalSnapshot(options = {}) {
   const confirmedPageMarkings = configStore.normalizePageMarkings(
     optionsAny && optionsAny.confirmedPageMarkings
   ).normalized;
-  // @ts-ignore preserve source-contract expression used by popup marking refresh tests
+  // @ts-expect-error preserve source-contract expression used by popup marking refresh tests
   const preferConfirmedPageMarkings = Boolean(options && options.preferConfirmedPageMarkings);
-  // @ts-ignore preserve source-contract expression used by popup marking refresh tests
+  // @ts-expect-error preserve source-contract expression used by popup marking refresh tests
   const applyConfirmedToBackendSaved = Boolean(options && options.applyConfirmedToBackendSaved);
   const normalizedPayload = configStore.normalizeConfigSyncPayload(payload, "");
   if (!normalizedPayload.baseUrl) {
@@ -305,7 +303,6 @@ export async function mergeServerConfigIntoLocalSnapshot(options = {}) {
   };
 }
 
-// @ts-ignore preserve source-contract export signature used by background remote-config tests
 export async function preparePageTypeAssignmentsSnapshot(options = {}) {
   const optionsAny = options as any;
   const baseUrl = typeof optionsAny.baseUrl === "string" ? optionsAny.baseUrl.trim() : "";
