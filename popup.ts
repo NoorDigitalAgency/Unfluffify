@@ -195,6 +195,7 @@ import {
   normalizeLockStateMessage
 } from "./common/property-lock.js";
 import type { RemoteConfigLoadResult } from "./types/popup-state.ts";
+import type { PageMarkingEntry, PageSaveReconciliation } from "./types/config.ts";
 
 const { state } = stateModule;
 const PAGE_SAVE_SYNC_MAX_ATTEMPTS = 5;
@@ -2288,6 +2289,16 @@ async function clearCurrentPageSaveReconciliation(baseUrl = state.currentBaseUrl
   }, 2);
 }
 
+interface TabDraftStatusResponse {
+  ok?: unknown;
+  entry?: PageMarkingEntry | null;
+  savedEntry?: PageMarkingEntry | null;
+  dirty?: unknown;
+  reconciliation?: PageSaveReconciliation | null;
+  reconciliationPending?: unknown;
+  [key: string]: unknown;
+}
+
 async function refreshCurrentPageRuntimeStatus(options = {}) {
 // @ts-expect-error
   const tabId = Number.isFinite(options.tabId)
@@ -2319,7 +2330,7 @@ async function refreshCurrentPageRuntimeStatus(options = {}) {
         baseUrl
       }).catch(() => null)
       : Promise.resolve(null)
-  ]);
+  ]) as [Record<string, unknown> | null, TabDraftStatusResponse | null];
 
   if (draftStatus && draftStatus.ok) {
     state.currentDraftEntry = draftStatus.entry || null;
@@ -2369,7 +2380,7 @@ async function waitForEnableMarkingInspectionToSettle(tabId, baseUrl) {
           baseUrl
         })
         : Promise.resolve(null)
-    ]);
+    ]) as [Record<string, unknown> | null, TabDraftStatusResponse | null];
     if (
       (inspectionStatus && inspectionStatus.ok) ||
       (draftStatus && draftStatus.ok)
@@ -2528,7 +2539,7 @@ function scheduleNavigationInspectionSettlePoll(tabId, baseUrl) {
       baseUrl
         ? messages.sendTabMessageToTab(tabId, { type: "getPageDraftStatus", baseUrl }).catch(() => null)
         : Promise.resolve(null)
-    ]);
+    ]) as [Record<string, unknown> | null, TabDraftStatusResponse | null];
     const inspectionPending = Boolean(
       inspectionStatus &&
       inspectionStatus.ok &&
@@ -3544,7 +3555,7 @@ async function refreshUiInner(options = {}) {
       contentModeStatus.ok &&
       typeof contentModeStatus.markingEnabled === "boolean"
   );
-  if (contentModeKnown) {
+  if (contentModeKnown && contentModeStatus) {
     const contentMarkingEnabled = Boolean(contentModeStatus.markingEnabled);
     const preserveEnabledDuringPreviewCloseRestore = Boolean(
       previewCloseMarkingHoldActive &&
