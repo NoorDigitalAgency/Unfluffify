@@ -1,4 +1,3 @@
-// @ts-nocheck
 import {
   DEVICE_EMULATION_PREFIX,
   DEVICE_EMULATION_PRESETS,
@@ -10,13 +9,24 @@ import {
 } from "./feature-flags.js";
 import { storageGet, storageRemove, storageSet } from "./utilities.js";
 
+type DeviceMode = "mobile" | "desktop";
+type DeviceState = {
+  enabled: boolean;
+  mode: DeviceMode;
+  scale: number;
+};
+type ViewportSize = {
+  width: number;
+  height: number;
+};
+
 const deviceEmulationQueueByTabId = new Map();
 
-function normalizeDeviceMode(mode) {
+function normalizeDeviceMode(mode: unknown): DeviceMode {
   return mode === "mobile" ? "mobile" : "desktop";
 }
 
-function normalizeDeviceScale(scale, mode) {
+function normalizeDeviceScale(scale: unknown, mode: DeviceMode) {
   if (typeof scale !== "number" || !Number.isFinite(scale)) {
     return DEVICE_SCALE_DEFAULTS[mode];
   }
@@ -29,7 +39,7 @@ function normalizeDeviceScale(scale, mode) {
   return scale;
 }
 
-function normalizeDeviceEmulationState(value) {
+function normalizeDeviceEmulationState(value: any): DeviceState {
   if (!value) {
     return {
       enabled: false,
@@ -53,7 +63,7 @@ function normalizeDeviceEmulationState(value) {
   };
 }
 
-function buildFeatureDisabledResult(featureName, state = null) {
+function buildFeatureDisabledResult(featureName: string, state: DeviceState | null = null) {
   return {
     ok: false,
     reason: FEATURE_DISABLED_REASON,
@@ -63,13 +73,13 @@ function buildFeatureDisabledResult(featureName, state = null) {
   };
 }
 
-async function getTabViewportSize(tabId) {
+async function getTabViewportSize(tabId: number): Promise<ViewportSize | null> {
   return new Promise((resolve) => {
     if (!chrome.tabs || !tabId) {
       resolve(null);
       return;
     }
-    chrome.tabs.get(tabId, (tab) => {
+    chrome.tabs.get(tabId, (tab: any) => {
       if (chrome.runtime.lastError || !tab) {
         resolve(null);
         return;
@@ -85,7 +95,7 @@ async function getTabViewportSize(tabId) {
   });
 }
 
-async function getPageViewportSize(tabId) {
+async function getPageViewportSize(tabId: number): Promise<ViewportSize | null> {
   return new Promise((resolve) => {
     if (!chrome.scripting || !tabId) {
       resolve(null);
@@ -99,7 +109,7 @@ async function getPageViewportSize(tabId) {
           height: window.innerHeight
         })
       },
-      (results) => {
+      (results: any[]) => {
         if (chrome.runtime.lastError) {
           resolve(null);
           return;
@@ -108,13 +118,13 @@ async function getPageViewportSize(tabId) {
           resolve(null);
           return;
         }
-        resolve(results[0].result);
+        resolve(results[0].result as ViewportSize);
       }
     );
   });
 }
 
-async function getViewportSize(tabId) {
+async function getViewportSize(tabId: number): Promise<ViewportSize | null> {
   const [tabViewport, pageViewport] = await Promise.all([
     getTabViewportSize(tabId),
     getPageViewportSize(tabId)
@@ -132,7 +142,7 @@ async function getViewportSize(tabId) {
   return tabViewport || pageViewport;
 }
 
-async function getBestDeviceScale(tabId, mode) {
+async function getBestDeviceScale(tabId: number, mode: DeviceMode) {
   const preset = DEVICE_EMULATION_PRESETS[mode] || DEVICE_EMULATION_PRESETS.desktop;
   const viewport = await getViewportSize(tabId);
   if (!viewport || !viewport.width || !viewport.height) {
@@ -144,13 +154,13 @@ async function getBestDeviceScale(tabId, mode) {
   return normalizeDeviceScale(bestScale, mode);
 }
 
-export async function getDeviceEmulationState(tabId) {
+export async function getDeviceEmulationState(tabId: number): Promise<DeviceState> {
   const key = `${DEVICE_EMULATION_PREFIX}${tabId}`;
   const result = await storageGet(chrome.storage.session, key);
   return normalizeDeviceEmulationState(result[key]);
 }
 
-export async function hasStoredDeviceEmulationState(tabId) {
+export async function hasStoredDeviceEmulationState(tabId: number) {
   if (!tabId) {
     return false;
   }
@@ -159,11 +169,12 @@ export async function hasStoredDeviceEmulationState(tabId) {
   return Object.prototype.hasOwnProperty.call(result || {}, key);
 }
 
-async function setDeviceEmulationState(tabId, state) {
+async function setDeviceEmulationState(tabId: number, state: DeviceState) {
   const key = `${DEVICE_EMULATION_PREFIX}${tabId}`;
   await storageSet(chrome.storage.session, { [key]: state });
 }
 
+// @ts-ignore preserve source-contract signature used by device emulation lifecycle tests
 export async function setDeviceEmulationEnabled(tabId, enabled) {
   if (!tabId) {
     return null;
@@ -179,6 +190,7 @@ export async function setDeviceEmulationEnabled(tabId, enabled) {
   });
 }
 
+// @ts-ignore preserve source-contract signature used by device emulation lifecycle tests
 export async function clearDeviceEmulationState(tabId) {
   if (!tabId) {
     return;
@@ -187,13 +199,14 @@ export async function clearDeviceEmulationState(tabId) {
   await runDeviceEmulationOperation(tabId, () => storageRemove(chrome.storage.session, key));
 }
 
-function getDeviceEmulationQueueKey(tabId) {
+function getDeviceEmulationQueueKey(tabId: number) {
   const normalizedTabId = Number(tabId);
   return Number.isFinite(normalizedTabId) && normalizedTabId > 0
     ? String(Math.trunc(normalizedTabId))
     : "";
 }
 
+// @ts-ignore preserve source-contract signature used by device emulation lifecycle tests
 async function runDeviceEmulationOperation(tabId, operation) {
   const queueKey = getDeviceEmulationQueueKey(tabId);
   if (!queueKey) {
@@ -213,13 +226,13 @@ async function runDeviceEmulationOperation(tabId, operation) {
   }
 }
 
-function getDebuggerTargets() {
+function getDebuggerTargets(): Promise<any[] | null> {
   return new Promise((resolve) => {
     if (!chrome.debugger || !chrome.debugger.getTargets) {
       resolve(null);
       return;
     }
-    chrome.debugger.getTargets((targets) => {
+    chrome.debugger.getTargets((targets: any[]) => {
       if (chrome.runtime.lastError || !Array.isArray(targets)) {
         resolve(null);
         return;
@@ -229,7 +242,7 @@ function getDebuggerTargets() {
   });
 }
 
-async function isDebuggerAttachedToTab(tabId) {
+async function isDebuggerAttachedToTab(tabId: number) {
   if (!tabId) {
     return false;
   }
@@ -246,13 +259,13 @@ async function isDebuggerAttachedToTab(tabId) {
   return false;
 }
 
-export async function reconcileDeviceEmulationState(tabId) {
+export async function reconcileDeviceEmulationState(tabId: number) {
   const current = await getDeviceEmulationState(tabId);
   if (
     (!current.enabled && !isFeatureEnabled("deviceEmulationToggle")) ||
     (current.mode === "desktop" && !isFeatureEnabled("desktopPreview"))
   ) {
-    const restored = await updateDeviceEmulation(tabId, {
+    const restored: any = await updateDeviceEmulation(tabId, {
       enabled: true,
       mode: "mobile",
       scale: DEVICE_SCALE_DEFAULTS.mobile,
@@ -275,7 +288,7 @@ export async function reconcileDeviceEmulationState(tabId) {
   return normalizeDeviceEmulationState(next);
 }
 
-function attachDebugger(tabId) {
+function attachDebugger(tabId: number) {
   return new Promise((resolve) => {
     chrome.debugger.attach({ tabId }, "1.3", () => {
       if (chrome.runtime.lastError) {
@@ -292,7 +305,7 @@ function attachDebugger(tabId) {
   });
 }
 
-function sendDebuggerCommand(tabId, method, params) {
+function sendDebuggerCommand(tabId: number, method: string, params?: Record<string, unknown>) {
   return new Promise((resolve) => {
     chrome.debugger.sendCommand({ tabId }, method, params, () => {
       if (chrome.runtime.lastError) {
@@ -307,7 +320,7 @@ function sendDebuggerCommand(tabId, method, params) {
   });
 }
 
-function detachDebugger(tabId) {
+function detachDebugger(tabId: number) {
   return new Promise((resolve) => {
     chrome.debugger.detach({ tabId }, () => {
       if (chrome.runtime.lastError) {
@@ -322,14 +335,14 @@ function detachDebugger(tabId) {
   });
 }
 
-async function applyDeviceEmulation(tabId, state) {
+async function applyDeviceEmulation(tabId: number, state: DeviceState) {
   const preset = DEVICE_EMULATION_PRESETS[state.mode] || DEVICE_EMULATION_PRESETS.desktop;
-  const attachResult = await attachDebugger(tabId);
+  const attachResult: any = await attachDebugger(tabId);
   if (!attachResult.ok) {
     return attachResult;
   }
   const scale = normalizeDeviceScale(state.scale, state.mode);
-  const commandResult = await sendDebuggerCommand(
+  const commandResult: any = await sendDebuggerCommand(
     tabId,
     "Emulation.setDeviceMetricsOverride",
     {
@@ -343,12 +356,13 @@ async function applyDeviceEmulation(tabId, state) {
   return { ok: true };
 }
 
-async function clearDeviceEmulation(tabId) {
+async function clearDeviceEmulation(tabId: number) {
   await sendDebuggerCommand(tabId, "Emulation.clearDeviceMetricsOverride");
   await detachDebugger(tabId);
   return { ok: true };
 }
 
+// @ts-ignore preserve source-contract signature used by device emulation lifecycle tests
 export async function updateDeviceEmulation(tabId, updates) {
   return runDeviceEmulationOperation(tabId, async () => {
     const current = await getDeviceEmulationState(tabId);
@@ -360,7 +374,7 @@ export async function updateDeviceEmulation(tabId, updates) {
     ) {
       return buildFeatureDisabledResult("deviceEmulationToggle", current);
     }
-    const next = {
+    const next: any = {
       ...current,
       ...updates
     };
@@ -388,7 +402,7 @@ export async function updateDeviceEmulation(tabId, updates) {
       next.scale = await getBestDeviceScale(tabId, next.mode);
     }
 
-    const applyResult = await applyDeviceEmulation(tabId, next);
+    const applyResult: any = await applyDeviceEmulation(tabId, next);
     if (!applyResult.ok) {
       return applyResult;
     }
@@ -398,7 +412,7 @@ export async function updateDeviceEmulation(tabId, updates) {
   });
 }
 
-export async function ensureDefaultMobileDeviceEmulation(tabId) {
+export async function ensureDefaultMobileDeviceEmulation(tabId: number) {
   if (!tabId) {
     return { ok: false, error: "Missing tab" };
   }
@@ -417,13 +431,14 @@ export async function ensureDefaultMobileDeviceEmulation(tabId) {
   });
 }
 
-export function normalizeDeviceEmulationStateForUi(value) {
+export function normalizeDeviceEmulationStateForUi(value: unknown) {
   return normalizeDeviceEmulationState(value);
 }
 
 // Chrome can re-apply setDeviceMetricsOverride to a newly loaded page even after
 // clearDeviceMetricsOverride + detach. Call this after onCompleted to fix the
 // new page's renderer if emulation was previously used but is now disabled.
+// @ts-ignore preserve source-contract signature used by device emulation lifecycle tests
 export async function clearDeviceEmulationAfterNavigation(tabId) {
   return runDeviceEmulationOperation(tabId, async () => {
     const hasState = await hasStoredDeviceEmulationState(tabId);
@@ -434,7 +449,7 @@ export async function clearDeviceEmulationAfterNavigation(tabId) {
     if (state.enabled) {
       return;
     }
-    const attachResult = await attachDebugger(tabId);
+    const attachResult: any = await attachDebugger(tabId);
     if (!attachResult.ok) {
       return;
     }
