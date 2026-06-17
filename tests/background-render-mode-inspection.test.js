@@ -46,7 +46,9 @@ test("background TAB_RUN_RENDER_MODE_INSPECTION orchestrates reload, consent hid
     /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_RUN_RENDER_MODE_INSPECTION, async \(context, payload\) => \{([\s\S]*?)\n\}, POPUP_TAB_COMMAND_POLICY\);\n\nfunction maybeGetCommandPayloadForLedger/
   )[1];
 
-  assert.match(commandBlock, /withBackgroundTabSpinner\([\s\S]*?reason: "tab-render-mode-inspection"/);
+  assert.match(backgroundSource, /from "\.\/background\/tab-operation-runner\.js"/);
+  assert.match(backgroundSource, /const tabOperationRunner = createTabOperationRunner\(\{[\s\S]*?updateLifecycleState,[\s\S]*?withTabSpinner: withBackgroundTabSpinner/);
+  assert.match(commandBlock, /runBackgroundTabOperation\([\s\S]*?kind: LIFECYCLE_KINDS\.RENDER_MODE_INSPECTION,[\s\S]*?timeoutMs: RENDER_MODE_INSPECTION_OPERATION_TIMEOUT_MS,[\s\S]*?reason: "tab-render-mode-inspection"/);
   assert.match(backgroundSource, /from "\.\/background\/render-mode-inspector\.js"/);
   assert.match(backgroundSource, /const renderModeInspector = createRenderModeInspector\(\{/);
   assert.match(commandBlock, /if \(!javaScriptDisabled\) \{[\s\S]*?utils\.setPageJavaScriptExecutionDisabled\([\s\S]*?normalizedTabId,[\s\S]*?false/);
@@ -78,7 +80,7 @@ test("background TAB_RUN_RENDER_MODE_INSPECTION orchestrates reload, consent hid
   // tab (in chrome.storage.session) so JavaScript is restored on the next genuine
   // navigation (not its own reload) and the popup can show the current JS mode.
   assert.match(commandBlock, /clearRenderModeNoJsHeld\(normalizedTabId\)/);
-  assert.match(commandBlock, /if \(javaScriptDisabled && javaScriptReloadAttempted\) \{[\s\S]*?setRenderModeNoJsHeld\(normalizedTabId, true\)/);
+  assert.match(commandBlock, /if \(javaScriptDisabled && javaScriptReloadAttempted\) \{[\s\S]*?await setRenderModeNoJsHeld\(normalizedTabId, true\);[\s\S]*?updateRenderModeNoJsInactivityWatch\(normalizedTabId\)\.catch\(\(\) => null\);/);
   // "With JavaScript" on a tab held in no-JS mode reloads with JavaScript first so
   // content scripts are present before the begin handshake (otherwise it retries
   // content readiness for tens of seconds against the stale no-JS page).
@@ -86,8 +88,9 @@ test("background TAB_RUN_RENDER_MODE_INSPECTION orchestrates reload, consent hid
   assert.match(commandBlock, /if \(wasHeldInNoJsMode\) \{[\s\S]*?reloadPageWithJavaScriptForRenderModeRecovery\(\)/);
   assert.match(
     commandBlock,
-    /finally \{[\s\S]*?sendRenderModeInspectionEndWithRetry\([\s\S]*?updateLifecycleState\(normalizedTabId, \{[\s\S]*?kind: LIFECYCLE_KINDS\.RENDER_MODE_INSPECTION,[\s\S]*?phase: commandResult\.ok \? LIFECYCLE_PHASES\.FINISHED : LIFECYCLE_PHASES\.FAILED,[\s\S]*?busy: false/
+    /finally \{[\s\S]*?sendRenderModeInspectionEndWithRetry\([\s\S]*?Object\.assign\(commandResult, \{[\s\S]*?runtime: getTabRuntimeSnapshot\(normalizedTabId\)/
   );
+  assert.doesNotMatch(commandBlock, /phase: commandResult\.ok \? LIFECYCLE_PHASES\.FINISHED : LIFECYCLE_PHASES\.FAILED/);
 });
 
 test("background TAB_END_RENDER_MODE_INSPECTION restores JavaScript and clears the no-JS hold", () => {

@@ -1018,10 +1018,10 @@ function scheduleStaleInspectionBusyClear(
       reconcileSilentNavSpinner &&
       !view.toggleEnabled &&
       popupSpinnerQueue.has("navInspect");
-    const renderModeNavSpinnerStuck =
+    const renderModeNavSpinnerStuck = Boolean(
       reconcileRenderModeNavSpinner &&
-      popupSpinnerQueue.size === 1 &&
-      popupSpinnerQueue.has("navInspect");
+      popupSpinnerQueue.has("navInspect")
+    );
     const queueClearGate =
       popupSpinnerQueue.size === 0 &&
       !popupSpinnerVisible &&
@@ -4694,57 +4694,64 @@ async function runRenderModeInspectionReload(javaScriptDisabled) {
   }
   const operationId = `render-mode-inspection:${tabId}:${Date.now()}`;
 
-  await runWithSpinner(null, PopupText.overlay.pleaseWait, async () => {
-    state.renderModeInspectionActive = true;
-    try {
-      const inspectionResponse = await messages.requestTabRunRenderModeInspection(tabId, {
-        baseUrl: state.currentBaseUrl,
-        javaScriptDisabled,
-        operationId
-      });
-      const inspectionResult = inspectionResponse && inspectionResponse.ok && inspectionResponse.result
-        ? inspectionResponse.result
-        : null;
-      const inspectionFailureError = inspectionResult && typeof inspectionResult.followUpError === "string" && inspectionResult.followUpError
-        ? inspectionResult.followUpError
-        : (inspectionResponse && inspectionResponse.error) || "";
-      const reloadResult = inspectionResult && inspectionResult.reloadResult && typeof inspectionResult.reloadResult === "object"
-        ? inspectionResult.reloadResult
-        : {
-          ok: false,
-          error: inspectionFailureError || PopupText.renderMode.toastInspectReloadFailed
-        };
-      const loadStarted = Boolean(inspectionResult && inspectionResult.loadStarted);
-      const outcome = resolveRenderModeInspectionReloadOutcome(reloadResult, loadStarted, javaScriptDisabled);
-      if (!outcome.ok) {
-        uiModule.showToast(outcome.toast);
-        return;
-      }
-
-      const followUpCompleted = Boolean(inspectionResult && inspectionResult.followUpCompleted);
-      if (followUpCompleted) {
-        const snapshot = inspectionResult && inspectionResult.inspectionSnapshot && typeof inspectionResult.inspectionSnapshot === "object"
-          ? inspectionResult.inspectionSnapshot
-          : null;
-        if (snapshot) {
-          rememberRenderModeInspectionSnapshot(
-            state.currentBaseUrl,
-            snapshot.pageUrl || (state.currentTab && state.currentTab.url) || "",
-            snapshot
-          );
-        }
-        await reconcilePropertyLockAfterRenderModeReload();
-        scheduleStaleInspectionBusyClear(tabId, state.currentBaseUrl, {
-          reconcileRenderModeNavSpinner: true
+  try {
+    await runWithSpinner(null, PopupText.overlay.pleaseWait, async () => {
+      state.renderModeInspectionActive = true;
+      try {
+        const inspectionResponse = await messages.requestTabRunRenderModeInspection(tabId, {
+          baseUrl: state.currentBaseUrl,
+          javaScriptDisabled,
+          operationId
         });
-        await refreshUi({ useBusyOverlay: false });
+        const operationResult = inspectionResponse && inspectionResponse.ok && inspectionResponse.result
+          ? inspectionResponse.result
+          : null;
+        const inspectionResult = operationResult && operationResult.result && typeof operationResult.result === "object"
+          ? operationResult.result
+          : null;
+        const inspectionFailureError = inspectionResult && typeof inspectionResult.followUpError === "string" && inspectionResult.followUpError
+          ? inspectionResult.followUpError
+          : (operationResult && typeof operationResult.error === "string" && operationResult.error) ||
+            (inspectionResponse && inspectionResponse.error) || "";
+        const reloadResult = inspectionResult && inspectionResult.reloadResult && typeof inspectionResult.reloadResult === "object"
+          ? inspectionResult.reloadResult
+          : {
+            ok: false,
+            error: inspectionFailureError || PopupText.renderMode.toastInspectReloadFailed
+          };
+        const loadStarted = Boolean(inspectionResult && inspectionResult.loadStarted);
+        const outcome = resolveRenderModeInspectionReloadOutcome(reloadResult, loadStarted, javaScriptDisabled);
+        if (!outcome.ok) {
+          uiModule.showToast(outcome.toast);
+          return;
+        }
+
+        const followUpCompleted = Boolean(inspectionResult && inspectionResult.followUpCompleted);
+        if (followUpCompleted) {
+          const snapshot = inspectionResult && inspectionResult.inspectionSnapshot && typeof inspectionResult.inspectionSnapshot === "object"
+            ? inspectionResult.inspectionSnapshot
+            : null;
+          if (snapshot) {
+            rememberRenderModeInspectionSnapshot(
+              state.currentBaseUrl,
+              snapshot.pageUrl || (state.currentTab && state.currentTab.url) || "",
+              snapshot
+            );
+          }
+          await reconcilePropertyLockAfterRenderModeReload();
+          await refreshUi({ useBusyOverlay: false });
+        }
+        uiModule.showToast(outcome.toast);
+      } finally {
+        state.renderModeInspectionActive = false;
+        uiModule.setViewState(buildPropertyLockViewState());
       }
-      uiModule.showToast(outcome.toast);
-    } finally {
-      state.renderModeInspectionActive = false;
-      uiModule.setViewState(buildPropertyLockViewState());
-    }
-  });
+    });
+  } finally {
+    scheduleStaleInspectionBusyClear(tabId, state.currentBaseUrl, {
+      reconcileRenderModeNavSpinner: true
+    });
+  }
 }
 
 async function normalizeRenderModeDebuggerPage(tabId) {

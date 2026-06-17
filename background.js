@@ -130,6 +130,7 @@ import {
 } from "./background/world-trace.js";
 import { createPopupStateBroker } from "./background/popup-state-broker.js";
 import { createRenderModeInspector } from "./background/render-mode-inspector.js";
+import { createTabOperationRunner } from "./background/tab-operation-runner.js";
 import { createTabInactivityObserver } from "./background/tab-inactivity-observer.js";
 import { createAiRunOrchestrator } from "./background/ai-run-orchestrator.js";
 import { runBackgroundTask } from "./background/async-tasks.js";
@@ -236,6 +237,7 @@ const POPUP_TAB_COMMAND_POLICY = Object.freeze({
 });
 const RENDER_MODE_INSPECTION_START_TIMEOUT_MS = 8000;
 const RENDER_MODE_INSPECTION_LOAD_TIMEOUT_MS = 15000;
+const RENDER_MODE_INSPECTION_OPERATION_TIMEOUT_MS = 60000;
 function clearBrowsingDataForOrigin(origin) {
   return new Promise((resolve) => {
     if (!origin || typeof origin !== "string") {
@@ -1358,15 +1360,20 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
   const operationId = normalizeRenderModeOperationId(payload, normalizedTabId);
   const javaScriptDisabled = Boolean(payload && payload.javaScriptDisabled);
 
-  return withBackgroundTabSpinner(
+  return runBackgroundTabOperation(
     normalizedTabId,
     {
-      key: `render-mode-inspection:${normalizedTabId}`,
+      operationId,
+      kind: LIFECYCLE_KINDS.RENDER_MODE_INSPECTION,
+      timeoutMs: RENDER_MODE_INSPECTION_OPERATION_TIMEOUT_MS,
       message: "Inspecting page...",
-      owner: SPINNER_OWNERS.POPUP,
-      reason: "tab-render-mode-inspection",
-      source: "background-command-router",
-      persistent: false
+      spinner: {
+        key: `render-mode-inspection:${normalizedTabId}`,
+        owner: SPINNER_OWNERS.POPUP,
+        reason: "tab-render-mode-inspection",
+        source: "background-command-router",
+        persistent: false
+      }
     },
     async ({ update }) => {
       // Clear any prior "Without JavaScript" hold for this tab before we start.
@@ -1597,7 +1604,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
           // which has already fired its navigation events by now), and so the popup
           // can show the page as currently held in "Without JavaScript" mode.
           await setRenderModeNoJsHeld(normalizedTabId, true);
-          await updateRenderModeNoJsInactivityWatch(normalizedTabId);
+          updateRenderModeNoJsInactivityWatch(normalizedTabId).catch(() => null);
         }
         const endAcknowledged = javaScriptDisabled
           ? false
@@ -1613,13 +1620,6 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
           endAcknowledged,
           runtime: getTabRuntimeSnapshot(normalizedTabId),
           state: tabState
-        });
-        updateLifecycleState(normalizedTabId, {
-          operationId,
-          kind: LIFECYCLE_KINDS.RENDER_MODE_INSPECTION,
-          phase: commandResult.ok ? LIFECYCLE_PHASES.FINISHED : LIFECYCLE_PHASES.FAILED,
-          busy: false,
-          message: ""
         });
       }
     }
@@ -1958,6 +1958,16 @@ function clearBackgroundSpinnerQueue(tabId, options = {}) {
 
 async function withBackgroundTabSpinner(tabId, descriptor, work) {
   return spinnerOperations.withTabSpinner(tabId, descriptor, work);
+}
+
+const tabOperationRunner = createTabOperationRunner({
+  normalizeTabId: normalizeBrokerTabId,
+  updateLifecycleState,
+  withTabSpinner: withBackgroundTabSpinner
+});
+
+async function runBackgroundTabOperation(tabId, descriptor, work) {
+  return tabOperationRunner.runTabOperation(tabId, descriptor, work);
 }
 
 chrome.runtime.onConnect.addListener((port) => {

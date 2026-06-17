@@ -157,6 +157,9 @@ test("popup render mode inspection surfaces follow-up errors before reload", () 
   );
 
   assert.match(inspectionBlock, /const inspectionFailureError = inspectionResult && typeof inspectionResult\.followUpError === "string"/);
+  assert.match(inspectionBlock, /const operationResult = inspectionResponse && inspectionResponse\.ok && inspectionResponse\.result/);
+  assert.match(inspectionBlock, /const inspectionResult = operationResult && operationResult\.result && typeof operationResult\.result === "object"/);
+  assert.match(inspectionBlock, /operationResult && typeof operationResult\.error === "string" && operationResult\.error/);
   assert.match(inspectionBlock, /error: inspectionFailureError \|\| PopupText\.renderMode\.toastInspectReloadFailed/);
 });
 
@@ -192,6 +195,10 @@ test("render mode inspection reload waits for the full explicit inspection follo
   assert.match(
     inspectionBlock,
     /const followUpCompleted = Boolean\(inspectionResult && inspectionResult\.followUpCompleted\);[\s\S]*?if \(followUpCompleted\) \{[\s\S]*?rememberRenderModeInspectionSnapshot\([\s\S]*?await reconcilePropertyLockAfterRenderModeReload\(\);[\s\S]*?await refreshUi\(\{ useBusyOverlay: false \}\);/
+  );
+  assert.match(
+    inspectionBlock,
+    /\} finally \{[\s\S]*?scheduleStaleInspectionBusyClear\(tabId, state\.currentBaseUrl, \{[\s\S]*?reconcileRenderModeNavSpinner: true[\s\S]*?\}\);[\s\S]*?\}/
   );
   assert.doesNotMatch(inspectionBlock, /type: "renderModeInspectionBegin"/);
   assert.doesNotMatch(inspectionBlock, /type: "runRenderModeRevealOnce"/);
