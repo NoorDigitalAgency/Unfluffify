@@ -26,6 +26,7 @@ Current phase: Phase 10 complete (TypeScript + Deno cutover)
 - [2026-06-17] Phase 9 baseline complete: added dev watch script and dev-only reload artifact injection guarded from release builds.
 - [2026-06-17] Post-phase9 validation: deno task build:release and deno task build:dev succeeded; full deno suite green at 847/847.
 - [2026-06-17] Phase 10 complete: npm compatibility scripts now delegate to Deno; docs/knowledge/plan baselines updated to Deno-first workflow.
+- [2026-06-17] Post-port review: runtime `.ts` files are `@ts-nocheck` with zero annotations (cosmetic port); deferred Phase 2 deep typing is NOT done. PoC typed `background/tab-operation-runner.ts` + accurate `types/operations.ts` (commit 5df6654); `deno task check` clean, build elides `import type`, full suite 847 green. Deep-typing rollout tracked in `.copilot/typescript-typing-rollout-plan.md`.
 
 ## Notes
 - Interactive shell startup was blocked by stale oh-my-posh init in ~/.bashrc; guarded with command-exists check to restore terminal reliability.
