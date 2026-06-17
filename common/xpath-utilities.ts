@@ -1,4 +1,3 @@
-// @ts-nocheck
 // xpathRefiner.js
 
 /**
@@ -8,7 +7,7 @@
  * @param {string} html - HTML string to parse
  * @returns {Document} Parsed HTML document
  */
-function parseHTML(html) {
+function parseHTML(html: string) {
   if (typeof DOMParser === "undefined") {
     throw new Error(
       "DOMParser is not available in this environment. " +
@@ -27,7 +26,7 @@ function parseHTML(html) {
  * @param {string} xpath - The XPath expression
  * @returns {Element|null} The first matching element or null
  */
-function evaluateXPathFirst(doc, xpath) {
+function evaluateXPathFirst(doc: Document, xpath: string): Element | null {
   try {
     const result = doc.evaluate(
       xpath,
@@ -44,24 +43,24 @@ function evaluateXPathFirst(doc, xpath) {
       return node.parentElement || null;
     }
 
-    return node.nodeType === Node.ELEMENT_NODE ? node : null;
+    return node.nodeType === Node.ELEMENT_NODE ? (node as Element) : null;
   } catch {
     return null;
   }
 }
 
-function normalizeText(value) {
+function normalizeText(value: unknown) {
   return String(value || "").replace(/\s+/g, " ").trim();
 }
 
-function tokenize(value) {
+function tokenize(value: unknown) {
   return normalizeText(value)
     .toLowerCase()
     .split(/[^a-z0-9_]+/i)
     .filter(Boolean);
 }
 
-function jaccard(a, b) {
+function jaccard(a: string[], b: string[]) {
   const setA = new Set(a);
   const setB = new Set(b);
 
@@ -76,17 +75,17 @@ function jaccard(a, b) {
   return union === 0 ? 0 : intersection / union;
 }
 
-function getClassTokens(el) {
+function getClassTokens(el: Element) {
   const className = el.getAttribute("class") || "";
   return className
     .split(/\s+/)
-    .map(s => s.trim())
+    .map((s) => s.trim())
     .filter(Boolean)
     .slice(0, 8);
 }
 
-function getPreferredAttrs(el) {
-  const attrs = {};
+function getPreferredAttrs(el: Element) {
+  const attrs: Record<string, string> = {};
   const names = [
     "id",
     "name",
@@ -116,8 +115,8 @@ function getPreferredAttrs(el) {
   return attrs;
 }
 
-function getAncestorSignature(el, depth = 4) {
-  const out = [];
+function getAncestorSignature(el: Element, depth = 4) {
+  const out: Array<{ tag: string; id: string; classes: string[] }> = [];
   let cur = el.parentElement;
   let count = 0;
 
@@ -134,7 +133,7 @@ function getAncestorSignature(el, depth = 4) {
   return out;
 }
 
-function fingerprintNode(el) {
+function fingerprintNode(el: Element) {
   return {
     tag: el.tagName.toLowerCase(),
     text: normalizeText(el.textContent).slice(0, 300),
@@ -144,7 +143,10 @@ function fingerprintNode(el) {
   };
 }
 
-function ancestorSimilarity(fpAncestors, candidateAncestors) {
+function ancestorSimilarity(
+  fpAncestors: Array<{ tag: string; id: string; classes: string[] }>,
+  candidateAncestors: Array<{ tag: string; id: string; classes: string[] }>
+) {
   let score = 0;
   const maxDepth = Math.min(fpAncestors.length, candidateAncestors.length);
 
@@ -160,7 +162,7 @@ function ancestorSimilarity(fpAncestors, candidateAncestors) {
   return score;
 }
 
-function scoreCandidate(fp, el) {
+function scoreCandidate(fp: any, el: Element) {
   let score = 0;
   const tag = el.tagName.toLowerCase();
 
@@ -169,7 +171,7 @@ function scoreCandidate(fp, el) {
   }
 
   const attrs = getPreferredAttrs(el);
-  const attrWeights = {
+  const attrWeights: Record<string, number> = {
     id: 100,
     name: 40,
     type: 20,
@@ -211,7 +213,7 @@ function scoreCandidate(fp, el) {
   return score;
 }
 
-function buildDomIndex(doc) {
+function buildDomIndex(doc: Document) {
   const allElements = Array.from(doc.querySelectorAll("*"));
   const byTag = new Map();
 
@@ -228,8 +230,8 @@ function buildDomIndex(doc) {
   return { allElements, byTag };
 }
 
-function findBestMatch(fp, domIndex, options = {}) {
-  const minScore = options.minScore ?? 30;
+function findBestMatch(fp: any, domIndex: any, options: Record<string, unknown> = {}) {
+  const minScore = typeof options.minScore === "number" ? options.minScore : 30;
   const tagCandidates = domIndex.byTag.get(fp.tag) || [];
   const primaryCandidates =
     tagCandidates.length > 0 ? tagCandidates : domIndex.allElements;
@@ -261,7 +263,7 @@ function findBestMatch(fp, domIndex, options = {}) {
   };
 }
 
-function getElementIndexAmongSameTag(el) {
+function getElementIndexAmongSameTag(el: Element) {
   let index = 1;
   let sib = el.previousElementSibling;
 
@@ -280,9 +282,9 @@ function getElementIndexAmongSameTag(el) {
  * @param {Element} el - The element to build the XPath for
  * @returns {string} The absolute indexed XPath
  */
-function buildAbsoluteIndexedXPath(el) {
+function buildAbsoluteIndexedXPath(el: Element) {
   const parts = [];
-  let cur = el;
+  let cur: Element | null = el;
 
   while (cur && cur.nodeType === 1) {
     const tag = cur.tagName.toLowerCase();
@@ -314,19 +316,19 @@ function buildAbsoluteIndexedXPath(el) {
  * @private
  */
 function refineXPathEntriesFromDocuments(
-  oldDoc,
-  newDoc,
-  items,
-  options = {}
+  oldDoc: Document,
+  newDoc: Document,
+  items: Array<Record<string, any>>,
+  options: Record<string, unknown> = {}
 ) {
-  const minScore = options.minScore ?? 30;
+  const minScore = typeof options.minScore === "number" ? options.minScore : 30;
   const keepOriginalOnNoMatch = options.keepOriginalOnNoMatch ?? true;
   const skipExcluded = options.skipExcluded ?? false;
   const includeMeta = options.includeMeta ?? false;
 
   const domIndex = buildDomIndex(newDoc);
 
-  return items.map(item => {
+  return items.map((item) => {
     const copy = { ...item };
 
     if (
@@ -405,7 +407,12 @@ function refineXPathEntriesFromDocuments(
 /**
  * Refine an array of item objects from raw HTML strings.
  */
-export function refineXPathEntries(oldHtml, newHtml, items, options = {}) {
+export function refineXPathEntries(
+  oldHtml: string,
+  newHtml: string,
+  items: Array<Record<string, any>>,
+  options: Record<string, unknown> = {}
+) {
   const oldDoc = parseHTML(oldHtml);
   const newDoc = parseHTML(newHtml);
   return refineXPathEntriesFromDocuments(oldDoc, newDoc, items, options);
