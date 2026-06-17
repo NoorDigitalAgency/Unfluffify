@@ -1,8 +1,7 @@
-// @ts-nocheck
 export function createManagedTimeoutGroup() {
-  const handles = new Set();
+  const handles = new Set<ReturnType<typeof setTimeout>>();
 
-  function clear(handle) {
+  function clear(handle: ReturnType<typeof setTimeout> | null | undefined): void {
     if (!handle) {
       return;
     }
@@ -10,8 +9,9 @@ export function createManagedTimeoutGroup() {
     handles.delete(handle);
   }
 
-  function set(fn, ms) {
-    const timeoutMs = Number.isFinite(ms) && ms >= 0 ? Math.trunc(ms) : 0;
+  function set(fn: () => void, ms: unknown): ReturnType<typeof setTimeout> {
+    const numericMs = typeof ms === "number" ? ms : Number(ms);
+    const timeoutMs = Number.isFinite(numericMs) && numericMs >= 0 ? Math.trunc(numericMs) : 0;
     const handle = setTimeout(() => {
       handles.delete(handle);
       fn();

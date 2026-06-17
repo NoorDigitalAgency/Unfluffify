@@ -1,6 +1,27 @@
-// @ts-nocheck
-export function createInspectionStatusResolver(deps) {
-  function resolve() {
+type InspectionStatusDeps = {
+  getPageUrl: () => string;
+  getPageSaveReconciliationState: (pageUrl: string) => { reason?: string } | null;
+  isPageSaveReconciliationPending: (pageUrl: string) => boolean;
+  isPageInspectionUiActive: () => boolean;
+  SILENT_HIGHLIGHTING_PREPARATION_REASON: string;
+  getSilentHighlightEditorActivationPromise: () => Promise<unknown> | null | undefined;
+  getPropertyLockEditorClaimPending: () => unknown;
+  isRenderModeInspectionActive: () => boolean;
+  isMarkingEnabled: () => unknown;
+  getCurrentContentMode: () => unknown;
+};
+
+export function createInspectionStatusResolver(deps: InspectionStatusDeps) {
+  function resolve(): {
+    ok: true;
+    active: boolean;
+    pending: boolean;
+    renderModeInspectionActive: boolean;
+    markingEnabled: boolean;
+    mode: unknown;
+    lockClaimPending: boolean;
+    pendingReason: string;
+  } {
     const pageUrl = deps.getPageUrl();
     const reconciliation = deps.getPageSaveReconciliationState(pageUrl);
     const reconciliationPending = deps.isPageSaveReconciliationPending(pageUrl);

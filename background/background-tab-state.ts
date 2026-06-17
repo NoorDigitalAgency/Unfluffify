@@ -1,17 +1,16 @@
-// @ts-nocheck
-export const tabLifecycleStateByTabId = new Map();
-export const tabSpinnerQueueByTabId = new Map();
-export const popupStatePortsByTabId = new Map();
-export const tabWorldTraceStateByTabId = new Map();
-export const aiComputeLockExpiresAtByTabId = new Map();
-export const pageMotionFreezeControlQueueByTarget = new Map();
+export const tabLifecycleStateByTabId = new Map<number, unknown>();
+export const tabSpinnerQueueByTabId = new Map<number, unknown>();
+export const popupStatePortsByTabId = new Map<number, unknown>();
+export const tabWorldTraceStateByTabId = new Map<number, unknown>();
+export const aiComputeLockExpiresAtByTabId = new Map<number, unknown>();
+export const pageMotionFreezeControlQueueByTarget = new Map<string, unknown>();
 
-function normalizeTabId(value) {
+function normalizeTabId(value: unknown): number | null {
   const numeric = Number(value);
   return Number.isFinite(numeric) && numeric > 0 ? Math.trunc(numeric) : null;
 }
 
-export function disposeTabState(tabId) {
+export function disposeTabState(tabId: unknown): void {
   const normalizedTabId = normalizeTabId(tabId);
   if (!normalizedTabId) {
     return;

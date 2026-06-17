@@ -1,7 +1,18 @@
-// @ts-nocheck
-export function createFocusHandler(deps) {
-  function handleFocusMessage(message = {}) {
-    const xpath = message.xpath || "";
+type FocusHandlerDeps = {
+  getElementFromXPath: (xpath: string) => Element | null;
+  focusPreviewElement: (element: Element) => void;
+  isAiPreviewActive: () => boolean;
+  setAiPreviewFocusedXpath: (xpath: string) => void;
+  clearFocusHighlight: () => void;
+};
+
+type FocusMessage = {
+  xpath?: unknown;
+};
+
+export function createFocusHandler(deps: FocusHandlerDeps) {
+  function handleFocusMessage(message: FocusMessage = {}): { ok: boolean } {
+    const xpath = typeof message.xpath === "string" ? message.xpath : "";
     const target = xpath ? deps.getElementFromXPath(xpath) : null;
     if (!target) {
       return { ok: false };
