@@ -9,6 +9,7 @@ const REPO_ROOT = path.resolve(TESTS_DIR, "..");
 
 const EXCLUDED_PATH_PREFIXES = [
   ".tmp/",
+  "dist/",
   "node_modules/",
   "tests/",
   "orchestration/",

@@ -1,11 +1,13 @@
 {
+  "nodeModulesDir": "auto",
   "tasks": {
-    "test": "node --test",
-    "test:deno": "deno test -A --no-check tests",
-    "package": "node ./scripts/package-extension.mjs",
-    "check": "deno eval \"console.log('Phase 2: check task pending')\"",
-    "build:dev": "deno eval \"console.log('Phase 3: dev build task pending')\"",
-    "build:release": "deno eval \"console.log('Phase 3: release build task pending')\"",
+    "test": "deno test -A --no-check --unstable-sloppy-imports tests",
+    "test:deno": "deno test -A --no-check --unstable-sloppy-imports tests",
+    "test:node": "node --test",
+    "package": "node ./scripts/package-extension.mjs --source-root dist/extension",
+    "check": "deno run -A npm:typescript/bin/tsc --noEmit -p tsconfig.json",
+    "build:dev": "deno run -A ./scripts/build-extension.ts --dev",
+    "build:release": "deno run -A ./scripts/build-extension.ts --release",
     "watch": "deno eval \"console.log('Phase 9: watch task pending')\"",
     "fmt": "deno fmt",
     "lint": "deno lint"
