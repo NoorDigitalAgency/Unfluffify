@@ -1,10 +1,33 @@
-// @ts-nocheck
 import {
   LIFECYCLE_PHASES,
   SPINNER_OWNERS
 } from "../common/world-messaging-contract.js";
+import type {
+  TabLifecycleUpdate,
+  TabOperationBase,
+  TabOperationContext,
+  TabOperationDescriptor,
+  TabOperationResult,
+  TabOperationResultPatch,
+  TabOperationRunnerOptions,
+  TabOperationSpinnerContext,
+  TabOperationWork,
+  TabSpinnerDescriptor,
+  TabSpinnerRunner
+} from "../types/operations.js";
 
-function defaultNormalizeTabId(value) {
+type SettledOutcome =
+  | { status: "fulfilled"; result: Record<string, unknown> }
+  | { status: "rejected"; error: unknown }
+  | { status: "timed-out" };
+
+interface LifecycleDetails {
+  message?: string;
+  timedOut?: boolean;
+  error?: string;
+}
+
+function defaultNormalizeTabId(value: unknown): number {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) {
     return 0;
@@ -13,36 +36,45 @@ function defaultNormalizeTabId(value) {
   return normalized > 0 ? normalized : 0;
 }
 
-function defaultUpdateLifecycleState() {}
+function defaultUpdateLifecycleState(): void {}
 
-function getErrorMessage(value) {
+async function defaultWithTabSpinner<TResult>(
+  _tabId: number,
+  _descriptor: TabSpinnerDescriptor,
+  work: (context: TabOperationSpinnerContext) => Promise<TResult>
+): Promise<TResult> {
+  return work({ update: async () => null });
+}
+
+function getErrorMessage(value: unknown): string {
   if (!value) {
     return "";
   }
   if (typeof value === "string") {
     return value;
   }
-  if (typeof value.message === "string" && value.message) {
-    return value.message;
+  const record = value as { message?: unknown; error?: unknown; followUpError?: unknown };
+  if (typeof record.message === "string" && record.message) {
+    return record.message;
   }
-  if (typeof value.error === "string" && value.error) {
-    return value.error;
+  if (typeof record.error === "string" && record.error) {
+    return record.error;
   }
-  if (typeof value.followUpError === "string" && value.followUpError) {
-    return value.followUpError;
+  if (typeof record.followUpError === "string" && record.followUpError) {
+    return record.followUpError;
   }
   return "";
 }
 
-function normalizeTimeoutMs(value) {
-  return Number.isFinite(value) && value > 0 ? Math.trunc(value) : 0;
+function normalizeTimeoutMs(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.trunc(value) : 0;
 }
 
-function buildFallbackOperationId(tabId, kind) {
+function buildFallbackOperationId(tabId: number, kind: string): string {
   return `operation:${kind || "unknown"}:${tabId}:${Date.now()}`;
 }
 
-function createAbortController() {
+function createAbortController(): AbortController | null {
   try {
     return typeof AbortController === "function" ? new AbortController() : null;
   } catch {
@@ -50,22 +82,28 @@ function createAbortController() {
   }
 }
 
-export function createTabOperationRunner(options = {}) {
-  const normalizeTabId = typeof options.normalizeTabId === "function"
+export function createTabOperationRunner(options: TabOperationRunnerOptions = {}) {
+  const normalizeTabId: (value: unknown) => number = typeof options.normalizeTabId === "function"
     ? options.normalizeTabId
     : defaultNormalizeTabId;
-  const updateLifecycleState = typeof options.updateLifecycleState === "function"
-    ? options.updateLifecycleState
-    : defaultUpdateLifecycleState;
-  const withTabSpinner = typeof options.withTabSpinner === "function"
+  const updateLifecycleState: (tabId: number, update: TabLifecycleUpdate) => unknown =
+    typeof options.updateLifecycleState === "function"
+      ? options.updateLifecycleState
+      : defaultUpdateLifecycleState;
+  const withTabSpinner: TabSpinnerRunner = typeof options.withTabSpinner === "function"
     ? options.withTabSpinner
-    : async (_tabId, _descriptor, work) => work({ update: async () => null });
-  const setTimeoutRef = typeof options.setTimeout === "function" ? options.setTimeout : setTimeout;
-  const clearTimeoutRef = typeof options.clearTimeout === "function" ? options.clearTimeout : clearTimeout;
-  const now = typeof options.now === "function" ? options.now : () => Date.now();
+    : defaultWithTabSpinner;
+  const setTimeoutRef: (handler: () => void, timeout: number) => number =
+    typeof options.setTimeout === "function" ? options.setTimeout : setTimeout;
+  const clearTimeoutRef: (handle: number) => void =
+    typeof options.clearTimeout === "function" ? options.clearTimeout : clearTimeout;
+  const now: () => number = typeof options.now === "function" ? options.now : () => Date.now();
 
-  function buildOperationResult(base, patch = {}) {
-    const finishedAt = Number.isFinite(patch.finishedAt) ? patch.finishedAt : now();
+  function buildOperationResult(
+    base: TabOperationBase,
+    patch: TabOperationResultPatch = {}
+  ): TabOperationResult {
+    const finishedAt: number = Number.isFinite(patch.finishedAt) ? (patch.finishedAt as number) : now();
     return {
       ok: Boolean(patch.ok),
       tabId: base.tabId,
@@ -81,7 +119,11 @@ export function createTabOperationRunner(options = {}) {
     };
   }
 
-  async function runTabOperation(tabId, descriptor = {}, work) {
+  async function runTabOperation(
+    tabId: number,
+    descriptor: TabOperationDescriptor = {},
+    work: TabOperationWork
+  ): Promise<TabOperationResult> {
     if (typeof work !== "function") {
       throw new TypeError("runTabOperation requires an async work function");
     }
@@ -92,14 +134,14 @@ export function createTabOperationRunner(options = {}) {
       : buildFallbackOperationId(normalizedTabId, kind);
     const message = typeof descriptor.message === "string" ? descriptor.message : "";
     const timeoutMs = normalizeTimeoutMs(descriptor.timeoutMs);
-    const base = {
+    const base: TabOperationBase = {
       tabId: normalizedTabId,
       kind,
       operationId,
       startedAt: now()
     };
 
-    const emitLifecycle = (phase, busy, details = {}) => {
+    const emitLifecycle = (phase: string, busy: boolean, details: LifecycleDetails = {}) => {
       try {
         return updateLifecycleState(normalizedTabId, {
           operationId,
@@ -117,32 +159,36 @@ export function createTabOperationRunner(options = {}) {
 
     emitLifecycle(LIFECYCLE_PHASES.STARTED, true, { message });
 
-    const spinnerDescriptor = descriptor.spinner === false
+    const spinnerDescriptor: TabSpinnerDescriptor | null = descriptor.spinner === false
       ? null
-      : {
+      : ({
         key: typeof descriptor.spinnerKey === "string" && descriptor.spinnerKey
           ? descriptor.spinnerKey
-          : (descriptor.spinner && typeof descriptor.spinner.key === "string" ? descriptor.spinner.key : operationId),
+          : (descriptor.spinner && typeof descriptor.spinner === "object" && typeof descriptor.spinner.key === "string"
+            ? descriptor.spinner.key
+            : operationId),
         message,
         owner: SPINNER_OWNERS.POPUP,
         reason: `operation:${kind}`,
         source: "background-tab-operation-runner",
         persistent: false,
         ...(descriptor.spinner && typeof descriptor.spinner === "object" ? descriptor.spinner : {})
-      };
+      } as TabSpinnerDescriptor);
 
     let operationActive = true;
-    let operationResult = null;
+    let operationResult: TabOperationResult | null = null;
 
-    const execute = async (spinnerContext = {}) => {
+    const execute = async (
+      spinnerContext: Partial<TabOperationSpinnerContext> = {}
+    ): Promise<TabOperationResult> => {
       const abortController = createAbortController();
       let timeoutHandle = 0;
-      const operationContext = {
+      const operationContext: TabOperationContext = {
         tabId: normalizedTabId,
         kind,
         operationId,
         signal: abortController ? abortController.signal : null,
-        update: async (patch = {}) => {
+        update: async (patch: Record<string, unknown> = {}) => {
           if (!operationActive || typeof spinnerContext.update !== "function") {
             return null;
           }
@@ -154,19 +200,19 @@ export function createTabOperationRunner(options = {}) {
         .then(() => work(operationContext));
       workPromise.catch(() => null);
 
-      const settledPromise = workPromise.then(
-        (result) => ({ status: "fulfilled", result }),
-        (error) => ({ status: "rejected", error })
+      const settledPromise: Promise<SettledOutcome> = workPromise.then(
+        (result): SettledOutcome => ({ status: "fulfilled", result }),
+        (error: unknown): SettledOutcome => ({ status: "rejected", error })
       );
-      const timeoutPromise = timeoutMs > 0
-        ? new Promise((resolve) => {
+      const timeoutPromise: Promise<SettledOutcome> | null = timeoutMs > 0
+        ? new Promise<SettledOutcome>((resolve) => {
           timeoutHandle = setTimeoutRef(() => {
             resolve({ status: "timed-out" });
           }, timeoutMs);
         })
         : null;
 
-      const settled = timeoutPromise
+      const settled: SettledOutcome = timeoutPromise
         ? await Promise.race([settledPromise, timeoutPromise])
         : await settledPromise;
 
