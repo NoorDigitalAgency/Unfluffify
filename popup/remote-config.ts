@@ -5,6 +5,28 @@ import * as stateModule from "./state.js";
 const { state } = stateModule;
 const DEFAULT_REMOTE_CONFIG_RETRY_DELAY_MS = 2500;
 
+interface LoadRemoteConfigOptions {
+  tabId?: unknown;
+  pageUrl?: unknown;
+  baseUrl?: unknown;
+  siteId?: unknown;
+  endpointValue?: unknown;
+  force?: unknown;
+  notifyOnChange?: unknown;
+}
+
+interface SyncBaseConfigOptions {
+  baseUrl?: unknown;
+  pageUrl?: unknown;
+  endpointValue?: unknown;
+  tokenValue?: unknown;
+  stageBase?: unknown;
+  alertOnCurrentReplacement?: unknown;
+  includeCurrentPageMarking?: unknown;
+  includeAllLocalPageMarkings?: unknown;
+  maxAttempts?: unknown;
+}
+
 function buildRemoteConfigLoadKey(tabId: unknown, siteId: unknown, endpointValue: unknown) {
   return `${tabId || ""}|${siteId || ""}|${endpointValue || ""}`;
 }
@@ -23,8 +45,8 @@ export function scheduleRemoteConfigRetry(deps: any) {
   }, retryDelayMs);
 }
 
-export async function loadRemoteConfigForCurrentPage(deps: any, options: any = {}) {
-  const opts = (options || {}) as any;
+export async function loadRemoteConfigForCurrentPage(deps: any, options: LoadRemoteConfigOptions = {}) {
+  const opts = options;
   const {
     tabId = null,
     pageUrl = "",
@@ -126,8 +148,8 @@ export async function loadRemoteConfigForCurrentPage(deps: any, options: any = {
   }
 }
 
-export async function syncBaseConfigToServer(deps: any, options: any = {}) {
-  const opts = (options || {}) as any;
+export async function syncBaseConfigToServer(deps: any, options: SyncBaseConfigOptions = {}) {
+  const opts = options;
   const {
     baseUrl = "",
     pageUrl = "",
@@ -211,6 +233,7 @@ export async function syncBaseConfigToServer(deps: any, options: any = {}) {
       Object.keys(backendSavedPageMarkings || {}).filter(Boolean)
     );
     const currentPageEntry =
+      typeof pageUrl === "string" &&
       pageUrl &&
       sourceConfig.pageMarkings &&
       typeof sourceConfig.pageMarkings === "object"

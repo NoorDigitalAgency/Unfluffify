@@ -2,13 +2,19 @@ import * as stateModule from "./state.js";
 
 const { state } = stateModule;
 
+interface PageReconciliationOptions {
+  currentDraftDirty?: unknown;
+  reconciliationPending?: unknown;
+  pageUrl?: unknown;
+}
+
 export function hasCurrentPagePendingChanges(
   deps: any,
   localPageMarkings: any,
   backendSavedPageMarkings: any,
-  options: any = {}
+  options: PageReconciliationOptions = {}
 ) {
-  const opts = options as any;
+  const opts = options;
   const hasCurrentPageMarkingChanges =
     typeof deps.hasCurrentPageMarkingChanges === "function"
       ? deps.hasCurrentPageMarkingChanges
