@@ -6,7 +6,7 @@ Current phase: Phase 1 (leaf modules)
 ## Baseline
 - Branch: feat/typescript-deno-port
 - Full tests baseline: 847 pass / 0 fail
-- Current runtime @ts-nocheck count: 20
+- Current runtime @ts-nocheck count: 19
 - Ratchet allowlist: tests/fixtures/expected-ts-nocheck.txt
 
 ## Checkpoints
@@ -42,6 +42,7 @@ Current phase: Phase 1 (leaf modules)
 - [2026-06-17] Phase 1 batch 26 completed (micro): removed `@ts-nocheck` from `common/xpath-utilities.ts` with typed DOM/XPath refinement helpers and full-suite coverage passing.
 - [2026-06-17] Phase 1 batch 27 completed (micro): removed `@ts-nocheck` from `common/emulation.ts` with typed device-emulation helpers while preserving source-contract signatures for lifecycle tests.
 - [2026-06-17] Phase 1 batch 28 completed (micro): removed `@ts-nocheck` from `content/property-lock-state-machine.ts` by preserving contract-sensitive signatures with targeted TS suppressions and passing property-lock/full-suite coverage.
+- [2026-06-17] Phase 1 batch 29 completed (micro): removed `@ts-nocheck` from `popup/remote-config.ts` using internal narrowing plus source-contract signature suppressions, and adjusted popup source-shape regex to tolerate the optional TS suppression line between exports.
 
 ## Notes
 - PoC typed module already merged: background/tab-operation-runner.ts and types/operations.ts.

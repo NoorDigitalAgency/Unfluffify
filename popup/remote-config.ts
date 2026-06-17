@@ -1,30 +1,33 @@
-// @ts-nocheck
 import * as config from "../common/config.js";
 import * as messages from "./messages.js";
 import * as stateModule from "./state.js";
 
 const { state } = stateModule;
+const stateAny = state as any;
 const DEFAULT_REMOTE_CONFIG_RETRY_DELAY_MS = 2500;
 
-function buildRemoteConfigLoadKey(tabId, siteId, endpointValue) {
+function buildRemoteConfigLoadKey(tabId: unknown, siteId: unknown, endpointValue: unknown) {
   return `${tabId || ""}|${siteId || ""}|${endpointValue || ""}`;
 }
 
+// @ts-ignore preserve source-contract signature used by popup source-shape tests
 export function scheduleRemoteConfigRetry(deps) {
-  if (state.remoteConfigConnectionRetryTimer) {
+  if (stateAny.remoteConfigConnectionRetryTimer) {
     return;
   }
   const retryDelayMs = Number.isFinite(deps.remoteConfigRetryDelayMs)
     ? Math.trunc(deps.remoteConfigRetryDelayMs)
     : DEFAULT_REMOTE_CONFIG_RETRY_DELAY_MS;
-  state.remoteConfigConnectionRetryTimer = deps.windowRef.setTimeout(async () => {
-    state.remoteConfigConnectionRetryTimer = 0;
+  stateAny.remoteConfigConnectionRetryTimer = deps.windowRef.setTimeout(async () => {
+    stateAny.remoteConfigConnectionRetryTimer = 0;
     await deps.ensureActiveTab();
     await deps.refreshUi();
   }, retryDelayMs);
 }
 
+// @ts-ignore preserve source-contract signature used by popup source-shape tests
 export async function loadRemoteConfigForCurrentPage(deps, options = {}) {
+  const opts = (options || {}) as any;
   const {
     tabId = null,
     pageUrl = "",
@@ -33,30 +36,30 @@ export async function loadRemoteConfigForCurrentPage(deps, options = {}) {
     endpointValue = "",
     force = false,
     notifyOnChange = false
-  } = options;
+  } = opts;
   if (!tabId || !siteId || !endpointValue) {
     const result = { status: "skipped", baseUrl: "" };
-    state.remoteConfigLoadResult = result;
+    stateAny.remoteConfigLoadResult = result;
     deps.updateLastConfigLoadStatus(result);
     return result;
   }
   const loadKey = buildRemoteConfigLoadKey(tabId, siteId, endpointValue);
   if (
     !force &&
-    state.remoteConfigLoadKey === loadKey &&
-    state.remoteConfigLoadResult &&
+    stateAny.remoteConfigLoadKey === loadKey &&
+    stateAny.remoteConfigLoadResult &&
     (
-      state.remoteConfigLoadResult.status === "ok" ||
-      state.remoteConfigLoadResult.status === "not_found"
+      stateAny.remoteConfigLoadResult.status === "ok" ||
+      stateAny.remoteConfigLoadResult.status === "not_found"
     )
   ) {
-    return state.remoteConfigLoadResult;
+    return stateAny.remoteConfigLoadResult;
   }
-  state.remoteConfigLoadKey = loadKey;
+  stateAny.remoteConfigLoadKey = loadKey;
   const loadUrl = deps.resolveRelativeEndpoint(endpointValue, "/load");
   if (!loadUrl) {
     const result = { status: "error", baseUrl: "" };
-    state.remoteConfigLoadResult = result;
+    stateAny.remoteConfigLoadResult = result;
     deps.updateLastConfigLoadStatus(result);
     return result;
   }
@@ -68,7 +71,7 @@ export async function loadRemoteConfigForCurrentPage(deps, options = {}) {
     if (response && response.status === "auth_error") {
       await deps.invalidateTokenAndLockConfiguration(true);
       const result = { status: "auth_error", baseUrl: "" };
-      state.remoteConfigLoadResult = result;
+      stateAny.remoteConfigLoadResult = result;
       deps.updateLastConfigLoadStatus(result);
       return result;
     }
@@ -79,13 +82,13 @@ export async function loadRemoteConfigForCurrentPage(deps, options = {}) {
           : config.clearBackendSavedPageMarkings;
       await clearBackendSavedPageMarkings(baseUrl || state.currentBaseUrl);
       const result = { status: "not_found", baseUrl: "" };
-      state.remoteConfigLoadResult = result;
+      stateAny.remoteConfigLoadResult = result;
       deps.updateLastConfigLoadStatus(result);
       return result;
     }
     if (!response || response.ok !== true || response.status !== "ok") {
       const result = { status: "error", baseUrl: "" };
-      state.remoteConfigLoadResult = result;
+      stateAny.remoteConfigLoadResult = result;
       deps.updateLastConfigLoadStatus(result);
       return result;
     }
@@ -97,7 +100,7 @@ export async function loadRemoteConfigForCurrentPage(deps, options = {}) {
     });
     if (!replaceResult.ok) {
       const result = { status: "not_found", baseUrl: "" };
-      state.remoteConfigLoadResult = result;
+      stateAny.remoteConfigLoadResult = result;
       deps.updateLastConfigLoadStatus(result);
       return result;
     }
@@ -115,18 +118,20 @@ export async function loadRemoteConfigForCurrentPage(deps, options = {}) {
       status: "ok",
       baseUrl: replaceResult.baseUrl
     };
-    state.remoteConfigLoadResult = result;
+    stateAny.remoteConfigLoadResult = result;
     deps.updateLastConfigLoadStatus(result);
     return result;
   } catch {
     const result = { status: "error", baseUrl: "" };
-    state.remoteConfigLoadResult = result;
+    stateAny.remoteConfigLoadResult = result;
     deps.updateLastConfigLoadStatus(result);
     return result;
   }
 }
 
+// @ts-ignore preserve source-contract signature used by popup source-shape tests
 export async function syncBaseConfigToServer(deps, options = {}) {
+  const opts = (options || {}) as any;
   const {
     baseUrl = "",
     pageUrl = "",
@@ -137,7 +142,7 @@ export async function syncBaseConfigToServer(deps, options = {}) {
     includeCurrentPageMarking = false,
     includeAllLocalPageMarkings = false,
     maxAttempts = 5
-  } = options;
+  } = opts;
   if (!baseUrl || !pageUrl || !endpointValue) {
     return { ok: false, skipped: true };
   }
@@ -215,7 +220,7 @@ export async function syncBaseConfigToServer(deps, options = {}) {
       typeof sourceConfig.pageMarkings === "object"
         ? sourceConfig.pageMarkings[pageUrl]
         : null;
-    let filterPageMarking = (url) =>
+    let filterPageMarking = (url: any, entry?: any) =>
       includeAllLocalPageMarkings ||
       backendSavedPageUrls.has(url) ||
       (includeCurrentPageMarking && url === pageUrl);
@@ -229,13 +234,13 @@ export async function syncBaseConfigToServer(deps, options = {}) {
       });
       const activePageMarkingKeys = new Set(
         coverageModel.activeMarkedPages
-          .map((item) => deps.buildPageMarkingKey(item.url, item.pageType))
+          .map((item: any) => deps.buildPageMarkingKey(item.url, item.pageType))
           .filter(Boolean)
       );
       if (includeCurrentPageMarking && currentPageEntry) {
         activePageMarkingKeys.add(deps.buildPageMarkingKey(pageUrl, currentPageEntry.pageType));
       }
-      filterPageMarking = (url, entry) =>
+      filterPageMarking = (url: any, entry: any) =>
         activePageMarkingKeys.has(deps.buildPageMarkingKey(url, entry && entry.pageType));
     }
     const payload = createConfigSyncPayload(resolvedBaseUrl, sourceConfig, {
