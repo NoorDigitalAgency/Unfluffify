@@ -226,12 +226,12 @@ function notifyViewStateListeners() {
   });
 }
 
-// @ts-ignore - Popup view layer keeps permissive string-or-falsy class inputs.
+// @ts-expect-error - Popup view layer keeps permissive string-or-falsy class inputs.
 function classNames(...values) {
   return values.filter(Boolean).join(" ");
 }
 
-// @ts-ignore - Tone values are runtime-driven string flags.
+// @ts-expect-error - Tone values are runtime-driven string flags.
 function toneUtilityClass(tone) {
   switch (tone) {
     case "success":
@@ -245,7 +245,7 @@ function toneUtilityClass(tone) {
   }
 }
 
-// @ts-ignore - Feature checks intentionally accept loose view snapshots.
+// @ts-expect-error - Feature checks intentionally accept loose view snapshots.
 export function isPopupFeatureEnabled(view, flagName) {
   const featureFlags = view && typeof view.featureFlags === "object"
     ? view.featureFlags
@@ -254,12 +254,12 @@ export function isPopupFeatureEnabled(view, flagName) {
     featureFlags[flagName] === true;
 }
 
-// @ts-ignore - Extra class fragments are runtime-composed.
+// @ts-expect-error - Extra class fragments are runtime-composed.
 function warningNoticeClass(...extraClasses) {
   return classNames("u-alert", "u-alert-warn", ...extraClasses);
 }
 
-// @ts-ignore - Rendering helper accepts heterogeneous list entries.
+// @ts-expect-error - Rendering helper accepts heterogeneous list entries.
 function renderListItems(items, emptyText, renderItem) {
   if (!items.length) {
     return [h("li", { class: "empty" }, emptyText)];
@@ -267,7 +267,7 @@ function renderListItems(items, emptyText, renderItem) {
   return items.map(renderItem);
 }
 
-// @ts-ignore - Icon helper accepts string identifiers from multiple UI modules.
+// @ts-expect-error - Icon helper accepts string identifiers from multiple UI modules.
 function icon(name, extraClass = "", btn = false, extending = false) {
   return h("span", {
     class: classNames("mdi", `mdi-${name}`, !extending && "mdi-18px", btn && "btn-icon", extraClass),
@@ -275,17 +275,17 @@ function icon(name, extraClass = "", btn = false, extending = false) {
   });
 }
 
-// @ts-ignore - Icon helper accepts string identifiers from multiple UI modules.
+// @ts-expect-error - Icon helper accepts string identifiers from multiple UI modules.
 function extendIconClass(name, extraClass = "") {
   return classNames("mdi", `mdi-${name}`, extraClass);
 }
 
-// @ts-ignore - Label is dynamic text from localized copy.
+// @ts-expect-error - Label is dynamic text from localized copy.
 function editToggleIcon(label) {
   return label === ViewText.cancelAction ? "close" : "pencil";
 }
 
-// @ts-ignore - Tone is sourced from runtime status values.
+// @ts-expect-error - Tone is sourced from runtime status values.
 function statusToneClass(tone) {
   switch (tone) {
     case "success":
@@ -299,13 +299,13 @@ function statusToneClass(tone) {
   }
 }
 
-// @ts-ignore - Candidate metadata is built from remote payloads.
+// @ts-expect-error - Candidate metadata is built from remote payloads.
 function formatCandidateWordsCount(wordsCount) {
   const value = Number.isFinite(wordsCount) ? Math.max(0, Math.trunc(wordsCount)) : 0;
   return value > 0 ? `${value} ${PopupText.pageTypes.wordsSuffix}` : "";
 }
 
-// @ts-ignore - View snapshots are intentionally permissive for resilience.
+// @ts-expect-error - View snapshots are intentionally permissive for resilience.
 function getBlockingUiCurtainState(view) {
   if (view.isBusy) {
     return {
@@ -392,7 +392,7 @@ function isPopupBlockerDebugEnabled() {
   }
 }
 
-// @ts-ignore - Debug logger accepts raw event payload shapes.
+// @ts-expect-error - Debug logger accepts raw event payload shapes.
 function logPopupBlockerReason(eventName, curtain) {
   if (!curtain) {
     return;
@@ -461,7 +461,7 @@ function syncBlockingUiCurtainDom() {
   }
 }
 
-// @ts-ignore - Property-lock UI consumes flexible runtime state.
+// @ts-expect-error - Property-lock UI consumes flexible runtime state.
 function renderPropertyLockIndicator(view, handlers) {
   if (!isPopupFeatureEnabled(view, "propertyLockCollaboration") || !view.propertyLockVisible) {
     return null;
@@ -574,7 +574,7 @@ function renderPropertyLockIndicator(view, handlers) {
   );
 }
 
-// @ts-ignore - Theme options are normalized at runtime.
+// @ts-expect-error - Theme options are normalized at runtime.
 function renderThemePalette(option, extraClassName = "") {
   const themeId = option && typeof option.value === "string" ? option.value : "";
   return h(
@@ -593,14 +593,14 @@ function renderThemePalette(option, extraClassName = "") {
   );
 }
 
-// @ts-ignore - Theme values are runtime settings values.
+// @ts-expect-error - Theme values are runtime settings values.
 function getSelectedThemeOption(view) {
   const themeOptions = Array.isArray(view.themeOptions) ? view.themeOptions : [];
   const themeValue = view && typeof view.themeValue === "string" ? view.themeValue : "";
   return themeOptions.find((option: any) => option && option.value === themeValue) || themeOptions[0] || null;
 }
 
-// @ts-ignore - Theme dropdown handlers/options are runtime-injected.
+// @ts-expect-error - Theme dropdown handlers/options are runtime-injected.
 function renderThemeDropdown(view, handlers) {
   const selectedTheme = getSelectedThemeOption(view);
   const themeOptions = Array.isArray(view.themeOptions) ? view.themeOptions : [];
@@ -668,7 +668,7 @@ function renderThemeDropdown(view, handlers) {
   );
 }
 
-// @ts-ignore - Todo controls consume runtime popup state.
+// @ts-expect-error - Todo controls consume runtime popup state.
 function renderTodoControlsMenu(view, handlers) {
   return h(
     "div",
@@ -712,7 +712,7 @@ function renderTodoControlsMenu(view, handlers) {
   );
 }
 
-// @ts-ignore - Theme mode list is runtime-provided.
+// @ts-expect-error - Theme mode list is runtime-provided.
 function renderThemeModeButtons(view, handlers) {
   const iconByMode = {
     system: "theme-light-dark",
@@ -744,7 +744,7 @@ function renderThemeModeButtons(view, handlers) {
   );
 }
 
-// @ts-ignore - Render-mode controls consume dynamic runtime state.
+// @ts-expect-error - Render-mode controls consume dynamic runtime state.
 function renderRenderModeEditor(view, handlers) {
   const renderModeInputDisabled = view.renderModeInputDisabled || view.renderModeReadOnly;
   const selectedRenderModeLabel = getRenderModeOptionLabel(view.renderModeValue);
@@ -921,7 +921,7 @@ function renderRenderModeEditor(view, handlers) {
   );
 }
 
-// @ts-ignore - Todo view model is runtime-generated.
+// @ts-expect-error - Todo view model is runtime-generated.
 function getTodoProgress(view) {
   const pageTypeGroups = Array.isArray(view.pageTypeGroups) ? view.pageTypeGroups : [];
   const total = pageTypeGroups.length;
@@ -936,7 +936,7 @@ function getTodoProgress(view) {
   };
 }
 
-// @ts-ignore - Indicator helper accepts flexible icon/tone inputs.
+// @ts-expect-error - Indicator helper accepts flexible icon/tone inputs.
 function renderTodoIndicator(iconName, done = false, extraClassName = "") {
   return icon(
     iconName,
@@ -948,7 +948,7 @@ function renderTodoIndicator(iconName, done = false, extraClassName = "") {
   );
 }
 
-// @ts-ignore - Marked-pages section consumes dynamic page-type models.
+// @ts-expect-error - Marked-pages section consumes dynamic page-type models.
 function renderMarkedPagesSection(view, handlers, extraClassName = "") {
   const progress = getTodoProgress(view);
   const sectionExpanded = Boolean(view.todoSectionExpanded);
@@ -1158,7 +1158,7 @@ function renderMarkedPagesSection(view, handlers, extraClassName = "") {
   );
 }
 
-// @ts-ignore - Preview sidebar consumes runtime preview payloads.
+// @ts-expect-error - Preview sidebar consumes runtime preview payloads.
 function renderPreviewSidebar(view, handlers) {
   const openingPreview = view.previewBlocked && !view.previewActive;
   const previewTitle = view.previewShowAllCategories
@@ -1259,7 +1259,7 @@ function renderPreviewSidebar(view, handlers) {
   );
 }
 
-// @ts-ignore - Loading state payload is runtime-derived.
+// @ts-expect-error - Loading state payload is runtime-derived.
 function renderPopupLoadingView(view) {
   return h(
     "section",
@@ -1274,7 +1274,7 @@ function renderPopupLoadingView(view) {
   );
 }
 
-// @ts-ignore - App props are runtime-injected from popup controller.
+// @ts-expect-error - App props are runtime-injected from popup controller.
 function App({ state: view, actions: handlers }) {
   const curtain = getBlockingUiCurtainState(view);
   logPopupBlockerReason("render", curtain);
@@ -1525,7 +1525,7 @@ function App({ state: view, actions: handlers }) {
   );
 }
 
-// @ts-ignore - AI controls consume runtime state/handlers.
+// @ts-expect-error - AI controls consume runtime state/handlers.
 function renderAiControlsContent(view, handlers) {
   const computeButtonClass = classNames(
     "u-full-width",
@@ -1569,7 +1569,7 @@ function renderAiControlsContent(view, handlers) {
   );
 }
 
-// @ts-ignore - Checklist/view payloads are assembled dynamically.
+// @ts-expect-error - Checklist/view payloads are assembled dynamically.
 function getLynxChecklistNoticeText(checklist, view) {
   if (view && typeof view.lynxChecklistNoticeText === "string" && view.lynxChecklistNoticeText) {
     return view.lynxChecklistNoticeText;
@@ -1582,11 +1582,11 @@ function getLynxChecklistNoticeText(checklist, view) {
     : [];
 
   if (blockingReason.code === "ai_no") {
-    // @ts-ignore - Legacy copy keys remain contract-locked in runtime payloads.
+    // @ts-expect-error - Legacy copy keys remain contract-locked in runtime payloads.
     return PopupText.lynxChecklist.noticeAiNo;
   }
   if (blockingReason.code === "ai_unanswered") {
-    // @ts-ignore - Legacy copy keys remain contract-locked in runtime payloads.
+    // @ts-expect-error - Legacy copy keys remain contract-locked in runtime payloads.
     return PopupText.lynxChecklist.noticeAiUnanswered;
   }
   if (blockingReason.code === "no_candidates") {
@@ -1598,7 +1598,7 @@ function getLynxChecklistNoticeText(checklist, view) {
   return "";
 }
 
-// @ts-ignore - Checklist popover consumes runtime checklist structures.
+// @ts-expect-error - Checklist popover consumes runtime checklist structures.
 function renderLynxChecklistPopover(view, handlers) {
   const checklist = buildLynxChecklistViewModel({
     pageTypes: view.lynxChecklistPageTypes,
@@ -1726,7 +1726,7 @@ function renderLynxChecklistPopover(view, handlers) {
   );
 }
 
-// @ts-ignore - Marking view props are runtime-injected.
+// @ts-expect-error - Marking view props are runtime-injected.
 function renderMarkingView({state: view, actions: handlers}) {
   const postRenderModeControlsVisible = view.renderModeReady;
   const markingMode = !view.mainUiHidden;
@@ -1883,7 +1883,7 @@ function renderMarkingView({state: view, actions: handlers}) {
   );
 }
 
-// @ts-ignore - Configuration appearance state is runtime-driven.
+// @ts-expect-error - Configuration appearance state is runtime-driven.
 function renderConfigurationAppearanceSection(view, handlers) {
   return h(
     "section",
@@ -1940,7 +1940,7 @@ function renderConfigurationAppearanceSection(view, handlers) {
   );
 }
 
-// @ts-ignore - Extras section consumes runtime diagnostics payloads.
+// @ts-expect-error - Extras section consumes runtime diagnostics payloads.
 function renderConfigurationExtrasSection(view, handlers) {
   const expanded = Boolean(view.configurationExtrasExpanded);
   const traceEvents = Array.isArray(view.traceEvents) ? view.traceEvents : [];
@@ -2036,7 +2036,7 @@ function renderConfigurationExtrasSection(view, handlers) {
   );
 }
 
-// @ts-ignore - CSS selector controls consume runtime view state.
+// @ts-expect-error - CSS selector controls consume runtime view state.
 function renderCssSelectorsSection({ state: view, actions: handlers }) {
   const previewClass = classNames("u-full-width", "u-btn-secondary");
   const submitClass = classNames(
@@ -2074,7 +2074,7 @@ function renderCssSelectorsSection({ state: view, actions: handlers }) {
   );
 }
 
-  // @ts-ignore - Field descriptor shape is runtime-composed per control.
+  // @ts-expect-error - Field descriptor shape is runtime-composed per control.
   function renderEditableConfigurationField(options) {
     const {
       inputId,
@@ -2159,7 +2159,7 @@ function renderCssSelectorsSection({ state: view, actions: handlers }) {
     );
   }
 
-// @ts-ignore - Configuration view props are runtime-injected.
+// @ts-expect-error - Configuration view props are runtime-injected.
 function renderConfigurationView({state: view, actions: handlers}) {
     return h(
       Fragment,
@@ -2330,9 +2330,9 @@ function renderApp() {
     // remaining structural vnode problem, so log it loudly for diagnosis.
     console.error("[unfluffify] popup render failed; remounting from scratch", renderError);
     try {
-      // @ts-ignore - Internal preact root fields are intentionally cleared on hard remount.
+      // @ts-expect-error - Internal preact root fields are intentionally cleared on hard remount.
       delete root._children;
-      // @ts-ignore - Internal preact root fields are intentionally cleared on hard remount.
+      // @ts-expect-error - Internal preact root fields are intentionally cleared on hard remount.
       delete root.__k;
       root.textContent = "";
       render(h(App, { state: viewState, actions }), root);
@@ -2363,13 +2363,13 @@ function renderApp() {
   // is reserved for the setUiBusy catch fallback after Preact has already failed.
 }
 
-// @ts-ignore - Action handlers are a loose runtime command map.
+// @ts-expect-error - Action handlers are a loose runtime command map.
 export function initUi(actionHandlers) {
   actions = actionHandlers || {};
   renderApp();
 }
 
-// @ts-ignore - View state shape is runtime-owned by popup controller.
+// @ts-expect-error - View state shape is runtime-owned by popup controller.
 function collapseTodoViewState(nextViewState) {
   return {
     ...nextViewState,
@@ -2379,7 +2379,7 @@ function collapseTodoViewState(nextViewState) {
   };
 }
 
-// @ts-ignore - View state shape is runtime-owned by popup controller.
+// @ts-expect-error - View state shape is runtime-owned by popup controller.
 function filterTodoSubsectionsExpanded(nextViewState) {
   const pageTypeGroups = Array.isArray(nextViewState.pageTypeGroups)
     ? nextViewState.pageTypeGroups
@@ -2395,7 +2395,7 @@ function filterTodoSubsectionsExpanded(nextViewState) {
   };
 }
 
-// @ts-ignore - View state shape is runtime-owned by popup controller.
+// @ts-expect-error - View state shape is runtime-owned by popup controller.
 function normalizeViewState(nextViewState) {
   let normalizedViewState = nextViewState;
   if (normalizedViewState.previewBlocked || normalizedViewState.previewActive) {
@@ -2412,7 +2412,7 @@ function normalizeViewState(nextViewState) {
     : collapseTodoViewState(normalizedViewState);
 }
 
-// @ts-ignore - Patch payload is runtime-composed across popup modules.
+// @ts-expect-error - Patch payload is runtime-composed across popup modules.
 export function setViewState(patch) {
   const nextViewState = normalizeViewState({ ...viewState, ...patch });
   viewState = nextViewState;
@@ -2435,7 +2435,7 @@ export function getViewState() {
   return viewState;
 }
 
-// @ts-ignore - Listener typing is intentionally permissive at runtime.
+// @ts-expect-error - Listener typing is intentionally permissive at runtime.
 export function onViewStateChange(listener) {
   if (typeof listener !== "function") {
     return () => {};
@@ -2451,7 +2451,7 @@ export function getRefs() {
   return refs;
 }
 
-// @ts-ignore - Toast message is runtime text payload.
+// @ts-expect-error - Toast message is runtime text payload.
 export function showToast(message) {
   setViewState({ toastMessage: message, toastVisible: true });
   if (!uiTimers && typeof window !== "undefined") {
@@ -2469,7 +2469,7 @@ export function showToast(message) {
   }, 1800);
 }
 
-// @ts-ignore - Busy details object is optional and runtime-extended.
+// @ts-expect-error - Busy details object is optional and runtime-extended.
 export function setUiBusy(isBusy, message = "", details: any = {}) {
   const patch = {
     isBusy: Boolean(isBusy),
@@ -2495,7 +2495,7 @@ export function toggleConfigurationExtrasExpanded() {
   });
 }
 
-// @ts-ignore - Preview blocker payloads are runtime-composed.
+// @ts-expect-error - Preview blocker payloads are runtime-composed.
 export function setPreviewBlocked(isBlocked, message = ViewText.previewBlockedDefault) {
   setViewState({
     previewBlocked: Boolean(isBlocked),
@@ -2509,7 +2509,7 @@ export function setPreviewBlocked(isBlocked, message = ViewText.previewBlockedDe
   });
 }
 
-// @ts-ignore - Menu open state is runtime-driven.
+// @ts-expect-error - Menu open state is runtime-driven.
 export function setConfigMenuOpen(open) {
   if (state.configMenuOpen === open) {
     return;
@@ -2518,7 +2518,7 @@ export function setConfigMenuOpen(open) {
   setViewState({ configMenuOpen: open, themeMenuOpen: false });
 }
 
-// @ts-ignore - Menu open state is runtime-driven.
+// @ts-expect-error - Menu open state is runtime-driven.
 export function setThemeMenuOpen(open, placement = "bottom") {
   const normalizedOpen = Boolean(open);
   const normalizedPlacement = placement === "top" ? "top" : "bottom";
@@ -2537,7 +2537,7 @@ export function setThemeMenuOpen(open, placement = "bottom") {
   });
 }
 
-// @ts-ignore - Menu open state is runtime-driven.
+// @ts-expect-error - Menu open state is runtime-driven.
 export function setTodoControlsMenuOpen(open) {
   if (Boolean(viewState.todoControlsMenuOpen) === Boolean(open)) {
     return;
@@ -2545,7 +2545,7 @@ export function setTodoControlsMenuOpen(open) {
   setViewState({ todoControlsMenuOpen: Boolean(open) });
 }
 
-// @ts-ignore - Expansion state is runtime-driven.
+// @ts-expect-error - Expansion state is runtime-driven.
 export function setTodoSectionExpanded(expanded) {
   updateViewState((currentViewState) => ({
     ...currentViewState,
@@ -2556,7 +2556,7 @@ export function setTodoSectionExpanded(expanded) {
   }));
 }
 
-// @ts-ignore - Expansion state is runtime-driven.
+// @ts-expect-error - Expansion state is runtime-driven.
 export function setTodoSubsectionExpanded(key, expanded) {
   if (typeof key !== "string" || !key) {
     return;
@@ -2570,7 +2570,7 @@ export function setTodoSubsectionExpanded(key, expanded) {
   }));
 }
 
-// @ts-ignore - Expansion state is runtime-driven.
+// @ts-expect-error - Expansion state is runtime-driven.
 export function setTodoAllSubsectionsExpanded(expanded) {
   updateViewState((currentViewState) => ({
     ...currentViewState,
@@ -2584,7 +2584,7 @@ export function setTodoAllSubsectionsExpanded(expanded) {
   }));
 }
 
-// @ts-ignore - Toggle state is runtime-driven.
+// @ts-expect-error - Toggle state is runtime-driven.
 export function setTodoAutoCollapse(checked) {
   updateViewState((currentViewState) => ({
     ...currentViewState,
