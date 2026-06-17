@@ -16,9 +16,9 @@ export interface PageMarkingEntry {
   pageType?: string;
   xpaths: string[];
   includeXpaths: string[];
-  selectorSuppressedXpaths?: string[];
-  submissionXpaths?: string[];
-  silentWhitespaceExcludedXpaths?: string[];
+  selectorSuppressedXpaths: string[];
+  submissionXpaths: string[];
+  silentWhitespaceExcludedXpaths: string[];
   renderedHtml?: string;
   rawHtml?: string;
   [key: string]: unknown;
