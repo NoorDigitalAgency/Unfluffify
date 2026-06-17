@@ -6,7 +6,7 @@ Current phase: Phase 1 (leaf modules)
 ## Baseline
 - Branch: feat/typescript-deno-port
 - Full tests baseline: 847 pass / 0 fail
-- Current runtime @ts-nocheck count: 13
+- Current runtime @ts-nocheck count: 12
 - Ratchet allowlist: tests/fixtures/expected-ts-nocheck.txt
 
 ## Checkpoints
@@ -49,6 +49,7 @@ Current phase: Phase 1 (leaf modules)
 - [2026-06-17] Phase 1 batch 33 completed (micro): removed `@ts-nocheck` from `content/runtime-message-handler.ts` with minimal handler/callback `any` typing while preserving all `if (message.type === "...")` branch literals used by source-contract tests; strict check, runtime-router/content-activation/high-risk/selector-suppression/AI/preview/popup suites, and full-suite coverage passing.
 - [2026-06-17] Phase 1 batch 34 completed (micro): removed `@ts-nocheck` from `common/text.ts` by typing formatting helpers and preserving regex-sensitive `propertyLockText` lambda signatures with targeted line-level suppressions; strict check, core-scheduling/property-lock/render-mode/popup-marking-refresh/world-trace suites, and full-suite coverage passing.
 - [2026-06-17] Phase 1 batch 35 completed (micro): removed `@ts-nocheck` from `background/remote-network.ts` by preserving regex-locked function signatures (`options = {}` and `fetchStaticPageHtmlForBackground(url)`), adding local options casts, and restoring contract-sensitive `requestPayloadKey` source text with targeted suppression; strict check, background-remote-network/popup-marking-refresh/ai-run suites, and full-suite coverage passing.
+- [2026-06-17] Phase 1 batch 36 completed (micro): removed `@ts-nocheck` from `popup/property-lock-ui.ts` using targeted signature suppressions plus local state/options casts to keep property-lock source-contract snippets stable (`refreshPropertyLockSnapshot`/`sendPropertyLockCommand` separators and `skipFetch` destructuring), and updated popup source extraction regex tolerance; strict check, property-lock/property-lock-render-mode/popup-marking-refresh suites, and full-suite coverage passing.
 
 ## Notes
 - PoC typed module already merged: background/tab-operation-runner.ts and types/operations.ts.

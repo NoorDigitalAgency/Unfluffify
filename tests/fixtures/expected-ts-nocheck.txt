@@ -8,6 +8,5 @@ common/property-lock-background.ts
 common/utilities.ts
 content/core.ts
 content-main.ts
-popup/property-lock-ui.ts
 popup.ts
 popup/ui.ts

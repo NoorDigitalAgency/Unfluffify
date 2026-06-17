@@ -14,7 +14,7 @@ test("popup scheduleRefresh uses the quiet refresh path", () => {
 test("quiet popup refresh skips redundant property lock fetches", () => {
   const source = readFileSync(new URL("../popup/property-lock-ui.ts", import.meta.url), "utf8");
   const refreshSource = source.match(
-    /export async function refreshPropertyLockSnapshot\(deps, siteId, options = \{\}\) \{([\s\S]*?)\n\}\n\nexport async function sendPropertyLockCommand/
+    /export async function refreshPropertyLockSnapshot\(deps, siteId, options = \{\}\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-ignore[^\n]*\n)?(?:\n|\r\n)*export async function sendPropertyLockCommand/
   )[1];
 
   assert.match(refreshSource, /const \{ skipFetch = false \} = options;/);

@@ -1,12 +1,14 @@
-// @ts-nocheck
 import * as stateModule from "./state.js";
 
 const { state } = stateModule;
+const stateAny = state as any;
 
+// @ts-ignore preserve source-contract signature used by popup/property-lock tests
 export function isPropertyLockCollaborationEnabled(deps) {
   return deps.isFeatureEnabled("propertyLockCollaboration");
 }
 
+// @ts-ignore preserve source-contract signature used by popup/property-lock tests
 export function resetDisabledPropertyLockState(deps) {
   deps.clearPropertyLockOffCandidateRefreshTimer();
   deps.resetPropertyLockState();
@@ -14,6 +16,7 @@ export function resetDisabledPropertyLockState(deps) {
   state.propertyLockEditorBootstrapPending = false;
 }
 
+// @ts-ignore preserve source-contract signature used by popup/property-lock tests
 export function resetPropertyLockState(deps) {
   state.propertyLockSiteId = null;
   state.propertyLockState = null;
@@ -52,6 +55,7 @@ export function clearPropertyLockTransientState() {
   state.propertyLockOffCandidateDeadlineAt = 0;
 }
 
+// @ts-ignore preserve source-contract signature used by popup/property-lock tests
 export function clearPropertyLockOffCandidateRefreshTimer(deps) {
   if (!state.propertyLockOffCandidateRefreshTimer) {
     return;
@@ -60,6 +64,7 @@ export function clearPropertyLockOffCandidateRefreshTimer(deps) {
   state.propertyLockOffCandidateRefreshTimer = 0;
 }
 
+// @ts-ignore preserve source-contract signature used by popup/property-lock tests
 export function syncPropertyLockOffCandidateRefreshTimer(deps, active) {
   if (!deps.isPropertyLockCollaborationEnabled()) {
     deps.clearPropertyLockOffCandidateRefreshTimer();
@@ -89,7 +94,9 @@ export function syncPropertyLockOffCandidateRefreshTimer(deps, active) {
   }, 1000);
 }
 
+// @ts-ignore preserve source-contract signature used by popup/property-lock tests
 export async function persistPropertyLockRecoveryMetadata(deps, tabId, recoveryState = {}) {
+  const recoveryStateAny = recoveryState as any;
   if (!deps.isPropertyLockCollaborationEnabled()) {
     return;
   }
@@ -98,21 +105,22 @@ export async function persistPropertyLockRecoveryMetadata(deps, tabId, recoveryS
   }
   await deps.setTabState(tabId, {
     active: true,
-    propertyLockRecoverySiteId: Number.isFinite(recoveryState.siteId)
-      ? Number(recoveryState.siteId)
+    propertyLockRecoverySiteId: Number.isFinite(recoveryStateAny.siteId)
+      ? Number(recoveryStateAny.siteId)
       : null,
-    propertyLockRecoveryBaseUrl: typeof recoveryState.baseUrl === "string"
-      ? recoveryState.baseUrl
+    propertyLockRecoveryBaseUrl: typeof recoveryStateAny.baseUrl === "string"
+      ? recoveryStateAny.baseUrl
       : "",
-    propertyLockRecoveryClientId: typeof recoveryState.clientId === "string"
-      ? recoveryState.clientId
+    propertyLockRecoveryClientId: typeof recoveryStateAny.clientId === "string"
+      ? recoveryStateAny.clientId
       : "",
-    propertyLockRecoveryDeadlineAt: Number.isFinite(recoveryState.deadlineAt)
-      ? Number(recoveryState.deadlineAt)
+    propertyLockRecoveryDeadlineAt: Number.isFinite(recoveryStateAny.deadlineAt)
+      ? Number(recoveryStateAny.deadlineAt)
       : 0
   }, "initial");
 }
 
+// @ts-ignore preserve source-contract signature used by popup/property-lock tests
 export function applyPropertyLockState(deps, lockStateLike) {
   if (!deps.isPropertyLockCollaborationEnabled()) {
     deps.resetDisabledPropertyLockState();
@@ -128,6 +136,7 @@ export function applyPropertyLockState(deps, lockStateLike) {
   deps.clearPropertyLockTransientState();
 }
 
+// @ts-ignore preserve source-contract signature used by popup/property-lock tests
 export function queueEditorBootstrapOnLockTransition(deps, previousLockState, nextLockState) {
   if (!deps.isPropertyLockCollaborationEnabled()) {
     return;
@@ -142,6 +151,7 @@ export function queueEditorBootstrapOnLockTransition(deps, previousLockState, ne
   }
 }
 
+// @ts-ignore preserve source-contract signature used by popup/property-lock tests
 export function applyPropertyLockConnectionStatus(deps, status, error = "") {
   if (!deps.isPropertyLockCollaborationEnabled()) {
     state.propertyLockConnectionStatus = deps.PROPERTY_LOCK_CONNECTION_INACTIVE;
@@ -154,6 +164,7 @@ export function applyPropertyLockConnectionStatus(deps, status, error = "") {
   state.propertyLockConnectionError = typeof error === "string" ? error : "";
 }
 
+// @ts-ignore preserve source-contract signature used by popup/property-lock tests
 export function applyPropertyLockServerMessage(deps, serverMessage, siteId = null) {
   if (!deps.isPropertyLockCollaborationEnabled()) {
     deps.resetDisabledPropertyLockState();
@@ -188,14 +199,14 @@ export function applyPropertyLockServerMessage(deps, serverMessage, siteId = nul
   }
 
   if (type === deps.PROPERTY_LOCK_WS_DISCONNECT_WARNING) {
-    state.propertyLockDisconnectCountdown = secondsRemaining;
-    state.propertyLockSecondsRemaining = secondsRemaining;
+    stateAny.propertyLockDisconnectCountdown = secondsRemaining;
+    stateAny.propertyLockSecondsRemaining = secondsRemaining;
     return true;
   }
 
   if (type === deps.PROPERTY_LOCK_WS_INACTIVITY_WARNING) {
     state.propertyLockInactivityWarningVisible = true;
-    state.propertyLockSecondsRemaining = secondsRemaining;
+    stateAny.propertyLockSecondsRemaining = secondsRemaining;
     return true;
   }
 
@@ -230,19 +241,19 @@ export function applyPropertyLockServerMessage(deps, serverMessage, siteId = nul
       transferFromName: String(
         serverMessage.transferFromName ||
         serverMessage.fromName ||
-        state.propertyLockState?.transferFromName ||
+          stateAny.propertyLockState?.transferFromName ||
         ""
       ),
       transferToName: String(
         serverMessage.transferToName ||
         serverMessage.toName ||
-        state.propertyLockState?.transferToName ||
+          stateAny.propertyLockState?.transferToName ||
         state.propertyLockSuggestionFromName ||
         ""
       )
     };
-    state.propertyLockTransferCountdown = secondsRemaining;
-    state.propertyLockSecondsRemaining = secondsRemaining;
+    stateAny.propertyLockTransferCountdown = secondsRemaining;
+    stateAny.propertyLockSecondsRemaining = secondsRemaining;
     state.propertyLockSuggestionVisible = false;
     state.propertyLockSuggestionPending = false;
     state.propertyLockSuggestionRejected = false;
@@ -257,11 +268,12 @@ export function applyPropertyLockServerMessage(deps, serverMessage, siteId = nul
   return false;
 }
 
+// @ts-ignore preserve source-contract signature used by popup/property-lock tests
 export function isPropertyLockBlockingEditing(deps) {
   if (!deps.isPropertyLockCollaborationEnabled()) {
     return false;
   }
-  const lockState = state.propertyLockState;
+  const lockState: any = state.propertyLockState;
   if (
     state.propertyLockSiteId &&
     state.propertyLockConnectionStatus === deps.PROPERTY_LOCK_CONNECTION_UNAVAILABLE
@@ -275,9 +287,10 @@ export function isPropertyLockBlockingEditing(deps) {
   );
 }
 
+// @ts-ignore preserve source-contract signature used by popup/property-lock tests
 export function buildPropertyLockViewState(deps) {
   const propertyLockFeatureEnabled = deps.isPropertyLockCollaborationEnabled();
-  const lockState = propertyLockFeatureEnabled
+  const lockState: any = propertyLockFeatureEnabled
     ? (state.propertyLockState || deps.createInactiveLockState())
     : deps.createInactiveLockState();
   const editorName = lockState.editorName || "Someone";
@@ -291,7 +304,7 @@ export function buildPropertyLockViewState(deps) {
     ? Math.max(0, Math.ceil((state.propertyLockRecoveryDeadlineAt - Date.now()) / 1000))
     : 0;
   const visible = propertyLockFeatureEnabled && Boolean(state.propertyLockSiteId);
-  const viewState = {
+  const viewState: any = {
     propertyLockVisible: visible,
     propertyLockTone: "muted",
     propertyLockIcon: "lock-open-outline",
@@ -481,6 +494,7 @@ export function buildPropertyLockViewState(deps) {
   return viewState;
 }
 
+// @ts-ignore preserve source-contract signature used by popup/property-lock tests
 export async function fetchPropertyLockState(deps, siteId) {
   if (!deps.isPropertyLockCollaborationEnabled()) {
     return {
@@ -501,13 +515,14 @@ export async function fetchPropertyLockState(deps, siteId) {
         : ""
     );
 
+  const currentTabAny = state.currentTab as any;
   try {
     return await deps.sendRuntimeMessage({
       type: deps.PROPERTY_LOCK_BACKGROUND_GET_STATE,
       siteId: normalizedSiteId,
       clientId: clientIdHint || "",
-      tabId: state.currentTab && Number.isFinite(state.currentTab.id)
-        ? Math.trunc(state.currentTab.id)
+      tabId: currentTabAny && Number.isFinite(currentTabAny.id)
+        ? Math.trunc(currentTabAny.id)
         : null
     });
   } catch {
@@ -519,11 +534,13 @@ export async function fetchPropertyLockState(deps, siteId) {
   }
 }
 
+// @ts-ignore preserve source-contract signature used by popup/property-lock tests
 export async function refreshPropertyLockSnapshot(deps, siteId, options = {}) {
   if (!deps.isPropertyLockCollaborationEnabled()) {
     deps.resetDisabledPropertyLockState();
     return deps.createInactiveLockState();
   }
+  // @ts-ignore preserve source-contract destructuring used by popup property-lock tests
   const { skipFetch = false } = options;
   const normalizedSiteId = deps.normalizeSiteIdValue(siteId);
   if (!normalizedSiteId) {
@@ -540,12 +557,12 @@ export async function refreshPropertyLockSnapshot(deps, siteId, options = {}) {
     return state.propertyLockState;
   }
 
-  const previousLockState = state.propertyLockState;
+  const previousLockState: any = state.propertyLockState;
   const lockResponse = await deps.fetchPropertyLockState(normalizedSiteId);
   state.propertyLockIdentity = (lockResponse && lockResponse.identity) || "";
   state.propertyLockName = (lockResponse && lockResponse.name) || "";
   state.propertyLockClientId = (lockResponse && lockResponse.clientId) || "";
-  const nextLockState = deps.normalizeLockStateMessage(
+  const nextLockState: any = deps.normalizeLockStateMessage(
     lockResponse && lockResponse.state ? lockResponse.state : deps.createInactiveLockState(),
     {
       ownIdentity: state.propertyLockIdentity,
@@ -571,6 +588,7 @@ export async function refreshPropertyLockSnapshot(deps, siteId, options = {}) {
   return nextLockState;
 }
 
+// @ts-ignore preserve source-contract signature used by popup/property-lock tests
 export async function sendPropertyLockCommand(deps, type, payload = {}) {
   if (!deps.isPropertyLockCollaborationEnabled()) {
     return {
@@ -586,13 +604,14 @@ export async function sendPropertyLockCommand(deps, type, payload = {}) {
 
   await deps.refreshCurrentPageRuntimeStatus().catch(() => null);
 
+  const currentTabAny = state.currentTab as any;
   try {
     return await deps.sendRuntimeMessage({
       type,
       siteId,
       clientId: state.propertyLockClientId || "",
-      tabId: state.currentTab && Number.isFinite(state.currentTab.id)
-        ? Math.trunc(state.currentTab.id)
+      tabId: currentTabAny && Number.isFinite(currentTabAny.id)
+        ? Math.trunc(currentTabAny.id)
         : null,
       hasUnsavedChanges: Boolean(state.currentDraftDirty || state.currentPageSaveReconciliationPending),
       ...payload
@@ -602,8 +621,10 @@ export async function sendPropertyLockCommand(deps, type, payload = {}) {
   }
 }
 
+// @ts-ignore preserve source-contract signature used by popup/property-lock tests
 export async function reconcilePropertyLockAfterCommand(deps, options = {}) {
-  const { useBusyOverlay = false } = options;
+  const opts = options as any;
+  const { useBusyOverlay = false } = opts;
   if (!deps.isPropertyLockCollaborationEnabled()) {
     deps.resetDisabledPropertyLockState();
     await deps.refreshUi({ useBusyOverlay });
