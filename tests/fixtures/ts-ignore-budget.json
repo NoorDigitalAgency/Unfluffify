@@ -12,8 +12,7 @@
     "popup/messages.ts": 16,
     "common/text.ts": 14,
     "background/remote-config-sync.ts": 9,
-    "content/property-lock-state-machine.ts": 8,
-    "background/ai-run-orchestrator.ts": 5
+    "content/property-lock-state-machine.ts": 8
   },
   "exempt": [
     "common/page-motion-freeze-bridge.ts",

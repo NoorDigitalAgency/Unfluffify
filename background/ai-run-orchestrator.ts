@@ -35,8 +35,7 @@ function defaultCreateManagedTimeoutGroup() {
   };
 }
 
-// @ts-ignore preserve source-contract signature used by AI run source tests
-export function createAiRunOrchestrator(options = {}) {
+export function createAiRunOrchestrator(options: any = {}) {
   const optionsAny = options as any;
   const aiComputeLockExpiresAtByTabId = optionsAny.aiComputeLockExpiresAtByTabId instanceof Map
     ? optionsAny.aiComputeLockExpiresAtByTabId
@@ -224,8 +223,7 @@ export function createAiRunOrchestrator(options = {}) {
     return normalizeAiSelectorSet(payload);
   }
 
-  // @ts-ignore preserve source-contract signature used by AI run source tests
-  async function setAiComputeLockForTab(tabId, active, expiresAt = 0, baseUrl = "") {
+  async function setAiComputeLockForTab(tabId: any, active: any, expiresAt: any = 0, baseUrl: any = "") {
     const normalizedTabId = normalizeTabId(tabId);
     if (!normalizedTabId) {
       return { ok: false, active: Boolean(active), error: "Missing tab" };
@@ -293,8 +291,7 @@ export function createAiRunOrchestrator(options = {}) {
     return true;
   }
 
-  // @ts-ignore preserve source-contract signature used by AI run source tests
-  async function refreshAiRunHeartbeat(options = {}) {
+  async function refreshAiRunHeartbeat(options: any = {}) {
     const optionsAny = options as any;
     const tabId = normalizeTabId(optionsAny.tabId);
     const sessionId = typeof optionsAny.sessionId === "string" ? optionsAny.sessionId.trim() : "";
@@ -328,8 +325,7 @@ export function createAiRunOrchestrator(options = {}) {
     return { ok: true, record, expiresAt, lockApplied: true };
   }
 
-  // @ts-ignore preserve source-contract signature used by AI run source tests
-  async function prepareAiRunPayloadSnapshot(options = {}) {
+  async function prepareAiRunPayloadSnapshot(options: any = {}) {
     const optionsAny = options as any;
     const baseUrl = typeof optionsAny.baseUrl === "string" ? optionsAny.baseUrl.trim() : "";
     const currentPageUrl = typeof optionsAny.currentPageUrl === "string" ? optionsAny.currentPageUrl.trim() : "";
@@ -434,8 +430,7 @@ export function createAiRunOrchestrator(options = {}) {
     }
   }
 
-  // @ts-ignore preserve source-contract signature used by AI run source tests
-  async function runAiCommandForTab(tabId, payload, update) {
+  async function runAiCommandForTab(tabId: any, payload: any, update: any) {
     const payloadAny = payload as any;
     const timeoutGroup = createManagedTimeoutGroup();
     const baseUrl = normalizeActivationBaseUrl(payloadAny && payloadAny.baseUrl);
