@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { normalizePropertyPageTypes } from "../common/lynx-checklist.js";
 import {
   PROPERTY_PAGE_TYPES_QUERY,
@@ -9,7 +8,59 @@ import {
 } from "../common/lynx-live-pages.js";
 import { normalizeCanonicalBaseUrl } from "../common/utilities.js";
 
-export function normalizeBaseUrlFromDomainName(domainName, pageUrl = "") {
+type ResolveCredentialsResult = {
+  stageBaseValue: string;
+  tokenValue: string;
+};
+
+type ResolveCredentials = (options: {
+  stageBase?: unknown;
+  tokenValue?: unknown;
+  endpointPreference: "ai";
+}) => Promise<ResolveCredentialsResult>;
+
+type ResolveLivePageSiteIdOptions = {
+  stageBase?: unknown;
+  tokenValue?: unknown;
+  pageUrl?: unknown;
+  resolveBackgroundNetworkCredentials?: unknown;
+};
+
+type ResolveLivePageSiteIdResult = {
+  ok: boolean;
+  siteId: number | null;
+  baseUrl: string;
+  notFound?: boolean;
+};
+
+type FetchLivePagePropertyPageTypesOptions = {
+  siteId?: unknown;
+  stageBase?: unknown;
+  tokenValue?: unknown;
+  resolveBackgroundNetworkCredentials?: unknown;
+};
+
+type FetchLivePagePropertyPageTypesResult = {
+  ok: boolean;
+  pageTypes: Array<Record<string, unknown>>;
+  duplicateUrls?: string[];
+  signature?: string;
+  reason?: string;
+};
+
+type PropertyPageTypeCandidate = {
+  url?: unknown;
+  wordsCount?: unknown;
+  duplicate?: unknown;
+};
+
+type PropertyPageType = {
+  key?: unknown;
+  candidates?: unknown;
+};
+
+// export function normalizeBaseUrlFromDomainName(domainName, pageUrl = "") {
+export function normalizeBaseUrlFromDomainName(domainName: unknown, pageUrl: unknown = ""): string {
   if (typeof domainName !== "string") {
     return "";
   }
@@ -18,8 +69,9 @@ export function normalizeBaseUrlFromDomainName(domainName, pageUrl = "") {
     return "";
   }
   let protocol = "https:";
+  const pageUrlValue = typeof pageUrl === "string" ? pageUrl : "";
   try {
-    const page = new URL(pageUrl);
+    const page = new URL(pageUrlValue);
     if (page.protocol === "http:" || page.protocol === "https:") {
       protocol = page.protocol;
     }
@@ -50,13 +102,15 @@ export function normalizeBaseUrlFromDomainName(domainName, pageUrl = "") {
   return normalizeCanonicalBaseUrl(normalized) || normalized;
 }
 
-export function buildPropertyPageTypesSignature(pageTypes) {
+// export function buildPropertyPageTypesSignature(pageTypes) {
+export function buildPropertyPageTypesSignature(pageTypes: unknown): string {
+  const normalizedPageTypes = Array.isArray(pageTypes) ? (pageTypes as PropertyPageType[]) : [];
   return JSON.stringify(
     Array.isArray(pageTypes)
-      ? pageTypes.map((pageType) => [
+      ? normalizedPageTypes.map((pageType) => [
           pageType && typeof pageType.key === "string" ? pageType.key : "",
           Array.isArray(pageType && pageType.candidates)
-            ? pageType.candidates.map((candidate) => [
+            ? (pageType.candidates as PropertyPageTypeCandidate[]).map((candidate) => [
                 candidate && typeof candidate.url === "string" ? candidate.url : "",
                 Number.isFinite(candidate && candidate.wordsCount) ? candidate.wordsCount : 0,
                 Boolean(candidate && candidate.duplicate) ? 1 : 0
@@ -67,9 +121,10 @@ export function buildPropertyPageTypesSignature(pageTypes) {
   );
 }
 
-export async function resolveLivePageSiteId(options = {}) {
+// export async function resolveLivePageSiteId(options = {}) {
+export async function resolveLivePageSiteId(options: ResolveLivePageSiteIdOptions = {}): Promise<ResolveLivePageSiteIdResult> {
   const resolveCredentials = typeof options.resolveBackgroundNetworkCredentials === "function"
-    ? options.resolveBackgroundNetworkCredentials
+    ? (options.resolveBackgroundNetworkCredentials as ResolveCredentials)
     : null;
   if (!resolveCredentials) {
     return { ok: false, siteId: null, baseUrl: "", notFound: false };
@@ -110,12 +165,15 @@ export async function resolveLivePageSiteId(options = {}) {
       payload = null;
     }
     if (payload && Array.isArray(payload.errors) && payload.errors.length > 0) {
-      const notFound = payload.errors.some((item) => {
+      const notFound = payload.errors.some((item: unknown) => {
+        const itemRecord = item && typeof item === "object"
+          ? (item as { extensions?: { code?: unknown } })
+          : null;
         const code =
-          item &&
-          item.extensions &&
-          typeof item.extensions.code === "string"
-            ? item.extensions.code
+          itemRecord &&
+          itemRecord.extensions &&
+          typeof itemRecord.extensions.code === "string"
+            ? itemRecord.extensions.code
             : "";
         return code === "NotFound";
       });
@@ -127,7 +185,9 @@ export async function resolveLivePageSiteId(options = {}) {
     if (!response.ok || !payload) {
       return { ok: false, siteId: null, baseUrl: "", notFound: false };
     }
-    const urlSearchInfo = payload && payload.data ? payload.data.urlSearchInfo : null;
+    const urlSearchInfo = payload && payload.data && typeof payload.data === "object"
+      ? (payload.data as { urlSearchInfo?: { domainId?: unknown; domainName?: unknown } }).urlSearchInfo || null
+      : null;
     const siteId = normalizeSiteIdValue(urlSearchInfo && urlSearchInfo.domainId);
     const baseUrl = normalizeBaseUrlFromDomainName(
       urlSearchInfo && urlSearchInfo.domainName,
@@ -150,10 +210,13 @@ export async function resolveLivePageSiteId(options = {}) {
   }
 }
 
-export async function fetchLivePagePropertyPageTypes(options = {}) {
+// export async function fetchLivePagePropertyPageTypes(options = {}) {
+export async function fetchLivePagePropertyPageTypes(
+  options: FetchLivePagePropertyPageTypesOptions = {}
+): Promise<FetchLivePagePropertyPageTypesResult> {
   const normalizedSiteId = normalizeSiteIdValue(options.siteId);
   const resolveCredentials = typeof options.resolveBackgroundNetworkCredentials === "function"
-    ? options.resolveBackgroundNetworkCredentials
+    ? (options.resolveBackgroundNetworkCredentials as ResolveCredentials)
     : null;
   if (!resolveCredentials) {
     return {
@@ -211,11 +274,19 @@ export async function fetchLivePagePropertyPageTypes(options = {}) {
         ? payload.data.propertyPageTypes
         : null
     );
+    const normalizedPageTypes = Array.isArray(normalized.pageTypes)
+      ? (normalized.pageTypes as Array<Record<string, unknown>>)
+      : [];
+    const duplicateUrls = Array.isArray(normalized.duplicateUrls)
+      ? normalized.duplicateUrls.filter((item): item is string => typeof item === "string")
+      : [];
     return {
       ok: true,
-      pageTypes: normalized.pageTypes || [],
-      duplicateUrls: normalized.duplicateUrls || [],
-      signature: buildPropertyPageTypesSignature(normalized.pageTypes)
+      pageTypes: normalizedPageTypes,
+      // duplicateUrls: normalized.duplicateUrls || [],
+      duplicateUrls,
+      // signature: buildPropertyPageTypesSignature(normalized.pageTypes)
+      signature: buildPropertyPageTypesSignature(normalizedPageTypes)
     };
   } catch {
     return {

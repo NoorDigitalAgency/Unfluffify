@@ -1,6 +1,5 @@
 background/ai-run-orchestrator.ts
 background/command-router.ts
-background/live-page-client.ts
 background/remote-config-sync.ts
 background/remote-network.ts
 background/render-mode-inspector.ts
