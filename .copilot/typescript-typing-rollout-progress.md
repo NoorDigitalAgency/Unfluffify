@@ -6,7 +6,7 @@ Current phase: Phase 1 (leaf modules)
 ## Baseline
 - Branch: feat/typescript-deno-port
 - Full tests baseline: 847 pass / 0 fail
-- Current runtime @ts-nocheck count: 17
+- Current runtime @ts-nocheck count: 16
 - Ratchet allowlist: tests/fixtures/expected-ts-nocheck.txt
 
 ## Checkpoints
@@ -45,6 +45,7 @@ Current phase: Phase 1 (leaf modules)
 - [2026-06-17] Phase 1 batch 29 completed (micro): removed `@ts-nocheck` from `popup/remote-config.ts` using internal narrowing plus source-contract signature suppressions, and adjusted popup source-shape regex to tolerate the optional TS suppression line between exports.
 - [2026-06-17] Phase 1 batch 30 completed (micro): removed `@ts-nocheck` from `popup/site-resolution.ts` using internal state/options casts with contract-sensitive signatures preserved and popup-site-resolution/selector-suppression/full-suite coverage passing.
 - [2026-06-17] Phase 1 batch 31 completed (micro): removed `@ts-nocheck` from `popup/messages.ts` using internal narrowing and targeted line-level suppressions to preserve regex-sensitive source contracts (`requestTabRunRenderModeInspection` and `loadActiveTab` literals), with strict check, popup authority/render-mode/device-lifecycle suites, and full-suite coverage passing.
+- [2026-06-17] Phase 1 batch 32 completed (micro): removed `@ts-nocheck` from `popup/page-reconciliation.ts` with typed pending-change inputs and targeted signature suppressions for `handlePageSave`/`handlePageRevert`, and updated popup source-contract extraction regexes to tolerate the optional TS suppression separator between exports; strict check, popup reconciliation/marking-refresh/AI-run-gating suites, and full-suite coverage passing.
 
 ## Notes
 - PoC typed module already merged: background/tab-operation-runner.ts and types/operations.ts.

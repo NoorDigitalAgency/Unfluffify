@@ -324,7 +324,7 @@ test("session save uploads all local page markings while default sync stays back
   const pageReconciliationSource = readFileSync(new URL("../popup/page-reconciliation.ts", import.meta.url), "utf8");
   const backgroundSource = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
   const handlePageSaveBody = pageReconciliationSource.match(
-    /export async function handlePageSave\(deps\) \{([\s\S]*?)\n\}\n\nexport async function handlePageRevert/
+    /export async function handlePageSave\(deps\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-ignore[^\n]*\n)?export async function handlePageRevert/
   )[1];
   const handlePageRevertHandlerBody = pageReconciliationSource.match(
     /export async function handlePageRevert\(deps\) \{([\s\S]*?)\n\}/
@@ -392,7 +392,7 @@ test("session save uploads all local page markings while default sync stays back
 test("session save terminal retry failure leaves the local draft dirty for retry", () => {
   const source = readFileSync(new URL("../popup/page-reconciliation.ts", import.meta.url), "utf8");
   const handlePageSaveBody = source.match(
-    /export async function handlePageSave\(deps\) \{([\s\S]*?)\n\}\n\nexport async function handlePageRevert/
+    /export async function handlePageSave\(deps\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-ignore[^\n]*\n)?export async function handlePageRevert/
   )[1];
   const terminalFailureStart = handlePageSaveBody.indexOf("if (attempt + 1 >= deps.PAGE_SAVE_SYNC_MAX_ATTEMPTS)");
   const terminalFailureEnd = handlePageSaveBody.indexOf(

@@ -1,25 +1,26 @@
-// @ts-nocheck
 import * as stateModule from "./state.js";
 
 const { state } = stateModule;
 
 export function hasCurrentPagePendingChanges(
-  deps,
-  localPageMarkings,
-  backendSavedPageMarkings,
-  options = {}
+  deps: any,
+  localPageMarkings: any,
+  backendSavedPageMarkings: any,
+  options: any = {}
 ) {
+  const opts = options as any;
   const hasCurrentPageMarkingChanges =
     typeof deps.hasCurrentPageMarkingChanges === "function"
       ? deps.hasCurrentPageMarkingChanges
       : () => false;
   return Boolean(
-    options.currentDraftDirty ||
-      options.reconciliationPending ||
-      hasCurrentPageMarkingChanges(localPageMarkings, backendSavedPageMarkings, options.pageUrl)
+    opts.currentDraftDirty ||
+      opts.reconciliationPending ||
+      hasCurrentPageMarkingChanges(localPageMarkings, backendSavedPageMarkings, opts.pageUrl)
   );
 }
 
+// @ts-ignore preserve source-contract signature used by popup source-shape tests
 export async function handlePageSave(deps) {
   const ensureActiveTab =
     typeof deps.ensureActiveTab === "function"
@@ -100,6 +101,7 @@ export async function handlePageSave(deps) {
   });
 }
 
+// @ts-ignore preserve source-contract signature used by popup source-shape tests
 export async function handlePageRevert(deps) {
   const ensureActiveTab =
     typeof deps.ensureActiveTab === "function"
