@@ -1,4 +1,3 @@
-// @ts-nocheck
 export const PAGE_WORLD_COMMANDS = Object.freeze({
   ARM: "PAGE_WORLD_ARM",
   SET_MOTION_PAUSED: "PAGE_WORLD_SET_MOTION_PAUSED",
@@ -13,13 +12,13 @@ export const PAGE_WORLD_RELAY_MESSAGE_KINDS = Object.freeze({
   RESPONSE: "response"
 });
 
-export const PAGE_WORLD_RELAY_ALLOWED_COMMANDS = Object.freeze(new Set([
+export const PAGE_WORLD_RELAY_ALLOWED_COMMANDS: ReadonlySet<string> = Object.freeze(new Set([
   PAGE_WORLD_COMMANDS.ARM,
   PAGE_WORLD_COMMANDS.SET_MOTION_PAUSED,
   PAGE_WORLD_COMMANDS.SET_LAZY_LOADING_SUPPRESSED,
   PAGE_WORLD_COMMANDS.DESTROY
 ]));
 
-export function isPageWorldRelayCommand(value) {
+export function isPageWorldRelayCommand(value: unknown): boolean {
   return typeof value === "string" && PAGE_WORLD_RELAY_ALLOWED_COMMANDS.has(value);
 }

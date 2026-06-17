@@ -22,7 +22,7 @@ test("background owns per-tab lifecycle and spinner current state", () => {
   assert.match(contractSource, /export const LIFECYCLE_KINDS = Object\.freeze/);
   assert.match(contractSource, /SILENT_HIGHLIGHTING: "silent-highlighting"/);
   assert.match(contractSource, /export const LIFECYCLE_PHASES = Object\.freeze/);
-  assert.match(contractSource, /export function buildPopupStatePortName\(tabId\)/);
+  assert.match(contractSource, /export function buildPopupStatePortName\(tabId(?:\s*:[^\)]*)?\)(?:\s*:[^\{]+)?/);
   assert.match(backgroundSource, /from "\.\/background\/background-tab-state\.js"/);
   assert.doesNotMatch(backgroundSource, /const tabLifecycleStateByTabId = new Map\(\);/);
   assert.doesNotMatch(backgroundSource, /const tabSpinnerQueueByTabId = new Map\(\);/);
@@ -41,10 +41,10 @@ test("background owns per-tab lifecycle and spinner current state", () => {
 
 test("background authoritatively tears down the navigation-inspection curtain on terminal lifecycle", () => {
   assert.match(contractSource, /export const SPINNER_KEYS = Object\.freeze\(\{[\s\S]*?NAV_INSPECT: "navInspect"[\s\S]*?\}\);/);
-  assert.match(contractSource, /export function isCurtainBearingLifecycleKind\(kind\) \{/);
+  assert.match(contractSource, /export function isCurtainBearingLifecycleKind\(kind(?:\s*:[^\)]*)?\)(?:\s*:[^\{]+)?\s*\{/);
   assert.match(
     contractSource,
-    /CURTAIN_BEARING_LIFECYCLE_KINDS = Object\.freeze\(\[[\s\S]*?LIFECYCLE_KINDS\.ACTIVATION[\s\S]*?LIFECYCLE_KINDS\.RENDER_MODE_INSPECTION[\s\S]*?LIFECYCLE_KINDS\.SILENT_HIGHLIGHTING[\s\S]*?\]\);/
+    /CURTAIN_BEARING_LIFECYCLE_KINDS(?:\s*:[^=]+)?\s*= Object\.freeze\(\[[\s\S]*?LIFECYCLE_KINDS\.ACTIVATION[\s\S]*?LIFECYCLE_KINDS\.RENDER_MODE_INSPECTION[\s\S]*?LIFECYCLE_KINDS\.SILENT_HIGHLIGHTING[\s\S]*?\]\);/
   );
   // The terminal-curtain clear is gated on a curtain-bearing kind so routine
   // terminal events (content-ready on every load) never drop the curtain.

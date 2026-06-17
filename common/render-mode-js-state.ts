@@ -1,4 +1,3 @@
-// @ts-nocheck
 // Per-tab "Without JavaScript" render-mode hold state, persisted in
 // chrome.storage.session so it survives service-worker restarts and is readable
 // from the popup. A tab is "no-JS held" when a render-mode "Without JavaScript"
@@ -8,12 +7,12 @@
 
 const RENDER_MODE_NO_JS_HELD_PREFIX = "renderModeNoJsHeld:";
 
-function normalizeTabId(value) {
+function normalizeTabId(value: unknown): number | null {
   const numeric = Number(value);
   return Number.isFinite(numeric) && numeric > 0 ? Math.trunc(numeric) : null;
 }
 
-function getSessionArea() {
+function getSessionArea(): chrome.storage.StorageArea | null {
   try {
     return globalThis.chrome && chrome.storage && chrome.storage.session
       ? chrome.storage.session
@@ -23,12 +22,12 @@ function getSessionArea() {
   }
 }
 
-export function renderModeNoJsHeldStorageKey(tabId) {
+export function renderModeNoJsHeldStorageKey(tabId: unknown): string {
   const normalizedTabId = normalizeTabId(tabId);
   return normalizedTabId ? `${RENDER_MODE_NO_JS_HELD_PREFIX}${normalizedTabId}` : "";
 }
 
-export async function setRenderModeNoJsHeld(tabId, held) {
+export async function setRenderModeNoJsHeld(tabId: unknown, held: boolean): Promise<void> {
   const key = renderModeNoJsHeldStorageKey(tabId);
   const session = getSessionArea();
   if (!key || !session) {
@@ -45,11 +44,11 @@ export async function setRenderModeNoJsHeld(tabId, held) {
   }
 }
 
-export async function clearRenderModeNoJsHeld(tabId) {
+export async function clearRenderModeNoJsHeld(tabId: unknown): Promise<void> {
   await setRenderModeNoJsHeld(tabId, false);
 }
 
-export async function isRenderModeNoJsHeld(tabId) {
+export async function isRenderModeNoJsHeld(tabId: unknown): Promise<boolean> {
   const key = renderModeNoJsHeldStorageKey(tabId);
   const session = getSessionArea();
   if (!key || !session) {
@@ -63,7 +62,7 @@ export async function isRenderModeNoJsHeld(tabId) {
   }
 }
 
-export async function listRenderModeNoJsHeldTabIds() {
+export async function listRenderModeNoJsHeldTabIds(): Promise<number[]> {
   const session = getSessionArea();
   if (!session) {
     return [];
@@ -73,7 +72,7 @@ export async function listRenderModeNoJsHeldTabIds() {
     return Object.keys(data || {})
       .filter((key) => key.startsWith(RENDER_MODE_NO_JS_HELD_PREFIX) && data[key])
       .map((key) => normalizeTabId(key.slice(RENDER_MODE_NO_JS_HELD_PREFIX.length)))
-      .filter(Boolean);
+      .filter((value): value is number => typeof value === "number");
   } catch {
     return [];
   }

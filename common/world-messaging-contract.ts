@@ -1,4 +1,3 @@
-// @ts-nocheck
 export const WORLD_MESSAGE_TYPES = Object.freeze({
   LIFECYCLE_EVENT: "ufLifecycleEvent",
   SPINNER_SET: "ufSpinnerSet",
@@ -50,20 +49,20 @@ export const SPINNER_KEYS = Object.freeze({
 // Lifecycle kinds whose terminal phase (finished/failed) means the page
 // inspection curtain should be torn down. Other terminal kinds (e.g.
 // content-ready, which fires on every load) must not clear the curtain.
-export const CURTAIN_BEARING_LIFECYCLE_KINDS = Object.freeze([
+export const CURTAIN_BEARING_LIFECYCLE_KINDS: ReadonlyArray<string> = Object.freeze([
   LIFECYCLE_KINDS.ACTIVATION,
   LIFECYCLE_KINDS.RENDER_MODE_INSPECTION,
   LIFECYCLE_KINDS.SILENT_HIGHLIGHTING
 ]);
 
-export function isCurtainBearingLifecycleKind(kind) {
-  return CURTAIN_BEARING_LIFECYCLE_KINDS.includes(kind);
+export function isCurtainBearingLifecycleKind(kind: unknown): boolean {
+  return typeof kind === "string" && CURTAIN_BEARING_LIFECYCLE_KINDS.includes(kind);
 }
 
-export function buildPopupStatePortName(tabId) {
+export function buildPopupStatePortName(tabId: number | string): string {
   return `${WORLD_PORTS.POPUP_STATE_PREFIX}${tabId}`;
 }
 
-export function isLifecycleTerminalPhase(phase) {
+export function isLifecycleTerminalPhase(phase: unknown): boolean {
   return phase === LIFECYCLE_PHASES.FINISHED || phase === LIFECYCLE_PHASES.FAILED;
 }
