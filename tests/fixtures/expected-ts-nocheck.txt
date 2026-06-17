@@ -14,6 +14,5 @@ content/runtime-message-handler.ts
 popup/messages.ts
 popup/page-reconciliation.ts
 popup/property-lock-ui.ts
-popup/site-resolution.ts
 popup.ts
 popup/ui.ts
