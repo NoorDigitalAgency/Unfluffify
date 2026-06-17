@@ -10,7 +10,6 @@ common/text.ts
 common/utilities.ts
 content/core.ts
 content-main.ts
-content/property-lock-state-machine.ts
 content/runtime-message-handler.ts
 popup/messages.ts
 popup/page-reconciliation.ts
