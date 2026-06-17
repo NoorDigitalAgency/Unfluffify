@@ -1,12 +1,11 @@
-// @ts-nocheck
-export function handleRuntimeMessage(message, _sender, sendResponse, deps) {
+export function handleRuntimeMessage(message: any, _sender: any, sendResponse: any, deps: any) {
   if (!message || !message.type) {
     return;
   }
 
   if (message.type === "setEnabled") {
     deps.handleSetEnabledCommand(message)
-      .then((response) => {
+      .then((response: any) => {
         sendResponse(response && typeof response === "object" ? response : { ok: false });
       })
       .catch(() => {
@@ -32,7 +31,7 @@ export function handleRuntimeMessage(message, _sender, sendResponse, deps) {
 
   if (message.type === "runRenderModeRevealOnce") {
     deps.handleRunRenderModeRevealOnceCommand(message)
-      .then((response) => {
+      .then((response: any) => {
         sendResponse(response && typeof response === "object" ? response : { ok: false });
       })
       .catch(() => {
@@ -43,7 +42,7 @@ export function handleRuntimeMessage(message, _sender, sendResponse, deps) {
 
   if (message.type === "captureRenderModeInspectionHtml") {
     deps.handleCaptureRenderModeInspectionHtmlCommand(message)
-      .then((response) => {
+      .then((response: any) => {
         sendResponse(response && typeof response === "object" ? response : { ok: false });
       })
       .catch(() => {
@@ -80,7 +79,7 @@ export function handleRuntimeMessage(message, _sender, sendResponse, deps) {
 
   if (message.type === "setAiComputeLock") {
     deps.getAiPreviewComputeLockHandler().handleMessage(message)
-      .then((response) => {
+      .then((response: any) => {
         sendResponse(response && typeof response === "object" ? response : { ok: false });
       })
       .catch(() => {
@@ -91,7 +90,7 @@ export function handleRuntimeMessage(message, _sender, sendResponse, deps) {
 
   if (message.type === "closeAiPreview") {
     deps.getAiPreviewCloseHandler().handleMessage()
-      .then((response) => {
+      .then((response: any) => {
         sendResponse(response && typeof response === "object" ? response : { ok: false });
       })
       .catch(() => {
@@ -103,7 +102,7 @@ export function handleRuntimeMessage(message, _sender, sendResponse, deps) {
   if (message.type === "configUpdated") {
     const response = deps.getConfigUpdatedHandler().handleMessage(message);
     if (response && typeof response.then === "function") {
-      response.then((result) => {
+      response.then((result: any) => {
         sendResponse(result && typeof result === "object" ? result : { ok: false });
       }).catch(() => {
         sendResponse({ ok: false });
@@ -115,7 +114,7 @@ export function handleRuntimeMessage(message, _sender, sendResponse, deps) {
   }
 
   if (message.type === "forceRefresh") {
-    deps.getForceRefreshHandler().handleMessage().then((response) => {
+    deps.getForceRefreshHandler().handleMessage().then((response: any) => {
       sendResponse(response && typeof response === "object" ? response : { ok: false });
     }).catch(() => {
       sendResponse({ ok: false });
@@ -129,7 +128,7 @@ export function handleRuntimeMessage(message, _sender, sendResponse, deps) {
   }
 
   if (message.type === "collectPageData") {
-    deps.getCollectPageDataHandler().handleMessage(message).then((response) => {
+    deps.getCollectPageDataHandler().handleMessage(message).then((response: any) => {
       sendResponse(response && typeof response === "object" ? response : { ok: false });
     }).catch(() => {
       sendResponse({ ok: false });
@@ -187,7 +186,7 @@ export function handleRuntimeMessage(message, _sender, sendResponse, deps) {
       targetBaseUrl,
       shouldPersist,
       pageType: typeof message.pageType === "string" ? message.pageType : ""
-    }).then((response) => {
+    }).then((response: any) => {
       sendResponse(response && typeof response === "object" ? response : { ok: false });
     }).catch(() => {
       sendResponse({ ok: false });
@@ -201,7 +200,7 @@ export function handleRuntimeMessage(message, _sender, sendResponse, deps) {
       sendResponse({ ok: false });
       return;
     }
-    deps.getPageDraftStatusHandler().getStatus({ targetBaseUrl }).then((response) => {
+    deps.getPageDraftStatusHandler().getStatus({ targetBaseUrl }).then((response: any) => {
       sendResponse(response && typeof response === "object" ? response : { ok: false });
     }).catch(() => {
       sendResponse({ ok: false });
@@ -222,7 +221,7 @@ export function handleRuntimeMessage(message, _sender, sendResponse, deps) {
       targetBaseUrl,
       pageUrl,
       reason: message.reason
-    }).then((response) => {
+    }).then((response: any) => {
       sendResponse(response && typeof response === "object" ? response : { ok: false });
     }).catch(() => {
       sendResponse({ ok: false });
@@ -240,7 +239,7 @@ export function handleRuntimeMessage(message, _sender, sendResponse, deps) {
       return;
     }
     deps.getPageSaveReconciliationClearHandler().clear({ targetBaseUrl, pageUrl })
-      .then((response) => {
+      .then((response: any) => {
         sendResponse(response && typeof response === "object" ? response : { ok: false });
       })
       .catch(() => {
@@ -324,7 +323,7 @@ export function handleRuntimeMessage(message, _sender, sendResponse, deps) {
     deps.getPageDraftSaveHandler().saveCurrentPageDraft({
       baseUrl: targetBaseUrl,
       pageType: typeof message.pageType === "string" ? message.pageType : ""
-    }).then((result) => {
+    }).then((result: any) => {
       if (result && result.ok) {
         deps.sendPropertyLockActivity();
       }
@@ -345,7 +344,7 @@ export function handleRuntimeMessage(message, _sender, sendResponse, deps) {
       sendResponse({ ok: false, locked: true });
       return;
     }
-    deps.getPageDraftRevertHandler().revert({ targetBaseUrl }).then((response) => {
+    deps.getPageDraftRevertHandler().revert({ targetBaseUrl }).then((response: any) => {
       sendResponse(response && typeof response === "object" ? response : { ok: false });
     }).catch(() => {
       sendResponse({ ok: false });
@@ -354,7 +353,7 @@ export function handleRuntimeMessage(message, _sender, sendResponse, deps) {
   }
 
   if (message.type === "showAiPreview") {
-    deps.getAiPreviewShowHandler().handleMessage(message).then((response) => {
+    deps.getAiPreviewShowHandler().handleMessage(message).then((response: any) => {
       sendResponse(response && typeof response === "object" ? response : { ok: false });
     }).catch(() => {
       sendResponse({ ok: false });
