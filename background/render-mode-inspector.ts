@@ -91,7 +91,7 @@ export function createRenderModeInspector(options: RenderModeInspectorOptions = 
         chrome.tabs.onUpdated.removeListener(onUpdated);
         resolve(Boolean(value));
       };
-      const onUpdated = (updatedTabId: number, changeInfo: any) => {
+      const onUpdated = (updatedTabId: number, changeInfo: chrome.tabs.OnUpdatedInfo) => {
         if (updatedTabId !== tabId) {
           return;
         }
@@ -143,7 +143,7 @@ export function createRenderModeInspector(options: RenderModeInspectorOptions = 
         resolve(Boolean(value));
       };
 
-      const onUpdated = (updatedTabId: number, changeInfo: any) => {
+      const onUpdated = (updatedTabId: number, changeInfo: chrome.tabs.OnUpdatedInfo) => {
         if (updatedTabId !== tabId) {
           return;
         }
