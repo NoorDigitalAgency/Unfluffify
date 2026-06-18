@@ -15,8 +15,8 @@ type StoredPageMarkings = Record<string, Record<string, unknown>>;
 type StoredConfigEntry = { pageMarkings?: StoredPageMarkings; [key: string]: unknown };
 type StoredConfigs = Record<string, StoredConfigEntry>;
 
-type PropertyPageTypeCandidate = { url?: unknown; wordsCount?: unknown; duplicate?: unknown };
-type PropertyPageType = { key?: unknown; candidates?: unknown };
+type PropertyPageTypeCandidate = { url?: string; wordsCount?: number; duplicate?: boolean };
+type PropertyPageType = { key?: string; candidates?: PropertyPageTypeCandidate[] };
 
 interface EnsurePropertyPageTypesResult {
   ok: boolean;
