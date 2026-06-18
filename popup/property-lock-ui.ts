@@ -77,9 +77,9 @@ interface PropertyLockUiDeps {
     previousLockState: NormalizedLockState | null,
     nextLockState: NormalizedLockState | null
   ): void;
-  applyPropertyLockConnectionStatus(status: unknown, error?: unknown): void;
-  fetchPropertyLockState(siteId: unknown): Promise<unknown>;
-  refreshPropertyLockSnapshot(siteId: unknown, options?: Record<string, unknown>): Promise<unknown>;
+  applyPropertyLockConnectionStatus(status: string | null | undefined, error?: string | null | undefined): void;
+  fetchPropertyLockState(siteId: number | string | null): Promise<unknown>;
+  refreshPropertyLockSnapshot(siteId: number | string | null, options?: Record<string, unknown>): Promise<unknown>;
   buildPropertyLockViewState(): PropertyLockViewState;
 }
 
@@ -140,7 +140,7 @@ export function clearPropertyLockOffCandidateRefreshTimer(deps: PropertyLockUiDe
   state.propertyLockOffCandidateRefreshTimer = 0;
 }
 
-export function syncPropertyLockOffCandidateRefreshTimer(deps: PropertyLockUiDeps, active: unknown) {
+export function syncPropertyLockOffCandidateRefreshTimer(deps: PropertyLockUiDeps, active: boolean | null | undefined) {
   if (!deps.isPropertyLockCollaborationEnabled()) {
     deps.clearPropertyLockOffCandidateRefreshTimer();
     return;
@@ -222,7 +222,7 @@ export function queueEditorBootstrapOnLockTransition(deps: PropertyLockUiDeps, p
   }
 }
 
-export function applyPropertyLockConnectionStatus(deps: PropertyLockUiDeps, status: unknown, error: unknown = "") {
+export function applyPropertyLockConnectionStatus(deps: PropertyLockUiDeps, status: string | null | undefined, error: string | null | undefined = "") {
   if (!deps.isPropertyLockCollaborationEnabled()) {
     state.propertyLockConnectionStatus = deps.PROPERTY_LOCK_CONNECTION_INACTIVE;
     state.propertyLockConnectionError = "";
@@ -256,7 +256,10 @@ export function applyPropertyLockServerMessage(deps: PropertyLockUiDeps, serverM
     : null;
 
   if (type === deps.PROPERTY_LOCK_BACKGROUND_CONNECTION_STATUS) {
-    deps.applyPropertyLockConnectionStatus(serverMessage.connectionStatus, serverMessage.error);
+    deps.applyPropertyLockConnectionStatus(
+      typeof serverMessage.connectionStatus === "string" ? serverMessage.connectionStatus : null,
+      typeof serverMessage.error === "string" ? serverMessage.error : null
+    );
     return true;
   }
 
