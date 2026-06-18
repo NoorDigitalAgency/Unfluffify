@@ -8,6 +8,7 @@
     "test": "deno task test"
   },
   "devDependencies": {
-    "@types/chrome": "^0.1.24"
+    "@types/chrome": "^0.1.24",
+    "typescript": "^6.0.3"
   }
 }
