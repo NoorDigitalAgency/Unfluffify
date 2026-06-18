@@ -18,8 +18,8 @@ function getAlarmsApi(chromeRef: typeof chrome | null): typeof chrome.alarms | n
 
 type TabInactivityObserverOptions = {
   chromeRef?: typeof chrome | null;
-  alarmPrefix?: unknown;
-  defaultTimeoutMs?: unknown;
+  alarmPrefix?: string | null;
+  defaultTimeoutMs?: number | null;
   now?: () => number;
 };
 
@@ -107,7 +107,7 @@ export function createTabInactivityObserver(options: TabInactivityObserverOption
 
   async function scheduleInactive(
     tabId: unknown,
-    options: { scope?: unknown; refresh?: unknown; timeoutMs?: unknown; reason?: unknown } = {}
+    options: { scope?: unknown; refresh?: boolean | null; timeoutMs?: number | null; reason?: string | null } = {}
   ): Promise<boolean> {
     const normalizedTabId = normalizeTabId(tabId);
     if (!normalizedTabId) {
@@ -151,7 +151,7 @@ export function createTabInactivityObserver(options: TabInactivityObserverOption
 
   async function recordActivity(
     tabId: unknown,
-    options: { scope?: unknown; source?: unknown; pageUrl?: unknown } = {}
+    options: { scope?: unknown; source?: string | null; pageUrl?: string | null } = {}
   ): Promise<boolean> {
     const normalizedTabId = normalizeTabId(tabId);
     if (!normalizedTabId) {
@@ -185,7 +185,7 @@ export function createTabInactivityObserver(options: TabInactivityObserverOption
     return true;
   }
 
-  function subscribe(listener: unknown): () => void {
+  function subscribe(listener: ((event: Record<string, unknown>) => unknown) | null | undefined): () => void {
     if (typeof listener !== "function") {
       return () => {};
     }
