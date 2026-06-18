@@ -9,7 +9,7 @@ interface PropertyLockMachineState {
 
 interface PropertyLockText {
   editorNowToast: string;
-  editorTransferredToast(editorName: unknown): string;
+  editorTransferredToast(editorName: string): string;
 }
 
 interface PropertyLockStateMachineDeps {
@@ -77,8 +77,8 @@ interface PropertyLockStateMachineDeps {
 
 interface PropertyLockRecoveryTabStateInput {
   propertyLockRecoverySiteId: number;
-  propertyLockRecoveryBaseUrl: unknown;
-  propertyLockRecoveryClientId: unknown;
+  propertyLockRecoveryBaseUrl: string | null;
+  propertyLockRecoveryClientId: string | null;
   propertyLockRecoveryDeadlineAt: number;
   propertyLockOffCandidateDeadlineAt: number;
 }
@@ -141,7 +141,7 @@ export function createPropertyLockStateMachine(deps: PropertyLockStateMachineDep
     }).catch(() => null);
   }
 
-  function persistOffCandidateDeadline(deadlineAt: unknown) {
+  function persistOffCandidateDeadline(deadlineAt: number) {
     if (!deps.isPropertyLockCollaborationEnabled()) {
       return Promise.resolve(null);
     }
@@ -303,6 +303,7 @@ export function createPropertyLockStateMachine(deps: PropertyLockStateMachineDep
         previousState &&
         previousState.isEditor &&
         !serverMessage.isEditor &&
+        typeof serverMessage.editorName === "string" &&
         serverMessage.editorName
       ) {
         deps.showPageToast(deps.propertyLockText.editorTransferredToast(serverMessage.editorName));
