@@ -1,14 +1,43 @@
+type TabRuntimeIdInput = number | string | null | undefined;
+type RuntimePrimitive = string | number | boolean | null;
+type RuntimeValue = RuntimePrimitive | object | Array<RuntimePrimitive | object>;
+type RuntimeRecord = Record<string, RuntimeValue>;
+
+type SpinnerRuntimeEntry = {
+  message?: string;
+  persistent?: boolean;
+  owner?: string;
+  reason?: string;
+  source?: string;
+  startedAt?: number;
+  progress?: number;
+  [key: string]: RuntimeValue | undefined;
+};
+
+type PageWorldState = { ready: boolean; nonce: string };
+
+type CommandLedgerEntry = {
+  id: string;
+  type: string;
+  startedAt: number;
+  finishedAt: number;
+  durationMs: number;
+  status: string;
+  errorCode: string;
+  payload?: object;
+};
+
 type TabRuntime = {
   tabId: number;
   contentReady: boolean;
   contentSessionId: string;
   mode: string;
-  operation: Record<string, unknown> | null;
-  spinnerQueue: Map<string, unknown>;
-  lifecycle: Record<string, unknown> | null;
-  pageWorld: { ready: boolean; nonce: string };
-  lastKnownContentState: Record<string, unknown> | null;
-  commandLedger: Array<Record<string, unknown>>;
+  operation: RuntimeRecord | null;
+  spinnerQueue: Map<string, SpinnerRuntimeEntry>;
+  lifecycle: RuntimeRecord | null;
+  pageWorld: PageWorldState;
+  lastKnownContentState: RuntimeRecord | null;
+  commandLedger: CommandLedgerEntry[];
 };
 
 const tabRuntimeById = new Map<number, TabRuntime>();
@@ -32,21 +61,50 @@ function createDefaultRuntime(tabId: number): TabRuntime {
   };
 }
 
-function cloneSpinnerQueue(queue: unknown): Map<string, unknown> {
-  if (!(queue instanceof Map)) {
+type TabRuntimePatch = {
+  contentReady?: boolean;
+  contentSessionId?: string;
+  mode?: string;
+  operation?: RuntimeRecord | null;
+  spinnerQueue?: Map<string, SpinnerRuntimeEntry>;
+  lifecycle?: RuntimeRecord | null;
+  pageWorld?: Partial<PageWorldState> | null;
+  lastKnownContentState?: RuntimeRecord | null;
+};
+
+type LedgerEntryInput = Partial<CommandLedgerEntry> & { payload?: object | null };
+
+type TabRuntimeSnapshot = {
+  tabId: number;
+  contentReady: boolean;
+  contentSessionId: string;
+  mode: string;
+  operation: RuntimeRecord | null;
+  spinnerQueue: Array<{ key: string; value: SpinnerRuntimeEntry }>;
+  lifecycle: RuntimeRecord | null;
+  pageWorld: PageWorldState;
+  lastKnownContentState: RuntimeRecord | null;
+  commandLedger: CommandLedgerEntry[];
+};
+
+function cloneSpinnerQueue(queue: Map<string, SpinnerRuntimeEntry> | null | undefined): Map<string, SpinnerRuntimeEntry> {
+  if (!queue || !(queue instanceof Map)) {
     return new Map();
   }
   return new Map(queue);
 }
 
-function cloneLedger(ledger: unknown): Array<Record<string, unknown>> {
-  if (!Array.isArray(ledger)) {
+function cloneLedger(ledger: CommandLedgerEntry[] | null | undefined): CommandLedgerEntry[] {
+  if (!ledger) {
     return [];
   }
-  return ledger.map((entry) => ({ ...entry }));
+  return ledger.map((entry) => ({
+    ...entry,
+    payload: entry.payload && typeof entry.payload === "object" ? { ...entry.payload } : undefined
+  }));
 }
 
-export function normalizeTabId(value: unknown): number {
+export function normalizeTabId(value: TabRuntimeIdInput): number {
   const normalized = Number(value);
   if (!Number.isFinite(normalized)) {
     return 0;
@@ -55,7 +113,7 @@ export function normalizeTabId(value: unknown): number {
   return asInt > 0 ? asInt : 0;
 }
 
-export function getTabRuntime(tabId: unknown): TabRuntime | null {
+export function getTabRuntime(tabId: TabRuntimeIdInput): TabRuntime | null {
   const normalizedTabId = normalizeTabId(tabId);
   if (!normalizedTabId) {
     return null;
@@ -66,7 +124,7 @@ export function getTabRuntime(tabId: unknown): TabRuntime | null {
   return tabRuntimeById.get(normalizedTabId) || null;
 }
 
-export function deleteTabRuntime(tabId: unknown): boolean {
+export function deleteTabRuntime(tabId: TabRuntimeIdInput): boolean {
   const normalizedTabId = normalizeTabId(tabId);
   if (!normalizedTabId) {
     return false;
@@ -74,65 +132,59 @@ export function deleteTabRuntime(tabId: unknown): boolean {
   return tabRuntimeById.delete(normalizedTabId);
 }
 
-export function updateTabRuntime(tabId: unknown, patch: unknown): TabRuntime | null {
+export function updateTabRuntime(tabId: TabRuntimeIdInput, patch: TabRuntimePatch | null | undefined): TabRuntime | null {
   const runtime = getTabRuntime(tabId);
-  if (!runtime || !patch || typeof patch !== "object") {
+  if (!runtime || !patch) {
     return runtime;
   }
 
-  const patchRecord = patch as Record<string, unknown>;
-
-  if (Object.prototype.hasOwnProperty.call(patchRecord, "contentReady")) {
-    runtime.contentReady = Boolean(patchRecord.contentReady);
+  if (Object.prototype.hasOwnProperty.call(patch, "contentReady")) {
+    runtime.contentReady = Boolean(patch.contentReady);
   }
-  if (Object.prototype.hasOwnProperty.call(patchRecord, "contentSessionId")) {
-    runtime.contentSessionId = typeof patchRecord.contentSessionId === "string" ? patchRecord.contentSessionId : "";
+  if (Object.prototype.hasOwnProperty.call(patch, "contentSessionId")) {
+    runtime.contentSessionId = typeof patch.contentSessionId === "string" ? patch.contentSessionId : "";
   }
-  if (Object.prototype.hasOwnProperty.call(patchRecord, "mode")) {
-    runtime.mode = typeof patchRecord.mode === "string" && patchRecord.mode ? patchRecord.mode : runtime.mode;
+  if (Object.prototype.hasOwnProperty.call(patch, "mode")) {
+    runtime.mode = typeof patch.mode === "string" && patch.mode ? patch.mode : runtime.mode;
   }
 
-  if (Object.prototype.hasOwnProperty.call(patchRecord, "operation")) {
-    runtime.operation = patchRecord.operation && typeof patchRecord.operation === "object"
-      ? { ...(patchRecord.operation as Record<string, unknown>) }
+  if (Object.prototype.hasOwnProperty.call(patch, "operation")) {
+    runtime.operation = patch.operation && typeof patch.operation === "object"
+      ? { ...patch.operation }
       : null;
   }
-  if (Object.prototype.hasOwnProperty.call(patchRecord, "spinnerQueue")) {
-    runtime.spinnerQueue = cloneSpinnerQueue(patchRecord.spinnerQueue);
+  if (Object.prototype.hasOwnProperty.call(patch, "spinnerQueue")) {
+    runtime.spinnerQueue = cloneSpinnerQueue(patch.spinnerQueue);
   }
-  if (Object.prototype.hasOwnProperty.call(patchRecord, "lifecycle")) {
-    runtime.lifecycle = patchRecord.lifecycle && typeof patchRecord.lifecycle === "object"
-      ? { ...(patchRecord.lifecycle as Record<string, unknown>) }
+  if (Object.prototype.hasOwnProperty.call(patch, "lifecycle")) {
+    runtime.lifecycle = patch.lifecycle && typeof patch.lifecycle === "object"
+      ? { ...patch.lifecycle }
       : null;
   }
-  if (Object.prototype.hasOwnProperty.call(patchRecord, "pageWorld")) {
-    const nextPageWorld = patchRecord.pageWorld && typeof patchRecord.pageWorld === "object"
-      ? (patchRecord.pageWorld as Record<string, unknown>)
-      : {};
+  if (Object.prototype.hasOwnProperty.call(patch, "pageWorld")) {
+    const nextPageWorld = patch.pageWorld && typeof patch.pageWorld === "object" ? patch.pageWorld : {};
     runtime.pageWorld = {
-      ready: Object.prototype.hasOwnProperty.call(nextPageWorld, "ready")
-        ? Boolean(nextPageWorld.ready)
-        : Boolean(runtime.pageWorld && runtime.pageWorld.ready),
+      ready: Object.prototype.hasOwnProperty.call(nextPageWorld, "ready") ? Boolean(nextPageWorld.ready) : runtime.pageWorld.ready,
       nonce: Object.prototype.hasOwnProperty.call(nextPageWorld, "nonce")
         ? (typeof nextPageWorld.nonce === "string" ? nextPageWorld.nonce : "")
-        : (runtime.pageWorld && typeof runtime.pageWorld.nonce === "string" ? runtime.pageWorld.nonce : "")
+        : runtime.pageWorld.nonce
     };
   }
-  if (Object.prototype.hasOwnProperty.call(patchRecord, "lastKnownContentState")) {
-    runtime.lastKnownContentState = patchRecord.lastKnownContentState && typeof patchRecord.lastKnownContentState === "object"
-      ? { ...(patchRecord.lastKnownContentState as Record<string, unknown>) }
+  if (Object.prototype.hasOwnProperty.call(patch, "lastKnownContentState")) {
+    runtime.lastKnownContentState = patch.lastKnownContentState && typeof patch.lastKnownContentState === "object"
+      ? { ...patch.lastKnownContentState }
       : null;
   }
 
   return runtime;
 }
 
-export function appendTabCommandLedger(tabId: unknown, entry: unknown): Array<Record<string, unknown>> {
+export function appendTabCommandLedger(tabId: TabRuntimeIdInput, entry: LedgerEntryInput | null | undefined): CommandLedgerEntry[] {
   const runtime = getTabRuntime(tabId);
   if (!runtime) {
     return [];
   }
-  const entryRecord = (entry && typeof entry === "object" ? entry : null) as Record<string, unknown> | null;
+  const entryRecord = entry || null;
   const normalizedEntry = entryRecord
     ? {
       id: typeof entryRecord.id === "string" ? entryRecord.id : "",
@@ -143,7 +195,7 @@ export function appendTabCommandLedger(tabId: unknown, entry: unknown): Array<Re
       status: typeof entryRecord.status === "string" ? entryRecord.status : "unknown",
       errorCode: typeof entryRecord.errorCode === "string" ? entryRecord.errorCode : "",
       payload: entryRecord.payload && typeof entryRecord.payload === "object"
-        ? { ...(entryRecord.payload as Record<string, unknown>) }
+        ? { ...entryRecord.payload }
         : undefined
     }
     : {
@@ -163,7 +215,7 @@ export function appendTabCommandLedger(tabId: unknown, entry: unknown): Array<Re
   return cloneLedger(runtime.commandLedger);
 }
 
-export function getTabRuntimeSnapshot(tabId: unknown): Record<string, unknown> | null {
+export function getTabRuntimeSnapshot(tabId: TabRuntimeIdInput): TabRuntimeSnapshot | null {
   const runtime = getTabRuntime(tabId);
   if (!runtime) {
     return null;
@@ -174,10 +226,7 @@ export function getTabRuntimeSnapshot(tabId: unknown): Record<string, unknown> |
     contentSessionId: runtime.contentSessionId || "",
     mode: runtime.mode || "idle",
     operation: runtime.operation ? { ...runtime.operation } : null,
-    spinnerQueue: [...(runtime.spinnerQueue instanceof Map ? runtime.spinnerQueue.entries() : [])].map(([key, value]) => ({
-      key,
-      value: value && typeof value === "object" ? { ...value } : value
-    })),
+    spinnerQueue: [...runtime.spinnerQueue.entries()].map(([key, value]) => ({ key, value: { ...value } })),
     lifecycle: runtime.lifecycle ? { ...runtime.lifecycle } : null,
     pageWorld: runtime.pageWorld
       ? {
