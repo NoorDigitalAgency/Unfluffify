@@ -6,7 +6,7 @@ type BackgroundTaskTraceAppender = (
 ) => void;
 
 type BackgroundTaskOptions = {
-  tabId?: unknown;
+  tabId?: number | null;
   appendTrace?: BackgroundTaskTraceAppender;
 };
 

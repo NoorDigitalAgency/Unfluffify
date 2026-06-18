@@ -45,7 +45,7 @@ export function createPropertyLockPortClient(deps: PropertyLockPortClientDeps) {
     reconnectTimer = 0;
   };
 
-  const scheduleReconnect = (options: { forceSiteIdRefresh?: unknown } = {}): void => {
+  const scheduleReconnect = (options: { forceSiteIdRefresh?: boolean } = {}): void => {
     const forceSiteIdRefresh = Boolean(options.forceSiteIdRefresh);
     if ((typeof deps.shouldSkipReconnect === "function" && deps.shouldSkipReconnect()) || reconnectTimer) {
       return;
