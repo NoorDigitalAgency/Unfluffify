@@ -19,8 +19,8 @@ type RawPageType = {
   pageType?: unknown;
   key?: unknown;
   title?: unknown;
-  candidates?: unknown;
-  pages?: unknown;
+  candidates?: unknown[];
+  pages?: unknown[];
 };
 
 type NormalizedPageType = {
@@ -159,9 +159,9 @@ function normalizePageTypeCandidates(rawPageType: unknown): NormalizedCandidate[
     ? (rawPageType as RawPageType)
     : {};
   const rawCandidates = Array.isArray(pageType.candidates)
-    ? pageType.candidates as unknown[]
+    ? pageType.candidates
     : Array.isArray(pageType.pages)
-      ? pageType.pages as unknown[]
+      ? pageType.pages
       : [];
   const candidatesByUrl = new Map<string, NormalizedCandidate>();
   rawCandidates.forEach((rawCandidate) => {

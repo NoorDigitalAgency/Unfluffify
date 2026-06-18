@@ -7274,7 +7274,7 @@ export function main() {
         });
         return true;
     }
-    return handleRuntimeMessage(message, _sender, sendResponse, createRuntimeMessageHandlerDeps());
+    return handleRuntimeMessage(message, _sender, sendResponse, createRuntimeMessageHandlerDeps() as Parameters<typeof handleRuntimeMessage>[3]);
   });
 
   window.addEventListener(URL_CHANGED_EVENT, () => {

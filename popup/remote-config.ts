@@ -3,29 +3,125 @@ import * as messages from "./messages.js";
 import * as stateModule from "./state.js";
 
 const { state } = stateModule;
-const stateAny = state as any;
 const DEFAULT_REMOTE_CONFIG_RETRY_DELAY_MS = 2500;
+
+type StoredPageMarkings = Record<string, Record<string, unknown>>;
+type StoredConfigEntry = { pageMarkings?: StoredPageMarkings; [key: string]: unknown };
+type StoredConfigs = Record<string, StoredConfigEntry>;
+
+interface LoadRemoteConfigOptions {
+  tabId?: number | null;
+  pageUrl?: string;
+  baseUrl?: string;
+  siteId?: number | null;
+  endpointValue?: string;
+  force?: boolean;
+  notifyOnChange?: boolean;
+}
+
+interface SyncBaseConfigOptions {
+  baseUrl?: string;
+  pageUrl?: string;
+  endpointValue?: string;
+  tokenValue?: string;
+  stageBase?: string;
+  alertOnCurrentReplacement?: boolean;
+  includeCurrentPageMarking?: boolean;
+  includeAllLocalPageMarkings?: boolean;
+  maxAttempts?: number;
+}
+
+interface RemoteConfigLoadStatus {
+  status: string;
+  baseUrl?: string;
+}
+
+interface EnsureBaseUrlSiteIdResult {
+  ok?: boolean;
+  siteId?: number | string | null;
+  reason?: string;
+  baseUrl?: string;
+  configs?: StoredConfigs;
+}
+
+interface EnsurePropertyPageTypesResult {
+  ok?: boolean;
+  pageTypes?: unknown;
+}
+
+interface LynxChecklistViewModel {
+  activeMarkedPages: Array<{ url: string; pageType: string }>;
+}
+
+interface TransferPayloadStoreResult {
+  ok?: boolean;
+}
+
+interface RemoteConfigDeps {
+  PopupText: Record<string, Record<string, string>>;
+  remoteConfigRetryDelayMs: number;
+  windowRef: Window;
+  ensureActiveTab(): Promise<unknown>;
+  refreshUi(options?: unknown): Promise<unknown>;
+  resolveRelativeEndpoint(endpointValue: string, path: string): string;
+  updateLastConfigLoadStatus(result: RemoteConfigLoadStatus): void;
+  invalidateTokenAndLockConfiguration(force?: boolean): Promise<unknown>;
+  showToast(message: string): void;
+  ensureBaseUrlSiteId(options: {
+    baseUrl?: string;
+    pageUrl?: string;
+    stageBase?: string;
+    tokenValue?: string;
+    configs?: StoredConfigs;
+  }): Promise<EnsureBaseUrlSiteIdResult>;
+  getStoredGlobalToken(options?: { trim?: boolean }): Promise<string>;
+  ensurePropertyPageTypes(options: {
+    siteId?: number | string | null;
+    stageBase?: string;
+    tokenValue?: string;
+    force?: boolean;
+    notifyOnChange?: boolean;
+  }): Promise<EnsurePropertyPageTypesResult>;
+  collectStoredPageMarkingItems(markings: unknown, baseUrl: string): unknown[];
+  buildLynxChecklistViewModel(options: {
+    aiAnswer: string;
+    pageTypes: unknown;
+    markedPages: unknown;
+  }): LynxChecklistViewModel;
+  buildPageMarkingKey(url: unknown, pageType: unknown): string;
+  buildTransferPayloadKey(label: string): string;
+  putTransferPayload(kind: string, payload: unknown, options: { payloadKey?: string }): Promise<TransferPayloadStoreResult>;
+  waitForRetryDelay(delayMs?: number): Promise<unknown>;
+  isRetryableHttpStatus(status: number): boolean;
+  pruneRemoteInvalidPageMarkings(options: { siteId?: number | string | null; invalidUrls?: string[] | null }): Promise<unknown>;
+  clearBackendSavedPageMarkings?: typeof config.clearBackendSavedPageMarkings;
+  getConfigs?: typeof config.getConfigs;
+  saveConfigs?: typeof config.saveConfigs;
+  normalizeConfig?: typeof config.normalizeConfig;
+  getBackendSavedPageMarkings?: typeof config.getBackendSavedPageMarkings;
+  createConfigSyncPayload?: typeof config.createConfigSyncPayload;
+}
 
 function buildRemoteConfigLoadKey(tabId: unknown, siteId: unknown, endpointValue: unknown) {
   return `${tabId || ""}|${siteId || ""}|${endpointValue || ""}`;
 }
 
-export function scheduleRemoteConfigRetry(deps: any) {
-  if (stateAny.remoteConfigConnectionRetryTimer) {
+export function scheduleRemoteConfigRetry(deps: RemoteConfigDeps) {
+  if (state.remoteConfigConnectionRetryTimer) {
     return;
   }
   const retryDelayMs = Number.isFinite(deps.remoteConfigRetryDelayMs)
     ? Math.trunc(deps.remoteConfigRetryDelayMs)
     : DEFAULT_REMOTE_CONFIG_RETRY_DELAY_MS;
-  stateAny.remoteConfigConnectionRetryTimer = deps.windowRef.setTimeout(async () => {
-    stateAny.remoteConfigConnectionRetryTimer = 0;
+  state.remoteConfigConnectionRetryTimer = deps.windowRef.setTimeout(async () => {
+    state.remoteConfigConnectionRetryTimer = 0;
     await deps.ensureActiveTab();
     await deps.refreshUi();
   }, retryDelayMs);
 }
 
-export async function loadRemoteConfigForCurrentPage(deps: any, options: any = {}) {
-  const opts = (options || {}) as any;
+export async function loadRemoteConfigForCurrentPage(deps: RemoteConfigDeps, options: LoadRemoteConfigOptions = {}) {
+  const opts = options;
   const {
     tabId = null,
     pageUrl = "",
@@ -37,27 +133,27 @@ export async function loadRemoteConfigForCurrentPage(deps: any, options: any = {
   } = opts;
   if (!tabId || !siteId || !endpointValue) {
     const result = { status: "skipped", baseUrl: "" };
-    stateAny.remoteConfigLoadResult = result;
+    state.remoteConfigLoadResult = result;
     deps.updateLastConfigLoadStatus(result);
     return result;
   }
   const loadKey = buildRemoteConfigLoadKey(tabId, siteId, endpointValue);
   if (
     !force &&
-    stateAny.remoteConfigLoadKey === loadKey &&
-    stateAny.remoteConfigLoadResult &&
+    state.remoteConfigLoadKey === loadKey &&
+    state.remoteConfigLoadResult &&
     (
-      stateAny.remoteConfigLoadResult.status === "ok" ||
-      stateAny.remoteConfigLoadResult.status === "not_found"
+      state.remoteConfigLoadResult.status === "ok" ||
+      state.remoteConfigLoadResult.status === "not_found"
     )
   ) {
-    return stateAny.remoteConfigLoadResult;
+    return state.remoteConfigLoadResult;
   }
-  stateAny.remoteConfigLoadKey = loadKey;
+  state.remoteConfigLoadKey = loadKey;
   const loadUrl = deps.resolveRelativeEndpoint(endpointValue, "/load");
   if (!loadUrl) {
     const result = { status: "error", baseUrl: "" };
-    stateAny.remoteConfigLoadResult = result;
+    state.remoteConfigLoadResult = result;
     deps.updateLastConfigLoadStatus(result);
     return result;
   }
@@ -69,7 +165,7 @@ export async function loadRemoteConfigForCurrentPage(deps: any, options: any = {
     if (response && response.status === "auth_error") {
       await deps.invalidateTokenAndLockConfiguration(true);
       const result = { status: "auth_error", baseUrl: "" };
-      stateAny.remoteConfigLoadResult = result;
+      state.remoteConfigLoadResult = result;
       deps.updateLastConfigLoadStatus(result);
       return result;
     }
@@ -80,13 +176,13 @@ export async function loadRemoteConfigForCurrentPage(deps: any, options: any = {
           : config.clearBackendSavedPageMarkings;
       await clearBackendSavedPageMarkings(baseUrl || state.currentBaseUrl);
       const result = { status: "not_found", baseUrl: "" };
-      stateAny.remoteConfigLoadResult = result;
+      state.remoteConfigLoadResult = result;
       deps.updateLastConfigLoadStatus(result);
       return result;
     }
     if (!response || response.ok !== true || response.status !== "ok") {
       const result = { status: "error", baseUrl: "" };
-      stateAny.remoteConfigLoadResult = result;
+      state.remoteConfigLoadResult = result;
       deps.updateLastConfigLoadStatus(result);
       return result;
     }
@@ -98,7 +194,7 @@ export async function loadRemoteConfigForCurrentPage(deps: any, options: any = {
     });
     if (!replaceResult.ok) {
       const result = { status: "not_found", baseUrl: "" };
-      stateAny.remoteConfigLoadResult = result;
+      state.remoteConfigLoadResult = result;
       deps.updateLastConfigLoadStatus(result);
       return result;
     }
@@ -116,19 +212,19 @@ export async function loadRemoteConfigForCurrentPage(deps: any, options: any = {
       status: "ok",
       baseUrl: replaceResult.baseUrl
     };
-    stateAny.remoteConfigLoadResult = result;
+    state.remoteConfigLoadResult = result;
     deps.updateLastConfigLoadStatus(result);
     return result;
   } catch {
     const result = { status: "error", baseUrl: "" };
-    stateAny.remoteConfigLoadResult = result;
+    state.remoteConfigLoadResult = result;
     deps.updateLastConfigLoadStatus(result);
     return result;
   }
 }
 
-export async function syncBaseConfigToServer(deps: any, options: any = {}) {
-  const opts = (options || {}) as any;
+export async function syncBaseConfigToServer(deps: RemoteConfigDeps, options: SyncBaseConfigOptions = {}) {
+  const opts = options;
   const {
     baseUrl = "",
     pageUrl = "",
@@ -164,7 +260,7 @@ export async function syncBaseConfigToServer(deps: any, options: any = {}) {
       : config.createConfigSyncPayload;
 
   for (let attempt = 0; attempt < attempts; attempt += 1) {
-    const allConfigs = await getConfigs();
+    const allConfigs: StoredConfigs = await getConfigs();
     const siteIdResult = await deps.ensureBaseUrlSiteId({
       baseUrl: currentBaseUrl,
       pageUrl,
@@ -187,7 +283,7 @@ export async function syncBaseConfigToServer(deps: any, options: any = {}) {
       // Ignore token refresh read errors; continue with the current in-memory token.
     }
     const normalized = normalizeConfig(resolvedBaseUrl, workingConfigs[resolvedBaseUrl]);
-    const sourceConfig = normalized.config;
+    const sourceConfig: StoredConfigEntry = normalized.config;
     if (!workingConfigs[resolvedBaseUrl] || normalized.changed) {
       workingConfigs[resolvedBaseUrl] = sourceConfig;
       await saveConfigs(workingConfigs);
@@ -212,12 +308,13 @@ export async function syncBaseConfigToServer(deps: any, options: any = {}) {
       Object.keys(backendSavedPageMarkings || {}).filter(Boolean)
     );
     const currentPageEntry =
+      typeof pageUrl === "string" &&
       pageUrl &&
       sourceConfig.pageMarkings &&
       typeof sourceConfig.pageMarkings === "object"
         ? sourceConfig.pageMarkings[pageUrl]
         : null;
-    let filterPageMarking = (url: any, entry?: any) =>
+    let filterPageMarking = (url: string, entry?: { pageType?: unknown }) =>
       includeAllLocalPageMarkings ||
       backendSavedPageUrls.has(url) ||
       (includeCurrentPageMarking && url === pageUrl);
@@ -231,13 +328,13 @@ export async function syncBaseConfigToServer(deps: any, options: any = {}) {
       });
       const activePageMarkingKeys = new Set(
         coverageModel.activeMarkedPages
-          .map((item: any) => deps.buildPageMarkingKey(item.url, item.pageType))
+          .map((item) => deps.buildPageMarkingKey(item.url, item.pageType))
           .filter(Boolean)
       );
       if (includeCurrentPageMarking && currentPageEntry) {
         activePageMarkingKeys.add(deps.buildPageMarkingKey(pageUrl, currentPageEntry.pageType));
       }
-      filterPageMarking = (url: any, entry: any) =>
+      filterPageMarking = (url: string, entry?: { pageType?: unknown }) =>
         activePageMarkingKeys.has(deps.buildPageMarkingKey(url, entry && entry.pageType));
     }
     const payload = createConfigSyncPayload(resolvedBaseUrl, sourceConfig, {

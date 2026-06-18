@@ -1,4 +1,5 @@
 import * as config from "../common/config.js";
+import type { Config } from "../types/config.ts";
 import {
   normalizeSiteIdValue,
   normalizeStageBase
@@ -8,16 +9,80 @@ import * as messages from "./messages.js";
 import * as stateModule from "./state.js";
 
 const { state } = stateModule;
-const stateAny = state as any;
 const FALLBACK_PROPERTY_PAGE_TYPES_REFRESH_INTERVAL_MS = 120 * 1000;
 
-function buildPropertyPageTypesSignature(pageTypes: any) {
+type StoredPageMarkings = Record<string, Record<string, unknown>>;
+type StoredConfigEntry = { pageMarkings?: StoredPageMarkings; [key: string]: unknown };
+type StoredConfigs = Record<string, StoredConfigEntry>;
+
+type PropertyPageTypeCandidate = { url?: string; wordsCount?: number; duplicate?: boolean };
+type PropertyPageType = { key?: string; candidates?: PropertyPageTypeCandidate[] };
+
+interface EnsurePropertyPageTypesResult {
+  ok: boolean;
+  pageTypes?: Array<Record<string, unknown>>;
+  duplicateUrls?: string[];
+  changed?: boolean;
+  skipped?: boolean;
+  fromCache?: boolean;
+  stale?: boolean;
+  error?: string;
+}
+
+interface EnsureBaseUrlSiteIdResult {
+  ok: boolean;
+  siteId: number | null;
+  baseUrl: string;
+  reason?: string;
+  configs?: StoredConfigs;
+  config?: Config;
+  skipped?: boolean;
+}
+
+type PropertyPageTypesRequest = { key: string; promise: Promise<EnsurePropertyPageTypesResult> };
+
+interface SiteResolutionDeps {
+  PopupText: typeof import("../common/text.js").PopupText;
+  ViewText: typeof import("../common/text.js").ViewText;
+  showToast(message: string): void;
+  propertyPageTypesRefreshIntervalMs: number;
+  getPropertyPageTypesRequest(): PropertyPageTypesRequest | null;
+  setPropertyPageTypesRequest(nextRequest: PropertyPageTypesRequest | null): void;
+}
+
+interface FetchPropertyPageTypesOptions {
+  siteId?: number | string | null;
+  stageBase?: string;
+  tokenValue?: string;
+}
+
+interface EnsurePropertyPageTypesOptions extends FetchPropertyPageTypesOptions {
+  force?: boolean;
+  notifyOnChange?: boolean;
+}
+
+interface ResolveSiteIdOptions {
+  stageBase?: string;
+  lookupUrl?: string;
+  tokenValue?: string;
+}
+
+interface EnsureBaseUrlSiteIdOptions {
+  baseUrl?: string;
+  stageBase?: string;
+  tokenValue?: string;
+  configs?: StoredConfigs | null;
+  pageUrl?: string;
+  persist?: boolean;
+}
+
+function buildPropertyPageTypesSignature(pageTypes: unknown) {
   return JSON.stringify(
     Array.isArray(pageTypes)
-      ? pageTypes.map((pageType) => [
+      ? (pageTypes as PropertyPageType[]).map((pageType) => [
           pageType && typeof pageType.key === "string" ? pageType.key : "",
           Array.isArray(pageType && pageType.candidates)
-            ? pageType.candidates.map((candidate: any) => [
+            ? (pageType.candidates as PropertyPageTypeCandidate[]).map((candidate) => [
                 candidate && typeof candidate.url === "string" ? candidate.url : "",
                 Number.isFinite(candidate && candidate.wordsCount) ? candidate.wordsCount : 0,
                 Boolean(candidate && candidate.duplicate) ? 1 : 0
@@ -29,39 +94,39 @@ function buildPropertyPageTypesSignature(pageTypes: any) {
 }
 
 function resetPropertyPageTypesState() {
-  stateAny.propertyPageTypes = [];
-  stateAny.propertyPageTypesDuplicateUrls = [];
-  stateAny.propertyPageTypesSiteId = null;
-  stateAny.propertyPageTypesStageBase = "";
-  stateAny.propertyPageTypesSignature = "";
-  stateAny.propertyPageTypesFetchedAt = 0;
-  stateAny.propertyPageTypesLastError = "";
-  stateAny.propertyPageTypesChangeNoticeVisible = false;
-  stateAny.propertyPageTypesInvalidAlertPending = false;
-  stateAny.propertyPageTypesChangeForceTodoOpen = false;
+  state.propertyPageTypes = [];
+  state.propertyPageTypesDuplicateUrls = [];
+  state.propertyPageTypesSiteId = null;
+  state.propertyPageTypesStageBase = "";
+  state.propertyPageTypesSignature = "";
+  state.propertyPageTypesFetchedAt = 0;
+  state.propertyPageTypesLastError = "";
+  state.propertyPageTypesChangeNoticeVisible = false;
+  state.propertyPageTypesInvalidAlertPending = false;
+  state.propertyPageTypesChangeForceTodoOpen = false;
 }
 
-function getRefreshIntervalMs(deps: any) {
+function getRefreshIntervalMs(deps: SiteResolutionDeps) {
   const candidate = Number(deps && deps.propertyPageTypesRefreshIntervalMs);
   return Number.isFinite(candidate) && candidate > 0
     ? Math.trunc(candidate)
     : FALLBACK_PROPERTY_PAGE_TYPES_REFRESH_INTERVAL_MS;
 }
 
-function getPendingPropertyPageTypesRequest(deps: any) {
+function getPendingPropertyPageTypesRequest(deps: SiteResolutionDeps) {
   return typeof deps.getPropertyPageTypesRequest === "function"
     ? deps.getPropertyPageTypesRequest()
     : null;
 }
 
-function setPendingPropertyPageTypesRequest(deps: any, nextRequest: any) {
+function setPendingPropertyPageTypesRequest(deps: SiteResolutionDeps, nextRequest: PropertyPageTypesRequest | null) {
   if (typeof deps.setPropertyPageTypesRequest === "function") {
     deps.setPropertyPageTypesRequest(nextRequest);
   }
 }
 
-export async function fetchPropertyPageTypesFromGraphql(_deps: any, options: any = {}) {
-  const opts = (options || {}) as any;
+export async function fetchPropertyPageTypesFromGraphql(_deps: SiteResolutionDeps, options: FetchPropertyPageTypesOptions = {}) {
+  const opts = options || {};
   const {
     siteId = null,
     stageBase = "",
@@ -98,8 +163,8 @@ export async function fetchPropertyPageTypesFromGraphql(_deps: any, options: any
   };
 }
 
-export async function ensurePropertyPageTypes(deps: any, options: any = {}) {
-  const opts = (options || {}) as any;
+export async function ensurePropertyPageTypes(deps: SiteResolutionDeps, options: EnsurePropertyPageTypesOptions = {}): Promise<EnsurePropertyPageTypesResult> {
+  const opts = options || {};
   const {
     siteId = null,
     stageBase = "",
@@ -117,16 +182,16 @@ export async function ensurePropertyPageTypes(deps: any, options: any = {}) {
   const cacheKey = `${normalizedStageBase}|${normalizedSiteId}`;
   const cacheFresh =
     !force &&
-    stateAny.propertyPageTypesSiteId === normalizedSiteId &&
-    stateAny.propertyPageTypesStageBase === normalizedStageBase &&
-    stateAny.propertyPageTypesFetchedAt > 0 &&
-    Date.now() - stateAny.propertyPageTypesFetchedAt < refreshIntervalMs &&
-    !stateAny.propertyPageTypesLastError;
+    state.propertyPageTypesSiteId === normalizedSiteId &&
+    state.propertyPageTypesStageBase === normalizedStageBase &&
+    state.propertyPageTypesFetchedAt > 0 &&
+    Date.now() - state.propertyPageTypesFetchedAt < refreshIntervalMs &&
+    !state.propertyPageTypesLastError;
   if (cacheFresh) {
     return {
       ok: true,
-      pageTypes: stateAny.propertyPageTypes,
-      duplicateUrls: stateAny.propertyPageTypesDuplicateUrls,
+      pageTypes: state.propertyPageTypes,
+      duplicateUrls: state.propertyPageTypesDuplicateUrls,
       changed: false,
       fromCache: true
     };
@@ -141,19 +206,19 @@ export async function ensurePropertyPageTypes(deps: any, options: any = {}) {
     tokenValue
   }).then((result) => {
     if (!result.ok) {
-      stateAny.propertyPageTypesLastError = result.error || deps.PopupText.pageTypes.refreshFailed;
+      state.propertyPageTypesLastError = result.error || deps.PopupText.pageTypes.refreshFailed;
       if (
-        stateAny.propertyPageTypesSiteId === normalizedSiteId &&
-        stateAny.propertyPageTypesStageBase === normalizedStageBase &&
-        Array.isArray(stateAny.propertyPageTypes)
+        state.propertyPageTypesSiteId === normalizedSiteId &&
+        state.propertyPageTypesStageBase === normalizedStageBase &&
+        Array.isArray(state.propertyPageTypes)
       ) {
         return {
           ok: true,
-          pageTypes: stateAny.propertyPageTypes,
-          duplicateUrls: stateAny.propertyPageTypesDuplicateUrls,
+          pageTypes: state.propertyPageTypes,
+          duplicateUrls: state.propertyPageTypesDuplicateUrls,
           changed: false,
           stale: true,
-          error: stateAny.propertyPageTypesLastError
+          error: state.propertyPageTypesLastError
         };
       }
       return {
@@ -161,26 +226,26 @@ export async function ensurePropertyPageTypes(deps: any, options: any = {}) {
         pageTypes: [],
         duplicateUrls: [],
         changed: false,
-            error: stateAny.propertyPageTypesLastError
+            error: state.propertyPageTypesLastError
       };
     }
-          const previousSignature = stateAny.propertyPageTypesSignature;
+          const previousSignature = state.propertyPageTypesSignature;
     const nextSignature = result.signature || "";
     const changed = Boolean(previousSignature) && previousSignature !== nextSignature;
-          stateAny.propertyPageTypes = result.pageTypes;
-          stateAny.propertyPageTypesDuplicateUrls = result.duplicateUrls;
-          stateAny.propertyPageTypesSiteId = normalizedSiteId;
-          stateAny.propertyPageTypesStageBase = normalizedStageBase;
-          stateAny.propertyPageTypesSignature = nextSignature;
-          stateAny.propertyPageTypesFetchedAt = Date.now();
-          stateAny.propertyPageTypesLastError = "";
+          state.propertyPageTypes = result.pageTypes;
+          state.propertyPageTypesDuplicateUrls = result.duplicateUrls;
+          state.propertyPageTypesSiteId = normalizedSiteId;
+          state.propertyPageTypesStageBase = normalizedStageBase;
+          state.propertyPageTypesSignature = nextSignature;
+          state.propertyPageTypesFetchedAt = Date.now();
+          state.propertyPageTypesLastError = "";
     if (changed && notifyOnChange) {
       deps.showToast(deps.PopupText.pageTypes.updatedToast);
     }
     return {
       ok: true,
-      pageTypes: stateAny.propertyPageTypes,
-      duplicateUrls: stateAny.propertyPageTypesDuplicateUrls,
+      pageTypes: state.propertyPageTypes,
+      duplicateUrls: state.propertyPageTypesDuplicateUrls,
       changed,
       stale: false
     };
@@ -197,8 +262,8 @@ export async function ensurePropertyPageTypes(deps: any, options: any = {}) {
   return request;
 }
 
-export async function resolveSiteIdFromGraphql(_deps: any, options: any = {}) {
-  const opts = (options || {}) as any;
+export async function resolveSiteIdFromGraphql(_deps: SiteResolutionDeps, options: ResolveSiteIdOptions = {}) {
+  const opts = options || {};
   const {
     stageBase = "",
     lookupUrl = ""
@@ -241,10 +306,10 @@ export async function resolveSiteIdFromGraphql(_deps: any, options: any = {}) {
 }
 
 export function mergeConfigEntriesForResolvedBaseUrl(
-  _deps: any,
+  _deps: SiteResolutionDeps,
   resolvedBaseUrl: string,
-  preferredEntry: any,
-  existingEntry: any
+  preferredEntry: StoredConfigEntry | undefined,
+  existingEntry: StoredConfigEntry | undefined
 ) {
   const preferred = config.normalizeConfig(resolvedBaseUrl, preferredEntry).config;
   const existing = config.normalizeConfig(resolvedBaseUrl, existingEntry).config;
@@ -283,8 +348,8 @@ export function mergeConfigEntriesForResolvedBaseUrl(
   return config.normalizeConfig(resolvedBaseUrl, merged).config;
 }
 
-export async function ensureBaseUrlSiteId(deps: any, options: any = {}) {
-  const opts = (options || {}) as any;
+export async function ensureBaseUrlSiteId(deps: SiteResolutionDeps, options: EnsureBaseUrlSiteIdOptions = {}): Promise<EnsureBaseUrlSiteIdResult> {
+  const opts = options || {};
   const {
     baseUrl = "",
     stageBase = "",
@@ -306,7 +371,7 @@ export async function ensureBaseUrlSiteId(deps: any, options: any = {}) {
       reason: deps.ViewText.noMappedBaseUrlOrSiteId
     };
   }
-  const sourceConfigs = configs || await config.getConfigs();
+  const sourceConfigs: StoredConfigs = configs || (await config.getConfigs()) as StoredConfigs;
   const normalizedConfig = config.normalizeConfig(
     requestedBaseUrl,
     sourceConfigs[requestedBaseUrl]
@@ -319,13 +384,13 @@ export async function ensureBaseUrlSiteId(deps: any, options: any = {}) {
   }
   const existingSiteId = normalizeSiteIdValue(sourceConfigs[requestedBaseUrl].siteId);
   if (existingSiteId) {
-    stateAny.siteIdLookupByBaseUrl.set(requestedBaseUrl, existingSiteId);
+    state.siteIdLookupByBaseUrl.set(requestedBaseUrl, existingSiteId);
     return {
       ok: true,
       siteId: existingSiteId,
       baseUrl: requestedBaseUrl,
       configs: sourceConfigs,
-      config: sourceConfigs[requestedBaseUrl]
+      config: sourceConfigs[requestedBaseUrl] as Config
     };
   }
   const normalizedStageBase = normalizeStageBase(stageBase);
@@ -336,14 +401,14 @@ export async function ensureBaseUrlSiteId(deps: any, options: any = {}) {
       baseUrl: requestedBaseUrl,
       reason: deps.PopupText.configuration.stageBaseRequiredBeforeContinuing,
       configs: sourceConfigs,
-      config: sourceConfigs[requestedBaseUrl]
+      config: sourceConfigs[requestedBaseUrl] as Config
     };
   }
-  if (stateAny.siteIdLookupByBaseUrl.has(requestedBaseUrl)) {
-    const cached = normalizeSiteIdValue(stateAny.siteIdLookupByBaseUrl.get(requestedBaseUrl));
+  if (state.siteIdLookupByBaseUrl.has(requestedBaseUrl)) {
+    const cached = normalizeSiteIdValue(state.siteIdLookupByBaseUrl.get(requestedBaseUrl));
     if (cached) {
       if (shouldPersist) {
-        sourceConfigs[requestedBaseUrl] = await config.updateConfig(requestedBaseUrl, (target: any) => {
+        sourceConfigs[requestedBaseUrl] = await config.updateConfig(requestedBaseUrl, (target: StoredConfigEntry) => {
           target.siteId = cached;
         });
       } else {
@@ -351,7 +416,7 @@ export async function ensureBaseUrlSiteId(deps: any, options: any = {}) {
           requestedBaseUrl,
           sourceConfigs[requestedBaseUrl]
         ).config;
-        normalizedCached.siteId = cached as any;
+        (normalizedCached as Record<string, unknown>).siteId = cached;
         sourceConfigs[requestedBaseUrl] = normalizedCached;
       }
       return {
@@ -359,10 +424,10 @@ export async function ensureBaseUrlSiteId(deps: any, options: any = {}) {
         siteId: cached,
         baseUrl: requestedBaseUrl,
         configs: sourceConfigs,
-        config: sourceConfigs[requestedBaseUrl]
+        config: sourceConfigs[requestedBaseUrl] as Config
       };
     }
-    stateAny.siteIdLookupByBaseUrl.delete(requestedBaseUrl);
+    state.siteIdLookupByBaseUrl.delete(requestedBaseUrl);
   }
   const queryUrl = pageUrl && typeof pageUrl === "string" ? pageUrl : requestedBaseUrl;
   const lookupResult = await resolveSiteIdFromGraphql(deps, {
@@ -377,7 +442,7 @@ export async function ensureBaseUrlSiteId(deps: any, options: any = {}) {
       baseUrl: requestedBaseUrl,
       reason: deps.PopupText.status.unableToResolveDomainId,
       configs: sourceConfigs,
-      config: sourceConfigs[requestedBaseUrl]
+      config: sourceConfigs[requestedBaseUrl] as Config
     };
   }
   const resolvedBaseUrl =
@@ -392,12 +457,12 @@ export async function ensureBaseUrlSiteId(deps: any, options: any = {}) {
       baseUrl: resolvedBaseUrl,
       reason: deps.ViewText.noDomainIdForBaseUrl,
       configs: sourceConfigs,
-      config: sourceConfigs[requestedBaseUrl]
+      config: sourceConfigs[requestedBaseUrl] as Config
     };
   }
-  stateAny.siteIdLookupByBaseUrl.set(resolvedBaseUrl, resolvedSiteId);
+  state.siteIdLookupByBaseUrl.set(resolvedBaseUrl, resolvedSiteId);
   if (requestedBaseUrl !== resolvedBaseUrl) {
-    stateAny.siteIdLookupByBaseUrl.delete(requestedBaseUrl);
+    state.siteIdLookupByBaseUrl.delete(requestedBaseUrl);
   }
   let didChangeConfigs = false;
   if (requestedBaseUrl !== resolvedBaseUrl) {
@@ -431,7 +496,7 @@ export async function ensureBaseUrlSiteId(deps: any, options: any = {}) {
     sourceConfigs[resolvedBaseUrl]
   ).config;
   if (normalizeSiteIdValue(resolvedConfig.siteId) !== resolvedSiteId) {
-    resolvedConfig.siteId = resolvedSiteId as any;
+    (resolvedConfig as Record<string, unknown>).siteId = resolvedSiteId;
     sourceConfigs[resolvedBaseUrl] = resolvedConfig;
     didChangeConfigs = true;
   }
@@ -443,6 +508,6 @@ export async function ensureBaseUrlSiteId(deps: any, options: any = {}) {
     siteId: resolvedSiteId,
     baseUrl: resolvedBaseUrl,
     configs: sourceConfigs,
-    config: sourceConfigs[resolvedBaseUrl]
+    config: sourceConfigs[resolvedBaseUrl] as Config
   };
 }

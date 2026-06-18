@@ -4,7 +4,6 @@ import * as stateModule from "./state.js";
 import { isDebugFlagEnabled } from "../common/feature-flags.js";
 
 const { state } = stateModule;
-const stateAny = state as any;
 const POPUP_GET_TAB_VIEW_STATE_COMMAND = "POPUP_GET_TAB_VIEW_STATE";
 const TAB_CONTENT_REQUEST_COMMAND = "TAB_CONTENT_REQUEST";
 const TAB_ACTIVATE_MARKING_COMMAND = "TAB_ACTIVATE_MARKING";
@@ -21,11 +20,24 @@ const TAB_RUN_AI_COMMAND = "TAB_RUN_AI";
 
 export const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function shouldTraceWorldMessaging() {
-  return isDebugFlagEnabled("fullWorldMessagingLogging") || Boolean(stateAny.traceModeEnabled);
+interface TabRequestOptions {
+  timeoutMs?: number;
 }
 
-function logPopupMessageTrace(direction: string, details: any = {}) {
+type TabRequestPayload = Record<string, unknown>;
+
+type TabId = number | null | undefined;
+
+function resolveTimeoutMs(options: TabRequestOptions, fallback: number): number {
+  const value = options.timeoutMs;
+  return typeof value === "number" && Number.isFinite(value) ? Math.trunc(value) : fallback;
+}
+
+function shouldTraceWorldMessaging() {
+  return isDebugFlagEnabled("fullWorldMessagingLogging") || Boolean(state.traceModeEnabled);
+}
+
+function logPopupMessageTrace(direction: string, details: Record<string, unknown> = {}) {
   if (!shouldTraceWorldMessaging()) {
     return;
   }
@@ -36,23 +48,24 @@ function logPopupMessageTrace(direction: string, details: any = {}) {
   }
 }
 
-export function sendRuntimeMessage(message: any) {
+export function sendRuntimeMessage(message: Record<string, unknown>) {
   logPopupMessageTrace("runtime:send", {
     type: message && message.type ? message.type : "",
-    tabId: message && Number.isFinite(message.tabId) ? Math.trunc(message.tabId) : null
+    tabId: message && Number.isFinite(message.tabId) ? Math.trunc(message.tabId as number) : null
   });
-  return utils.sendRuntimeMessage(message).then((response: any) => {
+  return utils.sendRuntimeMessage(message).then((response) => {
+    const responseRecord = response as Record<string, unknown> | null | undefined;
     logPopupMessageTrace("runtime:response", {
       type: message && message.type ? message.type : "",
-      ok: Boolean(response && response.ok),
-      responseType: response && response.type ? response.type : ""
+      ok: Boolean(responseRecord && responseRecord.ok),
+      responseType: responseRecord && responseRecord.type ? responseRecord.type : ""
     });
     return response;
   });
 }
 
-export function requestTabApplyPostSaveTransition(tabId: any, payload = {}, options = {}) {
-  const opts = options as any;
+export function requestTabApplyPostSaveTransition(tabId: TabId, payload: TabRequestPayload = {}, options: TabRequestOptions = {}) {
+  const opts = options;
   if (!tabId) {
     return Promise.resolve({
       ok: false,
@@ -64,7 +77,7 @@ export function requestTabApplyPostSaveTransition(tabId: any, payload = {}, opti
     payload: payload && typeof payload === "object" ? payload : {}
   }, {
     tabId,
-    timeoutMs: Number.isFinite(opts.timeoutMs) ? Math.trunc(opts.timeoutMs) : 15000
+    timeoutMs: resolveTimeoutMs(opts, 15000)
   }).then((result) => ({
     ok: true,
     result: result && typeof result === "object" ? result : {}
@@ -81,8 +94,8 @@ export function requestTabApplyPostSaveTransition(tabId: any, payload = {}, opti
   });
 }
 
-export function requestTabApplyLocalDiscard(tabId: any, payload = {}, options = {}) {
-  const opts = options as any;
+export function requestTabApplyLocalDiscard(tabId: TabId, payload: TabRequestPayload = {}, options: TabRequestOptions = {}) {
+  const opts = options;
   if (!tabId) {
     return Promise.resolve({
       ok: false,
@@ -94,7 +107,7 @@ export function requestTabApplyLocalDiscard(tabId: any, payload = {}, options = 
     payload: payload && typeof payload === "object" ? payload : {}
   }, {
     tabId,
-    timeoutMs: Number.isFinite(opts.timeoutMs) ? Math.trunc(opts.timeoutMs) : 10000
+    timeoutMs: resolveTimeoutMs(opts, 10000)
   }).then((result) => ({
     ok: true,
     result: result && typeof result === "object" ? result : {}
@@ -111,8 +124,8 @@ export function requestTabApplyLocalDiscard(tabId: any, payload = {}, options = 
   });
 }
 
-export function requestTabShowAiPreview(tabId: any, payload = {}, options = {}) {
-  const opts = options as any;
+export function requestTabShowAiPreview(tabId: TabId, payload: TabRequestPayload = {}, options: TabRequestOptions = {}) {
+  const opts = options;
   if (!tabId) {
     return Promise.resolve({
       ok: false,
@@ -124,7 +137,7 @@ export function requestTabShowAiPreview(tabId: any, payload = {}, options = {}) 
     payload: payload && typeof payload === "object" ? payload : {}
   }, {
     tabId,
-    timeoutMs: Number.isFinite(opts.timeoutMs) ? Math.trunc(opts.timeoutMs) : 10000
+    timeoutMs: resolveTimeoutMs(opts, 10000)
   }).then((result) => ({
     ok: true,
     result: result && typeof result === "object" ? result : {}
@@ -141,8 +154,8 @@ export function requestTabShowAiPreview(tabId: any, payload = {}, options = {}) 
   });
 }
 
-export function requestTabCloseAiPreview(tabId: any, payload = {}, options = {}) {
-  const opts = options as any;
+export function requestTabCloseAiPreview(tabId: TabId, payload: TabRequestPayload = {}, options: TabRequestOptions = {}) {
+  const opts = options;
   if (!tabId) {
     return Promise.resolve({
       ok: false,
@@ -154,7 +167,7 @@ export function requestTabCloseAiPreview(tabId: any, payload = {}, options = {})
     payload: payload && typeof payload === "object" ? payload : {}
   }, {
     tabId,
-    timeoutMs: Number.isFinite(opts.timeoutMs) ? Math.trunc(opts.timeoutMs) : 10000
+    timeoutMs: resolveTimeoutMs(opts, 10000)
   }).then((result) => ({
     ok: true,
     result: result && typeof result === "object" ? result : {}
@@ -171,8 +184,8 @@ export function requestTabCloseAiPreview(tabId: any, payload = {}, options = {})
   });
 }
 
-export function requestTabSetAiPreviewExpandedMode(tabId: any, payload = {}, options = {}) {
-  const opts = options as any;
+export function requestTabSetAiPreviewExpandedMode(tabId: TabId, payload: TabRequestPayload = {}, options: TabRequestOptions = {}) {
+  const opts = options;
   if (!tabId) {
     return Promise.resolve({
       ok: false,
@@ -184,7 +197,7 @@ export function requestTabSetAiPreviewExpandedMode(tabId: any, payload = {}, opt
     payload: payload && typeof payload === "object" ? payload : {}
   }, {
     tabId,
-    timeoutMs: Number.isFinite(opts.timeoutMs) ? Math.trunc(opts.timeoutMs) : 10000
+    timeoutMs: resolveTimeoutMs(opts, 10000)
   }).then((result) => ({
     ok: true,
     result: result && typeof result === "object" ? result : {}
@@ -201,8 +214,8 @@ export function requestTabSetAiPreviewExpandedMode(tabId: any, payload = {}, opt
   });
 }
 
-export function requestTabFocusPreviewElement(tabId: any, payload = {}, options = {}) {
-  const opts = options as any;
+export function requestTabFocusPreviewElement(tabId: TabId, payload: TabRequestPayload = {}, options: TabRequestOptions = {}) {
+  const opts = options;
   if (!tabId) {
     return Promise.resolve({
       ok: false,
@@ -214,7 +227,7 @@ export function requestTabFocusPreviewElement(tabId: any, payload = {}, options 
     payload: payload && typeof payload === "object" ? payload : {}
   }, {
     tabId,
-    timeoutMs: Number.isFinite(opts.timeoutMs) ? Math.trunc(opts.timeoutMs) : 10000
+    timeoutMs: resolveTimeoutMs(opts, 10000)
   }).then((result) => ({
     ok: true,
     result: result && typeof result === "object" ? result : {}
@@ -231,7 +244,7 @@ export function requestTabFocusPreviewElement(tabId: any, payload = {}, options 
   });
 }
 
-export function getTabState(tabId: any, scope: any = null) {
+export function getTabState(tabId: TabId, scope: string | null = null) {
   if (!tabId) {
     return Promise.resolve(null);
   }
@@ -243,7 +256,7 @@ export function getTabState(tabId: any, scope: any = null) {
   }).then((response) => (response && typeof response === "object" ? response : null));
 }
 
-export function setTabState(tabId: any, tabState: any, scope: any = null) {
+export function setTabState(tabId: TabId, tabState: Record<string, unknown>, scope: string | null = null) {
   if (!tabId) {
     return Promise.resolve({ ok: false });
   }
@@ -255,8 +268,8 @@ export function setTabState(tabId: any, tabState: any, scope: any = null) {
   });
 }
 
-export function requestPopupTabViewState(tabId: any, options = {}) {
-  const opts = options as any;
+export function requestPopupTabViewState(tabId: TabId, options: TabRequestOptions = {}) {
+  const opts = options;
   if (!tabId) {
     return Promise.resolve(null);
   }
@@ -265,14 +278,14 @@ export function requestPopupTabViewState(tabId: any, options = {}) {
     payload: {}
   }, {
     tabId,
-    timeoutMs: Number.isFinite(opts.timeoutMs) ? Math.trunc(opts.timeoutMs) : 3000
+    timeoutMs: resolveTimeoutMs(opts, 3000)
   }).then((result) => (
     result && typeof result === "object" ? result : null
   )).catch(() => null);
 }
 
-export function requestTabActivateMarking(tabId: any, payload = {}, options = {}) {
-  const opts = options as any;
+export function requestTabActivateMarking(tabId: TabId, payload: TabRequestPayload = {}, options: TabRequestOptions = {}) {
+  const opts = options;
   if (!tabId) {
     return Promise.resolve({
       ok: false,
@@ -284,7 +297,7 @@ export function requestTabActivateMarking(tabId: any, payload = {}, options = {}
     payload: payload && typeof payload === "object" ? payload : {}
   }, {
     tabId,
-    timeoutMs: Number.isFinite(opts.timeoutMs) ? Math.trunc(opts.timeoutMs) : 15000
+    timeoutMs: resolveTimeoutMs(opts, 15000)
   }).then((result) => ({
     ok: true,
     result: result && typeof result === "object" ? result : {}
@@ -302,8 +315,8 @@ export function requestTabActivateMarking(tabId: any, payload = {}, options = {}
   });
 }
 
-export function requestTabDeactivateMarking(tabId: any, payload = {}, options = {}) {
-  const opts = options as any;
+export function requestTabDeactivateMarking(tabId: TabId, payload: TabRequestPayload = {}, options: TabRequestOptions = {}) {
+  const opts = options;
   if (!tabId) {
     return Promise.resolve({
       ok: false,
@@ -315,7 +328,7 @@ export function requestTabDeactivateMarking(tabId: any, payload = {}, options = 
     payload: payload && typeof payload === "object" ? payload : {}
   }, {
     tabId,
-    timeoutMs: Number.isFinite(opts.timeoutMs) ? Math.trunc(opts.timeoutMs) : 10000
+    timeoutMs: resolveTimeoutMs(opts, 10000)
   }).then((result) => ({
     ok: true,
     result: result && typeof result === "object" ? result : {}
@@ -332,20 +345,20 @@ export function requestTabDeactivateMarking(tabId: any, payload = {}, options = 
   });
 }
 
-export function requestTabRunRenderModeInspection(tabId: any, payload = {}, options: any = {}) {
+export function requestTabRunRenderModeInspection(tabId: TabId, payload = {}, options: TabRequestOptions = {}) {
   if (!tabId) {
     return Promise.resolve({
       ok: false,
       error: "Missing tab"
     });
   }
-  const normalizedPayload: any = payload && typeof payload === "object" ? payload : {};
+  const normalizedPayload: { operationId?: unknown } = payload && typeof payload === "object" ? payload : {};
   return requestRuntime({
     type: TAB_RUN_RENDER_MODE_INSPECTION_COMMAND,
     payload: normalizedPayload
   }, {
     tabId,
-    timeoutMs: Number.isFinite(options.timeoutMs) ? Math.trunc(options.timeoutMs) : 120000
+    timeoutMs: resolveTimeoutMs(options, 120000)
   }).then((result) => ({
     ok: true,
     result: result && typeof result === "object" ? result : {}
@@ -373,8 +386,8 @@ export function requestTabRunRenderModeInspection(tabId: any, payload = {}, opti
   });
 }
 
-export function requestTabRunAi(tabId: any, payload: any = {}, options: any = {}) {
-  const opts = options as any;
+export function requestTabRunAi(tabId: TabId, payload: TabRequestPayload = {}, options: TabRequestOptions = {}) {
+  const opts = options;
   if (!tabId) {
     return Promise.resolve({
       ok: false,
@@ -386,7 +399,7 @@ export function requestTabRunAi(tabId: any, payload: any = {}, options: any = {}
     payload: payload && typeof payload === "object" ? payload : {}
   }, {
     tabId,
-    timeoutMs: Number.isFinite(opts.timeoutMs) ? Math.trunc(opts.timeoutMs) : 540000
+    timeoutMs: resolveTimeoutMs(opts, 540000)
   }).then((result) => ({
     ok: true,
     result: result && typeof result === "object" ? result : {}
@@ -403,15 +416,15 @@ export function requestTabRunAi(tabId: any, payload: any = {}, options: any = {}
   });
 }
 
-export function sendTabMessage(message: any) {
-  const tabId = stateAny.currentTab && stateAny.currentTab.id;
+export function sendTabMessage(message: Record<string, unknown>) {
+  const tabId = state.currentTab && state.currentTab.id;
   if (!tabId) {
     return Promise.resolve(null);
   }
   return sendTabMessageToTab(tabId, message);
 }
 
-export function sendTabMessageToTab(tabId: any, message: any) {
+export function sendTabMessageToTab(tabId: TabId, message: Record<string, unknown>) {
   if (!tabId) {
     return Promise.resolve(null);
   }
@@ -428,9 +441,10 @@ export function sendTabMessageToTab(tabId: any, message: any) {
   }, {
     tabId,
     timeoutMs: 5000
-  }).then((result: any) => {
-    const response = result && typeof result === "object" && result.response && typeof result.response === "object"
-      ? result.response
+  }).then((result) => {
+    const resultRecord = result as Record<string, unknown> | null | undefined;
+    const response = resultRecord && typeof resultRecord === "object" && resultRecord.response && typeof resultRecord.response === "object"
+      ? resultRecord.response as Record<string, unknown>
       : null;
     logPopupMessageTrace("tab:response", {
       tabId,
@@ -439,16 +453,17 @@ export function sendTabMessageToTab(tabId: any, message: any) {
     });
     return response;
   }).catch((error) => {
+    const errorRecord = error as { message?: unknown } | null | undefined;
     logPopupMessageTrace("tab:error", {
       tabId,
       type: message && message.type ? message.type : "",
-      error: (error && error.message) || ""
+      error: (errorRecord && errorRecord.message) || ""
     });
     return null;
   });
 }
 
-export async function sendTabMessageWithRetry(message: any, attempts = 3) {
+export async function sendTabMessageWithRetry(message: Record<string, unknown>, attempts = 3) {
   for (let i = 0; i < attempts; i += 1) {
     const response = await sendTabMessage(message);
     if (response) {
@@ -467,14 +482,14 @@ function getPopupChromeTabsApi() {
   }
 }
 
-function getTabById(tabId: any) {
+function getTabById(tabId: TabId) {
   const tabsApi = getPopupChromeTabsApi();
   if (!tabsApi || typeof tabsApi.get !== "function" || !tabId) {
     return Promise.resolve(null);
   }
-  return new Promise((resolve) => {
+  return new Promise<chrome.tabs.Tab | null>((resolve) => {
     try {
-      tabsApi.get(tabId, (tab: any) => {
+      tabsApi.get(tabId, (tab) => {
         if (chrome.runtime && chrome.runtime.lastError) {
           resolve(null);
           return;
@@ -492,12 +507,12 @@ function queryActiveTabFallback() {
   if (!tabsApi || typeof tabsApi.query !== "function") {
     return Promise.resolve(null);
   }
-  return new Promise((resolve) => {
-    const finish = (tabs: any[]) => {
+  return new Promise<chrome.tabs.Tab | null>((resolve) => {
+    const finish = (tabs: chrome.tabs.Tab[]) => {
       resolve(Array.isArray(tabs) && tabs[0] && tabs[0].id ? tabs[0] : null);
     };
     try {
-      tabsApi.query({ active: true, currentWindow: true }, (tabs: any[]) => {
+      tabsApi.query({ active: true, currentWindow: true }, (tabs) => {
         if (chrome.runtime && chrome.runtime.lastError) {
           finish([]);
           return;
@@ -506,7 +521,7 @@ function queryActiveTabFallback() {
           finish(tabs);
           return;
         }
-        tabsApi.query({ active: true, lastFocusedWindow: true }, (fallbackTabs: any[]) => {
+        tabsApi.query({ active: true, lastFocusedWindow: true }, (fallbackTabs) => {
           if (chrome.runtime && chrome.runtime.lastError) {
             finish([]);
             return;
@@ -520,7 +535,7 @@ function queryActiveTabFallback() {
   });
 }
 
-async function loadActiveTabFallback(debugTabId: any) {
+async function loadActiveTabFallback(debugTabId: TabId) {
   const debugTab = await getTabById(debugTabId);
   if (debugTab) {
     return debugTab;
@@ -540,10 +555,10 @@ export async function loadActiveTab() {
         ? Math.trunc(debugTabIdParam)
         : null
     });
-    stateAny.currentTab = response && response.ok && response.tab
+    state.currentTab = response && response.ok && response.tab
       ? response.tab
       : await loadActiveTabFallback(debugTabIdParam);
   } catch (error) {
-    stateAny.currentTab = await loadActiveTabFallback(debugTabIdParam);
+    state.currentTab = await loadActiveTabFallback(debugTabIdParam);
   }
 }

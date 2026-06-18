@@ -6,11 +6,11 @@ const GLOBAL_AI_SETTINGS_SYNC_DEFAULTS = {
   globalEndpoint: "",
   globalConfigEndpoint: "",
   globalStageBase: ""
-};
+} satisfies Record<string, string>;
 const GLOBAL_THEME_SETTINGS_SYNC_DEFAULTS = {
   globalTheme: "",
   globalThemeMode: ""
-};
+} satisfies Record<string, string>;
 
 let cachedGlobalAiSettings: GlobalAiSettings | null = null;
 let syncChangeListenerInstalled = false;
@@ -39,20 +39,8 @@ type ThemeSettingsOptions = {
 };
 
 type SaveLoginSettingsOptions = {
-  stageBase?: unknown;
-  token?: unknown;
-};
-
-type SyncAiStoredValues = {
-  globalToken?: unknown;
-  globalEndpoint?: unknown;
-  globalConfigEndpoint?: unknown;
-  globalStageBase?: unknown;
-};
-
-type SyncThemeStoredValues = {
-  globalTheme?: unknown;
-  globalThemeMode?: unknown;
+  stageBase?: string | null;
+  token?: string | null;
 };
 
 function normalizeStringValue(value: unknown): string {
@@ -75,13 +63,17 @@ function getEndpointOrigin(value: unknown): string {
   }
 }
 
+function asStoredRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" ? value as Record<string, unknown> : {};
+}
+
 function normalizeGlobalAiSettings(stored: unknown): GlobalAiSettings {
-  const normalized = stored && typeof stored === "object" ? stored : {};
+  const normalized = asStoredRecord(stored);
   return {
-    tokenValue: normalizeStringValue((normalized as Record<string, unknown>).globalToken),
-    endpointValue: normalizeStringValue((normalized as Record<string, unknown>).globalEndpoint),
-    configEndpointValue: normalizeStringValue((normalized as Record<string, unknown>).globalConfigEndpoint),
-    stageBaseValue: normalizeStringValue((normalized as Record<string, unknown>).globalStageBase)
+    tokenValue: normalizeStringValue(normalized.globalToken),
+    endpointValue: normalizeStringValue(normalized.globalEndpoint),
+    configEndpointValue: normalizeStringValue(normalized.globalConfigEndpoint),
+    stageBaseValue: normalizeStringValue(normalized.globalStageBase)
   };
 }
 
@@ -108,10 +100,7 @@ function updateCachedGlobalAiSettings(patch: Partial<GlobalAiSettings> = {}): vo
 }
 
 async function getGlobalSettingsWriteSnapshot(): Promise<GlobalSettingsWriteSnapshot> {
-  const stored = (await storageGet(
-    chrome.storage.sync,
-    GLOBAL_AI_SETTINGS_SYNC_DEFAULTS as unknown as Record<string, unknown>
-  )) as SyncAiStoredValues;
+  const stored = await storageGet(chrome.storage.sync, GLOBAL_AI_SETTINGS_SYNC_DEFAULTS);
   return {
     tokenValue: normalizeStoredTokenValue(stored.globalToken),
     endpointValue: normalizeStringValue(stored.globalEndpoint),
@@ -155,10 +144,7 @@ export async function getGlobalAiSettings(options: GlobalAiSettingsOptions = {})
     }
   }
 
-  const stored = (await storageGet(
-    chrome.storage.sync,
-    GLOBAL_AI_SETTINGS_SYNC_DEFAULTS as unknown as Record<string, unknown>
-  )) as SyncAiStoredValues;
+  const stored = await storageGet(chrome.storage.sync, GLOBAL_AI_SETTINGS_SYNC_DEFAULTS);
   const normalized = normalizeGlobalAiSettings(stored);
   if (useCache) {
     cachedGlobalAiSettings = { ...normalized };
@@ -181,10 +167,7 @@ export async function getGlobalToken(options: { trim?: boolean } = {}): Promise<
     const settings = await getGlobalAiSettings({ useCache: false });
     return settings.tokenValue;
   }
-  const stored = (await storageGet(
-    chrome.storage.sync,
-    { globalToken: "" } as unknown as Record<string, unknown>
-  )) as SyncAiStoredValues;
+  const stored = await storageGet(chrome.storage.sync, { globalToken: "" });
   return normalizeStoredTokenValue(stored.globalToken);
 }
 
@@ -312,10 +295,7 @@ export async function getThemeSettings(
     typeof options.normalizeThemeModeValue === "function"
       ? options.normalizeThemeModeValue
       : (value: unknown) => normalizeStringValue(value);
-  const stored = (await storageGet(
-    chrome.storage.sync,
-    GLOBAL_THEME_SETTINGS_SYNC_DEFAULTS as unknown as Record<string, unknown>
-  )) as SyncThemeStoredValues;
+  const stored = await storageGet(chrome.storage.sync, GLOBAL_THEME_SETTINGS_SYNC_DEFAULTS);
   return {
     themeValue: normalizeThemeValue(stored.globalTheme),
     themeModeValue: normalizeThemeModeValue(stored.globalThemeMode)
@@ -353,9 +333,7 @@ export function summarizeGlobalAiSettingsForLog(settings: unknown): {
   configEndpointValue: string;
   stageBaseValue: string;
 } {
-  const normalized = (settings && typeof settings === "object"
-    ? settings
-    : {}) as Partial<GlobalAiSettings>;
+  const normalized = asStoredRecord(settings);
   return {
     tokenValue: normalizeStringValue(normalized.tokenValue) ? "[redacted]" : "",
     endpointValue: normalizeStringValue(normalized.endpointValue),

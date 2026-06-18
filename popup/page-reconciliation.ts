@@ -2,13 +2,65 @@ import * as stateModule from "./state.js";
 
 const { state } = stateModule;
 
+interface PageReconciliationOptions {
+  currentDraftDirty?: boolean;
+  reconciliationPending?: boolean;
+  pageUrl?: string;
+}
+
+type PageReconciliationViewState = {
+  sessionHasPendingChanges?: boolean;
+  sessionRequiresAiRun?: boolean;
+  currentPageHasPendingChanges?: boolean;
+};
+
+type PageSaveSyncResult = {
+  ok?: boolean;
+  authExpired?: boolean;
+  skipped?: boolean;
+  reason?: string;
+};
+
+type GlobalAiSettingsSnapshot = {
+  tokenValue?: string;
+  configEndpointValue?: string;
+  stageBaseValue?: string;
+};
+
+interface PageReconciliationDeps {
+  hasCurrentPageMarkingChanges?: (localPageMarkings: unknown, backendSavedPageMarkings: unknown, pageUrl?: string) => boolean;
+  ensureActiveTab?: (options?: { requireId?: boolean }) => Promise<unknown>;
+  ensureBaseUrl: (message?: string) => boolean;
+  refreshCurrentPageRuntimeStatus: (options?: Record<string, unknown>) => Promise<unknown>;
+  showToast: (message: string) => void;
+  getViewState: () => PageReconciliationViewState;
+  updateLastConfigSaveStatus: (message: string) => void;
+  validateStoredToken: (options?: { force?: boolean }) => Promise<unknown>;
+  runWithSpinner: (key: string | null, label: string, task: () => Promise<unknown>) => Promise<unknown>;
+  getCurrentPageUrl: () => string | null;
+  loadGlobalAiSettings: () => Promise<GlobalAiSettingsSnapshot> | GlobalAiSettingsSnapshot;
+  syncBaseConfigToServer: (options?: Record<string, unknown>) => Promise<PageSaveSyncResult> | PageSaveSyncResult;
+  clearCurrentPageSaveReconciliation: () => Promise<unknown>;
+  resetAiRunMarkingsFingerprint: () => void;
+  applyPostSaveSilentTransition: () => Promise<unknown>;
+  refreshUi: (options?: Record<string, unknown>) => Promise<unknown>;
+  setUiBusy: (busy?: boolean, message?: string, details?: Record<string, unknown>) => void;
+  waitForRetryDelay: (delayMs?: number) => Promise<unknown>;
+  applyLocalPageDiscard: () => Promise<unknown>;
+  windowRef: Window;
+  PopupText: Record<string, Record<string, string>>;
+  PAGE_SAVE_SYNC_INITIAL_RETRY_DELAY_MS: number;
+  PAGE_SAVE_SYNC_MAX_ATTEMPTS: number;
+  PAGE_SAVE_SYNC_MAX_RETRY_DELAY_MS: number;
+}
+
 export function hasCurrentPagePendingChanges(
-  deps: any,
-  localPageMarkings: any,
-  backendSavedPageMarkings: any,
-  options: any = {}
+  deps: PageReconciliationDeps,
+  localPageMarkings: unknown,
+  backendSavedPageMarkings: unknown,
+  options: PageReconciliationOptions = {}
 ) {
-  const opts = options as any;
+  const opts = options;
   const hasCurrentPageMarkingChanges =
     typeof deps.hasCurrentPageMarkingChanges === "function"
       ? deps.hasCurrentPageMarkingChanges
@@ -20,7 +72,7 @@ export function hasCurrentPagePendingChanges(
   );
 }
 
-export async function handlePageSave(deps: any) {
+export async function handlePageSave(deps: PageReconciliationDeps) {
   const ensureActiveTab =
     typeof deps.ensureActiveTab === "function"
       ? deps.ensureActiveTab
@@ -100,7 +152,7 @@ export async function handlePageSave(deps: any) {
   });
 }
 
-export async function handlePageRevert(deps: any) {
+export async function handlePageRevert(deps: PageReconciliationDeps) {
   const ensureActiveTab =
     typeof deps.ensureActiveTab === "function"
       ? deps.ensureActiveTab

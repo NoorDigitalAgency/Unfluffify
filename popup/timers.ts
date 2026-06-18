@@ -9,7 +9,7 @@ type PopupTimerRecord =
   | { kind: "timeout"; id: ReturnType<typeof setTimeout> }
   | { kind: "interval"; id: ReturnType<typeof setInterval> };
 
-function toSafeDelay(value: unknown, fallback: unknown = 0): number {
+function toSafeDelay(value: number | null | undefined, fallback: number | null | undefined = 0): number {
   const numeric = Number(value);
   if (!Number.isFinite(numeric) || numeric < 0) {
     return Math.max(0, Number(fallback) || 0);
@@ -18,7 +18,7 @@ function toSafeDelay(value: unknown, fallback: unknown = 0): number {
 }
 
 export function createPopupTimerGroup(options: { windowRef?: PopupTimerWindow } = {}) {
-  const windowRef = options.windowRef || (window as unknown as PopupTimerWindow);
+  const windowRef: PopupTimerWindow = options.windowRef || window;
   const timersByKey = new Map<unknown, PopupTimerRecord>();
 
   function clear(key: unknown): void {
@@ -41,7 +41,7 @@ export function createPopupTimerGroup(options: { windowRef?: PopupTimerWindow } 
     return timersByKey.has(key);
   }
 
-  function setTimeoutTimer(key: unknown, callback: () => void, delayMs: unknown = 0): ReturnType<typeof setTimeout> {
+  function setTimeoutTimer(key: unknown, callback: () => void, delayMs: number | null | undefined = 0): ReturnType<typeof setTimeout> {
     clear(key);
     const id = windowRef.setTimeout(() => {
       timersByKey.delete(key);
@@ -54,7 +54,7 @@ export function createPopupTimerGroup(options: { windowRef?: PopupTimerWindow } 
     return id;
   }
 
-  function setIntervalTimer(key: unknown, callback: () => void, intervalMs: unknown = 0): ReturnType<typeof setInterval> {
+  function setIntervalTimer(key: unknown, callback: () => void, intervalMs: number | null | undefined = 0): ReturnType<typeof setInterval> {
     clear(key);
     const id = windowRef.setInterval(callback, toSafeDelay(intervalMs));
     timersByKey.set(key, {

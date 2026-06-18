@@ -142,7 +142,7 @@ export function createPropertyLockClientId() {
  * @param {string} tokenValue - JWT token for authorization
  * @returns {string} WSS URL or empty string if invalid
  */
-export function buildPropertyLockWssUrl(endpointUrl: unknown, tokenValue: unknown): string {
+export function buildPropertyLockWssUrl(endpointUrl: string | null | undefined, tokenValue: string | null | undefined): string {
   if (!endpointUrl || typeof endpointUrl !== "string") {
     return "";
   }

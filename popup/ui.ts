@@ -21,7 +21,7 @@ export { ViewText } from "../common/text.js";
 
 const { state } = stateModule;
 
-const refs = {} as Record<string, any>;
+const refs = {} as Record<string, HTMLElement | null>;
 let uiTimers: ReturnType<typeof createPopupTimerGroup> | null = null;
 const initialLynxChecklistState = createInitialLynxChecklistState();
 let lastPreviewScrolledXpath = "";
@@ -30,6 +30,43 @@ export const View = {
     Loading: 'Loading',
     Configuration: 'Configuration',
     Marking: 'Marking'
+}
+
+interface ThemeOption {
+  value: string;
+  label: string;
+  [key: string]: unknown;
+}
+
+interface PageTypeCandidate {
+  url: string;
+  label: string;
+  marked: boolean;
+  [key: string]: unknown;
+}
+
+interface PageTypeGroup {
+  key: string;
+  title: string;
+  markedCount: number;
+  candidates: PageTypeCandidate[];
+  [key: string]: unknown;
+}
+
+interface PreviewItem {
+  kind: string;
+  text: string;
+  title: string;
+  xpath: string;
+  [key: string]: unknown;
+}
+
+interface TraceEventEntry {
+  at: number;
+  channel: string;
+  event: string;
+  payload: Record<string, unknown>;
+  [key: string]: unknown;
 }
 
 const initialViewState = {
@@ -212,9 +249,29 @@ const initialViewState = {
   toastVisible: false
 };
 
-let viewState: any = { ...initialViewState };
-let actions: any = {};
-const viewStateListeners = new Set<(nextViewState: any) => void>();
+interface ViewState {
+  currentView: string;
+  toggleEnabled?: boolean;
+  deviceEmulationEnabled: boolean;
+  desktopPreviewEnabled?: boolean;
+  todoSubsectionsExpanded: Record<string, boolean>;
+  endpointUrlValue: string;
+  configEndpointUrlValue: string;
+  stageBaseValue: string;
+  stageBaseReadOnly?: boolean;
+  loginEmailValue: string;
+  loginPasswordValue: string;
+  aiControlsBusy?: boolean;
+  isBusy?: boolean;
+  sessionHasPendingChanges?: boolean;
+  sessionRequiresAiRun?: boolean;
+  currentPageHasPendingChanges?: boolean;
+  [key: string]: unknown;
+}
+
+let viewState: ViewState = { ...initialViewState };
+let actions: Record<string, unknown> = {};
+const viewStateListeners = new Set<(nextViewState: ViewState) => void>();
 
 function notifyViewStateListeners() {
   viewStateListeners.forEach((listener) => {
@@ -597,7 +654,7 @@ function renderThemePalette(option, extraClassName = "") {
 function getSelectedThemeOption(view) {
   const themeOptions = Array.isArray(view.themeOptions) ? view.themeOptions : [];
   const themeValue = view && typeof view.themeValue === "string" ? view.themeValue : "";
-  return themeOptions.find((option: any) => option && option.value === themeValue) || themeOptions[0] || null;
+  return themeOptions.find((option: ThemeOption) => option && option.value === themeValue) || themeOptions[0] || null;
 }
 
 // @ts-expect-error - Theme dropdown handlers/options are runtime-injected.
@@ -619,7 +676,7 @@ function renderThemeDropdown(view, handlers) {
         "aria-label": `${PopupText.configuration.themeFieldLabel}: ${selectedTheme ? selectedTheme.label : ""}`,
         onClick: handlers.onThemeMenuToggle,
         onKeyDown: handlers.onThemeMenuKeyDown,
-        ref: (el: any) => {
+        ref: (el: HTMLElement | null) => {
           refs.themeDropdownButton = el;
         }
       },
@@ -641,14 +698,14 @@ function renderThemeDropdown(view, handlers) {
         role: "listbox",
         hidden: !view.themeMenuOpen,
         onKeyDown: handlers.onThemeMenuKeyDown,
-        onMouseDown: (event: any) => {
+        onMouseDown: (event: MouseEvent) => {
           event.stopPropagation();
         },
-        onClick: (event: any) => {
+        onClick: (event: MouseEvent) => {
           event.stopPropagation();
         }
       },
-      themeOptions.map((option: any) =>
+      themeOptions.map((option: ThemeOption) =>
         h(
           "button",
           {
@@ -722,7 +779,7 @@ function renderThemeModeButtons(view, handlers) {
   return h(
     "div",
     { class: "theme-mode-buttons", role: "group", "aria-labelledby": "theme-mode-field-label" },
-    ...(Array.isArray(view.themeModeOptions) ? view.themeModeOptions : []).map((option: any) =>
+    ...(Array.isArray(view.themeModeOptions) ? view.themeModeOptions : []).map((option: ThemeOption) =>
       h(
         "button",
         {
@@ -874,7 +931,7 @@ function renderRenderModeEditor(view, handlers) {
             onChange: handlers.onRenderModeInput,
             "aria-hidden": "true",
             tabIndex: -1,
-            ref: (el: any) => {
+            ref: (el: HTMLElement | null) => {
               refs.renderModeSelect = el;
             }
           },
@@ -926,7 +983,7 @@ function getTodoProgress(view) {
   const pageTypeGroups = Array.isArray(view.pageTypeGroups) ? view.pageTypeGroups : [];
   const total = pageTypeGroups.length;
   const completed = pageTypeGroups.reduce(
-    (count: any, group: any) => count + (group && group.markedCount > 0 ? 1 : 0),
+    (count: number, group: PageTypeGroup) => count + (group && group.markedCount > 0 ? 1 : 0),
     0
   );
   return {
@@ -1028,7 +1085,7 @@ function renderMarkedPagesSection(view, handlers, extraClassName = "") {
           { class: "todo-body" },
           view.pageTypeGroups.length
             ? [
-                view.pageTypeGroups.map((group: any) => {
+                view.pageTypeGroups.map((group: PageTypeGroup) => {
                   const subsectionExpanded = Boolean(
                     view.todoSubsectionsExpanded && view.todoSubsectionsExpanded[group.key]
                   );
@@ -1081,7 +1138,7 @@ function renderMarkedPagesSection(view, handlers, extraClassName = "") {
                           "div",
                           { class: "todo-subsection-body" },
                           group.candidates.length
-                            ? group.candidates.map((item: any) =>
+                            ? group.candidates.map((item: PageTypeCandidate) =>
                                 h(
                                   "div",
                                   {
@@ -1111,7 +1168,7 @@ function renderMarkedPagesSection(view, handlers, extraClassName = "") {
                                             class: "todo-candidate-link",
                                             href: item.url,
                                             title: item.url,
-                                            onClick: (event: any) => {
+                                            onClick: (event: MouseEvent) => {
                                               event.preventDefault();
                                               handlers.onMarkedPageNavigate(item.url);
                                             }
@@ -1169,7 +1226,7 @@ function renderPreviewSidebar(view, handlers) {
         h("li", { class: "preview-sidebar__empty", key: "loading" }, PopupText.preview.loading)
       ]
     : view.previewItems.length
-      ? view.previewItems.map((item: any, index: number) => {
+      ? view.previewItems.map((item: PreviewItem, index: number) => {
           const active = item.xpath === view.previewFocusedXpath;
           const kindClass = view.previewShowAllCategories && item.kind
             ? `preview-sidebar__item--${item.kind}`
@@ -1191,7 +1248,7 @@ function renderPreviewSidebar(view, handlers) {
                 class: "preview-sidebar__item-button",
                 title: item.title || item.xpath,
                 onClick: () => handlers.onPreviewItemFocus(item.xpath),
-                ref: (el: any) => {
+                ref: (el: HTMLElement | null) => {
                   if (active) {
                     refs.previewActiveItem = el;
                   }
@@ -1577,7 +1634,7 @@ function getLynxChecklistNoticeText(checklist, view) {
   const { blockingReason } = checklist;
   const missingTitles = Array.isArray(blockingReason.pageTypeKeys)
     ? blockingReason.pageTypeKeys
-        .map((key: any) => (checklist.pageTypes.find((item: any) => item.key === key) || {}).title || "")
+        .map((key: string) => (checklist.pageTypes.find((item: { key: string; [extra: string]: unknown }) => item.key === key) || {}).title || "")
         .filter(Boolean)
     : [];
 
@@ -1947,7 +2004,7 @@ function renderConfigurationExtrasSection(view, handlers) {
   const traceLines = traceEvents
     .slice(-20)
     .reverse()
-    .map((event: any) => {
+    .map((event: TraceEventEntry) => {
       const at = Number.isFinite(event && event.at) ? new Date(event.at).toLocaleTimeString() : "--:--:--";
       const channel = event && typeof event.channel === "string" ? event.channel : "broker";
       const name = event && typeof event.event === "string" ? event.event : "event";
@@ -2189,7 +2246,7 @@ function renderConfigurationView({state: view, actions: handlers}) {
           disabled: view.configEndpointInputDisabled,
           onInput: handlers.onConfigEndpointInput,
           onKeyDown: handlers.onConfigEndpointKeyDown,
-          inputRef: (el: any) => {
+          inputRef: (el: HTMLElement | null) => {
             refs.configEndpointUrlInput = el;
           },
           setVisible: view.configEndpointSetVisible,
@@ -2213,7 +2270,7 @@ function renderConfigurationView({state: view, actions: handlers}) {
           disabled: view.endpointInputDisabled,
           onInput: handlers.onEndpointInput,
           onKeyDown: handlers.onEndpointKeyDown,
-          inputRef: (el: any) => {
+          inputRef: (el: HTMLElement | null) => {
             refs.endpointUrlInput = el;
           },
           setVisible: view.endpointSetVisible,
@@ -2237,7 +2294,7 @@ function renderConfigurationView({state: view, actions: handlers}) {
           disabled: view.stageBaseInputDisabled,
           onInput: handlers.onStageBaseInput,
           onKeyDown: handlers.onStageBaseKeyDown,
-          inputRef: (el: any) => {
+          inputRef: (el: HTMLElement | null) => {
             refs.stageBaseInput = el;
           },
           setVisible: view.stageBaseSetVisible,
@@ -2347,12 +2404,15 @@ function renderApp() {
       : "";
     if (!activeXpath) {
       lastPreviewScrolledXpath = "";
-    } else if (refs.previewActiveItem && lastPreviewScrolledXpath !== activeXpath) {
-      refs.previewActiveItem.scrollIntoView({
-        block: "center",
-        inline: "nearest"
-      });
-      lastPreviewScrolledXpath = activeXpath;
+    } else {
+      const previewActiveItem = refs.previewActiveItem as HTMLElement | null;
+      if (previewActiveItem && lastPreviewScrolledXpath !== activeXpath) {
+        previewActiveItem.scrollIntoView({
+          block: "center",
+          inline: "nearest"
+        });
+        lastPreviewScrolledXpath = activeXpath;
+      }
     }
   } else {
     lastPreviewScrolledXpath = "";
@@ -2384,7 +2444,7 @@ function filterTodoSubsectionsExpanded(nextViewState) {
   const pageTypeGroups = Array.isArray(nextViewState.pageTypeGroups)
     ? nextViewState.pageTypeGroups
     : [];
-  const validKeys = new Set(pageTypeGroups.map((group: any) => group.key));
+  const validKeys = new Set(pageTypeGroups.map((group: PageTypeGroup) => group.key));
   return {
     ...nextViewState,
     todoSubsectionsExpanded: Object.fromEntries(
@@ -2425,7 +2485,7 @@ export function setViewState(patch) {
  * @private
  * @param {Function} updater - Function that receives current state and returns updated state
  */
-function updateViewState(updater: (current: any) => any) {
+function updateViewState(updater: (current: ViewState) => ViewState) {
   viewState = normalizeViewState(updater(viewState));
   renderApp();
   notifyViewStateListeners();
@@ -2470,7 +2530,7 @@ export function showToast(message) {
 }
 
 // @ts-expect-error - Busy details object is optional and runtime-extended.
-export function setUiBusy(isBusy, message = "", details: any = {}) {
+export function setUiBusy(isBusy, message = "", details: Record<string, unknown> = {}) {
   const patch = {
     isBusy: Boolean(isBusy),
     busyMessage: isBusy ? (message || PopupText.overlay.pleaseWait) : "",
@@ -2578,7 +2638,7 @@ export function setTodoAllSubsectionsExpanded(expanded) {
     todoSubsectionsExpanded: Boolean(expanded)
       ? Object.fromEntries(
           (Array.isArray(currentViewState.pageTypeGroups) ? currentViewState.pageTypeGroups : [])
-            .map((group: any) => [group.key, true])
+            .map((group) => [group.key, true])
         )
       : {}
   }));

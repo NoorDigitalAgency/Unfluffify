@@ -37,13 +37,13 @@ test("popup render mode inspection uses long timeout and fail-open end cleanup",
   )[1];
 
   assert.match(helperBlock, /const normalizedPayload(?:\s*:\s*[^=]+)? = payload && typeof payload === "object" \? payload : \{\};/);
-  assert.match(helperBlock, /timeoutMs: Number\.isFinite\(options\.timeoutMs\) \? Math\.trunc\(options\.timeoutMs\) : 120000/);
+  assert.match(helperBlock, /timeoutMs: (?:Number\.isFinite\(options\.timeoutMs\) \? Math\.trunc\(options\.timeoutMs\) : 120000|resolveTimeoutMs\(options, 120000\))/);
   assert.match(helperBlock, /catch\(async \(error\) => \{[\s\S]*?normalizedPayload\.operationId[\s\S]*?type: TAB_END_RENDER_MODE_INSPECTION_COMMAND,[\s\S]*?operationId: normalizedPayload\.operationId/);
 });
 
 test("background TAB_RUN_RENDER_MODE_INSPECTION orchestrates reload, consent hide, capture, and end", () => {
   const commandBlock = backgroundSource.match(
-    /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_RUN_RENDER_MODE_INSPECTION, async \(context, payload\) => \{([\s\S]*?)\n\}, POPUP_TAB_COMMAND_POLICY\);\n(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?\n*function maybeGetCommandPayloadForLedger\(message(?:\s*:\s*any)?\)/
+    /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_RUN_RENDER_MODE_INSPECTION, async \(context, payload\) => \{([\s\S]*?)\n\}, POPUP_TAB_COMMAND_POLICY\);\n(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?\n*function maybeGetCommandPayloadForLedger\(message(?:\s*:\s*[^)]+)?\)/
   )[1];
 
   assert.match(backgroundSource, /from "\.\/background\/tab-operation-runner\.js"/);
@@ -112,7 +112,7 @@ test("background TAB_END_RENDER_MODE_INSPECTION restores JavaScript and clears t
 test("background restores no-JS render-mode holds after central tab inactivity", () => {
   const manifest = JSON.parse(manifestSource);
   const commandBlock = backgroundSource.match(
-    /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_RUN_RENDER_MODE_INSPECTION, async \(context, payload\) => \{([\s\S]*?)\n\}, POPUP_TAB_COMMAND_POLICY\);\n(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?\n*function maybeGetCommandPayloadForLedger\(message(?:\s*:\s*any)?\)/
+    /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_RUN_RENDER_MODE_INSPECTION, async \(context, payload\) => \{([\s\S]*?)\n\}, POPUP_TAB_COMMAND_POLICY\);\n(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?\n*function maybeGetCommandPayloadForLedger\(message(?:\s*:\s*[^)]+)?\)/
   )[1];
   const activityMessageBlock = backgroundSource.match(
     /if \(message\.type === "pageActivityObserved"\) \{([\s\S]*?)\n  \}\n\n  if \(PROPERTY_LOCK_MESSAGE_TYPES/

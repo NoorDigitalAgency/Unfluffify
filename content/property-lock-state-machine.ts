@@ -1,5 +1,97 @@
-export function createPropertyLockStateMachine(deps: any) {
-  function normalizeRecoveryTabState(tabState: any) {
+interface PropertyLockMachineState {
+  isEditor?: boolean;
+  isSameUserEditor?: boolean;
+  editorName?: string;
+  transferFromName?: string;
+  transferToName?: string;
+  [key: string]: unknown;
+}
+
+interface PropertyLockText {
+  editorNowToast: string;
+  editorTransferredToast(editorName: string): string;
+}
+
+interface PropertyLockStateMachineDeps {
+  PROPERTY_LOCK_BACKGROUND_CONNECTION_STATUS: string;
+  PROPERTY_LOCK_CONNECTION_LOSS_TIMEOUT_MS: number;
+  PROPERTY_LOCK_CONNECTION_UNAVAILABLE: string;
+  PROPERTY_LOCK_CONTENT_RELEASE: string;
+  PROPERTY_LOCK_CROSS_PROPERTY_COOLDOWN_TIMEOUT_MS: number;
+  PROPERTY_LOCK_OFF_CANDIDATE_WARNING_TIMEOUT_MS: number;
+  PROPERTY_LOCK_WS_DISCONNECT_WARNING: string;
+  PROPERTY_LOCK_WS_ERROR: string;
+  PROPERTY_LOCK_WS_INACTIVITY_WARNING: string;
+  PROPERTY_LOCK_WS_LOCK_STATE: string;
+  PROPERTY_LOCK_WS_SUGGESTION_ACCEPTED: string;
+  PROPERTY_LOCK_WS_SUGGESTION_PENDING: string;
+  PROPERTY_LOCK_WS_SUGGESTION_RESPONSE: string;
+  PROPERTY_LOCK_WS_TAKEOVER_SUGGESTION: string;
+  PROPERTY_LOCK_WS_TRANSFER_COUNTDOWN: string;
+  propertyLockText: PropertyLockText;
+  getTimerHost(): Window;
+  getPropertyLockState(): PropertyLockMachineState;
+  setPropertyLockState(nextState: Record<string, unknown>): void;
+  armPropertyLockCrossPropertyRelease(): void;
+  clearPropertyLockBannerCountdown(): void;
+  clearPropertyLockRecoveryReleaseTimer(): void;
+  clearSilentHighlightEditorRevealKey(): void;
+  ensurePropertyLockCollaborationActive(): boolean;
+  getBaseUrl(): string;
+  getCurrentUrl(): string;
+  getPropertyLockBannerCountdownTimer(): number;
+  getPropertyLockBannerCountdownValue(): number;
+  getPropertyLockBannerMode(): string;
+  getPropertyLockClientId(): string;
+  getPropertyLockConnectedBaseUrl(): string;
+  getPropertyLockConnectedSiteId(): number | null;
+  getPropertyLockOffCandidateDeadlineAt(): number;
+  getPropertyLockRecoveryBaseUrl(): string;
+  getPropertyLockRecoveryClientId(): string;
+  getPropertyLockRecoveryDeadlineAt(): number;
+  getPropertyLockRecoverySiteId(): number | null;
+  getPropertyLockSuggestionFromName(): string;
+  getPropertyLockSuggestionId(): string;
+  isPropertyLockCollaborationEnabled(): boolean;
+  isRenderModeInspectionActive(): boolean;
+  normalizePropertyLockClientId(value: unknown): string;
+  refreshSilentHighlightings(): Promise<unknown>;
+  renderPropertyLockBanner(): void;
+  restartPropertyLockBannerCountdown(): void;
+  runEditorSilentHighlightingActivation(): Promise<unknown>;
+  sendPropertyLockMessage(type: string, payload?: Record<string, unknown>): void;
+  sendRuntimeMessage(message: Record<string, unknown>): Promise<unknown>;
+  setPropertyLockBannerCountdownValue(value: number): void;
+  setPropertyLockBannerMode(mode: string): void;
+  setPropertyLockOffCandidateDeadlineAt(deadlineAt: number): void;
+  setPropertyLockRecoveryBaseUrl(baseUrl: string): void;
+  setPropertyLockRecoveryClientId(clientId: string): void;
+  setPropertyLockRecoveryDeadlineAt(deadlineAt: number): void;
+  setPropertyLockRecoverySiteId(siteId: number | null): void;
+  setPropertyLockSuggestionFromName(fromName: string): void;
+  setPropertyLockSuggestionId(suggestionId: string): void;
+  showPageToast(message: string): void;
+  syncPropertyLockOffCandidateWarning(baseUrl: string, currentUrl: string): Promise<unknown>;
+  updatePropertyLockBannerMode(): void;
+}
+
+interface PropertyLockRecoveryTabStateInput {
+  propertyLockRecoverySiteId: number;
+  propertyLockRecoveryBaseUrl: string | null;
+  propertyLockRecoveryClientId: string | null;
+  propertyLockRecoveryDeadlineAt: number;
+  propertyLockOffCandidateDeadlineAt: number;
+}
+
+interface PropertyLockRecoveryStateInput {
+  siteId?: number | null;
+  clientId?: string;
+  baseUrl?: string;
+  deadlineAt: number;
+}
+
+export function createPropertyLockStateMachine(deps: PropertyLockStateMachineDeps) {
+  function normalizeRecoveryTabState(tabState: PropertyLockRecoveryTabStateInput) {
     const nextSiteId = Number.isFinite(tabState && tabState.propertyLockRecoverySiteId)
       ? Math.trunc(tabState.propertyLockRecoverySiteId)
       : null;
@@ -49,7 +141,7 @@ export function createPropertyLockStateMachine(deps: any) {
     }).catch(() => null);
   }
 
-  function persistOffCandidateDeadline(deadlineAt: unknown) {
+  function persistOffCandidateDeadline(deadlineAt: number) {
     if (!deps.isPropertyLockCollaborationEnabled()) {
       return Promise.resolve(null);
     }
@@ -78,7 +170,7 @@ export function createPropertyLockStateMachine(deps: any) {
   }
 
   function clearCrossPropertyWarning(options = {}) {
-    const { preserveSession = false } = (options || {}) as any;
+    const { preserveSession = false } = (options || {}) as Record<string, unknown>;
     deps.setPropertyLockRecoveryDeadlineAt(0);
     deps.clearPropertyLockRecoveryReleaseTimer();
     if (deps.getPropertyLockBannerMode() === "editor_cross_property_countdown") {
@@ -100,7 +192,7 @@ export function createPropertyLockStateMachine(deps: any) {
     }
   }
 
-  function startCrossPropertyWarning(recoveryState: any) {
+  function startCrossPropertyWarning(recoveryState: PropertyLockRecoveryStateInput | null | undefined) {
     if (!deps.ensurePropertyLockCollaborationActive()) {
       return;
     }
@@ -166,7 +258,7 @@ export function createPropertyLockStateMachine(deps: any) {
     }, deps.PROPERTY_LOCK_OFF_CANDIDATE_WARNING_TIMEOUT_MS + 100);
   }
 
-  function applyServerMessage(serverMessage: any) {
+  function applyServerMessage(serverMessage: Record<string, unknown>) {
     if (!deps.ensurePropertyLockCollaborationActive()) {
       return;
     }
@@ -211,6 +303,7 @@ export function createPropertyLockStateMachine(deps: any) {
         previousState &&
         previousState.isEditor &&
         !serverMessage.isEditor &&
+        typeof serverMessage.editorName === "string" &&
         serverMessage.editorName
       ) {
         deps.showPageToast(deps.propertyLockText.editorTransferredToast(serverMessage.editorName));

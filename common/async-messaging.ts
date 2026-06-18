@@ -14,12 +14,12 @@ type MessageLike = {
 type RequestOptions = {
   source?: string;
   target?: string;
-  tabId?: unknown;
-  frameId?: unknown;
+  tabId?: number | null;
+  frameId?: number | null;
   expectsReply?: boolean;
-  timeoutMs?: unknown;
+  timeoutMs?: number | null;
   code?: string;
-  details?: unknown;
+  details?: Record<string, unknown>;
   fullResponse?: boolean;
 };
 
@@ -34,10 +34,10 @@ type RequestContext = {
 type MessageRequestErrorOptions = {
   code?: string;
   type?: string;
-  tabId?: unknown;
-  frameId?: unknown;
-  timeoutMs?: unknown;
-  details?: unknown;
+  tabId?: number | null;
+  frameId?: number | null;
+  timeoutMs?: number | null;
+  details?: Record<string, unknown>;
 };
 
 type TimeoutHandle = {
@@ -331,7 +331,7 @@ export function requestRuntime(message: unknown, options: RequestOptions = {}): 
   });
 }
 
-export function requestTab(tabId: unknown, message: unknown, options: RequestOptions = {}): Promise<unknown> {
+export function requestTab(tabId: number | null, message: unknown, options: RequestOptions = {}): Promise<unknown> {
   const normalizedTabId = Number.isFinite(tabId) ? Math.trunc(tabId as number) : 0;
   if (!normalizedTabId) {
     const request = isObject(message) ? (message as MessageLike) : null;
@@ -354,7 +354,7 @@ export function requestTab(tabId: unknown, message: unknown, options: RequestOpt
   });
 }
 
-export function requestContent(tabId: unknown, message: unknown, options: RequestOptions = {}): Promise<unknown> {
+export function requestContent(tabId: number | null, message: unknown, options: RequestOptions = {}): Promise<unknown> {
   return requestTab(tabId, message, {
     ...options,
     frameId: Number.isFinite(options.frameId) ? Math.trunc(options.frameId as number) : 0,

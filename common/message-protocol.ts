@@ -8,11 +8,11 @@ type EnvelopeOptions = {
   id?: string;
   source?: string;
   target?: string;
-  tabId?: unknown;
-  frameId?: unknown;
+  tabId?: number | null;
+  frameId?: number | null;
 };
 
-type RequestEnvelope = {
+export type RequestEnvelope<P extends EnvelopePayload = EnvelopePayload> = {
   id: string;
   type: string;
   source: string;
@@ -20,7 +20,7 @@ type RequestEnvelope = {
   tabId: number | null;
   frameId: number;
   expectsReply: boolean;
-  payload: EnvelopePayload;
+  payload: P;
 };
 
 type SuccessEnvelope = {
@@ -90,6 +90,16 @@ function normalizeReplyCode(value: unknown): string {
   return typeof value === "string" && value ? value : MESSAGE_ERROR_CODES.HANDLER_FAILED;
 }
 
+export function createRequestEnvelope<P extends EnvelopePayload>(
+  type: string,
+  payload: P,
+  options?: EnvelopeOptions
+): RequestEnvelope<P>;
+export function createRequestEnvelope(
+  type: string,
+  payload: unknown,
+  options?: EnvelopeOptions
+): RequestEnvelope;
 export function createRequestEnvelope(
   type: string,
   payload: unknown,

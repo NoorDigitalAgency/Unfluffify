@@ -5,7 +5,7 @@ import type {
   PropertyLockState
 } from "./config.ts";
 
-export type PopupTone = "muted" | "success" | "warning" | "error";
+export type PopupTone = "muted" | "success" | "warning" | "danger";
 
 export type AiRunPhase = "" | "idle" | "starting" | "running" | "completed" | "failed";
 
@@ -20,12 +20,23 @@ export interface LynxChecklistPageType {
   }>;
 }
 
+export interface RemoteConfigLoadResult {
+  status: string;
+  baseUrl: string;
+  [key: string]: unknown;
+}
+
 export interface RenderModeInspectionSnapshot {
   renderedHtml?: string;
   rawHtml?: string;
   withJavaScript?: Record<string, unknown>;
   withoutJavaScript?: Record<string, unknown>;
   [key: string]: unknown;
+}
+
+export interface TodoExpansionState {
+  todoSectionExpanded: boolean;
+  todoSubsectionsExpanded: Record<string, boolean>;
 }
 
 export interface PopupState {
@@ -62,7 +73,7 @@ export interface PopupState {
   aiRunMarkingsFingerprint: string | null;
   configMenuOpen: boolean;
   currentTodoExpansionKey: string;
-  todoExpansionStateByContext: Map<string, boolean>;
+  todoExpansionStateByContext: Map<string, TodoExpansionState>;
   renderModeSummaryOpen: boolean;
   currentDeviceMode: string;
   currentDeviceScale: number;
@@ -103,7 +114,7 @@ export interface PopupState {
   renderModeDebuggerTabId: number | null;
   currentBaseUrlHasConfirmedRenderMode: boolean;
   remoteConfigLoadKey: string;
-  remoteConfigLoadResult: Record<string, unknown> | null;
+  remoteConfigLoadResult: RemoteConfigLoadResult | null;
   remoteConfigConnectionIssue: boolean;
   remoteConfigConnectionRetryTimer: number;
   lastConfigLoadStatusText: string;
@@ -126,7 +137,7 @@ export interface PopupState {
   traceModeEnabled: boolean;
   traceEvents: Array<Record<string, unknown>>;
   removedRemotePageKeys: Set<string>;
-  propertyLockSiteId: string | null;
+  propertyLockSiteId: number | null;
   propertyLockState: PropertyLockState | null;
   propertyLockConnectionStatus: string;
   propertyLockConnectionError: string;
@@ -143,7 +154,7 @@ export interface PopupState {
   propertyLockDisconnectCountdown: number | null;
   propertyLockTransferCountdown: number | null;
   propertyLockOffCandidateDeadlineAt: number;
-  propertyLockRecoverySiteId: string | null;
+  propertyLockRecoverySiteId: number | null;
   propertyLockRecoveryBaseUrl: string;
   propertyLockRecoveryClientId: string;
   propertyLockRecoveryDeadlineAt: number;

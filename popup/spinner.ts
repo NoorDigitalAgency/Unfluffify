@@ -6,6 +6,13 @@ type PopupSpinnerEntry = {
   startedAt?: number;
 };
 
+type PopupSpinnerBackgroundResponse = {
+  ok?: boolean;
+  [key: string]: unknown;
+};
+
+type PopupSpinnerTask<T> = (spinnerKey: string | null) => Promise<T>;
+
 type PopupSpinnerDeps = {
   popupSpinnerQueue: Map<string, PopupSpinnerEntry>;
   popupSpinnerKeyTabIds: Map<string, number>;
@@ -22,20 +29,20 @@ type PopupSpinnerDeps = {
   logPopupSpinnerDebug: (event: string, payload?: Record<string, unknown>) => void;
   setUiBusyFromCurrentSpinner: () => void;
   syncUiBusyFromBrokerState: () => void;
-  syncSpinnerEntryToBackground: (key: string) => Promise<unknown>;
-  removeSpinnerEntryFromBackground: (key: string, tabId?: number | null) => Promise<unknown>;
-  clearSpinnerQueueInBackground: (tabId?: number | null) => Promise<unknown>;
+  syncSpinnerEntryToBackground: (key: string) => Promise<PopupSpinnerBackgroundResponse | null>;
+  removeSpinnerEntryFromBackground: (key: string, tabId?: number | null) => Promise<PopupSpinnerBackgroundResponse | null>;
+  clearSpinnerQueueInBackground: (tabId?: number | null) => Promise<PopupSpinnerBackgroundResponse | null>;
   scheduleStaleInspectionBusyClear: (tabId?: number | null) => void;
   syncPageBusyFromPopupSpinner?: () => void;
   uiModule: { setUiBusy: (busy: boolean) => void };
 };
 
 type PopupSpinnerOptions = {
-  persistent?: unknown;
-  source?: unknown;
-  reason?: unknown;
-  suppressIfActive?: unknown;
-  delayMs?: unknown;
+  persistent?: boolean;
+  source?: string;
+  reason?: string;
+  suppressIfActive?: boolean;
+  delayMs?: number;
 };
 
 export function currentSpinnerMessage(deps: PopupSpinnerDeps): string {
@@ -62,9 +69,9 @@ export function currentSpinnerSnapshot(deps: PopupSpinnerDeps): { key: string; e
 
 export function normalizeSpinnerReason(
   _deps: PopupSpinnerDeps,
-  reason: unknown,
-  key: unknown,
-  message: unknown
+  reason?: string,
+  key?: string | null,
+  message?: string
 ): string {
   if (typeof reason === "string" && reason.trim()) {
     return reason.trim();
@@ -78,8 +85,8 @@ export function normalizeSpinnerReason(
   return "popup-spinner";
 }
 
-export function clearSpinnerWatchdog(deps: PopupSpinnerDeps, key: unknown): void {
-  if (typeof key !== "string" || !key) {
+export function clearSpinnerWatchdog(deps: PopupSpinnerDeps, key?: string | null): void {
+  if (!key) {
     return;
   }
   const timer = deps.popupSpinnerWatchdogByKey.get(key);
@@ -89,20 +96,19 @@ export function clearSpinnerWatchdog(deps: PopupSpinnerDeps, key: unknown): void
   }
 }
 
-export function armSpinnerWatchdog(deps: PopupSpinnerDeps, key: unknown): void {
+export function armSpinnerWatchdog(deps: PopupSpinnerDeps, key?: string | null): void {
   if (!key) {
     return;
   }
-  const normalizedKey = String(key);
-  clearSpinnerWatchdog(deps, normalizedKey);
+  clearSpinnerWatchdog(deps, key);
   const timer = deps.windowRef.setTimeout(() => {
-    deps.popupSpinnerWatchdogByKey.delete(normalizedKey);
-    if (deps.popupSpinnerQueue.has(normalizedKey)) {
-      deps.logPopupSpinnerDebug("spinner-watchdog-failopen", { key: normalizedKey });
-      deps.popSpinner(normalizedKey);
+    deps.popupSpinnerWatchdogByKey.delete(key);
+    if (deps.popupSpinnerQueue.has(key)) {
+      deps.logPopupSpinnerDebug("spinner-watchdog-failopen", { key });
+      deps.popSpinner(key);
     }
   }, deps.spinnerWatchdogMs);
-  deps.popupSpinnerWatchdogByKey.set(normalizedKey, timer);
+  deps.popupSpinnerWatchdogByKey.set(key, timer);
 }
 
 // function syncPageBusyFromPopupSpinner(deps)
@@ -120,12 +126,12 @@ function syncPageBusyFromPopupSpinner(deps: PopupSpinnerDeps): void {
 // export function pushSpinner(deps, key, message, options = {}) {
 export function pushSpinner(
   deps: PopupSpinnerDeps,
-  key: unknown,
-  message: unknown,
+  key: string | null,
+  message: string,
   options: PopupSpinnerOptions = {}
 ): string | null {
-  const effectiveKey = (typeof key === "string" && key) ? key : deps.cryptoRef.randomUUID();
-  const msg = (typeof message === "string" && message.trim()) ? message.trim() : "";
+  const effectiveKey = key ? key : deps.cryptoRef.randomUUID();
+  const msg = message.trim();
   const persistent = Boolean(options.persistent);
   const source = typeof options.source === "string" && options.source.trim()
     ? options.source.trim()
@@ -227,8 +233,8 @@ export function pushSpinner(
   return effectiveKey;
 }
 
-export function setSpinnerMessage(deps: PopupSpinnerDeps, key: unknown, message: unknown): void {
-  if (!key || typeof key !== "string" || typeof message !== "string" || !message.trim()) {
+export function setSpinnerMessage(deps: PopupSpinnerDeps, key: string | null, message: string): void {
+  if (!key || !message.trim()) {
     return;
   }
   const entry = deps.popupSpinnerQueue.get(key);
@@ -251,8 +257,8 @@ export function setSpinnerMessage(deps: PopupSpinnerDeps, key: unknown, message:
 }
 
 // export function popSpinner(deps, key) {
-export function popSpinner(deps: PopupSpinnerDeps, key: unknown): void {
-  if (!key || typeof key !== "string") {
+export function popSpinner(deps: PopupSpinnerDeps, key: string | null): void {
+  if (!key) {
     return;
   }
   clearSpinnerWatchdog(deps, key);
@@ -292,13 +298,13 @@ export function popSpinner(deps: PopupSpinnerDeps, key: unknown): void {
 }
 
 // export async function runWithSpinner(deps, key, message, task, options = {}) {
-export async function runWithSpinner(
+export async function runWithSpinner<T>(
   deps: PopupSpinnerDeps,
-  key: unknown,
-  message: unknown,
-  task: (spinnerKey: string | null) => Promise<unknown>,
+  key: string | null,
+  message: string,
+  task: PopupSpinnerTask<T>,
   options: PopupSpinnerOptions = {}
-): Promise<unknown> {
+): Promise<T> {
   const pushed = pushSpinner(deps, key, message, options);
   try {
     return await task(pushed);

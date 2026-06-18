@@ -1,16 +1,116 @@
+import type { Config } from "../types/config.ts";
+import type {
+  PopupState,
+  RenderModeInspectionSnapshot
+} from "../types/popup-state.ts";
+
 type RenderModeDetectionResult = {
   result: string;
   accuracy: number;
 };
 
+type RenderModeDetectionPayload = {
+  accuracy?: number | string | null;
+  rendered?: boolean;
+};
+
+type RenderModeEndpointOptions = {
+  endpointValue?: string;
+  tokenValue?: string;
+  rawHtml?: string;
+  renderedHtml?: string;
+};
+
+type WaitForTabLoadOptions = {
+  awaitNextLoad?: boolean;
+};
+
+type TransferPayloadStoreResult = {
+  ok: boolean;
+  reason?: string;
+  payloadKey: string;
+};
+
+interface RenderModeDetectionResponse {
+  ok?: boolean;
+  status?: string;
+  httpStatus?: number;
+  payload?: RenderModeDetectionPayload;
+}
+
+type RenderModeInspectionHtmlResponse = RenderModeInspectionSnapshot & {
+  ok?: boolean;
+  pageUrl?: string;
+};
+
+interface RenderModeInspectionDeps {
+  state: PopupState;
+  config: {
+    getConfigRenderMode(config: Config | null): string;
+    normalizeRenderMode(value: unknown): string;
+  };
+  PopupText: Record<string, Record<string, string>>;
+  RENDER_MODE_DETECTION_MAX_ATTEMPTS: number;
+  RENDER_MODE_DETECTION_MIN_ENDPOINT_ACCURACY: number;
+  RENDER_MODE_INSPECTION_START_TIMEOUT_MS: number;
+  RENDER_MODE_INSPECTION_LOAD_TIMEOUT_MS: number;
+  RENDER_MODE_UNDETERMINED: string;
+  windowRef: Window;
+  chromeRef: typeof chrome;
+  messages: {
+    sendRuntimeMessage(
+      message: { type: string; payloadKey?: string }
+    ): Promise<RenderModeDetectionResponse | null>;
+    sendTabMessageToTab(
+      tabId: number,
+      message: { type: string; baseUrl?: string; operationId?: string }
+    ): Promise<RenderModeInspectionHtmlResponse | null>;
+  };
+  shouldAutoDetectRenderMode(config: Config | null): boolean;
+  getCurrentRenderModeInspectionSnapshot(
+    detectionKey: string
+  ): RenderModeInspectionSnapshot | null;
+  getSuggestedRenderModeForPage(pageUrl: string | null | undefined): string;
+  loadGlobalAiSettings(): Promise<{ tokenValue: string; endpointValue: string }>;
+  markRenderModeUndetermined(detectionKey: string): void;
+  runWithSpinner<T>(
+    spinnerTarget: string | null,
+    message: string,
+    task: (spinnerKey: string | null) => Promise<T>,
+    options?: { delayMs?: number }
+  ): Promise<T>;
+  buildTransferPayloadKey(label: string): string;
+  putTransferPayload(
+    kind: string,
+    payload: Record<string, unknown>,
+    options: { payloadKey?: string }
+  ): Promise<TransferPayloadStoreResult>;
+  waitForRetryDelay(delayMs?: number): Promise<void>;
+  getRetryDelayMs(attempt: number, minDelayMs: number, maxDelayMs: number): number;
+  isRetryableHttpStatus(status: unknown): boolean;
+  ensureContentReadyForRenderModeInspection(tabId: number): Promise<boolean>;
+  hideConsentForRenderModeInspection(tabId: number): Promise<boolean>;
+  rememberRenderModeInspectionSnapshot(
+    baseUrl: string,
+    pageUrl: string,
+    response: RenderModeInspectionHtmlResponse
+  ): void;
+  reconcilePropertyLockAfterRenderModeReload(): Promise<void>;
+  scheduleStaleInspectionBusyClear(
+    tabId: number,
+    baseUrl: string,
+    options: { reconcileRenderModeNavSpinner?: boolean }
+  ): void;
+}
+
 export function normalizeRenderModeDetectionResult(
-  deps: any,
+  deps: RenderModeInspectionDeps,
   payload: unknown
 ): RenderModeDetectionResult {
   if (!payload || typeof payload !== "object") {
     return { result: "", accuracy: Number.NaN };
   }
-  const payloadRecord = payload as { accuracy?: unknown; rendered?: unknown };
+  const payloadRecord = payload as RenderModeDetectionPayload;
   const accuracy = Number(payloadRecord.accuracy);
   if (!Number.isFinite(accuracy)) {
     return { result: "", accuracy: Number.NaN };
@@ -27,8 +127,13 @@ export function normalizeRenderModeDetectionResult(
   };
 }
 
-// export async function detectRenderModeViaEndpoint(deps, options = {}) {
-export async function detectRenderModeViaEndpoint(deps: any, options: Record<string, unknown> = {}) {
+type RenderModeEndpointDetection = {
+  ok: boolean;
+  result: string;
+  accuracy: number;
+};
+
+export async function detectRenderModeViaEndpoint(deps: RenderModeInspectionDeps, options: RenderModeEndpointOptions = {}): Promise<RenderModeEndpointDetection> {
   const {
     rawHtml = "",
     renderedHtml = ""
@@ -85,7 +190,10 @@ export async function detectRenderModeViaEndpoint(deps: any, options: Record<str
   return { ok: false, result: "", accuracy: Number.NaN };
 }
 
-export async function maybeAutoDetectRenderMode(deps: any, pageUrl: unknown) {
+export async function maybeAutoDetectRenderMode(
+  deps: RenderModeInspectionDeps,
+  pageUrl: string | null | undefined
+) {
   const { state } = deps;
   if (
     !pageUrl ||
@@ -166,7 +274,7 @@ export async function maybeAutoDetectRenderMode(deps: any, pageUrl: unknown) {
 }
 
 export async function waitForTabLoadStart(
-  deps: any,
+  deps: RenderModeInspectionDeps,
   tabId: number,
   timeoutMs = deps.RENDER_MODE_INSPECTION_START_TIMEOUT_MS
 ) {
@@ -187,7 +295,7 @@ export async function waitForTabLoadStart(
       resolve(value);
     };
 
-    const onUpdated = (updatedTabId: number, changeInfo: any) => {
+    const onUpdated = (updatedTabId: number, changeInfo: chrome.tabs.OnUpdatedInfo) => {
       if (updatedTabId !== tabId) {
         return;
       }
@@ -204,7 +312,7 @@ export async function waitForTabLoadStart(
     }, timeoutMs);
 
     deps.chromeRef.tabs.onUpdated.addListener(onUpdated);
-    deps.chromeRef.tabs.get(tabId, (tab: any) => {
+    deps.chromeRef.tabs.get(tabId, (tab: chrome.tabs.Tab) => {
       if (deps.chromeRef.runtime.lastError) {
         finish(false);
         return;
@@ -217,10 +325,10 @@ export async function waitForTabLoadStart(
 }
 
 export async function waitForTabLoadComplete(
-  deps: any,
+  deps: RenderModeInspectionDeps,
   tabId: number,
   timeoutMs = deps.RENDER_MODE_INSPECTION_LOAD_TIMEOUT_MS,
-  options: Record<string, unknown> = {}
+  options: WaitForTabLoadOptions = {}
 ) {
   if (!tabId) {
     return false;
@@ -242,7 +350,7 @@ export async function waitForTabLoadComplete(
       resolve(value);
     };
 
-    const onUpdated = (updatedTabId: number, changeInfo: any) => {
+    const onUpdated = (updatedTabId: number, changeInfo: chrome.tabs.OnUpdatedInfo) => {
       if (updatedTabId !== tabId) {
         return;
       }
@@ -260,7 +368,7 @@ export async function waitForTabLoadComplete(
     }, timeoutMs);
 
     deps.chromeRef.tabs.onUpdated.addListener(onUpdated);
-    deps.chromeRef.tabs.get(tabId, (tab: any) => {
+    deps.chromeRef.tabs.get(tabId, (tab: chrome.tabs.Tab) => {
       if (deps.chromeRef.runtime.lastError) {
         finish(false);
         return;
@@ -272,7 +380,7 @@ export async function waitForTabLoadComplete(
   });
 }
 
-export async function completeRenderModeInspectionReloadFollowUp(deps: any, tabId: number, operationId = "") {
+export async function completeRenderModeInspectionReloadFollowUp(deps: RenderModeInspectionDeps, tabId: number, operationId = "") {
   const loadCompleted = await waitForTabLoadComplete(
     deps,
     tabId,

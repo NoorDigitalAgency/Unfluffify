@@ -33,9 +33,9 @@ test("background keeps trace enablement fixed from feature and debug flags", () 
   assert.doesNotMatch(backgroundSource, /WORLD_MESSAGE_TYPES\.TRACE_SET/);
   assert.doesNotMatch(backgroundSource, /WORLD_MESSAGE_TYPES\.CONTENT_TRACE_SET/);
   assert.match(backgroundSource, /snapshot-requested/);
-  assert.match(worldTraceSource, /reason: typeof payload\.reason === "string" \? payload\.reason : ""/);
-  assert.match(worldTraceSource, /source: typeof payload\.source === "string" \? payload\.source : ""/);
-  assert.match(worldTraceSource, /key: typeof payload\.key === "string" \? payload\.key : ""/);
+  assert.match(worldTraceSource, /reason: typeof payloadRecord\.reason === "string" \? payloadRecord\.reason : ""/);
+  assert.match(worldTraceSource, /source: typeof payloadRecord\.source === "string" \? payloadRecord\.source : ""/);
+  assert.match(worldTraceSource, /key: typeof payloadRecord\.key === "string" \? payloadRecord\.key : ""/);
   assert.match(popupStateBrokerSource, /traceEvents: traceState && Array\.isArray\(traceState\.events\) \? \[\.\.\.traceState\.events\] : \[\]/);
 });
 

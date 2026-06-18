@@ -12,7 +12,12 @@ type RegistrationOptions = {
   requireTab: boolean;
 };
 
-const backgroundCommandHandlers = new Map<string, { handler: (...args: any[]) => any; options: RegistrationOptions }>();
+type CommandMessage = Record<string, unknown>;
+type CommandSender = chrome.runtime.MessageSender;
+type CommandHandler = (context: CommandContext, payload: Record<string, unknown>) => unknown;
+type CommandContext = ReturnType<typeof createCommandContext>;
+
+const backgroundCommandHandlers = new Map<string, { handler: CommandHandler; options: RegistrationOptions }>();
 const TAB_ID_POLICIES = new Set([
   "message-or-sender",
   "sender-or-message",
@@ -21,7 +26,7 @@ const TAB_ID_POLICIES = new Set([
   "none"
 ]);
 
-function isNonEmptyString(value: unknown) {
+function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && Boolean(value);
 }
 
@@ -29,13 +34,12 @@ function isExtensionUrl(value: unknown) {
   return isNonEmptyString(value) && /^chrome-extension:\/\//.test(value as string);
 }
 
-function normalizeMessageSource(message: any) {
-  return isNonEmptyString(message && message.source)
-    ? message.source
-    : "";
+function normalizeMessageSource(message: CommandMessage) {
+  const source = message ? message.source : undefined;
+  return isNonEmptyString(source) ? source : "";
 }
 
-function resolveSourceFromSender(sender: any) {
+function resolveSourceFromSender(sender: CommandSender) {
   if (
     isExtensionUrl(sender && sender.url) ||
     isExtensionUrl(sender && sender.origin) ||
@@ -51,7 +55,7 @@ function resolveSourceFromSender(sender: any) {
   return "";
 }
 
-function resolveTrustedSource(message: any, sender: any, options: Record<string, unknown> = {}) {
+function resolveTrustedSource(message: CommandMessage, sender: CommandSender, options: Record<string, unknown> = {}) {
   if (options && typeof options.resolveTrustedSource === "function") {
     const resolved = options.resolveTrustedSource(message, sender);
     if (isNonEmptyString(resolved)) {
@@ -100,25 +104,28 @@ function normalizeRegistrationOptions(options: Record<string, unknown> = {}): Re
   };
 }
 
-function getHandlerErrorMessage(error: any) {
+function getHandlerErrorMessage(error: unknown) {
   if (!error) {
     return "Background command failed";
   }
   if (typeof error === "string") {
     return error;
   }
-  if (typeof error.message === "string" && error.message) {
-    return error.message;
+  const message = (error as { message?: unknown }).message;
+  if (typeof message === "string" && message) {
+    return message;
   }
   return "Background command failed";
 }
 
-function normalizeFrameId(message: any, sender: any) {
-  if (Number.isFinite(message && message.frameId)) {
-    return Math.trunc(message.frameId);
+function normalizeFrameId(message: CommandMessage, sender: CommandSender) {
+  const messageFrameId = message ? message.frameId : undefined;
+  if (typeof messageFrameId === "number" && Number.isFinite(messageFrameId)) {
+    return Math.trunc(messageFrameId);
   }
-  if (Number.isFinite(sender && sender.frameId)) {
-    return Math.trunc(sender.frameId);
+  const senderFrameId = sender ? sender.frameId : undefined;
+  if (typeof senderFrameId === "number" && Number.isFinite(senderFrameId)) {
+    return Math.trunc(senderFrameId);
   }
   return 0;
 }
@@ -132,7 +139,7 @@ function normalizePositiveTabId(value: unknown) {
   return normalized > 0 ? normalized : 0;
 }
 
-function resolveTabId(message: any, sender: any, tabIdPolicy = "message-or-sender") {
+function resolveTabId(message: CommandMessage, sender: CommandSender, tabIdPolicy = "message-or-sender") {
   if (tabIdPolicy === "none") {
     return { tabId: 0, tabIdSource: "none" };
   }
@@ -159,7 +166,7 @@ function resolveTabId(message: any, sender: any, tabIdPolicy = "message-or-sende
   return { tabId: 0, tabIdSource: "none" };
 }
 
-function isSenderPolicyTabSpoofAttempt(message: any, sender: any, context: any) {
+function isSenderPolicyTabSpoofAttempt(message: CommandMessage, sender: CommandSender, context: CommandContext) {
   if (!context || context.policy !== "sender") {
     return false;
   }
@@ -176,7 +183,7 @@ function isSenderPolicyTabSpoofAttempt(message: any, sender: any, context: any) 
 
 export function registerBackgroundCommand(
   type: string,
-  handler: (...args: any[]) => any,
+  handler: CommandHandler,
   options: Record<string, unknown> = {}
 ) {
   if (typeof type !== "string" || !type) {
@@ -191,7 +198,7 @@ export function registerBackgroundCommand(
   });
 }
 
-export function createCommandContext(message: any, sender: any, options: Record<string, unknown> = {}) {
+export function createCommandContext(message: CommandMessage, sender: CommandSender, options: Record<string, unknown> = {}) {
   const tabIdPolicyCandidate = options.tabIdPolicy;
   const tabIdPolicyValue = typeof tabIdPolicyCandidate === "string"
     ? tabIdPolicyCandidate
@@ -217,7 +224,7 @@ export function createCommandContext(message: any, sender: any, options: Record<
     replyOk(result: Record<string, unknown> = {}) {
       return createSuccessEnvelope(message, result);
     },
-    replyFail(code: string, error: string, details: Record<string, unknown> = {}) {
+    replyFail(code: string, error: unknown, details: Record<string, unknown> = {}) {
       return createFailureEnvelope(
         message,
         code || MESSAGE_ERROR_CODES.HANDLER_FAILED,
@@ -228,7 +235,7 @@ export function createCommandContext(message: any, sender: any, options: Record<
   };
 }
 
-function notifyDispatched(options: Record<string, unknown> | undefined, context: any, reply: any) {
+function notifyDispatched(options: Record<string, unknown> | undefined, context: CommandContext | null, reply: unknown) {
   if (options && typeof options.onDispatched === "function") {
     try {
       options.onDispatched(context, reply);
@@ -239,7 +246,7 @@ function notifyDispatched(options: Record<string, unknown> | undefined, context:
   return reply;
 }
 
-export async function dispatchBackgroundCommand(message: any, sender: any, options: Record<string, unknown> = {}) {
+export async function dispatchBackgroundCommand(message: unknown, sender: CommandSender, options: Record<string, unknown> = {}) {
   if (!isRequestEnvelope(message)) {
     return notifyDispatched(options, null, createFailureEnvelope(
       message,
@@ -312,10 +319,10 @@ export async function dispatchBackgroundCommand(message: any, sender: any, optio
     if (isReplyEnvelope(result)) {
       return notifyDispatched(options, context, result);
     }
-    return notifyDispatched(options, context, context.replyOk(result && typeof result === "object" ? result : {}));
-  } catch (error: any) {
-    const errorCode = typeof error?.code === "string" && error.code
-      ? error.code
+    return notifyDispatched(options, context, context.replyOk(result && typeof result === "object" ? result as Record<string, unknown> : {}));
+  } catch (error: unknown) {
+    const errorCode = isNonEmptyString((error as { code?: unknown })?.code)
+      ? (error as { code: string }).code
       : MESSAGE_ERROR_CODES.HANDLER_FAILED;
     return notifyDispatched(options, context, context.replyFail(errorCode, getHandlerErrorMessage(error), {
       type: message.type

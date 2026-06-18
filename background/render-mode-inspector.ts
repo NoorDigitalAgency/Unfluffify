@@ -12,8 +12,8 @@ type RenderModeInspectorOptions = {
   waitForBackgroundRetryDelay?: (ms: number) => Promise<void>;
   updateTabRuntime?: (tabId: number, patch: Record<string, unknown>) => void;
   createManagedTimeoutGroup?: () => ManagedTimeoutGroup;
-  startTimeoutMs?: unknown;
-  loadTimeoutMs?: unknown;
+  startTimeoutMs?: number | null;
+  loadTimeoutMs?: number | null;
 };
 
 function defaultSendContentMessageToTab() {
@@ -91,7 +91,7 @@ export function createRenderModeInspector(options: RenderModeInspectorOptions = 
         chrome.tabs.onUpdated.removeListener(onUpdated);
         resolve(Boolean(value));
       };
-      const onUpdated = (updatedTabId: number, changeInfo: any) => {
+      const onUpdated = (updatedTabId: number, changeInfo: chrome.tabs.OnUpdatedInfo) => {
         if (updatedTabId !== tabId) {
           return;
         }
@@ -121,12 +121,12 @@ export function createRenderModeInspector(options: RenderModeInspectorOptions = 
   async function waitForTabLoadCompleteInBackground(
     tabId: number,
     timeoutMs = loadTimeoutMs,
-    options: { awaitNextLoad?: unknown } = {}
+    options: { awaitNextLoad?: boolean } = {}
   ) {
     if (!tabId) {
       return false;
     }
-    const awaitNextLoad = Boolean(options && options.awaitNextLoad);
+    const awaitNextLoad = Boolean(options?.awaitNextLoad);
     return new Promise((resolve) => {
       const timeoutGroup = createManagedTimeoutGroup();
       let settled = false;
@@ -143,7 +143,7 @@ export function createRenderModeInspector(options: RenderModeInspectorOptions = 
         resolve(Boolean(value));
       };
 
-      const onUpdated = (updatedTabId: number, changeInfo: any) => {
+      const onUpdated = (updatedTabId: number, changeInfo: chrome.tabs.OnUpdatedInfo) => {
         if (updatedTabId !== tabId) {
           return;
         }

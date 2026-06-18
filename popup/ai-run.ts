@@ -10,13 +10,13 @@ export const AI_RUN_PERSIST_KEY = "popupAiRun";
 const AI_RUN_STATUS_VALUES = new Set(["running", "done", "error"]);
 
 type AiRunSubmissionXpathItem = {
-  xpath?: unknown;
-  excluded?: unknown;
+  xpath?: string;
+  excluded?: boolean;
 };
 
 type AiRunEntry = {
-  includeXpaths?: unknown;
-  submissionXpaths?: unknown;
+  includeXpaths?: string[];
+  submissionXpaths?: AiRunSubmissionXpathItem[];
 };
 
 type AiRunPersistedRecord = {
@@ -34,7 +34,7 @@ function normalizeAiRunSiteIdValue(value: unknown): number | null {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
-export function formatAiRunCountdown(remainingMs: unknown): string {
+export function formatAiRunCountdown(remainingMs: number): string {
   const clamped = Math.max(0, Math.ceil(Number(remainingMs) || 0));
   const totalSeconds = Math.ceil(clamped / 1000);
   const minutes = Math.floor(totalSeconds / 60);
@@ -42,7 +42,7 @@ export function formatAiRunCountdown(remainingMs: unknown): string {
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
-export function getAiRunRemainingMs(deadlineAt: unknown, now = Date.now()): number {
+export function getAiRunRemainingMs(deadlineAt: number, now = Date.now()): number {
   const normalizedDeadlineAt = Number(deadlineAt);
   if (!Number.isFinite(normalizedDeadlineAt) || normalizedDeadlineAt <= 0) {
     return 0;
@@ -83,15 +83,15 @@ export function buildAiSubmissionXpaths(entry: AiRunEntry | null | undefined) {
   const entryLike = (entry || {}) as AiRunEntry;
   const explicitIncludeXpaths = new Set(
     Array.isArray(entryLike.includeXpaths)
-      ? (entryLike.includeXpaths as unknown[])
-        .filter((xpath: unknown) => typeof xpath === "string" && xpath)
-        .map((xpath: unknown) => (xpath as string).trim())
+      ? entryLike.includeXpaths
+        .filter((xpath): xpath is string => Boolean(typeof xpath === "string" && xpath))
+        .map((xpath) => xpath.trim())
         .filter(Boolean)
       : []
   );
   const submissionItems = (Array.isArray(entryLike.submissionXpaths)
     ? entryLike.submissionXpaths
-    : []) as AiRunSubmissionXpathItem[];
+    : []) satisfies AiRunSubmissionXpathItem[];
   return submissionItems
     .filter((item) => item && typeof item.xpath === "string" && item.xpath)
     .map((item) => {
@@ -129,7 +129,7 @@ export function normalizePersistedAiRunRecord(record: unknown): AiRunPersistedRe
   };
 }
 
-export function shouldResumePersistedAiRun(record: unknown, siteId: unknown, now = Date.now()): boolean {
+export function shouldResumePersistedAiRun(record: unknown, siteId: number | null | string, now = Date.now()): boolean {
   const normalizedRecord = normalizePersistedAiRunRecord(record);
   const normalizedSiteId = normalizeAiRunSiteIdValue(siteId);
   if (!normalizedRecord || !normalizedSiteId) {

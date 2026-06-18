@@ -159,6 +159,8 @@ import {
   queueTabSessionWrite,
   setTabState as setStoredTabState
 } from "./background/tab-session-store.js";
+import type { TabOperationContext } from "./types/operations.js";
+import type { RuntimeMessage, RuntimeMessageReply } from "./types/messaging.js";
 
 // @ts-expect-error
 function buildFeatureDisabledResponse(featureName) {
@@ -338,7 +340,7 @@ function navigateTabToUrl(tabId, url) {
 
 // @ts-expect-error
 function sendContentMessageToTab(tabId, message, timeoutMs = 15000) {
-  return new Promise((resolve) => {
+  return new Promise<{ ok: boolean; error?: string; reconciliationPending?: boolean; locked?: boolean }>((resolve) => {
     const normalizedTabId = normalizeBrokerTabId(tabId);
     if (!normalizedTabId) {
       resolve({ ok: false, error: "Missing tab" });
@@ -395,7 +397,6 @@ async function ensureContentMainForTab(tabId) {
     const response = await sendContentMessageToTab(normalizedTabId, {
       type: "activateContentMain"
     });
-// @ts-expect-error
     if (response && response.ok) {
       return { ok: true, tabId: normalizedTabId };
     }
@@ -404,7 +405,6 @@ async function ensureContentMainForTab(tabId) {
       const retryResponse = await sendContentMessageToTab(normalizedTabId, {
         type: "activateContentMain"
       });
-// @ts-expect-error
       if (retryResponse && retryResponse.ok) {
         return { ok: true, tabId: normalizedTabId };
       }
@@ -435,7 +435,6 @@ function normalizeActivationBaseUrl(value) {
 }
 
 const renderModeInspector = createRenderModeInspector({
-// @ts-expect-error
   sendContentMessageToTab,
   ensureContentMainForTab,
 // @ts-expect-error
@@ -547,7 +546,6 @@ async function restoreRenderModeJavaScriptAfterNoJsInactivity(tabId) {
   return reloadResult || { ok: false, error: "Unable to reload page with JavaScript" };
 }
 
-// @ts-expect-error
 tabInactivityObserver.subscribe(async (event) => {
   if (!event || event.type !== "inactive" || event.scope !== RENDER_MODE_NO_JS_INACTIVITY_SCOPE) {
     return;
@@ -706,7 +704,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_CONTENT_REQUEST, async (contex
     return context.replyFail(
       MESSAGE_ERROR_CODES.CONTENT_UNAVAILABLE,
       "Unable to reach content script",
-      { tabId: normalizedTabId, type: message.type || "" }
+      { tabId: normalizedTabId, type: (message as { type?: string }).type || "" }
     );
   }
 
@@ -855,7 +853,6 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_ACTIVATE_MARKING, async (conte
         operationId
       });
 
-// @ts-expect-error
       if (!enableResponse || !enableResponse.ok) {
         await utils.setTabState(normalizedTabId, {
           enabled: false,
@@ -872,7 +869,6 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_ACTIVATE_MARKING, async (conte
           busy: false,
           message: ""
         });
-// @ts-expect-error
         if (enableResponse && enableResponse.locked) {
           return context.replyFail(
             MESSAGE_ERROR_CODES.FEATURE_DISABLED,
@@ -885,7 +881,6 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_ACTIVATE_MARKING, async (conte
         }
         throw createBackgroundCommandError(
           MESSAGE_ERROR_CODES.HANDLER_FAILED,
-// @ts-expect-error
           (enableResponse && enableResponse.error) || "Unable to activate marking",
           { tabId: normalizedTabId }
         );
@@ -1000,7 +995,6 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_DEACTIVATE_MARKING, async (con
         tabId: normalizedTabId,
         baseUrl,
         pageType: "",
-// @ts-expect-error
         contentAcknowledged: Boolean(disableResponse && disableResponse.ok),
         runtime: getTabRuntimeSnapshot(normalizedTabId),
         state: await utils.getTabState(normalizedTabId)
@@ -1059,9 +1053,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_APPLY_POST_SAVE_TRANSITION, as
   return {
     ok: true,
     tabId: normalizedTabId,
-// @ts-expect-error
     configUpdatedAcknowledged: Boolean(configUpdatedResponse && configUpdatedResponse.ok),
-// @ts-expect-error
     contentAcknowledged: Boolean(disableResponse && disableResponse.ok),
     runtime: getTabRuntimeSnapshot(normalizedTabId),
     state: await utils.getTabState(normalizedTabId)
@@ -1098,7 +1090,6 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_APPLY_LOCAL_DISCARD, async (co
   return {
     ok: true,
     tabId: normalizedTabId,
-// @ts-expect-error
     contentAcknowledged: Boolean(response && response.ok),
     runtime: getTabRuntimeSnapshot(normalizedTabId)
   };
@@ -1122,16 +1113,14 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_SHOW_AI_PREVIEW, async (contex
     );
   }
 
-  const selectorSet = normalizeAiSelectorSet(payload && payload.selectorSet);
+  const selectorSet = normalizeAiSelectorSet((payload && payload.selectorSet) as Parameters<typeof normalizeAiSelectorSet>[0]);
   const response = await sendContentMessageToTab(normalizedTabId, {
     type: "showAiPreview",
     selectorSet
   });
-// @ts-expect-error
   if (!response || !response.ok) {
     return context.replyFail(
       MESSAGE_ERROR_CODES.HANDLER_FAILED,
-// @ts-expect-error
       (response && response.error) || "Unable to open preview",
       { tabId: normalizedTabId }
     );
@@ -1155,11 +1144,9 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_CLOSE_AI_PREVIEW, async (conte
   }
 
   const response = await sendContentMessageToTab(normalizedTabId, { type: "closeAiPreview" });
-// @ts-expect-error
   if (!response || !response.ok) {
     return context.replyFail(
       MESSAGE_ERROR_CODES.HANDLER_FAILED,
-// @ts-expect-error
       (response && response.error) || "Unable to close preview",
       { tabId: normalizedTabId }
     );
@@ -1186,11 +1173,9 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_SET_AI_PREVIEW_EXPANDED_MODE, 
     type: "setAiPreviewExpandedMode",
     active: Boolean(payload && payload.active)
   });
-// @ts-expect-error
   if (!response || !response.ok) {
     return context.replyFail(
       MESSAGE_ERROR_CODES.HANDLER_FAILED,
-// @ts-expect-error
       (response && response.error) || "Unable to update preview mode",
       { tabId: normalizedTabId }
     );
@@ -1226,11 +1211,9 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_FOCUS_PREVIEW_ELEMENT, async (
     type: "focusElement",
     xpath
   });
-// @ts-expect-error
   if (!response || !response.ok) {
     return context.replyFail(
       MESSAGE_ERROR_CODES.HANDLER_FAILED,
-// @ts-expect-error
       (response && response.error) || "Unable to focus element",
       { tabId: normalizedTabId }
     );
@@ -1423,7 +1406,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
         persistent: false
       }
     },
-  async ({ update }: any) => {
+  async ({ update }: TabOperationContext) => {
       // Clear any prior "Without JavaScript" hold for this tab before we start.
       // This inspection's own reload also fires webNavigation events, so the tab
       // must NOT be marked held while we reload — it is re-marked in `finally` only
@@ -1716,7 +1699,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_AI, async (context, payloa
       source: "background-command-router",
       persistent: false
     },
-  async ({ update }: any) => {
+  async ({ update }: TabOperationContext) => {
       const result = await runAiCommandForTab(normalizedTabId, payload, update);
       if (!result || !result.ok) {
         return context.replyFail(
@@ -1746,7 +1729,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_AI, async (context, payloa
   );
 }, POPUP_TAB_COMMAND_POLICY);
 
-function maybeGetCommandPayloadForLedger(message: any) {
+function maybeGetCommandPayloadForLedger(message: RuntimeMessage) {
   if (!isDebugFlagEnabled("fullWorldMessagingLogging")) {
     return undefined;
   }
@@ -1756,7 +1739,7 @@ function maybeGetCommandPayloadForLedger(message: any) {
   return redactCommandPayloadForLedger(message.payload);
 }
 
-function recordBackgroundCommandLedger(message: any, sender: any, reply: any, startedAt: any, resolvedContextTabId: any = null) {
+function recordBackgroundCommandLedger(message: RuntimeMessage, sender: chrome.runtime.MessageSender, reply: RuntimeMessageReply | null, startedAt: number, resolvedContextTabId: number | null = null) {
   if (!message || typeof message !== "object") {
     return;
   }

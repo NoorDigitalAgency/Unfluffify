@@ -1,4 +1,4 @@
-type ContentMainServiceFactory = () => unknown;
+type ContentMainServiceFactory = () => object;
 
 type ContentMainServiceFactories = {
   createPageToastClient: ContentMainServiceFactory;
@@ -32,34 +32,34 @@ type ContentMainServiceFactories = {
 };
 
 export function createContentMainServiceRegistry(factories: ContentMainServiceFactories) {
-  let pageToastClient: unknown = null;
-  let pageSaveReconciliationClearHandler: unknown = null;
-  let pageSaveReconciliationPendingHandler: unknown = null;
-  let renderModeInspectionClient: unknown = null;
-  let renderModeInspectionHandlers: unknown = null;
-  let inspectionStatusResolver: unknown = null;
-  let pageDraftStatusHandler: unknown = null;
-  let pageDraftRevertHandler: unknown = null;
-  let pageDraftSaveHandler: unknown = null;
-  let aiPreviewCloseHandler: unknown = null;
-  let aiPreviewComputeLockHandler: unknown = null;
-  let aiPreviewExpandedModeHandler: unknown = null;
-  let aiPreviewGetStateHandler: unknown = null;
-  let aiPreviewShowHandler: unknown = null;
-  let aiPreviewStateResponseBuilder: unknown = null;
-  let aiSubmissionXpathsHandler: unknown = null;
-  let capturePageSnapshotHandler: unknown = null;
-  let collectPageDataHandler: unknown = null;
-  let configUpdatedHandler: unknown = null;
-  let defaultExclusionsHandler: unknown = null;
-  let describeXpathsHandler: unknown = null;
-  let explicitMarkingHandler: unknown = null;
-  let focusHandler: unknown = null;
-  let forceRefreshHandler: unknown = null;
-  let invisibleXpathsHandler: unknown = null;
-  let propertyLockPortClient: unknown = null;
-  let propertyLockStateMachine: unknown = null;
-  let visibleXpathsHandler: unknown = null;
+  let pageToastClient: object | null = null;
+  let pageSaveReconciliationClearHandler: object | null = null;
+  let pageSaveReconciliationPendingHandler: object | null = null;
+  let renderModeInspectionClient: object | null = null;
+  let renderModeInspectionHandlers: object | null = null;
+  let inspectionStatusResolver: object | null = null;
+  let pageDraftStatusHandler: object | null = null;
+  let pageDraftRevertHandler: object | null = null;
+  let pageDraftSaveHandler: object | null = null;
+  let aiPreviewCloseHandler: object | null = null;
+  let aiPreviewComputeLockHandler: object | null = null;
+  let aiPreviewExpandedModeHandler: object | null = null;
+  let aiPreviewGetStateHandler: object | null = null;
+  let aiPreviewShowHandler: object | null = null;
+  let aiPreviewStateResponseBuilder: object | null = null;
+  let aiSubmissionXpathsHandler: object | null = null;
+  let capturePageSnapshotHandler: object | null = null;
+  let collectPageDataHandler: object | null = null;
+  let configUpdatedHandler: object | null = null;
+  let defaultExclusionsHandler: object | null = null;
+  let describeXpathsHandler: object | null = null;
+  let explicitMarkingHandler: object | null = null;
+  let focusHandler: object | null = null;
+  let forceRefreshHandler: object | null = null;
+  let invisibleXpathsHandler: object | null = null;
+  let propertyLockPortClient: object | null = null;
+  let propertyLockStateMachine: object | null = null;
+  let visibleXpathsHandler: object | null = null;
 
   return {
     getPageToastClient() {

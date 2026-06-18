@@ -1,4 +1,39 @@
-function createPropertyLockBannerButton(_deps: any, text: string, className: string, onClick: () => void, options: { disabled?: unknown } = {}) {
+interface PropertyLockBannerState {
+  editorName?: string;
+  isSameUserEditor?: boolean;
+  otherTabHasUnsavedChanges?: boolean;
+  isRecentEditor?: boolean;
+  transferFromName?: string;
+  transferToName?: string;
+}
+
+interface PropertyLockBannerDeps {
+  EXTENSION_UI_FONT_STACK: string;
+  PROPERTY_LOCK_BANNER_ID: string;
+  PROPERTY_LOCK_BANNER_STYLE_ID: string;
+  PROPERTY_LOCK_CONTENT_CONTINUE: string;
+  PROPERTY_LOCK_CONTENT_SUGGEST: string;
+  PROPERTY_LOCK_CONTENT_TAKE_LOCK: string;
+  propertyLockText: typeof import("../common/text.js").propertyLockText;
+  isPropertyLockCollaborationEnabled: () => boolean;
+  clearPropertyLockBannerCountdown: () => void;
+  renderPropertyLockBanner: () => void;
+  updatePropertyLockBannerMode: () => void;
+  sendPropertyLockMessage: (type: string, payload?: { force?: boolean; discardPrevious?: boolean }) => void;
+  respondToPropertyLockTakeoverSuggestion: (accept: boolean) => Promise<void>;
+  getPropertyLockBannerElement: () => HTMLElement | null;
+  setPropertyLockBannerElement: (element: HTMLElement) => void;
+  getPropertyLockBannerMode: () => string;
+  getPropertyLockBannerCountdownTimer: () => number;
+  setPropertyLockBannerCountdownTimer: (timer: number) => void;
+  getPropertyLockBannerCountdownValue: () => number;
+  setPropertyLockBannerCountdownValue: (value: number) => void;
+  setPropertyLockBannerVisible: (visible: boolean) => void;
+  getPropertyLockState: () => PropertyLockBannerState | null;
+  getPropertyLockSuggestionFromName: () => string;
+}
+
+function createPropertyLockBannerButton(_deps: PropertyLockBannerDeps, text: string, className: string, onClick: () => void, options: { disabled?: unknown } = {}) {
   const button = document.createElement("button");
   button.type = "button";
   button.className = className;
@@ -22,7 +57,7 @@ function createPropertyLockBannerLabel(text: string) {
   return label;
 }
 
-export function ensurePropertyLockBannerStyle(deps: any): void {
+export function ensurePropertyLockBannerStyle(deps: PropertyLockBannerDeps): void {
   if (document.getElementById(deps.PROPERTY_LOCK_BANNER_STYLE_ID)) {
     return;
   }
@@ -91,7 +126,7 @@ export function ensurePropertyLockBannerStyle(deps: any): void {
   (document.head || document.documentElement).appendChild(style);
 }
 
-export function renderPropertyLockBanner(deps: any): void {
+export function renderPropertyLockBanner(deps: PropertyLockBannerDeps): void {
   let propertyLockBannerElement = deps.getPropertyLockBannerElement();
   if (!deps.isPropertyLockCollaborationEnabled()) {
     if (propertyLockBannerElement) {
@@ -254,7 +289,7 @@ export function renderPropertyLockBanner(deps: any): void {
   propertyLockBannerElement.append(content, actions);
 }
 
-export function clearPropertyLockBannerCountdown(deps: any): void {
+export function clearPropertyLockBannerCountdown(deps: PropertyLockBannerDeps): void {
   const propertyLockBannerCountdownTimer = deps.getPropertyLockBannerCountdownTimer();
   if (propertyLockBannerCountdownTimer) {
     clearInterval(propertyLockBannerCountdownTimer);
@@ -262,7 +297,7 @@ export function clearPropertyLockBannerCountdown(deps: any): void {
   }
 }
 
-export function restartPropertyLockBannerCountdown(deps: any): void {
+export function restartPropertyLockBannerCountdown(deps: PropertyLockBannerDeps): void {
   if (!deps.isPropertyLockCollaborationEnabled()) {
     deps.clearPropertyLockBannerCountdown();
     return;

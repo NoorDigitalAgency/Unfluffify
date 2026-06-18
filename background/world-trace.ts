@@ -60,27 +60,30 @@ export function createWorldTrace(options = {}) {
     return isFeatureEnabled("traceDiagnostics") && isDebugFlagEnabled("worldTraceEnabled");
   }
 
-  function appendWorldTraceEvent(tabId: unknown, channel: unknown, event: unknown, payload: any = null): void {
+  function appendWorldTraceEvent(tabId: unknown, channel: unknown, event: unknown, payload: unknown = null): void {
     const normalizedTabId = normalizeTabId(tabId);
     if (!normalizedTabId || !isWorldTraceEnabled()) {
       return;
     }
     const traceState = ensureTraceState(normalizedTabId);
+    const payloadRecord = payload && typeof payload === "object"
+      ? payload as Record<string, unknown>
+      : null;
     const traceEvent: WorldTraceEvent = {
       at: Date.now(),
       channel: typeof channel === "string" ? channel : "broker",
       event: typeof event === "string" ? event : "event",
-      payload: payload && typeof payload === "object"
+      payload: payloadRecord
         ? {
-          type: payload.type || "",
-          kind: payload.kind || "",
-          phase: payload.phase || "",
-          operationId: payload.operationId || "",
-          busy: Object.prototype.hasOwnProperty.call(payload, "busy") ? Boolean(payload.busy) : undefined,
-          message: typeof payload.message === "string" ? payload.message : "",
-          reason: typeof payload.reason === "string" ? payload.reason : "",
-          source: typeof payload.source === "string" ? payload.source : "",
-          key: typeof payload.key === "string" ? payload.key : ""
+          type: payloadRecord.type || "",
+          kind: payloadRecord.kind || "",
+          phase: payloadRecord.phase || "",
+          operationId: payloadRecord.operationId || "",
+          busy: Object.prototype.hasOwnProperty.call(payloadRecord, "busy") ? Boolean(payloadRecord.busy) : undefined,
+          message: typeof payloadRecord.message === "string" ? payloadRecord.message : "",
+          reason: typeof payloadRecord.reason === "string" ? payloadRecord.reason : "",
+          source: typeof payloadRecord.source === "string" ? payloadRecord.source : "",
+          key: typeof payloadRecord.key === "string" ? payloadRecord.key : ""
         }
         : null
     };

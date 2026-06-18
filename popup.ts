@@ -194,6 +194,8 @@ import {
   createInactiveLockState,
   normalizeLockStateMessage
 } from "./common/property-lock.js";
+import type { RemoteConfigLoadResult } from "./types/popup-state.ts";
+import type { PageMarkingEntry, PageSaveReconciliation } from "./types/config.ts";
 
 const { state } = stateModule;
 const PAGE_SAVE_SYNC_MAX_ATTEMPTS = 5;
@@ -452,13 +454,10 @@ function getSpinnerDeps() {
   };
 }
 
-// @ts-expect-error
 const currentSpinnerMessage = () => currentSpinnerMessageOperation(getSpinnerDeps());
-// @ts-expect-error
 const currentSpinnerSnapshot = () => currentSpinnerSnapshotOperation(getSpinnerDeps());
 // @ts-expect-error
 const normalizeSpinnerReason = (reason, key, message) =>
-// @ts-expect-error
   normalizeSpinnerReasonOperation(getSpinnerDeps(), reason, key, message);
 // @ts-expect-error
 const clearSpinnerWatchdog = (key) => clearSpinnerWatchdogOperation(getSpinnerDeps(), key);
@@ -466,17 +465,18 @@ const clearSpinnerWatchdog = (key) => clearSpinnerWatchdogOperation(getSpinnerDe
 const armSpinnerWatchdog = (key) => armSpinnerWatchdogOperation(getSpinnerDeps(), key);
 // @ts-expect-error
 const pushSpinner = (key, message, options = {}) =>
-// @ts-expect-error
   pushSpinnerOperation(getSpinnerDeps(), key, message, options);
 // @ts-expect-error
 const setSpinnerMessage = (key, message) =>
-// @ts-expect-error
   setSpinnerMessageOperation(getSpinnerDeps(), key, message);
 // @ts-expect-error
 const popSpinner = (key) => popSpinnerOperation(getSpinnerDeps(), key);
-// @ts-expect-error
-const runWithSpinner = (key, message, task, options = {}) =>
-// @ts-expect-error
+const runWithSpinner = <T,>(
+  key: string | null,
+  message: string,
+  task: (spinnerKey: string | null) => Promise<T>,
+  options: { delayMs?: number; persistent?: boolean; source?: string; reason?: string; suppressIfActive?: boolean } = {}
+) =>
   runWithSpinnerOperation(getSpinnerDeps(), key, message, task, options);
 
 function getSiteResolutionDeps() {
@@ -712,7 +712,6 @@ function logPopupSpinnerDebug(eventName, details = {}) {
 }
 
 function getCurrentPopupTabId() {
-// @ts-expect-error
   return state.currentTab && Number.isFinite(state.currentTab.id)
 // @ts-expect-error
     ? Math.trunc(state.currentTab.id)
@@ -875,7 +874,6 @@ function applyBackgroundStateSnapshot(snapshot) {
   popupBackgroundLifecycle = snapshot.lifecycle || null;
   const traceDiagnosticsEnabled = isFeatureEnabled("traceDiagnostics");
   state.traceModeEnabled = traceDiagnosticsEnabled && Boolean(snapshot.traceEnabled);
-// @ts-expect-error
   state.traceEvents = traceDiagnosticsEnabled && Array.isArray(snapshot.traceEvents) ? [...snapshot.traceEvents] : [];
   popupSpinnerQueue.clear();
   popupSpinnerKeyTabIds.clear();
@@ -1061,7 +1059,6 @@ function clearStaleInspectionBusyClearTimer() {
 }
 
 function scheduleStaleInspectionBusyClear(
-// @ts-expect-error
   tabId = state.currentTab && state.currentTab.id,
   baseUrl = state.currentBaseUrl,
   { reconcileSilentNavSpinner = false, reconcileRenderModeNavSpinner = false } = {}
@@ -1620,7 +1617,6 @@ function isAiRunUpToDateForCurrentMarkings() {
 }
 
 function captureAiRunMarkingsFingerprint() {
-// @ts-expect-error
   state.aiRunMarkingsFingerprint = getCurrentPageMarkingsFingerprint();
 }
 
@@ -1771,11 +1767,8 @@ function getCurrentRenderModeInspectionSnapshot(detectionKey) {
     state.renderModeInspectionSnapshotKey !== detectionKey ||
     !snapshot ||
     typeof snapshot !== "object" ||
-// @ts-expect-error
     typeof snapshot.renderedHtml !== "string" ||
-// @ts-expect-error
     !snapshot.renderedHtml ||
-// @ts-expect-error
     typeof snapshot.rawHtml !== "string"
   ) {
     return null;
@@ -1796,7 +1789,6 @@ function rememberRenderModeInspectionSnapshot(baseUrl, pageUrl, snapshot) {
     return false;
   }
   state.renderModeInspectionSnapshotKey = snapshotKey;
-// @ts-expect-error
   state.renderModeInspectionSnapshot = {
     renderedHtml: snapshot.renderedHtml,
     rawHtml: snapshot.rawHtml,
@@ -1900,7 +1892,6 @@ function setAiRunActiveState({
   phase = "starting"
 } = {}) {
   state.aiComputeStartPending = false;
-// @ts-expect-error
   state.aiRequestInFlight = "compute";
   state.aiRunPhase = phase;
   state.aiRunSessionId = sessionId;
@@ -2226,7 +2217,6 @@ function isCompletedPageConfigSyncResult(syncResult) {
 }
 
 function getCurrentPageUrl() {
-// @ts-expect-error
   return (state.currentTab && state.currentTab.url) || "";
 }
 
@@ -2234,7 +2224,6 @@ function buildPopupEnabledContext(tab = state.currentTab, baseUrl = state.curren
   return {
 // @ts-expect-error
     tabId: tab && Number.isFinite(tab.id) ? Math.trunc(tab.id) : null,
-// @ts-expect-error
     pageUrl: tab && typeof tab.url === "string" ? tab.url : "",
     baseUrl: typeof baseUrl === "string" ? baseUrl : ""
   };
@@ -2257,9 +2246,7 @@ function setLastPopupEnabled(value, context = buildPopupEnabledContext()) {
     state.lastPopupEnabledContext = null;
     return;
   }
-// @ts-expect-error
   state.lastPopupEnabled = Boolean(value);
-// @ts-expect-error
   state.lastPopupEnabledContext = { ...context };
 }
 
@@ -2276,7 +2263,6 @@ async function setCurrentPageSaveReconciliationReason(reason) {
   const reconciliation = await config.setPageSaveReconciliation(state.currentBaseUrl, pageUrl, {
     reason: typeof reason === "string" ? reason : "pending"
   });
-// @ts-expect-error
   state.currentPageSaveReconciliation = reconciliation;
   state.currentPageSaveReconciliationPending = config.isPageSaveReconciliationPending(reconciliation);
   await messages.sendTabMessage({
@@ -2307,12 +2293,21 @@ async function clearCurrentPageSaveReconciliation(baseUrl = state.currentBaseUrl
   }, 2);
 }
 
+interface TabDraftStatusResponse {
+  ok?: unknown;
+  entry?: PageMarkingEntry | null;
+  savedEntry?: PageMarkingEntry | null;
+  dirty?: unknown;
+  reconciliation?: PageSaveReconciliation | null;
+  reconciliationPending?: unknown;
+  [key: string]: unknown;
+}
+
 async function refreshCurrentPageRuntimeStatus(options = {}) {
 // @ts-expect-error
   const tabId = Number.isFinite(options.tabId)
 // @ts-expect-error
     ? Math.trunc(options.tabId)
-// @ts-expect-error
     : state.currentTab && Number.isFinite(state.currentTab.id)
 // @ts-expect-error
       ? Math.trunc(state.currentTab.id)
@@ -2339,7 +2334,7 @@ async function refreshCurrentPageRuntimeStatus(options = {}) {
         baseUrl
       }).catch(() => null)
       : Promise.resolve(null)
-  ]);
+  ]) as [Record<string, unknown> | null, TabDraftStatusResponse | null];
 
   if (draftStatus && draftStatus.ok) {
     state.currentDraftEntry = draftStatus.entry || null;
@@ -2369,8 +2364,7 @@ async function refreshCurrentPageRuntimeStatus(options = {}) {
   };
 }
 
-// @ts-expect-error
-function waitForRetryDelay(delayMs) {
+function waitForRetryDelay(delayMs?: number): Promise<void> {
   return new Promise((resolve) => {
     window.setTimeout(resolve, delayMs);
   });
@@ -2389,7 +2383,7 @@ async function waitForEnableMarkingInspectionToSettle(tabId, baseUrl) {
           baseUrl
         })
         : Promise.resolve(null)
-    ]);
+    ]) as [Record<string, unknown> | null, TabDraftStatusResponse | null];
     if (
       (inspectionStatus && inspectionStatus.ok) ||
       (draftStatus && draftStatus.ok)
@@ -2548,7 +2542,7 @@ function scheduleNavigationInspectionSettlePoll(tabId, baseUrl) {
       baseUrl
         ? messages.sendTabMessageToTab(tabId, { type: "getPageDraftStatus", baseUrl }).catch(() => null)
         : Promise.resolve(null)
-    ]);
+    ]) as [Record<string, unknown> | null, TabDraftStatusResponse | null];
     const inspectionPending = Boolean(
       inspectionStatus &&
       inspectionStatus.ok &&
@@ -2738,7 +2732,6 @@ function shouldSkipRemoteConfigLoadForPropertyEditor(siteId) {
     normalizedSiteId &&
       state.propertyLockSiteId === normalizedSiteId &&
       state.propertyLockState &&
-// @ts-expect-error
       state.propertyLockState.isEditor
   );
 }
@@ -2884,7 +2877,6 @@ function hasCalculatedSelectorsFromConfig(sourceConfig = state.currentConfig) {
     return false;
   }
   const updatedAt = config.normalizeEntryTimestamp(
-// @ts-expect-error
     sourceConfig && sourceConfig.selectorsUpdatedAt
   );
   if (updatedAt === config.PAGE_TIMESTAMP_FALLBACK) {
@@ -2894,7 +2886,6 @@ function hasCalculatedSelectorsFromConfig(sourceConfig = state.currentConfig) {
   return combineAiSelectorSet(sourceConfig && sourceConfig.selectors).length > 0;
 }
 
-// @ts-expect-error
 async function hideConsentForRenderModeInspection(targetTabId = state.currentTab && state.currentTab.id) {
   const tabId = Number.isFinite(targetTabId)
 // @ts-expect-error
@@ -2985,8 +2976,7 @@ async function reconcilePropertyLockAfterRenderModeReload() {
   await refreshUi({ useBusyOverlay: false, skipPropertyLockFetch: true });
 }
 
-function buildTodoExpansionContextKey(tabId = null, baseUrl = "") {
-// @ts-expect-error
+function buildTodoExpansionContextKey(tabId: number | null = null, baseUrl: string = "") {
   const normalizedTabId = tabId || (state.currentTab && state.currentTab.id) || null;
   const normalizedBaseUrl = typeof baseUrl === "string" && baseUrl
     ? baseUrl
@@ -3024,7 +3014,10 @@ function saveCurrentTodoExpansionState() {
   if (overflowCount > 0) {
     const keyIterator = state.todoExpansionStateByContext.keys();
     for (let index = 0; index < overflowCount; index += 1) {
-      state.todoExpansionStateByContext.delete(keyIterator.next().value);
+      const oldestKey = keyIterator.next().value;
+      if (oldestKey !== undefined) {
+        state.todoExpansionStateByContext.delete(oldestKey);
+      }
     }
   }
 }
@@ -3081,7 +3074,6 @@ async function refreshUiInner(options = {}) {
   }
   const previousBaseUrl = state.currentBaseUrl;
   await validateStoredToken({ force: false, showToastOnInvalid: true });
-// @ts-expect-error
   const currentTabId = state.currentTab.id || null;
   const tabChanged = Boolean(currentTabId && state.lastTabId !== currentTabId);
   saveCurrentTodoExpansionState();
@@ -3093,7 +3085,6 @@ async function refreshUiInner(options = {}) {
     state.remoteConfigLoadResult = null;
     clearLastPopupEnabled();
   }
-// @ts-expect-error
   const pageUrl = state.currentTab.url || "";
   if (pageUrl !== state.lastPopupPageUrl) {
     clearLastPopupEnabled();
@@ -3124,7 +3115,6 @@ async function refreshUiInner(options = {}) {
   } = await helpers.loadGlobalAiSettings();
   const normalizedStageBaseValue = normalizeStageBase(stageBaseValue);
   let configs = await config.getConfigs();
-// @ts-expect-error
   const persistedTabState = await messages.getTabState(state.currentTab.id);
   if (currentTabId) {
     await messages.sendRuntimeMessage({
@@ -3166,7 +3156,6 @@ async function refreshUiInner(options = {}) {
       initialTabState && Number.isFinite(initialTabState.propertyLockOffCandidateDeadlineAt)
         ? Number(initialTabState.propertyLockOffCandidateDeadlineAt)
         : 0;
-// @ts-expect-error
     state.propertyLockRecoverySiteId =
       initialTabState && Number.isFinite(initialTabState.propertyLockRecoverySiteId)
         ? Number(initialTabState.propertyLockRecoverySiteId)
@@ -3208,7 +3197,7 @@ async function refreshUiInner(options = {}) {
   let currentSiteId = null;
   let siteIdBlockedReason = "";
   let unsupportedByGraphql = false;
-  let remoteLoadResult = { status: "skipped", baseUrl: "" };
+  let remoteLoadResult: RemoteConfigLoadResult = { status: "skipped", baseUrl: "" };
   let effectiveTabState = tabState;
   if ((aiComputeRunActive || aiPreviewSessionActive) && tabInScope) {
     const preservedBaseUrl = tabState.baseUrl || state.currentBaseUrl || "";
@@ -3218,7 +3207,7 @@ async function refreshUiInner(options = {}) {
       baseUrl: preservedBaseUrl
     };
   }
-  let propertyPageTypes = [];
+  let propertyPageTypes: Array<Record<string, unknown>> = [];
   let propertyPageTypesFetchError = "";
   let propertyPageTypesLoaded = false;
   if (
@@ -3230,7 +3219,6 @@ async function refreshUiInner(options = {}) {
     !utils.isPageWithinBaseUrl(pageUrl, tabState.baseUrl)
   ) {
     effectiveTabState = { enabled: false, baseUrl: "" };
-// @ts-expect-error
     await messages.setTabState(state.currentTab.id, effectiveTabState);
   }
   if (
@@ -3412,7 +3400,6 @@ async function refreshUiInner(options = {}) {
   ) {
     const wasEnabled = Boolean(effectiveTabState.enabled);
     effectiveTabState = { ...effectiveTabState, enabled: false, baseUrl: "" };
-// @ts-expect-error
     await messages.setTabState(state.currentTab.id, effectiveTabState);
     if (wasEnabled) {
       await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
@@ -3425,7 +3412,6 @@ async function refreshUiInner(options = {}) {
   if (unsupportedByGraphql && !aiComputeRunActive && !aiPreviewSessionActive) {
     if (effectiveTabState.enabled) {
       effectiveTabState = { ...effectiveTabState, enabled: false, baseUrl: "" };
-// @ts-expect-error
       await messages.setTabState(state.currentTab.id, effectiveTabState);
       await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
     }
@@ -3572,7 +3558,7 @@ async function refreshUiInner(options = {}) {
       contentModeStatus.ok &&
       typeof contentModeStatus.markingEnabled === "boolean"
   );
-  if (contentModeKnown) {
+  if (contentModeKnown && contentModeStatus) {
     const contentMarkingEnabled = Boolean(contentModeStatus.markingEnabled);
     const preserveEnabledDuringPreviewCloseRestore = Boolean(
       previewCloseMarkingHoldActive &&
@@ -3694,7 +3680,6 @@ async function refreshUiInner(options = {}) {
     state.renderModeEditMode = false;
   }
   const siteIdReady = Boolean(
-// @ts-expect-error
     currentSiteId || normalizeSiteIdValue(state.currentConfig && state.currentConfig.siteId)
   );
   const effectiveSiteIdBlockedReason = unsupportedByGraphql
@@ -3706,7 +3691,6 @@ async function refreshUiInner(options = {}) {
       : "";
   const liveSiteId = normalizeSiteIdValue(
     currentSiteId ||
-// @ts-expect-error
       (state.currentConfig && state.currentConfig.siteId) ||
       (state.currentBaseUrl ? state.siteIdLookupByBaseUrl.get(state.currentBaseUrl) : null)
   );
@@ -3752,7 +3736,6 @@ async function refreshUiInner(options = {}) {
       resetPropertyPageTypesState();
     }
   }
-// @ts-expect-error
   let pageMarkings = (state.currentConfig && state.currentConfig.pageMarkings) || {};
   const backendSavedPageMarkings = state.currentBaseUrl
     ? await config.getBackendSavedPageMarkings(state.currentBaseUrl)
@@ -3820,7 +3803,6 @@ async function refreshUiInner(options = {}) {
       const nextRecoveryDeadlineAt = recoveryDeadlineAt > Date.now()
         ? recoveryDeadlineAt
         : Date.now() + PROPERTY_LOCK_CROSS_PROPERTY_COOLDOWN_TIMEOUT_MS;
-// @ts-expect-error
       state.propertyLockRecoverySiteId = recoverySiteId;
       state.propertyLockRecoveryBaseUrl = recoveryBaseUrl;
       state.propertyLockRecoveryClientId = recoveryClientId;
@@ -3833,7 +3815,6 @@ async function refreshUiInner(options = {}) {
       });
     } else if (
       state.propertyLockState &&
-// @ts-expect-error
       state.propertyLockState.isEditor &&
       activeEditorSiteId &&
       state.currentBaseUrl &&
@@ -3873,7 +3854,6 @@ async function refreshUiInner(options = {}) {
 // @ts-expect-error
           configs[state.currentBaseUrl]
         ).config;
-// @ts-expect-error
         pageMarkings = (state.currentConfig && state.currentConfig.pageMarkings) || {};
         coverageModel = buildLynxChecklistViewModel({
           pageTypes: propertyPageTypes,
@@ -3905,7 +3885,6 @@ async function refreshUiInner(options = {}) {
 // @ts-expect-error
           configs[state.currentBaseUrl]
         ).config;
-// @ts-expect-error
         pageMarkings = (state.currentConfig && state.currentConfig.pageMarkings) || {};
       }
     }
@@ -3953,7 +3932,6 @@ async function refreshUiInner(options = {}) {
         tokenValue &&
         state.propertyLockSiteId === propertyLockScopeSiteId &&
         state.propertyLockState &&
-// @ts-expect-error
         !state.propertyLockState.isEditor
     )
   );
@@ -4379,7 +4357,6 @@ async function refreshUiInner(options = {}) {
     aiBusy ||
     pageScopedUiDisabled ||
     !renderModeRequired ||
-// @ts-expect-error
     !Boolean(state.currentTab && state.currentTab.id);
   // Alternate the two inspect buttons by the tab's current JavaScript mode so the
   // same mode cannot be triggered twice: while the page runs JavaScript only
@@ -4522,7 +4499,6 @@ async function refreshUiInner(options = {}) {
 // @ts-expect-error
   nextViewState.unregisterCurrentTabDisabled =
     !isFeatureEnabled("cacheAndUnregisterTools") ||
-// @ts-expect-error
     state.unregisterCurrentTabDisabled || !state.currentTab || !state.currentTab.id;
 // @ts-expect-error
   nextViewState.computeButtonText =
@@ -4838,9 +4814,7 @@ async function maybeResumePersistedAiRun() {
   if (state.aiRequestInFlight || state.aiRunResumeInFlight) {
     return;
   }
-// @ts-expect-error
   const currentTabId = state.currentTab && Number.isFinite(state.currentTab.id)
-// @ts-expect-error
     ? state.currentTab.id
     : null;
   const siteId = normalizeSiteIdValue(state.currentSiteId);
@@ -5155,7 +5129,6 @@ function handleRenderModeInput(event) {
 
 // @ts-expect-error
 async function runRenderModeInspectionReload(javaScriptDisabled) {
-// @ts-expect-error
   const tabId = state.currentTab && state.currentTab.id;
   if (!tabId) {
     uiModule.showToast(PopupText.renderMode.toastUnavailable);
@@ -5206,7 +5179,6 @@ async function runRenderModeInspectionReload(javaScriptDisabled) {
           if (snapshot) {
             rememberRenderModeInspectionSnapshot(
               state.currentBaseUrl,
-// @ts-expect-error
               snapshot.pageUrl || (state.currentTab && state.currentTab.url) || "",
               snapshot
             );
@@ -5355,7 +5327,6 @@ function handleLynxChecklistCancel() {
 
 async function handleRenderModeSet() {
   await runWithSpinner(null, PopupText.overlay.savingRenderMode, async () => {
-// @ts-expect-error
     const tabId = state.currentTab && state.currentTab.id;
     const nextRenderMode = normalizeUiRenderModeValue(uiModule.getViewState().renderModeValue);
     if (isUndeterminedRenderMode(nextRenderMode)) {
@@ -5405,9 +5376,7 @@ async function handleRenderModeSet() {
     if (tabId) {
       const tabState = await messages.getTabState(tabId);
       const candidateUrl =
-// @ts-expect-error
         (state.currentTab && typeof state.currentTab.url === "string"
-// @ts-expect-error
           ? state.currentTab.url
           : "");
       const settleBaseUrl =
@@ -5982,7 +5951,6 @@ async function handleEnableToggle(event) {
       if (!confirmedDiscard) {
         // Cancel: stay in marking mode with the pending session intact.
         uiModule.setViewState({ toggleEnabled: true });
-// @ts-expect-error
         setLastPopupEnabled(true, buildPopupEnabledContext(tab, state.currentBaseUrl));
         await refreshUi();
         return;
@@ -5992,14 +5960,12 @@ async function handleEnableToggle(event) {
       showImmediateDisableSpinner();
       await applyLocalPageDiscard();
     }
-// @ts-expect-error
     setLastPopupEnabled(desiredEnabled, buildPopupEnabledContext(tab, state.currentBaseUrl));
     const baseUrlValue = state.currentBaseUrl;
     const currentPageTypeKey = desiredEnabled ? state.currentPageTypeKey || "" : "";
     await runWithSpinner(
       desiredEnabled ? null : immediateDisableSpinnerKey,
       desiredEnabled ? PopupText.overlay.enablingMarking : PopupText.overlay.disablingMarking,
-// @ts-expect-error
       async (spinnerKey) => {
         if (desiredEnabled) {
           const parsed = utils.parseBaseUrl(baseUrlValue);
@@ -6079,7 +6045,6 @@ async function handleEnableToggle(event) {
           });
           if (!disableResponse || !disableResponse.ok) {
             uiModule.setViewState({ toggleEnabled: true });
-// @ts-expect-error
             setLastPopupEnabled(true, buildPopupEnabledContext(tab, state.currentBaseUrl));
 // @ts-expect-error
             uiModule.showToast((disableResponse && disableResponse.error) || "Unable to disable marking");
@@ -6134,7 +6099,6 @@ async function handleDesktopPreviewEnabledToggle(event) {
     return;
   }
   const tab = state.currentTab;
-// @ts-expect-error
   if (!tab || !tab.id) {
     return;
   }
@@ -6169,7 +6133,6 @@ async function handleDesktopPreviewEnabledToggle(event) {
         await refreshUi({ useBusyOverlay: false, skipPropertyLockFetch: true });
         return;
       }
-// @ts-expect-error
       await persistDesktopPreviewEnabled(tab.id, desiredEnabled);
       await refreshUi({ useBusyOverlay: false, skipPropertyLockFetch: true });
     },
@@ -6418,7 +6381,6 @@ async function handleLoginAction() {
     return;
   }
 
-// @ts-expect-error
   state.aiRequestInFlight = "login";
   await refreshUi();
   let loginSucceeded = false;
@@ -6471,9 +6433,7 @@ async function alignPopupToSilentMode() {
   // so the next refresh renders silent controls. Used by the post-save transition
   // and when navigating away from marking mode.
   const baseUrl = state.currentBaseUrl;
-// @ts-expect-error
   const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
-// @ts-expect-error
     ? state.currentTab.id
     : null;
   if (tabId !== null) {
@@ -6490,9 +6450,7 @@ async function applyPostSaveSilentTransition() {
   // silent highlighting, and the user stays in silent until Enable Marking
   // re-enters marking from scratch.
   const baseUrl = state.currentBaseUrl;
-// @ts-expect-error
   const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
-// @ts-expect-error
     ? state.currentTab.id
     : null;
   // Reset + mode drop are owned by background command authority for this tab.
@@ -6527,9 +6485,7 @@ async function applyLocalPageDiscard() {
       targetConfig.pageMarkings[pageUrl] = clonePageMarkingEntry(backendEntry);
     }
   });
-// @ts-expect-error
   const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
-// @ts-expect-error
     ? state.currentTab.id
     : null;
   if (tabId !== null) {
@@ -6622,7 +6578,6 @@ async function applyComputedSelectorSet(selectorSet, { currentPageUrl = "", toke
   const selectorSetUpdatedAt = selectorsChanged
     ? config.createTimestampNow()
     : config.normalizeEntryTimestamp(
-// @ts-expect-error
         state.currentConfig && state.currentConfig.selectorsUpdatedAt
       );
 // @ts-expect-error
@@ -6646,9 +6601,7 @@ async function applyComputedSelectorSet(selectorSet, { currentPageUrl = "", toke
   // Save/Preview enable until the next mark/unmark change.
   captureAiRunMarkingsFingerprint();
 
-// @ts-expect-error
   const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
-// @ts-expect-error
     ? state.currentTab.id
     : null;
   const previewResponse = await messages.requestTabShowAiPreview(tabId, {
@@ -6802,7 +6755,6 @@ async function handleComputeSelectors() {
     const { tokenValue } = credentials;
 
     state.currentConfig = await config.ensureConfig(state.currentBaseUrl);
-// @ts-expect-error
     const currentPageUrl = (state.currentTab && state.currentTab.url) || "";
     if (!currentPageUrl) {
       uiModule.showToast(PopupText.ai.currentPageUnavailable);
@@ -6829,7 +6781,6 @@ async function handleComputeSelectors() {
       return;
     }
 
-// @ts-expect-error
     const siteId = normalizeSiteIdValue(state.currentSiteId || (state.currentConfig && state.currentConfig.siteId));
     const deadlineAt = Date.now() + AI_RUN_TIMEOUT_MS;
     setAiRunActiveState({
@@ -6841,7 +6792,6 @@ async function handleComputeSelectors() {
     });
     await waitForPopupUiPaint();
     try {
-// @ts-expect-error
       const tabId = state.currentTab && state.currentTab.id;
       const aiRunResponse = await messages.requestTabRunAi(tabId, {
         baseUrl: state.currentBaseUrl,
@@ -6974,13 +6924,11 @@ async function submitSelectorSetToServer(options = {}) {
   );
   let submitTokenValue = (await getStoredGlobalToken()) || tokenValue;
 
-// @ts-expect-error
   state.aiRequestInFlight = "save";
   await refreshUi();
   try {
     await postPageTypeAssignmentsToAiServer({
       baseUrl: effectiveBaseUrl,
-// @ts-expect-error
       pageMarkings: (state.currentConfig && state.currentConfig.pageMarkings) || {},
       checklistPageTypes: state.lynxChecklistPageTypes
     });
@@ -7034,7 +6982,6 @@ async function submitSelectorSetToServer(options = {}) {
     const selectorSetUpdatedAt = selectorsNeedRefresh
       ? config.createTimestampNow()
       : config.normalizeEntryTimestamp(
-// @ts-expect-error
           state.currentConfig && state.currentConfig.selectorsUpdatedAt
         );
     const submittedSelectorsFingerprint = getSelectorSetFingerprint(normalizedSelectorSet);
@@ -7046,7 +6993,6 @@ async function submitSelectorSetToServer(options = {}) {
     });
     state.aiSelectorsComputedSinceLastSubmit = false;
     state.aiSelectorsComputedBaseUrl = "";
-// @ts-expect-error
     const currentPageUrl = (state.currentTab && state.currentTab.url) || "";
     const configSyncResult = await syncBaseConfigToServer({
       baseUrl: effectiveBaseUrl,
@@ -7168,9 +7114,7 @@ async function handlePreviewLatest() {
 // @ts-expect-error
   setPreviewBlocked(true, PopupText.preview.blockedActive);
   try {
-// @ts-expect-error
     const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
-// @ts-expect-error
       ? state.currentTab.id
       : null;
     const response = await messages.requestTabShowAiPreview(tabId, {
@@ -7221,9 +7165,7 @@ async function handleMarkingPreview() {
 // @ts-expect-error
   setPreviewBlocked(true, PopupText.preview.blockedActive);
   try {
-// @ts-expect-error
     const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
-// @ts-expect-error
       ? state.currentTab.id
       : null;
     const response = await messages.requestTabShowAiPreview(tabId, {
@@ -7246,9 +7188,7 @@ async function handleExitPreviewMode() {
   if (!await helpers.ensureActiveTab({ requireId: true })) {
     return;
   }
-// @ts-expect-error
   const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
-// @ts-expect-error
     ? state.currentTab.id
     : null;
   const response = await messages.requestTabCloseAiPreview(tabId);
@@ -7309,9 +7249,7 @@ async function handlePreviewShowAllCategoriesChange(event) {
     return;
   }
   try {
-// @ts-expect-error
     const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
-// @ts-expect-error
       ? state.currentTab.id
       : null;
     const response = await messages.requestTabSetAiPreviewExpandedMode(tabId, {
@@ -7337,9 +7275,7 @@ async function handlePreviewItemFocus(xpath) {
     return;
   }
   uiModule.setViewState({ previewFocusedXpath: xpath });
-// @ts-expect-error
   const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
-// @ts-expect-error
     ? state.currentTab.id
     : null;
   const response = await messages.requestTabFocusPreviewElement(tabId, {
@@ -7367,7 +7303,6 @@ async function init() {
   state.traceEvents = [];
   state.traceModeEnabled = await loadTraceModeSetting().catch(() => false);
   await helpers.ensureActiveTab();
-// @ts-expect-error
   const initTabId = state.currentTab && state.currentTab.id;
   if (initTabId) {
     connectBackgroundStatePort(initTabId);
@@ -7514,12 +7449,10 @@ async function init() {
       return;
     }
     const tab = await chrome.tabs.get(tabId);
-// @ts-expect-error
     if (state.currentTab && tab.windowId !== state.currentTab.windowId) {
       return;
     }
     // Remove old-tab spinner storage when switching tabs; the popup keeps only the active tab queue.
-// @ts-expect-error
     const oldTabId = state.currentTab && state.currentTab.id;
     if (oldTabId) {
       clearSpinnerQueueInBackground(oldTabId, { transientOnly: true }).catch(() => {});
@@ -7539,7 +7472,6 @@ async function init() {
     popupNavigationInspectionOverlayTabId = null;
     await helpers.ensureActiveTab();
     // Restore spinner queue for the newly active tab.
-// @ts-expect-error
     const newTabId = state.currentTab && state.currentTab.id;
     if (newTabId) {
       try {
@@ -7557,14 +7489,12 @@ async function init() {
   });
 
   chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-// @ts-expect-error
     if (!state.currentTab || tabId !== state.currentTab.id) {
       return;
     }
     if (!(changeInfo.url || changeInfo.status === "loading" || changeInfo.status === "complete")) {
       return;
     }
-// @ts-expect-error
     state.currentTab = tab;
     await messages.sendRuntimeMessage({
       type: "clearReloadRestoreTabState",
@@ -7633,7 +7563,6 @@ async function init() {
   window.addEventListener("beforeunload", () => {
     clearObserverRemoteConfigRefreshTimer();
     clearPropertyLockOffCandidateRefreshTimer();
-// @ts-expect-error
     const tabId = state.currentTab && state.currentTab.id;
     if (tabId) {
       clearSpinnerQueueInBackground(tabId, { transientOnly: true }).catch(() => {});
@@ -7700,7 +7629,6 @@ async function init() {
       sender &&
       sender.tab &&
       sender.tab.id &&
-// @ts-expect-error
       sender.tab.id !== state.currentTab.id
     ) {
       return;
@@ -7716,7 +7644,6 @@ async function init() {
       if (
         messageTabId !== null &&
         state.currentTab &&
-// @ts-expect-error
         Number.isFinite(state.currentTab.id) &&
 // @ts-expect-error
         messageTabId !== Math.trunc(state.currentTab.id)

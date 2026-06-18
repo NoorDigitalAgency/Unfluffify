@@ -35,9 +35,9 @@ export function getRenderModeOptionIcon(renderModeValue: unknown): string {
 }
 
 export function resolveRenderModeInspectionReloadOutcome(
-  reloadResult: { ok?: unknown; error?: unknown } | null | undefined,
+  reloadResult: { ok?: boolean; error?: string } | null | undefined,
   loadStarted: unknown,
-  javaScriptDisabled: unknown
+  javaScriptDisabled: boolean | null | undefined
 ): ReloadOutcome {
   if (!reloadResult || !reloadResult.ok) {
     return {

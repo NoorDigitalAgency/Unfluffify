@@ -10,8 +10,8 @@ type AiPreviewComputeLockDeps = {
 };
 
 type ComputeLockMessage = {
-  active?: unknown;
-  expiresAt?: unknown;
+  active?: boolean;
+  expiresAt?: number | null;
 };
 
 export function createAiPreviewComputeLockHandler(deps: AiPreviewComputeLockDeps) {

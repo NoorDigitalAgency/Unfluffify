@@ -4,13 +4,13 @@ const AI_SUBMISSION_DOCUMENT_ROOT_XPATHS = new Set<string>([
 ]);
 
 type AiSubmissionRowStateOptions = {
-  explicitlyIncluded?: unknown;
-  excludedRow?: unknown;
-  explicitlyExcluded?: unknown;
-  immutableExcludedRoot?: unknown;
-  insideExcludedAncestor?: unknown;
-  markableTextual?: unknown;
-  visibleToUser?: unknown;
+  explicitlyIncluded?: boolean;
+  excludedRow?: boolean;
+  explicitlyExcluded?: boolean;
+  immutableExcludedRoot?: boolean;
+  insideExcludedAncestor?: boolean;
+  markableTextual?: boolean;
+  visibleToUser?: boolean;
 };
 
 type AiSubmissionRowState = {

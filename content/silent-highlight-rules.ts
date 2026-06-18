@@ -2,31 +2,31 @@ export const DEFAULT_SILENT_HIGHLIGHT_SETTLE_STABLE_SAMPLES = 3;
 export const DEFAULT_SILENT_HIGHLIGHT_SETTLE_MAX_WAIT_MS = 2600;
 
 type SilentHighlightRenderOptions = {
-  shouldBeActive?: unknown;
-  isFullRefresh?: unknown;
-  renderChanged?: unknown;
-  positionRefreshPending?: unknown;
-  hasOverlay?: unknown;
+  shouldBeActive?: boolean;
+  isFullRefresh?: boolean;
+  renderChanged?: boolean;
+  positionRefreshPending?: boolean;
+  hasOverlay?: boolean;
 };
 
 type SilentHighlightCollectOptions = {
-  isWithinIncluded?: unknown;
-  hasRenderableText?: unknown;
+  isWithinIncluded?: boolean;
+  hasRenderableText?: boolean;
 };
 
 type SilentHighlightRetainOptions = {
-  explicitlyIncluded?: unknown;
-  visibleToUser?: unknown;
+  explicitlyIncluded?: boolean;
+  visibleToUser?: boolean;
 };
 
 type SilentHighlightSettleState = {
-  lastSignature?: unknown;
-  stableSamples?: unknown;
+  lastSignature?: string;
+  stableSamples?: number;
 };
 
 type SilentHighlightSettleOptions = {
-  requiredStableSamples?: unknown;
-  maxWaitMs?: unknown;
+  requiredStableSamples?: number;
+  maxWaitMs?: number;
 };
 
 export function shouldRenderSilentHighlightOverlay(options: SilentHighlightRenderOptions = {}): boolean {
@@ -58,12 +58,12 @@ export function shouldRetainIncludedSource(options: SilentHighlightRetainOptions
 
 export function sampleSettledSilentHighlightPosition(
   previousState: SilentHighlightSettleState = {},
-  signature: unknown = "",
-  elapsedMs: unknown = 0,
+  signature: string = "",
+  elapsedMs: number = 0,
   options: SilentHighlightSettleOptions = {}
 ) {
-  const normalizedSignature = typeof signature === "string" ? signature : "";
-  const normalizedElapsedMs = Number.isFinite(elapsedMs) ? (elapsedMs as number) : 0;
+  const normalizedSignature = signature;
+  const normalizedElapsedMs = elapsedMs;
   const requiredStableSamplesValue = options?.requiredStableSamples;
   const maxWaitMsValue = options?.maxWaitMs;
   const stableSamplesValue = previousState?.stableSamples;

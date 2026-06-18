@@ -38,7 +38,10 @@ function createRelayError(code: unknown, message: unknown, details: unknown = {}
   const error = new Error(typeof message === "string" && message ? message : "Page-world relay failed");
   const relayError = error as RelayError;
   relayError.code = typeof code === "string" && code ? code : MESSAGE_ERROR_CODES.HANDLER_FAILED;
-  relayError.details = details && typeof details === "object" ? details as Record<string, unknown> : {};
+  relayError.details =
+    details && typeof details === "object" && !Array.isArray(details)
+      ? details as Record<string, unknown>
+      : {};
   return relayError;
 }
 
@@ -146,7 +149,7 @@ function ensureRelayListener(): void {
 function sendRelayRequest(
   command: string,
   payload: Record<string, unknown> = {},
-  options: { timeoutMs?: unknown } = {}
+  options: { timeoutMs?: number | null } = {}
 ): Promise<Record<string, unknown>> {
   const pageWindow = getPageWindow();
   if (!pageWindow) {
@@ -207,7 +210,7 @@ function sendRelayRequest(
   });
 }
 
-export async function initializePageWorldRelay(options: { timeoutMs?: unknown } = {}): Promise<{ ok: true; nonce: string }> {
+export async function initializePageWorldRelay(options: { timeoutMs?: number | null } = {}): Promise<{ ok: true; nonce: string }> {
   const pageWindow = getPageWindow();
   if (!pageWindow) {
     throw createRelayError(
@@ -271,7 +274,7 @@ export function isPageWorldRelayReady(): boolean {
 export async function requestPageWorldCommand(
   command: unknown,
   payload: Record<string, unknown> = {},
-  options: { timeoutMs?: unknown } = {}
+  options: { timeoutMs?: number | null } = {}
 ): Promise<Record<string, unknown>> {
   if (!isPageWorldRelayCommand(command)) {
     throw createRelayError(

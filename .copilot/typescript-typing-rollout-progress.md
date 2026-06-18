@@ -75,3 +75,4 @@ Current phase: Phase 2 (type-safety hardening)
 
 ## Notes
 - PoC typed module already merged: background/tab-operation-runner.ts and types/operations.ts.
+- Explicit-`any` elimination rollout (Step 0-22, branch `copilot/check-implementation-acceptability`) is complete: `common/property-lock-background.ts` (Step 22) removed the final 61 explicit `any` with a typed `PropertyLockConnectionRuntime` class, `PropertyLockMessage`/`PortEntry`/`LockState` interfaces, and a `normalizeTabId` helper. `deno task lint:no-any` now reports 0 explicit `any` across all 261 files, `deno task check` is clean, and full suites pass (`850 passed`). Also fixed a Step 21 source-contract regression in `tests/popup-marking-refresh.test.js` where the `fetchPropertyLockState(normalizedSiteId)` regex did not tolerate the added `as PropertyLockFetchResult | null` cast.

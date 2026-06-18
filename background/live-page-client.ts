@@ -14,16 +14,16 @@ type ResolveCredentialsResult = {
 };
 
 type ResolveCredentials = (options: {
-  stageBase?: unknown;
-  tokenValue?: unknown;
+  stageBase?: string;
+  tokenValue?: string;
   endpointPreference: "ai";
 }) => Promise<ResolveCredentialsResult>;
 
 type ResolveLivePageSiteIdOptions = {
-  stageBase?: unknown;
-  tokenValue?: unknown;
-  pageUrl?: unknown;
-  resolveBackgroundNetworkCredentials?: unknown;
+  stageBase?: string;
+  tokenValue?: string;
+  pageUrl?: string;
+  resolveBackgroundNetworkCredentials?: ResolveCredentials;
 };
 
 type ResolveLivePageSiteIdResult = {
@@ -34,37 +34,70 @@ type ResolveLivePageSiteIdResult = {
 };
 
 type FetchLivePagePropertyPageTypesOptions = {
-  siteId?: unknown;
-  stageBase?: unknown;
-  tokenValue?: unknown;
-  resolveBackgroundNetworkCredentials?: unknown;
+  siteId?: number | string | null;
+  stageBase?: string;
+  tokenValue?: string;
+  resolveBackgroundNetworkCredentials?: ResolveCredentials;
+};
+
+type NormalizedPropertyPageTypeCandidate = {
+  url: string;
+  wordsCount: number;
+  duplicate: boolean;
+  duplicatePageTypes: string[];
+};
+
+type NormalizedPropertyPageType = {
+  key: string;
+  title: string;
+  candidates: NormalizedPropertyPageTypeCandidate[];
 };
 
 type FetchLivePagePropertyPageTypesResult = {
   ok: boolean;
-  pageTypes: Array<Record<string, unknown>>;
+  pageTypes: NormalizedPropertyPageType[];
   duplicateUrls?: string[];
   signature?: string;
   reason?: string;
 };
 
 type PropertyPageTypeCandidate = {
-  url?: unknown;
-  wordsCount?: unknown;
-  duplicate?: unknown;
+  url?: string;
+  wordsCount?: number;
+  duplicate?: boolean;
 };
 
 type PropertyPageType = {
-  key?: unknown;
-  candidates?: unknown;
+  key?: string;
+  candidates?: PropertyPageTypeCandidate[];
+};
+
+type UrlSearchInfoError = {
+  extensions?: { code?: string };
+};
+
+type UrlSearchInfoResponse = {
+  data?: {
+    urlSearchInfo?: {
+      domainId?: number | string | null;
+      domainName?: string | null;
+    } | null;
+  };
+  errors?: UrlSearchInfoError[];
+};
+
+type PropertyPageTypesResponse = {
+  data?: { propertyPageTypes?: object };
+  errors?: object[];
 };
 
 // export function normalizeBaseUrlFromDomainName(domainName, pageUrl = "") {
 export function normalizeBaseUrlFromDomainName(domainName: unknown, pageUrl: unknown = ""): string {
-  if (typeof domainName !== "string") {
+  const normalizedDomainName = typeof domainName === "string" ? domainName : "";
+  if (!normalizedDomainName) {
     return "";
   }
-  const raw = domainName.trim();
+  const raw = normalizedDomainName.trim();
   if (!raw) {
     return "";
   }
@@ -122,9 +155,11 @@ export function buildPropertyPageTypesSignature(pageTypes: unknown): string {
 }
 
 // export async function resolveLivePageSiteId(options = {}) {
-export async function resolveLivePageSiteId(options: ResolveLivePageSiteIdOptions = {}): Promise<ResolveLivePageSiteIdResult> {
+export async function resolveLivePageSiteId(
+  options = {} as ResolveLivePageSiteIdOptions
+): Promise<ResolveLivePageSiteIdResult> {
   const resolveCredentials = typeof options.resolveBackgroundNetworkCredentials === "function"
-    ? (options.resolveBackgroundNetworkCredentials as ResolveCredentials)
+    ? options.resolveBackgroundNetworkCredentials
     : null;
   if (!resolveCredentials) {
     return { ok: false, siteId: null, baseUrl: "", notFound: false };
@@ -160,21 +195,15 @@ export async function resolveLivePageSiteId(options: ResolveLivePageSiteIdOption
     await maybeUpdateStoredTokenFromResponse(response, tokenValue);
     let payload = null;
     try {
-      payload = await response.json();
+      payload = await response.json() as UrlSearchInfoResponse;
     } catch {
       payload = null;
     }
     if (payload && Array.isArray(payload.errors) && payload.errors.length > 0) {
-      const notFound = payload.errors.some((item: unknown) => {
-        const itemRecord = item && typeof item === "object"
-          ? (item as { extensions?: { code?: unknown } })
-          : null;
-        const code =
-          itemRecord &&
-          itemRecord.extensions &&
-          typeof itemRecord.extensions.code === "string"
-            ? itemRecord.extensions.code
-            : "";
+      const notFound = payload.errors.some((item) => {
+        const code = item && item.extensions && typeof item.extensions.code === "string"
+          ? item.extensions.code
+          : "";
         return code === "NotFound";
       });
       if (notFound) {
@@ -186,7 +215,7 @@ export async function resolveLivePageSiteId(options: ResolveLivePageSiteIdOption
       return { ok: false, siteId: null, baseUrl: "", notFound: false };
     }
     const urlSearchInfo = payload && payload.data && typeof payload.data === "object"
-      ? (payload.data as { urlSearchInfo?: { domainId?: unknown; domainName?: unknown } }).urlSearchInfo || null
+      ? payload.data.urlSearchInfo || null
       : null;
     const siteId = normalizeSiteIdValue(urlSearchInfo && urlSearchInfo.domainId);
     const baseUrl = normalizeBaseUrlFromDomainName(
@@ -212,11 +241,11 @@ export async function resolveLivePageSiteId(options: ResolveLivePageSiteIdOption
 
 // export async function fetchLivePagePropertyPageTypes(options = {}) {
 export async function fetchLivePagePropertyPageTypes(
-  options: FetchLivePagePropertyPageTypesOptions = {}
+  options = {} as FetchLivePagePropertyPageTypesOptions
 ): Promise<FetchLivePagePropertyPageTypesResult> {
   const normalizedSiteId = normalizeSiteIdValue(options.siteId);
   const resolveCredentials = typeof options.resolveBackgroundNetworkCredentials === "function"
-    ? (options.resolveBackgroundNetworkCredentials as ResolveCredentials)
+    ? options.resolveBackgroundNetworkCredentials
     : null;
   if (!resolveCredentials) {
     return {
@@ -258,7 +287,7 @@ export async function fetchLivePagePropertyPageTypes(
     await maybeUpdateStoredTokenFromResponse(response, tokenValue);
     let payload = null;
     try {
-      payload = await response.json();
+      payload = await response.json() as PropertyPageTypesResponse;
     } catch {
       payload = null;
     }
@@ -275,7 +304,7 @@ export async function fetchLivePagePropertyPageTypes(
         : null
     );
     const normalizedPageTypes = Array.isArray(normalized.pageTypes)
-      ? (normalized.pageTypes as Array<Record<string, unknown>>)
+      ? (normalized.pageTypes as NormalizedPropertyPageType[])
       : [];
     const duplicateUrls = Array.isArray(normalized.duplicateUrls)
       ? normalized.duplicateUrls.filter((item): item is string => typeof item === "string")

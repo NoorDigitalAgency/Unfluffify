@@ -162,7 +162,36 @@ function ancestorSimilarity(
   return score;
 }
 
-function scoreCandidate(fp: any, el: Element) {
+interface AncestorSignatureEntry {
+  tag: string;
+  id: string;
+  classes: string[];
+}
+
+interface ElementFingerprint {
+  tag: string;
+  text: string;
+  attrs: Record<string, string>;
+  classes: string[];
+  ancestors: AncestorSignatureEntry[];
+}
+
+interface DomIndex {
+  allElements: Element[];
+  byTag: Map<string, Element[]>;
+}
+
+interface XPathRefineItem {
+  xpath?: string | null;
+  excluded?: boolean;
+  explicit?: boolean;
+  refineStatus?: string;
+  refineScore?: number;
+  refinedXPath?: string;
+  [key: string]: unknown;
+}
+
+function scoreCandidate(fp: ElementFingerprint, el: Element) {
   let score = 0;
   const tag = el.tagName.toLowerCase();
 
@@ -230,7 +259,7 @@ function buildDomIndex(doc: Document) {
   return { allElements, byTag };
 }
 
-function findBestMatch(fp: any, domIndex: any, options: Record<string, unknown> = {}) {
+function findBestMatch(fp: ElementFingerprint, domIndex: DomIndex, options: Record<string, unknown> = {}) {
   const minScore = typeof options.minScore === "number" ? options.minScore : 30;
   const tagCandidates = domIndex.byTag.get(fp.tag) || [];
   const primaryCandidates =
@@ -318,7 +347,7 @@ function buildAbsoluteIndexedXPath(el: Element) {
 function refineXPathEntriesFromDocuments(
   oldDoc: Document,
   newDoc: Document,
-  items: Array<Record<string, any>>,
+  items: Array<XPathRefineItem>,
   options: Record<string, unknown> = {}
 ) {
   const minScore = typeof options.minScore === "number" ? options.minScore : 30;
@@ -410,7 +439,7 @@ function refineXPathEntriesFromDocuments(
 export function refineXPathEntries(
   oldHtml: string,
   newHtml: string,
-  items: Array<Record<string, any>>,
+  items: Array<XPathRefineItem>,
   options: Record<string, unknown> = {}
 ) {
   const oldDoc = parseHTML(oldHtml);

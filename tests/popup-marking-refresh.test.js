@@ -19,7 +19,7 @@ test("quiet popup refresh skips redundant property lock fetches", () => {
 
   assert.match(refreshSource, /const \{ skipFetch = false \} = options;/);
   assert.match(refreshSource, /if \(skipFetch && state\.propertyLockState\) \{\s*return state\.propertyLockState;\s*\}/);
-  assert.match(refreshSource, /const lockResponse = await deps\.fetchPropertyLockState\(normalizedSiteId\);/);
+  assert.match(refreshSource, /const lockResponse = await deps\.fetchPropertyLockState\(normalizedSiteId\)(?: as [^;]+)?;/);
 });
 
 test("explicit include and exclude removals use the quiet refresh path", () => {
@@ -545,7 +545,7 @@ test("render-mode detection delegates the heavy html transport to background", (
   const backgroundSource = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
   const remoteNetworkSource = readFileSync(new URL("../background/remote-network.ts", import.meta.url), "utf8");
   const detectBody = popupSource.match(
-    /export async function detectRenderModeViaEndpoint\(deps, options = \{\}\) \{([\s\S]*?)\n\}\n\nexport async function maybeAutoDetectRenderMode/
+    /export async function detectRenderModeViaEndpoint\(deps(?:\s*:\s*[^,]+)?, options(?:\s*:\s*[^)]+)? = \{\}\)(?:\s*:\s*[^{]+)? \{([\s\S]*?)\n\}\n\nexport async function maybeAutoDetectRenderMode/
   )[1];
 
   assert.match(backgroundSource, /from "\.\/background\/remote-network\.js"/);
