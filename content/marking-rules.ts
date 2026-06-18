@@ -1,31 +1,31 @@
 type ToggleableBoundaryOptions = {
-  hasDirectOwnText?: unknown;
-  hasVisibleTextualDescendant?: unknown;
-  hasExplicitlyMarkedDescendant?: unknown;
+  hasDirectOwnText?: boolean;
+  hasVisibleTextualDescendant?: boolean;
+  hasExplicitlyMarkedDescendant?: boolean;
 };
 
 type CollectToggleableBoundaryOptions = {
-  isToggleableDefaultExcluded?: unknown;
-  isHiddenSubtree?: unknown;
-  isWithinAiIncluded?: unknown;
-  isWithinAiPopover?: unknown;
-  isWithinExplicitIncluded?: unknown;
-  isWithinConsent?: unknown;
-  isWithinExtensionUi?: unknown;
-  isImmutableExcluded?: unknown;
+  isToggleableDefaultExcluded?: boolean;
+  isHiddenSubtree?: boolean;
+  isWithinAiIncluded?: boolean;
+  isWithinAiPopover?: boolean;
+  isWithinExplicitIncluded?: boolean;
+  isWithinConsent?: boolean;
+  isWithinExtensionUi?: boolean;
+  isImmutableExcluded?: boolean;
 };
 
 type AutoSeedOptions = {
-  hasAiSelectors?: unknown;
-  hasSavedMarkingsForPage?: unknown;
-  suppressAutoSeed?: unknown;
+  hasAiSelectors?: boolean;
+  hasSavedMarkingsForPage?: boolean;
+  suppressAutoSeed?: boolean;
 };
 
-type ExcludeParentCandidate = {
-  isStructuredGroup?: unknown;
-  isToggleableBoundary?: unknown;
-  isMarkable?: unknown;
-  value?: unknown;
+type ExcludeParentCandidate<T> = {
+  isStructuredGroup?: boolean;
+  isToggleableBoundary?: boolean;
+  isMarkable?: boolean;
+  value?: T | null;
 };
 
 export function shouldSelfMarkToggleableDefaultBoundary(options: ToggleableBoundaryOptions = {}): boolean {
@@ -66,13 +66,13 @@ export function shouldAutoSeedMarkingsFromAiSelectors(options: AutoSeedOptions =
   );
 }
 
-export function isStoredExcludeStateUserModified(options: { isExcluded?: unknown; isDefaultExcluded?: unknown } = {}): boolean {
+export function isStoredExcludeStateUserModified(options: { isExcluded?: boolean; isDefaultExcluded?: boolean } = {}): boolean {
   return Boolean(Boolean(options.isExcluded) !== Boolean(options.isDefaultExcluded));
 }
 
-export function shouldAllowParentMarkingBoundary(options: { hasDirectText?: unknown; markableDescendantCount?: number } = {}): boolean {
-  const markableDescendantCount = Number.isFinite(options.markableDescendantCount)
-    ? (options.markableDescendantCount as number)
+export function shouldAllowParentMarkingBoundary(options: { hasDirectText?: boolean; markableDescendantCount?: number } = {}): boolean {
+  const markableDescendantCount = Number.isFinite(options.markableDescendantCount ?? Number.NaN)
+    ? Number(options.markableDescendantCount)
     : 0;
   return Boolean(
     options.hasDirectText ||
@@ -80,32 +80,32 @@ export function shouldAllowParentMarkingBoundary(options: { hasDirectText?: unkn
   );
 }
 
-export function chooseExcludeParentBoundaryTarget(
+export function chooseExcludeParentBoundaryTarget<T>(
   options: {
-    selfValue?: unknown;
-    selfStructuredGroup?: unknown;
-    selfToggleableBoundary?: unknown;
-    ancestors?: unknown;
+    selfValue?: T | null;
+    selfStructuredGroup?: boolean;
+    selfToggleableBoundary?: boolean;
+    ancestors?: ExcludeParentCandidate<T>[];
   } = {}
-): unknown {
-  const selfValue = Object.prototype.hasOwnProperty.call(options, "selfValue")
-    ? options.selfValue
+): T | null {
+  const selfValue: T | null = Object.prototype.hasOwnProperty.call(options, "selfValue")
+    ? (options.selfValue ?? null)
     : null;
   if (options.selfStructuredGroup || options.selfToggleableBoundary) {
     return selfValue;
   }
-  const ancestors = (Array.isArray(options.ancestors) ? options.ancestors : []) as ExcludeParentCandidate[];
+  const ancestors = Array.isArray(options.ancestors) ? options.ancestors : [];
   const structuredGroupAncestor = ancestors.find(
     (candidate) => candidate && candidate.isStructuredGroup && candidate.value
   );
   if (structuredGroupAncestor) {
-    return structuredGroupAncestor.value;
+    return structuredGroupAncestor.value ?? null;
   }
   const toggleableAncestor = ancestors.find(
     (candidate) => candidate && candidate.isToggleableBoundary && candidate.value
   );
   if (toggleableAncestor) {
-    return toggleableAncestor.value;
+    return toggleableAncestor.value ?? null;
   }
   let broadestMarkableAncestor = null;
   ancestors.forEach((candidate) => {
@@ -129,12 +129,12 @@ export const USER_TOGGLE_DUPLICATE_WINDOW_MS = 320;
 
 export function shouldIgnoreDuplicateUserToggle(
   options: {
-    targetXpath?: unknown;
-    mode?: unknown;
-    now?: unknown;
-    inFlightKey?: unknown;
-    lastActionKey?: unknown;
-    lastActionAt?: unknown;
+    targetXpath?: string;
+    mode?: string;
+    now?: number;
+    inFlightKey?: string;
+    lastActionKey?: string;
+    lastActionAt?: number;
   } = {}
 ): boolean {
   const {
@@ -147,10 +147,10 @@ export function shouldIgnoreDuplicateUserToggle(
   } = options;
   const normalizedTargetXpath = typeof targetXpath === "string" ? targetXpath : "";
   const normalizedMode = typeof mode === "string" ? mode : "exclude";
-  const normalizedNow = Number.isFinite(now) ? (now as number) : 0;
+  const normalizedNow = Number.isFinite(now) ? now : 0;
   const normalizedInFlightKey = typeof inFlightKey === "string" ? inFlightKey : "";
   const normalizedLastActionKey = typeof lastActionKey === "string" ? lastActionKey : "";
-  const normalizedLastActionAt = Number.isFinite(lastActionAt) ? (lastActionAt as number) : 0;
+  const normalizedLastActionAt = Number.isFinite(lastActionAt) ? lastActionAt : 0;
 
   if (!normalizedTargetXpath) {
     return false;
@@ -165,7 +165,7 @@ export function shouldIgnoreDuplicateUserToggle(
   return normalizedNow - normalizedLastActionAt <= USER_TOGGLE_DUPLICATE_WINDOW_MS;
 }
 
-export function getExplicitMarkingPresentation(options: { type?: unknown; ghost?: unknown } = {}) {
+export function getExplicitMarkingPresentation(options: { type?: string; ghost?: boolean } = {}) {
   const type = options.type === "include" ? "include" : "exclude";
   const ghost = Boolean(options.ghost);
   return {
