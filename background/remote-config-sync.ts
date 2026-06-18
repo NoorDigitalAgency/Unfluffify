@@ -20,9 +20,9 @@ type StoredPageMarkingItem = {
 type RemoteConfigSyncOptions = Record<string, unknown>;
 
 interface SelectorMergeableConfig {
-  selectors?: { exclusionSelectors?: unknown; inclusionSelectors?: unknown };
-  selectorsUpdatedAt?: unknown;
-  submittedSelectorsFingerprint?: unknown;
+  selectors?: object | null;
+  selectorsUpdatedAt?: string | null;
+  submittedSelectorsFingerprint?: string | null;
   [key: string]: unknown;
 }
 
@@ -34,9 +34,9 @@ type RuntimeConfig = {
   renderMode?: string;
   renderModeUpdatedAt?: string;
   pageMarkings: PageMarkings;
-  selectors?: unknown;
-  selectorsUpdatedAt?: unknown;
-  submittedSelectorsFingerprint?: unknown;
+  selectors?: object | null;
+  selectorsUpdatedAt?: string | null;
+  submittedSelectorsFingerprint?: string | null;
   [key: string]: unknown;
 };
 
