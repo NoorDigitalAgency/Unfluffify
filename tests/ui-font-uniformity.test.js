@@ -1,6 +1,6 @@
-import test from "node:test";
-import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { test } from "./test-kit.ts";
+import { assert } from "./test-kit.ts";
+import { readFileSync } from "./file-kit.ts";
 
 const constantsSource = readFileSync(new URL("../common/constants.ts", import.meta.url), "utf8");
 const coreSource = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");

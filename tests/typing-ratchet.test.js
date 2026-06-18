@@ -1,8 +1,8 @@
-import test from "node:test";
-import assert from "node:assert/strict";
-import { readdirSync, readFileSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { test } from "./test-kit.ts";
+import { assert } from "./test-kit.ts";
+import { readdirSync, readFileSync } from "./file-kit.ts";
+import { path } from "./file-kit.ts";
+import { fileURLToPath } from "./file-kit.ts";
 
 const TESTS_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(TESTS_DIR, "..");

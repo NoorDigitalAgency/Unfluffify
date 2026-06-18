@@ -1,6 +1,5 @@
-#!/usr/bin/env node
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+#!/usr/bin/env -S deno run -A
+import { join } from "jsr:@std/path";
 import { appendJsonLine, ensureRunDir } from "./lib/artifacts.mjs";
 import { ScenarioBusClient } from "./lib/bus-client.mjs";
 import { loadOrchestrationConfig, parseCliArgs } from "./lib/config.mjs";
@@ -32,7 +31,7 @@ async function executeStep(registry, action, params) {
 export async function createRunner(options = {}) {
   const config = options.config || await loadOrchestrationConfig(options.configOptions || {});
   const runDir = options.runDir || await ensureRunDir(config.runRoot, config.role, config.side, options.runId);
-  const logPath = path.join(runDir, "runner.log");
+  const logPath = join(runDir, "runner.log");
   const stepContext = options.stepContext || createBrowserStepContext(config, {
     playwright: options.playwright,
     artifacts: { runDir }
@@ -125,7 +124,7 @@ export async function createRunner(options = {}) {
 }
 
 async function main() {
-  const argv = process.argv.slice(2);
+  const argv = Deno.args;
   const cli = parseCliArgs(argv);
   const runner = await createRunner({
     configOptions: {
@@ -139,10 +138,9 @@ async function main() {
   console.log(`[runner] bus=${runner.config.busUrl}`);
 }
 
-const isDirectRun = process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
-if (isDirectRun) {
+if (import.meta.main) {
   main().catch((error) => {
     console.error(error);
-    process.exit(1);
+    Deno.exit(1);
   });
 }

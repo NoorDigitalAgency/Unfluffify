@@ -1,5 +1,4 @@
-import fs from "node:fs/promises";
-import path from "node:path";
+import { isAbsolute, resolve } from "jsr:@std/path";
 import { parseJsonc } from "./jsonc.mjs";
 
 const DEFAULT_CONFIG_PATHS = [
@@ -128,19 +127,19 @@ function resolveMaybeRelativePath(value, cwd) {
   if (!normalized) {
     return "";
   }
-  return path.isAbsolute(normalized) ? normalized : path.resolve(cwd, normalized);
+  return isAbsolute(normalized) ? normalized : resolve(cwd, normalized);
 }
 
 async function readJsoncIfExists(filePaths) {
   for (const filePath of filePaths) {
     try {
-      const raw = await fs.readFile(filePath, "utf8");
+      const raw = await Deno.readTextFile(filePath);
       return {
         configPath: filePath,
         config: parseJsonc(raw, filePath)
       };
     } catch (error) {
-      if (error && error.code === "ENOENT") {
+      if (error instanceof Deno.errors.NotFound) {
         continue;
       }
       throw error;
@@ -150,8 +149,8 @@ async function readJsoncIfExists(filePaths) {
 }
 
 export async function loadOrchestrationConfig(options = {}) {
-  const cwd = options.cwd || process.cwd();
-  const env = options.env || process.env;
+  const cwd = options.cwd || Deno.cwd();
+  const env = options.env || Deno.env.toObject();
   const cli = options.cli || parseCliArgs(options.argv || []);
   const configuredPath =
     (typeof cli.config === "string" ? cli.config : "") ||

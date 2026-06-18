@@ -1,6 +1,5 @@
-#!/usr/bin/env node
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+#!/usr/bin/env -S deno run -A
+import { basename } from "jsr:@std/path";
 import { loadOrchestrationConfig, parseCliArgs } from "./lib/config.mjs";
 import {
   loadOrchestrationSecrets,
@@ -35,7 +34,7 @@ export function validateAuthProfileTarget(config = {}) {
     config.role === "follower" || String(config.side || "").toUpperCase() === "B"
       ? "follower"
       : "director";
-  const profileName = path.basename(String(config.profileDir || "")).toLowerCase();
+  const profileName = basename(String(config.profileDir || "")).toLowerCase();
   if (
     (profileName === "director" || profileName === "follower") &&
     profileName !== expectedProfileName
@@ -178,7 +177,7 @@ export async function seedAuthProfile(options = {}) {
   const secretsResult = options.secrets
     ? { secrets: options.secrets, secretsPath: "" }
     : await loadOrchestrationSecrets({
-        cwd: options.cwd || process.cwd(),
+        cwd: options.cwd || Deno.cwd(),
         secretsPath: options.secretsPath
       });
   const secrets = secretsResult.secrets;
@@ -239,7 +238,7 @@ export async function seedAuthProfile(options = {}) {
 }
 
 async function main() {
-  const argv = process.argv.slice(2);
+  const argv = Deno.args;
   const cli = parseCliArgs(argv);
   const result = await seedAuthProfile({
     configOptions: { argv, requireConfig: cli["require-config"] === true },
@@ -248,10 +247,9 @@ async function main() {
   console.log(JSON.stringify(result, null, 2));
 }
 
-const isDirectRun = process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
-if (isDirectRun) {
+if (import.meta.main) {
   main().catch((error) => {
     console.error(error.message || error);
-    process.exit(1);
+    Deno.exit(1);
   });
 }

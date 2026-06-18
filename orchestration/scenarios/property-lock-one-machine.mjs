@@ -1,7 +1,5 @@
-#!/usr/bin/env node
-import fs from "node:fs/promises";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+#!/usr/bin/env -S deno run -A
+import { dirname, join, resolve } from "jsr:@std/path";
 import { appendJsonLine, ensureRunDir } from "../lib/artifacts.mjs";
 import { loadOrchestrationConfig, parseCliArgs } from "../lib/config.mjs";
 import {
@@ -28,7 +26,7 @@ function resolvePath(value, cwd) {
   if (!normalized) {
     return "";
   }
-  return path.isAbsolute(normalized) ? normalized : path.resolve(cwd, normalized);
+  return resolve(cwd, normalized);
 }
 
 export function isEditorPopupState(popupState = {}) {
@@ -256,8 +254,8 @@ async function releaseExistingLock(participant, propertyUrl, logPath) {
 }
 
 async function writeJson(filePath, value) {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, JSON.stringify(value, null, 2));
+  await Deno.mkdir(dirname(filePath), { recursive: true });
+  await Deno.writeTextFile(filePath, JSON.stringify(value, null, 2));
 }
 
 async function logScenario(logPath, event) {
@@ -268,16 +266,16 @@ async function logScenario(logPath, event) {
 }
 
 export async function runPropertyLockOneMachineScenario(options = {}) {
-  const cwd = options.cwd || process.cwd();
+  const cwd = options.cwd || Deno.cwd();
   const argv = options.argv || [];
   const cli = options.cli || parseCliArgs(argv);
   const baseConfig = options.config || await loadOrchestrationConfig({
     cwd,
     argv,
-    env: options.env || process.env
+    env: options.env || Deno.env.toObject()
   });
   const runDir = options.runDir || await ensureRunDir(baseConfig.runRoot, "property-lock", "phase4", options.runId);
-  const logPath = path.join(runDir, "scenario.log");
+  const logPath = join(runDir, "scenario.log");
   const propertyUrl = normalizeString(cli["property-url"]) || baseConfig.testPropertyUrl;
   const crossPropertyUrl = normalizeString(cli["cross-property-url"]) || DEFAULT_CROSS_PROPERTY_URL;
   const offCandidateUrl = normalizeString(cli["off-candidate-url"]) ||
@@ -379,7 +377,7 @@ export async function runPropertyLockOneMachineScenario(options = {}) {
       snapshots,
       artifacts
     };
-    await writeJson(path.join(runDir, "summary.json"), summary);
+    await writeJson(join(runDir, "summary.json"), summary);
     await logScenario(logPath, { step: "summary", ok: summary.ok, checks });
     return summary;
   } catch (error) {
@@ -399,7 +397,7 @@ export async function runPropertyLockOneMachineScenario(options = {}) {
       snapshots,
       artifacts
     };
-    await writeJson(path.join(runDir, "summary.json"), summary);
+    await writeJson(join(runDir, "summary.json"), summary);
     await logScenario(logPath, { step: "summary", ok: false, error: summary.error, checks });
     return summary;
   } finally {
@@ -412,20 +410,19 @@ export async function runPropertyLockOneMachineScenario(options = {}) {
 
 async function main() {
   const result = await runPropertyLockOneMachineScenario({
-    argv: process.argv.slice(2)
+    argv: Deno.args
   });
   console.log(JSON.stringify({
     ok: result.ok,
     checks: result.checks,
     runDir: result.artifacts.runDir
   }, null, 2));
-  process.exit(result.ok ? 0 : 1);
+  Deno.exit(result.ok ? 0 : 1);
 }
 
-const isDirectRun = process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
-if (isDirectRun) {
+if (import.meta.main) {
   main().catch((error) => {
     console.error(error && error.stack ? error.stack : error);
-    process.exit(1);
+    Deno.exit(1);
   });
 }

@@ -18,10 +18,10 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - name: Set up Deno
+        uses: denoland/setup-deno@v1
         with:
-          node-version: 22
+          deno-version: v2.x
 
       - name: Stage extension files
         id: package
@@ -35,34 +35,14 @@ jobs:
           build_version="${timestamp/-/}"
 
           mkdir -p "$work_dir"
-          node ./scripts/package-extension.mjs \
+          deno run -A ./scripts/package-extension.mjs \
             --timestamp "$timestamp" \
             --build-version "$build_version" \
             --stage-dir "$stage_dir" \
             --metadata-file "$metadata_path" \
             > /dev/null
 
-          METADATA_PATH="$metadata_path" node --input-type=module <<'EOF' >> "$GITHUB_OUTPUT"
-          import { readFileSync } from "node:fs";
-
-          const metadata = JSON.parse(readFileSync(process.env.METADATA_PATH, "utf8"));
-          const outputs = {
-            archive_name: metadata.archiveFileName,
-            display_version: metadata.releaseDisplayVersion || metadata.version,
-            latest_alias_name: metadata.latestAliasFileName,
-            metadata_path: process.env.METADATA_PATH,
-            original_version: metadata.originalVersion,
-            release_tag: metadata.releaseTag,
-            stage_dir: metadata.stageDir,
-            timestamp: metadata.timestamp,
-            version: metadata.version,
-            version_latest_alias_name: metadata.versionLatestAliasFileName
-          };
-
-          for (const [key, value] of Object.entries(outputs)) {
-            process.stdout.write(`${key}=${value}\n`);
-          }
-          EOF
+          deno run -A ./scripts/emit-package-metadata.ts "$metadata_path" >> "$GITHUB_OUTPUT"
 
       - name: Create zip archives
         id: archive

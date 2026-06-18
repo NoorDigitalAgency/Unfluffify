@@ -1,6 +1,6 @@
-import test from "node:test";
-import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { test } from "./test-kit.ts";
+import { assert } from "./test-kit.ts";
+import { readFileSync } from "./file-kit.ts";
 
 const remoteConfigSyncSource = readFileSync(
   new URL("../background/remote-config-sync.ts", import.meta.url),

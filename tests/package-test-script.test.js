@@ -1,9 +1,9 @@
-import test from "node:test";
-import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { test } from "./test-kit.ts";
+import { assert } from "./test-kit.ts";
+import { readFileSync } from "./file-kit.ts";
 
-test("npm test delegates to deno task test", () => {
-  const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+test("deno task test is defined in deno.json", () => {
+  const denoJson = JSON.parse(readFileSync(new URL("../deno.json", import.meta.url)));
 
-  assert.equal(packageJson.scripts.test, "deno task test");
+  assert.equal(denoJson.tasks.test, "deno test -A --no-check --unstable-sloppy-imports tests");
 });

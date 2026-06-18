@@ -1,5 +1,5 @@
 import { build } from "npm:esbuild";
-import { dirname, extname, join, relative } from "node:path";
+import { dirname, extname, join, relative } from "jsr:@std/path";
 
 const ROOT = Deno.cwd();
 const isDev = Deno.args.includes("--dev");

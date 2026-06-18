@@ -1,6 +1,6 @@
-import test from "node:test";
-import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { test } from "./test-kit.ts";
+import { assert } from "./test-kit.ts";
+import { readFileSync } from "./file-kit.ts";
 
 test("repo MCP specs keep absolute Playwright paths and no-sandbox launch args", () => {
   const vscodeMcp = readFileSync(new URL("../.vscode/mcp.json", import.meta.url), "utf8");
