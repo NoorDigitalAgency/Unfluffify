@@ -1,15 +1,60 @@
+import type { Config, PageMarkingEntry } from "../types/config.ts";
+
+type TabLike = number | string | null | undefined;
+type SiteIdLike = number | string | null | undefined;
+type DeadlineLike = number | string | null | undefined;
+type PersistedAiRunRecord = {
+  sessionId: string;
+  siteId: number;
+  expiresAt: number;
+  deadlineAt: number;
+};
+type AiSelectorSet = ReturnType<typeof import("../common/selector-set.js").normalizeAiSelectorSet>;
+type AiRunSubmissionEntry = Parameters<typeof import("../popup/ai-run.js").buildAiSubmissionXpaths>[0];
+type AiRunSubmissionXpath = ReturnType<typeof import("../popup/ai-run.js").buildAiSubmissionXpaths>[number];
+type AiRunPayloadPage = {
+  url: string;
+  renderedHtml: string;
+  rawHtml?: string;
+  renderedXPaths: AiRunSubmissionXpath[];
+};
+type AiRunPayloadSnapshot = {
+  baseUrl: string;
+  renderMode: string;
+  defaultExclusionSelectors: string[];
+  pages: AiRunPayloadPage[];
+};
+type AiRunStoredXpath = string | { xpath?: string | null; excluded?: boolean; explicit?: boolean | null };
+type AiRunSelectorSetPayload = {
+  exclusionSelectors?: string[] | null;
+  inclusionSelectors?: string[] | null;
+};
+type TabState = {
+  enabled?: boolean;
+  baseUrl?: string;
+  [key: string]: string | number | boolean | null | undefined;
+};
+type ContentMessage = {
+  type: string;
+  [key: string]: string | number | boolean | null | undefined;
+};
+type TransferPayloadOptions = {
+  expectedType?: unknown;
+  removeInvalid?: boolean;
+};
+
 interface AiRunHeartbeatOptions {
-  tabId?: unknown;
-  sessionId?: unknown;
-  siteId?: unknown;
-  deadlineAt?: unknown;
-  baseUrl?: unknown;
+  tabId?: TabLike;
+  sessionId?: string | null;
+  siteId?: SiteIdLike;
+  deadlineAt?: DeadlineLike;
+  baseUrl?: string | null;
 }
 
 interface AiRunPrepareOptions {
-  baseUrl?: unknown;
-  currentPageUrl?: unknown;
-  currentRenderMode?: unknown;
+  baseUrl?: string | null;
+  currentPageUrl?: string | null;
+  currentRenderMode?: string | null;
 }
 
 interface TransferPayloadResult {
@@ -19,67 +64,94 @@ interface TransferPayloadResult {
 }
 
 interface AiRunManagedTimeoutGroup {
-  set(fn: (value?: unknown) => void, ms: number): unknown;
-  clear(handle: unknown): void;
+  set(fn: (value?: unknown) => void, ms: number): ReturnType<typeof setTimeout>;
+  clear(handle: ReturnType<typeof setTimeout>): void;
   clearAll(): void;
 }
 
 interface AiRunConfigStore {
-  ensureConfig(baseUrl: string): Promise<Record<string, unknown>>;
-  updateConfig(baseUrl: string, mutate: (config: Record<string, unknown>) => void): Promise<void>;
+  ensureConfig(baseUrl: string): Promise<Config>;
+  updateConfig(baseUrl: string, mutate: (config: Config) => void): Promise<void>;
 }
 
-type AiRunProgressUpdate = (value: Record<string, unknown>) => unknown;
-type AiRunCommandPayload = Record<string, unknown>;
+type AiRunProgressUpdate = (
+  value: Record<string, string | number | boolean | null | undefined>
+) => unknown;
+type AiRunCommandPayload = {
+  baseUrl?: string;
+  currentPageUrl?: string;
+  pageType?: string;
+  currentRenderMode?: string;
+  endpointValue?: string;
+  tokenValue?: string;
+  siteId?: SiteIdLike;
+  deadlineAt?: DeadlineLike;
+};
 
 interface AiRunOrchestratorOptions {
   aiComputeLockExpiresAtByTabId?: Map<number, number>;
-  normalizeTabId?(value: unknown): number | null;
-  normalizeActivationBaseUrl?(value: unknown): string;
-  normalizeSiteIdValue?(value: unknown): number | null;
-  normalizeAiSelectorSet?(value: unknown): unknown;
-  buildAiSubmissionXpaths?(entry: unknown): unknown[];
-  isPageWithinBaseUrl?(pageUrl: unknown, baseUrl: unknown): boolean;
+  normalizeTabId?(value: TabLike): number | null;
+  normalizeActivationBaseUrl?(value: string | null | undefined): string;
+  normalizeSiteIdValue?(value: SiteIdLike): number | null;
+  normalizeAiSelectorSet?(
+    value: Parameters<typeof import("../common/selector-set.js").normalizeAiSelectorSet>[0]
+  ): AiSelectorSet;
+  buildAiSubmissionXpaths?(
+    entry: AiRunSubmissionEntry
+  ): AiRunSubmissionXpath[];
+  isPageWithinBaseUrl?(pageUrl: string, baseUrl: string): boolean;
   resolveBackgroundNetworkCredentials?(
-    args: unknown
+    args: { endpointValue?: string; tokenValue?: string; endpointPreference?: string }
   ): Promise<{ endpointValue: string; tokenValue: string }>;
-  requestAiRunStartSnapshot?(args: unknown): Promise<{ ok: boolean; sessionId?: string }>;
+  requestAiRunStartSnapshot?(args: {
+    endpointValue: string;
+    tokenValue: string;
+    payloadKey: string;
+  }): Promise<{ ok: boolean; sessionId?: string }>;
   requestAiRunStatus?(
-    args: unknown
+    args: {
+      endpointValue: string;
+      tokenValue: string;
+      sessionId: string;
+    }
   ): Promise<{ ok: boolean; notFound?: boolean; status?: string }>;
   requestAiRunResultSnapshot?(
-    args: unknown
+    args: {
+      endpointValue: string;
+      tokenValue: string;
+      sessionId: string;
+    }
   ): Promise<{ ok: boolean; notFound?: boolean; payloadKey?: string }>;
-  fetchStaticPageHtmlForBackground?(url: unknown): Promise<{ ok: boolean; html?: string }>;
-  getTransferPayload?(key: unknown, options?: unknown): Promise<TransferPayloadResult>;
+  fetchStaticPageHtmlForBackground?(url: string): Promise<{ ok: boolean; html?: string }>;
+  getTransferPayload?(key: unknown, options?: TransferPayloadOptions): Promise<TransferPayloadResult>;
   putTransferPayload?(kind: unknown, payload: unknown): Promise<TransferPayloadResult>;
   removeTransferPayload?(key: unknown): Promise<unknown>;
-  consumeTransferPayload?(key: unknown, options?: unknown): Promise<TransferPayloadResult>;
-  clearPersistedAiRunRecord?(): Promise<unknown>;
-  savePersistedAiRunRecord?(record: unknown): Promise<unknown>;
+  consumeTransferPayload?(key: unknown, options?: TransferPayloadOptions): Promise<TransferPayloadResult>;
+  clearPersistedAiRunRecord?(): Promise<void>;
+  savePersistedAiRunRecord?(record: PersistedAiRunRecord): Promise<unknown>;
   sendContentMessageToTab?(
-    tabId: unknown,
-    message: unknown
+    tabId: number,
+    message: ContentMessage
   ): Promise<{ ok: boolean; error?: string; reconciliationPending?: boolean; locked?: boolean }>;
-  ensureContentMainForTab?(tabId: unknown): Promise<{ ok: boolean; error?: string }>;
-  getTabState?(tabId: unknown): Promise<unknown>;
-  setTabState?(tabId: unknown, tabState: unknown): Promise<unknown>;
-  updateActionForTab?(...args: unknown[]): Promise<unknown>;
-  refineXPathEntries?(renderedHtml: unknown, rawHtml: unknown, renderedXPaths: unknown): unknown;
+  ensureContentMainForTab?(tabId: number): Promise<{ ok: boolean; error?: string }>;
+  getTabState?(tabId: number): Promise<Record<string, unknown> | null>;
+  setTabState?(tabId: number, tabState: Record<string, unknown>): Promise<void>;
+  updateActionForTab?(tabId: number): Promise<void>;
+  refineXPathEntries?(renderedHtml: string, rawHtml: string, renderedXPaths: unknown): unknown;
   createManagedTimeoutGroup?(): AiRunManagedTimeoutGroup;
   getAiRunResumeExpiresAt?(): number;
   configStore?: AiRunConfigStore;
-  defaultExcludedImmutableSelectors?: unknown[];
+  defaultExcludedImmutableSelectors?: string[];
   aiRunTimeoutMs?: number;
   aiRunPollIntervalMs?: number;
 }
 
-function defaultNormalizeTabId(value: unknown) {
+function defaultNormalizeTabId(value: TabLike) {
   const numeric = Number(value);
   return Number.isFinite(numeric) && numeric > 0 ? Math.trunc(numeric) : null;
 }
 
-function defaultNormalizeActivationBaseUrl(value: unknown) {
+function defaultNormalizeActivationBaseUrl(value: string | null | undefined) {
   return typeof value === "string" ? value : "";
 }
 
@@ -99,139 +171,136 @@ function defaultIsPageWithinBaseUrl() {
   return false;
 }
 
-function defaultCreateManagedTimeoutGroup() {
+function defaultCreateManagedTimeoutGroup(): AiRunManagedTimeoutGroup {
   return {
     set(fn: (value?: unknown) => void, ms: number) {
       return setTimeout(fn, ms);
     },
-    clear(handle: unknown) {
-      clearTimeout(handle as ReturnType<typeof setTimeout>);
+    clear(handle: ReturnType<typeof setTimeout>) {
+      clearTimeout(handle);
     },
     clearAll() {}
   };
 }
 
 export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) {
-  const optionsAny = options;
-  const aiComputeLockExpiresAtByTabId: Map<number, number> = optionsAny.aiComputeLockExpiresAtByTabId instanceof Map
-    ? optionsAny.aiComputeLockExpiresAtByTabId
+  const aiComputeLockExpiresAtByTabId: Map<number, number> = options.aiComputeLockExpiresAtByTabId instanceof Map
+    ? options.aiComputeLockExpiresAtByTabId
     : new Map<number, number>();
-  const normalizeTabId = typeof optionsAny.normalizeTabId === "function"
-    ? optionsAny.normalizeTabId
+  const normalizeTabId = typeof options.normalizeTabId === "function"
+    ? options.normalizeTabId
     : defaultNormalizeTabId;
-  const normalizeActivationBaseUrl = typeof optionsAny.normalizeActivationBaseUrl === "function"
-    ? optionsAny.normalizeActivationBaseUrl
+  const normalizeActivationBaseUrl = typeof options.normalizeActivationBaseUrl === "function"
+    ? options.normalizeActivationBaseUrl
     : defaultNormalizeActivationBaseUrl;
-  const normalizeSiteIdValue = typeof optionsAny.normalizeSiteIdValue === "function"
-    ? optionsAny.normalizeSiteIdValue
+  const normalizeSiteIdValue = typeof options.normalizeSiteIdValue === "function"
+    ? options.normalizeSiteIdValue
     : defaultNormalizeSiteIdValue;
-  const normalizeAiSelectorSet = typeof optionsAny.normalizeAiSelectorSet === "function"
-    ? optionsAny.normalizeAiSelectorSet
+  const normalizeAiSelectorSet = typeof options.normalizeAiSelectorSet === "function"
+    ? options.normalizeAiSelectorSet
     : defaultNormalizeAiSelectorSet;
-  const buildAiSubmissionXpaths = typeof optionsAny.buildAiSubmissionXpaths === "function"
-    ? optionsAny.buildAiSubmissionXpaths
+  const buildAiSubmissionXpaths = typeof options.buildAiSubmissionXpaths === "function"
+    ? options.buildAiSubmissionXpaths
     : defaultBuildAiSubmissionXpaths;
-  const isPageWithinBaseUrl = typeof optionsAny.isPageWithinBaseUrl === "function"
-    ? optionsAny.isPageWithinBaseUrl
+  const isPageWithinBaseUrl = typeof options.isPageWithinBaseUrl === "function"
+    ? options.isPageWithinBaseUrl
     : defaultIsPageWithinBaseUrl;
 
-  const resolveBackgroundNetworkCredentials: NonNullable<AiRunOrchestratorOptions["resolveBackgroundNetworkCredentials"]> = typeof optionsAny.resolveBackgroundNetworkCredentials === "function"
-    ? optionsAny.resolveBackgroundNetworkCredentials
+  const resolveBackgroundNetworkCredentials: NonNullable<AiRunOrchestratorOptions["resolveBackgroundNetworkCredentials"]> = typeof options.resolveBackgroundNetworkCredentials === "function"
+    ? options.resolveBackgroundNetworkCredentials
     : async () => ({ endpointValue: "", tokenValue: "" });
-  const requestAiRunStartSnapshot: NonNullable<AiRunOrchestratorOptions["requestAiRunStartSnapshot"]> = typeof optionsAny.requestAiRunStartSnapshot === "function"
-    ? optionsAny.requestAiRunStartSnapshot
+  const requestAiRunStartSnapshot: NonNullable<AiRunOrchestratorOptions["requestAiRunStartSnapshot"]> = typeof options.requestAiRunStartSnapshot === "function"
+    ? options.requestAiRunStartSnapshot
     : async () => ({ ok: false });
-  const requestAiRunStatus: NonNullable<AiRunOrchestratorOptions["requestAiRunStatus"]> = typeof optionsAny.requestAiRunStatus === "function"
-    ? optionsAny.requestAiRunStatus
+  const requestAiRunStatus: NonNullable<AiRunOrchestratorOptions["requestAiRunStatus"]> = typeof options.requestAiRunStatus === "function"
+    ? options.requestAiRunStatus
     : async () => ({ ok: false });
-  const requestAiRunResultSnapshot: NonNullable<AiRunOrchestratorOptions["requestAiRunResultSnapshot"]> = typeof optionsAny.requestAiRunResultSnapshot === "function"
-    ? optionsAny.requestAiRunResultSnapshot
+  const requestAiRunResultSnapshot: NonNullable<AiRunOrchestratorOptions["requestAiRunResultSnapshot"]> = typeof options.requestAiRunResultSnapshot === "function"
+    ? options.requestAiRunResultSnapshot
     : async () => ({ ok: false });
-  const fetchStaticPageHtmlForBackground: NonNullable<AiRunOrchestratorOptions["fetchStaticPageHtmlForBackground"]> = typeof optionsAny.fetchStaticPageHtmlForBackground === "function"
-    ? optionsAny.fetchStaticPageHtmlForBackground
-    : async () => ({ ok: false });
-
-  const getTransferPayload: NonNullable<AiRunOrchestratorOptions["getTransferPayload"]> = typeof optionsAny.getTransferPayload === "function"
-    ? optionsAny.getTransferPayload
-    : async () => ({ ok: false });
-  const putTransferPayload: NonNullable<AiRunOrchestratorOptions["putTransferPayload"]> = typeof optionsAny.putTransferPayload === "function"
-    ? optionsAny.putTransferPayload
-    : async () => ({ ok: false });
-  const removeTransferPayload: NonNullable<AiRunOrchestratorOptions["removeTransferPayload"]> = typeof optionsAny.removeTransferPayload === "function"
-    ? optionsAny.removeTransferPayload
-    : async () => {};
-  const consumeTransferPayload: NonNullable<AiRunOrchestratorOptions["consumeTransferPayload"]> = typeof optionsAny.consumeTransferPayload === "function"
-    ? optionsAny.consumeTransferPayload
+  const fetchStaticPageHtmlForBackground: NonNullable<AiRunOrchestratorOptions["fetchStaticPageHtmlForBackground"]> = typeof options.fetchStaticPageHtmlForBackground === "function"
+    ? options.fetchStaticPageHtmlForBackground
     : async () => ({ ok: false });
 
-  const clearPersistedAiRunRecord: NonNullable<AiRunOrchestratorOptions["clearPersistedAiRunRecord"]> = typeof optionsAny.clearPersistedAiRunRecord === "function"
-    ? optionsAny.clearPersistedAiRunRecord
+  const getTransferPayload: NonNullable<AiRunOrchestratorOptions["getTransferPayload"]> = typeof options.getTransferPayload === "function"
+    ? options.getTransferPayload
+    : async () => ({ ok: false });
+  const putTransferPayload: NonNullable<AiRunOrchestratorOptions["putTransferPayload"]> = typeof options.putTransferPayload === "function"
+    ? options.putTransferPayload
+    : async () => ({ ok: false });
+  const removeTransferPayload: NonNullable<AiRunOrchestratorOptions["removeTransferPayload"]> = typeof options.removeTransferPayload === "function"
+    ? options.removeTransferPayload
     : async () => {};
-  const savePersistedAiRunRecord: NonNullable<AiRunOrchestratorOptions["savePersistedAiRunRecord"]> = typeof optionsAny.savePersistedAiRunRecord === "function"
-    ? optionsAny.savePersistedAiRunRecord
+  const consumeTransferPayload: NonNullable<AiRunOrchestratorOptions["consumeTransferPayload"]> = typeof options.consumeTransferPayload === "function"
+    ? options.consumeTransferPayload
+    : async () => ({ ok: false });
+
+  const clearPersistedAiRunRecord: NonNullable<AiRunOrchestratorOptions["clearPersistedAiRunRecord"]> = typeof options.clearPersistedAiRunRecord === "function"
+    ? options.clearPersistedAiRunRecord
+    : async () => {};
+  const savePersistedAiRunRecord: NonNullable<AiRunOrchestratorOptions["savePersistedAiRunRecord"]> = typeof options.savePersistedAiRunRecord === "function"
+    ? options.savePersistedAiRunRecord
     : async () => null;
 
-  const sendContentMessageToTab: NonNullable<AiRunOrchestratorOptions["sendContentMessageToTab"]> = typeof optionsAny.sendContentMessageToTab === "function"
-    ? optionsAny.sendContentMessageToTab
+  const sendContentMessageToTab: NonNullable<AiRunOrchestratorOptions["sendContentMessageToTab"]> = typeof options.sendContentMessageToTab === "function"
+    ? options.sendContentMessageToTab
     : async () => ({ ok: false });
-  const ensureContentMainForTab: NonNullable<AiRunOrchestratorOptions["ensureContentMainForTab"]> = typeof optionsAny.ensureContentMainForTab === "function"
-    ? optionsAny.ensureContentMainForTab
+  const ensureContentMainForTab: NonNullable<AiRunOrchestratorOptions["ensureContentMainForTab"]> = typeof options.ensureContentMainForTab === "function"
+    ? options.ensureContentMainForTab
     : async () => ({ ok: false, error: "Content activation failed" });
-  const getTabState: NonNullable<AiRunOrchestratorOptions["getTabState"]> = typeof optionsAny.getTabState === "function"
-    ? optionsAny.getTabState
+  const getTabState: NonNullable<AiRunOrchestratorOptions["getTabState"]> = typeof options.getTabState === "function"
+    ? options.getTabState
     : async () => null;
-  const setTabState: NonNullable<AiRunOrchestratorOptions["setTabState"]> = typeof optionsAny.setTabState === "function"
-    ? optionsAny.setTabState
+  const setTabState: NonNullable<AiRunOrchestratorOptions["setTabState"]> = typeof options.setTabState === "function"
+    ? options.setTabState
     : async () => {};
-  const updateActionForTab: NonNullable<AiRunOrchestratorOptions["updateActionForTab"]> = typeof optionsAny.updateActionForTab === "function"
-    ? optionsAny.updateActionForTab
+  const updateActionForTab: NonNullable<AiRunOrchestratorOptions["updateActionForTab"]> = typeof options.updateActionForTab === "function"
+    ? options.updateActionForTab
     : () => Promise.resolve();
 
-  const refineXPathEntries: NonNullable<AiRunOrchestratorOptions["refineXPathEntries"]> = typeof optionsAny.refineXPathEntries === "function"
-    ? optionsAny.refineXPathEntries
-    : (_renderedHtml: unknown, _rawHtml: unknown, renderedXPaths: unknown) => renderedXPaths;
-  const createManagedTimeoutGroup: NonNullable<AiRunOrchestratorOptions["createManagedTimeoutGroup"]> = typeof optionsAny.createManagedTimeoutGroup === "function"
-    ? optionsAny.createManagedTimeoutGroup
+  const refineXPathEntries: NonNullable<AiRunOrchestratorOptions["refineXPathEntries"]> = typeof options.refineXPathEntries === "function"
+    ? options.refineXPathEntries
+    : (_renderedHtml: string, _rawHtml: string, renderedXPaths: unknown) => renderedXPaths;
+  const createManagedTimeoutGroup: NonNullable<AiRunOrchestratorOptions["createManagedTimeoutGroup"]> = typeof options.createManagedTimeoutGroup === "function"
+    ? options.createManagedTimeoutGroup
     : defaultCreateManagedTimeoutGroup;
-  const getAiRunResumeExpiresAt: NonNullable<AiRunOrchestratorOptions["getAiRunResumeExpiresAt"]> = typeof optionsAny.getAiRunResumeExpiresAt === "function"
-    ? optionsAny.getAiRunResumeExpiresAt
+  const getAiRunResumeExpiresAt: NonNullable<AiRunOrchestratorOptions["getAiRunResumeExpiresAt"]> = typeof options.getAiRunResumeExpiresAt === "function"
+    ? options.getAiRunResumeExpiresAt
     : () => Date.now() + 30_000;
 
-  const configStore: AiRunConfigStore = optionsAny.configStore && typeof optionsAny.configStore === "object"
-    ? optionsAny.configStore
+  const configStore: AiRunConfigStore = options.configStore && typeof options.configStore === "object"
+    ? options.configStore
     : {
-      ensureConfig: async () => ({}),
+      ensureConfig: async () => ({ pageMarkings: {} }),
       updateConfig: async () => {}
     };
 
-  const defaultExcludedImmutableSelectors = Array.isArray(optionsAny.defaultExcludedImmutableSelectors)
-    ? optionsAny.defaultExcludedImmutableSelectors
+  const defaultExcludedImmutableSelectors = Array.isArray(options.defaultExcludedImmutableSelectors)
+    ? options.defaultExcludedImmutableSelectors
     : [];
-  const aiRunTimeoutMsOption = optionsAny.aiRunTimeoutMs;
+  const aiRunTimeoutMsOption = options.aiRunTimeoutMs;
   const aiRunTimeoutMs = typeof aiRunTimeoutMsOption === "number" && Number.isFinite(aiRunTimeoutMsOption) && aiRunTimeoutMsOption > 0
     ? Math.trunc(aiRunTimeoutMsOption)
     : 300_000;
-  const aiRunPollIntervalMsOption = optionsAny.aiRunPollIntervalMs;
+  const aiRunPollIntervalMsOption = options.aiRunPollIntervalMs;
   const aiRunPollIntervalMs = typeof aiRunPollIntervalMsOption === "number" && Number.isFinite(aiRunPollIntervalMsOption) && aiRunPollIntervalMsOption > 0
     ? Math.trunc(aiRunPollIntervalMsOption)
     : 5_000;
 
-  function getAiRunCurrentPageEntry(currentConfig: unknown, currentPageUrl: unknown) {
-    if (!currentConfig || typeof currentConfig !== "object") {
+  function getAiRunCurrentPageEntry(currentConfig: Config, currentPageUrl: string) {
+    if (!currentPageUrl) {
       return null;
     }
-    const pageMarkings = (currentConfig as { pageMarkings?: unknown }).pageMarkings;
+    const pageMarkings = currentConfig.pageMarkings;
     if (!pageMarkings || typeof pageMarkings !== "object") {
       return null;
     }
-    const entry = (pageMarkings as Record<string, unknown>)[currentPageUrl as string];
+    const entry = pageMarkings[currentPageUrl];
     return entry && typeof entry === "object" ? entry : null;
   }
 
-  function isAiRunCurrentPageSnapshotMissing(currentConfig: unknown, currentPageUrl: unknown) {
-    const entry = getAiRunCurrentPageEntry(currentConfig, currentPageUrl) as
-      | { renderedHtml?: unknown; submissionXpaths?: unknown }
-      | null;
+  function isAiRunCurrentPageSnapshotMissing(currentConfig: Config, currentPageUrl: string) {
+    const entry = getAiRunCurrentPageEntry(currentConfig, currentPageUrl);
     if (!entry) {
       return true;
     }
@@ -244,7 +313,7 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
     return false;
   }
 
-  async function refineAiRunPayloadXpathsInBackground(payloadKey: unknown) {
+  async function refineAiRunPayloadXpathsInBackground(payloadKey: string | null | undefined) {
     const sourcePayloadKey = typeof payloadKey === "string" ? payloadKey.trim() : "";
     if (!sourcePayloadKey) {
       return { ok: false, error: "Missing AI run payload" };
@@ -254,7 +323,7 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
       removeInvalid: true
     });
     const payload = loaded && loaded.ok && loaded.payload && typeof loaded.payload === "object"
-      ? (loaded.payload as { pages?: unknown })
+      ? (loaded.payload as { pages?: AiRunPayloadPage[] })
       : null;
     if (!payload || !Array.isArray(payload.pages)) {
       await removeTransferPayload(sourcePayloadKey);
@@ -265,7 +334,9 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
       pages: payload.pages.map((page) => {
         const renderedHtml = page && typeof page.renderedHtml === "string" ? page.renderedHtml : "";
         const rawHtml = page && typeof page.rawHtml === "string" ? page.rawHtml : "";
-        const renderedXPaths = Array.isArray(page && page.renderedXPaths) ? page.renderedXPaths : [];
+        const         renderedXPaths = Array.isArray(page && page.renderedXPaths)
+          ? (page.renderedXPaths as AiRunSubmissionXpath[])
+          : [];
         return {
           ...page,
           rawXPaths: refineXPathEntries(renderedHtml, rawHtml, renderedXPaths)
@@ -284,7 +355,7 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
     };
   }
 
-  async function loadAiRunSelectorSetFromPayloadKey(payloadKey: unknown) {
+  async function loadAiRunSelectorSetFromPayloadKey(payloadKey: string | null | undefined) {
     const resultPayloadKey = typeof payloadKey === "string" ? payloadKey.trim() : "";
     if (!resultPayloadKey) {
       return null;
@@ -294,7 +365,7 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
       removeInvalid: true
     });
     const payload = loaded && loaded.ok && loaded.payload && typeof loaded.payload === "object"
-      ? (loaded.payload as { exclusionSelectors?: unknown; inclusionSelectors?: unknown })
+      ? (loaded.payload as AiRunSelectorSetPayload)
       : null;
     if (
       !payload ||
@@ -306,7 +377,7 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
     return normalizeAiSelectorSet(payload);
   }
 
-  async function setAiComputeLockForTab(tabId: unknown, active: unknown, expiresAt: unknown = 0, baseUrl: unknown = "") {
+  async function setAiComputeLockForTab(tabId: TabLike, active: boolean, expiresAt: DeadlineLike = 0, baseUrl: string | null | undefined = "") {
     const normalizedTabId = normalizeTabId(tabId);
     if (!normalizedTabId) {
       return { ok: false, active: Boolean(active), error: "Missing tab" };
@@ -324,7 +395,7 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
     const normalizedBaseUrl = typeof baseUrl === "string" ? baseUrl : "";
     if (active && normalizedBaseUrl) {
       const existingTabState = await getTabState(normalizedTabId);
-      const nextTabState = {
+      const nextTabState: TabState = {
         ...(existingTabState && typeof existingTabState === "object" ? existingTabState : {}),
         enabled: true,
         baseUrl: normalizedBaseUrl
@@ -361,7 +432,7 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
       };
   }
 
-  function isAiComputeLockActiveForTab(tabId: unknown) {
+  function isAiComputeLockActiveForTab(tabId: TabLike) {
     const normalizedTabId = normalizeTabId(tabId);
     if (!normalizedTabId) {
       return false;
@@ -416,39 +487,35 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
     }
     try {
       const currentConfig = await configStore.ensureConfig(baseUrl);
-      const pageMarkings: Record<string, unknown> =
-        currentConfig && currentConfig.pageMarkings && typeof currentConfig.pageMarkings === "object"
-          ? (currentConfig.pageMarkings as Record<string, unknown>)
-          : {};
+      const pageMarkings = currentConfig && currentConfig.pageMarkings && typeof currentConfig.pageMarkings === "object"
+        ? currentConfig.pageMarkings
+        : {};
       const storedPageEntries = Object.entries(pageMarkings)
         .filter(([url, entry]) => {
-          const entryAny = entry as Record<string, unknown>;
           if (!url || !entry || typeof entry !== "object") {
             return false;
           }
           if (baseUrl && !isPageWithinBaseUrl(url, baseUrl)) {
             return false;
           }
-          if (typeof entryAny.renderedHtml !== "string" || !entryAny.renderedHtml) {
+          if (typeof entry.renderedHtml !== "string" || !entry.renderedHtml) {
             return false;
           }
-          if (!Array.isArray(entryAny.submissionXpaths) || entryAny.submissionXpaths.length === 0) {
+          if (!Array.isArray(entry.submissionXpaths) || entry.submissionXpaths.length === 0) {
             return false;
           }
           return true;
         });
-      const storedPageEntriesAny = storedPageEntries as Array<[string, Record<string, unknown>]>;
       if (!storedPageEntries.some(([url]) => url === currentPageUrl)) {
         return { ok: false, reason: "missing_current_page" };
       }
       if (!storedPageEntries.length) {
         return { ok: false, reason: "missing_saved_pages" };
       }
-      const urlsMissingRawHtml = storedPageEntriesAny
+      const urlsMissingRawHtml = storedPageEntries
         .map(([url, entry]) => ({ url, entry }))
         .filter(({ entry }) => {
-          const entryAny = entry as Record<string, unknown>;
-          return typeof entryAny.rawHtml !== "string" || !entryAny.rawHtml;
+          return typeof entry.rawHtml !== "string" || !entry.rawHtml;
         });
       const backfillResults = await Promise.all(
         urlsMissingRawHtml.map(async ({ url }) => {
@@ -461,17 +528,17 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
       );
       const successfulBackfills = backfillResults.filter(Boolean) as Array<{ url: string; rawHtml: string }>;
       if (successfulBackfills.length) {
-        await configStore.updateConfig(baseUrl, (targetConfig: Record<string, unknown>) => {
+        await configStore.updateConfig(baseUrl, (targetConfig: Config) => {
           if (!targetConfig.pageMarkings || typeof targetConfig.pageMarkings !== "object") {
             return;
           }
-          const targetPageMarkings = targetConfig.pageMarkings as Record<string, unknown>;
+          const targetPageMarkings = targetConfig.pageMarkings;
           successfulBackfills.forEach((item) => {
             const targetEntry = targetPageMarkings[item.url];
             if (!targetEntry || typeof targetEntry !== "object") {
               return;
             }
-            (targetEntry as Record<string, unknown>).rawHtml = item.rawHtml;
+            targetEntry.rawHtml = item.rawHtml;
           });
         });
       }
@@ -479,20 +546,65 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
       successfulBackfills.forEach((item) => {
         rawHtmlBackfills.set(item.url, item.rawHtml);
       });
-      const pages = storedPageEntriesAny.map(([url, entry]) => {
-        const entryAny = entry as Record<string, unknown>;
+      const toAiRunSubmissionEntry = (
+        entry: { includeXpaths?: string[]; submissionXpaths?: AiRunStoredXpath[] }
+      ): AiRunSubmissionEntry => {
+        const includeXpaths = Array.isArray(entry.includeXpaths) ? entry.includeXpaths : [];
+        const includeSet = new Set(includeXpaths);
+        const normalizedSubmissionXpaths = Array.isArray(entry.submissionXpaths)
+          ? entry.submissionXpaths
+            .map((item) => {
+              if (typeof item === "string") {
+                const xpath = item.trim();
+                if (!xpath) {
+                  return null;
+                }
+                return {
+                  xpath,
+                  excluded: false,
+                  explicit: includeSet.has(xpath)
+                };
+              }
+              if (!item || typeof item !== "object" || typeof item.xpath !== "string") {
+                return null;
+              }
+              const xpath = item.xpath.trim();
+              if (!xpath) {
+                return null;
+              }
+              const excluded = item.excluded === true;
+              const explicit = item.explicit === true;
+              return explicit ? { xpath, excluded, explicit: true } : { xpath, excluded };
+            })
+            .filter((item): item is { xpath: string; excluded: boolean; explicit?: boolean } => Boolean(item))
+          : [];
+        return {
+          includeXpaths,
+          submissionXpaths: normalizedSubmissionXpaths
+        };
+      };
+
+      const pages: AiRunPayloadPage[] = storedPageEntries.map(([url, entryValue]) => {
+        const entry = toAiRunSubmissionEntry({
+          includeXpaths: Array.isArray(entryValue.includeXpaths) ? entryValue.includeXpaths : [],
+          submissionXpaths: Array.isArray(
+            (entryValue as { submissionXpaths?: unknown }).submissionXpaths
+          )
+            ? ((entryValue as { submissionXpaths?: unknown }).submissionXpaths as AiRunStoredXpath[])
+            : []
+        });
         const rawHtml =
-          entryAny && typeof entryAny.rawHtml === "string" && entryAny.rawHtml
-            ? entryAny.rawHtml
+          entryValue && typeof entryValue.rawHtml === "string" && entryValue.rawHtml
+            ? entryValue.rawHtml
             : rawHtmlBackfills.get(url) || "";
         return {
           url,
-          renderedHtml: typeof entryAny.renderedHtml === "string" ? entryAny.renderedHtml : "",
+          renderedHtml: typeof entryValue.renderedHtml === "string" ? entryValue.renderedHtml : "",
           rawHtml: currentRenderMode === "static" ? rawHtml : undefined,
           renderedXPaths: buildAiSubmissionXpaths(entry)
         };
       });
-      const payload = {
+      const payload: AiRunPayloadSnapshot = {
         baseUrl,
         renderMode: currentRenderMode,
         defaultExclusionSelectors: defaultExcludedImmutableSelectors,
@@ -512,16 +624,16 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
     }
   }
 
-  async function runAiCommandForTab(tabId: unknown, payload: AiRunCommandPayload, update: AiRunProgressUpdate) {
-    const payloadAny = payload as Record<string, unknown>;
+  async function runAiCommandForTab(tabId: TabLike, payload: AiRunCommandPayload, update: AiRunProgressUpdate) {
     const timeoutGroup = createManagedTimeoutGroup();
-    const baseUrl = normalizeActivationBaseUrl(payloadAny && payloadAny.baseUrl);
-    const currentPageUrl = typeof payloadAny?.currentPageUrl === "string"
-      ? payloadAny.currentPageUrl.trim()
+    const normalizedTabId = normalizeTabId(tabId);
+    const baseUrl = normalizeActivationBaseUrl(payload.baseUrl);
+    const currentPageUrl = typeof payload.currentPageUrl === "string"
+      ? payload.currentPageUrl.trim()
       : "";
-    const pageType = typeof payloadAny?.pageType === "string" ? payloadAny.pageType : "";
-    const currentRenderMode = typeof payloadAny?.currentRenderMode === "string"
-      ? payloadAny.currentRenderMode.trim()
+    const pageType = typeof payload.pageType === "string" ? payload.pageType : "";
+    const currentRenderMode = typeof payload.currentRenderMode === "string"
+      ? payload.currentRenderMode.trim()
       : "";
     const credentials = await resolveBackgroundNetworkCredentials({
       endpointValue: payload && payload.endpointValue,
@@ -530,13 +642,13 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
     });
     const endpointValue = credentials.endpointValue;
     const tokenValue = credentials.tokenValue;
-    const requestedSiteId = normalizeSiteIdValue(payloadAny && payloadAny.siteId);
-    const requestedDeadlineAt = Number(payloadAny && payloadAny.deadlineAt);
+    const requestedSiteId = normalizeSiteIdValue(payload.siteId);
+    const requestedDeadlineAt = Number(payload.deadlineAt);
     const deadlineAt = Number.isFinite(requestedDeadlineAt) && requestedDeadlineAt > Date.now()
       ? requestedDeadlineAt
       : Date.now() + aiRunTimeoutMs;
 
-    if (!baseUrl || !currentPageUrl || !endpointValue || !tokenValue) {
+    if (!normalizedTabId || !baseUrl || !currentPageUrl || !endpointValue || !tokenValue) {
       return {
         ok: false,
         reason: "invalid_request",
@@ -547,7 +659,7 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
     let initialLockSet = false;
     try {
       const initialLock = await setAiComputeLockForTab(
-        tabId,
+        normalizedTabId,
         true,
         getAiRunResumeExpiresAt(),
         baseUrl
@@ -570,7 +682,7 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
       let currentConfig = await configStore.ensureConfig(baseUrl);
       const needsSnapshot = isAiRunCurrentPageSnapshotMissing(currentConfig, currentPageUrl);
       if (needsSnapshot) {
-        const snapshotResponse = await sendContentMessageToTab(tabId, {
+        const snapshotResponse = await sendContentMessageToTab(normalizedTabId, {
           type: "capturePageSnapshot",
           baseUrl,
           pageType,
@@ -659,7 +771,7 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
         });
         if (siteId) {
           const heartbeat = await refreshAiRunHeartbeat({
-            tabId,
+            tabId: normalizedTabId,
             sessionId,
             siteId,
             deadlineAt,
@@ -756,7 +868,7 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
       timeoutGroup.clearAll();
       await clearPersistedAiRunRecord().catch(() => null);
       if (initialLockSet) {
-        await setAiComputeLockForTab(tabId, false, 0, baseUrl).catch(() => null);
+        await setAiComputeLockForTab(normalizedTabId, false, 0, baseUrl).catch(() => null);
       }
     }
   }
