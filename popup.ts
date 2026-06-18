@@ -471,8 +471,12 @@ const setSpinnerMessage = (key, message) =>
   setSpinnerMessageOperation(getSpinnerDeps(), key, message);
 // @ts-expect-error
 const popSpinner = (key) => popSpinnerOperation(getSpinnerDeps(), key);
-// @ts-expect-error
-const runWithSpinner = (key, message, task, options = {}) =>
+const runWithSpinner = <T,>(
+  key: string | null,
+  message: string,
+  task: (spinnerKey: string | null) => Promise<T>,
+  options: { delayMs?: number; persistent?: boolean; source?: string; reason?: string; suppressIfActive?: boolean } = {}
+) =>
   runWithSpinnerOperation(getSpinnerDeps(), key, message, task, options);
 
 function getSiteResolutionDeps() {
@@ -2360,8 +2364,7 @@ async function refreshCurrentPageRuntimeStatus(options = {}) {
   };
 }
 
-// @ts-expect-error
-function waitForRetryDelay(delayMs) {
+function waitForRetryDelay(delayMs?: number): Promise<void> {
   return new Promise((resolve) => {
     window.setTimeout(resolve, delayMs);
   });
@@ -5963,7 +5966,6 @@ async function handleEnableToggle(event) {
     await runWithSpinner(
       desiredEnabled ? null : immediateDisableSpinnerKey,
       desiredEnabled ? PopupText.overlay.enablingMarking : PopupText.overlay.disablingMarking,
-// @ts-expect-error
       async (spinnerKey) => {
         if (desiredEnabled) {
           const parsed = utils.parseBaseUrl(baseUrlValue);

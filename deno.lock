@@ -3,7 +3,8 @@
   "specifiers": {
     "npm:@types/chrome@~0.1.24": "0.1.43",
     "npm:esbuild@*": "0.28.1",
-    "npm:typescript@*": "6.0.3"
+    "npm:typescript@*": "6.0.3",
+    "npm:typescript@^6.0.3": "6.0.3"
   },
   "npm": {
     "@esbuild/aix-ppc64@0.28.1": {
@@ -196,7 +197,8 @@
   "workspace": {
     "packageJson": {
       "dependencies": [
-        "npm:@types/chrome@~0.1.24"
+        "npm:@types/chrome@~0.1.24",
+        "npm:typescript@^6.0.3"
       ]
     }
   }

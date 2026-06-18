@@ -9,18 +9,39 @@ type RenderModeDetectionResult = {
   accuracy: number;
 };
 
+type RenderModeDetectionPayload = {
+  accuracy?: number | string | null;
+  rendered?: boolean;
+};
+
+type RenderModeEndpointOptions = {
+  endpointValue?: string;
+  tokenValue?: string;
+  rawHtml?: string;
+  renderedHtml?: string;
+};
+
+type WaitForTabLoadOptions = {
+  awaitNextLoad?: boolean;
+};
+
+type TransferPayloadStoreResult = {
+  ok: boolean;
+  reason?: string;
+  payloadKey: string;
+};
+
 interface RenderModeDetectionResponse {
   ok?: boolean;
   status?: string;
   httpStatus?: number;
-  payload?: unknown;
+  payload?: RenderModeDetectionPayload;
 }
 
-interface RenderModeInspectionHtmlResponse {
+type RenderModeInspectionHtmlResponse = RenderModeInspectionSnapshot & {
   ok?: boolean;
   pageUrl?: string;
-  [key: string]: unknown;
-}
+};
 
 interface RenderModeInspectionDeps {
   state: PopupState;
@@ -49,32 +70,32 @@ interface RenderModeInspectionDeps {
   getCurrentRenderModeInspectionSnapshot(
     detectionKey: string
   ): RenderModeInspectionSnapshot | null;
-  getSuggestedRenderModeForPage(pageUrl: unknown): string;
+  getSuggestedRenderModeForPage(pageUrl: string | null | undefined): string;
   loadGlobalAiSettings(): Promise<{ tokenValue: string; endpointValue: string }>;
   markRenderModeUndetermined(detectionKey: string): void;
-  runWithSpinner(
-    spinnerTarget: unknown,
-    message: unknown,
-    task: (spinnerKey: string | null) => Promise<unknown>,
+  runWithSpinner<T>(
+    spinnerTarget: string | null,
+    message: string,
+    task: (spinnerKey: string | null) => Promise<T>,
     options?: { delayMs?: number }
-  ): Promise<unknown>;
+  ): Promise<T>;
   buildTransferPayloadKey(label: string): string;
   putTransferPayload(
     kind: string,
-    payload: unknown,
+    payload: Record<string, unknown>,
     options: { payloadKey?: string }
-  ): Promise<{ ok: boolean }>;
-  waitForRetryDelay(delayMs?: number): Promise<unknown>;
+  ): Promise<TransferPayloadStoreResult>;
+  waitForRetryDelay(delayMs?: number): Promise<void>;
   getRetryDelayMs(attempt: number, minDelayMs: number, maxDelayMs: number): number;
   isRetryableHttpStatus(status: unknown): boolean;
   ensureContentReadyForRenderModeInspection(tabId: number): Promise<boolean>;
-  hideConsentForRenderModeInspection(tabId: number): Promise<unknown>;
+  hideConsentForRenderModeInspection(tabId: number): Promise<boolean>;
   rememberRenderModeInspectionSnapshot(
     baseUrl: string,
     pageUrl: string,
-    response: unknown
+    response: RenderModeInspectionHtmlResponse
   ): void;
-  reconcilePropertyLockAfterRenderModeReload(): Promise<unknown>;
+  reconcilePropertyLockAfterRenderModeReload(): Promise<void>;
   scheduleStaleInspectionBusyClear(
     tabId: number,
     baseUrl: string,
@@ -89,7 +110,7 @@ export function normalizeRenderModeDetectionResult(
   if (!payload || typeof payload !== "object") {
     return { result: "", accuracy: Number.NaN };
   }
-  const payloadRecord = payload as { accuracy?: unknown; rendered?: unknown };
+  const payloadRecord = payload as RenderModeDetectionPayload;
   const accuracy = Number(payloadRecord.accuracy);
   if (!Number.isFinite(accuracy)) {
     return { result: "", accuracy: Number.NaN };
@@ -112,7 +133,7 @@ type RenderModeEndpointDetection = {
   accuracy: number;
 };
 
-export async function detectRenderModeViaEndpoint(deps: RenderModeInspectionDeps, options: Record<string, unknown> = {}): Promise<RenderModeEndpointDetection> {
+export async function detectRenderModeViaEndpoint(deps: RenderModeInspectionDeps, options: RenderModeEndpointOptions = {}): Promise<RenderModeEndpointDetection> {
   const {
     rawHtml = "",
     renderedHtml = ""
@@ -169,7 +190,10 @@ export async function detectRenderModeViaEndpoint(deps: RenderModeInspectionDeps
   return { ok: false, result: "", accuracy: Number.NaN };
 }
 
-export async function maybeAutoDetectRenderMode(deps: RenderModeInspectionDeps, pageUrl: unknown) {
+export async function maybeAutoDetectRenderMode(
+  deps: RenderModeInspectionDeps,
+  pageUrl: string | null | undefined
+) {
   const { state } = deps;
   if (
     !pageUrl ||
@@ -227,7 +251,7 @@ export async function maybeAutoDetectRenderMode(deps: RenderModeInspectionDeps, 
         renderedHtml: inspectionSnapshot.renderedHtml
       }),
       { delayMs: 0 }
-    ) as RenderModeEndpointDetection;
+    );
     if (!detectionResult.ok) {
       deps.markRenderModeUndetermined(detectionKey);
       return deps.RENDER_MODE_UNDETERMINED;
@@ -304,7 +328,7 @@ export async function waitForTabLoadComplete(
   deps: RenderModeInspectionDeps,
   tabId: number,
   timeoutMs = deps.RENDER_MODE_INSPECTION_LOAD_TIMEOUT_MS,
-  options: Record<string, unknown> = {}
+  options: WaitForTabLoadOptions = {}
 ) {
   if (!tabId) {
     return false;
