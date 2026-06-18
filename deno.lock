@@ -7,6 +7,7 @@
     "jsr:@std/internal@^1.0.14": "1.0.14",
     "jsr:@std/path@*": "1.1.5",
     "jsr:@std/testing@*": "1.0.19",
+    "npm:@playwright/mcp@latest": "0.0.76",
     "npm:esbuild@*": "0.28.1",
     "npm:playwright@*": "1.60.0"
   },
@@ -165,6 +166,14 @@
       "os": ["win32"],
       "cpu": ["x64"]
     },
+    "@playwright/mcp@0.0.76": {
+      "integrity": "sha512-ICcW6wAV+HoNEco19eni+JTVylCIIedruWkrRl2Rsv/qcGhBZLT/c0I1VounjIjSVSupw3pHmcr3CNCikTHTBQ==",
+      "dependencies": [
+        "playwright@1.61.0-alpha-1781023400000",
+        "playwright-core@1.61.0-alpha-1781023400000"
+      ],
+      "bin": true
+    },
     "esbuild@0.28.1": {
       "integrity": "sha512-HrJrvZv5ayxBzPfwphOoNzkzOIIlifzk0KJrGK2c8R4+LKpMtpYLQeUdjnwjWv/LZlkH2laZk+4w78pi99D4Vw==",
       "optionalDependencies": [
@@ -207,10 +216,24 @@
       "integrity": "sha512-9bW6zvX/m0lEbgTKJ6YppOKx8H3VOPBMOCFh2irXFOT4BbHgrx5hPjwJYLT40Lu+4qtD36qKc/Hn56StUW57IA==",
       "bin": true
     },
+    "playwright-core@1.61.0-alpha-1781023400000": {
+      "integrity": "sha512-UdtUd9qnCO0zvb8p3OvOZpelY6mA40mTb3NmWGuMtrD+hqqWuorWCPlSGwj7jw/LEB9AxvYLHTL1CJi2flvksg==",
+      "bin": true
+    },
     "playwright@1.60.0": {
       "integrity": "sha512-hheHdokM8cdqCb0lcE3s+zT4t4W+vvjpGxsZlDnikarzx8tSzMebh3UiFtgqwFwnTnjYQcsyMF8ei2mCO/tpeA==",
       "dependencies": [
-        "playwright-core"
+        "playwright-core@1.60.0"
+      ],
+      "optionalDependencies": [
+        "fsevents"
+      ],
+      "bin": true
+    },
+    "playwright@1.61.0-alpha-1781023400000": {
+      "integrity": "sha512-8TRUG3IvwaAhuVm6k3C5vB7CwC5Fxq76DCCxOgPr6r1dpTedDwxlmdOBUkSZ0zxfxP14jcuPxi86/Trq4eA03w==",
+      "dependencies": [
+        "playwright-core@1.61.0-alpha-1781023400000"
       ],
       "optionalDependencies": [
         "fsevents"
