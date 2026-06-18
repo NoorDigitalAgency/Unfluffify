@@ -11,7 +11,14 @@
  * in the page's isolated world to access page content properly.
  */
 
-const loaderState = globalThis as unknown as Record<string, unknown>;
+type ContentLoaderState = typeof globalThis & {
+  __unfluffifyContentLoaderInitialized?: boolean;
+  __unfluffifyContentMainLoaded?: boolean;
+  __unfluffifyContentMainLoading?: Promise<void> | null;
+  [key: string]: unknown;
+};
+
+const loaderState = globalThis as ContentLoaderState;
 
 // Avoid re-declaring globals if content-loader is injected multiple times.
 if (!loaderState.__unfluffifyContentLoaderInitialized) {

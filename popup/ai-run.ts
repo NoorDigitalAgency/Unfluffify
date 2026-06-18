@@ -15,8 +15,8 @@ type AiRunSubmissionXpathItem = {
 };
 
 type AiRunEntry = {
-  includeXpaths?: unknown;
-  submissionXpaths?: unknown;
+  includeXpaths?: string[];
+  submissionXpaths?: AiRunSubmissionXpathItem[];
 };
 
 type AiRunPersistedRecord = {
@@ -83,7 +83,7 @@ export function buildAiSubmissionXpaths(entry: AiRunEntry | null | undefined) {
   const entryLike = (entry || {}) as AiRunEntry;
   const explicitIncludeXpaths = new Set(
     Array.isArray(entryLike.includeXpaths)
-      ? (entryLike.includeXpaths as unknown[])
+      ? entryLike.includeXpaths
         .filter((xpath: unknown) => typeof xpath === "string" && xpath)
         .map((xpath: unknown) => (xpath as string).trim())
         .filter(Boolean)
@@ -91,7 +91,7 @@ export function buildAiSubmissionXpaths(entry: AiRunEntry | null | undefined) {
   );
   const submissionItems = (Array.isArray(entryLike.submissionXpaths)
     ? entryLike.submissionXpaths
-    : []) as AiRunSubmissionXpathItem[];
+    : []) satisfies AiRunSubmissionXpathItem[];
   return submissionItems
     .filter((item) => item && typeof item.xpath === "string" && item.xpath)
     .map((item) => {

@@ -18,7 +18,7 @@ function toSafeDelay(value: unknown, fallback: unknown = 0): number {
 }
 
 export function createPopupTimerGroup(options: { windowRef?: PopupTimerWindow } = {}) {
-  const windowRef = options.windowRef || (window as unknown as PopupTimerWindow);
+  const windowRef: PopupTimerWindow = options.windowRef || window;
   const timersByKey = new Map<unknown, PopupTimerRecord>();
 
   function clear(key: unknown): void {

@@ -26,6 +26,29 @@ interface SelectorMergeableConfig {
   [key: string]: unknown;
 }
 
+type RuntimeConfig = {
+  baseUrl?: string;
+  stageBase?: string;
+  siteId?: string | null;
+  token?: string;
+  renderMode?: string;
+  renderModeUpdatedAt?: string;
+  pageMarkings: PageMarkings;
+  selectors?: unknown;
+  selectorsUpdatedAt?: unknown;
+  submittedSelectorsFingerprint?: unknown;
+  [key: string]: unknown;
+};
+
+type NormalizedConfigResult = {
+  config: RuntimeConfig;
+  changed: boolean;
+};
+
+function normalizeConfigResult(baseUrl: string, incoming: unknown): NormalizedConfigResult {
+  return configStore.normalizeConfig(baseUrl, incoming) as NormalizedConfigResult;
+}
+
 export function collectStoredPageMarkingItems(pageMarkings: unknown, baseUrl = "") {
   const items: StoredPageMarkingItem[] = [];
   const pageMarkingsRecord =
@@ -139,10 +162,10 @@ export async function replaceServerConfigIntoLocalSnapshot(options = {}) {
   const baseUrl = normalizedPayload.baseUrl;
   const allConfigs = (await configStore.getConfigs()) as StoredConfigs;
   const existingRaw = allConfigs[baseUrl];
-  const existingConfig = configStore.normalizeConfig(baseUrl, existingRaw).config as unknown as Config;
+  const existingConfig = normalizeConfigResult(baseUrl, existingRaw).config;
   const normalizedIncomingSiteId = normalizeSiteIdValue(normalizedPayload.siteId);
   const fallbackSiteId = normalizeSiteIdValue(optionsAny.siteId);
-  const nextConfig = configStore.normalizeConfig(baseUrl, {
+  const nextConfig = normalizeConfigResult(baseUrl, {
     ...existingConfig,
     ...normalizedPayload,
     baseUrl,
@@ -154,7 +177,7 @@ export async function replaceServerConfigIntoLocalSnapshot(options = {}) {
       typeof normalizedPayload.submittedSelectorsFingerprint === "string"
         ? normalizedPayload.submittedSelectorsFingerprint
         : ""
-  }).config as unknown as Config;
+  }).config;
 
   const previousSignature = getRemoteManagedConfigSignature(baseUrl, existingConfig);
   const nextSignature = getRemoteManagedConfigSignature(baseUrl, nextConfig);
@@ -212,8 +235,8 @@ export async function mergeServerConfigIntoLocalSnapshot(options = {}) {
   const baseUrl = normalizedPayload.baseUrl;
   const allConfigs = (await configStore.getConfigs()) as StoredConfigs;
   const existingRaw = allConfigs[baseUrl];
-  const normalizedLocal = configStore.normalizeConfig(baseUrl, existingRaw);
-  const localConfig = normalizedLocal.config as unknown as Config;
+  const normalizedLocal = normalizeConfigResult(baseUrl, existingRaw);
+  const localConfig = normalizedLocal.config;
   const incomingSiteId = normalizeSiteIdValue(normalizedPayload.siteId);
   const siteIdChanged =
     Boolean(incomingSiteId) && normalizeSiteIdValue(localConfig.siteId) !== incomingSiteId;
