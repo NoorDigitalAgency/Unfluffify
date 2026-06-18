@@ -546,7 +546,6 @@ async function restoreRenderModeJavaScriptAfterNoJsInactivity(tabId) {
   return reloadResult || { ok: false, error: "Unable to reload page with JavaScript" };
 }
 
-// @ts-expect-error
 tabInactivityObserver.subscribe(async (event) => {
   if (!event || event.type !== "inactive" || event.scope !== RENDER_MODE_NO_JS_INACTIVITY_SCOPE) {
     return;

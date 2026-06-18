@@ -39,8 +39,8 @@ type ThemeSettingsOptions = {
 };
 
 type SaveLoginSettingsOptions = {
-  stageBase?: unknown;
-  token?: unknown;
+  stageBase?: string | null;
+  token?: string | null;
 };
 
 function normalizeStringValue(value: unknown): string {
