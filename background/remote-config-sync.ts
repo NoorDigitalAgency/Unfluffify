@@ -69,10 +69,12 @@ export function collectStoredPageMarkingItems(pageMarkings: unknown, baseUrl = "
     const includedCount = Array.isArray(entryRecord.includeXpaths)
       ? entryRecord.includeXpaths.filter((xpath) => typeof xpath === "string" && xpath).length
       : 0;
+    const title = typeof entryRecord.title === "string" && entryRecord.title ? entryRecord.title : url;
+    const pageType = typeof entryRecord.pageType === "string" ? entryRecord.pageType : "";
     items.push({
       url,
-      title: (entryRecord.title as string) || url,
-      pageType: (entryRecord.pageType as string) || "",
+      title,
+      pageType,
       count: excludedCount + includedCount
     });
   });

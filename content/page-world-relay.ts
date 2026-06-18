@@ -34,11 +34,14 @@ let relayListenerInstalled = false;
 let initializationInFlight: Promise<{ ok: true; nonce: string }> | null = null;
 const pendingRelayRequests = new Map<string, PendingRelayRequest>();
 
-function createRelayError(code: unknown, message: unknown, details: unknown = null): RelayError {
+function createRelayError(code: unknown, message: unknown, details: unknown = {}): RelayError {
   const error = new Error(typeof message === "string" && message ? message : "Page-world relay failed");
   const relayError = error as RelayError;
   relayError.code = typeof code === "string" && code ? code : MESSAGE_ERROR_CODES.HANDLER_FAILED;
-  relayError.details = (details && typeof details === "object" ? details : null) as Record<string, unknown>;
+  relayError.details =
+    details && typeof details === "object" && !Array.isArray(details)
+      ? details as Record<string, unknown>
+      : {};
   return relayError;
 }
 
