@@ -33,7 +33,7 @@ interface SyncBaseConfigOptions {
 
 interface RemoteConfigLoadStatus {
   status: string;
-  baseUrl?: unknown;
+  baseUrl?: string;
 }
 
 interface EnsureBaseUrlSiteIdResult {
@@ -50,7 +50,7 @@ interface EnsurePropertyPageTypesResult {
 }
 
 interface LynxChecklistViewModel {
-  activeMarkedPages: Array<{ url: unknown; pageType: unknown }>;
+  activeMarkedPages: Array<{ url: string; pageType: string }>;
 }
 
 interface TransferPayloadStoreResult {
@@ -72,7 +72,7 @@ interface RemoteConfigDeps {
     pageUrl?: string;
     stageBase?: string;
     tokenValue?: string;
-    configs?: unknown;
+    configs?: StoredConfigs;
   }): Promise<EnsureBaseUrlSiteIdResult>;
   getStoredGlobalToken(options?: { trim?: boolean }): Promise<string>;
   ensurePropertyPageTypes(options: {
@@ -93,7 +93,7 @@ interface RemoteConfigDeps {
   putTransferPayload(kind: string, payload: unknown, options: { payloadKey?: string }): Promise<TransferPayloadStoreResult>;
   waitForRetryDelay(delayMs?: number): Promise<unknown>;
   isRetryableHttpStatus(status: number): boolean;
-  pruneRemoteInvalidPageMarkings(options: { siteId?: number | string | null; invalidUrls?: unknown }): Promise<unknown>;
+  pruneRemoteInvalidPageMarkings(options: { siteId?: number | string | null; invalidUrls?: string[] | null }): Promise<unknown>;
   clearBackendSavedPageMarkings?: typeof config.clearBackendSavedPageMarkings;
   getConfigs?: typeof config.getConfigs;
   saveConfigs?: typeof config.saveConfigs;
