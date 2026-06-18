@@ -12,8 +12,8 @@ type RenderModeInspectorOptions = {
   waitForBackgroundRetryDelay?: (ms: number) => Promise<void>;
   updateTabRuntime?: (tabId: number, patch: Record<string, unknown>) => void;
   createManagedTimeoutGroup?: () => ManagedTimeoutGroup;
-  startTimeoutMs?: unknown;
-  loadTimeoutMs?: unknown;
+  startTimeoutMs?: number | null;
+  loadTimeoutMs?: number | null;
 };
 
 function defaultSendContentMessageToTab() {
@@ -121,12 +121,12 @@ export function createRenderModeInspector(options: RenderModeInspectorOptions = 
   async function waitForTabLoadCompleteInBackground(
     tabId: number,
     timeoutMs = loadTimeoutMs,
-    options: { awaitNextLoad?: unknown } = {}
+    options: { awaitNextLoad?: boolean } = {}
   ) {
     if (!tabId) {
       return false;
     }
-    const awaitNextLoad = Boolean(options && options.awaitNextLoad);
+    const awaitNextLoad = Boolean(options?.awaitNextLoad);
     return new Promise((resolve) => {
       const timeoutGroup = createManagedTimeoutGroup();
       let settled = false;
