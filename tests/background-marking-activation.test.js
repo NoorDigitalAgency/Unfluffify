@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 test("popup enable delegates marking activation to TAB_ACTIVATE_MARKING command", () => {
-  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
   const enableBody = source.match(
-    /async function handleEnableToggle\(event\) \{([\s\S]*?)\n\}\n\nasync function handleDeviceEmulationEnabledToggle/
+    /async function handleEnableToggle\(event\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?(?:\n|\r\n)*async function handleDeviceEmulationEnabledToggle/
   )[1];
 
   assert.match(enableBody, /messages\.requestTabActivateMarking\(tab\.id, \{/);
@@ -15,7 +15,7 @@ test("popup enable delegates marking activation to TAB_ACTIVATE_MARKING command"
 });
 
 test("background registers TAB_ACTIVATE_MARKING as tab-scoped spinner command", () => {
-  const source = readFileSync(new URL("../background.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
 
   assert.match(source, /TAB_ACTIVATE_MARKING: "TAB_ACTIVATE_MARKING"/);
   assert.match(source, /TAB_SCOPED_BACKGROUND_COMMANDS = new Set\(\[[\s\S]*?BACKGROUND_COMMANDS\.TAB_ACTIVATE_MARKING/);
@@ -24,7 +24,7 @@ test("background registers TAB_ACTIVATE_MARKING as tab-scoped spinner command", 
 });
 
 test("background TAB_ACTIVATE_MARKING routes content activation by requested tab id", () => {
-  const source = readFileSync(new URL("../background.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
   const commandBody = source.match(
     /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_ACTIVATE_MARKING, async \(context, payload\) => \{([\s\S]*?)\n\}, POPUP_TAB_COMMAND_POLICY\);\n\nregisterBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_DEACTIVATE_MARKING/
   )[1];
@@ -35,7 +35,7 @@ test("background TAB_ACTIVATE_MARKING routes content activation by requested tab
 });
 
 test("background TAB_ACTIVATE_MARKING clears state and reports lock details on content failure", () => {
-  const source = readFileSync(new URL("../background.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
   const commandBody = source.match(
     /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_ACTIVATE_MARKING, async \(context, payload\) => \{([\s\S]*?)\n\}, POPUP_TAB_COMMAND_POLICY\);\n\nregisterBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_DEACTIVATE_MARKING/
   )[1];
@@ -46,9 +46,9 @@ test("background TAB_ACTIVATE_MARKING clears state and reports lock details on c
 });
 
 test("popup disable delegates marking deactivation to TAB_DEACTIVATE_MARKING command", () => {
-  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
   const enableBody = source.match(
-    /async function handleEnableToggle\(event\) \{([\s\S]*?)\n\}\n\nasync function handleDeviceEmulationEnabledToggle/
+    /async function handleEnableToggle\(event\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?(?:\n|\r\n)*async function handleDeviceEmulationEnabledToggle/
   )[1];
 
   assert.match(enableBody, /messages\.requestTabDeactivateMarking\(tab\.id, \{/);
@@ -57,7 +57,7 @@ test("popup disable delegates marking deactivation to TAB_DEACTIVATE_MARKING com
 });
 
 test("background registers TAB_DEACTIVATE_MARKING as tab-scoped spinner command", () => {
-  const source = readFileSync(new URL("../background.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
 
   assert.match(source, /TAB_DEACTIVATE_MARKING: "TAB_DEACTIVATE_MARKING"/);
   assert.match(source, /TAB_SCOPED_BACKGROUND_COMMANDS = new Set\(\[[\s\S]*?BACKGROUND_COMMANDS\.TAB_DEACTIVATE_MARKING/);
@@ -66,7 +66,7 @@ test("background registers TAB_DEACTIVATE_MARKING as tab-scoped spinner command"
 });
 
 test("background TAB_DEACTIVATE_MARKING routes content disable and tab state update", () => {
-  const source = readFileSync(new URL("../background.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
   const commandBody = source.match(
     /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_DEACTIVATE_MARKING, async \(context, payload\) => \{([\s\S]*?)\n\}, POPUP_TAB_COMMAND_POLICY\);\n\nregisterBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_APPLY_POST_SAVE_TRANSITION/
   )[1];
@@ -77,7 +77,7 @@ test("background TAB_DEACTIVATE_MARKING routes content disable and tab state upd
 });
 
 test("popup save/discard and preview surfaces delegate to background commands", () => {
-  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
 
   assert.match(source, /messages\.requestTabApplyPostSaveTransition\(tabId, \{ baseUrl \}\)/);
   assert.match(source, /messages\.requestTabApplyLocalDiscard\(tabId, \{ baseUrl \}\)/);
@@ -91,7 +91,7 @@ test("popup save/discard and preview surfaces delegate to background commands", 
 });
 
 test("background registers save/discard and preview commands as tab-scoped commands", () => {
-  const source = readFileSync(new URL("../background.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
 
   assert.match(source, /TAB_APPLY_POST_SAVE_TRANSITION: "TAB_APPLY_POST_SAVE_TRANSITION"/);
   assert.match(source, /TAB_APPLY_LOCAL_DISCARD: "TAB_APPLY_LOCAL_DISCARD"/);

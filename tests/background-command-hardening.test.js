@@ -2,8 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
-const commandLedgerSource = readFileSync(new URL("../background/command-ledger.js", import.meta.url), "utf8");
+const backgroundSource = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
+const commandLedgerSource = readFileSync(new URL("../background/command-ledger.ts", import.meta.url), "utf8");
 
 test("popup background commands declare explicit source and tab-id policy", () => {
   assert.match(
@@ -22,7 +22,7 @@ test("popup background commands declare explicit source and tab-id policy", () =
 });
 
 test("command ledger payloads are redacted before persistence", () => {
-  assert.match(backgroundSource, /function maybeGetCommandPayloadForLedger\(message\) \{/);
+  assert.match(backgroundSource, /function maybeGetCommandPayloadForLedger\(message(?:\s*:\s*[^)]+)?\) \{/);
   assert.match(backgroundSource, /return redactCommandPayloadForLedger\(message\.payload\);/);
   assert.match(commandLedgerSource, /LEDGER_SENSITIVE_KEY_PATTERN\s*=\s*\/\(token\|password\|secret\|authorization\|cookie\|jwt/);
   assert.match(commandLedgerSource, /if \(normalizedKey === "payloadKey"\) \{/);

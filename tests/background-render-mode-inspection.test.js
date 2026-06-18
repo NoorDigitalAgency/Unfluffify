@@ -2,10 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
-const renderModeInspectorSource = readFileSync(new URL("../background/render-mode-inspector.js", import.meta.url), "utf8");
-const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
-const popupMessagesSource = readFileSync(new URL("../popup/messages.js", import.meta.url), "utf8");
+const backgroundSource = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
+const renderModeInspectorSource = readFileSync(new URL("../background/render-mode-inspector.ts", import.meta.url), "utf8");
+const popupSource = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
+const popupMessagesSource = readFileSync(new URL("../popup/messages.ts", import.meta.url), "utf8");
 const manifestSource = readFileSync(new URL("../manifest.json", import.meta.url), "utf8");
 
 test("background registers render-mode inspection commands as tab-scoped", () => {
@@ -19,7 +19,7 @@ test("background registers render-mode inspection commands as tab-scoped", () =>
 
 test("popup render mode inspection delegates to TAB_RUN_RENDER_MODE_INSPECTION", () => {
   const block = popupSource.match(
-    /async function runRenderModeInspectionReload\(javaScriptDisabled\) \{([\s\S]*?)\n\}\n\nasync function normalizeRenderModeDebuggerPage/
+    /async function runRenderModeInspectionReload\(javaScriptDisabled\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?(?:\n|\r\n)*async function normalizeRenderModeDebuggerPage/
   )[1];
 
   assert.match(block, /messages\.requestTabRunRenderModeInspection\(tabId, \{/);
@@ -33,17 +33,17 @@ test("popup render mode inspection delegates to TAB_RUN_RENDER_MODE_INSPECTION",
 
 test("popup render mode inspection uses long timeout and fail-open end cleanup", () => {
   const helperBlock = popupMessagesSource.match(
-    /export function requestTabRunRenderModeInspection\(tabId, payload = \{\}, options = \{\}\) \{([\s\S]*?)\n\}\n\nexport function requestTabRunAi/
+    /export function requestTabRunRenderModeInspection\(tabId(?:\s*:\s*[^,]+)?, payload = \{\}, options(?:\s*:\s*[^=]+)? = \{\}\) \{([\s\S]*?)\n\}\n\nexport function requestTabRunAi/
   )[1];
 
-  assert.match(helperBlock, /const normalizedPayload = payload && typeof payload === "object" \? payload : \{\};/);
-  assert.match(helperBlock, /timeoutMs: Number\.isFinite\(options\.timeoutMs\) \? Math\.trunc\(options\.timeoutMs\) : 120000/);
+  assert.match(helperBlock, /const normalizedPayload(?:\s*:\s*[^=]+)? = payload && typeof payload === "object" \? payload : \{\};/);
+  assert.match(helperBlock, /timeoutMs: (?:Number\.isFinite\(options\.timeoutMs\) \? Math\.trunc\(options\.timeoutMs\) : 120000|resolveTimeoutMs\(options, 120000\))/);
   assert.match(helperBlock, /catch\(async \(error\) => \{[\s\S]*?normalizedPayload\.operationId[\s\S]*?type: TAB_END_RENDER_MODE_INSPECTION_COMMAND,[\s\S]*?operationId: normalizedPayload\.operationId/);
 });
 
 test("background TAB_RUN_RENDER_MODE_INSPECTION orchestrates reload, consent hide, capture, and end", () => {
   const commandBlock = backgroundSource.match(
-    /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_RUN_RENDER_MODE_INSPECTION, async \(context, payload\) => \{([\s\S]*?)\n\}, POPUP_TAB_COMMAND_POLICY\);\n\nfunction maybeGetCommandPayloadForLedger/
+    /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_RUN_RENDER_MODE_INSPECTION, async \(context, payload\) => \{([\s\S]*?)\n\}, POPUP_TAB_COMMAND_POLICY\);\n(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?\n*function maybeGetCommandPayloadForLedger\(message(?:\s*:\s*[^)]+)?\)/
   )[1];
 
   assert.match(backgroundSource, /from "\.\/background\/tab-operation-runner\.js"/);
@@ -112,7 +112,7 @@ test("background TAB_END_RENDER_MODE_INSPECTION restores JavaScript and clears t
 test("background restores no-JS render-mode holds after central tab inactivity", () => {
   const manifest = JSON.parse(manifestSource);
   const commandBlock = backgroundSource.match(
-    /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_RUN_RENDER_MODE_INSPECTION, async \(context, payload\) => \{([\s\S]*?)\n\}, POPUP_TAB_COMMAND_POLICY\);\n\nfunction maybeGetCommandPayloadForLedger/
+    /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_RUN_RENDER_MODE_INSPECTION, async \(context, payload\) => \{([\s\S]*?)\n\}, POPUP_TAB_COMMAND_POLICY\);\n(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?\n*function maybeGetCommandPayloadForLedger\(message(?:\s*:\s*[^)]+)?\)/
   )[1];
   const activityMessageBlock = backgroundSource.match(
     /if \(message\.type === "pageActivityObserved"\) \{([\s\S]*?)\n  \}\n\n  if \(PROPERTY_LOCK_MESSAGE_TYPES/

@@ -2,9 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-const constantsSource = readFileSync(new URL("../common/constants.js", import.meta.url), "utf8");
-const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
-const contentMainSource = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+const constantsSource = readFileSync(new URL("../common/constants.ts", import.meta.url), "utf8");
+const coreSource = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
+const contentMainSource = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
 const popupCss = readFileSync(new URL("../popup.css", import.meta.url), "utf8");
 const themeColorCss = readFileSync(new URL("../theme-color.css", import.meta.url), "utf8");
 

@@ -28,7 +28,8 @@ Permanent release page:
 For a local dry run of the staging logic, run:
 
 ```bash
-npm run package:extension -- --stage-dir .tmp/extension-package
+deno task build:release
+deno task package -- --stage-dir .tmp/extension-package
 ```
 
 ## Features
@@ -60,10 +61,15 @@ npm run package:extension -- --stage-dir .tmp/extension-package
 Run the regression suite from the repository root:
 
 ```bash
-npm test
+deno task test
 ```
 
-The script uses Node's built-in test runner (`node --test`) with clean teardown so full subtest counts remain meaningful and deterministic.
+The default regression command runs under `deno test` with Node compatibility.
+For a compatibility fallback, run:
+
+```bash
+deno task test:node
+```
 
 The tests cover the pure marking/highlighting rules that have caused regressions during recent logic changes.
 Run this command before opening or updating a pull request to catch regressions early.
@@ -71,7 +77,7 @@ Run this command before opening or updating a pull request to catch regressions 
 For marking-rule work, also run the focused guard suite:
 
 ```bash
-node --test tests/core-visibility.test.js tests/core-motion-pause.test.js tests/core-scheduling.test.js tests/marking-rules.test.js tests/popup-marking-refresh.test.js tests/selector-suppression.test.js tests/silent-highlight-annotations.test.js tests/silent-highlight-rules.test.js tests/submission-rules.test.js
+deno test -A --no-check --unstable-sloppy-imports tests/core-visibility.test.js tests/core-motion-pause.test.js tests/core-scheduling.test.js tests/marking-rules.test.js tests/popup-marking-refresh.test.js tests/selector-suppression.test.js tests/silent-highlight-annotations.test.js tests/silent-highlight-rules.test.js tests/submission-rules.test.js
 ```
 
 ## Project Structure

@@ -1,0 +1,312 @@
+/**
+ * Property Edit Lock constants and helpers.
+ * 
+ * Manages single-editor ownership of properties via WebSocket hub.
+ * Lock state is maintained server-side in PropertyLockService.
+ */
+
+/**
+ * Lock state constants (from server).
+ */
+export const PROPERTY_LOCK_STATE_UNLOCKED = "unlocked";
+export const PROPERTY_LOCK_STATE_LOCKED = "locked";
+export const PROPERTY_LOCK_STATE_EXPIRY_WARNING = "expiry_warning";
+export const PROPERTY_LOCK_STATE_TAKEOVER_AVAILABLE = "takeover_available";
+export const PROPERTY_LOCK_STATE_TRANSFER = "transfer";
+export const PROPERTY_LOCK_STATE_DISCONNECTED = "locked"; // Treated as locked client-side
+
+export const PROPERTY_LOCK_CONNECTION_INACTIVE = "inactive";
+export const PROPERTY_LOCK_CONNECTION_CONNECTING = "connecting";
+export const PROPERTY_LOCK_CONNECTION_CONNECTED = "connected";
+export const PROPERTY_LOCK_CONNECTION_UNAVAILABLE = "unavailable";
+
+/**
+ * WebSocket message types (client to server).
+ */
+export const PROPERTY_LOCK_WS_SUBSCRIBE = "subscribe";
+export const PROPERTY_LOCK_WS_HEARTBEAT = "heartbeat";
+export const PROPERTY_LOCK_WS_ACTIVITY = "activity";
+export const PROPERTY_LOCK_WS_TAKE_LOCK = "take_lock";
+export const PROPERTY_LOCK_WS_RELEASE_LOCK = "release_lock";
+export const PROPERTY_LOCK_WS_SUGGEST_TAKEOVER = "suggest_takeover";
+export const PROPERTY_LOCK_WS_RESPOND_TO_SUGGESTION = "respond_to_suggestion";
+export const PROPERTY_LOCK_WS_CONTINUE_EDITING = "continue_editing";
+export const PROPERTY_LOCK_WS_CLIENT_STATUS = "client_status";
+
+/**
+ * WebSocket message types (server to client).
+ */
+export const PROPERTY_LOCK_WS_SUBSCRIBED = "subscribed";
+export const PROPERTY_LOCK_WS_LOCK_STATE = "lock_state";
+export const PROPERTY_LOCK_WS_DISCONNECT_WARNING = "disconnect_warning";
+export const PROPERTY_LOCK_WS_INACTIVITY_WARNING = "inactivity_warning";
+export const PROPERTY_LOCK_WS_TAKEOVER_SUGGESTION = "takeover_suggestion";
+export const PROPERTY_LOCK_WS_SUGGESTION_PENDING = "suggestion_pending";
+export const PROPERTY_LOCK_WS_SUGGESTION_RESPONSE = "suggestion_response";
+export const PROPERTY_LOCK_WS_SUGGESTION_ACCEPTED = "suggestion_accepted";
+export const PROPERTY_LOCK_WS_TRANSFER_COUNTDOWN = "transfer_countdown";
+export const PROPERTY_LOCK_WS_ERROR = "error";
+
+/**
+ * Timing constants.
+ */
+export const PROPERTY_LOCK_HEARTBEAT_INTERVAL_MS = 30_000; // 30 seconds
+export const PROPERTY_LOCK_ACTIVITY_DEBOUNCE_MS = 5_000; // 5 seconds
+export const PROPERTY_LOCK_RECONNECT_DELAY_MS = 2_000; // 2 seconds
+export const PROPERTY_LOCK_EDITOR_IDLE_TIMEOUT_MS = 30 * 60_000; // 30 minutes without interaction
+export const PROPERTY_LOCK_CONNECTION_LOSS_TIMEOUT_MS = 70_000; // 70 seconds before lock loss is assumed
+export const PROPERTY_LOCK_PORT_DISCONNECT_DELAY_MS = 70_000; // 70 seconds before closing a client runtime
+export const PROPERTY_LOCK_OFF_CANDIDATE_WARNING_TIMEOUT_MS = PROPERTY_LOCK_CONNECTION_LOSS_TIMEOUT_MS; // 70 seconds off-candidate before the editor role is released
+export const PROPERTY_LOCK_CROSS_PROPERTY_COOLDOWN_TIMEOUT_MS = 30_000; // 30 seconds to recover the previous property after cross-property navigation
+export const PROPERTY_LOCK_NETWORK_CHECK_TIMEOUT_MS = 5_000;
+export const PROPERTY_LOCK_NETWORK_CHECK_URLS = Object.freeze([
+  "https://www.gstatic.com/generate_204",
+  "https://cloudflare.com/cdn-cgi/trace"
+]);
+
+/**
+ * Content script to background message types.
+ */
+export const PROPERTY_LOCK_PORT_NAME = "propertyLock";
+export const PROPERTY_LOCK_CONTENT_CONNECT = "propertyLockConnect";
+export const PROPERTY_LOCK_CONTENT_DISCONNECT = "propertyLockDisconnect";
+export const PROPERTY_LOCK_CONTENT_ACTIVITY = "propertyLockActivity";
+export const PROPERTY_LOCK_CONTENT_DRAFT_STATUS = "propertyLockDraftStatus";
+export const PROPERTY_LOCK_CONTENT_TAKE_LOCK = "propertyLockTakeLock";
+export const PROPERTY_LOCK_CONTENT_RELEASE = "propertyLockRelease";
+export const PROPERTY_LOCK_CONTENT_SUGGEST = "propertyLockSuggest";
+export const PROPERTY_LOCK_CONTENT_RESPOND = "propertyLockRespondToSuggestion";
+export const PROPERTY_LOCK_CONTENT_CONTINUE = "propertyLockContinueEditing";
+export const PROPERTY_LOCK_BACKGROUND_GET_STATE = "getPropertyLockState";
+export const PROPERTY_LOCK_BACKGROUND_STATE_UPDATE = "propertyLockStateUpdate";
+export const PROPERTY_LOCK_BACKGROUND_CONNECTION_STATUS = "propertyLockConnectionStatus";
+
+type PropertyLockOptions = {
+  ownIdentity?: unknown;
+  clientId?: unknown;
+  ownClientId?: unknown;
+};
+
+type PropertyLockMessage = Record<string, unknown>;
+
+type NormalizedLockState = {
+  state: string;
+  editorIdentity: string;
+  editorClientId: string;
+  editorName: string;
+  isEditor: boolean;
+  isRecentEditor: boolean;
+  isSameUserEditor: boolean;
+  otherTabHasUnsavedChanges: boolean;
+  canContinueHere: boolean;
+  transferFromName: string;
+  transferToName: string;
+  expiresAtUtc: string;
+  secondsRemaining: number | null;
+};
+
+type TakeoverSuggestion = {
+  suggestionId: string;
+  fromName: string;
+};
+
+export function normalizePropertyLockSiteId(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value > 0 ? Math.trunc(value) : null;
+  }
+  if (typeof value === "string" && value.trim()) {
+    const numericValue = Number(value.trim());
+    return Number.isFinite(numericValue) && numericValue > 0 ? Math.trunc(numericValue) : null;
+  }
+  return null;
+}
+
+export function normalizePropertyLockClientId(value: unknown): string {
+  if (typeof value !== "string") {
+    return "";
+  }
+  return value.trim().slice(0, 128);
+}
+
+export function createPropertyLockClientId() {
+  const generated = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `uf-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  return normalizePropertyLockClientId(generated);
+}
+
+/**
+ * Build WebSocket URL for property lock service.
+ * 
+ * @param {string} endpointUrl - Config endpoint URL or host; path/query are replaced and the same origin/port is used.
+ * @param {string} tokenValue - JWT token for authorization
+ * @returns {string} WSS URL or empty string if invalid
+ */
+export function buildPropertyLockWssUrl(endpointUrl: string | null | undefined, tokenValue: string | null | undefined): string {
+  if (!endpointUrl || typeof endpointUrl !== "string") {
+    return "";
+  }
+
+  let url;
+  try {
+    const trimmed = endpointUrl.trim();
+    url = trimmed.includes("://")
+      ? new URL(trimmed)
+      : new URL(`https://${trimmed}`);
+  } catch (error) {
+    return "";
+  }
+  const hostname = (url.hostname || "").replace(/^\.+/, "").replace(/\.+$/, "");
+  if (!hostname) {
+    return "";
+  }
+
+  if (!tokenValue || typeof tokenValue !== "string") {
+    return "";
+  }
+
+  const trimmedToken = tokenValue.trim();
+  if (!trimmedToken) {
+    return "";
+  }
+
+  const isLocalDevHost =
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "::1" ||
+    hostname.endsWith(".localhost");
+  const wsProtocol = url.protocol === "http:" && isLocalDevHost ? "ws:" : "wss:";
+  const base = `${wsProtocol}//${url.host}/property-lock`;
+  return `${base}?token=${encodeURIComponent(trimmedToken)}`;
+}
+
+/**
+ * Normalize lock state message from server.
+ * 
+ * @param {object} message - Raw message from server
+ * @returns {object} Normalized lock state
+ */
+export function normalizeLockStateMessage(
+  message: unknown,
+  options: PropertyLockOptions = {}
+): NormalizedLockState {
+  if (!message || typeof message !== "object") {
+    return createInactiveLockState();
+  }
+  const input = message as PropertyLockMessage;
+  const ownIdentity = String(options.ownIdentity || "");
+  const ownClientId = normalizePropertyLockClientId(options.clientId || options.ownClientId || "");
+  const editorIdentity = String(input.editorIdentity || "");
+  const editorClientId = normalizePropertyLockClientId(input.editorClientId || "");
+  const rawIsEditor = Boolean(input.isEditor);
+  const isEditor = editorClientId && ownClientId && editorClientId !== ownClientId
+    ? false
+    : rawIsEditor;
+
+  return {
+    state: String(input.state || PROPERTY_LOCK_STATE_UNLOCKED),
+    editorIdentity,
+    editorClientId,
+    editorName: String(input.editorName || ""),
+    isEditor,
+    isRecentEditor: Boolean(input.isRecentEditor),
+    isSameUserEditor: Boolean(
+      input.isSameUserEditor ||
+        (!isEditor && ownIdentity && editorIdentity && ownIdentity === editorIdentity)
+    ),
+    otherTabHasUnsavedChanges: Boolean(input.otherTabHasUnsavedChanges),
+    canContinueHere: Boolean(input.canContinueHere),
+    transferFromName: String(input.transferFromName || input.fromName || ""),
+    transferToName: String(input.transferToName || input.toName || ""),
+    expiresAtUtc: String(input.expiresAtUtc || ""),
+    secondsRemaining: typeof input.secondsRemaining === "number" ? Math.max(0, Math.floor(input.secondsRemaining)) : null
+  };
+}
+
+/**
+ * Normalize takeover suggestion message from server.
+ * 
+ * @param {object} message - Raw message from server
+ * @returns {object} Normalized suggestion
+ */
+export function normalizeTakeoverSuggestionMessage(message: unknown): TakeoverSuggestion | null {
+  if (!message || typeof message !== "object") {
+    return null;
+  }
+  const input = message as PropertyLockMessage;
+
+  return {
+    suggestionId: String(input.suggestionId || ""),
+    fromName: String(input.fromName || "")
+  };
+}
+
+/**
+ * Create inactive lock state (no connection, fully unlocked).
+ * 
+ * @returns {object} Inactive lock state
+ */
+export function createInactiveLockState(): NormalizedLockState {
+  return {
+    state: PROPERTY_LOCK_STATE_UNLOCKED,
+    editorIdentity: "",
+    editorClientId: "",
+    editorName: "",
+    isEditor: false,
+    isRecentEditor: false,
+    isSameUserEditor: false,
+    otherTabHasUnsavedChanges: false,
+    canContinueHere: false,
+    transferFromName: "",
+    transferToName: "",
+    expiresAtUtc: "",
+    secondsRemaining: null
+  };
+}
+
+/**
+ * Determine if lock is fully unlocked (no editing in progress).
+ * 
+ * @param {object} lockState - Normalized lock state
+ * @returns {boolean}
+ */
+export function isLockStateUnlocked(lockState: NormalizedLockState | null | undefined): boolean {
+  return Boolean(lockState && lockState.state === PROPERTY_LOCK_STATE_UNLOCKED);
+}
+
+/**
+ * Determine if lock is held by someone else (passive subscriber).
+ * 
+ * @param {object} lockState - Normalized lock state
+ * @returns {boolean}
+ */
+export function isLockStateLockedByOther(lockState: NormalizedLockState | null | undefined): boolean {
+  return Boolean(lockState &&
+         !lockState.isEditor && 
+         (lockState.state === PROPERTY_LOCK_STATE_LOCKED || 
+          lockState.state === PROPERTY_LOCK_STATE_EXPIRY_WARNING));
+}
+
+/**
+ * Determine if user can take over the lock.
+ * 
+ * @param {object} lockState - Normalized lock state
+ * @returns {boolean}
+ */
+export function canTakeoverLock(lockState: NormalizedLockState | null | undefined): boolean {
+  return Boolean(lockState &&
+         !lockState.isEditor && 
+         lockState.state === PROPERTY_LOCK_STATE_TAKEOVER_AVAILABLE);
+}
+
+/**
+ * Determine if user is editor and can continue editing (for recent editor).
+ * 
+ * @param {object} lockState - Normalized lock state
+ * @returns {boolean}
+ */
+export function canContinueEditingAsRecentEditor(lockState: NormalizedLockState | null | undefined): boolean {
+  return Boolean(lockState &&
+         lockState.isRecentEditor && 
+         lockState.state === PROPERTY_LOCK_STATE_TAKEOVER_AVAILABLE);
+}

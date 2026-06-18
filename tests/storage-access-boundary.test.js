@@ -9,13 +9,14 @@ const REPO_ROOT = path.resolve(TESTS_DIR, "..");
 
 const EXCLUDED_PATH_PREFIXES = [
   ".tmp/",
+  "dist/",
   "node_modules/",
   "tests/",
   "orchestration/",
   "scripts/"
 ];
 
-const JS_FILE_PATTERN = /\.(?:c|m)?js$/i;
+const SOURCE_FILE_PATTERN = /\.(?:c|m)?(?:js|ts)$/i;
 const STORAGE_ACCESS_PATTERN = /(chrome\.storage\.|utils\.storage(?:Get|Set|Remove|Clear)\(|\bstorage(?:Get|Set|Remove|Clear)\()/;
 const PAGE_LOCAL_STORAGE_PATTERN = /\bwindow\.(?:localStorage|sessionStorage)\b/;
 
@@ -27,7 +28,7 @@ function shouldSkipPath(repoPath) {
   return EXCLUDED_PATH_PREFIXES.some((prefix) => repoPath.startsWith(prefix));
 }
 
-function collectJavaScriptFiles(startDir) {
+function collectSourceFiles(startDir) {
   const files = [];
 
   function walk(currentDir) {
@@ -50,7 +51,7 @@ function collectJavaScriptFiles(startDir) {
       if (shouldSkipPath(repoPath)) {
         continue;
       }
-      if (JS_FILE_PATTERN.test(repoPath)) {
+      if (SOURCE_FILE_PATTERN.test(repoPath)) {
         files.push({ absolutePath, repoPath });
       }
     }
@@ -96,13 +97,13 @@ function sortFindings(findings) {
 // Bucket: approved wrapper modules. These are the current generic adapter files
 // that are expected to contain direct storage access before Phase 4 extraction.
 const APPROVED_WRAPPER_FILES = new Set([
-  "common/storage-core.js",
-  "background/transfer-payload-store.js",
-  "background/ai-run-record-store.js",
-  "common/settings-store.js",
-  "background/tab-session-store.js",
-  "common/emulation.js",
-  "common/render-mode-js-state.js"
+  "common/storage-core.ts",
+  "background/transfer-payload-store.ts",
+  "background/ai-run-record-store.ts",
+  "common/settings-store.ts",
+  "background/tab-session-store.ts",
+  "common/emulation.ts",
+  "common/render-mode-js-state.ts"
 ]);
 
 // Bucket: current migration debt. Phase 12 keeps this empty so any new raw
@@ -117,15 +118,15 @@ const SMOKE_ORCHESTRATION_FILES = new Set();
 
 // Page-local storage flags are tracked separately from chrome.storage migration.
 const PAGE_LOCAL_STORAGE_FILES = new Set([
-  "content-loader.js",
-  "content-main.js",
-  "content/core.js",
-  "popup.js",
-  "popup/ui.js"
+  "content-loader.ts",
+  "content-main.ts",
+  "content/core.ts",
+  "popup.ts",
+  "popup/ui.ts"
 ]);
 
 test("storage boundary inventory buckets every raw storage access", () => {
-  const files = collectJavaScriptFiles(REPO_ROOT);
+  const files = collectSourceFiles(REPO_ROOT);
   const findings = sortFindings(collectMatches(files, STORAGE_ACCESS_PATTERN));
 
   assert.ok(findings.length > 0, "expected at least one storage access finding");
@@ -179,7 +180,7 @@ test("storage boundary inventory buckets every raw storage access", () => {
 });
 
 test("page-local localStorage/sessionStorage usage stays in tracked files", () => {
-  const files = collectJavaScriptFiles(REPO_ROOT);
+  const files = collectSourceFiles(REPO_ROOT);
   const findings = sortFindings(collectMatches(files, PAGE_LOCAL_STORAGE_PATTERN));
 
   assert.ok(findings.length > 0, "expected at least one page-local storage finding");

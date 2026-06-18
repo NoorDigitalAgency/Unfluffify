@@ -2,18 +2,18 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-const source = readFileSync(new URL("../content/property-lock-state-machine.js", import.meta.url), "utf8");
+const source = readFileSync(new URL("../content/property-lock-state-machine.ts", import.meta.url), "utf8");
 
 test("property-lock state machine exports a dependency-injected factory", () => {
-  assert.match(source, /export function createPropertyLockStateMachine\(deps\) \{/);
+  assert.match(source, /export function createPropertyLockStateMachine\(deps(?:\s*:\s*[^)]+)?\) \{/);
   assert.match(source, /return \{[\s\S]*?applyServerMessage,[\s\S]*?startOffCandidateWarning[\s\S]*?\};/);
 });
 
 test("property-lock state machine persists recovery and off-candidate deadlines through runtime tab state", () => {
-  assert.match(source, /function persistRecoveryState\(\{ siteId = null, baseUrl = "", clientId = "", deadlineAt = 0 \} = \{\}\) \{/);
-  assert.match(source, /propertyLockRecoverySiteId: Number\.isFinite\(siteId\) \? Math\.trunc\(siteId\) : null/);
-  assert.match(source, /function persistOffCandidateDeadline\(deadlineAt\) \{/);
-  assert.match(source, /propertyLockOffCandidateDeadlineAt: Number\.isFinite\(deadlineAt\) \? Math\.max\(0, Math\.trunc\(deadlineAt\)\) : 0/);
+  assert.match(source, /function persistRecoveryState\([\s\S]*?siteId = null,[\s\S]*?baseUrl = "",[\s\S]*?clientId = "",[\s\S]*?deadlineAt = 0[\s\S]*?\) \{/);
+  assert.match(source, /propertyLockRecoverySiteId:[\s\S]*?typeof siteId === "number" && Number\.isFinite\(siteId\)[\s\S]*?Math\.trunc\(siteId\)[\s\S]*?: null/);
+  assert.match(source, /function persistOffCandidateDeadline\(deadlineAt(?:\s*:\s*[^)]+)?\) \{/);
+  assert.match(source, /propertyLockOffCandidateDeadlineAt:[\s\S]*?typeof deadlineAt === "number" && Number\.isFinite\(deadlineAt\)[\s\S]*?Math\.max\(0, Math\.trunc\(deadlineAt\)\)[\s\S]*?: 0/);
 });
 
 test("property-lock state machine keeps disconnect and inactivity countdown fallback guards", () => {

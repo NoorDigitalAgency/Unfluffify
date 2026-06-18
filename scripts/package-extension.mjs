@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, "..");
+let SOURCE_ROOT = REPO_ROOT;
 const KNOWN_ASSET_EXTENSIONS = new Set([
   ".css",
   ".gif",
@@ -208,7 +209,7 @@ async function collectManifestEntryPoints(manifest) {
       continue;
     }
 
-    const absolutePath = path.join(REPO_ROOT, candidate);
+    const absolutePath = path.join(SOURCE_ROOT, candidate);
     if (await isFile(absolutePath)) {
       normalized.push(candidate);
     }
@@ -223,7 +224,7 @@ async function collectDependencies(relativePath, collectorState) {
     return;
   }
 
-  const absolutePath = path.join(REPO_ROOT, normalizedPath);
+  const absolutePath = path.join(SOURCE_ROOT, normalizedPath);
   if (!(await isFile(absolutePath))) {
     return;
   }
@@ -321,7 +322,7 @@ async function stageCollectedFiles(collectedFiles, stagingDirectory) {
 
   const sortedFiles = [...collectedFiles].sort((left, right) => left.localeCompare(right));
   for (const relativePath of sortedFiles) {
-    const sourcePath = path.join(REPO_ROOT, relativePath);
+    const sourcePath = path.join(SOURCE_ROOT, relativePath);
     const destinationPath = path.join(stagingDirectory, relativePath);
     await fs.mkdir(path.dirname(destinationPath), { recursive: true });
     await fs.copyFile(sourcePath, destinationPath);
@@ -361,7 +362,12 @@ async function writeMetadataFile(metadataFilePath, metadata) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const manifestPath = path.join(REPO_ROOT, "manifest.json");
+  const sourceRoot = typeof args["source-root"] === "string" && args["source-root"].trim()
+    ? path.resolve(REPO_ROOT, args["source-root"])
+    : REPO_ROOT;
+  SOURCE_ROOT = sourceRoot;
+
+  const manifestPath = path.join(SOURCE_ROOT, "manifest.json");
   const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
   const originalVersion = typeof manifest.version === "string" && manifest.version.trim()
     ? manifest.version.trim()

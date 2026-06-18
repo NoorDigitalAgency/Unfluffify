@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+const popupSource = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
 
 function assertImportsPopupModule(moduleName) {
   const escapedModuleName = moduleName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

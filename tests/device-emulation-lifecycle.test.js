@@ -2,12 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
-const emulationSource = readFileSync(new URL("../common/emulation.js", import.meta.url), "utf8");
-const utilitiesSource = readFileSync(new URL("../common/utilities.js", import.meta.url), "utf8");
-const popupChromeHelpersSource = readFileSync(new URL("../popup/chrome-helpers.js", import.meta.url), "utf8");
-const popupMessagesSource = readFileSync(new URL("../popup/messages.js", import.meta.url), "utf8");
-const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+const backgroundSource = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
+const emulationSource = readFileSync(new URL("../common/emulation.ts", import.meta.url), "utf8");
+const utilitiesSource = readFileSync(new URL("../common/utilities.ts", import.meta.url), "utf8");
+const popupChromeHelpersSource = readFileSync(new URL("../popup/chrome-helpers.ts", import.meta.url), "utf8");
+const popupMessagesSource = readFileSync(new URL("../popup/messages.ts", import.meta.url), "utf8");
+const popupSource = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
 
 function extractSourceBlock(source, startNeedle, endNeedle) {
   const start = source.indexOf(startNeedle);
@@ -132,7 +132,7 @@ test("marking enable delegates mobile simulation prep to TAB_ACTIVATE_MARKING an
     "async function handleDeviceEmulationEnabledToggle"
   );
   const uiBlock = extractSourceBlock(
-    readFileSync(new URL("../popup/ui.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../popup/ui.ts", import.meta.url), "utf8"),
     "function renderMarkingView({state: view, actions: handlers}) {",
     "function renderConfigurationView"
   );
@@ -170,7 +170,7 @@ test("desktop preview persists on initial tab state and clears itself on debugge
 });
 
 test("desktop preview section is rendered outside renderMarkingView so it is view-independent", () => {
-  const uiSource = readFileSync(new URL("../popup/ui.js", import.meta.url), "utf8");
+  const uiSource = readFileSync(new URL("../popup/ui.ts", import.meta.url), "utf8");
 
   // The section must be rendered at the top-level render call site, NOT inside
   // renderMarkingView, so it appears regardless of the current popup view.
@@ -190,7 +190,7 @@ test("desktop preview section is rendered outside renderMarkingView so it is vie
 });
 
 test("desktop preview section has a section-divider and uses the correct icon and row structure", () => {
-  const uiSource = readFileSync(new URL("../popup/ui.js", import.meta.url), "utf8");
+  const uiSource = readFileSync(new URL("../popup/ui.ts", import.meta.url), "utf8");
   const sectionStart = uiSource.indexOf("key: \"desktop-preview-section\"");
   assert.ok(sectionStart > -1);
   const sectionEnd = uiSource.indexOf(": null,", sectionStart);
@@ -205,7 +205,7 @@ test("desktop preview section has a section-divider and uses the correct icon an
 });
 
 test("desktop preview visibility is gated by silent mode", () => {
-  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
 
   assert.match(
     source,
@@ -214,7 +214,7 @@ test("desktop preview visibility is gated by silent mode", () => {
 });
 
 test("content main registers central page activity listeners for inactivity subscribers", () => {
-  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
   const mainStart = source.indexOf("export function main()");
   const mainEnd = source.lastIndexOf("}");
   const mainBody = source.slice(mainStart, mainEnd);
@@ -264,8 +264,8 @@ test("popup delegates active tab context resolution to the background", () => {
   assert.match(backgroundResolveBlock, /chrome\.tabs\.query\(\{ active: true, lastFocusedWindow: true \}\)/);
   assert.match(loadActiveTabBlock, /type: "resolvePopupTabContext"/);
   assert.match(loadActiveTabBlock, /debugTabId: Number\.isFinite\(debugTabIdParam\)/);
-  assert.match(loadActiveTabBlock, /state\.currentTab = response && response\.ok && response\.tab[\s\S]*?\? response\.tab[\s\S]*?: await loadActiveTabFallback\(debugTabIdParam\);/);
-  assert.match(popupMessagesSource, /async function loadActiveTabFallback\(debugTabId\) \{/);
+  assert.match(loadActiveTabBlock, /state(?:Any)?\.currentTab = response && response\.ok && response\.tab[\s\S]*?\? response\.tab[\s\S]*?: await loadActiveTabFallback\(debugTabIdParam\);/);
+  assert.match(popupMessagesSource, /async function loadActiveTabFallback\(debugTabId(?:\s*:\s*[^)]+)?\) \{/);
   assert.match(popupMessagesSource, /tabsApi\.get\(tabId/);
   assert.match(popupMessagesSource, /tabsApi\.query\(\{ active: true, currentWindow: true \}/);
   assert.match(popupMessagesSource, /tabsApi\.query\(\{ active: true, lastFocusedWindow: true \}/);
@@ -298,7 +298,7 @@ test("setTabState no longer mirrors enabled sessions into reload restore state",
   );
   const setTabStateBlock = extractSourceBlock(
     utilitiesSource,
-    "export async function setTabState(tabId, state, scope = null) {",
+    "export async function setTabState(tabId: number, state: Record<string, unknown> | null, scope: string | null = null) {",
     "export async function clearTabState"
   );
 
@@ -314,7 +314,7 @@ test("setTabState no longer mirrors enabled sessions into reload restore state",
 test("shared clearTabState removes initial tab lifecycle state as well as live tab state", () => {
   const clearTabStateBlock = extractSourceBlock(
     utilitiesSource,
-    "export async function clearTabState(tabId) {",
+    "export async function clearTabState(tabId: number) {",
     "// Action icon utilities"
   );
   const clearMessageBlock = extractSourceBlock(
@@ -463,17 +463,17 @@ test("disabled mobile emulation remains a per-session choice after navigation cl
 test("device emulation debugger operations serialize per tab", () => {
   const queueBlock = extractSourceBlock(
     emulationSource,
-    "async function runDeviceEmulationOperation(tabId, operation) {",
+    "async function runDeviceEmulationOperation(tabId: number, operation: () => unknown) {",
     "function getDebuggerTargets()"
   );
   const updateBlock = extractSourceBlock(
     emulationSource,
-    "export async function updateDeviceEmulation(tabId, updates) {",
+    "export async function updateDeviceEmulation(tabId: number, updates: DeviceEmulationUpdate): Promise<DeviceEmulationResult> {",
     "export async function ensureDefaultMobileDeviceEmulation"
   );
   const cleanupBlock = extractSourceBlock(
     emulationSource,
-    "export async function clearDeviceEmulationAfterNavigation(tabId) {",
+    "export async function clearDeviceEmulationAfterNavigation(tabId: number) {",
     "\n  });\n}"
   );
 
@@ -483,11 +483,11 @@ test("device emulation debugger operations serialize per tab", () => {
   assert.match(queueBlock, /deviceEmulationQueueByTabId\.set\(queueKey, next\);/);
   assert.match(queueBlock, /if \(deviceEmulationQueueByTabId\.get\(queueKey\) === next\) \{/);
   assert.match(queueBlock, /deviceEmulationQueueByTabId\.delete\(queueKey\);/);
-  assert.match(emulationSource, /export async function setDeviceEmulationEnabled\(tabId, enabled\) \{/);
-  assert.match(emulationSource, /export async function clearDeviceEmulationState\(tabId\) \{/);
+  assert.match(emulationSource, /export async function setDeviceEmulationEnabled\(tabId(?:\s*:\s*[^,]+)?, enabled(?:\s*:\s*[^)]+)?\) \{/);
+  assert.match(emulationSource, /export async function clearDeviceEmulationState\(tabId(?:\s*:\s*[^)]+)?\) \{/);
   assert.match(emulationSource, /runDeviceEmulationOperation\(tabId, async \(\) => \{/);
   assert.match(emulationSource, /runDeviceEmulationOperation\(tabId, \(\) => storageRemove\(chrome\.storage\.session, key\)\)/);
-  assert.match(updateBlock, /return runDeviceEmulationOperation\(tabId, async \(\) => \{/);
+  assert.match(updateBlock, /return runDeviceEmulationOperation\(tabId, async \(\)(?:\s*:\s*[^=]+)? => \{/);
   assert.match(cleanupBlock, /return runDeviceEmulationOperation\(tabId, async \(\) => \{/);
 });
 

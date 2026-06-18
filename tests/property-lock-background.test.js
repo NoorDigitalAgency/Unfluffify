@@ -31,14 +31,14 @@ import {
 let backgroundModuleCounter = 0;
 
 test("property lock background consumes port disconnect lastError", () => {
-  const source = readFileSync(new URL("../common/property-lock-background.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../common/property-lock-background.ts", import.meta.url), "utf8");
 
   assert.match(source, /function consumeRuntimeLastErrorMessage\(\) \{[\s\S]*?const lastError = chrome\.runtime\.lastError;[\s\S]*?\}/);
   assert.match(source, /function onPortDisconnect\(\) \{[\s\S]*?consumeRuntimeLastErrorMessage\(\);[\s\S]*?detachPortFromConnection/);
 });
 
 test("background tab removal immediately delegates property lock runtime disposal", () => {
-  const source = readFileSync(new URL("../background.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
 
   assert.match(source, /handlePropertyLockBackgroundTabRemoved,\s*initPropertyLockBackground/);
   assert.match(source, /chrome\.tabs\.onRemoved\.addListener\(\(tabId\) => \{[\s\S]*?handlePropertyLockBackgroundTabRemoved\(tabId\);/);

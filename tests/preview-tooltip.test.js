@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 test("preview sidebar buttons expose each detected content xpath as the button title", () => {
-  const source = readFileSync(new URL("../popup/ui.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../popup/ui.ts", import.meta.url), "utf8");
 
   assert.match(
     source,
@@ -13,7 +13,7 @@ test("preview sidebar buttons expose each detected content xpath as the button t
 
 
 test("preview sidebar gates the expanded content-state checkbox behind a feature flag", () => {
-  const source = readFileSync(new URL("../popup/ui.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../popup/ui.ts", import.meta.url), "utf8");
 
   assert.match(
     source,
@@ -26,7 +26,7 @@ test("preview sidebar gates the expanded content-state checkbox behind a feature
 });
 
 test("content-main applies the matching xpath as the preview target title", () => {
-  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
 
   assert.match(source, /const aiPreviewOriginalTitles = new WeakMap\(\);/);
   assert.match(
@@ -40,12 +40,12 @@ test("content-main applies the matching xpath as the preview target title", () =
 });
 
 test("content-main tracks separate default and expanded preview item sets", () => {
-  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
   const runtimeMessageHandlerSource = readFileSync(
-    new URL("../content/runtime-message-handler.js", import.meta.url),
+    new URL("../content/runtime-message-handler.ts", import.meta.url),
     "utf8"
   );
-  const previewResponseSource = readFileSync(new URL("../content/ai-preview-state-response.js", import.meta.url), "utf8");
+  const previewResponseSource = readFileSync(new URL("../content/ai-preview-state-response.ts", import.meta.url), "utf8");
 
   assert.match(
     source,
@@ -65,7 +65,7 @@ test("content-main tracks separate default and expanded preview item sets", () =
 });
 
 test("popup.js sends preview list mode changes to the content script and normalizes the returned items", () => {
-  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
 
   assert.match(
     source,
@@ -86,7 +86,7 @@ test("popup.js sends preview list mode changes to the content script and normali
 });
 
 test("content-main restores original page titles after preview highlighting clears", () => {
-  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
 
   assert.match(
     source,
@@ -95,7 +95,7 @@ test("content-main restores original page titles after preview highlighting clea
 });
 
 test("content-main copies the preview target title while keeping preview focus behavior", () => {
-  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
 
   assert.match(
     source,
@@ -104,7 +104,7 @@ test("content-main copies the preview target title while keeping preview focus b
 });
 
 test("content-main remaps preview rows to renderable targets before syncing preview item sets", () => {
-  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
 
   assert.match(
     source,
@@ -117,7 +117,7 @@ test("content-main remaps preview rows to renderable targets before syncing prev
 });
 
 test("content preview close notification includes restored marking state", () => {
-  const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
 
   assert.match(
     source,
@@ -126,7 +126,7 @@ test("content preview close notification includes restored marking state", () =>
 });
 
 test("content preview exit recovers marking base URL when preview state captured an empty base URL", () => {
-  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
 
   assert.match(
     source,
@@ -147,7 +147,7 @@ test("content preview exit recovers marking base URL when preview state captured
 });
 
 test("compute-lock preview pins marking restore intent and preserves enabled tab state", () => {
-  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
 
   assert.match(source, /restoreMarkingOnExit: false,/);
   assert.match(
@@ -165,9 +165,9 @@ test("compute-lock preview pins marking restore intent and preserves enabled tab
 });
 
 test("content-main keeps preview restore state when config updates during AI preview", () => {
-  const source = readFileSync(new URL("../content/runtime-message-handler.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../content/runtime-message-handler.ts", import.meta.url), "utf8");
   const handlerSource = readFileSync(
-    new URL("../content/config-updated-handler.js", import.meta.url),
+    new URL("../content/config-updated-handler.ts", import.meta.url),
     "utf8"
   );
 
@@ -184,7 +184,7 @@ test("content-main keeps preview restore state when config updates during AI pre
     /return deps\.loadConfig\(message\.baseUrl\)[\s\S]*?deps\.setConfig\(loadedConfig\);[\s\S]*?return \{ ok: true \};/
   );
   assert.doesNotMatch(
-    handlerSource.match(/function handleAiPreviewUpdate\(message\) \{([\s\S]*?)\n  \}/)[1],
+    handlerSource.match(/function handleAiPreviewUpdate\(message(?:\s*:\s*[^)]+)?\) \{([\s\S]*?)\n  \}/)[1],
     /clearAiPreviewState/
   );
 });

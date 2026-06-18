@@ -2,19 +2,19 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-const remoteNetworkSource = readFileSync(new URL("../background/remote-network.js", import.meta.url), "utf8");
+const remoteNetworkSource = readFileSync(new URL("../background/remote-network.ts", import.meta.url), "utf8");
 
 test("remote-network module exports remote transport handlers", () => {
   assert.match(remoteNetworkSource, /export async function requestAiRunStatus\(options = \{\}\) \{/);
   assert.match(remoteNetworkSource, /export async function removeRemotePageMarking\(options = \{\}\) \{/);
   assert.match(remoteNetworkSource, /export async function submitSelectorSetGraphqlUpdate\(options = \{\}\) \{/);
   assert.match(remoteNetworkSource, /export async function loadRemoteConfigSnapshot\(options = \{\}\) \{/);
-  assert.match(remoteNetworkSource, /export async function saveRemoteConfigSnapshot\(options = \{\}\) \{/);
+  assert.match(remoteNetworkSource, /export async function saveRemoteConfigSnapshot\(\s*options(?:\s*:\s*[^=]+)? = \{\}\s*\) \{/);
   assert.match(remoteNetworkSource, /export async function requestRenderModeDetection\(options = \{\}\) \{/);
   assert.match(remoteNetworkSource, /export async function submitPageTypeAssignments\(options = \{\}\) \{/);
   assert.match(remoteNetworkSource, /export async function requestAiRunStartSnapshot\(options = \{\}\) \{/);
   assert.match(remoteNetworkSource, /export async function requestAiRunResultSnapshot\(options = \{\}\) \{/);
-  assert.match(remoteNetworkSource, /export async function fetchStaticPageHtmlForBackground\(url\) \{/);
+  assert.match(remoteNetworkSource, /export async function fetchStaticPageHtmlForBackground\(url(?:\s*:\s*[^)]+)?\) \{/);
 });
 
 test("remote-network routes requests via network-core helpers", () => {

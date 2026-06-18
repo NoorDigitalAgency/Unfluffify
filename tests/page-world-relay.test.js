@@ -14,7 +14,7 @@ import {
 } from "../common/page-world-protocol.js";
 
 const bridgeSource = readFileSync(
-  new URL("../common/page-motion-freeze-bridge.js", import.meta.url),
+  new URL("../common/page-motion-freeze-bridge.ts", import.meta.url),
   "utf8"
 );
 

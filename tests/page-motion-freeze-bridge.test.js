@@ -7,11 +7,11 @@ import { runPageMotionFreezeControl } from "../common/page-motion-freeze-control
 const STATE_KEY = "__unfluffifyPageMotionFreezeState";
 
 const bridgeSource = readFileSync(
-  new URL("../common/page-motion-freeze-bridge.js", import.meta.url),
+  new URL("../common/page-motion-freeze-bridge.ts", import.meta.url),
   "utf8"
 );
 const controlSource = readFileSync(
-  new URL("../common/page-motion-freeze-control.js", import.meta.url),
+  new URL("../common/page-motion-freeze-control.ts", import.meta.url),
   "utf8"
 );
 
@@ -25,7 +25,11 @@ function extractControlBody(source) {
   const end = source.lastIndexOf(endMarker);
   assert.notEqual(start, -1, "Expected STATE_KEY marker in source");
   assert.notEqual(end, -1, "Expected final return buildResult() in source");
-  return source.slice(start, end + endMarker.length).replace(/\s+/g, " ").trim();
+  return source
+    .slice(start, end + endMarker.length)
+    .replace(/\/\/\s*@ts-(?:ignore|expect-error)[^\n]*/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 test("page-motion-freeze bridge is a classic document_start script that arms on load", () => {

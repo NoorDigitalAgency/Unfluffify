@@ -2,8 +2,10 @@
 
 ## Testing
 
-- Use Node's built-in test runner via `npm test`; the script intentionally runs
-  plain `node --test` so the full subtest count is meaningful.
+- Use Deno as the primary test/build toolchain: `deno task check`,
+  `deno task build:release`, and `deno task test`.
+- Keep `deno task test:node` as an optional compatibility fallback while
+  migration-related diagnostics are needed.
 
 ## Content script lifecycle
 

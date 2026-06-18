@@ -2,15 +2,15 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-const contractSource = readFileSync(new URL("../common/world-messaging-contract.js", import.meta.url), "utf8");
-const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
-const worldTraceSource = readFileSync(new URL("../background/world-trace.js", import.meta.url), "utf8");
-const popupStateBrokerSource = readFileSync(new URL("../background/popup-state-broker.js", import.meta.url), "utf8");
-const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
-const popupUiSource = readFileSync(new URL("../popup/ui.js", import.meta.url), "utf8");
-const popupMessagesSource = readFileSync(new URL("../popup/messages.js", import.meta.url), "utf8");
-const contentSource = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
-const textSource = readFileSync(new URL("../common/text.js", import.meta.url), "utf8");
+const contractSource = readFileSync(new URL("../common/world-messaging-contract.ts", import.meta.url), "utf8");
+const backgroundSource = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
+const worldTraceSource = readFileSync(new URL("../background/world-trace.ts", import.meta.url), "utf8");
+const popupStateBrokerSource = readFileSync(new URL("../background/popup-state-broker.ts", import.meta.url), "utf8");
+const popupSource = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
+const popupUiSource = readFileSync(new URL("../popup/ui.ts", import.meta.url), "utf8");
+const popupMessagesSource = readFileSync(new URL("../popup/messages.ts", import.meta.url), "utf8");
+const contentSource = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
+const textSource = readFileSync(new URL("../common/text.ts", import.meta.url), "utf8");
 
 test("world messaging contract no longer exposes runtime trace toggle message types", () => {
   assert.doesNotMatch(contractSource, /TRACE_SET:/);
@@ -33,9 +33,9 @@ test("background keeps trace enablement fixed from feature and debug flags", () 
   assert.doesNotMatch(backgroundSource, /WORLD_MESSAGE_TYPES\.TRACE_SET/);
   assert.doesNotMatch(backgroundSource, /WORLD_MESSAGE_TYPES\.CONTENT_TRACE_SET/);
   assert.match(backgroundSource, /snapshot-requested/);
-  assert.match(worldTraceSource, /reason: typeof payload\.reason === "string" \? payload\.reason : ""/);
-  assert.match(worldTraceSource, /source: typeof payload\.source === "string" \? payload\.source : ""/);
-  assert.match(worldTraceSource, /key: typeof payload\.key === "string" \? payload\.key : ""/);
+  assert.match(worldTraceSource, /reason: typeof payloadRecord\.reason === "string" \? payloadRecord\.reason : ""/);
+  assert.match(worldTraceSource, /source: typeof payloadRecord\.source === "string" \? payloadRecord\.source : ""/);
+  assert.match(worldTraceSource, /key: typeof payloadRecord\.key === "string" \? payloadRecord\.key : ""/);
   assert.match(popupStateBrokerSource, /traceEvents: traceState && Array\.isArray\(traceState\.events\) \? \[\.\.\.traceState\.events\] : \[\]/);
 });
 

@@ -4,7 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "package:extension": "node ./scripts/package-extension.mjs",
-    "test": "node --test"
+    "package:extension": "deno task build:release && deno task package",
+    "test": "deno task test"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.1.24",
+    "typescript": "^6.0.3"
   }
 }
