@@ -1,7 +1,7 @@
-import test from "node:test";
-import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
-import path from "node:path";
+import { test } from "./test-kit.ts";
+import { assert } from "./test-kit.ts";
+import { existsSync, readFileSync } from "./file-kit.ts";
+import { path } from "./file-kit.ts";
 
 const REPO_ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
 const RELEASE_ROOT = path.join(REPO_ROOT, "dist", "extension");

@@ -1,6 +1,6 @@
-import test from "node:test";
-import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { test } from "./test-kit.ts";
+import { assert } from "./test-kit.ts";
+import { existsSync, readFileSync } from "./file-kit.ts";
 
 const contentMainPath = new URL("../content-main.ts", import.meta.url);
 const runtimeMessageHandlerPath = new URL("../content/runtime-message-handler.ts", import.meta.url);

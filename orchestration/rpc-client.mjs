@@ -1,6 +1,4 @@
-#!/usr/bin/env node
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+#!/usr/bin/env -S deno run -A
 import {
   createRpcNotification,
   createRpcRequest,
@@ -198,7 +196,7 @@ export function createRpcClient(options = {}) {
 }
 
 async function main() {
-  const args = parseArgs(process.argv.slice(2));
+  const args = parseArgs(Deno.args);
   const url = typeof args.url === "string" ? args.url : "ws://127.0.0.1:9876";
   const method = typeof args.method === "string" ? args.method : "system.ping";
   const token = typeof args.token === "string" ? args.token : "";
@@ -212,10 +210,9 @@ async function main() {
   }
 }
 
-const isDirectRun = process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
-if (isDirectRun) {
+if (import.meta.main) {
   main().catch((error) => {
     console.error(error);
-    process.exit(1);
+    Deno.exit(1);
   });
 }

@@ -64,13 +64,6 @@ Run the regression suite from the repository root:
 deno task test
 ```
 
-The default regression command runs under `deno test` with Node compatibility.
-For a compatibility fallback, run:
-
-```bash
-deno task test:node
-```
-
 The tests cover the pure marking/highlighting rules that have caused regressions during recent logic changes.
 Run this command before opening or updating a pull request to catch regressions early.
 

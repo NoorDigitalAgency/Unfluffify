@@ -1,8 +1,8 @@
-import test from "node:test";
-import assert from "node:assert/strict";
-import { readFileSync, readdirSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { test } from "./test-kit.ts";
+import { assert } from "./test-kit.ts";
+import { readFileSync, readdirSync } from "./file-kit.ts";
+import { path } from "./file-kit.ts";
+import { fileURLToPath } from "./file-kit.ts";
 
 function collectJsFiles(dir) {
   const entries = readdirSync(dir, { withFileTypes: true });

@@ -1,5 +1,5 @@
-import test from "node:test";
-import assert from "node:assert/strict";
+import { test } from "./test-kit.ts";
+import { assert } from "./test-kit.ts";
 
 import { createPageDraftRevertHandler } from "../content/page-draft-revert-handler.js";
 

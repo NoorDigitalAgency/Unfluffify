@@ -1,20 +1,12 @@
-#!/usr/bin/env node
-import fs from "node:fs/promises";
-import http from "node:http";
-import os from "node:os";
-import path from "node:path";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-import { fileURLToPath } from "node:url";
+#!/usr/bin/env -S deno run -A
+import { join, resolve } from "jsr:@std/path";
 import { appendJsonLine, createRunId } from "./lib/artifacts.mjs";
 import {
   createRpcError,
   createRpcSuccess,
   normalizeRpcMessage
 } from "./lib/protocol.mjs";
-import { acceptWebSocketUpgrade, WebSocketPeer } from "./lib/websocket.mjs";
-
-const execFileAsync = promisify(execFile);
+import { WebSocketPeer } from "./lib/websocket.mjs";
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 9876;
 
@@ -43,15 +35,20 @@ function nowIso() {
 
 async function readGitCommit(cwd) {
   try {
-    const { stdout } = await execFileAsync("git", ["rev-parse", "HEAD"], { cwd });
-    return String(stdout).trim();
+    const output = await new Deno.Command("git", {
+      args: ["rev-parse", "HEAD"],
+      cwd,
+      stdout: "piped",
+      stderr: "piped"
+    }).output();
+    return new TextDecoder().decode(output.stdout).trim();
   } catch {
     return "";
   }
 }
 
 function extractToken(request) {
-  const authHeader = request.headers.authorization || "";
+  const authHeader = request.headers.get("authorization") || "";
   if (typeof authHeader === "string" && authHeader.startsWith("Bearer ")) {
     return authHeader.slice("Bearer ".length).trim();
   }
@@ -63,24 +60,19 @@ function extractToken(request) {
   }
 }
 
-function writeUpgradeRejection(socket) {
-  socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
-  socket.end();
-}
-
 export function createRpcServer(options = {}) {
   const host = options.host || DEFAULT_HOST;
-  const runRoot = path.resolve(options.runRoot || "orchestration/runs");
+  const runRoot = resolve(options.runRoot || "orchestration/runs");
   const runId = options.runId || `${createRunId()}-rpc-server`;
-  const runDir = options.runDir || path.join(runRoot, runId);
-  const transcriptPath = path.join(runDir, "rpc.log");
-  const expectedToken = options.token || process.env.UNFLUFFIFY_RPC_TOKEN || "";
-  const repoPath = path.resolve(options.repoPath || process.cwd());
-  const extensionPath = path.resolve(options.extensionPath || process.cwd());
+  const runDir = options.runDir || join(runRoot, runId);
+  const transcriptPath = join(runDir, "rpc.log");
+  const expectedToken = options.token || Deno.env.get("UNFLUFFIFY_RPC_TOKEN") || "";
+  const repoPath = resolve(options.repoPath || Deno.cwd());
+  const extensionPath = resolve(options.extensionPath || Deno.cwd());
   const startMs = Date.now();
   const peers = new Set();
 
-  let server = null;
+  let listener = null;
   let listeningPort = 0;
   let shuttingDown = false;
 
@@ -94,18 +86,18 @@ export function createRpcServer(options = {}) {
   async function systemPing() {
     return {
       ok: true,
-      pid: process.pid,
-      hostname: os.hostname(),
-      platform: process.platform,
-      cwd: process.cwd(),
+      pid: Deno.pid,
+      hostname: typeof Deno.hostname === "function" ? Deno.hostname() : "",
+      platform: Deno.build.os,
+      cwd: Deno.cwd(),
       repoPath,
       gitCommit: await readGitCommit(repoPath),
-      nodeVersion: process.version,
+      nodeVersion: Deno.version.deno,
       uptimeMs: Date.now() - startMs,
       display: {
-        DISPLAY: process.env.DISPLAY || "",
-        WAYLAND_DISPLAY: process.env.WAYLAND_DISPLAY || "",
-        XDG_SESSION_TYPE: process.env.XDG_SESSION_TYPE || ""
+        DISPLAY: Deno.env.get("DISPLAY") || "",
+        WAYLAND_DISPLAY: Deno.env.get("WAYLAND_DISPLAY") || "",
+        XDG_SESSION_TYPE: Deno.env.get("XDG_SESSION_TYPE") || ""
       },
       runDir
     };
@@ -118,26 +110,26 @@ export function createRpcServer(options = {}) {
       runDirWritable: false
     };
     try {
-      await fs.access(path.join(repoPath, ".git"));
+      await Deno.stat(join(repoPath, ".git"));
       checks.repoGit = true;
     } catch {}
     try {
-      await fs.access(path.join(extensionPath, "manifest.json"));
+      await Deno.stat(join(extensionPath, "manifest.json"));
       checks.extensionManifest = true;
     } catch {}
     try {
-      await fs.mkdir(runDir, { recursive: true });
-      const markerPath = path.join(runDir, ".write-check");
-      await fs.writeFile(markerPath, nowIso());
-      await fs.unlink(markerPath);
+      await Deno.mkdir(runDir, { recursive: true });
+      const markerPath = join(runDir, ".write-check");
+      await Deno.writeTextFile(markerPath, nowIso());
+      await Deno.remove(markerPath);
       checks.runDirWritable = true;
     } catch {}
     return {
       ok: Object.values(checks).every(Boolean),
       checks,
-      displayMode: process.env.WAYLAND_DISPLAY
+      displayMode: Deno.env.get("WAYLAND_DISPLAY")
         ? "wayland"
-        : process.env.DISPLAY
+        : Deno.env.get("DISPLAY")
           ? "x11"
           : "none",
       runDir
@@ -212,49 +204,52 @@ export function createRpcServer(options = {}) {
   }
 
   async function listen(port = DEFAULT_PORT) {
-    await fs.mkdir(runDir, { recursive: true });
-    server = http.createServer((request, response) => {
-      if (request.url && request.url.startsWith("/health")) {
-        response.writeHead(200, { "content-type": "application/json" });
-        response.end(JSON.stringify({ ok: true, peers: peers.size, shuttingDown }));
-        return;
+    await Deno.mkdir(runDir, { recursive: true });
+    listener = Deno.listen({ hostname: host, port });
+    const address = listener.addr;
+    listeningPort = Number(address.port);
+    const urlHost = host.includes(":") ? `[${host}]` : (host === "0.0.0.0" || host === "::" ? "127.0.0.1" : host);
+    void (async () => {
+      for await (const conn of listener) {
+        void (async () => {
+          const httpConn = Deno.serveHttp(conn);
+          try {
+            for await (const event of httpConn) {
+              const request = event.request;
+              if (request.url && new URL(request.url).pathname === "/health") {
+                await event.respondWith(new Response(JSON.stringify({ ok: true, peers: peers.size, shuttingDown }), {
+                  status: 200,
+                  headers: { "content-type": "application/json" }
+                }));
+                continue;
+              }
+              if (expectedToken && extractToken(request) !== expectedToken) {
+                await event.respondWith(new Response("", { status: 401 }));
+                append({ direction: "reject", reason: "unauthorized-upgrade" }).catch(() => {});
+                continue;
+              }
+              if (request.headers.get("upgrade")?.toLowerCase() === "websocket") {
+                const { socket, response } = Deno.upgradeWebSocket(request);
+                const peer = new WebSocketPeer(socket, {
+                  onMessage: (raw) => {
+                    onRawMessage(peer, raw).catch(() => {});
+                  },
+                  onClose: () => {
+                    peers.delete(peer);
+                  }
+                });
+                peers.add(peer);
+                await event.respondWith(response);
+                continue;
+              }
+              await event.respondWith(new Response(null, { status: 404 }));
+            }
+          } catch {
+            conn.close();
+          }
+        })();
       }
-      response.writeHead(404);
-      response.end();
-    });
-
-    server.on("upgrade", (request, socket, head) => {
-      if (expectedToken && extractToken(request) !== expectedToken) {
-        writeUpgradeRejection(socket);
-        append({ direction: "reject", reason: "unauthorized-upgrade" }).catch(() => {});
-        return;
-      }
-      if (!acceptWebSocketUpgrade(request, socket)) {
-        return;
-      }
-      if (head && head.length) {
-        socket.unshift(head);
-      }
-      const peer = new WebSocketPeer(socket, {
-        onMessage: (raw) => {
-          onRawMessage(peer, raw).catch(() => {});
-        },
-        onClose: () => {
-          peers.delete(peer);
-        }
-      });
-      peers.add(peer);
-    });
-
-    await new Promise((resolve, reject) => {
-      server.once("error", reject);
-      server.listen(port, host, () => {
-        server.off("error", reject);
-        listeningPort = Number(server.address().port);
-        resolve();
-      });
-    });
-    const urlHost = host.includes(":") ? `[${host}]` : host;
+    })();
     return { host, port: listeningPort, url: `ws://${urlHost}:${listeningPort}` };
   }
 
@@ -263,9 +258,9 @@ export function createRpcServer(options = {}) {
       peer.close();
     }
     peers.clear();
-    if (server) {
-      await new Promise((resolve) => server.close(resolve));
-      server = null;
+    if (listener) {
+      listener.close();
+      listener = null;
     }
   }
 
@@ -281,13 +276,13 @@ export function createRpcServer(options = {}) {
 }
 
 async function main() {
-  const args = parseArgs(process.argv.slice(2));
+  const args = parseArgs(Deno.args);
   const host = typeof args.host === "string" ? args.host : DEFAULT_HOST;
   const port = Number.isFinite(Number(args.port)) ? Number(args.port) : DEFAULT_PORT;
-  const runRoot = typeof args["run-root"] === "string" ? args["run-root"] : path.resolve("orchestration/runs");
-  const token = typeof args.token === "string" ? args.token : process.env.UNFLUFFIFY_RPC_TOKEN || "";
-  const repoPath = typeof args["repo-path"] === "string" ? args["repo-path"] : process.cwd();
-  const extensionPath = typeof args["extension-path"] === "string" ? args["extension-path"] : process.cwd();
+  const runRoot = typeof args["run-root"] === "string" ? args["run-root"] : resolve("orchestration/runs");
+  const token = typeof args.token === "string" ? args.token : Deno.env.get("UNFLUFFIFY_RPC_TOKEN") || "";
+  const repoPath = typeof args["repo-path"] === "string" ? args["repo-path"] : Deno.cwd();
+  const extensionPath = typeof args["extension-path"] === "string" ? args["extension-path"] : Deno.cwd();
   const rpc = createRpcServer({ host, runRoot, token, repoPath, extensionPath });
   const listening = await rpc.listen(port);
   console.log(`[rpc] listening ${listening.url}`);
@@ -296,16 +291,15 @@ async function main() {
 
   const shutdown = async () => {
     await rpc.close();
-    process.exit(0);
+    Deno.exit(0);
   };
-  process.on("SIGINT", shutdown);
-  process.on("SIGTERM", shutdown);
+  Deno.addSignalListener("SIGINT", shutdown);
+  Deno.addSignalListener("SIGTERM", shutdown);
 }
 
-const isDirectRun = process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
-if (isDirectRun) {
+if (import.meta.main) {
   main().catch((error) => {
     console.error(error);
-    process.exit(1);
+    Deno.exit(1);
   });
 }

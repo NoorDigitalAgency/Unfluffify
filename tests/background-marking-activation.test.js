@@ -1,6 +1,6 @@
-import test from "node:test";
-import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { test } from "./test-kit.ts";
+import { assert } from "./test-kit.ts";
+import { readFileSync } from "./file-kit.ts";
 
 test("popup enable delegates marking activation to TAB_ACTIVATE_MARKING command", () => {
   const source = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");

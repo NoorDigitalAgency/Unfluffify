@@ -62,7 +62,7 @@ async function runBuild(): Promise<void> {
 await runBuild();
 
 const watcher = Deno.watchFs(WATCH_PATHS);
-let debounceTimer: number | null = null;
+let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
 for await (const event of watcher) {
   if (!event.paths || event.paths.length === 0) {

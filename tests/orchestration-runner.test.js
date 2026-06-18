@@ -1,8 +1,8 @@
-import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { assert } from "./test-kit.ts";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "./file-kit.ts";
 import os from "node:os";
-import path from "node:path";
-import { test } from "node:test";
+import { path } from "./file-kit.ts";
+import { test } from "./test-kit.ts";
 
 import { createScenarioBusServer } from "../orchestration/bus-server.mjs";
 import { createRunner } from "../orchestration/runner.mjs";

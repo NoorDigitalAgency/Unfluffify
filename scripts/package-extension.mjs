@@ -1,9 +1,7 @@
-import { promises as fs } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { dirname, extname, fromFileUrl, join, normalize, resolve } from "jsr:@std/path";
 
-const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = path.resolve(SCRIPT_DIR, "..");
+const SCRIPT_DIR = dirname(fromFileUrl(import.meta.url));
+const REPO_ROOT = resolve(SCRIPT_DIR, "..");
 let SOURCE_ROOT = REPO_ROOT;
 const KNOWN_ASSET_EXTENSIONS = new Set([
   ".css",
@@ -79,7 +77,7 @@ function normalizeRelativePath(relativePath) {
     return "";
   }
 
-  const resolved = path.posix.normalize(normalized);
+  const resolved = normalize(normalized);
   if (!resolved || resolved === "." || resolved.startsWith("../")) {
     return "";
   }
@@ -116,7 +114,7 @@ function stripQueryAndHash(specifier) {
 }
 
 function hasKnownAssetExtension(specifier) {
-  const extension = path.posix.extname(stripQueryAndHash(specifier)).toLowerCase();
+  const extension = extname(stripQueryAndHash(specifier)).toLowerCase();
   return KNOWN_ASSET_EXTENSIONS.has(extension);
 }
 
@@ -126,28 +124,19 @@ function resolveAssetSpecifier(fromRelativePath, specifier) {
   }
 
   const sanitizedSpecifier = stripQueryAndHash(specifier).replace(/^\//, "");
-  const fromDirectory = fromRelativePath ? path.posix.dirname(fromRelativePath) : ".";
+  const fromDirectory = fromRelativePath ? dirname(fromRelativePath) : ".";
   const candidate = sanitizedSpecifier.startsWith("./") || sanitizedSpecifier.startsWith("../")
-    ? path.posix.normalize(path.posix.join(fromDirectory, sanitizedSpecifier))
-    : path.posix.normalize(sanitizedSpecifier);
+    ? normalize(join(fromDirectory, sanitizedSpecifier))
+    : normalize(sanitizedSpecifier);
 
   return normalizeRelativePath(candidate);
 }
 
-async function pathExists(filePath) {
-  try {
-    await fs.access(filePath);
-    return true;
-  } catch (error) {
-    return false;
-  }
-}
-
 async function isFile(filePath) {
   try {
-    const stats = await fs.stat(filePath);
-    return stats.isFile();
-  } catch (error) {
+    const stats = await Deno.stat(filePath);
+    return stats.isFile;
+  } catch {
     return false;
   }
 }
@@ -209,7 +198,7 @@ async function collectManifestEntryPoints(manifest) {
       continue;
     }
 
-    const absolutePath = path.join(SOURCE_ROOT, candidate);
+    const absolutePath = join(SOURCE_ROOT, candidate);
     if (await isFile(absolutePath)) {
       normalized.push(candidate);
     }
@@ -224,7 +213,7 @@ async function collectDependencies(relativePath, collectorState) {
     return;
   }
 
-  const absolutePath = path.join(SOURCE_ROOT, normalizedPath);
+  const absolutePath = join(SOURCE_ROOT, normalizedPath);
   if (!(await isFile(absolutePath))) {
     return;
   }
@@ -232,12 +221,12 @@ async function collectDependencies(relativePath, collectorState) {
   collectorState.seenFiles.add(normalizedPath);
   collectorState.collectedFiles.add(normalizedPath);
 
-  const extension = path.extname(normalizedPath).toLowerCase();
+  const extension = extname(normalizedPath).toLowerCase();
   if (!JS_EXTENSIONS.has(extension) && !HTML_EXTENSIONS.has(extension) && !CSS_EXTENSIONS.has(extension)) {
     return;
   }
 
-  const source = await fs.readFile(absolutePath, "utf8");
+  const source = await Deno.readTextFile(absolutePath);
   let matches = [];
   if (JS_EXTENSIONS.has(extension)) {
     matches = collectJsAssetSpecifiers(source, normalizedPath);
@@ -317,15 +306,15 @@ function collectCssAssetSpecifiers(source, fromRelativePath) {
 }
 
 async function stageCollectedFiles(collectedFiles, stagingDirectory) {
-  await fs.rm(stagingDirectory, { recursive: true, force: true });
-  await fs.mkdir(stagingDirectory, { recursive: true });
+  await Deno.remove(stagingDirectory, { recursive: true }).catch(() => {});
+  await Deno.mkdir(stagingDirectory, { recursive: true });
 
   const sortedFiles = [...collectedFiles].sort((left, right) => left.localeCompare(right));
   for (const relativePath of sortedFiles) {
-    const sourcePath = path.join(SOURCE_ROOT, relativePath);
-    const destinationPath = path.join(stagingDirectory, relativePath);
-    await fs.mkdir(path.dirname(destinationPath), { recursive: true });
-    await fs.copyFile(sourcePath, destinationPath);
+    const sourcePath = join(SOURCE_ROOT, relativePath);
+    const destinationPath = join(stagingDirectory, relativePath);
+    await Deno.mkdir(dirname(destinationPath), { recursive: true });
+    await Deno.copyFile(sourcePath, destinationPath);
   }
 
   return sortedFiles;
@@ -342,12 +331,11 @@ async function updateStagedManifestReleaseVersion(stagingDirectory, options = {}
     return null;
   }
 
-  const manifestPath = path.join(stagingDirectory, "manifest.json");
-  const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
+  const manifestPath = join(stagingDirectory, "manifest.json");
+  const manifest = JSON.parse(await Deno.readTextFile(manifestPath));
   const releaseDisplayVersion = `${originalVersion}.${buildVersion}`;
   manifest.version_name = releaseDisplayVersion;
-  await fs.writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}
-`, "utf8");
+  await Deno.writeTextFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
   return releaseDisplayVersion;
 }
 
@@ -356,19 +344,19 @@ async function writeMetadataFile(metadataFilePath, metadata) {
     return;
   }
 
-  await fs.mkdir(path.dirname(metadataFilePath), { recursive: true });
-  await fs.writeFile(metadataFilePath, `${JSON.stringify(metadata, null, 2)}\n`, "utf8");
+  await Deno.mkdir(dirname(metadataFilePath), { recursive: true });
+  await Deno.writeTextFile(metadataFilePath, `${JSON.stringify(metadata, null, 2)}\n`);
 }
 
 async function main() {
-  const args = parseArgs(process.argv.slice(2));
+  const args = parseArgs(Deno.args);
   const sourceRoot = typeof args["source-root"] === "string" && args["source-root"].trim()
-    ? path.resolve(REPO_ROOT, args["source-root"])
+    ? resolve(REPO_ROOT, args["source-root"])
     : REPO_ROOT;
   SOURCE_ROOT = sourceRoot;
 
-  const manifestPath = path.join(SOURCE_ROOT, "manifest.json");
-  const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
+  const manifestPath = join(SOURCE_ROOT, "manifest.json");
+  const manifest = JSON.parse(await Deno.readTextFile(manifestPath));
   const originalVersion = typeof manifest.version === "string" && manifest.version.trim()
     ? manifest.version.trim()
     : "0.0.0";
@@ -381,14 +369,14 @@ async function main() {
   const archiveFileName = `Unfluffify-v${originalVersion}-${timestamp}.zip`;
   const latestAliasFileName = "Unfluffify-latest.zip";
   const versionLatestAliasFileName = `Unfluffify-v${originalVersion}-latest.zip`;
-  const stagingDirectory = path.resolve(
+  const stagingDirectory = resolve(
     REPO_ROOT,
     typeof args["stage-dir"] === "string" && args["stage-dir"].trim()
       ? args["stage-dir"]
-      : path.join(".tmp", "extension-package")
+      : join(".tmp", "extension-package")
   );
   const metadataFilePath = typeof args["metadata-file"] === "string" && args["metadata-file"].trim()
-    ? path.resolve(REPO_ROOT, args["metadata-file"])
+    ? resolve(REPO_ROOT, args["metadata-file"])
     : "";
 
   const entryPoints = await collectManifestEntryPoints(manifest);
@@ -420,10 +408,10 @@ async function main() {
   };
 
   await writeMetadataFile(metadataFilePath, metadata);
-  process.stdout.write(`${JSON.stringify(metadata)}\n`);
+  console.log(JSON.stringify(metadata));
 }
 
 main().catch((error) => {
   console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
+  Deno.exit(1);
 });

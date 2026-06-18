@@ -1,4 +1,4 @@
-import { extname, join, relative } from "node:path";
+import { extname, join, relative } from "jsr:@std/path";
 // Tracks runtime @ts-ignore AND @ts-expect-error suppressions (migration in progress)
 
 const REPO_ROOT = Deno.cwd();

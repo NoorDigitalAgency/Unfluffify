@@ -1,32 +1,32 @@
-import fs from "node:fs/promises";
-import path from "node:path";
+import { dirname, join, resolve, toFileUrl } from "jsr:@std/path";
 
 const DEFAULT_VIEWPORT = { width: 1280, height: 1024 };
-const CHROME_PROFILE_PREFERENCES_PATH = path.join("Default", "Preferences");
+const CHROME_PROFILE_PREFERENCES_PATH = join("Default", "Preferences");
 
 async function resolvePlaywright(config) {
   const candidates = [
     config && config.playwrightModulePath,
-    process.env.UNFLUFFIFY_PLAYWRIGHT_PATH,
+    Deno.env.get("UNFLUFFIFY_PLAYWRIGHT_PATH"),
     "/home/rojan/Desktop/test/node_modules/playwright/index.mjs",
     "/home/rojan/Documents/Git/GitHub/arcana-text/node_modules/playwright/index.mjs"
   ].filter(Boolean);
 
   for (const candidate of candidates) {
     try {
-      return await import(candidate);
+      const specifier = String(candidate);
+      return await import(specifier.startsWith("npm:") ? specifier : toFileUrl(resolve(specifier)).href);
     } catch {}
   }
 
   try {
-    return await import("playwright");
+    return await import("npm:playwright");
   } catch {}
 
   throw new Error("Could not resolve playwright; set playwrightModulePath or UNFLUFFIFY_PLAYWRIGHT_PATH");
 }
 
 export function buildChromeLaunchArgs(config = {}) {
-  const extensionPath = config.extensionPath || process.cwd();
+  const extensionPath = config.extensionPath || Deno.cwd();
   const mediaMode = config.mediaMode === "real" ? "real" : "fake";
   const extraOrigins = Array.isArray(config.insecureOrigins) ? config.insecureOrigins : [];
   const originCandidates = [config.testPropertyUrl, config.supportPageUrl, ...extraOrigins]
@@ -190,7 +190,7 @@ function isDisabledUnpackedExtensionSetting(setting, extensionPath) {
   if (!setting || typeof setting !== "object" || typeof setting.path !== "string") {
     return false;
   }
-  if (path.resolve(setting.path) !== extensionPath) {
+  if (resolve(setting.path) !== extensionPath) {
     return false;
   }
   return setting.state === 0 || hasDisableReasons(setting.disable_reasons);
@@ -202,13 +202,13 @@ export async function clearDisabledUnpackedExtensionPreference(config = {}) {
     return { ok: true, cleared: 0, reason: "missingProfileDir" };
   }
 
-  const extensionPath = path.resolve(config.extensionPath || process.cwd());
-  const preferencesPath = path.join(profileDir, CHROME_PROFILE_PREFERENCES_PATH);
+  const extensionPath = resolve(config.extensionPath || Deno.cwd());
+  const preferencesPath = join(profileDir, CHROME_PROFILE_PREFERENCES_PATH);
   let rawPreferences;
   try {
-    rawPreferences = await fs.readFile(preferencesPath, "utf8");
+    rawPreferences = await Deno.readTextFile(preferencesPath);
   } catch (error) {
-    if (error && error.code === "ENOENT") {
+    if (error instanceof Deno.errors.NotFound) {
       return { ok: true, cleared: 0, reason: "missingPreferences" };
     }
     throw error;
@@ -232,7 +232,7 @@ export async function clearDisabledUnpackedExtensionPreference(config = {}) {
     return { ok: true, cleared: 0, preferencesPath };
   }
 
-  await fs.writeFile(preferencesPath, JSON.stringify(preferences));
+  await Deno.writeTextFile(preferencesPath, JSON.stringify(preferences));
   return {
     ok: true,
     cleared: disabledExtensionIds.length,
@@ -350,9 +350,9 @@ async function writeArtifact(context, name, value) {
   if (!context.artifacts || !context.artifacts.runDir) {
     return "";
   }
-  const filePath = path.join(context.artifacts.runDir, name);
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, JSON.stringify(value, null, 2));
+  const filePath = join(context.artifacts.runDir, name);
+  await Deno.mkdir(dirname(filePath), { recursive: true });
+  await Deno.writeTextFile(filePath, JSON.stringify(value, null, 2));
   return filePath;
 }
 
@@ -371,7 +371,7 @@ export async function launchBrowser(context) {
     launchOptions.executablePath = context.config.chromePath;
   }
 
-  await fs.mkdir(context.config.profileDir, { recursive: true });
+  await Deno.mkdir(context.config.profileDir, { recursive: true });
   await clearDisabledUnpackedExtensionPreference(context.config);
   context.browserContext = await playwright.chromium.launchPersistentContext(
     context.config.profileDir,

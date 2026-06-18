@@ -1,8 +1,8 @@
-import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { assert } from "./test-kit.ts";
+import { mkdtemp, rm } from "./file-kit.ts";
 import os from "node:os";
-import path from "node:path";
-import { test } from "node:test";
+import { path } from "./file-kit.ts";
+import { test } from "./test-kit.ts";
 
 import { createRpcClient } from "../orchestration/rpc-client.mjs";
 import { createRpcServer } from "../orchestration/rpc-server.mjs";

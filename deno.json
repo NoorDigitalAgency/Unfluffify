@@ -3,9 +3,7 @@
   "tasks": {
     "test": "deno test -A --no-check --unstable-sloppy-imports tests",
     "test:deno": "deno test -A --no-check --unstable-sloppy-imports tests",
-    "test:node": "node --test",
-    "package": "node ./scripts/package-extension.mjs --source-root dist/extension",
-    "check": "deno run -A npm:typescript/bin/tsc --noEmit -p tsconfig.json",
+    "package": "deno run -A ./scripts/package-extension.mjs --source-root dist/extension",
     "lint:no-any": "deno lint --rules-tags= --rules-include=no-explicit-any",
     "build:dev": "deno run -A ./scripts/build-extension.ts --dev",
     "build:release": "deno run -A ./scripts/build-extension.ts --release",

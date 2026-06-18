@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env -S deno run -A
 
 function parseArgs(argv) {
   const result = {};
@@ -29,35 +29,37 @@ function waitForOpen(socket) {
   });
 }
 
-const args = parseArgs(process.argv.slice(2));
-const host = typeof args.host === "string" ? args.host : "127.0.0.1";
-const port = Number.isFinite(Number(args.port)) ? Number(args.port) : 8765;
-const role = args.role === "follower" ? "follower" : "director";
-const side = typeof args.side === "string" ? args.side : (role === "director" ? "A" : "B");
-const note = typeof args.note === "string" ? args.note : "";
-const url = typeof args.url === "string" ? args.url : `ws://${host}:${port}`;
+if (import.meta.main) {
+  const args = parseArgs(Deno.args);
+  const host = typeof args.host === "string" ? args.host : "127.0.0.1";
+  const port = Number.isFinite(Number(args.port)) ? Number(args.port) : 8765;
+  const role = args.role === "follower" ? "follower" : "director";
+  const side = typeof args.side === "string" ? args.side : (role === "director" ? "A" : "B");
+  const note = typeof args.note === "string" ? args.note : "";
+  const url = typeof args.url === "string" ? args.url : `ws://${host}:${port}`;
 
-const socket = new WebSocket(url);
-socket.addEventListener("message", (event) => {
-  console.log(`[bus:${role}] ${event.data}`);
-});
+  const socket = new WebSocket(url);
+  socket.addEventListener("message", (event) => {
+    console.log(`[bus:${role}] ${event.data}`);
+  });
 
-await waitForOpen(socket);
-socket.send(JSON.stringify({
-  channel: "control",
-  type: "hello",
-  role,
-  side
-}));
-
-if (note) {
+  await waitForOpen(socket);
   socket.send(JSON.stringify({
-    channel: "debug",
-    type: "note",
-    text: note,
-    to: "all"
+    channel: "control",
+    type: "hello",
+    role,
+    side
   }));
-}
 
-await new Promise((resolve) => setTimeout(resolve, 500));
-socket.close();
+  if (note) {
+    socket.send(JSON.stringify({
+      channel: "debug",
+      type: "note",
+      text: note,
+      to: "all"
+    }));
+  }
+
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  socket.close();
+}

@@ -1,9 +1,9 @@
-import test from "node:test";
-import assert from "node:assert/strict";
-import fs from "node:fs/promises";
+import { test } from "./test-kit.ts";
+import { assert } from "./test-kit.ts";
+import { readFile } from "./file-kit.ts";
 
 test("manifest uses extension-compatible media permissions", async () => {
-  const manifest = JSON.parse(await fs.readFile(new URL("../manifest.json", import.meta.url), "utf8"));
+  const manifest = JSON.parse(await readFile(new URL("../manifest.json", import.meta.url)));
 
   assert.equal(manifest.manifest_version, 3);
   assert.ok(!manifest.permissions.includes("audioCapture"));
@@ -11,7 +11,7 @@ test("manifest uses extension-compatible media permissions", async () => {
 });
 
 test("manifest exposes the content UI icon font without the global icon stylesheet", async () => {
-  const manifest = JSON.parse(await fs.readFile(new URL("../manifest.json", import.meta.url), "utf8"));
+  const manifest = JSON.parse(await readFile(new URL("../manifest.json", import.meta.url)));
   const resources = manifest.web_accessible_resources.flatMap((entry) => entry.resources || []);
 
   assert.ok(resources.includes("assets/materialdesignicons-webfont.woff2"));
@@ -19,7 +19,7 @@ test("manifest exposes the content UI icon font without the global icon styleshe
 });
 
 test("manifest web-accessible resources avoid broad common/content wildcards", async () => {
-  const manifest = JSON.parse(await fs.readFile(new URL("../manifest.json", import.meta.url), "utf8"));
+  const manifest = JSON.parse(await readFile(new URL("../manifest.json", import.meta.url)));
   const resources = manifest.web_accessible_resources.flatMap((entry) => entry.resources || []);
 
   assert.equal(resources.includes("content/*.js"), false);
@@ -30,10 +30,10 @@ test("manifest web-accessible resources avoid broad common/content wildcards", a
 });
 
 test("every getURL-injected page resource is web-accessible (no under-scoping)", async () => {
-  const manifest = JSON.parse(await fs.readFile(new URL("../manifest.json", import.meta.url), "utf8"));
+  const manifest = JSON.parse(await readFile(new URL("../manifest.json", import.meta.url)));
   const resources = manifest.web_accessible_resources.flatMap((entry) => entry.resources || []);
-  const contentMain = await fs.readFile(new URL("../content-main.ts", import.meta.url), "utf8");
-  const core = await fs.readFile(new URL("../content/core.ts", import.meta.url), "utf8");
+  const contentMain = await readFile(new URL("../content-main.ts", import.meta.url));
+  const core = await readFile(new URL("../content/core.ts", import.meta.url));
 
   // Any literal getURL("...") string loaded into the page world (e.g. cursor
   // image url) MUST be web-accessible or the browser blocks the load. Guards
@@ -68,9 +68,9 @@ test("every getURL-injected page resource is web-accessible (no under-scoping)",
 });
 
 test("every content/* module imported by content-main.js is web-accessible", async () => {
-  const manifest = JSON.parse(await fs.readFile(new URL("../manifest.json", import.meta.url), "utf8"));
+  const manifest = JSON.parse(await readFile(new URL("../manifest.json", import.meta.url)));
   const resources = manifest.web_accessible_resources.flatMap((entry) => entry.resources || []);
-  const contentMain = await fs.readFile(new URL("../content-main.ts", import.meta.url), "utf8");
+  const contentMain = await readFile(new URL("../content-main.ts", import.meta.url));
 
   const importedContentModules = new Set();
   for (const match of contentMain.matchAll(/from\s+"(\.\/content\/[^"]+\.js)"/g)) {
