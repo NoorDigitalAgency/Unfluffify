@@ -1,19 +1,19 @@
 type AiPreviewItem = {
-  xpath?: unknown;
-  text?: unknown;
-  title?: unknown;
-  kind?: unknown;
+  xpath?: string;
+  text?: string;
+  title?: string;
+  kind?: string;
 };
 
 type AiPreviewState = {
-  active?: unknown;
-  mode?: unknown;
-  previousEnabled?: unknown;
-  restoreMarkingOnExit?: unknown;
-  previousBaseUrl?: unknown;
-  items?: unknown;
-  focusedXpath?: unknown;
-  showAllCategories?: unknown;
+  active?: boolean;
+  mode?: string;
+  previousEnabled?: boolean;
+  restoreMarkingOnExit?: boolean;
+  previousBaseUrl?: string;
+  items?: AiPreviewItem[];
+  focusedXpath?: string;
+  showAllCategories?: boolean;
 };
 
 type AiPreviewStateResponseDeps = {
@@ -23,13 +23,13 @@ type AiPreviewStateResponseDeps = {
 };
 
 export function createAiPreviewStateResponseBuilder(deps: AiPreviewStateResponseDeps) {
-  const mapItems = (items: unknown): Array<{
-    xpath: unknown;
-    text: unknown;
-    title: unknown;
-    kind: unknown;
+  const mapItems = (items: AiPreviewItem[] | undefined): Array<{
+    xpath: string | undefined;
+    text: string | undefined;
+    title: string | undefined;
+    kind: string | undefined;
   }> => {
-    const source = (Array.isArray(items) ? items : []) as AiPreviewItem[];
+    const source = (Array.isArray(items) ? items : []);
     return source.map((item) => {
       return {
         xpath: item.xpath,
