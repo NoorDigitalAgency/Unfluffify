@@ -54,14 +54,14 @@ async function ensureParent(path: string): Promise<void> {
 async function addDevReloadArtifacts(targetDir: string): Promise<void> {
   const buildId = new Date().toISOString();
   const clientPath = join(targetDir, "dev-reload-client.js");
-  const markerPath = join(targetDir, "__dev_reload__.json");
+  const markerPath = join(targetDir, "dev-reload-marker.json");
   const backgroundPath = join(targetDir, "background.js");
   const clientSource = `const POLL_MS = 1500;
 let lastBuildId = "";
 
 async function readBuildMarker() {
   try {
-    const response = await fetch(chrome.runtime.getURL("__dev_reload__.json"), { cache: "no-store" });
+    const response = await fetch(chrome.runtime.getURL("dev-reload-marker.json"), { cache: "no-store" });
     if (!response.ok) {
       return "";
     }

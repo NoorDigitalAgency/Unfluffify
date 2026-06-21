@@ -12,7 +12,7 @@ test("release build excludes dev reload artifacts", () => {
     return;
   }
   assert.equal(existsSync(path.join(RELEASE_ROOT, "dev-reload-client.js")), false);
-  assert.equal(existsSync(path.join(RELEASE_ROOT, "__dev_reload__.json")), false);
+  assert.equal(existsSync(path.join(RELEASE_ROOT, "dev-reload-marker.json")), false);
 
   const releaseBackgroundPath = path.join(RELEASE_ROOT, "background.js");
   if (existsSync(releaseBackgroundPath)) {
@@ -26,7 +26,7 @@ test("dev build includes dev reload artifacts", () => {
     return;
   }
   assert.equal(existsSync(path.join(DEV_ROOT, "dev-reload-client.js")), true);
-  assert.equal(existsSync(path.join(DEV_ROOT, "__dev_reload__.json")), true);
+  assert.equal(existsSync(path.join(DEV_ROOT, "dev-reload-marker.json")), true);
 
   const devBackground = readFileSync(path.join(DEV_ROOT, "background.js"), "utf8");
   assert.equal(devBackground.includes('import "./dev-reload-client.js";'), true);
