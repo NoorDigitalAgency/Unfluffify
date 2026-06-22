@@ -6414,7 +6414,27 @@ function createAiPreviewShowHandlerDeps() {
     normalizeAiSelectorSet,
     setAiPreviewItemSets,
 // @ts-expect-error
-    showAiPopover: (items, options) => core.showAiPopover(items, options)
+    showAiPopover: (items, options) => core.showAiPopover(items, options),
+    getAiPreviewItems: () => {
+      const previewItems = (aiPreviewState as unknown as { items?: unknown }).items;
+      if (!Array.isArray(previewItems)) {
+        return [];
+      }
+      return previewItems.map((item) => {
+        const entry = (item || {}) as {
+          xpath?: unknown;
+          text?: unknown;
+          title?: unknown;
+          kind?: unknown;
+        };
+        return {
+          xpath: entry.xpath,
+          text: entry.text,
+          title: entry.title,
+          kind: entry.kind
+        };
+      });
+    }
   };
 }
 

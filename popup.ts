@@ -1974,7 +1974,13 @@ async function stopAiRun(options = {}) {
   if (unlockPage) {
     await syncAiComputeLock(false);
   }
-  await refreshUi();
+  // When the AI run just opened the Detected Content preview, the popup already
+  // shows the preview sidebar. Refresh quietly so the generic "Refreshing popup
+  // data..." busy curtain does not mask the freshly shown preview for the
+  // duration of the (sometimes slow) post-run refresh.
+  const currentView = uiModule.getViewState();
+  const previewShowing = Boolean(currentView.previewBlocked || currentView.previewActive);
+  await refreshUi(previewShowing ? { useBusyOverlay: false } : {});
 }
 
 async function removePageMarkingFromRemote(options = {}) {
@@ -3186,12 +3192,31 @@ async function refreshUiInner(options = {}) {
   const previewState = tabInScope
     ? await messages.sendTabMessage({ type: "getAiPreviewState" })
     : null;
+  let previewViewState = buildPreviewViewState(previewState);
+  if (!previewState && tabInScope) {
+    // A null response means the getAiPreviewState content probe failed/timed out
+    // (its TAB_CONTENT_REQUEST has a short 3s timeout and loses the race while
+    // the content script is busy re-running silent-highlight passes). Do not tear
+    // down a preview the popup is already showing on a transient probe miss; an
+    // explicit exit goes through the aiPreviewClosed message / Exit Preview path.
+    const currentView = uiModule.getViewState();
+    if (currentView.previewActive || currentView.previewBlocked) {
+      previewViewState = {
+        previewActive: Boolean(currentView.previewActive),
+        previewItems: Array.isArray(currentView.previewItems) ? currentView.previewItems : [],
+        previewFocusedXpath: typeof currentView.previewFocusedXpath === "string"
+          ? currentView.previewFocusedXpath
+          : "",
+        previewShowAllCategories: Boolean(currentView.previewShowAllCategories)
+      };
+    }
+  }
   const {
     previewActive,
     previewItems,
     previewFocusedXpath,
     previewShowAllCategories
-  } = buildPreviewViewState(previewState);
+  } = previewViewState;
   const aiPreviewSessionActive = Boolean(previewActive);
   let localMatchingBaseUrl = utils.findMatchingBaseUrl(pageUrl, configs);
   let hasLocalConfigForWebsite = Boolean(localMatchingBaseUrl);
@@ -6663,7 +6688,35 @@ async function applyComputedSelectorSet(selectorSet, { currentPageUrl = "", toke
     selectorSet
   });
 // @ts-expect-error
-  const previewOpened = Boolean(previewResponse && previewResponse.ok && previewResponse.result);
+  const previewResult = previewResponse && previewResponse.ok && previewResponse.result
+// @ts-expect-error
+    ? previewResponse.result
+    : null;
+  const previewOpened = Boolean(previewResult);
+  if (previewOpened) {
+    // Show the Detected Content sidebar immediately from the items the content
+    // script just rendered. Waiting for the next full refreshUi() to rediscover
+    // the preview via the timeout-prone getAiPreviewState probe is what made the
+    // preview appear only after minutes (or not at all) on heavy pages. The
+    // content handler response is nested under result.previewState by the
+    // background TAB_SHOW_AI_PREVIEW command.
+    const previewStatePayload = previewResult && typeof previewResult.previewState === "object"
+      ? previewResult.previewState
+      : previewResult;
+    const immediatePreviewItems = normalizePreviewItems(
+      previewStatePayload && Array.isArray(previewStatePayload.items)
+        ? previewStatePayload.items
+        : []
+    );
+    uiModule.setViewState({
+      previewBlocked: true,
+      previewActive: true,
+      previewItems: immediatePreviewItems,
+      previewFocusedXpath: "",
+      previewShowAllCategories: false,
+      previewBlockedMessage: PopupText.preview.blockedActive
+    });
+  }
   updateLastConfigSaveStatus(PopupText.ai.selectorsComputedLocally);
   // This state is intentionally unsynced; keep the tone non-muted until Save runs.
   state.lastConfigSaveStatusTone = "warning";
