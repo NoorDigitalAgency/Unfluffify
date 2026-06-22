@@ -7606,7 +7606,11 @@ async function init() {
         popupNavigationInspectionOverlayTabId = newTabId;
       }
     }
-    await refreshUi();
+    // Refresh quietly on tab switch: the newly active tab's genuine busy state
+    // (restored spinner queue above) still surfaces through refreshUiInner, but
+    // the refresh itself no longer raises a "Refreshing popup data..." curtain
+    // that, on heavy pages, blocked the popup for many seconds per switch.
+    await refreshUi({ useBusyOverlay: false });
   });
 
   chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
