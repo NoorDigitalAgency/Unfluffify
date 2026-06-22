@@ -10,6 +10,7 @@ type AiPreviewShowDeps = {
   ) => void;
   showAiPopover: (items: unknown[], options: { onClose: () => Promise<void> | void }) => void;
   exitAiPreviewMode: () => Promise<void>;
+  getAiPreviewItems: () => unknown[];
 };
 
 type AiPreviewShowMessage = {
@@ -17,7 +18,7 @@ type AiPreviewShowMessage = {
 };
 
 export function createAiPreviewShowHandler(deps: AiPreviewShowDeps) {
-  async function handleMessage(message: AiPreviewShowMessage = {}): Promise<{ ok: true; count: number }> {
+  async function handleMessage(message: AiPreviewShowMessage = {}): Promise<{ ok: true; count: number; items: unknown[] }> {
     const selectorSet = deps.normalizeAiSelectorSet(message.selectorSet);
     let defaultItems: unknown[] = [];
     let expandedItems: unknown[] = [];
@@ -33,7 +34,17 @@ export function createAiPreviewShowHandler(deps: AiPreviewShowDeps) {
     deps.showAiPopover(defaultItems, {
       onClose: () => deps.exitAiPreviewMode()
     });
-    return { ok: true, count: defaultItems.length };
+    // Return the rendered preview items so the popup can display the Detected
+    // Content sidebar immediately, without waiting for a later full refresh to
+    // rediscover the preview via the timeout-prone getAiPreviewState probe.
+    let items: unknown[] = [];
+    try {
+      const renderedItems = deps.getAiPreviewItems();
+      items = Array.isArray(renderedItems) ? renderedItems : [];
+    } catch {
+      items = [];
+    }
+    return { ok: true, count: defaultItems.length, items };
   }
 
   return {

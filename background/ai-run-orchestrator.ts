@@ -107,7 +107,8 @@ interface AiRunOrchestratorOptions {
     endpointValue: string;
     tokenValue: string;
     payloadKey: string;
-  }): Promise<{ ok: boolean; sessionId?: string }>;
+    onBeforeRequest?: (details: { url: string; payloadKey: string }) => unknown;
+  }): Promise<{ ok: boolean; sessionId?: string; reason?: string; skipped?: boolean; httpStatus?: number }>;
   requestAiRunStatus?(
     args: {
       endpointValue: string;
@@ -137,7 +138,7 @@ interface AiRunOrchestratorOptions {
   getTabState?(tabId: number): Promise<Record<string, unknown> | null>;
   setTabState?(tabId: number, tabState: Record<string, unknown>): Promise<void>;
   updateActionForTab?(tabId: number): Promise<void>;
-  refineXPathEntries?(renderedHtml: string, rawHtml: string, renderedXPaths: unknown): unknown;
+  refineXPathEntries?(renderedHtml: string, rawHtml: string, renderedXPaths: unknown): unknown | Promise<unknown>;
   createManagedTimeoutGroup?(): AiRunManagedTimeoutGroup;
   getAiRunResumeExpiresAt?(): number;
   configStore?: AiRunConfigStore;
@@ -329,20 +330,22 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
       await removeTransferPayload(sourcePayloadKey);
       return { ok: false, error: "Unable to prepare AI payload" };
     }
-    const refinedPayload = {
-      ...payload,
-      pages: payload.pages.map((page) => {
-        const renderedHtml = page && typeof page.renderedHtml === "string" ? page.renderedHtml : "";
-        const rawHtml = page && typeof page.rawHtml === "string" ? page.rawHtml : "";
-        const         renderedXPaths = Array.isArray(page && page.renderedXPaths)
-          ? (page.renderedXPaths as AiRunSubmissionXpath[])
-          : [];
-        return {
-          ...page,
-          rawXPaths: refineXPathEntries(renderedHtml, rawHtml, renderedXPaths)
-        };
-      })
-    };
+    const refinedPages: AiRunPayloadPage[] = [];
+    for (const page of payload.pages) {
+      const renderedHtml = page && typeof page.renderedHtml === "string" ? page.renderedHtml : "";
+      const rawHtml = page && typeof page.rawHtml === "string" ? page.rawHtml : "";
+      const renderedXPaths = Array.isArray(page && page.renderedXPaths)
+        ? (page.renderedXPaths as AiRunSubmissionXpath[])
+        : [];
+      let rawXPaths: unknown = renderedXPaths;
+      try {
+        rawXPaths = await refineXPathEntries(renderedHtml, rawHtml, renderedXPaths);
+      } catch {
+        // Fall back to unrefined XPaths for this page.
+      }
+      refinedPages.push({ ...page, rawXPaths });
+    }
+    const refinedPayload = { ...payload, pages: refinedPages };
     const stored = await putTransferPayload("ai-run-start-refined", refinedPayload);
     if (!stored.ok) {
       await removeTransferPayload(sourcePayloadKey);
@@ -377,11 +380,12 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
     return normalizeAiSelectorSet(payload);
   }
 
-  async function setAiComputeLockForTab(tabId: TabLike, active: boolean, expiresAt: DeadlineLike = 0, baseUrl: string | null | undefined = "") {
+  async function setAiComputeLockForTab(tabId: TabLike, active: boolean, expiresAt: DeadlineLike = 0, baseUrl: string | null | undefined = "", lockOptions: { skipActivation?: boolean } = {}) {
     const normalizedTabId = normalizeTabId(tabId);
     if (!normalizedTabId) {
       return { ok: false, active: Boolean(active), error: "Missing tab" };
     }
+    const skipActivation = Boolean(lockOptions && lockOptions.skipActivation);
     const normalizedExpiresAt = Number(expiresAt);
     if (active) {
       const nextExpiresAt =
@@ -393,7 +397,7 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
       aiComputeLockExpiresAtByTabId.delete(normalizedTabId);
     }
     const normalizedBaseUrl = typeof baseUrl === "string" ? baseUrl : "";
-    if (active && normalizedBaseUrl) {
+    if (active && normalizedBaseUrl && !skipActivation) {
       const existingTabState = await getTabState(normalizedTabId);
       const nextTabState: TabState = {
         ...(existingTabState && typeof existingTabState === "object" ? existingTabState : {}),
@@ -403,7 +407,7 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
       await setTabState(normalizedTabId, nextTabState);
       updateActionForTab(normalizedTabId).then();
     }
-    if (active) {
+    if (active && !skipActivation) {
       const activationResult = await ensureContentMainForTab(normalizedTabId);
       if (!activationResult.ok) {
         return {
@@ -464,7 +468,7 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
     if (!record) {
       return { ok: false, record: null, expiresAt: 0, lockApplied: false };
     }
-    const lockResult = await setAiComputeLockForTab(tabId, true, expiresAt, baseUrl);
+    const lockResult = await setAiComputeLockForTab(tabId, true, expiresAt, baseUrl, { skipActivation: true });
     if (!lockResult.ok) {
       await clearPersistedAiRunRecord();
       return {
@@ -742,12 +746,19 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
       const startResult = await requestAiRunStartSnapshot({
         endpointValue,
         tokenValue,
-        payloadKey: startPayloadKey
+        payloadKey: startPayloadKey,
+        onBeforeRequest: async () => {
+          await update({
+            message: "Analyzing page content with AI...",
+            reason: "tab-run-ai-running",
+            source: "background-command-router"
+          });
+        }
       });
       if (!startResult || !startResult.ok || !startResult.sessionId) {
         return {
           ok: false,
-          reason: "start_failed",
+          reason: (startResult && startResult.reason) || "start_failed",
           error: "Unable to start AI run"
         };
       }
@@ -770,20 +781,13 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
           timeoutGroup.set(resolve, pollDelayMs);
         });
         if (siteId) {
-          const heartbeat = await refreshAiRunHeartbeat({
+          await refreshAiRunHeartbeat({
             tabId: normalizedTabId,
             sessionId,
             siteId,
             deadlineAt,
             baseUrl
           }).catch(() => null);
-          if (!heartbeat || !heartbeat.ok) {
-            return {
-              ok: false,
-              reason: "heartbeat_failed",
-              error: (heartbeat && heartbeat.error) || "AI run heartbeat failed"
-            };
-          }
         }
 
         let statusResult = null;

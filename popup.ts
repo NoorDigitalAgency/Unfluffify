@@ -1855,7 +1855,9 @@ function updateAiRunCountdownState() {
     aiControlsBusy: true,
     aiRunSpinnerNote: PopupText.overlay.computingSelectorsNote,
     aiRunCountdownVisible: true,
-    aiRunCountdownText: formatAiRunCountdown(state.aiRunRemainingMs)
+    aiRunCountdownText: formatAiRunCountdown(state.aiRunRemainingMs),
+    aiRunDeadlineAt: state.aiRunDeadlineAt,
+    aiRunPhase: state.aiRunPhase
   });
 }
 
@@ -1972,7 +1974,13 @@ async function stopAiRun(options = {}) {
   if (unlockPage) {
     await syncAiComputeLock(false);
   }
-  await refreshUi();
+  // When the AI run just opened the Detected Content preview, the popup already
+  // shows the preview sidebar. Refresh quietly so the generic "Refreshing popup
+  // data..." busy curtain does not mask the freshly shown preview for the
+  // duration of the (sometimes slow) post-run refresh.
+  const currentView = uiModule.getViewState();
+  const previewShowing = Boolean(currentView.previewBlocked || currentView.previewActive);
+  await refreshUi(previewShowing ? { useBusyOverlay: false } : {});
 }
 
 async function removePageMarkingFromRemote(options = {}) {
@@ -3184,12 +3192,31 @@ async function refreshUiInner(options = {}) {
   const previewState = tabInScope
     ? await messages.sendTabMessage({ type: "getAiPreviewState" })
     : null;
+  let previewViewState = buildPreviewViewState(previewState);
+  if (!previewState && tabInScope) {
+    // A null response means the getAiPreviewState content probe failed/timed out
+    // (its TAB_CONTENT_REQUEST has a short 3s timeout and loses the race while
+    // the content script is busy re-running silent-highlight passes). Do not tear
+    // down a preview the popup is already showing on a transient probe miss; an
+    // explicit exit goes through the aiPreviewClosed message / Exit Preview path.
+    const currentView = uiModule.getViewState();
+    if (currentView.previewActive || currentView.previewBlocked) {
+      previewViewState = {
+        previewActive: Boolean(currentView.previewActive),
+        previewItems: Array.isArray(currentView.previewItems) ? currentView.previewItems : [],
+        previewFocusedXpath: typeof currentView.previewFocusedXpath === "string"
+          ? currentView.previewFocusedXpath
+          : "",
+        previewShowAllCategories: Boolean(currentView.previewShowAllCategories)
+      };
+    }
+  }
   const {
     previewActive,
     previewItems,
     previewFocusedXpath,
     previewShowAllCategories
-  } = buildPreviewViewState(previewState);
+  } = previewViewState;
   const aiPreviewSessionActive = Boolean(previewActive);
   let localMatchingBaseUrl = utils.findMatchingBaseUrl(pageUrl, configs);
   let hasLocalConfigForWebsite = Boolean(localMatchingBaseUrl);
@@ -4526,9 +4553,19 @@ async function refreshUiInner(options = {}) {
   nextViewState.aiRunCountdownText =
     state.aiRequestInFlight === "compute"
       ? formatAiRunCountdown(
-          state.aiRunRemainingMs || getAiRunRemainingMs(state.aiRunDeadlineAt)
+          getAiRunRemainingMs(state.aiRunDeadlineAt)
         )
       : "0:00";
+// @ts-expect-error
+  nextViewState.aiRunDeadlineAt =
+    state.aiRequestInFlight === "compute"
+      ? state.aiRunDeadlineAt
+      : 0;
+// @ts-expect-error
+  nextViewState.aiRunPhase =
+    state.aiRequestInFlight === "compute"
+      ? state.aiRunPhase
+      : "";
 // @ts-expect-error
   nextViewState.aiControlsBusy = aiBusy;
 // @ts-expect-error
@@ -4622,13 +4659,21 @@ async function refreshUiInner(options = {}) {
     : backgroundLifecycleBusy
 // @ts-expect-error
       ? normalizeSpinnerReason(popupBackgroundLifecycle.reason, popupBackgroundLifecycle.kind || "lifecycle", popupBackgroundLifecycle.message)
-      : "";
+  : remoteConfigRetryBlocked
+    ? "page-save-remote-config-retry"
+    : pageInspectionBusy
+      ? "page-inspection-pending"
+  : "";
 // @ts-expect-error
-  nextViewState.busySource = popupBusyActive
-    ? (popupSpinnerSnapshot?.entry?.source || "popup-spinner")
-    : backgroundLifecycleBusy
-      ? "background-lifecycle"
-      : "";
+nextViewState.busySource = popupBusyActive
+? (popupSpinnerSnapshot?.entry?.source || "popup-spinner")
+: backgroundLifecycleBusy
+  ? "background-lifecycle"
+  : remoteConfigRetryBlocked
+    ? "popup-page-save"
+    : pageInspectionBusy
+      ? "popup-runtime-status"
+  : "";
 // @ts-expect-error
   nextViewState.busySpinnerKey = popupBusyActive
     ? (popupSpinnerSnapshot?.key || "")
@@ -4941,7 +4986,9 @@ async function refreshUi(options = {}) {
       () => refreshUiInner(refreshOptions),
       {
         delayMs: POPUP_BUSY_OVERLAY_DELAY_MS,
-        suppressIfActive: true
+        suppressIfActive: true,
+        reason: "popup-refresh",
+        source: "popup-refresh"
       }
     )
     : await refreshUiInner(refreshOptions);
@@ -5137,7 +5184,7 @@ async function runRenderModeInspectionReload(javaScriptDisabled) {
   const operationId = `render-mode-inspection:${tabId}:${Date.now()}`;
 
   try {
-    await runWithSpinner(null, PopupText.overlay.pleaseWait, async () => {
+    await runWithSpinner(null, PopupText.overlay.preparingRenderModeInspection, async () => {
       state.renderModeInspectionActive = true;
       try {
         const inspectionResponse = await messages.requestTabRunRenderModeInspection(tabId, {
@@ -5191,6 +5238,9 @@ async function runRenderModeInspectionReload(javaScriptDisabled) {
         state.renderModeInspectionActive = false;
         uiModule.setViewState(buildPropertyLockViewState());
       }
+    }, {
+      reason: "render-mode-inspection-start",
+      source: "popup-render-mode"
     });
   } finally {
     scheduleStaleInspectionBusyClear(tabId, state.currentBaseUrl, {
@@ -5405,6 +5455,9 @@ async function handleRenderModeSet() {
         ? PopupText.renderMode.toastSetRendered
         : PopupText.renderMode.toastSetStatic
     );
+  }, {
+    reason: "render-mode-save",
+    source: "popup-render-mode"
   });
 }
 
@@ -5703,7 +5756,11 @@ async function handleExplicitExcludeView(xpath) {
     if (!response || !response.ok) {
       uiModule.showToast(PopupText.explicitSelection.focusFailed);
     }
-  }, { delayMs: POPUP_BUSY_OVERLAY_DELAY_MS });
+  }, {
+    delayMs: POPUP_BUSY_OVERLAY_DELAY_MS,
+    reason: "locate-explicit-exclusion",
+    source: "popup-explicit-selection"
+  });
 }
 
 // @ts-expect-error
@@ -5740,7 +5797,11 @@ async function handleExplicitIncludeView(xpath) {
     if (!response || !response.ok) {
       uiModule.showToast(PopupText.explicitSelection.focusFailed);
     }
-  }, { delayMs: POPUP_BUSY_OVERLAY_DELAY_MS });
+  }, {
+    delayMs: POPUP_BUSY_OVERLAY_DELAY_MS,
+    reason: "locate-explicit-inclusion",
+    source: "popup-explicit-selection"
+  });
 }
 
 // @ts-expect-error
@@ -5902,7 +5963,9 @@ async function handleEnableToggle(event) {
     clearImmediateDisableSpinner();
     return;
   }
-  uiModule.setViewState({ toggleEnabled: desiredEnabled });
+  if (!desiredEnabled) {
+    uiModule.setViewState({ toggleEnabled: false });
+  }
   if (!helpers.ensureBaseUrl(ViewText.noMappedBaseUrlOrSiteId)) {
     uiModule.setViewState({ toggleEnabled: false });
     clearLastPopupEnabled();
@@ -5960,7 +6023,9 @@ async function handleEnableToggle(event) {
       showImmediateDisableSpinner();
       await applyLocalPageDiscard();
     }
-    setLastPopupEnabled(desiredEnabled, buildPopupEnabledContext(tab, state.currentBaseUrl));
+    if (!desiredEnabled) {
+      setLastPopupEnabled(false, buildPopupEnabledContext(tab, state.currentBaseUrl));
+    }
     const baseUrlValue = state.currentBaseUrl;
     const currentPageTypeKey = desiredEnabled ? state.currentPageTypeKey || "" : "";
     await runWithSpinner(
@@ -6038,6 +6103,7 @@ async function handleEnableToggle(event) {
           // Fresh entry into marking mode: Run AI starts enabled (no successful
           // run yet for the current markings), Save/Preview start disabled.
           resetAiRunMarkingsFingerprint();
+          setLastPopupEnabled(true, buildPopupEnabledContext(tab, state.currentBaseUrl));
         } else {
           const disableResponse = await messages.requestTabDeactivateMarking(tab.id, {
             baseUrl: baseUrlValue,
@@ -6054,7 +6120,11 @@ async function handleEnableToggle(event) {
         }
         await refreshUi();
       },
-      { delayMs: desiredEnabled ? POPUP_BUSY_OVERLAY_DELAY_MS : 0 }
+      {
+        delayMs: desiredEnabled ? POPUP_BUSY_OVERLAY_DELAY_MS : 0,
+        reason: desiredEnabled ? "marking-enable" : "marking-disable",
+        source: "popup-marking-toggle"
+      }
     );
     immediateDisableSpinnerKey = null;
   } finally {
@@ -6136,7 +6206,11 @@ async function handleDesktopPreviewEnabledToggle(event) {
       await persistDesktopPreviewEnabled(tab.id, desiredEnabled);
       await refreshUi({ useBusyOverlay: false, skipPropertyLockFetch: true });
     },
-    { delayMs: POPUP_BUSY_OVERLAY_DELAY_MS }
+    {
+      delayMs: POPUP_BUSY_OVERLAY_DELAY_MS,
+      reason: "desktop-preview-toggle",
+      source: "popup-device-emulation"
+    }
   );
 }
 
@@ -6219,7 +6293,10 @@ async function handleClearDomainCache() {
   if (!confirmed) {
     return;
   }
-  const clearCacheSpinnerKey = pushSpinner(null, PopupText.overlay.clearingCacheAndReloading);
+  const clearCacheSpinnerKey = pushSpinner(null, PopupText.overlay.clearingCacheAndReloading, {
+    reason: "clear-cache",
+    source: "popup-cache-tools"
+  });
   state.clearDomainCacheDisabled = true;
   uiModule.setViewState({ clearDomainCacheDisabled: true });
   try {
@@ -6261,7 +6338,10 @@ async function handleUnregisterCurrentTab() {
   if (!confirmed) {
     return;
   }
-  const unregisterSpinnerKey = pushSpinner(null, PopupText.overlay.unregisteringTabAndReloading);
+  const unregisterSpinnerKey = pushSpinner(null, PopupText.overlay.unregisteringTabAndReloading, {
+    reason: "unregister-tab",
+    source: "popup-cache-tools"
+  });
   state.unregisterCurrentTabDisabled = true;
   uiModule.setViewState({ unregisterCurrentTabDisabled: true });
   try {
@@ -6608,7 +6688,48 @@ async function applyComputedSelectorSet(selectorSet, { currentPageUrl = "", toke
     selectorSet
   });
 // @ts-expect-error
-  const previewOpened = Boolean(previewResponse && previewResponse.ok && previewResponse.result);
+  const previewResult = previewResponse && previewResponse.ok && previewResponse.result
+// @ts-expect-error
+    ? previewResponse.result
+    : null;
+  const previewOpened = Boolean(previewResult);
+  if (previewOpened) {
+    // Show the Detected Content sidebar immediately from the items the content
+    // script just rendered. Waiting for the next full refreshUi() to rediscover
+    // the preview via the timeout-prone getAiPreviewState probe is what made the
+    // preview appear only after minutes (or not at all) on heavy pages. The
+    // content handler response is nested under result.previewState by the
+    // background TAB_SHOW_AI_PREVIEW command.
+    const previewStatePayload = previewResult && typeof previewResult.previewState === "object"
+      ? previewResult.previewState
+      : previewResult;
+    const immediatePreviewItems = normalizePreviewItems(
+      previewStatePayload && Array.isArray(previewStatePayload.items)
+        ? previewStatePayload.items
+        : []
+    );
+    // The AI run is complete once the preview is shown. Clear the AI-run state
+    // and compute view fields now so the compute curtain (gated on
+    // computeButtonLoading, which getBlockingUiCurtainState checks before the
+    // preview state) drops immediately and reveals the preview sidebar, instead
+    // of masking it for the duration of the slow post-run refresh.
+    resetAiRunState();
+    uiModule.setViewState({
+      previewBlocked: true,
+      previewActive: true,
+      previewItems: immediatePreviewItems,
+      previewFocusedXpath: "",
+      previewShowAllCategories: false,
+      previewBlockedMessage: PopupText.preview.blockedActive,
+      computeButtonLoading: false,
+      computeButtonText: ViewText.computeButtonIdle,
+      aiControlsBusy: false,
+      aiRunSpinnerNote: "",
+      aiRunCountdownVisible: false,
+      aiRunDeadlineAt: 0,
+      aiRunPhase: ""
+    });
+  }
   updateLastConfigSaveStatus(PopupText.ai.selectorsComputedLocally);
   // This state is intentionally unsynced; keep the tone non-muted until Save runs.
   state.lastConfigSaveStatusTone = "warning";
@@ -7485,7 +7606,11 @@ async function init() {
         popupNavigationInspectionOverlayTabId = newTabId;
       }
     }
-    await refreshUi();
+    // Refresh quietly on tab switch: the newly active tab's genuine busy state
+    // (restored spinner queue above) still surfaces through refreshUiInner, but
+    // the refresh itself no longer raises a "Refreshing popup data..." curtain
+    // that, on heavy pages, blocked the popup for many seconds per switch.
+    await refreshUi({ useBusyOverlay: false });
   });
 
   chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
@@ -7685,7 +7810,12 @@ async function init() {
               silentModeActive: false
             });
           }
-          await refreshUi();
+          // Refresh quietly: the marking/silent view is already rendered above,
+          // so the data refresh can settle underneath without raising the busy
+          // curtain. The content script is saturated restoring marking on exit,
+          // which made the default busy refresh hold a "Refreshing popup data..."
+          // curtain for many seconds on heavy pages.
+          await refreshUi({ useBusyOverlay: false });
         } catch {
           setPreviewBlocked(false);
         }

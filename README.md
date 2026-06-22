@@ -13,6 +13,7 @@ Run the GitHub Actions workflow at `.github/workflows/build-extension-package.ym
 
 Each run:
 
+- validates the extension with `deno task verify` before packaging
 - stages only files reachable from the extension runtime surface (manifest entrypoints, imported modules, HTML/CSS assets, and extension-local file references)
 - creates a timestamped archive named `Unfluffify-v<manifest-version>-<yymmdd-hhmm>.zip` using a UTC timestamp
 - refreshes the `extension-latest` release with that timestamped asset and a stable alias named `Unfluffify-latest.zip`
@@ -30,6 +31,33 @@ For a local dry run of the staging logic, run:
 ```bash
 deno task build:release
 deno task package -- --stage-dir .tmp/extension-package
+```
+
+## Development Workflow
+
+Common local commands:
+
+```bash
+deno task check
+deno task test
+deno task lint
+deno task build
+deno task dev
+deno task verify
+```
+
+`deno task dev` watches extension sources and rebuilds the development extension output under `dist/extension-dev`.
+The dev watcher and one-shot builds share `scripts/build-extension.ts`, so copied assets, bundled files, and dev reload artifacts stay consistent.
+`deno task lint` currently covers the Deno automation files that are lint-clean.
+`deno task verify` runs the type check, regression suite, and release build.
+
+Orchestration helpers are exposed as Deno tasks as well:
+
+```bash
+deno task orchestrate:bus -- --host 127.0.0.1 --port 8765
+deno task orchestrate:runner -- --role follower --side B
+deno task orchestrate:setup-auth -- --role director --side A --account A
+deno task orchestrate:property-lock -- --property-url https://example.com/
 ```
 
 ## Features
@@ -51,10 +79,11 @@ deno task package -- --stage-dir .tmp/extension-package
 
 ## Installation (Developer Mode)
 
-1. Open Chrome and navigate to `chrome://extensions`
-2. Enable **Developer mode** (toggle in top right corner)
-3. Click **Load unpacked** and select the project folder
-4. Pin the extension for easy access
+1. Run `deno task dev` for a watched development build, or `deno task build` for a one-shot local build.
+2. Open Chrome and navigate to `chrome://extensions`
+3. Enable **Developer mode** (toggle in top right corner)
+4. Click **Load unpacked** and select `dist/extension-dev` for development or `dist/extension` for the one-shot build.
+5. Pin the extension for easy access
 
 ## Testing
 
@@ -70,7 +99,7 @@ Run this command before opening or updating a pull request to catch regressions 
 For marking-rule work, also run the focused guard suite:
 
 ```bash
-deno test -A --no-check --unstable-sloppy-imports tests/core-visibility.test.js tests/core-motion-pause.test.js tests/core-scheduling.test.js tests/marking-rules.test.js tests/popup-marking-refresh.test.js tests/selector-suppression.test.js tests/silent-highlight-annotations.test.js tests/silent-highlight-rules.test.js tests/submission-rules.test.js
+deno test --allow-read --allow-write --allow-env --allow-run --allow-sys --allow-net=127.0.0.1 --no-check --unstable-sloppy-imports tests/core-visibility.test.js tests/core-motion-pause.test.js tests/core-scheduling.test.js tests/marking-rules.test.js tests/popup-marking-refresh.test.js tests/selector-suppression.test.js tests/silent-highlight-annotations.test.js tests/silent-highlight-rules.test.js tests/submission-rules.test.js
 ```
 
 ## Project Structure

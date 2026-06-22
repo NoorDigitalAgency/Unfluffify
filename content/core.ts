@@ -11112,6 +11112,30 @@ export function findPageMarkingEntry(configValue, pageUrl, baseUrl = state.baseU
   return cached.entriesByLooseKey.get(targetLooseKey) || null;
 }
 
+// @ts-expect-error
+function removePageMarkingEntriesForPage(configValue, pageUrl, baseUrl = state.baseUrl || pageUrl) {
+  const pageMarkings = configValue && configValue.pageMarkings;
+  if (!pageMarkings || typeof pageMarkings !== "object" || !pageUrl) {
+    return false;
+  }
+  const lookupBaseUrl = baseUrl || pageUrl;
+  const targetLooseKey = toLooseUrlKey(pageUrl, lookupBaseUrl);
+  let removed = false;
+  Object.keys(pageMarkings).forEach((url) => {
+    const samePage =
+      url === pageUrl ||
+      (targetLooseKey && toLooseUrlKey(url, lookupBaseUrl) === targetLooseKey);
+    if (samePage) {
+      delete pageMarkings[url];
+      removed = true;
+    }
+  });
+  if (removed) {
+    pageMarkingEntryLookupCache.delete(pageMarkings);
+  }
+  return removed;
+}
+
 // Write an entry into a pageMarkings object and evict its loose-lookup cache
 // so that the next findPageMarkingEntry call rebuilds with up-to-date data.
 // @ts-expect-error
@@ -11381,26 +11405,19 @@ export async function enableForBaseUrl(baseUrl, options = {}) {
     disable();
     return;
   }
-  state.enabled = true;
   state.baseUrl = normalizedBaseUrl;
   state.paintReachabilityFallbackCount = 0;
   state.paintReachabilityFallbackLastLoggedAt = 0;
-  state.config = await loadConfig(normalizedBaseUrl);
   state.consentRootElements = new Set();
   const pageUrl = location.href;
-  // Marking data only lives for the duration that marking is enabled. Discard
-  // any stale persisted page-marking draft so the entry is recomputed fresh
-  // from defaults + CSS/AI-selector influence and the page never starts dirty.
-  if (
-    state.config &&
-// @ts-expect-error
-    state.config.pageMarkings &&
-// @ts-expect-error
-    typeof state.config.pageMarkings === "object"
-  ) {
-// @ts-expect-error
-    delete state.config.pageMarkings[pageUrl];
-  }
+  // Marking data only lives for the duration that marking is enabled. Persistently
+  // discard stale current-page drafts/reconciliation so a new enable starts clean,
+  // even when the stored page key differs by an equivalent URL form.
+  state.config = await config.updateConfig(normalizedBaseUrl, (targetConfig: unknown) => {
+    removePageMarkingEntriesForPage(targetConfig, pageUrl, normalizedBaseUrl);
+  });
+  await config.clearPageSaveReconciliation(normalizedBaseUrl, pageUrl);
+  state.pageSaveReconciliation = null;
   const savedEntry = await refreshSavedPageEntryFromBackendCache(normalizedBaseUrl, pageUrl);
   if (!state.currentPageType) {
     state.currentPageType = normalizePageEntryPageType(
@@ -11414,6 +11431,7 @@ export async function enableForBaseUrl(baseUrl, options = {}) {
   state.cleanBaselineFingerprintByPageUrl.delete(pageUrl);
   state.pendingFreshBaselinePageUrl = pageUrl;
   await refreshPageSaveReconciliation(normalizedBaseUrl, pageUrl);
+  state.enabled = true;
 
   hideConsentOnEnable(pageUrl);
   if (hasPageMotionPauseReason("silent-highlighting")) {

@@ -45,6 +45,7 @@ import {
   normalizeSiteIdValue
 } from "./common/lynx-live-pages.js";
 import {
+  getPropertyLockConnectionDiagnostics,
   handlePropertyLockBackgroundMessage,
   handlePropertyLockBackgroundTabRemoved,
   initPropertyLockBackground
@@ -135,7 +136,7 @@ import { createTabInactivityObserver } from "./background/tab-inactivity-observe
 import { createAiRunOrchestrator } from "./background/ai-run-orchestrator.js";
 import { runBackgroundTask } from "./background/async-tasks.js";
 import { createManagedTimeoutGroup } from "./background/managed-timeouts.js";
-import { refineXPathEntries } from "./common/xpath-utilities.js";
+import { createSwKeepAlive } from "./background/sw-keepalive.js";
 import {
   aiComputeLockExpiresAtByTabId,
   disposeTabState,
@@ -621,6 +622,93 @@ async function captureRenderModeHtmlWithDebugger(tabId) {
   }
 }
 
+const OFFSCREEN_DOCUMENT_PATH = "offscreen.html";
+const OFFSCREEN_MESSAGE_TARGET = "offscreen";
+const OFFSCREEN_REFINE_XPATHS_TYPE = "offscreenRefineXPaths";
+let offscreenDocumentSetup: Promise<void> | null = null;
+
+async function offscreenDocumentExists(): Promise<boolean> {
+  if (typeof chrome.runtime.getContexts !== "function") {
+    return false;
+  }
+  try {
+    const contexts = await chrome.runtime.getContexts({
+      contextTypes: ["OFFSCREEN_DOCUMENT"],
+      documentUrls: [chrome.runtime.getURL(OFFSCREEN_DOCUMENT_PATH)]
+    });
+    return Array.isArray(contexts) && contexts.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+async function ensureOffscreenDocument(): Promise<void> {
+  if (!chrome.offscreen || typeof chrome.offscreen.createDocument !== "function") {
+    throw new Error("Offscreen documents are not supported in this environment");
+  }
+  if (await offscreenDocumentExists()) {
+    return;
+  }
+  if (!offscreenDocumentSetup) {
+    offscreenDocumentSetup = chrome.offscreen
+      .createDocument({
+        url: OFFSCREEN_DOCUMENT_PATH,
+        reasons: ["DOM_PARSER"],
+        justification: "Parse captured page HTML with DOMParser to refine submission XPaths for AI selector computation."
+      })
+      .catch((error: unknown) => {
+        const messageText = error instanceof Error ? error.message : String(error);
+        if (!messageText.includes("Only a single offscreen document")) {
+          throw error;
+        }
+      })
+      .finally(() => {
+        offscreenDocumentSetup = null;
+      });
+  }
+  await offscreenDocumentSetup;
+}
+
+async function refineXPathEntriesViaOffscreen(
+  renderedHtml: string,
+  rawHtml: string,
+  renderedXPaths: unknown
+): Promise<unknown> {
+  const items = Array.isArray(renderedXPaths) ? renderedXPaths : [];
+  try {
+    await ensureOffscreenDocument();
+    const stored = await putTransferPayload("offscreen-refine", { renderedHtml, rawHtml });
+    if (!stored.ok) {
+      return items;
+    }
+    let response: unknown;
+    try {
+      response = await chrome.runtime.sendMessage({
+        target: OFFSCREEN_MESSAGE_TARGET,
+        type: OFFSCREEN_REFINE_XPATHS_TYPE,
+        payloadKey: stored.payloadKey,
+        items
+      });
+    } catch {
+      await removeTransferPayload(stored.payloadKey);
+      return items;
+    }
+    if (
+      response &&
+      typeof response === "object" &&
+      (response as { ok?: boolean }).ok === true &&
+      Array.isArray((response as { items?: unknown }).items)
+    ) {
+      return (response as { items: unknown[] }).items;
+    }
+    // Offscreen returned an unexpected or error response; ensure the stored payload is cleaned up.
+    await removeTransferPayload(stored.payloadKey);
+  } catch {
+    // Refinement is best-effort; fall back to the unrefined entries below.
+  }
+  return items;
+}
+
 const aiRunOrchestrator = createAiRunOrchestrator({
   aiComputeLockExpiresAtByTabId,
   normalizeTabId: normalizeBrokerTabId,
@@ -645,7 +733,7 @@ const aiRunOrchestrator = createAiRunOrchestrator({
   getTabState: utils.getTabState,
   setTabState: utils.setTabState,
   updateActionForTab: utils.updateActionForTab,
-  refineXPathEntries,
+  refineXPathEntries: refineXPathEntriesViaOffscreen,
   getAiRunResumeExpiresAt,
   configStore,
   defaultExcludedImmutableSelectors: constants.DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS,
@@ -662,6 +750,23 @@ const setAiComputeLockForTab = aiRunOrchestrator.setAiComputeLockForTab;
 const isAiComputeLockActiveForTab = aiRunOrchestrator.isAiComputeLockActiveForTab;
 const refreshAiRunHeartbeat = aiRunOrchestrator.refreshAiRunHeartbeat;
 const prepareAiRunPayloadSnapshot = aiRunOrchestrator.prepareAiRunPayloadSnapshot;
+
+// Keeps the MV3 service worker awake while long-lived work is in flight (AI run
+// poll loop, live property-lock connection) so an idle suspension cannot kill
+// the operation or its in-memory state when the side panel is closed.
+const swKeepAlive = createSwKeepAlive({
+  setIntervalRef: (callback, ms) => setInterval(callback, ms),
+  clearIntervalRef: (handle) => clearInterval(handle),
+  ping: () => {
+    try {
+      chrome.runtime.getPlatformInfo(() => {
+        void chrome.runtime.lastError;
+      });
+    } catch {
+      // The ping only needs to touch an extension API to reset the idle timer.
+    }
+  }
+});
 
 registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_BOOTSTRAP_CONTENT, async (context) => {
   const result = await ensureContentMainForTab(context.tabId);
@@ -788,7 +893,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_ACTIVATE_MARKING, async (conte
     normalizedTabId,
     {
       key: `activate-marking:${normalizedTabId}`,
-      message: "Inspecting page...",
+      message: "Preparing this page for marking...",
       owner: SPINNER_OWNERS.POPUP,
       reason: "tab-activate-marking",
       source: "background-command-router",
@@ -797,7 +902,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_ACTIVATE_MARKING, async (conte
 // @ts-expect-error
     async ({ update }) => {
       await update({
-        message: "Applying device emulation...",
+        message: "Applying the marking page setup...",
         reason: "tab-activate-marking-device",
         source: "background-command-router"
       });
@@ -812,7 +917,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_ACTIVATE_MARKING, async (conte
       }
 
       await update({
-        message: "Inspecting page...",
+        message: "Preparing page content for marking...",
         reason: "tab-activate-marking-content",
         source: "background-command-router"
       });
@@ -826,22 +931,12 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_ACTIVATE_MARKING, async (conte
         );
       }
 
-      await utils.setTabState(normalizedTabId, {
-        enabled: true,
-        baseUrl,
-        pageType
-      });
-      updateTabRuntime(normalizedTabId, {
-        contentReady: true,
-        mode: "marking"
-      });
-
       updateLifecycleState(normalizedTabId, {
         operationId,
         kind: LIFECYCLE_KINDS.ACTIVATION,
         phase: LIFECYCLE_PHASES.STARTED,
         busy: true,
-        message: "Inspecting page..."
+        message: "Preparing page content for marking..."
       });
 
       const enableResponse = await sendContentMessageToTab(normalizedTabId, {
@@ -885,6 +980,16 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_ACTIVATE_MARKING, async (conte
           { tabId: normalizedTabId }
         );
       }
+
+      await utils.setTabState(normalizedTabId, {
+        enabled: true,
+        baseUrl,
+        pageType
+      });
+      updateTabRuntime(normalizedTabId, {
+        contentReady: true,
+        mode: "marking"
+      });
 
       updateLifecycleState(normalizedTabId, {
         operationId,
@@ -938,7 +1043,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_DEACTIVATE_MARKING, async (con
     normalizedTabId,
     {
       key: `deactivate-marking:${normalizedTabId}`,
-      message: "Disabling marking...",
+      message: "Turning off marking on this page...",
       owner: SPINNER_OWNERS.POPUP,
       reason: "tab-deactivate-marking",
       source: "background-command-router",
@@ -947,7 +1052,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_DEACTIVATE_MARKING, async (con
 // @ts-expect-error
     async ({ update }) => {
       await update({
-        message: "Disabling marking...",
+        message: "Returning this page to silent mode...",
         reason: "tab-deactivate-marking-content",
         source: "background-command-router"
       });
@@ -957,7 +1062,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_DEACTIVATE_MARKING, async (con
         kind: LIFECYCLE_KINDS.MODE,
         phase: LIFECYCLE_PHASES.STARTED,
         busy: true,
-        message: "Disabling marking..."
+        message: "Turning off marking on this page..."
       });
 
       const existingState = await utils.getTabState(normalizedTabId);
@@ -1397,7 +1502,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
       operationId,
       kind: LIFECYCLE_KINDS.RENDER_MODE_INSPECTION,
       timeoutMs: RENDER_MODE_INSPECTION_OPERATION_TIMEOUT_MS,
-      message: "Inspecting page...",
+      message: "Capturing this page for render mode inspection...",
       spinner: {
         key: `render-mode-inspection:${normalizedTabId}`,
         owner: SPINNER_OWNERS.POPUP,
@@ -1547,7 +1652,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
         }
 
         await update({
-          message: "Inspecting page...",
+          message: "Reloading the page for render mode inspection...",
           reason: "tab-render-mode-reload",
           source: "background-command-router"
         });
@@ -1593,7 +1698,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
           captureResult = await captureRenderModeHtmlWithDebugger(normalizedTabId);
         } else {
           await update({
-            message: "Inspecting page...",
+            message: "Hiding consent overlays before capture...",
             reason: "tab-render-mode-consent",
             source: "background-command-router"
           });
@@ -1689,44 +1794,51 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_AI, async (context, payloa
     );
   }
 
-  return withBackgroundTabSpinner(
-    normalizedTabId,
-    {
-      key: `run-ai:${normalizedTabId}`,
-      message: "Computing selectors...",
-      owner: SPINNER_OWNERS.POPUP,
-      reason: "tab-run-ai",
-      source: "background-command-router",
-      persistent: false
-    },
-  async ({ update }: TabOperationContext) => {
-      const result = await runAiCommandForTab(normalizedTabId, payload, update);
-      if (!result || !result.ok) {
-        return context.replyFail(
-          result && result.reason === "timed_out"
-            ? MESSAGE_ERROR_CODES.TIMEOUT
-            : MESSAGE_ERROR_CODES.HANDLER_FAILED,
-          (result && result.error) || "Unable to run AI",
-          {
-            tabId: normalizedTabId,
-            reason: result && result.reason ? result.reason : "handler_failed",
-            reconciliationPending: Boolean(result && result.reconciliationPending),
-            locked: Boolean(result && result.locked)
-          }
-        );
+  // Hold the service worker awake for the whole AI run so an idle suspension
+  // cannot kill the poll loop mid-run when the side panel is closed.
+  swKeepAlive.acquire();
+  try {
+    return await withBackgroundTabSpinner(
+      normalizedTabId,
+      {
+        key: `run-ai:${normalizedTabId}`,
+        message: "Preparing page content for AI...",
+        owner: SPINNER_OWNERS.POPUP,
+        reason: "tab-run-ai-preparing",
+        source: "background-command-router",
+        persistent: false
+      },
+    async ({ update }: TabOperationContext) => {
+        const result = await runAiCommandForTab(normalizedTabId, payload, update);
+        if (!result || !result.ok) {
+          return context.replyFail(
+            result && result.reason === "timed_out"
+              ? MESSAGE_ERROR_CODES.TIMEOUT
+              : MESSAGE_ERROR_CODES.HANDLER_FAILED,
+            (result && result.error) || "Unable to run AI",
+            {
+              tabId: normalizedTabId,
+              reason: result && result.reason ? result.reason : "handler_failed",
+              reconciliationPending: Boolean(result && result.reconciliationPending),
+              locked: Boolean(result && result.locked)
+            }
+          );
+        }
+        return {
+          ok: true,
+          tabId: normalizedTabId,
+          sessionId: result.sessionId,
+          selectorSet: result.selectorSet,
+          deadlineAt: result.deadlineAt,
+          siteId: result.siteId || null,
+          runtime: getTabRuntimeSnapshot(normalizedTabId),
+          state: await utils.getTabState(normalizedTabId)
+        };
       }
-      return {
-        ok: true,
-        tabId: normalizedTabId,
-        sessionId: result.sessionId,
-        selectorSet: result.selectorSet,
-        deadlineAt: result.deadlineAt,
-        siteId: result.siteId || null,
-        runtime: getTabRuntimeSnapshot(normalizedTabId),
-        state: await utils.getTabState(normalizedTabId)
-      };
-    }
-  );
+    );
+  } finally {
+    swKeepAlive.release();
+  }
 }, POPUP_TAB_COMMAND_POLICY);
 
 function maybeGetCommandPayloadForLedger(message: RuntimeMessage) {
@@ -2077,9 +2189,67 @@ chrome.runtime.onConnect.addListener((port) => {
 });
 
 if (isFeatureEnabled("propertyLockCollaboration")) {
-  initPropertyLockBackground();
+  initPropertyLockBackground({ keepAlive: swKeepAlive });
 }
 console.info("Unfluffify background worker ready");
+
+// Service-worker lifecycle diagnostics (Phase 0). Gated behind the
+// swLifecycleDiagnostics debug flag so production stays silent. MV3 can suspend
+// the worker after ~30s idle, tearing down the property-lock WebSocket, the AI
+// run poll loop, and the in-memory tab Maps. These logs make suspension and the
+// at-risk surface visible when investigating slow/stuck AI-run and preview flows.
+function countActiveAiComputeLocks(now = Date.now()): number {
+  let active = 0;
+  for (const expiresAt of aiComputeLockExpiresAtByTabId.values()) {
+    if (typeof expiresAt === "number" && expiresAt > now) {
+      active += 1;
+    }
+  }
+  return active;
+}
+
+function logSwLifecycleDiagnostic(event: string, extra: Record<string, unknown> = {}): void {
+  if (!isDebugFlagEnabled("swLifecycleDiagnostics")) {
+    return;
+  }
+  let propertyLock: Record<string, unknown> = {};
+  try {
+    propertyLock = getPropertyLockConnectionDiagnostics();
+  } catch {
+    propertyLock = {};
+  }
+  try {
+    console.debug("[sw-lifecycle]", event, {
+      at: Date.now(),
+      activeAiComputeLocks: countActiveAiComputeLocks(),
+      popupStatePorts: popupStatePortsByTabId.size,
+      lifecycleStates: tabLifecycleStateByTabId.size,
+      spinnerQueues: tabSpinnerQueueByTabId.size,
+      worldTraceStates: tabWorldTraceStateByTabId.size,
+      propertyLock,
+      ...extra
+    });
+  } catch {
+    // Diagnostics must never break the worker.
+  }
+}
+
+if (chrome.runtime && typeof chrome.runtime.onSuspend !== "undefined") {
+  chrome.runtime.onSuspend.addListener(() => {
+    logSwLifecycleDiagnostic("suspend");
+  });
+}
+if (chrome.runtime && typeof chrome.runtime.onSuspendCanceled !== "undefined") {
+  chrome.runtime.onSuspendCanceled.addListener(() => {
+    logSwLifecycleDiagnostic("suspend-canceled");
+  });
+}
+if (chrome.runtime && typeof chrome.runtime.onStartup !== "undefined") {
+  chrome.runtime.onStartup.addListener(() => {
+    logSwLifecycleDiagnostic("startup");
+  });
+}
+logSwLifecycleDiagnostic("worker-evaluated");
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || !message.type) {
@@ -2153,7 +2323,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         spinnerTabId,
         {
           key: "clear-cache",
-          message: "Clearing cache...",
+          message: "Clearing this site's cache...",
           owner: SPINNER_OWNERS.POPUP,
           reason: "clear-cache",
           source: "background-command"
@@ -3106,7 +3276,7 @@ function restoreEnabledStateForTab(tabId, tabState, attempt = 0) {
     kind: LIFECYCLE_KINDS.ACTIVATION,
     phase: LIFECYCLE_PHASES.STARTED,
     busy: true,
-    message: "Inspecting page..."
+    message: "Preparing page content for marking..."
   });
   chrome.tabs.sendMessage(
     tabId,

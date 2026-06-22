@@ -1,4 +1,4 @@
-import { isAbsolute, resolve } from "jsr:@std/path";
+import { isAbsolute, resolve } from "@std/path";
 import { parseJsonc } from "./jsonc.mjs";
 
 const DEFAULT_CONFIG_PATHS = [

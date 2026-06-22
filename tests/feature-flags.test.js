@@ -39,7 +39,8 @@ const EXPECTED_DISABLED_FLAGS = [...EXPECTED_FLAGS];
 const EXPECTED_DEBUG_FLAGS = [
   "ufDebugSpinnerQueue",
   "fullWorldMessagingLogging",
-  "worldTraceEnabled"
+  "worldTraceEnabled",
+  "swLifecycleDiagnostics"
 ];
 
 test("feature flags expose the confirmed disabled stabilization set", () => {
@@ -55,9 +56,11 @@ test("feature flags expose the confirmed disabled stabilization set", () => {
   assert.equal(DEBUG_FLAGS.ufDebugSpinnerQueue, true);
   assert.equal(DEBUG_FLAGS.fullWorldMessagingLogging, false);
   assert.equal(DEBUG_FLAGS.worldTraceEnabled, false);
+  assert.equal(DEBUG_FLAGS.swLifecycleDiagnostics, false);
   assert.equal(isDebugFlagEnabled("ufDebugSpinnerQueue"), true);
   assert.equal(isDebugFlagEnabled("fullWorldMessagingLogging"), false);
   assert.equal(isDebugFlagEnabled("worldTraceEnabled"), false);
+  assert.equal(isDebugFlagEnabled("swLifecycleDiagnostics"), false);
 });
 
 test("unknown debug flags are disabled", () => {

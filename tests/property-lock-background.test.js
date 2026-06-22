@@ -44,6 +44,22 @@ test("background tab removal immediately delegates property lock runtime disposa
   assert.match(source, /chrome\.tabs\.onRemoved\.addListener\(\(tabId\) => \{[\s\S]*?handlePropertyLockBackgroundTabRemoved\(tabId\);/);
 });
 
+test("property lock holds the service-worker keepalive for active connections", () => {
+  const source = readFileSync(new URL("../common/property-lock-background.ts", import.meta.url), "utf8");
+  const backgroundSource = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
+
+  // The keepalive is injected through init and stored for runtime use.
+  assert.match(source, /export function initPropertyLockBackground\(\s*options:\s*\{\s*keepAlive\?: PropertyLockKeepAlive\s*\}\s*=\s*\{\}\s*\)/);
+  assert.match(source, /propertyLockKeepAlive = options\.keepAlive \|\| null;/);
+  // Acquired once per runtime on creation, released on disposal (refcounted via keepAliveHeld).
+  assert.match(source, /lockConnections\.set\(connectionKey, runtime\);\s*holdKeepAliveForRuntime\(runtime\);/);
+  assert.match(source, /releaseKeepAliveForRuntime\(runtime\);\s*runtime\.dispose\(\);/);
+  assert.match(source, /function holdKeepAliveForRuntime\([\s\S]*?runtime\.keepAliveHeld = true;[\s\S]*?propertyLockKeepAlive\.acquire\(\);/);
+  assert.match(source, /function releaseKeepAliveForRuntime\([\s\S]*?runtime\.keepAliveHeld = false;[\s\S]*?propertyLockKeepAlive\.release\(\);/);
+  // The background entry point wires the shared keepalive into property-lock init.
+  assert.match(backgroundSource, /initPropertyLockBackground\(\{ keepAlive: swKeepAlive \}\)/);
+});
+
 function resolveStorageValues(keys, storageItems) {
   if (typeof keys === "string") {
     return { [keys]: storageItems[keys] };

@@ -36,7 +36,12 @@ interface PageReconciliationDeps {
   getViewState: () => PageReconciliationViewState;
   updateLastConfigSaveStatus: (message: string) => void;
   validateStoredToken: (options?: { force?: boolean }) => Promise<unknown>;
-  runWithSpinner: (key: string | null, label: string, task: () => Promise<unknown>) => Promise<unknown>;
+  runWithSpinner: (
+    key: string | null,
+    label: string,
+    task: () => Promise<unknown>,
+    options?: Record<string, unknown>
+  ) => Promise<unknown>;
   getCurrentPageUrl: () => string | null;
   loadGlobalAiSettings: () => Promise<GlobalAiSettingsSnapshot> | GlobalAiSettingsSnapshot;
   syncBaseConfigToServer: (options?: Record<string, unknown>) => Promise<PageSaveSyncResult> | PageSaveSyncResult;
@@ -149,6 +154,9 @@ export async function handlePageSave(deps: PageReconciliationDeps) {
       await deps.waitForRetryDelay(retryDelayMs);
       retryDelayMs = Math.min(retryDelayMs * 2, deps.PAGE_SAVE_SYNC_MAX_RETRY_DELAY_MS);
     }
+  }, {
+    reason: "page-save",
+    source: "popup-page-save"
   });
 }
 
@@ -182,5 +190,8 @@ export async function handlePageRevert(deps: PageReconciliationDeps) {
     deps.updateLastConfigSaveStatus(deps.PopupText.page.revertedToLastSaved);
     deps.showToast(deps.PopupText.page.revertedToLastSaved);
     await deps.refreshUi();
+  }, {
+    reason: "page-revert",
+    source: "popup-page-save"
   });
 }

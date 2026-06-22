@@ -1,8 +1,26 @@
-import { assertEquals, assertMatch } from "jsr:@std/assert";
-import { beforeEach as bddBeforeEach, afterEach as bddAfterEach, test as bddTest } from "jsr:@std/testing/bdd";
+import { assertEquals, assertMatch, assertNotMatch } from "@std/assert";
+import { beforeEach as bddBeforeEach, afterEach as bddAfterEach, test as bddTest } from "@std/testing/bdd";
 
 function test(name: string | Deno.TestDefinition, fn?: Deno.TestDefinition["fn"]): void {
-  bddTest(name as never, fn as never);
+  if (typeof fn !== "function") {
+    bddTest(name as never);
+    return;
+  }
+  bddTest(name as never, async (context: Deno.TestContext) => {
+    const afterCallbacks: Array<() => unknown | Promise<unknown>> = [];
+    const testContext = Object.assign(context, {
+      after(callback: () => unknown | Promise<unknown>): void {
+        afterCallbacks.push(callback);
+      },
+    });
+    try {
+      await fn(testContext as never);
+    } finally {
+      for (const callback of afterCallbacks.reverse()) {
+        await callback();
+      }
+    }
+  });
 }
 
 test.beforeEach = bddBeforeEach;
@@ -52,8 +70,16 @@ export const assert = Object.assign(baseAssert, {
   deepEqual(actual: unknown, expected: unknown, message?: string): void {
     assertEquals(actual, expected, message);
   },
+  notEqual(actual: unknown, expected: unknown, message?: string): void {
+    if (actual == expected) {
+      throw new Error(message || `Expected ${JSON.stringify(actual)} not to equal ${JSON.stringify(expected)}`);
+    }
+  },
   match(actual: string, matcher: RegExp, message?: string): void {
     assertMatch(actual, matcher, message);
+  },
+  doesNotMatch(actual: string, matcher: RegExp, message?: string): void {
+    assertNotMatch(actual, matcher, message);
   },
   ok(value: unknown, message?: string): void {
     baseAssert(value, message);

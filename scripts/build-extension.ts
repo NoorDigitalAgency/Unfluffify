@@ -1,8 +1,9 @@
-import { build } from "npm:esbuild";
-import { dirname, extname, join, relative } from "jsr:@std/path";
+import { dirname, extname, join, relative } from "@std/path";
+import { build } from "esbuild";
 
 const ROOT = Deno.cwd();
 const isDev = Deno.args.includes("--dev");
+const isWatch = Deno.args.includes("--watch");
 const outDir = Deno.args.includes("--dev")
   ? join(ROOT, "dist", "extension-dev")
   : join(ROOT, "dist", "extension");
@@ -17,11 +18,20 @@ const ROOT_FILES = [
   "popup.css",
   "theme-color.css",
   "theme-components.css",
-  "theme-utilities.css"
+  "theme-utilities.css",
+  "offscreen.ts",
+  "offscreen.html"
 ];
 
 const ROOT_DIRS = ["assets", "background", "common", "content", "cursors", "icons", "popup"];
 const CODE_EXTENSIONS = new Set([".js", ".mjs", ".ts"]);
+const WATCH_PATHS = [
+  ...ROOT_DIRS,
+  ...ROOT_FILES,
+  "deno.json",
+  "tsconfig.json",
+  "scripts/build-extension.ts",
+].map((sourcePath) => join(ROOT, sourcePath));
 
 async function pathExists(path: string): Promise<boolean> {
   try {
@@ -105,7 +115,7 @@ setInterval(() => {
   }
 }
 
-async function main(): Promise<void> {
+async function buildExtension(): Promise<void> {
   await Deno.remove(outDir, { recursive: true }).catch(() => {});
   await Deno.mkdir(outDir, { recursive: true });
 
@@ -170,4 +180,72 @@ async function main(): Promise<void> {
   console.log(`Built ${codeEntryPoints.length} code files to ${outDir}`);
 }
 
-await main();
+let building = false;
+let pending = false;
+
+async function runCheck(): Promise<boolean> {
+  console.log("[watch] running check");
+  const result = await new Deno.Command("deno", {
+    args: ["task", "check"],
+    stdout: "inherit",
+    stderr: "inherit",
+  }).output();
+
+  if (result.code !== 0) {
+    console.error(`[watch] check failed with code ${result.code}; skipping rebuild`);
+    return false;
+  }
+  return true;
+}
+
+async function runWatchBuild(): Promise<void> {
+  if (building) {
+    pending = true;
+    return;
+  }
+  building = true;
+  try {
+    if (!(await runCheck())) {
+      return;
+    }
+
+    console.log("[watch] rebuilding dev extension");
+    await buildExtension();
+    console.log("[watch] build complete");
+  } finally {
+    building = false;
+    if (pending) {
+      pending = false;
+      setTimeout(() => {
+        runWatchBuild();
+      }, 100);
+    }
+  }
+}
+
+async function watchExtension(): Promise<void> {
+  await runWatchBuild();
+
+  const watcher = Deno.watchFs(WATCH_PATHS);
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+  console.log("[watch] watching extension source. Load dist/extension-dev in Chrome.");
+  for await (const event of watcher) {
+    if (!event.paths || event.paths.length === 0) {
+      continue;
+    }
+    if (debounceTimer !== null) {
+      clearTimeout(debounceTimer);
+    }
+    debounceTimer = setTimeout(() => {
+      console.log(`[watch] change detected (${event.kind})`);
+      runWatchBuild();
+    }, 250);
+  }
+}
+
+if (isWatch) {
+  await watchExtension();
+} else {
+  await buildExtension();
+}

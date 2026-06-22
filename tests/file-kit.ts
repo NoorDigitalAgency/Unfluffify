@@ -1,4 +1,4 @@
-import { basename, dirname, extname, fromFileUrl, join, normalize, relative, resolve } from "jsr:@std/path";
+import { basename, dirname, extname, fromFileUrl, join, normalize, relative, resolve } from "@std/path";
 
 export function readFileSync(pathOrUrl: string | URL, encoding = "utf8"): string {
   if (encoding && encoding !== "utf8") {
@@ -23,10 +23,24 @@ export function existsSync(pathOrUrl: string | URL): boolean {
   }
 }
 
-export function readdirSync(pathOrUrl: string | URL): string[] {
-  const entries: string[] = [];
+interface DirentLike {
+  name: string;
+  isDirectory(): boolean;
+  isFile(): boolean;
+}
+
+export function readdirSync(pathOrUrl: string | URL, options: { withFileTypes?: boolean } = {}): string[] | DirentLike[] {
+  const entries: string[] | DirentLike[] = [];
   for (const entry of Deno.readDirSync(pathOrUrl)) {
-    entries.push(entry.name);
+    if (options.withFileTypes) {
+      (entries as DirentLike[]).push({
+        name: entry.name,
+        isDirectory: () => entry.isDirectory,
+        isFile: () => entry.isFile,
+      });
+      continue;
+    }
+    (entries as string[]).push(entry.name);
   }
   return entries;
 }

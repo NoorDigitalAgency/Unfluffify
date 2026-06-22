@@ -8,6 +8,7 @@ const TESTS_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(TESTS_DIR, "..");
 
 const EXCLUDED_PATH_PREFIXES = [
+  ".scratch-blink-test/",
   ".tmp/",
   "dist/",
   "node_modules/",

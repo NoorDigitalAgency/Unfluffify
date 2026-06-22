@@ -97,10 +97,12 @@ test("AI compute shows busy feedback and locks marking before payload work", () 
   assert.match(aiRunOrchestratorSource, runAiPattern);
   assert.match(backgroundSource, /TAB_RUN_AI: "TAB_RUN_AI"/);
   assert.match(backgroundSource, /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_RUN_AI, async \(context, payload\) => \{/);
+  assert.match(backgroundSource, /reason: "tab-run-ai-preparing"/);
   assert.match(backgroundSource, /from "\.\/background\/ai-run-orchestrator\.js"/);
   assert.match(backgroundSource, /const aiRunOrchestrator = createAiRunOrchestrator\(\{/);
   assert.match(aiRunOrchestratorSource, /async function prepareAiRunPayloadSnapshot\(options(?:\s*:\s*[^=]+)? = \{\}\) \{/);
   assert.match(aiRunOrchestratorSource, /fetchStaticPageHtmlForBackground/);
+  assert.match(aiRunOrchestratorSource, /await update\(\{[\s\S]*?reason: "tab-run-ai-running"/);
 });
 
 test("AI compute builds the request from stored local page snapshots only", () => {
@@ -271,7 +273,7 @@ test("AI run recovery heartbeat and page lock are coordinated by background", ()
   assert.match(backgroundSource, /async function ensureContentMainForTab\(tabId\) \{/);
   assert.match(backgroundSource, /type: "activateContentMain"/);
   assert.match(backgroundSource, /utils\.injectContentScript\(normalizedTabId, \{ force: true \}\)/);
-  assert.match(aiRunOrchestratorSource, /async function setAiComputeLockForTab\(tabId(?:\s*:\s*[^,]+)?, active(?:\s*:\s*[^,]+)?, expiresAt(?:\s*:\s*[^=]+)? = 0, baseUrl(?:\s*:\s*[^=]+)? = ""\) \{/);
+  assert.match(aiRunOrchestratorSource, /async function setAiComputeLockForTab\(tabId(?:\s*:\s*[^,]+)?, active(?:\s*:\s*[^,]+)?, expiresAt(?:\s*:\s*[^=]+)? = 0, baseUrl(?:\s*:\s*[^=]+)? = ""(?:, lockOptions(?:\s*:\s*[^=]+)? = \{\})?\) \{/);
   assert.match(aiRunOrchestratorSource, /const activationResult = await ensureContentMainForTab\(normalizedTabId\);/);
   assert.match(
     aiRunOrchestratorSource,
@@ -284,7 +286,7 @@ test("AI run recovery heartbeat and page lock are coordinated by background", ()
     aiRunOrchestratorSource,
     /const record = await savePersistedAiRunRecord\(\{[\s\S]*?sessionId,[\s\S]*?siteId,[\s\S]*?expiresAt,[\s\S]*?deadlineAt[\s\S]*?\}\);/
   );
-  assert.match(aiRunOrchestratorSource, /const lockResult = await setAiComputeLockForTab\(tabId, true, expiresAt, baseUrl\);/);
+  assert.match(aiRunOrchestratorSource, /const lockResult = await setAiComputeLockForTab\(tabId, true, expiresAt, baseUrl, \{ skipActivation: true \}\);/);
   assert.match(aiRunOrchestratorSource, /if \(!lockResult\.ok\) \{[\s\S]*?await clearPersistedAiRunRecord\(\);/);
   assert.match(popupHeartbeatBlock, /type: "refreshAiRunHeartbeat"/);
   assert.match(popupHeartbeatBlock, /state\.aiRunResumeExpiresAt = expiresAt;/);

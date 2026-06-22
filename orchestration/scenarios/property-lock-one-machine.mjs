@@ -1,5 +1,5 @@
-#!/usr/bin/env -S deno run -A
-import { dirname, join, resolve } from "jsr:@std/path";
+#!/usr/bin/env -S deno run --allow-read --allow-write --allow-env --allow-run --allow-net --allow-sys
+import { dirname, join, resolve } from "@std/path";
 import { appendJsonLine, ensureRunDir } from "../lib/artifacts.mjs";
 import { loadOrchestrationConfig, parseCliArgs } from "../lib/config.mjs";
 import {

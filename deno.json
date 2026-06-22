@@ -1,15 +1,39 @@
 {
   "nodeModulesDir": "auto",
   "tasks": {
-    "package": "deno run -A ./scripts/package-extension.mjs --source-root dist/extension",
-    "build:dev": "deno run -A ./scripts/build-extension.ts --dev",
-    "build:release": "deno run -A ./scripts/build-extension.ts --release",
-    "watch": "deno run -A ./scripts/watch-extension.ts",
-    "lint:fix": "deno lint --fix"
+    "check": "deno run --allow-read --allow-env --allow-sys npm:typescript/bin/tsc --noEmit -p tsconfig.json",
+    "test": "deno test --allow-read --allow-write --allow-env --allow-run --allow-sys --allow-net=127.0.0.1 --no-check --unstable-sloppy-imports tests",
+    "lint": "deno lint scripts/build-extension.ts scripts/count-ts-suppressions.ts scripts/emit-package-metadata.ts scripts/package-extension.mjs",
+    "lint:fix": "deno lint --fix scripts/build-extension.ts scripts/count-ts-suppressions.ts scripts/emit-package-metadata.ts scripts/package-extension.mjs",
+    "build": "deno task build:release",
+    "package": "deno run --allow-read --allow-write ./scripts/package-extension.mjs --source-root dist/extension",
+    "package:metadata": "deno run --allow-read ./scripts/emit-package-metadata.ts",
+    "orchestrate:bus": "deno run --allow-read --allow-write --allow-env --allow-net ./orchestration/bus-server.mjs",
+    "orchestrate:mock-client": "deno run --allow-read --allow-write --allow-env --allow-net ./orchestration/mock-client.mjs",
+    "orchestrate:runner": "deno run --allow-read --allow-write --allow-env --allow-run --allow-net --allow-sys ./orchestration/runner.mjs",
+    "orchestrate:setup-auth": "deno run --allow-read --allow-write --allow-env --allow-run --allow-net --allow-sys ./orchestration/setup-auth.mjs",
+    "orchestrate:property-lock": "deno run --allow-read --allow-write --allow-env --allow-run --allow-net --allow-sys ./orchestration/scenarios/property-lock-one-machine.mjs",
+    "orchestrate:rpc-server": "deno run --allow-read --allow-write --allow-env --allow-run --allow-net --allow-sys ./orchestration/rpc-server.mjs",
+    "orchestrate:rpc-client": "deno run --allow-read --allow-write --allow-env --allow-run --allow-net --allow-sys ./orchestration/rpc-client.mjs",
+    "build:dev": "deno run --allow-read --allow-write --allow-env --allow-run --allow-sys ./scripts/build-extension.ts --dev",
+    "build:release": "deno run --allow-read --allow-write --allow-env --allow-run --allow-sys ./scripts/build-extension.ts --release",
+    "watch": "deno run --allow-read --allow-write --allow-env --allow-run --allow-sys ./scripts/build-extension.ts --dev --watch",
+    "dev": "deno task watch",
+    "verify": "deno task check && deno task test && deno task build:release"
   },
   "lint": {
     "exclude": [
+      "dist",
+      "node_modules",
+      ".tmp",
       "popup/vendor"
     ]
+  },
+  "imports": {
+    "@std/assert": "jsr:@std/assert@^1.0.19",
+    "@std/path": "jsr:@std/path@^1.1.5",
+    "@std/testing/bdd": "jsr:@std/testing@^1.0.19/bdd",
+    "@types/chrome": "npm:@types/chrome@^0.1.43",
+    "esbuild": "npm:esbuild@^0.28.1"
   }
 }

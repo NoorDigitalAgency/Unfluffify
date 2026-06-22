@@ -1,4 +1,4 @@
-import { dirname, join, resolve, toFileUrl } from "jsr:@std/path";
+import { dirname, join, resolve, toFileUrl } from "@std/path";
 
 const DEFAULT_VIEWPORT = { width: 1280, height: 1024 };
 const CHROME_PROFILE_PREFERENCES_PATH = join("Default", "Preferences");

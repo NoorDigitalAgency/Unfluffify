@@ -844,8 +844,18 @@ test("marking enable starts fresh: wipes stale page draft and reseeds the clean 
   const enableBody = source.slice(enableStart, enableEnd);
 
   // Stale persisted page-marking data is discarded on every enable so the entry
-  // is recomputed purely from defaults + CSS/AI-selector influence.
-  assert.match(enableBody, /delete state\.config\.pageMarkings\[pageUrl\];/);
+  // is recomputed purely from defaults + CSS/AI-selector influence, even when
+  // the persisted key is only loosely equivalent to the current URL.
+  assert.match(enableBody, /state\.config = await config\.updateConfig\(normalizedBaseUrl, \(targetConfig(?::\s*unknown)?\) => \{/);
+  assert.match(enableBody, /removePageMarkingEntriesForPage\(targetConfig, pageUrl, normalizedBaseUrl\);/);
+  assert.match(source, /function removePageMarkingEntriesForPage\(configValue, pageUrl, baseUrl = state\.baseUrl \|\| pageUrl\) \{[\s\S]*?toLooseUrlKey\(url, lookupBaseUrl\) === targetLooseKey[\s\S]*?delete pageMarkings\[url\];/);
+  assert.match(enableBody, /await config\.clearPageSaveReconciliation\(normalizedBaseUrl, pageUrl\);/);
+  assert.match(enableBody, /state\.pageSaveReconciliation = null;/);
+  assert.ok(
+    enableBody.indexOf("state.enabled = true;") >
+      enableBody.indexOf("await refreshPageSaveReconciliation(normalizedBaseUrl, pageUrl);"),
+    "marking should not be visible until stale dirty state has been cleared"
+  );
   // Backend-saved markings must not seed the clean baseline; the fresh render
   // establishes it instead.
   assert.match(enableBody, /setSavedPageEntry\(pageUrl, null\);/);

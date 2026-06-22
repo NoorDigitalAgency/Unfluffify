@@ -12,6 +12,11 @@ test("popup enable delegates marking activation to TAB_ACTIVATE_MARKING command"
   assert.doesNotMatch(enableBody, /sendTabMessageWithRetry\(\{[\s\S]*?type: "setEnabled"[\s\S]*?enabled: true/);
   assert.doesNotMatch(enableBody, /ensureEditorMobileSimulation\(/);
   assert.doesNotMatch(enableBody, /messages\.setTabState\(tab\.id, \{[\s\S]*?enabled: true/);
+  assert.doesNotMatch(enableBody, /uiModule\.setViewState\(\{ toggleEnabled: desiredEnabled \}\);/);
+  assert.match(
+    enableBody,
+    /const enableResponse = await messages\.requestTabActivateMarking\(tab\.id, \{[\s\S]*?resetAiRunMarkingsFingerprint\(\);[\s\S]*?setLastPopupEnabled\(true, buildPopupEnabledContext\(tab, state\.currentBaseUrl\)\);/
+  );
 });
 
 test("background registers TAB_ACTIVATE_MARKING as tab-scoped spinner command", () => {
@@ -32,6 +37,11 @@ test("background TAB_ACTIVATE_MARKING routes content activation by requested tab
   assert.match(commandBody, /ensureContentMainForTab\(normalizedTabId\)/);
   assert.match(commandBody, /sendContentMessageToTab\(normalizedTabId, \{/);
   assert.match(commandBody, /await utils\.setTabState\(normalizedTabId, \{[\s\S]*?enabled: true/);
+  assert.ok(
+    commandBody.indexOf("await utils.setTabState(normalizedTabId, {\n        enabled: true") >
+      commandBody.indexOf("if (!enableResponse || !enableResponse.ok)"),
+    "tab state should switch to marking only after content activation succeeds"
+  );
 });
 
 test("background TAB_ACTIVATE_MARKING clears state and reports lock details on content failure", () => {
