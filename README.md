@@ -13,6 +13,7 @@ Run the GitHub Actions workflow at `.github/workflows/build-extension-package.ym
 
 Each run:
 
+- validates the extension with `deno task verify` before packaging
 - stages only files reachable from the extension runtime surface (manifest entrypoints, imported modules, HTML/CSS assets, and extension-local file references)
 - creates a timestamped archive named `Unfluffify-v<manifest-version>-<yymmdd-hhmm>.zip` using a UTC timestamp
 - refreshes the `extension-latest` release with that timestamped asset and a stable alias named `Unfluffify-latest.zip`

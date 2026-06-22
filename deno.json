@@ -7,6 +7,7 @@
     "lint:fix": "deno lint --fix scripts/build-extension.ts scripts/count-ts-suppressions.ts scripts/emit-package-metadata.ts scripts/package-extension.mjs",
     "build": "deno task build:release",
     "package": "deno run --allow-read --allow-write ./scripts/package-extension.mjs --source-root dist/extension",
+    "package:metadata": "deno run --allow-read ./scripts/emit-package-metadata.ts",
     "build:dev": "deno run --allow-read --allow-write --allow-env --allow-run --allow-sys ./scripts/build-extension.ts --dev",
     "build:release": "deno run --allow-read --allow-write --allow-env --allow-run --allow-sys ./scripts/build-extension.ts --release",
     "watch": "deno run --allow-read --allow-write --allow-env --allow-run --allow-sys ./scripts/build-extension.ts --dev --watch",

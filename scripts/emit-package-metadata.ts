@@ -1,4 +1,4 @@
-const metadataPath = Deno.args[0];
+const metadataPath = Deno.args.find((arg) => arg !== "--");
 
 if (!metadataPath) {
   throw new Error("Missing metadata path");

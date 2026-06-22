@@ -2,16 +2,20 @@ name: Build Extension Package
 
 on:
   workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - main
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: extension-package
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  package-extension:
+  validate-extension:
     runs-on: ubuntu-latest
 
     steps:
@@ -22,6 +26,28 @@ jobs:
         uses: denoland/setup-deno@v1
         with:
           deno-version: v2.x
+
+      - name: Verify extension
+        run: deno task verify
+
+  package-extension:
+    if: github.event_name == 'workflow_dispatch'
+    needs: validate-extension
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Deno
+        uses: denoland/setup-deno@v1
+        with:
+          deno-version: v2.x
+
+      - name: Build release extension
+        run: deno task build:release
 
       - name: Stage extension files
         id: package
@@ -35,14 +61,14 @@ jobs:
           build_version="${timestamp/-/}"
 
           mkdir -p "$work_dir"
-          deno run -A ./scripts/package-extension.mjs \
+          deno task package -- \
             --timestamp "$timestamp" \
             --build-version "$build_version" \
             --stage-dir "$stage_dir" \
             --metadata-file "$metadata_path" \
             > /dev/null
 
-          deno run -A ./scripts/emit-package-metadata.ts "$metadata_path" >> "$GITHUB_OUTPUT"
+          deno task package:metadata -- "$metadata_path" >> "$GITHUB_OUTPUT"
 
       - name: Create zip archives
         id: archive
