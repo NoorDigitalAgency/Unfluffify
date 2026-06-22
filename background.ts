@@ -45,6 +45,7 @@ import {
   normalizeSiteIdValue
 } from "./common/lynx-live-pages.js";
 import {
+  getPropertyLockConnectionDiagnostics,
   handlePropertyLockBackgroundMessage,
   handlePropertyLockBackgroundTabRemoved,
   initPropertyLockBackground
@@ -2155,6 +2156,64 @@ if (isFeatureEnabled("propertyLockCollaboration")) {
   initPropertyLockBackground();
 }
 console.info("Unfluffify background worker ready");
+
+// Service-worker lifecycle diagnostics (Phase 0). Gated behind the
+// swLifecycleDiagnostics debug flag so production stays silent. MV3 can suspend
+// the worker after ~30s idle, tearing down the property-lock WebSocket, the AI
+// run poll loop, and the in-memory tab Maps. These logs make suspension and the
+// at-risk surface visible when investigating slow/stuck AI-run and preview flows.
+function countActiveAiComputeLocks(now = Date.now()): number {
+  let active = 0;
+  for (const expiresAt of aiComputeLockExpiresAtByTabId.values()) {
+    if (typeof expiresAt === "number" && expiresAt > now) {
+      active += 1;
+    }
+  }
+  return active;
+}
+
+function logSwLifecycleDiagnostic(event: string, extra: Record<string, unknown> = {}): void {
+  if (!isDebugFlagEnabled("swLifecycleDiagnostics")) {
+    return;
+  }
+  let propertyLock: Record<string, unknown> = {};
+  try {
+    propertyLock = getPropertyLockConnectionDiagnostics();
+  } catch {
+    propertyLock = {};
+  }
+  try {
+    console.debug("[sw-lifecycle]", event, {
+      at: Date.now(),
+      activeAiComputeLocks: countActiveAiComputeLocks(),
+      popupStatePorts: popupStatePortsByTabId.size,
+      lifecycleStates: tabLifecycleStateByTabId.size,
+      spinnerQueues: tabSpinnerQueueByTabId.size,
+      worldTraceStates: tabWorldTraceStateByTabId.size,
+      propertyLock,
+      ...extra
+    });
+  } catch {
+    // Diagnostics must never break the worker.
+  }
+}
+
+if (chrome.runtime && typeof chrome.runtime.onSuspend !== "undefined") {
+  chrome.runtime.onSuspend.addListener(() => {
+    logSwLifecycleDiagnostic("suspend");
+  });
+}
+if (chrome.runtime && typeof chrome.runtime.onSuspendCanceled !== "undefined") {
+  chrome.runtime.onSuspendCanceled.addListener(() => {
+    logSwLifecycleDiagnostic("suspend-canceled");
+  });
+}
+if (chrome.runtime && typeof chrome.runtime.onStartup !== "undefined") {
+  chrome.runtime.onStartup.addListener(() => {
+    logSwLifecycleDiagnostic("startup");
+  });
+}
+logSwLifecycleDiagnostic("worker-evaluated");
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || !message.type) {

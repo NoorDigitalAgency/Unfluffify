@@ -14,7 +14,8 @@ export const FEATURE_FLAGS: Readonly<Record<string, boolean>> = Object.freeze({
 export const DEBUG_FLAGS: Readonly<Record<string, boolean>> = Object.freeze({
   ufDebugSpinnerQueue: true,
   fullWorldMessagingLogging: false,
-  worldTraceEnabled: false
+  worldTraceEnabled: false,
+  swLifecycleDiagnostics: false
 });
 
 export function isFeatureEnabled(flagName: string): boolean {

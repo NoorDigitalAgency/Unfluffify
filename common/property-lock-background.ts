@@ -361,6 +361,49 @@ export function initPropertyLockBackground() {
 }
 
 /**
+ * Read-only snapshot of property-lock connection runtimes for diagnostics.
+ *
+ * Exposes how many WebSocket connections the service worker currently owns and
+ * their socket readiness, so service-worker suspension diagnostics can report
+ * whether long-lived connections are at risk of being torn down.
+ */
+export function getPropertyLockConnectionDiagnostics() {
+  let openSockets = 0;
+  let connectingSockets = 0;
+  let closingOrClosedSockets = 0;
+  let connectedRuntimes = 0;
+  let pendingReconnectTimers = 0;
+  for (const runtime of lockConnections.values()) {
+    if (runtime.isConnected) {
+      connectedRuntimes += 1;
+    }
+    if (runtime.reconnectTimer) {
+      pendingReconnectTimers += 1;
+    }
+    const socket = runtime.socket;
+    if (!socket) {
+      continue;
+    }
+    if (socket.readyState === WebSocket.OPEN) {
+      openSockets += 1;
+    } else if (socket.readyState === WebSocket.CONNECTING) {
+      connectingSockets += 1;
+    } else {
+      closingOrClosedSockets += 1;
+    }
+  }
+  return {
+    totalConnections: lockConnections.size,
+    connectedRuntimes,
+    openSockets,
+    connectingSockets,
+    closingOrClosedSockets,
+    pendingReconnectTimers,
+    contentPorts: contentScriptPorts.size
+  };
+}
+
+/**
  * Handle a new connection from content script.
  */
 function handlePropertyLockPortConnect(port: chrome.runtime.Port) {
