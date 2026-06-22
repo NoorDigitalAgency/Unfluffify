@@ -65,6 +65,7 @@ export const state: PopupState = {
   lastPopupEnabled: null,
   lastPopupEnabledContext: null,
   aiPreviewMarkingRestoreDeadlineAt: 0,
+  aiPreviewMarkingRestoreRefreshTimer: 0,
   configViewLocked: false,
   tokenValidationInFlight: false,
   lastTokenValidationAt: 0,

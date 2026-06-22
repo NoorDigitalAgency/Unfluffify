@@ -80,17 +80,17 @@ test("aligning to silent mode clears the popup toggle without touching content",
   assert.doesNotMatch(fnBody, /setEnabled/);
 });
 
-test("Run AI is disabled while the run is up to date for current markings", () => {
+test("Run AI stays enabled when the session needs a rerun elsewhere", () => {
   assert.match(
     popupSource,
-    /nextViewState\.computeButtonDisabled =\s*pageScopedUiDisabled \|\|\s*aiBusy \|\|\s*!aiReady \|\|\s*pageSaveReconciliationPending \|\|\s*aiRunUpToDate;/
+    /nextViewState\.computeButtonDisabled =\s*pageScopedUiDisabled \|\|\s*aiBusy \|\|\s*previewCloseRestorePending \|\|\s*!aiReady \|\|\s*pageSaveReconciliationPending \|\|\s*\(aiRunUpToDate && !sessionRequiresAiRun\);/
   );
 });
 
 test("Save uses the page-save state instead of the redundant AI-run fingerprint gate", () => {
   assert.match(
     popupSource,
-    /nextViewState\.pageSaveDisabled = pageSaveUiState\.pageSaveDisabled;/
+    /nextViewState\.pageSaveDisabled =\s*pageSaveUiState\.pageSaveDisabled \|\| previewCloseRestorePending;/
   );
   assert.doesNotMatch(
     popupSource,
@@ -102,14 +102,14 @@ test("Save uses the page-save state instead of the redundant AI-run fingerprint 
   );
 });
 
-test("marking-mode preview stays gated on AI-run freshness and is wired to a handler", () => {
+test("marking-mode preview stays gated on AI-run freshness and session freshness", () => {
   assert.match(
     popupSource,
     /nextViewState\.markingPreviewVisible = pageControlsVisible && Boolean\(isEnabled\);/
   );
   assert.match(
     popupSource,
-    /nextViewState\.markingPreviewDisabled =\s*aiBusy \|\|\s*pageSaveReconciliationPending \|\|\s*!aiRunUpToDate;/
+    /nextViewState\.markingPreviewDisabled =\s*aiBusy \|\|\s*previewCloseRestorePending \|\|\s*pageSaveReconciliationPending \|\|\s*!aiRunUpToDate \|\|\s*sessionRequiresAiRun;/
   );
   assert.match(popupSource, /onMarkingPreview: handleMarkingPreview,/);
   assert.match(popupSource, /async function handleMarkingPreview\(\) \{/);
@@ -242,5 +242,36 @@ test("#21 refresh feeds aiRunUpToDate into the session-requires-AI-run check", (
   assert.match(
     popupSource,
     /const aiRunUpToDate = isAiRunUpToDateForCurrentMarkings\(\);\s*const sessionRequiresAiRun = doesSessionRequireAiRun\([\s\S]*?\{ currentDraftDirty: state\.currentDraftDirty, aiRunUpToDate \}\s*\);/
+  );
+});
+
+test("#21 preview-exit restore keeps marking actions disabled until draft status is repopulated", () => {
+  assert.match(
+    popupSource,
+    /let previewCloseRestorePending = Boolean\(\s*state\.aiPreviewMarkingRestoreDeadlineAt &&\s*\(previewCloseMarkingHoldActive \|\| !state\.currentDraftAvailable\)\s*\);/
+  );
+  assert.match(
+    popupSource,
+    /const preserveEnabledDuringPreviewCloseRestore = Boolean\(\s*previewCloseRestorePending &&\s*tabInScope &&\s*!contentMarkingEnabled\s*\);/
+  );
+  assert.match(
+    popupSource,
+    /previewCloseRestorePending = Boolean\(\s*state\.aiPreviewMarkingRestoreDeadlineAt &&\s*\(state\.aiPreviewMarkingRestoreDeadlineAt > Date\.now\(\) \|\| !state\.currentDraftAvailable\)\s*\);/
+  );
+  assert.match(
+    popupSource,
+    /nextViewState\.toggleEnabledDisabled =[\s\S]*?previewCloseRestorePending[\s\S]*?pageSaveReconciliationPending/
+  );
+  assert.match(
+    popupSource,
+    /nextViewState\.pageSaveDisabled =\s*pageSaveUiState\.pageSaveDisabled \|\| previewCloseRestorePending;/
+  );
+  assert.match(
+    popupSource,
+    /nextViewState\.pageRevertDisabled =\s*pageSaveUiState\.pageRevertDisabled \|\| previewCloseRestorePending;/
+  );
+  assert.match(
+    popupSource,
+    /if \(latestRuntimeStatus\.inspectionStatus\.markingEnabled\) \{[\s\S]*?if \(state\.currentDraftAvailable\) \{[\s\S]*?state\.aiPreviewMarkingRestoreDeadlineAt = 0;[\s\S]*?clearAiPreviewMarkingRestoreRefreshTimer\(\);[\s\S]*?\} else if \(state\.aiPreviewMarkingRestoreDeadlineAt\) \{[\s\S]*?scheduleAiPreviewMarkingRestoreRefresh\(250\);/
   );
 });

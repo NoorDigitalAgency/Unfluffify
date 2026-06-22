@@ -199,7 +199,7 @@ test("marking-mode Preview Contents stays separate from silent Preview and Send 
   assert.match(popupSource, /nextViewState\.markingPreviewVisible = pageControlsVisible && Boolean\(isEnabled\);/);
   assert.match(
     popupSource,
-    /nextViewState\.markingPreviewDisabled =\s*aiBusy \|\|\s*pageSaveReconciliationPending \|\|\s*!aiRunUpToDate;/
+    /nextViewState\.markingPreviewDisabled =\s*aiBusy \|\|\s*previewCloseRestorePending \|\|\s*pageSaveReconciliationPending \|\|\s*!aiRunUpToDate \|\|\s*sessionRequiresAiRun;/
   );
   assert.match(uiSource, /if \(markingMode && view\.markingPreviewVisible\) \{/);
   assert.match(uiSource, /id: "marking-preview"/);
@@ -212,6 +212,19 @@ test("marking-mode Preview Contents stays separate from silent Preview and Send 
   assert.doesNotMatch(markingPreviewBody, /silentModeActive/);
   assert.doesNotMatch(markingPreviewBody, /openLynxChecklistPopover|submitSelectorSetToServer|syncBaseConfigToServer/);
   assert.doesNotMatch(markingPreviewBody, /setCurrentPageSaveReconciliation|markCurrentPageSaveReconciliationDirty/);
+});
+
+test("preview exit temporarily disables marking controls while marking is restored", () => {
+  const popupSource = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
+
+  assert.match(
+    popupSource,
+    /if \(message && message\.type === "aiPreviewClosed"\) \{[\s\S]*?state\.aiPreviewMarkingRestoreDeadlineAt = message\.markingEnabled[\s\S]*?if \(message\.markingEnabled\) \{[\s\S]*?scheduleAiPreviewMarkingRestoreRefresh\(AI_PREVIEW_MARKING_RESTORE_HOLD_MS\);[\s\S]*?\} else \{[\s\S]*?clearAiPreviewMarkingRestoreRefreshTimer\(\);[\s\S]*?\}[\s\S]*?uiModule\.setViewState\(\{[\s\S]*?toggleEnabled: true,[\s\S]*?toggleEnabledDisabled: true,[\s\S]*?computeButtonDisabled: true,[\s\S]*?markingPreviewDisabled: true,[\s\S]*?pageSaveDisabled: true,[\s\S]*?pageRevertDisabled: true[\s\S]*?\}\);/
+  );
+  assert.match(
+    popupSource,
+    /if \(\s*state\.aiPreviewMarkingRestoreDeadlineAt <= Date\.now\(\) &&\s*!state\.currentDraftAvailable\s*\) \{[\s\S]*?state\.aiPreviewMarkingRestoreDeadlineAt = 0;[\s\S]*?uiModule\.showToast\(PopupText\.page\.statusDraftUnavailable\);[\s\S]*?\}[\s\S]*?if \(state\.aiPreviewMarkingRestoreDeadlineAt && !state\.currentDraftAvailable\) \{[\s\S]*?if \(state\.aiPreviewMarkingRestoreDeadlineAt > Date\.now\(\)\) \{[\s\S]*?scheduleAiPreviewMarkingRestoreRefresh\(500\);/
+  );
 });
 
 test("Preview Contents uses the latest stored selector set and stays disabled without stored selectors", () => {

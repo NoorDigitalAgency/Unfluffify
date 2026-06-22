@@ -68,6 +68,7 @@ test("popup keeps marking mode active when content reports authoritative enabled
 
   assert.match(refreshBlock, /const contentMarkingModeActive = Boolean\(/);
   assert.match(refreshBlock, /const previewCloseMarkingHoldActive = Boolean\(/);
+  assert.match(refreshBlock, /let previewCloseRestorePending = Boolean\(/);
   assert.match(
     refreshBlock,
     /const aiComputeRunActive =[\s\S]*?state\.aiRequestInFlight === "compute" \|\| state\.aiComputeStartPending;/
@@ -77,7 +78,7 @@ test("popup keeps marking mode active when content reports authoritative enabled
   assert.match(refreshBlock, /const preserveEnabledDuringAiComputeRun = Boolean\(/);
   assert.match(
     refreshBlock,
-    /if \([\s\S]*?tabInScope[\s\S]*?\(previewCloseMarkingHoldActive \|\| aiComputeRunActive \|\| aiPreviewSessionActive\)[\s\S]*?\(!contentModeKnown \|\| !toggleEnabled\)[\s\S]*?\) \{/
+    /if \([\s\S]*?tabInScope[\s\S]*?\(previewCloseRestorePending \|\| aiComputeRunActive \|\| aiPreviewSessionActive\)[\s\S]*?\(!contentModeKnown \|\| !toggleEnabled\)[\s\S]*?\) \{/
   );
   assert.match(
     refreshBlock,

@@ -94,6 +94,7 @@ export interface PopupState {
   lastPopupEnabled: boolean | null;
   lastPopupEnabledContext: Record<string, unknown> | null;
   aiPreviewMarkingRestoreDeadlineAt: number;
+  aiPreviewMarkingRestoreRefreshTimer: number;
   configViewLocked: boolean;
   tokenValidationInFlight: boolean;
   lastTokenValidationAt: number;
