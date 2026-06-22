@@ -1855,7 +1855,8 @@ function updateAiRunCountdownState() {
     aiControlsBusy: true,
     aiRunSpinnerNote: PopupText.overlay.computingSelectorsNote,
     aiRunCountdownVisible: true,
-    aiRunCountdownText: formatAiRunCountdown(state.aiRunRemainingMs)
+    aiRunCountdownText: formatAiRunCountdown(state.aiRunRemainingMs),
+    aiRunDeadlineAt: state.aiRunDeadlineAt
   });
 }
 
@@ -4526,9 +4527,14 @@ async function refreshUiInner(options = {}) {
   nextViewState.aiRunCountdownText =
     state.aiRequestInFlight === "compute"
       ? formatAiRunCountdown(
-          state.aiRunRemainingMs || getAiRunRemainingMs(state.aiRunDeadlineAt)
+          getAiRunRemainingMs(state.aiRunDeadlineAt)
         )
       : "0:00";
+// @ts-expect-error
+  nextViewState.aiRunDeadlineAt =
+    state.aiRequestInFlight === "compute"
+      ? state.aiRunDeadlineAt
+      : 0;
 // @ts-expect-error
   nextViewState.aiControlsBusy = aiBusy;
 // @ts-expect-error

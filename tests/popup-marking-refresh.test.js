@@ -589,6 +589,18 @@ test("popup blocks the interface with a spinner while page inspection is running
   assert.match(uiSource, /busyReason: isBusy && details && typeof details\.reason === "string" \? details\.reason : ""/);
   assert.match(uiSource, /console\.debug\("\[popup-blocker\]", eventName/);
   assert.match(uiSource, /const busyCopy = getBusyCurtainCopy\(view\);[\s\S]*?note: busyCopy\.note,[\s\S]*?reason: view\.busyReason \|\| "popup-busy"/);
+  assert.match(
+    uiSource,
+    /function getBlockingUiCurtainState\(view\) \{[\s\S]*?if \(view\.computeButtonLoading\)[\s\S]*?PopupText\.overlay\.computingSelectors[\s\S]*?if \(view\.isBusy\)/
+  );
+  assert.match(uiSource, /function formatCountdownFromDeadline\(deadlineAt(?::\s*unknown)?\)(?::\s*string)? \{/);
+  assert.match(uiSource, /const liveCountdownText = formatCountdownFromDeadline\(view\.aiRunDeadlineAt\);/);
+  assert.match(uiSource, /timerText: view\.aiRunCountdownVisible \? \(liveCountdownText \|\| view\.aiRunCountdownText\) : "Up to 8:00"/);
+  assert.match(uiSource, /function syncBlockingCurtainCountdownTimer\(curtain/);
+  assert.match(uiSource, /blockingCurtainCountdownTimer = setInterval\(\(\) => \{\s*renderApp\(\);/);
+  assert.match(source, /aiRunDeadlineAt: state\.aiRunDeadlineAt/);
+  assert.match(source, /formatAiRunCountdown\(\s*getAiRunRemainingMs\(state\.aiRunDeadlineAt\)\s*\)/);
+  assert.doesNotMatch(source, /state\.aiRunRemainingMs\s*\|\|\s*getAiRunRemainingMs\(state\.aiRunDeadlineAt\)/);
   assert.match(uiSource, /function getBusyCurtainCopy\(view(?::\s*ViewState)?\) \{/);
   assert.match(uiSource, /reason === "popup-refresh"/);
   assert.match(uiSource, /reason === "render-mode-inspection-start"/);

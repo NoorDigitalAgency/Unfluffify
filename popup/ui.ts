@@ -25,6 +25,8 @@ const refs = {} as Record<string, HTMLElement | null>;
 let uiTimers: ReturnType<typeof createPopupTimerGroup> | null = null;
 const initialLynxChecklistState = createInitialLynxChecklistState();
 let lastPreviewScrolledXpath = "";
+let blockingCurtainCountdownTimer: ReturnType<typeof setInterval> | null = null;
+let blockingCurtainCountdownDeadlineAt = 0;
 
 export const View = {
     Loading: 'Loading',
@@ -237,6 +239,7 @@ const initialViewState = {
   aiRunSpinnerNote: "",
   aiRunCountdownVisible: false,
   aiRunCountdownText: "0:00",
+  aiRunDeadlineAt: 0,
   configMenuOpen: false,
   clearDomainCacheDisabled: false,
   unregisterCurrentTabDisabled: false,
@@ -248,6 +251,18 @@ const initialViewState = {
   toastMessage: "",
   toastVisible: false
 };
+
+function formatCountdownFromDeadline(deadlineAt: unknown): string {
+  const normalizedDeadlineAt = Number(deadlineAt);
+  if (!Number.isFinite(normalizedDeadlineAt) || normalizedDeadlineAt <= 0) {
+    return "";
+  }
+  const remainingMs = Math.max(0, Math.ceil(normalizedDeadlineAt - Date.now()));
+  const totalSeconds = Math.ceil(remainingMs / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
 
 function getBusyCurtainCopy(view: ViewState) {
   const reason = typeof view.busyReason === "string" ? view.busyReason : "";
@@ -361,11 +376,12 @@ function getBusyCurtainCopy(view: ViewState) {
     };
   }
   if (reason === "tab-run-ai") {
+    const liveCountdownText = formatCountdownFromDeadline(view.aiRunDeadlineAt);
     return {
       message: message || PopupText.overlay.computingSelectors,
       note: PopupText.overlay.computingSelectorsNote,
       timerText: view.aiRunCountdownVisible
-        ? String(view.aiRunCountdownText || "")
+        ? (liveCountdownText || String(view.aiRunCountdownText || ""))
         : "Up to 8:00"
     };
   }
@@ -498,6 +514,19 @@ function formatCandidateWordsCount(wordsCount) {
 
 // @ts-expect-error - View snapshots are intentionally permissive for resilience.
 function getBlockingUiCurtainState(view) {
+  if (view.computeButtonLoading) {
+    const liveCountdownText = formatCountdownFromDeadline(view.aiRunDeadlineAt);
+    return {
+      visible: true,
+      mode: "busy",
+      message: PopupText.overlay.computingSelectors,
+      note: view.aiRunSpinnerNote || PopupText.overlay.computingSelectorsNote,
+      reason: "ai-run-compute",
+      source: "popup-view-state",
+      spinnerKey: "",
+      timerText: view.aiRunCountdownVisible ? (liveCountdownText || view.aiRunCountdownText) : "Up to 8:00"
+    };
+  }
   if (view.isBusy) {
     const busyCopy = getBusyCurtainCopy(view);
     return {
@@ -509,18 +538,6 @@ function getBlockingUiCurtainState(view) {
       source: view.busySource || "popup",
       spinnerKey: view.busySpinnerKey || "",
       timerText: busyCopy.timerText
-    };
-  }
-  if (view.computeButtonLoading) {
-    return {
-      visible: true,
-      mode: "busy",
-      message: PopupText.overlay.computingSelectors,
-      note: view.aiRunSpinnerNote || PopupText.overlay.busyHint,
-      reason: "ai-run-compute",
-      source: "popup-view-state",
-      spinnerKey: "",
-      timerText: view.aiRunCountdownVisible ? view.aiRunCountdownText : ""
     };
   }
   if (view.saveExcludesButtonLoading) {
@@ -569,6 +586,41 @@ function getBlockingUiCurtainState(view) {
     spinnerKey: "",
     timerText: ""
   };
+}
+
+function syncBlockingCurtainCountdownTimer(curtain: {
+  visible?: boolean;
+  reason?: string;
+} | null | undefined) {
+  const deadlineAt = Number(viewState.aiRunDeadlineAt);
+  const countdownActive = Boolean(
+    curtain &&
+      curtain.visible &&
+      curtain.reason === "ai-run-compute" &&
+      Number.isFinite(deadlineAt) &&
+      deadlineAt > Date.now()
+  );
+  if (!countdownActive) {
+    if (blockingCurtainCountdownTimer !== null) {
+      clearInterval(blockingCurtainCountdownTimer);
+      blockingCurtainCountdownTimer = null;
+    }
+    blockingCurtainCountdownDeadlineAt = 0;
+    return;
+  }
+  if (
+    blockingCurtainCountdownTimer !== null &&
+    blockingCurtainCountdownDeadlineAt === deadlineAt
+  ) {
+    return;
+  }
+  if (blockingCurtainCountdownTimer !== null) {
+    clearInterval(blockingCurtainCountdownTimer);
+  }
+  blockingCurtainCountdownDeadlineAt = deadlineAt;
+  blockingCurtainCountdownTimer = setInterval(() => {
+    renderApp();
+  }, 1000);
 }
 
 let lastPopupBlockerLogSignature = "";
@@ -2556,6 +2608,7 @@ function renderApp() {
   // Do NOT imperatively mutate the curtain DOM here: doing so desyncs Preact's
   // virtual DOM and throws "insertBefore" on the next render. syncBlockingUiCurtainDom
   // is reserved for the setUiBusy catch fallback after Preact has already failed.
+  syncBlockingCurtainCountdownTimer(getBlockingUiCurtainState(viewState));
 }
 
 // @ts-expect-error - Action handlers are a loose runtime command map.
