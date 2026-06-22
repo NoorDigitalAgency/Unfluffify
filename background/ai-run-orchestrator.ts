@@ -337,13 +337,16 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
       const renderedXPaths = Array.isArray(page && page.renderedXPaths)
         ? (page.renderedXPaths as AiRunSubmissionXpath[])
         : [];
-      let rawXPaths: unknown = renderedXPaths;
+      let refinedXPaths: AiRunSubmissionXpath[] = renderedXPaths;
       try {
-        rawXPaths = await refineXPathEntries(renderedHtml, rawHtml, renderedXPaths);
+        const maybeRefined = await refineXPathEntries(renderedHtml, rawHtml, renderedXPaths);
+        if (Array.isArray(maybeRefined)) {
+          refinedXPaths = maybeRefined as AiRunSubmissionXpath[];
+        }
       } catch {
         // Fall back to unrefined XPaths for this page.
       }
-      refinedPages.push({ ...page, rawXPaths });
+      refinedPages.push({ ...page, renderedXPaths: refinedXPaths });
     }
     const refinedPayload = { ...payload, pages: refinedPages };
     const stored = await putTransferPayload("ai-run-start-refined", refinedPayload);
