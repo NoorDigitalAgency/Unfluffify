@@ -1,4 +1,5 @@
 import { refineXPathEntries } from "./common/xpath-utilities.js";
+import { consumeTransferPayload } from "./background/transfer-payload-store.js";
 
 const OFFSCREEN_MESSAGE_TARGET = "offscreen";
 const OFFSCREEN_REFINE_XPATHS_TYPE = "offscreenRefineXPaths";
@@ -6,8 +7,7 @@ const OFFSCREEN_REFINE_XPATHS_TYPE = "offscreenRefineXPaths";
 interface OffscreenRefineRequest {
   type?: unknown;
   target?: unknown;
-  renderedHtml?: unknown;
-  rawHtml?: unknown;
+  payloadKey?: unknown;
   items?: unknown;
 }
 
@@ -23,19 +23,30 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return undefined;
   }
 
-  const renderedHtml = typeof message.renderedHtml === "string" ? message.renderedHtml : "";
-  const rawHtml = typeof message.rawHtml === "string" ? message.rawHtml : "";
+  const payloadKey = typeof message.payloadKey === "string" ? message.payloadKey : "";
   const items = Array.isArray(message.items) ? message.items : [];
 
-  try {
-    const refined = refineXPathEntries(renderedHtml, rawHtml, items);
-    sendResponse({ ok: true, items: refined });
-  } catch (error) {
+  consumeTransferPayload(payloadKey, { expectedType: "object" }).then((loaded) => {
+    const html = loaded.ok && loaded.payload && typeof loaded.payload === "object"
+      ? (loaded.payload as { renderedHtml?: unknown; rawHtml?: unknown })
+      : {};
+    const renderedHtml = typeof html.renderedHtml === "string" ? html.renderedHtml : "";
+    const rawHtml = typeof html.rawHtml === "string" ? html.rawHtml : "";
+    try {
+      const refined = refineXPathEntries(renderedHtml, rawHtml, items);
+      sendResponse({ ok: true, items: refined });
+    } catch (error) {
+      sendResponse({
+        ok: false,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }).catch((error) => {
     sendResponse({
       ok: false,
       error: error instanceof Error ? error.message : String(error)
     });
-  }
+  });
 
-  return undefined;
+  return true;
 });

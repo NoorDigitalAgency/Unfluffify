@@ -330,20 +330,19 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
       await removeTransferPayload(sourcePayloadKey);
       return { ok: false, error: "Unable to prepare AI payload" };
     }
-    const refinedPayload = {
-      ...payload,
-      pages: await Promise.all(payload.pages.map(async (page) => {
-        const renderedHtml = page && typeof page.renderedHtml === "string" ? page.renderedHtml : "";
-        const rawHtml = page && typeof page.rawHtml === "string" ? page.rawHtml : "";
-        const renderedXPaths = Array.isArray(page && page.renderedXPaths)
-          ? (page.renderedXPaths as AiRunSubmissionXpath[])
-          : [];
-        return {
-          ...page,
-          rawXPaths: await refineXPathEntries(renderedHtml, rawHtml, renderedXPaths)
-        };
-      }))
-    };
+    const refinedPages: AiRunPayloadPage[] = [];
+    for (const page of payload.pages) {
+      const renderedHtml = page && typeof page.renderedHtml === "string" ? page.renderedHtml : "";
+      const rawHtml = page && typeof page.rawHtml === "string" ? page.rawHtml : "";
+      const renderedXPaths = Array.isArray(page && page.renderedXPaths)
+        ? (page.renderedXPaths as AiRunSubmissionXpath[])
+        : [];
+      refinedPages.push({
+        ...page,
+        rawXPaths: await refineXPathEntries(renderedHtml, rawHtml, renderedXPaths)
+      });
+    }
+    const refinedPayload = { ...payload, pages: refinedPages };
     const stored = await putTransferPayload("ai-run-start-refined", refinedPayload);
     if (!stored.ok) {
       await removeTransferPayload(sourcePayloadKey);

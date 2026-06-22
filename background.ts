@@ -677,13 +677,22 @@ async function refineXPathEntriesViaOffscreen(
   const items = Array.isArray(renderedXPaths) ? renderedXPaths : [];
   try {
     await ensureOffscreenDocument();
-    const response = await chrome.runtime.sendMessage({
-      target: OFFSCREEN_MESSAGE_TARGET,
-      type: OFFSCREEN_REFINE_XPATHS_TYPE,
-      renderedHtml,
-      rawHtml,
-      items
-    });
+    const stored = await putTransferPayload("offscreen-refine", { renderedHtml, rawHtml });
+    if (!stored.ok) {
+      return items;
+    }
+    let response: unknown;
+    try {
+      response = await chrome.runtime.sendMessage({
+        target: OFFSCREEN_MESSAGE_TARGET,
+        type: OFFSCREEN_REFINE_XPATHS_TYPE,
+        payloadKey: stored.payloadKey,
+        items
+      });
+    } catch {
+      await removeTransferPayload(stored.payloadKey);
+      return items;
+    }
     if (
       response &&
       typeof response === "object" &&
