@@ -117,6 +117,97 @@ test("ai-run orchestrator computes selectors through lock, prepare, start, poll,
   );
 });
 
+test("ai-run orchestrator keeps polling when the in-loop heartbeat lock fails", async () => {
+  const events = [];
+  let activeLockCalls = 0;
+  let statusCalls = 0;
+  const orchestrator = createAiRunOrchestrator({
+    aiComputeLockExpiresAtByTabId: new Map(),
+    normalizeTabId: (value) => Number(value),
+    normalizeActivationBaseUrl: (value) => value,
+    normalizeSiteIdValue: (value) => Number(value) || null,
+    normalizeAiSelectorSet: (payload) => payload,
+    buildAiSubmissionXpaths: (entry) => entry.submissionXpaths || [],
+    isPageWithinBaseUrl: () => true,
+    resolveBackgroundNetworkCredentials: async () => ({ endpointValue: "https://api.test", tokenValue: "token" }),
+    requestAiRunStartSnapshot: async () => ({ ok: true, sessionId: "session-1" }),
+    requestAiRunStatus: async () => {
+      statusCalls += 1;
+      events.push("status");
+      return statusCalls < 2 ? { ok: true, status: "running" } : { ok: true, status: "done" };
+    },
+    requestAiRunResultSnapshot: async () => ({ ok: true, payloadKey: "result-key" }),
+    fetchStaticPageHtmlForBackground: async () => ({ ok: true, html: "<html/>" }),
+    getTransferPayload: async () => ({ ok: true, payload: { pages: [] } }),
+    putTransferPayload: async (label, payload) => {
+      if (label === "ai-run-prepare") {
+        return { ok: true, payloadKey: "prepared-key", payload };
+      }
+      return { ok: true, payloadKey: `${label}-key` };
+    },
+    removeTransferPayload: async () => {},
+    consumeTransferPayload: async () => ({
+      ok: true,
+      payload: {
+        exclusionSelectors: [".exclude"],
+        inclusionSelectors: [".include"]
+      }
+    }),
+    clearPersistedAiRunRecord: async () => {},
+    savePersistedAiRunRecord: async (record) => record,
+    sendContentMessageToTab: async (_tabId, message) => {
+      if (message.type === "setAiComputeLock" && message.active) {
+        activeLockCalls += 1;
+        events.push("lock");
+        return activeLockCalls <= 1 ? { ok: true } : { ok: false, error: "lock failed" };
+      }
+      return { ok: true };
+    },
+    ensureContentMainForTab: async () => ({ ok: true }),
+    getTabState: async () => ({ enabled: true }),
+    setTabState: async () => {},
+    updateActionForTab: async () => {},
+    refineXPathEntries: (_renderedHtml, _rawHtml, renderedXpaths) => renderedXpaths,
+    waitForBackgroundRetryDelay: async () => {},
+    getAiRunResumeExpiresAt: () => Date.now() + 20_000,
+    configStore: {
+      ensureConfig: async () => ({
+        siteId: 7,
+        pageMarkings: {
+          "https://example.test/page": {
+            renderedHtml: "<html/>",
+            rawHtml: "<html/>",
+            submissionXpaths: ["//body"],
+            renderedXpaths: ["//body"]
+          }
+        }
+      }),
+      updateConfig: async () => {}
+    },
+    defaultExcludedImmutableSelectors: ["#fixed"],
+    aiRunTimeoutMs: 60_000,
+    aiRunPollIntervalMs: 1
+  });
+
+  const result = await orchestrator.runAiCommandForTab(
+    5,
+    {
+      baseUrl: "https://example.test",
+      currentPageUrl: "https://example.test/page",
+      pageType: "detail",
+      currentRenderMode: "static",
+      siteId: 7,
+      deadlineAt: Date.now() + 5000
+    },
+    async () => {}
+  );
+
+  assert.equal(result.ok, true);
+  assert.equal(result.sessionId, "session-1");
+  assert.ok(activeLockCalls >= 2, "heartbeat should attempt to refresh the page lock");
+  assert.ok(statusCalls >= 2, "status polling should continue after a heartbeat lock failure");
+});
+
 test("ai-run orchestrator reports heartbeat lock failures", async () => {
   const orchestrator = createAiRunOrchestrator({
     aiComputeLockExpiresAtByTabId: new Map(),

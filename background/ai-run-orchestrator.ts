@@ -378,11 +378,12 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
     return normalizeAiSelectorSet(payload);
   }
 
-  async function setAiComputeLockForTab(tabId: TabLike, active: boolean, expiresAt: DeadlineLike = 0, baseUrl: string | null | undefined = "") {
+  async function setAiComputeLockForTab(tabId: TabLike, active: boolean, expiresAt: DeadlineLike = 0, baseUrl: string | null | undefined = "", lockOptions: { skipActivation?: boolean } = {}) {
     const normalizedTabId = normalizeTabId(tabId);
     if (!normalizedTabId) {
       return { ok: false, active: Boolean(active), error: "Missing tab" };
     }
+    const skipActivation = Boolean(lockOptions && lockOptions.skipActivation);
     const normalizedExpiresAt = Number(expiresAt);
     if (active) {
       const nextExpiresAt =
@@ -394,7 +395,7 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
       aiComputeLockExpiresAtByTabId.delete(normalizedTabId);
     }
     const normalizedBaseUrl = typeof baseUrl === "string" ? baseUrl : "";
-    if (active && normalizedBaseUrl) {
+    if (active && normalizedBaseUrl && !skipActivation) {
       const existingTabState = await getTabState(normalizedTabId);
       const nextTabState: TabState = {
         ...(existingTabState && typeof existingTabState === "object" ? existingTabState : {}),
@@ -404,7 +405,7 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
       await setTabState(normalizedTabId, nextTabState);
       updateActionForTab(normalizedTabId).then();
     }
-    if (active) {
+    if (active && !skipActivation) {
       const activationResult = await ensureContentMainForTab(normalizedTabId);
       if (!activationResult.ok) {
         return {
@@ -465,7 +466,7 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
     if (!record) {
       return { ok: false, record: null, expiresAt: 0, lockApplied: false };
     }
-    const lockResult = await setAiComputeLockForTab(tabId, true, expiresAt, baseUrl);
+    const lockResult = await setAiComputeLockForTab(tabId, true, expiresAt, baseUrl, { skipActivation: true });
     if (!lockResult.ok) {
       await clearPersistedAiRunRecord();
       return {
@@ -778,20 +779,13 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
           timeoutGroup.set(resolve, pollDelayMs);
         });
         if (siteId) {
-          const heartbeat = await refreshAiRunHeartbeat({
+          await refreshAiRunHeartbeat({
             tabId: normalizedTabId,
             sessionId,
             siteId,
             deadlineAt,
             baseUrl
           }).catch(() => null);
-          if (!heartbeat || !heartbeat.ok) {
-            return {
-              ok: false,
-              reason: "heartbeat_failed",
-              error: (heartbeat && heartbeat.error) || "AI run heartbeat failed"
-            };
-          }
         }
 
         let statusResult = null;
