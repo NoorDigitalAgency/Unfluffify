@@ -1693,9 +1693,9 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_AI, async (context, payloa
     normalizedTabId,
     {
       key: `run-ai:${normalizedTabId}`,
-      message: "Analyzing page content with AI...",
+      message: "Preparing page content for AI...",
       owner: SPINNER_OWNERS.POPUP,
-      reason: "tab-run-ai",
+      reason: "tab-run-ai-preparing",
       source: "background-command-router",
       persistent: false
     },

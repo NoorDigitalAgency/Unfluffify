@@ -739,6 +739,12 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
         startPayloadKey = refined.payloadKey;
       }
 
+      await update({
+        message: "Analyzing page content with AI...",
+        reason: "tab-run-ai-running",
+        source: "background-command-router"
+      });
+
       const startResult = await requestAiRunStartSnapshot({
         endpointValue,
         tokenValue,

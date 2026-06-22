@@ -97,10 +97,12 @@ test("AI compute shows busy feedback and locks marking before payload work", () 
   assert.match(aiRunOrchestratorSource, runAiPattern);
   assert.match(backgroundSource, /TAB_RUN_AI: "TAB_RUN_AI"/);
   assert.match(backgroundSource, /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_RUN_AI, async \(context, payload\) => \{/);
+  assert.match(backgroundSource, /reason: "tab-run-ai-preparing"/);
   assert.match(backgroundSource, /from "\.\/background\/ai-run-orchestrator\.js"/);
   assert.match(backgroundSource, /const aiRunOrchestrator = createAiRunOrchestrator\(\{/);
   assert.match(aiRunOrchestratorSource, /async function prepareAiRunPayloadSnapshot\(options(?:\s*:\s*[^=]+)? = \{\}\) \{/);
   assert.match(aiRunOrchestratorSource, /fetchStaticPageHtmlForBackground/);
+  assert.match(aiRunOrchestratorSource, /await update\(\{[\s\S]*?reason: "tab-run-ai-running"/);
 });
 
 test("AI compute builds the request from stored local page snapshots only", () => {

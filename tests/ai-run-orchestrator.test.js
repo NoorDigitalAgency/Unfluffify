@@ -6,6 +6,8 @@ import { createAiRunOrchestrator } from "../background/ai-run-orchestrator.js";
 test("ai-run orchestrator computes selectors through lock, prepare, start, poll, and result", async () => {
   const aiComputeLockExpiresAtByTabId = new Map();
   const sentMessages = [];
+  const progressUpdates = [];
+  const events = [];
   const orchestrator = createAiRunOrchestrator({
     aiComputeLockExpiresAtByTabId,
     normalizeTabId: (value) => Number(value),
@@ -15,7 +17,10 @@ test("ai-run orchestrator computes selectors through lock, prepare, start, poll,
     buildAiSubmissionXpaths: (entry) => entry.submissionXpaths || [],
     isPageWithinBaseUrl: () => true,
     resolveBackgroundNetworkCredentials: async () => ({ endpointValue: "https://api.test", tokenValue: "token" }),
-    requestAiRunStartSnapshot: async () => ({ ok: true, sessionId: "session-1" }),
+    requestAiRunStartSnapshot: async () => {
+      events.push("start-request");
+      return { ok: true, sessionId: "session-1" };
+    },
     requestAiRunStatus: async () => ({ ok: true, status: "done" }),
     requestAiRunResultSnapshot: async () => ({ ok: true, payloadKey: "result-key" }),
     fetchStaticPageHtmlForBackground: async () => ({ ok: true, html: "<html/>" }),
@@ -85,13 +90,27 @@ test("ai-run orchestrator computes selectors through lock, prepare, start, poll,
       siteId: 7,
       deadlineAt: Date.now() + 5000
     },
-    async () => {}
+    async (update) => {
+      if (update.reason) {
+        events.push(update.reason);
+      }
+      progressUpdates.push(update);
+    }
   );
 
   assert.equal(result.ok, true);
   assert.equal(result.sessionId, "session-1");
   assert.equal(aiComputeLockExpiresAtByTabId.has(5), false);
   assert.equal(sentMessages.includes("setAiComputeLock"), true);
+  assert.equal(
+    progressUpdates.some((update) => update.reason === "tab-run-ai-running"),
+    true
+  );
+  assert.ok(
+    events.indexOf("tab-run-ai-running") > -1 &&
+      events.indexOf("tab-run-ai-running") < events.indexOf("start-request"),
+    "running spinner phase should start before the /get_selectors request"
+  );
 });
 
 test("ai-run orchestrator reports heartbeat lock failures", async () => {

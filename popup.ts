@@ -1856,7 +1856,8 @@ function updateAiRunCountdownState() {
     aiRunSpinnerNote: PopupText.overlay.computingSelectorsNote,
     aiRunCountdownVisible: true,
     aiRunCountdownText: formatAiRunCountdown(state.aiRunRemainingMs),
-    aiRunDeadlineAt: state.aiRunDeadlineAt
+    aiRunDeadlineAt: state.aiRunDeadlineAt,
+    aiRunPhase: state.aiRunPhase
   });
 }
 
@@ -4535,6 +4536,11 @@ async function refreshUiInner(options = {}) {
     state.aiRequestInFlight === "compute"
       ? state.aiRunDeadlineAt
       : 0;
+// @ts-expect-error
+  nextViewState.aiRunPhase =
+    state.aiRequestInFlight === "compute"
+      ? state.aiRunPhase
+      : "";
 // @ts-expect-error
   nextViewState.aiControlsBusy = aiBusy;
 // @ts-expect-error

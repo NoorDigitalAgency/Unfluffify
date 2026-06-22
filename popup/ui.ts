@@ -240,6 +240,7 @@ const initialViewState = {
   aiRunCountdownVisible: false,
   aiRunCountdownText: "0:00",
   aiRunDeadlineAt: 0,
+  aiRunPhase: "",
   configMenuOpen: false,
   clearDomainCacheDisabled: false,
   unregisterCurrentTabDisabled: false,
@@ -385,6 +386,23 @@ function getBusyCurtainCopy(view: ViewState) {
         : "Up to 8:00"
     };
   }
+  if (reason === "tab-run-ai-preparing" || reason === "tab-run-ai-snapshot" || reason === "tab-run-ai-prepare") {
+    return {
+      message: message || "Preparing page content for AI...",
+      note: "Capturing and packaging the marked page content before the AI request starts.",
+      timerText: ""
+    };
+  }
+  if (reason === "tab-run-ai-running") {
+    const liveCountdownText = formatCountdownFromDeadline(view.aiRunDeadlineAt);
+    return {
+      message: message || PopupText.overlay.computingSelectors,
+      note: PopupText.overlay.computingSelectorsNote,
+      timerText: view.aiRunCountdownVisible
+        ? (liveCountdownText || String(view.aiRunCountdownText || ""))
+        : "Up to 8:00"
+    };
+  }
   if (message === PopupText.overlay.detectingRenderMode) {
     return {
       message: PopupText.overlay.detectingRenderMode,
@@ -515,6 +533,25 @@ function formatCandidateWordsCount(wordsCount) {
 // @ts-expect-error - View snapshots are intentionally permissive for resilience.
 function getBlockingUiCurtainState(view) {
   if (view.computeButtonLoading) {
+    const backgroundReason = typeof view.busyReason === "string" ? view.busyReason : "";
+    const backgroundMessage = typeof view.busyMessage === "string" ? view.busyMessage : "";
+    const aiRunPhase = typeof view.aiRunPhase === "string" ? view.aiRunPhase : "";
+    const aiRunIsActiveOnServer =
+      backgroundReason === "tab-run-ai-running" ||
+      (!backgroundReason && aiRunPhase === "running");
+    if (!aiRunIsActiveOnServer) {
+      const busyCopy = getBusyCurtainCopy(view);
+      return {
+        visible: true,
+        mode: "busy",
+        message: busyCopy.message || backgroundMessage || "Preparing page content for AI...",
+        note: busyCopy.note,
+        reason: "ai-run-compute-preparing",
+        source: "popup-view-state",
+        spinnerKey: "",
+        timerText: ""
+      };
+    }
     const liveCountdownText = formatCountdownFromDeadline(view.aiRunDeadlineAt);
     return {
       visible: true,
