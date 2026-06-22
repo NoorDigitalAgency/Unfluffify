@@ -18,7 +18,9 @@ const ROOT_FILES = [
   "popup.css",
   "theme-color.css",
   "theme-components.css",
-  "theme-utilities.css"
+  "theme-utilities.css",
+  "offscreen.ts",
+  "offscreen.html"
 ];
 
 const ROOT_DIRS = ["assets", "background", "common", "content", "cursors", "icons", "popup"];

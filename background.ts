@@ -135,7 +135,6 @@ import { createTabInactivityObserver } from "./background/tab-inactivity-observe
 import { createAiRunOrchestrator } from "./background/ai-run-orchestrator.js";
 import { runBackgroundTask } from "./background/async-tasks.js";
 import { createManagedTimeoutGroup } from "./background/managed-timeouts.js";
-import { refineXPathEntries } from "./common/xpath-utilities.js";
 import {
   aiComputeLockExpiresAtByTabId,
   disposeTabState,
@@ -621,6 +620,82 @@ async function captureRenderModeHtmlWithDebugger(tabId) {
   }
 }
 
+const OFFSCREEN_DOCUMENT_PATH = "offscreen.html";
+const OFFSCREEN_MESSAGE_TARGET = "offscreen";
+const OFFSCREEN_REFINE_XPATHS_TYPE = "offscreenRefineXPaths";
+let offscreenDocumentSetup: Promise<void> | null = null;
+
+async function offscreenDocumentExists(): Promise<boolean> {
+  if (typeof chrome.runtime.getContexts !== "function") {
+    return false;
+  }
+  try {
+    const contexts = await chrome.runtime.getContexts({
+      contextTypes: ["OFFSCREEN_DOCUMENT"],
+      documentUrls: [chrome.runtime.getURL(OFFSCREEN_DOCUMENT_PATH)]
+    });
+    return Array.isArray(contexts) && contexts.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+async function ensureOffscreenDocument(): Promise<void> {
+  if (!chrome.offscreen || typeof chrome.offscreen.createDocument !== "function") {
+    throw new Error("Offscreen documents are not supported in this environment");
+  }
+  if (await offscreenDocumentExists()) {
+    return;
+  }
+  if (!offscreenDocumentSetup) {
+    offscreenDocumentSetup = chrome.offscreen
+      .createDocument({
+        url: OFFSCREEN_DOCUMENT_PATH,
+        reasons: ["DOM_PARSER"],
+        justification: "Parse captured page HTML with DOMParser to refine submission XPaths for AI selector computation."
+      })
+      .catch((error: unknown) => {
+        const messageText = error instanceof Error ? error.message : String(error);
+        if (!messageText.includes("Only a single offscreen document")) {
+          throw error;
+        }
+      })
+      .finally(() => {
+        offscreenDocumentSetup = null;
+      });
+  }
+  await offscreenDocumentSetup;
+}
+
+async function refineXPathEntriesViaOffscreen(
+  renderedHtml: string,
+  rawHtml: string,
+  renderedXPaths: unknown
+): Promise<unknown> {
+  const items = Array.isArray(renderedXPaths) ? renderedXPaths : [];
+  try {
+    await ensureOffscreenDocument();
+    const response = await chrome.runtime.sendMessage({
+      target: OFFSCREEN_MESSAGE_TARGET,
+      type: OFFSCREEN_REFINE_XPATHS_TYPE,
+      renderedHtml,
+      rawHtml,
+      items
+    });
+    if (
+      response &&
+      typeof response === "object" &&
+      (response as { ok?: boolean }).ok === true &&
+      Array.isArray((response as { items?: unknown }).items)
+    ) {
+      return (response as { items: unknown[] }).items;
+    }
+  } catch {
+    // Refinement is best-effort; fall back to the unrefined entries below.
+  }
+  return items;
+}
+
 const aiRunOrchestrator = createAiRunOrchestrator({
   aiComputeLockExpiresAtByTabId,
   normalizeTabId: normalizeBrokerTabId,
@@ -645,7 +720,7 @@ const aiRunOrchestrator = createAiRunOrchestrator({
   getTabState: utils.getTabState,
   setTabState: utils.setTabState,
   updateActionForTab: utils.updateActionForTab,
-  refineXPathEntries,
+  refineXPathEntries: refineXPathEntriesViaOffscreen,
   getAiRunResumeExpiresAt,
   configStore,
   defaultExcludedImmutableSelectors: constants.DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS,

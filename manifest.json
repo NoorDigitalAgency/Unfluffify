@@ -15,7 +15,8 @@
     "alarms",
     "browsingData",
     "webNavigation",
-    "activeTab"
+    "activeTab",
+    "offscreen"
   ],
   "host_permissions": [
     "<all_urls>"

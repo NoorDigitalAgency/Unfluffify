@@ -138,7 +138,7 @@ interface AiRunOrchestratorOptions {
   getTabState?(tabId: number): Promise<Record<string, unknown> | null>;
   setTabState?(tabId: number, tabState: Record<string, unknown>): Promise<void>;
   updateActionForTab?(tabId: number): Promise<void>;
-  refineXPathEntries?(renderedHtml: string, rawHtml: string, renderedXPaths: unknown): unknown;
+  refineXPathEntries?(renderedHtml: string, rawHtml: string, renderedXPaths: unknown): unknown | Promise<unknown>;
   createManagedTimeoutGroup?(): AiRunManagedTimeoutGroup;
   getAiRunResumeExpiresAt?(): number;
   configStore?: AiRunConfigStore;
@@ -332,17 +332,17 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
     }
     const refinedPayload = {
       ...payload,
-      pages: payload.pages.map((page) => {
+      pages: await Promise.all(payload.pages.map(async (page) => {
         const renderedHtml = page && typeof page.renderedHtml === "string" ? page.renderedHtml : "";
         const rawHtml = page && typeof page.rawHtml === "string" ? page.rawHtml : "";
-        const         renderedXPaths = Array.isArray(page && page.renderedXPaths)
+        const renderedXPaths = Array.isArray(page && page.renderedXPaths)
           ? (page.renderedXPaths as AiRunSubmissionXpath[])
           : [];
         return {
           ...page,
-          rawXPaths: refineXPathEntries(renderedHtml, rawHtml, renderedXPaths)
+          rawXPaths: await refineXPathEntries(renderedHtml, rawHtml, renderedXPaths)
         };
-      })
+      }))
     };
     const stored = await putTransferPayload("ai-run-start-refined", refinedPayload);
     if (!stored.ok) {
