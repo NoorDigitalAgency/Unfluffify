@@ -17,7 +17,11 @@ test("ai-run orchestrator computes selectors through lock, prepare, start, poll,
     buildAiSubmissionXpaths: (entry) => entry.submissionXpaths || [],
     isPageWithinBaseUrl: () => true,
     resolveBackgroundNetworkCredentials: async () => ({ endpointValue: "https://api.test", tokenValue: "token" }),
-    requestAiRunStartSnapshot: async () => {
+    requestAiRunStartSnapshot: async (options) => {
+      await options.onBeforeRequest?.({
+        url: "https://api.test/get_selectors",
+        payloadKey: options.payloadKey
+      });
       events.push("start-request");
       return { ok: true, sessionId: "session-1" };
     },

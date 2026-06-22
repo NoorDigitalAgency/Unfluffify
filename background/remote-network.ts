@@ -42,6 +42,7 @@ export interface RemoteNetworkOptions {
   excludeCss?: string;
   renderMode?: string;
   payloadKey?: string;
+  onBeforeRequest?: (details: { url: string; payloadKey: string }) => unknown;
 }
 
 export async function requestAiRunStatus(options = {}) {
@@ -343,12 +344,22 @@ export async function requestAiRunStartSnapshot(options = {}) {
   const tokenValue = credentials.tokenValue;
   const requestPayloadKey = typeof opts.payloadKey === "string" ? opts.payloadKey.trim() : "";
   const computeSelectorsUrl = resolveBackgroundEndpoint(endpointValue, "/get_selectors");
-  if (!computeSelectorsUrl || !requestPayloadKey) {
-    return { ok: false, skipped: true };
+  if (!computeSelectorsUrl) {
+    return { ok: false, skipped: true, reason: "missing_endpoint" };
+  }
+  if (!requestPayloadKey) {
+    return { ok: false, skipped: true, reason: "missing_payload_key" };
   }
   try {
     const loaded = await getTransferPayload(requestPayloadKey, { expectedType: "object" });
-    const payload = loaded && loaded.ok ? loaded.payload : null;
+    if (!loaded || !loaded.ok) {
+      return { ok: false, reason: "payload_unavailable" };
+    }
+    const payload = loaded.payload;
+    await opts.onBeforeRequest?.({
+      url: computeSelectorsUrl,
+      payloadKey: requestPayloadKey
+    });
     const response = await fetch(computeSelectorsUrl, {
       method: "POST",
       headers: createBackgroundJsonHeaders(tokenValue),
@@ -356,15 +367,15 @@ export async function requestAiRunStartSnapshot(options = {}) {
     });
     await maybeUpdateStoredTokenFromResponse(response, tokenValue);
     if (!response.ok) {
-      return { ok: true, status: "error", httpStatus: response.status || 0 };
+      return { ok: false, reason: "http_error", httpStatus: response.status || 0 };
     }
     const sessionId = parseAiRunStartResponse(await response.json());
     if (!sessionId) {
-      return { ok: false };
+      return { ok: false, reason: "missing_session_id" };
     }
     return { ok: true, status: "ok", sessionId };
   } catch {
-    return { ok: false };
+    return { ok: false, reason: "network_failed" };
   } finally {
     await removeTransferPayload(requestPayloadKey);
   }

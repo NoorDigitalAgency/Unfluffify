@@ -107,7 +107,8 @@ interface AiRunOrchestratorOptions {
     endpointValue: string;
     tokenValue: string;
     payloadKey: string;
-  }): Promise<{ ok: boolean; sessionId?: string }>;
+    onBeforeRequest?: (details: { url: string; payloadKey: string }) => unknown;
+  }): Promise<{ ok: boolean; sessionId?: string; reason?: string; skipped?: boolean; httpStatus?: number }>;
   requestAiRunStatus?(
     args: {
       endpointValue: string;
@@ -739,21 +740,22 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
         startPayloadKey = refined.payloadKey;
       }
 
-      await update({
-        message: "Analyzing page content with AI...",
-        reason: "tab-run-ai-running",
-        source: "background-command-router"
-      });
-
       const startResult = await requestAiRunStartSnapshot({
         endpointValue,
         tokenValue,
-        payloadKey: startPayloadKey
+        payloadKey: startPayloadKey,
+        onBeforeRequest: async () => {
+          await update({
+            message: "Analyzing page content with AI...",
+            reason: "tab-run-ai-running",
+            source: "background-command-router"
+          });
+        }
       });
       if (!startResult || !startResult.ok || !startResult.sessionId) {
         return {
           ok: false,
-          reason: "start_failed",
+          reason: (startResult && startResult.reason) || "start_failed",
           error: "Unable to start AI run"
         };
       }
