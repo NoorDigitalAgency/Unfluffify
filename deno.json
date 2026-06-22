@@ -3,13 +3,13 @@
   "tasks": {
     "check": "deno run -A npm:typescript/bin/tsc --noEmit -p tsconfig.json",
     "test": "deno test -A --no-check --unstable-sloppy-imports tests",
-    "lint": "deno lint scripts/watch-extension.ts scripts/emit-package-metadata.ts",
-    "lint:fix": "deno lint --fix scripts/watch-extension.ts scripts/emit-package-metadata.ts",
+    "lint": "deno lint scripts/build-extension.ts scripts/emit-package-metadata.ts",
+    "lint:fix": "deno lint --fix scripts/build-extension.ts scripts/emit-package-metadata.ts",
     "build": "deno task build:release",
     "package": "deno run -A ./scripts/package-extension.mjs --source-root dist/extension",
     "build:dev": "deno run -A ./scripts/build-extension.ts --dev",
     "build:release": "deno run -A ./scripts/build-extension.ts --release",
-    "watch": "deno run -A ./scripts/watch-extension.ts",
+    "watch": "deno run -A ./scripts/build-extension.ts --dev --watch",
     "dev": "deno task watch",
     "verify": "deno task check && deno task test && deno task build:release"
   },
@@ -22,6 +22,8 @@
     ]
   },
   "imports": {
-    "@types/chrome": "npm:@types/chrome@^0.1.43"
+    "@std/path": "jsr:@std/path@^1.1.5",
+    "@types/chrome": "npm:@types/chrome@^0.1.43",
+    "esbuild": "npm:esbuild@^0.28.1"
   }
 }

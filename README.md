@@ -46,6 +46,7 @@ deno task verify
 ```
 
 `deno task dev` watches extension sources and rebuilds the development extension output under `dist/extension-dev`.
+The dev watcher and one-shot builds share `scripts/build-extension.ts`, so copied assets, bundled files, and dev reload artifacts stay consistent.
 `deno task lint` currently covers the Deno automation files that are lint-clean.
 `deno task verify` runs the type check, regression suite, and release build.
 
@@ -68,10 +69,11 @@ deno task verify
 
 ## Installation (Developer Mode)
 
-1. Open Chrome and navigate to `chrome://extensions`
-2. Enable **Developer mode** (toggle in top right corner)
-3. Click **Load unpacked** and select the project folder
-4. Pin the extension for easy access
+1. Run `deno task dev` for a watched development build, or `deno task build` for a one-shot local build.
+2. Open Chrome and navigate to `chrome://extensions`
+3. Enable **Developer mode** (toggle in top right corner)
+4. Click **Load unpacked** and select `dist/extension-dev` for development or `dist/extension` for the one-shot build.
+5. Pin the extension for easy access
 
 ## Testing
 

@@ -6,9 +6,11 @@
     "jsr:@std/internal@^1.0.12": "1.0.14",
     "jsr:@std/internal@^1.0.14": "1.0.14",
     "jsr:@std/path@*": "1.1.5",
+    "jsr:@std/path@^1.1.5": "1.1.5",
     "jsr:@std/testing@*": "1.0.19",
     "npm:@types/chrome@~0.1.43": "0.1.43",
     "npm:esbuild@*": "0.28.1",
+    "npm:esbuild@~0.28.1": "0.28.1",
     "npm:playwright@*": "1.60.0",
     "npm:typescript@*": "6.0.3"
   },
@@ -245,7 +247,9 @@
   },
   "workspace": {
     "dependencies": [
-      "npm:@types/chrome@~0.1.43"
+      "jsr:@std/path@^1.1.5",
+      "npm:@types/chrome@~0.1.43",
+      "npm:esbuild@~0.28.1"
     ]
   }
 }
