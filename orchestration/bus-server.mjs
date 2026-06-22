@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno run -A
+#!/usr/bin/env -S deno run --allow-read --allow-write --allow-env --allow-net
 import { join, resolve } from "@std/path";
 import { WebSocketPeer } from "./lib/websocket.mjs";
 import {

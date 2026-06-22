@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno run -A
+#!/usr/bin/env -S deno run --allow-read --allow-write --allow-env --allow-run --allow-net --allow-sys
 import { basename } from "@std/path";
 import { loadOrchestrationConfig, parseCliArgs } from "./lib/config.mjs";
 import {

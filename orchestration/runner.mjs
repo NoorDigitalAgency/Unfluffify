@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno run -A
+#!/usr/bin/env -S deno run --allow-read --allow-write --allow-env --allow-run --allow-net --allow-sys
 import { join } from "@std/path";
 import { appendJsonLine, ensureRunDir } from "./lib/artifacts.mjs";
 import { ScenarioBusClient } from "./lib/bus-client.mjs";

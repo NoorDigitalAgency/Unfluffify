@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno run -A
+#!/usr/bin/env -S deno run --allow-read --allow-write --allow-env --allow-net
 
 function parseArgs(argv) {
   const result = {};

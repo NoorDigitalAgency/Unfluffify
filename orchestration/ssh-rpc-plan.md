@@ -165,7 +165,7 @@ Create `orchestration/rpc-server.mjs`.
   ```bash
   cd <repo> &&
   UNFLUFFIFY_PLAYWRIGHT_PATH=<path> \
-  node orchestration/rpc-server.mjs --host 127.0.0.1 --port 9876
+  deno task orchestrate:rpc-server -- --host 127.0.0.1 --port 9876
   ```
 
 - The server owns one or more named browser contexts and rejects attempts to

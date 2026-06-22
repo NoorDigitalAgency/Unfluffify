@@ -56,14 +56,14 @@ Never commit real endpoints, passwords, run dumps, screenshots, or profiles.
 4. Start the bus:
 
    ```bash
-   node orchestration/bus-server.mjs --host 127.0.0.1 --port 8765
+   deno task orchestrate:bus -- --host 127.0.0.1 --port 8765
    ```
 
 5. In two other terminals, smoke the bus:
 
    ```bash
-   node orchestration/mock-client.mjs --role director --side A --note "director online"
-   node orchestration/mock-client.mjs --role follower --side B --note "follower online"
+   deno task orchestrate:mock-client -- --role director --side A --note "director online"
+   deno task orchestrate:mock-client -- --role follower --side B --note "follower online"
    ```
 
 6. Confirm a transcript appeared in `orchestration/runs/<timestamp>/bus.log`.
@@ -73,7 +73,7 @@ Never commit real endpoints, passwords, run dumps, screenshots, or profiles.
 After the bus is running, start a follower runner:
 
 ```bash
-node orchestration/runner.mjs --role follower --side B --bus-host 127.0.0.1 --bus-port 8765
+deno task orchestrate:runner -- --role follower --side B --bus-host 127.0.0.1 --bus-port 8765
 ```
 
 The runner waits for typed `step` messages. For Phase 2 it supports:
@@ -97,8 +97,8 @@ After filling `orchestration/config.jsonc` and `orchestration/.secrets.jsonc`,
 seed a persistent profile for a side/account:
 
 ```bash
-node orchestration/setup-auth.mjs --role director --side A --account A --profile-dir orchestration/profiles/director
-node orchestration/setup-auth.mjs --role follower --side B --account B --profile-dir orchestration/profiles/follower
+deno task orchestrate:setup-auth -- --role director --side A --account A --profile-dir orchestration/profiles/director
+deno task orchestrate:setup-auth -- --role follower --side B --account B --profile-dir orchestration/profiles/follower
 ```
 
 The script launches the unpacked extension, opens the popup configuration view,
@@ -116,7 +116,7 @@ before launching a browser.
 If headed Chrome is not running on a real display, wrap the command with xvfb:
 
 ```bash
-xvfb-run -a -s "-screen 0 1280x1024x24" node orchestration/setup-auth.mjs --role director --side A --account A --profile-dir orchestration/profiles/director
+xvfb-run -a -s "-screen 0 1280x1024x24" deno task orchestrate:setup-auth -- --role director --side A --account A --profile-dir orchestration/profiles/director
 ```
 
 `Authentication failed before token was saved ... Login failed (400)` means the
@@ -130,7 +130,7 @@ After seeding the director and follower profiles, run the Phase 4 property-lock
 scenario with explicit profile dirs:
 
 ```bash
-xvfb-run -a -s "-screen 0 1280x1024x24" node orchestration/scenarios/property-lock-one-machine.mjs --property-url https://www.bonliva.no/ --cross-property-url https://prowork.se/ --director-profile-dir orchestration/profiles/director --follower-profile-dir orchestration/profiles/follower
+xvfb-run -a -s "-screen 0 1280x1024x24" deno task orchestrate:property-lock -- --property-url https://www.bonliva.no/ --cross-property-url https://prowork.se/ --director-profile-dir orchestration/profiles/director --follower-profile-dir orchestration/profiles/follower
 ```
 
 The scenario writes `summary.json` and `scenario.log` under

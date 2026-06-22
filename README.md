@@ -51,6 +51,15 @@ The dev watcher and one-shot builds share `scripts/build-extension.ts`, so copie
 `deno task lint` currently covers the Deno automation files that are lint-clean.
 `deno task verify` runs the type check, regression suite, and release build.
 
+Orchestration helpers are exposed as Deno tasks as well:
+
+```bash
+deno task orchestrate:bus -- --host 127.0.0.1 --port 8765
+deno task orchestrate:runner -- --role follower --side B
+deno task orchestrate:setup-auth -- --role director --side A --account A
+deno task orchestrate:property-lock -- --property-url https://example.com/
+```
+
 ## Features
 
 - **Content Labeling**: Mark elements as "excluded" to identify fluff (ads, banners, navigation, forms, footers, etc.), including generated default exclusions that render in the ordinary exclude overlay and submit as excluded rows
