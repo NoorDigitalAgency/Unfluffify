@@ -1,5 +1,5 @@
 {
-  "nodeModulesDir": "auto",
+  "nodeModulesDir": true,
   "tasks": {
     "package": "deno run -A ./scripts/package-extension.mjs --source-root dist/extension",
     "build:dev": "deno run -A ./scripts/build-extension.ts --dev",
