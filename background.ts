@@ -136,6 +136,7 @@ import { createTabInactivityObserver } from "./background/tab-inactivity-observe
 import { createAiRunOrchestrator } from "./background/ai-run-orchestrator.js";
 import { runBackgroundTask } from "./background/async-tasks.js";
 import { createManagedTimeoutGroup } from "./background/managed-timeouts.js";
+import { createSwKeepAlive } from "./background/sw-keepalive.js";
 import {
   aiComputeLockExpiresAtByTabId,
   disposeTabState,
@@ -738,6 +739,23 @@ const setAiComputeLockForTab = aiRunOrchestrator.setAiComputeLockForTab;
 const isAiComputeLockActiveForTab = aiRunOrchestrator.isAiComputeLockActiveForTab;
 const refreshAiRunHeartbeat = aiRunOrchestrator.refreshAiRunHeartbeat;
 const prepareAiRunPayloadSnapshot = aiRunOrchestrator.prepareAiRunPayloadSnapshot;
+
+// Keeps the MV3 service worker awake while long-lived work is in flight (AI run
+// poll loop, live property-lock connection) so an idle suspension cannot kill
+// the operation or its in-memory state when the side panel is closed.
+const swKeepAlive = createSwKeepAlive({
+  setIntervalRef: (callback, ms) => setInterval(callback, ms),
+  clearIntervalRef: (handle) => clearInterval(handle),
+  ping: () => {
+    try {
+      chrome.runtime.getPlatformInfo(() => {
+        void chrome.runtime.lastError;
+      });
+    } catch {
+      // The ping only needs to touch an extension API to reset the idle timer.
+    }
+  }
+});
 
 registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_BOOTSTRAP_CONTENT, async (context) => {
   const result = await ensureContentMainForTab(context.tabId);
@@ -1765,44 +1783,51 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_AI, async (context, payloa
     );
   }
 
-  return withBackgroundTabSpinner(
-    normalizedTabId,
-    {
-      key: `run-ai:${normalizedTabId}`,
-      message: "Preparing page content for AI...",
-      owner: SPINNER_OWNERS.POPUP,
-      reason: "tab-run-ai-preparing",
-      source: "background-command-router",
-      persistent: false
-    },
-  async ({ update }: TabOperationContext) => {
-      const result = await runAiCommandForTab(normalizedTabId, payload, update);
-      if (!result || !result.ok) {
-        return context.replyFail(
-          result && result.reason === "timed_out"
-            ? MESSAGE_ERROR_CODES.TIMEOUT
-            : MESSAGE_ERROR_CODES.HANDLER_FAILED,
-          (result && result.error) || "Unable to run AI",
-          {
-            tabId: normalizedTabId,
-            reason: result && result.reason ? result.reason : "handler_failed",
-            reconciliationPending: Boolean(result && result.reconciliationPending),
-            locked: Boolean(result && result.locked)
-          }
-        );
+  // Hold the service worker awake for the whole AI run so an idle suspension
+  // cannot kill the poll loop mid-run when the side panel is closed.
+  swKeepAlive.acquire();
+  try {
+    return await withBackgroundTabSpinner(
+      normalizedTabId,
+      {
+        key: `run-ai:${normalizedTabId}`,
+        message: "Preparing page content for AI...",
+        owner: SPINNER_OWNERS.POPUP,
+        reason: "tab-run-ai-preparing",
+        source: "background-command-router",
+        persistent: false
+      },
+    async ({ update }: TabOperationContext) => {
+        const result = await runAiCommandForTab(normalizedTabId, payload, update);
+        if (!result || !result.ok) {
+          return context.replyFail(
+            result && result.reason === "timed_out"
+              ? MESSAGE_ERROR_CODES.TIMEOUT
+              : MESSAGE_ERROR_CODES.HANDLER_FAILED,
+            (result && result.error) || "Unable to run AI",
+            {
+              tabId: normalizedTabId,
+              reason: result && result.reason ? result.reason : "handler_failed",
+              reconciliationPending: Boolean(result && result.reconciliationPending),
+              locked: Boolean(result && result.locked)
+            }
+          );
+        }
+        return {
+          ok: true,
+          tabId: normalizedTabId,
+          sessionId: result.sessionId,
+          selectorSet: result.selectorSet,
+          deadlineAt: result.deadlineAt,
+          siteId: result.siteId || null,
+          runtime: getTabRuntimeSnapshot(normalizedTabId),
+          state: await utils.getTabState(normalizedTabId)
+        };
       }
-      return {
-        ok: true,
-        tabId: normalizedTabId,
-        sessionId: result.sessionId,
-        selectorSet: result.selectorSet,
-        deadlineAt: result.deadlineAt,
-        siteId: result.siteId || null,
-        runtime: getTabRuntimeSnapshot(normalizedTabId),
-        state: await utils.getTabState(normalizedTabId)
-      };
-    }
-  );
+    );
+  } finally {
+    swKeepAlive.release();
+  }
 }, POPUP_TAB_COMMAND_POLICY);
 
 function maybeGetCommandPayloadForLedger(message: RuntimeMessage) {
