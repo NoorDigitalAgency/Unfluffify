@@ -589,7 +589,7 @@ test("popup blocks the interface with a spinner while page inspection is running
   assert.match(uiSource, /busyReason: isBusy && details && typeof details\.reason === "string" \? details\.reason : ""/);
   assert.match(uiSource, /console\.debug\("\[popup-blocker\]", eventName/);
   assert.match(uiSource, /const busyCopy = getBusyCurtainCopy\(view\);[\s\S]*?note: busyCopy\.note,[\s\S]*?reason: view\.busyReason \|\| "popup-busy"/);
-  assert.match(uiSource, /function getBusyCurtainCopy\(view\) \{/);
+  assert.match(uiSource, /function getBusyCurtainCopy\(view(?::\s*ViewState)?\) \{/);
   assert.match(uiSource, /reason === "popup-refresh"/);
   assert.match(uiSource, /reason === "render-mode-inspection-start"/);
   assert.match(uiSource, /reason === "tab-run-ai"/);
@@ -871,7 +871,7 @@ test("disabling marking with a pending session prompts to discard before exiting
   assert.match(enableBody, /if \(!confirmedDiscard\) \{[\s\S]*?uiModule\.setViewState\(\{ toggleEnabled: true \}\)[\s\S]*?setLastPopupEnabled\(true, buildPopupEnabledContext\(tab, state\.currentBaseUrl\)\)[\s\S]*?return;/);
   // OK discards locally, then falls through to disable.
   assert.match(enableBody, /showImmediateDisableSpinner\(\);[\s\S]*?await applyLocalPageDiscard\(\);/);
-  assert.match(enableBody, /desiredEnabled \? null : immediateDisableSpinnerKey,[\s\S]*?\{ delayMs: desiredEnabled \? POPUP_BUSY_OVERLAY_DELAY_MS : 0 \}/);
+  assert.match(enableBody, /desiredEnabled \? null : immediateDisableSpinnerKey,[\s\S]*?\{[\s\S]*?delayMs: desiredEnabled \? POPUP_BUSY_OVERLAY_DELAY_MS : 0[\s\S]*?\}/);
 });
 
 test("popup scopes optimistic enabled state to the current tab page and base URL", () => {

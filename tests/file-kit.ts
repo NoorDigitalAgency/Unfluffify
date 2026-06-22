@@ -23,10 +23,24 @@ export function existsSync(pathOrUrl: string | URL): boolean {
   }
 }
 
-export function readdirSync(pathOrUrl: string | URL): string[] {
-  const entries: string[] = [];
+interface DirentLike {
+  name: string;
+  isDirectory(): boolean;
+  isFile(): boolean;
+}
+
+export function readdirSync(pathOrUrl: string | URL, options: { withFileTypes?: boolean } = {}): string[] | DirentLike[] {
+  const entries: string[] | DirentLike[] = [];
   for (const entry of Deno.readDirSync(pathOrUrl)) {
-    entries.push(entry.name);
+    if (options.withFileTypes) {
+      (entries as DirentLike[]).push({
+        name: entry.name,
+        isDirectory: () => entry.isDirectory,
+        isFile: () => entry.isFile,
+      });
+      continue;
+    }
+    (entries as string[]).push(entry.name);
   }
   return entries;
 }

@@ -32,6 +32,23 @@ deno task build:release
 deno task package -- --stage-dir .tmp/extension-package
 ```
 
+## Development Workflow
+
+Common local commands:
+
+```bash
+deno task check
+deno task test
+deno task lint
+deno task build
+deno task dev
+deno task verify
+```
+
+`deno task dev` watches extension sources and rebuilds the development extension output under `dist/extension-dev`.
+`deno task lint` currently covers the Deno automation files that are lint-clean.
+`deno task verify` runs the type check, regression suite, and release build.
+
 ## Features
 
 - **Content Labeling**: Mark elements as "excluded" to identify fluff (ads, banners, navigation, forms, footers, etc.), including generated default exclusions that render in the ordinary exclude overlay and submit as excluded rows

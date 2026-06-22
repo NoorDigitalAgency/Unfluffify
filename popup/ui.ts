@@ -249,7 +249,7 @@ const initialViewState = {
   toastVisible: false
 };
 
-function getBusyCurtainCopy(view) {
+function getBusyCurtainCopy(view: ViewState) {
   const reason = typeof view.busyReason === "string" ? view.busyReason : "";
   const spinnerKey = typeof view.busySpinnerKey === "string" ? view.busySpinnerKey : "";
   const message = typeof view.busyMessage === "string" ? view.busyMessage : "";
