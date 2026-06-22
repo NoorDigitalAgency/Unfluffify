@@ -1,5 +1,5 @@
 #!/usr/bin/env -S deno run -A
-import { join, resolve } from "jsr:@std/path";
+import { join, resolve } from "@std/path";
 import { appendJsonLine, createRunId } from "./lib/artifacts.mjs";
 import {
   createRpcError,

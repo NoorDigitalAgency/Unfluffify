@@ -1,5 +1,5 @@
-import { assertEquals, assertMatch, assertNotMatch } from "jsr:@std/assert";
-import { beforeEach as bddBeforeEach, afterEach as bddAfterEach, test as bddTest } from "jsr:@std/testing/bdd";
+import { assertEquals, assertMatch, assertNotMatch } from "@std/assert";
+import { beforeEach as bddBeforeEach, afterEach as bddAfterEach, test as bddTest } from "@std/testing/bdd";
 
 function test(name: string | Deno.TestDefinition, fn?: Deno.TestDefinition["fn"]): void {
   if (typeof fn !== "function") {

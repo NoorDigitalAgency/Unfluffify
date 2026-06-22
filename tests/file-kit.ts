@@ -1,4 +1,4 @@
-import { basename, dirname, extname, fromFileUrl, join, normalize, relative, resolve } from "jsr:@std/path";
+import { basename, dirname, extname, fromFileUrl, join, normalize, relative, resolve } from "@std/path";
 
 export function readFileSync(pathOrUrl: string | URL, encoding = "utf8"): string {
   if (encoding && encoding !== "utf8") {

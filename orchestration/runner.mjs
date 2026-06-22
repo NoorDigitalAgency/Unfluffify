@@ -1,5 +1,5 @@
 #!/usr/bin/env -S deno run -A
-import { join } from "jsr:@std/path";
+import { join } from "@std/path";
 import { appendJsonLine, ensureRunDir } from "./lib/artifacts.mjs";
 import { ScenarioBusClient } from "./lib/bus-client.mjs";
 import { loadOrchestrationConfig, parseCliArgs } from "./lib/config.mjs";

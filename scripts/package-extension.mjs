@@ -1,4 +1,4 @@
-import { dirname, extname, fromFileUrl, join, normalize, resolve } from "jsr:@std/path";
+import { dirname, extname, fromFileUrl, join, normalize, resolve } from "@std/path";
 
 const SCRIPT_DIR = dirname(fromFileUrl(import.meta.url));
 const REPO_ROOT = resolve(SCRIPT_DIR, "..");

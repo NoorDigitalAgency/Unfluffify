@@ -1,5 +1,5 @@
 #!/usr/bin/env -S deno run -A
-import { basename } from "jsr:@std/path";
+import { basename } from "@std/path";
 import { loadOrchestrationConfig, parseCliArgs } from "./lib/config.mjs";
 import {
   loadOrchestrationSecrets,

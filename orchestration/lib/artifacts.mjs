@@ -1,4 +1,4 @@
-import { dirname, resolve } from "jsr:@std/path";
+import { dirname, resolve } from "@std/path";
 
 export function createRunId(date = new Date()) {
   return date.toISOString().replace(/[:.]/g, "-");
