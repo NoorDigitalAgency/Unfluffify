@@ -6708,13 +6708,26 @@ async function applyComputedSelectorSet(selectorSet, { currentPageUrl = "", toke
         ? previewStatePayload.items
         : []
     );
+    // The AI run is complete once the preview is shown. Clear the AI-run state
+    // and compute view fields now so the compute curtain (gated on
+    // computeButtonLoading, which getBlockingUiCurtainState checks before the
+    // preview state) drops immediately and reveals the preview sidebar, instead
+    // of masking it for the duration of the slow post-run refresh.
+    resetAiRunState();
     uiModule.setViewState({
       previewBlocked: true,
       previewActive: true,
       previewItems: immediatePreviewItems,
       previewFocusedXpath: "",
       previewShowAllCategories: false,
-      previewBlockedMessage: PopupText.preview.blockedActive
+      previewBlockedMessage: PopupText.preview.blockedActive,
+      computeButtonLoading: false,
+      computeButtonText: ViewText.computeButtonIdle,
+      aiControlsBusy: false,
+      aiRunSpinnerNote: "",
+      aiRunCountdownVisible: false,
+      aiRunDeadlineAt: 0,
+      aiRunPhase: ""
     });
   }
   updateLastConfigSaveStatus(PopupText.ai.selectorsComputedLocally);
@@ -7793,7 +7806,12 @@ async function init() {
               silentModeActive: false
             });
           }
-          await refreshUi();
+          // Refresh quietly: the marking/silent view is already rendered above,
+          // so the data refresh can settle underneath without raising the busy
+          // curtain. The content script is saturated restoring marking on exit,
+          // which made the default busy refresh hold a "Refreshing popup data..."
+          // curtain for many seconds on heavy pages.
+          await refreshUi({ useBusyOverlay: false });
         } catch {
           setPreviewBlocked(false);
         }
