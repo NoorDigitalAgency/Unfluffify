@@ -208,27 +208,28 @@ export const PopupText = Object.freeze({
 
   overlay: Object.freeze({
     loadingPopup: "Loading popup...", // Default busy-curtain message while the popup bootstraps.
-    loadingPopupAndPreparing: "Loading and preparing popup...", // Busy-curtain message used during full popup refresh.
-    pleaseWait: "Please wait...", // Generic fallback curtain title when no more specific progress text exists.
+    loadingPopupAndPreparing: "Refreshing popup data...", // Busy-curtain message used during full popup refresh.
+    pleaseWait: "Working...", // Generic fallback curtain title when no more specific progress text exists.
+    preparingRenderModeInspection: "Preparing render mode inspection...", // Busy message while the popup starts the render-mode inspection flow before the background reload takes over.
     previewHint: "The page is in preview mode. Exit preview to resume editing.", // Curtain hint shown while preview mode blocks the popup.
     busyHint: "Working... controls are temporarily blocked.", // Curtain hint shown for non-preview busy states.
-    computingSelectors: "Detecting contents...", // Busy-curtain message while the AI compute request is running.
-    computingSelectorsNote: "This may take a few minutes. Editing is paused while AI runs.", // Busy-curtain note shown while the async AI run is in progress.
+    computingSelectors: "Analyzing page content with AI...", // Busy-curtain message while the AI compute request is running.
+    computingSelectorsNote: "This can take up to 8 minutes. Editing stays paused until the AI run finishes.", // Busy-curtain note shown while the async AI run is in progress.
     submittingSelectors: "Sending to Lynx...", // Busy-curtain message while selectors are being submitted.
     workingWithAi: "Working with AI...", // Busy-curtain message for other AI-related actions.
-    applyingDeviceEmulation: "Applying device emulation...", // Busy-curtain message while device emulation is being applied.
-    detectingRenderMode: "Detecting render mode...", // Busy message while render-mode auto detection runs.
-    savingRenderMode: "Saving render mode...", // Busy message while a chosen render mode is persisted.
-    locatingElement: "Locating element...", // Busy message while the popup focuses an element on the page.
+    applyingDeviceEmulation: "Updating page preview mode...", // Busy-curtain message while device emulation is being applied.
+    detectingRenderMode: "Comparing rendered and raw HTML...", // Busy message while render-mode auto detection runs.
+    savingRenderMode: "Saving render mode for this site...", // Busy message while a chosen render mode is persisted.
+    locatingElement: "Scrolling to the selected element...", // Busy message while the popup focuses an element on the page.
     updatingExclusion: "Updating exclusion...", // Busy message while an explicit exclusion is removed.
     updatingInclusion: "Updating inclusion...", // Busy message while an explicit inclusion is removed.
-    enablingMarking: "Enabling marking...", // Busy message while page marking is enabled.
-    disablingMarking: "Disabling marking...", // Busy message while page marking is disabled.
-    pageInspection: "Inspecting page...", // Busy message while the page reveal inspection is in progress.
-    clearingCacheAndReloading: "Clearing cache and reloading page...", // Busy message while domain cache is cleared and the tab reloads.
-    unregisteringTabAndReloading: "Unregistering tab and reloading page...", // Busy message while the current tab is detached from the extension.
-    savingPage: "Saving session...", // Busy message while the local marking session is being saved.
-    revertingPage: "Discarding session..." // Busy message while the local marking session is discarded.
+    enablingMarking: "Preparing this page for marking...", // Busy message while page marking is enabled.
+    disablingMarking: "Turning off marking on this page...", // Busy message while page marking is disabled.
+    pageInspection: "Preparing page content...", // Busy message while the page reveal inspection is in progress.
+    clearingCacheAndReloading: "Clearing this site's cache and reloading...", // Busy message while domain cache is cleared and the tab reloads.
+    unregisteringTabAndReloading: "Disconnecting this tab and reloading...", // Busy message while the current tab is detached from the extension.
+    savingPage: "Saving this page session...", // Busy message while the local marking session is being saved.
+    revertingPage: "Discarding unsaved page changes..." // Busy message while the local marking session is discarded.
   }),
 
   renderMode: Object.freeze({

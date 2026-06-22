@@ -788,7 +788,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_ACTIVATE_MARKING, async (conte
     normalizedTabId,
     {
       key: `activate-marking:${normalizedTabId}`,
-      message: "Inspecting page...",
+      message: "Preparing this page for marking...",
       owner: SPINNER_OWNERS.POPUP,
       reason: "tab-activate-marking",
       source: "background-command-router",
@@ -797,7 +797,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_ACTIVATE_MARKING, async (conte
 // @ts-expect-error
     async ({ update }) => {
       await update({
-        message: "Applying device emulation...",
+        message: "Applying the marking page setup...",
         reason: "tab-activate-marking-device",
         source: "background-command-router"
       });
@@ -812,7 +812,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_ACTIVATE_MARKING, async (conte
       }
 
       await update({
-        message: "Inspecting page...",
+        message: "Preparing page content for marking...",
         reason: "tab-activate-marking-content",
         source: "background-command-router"
       });
@@ -841,7 +841,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_ACTIVATE_MARKING, async (conte
         kind: LIFECYCLE_KINDS.ACTIVATION,
         phase: LIFECYCLE_PHASES.STARTED,
         busy: true,
-        message: "Inspecting page..."
+        message: "Preparing page content for marking..."
       });
 
       const enableResponse = await sendContentMessageToTab(normalizedTabId, {
@@ -938,7 +938,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_DEACTIVATE_MARKING, async (con
     normalizedTabId,
     {
       key: `deactivate-marking:${normalizedTabId}`,
-      message: "Disabling marking...",
+      message: "Turning off marking on this page...",
       owner: SPINNER_OWNERS.POPUP,
       reason: "tab-deactivate-marking",
       source: "background-command-router",
@@ -947,7 +947,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_DEACTIVATE_MARKING, async (con
 // @ts-expect-error
     async ({ update }) => {
       await update({
-        message: "Disabling marking...",
+        message: "Returning this page to silent mode...",
         reason: "tab-deactivate-marking-content",
         source: "background-command-router"
       });
@@ -957,7 +957,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_DEACTIVATE_MARKING, async (con
         kind: LIFECYCLE_KINDS.MODE,
         phase: LIFECYCLE_PHASES.STARTED,
         busy: true,
-        message: "Disabling marking..."
+        message: "Turning off marking on this page..."
       });
 
       const existingState = await utils.getTabState(normalizedTabId);
@@ -1397,7 +1397,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
       operationId,
       kind: LIFECYCLE_KINDS.RENDER_MODE_INSPECTION,
       timeoutMs: RENDER_MODE_INSPECTION_OPERATION_TIMEOUT_MS,
-      message: "Inspecting page...",
+      message: "Capturing this page for render mode inspection...",
       spinner: {
         key: `render-mode-inspection:${normalizedTabId}`,
         owner: SPINNER_OWNERS.POPUP,
@@ -1547,7 +1547,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
         }
 
         await update({
-          message: "Inspecting page...",
+          message: "Reloading the page for render mode inspection...",
           reason: "tab-render-mode-reload",
           source: "background-command-router"
         });
@@ -1593,7 +1593,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
           captureResult = await captureRenderModeHtmlWithDebugger(normalizedTabId);
         } else {
           await update({
-            message: "Inspecting page...",
+            message: "Hiding consent overlays before capture...",
             reason: "tab-render-mode-consent",
             source: "background-command-router"
           });
@@ -1693,7 +1693,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_AI, async (context, payloa
     normalizedTabId,
     {
       key: `run-ai:${normalizedTabId}`,
-      message: "Computing selectors...",
+      message: "Analyzing page content with AI...",
       owner: SPINNER_OWNERS.POPUP,
       reason: "tab-run-ai",
       source: "background-command-router",
@@ -2153,7 +2153,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         spinnerTabId,
         {
           key: "clear-cache",
-          message: "Clearing cache...",
+          message: "Clearing this site's cache...",
           owner: SPINNER_OWNERS.POPUP,
           reason: "clear-cache",
           source: "background-command"
@@ -3106,7 +3106,7 @@ function restoreEnabledStateForTab(tabId, tabState, attempt = 0) {
     kind: LIFECYCLE_KINDS.ACTIVATION,
     phase: LIFECYCLE_PHASES.STARTED,
     busy: true,
-    message: "Inspecting page..."
+    message: "Preparing page content for marking..."
   });
   chrome.tabs.sendMessage(
     tabId,

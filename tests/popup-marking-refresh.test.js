@@ -588,7 +588,12 @@ test("popup blocks the interface with a spinner while page inspection is running
   assert.match(uiSource, /function setUiBusy\([\s\S]*?try \{[\s\S]*?setViewState\(patch\);[\s\S]*?\} catch[\s\S]*?syncBlockingUiCurtainDom\(\);/);
   assert.match(uiSource, /busyReason: isBusy && details && typeof details\.reason === "string" \? details\.reason : ""/);
   assert.match(uiSource, /console\.debug\("\[popup-blocker\]", eventName/);
-  assert.match(uiSource, /note: PopupText\.overlay\.busyHint,[\s\S]*?reason: view\.busyReason \|\| "popup-busy"/);
+  assert.match(uiSource, /const busyCopy = getBusyCurtainCopy\(view\);[\s\S]*?note: busyCopy\.note,[\s\S]*?reason: view\.busyReason \|\| "popup-busy"/);
+  assert.match(uiSource, /function getBusyCurtainCopy\(view\) \{/);
+  assert.match(uiSource, /reason === "popup-refresh"/);
+  assert.match(uiSource, /reason === "render-mode-inspection-start"/);
+  assert.match(uiSource, /reason === "tab-run-ai"/);
+  assert.match(uiSource, /spinnerKey === "navInspect" \|\| reason === "page-inspection-pending"/);
   assert.match(uiSource, /let lastPopupBlockerLogSignature = "";/);
   assert.match(
     uiSource,

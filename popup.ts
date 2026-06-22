@@ -4622,13 +4622,21 @@ async function refreshUiInner(options = {}) {
     : backgroundLifecycleBusy
 // @ts-expect-error
       ? normalizeSpinnerReason(popupBackgroundLifecycle.reason, popupBackgroundLifecycle.kind || "lifecycle", popupBackgroundLifecycle.message)
-      : "";
+  : remoteConfigRetryBlocked
+    ? "page-save-remote-config-retry"
+    : pageInspectionBusy
+      ? "page-inspection-pending"
+  : "";
 // @ts-expect-error
-  nextViewState.busySource = popupBusyActive
-    ? (popupSpinnerSnapshot?.entry?.source || "popup-spinner")
-    : backgroundLifecycleBusy
-      ? "background-lifecycle"
-      : "";
+nextViewState.busySource = popupBusyActive
+? (popupSpinnerSnapshot?.entry?.source || "popup-spinner")
+: backgroundLifecycleBusy
+  ? "background-lifecycle"
+  : remoteConfigRetryBlocked
+    ? "popup-page-save"
+    : pageInspectionBusy
+      ? "popup-runtime-status"
+  : "";
 // @ts-expect-error
   nextViewState.busySpinnerKey = popupBusyActive
     ? (popupSpinnerSnapshot?.key || "")
@@ -4941,7 +4949,9 @@ async function refreshUi(options = {}) {
       () => refreshUiInner(refreshOptions),
       {
         delayMs: POPUP_BUSY_OVERLAY_DELAY_MS,
-        suppressIfActive: true
+        suppressIfActive: true,
+        reason: "popup-refresh",
+        source: "popup-refresh"
       }
     )
     : await refreshUiInner(refreshOptions);
@@ -5137,7 +5147,7 @@ async function runRenderModeInspectionReload(javaScriptDisabled) {
   const operationId = `render-mode-inspection:${tabId}:${Date.now()}`;
 
   try {
-    await runWithSpinner(null, PopupText.overlay.pleaseWait, async () => {
+    await runWithSpinner(null, PopupText.overlay.preparingRenderModeInspection, async () => {
       state.renderModeInspectionActive = true;
       try {
         const inspectionResponse = await messages.requestTabRunRenderModeInspection(tabId, {
@@ -5191,6 +5201,9 @@ async function runRenderModeInspectionReload(javaScriptDisabled) {
         state.renderModeInspectionActive = false;
         uiModule.setViewState(buildPropertyLockViewState());
       }
+    }, {
+      reason: "render-mode-inspection-start",
+      source: "popup-render-mode"
     });
   } finally {
     scheduleStaleInspectionBusyClear(tabId, state.currentBaseUrl, {
@@ -5405,6 +5418,9 @@ async function handleRenderModeSet() {
         ? PopupText.renderMode.toastSetRendered
         : PopupText.renderMode.toastSetStatic
     );
+  }, {
+    reason: "render-mode-save",
+    source: "popup-render-mode"
   });
 }
 
@@ -5703,7 +5719,11 @@ async function handleExplicitExcludeView(xpath) {
     if (!response || !response.ok) {
       uiModule.showToast(PopupText.explicitSelection.focusFailed);
     }
-  }, { delayMs: POPUP_BUSY_OVERLAY_DELAY_MS });
+  }, {
+    delayMs: POPUP_BUSY_OVERLAY_DELAY_MS,
+    reason: "locate-explicit-exclusion",
+    source: "popup-explicit-selection"
+  });
 }
 
 // @ts-expect-error
@@ -5740,7 +5760,11 @@ async function handleExplicitIncludeView(xpath) {
     if (!response || !response.ok) {
       uiModule.showToast(PopupText.explicitSelection.focusFailed);
     }
-  }, { delayMs: POPUP_BUSY_OVERLAY_DELAY_MS });
+  }, {
+    delayMs: POPUP_BUSY_OVERLAY_DELAY_MS,
+    reason: "locate-explicit-inclusion",
+    source: "popup-explicit-selection"
+  });
 }
 
 // @ts-expect-error
@@ -6054,7 +6078,11 @@ async function handleEnableToggle(event) {
         }
         await refreshUi();
       },
-      { delayMs: desiredEnabled ? POPUP_BUSY_OVERLAY_DELAY_MS : 0 }
+      {
+        delayMs: desiredEnabled ? POPUP_BUSY_OVERLAY_DELAY_MS : 0,
+        reason: desiredEnabled ? "marking-enable" : "marking-disable",
+        source: "popup-marking-toggle"
+      }
     );
     immediateDisableSpinnerKey = null;
   } finally {
@@ -6136,7 +6164,11 @@ async function handleDesktopPreviewEnabledToggle(event) {
       await persistDesktopPreviewEnabled(tab.id, desiredEnabled);
       await refreshUi({ useBusyOverlay: false, skipPropertyLockFetch: true });
     },
-    { delayMs: POPUP_BUSY_OVERLAY_DELAY_MS }
+    {
+      delayMs: POPUP_BUSY_OVERLAY_DELAY_MS,
+      reason: "desktop-preview-toggle",
+      source: "popup-device-emulation"
+    }
   );
 }
 
@@ -6219,7 +6251,10 @@ async function handleClearDomainCache() {
   if (!confirmed) {
     return;
   }
-  const clearCacheSpinnerKey = pushSpinner(null, PopupText.overlay.clearingCacheAndReloading);
+  const clearCacheSpinnerKey = pushSpinner(null, PopupText.overlay.clearingCacheAndReloading, {
+    reason: "clear-cache",
+    source: "popup-cache-tools"
+  });
   state.clearDomainCacheDisabled = true;
   uiModule.setViewState({ clearDomainCacheDisabled: true });
   try {
@@ -6261,7 +6296,10 @@ async function handleUnregisterCurrentTab() {
   if (!confirmed) {
     return;
   }
-  const unregisterSpinnerKey = pushSpinner(null, PopupText.overlay.unregisteringTabAndReloading);
+  const unregisterSpinnerKey = pushSpinner(null, PopupText.overlay.unregisteringTabAndReloading, {
+    reason: "unregister-tab",
+    source: "popup-cache-tools"
+  });
   state.unregisterCurrentTabDisabled = true;
   uiModule.setViewState({ unregisterCurrentTabDisabled: true });
   try {
