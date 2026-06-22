@@ -142,6 +142,7 @@ class PropertyLockConnectionRuntime {
   lastActivityAt: number;
   reconnectAttempts: number;
   pendingSuggestions: Map<string, TakeoverSuggestionEntry>;
+  keepAliveHeld: boolean;
 
   constructor(siteId: number | null, clientId: string) {
     this.siteId = siteId;
@@ -165,6 +166,7 @@ class PropertyLockConnectionRuntime {
     this.lastActivityAt = 0;
     this.reconnectAttempts = 0;
     this.pendingSuggestions = new Map(); // suggestionId → {fromName, createdAt}
+    this.keepAliveHeld = false;
   }
 
   dispose() {
@@ -209,6 +211,35 @@ const contentScriptPorts = new Map<number, PortEntry>(); // portId → {port, si
 let portIdCounter = 0;
 const PROPERTY_LOCK_FEATURE_NAME = "propertyLockCollaboration";
 
+/** Optional service-worker keepalive injected by the background entry point. */
+interface PropertyLockKeepAlive {
+  acquire: () => void;
+  release: () => void;
+}
+let propertyLockKeepAlive: PropertyLockKeepAlive | null = null;
+
+/**
+ * Hold the service-worker keepalive for the lifetime of an active connection
+ * runtime so an idle suspension cannot tear down the live WebSocket and its
+ * heartbeat/reconnect timers. Refcounted once per runtime via keepAliveHeld so
+ * reconnects never double-acquire.
+ */
+function holdKeepAliveForRuntime(runtime: PropertyLockConnectionRuntime): void {
+  if (!propertyLockKeepAlive || runtime.keepAliveHeld) {
+    return;
+  }
+  runtime.keepAliveHeld = true;
+  propertyLockKeepAlive.acquire();
+}
+
+function releaseKeepAliveForRuntime(runtime: PropertyLockConnectionRuntime): void {
+  if (!propertyLockKeepAlive || !runtime.keepAliveHeld) {
+    return;
+  }
+  runtime.keepAliveHeld = false;
+  propertyLockKeepAlive.release();
+}
+
 function buildDisabledPropertyLockResponse() {
   return {
     ok: false,
@@ -240,6 +271,7 @@ function disposeAllPropertyLockConnections() {
   }
   for (const [connectionKey, runtime] of lockConnections.entries()) {
     if (runtime) {
+      releaseKeepAliveForRuntime(runtime);
       runtime.dispose();
     }
     lockConnections.delete(connectionKey);
@@ -341,6 +373,7 @@ function releaseAndDisposeConnection(connectionKey: string, options: { releaseLo
   if (releaseLock && runtime.isConnected && runtime.socket && runtime.state && runtime.state.isEditor) {
     sendToServer(runtime, createClientPayload(runtime, PROPERTY_LOCK_WS_RELEASE_LOCK));
   }
+  releaseKeepAliveForRuntime(runtime);
   runtime.dispose();
   lockConnections.delete(connectionKey);
 }
@@ -349,7 +382,10 @@ function releaseAndDisposeConnection(connectionKey: string, options: { releaseLo
  * Initialize property lock background module.
  * Sets up port listener for content script connections.
  */
-export function initPropertyLockBackground() {
+export function initPropertyLockBackground(
+  options: { keepAlive?: PropertyLockKeepAlive } = {}
+) {
+  propertyLockKeepAlive = options.keepAlive || null;
   if (!ensurePropertyLockBackgroundActive()) {
     return;
   }
@@ -658,6 +694,7 @@ function ensureConnectionForClient(siteId: number | null, clientId: string) {
 
   runtime = new PropertyLockConnectionRuntime(siteId, clientId);
   lockConnections.set(connectionKey, runtime);
+  holdKeepAliveForRuntime(runtime);
 
   connectWebSocket(runtime);
   return runtime;

@@ -2178,7 +2178,7 @@ chrome.runtime.onConnect.addListener((port) => {
 });
 
 if (isFeatureEnabled("propertyLockCollaboration")) {
-  initPropertyLockBackground();
+  initPropertyLockBackground({ keepAlive: swKeepAlive });
 }
 console.info("Unfluffify background worker ready");
 
