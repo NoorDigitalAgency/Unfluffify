@@ -826,16 +826,6 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_ACTIVATE_MARKING, async (conte
         );
       }
 
-      await utils.setTabState(normalizedTabId, {
-        enabled: true,
-        baseUrl,
-        pageType
-      });
-      updateTabRuntime(normalizedTabId, {
-        contentReady: true,
-        mode: "marking"
-      });
-
       updateLifecycleState(normalizedTabId, {
         operationId,
         kind: LIFECYCLE_KINDS.ACTIVATION,
@@ -885,6 +875,16 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_ACTIVATE_MARKING, async (conte
           { tabId: normalizedTabId }
         );
       }
+
+      await utils.setTabState(normalizedTabId, {
+        enabled: true,
+        baseUrl,
+        pageType
+      });
+      updateTabRuntime(normalizedTabId, {
+        contentReady: true,
+        mode: "marking"
+      });
 
       updateLifecycleState(normalizedTabId, {
         operationId,

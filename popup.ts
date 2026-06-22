@@ -5932,7 +5932,9 @@ async function handleEnableToggle(event) {
     clearImmediateDisableSpinner();
     return;
   }
-  uiModule.setViewState({ toggleEnabled: desiredEnabled });
+  if (!desiredEnabled) {
+    uiModule.setViewState({ toggleEnabled: false });
+  }
   if (!helpers.ensureBaseUrl(ViewText.noMappedBaseUrlOrSiteId)) {
     uiModule.setViewState({ toggleEnabled: false });
     clearLastPopupEnabled();
@@ -5990,7 +5992,9 @@ async function handleEnableToggle(event) {
       showImmediateDisableSpinner();
       await applyLocalPageDiscard();
     }
-    setLastPopupEnabled(desiredEnabled, buildPopupEnabledContext(tab, state.currentBaseUrl));
+    if (!desiredEnabled) {
+      setLastPopupEnabled(false, buildPopupEnabledContext(tab, state.currentBaseUrl));
+    }
     const baseUrlValue = state.currentBaseUrl;
     const currentPageTypeKey = desiredEnabled ? state.currentPageTypeKey || "" : "";
     await runWithSpinner(
@@ -6068,6 +6072,7 @@ async function handleEnableToggle(event) {
           // Fresh entry into marking mode: Run AI starts enabled (no successful
           // run yet for the current markings), Save/Preview start disabled.
           resetAiRunMarkingsFingerprint();
+          setLastPopupEnabled(true, buildPopupEnabledContext(tab, state.currentBaseUrl));
         } else {
           const disableResponse = await messages.requestTabDeactivateMarking(tab.id, {
             baseUrl: baseUrlValue,

@@ -10,6 +10,10 @@ const transferPayloadStoreSource = readFileSync(
   new URL("../background/transfer-payload-store.ts", import.meta.url),
   "utf8"
 );
+const contentCoreSource = readFileSync(
+  new URL("../content/core.ts", import.meta.url),
+  "utf8"
+);
 
 function extractFunctionBody(source, startNeedle, endNeedle) {
   const start = source.indexOf(startNeedle);
@@ -90,4 +94,35 @@ test("setReloadRestoreTabState is fully removed from background.js (auto-restore
     0,
     `expected setReloadRestoreTabState to be removed; saw ${callMatches.length} occurrences`
   );
+});
+
+test("fresh marking enable clears stale current-page draft state", () => {
+  const enableBody = extractFunctionBody(
+    contentCoreSource,
+    "export async function enableForBaseUrl",
+    "export function handleBeforeUnload"
+  );
+  const resetHelperBody = extractFunctionBody(
+    contentCoreSource,
+    "function removePageMarkingEntriesForPage",
+    "// Write an entry into a pageMarkings object"
+  );
+
+  assert.match(enableBody, /state\.config = await config\.updateConfig\(normalizedBaseUrl, \(targetConfig(?::\s*unknown)?\) => \{/);
+  assert.match(enableBody, /removePageMarkingEntriesForPage\(targetConfig, pageUrl, normalizedBaseUrl\);/);
+  assert.match(enableBody, /await config\.clearPageSaveReconciliation\(normalizedBaseUrl, pageUrl\);/);
+  assert.match(enableBody, /state\.pageSaveReconciliation = null;/);
+  assert.match(enableBody, /state\.pendingFreshBaselinePageUrl = pageUrl;/);
+  assert.ok(
+    enableBody.indexOf("state.enabled = true;") >
+      enableBody.indexOf("await refreshPageSaveReconciliation(normalizedBaseUrl, pageUrl);"),
+    "content should not report marking enabled until stale dirty state is cleared"
+  );
+  assert.doesNotMatch(enableBody, /delete state\.config\.pageMarkings\[pageUrl\]/);
+
+  assert.match(resetHelperBody, /const targetLooseKey = toLooseUrlKey\(pageUrl, lookupBaseUrl\);/);
+  assert.match(resetHelperBody, /url === pageUrl/);
+  assert.match(resetHelperBody, /toLooseUrlKey\(url, lookupBaseUrl\) === targetLooseKey/);
+  assert.match(resetHelperBody, /delete pageMarkings\[url\];/);
+  assert.match(resetHelperBody, /pageMarkingEntryLookupCache\.delete\(pageMarkings\);/);
 });
