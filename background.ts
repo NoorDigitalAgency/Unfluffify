@@ -701,6 +701,8 @@ async function refineXPathEntriesViaOffscreen(
     ) {
       return (response as { items: unknown[] }).items;
     }
+    // Offscreen returned an unexpected or error response; ensure the stored payload is cleaned up.
+    await removeTransferPayload(stored.payloadKey);
   } catch {
     // Refinement is best-effort; fall back to the unrefined entries below.
   }
