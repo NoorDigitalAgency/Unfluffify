@@ -16,6 +16,9 @@ type ConfigUpdatedHandlerDeps = {
   setSavedPageEntry: (pageUrl: string, entry: ConfigUpdatedEntry | null) => void;
   setCurrentPageType: (pageType: string) => void;
   getCurrentPageType: () => string;
+  clearPageSaveReconciliation: (baseUrl: string, pageUrl: string) => Promise<void>;
+  clearPageDraftBaseline: (pageUrl: string) => void;
+  refreshPageSaveReconciliation: (baseUrl: string, pageUrl: string) => Promise<unknown>;
   refreshEnabledAiHighlights: () => void;
   runPropertyLockSync: (options: { forceSiteIdRefresh: boolean }) => void;
   scheduleRender: () => void;
@@ -70,6 +73,12 @@ export function createConfigUpdatedHandler(deps: ConfigUpdatedHandlerDeps) {
           deps.mergeDraftEntry(loadedConfig, pageUrl, draftEntry, savedEntry);
         } else {
           const reloadedEntry = backendEntry || loadedEntry || null;
+          if (reloadedEntry) {
+            await deps.refreshPageSaveReconciliation(baseUrl, pageUrl);
+          } else {
+            await deps.clearPageSaveReconciliation(baseUrl, pageUrl);
+            deps.clearPageDraftBaseline(pageUrl);
+          }
           deps.setSavedPageEntry(pageUrl, reloadedEntry);
           const nextPageType =
             (reloadedEntry && typeof reloadedEntry.pageType === "string" && reloadedEntry.pageType) ||

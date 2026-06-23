@@ -45,6 +45,8 @@ type NormalizedConfigResult = {
   changed: boolean;
 };
 
+const replaceOwnerByBaseUrl = new Map<string, number>();
+
 function normalizeConfigResult(baseUrl: string, incoming: unknown): NormalizedConfigResult {
   return configStore.normalizeConfig(baseUrl, incoming) as NormalizedConfigResult;
 }
@@ -141,6 +143,11 @@ export function getNormalizedPageEntrySignature(pageUrl: unknown, entry: unknown
 
 export async function replaceServerConfigIntoLocalSnapshot(options = {}) {
   const optionsAny = options as RemoteConfigSyncOptions;
+  const shouldContinue =
+    typeof optionsAny.shouldContinue === "function"
+      ? optionsAny.shouldContinue as () => boolean
+      : () => true;
+  const requestId = Number.isFinite(optionsAny.requestId) ? Math.trunc(optionsAny.requestId as number) : 0;
   const payloadKey = typeof optionsAny.payloadKey === "string" ? optionsAny.payloadKey.trim() : "";
   let rawPayload = optionsAny.payload;
   if (payloadKey) {
@@ -163,7 +170,26 @@ export async function replaceServerConfigIntoLocalSnapshot(options = {}) {
 
   const baseUrl = normalizedPayload.baseUrl;
   const allConfigs = (await configStore.getConfigs()) as StoredConfigs;
+  if (!shouldContinue()) {
+    return {
+      ok: false,
+      skipped: true,
+      changed: false,
+      replacedCurrentPage: false,
+      baseUrl: ""
+    };
+  }
   const existingRaw = allConfigs[baseUrl];
+  const existingBackendSavedPageMarkings = await configStore.getBackendSavedPageMarkings(baseUrl);
+  if (!shouldContinue()) {
+    return {
+      ok: false,
+      skipped: true,
+      changed: false,
+      replacedCurrentPage: false,
+      baseUrl: ""
+    };
+  }
   const existingConfig = normalizeConfigResult(baseUrl, existingRaw).config;
   const normalizedIncomingSiteId = normalizeSiteIdValue(normalizedPayload.siteId);
   const fallbackSiteId = normalizeSiteIdValue(optionsAny.siteId);
@@ -189,12 +215,63 @@ export async function replaceServerConfigIntoLocalSnapshot(options = {}) {
       getNormalizedPageEntrySignature(currentPageUrl, existingConfig.pageMarkings?.[currentPageUrl]) !==
         getNormalizedPageEntrySignature(currentPageUrl, nextConfig.pageMarkings?.[currentPageUrl])
   );
+  const restorePreviousSnapshot = async (options: { expectBackendSavedApplied: boolean }) => {
+    if ((replaceOwnerByBaseUrl.get(baseUrl) || 0) !== requestId) {
+      return;
+    }
+    const restoreConfigs = (await configStore.getConfigs()) as StoredConfigs;
+    const currentConfig = restoreConfigs[baseUrl]
+      ? normalizeConfigResult(baseUrl, restoreConfigs[baseUrl]).config
+      : null;
+    if (JSON.stringify(currentConfig) !== JSON.stringify(nextConfig)) {
+      return;
+    }
+    if (options.expectBackendSavedApplied) {
+      const currentBackendSavedPageMarkings = await configStore.getBackendSavedPageMarkings(baseUrl);
+      if (JSON.stringify(currentBackendSavedPageMarkings || {}) !== JSON.stringify(nextConfig.pageMarkings || {})) {
+        return;
+      }
+    }
+    if (existingRaw === undefined) {
+      delete restoreConfigs[baseUrl];
+    } else {
+      restoreConfigs[baseUrl] = existingRaw;
+    }
+    await configStore.saveConfigs(restoreConfigs);
+    await configStore.setBackendSavedPageMarkings(baseUrl, existingBackendSavedPageMarkings);
+  };
 
   if (!existingRaw || changed) {
+    if (requestId) {
+      replaceOwnerByBaseUrl.set(baseUrl, requestId);
+    }
     allConfigs[baseUrl] = nextConfig;
     await configStore.saveConfigs(allConfigs);
+    if (!shouldContinue()) {
+      await restorePreviousSnapshot({ expectBackendSavedApplied: false });
+      return {
+        ok: false,
+        skipped: true,
+        changed: false,
+        replacedCurrentPage: false,
+        baseUrl: ""
+      };
+    }
   }
   await configStore.setBackendSavedPageMarkings(baseUrl, nextConfig.pageMarkings);
+  if (!shouldContinue()) {
+    await restorePreviousSnapshot({ expectBackendSavedApplied: true });
+    return {
+      ok: false,
+      skipped: true,
+      changed: false,
+      replacedCurrentPage: false,
+      baseUrl: ""
+    };
+  }
+  if ((replaceOwnerByBaseUrl.get(baseUrl) || 0) === requestId) {
+    replaceOwnerByBaseUrl.delete(baseUrl);
+  }
 
   return {
     ok: true,

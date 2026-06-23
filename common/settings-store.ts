@@ -5,7 +5,8 @@ const GLOBAL_AI_SETTINGS_SYNC_DEFAULTS = {
   globalToken: "",
   globalEndpoint: "",
   globalConfigEndpoint: "",
-  globalStageBase: ""
+  globalStageBase: "",
+  globalAuthContextVersion: ""
 } satisfies Record<string, string>;
 const GLOBAL_THEME_SETTINGS_SYNC_DEFAULTS = {
   globalTheme: "",
@@ -85,7 +86,8 @@ function hasRelevantSyncSettingsChange(changes: unknown): boolean {
     "globalToken",
     "globalEndpoint",
     "globalConfigEndpoint",
-    "globalStageBase"
+    "globalStageBase",
+    "globalAuthContextVersion"
   ].some((key) => Object.prototype.hasOwnProperty.call(changes, key));
 }
 
@@ -107,6 +109,12 @@ async function getGlobalSettingsWriteSnapshot(): Promise<GlobalSettingsWriteSnap
     configEndpointValue: normalizeStringValue(stored.globalConfigEndpoint),
     stageBaseValue: normalizeStringValue(stored.globalStageBase)
   };
+}
+
+async function bumpGlobalAuthContextVersion(): Promise<string> {
+  const nextValue = String(Date.now());
+  await storageSet(chrome.storage.sync, { globalAuthContextVersion: nextValue });
+  return nextValue;
 }
 
 function installSyncSettingsCacheInvalidationListener() {
@@ -180,6 +188,7 @@ export async function setGlobalToken(tokenValue: unknown): Promise<string> {
 
 export async function clearGlobalToken(): Promise<void> {
   await setGlobalToken("");
+  await bumpGlobalAuthContextVersion();
 }
 
 export async function saveLoginSettings(
@@ -189,7 +198,8 @@ export async function saveLoginSettings(
   const tokenValue = normalizeStoredTokenValue(options.token);
   await storageSet(chrome.storage.sync, {
     globalStageBase: stageBaseValue,
-    globalToken: tokenValue
+    globalToken: tokenValue,
+    globalAuthContextVersion: String(Date.now())
   });
   updateCachedGlobalAiSettings({
     stageBaseValue,
@@ -217,7 +227,8 @@ export async function saveGlobalConfigEndpoint(endpointValue: unknown): Promise<
   const nextTokenValue = tokenCleared ? "" : stored.tokenValue;
   await storageSet(chrome.storage.sync, {
     globalConfigEndpoint: nextEndpointValue,
-    globalToken: nextTokenValue
+    globalToken: nextTokenValue,
+    ...(tokenCleared ? { globalAuthContextVersion: String(Date.now()) } : {})
   });
   updateCachedGlobalAiSettings({
     configEndpointValue: nextEndpointValue,
@@ -246,7 +257,8 @@ export async function saveGlobalEndpoint(endpointValue: unknown): Promise<{
   const nextTokenValue = tokenCleared ? "" : stored.tokenValue;
   await storageSet(chrome.storage.sync, {
     globalEndpoint: nextEndpointValue,
-    globalToken: nextTokenValue
+    globalToken: nextTokenValue,
+    ...(tokenCleared ? { globalAuthContextVersion: String(Date.now()) } : {})
   });
   updateCachedGlobalAiSettings({
     endpointValue: nextEndpointValue,
@@ -271,7 +283,8 @@ export async function saveGlobalStageBase(stageBaseValue: unknown): Promise<{
   const nextTokenValue = tokenCleared ? "" : stored.tokenValue;
   await storageSet(chrome.storage.sync, {
     globalStageBase: nextStageBaseValue,
-    globalToken: nextTokenValue
+    globalToken: nextTokenValue,
+    ...(tokenCleared ? { globalAuthContextVersion: String(Date.now()) } : {})
   });
   updateCachedGlobalAiSettings({
     stageBaseValue: nextStageBaseValue,

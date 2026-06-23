@@ -328,10 +328,12 @@ const RENDER_MODE_UNDETERMINED = "undetermined";
 const RETRYABLE_HTTP_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PROPERTY_PAGE_TYPES_REFRESH_INTERVAL_MS = 120 * 1000;
-const OBSERVER_REMOTE_CONFIG_REFRESH_INTERVAL_MS = 60 * 1000;
 const TODO_EXPANSION_CONTEXT_LIMIT = 200;
 const GLOBAL_THEME_KEY = "globalTheme";
 const GLOBAL_THEME_MODE_KEY = "globalThemeMode";
+const GLOBAL_AUTH_CONTEXT_VERSION_KEY = "globalAuthContextVersion";
+const GLOBAL_STAGE_BASE_KEY = "globalStageBase";
+const GLOBAL_CONFIG_ENDPOINT_KEY = "globalConfigEndpoint";
 const THEME_DEFAULT = "nordic";
 const THEME_MODE_DEFAULT = "system";
 const THEME_MODE_SYSTEM = "system";
@@ -2692,6 +2694,34 @@ function clearRemoteConfigRetryTimer() {
   state.remoteConfigConnectionRetryTimer = 0;
 }
 
+function clearRemoteConfigLoadCacheForTab(tabId: unknown) {
+  const normalizedTabId = Number.isFinite(tabId) ? Math.trunc(tabId as number) : 0;
+  if (!normalizedTabId) {
+    return;
+  }
+  const fenceRequestId = state.remoteConfigLoadRequestCounter + 1;
+  state.remoteConfigLoadRequestCounter = fenceRequestId;
+  state.remoteConfigTabFenceByTabId.set(normalizedTabId, fenceRequestId);
+  for (const key of state.remoteConfigLoadResultByKey.keys()) {
+    if (key.startsWith(`${normalizedTabId}|`)) {
+      state.remoteConfigLoadResultByKey.delete(key);
+    }
+  }
+  for (const key of state.remoteConfigLatestRequestIdByPageLoadKey.keys()) {
+    if (key.startsWith(`${normalizedTabId}|`)) {
+      state.remoteConfigLatestRequestIdByPageLoadKey.delete(key);
+    }
+  }
+}
+
+function clearRemoteConfigLoadCache() {
+  const fenceRequestId = state.remoteConfigLoadRequestCounter + 1;
+  state.remoteConfigLoadRequestCounter = fenceRequestId;
+  state.remoteConfigGlobalFenceRequestId = fenceRequestId;
+  state.remoteConfigLoadResultByKey.clear();
+  state.remoteConfigLatestRequestIdByPageLoadKey.clear();
+}
+
 // @ts-expect-error
 function setRemoteConfigConnectionIssue(active) {
   const nextActive = Boolean(active);
@@ -2704,33 +2734,6 @@ function setRemoteConfigConnectionIssue(active) {
 // @ts-expect-error
 function setPreviewBlocked(active, message = ViewText.previewBlockedDefault) {
   uiModule.setPreviewBlocked(active, message);
-}
-
-function clearObserverRemoteConfigRefreshTimer() {
-  if (!state.observerRemoteConfigRefreshTimer) {
-    return;
-  }
-  window.clearInterval(state.observerRemoteConfigRefreshTimer);
-  state.observerRemoteConfigRefreshTimer = 0;
-}
-
-// @ts-expect-error
-function syncObserverRemoteConfigRefreshTimer(active) {
-  if (!active) {
-    clearObserverRemoteConfigRefreshTimer();
-    return;
-  }
-  if (state.observerRemoteConfigRefreshTimer) {
-    return;
-  }
-  state.observerRemoteConfigRefreshTimer = window.setInterval(() => {
-    helpers.ensureActiveTab().then(() =>
-      refreshUi({
-        useBusyOverlay: false,
-        remoteConfigLoadMode: "observer_poll"
-      })
-    ).catch(() => {});
-  }, OBSERVER_REMOTE_CONFIG_REFRESH_INTERVAL_MS);
 }
 
 // @ts-expect-error
@@ -2764,6 +2767,7 @@ function updateLoginActionState(patch = {}) {
 
 async function invalidateTokenAndLockConfiguration(showToast = true) {
   await clearGlobalToken();
+  clearRemoteConfigLoadCache();
   state.currentView = uiModule.View.Configuration;
   state.configViewLocked = true;
   uiModule.setViewState({
@@ -3072,11 +3076,6 @@ async function refreshUiInner(options = {}) {
   const skipPropertyLockFetch = Boolean(options.skipPropertyLockFetch);
 // @ts-expect-error
   const propertyPageTypesRefreshChanged = Boolean(options.propertyPageTypesRefreshChanged);
-// @ts-expect-error
-  const remoteConfigLoadMode = typeof options.remoteConfigLoadMode === "string"
-// @ts-expect-error
-    ? options.remoteConfigLoadMode
-    : "";
   if (!state.currentTab) {
     return;
   }
@@ -3094,8 +3093,11 @@ async function refreshUiInner(options = {}) {
     clearLastPopupEnabled();
   }
   const pageUrl = state.currentTab.url || "";
-  if (pageUrl !== state.lastPopupPageUrl) {
+  if (!tabChanged && pageUrl !== state.lastPopupPageUrl) {
     clearLastPopupEnabled();
+    if (currentTabId) {
+      clearRemoteConfigLoadCacheForTab(currentTabId);
+    }
     state.remoteConfigLoadKey = "";
     state.remoteConfigLoadResult = null;
     state.renderModeDetectionInFlight = false;
@@ -3371,8 +3373,7 @@ async function refreshUiInner(options = {}) {
           siteId: currentSiteId,
           endpointValue: configEndpointValue,
           tokenValue,
-          force: shouldBootstrapEditorConfig || remoteConfigLoadMode === "observer_poll",
-          notifyOnChange: remoteConfigLoadMode === "observer_poll"
+          force: shouldBootstrapEditorConfig
         });
         if (shouldBootstrapEditorConfig) {
           state.propertyLockEditorBootstrapPending = false;
@@ -3383,7 +3384,13 @@ async function refreshUiInner(options = {}) {
       } else {
         remoteLoadResult = { status: "skipped_missing_config", baseUrl: state.currentBaseUrl };
       }
-      if (remoteLoadResult && remoteLoadResult.status === "ok") {
+      if (
+        remoteLoadResult &&
+        (
+          remoteLoadResult.status === "ok" ||
+          remoteLoadResult.status === "not_found"
+        )
+      ) {
         configs = await config.getConfigs();
 // @ts-expect-error
         if (state.currentBaseUrl && configs[state.currentBaseUrl]) {
@@ -3954,17 +3961,6 @@ async function refreshUiInner(options = {}) {
   );
   const hasStoredCurrentPageEntry = localStoredPageMarkingItems.some(
     (item) => normalizeCandidatePageUrl(item.url) === normalizedCurrentPageUrl
-  );
-  syncObserverRemoteConfigRefreshTimer(
-    Boolean(
-      propertyLockScopeSiteId &&
-        state.currentBaseUrl &&
-        configEndpointValue &&
-        tokenValue &&
-        state.propertyLockSiteId === propertyLockScopeSiteId &&
-        state.propertyLockState &&
-        !state.propertyLockState.isEditor
-    )
   );
   syncPropertyLockOffCandidateRefreshTimer(
     Boolean(
@@ -4991,12 +4987,7 @@ async function refreshUi(options = {}) {
 // @ts-expect-error
     skipPropertyLockFetch: Boolean(options.skipPropertyLockFetch),
 // @ts-expect-error
-    propertyPageTypesRefreshChanged: Boolean(options.propertyPageTypesRefreshChanged),
-// @ts-expect-error
-    remoteConfigLoadMode: typeof options.remoteConfigLoadMode === "string"
-// @ts-expect-error
-      ? options.remoteConfigLoadMode
-      : ""
+    propertyPageTypesRefreshChanged: Boolean(options.propertyPageTypesRefreshChanged)
   };
   const response = useBusyOverlay
     ? await runWithSpinner(
@@ -6398,6 +6389,7 @@ async function handleConfigEndpointSet() {
   if (saveResult.tokenCleared) {
     state.lastTokenValidationAt = 0;
     state.siteIdLookupByBaseUrl.clear();
+    clearRemoteConfigLoadCache();
     setRemoteConfigConnectionIssue(false);
     uiModule.showToast(PopupText.configuration.endpointChangedLoginRequired);
   }
@@ -6426,6 +6418,7 @@ async function handleEndpointSet() {
   const saveResult = await saveGlobalEndpoint(endpointValue);
   if (saveResult.tokenCleared) {
     state.lastTokenValidationAt = 0;
+    clearRemoteConfigLoadCache();
     setRemoteConfigConnectionIssue(false);
     uiModule.showToast(PopupText.configuration.aiEndpointChangedLoginRequired);
   }
@@ -6450,6 +6443,7 @@ async function handleStageBaseSet() {
   state.stageBaseEditMode = false;
   state.siteIdLookupByBaseUrl.clear();
   if (saveResult.tokenCleared) {
+    clearRemoteConfigLoadCache();
     uiModule.showToast(PopupText.configuration.stageBaseChangedLoginRequired);
   }
   await maybeSwitchToMarkingView();
@@ -6507,6 +6501,7 @@ async function handleLoginAction() {
         loginFailureMessage = PopupText.authentication.toastResponseMissingToken;
       } else {
         await saveLoginSettings({ stageBase, token });
+        clearRemoteConfigLoadCache();
         uiModule.setViewState({ loginPasswordValue: "" });
         loginSucceeded = true;
       }
@@ -7668,13 +7663,20 @@ async function init() {
   });
 
   chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-    if (!state.currentTab || tabId !== state.currentTab.id) {
-      return;
-    }
     if (!(changeInfo.url || changeInfo.status === "loading" || changeInfo.status === "complete")) {
       return;
     }
+    if (changeInfo.url || changeInfo.status === "loading") {
+      clearRemoteConfigLoadCacheForTab(tabId);
+    }
+    if (!state.currentTab || tabId !== state.currentTab.id) {
+      return;
+    }
     state.currentTab = tab;
+    if (changeInfo.url || changeInfo.status === "loading") {
+      state.remoteConfigLoadKey = "";
+      state.remoteConfigLoadResult = null;
+    }
     await messages.sendRuntimeMessage({
       type: "clearReloadRestoreTabState",
       tabId
@@ -7740,7 +7742,6 @@ async function init() {
     }
   });
   window.addEventListener("beforeunload", () => {
-    clearObserverRemoteConfigRefreshTimer();
     clearPropertyLockOffCandidateRefreshTimer();
     const tabId = state.currentTab && state.currentTab.id;
     if (tabId) {
@@ -7755,6 +7756,14 @@ async function init() {
 
   utils.addStorageChangeListener((changes, areaName) => {
     if (areaName === "sync") {
+// @ts-expect-error
+      if (changes[GLOBAL_AUTH_CONTEXT_VERSION_KEY] || changes[GLOBAL_STAGE_BASE_KEY] || changes[GLOBAL_CONFIG_ENDPOINT_KEY]) {
+        state.lastTokenValidationAt = 0;
+        state.siteIdLookupByBaseUrl.clear();
+        clearRemoteConfigLoadCache();
+        setRemoteConfigConnectionIssue(false);
+        scheduleRefresh();
+      }
 // @ts-expect-error
       if (changes[GLOBAL_THEME_KEY] || changes[GLOBAL_THEME_MODE_KEY]) {
         const appearanceCustomizationEnabled = isFeatureEnabled("appearanceCustomization");

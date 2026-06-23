@@ -10667,6 +10667,16 @@ export function setSavedPageEntry(pageUrl, entry) {
   }
 }
 
+export function clearPageDraftBaseline(pageUrl: string) {
+  if (!pageUrl) {
+    return;
+  }
+  state.cleanBaselineFingerprintByPageUrl.delete(pageUrl);
+  if (state.pendingFreshBaselinePageUrl === pageUrl) {
+    state.pendingFreshBaselinePageUrl = "";
+  }
+}
+
 export async function refreshSavedPageEntryFromBackendCache(baseUrl = state.baseUrl, pageUrl = location.href) {
   if (!baseUrl || !pageUrl) {
     setSavedPageEntry(pageUrl, null);

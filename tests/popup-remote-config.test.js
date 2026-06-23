@@ -12,6 +12,12 @@ import {
 function resetRemoteConfigState() {
   state.remoteConfigLoadKey = "";
   state.remoteConfigLoadResult = null;
+  state.remoteConfigLoadResultByKey.clear();
+  state.remoteConfigLoadRequestCounter = 0;
+  state.remoteConfigGlobalFenceRequestId = 0;
+  state.remoteConfigLatestRequestIdByPageLoadKey.clear();
+  state.remoteConfigTabFenceByTabId.clear();
+  state.remoteConfigSiteFenceByKey.clear();
   state.remoteConfigConnectionRetryTimer = 0;
 }
 
@@ -75,9 +81,16 @@ function createDeps(overrides = {}) {
         },
         changed: false
       }),
+      clearBackendSavedPageMarkings: async () => {},
       getBackendSavedPageMarkings: async () => ({}),
       createConfigSyncPayload: (_baseUrl, sourceConfig) => ({
         pageMarkings: sourceConfig && sourceConfig.pageMarkings ? sourceConfig.pageMarkings : {}
+      }),
+      replaceServerConfigIntoLocalSnapshot: async () => ({
+        ok: true,
+        changed: false,
+        baseUrl: "https://example.com",
+        replacedCurrentPage: false
       }),
       getStoredGlobalToken: async () => "",
       ensurePropertyPageTypes: async () => ({ ok: false }),
@@ -185,9 +198,442 @@ test("popup remote config load caches successful load by key", async () => {
 
     assert.equal(first.status, "ok");
     assert.equal(second.status, "ok");
-    assert.equal(runtimeCalls, 2);
+    assert.equal(runtimeCalls, 1);
     assert.equal(statusUpdates.at(-1).status, "ok");
   } finally {
+    globalThis.chrome = originalChrome;
+  }
+});
+
+test("popup remote config load ignores token rotation within the same page-load cache key", async () => {
+  resetRemoteConfigState();
+  const originalChrome = globalThis.chrome;
+  let runtimeCalls = 0;
+  globalThis.chrome = {
+    runtime: {
+      sendMessage: async (message) => {
+        runtimeCalls += 1;
+        if (message.type === "loadRemoteConfigSnapshot") {
+          return { ok: true, status: "ok", payloadKey: "payload-1" };
+        }
+        if (message.type === "replaceServerConfigIntoLocalSnapshot") {
+          return { ok: true, changed: false, baseUrl: "https://example.com", replacedCurrentPage: false };
+        }
+        return { ok: false };
+      }
+    }
+  };
+
+  const { deps } = createDeps();
+
+  try {
+    const first = await loadRemoteConfigForCurrentPage(deps, {
+      tabId: 1,
+      siteId: 5,
+      endpointValue: "https://api.example.com",
+      tokenValue: "token-1",
+      pageUrl: "https://example.com/page",
+      baseUrl: "https://example.com"
+    });
+    const second = await loadRemoteConfigForCurrentPage(deps, {
+      tabId: 1,
+      siteId: 5,
+      endpointValue: "https://api.example.com",
+      tokenValue: "token-2",
+      pageUrl: "https://example.com/page",
+      baseUrl: "https://example.com"
+    });
+
+    assert.equal(first.status, "ok");
+    assert.equal(second.status, "ok");
+    assert.equal(runtimeCalls, 1);
+    assert.equal(state.remoteConfigLoadResultByKey.size, 1);
+  } finally {
+    globalThis.chrome = originalChrome;
+  }
+});
+
+test("popup remote config load clears local page markings when upstream is missing", async () => {
+  resetRemoteConfigState();
+  const originalChrome = globalThis.chrome;
+  const runtimeCalls = [];
+  const configStore = {
+    "https://example.com": {
+      pageMarkings: {
+        "https://example.com/page": {
+          timestamp: "2026-06-10T10:00:00Z",
+          pageType: "listing",
+          xpaths: [{ xpath: "/html/body/main", excluded: true }]
+        }
+      },
+      selectors: { exclusionSelectors: [".old-exclude"], inclusionSelectors: [".old-include"] },
+      selectorsUpdatedAt: "2026-06-10T10:00:00Z",
+      submittedSelectorsFingerprint: "{\"exclusionSelectors\":[\".old-exclude\"],\"inclusionSelectors\":[\".old-include\"]}",
+      renderMode: "static",
+      renderModeUpdatedAt: "2026-06-10T10:00:00Z",
+      siteId: 5
+    }
+  };
+  globalThis.chrome = {
+    runtime: {
+      sendMessage: async (message) => {
+        runtimeCalls.push(message);
+        if (message.type === "loadRemoteConfigSnapshot") {
+          return { ok: true, status: "not_found", payloadKey: "" };
+        }
+        if (message.type === "TAB_CONTENT_REQUEST") {
+          return { result: { response: { ok: true } } };
+        }
+        return { ok: false };
+      }
+    }
+  };
+
+  const { deps, statusUpdates } = createDeps({
+    getConfigs: async () => configStore,
+    getBackendSavedPageMarkings: async () => ({
+      "https://example.com/page": {
+        timestamp: "2026-06-10T10:00:00Z",
+        pageType: "listing",
+        xpaths: [{ xpath: "/html/body/main", excluded: true }]
+      }
+    })
+  });
+  state.currentTab = { id: 1, url: "https://example.com/page" };
+
+  try {
+    const result = await loadRemoteConfigForCurrentPage(deps, {
+      tabId: 1,
+      siteId: 5,
+      endpointValue: "https://api.example.com",
+      pageUrl: "https://example.com/page",
+      baseUrl: "https://example.com"
+    });
+
+    assert.equal(result.status, "not_found");
+    assert.equal(result.baseUrl, "https://example.com");
+    assert.equal(result.changed, true);
+    assert.deepEqual(await deps.getConfigs(), {
+      "https://example.com": {
+        pageMarkings: {},
+        selectors: { exclusionSelectors: [], inclusionSelectors: [] },
+        selectorsUpdatedAt: "1970-01-01T00:00:00Z",
+        submittedSelectorsFingerprint: "",
+        renderMode: "static",
+        renderModeUpdatedAt: "2026-06-10T10:00:00Z",
+        siteId: 5
+      }
+    });
+    assert.equal(statusUpdates.at(-1).status, "not_found");
+    const tabContentMessages = runtimeCalls
+      .filter((message) => message.type === "TAB_CONTENT_REQUEST")
+      .map((message) => message.payload && message.payload.message ? message.payload.message.type : "");
+    assert.ok(tabContentMessages.includes("clearPageSaveReconciliation"));
+    assert.ok(tabContentMessages.includes("configUpdated"));
+  } finally {
+    state.currentTab = null;
+    globalThis.chrome = originalChrome;
+  }
+});
+
+test("popup remote config load clears selector state on not_found even without page markings", async () => {
+  resetRemoteConfigState();
+  const originalChrome = globalThis.chrome;
+  const configStore = {
+    "https://example.com": {
+      pageMarkings: {},
+      selectors: { exclusionSelectors: [".old-exclude"], inclusionSelectors: [".old-include"] },
+      selectorsUpdatedAt: "2026-06-10T10:00:00Z",
+      submittedSelectorsFingerprint: "{\"exclusionSelectors\":[\".old-exclude\"],\"inclusionSelectors\":[\".old-include\"]}",
+      renderMode: "rendered",
+      renderModeUpdatedAt: "2026-06-10T10:00:00Z",
+      siteId: 5
+    }
+  };
+  globalThis.chrome = {
+    runtime: {
+      sendMessage: async (message) => {
+        if (message.type === "loadRemoteConfigSnapshot") {
+          return { ok: true, status: "not_found", payloadKey: "" };
+        }
+        if (message.type === "TAB_CONTENT_REQUEST") {
+          return { result: { response: { ok: true } } };
+        }
+        return { ok: false };
+      }
+    }
+  };
+
+  const { deps } = createDeps({
+    getConfigs: async () => configStore,
+    getBackendSavedPageMarkings: async () => ({})
+  });
+  state.currentTab = { id: 1, url: "https://example.com/page" };
+
+  try {
+    const result = await loadRemoteConfigForCurrentPage(deps, {
+      tabId: 1,
+      siteId: 5,
+      endpointValue: "https://api.example.com",
+      pageUrl: "https://example.com/page",
+      baseUrl: "https://example.com"
+    });
+
+    assert.equal(result.status, "not_found");
+    assert.equal(result.changed, true);
+    assert.deepEqual(await deps.getConfigs(), {
+      "https://example.com": {
+        pageMarkings: {},
+        selectors: { exclusionSelectors: [], inclusionSelectors: [] },
+        selectorsUpdatedAt: "1970-01-01T00:00:00Z",
+        submittedSelectorsFingerprint: "",
+        renderMode: "rendered",
+        renderModeUpdatedAt: "2026-06-10T10:00:00Z",
+        siteId: 5
+      }
+    });
+  } finally {
+    state.currentTab = null;
+    globalThis.chrome = originalChrome;
+  }
+});
+
+test("popup remote config load clears cached site entries on not_found", async () => {
+  resetRemoteConfigState();
+  const originalChrome = globalThis.chrome;
+  let runtimeCalls = 0;
+  globalThis.chrome = {
+    runtime: {
+      sendMessage: async (message) => {
+        runtimeCalls += 1;
+        if (message.type === "loadRemoteConfigSnapshot") {
+          return { ok: true, status: "not_found", payloadKey: "" };
+        }
+        if (message.type === "TAB_CONTENT_REQUEST") {
+          return { result: { response: { ok: true } } };
+        }
+        return { ok: false };
+      }
+    }
+  };
+
+  const { deps } = createDeps({
+    getBackendSavedPageMarkings: async () => ({})
+  });
+  state.currentTab = { id: 1, url: "https://example.com/page-a" };
+  state.remoteConfigLoadResultByKey.set("2|https://example.com/page-b|5|https://api.example.com", {
+    status: "ok",
+    baseUrl: "https://example.com"
+  });
+
+  try {
+    const result = await loadRemoteConfigForCurrentPage(deps, {
+      tabId: 1,
+      siteId: 5,
+      endpointValue: "https://api.example.com",
+      pageUrl: "https://example.com/page-a",
+      baseUrl: "https://example.com"
+    });
+
+    assert.equal(result.status, "not_found");
+    assert.equal(state.remoteConfigLoadResultByKey.size, 1);
+    assert.equal(
+      state.remoteConfigLoadResultByKey.get("2|https://example.com/page-b|5|https://api.example.com"),
+      undefined
+    );
+    assert.equal(runtimeCalls >= 2, true);
+  } finally {
+    state.currentTab = null;
+    globalThis.chrome = originalChrome;
+  }
+});
+
+test("popup remote config load does not repopulate cache after cache epoch advances", async () => {
+  resetRemoteConfigState();
+  const originalChrome = globalThis.chrome;
+  let releaseLoad;
+  globalThis.chrome = {
+    runtime: {
+      sendMessage: async (message) => {
+        if (message.type === "loadRemoteConfigSnapshot") {
+          await new Promise((resolve) => {
+            releaseLoad = resolve;
+          });
+          return { ok: true, status: "ok", payloadKey: "payload-1" };
+        }
+        if (message.type === "replaceServerConfigIntoLocalSnapshot") {
+          return { ok: true, changed: false, baseUrl: "https://example.com", replacedCurrentPage: false };
+        }
+        return { ok: false };
+      }
+    }
+  };
+
+  const { deps } = createDeps();
+  state.currentTab = { id: 1, url: "https://example.com/page-a" };
+
+  try {
+    const pendingLoad = loadRemoteConfigForCurrentPage(deps, {
+      tabId: 1,
+      siteId: 5,
+      endpointValue: "https://api.example.com",
+      pageUrl: "https://example.com/page-a",
+      baseUrl: "https://example.com"
+    });
+    state.remoteConfigLoadRequestCounter += 1;
+    state.remoteConfigGlobalFenceRequestId = state.remoteConfigLoadRequestCounter;
+    state.remoteConfigLoadResultByKey.clear();
+    releaseLoad();
+    const result = await pendingLoad;
+
+    assert.equal(result.status, "skipped");
+    assert.equal(state.remoteConfigLoadResultByKey.size, 0);
+  } finally {
+    state.currentTab = null;
+    globalThis.chrome = originalChrome;
+  }
+});
+
+test("popup remote config load skips stale not_found resets after cache epoch advances", async () => {
+  resetRemoteConfigState();
+  const originalChrome = globalThis.chrome;
+  let releaseLoad;
+  const configStore = {
+    "https://example.com": {
+      pageMarkings: {
+        "https://example.com/page-a": {
+          timestamp: "2026-06-10T10:00:00Z",
+          pageType: "listing",
+          xpaths: [{ xpath: "/html/body/main", excluded: true }]
+        }
+      },
+      selectors: { exclusionSelectors: [".old-exclude"], inclusionSelectors: [".old-include"] },
+      selectorsUpdatedAt: "2026-06-10T10:00:00Z",
+      submittedSelectorsFingerprint: "{\"exclusionSelectors\":[\".old-exclude\"],\"inclusionSelectors\":[\".old-include\"]}",
+      renderMode: "rendered",
+      renderModeUpdatedAt: "2026-06-10T10:00:00Z",
+      siteId: 5
+    }
+  };
+  globalThis.chrome = {
+    runtime: {
+      sendMessage: async (message) => {
+        if (message.type === "loadRemoteConfigSnapshot") {
+          await new Promise((resolve) => {
+            releaseLoad = resolve;
+          });
+          return { ok: true, status: "not_found", payloadKey: "" };
+        }
+        if (message.type === "TAB_CONTENT_REQUEST") {
+          return { result: { response: { ok: true } } };
+        }
+        return { ok: false };
+      }
+    }
+  };
+
+  const { deps } = createDeps({
+    getConfigs: async () => configStore,
+    getBackendSavedPageMarkings: async () => ({})
+  });
+  state.currentTab = { id: 1, url: "https://example.com/page-a" };
+
+  try {
+    const pendingLoad = loadRemoteConfigForCurrentPage(deps, {
+      tabId: 1,
+      siteId: 5,
+      endpointValue: "https://api.example.com",
+      pageUrl: "https://example.com/page-a",
+      baseUrl: "https://example.com"
+    });
+    state.remoteConfigLoadRequestCounter += 1;
+    state.remoteConfigGlobalFenceRequestId = state.remoteConfigLoadRequestCounter;
+    releaseLoad();
+    const result = await pendingLoad;
+
+    assert.equal(result.status, "skipped");
+    assert.deepEqual(configStore["https://example.com"].pageMarkings, {
+      "https://example.com/page-a": {
+        timestamp: "2026-06-10T10:00:00Z",
+        pageType: "listing",
+        xpaths: [{ xpath: "/html/body/main", excluded: true }]
+      }
+    });
+    assert.deepEqual(configStore["https://example.com"].selectors, {
+      exclusionSelectors: [".old-exclude"],
+      inclusionSelectors: [".old-include"]
+    });
+  } finally {
+    state.currentTab = null;
+    globalThis.chrome = originalChrome;
+  }
+});
+
+test("popup remote config not_found fences off older same-site ok loads", async () => {
+  resetRemoteConfigState();
+  const originalChrome = globalThis.chrome;
+  const replaceCalls = [];
+  let releaseFirstLoad;
+  let loadCallCount = 0;
+  globalThis.chrome = {
+    runtime: {
+      sendMessage: async (message) => {
+        if (message.type === "loadRemoteConfigSnapshot") {
+          loadCallCount += 1;
+          if (loadCallCount === 1) {
+            await new Promise((resolve) => {
+              releaseFirstLoad = resolve;
+            });
+            return { ok: true, status: "ok", payloadKey: "payload-a" };
+          }
+          return { ok: true, status: "not_found", payloadKey: "" };
+        }
+        if (message.type === "replaceServerConfigIntoLocalSnapshot") {
+          replaceCalls.push(message.currentPageUrl);
+          return { ok: true, changed: false, baseUrl: "https://example.com", replacedCurrentPage: false };
+        }
+        if (message.type === "TAB_CONTENT_REQUEST") {
+          return { result: { response: { ok: true } } };
+        }
+        return { ok: false };
+      }
+    }
+  };
+
+  const { deps } = createDeps({
+    getBackendSavedPageMarkings: async () => ({})
+  });
+
+  try {
+    state.currentTab = { id: 1, url: "https://example.com/page-a" };
+    const pendingFirstLoad = loadRemoteConfigForCurrentPage(deps, {
+      tabId: 1,
+      siteId: 5,
+      endpointValue: "https://api.example.com",
+      pageUrl: "https://example.com/page-a",
+      baseUrl: "https://example.com"
+    });
+
+    state.currentTab = { id: 2, url: "https://example.com/page-b" };
+    const secondResult = await loadRemoteConfigForCurrentPage(deps, {
+      tabId: 2,
+      siteId: 5,
+      endpointValue: "https://api.example.com",
+      pageUrl: "https://example.com/page-b",
+      baseUrl: "https://example.com"
+    });
+
+    releaseFirstLoad();
+    const firstResult = await pendingFirstLoad;
+
+    assert.equal(secondResult.status, "not_found");
+    assert.equal(firstResult.status, "skipped");
+    assert.deepEqual(replaceCalls, []);
+    assert.deepEqual(Array.from(state.remoteConfigLoadResultByKey.keys()), [
+      "2|https://example.com/page-b|5|https://api.example.com"
+    ]);
+  } finally {
+    state.currentTab = null;
     globalThis.chrome = originalChrome;
   }
 });

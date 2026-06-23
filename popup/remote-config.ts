@@ -1,9 +1,11 @@
 import * as config from "../common/config.js";
+import { replaceServerConfigIntoLocalSnapshot } from "../background/remote-config-sync.js";
 import * as messages from "./messages.js";
 import * as stateModule from "./state.js";
 
 const { state } = stateModule;
 const DEFAULT_REMOTE_CONFIG_RETRY_DELAY_MS = 2500;
+const remoteMissingClearOwnerByBaseUrl = new Map<string, number>();
 
 type StoredPageMarkings = Record<string, Record<string, unknown>>;
 type StoredConfigEntry = { pageMarkings?: StoredPageMarkings; [key: string]: unknown };
@@ -15,6 +17,7 @@ interface LoadRemoteConfigOptions {
   baseUrl?: string;
   siteId?: number | null;
   endpointValue?: string;
+  tokenValue?: string;
   force?: boolean;
   notifyOnChange?: boolean;
 }
@@ -99,11 +102,77 @@ interface RemoteConfigDeps {
   saveConfigs?: typeof config.saveConfigs;
   normalizeConfig?: typeof config.normalizeConfig;
   getBackendSavedPageMarkings?: typeof config.getBackendSavedPageMarkings;
+  setBackendSavedPageMarkings?: typeof config.setBackendSavedPageMarkings;
   createConfigSyncPayload?: typeof config.createConfigSyncPayload;
+  replaceServerConfigIntoLocalSnapshot?: typeof replaceServerConfigIntoLocalSnapshot;
 }
 
 function buildRemoteConfigLoadKey(tabId: unknown, siteId: unknown, endpointValue: unknown) {
   return `${tabId || ""}|${siteId || ""}|${endpointValue || ""}`;
+}
+
+function buildRemoteConfigPageLoadKey(
+  tabId: unknown,
+  pageUrl: unknown,
+  siteId: unknown,
+  endpointValue: unknown
+) {
+  return `${tabId || ""}|${typeof pageUrl === "string" ? pageUrl : ""}|${siteId || ""}|${endpointValue || ""}`;
+}
+
+function buildRemoteConfigSiteCacheKey(siteId: unknown, endpointValue: unknown) {
+  return `${siteId || ""}|${endpointValue || ""}`;
+}
+
+function clearRemoteConfigPageLoadCacheForSite(siteCacheKey: string) {
+  const siteCacheSuffix = `|${siteCacheKey}`;
+  for (const key of state.remoteConfigLoadResultByKey.keys()) {
+    if (key.endsWith(siteCacheSuffix)) {
+      state.remoteConfigLoadResultByKey.delete(key);
+    }
+  }
+  for (const key of state.remoteConfigLatestRequestIdByPageLoadKey.keys()) {
+    if (key.endsWith(siteCacheSuffix)) {
+      state.remoteConfigLatestRequestIdByPageLoadKey.delete(key);
+    }
+  }
+}
+
+function canApplyRemoteConfigLoadResult(
+  tabId: unknown,
+  pageUrl: unknown,
+  pageLoadKey: string,
+  siteCacheKey: string,
+  requestId: number
+) {
+  if (state.remoteConfigGlobalFenceRequestId > requestId) {
+    return false;
+  }
+  const normalizedTabId = Number.isFinite(tabId) ? Math.trunc(tabId as number) : 0;
+  if (
+    normalizedTabId &&
+    (state.remoteConfigTabFenceByTabId.get(normalizedTabId) || 0) > requestId
+  ) {
+    return false;
+  }
+  if (siteCacheKey && (state.remoteConfigSiteFenceByKey.get(siteCacheKey) || 0) > requestId) {
+    return false;
+  }
+  if (pageLoadKey && (state.remoteConfigLatestRequestIdByPageLoadKey.get(pageLoadKey) || 0) !== requestId) {
+    return false;
+  }
+  if (normalizedTabId && state.currentTab && state.currentTab.id !== normalizedTabId) {
+    return false;
+  }
+  if (typeof pageUrl === "string" && pageUrl) {
+    const currentPageUrl = state.currentTab && typeof state.currentTab.url === "string"
+      ? state.currentTab.url
+      : "";
+    if (currentPageUrl && currentPageUrl !== pageUrl) {
+      return false;
+    }
+  }
+  return true;
 }
 
 export function scheduleRemoteConfigRetry(deps: RemoteConfigDeps) {
@@ -118,6 +187,143 @@ export function scheduleRemoteConfigRetry(deps: RemoteConfigDeps) {
     await deps.ensureActiveTab();
     await deps.refreshUi();
   }, retryDelayMs);
+}
+
+async function clearLocalPageMarkingsWhenRemoteIsMissing(
+  deps: RemoteConfigDeps,
+  baseUrl: string,
+  options: { shouldContinue?: () => boolean; requestId?: number } = {}
+) {
+  const resolvedBaseUrl = typeof baseUrl === "string" ? baseUrl.trim() : "";
+  if (!resolvedBaseUrl) {
+    return { changed: false, baseUrl: "" };
+  }
+  const getConfigs = typeof deps.getConfigs === "function" ? deps.getConfigs : config.getConfigs;
+  const saveConfigs = typeof deps.saveConfigs === "function" ? deps.saveConfigs : config.saveConfigs;
+  const normalizeConfig = typeof deps.normalizeConfig === "function"
+    ? deps.normalizeConfig
+    : config.normalizeConfig;
+  const clearBackendSavedPageMarkings =
+    typeof deps.clearBackendSavedPageMarkings === "function"
+      ? deps.clearBackendSavedPageMarkings
+      : config.clearBackendSavedPageMarkings;
+  const getBackendSavedPageMarkings =
+    typeof deps.getBackendSavedPageMarkings === "function"
+      ? deps.getBackendSavedPageMarkings
+      : config.getBackendSavedPageMarkings;
+  const setBackendSavedPageMarkings =
+    typeof deps.setBackendSavedPageMarkings === "function"
+      ? deps.setBackendSavedPageMarkings
+      : config.setBackendSavedPageMarkings;
+  const shouldContinue =
+    typeof options.shouldContinue === "function"
+      ? options.shouldContinue
+      : () => true;
+  const requestId = Number.isFinite(options.requestId) ? Math.trunc(options.requestId as number) : 0;
+
+  const configs = await getConfigs() as StoredConfigs;
+  if (!shouldContinue()) {
+    return { changed: false, baseUrl: "" };
+  }
+  const normalizedCurrent = configs[resolvedBaseUrl]
+    ? normalizeConfig(resolvedBaseUrl, configs[resolvedBaseUrl]).config
+    : null;
+  const hadLocalPageMarkings = Boolean(
+    normalizedCurrent &&
+      normalizedCurrent.pageMarkings &&
+      typeof normalizedCurrent.pageMarkings === "object" &&
+      Object.keys(normalizedCurrent.pageMarkings).length > 0
+  );
+  const hadLocalSelectorState = Boolean(
+    normalizedCurrent &&
+      (
+        (normalizedCurrent.selectors &&
+          typeof normalizedCurrent.selectors === "object" &&
+          (
+            (Array.isArray(normalizedCurrent.selectors.exclusionSelectors) &&
+              normalizedCurrent.selectors.exclusionSelectors.length > 0) ||
+            (Array.isArray(normalizedCurrent.selectors.inclusionSelectors) &&
+              normalizedCurrent.selectors.inclusionSelectors.length > 0)
+          )) ||
+        config.normalizeEntryTimestamp(normalizedCurrent.selectorsUpdatedAt) !==
+          config.PAGE_TIMESTAMP_FALLBACK ||
+        (
+          typeof normalizedCurrent.submittedSelectorsFingerprint === "string" &&
+          normalizedCurrent.submittedSelectorsFingerprint.trim().length > 0
+        )
+      )
+  );
+  const previousConfigEntry = normalizedCurrent ? { ...normalizedCurrent } : null;
+  const backendSavedPageMarkings = await getBackendSavedPageMarkings(resolvedBaseUrl);
+  if (!shouldContinue()) {
+    return { changed: false, baseUrl: "" };
+  }
+  const clearedConfigEntry = normalizedCurrent
+    ? {
+      ...normalizedCurrent,
+      pageMarkings: {},
+      selectors: config.createEmptyAiSelectorSet(),
+      selectorsUpdatedAt: config.PAGE_TIMESTAMP_FALLBACK,
+      submittedSelectorsFingerprint: ""
+    }
+    : null;
+  const restoreLocalState = async (options: { expectBackendCleared: boolean }) => {
+    if ((remoteMissingClearOwnerByBaseUrl.get(resolvedBaseUrl) || 0) !== requestId) {
+      return;
+    }
+    const restoreConfigs = await getConfigs() as StoredConfigs;
+    if (clearedConfigEntry) {
+      const currentEntry = restoreConfigs[resolvedBaseUrl]
+        ? normalizeConfig(resolvedBaseUrl, restoreConfigs[resolvedBaseUrl]).config
+        : null;
+      if (JSON.stringify(currentEntry) !== JSON.stringify(clearedConfigEntry)) {
+        return;
+      }
+    }
+    if (options.expectBackendCleared) {
+      const currentBackendSavedPageMarkings = await getBackendSavedPageMarkings(resolvedBaseUrl);
+      if (JSON.stringify(currentBackendSavedPageMarkings || {}) !== JSON.stringify({})) {
+        return;
+      }
+    }
+    if (previousConfigEntry) {
+      restoreConfigs[resolvedBaseUrl] = previousConfigEntry;
+    } else {
+      delete restoreConfigs[resolvedBaseUrl];
+    }
+    await saveConfigs(restoreConfigs);
+    await setBackendSavedPageMarkings(resolvedBaseUrl, backendSavedPageMarkings);
+  };
+  if (requestId) {
+    remoteMissingClearOwnerByBaseUrl.set(resolvedBaseUrl, requestId);
+  }
+  if ((hadLocalPageMarkings || hadLocalSelectorState) && normalizedCurrent && clearedConfigEntry) {
+    configs[resolvedBaseUrl] = clearedConfigEntry;
+    await saveConfigs(configs);
+    if (!shouldContinue()) {
+      await restoreLocalState({ expectBackendCleared: false });
+      return { changed: false, baseUrl: "" };
+    }
+  }
+
+  const hadBackendSavedPageMarkings = Boolean(
+    backendSavedPageMarkings &&
+      typeof backendSavedPageMarkings === "object" &&
+      Object.keys(backendSavedPageMarkings).length > 0
+  );
+  await clearBackendSavedPageMarkings(resolvedBaseUrl);
+  if (!shouldContinue()) {
+    await restoreLocalState({ expectBackendCleared: true });
+    return { changed: false, baseUrl: "" };
+  }
+  if ((remoteMissingClearOwnerByBaseUrl.get(resolvedBaseUrl) || 0) === requestId) {
+    remoteMissingClearOwnerByBaseUrl.delete(resolvedBaseUrl);
+  }
+
+  return {
+    changed: hadLocalPageMarkings || hadLocalSelectorState || hadBackendSavedPageMarkings,
+    baseUrl: resolvedBaseUrl
+  };
 }
 
 export async function loadRemoteConfigForCurrentPage(deps: RemoteConfigDeps, options: LoadRemoteConfigOptions = {}) {
@@ -138,16 +344,26 @@ export async function loadRemoteConfigForCurrentPage(deps: RemoteConfigDeps, opt
     return result;
   }
   const loadKey = buildRemoteConfigLoadKey(tabId, siteId, endpointValue);
+  const pageLoadKey = buildRemoteConfigPageLoadKey(tabId, pageUrl, siteId, endpointValue);
+  const siteCacheKey = buildRemoteConfigSiteCacheKey(siteId, endpointValue);
+  const requestId = state.remoteConfigLoadRequestCounter + 1;
+  state.remoteConfigLoadRequestCounter = requestId;
+  if (pageLoadKey) {
+    state.remoteConfigLatestRequestIdByPageLoadKey.set(pageLoadKey, requestId);
+  }
+  const cachedPageLoadResult = state.remoteConfigLoadResultByKey.get(pageLoadKey) || null;
   if (
     !force &&
-    state.remoteConfigLoadKey === loadKey &&
-    state.remoteConfigLoadResult &&
+    cachedPageLoadResult &&
     (
-      state.remoteConfigLoadResult.status === "ok" ||
-      state.remoteConfigLoadResult.status === "not_found"
+      cachedPageLoadResult.status === "ok" ||
+      cachedPageLoadResult.status === "not_found"
     )
   ) {
-    return state.remoteConfigLoadResult;
+    state.remoteConfigLoadKey = loadKey;
+    state.remoteConfigLoadResult = cachedPageLoadResult;
+    deps.updateLastConfigLoadStatus(cachedPageLoadResult);
+    return cachedPageLoadResult;
   }
   state.remoteConfigLoadKey = loadKey;
   const loadUrl = deps.resolveRelativeEndpoint(endpointValue, "/load");
@@ -162,6 +378,9 @@ export async function loadRemoteConfigForCurrentPage(deps: RemoteConfigDeps, opt
       type: "loadRemoteConfigSnapshot",
       siteId
     });
+    if (!canApplyRemoteConfigLoadResult(tabId, pageUrl, pageLoadKey, siteCacheKey, requestId)) {
+      return { status: "skipped", baseUrl: "" };
+    }
     if (response && response.status === "auth_error") {
       await deps.invalidateTokenAndLockConfiguration(true);
       const result = { status: "auth_error", baseUrl: "" };
@@ -170,14 +389,60 @@ export async function loadRemoteConfigForCurrentPage(deps: RemoteConfigDeps, opt
       return result;
     }
     if (response && response.status === "not_found") {
-      const clearBackendSavedPageMarkings =
-        typeof deps.clearBackendSavedPageMarkings === "function"
-          ? deps.clearBackendSavedPageMarkings
-          : config.clearBackendSavedPageMarkings;
-      await clearBackendSavedPageMarkings(baseUrl || state.currentBaseUrl);
-      const result = { status: "not_found", baseUrl: "" };
-      state.remoteConfigLoadResult = result;
-      deps.updateLastConfigLoadStatus(result);
+      state.remoteConfigSiteFenceByKey.set(
+        siteCacheKey,
+        Math.max(state.remoteConfigSiteFenceByKey.get(siteCacheKey) || 0, requestId)
+      );
+      clearRemoteConfigPageLoadCacheForSite(siteCacheKey);
+      if (pageLoadKey) {
+        state.remoteConfigLatestRequestIdByPageLoadKey.set(pageLoadKey, requestId);
+      }
+      if (!canApplyRemoteConfigLoadResult(tabId, pageUrl, pageLoadKey, siteCacheKey, requestId)) {
+        return { status: "skipped", baseUrl: "" };
+      }
+      const clearResult = await clearLocalPageMarkingsWhenRemoteIsMissing(
+        deps,
+        baseUrl || state.currentBaseUrl,
+        {
+          requestId,
+          shouldContinue: () => canApplyRemoteConfigLoadResult(tabId, pageUrl, pageLoadKey, siteCacheKey, requestId)
+        }
+      );
+      if (!canApplyRemoteConfigLoadResult(tabId, pageUrl, pageLoadKey, siteCacheKey, requestId)) {
+        return { status: "skipped", baseUrl: "" };
+      }
+      if (clearResult.baseUrl && pageUrl) {
+        await messages.sendTabMessageWithRetry({
+          type: "clearPageSaveReconciliation",
+          baseUrl: clearResult.baseUrl,
+          pageUrl
+        }, 2);
+        if (!canApplyRemoteConfigLoadResult(tabId, pageUrl, pageLoadKey, siteCacheKey, requestId)) {
+          return { status: "skipped", baseUrl: "" };
+        }
+      }
+      if (clearResult.baseUrl) {
+        await messages.sendTabMessageWithRetry({
+          type: "configUpdated",
+          baseUrl: clearResult.baseUrl,
+          forceReloadPageEntry: true
+        }, 2);
+        if (!canApplyRemoteConfigLoadResult(tabId, pageUrl, pageLoadKey, siteCacheKey, requestId)) {
+          return { status: "skipped", baseUrl: "" };
+        }
+      }
+      const result = {
+        status: "not_found",
+        baseUrl: clearResult.baseUrl || (baseUrl || state.currentBaseUrl || ""),
+        changed: clearResult.changed
+      };
+      if (pageLoadKey && canApplyRemoteConfigLoadResult(tabId, pageUrl, pageLoadKey, siteCacheKey, requestId)) {
+        state.remoteConfigLoadResultByKey.set(pageLoadKey, result);
+      }
+      if (canApplyRemoteConfigLoadResult(tabId, pageUrl, pageLoadKey, siteCacheKey, requestId)) {
+        state.remoteConfigLoadResult = result;
+        deps.updateLastConfigLoadStatus(result);
+      }
       return result;
     }
     if (!response || response.ok !== true || response.status !== "ok") {
@@ -186,16 +451,29 @@ export async function loadRemoteConfigForCurrentPage(deps: RemoteConfigDeps, opt
       deps.updateLastConfigLoadStatus(result);
       return result;
     }
-    const replaceResult = await messages.sendRuntimeMessage({
-      type: "replaceServerConfigIntoLocalSnapshot",
+    if (!canApplyRemoteConfigLoadResult(tabId, pageUrl, pageLoadKey, siteCacheKey, requestId)) {
+      return { status: "skipped", baseUrl: "" };
+    }
+    const replaceServerConfigIntoLocal =
+      typeof deps.replaceServerConfigIntoLocalSnapshot === "function"
+        ? deps.replaceServerConfigIntoLocalSnapshot
+        : replaceServerConfigIntoLocalSnapshot;
+    const replaceResult = await replaceServerConfigIntoLocal({
       payloadKey: typeof response.payloadKey === "string" ? response.payloadKey : "",
       currentPageUrl: pageUrl,
-      siteId
+      siteId,
+      requestId,
+      shouldContinue: () => canApplyRemoteConfigLoadResult(tabId, pageUrl, pageLoadKey, siteCacheKey, requestId)
     });
+    if (!canApplyRemoteConfigLoadResult(tabId, pageUrl, pageLoadKey, siteCacheKey, requestId)) {
+      return { status: "skipped", baseUrl: "" };
+    }
     if (!replaceResult.ok) {
       const result = { status: "not_found", baseUrl: "" };
-      state.remoteConfigLoadResult = result;
-      deps.updateLastConfigLoadStatus(result);
+      if (canApplyRemoteConfigLoadResult(tabId, pageUrl, pageLoadKey, siteCacheKey, requestId)) {
+        state.remoteConfigLoadResult = result;
+        deps.updateLastConfigLoadStatus(result);
+      }
       return result;
     }
     if (replaceResult.changed && replaceResult.baseUrl) {
@@ -212,10 +490,18 @@ export async function loadRemoteConfigForCurrentPage(deps: RemoteConfigDeps, opt
       status: "ok",
       baseUrl: replaceResult.baseUrl
     };
-    state.remoteConfigLoadResult = result;
-    deps.updateLastConfigLoadStatus(result);
+    if (pageLoadKey && canApplyRemoteConfigLoadResult(tabId, pageUrl, pageLoadKey, siteCacheKey, requestId)) {
+      state.remoteConfigLoadResultByKey.set(pageLoadKey, result);
+    }
+    if (canApplyRemoteConfigLoadResult(tabId, pageUrl, pageLoadKey, siteCacheKey, requestId)) {
+      state.remoteConfigLoadResult = result;
+      deps.updateLastConfigLoadStatus(result);
+    }
     return result;
   } catch {
+    if (!canApplyRemoteConfigLoadResult(tabId, pageUrl, pageLoadKey, siteCacheKey, requestId)) {
+      return { status: "skipped", baseUrl: "" };
+    }
     const result = { status: "error", baseUrl: "" };
     state.remoteConfigLoadResult = result;
     deps.updateLastConfigLoadStatus(result);

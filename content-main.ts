@@ -6489,6 +6489,9 @@ function createConfigUpdatedHandlerDeps() {
 // @ts-expect-error
     getBackendSavedPageMarkings: (baseUrl) => config.getBackendSavedPageMarkings(baseUrl),
     getBaseUrl: () => state.baseUrl,
+    clearPageSaveReconciliation: (baseUrl: string, pageUrl: string) =>
+      core.clearPageSaveReconciliation(baseUrl, pageUrl),
+    clearPageDraftBaseline: (pageUrl: string) => core.clearPageDraftBaseline(pageUrl),
     getCurrentPageType: () => state.currentPageType,
 // @ts-expect-error
     getDraftPageEntry: (pageUrl) => core.getDraftPageEntry(pageUrl),
@@ -6503,8 +6506,10 @@ function createConfigUpdatedHandlerDeps() {
     mergeDraftEntry: (configValue, pageUrl, draftEntry, savedEntry) =>
       core.mergeDraftEntry(configValue, pageUrl, draftEntry, savedEntry),
 // @ts-expect-error
-    notifyDraftStatus: (pageUrl) => core.notifyDraftStatus(pageUrl),
-    refreshEnabledAiHighlights,
+notifyDraftStatus: (pageUrl) => core.notifyDraftStatus(pageUrl),
+refreshPageSaveReconciliation: (baseUrl: string, pageUrl: string) =>
+  core.refreshPageSaveReconciliation(baseUrl, pageUrl),
+refreshEnabledAiHighlights,
     refreshSilentHighlightings,
     runPropertyLockSync,
 // @ts-expect-error

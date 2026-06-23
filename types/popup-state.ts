@@ -49,7 +49,6 @@ export interface PopupState {
   currentConfig: Config | null;
   toastTimer: number;
   refreshTimer: number;
-  observerRemoteConfigRefreshTimer: number;
   lastTabId: number | null;
   stageBaseEditMode: boolean;
   endpointEditMode: boolean;
@@ -116,6 +115,12 @@ export interface PopupState {
   currentBaseUrlHasConfirmedRenderMode: boolean;
   remoteConfigLoadKey: string;
   remoteConfigLoadResult: RemoteConfigLoadResult | null;
+  remoteConfigLoadResultByKey: Map<string, RemoteConfigLoadResult>;
+  remoteConfigLoadRequestCounter: number;
+  remoteConfigGlobalFenceRequestId: number;
+  remoteConfigLatestRequestIdByPageLoadKey: Map<string, number>;
+  remoteConfigTabFenceByTabId: Map<number, number>;
+  remoteConfigSiteFenceByKey: Map<string, number>;
   remoteConfigConnectionIssue: boolean;
   remoteConfigConnectionRetryTimer: number;
   lastConfigLoadStatusText: string;

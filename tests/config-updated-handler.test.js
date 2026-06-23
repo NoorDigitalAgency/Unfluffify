@@ -8,10 +8,13 @@ function createDeps(overrides = {}) {
   const deps = {
     calls,
     clearAiPreviewState: () => calls.push(["clearAiPreviewState"]),
+    clearPageDraftBaseline: (pageUrl) => calls.push(["clearPageDraftBaseline", pageUrl]),
     disable: () => calls.push(["disable"]),
     findPageMarkingEntry: () => null,
     getBackendSavedPageMarkings: async () => [],
     getBaseUrl: () => "https://example.com/base",
+    clearPageSaveReconciliation: async (baseUrl, pageUrl) =>
+      calls.push(["clearPageSaveReconciliation", baseUrl, pageUrl]),
     getCurrentPageType: () => "listing",
     getDraftPageEntry: (pageUrl) => {
       calls.push(["getDraftPageEntry", pageUrl]);
@@ -30,6 +33,8 @@ function createDeps(overrides = {}) {
     },
     mergeDraftEntry: (...args) => calls.push(["mergeDraftEntry", ...args]),
     notifyDraftStatus: (pageUrl) => calls.push(["notifyDraftStatus", pageUrl]),
+    refreshPageSaveReconciliation: async (baseUrl, pageUrl) =>
+      calls.push(["refreshPageSaveReconciliation", baseUrl, pageUrl]),
     refreshEnabledAiHighlights: () => calls.push(["refreshEnabledAiHighlights"]),
     refreshSilentHighlightings: () => {
       calls.push(["refreshSilentHighlightings"]);
@@ -148,6 +153,7 @@ test("configUpdated forced reload reseeds the saved entry and draft status", asy
   assert.ok(!deps.calls.some((call) => call[0] === "mergeDraftEntry"));
   assert.deepEqual(
     deps.calls.filter((call) => [
+      "refreshPageSaveReconciliation",
       "setSavedPageEntry",
       "setCurrentPageType",
       "setConfig",
@@ -157,6 +163,7 @@ test("configUpdated forced reload reseeds the saved entry and draft status", asy
       "runPropertyLockSync"
     ].includes(call[0])),
     [
+      ["refreshPageSaveReconciliation", "https://example.com/base", "https://example.com/base/page"],
       ["setSavedPageEntry", "https://example.com/base/page", loadedEntry],
       ["setCurrentPageType", "loaded-detail"],
       ["setConfig", loadedConfig],
@@ -165,6 +172,36 @@ test("configUpdated forced reload reseeds the saved entry and draft status", asy
       ["notifyDraftStatus", "https://example.com/base/page"],
       ["runPropertyLockSync", { forceSiteIdRefresh: true }]
     ]
+  );
+});
+
+test("configUpdated forced reload clears reconciliation when no page entry remains", async () => {
+  const loadedConfig = { pageMarkings: {} };
+  const deps = createDeps({
+    isEnabled: () => true,
+    loadConfig: async () => loadedConfig,
+    findPageMarkingEntry: () => null
+  });
+  const handler = createConfigUpdatedHandler(deps);
+
+  const response = await handler.handleMessage({
+    baseUrl: "https://example.com/base",
+    forceReloadPageEntry: true
+  });
+
+  assert.deepEqual(response, { ok: true });
+  assert.ok(
+    deps.calls.some((call) =>
+      call[0] === "clearPageSaveReconciliation" &&
+      call[1] === "https://example.com/base" &&
+      call[2] === "https://example.com/base/page"
+    )
+  );
+  assert.ok(
+    deps.calls.some((call) =>
+      call[0] === "clearPageDraftBaseline" &&
+      call[1] === "https://example.com/base/page"
+    )
   );
 });
 

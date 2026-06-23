@@ -108,7 +108,8 @@ test("settings store reads global AI settings in one storage call", async () => 
       globalToken: "",
       globalEndpoint: "",
       globalConfigEndpoint: "",
-      globalStageBase: ""
+      globalStageBase: "",
+      globalAuthContextVersion: ""
     });
   });
 });
@@ -312,10 +313,11 @@ test("settings store saveLoginSettings writes stage base and token", async () =>
       token: "secret-token"
     });
 
-    assert.deepEqual(mock.setCalls.at(-1), {
-      globalStageBase: "stage.example.test",
-      globalToken: "secret-token"
-    });
+    const lastCall = mock.setCalls.at(-1);
+    assert.equal(lastCall.globalStageBase, "stage.example.test");
+    assert.equal(lastCall.globalToken, "secret-token");
+    assert.equal(typeof lastCall.globalAuthContextVersion, "string");
+    assert.ok(lastCall.globalAuthContextVersion);
   });
 });
 

@@ -101,7 +101,6 @@ test("same-property non-candidate pages keep silent mode and property-lock scope
     /const propertyLockScopeSiteId = isPropertyLockCollaborationEnabled\(\)\s*\?[\s\S]*?state\.propertyLockRecoveryDeadlineAt > Date\.now\(\) && state\.propertyLockRecoverySiteId[\s\S]*?state\.propertyLockRecoverySiteId\s*:\s*liveSiteId[\s\S]*?: null;/
   );
   assert.match(popupSource, /if \(propertyLockScopeSiteId && state\.currentBaseUrl && tokenValue\) \{/);
-  assert.match(popupSource, /state\.propertyLockSiteId === propertyLockScopeSiteId/);
   assert.match(popupSource, /const pageScopedUiDisabled =[\s\S]*?remoteConfigRetryBlocked[\s\S]*?isPropertyLockBlockingEditing\(\)/);
   assert.doesNotMatch(
     popupSource,
@@ -513,10 +512,9 @@ test("remote config load delegates transport to background and hydrates the payl
   assert.match(remoteNetworkSource, /const stored = await putTransferPayload\("load", payload\);/);
   assert.match(backgroundSource, /from "\.\/background\/remote-config-sync\.js"/);
   assert.match(remoteConfigSyncSource, /export async function replaceServerConfigIntoLocalSnapshot\(options = \{\}\) \{/);
-  assert.match(backgroundSource, /if \(message\.type === "replaceServerConfigIntoLocalSnapshot"\) \{/);
   assert.match(backgroundSource, /if \(message\.type === "loadRemoteConfigSnapshot"\) \{/);
   assert.match(loadBody, /type: "loadRemoteConfigSnapshot"/);
-  assert.match(loadBody, /type: "replaceServerConfigIntoLocalSnapshot"/);
+  assert.match(loadBody, /await replaceServerConfigIntoLocal\(\{/);
   assert.match(loadBody, /payloadKey: typeof response\.payloadKey === "string" \? response\.payloadKey : ""/);
   assert.doesNotMatch(loadBody, /await utils\.storageGet\(chrome\.storage\.session, payloadKey\)/);
   assert.doesNotMatch(loadBody, /await utils\.storageRemove\(chrome\.storage\.session, payloadKey\)/);
@@ -832,18 +830,12 @@ test("session pending is no longer tied to Lynx selector submission state", () =
   assert.doesNotMatch(pendingBody, /areCurrentSelectorsSubmitted|submittedSelectorsFingerprint/);
 });
 
-test("observer remote config polling stays passive-only and runs once a minute", () => {
+test("popup no longer schedules observer remote config polling", () => {
   const source = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
 
-  assert.match(source, /const OBSERVER_REMOTE_CONFIG_REFRESH_INTERVAL_MS = 60 \* 1000;/);
-  assert.match(
-    source,
-    /function syncObserverRemoteConfigRefreshTimer\(active\) \{[\s\S]*?window\.setInterval\(\(\) => \{[\s\S]*?refreshUi\(\{[\s\S]*?useBusyOverlay: false,[\s\S]*?remoteConfigLoadMode: "observer_poll"[\s\S]*?\}/
-  );
-  assert.match(
-    source,
-    /syncObserverRemoteConfigRefreshTimer\([\s\S]*?!state\.propertyLockState\.isEditor/
-  );
+  assert.doesNotMatch(source, /OBSERVER_REMOTE_CONFIG_REFRESH_INTERVAL_MS/);
+  assert.doesNotMatch(source, /syncObserverRemoteConfigRefreshTimer/);
+  assert.doesNotMatch(source, /remoteConfigLoadMode:\s*"observer_poll"/);
 });
 
 test("marking enable does not send a redundant force refresh after TAB_ACTIVATE_MARKING", () => {
@@ -910,7 +902,7 @@ test("popup scopes optimistic enabled state to the current tab page and base URL
   assert.match(source, /function isPopupEnabledContextCurrent\(context, currentContext = buildPopupEnabledContext\(\)\) \{/);
   assert.match(source, /function clearLastPopupEnabled\(\) \{/);
   assert.match(source, /if \(tabChanged\) \{[\s\S]*?clearLastPopupEnabled\(\);/);
-  assert.match(source, /if \(pageUrl !== state\.lastPopupPageUrl\) \{[\s\S]*?clearLastPopupEnabled\(\);/);
+  assert.match(source, /if \(!tabChanged && pageUrl !== state\.lastPopupPageUrl\) \{[\s\S]*?clearLastPopupEnabled\(\);/);
   assert.match(source, /if \(!isPopupEnabledContextCurrent\(state\.lastPopupEnabledContext, popupEnabledContext\)\) \{[\s\S]*?clearLastPopupEnabled\(\);/);
 });
 
