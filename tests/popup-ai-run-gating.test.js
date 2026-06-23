@@ -275,3 +275,35 @@ test("#21 preview-exit restore uses explicit pending state and authoritative dra
     /function schedulePreviewRestoreFallback\(token: number, delayMs = AI_PREVIEW_RESTORE_FALLBACK_MS\) \{[\s\S]*?finalizePreviewRestoreFromRuntime\(\{ token \}\)/
   );
 });
+
+// --- #22: exiting the content list must be state-neutral (S4 == S3) ---
+// Show Content List is read-only. After exit, the caller applies the
+// authoritative preview-close draft snapshot; the marking refresh must NOT
+// re-probe getPageDraftStatus and clobber state.currentDraftEntry with a
+// transient re-derived entry, which would flip aiRunUpToDate false and
+// blanket-disable Run AI / Show Content List / Save / Discard with the
+// "Run AI content detection before saving or exiting marking." notice.
+
+test("#22 runtime-status refresh can preserve the authoritative draft across preview exit", () => {
+  // The probe gains a preserveDraft switch that skips the draft overwrite while
+  // still refreshing inspection/reconciliation signals.
+  assert.match(
+    popupSource,
+    /const preserveDraft = Boolean\(options\.preserveDraft\);/
+  );
+  assert.match(
+    popupSource,
+    /if \(!preserveDraft\) \{\s*applyDraftStatusToPopupState\(draftStatus\);\s*\}/
+  );
+});
+
+test("#22 the marking refresh threads preserveCurrentDraftStatus into the runtime probe", () => {
+  // When refreshUi runs with preserveCurrentDraftStatus (the preview-close path),
+  // the runtime probe must preserve the just-applied authoritative draft so the
+  // AI-run fingerprint still matches and the buttons stay in State C.
+  assert.match(
+    popupSource,
+    /latestRuntimeStatus = await refreshCurrentPageRuntimeStatus\(\{\s*tabId: currentTabId,\s*baseUrl: runtimeStatusBaseUrl,\s*preserveDraft: preserveCurrentDraftStatus\s*\}\);/
+  );
+});
+

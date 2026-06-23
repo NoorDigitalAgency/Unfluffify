@@ -31,6 +31,7 @@ test("keeps pending reconciliation messaging without blocking save and discard",
     pageControlsVisible: true,
     sessionHasPendingChanges: true,
     sessionRequiresAiRun: false,
+    currentDraftDirty: true,
     reconciliation: {
       status: "pending",
       reason: "pending"
@@ -74,6 +75,7 @@ test("keeps retry messaging without blocking save and discard after a failed rec
     pageControlsVisible: true,
     sessionHasPendingChanges: true,
     sessionRequiresAiRun: false,
+    currentDraftDirty: true,
     reconciliation: {
       status: "pending",
       reason: "sync_failed"
@@ -88,11 +90,12 @@ test("keeps retry messaging without blocking save and discard after a failed rec
   assert.equal(state.aiDirtyNoticeText, PopupText.page.statusServerSyncFailed);
 });
 
-test("requires AI before saving when the session is stale", () => {
+test("requires AI before saving but keeps discard enabled when the session is stale", () => {
   const state = buildPageSaveUiState({
     pageControlsVisible: true,
     sessionHasPendingChanges: true,
     sessionRequiresAiRun: true,
+    currentDraftDirty: true,
     reconciliation: null
   });
 
@@ -110,6 +113,7 @@ test("enables save and discard when the session is ready to sync", () => {
     pageControlsVisible: true,
     sessionHasPendingChanges: true,
     sessionRequiresAiRun: false,
+    currentDraftDirty: true,
     reconciliation: null
   });
 
@@ -124,8 +128,8 @@ test("keeps session save available while disabling discard when only another pag
   const state = buildPageSaveUiState({
     pageControlsVisible: true,
     sessionHasPendingChanges: true,
-    pageHasPendingChanges: false,
     sessionRequiresAiRun: false,
+    currentDraftDirty: false,
     reconciliation: null
   });
 
@@ -133,31 +137,29 @@ test("keeps session save available while disabling discard when only another pag
   assert.equal(state.pageRevertDisabled, true);
 });
 
-test("disables discard when the page is dirty but has no saved baseline to revert to", () => {
+test("enables discard when the page is dirty even with no saved baseline to revert to", () => {
   const state = buildPageSaveUiState({
     pageControlsVisible: true,
     sessionHasPendingChanges: true,
-    pageHasPendingChanges: true,
     sessionRequiresAiRun: true,
-    pageHasSavedBaseline: false,
-    reconciliation: null
-  });
-
-  assert.equal(state.pageRevertDisabled, true);
-  assert.equal(state.pageDraftStatusText, PopupText.page.statusRunAiBeforeSaving);
-});
-
-test("enables discard once a saved baseline exists for the dirty page", () => {
-  const state = buildPageSaveUiState({
-    pageControlsVisible: true,
-    sessionHasPendingChanges: true,
-    pageHasPendingChanges: true,
-    sessionRequiresAiRun: false,
-    pageHasSavedBaseline: true,
+    currentDraftDirty: true,
     reconciliation: null
   });
 
   assert.equal(state.pageRevertDisabled, false);
+  assert.equal(state.pageDraftStatusText, PopupText.page.statusRunAiBeforeSaving);
+});
+
+test("keeps discard disabled when the page has no unsaved edits (auto-seeded marks only)", () => {
+  const state = buildPageSaveUiState({
+    pageControlsVisible: true,
+    sessionHasPendingChanges: true,
+    sessionRequiresAiRun: false,
+    currentDraftDirty: false,
+    reconciliation: null
+  });
+
+  assert.equal(state.pageRevertDisabled, true);
 });
 
 test("clears status text when page controls are hidden", () => {

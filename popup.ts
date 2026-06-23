@@ -1546,15 +1546,6 @@ function hasSessionPendingChanges(sourceConfig, localPageMarkings, backendSavedP
 }
 
 // @ts-expect-error
-function hasBackendSavedPageMarking(pageMarkings, pageUrl) {
-  const normalizedTargetUrl = normalizeCandidatePageUrl(pageUrl);
-  if (!normalizedTargetUrl || !pageMarkings || typeof pageMarkings !== "object") {
-    return false;
-  }
-  return Object.keys(pageMarkings).some((url) => normalizeCandidatePageUrl(url) === normalizedTargetUrl);
-}
-
-// @ts-expect-error
 function findBackendSavedPageMarkingEntry(pageMarkings, pageUrl) {
   const normalizedTargetUrl = normalizeCandidatePageUrl(pageUrl);
   if (!normalizedTargetUrl || !pageMarkings || typeof pageMarkings !== "object") {
@@ -2468,6 +2459,8 @@ async function refreshCurrentPageRuntimeStatus(options = {}) {
 // @ts-expect-error
     ? options.baseUrl
     : state.currentBaseUrl;
+// @ts-expect-error
+  const preserveDraft = Boolean(options.preserveDraft);
   if (!tabId) {
     return {
       inspectionStatus: null,
@@ -2487,7 +2480,15 @@ async function refreshCurrentPageRuntimeStatus(options = {}) {
       : Promise.resolve(null)
   ]) as [Record<string, unknown> | null, TabDraftStatusResponse | null];
 
-  applyDraftStatusToPopupState(draftStatus);
+  // After an authoritative preview close, the caller has already applied the
+  // restored draft snapshot from the close payload. Re-probing getPageDraftStatus
+  // here can transiently return a re-derived entry (the content script is still
+  // finishing its restore) whose fingerprint differs, which would flip
+  // aiRunUpToDate false and blanket-disable the marking buttons. preserveDraft
+  // keeps the authoritative draft while still refreshing inspection/reconciliation.
+  if (!preserveDraft) {
+    applyDraftStatusToPopupState(draftStatus);
+  }
 
   const inspectionPending = Boolean(
     inspectionStatus &&
@@ -4284,7 +4285,8 @@ async function refreshUiInner(options = {}) {
   ) {
     latestRuntimeStatus = await refreshCurrentPageRuntimeStatus({
       tabId: currentTabId,
-      baseUrl: runtimeStatusBaseUrl
+      baseUrl: runtimeStatusBaseUrl,
+      preserveDraft: preserveCurrentDraftStatus
     });
   }
   if (
@@ -4728,9 +4730,8 @@ async function refreshUiInner(options = {}) {
   const pageSaveUiState = buildPageSaveUiState({
     pageControlsVisible,
     sessionHasPendingChanges,
-    pageHasPendingChanges: currentPageHasPendingChanges,
     sessionRequiresAiRun,
-    pageHasSavedBaseline: hasBackendSavedPageMarking(backendSavedPageMarkings, pageUrl),
+    currentDraftDirty: state.currentDraftDirty,
     reconciliation: state.currentPageSaveReconciliation
   });
 // @ts-expect-error

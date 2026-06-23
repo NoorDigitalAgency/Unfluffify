@@ -9,9 +9,8 @@ type PageSaveReconciliation = {
 type BuildPageSaveUiStateOptions = {
   pageControlsVisible?: boolean;
   sessionHasPendingChanges?: boolean;
-  pageHasPendingChanges?: boolean;
   sessionRequiresAiRun?: boolean;
-  pageHasSavedBaseline?: boolean;
+  currentDraftDirty?: boolean;
   reconciliation?: PageSaveReconciliation;
 };
 
@@ -44,9 +43,8 @@ export function buildPageSaveUiState(options: BuildPageSaveUiStateOptions = {}) 
   const {
     pageControlsVisible = false,
     sessionHasPendingChanges = false,
-    pageHasPendingChanges = sessionHasPendingChanges,
     sessionRequiresAiRun = false,
-    pageHasSavedBaseline = true,
+    currentDraftDirty = false,
     reconciliation = null
   } = options;
 
@@ -61,15 +59,15 @@ export function buildPageSaveUiState(options: BuildPageSaveUiStateOptions = {}) 
 
   const pageSaveMobileSimulationRequiredVisible = false;
 
-  // Discard reverts the page entry to the backend-saved baseline. When no saved
-  // baseline exists yet (e.g. the only "pending changes" are auto-seeded marks
-  // from CSS/AI selectors on first enable), there is nothing meaningful to
-  // revert to, so Discard stays disabled until a real baseline has been saved.
+  // Discard drops the current-session marking edits. It is available whenever the
+  // draft has unsaved session edits (currentDraftDirty): discard reverts to the
+  // last backend-saved baseline, or clears the page's marks if it was never saved.
+  // Auto-seeded marks from CSS/AI selectors on first enable are not "dirty", so
+  // Discard stays disabled until the user actually marks/unmarks something.
   const pageRevertDisabled =
     !pageControlsVisible ||
     pageSaveReconciliationPending ||
-    !pageHasPendingChanges ||
-    !pageHasSavedBaseline;
+    !currentDraftDirty;
 
   let pageDraftStatusText = "";
   let pageDraftStatusTone = "muted";
