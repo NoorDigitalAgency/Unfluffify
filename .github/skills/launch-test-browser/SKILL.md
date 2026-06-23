@@ -49,10 +49,11 @@ non-launchable — they carry `__UNFLUFFIFY_REPO_ROOT__` and
 3. Copy `.vscode/mcp.json` and `.vscode/browser-mcp.config.json` into `.temp/`
    (e.g. `.temp/mcp.json` and `.temp/browser-mcp.config.json`).
 4. In the `.temp/` copies, replace every `__UNFLUFFIFY_REPO_ROOT__` placeholder
-   with the resolved repository root, and set `__CHROMIUM_EXECUTABLE_PATH__` to
-   the current environment's Chromium/Chrome binary (or remove the
-   `executablePath` line to use Playwright's bundled Chromium). Point the
-   `--config=` argument in `.temp/mcp.json` at `.temp/browser-mcp.config.json`.
+   with the resolved repository root. Do NOT point `__CHROMIUM_EXECUTABLE_PATH__`
+   at the OS Chrome/Chromium app — remove the `executablePath` line entirely so
+   Playwright uses its own managed Chromium (install it once with
+   `deno run -A npm:playwright@latest install chromium` if it is missing). Point
+   the `--config=` argument in `.temp/mcp.json` at `.temp/browser-mcp.config.json`.
 5. Launch the browser using the `.temp/` copies — never the committed,
    placeholdered originals.
 
@@ -99,9 +100,12 @@ live-test browser config:
    - `<repoRoot>/.mcp-browser-profile`
    - `<repoRoot>/.temp/browser-mcp.config.json`
 
-   Do not hand-roll a `launchPersistentContext()` flow, do not launch the
-   committed placeholdered configs as-is, and do not reuse
-   `orchestration/profiles/*` for simple observation.
+   Drive only the `playwright-local` (`npm:@playwright/mcp@latest`) MCP server
+   with Playwright's own managed Chromium. Do not start the OS Chrome/Chromium
+   app binary, `open -a 'Google Chrome'`, or `osascript`; do not hand-roll a
+   `launchPersistentContext()` flow; do not launch the committed placeholdered
+   configs as-is; and do not reuse `orchestration/profiles/*` for simple
+   observation.
 
 4. **Reload the unpacked extension after every rebuild.** The persisted Chromium
    profile can keep an older MV3 service worker alive even though files on disk
@@ -138,6 +142,14 @@ live-test browser config:
 
 ## Guardrails
 
+- **Use only the Playwright MCP browser; never touch the OS Chrome.** Launch and
+  drive the browser exclusively through the `playwright-local`
+  (`npm:@playwright/mcp@latest`) MCP server and its browser tools, using
+  Playwright's own managed Chromium bound to `.mcp-browser-profile`. Never run
+  the OS Chrome/Chromium app binary directly, never `open -a 'Google Chrome'`,
+  never set `executablePath` to the OS browser, never automate it with
+  AppleScript/`osascript`, and never quit, kill, relaunch, or otherwise
+  interfere with the user's OS Chrome instances, windows, or default profile.
 - Do not assume the repo root
   is loadable as an unpacked extension. It lacks the built JS entrypoints
   Chrome needs (e.g.
@@ -159,10 +171,11 @@ live-test browser config:
   instructed page in the first tab and capture its `tabId`, resolve the loaded
   extension's id, then open a second tab at
   `chrome-extension://<id>/popup.html?debugTabId=<tabId>` bound to that page tab.
-- Wrong: launch without a user-instructed target page, hardcode a stale
-  extension id instead of resolving it from the current load directory, point
-  `debugTabId` at the popup's own tab, hand-roll a fresh
-  `launchPersistentContext()` flow, launch the committed placeholdered configs
-  as-is, load the repo root as the unpacked extension, or reuse
-  `orchestration/profiles/follower` just to open a browser for manual
-  observation.
+- Wrong: launch without a user-instructed target page, run the OS Chrome binary
+  / `open -a 'Google Chrome'`, set `executablePath` to the OS browser, drive or
+  quit the OS Chrome with `osascript`, hardcode a stale extension id instead of
+  resolving it from the current load directory, point `debugTabId` at the
+  popup's own tab, hand-roll a fresh `launchPersistentContext()` flow, launch
+  the committed placeholdered configs as-is, load the repo root as the unpacked
+  extension, or reuse `orchestration/profiles/follower` just to open a browser
+  for manual observation.
