@@ -5691,6 +5691,7 @@ function handleLynxChecklistCancel() {
 async function handleRenderModeSet() {
   await runWithSpinner(null, PopupText.overlay.savingRenderMode, async () => {
     const tabId = state.currentTab && state.currentTab.id;
+    const wasNoJsHeld = tabId ? await isRenderModeNoJsHeld(tabId) : false;
     const nextRenderMode = normalizeUiRenderModeValue(uiModule.getViewState().renderModeValue);
     if (isUndeterminedRenderMode(nextRenderMode)) {
       uiModule.showToast(PopupText.renderMode.toastUndeterminedCannotSet);
@@ -5719,23 +5720,6 @@ async function handleRenderModeSet() {
       targetConfig.renderMode = nextRenderMode;
       targetConfig.renderModeUpdatedAt = renderModeUpdatedAt;
     });
-    state.currentBaseUrlHasConfirmedRenderMode = true;
-    state.renderModeEditMode = false;
-    state.renderModeSummaryOpen = false;
-    state.renderModeSuggestedKey = "";
-    state.renderModeSuggestedValue = nextRenderMode;
-    state.renderModeDetectionKey = "";
-    state.renderModeDetectionUnsure = false;
-    state.renderModeDetectionAccuracy = Number.NaN;
-    state.renderModeWarningDismissedKey = "";
-    state.renderModeManualStepsVisible = false;
-    await messages.sendTabMessage({
-      type: "configUpdated",
-      baseUrl: state.currentBaseUrl
-    });
-    // Normalize page execution state after Set regardless of the last
-    // inspection path (with/without JavaScript) so post-Set behavior is
-    // deterministic.
     if (tabId) {
       const tabState = await messages.getTabState(tabId);
       const candidateUrl =
@@ -5756,6 +5740,57 @@ async function handleRenderModeSet() {
         startRenderModeSetNavGuard(tabId);
         beginNavigationInspectionOverlay(tabId);
       }
+      // If the page is currently held in "Without JavaScript", normalize the
+      // page execution state before exiting render-mode edit so the upcoming
+      // silent-mode reveal/freeze can trigger immediately after Set.
+      if (wasNoJsHeld) {
+        await normalizeRenderModeDebuggerPage(tabId);
+        const endInspectionResult = await messages.requestTabEndRenderModeInspection(tabId, {
+          operationId: `render-mode-set-exit:${tabId}:${Date.now()}`
+        });
+        if (!endInspectionResult || !endInspectionResult.ok) {
+          const endInspectionError =
+            endInspectionResult &&
+            typeof endInspectionResult === "object" &&
+            "error" in endInspectionResult &&
+            typeof endInspectionResult.error === "string"
+              ? endInspectionResult.error
+              : "Unknown error";
+          console.warn(
+            "Unable to end render mode inspection after render mode set:",
+            endInspectionError
+          );
+        }
+        if (state.renderModeDebuggerTabId === tabId) {
+          state.renderModeDebuggerTabId = null;
+        }
+      }
+    }
+    state.currentBaseUrlHasConfirmedRenderMode = true;
+    state.renderModeEditMode = false;
+    state.renderModeSummaryOpen = false;
+    state.renderModeSuggestedKey = "";
+    state.renderModeSuggestedValue = nextRenderMode;
+    state.renderModeDetectionKey = "";
+    state.renderModeDetectionUnsure = false;
+    state.renderModeDetectionAccuracy = Number.NaN;
+    state.renderModeWarningDismissedKey = "";
+    state.renderModeManualStepsVisible = false;
+    if (tabId && wasNoJsHeld) {
+      await messages.sendTabMessageWithRetry({
+        type: "configUpdated",
+        baseUrl: state.currentBaseUrl
+      }, 8);
+    } else {
+      await messages.sendTabMessage({
+        type: "configUpdated",
+        baseUrl: state.currentBaseUrl
+      });
+    }
+    // Normalize page execution state after Set regardless of the last
+    // inspection path (with/without JavaScript) so post-Set behavior is
+    // deterministic.
+    if (tabId && !wasNoJsHeld) {
       await normalizeRenderModeDebuggerPage(tabId);
       if (state.renderModeDebuggerTabId === tabId) {
         state.renderModeDebuggerTabId = null;

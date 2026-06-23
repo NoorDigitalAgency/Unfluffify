@@ -416,6 +416,36 @@ export function requestTabRunAi(tabId: TabId, payload: TabRequestPayload = {}, o
   });
 }
 
+export function requestTabEndRenderModeInspection(tabId: TabId, payload: TabRequestPayload = {}, options: TabRequestOptions = {}) {
+  const opts = options;
+  if (!tabId) {
+    return Promise.resolve({
+      ok: false,
+      error: "Missing tab"
+    });
+  }
+  return requestRuntime({
+    type: TAB_END_RENDER_MODE_INSPECTION_COMMAND,
+    payload: payload && typeof payload === "object" ? payload : {}
+  }, {
+    tabId,
+    timeoutMs: resolveTimeoutMs(opts, 15000)
+  }).then((result) => ({
+    ok: true,
+    result: result && typeof result === "object" ? result : {}
+  })).catch((error) => {
+    const reply = error && error.details && error.details.reply && typeof error.details.reply === "object"
+      ? error.details.reply
+      : null;
+    return {
+      ok: false,
+      code: typeof error.code === "string" ? error.code : (reply && reply.code) || "handler_failed",
+      error: (error && error.message) || (reply && reply.error) || "Unable to end render mode inspection",
+      details: reply && reply.details && typeof reply.details === "object" ? reply.details : {}
+    };
+  });
+}
+
 export function sendTabMessage(message: Record<string, unknown>, options: TabRequestOptions = {}) {
   const tabId = state.currentTab && state.currentTab.id;
   if (!tabId) {

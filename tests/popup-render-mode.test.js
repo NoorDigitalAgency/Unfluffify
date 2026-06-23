@@ -286,7 +286,27 @@ test("render mode set always normalizes page execution state after persisting th
   );
   assert.match(
     setBlock,
-    /await messages\.sendTabMessage\(\{[\s\S]*?type:\s*"configUpdated",[\s\S]*?baseUrl:\s*state\.currentBaseUrl[\s\S]*?\}\);[\s\S]*?if \(tabId\) \{[\s\S]*?await normalizeRenderModeDebuggerPage\(tabId\);[\s\S]*?\}/
+    /const wasNoJsHeld = tabId \? await isRenderModeNoJsHeld\(tabId\) : false;/
+  );
+  assert.match(
+    setBlock,
+    /if \(tabId && wasNoJsHeld\) \{[\s\S]*?await normalizeRenderModeDebuggerPage\(tabId\);[\s\S]*?\}/
+  );
+  assert.match(
+    setBlock,
+    /await messages\.requestTabEndRenderModeInspection\(tabId,\s*\{[\s\S]*?operationId:\s*`render-mode-set-exit:\$\{tabId\}:\$\{Date\.now\(\)\}`/
+  );
+  assert.match(
+    setBlock,
+    /if \(tabId && wasNoJsHeld\) \{[\s\S]*?await messages\.sendTabMessageWithRetry\(\{[\s\S]*?type:\s*"configUpdated",[\s\S]*?baseUrl:\s*state\.currentBaseUrl[\s\S]*?\},\s*8\);[\s\S]*?\} else \{[\s\S]*?await messages\.sendTabMessage\(\{[\s\S]*?type:\s*"configUpdated",[\s\S]*?baseUrl:\s*state\.currentBaseUrl[\s\S]*?\}\);[\s\S]*?\}/
+  );
+  assert.match(
+    setBlock,
+    /if \(tabId && !wasNoJsHeld\) \{[\s\S]*?await normalizeRenderModeDebuggerPage\(tabId\);[\s\S]*?\}/
+  );
+  assert.match(
+    setBlock,
+    /if \(tabId\) \{[\s\S]*?if \(wasNoJsHeld\) \{[\s\S]*?await normalizeRenderModeDebuggerPage\(tabId\);[\s\S]*?state\.renderModeEditMode = false;/
   );
   assert.match(
     setBlock,
