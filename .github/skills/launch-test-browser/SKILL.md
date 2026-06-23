@@ -31,11 +31,22 @@ instead of re-reading and re-deriving that file.
 
 ## Canonical configuration (do not improvise)
 
+First step: determine the active `Unfluffify` repository root for the current
+environment and treat that directory as the source of truth for all browser
+launch paths.
+
+- Start from the current workspace / git repo root for `Unfluffify`.
+- Derive all absolute browser-launch paths from that root.
+- Do not loop trying to reconcile stale machine-specific absolute paths found in
+  `.vscode/mcp.json`, `.mcp.json`, or related config files.
+- Use the calculated current-environment paths at runtime without editing those
+  config files unless the user explicitly asks.
+
 Launch through the `.vscode/mcp.json` server `playwright-local`, which runs:
 
 - `deno run -A npm:@playwright/mcp@latest`
-- `--user-data-dir=/home/rojan/Documents/Git/GitHub/Unfluffify/.mcp-browser-profile`
-- `--config=/home/rojan/Documents/Git/GitHub/Unfluffify/.vscode/browser-mcp.config.json`
+- `--user-data-dir=<repoRoot>/.mcp-browser-profile`
+- `--config=<repoRoot>/.vscode/browser-mcp.config.json`
 
 `.vscode/browser-mcp.config.json` is the canonical live-test browser config:
 
@@ -57,8 +68,13 @@ Launch through the `.vscode/mcp.json` server `playwright-local`, which runs:
    This produces `dist/extension-dev`. Use `dist/extension` only when the user
    explicitly asks for the non-dev/release build.
 
-2. **Launch the `playwright-local` MCP browser** with the config above. Do not
-   hand-roll a `launchPersistentContext()` flow and do not reuse
+2. **Calculate the live browser paths for the current environment and launch the
+   `playwright-local` MCP browser.** Use:
+
+   - `<repoRoot>/.mcp-browser-profile`
+   - `<repoRoot>/.vscode/browser-mcp.config.json`
+
+   Do not hand-roll a `launchPersistentContext()` flow and do not reuse
    `orchestration/profiles/*` for simple observation.
 
 3. **Reload the unpacked extension after every rebuild.** The persisted Chromium
@@ -79,8 +95,8 @@ Launch through the `.vscode/mcp.json` server `playwright-local`, which runs:
 ## Guardrails
 
 - Do not assume the repo root
-  (`/home/rojan/Documents/Git/GitHub/Unfluffify`) is loadable as an unpacked
-  extension. It lacks the built JS entrypoints Chrome needs (e.g.
+  is loadable as an unpacked extension. It lacks the built JS entrypoints
+  Chrome needs (e.g.
   `background.js`, `popup.js`, `content-loader.js`), so service-worker waits and
   popup targeting will fail if the repo root is loaded directly.
 - Always load `dist/extension-dev` (or `dist/extension` for explicit release
@@ -92,8 +108,8 @@ Launch through the `.vscode/mcp.json` server `playwright-local`, which runs:
 ## Example
 
 - Right: build `dist/extension-dev`, launch the `playwright-local` MCP browser
-  with `.vscode/browser-mcp.config.json` and `.mcp-browser-profile`, reload the
-  unpacked extension, then open
+  with `<repoRoot>/.vscode/browser-mcp.config.json` and
+  `<repoRoot>/.mcp-browser-profile`, reload the unpacked extension, then open
   `chrome-extension://<id>/popup.html?debugTabId=<tabId>`.
 - Wrong: hand-roll a fresh `launchPersistentContext()` flow, load the repo root
   as the unpacked extension, or reuse `orchestration/profiles/follower` just to
