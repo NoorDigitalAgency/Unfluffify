@@ -78,6 +78,27 @@
   flag-disabled property-lock follow-ups may defer live
   validation until those features are prioritized.
 
+## Popup Preview Exit Contract
+
+- Approved popup button-state contract for the AI run -> Show Content List ->
+  Exit Preview -> marking mode flow:
+  - fresh marking entry: Run AI enabled, Show Content List disabled, Save
+    disabled, Discard disabled, marking toggle checked/enabled
+  - clean post-AI-run state: Run AI disabled, Show Content List enabled, Save
+    enabled, Discard enabled, marking toggle checked/enabled
+  - stale post-edit state: Run AI enabled, Show Content List disabled, Save
+    disabled, Discard enabled, marking toggle checked/enabled
+  - Show Content List preview is read-only, and exiting it must be
+    state-neutral: restore the exact pre-preview marking state after at most a
+    brief restore-pending bridge
+- Known preview-exit pitfall: the current bug source is the split close
+  protocol between the immediate `TAB_CLOSE_AI_PREVIEW` response and the later
+  async `aiPreviewClosed` notification. Future fix work must make
+  popup-initiated preview close restore from an authoritative close payload
+  synchronously while keeping the async notification as compatibility backup,
+  and must preserve the authoritative draft snapshot instead of re-probing a
+  transient re-derived draft during preview exit.
+
 ## AI Submission Rules
 
 - Starting AI content detection must show compute-busy feedback and apply the page-side compute lock before raw HTML backfills, XPath refinement, or payload construction; the async status poll interval is 5 seconds.

@@ -1,8 +1,56 @@
 # Handoff - Content Main Decomposition
 
-Last updated: 2026-06-12
+Last updated: 2026-06-23
 Branch: `main`
-Status: world decomposition complete; content follow-up D0-D2, E0-E2, Track F F1-F24, and high-risk phases G0-G5 complete. Track H runtime-router/service work H0-H3 is complete and now paused for post-H3 review.
+Status: world decomposition complete; content follow-up D0-D2, E0-E2, Track F F1-F24, and high-risk phases G0-G5 complete. Track H runtime-router/service work H0-H3 is complete and remains paused for post-H3 review. Temporary immediate priority: the popup preview-exit button-state contract bugfix documented in `.copilot/popup-preview-exit-button-state-plan.md`.
+
+## Temporary Priority Bugfix Handoff
+
+Before any further Track H work, execute
+`.copilot/popup-preview-exit-button-state-plan.md`.
+
+Confirmed user-approved button-state contract:
+
+1. Fresh marking entry:
+   - Run AI enabled
+   - Show Content List disabled
+   - Save disabled
+   - Discard disabled
+   - Marking toggle checked and enabled
+2. Clean post-AI-run marking state:
+   - Run AI disabled
+   - Show Content List enabled
+   - Save enabled
+   - Discard enabled
+   - Marking toggle checked and enabled
+3. Post-edit stale state:
+   - Run AI enabled
+   - Show Content List disabled
+   - Save disabled
+   - Discard enabled
+   - Marking toggle checked and enabled
+4. Show Content List preview is read-only. Exiting it must restore the exact
+   pre-preview marking state.
+5. A short restore-pending bridge is acceptable, but it should be effectively
+   immediate in the normal path and must not exceed 1 second as fallback.
+
+Highest-confidence root cause:
+
+1. popup-initiated preview close currently starts `previewRestorePending`
+2. the close command returns before the popover-close path has the
+   authoritative restored draft/runtime snapshot
+3. the authoritative state arrives later via async `aiPreviewClosed`
+4. this split close protocol creates the race/window that leaves the post-exit
+   buttons wrong or wrong for too long
+
+Next exact step:
+
+1. lock the matrix and close protocol in focused tests
+2. change popup-initiated popover close to return the authoritative close
+   payload synchronously
+3. make the popup apply that payload immediately while keeping the later async
+   notification as a compatibility backup
+4. reduce the restore fallback window to no more than 1 second
 
 ## Current Repository State
 

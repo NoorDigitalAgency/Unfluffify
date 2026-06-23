@@ -1,6 +1,6 @@
 # Unfluffify Active Architecture Plan
 
-Last updated: 2026-06-17
+Last updated: 2026-06-23
 
 ## Objective
 
@@ -14,18 +14,27 @@ behavior.
 
 Use these documents before making implementation changes:
 
-1. `.copilot/content-main-followup-refactor-plan.md`
+1. `.copilot/popup-preview-exit-button-state-plan.md`
 2. `.copilot/handoff-world-decomposition.md`
 3. `.copilot/knowledge.md`
-4. `.copilot/high-risk-content-branches-plan.md` (historical G0-G5 reference only)
-5. `.copilot/typescript-deno-port-plan.md` (completed: autonomous port to TypeScript with a Deno build/watch/hot-reload toolchain; branch `feat/typescript-deno-port`)
-6. `.copilot/typescript-typing-rollout-plan.md` (autonomous plan to remove `@ts-nocheck` and add real types across the ported `.ts` codebase; target GPT-5.3-Codex medium; execute on branch `feat/typescript-deno-port`)
+4. `.copilot/content-main-followup-refactor-plan.md`
+5. `.copilot/high-risk-content-branches-plan.md` (historical G0-G5 reference only)
+6. `.copilot/typescript-deno-port-plan.md` (completed: autonomous port to TypeScript with a Deno build/watch/hot-reload toolchain; branch `feat/typescript-deno-port`)
+7. `.copilot/typescript-typing-rollout-plan.md` (autonomous plan to remove `@ts-nocheck` and add real types across the ported `.ts` codebase; target GPT-5.3-Codex medium; execute on branch `feat/typescript-deno-port`)
 
 Historical and superseded `.copilot` plans/handoffs have been removed from the
 workspace. If earlier rationale is needed, use git history instead of restoring
 old archive files into the active `.copilot` folder.
 
 ## Current Architecture Track
+
+Temporary priority override: before resuming Track H, fix the popup
+AI-run -> Show Content List -> Exit Preview -> marking-mode button-state
+contract using `.copilot/popup-preview-exit-button-state-plan.md`.
+
+That bugfix is a state-contract stabilization slice, not a Track H redesign. It
+must preserve the locked marking contract and the existing page-save semantics
+while making preview exit state-neutral.
 
 The service-worker authority refactor, storage-access layer refactor, and world
 decomposition program are complete and merged to `main`. Content follow-up
@@ -41,6 +50,9 @@ background plain runtime message callsites unchanged during this track.
 This track protects the 11 always-on core features, including reveal/freeze and
 lazy-loading stopping/restoration. Do not resume old implementation tracks unless
 the user explicitly asks for them.
+
+Until the preview-exit bugfix is complete, treat Track H as paused rather than
+superseded.
 
 ## Validation Baseline
 
