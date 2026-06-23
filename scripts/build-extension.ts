@@ -10,6 +10,7 @@ const outDir = Deno.args.includes("--dev")
 
 const ROOT_FILES = [
   "manifest.json",
+  "logo.png",
   "background.ts",
   "content-loader.ts",
   "content-main.ts",

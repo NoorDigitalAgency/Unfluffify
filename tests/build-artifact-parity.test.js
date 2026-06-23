@@ -24,6 +24,7 @@ test("dist extension manifest and resources resolve when release build exists", 
 
   const required = new Set();
   required.add("manifest.json");
+  required.add("logo.png");
 
   if (manifest?.background?.service_worker) {
     required.add(normalizePath(manifest.background.service_worker));
