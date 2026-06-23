@@ -875,7 +875,7 @@ test("marking enable starts fresh: wipes stale page draft and reseeds the clean 
 
 test("page popup-busy overlay is independent from reveal inspection and freeze UI", () => {
   const source = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
-  const busyStart = source.indexOf("export function setPopupBusyOnPage(active, message = \"\")");
+  const busyStart = source.indexOf("export function setPopupBusyOnPage(active, message = \"\", options = {})");
   const busyEnd = source.indexOf("export function isPopupBusyOnPageActive", busyStart);
   assert.ok(busyStart > -1);
   assert.ok(busyEnd > busyStart);
@@ -889,8 +889,10 @@ test("page popup-busy overlay is independent from reveal inspection and freeze U
   assert.match(source, /state\.overlay = overlay;[\s\S]*?overlay\.appendChild\(state\.popupBusyOverlay\);/);
   assert.match(source, /function startPopupBusyInputBlocker\(\) \{[\s\S]*?PAGE_INSPECTION_INPUT_EVENTS/);
   assert.match(source, /function stopPopupBusyInputBlocker\(\) \{/);
-  assert.match(source, /state\.popupBusyFailOpenTimer = extensionSetTimeout\(\(\) => \{[\s\S]*?setPopupBusyOnPage\(false\);/);
-  assert.match(source, /setPopupBusyOnPage\(false\);[\s\S]*?stopPageInspectionInputBlocker\(\);/);
+  assert.match(source, /popupBusyOperationId: ""/);
+  assert.match(busySource, /leaseOptions\.operationId[\s\S]*?ignored: true[\s\S]*?return[\s\S]*?clearPopupBusyFailOpenTimer\(\);/);
+  assert.match(source, /state\.popupBusyFailOpenTimer = extensionSetTimeout\(\(\) => \{[\s\S]*?setPopupBusyOnPage\(false, "", \{ operationId \}\);/);
+  assert.match(source, /setPopupBusyOnPage\(false, "", \{ operationId \}\);[\s\S]*?stopPageInspectionInputBlocker\(\);/);
   assert.doesNotMatch(busySource, /setPageInspectionUiActive|PAGE_INSPECTION_OVERLAY_CLASS|pausePageMotion|PAGE_MOTION_PAUSE/);
 });
 

@@ -94,16 +94,45 @@ test("popup page-busy mirror skips render detection spinners", () => {
   );
   assert.match(
     popupSource,
-    /function syncPageBusyFromPopupSpinner\(\) \{[\s\S]*?!isRenderDetectionPopupSpinner\(snapshot\)[\s\S]*?sendPopupBusyMirrorMessage\(tabId, true, message\)/
+    /function syncPageBusyFromPopupSpinner\(\) \{[\s\S]*?const snapshot = getActiveSpinnerSnapshotForSurface\("page"\);[\s\S]*?!isRenderDetectionPopupSpinner\(snapshot\)[\s\S]*?sendPopupBusyMirrorMessage\(tabId, true, message, leaseDetails\)/
   );
   assert.match(popupSource, /const POPUP_PAGE_BUSY_MIRROR_DELAY_MS = 3500;/);
-  assert.match(popupSource, /popupPageBusyMirrorShowTimer = window\.setTimeout\(\(\) => \{[\s\S]*?sendPopupBusyMirrorMessage\(tabId, true, message\);[\s\S]*?\}, POPUP_PAGE_BUSY_MIRROR_DELAY_MS\);/);
+  assert.match(popupSource, /const POPUP_PAGE_BUSY_MIRROR_FAIL_OPEN_MS = 65000;/);
+  assert.match(popupSource, /popupPageBusyMirrorShowTimer = window\.setTimeout\(\(\) => \{[\s\S]*?const currentSnapshot = getActiveSpinnerSnapshotForSurface\("page"\);[\s\S]*?const currentLeaseDetails = getPopupBusyMirrorLeaseDetails\(currentSnapshot\);[\s\S]*?sendPopupBusyMirrorMessage\(tabId, true, message, currentLeaseDetails\);[\s\S]*?\}, POPUP_PAGE_BUSY_MIRROR_DELAY_MS\);/);
   assert.match(popupSource, /function clearPopupPageBusyMirrorShowTimer\(\) \{[\s\S]*?popupPageBusyMirrorPendingSignature = "";/);
   assert.match(popupSource, /type: "setPopupBusyOnPage"/);
   assert.match(popupSource, /syncPageBusyFromPopupSpinner/);
   assert.match(popupSpinnerSource, /function syncPageBusyFromPopupSpinner\(deps\)/);
   assert.match(popupSpinnerSource, /deps\.setUiBusyFromCurrentSpinner\(\);[\s\S]*?syncPageBusyFromPopupSpinner\(deps\);/);
   assert.match(popupSpinnerSource, /deps\.uiModule\.setUiBusy\(false\);[\s\S]*?syncPageBusyFromPopupSpinner\(deps\);/);
+});
+
+test("popup selects active blocking spinner instead of the queue tail", () => {
+  assert.match(
+    popupSource,
+    /function getActiveSpinnerSnapshotForSurface\(surface\) \{[\s\S]*?const entries = \[\.\.\.popupSpinnerQueue\.entries\(\)\];[\s\S]*?for \(let index = entries\.length - 1; index >= 0; index -= 1\)[\s\S]*?spinnerSnapshotBlocksSurface\(snapshot, surface\)/
+  );
+  assert.match(
+    popupSource,
+    /function setUiBusyFromCurrentSpinner\(\) \{[\s\S]*?const snapshot = getActiveSpinnerSnapshotForSurface\("popup"\);/
+  );
+  assert.match(
+    popupSource,
+    /const popupSpinnerSnapshot = getActiveSpinnerSnapshotForSurface\("popup"\);[\s\S]*?const popupBusyActive = Boolean\(popupSpinnerVisible && popupSpinnerSnapshot\);/
+  );
+});
+
+test("popup preserves broker lease metadata when rebuilding spinner snapshots", () => {
+  const snapshotBlock = extractSourceBlock(
+    popupSource,
+    "function applyBackgroundStateSnapshot(snapshot) {",
+    "function connectBackgroundStatePort"
+  );
+
+  assert.match(snapshotBlock, /blockSurfaces: entry\.blockSurfaces && typeof entry\.blockSurfaces === "object"[\s\S]*?page: entry\.blockSurfaces\.page === true,[\s\S]*?popup: entry\.blockSurfaces\.popup === true/);
+  assert.match(snapshotBlock, /operationId: typeof entry\.operationId === "string" \? entry\.operationId : ""/);
+  assert.match(snapshotBlock, /maxDurationMs: Number\.isFinite\(entry\.maxDurationMs\) \? Number\(entry\.maxDurationMs\) : undefined/);
+  assert.match(snapshotBlock, /updatedAt: Number\.isFinite\(entry\.updatedAt\) \? Number\(entry\.updatedAt\) : 0/);
 });
 
 test("render mode editor shows a textual selected-mode summary instead of a visible dropdown", () => {

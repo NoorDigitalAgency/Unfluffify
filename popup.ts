@@ -393,6 +393,7 @@ let popupSpinnerTimer = 0;
 // not cut off mid-flight.
 const SPINNER_WATCHDOG_MS = 60000;
 const POPUP_PAGE_BUSY_MIRROR_DELAY_MS = 3500;
+const POPUP_PAGE_BUSY_MIRROR_FAIL_OPEN_MS = 65000;
 const popupSpinnerWatchdogByKey = new Map();
 let popupNavigationInspectionOverlayStarted = false;
 // @ts-expect-error
@@ -410,6 +411,7 @@ let popupPageBusyMirrorActive = false;
 let popupPageBusyMirrorSignature = "";
 let popupPageBusyMirrorPendingSignature = "";
 let popupPageBusyMirrorShowTimer = 0;
+let popupPageBusyMirrorOperationId = "";
 let pendingAiPreviewConfigSync: { tabId: number; baseUrl: string } | null = null;
 // @ts-expect-error
 let propertyPageTypesRequest = null;
@@ -669,12 +671,44 @@ function buildSpinnerBusyDetails(key, entry) {
   return {
     reason: normalizeSpinnerReason(spinnerEntry.reason, key, spinnerEntry.message),
     source: typeof spinnerEntry.source === "string" && spinnerEntry.source ? spinnerEntry.source : "popup-spinner",
-    spinnerKey: typeof key === "string" ? key : ""
+    spinnerKey: typeof key === "string" ? key : "",
+    operationKind: typeof spinnerEntry.operationKind === "string" ? spinnerEntry.operationKind : "",
+    operationPhase: typeof spinnerEntry.operationPhase === "string" ? spinnerEntry.operationPhase : "",
+    startedAt: Number.isFinite(spinnerEntry.startedAt) ? Number(spinnerEntry.startedAt) : 0,
+    deadlineAt: Number.isFinite(spinnerEntry.deadlineAt) ? Number(spinnerEntry.deadlineAt) : 0,
+    timerMode: typeof spinnerEntry.timerMode === "string" ? spinnerEntry.timerMode : ""
   };
 }
 
+// @ts-expect-error
+function spinnerSnapshotBlocksSurface(snapshot, surface) {
+  const entry = snapshot && snapshot.entry && typeof snapshot.entry === "object"
+    ? snapshot.entry
+    : null;
+  if (!entry) {
+    return false;
+  }
+  if (entry.blockSurfaces && typeof entry.blockSurfaces === "object") {
+    return entry.blockSurfaces[surface] === true;
+  }
+  return true;
+}
+
+// @ts-expect-error
+function getActiveSpinnerSnapshotForSurface(surface) {
+  const entries = [...popupSpinnerQueue.entries()];
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const [key, entry] = entries[index];
+    const snapshot = { key, entry };
+    if (spinnerSnapshotBlocksSurface(snapshot, surface)) {
+      return snapshot;
+    }
+  }
+  return null;
+}
+
 function setUiBusyFromCurrentSpinner() {
-  const snapshot = currentSpinnerSnapshot();
+  const snapshot = getActiveSpinnerSnapshotForSurface("popup");
   if (!snapshot) {
     uiModule.setUiBusy(false);
     return;
@@ -730,14 +764,49 @@ function isRenderDetectionPopupSpinner(snapshot) {
 }
 
 // @ts-expect-error
-function sendPopupBusyMirrorMessage(tabId, active, message = "") {
+function spinnerSnapshotBlocksPage(snapshot) {
+  return spinnerSnapshotBlocksSurface(snapshot, "page");
+}
+
+// @ts-expect-error
+function getPopupBusyMirrorLeaseDetails(snapshot) {
+  const entry = snapshot && snapshot.entry && typeof snapshot.entry === "object"
+    ? snapshot.entry
+    : {};
+  const startedAt = Number.isFinite(entry.startedAt) ? Number(entry.startedAt) : Date.now();
+  const maxDurationMs = Number.isFinite(entry.maxDurationMs) && Number(entry.maxDurationMs) > 0
+    ? Number(entry.maxDurationMs)
+    : POPUP_PAGE_BUSY_MIRROR_FAIL_OPEN_MS;
+  const deadlineAt = Number.isFinite(entry.deadlineAt) && Number(entry.deadlineAt) > 0
+    ? Number(entry.deadlineAt)
+    : startedAt + maxDurationMs;
+  return {
+    deadlineAt,
+    operationId: typeof entry.operationId === "string" && entry.operationId
+      ? entry.operationId
+      : `popup-busy:${deadlineAt}`,
+    operationKind: typeof entry.operationKind === "string" ? entry.operationKind : "",
+    operationPhase: typeof entry.operationPhase === "string" ? entry.operationPhase : "",
+    releaseBy: deadlineAt
+  };
+}
+
+// @ts-expect-error
+function sendPopupBusyMirrorMessage(tabId, active, message = "", leaseDetails = {}) {
   if (!tabId) {
     return;
   }
+  const leaseRecord = leaseDetails && typeof leaseDetails === "object"
+    ? leaseDetails as Record<string, unknown>
+    : {};
   messages.sendTabMessageToTab(tabId, {
     type: "setPopupBusyOnPage",
     active: Boolean(active),
-    message: typeof message === "string" ? message : ""
+    message: typeof message === "string" ? message : "",
+    operationId: typeof leaseRecord.operationId === "string" ? leaseRecord.operationId : "",
+    operationKind: typeof leaseRecord.operationKind === "string" ? leaseRecord.operationKind : "",
+    operationPhase: typeof leaseRecord.operationPhase === "string" ? leaseRecord.operationPhase : "",
+    releaseBy: Number.isFinite(leaseRecord.releaseBy) ? Number(leaseRecord.releaseBy) : 0
   }).catch(() => {});
 }
 
@@ -751,7 +820,7 @@ function clearPopupPageBusyMirrorShowTimer() {
 
 function syncPageBusyFromPopupSpinner() {
   const tabId = getCurrentPopupTabId();
-  const snapshot = currentSpinnerSnapshot();
+  const snapshot = getActiveSpinnerSnapshotForSurface("page");
   const active = Boolean(
     tabId &&
       popupSpinnerVisible &&
@@ -759,14 +828,18 @@ function syncPageBusyFromPopupSpinner() {
       !isRenderDetectionPopupSpinner(snapshot)
   );
 
-  if (active) {
-    const message = currentSpinnerMessage() || PopupText.overlay.pleaseWait;
-    const signature = `${tabId}|${message}`;
+  if (active && snapshot) {
+    const message = snapshot.entry.message || PopupText.overlay.pleaseWait;
+    const leaseDetails = getPopupBusyMirrorLeaseDetails(snapshot);
+    const signature = `${tabId}|${message}|${leaseDetails.operationId}|${leaseDetails.releaseBy}`;
 // @ts-expect-error
     if (popupPageBusyMirrorActive && popupPageBusyMirrorTabId && popupPageBusyMirrorTabId !== tabId) {
-      sendPopupBusyMirrorMessage(popupPageBusyMirrorTabId, false);
+      sendPopupBusyMirrorMessage(popupPageBusyMirrorTabId, false, "", {
+        operationId: popupPageBusyMirrorOperationId
+      });
       popupPageBusyMirrorActive = false;
       popupPageBusyMirrorSignature = "";
+      popupPageBusyMirrorOperationId = "";
     }
     if (popupPageBusyMirrorActive && popupPageBusyMirrorSignature === signature) {
       return;
@@ -774,7 +847,8 @@ function syncPageBusyFromPopupSpinner() {
     if (popupPageBusyMirrorActive) {
       popupPageBusyMirrorTabId = tabId;
       popupPageBusyMirrorSignature = signature;
-      sendPopupBusyMirrorMessage(tabId, true, message);
+      popupPageBusyMirrorOperationId = leaseDetails.operationId;
+      sendPopupBusyMirrorMessage(tabId, true, message, leaseDetails);
       return;
     }
     if (popupPageBusyMirrorPendingSignature === signature && popupPageBusyMirrorShowTimer) {
@@ -789,14 +863,21 @@ function syncPageBusyFromPopupSpinner() {
         return;
       }
       const currentTabId = getCurrentPopupTabId();
-      const currentSnapshot = currentSpinnerSnapshot();
+      const currentSnapshot = getActiveSpinnerSnapshotForSurface("page");
       if (
         currentTabId !== tabId ||
         !popupSpinnerVisible ||
         !currentSnapshot ||
         isRenderDetectionPopupSpinner(currentSnapshot) ||
-        currentSpinnerMessage() !== message
+        currentSnapshot.entry.message !== message
       ) {
+        popupPageBusyMirrorPendingSignature = "";
+        syncPageBusyFromPopupSpinner();
+        return;
+      }
+      const currentLeaseDetails = getPopupBusyMirrorLeaseDetails(currentSnapshot);
+      const currentSignature = `${tabId}|${message}|${currentLeaseDetails.operationId}|${currentLeaseDetails.releaseBy}`;
+      if (currentSignature !== signature) {
         popupPageBusyMirrorPendingSignature = "";
         syncPageBusyFromPopupSpinner();
         return;
@@ -805,7 +886,8 @@ function syncPageBusyFromPopupSpinner() {
       popupPageBusyMirrorActive = true;
       popupPageBusyMirrorTabId = tabId;
       popupPageBusyMirrorSignature = signature;
-      sendPopupBusyMirrorMessage(tabId, true, message);
+      popupPageBusyMirrorOperationId = currentLeaseDetails.operationId;
+      sendPopupBusyMirrorMessage(tabId, true, message, currentLeaseDetails);
     }, POPUP_PAGE_BUSY_MIRROR_DELAY_MS);
     return;
   }
@@ -817,14 +899,17 @@ function syncPageBusyFromPopupSpinner() {
   }
 // @ts-expect-error
   const clearTabId = popupPageBusyMirrorTabId || tabId;
+  const clearOperationId = popupPageBusyMirrorOperationId;
   popupPageBusyMirrorActive = false;
   popupPageBusyMirrorTabId = null;
   popupPageBusyMirrorSignature = "";
-  sendPopupBusyMirrorMessage(clearTabId, false);
+  popupPageBusyMirrorOperationId = "";
+  sendPopupBusyMirrorMessage(clearTabId, false, "", { operationId: clearOperationId });
 }
 
 function syncUiBusyFromBrokerState() {
-  if (popupSpinnerQueue.size > 0) {
+  const activePopupSpinner = getActiveSpinnerSnapshotForSurface("popup");
+  if (activePopupSpinner) {
     popupSpinnerVisible = true;
     setUiBusyFromCurrentSpinner();
     syncPageBusyFromPopupSpinner();
@@ -886,11 +971,25 @@ function applyBackgroundStateSnapshot(snapshot) {
       return;
     }
     popupSpinnerQueue.set(entry.key, {
+      blockSurfaces: entry.blockSurfaces && typeof entry.blockSurfaces === "object"
+        ? {
+          page: entry.blockSurfaces.page === true,
+          popup: entry.blockSurfaces.popup === true
+        }
+        : undefined,
+      details: entry.details && typeof entry.details === "object" ? { ...entry.details } : undefined,
+      maxDurationMs: Number.isFinite(entry.maxDurationMs) ? Number(entry.maxDurationMs) : undefined,
       message: typeof entry.message === "string" ? entry.message : "",
+      operationId: typeof entry.operationId === "string" ? entry.operationId : "",
       persistent: Boolean(entry.persistent),
       reason: normalizeSpinnerReason(entry.reason, entry.key, entry.message),
       source: typeof entry.source === "string" && entry.source ? entry.source : "background-broker",
-      startedAt: Number.isFinite(entry.startedAt) ? Number(entry.startedAt) : Date.now()
+      startedAt: Number.isFinite(entry.startedAt) ? Number(entry.startedAt) : Date.now(),
+      operationKind: typeof entry.operationKind === "string" ? entry.operationKind : "",
+      operationPhase: typeof entry.operationPhase === "string" ? entry.operationPhase : "",
+      deadlineAt: Number.isFinite(entry.deadlineAt) ? Number(entry.deadlineAt) : 0,
+      timerMode: typeof entry.timerMode === "string" ? entry.timerMode : "",
+      updatedAt: Number.isFinite(entry.updatedAt) ? Number(entry.updatedAt) : 0
     });
     if (tabId) {
       popupSpinnerKeyTabIds.set(entry.key, tabId);
@@ -959,7 +1058,14 @@ function syncSpinnerEntryToBackground(key) {
     persistent: expectedPersistent,
     reason: normalizeSpinnerReason(entry.reason, key, expectedMessage),
     source: typeof entry.source === "string" && entry.source ? entry.source : "popup-spinner",
-    startedAt: Number.isFinite(entry.startedAt) ? entry.startedAt : Date.now()
+    startedAt: Number.isFinite(entry.startedAt) ? entry.startedAt : Date.now(),
+    operationId: typeof entry.operationId === "string" ? entry.operationId : "",
+    operationKind: typeof entry.operationKind === "string" ? entry.operationKind : "",
+    operationPhase: typeof entry.operationPhase === "string" ? entry.operationPhase : "",
+    deadlineAt: Number.isFinite(entry.deadlineAt) ? entry.deadlineAt : undefined,
+    maxDurationMs: Number.isFinite(entry.maxDurationMs) ? entry.maxDurationMs : undefined,
+    blockSurfaces: entry.blockSurfaces && typeof entry.blockSurfaces === "object" ? entry.blockSurfaces : undefined,
+    timerMode: typeof entry.timerMode === "string" ? entry.timerMode : ""
   }, {
     shouldApplySnapshot
   });
@@ -4811,15 +4917,15 @@ async function refreshUiInner(options = {}) {
   nextViewState.syncSaveStatusText = state.lastConfigSaveStatusText || ViewText.syncSaveIdle;
 // @ts-expect-error
   nextViewState.syncSaveStatusTone = state.lastConfigSaveStatusTone || "muted";
-  const popupBusyActive = popupSpinnerVisible;
-  const popupSpinnerSnapshot = currentSpinnerSnapshot();
+  const popupSpinnerSnapshot = getActiveSpinnerSnapshotForSurface("popup");
+  const popupBusyActive = Boolean(popupSpinnerVisible && popupSpinnerSnapshot);
 // @ts-expect-error
   const backgroundLifecycleBusy = Boolean(popupBackgroundLifecycle && popupBackgroundLifecycle.busy);
 // @ts-expect-error
   nextViewState.isBusy = popupBusyActive || backgroundLifecycleBusy || remoteConfigRetryBlocked || pageInspectionBusy;
 // @ts-expect-error
   nextViewState.busyMessage = popupBusyActive
-    ? currentSpinnerMessage()
+    ? (popupSpinnerSnapshot?.entry?.message || "")
     : backgroundLifecycleBusy
 // @ts-expect-error
       ? (popupBackgroundLifecycle.message || PopupText.overlay.pleaseWait)
@@ -4830,7 +4936,7 @@ async function refreshUiInner(options = {}) {
         : "";
 // @ts-expect-error
   nextViewState.busyReason = popupBusyActive
-    ? normalizeSpinnerReason(popupSpinnerSnapshot?.entry?.reason, popupSpinnerSnapshot?.key, currentSpinnerMessage())
+    ? normalizeSpinnerReason(popupSpinnerSnapshot?.entry?.reason, popupSpinnerSnapshot?.key, popupSpinnerSnapshot?.entry?.message)
     : backgroundLifecycleBusy
 // @ts-expect-error
       ? normalizeSpinnerReason(popupBackgroundLifecycle.reason, popupBackgroundLifecycle.kind || "lifecycle", popupBackgroundLifecycle.message)
@@ -4853,6 +4959,41 @@ nextViewState.busySource = popupBusyActive
   nextViewState.busySpinnerKey = popupBusyActive
     ? (popupSpinnerSnapshot?.key || "")
     : "";
+// @ts-expect-error
+  nextViewState.busyOperationKind = popupBusyActive
+    ? (popupSpinnerSnapshot?.entry?.operationKind || "")
+    : backgroundLifecycleBusy
+// @ts-expect-error
+      ? (popupBackgroundLifecycle.operationKind || popupBackgroundLifecycle.kind || "")
+      : "";
+// @ts-expect-error
+  nextViewState.busyOperationPhase = popupBusyActive
+    ? (popupSpinnerSnapshot?.entry?.operationPhase || "")
+    : backgroundLifecycleBusy
+// @ts-expect-error
+      ? (popupBackgroundLifecycle.operationPhase || popupBackgroundLifecycle.phase || "")
+      : "";
+// @ts-expect-error
+  nextViewState.busyStartedAt = popupBusyActive
+    ? (Number.isFinite(popupSpinnerSnapshot?.entry?.startedAt) ? Number(popupSpinnerSnapshot?.entry?.startedAt) : 0)
+    : backgroundLifecycleBusy
+// @ts-expect-error
+      ? (Number.isFinite(popupBackgroundLifecycle.startedAt) ? Number(popupBackgroundLifecycle.startedAt) : 0)
+      : 0;
+// @ts-expect-error
+  nextViewState.busyDeadlineAt = popupBusyActive
+    ? (Number.isFinite(popupSpinnerSnapshot?.entry?.deadlineAt) ? Number(popupSpinnerSnapshot?.entry?.deadlineAt) : 0)
+    : backgroundLifecycleBusy
+// @ts-expect-error
+      ? (Number.isFinite(popupBackgroundLifecycle.deadlineAt) ? Number(popupBackgroundLifecycle.deadlineAt) : 0)
+      : 0;
+// @ts-expect-error
+  nextViewState.busyTimerMode = popupBusyActive
+    ? (popupSpinnerSnapshot?.entry?.timerMode || "")
+    : backgroundLifecycleBusy
+// @ts-expect-error
+      ? (popupBackgroundLifecycle.timerMode || "")
+      : "";
 // @ts-expect-error
   nextViewState.pageDataNewNoticeHidden = pageSaveUiState.pageDataNewNoticeHidden;
 // @ts-expect-error

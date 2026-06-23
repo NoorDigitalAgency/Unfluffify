@@ -1,9 +1,21 @@
 type PopupSpinnerEntry = {
+  blockSurfaces?: {
+    page?: boolean;
+    popup?: boolean;
+  };
+  deadlineAt?: number;
+  details?: Record<string, unknown>;
+  maxDurationMs?: number;
   message?: string;
+  operationId?: string;
+  operationKind?: string;
+  operationPhase?: string;
   persistent?: boolean;
   reason?: string;
   source?: string;
   startedAt?: number;
+  timerMode?: string;
+  updatedAt?: number;
 };
 
 type PopupSpinnerBackgroundResponse = {
@@ -38,12 +50,51 @@ type PopupSpinnerDeps = {
 };
 
 type PopupSpinnerOptions = {
+  blockSurfaces?: {
+    page?: boolean;
+    popup?: boolean;
+  };
+  deadlineAt?: number;
+  details?: Record<string, unknown>;
+  maxDurationMs?: number;
+  operationId?: string;
+  operationKind?: string;
+  operationPhase?: string;
   persistent?: boolean;
   source?: string;
   reason?: string;
   suppressIfActive?: boolean;
   delayMs?: number;
+  timerMode?: string;
 };
+
+function applySpinnerOperationOptions(entry: PopupSpinnerEntry, options: PopupSpinnerOptions): PopupSpinnerEntry {
+  if (options.blockSurfaces) {
+    entry.blockSurfaces = options.blockSurfaces;
+  }
+  if (Number.isFinite(options.deadlineAt)) {
+    entry.deadlineAt = Number(options.deadlineAt);
+  }
+  if (options.details && typeof options.details === "object") {
+    entry.details = options.details;
+  }
+  if (Number.isFinite(options.maxDurationMs)) {
+    entry.maxDurationMs = Number(options.maxDurationMs);
+  }
+  if (typeof options.operationId === "string") {
+    entry.operationId = options.operationId;
+  }
+  if (typeof options.operationKind === "string") {
+    entry.operationKind = options.operationKind;
+  }
+  if (typeof options.operationPhase === "string") {
+    entry.operationPhase = options.operationPhase;
+  }
+  if (typeof options.timerMode === "string") {
+    entry.timerMode = options.timerMode;
+  }
+  return entry;
+}
 
 export function currentSpinnerMessage(deps: PopupSpinnerDeps): string {
   const queue = deps.popupSpinnerQueue;
@@ -161,6 +212,7 @@ export function pushSpinner(
     existing.persistent = persistent;
     existing.reason = reason;
     existing.source = source;
+    applySpinnerOperationOptions(existing, options);
     if (deps.getPopupSpinnerTimer()) {
       deps.windowRef.clearTimeout(deps.getPopupSpinnerTimer());
       deps.setPopupSpinnerTimer(0);
@@ -173,11 +225,8 @@ export function pushSpinner(
         syncPageBusyFromPopupSpinner(deps);
       }
     } else if (deps.getPopupSpinnerVisible()) {
-      const topKey = [...deps.popupSpinnerQueue.keys()].at(-1);
-      if (topKey === effectiveKey) {
-        deps.setUiBusyFromCurrentSpinner();
-        syncPageBusyFromPopupSpinner(deps);
-      }
+      deps.setUiBusyFromCurrentSpinner();
+      syncPageBusyFromPopupSpinner(deps);
     }
     if (tabId) {
       deps.popupSpinnerKeyTabIds.set(effectiveKey, tabId);
@@ -187,7 +236,10 @@ export function pushSpinner(
     return effectiveKey;
   }
 
-  deps.popupSpinnerQueue.set(effectiveKey, { message: msg, persistent, reason, source, startedAt });
+  deps.popupSpinnerQueue.set(
+    effectiveKey,
+    applySpinnerOperationOptions({ message: msg, persistent, reason, source, startedAt }, options)
+  );
   armSpinnerWatchdog(deps, effectiveKey);
   if (tabId) {
     deps.popupSpinnerKeyTabIds.set(effectiveKey, tabId);
@@ -248,11 +300,8 @@ export function setSpinnerMessage(deps: PopupSpinnerDeps, key: string | null, me
   deps.logPopupSpinnerDebug("set-message", { key, message: entry.message, reason: entry.reason, source: entry.source });
   deps.syncSpinnerEntryToBackground(key).catch(() => {});
   if (deps.getPopupSpinnerVisible()) {
-    const topKey = [...deps.popupSpinnerQueue.keys()].at(-1);
-    if (topKey === key) {
-      deps.setUiBusyFromCurrentSpinner();
-      syncPageBusyFromPopupSpinner(deps);
-    }
+    deps.setUiBusyFromCurrentSpinner();
+    syncPageBusyFromPopupSpinner(deps);
   }
 }
 

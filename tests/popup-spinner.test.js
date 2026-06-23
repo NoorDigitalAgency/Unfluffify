@@ -7,7 +7,8 @@ import {
   normalizeSpinnerReason,
   popSpinner,
   pushSpinner,
-  runWithSpinner
+  runWithSpinner,
+  setSpinnerMessage
 } from "../popup/spinner.js";
 
 function waitFor(ms) {
@@ -24,6 +25,8 @@ function createDeps() {
   const synced = [];
   const cleared = [];
   const staleClears = [];
+  const pageBusySyncs = [];
+  const uiBusySyncs = [];
   let visible = false;
   let timer = 0;
 
@@ -55,7 +58,9 @@ function createDeps() {
       popSpinner(deps, key);
     },
     logPopupSpinnerDebug() {},
-    setUiBusyFromCurrentSpinner() {},
+    setUiBusyFromCurrentSpinner() {
+      uiBusySyncs.push([...queue.keys()]);
+    },
     syncUiBusyFromBrokerState() {},
     syncSpinnerEntryToBackground: async (key) => {
       synced.push(key);
@@ -68,6 +73,9 @@ function createDeps() {
     },
     scheduleStaleInspectionBusyClear: (tabId) => {
       staleClears.push(tabId);
+    },
+    syncPageBusyFromPopupSpinner: () => {
+      pageBusySyncs.push([...queue.keys()]);
     }
   };
 
@@ -78,7 +86,9 @@ function createDeps() {
     removed,
     synced,
     cleared,
-    staleClears
+    staleClears,
+    pageBusySyncs,
+    uiBusySyncs
   };
 }
 
@@ -129,4 +139,44 @@ test("popup spinner runWithSpinner pops after task settles", async () => {
   const result = await runWithSpinner(deps, "task", "Running", async () => "ok");
   assert.equal(result, "ok");
   assert.equal(queue.has("task"), false);
+});
+
+test("popup spinner updates resync active selection even when key is not queue tail", () => {
+  const { deps, queue, pageBusySyncs, uiBusySyncs } = createDeps();
+  deps.setPopupSpinnerVisible(true);
+  queue.set("blocking", {
+    blockSurfaces: { page: true, popup: true },
+    message: "Blocking",
+    reason: "page-inspection-pending"
+  });
+  queue.set("background", {
+    blockSurfaces: { page: false, popup: false },
+    message: "Background",
+    reason: "config-sync-saving"
+  });
+
+  pushSpinner(deps, "blocking", "Still blocking", { reason: "page-inspection-pending" });
+
+  assert.equal(uiBusySyncs.length, 1);
+  assert.equal(pageBusySyncs.length, 1);
+});
+
+test("popup spinner message updates resync active selection even when key is not queue tail", () => {
+  const { deps, queue, pageBusySyncs, uiBusySyncs } = createDeps();
+  deps.setPopupSpinnerVisible(true);
+  queue.set("blocking", {
+    blockSurfaces: { page: true, popup: true },
+    message: "Blocking",
+    reason: "page-inspection-pending"
+  });
+  queue.set("background", {
+    blockSurfaces: { page: false, popup: false },
+    message: "Background",
+    reason: "config-sync-saving"
+  });
+
+  setSpinnerMessage(deps, "blocking", "Still blocking");
+
+  assert.equal(uiBusySyncs.length, 1);
+  assert.equal(pageBusySyncs.length, 1);
 });

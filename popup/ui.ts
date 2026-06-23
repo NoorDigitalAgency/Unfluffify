@@ -7,6 +7,10 @@ import {
   propertyLockText
 } from "../common/text.js";
 import {
+  SPINNER_TIMER_MODES,
+  resolveSpinnerPhaseDefinition
+} from "../common/spinner-contract.js";
+import {
   buildLynxChecklistViewModel,
   createInitialLynxChecklistState
 } from "../common/lynx-checklist.js";
@@ -250,6 +254,11 @@ const initialViewState = {
   busyReason: "",
   busySource: "",
   busySpinnerKey: "",
+  busyOperationKind: "",
+  busyOperationPhase: "",
+  busyStartedAt: 0,
+  busyDeadlineAt: 0,
+  busyTimerMode: "",
   toastMessage: "",
   toastVisible: false
 };
@@ -266,10 +275,61 @@ function formatCountdownFromDeadline(deadlineAt: unknown): string {
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
+function formatElapsedFromStartedAt(startedAt: unknown): string {
+  const normalizedStartedAt = Number(startedAt);
+  if (!Number.isFinite(normalizedStartedAt) || normalizedStartedAt <= 0) {
+    return "";
+  }
+  const elapsedSeconds = Math.floor(Math.max(0, Date.now() - normalizedStartedAt) / 1000);
+  if (elapsedSeconds < 3) {
+    return "";
+  }
+  const minutes = Math.floor(elapsedSeconds / 60);
+  const seconds = elapsedSeconds % 60;
+  return minutes > 0 ? `Elapsed ${minutes}:${String(seconds).padStart(2, "0")}` : `Elapsed ${seconds}s`;
+}
+
+function getSpinnerPhaseTimerText(view: ViewState, timerMode: string) {
+  if (timerMode === SPINNER_TIMER_MODES.COUNTDOWN) {
+    const busyDeadlineAt = Number(view.busyDeadlineAt);
+    const aiRunDeadlineAt = Number(view.aiRunDeadlineAt);
+    const liveCountdownText = formatCountdownFromDeadline(
+      Number.isFinite(busyDeadlineAt) && busyDeadlineAt > 0 ? busyDeadlineAt : aiRunDeadlineAt
+    );
+    if (liveCountdownText) {
+      return liveCountdownText;
+    }
+    return view.aiRunCountdownVisible ? String(view.aiRunCountdownText || "") : "";
+  }
+  if (timerMode === SPINNER_TIMER_MODES.ELAPSED) {
+    return formatElapsedFromStartedAt(view.busyStartedAt);
+  }
+  return "";
+}
+
 function getBusyCurtainCopy(view: ViewState) {
   const reason = typeof view.busyReason === "string" ? view.busyReason : "";
   const spinnerKey = typeof view.busySpinnerKey === "string" ? view.busySpinnerKey : "";
   const message = typeof view.busyMessage === "string" ? view.busyMessage : "";
+  const spinnerPhase = resolveSpinnerPhaseDefinition({
+    kind: view.busyOperationKind,
+    message,
+    operationPhase: view.busyOperationPhase,
+    reason,
+    spinnerKey,
+    timerMode: view.busyTimerMode
+  });
+  if (spinnerPhase) {
+    const timerMode = typeof view.busyTimerMode === "string" && view.busyTimerMode
+      ? view.busyTimerMode
+      : spinnerPhase.timerMode;
+    const registryTimerText = getSpinnerPhaseTimerText(view, timerMode);
+    return {
+      message: spinnerPhase.title,
+      note: spinnerPhase.note,
+      timerText: registryTimerText
+    };
+  }
   if (spinnerKey === "navInspect" || reason === "page-inspection-pending") {
     return {
       message: PopupText.overlay.pageInspection,
@@ -630,15 +690,27 @@ function syncBlockingCurtainCountdownTimer(curtain: {
   visible?: boolean;
   reason?: string;
 } | null | undefined) {
-  const deadlineAt = Number(viewState.aiRunDeadlineAt);
+  const busyDeadlineAt = Number(viewState.busyDeadlineAt);
+  const aiRunDeadlineAt = Number(viewState.aiRunDeadlineAt);
+  const deadlineAt = Number.isFinite(busyDeadlineAt) && busyDeadlineAt > 0
+    ? busyDeadlineAt
+    : aiRunDeadlineAt;
+  const busyStartedAt = Number(viewState.busyStartedAt);
   const countdownActive = Boolean(
     curtain &&
       curtain.visible &&
-      curtain.reason === "ai-run-compute" &&
+      (curtain.reason === "ai-run-compute" || viewState.busyTimerMode === SPINNER_TIMER_MODES.COUNTDOWN) &&
       Number.isFinite(deadlineAt) &&
       deadlineAt > Date.now()
   );
-  if (!countdownActive) {
+  const elapsedActive = Boolean(
+    curtain &&
+      curtain.visible &&
+      viewState.busyTimerMode === SPINNER_TIMER_MODES.ELAPSED &&
+      Number.isFinite(busyStartedAt) &&
+      busyStartedAt > 0
+  );
+  if (!countdownActive && !elapsedActive) {
     if (blockingCurtainCountdownTimer !== null) {
       clearInterval(blockingCurtainCountdownTimer);
       blockingCurtainCountdownTimer = null;
@@ -646,16 +718,17 @@ function syncBlockingCurtainCountdownTimer(curtain: {
     blockingCurtainCountdownDeadlineAt = 0;
     return;
   }
+  const timerMarker = countdownActive ? deadlineAt : busyStartedAt;
   if (
     blockingCurtainCountdownTimer !== null &&
-    blockingCurtainCountdownDeadlineAt === deadlineAt
+    blockingCurtainCountdownDeadlineAt === timerMarker
   ) {
     return;
   }
   if (blockingCurtainCountdownTimer !== null) {
     clearInterval(blockingCurtainCountdownTimer);
   }
-  blockingCurtainCountdownDeadlineAt = deadlineAt;
+  blockingCurtainCountdownDeadlineAt = timerMarker;
   blockingCurtainCountdownTimer = setInterval(() => {
     renderApp();
   }, 1000);
@@ -2762,7 +2835,12 @@ export function setUiBusy(isBusy, message = "", details: Record<string, unknown>
     busyMessage: isBusy ? (message || PopupText.overlay.pleaseWait) : "",
     busyReason: isBusy && details && typeof details.reason === "string" ? details.reason : "",
     busySource: isBusy && details && typeof details.source === "string" ? details.source : "",
-    busySpinnerKey: isBusy && details && typeof details.spinnerKey === "string" ? details.spinnerKey : ""
+    busySpinnerKey: isBusy && details && typeof details.spinnerKey === "string" ? details.spinnerKey : "",
+    busyOperationKind: isBusy && details && typeof details.operationKind === "string" ? details.operationKind : "",
+    busyOperationPhase: isBusy && details && typeof details.operationPhase === "string" ? details.operationPhase : "",
+    busyStartedAt: isBusy && Number.isFinite(details?.startedAt) ? Number(details.startedAt) : 0,
+    busyDeadlineAt: isBusy && Number.isFinite(details?.deadlineAt) ? Number(details.deadlineAt) : 0,
+    busyTimerMode: isBusy && details && typeof details.timerMode === "string" ? details.timerMode : ""
   };
   try {
     setViewState(patch);

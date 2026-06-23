@@ -6,6 +6,7 @@ import {
   isCurtainBearingLifecycleKind,
   isLifecycleTerminalPhase
 } from "../common/world-messaging-contract.js";
+import { createSpinnerOperationLease } from "../common/spinner-contract.js";
 
 type LifecycleState = Record<string, unknown>;
 type SpinnerEntry = Record<string, unknown>;
@@ -80,15 +81,70 @@ export function createPopupStateBroker(options = {}) {
     if (!queue || queue.size === 0) {
       return [];
     }
-    return [...queue.entries()].map(([key, entry]) => ({
-      key,
-      message: entry && typeof entry.message === "string" ? entry.message : "",
-      persistent: Boolean(entry && entry.persistent),
-      owner: entry && typeof entry.owner === "string" ? entry.owner : "",
-      reason: entry && typeof entry.reason === "string" ? entry.reason : "",
-      source: entry && typeof entry.source === "string" ? entry.source : "",
-      startedAt: entry && Number.isFinite(entry.startedAt) ? entry.startedAt : 0
-    }));
+    return [...queue.entries()].map(([key, entry]) => {
+      const message = entry && typeof entry.message === "string" ? entry.message : "";
+      const reason = entry && typeof entry.reason === "string" ? entry.reason : "";
+      const startedAt = entry && Number.isFinite(entry.startedAt) ? Number(entry.startedAt) : 0;
+      const blockSurfaces = entry && entry.blockSurfaces && typeof entry.blockSurfaces === "object"
+        ? entry.blockSurfaces as Record<string, boolean>
+        : undefined;
+      const details = entry && entry.details && typeof entry.details === "object"
+        ? entry.details
+        : undefined;
+      const lease = createSpinnerOperationLease({
+        blockSurfaces,
+        deadlineAt: entry && Number.isFinite(entry.deadlineAt) ? entry.deadlineAt : undefined,
+        details,
+        kind: entry && typeof entry.operationKind === "string" ? entry.operationKind : undefined,
+        maxDurationMs: entry && Number.isFinite(entry.maxDurationMs) ? entry.maxDurationMs : undefined,
+        message,
+        operationId: entry && typeof entry.operationId === "string" ? entry.operationId : undefined,
+        operationPhase: entry && typeof entry.operationPhase === "string" ? entry.operationPhase : undefined,
+        reason,
+        spinnerKey: key,
+        startedAt: startedAt || Date.now(),
+        tabId,
+        timerMode: entry && typeof entry.timerMode === "string" ? entry.timerMode : undefined,
+        updatedAt: entry && Number.isFinite(entry.updatedAt) ? entry.updatedAt : undefined
+      });
+      const serializedEntry: Record<string, unknown> = {
+        key,
+        message,
+        persistent: Boolean(entry && entry.persistent),
+        owner: entry && typeof entry.owner === "string" ? entry.owner : "",
+        reason,
+        source: entry && typeof entry.source === "string" ? entry.source : "",
+        startedAt,
+        progress: entry && Number.isFinite(entry.progress) ? Number(entry.progress) : 0,
+        operationId: lease ? lease.operationId : "",
+        operationKind: lease ? lease.kind : "",
+        operationPhase: lease ? lease.phase : "",
+        timerMode: lease ? lease.timerMode : "",
+        deadlineAt: lease ? lease.deadlineAt : 0,
+        maxDurationMs: lease ? lease.maxDurationMs : 0,
+        updatedAt: lease ? lease.updatedAt : 0
+      };
+      if (lease) {
+        serializedEntry.blockSurfaces = { ...lease.blockSurfaces };
+      }
+      return serializedEntry;
+    });
+  }
+
+  function getActiveSpinnerLease(tabId: number): Record<string, unknown> | null {
+    const serializedQueue = serializeSpinnerQueue(tabId);
+    for (const entry of serializedQueue.slice().reverse()) {
+      if (!Object.prototype.hasOwnProperty.call(entry, "blockSurfaces")) {
+        return entry;
+      }
+      const blockSurfaces = entry.blockSurfaces && typeof entry.blockSurfaces === "object"
+        ? entry.blockSurfaces as Record<string, unknown>
+        : {};
+      if (blockSurfaces.popup === true || blockSurfaces.page === true) {
+        return entry;
+      }
+    }
+    return serializedQueue.length ? serializedQueue[serializedQueue.length - 1] : null;
   }
 
   function buildBrokerState(tabId: unknown): Record<string, unknown> {
@@ -99,6 +155,7 @@ export function createPopupStateBroker(options = {}) {
       tabId: normalizedTabId,
       lifecycle: normalizedTabId ? (lifecycleStateByTabId.get(normalizedTabId) || null) : null,
       spinnerQueue: normalizedTabId ? serializeSpinnerQueue(normalizedTabId) : [],
+      activeSpinnerLease: normalizedTabId ? getActiveSpinnerLease(normalizedTabId) : null,
       traceEnabled: isWorldTraceEnabled(),
       traceEvents: traceState && Array.isArray(traceState.events) ? [...traceState.events] : []
     };

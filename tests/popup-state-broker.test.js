@@ -98,3 +98,81 @@ test("popup-state broker terminal curtain-bearing lifecycle removes nav inspect 
   assert.equal(spinnerQueueByTabId.has(4), false);
   assert.equal(traceEvents.some((entry) => entry.channel === "spinner" && entry.event === "remove"), true);
 });
+
+test("popup-state broker serializes active spinner lease metadata", () => {
+  const spinnerQueueByTabId = new Map([
+    [7, new Map([
+      ["navInspect", {
+        message: "Inspecting",
+        persistent: true,
+        reason: "page-inspection-pending",
+        source: "test",
+        startedAt: 1_000
+      }]
+    ])]
+  ]);
+  const broker = createPopupStateBroker({
+    spinnerQueueByTabId,
+    normalizeTabId
+  });
+
+  const state = broker.buildBrokerState(7);
+  assert.equal(state.ok, true);
+  assert.equal(state.activeSpinnerLease.operationKind, "content-bootstrap");
+  assert.equal(state.activeSpinnerLease.operationPhase, "page-inspection");
+  assert.equal(state.activeSpinnerLease.timerMode, "elapsed");
+  assert.deepEqual(state.activeSpinnerLease.blockSurfaces, { page: true, popup: true });
+  assert.equal(state.spinnerQueue[0].operationId, "content-bootstrap:page-inspection:7:1000");
+});
+
+test("popup-state broker prefers the newest blocking lease over background-only leases", () => {
+  const spinnerQueueByTabId = new Map([
+    [8, new Map([
+      ["config", {
+        message: "Syncing",
+        reason: "config-sync-saving",
+        startedAt: 2_000
+      }],
+      ["ai", {
+        message: "Waiting",
+        reason: "tab-run-ai-running",
+        startedAt: 3_000
+      }]
+    ])]
+  ]);
+  const broker = createPopupStateBroker({
+    spinnerQueueByTabId,
+    normalizeTabId
+  });
+
+  const state = broker.buildBrokerState(8);
+  assert.equal(state.activeSpinnerLease.operationKind, "ai-run");
+  assert.equal(state.activeSpinnerLease.operationPhase, "remote-wait");
+  assert.equal(state.activeSpinnerLease.deadlineAt, 483_000);
+});
+
+test("popup-state broker keeps unresolved legacy spinners blocking after snapshots", () => {
+  const spinnerQueueByTabId = new Map([
+    [9, new Map([
+      ["legacy", {
+        message: "Disabling marking",
+        reason: "marking-disable",
+        startedAt: 1_000
+      }],
+      ["background", {
+        message: "Syncing",
+        reason: "config-sync-saving",
+        startedAt: 2_000
+      }]
+    ])]
+  ]);
+  const broker = createPopupStateBroker({
+    spinnerQueueByTabId,
+    normalizeTabId
+  });
+
+  const state = broker.buildBrokerState(9);
+  assert.equal(Object.prototype.hasOwnProperty.call(state.spinnerQueue[0], "blockSurfaces"), false);
+  assert.deepEqual(state.spinnerQueue[1].blockSurfaces, { page: false, popup: false });
+  assert.equal(state.activeSpinnerLease.key, "legacy");
+});

@@ -49,6 +49,8 @@ export interface ContentState {
   popupBusyNotice: HTMLElement | null;
   popupBusyBlocker: HTMLElement | null;
   popupBusyFailOpenTimer: number;
+  popupBusyOperationId: string;
+  popupBusyReleaseBy: number;
   altPassThrough: boolean;
   altHeld: boolean;
   shiftHeld: boolean;

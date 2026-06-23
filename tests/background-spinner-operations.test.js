@@ -137,3 +137,63 @@ test("persistent spinner survives transient clear but not full clear", () => {
   const afterFullClear = operations.serializeSpinnerQueue(31);
   assert.equal(afterFullClear.length, 0);
 });
+
+test("spinner entries publish deterministic operation lease metadata", () => {
+  const { operations } = createHarness();
+
+  operations.setBackgroundSpinnerEntry(41, "ai", {
+    message: "Waiting",
+    reason: "tab-run-ai-running",
+    startedAt: 1_000
+  });
+
+  const [entry] = operations.serializeSpinnerQueue(41);
+  assert.equal(entry.operationId, "ai-run:remote-wait:41:1000");
+  assert.equal(entry.operationKind, "ai-run");
+  assert.equal(entry.operationPhase, "remote-wait");
+  assert.equal(entry.timerMode, "countdown");
+  assert.equal(entry.deadlineAt, 481_000);
+  assert.deepEqual(entry.blockSurfaces, { page: true, popup: true });
+});
+
+test("spinner operation metadata survives progress-only updates", async () => {
+  const { operations, queueByTabId } = createHarness();
+
+  operations.setBackgroundSpinnerEntry(42, "navInspect", {
+    message: "Inspecting",
+    reason: "page-inspection-pending",
+    startedAt: 2_000
+  });
+
+  await operations.updateBackgroundSpinnerEntry(42, "navInspect", {
+    progress: 40
+  });
+
+  const entry = queueByTabId.get(42).get("navInspect");
+  assert.equal(entry.operationKind, "content-bootstrap");
+  assert.equal(entry.operationPhase, "page-inspection");
+  assert.equal(entry.progress, 40);
+});
+
+test("spinner reason phase transitions do not inherit stale lease metadata", async () => {
+  const { operations } = createHarness();
+
+  operations.setBackgroundSpinnerEntry(43, "ai", {
+    message: "Preparing",
+    reason: "tab-run-ai-preparing",
+    startedAt: 1_000
+  });
+
+  await operations.updateBackgroundSpinnerEntry(43, "ai", {
+    message: "Waiting",
+    reason: "tab-run-ai-running"
+  });
+
+  const [entry] = operations.serializeSpinnerQueue(43);
+  assert.equal(entry.operationId, "ai-run:remote-wait:43:1000");
+  assert.equal(entry.operationKind, "ai-run");
+  assert.equal(entry.operationPhase, "remote-wait");
+  assert.equal(entry.timerMode, "countdown");
+  assert.equal(entry.deadlineAt, 481_000);
+  assert.deepEqual(entry.blockSurfaces, { page: true, popup: true });
+});

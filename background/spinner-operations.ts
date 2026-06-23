@@ -2,9 +2,20 @@ import {
   SPINNER_OWNERS,
   WORLD_MESSAGE_TYPES
 } from "../common/world-messaging-contract.js";
+import { createSpinnerOperationLease } from "../common/spinner-contract.js";
 
 type SpinnerEntry = {
+  blockSurfaces?: {
+    page?: boolean;
+    popup?: boolean;
+  };
+  deadlineAt?: number;
+  details?: Record<string, unknown>;
+  maxDurationMs?: number;
   message?: string;
+  operationId?: string;
+  operationKind?: string;
+  operationPhase?: string;
   persistent?: boolean;
   owner?: string;
   reason?: string;
@@ -12,6 +23,8 @@ type SpinnerEntry = {
   startedAt?: number;
   progress?: number;
   resetStartedAt?: boolean;
+  timerMode?: string;
+  updatedAt?: number;
 };
 
 type SpinnerQueue = Map<string, SpinnerEntry>;
@@ -41,8 +54,30 @@ function randomSpinnerKey(): string {
   return `spinner:${Date.now()}:${Math.floor(Math.random() * 1e6)}`;
 }
 
-function normalizeSpinnerEntry(key: unknown, entry: SpinnerEntry = {}, previous: SpinnerEntry | null = null): SpinnerEntry {
-  return {
+function normalizeSpinnerEntry(
+  key: unknown,
+  entry: SpinnerEntry = {},
+  previous: SpinnerEntry | null = null,
+  tabId: unknown = null
+): SpinnerEntry {
+  const entryHasField = (field: keyof SpinnerEntry) => Object.prototype.hasOwnProperty.call(entry, field);
+  const entryReason = typeof entry.reason === "string" && entry.reason ? entry.reason : "";
+  const previousReason = previous && typeof previous.reason === "string" && previous.reason ? previous.reason : "";
+  const entryOperationKind = typeof entry.operationKind === "string" && entry.operationKind ? entry.operationKind : "";
+  const previousOperationKind = previous && typeof previous.operationKind === "string" && previous.operationKind
+    ? previous.operationKind
+    : "";
+  const entryOperationPhase = typeof entry.operationPhase === "string" && entry.operationPhase ? entry.operationPhase : "";
+  const previousOperationPhase = previous && typeof previous.operationPhase === "string" && previous.operationPhase
+    ? previous.operationPhase
+    : "";
+  const reasonChanged = Boolean(entryReason && previousReason && entryReason !== previousReason);
+  const operationIdentityChanged = Boolean(
+    (entryOperationKind && entryOperationKind !== previousOperationKind) ||
+      (entryOperationPhase && entryOperationPhase !== previousOperationPhase)
+  );
+  const preservePreviousLease = !reasonChanged && !operationIdentityChanged;
+  const baseEntry = {
     message: typeof entry.message === "string"
       ? entry.message
       : (previous && typeof previous.message === "string" ? previous.message : ""),
@@ -68,6 +103,39 @@ function normalizeSpinnerEntry(key: unknown, entry: SpinnerEntry = {}, previous:
     progress: Number.isFinite(entry.progress)
       ? Number(entry.progress)
       : (previous && Number.isFinite(previous.progress) ? Number(previous.progress) : 0)
+  };
+  const operationLease = createSpinnerOperationLease({
+    blockSurfaces: entry.blockSurfaces || (preservePreviousLease ? previous?.blockSurfaces : undefined),
+    deadlineAt: entryHasField("deadlineAt") ? entry.deadlineAt : (preservePreviousLease ? previous?.deadlineAt : undefined),
+    details: entry.details || (preservePreviousLease ? previous?.details : undefined),
+    kind: entryOperationKind || (preservePreviousLease ? previousOperationKind : undefined),
+    maxDurationMs: entryHasField("maxDurationMs")
+      ? entry.maxDurationMs
+      : (preservePreviousLease ? previous?.maxDurationMs : undefined),
+    message: baseEntry.message,
+    operationId: entry.operationId || (preservePreviousLease ? previous?.operationId : undefined),
+    operationPhase: entryOperationPhase || (preservePreviousLease ? previousOperationPhase : undefined),
+    reason: baseEntry.reason,
+    spinnerKey: key,
+    startedAt: baseEntry.startedAt,
+    tabId,
+    timerMode: entry.timerMode || (preservePreviousLease ? previous?.timerMode : undefined),
+    updatedAt: Date.now()
+  });
+  if (!operationLease) {
+    return baseEntry;
+  }
+  return {
+    ...baseEntry,
+    blockSurfaces: { ...operationLease.blockSurfaces },
+    deadlineAt: operationLease.deadlineAt,
+    details: { ...operationLease.details },
+    maxDurationMs: operationLease.maxDurationMs,
+    operationId: operationLease.operationId,
+    operationKind: operationLease.kind,
+    operationPhase: operationLease.phase,
+    timerMode: operationLease.timerMode,
+    updatedAt: operationLease.updatedAt
   };
 }
 
@@ -109,16 +177,32 @@ export function createSpinnerOperations(options: SpinnerOperationsOptions = {}) 
     if (!queue || queue.size === 0) {
       return [];
     }
-    return [...queue.entries()].map(([key, entry]) => ({
-      key,
-      message: entry && typeof entry.message === "string" ? entry.message : "",
-      persistent: Boolean(entry && entry.persistent),
-      owner: entry && typeof entry.owner === "string" ? entry.owner : "",
-      reason: entry && typeof entry.reason === "string" ? entry.reason : "",
-      source: entry && typeof entry.source === "string" ? entry.source : "",
-      startedAt: entry && Number.isFinite(entry.startedAt) ? Number(entry.startedAt) : 0,
-      progress: entry && Number.isFinite(entry.progress) ? Number(entry.progress) : 0
-    }));
+    return [...queue.entries()].map(([key, entry]) => {
+      const serializedEntry: Record<string, unknown> = {
+        key,
+        message: entry && typeof entry.message === "string" ? entry.message : "",
+        persistent: Boolean(entry && entry.persistent),
+        owner: entry && typeof entry.owner === "string" ? entry.owner : "",
+        reason: entry && typeof entry.reason === "string" ? entry.reason : "",
+        source: entry && typeof entry.source === "string" ? entry.source : "",
+        startedAt: entry && Number.isFinite(entry.startedAt) ? Number(entry.startedAt) : 0,
+        progress: entry && Number.isFinite(entry.progress) ? Number(entry.progress) : 0,
+        operationId: entry && typeof entry.operationId === "string" ? entry.operationId : "",
+        operationKind: entry && typeof entry.operationKind === "string" ? entry.operationKind : "",
+        operationPhase: entry && typeof entry.operationPhase === "string" ? entry.operationPhase : "",
+        timerMode: entry && typeof entry.timerMode === "string" ? entry.timerMode : "",
+        deadlineAt: entry && Number.isFinite(entry.deadlineAt) ? Number(entry.deadlineAt) : 0,
+        maxDurationMs: entry && Number.isFinite(entry.maxDurationMs) ? Number(entry.maxDurationMs) : 0,
+        updatedAt: entry && Number.isFinite(entry.updatedAt) ? Number(entry.updatedAt) : 0
+      };
+      if (entry && entry.blockSurfaces && typeof entry.blockSurfaces === "object") {
+        serializedEntry.blockSurfaces = {
+          page: Boolean(entry.blockSurfaces.page),
+          popup: Boolean(entry.blockSurfaces.popup)
+        };
+      }
+      return serializedEntry;
+    });
   }
 
   function setBackgroundSpinnerEntry(tabId: unknown, key: unknown, entry: SpinnerEntry = {}) {
@@ -127,7 +211,7 @@ export function createSpinnerOperations(options: SpinnerOperationsOptions = {}) 
       return buildState(normalizedTabId);
     }
     const queue = getSpinnerQueueForTab(normalizedTabId);
-    const normalizedEntry = normalizeSpinnerEntry(String(key), entry, queue?.get(String(key)) || null);
+    const normalizedEntry = normalizeSpinnerEntry(String(key), entry, queue?.get(String(key)) || null, normalizedTabId);
     queue?.set(String(key), normalizedEntry);
     updateRuntimeSpinnerQueue(normalizedTabId, queue || new Map<string, SpinnerEntry>());
     appendTrace(normalizedTabId, "spinner", "set", {
@@ -152,7 +236,11 @@ export function createSpinnerOperations(options: SpinnerOperationsOptions = {}) 
     if (patch && patch.resetStartedAt) {
       nextPatch.startedAt = Date.now();
     }
-    return setBackgroundSpinnerEntry(normalizedTabId, String(key), normalizeSpinnerEntry(String(key), nextPatch, existing));
+    return setBackgroundSpinnerEntry(
+      normalizedTabId,
+      String(key),
+      normalizeSpinnerEntry(String(key), nextPatch, existing, normalizedTabId)
+    );
   }
 
   function removeBackgroundSpinnerEntry(tabId: unknown, key: unknown) {

@@ -2617,7 +2617,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         owner: message.owner,
         reason: message.reason,
         source: message.source,
-        startedAt: message.startedAt
+        startedAt: message.startedAt,
+        operationId: message.operationId,
+        operationKind: message.operationKind,
+        operationPhase: message.operationPhase,
+        deadlineAt: message.deadlineAt,
+        maxDurationMs: message.maxDurationMs,
+        blockSurfaces: message.blockSurfaces,
+        timerMode: message.timerMode
       }
     ));
     return;

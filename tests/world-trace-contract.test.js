@@ -40,9 +40,10 @@ test("background keeps trace enablement fixed from feature and debug flags", () 
 });
 
 test("background spinner broker preserves blocking reason metadata", () => {
-  assert.match(popupStateBrokerSource, /reason: entry && typeof entry\.reason === "string" \? entry\.reason : ""/);
+  assert.match(popupStateBrokerSource, /const reason = entry && typeof entry\.reason === "string" \? entry\.reason : ""/);
   assert.match(popupStateBrokerSource, /source: entry && typeof entry\.source === "string" \? entry\.source : ""/);
-  assert.match(popupStateBrokerSource, /startedAt: entry && Number\.isFinite\(entry\.startedAt\) \? entry\.startedAt : 0/);
+  assert.match(popupStateBrokerSource, /const startedAt = entry && Number\.isFinite\(entry\.startedAt\) \? Number\(entry\.startedAt\) : 0/);
+  assert.match(popupStateBrokerSource, /activeSpinnerLease: normalizedTabId \? getActiveSpinnerLease\(normalizedTabId\) : null/);
   assert.match(backgroundSource, /reason: typeof entry\.reason === "string" && entry\.reason \? entry\.reason : `spinner:\$\{String\(key\)\}`/);
   assert.match(backgroundSource, /source: typeof entry\.source === "string" && entry\.source \? entry\.source : "background-spinner-broker"/);
   assert.match(backgroundSource, /reason: message\.reason,/);

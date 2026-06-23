@@ -7096,7 +7096,17 @@ function handleSetPopupBusyOnPageCommand(message = {}) {
 // @ts-expect-error
     Boolean(message.active),
 // @ts-expect-error
-    typeof message.message === "string" ? message.message : ""
+    typeof message.message === "string" ? message.message : "",
+    {
+// @ts-expect-error
+      operationId: typeof message.operationId === "string" ? message.operationId : "",
+// @ts-expect-error
+      operationKind: typeof message.operationKind === "string" ? message.operationKind : "",
+// @ts-expect-error
+      operationPhase: typeof message.operationPhase === "string" ? message.operationPhase : "",
+// @ts-expect-error
+      releaseBy: Number.isFinite(message.releaseBy) ? Number(message.releaseBy) : 0
+    }
   );
 }
 

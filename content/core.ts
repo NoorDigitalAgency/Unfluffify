@@ -61,6 +61,8 @@ export const state = {
   popupBusyNotice: null,
   popupBusyBlocker: null,
   popupBusyFailOpenTimer: 0,
+  popupBusyOperationId: "",
+  popupBusyReleaseBy: 0,
   altPassThrough: false,
   altHeld: false,
   shiftHeld: false,
@@ -4915,18 +4917,49 @@ function clearPopupBusyFailOpenTimer() {
   }
 }
 
+function normalizePopupBusyLeaseOptions(options = {}) {
+  const optionRecord = options && typeof options === "object" ? options as Record<string, unknown> : {};
+  const now = Date.now();
+  const releaseBy = Number.isFinite(optionRecord.releaseBy) && Number(optionRecord.releaseBy) > now
+    ? Number(optionRecord.releaseBy)
+    : now + POPUP_BUSY_PAGE_WATCHDOG_MS;
+  return {
+    operationId: typeof optionRecord.operationId === "string" && optionRecord.operationId.trim()
+      ? optionRecord.operationId.trim()
+      : "",
+    releaseBy
+  };
+}
+
 // @ts-expect-error
-export function setPopupBusyOnPage(active, message = "") {
+export function setPopupBusyOnPage(active, message = "", options = {}) {
   const enabled = Boolean(active);
-  clearPopupBusyFailOpenTimer();
+  const leaseOptions = normalizePopupBusyLeaseOptions(options);
   if (!enabled) {
+    if (
+      leaseOptions.operationId &&
+      state.popupBusyOperationId &&
+      leaseOptions.operationId !== state.popupBusyOperationId
+    ) {
+      return {
+        active: true,
+        ignored: true,
+        ok: true,
+        operationId: state.popupBusyOperationId
+      };
+    }
+    clearPopupBusyFailOpenTimer();
+    const releasedOperationId = state.popupBusyOperationId;
+    state.popupBusyOperationId = "";
+    state.popupBusyReleaseBy = 0;
     stopPopupBusyInputBlocker();
     if (state.popupBusyOverlay) {
 // @ts-expect-error
       state.popupBusyOverlay.hidden = true;
     }
-    return { ok: true, active: false };
+    return { ok: true, active: false, operationId: releasedOperationId };
   }
+  clearPopupBusyFailOpenTimer();
   ensurePopupBusyStyle();
   const overlay = ensurePopupBusyOverlay();
   if (!overlay) {
@@ -4941,10 +4974,17 @@ export function setPopupBusyOnPage(active, message = "") {
   }
   overlay.hidden = false;
   startPopupBusyInputBlocker();
+  const operationId = leaseOptions.operationId || `popup-busy:${Date.now()}`;
+  state.popupBusyOperationId = operationId;
+  state.popupBusyReleaseBy = leaseOptions.releaseBy;
+  const watchdogDelayMs = Math.max(
+    1000,
+    Math.min(POPUP_BUSY_PAGE_WATCHDOG_MS, Math.ceil(leaseOptions.releaseBy - Date.now()))
+  );
   state.popupBusyFailOpenTimer = extensionSetTimeout(() => {
-    setPopupBusyOnPage(false);
-  }, POPUP_BUSY_PAGE_WATCHDOG_MS);
-  return { ok: true, active: true };
+    setPopupBusyOnPage(false, "", { operationId });
+  }, watchdogDelayMs);
+  return { ok: true, active: true, operationId, releaseBy: leaseOptions.releaseBy };
 }
 
 export function isPopupBusyOnPageActive() {
