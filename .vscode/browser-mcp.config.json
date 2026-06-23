@@ -4,14 +4,14 @@
     "chromiumSandbox": false,
     "launchOptions": {
       "headless": false,
-      "executablePath": "/home/rojan/.cache/ms-playwright/chromium-1223/chrome-linux64/chrome",
+      "executablePath": "__CHROMIUM_EXECUTABLE_PATH__",
       "ignoreDefaultArgs": [
         "--disable-extensions"
       ],
       "args": [
         "--no-sandbox",
-        "--load-extension=/home/rojan/Documents/Git/GitHub/Unfluffify/dist/extension-dev",
-        "--disable-extensions-except=/home/rojan/Documents/Git/GitHub/Unfluffify/dist/extension-dev"
+        "--load-extension=__UNFLUFFIFY_REPO_ROOT__/dist/extension-dev",
+        "--disable-extensions-except=__UNFLUFFIFY_REPO_ROOT__/dist/extension-dev"
       ]
     }
   }

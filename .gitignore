@@ -358,6 +358,10 @@ MigrationBackup/
 .mcp-browser-profile/
 .playwright-mcp/
 
+# Per-environment scratch copies of placeholder MCP/browser configs
+./.temp
+.temp/
+
 # Local two-host orchestration secrets and artifacts
 orchestration/.secrets.json
 orchestration/.secrets.jsonc

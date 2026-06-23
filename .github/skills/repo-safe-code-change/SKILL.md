@@ -92,9 +92,12 @@ Treat these areas as compatibility contracts:
   lease metadata exists.
 - **Storage:** Use approved storage/domain modules. Do not add scattered
   `chrome.storage` or `utils.storage*` access outside allowed boundaries.
-- **Browser live validation:** Use `.vscode/browser-mcp.config.json`,
-  `.mcp-browser-profile`, and built extension root `dist/extension-dev`. Reload
-  the unpacked extension/service worker after rebuilding.
+- **Browser live validation:** Follow the `launch-test-browser` skill — copy the
+  placeholdered `.vscode/browser-mcp.config.json` into a gitignored `.temp/`,
+  substitute the current-environment paths, and launch from
+  `.temp/browser-mcp.config.json` with `.mcp-browser-profile` and the built
+  extension root `dist/extension-dev`. Reload the unpacked extension/service
+  worker after rebuilding.
 
 ## Validation defaults
 

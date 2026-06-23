@@ -6,22 +6,36 @@ When a user asks to start a live test browser for this repository, prefer the
 repo-local MCP browser configuration instead of improvising with ad hoc
 Playwright launch code or the orchestration browser helpers.
 
-First step: determine the active `Unfluffify` repository root for the current
-environment and treat that directory as the source of truth for all browser
-launch paths.
+First step: build per-environment, launchable copies of the placeholdered
+`playwright-local` configs. The committed configs are intentionally
+non-launchable — they carry `__UNFLUFFIFY_REPO_ROOT__` and
+`__CHROMIUM_EXECUTABLE_PATH__` placeholders so they fail if launched as-is.
 
-- Start from the current workspace / git repo root for `Unfluffify`.
-- Derive all absolute browser-launch paths from that root.
-- Do not loop trying to reconcile stale machine-specific absolute paths found in
-  `.vscode/mcp.json`, `.mcp.json`, or related config files.
-- Use the calculated current-environment paths at runtime without editing those
-  config files unless the user explicitly asks.
+1. Determine the active `Unfluffify` repository root for the current
+   environment (e.g. the current workspace / git repo root). Treat that
+   directory as the source of truth for all browser launch paths.
+2. Create a gitignored `.temp/` directory at the repository root if it does not
+   already exist.
+3. Copy `.vscode/mcp.json` and `.vscode/browser-mcp.config.json` into `.temp/`
+   (e.g. `.temp/mcp.json` and `.temp/browser-mcp.config.json`).
+4. In the `.temp/` copies, replace every `__UNFLUFFIFY_REPO_ROOT__` placeholder
+   with the resolved repository root, and set `__CHROMIUM_EXECUTABLE_PATH__` to
+   the current environment's Chromium/Chrome binary (or remove the
+   `executablePath` line to use Playwright's bundled Chromium). Point the
+   `--config=` argument in `.temp/mcp.json` at `.temp/browser-mcp.config.json`.
+5. Launch the browser using the `.temp/` copies — never the committed,
+   placeholdered originals.
 
-Use `.vscode/mcp.json` server `playwright-local`, which launches:
+Do not edit the committed `.vscode/mcp.json`, `.mcp.json`, or
+`.vscode/browser-mcp.config.json` to bake in current-environment paths; keep the
+substitution confined to the `.temp/` copies.
+
+The committed `.vscode/mcp.json` server `playwright-local` is the template, which
+(once substituted into `.temp/`) launches:
 
 - `deno run -A npm:@playwright/mcp@latest`
 - `--user-data-dir=<repoRoot>/.mcp-browser-profile`
-- `--config=<repoRoot>/.vscode/browser-mcp.config.json`
+- `--config=<repoRoot>/.temp/browser-mcp.config.json`
 
 That browser config is the canonical live-test setup for this repo:
 
@@ -52,12 +66,36 @@ simple live observation. Those paths are for orchestration scenarios and can
 fail on extension service-worker waits or profile-lock issues. Only use them
 when the user explicitly asks for the orchestration browser path.
 
+Required target page and popup binding:
+
+- The user must instruct which page (URL) to load. If no target page was
+  provided, stop and ask the user for it before launching — do not guess a
+  default, do not reuse a previous URL, and do not launch until you have an
+  explicit target page.
+- Resolve the loaded extension's id/hash from the current load directory at
+  runtime; the unpacked extension id is derived from the absolute path of the
+  loaded extension directory and changes per environment, so read it from
+  `chrome://extensions` (Developer mode) or a `chrome.runtime.getURL("")` value
+  rather than hardcoding it.
+- Load the instructed page first in its own tab and capture that tab's numeric
+  `tabId`. Then open a second tab at
+  `chrome-extension://<extension-id>/popup.html?debugTabId=<tabId>` so the
+  extension binds to the target page. `<tabId>` must be the instructed page's
+  tab id, never the popup's own tab.
+
 Example:
 
-- Right: use the repo's `playwright-local` MCP browser with
-  `<repoRoot>/.vscode/browser-mcp.config.json`,
+- Right: confirm the user-instructed target page (ask if missing), substitute
+  the placeholdered configs into `.temp/`, launch the repo's `playwright-local`
+  MCP browser with `<repoRoot>/.temp/browser-mcp.config.json`,
   `<repoRoot>/.mcp-browser-profile`, and the built extension root
-  `<repoRoot>/dist/extension-dev` by default.
-- Wrong: hand-roll a fresh `launchPersistentContext()` flow or reuse
-  `orchestration/profiles/follower` just to open a browser for manual
-  observation.
+  `<repoRoot>/dist/extension-dev`, open the instructed page in the first tab and
+  capture its `tabId`, resolve the loaded extension's id, then open a second tab
+  at `chrome-extension://<id>/popup.html?debugTabId=<tabId>` bound to that page
+  tab.
+- Wrong: launch without a user-instructed target page, hardcode a stale
+  extension id instead of resolving it from the current load directory, point
+  `debugTabId` at the popup's own tab, hand-roll a fresh
+  `launchPersistentContext()` flow, launch the committed placeholdered configs
+  as-is, or reuse `orchestration/profiles/follower` just to open a browser for
+  manual observation.

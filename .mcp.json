@@ -6,8 +6,8 @@
         "run",
         "-A",
         "npm:@playwright/mcp@latest",
-        "--user-data-dir=/home/rojan/Documents/Git/GitHub/Unfluffify/.mcp-browser-profile",
-        "--config=/home/rojan/Documents/Git/GitHub/Unfluffify/.vscode/browser-mcp.config.json"
+        "--user-data-dir=__UNFLUFFIFY_REPO_ROOT__/.mcp-browser-profile",
+        "--config=__UNFLUFFIFY_REPO_ROOT__/.vscode/browser-mcp.config.json"
       ]
     }
   }
