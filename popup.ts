@@ -410,6 +410,7 @@ let popupPageBusyMirrorActive = false;
 let popupPageBusyMirrorSignature = "";
 let popupPageBusyMirrorPendingSignature = "";
 let popupPageBusyMirrorShowTimer = 0;
+let pendingAiPreviewConfigSync: { tabId: number; baseUrl: string } | null = null;
 // @ts-expect-error
 let propertyPageTypesRequest = null;
 const popupTimers = createPopupTimerGroup({ windowRef: window });
@@ -1879,6 +1880,31 @@ function resetAiRunState() {
   state.aiRunResumed = false;
 }
 
+// @ts-expect-error
+function queueAiPreviewConfigSync(tabId, baseUrl) {
+  if (!tabId || !baseUrl) {
+    return;
+  }
+  pendingAiPreviewConfigSync = {
+    tabId,
+    baseUrl
+  };
+}
+
+function flushPendingAiPreviewConfigSync() {
+  if (!pendingAiPreviewConfigSync) {
+    return;
+  }
+  const pending = pendingAiPreviewConfigSync;
+  pendingAiPreviewConfigSync = null;
+  void messages.sendTabMessageToTab(pending.tabId, {
+    type: "configUpdated",
+    baseUrl: pending.baseUrl
+  }, {
+    timeoutMs: 30000
+  });
+}
+
 function setAiRunActiveState({
   sessionId = "",
   siteId = "",
@@ -1973,7 +1999,13 @@ async function stopAiRun(options = {}) {
   // duration of the (sometimes slow) post-run refresh.
   const currentView = uiModule.getViewState();
   const previewShowing = Boolean(currentView.previewBlocked || currentView.previewActive);
-  await refreshUi(previewShowing ? { useBusyOverlay: false } : {});
+  const preserveCurrentDraftStatus = Boolean(
+    previewShowing && currentView.previewWillRestoreMarking
+  );
+  await refreshUi({
+    useBusyOverlay: false,
+    preserveCurrentDraftStatus
+  });
 }
 
 async function removePageMarkingFromRemote(options = {}) {
@@ -3345,6 +3377,7 @@ async function refreshUiInner(options = {}) {
       previewViewState = {
         previewActive: Boolean(currentView.previewActive),
         previewItems: Array.isArray(currentView.previewItems) ? currentView.previewItems : [],
+        previewItemsPending: Boolean(currentView.previewItemsPending),
         previewFocusedXpath: typeof currentView.previewFocusedXpath === "string"
           ? currentView.previewFocusedXpath
           : "",
@@ -3356,6 +3389,7 @@ async function refreshUiInner(options = {}) {
   const {
     previewActive,
     previewItems,
+    previewItemsPending,
     previewFocusedXpath,
     previewShowAllCategories
   } = previewViewState;
@@ -3679,6 +3713,7 @@ async function refreshUiInner(options = {}) {
     configMenuOpen: state.configMenuOpen,
     previewActive,
     previewItems,
+    previewItemsPending,
     previewFocusedXpath,
     previewShowAllCategories: isFeatureEnabled("previewExpandedStates") && previewShowAllCategories,
     previewBlocked: previewActive,
@@ -6810,16 +6845,8 @@ async function applyComputedSelectorSet(selectorSet, { currentPageUrl = "", toke
     !aiSelectorSetsEqual(selectorSet, getLastSubmittedSelectorsFromConfig(state.currentConfig));
   state.aiSelectorsComputedSinceLastSubmit = hasComputedNewSelectors;
   state.aiSelectorsComputedBaseUrl = hasComputedNewSelectors ? state.currentBaseUrl : "";
-
-  await messages.sendTabMessage({ type: "configUpdated", baseUrl: state.currentBaseUrl });
-  // Refresh from the now-committed content draft so the captured fingerprint
-  // reflects the SAME authoritative markings entry that the post-preview-exit
-  // refresh will read back. Capturing from the (possibly stale or
-  // refresh-nulled) in-memory draft could mismatch on return to marking mode
-  // and wrongly re-enable Run AI / disable Show Content List + Save.
-  await refreshCurrentPageRuntimeStatus();
-  // Record the markings this AI run was computed for so Run AI disables and
-  // Save/Preview enable until the next mark/unmark change.
+  // The AI run is scoped to the current element markings. Capture that stable
+  // state before the preview starts slower content-side reconciliation.
   captureAiRunMarkingsFingerprint();
 
   const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
@@ -6833,6 +6860,24 @@ async function applyComputedSelectorSet(selectorSet, { currentPageUrl = "", toke
 // @ts-expect-error
     ? previewResponse.result
     : null;
+  const previewStatePayload = previewResult && typeof previewResult.previewState === "object"
+    ? previewResult.previewState
+    : previewResult;
+  if (previewResult) {
+    queueAiPreviewConfigSync(tabId, state.currentBaseUrl);
+    if (!(previewStatePayload && previewStatePayload.itemsPending)) {
+      flushPendingAiPreviewConfigSync();
+    }
+  } else {
+    await messages.sendTabMessageToTab(tabId, {
+      type: "configUpdated",
+      baseUrl: state.currentBaseUrl
+    }, {
+      timeoutMs: 30000
+    });
+    await refreshCurrentPageRuntimeStatus();
+    captureAiRunMarkingsFingerprint();
+  }
   const previewOpened = Boolean(previewResult);
   if (previewOpened) {
     // Show the Detected Content sidebar immediately from the items the content
@@ -6841,9 +6886,6 @@ async function applyComputedSelectorSet(selectorSet, { currentPageUrl = "", toke
     // preview appear only after minutes (or not at all) on heavy pages. The
     // content handler response is nested under result.previewState by the
     // background TAB_SHOW_AI_PREVIEW command.
-    const previewStatePayload = previewResult && typeof previewResult.previewState === "object"
-      ? previewResult.previewState
-      : previewResult;
     const immediatePreviewItems = normalizePreviewItems(
       previewStatePayload && Array.isArray(previewStatePayload.items)
         ? previewStatePayload.items
@@ -6863,6 +6905,7 @@ async function applyComputedSelectorSet(selectorSet, { currentPageUrl = "", toke
           (previewStatePayload.previousEnabled || previewStatePayload.restoreMarkingOnExit)
       ),
       previewItems: immediatePreviewItems,
+      previewItemsPending: Boolean(previewStatePayload && previewStatePayload.itemsPending),
       previewFocusedXpath: "",
       previewShowAllCategories: false,
       previewBlockedMessage: PopupText.preview.blockedActive,
@@ -6880,6 +6923,25 @@ async function applyComputedSelectorSet(selectorSet, { currentPageUrl = "", toke
   state.lastConfigSaveStatusTone = "warning";
   uiModule.showToast(PopupText.ai.selectorsComputedLocallyToast);
   return { previewOpened };
+}
+
+// @ts-expect-error
+function applyAiPreviewStateUpdate(message) {
+  const messageBaseUrl = typeof message.baseUrl === "string" ? message.baseUrl : "";
+  if (state.currentBaseUrl && messageBaseUrl && !utils.sameBaseUrl(messageBaseUrl, state.currentBaseUrl)) {
+    return;
+  }
+  const nextPreviewState = buildPreviewViewState(message);
+  uiModule.setViewState({
+    ...nextPreviewState,
+    previewBlocked: Boolean(nextPreviewState.previewActive),
+    previewBlockedMessage: nextPreviewState.previewActive
+      ? PopupText.preview.blockedActive
+      : ViewText.previewBlockedDefault
+  });
+  if (!nextPreviewState.previewItemsPending) {
+    flushPendingAiPreviewConfigSync();
+  }
 }
 
 async function failAiRun(message = PopupText.ai.runFailed) {
@@ -7082,14 +7144,11 @@ async function handleComputeSelectors() {
 
       state.aiRunSessionId = typeof runResult.sessionId === "string" ? runResult.sessionId : "";
       state.aiRunPhase = "done";
-      const { previewOpened } = await applyComputedSelectorSet(normalizeAiSelectorSet(runResult.selectorSet), {
+      await applyComputedSelectorSet(normalizeAiSelectorSet(runResult.selectorSet), {
         currentPageUrl,
         tokenValue
       });
       await stopAiRun({ unlockPage: false });
-      if (!previewOpened) {
-        await refreshUi();
-      }
     } catch {
       await failAiRun(PopupText.ai.runFailed);
     }
@@ -7508,6 +7567,12 @@ function buildPreviewViewState(previewState) {
   const previewExpandedStatesEnabled = isFeatureEnabled("previewExpandedStates");
   return {
     previewActive: Boolean(previewState && previewState.active && previewMode === "preview"),
+    previewItemsPending: Boolean(
+      previewState &&
+      previewState.active &&
+      previewMode === "preview" &&
+      previewState.itemsPending
+    ),
     previewWillRestoreMarking: Boolean(
       previewState &&
         previewState.active &&
@@ -7982,6 +8047,7 @@ async function init() {
       return;
     }
     if (message && message.type === "aiPreviewClosed") {
+      flushPendingAiPreviewConfigSync();
       applyPreviewClosedState(message).catch(() => {
         clearPreviewRestorePending();
         setPreviewBlocked(false);
@@ -7992,6 +8058,10 @@ async function init() {
       uiModule.setViewState({
         previewFocusedXpath: typeof message.xpath === "string" ? message.xpath : ""
       });
+      return;
+    }
+    if (message && message.type === "aiPreviewStateChanged") {
+      applyAiPreviewStateUpdate(message);
       return;
     }
     if (!message || message.type !== "pageDraftChanged") {

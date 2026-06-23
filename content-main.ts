@@ -376,6 +376,7 @@ function createAiPreviewState() {
     items: [],
     defaultItems: [],
     expandedItems: [],
+    itemsPending: false,
     showAllCategories: false,
     itemXpathSet: new Set(),
     focusedXpath: "",
@@ -383,6 +384,7 @@ function createAiPreviewState() {
     restoreMarkingOnExit: false,
     previousBaseUrl: "",
     previousPageUrl: "",
+    previousConfig: null,
     previousDraftEntry: null,
     previousSavedEntry: null,
     previousAutoSeededPendingSavePageUrl: ""
@@ -538,8 +540,14 @@ function getPageDraftStatusHandler() {
   return contentMainServiceRegistry.getPageDraftStatusHandler();
 }
 
-function getAiPreviewStateResponseBuilder() {
-  return contentMainServiceRegistry.getAiPreviewStateResponseBuilder();
+type AiPreviewStateResponseBuilder = {
+  buildGetStateResponse: () => Record<string, unknown>;
+  buildExpandedModeDisabledResponse: () => Record<string, unknown>;
+  buildExpandedModeResponse: (ok: boolean) => Record<string, unknown>;
+};
+
+function getAiPreviewStateResponseBuilder(): AiPreviewStateResponseBuilder {
+  return contentMainServiceRegistry.getAiPreviewStateResponseBuilder() as AiPreviewStateResponseBuilder;
 }
 
 function getAiPreviewCloseHandler() {
@@ -1133,6 +1141,10 @@ function setAiPreviewItemSets(defaultItems, expandedItems, options = {}) {
   );
 }
 
+function setAiPreviewItemsPending(pending: boolean) {
+  aiPreviewState.itemsPending = Boolean(pending);
+}
+
 // @ts-expect-error
 function setAiPreviewExpandedMode(active) {
   if (!isFeatureEnabled("previewExpandedStates")) {
@@ -1365,6 +1377,7 @@ function collectUndetectedAiPreviewNodes(trackedNodes) {
   if (!document.body) {
     return [];
   }
+  const markabilityConfig = aiPreviewState.previousConfig || state.config;
   const results = [];
   const stack = [document.body];
   while (stack.length) {
@@ -1379,7 +1392,7 @@ function collectUndetectedAiPreviewNodes(trackedNodes) {
       continue;
     }
     const containsTrackedDescendant = hasTrackedPreviewDescendant(node, trackedNodes);
-    const isVisibleMarkable = core.isVisible(node) && core.isMarkableElement(node, state.config, {
+    const isVisibleMarkable = core.isVisible(node) && core.isMarkableElement(node, markabilityConfig, {
       allowParent: false,
       allowImmutableChildren: false
     });
@@ -3359,6 +3372,7 @@ function beginAiPreviewMode(options = {}) {
       items: [],
       defaultItems: [],
       expandedItems: [],
+      itemsPending: false,
       showAllCategories: false,
       itemXpathSet: new Set(),
       focusedXpath: "",
@@ -3366,6 +3380,7 @@ function beginAiPreviewMode(options = {}) {
       restoreMarkingOnExit,
       previousBaseUrl: state.baseUrl || "",
       previousPageUrl,
+      previousConfig: state.config,
       previousDraftEntry: core.clonePageEntry(core.getDraftPageEntry(previousPageUrl)),
       previousSavedEntry: core.getSavedPageEntry(previousPageUrl),
       previousAutoSeededPendingSavePageUrl: state.autoSeededPendingSavePageUrl || ""
@@ -3403,7 +3418,7 @@ async function enterAiPreviewMode(options = {}) {
   await refreshSilentHighlightings();
 }
 
-function buildAiPreviewClosedDraftStatus(pageUrl = location.href) {
+function buildCurrentPageDraftStatusSnapshot(pageUrl = location.href) {
   if (!state.config) {
     return null;
   }
@@ -3419,6 +3434,19 @@ function buildAiPreviewClosedDraftStatus(pageUrl = location.href) {
   };
 }
 
+function buildAiPreviewStateSnapshot() {
+  return getAiPreviewStateResponseBuilder().buildGetStateResponse();
+}
+
+function notifyAiPreviewStateChanged() {
+  void sendRuntimeMessageSafely({
+    type: "aiPreviewStateChanged",
+    baseUrl: state.baseUrl || "",
+    pageUrl: location.href,
+    ...buildAiPreviewStateSnapshot()
+  });
+}
+
 async function exitAiPreviewMode() {
   if (!aiPreviewState.active) {
     return {
@@ -3427,7 +3455,7 @@ async function exitAiPreviewMode() {
       baseUrl: state.baseUrl || "",
       pageUrl: location.href,
       pageType: state.currentPageType || "",
-      draftStatus: buildAiPreviewClosedDraftStatus()
+      draftStatus: buildCurrentPageDraftStatusSnapshot()
     };
   }
 
@@ -3484,7 +3512,7 @@ async function exitAiPreviewMode() {
       baseUrl: restoredBaseUrl,
       pageUrl: location.href,
       pageType: state.currentPageType || "",
-      draftStatus: buildAiPreviewClosedDraftStatus()
+      draftStatus: buildCurrentPageDraftStatusSnapshot()
     };
   }
 
@@ -3496,7 +3524,7 @@ async function exitAiPreviewMode() {
     baseUrl: state.baseUrl || "",
     pageUrl: location.href,
     pageType: state.currentPageType || "",
-    draftStatus: buildAiPreviewClosedDraftStatus()
+    draftStatus: buildCurrentPageDraftStatusSnapshot()
   };
 }
 
@@ -6424,12 +6452,9 @@ function createAiPreviewComputeLockHandlerDeps() {
 function createAiPreviewExpandedModeHandlerDeps() {
   return {
     buildExpandedModeDisabledResponse: () =>
-// @ts-expect-error
       getAiPreviewStateResponseBuilder().buildExpandedModeDisabledResponse(),
-// @ts-expect-error
-    buildExpandedModeResponse: (ok) =>
-// @ts-expect-error
-      getAiPreviewStateResponseBuilder().buildExpandedModeResponse(ok),
+    buildExpandedModeResponse: (ok: unknown) =>
+      getAiPreviewStateResponseBuilder().buildExpandedModeResponse(Boolean(ok)),
     isPreviewExpandedStatesEnabled: () => isFeatureEnabled("previewExpandedStates"),
     setAiPreviewExpandedMode
   };
@@ -6437,42 +6462,29 @@ function createAiPreviewExpandedModeHandlerDeps() {
 
 function createAiPreviewGetStateHandlerDeps() {
   return {
-// @ts-expect-error
     buildGetStateResponse: () => getAiPreviewStateResponseBuilder().buildGetStateResponse()
   };
 }
 
 function createAiPreviewShowHandlerDeps() {
   return {
+    beginAiPreviewMode,
     buildAiPreviewItemsWithCategories,
 // @ts-expect-error
     collectPreviewItems: (selectorSet) => core.collectPreviewItems(selectorSet),
-    enterAiPreviewMode,
     exitAiPreviewMode,
+    isAiPreviewActive: () => Boolean(aiPreviewState.active),
+    buildPreviewState: () => buildAiPreviewStateSnapshot(),
     normalizeAiSelectorSet,
+    notifyPreviewStateChanged: notifyAiPreviewStateChanged,
+    refreshSilentHighlightings,
+    schedulePreviewItemsHydration: (callback: () => void) => {
+      window.setTimeout(callback, 0);
+    },
     setAiPreviewItemSets,
+    setPreviewItemsPending: setAiPreviewItemsPending,
 // @ts-expect-error
-    showAiPopover: (items, options) => core.showAiPopover(items, options),
-    getAiPreviewItems: () => {
-      const previewItems = (aiPreviewState as unknown as { items?: unknown }).items;
-      if (!Array.isArray(previewItems)) {
-        return [];
-      }
-      return previewItems.map((item) => {
-        const entry = (item || {}) as {
-          xpath?: unknown;
-          text?: unknown;
-          title?: unknown;
-          kind?: unknown;
-        };
-        return {
-          xpath: entry.xpath,
-          text: entry.text,
-          title: entry.title,
-          kind: entry.kind
-        };
-      });
-    }
+    showAiPopover: (items, options) => core.showAiPopover(items, options)
   };
 }
 

@@ -625,7 +625,24 @@ async function captureRenderModeHtmlWithDebugger(tabId) {
 const OFFSCREEN_DOCUMENT_PATH = "offscreen.html";
 const OFFSCREEN_MESSAGE_TARGET = "offscreen";
 const OFFSCREEN_REFINE_XPATHS_TYPE = "offscreenRefineXPaths";
+const OFFSCREEN_REFINE_XPATHS_TIMEOUT_MS = 2_000;
 let offscreenDocumentSetup: Promise<void> | null = null;
+
+function createOffscreenRefineTimeout<T>(fallback: T, timeoutMs = OFFSCREEN_REFINE_XPATHS_TIMEOUT_MS) {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const promise = new Promise<T>((resolve) => {
+    timer = setTimeout(() => resolve(fallback), timeoutMs);
+  });
+  return {
+    promise,
+    clear() {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+    }
+  };
+}
 
 async function offscreenDocumentExists(): Promise<boolean> {
   if (typeof chrome.runtime.getContexts !== "function") {
@@ -682,16 +699,22 @@ async function refineXPathEntriesViaOffscreen(
       return items;
     }
     let response: unknown;
+    const timeout = createOffscreenRefineTimeout(null);
     try {
-      response = await chrome.runtime.sendMessage({
-        target: OFFSCREEN_MESSAGE_TARGET,
-        type: OFFSCREEN_REFINE_XPATHS_TYPE,
-        payloadKey: stored.payloadKey,
-        items
-      });
+      response = await Promise.race([
+        chrome.runtime.sendMessage({
+          target: OFFSCREEN_MESSAGE_TARGET,
+          type: OFFSCREEN_REFINE_XPATHS_TYPE,
+          payloadKey: stored.payloadKey,
+          items
+        }),
+        timeout.promise
+      ]);
     } catch {
       await removeTransferPayload(stored.payloadKey);
       return items;
+    } finally {
+      timeout.clear();
     }
     if (
       response &&
@@ -1222,7 +1245,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_SHOW_AI_PREVIEW, async (contex
   const response = await sendContentMessageToTab(normalizedTabId, {
     type: "showAiPreview",
     selectorSet
-  });
+  }, 30000);
   if (!response || !response.ok) {
     return context.replyFail(
       MESSAGE_ERROR_CODES.HANDLER_FAILED,

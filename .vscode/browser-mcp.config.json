@@ -10,8 +10,8 @@
       ],
       "args": [
         "--no-sandbox",
-        "--load-extension=/home/rojan/Documents/Git/GitHub/Unfluffify",
-        "--disable-extensions-except=/home/rojan/Documents/Git/GitHub/Unfluffify"
+        "--load-extension=/home/rojan/Documents/Git/GitHub/Unfluffify/dist/extension-dev",
+        "--disable-extensions-except=/home/rojan/Documents/Git/GitHub/Unfluffify/dist/extension-dev"
       ]
     }
   }

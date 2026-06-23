@@ -208,21 +208,35 @@ test("#21 fingerprint normalizes markings to xpath identity strings", () => {
   assert.doesNotMatch(fnBody, /cssSelectors/);
 });
 
-test("#21 a clean AI run captures the fingerprint from the committed content draft", () => {
+test("#21 a clean AI run opens preview before config sync can hydrate content state", () => {
   const fnBody = popupSource.match(
     /async function applyComputedSelectorSet\([\s\S]*?\n\}\n\n/
   )[0];
-  // configUpdated commits the run, then a runtime refresh repopulates the draft
-  // entry, and only THEN is the fingerprint captured - so it matches the entry
-  // the post-preview-exit refresh reads back.
+  // Capture the current markings before preview-open so the popup does not need
+  // a blocking draft probe, then queue configUpdated until the async item
+  // hydration reports that the preview list is no longer pending.
   assert.match(
     fnBody,
-    /configUpdated[\s\S]*?await refreshCurrentPageRuntimeStatus\(\);[\s\S]*?captureAiRunMarkingsFingerprint\(\);/
+    /captureAiRunMarkingsFingerprint\(\);[\s\S]*?requestTabShowAiPreview[\s\S]*?if \(previewResult\) \{[\s\S]*?queueAiPreviewConfigSync\(tabId, state\.currentBaseUrl\);[\s\S]*?if \(!\(previewStatePayload && previewStatePayload\.itemsPending\)\) \{[\s\S]*?flushPendingAiPreviewConfigSync\(\);[\s\S]*?\}[\s\S]*?\} else \{[\s\S]*?await messages\.sendTabMessageToTab\(tabId, \{\s*type: "configUpdated",\s*baseUrl: state\.currentBaseUrl\s*\}, \{\s*timeoutMs: 30000\s*\}\);[\s\S]*?await refreshCurrentPageRuntimeStatus\(\);[\s\S]*?captureAiRunMarkingsFingerprint\(\);/
   );
-  // The capture must happen before the preview command intent is sent.
+  assert.doesNotMatch(
+    fnBody,
+    /sendTabMessageToTab\(tabId, \{\s*type: "configUpdated",\s*baseUrl: state\.currentBaseUrl\s*\}, \{\s*timeoutMs: 30000\s*\}\);[\s\S]*?requestTabShowAiPreview/
+  );
   const captureIndex = fnBody.indexOf("captureAiRunMarkingsFingerprint();");
   const previewIndex = fnBody.indexOf("requestTabShowAiPreview");
   assert.ok(captureIndex > -1 && previewIndex > -1 && captureIndex < previewIndex);
+});
+
+test("#21 config sync flushes after async preview item hydration", () => {
+  assert.match(
+    popupSource,
+    /function applyAiPreviewStateUpdate\(message\) \{[\s\S]*?const nextPreviewState = buildPreviewViewState\(message\);[\s\S]*?uiModule\.setViewState\(\{[\s\S]*?\}\);[\s\S]*?if \(!nextPreviewState\.previewItemsPending\) \{[\s\S]*?flushPendingAiPreviewConfigSync\(\);/
+  );
+  assert.match(
+    popupSource,
+    /function buildPreviewViewState\(previewState\) \{[\s\S]*?previewItemsPending: Boolean\([\s\S]*?previewState\.itemsPending[\s\S]*?\),/
+  );
 });
 
 test("#21 an up-to-date AI run no longer forces another run for Save", () => {
@@ -307,3 +321,22 @@ test("#22 the marking refresh threads preserveCurrentDraftStatus into the runtim
   );
 });
 
+test("#23 the post-AI cleanup refresh stays quiet and preserves draft only for preview mode", () => {
+  // Right after a successful AI run, stopAiRun must not raise the generic
+  // "Refreshing popup data..." curtain. When preview is showing, that same quiet
+  // refresh still needs to preserve the just-captured draft snapshot so the popup
+  // keeps State C instead of recomputing from preview-mode content state.
+  assert.match(
+    popupSource,
+    /async function stopAiRun\(options = \{\}\) \{[\s\S]*?const currentView = uiModule\.getViewState\(\);[\s\S]*?const previewShowing = Boolean\(currentView\.previewBlocked \|\| currentView\.previewActive\);[\s\S]*?const preserveCurrentDraftStatus = Boolean\(\s*previewShowing && currentView\.previewWillRestoreMarking\s*\);[\s\S]*?await refreshUi\(\{\s*useBusyOverlay: false,\s*preserveCurrentDraftStatus\s*\}\);/
+  );
+});
+
+test("#24 the immediate AI-result path does not trigger a second blocking refresh", () => {
+  const fnBody = popupSource.match(
+    /async function handleComputeSelectors\(\) \{([\s\S]*?)\n\}/
+  )[1];
+  assert.match(fnBody, /await applyComputedSelectorSet\(normalizeAiSelectorSet\(runResult\.selectorSet\), \{/);
+  assert.match(fnBody, /await stopAiRun\(\{ unlockPage: false \}\);/);
+  assert.doesNotMatch(fnBody, /if \(!previewOpened\) \{\s*await refreshUi\(\);\s*\}/);
+});

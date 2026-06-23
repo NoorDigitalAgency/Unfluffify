@@ -137,7 +137,7 @@ export function requestTabShowAiPreview(tabId: TabId, payload: TabRequestPayload
     payload: payload && typeof payload === "object" ? payload : {}
   }, {
     tabId,
-    timeoutMs: resolveTimeoutMs(opts, 10000)
+    timeoutMs: resolveTimeoutMs(opts, 45000)
   }).then((result) => ({
     ok: true,
     result: result && typeof result === "object" ? result : {}
@@ -416,18 +416,20 @@ export function requestTabRunAi(tabId: TabId, payload: TabRequestPayload = {}, o
   });
 }
 
-export function sendTabMessage(message: Record<string, unknown>) {
+export function sendTabMessage(message: Record<string, unknown>, options: TabRequestOptions = {}) {
   const tabId = state.currentTab && state.currentTab.id;
   if (!tabId) {
     return Promise.resolve(null);
   }
-  return sendTabMessageToTab(tabId, message);
+  return sendTabMessageToTab(tabId, message, options);
 }
 
-export function sendTabMessageToTab(tabId: TabId, message: Record<string, unknown>) {
+export function sendTabMessageToTab(tabId: TabId, message: Record<string, unknown>, options: TabRequestOptions = {}) {
   if (!tabId) {
     return Promise.resolve(null);
   }
+  const contentTimeoutMs = resolveTimeoutMs(options, 3000);
+  const requestTimeoutMs = Math.max(resolveTimeoutMs(options, 5000), contentTimeoutMs + 2000);
   logPopupMessageTrace("tab:send", {
     tabId,
     type: message && message.type ? message.type : ""
@@ -436,11 +438,11 @@ export function sendTabMessageToTab(tabId: TabId, message: Record<string, unknow
     type: TAB_CONTENT_REQUEST_COMMAND,
     payload: {
       message: message && typeof message === "object" ? message : {},
-      timeoutMs: 3000
+      timeoutMs: contentTimeoutMs
     }
   }, {
     tabId,
-    timeoutMs: 5000
+    timeoutMs: requestTimeoutMs
   }).then((result) => {
     const resultRecord = result as Record<string, unknown> | null | undefined;
     const response = resultRecord && typeof resultRecord === "object" && resultRecord.response && typeof resultRecord.response === "object"

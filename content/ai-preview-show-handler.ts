@@ -2,7 +2,10 @@ type AiPreviewShowDeps = {
   normalizeAiSelectorSet: (value: unknown) => unknown;
   collectPreviewItems: (selectorSet: unknown) => unknown[];
   buildAiPreviewItemsWithCategories: (selectorSet: unknown, defaultItems: unknown[]) => unknown[];
-  enterAiPreviewMode: (options: { mode: string }) => Promise<void>;
+  beginAiPreviewMode: (options: { mode: string }) => void;
+  refreshSilentHighlightings: () => Promise<unknown>;
+  schedulePreviewItemsHydration: (callback: () => void) => void;
+  setPreviewItemsPending: (pending: boolean) => void;
   setAiPreviewItemSets: (
     defaultItems: unknown[],
     expandedItems: unknown[],
@@ -10,7 +13,9 @@ type AiPreviewShowDeps = {
   ) => void;
   showAiPopover: (items: unknown[], options: { onClose: () => Promise<unknown> | void }) => void;
   exitAiPreviewMode: () => Promise<unknown>;
-  getAiPreviewItems: () => unknown[];
+  isAiPreviewActive: () => boolean;
+  buildPreviewState: () => Record<string, unknown>;
+  notifyPreviewStateChanged: () => void;
 };
 
 type AiPreviewShowMessage = {
@@ -18,8 +23,7 @@ type AiPreviewShowMessage = {
 };
 
 export function createAiPreviewShowHandler(deps: AiPreviewShowDeps) {
-  async function handleMessage(message: AiPreviewShowMessage = {}): Promise<{ ok: true; count: number; items: unknown[] }> {
-    const selectorSet = deps.normalizeAiSelectorSet(message.selectorSet);
+  function hydratePreviewItems(selectorSet: unknown) {
     let defaultItems: unknown[] = [];
     let expandedItems: unknown[] = [];
     try {
@@ -29,22 +33,30 @@ export function createAiPreviewShowHandler(deps: AiPreviewShowDeps) {
       defaultItems = [];
       expandedItems = [];
     }
-    await deps.enterAiPreviewMode({ mode: "preview" });
+    if (!deps.isAiPreviewActive()) {
+      return;
+    }
     deps.setAiPreviewItemSets(defaultItems, expandedItems, { showAllCategories: false });
-    deps.showAiPopover(defaultItems, {
+    deps.setPreviewItemsPending(false);
+    deps.notifyPreviewStateChanged();
+    void deps.refreshSilentHighlightings().catch(() => null);
+  }
+
+  async function handleMessage(message: AiPreviewShowMessage = {}): Promise<Record<string, unknown>> {
+    const selectorSet = deps.normalizeAiSelectorSet(message.selectorSet);
+    deps.beginAiPreviewMode({ mode: "preview" });
+    deps.setPreviewItemsPending(true);
+    deps.setAiPreviewItemSets([], [], { showAllCategories: false });
+    deps.showAiPopover([], {
       onClose: () => deps.exitAiPreviewMode()
     });
-    // Return the rendered preview items so the popup can display the Detected
-    // Content sidebar immediately, without waiting for a later full refresh to
-    // rediscover the preview via the timeout-prone getAiPreviewState probe.
-    let items: unknown[] = [];
-    try {
-      const renderedItems = deps.getAiPreviewItems();
-      items = Array.isArray(renderedItems) ? renderedItems : [];
-    } catch {
-      items = [];
-    }
-    return { ok: true, count: defaultItems.length, items };
+    deps.schedulePreviewItemsHydration(() => hydratePreviewItems(selectorSet));
+    const previewState = deps.buildPreviewState();
+    return {
+      ...previewState,
+      ok: true,
+      count: 0
+    };
   }
 
   return {

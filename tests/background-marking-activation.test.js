@@ -100,6 +100,27 @@ test("popup save/discard and preview surfaces delegate to background commands", 
   assert.doesNotMatch(source, /type: "setAiPreviewExpandedMode"/);
 });
 
+test("popup preview-open helper gives heavy preview generation a longer timeout budget", () => {
+  const source = readFileSync(new URL("../popup/messages.ts", import.meta.url), "utf8");
+  const block = source.match(
+    /export function requestTabShowAiPreview\(tabId: TabId, payload: TabRequestPayload = \{\}, options: TabRequestOptions = \{\}\) \{([\s\S]*?)\n\}/
+  )[1];
+
+  assert.match(block, /timeoutMs: resolveTimeoutMs\(opts, 45000\)/);
+});
+
+test("background preview-open command gives the content hop extra time on heavy pages", () => {
+  const source = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
+  const block = source.match(
+    /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_SHOW_AI_PREVIEW, async \(context, payload\) => \{([\s\S]*?)\n\}, POPUP_TAB_COMMAND_POLICY\);/
+  )[1];
+
+  assert.match(
+    block,
+    /sendContentMessageToTab\(normalizedTabId, \{\s*type: "showAiPreview",\s*selectorSet\s*\}, 30000\)/
+  );
+});
+
 test("background registers save/discard and preview commands as tab-scoped commands", () => {
   const source = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
 

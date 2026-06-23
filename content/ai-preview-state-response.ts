@@ -12,6 +12,7 @@ type AiPreviewState = {
   restoreMarkingOnExit?: boolean;
   previousBaseUrl?: string;
   items?: AiPreviewItem[];
+  itemsPending?: boolean;
   focusedXpath?: string;
   showAllCategories?: boolean;
 };
@@ -50,6 +51,7 @@ export function createAiPreviewStateResponseBuilder(deps: AiPreviewStateResponse
       previousBaseUrl: typeof state.previousBaseUrl === "string" ? state.previousBaseUrl : "",
       showAllCategories,
       items: mapItems(state.items),
+      itemsPending: Boolean(state.itemsPending),
       focusedXpath: typeof state.focusedXpath === "string" ? state.focusedXpath : ""
     };
   };

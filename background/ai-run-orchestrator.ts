@@ -139,6 +139,7 @@ interface AiRunOrchestratorOptions {
   setTabState?(tabId: number, tabState: Record<string, unknown>): Promise<void>;
   updateActionForTab?(tabId: number): Promise<void>;
   refineXPathEntries?(renderedHtml: string, rawHtml: string, renderedXPaths: unknown): unknown | Promise<unknown>;
+  refineXPathEntriesTimeoutMs?: number;
   createManagedTimeoutGroup?(): AiRunManagedTimeoutGroup;
   getAiRunResumeExpiresAt?(): number;
   configStore?: AiRunConfigStore;
@@ -287,6 +288,12 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
   const aiRunPollIntervalMs = typeof aiRunPollIntervalMsOption === "number" && Number.isFinite(aiRunPollIntervalMsOption) && aiRunPollIntervalMsOption > 0
     ? Math.trunc(aiRunPollIntervalMsOption)
     : 5_000;
+  const refineXPathEntriesTimeoutMsOption = options.refineXPathEntriesTimeoutMs;
+  const refineXPathEntriesTimeoutMs = typeof refineXPathEntriesTimeoutMsOption === "number" &&
+      Number.isFinite(refineXPathEntriesTimeoutMsOption) &&
+      refineXPathEntriesTimeoutMsOption > 0
+    ? Math.trunc(refineXPathEntriesTimeoutMsOption)
+    : 2_500;
 
   function getAiRunCurrentPageEntry(currentConfig: Config, currentPageUrl: string) {
     if (!currentPageUrl) {
@@ -314,6 +321,37 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
     return false;
   }
 
+  async function refineXPathEntriesWithBudget(
+    renderedHtml: string,
+    rawHtml: string,
+    renderedXPaths: AiRunSubmissionXpath[],
+    timeoutMs: number
+  ) {
+    if (!renderedXPaths.length) {
+      return renderedXPaths;
+    }
+    const normalizedTimeoutMs = Math.max(0, Math.trunc(timeoutMs));
+    if (!normalizedTimeoutMs) {
+      return renderedXPaths;
+    }
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const fallback = renderedXPaths;
+    const refinePromise = Promise.resolve()
+      .then(() => refineXPathEntries(renderedHtml, rawHtml, renderedXPaths))
+      .then((maybeRefined) => (Array.isArray(maybeRefined) ? maybeRefined as AiRunSubmissionXpath[] : fallback))
+      .catch(() => fallback);
+    const timeoutPromise = new Promise<AiRunSubmissionXpath[]>((resolve) => {
+      timer = setTimeout(() => resolve(fallback), normalizedTimeoutMs);
+    });
+    try {
+      return await Promise.race([refinePromise, timeoutPromise]);
+    } finally {
+      if (timer) {
+        clearTimeout(timer);
+      }
+    }
+  }
+
   async function refineAiRunPayloadXpathsInBackground(payloadKey: string | null | undefined) {
     const sourcePayloadKey = typeof payloadKey === "string" ? payloadKey.trim() : "";
     if (!sourcePayloadKey) {
@@ -331,6 +369,7 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
       return { ok: false, error: "Unable to prepare AI payload" };
     }
     const refinedPages: AiRunPayloadPage[] = [];
+    const refinementDeadlineAt = Date.now() + refineXPathEntriesTimeoutMs;
     for (const page of payload.pages) {
       const renderedHtml = page && typeof page.renderedHtml === "string" ? page.renderedHtml : "";
       const rawHtml = page && typeof page.rawHtml === "string" ? page.rawHtml : "";
@@ -339,10 +378,12 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
         : [];
       let refinedXPaths: AiRunSubmissionXpath[] = renderedXPaths;
       try {
-        const maybeRefined = await refineXPathEntries(renderedHtml, rawHtml, renderedXPaths);
-        if (Array.isArray(maybeRefined)) {
-          refinedXPaths = maybeRefined as AiRunSubmissionXpath[];
-        }
+        refinedXPaths = await refineXPathEntriesWithBudget(
+          renderedHtml,
+          rawHtml,
+          renderedXPaths,
+          refinementDeadlineAt - Date.now()
+        );
       } catch {
         // Fall back to unrefined XPaths for this page.
       }

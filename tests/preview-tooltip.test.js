@@ -64,6 +64,19 @@ test("content-main tracks separate default and expanded preview item sets", () =
   assert.match(previewResponseSource, /title: item\.title,[\s\S]*?kind: item\.kind/);
 });
 
+test("content-main keeps preview category hydration independent of disabled marking state", () => {
+  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
+
+  assert.match(
+    source,
+    /previousConfig: state\.config,[\s\S]*?previousDraftEntry: core\.clonePageEntry\(core\.getDraftPageEntry\(previousPageUrl\)\)/
+  );
+  assert.match(
+    source,
+    /function collectUndetectedAiPreviewNodes\(trackedNodes\) \{[\s\S]*?const markabilityConfig = aiPreviewState\.previousConfig \|\| state\.config;[\s\S]*?core\.isMarkableElement\(node, markabilityConfig, \{/
+  );
+});
+
 test("popup.js sends preview list mode changes to the content script and normalizes the returned items", () => {
   const source = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
 
@@ -130,7 +143,7 @@ test("content preview close notification includes authoritative restore payload"
   );
   assert.match(
     contentMainSource,
-    /function buildAiPreviewClosedDraftStatus\(pageUrl = location\.href\) \{[\s\S]*?entry: draftEntry \? core\.clonePageEntry\(draftEntry\) : null,[\s\S]*?savedEntry: savedEntry \? core\.clonePageEntry\(savedEntry\) : null,[\s\S]*?dirty: Boolean\(core\.isPageDraftDirty\(pageUrl\)\),[\s\S]*?reconciliationPending: Boolean\(core\.isPageSaveReconciliationPending\(pageUrl\)\)/
+    /function buildCurrentPageDraftStatusSnapshot\(pageUrl = location\.href\) \{[\s\S]*?entry: draftEntry \? core\.clonePageEntry\(draftEntry\) : null,[\s\S]*?savedEntry: savedEntry \? core\.clonePageEntry\(savedEntry\) : null,[\s\S]*?dirty: Boolean\(core\.isPageDraftDirty\(pageUrl\)\),[\s\S]*?reconciliationPending: Boolean\(core\.isPageSaveReconciliationPending\(pageUrl\)\)/
   );
 });
 

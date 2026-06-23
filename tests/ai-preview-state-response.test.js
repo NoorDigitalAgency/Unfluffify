@@ -11,6 +11,7 @@ function createState(overrides = {}) {
     restoreMarkingOnExit: true,
     previousBaseUrl: "https://example.test",
     showAllCategories: true,
+    itemsPending: true,
     focusedXpath: "/html/body/main",
     items: [
       {
@@ -34,6 +35,7 @@ test("ai preview response builder returns get-state payload with gated showAllCa
   const response = builder.buildGetStateResponse();
   assert.equal(response.ok, true);
   assert.equal(response.showAllCategories, false);
+  assert.equal(response.itemsPending, true);
   assert.equal(response.items.length, 1);
   assert.deepEqual(response.items[0], {
     xpath: "/html/body/main",

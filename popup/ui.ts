@@ -232,6 +232,7 @@ const initialViewState = {
   cssSelectorsVisible: false,
   previewActive: false,
   previewItems: [],
+  previewItemsPending: false,
   previewFocusedXpath: "",
   previewShowAllCategories: false,
   previewBlocked: false,
@@ -1441,7 +1442,7 @@ function renderMarkedPagesSection(view, handlers, extraClassName = "") {
 
 // @ts-expect-error - Preview sidebar consumes runtime preview payloads.
 function renderPreviewSidebar(view, handlers) {
-  const openingPreview = view.previewBlocked && !view.previewActive;
+  const openingPreview = view.previewBlocked && (!view.previewActive || view.previewItemsPending);
   const previewTitle = view.previewShowAllCategories
     ? PopupText.preview.sidebarAllTitle
     : PopupText.preview.sidebarTitle;
@@ -2786,6 +2787,7 @@ export function setPreviewBlocked(isBlocked, message = ViewText.previewBlockedDe
     previewBlocked: Boolean(isBlocked),
     previewActive: isBlocked ? viewState.previewActive : false,
     previewItems: isBlocked ? viewState.previewItems : [],
+    previewItemsPending: isBlocked ? Boolean(viewState.previewItemsPending) : false,
     previewFocusedXpath: isBlocked ? viewState.previewFocusedXpath : "",
     previewShowAllCategories: isBlocked ? viewState.previewShowAllCategories : false,
     previewBlockedMessage: isBlocked
