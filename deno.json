@@ -3,8 +3,8 @@
   "tasks": {
     "check": "deno run --allow-read --allow-env --allow-sys npm:typescript/bin/tsc --noEmit -p tsconfig.json",
     "test": "deno test --allow-read --allow-write --allow-env --allow-run --allow-sys --allow-net=127.0.0.1 --no-check --unstable-sloppy-imports tests",
-    "lint": "deno lint scripts/build-extension.ts scripts/count-ts-suppressions.ts scripts/emit-package-metadata.ts scripts/package-extension.mjs",
-    "lint:fix": "deno lint --fix scripts/build-extension.ts scripts/count-ts-suppressions.ts scripts/emit-package-metadata.ts scripts/package-extension.mjs",
+    "lint": "deno lint scripts/build-extension.ts scripts/count-ts-suppressions.ts scripts/emit-package-metadata.ts scripts/launch-test-browser.ts scripts/package-extension.mjs",
+    "lint:fix": "deno lint --fix scripts/build-extension.ts scripts/count-ts-suppressions.ts scripts/emit-package-metadata.ts scripts/launch-test-browser.ts scripts/package-extension.mjs",
     "build": "deno task build:release",
     "package": "deno run --allow-read --allow-write ./scripts/package-extension.mjs --source-root dist/extension",
     "package:metadata": "deno run --allow-read ./scripts/emit-package-metadata.ts",
@@ -18,6 +18,7 @@
     "build:dev": "deno run --allow-read --allow-write --allow-env --allow-run --allow-sys ./scripts/build-extension.ts --dev",
     "build:release": "deno run --allow-read --allow-write --allow-env --allow-run --allow-sys ./scripts/build-extension.ts --release",
     "watch": "deno run --allow-read --allow-write --allow-env --allow-run --allow-sys ./scripts/build-extension.ts --dev --watch",
+    "browser:live": "deno run --allow-read --allow-write --allow-env --allow-run --allow-sys --allow-net ./scripts/launch-test-browser.ts",
     "dev": "deno task watch",
     "verify": "deno task check && deno task test && deno task build:release"
   },

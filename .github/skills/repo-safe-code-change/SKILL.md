@@ -92,12 +92,13 @@ Treat these areas as compatibility contracts:
   lease metadata exists.
 - **Storage:** Use approved storage/domain modules. Do not add scattered
   `chrome.storage` or `utils.storage*` access outside allowed boundaries.
-- **Browser live validation:** Follow the `launch-test-browser` skill — copy the
-  placeholdered `.vscode/browser-mcp.config.json` into a gitignored `.temp/`,
-  substitute the current-environment paths, and launch from
-  `.temp/browser-mcp.config.json` with `.mcp-browser-profile` and the built
-  extension root `dist/extension-dev`. Reload the unpacked extension/service
-  worker after rebuilding.
+- **Browser live validation:** Follow the `launch-test-browser` skill — run
+  `deno task browser:live <target-url>` (the committed launcher) to build
+  `dist/extension-dev`, write the per-environment `.temp/browser-mcp.config.json`,
+  and launch only the `playwright-local` (`npm:@playwright/mcp@latest`) managed
+  Chromium bound to `.mcp-browser-profile`. A target page URL is mandatory; never
+  touch the OS Chrome. Reload the unpacked extension/service worker after
+  rebuilding.
 
 ## Validation defaults
 

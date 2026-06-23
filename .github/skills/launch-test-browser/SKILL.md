@@ -25,7 +25,8 @@ instead of re-reading and re-deriving that file.
 ## Required input
 
 - A **target page URL** to load is mandatory. If the user did not say which page
-  to load, stop and ask for it before launching — do not assume a default.
+  to load, **stop and ask for it before launching** — do not assume a default,
+  do not reuse the last URL. The launcher also refuses to start without a URL.
 
 ## Do NOT use this skill for
 
@@ -34,148 +35,112 @@ instead of re-reading and re-deriving that file.
 - Orchestration scenarios under `orchestration/profiles/*` — only use those when
   the user explicitly asks for the orchestration browser path.
 
-## Canonical configuration (do not improvise)
-
-First step: build per-environment, launchable copies of the placeholdered
-`playwright-local` configs. The committed configs are intentionally
-non-launchable — they carry `__UNFLUFFIFY_REPO_ROOT__` and
-`__CHROMIUM_EXECUTABLE_PATH__` placeholders so they fail if launched as-is.
-
-1. Determine the active `Unfluffify` repository root for the current
-   environment (e.g. the current workspace / git repo root). Treat that
-   directory as the source of truth for all browser launch paths.
-2. Create a gitignored `.temp/` directory at the repository root if it does not
-   already exist.
-3. Copy `.vscode/mcp.json` and `.vscode/browser-mcp.config.json` into `.temp/`
-   (e.g. `.temp/mcp.json` and `.temp/browser-mcp.config.json`).
-4. In the `.temp/` copies, replace every `__UNFLUFFIFY_REPO_ROOT__` placeholder
-   with the resolved repository root. Do NOT point `__CHROMIUM_EXECUTABLE_PATH__`
-   at the OS Chrome/Chromium app — remove the `executablePath` line entirely so
-   Playwright uses its own managed Chromium (install it once with
-   `deno run -A npm:playwright@latest install chromium` if it is missing). Point
-   the `--config=` argument in `.temp/mcp.json` at `.temp/browser-mcp.config.json`.
-5. Launch the browser using the `.temp/` copies — never the committed,
-   placeholdered originals.
-
-Do not edit the committed `.vscode/mcp.json`, `.mcp.json`, or
-`.vscode/browser-mcp.config.json` to bake in current-environment paths; keep the
-substitution confined to the `.temp/` copies.
-
-The committed `.vscode/mcp.json` server `playwright-local` is the template, which
-(once substituted into `.temp/`) runs:
-
-- `deno run -A npm:@playwright/mcp@latest`
-- `--user-data-dir=<repoRoot>/.mcp-browser-profile`
-- `--config=<repoRoot>/.temp/browser-mcp.config.json`
-
-`.temp/browser-mcp.config.json` (the substituted copy) is the canonical
-live-test browser config:
-
-- visible Chromium (`headless: false`)
-- `ignoreDefaultArgs: ["--disable-extensions"]` so the extension can load
-- persistent profile in `.mcp-browser-profile`
-- loads the unpacked extension from `dist/extension-dev` via
-  `--load-extension` / `--disable-extensions-except`
-
 ## Procedure
 
-1. **Confirm the target page before doing anything else.** The user must
-   instruct which page (URL) to load. If no target page was provided, **stop and
-   ask the user for it** — do not guess a default, do not reuse the last URL, and
-   do not launch the browser until you have an explicit target page.
+### 1. Confirm the target page
 
-2. **Build the dev extension first.** The loadable unpacked root is the built
-   output, not the source checkout root. Run:
+The user must instruct which page (URL) to load. If no target page was provided,
+**stop and ask the user for it** — do not guess a default, do not reuse the last
+URL, and do not launch until you have an explicit target page.
 
-   ```
-   deno task build:dev
-   ```
+### 2. Launch with the one-command launcher
 
-   This produces `dist/extension-dev`. Use `dist/extension` only when the user
-   explicitly asks for the non-dev/release build.
+Run, from the repository root, in the background so the browser stays open while
+you observe:
 
-3. **Substitute the configs into `.temp/` and launch the `playwright-local` MCP
-   browser** with the resolved copies. Use:
+```
+deno task browser:live <target-url>
+```
 
-   - `<repoRoot>/.mcp-browser-profile`
-   - `<repoRoot>/.temp/browser-mcp.config.json`
+Example: `deno task browser:live https://bonliva.se`
 
-   Drive only the `playwright-local` (`npm:@playwright/mcp@latest`) MCP server
-   with Playwright's own managed Chromium. Do not start the OS Chrome/Chromium
-   app binary, `open -a 'Google Chrome'`, or `osascript`; do not hand-roll a
-   `launchPersistentContext()` flow; do not launch the committed placeholdered
-   configs as-is; and do not reuse `orchestration/profiles/*` for simple
-   observation.
+That single command runs the entire proven flow (`scripts/launch-test-browser.ts`):
 
-4. **Reload the unpacked extension after every rebuild.** The persisted Chromium
-   profile can keep an older MV3 service worker alive even though files on disk
-   changed. If removed debug logs or stale behavior still appear:
-   - call `chrome.runtime.reload()` from the extension context, or
-   - reload the extension on `chrome://extensions`,
+1. Resolves the active repo root for the current environment (no hardcoded
+   machine paths).
+2. Builds `dist/extension-dev` (`deno task build:dev`). Pass `--no-build` to skip
+   the rebuild. `dist/extension-dev` is the loadable unpacked root — never the
+   source checkout root.
+3. Writes a launchable, per-environment copy of the placeholdered config to the
+   gitignored `.temp/browser-mcp.config.json` (substitutes the repo root and
+   drops `executablePath` so Playwright uses its own managed Chromium). The
+   committed `.vscode/mcp.json`, `.mcp.json`, and
+   `.vscode/browser-mcp.config.json` stay placeholdered and non-launchable;
+   never edit them to bake in current-environment paths.
+4. Ensures the MCP-managed Chromium is installed (idempotent).
+5. Starts `npm:@playwright/mcp@latest` over stdio (single client = no
+   profile-lock) with `--user-data-dir=<repoRoot>/.mcp-browser-profile` and
+   `--config=<repoRoot>/.temp/browser-mcp.config.json`.
+6. Navigates the first tab to `<target-url>`.
+7. Resolves the loaded extension id from the service worker and cross-checks it
+   against the deterministic path-hash id (changes per environment — never
+   hardcode it).
+8. Resolves the target page's Chrome tab id via the service worker.
+9. Opens a SECOND tab `chrome-extension://<id>/popup.html?debugTabId=<pageTabId>`
+   so the extension binds to the target page (`<pageTabId>` is the page's tab,
+   never the popup's own tab).
 
-   then wait for the new service worker to come up before retesting.
+On success it prints the target URL, extension id, page tabId, and bound popup
+URL. To close the browser, stop the launcher (Ctrl-C or `kill <pid>`).
 
-5. **Open the instructed page first, in its own tab.** Navigate the first tab to
-   the user-instructed target page and let it load. Capture that tab's numeric
-   `tabId` — this is the tab the extension will bind to.
+### 3. Reload after every rebuild
 
-6. **Resolve the loaded extension's id/hash for the current load directory.** The
-   unpacked extension id is derived from the absolute path of the loaded
-   extension directory, so it changes per environment / load path. Read it from
-   the running browser instead of hardcoding it:
-   - open `chrome://extensions` (enable Developer mode) and read the **ID** of
-     the loaded Unfluffify extension, or
-   - inspect the extension's service worker / a `chrome.runtime.getURL("")`
-     value,
+If you rebuild while the browser is open, the persisted profile can keep an older
+MV3 service worker alive even though files on disk changed. If removed debug logs
+or stale behavior still appear:
 
-   and use that id as `<extension-id>` below.
+- call `chrome.runtime.reload()` from the extension context, or
+- reload the extension on `chrome://extensions`,
 
-7. **Open a second tab bound to the page tab via `debugTabId`.** With the target
-   page tab id from step 5 and the resolved extension id from step 6, open the
-   popup in a second tab so the extension binds to the target page:
-
-   ```
-   chrome-extension://<extension-id>/popup.html?debugTabId=<tabId>
-   ```
-
-   `<tabId>` must be the id of the instructed page's tab, not the popup tab.
+then wait for the new service worker before retesting. Re-running
+`deno task browser:live` from a clean stop rebuilds and reloads from scratch.
 
 ## Guardrails
 
-- **Use only the Playwright MCP browser; never touch the OS Chrome.** Launch and
-  drive the browser exclusively through the `playwright-local`
-  (`npm:@playwright/mcp@latest`) MCP server and its browser tools, using
-  Playwright's own managed Chromium bound to `.mcp-browser-profile`. Never run
-  the OS Chrome/Chromium app binary directly, never `open -a 'Google Chrome'`,
-  never set `executablePath` to the OS browser, never automate it with
-  AppleScript/`osascript`, and never quit, kill, relaunch, or otherwise
-  interfere with the user's OS Chrome instances, windows, or default profile.
-- Do not assume the repo root
-  is loadable as an unpacked extension. It lacks the built JS entrypoints
-  Chrome needs (e.g.
-  `background.js`, `popup.js`, `content-loader.js`), so service-worker waits and
-  popup targeting will fail if the repo root is loaded directly.
+- **Use only the Playwright MCP browser; never touch the OS Chrome.** Operate the
+  browser exclusively through `deno task browser:live` /
+  `npm:@playwright/mcp@latest` and its managed Chromium bound to
+  `.mcp-browser-profile`. Never run the OS Chrome/Chromium app binary directly,
+  never `open -a 'Google Chrome'`, never set `executablePath` to the OS browser,
+  never automate it with AppleScript/`osascript`, and never quit, kill,
+  relaunch, or otherwise interfere with the user's OS Chrome instances, windows,
+  or default profile. Only stop the launcher's own managed-Chromium process.
 - Always load `dist/extension-dev` (or `dist/extension` for explicit release
-  runs), never the source checkout root.
+  runs), never the source checkout root — it lacks the built JS entrypoints
+  Chrome needs (`background.js`, `popup.js`, `content-loader.js`), so
+  service-worker waits and popup targeting will fail.
 - Do not default to `orchestration/profiles/*` Playwright flows for simple live
   observation; those are for orchestration scenarios and can fail on
   service-worker waits or profile-lock issues.
 
+## Debugging the launcher (internals)
+
+If you must drive the MCP browser by hand to extend the flow, mirror
+`scripts/launch-test-browser.ts` and `orchestration/steps/browser.mjs`:
+
+- The `browser_run_code_unsafe` sandbox is NOT a full Node context: `setTimeout`
+  and `URL` are undefined there. Use Playwright APIs (`page.waitForTimeout`) and
+  plain string ops (`String(url).split('/')`) in the outer function; the inner
+  `worker.evaluate(...)` body runs in the extension service worker, where
+  `chrome.*` and `setTimeout` are available.
+- Use a single MCP client/connection. A second connection to the same
+  `--user-data-dir` fails with "Browser is already in use"; one stdio client
+  avoids the profile lock without `--shared-browser-context`.
+
 ## Example
 
-- Right: confirm the user-instructed target page (ask if missing), build
-  `dist/extension-dev`, substitute the placeholdered configs into `.temp/`,
-  launch the `playwright-local` MCP browser with
-  `<repoRoot>/.temp/browser-mcp.config.json` and
-  `<repoRoot>/.mcp-browser-profile`, reload the unpacked extension, open the
-  instructed page in the first tab and capture its `tabId`, resolve the loaded
-  extension's id, then open a second tab at
-  `chrome-extension://<id>/popup.html?debugTabId=<tabId>` bound to that page tab.
+- Right: confirm the user-instructed target page (ask if missing), then run
+  `deno task browser:live https://bonliva.se` in the background. It builds
+  `dist/extension-dev`, writes `.temp/browser-mcp.config.json`, launches the
+  `playwright-local` MCP managed Chromium with `.mcp-browser-profile`, opens the
+  page in the first tab, resolves the extension id and page tabId, and opens a
+  second tab `chrome-extension://<id>/popup.html?debugTabId=<pageTabId>` bound to
+  the page.
 - Wrong: launch without a user-instructed target page, run the OS Chrome binary
   / `open -a 'Google Chrome'`, set `executablePath` to the OS browser, drive or
   quit the OS Chrome with `osascript`, hardcode a stale extension id instead of
   resolving it from the current load directory, point `debugTabId` at the
-  popup's own tab, hand-roll a fresh `launchPersistentContext()` flow, launch
-  the committed placeholdered configs as-is, load the repo root as the unpacked
+  popup's own tab, hand-roll a fresh `launchPersistentContext()` flow, launch the
+  committed placeholdered configs as-is, load the repo root as the unpacked
   extension, or reuse `orchestration/profiles/follower` just to open a browser
   for manual observation.

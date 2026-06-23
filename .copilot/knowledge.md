@@ -9,6 +9,17 @@
   `extract-repo-knowledge` when updating durable architecture knowledge, and
   `launch-test-browser` to open the live/dev Chromium with the unpacked
   extension loaded for observation or manual testing.
+- Live test browser: launch with `deno task browser:live <target-url>`
+  (`scripts/launch-test-browser.ts`). A target URL is mandatory. It builds
+  `dist/extension-dev`, writes a per-environment `.temp/browser-mcp.config.json`
+  (drops `executablePath`), and drives ONLY the `npm:@playwright/mcp@latest`
+  managed Chromium over a single stdio client — never the OS Chrome. The
+  committed `.vscode/mcp.json`, `.mcp.json`, and `.vscode/browser-mcp.config.json`
+  are intentionally placeholdered (`__UNFLUFFIFY_REPO_ROOT__`,
+  `__CHROMIUM_EXECUTABLE_PATH__`) and non-launchable. Unpacked extension id is
+  deterministic: SHA-256 of the absolute load path, first 16 bytes, each nibble
+  mapped `0..15 -> 'a'..'p'`. Inside `browser_run_code_unsafe`, `setTimeout` and
+  `URL` are undefined — use `page.waitForTimeout` and string ops.
 - Always-on workflow guardrails live in
   `.github/instructions/agent-workflow-guardrails.instructions.md`. Future
   agents should read the knowledge base, relevant instructions/skills, active
