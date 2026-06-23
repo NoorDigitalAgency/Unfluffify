@@ -7643,6 +7643,8 @@ function closeAiPopover(options = {}) {
   const notify = options.notify !== false;
 // @ts-expect-error
   const suppressCallback = options.suppressCallback === true;
+// @ts-expect-error
+  const closeToken = Number.isFinite(options.closeToken) ? Math.trunc(options.closeToken) : null;
   if (!state.aiPopover) {
     return;
   }
@@ -7661,13 +7663,21 @@ function closeAiPopover(options = {}) {
         .then(() => onClose())
         .catch(() => {
           // Ignore preview restore callback failures during teardown.
+          return null;
         })
-    : Promise.resolve();
+    : Promise.resolve(null);
   if (notify) {
-    afterClose.finally(() => {
+    afterClose.then((closeState) => {
+      const closePayload = closeState && typeof closeState === "object"
+        ? closeState
+        : {};
       chrome.runtime.sendMessage({
         type: "aiPreviewClosed",
-        markingEnabled: Boolean(state.enabled)
+        markingEnabled: typeof closePayload.markingEnabled === "boolean"
+          ? closePayload.markingEnabled
+          : Boolean(state.enabled),
+        previewRestoreToken: closeToken,
+        ...closePayload
       }).then().catch(() => {
         // Ignore notification failures during teardown.
       });

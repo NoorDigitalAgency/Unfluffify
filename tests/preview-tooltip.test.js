@@ -116,12 +116,21 @@ test("content-main remaps preview rows to renderable targets before syncing prev
   );
 });
 
-test("content preview close notification includes restored marking state", () => {
+test("content preview close notification includes authoritative restore payload", () => {
   const source = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
+  const contentMainSource = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
 
   assert.match(
     source,
-    /chrome\.runtime\.sendMessage\(\{[\s\S]*?type: "aiPreviewClosed",[\s\S]*?markingEnabled: Boolean\(state\.enabled\)/
+    /chrome\.runtime\.sendMessage\(\{[\s\S]*?type: "aiPreviewClosed",[\s\S]*?markingEnabled: typeof closePayload\.markingEnabled === "boolean"[\s\S]*?\.\.\.closePayload/
+  );
+  assert.match(
+    contentMainSource,
+    /function createAiPreviewCloseHandlerDeps\(\) \{[\s\S]*?requestAiPopoverClose: \(options = \{\}\) => core\.requestAiPopoverClose\(options\)/
+  );
+  assert.match(
+    contentMainSource,
+    /function buildAiPreviewClosedDraftStatus\(pageUrl = location\.href\) \{[\s\S]*?entry: draftEntry \? core\.clonePageEntry\(draftEntry\) : null,[\s\S]*?savedEntry: savedEntry \? core\.clonePageEntry\(savedEntry\) : null,[\s\S]*?dirty: Boolean\(core\.isPageDraftDirty\(pageUrl\)\),[\s\S]*?reconciliationPending: Boolean\(core\.isPageSaveReconciliationPending\(pageUrl\)\)/
   );
 });
 

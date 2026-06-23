@@ -8,8 +8,8 @@ type AiPreviewShowDeps = {
     expandedItems: unknown[],
     options: { showAllCategories: boolean }
   ) => void;
-  showAiPopover: (items: unknown[], options: { onClose: () => Promise<void> | void }) => void;
-  exitAiPreviewMode: () => Promise<void>;
+  showAiPopover: (items: unknown[], options: { onClose: () => Promise<unknown> | void }) => void;
+  exitAiPreviewMode: () => Promise<unknown>;
   getAiPreviewItems: () => unknown[];
 };
 

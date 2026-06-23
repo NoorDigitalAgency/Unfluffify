@@ -109,7 +109,7 @@ test("same-property non-candidate pages keep silent mode and property-lock scope
   assert.match(popupSource, /const silentModeActive =[\s\S]*?resolvedView === uiModule\.View\.Marking[\s\S]*?!isEnabled;/);
   assert.match(
     popupSource,
-    /if \(\s*tabInScope &&\s*toggleEnabled &&\s*!aiComputeRunActive &&\s*!aiPreviewSessionActive &&\s*!previewCloseMarkingHoldActive &&\s*!navigationInspectionPending &&\s*\(!siteIdReady \|\| !renderModeReady \|\| pageTypeUiBlocked\)/
+    /if \(\s*tabInScope &&\s*toggleEnabled &&\s*!aiComputeRunActive &&\s*!aiPreviewSessionActive &&\s*!previewRestorePending &&\s*!navigationInspectionPending &&\s*\(!siteIdReady \|\| !renderModeReady \|\| pageTypeUiBlocked\)/
   );
 });
 
@@ -198,7 +198,7 @@ test("marking-mode Preview Contents stays separate from silent Preview and Send 
   assert.match(popupSource, /nextViewState\.markingPreviewVisible = pageControlsVisible && Boolean\(isEnabled\);/);
   assert.match(
     popupSource,
-    /nextViewState\.markingPreviewDisabled =\s*aiBusy \|\|\s*previewCloseRestorePending \|\|\s*pageSaveReconciliationPending \|\|\s*!aiRunUpToDate \|\|\s*sessionRequiresAiRun;/
+    /nextViewState\.markingPreviewDisabled =\s*aiBusy \|\|\s*previewRestorePending \|\|\s*pageSaveReconciliationPending \|\|\s*!aiRunUpToDate \|\|\s*sessionRequiresAiRun;/
   );
   assert.match(uiSource, /if \(markingMode && view\.markingPreviewVisible\) \{/);
   assert.match(uiSource, /id: "marking-preview"/);
@@ -213,16 +213,24 @@ test("marking-mode Preview Contents stays separate from silent Preview and Send 
   assert.doesNotMatch(markingPreviewBody, /setCurrentPageSaveReconciliation|markCurrentPageSaveReconciliationDirty/);
 });
 
-test("preview exit temporarily disables marking controls while marking is restored", () => {
+test("preview exit uses explicit pending state and authoritative close payload", () => {
   const popupSource = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
 
   assert.match(
     popupSource,
-    /if \(message && message\.type === "aiPreviewClosed"\) \{[\s\S]*?state\.aiPreviewMarkingRestoreDeadlineAt = message\.markingEnabled[\s\S]*?if \(message\.markingEnabled\) \{[\s\S]*?scheduleAiPreviewMarkingRestoreRefresh\(AI_PREVIEW_MARKING_RESTORE_HOLD_MS\);[\s\S]*?\} else \{[\s\S]*?clearAiPreviewMarkingRestoreRefreshTimer\(\);[\s\S]*?\}[\s\S]*?uiModule\.setViewState\(\{[\s\S]*?toggleEnabled: true,[\s\S]*?toggleEnabledDisabled: true,[\s\S]*?computeButtonDisabled: true,[\s\S]*?markingPreviewDisabled: true,[\s\S]*?pageSaveDisabled: true,[\s\S]*?pageRevertDisabled: true[\s\S]*?\}\);/
+    /function buildPreviewViewState\(previewState\) \{[\s\S]*?previewWillRestoreMarking: Boolean\([\s\S]*?\(previewState\.previousEnabled \|\| previewState\.restoreMarkingOnExit\)/
   );
   assert.match(
     popupSource,
-    /if \(\s*state\.aiPreviewMarkingRestoreDeadlineAt <= Date\.now\(\) &&\s*!state\.currentDraftAvailable\s*\) \{[\s\S]*?state\.aiPreviewMarkingRestoreDeadlineAt = 0;[\s\S]*?uiModule\.showToast\(PopupText\.page\.statusDraftUnavailable\);[\s\S]*?\}[\s\S]*?if \(state\.aiPreviewMarkingRestoreDeadlineAt && !state\.currentDraftAvailable\) \{[\s\S]*?if \(state\.aiPreviewMarkingRestoreDeadlineAt > Date\.now\(\)\) \{[\s\S]*?scheduleAiPreviewMarkingRestoreRefresh\(500\);/
+    /async function handleExitPreviewMode\(\) \{[\s\S]*?const shouldRestoreMarking = Boolean\(uiModule\.getViewState\(\)\.previewWillRestoreMarking\);[\s\S]*?const previewRestoreToken = shouldRestoreMarking[\s\S]*?\? beginPreviewRestorePending\(\)[\s\S]*?: null;[\s\S]*?messages\.requestTabCloseAiPreview\(tabId, \{\s*previewRestoreToken\s*\}\)/
+  );
+  assert.match(
+    popupSource,
+    /if \(message && message\.type === "aiPreviewClosed"\) \{[\s\S]*?applyPreviewClosedState\(message\)\.catch\(\(\) => \{[\s\S]*?clearPreviewRestorePending\(\);[\s\S]*?setPreviewBlocked\(false\);/
+  );
+  assert.match(
+    popupSource,
+    /async function applyPreviewClosedState\(closeState = \{\}\) \{[\s\S]*?const draftStatus = closeState\.draftStatus[\s\S]*?clearPreviewRestorePending\(\);[\s\S]*?refreshUi\(\{[\s\S]*?preserveCurrentDraftStatus: Boolean\(hasDraftStatus\)/
   );
 });
 

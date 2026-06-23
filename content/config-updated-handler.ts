@@ -108,7 +108,9 @@ export function createConfigUpdatedHandler(deps: ConfigUpdatedHandlerDeps) {
 
   function handleOutOfScopeUpdate(): { ok: true } {
     deps.clearAiPreviewState();
-    deps.disable();
+    if (deps.isEnabled()) {
+      deps.disable();
+    }
     deps.refreshSilentHighlightings().then();
     deps.runPropertyLockSync({ forceSiteIdRefresh: true });
     return { ok: true };

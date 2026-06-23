@@ -3403,9 +3403,32 @@ async function enterAiPreviewMode(options = {}) {
   await refreshSilentHighlightings();
 }
 
+function buildAiPreviewClosedDraftStatus(pageUrl = location.href) {
+  if (!state.config) {
+    return null;
+  }
+  const draftEntry = core.getDraftPageEntry(pageUrl);
+  const savedEntry = core.getSavedPageEntry(pageUrl);
+  return {
+    ok: true,
+    entry: draftEntry ? core.clonePageEntry(draftEntry) : null,
+    savedEntry: savedEntry ? core.clonePageEntry(savedEntry) : null,
+    dirty: Boolean(core.isPageDraftDirty(pageUrl)),
+    reconciliation: core.getPageSaveReconciliationState(pageUrl) || null,
+    reconciliationPending: Boolean(core.isPageSaveReconciliationPending(pageUrl))
+  };
+}
+
 async function exitAiPreviewMode() {
   if (!aiPreviewState.active) {
-    return;
+    return {
+      active: false,
+      markingEnabled: Boolean(state.enabled),
+      baseUrl: state.baseUrl || "",
+      pageUrl: location.href,
+      pageType: state.currentPageType || "",
+      draftStatus: buildAiPreviewClosedDraftStatus()
+    };
   }
 
   const restoreState = aiPreviewState;
@@ -3455,11 +3478,26 @@ async function exitAiPreviewMode() {
       baseUrl: restoredBaseUrl,
       pageType: state.currentPageType || ""
     }).catch(() => null);
-    return;
+    return {
+      active: false,
+      markingEnabled: Boolean(state.enabled),
+      baseUrl: restoredBaseUrl,
+      pageUrl: location.href,
+      pageType: state.currentPageType || "",
+      draftStatus: buildAiPreviewClosedDraftStatus()
+    };
   }
 
   await refreshSilentHighlightings();
   resetAiPreviewState();
+  return {
+    active: false,
+    markingEnabled: Boolean(state.enabled),
+    baseUrl: state.baseUrl || "",
+    pageUrl: location.href,
+    pageType: state.currentPageType || "",
+    draftStatus: buildAiPreviewClosedDraftStatus()
+  };
 }
 
 // @ts-expect-error
@@ -6361,7 +6399,7 @@ function createAiPreviewCloseHandlerDeps() {
     exitAiPreviewMode,
     hasAiPopover: () => core.hasAiPopover(),
     isAiPreviewActive: () => aiPreviewState.active,
-    requestAiPopoverClose: () => core.requestAiPopoverClose()
+    requestAiPopoverClose: (options = {}) => core.requestAiPopoverClose(options)
   };
 }
 

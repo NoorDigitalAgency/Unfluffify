@@ -237,3 +237,20 @@ test("configUpdated out-of-scope update clears preview, disables marking, and sy
     ["runPropertyLockSync", { forceSiteIdRefresh: true }]
   ]);
 });
+
+test("configUpdated out-of-scope update does not disable an already silent page", () => {
+  const deps = createDeps({
+    isEnabled: () => false,
+    sameBaseUrl: () => false
+  });
+  const handler = createConfigUpdatedHandler(deps);
+
+  const response = handler.handleMessage({ baseUrl: "https://other.example/base" });
+
+  assert.deepEqual(response, { ok: true });
+  assert.deepEqual(deps.calls, [
+    ["clearAiPreviewState"],
+    ["refreshSilentHighlightings"],
+    ["runPropertyLockSync", { forceSiteIdRefresh: true }]
+  ]);
+});

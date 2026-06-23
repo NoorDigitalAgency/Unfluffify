@@ -1239,7 +1239,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_SHOW_AI_PREVIEW, async (contex
   };
 }, POPUP_TAB_COMMAND_POLICY);
 
-registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_CLOSE_AI_PREVIEW, async (context) => {
+registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_CLOSE_AI_PREVIEW, async (context, payload = {}) => {
   const normalizedTabId = normalizeBrokerTabId(context.tabId);
   if (!normalizedTabId) {
     return context.replyFail(
@@ -1248,7 +1248,12 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_CLOSE_AI_PREVIEW, async (conte
     );
   }
 
-  const response = await sendContentMessageToTab(normalizedTabId, { type: "closeAiPreview" });
+  const response = await sendContentMessageToTab(normalizedTabId, {
+    type: "closeAiPreview",
+    previewRestoreToken: Number.isFinite((payload && payload.previewRestoreToken) as number)
+      ? Math.trunc(Number((payload && payload.previewRestoreToken) as number))
+      : null
+  });
   if (!response || !response.ok) {
     return context.replyFail(
       MESSAGE_ERROR_CODES.HANDLER_FAILED,

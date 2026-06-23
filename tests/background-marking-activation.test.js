@@ -92,7 +92,7 @@ test("popup save/discard and preview surfaces delegate to background commands", 
   assert.match(source, /messages\.requestTabApplyPostSaveTransition\(tabId, \{ baseUrl \}\)/);
   assert.match(source, /messages\.requestTabApplyLocalDiscard\(tabId, \{ baseUrl \}\)/);
   assert.match(source, /messages\.requestTabShowAiPreview\(tabId, \{/);
-  assert.match(source, /messages\.requestTabCloseAiPreview\(tabId\)/);
+  assert.match(source, /messages\.requestTabCloseAiPreview\(tabId, \{\s*previewRestoreToken\s*\}\)/);
   assert.match(source, /messages\.requestTabSetAiPreviewExpandedMode\(tabId, \{/);
   assert.match(source, /messages\.requestTabFocusPreviewElement\(tabId, \{/);
   assert.doesNotMatch(source, /type: "showAiPreview"/);
@@ -114,7 +114,7 @@ test("background registers save/discard and preview commands as tab-scoped comma
   assert.match(source, /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_APPLY_POST_SAVE_TRANSITION, async \(context, payload\) => \{/);
   assert.match(source, /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_APPLY_LOCAL_DISCARD, async \(context, payload\) => \{/);
   assert.match(source, /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_SHOW_AI_PREVIEW, async \(context, payload\) => \{/);
-  assert.match(source, /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_CLOSE_AI_PREVIEW, async \(context\) => \{/);
+  assert.match(source, /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_CLOSE_AI_PREVIEW, async \(context, payload = \{\}\) => \{/);
   assert.match(source, /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_SET_AI_PREVIEW_EXPANDED_MODE, async \(context, payload\) => \{/);
   assert.match(source, /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_FOCUS_PREVIEW_ELEMENT, async \(context, payload\) => \{/);
 });

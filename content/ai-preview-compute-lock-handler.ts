@@ -4,7 +4,7 @@ type AiPreviewComputeLockDeps = {
   scheduleAiComputeLockRelease: (expiresAt: number) => void;
   refreshSilentHighlightings: () => Promise<unknown>;
   isComputeLockPreviewActive: () => boolean;
-  exitAiPreviewMode: () => Promise<void>;
+  exitAiPreviewMode: () => Promise<unknown>;
   hasComputeLockReleaseTimer: () => boolean;
   clearComputeLockReleaseTimer: () => void;
 };

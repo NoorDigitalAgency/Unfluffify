@@ -61,6 +61,22 @@ async function ensureParent(path: string): Promise<void> {
   await Deno.mkdir(dirname(path), { recursive: true });
 }
 
+function formatWatchTimestamp(date = new Date()): string {
+  const pad = (value: number): string => String(value).padStart(2, "0");
+  return [
+    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`,
+    `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+  ].join(" ");
+}
+
+function logWatch(message: string): void {
+  console.log(`[watch ${formatWatchTimestamp()}] ${message}`);
+}
+
+function errorWatch(message: string): void {
+  console.error(`[watch ${formatWatchTimestamp()}] ${message}`);
+}
+
 async function addDevReloadArtifacts(targetDir: string): Promise<void> {
   const buildId = new Date().toISOString();
   const clientPath = join(targetDir, "dev-reload-client.js");
@@ -184,7 +200,7 @@ let building = false;
 let pending = false;
 
 async function runCheck(): Promise<boolean> {
-  console.log("[watch] running check");
+  logWatch("running check");
   const result = await new Deno.Command("deno", {
     args: ["task", "check"],
     stdout: "inherit",
@@ -192,7 +208,7 @@ async function runCheck(): Promise<boolean> {
   }).output();
 
   if (result.code !== 0) {
-    console.error(`[watch] check failed with code ${result.code}; skipping rebuild`);
+    errorWatch(`check failed with code ${result.code}; skipping rebuild`);
     return false;
   }
   return true;
@@ -209,9 +225,9 @@ async function runWatchBuild(): Promise<void> {
       return;
     }
 
-    console.log("[watch] rebuilding dev extension");
+    logWatch("rebuilding dev extension");
     await buildExtension();
-    console.log("[watch] build complete");
+    logWatch("build complete; dev reload marker updated");
   } finally {
     building = false;
     if (pending) {
@@ -229,7 +245,7 @@ async function watchExtension(): Promise<void> {
   const watcher = Deno.watchFs(WATCH_PATHS);
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
-  console.log("[watch] watching extension source. Load dist/extension-dev in Chrome.");
+  logWatch("watching extension source. Load dist/extension-dev in Chrome.");
   for await (const event of watcher) {
     if (!event.paths || event.paths.length === 0) {
       continue;
@@ -238,7 +254,7 @@ async function watchExtension(): Promise<void> {
       clearTimeout(debounceTimer);
     }
     debounceTimer = setTimeout(() => {
-      console.log(`[watch] change detected (${event.kind})`);
+      logWatch(`change detected (${event.kind})`);
       runWatchBuild();
     }, 250);
   }

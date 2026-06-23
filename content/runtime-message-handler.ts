@@ -191,7 +191,7 @@ export function handleRuntimeMessage(
   }
 
   if (message.type === "closeAiPreview") {
-    deps.getAiPreviewCloseHandler().handleMessage()
+    deps.getAiPreviewCloseHandler().handleMessage(message)
       .then((response) => {
         sendResponse(response && typeof response === "object" ? response : { ok: false });
       })

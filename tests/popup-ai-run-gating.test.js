@@ -83,14 +83,14 @@ test("aligning to silent mode clears the popup toggle without touching content",
 test("Run AI stays enabled when the session needs a rerun elsewhere", () => {
   assert.match(
     popupSource,
-    /nextViewState\.computeButtonDisabled =\s*pageScopedUiDisabled \|\|\s*aiBusy \|\|\s*previewCloseRestorePending \|\|\s*!aiReady \|\|\s*pageSaveReconciliationPending \|\|\s*\(aiRunUpToDate && !sessionRequiresAiRun\);/
+    /nextViewState\.computeButtonDisabled =\s*pageScopedUiDisabled \|\|\s*aiBusy \|\|\s*previewRestorePending \|\|\s*!aiReady \|\|\s*pageSaveReconciliationPending \|\|\s*\(aiRunUpToDate && !sessionRequiresAiRun\);/
   );
 });
 
 test("Save uses the page-save state instead of the redundant AI-run fingerprint gate", () => {
   assert.match(
     popupSource,
-    /nextViewState\.pageSaveDisabled =\s*pageSaveUiState\.pageSaveDisabled \|\| previewCloseRestorePending;/
+    /nextViewState\.pageSaveDisabled =\s*pageSaveUiState\.pageSaveDisabled \|\| previewRestorePending;/
   );
   assert.doesNotMatch(
     popupSource,
@@ -109,7 +109,7 @@ test("marking-mode preview stays gated on AI-run freshness and session freshness
   );
   assert.match(
     popupSource,
-    /nextViewState\.markingPreviewDisabled =\s*aiBusy \|\|\s*previewCloseRestorePending \|\|\s*pageSaveReconciliationPending \|\|\s*!aiRunUpToDate \|\|\s*sessionRequiresAiRun;/
+    /nextViewState\.markingPreviewDisabled =\s*aiBusy \|\|\s*previewRestorePending \|\|\s*pageSaveReconciliationPending \|\|\s*!aiRunUpToDate \|\|\s*sessionRequiresAiRun;/
   );
   assert.match(popupSource, /onMarkingPreview: handleMarkingPreview,/);
   assert.match(popupSource, /async function handleMarkingPreview\(\) \{/);
@@ -245,33 +245,33 @@ test("#21 refresh feeds aiRunUpToDate into the session-requires-AI-run check", (
   );
 });
 
-test("#21 preview-exit restore keeps marking actions disabled until draft status is repopulated", () => {
+test("#21 preview-exit restore uses explicit pending state and authoritative draft payload", () => {
   assert.match(
     popupSource,
-    /let previewCloseRestorePending = Boolean\(\s*state\.aiPreviewMarkingRestoreDeadlineAt &&\s*\(previewCloseMarkingHoldActive \|\| !state\.currentDraftAvailable\)\s*\);/
+    /function beginPreviewRestorePending\(\) \{[\s\S]*?state\.previewRestoreToken \+= 1;[\s\S]*?state\.previewRestorePending = true;[\s\S]*?schedulePreviewRestoreFallback\(state\.previewRestoreToken\);/
   );
   assert.match(
     popupSource,
-    /const preserveEnabledDuringPreviewCloseRestore = Boolean\(\s*previewCloseRestorePending &&\s*tabInScope &&\s*!contentMarkingEnabled\s*\);/
+    /const preserveEnabledDuringPreviewCloseRestore = Boolean\(\s*previewRestorePending &&\s*tabInScope &&\s*!contentMarkingEnabled\s*\);/
   );
   assert.match(
     popupSource,
-    /previewCloseRestorePending = Boolean\(\s*state\.aiPreviewMarkingRestoreDeadlineAt &&\s*\(state\.aiPreviewMarkingRestoreDeadlineAt > Date\.now\(\) \|\| !state\.currentDraftAvailable\)\s*\);/
+    /async function applyPreviewClosedState\(closeState = \{\}\) \{[\s\S]*?const draftStatus = closeState\.draftStatus[\s\S]*?applyDraftStatusToPopupState\(draftStatus\)[\s\S]*?clearPreviewRestorePending\(\);/
   );
   assert.match(
     popupSource,
-    /nextViewState\.toggleEnabledDisabled =[\s\S]*?previewCloseRestorePending[\s\S]*?pageSaveReconciliationPending/
+    /nextViewState\.toggleEnabledDisabled =[\s\S]*?previewRestorePending[\s\S]*?pageSaveReconciliationPending/
   );
   assert.match(
     popupSource,
-    /nextViewState\.pageSaveDisabled =\s*pageSaveUiState\.pageSaveDisabled \|\| previewCloseRestorePending;/
+    /nextViewState\.pageSaveDisabled =\s*pageSaveUiState\.pageSaveDisabled \|\| previewRestorePending;/
   );
   assert.match(
     popupSource,
-    /nextViewState\.pageRevertDisabled =\s*pageSaveUiState\.pageRevertDisabled \|\| previewCloseRestorePending;/
+    /nextViewState\.pageRevertDisabled =\s*pageSaveUiState\.pageRevertDisabled \|\| previewRestorePending;/
   );
   assert.match(
     popupSource,
-    /if \(latestRuntimeStatus\.inspectionStatus\.markingEnabled\) \{[\s\S]*?if \(state\.currentDraftAvailable\) \{[\s\S]*?state\.aiPreviewMarkingRestoreDeadlineAt = 0;[\s\S]*?clearAiPreviewMarkingRestoreRefreshTimer\(\);[\s\S]*?\} else if \(state\.aiPreviewMarkingRestoreDeadlineAt\) \{[\s\S]*?scheduleAiPreviewMarkingRestoreRefresh\(250\);/
+    /function schedulePreviewRestoreFallback\(token: number, delayMs = AI_PREVIEW_RESTORE_FALLBACK_MS\) \{[\s\S]*?finalizePreviewRestoreFromRuntime\(\{ token \}\)/
   );
 });
