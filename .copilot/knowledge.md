@@ -5,8 +5,10 @@
 - Repository-level repeatable workflows live in `.github/skills/`. Use
   `review-fix-commit-push` for clean-review/fix/commit/push loops,
   `autonomous-implementation-plan` for precise implementation handoffs,
-  `repo-safe-code-change` before non-trivial source edits, and
-  `extract-repo-knowledge` when updating durable architecture knowledge.
+  `repo-safe-code-change` before non-trivial source edits,
+  `extract-repo-knowledge` when updating durable architecture knowledge, and
+  `launch-test-browser` to open the live/dev Chromium with the unpacked
+  extension loaded for observation or manual testing.
 - Always-on workflow guardrails live in
   `.github/instructions/agent-workflow-guardrails.instructions.md`. Future
   agents should read the knowledge base, relevant instructions/skills, active

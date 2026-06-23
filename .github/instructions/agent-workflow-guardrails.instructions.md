@@ -11,6 +11,8 @@ Use the repository skills before improvising repeatable workflows:
 - `autonomous-implementation-plan` for detailed implementation handoffs.
 - `repo-safe-code-change` before non-trivial source changes.
 - `extract-repo-knowledge` for durable knowledge-base and skill updates.
+- `launch-test-browser` to open the live/dev Chromium with the unpacked
+  extension loaded for observation or manual testing.
 
 ## Low-context agent rules
 
