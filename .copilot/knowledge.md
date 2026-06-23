@@ -1,5 +1,20 @@
 # Unfluffify Knowledge
 
+## Agent Workflow Assets
+
+- Repository-level repeatable workflows live in `.github/skills/`. Use
+  `review-fix-commit-push` for clean-review/fix/commit/push loops,
+  `autonomous-implementation-plan` for precise implementation handoffs,
+  `repo-safe-code-change` before non-trivial source edits, and
+  `extract-repo-knowledge` when updating durable architecture knowledge.
+- Always-on workflow guardrails live in
+  `.github/instructions/agent-workflow-guardrails.instructions.md`. Future
+  agents should read the knowledge base, relevant instructions/skills, active
+  plan, source files, and tests before changing behavior.
+- If a behavior decision is unclear, future agents should ask a deterministic
+  multiple-choice question instead of guessing and encoding drift into code or
+  docs.
+
 ## Testing
 
 - Use Deno as the primary test/build toolchain: `deno task check`,
