@@ -54,7 +54,7 @@ the Brain on a half-migrated dual Deno+WXT build.
 
 | Purpose | Command |
 |---|---|
-| dev/watch | deferred until A2; current watcher remains `deno task dev` |
+| dev/watch | still deferred; current watcher remains `deno task dev` until a watch-time WXT bridge exists |
 | type-check | `pnpm check` (`wxt prepare && tsc --noEmit`) |
 | lint | `pnpm lint` (bootstrap-scoped ESLint in A1; broadens later) |
 | test | `pnpm test` (`vitest run`) |
@@ -87,8 +87,8 @@ the Brain on a half-migrated dual Deno+WXT build.
 ### Build/run
 - Extension builds reproducibly (`pnpm build`) and loads unpacked
   (`.output/chrome-mv3`).
-- Dev workflow remains documented and executable; until A2 the active watcher is
-  still `deno task dev`.
+- Dev workflow remains documented and executable; the active watcher is still
+  `deno task dev` until a watch-time WXT bridge exists.
 
 ### Debug flow parity
 - Until A5, the live-browser launcher remains `deno task browser:live <url>`.
@@ -162,6 +162,34 @@ Explicit page-world / runtime asset facts that must remain true:
 - `scripts/launch-test-browser.ts` currently imports `popup/ui.js` via
   `chrome.runtime.getURL("popup/ui.js")` during live-debug inspection; the WXT
   output must preserve an equivalent inspectable popup module path.
+
+## Current A2 bridge shape
+
+- WXT now owns the live runtime roots in `.output/chrome-mv3/`:
+  - `content-loader.js` (materialized alias from WXT's
+    `content-scripts/content-loader.js`)
+  - `popup.html`
+  - `offscreen.html`
+- The legacy Deno release tree is mirrored under `.output/chrome-mv3/legacy/`.
+  The WXT wrappers runtime-load `legacy/content-loader.js`,
+  `legacy/popup.js`, and `legacy/offscreen.js` so WXT entrypoint definitions do
+  not import browser-source entry roots in Node.
+- `background.js` and `common/page-motion-freeze-bridge.js` still ship from the
+  mirrored legacy root artifacts in `.output/chrome-mv3/`:
+  - MV3 service workers cannot bootstrap the legacy background via the dynamic
+    import approach that works in extension pages/content scripts.
+  - The MAIN-world freeze bridge cannot runtime-import a non-web-accessible
+    module path, so its document_start artifact stays on the proven legacy file
+    for now.
+- The final shipped manifest is bridged back to the source contract after WXT
+  generation:
+  - keep `action` equal to `manifest.json` (no `default_popup`)
+  - keep `background` equal to the source service-worker contract
+  - keep `content_scripts` equal to the source paths/metadata
+- Root support modules such as `popup/ui.js`, `content-main.js`, `common/*.js`,
+  `content/*.js`, and cursor/icon assets are still mirrored into
+  `.output/chrome-mv3/` from the Deno release build so current `getURL(...)`
+  callsites keep working.
 
 ## Baseline live-browser invariants (must survive Part A)
 
@@ -386,14 +414,20 @@ Follow the dependency order in `todo_deps`.
 
 ## Immediate next action for implementer
 
-`wxt-a0-baseline-inventory` is complete. Start `wxt-a1-bootstrap-toolchain`:
+`wxt-a0-baseline-inventory`, `wxt-a1-bootstrap-toolchain`, and
+`wxt-a2-entrypoint-adapters` are complete. Start `wxt-a3-manifest-parity`:
 
-1. Add `package.json` with the canonical pnpm/WXT/Vitest/ESLint scripts from
-   `.copilot/wxt-port-plan.md` §5a and Phase A1.
-2. Add `wxt.config.ts`, `eslint.config.js`, and `vitest.config.ts` scaffolding,
-   keeping the current Deno tasks alive temporarily in parallel.
-3. Validate `pnpm wxt --help`, `pnpm check`, and the existing `deno task check`
-   before moving to `wxt-a2-entrypoint-adapters`.
+1. Move manifest authority from the source `manifest.json` bridge toward
+   `wxt.config.ts` + generated output, while preserving the required WAR list and
+   the current `action` / `content_scripts` / `background` contract.
+2. Update `tests/manifest-permissions.test.js` to assert against the WXT output
+   manifest (or a deterministic parity helper) instead of the source
+   `manifest.json`.
+3. Keep `popup.html`, `offscreen.html`, `content-loader.js`, `background.js`,
+   and `common/page-motion-freeze-bridge.js` behaviorally identical while
+   removing only truly transitional manifest duplication.
+4. Validate `pnpm build` and the manifest-permissions coverage before moving to
+   `wxt-a4-vitest-eslint-migration`.
 
 Do NOT start Part B (Brain) until `wxt-a7-cutover-cleanup` is done and
 `.copilot/event-bus-architecture-plan.md` §0 preconditions all hold. Then proceed

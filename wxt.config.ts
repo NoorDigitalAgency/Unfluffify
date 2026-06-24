@@ -29,24 +29,6 @@ export default defineConfig({
       "offscreen",
     ],
     host_permissions: ["<all_urls>"],
-    background: {
-      service_worker: "background.js",
-      type: "module",
-    },
-    content_scripts: [
-      {
-        matches: ["<all_urls>"],
-        js: ["common/page-motion-freeze-bridge.js"],
-        run_at: "document_start",
-        all_frames: true,
-        world: "MAIN",
-      },
-      {
-        matches: ["<all_urls>"],
-        js: ["content-loader.js"],
-        run_at: "document_start",
-      },
-    ],
     web_accessible_resources: [
       {
         resources: [

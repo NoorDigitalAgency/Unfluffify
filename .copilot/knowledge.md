@@ -43,6 +43,26 @@
 - Keep `deno task test:node` as an optional compatibility fallback while
   migration-related diagnostics are needed.
 
+## WXT migration facts
+
+- WXT treats `entrypoints/popup.html` / `entrypoints/popup/index.html` as a
+  special popup entrypoint and auto-generates `action.default_popup`. When the
+  source-of-truth manifest intentionally omits that field (as Unfluffify does
+  for side-panel-driven popup opening), the generated manifest must be bridged
+  back to the source `action` block before shipping.
+- WXT emits content-script bundles under `content-scripts/<name>.js`. If the
+  current runtime and manifest contract depend on legacy root-relative paths such
+  as `content-loader.js`, a post-build bridge must materialize those alias files
+  and restore the source manifest's `content_scripts` entries. MAIN-world bridge
+  scripts are stricter: if they are not web-accessible, they cannot be
+  runtime-imported from a page-world wrapper and must keep shipping as their
+  original root artifact until a safe replacement exists.
+- Do not import the legacy browser-source entry roots directly from WXT
+  entrypoint definition files. WXT imports those files in Node during
+  prepare/build, which drags browser code into the WXT/Node typecheck and
+  reintroduces Node-vs-DOM timer conflicts. Runtime-load mirrored built JS from
+  the output tree instead.
+
 ## Content script lifecycle
 
 - In content scripts, `Extension context invalidated` means the old extension instance was reloaded/disabled/replaced. Treat it as a terminal lifecycle signal for that script: stop property-lock reconnect loops and wait for the new content script instead of retrying Chrome extension APIs.

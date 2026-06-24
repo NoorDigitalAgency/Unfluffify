@@ -107,7 +107,7 @@ command remains.
 
 | Purpose | Old (Deno) | New (pnpm + WXT) |
 |---|---|---|
-| dev build + watch | `deno task build:dev` (watch) | `pnpm dev` (`wxt`) after A2; A1 keeps the current watcher on `deno task dev` because WXT requires real entrypoints before the dev flow is viable |
+| dev build + watch | `deno task build:dev` (watch) | deferred until a later Part A watch phase; A1/A2 keep the current watcher on `deno task dev` because WXT still needs a watch-time bridge for the legacy runtime subtree |
 | type-check | `deno task check` | `pnpm check` (`wxt prepare && tsc --noEmit`) |
 | lint | `deno task lint` | `pnpm lint` (bootstrap-scoped ESLint in A1; broadens during A4) |
 | test | `deno task test` | `pnpm test` (`vitest run`) |
@@ -180,42 +180,60 @@ only the new WXT files and retry with a minimal vanilla WXT config.
 ### Phase A2 — WXT entrypoints wrapping current modules (no Brain, no behavior change)
 
 **Files to edit (new entrypoints)**:
-- `entrypoints/background.ts` — `defineBackground(main)` that lazily imports and
-  invokes the current `background.ts` bootstrap **inside `main`** (WXT imports this
-  file in Node at build time, so no top-level runtime code; `main` cannot be async).
-- `entrypoints/content.ts` — `defineContentScript({ matches, runAt, world:"ISOLATED",
-  allFrames, main })`; `main(ctx)` lazily imports `content-loader.ts` and runs it
-  (`main` may be async). Match the current manifest content-script registration
-  exactly.
-- `entrypoints/page-motion-freeze-bridge.content.ts` — `defineContentScript({
-  world:"MAIN", matches, runAt, main })` wrapping `common/page-motion-freeze-bridge.ts`.
-- `entrypoints/popup/index.html` + `entrypoints/popup/main.ts` — port `popup.html`
-  + `popup.ts` init (move `popup.html` body in; `main.ts` imports the current
-  `popup.ts` entry).
-- `entrypoints/offscreen.html` (+ `main.ts`) — unlisted page entrypoint wrapping
-  `offscreen.html` + `offscreen.ts` (referenced by `chrome.offscreen.createDocument`).
-- `wxt.config.ts` — keep manifest baseline; entrypoint options now drive
-  content-script/background/action manifest fields.
+- `entrypoints/background.ts` — `defineBackground(main)` that runtime-loads the
+  mirrored legacy `legacy/background.js` bootstrap inside `main`. WXT imports
+  this file in Node at build time, so no top-level runtime code; `main` cannot
+  be async.
+- `entrypoints/content-loader.content.ts` — `defineContentScript({ matches,
+  runAt, world:"ISOLATED", main })`; `main()` runtime-loads
+  `legacy/content-loader.js`.
+- `entrypoints/page-motion-freeze-bridge.content.ts` —
+  `defineContentScript({ world:"MAIN", matches, runAt, allFrames, main })`;
+  `main()` runtime-loads `legacy/common/page-motion-freeze-bridge.js`.
+- `entrypoints/popup/index.html` + `entrypoints/popup/main.ts` — WXT popup page
+  that reproduces the current `popup.html` body while `main.ts` runtime-loads
+  `legacy/popup.js`.
+- `entrypoints/offscreen/index.html` + `entrypoints/offscreen/main.ts` —
+  unlisted page entrypoint wrapping `legacy/offscreen.js` (referenced by
+  `chrome.offscreen.createDocument`).
+- `wxt.config.ts` — keep the source-owned manifest baseline fields (name/version/
+  permissions/WAR/action/icons) but let WXT discover background/content entrypoints.
+- `scripts/sync-wxt-bootstrap.mjs` — preserve WXT-owned runtime roots, mirror the
+  Deno release tree under `.output/chrome-mv3/legacy/`, materialize root-path
+  aliases for the WXT content scripts that must keep legacy root paths, and
+  bridge the final manifest back to the source `action`/`background`/
+  `content_scripts` contract.
 
 **Steps**
-1. Implement each entrypoint as a thin wrapper that loads the existing module via a
-   dynamic import inside `main`, preserving init order. Do NOT edit the wrapped
-   modules' logic.
+1. Implement each entrypoint as a thin wrapper that runtime-loads the mirrored
+   built JS under `.output/chrome-mv3/legacy/`, preserving init order. Do NOT
+   edit the wrapped modules' logic.
 2. Ensure content-script metadata (`matches`, `runAt`, `world`, `allFrames`)
    matches the current `manifest.json` exactly.
-3. Move page-injected static assets (cursor SVGs in `cursors/`, any HTML loaded via
-   `getURL`) into `public/` (copied as-is, auto web-accessible) OR keep them WAR via
-   `wxt.config.ts` — choose the one that preserves the current `getURL(...)` paths.
-4. Confirm `pnpm dev` builds a loadable extension whose runtime behavior is
-   unchanged.
+3. Because WXT emits content scripts under `content-scripts/<name>.js` and
+   treats `popup.html` as a special popup entrypoint, bridge the final output so
+   the shipped manifest/action block still matches the current source contract:
+   keep `content-loader.js` as a root alias, keep no `action.default_popup`, and
+   leave `background.js` plus `common/page-motion-freeze-bridge.js` on the
+   mirrored legacy root artifacts until a later phase can replace them safely.
+4. Keep page-injected static assets on the existing `chrome.runtime.getURL(...)`
+   paths by preserving the current WAR list in `wxt.config.ts` and mirroring the
+   legacy runtime tree alongside the WXT-owned roots.
+5. Confirm `pnpm build` builds a loadable extension whose runtime behavior is
+   unchanged. `pnpm dev` remains deferred until a watch-time bridge exists.
 
-**Expected state**: WXT builds a runnable extension; all current runtime logic is
-unchanged, only repackaged through entrypoints.
+**Expected state**: WXT owns the safe runtime roots (`content-loader.js`,
+`popup.html`, `offscreen.html`); the legacy release tree is mirrored under
+`.output/chrome-mv3/legacy/`; `background.js` and
+`common/page-motion-freeze-bridge.js` remain on the mirrored legacy root
+artifacts; final manifest/action/content-script paths still match the current
+source contract.
 **Focused validation**: `pnpm build`; load `.output/chrome-mv3` and smoke the popup
 + a marking/AI run on a representative page.
 **Rollback rule**: if an adapter import causes Node-context side effects at build
-time, ensure ALL runtime code is inside `main` and imports are dynamic; never put
-chrome APIs at entrypoint module top level.
+time, ensure ALL runtime code is inside `main` and runtime-loads mirrored built
+JS; never put chrome APIs at entrypoint module top level and never import the
+legacy browser-source entry roots directly from the WXT definition files.
 
 ---
 

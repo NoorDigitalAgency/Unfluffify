@@ -56,17 +56,28 @@ the transition, the Deno commands above remain the current source of truth for
 shipping and validation, while the new Node toolchain is being brought up:
 
 ```bash
-pnpm wxt --help
+pnpm build
 pnpm check
+pnpm test
+pnpm verify
 ```
 
 The eventual cutover command surface is tracked in `.copilot/wxt-port-plan.md`
-and will replace the Deno workflow phase-by-phase. Until Phase A2/A3 wire the
-real runtime entrypoints and generated-manifest parity, the new `pnpm build`
-path keeps WXT active for config/bootstrap while mirroring the current Deno
-release output into `.output/chrome-mv3` as a temporary compatibility bridge.
-The dev watcher and live-browser launcher stay on their existing Deno commands
-until Phase A2/A5 wires the real WXT dev and browser flows.
+and will replace the Deno workflow phase-by-phase. As of the current A2 bridge,
+`pnpm build` now produces a runnable WXT output under `.output/chrome-mv3`:
+WXT owns the safe runtime roots (`content-loader.js`, `popup.html`, and
+`offscreen.html`), while `background.js` and
+`common/page-motion-freeze-bridge.js` still ship from the mirrored legacy root
+artifacts. The current Deno release tree is also mirrored under
+`.output/chrome-mv3/legacy/` and root support modules/assets are copied over so
+existing `chrome.runtime.getURL(...)` paths keep working. The final manifest is
+bridged back to the current source contract (including no `action.default_popup`
+and the legacy content-script paths) until full manifest authority moves into
+WXT in a later phase.
+
+The dev watcher and live-browser launcher still stay on their existing Deno
+commands until later Part A phases wire a watch-time bridge and a WXT-aware live
+browser flow.
 
 Orchestration helpers are exposed as Deno tasks as well:
 
