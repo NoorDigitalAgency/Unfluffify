@@ -204,6 +204,9 @@ export function createScenarioBusServer(options = {}) {
       onListen() {
       }
     }, handleRequest);
+    if (listener && listener.ready) {
+      await listener.ready;
+    }
     const address = listener.addr;
     const actualHost = address.hostname === "0.0.0.0" || address.hostname === "::"
       ? "127.0.0.1"

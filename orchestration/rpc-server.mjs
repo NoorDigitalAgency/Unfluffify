@@ -243,6 +243,9 @@ export function createRpcServer(options = {}) {
       }
       return new Response(null, { status: 404 });
     });
+    if (listener && listener.ready) {
+      await listener.ready;
+    }
     const address = listener.addr;
     listeningPort = Number(address.port);
     const urlHost = host.includes(":") ? `[${host}]` : (host === "0.0.0.0" || host === "::" ? "127.0.0.1" : host);

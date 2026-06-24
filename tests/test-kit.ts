@@ -1,39 +1,92 @@
-import { assertEquals, assertMatch, assertNotMatch } from "@std/assert";
-import { beforeEach as bddBeforeEach, afterEach as bddAfterEach, test as bddTest } from "@std/testing/bdd";
+const isDenoTestRuntime = typeof globalThis.Deno?.test === "function";
 
-function test(name: string | Deno.TestDefinition, fn?: Deno.TestDefinition["fn"]): void {
-  if (typeof fn !== "function") {
-    bddTest(name as never);
-    return;
-  }
-  bddTest(name as never, async (context: Deno.TestContext) => {
+const denoAssertRuntime = isDenoTestRuntime ? await import("@std/assert") : null;
+const denoBddRuntime = isDenoTestRuntime ? await import("@std/testing/bdd") : null;
+const vitestRuntime = isDenoTestRuntime ? null : await import("vitest");
+
+interface TestContextLike {
+  after(callback: () => unknown | Promise<unknown>): void;
+}
+
+type TestFn = (context: TestContextLike) => unknown | Promise<unknown>;
+
+type TestCallable = {
+  (name: string, fn: TestFn): void;
+  beforeEach: (callback: () => unknown | Promise<unknown>) => void;
+  afterEach: (callback: () => unknown | Promise<unknown>) => void;
+};
+
+const runtimeBeforeEach = isDenoTestRuntime
+  ? denoBddRuntime.beforeEach
+  : vitestRuntime.beforeEach;
+const runtimeAfterEach = isDenoTestRuntime
+  ? denoBddRuntime.afterEach
+  : vitestRuntime.afterEach;
+
+const test = ((name: string, fn: TestFn): void => {
+  const register = isDenoTestRuntime ? denoBddRuntime.test : vitestRuntime.it;
+  register(name, async (...args: unknown[]) => {
     const afterCallbacks: Array<() => unknown | Promise<unknown>> = [];
-    const testContext = Object.assign(context, {
+    const baseContext = args[0] && typeof args[0] === "object" ? args[0] as Record<string, unknown> : {};
+    const context = Object.assign(baseContext, {
       after(callback: () => unknown | Promise<unknown>): void {
         afterCallbacks.push(callback);
       },
     });
+
     try {
-      await fn(testContext as never);
+      await fn(context as TestContextLike);
     } finally {
       for (const callback of afterCallbacks.reverse()) {
         await callback();
       }
     }
   });
-}
+}) as TestCallable;
 
-test.beforeEach = bddBeforeEach;
-test.afterEach = bddAfterEach;
+test.beforeEach = runtimeBeforeEach;
+test.afterEach = runtimeAfterEach;
 
 export { test };
 
 type AssertMatcher = RegExp | Error | ((error: unknown) => boolean) | undefined;
 
+function fail(message: string): never {
+  throw new Error(message);
+}
+
+function stringify(value: unknown): string {
+  return typeof value === "string" ? value : JSON.stringify(value);
+}
+
 function baseAssert(value: unknown, message?: string): void {
   if (!value) {
-    throw new Error(message || `Expected value to be truthy, got ${JSON.stringify(value)}`);
+    fail(message || `Expected value to be truthy, got ${stringify(value)}`);
   }
+}
+
+function assertEqual(actual: unknown, expected: unknown, message?: string): void {
+  if (isDenoTestRuntime) {
+    denoAssertRuntime.assertEquals(actual, expected, message);
+    return;
+  }
+  vitestRuntime.expect(actual, message).toEqual(expected);
+}
+
+function assertMatch(actual: string, matcher: RegExp, message?: string): void {
+  if (isDenoTestRuntime) {
+    denoAssertRuntime.assertMatch(actual, matcher, message);
+    return;
+  }
+  vitestRuntime.expect(actual, message).toMatch(matcher);
+}
+
+function assertNotMatch(actual: string, matcher: RegExp, message?: string): void {
+  if (isDenoTestRuntime) {
+    denoAssertRuntime.assertNotMatch(actual, matcher, message);
+    return;
+  }
+  vitestRuntime.expect(actual, message).not.toMatch(matcher);
 }
 
 function matchesExpected(error: unknown, expected?: AssertMatcher, message?: string): void {
@@ -42,20 +95,18 @@ function matchesExpected(error: unknown, expected?: AssertMatcher, message?: str
   }
   if (expected instanceof RegExp) {
     if (!expected.test(String(error))) {
-      throw new Error(message || `Expected error to match ${expected}`);
+      fail(message || `Expected error to match ${expected}`);
     }
     return;
   }
   if (expected instanceof Error) {
     if (!(error instanceof expected.constructor)) {
-      throw new Error(message || `Expected error to be an instance of ${expected.constructor.name}`);
+      fail(message || `Expected error to be an instance of ${expected.constructor.name}`);
     }
     return;
   }
-  if (typeof expected === "function") {
-    if (!expected(error)) {
-      throw new Error(message || "Expected error predicate to return true");
-    }
+  if (typeof expected === "function" && !expected(error)) {
+    fail(message || "Expected error predicate to return true");
   }
 }
 
@@ -65,14 +116,14 @@ async function toPromise(value: Promise<unknown> | (() => Promise<unknown>)): Pr
 
 export const assert = Object.assign(baseAssert, {
   equal(actual: unknown, expected: unknown, message?: string): void {
-    assertEquals(actual, expected, message);
+    assertEqual(actual, expected, message);
   },
   deepEqual(actual: unknown, expected: unknown, message?: string): void {
-    assertEquals(actual, expected, message);
+    assertEqual(actual, expected, message);
   },
   notEqual(actual: unknown, expected: unknown, message?: string): void {
     if (actual == expected) {
-      throw new Error(message || `Expected ${JSON.stringify(actual)} not to equal ${JSON.stringify(expected)}`);
+      fail(message || `Expected ${stringify(actual)} not to equal ${stringify(expected)}`);
     }
   },
   match(actual: string, matcher: RegExp, message?: string): void {
@@ -84,11 +135,14 @@ export const assert = Object.assign(baseAssert, {
   ok(value: unknown, message?: string): void {
     baseAssert(value, message);
   },
+  fail(message?: string): never {
+    return fail(message || "Assertion failed");
+  },
   doesNotThrow(fn: () => unknown, message?: string): void {
     try {
       fn();
     } catch (error) {
-      throw new Error(message || `Expected function not to throw, got ${String(error)}`);
+      fail(message || `Expected function not to throw, got ${String(error)}`);
     }
   },
   throws(fn: () => void, expected?: AssertMatcher, message?: string): void {
@@ -99,7 +153,7 @@ export const assert = Object.assign(baseAssert, {
       return;
     }
 
-    throw new Error(message || "Expected function to throw");
+    fail(message || "Expected function to throw");
   },
   async rejects(value: Promise<unknown> | (() => Promise<unknown>), expected?: AssertMatcher, message?: string): Promise<void> {
     try {
@@ -109,6 +163,6 @@ export const assert = Object.assign(baseAssert, {
       return;
     }
 
-    throw new Error(message || "Expected promise to reject");
-  }
+    fail(message || "Expected promise to reject");
+  },
 });

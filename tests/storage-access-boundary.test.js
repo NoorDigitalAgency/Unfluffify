@@ -10,6 +10,7 @@ const REPO_ROOT = path.resolve(TESTS_DIR, "..");
 const EXCLUDED_PATH_PREFIXES = [
   ".scratch-blink-test/",
   ".tmp/",
+  ".output/",
   "dist/",
   "node_modules/",
   "tests/",

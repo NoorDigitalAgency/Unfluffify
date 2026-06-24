@@ -1,9 +1,9 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
-import { existsSync, readFileSync } from "./file-kit.ts";
+import { existsSync, readFileSync, fileURLToPath } from "./file-kit.ts";
 import { path } from "./file-kit.ts";
 
-const REPO_ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const RELEASE_ROOT = path.join(REPO_ROOT, "dist", "extension");
 const DEV_ROOT = path.join(REPO_ROOT, "dist", "extension-dev");
 

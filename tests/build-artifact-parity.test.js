@@ -1,9 +1,9 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
-import { readFileSync, existsSync } from "./file-kit.ts";
+import { readFileSync, existsSync, fileURLToPath } from "./file-kit.ts";
 import { path } from "./file-kit.ts";
 
-const REPO_ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DIST_ROOT = path.join(REPO_ROOT, "dist", "extension");
 
 function normalizePath(value) {

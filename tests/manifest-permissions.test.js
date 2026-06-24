@@ -3,7 +3,7 @@ import { assert } from "./test-kit.ts";
 import { existsSync, readFile } from "./file-kit.ts";
 
 function resolveManifestUrl() {
-  const manifestSource = Deno.env.get("UF_MANIFEST_SOURCE") || "source";
+  const manifestSource = process.env.UF_MANIFEST_SOURCE || "source";
   if (manifestSource === "generated") {
     const generatedManifestUrl = new URL("../.output/chrome-mv3/manifest.json", import.meta.url);
     assert.ok(

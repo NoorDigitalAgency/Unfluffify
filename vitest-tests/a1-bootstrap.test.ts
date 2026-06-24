@@ -20,13 +20,14 @@ describe("WXT Part A bridge", () => {
     expect(packageJson.scripts.check).toContain("tsconfig.wxt.json");
     expect(packageJson.scripts.dev).toBeUndefined();
     expect(packageJson.scripts["wxt:dev"]).toBeUndefined();
+    expect(packageJson.scripts.build).toContain("run-deno.mjs task build:release");
     expect(packageJson.scripts.build).toContain("wxt build");
     expect(packageJson.scripts.build).toContain("sync-wxt-bootstrap.mjs");
     expect(packageJson.scripts.zip).toContain("pnpm build");
-    expect(packageJson.scripts.verify).toContain("deno task verify");
+    expect(packageJson.scripts.verify).toContain("run-deno.mjs task verify");
     expect(packageJson.scripts.browser).toBeUndefined();
     expect(packageJson.scripts["browser:live"]).toBeUndefined();
-    expect(packageJson.scripts["legacy:build:dev"]).toBe("deno task build:dev");
+    expect(packageJson.scripts["legacy:build:dev"]).toBe("node ./scripts/run-deno.mjs task build:dev");
   });
 
   it("disables WXT auto-imports and targets MV3", () => {

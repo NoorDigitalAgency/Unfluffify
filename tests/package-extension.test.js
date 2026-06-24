@@ -1,16 +1,10 @@
 import { assert, test } from "./test-kit.ts";
-import { fileURLToPath, mkdtemp, path, readFileSync, rm } from "./file-kit.ts";
+import { denoExecutable, execFile, existsSync, fileURLToPath, mkdtemp, path, readFileSync, rm } from "./file-kit.ts";
 
 const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
 
 async function runCommand(args, cwd) {
-  const command = new Deno.Command(Deno.execPath(), {
-    args,
-    cwd,
-    stdout: "piped",
-    stderr: "piped"
-  });
-  const result = await command.output();
+  const result = await execFile(denoExecutable(), args, { cwd });
   if (result.code !== 0) {
     throw new Error(new TextDecoder().decode(result.stderr));
   }
@@ -62,8 +56,8 @@ test("package script stages runtime files and excludes repo-only files", async (
     assert.equal(metadata.stagedFiles.includes(".github/workflows/build-extension-package.yml"), false);
     assert.equal(metadata.stagedFiles.some((filePath) => filePath.startsWith("tests/")), false);
 
-    await Deno.stat(path.join(stageDir, "common/config.js"));
-    await Deno.stat(path.join(stageDir, "icons/default/icon128.png"));
+    assert.equal(existsSync(path.join(stageDir, "common/config.js")), true);
+    assert.equal(existsSync(path.join(stageDir, "icons/default/icon128.png")), true);
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }

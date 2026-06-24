@@ -6,18 +6,18 @@
   "packageManager": "pnpm@11.6.0",
   "scripts": {
     "prepare": "wxt prepare",
-    "build": "deno task build:release && wxt build && node ./scripts/sync-wxt-bootstrap.mjs",
+    "build": "node ./scripts/run-deno.mjs task build:release && wxt build && node ./scripts/sync-wxt-bootstrap.mjs",
     "zip": "pnpm build && (cd .output/chrome-mv3 && zip -qr ../unfluffify-bootstrap.zip .)",
     "check": "wxt prepare && tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.wxt.json",
     "lint": "eslint eslint.config.js wxt.config.ts vitest.config.ts entrypoints/**/*.ts scripts/sync-wxt-bootstrap.mjs vitest-tests/**/*.test.ts",
     "test": "vitest run",
-    "verify": "pnpm lint && pnpm check && pnpm test && rm -rf .output && deno task verify",
-    "legacy:check": "deno task check",
-    "legacy:test": "deno task test",
-    "legacy:lint": "deno task lint",
-    "legacy:build:dev": "deno task build:dev",
-    "legacy:build:release": "deno task build:release",
-    "legacy:verify": "rm -rf .output && deno task check && deno task test && deno task build:release"
+    "verify": "pnpm lint && pnpm check && pnpm test && rm -rf .output && node ./scripts/run-deno.mjs task verify",
+    "legacy:check": "node ./scripts/run-deno.mjs task check",
+    "legacy:test": "node ./scripts/run-deno.mjs task test",
+    "legacy:lint": "node ./scripts/run-deno.mjs task lint",
+    "legacy:build:dev": "node ./scripts/run-deno.mjs task build:dev",
+    "legacy:build:release": "node ./scripts/run-deno.mjs task build:release",
+    "legacy:verify": "rm -rf .output && node ./scripts/run-deno.mjs task check && node ./scripts/run-deno.mjs task test && node ./scripts/run-deno.mjs task build:release"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
