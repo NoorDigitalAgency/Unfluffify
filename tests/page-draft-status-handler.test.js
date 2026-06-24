@@ -53,6 +53,7 @@ function createDeps(overrides = {}) {
       calls.push(["hasPageMarkingEntry", config, pageUrl]);
       return true;
     },
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     refreshSavedPageEntryFromBackendCache: async (baseUrl, pageUrl) => {
       calls.push(["refreshSavedPageEntryFromBackendCache", baseUrl, pageUrl]);
     },

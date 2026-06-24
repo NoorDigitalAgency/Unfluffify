@@ -145,6 +145,7 @@ function branchOrPlannedHandler(messageType) {
   return "";
 }
 
+// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 function assertBranchHasBaseUrlGuard(messageType, branch, policy) {
   if (policy.activeBaseUrlScope === "enabled-same-base-only") {
     assert.match(
@@ -169,6 +170,7 @@ function assertBranchHasConfigGuard(messageType, branch, required) {
   assert.match(branch, /!(?:state|deps\.state)\.config/, `${messageType} should guard missing state.config`);
 }
 
+// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 function assertBranchHasPropertyLockGuard(messageType, branch, required) {
   if (!required) {
     assert.doesNotMatch(branch, /(?:checkPropertyLockBlocksMarking|deps\.checkPropertyLockBlocksMarking)\(\)/);
@@ -177,6 +179,7 @@ function assertBranchHasPropertyLockGuard(messageType, branch, required) {
   assert.match(branch, /if \(!(?:checkPropertyLockBlocksMarking|deps\.checkPropertyLockBlocksMarking)\(\)\) \{\s*sendResponse\(\{ ok: false, locked: true \}\);/);
 }
 
+// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 function assertBranchHasReconciliationGuard(messageType, branch, required) {
   if (!required) {
     assert.doesNotMatch(branch, /isPageSaveReconciliationPending\(/);

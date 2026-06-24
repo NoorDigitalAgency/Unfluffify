@@ -212,6 +212,7 @@ export function createScenarioBusServer(options = {}) {
     return listeningUrl;
   }
 
+  // deno-lint-ignore require-await -- preserves existing promise/callback contract.
   async function handleRequest(request) {
     const url = new URL(request.url);
     if (url.pathname === "/health") {

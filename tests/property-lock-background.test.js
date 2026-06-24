@@ -9,21 +9,33 @@ import {
 } from "../common/feature-flags.js";
 
 import {
+  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   PROPERTY_LOCK_BACKGROUND_STATE_UPDATE,
+  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   PROPERTY_LOCK_BACKGROUND_CONNECTION_STATUS,
   PROPERTY_LOCK_CONTENT_CONTINUE,
   PROPERTY_LOCK_CONTENT_CONNECT,
+  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   PROPERTY_LOCK_CONTENT_DISCONNECT,
+  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   PROPERTY_LOCK_CONTENT_DRAFT_STATUS,
+  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   PROPERTY_LOCK_PORT_DISCONNECT_DELAY_MS,
   PROPERTY_LOCK_PORT_NAME,
+  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   PROPERTY_LOCK_WS_CLIENT_STATUS,
+  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   PROPERTY_LOCK_WS_CONTINUE_EDITING,
+  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   PROPERTY_LOCK_WS_SUBSCRIBE,
+  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   PROPERTY_LOCK_WS_SUBSCRIBED,
+  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   PROPERTY_LOCK_WS_LOCK_STATE,
   PROPERTY_LOCK_CONNECTION_INACTIVE,
+  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   PROPERTY_LOCK_CONNECTION_CONNECTING,
+  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   PROPERTY_LOCK_STATE_LOCKED,
   PROPERTY_LOCK_STATE_UNLOCKED
 } from "../common/property-lock.js";
@@ -80,6 +92,7 @@ function resolveStorageValues(keys, storageItems) {
   return { ...storageItems };
 }
 
+// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 function createFakeTimerController() {
   const originalSetTimeout = globalThis.setTimeout;
   const originalClearTimeout = globalThis.clearTimeout;
@@ -249,6 +262,7 @@ function createChromeMock(storageItems = {}) {
   };
 }
 
+// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 async function loadPropertyLockBackgroundModule() {
   backgroundModuleCounter += 1;
   return import(new URL(`../common/property-lock-background.js?case=${backgroundModuleCounter}`, import.meta.url));

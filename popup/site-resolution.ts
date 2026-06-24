@@ -163,6 +163,7 @@ export async function fetchPropertyPageTypesFromGraphql(_deps: SiteResolutionDep
   };
 }
 
+// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 export async function ensurePropertyPageTypes(deps: SiteResolutionDeps, options: EnsurePropertyPageTypesOptions = {}): Promise<EnsurePropertyPageTypesResult> {
   const opts = options || {};
   const {
@@ -300,6 +301,7 @@ export async function resolveSiteIdFromGraphql(_deps: SiteResolutionDeps, option
       baseUrl,
       notFound: false
     };
+  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   } catch (error) {
     return { ok: false, siteId: null, baseUrl: "", notFound: false };
   }

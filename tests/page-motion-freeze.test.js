@@ -215,6 +215,7 @@ async function withTimerWindow(callback) {
 }
 
 test("page motion freeze leaves inactive pages untouched", async () => {
+  // deno-lint-ignore require-await -- preserves existing promise/callback contract.
   await withTimerWindow(async ({ windowObject, originalApis, runControl, runTimeout }) => {
     const calls = [];
     const timerId = windowObject.setTimeout(() => calls.push("timeout"), 25);
@@ -234,6 +235,7 @@ test("page motion freeze leaves inactive pages untouched", async () => {
 });
 
 test("page motion freeze defers newly scheduled timeouts and animation frames while paused", async () => {
+  // deno-lint-ignore require-await -- preserves existing promise/callback contract.
   await withTimerWindow(async ({ windowObject, runControl, runNextTimeout, runNextFrame }) => {
     const calls = [];
     const pauseResult = runControl(true);
@@ -255,6 +257,7 @@ test("page motion freeze defers newly scheduled timeouts and animation frames wh
 });
 
 test("page motion freeze lets deferred timer and frame callbacks be cancelled", async () => {
+  // deno-lint-ignore require-await -- preserves existing promise/callback contract.
   await withTimerWindow(async ({ windowObject, runControl, timeoutCount, frameCount }) => {
     const calls = [];
     runControl(true);
@@ -272,6 +275,7 @@ test("page motion freeze lets deferred timer and frame callbacks be cancelled", 
 });
 
 test("page motion freeze skips interval ticks only while paused", async () => {
+  // deno-lint-ignore require-await -- preserves existing promise/callback contract.
   await withTimerWindow(async ({ windowObject, runControl, runInterval }) => {
     const calls = [];
     runControl(true);
@@ -287,6 +291,7 @@ test("page motion freeze skips interval ticks only while paused", async () => {
 });
 
 test("page motion freeze can suppress and restore lazy-load listeners and future observers", async () => {
+  // deno-lint-ignore require-await -- preserves existing promise/callback contract.
   await withTimerWindow(async ({ windowObject, originalApis, runControl, dispatchEvent }) => {
     const calls = [];
     const suppressResult = runControl({ command: "setLazyLoadingSuppressed", suppressed: true });
@@ -322,6 +327,7 @@ test("page motion freeze can suppress and restore lazy-load listeners and future
 });
 
 test("arm installs the lazy-load interception early and keeps it across suppression toggles", async () => {
+  // deno-lint-ignore require-await -- preserves existing promise/callback contract.
   await withTimerWindow(async ({ windowObject, originalApis, runControl }) => {
     // Arm (document_start path): wrap the observer constructor up front without
     // suppressing anything yet.
@@ -352,6 +358,7 @@ test("arm installs the lazy-load interception early and keeps it across suppress
 });
 
 test("page motion freeze restores all wrapped APIs when pause and lazy suppression are off", async () => {
+  // deno-lint-ignore require-await -- preserves existing promise/callback contract.
   await withTimerWindow(async ({ windowObject, documentObject, originalApis, runControl }) => {
     runControl(true);
     runControl({ command: "setLazyLoadingSuppressed", suppressed: true });

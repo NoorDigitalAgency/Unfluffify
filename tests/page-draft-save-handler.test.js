@@ -18,6 +18,7 @@ function createDeps(overrides = {}) {
   const deps = {
     calls,
     areEntriesEquivalent: () => true,
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     clearPageSaveReconciliation: async (...args) => calls.push(["clearPageSaveReconciliation", ...args]),
     collectAiSubmissionXpathsForCurrentPage: () => {
       calls.push(["collectAiSubmissionXpathsForCurrentPage"]);
@@ -31,6 +32,7 @@ function createDeps(overrides = {}) {
       calls.push(["createCurrentPageSnapshot"]);
       return { renderedHtml: "<main>Saved</main>" };
     },
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     fetchCurrentPageRawHtml: async (...args) => {
       calls.push(["fetchCurrentPageRawHtml", ...args]);
       return "<raw>Saved</raw>";
@@ -57,11 +59,14 @@ function createDeps(overrides = {}) {
     logContentDiagnostic: (...args) => calls.push(["logContentDiagnostic", ...args]),
     matchesActiveBaseUrl: (value) => value === baseUrl,
     notifyDraftStatus: (...args) => calls.push(["notifyDraftStatus", ...args]),
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     refreshSavedPageEntryFromBackendCache: async (...args) => {
       calls.push(["refreshSavedPageEntryFromBackendCache", ...args]);
     },
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     saveConfig: async (...args) => calls.push(["saveConfig", ...args]),
     scheduleRender: () => calls.push(["scheduleRender"]),
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     setPageSaveReconciliationPending: async (...args) => {
       calls.push(["setPageSaveReconciliationPending", ...args]);
     },
@@ -150,6 +155,7 @@ test("page draft save persists snapshot data and marks server sync pending", asy
 test("page draft save clears newly-created reconciliation after save failure", async () => {
   const deps = createDeps({
     areEntriesEquivalent: () => false,
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     saveConfig: async () => {
       throw new Error("save failed");
     },

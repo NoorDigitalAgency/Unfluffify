@@ -15,6 +15,7 @@ function createBaseDeps(overrides = {}) {
     createCurrentPageSnapshot: () => ({ renderedHtml: "<html>rendered</html>", renderMode: "dynamic" }),
     createLifecycleOperationId: () => "op-generated",
     emitLifecycleEvent: (event) => lifecycleEvents.push(event),
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     fetchCurrentPageRawHtml: async () => "<html>raw</html>",
     finishPageInspectionUi: () => {},
     getPageUrl: () => "https://example.test/page",
@@ -31,6 +32,7 @@ function createBaseDeps(overrides = {}) {
       return revealCounter;
     },
     renderPropertyLockBanner: () => {},
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     resolveBaseUrlForCurrentPage: async () => "https://example.test",
     setRenderModeInspectionActive: (value) => {
       inspectionActive = Boolean(value);
@@ -39,6 +41,7 @@ function createBaseDeps(overrides = {}) {
       revealInFlight = value;
     },
     updatePropertyLockBannerMode: () => {},
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     warmupSilentHighlightingBeforeMotionPause: async () => true,
     LIFECYCLE_KINDS: { RENDER_MODE_INSPECTION: "render-mode" },
     LIFECYCLE_PHASES: {
@@ -103,6 +106,7 @@ test("render-mode reveal skips warmup after page visit already consumed reveal",
     markSilentHighlightEditorRevealPrepared: () => {
       preparedCalls += 1;
     },
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     warmupSilentHighlightingBeforeMotionPause: async () => {
       warmupCalls += 1;
       return true;

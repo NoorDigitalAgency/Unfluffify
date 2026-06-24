@@ -7,6 +7,7 @@ test("runBackgroundTask returns successful work results", async () => {
   const valueResult = await runBackgroundTask("value-success", Promise.resolve("ok"));
   assert.equal(valueResult, "ok");
 
+  // deno-lint-ignore require-await -- preserves existing promise/callback contract.
   const thunkResult = await runBackgroundTask("thunk-success", async () => 42);
   assert.equal(thunkResult, 42);
 });
@@ -22,6 +23,7 @@ test("runBackgroundTask reports rejections via trace and resolves undefined", as
   try {
     const result = await runBackgroundTask(
       "failing-task",
+      // deno-lint-ignore require-await -- preserves existing promise/callback contract.
       async () => {
         throw new Error("boom");
       },

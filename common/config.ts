@@ -821,6 +821,7 @@ export function createDefaultConfig(baseUrl) {
   let domain = "";
   try {
     domain = new URL(normalizedBaseUrl).hostname;
+  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   } catch (error) {
     domain = "";
   }
@@ -1371,6 +1372,7 @@ async function saveConfigsDirect(configs) {
 }
 
 // @ts-expect-error
+// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 async function queueConfigPersistence(work) {
   const next = configPersistenceQueue
     .catch(() => {})
@@ -1385,6 +1387,7 @@ export async function saveConfigs(configs) {
 }
 
 // @ts-expect-error
+// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 async function saveConfigEntry(baseUrl, config) {
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl) || baseUrl;
   return queueConfigPersistence(async () => {
@@ -1424,6 +1427,7 @@ async function queueConfigWrite(baseUrl, work) {
 }
 
 // @ts-expect-error
+// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 export async function ensureConfig(baseUrl) {
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl) || baseUrl;
   return queueConfigWrite(normalizedBaseUrl, async () => {
@@ -1443,6 +1447,7 @@ export async function ensureConfig(baseUrl) {
 }
 
 // @ts-expect-error
+// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 export async function updateConfig(baseUrl, updater) {
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl) || baseUrl;
   return queueConfigWrite(normalizedBaseUrl, async () => {

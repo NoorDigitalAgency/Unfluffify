@@ -45,6 +45,7 @@ test("unknown command returns handler_not_found", async () => {
 });
 
 test("missing tab id for tab-scoped command fails with invalid_tab", async () => {
+  // deno-lint-ignore require-await -- preserves existing promise/callback contract.
   registerBackgroundCommand("TAB_SCOPED", async () => ({ ok: true }));
   const reply = await dispatchBackgroundCommand(
     createEnvelope({ type: "TAB_SCOPED", tabId: null }),
@@ -58,6 +59,7 @@ test("missing tab id for tab-scoped command fails with invalid_tab", async () =>
 test("command registration can enforce allowed sources", async () => {
   registerBackgroundCommand(
     "POPUP_ONLY",
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     async () => ({ ok: true }),
     {
       allowedSources: ["popup"]
@@ -80,6 +82,7 @@ test("command registration can enforce allowed sources", async () => {
 test("content commands can resolve tab id from sender instead of matching message tab", async () => {
   registerBackgroundCommand(
     "CONTENT_SENDER_TAB",
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     async (context) => ({ resolvedTabId: context.tabId }),
     {
       allowedSources: ["content"],
@@ -107,6 +110,7 @@ test("content commands can resolve tab id from sender instead of matching messag
 test("content sender-policy commands reject spoofed message tab ids", async () => {
   registerBackgroundCommand(
     "CONTENT_SENDER_TAB_STRICT",
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     async () => ({ ok: true }),
     {
       allowedSources: ["content"],
@@ -134,6 +138,7 @@ test("content sender-policy commands reject spoofed message tab ids", async () =
 test("sender-or-message policy prefers sender tab and records policy metadata", async () => {
   registerBackgroundCommand(
     "SENDER_OR_MESSAGE",
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     async (context) => ({
       resolvedTabId: context.tabId,
       tabIdSource: context.tabIdSource,
@@ -167,6 +172,7 @@ test("sender-or-message policy prefers sender tab and records policy metadata", 
 test("none tab policy treats commands as unscoped", async () => {
   registerBackgroundCommand(
     "UNTABBED",
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     async (context) => ({
       resolvedTabId: context.tabId,
       tabIdSource: context.tabIdSource,
@@ -198,6 +204,7 @@ test("none tab policy treats commands as unscoped", async () => {
 test("popup-only command rejects content sender spoofing popup source", async () => {
   registerBackgroundCommand(
     "POPUP_ONLY_STRICT",
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     async (context) => ({ resolvedTabId: context.tabId }),
     {
       allowedSources: ["popup"],
@@ -226,6 +233,7 @@ test("popup-only command rejects content sender spoofing popup source", async ()
 test("popup-only command accepts popup sender metadata", async () => {
   registerBackgroundCommand(
     "POPUP_ONLY_ACCEPTED",
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     async (context) => ({ resolvedTabId: context.tabId, source: context.source }),
     {
       allowedSources: ["popup"],
@@ -254,6 +262,7 @@ test("popup-only command accepts popup sender metadata", async () => {
 test("popup-only command accepts extension page tabs as popup senders", async () => {
   registerBackgroundCommand(
     "POPUP_ONLY_EXTENSION_TAB",
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     async (context) => ({ resolvedTabId: context.tabId, source: context.source }),
     {
       allowedSources: ["popup"],
@@ -282,6 +291,7 @@ test("popup-only command accepts extension page tabs as popup senders", async ()
 test("popup-only command accepts extension origins as popup senders", async () => {
   registerBackgroundCommand(
     "POPUP_ONLY_EXTENSION_ORIGIN",
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     async (context) => ({ resolvedTabId: context.tabId, source: context.source }),
     {
       allowedSources: ["popup"],
@@ -392,6 +402,7 @@ test("deleting one tab runtime does not affect another", () => {
 });
 
 test("popup snapshot command is tab-scoped", async () => {
+  // deno-lint-ignore require-await -- preserves existing promise/callback contract.
   registerBackgroundCommand("POPUP_GET_TAB_VIEW_STATE", async (context) => ({
     state: {
       ok: true,
@@ -432,6 +443,7 @@ test("popup snapshot command is tab-scoped", async () => {
 });
 
 test("popup snapshot reads runtime without mutating it", async () => {
+  // deno-lint-ignore require-await -- preserves existing promise/callback contract.
   registerBackgroundCommand("POPUP_GET_TAB_VIEW_STATE", async (context) => ({
     state: {
       ok: true,

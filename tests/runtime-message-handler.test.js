@@ -5,21 +5,28 @@ import { handleRuntimeMessage } from "../content/runtime-message-handler.js";
 
 function createDeps(overrides = {}) {
   const deps = {
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     handleSetEnabledCommand: async () => ({ ok: true }),
     handleGetInspectionStatusCommand: () => ({ ok: true }),
     handleSetPopupBusyOnPageCommand: () => ({ ok: true, active: true }),
     handleRenderModeInspectionBeginCommand: () => ({ ok: true }),
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     handleRunRenderModeRevealOnceCommand: async () => ({ ok: true }),
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     handleCaptureRenderModeInspectionHtmlCommand: async () => ({ ok: true }),
     handleRenderModeInspectionEndCommand: () => ({ ok: true }),
     handleHideConsentForInspectionCommand: () => ({ ok: true }),
     getAiPreviewGetStateHandler: () => ({ handleMessage: () => ({ ok: true }) }),
     getAiPreviewExpandedModeHandler: () => ({ handleMessage: () => ({ ok: true }) }),
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     getAiPreviewComputeLockHandler: () => ({ handleMessage: async () => ({ ok: true }) }),
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     getAiPreviewCloseHandler: () => ({ handleMessage: async () => ({ ok: true }) }),
     getConfigUpdatedHandler: () => ({ handleMessage: () => ({ ok: true }) }),
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     getForceRefreshHandler: () => ({ handleMessage: async () => ({ ok: true }) }),
     getDefaultExclusionsHandler: () => ({ handleMessage: () => ({ ok: true, selectors: [] }) }),
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     getCollectPageDataHandler: () => ({ handleMessage: async () => ({ ok: true }) }),
     getVisibleXpathsHandler: () => ({ handleMessage: () => ({ ok: true }) }),
     getAiSubmissionXpathsHandler: () => ({ handleMessage: () => ({ ok: true }) }),
@@ -29,16 +36,23 @@ function createDeps(overrides = {}) {
       handleFocusMessage: () => ({ ok: true }),
       handleClearFocusMessage: () => ({ ok: true })
     }),
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     getCapturePageSnapshotHandler: () => ({ capture: async () => ({ ok: true }) }),
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     getPageDraftStatusHandler: () => ({ getStatus: async () => ({ ok: true }) }),
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     getPageSaveReconciliationPendingHandler: () => ({ setPending: async () => ({ ok: true }) }),
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     getPageSaveReconciliationClearHandler: () => ({ clear: async () => ({ ok: true }) }),
     getExplicitMarkingHandler: () => ({
       setExplicitExclude: () => ({ ok: true }),
       setExplicitInclude: () => ({ ok: true })
     }),
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     getPageDraftSaveHandler: () => ({ saveCurrentPageDraft: async () => ({ ok: true }) }),
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     getPageDraftRevertHandler: () => ({ revert: async () => ({ ok: true }) }),
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     getAiPreviewShowHandler: () => ({ handleMessage: async () => ({ ok: true }) }),
     state: { baseUrl: "https://example.com", config: {} },
     matchesActiveBaseUrl: () => true,
@@ -99,6 +113,7 @@ test("setPopupBusyOnPage responds synchronously", () => {
 
 test("setAiComputeLock returns true and responds on success", async () => {
   const deps = createDeps({
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     getAiPreviewComputeLockHandler: () => ({ handleMessage: async () => ({ ok: true, locked: true }) })
   });
   const responses = [];
@@ -114,6 +129,7 @@ test("setAiComputeLock returns true and responds on success", async () => {
 
 test("setAiComputeLock responds with ok false when delegated promise rejects", async () => {
   const deps = createDeps({
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     getAiPreviewComputeLockHandler: () => ({ handleMessage: async () => Promise.reject(new Error("boom")) })
   });
   const responses = [];

@@ -34,10 +34,8 @@
         "ban-ts-comment",
         "no-inner-declarations",
         "no-sloppy-imports",
-        "no-unused-vars",
         "no-window",
-        "no-window-prefix",
-        "require-await"
+        "no-window-prefix"
       ]
     }
   },

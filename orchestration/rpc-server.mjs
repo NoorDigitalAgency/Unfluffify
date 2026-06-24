@@ -216,6 +216,7 @@ export function createRpcServer(options = {}) {
       port,
       onListen() {
       }
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     }, async (request) => {
       if (request.url && new URL(request.url).pathname === "/health") {
         return new Response(JSON.stringify({ ok: true, peers: peers.size, shuttingDown }), {

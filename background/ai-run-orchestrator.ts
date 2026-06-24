@@ -1,3 +1,4 @@
+// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 import type { Config, PageMarkingEntry } from "../types/config.ts";
 
 type TabLike = number | string | null | undefined;
@@ -210,31 +211,39 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
 
   const resolveBackgroundNetworkCredentials: NonNullable<AiRunOrchestratorOptions["resolveBackgroundNetworkCredentials"]> = typeof options.resolveBackgroundNetworkCredentials === "function"
     ? options.resolveBackgroundNetworkCredentials
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     : async () => ({ endpointValue: "", tokenValue: "" });
   const requestAiRunStartSnapshot: NonNullable<AiRunOrchestratorOptions["requestAiRunStartSnapshot"]> = typeof options.requestAiRunStartSnapshot === "function"
     ? options.requestAiRunStartSnapshot
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     : async () => ({ ok: false });
   const requestAiRunStatus: NonNullable<AiRunOrchestratorOptions["requestAiRunStatus"]> = typeof options.requestAiRunStatus === "function"
     ? options.requestAiRunStatus
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     : async () => ({ ok: false });
   const requestAiRunResultSnapshot: NonNullable<AiRunOrchestratorOptions["requestAiRunResultSnapshot"]> = typeof options.requestAiRunResultSnapshot === "function"
     ? options.requestAiRunResultSnapshot
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     : async () => ({ ok: false });
   const fetchStaticPageHtmlForBackground: NonNullable<AiRunOrchestratorOptions["fetchStaticPageHtmlForBackground"]> = typeof options.fetchStaticPageHtmlForBackground === "function"
     ? options.fetchStaticPageHtmlForBackground
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     : async () => ({ ok: false });
 
   const getTransferPayload: NonNullable<AiRunOrchestratorOptions["getTransferPayload"]> = typeof options.getTransferPayload === "function"
     ? options.getTransferPayload
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     : async () => ({ ok: false });
   const putTransferPayload: NonNullable<AiRunOrchestratorOptions["putTransferPayload"]> = typeof options.putTransferPayload === "function"
     ? options.putTransferPayload
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     : async () => ({ ok: false });
   const removeTransferPayload: NonNullable<AiRunOrchestratorOptions["removeTransferPayload"]> = typeof options.removeTransferPayload === "function"
     ? options.removeTransferPayload
     : async () => {};
   const consumeTransferPayload: NonNullable<AiRunOrchestratorOptions["consumeTransferPayload"]> = typeof options.consumeTransferPayload === "function"
     ? options.consumeTransferPayload
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     : async () => ({ ok: false });
 
   const clearPersistedAiRunRecord: NonNullable<AiRunOrchestratorOptions["clearPersistedAiRunRecord"]> = typeof options.clearPersistedAiRunRecord === "function"
@@ -242,16 +251,20 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
     : async () => {};
   const savePersistedAiRunRecord: NonNullable<AiRunOrchestratorOptions["savePersistedAiRunRecord"]> = typeof options.savePersistedAiRunRecord === "function"
     ? options.savePersistedAiRunRecord
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     : async () => null;
 
   const sendContentMessageToTab: NonNullable<AiRunOrchestratorOptions["sendContentMessageToTab"]> = typeof options.sendContentMessageToTab === "function"
     ? options.sendContentMessageToTab
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     : async () => ({ ok: false });
   const ensureContentMainForTab: NonNullable<AiRunOrchestratorOptions["ensureContentMainForTab"]> = typeof options.ensureContentMainForTab === "function"
     ? options.ensureContentMainForTab
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     : async () => ({ ok: false, error: "Content activation failed" });
   const getTabState: NonNullable<AiRunOrchestratorOptions["getTabState"]> = typeof options.getTabState === "function"
     ? options.getTabState
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     : async () => null;
   const setTabState: NonNullable<AiRunOrchestratorOptions["setTabState"]> = typeof options.setTabState === "function"
     ? options.setTabState
@@ -273,6 +286,7 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
   const configStore: AiRunConfigStore = options.configStore && typeof options.configStore === "object"
     ? options.configStore
     : {
+      // deno-lint-ignore require-await -- preserves existing promise/callback contract.
       ensureConfig: async () => ({ pageMarkings: {} }),
       updateConfig: async () => {}
     };

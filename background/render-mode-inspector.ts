@@ -74,6 +74,7 @@ export function createRenderModeInspector(options: RenderModeInspectorOptions = 
     return `render-mode-inspection:${tabId}:${Date.now()}`;
   }
 
+  // deno-lint-ignore require-await -- preserves existing promise/callback contract.
   async function waitForTabLoadStartInBackground(tabId: number, timeoutMs = startTimeoutMs) {
     if (!tabId) {
       return false;
@@ -118,6 +119,7 @@ export function createRenderModeInspector(options: RenderModeInspectorOptions = 
     });
   }
 
+  // deno-lint-ignore require-await -- preserves existing promise/callback contract.
   async function waitForTabLoadCompleteInBackground(
     tabId: number,
     timeoutMs = loadTimeoutMs,

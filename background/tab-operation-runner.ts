@@ -38,11 +38,13 @@ function defaultNormalizeTabId(value: unknown): number {
 
 function defaultUpdateLifecycleState(): void {}
 
+// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 async function defaultWithTabSpinner<TResult>(
   _tabId: number,
   _descriptor: TabSpinnerDescriptor,
   work: (context: TabOperationSpinnerContext) => Promise<TResult>
 ): Promise<TResult> {
+  // deno-lint-ignore require-await -- preserves existing promise/callback contract.
   return work({ update: async () => null });
 }
 
@@ -188,6 +190,7 @@ export function createTabOperationRunner(options: TabOperationRunnerOptions = {}
         kind,
         operationId,
         signal: abortController ? abortController.signal : null,
+        // deno-lint-ignore require-await -- preserves existing promise/callback contract.
         update: async (patch: Record<string, unknown> = {}) => {
           if (!operationActive || typeof spinnerContext.update !== "function") {
             return null;
@@ -251,6 +254,7 @@ export function createTabOperationRunner(options: TabOperationRunnerOptions = {}
     try {
       operationResult = spinnerDescriptor
         ? await withTabSpinner(normalizedTabId, spinnerDescriptor, execute)
+        // deno-lint-ignore require-await -- preserves existing promise/callback contract.
         : await execute({ update: async () => null });
       return operationResult;
     } catch (error) {

@@ -18,12 +18,21 @@ test("deno task lint targets the full repository", () => {
   assert.equal(denoJson.tasks["lint:fix"], "deno lint --fix .");
 });
 
-test("repo-wide deno lint excludes incompatible legacy/browser rules", () => {
+test("repo-wide deno lint excludes approved legacy/browser rules only", () => {
   const denoJson = JSON.parse(readFileSync(new URL("../deno.json", import.meta.url)));
   const excludedRules = denoJson.lint?.rules?.exclude || [];
 
-  assert.equal(excludedRules.includes("no-sloppy-imports"), true);
-  assert.equal(excludedRules.includes("no-window"), true);
-  assert.equal(excludedRules.includes("no-window-prefix"), true);
-  assert.equal(excludedRules.includes("ban-ts-comment"), true);
+  for (const rule of [
+    "ban-ts-comment",
+    "no-inner-declarations",
+    "no-sloppy-imports",
+    "no-window",
+    "no-window-prefix",
+  ]) {
+    assert.equal(excludedRules.includes(rule), true);
+  }
+
+  for (const rule of ["require-await", "no-unused-vars"]) {
+    assert.equal(excludedRules.includes(rule), false);
+  }
 });

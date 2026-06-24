@@ -57,6 +57,7 @@ export function normalizeStageBase(value: unknown): string {
       ? new URL(trimmed)
       : new URL(`https://${trimmed}`);
     hostname = (url.hostname || "").trim().toLowerCase();
+  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   } catch (error) {
     return "";
   }

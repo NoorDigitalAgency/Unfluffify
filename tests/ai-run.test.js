@@ -107,6 +107,7 @@ test("AI compute shows busy feedback and locks marking before payload work", () 
 
 test("AI compute builds the request from stored local page snapshots only", () => {
   const source = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
+  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   const backgroundSource = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
   const aiRunOrchestratorSource = readFileSync(new URL("../background/ai-run-orchestrator.ts", import.meta.url), "utf8");
   const match = source.match(

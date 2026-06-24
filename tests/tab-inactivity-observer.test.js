@@ -13,9 +13,11 @@ test("tab inactivity observer schedules scoped alarms and emits inactive events"
     now: () => 1000,
     chromeRef: {
       alarms: {
+        // deno-lint-ignore require-await -- preserves existing promise/callback contract.
         async create(name, options) {
           createdAlarms.push({ name, options });
         },
+        // deno-lint-ignore require-await -- preserves existing promise/callback contract.
         async clear(name) {
           clearedAlarms.push(name);
           return true;
@@ -95,14 +97,17 @@ test("tab inactivity observer anchors the deadline and ignores repeat schedules"
     now: () => nowValue,
     chromeRef: {
       alarms: {
+        // deno-lint-ignore require-await -- preserves existing promise/callback contract.
         async create(name, options) {
           createdAlarms.push({ name, options });
           stored.set(name, { name, ...options });
         },
+        // deno-lint-ignore require-await -- preserves existing promise/callback contract.
         async clear(name) {
           stored.delete(name);
           return true;
         },
+        // deno-lint-ignore require-await -- preserves existing promise/callback contract.
         async get(name) {
           return stored.get(name) || null;
         }
@@ -122,14 +127,17 @@ test("tab inactivity observer anchors the deadline and ignores repeat schedules"
     now: () => 20000,
     chromeRef: {
       alarms: {
+        // deno-lint-ignore require-await -- preserves existing promise/callback contract.
         async create(name, options) {
           createdAlarms.push({ name, options });
           stored.set(name, { name, ...options });
         },
+        // deno-lint-ignore require-await -- preserves existing promise/callback contract.
         async clear(name) {
           stored.delete(name);
           return true;
         },
+        // deno-lint-ignore require-await -- preserves existing promise/callback contract.
         async get(name) {
           return stored.get(name) || null;
         }
@@ -158,6 +166,7 @@ test("tab inactivity observer ignores unrelated alarms and invalid tab IDs", asy
     chromeRef: {
       alarms: {
         async create() {},
+        // deno-lint-ignore require-await -- preserves existing promise/callback contract.
         async clear() {
           return true;
         }

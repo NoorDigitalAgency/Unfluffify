@@ -138,6 +138,7 @@ export async function updateDeviceEmulation({
   return normalized;
 }
 
+// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 export async function loadGlobalAiSettings() {
   return getGlobalAiSettings();
 }

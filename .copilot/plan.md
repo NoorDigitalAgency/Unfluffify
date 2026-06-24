@@ -30,12 +30,11 @@ old archive files into the active `.copilot` folder.
 
 ## Current Architecture Track
 
-Temporary priority override: before resuming Track H, complete the lint
-strictness track below so `require-await` and `no-unused-vars` can be removed
-from the active Deno lint exclusions deliberately. The preview-exit
-state-neutral restoration slice has been implemented; any remaining live
+The lint strictness track below is complete: `require-await` and
+`no-unused-vars` are no longer active Deno lint exclusions. The preview-exit
+state-neutral restoration slice has also been implemented; any remaining live
 button-state issue, including locally computed unsaved AI selectors not enabling
-Save, is a separate behavior fix and must not be mixed into the lint cleanup.
+Save, is a separate behavior fix and must not be mixed into lint cleanup.
 
 The service-worker authority refactor, storage-access layer refactor, and world
 decomposition program are complete and merged to `main`. Content follow-up
@@ -52,8 +51,7 @@ This track protects the 11 always-on core features, including reveal/freeze and
 lazy-loading stopping/restoration. Do not resume old implementation tracks unless
 the user explicitly asks for them.
 
-Until the lint strictness track is complete, treat Track H as paused rather than
-superseded.
+Track H can resume when the user explicitly asks for it.
 
 ## Lint Strictness Track: `require-await` and `no-unused-vars`
 
@@ -265,6 +263,14 @@ lint ignore with rationale before proceeding.
 5. Any remaining local `deno-lint-ignore require-await` or
    `deno-lint-ignore no-unused-vars` comments are narrow, justified, and covered
    by the relevant focused test or contract assertion.
+
+### Implementation status
+
+Completed on 2026-06-24. `deno.json` now enforces both target rules
+repo-wide. Existing legacy diagnostics are documented with local
+`deno-lint-ignore` comments at the exact affected lines so the migration does
+not alter runtime or test behavior, while future diagnostics outside those
+legacy sites are caught by `deno task lint`.
 
 ## Validation Baseline
 

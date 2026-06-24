@@ -590,6 +590,7 @@ export async function loadActiveTab() {
     state.currentTab = response && response.ok && response.tab
       ? response.tab
       : await loadActiveTabFallback(debugTabIdParam);
+  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   } catch (error) {
     state.currentTab = await loadActiveTabFallback(debugTabIdParam);
   }

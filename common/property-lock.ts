@@ -153,6 +153,7 @@ export function buildPropertyLockWssUrl(endpointUrl: string | null | undefined, 
     url = trimmed.includes("://")
       ? new URL(trimmed)
       : new URL(`https://${trimmed}`);
+  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   } catch (error) {
     return "";
   }

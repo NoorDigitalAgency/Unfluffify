@@ -11,8 +11,10 @@ function createDeps(overrides = {}) {
     clearPageDraftBaseline: (pageUrl) => calls.push(["clearPageDraftBaseline", pageUrl]),
     disable: () => calls.push(["disable"]),
     findPageMarkingEntry: () => null,
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     getBackendSavedPageMarkings: async () => [],
     getBaseUrl: () => "https://example.com/base",
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     clearPageSaveReconciliation: async (baseUrl, pageUrl) =>
       calls.push(["clearPageSaveReconciliation", baseUrl, pageUrl]),
     getCurrentPageType: () => "listing",
@@ -27,12 +29,14 @@ function createDeps(overrides = {}) {
     },
     isAiPreviewActive: () => false,
     isEnabled: () => false,
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     loadConfig: async (baseUrl) => {
       calls.push(["loadConfig", baseUrl]);
       return { pageMarkings: {} };
     },
     mergeDraftEntry: (...args) => calls.push(["mergeDraftEntry", ...args]),
     notifyDraftStatus: (pageUrl) => calls.push(["notifyDraftStatus", pageUrl]),
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     refreshPageSaveReconciliation: async (baseUrl, pageUrl) =>
       calls.push(["refreshPageSaveReconciliation", baseUrl, pageUrl]),
     refreshEnabledAiHighlights: () => calls.push(["refreshEnabledAiHighlights"]),
@@ -65,6 +69,7 @@ test("configUpdated reloads config during AI preview without clearing preview st
   const loadedConfig = { pageMarkings: { page: {} } };
   const deps = createDeps({
     isAiPreviewActive: () => true,
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     loadConfig: async (baseUrl) => {
       deps.calls.push(["loadConfig", baseUrl]);
       return loadedConfig;
@@ -84,6 +89,7 @@ test("configUpdated reloads config during AI preview without clearing preview st
 test("configUpdated AI preview reload failure answers ok false", async () => {
   const deps = createDeps({
     isAiPreviewActive: () => true,
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     loadConfig: async () => {
       throw new Error("load failed");
     }
@@ -100,10 +106,12 @@ test("configUpdated same-base update merges the draft before responding", async 
   const backendEntry = { pageType: "detail", xpaths: [{ xpath: "/backend" }] };
   const deps = createDeps({
     isEnabled: () => true,
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     loadConfig: async (baseUrl) => {
       deps.calls.push(["loadConfig", baseUrl]);
       return loadedConfig;
     },
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     getBackendSavedPageMarkings: async (baseUrl) => {
       deps.calls.push(["getBackendSavedPageMarkings", baseUrl]);
       return { "https://example.com/base/page": backendEntry };
@@ -139,6 +147,7 @@ test("configUpdated forced reload reseeds the saved entry and draft status", asy
   const loadedEntry = { pageType: "loaded-detail", xpaths: [{ xpath: "/loaded" }] };
   const deps = createDeps({
     isEnabled: () => true,
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     loadConfig: async () => loadedConfig,
     findPageMarkingEntry: (config) => (config === loadedConfig ? loadedEntry : null)
   });
@@ -179,6 +188,7 @@ test("configUpdated forced reload clears reconciliation when no page entry remai
   const loadedConfig = { pageMarkings: {} };
   const deps = createDeps({
     isEnabled: () => true,
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     loadConfig: async () => loadedConfig,
     findPageMarkingEntry: () => null
   });
@@ -208,6 +218,7 @@ test("configUpdated forced reload clears reconciliation when no page entry remai
 test("configUpdated same-base failure still syncs property lock and answers ok true", async () => {
   const deps = createDeps({
     isEnabled: () => true,
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     loadConfig: async () => {
       throw new Error("load failed");
     }

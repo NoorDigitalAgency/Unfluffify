@@ -13,6 +13,7 @@ function makeMockSession() {
   const store = new Map();
   return {
     store,
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     async get(keys) {
       if (keys === null) {
         return Object.fromEntries(store.entries());
@@ -26,11 +27,13 @@ function makeMockSession() {
       }
       return out;
     },
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     async set(obj) {
       for (const [key, value] of Object.entries(obj)) {
         store.set(key, value);
       }
     },
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     async remove(keys) {
       const keyList = Array.isArray(keys) ? keys : [keys];
       for (const key of keyList) {

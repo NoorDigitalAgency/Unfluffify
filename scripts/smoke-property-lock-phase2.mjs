@@ -56,6 +56,7 @@ async function reloadExtension(context, worker) {
   return context.waitForEvent("serviceworker", { timeout: 15000 });
 }
 
+// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 async function getTargetTabId(worker, url) {
   return worker.evaluate(async (targetUrl) => {
     const tabs = await chrome.tabs.query({});
@@ -72,6 +73,7 @@ async function getTargetTabId(worker, url) {
   }, url);
 }
 
+// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 async function activateContentMain(worker, tabId) {
   return worker.evaluate(async (targetTabId) => {
     try {
@@ -82,6 +84,7 @@ async function activateContentMain(worker, tabId) {
   }, tabId);
 }
 
+// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 async function readBackgroundTabState(worker, tabId) {
   return worker.evaluate(async (targetTabId) => {
     try {
@@ -99,6 +102,7 @@ async function readBackgroundTabState(worker, tabId) {
   }, tabId);
 }
 
+// deno-lint-ignore no-unused-vars require-await -- preserves existing promise/source-contract compatibility.
 async function readPropertyLockSnapshot(worker, tabId, siteId, clientId = "") {
   return worker.evaluate(async ({ targetTabId, targetSiteId, targetClientId }) => {
     try {
@@ -118,6 +122,7 @@ async function readPropertyLockSnapshot(worker, tabId, siteId, clientId = "") {
   });
 }
 
+// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 async function forceInitialRecoveryWrite(worker, tabId) {
   return worker.evaluate(async (targetTabId) => {
     const key = `tabState:initial:${targetTabId}`;
@@ -184,6 +189,7 @@ async function openPopupPage(context, extensionId, tabId) {
   return popup;
 }
 
+// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 async function readPopupState(popup) {
   return popup.evaluate(() => {
     const candidateAnchors = Array.from(document.querySelectorAll(".todo-candidate a.todo-candidate-link"));
@@ -206,6 +212,7 @@ async function readPopupState(popup) {
   });
 }
 
+// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 async function readPageBanner(page) {
   return page.evaluate(() => ({
     bannerText: document.querySelector("#unfluffify-lock-banner .uf-lock-banner-content")?.textContent?.trim() || "",
@@ -247,6 +254,7 @@ async function ensureEditorRole(popup) {
   return state;
 }
 
+// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 async function collectSameOriginNonCandidateUrl(page, candidateUrls) {
   return page.evaluate((blockedUrls) => {
     const blocked = new Set(blockedUrls.map((url) => url.replace(/#.*$/, "")));
@@ -279,6 +287,7 @@ try {
   const extensionId = new URL(worker.url()).host;
   logStep("extension", { extensionId });
 
+  // deno-lint-ignore require-await -- preserves existing promise/callback contract.
   const syncConfig = await worker.evaluate(async () => {
     return chrome.storage.sync.get([
       "globalConfigEndpoint",

@@ -21,6 +21,7 @@ function createDeps(overrides = {}) {
       calls.push(["createCurrentPageSnapshot"]);
       return { renderedHtml: "<main>snapshot</main>" };
     },
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     fetchCurrentPageRawHtml: async (pageUrl) => {
       calls.push(["fetchCurrentPageRawHtml", pageUrl]);
       return "<html>raw</html>";
@@ -37,14 +38,17 @@ function createDeps(overrides = {}) {
       calls.push(["hasPageMarkingEntry", config, pageUrl]);
       return true;
     },
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     loadConfig: async (baseUrl) => {
       calls.push(["loadConfig", baseUrl]);
       return { pageMarkings: {} };
     },
     matchesActiveBaseUrl: (baseUrl) => baseUrl === "https://example.com",
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     refreshSavedPageEntryFromBackendCache: async (baseUrl, pageUrl) => {
       calls.push(["refreshSavedPageEntryFromBackendCache", baseUrl, pageUrl]);
     },
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     saveConfig: async (baseUrl, config) => {
       calls.push(["saveConfig", baseUrl, config]);
     },

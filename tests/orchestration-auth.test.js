@@ -220,20 +220,24 @@ test("auth setup script targets the current popup configuration controls", async
 test("auth setup accepts a popup that already opened in configuration view", async () => {
   const calls = [];
   const popup = {
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     async goto(url, options) {
       calls.push(["goto", url, options.waitUntil]);
     },
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     async waitForSelector(selector, options) {
       calls.push(["wait", selector, options && options.state]);
       assert.equal(selector, AUTH_SETUP_SELECTORS.configurationEndpointInput);
       return {};
     },
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     async click(selector) {
       calls.push(["click", selector]);
     }
   };
   const context = {
     browserContext: {
+      // deno-lint-ignore require-await -- preserves existing promise/callback contract.
       async newPage() {
         return popup;
       }
@@ -252,11 +256,13 @@ test("auth setup accepts a popup that already opened in configuration view", asy
 
 test("auth setup reports popup login failures while waiting for a token", async () => {
   const worker = {
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     async evaluate() {
       return { globalToken: "" };
     }
   };
   const popup = {
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     async evaluate() {
       return {
         tokenStatusText: "Login required",
@@ -295,6 +301,7 @@ test("auth setup refuses obvious director/follower profile mismatches", () => {
 test("auth setup clears stale tokens before submitting credentials", async () => {
   let evaluatedSource = "";
   const worker = {
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     async evaluate(pageFunction) {
       evaluatedSource = String(pageFunction);
     }
@@ -318,12 +325,14 @@ test("auth setup waits for edit controls before filling read-only fields", async
   const calls = [];
   let readOnly = true;
   const page = {
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     async waitForSelector(selector, options) {
       calls.push(["waitInput", selector, options.state]);
     },
     locator(selector) {
       if (selector === AUTH_SETUP_SELECTORS.configurationEndpointInput) {
         return {
+          // deno-lint-ignore require-await -- preserves existing promise/callback contract.
           async evaluate() {
             return readOnly;
           }
@@ -333,9 +342,11 @@ test("auth setup waits for edit controls before filling read-only fields", async
       return {
         first() {
           return {
+            // deno-lint-ignore require-await -- preserves existing promise/callback contract.
             async waitFor(options) {
               calls.push(["waitEdit", options.state]);
             },
+            // deno-lint-ignore require-await -- preserves existing promise/callback contract.
             async click() {
               calls.push(["clickEdit"]);
               readOnly = false;
@@ -344,6 +355,7 @@ test("auth setup waits for edit controls before filling read-only fields", async
         }
       };
     },
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     async waitForFunction(_pageFunction, selector, options) {
       calls.push(["waitEditable", selector, options.timeout]);
       assert.equal(readOnly, false);

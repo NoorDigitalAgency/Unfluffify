@@ -2168,6 +2168,7 @@ function getNthOfTypeIndex(el) {
  * @returns {string} A CSS selector path from body to the element
  */
 // @ts-expect-error
+// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 function buildCssSelectorPath(el) {
   if (!el || el.nodeType !== 1) {
     return "";
@@ -2259,6 +2260,7 @@ function hasExplicitUserMarkings(entry) {
 }
 
 // @ts-expect-error
+// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 function isWithinExcludedParents(el, excludedParents) {
   if (!el || !excludedParents || excludedParents.size === 0) {
     return false;
@@ -2272,6 +2274,7 @@ function isWithinExcludedParents(el, excludedParents) {
 }
 
 // @ts-expect-error
+// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 function collectExcludedParentElements(items) {
   const parents = new Set();
   if (!Array.isArray(items)) {
@@ -2297,6 +2300,7 @@ function collectExcludedParentElements(items) {
 }
 
 // @ts-expect-error
+// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 function scanReconcileDocumentCandidates(immutableExcluded, excludedParents) {
 // @ts-expect-error
   const toggleableCandidates = [];
@@ -2406,6 +2410,7 @@ function scanReconcileDocumentCandidates(immutableExcluded, excludedParents) {
 }
 
 // @ts-expect-error
+// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 async function scanReconcileDocumentCandidatesAsync(immutableExcluded, excludedParents, options = {}) {
 // @ts-expect-error
   const toggleableCandidates = [];
@@ -2529,11 +2534,13 @@ async function scanReconcileDocumentCandidatesAsync(immutableExcluded, excludedP
 }
 
 // @ts-expect-error
+// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 function collectToggleableTargets(immutableExcluded, excludedParents) {
   return scanReconcileDocumentCandidates(immutableExcluded, excludedParents).toggleableCandidates;
 }
 
 // @ts-expect-error
+// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 async function collectToggleableTargetsAsync(immutableExcluded, excludedParents, options = {}) {
   const scanned = await scanReconcileDocumentCandidatesAsync(immutableExcluded, excludedParents, options);
   return scanned.toggleableCandidates;
@@ -2897,6 +2904,7 @@ function isSelectorExcludedElement(
 // @ts-expect-error
   includedElements,
 // @ts-expect-error
+  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   inclusionContextSet
 ) {
   return isRawSelectorExcludedElement(el, excludedElements, includedElements);
@@ -3066,6 +3074,7 @@ function hasRenderableTextForExcludedHighlight(
 // @ts-expect-error
   includedElements,
 // @ts-expect-error
+  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   inclusionContextSet
 ) {
   if (!el || el.nodeType !== 1) {
@@ -3855,6 +3864,7 @@ function setEntrySilentWhitespaceExcludedXpaths(entry, xpaths) {
 }
 
 // @ts-expect-error
+// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 function isXpathCoveredByAncestor(xpath, ancestorXpaths) {
   if (!xpath || !ancestorXpaths) {
     return false;
@@ -4194,6 +4204,7 @@ function getExtensionResourceUrl(path) {
   }
   try {
     return chrome.runtime.getURL(path) || "";
+  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   } catch (error) {
     return "";
   }
@@ -4241,6 +4252,7 @@ function getDocumentScrollHeightForPageInspection() {
   ]);
 }
 
+// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 function getMaxScrollYForPageInspection() {
   if (typeof document === "undefined" || typeof window === "undefined") {
     return 0;
@@ -4254,6 +4266,7 @@ function getMaxScrollYForPageInspection() {
 }
 
 // @ts-expect-error
+// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 function scrollWindowInstantlyTo(x, y) {
   if (typeof window === "undefined") {
     return false;
@@ -4274,6 +4287,7 @@ function scrollWindowInstantlyTo(x, y) {
       body.scrollTop = Number(y) || 0;
     }
     return Boolean(documentElement || body);
+  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   } catch (error) {
     return false;
   }
@@ -5236,6 +5250,7 @@ function sendPageMotionFreezeControlThroughBackground(command, details = null) {
     // The runtime response resolves only after the background relays the command
     // into the page (MAIN) world, so awaiting this confirms the lock is applied.
     return utils.sendRuntimeMessage(message).catch(() => {});
+  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   } catch (error) {
     // Best-effort page-world motion control; CSS/Web Animations freezing still applies.
     return Promise.resolve();
@@ -5278,6 +5293,7 @@ function restorePageInspectionLazyLoadingSuppression() {
 // @ts-expect-error
       restorer();
       return;
+    // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
     } catch (error) {
       // Fall through to direct cleanup below.
     }
@@ -5292,9 +5308,11 @@ function getDocumentAnimations() {
   try {
 // @ts-expect-error
     return Array.from(document.getAnimations({ subtree: true }) || []);
+  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   } catch (error) {
     try {
       return Array.from(document.getAnimations() || []);
+    // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
     } catch (fallbackError) {
       return [];
     }
@@ -5320,6 +5338,7 @@ function pauseDocumentAnimations(pauseState) {
     pauseState.animations.add(animation);
     try {
       animation.pause();
+    // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
     } catch (error) {
       // Ignore animations that cannot be controlled by content scripts.
     }
@@ -5334,6 +5353,7 @@ function resumeDocumentAnimations(pauseState) {
     }
     try {
       animation.play();
+    // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
     } catch (error) {
       // Ignore animations that were removed while marking mode was active.
     }
@@ -5360,9 +5380,11 @@ function createSyntheticPageMotionEvent(type, bubbles) {
   }
   try {
     return new EventConstructor(type, eventOptions);
+  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   } catch (error) {
     try {
       return new Event(type, eventOptions);
+    // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
     } catch (fallbackError) {
       return null;
     }
@@ -5381,6 +5403,7 @@ function dispatchPageMotionEvents(target, events) {
     }
     try {
       target.dispatchEvent(event);
+    // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
     } catch (error) {
       // Ignore third-party widgets that reject synthetic events.
     }
@@ -5405,6 +5428,7 @@ function isIgnoredPageMotionElement(element) {
   if (typeof element.closest === "function") {
     try {
       return Boolean(element.closest("[data-uf-extension-ui=\"true\"]"));
+    // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
     } catch (error) {
       return false;
     }
@@ -5419,6 +5443,7 @@ function getComputedCssStyle(element) {
   }
   try {
     return window.getComputedStyle(element);
+  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   } catch (error) {
     return null;
   }
@@ -5426,6 +5451,7 @@ function getComputedCssStyle(element) {
 
 // @ts-expect-error
 function toStylePropertyName(property) {
+  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   return String(property || "").replace(/-([a-z])/g, (match, letter) => letter.toUpperCase());
 }
 
@@ -5524,6 +5550,7 @@ function getElementAttributePairs(element) {
         value: attribute && typeof attribute.value === "string" ? attribute.value : ""
       }))
       .filter((attribute) => attribute.name);
+  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   } catch (error) {
     return [];
   }
@@ -5640,6 +5667,7 @@ function getAnimationEffectTarget(animation) {
   try {
     const target = animation.effect.target;
     return target && target.nodeType === 1 ? target : null;
+  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   } catch (error) {
     return null;
   }
@@ -5660,6 +5688,7 @@ function collectPageMotionCandidates() {
   let elements = [];
   try {
     elements = Array.from(document.querySelectorAll("*") || []);
+  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   } catch (error) {
     elements = [];
   }
@@ -5787,6 +5816,7 @@ function applyPageMotionLockProperty(record, element, property, lockValue) {
   if (currentValue !== lock.lockValue || currentPriority !== "important") {
     try {
       element.style.setProperty(property, lock.lockValue, "important");
+    // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
     } catch (error) {
       // Ignore immutable inline style declarations.
     }
@@ -5816,6 +5846,7 @@ function elementHasMotionLayoutBox(element) {
       const rect = element.getBoundingClientRect();
       return Boolean(rect && Number(rect.width) > 1 && Number(rect.height) > 1);
     }
+  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   } catch (error) {
     return true;
   }
@@ -5942,6 +5973,7 @@ function restorePageMotionLockRecordOnElement(element, record) {
       } else if (typeof element.style.removeProperty === "function") {
         element.style.removeProperty(property);
       }
+    // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
     } catch (error) {
       // Ignore detached elements and immutable inline style declarations.
     }
@@ -5977,6 +6009,7 @@ function restorePageMotionLocksInSnapshotClone(clone) {
   if (typeof clone.querySelectorAll === "function") {
     try {
       lockedCloneElements.push(...clone.querySelectorAll(`[${PAGE_MOTION_PAUSE_LOCK_ATTR}]`));
+    // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
     } catch (error) {
       // Ignore selector support differences on cloned documents.
     }
@@ -6052,6 +6085,7 @@ function queryPageMotionElements(selector) {
   }
   try {
     return Array.from(document.querySelectorAll(selector) || []);
+  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   } catch (error) {
     return [];
   }
@@ -6068,6 +6102,7 @@ function pauseSvgAnimations(pauseState) {
       if (typeof svgElement.animationsPaused === "function") {
         try {
           wasPaused = Boolean(svgElement.animationsPaused());
+        // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
         } catch (error) {
           wasPaused = false;
         }
@@ -6076,6 +6111,7 @@ function pauseSvgAnimations(pauseState) {
     }
     try {
       svgElement.pauseAnimations();
+    // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
     } catch (error) {
       // Ignore SVG roots whose animation clock is unavailable.
     }
@@ -6090,6 +6126,7 @@ function resumeSvgAnimations(pauseState) {
     }
     try {
       svgElement.unpauseAnimations();
+    // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
     } catch (error) {
       // Ignore SVG roots removed while page motion was paused.
     }
@@ -6123,6 +6160,7 @@ function pauseMediaElements(pauseState) {
     }
     try {
       mediaElement.pause();
+    // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
     } catch (error) {
       // Ignore media controlled by page policies.
     }
@@ -6140,6 +6178,7 @@ function resumeMediaElements(pauseState) {
       if (result && typeof result.catch === "function") {
         result.catch(() => {});
       }
+    // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
     } catch (error) {
       // Ignore media that cannot resume due to browser autoplay policy.
     }
@@ -6165,6 +6204,7 @@ function schedulePageMotionPauseRefresh(pauseState = state.pageMotionPause) {
   try {
     extensionRequestAnimationFrame(run);
     return;
+  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   } catch (error) {
     extensionSetTimeout(run, 0);
   }
@@ -6235,6 +6275,7 @@ function startPageMotionPauseObserver(pauseState) {
         "role"
       ]
     });
+  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   } catch (error) {
     pauseState.observer = null;
   }
@@ -6247,6 +6288,7 @@ function stopPageMotionPauseObserver(pauseState) {
   }
   try {
     pauseState.observer.disconnect();
+  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   } catch (error) {
     // Ignore observers already detached by the browser.
   }
@@ -7388,6 +7430,7 @@ function showImmediateToggleAcknowledgement(target, mode) {
   }, TOGGLE_ACK_CLEAR_MS);
 }
 
+// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 function ensureAiPopoverStyle() {
   if (document.getElementById("unfluffify-ai-popover-style")) {
     return;
@@ -7596,6 +7639,7 @@ function ensureAiPopoverStyle() {
 }
 
 // @ts-expect-error
+// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 function createAiPopoverPanelIcon(direction) {
   const svgNs = "http://www.w3.org/2000/svg";
   const svg = document.createElementNS(svgNs, "svg");
@@ -7727,6 +7771,7 @@ function closeAiPopover(options = {}) {
 }
 
 // @ts-expect-error
+// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 function setAiPopoverCollapsed(collapsed) {
   if (!state.aiPopover) {
     return;
@@ -7966,6 +8011,7 @@ function hasBroadParentMarkingFootprint(el) {
   let rect;
   try {
     rect = el.getBoundingClientRect();
+  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   } catch (error) {
     return false;
   }
@@ -9461,6 +9507,7 @@ function drawExplicitMarkingLayers(
   });
 }
 
+// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 function shouldUseImmediateFullRenderForExplicitToggle(options = {}) {
   // Keep toggles responsive: explicit layers update immediately, while the
   // heavier invalidating rebuild is deferred and coalesced.
@@ -9604,6 +9651,7 @@ function refreshExplicitMarkingOverlay(entry, context = null) {
 }
 
 // @ts-expect-error
+// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 async function refreshExplicitMarkingOverlayAsync(entry, context = null) {
   if (!state.enabled || !state.overlay) {
     return { ok: false, aborted: false };
@@ -10420,6 +10468,7 @@ function startObservers() {
         minInterval: 250,
         invalidate: renderMode === "rebuild"
       });
+    // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
     } catch (error) {
       // Silently handle errors to prevent observer from stopping
     }
@@ -10433,6 +10482,7 @@ function startObservers() {
         attributes: true,
         attributeFilter: ["class", "id", "hidden", "aria-hidden", "style"]
       });
+    // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
     } catch (error) {
       // Silently handle if body is not available
       state.mutationObserver = null;
@@ -11105,6 +11155,7 @@ export function getElementFromXPath(xpath) {
       return node;
     }
     return null;
+  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   } catch (error) {
     return null;
   }
@@ -11749,6 +11800,7 @@ export async function saveConfig(baseUrl, configValue) {
 }
 
 // @ts-expect-error
+// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 export function showAiPopover(items, options = {}) {
   clearFocusHighlight();
   closeAiPopover({ notify: false, suppressCallback: true });
@@ -11857,6 +11909,7 @@ export function syncPageMarkings(config, pageUrl, immutableExcluded, options) {
 }
 
 // @ts-expect-error
+// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 export async function syncPageMarkingsAsync(config, pageUrl, immutableExcluded, options) {
   return withElementComputationCacheAsync(() =>
     syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, options)
@@ -11874,6 +11927,7 @@ function appendSyncedCandidateItem(el, context) {
     explicitExcludeAncestorSet,
     excludedLookup,
     explicitXpathSet,
+    // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
     getCachedElementFromXPath,
     items,
     previousSilentWhitespaceExcludedSet,

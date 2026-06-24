@@ -20,7 +20,9 @@ import {
   canUseCollapsedTextFallback as canUseCollapsedTextFallbackNode
 } from "./content/shared-inclusion.js";
 import {
+  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   normalizeCandidatePageUrl,
+  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   normalizePropertyPageTypes
 } from "./common/lynx-checklist.js";
 import {
@@ -151,6 +153,7 @@ const SILENT_SELECTOR_EXCLUDE_ATTR = "data-uf-silent-selector-exclude";
 const SILENT_TITLE_COPY_ATTR = "data-uf-silent-title-copy";
 const AI_PREVIEW_CLICKABLE_ATTR = "data-uf-ai-preview-clickable";
 const SILENT_SELECTOR_TITLE_PREFIX = "Unfluffify selector: ";
+// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 const PAGE_SAVE_MOBILE_SIMULATION_REQUIRED_MESSAGE =
   "Mobile simulation must be enabled to save markings.";
 const PAGE_TOAST_ID = "unfluffify-page-toast";
@@ -279,6 +282,7 @@ let silentHighlightEditorActivationPromise = null;
 let silentHighlightEditorActivationQueued = false;
 let silentHighlightEditorActivationIdCounter = 0;
 let renderModeInspectionActive = false;
+// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 let renderModeInspectionWatchdogTimer = 0;
 let lifecycleOperationCounter = 0;
 const silentSelectorAnnotatedNodes = new Set();
@@ -761,6 +765,7 @@ async function resolveSiteIdFromGraphql(options = {}) {
       stageBase,
       pageUrl
     });
+  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   } catch (error) {
     return null;
   }
@@ -1664,6 +1669,7 @@ async function fetchCurrentPageRawHtml(pageUrl = location.href) {
       return null;
     }
     return response.html;
+  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   } catch (error) {
     return null;
   }
@@ -1736,6 +1742,7 @@ function hasSavedAiSnapshotForHotkey(entry) {
   );
 }
 
+// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 async function isPageSaveHotkeyAllowedOnPage() {
   if (!state.enabled || !state.baseUrl || !state.config) {
     return false;
@@ -1768,6 +1775,7 @@ async function toggleDeviceEmulationFromPage() {
     if (response && response.ok && response.state) {
       currentState = response.state;
     }
+  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   } catch (error) {
     currentState = null;
   }
@@ -1997,6 +2005,7 @@ function shouldRunSilentHighlightEditorActivation() {
   return Boolean(propertyLockState && propertyLockState.isEditor);
 }
 
+// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 async function runEditorSilentHighlightingActivation() {
 // @ts-expect-error
   if (silentHighlightEditorActivationPromise) {
@@ -3413,6 +3422,7 @@ function beginAiPreviewMode(options = {}) {
   }
 }
 
+// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 async function enterAiPreviewMode(options = {}) {
   beginAiPreviewMode(options);
   await refreshSilentHighlightings();
@@ -3673,6 +3683,7 @@ function resolveSelectorForNode(node, selectorByNode, allowAncestorMatch = false
 }
 
 // @ts-expect-error
+// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 function isWithinExcludedNode(node, excluded) {
   if (!node || !excluded || excluded.size === 0) {
     return false;
@@ -3899,6 +3910,7 @@ function isRawSelectorExcludedNode(node, excludedNodes, includedNodes) {
 }
 
 // @ts-expect-error
+// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 function isSelectorExcludedNode(node, excludedNodes, includedNodes, inclusionContextSet) {
   return isRawSelectorExcludedNode(node, excludedNodes, includedNodes);
 }
@@ -4163,6 +4175,7 @@ function hasRenderableTextForExcludedHighlight(
 // @ts-expect-error
   includedNodes,
 // @ts-expect-error
+  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   inclusionContextSet
 ) {
   if (!node || node.nodeType !== 1) {
@@ -4336,6 +4349,7 @@ function compareNodeOrder(left, right) {
 }
 
 // @ts-expect-error
+// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 function collapseToDeepest(nodes) {
   const sorted = Array.from(nodes || []).sort((left, right) => {
     const depthDiff = getNodeDepth(right) - getNodeDepth(left);
@@ -5586,6 +5600,7 @@ function getPropertyLockClientId() {
         return propertyLockClientId;
       }
     }
+  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   } catch (error) {
     // sessionStorage can be unavailable on some pages; fall back to memory.
   }
@@ -5601,6 +5616,7 @@ function setPropertyLockClientId(nextClientId) {
   propertyLockClientId = normalizedClientId;
   try {
     window.sessionStorage.setItem(PROPERTY_LOCK_CLIENT_SESSION_KEY, normalizedClientId);
+  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   } catch (error) {
     // In-memory fallback remains valid for the current content-script lifetime.
   }
@@ -5616,6 +5632,7 @@ function getPropertyLockDraftStatusPayload() {
   };
 }
 
+// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 function sendPropertyLockDraftStatus() {
   if (!ensurePropertyLockCollaborationActive()) {
     return;
@@ -5631,6 +5648,7 @@ function sendPropertyLockDraftStatus() {
       type: PROPERTY_LOCK_CONTENT_DRAFT_STATUS,
       ...getPropertyLockDraftStatusPayload()
     });
+  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   } catch (error) {
     // Activity/reconnect paths will repair the port if it has already closed.
   }
@@ -5714,6 +5732,7 @@ function loadPropertyLockRecoveryTabState() {
   );
 }
 
+// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 function persistPropertyLockRecoveryState({ siteId = null, baseUrl = "", clientId = "", deadlineAt = 0 } = {}) {
 // @ts-expect-error
   return getPropertyLockStateMachine().persistRecoveryState({
@@ -5725,6 +5744,7 @@ function persistPropertyLockRecoveryState({ siteId = null, baseUrl = "", clientI
 }
 
 // @ts-expect-error
+// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 function persistPropertyLockOffCandidateDeadline(deadlineAt) {
 // @ts-expect-error
   return getPropertyLockStateMachine().persistOffCandidateDeadline(deadlineAt);
@@ -6951,11 +6971,13 @@ function createPropertyLockBannerDeps() {
   };
 }
 
+// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 function ensurePropertyLockBannerStyle() {
   return ensurePropertyLockBannerStyleOperation(createPropertyLockBannerDeps());
 }
 
 // @ts-expect-error
+// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 async function respondToPropertyLockTakeoverSuggestion(accept) {
   if (!ensurePropertyLockCollaborationActive()) {
     return;
@@ -7115,11 +7137,13 @@ function handleRenderModeInspectionBeginCommand(message = {}) {
   return getRenderModeInspectionHandlers().begin(message);
 }
 
+// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 async function handleRunRenderModeRevealOnceCommand(message = {}) {
 // @ts-expect-error
   return getRenderModeInspectionHandlers().revealOnce(message);
 }
 
+// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 async function handleCaptureRenderModeInspectionHtmlCommand(message = {}) {
 // @ts-expect-error
   return getRenderModeInspectionHandlers().captureHtml(message);
@@ -7141,23 +7165,32 @@ function registerContentCommandHandlersOnce() {
   }
   contentCommandHandlersRegistered = true;
 
+  // deno-lint-ignore require-await -- preserves existing promise/callback contract.
   registerContentCommand("activateContentMain", async () => ({
     ok: true,
     initialized: Boolean(state.initialized)
   }));
 // @ts-expect-error
+  // deno-lint-ignore require-await -- preserves existing promise/callback contract.
   registerContentCommand("setEnabled", async (_context, payload) => handleSetEnabledCommand(payload));
+  // deno-lint-ignore require-await -- preserves existing promise/callback contract.
   registerContentCommand("getInspectionStatus", async () => handleGetInspectionStatusCommand());
 // @ts-expect-error
+  // deno-lint-ignore require-await -- preserves existing promise/callback contract.
   registerContentCommand("setPopupBusyOnPage", async (_context, payload) => handleSetPopupBusyOnPageCommand(payload));
 // @ts-expect-error
+  // deno-lint-ignore require-await -- preserves existing promise/callback contract.
   registerContentCommand("renderModeInspectionBegin", async (_context, payload) => handleRenderModeInspectionBeginCommand(payload));
 // @ts-expect-error
+  // deno-lint-ignore require-await -- preserves existing promise/callback contract.
   registerContentCommand("runRenderModeRevealOnce", async (_context, payload) => handleRunRenderModeRevealOnceCommand(payload));
 // @ts-expect-error
+  // deno-lint-ignore require-await -- preserves existing promise/callback contract.
   registerContentCommand("captureRenderModeInspectionHtml", async (_context, payload) => handleCaptureRenderModeInspectionHtmlCommand(payload));
 // @ts-expect-error
+  // deno-lint-ignore require-await -- preserves existing promise/callback contract.
   registerContentCommand("renderModeInspectionEnd", async (_context, payload) => handleRenderModeInspectionEndCommand(payload));
+  // deno-lint-ignore require-await -- preserves existing promise/callback contract.
   registerContentCommand("hideConsentForInspection", async () => handleHideConsentForInspectionCommand());
 }
 

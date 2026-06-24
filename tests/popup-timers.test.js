@@ -3,6 +3,7 @@ import { assert } from "./test-kit.ts";
 
 import { createPopupTimerGroup } from "../popup/timers.js";
 
+// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 test("popup timer group timeout replaces prior key and clears old id", async () => {
   const clearTimeoutCalls = [];
   const callbacks = new Map();

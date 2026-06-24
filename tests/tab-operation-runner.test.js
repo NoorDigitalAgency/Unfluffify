@@ -20,6 +20,7 @@ function createHarness() {
       spinners.push({ phase: "set", tabId, descriptor });
       try {
         return await work({
+          // deno-lint-ignore require-await -- preserves existing promise/callback contract.
           update: async (patch) => {
             updates.push({ tabId, patch });
             return { ok: true };
@@ -93,6 +94,7 @@ test("tab operation runner normalizes spinner infrastructure failures", async ()
     updateLifecycleState(tabId, event) {
       lifecycle.push({ tabId, event });
     },
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     async withTabSpinner() {
       throw new Error("spinner failed");
     }
@@ -104,6 +106,7 @@ test("tab operation runner normalizes spinner infrastructure failures", async ()
     message: "Inspecting page...",
     timeoutMs: 100,
     spinner: { key: "render-mode:13" }
+  // deno-lint-ignore require-await -- preserves existing promise/callback contract.
   }, async () => ({ ok: true }));
 
   assert.equal(result.ok, false);
@@ -127,6 +130,7 @@ test("tab operation runner treats lifecycle emission as best-effort", async () =
     message: "Inspecting page...",
     timeoutMs: 100,
     spinner: false
+  // deno-lint-ignore require-await -- preserves existing promise/callback contract.
   }, async () => ({ ok: true }));
 
   assert.equal(result.ok, true);

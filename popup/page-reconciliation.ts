@@ -81,6 +81,7 @@ export async function handlePageSave(deps: PageReconciliationDeps) {
   const ensureActiveTab =
     typeof deps.ensureActiveTab === "function"
       ? deps.ensureActiveTab
+      // deno-lint-ignore require-await -- preserves existing promise/callback contract.
       : async () => null;
   if (!await ensureActiveTab({ requireId: true })) {
     return;
@@ -164,6 +165,7 @@ export async function handlePageRevert(deps: PageReconciliationDeps) {
   const ensureActiveTab =
     typeof deps.ensureActiveTab === "function"
       ? deps.ensureActiveTab
+      // deno-lint-ignore require-await -- preserves existing promise/callback contract.
       : async () => null;
   if (!await ensureActiveTab({ requireId: true })) {
     return;

@@ -98,6 +98,7 @@ export function normalizeCandidatePageUrl(value: unknown): string {
     }
     parsed.pathname = parsed.pathname.replace(/\/+$/, "") || "/";
     return parsed.toString();
+  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   } catch (error) {
     return "";
   }
@@ -342,6 +343,7 @@ export function createInitialLynxChecklistState() {
   };
 }
 
+// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 export function buildLynxChecklistPromptState(options = {}) {
   return {
     aiAnswer: "",

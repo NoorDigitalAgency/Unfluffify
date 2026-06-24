@@ -12,6 +12,7 @@ function createDeps(overrides = {}) {
 
   const entry = { xpath: "/html/body/main" };
   const deps = {
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     clearPageSaveReconciliation: async (baseUrl, pageUrl) => {
       calls.push(["clearPageSaveReconciliation", baseUrl, pageUrl]);
     },
@@ -23,11 +24,13 @@ function createDeps(overrides = {}) {
       calls.push(["findPageMarkingEntry", configValue, pageUrl, baseUrl]);
       return entry;
     },
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     getBackendSavedPageMarkings: async (baseUrl) => {
       calls.push(["getBackendSavedPageMarkings", baseUrl]);
       return [{ pageUrl: "https://example.com/current" }];
     },
     getPageUrl: () => "https://example.com/current",
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     loadConfig: async (baseUrl) => {
       calls.push(["loadConfig", baseUrl]);
       return { baseUrl };
@@ -36,6 +39,7 @@ function createDeps(overrides = {}) {
       calls.push(["notifyDraftStatus", pageUrl]);
       draftStatuses.push(pageUrl);
     },
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     refreshPageSaveReconciliation: async (baseUrl, pageUrl) => {
       calls.push(["refreshPageSaveReconciliation", baseUrl, pageUrl]);
     },

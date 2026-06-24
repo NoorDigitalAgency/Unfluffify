@@ -67,20 +67,25 @@ function createBaseDeps(overrides = {}) {
     },
     chromeRef: createChromeHarness().chromeRef,
     messages: {
+      // deno-lint-ignore require-await -- preserves existing promise/callback contract.
       sendRuntimeMessage: async () => ({ ok: true, rendered: true, accuracy: 0.9 })
     },
     shouldAutoDetectRenderMode: () => true,
     getCurrentRenderModeInspectionSnapshot: () => ({ rawHtml: "<html>", renderedHtml: "<body>" }),
     getSuggestedRenderModeForPage: () => "static",
     markRenderModeUndetermined() {},
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     loadGlobalAiSettings: async () => ({ tokenValue: "token", endpointValue: "endpoint" }),
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     runWithSpinner: async (_key, _message, work) => work(),
     normalizeUiRenderModeValue: (value) => value,
     buildTransferPayloadKey: () => "payload-key",
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     putTransferPayload: async () => ({ ok: true }),
     waitForRetryDelay: async () => {},
     getRetryDelayMs: () => 1,
     isRetryableHttpStatus: () => true,
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     ensureContentReadyForRenderModeInspection: async () => true,
     rememberRenderModeInspectionSnapshot() {},
     hideConsentForRenderModeInspection: async () => {},
@@ -102,6 +107,7 @@ test("popup render-mode inspection detection retries and succeeds", async () => 
   let calls = 0;
   const deps = createBaseDeps({
     messages: {
+      // deno-lint-ignore require-await -- preserves existing promise/callback contract.
       sendRuntimeMessage: async () => {
         calls += 1;
         if (calls === 1) {
@@ -194,6 +200,7 @@ test("popup render-mode follow-up hides consent before capture without reveal", 
   const calls = [];
   const deps = createBaseDeps({
     messages: {
+      // deno-lint-ignore require-await -- preserves existing promise/callback contract.
       sendTabMessageToTab: async (_tabId, message) => {
         calls.push(message.type);
         if (message.type === "captureRenderModeInspectionHtml") {
@@ -207,6 +214,7 @@ test("popup render-mode follow-up hides consent before capture without reveal", 
         return { ok: true };
       }
     },
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     hideConsentForRenderModeInspection: async () => {
       calls.push("hideConsentForRenderModeInspection");
     }

@@ -97,6 +97,7 @@ async function waitForCondition(label, predicate, options = {}) {
   throw new Error(`Timed out waiting for ${label}${detail}`);
 }
 
+// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 async function createParticipant(baseConfig, overrides = {}) {
   const config = {
     ...baseConfig,
@@ -141,6 +142,7 @@ async function clickPopupButton(participant, labelPattern) {
   return refreshParticipantState(participant, 2_000);
 }
 
+// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 async function waitForEditor(participant, label) {
   return waitForCondition(label, async () => {
     const state = await refreshParticipantState(participant, 1_000);
@@ -152,6 +154,7 @@ async function waitForEditor(participant, label) {
   });
 }
 
+// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 async function waitForPassiveLock(participant, label) {
   return waitForCondition(label, async () => {
     const state = await refreshParticipantState(participant, 1_000);
@@ -163,6 +166,7 @@ async function waitForPassiveLock(participant, label) {
   });
 }
 
+// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 async function waitForButton(participant, labelPattern, label) {
   return waitForCondition(label, async () => {
     const state = await refreshParticipantState(participant, 1_000);

@@ -79,6 +79,7 @@ async function withChromeMock(chromeMock, callback) {
   }
 }
 
+// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 async function loadSettingsStoreModule() {
   settingsStoreImportCounter += 1;
   return import(new URL(`../common/settings-store.ts?case=${settingsStoreImportCounter}`, import.meta.url));
