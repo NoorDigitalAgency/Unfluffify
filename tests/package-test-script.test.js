@@ -2,20 +2,27 @@ import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 import { readFileSync } from "./file-kit.ts";
 
-test("deno task test is defined in deno.json", () => {
+test("deno config no longer exposes the legacy public bridge tasks", () => {
   const denoJson = JSON.parse(readFileSync(new URL("../deno.json", import.meta.url)));
+  const removedTaskNames = [
+    "check",
+    "test",
+    "lint",
+    "lint:fix",
+    "build",
+    "package",
+    "package:metadata",
+    "build:dev",
+    "build:release",
+    "watch",
+    "browser:live",
+    "dev",
+    "verify",
+  ];
 
-  assert.equal(
-    denoJson.tasks.test,
-    "deno test --allow-read --allow-write --allow-env --allow-run --allow-sys --allow-net=127.0.0.1 --no-check --unstable-sloppy-imports tests"
-  );
-});
-
-test("deno task lint targets the full repository", () => {
-  const denoJson = JSON.parse(readFileSync(new URL("../deno.json", import.meta.url)));
-
-  assert.equal(denoJson.tasks.lint, "deno lint .");
-  assert.equal(denoJson.tasks["lint:fix"], "deno lint --fix .");
+  for (const taskName of removedTaskNames) {
+    assert.equal(Object.hasOwn(denoJson.tasks || {}, taskName), false);
+  }
 });
 
 test("repo-wide deno lint excludes approved legacy/browser rules only", () => {
@@ -35,4 +42,17 @@ test("repo-wide deno lint excludes approved legacy/browser rules only", () => {
   for (const rule of ["require-await", "no-unused-vars"]) {
     assert.equal(excludedRules.includes(rule), false);
   }
+});
+
+test("public pnpm script entrypoints resolve Deno instead of assuming PATH", () => {
+  const buildScript = readFileSync(new URL("../scripts/build-extension.ts", import.meta.url));
+  const launchScript = readFileSync(new URL("../scripts/launch-test-browser.ts", import.meta.url));
+  const resolverScript = readFileSync(new URL("../scripts/deno-executable.ts", import.meta.url));
+
+  assert.equal(buildScript.includes('new Deno.Command("deno"'), false);
+  assert.equal(launchScript.includes('new Deno.Command("deno"'), false);
+  assert.equal(launchScript.includes('run("deno"'), false);
+  assert.equal(buildScript.includes("resolveDenoExecutable"), true);
+  assert.equal(launchScript.includes("resolveDenoExecutable"), true);
+  assert.equal(resolverScript.includes('Deno.env.get("DENO_BIN")'), true);
 });

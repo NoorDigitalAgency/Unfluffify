@@ -35,13 +35,14 @@ the Brain on a half-migrated dual Deno+WXT build.
 ## User-approved constraints (authoritative)
 
 - Use **pnpm + WXT**; test runner is **Vitest**; lint is **ESLint** (all migrated
-  in Part A). After the Part A cutover, no `deno task` command remains.
+  in Part A). After the Part A cutover, the supported build/test/browser
+  workflow is pnpm-first; Deno tasks remain only for orchestration and internal
+  compatibility paths.
 - Preserve behavior/contracts; tests can be refactored structurally.
 - CI/CD may be redesigned to fit WXT.
 - Functional target is recent Chrome; strict old manifest process is not required.
 - Live debug workflow must remain functionally equivalent. The active launcher is
-  now `pnpm browser:live <url>` (`deno task browser:live <url>` remains a bridge
-  to the same launcher).
+  now `pnpm browser:live <url>`.
 - Phased migration with runnable checkpoints (not big-bang).
 - The Brain architecture (single background Brain, stateless popup/content layers,
   typed request/publish seams) is the Part B target; it starts only after Part A.
@@ -54,14 +55,14 @@ the Brain on a half-migrated dual Deno+WXT build.
 
 | Purpose | Command |
 |---|---|
-| dev/watch | still deferred; current watcher remains `deno task dev` until a watch-time WXT bridge exists |
+| dev/watch | `pnpm dev` (wraps the still-needed legacy watch build) |
 | type-check | `pnpm check` (`wxt prepare && tsc --noEmit`) |
 | lint | `pnpm lint` (bootstrap-scoped ESLint in A1; broadens later) |
 | test | `pnpm test` (`vitest run`) |
 | release build | `pnpm build` (`wxt build` → `.output/chrome-mv3/`) |
 | zip | `pnpm zip` (archive over the synced `.output/chrome-mv3` hybrid output) |
 | verify | `pnpm verify` (`lint && check && test`, then `pnpm build` + generated-manifest/WAR check) |
-| live browser | `pnpm browser:live <url>` (bridge: `deno task browser:live <url>`) |
+| live browser | `pnpm browser:live <url>` |
 
 ## Authority model guardrails (Part B, mandatory)
 
@@ -88,11 +89,10 @@ the Brain on a half-migrated dual Deno+WXT build.
 - Extension builds reproducibly (`pnpm build`) and loads unpacked
   (`.output/chrome-mv3`).
 - Dev workflow remains documented and executable; the active watcher is still
-  `deno task dev` until a watch-time WXT bridge exists.
+  `pnpm dev`, which currently wraps the still-needed legacy watch build.
 
 ### Debug flow parity
-- Live-browser launcher: `pnpm browser:live <url>` (bridge:
-  `deno task browser:live <url>`).
+- Live-browser launcher: `pnpm browser:live <url>`.
 - Popup bound to the target tab (`debugTabId` equivalent).
 - Button state + transitions inspectable (`state`/`observe`).
 - Exit Preview triggerable from control flow (`exit-preview`).
@@ -196,8 +196,7 @@ Explicit page-world / runtime asset facts that must remain true:
 
 ## Baseline live-browser invariants (must survive Part A)
 
-- The supported launch path is `pnpm browser:live <url>` (`deno task browser:live
-  <url>` remains a bridge to the same launcher).
+- The supported launch path is `pnpm browser:live <url>`.
 - The launcher runs `pnpm build`, loads `.output/chrome-mv3`, resolves
   the runtime extension id, resolves the target page's tab id, and opens a
   second popup tab `popup.html?debugTabId=<pageTabId>` bound to the page.

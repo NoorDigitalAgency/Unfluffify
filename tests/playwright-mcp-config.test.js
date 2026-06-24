@@ -32,7 +32,6 @@ test("live browser launcher targets the WXT output and canonical pnpm command", 
   const launcher = readFileSync(new URL("../scripts/launch-test-browser.ts", import.meta.url), "utf8");
 
   assert.match(launcher, /Usage:\s*\n \* {3}pnpm browser:live <target-url> \[--no-build\]/);
-  assert.match(launcher, /Bridge:\s*\n \* {3}deno task browser:live <target-url> \[--no-build\]/);
   assert.match(launcher, /const EXT_DIR = join\(repoRoot, "\.output", "chrome-mv3"\);/);
   assert.match(launcher, /await run\("pnpm", \["build"\]\);/);
   assert.match(launcher, /Run \\`pnpm build\\` first/);

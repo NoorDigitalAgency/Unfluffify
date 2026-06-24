@@ -60,9 +60,10 @@ The task is complete only when:
    Preferred order for this repo:
 
    ```bash
-   deno task check
-   deno task test
-   deno task build:release
+   pnpm lint
+   pnpm check
+   pnpm test
+   pnpm build
    ```
 
    Use narrower commands only when the change is documentation-only or when a

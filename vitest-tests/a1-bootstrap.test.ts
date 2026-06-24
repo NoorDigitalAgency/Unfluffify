@@ -18,22 +18,27 @@ describe("WXT Part A bridge", () => {
   it("defines the expected bootstrap scripts", () => {
     expect(packageJson.scripts.check).toContain("tsconfig.json");
     expect(packageJson.scripts.check).toContain("tsconfig.wxt.json");
-    expect(packageJson.scripts.dev).toBeUndefined();
+    expect(packageJson.scripts.dev).toContain("scripts/build-extension.ts --dev --watch");
     expect(packageJson.scripts["wxt:dev"]).toBeUndefined();
-    expect(packageJson.scripts.build).toContain("run-deno.mjs task build:release");
+    expect(packageJson.scripts.build).toContain("run-deno.mjs run");
+    expect(packageJson.scripts.build).toContain("scripts/build-extension.ts --release");
     expect(packageJson.scripts.build).toContain("wxt build");
     expect(packageJson.scripts.build).toContain("sync-wxt-bootstrap.mjs");
     expect(packageJson.scripts.zip).toContain("pnpm build");
-    expect(packageJson.scripts.zip).toContain("rm -f .output/unfluffify-bootstrap.zip");
+    expect(packageJson.scripts.zip).toContain("create-output-zip.mjs");
     expect(packageJson.scripts.lint).toContain("tests/**/*.test.js");
     expect(packageJson.scripts.lint).toContain("tests/**/*.ts");
     expect(packageJson.scripts.lint).toContain("tests/shims/*.js");
+    expect(packageJson.scripts.lint).toContain("scripts/create-output-zip.mjs");
+    expect(packageJson.scripts.lint).toContain("scripts/remove-path.mjs");
     expect(packageJson.scripts.verify).toContain("pnpm build");
+    expect(packageJson.scripts.verify).toContain("remove-path.mjs");
     expect(packageJson.scripts.verify).toContain("UF_MANIFEST_SOURCE=generated");
     expect(packageJson.scripts.verify).toContain("manifest-permissions.test.js");
     expect(packageJson.scripts.browser).toBeUndefined();
-    expect(packageJson.scripts["browser:live"]).toBe("node ./scripts/run-deno.mjs task browser:live");
-    expect(packageJson.scripts["legacy:build:dev"]).toBe("node ./scripts/run-deno.mjs task build:dev");
+    expect(packageJson.scripts["browser:live"]).toContain("run-deno.mjs run");
+    expect(packageJson.scripts["browser:live"]).toContain("./scripts/launch-test-browser.ts");
+    expect(packageJson.scripts["legacy:build:dev"]).toBeUndefined();
   });
 
   it("disables WXT auto-imports and targets MV3", () => {

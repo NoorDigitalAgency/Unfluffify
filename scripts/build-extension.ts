@@ -1,5 +1,6 @@
 import { dirname, extname, join, relative } from "@std/path";
 import { build } from "esbuild";
+import { resolveDenoExecutable } from "./deno-executable.ts";
 
 const ROOT = Deno.cwd();
 const isDev = Deno.args.includes("--dev");
@@ -202,7 +203,8 @@ let pending = false;
 
 async function runCheck(): Promise<boolean> {
   logWatch("running check");
-  const result = await new Deno.Command("deno", {
+  const denoExecutable = await resolveDenoExecutable();
+  const result = await new Deno.Command(denoExecutable, {
     args: ["task", "check"],
     stdout: "inherit",
     stderr: "inherit",

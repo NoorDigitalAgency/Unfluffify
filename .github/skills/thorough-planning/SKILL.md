@@ -96,9 +96,10 @@ Write plans in this structure:
    appropriate. For this repo, default validation is:
 
    ```bash
-   deno task check
-   deno task test
-   deno task build:release
+   pnpm lint
+   pnpm check
+   pnpm test
+   pnpm build
    ```
 
    Add `pnpm build` / `pnpm browser:live <target-url>` when the implementation

@@ -102,12 +102,13 @@ Treat these areas as compatibility contracts:
 
 ## Validation defaults
 
-For code changes, use the existing Deno workflow:
+For code changes, use the current pnpm workflow:
 
 ```bash
-deno task check
-deno task test
-deno task build:release
+pnpm lint
+pnpm check
+pnpm test
+pnpm build
 ```
 
 Use `pnpm build` when preparing `.output/chrome-mv3` for live browser

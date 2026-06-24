@@ -102,19 +102,20 @@ None pending from planning Q&A.
 
 ## 5a. WXT command surface (canonical mapping)
 
-Every phase/track below uses these. After the Part A cutover (A7), no `deno task`
-command remains.
+Every phase/track below uses these. After the Part A cutover (A7), the supported
+build/test/browser workflow is pnpm-first; Deno tasks remain only for
+orchestration and internal compatibility paths.
 
 | Purpose | Old (Deno) | New (pnpm + WXT) |
 |---|---|---|
-| dev build + watch | `deno task build:dev` (watch) | deferred until a later Part A watch phase; A1/A2 keep the current watcher on `deno task dev` because WXT still needs a watch-time bridge for the legacy runtime subtree |
+| dev build + watch | `deno task build:dev` (watch) | `pnpm dev` (wraps the still-needed legacy watch build for `dist/extension-dev`) |
 | type-check | `deno task check` | `pnpm check` (`wxt prepare && tsc --noEmit`) |
 | lint | `deno task lint` | `pnpm lint` (bootstrap-scoped ESLint in A1; broadens during A4) |
 | test | `deno task test` | `pnpm test` (`vitest run`) |
 | release build | `deno task build:release` | `pnpm build` (`wxt build` → `.output/chrome-mv3/`) |
 | zip/package | `scripts/package-extension.mjs` | `pnpm zip` (archive over the synced `.output/chrome-mv3` hybrid output) plus `scripts/package-extension.mjs` staging from `.output/chrome-mv3` for stable release aliases |
 | verify (all) | `deno task verify` | `pnpm verify` (`lint && check && test`, then `pnpm build` + generated-manifest/WAR check) |
-| live browser | `deno task browser:live <url>` | `pnpm browser:live <url>` (bridge: `deno task browser:live <url>`; loads `.output/chrome-mv3`) |
+| live browser | `deno task browser:live <url>` | `pnpm browser:live <url>` (loads `.output/chrome-mv3`) |
 
 ---
 
@@ -168,10 +169,11 @@ surface notes).
 5. Keep current Deno tasks working in parallel (dual-path) so check/test cadence
    stays available during A2–A6.
 
-**Expected state**: `pnpm wxt --help`, `pnpm check`, `pnpm build`, and the
-existing `deno task check` all succeed; no real entrypoints yet; `pnpm dev` is
-still deferred to A2.
-**Focused validation**: `pnpm wxt --help`; `pnpm check`; `pnpm build`; `deno task check`.
+**Expected state at the time**: `pnpm wxt --help`, `pnpm check`, `pnpm build`,
+and the then-existing `deno task check` all succeed; no real entrypoints yet;
+`pnpm dev` is still deferred to A2.
+**Focused validation at the time**: `pnpm wxt --help`; `pnpm check`; `pnpm build`;
+`deno task check`.
 **Rollback rule**: if WXT bootstrap blocks on missing config assumptions, revert
 only the new WXT files and retry with a minimal vanilla WXT config.
 
@@ -220,7 +222,8 @@ only the new WXT files and retry with a minimal vanilla WXT config.
    paths by preserving the current WAR list in `wxt.config.ts` and mirroring the
    legacy runtime tree alongside the WXT-owned roots.
 5. Confirm `pnpm build` builds a loadable extension whose runtime behavior is
-   unchanged. `pnpm dev` remains deferred until a watch-time bridge exists.
+   unchanged. `pnpm dev` now exists as the canonical wrapper around the legacy
+   watch build until a native WXT watch bridge replaces it.
 
 **Expected state**: WXT owns the safe runtime roots (`content-loader.js`,
 `popup.html`, `offscreen.html`); the legacy release tree is mirrored under
@@ -277,7 +280,8 @@ fields in `wxt.config.ts` and defer optimization.
    `dist/extension-dev`) to the WXT output (`.output/chrome-mv3`) where applicable.
 3. Make `pnpm test` (Vitest) green for the whole suite; make `pnpm lint` (ESLint)
    green (port the rule intent from the active `deno.json` lint config).
-4. Keep `deno task test` available until A7 as a temporary cross-check.
+4. Keep `deno task test` available until A7 as a temporary cross-check, then
+   remove the public task in A7 once `pnpm test` fully owns the suite.
 
 **Expected state**: `pnpm test` and `pnpm lint` pass on the full suite; behavior
 coverage equals the prior Deno suite.
@@ -290,13 +294,11 @@ weakens coverage, restore its assertions before deleting the Deno variant.
 ### Phase A5 — Live browser debug flow parity on WXT output
 
 **Current status**: complete; the canonical launcher is now
-`pnpm browser:live <url>` and the legacy `deno task browser:live <url>` entry
-remains as a bridge to the same launcher until A7.
+`pnpm browser:live <url>`.
 
 **Files to edit**: `scripts/launch-test-browser.ts`; `package.json`
 (`browser:live` script); `.github/instructions/browser-launch.instructions.md`;
-`.github/skills/launch-test-browser/SKILL.md`; `README.md` (debugging sections);
-`deno.json` (`browser:live` task kept as a bridge until A7).
+`.github/skills/launch-test-browser/SKILL.md`; `README.md` (debugging sections).
 
 **Steps**
 1. Point the launcher build/load logic to the WXT dev output

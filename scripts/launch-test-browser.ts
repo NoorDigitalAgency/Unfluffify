@@ -6,9 +6,6 @@
  * Usage:
  *   pnpm browser:live <target-url> [--no-build]
  *
- * Bridge:
- *   deno task browser:live <target-url> [--no-build]
- *
  * What it does (the canonical, proven flow):
  *   1. Builds the current WXT unpacked extension (`pnpm build`) unless --no-build.
  *   2. Resolves the current repo root and materializes a launchable, per-env
@@ -28,6 +25,7 @@
  * The browser stays open until this process is stopped (Ctrl-C / kill <pid>).
  */
 import { resolve, join, fromFileUrl } from "@std/path";
+import { resolveDenoExecutable } from "./deno-executable.ts";
 
 const repoRoot = resolve(fromFileUrl(new URL("..", import.meta.url)));
 const EXT_DIR = join(repoRoot, ".output", "chrome-mv3");
@@ -56,7 +54,6 @@ if (!target) {
       "them for it — do not guess a default.",
       "",
       "Usage: pnpm browser:live <target-url> [--no-build]",
-      "Bridge: deno task browser:live <target-url> [--no-build]",
     ].join("\n"),
   );
   Deno.exit(2);
@@ -77,6 +74,8 @@ async function run(cmd: string, args: string[]): Promise<void> {
     throw new Error(`\`${cmd} ${args.join(" ")}\` failed (code ${status.code})`);
   }
 }
+
+const denoExecutable = await resolveDenoExecutable();
 
 /** Chrome derives an unpacked extension id from the absolute load path:
  *  first 16 bytes of SHA-256(path), each nibble mapped 0..15 -> 'a'..'p'. */
@@ -505,7 +504,7 @@ await Deno.writeTextFile(TEMP_CONFIG, serializedConfig);
 console.log(`[launch] wrote ${TEMP_CONFIG}`);
 
 console.log("[launch] ensuring MCP-managed Chromium is installed (idempotent)…");
-await run("deno", ["run", "-A", "npm:@playwright/mcp@latest", "install-browser", "chromium"]);
+await run(denoExecutable, ["run", "-A", "npm:@playwright/mcp@latest", "install-browser", "chromium"]);
 
 const predictedId = await deterministicExtensionId(EXT_DIR);
 console.log(`[launch] deterministic extension id for ${EXT_DIR}: ${predictedId}`);
@@ -513,7 +512,7 @@ console.log(`[launch] CDP endpoint: http://127.0.0.1:${CDP_PORT} (for same-brows
 
 // --- launch MCP server + drive -------------------------------------------
 console.log("[launch] starting npm:@playwright/mcp@latest (managed Chromium)…");
-const server = new Deno.Command("deno", {
+const server = new Deno.Command(denoExecutable, {
   args: [
     "run",
     "-A",

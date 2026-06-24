@@ -30,7 +30,7 @@ instead of re-reading and re-deriving that file.
 
 ## Do NOT use this skill for
 
-- Headless unit/integration tests (`deno task test`) — those do not need a
+- Headless unit/integration tests (`pnpm test`) — those do not need a
   visible browser.
 - Orchestration scenarios under `orchestration/profiles/*` — only use those when
   the user explicitly asks for the orchestration browser path.
@@ -126,7 +126,7 @@ If you need direct programmatic control beyond the launcher commands, connect to
 the same browser over CDP instead of starting another MCP server:
 
 ```bash
-deno eval --allow-net --allow-env --allow-read --allow-sys '
+node ./scripts/run-deno.mjs eval --allow-net --allow-env --allow-read --allow-sys '
 const { chromium } = await import("npm:playwright");
 const browser = await chromium.connectOverCDP("http://127.0.0.1:9222");
 const context = browser.contexts()[0];
@@ -153,9 +153,7 @@ or stale behavior still appear:
 - reload the extension on `chrome://extensions`,
 
 then wait for the new service worker before retesting. Re-running
-`pnpm browser:live` from a clean stop rebuilds and reloads from scratch. The
-legacy `deno task browser:live` entrypoint remains as a bridge to the same
-launcher.
+`pnpm browser:live` from a clean stop rebuilds and reloads from scratch.
 
 ## Guardrails
 

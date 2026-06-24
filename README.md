@@ -47,6 +47,8 @@ toolchain or the hybrid verification path.
 Common local release/CI commands:
 
 ```bash
+pnpm dev
+pnpm lint
 pnpm check
 pnpm test
 pnpm build
@@ -55,26 +57,17 @@ pnpm browser:live <target-url>
 pnpm verify
 ```
 
+`pnpm dev` runs the watched development bridge build through the legacy Deno
+build script and refreshes `dist/extension-dev` while the runtime bridge still
+depends on those legacy-built modules.
+
 `pnpm verify` is the current release/CI verification path: it runs lint, type
 check, the Vitest suite, rebuilds the synced WXT output, and then runs the
 generated-manifest permission/WAR check against `.output/chrome-mv3/manifest.json`.
 
-Legacy Deno commands still exist for the remaining migration bridge and dev
-watch flow:
-
-```bash
-deno task check
-deno task test
-deno task lint
-deno task build
-deno task dev
-deno task verify
-```
-
-`deno task dev` watches extension sources and rebuilds the development
-extension output under `dist/extension-dev`. The dev watcher and one-shot Deno
-builds share `scripts/build-extension.ts`, so copied assets, bundled files, and
-dev reload artifacts stay consistent.
+Treat the pnpm commands above as the supported public workflow. `deno task
+<script>` can still resolve the same npm scripts implicitly, but those aliases
+are no longer documented or supported as the primary command surface.
 
 The eventual cutover command surface is tracked in `.copilot/wxt-port-plan.md`
 and will replace the Deno workflow phase-by-phase. As of the current A6 bridge,
@@ -89,12 +82,11 @@ bridged back to the current source contract (including no `action.default_popup`
 and the legacy content-script paths) until full manifest authority moves into
 WXT in a later phase.
 
-The dev watcher still stays on the existing Deno command until a watch-time WXT
-bridge lands. The live-browser launcher now targets the WXT unpacked output:
+The dev watcher still shells through the legacy Deno build script until a
+watch-time WXT bridge lands. The live-browser launcher now targets the WXT unpacked output:
 `pnpm browser:live <target-url>` shells through the committed launcher, runs
 `pnpm build` by default, and loads `.output/chrome-mv3` into the managed
-Playwright Chromium. The legacy `deno task browser:live <target-url>` entrypoint
-remains as a bridge for existing automation.
+Playwright Chromium.
 
 Orchestration helpers are exposed as Deno tasks as well:
 
@@ -124,7 +116,7 @@ deno task orchestrate:property-lock -- --property-url https://example.com/
 
 ## Installation (Developer Mode)
 
-1. Run `deno task dev` for the watched legacy bridge build, or `pnpm build` for the current WXT build.
+1. Run `pnpm dev` for the watched legacy bridge build, or `pnpm build` for the current WXT build.
 2. Open Chrome and navigate to `chrome://extensions`
 3. Enable **Developer mode** (toggle in top right corner)
 4. Click **Load unpacked** and select `dist/extension-dev` for the watched bridge build or `.output/chrome-mv3` for the WXT build.
@@ -135,7 +127,7 @@ deno task orchestrate:property-lock -- --property-url https://example.com/
 Run the regression suite from the repository root:
 
 ```bash
-deno task test
+pnpm test
 ```
 
 The tests cover the pure marking/highlighting rules that have caused regressions during recent logic changes.

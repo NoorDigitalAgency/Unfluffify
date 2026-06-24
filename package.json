@@ -6,19 +6,14 @@
   "packageManager": "pnpm@11.6.0",
   "scripts": {
     "prepare": "wxt prepare",
-    "build": "node ./scripts/run-deno.mjs task build:release && wxt build && node ./scripts/sync-wxt-bootstrap.mjs",
-    "zip": "pnpm build && rm -f .output/unfluffify-bootstrap.zip && (cd .output/chrome-mv3 && zip -qr ../unfluffify-bootstrap.zip .)",
+    "dev": "node ./scripts/run-deno.mjs run --allow-read --allow-write --allow-env --allow-run --allow-sys ./scripts/build-extension.ts --dev --watch",
+    "build": "node ./scripts/run-deno.mjs run --allow-read --allow-write --allow-env --allow-run --allow-sys ./scripts/build-extension.ts --release && wxt build && node ./scripts/sync-wxt-bootstrap.mjs",
+    "zip": "pnpm build && node ./scripts/create-output-zip.mjs ./.output/chrome-mv3 ./.output/unfluffify-bootstrap.zip",
     "check": "wxt prepare && tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.wxt.json",
-    "lint": "eslint eslint.config.js wxt.config.ts vitest.config.ts entrypoints/**/*.ts scripts/run-deno.mjs scripts/sync-wxt-bootstrap.mjs tests/**/*.test.js tests/**/*.ts tests/shims/*.js vitest-tests/**/*.test.ts",
+    "lint": "eslint eslint.config.js wxt.config.ts vitest.config.ts entrypoints/**/*.ts scripts/run-deno.mjs scripts/sync-wxt-bootstrap.mjs scripts/create-output-zip.mjs scripts/remove-path.mjs tests/**/*.test.js tests/**/*.ts tests/shims/*.js vitest-tests/**/*.test.ts",
     "test": "vitest run",
-    "browser:live": "node ./scripts/run-deno.mjs task browser:live",
-    "verify": "pnpm lint && pnpm check && pnpm test && rm -rf .output && pnpm build && UF_MANIFEST_SOURCE=generated node ./scripts/run-deno.mjs test --allow-read --allow-write --allow-env --allow-run --allow-sys --allow-net=127.0.0.1 --no-check --unstable-sloppy-imports tests/manifest-permissions.test.js",
-    "legacy:check": "node ./scripts/run-deno.mjs task check",
-    "legacy:test": "node ./scripts/run-deno.mjs task test",
-    "legacy:lint": "node ./scripts/run-deno.mjs task lint",
-    "legacy:build:dev": "node ./scripts/run-deno.mjs task build:dev",
-    "legacy:build:release": "node ./scripts/run-deno.mjs task build:release",
-    "legacy:verify": "rm -rf .output && node ./scripts/run-deno.mjs task check && node ./scripts/run-deno.mjs task test && node ./scripts/run-deno.mjs task build:release"
+    "browser:live": "node ./scripts/run-deno.mjs run --allow-read --allow-write --allow-env --allow-run --allow-sys --allow-net ./scripts/launch-test-browser.ts",
+    "verify": "pnpm lint && pnpm check && pnpm test && node ./scripts/remove-path.mjs ./.output && pnpm build && UF_MANIFEST_SOURCE=generated node ./scripts/run-deno.mjs test --allow-read --allow-write --allow-env --allow-run --allow-sys --allow-net=127.0.0.1 --no-check --unstable-sloppy-imports tests/manifest-permissions.test.js"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

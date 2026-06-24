@@ -53,7 +53,7 @@ to re-derive it:
    `.vscode/browser-mcp.config.json` stay placeholdered and intentionally
    non-launchable; never edit them to bake in current-environment paths.
 4. Ensures the MCP-managed Chromium is installed
-   (`deno run -A npm:@playwright/mcp@latest install-browser chromium`,
+   (`node ./scripts/run-deno.mjs run -A npm:@playwright/mcp@latest install-browser chromium`,
    idempotent).
 5. Starts `npm:@playwright/mcp@latest` over stdio (a single launcher-owned
    client = no profile-lock) with
@@ -117,7 +117,7 @@ If the launcher control channel output is not enough, connect to the same live
 browser over CDP:
 
 ```bash
-deno eval --allow-net --allow-env --allow-read --allow-sys '
+node ./scripts/run-deno.mjs eval --allow-net --allow-env --allow-read --allow-sys '
 const { chromium } = await import("npm:playwright");
 const browser = await chromium.connectOverCDP("http://127.0.0.1:9222");
 const context = browser.contexts()[0];
@@ -154,8 +154,7 @@ MV3 service worker alive even though files on disk changed. If removed debug log
 or stale behavior still appear, call `chrome.runtime.reload()` from the extension
 context or reload the extension on `chrome://extensions`, and wait for the new
 service worker before retesting. Re-running `pnpm browser:live` from a clean
-stop rebuilds and reloads from scratch. The legacy `deno task browser:live`
-entrypoint remains as a bridge to the same launcher.
+stop rebuilds and reloads from scratch.
 
 ## Debugging the launcher (internals)
 

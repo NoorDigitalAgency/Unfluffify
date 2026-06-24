@@ -10,7 +10,7 @@
   `launch-test-browser` to open the live/dev Chromium with the unpacked
   extension loaded for observation or manual testing.
 - Live test browser: launch with `pnpm browser:live <target-url>`
-  (`scripts/launch-test-browser.ts`; `deno task browser:live` remains a bridge).
+  (`scripts/launch-test-browser.ts`).
   A target URL is mandatory. It runs `pnpm build`, loads `.output/chrome-mv3`,
   writes a per-environment `.temp/browser-mcp.config.json` (drops
   `executablePath`), and drives ONLY the `npm:@playwright/mcp@latest` managed
@@ -39,11 +39,14 @@
 
 ## Testing
 
-- Use pnpm/WXT as the primary release/CI toolchain: `pnpm check`, `pnpm test`,
-  `pnpm build`, `pnpm zip`, and `pnpm verify`.
-- Keep the Deno commands (`deno task check`, `deno task test`,
-  `deno task build:release`, `deno task verify`) as migration bridges and for
-  the still-active dev watcher/runtime bridge while Part A remains unfinished.
+- Use pnpm/WXT as the primary release/CI toolchain: `pnpm lint`, `pnpm check`,
+  `pnpm test`, `pnpm build`, `pnpm zip`, and `pnpm verify`.
+- Keep Deno only as an internal implementation dependency behind the pnpm
+  scripts and for the remaining orchestration tasks while the runtime bridge
+  still depends on legacy-built modules.
+- `deno task <script>` can still resolve npm scripts implicitly via
+  `package.json`, but the supported/public workflow is pnpm-first and docs/tests
+  should treat those Deno aliases as unsupported compatibility fallbacks.
 
 ## WXT migration facts
 
