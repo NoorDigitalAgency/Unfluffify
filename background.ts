@@ -139,6 +139,7 @@ import { createAiRunOrchestrator } from "./background/ai-run-orchestrator.js";
 import { runBackgroundTask } from "./background/async-tasks.js";
 import { createManagedTimeoutGroup } from "./background/managed-timeouts.js";
 import { createSwKeepAlive } from "./background/sw-keepalive.js";
+import { createBrain } from "./background/brain/index.js";
 import {
   aiComputeLockExpiresAtByTabId,
   disposeTabState,
@@ -162,6 +163,8 @@ import {
   queueTabSessionWrite,
   setTabState as setStoredTabState
 } from "./background/tab-session-store.js";
+import { createLegacyBridge } from "./common/bus/transport/legacy-bridge.js";
+import { BUS_PORT_PREFIX } from "./common/bus/transport/transport-types.js";
 import type { TabOperationContext } from "./types/operations.js";
 import type { RuntimeMessage, RuntimeMessageReply } from "./types/messaging.js";
 
@@ -198,6 +201,8 @@ const worldTrace = createWorldTrace({
 const ensureTraceState = worldTrace.ensureTraceState;
 const isWorldTraceEnabled = worldTrace.isWorldTraceEnabled;
 const appendWorldTraceEvent = worldTrace.appendWorldTraceEvent;
+const legacyBridge = createLegacyBridge();
+const brain = createBrain({ logger: console });
 const BACKGROUND_COMMANDS = Object.freeze({
   TAB_BOOTSTRAP_CONTENT: "TAB_BOOTSTRAP_CONTENT",
   TAB_CONTENT_REQUEST: "TAB_CONTENT_REQUEST",
@@ -2195,6 +2200,19 @@ async function runBackgroundTabOperation(tabId, descriptor, work) {
 }
 
 chrome.runtime.onConnect.addListener((port) => {
+  if (port && typeof port.name === "string" && port.name.startsWith(BUS_PORT_PREFIX)) {
+    const tabId = normalizeBrokerTabId(port.name.slice(BUS_PORT_PREFIX.length));
+    if (!tabId) {
+      try {
+        port.disconnect();
+      } catch {
+        // Ignore invalid bus ports.
+      }
+      return;
+    }
+    brain.registerPopupPort(tabId, port);
+    return;
+  }
   if (!port || typeof port.name !== "string" || !port.name.startsWith(WORLD_PORTS.POPUP_STATE_PREFIX)) {
     return;
   }
@@ -2294,6 +2312,13 @@ if (chrome.runtime && typeof chrome.runtime.onStartup !== "undefined") {
 logSwLifecycleDiagnostic("worker-evaluated");
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (legacyBridge.isBusMessage(message)) {
+    brain.transport.inbound(message, sender)
+      .then((reply) => sendResponse(reply))
+      .catch(() => sendResponse(undefined));
+    return true;
+  }
+
   if (!message || !message.type) {
     return;
   }

@@ -54,6 +54,7 @@ export default defineConfig({
           "content/config-updated-handler.js",
           "content/default-exclusions-handler.js",
           "content/describe-xpaths-handler.js",
+          "content/layers/content-bus-client.js",
           "content/explicit-marking-handler.js",
           "content/focus-handler.js",
           "content/force-refresh-handler.js",

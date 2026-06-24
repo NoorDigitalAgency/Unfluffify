@@ -1,5 +1,11 @@
 import type { BusEnvelope } from "../envelope.js";
 
+export const BUS_PORT_PREFIX = "ufBus:";
+
+export function buildBusPortName(tabId: number | string): string {
+  return `${BUS_PORT_PREFIX}${tabId}`;
+}
+
 export type InboundTransportHandler = (env: BusEnvelope) => Promise<BusEnvelope | void>;
 
 export interface Transport {

@@ -122,6 +122,7 @@ import { createPageSaveReconciliationClearHandler } from "./content/page-save-re
 import { createPageSaveReconciliationPendingHandler } from "./content/page-save-reconciliation-pending-handler.js";
 import { initializePageWorldRelay } from "./content/page-world-relay.js";
 import { createPageToast } from "./content/page-toast.js";
+import { handleContentBusMessage, startContentBusClient } from "./content/layers/content-bus-client.js";
 import { createRenderModeInspectionClient } from "./content/render-mode-inspection-client.js";
 import { createRenderModeInspectionHandlers } from "./content/render-mode-inspection-handlers.js";
 import { createVisibleXpathsHandler } from "./content/visible-xpaths-handler.js";
@@ -7243,6 +7244,7 @@ export function main() {
   state.initialized = true;
   registerContentCommandHandlersOnce();
   subscribePageActivity(sendPropertyLockActivity);
+  startContentBusClient();
 
   initializePageWorldRelay().catch(() => {
     // Best-effort initialization. Core operations keep a background relay
@@ -7357,6 +7359,13 @@ export function main() {
   document.addEventListener("keyup", handleBlockedPropertyLockInteraction, true);
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message && typeof message === "object" && (message as { p?: unknown }).p === "uf-bus/1") {
+      handleContentBusMessage(message, _sender)
+        .then((reply) => sendResponse(reply))
+        .catch(() => sendResponse(undefined));
+      return true;
+    }
+
     if (!message || !message.type) {
       return;
     }

@@ -96,6 +96,7 @@ import * as stateModule from "./popup/state.js";
 import {
   logPopupReady
 } from "./popup/telemetry.js";
+import { startPopupBusClient } from "./popup/layers/popup-bus-client.js";
 import {
   armSpinnerWatchdog as armSpinnerWatchdogOperation,
   clearSpinnerWatchdog as clearSpinnerWatchdogOperation,
@@ -7979,6 +7980,7 @@ async function init() {
   const initTabId = state.currentTab && state.currentTab.id;
   if (initTabId) {
     connectBackgroundStatePort(initTabId);
+    startPopupBusClient(initTabId);
     await restoreSpinnerQueueFromBackground(initTabId);
     await applyTraceModePreferenceToTab(initTabId, state.traceModeEnabled).catch(() => null);
     if (popupSpinnerQueue.has("navInspect")) {
@@ -8149,6 +8151,7 @@ async function init() {
     if (newTabId) {
       try {
         connectBackgroundStatePort(newTabId);
+        startPopupBusClient(newTabId);
         await restoreSpinnerQueueFromBackground(newTabId);
       } catch {
         // Restoration failure is non-fatal; queue remains empty for this tab.
