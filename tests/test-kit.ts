@@ -9,9 +9,10 @@ interface TestContextLike {
 }
 
 type TestFn = (context: TestContextLike) => unknown | Promise<unknown>;
+type TestOptions = { timeout?: number };
 
 type TestCallable = {
-  (name: string, fn: TestFn): void;
+  (name: string, fn: TestFn, options?: TestOptions | number): void;
   beforeEach: (callback: () => unknown | Promise<unknown>) => void;
   afterEach: (callback: () => unknown | Promise<unknown>) => void;
 };
@@ -23,9 +24,8 @@ const runtimeAfterEach = isDenoTestRuntime
   ? denoBddRuntime.afterEach
   : vitestRuntime.afterEach;
 
-const test = ((name: string, fn: TestFn): void => {
-  const register = isDenoTestRuntime ? denoBddRuntime.test : vitestRuntime.it;
-  register(name, async (...args: unknown[]) => {
+const test = ((name: string, fn: TestFn, options?: TestOptions | number): void => {
+  const wrappedTest = async (...args: unknown[]) => {
     const afterCallbacks: Array<() => unknown | Promise<unknown>> = [];
     const baseContext = args[0] && typeof args[0] === "object" ? args[0] as Record<string, unknown> : {};
     const context = Object.assign(baseContext, {
@@ -41,7 +41,20 @@ const test = ((name: string, fn: TestFn): void => {
         await callback();
       }
     }
-  });
+  };
+
+  if (isDenoTestRuntime) {
+    denoBddRuntime.test(name, wrappedTest);
+    return;
+  }
+
+  const timeout = typeof options === "number" ? options : options?.timeout;
+  if (typeof timeout === "number" && Number.isFinite(timeout)) {
+    vitestRuntime.it(name, wrappedTest, timeout);
+    return;
+  }
+
+  vitestRuntime.it(name, wrappedTest);
 }) as TestCallable;
 
 test.beforeEach = runtimeBeforeEach;

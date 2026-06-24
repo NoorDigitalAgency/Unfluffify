@@ -112,8 +112,8 @@ command remains.
 | lint | `deno task lint` | `pnpm lint` (bootstrap-scoped ESLint in A1; broadens during A4) |
 | test | `deno task test` | `pnpm test` (`vitest run`) |
 | release build | `deno task build:release` | `pnpm build` (`wxt build` → `.output/chrome-mv3/`) |
-| zip/package | `scripts/package-extension.mjs` | `pnpm zip` (A1 bridge zip over `.output/chrome-mv3`; WXT-native zip lands later) |
-| verify (all) | `deno task verify` | `pnpm verify` (`lint && check && test && deno task verify`, where `deno task verify` now includes the post-build generated-manifest/WAR check) |
+| zip/package | `scripts/package-extension.mjs` | `pnpm zip` (archive over the synced `.output/chrome-mv3` hybrid output) plus `scripts/package-extension.mjs` staging from `.output/chrome-mv3` for stable release aliases |
+| verify (all) | `deno task verify` | `pnpm verify` (`lint && check && test`, then `pnpm build` + generated-manifest/WAR check) |
 | live browser | `deno task browser:live <url>` | `pnpm browser:live <url>` (bridge: `deno task browser:live <url>`; loads `.output/chrome-mv3`) |
 
 ---
@@ -317,25 +317,33 @@ adapter step that materializes the expected unpacked path, keeping the same comm
 
 ### Phase A6 — CI/CD and release migration to WXT
 
-**Files to edit**: `.github/workflows/build-extension-package.yml`;
-`scripts/package-extension.mjs` (replace with `wxt zip` or a thin wrapper);
-`scripts/emit-package-metadata.ts` (adapt to WXT output if release consumers rely
-on it); `README.md` packaging section.
+**Current status**: complete; CI now validates with `pnpm verify`, creates a
+synced `.output/chrome-mv3` archive with `pnpm zip`, and stages published release assets from
+`.output/chrome-mv3` while preserving the stable `extension-latest` alias
+semantics.
 
-**Steps**
+**Files changed in this phase**: `.github/workflows/build-extension-package.yml`;
+`package.json`; `scripts/package-extension.mjs`;
+`scripts/emit-package-metadata.ts` (kept as the metadata bridge);
+`README.md` packaging section.
+
+**Historical implementation outline (completed)**
 1. Swap CI build/verify steps to the pnpm/WXT pipeline (`pnpm install`,
    `pnpm verify`, `pnpm zip`).
-2. Recreate release artifact and alias semantics (`extension-latest`, stable alias
-   zip naming) unless intentionally changed.
-3. Keep deterministic metadata emission if release consumers rely on it.
-4. Side-by-side compare the WXT zip against the legacy artifact before removing the
-   old job.
+2. Preserve the stable release artifact and alias semantics by keeping
+   `scripts/package-extension.mjs` as a thin staging/metadata wrapper over the
+   synced `.output/chrome-mv3` output rather than replacing it with a raw
+   `wxt zip` publish path.
+3. Keep deterministic metadata emission for release consumers.
+4. Compare the staged release asset against the synced `.output/chrome-mv3` zip
+   and assert required runtime files before publish.
 
 **Expected state**: CI produces valid WXT-built artifacts and the release workflow
 succeeds.
 **Focused validation**: local `pnpm build` + `pnpm zip` smoke; workflow dry-run.
-**Rollback rule**: keep the old packaging workflow as a temporary fallback job
-until the new job produces an identical installable artifact.
+**Historical rollback rule**: if a hidden release consumer still depended on the
+old `dist/extension` staging path, restore a thin wrapper temporarily rather
+than reverting the workflow back to the legacy Deno publish path.
 
 ---
 

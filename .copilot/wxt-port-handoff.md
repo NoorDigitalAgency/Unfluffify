@@ -59,8 +59,8 @@ the Brain on a half-migrated dual Deno+WXT build.
 | lint | `pnpm lint` (bootstrap-scoped ESLint in A1; broadens later) |
 | test | `pnpm test` (`vitest run`) |
 | release build | `pnpm build` (`wxt build` → `.output/chrome-mv3/`) |
-| zip | `pnpm zip` (A1 bridge zip over `.output/chrome-mv3`; WXT-native zip lands later) |
-| verify | `pnpm verify` (includes the generated-manifest/WAR check via `deno task verify`) |
+| zip | `pnpm zip` (archive over the synced `.output/chrome-mv3` hybrid output) |
+| verify | `pnpm verify` (`lint && check && test`, then `pnpm build` + generated-manifest/WAR check) |
 | live browser | `pnpm browser:live <url>` (bridge: `deno task browser:live <url>`) |
 
 ## Authority model guardrails (Part B, mandatory)
@@ -99,7 +99,9 @@ the Brain on a half-migrated dual Deno+WXT build.
 - CDP attach to the same managed browser session.
 
 ### Packaging/release
-- CI builds and publishes installable artifact(s) via WXT (`pnpm zip`).
+- CI validates with `pnpm verify`, builds a synced `.output/chrome-mv3` zip with
+  `pnpm zip`, then stages the published release assets from `.output/chrome-mv3` so the stable
+  `extension-latest` alias naming remains unchanged.
 
 ## Current baseline command surface (pre-Part-A source of truth)
 
@@ -164,7 +166,7 @@ Explicit page-world / runtime asset facts that must remain true:
   `chrome.runtime.getURL("popup/ui.js")` during live-debug inspection; the WXT
   output must preserve an equivalent inspectable popup module path.
 
-## Current A2 bridge shape
+## Current A6 bridge shape
 
 - WXT now owns the live runtime roots in `.output/chrome-mv3/`:
   - `content-loader.js` (materialized alias from WXT's

@@ -3,13 +3,15 @@ import { denoExecutable, execFile, existsSync, fileURLToPath, mkdtemp, path, rea
 
 const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
 
-async function runCommand(args, cwd) {
-  const result = await execFile(denoExecutable(), args, { cwd });
+async function runCommand(command, args, cwd) {
+  const result = await execFile(command, args, { cwd });
   if (result.code !== 0) {
     throw new Error(new TextDecoder().decode(result.stderr));
   }
   return new TextDecoder().decode(result.stdout);
 }
+
+const wxtBuildPromise = runCommand("pnpm", ["build"], REPO_ROOT);
 
 test("package script stages runtime files and excludes repo-only files", async () => {
   const tempDir = await mkdtemp("unfluffify-package-test-");
@@ -17,21 +19,23 @@ test("package script stages runtime files and excludes repo-only files", async (
   const metadataPath = path.join(tempDir, "metadata.json");
 
   try {
-    await runCommand(["task", "build:release"], REPO_ROOT);
+    await wxtBuildPromise;
 
-    await runCommand([
-      "run",
-      "-A",
-      "./scripts/package-extension.mjs",
-      "--source-root",
-      "dist/extension",
-      "--timestamp",
-      "240101-1200",
-      "--stage-dir",
-      stageDir,
-      "--metadata-file",
-      metadataPath
-    ], REPO_ROOT);
+    await runCommand(
+      denoExecutable(),
+      [
+        "run",
+        "-A",
+        "./scripts/package-extension.mjs",
+        "--timestamp",
+        "240101-1200",
+        "--stage-dir",
+        stageDir,
+        "--metadata-file",
+        metadataPath
+      ],
+      REPO_ROOT
+    );
 
     const metadata = JSON.parse(readFileSync(metadataPath));
     const stagedManifest = JSON.parse(readFileSync(path.join(stageDir, "manifest.json")));
@@ -47,8 +51,9 @@ test("package script stages runtime files and excludes repo-only files", async (
 
     assert.equal(metadata.stagedFiles.includes("manifest.json"), true);
     assert.equal(metadata.stagedFiles.includes("background.js"), true);
+    assert.equal(metadata.stagedFiles.includes("popup.html"), true);
+    assert.equal(metadata.stagedFiles.includes("content-loader.js"), true);
     assert.equal(metadata.stagedFiles.includes("content-main.js"), true);
-    assert.equal(metadata.stagedFiles.includes("popup.js"), true);
     assert.equal(metadata.stagedFiles.includes("common/config.js"), true);
     assert.equal(metadata.stagedFiles.includes("icons/default/icon16.png"), true);
 
@@ -58,10 +63,11 @@ test("package script stages runtime files and excludes repo-only files", async (
 
     assert.equal(existsSync(path.join(stageDir, "common/config.js")), true);
     assert.equal(existsSync(path.join(stageDir, "icons/default/icon128.png")), true);
+    assert.equal(existsSync(path.join(stageDir, "popup.html")), true);
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }
-});
+}, 15000);
 
 test("package script adds a release-only build display version to the staged manifest", async () => {
   const tempDir = await mkdtemp("unfluffify-package-build-version-test-");
@@ -69,23 +75,25 @@ test("package script adds a release-only build display version to the staged man
   const metadataPath = path.join(tempDir, "metadata.json");
 
   try {
-    await runCommand(["task", "build:release"], REPO_ROOT);
+    await wxtBuildPromise;
 
-    await runCommand([
-      "run",
-      "-A",
-      "./scripts/package-extension.mjs",
-      "--source-root",
-      "dist/extension",
-      "--timestamp",
-      "240101-1200",
-      "--build-version",
-      "2605122318",
-      "--stage-dir",
-      stageDir,
-      "--metadata-file",
-      metadataPath
-    ], REPO_ROOT);
+    await runCommand(
+      denoExecutable(),
+      [
+        "run",
+        "-A",
+        "./scripts/package-extension.mjs",
+        "--timestamp",
+        "240101-1200",
+        "--build-version",
+        "2605122318",
+        "--stage-dir",
+        stageDir,
+        "--metadata-file",
+        metadataPath
+      ],
+      REPO_ROOT
+    );
 
     const metadata = JSON.parse(readFileSync(metadataPath));
     const stagedManifest = JSON.parse(readFileSync(path.join(stageDir, "manifest.json")));
@@ -100,4 +108,4 @@ test("package script adds a release-only build display version to the staged man
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }
-});
+}, 15000);

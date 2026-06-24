@@ -39,10 +39,11 @@
 
 ## Testing
 
-- Use Deno as the primary test/build toolchain: `deno task check`,
-  `deno task build:release`, and `deno task test`.
-- Keep `deno task test:node` as an optional compatibility fallback while
-  migration-related diagnostics are needed.
+- Use pnpm/WXT as the primary release/CI toolchain: `pnpm check`, `pnpm test`,
+  `pnpm build`, `pnpm zip`, and `pnpm verify`.
+- Keep the Deno commands (`deno task check`, `deno task test`,
+  `deno task build:release`, `deno task verify`) as migration bridges and for
+  the still-active dev watcher/runtime bridge while Part A remains unfinished.
 
 ## WXT migration facts
 
@@ -63,6 +64,12 @@
   prepare/build, which drags browser code into the WXT/Node typecheck and
   reintroduces Node-vs-DOM timer conflicts. Runtime-load mirrored built JS from
   the output tree instead.
+- Release packaging now stages from the synced WXT output at
+  `.output/chrome-mv3`. `pnpm verify` runs the pnpm lint/check/test pipeline,
+  rebuilds via `pnpm build`, and then runs the generated-manifest permission
+  test directly. The release workflow uses `pnpm zip` for a synced
+  `.output/chrome-mv3` archive, then `scripts/package-extension.mjs` to preserve the stable
+  `extension-latest` / `Unfluffify-latest.zip` alias semantics.
 
 ## Content script lifecycle
 

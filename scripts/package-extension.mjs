@@ -2,6 +2,7 @@ import { dirname, extname, fromFileUrl, join, normalize, resolve } from "@std/pa
 
 const SCRIPT_DIR = dirname(fromFileUrl(import.meta.url));
 const REPO_ROOT = resolve(SCRIPT_DIR, "..");
+const DEFAULT_SOURCE_ROOT = join(REPO_ROOT, ".output", "chrome-mv3");
 let SOURCE_ROOT = REPO_ROOT;
 const KNOWN_ASSET_EXTENSIONS = new Set([
   ".css",
@@ -352,7 +353,7 @@ async function main() {
   const args = parseArgs(Deno.args);
   const sourceRoot = typeof args["source-root"] === "string" && args["source-root"].trim()
     ? resolve(REPO_ROOT, args["source-root"])
-    : REPO_ROOT;
+    : DEFAULT_SOURCE_ROOT;
   SOURCE_ROOT = sourceRoot;
 
   const manifestPath = join(SOURCE_ROOT, "manifest.json");

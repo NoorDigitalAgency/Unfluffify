@@ -24,10 +24,13 @@ describe("WXT Part A bridge", () => {
     expect(packageJson.scripts.build).toContain("wxt build");
     expect(packageJson.scripts.build).toContain("sync-wxt-bootstrap.mjs");
     expect(packageJson.scripts.zip).toContain("pnpm build");
+    expect(packageJson.scripts.zip).toContain("rm -f .output/unfluffify-bootstrap.zip");
     expect(packageJson.scripts.lint).toContain("tests/**/*.test.js");
     expect(packageJson.scripts.lint).toContain("tests/**/*.ts");
     expect(packageJson.scripts.lint).toContain("tests/shims/*.js");
-    expect(packageJson.scripts.verify).toContain("run-deno.mjs task verify");
+    expect(packageJson.scripts.verify).toContain("pnpm build");
+    expect(packageJson.scripts.verify).toContain("UF_MANIFEST_SOURCE=generated");
+    expect(packageJson.scripts.verify).toContain("manifest-permissions.test.js");
     expect(packageJson.scripts.browser).toBeUndefined();
     expect(packageJson.scripts["browser:live"]).toBe("node ./scripts/run-deno.mjs task browser:live");
     expect(packageJson.scripts["legacy:build:dev"]).toBe("node ./scripts/run-deno.mjs task build:dev");

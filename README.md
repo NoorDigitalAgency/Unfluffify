@@ -13,9 +13,14 @@ Run the GitHub Actions workflow at `.github/workflows/build-extension-package.ym
 
 Each run:
 
-- validates the extension with `deno task verify` before packaging, including a
-  post-build WXT manifest/WAR check against `.output/chrome-mv3/manifest.json`
-- stages only files reachable from the extension runtime surface (manifest entrypoints, imported modules, HTML/CSS assets, and extension-local file references)
+- validates the extension with `pnpm verify`, including the post-build WXT
+  manifest/WAR check against `.output/chrome-mv3/manifest.json`
+- creates a synced `.output/chrome-mv3` archive with `pnpm zip`
+- stages release files from the synced WXT output under `.output/chrome-mv3`,
+  keeping only the extension runtime surface (manifest entrypoints, imported
+  modules, HTML/CSS assets, and extension-local file references)
+- checks that every staged release file is also present in the synced
+  `.output/chrome-mv3` zip
 - creates a timestamped archive named `Unfluffify-v<manifest-version>-<yymmdd-hhmm>.zip` using a UTC timestamp
 - refreshes the `extension-latest` release with that timestamped asset and a stable alias named `Unfluffify-latest.zip`
 
@@ -27,11 +32,11 @@ Permanent release page:
 
 `https://github.com/NoorDigitalAgency/Unfluffify/releases/tag/extension-latest`
 
-For a local dry run of the staging logic, run:
+For a local dry run of the WXT build + staging logic, run:
 
 ```bash
-deno task build:release
-deno task package -- --stage-dir .tmp/extension-package
+pnpm build
+node ./scripts/run-deno.mjs run -A ./scripts/package-extension.mjs --stage-dir .tmp/extension-package
 ```
 
 ## Development Workflow
@@ -39,7 +44,23 @@ deno task package -- --stage-dir .tmp/extension-package
 Run `pnpm install` once after cloning if you want to use the checked-in WXT/pnpm
 toolchain or the hybrid verification path.
 
-Common local commands:
+Common local release/CI commands:
+
+```bash
+pnpm check
+pnpm test
+pnpm build
+pnpm zip
+pnpm browser:live <target-url>
+pnpm verify
+```
+
+`pnpm verify` is the current release/CI verification path: it runs lint, type
+check, the Vitest suite, rebuilds the synced WXT output, and then runs the
+generated-manifest permission/WAR check against `.output/chrome-mv3/manifest.json`.
+
+Legacy Deno commands still exist for the remaining migration bridge and dev
+watch flow:
 
 ```bash
 deno task check
@@ -50,29 +71,13 @@ deno task dev
 deno task verify
 ```
 
-`deno task dev` watches extension sources and rebuilds the development extension output under `dist/extension-dev`.
-The dev watcher and one-shot builds share `scripts/build-extension.ts`, so copied assets, bundled files, and dev reload artifacts stay consistent.
-`deno task lint` currently covers the Deno automation files that are lint-clean.
-`deno task verify` is now the hybrid migration verification path: it runs the
-type check, regression suite, release build, WXT bridge build, and a
-generated-manifest permission/WAR check against
-`.output/chrome-mv3/manifest.json`. Because it shells into `pnpm build`, it
-expects the repo's Node devDependencies to be installed first.
-
-WXT/pnpm bootstrap is now checked in in parallel for the migration plan. During
-the transition, the Deno commands above remain the current source of truth for
-shipping and validation, while the new Node toolchain is being brought up:
-
-```bash
-pnpm build
-pnpm check
-pnpm test
-pnpm browser:live <target-url>
-pnpm verify
-```
+`deno task dev` watches extension sources and rebuilds the development
+extension output under `dist/extension-dev`. The dev watcher and one-shot Deno
+builds share `scripts/build-extension.ts`, so copied assets, bundled files, and
+dev reload artifacts stay consistent.
 
 The eventual cutover command surface is tracked in `.copilot/wxt-port-plan.md`
-and will replace the Deno workflow phase-by-phase. As of the current A2 bridge,
+and will replace the Deno workflow phase-by-phase. As of the current A6 bridge,
 `pnpm build` now produces a runnable WXT output under `.output/chrome-mv3`:
 WXT owns the safe runtime roots (`content-loader.js`, `popup.html`, and
 `offscreen.html`), while `background.js` and
