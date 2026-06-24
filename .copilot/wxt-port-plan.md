@@ -107,14 +107,14 @@ command remains.
 
 | Purpose | Old (Deno) | New (pnpm + WXT) |
 |---|---|---|
-| dev build + watch | `deno task build:dev` (watch) | `pnpm dev` (`wxt`) |
+| dev build + watch | `deno task build:dev` (watch) | `pnpm dev` (`wxt`) after A2; A1 keeps the current watcher on `deno task dev` because WXT requires real entrypoints before the dev flow is viable |
 | type-check | `deno task check` | `pnpm check` (`wxt prepare && tsc --noEmit`) |
-| lint | `deno task lint` | `pnpm lint` (`eslint .`) |
+| lint | `deno task lint` | `pnpm lint` (bootstrap-scoped ESLint in A1; broadens during A4) |
 | test | `deno task test` | `pnpm test` (`vitest run`) |
 | release build | `deno task build:release` | `pnpm build` (`wxt build` → `.output/chrome-mv3/`) |
-| zip/package | `scripts/package-extension.mjs` | `pnpm zip` (`wxt zip`) |
+| zip/package | `scripts/package-extension.mjs` | `pnpm zip` (A1 bridge zip over `.output/chrome-mv3`; WXT-native zip lands later) |
 | verify (all) | `deno task verify` | `pnpm verify` (`lint && check && test && build`) |
-| live browser | `deno task browser:live <url>` | `pnpm browser:live <url>` (loads `.output/chrome-mv3`) |
+| live browser | `deno task browser:live <url>` | deferred until A5; current launcher remains `deno task browser:live <url>` |
 
 ---
 
@@ -155,8 +155,9 @@ toolchain edits begin.
 surface notes).
 
 **Steps**
-1. Add `package.json` with the §5a scripts (`dev`, `build`, `zip`, `check`,
-   `lint`, `test`, `verify`, `prepare`) and pnpm metadata.
+1. Add `package.json` with the bootstrap scripts needed in A1 (`build`, `zip`,
+   `check`, `lint`, `test`, `verify`, `prepare`) and pnpm metadata. Defer the
+   canonical `pnpm dev` watcher command to A2 when real WXT entrypoints exist.
 2. `pnpm install` WXT, ESLint (flat config), Vitest, and required dev deps.
 3. Add `wxt.config.ts`: Chrome MV3 target; **disable WXT auto-imports**
    (`imports: false`) to preserve the explicit-import codebase; set the manifest
@@ -167,9 +168,10 @@ surface notes).
 5. Keep current Deno tasks working in parallel (dual-path) so check/test cadence
    stays available during A2–A6.
 
-**Expected state**: `pnpm wxt --help`, `pnpm check`, and the existing
-`deno task check` all succeed; no entrypoints yet.
-**Focused validation**: `pnpm wxt --help`; `deno task check`.
+**Expected state**: `pnpm wxt --help`, `pnpm check`, `pnpm build`, and the
+existing `deno task check` all succeed; no real entrypoints yet; `pnpm dev` is
+still deferred to A2.
+**Focused validation**: `pnpm wxt --help`; `pnpm check`; `pnpm build`; `deno task check`.
 **Rollback rule**: if WXT bootstrap blocks on missing config assumptions, revert
 only the new WXT files and retry with a minimal vanilla WXT config.
 

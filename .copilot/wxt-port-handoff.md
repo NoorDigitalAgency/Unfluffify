@@ -39,8 +39,9 @@ the Brain on a half-migrated dual Deno+WXT build.
 - Preserve behavior/contracts; tests can be refactored structurally.
 - CI/CD may be redesigned to fit WXT.
 - Functional target is recent Chrome; strict old manifest process is not required.
-- Live debug workflow must remain functionally equivalent (command/path exactness
-  not required): `pnpm browser:live <url>`.
+- Live debug workflow must remain functionally equivalent. The command/path do not
+  need to match immediately; until A5 the active launcher remains
+  `deno task browser:live <url>`.
 - Phased migration with runnable checkpoints (not big-bang).
 - The Brain architecture (single background Brain, stateless popup/content layers,
   typed request/publish seams) is the Part B target; it starts only after Part A.
@@ -53,14 +54,14 @@ the Brain on a half-migrated dual Deno+WXT build.
 
 | Purpose | Command |
 |---|---|
-| dev/watch | `pnpm dev` |
+| dev/watch | deferred until A2; current watcher remains `deno task dev` |
 | type-check | `pnpm check` (`wxt prepare && tsc --noEmit`) |
-| lint | `pnpm lint` (`eslint .`) |
+| lint | `pnpm lint` (bootstrap-scoped ESLint in A1; broadens later) |
 | test | `pnpm test` (`vitest run`) |
 | release build | `pnpm build` (`wxt build` → `.output/chrome-mv3/`) |
-| zip | `pnpm zip` (`wxt zip`) |
+| zip | `pnpm zip` (A1 bridge zip over `.output/chrome-mv3`; WXT-native zip lands later) |
 | verify | `pnpm verify` |
-| live browser | `pnpm browser:live <url>` |
+| live browser | deferred until A5; current launcher remains `deno task browser:live <url>` |
 
 ## Authority model guardrails (Part B, mandatory)
 
@@ -86,10 +87,11 @@ the Brain on a half-migrated dual Deno+WXT build.
 ### Build/run
 - Extension builds reproducibly (`pnpm build`) and loads unpacked
   (`.output/chrome-mv3`).
-- Dev workflow documented and executable (`pnpm dev`).
+- Dev workflow remains documented and executable; until A2 the active watcher is
+  still `deno task dev`.
 
 ### Debug flow parity
-- `pnpm browser:live <url>` launches the live browser against a target URL.
+- Until A5, the live-browser launcher remains `deno task browser:live <url>`.
 - Popup bound to the target tab (`debugTabId` equivalent).
 - Button state + transitions inspectable (`state`/`observe`).
 - Exit Preview triggerable from control flow (`exit-preview`).

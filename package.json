@@ -1,0 +1,33 @@
+{
+  "name": "unfluffify",
+  "version": "1.2.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.6.0",
+  "scripts": {
+    "prepare": "wxt prepare",
+    "build": "deno task build:release && wxt build && node ./scripts/sync-wxt-bootstrap.mjs",
+    "zip": "pnpm build && (cd .output/chrome-mv3 && zip -qr ../unfluffify-bootstrap.zip .)",
+    "check": "wxt prepare && tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.wxt.json",
+    "lint": "eslint eslint.config.js wxt.config.ts vitest.config.ts entrypoints/background.ts scripts/sync-wxt-bootstrap.mjs vitest-tests/**/*.test.ts",
+    "test": "vitest run",
+    "verify": "pnpm lint && pnpm check && pnpm test && rm -rf .output && deno task verify && pnpm build",
+    "legacy:check": "deno task check",
+    "legacy:test": "deno task test",
+    "legacy:lint": "deno task lint",
+    "legacy:build:dev": "deno task build:dev",
+    "legacy:build:release": "deno task build:release",
+    "legacy:verify": "deno task verify"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/chrome": "^0.2.0",
+    "@types/node": "^26.0.0",
+    "eslint": "^10.5.0",
+    "globals": "^17.7.0",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.62.0",
+    "vitest": "^4.1.9",
+    "wxt": "^0.20.27"
+  }
+}

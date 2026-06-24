@@ -51,6 +51,23 @@ The dev watcher and one-shot builds share `scripts/build-extension.ts`, so copie
 `deno task lint` currently covers the Deno automation files that are lint-clean.
 `deno task verify` runs the type check, regression suite, and release build.
 
+WXT/pnpm bootstrap is now checked in in parallel for the migration plan. During
+the transition, the Deno commands above remain the current source of truth for
+shipping and validation, while the new Node toolchain is being brought up:
+
+```bash
+pnpm wxt --help
+pnpm check
+```
+
+The eventual cutover command surface is tracked in `.copilot/wxt-port-plan.md`
+and will replace the Deno workflow phase-by-phase. Until Phase A2/A3 wire the
+real runtime entrypoints and generated-manifest parity, the new `pnpm build`
+path keeps WXT active for config/bootstrap while mirroring the current Deno
+release output into `.output/chrome-mv3` as a temporary compatibility bridge.
+The dev watcher and live-browser launcher stay on their existing Deno commands
+until Phase A2/A5 wires the real WXT dev and browser flows.
+
 Orchestration helpers are exposed as Deno tasks as well:
 
 ```bash
