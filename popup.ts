@@ -201,7 +201,7 @@ const { state } = stateModule;
 const PAGE_SAVE_SYNC_MAX_ATTEMPTS = 5;
 const PAGE_SAVE_SYNC_INITIAL_RETRY_DELAY_MS = 1500;
 const PAGE_SAVE_SYNC_MAX_RETRY_DELAY_MS = 10000;
-const AI_PREVIEW_RESTORE_FALLBACK_MS = 8000;
+const AI_PREVIEW_RESTORE_FALLBACK_MS = 1000;
 
 function getPropertyLockUiDeps() {
   return {
@@ -2468,12 +2468,22 @@ function clearPreviewRestorePending() {
   clearPreviewRestoreFallbackTimer();
 }
 
-function isPreviewRestoreMessageCurrent(message = {}) {
+function getPreviewRestoreToken(message = {}) {
 // @ts-expect-error
-  const messageToken = Number.isFinite(message.previewRestoreToken)
+  return Number.isFinite(message.previewRestoreToken)
 // @ts-expect-error
     ? Math.trunc(message.previewRestoreToken)
     : null;
+}
+
+function isPreviewRestoreMessageCurrent(message = {}) {
+  const messageToken = getPreviewRestoreToken(message);
+  if (
+    messageToken !== null &&
+    messageToken <= state.previewRestoreAppliedToken
+  ) {
+    return false;
+  }
   if (
     state.previewRestorePending &&
     messageToken !== null &&
@@ -2558,6 +2568,7 @@ function beginPreviewRestorePending() {
 }
 
 async function applyPreviewClosedState(closeState = {}) {
+  const messageToken = getPreviewRestoreToken(closeState);
   if (!isPreviewRestoreMessageCurrent(closeState)) {
     return;
   }
@@ -2581,6 +2592,9 @@ async function applyPreviewClosedState(closeState = {}) {
     skipPropertyLockFetch: true,
     preserveCurrentDraftStatus: Boolean(hasDraftStatus)
   }).catch(() => null);
+  if (messageToken !== null) {
+    state.previewRestoreAppliedToken = Math.max(state.previewRestoreAppliedToken, messageToken);
+  }
 }
 
 async function refreshCurrentPageRuntimeStatus(options = {}) {

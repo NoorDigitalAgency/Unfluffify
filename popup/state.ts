@@ -65,6 +65,7 @@ export const state: PopupState = {
   lastPopupEnabledContext: null,
   previewRestorePending: false,
   previewRestoreToken: 0,
+  previewRestoreAppliedToken: 0,
   previewRestoreFallbackTimer: 0,
   configViewLocked: false,
   tokenValidationInFlight: false,

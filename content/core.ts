@@ -7686,7 +7686,7 @@ function closeAiPopover(options = {}) {
 // @ts-expect-error
   const closeToken = Number.isFinite(options.closeToken) ? Math.trunc(options.closeToken) : null;
   if (!state.aiPopover) {
-    return;
+    return Promise.resolve(null);
   }
   const popover = state.aiPopover;
   const onClose = state.aiPopoverOnClose;
@@ -7723,6 +7723,7 @@ function closeAiPopover(options = {}) {
       });
     });
   }
+  return afterClose;
 }
 
 // @ts-expect-error
@@ -7751,7 +7752,7 @@ export function hasAiPopover() {
 }
 
 export function requestAiPopoverClose(options = {}) {
-  closeAiPopover(options);
+  return closeAiPopover(options);
 }
 
 // @ts-expect-error

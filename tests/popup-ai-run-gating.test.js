@@ -1,12 +1,48 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 import { readFileSync } from "./file-kit.ts";
+import { buildPageSaveUiState } from "../common/page-save-state.js";
 
 const popupSource = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
 const pageReconciliationSource = readFileSync(new URL("../popup/page-reconciliation.ts", import.meta.url), "utf8");
 const backgroundSource = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
 const uiSource = readFileSync(new URL("../popup/ui.ts", import.meta.url), "utf8");
 const stateSource = readFileSync(new URL("../popup/state.ts", import.meta.url), "utf8");
+
+function computeButtonDisabledForState({
+  pageScopedUiDisabled = false,
+  aiBusy = false,
+  previewRestorePending = false,
+  aiReady = true,
+  pageSaveReconciliationPending = false,
+  aiRunUpToDate = false,
+  sessionRequiresAiRun = false
+} = {}) {
+  return (
+    pageScopedUiDisabled ||
+    aiBusy ||
+    previewRestorePending ||
+    !aiReady ||
+    pageSaveReconciliationPending ||
+    (aiRunUpToDate && !sessionRequiresAiRun)
+  );
+}
+
+function markingPreviewDisabledForState({
+  aiBusy = false,
+  previewRestorePending = false,
+  pageSaveReconciliationPending = false,
+  aiRunUpToDate = false,
+  sessionRequiresAiRun = false
+} = {}) {
+  return (
+    aiBusy ||
+    previewRestorePending ||
+    pageSaveReconciliationPending ||
+    !aiRunUpToDate ||
+    sessionRequiresAiRun
+  );
+}
 
 test("state tracks the AI-run markings fingerprint", () => {
   assert.match(stateSource, /aiRunMarkingsFingerprint: null/);
@@ -78,6 +114,87 @@ test("aligning to silent mode clears the popup toggle without touching content",
   assert.match(fnBody, /toggleEnabled: false/);
   // No enable/disable message is sent to the content script here.
   assert.doesNotMatch(fnBody, /setEnabled/);
+});
+
+test("State A fresh marking entry keeps Run AI enabled while Save/Discard/Show Content List stay disabled", () => {
+  const pageSaveUiState = buildPageSaveUiState({
+    pageControlsVisible: true,
+    sessionHasPendingChanges: false,
+    sessionRequiresAiRun: false,
+    currentDraftDirty: false,
+    reconciliation: null
+  });
+
+  assert.equal(
+    computeButtonDisabledForState({
+      aiRunUpToDate: false,
+      sessionRequiresAiRun: false
+    }),
+    false
+  );
+  assert.equal(
+    markingPreviewDisabledForState({
+      aiRunUpToDate: false,
+      sessionRequiresAiRun: false
+    }),
+    true
+  );
+  assert.equal(pageSaveUiState.pageSaveDisabled, true);
+  assert.equal(pageSaveUiState.pageRevertDisabled, true);
+});
+
+test("State B stale post-edit keeps Run AI enabled, disables Show Content List/Save, and keeps Discard enabled", () => {
+  const pageSaveUiState = buildPageSaveUiState({
+    pageControlsVisible: true,
+    sessionHasPendingChanges: true,
+    sessionRequiresAiRun: true,
+    currentDraftDirty: true,
+    reconciliation: null
+  });
+
+  assert.equal(
+    computeButtonDisabledForState({
+      aiRunUpToDate: false,
+      sessionRequiresAiRun: true
+    }),
+    false
+  );
+  assert.equal(
+    markingPreviewDisabledForState({
+      aiRunUpToDate: false,
+      sessionRequiresAiRun: true
+    }),
+    true
+  );
+  assert.equal(pageSaveUiState.pageSaveDisabled, true);
+  assert.equal(pageSaveUiState.pageRevertDisabled, false);
+});
+
+test("State C clean post-AI-run keeps Run AI disabled and enables Show Content List/Save/Discard", () => {
+  const pageSaveUiState = buildPageSaveUiState({
+    pageControlsVisible: true,
+    sessionHasPendingChanges: true,
+    sessionRequiresAiRun: false,
+    currentDraftDirty: true,
+    reconciliation: null
+  });
+
+  assert.equal(
+    computeButtonDisabledForState({
+      aiRunUpToDate: true,
+      sessionRequiresAiRun: false
+    }),
+    true
+  );
+  assert.equal(
+    markingPreviewDisabledForState({
+      aiRunUpToDate: true,
+      sessionRequiresAiRun: false
+    }),
+    false
+  );
+  assert.equal(pageSaveUiState.pageSaveDisabled, false);
+  assert.equal(pageSaveUiState.pageRevertDisabled, false);
 });
 
 test("Run AI stays enabled when the session needs a rerun elsewhere", () => {
@@ -288,6 +405,7 @@ test("#21 preview-exit restore uses explicit pending state and authoritative dra
     popupSource,
     /function schedulePreviewRestoreFallback\(token: number, delayMs = AI_PREVIEW_RESTORE_FALLBACK_MS\) \{[\s\S]*?finalizePreviewRestoreFromRuntime\(\{ token \}\)/
   );
+  assert.match(popupSource, /const AI_PREVIEW_RESTORE_FALLBACK_MS = 1000;/);
 });
 
 // --- #22: exiting the content list must be state-neutral (S4 == S3) ---

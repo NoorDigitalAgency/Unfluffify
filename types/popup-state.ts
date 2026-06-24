@@ -94,6 +94,7 @@ export interface PopupState {
   lastPopupEnabledContext: Record<string, unknown> | null;
   previewRestorePending: boolean;
   previewRestoreToken: number;
+  previewRestoreAppliedToken: number;
   previewRestoreFallbackTimer: number;
   configViewLocked: boolean;
   tokenValidationInFlight: boolean;

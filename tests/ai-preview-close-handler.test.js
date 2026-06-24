@@ -12,7 +12,7 @@ function createDeps(overrides = {}) {
   const deps = {
     isAiPreviewActive: () => false,
     hasAiPopover: () => false,
-    requestAiPopoverClose: () => {
+    requestAiPopoverClose: async () => {
       calls.requestedClose += 1;
     },
     exitAiPreviewMode: async () => {
@@ -40,19 +40,34 @@ test("close handler returns inactive success when preview is not active", async 
 
 test("close handler requests popover close when preview popover is present", async () => {
   const requestedCloseArgs = [];
+  const popoverCloseState = {
+    markingEnabled: true,
+    baseUrl: "https://example.com/path",
+    pageUrl: "https://example.com/path/page",
+    draftStatus: {
+      ok: true,
+      dirty: false
+    }
+  };
   const { calls, deps } = createDeps({
     isAiPreviewActive: () => true,
     hasAiPopover: () => true,
-    requestAiPopoverClose: (options) => {
+    requestAiPopoverClose: async (options) => {
       calls.requestedClose += 1;
       requestedCloseArgs.push(options);
+      return popoverCloseState;
     }
   });
   const handler = createAiPreviewCloseHandler(deps);
 
   const response = await handler.handleMessage({ previewRestoreToken: 7 });
 
-  assert.deepEqual(response, { ok: true, active: false, previewRestoreToken: 7 });
+  assert.deepEqual(response, {
+    ok: true,
+    active: false,
+    ...popoverCloseState,
+    previewRestoreToken: 7
+  });
   assert.equal(calls.requestedClose, 1);
   assert.deepEqual(requestedCloseArgs, [{ closeToken: 7 }]);
   assert.equal(calls.exited, 0);

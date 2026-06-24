@@ -215,6 +215,7 @@ test("marking-mode Preview Contents stays separate from silent Preview and Send 
 
 test("preview exit uses explicit pending state and authoritative close payload", () => {
   const popupSource = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
+  const popupStateSource = readFileSync(new URL("../popup/state.ts", import.meta.url), "utf8");
 
   assert.match(
     popupSource,
@@ -226,11 +227,25 @@ test("preview exit uses explicit pending state and authoritative close payload",
   );
   assert.match(
     popupSource,
+    /if \(closeResult && \(typeof closeResult\.markingEnabled === "boolean" \|\| closeResult\.draftStatus\)\) \{[\s\S]*?await applyPreviewClosedState\(closeResult\);/
+  );
+  assert.match(
+    popupSource,
     /if \(message && message\.type === "aiPreviewClosed"\) \{[\s\S]*?applyPreviewClosedState\(message\)\.catch\(\(\) => \{[\s\S]*?clearPreviewRestorePending\(\);[\s\S]*?setPreviewBlocked\(false\);/
+  );
+  assert.match(popupStateSource, /previewRestoreAppliedToken: 0,/);
+  assert.match(popupSource, /function getPreviewRestoreToken\(message = \{\}\) \{/);
+  assert.match(
+    popupSource,
+    /if \(\s*messageToken !== null &&\s*messageToken <= state\.previewRestoreAppliedToken\s*\) \{\s*return false;\s*\}/
   );
   assert.match(
     popupSource,
     /async function applyPreviewClosedState\(closeState = \{\}\) \{[\s\S]*?const draftStatus = closeState\.draftStatus[\s\S]*?clearPreviewRestorePending\(\);[\s\S]*?refreshUi\(\{[\s\S]*?preserveCurrentDraftStatus: Boolean\(hasDraftStatus\)/
+  );
+  assert.match(
+    popupSource,
+    /if \(messageToken !== null\) \{\s*state\.previewRestoreAppliedToken = Math\.max\(state\.previewRestoreAppliedToken, messageToken\);\s*\}/
   );
 });
 
