@@ -10,8 +10,8 @@
       ],
       "args": [
         "--no-sandbox",
-        "--load-extension=__UNFLUFFIFY_REPO_ROOT__/dist/extension-dev",
-        "--disable-extensions-except=__UNFLUFFIFY_REPO_ROOT__/dist/extension-dev"
+        "--load-extension=__UNFLUFFIFY_REPO_ROOT__/.output/chrome-mv3",
+        "--disable-extensions-except=__UNFLUFFIFY_REPO_ROOT__/.output/chrome-mv3"
       ]
     }
   }

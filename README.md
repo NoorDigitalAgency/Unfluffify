@@ -67,6 +67,7 @@ shipping and validation, while the new Node toolchain is being brought up:
 pnpm build
 pnpm check
 pnpm test
+pnpm browser:live <target-url>
 pnpm verify
 ```
 
@@ -83,9 +84,12 @@ bridged back to the current source contract (including no `action.default_popup`
 and the legacy content-script paths) until full manifest authority moves into
 WXT in a later phase.
 
-The dev watcher and live-browser launcher still stay on their existing Deno
-commands until later Part A phases wire a watch-time bridge and a WXT-aware live
-browser flow.
+The dev watcher still stays on the existing Deno command until a watch-time WXT
+bridge lands. The live-browser launcher now targets the WXT unpacked output:
+`pnpm browser:live <target-url>` shells through the committed launcher, runs
+`pnpm build` by default, and loads `.output/chrome-mv3` into the managed
+Playwright Chromium. The legacy `deno task browser:live <target-url>` entrypoint
+remains as a bridge for existing automation.
 
 Orchestration helpers are exposed as Deno tasks as well:
 
@@ -115,10 +119,10 @@ deno task orchestrate:property-lock -- --property-url https://example.com/
 
 ## Installation (Developer Mode)
 
-1. Run `deno task dev` for a watched development build, or `deno task build` for a one-shot local build.
+1. Run `deno task dev` for the watched legacy bridge build, or `pnpm build` for the current WXT build.
 2. Open Chrome and navigate to `chrome://extensions`
 3. Enable **Developer mode** (toggle in top right corner)
-4. Click **Load unpacked** and select `dist/extension-dev` for development or `dist/extension` for the one-shot build.
+4. Click **Load unpacked** and select `dist/extension-dev` for the watched bridge build or `.output/chrome-mv3` for the WXT build.
 5. Pin the extension for easy access
 
 ## Testing

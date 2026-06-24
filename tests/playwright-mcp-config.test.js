@@ -24,6 +24,16 @@ test("repo MCP specs stay placeholdered (non-launchable) and keep no-sandbox lau
   assert.match(browserConfig, /"chromiumSandbox": false/);
   assert.match(browserConfig, /"--no-sandbox"/);
   assert.match(browserConfig, /"executablePath": "__CHROMIUM_EXECUTABLE_PATH__"/);
-  assert.match(browserConfig, /--load-extension=__UNFLUFFIFY_REPO_ROOT__\/dist\/extension-dev/);
-  assert.match(browserConfig, /--disable-extensions-except=__UNFLUFFIFY_REPO_ROOT__\/dist\/extension-dev/);
+  assert.match(browserConfig, /--load-extension=__UNFLUFFIFY_REPO_ROOT__\/\.output\/chrome-mv3/);
+  assert.match(browserConfig, /--disable-extensions-except=__UNFLUFFIFY_REPO_ROOT__\/\.output\/chrome-mv3/);
+});
+
+test("live browser launcher targets the WXT output and canonical pnpm command", () => {
+  const launcher = readFileSync(new URL("../scripts/launch-test-browser.ts", import.meta.url), "utf8");
+
+  assert.match(launcher, /Usage:\s*\n \*   pnpm browser:live <target-url> \[--no-build\]/);
+  assert.match(launcher, /Bridge:\s*\n \*   deno task browser:live <target-url> \[--no-build\]/);
+  assert.match(launcher, /const EXT_DIR = join\(repoRoot, "\.output", "chrome-mv3"\);/);
+  assert.match(launcher, /await run\("pnpm", \["build"\]\);/);
+  assert.match(launcher, /Run \\`pnpm build\\` first/);
 });

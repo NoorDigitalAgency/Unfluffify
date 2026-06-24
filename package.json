@@ -11,6 +11,7 @@
     "check": "wxt prepare && tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.wxt.json",
     "lint": "eslint eslint.config.js wxt.config.ts vitest.config.ts entrypoints/**/*.ts scripts/run-deno.mjs scripts/sync-wxt-bootstrap.mjs tests/**/*.test.js tests/**/*.ts tests/shims/*.js vitest-tests/**/*.test.ts",
     "test": "vitest run",
+    "browser:live": "node ./scripts/run-deno.mjs task browser:live",
     "verify": "pnpm lint && pnpm check && pnpm test && rm -rf .output && node ./scripts/run-deno.mjs task verify",
     "legacy:check": "node ./scripts/run-deno.mjs task check",
     "legacy:test": "node ./scripts/run-deno.mjs task test",

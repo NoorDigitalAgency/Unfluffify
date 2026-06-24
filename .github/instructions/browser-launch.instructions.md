@@ -10,18 +10,16 @@ helpers.
 ## Canonical command
 
 ```
-deno task browser:live <target-url>
+pnpm browser:live <target-url>
 ```
 
-Example: `deno task browser:live https://bonliva.se`
+Example: `pnpm browser:live https://bonliva.se`
 
 This is the only supported way to open the live test browser. It is a thin,
 proven driver (`scripts/launch-test-browser.ts`) around the `playwright-local`
 (`npm:@playwright/mcp@latest`) MCP server and its own managed Chromium. Run it
 from the repository root, in the background, so it can keep running while you
-observe and so you can send control commands to the same shell session with
-`write_bash`. The browser stays open until you stop it with Ctrl-C or
-`kill <pid>`.
+observe. The browser stays open until you stop it with Ctrl-C or `kill <pid>`.
 
 ## A target page URL is mandatory
 
@@ -30,20 +28,20 @@ STOP and ask the user for it before launching — do not guess a default, do not
 reuse a previous URL, and do not launch until you have an explicit target page.
 The launcher enforces this: it exits with an error if no URL is passed.
 
-Pass `--no-build` to skip the dev rebuild. By default the launcher rebuilds
-`dist/extension-dev` first so the browser always loads current code.
+Pass `--no-build` to skip the rebuild. By default the launcher runs `pnpm build`
+first so the browser always loads the current WXT output from
+`.output/chrome-mv3`.
 
-## What `deno task browser:live` does (and why)
+## What `pnpm browser:live` does (and why)
 
 The launcher performs the exact, proven flow so a low-context agent does not have
 to re-derive it:
 
 1. Resolves the active repository root from its own file location — works in any
    environment, with no hardcoded machine paths.
-2. Builds the dev extension (`deno task build:dev` -> `dist/extension-dev`)
-   unless `--no-build` is given. `dist/extension-dev` is the loadable unpacked
-   root; never load the source checkout root (it lacks `background.js`,
-   `popup.js`, `content-loader.js`, etc.).
+2. Builds the current unpacked WXT extension (`pnpm build` ->
+   `.output/chrome-mv3`) unless `--no-build` is given. `.output/chrome-mv3` is
+   the loadable unpacked root; never load the source checkout root.
 3. Materializes a launchable, per-environment copy of the placeholdered config
    into the gitignored `.temp/browser-mcp.config.json`: it substitutes
    `__UNFLUFFIFY_REPO_ROOT__` with the resolved root and DROPS `executablePath`
@@ -94,7 +92,8 @@ ready banner appears, the launcher prints:
 [control] automatic button-state observation is enabled
 ```
 
-Use `write_bash` with that same `shellId` to send commands:
+If your host environment supports writing to the running shell session, use the
+launcher's stdin control channel with that same `shellId` to send commands:
 
 - `state` — captures the bound popup's `popup/ui.js#getViewState()` fields,
   live DOM state for `#compute`, `#marking-preview`, `#page-save`,
@@ -109,8 +108,10 @@ Use `write_bash` with that same `shellId` to send commands:
 
 For button-state bugs, always capture `state` before the user clicks, keep
 `observe` enabled while they interact, and use `exit-preview` when you need the
-launcher to click Exit Preview itself. Read the launcher output with `read_bash`
-frequently enough not to miss `[observe:buttons]` transitions.
+launcher to click Exit Preview itself. If your agent environment cannot write to
+the running shell session, rely on the launcher's auto-enabled observation
+output plus the CDP flow below; use the same browser session over CDP to inspect
+popup state and click controls manually.
 
 If the launcher control channel output is not enough, connect to the same live
 browser over CDP:
@@ -136,7 +137,7 @@ you intend to close the live browser.
 ## Use only the Playwright MCP browser; never touch the OS Chrome
 
 - Operate only the Playwright MCP managed Chromium bound to
-  `.mcp-browser-profile`, exclusively via `deno task browser:live` and the
+  `.mcp-browser-profile`, exclusively via `pnpm browser:live` and the
   launcher's same-session control channel.
 - Never run the OS Chrome/Chromium application binary directly, never
   `open -a 'Google Chrome'`, and never set `executablePath` to the OS browser.
@@ -152,8 +153,9 @@ If you rebuild while the browser is open, the persisted profile can keep an olde
 MV3 service worker alive even though files on disk changed. If removed debug logs
 or stale behavior still appear, call `chrome.runtime.reload()` from the extension
 context or reload the extension on `chrome://extensions`, and wait for the new
-service worker before retesting. Re-running `deno task browser:live` from a clean
-stop rebuilds and reloads from scratch.
+service worker before retesting. Re-running `pnpm browser:live` from a clean
+stop rebuilds and reloads from scratch. The legacy `deno task browser:live`
+entrypoint remains as a bridge to the same launcher.
 
 ## Debugging the launcher (internals)
 

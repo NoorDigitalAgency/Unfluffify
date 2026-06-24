@@ -29,7 +29,7 @@ describe("WXT Part A bridge", () => {
     expect(packageJson.scripts.lint).toContain("tests/shims/*.js");
     expect(packageJson.scripts.verify).toContain("run-deno.mjs task verify");
     expect(packageJson.scripts.browser).toBeUndefined();
-    expect(packageJson.scripts["browser:live"]).toBeUndefined();
+    expect(packageJson.scripts["browser:live"]).toBe("node ./scripts/run-deno.mjs task browser:live");
     expect(packageJson.scripts["legacy:build:dev"]).toBe("node ./scripts/run-deno.mjs task build:dev");
   });
 

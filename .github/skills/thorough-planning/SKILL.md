@@ -101,8 +101,8 @@ Write plans in this structure:
    deno task build:release
    ```
 
-   Add `deno task build:dev` when the implementation needs live browser
-   validation against `dist/extension-dev`.
+   Add `pnpm build` / `pnpm browser:live <target-url>` when the implementation
+   needs live browser validation against `.output/chrome-mv3`.
 
 8. **Regression risks**
 

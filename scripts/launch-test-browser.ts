@@ -4,10 +4,13 @@
  * its own managed Chromium. This never touches the OS Chrome/Chromium install.
  *
  * Usage:
+ *   pnpm browser:live <target-url> [--no-build]
+ *
+ * Bridge:
  *   deno task browser:live <target-url> [--no-build]
  *
  * What it does (the canonical, proven flow):
- *   1. Builds the dev extension (`deno task build:dev`) unless --no-build.
+ *   1. Builds the current WXT unpacked extension (`pnpm build`) unless --no-build.
  *   2. Resolves the current repo root and materializes a launchable, per-env
  *      copy of the placeholdered browser config into the gitignored `.temp/`
  *      (substituting the repo root and dropping `executablePath` so Playwright
@@ -27,7 +30,7 @@
 import { resolve, join, fromFileUrl } from "@std/path";
 
 const repoRoot = resolve(fromFileUrl(new URL("..", import.meta.url)));
-const EXT_DIR = join(repoRoot, "dist", "extension-dev");
+const EXT_DIR = join(repoRoot, ".output", "chrome-mv3");
 const PROFILE_DIR = join(repoRoot, ".mcp-browser-profile");
 const TEMP_DIR = join(repoRoot, ".temp");
 const TEMP_CONFIG = join(TEMP_DIR, "browser-mcp.config.json");
@@ -52,7 +55,8 @@ if (!target) {
       "The user must instruct which page to load. If they did not, STOP and ask",
       "them for it — do not guess a default.",
       "",
-      "Usage: deno task browser:live <target-url> [--no-build]",
+      "Usage: pnpm browser:live <target-url> [--no-build]",
+      "Bridge: deno task browser:live <target-url> [--no-build]",
     ].join("\n"),
   );
   Deno.exit(2);
@@ -458,14 +462,14 @@ console.log(`[launch] repo root: ${repoRoot}`);
 console.log(`[launch] target:    ${target}`);
 
 if (doBuild) {
-  console.log("[launch] building dev extension (deno task build:dev)…");
-  await run("deno", ["task", "build:dev"]);
+  console.log("[launch] building unpacked WXT extension (pnpm build)…");
+  await run("pnpm", ["build"]);
 }
 try {
   await Deno.stat(join(EXT_DIR, "manifest.json"));
 } catch {
   console.error(
-    `ERROR: ${EXT_DIR}/manifest.json not found. Run \`deno task build:dev\` first ` +
+    `ERROR: ${EXT_DIR}/manifest.json not found. Run \`pnpm build\` first ` +
       `(or omit --no-build).`,
   );
   Deno.exit(1);

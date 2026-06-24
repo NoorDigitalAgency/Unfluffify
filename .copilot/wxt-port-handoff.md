@@ -39,9 +39,9 @@ the Brain on a half-migrated dual Deno+WXT build.
 - Preserve behavior/contracts; tests can be refactored structurally.
 - CI/CD may be redesigned to fit WXT.
 - Functional target is recent Chrome; strict old manifest process is not required.
-- Live debug workflow must remain functionally equivalent. The command/path do not
-  need to match immediately; until A5 the active launcher remains
-  `deno task browser:live <url>`.
+- Live debug workflow must remain functionally equivalent. The active launcher is
+  now `pnpm browser:live <url>` (`deno task browser:live <url>` remains a bridge
+  to the same launcher).
 - Phased migration with runnable checkpoints (not big-bang).
 - The Brain architecture (single background Brain, stateless popup/content layers,
   typed request/publish seams) is the Part B target; it starts only after Part A.
@@ -61,7 +61,7 @@ the Brain on a half-migrated dual Deno+WXT build.
 | release build | `pnpm build` (`wxt build` → `.output/chrome-mv3/`) |
 | zip | `pnpm zip` (A1 bridge zip over `.output/chrome-mv3`; WXT-native zip lands later) |
 | verify | `pnpm verify` (includes the generated-manifest/WAR check via `deno task verify`) |
-| live browser | deferred until A5; current launcher remains `deno task browser:live <url>` |
+| live browser | `pnpm browser:live <url>` (bridge: `deno task browser:live <url>`) |
 
 ## Authority model guardrails (Part B, mandatory)
 
@@ -91,7 +91,8 @@ the Brain on a half-migrated dual Deno+WXT build.
   `deno task dev` until a watch-time WXT bridge exists.
 
 ### Debug flow parity
-- Until A5, the live-browser launcher remains `deno task browser:live <url>`.
+- Live-browser launcher: `pnpm browser:live <url>` (bridge:
+  `deno task browser:live <url>`).
 - Popup bound to the target tab (`debugTabId` equivalent).
 - Button state + transitions inspectable (`state`/`observe`).
 - Exit Preview triggerable from control flow (`exit-preview`).
@@ -193,8 +194,9 @@ Explicit page-world / runtime asset facts that must remain true:
 
 ## Baseline live-browser invariants (must survive Part A)
 
-- The only supported current launch path is `deno task browser:live <url>`.
-- The launcher builds `dist/extension-dev`, loads that unpacked output, resolves
+- The supported launch path is `pnpm browser:live <url>` (`deno task browser:live
+  <url>` remains a bridge to the same launcher).
+- The launcher runs `pnpm build`, loads `.output/chrome-mv3`, resolves
   the runtime extension id, resolves the target page's tab id, and opens a
   second popup tab `popup.html?debugTabId=<pageTabId>` bound to the page.
 - The launcher control channel must keep working with the same capabilities:

@@ -114,7 +114,7 @@ command remains.
 | release build | `deno task build:release` | `pnpm build` (`wxt build` → `.output/chrome-mv3/`) |
 | zip/package | `scripts/package-extension.mjs` | `pnpm zip` (A1 bridge zip over `.output/chrome-mv3`; WXT-native zip lands later) |
 | verify (all) | `deno task verify` | `pnpm verify` (`lint && check && test && deno task verify`, where `deno task verify` now includes the post-build generated-manifest/WAR check) |
-| live browser | `deno task browser:live <url>` | deferred until A5; current launcher remains `deno task browser:live <url>` |
+| live browser | `deno task browser:live <url>` | `pnpm browser:live <url>` (bridge: `deno task browser:live <url>`; loads `.output/chrome-mv3`) |
 
 ---
 
@@ -288,6 +288,10 @@ weakens coverage, restore its assertions before deleting the Deno variant.
 ---
 
 ### Phase A5 — Live browser debug flow parity on WXT output
+
+**Current status**: complete; the canonical launcher is now
+`pnpm browser:live <url>` and the legacy `deno task browser:live <url>` entry
+remains as a bridge to the same launcher until A7.
 
 **Files to edit**: `scripts/launch-test-browser.ts`; `package.json`
 (`browser:live` script); `.github/instructions/browser-launch.instructions.md`;
