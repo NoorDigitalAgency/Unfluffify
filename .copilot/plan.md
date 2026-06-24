@@ -1,6 +1,6 @@
 # Unfluffify Active Architecture Plan
 
-Last updated: 2026-06-23
+Last updated: 2026-06-24
 
 ## Objective
 
@@ -21,6 +21,8 @@ Use these documents before making implementation changes:
 5. `.copilot/high-risk-content-branches-plan.md` (historical G0-G5 reference only)
 6. `.copilot/typescript-deno-port-plan.md` (completed: autonomous port to TypeScript with a Deno build/watch/hot-reload toolchain; branch `feat/typescript-deno-port`)
 7. `.copilot/typescript-typing-rollout-plan.md` (autonomous plan to remove `@ts-nocheck` and add real types across the ported `.ts` codebase; target GPT-5.3-Codex medium; execute on branch `feat/typescript-deno-port`)
+8. This document's lint strictness track for removing `require-await` and
+   `no-unused-vars` from the active Deno lint exclusions.
 
 Historical and superseded `.copilot` plans/handoffs have been removed from the
 workspace. If earlier rationale is needed, use git history instead of restoring
@@ -28,13 +30,12 @@ old archive files into the active `.copilot` folder.
 
 ## Current Architecture Track
 
-Temporary priority override: before resuming Track H, fix the popup
-AI-run -> Show Content List -> Exit Preview -> marking-mode button-state
-contract using `.copilot/popup-preview-exit-button-state-plan.md`.
-
-That bugfix is a state-contract stabilization slice, not a Track H redesign. It
-must preserve the locked marking contract and the existing page-save semantics
-while making preview exit state-neutral.
+Temporary priority override: before resuming Track H, complete the lint
+strictness track below so `require-await` and `no-unused-vars` can be removed
+from the active Deno lint exclusions deliberately. The preview-exit
+state-neutral restoration slice has been implemented; any remaining live
+button-state issue, including locally computed unsaved AI selectors not enabling
+Save, is a separate behavior fix and must not be mixed into the lint cleanup.
 
 The service-worker authority refactor, storage-access layer refactor, and world
 decomposition program are complete and merged to `main`. Content follow-up
@@ -51,8 +52,219 @@ This track protects the 11 always-on core features, including reveal/freeze and
 lazy-loading stopping/restoration. Do not resume old implementation tracks unless
 the user explicitly asks for them.
 
-Until the preview-exit bugfix is complete, treat Track H as paused rather than
+Until the lint strictness track is complete, treat Track H as paused rather than
 superseded.
+
+## Lint Strictness Track: `require-await` and `no-unused-vars`
+
+### Goal
+
+Remove `require-await` and `no-unused-vars` from `deno.json` lint rule
+exclusions so `deno task lint` enforces them across the repository without
+changing runtime behavior, browser extension contracts, or test intent.
+
+### Current facts
+
+1. `deno.json` defines `lint` as `deno lint .` and `lint:fix` as
+   `deno lint --fix .`.
+2. The remaining lint exclusions are `ban-ts-comment`, `no-inner-declarations`,
+   `no-sloppy-imports`, `no-unused-vars`, `no-window`, `no-window-prefix`, and
+   `require-await`.
+3. `no-sloppy-imports` must stay excluded while source `.ts` files intentionally
+   import `.js` specifiers for non-bundled browser ESM output. `no-window` and
+   `no-window-prefix` must stay excluded for browser-extension code.
+4. A targeted audit with the approved browser/legacy exclusions retained and
+   only `require-await` / `no-unused-vars` enabled found 520 diagnostics:
+   335 `require-await` and 185 `no-unused-vars`.
+5. The largest current hotspots are:
+   - `content/core.ts`: 54 diagnostics, mostly unused legacy symbols.
+   - root entry files: `popup.ts` 42, `content-main.ts` 33, `background.ts` 21.
+   - tests: 246 `require-await` diagnostics and 18 unused-variable diagnostics.
+   - `background/ai-run-orchestrator.ts`: 14 diagnostics.
+   - `common/property-lock-background.ts`: 17 diagnostics.
+   - `scripts/smoke-property-lock-phase2.mjs`: 10 diagnostics.
+6. `tests/package-test-script.test.js` currently asserts that lint targets the
+   whole repo and that the still-approved exclusions remain present.
+
+### Decisions already made
+
+1. Keep `ban-ts-comment`, `no-inner-declarations`, `no-sloppy-imports`,
+   `no-window`, and `no-window-prefix` excluded unless a separate plan changes
+   the build strategy or browser-runtime lint profile.
+2. Do not add blanket `deno-lint-ignore` comments for these two rules. A local
+   ignore is allowed only when a function must remain syntactically `async` for
+   an external API contract or when an intentionally unused binding documents a
+   source contract that cannot be asserted another way. Every such ignore must
+   name the rule and include a short reason.
+3. Do not use dummy reads such as `void unused` merely to satisfy
+   `no-unused-vars`; remove dead bindings or turn them into real assertions.
+4. Do not change user-visible button-state behavior, marking/highlighting
+   contracts, runtime message names, payload shapes, storage keys, build output
+   strategy, or browser launch policy as part of this cleanup.
+
+### Open questions
+
+None for planning. If implementation finds a runtime async function where
+removing `async` would alter thrown-error-to-rejected-promise behavior or a
+public callback type, preserve the contract and add a focused test or a narrow
+lint ignore with rationale before proceeding.
+
+### Implementation phases
+
+1. **Baseline and inventory**
+   - Files to inspect: `deno.json`, `tests/package-test-script.test.js`, and the
+     lint output for the two target rules.
+   - Run `git --no-pager status --short --branch`, `deno task lint`, then a
+     targeted lint command that keeps only the approved browser/legacy
+     exclusions while enabling `require-await` and `no-unused-vars`.
+   - Save no generated output in the repo. Prefer terminal output or
+     session-local tooling for diagnostic captures.
+   - Expected state: the implementer has a sorted diagnostic list grouped by
+     runtime source, tests, orchestration, and scripts.
+   - Focused validation: the targeted lint command still reports only the two
+     target rules.
+   - Rollback rule: if unrelated dirty files appear, stop and ask before editing
+     those files.
+
+2. **Clean `no-unused-vars` in runtime source first**
+   - Files to prioritize: `content/core.ts`, `popup.ts`, `content-main.ts`,
+     `background.ts`, `common/property-lock-background.ts`,
+     `common/utilities.ts`, `common/config.ts`, `common/lynx-checklist.ts`,
+     `common/lynx-live-pages.ts`, `common/page-motion-freeze-bridge.ts`,
+     `common/page-motion-freeze-control.ts`,
+     `content/page-draft-save-handler.ts`,
+     `background/ai-run-orchestrator.ts`, `popup/messages.ts`,
+     `popup/site-resolution.ts`, `popup/remote-config.ts`, and `popup/ui.ts`.
+   - Remove unused imports, local variables, and type imports only when they have
+     no side effects and no source-contract value.
+   - Convert unused `catch (error)` bindings to `catch` when the error is
+     intentionally ignored; keep existing catch-body behavior.
+   - For parameters required by a callable type, first verify Deno's
+     `no-unused-vars` behavior for leading-underscore names in a targeted edit.
+     If accepted, rename only the parameter to `_name`; otherwise add a narrow
+     ignore with rationale.
+   - Expected state: runtime source has zero `no-unused-vars` diagnostics.
+   - Focused validation: targeted lint over changed runtime files, then
+     `deno task check`.
+   - Rollback rule: if deleting a binding changes emitted code or removes an
+     import with side effects, restore it and use a contract-preserving fix.
+
+3. **Audit `require-await` in runtime source**
+   - Files to prioritize: `background/tab-operation-runner.ts`,
+     `background/render-mode-inspector.ts`,
+     `background/ai-run-orchestrator.ts`, `background/spinner-operations.ts`,
+     `common/utilities.ts`, `common/emulation.ts`, `popup/helpers.ts`,
+     `popup/page-reconciliation.ts`, `popup/render-mode-inspection.ts`,
+     `popup/site-resolution.ts`, `content-main.ts`, `background.ts`,
+     `content/core.ts`, and `popup.ts`.
+   - Decision rule per diagnostic:
+     1. If the function is not part of an async interface and callers do not
+        require a promise, remove `async` and update direct callsites/types.
+     2. If the function calls a promise-returning operation that should be
+        sequenced, add the missing `await` and add or update a focused test for
+        timing/error propagation.
+     3. If the function must return a promise but has no awaitable work, return
+        an explicit `Promise.resolve(...)` or `Promise.reject(...)` only when
+        that preserves synchronous throw behavior. If an `async` wrapper is
+        required to convert synchronous throws to rejections, keep `async` with a
+        narrow `deno-lint-ignore require-await` reason and a focused test.
+   - Expected state: runtime source has zero unreviewed `require-await`
+     diagnostics.
+   - Focused validation: `deno task check` plus the focused tests for any
+     changed domain.
+   - Rollback rule: if a change alters callback response timing, Chrome runtime
+     listener return values, spinner lease cleanup, or render-mode waits, revert
+     that local edit and choose an explicit contract-preserving implementation.
+
+4. **Clean orchestration and smoke scripts**
+   - Files to prioritize: `orchestration/setup-auth.mjs`,
+     `orchestration/rpc-server.mjs`, `orchestration/steps/browser.mjs`,
+     `orchestration/scenarios/property-lock-one-machine.mjs`, and
+     `scripts/smoke-property-lock-phase2.mjs`.
+   - Apply the same `require-await` decision rule, but preserve CLI exit codes,
+     server shutdown semantics, WebSocket upgrade behavior, and Playwright/MCP
+     browser isolation.
+   - Remove unused smoke helpers only if no scenario references them.
+   - Expected state: orchestration and scripts have zero target-rule
+     diagnostics.
+   - Focused validation: existing orchestration tests that cover edited modules.
+   - Rollback rule: if a server lifecycle or browser launch sequence changes,
+     restore the prior flow and use a narrower lint-safe wrapper.
+
+5. **Clean tests last**
+   - Files to prioritize by diagnostic count:
+     `tests/ai-run-orchestrator.test.js`,
+     `tests/popup-remote-config.test.js`,
+     `tests/runtime-message-handler.test.js`,
+     `tests/background-command-router.test.js`,
+     `tests/orchestration-auth.test.js`,
+     `tests/popup-page-reconciliation.test.js`,
+     `tests/config-updated-handler.test.js`,
+     `tests/tab-inactivity-observer.test.js`,
+     `tests/popup-render-mode-inspection.test.js`,
+     `tests/property-lock-background.test.js`, and then the remaining targeted
+     lint output.
+   - Prefer making test fakes sync when the production contract accepts sync
+     return values. If the fake must model a promise-returning dependency, return
+     `Promise.resolve(value)` or `Promise.reject(error)` explicitly.
+   - Remove unused imported constants only when they are not part of the tested
+     source contract. If the test imported a constant to guarantee export shape,
+     replace the dead import with an assertion that checks the exported value.
+   - Expected state: tests have zero target-rule diagnostics without weakening
+     assertions.
+   - Focused validation: run each edited test file, then `deno task test`.
+   - Rollback rule: if a lint cleanup makes a test less representative of an
+     async production contract, restore the async fake and add a narrow ignore
+     with rationale.
+
+6. **Flip the lint config**
+   - Edit `deno.json` to remove `require-await` and `no-unused-vars` from
+     `lint.rules.exclude`.
+   - Update `tests/package-test-script.test.js` so it asserts the approved
+     browser/legacy exclusions still exist and the two target rules are not
+     excluded.
+   - Run `deno task lint:fix` once only after all manual decisions are complete,
+     then review the diff before keeping any automatic change.
+   - Expected state: `deno task lint` enforces both rules repo-wide.
+   - Focused validation: `deno task lint` and
+     `deno test --allow-read --allow-write --allow-env --allow-run --allow-sys --allow-net=127.0.0.1 --no-check --unstable-sloppy-imports tests/package-test-script.test.js`.
+   - Rollback rule: if lint:fix rewrites behavior-bearing code, revert only that
+     automatic hunk and apply a manual fix.
+
+7. **Full validation and handoff**
+   - Run `deno task lint`, `deno task check`, `deno task test`, and
+     `deno task build:release`.
+   - No live browser validation is required unless implementation touches popup
+     button-state behavior, browser launch code, or another user-visible runtime
+     flow.
+   - Expected state: repository is clean, all target-rule diagnostics are gone,
+     and the two rules are enforced by the default lint task.
+
+### Regression risks
+
+1. Removing `async` can change synchronous throw vs rejected-promise behavior.
+   Protect this by auditing callsites and adding focused tests where timing or
+   rejection behavior matters.
+2. Removing unused imports can drop side effects. Protect this by checking every
+   import before deletion and keeping side-effect-only imports intact.
+3. Simplifying test fakes can make them stop modeling async production
+   dependencies. Protect this by preserving promise-returning contracts where
+   the production code awaits or chains them.
+4. Large legacy files such as `content/core.ts`, `popup.ts`, `content-main.ts`,
+   and `background.ts` may contain intentionally dormant branches. Protect this
+   by removing only bindings proven unused by TypeScript/lint and by keeping
+   source-contract tests meaningful.
+
+### Acceptance criteria
+
+1. `deno.json` no longer excludes `require-await` or `no-unused-vars`.
+2. `tests/package-test-script.test.js` fails if either target rule is added back
+   to the exclusions.
+3. `deno task lint` reports zero diagnostics under the default repo config.
+4. `deno task check`, `deno task test`, and `deno task build:release` pass.
+5. Any remaining local `deno-lint-ignore require-await` or
+   `deno-lint-ignore no-unused-vars` comments are narrow, justified, and covered
+   by the relevant focused test or contract assertion.
 
 ## Validation Baseline
 
