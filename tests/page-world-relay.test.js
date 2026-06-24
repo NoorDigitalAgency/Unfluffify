@@ -103,7 +103,7 @@ async function withRelayHarness(options, callback) {
   globalThis.window = harness.windowObject;
   globalThis.document = harness.documentObject;
   if (installBridge) {
-    // eslint-disable-next-line no-eval
+
     (0, eval)(bridgeSource);
   }
   try {

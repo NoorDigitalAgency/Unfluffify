@@ -328,7 +328,7 @@ class FakeElement {
   get outerHTML() {
     const tagName = this.tagName.toLowerCase();
     const attributes = this.attributes
-      .map((attribute) => `${attribute.name}=\"${attribute.value}\"`)
+      .map((attribute) => `${attribute.name}="${attribute.value}"`)
       .join(" ");
     const children = this.children.map((child) => child.outerHTML).join("");
     return `<${tagName}${attributes ? ` ${attributes}` : ""}>${children}</${tagName}>`;
@@ -1378,10 +1378,10 @@ test("page motion pause stylesheet excludes extension-owned UI", () => {
   assert.match(source, /MATERIAL_DESIGN_ICON_SNOWFLAKE = "\\\\F0717"/);
   assert.match(source, /MATERIAL_DESIGN_ICON_CODE_TAGS = "\\\\F1C86"/);
   assert.match(source, /PAGE_MOTION_PAUSE_CONTENT_SELECTOR/);
-  assert.match(source, /:not\(\[data-uf-extension-ui=\"true\"\]\)/);
-  assert.match(source, /:not\(\[data-uf-extension-ui=\"true\"\] \*\)/);
-  assert.match(source, /:not\(\[id\^=\"unfluffify-\"\]\)/);
-  assert.match(source, /:not\(\[id\^=\"unfluffify-\"\] \*\)/);
+  assert.match(source, /:not\(\[data-uf-extension-ui="true"\]\)/);
+  assert.match(source, /:not\(\[data-uf-extension-ui="true"\] \*\)/);
+  assert.match(source, /:not\(\[id\^="unfluffify-"\]\)/);
+  assert.match(source, /:not\(\[id\^="unfluffify-"\] \*\)/);
   assert.doesNotMatch(source, /html\.\$\{PAGE_MOTION_PAUSE_ROOT_CLASS\} \*,/);
 });
 

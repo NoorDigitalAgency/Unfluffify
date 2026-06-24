@@ -103,7 +103,7 @@ test("requestRuntime rejects on timeout and clears timeout after completion", as
     await withChrome({
       runtime: {
         lastError: null,
-        sendMessage(_message, _callback) {
+        sendMessage() {
           // Intentionally never reply to trigger timeout.
         }
       }

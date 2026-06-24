@@ -137,6 +137,7 @@ test("marking enable delegates mobile simulation prep to TAB_ACTIVATE_MARKING an
     "function renderMarkingView({state: view, actions: handlers}) {",
     "function renderConfigurationView"
   );
+  void uiBlock;
 
   assert.match(enableBlock, /setSpinnerMessage\(spinnerKey, PopupText\.overlay\.pageInspection\);/);
   assert.match(enableBlock, /messages\.requestTabActivateMarking\(tab\.id, \{/);

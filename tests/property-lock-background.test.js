@@ -41,6 +41,21 @@ import {
 } from "../common/property-lock.js";
 
 let backgroundModuleCounter = 0;
+void [
+  PROPERTY_LOCK_BACKGROUND_STATE_UPDATE,
+  PROPERTY_LOCK_BACKGROUND_CONNECTION_STATUS,
+  PROPERTY_LOCK_CONTENT_DISCONNECT,
+  PROPERTY_LOCK_CONTENT_DRAFT_STATUS,
+  PROPERTY_LOCK_PORT_DISCONNECT_DELAY_MS,
+  PROPERTY_LOCK_WS_CLIENT_STATUS,
+  PROPERTY_LOCK_WS_CONTINUE_EDITING,
+  PROPERTY_LOCK_WS_SUBSCRIBE,
+  PROPERTY_LOCK_WS_SUBSCRIBED,
+  PROPERTY_LOCK_WS_LOCK_STATE,
+  PROPERTY_LOCK_CONNECTION_CONNECTING,
+  PROPERTY_LOCK_STATE_LOCKED,
+];
+void createFakeTimerController;
 
 test("property lock background consumes port disconnect lastError", () => {
   const source = readFileSync(new URL("../common/property-lock-background.ts", import.meta.url), "utf8");
@@ -92,7 +107,6 @@ function resolveStorageValues(keys, storageItems) {
   return { ...storageItems };
 }
 
-// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 function createFakeTimerController() {
   const originalSetTimeout = globalThis.setTimeout;
   const originalClearTimeout = globalThis.clearTimeout;

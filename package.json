@@ -9,7 +9,7 @@
     "build": "node ./scripts/run-deno.mjs task build:release && wxt build && node ./scripts/sync-wxt-bootstrap.mjs",
     "zip": "pnpm build && (cd .output/chrome-mv3 && zip -qr ../unfluffify-bootstrap.zip .)",
     "check": "wxt prepare && tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.wxt.json",
-    "lint": "eslint eslint.config.js wxt.config.ts vitest.config.ts entrypoints/**/*.ts scripts/sync-wxt-bootstrap.mjs vitest-tests/**/*.test.ts",
+    "lint": "eslint eslint.config.js wxt.config.ts vitest.config.ts entrypoints/**/*.ts scripts/run-deno.mjs scripts/sync-wxt-bootstrap.mjs tests/**/*.test.js tests/**/*.ts tests/shims/*.js vitest-tests/**/*.test.ts",
     "test": "vitest run",
     "verify": "pnpm lint && pnpm check && pnpm test && rm -rf .output && node ./scripts/run-deno.mjs task verify",
     "legacy:check": "node ./scripts/run-deno.mjs task check",

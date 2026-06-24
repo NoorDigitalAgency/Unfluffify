@@ -120,7 +120,7 @@ test("document_start arming makes a later suppression toggle stop a pre-existing
   await withObserverWindow(async ({ windowObject, originalIntersectionObserver }) => {
     // 1. Bridge arms at document_start: the IntersectionObserver constructor is
     //    wrapped before the page creates any observer; suppression stays off.
-    // eslint-disable-next-line no-eval
+
     (0, eval)(bridgeSource);
     const armedState = windowObject[STATE_KEY];
     assert.ok(armedState, "Expected the bridge to create armed state");

@@ -91,7 +91,7 @@ test("popup message transport logs world traffic when trace mode is enabled", ()
   assert.match(popupMessagesSource, /tab:send/);
 });
 
-test("content uses fixed trace flag and traces inbound\/outbound world traffic", () => {
+test("content uses fixed trace flag and traces inbound/outbound world traffic", () => {
   assert.match(contentSource, /function isWorldTraceEnabled\(\) \{\s*return isDebugFlagEnabled\("worldTraceEnabled"\);\s*\}/);
   assert.doesNotMatch(contentSource, /if \(message\.type === WORLD_MESSAGE_TYPES\.CONTENT_TRACE_SET\) \{/);
   assert.match(contentSource, /\[world-trace\]\[content\] runtime:inbound/);

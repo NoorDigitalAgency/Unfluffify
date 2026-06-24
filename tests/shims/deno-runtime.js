@@ -293,7 +293,7 @@ globalThis.Deno = {
           return;
         }
         await writeUpgradeResponse(socket, response);
-      } catch (error) {
+      } catch {
         socket.write("HTTP/1.1 500 Internal Server Error\r\ncontent-length: 0\r\n\r\n");
         socket.end();
       }
