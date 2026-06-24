@@ -96,7 +96,7 @@ import * as stateModule from "./popup/state.js";
 import {
   logPopupReady
 } from "./popup/telemetry.js";
-import { startPopupBusClient } from "./popup/layers/popup-bus-client.js";
+import { runPopupBusSelfTest, startPopupBusClient } from "./popup/layers/popup-bus-client.js";
 import {
   armSpinnerWatchdog as armSpinnerWatchdogOperation,
   clearSpinnerWatchdog as clearSpinnerWatchdogOperation,
@@ -968,6 +968,17 @@ function logWorldTrace(eventName, details = {}) {
   } catch {
     // Trace logging must never break popup behavior.
   }
+}
+
+const popupBusSelfTestedTabIds = new Set();
+
+// @ts-expect-error
+function maybeRunPopupBusSelfTest(tabId, bus) {
+  if (!isWorldTraceEnabled() || !tabId || !bus || popupBusSelfTestedTabIds.has(tabId)) {
+    return;
+  }
+  popupBusSelfTestedTabIds.add(tabId);
+  void runPopupBusSelfTest(bus, tabId, logWorldTrace);
 }
 
 // @ts-expect-error
@@ -7980,9 +7991,10 @@ async function init() {
   const initTabId = state.currentTab && state.currentTab.id;
   if (initTabId) {
     connectBackgroundStatePort(initTabId);
-    startPopupBusClient(initTabId);
+    const popupBus = startPopupBusClient(initTabId);
     await restoreSpinnerQueueFromBackground(initTabId);
     await applyTraceModePreferenceToTab(initTabId, state.traceModeEnabled).catch(() => null);
+    maybeRunPopupBusSelfTest(initTabId, popupBus);
     if (popupSpinnerQueue.has("navInspect")) {
       popupNavigationInspectionOverlayStarted = true;
       popupNavigationInspectionOverlayTabId = initTabId;
@@ -8151,8 +8163,9 @@ async function init() {
     if (newTabId) {
       try {
         connectBackgroundStatePort(newTabId);
-        startPopupBusClient(newTabId);
+        const popupBus = startPopupBusClient(newTabId);
         await restoreSpinnerQueueFromBackground(newTabId);
+        maybeRunPopupBusSelfTest(newTabId, popupBus);
       } catch {
         // Restoration failure is non-fatal; queue remains empty for this tab.
       }
