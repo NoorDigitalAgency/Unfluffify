@@ -13,7 +13,8 @@ Run the GitHub Actions workflow at `.github/workflows/build-extension-package.ym
 
 Each run:
 
-- validates the extension with `deno task verify` before packaging
+- validates the extension with `deno task verify` before packaging, including a
+  post-build WXT manifest/WAR check against `.output/chrome-mv3/manifest.json`
 - stages only files reachable from the extension runtime surface (manifest entrypoints, imported modules, HTML/CSS assets, and extension-local file references)
 - creates a timestamped archive named `Unfluffify-v<manifest-version>-<yymmdd-hhmm>.zip` using a UTC timestamp
 - refreshes the `extension-latest` release with that timestamped asset and a stable alias named `Unfluffify-latest.zip`
@@ -35,6 +36,9 @@ deno task package -- --stage-dir .tmp/extension-package
 
 ## Development Workflow
 
+Run `pnpm install` once after cloning if you want to use the checked-in WXT/pnpm
+toolchain or the hybrid verification path.
+
 Common local commands:
 
 ```bash
@@ -49,7 +53,11 @@ deno task verify
 `deno task dev` watches extension sources and rebuilds the development extension output under `dist/extension-dev`.
 The dev watcher and one-shot builds share `scripts/build-extension.ts`, so copied assets, bundled files, and dev reload artifacts stay consistent.
 `deno task lint` currently covers the Deno automation files that are lint-clean.
-`deno task verify` runs the type check, regression suite, and release build.
+`deno task verify` is now the hybrid migration verification path: it runs the
+type check, regression suite, release build, WXT bridge build, and a
+generated-manifest permission/WAR check against
+`.output/chrome-mv3/manifest.json`. Because it shells into `pnpm build`, it
+expects the repo's Node devDependencies to be installed first.
 
 WXT/pnpm bootstrap is now checked in in parallel for the migration plan. During
 the transition, the Deno commands above remain the current source of truth for

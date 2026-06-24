@@ -1,9 +1,26 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
-import { readFile } from "./file-kit.ts";
+import { existsSync, readFile } from "./file-kit.ts";
+
+function resolveManifestUrl() {
+  const manifestSource = Deno.env.get("UF_MANIFEST_SOURCE") || "source";
+  if (manifestSource === "generated") {
+    const generatedManifestUrl = new URL("../.output/chrome-mv3/manifest.json", import.meta.url);
+    assert.ok(
+      existsSync(generatedManifestUrl),
+      "Expected generated WXT manifest at .output/chrome-mv3/manifest.json",
+    );
+    return generatedManifestUrl;
+  }
+  return new URL("../manifest.json", import.meta.url);
+}
+
+async function readManifestUnderTest() {
+  return JSON.parse(await readFile(resolveManifestUrl()));
+}
 
 test("manifest uses extension-compatible media permissions", async () => {
-  const manifest = JSON.parse(await readFile(new URL("../manifest.json", import.meta.url)));
+  const manifest = await readManifestUnderTest();
 
   assert.equal(manifest.manifest_version, 3);
   assert.ok(!manifest.permissions.includes("audioCapture"));
@@ -11,7 +28,7 @@ test("manifest uses extension-compatible media permissions", async () => {
 });
 
 test("manifest exposes the content UI icon font without the global icon stylesheet", async () => {
-  const manifest = JSON.parse(await readFile(new URL("../manifest.json", import.meta.url)));
+  const manifest = await readManifestUnderTest();
   const resources = manifest.web_accessible_resources.flatMap((entry) => entry.resources || []);
 
   assert.ok(resources.includes("assets/materialdesignicons-webfont.woff2"));
@@ -19,7 +36,7 @@ test("manifest exposes the content UI icon font without the global icon styleshe
 });
 
 test("manifest web-accessible resources avoid broad common/content wildcards", async () => {
-  const manifest = JSON.parse(await readFile(new URL("../manifest.json", import.meta.url)));
+  const manifest = await readManifestUnderTest();
   const resources = manifest.web_accessible_resources.flatMap((entry) => entry.resources || []);
 
   assert.equal(resources.includes("content/*.js"), false);
@@ -30,7 +47,7 @@ test("manifest web-accessible resources avoid broad common/content wildcards", a
 });
 
 test("every getURL-injected page resource is web-accessible (no under-scoping)", async () => {
-  const manifest = JSON.parse(await readFile(new URL("../manifest.json", import.meta.url)));
+  const manifest = await readManifestUnderTest();
   const resources = manifest.web_accessible_resources.flatMap((entry) => entry.resources || []);
   const contentMain = await readFile(new URL("../content-main.ts", import.meta.url));
   const core = await readFile(new URL("../content/core.ts", import.meta.url));
@@ -68,7 +85,7 @@ test("every getURL-injected page resource is web-accessible (no under-scoping)",
 });
 
 test("every content/* module imported by content-main.js is web-accessible", async () => {
-  const manifest = JSON.parse(await readFile(new URL("../manifest.json", import.meta.url)));
+  const manifest = await readManifestUnderTest();
   const resources = manifest.web_accessible_resources.flatMap((entry) => entry.resources || []);
   const contentMain = await readFile(new URL("../content-main.ts", import.meta.url));
 

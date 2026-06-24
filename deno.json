@@ -20,7 +20,7 @@
     "watch": "deno run --allow-read --allow-write --allow-env --allow-run --allow-sys ./scripts/build-extension.ts --dev --watch",
     "browser:live": "deno run --allow-read --allow-write --allow-env --allow-run --allow-sys --allow-net ./scripts/launch-test-browser.ts",
     "dev": "deno task watch",
-    "verify": "deno task check && deno task test && deno task build:release"
+    "verify": "rm -rf .output && deno task check && deno task test && deno task build:release && pnpm build && UF_MANIFEST_SOURCE=generated deno test --allow-read --allow-write --allow-env --allow-run --allow-sys --allow-net=127.0.0.1 --no-check --unstable-sloppy-imports tests/manifest-permissions.test.js"
   },
   "lint": {
     "exclude": [

@@ -113,7 +113,7 @@ command remains.
 | test | `deno task test` | `pnpm test` (`vitest run`) |
 | release build | `deno task build:release` | `pnpm build` (`wxt build` → `.output/chrome-mv3/`) |
 | zip/package | `scripts/package-extension.mjs` | `pnpm zip` (A1 bridge zip over `.output/chrome-mv3`; WXT-native zip lands later) |
-| verify (all) | `deno task verify` | `pnpm verify` (`lint && check && test && build`) |
+| verify (all) | `deno task verify` | `pnpm verify` (`lint && check && test && deno task verify`, where `deno task verify` now includes the post-build generated-manifest/WAR check) |
 | live browser | `deno task browser:live <url>` | deferred until A5; current launcher remains `deno task browser:live <url>` |
 
 ---

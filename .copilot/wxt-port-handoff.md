@@ -60,7 +60,7 @@ the Brain on a half-migrated dual Deno+WXT build.
 | test | `pnpm test` (`vitest run`) |
 | release build | `pnpm build` (`wxt build` → `.output/chrome-mv3/`) |
 | zip | `pnpm zip` (A1 bridge zip over `.output/chrome-mv3`; WXT-native zip lands later) |
-| verify | `pnpm verify` |
+| verify | `pnpm verify` (includes the generated-manifest/WAR check via `deno task verify`) |
 | live browser | deferred until A5; current launcher remains `deno task browser:live <url>` |
 
 ## Authority model guardrails (Part B, mandatory)
@@ -414,20 +414,20 @@ Follow the dependency order in `todo_deps`.
 
 ## Immediate next action for implementer
 
-`wxt-a0-baseline-inventory`, `wxt-a1-bootstrap-toolchain`, and
-`wxt-a2-entrypoint-adapters` are complete. Start `wxt-a3-manifest-parity`:
+`wxt-a0-baseline-inventory`, `wxt-a1-bootstrap-toolchain`,
+`wxt-a2-entrypoint-adapters`, and `wxt-a3-manifest-war-parity` are complete.
+Start `wxt-a4-vitest-eslint-migration`:
 
-1. Move manifest authority from the source `manifest.json` bridge toward
-   `wxt.config.ts` + generated output, while preserving the required WAR list and
-   the current `action` / `content_scripts` / `background` contract.
-2. Update `tests/manifest-permissions.test.js` to assert against the WXT output
-   manifest (or a deterministic parity helper) instead of the source
-   `manifest.json`.
-3. Keep `popup.html`, `offscreen.html`, `content-loader.js`, `background.js`,
-   and `common/page-motion-freeze-bridge.js` behaviorally identical while
-   removing only truly transitional manifest duplication.
-4. Validate `pnpm build` and the manifest-permissions coverage before moving to
-   `wxt-a4-vitest-eslint-migration`.
+1. Convert the Deno test suite incrementally to Vitest, starting with the
+   manifest/source-contract-heavy tests that already fit a file-read model well.
+2. Move the manifest-permissions/source-contract checks that now rely on the WXT
+   output into the Vitest/Node path where possible, while preserving the same
+   assertions and avoiding repo-state dependence.
+3. Broaden `pnpm lint` from the current bridge/entrypoint scope toward the full
+   migrated surface, keeping the Deno-only files on their existing lint path
+   until their migration is complete.
+4. Keep `deno task test` and `pnpm test` green in parallel until the suite is
+   fully cut over, then move to `wxt-a5-browser-live-debug-flow`.
 
 Do NOT start Part B (Brain) until `wxt-a7-cutover-cleanup` is done and
 `.copilot/event-bus-architecture-plan.md` §0 preconditions all hold. Then proceed

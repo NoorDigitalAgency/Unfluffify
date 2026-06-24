@@ -11,13 +11,13 @@
     "check": "wxt prepare && tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.wxt.json",
     "lint": "eslint eslint.config.js wxt.config.ts vitest.config.ts entrypoints/**/*.ts scripts/sync-wxt-bootstrap.mjs vitest-tests/**/*.test.ts",
     "test": "vitest run",
-    "verify": "pnpm lint && pnpm check && pnpm test && rm -rf .output && deno task verify && pnpm build",
+    "verify": "pnpm lint && pnpm check && pnpm test && rm -rf .output && deno task verify",
     "legacy:check": "deno task check",
     "legacy:test": "deno task test",
     "legacy:lint": "deno task lint",
     "legacy:build:dev": "deno task build:dev",
     "legacy:build:release": "deno task build:release",
-    "legacy:verify": "deno task verify"
+    "legacy:verify": "rm -rf .output && deno task check && deno task test && deno task build:release"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
