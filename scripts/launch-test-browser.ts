@@ -33,6 +33,7 @@ const TEMP_DIR = join(repoRoot, ".temp");
 const TEMP_CONFIG = join(TEMP_DIR, "browser-mcp.config.json");
 const TEMP_OUT = join(TEMP_DIR, "out");
 const COMMITTED_CONFIG = join(repoRoot, ".vscode", "browser-mcp.config.json");
+const CDP_PORT = 9222;
 
 // --- args -----------------------------------------------------------------
 const positionals: string[] = [];
@@ -205,6 +206,253 @@ function toolText(resp: Json): string {
   }
 }
 
+function extractJsonObject(text: string): Json {
+  const trimmed = text.trim();
+  const candidates = [
+    trimmed,
+    trimmed.match(/\{[\s\S]*\}/)?.[0] ?? "",
+  ].filter(Boolean);
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (typeof parsed === "string") {
+        return extractJsonObject(parsed);
+      }
+      return parsed;
+    } catch {
+      // Try the next candidate.
+    }
+  }
+  return { raw: text };
+}
+
+function buildLiveStateScript(action: "state" | "exit-preview"): string {
+  return `async (page) => {
+  const action = ${JSON.stringify(action)};
+  const ctx = page.context();
+  const pages = ctx.pages();
+  const popup = pages.find((candidate) => String(candidate.url()).startsWith('chrome-extension://') && String(candidate.url()).includes('/popup.html'));
+  const target = pages.find((candidate) => !String(candidate.url()).startsWith('chrome-extension://') && !String(candidate.url()).startsWith('chrome://'));
+  if (!popup) throw new Error('Could not find the bound Unfluffify popup tab');
+
+  async function collectPopupState() {
+    const popupState = await popup.evaluate(async () => {
+      const ui = await import(chrome.runtime.getURL('popup/ui.js'));
+      const view = ui.getViewState();
+      const viewKeys = [
+        'previewActive',
+        'previewBlocked',
+        'previewItemsPending',
+        'previewWillRestoreMarking',
+        'toggleEnabled',
+        'toggleEnabledDisabled',
+        'computeButtonDisabled',
+        'markingPreviewVisible',
+        'markingPreviewDisabled',
+        'pageSaveDisabled',
+        'pageRevertDisabled',
+        'sessionHasPendingChanges',
+        'currentPageHasPendingChanges',
+        'sessionRequiresAiRun',
+        'currentDraftDirty',
+        'pageDraftStatusText',
+        'aiDirtyNoticeText',
+        'isBusy',
+        'busyMessage'
+      ];
+      const pickedView = {};
+      for (const key of viewKeys) pickedView[key] = view[key];
+      const domIds = ['compute', 'marking-preview', 'page-save', 'page-revert', 'toggle-enabled'];
+      const dom = {};
+      for (const id of domIds) {
+        const element = document.getElementById(id);
+        dom[id] = element
+          ? {
+            disabled: Boolean(element.disabled),
+            checked: 'checked' in element ? Boolean(element.checked) : null,
+            text: String(element.textContent || '').trim(),
+            title: element.getAttribute('title') || '',
+            ariaLabel: element.getAttribute('aria-label') || '',
+            visible: Boolean(element.offsetWidth || element.offsetHeight || element.getClientRects().length)
+          }
+          : null;
+      }
+      return {
+        url: location.href,
+        title: document.title,
+        view: pickedView,
+        dom,
+        bodyText: String(document.body?.innerText || '').slice(0, 1600)
+      };
+    });
+    const targetState = target
+      ? await target.evaluate(() => ({
+        url: location.href,
+        title: document.title,
+        activeElement: document.activeElement ? document.activeElement.tagName : '',
+        bodyText: String(document.body?.innerText || '').slice(0, 1000)
+      })).catch((error) => ({ error: String(error && error.message ? error.message : error) }))
+      : null;
+    return { popup: popupState, target: targetState };
+  }
+
+  if (action === 'exit-preview') {
+    const before = await collectPopupState();
+    await popup.evaluate(() => {
+      const button = document.querySelector('.preview-sidebar__dismiss');
+      if (!button) throw new Error('Exit Preview button not found');
+      button.click();
+    });
+    await popup.waitForTimeout(1500);
+    const after = await collectPopupState();
+    return JSON.stringify({
+      action,
+      before,
+      after,
+      pages: pages.map((candidate) => candidate.url())
+    });
+  }
+
+  const state = await collectPopupState();
+  return JSON.stringify({
+    action,
+    state,
+    pages: pages.map((candidate) => candidate.url())
+  });
+}`;
+}
+
+function summarizeButtonState(result: Json): Json {
+  const state = (result.state && typeof result.state === "object")
+    ? result.state as Json
+    : (result.after && typeof result.after === "object")
+      ? result.after as Json
+      : result;
+  const popup = state.popup && typeof state.popup === "object" ? state.popup as Json : {};
+  const view = popup.view && typeof popup.view === "object" ? popup.view as Json : {};
+  const dom = popup.dom && typeof popup.dom === "object" ? popup.dom as Json : {};
+  return {
+    previewActive: view.previewActive,
+    previewWillRestoreMarking: view.previewWillRestoreMarking,
+    toggleEnabled: view.toggleEnabled,
+    toggleEnabledDisabled: view.toggleEnabledDisabled,
+    computeButtonDisabled: view.computeButtonDisabled,
+    markingPreviewDisabled: view.markingPreviewDisabled,
+    pageSaveDisabled: view.pageSaveDisabled,
+    pageRevertDisabled: view.pageRevertDisabled,
+    sessionHasPendingChanges: view.sessionHasPendingChanges,
+    currentPageHasPendingChanges: view.currentPageHasPendingChanges,
+    sessionRequiresAiRun: view.sessionRequiresAiRun,
+    pageDraftStatusText: view.pageDraftStatusText,
+    dom
+  };
+}
+
+function makeControlChannel(client: ReturnType<typeof makeClient>) {
+  let queue = Promise.resolve();
+  let observing = true;
+  let lastObserved = "";
+
+  function enqueue<T>(task: () => Promise<T>): Promise<T> {
+    const next = queue.then(task, task);
+    queue = next.then(() => undefined, () => undefined);
+    return next;
+  }
+
+  async function runStateAction(action: "state" | "exit-preview"): Promise<Json> {
+    const response = await client.request("tools/call", {
+      name: "browser_run_code_unsafe",
+      arguments: { code: buildLiveStateScript(action) },
+    });
+    return extractJsonObject(toolText(response));
+  }
+
+  function printJson(prefix: string, value: unknown) {
+    console.log(`${prefix} ${JSON.stringify(value, null, 2)}`);
+  }
+
+  async function observeLoop() {
+    while (observing) {
+      try {
+        const result = await enqueue(() => runStateAction("state"));
+        const summary = summarizeButtonState(result);
+        const serialized = JSON.stringify(summary);
+        if (serialized !== lastObserved) {
+          lastObserved = serialized;
+          console.log(`[observe:buttons] ${new Date().toISOString()} ${serialized}`);
+        }
+      } catch (error) {
+        console.log(`[observe:buttons:error] ${String(error && error.message ? error.message : error)}`);
+      }
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 500));
+    }
+  }
+
+  async function handleCommand(rawLine: string) {
+    const line = rawLine.trim();
+    if (!line) {
+      return;
+    }
+    if (line === "help") {
+      console.log("[control] commands: help, state, exit-preview, observe, stop-observe");
+      return;
+    }
+    if (line === "observe") {
+      if (!observing) {
+        observing = true;
+        void observeLoop();
+      }
+      console.log("[control] button-state observation enabled");
+      return;
+    }
+    if (line === "stop-observe") {
+      observing = false;
+      console.log("[control] button-state observation disabled");
+      return;
+    }
+    if (line === "state") {
+      const result = await enqueue(() => runStateAction("state"));
+      printJson("[control:state]", result);
+      return;
+    }
+    if (line === "exit-preview") {
+      const result = await enqueue(() => runStateAction("exit-preview"));
+      printJson("[control:exit-preview]", result);
+      return;
+    }
+    console.log(`[control] unknown command ${JSON.stringify(line)}; type "help"`);
+  }
+
+  async function readCommands() {
+    const decoder = new TextDecoder();
+    let buffer = "";
+    for await (const chunk of Deno.stdin.readable) {
+      buffer += decoder.decode(chunk, { stream: true });
+      let newlineIndex = buffer.indexOf("\n");
+      while (newlineIndex >= 0) {
+        const line = buffer.slice(0, newlineIndex);
+        buffer = buffer.slice(newlineIndex + 1);
+        handleCommand(line).catch((error) => {
+          console.log(`[control:error] ${String(error && error.message ? error.message : error)}`);
+        });
+        newlineIndex = buffer.indexOf("\n");
+      }
+    }
+  }
+
+  return {
+    start() {
+      console.log("[control] commands: help, state, exit-preview, observe, stop-observe");
+      console.log("[control] automatic button-state observation is enabled");
+      void observeLoop();
+      void readCommands();
+    },
+    stop() {
+      observing = false;
+    }
+  };
+}
+
 // --- prepare --------------------------------------------------------------
 console.log(`[launch] repo root: ${repoRoot}`);
 console.log(`[launch] target:    ${target}`);
@@ -230,6 +478,20 @@ const rawConfig = await Deno.readTextFile(COMMITTED_CONFIG);
 const config = JSON.parse(rawConfig.replaceAll("__UNFLUFFIFY_REPO_ROOT__", repoRoot));
 // Force Playwright's managed Chromium — never the OS browser.
 if (config?.browser?.launchOptions) delete config.browser.launchOptions.executablePath;
+if (config?.browser?.launchOptions) {
+  const args = Array.isArray(config.browser.launchOptions.args)
+    ? config.browser.launchOptions.args
+    : [];
+  config.browser.launchOptions.args = [
+    ...args.filter((arg: unknown) =>
+      typeof arg === "string" &&
+      !arg.startsWith("--remote-debugging-port=") &&
+      !arg.startsWith("--remote-allow-origins=")
+    ),
+    `--remote-debugging-port=${CDP_PORT}`,
+    "--remote-allow-origins=*",
+  ];
+}
 const serializedConfig = JSON.stringify(config, null, 2);
 if (serializedConfig.includes("__") || serializedConfig.includes("executablePath")) {
   console.error("ERROR: temp config still contains placeholders or an executablePath; aborting.");
@@ -243,6 +505,7 @@ await run("deno", ["run", "-A", "npm:@playwright/mcp@latest", "install-browser",
 
 const predictedId = await deterministicExtensionId(EXT_DIR);
 console.log(`[launch] deterministic extension id for ${EXT_DIR}: ${predictedId}`);
+console.log(`[launch] CDP endpoint: http://127.0.0.1:${CDP_PORT} (for same-browser debug/control)`);
 
 // --- launch MCP server + drive -------------------------------------------
 console.log("[launch] starting npm:@playwright/mcp@latest (managed Chromium)…");
@@ -262,8 +525,10 @@ const server = new Deno.Command("deno", {
 }).spawn();
 
 const client = makeClient(server);
+let controlChannel: ReturnType<typeof makeControlChannel> | null = null;
 
 const stop = async () => {
+  controlChannel?.stop();
   await client.closeStdin();
 };
 Deno.addSignalListener("SIGINT", () => {
@@ -312,6 +577,8 @@ if (extId && tabId && boundUrl) {
   console.log(`  popup (tab2): ${boundUrl}`);
   console.log("=========================================================");
   console.log("Browser is open. Stop with Ctrl-C or `kill <pid>` to close it.");
+  controlChannel = makeControlChannel(client);
+  controlChannel.start();
 } else {
   console.error("[launch] popup binding did not return the expected result:");
   console.error(bindText);

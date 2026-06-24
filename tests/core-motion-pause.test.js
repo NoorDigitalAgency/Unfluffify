@@ -251,14 +251,10 @@ class FakeElement {
   }
 
   closest(selector) {
-    let current = this;
-    while (current) {
-      if (selectorMatches(current, selector)) {
-        return current;
-      }
-      current = current.parentElement;
+    if (selectorMatches(this, selector)) {
+      return this;
     }
-    return null;
+    return this.parentElement ? this.parentElement.closest(selector) : null;
   }
 
   dispatchEvent(event) {

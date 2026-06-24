@@ -2340,7 +2340,7 @@ function renderConfigurationExtrasSection(view, handlers) {
             onChange: handlers.onTraceModeToggle
           })
         ),
-        Boolean(view.traceModeEnabled)
+        view.traceModeEnabled
           ? h(
               "div",
               { class: "trace-events-panel" },
@@ -2855,7 +2855,7 @@ export function setUiBusy(isBusy, message = "", details: Record<string, unknown>
 
 export function toggleConfigurationExtrasExpanded() {
   setViewState({
-    configurationExtrasExpanded: !Boolean(viewState.configurationExtrasExpanded)
+    configurationExtrasExpanded: !viewState.configurationExtrasExpanded
   });
 }
 
@@ -2915,7 +2915,7 @@ export function setTodoSectionExpanded(expanded) {
   updateViewState((currentViewState) => ({
     ...currentViewState,
     todoSectionExpanded: Boolean(expanded),
-    todoControlsMenuOpen: Boolean(expanded)
+    todoControlsMenuOpen: expanded
       ? currentViewState.todoControlsMenuOpen
       : false
   }));
@@ -2940,7 +2940,7 @@ export function setTodoAllSubsectionsExpanded(expanded) {
   updateViewState((currentViewState) => ({
     ...currentViewState,
     todoControlsMenuOpen: false,
-    todoSubsectionsExpanded: Boolean(expanded)
+    todoSubsectionsExpanded: expanded
       ? Object.fromEntries(
           (Array.isArray(currentViewState.pageTypeGroups) ? currentViewState.pageTypeGroups : [])
             .map((group) => [group.key, true])

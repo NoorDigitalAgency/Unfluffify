@@ -213,7 +213,7 @@ test("marking-mode Preview Contents stays separate from silent Preview and Send 
   assert.doesNotMatch(markingPreviewBody, /setCurrentPageSaveReconciliation|markCurrentPageSaveReconciliationDirty/);
 });
 
-test("preview exit uses explicit pending state and authoritative close payload", () => {
+test("preview exit restores a captured marking-session snapshot before payload fallback", () => {
   const popupSource = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
   const popupStateSource = readFileSync(new URL("../popup/state.ts", import.meta.url), "utf8");
 
@@ -227,11 +227,34 @@ test("preview exit uses explicit pending state and authoritative close payload",
   );
   assert.match(
     popupSource,
-    /if \(closeResult && \(typeof closeResult\.markingEnabled === "boolean" \|\| closeResult\.draftStatus\)\) \{[\s\S]*?await applyPreviewClosedState\(closeResult\);/
+    /async function handleExitPreviewMode\(\) \{[\s\S]*?if \(shouldRestoreMarking && restoreMarkingSessionSnapshot\(\)\) \{[\s\S]*?clearPreviewRestorePending\(\);[\s\S]*?await refreshUi\(\{[\s\S]*?preserveCurrentDraftStatus: true[\s\S]*?\}\)(?:\.catch\(\(\) => null\))?;[\s\S]*?if \(previewRestoreToken !== null\) \{[\s\S]*?state\.previewRestoreAppliedToken = Math\.max\(\s*state\.previewRestoreAppliedToken,\s*previewRestoreToken\s*\);[\s\S]*?\}[\s\S]*?clearMarkingSessionSnapshot\(\);[\s\S]*?return;[\s\S]*?\}[\s\S]*?if \(closeResult && \(typeof closeResult\.markingEnabled === "boolean" \|\| closeResult\.draftStatus\)\) \{[\s\S]*?await applyPreviewClosedState\(closeResult\);/
+  );
+  assert.match(
+    popupStateSource,
+    /previewMarkingSessionSnapshot: null,/
+  );
+  assert.match(popupSource, /function captureMarkingSessionSnapshot\(\) \{/);
+  assert.match(popupSource, /function restoreMarkingSessionSnapshot\(\) \{/);
+  assert.match(popupSource, /function clearMarkingSessionSnapshot\(\) \{/);
+  assert.match(
+    popupSource,
+    /function captureMarkingSessionSnapshot\(\) \{[\s\S]*?currentDraftEntry:[\s\S]*?currentSavedEntry:[\s\S]*?currentDraftDirty:[\s\S]*?currentDraftAvailable:[\s\S]*?currentPageSaveReconciliation:[\s\S]*?currentPageSaveReconciliationPending:[\s\S]*?aiRunMarkingsFingerprint:[\s\S]*?aiSelectorsComputedSinceLastSubmit:[\s\S]*?aiSelectorsComputedBaseUrl:/
   );
   assert.match(
     popupSource,
-    /if \(message && message\.type === "aiPreviewClosed"\) \{[\s\S]*?applyPreviewClosedState\(message\)\.catch\(\(\) => \{[\s\S]*?clearPreviewRestorePending\(\);[\s\S]*?setPreviewBlocked\(false\);/
+    /function restoreMarkingSessionSnapshot\(\) \{[\s\S]*?state\.currentDraftEntry =[\s\S]*?state\.currentSavedEntry =[\s\S]*?state\.currentDraftDirty =[\s\S]*?state\.currentDraftAvailable =[\s\S]*?state\.currentPageSaveReconciliation =[\s\S]*?state\.currentPageSaveReconciliationPending =[\s\S]*?state\.aiRunMarkingsFingerprint =[\s\S]*?state\.aiSelectorsComputedSinceLastSubmit =[\s\S]*?state\.aiSelectorsComputedBaseUrl =/
+  );
+  assert.match(
+    popupSource,
+    /if \(previewOpened\) \{[\s\S]*?resetAiRunState\(\);[\s\S]*?captureMarkingSessionSnapshot\(\);[\s\S]*?uiModule\.setViewState\(\{/
+  );
+  assert.match(
+    popupSource,
+    /async function handleMarkingPreview\(\) \{[\s\S]*?await refreshCurrentPageRuntimeStatus\(\);[\s\S]*?captureMarkingSessionSnapshot\(\);[\s\S]*?setPreviewBlocked\(true, PopupText\.preview\.blockedActive\);/
+  );
+  assert.match(
+    popupSource,
+    /if \(message && message\.type === "aiPreviewClosed"\) \{[\s\S]*?applyPreviewClosedState\(message\)\.catch\(\(\) => \{[\s\S]*?clearPreviewRestorePending\(\);[\s\S]*?clearMarkingSessionSnapshot\(\);[\s\S]*?setPreviewBlocked\(false\);/
   );
   assert.match(popupStateSource, /previewRestoreAppliedToken: 0,/);
   assert.match(popupSource, /function getPreviewRestoreToken\(message = \{\}\) \{/);
@@ -241,7 +264,7 @@ test("preview exit uses explicit pending state and authoritative close payload",
   );
   assert.match(
     popupSource,
-    /async function applyPreviewClosedState\(closeState = \{\}\) \{[\s\S]*?const draftStatus = closeState\.draftStatus[\s\S]*?clearPreviewRestorePending\(\);[\s\S]*?refreshUi\(\{[\s\S]*?preserveCurrentDraftStatus: Boolean\(hasDraftStatus\)/
+    /async function applyPreviewClosedState\(closeState = \{\}\) \{[\s\S]*?const draftStatus = closeState\.draftStatus[\s\S]*?clearPreviewRestorePending\(\);[\s\S]*?clearMarkingSessionSnapshot\(\);[\s\S]*?refreshUi\(\{[\s\S]*?preserveCurrentDraftStatus: Boolean\(hasDraftStatus\)/
   );
   assert.match(
     popupSource,
@@ -779,7 +802,7 @@ test("tab reload keeps the inspection curtain active while enabled pages re-insp
   assert.match(source, /const popupNavigationInspectionSettlePollByTabId = new Map\(\);/);
 
   const onUpdatedBlock = source.match(
-    /chrome\.tabs\.onUpdated\.addListener\(async \(tabId, changeInfo, tab\) => \{([\s\S]*?)\n  \}\);\n  window\.addEventListener/
+    /chrome\.tabs\.onUpdated\.addListener\(async \(tabId, changeInfo, tab\) => \{([\s\S]*?)\n {2}\}\);\n {2}window\.addEventListener/
   )[1];
 
   assert.match(onUpdatedBlock, /changeInfo\.status === "loading"/);
@@ -822,7 +845,7 @@ test("tab reload keeps the inspection curtain active while enabled pages re-insp
 test("tab activation does not end persisted inspection overlay before old-tab spinner state is cleared", () => {
   const source = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
   const onActivatedBlock = source.match(
-    /chrome\.tabs\.onActivated\.addListener\(async \(\{ tabId \}\) => \{([\s\S]*?)\n  \}\);\n\n  chrome\.tabs\.onUpdated/
+    /chrome\.tabs\.onActivated\.addListener\(async \(\{ tabId \}\) => \{([\s\S]*?)\n {2}\}\);\n\n {2}chrome\.tabs\.onUpdated/
   )[1];
 
   assert.doesNotMatch(onActivatedBlock, /endNavigationInspectionOverlay\(/);
@@ -835,7 +858,7 @@ test("tab activation does not end persisted inspection overlay before old-tab sp
 test("popup unload clears navigation inspection settle polls", () => {
   const source = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
   const beforeUnloadBlock = source.match(
-    /window\.addEventListener\("beforeunload", \(\) => \{([\s\S]*?)\n  \}\);\n\n  utils\.addStorageChangeListener/
+    /window\.addEventListener\("beforeunload", \(\) => \{([\s\S]*?)\n {2}\}\);\n\n {2}utils\.addStorageChangeListener/
   )[1];
 
   assert.match(beforeUnloadBlock, /clearNavigationInspectionSettlePollsExcept\(\);/);

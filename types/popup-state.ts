@@ -39,6 +39,18 @@ export interface TodoExpansionState {
   todoSubsectionsExpanded: Record<string, boolean>;
 }
 
+export interface PopupPreviewMarkingSessionSnapshot {
+  currentDraftEntry: PageMarkingEntry | null;
+  currentSavedEntry: PageMarkingEntry | null;
+  currentDraftDirty: boolean;
+  currentDraftAvailable: boolean;
+  currentPageSaveReconciliation: PageSaveReconciliation | null;
+  currentPageSaveReconciliationPending: boolean;
+  aiRunMarkingsFingerprint: string | null;
+  aiSelectorsComputedSinceLastSubmit: boolean;
+  aiSelectorsComputedBaseUrl: string;
+}
+
 export interface PopupState {
   currentView: string;
   currentTheme: string;
@@ -96,6 +108,7 @@ export interface PopupState {
   previewRestoreToken: number;
   previewRestoreAppliedToken: number;
   previewRestoreFallbackTimer: number;
+  previewMarkingSessionSnapshot: PopupPreviewMarkingSessionSnapshot | null;
   configViewLocked: boolean;
   tokenValidationInFlight: boolean;
   lastTokenValidationAt: number;

@@ -19,7 +19,9 @@ This is the only supported way to open the live test browser. It is a thin,
 proven driver (`scripts/launch-test-browser.ts`) around the `playwright-local`
 (`npm:@playwright/mcp@latest`) MCP server and its own managed Chromium. Run it
 from the repository root, in the background, so it can keep running while you
-observe. The browser stays open until you stop it with Ctrl-C or `kill <pid>`.
+observe and so you can send control commands to the same shell session with
+`write_bash`. The browser stays open until you stop it with Ctrl-C or
+`kill <pid>`.
 
 ## A target page URL is mandatory
 
@@ -46,14 +48,18 @@ to re-derive it:
    into the gitignored `.temp/browser-mcp.config.json`: it substitutes
    `__UNFLUFFIFY_REPO_ROOT__` with the resolved root and DROPS `executablePath`
    entirely so Playwright uses its own managed Chromium (never the OS browser).
+   It also injects `--remote-debugging-port=9222` and
+   `--remote-allow-origins=*` so the same browser can be inspected/controlled
+   through CDP without opening a second profile.
    The committed `.vscode/mcp.json`, `.mcp.json`, and
    `.vscode/browser-mcp.config.json` stay placeholdered and intentionally
    non-launchable; never edit them to bake in current-environment paths.
 4. Ensures the MCP-managed Chromium is installed
    (`deno run -A npm:@playwright/mcp@latest install-browser chromium`,
    idempotent).
-5. Starts `npm:@playwright/mcp@latest` over stdio (a single client = no
-   profile-lock) with `--user-data-dir=<repoRoot>/.mcp-browser-profile` and
+5. Starts `npm:@playwright/mcp@latest` over stdio (a single launcher-owned
+   client = no profile-lock) with
+   `--user-data-dir=<repoRoot>/.mcp-browser-profile` and
    `--config=<repoRoot>/.temp/browser-mcp.config.json`.
 6. Navigates the first tab to the target URL.
 7. Resolves the loaded extension id from the running extension service worker
@@ -68,13 +74,70 @@ to re-derive it:
    tab id, never the popup's own tab.
 
 On success it prints the target URL, the extension id, the page tabId, and the
-bound popup URL.
+bound popup URL, then starts the launcher control channel on the same process
+stdin/stdout.
+
+## Required control protocol for observation/debugging
+
+The Playwright MCP server is owned by `scripts/launch-test-browser.ts` over
+stdio. Do **not** start a second MCP server/client against the same
+`.mcp-browser-profile` to inspect the browser; it either profile-locks or leaves
+the agent unable to control the already-open page/popup. Use the launcher's
+control channel on the original Bash `shellId` and/or the CDP endpoint
+`http://127.0.0.1:9222` instead.
+
+Start the launcher with `mode="async"` and keep the returned `shellId`. After the
+ready banner appears, the launcher prints:
+
+```
+[control] commands: help, state, exit-preview, observe, stop-observe
+[control] automatic button-state observation is enabled
+```
+
+Use `write_bash` with that same `shellId` to send commands:
+
+- `state` — captures the bound popup's `popup/ui.js#getViewState()` fields,
+  live DOM state for `#compute`, `#marking-preview`, `#page-save`,
+  `#page-revert`, and `#toggle-enabled`, plus a target-page summary and open
+  page URLs.
+- `exit-preview` — captures the same state before and after clicking
+  `.preview-sidebar__dismiss` (Exit Preview) and waits 1.5 seconds for restore.
+- `observe` — enables continuous polling and prints `[observe:buttons]` only
+  when the summarized button state changes.
+- `stop-observe` — stops the continuous polling without closing the browser.
+- `help` — prints the available commands.
+
+For button-state bugs, always capture `state` before the user clicks, keep
+`observe` enabled while they interact, and use `exit-preview` when you need the
+launcher to click Exit Preview itself. Read the launcher output with `read_bash`
+frequently enough not to miss `[observe:buttons]` transitions.
+
+If the launcher control channel output is not enough, connect to the same live
+browser over CDP:
+
+```bash
+deno eval --allow-net --allow-env --allow-read --allow-sys '
+const { chromium } = await import("npm:playwright");
+const browser = await chromium.connectOverCDP("http://127.0.0.1:9222");
+const context = browser.contexts()[0];
+const pages = context.pages();
+const popup = pages.find((p) => p.url().startsWith("chrome-extension://") && p.url().includes("/popup.html"));
+const target = pages.find((p) => !p.url().startsWith("chrome-extension://") && !p.url().startsWith("chrome://"));
+console.log({ popup: popup?.url(), target: target?.url() });
+await browser.close();
+'
+```
+
+Use that CDP connection to evaluate popup state (`import(chrome.runtime.getURL("popup/ui.js"))`),
+click popup controls, inspect the target page, and capture screenshots/logs.
+Close only the CDP client (`browser.close()`); do not kill the launcher unless
+you intend to close the live browser.
 
 ## Use only the Playwright MCP browser; never touch the OS Chrome
 
 - Operate only the Playwright MCP managed Chromium bound to
-  `.mcp-browser-profile`, exclusively via `deno task browser:live` /
-  `npm:@playwright/mcp@latest`.
+  `.mcp-browser-profile`, exclusively via `deno task browser:live` and the
+  launcher's same-session control channel.
 - Never run the OS Chrome/Chromium application binary directly, never
   `open -a 'Google Chrome'`, and never set `executablePath` to the OS browser.
 - Never automate the OS browser with AppleScript/`osascript`, and never quit,
@@ -102,9 +165,9 @@ If you must drive the MCP browser by hand (e.g. to extend the flow), mirror
   plain string ops (`String(url).split('/')`) in the outer function. The inner
   `worker.evaluate(...)` body runs in the extension service worker, where
   `chrome.*` and `setTimeout` are available.
-- Use a single MCP client/connection. A second connection to the same
-  `--user-data-dir` fails with "Browser is already in use"; one stdio client
-  avoids the profile lock without `--shared-browser-context`.
+- Use the single launcher-owned MCP client/connection and its control commands.
+  A second connection to the same `--user-data-dir` fails with "Browser is
+  already in use" or cannot observe/control the browser that is already open.
 
 ## Do not
 
@@ -116,5 +179,6 @@ If you must drive the MCP browser by hand (e.g. to extend the flow), mirror
   path.
 - Do not point `debugTabId` at the popup's own tab.
 - Do not hand-roll a `launchPersistentContext()` flow, launch the committed
-  placeholdered configs as-is, load the repo root as the unpacked extension, or
-  reuse `orchestration/profiles/*` for simple live observation.
+  placeholdered configs as-is, load the repo root as the unpacked extension,
+  start a second MCP client/server for the same profile, or reuse
+  `orchestration/profiles/*` for simple live observation.

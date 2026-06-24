@@ -1027,7 +1027,7 @@ export function normalizeConfig(baseUrl, incoming) {
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl) || (typeof baseUrl === "string" ? baseUrl : "");
   let changed = false;
   const defaultConfig = createDefaultConfig(normalizedBaseUrl);
-  let normalized = { ...defaultConfig };
+  const normalized = { ...defaultConfig };
 
   if (!incoming) {
     return { config: normalized, changed: true };

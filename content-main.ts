@@ -281,8 +281,8 @@ let silentHighlightEditorActivationIdCounter = 0;
 let renderModeInspectionActive = false;
 let renderModeInspectionWatchdogTimer = 0;
 let lifecycleOperationCounter = 0;
-let silentSelectorAnnotatedNodes = new Set();
-let aiPreviewClickableNodes = new Set();
+const silentSelectorAnnotatedNodes = new Set();
+const aiPreviewClickableNodes = new Set();
 
 function isWorldTraceEnabled() {
   return isDebugFlagEnabled("worldTraceEnabled");

@@ -146,7 +146,7 @@ export function buildPropertyPageTypesSignature(pageTypes: unknown): string {
             ? (pageType.candidates as PropertyPageTypeCandidate[]).map((candidate) => [
                 candidate && typeof candidate.url === "string" ? candidate.url : "",
                 Number.isFinite(candidate && candidate.wordsCount) ? candidate.wordsCount : 0,
-                Boolean(candidate && candidate.duplicate) ? 1 : 0
+                candidate && candidate.duplicate ? 1 : 0
               ])
             : []
         ])

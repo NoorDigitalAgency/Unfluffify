@@ -117,7 +117,9 @@ function normalizeOriginList(value) {
         seen.add(origin);
         results.push(origin);
       }
-    } catch {}
+    } catch {
+      // Ignore invalid endpoint candidates while collecting origins.
+    }
   }
   return results;
 }

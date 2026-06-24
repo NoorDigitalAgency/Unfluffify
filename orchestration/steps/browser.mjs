@@ -15,12 +15,16 @@ async function resolvePlaywright(config) {
     try {
       const specifier = String(candidate);
       return await import(specifier.startsWith("npm:") ? specifier : toFileUrl(resolve(specifier)).href);
-    } catch {}
+    } catch {
+      // Try the next playwright candidate.
+    }
   }
 
   try {
-    return await import("npm:playwright");
-  } catch {}
+    return await import("playwright");
+  } catch {
+    // Fall back to the explicit resolution error below.
+  }
 
   throw new Error("Could not resolve playwright; set playwrightModulePath or UNFLUFFIFY_PLAYWRIGHT_PATH");
 }

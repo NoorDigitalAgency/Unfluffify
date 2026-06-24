@@ -194,7 +194,10 @@ import {
   createInactiveLockState,
   normalizeLockStateMessage
 } from "./common/property-lock.js";
-import type { RemoteConfigLoadResult } from "./types/popup-state.ts";
+import type {
+  PopupPreviewMarkingSessionSnapshot,
+  RemoteConfigLoadResult
+} from "./types/popup-state.ts";
 import type { PageMarkingEntry, PageSaveReconciliation } from "./types/config.ts";
 
 const { state } = stateModule;
@@ -1672,6 +1675,51 @@ function clonePageMarkingEntry(entry) {
   return JSON.parse(JSON.stringify(entry));
 }
 
+function clonePageSaveReconciliation(
+  reconciliation: PageSaveReconciliation | null
+): PageSaveReconciliation | null {
+  if (!reconciliation || typeof reconciliation !== "object") {
+    return null;
+  }
+  return JSON.parse(JSON.stringify(reconciliation));
+}
+
+function captureMarkingSessionSnapshot() {
+  const snapshot: PopupPreviewMarkingSessionSnapshot = {
+    currentDraftEntry: clonePageMarkingEntry(state.currentDraftEntry),
+    currentSavedEntry: clonePageMarkingEntry(state.currentSavedEntry),
+    currentDraftDirty: state.currentDraftDirty,
+    currentDraftAvailable: state.currentDraftAvailable,
+    currentPageSaveReconciliation: clonePageSaveReconciliation(state.currentPageSaveReconciliation),
+    currentPageSaveReconciliationPending: state.currentPageSaveReconciliationPending,
+    aiRunMarkingsFingerprint: state.aiRunMarkingsFingerprint,
+    aiSelectorsComputedSinceLastSubmit: state.aiSelectorsComputedSinceLastSubmit,
+    aiSelectorsComputedBaseUrl: state.aiSelectorsComputedBaseUrl
+  };
+  state.previewMarkingSessionSnapshot = snapshot;
+}
+
+function restoreMarkingSessionSnapshot() {
+  const snapshot = state.previewMarkingSessionSnapshot;
+  if (!snapshot) {
+    return false;
+  }
+  state.currentDraftEntry = clonePageMarkingEntry(snapshot.currentDraftEntry);
+  state.currentSavedEntry = clonePageMarkingEntry(snapshot.currentSavedEntry);
+  state.currentDraftDirty = snapshot.currentDraftDirty;
+  state.currentDraftAvailable = snapshot.currentDraftAvailable;
+  state.currentPageSaveReconciliation = clonePageSaveReconciliation(snapshot.currentPageSaveReconciliation);
+  state.currentPageSaveReconciliationPending = snapshot.currentPageSaveReconciliationPending;
+  state.aiRunMarkingsFingerprint = snapshot.aiRunMarkingsFingerprint;
+  state.aiSelectorsComputedSinceLastSubmit = snapshot.aiSelectorsComputedSinceLastSubmit;
+  state.aiSelectorsComputedBaseUrl = snapshot.aiSelectorsComputedBaseUrl;
+  return true;
+}
+
+function clearMarkingSessionSnapshot() {
+  state.previewMarkingSessionSnapshot = null;
+}
+
 // @ts-expect-error
 function fingerprintPageMarkingEntry(entry) {
   // Stable signature of the element-level markings only (exclude + include
@@ -2505,6 +2553,17 @@ async function finalizePreviewRestoreFromRuntime(options = {}) {
   if (!state.previewRestorePending || token !== state.previewRestoreToken) {
     return;
   }
+  if (restoreMarkingSessionSnapshot()) {
+    clearPreviewRestorePending();
+    await refreshUi({
+      useBusyOverlay: false,
+      skipPropertyLockFetch: true,
+      preserveCurrentDraftStatus: true
+    }).catch(() => null);
+    state.previewRestoreAppliedToken = Math.max(state.previewRestoreAppliedToken, token);
+    clearMarkingSessionSnapshot();
+    return;
+  }
   await helpers.ensureActiveTab({ requireId: true }).catch(() => null);
   const currentTabId = state.currentTab ? state.currentTab.id : null;
   const tabId = Number.isFinite(currentTabId)
@@ -2513,6 +2572,7 @@ async function finalizePreviewRestoreFromRuntime(options = {}) {
   const baseUrl = state.currentBaseUrl || "";
   if (!tabId || !baseUrl) {
     clearPreviewRestorePending();
+    clearMarkingSessionSnapshot();
     await refreshUi({ useBusyOverlay: false, skipPropertyLockFetch: true }).catch(() => null);
     return;
   }
@@ -2525,6 +2585,7 @@ async function finalizePreviewRestoreFromRuntime(options = {}) {
   }
   const hasDraftStatus = applyDraftStatusToPopupState(draftStatus);
   clearPreviewRestorePending();
+  clearMarkingSessionSnapshot();
   const markingEnabled = Boolean(
     inspectionStatus &&
       inspectionStatus.ok &&
@@ -2587,6 +2648,7 @@ async function applyPreviewClosedState(closeState = {}) {
   }
   const hasDraftStatus = markingEnabled && applyDraftStatusToPopupState(draftStatus);
   clearPreviewRestorePending();
+  clearMarkingSessionSnapshot();
   await refreshUi({
     useBusyOverlay: false,
     skipPropertyLockFetch: true,
@@ -4670,13 +4732,13 @@ async function refreshUiInner(options = {}) {
     aiBusy ||
     pageScopedUiDisabled ||
     !renderModeRequired ||
-    !Boolean(state.currentConfig);
+    !state.currentConfig;
 // @ts-expect-error
   nextViewState.renderModeInspectButtonsDisabled =
     aiBusy ||
     pageScopedUiDisabled ||
     !renderModeRequired ||
-    !Boolean(state.currentTab && state.currentTab.id);
+    !(state.currentTab && state.currentTab.id);
   // Alternate the two inspect buttons by the tab's current JavaScript mode so the
   // same mode cannot be triggered twice: while the page runs JavaScript only
   // "Without JavaScript" is enabled, and once it is held in no-JS mode only "With
@@ -4688,20 +4750,20 @@ async function refreshUiInner(options = {}) {
 // @ts-expect-error
   nextViewState.renderModeInspectWithJavaScriptDisabled =
 // @ts-expect-error
-    nextViewState.renderModeInspectButtonsDisabled || !Boolean(state.renderModeTabJsDisabled);
+    nextViewState.renderModeInspectButtonsDisabled || !state.renderModeTabJsDisabled;
 // @ts-expect-error
   nextViewState.renderModeSetDisabled =
     aiBusy ||
     pageScopedUiDisabled ||
     !renderModeRequired ||
     renderModeValueUndetermined ||
-    !Boolean(state.currentConfig);
+    !state.currentConfig;
 // @ts-expect-error
   nextViewState.renderModeEditDisabled =
     aiBusy ||
     pageScopedUiDisabled ||
     !renderModeRequired ||
-    !Boolean(state.currentConfig);
+    !state.currentConfig;
 // @ts-expect-error
   nextViewState.renderModeSummaryTitle = PopupText.renderMode.title;
 // @ts-expect-error
@@ -6030,7 +6092,7 @@ function handleTodoControlsMenuToggle(event) {
   event.stopPropagation();
   const view = uiModule.getViewState();
   uiModule.setConfigMenuOpen(false);
-  uiModule.setTodoControlsMenuOpen(!Boolean(view.todoControlsMenuOpen));
+  uiModule.setTodoControlsMenuOpen(!view.todoControlsMenuOpen);
 }
 
 // @ts-expect-error
@@ -6066,7 +6128,7 @@ function handleTodoCollapseAll() {
 
 function handleTodoAutoCollapseToggle() {
   const view = uiModule.getViewState();
-  uiModule.setTodoAutoCollapse(!Boolean(view.todoAutoCollapse));
+  uiModule.setTodoAutoCollapse(!view.todoAutoCollapse);
 }
 
 function handleConfigurationExtrasToggle() {
@@ -7087,6 +7149,7 @@ async function applyComputedSelectorSet(selectorSet, { currentPageUrl = "", toke
     // preview state) drops immediately and reveals the preview sidebar, instead
     // of masking it for the duration of the slow post-run refresh.
     resetAiRunState();
+    captureMarkingSessionSnapshot();
     uiModule.setViewState({
       previewBlocked: true,
       previewActive: true,
@@ -7279,8 +7342,8 @@ async function handleComputeSelectors() {
       return;
     }
 // @ts-expect-error
-    let pageMarkings = state.currentConfig.pageMarkings || {};
-    let currentPageEntry = pageMarkings[currentPageUrl];
+    const pageMarkings = state.currentConfig.pageMarkings || {};
+    const currentPageEntry = pageMarkings[currentPageUrl];
     const currentRenderMode = config.getConfigRenderMode(state.currentConfig);
     const hasCurrentSubmissionXpaths =
       Array.isArray(currentPageEntry && currentPageEntry.submissionXpaths) &&
@@ -7615,6 +7678,7 @@ async function handlePreviewLatest() {
     uiModule.showToast(PopupText.page.statusServerSyncPending);
     return;
   }
+  captureMarkingSessionSnapshot();
   const selectorSet = getLatestAvailableSelectorsFromConfig();
   if (!combineAiSelectorSet(selectorSet).length) {
     uiModule.showToast(PopupText.preview.noStoredSelectors);
@@ -7641,6 +7705,7 @@ async function handlePreviewLatest() {
     }
     await refreshUi();
   } catch (error) {
+    clearMarkingSessionSnapshot();
     setPreviewBlocked(false);
 // @ts-expect-error
     uiModule.showToast((error && error.message) || PopupText.preview.openFailed);
@@ -7668,6 +7733,7 @@ async function handleMarkingPreview() {
     uiModule.showToast(PopupText.page.statusServerSyncPending);
     return;
   }
+  captureMarkingSessionSnapshot();
   const selectorSet = getLatestAvailableSelectorsFromConfig();
   if (!combineAiSelectorSet(selectorSet).length) {
     uiModule.showToast(PopupText.preview.noStoredSelectors);
@@ -7692,6 +7758,7 @@ async function handleMarkingPreview() {
     }
     await refreshUi();
   } catch (error) {
+    clearMarkingSessionSnapshot();
     setPreviewBlocked(false);
 // @ts-expect-error
     uiModule.showToast((error && error.message) || PopupText.preview.openFailed);
@@ -7716,6 +7783,7 @@ async function handleExitPreviewMode() {
 // @ts-expect-error
   if (!response || !response.ok || !response.result) {
     clearPreviewRestorePending();
+    clearMarkingSessionSnapshot();
     await refreshUi({ useBusyOverlay: false, skipPropertyLockFetch: true });
     uiModule.showToast(PopupText.preview.exitFailed);
     return;
@@ -7729,6 +7797,22 @@ async function handleExitPreviewMode() {
 // @ts-expect-error
       : response.result)
     : null;
+  if (shouldRestoreMarking && restoreMarkingSessionSnapshot()) {
+    clearPreviewRestorePending();
+    await refreshUi({
+      useBusyOverlay: false,
+      skipPropertyLockFetch: true,
+      preserveCurrentDraftStatus: true
+    }).catch(() => null);
+    if (previewRestoreToken !== null) {
+      state.previewRestoreAppliedToken = Math.max(
+        state.previewRestoreAppliedToken,
+        previewRestoreToken
+      );
+    }
+    clearMarkingSessionSnapshot();
+    return;
+  }
   if (closeResult && (typeof closeResult.markingEnabled === "boolean" || closeResult.draftStatus)) {
     await applyPreviewClosedState(closeResult);
   }
@@ -8240,6 +8324,7 @@ async function init() {
       flushPendingAiPreviewConfigSync();
       applyPreviewClosedState(message).catch(() => {
         clearPreviewRestorePending();
+        clearMarkingSessionSnapshot();
         setPreviewBlocked(false);
       });
       return;

@@ -115,7 +115,7 @@ test("background restores no-JS render-mode holds after central tab inactivity",
     /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_RUN_RENDER_MODE_INSPECTION, async \(context, payload\) => \{([\s\S]*?)\n\}, POPUP_TAB_COMMAND_POLICY\);\n(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?\n*function maybeGetCommandPayloadForLedger\(message(?:\s*:\s*[^)]+)?\)/
   )[1];
   const activityMessageBlock = backgroundSource.match(
-    /if \(message\.type === "pageActivityObserved"\) \{([\s\S]*?)\n  \}\n\n  if \(PROPERTY_LOCK_MESSAGE_TYPES/
+    /if \(message\.type === "pageActivityObserved"\) \{([\s\S]*?)\n {2}\}\n\n {2}if \(PROPERTY_LOCK_MESSAGE_TYPES/
   )[1];
 
   assert.equal(manifest.permissions.includes("alarms"), true);
@@ -142,7 +142,7 @@ test("background render-mode consent hide is separate from HTML capture", () => 
     /async function runRenderModeHideConsentStep\(tabId\) \{[\s\S]*?type: "hideConsentForInspection"/
   );
   const helperBlock = renderModeInspectorSource.match(
-    /async function runRenderModeCaptureHtmlStep\(tabId, baseUrl, operationId\) \{([\s\S]*?)\n  \}/
+    /async function runRenderModeCaptureHtmlStep\(tabId, baseUrl, operationId\) \{([\s\S]*?)\n {2}\}/
   )[1];
 
   assert.match(helperBlock, /type: "captureRenderModeInspectionHtml"/);

@@ -206,7 +206,7 @@ test("content-main keeps preview restore state when config updates during AI pre
     /return deps\.loadConfig\(message\.baseUrl\)[\s\S]*?deps\.setConfig\(loadedConfig\);[\s\S]*?return \{ ok: true \};/
   );
   assert.doesNotMatch(
-    handlerSource.match(/function handleAiPreviewUpdate\(message(?:\s*:\s*[^)]+)?\) \{([\s\S]*?)\n  \}/)[1],
+    handlerSource.match(/function handleAiPreviewUpdate\(message(?:\s*:\s*[^)]+)?\) \{([\s\S]*?)\n {2}\}/)[1],
     /clearAiPreviewState/
   );
 });

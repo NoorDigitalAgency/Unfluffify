@@ -198,27 +198,17 @@ export function createScenarioBusServer(options = {}) {
 
   async function listen(port = DEFAULT_PORT, host = DEFAULT_HOST) {
     await ensureRunDir();
-    listener = Deno.listen({ hostname: host, port });
+    listener = Deno.serve({
+      hostname: host,
+      port,
+      onListen() {
+      }
+    }, handleRequest);
     const address = listener.addr;
     const actualHost = address.hostname === "0.0.0.0" || address.hostname === "::"
       ? "127.0.0.1"
       : address.hostname;
     listeningUrl = `ws://${actualHost}:${address.port}`;
-    void (async () => {
-      for await (const conn of listener) {
-        void (async () => {
-          const httpConn = Deno.serveHttp(conn);
-          try {
-            for await (const event of httpConn) {
-              const response = await handleRequest(event.request);
-              await event.respondWith(response);
-            }
-          } catch {
-            conn.close();
-          }
-        })();
-      }
-    })();
     return listeningUrl;
   }
 
@@ -244,7 +234,7 @@ export function createScenarioBusServer(options = {}) {
     }
     peers.clear();
     if (listener) {
-      listener.close();
+      await listener.shutdown();
       listener = null;
     }
     await writeQueue;

@@ -2791,7 +2791,7 @@ function seedMarkingsFromAiSelectorsForUnmarkedPage(
 // @ts-expect-error
   const setExplicitExclude = (xpath) => {
 // @ts-expect-error
-    let targetItem = items.find((item) => item && item.xpath === xpath);
+    const targetItem = items.find((item) => item && item.xpath === xpath);
     if (!targetItem) {
       items.push({ xpath, excluded: true });
       changed = true;
@@ -6399,7 +6399,7 @@ function isExplicitlyExcludedElement(el, excludedSet) {
 
 // @ts-expect-error
 export function getMutationRenderMode(mutations) {
-  let mode = "none";
+  const mode = "none";
   for (const mutation of mutations) {
     const targetNode =
       mutation.target && mutation.target.nodeType === 1

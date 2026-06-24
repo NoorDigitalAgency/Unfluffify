@@ -13,7 +13,15 @@
   (`scripts/launch-test-browser.ts`). A target URL is mandatory. It builds
   `dist/extension-dev`, writes a per-environment `.temp/browser-mcp.config.json`
   (drops `executablePath`), and drives ONLY the `npm:@playwright/mcp@latest`
-  managed Chromium over a single stdio client — never the OS Chrome. The
+  managed Chromium over a single launcher-owned stdio client — never the OS
+  Chrome. The launcher exposes a same-session control channel on its Bash
+  `shellId`; use `state`, `exit-preview`, `observe`, `stop-observe`, and `help`
+  via `write_bash` to inspect/control the bound popup and target page. Do not
+  start a second MCP client/server for the same `.mcp-browser-profile`. The temp
+  config injects CDP at `http://127.0.0.1:9222`; use
+  `chromium.connectOverCDP(...)` for direct programmatic inspection/control of
+  the already-open page and extension popup when the launcher command channel is
+  not enough. The
   committed `.vscode/mcp.json`, `.mcp.json`, and `.vscode/browser-mcp.config.json`
   are intentionally placeholdered (`__UNFLUFFIFY_REPO_ROOT__`,
   `__CHROMIUM_EXECUTABLE_PATH__`) and non-launchable. Unpacked extension id is

@@ -8,11 +8,15 @@ async function resolvePlaywright() {
   for (const candidate of candidates) {
     try {
       return await import(candidate);
-    } catch {}
+    } catch {
+      // Try the next playwright candidate.
+    }
   }
   try {
     return await import("playwright");
-  } catch {}
+  } catch {
+    // Fall back to the next playwright resolution path.
+  }
   throw new Error("Could not resolve playwright; set UNFLUFFIFY_PLAYWRIGHT_PATH to a playwright/index.mjs");
 }
 
@@ -224,7 +228,7 @@ async function reopenPopup(context, extensionId, tabId, popup, delayMs = 1500) {
 }
 
 async function ensureEditorRole(popup) {
-  let state = await readPopupState(popup);
+  const state = await readPopupState(popup);
   if (/You are editing this property/i.test(state.propertyLockStatus)) {
     return state;
   }

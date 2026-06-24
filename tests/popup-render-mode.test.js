@@ -66,7 +66,7 @@ test("render mode inspect buttons alternate by the tab's current JavaScript mode
   );
   assert.match(
     popupSource,
-    /nextViewState\.renderModeInspectWithJavaScriptDisabled =[\s\S]*?!Boolean\(state\.renderModeTabJsDisabled\)/
+    /nextViewState\.renderModeInspectWithJavaScriptDisabled =[\s\S]*?!state\.renderModeTabJsDisabled/
   );
   // The popup refreshes when the persisted no-JS-held key changes for the current tab.
   assert.match(popupSource, /changes\[renderModeNoJsHeldStorageKey\(state\.currentTab\.id\)\]/);

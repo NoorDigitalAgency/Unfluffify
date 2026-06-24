@@ -112,18 +112,24 @@ export function createRpcServer(options = {}) {
     try {
       await Deno.stat(join(repoPath, ".git"));
       checks.repoGit = true;
-    } catch {}
+    } catch {
+      // Ignore missing .git metadata in non-repo launch environments.
+    }
     try {
       await Deno.stat(join(extensionPath, "manifest.json"));
       checks.extensionManifest = true;
-    } catch {}
+    } catch {
+      // Ignore absent manifest during capability probing.
+    }
     try {
       await Deno.mkdir(runDir, { recursive: true });
       const markerPath = join(runDir, ".write-check");
       await Deno.writeTextFile(markerPath, nowIso());
       await Deno.remove(markerPath);
       checks.runDirWritable = true;
-    } catch {}
+    } catch {
+      // Ignore writeability probe failures; the returned check remains false.
+    }
     return {
       ok: Object.values(checks).every(Boolean),
       checks,
@@ -205,51 +211,40 @@ export function createRpcServer(options = {}) {
 
   async function listen(port = DEFAULT_PORT) {
     await Deno.mkdir(runDir, { recursive: true });
-    listener = Deno.listen({ hostname: host, port });
+    listener = Deno.serve({
+      hostname: host,
+      port,
+      onListen() {
+      }
+    }, async (request) => {
+      if (request.url && new URL(request.url).pathname === "/health") {
+        return new Response(JSON.stringify({ ok: true, peers: peers.size, shuttingDown }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      if (expectedToken && extractToken(request) !== expectedToken) {
+        append({ direction: "reject", reason: "unauthorized-upgrade" }).catch(() => {});
+        return new Response("", { status: 401 });
+      }
+      if (request.headers.get("upgrade")?.toLowerCase() === "websocket") {
+        const { socket, response } = Deno.upgradeWebSocket(request);
+        const peer = new WebSocketPeer(socket, {
+          onMessage: (raw) => {
+            onRawMessage(peer, raw).catch(() => {});
+          },
+          onClose: () => {
+            peers.delete(peer);
+          }
+        });
+        peers.add(peer);
+        return response;
+      }
+      return new Response(null, { status: 404 });
+    });
     const address = listener.addr;
     listeningPort = Number(address.port);
     const urlHost = host.includes(":") ? `[${host}]` : (host === "0.0.0.0" || host === "::" ? "127.0.0.1" : host);
-    void (async () => {
-      for await (const conn of listener) {
-        void (async () => {
-          const httpConn = Deno.serveHttp(conn);
-          try {
-            for await (const event of httpConn) {
-              const request = event.request;
-              if (request.url && new URL(request.url).pathname === "/health") {
-                await event.respondWith(new Response(JSON.stringify({ ok: true, peers: peers.size, shuttingDown }), {
-                  status: 200,
-                  headers: { "content-type": "application/json" }
-                }));
-                continue;
-              }
-              if (expectedToken && extractToken(request) !== expectedToken) {
-                await event.respondWith(new Response("", { status: 401 }));
-                append({ direction: "reject", reason: "unauthorized-upgrade" }).catch(() => {});
-                continue;
-              }
-              if (request.headers.get("upgrade")?.toLowerCase() === "websocket") {
-                const { socket, response } = Deno.upgradeWebSocket(request);
-                const peer = new WebSocketPeer(socket, {
-                  onMessage: (raw) => {
-                    onRawMessage(peer, raw).catch(() => {});
-                  },
-                  onClose: () => {
-                    peers.delete(peer);
-                  }
-                });
-                peers.add(peer);
-                await event.respondWith(response);
-                continue;
-              }
-              await event.respondWith(new Response(null, { status: 404 }));
-            }
-          } catch {
-            conn.close();
-          }
-        })();
-      }
-    })();
     return { host, port: listeningPort, url: `ws://${urlHost}:${listeningPort}` };
   }
 
@@ -259,7 +254,7 @@ export function createRpcServer(options = {}) {
     }
     peers.clear();
     if (listener) {
-      listener.close();
+      await listener.shutdown();
       listener = null;
     }
   }

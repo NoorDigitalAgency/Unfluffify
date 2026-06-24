@@ -42,6 +42,7 @@ export class WebSocketPeer {
         this.socket.close();
       }
     } catch {
+      // Ignore socket close failures during shutdown.
     }
     this.onClose();
   }

@@ -8,9 +8,17 @@ async function resolvePlaywright() {
     '/home/rojan/Documents/Git/GitHub/arcana-text/node_modules/playwright/index.mjs',
   ].filter(Boolean);
   for (const c of candidates) {
-    try { return await import(c); } catch {}
+    try {
+      return await import(c);
+    } catch {
+      // Try the next playwright candidate.
+    }
   }
-  try { return await import('playwright'); } catch {}
+  try {
+    return await import('playwright');
+  } catch {
+    // Fall back to the explicit resolution error below.
+  }
   throw new Error('Could not resolve playwright; set UNFLUFFIFY_PLAYWRIGHT_PATH to a playwright/index.mjs');
 }
 const { chromium } = await resolvePlaywright();
@@ -197,7 +205,11 @@ for (const url of URLS) {
           });
           function restoreDetached() {
             for (const d of detached) {
-              try { d.parent.insertBefore(d.el, d.nextSibling); } catch {}
+              try {
+                d.parent.insertBefore(d.el, d.nextSibling);
+              } catch {
+                // Ignore restore ordering failures during DOM cleanup.
+              }
             }
           }
           function resolveXPath(xp) {
@@ -226,7 +238,9 @@ for (const url of URLS) {
               if (typeof el.checkVisibility === 'function') {
                 if (!el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true, contentVisibilityAuto: true })) return false;
               }
-            } catch {}
+            } catch {
+              // Ignore visibility API failures for this element.
+            }
             if (el.offsetParent === null && el.tagName !== 'BODY' && el.tagName !== 'HTML') {
               const cs = window.getComputedStyle(el);
               if (!cs || cs.position !== 'fixed') return false;
@@ -360,7 +374,14 @@ for (const url of URLS) {
       || null;
     if (!fn) return { available: false };
     let total = 0, visible = 0;
-    document.querySelectorAll('*').forEach((el) => { total++; try { if (fn(el)) visible++; } catch {} });
+    document.querySelectorAll('*').forEach((el) => {
+      total++;
+      try {
+        if (fn(el)) visible++;
+      } catch {
+        // Ignore per-element probe failures and keep scanning.
+      }
+    });
     return { available: true, total, visible };
   }).catch((e) => ({ error: e.message }));
   console.log('  isVisibleForSubmission probe:', JSON.stringify(probe));

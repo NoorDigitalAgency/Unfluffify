@@ -900,7 +900,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_ACTIVATE_MARKING, async (conte
       }
     );
   }
-  if (Boolean(payload && payload.desktopPreviewEnabled)) {
+  if (payload && payload.desktopPreviewEnabled) {
     return context.replyFail(
       MESSAGE_ERROR_CODES.FEATURE_DISABLED,
       "Disable desktop preview before enabling marking",
@@ -1549,7 +1549,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
       await tabInactivityObserver.clearTab(normalizedTabId, {
         scope: RENDER_MODE_NO_JS_INACTIVITY_SCOPE
       });
-      let commandResult = {
+      const commandResult = {
         ok: false,
         tabId: normalizedTabId,
         operationId,

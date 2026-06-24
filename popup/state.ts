@@ -67,6 +67,9 @@ export const state: PopupState = {
   previewRestoreToken: 0,
   previewRestoreAppliedToken: 0,
   previewRestoreFallbackTimer: 0,
+  // Snapshot of marking-session state captured before opening Preview Content.
+  // Exit Preview restores this snapshot to keep button gating state-neutral.
+  previewMarkingSessionSnapshot: null,
   configViewLocked: false,
   tokenValidationInFlight: false,
   lastTokenValidationAt: 0,
