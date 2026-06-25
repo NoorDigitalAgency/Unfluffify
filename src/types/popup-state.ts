@@ -5,6 +5,7 @@ import type {
   PropertyLockState
 } from "./config.ts";
 import type { Browser } from "../common/browser.js";
+import type { PopupTraceEvent } from "../common/bus/contracts/popup-state.js";
 
 export type PopupTone = "muted" | "success" | "warning" | "danger";
 export type PopupView = "Loading" | "Configuration" | "Marking";
@@ -158,7 +159,7 @@ export interface PopupState {
   propertyPageTypesInvalidAlertPending: boolean;
   propertyPageTypesChangeForceTodoOpen: boolean;
   traceModeEnabled: boolean;
-  traceEvents: Array<Record<string, unknown>>;
+  traceEvents: PopupTraceEvent[];
   removedRemotePageKeys: Set<string>;
   propertyLockSiteId: number | null;
   propertyLockState: PropertyLockState | null;

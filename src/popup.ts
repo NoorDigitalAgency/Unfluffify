@@ -228,6 +228,9 @@ import type {
 } from "./types/popup-state.ts";
 import type { PageMarkingEntry, PageSaveReconciliation } from "./types/config.ts";
 
+type PopupViewState = ReturnType<typeof uiModule.getViewState>;
+type PopupViewStatePatch = Partial<PopupViewState>;
+
 const { state } = stateModule;
 const popupDebugTarget = globalThis as typeof globalThis & {
   __UNFLUFFIFY_POPUP_DEBUG__?: {
@@ -442,8 +445,7 @@ let popupNavigationInspectionOverlayTabId = null;
 const popupNavigationInspectionSettlePollByTabId = new Map();
 const popupRenderModeSetNavGuardByTabId = new Map();
 let popupStaleInspectionBusyClearTimer = 0;
-// @ts-expect-error
-let popupBackgroundLifecycle = null;
+let popupBackgroundLifecycle: PopupStateGetReply["lifecycle"] = null;
 let popupBackgroundStateTabId: number | null = null;
 let popupBackgroundActivation: ActivationSnapshot | null = null;
 // @ts-expect-error
@@ -1101,14 +1103,15 @@ function syncUiBusyFromBrokerState() {
     syncPageBusyFromPopupSpinner();
     return;
   }
-// @ts-expect-error
   const lifecycleBusy = Boolean(popupBackgroundLifecycle && popupBackgroundLifecycle.busy);
   if (lifecycleBusy) {
     popupSpinnerVisible = false;
-// @ts-expect-error
-    uiModule.setUiBusy(true, popupBackgroundLifecycle.message || PopupText.overlay.pleaseWait, {
-// @ts-expect-error
-      reason: normalizeSpinnerReason(popupBackgroundLifecycle.reason, popupBackgroundLifecycle.kind || "lifecycle", popupBackgroundLifecycle.message),
+    uiModule.setUiBusy(true, popupBackgroundLifecycle?.message || PopupText.overlay.pleaseWait, {
+      reason: normalizeSpinnerReason(
+        popupBackgroundLifecycle?.reason,
+        popupBackgroundLifecycle?.kind || "lifecycle",
+        popupBackgroundLifecycle?.message
+      ),
       source: "background-lifecycle",
       spinnerKey: ""
     });
@@ -4059,7 +4062,7 @@ async function refreshUiInner(options = {}) {
 
   const view = uiModule.getViewState();
   const refs = uiModule.getRefs();
-  const nextViewState = {
+  const nextViewState: PopupViewStatePatch = {
     currentPageUrl: pageUrl || ViewText.unavailable,
     currentBaseUrl: state.currentBaseUrl,
     featureFlags: getFeatureFlags(),
@@ -4768,29 +4771,25 @@ async function refreshUiInner(options = {}) {
     clearRemoteConfigRetryTimer();
   }
 
-// @ts-expect-error
   nextViewState.currentView = resolvedView;
-// @ts-expect-error
   nextViewState.configurationContinueDisabled = !configurationComplete;
-// @ts-expect-error
   nextViewState.configurationBackDisabled = !configurationComplete;
-// @ts-expect-error
   nextViewState.configurationNoticeVisible =
     !configurationComplete ||
     remoteConfigRetryBlocked;
-// @ts-expect-error
   nextViewState.configurationNoticeText = remoteConfigRetryBlocked
     ? PopupText.configuration.remoteConfigRetryNotice
     : configurationComplete
       ? ""
       : PopupText.configuration.continueSetupNotice;
   const traceDiagnosticsEnabled = isFeatureEnabled("traceDiagnostics");
-// @ts-expect-error
   nextViewState.traceModeEnabled = traceDiagnosticsEnabled && Boolean(state.traceModeEnabled);
-// @ts-expect-error
-  nextViewState.traceEvents = traceDiagnosticsEnabled && Array.isArray(state.traceEvents) ? state.traceEvents : [];
-// @ts-expect-error
-  nextViewState.traceEventCount = nextViewState.traceEvents.length;
+  const traceEvents: PopupViewState["traceEvents"] =
+    traceDiagnosticsEnabled && Array.isArray(state.traceEvents)
+      ? state.traceEvents
+      : [];
+  nextViewState.traceEvents = traceEvents;
+  nextViewState.traceEventCount = traceEvents.length;
 
   const pageScopedUiDisabled =
     unsupportedByGraphql ||
@@ -4817,9 +4816,7 @@ async function refreshUiInner(options = {}) {
   const desktopPreviewActive = Boolean(
     desktopPreviewVisible && state.currentDesktopPreviewEnabled
   );
-// @ts-expect-error
   nextViewState.toggleEnabled = pageScopedUiDisabled ? false : isEnabled;
-// @ts-expect-error
   nextViewState.toggleEnabledDisabled =
     pageScopedUiDisabled ||
     previewRestorePending ||
@@ -4827,14 +4824,11 @@ async function refreshUiInner(options = {}) {
     !baseUrlReady ||
     (!navigationInspectionPending && (!siteIdReady || !renderModeReady || pageTypeUiBlocked)) ||
     desktopPreviewActive;
-// @ts-expect-error
   nextViewState.mainUiHidden =
     pageScopedUiDisabled ||
     !isEnabled ||
     (!navigationInspectionPending && (!siteIdReady || !renderModeReady));
-// @ts-expect-error
   nextViewState.silentModeActive = silentModeActive;
-// @ts-expect-error
   nextViewState.computeButtonDisabled =
     pageScopedUiDisabled ||
     aiBusy ||
@@ -4842,285 +4836,193 @@ async function refreshUiInner(options = {}) {
     !aiReady ||
     pageSaveReconciliationPending ||
     (aiRunUpToDate && !sessionRequiresAiRun);
-// @ts-expect-error
   nextViewState.saveExcludesButtonDisabled =
     !silentModeActive ||
     aiBusy ||
     !baseUrlReady ||
     !siteIdReady;
-// @ts-expect-error
   nextViewState.previewLatestButtonDisabled =
     !silentModeActive ||
     aiBusy ||
     !baseUrlReady ||
     !siteIdReady ||
     !hasStoredSelectors;
-// @ts-expect-error
   nextViewState.renderModeReady = renderModeReady;
-// @ts-expect-error
-  nextViewState.todoListVisible = siteIdReady && renderModeReady;
-// @ts-expect-error
+  const todoListVisible = siteIdReady && renderModeReady;
+  nextViewState.todoListVisible = todoListVisible;
   nextViewState.renderModeValue = renderModeField.value;
-// @ts-expect-error
   nextViewState.renderModeReadOnly = !renderModeField.isEditing;
-// @ts-expect-error
   nextViewState.renderModeSetVisible = renderModeRequired && renderModeField.isEditing;
-// @ts-expect-error
   nextViewState.renderModeEditVisible = renderModeSet && renderModeRequired;
-// @ts-expect-error
   nextViewState.renderModeEditText = state.renderModeEditMode
     ? ViewText.cancelAction
     : ViewText.changeAction;
-// @ts-expect-error
   nextViewState.renderModeNoticeText = renderModeNoticeText;
-// @ts-expect-error
   nextViewState.renderModeNoticeVisible = renderModeNoticeVisible;
-// @ts-expect-error
   nextViewState.renderModeUndeterminedVisible =
     renderModeValueUndetermined || state.renderModeDetectionUnsure;
-// @ts-expect-error
   nextViewState.renderModeWarningVisible = false;
-// @ts-expect-error
   nextViewState.renderModeWarningAcknowledgeChecked = false;
-// @ts-expect-error
   nextViewState.renderModeWarningOkDisabled = true;
-// @ts-expect-error
   nextViewState.lynxChecklistVisible = Boolean(state.lynxChecklistVisible);
-// @ts-expect-error
   nextViewState.lynxChecklistAiAnswer = state.lynxChecklistAiAnswer || "";
-// @ts-expect-error
   nextViewState.lynxChecklistPageTypes = Array.isArray(state.lynxChecklistPageTypes)
     ? state.lynxChecklistPageTypes
     : [];
-// @ts-expect-error
   nextViewState.lynxChecklistAiQuestionDisabled = Boolean(state.lynxChecklistAiQuestionDisabled);
-// @ts-expect-error
   nextViewState.lynxChecklistAiQuestionHidden = Boolean(state.lynxChecklistAiQuestionHidden);
-// @ts-expect-error
   nextViewState.lynxChecklistNoticeText = state.lynxChecklistNoticeText || "";
-// @ts-expect-error
   nextViewState.sessionHasPendingChanges = sessionHasPendingChanges;
-// @ts-expect-error
   nextViewState.currentPageHasPendingChanges = currentPageHasPendingChanges;
-// @ts-expect-error
   nextViewState.sessionRequiresAiRun = sessionRequiresAiRun;
-// @ts-expect-error
   nextViewState.renderModeInputDisabled =
     aiBusy ||
     pageScopedUiDisabled ||
     !renderModeRequired ||
     !state.currentConfig;
-// @ts-expect-error
-  nextViewState.renderModeInspectButtonsDisabled =
+  const renderModeInspectButtonsDisabled =
     aiBusy ||
     pageScopedUiDisabled ||
     !renderModeRequired ||
     !(state.currentTab && state.currentTab.id);
+  nextViewState.renderModeInspectButtonsDisabled = renderModeInspectButtonsDisabled;
   // Alternate the two inspect buttons by the tab's current JavaScript mode so the
   // same mode cannot be triggered twice: while the page runs JavaScript only
   // "Without JavaScript" is enabled, and once it is held in no-JS mode only "With
   // JavaScript" is enabled.
-// @ts-expect-error
   nextViewState.renderModeInspectWithoutJavaScriptDisabled =
-// @ts-expect-error
-    nextViewState.renderModeInspectButtonsDisabled || Boolean(state.renderModeTabJsDisabled);
-// @ts-expect-error
+    renderModeInspectButtonsDisabled || Boolean(state.renderModeTabJsDisabled);
   nextViewState.renderModeInspectWithJavaScriptDisabled =
-// @ts-expect-error
-    nextViewState.renderModeInspectButtonsDisabled || !state.renderModeTabJsDisabled;
-// @ts-expect-error
+    renderModeInspectButtonsDisabled || !state.renderModeTabJsDisabled;
   nextViewState.renderModeSetDisabled =
     aiBusy ||
     pageScopedUiDisabled ||
     !renderModeRequired ||
     renderModeValueUndetermined ||
     !state.currentConfig;
-// @ts-expect-error
   nextViewState.renderModeEditDisabled =
     aiBusy ||
     pageScopedUiDisabled ||
     !renderModeRequired ||
     !state.currentConfig;
-// @ts-expect-error
   nextViewState.renderModeSummaryTitle = PopupText.renderMode.title;
-// @ts-expect-error
   nextViewState.renderModeSummaryOpen =
     !renderModeSet || state.renderModeEditMode || state.renderModeSummaryOpen;
-// @ts-expect-error
-  nextViewState.renderModeSectionVisible = renderModeRequired && (!renderModeSet || state.renderModeEditMode);
-// @ts-expect-error
+  const renderModeSectionVisible =
+    renderModeRequired && (!renderModeSet || state.renderModeEditMode);
+  nextViewState.renderModeSectionVisible = renderModeSectionVisible;
   nextViewState.renderModeChangeMenuVisible =
     resolvedView === uiModule.View.Marking &&
     renderModeRequired &&
     renderModeSet &&
     !pageScopedUiDisabled &&
     currentPageMarkingAllowed;
-// @ts-expect-error
   nextViewState.stageBaseValue = stageBaseField.value;
-// @ts-expect-error
   nextViewState.stageBaseReadOnly = !stageBaseField.isEditing;
-// @ts-expect-error
   nextViewState.stageBaseSetVisible = stageBaseField.isEditing;
-// @ts-expect-error
   nextViewState.stageBaseEditVisible = stageBaseSet;
-// @ts-expect-error
   nextViewState.stageBaseEditText = state.stageBaseEditMode
     ? ViewText.cancelAction
     : ViewText.changeAction;
-// @ts-expect-error
   nextViewState.stageBaseNoticeText = stageBaseField.noticeText;
-// @ts-expect-error
   nextViewState.stageBaseNoticeVisible = stageBaseField.noticeVisible;
-// @ts-expect-error
   nextViewState.stageBaseInputDisabled = configurationUiDisabled;
-// @ts-expect-error
   nextViewState.stageBaseSetDisabled = configurationUiDisabled;
-// @ts-expect-error
   nextViewState.stageBaseEditDisabled = configurationUiDisabled;
-// @ts-expect-error
   nextViewState.themeValue = normalizeThemeValue(state.currentTheme);
-// @ts-expect-error
   nextViewState.themeModeValue = normalizeThemeModeValue(state.currentThemeMode);
-// @ts-expect-error
-  nextViewState.themeOptions = THEME_OPTIONS;
-// @ts-expect-error
+  nextViewState.themeOptions = [...THEME_OPTIONS];
   nextViewState.themeModeOptions = themeModeOptions;
-// @ts-expect-error
   nextViewState.themeControlsDisabled = configurationUiDisabled;
-// @ts-expect-error
   nextViewState.loginEmailValue = loginEmailValue;
-// @ts-expect-error
   nextViewState.loginPasswordValue = loginPasswordValue;
-// @ts-expect-error
   nextViewState.loginCredentialsDisabled =
     configurationUiDisabled || !loginCredentialsEnabled;
-// @ts-expect-error
   nextViewState.loginStatusText = tokenValue
     ? PopupText.authentication.statusTokenSaved
     : PopupText.authentication.statusLoginRequired;
-// @ts-expect-error
   nextViewState.loginStatusTone = tokenValue ? "success" : "warning";
-// @ts-expect-error
   nextViewState.loginActionDisabled =
     configurationUiDisabled ||
     !loginCredentialsEnabled ||
     !isValidEmail(loginEmailValue.trim()) ||
     !loginPasswordValue.trim();
-// @ts-expect-error
   nextViewState.configEndpointUrlValue = configEndpointField.value;
-// @ts-expect-error
   nextViewState.configEndpointUrlReadOnly = !configEndpointField.isEditing;
-// @ts-expect-error
   nextViewState.configEndpointSetVisible = configEndpointField.isEditing;
-// @ts-expect-error
   nextViewState.configEndpointEditVisible = configEndpointSet;
-// @ts-expect-error
   nextViewState.configEndpointEditText = state.configEndpointEditMode
     ? ViewText.cancelAction
     : ViewText.changeAction;
-// @ts-expect-error
   nextViewState.configEndpointNoticeText = configEndpointField.noticeText;
-// @ts-expect-error
   nextViewState.configEndpointNoticeVisible = configEndpointField.noticeVisible;
-// @ts-expect-error
   nextViewState.configEndpointInputDisabled = configurationUiDisabled;
-// @ts-expect-error
   nextViewState.configEndpointSetDisabled = configurationUiDisabled;
-// @ts-expect-error
   nextViewState.configEndpointEditDisabled = configurationUiDisabled;
 
-// @ts-expect-error
   nextViewState.endpointUrlValue = endpointField.value;
-// @ts-expect-error
   nextViewState.endpointUrlReadOnly = !endpointField.isEditing;
-// @ts-expect-error
   nextViewState.endpointSetVisible = endpointField.isEditing;
-// @ts-expect-error
   nextViewState.endpointEditVisible = endpointSet;
-// @ts-expect-error
   nextViewState.endpointEditText = state.endpointEditMode
     ? ViewText.cancelAction
     : ViewText.changeAction;
-// @ts-expect-error
   nextViewState.endpointNoticeText = endpointField.noticeText;
-// @ts-expect-error
   nextViewState.endpointNoticeVisible = endpointField.noticeVisible;
-// @ts-expect-error
   nextViewState.endpointInputDisabled = configurationUiDisabled;
-// @ts-expect-error
   nextViewState.endpointSetDisabled = configurationUiDisabled;
-// @ts-expect-error
   nextViewState.endpointEditDisabled = configurationUiDisabled;
-// @ts-expect-error
   nextViewState.clearDomainCacheDisabled =
     !isFeatureEnabled("cacheAndUnregisterTools") || state.clearDomainCacheDisabled;
-// @ts-expect-error
   nextViewState.unregisterCurrentTabDisabled =
     !isFeatureEnabled("cacheAndUnregisterTools") ||
     state.unregisterCurrentTabDisabled || !state.currentTab || !state.currentTab.id;
-// @ts-expect-error
   nextViewState.computeButtonText =
     state.aiRequestInFlight === "compute"
       ? ViewText.computeButtonBusy
       : ViewText.computeButtonIdle;
-// @ts-expect-error
   nextViewState.saveExcludesButtonText =
     state.aiRequestInFlight === "save"
       ? ViewText.saveExcludesBusy
       : ViewText.saveExcludesIdle;
-// @ts-expect-error
   nextViewState.computeButtonLoading = state.aiRequestInFlight === "compute";
-// @ts-expect-error
   nextViewState.saveExcludesButtonLoading = state.aiRequestInFlight === "save";
-// @ts-expect-error
   nextViewState.aiRunSpinnerNote =
     state.aiRequestInFlight === "compute"
       ? PopupText.overlay.computingSelectorsNote
       : "";
-// @ts-expect-error
   nextViewState.aiRunCountdownVisible =
     state.aiRequestInFlight === "compute" && state.aiRunDeadlineAt > 0;
-// @ts-expect-error
   nextViewState.aiRunCountdownText =
     state.aiRequestInFlight === "compute"
       ? formatAiRunCountdown(
           getAiRunRemainingMs(state.aiRunDeadlineAt)
         )
       : "0:00";
-// @ts-expect-error
   nextViewState.aiRunDeadlineAt =
     state.aiRequestInFlight === "compute"
       ? state.aiRunDeadlineAt
       : 0;
-// @ts-expect-error
   nextViewState.aiRunPhase =
     state.aiRequestInFlight === "compute"
       ? state.aiRunPhase
       : "";
-// @ts-expect-error
   nextViewState.aiControlsBusy = aiBusy;
-// @ts-expect-error
   nextViewState.aiDirtyNoticeVisible = pageSaveReconciliationPending;
-// @ts-expect-error
   nextViewState.aiDirtyNoticeText = pageSaveReconciliationPending
     ? PopupText.page.statusServerSyncPending
     : PopupText.ai.dirtyNotice;
-// @ts-expect-error
   nextViewState.cssSelectorsVisible = silentModeActive;
-// @ts-expect-error
   nextViewState.baseUrlInputValue = baseField.value;
-// @ts-expect-error
   nextViewState.baseUrlNoticeText =
     state.remoteConfigConnectionIssue
       ? PopupText.status.remoteConfigRetryNotice
       : effectiveSiteIdBlockedReason || baseField.noticeText;
-// @ts-expect-error
   nextViewState.baseUrlNoticeVisible =
     state.remoteConfigConnectionIssue ||
     Boolean(effectiveSiteIdBlockedReason) ||
     baseField.noticeVisible;
-// @ts-expect-error
-  const pageControlsVisible = !nextViewState.mainUiHidden && nextViewState.renderModeReady;
+  const pageControlsVisible = !nextViewState.mainUiHidden && renderModeReady;
   const pageSaveUiState = buildPageSaveUiState({
     pageControlsVisible,
     sessionHasPendingChanges,
@@ -5128,153 +5030,112 @@ async function refreshUiInner(options = {}) {
     currentDraftDirty: state.currentDraftDirty,
     reconciliation: state.currentPageSaveReconciliation
   });
-// @ts-expect-error
   nextViewState.pageSaveDisabled =
     pageSaveUiState.pageSaveDisabled || previewRestorePending;
-// @ts-expect-error
   nextViewState.pageSaveMobileSimulationRequiredVisible =
     pageSaveUiState.pageSaveMobileSimulationRequiredVisible;
-// @ts-expect-error
   nextViewState.pageSaveMobileSimulationRequiredText =
     PopupText.page.mobileSimulationRequired;
-// @ts-expect-error
   nextViewState.pageRevertDisabled =
     pageSaveUiState.pageRevertDisabled || previewRestorePending;
   // Marking-mode "Preview Content": let the user see the AI content detection
   // without leaving marking mode. Mirrors Save gating - only available once a
   // successful AI run matches the live markings (and before the next change).
-// @ts-expect-error
   nextViewState.markingPreviewVisible = pageControlsVisible && Boolean(isEnabled);
-// @ts-expect-error
   nextViewState.markingPreviewDisabled =
     aiBusy ||
     previewRestorePending ||
     pageSaveReconciliationPending ||
     !aiRunUpToDate ||
     sessionRequiresAiRun;
-// @ts-expect-error
   nextViewState.pageDraftStatusText = pageSaveUiState.pageDraftStatusText;
-// @ts-expect-error
   nextViewState.pageDraftStatusTone = pageSaveUiState.pageDraftStatusTone;
-// @ts-expect-error
   nextViewState.pageSessionNoticeVisible = pageSaveUiState.pageSessionNoticeVisible;
-// @ts-expect-error
   nextViewState.pageSessionNoticeText = pageSaveUiState.pageSessionNoticeText;
-// @ts-expect-error
   nextViewState.aiDirtyNoticeText = pageSaveUiState.aiDirtyNoticeText;
-// @ts-expect-error
   nextViewState.syncLoadStatusText = state.lastConfigLoadStatusText || ViewText.syncLoadIdle;
-// @ts-expect-error
   nextViewState.syncLoadStatusTone = state.lastConfigLoadStatusTone || "muted";
-// @ts-expect-error
   nextViewState.syncSaveStatusText = state.lastConfigSaveStatusText || ViewText.syncSaveIdle;
-// @ts-expect-error
   nextViewState.syncSaveStatusTone = state.lastConfigSaveStatusTone || "muted";
   const popupSpinnerSnapshot = getActiveSpinnerSnapshotForSurface("popup");
   const popupBusyActive = Boolean(popupSpinnerVisible && popupSpinnerSnapshot);
-// @ts-expect-error
   const backgroundLifecycleBusy = Boolean(popupBackgroundLifecycle && popupBackgroundLifecycle.busy);
-// @ts-expect-error
   nextViewState.isBusy = popupBusyActive || backgroundLifecycleBusy || remoteConfigRetryBlocked || pageInspectionBusy;
-// @ts-expect-error
   nextViewState.busyMessage = popupBusyActive
     ? (popupSpinnerSnapshot?.entry?.message || "")
     : backgroundLifecycleBusy
-// @ts-expect-error
-      ? (popupBackgroundLifecycle.message || PopupText.overlay.pleaseWait)
+      ? (popupBackgroundLifecycle?.message || PopupText.overlay.pleaseWait)
     : remoteConfigRetryBlocked
       ? PopupText.status.remoteServerRetryNotice
       : pageInspectionBusy
         ? PopupText.overlay.pageInspection
         : "";
-// @ts-expect-error
   nextViewState.busyReason = popupBusyActive
     ? normalizeSpinnerReason(popupSpinnerSnapshot?.entry?.reason, popupSpinnerSnapshot?.key, popupSpinnerSnapshot?.entry?.message)
     : backgroundLifecycleBusy
-// @ts-expect-error
-      ? normalizeSpinnerReason(popupBackgroundLifecycle.reason, popupBackgroundLifecycle.kind || "lifecycle", popupBackgroundLifecycle.message)
-  : remoteConfigRetryBlocked
-    ? "page-save-remote-config-retry"
-    : pageInspectionBusy
-      ? "page-inspection-pending"
-  : "";
-// @ts-expect-error
-nextViewState.busySource = popupBusyActive
-? (popupSpinnerSnapshot?.entry?.source || "popup-spinner")
-: backgroundLifecycleBusy
-  ? "background-lifecycle"
-  : remoteConfigRetryBlocked
-    ? "popup-page-save"
-    : pageInspectionBusy
-      ? "popup-runtime-status"
-  : "";
-// @ts-expect-error
+      ? normalizeSpinnerReason(
+          popupBackgroundLifecycle?.reason,
+          popupBackgroundLifecycle?.kind || "lifecycle",
+          popupBackgroundLifecycle?.message
+        )
+      : remoteConfigRetryBlocked
+        ? "page-save-remote-config-retry"
+        : pageInspectionBusy
+          ? "page-inspection-pending"
+          : "";
+  nextViewState.busySource = popupBusyActive
+    ? (popupSpinnerSnapshot?.entry?.source || "popup-spinner")
+    : backgroundLifecycleBusy
+      ? "background-lifecycle"
+      : remoteConfigRetryBlocked
+        ? "popup-page-save"
+        : pageInspectionBusy
+          ? "popup-runtime-status"
+          : "";
   nextViewState.busySpinnerKey = popupBusyActive
     ? (popupSpinnerSnapshot?.key || "")
     : "";
-// @ts-expect-error
   nextViewState.busyOperationKind = popupBusyActive
     ? (popupSpinnerSnapshot?.entry?.operationKind || "")
     : backgroundLifecycleBusy
-// @ts-expect-error
-      ? (popupBackgroundLifecycle.operationKind || popupBackgroundLifecycle.kind || "")
+      ? (popupBackgroundLifecycle?.operationKind || popupBackgroundLifecycle?.kind || "")
       : "";
-// @ts-expect-error
   nextViewState.busyOperationPhase = popupBusyActive
     ? (popupSpinnerSnapshot?.entry?.operationPhase || "")
     : backgroundLifecycleBusy
-// @ts-expect-error
-      ? (popupBackgroundLifecycle.operationPhase || popupBackgroundLifecycle.phase || "")
+      ? (popupBackgroundLifecycle?.operationPhase || popupBackgroundLifecycle?.phase || "")
       : "";
-// @ts-expect-error
   nextViewState.busyStartedAt = popupBusyActive
     ? (Number.isFinite(popupSpinnerSnapshot?.entry?.startedAt) ? Number(popupSpinnerSnapshot?.entry?.startedAt) : 0)
     : backgroundLifecycleBusy
-// @ts-expect-error
-      ? (Number.isFinite(popupBackgroundLifecycle.startedAt) ? Number(popupBackgroundLifecycle.startedAt) : 0)
+      ? (Number.isFinite(popupBackgroundLifecycle?.startedAt) ? Number(popupBackgroundLifecycle?.startedAt) : 0)
       : 0;
-// @ts-expect-error
   nextViewState.busyDeadlineAt = popupBusyActive
     ? (Number.isFinite(popupSpinnerSnapshot?.entry?.deadlineAt) ? Number(popupSpinnerSnapshot?.entry?.deadlineAt) : 0)
     : backgroundLifecycleBusy
-// @ts-expect-error
-      ? (Number.isFinite(popupBackgroundLifecycle.deadlineAt) ? Number(popupBackgroundLifecycle.deadlineAt) : 0)
+      ? (Number.isFinite(popupBackgroundLifecycle?.deadlineAt) ? Number(popupBackgroundLifecycle?.deadlineAt) : 0)
       : 0;
-// @ts-expect-error
   nextViewState.busyTimerMode = popupBusyActive
     ? (popupSpinnerSnapshot?.entry?.timerMode || "")
     : backgroundLifecycleBusy
-// @ts-expect-error
-      ? (popupBackgroundLifecycle.timerMode || "")
+      ? (popupBackgroundLifecycle?.timerMode || "")
       : "";
-// @ts-expect-error
   nextViewState.pageDataNewNoticeHidden = pageSaveUiState.pageDataNewNoticeHidden;
-// @ts-expect-error
   nextViewState.deviceEmulationEnabled = normalizedDeviceState.enabled;
-// @ts-expect-error
   nextViewState.deviceMode = normalizedDeviceState.mode;
-// @ts-expect-error
   nextViewState.deviceScale = normalizedDeviceState.scale.toFixed(2);
-// @ts-expect-error
   nextViewState.deviceScaleValue = formatScalePercent(normalizedDeviceState.scale);
-// @ts-expect-error
   nextViewState.deviceControlsDisabled = Boolean(state.deviceControlsDisabled || isEnabled);
-// @ts-expect-error
   nextViewState.desktopPreviewVisible = desktopPreviewVisible;
-// @ts-expect-error
   nextViewState.desktopPreviewEnabled = desktopPreviewActive;
-// @ts-expect-error
   nextViewState.desktopPreviewDisabled =
     aiBusy ||
     !currentTabId ||
     !renderModeReady ||
     pageInspectionBusy ||
     state.deviceControlsDisabled;
-// @ts-expect-error
   nextViewState.desktopPreviewNoticeVisible = desktopPreviewActive;
-// @ts-expect-error
   nextViewState.desktopPreviewNoticeText = PopupText.device.desktopPreviewNotice;
-// @ts-expect-error
   nextViewState.pageTypeGroups = pageTypeCoverageModel.pageTypes.map((pageType) => {
     const groupCurrent =
       currentPageMarkingAllowed &&
@@ -5304,7 +5165,6 @@ nextViewState.busySource = popupBusyActive
       })
     };
   });
-// @ts-expect-error
   nextViewState.pageTypeGroupsEmptyText = propertyPageTypesFetchError && !pageTypeCoverageModel.pageTypes.length
     ? propertyPageTypesFetchError
     : baseUrlReady
@@ -5321,15 +5181,11 @@ nextViewState.busySource = popupBusyActive
         : pageTypeCoverageModel.invalidMarkedPages.length
           ? PopupText.pageTypes.invalidStoredNotice
           : "";
-// @ts-expect-error
   nextViewState.pageTypeNoticeText = state.propertyPageTypesChangeNoticeVisible
     ? PopupText.pageTypes.changedNotice
     : pageTypeCandidateNoticeText;
-// @ts-expect-error
   nextViewState.pageTypeNoticeVisible = Boolean(nextViewState.pageTypeNoticeText);
-// @ts-expect-error
   nextViewState.lynxChecklistPageTypes = propertyPageTypes;
-// @ts-expect-error
   nextViewState.markedPages = pageTypeCoverageModel.activeMarkedPages
     .map((item) => {
       const key = buildPageMarkingKey(item.url, item.pageType);
@@ -5342,7 +5198,6 @@ nextViewState.busySource = popupBusyActive
       };
     })
     .sort((left, right) => left.title.localeCompare(right.title));
-// @ts-expect-error
   nextViewState.markedPagesEmptyText = baseUrlReady
     ? PopupText.pageTypes.markRequirement
     : effectiveSiteIdBlockedReason || ViewText.noMappedBaseUrlOrSiteId;
@@ -5386,8 +5241,7 @@ nextViewState.busySource = popupBusyActive
   const hasNoTodoExpansionContext = !nextTodoExpansionKey;
   const movedToDifferentProperty = state.currentBaseUrl !== previousBaseUrl;
   const shouldAutoCollapseOnContextChange =
-// @ts-expect-error
-    todoExpansionContextChanged && nextViewState.todoAutoCollapse;
+    todoExpansionContextChanged && Boolean(view.todoAutoCollapse);
   const todoExpansionShouldCollapse =
     hasNoTodoExpansionContext ||
     movedToDifferentProperty ||
@@ -5403,12 +5257,9 @@ nextViewState.busySource = popupBusyActive
   if (
     propertyPageTypesRefreshChanged &&
     state.propertyPageTypesChangeForceTodoOpen &&
-// @ts-expect-error
-    nextViewState.todoListVisible
+    todoListVisible
   ) {
-// @ts-expect-error
     nextViewState.todoControlsMenuOpen = false;
-// @ts-expect-error
     nextViewState.todoSectionExpanded = true;
     state.propertyPageTypesChangeForceTodoOpen = false;
   }
@@ -5416,8 +5267,7 @@ nextViewState.busySource = popupBusyActive
 
   await syncRenderModeDebuggerLifecycle({
     wasVisible: Boolean(view.renderModeSectionVisible),
-// @ts-expect-error
-    isVisible: Boolean(nextViewState.renderModeSectionVisible),
+    isVisible: renderModeSectionVisible,
     currentTabId
   });
 

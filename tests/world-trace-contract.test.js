@@ -66,8 +66,12 @@ test("popup keeps trace diagnostics behind a disabled feature flag", () => {
   assert.match(popupSource, /const traceDiagnosticsEnabled = isFeatureEnabled\("traceDiagnostics"\);/);
   assert.match(popupSource, /state\.traceModeEnabled = traceDiagnosticsEnabled && Boolean\(snapshot\.traceEnabled\);/);
   assert.match(popupSource, /state\.traceEvents = traceDiagnosticsEnabled && Array\.isArray\(snapshot\.traceEvents\) \? \[\.\.\.snapshot\.traceEvents\] : \[\];/);
-  assert.match(popupSource, /nextViewState\.traceEvents = traceDiagnosticsEnabled && Array\.isArray\(state\.traceEvents\) \? state\.traceEvents : \[\];/);
-  assert.match(popupSource, /nextViewState\.traceEventCount = nextViewState\.traceEvents\.length;/);
+  assert.match(
+    popupSource,
+    /const traceEvents: PopupViewState\["traceEvents"\] =[\s\S]*?traceDiagnosticsEnabled && Array\.isArray\(state\.traceEvents\)[\s\S]*?state\.traceEvents[\s\S]*?: \[\];/
+  );
+  assert.match(popupSource, /nextViewState\.traceEvents = traceEvents;/);
+  assert.match(popupSource, /nextViewState\.traceEventCount = traceEvents\.length;/);
   assert.match(popupSource, /const traceDiagnosticsEnabled = isFeatureEnabled\("traceDiagnostics"\);/);
   assert.match(popupSource, /nextViewState\.traceModeEnabled = traceDiagnosticsEnabled && Boolean\(state\.traceModeEnabled\);/);
   assert.match(popupSource, /async function loadTraceModeSetting\(\) \{/);

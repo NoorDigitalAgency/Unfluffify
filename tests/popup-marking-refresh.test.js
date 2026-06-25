@@ -365,7 +365,7 @@ test("changed page-type refresh expands the Todo List root", () => {
 
   assert.match(
     source,
-    /propertyPageTypesRefreshChanged &&[\s\S]*?state\.propertyPageTypesChangeForceTodoOpen &&[\s\S]*?nextViewState\.todoListVisible[\s\S]*?nextViewState\.todoSectionExpanded = true;[\s\S]*?state\.propertyPageTypesChangeForceTodoOpen = false;/
+    /propertyPageTypesRefreshChanged &&[\s\S]*?state\.propertyPageTypesChangeForceTodoOpen &&[\s\S]*?todoListVisible[\s\S]*?nextViewState\.todoSectionExpanded = true;[\s\S]*?state\.propertyPageTypesChangeForceTodoOpen = false;/
   );
 });
 
@@ -691,7 +691,7 @@ test("popup blocks the interface with a spinner while page inspection is running
   );
   assert.match(
     source,
-    /backgroundLifecycleBusy[\s\S]*?\? \(popupBackgroundLifecycle\.message \|\| PopupText\.overlay\.pleaseWait\)/
+    /backgroundLifecycleBusy[\s\S]*?\? \(popupBackgroundLifecycle\?\.message \|\| PopupText\.overlay\.pleaseWait\)/
   );
 });
 

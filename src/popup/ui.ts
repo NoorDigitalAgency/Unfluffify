@@ -10,6 +10,7 @@ import {
   SPINNER_TIMER_MODES,
   resolveSpinnerPhaseDefinition
 } from "../common/spinner-contract.js";
+import type { PopupTraceEvent } from "../common/bus/contracts/popup-state.js";
 import type { PopupView } from "../types/popup-state.ts";
 import {
   buildLynxChecklistViewModel,
@@ -74,13 +75,7 @@ interface PreviewItem {
   [key: string]: unknown;
 }
 
-interface TraceEventEntry {
-  at: number;
-  channel: string;
-  event: string;
-  payload: Record<string, unknown>;
-  [key: string]: unknown;
-}
+type TraceEventEntry = PopupTraceEvent;
 
 type ClassNameValue = string | number | boolean | null | undefined;
 type PopupFeatureFlags = Partial<Record<string, boolean>>;
@@ -592,6 +587,7 @@ type ViewState = Omit<
   | "todoSubsectionsExpanded"
   | "themeOptions"
   | "themeModeOptions"
+  | "traceEvents"
   | "markedPages"
   | "pageTypeGroups"
   | "previewItems"
