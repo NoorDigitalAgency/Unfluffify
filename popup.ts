@@ -3480,7 +3480,7 @@ async function hideConsentForRenderModeInspection(targetTabId = state.currentTab
 
   let hideResponse = await sendHideMessageWithRetry(2);
   if (!hideResponse || !hideResponse.ok) {
-    await messages.sendRuntimeMessage({ type: "activateContentForTab", tabId });
+    await messages.requestTabBootstrapContent(tabId);
     hideResponse = await sendHideMessageWithRetry(3);
   }
   return Boolean(hideResponse && hideResponse.ok);
@@ -3496,7 +3496,7 @@ async function ensureContentReadyForRenderModeInspection(tabId) {
   // still giving content-main a fair chance to come up post-navigation.
   const maxAttempts = 30;
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    await messages.sendRuntimeMessage({ type: "activateContentForTab", tabId }).catch(() => null);
+    await messages.requestTabBootstrapContent(tabId);
     const status = await messages.sendTabMessageToTab(tabId, {
       type: "getInspectionStatus"
     }).catch(() => null);
@@ -3702,11 +3702,7 @@ async function refreshUiInner(options = {}) {
     !(initialTabState && initialTabState.active) &&
     utils.getOriginFromUrl(pageUrl)
   ) {
-    const activationResponse = await messages.sendRuntimeMessage({
-      type: "activateContentForTab",
-      tabId: currentTabId,
-      url: pageUrl
-    });
+    const activationResponse = await messages.requestTabBootstrapContent(currentTabId);
     if (!activationResponse || activationResponse.ok === false) {
       await messages.setTabState(currentTabId, { active: true }, "initial");
     }

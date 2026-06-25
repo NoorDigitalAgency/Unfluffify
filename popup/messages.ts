@@ -4,6 +4,7 @@ import * as stateModule from "./state.js";
 import { isDebugFlagEnabled } from "../common/feature-flags.js";
 
 const { state } = stateModule;
+const TAB_BOOTSTRAP_CONTENT_COMMAND = "TAB_BOOTSTRAP_CONTENT";
 const TAB_CONTENT_REQUEST_COMMAND = "TAB_CONTENT_REQUEST";
 const TAB_ACTIVATE_MARKING_COMMAND = "TAB_ACTIVATE_MARKING";
 const TAB_DEACTIVATE_MARKING_COMMAND = "TAB_DEACTIVATE_MARKING";
@@ -24,6 +25,12 @@ interface TabRequestOptions {
 }
 
 type TabRequestPayload = Record<string, unknown>;
+type TabCommandReply = Record<string, unknown> & {
+  ok: boolean;
+  error?: string;
+  code?: string;
+  details?: Record<string, unknown>;
+};
 
 type TabId = number | null | undefined;
 
@@ -60,6 +67,45 @@ export function sendRuntimeMessage(message: Record<string, unknown>) {
       responseType: responseRecord && responseRecord.type ? responseRecord.type : ""
     });
     return response;
+  });
+}
+
+export function requestTabBootstrapContent(tabId: TabId, options: TabRequestOptions = {}): Promise<TabCommandReply> {
+  const opts = options;
+  if (!tabId) {
+    return Promise.resolve({
+      ok: false,
+      error: "Missing tab"
+    });
+  }
+  return requestRuntime({
+    type: TAB_BOOTSTRAP_CONTENT_COMMAND,
+    payload: {}
+  }, {
+    tabId,
+    timeoutMs: resolveTimeoutMs(opts, 15000)
+  }).then((result) => {
+    if (result && typeof result === "object") {
+      const reply = result as Record<string, unknown>;
+      return {
+        ...reply,
+        ok: Boolean(reply.ok)
+      } as TabCommandReply;
+    }
+    return {
+      ok: false,
+      error: "Unable to prepare tab content"
+    };
+  }).catch((error) => {
+    const reply = error && error.details && error.details.reply && typeof error.details.reply === "object"
+      ? error.details.reply
+      : null;
+    return {
+      ok: false,
+      code: typeof error.code === "string" ? error.code : (reply && reply.code) || "handler_failed",
+      error: (error && error.message) || (reply && reply.error) || "Unable to prepare tab content",
+      details: reply && reply.details && typeof reply.details === "object" ? reply.details : {}
+    };
   });
 }
 

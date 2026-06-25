@@ -32,16 +32,17 @@ old archive files into the active `.copilot` folder.
 
 ## Current Architecture Track
 
-On branch `feat/wxt-port-plan`, the active work is the event-bus program's
+On branch `feat/wxt-port-plan`, the event-bus program is now complete through
 Track 3 in `.copilot/event-bus-architecture-plan.md`:
 `.copilot/event-bus/track-03-activation-lifecycle-content-bootstrap.md`.
-Tracks 0-2 are complete and green on this branch, and Track 3 has completed its
-planning, contracts, mirroring, and curtain slices. The next work is:
 
-1. remove the remaining direct legacy lifecycle authority and finish Track 3
-2. update plan docs/status once the teardown slice lands green
-3. keep the current Brain-projected curtain path gap-free while deleting the
-   old authority path
+Tracks 0-3 are complete and green on this branch. Track 3 closed after:
+
+1. deleting the remaining direct activation/content-ready legacy lifecycle
+   authority from the popup-state broker path and popup bootstrap wrapper
+2. preserving runtime lifecycle snapshots and curtain behavior through the
+   Brain-owned activation path
+3. completing the required live browser validation against `https://bonliva.se`
 
 The preview-exit state-neutral restoration slice remains implemented on this
 branch; it is not the active architecture track here. The content-main Track H

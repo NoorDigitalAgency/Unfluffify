@@ -98,17 +98,12 @@ test("extension activation enables default mobile emulation for fresh tab sessio
   const actionBlock = extractSourceBlock(
     backgroundSource,
     "chrome.action.onClicked.addListener",
-    "chrome.runtime.onMessage.addListener((message, sender, sendResponse) =>"
+    "// Sweep orphaned transfer-payload keys on every service-worker start."
   );
-  const activateHelperBlock = extractSourceBlock(
+  const bootstrapBlock = extractSourceBlock(
     backgroundSource,
-    "async function activateExtensionForTab",
-    "chrome.tabs.onUpdated.addListener"
-  );
-  const activateBlock = extractSourceBlock(
-    backgroundSource,
-    'if (!message || message.type !== "activateContentForTab")',
-    "return true;"
+    "registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_BOOTSTRAP_CONTENT, async (context) => {",
+    "}, POPUP_TAB_COMMAND_POLICY);"
   );
   const helperBlock = extractSourceBlock(
     backgroundSource,
@@ -117,10 +112,13 @@ test("extension activation enables default mobile emulation for fresh tab sessio
   );
 
   assert.match(actionBlock, /chrome\.sidePanel\.open\(\{\s*tabId:\s*tab\.id\s*\}\)\.then\(\)/);
-  assert.match(activateHelperBlock, /await utils\.setTabState\(tabId,\s*\{\s*active:\s*true\s*\},\s*"initial"\)/);
-  assert.match(activateHelperBlock, /await ensureDefaultMobileEmulationForTab\(tabId,\s*tabUrl\)/);
-  assert.match(activateHelperBlock, /requestContentActivation\(tabId\)/);
-  assert.match(activateBlock, /await activateExtensionForTab\(/);
+  assert.match(bootstrapBlock, /await utils\.setTabState\(normalizedTabId,\s*\{\s*active:\s*true\s*\},\s*"initial"\)/);
+  assert.match(bootstrapBlock, /await utils\.updateActionForTab\(normalizedTabId\)/);
+  assert.match(bootstrapBlock, /await ensureDefaultMobileEmulationForTab\(normalizedTabId,\s*tabUrl\)/);
+  assert.match(bootstrapBlock, /const result = await ensureContentMainForTab\(normalizedTabId\)/);
+  assert.match(bootstrapBlock, /if \(!mobileState\) \{\s*requestContentActivation\(normalizedTabId\);/);
+  assert.match(bootstrapBlock, /if \(!result \|\| !result\.ok\) \{\s*requestContentActivation\(normalizedTabId\);/);
+  assert.doesNotMatch(backgroundSource, /message\.type !== "activateContentForTab"/);
   assert.match(helperBlock, /utils\.getOriginFromUrl\(resolvedUrl\)/);
   assert.match(helperBlock, /ensureDefaultMobileDeviceEmulation\(tabId\)/);
 });
@@ -392,7 +390,7 @@ test("completed navigation clears marking when the new page leaves the saved bas
   assert.match(onUpdatedBlock, /await utils\.disableExtensionForTab\(tabId\);/);
 });
 
-test("popup refresh routes fresh active tabs through background activation before reading device state", () => {
+test("popup refresh routes fresh active tabs through tab bootstrap command before reading device state", () => {
   const refreshBlock = extractSourceBlock(
     popupSource,
     "let initialTabState = currentTabId",
@@ -401,7 +399,7 @@ test("popup refresh routes fresh active tabs through background activation befor
 
   assert.match(
     refreshBlock,
-    /messages\.sendRuntimeMessage\(\{\s*type:\s*"activateContentForTab",\s*tabId:\s*currentTabId,\s*url:\s*pageUrl\s*\}\)/
+    /messages\.requestTabBootstrapContent\(currentTabId\)/
   );
   assert.match(
     refreshBlock,

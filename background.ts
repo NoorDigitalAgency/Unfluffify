@@ -830,13 +830,58 @@ const swKeepAlive = createSwKeepAlive({
 });
 
 registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_BOOTSTRAP_CONTENT, async (context) => {
-  const result = await ensureContentMainForTab(context.tabId);
-  updateTabRuntime(context.tabId, {
+  const normalizedTabId = normalizeBrokerTabId(context.tabId);
+  if (!normalizedTabId) {
+    return context.replyFail(
+      MESSAGE_ERROR_CODES.INVALID_TAB,
+      "Missing tab for bootstrap command"
+    );
+  }
+
+  let tab = null;
+  try {
+    tab = await chrome.tabs.get(normalizedTabId);
+  } catch {
+    tab = null;
+  }
+  if (!tab || !tab.id) {
+    return context.replyFail(
+      MESSAGE_ERROR_CODES.INVALID_TAB,
+      "Target tab is unavailable",
+      { tabId: normalizedTabId }
+    );
+  }
+
+  const tabUrl = typeof tab.url === "string" ? tab.url : "";
+  await utils.setTabState(normalizedTabId, { active: true }, "initial");
+  await utils.updateActionForTab(normalizedTabId);
+
+  const mobileState = await ensureDefaultMobileEmulationForTab(normalizedTabId, tabUrl);
+  if (!mobileState) {
+    requestContentActivation(normalizedTabId);
+    return context.replyFail(
+      MESSAGE_ERROR_CODES.HANDLER_FAILED,
+      "Unable to prepare mobile simulation",
+      { tabId: normalizedTabId }
+    );
+  }
+
+  const result = await ensureContentMainForTab(normalizedTabId);
+  updateTabRuntime(normalizedTabId, {
     contentReady: Boolean(result && result.ok)
   });
+  if (!result || !result.ok) {
+    requestContentActivation(normalizedTabId);
+    return context.replyFail(
+      MESSAGE_ERROR_CODES.CONTENT_UNAVAILABLE,
+      (result && result.error) || "Content activation failed",
+      { tabId: normalizedTabId }
+    );
+  }
+
   return {
     ...result,
-    runtime: getTabRuntimeSnapshot(context.tabId)
+    runtime: getTabRuntimeSnapshot(normalizedTabId)
   };
 }, POPUP_TAB_COMMAND_POLICY);
 
@@ -3531,18 +3576,6 @@ async function ensureDefaultMobileEmulationForTab(tabId, tabUrl = "") {
   }
 }
 
-// @ts-expect-error
-async function activateExtensionForTab(tabId, tabUrl = "") {
-  if (!tabId) {
-    return { ok: false };
-  }
-  await utils.setTabState(tabId, { active: true }, "initial");
-  await utils.updateActionForTab(tabId);
-  await ensureDefaultMobileEmulationForTab(tabId, tabUrl);
-  requestContentActivation(tabId);
-  return { ok: true };
-}
-
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (!tabId || !tab) {
     return;
@@ -3606,40 +3639,3 @@ chrome.action.onClicked.addListener((tab) => {
 // mid-flight and did not reach the consume-purge step.
 sweepStaleTransferPayloads().then();
 updateRenderModeNoJsInactivityWatches().catch(() => {});
-
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (!message || message.type !== "activateContentForTab") {
-    return;
-  }
-  if (isDebugFlagEnabled("fullWorldMessagingLogging")) {
-    try {
-      console.debug("[world-trace][background] runtime:inbound", {
-        type: message.type,
-        tabId: Number.isFinite(message && message.tabId)
-          ? Math.trunc(message.tabId)
-          : (Number.isFinite(sender && sender.tab && sender.tab.id)
-// @ts-expect-error
-            ? Math.trunc(sender.tab.id)
-            : null)
-      });
-    } catch {
-      // Debug logging must never break runtime behavior.
-    }
-  }
-  const tabId = message.tabId || (sender.tab && sender.tab.id);
-  if (!tabId) {
-    sendResponse({ ok: false });
-    return;
-  }
-  (async () => {
-    await activateExtensionForTab(
-      tabId,
-      (sender.tab && sender.tab.url) || message.url || ""
-    );
-    sendResponse({ ok: true });
-  })().catch(() => {
-    requestContentActivation(tabId);
-    sendResponse({ ok: true });
-  });
-  return true;
-});

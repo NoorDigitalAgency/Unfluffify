@@ -46,22 +46,24 @@ into the Brain so popup/content no longer decide or bootstrap the navigation
   - `c77c68a` — activation contracts + Brain scaffolding
   - `d01c267` — lifecycle/bootstrap mirroring into Brain activation state
   - `44f3edf` — curtain teardown routed through Brain spinner removal
+  - `83e009e` — bypass activation lifecycle broker authority
+  - `33e251a` — remove broker activation mirror hooks
 - current boundary:
-  - popup now consumes Brain-projected activation snapshots so a reopened popup
-    keeps the navigation-inspection curtain active across activation bootstrap,
-    including the pre-lifecycle `bootstrapStatus: "bootstrapping"` window
-  - the instant local `beginNavigationInspectionOverlay(...)` bridge remains in
-    place to avoid a visible curtain gap while background activation state
-    catches up
-  - background-owned activation/content-ready world lifecycle events now keep
-    runtime lifecycle snapshots and stale-terminal protection without persisting
-    popup broker lifecycle authority; popup lifecycle falls back to Brain
-    activation state unless an unrelated lifecycle is still actively busy
-  - broker sync/seed paths no longer redundantly mirror broker lifecycle state
-    back into the activation decider; activation authority now enters Brain only
-    through the dedicated activation/world-event paths
+  - Track 3 is complete on `feat/wxt-port-plan`
+  - popup consumes Brain-projected activation snapshots across activation
+    bootstrap, including the pre-lifecycle `bootstrapStatus: "bootstrapping"`
+    window, while the local `beginNavigationInspectionOverlay(...)` bridge
+    remains only as the instant no-gap visual handoff
+  - background-owned activation/content-ready lifecycle now enters Brain only
+    through the dedicated activation/world-event paths; popup broker lifecycle
+    no longer owns activation authority
+  - live browser validation completed against `https://bonliva.se` with the
+    committed launcher (`pnpm browser:live https://bonliva.se`), confirming the
+    current extension build loads, binds the popup to the target tab, and
+    surfaces a healthy popup/page state through the launcher control channel
 - next slice:
-  - run the required live browser validation and close Track 3
+  - none for Track 3; move to a different approved branch/plan only if the user
+    explicitly redirects work
 inspection curtain locally. User-visible behavior must stay unchanged: content
 activation retries, reload/devtools reinjection restore, lifecycle-driven
 curtain teardown, content-ready reporting, and the render-mode/marking curtain
@@ -77,13 +79,15 @@ authoritative owner of activation/lifecycle state.
   owns developer-console/navigation reinjection restore. It starts an
   activation lifecycle event, sends `setEnabled`, retries four more times when
   the page is not locked, and only clears reload-restore state after success.
-- `background.ts:2647-2651` still accepts the legacy
-  `WORLD_MESSAGE_TYPES.LIFECYCLE_EVENT` message directly and routes it to
-  `popupStateBroker.updateLifecycleState`.
-- `background/popup-state-broker.ts` remains the current owner of
-  per-tab lifecycle snapshots and the terminal lifecycle -> navInspect curtain
-  clear side effect, which Track 3 must relocate without changing the terminal
-  clear contract locked by `tests/lifecycle-broker.test.js`.
+- `background.ts` still accepts the legacy
+  `WORLD_MESSAGE_TYPES.LIFECYCLE_EVENT` message directly, but activation and
+  content-ready events now route through Brain-owned activation state first,
+  preserve runtime lifecycle snapshots, and clear popup broker lifecycle
+  authority only when it is stale or activation-owned.
+- `background/popup-state-broker.ts` still owns the generic popup lifecycle
+  snapshot used for non-activation lifecycle kinds plus the terminal
+  curtain-clear side effect, but it no longer owns activation/content-ready
+  authority.
 - `content-main.ts:691-728` `emitLifecycleEvent(event)` is the current content
   lifecycle emitter. It normalizes `reason`/`source`, includes
   `contentMode`, `markingEnabled`, and `pageUrl`, and sends the legacy runtime
@@ -92,21 +96,23 @@ authoritative owner of activation/lifecycle state.
   `{ kind: CONTENT_READY, phase: FINISHED, message: "" }` when content main is
   ready, and multiple other callsites emit activation/render-mode lifecycle
   updates through the same helper.
-- `popup.ts:3150-3191` `beginNavigationInspectionOverlay` /
-  `endNavigationInspectionOverlay` still own popup-local `navInspect` spinner
-  bootstrap/teardown and render-mode settle guards, even though Track 2 moved
-  spinner rendering authority to the Brain.
-- `popup.ts:3681-3698` still sends the legacy runtime message
-  `activateContentForTab` during popup refresh when the tab becomes in-scope and
-  the initial tab state was not yet activated.
+- `popup.ts:3150-3191` still keeps the local
+  `beginNavigationInspectionOverlay(...)` bridge for instant no-gap visual
+  handoff, but teardown and authoritative curtain persistence now come from the
+  Brain/projected activation path.
+- `popup.ts` no longer sends the legacy runtime message `activateContentForTab`
+  during popup refresh or render-mode/bootstrap retries; popup bootstrap now
+  travels through the tab-scoped `TAB_BOOTSTRAP_CONTENT` background command,
+  which owns initial-session activation, default mobile-emulation setup, and
+  content readiness before projecting the result back through Brain/runtime state.
 - `background/tab-runtime.ts` still owns separate runtime bookkeeping for
   `contentReady`, `mode`, `operation`, `lifecycle`, and `spinnerQueue`.
-- `background/brain/state-store.ts` currently stores only `popupView` legacy
-  snapshot fields plus `spinners.{popup,pageCurtain,banner}`; it has no
-  authoritative activation/content-bootstrap domain yet.
-- `background/brain/view-projector.ts` currently projects
-  `contentDirective: { version }` only, so content-layer Brain directives do not
-  yet carry activation/lifecycle/bootstrap state.
+- `background/brain/state-store.ts` now stores an authoritative `activation`
+  domain alongside `popupView` and `spinners`.
+- `background/brain/view-projector.ts` now projects activation state into both
+  `popupView.activation` and `contentDirective.activation`, and falls back to
+  that activation lifecycle for popup rendering when popup broker lifecycle
+  authority is absent.
 - `popup/layers/layer-host.ts` and `content/layers/layer-host.ts` are already
   subscribed to `view.popup`, `directive.content`, and `spinner.set/clear`; they
   remain render-only and must not grow decision logic.
