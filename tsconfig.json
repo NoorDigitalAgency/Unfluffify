@@ -19,7 +19,6 @@
     "src/background.ts",
     "src/content-main.ts",
     "src/popup.ts",
-    "src/offscreen.ts",
     "src/types/**/*.ts",
     "src/types/**/*.d.ts"
   ],

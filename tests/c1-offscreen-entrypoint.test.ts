@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -10,12 +10,12 @@ describe("C1 offscreen entrypoint", () => {
       resolve(REPO_ROOT, "src", "entrypoints", "offscreen", "main.ts"),
       "utf8",
     );
-    const rootSource = readFileSync(resolve(REPO_ROOT, "src", "offscreen.ts"), "utf8");
     const bootstrapSource = readFileSync(resolve(REPO_ROOT, "src", "offscreen", "bootstrap.ts"), "utf8");
 
     expect(entrypointSource).not.toContain('legacy/offscreen.js');
     expect(entrypointSource).toContain('../../offscreen/bootstrap.js');
-    expect(rootSource).toContain('./offscreen/bootstrap.js');
+    expect(entrypointSource).toContain("startOffscreen();");
+    expect(existsSync(resolve(REPO_ROOT, "src", "offscreen.ts"))).toBe(false);
     expect(bootstrapSource).toContain("export function startOffscreen");
     expect(bootstrapSource).toContain("browser.runtime.onMessage.addListener");
   });

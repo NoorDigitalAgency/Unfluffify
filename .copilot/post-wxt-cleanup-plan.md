@@ -34,12 +34,11 @@ WXT does not provide the required functionality.
 - `tests/storage-access-boundary.test.js` has an empty storage migration-debt
   bucket; storage access is already routed through approved storage/domain
   modules.
-- `src/background.ts` still self-starts with `startBackground();` while
-  `src/entrypoints/background.ts` also calls `startBackground()` through WXT.
-  The duplicate path is idempotent via `backgroundStarted`, but it is still a
-  redundant bootstrap surface.
-- `src/offscreen.ts` self-starts with `startOffscreen();` while
-  `src/entrypoints/offscreen/main.ts` also starts the offscreen bootstrap.
+- `src/entrypoints/background.ts` is now the sole bootstrap owner for
+  `startBackground()`, while `src/background.ts` keeps the idempotent
+  `backgroundStarted` guard for safe re-entry.
+- `src/offscreen.ts` is removed; `src/entrypoints/offscreen/main.ts` now owns
+  offscreen startup directly through `src/offscreen/bootstrap.ts`.
 - `src/entrypoints/content-loader.content.ts` intentionally preserves the
   `activateContentMain` lazy activation handshake that background bootstrap
   still depends on.
@@ -190,41 +189,36 @@ with a historical warning or update the active reference to this plan.
 
 ### Phase 2 - Normalize WXT bootstrap ownership
 
-**Files to edit**
+**Status:** completed 2026-06-25.
 
-- `src/entrypoints/background.ts`
+**Files edited/deleted**
+
 - `src/background.ts`
 - `tests/c2-background-entrypoint.test.ts`
-- `src/entrypoints/offscreen/main.ts`
-- `src/offscreen.ts`
-- `src/offscreen/bootstrap.ts`
+- `src/offscreen.ts` (deleted)
 - `tests/c1-offscreen-entrypoint.test.ts`
-- `src/entrypoints/popup/main.ts`
-- `src/popup.ts`
-- `tests/c3-popup-entrypoint.test.ts`
 
-**Steps**
+**Completed work**
 
 1. Background:
-   - Remove the bottom-level `startBackground();` from `src/background.ts`.
-   - Keep `export function startBackground(): void`.
-   - Keep the `backgroundStarted` guard.
-   - Update `tests/c2-background-entrypoint.test.ts` to assert that WXT
+   - Removed the bottom-level `startBackground();` from `src/background.ts`.
+   - Kept `export function startBackground(): void`.
+   - Kept the `backgroundStarted` guard.
+   - Updated `tests/c2-background-entrypoint.test.ts` to assert that WXT
      entrypoint startup owns background boot and that `src/background.ts` does
      not self-start.
 2. Offscreen:
-   - Delete `src/offscreen.ts` if no current entrypoint imports it; otherwise
-     convert it to export-only compatibility with no self-start side effect.
-   - Keep `src/offscreen/bootstrap.ts:startOffscreen()` idempotent.
-   - Update `tests/c1-offscreen-entrypoint.test.ts`.
+   - Deleted `src/offscreen.ts` because no current entrypoint imported it.
+   - Kept `src/offscreen/bootstrap.ts:startOffscreen()` idempotent.
+   - Updated `tests/c1-offscreen-entrypoint.test.ts` to assert entrypoint-owned
+     startup and the absence of the old shim.
 3. Popup:
-   - Keep `src/entrypoints/popup/main.ts` as a side-effect import of
+   - Kept `src/entrypoints/popup/main.ts` as a side-effect import of
      `../../popup.js` unless a separate exported `startPopup()` refactor is
      proven safe.
-   - Do not change popup bootstrap in this phase unless the implementer also
-     updates focused popup startup tests.
+   - Left popup bootstrap unchanged.
 4. Content:
-   - Keep `activateContentMain` unchanged.
+   - Kept `activateContentMain` unchanged.
 
 **Expected intermediate state**
 

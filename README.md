@@ -141,7 +141,8 @@ pnpm exec vitest run tests/core-visibility.test.js tests/core-motion-pause.test.
 - **`src/background.ts`** - Service worker bootstrap and command wiring
 - **`src/popup.ts`** - Main popup runtime bootstrap
 - **`src/content-main.ts`** - Main content runtime that runs on web pages
-- **`src/offscreen.ts`** - Offscreen runtime bootstrap
+- **`src/offscreen/bootstrap.ts`** - Offscreen runtime bootstrap owned by the
+  WXT offscreen entrypoint
 
 ### Shared Runtime Modules
 

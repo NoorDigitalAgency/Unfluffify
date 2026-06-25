@@ -3752,5 +3752,3 @@ chrome.action.onClicked.addListener((tab) => {
 sweepStaleTransferPayloads().then();
 updateRenderModeNoJsInactivityWatches().catch(() => {});
 }
-
-startBackground();

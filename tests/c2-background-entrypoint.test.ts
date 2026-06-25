@@ -17,6 +17,6 @@ describe("C2 background entrypoint", () => {
     expect(entrypointSource).not.toContain("defineBackground(() => {});");
     expect(backgroundSource).toContain("export function startBackground(): void {");
     expect(backgroundSource).toContain("if (backgroundStarted) {");
-    expect(backgroundSource).toContain("startBackground();");
+    expect(backgroundSource).not.toContain("\nstartBackground();");
   });
 });

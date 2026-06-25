@@ -35,7 +35,6 @@ export default tseslint.config(
     files: [
       "src/background.ts",
       "src/content-main.ts",
-      "src/offscreen.ts",
       "src/popup.ts",
       "src/background/**/*.ts",
       "src/common/**/*.ts",
