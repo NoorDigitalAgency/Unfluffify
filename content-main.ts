@@ -7270,7 +7270,7 @@ export function main() {
   state.initialized = true;
   registerContentCommandHandlersOnce();
   subscribePageActivity(sendPropertyLockActivity);
-  startContentBusClient();
+  startContentBusClient({ dispatchContentCommandMessage });
 
   initializePageWorldRelay().catch(() => {
     // Best-effort initialization. Core operations keep a background relay

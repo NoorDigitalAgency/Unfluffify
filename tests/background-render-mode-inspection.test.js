@@ -17,18 +17,24 @@ test("background registers render-mode inspection commands as tab-scoped", () =>
   assert.match(backgroundSource, /TAB_SCOPED_BACKGROUND_COMMANDS = new Set\(\[[\s\S]*?BACKGROUND_COMMANDS\.TAB_RUN_RENDER_MODE_INSPECTION/);
 });
 
-test("popup render mode inspection delegates to TAB_RUN_RENDER_MODE_INSPECTION", () => {
+test("popup render mode inspection delegates to the popup render-mode bus layer", () => {
   const block = popupSource.match(
     /async function runRenderModeInspectionReload\(javaScriptDisabled\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?(?:\n|\r\n)*async function normalizeRenderModeDebuggerPage/
   )[1];
 
-  assert.match(block, /messages\.requestTabRunRenderModeInspection\(tabId, \{/);
+  assert.match(block, /requestPopupRenderModeInspection\(tabId, \{/);
   assert.match(block, /baseUrl: state\.currentBaseUrl/);
   assert.match(block, /javaScriptDisabled/);
   assert.doesNotMatch(block, /type: "renderModeInspectionBegin"/);
   assert.doesNotMatch(block, /type: "runRenderModeRevealOnce"/);
   assert.doesNotMatch(block, /type: "captureRenderModeInspectionHtml"/);
   assert.doesNotMatch(block, /type: "renderModeInspectionEnd"/);
+  assert.doesNotMatch(block, /messages\.requestTabRunRenderModeInspection/);
+});
+
+test("background registers render-mode bus handlers that bridge to the legacy tab commands", () => {
+  assert.match(backgroundSource, /brain\.bus\.registerHandler\(RENDER_MODE_REQUEST_TYPES\.RUN_INSPECTION,[\s\S]*?BACKGROUND_COMMANDS\.TAB_RUN_RENDER_MODE_INSPECTION/);
+  assert.match(backgroundSource, /brain\.bus\.registerHandler\(RENDER_MODE_REQUEST_TYPES\.END_INSPECTION,[\s\S]*?BACKGROUND_COMMANDS\.TAB_END_RENDER_MODE_INSPECTION/);
 });
 
 test("popup render mode inspection uses long timeout and fail-open end cleanup", () => {

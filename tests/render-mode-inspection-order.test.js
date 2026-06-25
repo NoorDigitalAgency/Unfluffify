@@ -25,7 +25,7 @@ test("render mode reload delegates inspection orchestration to background", () =
   );
 
   assert.match(block, /const operationId = `render-mode-inspection:\$\{tabId\}:\$\{Date\.now\(\)\}`;/);
-  assert.match(block, /messages\.requestTabRunRenderModeInspection\(tabId, \{[\s\S]*?baseUrl: state\.currentBaseUrl,[\s\S]*?javaScriptDisabled,[\s\S]*?operationId/);
+  assert.match(block, /requestPopupRenderModeInspection\(tabId, \{[\s\S]*?baseUrl: state\.currentBaseUrl,[\s\S]*?javaScriptDisabled,[\s\S]*?operationId/);
   assert.match(block, /const outcome = resolveRenderModeInspectionReloadOutcome\(reloadResult, loadStarted, javaScriptDisabled\);/);
   assert.match(block, /if \(followUpCompleted\) \{[\s\S]*?rememberRenderModeInspectionSnapshot\([\s\S]*?await reconcilePropertyLockAfterRenderModeReload\(\);/);
   assert.doesNotMatch(block, /completeRenderModeInspectionReloadFollowUp\(/);

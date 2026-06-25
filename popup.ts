@@ -112,6 +112,10 @@ import {
   startPopupBusClient
 } from "./popup/layers/popup-bus-client.js";
 import {
+  requestPopupRenderModeInspection,
+  requestPopupRenderModeInspectionEnd,
+} from "./popup/layers/modes/render-mode-inspection.js";
+import {
   clearPopupSpinnerSurface,
   getLatestPopupSpinnerState,
   renderPopupSpinnerSurface
@@ -5801,24 +5805,24 @@ async function runRenderModeInspectionReload(javaScriptDisabled) {
     await runWithSpinner(null, PopupText.overlay.preparingRenderModeInspection, async () => {
       state.renderModeInspectionActive = true;
       try {
-        const inspectionResponse = await messages.requestTabRunRenderModeInspection(tabId, {
+        const inspectionResponse = await requestPopupRenderModeInspection(tabId, {
           baseUrl: state.currentBaseUrl,
           javaScriptDisabled,
           operationId
         });
-// @ts-expect-error
-        const operationResult = inspectionResponse && inspectionResponse.ok && inspectionResponse.result
-// @ts-expect-error
+        const operationResult = inspectionResponse && inspectionResponse.ok && inspectionResponse.result &&
+            typeof inspectionResponse.result === "object"
           ? inspectionResponse.result
           : null;
-        const inspectionResult = operationResult && operationResult.result && typeof operationResult.result === "object"
-          ? operationResult.result
+        const inspectionResult = operationResult && typeof operationResult === "object"
+          ? operationResult
           : null;
         const inspectionFailureError = inspectionResult && typeof inspectionResult.followUpError === "string" && inspectionResult.followUpError
           ? inspectionResult.followUpError
-          : (operationResult && typeof operationResult.error === "string" && operationResult.error) ||
-// @ts-expect-error
-            (inspectionResponse && inspectionResponse.error) || "";
+          : (inspectionResponse && typeof inspectionResponse === "object" && "error" in inspectionResponse &&
+              typeof inspectionResponse.error === "string"
+            ? inspectionResponse.error
+            : "");
         const reloadResult = inspectionResult && inspectionResult.reloadResult && typeof inspectionResult.reloadResult === "object"
           ? inspectionResult.reloadResult
           : {
@@ -6046,7 +6050,7 @@ async function handleRenderModeSet() {
       // silent-mode reveal/freeze can trigger immediately after Set.
       if (wasNoJsHeld) {
         await normalizeRenderModeDebuggerPage(tabId);
-        const endInspectionResult = await messages.requestTabEndRenderModeInspection(tabId, {
+        const endInspectionResult = await requestPopupRenderModeInspectionEnd(tabId, {
           operationId: `render-mode-set-exit:${tabId}:${Date.now()}`
         });
         if (!endInspectionResult || !endInspectionResult.ok) {

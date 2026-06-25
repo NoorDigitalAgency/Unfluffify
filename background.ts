@@ -47,7 +47,6 @@ import {
   type SpinnerSetRequestPayload
 } from "./common/bus/contracts/spinner.js";
 import type { PopupLifecycleState } from "./common/bus/contracts/popup-state.js";
-import type { RenderModeSnapshotPayload } from "./common/bus/contracts/render-mode.js";
 import * as constants from "./common/constants.js";
 import {
   normalizeSiteIdValue
@@ -93,9 +92,19 @@ import {
   MESSAGE_ERROR_CODES,
   MESSAGE_SOURCES,
   MESSAGE_TARGETS,
+  createRequestEnvelope,
   createFailureEnvelope,
+  isReplyEnvelope,
   isRequestEnvelope
 } from "./common/message-protocol.js";
+import type {
+  RenderModeSnapshotPayload,
+  RenderModeEndInspectionPayload,
+  RenderModeEndInspectionReply,
+  RenderModeRunInspectionPayload,
+  RenderModeRunInspectionReply,
+} from "./common/bus/contracts/render-mode.js";
+import { RENDER_MODE_REQUEST_TYPES } from "./common/bus/contracts/render-mode.js";
 import {
   consumeTransferPayload,
   getTransferPayload,
@@ -2430,6 +2439,56 @@ brain.bus.registerHandler(SPINNER_REQUEST_TYPES.CLEAR, (payload: SpinnerClearReq
     transientOnly: Boolean(payload.transientOnly)
   });
   return brain.getPopupView(meta.tab);
+});
+
+async function dispatchPopupTabCommandFromBus<TPayload extends Record<string, unknown>, TReply extends Record<string, unknown>>(
+  type: string,
+  payload: TPayload,
+  meta: { tab?: number | null },
+  missingTabMessage: string,
+): Promise<TReply> {
+  if (!meta.tab) {
+    throw new Error(missingTabMessage);
+  }
+  const reply = await dispatchBackgroundCommand(
+    createRequestEnvelope(type, payload, {
+      source: MESSAGE_SOURCES.POPUP,
+      target: MESSAGE_TARGETS.BACKGROUND,
+      tabId: meta.tab,
+    }),
+    {} as Parameters<typeof dispatchBackgroundCommand>[1],
+  );
+  if (!isReplyEnvelope(reply)) {
+    throw new Error(`Invalid background command reply for ${type}`);
+  }
+  if (!reply.ok) {
+    const error = new Error(reply.error || `Unable to execute ${type}`) as Error & {
+      code?: string;
+      details?: { reply: unknown };
+    };
+    error.code = reply.code;
+    error.details = { reply };
+    throw error;
+  }
+  return (reply.result && typeof reply.result === "object" ? reply.result : {}) as TReply;
+}
+
+brain.bus.registerHandler(RENDER_MODE_REQUEST_TYPES.RUN_INSPECTION, (payload: RenderModeRunInspectionPayload, meta) => {
+  return dispatchPopupTabCommandFromBus<RenderModeRunInspectionPayload, RenderModeRunInspectionReply>(
+    BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION,
+    payload,
+    meta,
+    "renderMode.runInspection requires a tab id",
+  );
+});
+
+brain.bus.registerHandler(RENDER_MODE_REQUEST_TYPES.END_INSPECTION, (payload: RenderModeEndInspectionPayload, meta) => {
+  return dispatchPopupTabCommandFromBus<RenderModeEndInspectionPayload, RenderModeEndInspectionReply>(
+    BACKGROUND_COMMANDS.TAB_END_RENDER_MODE_INSPECTION,
+    payload,
+    meta,
+    "renderMode.endInspection requires a tab id",
+  );
 });
 
 const tabOperationRunner = createTabOperationRunner({

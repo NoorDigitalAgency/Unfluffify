@@ -199,8 +199,8 @@ test("popup render mode inspection surfaces follow-up errors before reload", () 
 
   assert.match(inspectionBlock, /const inspectionFailureError = inspectionResult && typeof inspectionResult\.followUpError === "string"/);
   assert.match(inspectionBlock, /const operationResult = inspectionResponse && inspectionResponse\.ok && inspectionResponse\.result/);
-  assert.match(inspectionBlock, /const inspectionResult = operationResult && operationResult\.result && typeof operationResult\.result === "object"/);
-  assert.match(inspectionBlock, /operationResult && typeof operationResult\.error === "string" && operationResult\.error/);
+  assert.match(inspectionBlock, /const inspectionResult = operationResult && typeof operationResult === "object"/);
+  assert.match(inspectionBlock, /inspectionResponse && typeof inspectionResponse === "object" && "error" in inspectionResponse/);
   assert.match(inspectionBlock, /error: inspectionFailureError \|\| PopupText\.renderMode\.toastInspectReloadFailed/);
 });
 
@@ -227,7 +227,7 @@ test("render mode inspection reload waits for the full explicit inspection follo
 
   assert.match(
     inspectionBlock,
-    /messages\.requestTabRunRenderModeInspection\(tabId, \{[\s\S]*?baseUrl: state\.currentBaseUrl,[\s\S]*?javaScriptDisabled,[\s\S]*?operationId/
+    /requestPopupRenderModeInspection\(tabId, \{[\s\S]*?baseUrl: state\.currentBaseUrl,[\s\S]*?javaScriptDisabled,[\s\S]*?operationId/
   );
   assert.match(
     inspectionBlock,
@@ -306,7 +306,7 @@ test("render mode set always normalizes page execution state after persisting th
   );
   assert.match(
     setBlock,
-    /await messages\.requestTabEndRenderModeInspection\(tabId,\s*\{[\s\S]*?operationId:\s*`render-mode-set-exit:\$\{tabId\}:\$\{Date\.now\(\)\}`/
+    /await requestPopupRenderModeInspectionEnd\(tabId,\s*\{[\s\S]*?operationId:\s*`render-mode-set-exit:\$\{tabId\}:\$\{Date\.now\(\)\}`/
   );
   assert.match(
     setBlock,

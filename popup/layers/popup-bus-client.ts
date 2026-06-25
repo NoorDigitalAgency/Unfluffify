@@ -3,12 +3,19 @@ import {
   DIAGNOSTIC_REQUEST_TYPES,
   type DiagnosticPingPayload,
   type DiagnosticPingReply,
+  RENDER_MODE_REQUEST_TYPES,
 } from "../../common/bus/contracts/index.js";
 import {
   POPUP_STATE_REQUEST_TYPES,
   type PopupStateGetPayload,
   type PopupStateGetReply,
 } from "../../common/bus/contracts/popup-state.js";
+import type {
+  RenderModeEndInspectionPayload,
+  RenderModeEndInspectionReply,
+  RenderModeRunInspectionPayload,
+  RenderModeRunInspectionReply,
+} from "../../common/bus/contracts/render-mode.js";
 import {
   SPINNER_REQUEST_TYPES,
   type SpinnerClearRequestPayload,
@@ -127,6 +134,47 @@ export function requestPopupSpinnerClear(
   payload: SpinnerClearRequestPayload,
 ): Promise<SpinnerMutationReply | null> {
   return requestPopupSpinnerMutation(SPINNER_REQUEST_TYPES.CLEAR, tabId, payload);
+}
+
+async function requestPopupRenderMode<Payload, Reply>(
+  type: string,
+  tabId: number,
+  payload: Payload,
+  timeoutMs: number,
+): Promise<Reply> {
+  if (!tabId || !popupBus) {
+    throw new Error("Popup bus unavailable");
+  }
+  return await popupBus.request<Payload, Reply>(
+    type,
+    payload,
+    { target: REALMS.BACKGROUND, tab: tabId, timeoutMs },
+  );
+}
+
+export function requestPopupRenderModeRun(
+  tabId: number,
+  payload: RenderModeRunInspectionPayload,
+): Promise<RenderModeRunInspectionReply> {
+  return requestPopupRenderMode(
+    RENDER_MODE_REQUEST_TYPES.RUN_INSPECTION,
+    tabId,
+    payload,
+    120000,
+  );
+}
+
+export function requestPopupRenderModeEnd(
+  tabId: number,
+  payload: RenderModeEndInspectionPayload,
+  timeoutMs = 15000,
+): Promise<RenderModeEndInspectionReply> {
+  return requestPopupRenderMode(
+    RENDER_MODE_REQUEST_TYPES.END_INSPECTION,
+    tabId,
+    payload,
+    timeoutMs,
+  );
 }
 
 export function startPopupBusClient(tabId: number, options: PopupBusClientOptions = {}): Bus {

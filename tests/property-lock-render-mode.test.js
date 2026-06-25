@@ -53,7 +53,7 @@ test("popup suppresses the disconnect countdown while render-mode inspection is 
   assert.ok(inspectionStatusIndex > -1);
   assert.ok(countdownIndex > inspectionStatusIndex);
   assert.match(viewBlock, /propertyLockText\.popupInspectionReconnecting/);
-  assert.match(reloadBlock, /state\.renderModeInspectionActive = true;[\s\S]*?requestTabRunRenderModeInspection\(/);
+  assert.match(reloadBlock, /state\.renderModeInspectionActive = true;[\s\S]*?requestPopupRenderModeInspection\(/);
   assert.match(reloadBlock, /finally \{[\s\S]*?state\.renderModeInspectionActive = false;[\s\S]*?buildPropertyLockViewState\(\)/);
 });
 
