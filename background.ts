@@ -2147,9 +2147,6 @@ const popupStateBroker = createPopupStateBroker({
   updateRuntime: updateTabRuntime,
   syncPopupView(tabId: number, state: PopupBrokerState, reason: string) {
     brain.mirrorPopupState(tabId, state, reason);
-    if (state.lifecycle) {
-      brain.mirrorActivationLifecycle(tabId, state.lifecycle, `${reason}:activation`);
-    }
     brain.mirrorLegacySpinnerQueue(tabId, state.spinnerQueue, `${reason}:spinners`);
   }
 });
@@ -2172,9 +2169,6 @@ for (const tabId of [...tabLifecycleStateByTabId.keys(), ...tabSpinnerQueueByTab
   popupStateSeedTabIds.add(normalizedTabId);
   const brokerState = buildBrokerState(normalizedTabId);
   brain.mirrorPopupState(normalizedTabId, brokerState, "popup-state-broker:seed");
-  if (brokerState.lifecycle) {
-    brain.mirrorActivationLifecycle(normalizedTabId, brokerState.lifecycle, "popup-state-broker:seed:activation");
-  }
   brain.mirrorLegacySpinnerQueue(normalizedTabId, brokerState.spinnerQueue, "popup-state-broker:seed:spinners");
 }
 

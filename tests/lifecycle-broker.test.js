@@ -75,11 +75,19 @@ test("background exposes lifecycle and spinner state over broker updates and bus
   assert.doesNotMatch(backgroundSource, /WORLD_MESSAGE_TYPES\.BACKGROUND_STATE/);
   assert.match(
     backgroundSource,
-    /syncPopupView\(tabId: number, state: PopupBrokerState, reason: string\) \{[\s\S]*?brain\.mirrorPopupState\(tabId, state, reason\);[\s\S]*?if \(state\.lifecycle\) \{[\s\S]*?brain\.mirrorActivationLifecycle\(tabId, state\.lifecycle, `\$\{reason\}:activation`\);[\s\S]*?\}[\s\S]*?brain\.mirrorLegacySpinnerQueue\(tabId, state\.spinnerQueue, `\$\{reason\}:spinners`\);[\s\S]*?\}/
+    /syncPopupView\(tabId: number, state: PopupBrokerState, reason: string\) \{[\s\S]*?brain\.mirrorPopupState\(tabId, state, reason\);[\s\S]*?brain\.mirrorLegacySpinnerQueue\(tabId, state\.spinnerQueue, `\$\{reason\}:spinners`\);[\s\S]*?\}/
+  );
+  assert.doesNotMatch(
+    backgroundSource,
+    /syncPopupView\(tabId: number, state: PopupBrokerState, reason: string\) \{[\s\S]*?brain\.mirrorActivationLifecycle\(tabId, state\.lifecycle, `\$\{reason\}:activation`\);/
   );
   assert.match(
     backgroundSource,
-    /const brokerState = buildBrokerState\(normalizedTabId\);[\s\S]*?brain\.mirrorPopupState\(normalizedTabId, brokerState, "popup-state-broker:seed"\);[\s\S]*?if \(brokerState\.lifecycle\) \{[\s\S]*?brain\.mirrorActivationLifecycle\(normalizedTabId, brokerState\.lifecycle, "popup-state-broker:seed:activation"\);[\s\S]*?\}[\s\S]*?brain\.mirrorLegacySpinnerQueue\(normalizedTabId, brokerState\.spinnerQueue, "popup-state-broker:seed:spinners"\);/
+    /const brokerState = buildBrokerState\(normalizedTabId\);[\s\S]*?brain\.mirrorPopupState\(normalizedTabId, brokerState, "popup-state-broker:seed"\);[\s\S]*?brain\.mirrorLegacySpinnerQueue\(normalizedTabId, brokerState\.spinnerQueue, "popup-state-broker:seed:spinners"\);/
+  );
+  assert.doesNotMatch(
+    backgroundSource,
+    /const brokerState = buildBrokerState\(normalizedTabId\);[\s\S]*?brain\.mirrorActivationLifecycle\(normalizedTabId, brokerState\.lifecycle, "popup-state-broker:seed:activation"\);/
   );
   assert.match(backgroundSource, /if \(message\.type === WORLD_MESSAGE_TYPES\.LIFECYCLE_EVENT\) \{/);
   assert.match(backgroundSource, /if \(normalizedTabId && isActivationLifecycleKind\(eventKind\)\) \{/);

@@ -57,8 +57,11 @@ into the Brain so popup/content no longer decide or bootstrap the navigation
     runtime lifecycle snapshots and stale-terminal protection without persisting
     popup broker lifecycle authority; popup lifecycle falls back to Brain
     activation state unless an unrelated lifecycle is still actively busy
+  - broker sync/seed paths no longer redundantly mirror broker lifecycle state
+    back into the activation decider; activation authority now enters Brain only
+    through the dedicated activation/world-event paths
 - next slice:
-  - delete the remaining direct legacy lifecycle authority and close Track 3
+  - run the required live browser validation and close Track 3
 inspection curtain locally. User-visible behavior must stay unchanged: content
 activation retries, reload/devtools reinjection restore, lifecycle-driven
 curtain teardown, content-ready reporting, and the render-mode/marking curtain
