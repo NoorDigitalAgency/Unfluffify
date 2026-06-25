@@ -1,4 +1,5 @@
 import type { ActivationSnapshot } from "../../common/bus/contracts/activation.js";
+import { LIFECYCLE_KINDS } from "../../common/world-messaging-contract.js";
 import type { PopupViewEnvelope } from "../../common/bus/contracts/popup-state.js";
 import type { TabLayerState } from "./state-store.js";
 
@@ -32,6 +33,36 @@ function cloneActivationSnapshot(value: TabLayerState["activation"]): Activation
   };
 }
 
+function cloneProjectedPopupLifecycle(state: TabLayerState): PopupViewEnvelope["lifecycle"] {
+  const activationLifecycle = state.activation?.lastLifecycle;
+  const popupLifecycle = state.popupView.lifecycle;
+  const activationLifecycleProjectable = Boolean(
+    activationLifecycle &&
+      (activationLifecycle.kind === LIFECYCLE_KINDS.ACTIVATION ||
+        activationLifecycle.kind === LIFECYCLE_KINDS.CONTENT_READY)
+  );
+  if (popupLifecycle) {
+    return { ...popupLifecycle };
+  }
+
+  if (activationLifecycleProjectable) {
+    return {
+      operationId: activationLifecycle?.operationId,
+      kind: activationLifecycle?.kind,
+      phase: activationLifecycle?.phase,
+      message: activationLifecycle?.message,
+      reason: activationLifecycle?.reason,
+      source: activationLifecycle?.source,
+      busy: activationLifecycle?.busy,
+      contentMode: activationLifecycle?.contentMode,
+      markingEnabled: activationLifecycle?.markingEnabled,
+      pageUrl: activationLifecycle?.pageUrl,
+    };
+  }
+
+  return null;
+}
+
 export function projectViews(state: TabLayerState): {
   popupView: PopupView;
   contentDirective: ContentDirective;
@@ -46,7 +77,7 @@ export function projectViews(state: TabLayerState): {
         ...event,
         payload: event.payload ? { ...event.payload } : null,
       })),
-      lifecycle: state.popupView.lifecycle ? { ...state.popupView.lifecycle } : null,
+      lifecycle: cloneProjectedPopupLifecycle(state),
       activation,
       legacySpinnerQueue: state.popupView.legacySpinnerQueue.map((entry) => {
         const clone = { ...entry };

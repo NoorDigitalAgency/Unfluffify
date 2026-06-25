@@ -96,9 +96,10 @@ test("background restore activation starts an operation and passes its id to con
   );
 
   assert.match(block, /const operationId = `activation:\$\{tabId\}:\$\{Date\.now\(\)\}:\$\{attempt\}`;/);
-  assert.match(block, /updateLifecycleState\(tabId, \{[\s\S]*?kind: LIFECYCLE_KINDS\.ACTIVATION[\s\S]*?phase: LIFECYCLE_PHASES\.STARTED[\s\S]*?busy: true/);
+  assert.match(block, /brain\.mirrorActivationLifecycle\(tabId, \{[\s\S]*?kind: LIFECYCLE_KINDS\.ACTIVATION[\s\S]*?phase: LIFECYCLE_PHASES\.STARTED[\s\S]*?busy: true/);
   assert.match(block, /operationId/);
-  assert.match(block, /phase: LIFECYCLE_PHASES\.FAILED[\s\S]*?busy: false/);
+  assert.match(block, /phase: LIFECYCLE_PHASES\.FAILED[\s\S]*?busy: false[\s\S]*?"background:restore-enabled-state:lifecycle-failed"/);
+  assert.match(block, /removeBackgroundSpinnerEntry\(tabId, "navInspect"\);/);
   assert.match(block, /runBackgroundTask\([\s\S]*?clearReloadRestoreTabStateAfterActivation\(tabId, tabState\)/);
 });
 

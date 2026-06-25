@@ -979,13 +979,13 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_ACTIVATE_MARKING, async (conte
         );
       }
 
-      updateLifecycleState(normalizedTabId, {
+      brain.mirrorActivationLifecycle(normalizedTabId, {
         operationId,
         kind: LIFECYCLE_KINDS.ACTIVATION,
         phase: LIFECYCLE_PHASES.STARTED,
         busy: true,
         message: "Preparing page content for marking..."
-      });
+      }, "background:tab-activate-marking:lifecycle-started");
 
       const enableResponse = await sendContentMessageToTab(normalizedTabId, {
         type: "setEnabled",
@@ -1005,13 +1005,13 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_ACTIVATE_MARKING, async (conte
         updateTabRuntime(normalizedTabId, {
           mode: "silent"
         });
-        updateLifecycleState(normalizedTabId, {
+        brain.mirrorActivationLifecycle(normalizedTabId, {
           operationId,
           kind: LIFECYCLE_KINDS.ACTIVATION,
           phase: LIFECYCLE_PHASES.FAILED,
           busy: false,
           message: ""
-        });
+        }, "background:tab-activate-marking:lifecycle-failed");
         if (enableResponse && enableResponse.locked) {
           return context.replyFail(
             MESSAGE_ERROR_CODES.FEATURE_DISABLED,
@@ -1039,13 +1039,13 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_ACTIVATE_MARKING, async (conte
         mode: "marking"
       });
 
-      updateLifecycleState(normalizedTabId, {
+      brain.mirrorActivationLifecycle(normalizedTabId, {
         operationId,
         kind: LIFECYCLE_KINDS.ACTIVATION,
         phase: LIFECYCLE_PHASES.FINISHED,
         busy: false,
         message: ""
-      });
+      }, "background:tab-activate-marking:lifecycle-finished");
 
       return {
         ok: true,
@@ -3346,13 +3346,13 @@ function restoreEnabledStateForTab(tabId, tabState, attempt = 0) {
     return;
   }
   const operationId = `activation:${tabId}:${Date.now()}:${attempt}`;
-  updateLifecycleState(tabId, {
+  brain.mirrorActivationLifecycle(tabId, {
     operationId,
     kind: LIFECYCLE_KINDS.ACTIVATION,
     phase: LIFECYCLE_PHASES.STARTED,
     busy: true,
     message: "Preparing page content for marking..."
-  });
+  }, "background:restore-enabled-state:lifecycle-started");
   chrome.tabs.sendMessage(
     tabId,
     {
@@ -3369,13 +3369,14 @@ function restoreEnabledStateForTab(tabId, tabState, attempt = 0) {
         if (attempt < 4 && !(response && response.locked)) {
           setTimeout(() => restoreEnabledStateForTab(tabId, tabState, attempt + 1), 200);
         } else {
-          updateLifecycleState(tabId, {
+          brain.mirrorActivationLifecycle(tabId, {
             operationId,
             kind: LIFECYCLE_KINDS.ACTIVATION,
             phase: LIFECYCLE_PHASES.FAILED,
             busy: false,
             message: ""
-          });
+          }, "background:restore-enabled-state:lifecycle-failed");
+          removeBackgroundSpinnerEntry(tabId, "navInspect");
         }
         return;
       }

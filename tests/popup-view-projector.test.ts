@@ -321,4 +321,55 @@ describe("popup view projector", () => {
     });
     expect(projected.legacySpinnerQueue[0].blockSurfaces).toEqual({ popup: true });
   });
+
+  it("projects activation lifecycle into the popup lifecycle view for activation-owned states", () => {
+    const state: TabLayerState = {
+      tabId: 91,
+      version: 7,
+      popupView: {
+        traceEnabled: false,
+        traceEvents: [],
+        lifecycle: null,
+        legacySpinnerQueue: [],
+        legacyActiveSpinnerLease: null,
+      },
+      activation: {
+        contentReady: false,
+        bootstrapStatus: "bootstrapping",
+        restorePending: true,
+        lastError: "",
+        lastLifecycle: {
+          kind: "activation",
+          phase: "started",
+          message: "Preparing page content for marking...",
+          busy: true,
+          operationId: "activation:91:1",
+          reason: "activation-started",
+          source: "background",
+          contentMode: "marking",
+          markingEnabled: true,
+          pageUrl: "https://example.com/property",
+        },
+        lastContentPageUrl: "https://example.com/property",
+      },
+      spinners: {
+        popup: null,
+        pageCurtain: null,
+        banner: null,
+      },
+    };
+
+    expect(projectViews(state).popupView.lifecycle).toEqual({
+      operationId: "activation:91:1",
+      kind: "activation",
+      phase: "started",
+      message: "Preparing page content for marking...",
+      reason: "activation-started",
+      source: "background",
+      busy: true,
+      contentMode: "marking",
+      markingEnabled: true,
+      pageUrl: "https://example.com/property",
+    });
+  });
 });

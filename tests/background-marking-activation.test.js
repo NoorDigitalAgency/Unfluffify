@@ -35,6 +35,7 @@ test("background TAB_ACTIVATE_MARKING routes content activation by requested tab
   )[1];
 
   assert.match(commandBody, /ensureContentMainForTab\(normalizedTabId\)/);
+  assert.match(commandBody, /brain\.mirrorActivationLifecycle\(normalizedTabId, \{[\s\S]*?phase: LIFECYCLE_PHASES\.STARTED[\s\S]*?\}, "background:tab-activate-marking:lifecycle-started"\);/);
   assert.match(commandBody, /sendContentMessageToTab\(normalizedTabId, \{/);
   assert.match(commandBody, /await utils\.setTabState\(normalizedTabId, \{[\s\S]*?enabled: true/);
   assert.ok(
@@ -51,6 +52,7 @@ test("background TAB_ACTIVATE_MARKING clears state and reports lock details on c
   )[1];
 
   assert.match(commandBody, /await utils\.setTabState\(normalizedTabId, \{[\s\S]*?enabled: false/);
+  assert.match(commandBody, /brain\.mirrorActivationLifecycle\(normalizedTabId, \{[\s\S]*?phase: LIFECYCLE_PHASES\.FAILED[\s\S]*?\}, "background:tab-activate-marking:lifecycle-failed"\);/);
   assert.match(commandBody, /context\.replyFail\([\s\S]*?MESSAGE_ERROR_CODES\.FEATURE_DISABLED,[\s\S]*?locked: true/);
   assert.match(commandBody, /"Unable to prepare mobile simulation"/);
 });
