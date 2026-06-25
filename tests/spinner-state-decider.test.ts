@@ -28,6 +28,18 @@ function buildEntry(overrides: Partial<PopupLegacySpinnerEntry> = {}): PopupLega
   };
 }
 
+function buildExpectedSelection(overrides: Record<string, unknown> = {}) {
+  return {
+    startedAt: 10,
+    deadlineAt: 20,
+    message: "Working",
+    reason: "spinner:working",
+    source: "test",
+    spinnerKey: "spinner",
+    ...overrides,
+  };
+}
+
 describe("spinner state decider", () => {
   it("maps blocking legacy leases to popup and page-curtain selections", () => {
     const selections = deriveSpinnerSelectionsFromLegacyQueue([
@@ -40,20 +52,16 @@ describe("spinner state decider", () => {
     ]);
 
     expect(selections).toEqual({
-      popup: {
+      popup: buildExpectedSelection({
         kind: "content-bootstrap",
         phase: "page-inspection",
-        startedAt: 10,
-        deadlineAt: 20,
         operationId: "blocking-op",
-      },
-      pageCurtain: {
+      }),
+      pageCurtain: buildExpectedSelection({
         kind: "content-bootstrap",
         phase: "page-inspection",
-        startedAt: 10,
-        deadlineAt: 20,
         operationId: "blocking-op",
-      },
+      }),
       banner: null,
     });
   });
@@ -69,21 +77,17 @@ describe("spinner state decider", () => {
     ]);
 
     expect(selections).toEqual({
-      popup: {
+      popup: buildExpectedSelection({
         kind: "config-sync",
         phase: "saving",
-        startedAt: 10,
-        deadlineAt: 20,
         operationId: "banner-op",
-      },
+      }),
       pageCurtain: null,
-      banner: {
+      banner: buildExpectedSelection({
         kind: "config-sync",
         phase: "saving",
-        startedAt: 10,
-        deadlineAt: 20,
         operationId: "banner-op",
-      },
+      }),
     });
   });
 
@@ -113,27 +117,24 @@ describe("spinner state decider", () => {
     ]);
 
     expect(selections).toEqual({
-      popup: {
+      popup: buildExpectedSelection({
         kind: "ai-run",
         phase: "preparing-page",
-        startedAt: 10,
-        deadlineAt: 20,
         operationId: "popup-op",
-      },
-      pageCurtain: {
+        spinnerKey: "newer-popup",
+      }),
+      pageCurtain: buildExpectedSelection({
         kind: "content-bootstrap",
         phase: "page-inspection",
-        startedAt: 10,
-        deadlineAt: 20,
         operationId: "page-op",
-      },
-      banner: {
+        spinnerKey: "older-page",
+      }),
+      banner: buildExpectedSelection({
         kind: "config-sync",
         phase: "saving",
-        startedAt: 10,
-        deadlineAt: 20,
         operationId: "banner-op",
-      },
+        spinnerKey: "banner",
+      }),
     });
   });
 
@@ -156,18 +157,20 @@ describe("spinner state decider", () => {
     ]);
 
     expect(selections.popup).toEqual({
-      kind: "ai-run",
-      phase: "remote-wait",
-      startedAt: 10,
-      deadlineAt: 20,
-      operationId: "older-op",
+      ...buildExpectedSelection({
+        kind: "ai-run",
+        phase: "remote-wait",
+        operationId: "older-op",
+        spinnerKey: "older-projectable",
+      }),
     });
     expect(selections.pageCurtain).toEqual({
-      kind: "ai-run",
-      phase: "remote-wait",
-      startedAt: 10,
-      deadlineAt: 20,
-      operationId: "older-op",
+      ...buildExpectedSelection({
+        kind: "ai-run",
+        phase: "remote-wait",
+        operationId: "older-op",
+        spinnerKey: "older-projectable",
+      }),
     });
   });
 
@@ -196,21 +199,17 @@ describe("spinner state decider", () => {
     );
 
     expect(selections).toEqual({
-      popup: {
+      popup: buildExpectedSelection({
         kind: "ai-run",
         phase: "preparing-page",
-        startedAt: 10,
-        deadlineAt: 20,
         operationId: "popup-op",
-      },
+      }),
       pageCurtain: null,
-      banner: {
+      banner: buildExpectedSelection({
         kind: "config-sync",
         phase: "saving",
-        startedAt: 10,
-        deadlineAt: 20,
         operationId: "banner-op",
-      },
+      }),
     });
     expect(store.get(99)?.spinners).toEqual(selections);
   });

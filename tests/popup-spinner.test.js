@@ -27,6 +27,7 @@ function createDeps() {
   const staleClears = [];
   const pageBusySyncs = [];
   const uiBusySyncs = [];
+  const projectedSyncs = [];
   let visible = false;
   let timer = 0;
 
@@ -79,6 +80,9 @@ function createDeps() {
     },
     syncPageBusyFromPopupSpinner: () => {
       pageBusySyncs.push([...queue.keys()]);
+    },
+    syncProjectedSpinnerStateFromQueue: () => {
+      projectedSyncs.push([...queue.keys()]);
     }
   };
 
@@ -91,7 +95,8 @@ function createDeps() {
     cleared,
     staleClears,
     pageBusySyncs,
-    uiBusySyncs
+    uiBusySyncs,
+    projectedSyncs
   };
 }
 
@@ -104,7 +109,7 @@ test("popup spinner normalizes reason values", () => {
 });
 
 test("popup spinner push and pop maintain queue and broker sync", async () => {
-  const { deps, queue, removed, synced, cleared, staleClears } = createDeps();
+  const { deps, queue, removed, synced, cleared, staleClears, projectedSyncs } = createDeps();
 
   const key = pushSpinner(deps, "navInspect", "Inspecting page", { persistent: true });
   assert.equal(key, "navInspect");
@@ -112,6 +117,7 @@ test("popup spinner push and pop maintain queue and broker sync", async () => {
 
   await waitFor(0);
   assert.deepEqual(synced, ["navInspect"]);
+  assert.deepEqual(projectedSyncs[0], ["navInspect"]);
 
   popSpinner(deps, "navInspect");
   assert.equal(queue.has("navInspect"), false);
@@ -119,6 +125,7 @@ test("popup spinner push and pop maintain queue and broker sync", async () => {
   assert.deepEqual(removed, [{ key: "navInspect", tabId: 7 }]);
   assert.deepEqual(cleared, [7]);
   assert.deepEqual(staleClears, [7]);
+  assert.deepEqual(projectedSyncs.at(-1), []);
 });
 
 test("popup spinner watchdog arms and can be cleared", async () => {
@@ -137,16 +144,17 @@ test("popup spinner watchdog arms and can be cleared", async () => {
 });
 
 test("popup spinner runWithSpinner pops after task settles", async () => {
-  const { deps, queue } = createDeps();
+  const { deps, queue, projectedSyncs } = createDeps();
 
   // deno-lint-ignore require-await -- preserves existing promise/callback contract.
   const result = await runWithSpinner(deps, "task", "Running", async () => "ok");
   assert.equal(result, "ok");
   assert.equal(queue.has("task"), false);
+  assert.deepEqual(projectedSyncs.at(-1), []);
 });
 
 test("popup spinner updates resync active selection even when key is not queue tail", () => {
-  const { deps, queue, pageBusySyncs, uiBusySyncs } = createDeps();
+  const { deps, queue, pageBusySyncs, uiBusySyncs, projectedSyncs } = createDeps();
   deps.setPopupSpinnerVisible(true);
   queue.set("blocking", {
     blockSurfaces: { page: true, popup: true },
@@ -163,10 +171,11 @@ test("popup spinner updates resync active selection even when key is not queue t
 
   assert.equal(uiBusySyncs.length, 1);
   assert.equal(pageBusySyncs.length, 1);
+  assert.equal(projectedSyncs.length, 1);
 });
 
 test("popup spinner message updates resync active selection even when key is not queue tail", () => {
-  const { deps, queue, pageBusySyncs, uiBusySyncs } = createDeps();
+  const { deps, queue, pageBusySyncs, uiBusySyncs, projectedSyncs } = createDeps();
   deps.setPopupSpinnerVisible(true);
   queue.set("blocking", {
     blockSurfaces: { page: true, popup: true },
@@ -183,4 +192,5 @@ test("popup spinner message updates resync active selection even when key is not
 
   assert.equal(uiBusySyncs.length, 1);
   assert.equal(pageBusySyncs.length, 1);
+  assert.equal(projectedSyncs.length, 1);
 });

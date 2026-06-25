@@ -18,12 +18,16 @@ function publishSpinnerSurface(
   surface: SpinnerSurface,
   state: SpinnerState | null,
 ): void {
-  const target = surface === "popup" ? REALMS.POPUP : REALMS.CONTENT;
   const eventType = state ? SPINNER_EVENT_TYPES.SET : SPINNER_EVENT_TYPES.CLEAR;
   const payload = state
     ? { surface, state }
     : { surface };
-  void bus.publish(eventType, payload, { target, tab: tabId });
+  const targets = surface === "popup"
+    ? [REALMS.POPUP]
+    : [REALMS.CONTENT, REALMS.POPUP];
+  for (const target of targets) {
+    void bus.publish(eventType, payload, { target, tab: tabId });
+  }
 }
 
 function publishProjectedState(

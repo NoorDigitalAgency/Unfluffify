@@ -17,9 +17,13 @@ export type SpinnerViewState = Readonly<{
   deadlineAt: number;
   startedAt: number;
   blockSurfaces: SpinnerBlockSurfaces;
+  maxDurationMs: number;
   operationKind: string;
   operationPhase: string;
   operationId?: string;
+  reason?: string;
+  source?: string;
+  spinnerKey?: string;
 }>;
 
 export type SpinnerSetPayload = Readonly<{

@@ -97,7 +97,15 @@ import {
   logPopupReady
 } from "./popup/telemetry.js";
 import type { PopupStateGetReply } from "./common/bus/contracts/popup-state.js";
+import { deriveSpinnerSelectionsFromLegacyQueue } from "./background/brain/deciders/spinner-state-decider.js";
+import { phaseToSpinnerState } from "./background/brain/spinner-authority.js";
+import { createSpinnerOperationLease } from "./common/spinner-contract.js";
 import { requestPopupView, runPopupBusSelfTest, startPopupBusClient } from "./popup/layers/popup-bus-client.js";
+import {
+  clearPopupSpinnerSurface,
+  getLatestPopupSpinnerState,
+  renderPopupSpinnerSurface
+} from "./popup/layers/spinner-layer.js";
 import {
   armSpinnerWatchdog as armSpinnerWatchdogOperation,
   clearSpinnerWatchdog as clearSpinnerWatchdogOperation,
@@ -461,7 +469,8 @@ function getSpinnerDeps() {
     removeSpinnerEntryFromBackground,
     clearSpinnerQueueInBackground,
     scheduleStaleInspectionBusyClear,
-    syncPageBusyFromPopupSpinner
+    syncPageBusyFromPopupSpinner,
+    syncProjectedSpinnerStateFromQueue
   };
 }
 
@@ -712,16 +721,158 @@ function spinnerSnapshotBlocksSurface(snapshot, surface) {
 }
 
 // @ts-expect-error
-function getActiveSpinnerSnapshotForSurface(surface) {
-  const entries = [...popupSpinnerQueue.entries()];
-  for (let index = entries.length - 1; index >= 0; index -= 1) {
-    const [key, entry] = entries[index];
-    const snapshot = { key, entry };
-    if (spinnerSnapshotBlocksSurface(snapshot, surface)) {
-      return snapshot;
-    }
+function projectedSpinnerStateBlocksSurface(state, surface) {
+  if (!state || typeof state !== "object") {
+    return false;
   }
-  return null;
+  const blockSurfaces = state.blockSurfaces && typeof state.blockSurfaces === "object"
+    ? state.blockSurfaces
+    : null;
+  if (!blockSurfaces) {
+    return false;
+  }
+  return blockSurfaces[surface] === true;
+}
+
+// @ts-expect-error
+function projectedSpinnerStateToSnapshot(state) {
+  if (!state || typeof state !== "object") {
+    return null;
+  }
+  return {
+    key: typeof state.spinnerKey === "string" ? state.spinnerKey : "",
+    entry: {
+      blockSurfaces: state.blockSurfaces && typeof state.blockSurfaces === "object"
+        ? {
+          page: state.blockSurfaces.page === true,
+          popup: state.blockSurfaces.popup === true
+        }
+        : undefined,
+      deadlineAt: Number.isFinite(state.deadlineAt) ? Number(state.deadlineAt) : 0,
+      message: typeof state.message === "string" ? state.message : "",
+      maxDurationMs: Number.isFinite(state.maxDurationMs) ? Number(state.maxDurationMs) : 0,
+      operationId: typeof state.operationId === "string" ? state.operationId : "",
+      operationKind: typeof state.operationKind === "string" ? state.operationKind : "",
+      operationPhase: typeof state.operationPhase === "string" ? state.operationPhase : "",
+      reason: typeof state.reason === "string" ? state.reason : "",
+      source: typeof state.source === "string" ? state.source : "",
+      startedAt: Number.isFinite(state.startedAt) ? Number(state.startedAt) : 0,
+      timerMode: typeof state.timerMode === "string" ? state.timerMode : ""
+    }
+  };
+}
+
+function getProjectedPopupBlockingSpinnerState() {
+  const popupSpinnerState = getLatestPopupSpinnerState("popup");
+  return projectedSpinnerStateBlocksSurface(popupSpinnerState, "popup")
+    ? popupSpinnerState
+    : null;
+}
+
+function getActiveSpinnerSnapshotForSurface(surface: "popup" | "page") {
+  if (surface === "page") {
+    const pageCurtainSpinnerState = getLatestPopupSpinnerState("pageCurtain");
+    if (projectedSpinnerStateBlocksSurface(pageCurtainSpinnerState, "page")) {
+      return projectedSpinnerStateToSnapshot(pageCurtainSpinnerState);
+    }
+    return null;
+  }
+  return projectedSpinnerStateToSnapshot(getProjectedPopupBlockingSpinnerState());
+}
+
+function serializePopupSpinnerQueueForProjection() {
+  return [...popupSpinnerQueue.entries()].map(([key, entry]) => {
+    const reason = normalizeSpinnerReason(entry.reason, key, entry.message);
+    const startedAt = Number.isFinite(entry.startedAt) ? Number(entry.startedAt) : Date.now();
+    const normalizedLease = createSpinnerOperationLease({
+      blockSurfaces: entry.blockSurfaces && typeof entry.blockSurfaces === "object"
+        ? {
+          page: entry.blockSurfaces.page === true,
+          popup: entry.blockSurfaces.popup === true
+        }
+        : undefined,
+      deadlineAt: Number.isFinite(entry.deadlineAt) ? Number(entry.deadlineAt) : undefined,
+      kind: typeof entry.operationKind === "string" ? entry.operationKind : "",
+      maxDurationMs: Number.isFinite(entry.maxDurationMs) ? Number(entry.maxDurationMs) : undefined,
+      message: typeof entry.message === "string" ? entry.message : "",
+      operationId: typeof entry.operationId === "string" ? entry.operationId : "",
+      operationPhase: typeof entry.operationPhase === "string" ? entry.operationPhase : "",
+      reason,
+      spinnerKey: key,
+      startedAt,
+      timerMode: typeof entry.timerMode === "string" ? entry.timerMode : ""
+    });
+    return {
+      key,
+      message: typeof entry.message === "string" ? entry.message : "",
+      persistent: Boolean(entry.persistent),
+      owner: SPINNER_OWNERS.POPUP,
+      reason,
+      source: typeof entry.source === "string" && entry.source ? entry.source : "popup-spinner",
+      startedAt,
+      progress: 0,
+      operationId: normalizedLease?.operationId || (typeof entry.operationId === "string" ? entry.operationId : ""),
+      operationKind: normalizedLease?.kind || (typeof entry.operationKind === "string" ? entry.operationKind : ""),
+      operationPhase: normalizedLease?.phase || (typeof entry.operationPhase === "string" ? entry.operationPhase : ""),
+      timerMode: normalizedLease?.timerMode || (typeof entry.timerMode === "string" ? entry.timerMode : ""),
+      deadlineAt: normalizedLease?.deadlineAt || (Number.isFinite(entry.deadlineAt) ? Number(entry.deadlineAt) : 0),
+      maxDurationMs: normalizedLease?.maxDurationMs || (Number.isFinite(entry.maxDurationMs) ? Number(entry.maxDurationMs) : 0),
+      updatedAt: Number.isFinite(entry.updatedAt) ? Number(entry.updatedAt) : 0,
+      ...(normalizedLease
+        ? {
+          blockSurfaces: {
+            page: normalizedLease.blockSurfaces.page === true,
+            popup: normalizedLease.blockSurfaces.popup === true
+          }
+        }
+        : entry.blockSurfaces && typeof entry.blockSurfaces === "object"
+          ? {
+            blockSurfaces: {
+              page: entry.blockSurfaces.page === true,
+              popup: entry.blockSurfaces.popup === true
+            }
+          }
+          : {})
+    };
+  });
+}
+
+// @ts-expect-error
+function selectionToProjectedSpinnerState(selection) {
+  if (!selection || typeof selection !== "object") {
+    return null;
+  }
+  return phaseToSpinnerState(selection.kind, selection.phase, {
+    startedAt: Number.isFinite(selection.startedAt) ? Number(selection.startedAt) : 0,
+    deadlineAt: Number.isFinite(selection.deadlineAt) ? Number(selection.deadlineAt) : 0,
+    operationId: typeof selection.operationId === "string" ? selection.operationId : "",
+    message: typeof selection.message === "string" ? selection.message : "",
+    reason: typeof selection.reason === "string" ? selection.reason : "",
+    source: typeof selection.source === "string" ? selection.source : "",
+    spinnerKey: typeof selection.spinnerKey === "string" ? selection.spinnerKey : ""
+  });
+}
+
+function syncProjectedSpinnerStateFromQueue() {
+  const selections = deriveSpinnerSelectionsFromLegacyQueue(serializePopupSpinnerQueueForProjection());
+  const popupSpinnerState = selectionToProjectedSpinnerState(selections.popup);
+  const pageCurtainSpinnerState = selectionToProjectedSpinnerState(selections.pageCurtain);
+  const bannerSpinnerState = selectionToProjectedSpinnerState(selections.banner);
+  if (popupSpinnerState) {
+    renderPopupSpinnerSurface("popup", popupSpinnerState);
+  } else {
+    clearPopupSpinnerSurface("popup");
+  }
+  if (pageCurtainSpinnerState) {
+    renderPopupSpinnerSurface("pageCurtain", pageCurtainSpinnerState);
+  } else {
+    clearPopupSpinnerSurface("pageCurtain");
+  }
+  if (bannerSpinnerState) {
+    renderPopupSpinnerSurface("banner", bannerSpinnerState);
+  } else {
+    clearPopupSpinnerSurface("banner");
+  }
 }
 
 function setUiBusyFromCurrentSpinner() {
@@ -1024,6 +1175,7 @@ function applyBackgroundStateSnapshot(snapshot) {
       popupSpinnerKeyTabIds.set(entry.key, tabId);
     }
   });
+  syncProjectedSpinnerStateFromQueue();
   popupNavigationInspectionOverlayStarted = popupSpinnerQueue.has("navInspect");
   popupNavigationInspectionOverlayTabId = popupNavigationInspectionOverlayStarted ? tabId : null;
   syncUiBusyFromBrokerState();
@@ -8119,6 +8271,7 @@ async function init() {
     }
     clearNavigationInspectionSettlePollsExcept();
     popupSpinnerQueue.clear();
+    syncProjectedSpinnerStateFromQueue();
     if (popupSpinnerTimer) {
       window.clearTimeout(popupSpinnerTimer);
       popupSpinnerTimer = 0;

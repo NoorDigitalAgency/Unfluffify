@@ -12,9 +12,13 @@ export type SpinnerState = Readonly<{
   deadlineAt: number;
   startedAt: number;
   blockSurfaces: SpinnerBlockSurfaces;
+  maxDurationMs: number;
   operationKind: string;
   operationPhase: string;
   operationId?: string;
+  reason?: string;
+  source?: string;
+  spinnerKey?: string;
 }>;
 
 function projectSurface(selection: SpinnerSelection | null): SpinnerState | null {
@@ -25,6 +29,10 @@ function projectSurface(selection: SpinnerSelection | null): SpinnerState | null
     startedAt: selection.startedAt,
     deadlineAt: selection.deadlineAt,
     operationId: selection.operationId,
+    message: selection.message,
+    reason: selection.reason,
+    source: selection.source,
+    spinnerKey: selection.spinnerKey,
   });
 }
 
@@ -35,6 +43,10 @@ export function phaseToSpinnerState(
     startedAt: number;
     deadlineAt: number;
     operationId?: string;
+    message?: string;
+    reason?: string;
+    source?: string;
+    spinnerKey?: string;
   }>,
 ): SpinnerState | null {
   const definition = getSpinnerPhaseDefinition(kind, phase);
@@ -43,14 +55,18 @@ export function phaseToSpinnerState(
   }
   return {
     title: definition.title,
-    message: definition.note,
+    message: typeof options.message === "string" && options.message ? options.message : definition.note,
     timerMode: definition.timerMode,
     deadlineAt: options.deadlineAt,
     startedAt: options.startedAt,
     blockSurfaces: definition.blockSurfaces,
+    maxDurationMs: definition.maxDurationMs,
     operationKind: definition.kind,
     operationPhase: definition.phase,
     operationId: options.operationId,
+    reason: typeof options.reason === "string" ? options.reason : "",
+    source: typeof options.source === "string" ? options.source : "",
+    spinnerKey: typeof options.spinnerKey === "string" ? options.spinnerKey : "",
   };
 }
 

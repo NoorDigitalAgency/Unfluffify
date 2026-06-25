@@ -10,6 +10,10 @@ export type SpinnerSelection = Readonly<{
   startedAt: number;
   deadlineAt: number;
   operationId?: string;
+  message: string;
+  reason: string;
+  source: string;
+  spinnerKey: string;
 }>;
 
 export type PopupViewState = Readonly<{

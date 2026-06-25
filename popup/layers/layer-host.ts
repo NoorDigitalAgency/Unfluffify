@@ -1,7 +1,7 @@
 import type { Bus } from "../../common/bus/bus.js";
 import { POPUP_STATE_EVENT_TYPES, type PopupStateGetReply } from "../../common/bus/contracts/popup-state.js";
 import { SPINNER_EVENT_TYPES } from "../../common/bus/contracts/spinner.js";
-import { clearPopupSpinner, renderPopupSpinner } from "./spinner-layer.js";
+import { clearPopupSpinnerSurface, renderPopupSpinnerSurface } from "./spinner-layer.js";
 
 type PopupViewLike = PopupStateGetReply;
 
@@ -35,19 +35,26 @@ export function startPopupLayerHostWithOptions(bus: Bus, options: PopupLayerHost
       if (popupView) {
         applyPopupView(popupView);
       }
-      renderPopupSpinner(null);
     }),
     bus.subscribe(SPINNER_EVENT_TYPES.SET, (payload) => {
-      if (!payload || typeof payload !== "object" || (payload as { surface?: unknown }).surface !== "popup") {
+      if (!payload || typeof payload !== "object") {
         return;
       }
-      renderPopupSpinner((payload as { state?: unknown }).state ?? null);
+      const surface = (payload as { surface?: unknown }).surface;
+      if (surface !== "popup" && surface !== "pageCurtain" && surface !== "banner") {
+        return;
+      }
+      renderPopupSpinnerSurface(surface, (payload as { state?: unknown }).state ?? null);
     }),
     bus.subscribe(SPINNER_EVENT_TYPES.CLEAR, (payload) => {
-      if (!payload || typeof payload !== "object" || (payload as { surface?: unknown }).surface !== "popup") {
+      if (!payload || typeof payload !== "object") {
         return;
       }
-      clearPopupSpinner();
+      const surface = (payload as { surface?: unknown }).surface;
+      if (surface !== "popup" && surface !== "pageCurtain" && surface !== "banner") {
+        return;
+      }
+      clearPopupSpinnerSurface(surface);
     }),
   ];
 

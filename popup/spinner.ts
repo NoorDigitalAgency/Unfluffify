@@ -46,6 +46,7 @@ type PopupSpinnerDeps = {
   clearSpinnerQueueInBackground: (tabId?: number | null) => Promise<PopupSpinnerBackgroundResponse | null>;
   scheduleStaleInspectionBusyClear: (tabId?: number | null) => void;
   syncPageBusyFromPopupSpinner?: () => void;
+  syncProjectedSpinnerStateFromQueue: () => void;
   uiModule: { setUiBusy: (busy: boolean) => void };
 };
 
@@ -213,6 +214,7 @@ export function pushSpinner(
     existing.reason = reason;
     existing.source = source;
     applySpinnerOperationOptions(existing, options);
+    deps.syncProjectedSpinnerStateFromQueue();
     if (deps.getPopupSpinnerTimer()) {
       deps.windowRef.clearTimeout(deps.getPopupSpinnerTimer());
       deps.setPopupSpinnerTimer(0);
@@ -240,6 +242,7 @@ export function pushSpinner(
     effectiveKey,
     applySpinnerOperationOptions({ message: msg, persistent, reason, source, startedAt }, options)
   );
+  deps.syncProjectedSpinnerStateFromQueue();
   armSpinnerWatchdog(deps, effectiveKey);
   if (tabId) {
     deps.popupSpinnerKeyTabIds.set(effectiveKey, tabId);
@@ -296,6 +299,7 @@ export function setSpinnerMessage(deps: PopupSpinnerDeps, key: string | null, me
   entry.message = message.trim();
   entry.reason = normalizeSpinnerReason(deps, entry.reason, key, entry.message);
   entry.source = typeof entry.source === "string" && entry.source ? entry.source : "popup-spinner";
+  deps.syncProjectedSpinnerStateFromQueue();
   armSpinnerWatchdog(deps, key);
   deps.logPopupSpinnerDebug("set-message", { key, message: entry.message, reason: entry.reason, source: entry.source });
   deps.syncSpinnerEntryToBackground(key).catch(() => {});
@@ -321,6 +325,7 @@ export function popSpinner(deps: PopupSpinnerDeps, key: string | null): void {
   }
   deps.popupSpinnerKeyTabIds.delete(key);
   deps.popupSpinnerQueue.delete(key);
+  deps.syncProjectedSpinnerStateFromQueue();
   deps.logPopupSpinnerDebug("pop", { key, mappedTabId });
   deps.removeSpinnerEntryFromBackground(key, mappedTabId || deps.getCurrentPopupTabId()).catch(() => {});
   if (deps.popupSpinnerQueue.size > 0) {
@@ -331,6 +336,7 @@ export function popSpinner(deps: PopupSpinnerDeps, key: string | null): void {
     }
     return;
   }
+  deps.syncProjectedSpinnerStateFromQueue();
   if (deps.getPopupSpinnerTimer()) {
     deps.windowRef.clearTimeout(deps.getPopupSpinnerTimer());
     deps.setPopupSpinnerTimer(0);

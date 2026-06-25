@@ -31,6 +31,10 @@ function toSpinnerSelection(entry: PopupLegacySpinnerEntry): SpinnerSelection | 
     startedAt: Number.isFinite(entry.startedAt) ? entry.startedAt : 0,
     deadlineAt: Number.isFinite(entry.deadlineAt) ? entry.deadlineAt : 0,
     operationId: entry.operationId || undefined,
+    message: typeof entry.message === "string" ? entry.message : "",
+    reason: typeof entry.reason === "string" ? entry.reason : "",
+    source: typeof entry.source === "string" ? entry.source : "",
+    spinnerKey: entry.key,
   };
 }
 

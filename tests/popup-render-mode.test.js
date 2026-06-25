@@ -110,11 +110,19 @@ test("popup page-busy mirror skips render detection spinners", () => {
 test("popup selects active blocking spinner instead of the queue tail", () => {
   assert.match(
     popupSource,
-    /function getActiveSpinnerSnapshotForSurface\(surface\) \{[\s\S]*?const entries = \[\.\.\.popupSpinnerQueue\.entries\(\)\];[\s\S]*?for \(let index = entries\.length - 1; index >= 0; index -= 1\)[\s\S]*?spinnerSnapshotBlocksSurface\(snapshot, surface\)/
+    /function getProjectedPopupBlockingSpinnerState\(\) \{[\s\S]*?const popupSpinnerState = getLatestPopupSpinnerState\("popup"\);[\s\S]*?projectedSpinnerStateBlocksSurface\(popupSpinnerState, "popup"\)/
+  );
+  assert.match(
+    popupSource,
+    /function getActiveSpinnerSnapshotForSurface\(surface(?:\s*:\s*[^)]+)?\) \{[\s\S]*?if \(surface === "page"\)[\s\S]*?getLatestPopupSpinnerState\("pageCurtain"\)[\s\S]*?projectedSpinnerStateToSnapshot\(getProjectedPopupBlockingSpinnerState\(\)\)/
   );
   assert.match(
     popupSource,
     /function setUiBusyFromCurrentSpinner\(\) \{[\s\S]*?const snapshot = getActiveSpinnerSnapshotForSurface\("popup"\);/
+  );
+  assert.match(
+    popupSource,
+    /function serializePopupSpinnerQueueForProjection\(\) \{[\s\S]*?const normalizedLease = createSpinnerOperationLease\(\{[\s\S]*?reason,[\s\S]*?spinnerKey: key,[\s\S]*?operationKind: normalizedLease\?\.kind[\s\S]*?operationPhase: normalizedLease\?\.phase/
   );
   assert.match(
     popupSource,
