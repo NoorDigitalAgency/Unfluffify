@@ -102,26 +102,6 @@ async function readBackgroundTabState(worker, tabId) {
   }, tabId);
 }
 
-// deno-lint-ignore no-unused-vars require-await -- preserves existing promise/source-contract compatibility.
-async function readPropertyLockSnapshot(worker, tabId, siteId, clientId = "") {
-  return worker.evaluate(async ({ targetTabId, targetSiteId, targetClientId }) => {
-    try {
-      return await chrome.runtime.sendMessage({
-        type: "getPropertyLockState",
-        tabId: targetTabId,
-        siteId: targetSiteId,
-        clientId: targetClientId
-      });
-    } catch (error) {
-      return { error: String(error && error.message ? error.message : error) };
-    }
-  }, {
-    targetTabId: tabId,
-    targetSiteId: siteId,
-    targetClientId: clientId
-  });
-}
-
 // deno-lint-ignore require-await -- preserves existing promise/callback contract.
 async function forceInitialRecoveryWrite(worker, tabId) {
   return worker.evaluate(async (targetTabId) => {

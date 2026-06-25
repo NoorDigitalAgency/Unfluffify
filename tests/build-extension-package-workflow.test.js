@@ -19,4 +19,5 @@ test("build-extension-package workflow uses the pnpm/WXT release pipeline", () =
   assert.doesNotMatch(workflow, /run: deno task verify/);
   assert.doesNotMatch(workflow, /run: deno task build:release/);
   assert.doesNotMatch(workflow, /deno task package --/);
+  assert.doesNotMatch(workflow, /denoland\/setup-deno/);
 });

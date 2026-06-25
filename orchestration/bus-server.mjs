@@ -112,7 +112,7 @@ export function createScenarioBusServer(options = {}) {
   }
 
   function handleRawMessage(peer, rawValue) {
-    let parsed = null;
+    let parsed;
     try {
       parsed = JSON.parse(rawValue);
     } catch {

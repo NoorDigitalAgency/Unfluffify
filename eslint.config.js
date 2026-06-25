@@ -25,11 +25,41 @@ export default tseslint.config(
         ...globals.node,
         ...globals.serviceworker,
         chrome: "readonly",
-        Deno: "readonly",
       },
     },
     rules: {
       "@typescript-eslint/ban-ts-comment": "off",
+    },
+  },
+  {
+    files: [
+      "tests/file-kit.ts",
+      "tests/test-kit.ts",
+      "tests/shims/deno-runtime.js",
+    ],
+    languageOptions: {
+      globals: {
+        Deno: "readonly",
+      },
+    },
+  },
+  {
+    files: [
+      "background.ts",
+      "content-main.ts",
+      "offscreen.ts",
+      "popup.ts",
+      "background/**/*.ts",
+      "common/**/*.ts",
+      "content/**/*.ts",
+      "offscreen/**/*.ts",
+      "popup/**/*.ts",
+    ],
+    rules: {
+      "@typescript-eslint/no-unused-vars": "off",
+      "no-useless-assignment": "off",
+      "no-useless-escape": "off",
+      "prefer-spread": "off",
     },
   },
 );

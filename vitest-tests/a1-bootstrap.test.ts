@@ -50,12 +50,7 @@ describe("WXT Part A bridge", () => {
     expect(packageJson.scripts.build).toBe("wxt build");
     expect(packageJson.scripts.zip).toContain("pnpm build");
     expect(packageJson.scripts.zip).toContain("create-output-zip.mjs");
-    expect(packageJson.scripts.lint).toContain("tests/**/*.test.js");
-    expect(packageJson.scripts.lint).toContain("tests/**/*.ts");
-    expect(packageJson.scripts.lint).toContain("tests/shims/*.js");
-    expect(packageJson.scripts.lint).toContain("scripts/create-output-zip.mjs");
-    expect(packageJson.scripts.lint).toContain("scripts/remove-path.mjs");
-    expect(packageJson.scripts.lint).not.toContain("sync-wxt-bootstrap.mjs");
+    expect(packageJson.scripts.lint).toBe("eslint .");
     expect(packageJson.scripts.verify).toContain("pnpm build");
     expect(packageJson.scripts.verify).toContain("remove-path.mjs");
     expect(packageJson.scripts.verify).toContain("UF_MANIFEST_SOURCE=generated");

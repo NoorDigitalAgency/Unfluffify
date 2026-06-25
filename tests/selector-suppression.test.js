@@ -413,8 +413,10 @@ test("marking contract is locked across docs, memory, plan, and README", () => {
   assert.match(readmeSource, /locked 052c-derived restored contract/i);
   assert.match(
     readmeSource,
-    /(?:node --test|deno test (?:-A|--allow-read --allow-write --allow-env --allow-run --allow-sys(?: --allow-net=127\.0\.0\.1)?) --no-check --unstable-sloppy-imports) tests\/core-visibility\.test\.js tests\/core-motion-pause\.test\.js tests\/core-scheduling\.test\.js tests\/marking-rules\.test\.js tests\/popup-marking-refresh\.test\.js tests\/selector-suppression\.test\.js tests\/silent-highlight-annotations\.test\.js tests\/silent-highlight-rules\.test\.js tests\/submission-rules\.test\.js/
+    /pnpm exec vitest run tests\/core-visibility\.test\.js tests\/core-motion-pause\.test\.js tests\/core-scheduling\.test\.js tests\/marking-rules\.test\.js tests\/popup-marking-refresh\.test\.js tests\/selector-suppression\.test\.js tests\/silent-highlight-annotations\.test\.js tests\/silent-highlight-rules\.test\.js tests\/submission-rules\.test\.js/
   );
+  assert.doesNotMatch(readmeSource, /node --test/);
+  assert.doesNotMatch(readmeSource, /deno test/);
   assert.match(constantsSource, /locked marking contract/);
 });
 

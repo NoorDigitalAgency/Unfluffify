@@ -44,12 +44,8 @@
 - Use pnpm/WXT as the primary release/CI toolchain: `pnpm lint`, `pnpm check`,
   `pnpm test`, `pnpm build`, `pnpm zip`, and `pnpm verify`.
 - The shipped extension build, packaging flow, live-browser launcher, and
-  orchestration CLIs are now pnpm/Node-based and WXT-native. `deno.json`
-  remains only as a temporary compatibility wrapper until the final cleanup
-  phase removes it.
-- `deno task <script>` can still resolve npm scripts implicitly via
-  `package.json`, but the supported/public workflow is pnpm-first and docs/tests
-  should treat those Deno aliases as unsupported compatibility fallbacks.
+  orchestration CLIs are now pnpm/Node-based and WXT-native. The repository no
+  longer depends on Deno for CI, packaging, browser launch, or orchestration.
 
 ## WXT migration facts
 

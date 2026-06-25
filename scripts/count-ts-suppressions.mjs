@@ -1,7 +1,9 @@
-import { extname, join, relative } from "@std/path";
+import { extname, join, relative } from "node:path";
+import { readFile, readdir, writeFile } from "node:fs/promises";
+
 // Tracks runtime @ts-ignore AND @ts-expect-error suppressions (migration in progress)
 
-const REPO_ROOT = Deno.cwd();
+const REPO_ROOT = process.cwd();
 const FIXTURE_PATH = join(
   REPO_ROOT,
   "tests",
@@ -23,30 +25,25 @@ const DEFAULT_EXEMPT = [
   "common/page-motion-freeze-control.ts",
 ];
 
-type BudgetFixture = {
-  budgets: Record<string, number>;
-  exempt?: string[];
-};
+async function collectTsIgnoreCounts() {
+  const counts = new Map();
 
-async function collectTsIgnoreCounts(): Promise<Record<string, number>> {
-  const counts = new Map<string, number>();
-
-  async function scanDirectory(absPath: string): Promise<void> {
-    for await (const entry of Deno.readDir(absPath)) {
+  async function scanDirectory(absPath) {
+    for (const entry of await readdir(absPath, { withFileTypes: true })) {
       const child = join(absPath, entry.name);
-      if (entry.isDirectory) {
+      if (entry.isDirectory()) {
         await scanDirectory(child);
         continue;
       }
-      if (!entry.isFile || !child.endsWith(".ts") || child.endsWith(".d.ts")) {
+      if (!entry.isFile() || !child.endsWith(".ts") || child.endsWith(".d.ts")) {
         continue;
       }
       await scanFile(child);
     }
   }
 
-  async function scanFile(absPath: string): Promise<void> {
-    const source = await Deno.readTextFile(absPath);
+  async function scanFile(absPath) {
+    const source = await readFile(absPath, "utf8");
     const matchCount = source.match(/@ts-(?:ignore|expect-error)\b/g)?.length ?? 0;
     if (matchCount <= 0) {
       return;
@@ -77,32 +74,35 @@ async function collectTsIgnoreCounts(): Promise<Record<string, number>> {
   );
 }
 
-function summarize(perFile: Record<string, number>) {
+function summarize(perFile) {
   const total = Object.values(perFile).reduce((sum, value) => sum + value, 0);
   return { total, perFile };
 }
 
-async function readExistingFixture(): Promise<BudgetFixture | null> {
+async function readExistingFixture() {
   try {
-    const source = await Deno.readTextFile(FIXTURE_PATH);
-    return JSON.parse(source) as BudgetFixture;
-  } catch {
-    return null;
+    const source = await readFile(FIXTURE_PATH, "utf8");
+    return JSON.parse(source);
+  } catch (error) {
+    if (error && typeof error === "object" && error.code === "ENOENT") {
+      return null;
+    }
+    throw error;
   }
 }
 
-async function reseedFixture(perFile: Record<string, number>): Promise<void> {
+async function reseedFixture(perFile) {
   const existing = await readExistingFixture();
-  const fixture: BudgetFixture = {
+  const fixture = {
     budgets: perFile,
     exempt: existing?.exempt ?? DEFAULT_EXEMPT,
   };
   const output = `${JSON.stringify(fixture, null, 2)}\n`;
-  await Deno.writeTextFile(FIXTURE_PATH, output);
+  await writeFile(FIXTURE_PATH, output, "utf8");
 }
 
 const perFile = await collectTsIgnoreCounts();
-if (Deno.args.includes("--reseed")) {
+if (process.argv.includes("--reseed")) {
   await reseedFixture(perFile);
 }
 console.log(JSON.stringify(summarize(perFile), null, 2));

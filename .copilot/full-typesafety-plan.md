@@ -16,7 +16,7 @@ the codebase compiles clean under `strict` with **zero suppression directives** 
 a single, documented, eval-only exception.
 
 ### Definition of "fully type-safe" (the acceptance bar)
-- `deno task check` passes with **zero** `@ts-expect-error` and **zero** `@ts-ignore`
+- `pnpm check` passes with **zero** `@ts-expect-error` and **zero** `@ts-ignore`
   in every runtime file **except** the two eval-bridge files (see §1, Non-goals).
 - `strict: true` stays on; no loosening of `tsconfig.json`.
 - Full test suite green; ratchets green; a guard test enforces the end state.
@@ -46,7 +46,7 @@ exists and most errors are file-local.
 - Do **not** change program logic, control flow, or behavior. **Type-only edits**:
   parameter/variable/return annotations, `types/` additions, `declare global`
   augmentations, and provably-safe `as` casts.
-- Do **not** run `deno fmt` across the repo or reformat untouched code.
+- Do **not** run broad repo-wide formatting or reformat untouched code.
 - Do **not** loosen `tsconfig.json` (no `noImplicitAny: false`, no `skipLibCheck`
   changes beyond what exists, etc.).
 
@@ -96,7 +96,7 @@ exists and most errors are file-local.
 2. **Small batches.** Whole-file for files with ≤ ~80 directives; otherwise region
    sub-batches of ~60–100 directives, top-to-bottom.
 3. **One mutating terminal command at a time.** No parallel file edits.
-4. **The gate is law:** `deno task check` clean → targeted tests → full suite → ratchets,
+4. **The gate is law:** `pnpm check` clean → targeted tests → full suite → ratchets,
    all green before committing.
 5. **Source-contract tests may need narrow updates.** Adding parameter types changes
    function-signature text; several `tests/*` assert exact signatures. Update only the
@@ -115,10 +115,10 @@ exists and most errors are file-local.
 
 ### 4.1 Validation gate `[GATE]`
 ```bash
-deno task check                                   # must exit 0, zero errors
-deno test -A --no-check --unstable-sloppy-imports <targeted test files>
-deno task test                                    # full suite, "0 failed"
-deno test -A --no-check --unstable-sloppy-imports \
+pnpm check                                        # must exit 0, zero errors
+pnpm exec vitest run <targeted test files>
+pnpm test                                         # full suite green
+pnpm exec vitest run \
   tests/typing-ratchet.test.js tests/ts-suppression-budget.test.js \
   tests/no-ts-ignore-guard.test.js
 ```
@@ -129,17 +129,17 @@ For files with ≤ ~80 directives.
 # 1. Reveal this file's real errors by neutralizing its directives.
 sed -i 's#// @ts-expect-error.*#//#' <file>
 # 2. See exactly what must be typed:
-deno task check 2>&1 | grep "<file>("
+pnpm check 2>&1 | grep "<file>("
 # 3. Fix every listed error using the §2 playbook (edit <file> and/or types/*).
 #    Re-run step 2 until this file reports zero errors.
 # 4. Remove the now-empty "//" placeholder lines that were directives (optional tidy),
 #    OR leave them — but there must be ZERO "@ts-expect-error" left in <file>:
 grep -c "@ts-expect-error" <file>                 # must print 0
 # 5. Validate + reseed (count drops) :
-deno task check
+pnpm check
 <run targeted tests>
-deno task test
-deno run -A scripts/count-ts-suppressions.ts --reseed
+pnpm test
+node ./scripts/count-ts-suppressions.mjs --reseed
 <run ratchets>
 ```
 > Tidy note: step 1 turns `// @ts-expect-error` into a bare `//`. After fixing, delete
@@ -163,7 +163,7 @@ for i, ln in enumerate(lines):
 open(f, "w").write("\n".join(lines))
 print("neutralized", c)
 PY
-# 2. deno task check 2>&1 | grep "<file>(" ; fix all revealed errors (§2). Repeat
+# 2. pnpm check 2>&1 | grep "<file>(" ; fix all revealed errors (§2). Repeat
 #    until the file reports zero errors (lower, still-directived lines stay green).
 # 3. Remove orphan "//" lines left from neutralized directives.
 # 4. Validate + reseed + ratchets as in [FIXFILE] steps 5.
@@ -172,7 +172,7 @@ PY
 ### 4.4 End-of-phase review/fix iteration `[REVIEW]`
 1. Re-run the full `[GATE]`.
 2. Confirm directive counts dropped as expected:
-   `deno run -A scripts/count-ts-suppressions.ts | head -n 3`
+   `node ./scripts/count-ts-suppressions.mjs | head -n 3`
 3. Diff hygiene — confirm only type-level changes:
    `git diff --stat origin/<branch>..HEAD` and spot-check 2–3 files (annotations,
    `types/` edits, removed directives — **no logic changes**).
@@ -190,9 +190,9 @@ git pull
 git status --short                                  # clean
 git checkout -b feat/full-typesafety
 git push -u origin feat/full-typesafety
-deno task check                                     # exit 0
-deno task test                                      # full suite green
-deno run -A scripts/count-ts-suppressions.ts | head -n 3   # TOTAL 2585
+pnpm check                                          # exit 0
+pnpm test                                           # full suite green
+node ./scripts/count-ts-suppressions.mjs | head -n 3   # TOTAL 2585
 ```
 Create `.copilot/full-typesafety-progress.md`:
 ```
@@ -226,7 +226,7 @@ Steps:
    # temporary reveal, scoped read-only analysis, then restore
    files=$(grep -rl "@ts-expect-error" background common content popup *.ts | grep -v "\.d\.ts")
    for f in $files; do sed -i 's#// @ts-expect-error.*#//#' "$f"; done
-   deno task check 2>&1 | grep -E "TS2339.*(Window|globalThis)" | sort -u
+   pnpm check 2>&1 | grep -E "TS2339.*(Window|globalThis)" | sort -u
    git restore .
    ```
 2. For every custom global found (e.g. `__UNFLUFFIFY_TOGGLE_PERF__`,
@@ -298,10 +298,10 @@ reports `0` directives. Commit each region:
 | 2 | `popup.ts` | 612 | 685 | ~8 | `tests/popup-marking-refresh.test.js tests/popup-ai-run-gating.test.js tests/popup-render-mode.test.js tests/ai-run.test.js tests/popup-timers.test.js tests/popup-render-mode-inspection.test.js` |
 | 3 | `content/core.ts` | 921 | 1083 | ~12 | `tests/core-scheduling.test.js tests/selector-suppression.test.js tests/submission-rules.test.js tests/marking-rules.test.js tests/core-motion-pause.test.js` |
 
-Per region: `[FIXREGION]` → fix revealed errors (§2) → `deno task check` clean →
-targeted tests → `deno task test` → reseed → ratchets → commit/push → progress line.
+Per region: `[FIXREGION]` → fix revealed errors (§2) → `pnpm check` clean →
+targeted tests → `pnpm test` → reseed → ratchets → commit/push → progress line.
 
-Run the **full** `deno task test` at least once per region (it is the authoritative
+Run the **full** `pnpm test` at least once per region (it is the authoritative
 behavioral gate for these central files).
 
 **Phase-end `[REVIEW]`** after each mega-file completes (per-file wrap commit
@@ -315,7 +315,7 @@ full suite green; only `common/page-motion-freeze-*.ts` still carry directives.
 Do **not** add type annotations (see §1). Instead:
 1. Confirm these are the **only** remaining directive holders:
    ```bash
-   deno run -A scripts/count-ts-suppressions.ts | head -n 20
+   node ./scripts/count-ts-suppressions.mjs | head -n 20
    # expect only common/page-motion-freeze-bridge.ts (41) and -control.ts (35)
    ```
 2. Add a short header comment in **each** file documenting *why* they keep
@@ -351,18 +351,18 @@ assert.deepEqual(offenders, [], `unexpected @ts-expect-error:\n${offenders.join(
 ### 10.2 Final verification
 ```bash
 # zero non-exempt directives
-deno run -A scripts/count-ts-suppressions.ts | head -n 20   # only the 2 exempt files
-deno task check                                             # exit 0
-deno test -A --no-check --unstable-sloppy-imports \
+node ./scripts/count-ts-suppressions.mjs | head -n 20   # only the 2 exempt files
+pnpm check                                                  # exit 0
+pnpm exec vitest run \
   tests/no-ts-ignore-guard.test.js tests/no-expect-error-guard.test.js \
   tests/typing-ratchet.test.js tests/ts-suppression-budget.test.js
-deno task test                                              # full suite green
+pnpm test                                                   # full suite green
 ```
 Optional but recommended: re-run the reversible probe and confirm **0** underlying
 errors remain outside the two exempt files:
 ```bash
 for f in $(grep -rl "@ts-expect-error" common | grep freeze); do :; done
-deno task check 2>&1 | grep -E "error TS" | grep -v "page-motion-freeze" || echo "OK: clean"
+pnpm check 2>&1 | grep -E "error TS" | grep -v "page-motion-freeze" || echo "OK: clean"
 ```
 
 ### 10.3 Finalize
@@ -375,7 +375,7 @@ git push
 **Definition of Done:**
 - Runtime `@ts-expect-error` exist **only** in the two documented eval-bridge files (76).
 - `@ts-ignore`: zero (existing guard).
-- `deno task check` exits 0; `deno task test` reports `0 failed`.
+- `pnpm check` exits 0; `pnpm test` is green.
 - `tests/no-expect-error-guard.test.js`, `tests/no-ts-ignore-guard.test.js`, and both
   ratchets pass.
 - `tsconfig.json` unchanged (still `strict: true`).

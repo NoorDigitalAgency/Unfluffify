@@ -63,12 +63,12 @@ pnpm verify
 check, the Vitest suite, rebuilds the synced WXT output, and then runs the
 generated-manifest permission/WAR check against `.output/chrome-mv3/manifest.json`.
 
-Treat the pnpm commands above as the supported public workflow. `deno task
-<script>` can still resolve the same npm scripts implicitly, but those aliases
-are no longer documented or supported as the primary command surface.
+Treat the pnpm commands above as the supported public workflow. The repository
+no longer depends on Deno for CI, packaging, browser launch, or orchestration.
 
-The command surface is tracked in `.copilot/wxt-port-plan.md` and is
-WXT-native for the shipped extension pipeline. `pnpm build` produces
+The current migration cleanup command surface is tracked in
+`.copilot/wxt-finalization-plan.md` and is WXT-native for the shipped extension
+pipeline. `pnpm build` produces
 the runnable unpacked extension under `.output/chrome-mv3`, and the only
 remaining manifest bridge is the source-owned `action` block so WXT's popup
 entrypoint does not reintroduce `action.default_popup` into the shipped
@@ -127,7 +127,7 @@ Run this command before opening or updating a pull request to catch regressions 
 For marking-rule work, also run the focused guard suite:
 
 ```bash
-deno test --allow-read --allow-write --allow-env --allow-run --allow-sys --allow-net=127.0.0.1 --no-check --unstable-sloppy-imports tests/core-visibility.test.js tests/core-motion-pause.test.js tests/core-scheduling.test.js tests/marking-rules.test.js tests/popup-marking-refresh.test.js tests/selector-suppression.test.js tests/silent-highlight-annotations.test.js tests/silent-highlight-rules.test.js tests/submission-rules.test.js
+pnpm exec vitest run tests/core-visibility.test.js tests/core-motion-pause.test.js tests/core-scheduling.test.js tests/marking-rules.test.js tests/popup-marking-refresh.test.js tests/selector-suppression.test.js tests/silent-highlight-annotations.test.js tests/silent-highlight-rules.test.js tests/submission-rules.test.js
 ```
 
 ## Project Structure

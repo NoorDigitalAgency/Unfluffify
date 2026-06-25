@@ -26,7 +26,7 @@ shrink and can never silently rot.
 
 ### Audit facts (captured 2026-06-17, baseline commit on `feat/ts-typesafety-hardening`)
 - Total runtime `@ts-ignore`: **2619** across **13 files**.
-- Converting all to `@ts-expect-error` and running `deno task check` produced **exactly
+- Converting all to `@ts-expect-error` and running `pnpm check` produced **exactly
   37** `TS2578` (stale) diagnostics and **no other errors** — so the swap is a safe
   drop-in for the other 2582.
 - Stale directives by file: `background.ts` 19, `common/page-motion-freeze-control.ts`
@@ -39,7 +39,7 @@ shrink and can never silently rot.
 ### Non-goals (do NOT do these in this plan)
 - Do **not** fix the underlying type errors / add real types. This plan only swaps the
   directive and deletes dead suppressions. (Real typing is a separate later effort.)
-- Do **not** run `deno fmt` across the repo or reformat untouched code. Broad
+- Do **not** run broad repo-wide formatting or reformat untouched code. Broad
   formatting churn has derailed past migrations.
 - Do **not** edit program logic. The only allowed source changes are: (a) swapping the
   directive token, (b) deleting a stale directive line.
@@ -54,7 +54,7 @@ shrink and can never silently rot.
 2. **Never edit two files' directives in a single `sed` run** except the explicit
    bulk steps named in this plan.
 3. **Never run parallel file-mutating commands.** One terminal command at a time.
-4. **The gate is law.** A batch is only "done" when `deno task check` is clean, the
+4. **The gate is law.** A batch is only "done" when `pnpm check` is clean, the
    targeted tests pass, the full suite passes, and both ratchets pass.
 5. **Allowed source edits only:** directive swap + stale-directive deletion. If a batch
    appears to require any other edit, **stop and report** instead of improvising.
@@ -72,16 +72,16 @@ shrink and can never silently rot.
 Run, in this order, and require all green:
 ```bash
 # 1. strict type-check (authoritative)
-deno task check
+pnpm check
 # 2. targeted tests for the touched file (see per-phase "tests" list)
-deno test -A --no-check --unstable-sloppy-imports <targeted test files>
-# 3. full suite (authoritative behavioral gate; expect "849 passed | 0 failed")
-deno task test
+pnpm exec vitest run <targeted test files>
+# 3. full suite (authoritative behavioral gate)
+pnpm test
 # 4. ratchets
-deno test -A --no-check --unstable-sloppy-imports \
+pnpm exec vitest run \
   tests/typing-ratchet.test.js tests/ts-suppression-budget.test.js
 ```
-`deno task check` must exit 0. `deno task test` must report `0 failed`. If any step
+`pnpm check` must exit 0. `pnpm test` must be green. If any step
 fails, fix within the batch (per §3.3) before committing.
 
 ### 3.2 Per-file conversion recipe `[CONVERT <file>]`
@@ -91,12 +91,12 @@ sed -i 's/@ts-ignore/@ts-expect-error/g' <file>
 
 # b. type-check; remove any now-stale directives reported as TS2578 in THIS file.
 #    Process descending line numbers so deletions don't shift later lines.
-deno task check 2>&1 | grep "error TS2578" | grep "<file>" \
+pnpm check 2>&1 | grep "error TS2578" | grep "<file>" \
   | sed -E 's/^[^(]*\(([0-9]+),.*/\1/' | sort -rn | uniq \
   | while read -r ln; do sed -i "${ln}d" "<file>"; done
 
 # c. re-check until clean (no TS2578 should remain for this file)
-deno task check
+pnpm check
 ```
 Notes:
 - Deleting an unused directive can never introduce a new error (it removes a no-op
@@ -105,8 +105,8 @@ Notes:
 
 ### 3.3 Reseed + ratchet recipe `[RESEED]`
 ```bash
-deno run -A scripts/count-ts-suppressions.ts --reseed
-deno test -A --no-check --unstable-sloppy-imports \
+node ./scripts/count-ts-suppressions.mjs --reseed
+pnpm exec vitest run \
   tests/typing-ratchet.test.js tests/ts-suppression-budget.test.js
 ```
 Because the counter tracks **both** tokens, a pure swap is count-neutral; the only
@@ -121,7 +121,7 @@ At the end of each phase, before the phase-wrap commit:
    ```
 3. Confirm counter vs fixture agree:
    ```bash
-   deno run -A scripts/count-ts-suppressions.ts | head -n 3   # TOTAL line
+   node ./scripts/count-ts-suppressions.mjs | head -n 3   # TOTAL line
    ```
    Compare `TOTAL` against the phase's expected total (see each phase).
 4. Diff hygiene — confirm only directive swaps and stale deletions changed:
@@ -148,9 +148,9 @@ git push -u origin feat/ts-expect-error-migration
 
 Capture and record the baseline (must be green before starting):
 ```bash
-deno task check
-deno task test                                  # expect 849 passed | 0 failed
-deno run -A scripts/count-ts-ignore.ts | head -n 3   # expect TOTAL 2619
+pnpm check
+pnpm test                                       # full suite green
+node ./scripts/count-ts-suppressions.mjs | head -n 3   # expect TOTAL 2619
 ```
 
 Create the progress log `.copilot/ts-expect-error-migration-progress.md` with this seed
@@ -180,14 +180,14 @@ This phase makes the repo able to hold a **mix** of `@ts-ignore` and `@ts-expect
 while staying green, so later per-file conversion order is irrelevant. **No runtime
 source files are converted in this phase.**
 
-### 5.1 Rename + repoint the counter and ratchet (count BOTH tokens)
+### 5.1 Keep the counter and ratchet on the suppression names (count BOTH tokens)
 ```bash
-git mv scripts/count-ts-ignore.ts scripts/count-ts-suppressions.ts
-git mv tests/ts-ignore-budget.test.js tests/ts-suppression-budget.test.js
-git mv tests/fixtures/ts-ignore-budget.json tests/fixtures/ts-suppression-budget.json
+test -f scripts/count-ts-suppressions.mjs
+test -f tests/ts-suppression-budget.test.js
+test -f tests/fixtures/ts-suppression-budget.json
 ```
 Edits required:
-- In `scripts/count-ts-suppressions.ts`:
+- In `scripts/count-ts-suppressions.mjs`:
   - change the fixture path constant from `ts-ignore-budget.json` to
     `ts-suppression-budget.json`;
   - change the match regex `/@ts-ignore\b/g` → `/@ts-(?:ignore|expect-error)\b/g`.
@@ -228,7 +228,7 @@ strings under `tests/` are these tolerance regexes.)
 
 ### 5.3 Reseed (count-neutral) and validate
 ```bash
-deno run -A scripts/count-ts-suppressions.ts --reseed   # TOTAL still 2619
+node ./scripts/count-ts-suppressions.mjs --reseed   # TOTAL still 2619
 ```
 Run `[GATE]` with targeted tests:
 ```
@@ -272,11 +272,11 @@ Per-file commit message: `typing(ts-migration): convert <file> to @ts-expect-err
 
 > Discover the exact targeted test files for a given module with:
 > `grep -rl "<module-base-name>" tests/` and include any that read the file's source.
-> When unsure, the authoritative gate is the **full** `deno task test`.
+> When unsure, the authoritative gate is the **full** `pnpm test`.
 
 After each `[CONVERT]`, verify the file's new count equals the **End** column:
 ```bash
-deno run -A scripts/count-ts-suppressions.ts | grep "<file>"
+node ./scripts/count-ts-suppressions.mjs | grep "<file>"
 ```
 
 **Phase-end `[REVIEW]`.** Expected `TOTAL` after Phase 2 = **2594** (2619 − 25 stale).
@@ -330,7 +330,7 @@ For **each** of the two files:
    - `common/page-motion-freeze-control.ts`: 41 → **35**
 3. `[RESEED]` (updates the exempt floor to the new number).
 4. `[GATE]` — targeted tests: `grep -rl "page-motion-freeze" tests/` (include all);
-   then full `deno task test`.
+   then full `pnpm test`.
 5. Commit `typing(ts-migration): convert <file> to @ts-expect-error (exempt floor reseed)`
    → push → progress line.
 
@@ -387,7 +387,7 @@ grep -rn "@ts-ignore" background common content popup \
   background.ts content-main.ts content-loader.ts popup.ts | grep -v "\.d\.ts" \
   || echo "OK: zero @ts-ignore"
 # counts
-deno run -A scripts/count-ts-suppressions.ts | head -n 3      # TOTAL 2582
+node ./scripts/count-ts-suppressions.mjs | head -n 3      # TOTAL 2582
 ```
 Run the full `[GATE]` plus the new guard test
 (`tests/no-ts-ignore-guard.test.js`).
@@ -403,7 +403,7 @@ Update progress log with the final summary: `Migration complete — 0 @ts-ignore
 
 **Acceptance / Definition of Done:**
 - `grep` finds **0** `@ts-ignore` in runtime source.
-- `deno task check` exits 0; `deno task test` reports `0 failed`.
+- `pnpm check` exits 0; `pnpm test` is green.
 - `tests/no-ts-ignore-guard.test.js` passes; both ratchets pass.
 - Counter `TOTAL` = 2582; exempt floors = 41 / 35.
 - Every commit pushed to `origin/feat/ts-expect-error-migration`.
@@ -421,7 +421,7 @@ Update progress log with the final summary: `Migration complete — 0 @ts-ignore
   `@ts-(?:ignore|expect-error)`. Fix the regex (test-only change), re-run.
 - **Ratchet "total should only decrease" fails:** you converted without reseeding, or
   the counter regex isn't counting both tokens. Verify §5.1 regex, then `[RESEED]`.
-- **`deno task test` count drifts from 849:** the new guard test (Phase 5) legitimately
+- **`pnpm test` count drifts from the baseline:** the new guard test (Phase 5) legitimately
   adds tests. Otherwise investigate — do not "fix" by deleting tests.
 - **Need to abandon a bad batch:** `git restore .` (working tree only, before commit).
   After a pushed commit, prefer a forward `git revert <sha>` over history rewrites.
