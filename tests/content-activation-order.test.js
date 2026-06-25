@@ -72,7 +72,7 @@ test("main restores tab state then refreshes highlight state without an initial 
 });
 
 test("content loader and consent scroll restore avoid production page-console logs", () => {
-  const loaderSource = readFileSync(new URL("../content-loader.ts", import.meta.url), "utf8");
+  const loaderSource = readFileSync(new URL("../entrypoints/content-loader.content.ts", import.meta.url), "utf8");
   const coreSource = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
   const restoreStart = coreSource.indexOf("function restorePageScrolling() {");
   const restoreEnd = coreSource.indexOf("function hideConsentOnEnable(pageUrl)", restoreStart);

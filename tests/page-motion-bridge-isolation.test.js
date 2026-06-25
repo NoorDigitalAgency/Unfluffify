@@ -5,7 +5,7 @@ import { existsSync, readFileSync } from "./file-kit.ts";
 import { runPageMotionFreezeControl } from "../common/page-motion-freeze-control.js";
 
 test("page motion bridge is not bootstrapped by the content loader", () => {
-  const source = readFileSync(new URL("../content-loader.ts", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../entrypoints/content-loader.content.ts", import.meta.url), "utf8");
 
   assert.doesNotMatch(source, /page-motion-freeze/i);
   assert.doesNotMatch(source, /unfluffify-page-motion-freeze-script/);

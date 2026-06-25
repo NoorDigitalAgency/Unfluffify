@@ -17,7 +17,6 @@
     "content/**/*.ts",
     "popup/**/*.ts",
     "background.ts",
-    "content-loader.ts",
     "content-main.ts",
     "popup.ts",
     "offscreen.ts",

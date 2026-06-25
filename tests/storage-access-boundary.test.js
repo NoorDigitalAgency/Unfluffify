@@ -122,7 +122,6 @@ const SMOKE_ORCHESTRATION_FILES = new Set();
 
 // Page-local storage flags are tracked separately from chrome.storage migration.
 const PAGE_LOCAL_STORAGE_FILES = new Set([
-  "content-loader.ts",
   "content-main.ts",
   "content/core.ts",
   "popup.ts",

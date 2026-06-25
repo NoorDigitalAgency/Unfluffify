@@ -14,7 +14,7 @@ const RUNTIME_SCAN_TARGETS = [
   "content",
   "popup",
   "background.ts",
-  "content-loader.ts",
+  "entrypoints/content-loader.content.ts",
   "content-main.ts",
   "popup.ts"
 ];

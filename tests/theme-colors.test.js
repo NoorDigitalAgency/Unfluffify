@@ -169,16 +169,16 @@ test("popup color-mix rules no longer use var(--card) as the second color", () =
 });
 
 test("popup injects the CSS layers in the requested order", () => {
-  const popupHtml = readFileSync(new URL("../popup.html", import.meta.url), "utf8");
+  const popupHtml = readFileSync(new URL("../entrypoints/popup/index.html", import.meta.url), "utf8");
   const stylesheetHrefs = [...popupHtml.matchAll(/<link rel="stylesheet" href="([^"]+)"/g)].map((match) => match[1]);
 
   assert.deepEqual(stylesheetHrefs, [
-    "assets/fonts/fonts.css",
-    "theme-color.css",
-    "theme-components.css",
-    "popup.css",
-    "theme-utilities.css",
-    "assets/materialdesignicons.min.css"
+    "../../assets/fonts/fonts.css",
+    "../../theme-color.css",
+    "../../theme-components.css",
+    "../../popup.css",
+    "../../theme-utilities.css",
+    "../../assets/materialdesignicons.min.css"
   ]);
 });
 
