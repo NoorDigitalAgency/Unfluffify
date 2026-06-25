@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-25
 Branch: `feat/wxt-port-plan`
-Status: planned (not started)
+Status: C0 complete; C1 ready
 
 This is the executor doc for **Part C** of the WXT program. It is written so a
 low-context agent can execute it without inventing architecture or making
@@ -94,10 +94,12 @@ are preserved unchanged. No user-visible behavior changes.
   (`common/feature-flags.js`). Everything else under `content/*` is a static
   ESM import resolved at runtime because of `bundle: false`.
 - Page-world `getURL` ASSETS that must stay web-accessible: cursor SVGs
-  (`content/core.ts:6519-6520`, `cursors/exclude.svg`, `cursors/include.svg`)
-  and `popup.html`/`offscreen.html` runtime URLs
+  (`content/core.ts:6519-6520`, `cursors/exclude.svg`, `cursors/include.svg`).
+- `background.ts` also opens extension pages via runtime URLs
   (`background.ts:687` `OFFSCREEN_DOCUMENT_PATH`, `background.ts:2127`
-  `getURL("popup.html")`).
+  `getURL("popup.html")`), but those HTML documents are extension pages, not
+  `web_accessible_resources`, and Part C must preserve their paths without
+  adding them to WAR.
 - `common/page-motion-freeze-control.ts` is injected via
   `chrome.scripting.executeScript({ func })` (serialized) and must **NOT** be
   web-accessible.
@@ -144,6 +146,21 @@ are preserved unchanged. No user-visible behavior changes.
   wildcards; (c) `content-main.js` imports of `./content/*` are all in WAR. **(c)
   and most of the explicit content WAR list are eliminated by native bundling and
   must be rewritten in C4.**
+- `tests/package-extension.test.js`: staged output currently includes
+  `content-main.js` and `common/config.js` because packaging walks manifest
+  entrypoints plus WAR resources. This staging contract changes once C4 removes
+  code-module WAR and C5 removes the esbuild/legacy shape.
+- `tests/build-artifact-parity.test.js`: currently hard-codes
+  `dist/extension` and `dist/extension/manifest.json`. C5 must migrate or retire
+  that assertion once `dist/extension` disappears.
+- `tests/build-extension-package-workflow.test.js`: currently asserts the release
+  workflow's `required_files` list still contains `content-main.js`. C4/C5 must
+  update that workflow contract when code-module WAR and the legacy shape are
+  removed.
+- `vitest-tests/a1-bootstrap.test.ts`: verify-gating transitional bridge test for
+  `scripts/build-extension.ts`, `scripts/sync-wxt-bootstrap.mjs`,
+  `manifest.json`, `legacy/`, and WXT-owned `popup.html` / `offscreen.html`
+  preservation. It must be updated or retired as the hybrid bridge disappears.
 - `tests/storage-access-boundary.test.js`: the 7-module storage allowlist.
 - `tests/package-test-script.test.js`: deno-task and lint-rule contract;
   `resolveDenoExecutable()` usage in build scripts (touched when esbuild build
@@ -183,8 +200,9 @@ Repository constraints (locked, inherited):
    reconciliation, XPath, AI-submission, overlay projection, spinner/lease, or
    property-lock **semantics**. Part C is structural/toolchain only.
 6. Keep the side-panel `action` contract: no `action.default_popup`.
-7. Keep cursor SVGs and `popup.html`/`offscreen.html` runtime URLs
-   web-accessible; keep `page-motion-freeze-control` OUT of WAR.
+7. Keep cursor SVGs web-accessible; preserve the existing runtime URLs for
+   `popup.html` and `offscreen.html` without adding those HTML pages to WAR; keep
+   `page-motion-freeze-control` OUT of WAR.
 8. Every commit must be green: `pnpm lint && pnpm check && pnpm test && pnpm build`
    (canonical full gate: `pnpm verify`). Live-browser validation via
    `pnpm browser:live https://bonliva.se` for runtime-behavior phases.
@@ -359,8 +377,9 @@ assertions), `scripts/sync-wxt-bootstrap.mjs`.
    modules.
 4. **Eliminate `content/*` and `common/*` code modules from
    `web_accessible_resources`** in both `wxt.config.ts` and `manifest.json`.
-   KEEP only genuine page-world ASSETS: cursor SVGs (`cursors/*.svg`),
-   `assets/materialdesignicons-webfont.woff2`, and any HTML opened via getURL.
+   KEEP only genuine page-world ASSETS: cursor SVGs (`cursors/*.svg`) and
+   `assets/materialdesignicons-webfont.woff2`. Preserve `popup.html` and
+   `offscreen.html` as extension-page runtime URLs, but do NOT add them to WAR.
 5. Rewrite `tests/manifest-permissions.test.js`: drop the
    "content-main imports of ./content/* must be in WAR" assertion (no longer
    true — they are bundled). KEEP: cursor `getURL` literals are web-accessible;
@@ -573,9 +592,11 @@ runtime; one canonical pipeline.
    `.output/chrome-mv3` tree contains WXT-bundled `background.js`, popup,
    offscreen, one ISOLATED content script, one MAIN-world bridge — and NO
    `legacy/` directory.
-2. `web_accessible_resources` contains only page-world ASSETS (cursors, font,
-   HTML), zero `content/*`/`common/*` code modules; manifest-permissions test
-   green and asserts the absence of code-module WAR.
+2. `web_accessible_resources` contains only genuine page-world ASSETS (cursors
+   and font), zero `content/*`/`common/*` code modules; `popup.html` and
+   `offscreen.html` still resolve at the expected runtime URLs but are not added
+   to WAR; manifest-permissions test green and asserts the absence of code-module
+   WAR.
 3. Runtime uses `browser` (wxt/browser) via `common/browser.ts`; only documented
    Chrome-only APIs remain `chrome.*`; boundary test green.
 4. `storage-core.ts` is backed by `wxt/utils/storage`; all keys/areas unchanged;
@@ -594,13 +615,231 @@ Tracked in the session SQL `todos` table (ids `wxt-c0` … `wxt-c9`) with
 dependencies C0→C1→C2→C3→C4→C5, then C6/C7/C8 (each depends on C5, mutually
 independent), then C9 (depends on C6,C7,C8).
 
-## 11. Appendix — contract tests to update per phase (fill in C0)
+## 11. Appendix — contract tests to update per phase (completed in C0)
 
-- C2: `tests/device-emulation-lifecycle.test.js` (background path/regex), any
-  `readFileSync(new URL("./background.ts"…))` tests.
-- C3: popup source-contract tests referencing `popup.ts`/`popup.html`.
-- C4: `tests/manifest-permissions.test.js` (content WAR assertions),
-  content source-contract tests referencing `content-main.ts`/`content/*`.
-- C5: `tests/package-test-script.test.js` (build-script/deno-task assertions).
-- (C0 must complete this list by grepping `tests/` for `new URL(` path
-  constants before any module is moved.)
+### C0 baseline snapshot (verified 2026-06-25)
+
+- `git status --short --branch` showed a clean branch:
+  `## feat/wxt-port-plan...origin/feat/wxt-port-plan`
+- `git rev-list --left-right --count HEAD...origin/feat/wxt-port-plan` returned
+  `0  0` (in sync with upstream).
+- `pnpm verify` passed on the pre-C0 baseline.
+- Generated manifest parity snapshot (`.output/chrome-mv3/manifest.json`):
+  - `web_accessible_resources` count = **60**
+  - code-module WAR entries = **58**
+  - non-code WAR assets = `assets/materialdesignicons-webfont.woff2`,
+    `cursors/*.svg`
+
+### Current generated WAR snapshot (C4/C5 parity reference)
+
+The generated manifest currently exposes these 58 code modules plus 2 page
+assets:
+
+`content-main.js`,
+`content/constants.js`,
+`content/core.js`,
+`content/marking-rules.js`,
+`content/shared-inclusion.js`,
+`content/shared-selector-cache.js`,
+`content/silent-highlight-rules.js`,
+`content/submission-rules.js`,
+`content/content-command-router.js`,
+`content/content-main-service-registry.js`,
+`content/ai-preview-close-handler.js`,
+`content/ai-preview-compute-lock-handler.js`,
+`content/ai-preview-expanded-mode-handler.js`,
+`content/ai-preview-get-state-handler.js`,
+`content/ai-preview-show-handler.js`,
+`content/ai-preview-state-response.js`,
+`content/ai-submission-xpaths-handler.js`,
+`content/capture-page-snapshot-handler.js`,
+`content/collect-page-data-handler.js`,
+`content/config-updated-handler.js`,
+`content/default-exclusions-handler.js`,
+`content/describe-xpaths-handler.js`,
+`content/layers/content-bus-client.js`,
+`content/explicit-marking-handler.js`,
+`content/focus-handler.js`,
+`content/force-refresh-handler.js`,
+`content/invisible-xpaths-handler.js`,
+`content/inspection-status.js`,
+`content/page-draft-revert-handler.js`,
+`content/page-draft-save-handler.js`,
+`content/page-draft-status-handler.js`,
+`content/page-save-reconciliation-clear-handler.js`,
+`content/page-world-relay.js`,
+`content/page-save-reconciliation-pending-handler.js`,
+`content/page-toast.js`,
+`content/render-mode-inspection-handlers.js`,
+`content/render-mode-inspection-client.js`,
+`content/property-lock-banner.js`,
+`content/property-lock-banner-mode.js`,
+`content/property-lock-port-client.js`,
+`content/property-lock-state-machine.js`,
+`content/runtime-message-handler.js`,
+`content/visible-xpaths-handler.js`,
+`common/config.js`,
+`common/constants.js`,
+`common/feature-flags.js`,
+`common/lynx-checklist.js`,
+`common/lynx-live-pages.js`,
+`common/message-protocol.js`,
+`common/page-world-protocol.js`,
+`common/property-lock.js`,
+`common/selector-set.js`,
+`common/settings-store.js`,
+`common/storage-core.js`,
+`common/text.js`,
+`common/utilities.js`,
+`common/world-messaging-contract.js`,
+`background/tab-session-store.js`,
+`assets/materialdesignicons-webfont.woff2`,
+`cursors/*.svg`
+
+### Phase-by-phase contract-test map
+
+#### C1 — offscreen native bundling
+
+- No current source-contract test pins `../offscreen.ts` directly.
+- Regression surface is behavior-only: offscreen creation remains asserted
+  indirectly through background and AI-run flows.
+- `vitest-tests/a1-bootstrap.test.ts` also covers the transitional bridge rule
+  that WXT-owned `offscreen.html` must win over mirrored legacy files while the
+  hybrid build still exists. C1 should leave that bridge behavior unchanged.
+
+#### C2 — background entrypoint move / bundling
+
+These tests currently read `../background.ts` directly and must update path
+constants if the file moves or if assertions must point at an exported
+`startBackground()` bootstrap:
+
+- `tests/ai-run.test.js`
+- `tests/background-command-hardening.test.js`
+- `tests/background-decomposition-boundary.test.js`
+- `tests/background-marking-activation.test.js`
+- `tests/background-render-mode-inspection.test.js`
+- `tests/device-emulation-lifecycle.test.js`
+- `tests/feature-flags.test.js`
+- `tests/lifecycle-broker.test.js`
+- `tests/marking-no-auto-restore.test.js`
+- `tests/page-motion-bridge-isolation.test.js`
+- `tests/popup-ai-run-gating.test.js`
+- `tests/popup-authority-boundary.test.js`
+- `tests/popup-marking-refresh.test.js`
+- `tests/property-lock-background.test.js`
+- `tests/render-mode-inspection-order.test.js`
+- `tests/selector-suppression.test.js`
+- `tests/world-trace-contract.test.js`
+
+Special case inside the above set:
+
+- `tests/device-emulation-lifecycle.test.js` also pins the exact
+  `documentUrls: [chrome.runtime.getURL("popup.html")]` source contract and must
+  keep that behavioral assertion intact when the background bootstrap moves.
+
+#### C3 — popup entrypoint move / bundling
+
+These tests currently read `../popup.ts` directly and must update path constants
+if the file moves or if assertions must point at an exported `startPopup()`
+bootstrap:
+
+- `tests/ai-run.test.js`
+- `tests/background-marking-activation.test.js`
+- `tests/background-render-mode-inspection.test.js`
+- `tests/device-emulation-lifecycle.test.js`
+- `tests/feature-flags.test.js`
+- `tests/lifecycle-broker.test.js`
+- `tests/popup-ai-run-gating.test.js`
+- `tests/popup-background-snapshot.test.js`
+- `tests/popup-decomposition-boundary.test.js`
+- `tests/popup-marking-refresh.test.js`
+- `tests/popup-mode-sync.test.js`
+- `tests/popup-render-mode.test.js`
+- `tests/preview-tooltip.test.js`
+- `tests/property-lock-render-mode.test.js`
+- `tests/property-lock.test.js`
+- `tests/render-mode-inspection-order.test.js`
+- `tests/world-trace-contract.test.js`
+
+Popup HTML contract that also moves in C3:
+
+- `tests/theme-colors.test.js` reads `../popup.html` directly and asserts the
+  exact stylesheet injection order. When the popup body moves to
+  `entrypoints/popup/index.html`, update that path constant without weakening
+  the ordering assertion.
+- `vitest-tests/a1-bootstrap.test.ts` also covers the transitional bridge rule
+  that WXT-owned `popup.html` must win over mirrored legacy files while the
+  hybrid build still exists. C3 should leave that bridge behavior unchanged
+  until C5 intentionally removes the bridge.
+
+#### C4 — content entrypoint move / bundling + WAR rewrite
+
+These tests currently read `../content-main.ts`, `../content-loader.ts`, and/or
+`../manifest.json`, or read the generated manifest, and therefore must update
+their path constants or expectations when content code becomes WXT-bundled:
+
+- `tests/ai-run.test.js` (`../content-main.ts`)
+- `tests/background-render-mode-inspection.test.js` (`../manifest.json`)
+- `tests/content-activation-order.test.js` (`../content-main.ts`,
+  `../content-loader.ts`)
+- `tests/content-decomposition-boundary.test.js` (`../content-main.ts`)
+- `tests/content-high-risk-branches.test.js` (`../content-main.ts`,
+  `../manifest.json`)
+- `tests/content-main-runtime-router-contract.test.js` (`../content-main.ts`)
+- `tests/content-main-service-registry.test.js` (`../content-main.ts`)
+- `tests/device-emulation-lifecycle.test.js` (`../content-main.ts`)
+- `tests/feature-flags.test.js` (`../content-main.ts`)
+- `tests/lifecycle-broker.test.js` (`../content-main.ts`)
+- `tests/manifest-permissions.test.js` (`../content-main.ts`,
+  `../manifest.json`, `.output/chrome-mv3/manifest.json`)
+- `tests/page-motion-bridge-isolation.test.js` (`../content-loader.ts`)
+- `tests/page-motion-freeze-bridge.test.js` (`../manifest.json`)
+- `tests/package-extension.test.js` (staged `content-main.js`,
+  `common/config.js`, `popup.html`)
+- `tests/popup-marking-refresh.test.js` (`../content-main.ts`)
+- `tests/popup-mode-sync.test.js` (`../content-main.ts`)
+- `tests/preview-tooltip.test.js` (`../content-main.ts`)
+- `tests/property-lock-render-mode.test.js` (`../content-main.ts`)
+- `tests/property-lock.test.js` (`../content-main.ts`)
+- `tests/render-mode-inspection-order.test.js` (`../content-main.ts`)
+- `tests/selector-suppression.test.js` (`../content-main.ts`)
+- `tests/silent-highlight-annotations.test.js` (`../content-main.ts`)
+- `tests/ui-font-uniformity.test.js` (`../content-main.ts`)
+- `tests/world-trace-contract.test.js` (`../content-main.ts`)
+
+`tests/manifest-permissions.test.js` is the highest-risk C4 contract test. It
+currently asserts:
+
+1. every literal page-world `getURL("…")` resource is web-accessible,
+2. no broad `content/*.js` / `common/*.js` wildcards exist,
+3. `content-main.ts` imports of `./content/*` are all individually
+   web-accessible.
+
+Only (3) and the explicit code-module WAR inventory are intentionally removed in
+C4. (1) and (2) must remain, and C4 must add a NEW negative assertion that
+content/common code modules are no longer web-accessible.
+
+`tests/package-extension.test.js` must also be updated in or before C4 because
+its staged-file assertions currently expect `content-main.js` and
+`common/config.js` to be present via the old manifest/WAR-driven staging rules.
+
+#### C5 — esbuild / legacy removal
+
+These tests currently pin the old build-path shape and must be updated when
+`scripts/build-extension.ts`, `dist/extension`, and `legacy/` disappear:
+
+- `tests/package-test-script.test.js` (`../scripts/build-extension.ts`,
+  `legacy/`)
+- `tests/package-extension.test.js` (final staged-file expectations after the
+  code-module WAR inventory and legacy mirror are gone)
+- `tests/build-artifact-parity.test.js` (`dist/extension`,
+  `dist/extension/manifest.json`)
+- `tests/build-extension-package-workflow.test.js`
+  (`.github/workflows/build-extension-package.yml` `required_files` still
+  requiring `content-main.js`)
+- `vitest-tests/a1-bootstrap.test.ts` (`scripts/build-extension.ts`,
+  `scripts/sync-wxt-bootstrap.mjs`, `manifest.json`, `legacy/`, `popup.html`,
+  `offscreen.html`)
+
+Also revisit any C4-updated manifest tests that still mention the transitional
+source `manifest.json` once generated-manifest authority is final.

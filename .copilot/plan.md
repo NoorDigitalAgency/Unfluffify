@@ -4,11 +4,13 @@ Last updated: 2026-06-25
 
 ## Objective
 
-Continue the post-world-decomposition architecture work through the remaining
-explicitly planned `content-main.js` runtime-router and lazy-service seams,
-without touching protected marking, silent-highlight, visibility,
-reconciliation, XPath, AI-submission, overlay projection, or `content/core.js`
-behavior.
+Execute Part C of the WXT program on `feat/wxt-port-plan`: make the extension
+genuinely WXT-native at runtime by moving from the current hybrid
+WXT-wrapper-plus-`legacy/` mirror shape to WXT-bundled entry graphs, while
+preserving the existing higher-level architecture (typed bus, background Brain
+authority, popup/content layer hosts) and all locked runtime behavior
+(marking/highlighting, silent-highlight, visibility, reconciliation, XPath,
+AI-submission, property-lock, spinner/activation contracts).
 
 ## Active Documents
 
@@ -29,7 +31,7 @@ Use these documents before making implementation changes:
     make WXT bundle the real entry graphs, drop esbuild + the `legacy/` mirror,
     eliminate `content/*` WAR, and adopt `wxt/browser` + `wxt/utils/storage` +
     `@webext-core/messaging` (one-shot only) beneath the typed bus / Brain /
-    layer hosts; planned, not started).
+    layer hosts; C0 complete, C1 ready).
 
 Historical and superseded `.copilot` plans/handoffs have been removed from the
 workspace. If earlier rationale is needed, use git history instead of restoring
@@ -37,22 +39,24 @@ old archive files into the active `.copilot` folder.
 
 ## Current Architecture Track
 
-On branch `feat/wxt-port-plan`, the event-bus program is now complete through
-Track 3 in `.copilot/event-bus-architecture-plan.md`:
-`.copilot/event-bus/track-03-activation-lifecycle-content-bootstrap.md`.
+The active track is now `.copilot/wxt-native-adoption-plan.md`:
 
-Tracks 0-3 are complete and green on this branch. Track 3 closed after:
+1. **C0 is complete**: green `pnpm verify` baseline confirmed, branch clean and
+   in sync, generated manifest WAR snapshot captured, and the exact test files
+   that pin `background.ts`, `popup.ts`, `content-main.ts`,
+   `content-loader.ts`, `manifest.json`, `scripts/build-extension.ts`, and
+   `legacy/` were catalogued phase-by-phase in the Part C appendix.
+2. **C1 is next**: native-bundle the offscreen entrypoint as the lowest-risk
+   first runtime cutover.
+3. The prior event-bus program remains complete through Track 3 in
+   `.copilot/event-bus-architecture-plan.md`; Part C preserves that higher-level
+   architecture and replaces only the lower-level packaging/runtime seams.
 
-1. deleting the remaining direct activation/content-ready legacy lifecycle
-   authority from the popup-state broker path and popup bootstrap wrapper
-2. preserving runtime lifecycle snapshots and curtain behavior through the
-   Brain-owned activation path
-3. completing the required live browser validation against `https://bonliva.se`
+Historical status on this branch:
 
-The preview-exit state-neutral restoration slice remains implemented on this
-branch; it is not the active architecture track here. The content-main Track H
-follow-up plan remains deferred unless the user explicitly redirects work back
-to that branch of the program.
+1. event-bus Tracks 0-3 are complete and green
+2. the preview-exit state-neutral restoration slice remains implemented here
+3. the lint strictness cleanup is complete and green
 
 ## Lint Strictness Track: `require-await` and `no-unused-vars`
 
