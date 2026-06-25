@@ -1,5 +1,5 @@
-#!/usr/bin/env -S deno run --allow-read --allow-write --allow-env --allow-run --allow-net --allow-sys
-import { join } from "@std/path";
+#!/usr/bin/env node
+import { join } from "node:path";
 import { appendJsonLine, ensureRunDir } from "./lib/artifacts.mjs";
 import { ScenarioBusClient } from "./lib/bus-client.mjs";
 import { loadOrchestrationConfig, parseCliArgs } from "./lib/config.mjs";
@@ -124,7 +124,7 @@ export async function createRunner(options = {}) {
 }
 
 async function main() {
-  const argv = Deno.args;
+  const argv = process.argv.slice(2);
   const cli = parseCliArgs(argv);
   const runner = await createRunner({
     configOptions: {
@@ -141,6 +141,6 @@ async function main() {
 if (import.meta.main) {
   main().catch((error) => {
     console.error(error);
-    Deno.exit(1);
+    process.exit(1);
   });
 }

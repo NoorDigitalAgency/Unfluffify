@@ -79,13 +79,13 @@ The live-browser launcher targets the WXT unpacked output:
 `pnpm build` by default, and loads `.output/chrome-mv3` into the managed
 Playwright Chromium.
 
-Orchestration helpers are exposed as Deno tasks as well:
+Orchestration helpers are exposed as pnpm/Node scripts:
 
 ```bash
-deno task orchestrate:bus -- --host 127.0.0.1 --port 8765
-deno task orchestrate:runner -- --role follower --side B
-deno task orchestrate:setup-auth -- --role director --side A --account A
-deno task orchestrate:property-lock -- --property-url https://example.com/
+pnpm orchestrate:bus -- --host 127.0.0.1 --port 8765
+pnpm orchestrate:runner -- --role follower --side B
+pnpm orchestrate:setup-auth -- --role director --side A --account A
+pnpm orchestrate:property-lock -- --property-url https://example.com/
 ```
 
 ## Features

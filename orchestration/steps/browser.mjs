@@ -1,13 +1,15 @@
-import { dirname, join, resolve, toFileUrl } from "@std/path";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
 const DEFAULT_VIEWPORT = { width: 1280, height: 1024 };
 const CHROME_PROFILE_PREFERENCES_PATH = join("Default", "Preferences");
-const DEFAULT_EXTENSION_PATH = join(Deno.cwd(), ".output", "chrome-mv3");
+const DEFAULT_EXTENSION_PATH = join(process.cwd(), ".output", "chrome-mv3");
 
 async function resolvePlaywright(config) {
   const candidates = [
     config && config.playwrightModulePath,
-    Deno.env.get("UNFLUFFIFY_PLAYWRIGHT_PATH"),
+    process.env.UNFLUFFIFY_PLAYWRIGHT_PATH,
     "/home/rojan/Desktop/test/node_modules/playwright/index.mjs",
     "/home/rojan/Documents/Git/GitHub/arcana-text/node_modules/playwright/index.mjs"
   ].filter(Boolean);
@@ -15,7 +17,13 @@ async function resolvePlaywright(config) {
   for (const candidate of candidates) {
     try {
       const specifier = String(candidate);
-      return await import(specifier.startsWith("npm:") ? specifier : toFileUrl(resolve(specifier)).href);
+      const importTarget =
+        specifier.startsWith("file:")
+          ? specifier
+          : specifier.startsWith(".") || specifier.startsWith("/") || specifier.includes("\\")
+            ? pathToFileURL(resolve(specifier)).href
+            : specifier;
+      return await import(importTarget);
     } catch {
       // Try the next playwright candidate.
     }
@@ -211,9 +219,9 @@ export async function clearDisabledUnpackedExtensionPreference(config = {}) {
   const preferencesPath = join(profileDir, CHROME_PROFILE_PREFERENCES_PATH);
   let rawPreferences;
   try {
-    rawPreferences = await Deno.readTextFile(preferencesPath);
+    rawPreferences = await readFile(preferencesPath, "utf8");
   } catch (error) {
-    if (error instanceof Deno.errors.NotFound) {
+    if (error && typeof error === "object" && error.code === "ENOENT") {
       return { ok: true, cleared: 0, reason: "missingPreferences" };
     }
     throw error;
@@ -237,7 +245,7 @@ export async function clearDisabledUnpackedExtensionPreference(config = {}) {
     return { ok: true, cleared: 0, preferencesPath };
   }
 
-  await Deno.writeTextFile(preferencesPath, JSON.stringify(preferences));
+  await writeFile(preferencesPath, JSON.stringify(preferences));
   return {
     ok: true,
     cleared: disabledExtensionIds.length,
@@ -361,8 +369,8 @@ async function writeArtifact(context, name, value) {
     return "";
   }
   const filePath = join(context.artifacts.runDir, name);
-  await Deno.mkdir(dirname(filePath), { recursive: true });
-  await Deno.writeTextFile(filePath, JSON.stringify(value, null, 2));
+  await mkdir(dirname(filePath), { recursive: true });
+  await writeFile(filePath, JSON.stringify(value, null, 2));
   return filePath;
 }
 
@@ -381,7 +389,7 @@ export async function launchBrowser(context) {
     launchOptions.executablePath = context.config.chromePath;
   }
 
-  await Deno.mkdir(context.config.profileDir, { recursive: true });
+  await mkdir(context.config.profileDir, { recursive: true });
   await clearDisabledUnpackedExtensionPreference(context.config);
   context.browserContext = await playwright.chromium.launchPersistentContext(
     context.config.profileDir,

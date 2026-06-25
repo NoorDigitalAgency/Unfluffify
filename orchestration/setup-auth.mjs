@@ -1,5 +1,5 @@
-#!/usr/bin/env -S deno run --allow-read --allow-write --allow-env --allow-run --allow-net --allow-sys
-import { basename } from "@std/path";
+#!/usr/bin/env node
+import { basename } from "node:path";
 import { loadOrchestrationConfig, parseCliArgs } from "./lib/config.mjs";
 import {
   loadOrchestrationSecrets,
@@ -180,7 +180,7 @@ export async function seedAuthProfile(options = {}) {
   const secretsResult = options.secrets
     ? { secrets: options.secrets, secretsPath: "" }
     : await loadOrchestrationSecrets({
-        cwd: options.cwd || Deno.cwd(),
+        cwd: options.cwd || process.cwd(),
         secretsPath: options.secretsPath
       });
   const secrets = secretsResult.secrets;
@@ -241,7 +241,7 @@ export async function seedAuthProfile(options = {}) {
 }
 
 async function main() {
-  const argv = Deno.args;
+  const argv = process.argv.slice(2);
   const cli = parseCliArgs(argv);
   const result = await seedAuthProfile({
     configOptions: { argv, requireConfig: cli["require-config"] === true },
@@ -253,6 +253,6 @@ async function main() {
 if (import.meta.main) {
   main().catch((error) => {
     console.error(error.message || error);
-    Deno.exit(1);
+    process.exit(1);
   });
 }

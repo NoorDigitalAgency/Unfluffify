@@ -10,9 +10,16 @@
     "build": "wxt build",
     "zip": "pnpm build && node ./scripts/create-output-zip.mjs ./.output/chrome-mv3 ./.output/unfluffify-bootstrap.zip",
     "check": "wxt prepare && tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.wxt.json && tsc --noEmit -p tsconfig.wxt-node.json",
-    "lint": "eslint eslint.config.js wxt.config.ts vitest.config.ts entrypoints/**/*.ts scripts/launch-test-browser.mjs scripts/create-output-zip.mjs scripts/remove-path.mjs tests/**/*.test.js tests/**/*.ts tests/shims/*.js vitest-tests/**/*.test.ts",
+    "lint": "eslint eslint.config.js wxt.config.ts vitest.config.ts entrypoints/**/*.ts orchestration/**/*.mjs scripts/launch-test-browser.mjs scripts/create-output-zip.mjs scripts/remove-path.mjs tests/**/*.test.js tests/**/*.ts tests/shims/*.js vitest-tests/**/*.test.ts",
     "test": "vitest run",
     "browser:live": "node ./scripts/launch-test-browser.mjs",
+    "orchestrate:bus": "node ./orchestration/bus-server.mjs",
+    "orchestrate:mock-client": "node ./orchestration/mock-client.mjs",
+    "orchestrate:runner": "node ./orchestration/runner.mjs",
+    "orchestrate:setup-auth": "node ./orchestration/setup-auth.mjs",
+    "orchestrate:property-lock": "node ./orchestration/scenarios/property-lock-one-machine.mjs",
+    "orchestrate:rpc-server": "node ./orchestration/rpc-server.mjs",
+    "orchestrate:rpc-client": "node ./orchestration/rpc-client.mjs",
     "verify": "pnpm lint && pnpm check && pnpm test && node ./scripts/remove-path.mjs ./.output && pnpm build && UF_MANIFEST_SOURCE=generated vitest run tests/manifest-permissions.test.js"
   },
   "devDependencies": {
@@ -24,6 +31,7 @@
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.62.0",
     "vitest": "^4.1.9",
+    "ws": "^8.21.0",
     "wxt": "^0.20.27"
   },
   "dependencies": {
