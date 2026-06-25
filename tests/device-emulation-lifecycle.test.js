@@ -78,8 +78,8 @@ test("unregister-and-reload preserves user-controlled device emulation state", (
 test("background centralizes tracked tab-session cleanup with optional device-state removal", () => {
   const helperBlock = extractSourceBlock(
     backgroundSource,
-    "async function clearTrackedTabSessionState(tabId, options = {}) {",
-    "async function clearReloadRestoreTabState(tabId) {"
+    "async function clearTrackedTabSessionState",
+    "async function clearReloadRestoreTabState"
   );
   const onRemovedBlock = extractSourceBlock(
     backgroundSource,
@@ -88,10 +88,10 @@ test("background centralizes tracked tab-session cleanup with optional device-st
   );
 
   assert.match(helperBlock, /const \{ includeDeviceState = false \} = options;/);
-  assert.match(helperBlock, /await clearStoredTrackedTabSessionState\(tabId, \{/);
+  assert.match(helperBlock, /await clearStoredTrackedTabSessionState\(normalizedTabId, \{/);
   assert.match(helperBlock, /includeRestoreScope: true/);
   assert.match(helperBlock, /includeScriptInjected: true/);
-  assert.match(helperBlock, /if \(includeDeviceState\) \{\s*await clearDeviceEmulationState\(tabId\);\s*\}/);
+  assert.match(helperBlock, /if \(includeDeviceState\) \{\s*await clearDeviceEmulationState\(normalizedTabId\);\s*\}/);
   assert.match(onRemovedBlock, /clearTrackedTabSessionState\(tabId, \{ includeDeviceState: true \}\)\.then\(\);/);
   assert.match(onRemovedBlock, /brain\.recordRenderModeNoJsHold\(tabId, \{[\s\S]*?held: false,[\s\S]*?javaScriptDisabled: false[\s\S]*?\}, "render-mode:tab-removed"\)/);
 });
@@ -122,7 +122,7 @@ test("extension activation enables default mobile emulation for fresh tab sessio
   assert.match(bootstrapBlock, /if \(!result \|\| !result\.ok\) \{\s*requestContentActivation\(normalizedTabId\);/);
   assert.doesNotMatch(backgroundSource, /message\.type !== "activateContentForTab"/);
   assert.match(helperBlock, /utils\.getOriginFromUrl\(resolvedUrl\)/);
-  assert.match(helperBlock, /ensureDefaultMobileDeviceEmulation\(tabId\)/);
+  assert.match(helperBlock, /ensureDefaultMobileDeviceEmulation\(normalizedTabId\)/);
 });
 
 test("marking enable delegates mobile simulation prep to TAB_ACTIVATE_MARKING and keeps popup device toggle locked", () => {
@@ -348,7 +348,7 @@ test("completed reload reactivates live enabled tabs without restore scope fallb
   // setReloadRestoreTabState was removed in Phase 2 slice 1 (auto-restore retired);
   // only the cleanup key path remains.
   assert.doesNotMatch(backgroundSource, /async function setReloadRestoreTabState\(tabId, state\) \{/);
-  assert.match(backgroundSource, /async function clearReloadRestoreTabStateAfterActivation\(tabId, tabState\) \{/);
+  assert.match(backgroundSource, /async function clearReloadRestoreTabStateAfterActivation\(\s*tabId(?:\s*:\s*[^,]+)?,\s*tabState(?:\s*:\s*[^)]+)?\s*\)(?:\s*:\s*[^{]+)? \{/);
   // Restore scope is no longer consulted (auto-restore retired in Phase 2.1)
   assert.match(onUpdatedBlock, /const tabState = await utils\.getTabState\(tabId\);/);
   assert.doesNotMatch(onUpdatedBlock, /getReloadRestoreTabState/);
@@ -374,10 +374,10 @@ test("successful same-base restore activation clears restore intent after conten
 
   assert.match(restoreBlock, /const normalizedResponse = response && typeof response === "object"/);
   assert.match(restoreBlock, /if \(!normalizedResponse \|\| normalizedResponse\.ok === false\) \{/);
-  assert.match(restoreBlock, /runBackgroundTask\([\s\S]*?clearReloadRestoreTabStateAfterActivation\(tabId, tabState\)/);
+  assert.match(restoreBlock, /runBackgroundTask\([\s\S]*?clearReloadRestoreTabStateAfterActivation\(normalizedTabId, tabState\)/);
   assert.doesNotMatch(clearBlock, /getReloadRestoreTabState|restoreState|await getTabUrl/);
-  assert.match(clearBlock, /await clearReloadRestoreTabState\(tabId\);/);
-  assert.match(backgroundSource, /await clearTabStateScope\(tabId, TAB_RESTORE_SCOPE\);/);
+  assert.match(clearBlock, /await clearReloadRestoreTabState\(normalizedTabId\);/);
+  assert.match(backgroundSource, /await clearTabStateScope\(normalizedTabId, TAB_RESTORE_SCOPE\);/);
   assert.doesNotMatch(backgroundSource, /getReloadRestoreTabStateKey/);
 });
 

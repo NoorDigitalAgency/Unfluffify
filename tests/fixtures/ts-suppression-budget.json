@@ -4,7 +4,6 @@
     "src/content-main.ts": 589,
     "src/popup.ts": 537,
     "src/common/config.ts": 157,
-    "src/background.ts": 13,
     "src/popup/ui.ts": 28,
     "src/common/page-motion-freeze-bridge.ts": 43,
     "src/common/page-motion-freeze-control.ts": 37

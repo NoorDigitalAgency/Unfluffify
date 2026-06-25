@@ -112,12 +112,12 @@ test("background restore activation starts an operation and passes its id to con
     "async function getTabUrl"
   );
 
-  assert.match(block, /const operationId = `activation:\$\{tabId\}:\$\{Date\.now\(\)\}:\$\{attempt\}`;/);
-  assert.match(block, /brain\.mirrorActivationLifecycle\(tabId, \{[\s\S]*?kind: LIFECYCLE_KINDS\.ACTIVATION[\s\S]*?phase: LIFECYCLE_PHASES\.STARTED[\s\S]*?busy: true/);
+  assert.match(block, /const operationId = `activation:\$\{normalizedTabId\}:\$\{Date\.now\(\)\}:\$\{attempt\}`;/);
+  assert.match(block, /brain\.mirrorActivationLifecycle\(normalizedTabId, \{[\s\S]*?kind: LIFECYCLE_KINDS\.ACTIVATION[\s\S]*?phase: LIFECYCLE_PHASES\.STARTED[\s\S]*?busy: true/);
   assert.match(block, /operationId/);
   assert.match(block, /phase: LIFECYCLE_PHASES\.FAILED[\s\S]*?busy: false[\s\S]*?"background:restore-enabled-state:lifecycle-failed"/);
-  assert.match(block, /removeBackgroundSpinnerEntry\(tabId, "navInspect"\);/);
-  assert.match(block, /runBackgroundTask\([\s\S]*?clearReloadRestoreTabStateAfterActivation\(tabId, tabState\)/);
+  assert.match(block, /removeBackgroundSpinnerEntry\(normalizedTabId, "navInspect"\);/);
+  assert.match(block, /runBackgroundTask\([\s\S]*?clearReloadRestoreTabStateAfterActivation\(normalizedTabId, tabState\)/);
 });
 
 test("background content bootstrap mirrors activation bootstrap state into the brain", () => {

@@ -281,6 +281,35 @@ type RenderModeReloadRecoveryResult = BackgroundOperationResult & {
   detachResult?: RenderModeDetachResult;
 };
 
+type TabStateRecord = Record<string, unknown> & {
+  active?: boolean;
+  enabled?: boolean;
+  baseUrl?: string;
+  pageType?: string;
+  propertyLockOffCandidateDeadlineAt?: number;
+  propertyLockRecoverySiteId?: number | null;
+  propertyLockRecoveryBaseUrl?: string;
+  propertyLockRecoveryClientId?: string;
+  propertyLockRecoveryDeadlineAt?: number;
+};
+
+type TopLevelNavigationDetails = {
+  frameId?: number;
+  tabId?: number;
+};
+
+type TrackedTabSessionClearOptions = {
+  includeDeviceState?: boolean;
+};
+
+type SessionStorageChanges = Record<string, unknown>;
+
+type DefaultMobileEmulationState = {
+  enabled: boolean;
+  mode: "mobile" | "desktop";
+  scale: number;
+};
+
 function buildFeatureDisabledResponse(featureName: string): FeatureDisabledResponse {
   return {
     ok: false,
@@ -313,6 +342,10 @@ function normalizeBrokerTabId(value: unknown): number | null {
 
 function normalizeSpinnerTabId(value: unknown): number {
   return normalizeBrokerTabId(value) || 0;
+}
+
+function asTabStateRecord(value: unknown): TabStateRecord | null {
+  return value && typeof value === "object" ? value as TabStateRecord : null;
 }
 
 const worldTrace = createWorldTrace({
@@ -3138,10 +3171,10 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const scope = typeof message.scope === "string" && message.scope ? message.scope : null;
     queueTabSessionWrite(tabId, async () => {
         const existingState = await getStoredTabState(tabId, scope);
-        const existing = existingState && typeof existingState === "object"
-          ? existingState
+        const existing = asTabStateRecord(existingState)
+          ? asTabStateRecord(existingState)
           : {};
-        let nextState;
+        let nextState: TabStateRecord;
         if (message.state && typeof message.state === "object") {
           nextState = { ...existing };
           if (Object.prototype.hasOwnProperty.call(message.state, "active")) {
@@ -3212,7 +3245,6 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
             baseUrl: message.baseUrl || ""
           };
           if (Object.prototype.hasOwnProperty.call(message, "pageType")) {
-// @ts-expect-error
             nextState.pageType = typeof message.pageType === "string" ? message.pageType : "";
           }
         }
@@ -3506,8 +3538,7 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
       } catch (error) {
         sendResponse({
           ok: false,
-// @ts-expect-error
-          error: (error && error.message) || "Static HTML request failed"
+          error: error instanceof Error ? error.message : "Static HTML request failed"
         });
       }
     })();
@@ -3533,8 +3564,7 @@ browser.tabs.onRemoved.addListener((tabId) => {
   deleteTabRuntime(tabId);
 });
 
-// @ts-expect-error
-async function disableExtensionOnTopLevelNavigation(details) {
+async function disableExtensionOnTopLevelNavigation(details: TopLevelNavigationDetails): Promise<void> {
   if (details.frameId !== 0) {
     return;
   }
@@ -3565,8 +3595,9 @@ async function disableExtensionOnTopLevelNavigation(details) {
 // cancelled but we would have already torn down the marking session.
 browser.webNavigation.onCommitted.addListener(disableExtensionOnTopLevelNavigation);
 
-// @ts-expect-error
-async function normalizeRenderModeJavaScriptOnTopLevelNavigation(details) {
+async function normalizeRenderModeJavaScriptOnTopLevelNavigation(
+  details: TopLevelNavigationDetails
+): Promise<void> {
   if (details.frameId !== 0 || !details.tabId) {
     return;
   }
@@ -3688,58 +3719,63 @@ browser.windows.onFocusChanged.addListener(async (windowId) => {
 
 const TAB_RESTORE_SCOPE = "restore";
 
-// @ts-expect-error
-async function clearTrackedTabSessionState(tabId, options = {}) {
-  if (!tabId) {
+async function clearTrackedTabSessionState(
+  tabId: unknown,
+  options: TrackedTabSessionClearOptions = {}
+): Promise<void> {
+  const normalizedTabId = normalizeBrokerTabId(tabId);
+  if (!normalizedTabId) {
     return;
   }
-// @ts-expect-error
   const { includeDeviceState = false } = options;
-  await clearStoredTrackedTabSessionState(tabId, {
+  await clearStoredTrackedTabSessionState(normalizedTabId, {
     includeRestoreScope: true,
     includeScriptInjected: true
   });
   if (includeDeviceState) {
-    await clearDeviceEmulationState(tabId);
+    await clearDeviceEmulationState(normalizedTabId);
   }
 }
 
-// @ts-expect-error
-async function clearReloadRestoreTabState(tabId) {
-  if (!tabId) {
+async function clearReloadRestoreTabState(tabId: unknown): Promise<void> {
+  const normalizedTabId = normalizeBrokerTabId(tabId);
+  if (!normalizedTabId) {
     return;
   }
-  await clearTabStateScope(tabId, TAB_RESTORE_SCOPE);
+  await clearTabStateScope(normalizedTabId, TAB_RESTORE_SCOPE);
 }
 
-// @ts-expect-error
-async function clearReloadRestoreTabStateAfterActivation(tabId, tabState) {
-  if (!tabId || !tabState || !tabState.enabled || !tabState.baseUrl) {
+async function clearReloadRestoreTabStateAfterActivation(
+  tabId: unknown,
+  tabState: TabStateRecord | null
+): Promise<void> {
+  const normalizedTabId = normalizeBrokerTabId(tabId);
+  if (!normalizedTabId || !tabState || tabState.enabled !== true || typeof tabState.baseUrl !== "string" || !tabState.baseUrl) {
     return;
   }
-  await clearReloadRestoreTabState(tabId);
+  await clearReloadRestoreTabState(normalizedTabId);
 }
 
-// @ts-expect-error
-function requestContentActivation(tabId, attempt = 0) {
-  if (!tabId) {
+function requestContentActivation(tabId: unknown, attempt = 0): void {
+  const normalizedTabId = normalizeBrokerTabId(tabId);
+  if (!normalizedTabId) {
     return;
   }
-  sendBrowserTabMessage(tabId, { type: "activateContentMain" }, { frameId: 0 })
+  sendBrowserTabMessage(normalizedTabId, { type: "activateContentMain" }, { frameId: 0 })
     .catch(() => {
       if (attempt < 3) {
-        setTimeout(() => requestContentActivation(tabId, attempt + 1), 200);
+        setTimeout(() => requestContentActivation(normalizedTabId, attempt + 1), 200);
       }
     });
 }
 
-// @ts-expect-error
-function restoreEnabledStateForTab(tabId, tabState, attempt = 0) {
-  if (!tabId || !tabState || !tabState.enabled || !tabState.baseUrl) {
+function restoreEnabledStateForTab(tabId: unknown, tabState: TabStateRecord | null, attempt = 0): void {
+  const normalizedTabId = normalizeBrokerTabId(tabId);
+  if (!normalizedTabId || !tabState || tabState.enabled !== true || typeof tabState.baseUrl !== "string" || !tabState.baseUrl) {
     return;
   }
-  const operationId = `activation:${tabId}:${Date.now()}:${attempt}`;
-  brain.mirrorActivationLifecycle(tabId, {
+  const operationId = `activation:${normalizedTabId}:${Date.now()}:${attempt}`;
+  brain.mirrorActivationLifecycle(normalizedTabId, {
     operationId,
     kind: LIFECYCLE_KINDS.ACTIVATION,
     phase: LIFECYCLE_PHASES.STARTED,
@@ -3747,7 +3783,7 @@ function restoreEnabledStateForTab(tabId, tabState, attempt = 0) {
     message: "Preparing page content for marking..."
   }, "background:restore-enabled-state:lifecycle-started");
   sendBrowserTabMessage(
-    tabId,
+    normalizedTabId,
     {
       type: "setEnabled",
       enabled: true,
@@ -3764,74 +3800,80 @@ function restoreEnabledStateForTab(tabId, tabState, attempt = 0) {
         : undefined;
       if (!normalizedResponse || normalizedResponse.ok === false) {
         if (attempt < 4 && !(normalizedResponse && normalizedResponse.locked)) {
-          setTimeout(() => restoreEnabledStateForTab(tabId, tabState, attempt + 1), 200);
+          setTimeout(() => restoreEnabledStateForTab(normalizedTabId, tabState, attempt + 1), 200);
         } else {
-          brain.mirrorActivationLifecycle(tabId, {
+          brain.mirrorActivationLifecycle(normalizedTabId, {
             operationId,
             kind: LIFECYCLE_KINDS.ACTIVATION,
             phase: LIFECYCLE_PHASES.FAILED,
             busy: false,
             message: ""
           }, "background:restore-enabled-state:lifecycle-failed");
-          removeBackgroundSpinnerEntry(tabId, "navInspect");
+          removeBackgroundSpinnerEntry(normalizedTabId, "navInspect");
         }
         return;
       }
       runBackgroundTask(
         "clear-reload-restore-tab-state-after-activation",
-        clearReloadRestoreTabStateAfterActivation(tabId, tabState),
+        clearReloadRestoreTabStateAfterActivation(normalizedTabId, tabState),
         {
-          tabId,
+          tabId: normalizedTabId,
           appendTrace: appendWorldTraceEvent
         }
       );
     })
     .catch(() => {
       if (attempt < 4) {
-        setTimeout(() => restoreEnabledStateForTab(tabId, tabState, attempt + 1), 200);
+        setTimeout(() => restoreEnabledStateForTab(normalizedTabId, tabState, attempt + 1), 200);
         return;
       }
-      brain.mirrorActivationLifecycle(tabId, {
+      brain.mirrorActivationLifecycle(normalizedTabId, {
         operationId,
         kind: LIFECYCLE_KINDS.ACTIVATION,
         phase: LIFECYCLE_PHASES.FAILED,
         busy: false,
         message: ""
       }, "background:restore-enabled-state:lifecycle-failed");
-      removeBackgroundSpinnerEntry(tabId, "navInspect");
+      removeBackgroundSpinnerEntry(normalizedTabId, "navInspect");
     });
 }
 
-// @ts-expect-error
-async function getTabUrl(tabId) {
+async function getTabUrl(tabId: unknown): Promise<string> {
+  const normalizedTabId = normalizeBrokerTabId(tabId);
+  if (!normalizedTabId) {
+    return "";
+  }
   try {
-    const tab = await getBrowserTab(tabId);
+    const tab = await getBrowserTab(normalizedTabId);
     return (tab && typeof tab.url === "string") ? tab.url : "";
   } catch (error) {
     return "";
   }
 }
 
-// @ts-expect-error
-async function ensureDefaultMobileEmulationForTab(tabId, tabUrl = "") {
-  if (!tabId) {
+async function ensureDefaultMobileEmulationForTab(
+  tabId: unknown,
+  tabUrl = ""
+): Promise<DefaultMobileEmulationState | null> {
+  const normalizedTabId = normalizeBrokerTabId(tabId);
+  if (!normalizedTabId) {
     return null;
   }
   const resolvedUrl = typeof tabUrl === "string" && tabUrl
     ? tabUrl
-    : await getTabUrl(tabId);
+    : await getTabUrl(normalizedTabId);
   if (!utils.getOriginFromUrl(resolvedUrl)) {
     return null;
   }
   try {
-    const result = await ensureDefaultMobileDeviceEmulation(tabId);
+    const result = await ensureDefaultMobileDeviceEmulation(normalizedTabId);
     if (!result || !result.ok) {
       if (result && result.error) {
         console.warn("Default mobile emulation failed:", result.error);
       }
       return null;
     }
-    return result.state;
+    return result.state || null;
   } catch (error) {
     console.warn("Default mobile emulation failed:", error);
     return null;
@@ -3875,8 +3917,10 @@ utils.addStorageChangeListener((changes, areaName) => {
   if (areaName !== "session") {
     return;
   }
-// @ts-expect-error
-  Object.keys(changes).forEach((key) => {
+  const sessionChanges: SessionStorageChanges = changes && typeof changes === "object"
+    ? changes as SessionStorageChanges
+    : {};
+  Object.keys(sessionChanges).forEach((key) => {
     const parsed = parseTabStateStorageKey(key);
     if (!parsed || !parsed.tabId) {
       return;
