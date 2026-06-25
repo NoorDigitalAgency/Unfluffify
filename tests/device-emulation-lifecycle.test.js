@@ -129,7 +129,6 @@ test("marking enable delegates mobile simulation prep to TAB_ACTIVATE_MARKING an
     "async function handleEnableToggle(event) {",
     "async function handleDeviceEmulationEnabledToggle"
   );
-  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   const uiBlock = extractSourceBlock(
     readFileSync(new URL("../popup/ui.ts", import.meta.url), "utf8"),
     "function renderMarkingView({state: view, actions: handlers}) {",

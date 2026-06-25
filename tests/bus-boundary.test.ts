@@ -37,7 +37,7 @@ describe("bus boundaries", () => {
     const bus = createBus({
       realm: REALMS.BACKGROUND,
       transport: {
-        send: async () => undefined,
+        send: () => Promise.resolve(undefined),
         onInbound() {},
         start() {},
         stop() {},

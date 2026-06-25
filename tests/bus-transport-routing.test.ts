@@ -137,7 +137,7 @@ describe("background transport", () => {
     const popupPort = createFakePort(buildBusPortName(9));
     const seenLocally: string[] = [];
     transport.registerPopupPort(9, popupPort.port);
-    transport.onInbound(async (env) => {
+    transport.onInbound((env) => {
       seenLocally.push(env.t);
     });
 

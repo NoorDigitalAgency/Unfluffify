@@ -11,8 +11,8 @@ function createTestBus() {
   return createBus({
     realm: REALMS.POPUP,
     transport: {
-      async send() {
-        return undefined;
+      send() {
+        return Promise.resolve(undefined);
       },
       onInbound() {},
       start() {},

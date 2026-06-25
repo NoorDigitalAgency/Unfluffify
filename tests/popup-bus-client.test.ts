@@ -10,11 +10,11 @@ describe("popup bus self-test", () => {
   it("requests background and content diag.ping round-trips and logs passes", async () => {
     const log = vi.fn<(eventName: string, details?: Record<string, unknown>) => void>();
     const request = vi.fn()
-      .mockImplementationOnce(async (_type: string, payload: { nonce: string }) => ({
+      .mockImplementationOnce((_type: string, payload: { nonce: string }) => Promise.resolve({
         nonce: payload.nonce,
         realm: REALMS.BACKGROUND,
       }))
-      .mockImplementationOnce(async (_type: string, payload: { nonce: string }) => ({
+      .mockImplementationOnce((_type: string, payload: { nonce: string }) => Promise.resolve({
         nonce: payload.nonce,
         realm: REALMS.CONTENT,
       }));

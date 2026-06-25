@@ -11,8 +11,8 @@ describe("content layer host", () => {
     const bus = createBus({
       realm: REALMS.CONTENT,
       transport: {
-        async send() {
-          return undefined;
+        send() {
+          return Promise.resolve(undefined);
         },
         onInbound() {},
         start() {},

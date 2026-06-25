@@ -75,7 +75,7 @@ describe("bus core", () => {
 
   it("routes remote requests through the transport", async () => {
     const transport = createFakeTransport({
-      send: async (env) => makeReplyEnvelope(env, true, { nonce: "n-3", realm: REALMS.BACKGROUND }),
+      send: (env) => Promise.resolve(makeReplyEnvelope(env, true, { nonce: "n-3", realm: REALMS.BACKGROUND })),
     });
     const bus = createBus({
       realm: REALMS.POPUP,
@@ -120,9 +120,7 @@ describe("bus core", () => {
       logger: { error },
     });
 
-    bus.subscribe("diag.echo", async () => {
-      throw new Error("listener failed");
-    });
+    bus.subscribe("diag.echo", () => Promise.reject(new Error("listener failed")));
 
     await expect(bus.publish("diag.echo", { nonce: "n-5" }, { target: REALMS.BACKGROUND })).resolves.toBeUndefined();
     expect(error).toHaveBeenCalled();
@@ -163,11 +161,11 @@ describe("bus core", () => {
     const bus = createBus({
       realm: REALMS.CONTENT,
       transport: createFakeTransport({
-        send: async () => {
+        send: () => {
           const error = new Error("relay failed") as Error & { code?: string; details?: Record<string, unknown> };
           error.code = BUS_ERROR_CODES.UNREACHABLE_REALM;
           error.details = { target: REALMS.PAGE };
-          throw error;
+          return Promise.reject(error);
         },
       }),
     });
@@ -183,11 +181,11 @@ describe("bus core", () => {
 
   it("preserves failure replies from remote handlers", async () => {
     const transport = createFakeTransport({
-      send: async (env) => makeReplyEnvelope(env, false, {
+      send: (env) => Promise.resolve(makeReplyEnvelope(env, false, {
         code: BUS_ERROR_CODES.NO_HANDLER,
         error: "remote failed",
         details: { type: env.t },
-      }),
+      })),
     });
     const bus = createBus({
       realm: REALMS.POPUP,
