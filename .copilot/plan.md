@@ -28,11 +28,10 @@ Use these documents before making implementation changes:
 10. This document's lint strictness track for removing `require-await` and
    `no-unused-vars` from the active Deno lint exclusions.
 11. `.copilot/wxt-native-adoption-plan.md` (Part C: native WXT runtime adoption —
-    make WXT bundle the real entry graphs, drop esbuild + the `legacy/` mirror,
-    eliminate `content/*` WAR, and adopt `wxt/browser` + `wxt/utils/storage` +
-    `@webext-core/messaging` (tab-targeted one-shot only) beneath the typed bus /
-    Brain / layer hosts; popup/content -> background runtime requests stay raw
-    after the live MV3 worker probe; C0-C8 complete, C9 next).
+    WXT now bundles the real entry graphs, the esbuild + `legacy/` mirror path is
+    gone, content code WAR is eliminated, and `wxt/browser` +
+    `wxt/utils/storage` + hybrid `@webext-core/messaging` sit beneath the typed
+    bus / Brain / layer hosts; Part C is complete).
 
 Historical and superseded `.copilot` plans/handoffs have been removed from the
 workspace. If earlier rationale is needed, use git history instead of restoring
@@ -87,7 +86,7 @@ The active track is now `.copilot/wxt-native-adoption-plan.md`:
    one-shot sends, property-lock port connect/background port wiring, and
    touched content sender types route through promise-based browser APIs;
    touched type positions use `Browser.*`; and a browser-polyfill boundary test
-   records the remaining raw-`chrome` runtime debt for later C6 batches.
+   guards the intentionally remaining raw `chrome.*` surfaces.
 8. **C7 is complete**: `common/storage-core.ts` now
    adopts `wxt/utils/storage` behind the unchanged storage boundary, the
    settings-store sync cache listener routes through
@@ -95,7 +94,16 @@ The active track is now `.copilot/wxt-native-adoption-plan.md`:
    storage-core boundary, focused/full validation is green, and the required
    Bonliva live smoke confirmed both sync-setting persistence and popup refresh
    on session-backed device/render-mode-hold state.
-9. The prior event-bus program remains complete through Track 3 in
+9. **C8 is complete**: one-shot messaging now uses a shared
+   `common/extension-messaging.ts` seam, with `@webext-core/messaging` adopted
+   for tab-targeted content delivery while popup/content -> background runtime
+   requests stay on the repo's raw envelopes after the live MV3 worker probe.
+   Content-side wrapped listeners now route through the shared helpers, and the
+   fire-and-forget content request contract remains immediate.
+10. **C9 is complete**: the Part C docs/knowledge are closed out, the final
+   full validation is green, and the Bonliva live regression still enters the
+   render-mode inspection flow instead of failing with "No response".
+11. The prior event-bus program remains complete through Track 3 in
    `.copilot/event-bus-architecture-plan.md`; Part C preserves that higher-level
    architecture and replaces only the lower-level packaging/runtime seams.
 

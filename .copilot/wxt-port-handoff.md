@@ -22,6 +22,10 @@
 **Sequencing (locked):** Part A fully cuts over first; then Part B. Do not build
 the Brain on a half-migrated dual Deno+WXT build.
 
+> Status update: the WXT runtime adoption program through Part C is complete on
+> `feat/wxt-port-plan`. Treat the Part A bridge notes below as historical
+> baseline/handoff context, not an active implementation queue.
+
 ## Branch and baseline
 
 - Working branch: `feat/wxt-port-plan`.
@@ -417,22 +421,10 @@ Follow the dependency order in `todo_deps`.
 
 ## Immediate next action for implementer
 
-`wxt-a0-baseline-inventory`, `wxt-a1-bootstrap-toolchain`,
-`wxt-a2-entrypoint-adapters`, and `wxt-a3-manifest-war-parity` are complete.
-Start `wxt-a4-vitest-eslint-migration`:
+No further Part A/Part C implementation action is required on this branch.
+The WXT-native runtime program is complete, including the final `pnpm verify`
+gate and Bonliva live regression.
 
-1. Convert the Deno test suite incrementally to Vitest, starting with the
-   manifest/source-contract-heavy tests that already fit a file-read model well.
-2. Move the manifest-permissions/source-contract checks that now rely on the WXT
-   output into the Vitest/Node path where possible, while preserving the same
-   assertions and avoiding repo-state dependence.
-3. Broaden `pnpm lint` from the current bridge/entrypoint scope toward the full
-   migrated surface, keeping the Deno-only files on their existing lint path
-   until their migration is complete.
-4. Keep `deno task test` and `pnpm test` green in parallel until the suite is
-   fully cut over, then move to `wxt-a5-browser-live-debug-flow`.
-
-Do NOT start Part B (Brain) until `wxt-a7-cutover-cleanup` is done and
-`.copilot/event-bus-architecture-plan.md` §0 preconditions all hold. Then proceed
-phase-by-phase from `.copilot/wxt-port-plan.md` and track-by-track from the
-event-bus doc set.
+If a future agent resumes work here, start from the active plan documents
+(`.copilot/plan.md`, `.copilot/wxt-native-adoption-plan.md`) and only begin new
+implementation if the user opens a follow-up task beyond this completed program.

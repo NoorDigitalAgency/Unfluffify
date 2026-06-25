@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-25
 Branch: `feat/wxt-port-plan`
-Status: C6 batch 4 complete; C6 in progress
+Status: Part C complete
 
 This is the executor doc for **Part C** of the WXT program. It is written so a
 low-context agent can execute it without inventing architecture or making
@@ -474,6 +474,14 @@ APIs are the only documented `chrome.*` exceptions.
 https://bonliva.se` after the background/content/popup batches.
 **Rollback**: revert the batch; the seam re-export is inert.
 
+**Completed state (2026-06-25)**: all four C6 batches are complete. The repo
+now routes the shared async-messaging + bus layer, popup/offscreen/content
+runtime listeners, popup active-tab fallback lookup, popup render-mode
+tab-load waiters, content one-shot sends, property-lock port connect/background
+port wiring, and touched sender/type positions through `common/browser.ts`.
+`pnpm verify` is green, and the required Bonliva live validation passed after
+the background/content/popup batches.
+
 ### Phase C7 — Adopt `wxt/utils/storage` behind `storage-core.ts`
 
 **Files**: `common/storage-core.ts`, `common/settings-store.ts`,
@@ -554,6 +562,14 @@ banner still work.
 **Rollback**: revert transports to raw `chrome.*` one-shot sends; the bus
 interface is unchanged so rollback is local.
 
+**Completed state (2026-06-25)**: C8 is complete. `common/extension-messaging.ts`
+is now the shared one-shot messaging seam; `@webext-core/messaging` handles the
+supported tab-targeted content delivery paths; popup/content -> background
+requests stay on the repo's raw envelopes after the live MV3 worker probe; the
+content-side wrapped listeners route through the shared helpers; the
+fire-and-forget content request contract remains immediate; and `pnpm verify`
+is green.
+
 ### Phase C9 — Final cleanup, docs, knowledge, full validation
 
 **Files**: `.copilot/knowledge.md`, `.copilot/wxt-port-plan.md` (mark Part C done),
@@ -570,6 +586,11 @@ interface is unchanged so rollback is local.
 **Expected state**: program documents and knowledge reflect the WXT-native
 runtime; one canonical pipeline.
 **Validation**: `pnpm verify`; full live regression.
+
+**Completed state (2026-06-25)**: docs/knowledge now reflect the WXT-native
+runtime; `pnpm verify` is green; and the Bonliva live popup regression still enters "Starting render-mode
+inspection" on the "Without JavaScript" path instead of failing with
+"No response".
 
 ---
 

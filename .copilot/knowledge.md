@@ -165,31 +165,22 @@
   core unflagged behavior when automated validation is not enough, while
   flag-disabled property-lock follow-ups may defer live
   validation until those features are prioritized.
-- Part C native WXT runtime adoption is active on `feat/wxt-port-plan`. C0-C5
-  are complete: C2 proved that the background service worker can be
-  native-bundled by making startup explicit behind `startBackground()` while the
-  root `background.ts` still self-starts for the legacy esbuild path, and C3
-  proved that the popup can be native-bundled by importing `popup.ts` from the
-  WXT popup entrypoint once timer helpers are kept browser-typed. C4 proved the
-  content runtime can be native-bundled through WXT entrypoints while content
-  code WAR is removed, the MAIN-world bridge is aliased back onto the source
-  manifest path, the root `content-main.js` artifact is retired, and the legacy
-  `activateContentMain` reply contract stays intact for background bootstrap
-  compatibility. C5 removed the esbuild build, the `legacy/` mirror, and the
-  standalone sync bridge: `pnpm build` is now pure `wxt build`, the source
-  manifest uses native `content-scripts/*` paths, stable public assets are
-  copied through WXT hooks, popup live-debug state comes from the popup debug
-  hook instead of mirrored `popup/ui.js`, and the only remaining manifest
-  override is restoring the source `action` block to omit `default_popup`.
-- C6 is in progress. The first four browser-polyfill batches are complete: the
-  repo now has a dedicated browser seam; shared async messaging, bus
-  transports, popup/offscreen runtime listeners, popup active-tab fallback
-  lookup, popup render-mode tab-load waiters, content loader/runtime listeners,
-  content one-shot sends, property-lock port connect/background port wiring,
-  and touched content sender types use promise-based browser APIs through that
-  seam; touched type positions use `Browser.*`; and
-  `tests/browser-polyfill-boundary.test.js` tracks the remaining raw-`chrome`
-  migration debt for later C6 batches.
+- Part C native WXT runtime adoption is complete on `feat/wxt-port-plan`. The
+  runtime is now genuinely WXT-native end to end: WXT bundles the real
+  background, popup, content, offscreen, and MAIN-world bridge graphs; the
+  esbuild build, `legacy/` mirror, and standalone sync bridge are gone; `pnpm
+  build` is pure `wxt build`; the source manifest uses native
+  `content-scripts/*` paths; stable public assets are restored through WXT
+  hooks; and the only remaining manifest override is restoring the source
+  `action` block to omit `default_popup`.
+- C6 browser adoption is complete. The repo now has a dedicated
+  `common/browser.ts` seam; shared async messaging, bus transports,
+  popup/offscreen/content runtime listeners, popup active-tab fallback lookup,
+  popup render-mode tab-load waiters, content one-shot sends, property-lock
+  port connect/background port wiring, and touched sender/type positions route
+  through promise-based browser APIs via that seam. Keep
+  `tests/browser-polyfill-boundary.test.js` as the guard for the intentionally
+  remaining raw `chrome.*` surfaces.
 - C7 storage adoption now routes `common/storage-core.ts` through
   `wxt/utils/storage` for real extension hosts while preserving the legacy
   callback-style contract for Node/test hosts and existing callers. Keep the
@@ -207,6 +198,10 @@
   runtime listeners able to unwrap `uf-bus/1` / `uf-runtime-request/1` package
   envelopes so background -> content one-shot delivery can still use the package
   where it works.
+- C9 closeout confirmed the final Part C gate: `pnpm verify` is green, and the
+  Bonliva live popup regression still passes the render-mode
+  "Without JavaScript" flow by entering "Starting render-mode inspection"
+  instead of the prior "No response" failure.
 
 ## Popup Preview Exit Contract
 

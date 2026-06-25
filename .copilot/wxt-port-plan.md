@@ -1,6 +1,6 @@
 # WXT Port + Brain Authority Program — INDEX
 
-Last updated: 2026-06-24
+Last updated: 2026-06-25
 Branch: `feat/wxt-port-plan`
 
 This is the **index** for a two-part program. It is written so a low-context agent
@@ -21,6 +21,10 @@ can execute the whole thing without heavy reasoning or open design decisions:
 > Sequencing decision (locked): **Part A fully cuts over first; then Part B runs on
 > the stable WXT baseline.** We do NOT build the Brain on a half-migrated dual
 > Deno+WXT build. See §3.
+
+> Update: **Part C native runtime adoption is complete** on `feat/wxt-port-plan`.
+> Unfluffify now runs on the WXT-native runtime path with the typed bus / Brain /
+> layer-host architecture preserved above it.
 
 ## 1. Goal
 

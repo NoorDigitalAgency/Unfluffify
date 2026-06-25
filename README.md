@@ -67,8 +67,8 @@ Treat the pnpm commands above as the supported public workflow. `deno task
 <script>` can still resolve the same npm scripts implicitly, but those aliases
 are no longer documented or supported as the primary command surface.
 
-The eventual cutover command surface is tracked in `.copilot/wxt-port-plan.md`
-and is now WXT-native for the shipped extension pipeline. `pnpm build` produces
+The command surface is tracked in `.copilot/wxt-port-plan.md` and is
+WXT-native for the shipped extension pipeline. `pnpm build` produces
 the runnable unpacked extension under `.output/chrome-mv3`, and the only
 remaining manifest bridge is the source-owned `action` block so WXT's popup
 entrypoint does not reintroduce `action.default_popup` into the shipped
