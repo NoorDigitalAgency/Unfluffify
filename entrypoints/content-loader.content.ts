@@ -1,4 +1,5 @@
 import { defineContentScript } from "wxt/utils/define-content-script";
+import { browser } from "../common/browser.js";
 import { exposeDebugSpinnerQueueTabId, main } from "../content-main.js";
 
 type ContentLoaderState = typeof globalThis & {
@@ -42,7 +43,7 @@ export default defineContentScript({
     }
     loaderState.__unfluffifyContentLoaderInitialized = true;
 
-    chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       if (!message || message.type !== "activateContentMain") {
         return;
       }

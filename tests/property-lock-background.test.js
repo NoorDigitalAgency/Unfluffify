@@ -48,7 +48,7 @@ void createFakeTimerController;
 test("property lock background consumes port disconnect lastError", () => {
   const source = readFileSync(new URL("../common/property-lock-background.ts", import.meta.url), "utf8");
 
-  assert.match(source, /function consumeRuntimeLastErrorMessage\(\) \{[\s\S]*?const lastError = chrome\.runtime\.lastError;[\s\S]*?\}/);
+  assert.match(source, /function consumeRuntimeLastErrorMessage\(\) \{[\s\S]*?const lastError = browser\.runtime\.lastError;[\s\S]*?\}/);
   assert.match(source, /function onPortDisconnect\(\) \{[\s\S]*?consumeRuntimeLastErrorMessage\(\);[\s\S]*?detachPortFromConnection/);
 });
 

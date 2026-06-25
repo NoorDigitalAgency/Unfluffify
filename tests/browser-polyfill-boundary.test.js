@@ -97,13 +97,11 @@ const CURRENT_MIGRATION_DEBT_FILES = new Set([
   "background/transfer-payload-store.ts",
   "common/emulation.ts",
   "common/page-motion-freeze-bridge.ts",
-  "common/property-lock-background.ts",
   "common/render-mode-js-state.ts",
   "common/settings-store.ts",
   "common/storage-core.ts",
   "common/utilities.ts",
-  "content/core.ts",
-  "entrypoints/content-loader.content.ts"
+  "content/core.ts"
 ]);
 
 test("browser polyfill boundary buckets every remaining raw chrome usage", () => {

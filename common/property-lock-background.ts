@@ -11,6 +11,7 @@
  * - Tab IDs are used only for local popup-to-port lookup, never as lock identity
  */
 
+import { browser, type Browser } from "./browser.js";
 import {
   PROPERTY_LOCK_PORT_NAME,
   PROPERTY_LOCK_CONTENT_CONNECT,
@@ -96,7 +97,7 @@ type OutboundMessage = Record<string, unknown>;
 
 /** Per-port bookkeeping for a connected content script. */
 interface PortEntry {
-  port: chrome.runtime.Port;
+  port: Browser.runtime.Port;
   siteId: number | null;
   clientId: string;
   connectionKey: string;
@@ -345,11 +346,15 @@ function hasContentPortsForConnection(connectionKey: string) {
 }
 
 function consumeRuntimeLastErrorMessage() {
-  if (!globalThis.chrome || !chrome.runtime) {
+  try {
+    if (!browser.runtime) {
+      return "";
+    }
+    const lastError = browser.runtime.lastError;
+    return lastError && typeof lastError.message === "string" ? lastError.message : "";
+  } catch {
     return "";
   }
-  const lastError = chrome.runtime.lastError;
-  return lastError && typeof lastError.message === "string" ? lastError.message : "";
 }
 
 function detachPortFromConnection(portId: number, portEntry: PortEntry) {
@@ -394,7 +399,7 @@ export function initPropertyLockBackground(
   if (!ensurePropertyLockBackgroundActive()) {
     return;
   }
-  chrome.runtime.onConnect.addListener((port) => {
+  browser.runtime.onConnect.addListener((port) => {
     if (port.name === PROPERTY_LOCK_PORT_NAME) {
       handlePropertyLockPortConnect(port);
     }
@@ -447,7 +452,7 @@ export function getPropertyLockConnectionDiagnostics() {
 /**
  * Handle a new connection from content script.
  */
-function handlePropertyLockPortConnect(port: chrome.runtime.Port) {
+function handlePropertyLockPortConnect(port: Browser.runtime.Port) {
   if (!ensurePropertyLockBackgroundActive()) {
     try {
       port.disconnect();
@@ -1100,7 +1105,7 @@ function broadcastToContentScriptPorts(connectionKey: string, message: OutboundM
   }
 
   try {
-    const updatePromise = chrome.runtime.sendMessage({
+    const updatePromise = browser.runtime.sendMessage({
       type: PROPERTY_LOCK_BACKGROUND_STATE_UPDATE,
       siteId,
       clientId,
@@ -1192,7 +1197,7 @@ function scheduleDisconnectCheck(connectionKey: string) {
  * Handle getPropertyLockState message from popup.
  */
 // deno-lint-ignore require-await -- preserves existing promise/callback contract.
-export async function handleGetPropertyLockState(message: PropertyLockMessage, sender?: chrome.runtime.MessageSender) {
+export async function handleGetPropertyLockState(message: PropertyLockMessage, sender?: Browser.runtime.MessageSender) {
   if (!ensurePropertyLockBackgroundActive()) {
     return {
       state: createInactiveLockState(),
@@ -1230,7 +1235,7 @@ export async function handleGetPropertyLockState(message: PropertyLockMessage, s
   };
 }
 
-function findRuntimeForRequest(message: PropertyLockMessage, sender?: chrome.runtime.MessageSender) {
+function findRuntimeForRequest(message: PropertyLockMessage, sender?: Browser.runtime.MessageSender) {
   const siteId = normalizePropertyLockSiteId(message.siteId);
   if (!siteId) {
     return null;
@@ -1255,7 +1260,7 @@ function findRuntimeForRequest(message: PropertyLockMessage, sender?: chrome.run
   return runtimes.length === 1 ? runtimes[0] : null;
 }
 
-function handlePropertyLockCommand(message: PropertyLockMessage, sender?: chrome.runtime.MessageSender) {
+function handlePropertyLockCommand(message: PropertyLockMessage, sender?: Browser.runtime.MessageSender) {
   if (!ensurePropertyLockBackgroundActive()) {
     return buildDisabledPropertyLockResponse();
   }
@@ -1311,7 +1316,7 @@ function handlePropertyLockCommand(message: PropertyLockMessage, sender?: chrome
  * Message handler for all property lock background messages.
  */
 // deno-lint-ignore require-await -- preserves existing promise/callback contract.
-export async function handlePropertyLockBackgroundMessage(message: PropertyLockMessage, sender?: chrome.runtime.MessageSender) {
+export async function handlePropertyLockBackgroundMessage(message: PropertyLockMessage, sender?: Browser.runtime.MessageSender) {
   if (!ensurePropertyLockBackgroundActive()) {
     return buildDisabledPropertyLockResponse();
   }
@@ -1343,7 +1348,7 @@ export async function handlePropertyLockBackgroundMessage(message: PropertyLockM
   return { ok: false };
 }
 
-function handlePageDraftStatusMessage(message: PropertyLockMessage, sender?: chrome.runtime.MessageSender) {
+function handlePageDraftStatusMessage(message: PropertyLockMessage, sender?: Browser.runtime.MessageSender) {
   if (!ensurePropertyLockBackgroundActive()) {
     return buildDisabledPropertyLockResponse();
   }

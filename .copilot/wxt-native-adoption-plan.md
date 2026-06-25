@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-25
 Branch: `feat/wxt-port-plan`
-Status: C6 batch 3 complete; C6 in progress
+Status: C6 batch 4 complete; C6 in progress
 
 This is the executor doc for **Part C** of the WXT program. It is written so a
 low-context agent can execute it without inventing architecture or making
@@ -460,8 +460,10 @@ transport layer behind `common/browser.ts`; batch 2 migrated popup/offscreen
 runtime listeners, popup active-tab fallback lookup, and popup render-mode
 tab-load waiters to promise-based browser APIs; batch 3 migrated the content
 loader/runtime listeners, content one-shot sends, property-lock port connect
-wiring, and touched content sender types to the browser seam and removed those
-files from the raw-`chrome` debt inventory.
+wiring, and touched content sender types to the browser seam; batch 4 migrated
+the property-lock background port/runtime messaging surfaces plus the remaining
+WXT content-entrypoint listener to the browser seam and removed those files
+from the raw-`chrome` debt inventory.
 
 **Expected state**: runtime uses the `browser` polyfill via one seam; Chrome-only
 APIs are the only documented `chrome.*` exceptions.

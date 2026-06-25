@@ -79,15 +79,16 @@ The active track is now `.copilot/wxt-native-adoption-plan.md`:
    asset paths; package staging expands wildcard WAR assets; and the live
    browser launcher reads popup state through the popup debug hook instead of
    mirrored `popup/ui.js`.
-7. **C6 is in progress**: the first three batches are complete. The repo now
+7. **C6 is in progress**: the first four batches are complete. The repo now
    has `common/browser.ts`; shared async messaging, bus transports,
    popup/offscreen runtime listeners, popup active-tab fallback lookup, popup
    render-mode tab-load waiters, content loader/runtime listeners, content
-   one-shot sends, property-lock port connect wiring, and touched content
-   sender types route through promise-based browser APIs; touched type
-   positions use `Browser.*`; and a browser-polyfill boundary test records the
-   remaining raw-`chrome` runtime debt for later C6 batches. The next C6 batch
-   is the remaining background/common Chrome-only runtime modules.
+   one-shot sends, property-lock port connect/background port wiring, and
+   touched content sender types route through promise-based browser APIs;
+   touched type positions use `Browser.*`; and a browser-polyfill boundary test
+   records the remaining raw-`chrome` runtime debt for later C6 batches. The
+   next phase is deciding whether the remaining storage-heavy/common debt closes
+   under C6 or rolls directly into the planned C7 storage adoption.
 8. The prior event-bus program remains complete through Track 3 in
    `.copilot/event-bus-architecture-plan.md`; Part C preserves that higher-level
    architecture and replaces only the lower-level packaging/runtime seams.
