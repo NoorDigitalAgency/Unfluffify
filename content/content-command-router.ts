@@ -5,10 +5,11 @@ import {
   isReplyEnvelope,
   isRequestEnvelope
 } from "../common/message-protocol.js";
+import type { Browser } from "../common/browser.js";
 
 type ContentCommandContext = {
   message: unknown;
-  sender: chrome.runtime.MessageSender | undefined;
+  sender: Browser.runtime.MessageSender | undefined;
   tabId: number;
   frameId: number;
   pageUrl: string;
@@ -35,7 +36,7 @@ function getErrorMessage(error: unknown): string {
   return "Content command failed";
 }
 
-function normalizeTabId(message: unknown, sender: chrome.runtime.MessageSender | undefined): number {
+function normalizeTabId(message: unknown, sender: Browser.runtime.MessageSender | undefined): number {
   const messageRecord = (message || {}) as Record<string, unknown>;
   const candidates = [
     messageRecord.tabId,
@@ -53,7 +54,7 @@ function normalizeTabId(message: unknown, sender: chrome.runtime.MessageSender |
   return 0;
 }
 
-function normalizeFrameId(message: unknown, sender: chrome.runtime.MessageSender | undefined): number {
+function normalizeFrameId(message: unknown, sender: Browser.runtime.MessageSender | undefined): number {
   const messageRecord = (message || {}) as Record<string, unknown>;
   if (Number.isFinite(messageRecord.frameId)) {
     return Math.trunc(messageRecord.frameId as number);
@@ -77,7 +78,7 @@ export function registerContentCommand(type: string, handler: ContentCommandHand
 
 export function dispatchContentCommand(
   message: unknown,
-  sender: chrome.runtime.MessageSender | undefined,
+  sender: Browser.runtime.MessageSender | undefined,
   options: { pageUrl?: () => string; mode?: () => string } = {}
 ): Promise<unknown> {
   if (!isRequestEnvelope(message)) {

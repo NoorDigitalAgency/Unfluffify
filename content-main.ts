@@ -1,4 +1,5 @@
 import * as core from "./content/core.js";
+import { browser, type Browser } from "./common/browser.js";
 import * as config from "./common/config.js";
 import {
   FEATURE_DISABLED_REASON,
@@ -457,11 +458,16 @@ function sendRuntimeMessageSafely(message) {
   if (
     extensionContextInvalidated ||
     !message ||
-    typeof message !== "object" ||
-    !globalThis.chrome ||
-    !chrome.runtime ||
-    typeof chrome.runtime.sendMessage !== "function"
+    typeof message !== "object"
   ) {
+    return Promise.resolve(null);
+  }
+
+  try {
+    if (typeof browser.runtime.sendMessage !== "function") {
+      return Promise.resolve(null);
+    }
+  } catch {
     return Promise.resolve(null);
   }
 
@@ -645,7 +651,7 @@ export function exposeDebugSpinnerQueueTabId() {
     return;
   }
   try {
-    chrome.runtime.sendMessage({ type: "getTabState" }, (response) => {
+    browser.runtime.sendMessage({ type: "getTabState" }).then((response) => {
       if (
         response &&
         Number.isFinite(response.tabId) &&
@@ -654,7 +660,7 @@ export function exposeDebugSpinnerQueueTabId() {
       ) {
         document.documentElement.dataset.ufDebugTabId = String(response.tabId);
       }
-    });
+    }).catch(() => {});
   } catch {
     // Best-effort debug hook; never block normal extension operation.
   }
@@ -6171,16 +6177,13 @@ function sendPageActivityObserved() {
     return;
   }
   try {
-    const response = chrome.runtime.sendMessage({
+    browser.runtime.sendMessage({
       type: "pageActivityObserved",
       pageUrl: location.href,
       observedAt: Date.now()
+    }).catch((error) => {
+      markExtensionContextInvalidated(error);
     });
-    if (response && typeof response.catch === "function") {
-      response.catch((error) => {
-        markExtensionContextInvalidated(error);
-      });
-    }
   } catch (error) {
     markExtensionContextInvalidated(error);
   }
@@ -6915,13 +6918,13 @@ function createRenderModeInspectionHandlersDeps() {
 function createPropertyLockPortClientDeps() {
   return {
 // @ts-expect-error
-    connectRuntimePort: (options) => chrome.runtime.connect(options),
+    connectRuntimePort: (options) => browser.runtime.connect(options),
     consumeRuntimeLastErrorMessage: () => {
       try {
-        if (!globalThis.chrome || !chrome.runtime) {
+        if (!browser.runtime) {
           return "";
         }
-        const lastError = chrome.runtime.lastError;
+        const lastError = browser.runtime.lastError;
         return lastError && typeof lastError.message === "string" ? lastError.message : "";
       } catch (error) {
         if (utils.isExtensionContextInvalidatedError(error)) {
@@ -7378,7 +7381,7 @@ export function main() {
   document.addEventListener("keydown", handleBlockedPropertyLockInteraction, true);
   document.addEventListener("keyup", handleBlockedPropertyLockInteraction, true);
 
-  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message && typeof message === "object" && (message as { p?: unknown }).p === "uf-bus/1") {
       handleContentBusMessage(message, _sender)
         .then((reply) => sendResponse(reply))

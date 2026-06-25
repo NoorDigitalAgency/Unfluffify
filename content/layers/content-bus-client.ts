@@ -3,6 +3,7 @@ import { DIAGNOSTIC_REQUEST_TYPES } from "../../common/bus/contracts/index.js";
 import { isBusEnvelope, type BusEnvelope } from "../../common/bus/envelope.js";
 import { REALMS } from "../../common/bus/realms.js";
 import { createContentTransport } from "../../common/bus/transport/content-transport.js";
+import type { Browser } from "../../common/browser.js";
 import { startContentLayerHost } from "./layer-host.js";
 
 let contentBus: Bus | null = null;
@@ -31,7 +32,7 @@ export function startContentBusClient(): Bus {
 
 export async function handleContentBusMessage(
   message: unknown,
-  sender?: chrome.runtime.MessageSender,
+  sender?: Browser.runtime.MessageSender,
 ): Promise<BusEnvelope | void> {
   if (!contentTransport || !isBusEnvelope(message)) {
     return;

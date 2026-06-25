@@ -11,6 +11,12 @@
  * in the page's isolated world to access page content properly.
  */
 
+import { browser } from "./common/browser.js";
+
+type BrowserRuntimeWithGetUrl = typeof browser.runtime & {
+  getURL(path: string): string;
+};
+
 type ContentLoaderState = typeof globalThis & {
   __unfluffifyContentLoaderInitialized?: boolean;
   __unfluffifyContentMainLoaded?: boolean;
@@ -26,6 +32,7 @@ if (!loaderState.__unfluffifyContentLoaderInitialized) {
 
   const CONTENT_MAIN_FLAG = "__unfluffifyContentMainLoaded";
   const CONTENT_MAIN_LOADING = "__unfluffifyContentMainLoading";
+  const runtime = browser.runtime as BrowserRuntimeWithGetUrl;
 
   /**
    * Ensures the content main script is loaded and initialized.
@@ -42,7 +49,7 @@ if (!loaderState.__unfluffifyContentLoaderInitialized) {
       return { ok: true, alreadyLoaded: true };
     }
     const loadPromise = (async () => {
-      const src = chrome.runtime.getURL("content-main.js");
+      const src = runtime.getURL("content-main.js");
       const contentMain = await import(src);
       if (contentMain && typeof contentMain.main === "function") {
         contentMain.main();
@@ -58,7 +65,7 @@ if (!loaderState.__unfluffifyContentLoaderInitialized) {
     return { ok: true };
   }
 
-  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (!message || message.type !== "activateContentMain") {
       return;
     }
@@ -81,7 +88,7 @@ if (!loaderState.__unfluffifyContentLoaderInitialized) {
       // Fall through to the build-time feature flag.
     }
     try {
-      const featureFlags = await import(chrome.runtime.getURL("common/feature-flags.js"));
+      const featureFlags = await import(runtime.getURL("common/feature-flags.js"));
       return Boolean(
         featureFlags &&
         typeof featureFlags.isDebugFlagEnabled === "function" &&
@@ -102,7 +109,7 @@ if (!loaderState.__unfluffifyContentLoaderInitialized) {
       if (!enabled) {
         return;
       }
-      chrome.runtime.sendMessage({ type: "getTabState" }, (response) => {
+      runtime.sendMessage({ type: "getTabState" }).then((response) => {
         if (
           response &&
           Number.isFinite(response.tabId) &&
@@ -111,7 +118,7 @@ if (!loaderState.__unfluffifyContentLoaderInitialized) {
         ) {
           document.documentElement.dataset.ufDebugTabId = String(response.tabId);
         }
-      });
+      }).catch(() => {});
     } catch {
       // Best-effort debug hook; never block normal extension operation.
     }

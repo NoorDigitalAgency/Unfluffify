@@ -90,7 +90,7 @@ test("legacy runtime message inventory stays available across runtime routers", 
 test("content-main keeps a legacy onMessage listener registration", () => {
   assert.match(
     contentMainSource,
-    /chrome\.runtime\.onMessage\.addListener\(/,
+    /browser\.runtime\.onMessage\.addListener\(/,
     "expected content-main.js to keep legacy runtime listener registration"
   );
 });

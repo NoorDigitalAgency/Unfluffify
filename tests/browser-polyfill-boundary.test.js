@@ -102,11 +102,7 @@ const CURRENT_MIGRATION_DEBT_FILES = new Set([
   "common/settings-store.ts",
   "common/storage-core.ts",
   "common/utilities.ts",
-  "content-loader.ts",
-  "content-main.ts",
-  "content/content-command-router.ts",
   "content/core.ts",
-  "content/layers/content-bus-client.ts",
   "entrypoints/content-loader.content.ts"
 ]);
 

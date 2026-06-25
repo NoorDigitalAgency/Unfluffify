@@ -133,7 +133,7 @@ test("content-main reconnects property lock after an unexpected active port disc
 test("content-main consumes property lock port disconnect lastError without lifecycle hooks", () => {
   const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
 
-  assert.match(source, /function createPropertyLockPortClientDeps\(\) \{[\s\S]*?consumeRuntimeLastErrorMessage:\s*\(\) => \{[\s\S]*?const lastError = chrome\.runtime\.lastError;[\s\S]*?\}/);
+  assert.match(source, /function createPropertyLockPortClientDeps\(\) \{[\s\S]*?consumeRuntimeLastErrorMessage:\s*\(\) => \{[\s\S]*?const lastError = browser\.runtime\.lastError;[\s\S]*?\}/);
   assert.match(propertyLockPortClientSource, /const disconnectReason = deps\.consumeRuntimeLastErrorMessage\(\);/);
   assert.match(
     source,
