@@ -20,3 +20,5 @@ export type DiagnosticPingReply = Readonly<{
 export type DiagnosticEchoPayload = Readonly<{
   nonce: string;
 }>;
+
+export * from "./activation.js";

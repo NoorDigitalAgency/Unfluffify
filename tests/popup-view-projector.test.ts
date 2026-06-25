@@ -74,6 +74,25 @@ describe("popup view projector", () => {
           },
         },
       },
+      activation: {
+        contentReady: true,
+        bootstrapStatus: "bootstrapping",
+        restorePending: true,
+        lastError: "",
+        lastLifecycle: {
+          kind: "activation",
+          phase: "started",
+          message: "warming",
+          busy: true,
+          operationId: "activation:12:1",
+          reason: "activation-started",
+          source: "background",
+          contentMode: "marking",
+          markingEnabled: true,
+          pageUrl: "https://example.com/page",
+        },
+        lastContentPageUrl: "https://example.com/page",
+      },
       spinners: {
         popup: null,
         pageCurtain: null,
@@ -83,7 +102,28 @@ describe("popup view projector", () => {
 
     const { popupView, contentDirective } = projectViews(state);
 
-    expect(contentDirective).toEqual({ version: 3 });
+    expect(contentDirective).toEqual({
+      version: 3,
+      activation: {
+        contentReady: true,
+        bootstrapStatus: "bootstrapping",
+        restorePending: true,
+        lastError: "",
+        lastLifecycle: {
+          kind: "activation",
+          phase: "started",
+          message: "warming",
+          busy: true,
+          operationId: "activation:12:1",
+          reason: "activation-started",
+          source: "background",
+          contentMode: "marking",
+          markingEnabled: true,
+          pageUrl: "https://example.com/page",
+        },
+        lastContentPageUrl: "https://example.com/page",
+      },
+    });
     expect(popupView).toEqual({
       version: 3,
       tabId: 12,
@@ -108,6 +148,25 @@ describe("popup view projector", () => {
         operationKind: "content-bootstrap",
         operationPhase: "page-inspection",
         contentMode: "marking",
+      },
+      activation: {
+        contentReady: true,
+        bootstrapStatus: "bootstrapping",
+        restorePending: true,
+        lastError: "",
+        lastLifecycle: {
+          kind: "activation",
+          phase: "started",
+          message: "warming",
+          busy: true,
+          operationId: "activation:12:1",
+          reason: "activation-started",
+          source: "background",
+          contentMode: "marking",
+          markingEnabled: true,
+          pageUrl: "https://example.com/page",
+        },
+        lastContentPageUrl: "https://example.com/page",
       },
       legacySpinnerQueue: [{
         key: "navInspect",
@@ -193,6 +252,24 @@ describe("popup view projector", () => {
         }],
         legacyActiveSpinnerLease: null,
       },
+      activation: {
+        contentReady: false,
+        bootstrapStatus: "idle",
+        restorePending: false,
+        lastError: "",
+        lastLifecycle: {
+          kind: "activation",
+          phase: "started",
+          message: "before",
+          busy: true,
+          reason: "activation-started",
+          source: "background",
+          contentMode: "marking",
+          markingEnabled: true,
+          pageUrl: "https://example.com/page",
+        },
+        lastContentPageUrl: "https://example.com/page",
+      },
       spinners: {
         popup: null,
         pageCurtain: null,
@@ -207,12 +284,41 @@ describe("popup view projector", () => {
     state.popupView.lifecycle = {
       message: "after",
     };
+    state.activation.lastLifecycle = {
+      kind: "activation",
+      phase: "finished",
+      message: "after",
+      busy: false,
+      reason: "activation-finished",
+      source: "background",
+      contentMode: "marking",
+      markingEnabled: true,
+      pageUrl: "https://example.com/page",
+    };
     state.popupView.legacySpinnerQueue[0].blockSurfaces = {
       popup: false,
     };
 
     expect(projected.traceEvents[0].payload).toEqual({ message: "before" });
     expect(projected.lifecycle).toEqual({ message: "before" });
+    expect(projected.activation).toEqual({
+      contentReady: false,
+      bootstrapStatus: "idle",
+      restorePending: false,
+      lastError: "",
+      lastLifecycle: {
+        kind: "activation",
+        phase: "started",
+        message: "before",
+        busy: true,
+        reason: "activation-started",
+        source: "background",
+        contentMode: "marking",
+        markingEnabled: true,
+        pageUrl: "https://example.com/page",
+      },
+      lastContentPageUrl: "https://example.com/page",
+    });
     expect(projected.legacySpinnerQueue[0].blockSurfaces).toEqual({ popup: true });
   });
 });

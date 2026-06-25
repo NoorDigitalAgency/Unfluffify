@@ -1,3 +1,5 @@
+import type { ActivationSnapshot } from "./activation.js";
+
 export const POPUP_STATE_REQUEST_TYPES = Object.freeze({
   GET: "popup.view.get",
 } as const);
@@ -73,6 +75,7 @@ export type PopupViewEnvelope = Readonly<{
   traceEnabled: boolean;
   traceEvents: PopupTraceEvent[];
   lifecycle: PopupLifecycleState | null;
+  activation?: ActivationSnapshot | null;
   legacySpinnerQueue: PopupLegacySpinnerEntry[];
   legacyActiveSpinnerLease: PopupLegacySpinnerEntry | null;
 }>;

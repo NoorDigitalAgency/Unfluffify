@@ -20,17 +20,21 @@ function clonePopupBrokerState(state: PopupBrokerState): Omit<PopupViewEnvelope,
       payload: event.payload ? { ...event.payload } : null,
     })),
     lifecycle: state.lifecycle ? { ...state.lifecycle } : null,
-    legacySpinnerQueue: state.spinnerQueue.map((entry) => ({
-      ...entry,
-      blockSurfaces: entry.blockSurfaces ? { ...entry.blockSurfaces } : undefined,
-    })),
-    legacyActiveSpinnerLease: state.activeSpinnerLease
-      ? {
-        ...state.activeSpinnerLease,
-        blockSurfaces: state.activeSpinnerLease.blockSurfaces
-          ? { ...state.activeSpinnerLease.blockSurfaces }
-          : undefined,
+    legacySpinnerQueue: state.spinnerQueue.map((entry) => {
+      const clone = { ...entry };
+      if (entry.blockSurfaces) {
+        clone.blockSurfaces = { ...entry.blockSurfaces };
       }
+      return clone;
+    }),
+    legacyActiveSpinnerLease: state.activeSpinnerLease
+      ? (() => {
+        const clone = { ...state.activeSpinnerLease };
+        if (state.activeSpinnerLease.blockSurfaces) {
+          clone.blockSurfaces = { ...state.activeSpinnerLease.blockSurfaces };
+        }
+        return clone;
+      })()
       : null,
   };
 }

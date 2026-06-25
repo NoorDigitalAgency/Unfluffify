@@ -1,4 +1,9 @@
 import type {
+  ActivationBootstrapStatus,
+  ActivationLifecycleSnapshot,
+  ActivationSnapshot,
+} from "../../common/bus/contracts/activation.js";
+import type {
   PopupLegacySpinnerEntry,
   PopupLifecycleState,
   PopupTraceEvent,
@@ -24,6 +29,19 @@ export type PopupViewState = Readonly<{
   legacyActiveSpinnerLease: PopupLegacySpinnerEntry | null;
 }>;
 
+export type ActivationState = ActivationSnapshot;
+
+function createInitialActivationState(): ActivationState {
+  return {
+    contentReady: false,
+    bootstrapStatus: "idle" satisfies ActivationBootstrapStatus,
+    restorePending: false,
+    lastError: "",
+    lastLifecycle: null,
+    lastContentPageUrl: "",
+  };
+}
+
 export type TabLayerState = {
   tabId: number;
   version: number;
@@ -33,6 +51,14 @@ export type TabLayerState = {
     lifecycle: PopupLifecycleState | null;
     legacySpinnerQueue: PopupLegacySpinnerEntry[];
     legacyActiveSpinnerLease: PopupLegacySpinnerEntry | null;
+  };
+  activation: {
+    contentReady: boolean;
+    bootstrapStatus: ActivationBootstrapStatus;
+    restorePending: boolean;
+    lastError: string;
+    lastLifecycle: ActivationLifecycleSnapshot | null;
+    lastContentPageUrl: string;
   };
   spinners: {
     popup: SpinnerSelection | null;
@@ -54,6 +80,7 @@ function createInitialTabState(tabId: number): TabLayerState {
       legacySpinnerQueue: [],
       legacyActiveSpinnerLease: null,
     },
+    activation: createInitialActivationState(),
     spinners: {
       popup: null,
       pageCurtain: null,

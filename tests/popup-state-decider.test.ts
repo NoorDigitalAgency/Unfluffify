@@ -125,6 +125,14 @@ describe("popup state decider", () => {
       traceEnabled: false,
       traceEvents: [],
       lifecycle: null,
+      activation: {
+        contentReady: false,
+        bootstrapStatus: "idle",
+        restorePending: false,
+        lastError: "",
+        lastLifecycle: null,
+        lastContentPageUrl: "",
+      },
       legacySpinnerQueue: [],
       legacyActiveSpinnerLease: null,
     });
