@@ -46,6 +46,8 @@
 - The shipped extension build, packaging flow, live-browser launcher, and
   orchestration CLIs are now pnpm/Node-based and WXT-native. The repository no
   longer depends on Deno for CI, packaging, browser launch, or orchestration.
+- All automated tests now live under `tests/`. The old `vitest-tests/` split and
+  dedicated Deno runtime shim files are gone.
 
 ## WXT migration facts
 
@@ -55,9 +57,9 @@
   stable public assets in `src/public`.
 - WXT treats `src/entrypoints/popup/index.html` as a special popup entrypoint
   and auto-generates `action.default_popup`. Unfluffify keeps the manifest
-  contract entirely in `wxt.config.ts` (version from `package.json`), and the
-  generated manifest still needs its `action` block restored to the source
-  contract before shipping.
+  contract entirely in `wxt.config.ts` (version from `package.json`); there is
+  no root `manifest.json`. The generated manifest still needs its `action`
+  block restored to the source contract before shipping.
 - WXT emits content-script bundles under `content-scripts/<name>.js`. After C5,
   Unfluffify's source manifest and manual injection paths use those native WXT
   output paths directly instead of materializing root alias files.
@@ -65,10 +67,10 @@
   runtime seam for browser-compatible extension APIs. Shared one-shot messaging,
   bus transports, and touched type positions should import `browser` /
   `Browser.*` from that seam instead of reaching for raw `chrome.*` directly.
-- The browser seam must prefer a promise-capable browser surface (`globalThis.browser`
-  or the WXT/browser export) ahead of any raw `globalThis.chrome` fallback. The
-  C6 shared adapters (`common/async-messaging.ts`, `common/bus/transport/*`)
-  now assume promise-based `sendMessage` semantics.
+- Promise-capable callers should use the exported `common/browser.ts` proxy or
+  its `callBrowserApi` / `callBrowserApiVoid` helpers. That seam now normalizes
+  promise-only `globalThis.browser` hosts and callback-style `globalThis.chrome`
+  hosts so migrated runtime code does not assume a single async convention.
 - The WXT build must also copy stable manifest-named public assets into the
   output root: `assets/materialdesignicons-webfont.woff2`,
   `cursors/exclude.svg`, `cursors/include.svg`, and the default icon set under

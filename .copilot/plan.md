@@ -46,6 +46,7 @@ removed from the workspace. Use git history if older rationale is needed.
    - packaging: `pnpm zip`, `node ./scripts/package-extension.mjs`
    - live browser: `pnpm browser:live <target-url>`
    - orchestration: `pnpm orchestrate:*`
+   - tests: all automated coverage lives under `tests/`
 3. The post-WXT cleanup/type-safety finalization track is approved and specified
    in `.copilot/post-wxt-cleanup-plan.md`.
 4. Event-bus Tracks 0-4 and Part C native WXT adoption are complete on this

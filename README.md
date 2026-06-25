@@ -74,7 +74,9 @@ now lives under `src/`, stable public assets under `src/public/`, and
 `wxt.config.ts` is the sole manifest source of truth. The only remaining
 manifest bridge is the source-owned `action` block so WXT's popup entrypoint
 does not reintroduce `action.default_popup` into the shipped manifest. Content
-scripts now ship on WXT's native `content-scripts/` paths.
+scripts now ship on WXT's native `content-scripts/` paths. All automated tests
+now live under `tests/`; the old `vitest-tests/` split and dedicated Deno test
+shim files are gone.
 
 The live-browser launcher targets the WXT unpacked output:
 `pnpm browser:live <target-url>` shells through the committed launcher, runs

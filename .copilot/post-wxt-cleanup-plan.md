@@ -24,13 +24,17 @@ WXT does not provide the required functionality.
   shared types in `src/types`, and stable public assets in `src/public`.
 - The repo has no runtime `@ts-ignore` and no runtime `@ts-nocheck`, guarded by
   `tests/no-ts-ignore-guard.test.js` and `tests/typing-ratchet.test.js`.
-- Runtime still has 2,419 tracked `@ts-expect-error` suppressions across:
+- Runtime still has 2,403 tracked `@ts-expect-error` suppressions across:
   `src/content/core.ts`, `src/content-main.ts`, `src/popup.ts`,
   `src/common/config.ts`, `src/background.ts`, `src/popup/ui.ts`, and the eval
   bridge pair `src/common/page-motion-freeze-bridge.ts` /
   `src/common/page-motion-freeze-control.ts`.
-- `tests/browser-polyfill-boundary.test.js` still has a
-  `CURRENT_MIGRATION_DEBT_FILES` bucket for raw `chrome.*` usage.
+- `tests/browser-polyfill-boundary.test.js` still keeps an explicit
+  `CURRENT_MIGRATION_DEBT_FILES` bucket, but it is now empty. The remaining
+  named boundary buckets are `src/common/browser.ts`,
+  `src/common/storage-core.ts`, and `src/common/page-motion-freeze-bridge.ts`;
+  the current raw `chrome.*` findings only land in the latter two compatibility
+  buckets.
 - `tests/storage-access-boundary.test.js` has an empty storage migration-debt
   bucket; storage access is already routed through approved storage/domain
   modules.
@@ -45,6 +49,8 @@ WXT does not provide the required functionality.
 - `deno.json`, `deno.lock`, `scripts/run-deno.mjs`, Deno test shims, and the
   old `vitest-tests/` tree are removed and guarded by
   `tests/package-test-script.test.js`.
+- All automated tests now live under `tests/`; the old `vitest-tests/` tree and
+  dedicated Deno runtime shim files are gone.
 - Active runtime/scripts/orchestration/test surfaces no longer carry
   `deno-lint-ignore` comments or executable Deno command examples. Historical
   `.copilot/` rationale docs may still mention the earlier Deno migration.
