@@ -60,8 +60,8 @@ test("popup keeps trace diagnostics behind a disabled feature flag", () => {
   assert.match(textSource, /diagnosticsSectionTitle:/);
   assert.doesNotMatch(textSource, /traceModeHint:/);
 
-  assert.match(popupSource, /async function handleTraceModeToggle\(event\) \{/);
-  assert.match(popupSource, /event\.currentTarget\.checked = Boolean\(state\.traceModeEnabled\);/);
+  assert.match(popupSource, /async function handleTraceModeToggle\(event(?:: [^)]+)?\)(?:: [^{]+)? \{/);
+  assert.match(popupSource, /toggleEvent\.currentTarget\.checked = Boolean\(state\.traceModeEnabled\);/);
   assert.doesNotMatch(popupSource, /type: WORLD_MESSAGE_TYPES\.TRACE_SET,/);
   assert.match(popupSource, /const traceDiagnosticsEnabled = isFeatureEnabled\("traceDiagnostics"\);/);
   assert.match(popupSource, /state\.traceModeEnabled = traceDiagnosticsEnabled && Boolean\(snapshot\.traceEnabled\);/);

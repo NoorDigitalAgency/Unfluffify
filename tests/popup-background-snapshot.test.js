@@ -4,10 +4,10 @@ import { readFileSync } from "./file-kit.ts";
 
 test("popup restores startup/tab snapshot from background command", () => {
   const source = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
-  const start = source.indexOf("async function restoreSpinnerQueueFromBackground(tabId, popupBus)");
-  const end = source.indexOf("async function handleTraceModeToggle", start);
-  assert.ok(start >= 0 && end > start, "Expected restoreSpinnerQueueFromBackground in popup.js");
-  const block = source.slice(start, end);
+  const block = source.match(
+    /async function restoreSpinnerQueueFromBackground\(tabId(?:\s*:\s*[^,)]+)?, popupBus(?:\s*:\s*[^,)]+)?\)(?:: [^{]+)? \{[\s\S]*?\n\}\n\nasync function handleTraceModeToggle/
+  )?.[0];
+  assert.ok(block, "Expected restoreSpinnerQueueFromBackground in popup.js");
 
   assert.match(block, /requestPopupView\(popupBus, tabId\)/);
   assert.match(block, /applyPopupViewSnapshot\(viewState\)/);

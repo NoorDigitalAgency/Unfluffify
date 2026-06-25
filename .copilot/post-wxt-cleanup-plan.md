@@ -24,7 +24,7 @@ WXT does not provide the required functionality.
   shared types in `src/types`, and stable public assets in `src/public`.
 - The repo has no runtime `@ts-ignore` and no runtime `@ts-nocheck`, guarded by
   `tests/no-ts-ignore-guard.test.js` and `tests/typing-ratchet.test.js`.
-- Runtime still has 1,830 tracked `@ts-expect-error` suppressions across:
+- Runtime still has 1,754 tracked `@ts-expect-error` suppressions across:
   `src/content/core.ts`, `src/content-main.ts`, `src/popup.ts`, and the eval
   bridge pair `src/common/page-motion-freeze-bridge.ts` /
   `src/common/page-motion-freeze-control.ts`.
@@ -32,7 +32,7 @@ WXT does not provide the required functionality.
   normalization/persistence cleanup batches.
 - `src/popup/ui.ts` is now suppression-free after typing the popup view state,
   render props, and configuration/control helper surfaces.
-- `src/popup.ts` is down to 278 tracked suppressions after typing the
+- `src/popup.ts` is down to 202 tracked suppressions after typing the
   `refreshUi()` view-state projector against `uiModule.getViewState()` and
   tightening the preview-state/open-flow helpers around `buildPreviewViewState()`
   plus the preview close/restore helpers around `requestTabCloseAiPreview()`,
@@ -48,7 +48,16 @@ WXT does not provide the required functionality.
   `noteRenderModeSetNavGuardInspection()`,
   `shouldHoldNavInspectUntilRenderModeInspectionSeen()`,
   `isRenderModeSetNavGuardActive()`, and
-  `scheduleNavigationInspectionSettlePoll()`.
+  `scheduleNavigationInspectionSettlePoll()`, then typing the large popup
+  dependency-bag / broker / spinner-helper seam around:
+  `getPropertyLockUiDeps()`,
+  `getSpinnerDeps()`,
+  `getSiteResolutionDeps()`,
+  `getRemoteConfigDeps()`,
+  `getRenderModeInspectionDeps()`,
+  `getPageReconciliationDeps()`,
+  spinner projection/busy-mirror helpers, and the popup background snapshot /
+  spinner-broker restore path.
 - `tests/browser-polyfill-boundary.test.js` still keeps an explicit
   `CURRENT_MIGRATION_DEBT_FILES` bucket, but it is now empty. The remaining
   named boundary buckets are `src/common/browser.ts`,

@@ -95,7 +95,10 @@ import {
   logPopupReady
 } from "./popup/telemetry.js";
 import type { ActivationSnapshot } from "./common/bus/contracts/activation.js";
-import type { PopupStateGetReply } from "./common/bus/contracts/popup-state.js";
+import type {
+  PopupLegacySpinnerEntry,
+  PopupStateGetReply
+} from "./common/bus/contracts/popup-state.js";
 import { deriveSpinnerSelectionsFromLegacyQueue } from "./background/brain/deciders/spinner-state-decider.js";
 import { phaseToSpinnerState } from "./background/brain/spinner-authority.js";
 import {
@@ -262,6 +265,63 @@ type PreviewStateLike = {
 type PreviewCommandResult = PreviewStateLike & {
   previewState?: PreviewStateLike | null;
 };
+type PropertyLockUiDeps = Parameters<typeof isPropertyLockCollaborationEnabledOperation>[0];
+type PopupSpinnerDeps = Parameters<typeof currentSpinnerMessageOperation>[0];
+type PopupSpinnerEntry =
+  PopupSpinnerDeps["popupSpinnerQueue"] extends Map<string, infer Entry> ? Entry : never;
+type PopupSpinnerSnapshot = ReturnType<typeof currentSpinnerSnapshotOperation>;
+type PopupSpinnerState = NonNullable<ReturnType<typeof getLatestPopupSpinnerState>>;
+type PopupSpinnerSelectionSet = ReturnType<typeof deriveSpinnerSelectionsFromLegacyQueue>;
+type PopupSpinnerSelection = PopupSpinnerSelectionSet[keyof PopupSpinnerSelectionSet];
+type PendingPropertyPageTypesRequest =
+  ReturnType<Parameters<typeof ensurePropertyPageTypesOperation>[0]["getPropertyPageTypesRequest"]>;
+type SiteResolutionDeps = Parameters<typeof ensurePropertyPageTypesOperation>[0];
+type RemoteConfigDeps = Parameters<typeof scheduleRemoteConfigRetryOperation>[0];
+type RenderModeInspectionDeps = Parameters<typeof detectRenderModeViaEndpointOperation>[0];
+type PageReconciliationDeps = Parameters<typeof handlePageSaveOperation>[0];
+type PopupBusClient = Parameters<typeof runPopupBusSelfTest>[0];
+type PopupBusLogger = Parameters<typeof runPopupBusSelfTest>[2];
+type PopupSpinnerBrokerResponse = Awaited<ReturnType<typeof requestPopupSpinnerSet>>;
+type PopupSpinnerSurface = "popup" | "page";
+type SpinnerBrokerMessage = {
+  type?: string;
+  key?: string;
+  message?: string;
+  persistent?: boolean;
+  reason?: string;
+  source?: string;
+  startedAt?: number;
+  operationId?: string;
+  operationKind?: string;
+  operationPhase?: string;
+  deadlineAt?: number;
+  maxDurationMs?: number;
+  blockSurfaces?: PopupSpinnerEntry["blockSurfaces"];
+  timerMode?: string;
+};
+type SpinnerBrokerMessageOptions = {
+  shouldApplySnapshot?: (response: NonNullable<PopupSpinnerBrokerResponse>) => boolean;
+};
+type PopupBusyMirrorLeaseDetails = {
+  deadlineAt: number;
+  operationId: string;
+  operationKind: string;
+  operationPhase: string;
+  releaseBy: number;
+};
+type PopupBackgroundStateSnapshot = {
+  ok?: boolean;
+  tabId?: number | null;
+  lifecycle?: PopupStateGetReply["lifecycle"] | null;
+  activation?: PopupStateGetReply["activation"] | null;
+  traceEnabled?: boolean;
+  traceEvents?: PopupStateGetReply["traceEvents"] | null;
+  spinnerQueue?: PopupLegacySpinnerEntry[] | null;
+  activeSpinnerLease?: PopupLegacySpinnerEntry | null;
+};
+type TraceModeToggleEvent = Event & {
+  currentTarget?: (EventTarget & { checked?: boolean }) | null;
+};
 
 const { state } = stateModule;
 const popupDebugTarget = globalThis as typeof globalThis & {
@@ -279,7 +339,7 @@ const PAGE_SAVE_SYNC_INITIAL_RETRY_DELAY_MS = 1500;
 const PAGE_SAVE_SYNC_MAX_RETRY_DELAY_MS = 10000;
 const AI_PREVIEW_RESTORE_FALLBACK_MS = 1000;
 
-function getPropertyLockUiDeps() {
+function getPropertyLockUiDeps(): PropertyLockUiDeps {
   return {
     isFeatureEnabled,
     FEATURE_DISABLED_REASON,
@@ -308,38 +368,32 @@ function getPropertyLockUiDeps() {
     PROPERTY_LOCK_STATE_TAKEOVER_AVAILABLE,
     PROPERTY_LOCK_STATE_TRANSFER,
     windowRef: window,
-// @ts-expect-error
-    refreshUi: (options) => refreshUi(options),
-// @ts-expect-error
-    setTabState: (...args) => messages.setTabState(...args),
-// @ts-expect-error
+    refreshUi: (options) => refreshUi(typeof options === "object" && options ? options : {}),
+    setTabState: (
+      tabId: Parameters<typeof messages.setTabState>[0],
+      tabState: Parameters<typeof messages.setTabState>[1],
+      scope: Parameters<typeof messages.setTabState>[2] = null
+    ) => messages.setTabState(tabId, tabState, scope),
     sendRuntimeMessage: (payload) => messages.sendRuntimeMessage(payload),
-// @ts-expect-error
     showToast: (message) => {
       uiModule.showToast(message);
     },
-// @ts-expect-error
     setViewState: (viewState) => {
       uiModule.setViewState(viewState);
     },
-// @ts-expect-error
-    refreshCurrentPageRuntimeStatus: (options) => refreshCurrentPageRuntimeStatus(options),
+    refreshCurrentPageRuntimeStatus: (options) =>
+      refreshCurrentPageRuntimeStatus(typeof options === "object" && options ? options : {}),
     isPropertyLockCollaborationEnabled: () => isPropertyLockCollaborationEnabled(),
     resetPropertyLockState: () => resetPropertyLockState(),
     clearPropertyLockTransientState: () => clearPropertyLockTransientState(),
     clearPropertyLockOffCandidateRefreshTimer: () => clearPropertyLockOffCandidateRefreshTimer(),
     resetDisabledPropertyLockState: () => resetDisabledPropertyLockState(),
-// @ts-expect-error
     applyPropertyLockState: (lockStateLike) => applyPropertyLockState(lockStateLike),
-// @ts-expect-error
     queueEditorBootstrapOnLockTransition: (previousLockState, nextLockState) =>
       queueEditorBootstrapOnLockTransition(previousLockState, nextLockState),
-// @ts-expect-error
     applyPropertyLockConnectionStatus: (status, error) =>
       applyPropertyLockConnectionStatus(status, error),
-// @ts-expect-error
     fetchPropertyLockState: (siteId) => fetchPropertyLockState(siteId),
-// @ts-expect-error
     refreshPropertyLockSnapshot: (siteId, options) => refreshPropertyLockSnapshot(siteId, options),
     buildPropertyLockViewState: () => buildPropertyLockViewState()
   };
@@ -352,42 +406,58 @@ const resetDisabledPropertyLockState = () =>
 const resetPropertyLockState = () =>
   resetPropertyLockStateOperation(getPropertyLockUiDeps());
 const clearPropertyLockTransientState = () =>
-// @ts-expect-error
-  clearPropertyLockTransientStateOperation(getPropertyLockUiDeps());
+  clearPropertyLockTransientStateOperation();
 const clearPropertyLockOffCandidateRefreshTimer = () =>
   clearPropertyLockOffCandidateRefreshTimerOperation(getPropertyLockUiDeps());
-// @ts-expect-error
-const syncPropertyLockOffCandidateRefreshTimer = (active) =>
+const syncPropertyLockOffCandidateRefreshTimer = (
+  active: Parameters<typeof syncPropertyLockOffCandidateRefreshTimerOperation>[1]
+) =>
   syncPropertyLockOffCandidateRefreshTimerOperation(getPropertyLockUiDeps(), active);
-// @ts-expect-error
-const persistPropertyLockRecoveryMetadata = (tabId, recoveryState = {}) =>
+const persistPropertyLockRecoveryMetadata = (
+  tabId: Parameters<typeof persistPropertyLockRecoveryMetadataOperation>[1],
+  recoveryState: Parameters<typeof persistPropertyLockRecoveryMetadataOperation>[2] = {}
+) =>
   persistPropertyLockRecoveryMetadataOperation(getPropertyLockUiDeps(), tabId, recoveryState);
-// @ts-expect-error
-const applyPropertyLockState = (lockStateLike) =>
+const applyPropertyLockState = (
+  lockStateLike: Parameters<typeof applyPropertyLockStateOperation>[1]
+) =>
   applyPropertyLockStateOperation(getPropertyLockUiDeps(), lockStateLike);
-// @ts-expect-error
-const queueEditorBootstrapOnLockTransition = (previousLockState, nextLockState) =>
+const queueEditorBootstrapOnLockTransition = (
+  previousLockState: Parameters<typeof queueEditorBootstrapOnLockTransitionOperation>[1],
+  nextLockState: Parameters<typeof queueEditorBootstrapOnLockTransitionOperation>[2]
+) =>
   queueEditorBootstrapOnLockTransitionOperation(getPropertyLockUiDeps(), previousLockState, nextLockState);
-// @ts-expect-error
-const applyPropertyLockConnectionStatus = (status, error = "") =>
+const applyPropertyLockConnectionStatus = (
+  status: Parameters<typeof applyPropertyLockConnectionStatusOperation>[1],
+  error: Parameters<typeof applyPropertyLockConnectionStatusOperation>[2] = ""
+) =>
   applyPropertyLockConnectionStatusOperation(getPropertyLockUiDeps(), status, error);
-// @ts-expect-error
-const applyPropertyLockServerMessage = (serverMessage, siteId = null) =>
+const applyPropertyLockServerMessage = (
+  serverMessage: Parameters<typeof applyPropertyLockServerMessageOperation>[1],
+  siteId: Parameters<typeof applyPropertyLockServerMessageOperation>[2] = null
+) =>
   applyPropertyLockServerMessageOperation(getPropertyLockUiDeps(), serverMessage, siteId);
 const isPropertyLockBlockingEditing = () =>
   isPropertyLockBlockingEditingOperation(getPropertyLockUiDeps());
 const buildPropertyLockViewState = () =>
   buildPropertyLockViewStateOperation(getPropertyLockUiDeps());
-// @ts-expect-error
-const fetchPropertyLockState = (siteId) =>
+const fetchPropertyLockState = (
+  siteId: Parameters<typeof fetchPropertyLockStateOperation>[1]
+) =>
   fetchPropertyLockStateOperation(getPropertyLockUiDeps(), siteId);
-// @ts-expect-error
-const refreshPropertyLockSnapshot = (siteId, options = {}) =>
+const refreshPropertyLockSnapshot = (
+  siteId: Parameters<typeof refreshPropertyLockSnapshotOperation>[1],
+  options: Parameters<typeof refreshPropertyLockSnapshotOperation>[2] = {}
+) =>
   refreshPropertyLockSnapshotOperation(getPropertyLockUiDeps(), siteId, options);
-// @ts-expect-error
-const sendPropertyLockCommand = (type, payload = {}) =>
+const sendPropertyLockCommand = (
+  type: Parameters<typeof sendPropertyLockCommandOperation>[1],
+  payload: Parameters<typeof sendPropertyLockCommandOperation>[2] = {}
+) =>
   sendPropertyLockCommandOperation(getPropertyLockUiDeps(), type, payload);
-const reconcilePropertyLockAfterCommand = (options = {}) =>
+const reconcilePropertyLockAfterCommand = (
+  options: Parameters<typeof reconcilePropertyLockAfterCommandOperation>[1] = {}
+) =>
   reconcilePropertyLockAfterCommandOperation(getPropertyLockUiDeps(), options);
 
 const TOKEN_VALIDATION_INTERVAL_MS = 600 * 1000;
@@ -455,8 +525,8 @@ const THEME_OPTIONS = Object.freeze(
     })
     .map((theme) => ({ value: theme.value, label: theme.label }))
 );
-const popupSpinnerQueue = new Map();
-const popupSpinnerKeyTabIds = new Map();
+const popupSpinnerQueue: PopupSpinnerDeps["popupSpinnerQueue"] = new Map();
+const popupSpinnerKeyTabIds: PopupSpinnerDeps["popupSpinnerKeyTabIds"] = new Map();
 let popupSpinnerVisible = false;
 let popupSpinnerTimer = 0;
 // Fail-open watchdog: every queued spinner is force-cleared if it makes no
@@ -470,11 +540,11 @@ let popupSpinnerTimer = 0;
 const SPINNER_WATCHDOG_MS = 60000;
 const POPUP_PAGE_BUSY_MIRROR_DELAY_MS = 3500;
 const POPUP_PAGE_BUSY_MIRROR_FAIL_OPEN_MS = 65000;
-const popupSpinnerWatchdogByKey = new Map();
+const popupSpinnerWatchdogByKey: PopupSpinnerDeps["popupSpinnerWatchdogByKey"] = new Map();
 let popupNavigationInspectionOverlayStarted = false;
 let popupNavigationInspectionOverlayTabId: number | null = null;
-const popupNavigationInspectionSettlePollByTabId = new Map();
-const popupRenderModeSetNavGuardByTabId = new Map();
+const popupNavigationInspectionSettlePollByTabId = new Map<number, ReturnType<Window["setTimeout"]>>();
+const popupRenderModeSetNavGuardByTabId = new Map<number, RenderModeSetNavGuardState>();
 let popupStaleInspectionBusyClearTimer = 0;
 let popupBackgroundLifecycle: PopupStateGetReply["lifecycle"] = null;
 let popupBackgroundStateTabId: number | null = null;
@@ -486,8 +556,7 @@ let popupPageBusyMirrorPendingSignature = "";
 let popupPageBusyMirrorShowTimer = 0;
 let popupPageBusyMirrorOperationId = "";
 let pendingAiPreviewConfigSync: { tabId: number; baseUrl: string } | null = null;
-// @ts-expect-error
-let propertyPageTypesRequest = null;
+let propertyPageTypesRequest: PendingPropertyPageTypesRequest = null;
 const popupTimers = createPopupTimerGroup({ windowRef: window });
 
 // @ts-expect-error
@@ -497,7 +566,7 @@ function isEditableTarget(el) {
   return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable;
 }
 
-function getSpinnerDeps() {
+function getSpinnerDeps(): PopupSpinnerDeps {
   return {
     popupSpinnerQueue,
     popupSpinnerKeyTabIds,
@@ -508,16 +577,13 @@ function getSpinnerDeps() {
     cryptoRef: crypto,
     getCurrentPopupTabId,
     getPopupSpinnerVisible: () => popupSpinnerVisible,
-// @ts-expect-error
     setPopupSpinnerVisible: (value) => {
       popupSpinnerVisible = Boolean(value);
     },
     getPopupSpinnerTimer: () => popupSpinnerTimer,
-// @ts-expect-error
     setPopupSpinnerTimer: (value) => {
       popupSpinnerTimer = Number(value) || 0;
     },
-// @ts-expect-error
     popSpinner: (key) => {
       popSpinner(key);
     },
@@ -535,21 +601,29 @@ function getSpinnerDeps() {
 
 const currentSpinnerMessage = () => currentSpinnerMessageOperation(getSpinnerDeps());
 const currentSpinnerSnapshot = () => currentSpinnerSnapshotOperation(getSpinnerDeps());
-// @ts-expect-error
-const normalizeSpinnerReason = (reason, key, message) =>
+const normalizeSpinnerReason = (
+  reason: Parameters<typeof normalizeSpinnerReasonOperation>[1],
+  key: Parameters<typeof normalizeSpinnerReasonOperation>[2],
+  message: Parameters<typeof normalizeSpinnerReasonOperation>[3]
+) =>
   normalizeSpinnerReasonOperation(getSpinnerDeps(), reason, key, message);
-// @ts-expect-error
-const clearSpinnerWatchdog = (key) => clearSpinnerWatchdogOperation(getSpinnerDeps(), key);
-// @ts-expect-error
-const armSpinnerWatchdog = (key) => armSpinnerWatchdogOperation(getSpinnerDeps(), key);
-// @ts-expect-error
-const pushSpinner = (key, message, options = {}) =>
+const clearSpinnerWatchdog = (key: Parameters<typeof clearSpinnerWatchdogOperation>[1]) =>
+  clearSpinnerWatchdogOperation(getSpinnerDeps(), key);
+const armSpinnerWatchdog = (key: Parameters<typeof armSpinnerWatchdogOperation>[1]) =>
+  armSpinnerWatchdogOperation(getSpinnerDeps(), key);
+const pushSpinner = (
+  key: Parameters<typeof pushSpinnerOperation>[1],
+  message: Parameters<typeof pushSpinnerOperation>[2],
+  options: Parameters<typeof pushSpinnerOperation>[3] = {}
+) =>
   pushSpinnerOperation(getSpinnerDeps(), key, message, options);
-// @ts-expect-error
-const setSpinnerMessage = (key, message) =>
+const setSpinnerMessage = (
+  key: Parameters<typeof setSpinnerMessageOperation>[1],
+  message: Parameters<typeof setSpinnerMessageOperation>[2]
+) =>
   setSpinnerMessageOperation(getSpinnerDeps(), key, message);
-// @ts-expect-error
-const popSpinner = (key) => popSpinnerOperation(getSpinnerDeps(), key);
+const popSpinner = (key: Parameters<typeof popSpinnerOperation>[1]) =>
+  popSpinnerOperation(getSpinnerDeps(), key);
 const runWithSpinner = <T,>(
   key: string | null,
   message: string,
@@ -558,18 +632,15 @@ const runWithSpinner = <T,>(
 ) =>
   runWithSpinnerOperation(getSpinnerDeps(), key, message, task, options);
 
-function getSiteResolutionDeps() {
+function getSiteResolutionDeps(): SiteResolutionDeps {
   return {
     PopupText,
     ViewText,
-// @ts-expect-error
     showToast: (message) => {
       uiModule.showToast(message);
     },
     propertyPageTypesRefreshIntervalMs: PROPERTY_PAGE_TYPES_REFRESH_INTERVAL_MS,
-// @ts-expect-error
     getPropertyPageTypesRequest: () => propertyPageTypesRequest,
-// @ts-expect-error
     setPropertyPageTypesRequest: (nextRequest) => {
       propertyPageTypesRequest = nextRequest;
     }
@@ -582,8 +653,11 @@ const ensurePropertyPageTypes = (options = {}) =>
   ensurePropertyPageTypesOperation(getSiteResolutionDeps(), options);
 const resolveSiteIdFromGraphql = (options = {}) =>
   resolveSiteIdFromGraphqlOperation(getSiteResolutionDeps(), options);
-// @ts-expect-error
-const mergeConfigEntriesForResolvedBaseUrl = (resolvedBaseUrl, preferredEntry, existingEntry) =>
+const mergeConfigEntriesForResolvedBaseUrl = (
+  resolvedBaseUrl: Parameters<typeof mergeConfigEntriesForResolvedBaseUrlOperation>[1],
+  preferredEntry: Parameters<typeof mergeConfigEntriesForResolvedBaseUrlOperation>[2],
+  existingEntry: Parameters<typeof mergeConfigEntriesForResolvedBaseUrlOperation>[3]
+) =>
   mergeConfigEntriesForResolvedBaseUrlOperation(
     getSiteResolutionDeps(),
     resolvedBaseUrl,
@@ -593,26 +667,21 @@ const mergeConfigEntriesForResolvedBaseUrl = (resolvedBaseUrl, preferredEntry, e
 const ensureBaseUrlSiteId = (options = {}) =>
   ensureBaseUrlSiteIdOperation(getSiteResolutionDeps(), options);
 
-function getRemoteConfigDeps() {
+function getRemoteConfigDeps(): RemoteConfigDeps {
   return {
     PopupText,
     remoteConfigRetryDelayMs: REMOTE_CONFIG_RETRY_DELAY_MS,
     windowRef: window,
     ensureActiveTab: () => helpers.ensureActiveTab(),
-// @ts-expect-error
-    refreshUi: (options) => refreshUi(options),
+    refreshUi: (options) => refreshUi(typeof options === "object" && options ? options : {}),
     resolveRelativeEndpoint,
     updateLastConfigLoadStatus,
     invalidateTokenAndLockConfiguration,
-// @ts-expect-error
     showToast: (message) => {
       uiModule.showToast(message);
     },
-// @ts-expect-error
     ensureBaseUrlSiteId: (options) => ensureBaseUrlSiteId(options),
-// @ts-expect-error
     getStoredGlobalToken: (options) => getStoredGlobalToken(options),
-// @ts-expect-error
     ensurePropertyPageTypes: (options) => ensurePropertyPageTypes(options),
     collectStoredPageMarkingItems,
     buildLynxChecklistViewModel,
@@ -627,12 +696,16 @@ function getRemoteConfigDeps() {
 
 const scheduleRemoteConfigRetry = () =>
   scheduleRemoteConfigRetryOperation(getRemoteConfigDeps());
-const loadRemoteConfigForCurrentPage = (options = {}) =>
+const loadRemoteConfigForCurrentPage = (
+  options: Parameters<typeof loadRemoteConfigForCurrentPageOperation>[1] = {}
+) =>
   loadRemoteConfigForCurrentPageOperation(getRemoteConfigDeps(), options);
-const syncBaseConfigToServer = (options = {}) =>
+const syncBaseConfigToServer = (
+  options: Parameters<typeof syncBaseConfigToServerOperation>[1] = {}
+) =>
   syncBaseConfigToServerOperation(getRemoteConfigDeps(), options);
 
-function getRenderModeInspectionDeps() {
+function getRenderModeInspectionDeps(): RenderModeInspectionDeps {
   return {
     state,
     config,
@@ -651,7 +724,6 @@ function getRenderModeInspectionDeps() {
     markRenderModeUndetermined,
     loadGlobalAiSettings: () => helpers.loadGlobalAiSettings(),
     runWithSpinner,
-    normalizeUiRenderModeValue,
     buildTransferPayloadKey,
     putTransferPayload,
     waitForRetryDelay,
@@ -667,43 +739,45 @@ function getRenderModeInspectionDeps() {
   };
 }
 
-// @ts-expect-error
-const normalizeRenderModeDetectionResult = (payload) =>
+const normalizeRenderModeDetectionResult = (
+  payload: Parameters<typeof normalizeRenderModeDetectionResultOperation>[1]
+) =>
   normalizeRenderModeDetectionResultOperation(getRenderModeInspectionDeps(), payload);
-// @ts-expect-error
-const maybeAutoDetectRenderMode = (pageUrl) =>
+const maybeAutoDetectRenderMode = (
+  pageUrl: Parameters<typeof maybeAutoDetectRenderModeOperation>[1]
+) =>
   maybeAutoDetectRenderModeOperation(getRenderModeInspectionDeps(), pageUrl);
-const detectRenderModeViaEndpoint = (options = {}) =>
+const detectRenderModeViaEndpoint = (
+  options: Parameters<typeof detectRenderModeViaEndpointOperation>[1] = {}
+) =>
   detectRenderModeViaEndpointOperation(getRenderModeInspectionDeps(), options);
-// @ts-expect-error
-const waitForTabLoadStart = (tabId, timeoutMs = RENDER_MODE_INSPECTION_START_TIMEOUT_MS) =>
+const waitForTabLoadStart = (
+  tabId: Parameters<typeof waitForTabLoadStartOperation>[1],
+  timeoutMs: Parameters<typeof waitForTabLoadStartOperation>[2] = RENDER_MODE_INSPECTION_START_TIMEOUT_MS
+) =>
   waitForTabLoadStartOperation(getRenderModeInspectionDeps(), tabId, timeoutMs);
 const waitForTabLoadComplete = (
-// @ts-expect-error
-  tabId,
-  timeoutMs = RENDER_MODE_INSPECTION_LOAD_TIMEOUT_MS,
-  options = {}
+  tabId: Parameters<typeof waitForTabLoadCompleteOperation>[1],
+  timeoutMs: Parameters<typeof waitForTabLoadCompleteOperation>[2] = RENDER_MODE_INSPECTION_LOAD_TIMEOUT_MS,
+  options: Parameters<typeof waitForTabLoadCompleteOperation>[3] = {}
 ) => waitForTabLoadCompleteOperation(getRenderModeInspectionDeps(), tabId, timeoutMs, options);
-// @ts-expect-error
-const completeRenderModeInspectionReloadFollowUp = (tabId, operationId = "") =>
+const completeRenderModeInspectionReloadFollowUp = (
+  tabId: Parameters<typeof completeRenderModeInspectionReloadFollowUpOperation>[1],
+  operationId: Parameters<typeof completeRenderModeInspectionReloadFollowUpOperation>[2] = ""
+) =>
   completeRenderModeInspectionReloadFollowUpOperation(getRenderModeInspectionDeps(), tabId, operationId);
 
-function getPageReconciliationDeps() {
+function getPageReconciliationDeps(): PageReconciliationDeps {
   return {
-    state,
     PopupText,
     PAGE_SAVE_SYNC_MAX_ATTEMPTS,
     PAGE_SAVE_SYNC_INITIAL_RETRY_DELAY_MS,
     PAGE_SAVE_SYNC_MAX_RETRY_DELAY_MS,
     windowRef: window,
     hasCurrentPageMarkingChanges,
-// @ts-expect-error
     ensureActiveTab: (options) => helpers.ensureActiveTab(options),
-// @ts-expect-error
-    ensureBaseUrl: (message) => helpers.ensureBaseUrl(message),
-// @ts-expect-error
+    ensureBaseUrl: () => helpers.ensureBaseUrl(),
     refreshCurrentPageRuntimeStatus: (options) => refreshCurrentPageRuntimeStatus(options),
-// @ts-expect-error
     showToast: (message) => {
       uiModule.showToast(message);
     },
@@ -713,14 +787,11 @@ function getPageReconciliationDeps() {
     runWithSpinner,
     getCurrentPageUrl,
     loadGlobalAiSettings: () => helpers.loadGlobalAiSettings(),
-// @ts-expect-error
     syncBaseConfigToServer: (options) => syncBaseConfigToServer(options),
     clearCurrentPageSaveReconciliation,
     resetAiRunMarkingsFingerprint,
     applyPostSaveSilentTransition,
-// @ts-expect-error
     refreshUi: (options) => refreshUi(options),
-// @ts-expect-error
     setUiBusy: (busy, message, details) => {
       uiModule.setUiBusy(busy, message, details);
     },
@@ -729,8 +800,11 @@ function getPageReconciliationDeps() {
   };
 }
 
-// @ts-expect-error
-const hasCurrentPagePendingChanges = (localPageMarkings, backendSavedPageMarkings, options = {}) =>
+const hasCurrentPagePendingChanges = (
+  localPageMarkings: Parameters<typeof hasCurrentPagePendingChangesOperation>[1],
+  backendSavedPageMarkings: Parameters<typeof hasCurrentPagePendingChangesOperation>[2],
+  options: Parameters<typeof hasCurrentPagePendingChangesOperation>[3] = {}
+) =>
   hasCurrentPagePendingChangesOperation(
     getPageReconciliationDeps(),
     localPageMarkings,
@@ -741,8 +815,7 @@ const hasCurrentPagePendingChanges = (localPageMarkings, backendSavedPageMarking
 const handlePageSave = () => handlePageSaveOperation(getPageReconciliationDeps());
 const handlePageRevert = () => handlePageRevertOperation(getPageReconciliationDeps());
 
-// @ts-expect-error
-function buildSpinnerBusyDetails(key, entry) {
+function buildSpinnerBusyDetails(key: string | null, entry: PopupSpinnerEntry | null | undefined) {
   const spinnerEntry = entry && typeof entry === "object" ? entry : {};
   return {
     reason: normalizeSpinnerReason(spinnerEntry.reason, key, spinnerEntry.message),
@@ -756,9 +829,8 @@ function buildSpinnerBusyDetails(key, entry) {
   };
 }
 
-// @ts-expect-error
-function spinnerSnapshotBlocksSurface(snapshot, surface) {
-  const entry = snapshot && snapshot.entry && typeof snapshot.entry === "object"
+function spinnerSnapshotBlocksSurface(snapshot: PopupSpinnerSnapshot, surface: PopupSpinnerSurface) {
+  const entry: PopupSpinnerEntry | null = snapshot && snapshot.entry && typeof snapshot.entry === "object"
     ? snapshot.entry
     : null;
   if (!entry) {
@@ -770,13 +842,15 @@ function spinnerSnapshotBlocksSurface(snapshot, surface) {
   return true;
 }
 
-// @ts-expect-error
-function projectedSpinnerStateBlocksSurface(state, surface) {
-  if (!state || typeof state !== "object") {
+function projectedSpinnerStateBlocksSurface(
+  spinnerState: PopupSpinnerState | null,
+  surface: PopupSpinnerSurface
+) {
+  if (!spinnerState || typeof spinnerState !== "object") {
     return false;
   }
-  const blockSurfaces = state.blockSurfaces && typeof state.blockSurfaces === "object"
-    ? state.blockSurfaces
+  const blockSurfaces = spinnerState.blockSurfaces && typeof spinnerState.blockSurfaces === "object"
+    ? spinnerState.blockSurfaces as { page?: unknown; popup?: unknown }
     : null;
   if (!blockSurfaces) {
     return false;
@@ -784,30 +858,32 @@ function projectedSpinnerStateBlocksSurface(state, surface) {
   return blockSurfaces[surface] === true;
 }
 
-// @ts-expect-error
-function projectedSpinnerStateToSnapshot(state) {
-  if (!state || typeof state !== "object") {
+function projectedSpinnerStateToSnapshot(spinnerState: PopupSpinnerState | null): PopupSpinnerSnapshot {
+  if (!spinnerState || typeof spinnerState !== "object") {
     return null;
   }
+  const blockSurfaces = spinnerState.blockSurfaces && typeof spinnerState.blockSurfaces === "object"
+    ? spinnerState.blockSurfaces as { page?: unknown; popup?: unknown }
+    : null;
   return {
-    key: typeof state.spinnerKey === "string" ? state.spinnerKey : "",
+    key: typeof spinnerState.spinnerKey === "string" ? spinnerState.spinnerKey : "",
     entry: {
-      blockSurfaces: state.blockSurfaces && typeof state.blockSurfaces === "object"
+      blockSurfaces: blockSurfaces
         ? {
-          page: state.blockSurfaces.page === true,
-          popup: state.blockSurfaces.popup === true
+          page: blockSurfaces.page === true,
+          popup: blockSurfaces.popup === true
         }
         : undefined,
-      deadlineAt: Number.isFinite(state.deadlineAt) ? Number(state.deadlineAt) : 0,
-      message: typeof state.message === "string" ? state.message : "",
-      maxDurationMs: Number.isFinite(state.maxDurationMs) ? Number(state.maxDurationMs) : 0,
-      operationId: typeof state.operationId === "string" ? state.operationId : "",
-      operationKind: typeof state.operationKind === "string" ? state.operationKind : "",
-      operationPhase: typeof state.operationPhase === "string" ? state.operationPhase : "",
-      reason: typeof state.reason === "string" ? state.reason : "",
-      source: typeof state.source === "string" ? state.source : "",
-      startedAt: Number.isFinite(state.startedAt) ? Number(state.startedAt) : 0,
-      timerMode: typeof state.timerMode === "string" ? state.timerMode : ""
+      deadlineAt: Number.isFinite(spinnerState.deadlineAt) ? Number(spinnerState.deadlineAt) : 0,
+      message: typeof spinnerState.message === "string" ? spinnerState.message : "",
+      maxDurationMs: Number.isFinite(spinnerState.maxDurationMs) ? Number(spinnerState.maxDurationMs) : 0,
+      operationId: typeof spinnerState.operationId === "string" ? spinnerState.operationId : "",
+      operationKind: typeof spinnerState.operationKind === "string" ? spinnerState.operationKind : "",
+      operationPhase: typeof spinnerState.operationPhase === "string" ? spinnerState.operationPhase : "",
+      reason: typeof spinnerState.reason === "string" ? spinnerState.reason : "",
+      source: typeof spinnerState.source === "string" ? spinnerState.source : "",
+      startedAt: Number.isFinite(spinnerState.startedAt) ? Number(spinnerState.startedAt) : 0,
+      timerMode: typeof spinnerState.timerMode === "string" ? spinnerState.timerMode : ""
     }
   };
 }
@@ -887,8 +963,7 @@ function serializePopupSpinnerQueueForProjection() {
   });
 }
 
-// @ts-expect-error
-function selectionToProjectedSpinnerState(selection) {
+function selectionToProjectedSpinnerState(selection: PopupSpinnerSelection | null) {
   if (!selection || typeof selection !== "object") {
     return null;
   }
@@ -945,8 +1020,7 @@ function isPopupSpinnerDebugEnabled() {
   }
 }
 
-// @ts-expect-error
-function logPopupSpinnerDebug(eventName, details = {}) {
+function logPopupSpinnerDebug(eventName: string, details: Record<string, unknown> = {}) {
   if (!isPopupSpinnerDebugEnabled()) {
     return;
   }
@@ -965,28 +1039,24 @@ function logPopupSpinnerDebug(eventName, details = {}) {
   }
 }
 
-function getCurrentPopupTabId() {
+function getCurrentPopupTabId(): number | null {
   return state.currentTab && Number.isFinite(state.currentTab.id)
-// @ts-expect-error
-    ? Math.trunc(state.currentTab.id)
+    ? Math.trunc(Number(state.currentTab.id))
     : null;
 }
 
-// @ts-expect-error
-function isRenderDetectionPopupSpinner(snapshot) {
+function isRenderDetectionPopupSpinner(snapshot: PopupSpinnerSnapshot): boolean {
   const message = snapshot && snapshot.entry && typeof snapshot.entry.message === "string"
     ? snapshot.entry.message
     : "";
   return message === PopupText.overlay.detectingRenderMode;
 }
 
-// @ts-expect-error
-function spinnerSnapshotBlocksPage(snapshot) {
+function spinnerSnapshotBlocksPage(snapshot: PopupSpinnerSnapshot): boolean {
   return spinnerSnapshotBlocksSurface(snapshot, "page");
 }
 
-// @ts-expect-error
-function getPopupBusyMirrorLeaseDetails(snapshot) {
+function getPopupBusyMirrorLeaseDetails(snapshot: PopupSpinnerSnapshot): PopupBusyMirrorLeaseDetails {
   const entry = snapshot && snapshot.entry && typeof snapshot.entry === "object"
     ? snapshot.entry
     : {};
@@ -1008,8 +1078,12 @@ function getPopupBusyMirrorLeaseDetails(snapshot) {
   };
 }
 
-// @ts-expect-error
-function sendPopupBusyMirrorMessage(tabId, active, message = "", leaseDetails = {}) {
+function sendPopupBusyMirrorMessage(
+  tabId: number | null,
+  active: boolean,
+  message = "",
+  leaseDetails: Partial<PopupBusyMirrorLeaseDetails> = {}
+) {
   if (!tabId) {
     return;
   }
@@ -1153,8 +1227,7 @@ function isWorldTraceEnabled() {
   return isFeatureEnabled("traceDiagnostics") && isDebugFlagEnabled("worldTraceEnabled");
 }
 
-// @ts-expect-error
-function logWorldTrace(eventName, details = {}) {
+function logWorldTrace(eventName: string, details: Record<string, unknown> = {}) {
   if (!isWorldTraceEnabled()) {
     return;
   }
@@ -1165,10 +1238,9 @@ function logWorldTrace(eventName, details = {}) {
   }
 }
 
-const popupBusSelfTestedTabIds = new Set();
+const popupBusSelfTestedTabIds = new Set<number>();
 
-// @ts-expect-error
-function maybeRunPopupBusSelfTest(tabId, bus) {
+function maybeRunPopupBusSelfTest(tabId: number | null, bus: PopupBusClient | null) {
   if (!isWorldTraceEnabled() || !tabId || !bus || popupBusSelfTestedTabIds.has(tabId)) {
     return;
   }
@@ -1176,8 +1248,7 @@ function maybeRunPopupBusSelfTest(tabId, bus) {
   void runPopupBusSelfTest(bus, tabId, logWorldTrace);
 }
 
-// @ts-expect-error
-function applyBackgroundStateSnapshot(snapshot) {
+function applyBackgroundStateSnapshot(snapshot: PopupBackgroundStateSnapshot | null | undefined): void {
   if (!snapshot || !snapshot.ok) {
     return;
   }
@@ -1185,6 +1256,7 @@ function applyBackgroundStateSnapshot(snapshot) {
   if (tabId && snapshot.tabId && Math.trunc(snapshot.tabId) !== tabId) {
     return;
   }
+  const spinnerQueueEntries = Array.isArray(snapshot.spinnerQueue) ? snapshot.spinnerQueue : [];
   popupBackgroundLifecycle = snapshot.lifecycle || null;
   popupBackgroundStateTabId = tabId;
   popupBackgroundActivation = snapshot.activation || null;
@@ -1193,11 +1265,11 @@ function applyBackgroundStateSnapshot(snapshot) {
   state.traceEvents = traceDiagnosticsEnabled && Array.isArray(snapshot.traceEvents) ? [...snapshot.traceEvents] : [];
   popupSpinnerQueue.clear();
   popupSpinnerKeyTabIds.clear();
-// @ts-expect-error
-  (Array.isArray(snapshot.spinnerQueue) ? snapshot.spinnerQueue : []).forEach((entry) => {
+  spinnerQueueEntries.forEach((entry) => {
     if (!entry || typeof entry.key !== "string" || !entry.key) {
       return;
     }
+    const entryWithDetails = entry as PopupLegacySpinnerEntry & { details?: Record<string, unknown> };
     popupSpinnerQueue.set(entry.key, {
       blockSurfaces: entry.blockSurfaces && typeof entry.blockSurfaces === "object"
         ? {
@@ -1205,7 +1277,9 @@ function applyBackgroundStateSnapshot(snapshot) {
           popup: entry.blockSurfaces.popup === true
         }
         : undefined,
-      details: entry.details && typeof entry.details === "object" ? { ...entry.details } : undefined,
+      details: entryWithDetails.details && typeof entryWithDetails.details === "object"
+        ? { ...entryWithDetails.details }
+        : undefined,
       maxDurationMs: Number.isFinite(entry.maxDurationMs) ? Number(entry.maxDurationMs) : undefined,
       message: typeof entry.message === "string" ? entry.message : "",
       operationId: typeof entry.operationId === "string" ? entry.operationId : "",
@@ -1259,15 +1333,15 @@ function applyPopupViewSnapshot(snapshot: PopupStateGetReply | null) {
   });
 }
 
-// @ts-expect-error
-function sendSpinnerBrokerMessage(message, options = {}) {
+function sendSpinnerBrokerMessage(
+  message: SpinnerBrokerMessage | null | undefined,
+  options: SpinnerBrokerMessageOptions = {}
+): Promise<PopupSpinnerBrokerResponse> {
   const tabId = getCurrentPopupTabId();
   if (!tabId || !message || typeof message !== "object") {
     return Promise.resolve(null);
   }
-// @ts-expect-error
   const shouldApplySnapshot = typeof options.shouldApplySnapshot === "function"
-// @ts-expect-error
     ? options.shouldApplySnapshot
     : () => true;
   const request = message.type === SPINNER_REQUEST_TYPES.SET
@@ -1284,7 +1358,10 @@ function sendSpinnerBrokerMessage(message, options = {}) {
       deadlineAt: Number.isFinite(message.deadlineAt) ? Number(message.deadlineAt) : undefined,
       maxDurationMs: Number.isFinite(message.maxDurationMs) ? Number(message.maxDurationMs) : undefined,
       blockSurfaces: message.blockSurfaces && typeof message.blockSurfaces === "object"
-        ? message.blockSurfaces
+        ? {
+          page: message.blockSurfaces.page === true,
+          popup: message.blockSurfaces.popup === true
+        }
         : undefined,
       timerMode: typeof message.timerMode === "string" ? message.timerMode : ""
     })
@@ -1305,8 +1382,7 @@ function sendSpinnerBrokerMessage(message, options = {}) {
     .catch(() => null);
 }
 
-// @ts-expect-error
-function syncSpinnerEntryToBackground(key) {
+function syncSpinnerEntryToBackground(key: string): Promise<PopupSpinnerBrokerResponse> {
   const entry = popupSpinnerQueue.get(key);
   if (!entry) {
     return Promise.resolve(null);
@@ -1341,8 +1417,10 @@ function syncSpinnerEntryToBackground(key) {
   });
 }
 
-// @ts-expect-error
-function removeSpinnerEntryFromBackground(key, tabId = getCurrentPopupTabId()) {
+function removeSpinnerEntryFromBackground(
+  key: string,
+  tabId: number | null = getCurrentPopupTabId()
+) {
   if (!tabId || !key) {
     return Promise.resolve(null);
   }
@@ -1373,8 +1451,7 @@ function clearSpinnerQueueInBackground(
   }).catch(() => null);
 }
 
-// @ts-expect-error
-async function restoreSpinnerQueueFromBackground(tabId, popupBus) {
+async function restoreSpinnerQueueFromBackground(tabId: number | null, popupBus: PopupBusClient | null): Promise<void> {
   if (!tabId || !popupBus) {
     return;
   }
@@ -1384,10 +1461,10 @@ async function restoreSpinnerQueueFromBackground(tabId, popupBus) {
   }
 }
 
-// @ts-expect-error
-async function handleTraceModeToggle(event) {
-  if (event && event.currentTarget) {
-    event.currentTarget.checked = Boolean(state.traceModeEnabled);
+async function handleTraceModeToggle(event: unknown): Promise<void> {
+  const toggleEvent = event as TraceModeToggleEvent | null;
+  if (toggleEvent && toggleEvent.currentTarget) {
+    toggleEvent.currentTarget.checked = Boolean(state.traceModeEnabled);
   }
 }
 
@@ -8413,7 +8490,6 @@ async function init() {
       if (typeof message.clientId === "string" && message.clientId) {
         state.propertyLockClientId = message.clientId;
       }
-// @ts-expect-error
       const applied = applyPropertyLockServerMessage(message.message || null, messageSiteId);
       if (applied) {
         uiModule.setViewState(buildPropertyLockViewState());

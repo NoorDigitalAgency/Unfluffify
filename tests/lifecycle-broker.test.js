@@ -169,7 +169,7 @@ test("popup spinner UI mirrors background current state instead of session stora
   assert.match(popupSource, /requestPopupView\(popupBus, tabId\)/);
   assert.doesNotMatch(popupSource, /function connectBackgroundStatePort\(tabId\) \{/);
   assert.doesNotMatch(popupSource, /buildPopupStatePortName\(tabId\)/);
-  assert.match(popupSource, /function applyBackgroundStateSnapshot\(snapshot\) \{/);
+  assert.match(popupSource, /function applyBackgroundStateSnapshot\(snapshot(?:: [^)]+)?\)(?:: [^{]+)? \{/);
   assert.match(popupSource, /function applyPopupViewSnapshot\(snapshot(?:: [^)]+)?\) \{/);
   assert.match(popupSource, /function syncUiBusyFromBrokerState\(\) \{/);
   assert.match(popupSource, /type: SPINNER_REQUEST_TYPES\.SET/);

@@ -101,7 +101,7 @@ test("render mode inspect buttons alternate by the tab's current JavaScript mode
 test("popup page-busy mirror skips render detection spinners", () => {
   assert.match(
     popupSource,
-    /function isRenderDetectionPopupSpinner\(snapshot\) \{[\s\S]*?PopupText\.overlay\.detectingRenderMode[\s\S]*?\}/
+    /function isRenderDetectionPopupSpinner\(snapshot(?:: [^)]+)?\)(?:: [^{]+)? \{[\s\S]*?PopupText\.overlay\.detectingRenderMode[\s\S]*?\}/
   );
   assert.match(
     popupSource,
@@ -144,7 +144,7 @@ test("popup selects active blocking spinner instead of the queue tail", () => {
 test("popup preserves broker lease metadata when rebuilding spinner snapshots", () => {
   const snapshotBlock = extractSourceBlock(
     popupSource,
-    "function applyBackgroundStateSnapshot(snapshot) {",
+    "function applyBackgroundStateSnapshot(",
     "function clearStaleInspectionBusyClearTimer"
   );
 

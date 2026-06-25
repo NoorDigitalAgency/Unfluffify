@@ -728,7 +728,7 @@ test("popup spinner pop removes entries from the background broker", () => {
 test("popup delegates spinner queue state to the background broker", () => {
   const source = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
   const setBody = source.match(
-    /function syncSpinnerEntryToBackground\(key\) \{([\s\S]*?)\n\}/
+    /function syncSpinnerEntryToBackground\(key(?:: [^)]+)?\)(?:: [^{]+)? \{([\s\S]*?)\n\}/
   )[1];
   const clearBody = source.match(
     /function clearSpinnerQueueInBackground\(\s*tabId = getCurrentPopupTabId\(\),\s*options(?:\s*:\s*[^=]+)? = \{\}\s*\) \{([\s\S]*?)\n\}/
@@ -748,10 +748,10 @@ test("popup delegates spinner queue state to the background broker", () => {
 test("popup ignores stale spinner-set broker snapshots after local removal", () => {
   const source = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
   const sendBody = source.match(
-    /function sendSpinnerBrokerMessage\(message, options = \{\}\) \{([\s\S]*?)\n\}/
+    /function sendSpinnerBrokerMessage\(\s*message(?:\s*:\s*[^,)]+)?(?:\s*\|\s*null)?(?:\s*\|\s*undefined)?,\s*options(?:\s*:\s*[^=]+)? = \{\}\s*\)(?:: [^{]+)? \{([\s\S]*?)\n\}/
   )[1];
   const setBody = source.match(
-    /function syncSpinnerEntryToBackground\(key\) \{([\s\S]*?)\n\}/
+    /function syncSpinnerEntryToBackground\(key(?:\s*:\s*[^)]+)?\)(?:: [^{]+)? \{([\s\S]*?)\n\}/
   )[1];
 
   assert.match(sendBody, /const shouldApplySnapshot = typeof options\.shouldApplySnapshot === "function"/);
@@ -770,10 +770,10 @@ test("popup ignores stale spinner-set broker snapshots after local removal", () 
 test("popup restores spinner state from background current state", () => {
   const source = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
   const restoreBody = source.match(
-    /async function restoreSpinnerQueueFromBackground\(tabId, popupBus\) \{([\s\S]*?)\n\}/
+    /async function restoreSpinnerQueueFromBackground\(tabId(?:\s*:\s*[^,)]+)?, popupBus(?:\s*:\s*[^,)]+)?\)(?:: [^{]+)? \{([\s\S]*?)\n\}/
   )[1];
   const applyBody = source.match(
-    /function applyBackgroundStateSnapshot\(snapshot\) \{([\s\S]*?)\n\}/
+    /function applyBackgroundStateSnapshot\(snapshot(?:\s*:\s*[^)]+)?\)(?:: [^{]+)? \{([\s\S]*?)\n\}/
   )[1];
 
   assert.match(restoreBody, /requestPopupView\(popupBus, tabId\)/);
@@ -808,7 +808,7 @@ test("tab reload keeps the inspection curtain active while enabled pages re-insp
     /function scheduleNavigationInspectionSettlePoll\(tabId(?:: [^,)]+)?, baseUrl(?:: [^,)]+)?\)(?:: [^{]+)? \{/
   );
   assert.match(source, /function clearNavigationInspectionSettlePollsExcept\(tabIdToKeep = null\) \{/);
-  assert.match(source, /const popupNavigationInspectionSettlePollByTabId = new Map\(\);/);
+  assert.match(source, /const popupNavigationInspectionSettlePollByTabId = new Map(?:<[^;]+>)?\(\);/);
 
   const onUpdatedBlock = source.match(
     /browser\.tabs\.onUpdated\.addListener\(async \(tabId, changeInfo, tab\) => \{([\s\S]*?)\n {2}\}\);\n {2}window\.addEventListener/
