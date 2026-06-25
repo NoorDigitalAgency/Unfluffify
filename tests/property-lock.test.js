@@ -223,7 +223,7 @@ test("property lock text includes disconnected interaction blocked message", () 
 test("content-main starts and persists an off-candidate editor countdown before releasing the lock", () => {
   const source = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
 
-  assert.match(source, /function persistPropertyLockOffCandidateDeadline\(deadlineAt\) \{[\s\S]*?getPropertyLockStateMachine\(\)\.persistOffCandidateDeadline\(deadlineAt\);/);
+  assert.match(source, /function persistPropertyLockOffCandidateDeadline\(deadlineAt(?:\s*:\s*[^)]+)?\) \{[\s\S]*?getPropertyLockStateMachine\(\)\.persistOffCandidateDeadline\(deadlineAt\);/);
   assert.match(source, /function startPropertyLockOffCandidateWarning\(\) \{[\s\S]*?getPropertyLockStateMachine\(\)\.startOffCandidateWarning\(\);/);
   assert.match(propertyLockStateMachineSource, /propertyLockOffCandidateDeadlineAt:[\s\S]*?typeof deadlineAt === "number" && Number\.isFinite\(deadlineAt\)/);
   assert.match(propertyLockStateMachineSource, /deps\.setPropertyLockOffCandidateDeadlineAt\(Date\.now\(\) \+ deps\.PROPERTY_LOCK_OFF_CANDIDATE_WARNING_TIMEOUT_MS\);/);
@@ -238,9 +238,9 @@ test("content-main starts and persists an off-candidate editor countdown before 
 test("content-main starts and persists a cross-property editor cooldown before releasing the old lock", () => {
   const source = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
 
-  assert.match(source, /function normalizePropertyLockRecoveryTabState\(tabState\) \{[\s\S]*?getPropertyLockStateMachine\(\)\.normalizeRecoveryTabState\(tabState\);/);
+  assert.match(source, /function normalizePropertyLockRecoveryTabState\(tabState(?:\s*:\s*[^)]+)?\) \{[\s\S]*?getPropertyLockStateMachine\(\)\.normalizeRecoveryTabState\(/);
   assert.match(source, /function persistPropertyLockRecoveryState\(\{ siteId = null, baseUrl = "", clientId = "", deadlineAt = 0 \} = \{\}\) \{[\s\S]*?getPropertyLockStateMachine\(\)\.persistRecoveryState\(\{/);
-  assert.match(source, /function startPropertyLockCrossPropertyWarning\(recoveryState\) \{[\s\S]*?getPropertyLockStateMachine\(\)\.startCrossPropertyWarning\(recoveryState\);/);
+  assert.match(source, /function startPropertyLockCrossPropertyWarning\(recoveryState(?:\s*:\s*[^)]+)?\) \{[\s\S]*?getPropertyLockStateMachine\(\)\.startCrossPropertyWarning\(/);
   assert.match(propertyLockStateMachineSource, /deps\.setPropertyLockRecoveryDeadlineAt\([\s\S]*?Date\.now\(\) \+ deps\.PROPERTY_LOCK_CROSS_PROPERTY_COOLDOWN_TIMEOUT_MS/);
   assert.match(source, /type: PROPERTY_LOCK_CONTENT_RELEASE,\s*siteId: recoverySiteId,\s*clientId: recoveryClientId/);
   assert.match(propertyLockBannerModeSource, /if \(deps\.getPropertyLockRecoveryDeadlineAt\(\) > Date\.now\(\)\) \{[\s\S]*?deps\.setPropertyLockBannerMode\("editor_cross_property_countdown"\);/);
@@ -365,14 +365,14 @@ test("content-main starts property lock sync immediately during content-script i
 
 test("content-main coalesces concurrent property lock sync requests", () => {
   const source = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
-  const runSyncStart = source.indexOf("function runPropertyLockSync(options = {}) {");
-  const runSyncEnd = source.indexOf("async function syncPropertyLockConnection(options = {}) {", runSyncStart);
+  const runSyncStart = source.search(/function runPropertyLockSync\(options(?:\s*:\s*[^=]+)? = \{\}\) \{/);
+  const runSyncEnd = source.search(/async function syncPropertyLockConnection\(options(?:\s*:\s*[^=]+)? = \{\}\) \{/);
   const runSyncSource = source.slice(runSyncStart, runSyncEnd);
 
   assert.ok(runSyncStart >= 0);
   assert.match(source, /let propertyLockSyncInFlight = false;/);
-  assert.match(source, /let propertyLockQueuedSyncOptions = null;/);
-  assert.match(source, /function mergePropertyLockSyncOptions\(currentOptions = \{\}, incomingOptions = \{\}\)/);
+  assert.match(source, /let propertyLockQueuedSyncOptions(?:\s*:\s*[^=]+)? = null;/);
+  assert.match(source, /function mergePropertyLockSyncOptions\([\s\S]*?currentOptions(?:\s*:\s*[^=]+)? = \{\},[\s\S]*?incomingOptions(?:\s*:\s*[^=]+)? = \{\}[\s\S]*?\) \{/);
   assert.match(runSyncSource, /if \(propertyLockSyncInFlight\) \{[\s\S]*?propertyLockQueuedSyncOptions = mergePropertyLockSyncOptions\(/);
   assert.match(runSyncSource, /while \(!extensionContextInvalidated\) \{[\s\S]*?await syncPropertyLockConnection\(activeOptions\);/);
   assert.match(runSyncSource, /if \(propertyLockQueuedSyncOptions && !extensionContextInvalidated\) \{[\s\S]*?runPropertyLockSync\(queuedOptions\);/);
@@ -380,7 +380,7 @@ test("content-main coalesces concurrent property lock sync requests", () => {
 
 test("content-main re-queues property lock sync when URL changes during a sync", () => {
   const source = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
-  const syncStart = source.indexOf("async function syncPropertyLockConnection(options = {}) {");
+  const syncStart = source.search(/async function syncPropertyLockConnection\(options(?:\s*:\s*[^=]+)? = \{\}\) \{/);
   const syncEnd = source.indexOf("function handlePropertyLockPortMessage(message) {", syncStart);
   const syncSource = source.slice(syncStart, syncEnd);
 

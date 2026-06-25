@@ -23,7 +23,7 @@ test("core render path and silent highlighting both honor selector suppression x
 
 test("content-main routes live-page GraphQL lookups through background runtime messages", () => {
   const contentSource = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
-  const resolveSiteIdStart = contentSource.indexOf("async function resolveSiteIdFromGraphql(options = {}) {");
+  const resolveSiteIdStart = contentSource.indexOf("async function resolveSiteIdFromGraphql(");
   const resolveSiteIdEnd = contentSource.indexOf("function extractUrlPathAndHostname", resolveSiteIdStart);
   assert.ok(resolveSiteIdStart > -1);
   assert.ok(resolveSiteIdEnd > resolveSiteIdStart);
@@ -36,11 +36,11 @@ test("content-main routes live-page GraphQL lookups through background runtime m
 
   assert.match(
     contentSource,
-    /async function resolveSiteIdFromGraphql\(options = \{\}\) \{[\s\S]*?utils\.sendRuntimeMessage\(\{[\s\S]*?type: "resolveLivePageSiteId"/
+    /async function resolveSiteIdFromGraphql\([\s\S]*?options(?:\s*:\s*[^=]+)? = \{\}[\s\S]*?\{[\s\S]*?utils\.sendRuntimeMessage\(\{[\s\S]*?type: "resolveLivePageSiteId"/
   );
   assert.doesNotMatch(
     contentSource,
-    /async function resolveSiteIdFromGraphql\(options = \{\}\) \{[\s\S]*?fetch\(/
+    /async function resolveSiteIdFromGraphql\([\s\S]*?options(?:\s*:\s*[^=]+)? = \{\}[\s\S]*?\{[\s\S]*?fetch\(/
   );
   assert.doesNotMatch(resolveSiteIdBlock, /utils\.sendRuntimeMessage\(\{[\s\S]*?tokenValue[\s\S]*?\}\);/);
   assert.match(

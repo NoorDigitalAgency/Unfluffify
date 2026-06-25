@@ -146,7 +146,7 @@ test("background content bootstrap mirrors activation bootstrap state into the b
 });
 
 test("content emits lifecycle events for readiness, activation, and render-mode inspection", () => {
-  assert.match(contentSource, /function emitLifecycleEvent\(event = \{\}\) \{/);
+  assert.match(contentSource, /function emitLifecycleEvent\(event(?:\s*:\s*[^=]+)? = \{\}\) \{/);
   assert.match(contentSource, /type: WORLD_MESSAGE_TYPES\.LIFECYCLE_EVENT/);
   assert.match(
     contentSource,

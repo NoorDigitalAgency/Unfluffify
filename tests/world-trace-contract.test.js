@@ -102,7 +102,7 @@ test("content uses fixed trace flag and traces inbound/outbound world traffic", 
   assert.match(contentSource, /\[world-trace\]\[content\] runtime:inbound/);
   assert.match(contentSource, /\[world-trace\]\[content\] runtime:send/);
   assert.match(contentSource, /\[world-trace\]\[content\] lifecycle:emit/);
-  assert.match(contentSource, /function logPageBlockerReason\(event = \{\}\) \{/);
+  assert.match(contentSource, /function logPageBlockerReason\(event(?:\s*:\s*[^=]+)? = \{\}\) \{/);
   assert.match(contentSource, /console\.debug\("\[page-blocker\]", event\.busy \? "start-or-update" : "clear"/);
   assert.match(contentSource, /reason: normalizePageBlockingReason\(event\)/);
   assert.match(contentSource, /reason: normalizedEvent\.reason \|\| ""/);

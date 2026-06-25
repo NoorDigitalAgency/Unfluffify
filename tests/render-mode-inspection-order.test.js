@@ -97,8 +97,8 @@ test("render mode auto detection consumes the explicit inspection snapshot", () 
 });
 
 test("content reveal and capture handlers preserve pre-highlight clean snapshot ordering", () => {
-  assert.match(contentSource, /handleRunRenderModeRevealOnceCommand\(message = \{\}\) \{[\s\S]*?getRenderModeInspectionHandlers\(\)\.revealOnce\(message\)/);
-  assert.match(contentSource, /handleCaptureRenderModeInspectionHtmlCommand\(message = \{\}\) \{[\s\S]*?getRenderModeInspectionHandlers\(\)\.captureHtml\(message\)/);
+  assert.match(contentSource, /handleRunRenderModeRevealOnceCommand\(message(?:\s*:\s*[^=]+)? = \{\}\) \{[\s\S]*?getRenderModeInspectionHandlers\(\)\.revealOnce\(message\)/);
+  assert.match(contentSource, /handleCaptureRenderModeInspectionHtmlCommand\(message(?:\s*:\s*[^=]+)? = \{\}\) \{[\s\S]*?getRenderModeInspectionHandlers\(\)\.captureHtml\(message\)/);
 
   const revealStart = renderModeHandlersSource.indexOf("async function revealOnce(message = {}) {");
   const revealEnd = renderModeHandlersSource.indexOf("async function captureHtml(message = {}) {", revealStart);

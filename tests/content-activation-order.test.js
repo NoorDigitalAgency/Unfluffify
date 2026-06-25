@@ -102,7 +102,7 @@ test("content-main warn/error diagnostics are trace-gated", () => {
     "utf8"
   );
 
-  assert.match(source, /function logContentDiagnostic\(level, \.\.\.args\) \{/);
+  assert.match(source, /function logContentDiagnostic\(level(?:\s*:\s*[^,]+)?, \.\.\.args(?:\s*:\s*[^)]+)?\) \{/);
   assert.match(source, /if \(!isWorldTraceEnabled\(\)\) \{\s*return;\s*\}/);
   assert.match(source, /const logger = level === "error" \? console\.error : console\.warn;/);
   assert.match(source, /logContentDiagnostic,/);
@@ -136,7 +136,7 @@ test("reveal activation starts on becameEditor transition and not on marking ena
   const messageStart = runtimeMessageHandlerSource.indexOf("if (message.type === \"setEnabled\") {");
   const messageEnd = runtimeMessageHandlerSource.indexOf("if (message.type === \"getInspectionStatus\") {", messageStart);
   const messageSource = runtimeMessageHandlerSource.slice(messageStart, messageEnd);
-  const handlerStart = source.indexOf("async function handleSetEnabledCommand(message = {}) {");
+  const handlerStart = source.search(/async function handleSetEnabledCommand\(message(?:\s*:\s*[^=]+)? = \{\}\) \{/);
   const handlerEnd = source.indexOf("function handleGetInspectionStatusCommand() {", handlerStart);
   const handlerSource = source.slice(handlerStart, handlerEnd);
   assert.ok(messageStart > -1);
@@ -144,9 +144,9 @@ test("reveal activation starts on becameEditor transition and not on marking ena
   assert.ok(handlerStart > -1);
   assert.ok(handlerEnd > handlerStart);
   assert.match(messageSource, /deps\.handleSetEnabledCommand\(message\)/);
-  assert.match(handlerSource, /const shouldPerformInitialReveal = Boolean\([\s\S]*?message\.performInitialReveal &&[\s\S]*?consumePageVisitRevealFreezeAttempt\(message\.baseUrl, location\.href\)[\s\S]*?\);/);
+  assert.match(handlerSource, /const shouldPerformInitialReveal = Boolean\([\s\S]*?message\.performInitialReveal &&[\s\S]*?consumePageVisitRevealFreezeAttempt\((?:message\.baseUrl|baseUrl), location\.href\)[\s\S]*?\);/);
   assert.match(handlerSource, /const skipInitialReveal = !shouldPerformInitialReveal;/);
-  assert.match(handlerSource, /await core\.enableForBaseUrl\(message\.baseUrl, \{ skipInitialReveal \}\);[\s\S]*?if \(shouldPerformInitialReveal\) \{[\s\S]*?markSilentHighlightEditorRevealPrepared\(message\.baseUrl, location\.href\);/);
+  assert.match(handlerSource, /await core\.enableForBaseUrl\((?:message\.baseUrl|baseUrl), \{ skipInitialReveal \}\);[\s\S]*?if \(shouldPerformInitialReveal\) \{[\s\S]*?markSilentHighlightEditorRevealPrepared\((?:message\.baseUrl|baseUrl), location\.href\);/);
   assert.doesNotMatch(messageSource, /warmupPageRevealBeforeMotionPause\(/);
   assert.doesNotMatch(messageSource, /warmupSilentHighlightingBeforeMotionPause\(/);
   assert.doesNotMatch(messageSource, /runEditorSilentHighlightingActivation\(/);
@@ -181,7 +181,7 @@ test("reveal activation starts on becameEditor transition and not on marking ena
   assert.doesNotMatch(urlEventSource, /const shouldRunEditorActivation/);
   assert.doesNotMatch(urlEventSource, /runEditorSilentHighlightingActivation\(/);
 
-    assert.match(source, /let silentHighlightEditorActivationPromise = null;/);
+    assert.match(source, /let silentHighlightEditorActivationPromise(?:\s*:\s*[^=]+)? = null;/);
     assert.match(source, /let silentHighlightEditorActivationQueued = false;/);
     assert.match(
       source,
@@ -192,7 +192,7 @@ test("reveal activation starts on becameEditor transition and not on marking ena
       /const runActivationLoop = async \(\) => \{[\s\S]*?do \{[\s\S]*?silentHighlightEditorActivationQueued = false;[\s\S]*?await runEditorSilentHighlightingActivationOnce\(\);[\s\S]*?\} while \([\s\S]*?silentHighlightEditorActivationQueued &&[\s\S]*?shouldRunSilentHighlightEditorActivation\(\)[\s\S]*?\);/
     );
 
-  const syncStart = source.indexOf("async function syncPropertyLockConnection(options = {}) {");
+  const syncStart = source.search(/async function syncPropertyLockConnection\(options(?:\s*:\s*[^=]+)? = \{\}\) \{/);
   const syncEnd = source.indexOf("function handlePropertyLockPortMessage(message) {", syncStart);
   const syncSource = source.slice(syncStart, syncEnd);
   assert.ok(syncStart > -1);
@@ -286,7 +286,7 @@ test("runtime setEnabled can request an initial reveal when reload restoration r
   const source = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
   const messageStart = runtimeMessageHandlerSource.indexOf('if (message.type === "setEnabled") {');
   const messageEnd = runtimeMessageHandlerSource.indexOf('if (message.type === "getInspectionStatus") {', messageStart);
-  const handlerStart = source.indexOf("async function handleSetEnabledCommand(message = {}) {");
+  const handlerStart = source.search(/async function handleSetEnabledCommand\(message(?:\s*:\s*[^=]+)? = \{\}\) \{/);
   const handlerEnd = source.indexOf("function handleGetInspectionStatusCommand() {", handlerStart);
 
   assert.ok(messageStart > -1);
@@ -296,9 +296,9 @@ test("runtime setEnabled can request an initial reveal when reload restoration r
   const messageSource = runtimeMessageHandlerSource.slice(messageStart, messageEnd);
   const handlerSource = source.slice(handlerStart, handlerEnd);
   assert.match(messageSource, /deps\.handleSetEnabledCommand\(message\)/);
-  assert.match(handlerSource, /const shouldPerformInitialReveal = Boolean\([\s\S]*?message\.performInitialReveal &&[\s\S]*?consumePageVisitRevealFreezeAttempt\(message\.baseUrl, location\.href\)[\s\S]*?\);/);
+  assert.match(handlerSource, /const shouldPerformInitialReveal = Boolean\([\s\S]*?message\.performInitialReveal &&[\s\S]*?consumePageVisitRevealFreezeAttempt\((?:message\.baseUrl|baseUrl), location\.href\)[\s\S]*?\);/);
   assert.match(handlerSource, /const skipInitialReveal = !shouldPerformInitialReveal;/);
-  assert.match(handlerSource, /await core\.enableForBaseUrl\(message\.baseUrl, \{ skipInitialReveal \}\);[\s\S]*?if \(shouldPerformInitialReveal\) \{[\s\S]*?markSilentHighlightEditorRevealPrepared\(message\.baseUrl, location\.href\);/);
+  assert.match(handlerSource, /await core\.enableForBaseUrl\((?:message\.baseUrl|baseUrl), \{ skipInitialReveal \}\);[\s\S]*?if \(shouldPerformInitialReveal\) \{[\s\S]*?markSilentHighlightEditorRevealPrepared\((?:message\.baseUrl|baseUrl), location\.href\);/);
 });
 
 test("capturePageSnapshot collects AI submission rows from the target config", () => {
@@ -402,8 +402,8 @@ test("silent-highlight mutation observer uses an O(1) tracked-node index instead
   const source = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
 
   // Module-scope index, reset alongside the render-target cache.
-  assert.match(source, /let silentHighlightTrackedNodeIndex = null;/);
-  const indexResetMatches = source.match(/silentHighlightTrackedNodeIndex = null;/g) || [];
+  assert.match(source, /let silentHighlightTrackedNodeIndex(?:\s*:\s*[^=]+)? = null;/);
+  const indexResetMatches = source.match(/silentHighlightTrackedNodeIndex(?:\s*:\s*[^=]+)? = null;/g) || [];
   assert.ok(
     indexResetMatches.length >= 3, // declaration + 2 collection-rebuild reset sites
     `expected the tracked-node index to be cleared at every collections-rebuild site; saw ${indexResetMatches.length}`

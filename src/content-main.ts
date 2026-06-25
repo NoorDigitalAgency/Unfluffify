@@ -145,8 +145,109 @@ import {
 } from "./common/message-protocol.js";
 import { getGlobalAiSettings } from "./common/settings-store.js";
 import { routeInboundContentRequestMessage } from "./content/inbound-content-request-dispatch.js";
+import type { RuntimeMessage } from "./types/messaging.ts";
 
 const { state } = core;
+
+type LooseRuntimeMessage = Partial<RuntimeMessage>;
+type ContentRuntimeMessageHandlerDeps = Parameters<typeof handleRuntimeMessage>[3];
+type PageToastDeps = Parameters<typeof createPageToast>[0];
+type PageSaveReconciliationClearDeps = Parameters<typeof createPageSaveReconciliationClearHandler>[0];
+type PageSaveReconciliationPendingDeps = Parameters<typeof createPageSaveReconciliationPendingHandler>[0];
+type RenderModeInspectionClientDeps = Parameters<typeof createRenderModeInspectionClient>[0];
+type RenderModeInspectionDeps = Parameters<typeof createRenderModeInspectionHandlers>[0];
+type InspectionStatusDeps = Parameters<typeof createInspectionStatusResolver>[0];
+type PageDraftRevertDeps = Parameters<typeof createPageDraftRevertHandler>[0];
+type PageDraftSaveDeps = Parameters<typeof createPageDraftSaveHandler>[0];
+type ExplicitMarkingDeps = Parameters<typeof createExplicitMarkingHandler>[0];
+type PageDraftStatusDeps = Parameters<typeof createPageDraftStatusHandler>[0];
+type AiPreviewStateResponseDeps = Parameters<typeof createAiPreviewStateResponseBuilder>[0];
+type AiPreviewCloseHandlerDeps = Parameters<typeof createAiPreviewCloseHandler>[0];
+type AiPreviewComputeLockHandlerDeps = Parameters<typeof createAiPreviewComputeLockHandler>[0];
+type AiPreviewExpandedModeHandlerDeps = Parameters<typeof createAiPreviewExpandedModeHandler>[0];
+type AiPreviewGetStateHandlerDeps = Parameters<typeof createAiPreviewGetStateHandler>[0];
+type AiPreviewShowHandlerDeps = Parameters<typeof createAiPreviewShowHandler>[0];
+type AiSubmissionXpathsHandlerDeps = Parameters<typeof createAiSubmissionXpathsHandler>[0];
+type CapturePageSnapshotDeps = Parameters<typeof createCapturePageSnapshotHandler>[0];
+type ConfigUpdatedHandlerDeps = Parameters<typeof createConfigUpdatedHandler>[0];
+type CollectPageDataHandlerDeps = Parameters<typeof createCollectPageDataHandler>[0];
+type DefaultExclusionsHandlerDeps = Parameters<typeof createDefaultExclusionsHandler>[0];
+type DescribeXpathsDeps = Parameters<typeof createDescribeXpathsHandler>[0];
+type FocusHandlerDeps = Parameters<typeof createFocusHandler>[0];
+type ForceRefreshHandlerDeps = Parameters<typeof createForceRefreshHandler>[0];
+type InvisibleXpathsDeps = Parameters<typeof createInvisibleXpathsHandler>[0];
+type VisibleXpathsDeps = Parameters<typeof createVisibleXpathsHandler>[0];
+type PropertyLockPortClientDeps = Parameters<typeof createPropertyLockPortClient>[0];
+type PropertyLockStateMachineDeps = Parameters<typeof createPropertyLockStateMachine>[0];
+type PropertyLockBannerDeps = Parameters<typeof renderPropertyLockBannerOperation>[0];
+type PropertyLockBannerModeDeps = Parameters<typeof updatePropertyLockBannerModeOperation>[0];
+type PropertyLockPortClient = ReturnType<typeof createPropertyLockPortClient>;
+type PropertyLockStateMachine = ReturnType<typeof createPropertyLockStateMachine>;
+type PropertyLockRecoveryTabStateInput =
+  | Parameters<PropertyLockStateMachine["normalizeRecoveryTabState"]>[0]
+  | null;
+type PropertyLockRecoveryStateInput = {
+  siteId?: number | null;
+  baseUrl?: string | null;
+  clientId?: string;
+  deadlineAt: number;
+  offCandidateDeadlineAt?: number;
+} | null | undefined;
+type PropertyLockServerMessage = Parameters<PropertyLockStateMachine["applyServerMessage"]>[0];
+type RenderModeInspectionHandlers = ReturnType<typeof createRenderModeInspectionHandlers>;
+type InspectionStatusResolver = ReturnType<typeof createInspectionStatusResolver>;
+type ContentPropertyLockState = {
+  state?: string;
+  isEditor?: boolean;
+  isSameUserEditor?: boolean;
+  editorName?: string;
+  otherTabHasUnsavedChanges?: boolean;
+  transferFromName?: string;
+  transferToName?: string;
+  secondsRemaining?: number | null;
+  [key: string]: unknown;
+};
+type PropertyLockSyncOptions = {
+  pageUrl?: string;
+  forceSiteIdRefresh?: boolean;
+};
+type PageBlockerEvent = {
+  busy?: unknown;
+  kind?: unknown;
+  message?: unknown;
+  operationId?: unknown;
+  phase?: unknown;
+  reason?: unknown;
+  source?: unknown;
+  [key: string]: unknown;
+};
+type SiteIdPathCheckState = {
+  baseUrl?: string;
+};
+type SilentHighlightLayerMap = Record<string, HTMLElement>;
+type SilentHighlightLayerBoxMap = Record<string, Map<string, HTMLElement>>;
+type SilentHighlightCollections = {
+  immutableNodes: unknown[];
+  contentNodes: unknown[];
+  excludedNodes: unknown[];
+  sourceImmutableNodes: unknown[];
+  sourceContentNodes: unknown[];
+  sourceExcludedNodes: unknown[];
+  sourceExplicitIncludeNodes: unknown[];
+  sourceHiddenExplicitIncludeNodes: unknown[];
+  ghostContentNodes: unknown[];
+  sourceInclusionSelectorByNode: Map<unknown, string>;
+  sourceExclusionSelectorByNode: Map<unknown, string>;
+  explicitIncludeSelectorByNode: Map<unknown, string>;
+  excludedSelectorByNode: Map<unknown, string>;
+  explicitIncludeXpathByNode: Map<unknown, string>;
+  excludedXpathByNode: Map<unknown, string>;
+  implicitIncludeXpathByNode: Map<unknown, string>;
+};
+type SilentHighlightTrackedNodeIndex = {
+  tracked: Set<Node>;
+  ancestors: Set<Node>;
+};
 
 const SILENT_CONTENT_HIGHLIGHTING_ATTR = "data-uf-silent-content-highlighting";
 const SILENT_CONTENT_EXCLUDED_ATTR = "data-uf-silent-content-excluded";
@@ -215,26 +316,22 @@ const PROPERTY_LOCK_BANNER_ID = "unfluffify-lock-banner";
 const PROPERTY_LOCK_BANNER_STYLE_ID = "unfluffify-lock-banner-style";
 const PROPERTY_LOCK_RECONNECT_DELAY_MS = 150;
 
-// @ts-expect-error
-let propertyLockState = null;
+let propertyLockState: ContentPropertyLockState | null = null;
 let propertyLockBannerMode = "no_banner";
 let propertyLockBannerCountdownTimer = 0;
 let propertyLockBannerCountdownValue = 0;
 let propertyLockOffCandidateDeadlineAt = 0;
-// @ts-expect-error
-let propertyLockRecoverySiteId = null;
+let propertyLockRecoverySiteId: number | null = null;
 let propertyLockRecoveryBaseUrl = "";
 let propertyLockRecoveryClientId = "";
 let propertyLockRecoveryDeadlineAt = 0;
 let propertyLockRecoveryReleaseTimer = 0;
-// @ts-expect-error
-let propertyLockBannerElement = null;
+let propertyLockBannerElement: HTMLElement | null = null;
 let propertyLockBannerVisible = false;
 let propertyLockSuggestionId = "";
 let propertyLockSuggestionFromName = "";
 let propertyLockLastBlockedToastAt = 0;
-// @ts-expect-error
-let propertyLockConnectedSiteId = null;
+let propertyLockConnectedSiteId: number | null = null;
 let propertyLockConnectedBaseUrl = "";
 // Debounce timer for central page-level activity pings (mouse/keyboard/scroll).
 // Property lock and background inactivity observers subscribe to this signal.
@@ -243,14 +340,11 @@ const pageActivitySubscribers = new Set();
 let propertyLockEditorClaimPending = false;
 let propertyLockSyncToken = 0;
 let propertyLockSyncInFlight = false;
-// @ts-expect-error
-let propertyLockQueuedSyncOptions = null;
+let propertyLockQueuedSyncOptions: PropertyLockSyncOptions | null = null;
 let propertyLockClientId = "";
 let extensionContextInvalidated = false;
-// @ts-expect-error
-let silentHighlightingObserver = null;
-// @ts-expect-error
-let silentHighlightingLayoutShiftObserver = null;
+let silentHighlightingObserver: MutationObserver | null = null;
+let silentHighlightingLayoutShiftObserver: PerformanceObserver | null = null;
 let silentHighlightingRefreshTimer = 0;
 let silentHighlightingRefreshDueAt = 0;
 let silentHighlightingRefreshGeneration = 0;
@@ -258,15 +352,12 @@ let lastSilentHighlightingRefreshAt = 0;
 let lastSilentHighlightingRenderKey = "";
 let lastSilentHighlightingsActive = false;
 let silentHighlightingPositionRefreshPending = false;
-// @ts-expect-error
-let silentHighlightOverlay = null;
-let silentHighlightLayers = {};
-let silentHighlightLayerBoxes = {};
-// @ts-expect-error
-let silentHighlightCollections = null;
+let silentHighlightOverlay: HTMLElement | null = null;
+let silentHighlightLayers: SilentHighlightLayerMap = {};
+let silentHighlightLayerBoxes: SilentHighlightLayerBoxMap = {};
+let silentHighlightCollections: SilentHighlightCollections | null = null;
 let silentHighlightRenderTargetCache = new Map();
-// @ts-expect-error
-let silentHighlightTrackedNodeIndex = null;
+let silentHighlightTrackedNodeIndex: SilentHighlightTrackedNodeIndex | null = null;
 let silentHighlightScrollTimer = 0;
 let silentHighlightRepositionRaf = 0;
 let silentHighlightSettleTimer = 0;
@@ -280,8 +371,7 @@ let silentHighlightLegacyAttrsCleaned = false;
 let silentHighlightEditorRevealInFlight = 0;
 let silentHighlightEditorRevealKey = "";
 let pageVisitRevealFreezeAttemptKey = "";
-// @ts-expect-error
-let silentHighlightEditorActivationPromise = null;
+let silentHighlightEditorActivationPromise: Promise<unknown> | null = null;
 let silentHighlightEditorActivationQueued = false;
 let silentHighlightEditorActivationIdCounter = 0;
 let renderModeInspectionActive = false;
@@ -306,7 +396,6 @@ function resetDisabledPropertyLockRuntimeState() {
   clearPropertyLockReconnectTimer();
   clearPropertyLockBannerCountdown();
   clearPropertyLockRecoveryReleaseTimer();
-// @ts-expect-error
   getPropertyLockPortClient().disconnect({ notifyBackground: false });
   propertyLockConnectedSiteId = null;
   propertyLockConnectedBaseUrl = "";
@@ -326,7 +415,6 @@ function resetDisabledPropertyLockRuntimeState() {
   propertyLockBannerCountdownValue = 0;
   propertyLockBannerVisible = false;
   propertyLockLastBlockedToastAt = 0;
-// @ts-expect-error
   if (propertyLockBannerElement) {
     propertyLockBannerElement.classList.add("uf-lock-banner-hidden");
     propertyLockBannerElement.replaceChildren();
@@ -339,13 +427,10 @@ function ensurePropertyLockCollaborationActive() {
     return true;
   }
   const portClient = getPropertyLockPortClient();
-// @ts-expect-error
   const hasPort = portClient.hasPort();
-// @ts-expect-error
   const hasReconnectTimer = portClient.hasReconnectTimer();
   if (
     hasPort ||
-// @ts-expect-error
     propertyLockState ||
     propertyLockBannerMode !== "no_banner" ||
     propertyLockOffCandidateDeadlineAt ||
@@ -353,7 +438,6 @@ function ensurePropertyLockCollaborationActive() {
     hasReconnectTimer ||
     propertyLockRecoveryReleaseTimer ||
     propertyLockSyncInFlight ||
-// @ts-expect-error
     propertyLockQueuedSyncOptions
   ) {
     resetDisabledPropertyLockRuntimeState();
@@ -528,11 +612,11 @@ function getRenderModeInspectionClient() {
 }
 
 function getRenderModeInspectionHandlers() {
-  return contentMainServiceRegistry.getRenderModeInspectionHandlers();
+  return contentMainServiceRegistry.getRenderModeInspectionHandlers() as RenderModeInspectionHandlers;
 }
 
 function getInspectionStatusResolver() {
-  return contentMainServiceRegistry.getInspectionStatusResolver();
+  return contentMainServiceRegistry.getInspectionStatusResolver() as InspectionStatusResolver;
 }
 
 function getPageDraftRevertHandler() {
@@ -622,15 +706,14 @@ function getVisibleXpathsHandler() {
 }
 
 function getPropertyLockPortClient() {
-  return contentMainServiceRegistry.getPropertyLockPortClient();
+  return contentMainServiceRegistry.getPropertyLockPortClient() as PropertyLockPortClient;
 }
 
 function getPropertyLockStateMachine() {
-  return contentMainServiceRegistry.getPropertyLockStateMachine();
+  return contentMainServiceRegistry.getPropertyLockStateMachine() as PropertyLockStateMachine;
 }
 
-// @ts-expect-error
-function createLifecycleOperationId(kind) {
+function createLifecycleOperationId(kind: string) {
   lifecycleOperationCounter += 1;
   return `${kind || "operation"}:${Date.now()}:${lifecycleOperationCounter}`;
 }
@@ -666,26 +749,20 @@ export function exposeDebugSpinnerQueueTabId() {
   }
 }
 
-function normalizePageBlockingReason(event = {}) {
-// @ts-expect-error
+function normalizePageBlockingReason(event: PageBlockerEvent = {}) {
   if (typeof event.reason === "string" && event.reason.trim()) {
-// @ts-expect-error
     return event.reason.trim();
   }
-// @ts-expect-error
   if (typeof event.kind === "string" && event.kind.trim()) {
-// @ts-expect-error
     return `lifecycle:${event.kind.trim()}`;
   }
-// @ts-expect-error
   if (typeof event.message === "string" && event.message.trim()) {
-// @ts-expect-error
     return `message:${event.message.trim()}`;
   }
   return "page-lifecycle-blocker";
 }
 
-function logPageBlockerReason(event = {}) {
+function logPageBlockerReason(event: PageBlockerEvent = {}) {
   if (!isPageBlockerDebugEnabled()) {
     return;
   }
@@ -694,18 +771,12 @@ function logPageBlockerReason(event = {}) {
     return;
   }
   try {
-// @ts-expect-error
     console.debug("[page-blocker]", event.busy ? "start-or-update" : "clear", {
       reason: normalizePageBlockingReason(event),
-// @ts-expect-error
       source: typeof event.source === "string" && event.source ? event.source : "content-lifecycle",
-// @ts-expect-error
       kind: event && event.kind ? event.kind : "",
-// @ts-expect-error
       phase: event && event.phase ? event.phase : "",
-// @ts-expect-error
       operationId: event && event.operationId ? event.operationId : "",
-// @ts-expect-error
       message: event && event.message ? event.message : "",
       pageUrl: location.href
     });
@@ -714,25 +785,20 @@ function logPageBlockerReason(event = {}) {
   }
 }
 
-function emitLifecycleEvent(event = {}) {
+function emitLifecycleEvent(event: PageBlockerEvent = {}) {
   const normalizedEvent = {
     ...event,
     reason: normalizePageBlockingReason(event),
-// @ts-expect-error
     source: typeof event.source === "string" && event.source ? event.source : "content-lifecycle"
   };
   logPageBlockerReason(normalizedEvent);
   if (isWorldTraceEnabled()) {
     try {
       console.debug("[world-trace][content] lifecycle:emit", {
-// @ts-expect-error
         kind: normalizedEvent && normalizedEvent.kind ? normalizedEvent.kind : "",
-// @ts-expect-error
         phase: normalizedEvent && normalizedEvent.phase ? normalizedEvent.phase : "",
-// @ts-expect-error
         operationId: normalizedEvent && normalizedEvent.operationId ? normalizedEvent.operationId : "",
         busy: Object.prototype.hasOwnProperty.call(normalizedEvent || {}, "busy")
-// @ts-expect-error
           ? Boolean(normalizedEvent.busy)
           : undefined,
         reason: normalizedEvent.reason || "",
@@ -753,8 +819,7 @@ function emitLifecycleEvent(event = {}) {
   });
 }
 
-// @ts-expect-error
-function logContentDiagnostic(level, ...args) {
+function logContentDiagnostic(level: "error" | "warn", ...args: unknown[]) {
   if (!isWorldTraceEnabled()) {
     return;
   }
@@ -775,11 +840,11 @@ async function loadGlobalAiSettingsForContent() {
   };
 }
 
-async function resolveSiteIdFromGraphql(options = {}) {
+async function resolveSiteIdFromGraphql(
+  options: { stageBase?: string; pageUrl?: string; tokenValue?: string } = {}
+) {
   const {
-// @ts-expect-error
     stageBase = "",
-// @ts-expect-error
     pageUrl = ""
   } = options;
   if (!stageBase || !pageUrl) {
@@ -813,8 +878,7 @@ function extractUrlPathAndHostname(url = location.href) {
   }
 }
 
-// @ts-expect-error
-function isSignificantUrlPathChange(currentUrl, lastPath, lastHostname) {
+function isSignificantUrlPathChange(currentUrl: string, lastPath: string, lastHostname: string) {
   const current = extractUrlPathAndHostname(currentUrl);
   if (!current.hostname) {
     return false;
@@ -831,8 +895,7 @@ function isSignificantUrlPathChange(currentUrl, lastPath, lastHostname) {
   return true;
 }
 
-// @ts-expect-error
-async function recheckSiteIdForCurrentUrlPath(tabState) {
+async function recheckSiteIdForCurrentUrlPath(tabState: SiteIdPathCheckState | null | undefined) {
   if (!tabState || !tabState.baseUrl) {
     return null;
   }
@@ -1040,7 +1103,6 @@ async function syncPropertyLockOffCandidateWarning(baseUrl, pageUrl = location.h
     clearPropertyLockOffCandidateWarning();
     return;
   }
-// @ts-expect-error
   if (propertyLockState && propertyLockState.isEditor) {
     startPropertyLockOffCandidateWarning();
     return;
@@ -1652,7 +1714,6 @@ function recoverFromStuckRenderModeInspection() {
     busy: false,
     message: ""
   });
-// @ts-expect-error
   if (inspectionUiWasActive && propertyLockState && propertyLockState.isEditor) {
     runEditorSilentHighlightingActivation().catch(() => {});
   } else {
@@ -2017,12 +2078,10 @@ function shouldRunSilentHighlightEditorActivation() {
   if (!isPropertyLockCollaborationEnabled()) {
     return true;
   }
-// @ts-expect-error
   return Boolean(propertyLockState && propertyLockState.isEditor);
 }
 
 async function runEditorSilentHighlightingActivation() {
-// @ts-expect-error
   if (silentHighlightEditorActivationPromise) {
     silentHighlightEditorActivationQueued = true;
     return silentHighlightEditorActivationPromise;
@@ -2191,7 +2250,6 @@ function ensureSilentHighlightOverlay() {
     host.appendChild(overlay);
   }
   overlay.style.zIndex = SILENT_HIGHLIGHT_OVERLAY_Z_INDEX;
-// @ts-expect-error
   if (silentHighlightOverlay !== overlay) {
     silentHighlightOverlay = overlay;
     silentHighlightLayers = {};
@@ -2215,9 +2273,7 @@ function ensureSilentHighlightOverlay() {
     overlay.appendChild(layer);
 // @ts-expect-error
     silentHighlightLayers[key] = layer;
-// @ts-expect-error
     if (!silentHighlightLayerBoxes[key]) {
-// @ts-expect-error
       silentHighlightLayerBoxes[key] = new Map();
     }
   });
@@ -2242,7 +2298,6 @@ function clearSilentHighlightOverlay() {
 
 // @ts-expect-error
 function setSilentHighlightOverlayHidden(hidden) {
-// @ts-expect-error
   if (!silentHighlightOverlay) {
     return;
   }
@@ -2299,14 +2354,11 @@ function clearSilentHighlightRepositionTimers() {
 
 // @ts-expect-error
 function beginSilentLayerRender(key) {
-// @ts-expect-error
   const layer = silentHighlightLayers[key];
   if (!layer) {
     return null;
   }
-// @ts-expect-error
   const map = silentHighlightLayerBoxes[key] || new Map();
-// @ts-expect-error
   silentHighlightLayerBoxes[key] = map;
   return { layer, map, used: new Set() };
 }
@@ -2602,7 +2654,6 @@ function renderSilentHighlightOverlay(collections, options = {}) {
 }
 
 function repositionSilentHighlightOverlay(options = {}) {
-// @ts-expect-error
   if (!lastSilentHighlightingsActive || state.enabled || !silentHighlightCollections) {
     return;
   }
@@ -2619,7 +2670,6 @@ function repositionSilentHighlightOverlay(options = {}) {
   renderSilentHighlightOverlay(nextCollections, { keepVisible });
 }
 
-// @ts-expect-error
 function buildSilentHighlightPositionSignature(collections = silentHighlightCollections) {
   if (!collections) {
     return "";
@@ -2668,7 +2718,6 @@ function buildSilentHighlightPositionSignature(collections = silentHighlightColl
 
 function runSilentHighlightSettledRepositionSample() {
   silentHighlightSettleTimer = 0;
-// @ts-expect-error
   if (state.enabled || !lastSilentHighlightingsActive || !silentHighlightCollections) {
     resetSilentHighlightSettleTracking();
     return;
@@ -2709,7 +2758,6 @@ function runSilentHighlightSettledRepositionSample() {
 }
 
 function scheduleSilentHighlightReposition(options = {}) {
-// @ts-expect-error
   if (state.enabled || !lastSilentHighlightingsActive || !silentHighlightCollections) {
     return;
   }
@@ -3025,12 +3073,10 @@ function clearSilentHighlightingMarks() {
 }
 
 function stopSilentHighlightingObserver() {
-// @ts-expect-error
   if (silentHighlightingObserver) {
     silentHighlightingObserver.disconnect();
     silentHighlightingObserver = null;
   }
-// @ts-expect-error
   if (silentHighlightingLayoutShiftObserver) {
     silentHighlightingLayoutShiftObserver.disconnect();
     silentHighlightingLayoutShiftObserver = null;
@@ -3132,9 +3178,8 @@ function buildSilentHighlightTrackedNodeIndex() {
   // ancestors: every ancestor of any tracked node, so we can detect a mutation
   //   whose target is an ancestor of a tracked node (target.contains(tracked))
   //   in O(1) instead of O(N).
-  const tracked = new Set();
-  const ancestors = new Set();
-// @ts-expect-error
+  const tracked = new Set<Node>();
+  const ancestors = new Set<Node>();
   if (!silentHighlightCollections) {
     return { tracked, ancestors };
   }
@@ -3149,10 +3194,11 @@ function buildSilentHighlightTrackedNodeIndex() {
   ];
   for (const group of groups) {
     if (!group) continue;
-    for (const node of group) {
-      if (!node || node.nodeType !== 1 || tracked.has(node)) {
+    for (const candidate of group) {
+      if (!(candidate instanceof Node) || candidate.nodeType !== 1 || tracked.has(candidate)) {
         continue;
       }
+      const node = candidate;
       tracked.add(node);
       let cursor = node.parentNode;
       while (cursor && cursor.nodeType === 1) {
@@ -3165,17 +3211,14 @@ function buildSilentHighlightTrackedNodeIndex() {
   return { tracked, ancestors };
 }
 
-// @ts-expect-error
-function mutationTargetTouchesSilentCollections(target) {
-// @ts-expect-error
+function mutationTargetTouchesSilentCollections(target: Node | null | undefined) {
   if (!target || target.nodeType !== 1 || !silentHighlightCollections) {
     return false;
   }
-// @ts-expect-error
-  if (!silentHighlightTrackedNodeIndex) {
-    silentHighlightTrackedNodeIndex = buildSilentHighlightTrackedNodeIndex();
-  }
-  const { tracked, ancestors } = silentHighlightTrackedNodeIndex;
+  const nodeIndex =
+    silentHighlightTrackedNodeIndex ||
+    (silentHighlightTrackedNodeIndex = buildSilentHighlightTrackedNodeIndex());
+  const { tracked, ancestors } = nodeIndex;
   // Case A: mutation target is itself tracked.
   if (tracked.has(target)) return true;
   // Case B: mutation target is an ancestor of a tracked node.
@@ -3191,7 +3234,6 @@ function mutationTargetTouchesSilentCollections(target) {
 }
 
 function startSilentHighlightingObserver() {
-// @ts-expect-error
   if (silentHighlightingObserver) {
     return;
   }
@@ -3265,7 +3307,6 @@ if (needsFullRefresh) {
           !list ||
           state.enabled ||
           !lastSilentHighlightingsActive ||
-// @ts-expect-error
           !silentHighlightCollections
         ) {
           return;
@@ -3291,7 +3332,6 @@ if (needsFullRefresh) {
       });
       silentHighlightingLayoutShiftObserver.observe({ type: "layout-shift" });
     } catch {
-// @ts-expect-error
       if (silentHighlightingLayoutShiftObserver) {
         silentHighlightingLayoutShiftObserver.disconnect();
         silentHighlightingLayoutShiftObserver = null;
@@ -5462,7 +5502,6 @@ async function refreshSilentHighlightings() {
     shouldBeActive,
     renderChanged,
     positionRefreshPending: silentHighlightingPositionRefreshPending,
-// @ts-expect-error
     hasOverlay: Boolean(silentHighlightOverlay),
     isFullRefresh: true
   });
@@ -5484,7 +5523,6 @@ async function refreshSilentHighlightings() {
       // Only the initial paint (inactive -> active, or no overlay yet) uses the
       // hide->reveal transition so the first reveal is correctly scheduled.
       const overlayAlreadyLive =
-// @ts-expect-error
         lastSilentHighlightingsActive && shouldBeActive && Boolean(silentHighlightOverlay);
       renderSilentHighlightOverlay(renderCollections, { keepVisible: overlayAlreadyLive });
     } else if (renderChanged) {
@@ -5526,7 +5564,6 @@ function isMarkingBlockedByPropertyLock() {
   }
   return propertyLockBannerVisible &&
     propertyLockBannerMode !== "no_banner" &&
-// @ts-expect-error
     propertyLockState &&
     !propertyLockState.isEditor;
 }
@@ -5571,7 +5608,6 @@ function showPropertyLockBlockedToast() {
     showPageToast(propertyLockText.inactivityInteractionBlockedToast);
     return;
   }
-// @ts-expect-error
   const editorName = propertyLockState?.editorName || "Someone";
   showPageToast(propertyLockText.lockedInteractionBlockedToast(editorName));
 }
@@ -5635,12 +5671,10 @@ function sendPropertyLockDraftStatus() {
     return;
   }
   const portClient = getPropertyLockPortClient();
-// @ts-expect-error
   if (!portClient.hasPort()) {
     return;
   }
   try {
-// @ts-expect-error
     portClient.postMessage({
       type: PROPERTY_LOCK_CONTENT_DRAFT_STATUS,
       ...getPropertyLockDraftStatusPayload()
@@ -5709,10 +5743,10 @@ function resetPropertyLockUiState() {
   renderPropertyLockBanner();
 }
 
-// @ts-expect-error
-function normalizePropertyLockRecoveryTabState(tabState) {
-// @ts-expect-error
-  return getPropertyLockStateMachine().normalizeRecoveryTabState(tabState);
+function normalizePropertyLockRecoveryTabState(tabState: PropertyLockRecoveryTabStateInput) {
+  return getPropertyLockStateMachine().normalizeRecoveryTabState(
+    (tabState ?? {}) as Parameters<PropertyLockStateMachine["normalizeRecoveryTabState"]>[0]
+  );
 }
 
 function loadPropertyLockRecoveryTabState() {
@@ -5729,7 +5763,6 @@ function loadPropertyLockRecoveryTabState() {
 }
 
 function persistPropertyLockRecoveryState({ siteId = null, baseUrl = "", clientId = "", deadlineAt = 0 } = {}) {
-// @ts-expect-error
   return getPropertyLockStateMachine().persistRecoveryState({
     siteId,
     baseUrl,
@@ -5738,14 +5771,11 @@ function persistPropertyLockRecoveryState({ siteId = null, baseUrl = "", clientI
   });
 }
 
-// @ts-expect-error
-function persistPropertyLockOffCandidateDeadline(deadlineAt) {
-// @ts-expect-error
+function persistPropertyLockOffCandidateDeadline(deadlineAt: number) {
   return getPropertyLockStateMachine().persistOffCandidateDeadline(deadlineAt);
 }
 
 function clearPropertyLockOffCandidateWarning() {
-// @ts-expect-error
   return getPropertyLockStateMachine().clearOffCandidateWarning();
 }
 
@@ -5758,7 +5788,6 @@ function clearPropertyLockRecoveryReleaseTimer() {
 }
 
 function clearPropertyLockCrossPropertyWarning(options = {}) {
-// @ts-expect-error
   return getPropertyLockStateMachine().clearCrossPropertyWarning(options);
 }
 
@@ -5768,7 +5797,6 @@ function armPropertyLockCrossPropertyRelease() {
   }
   clearPropertyLockRecoveryReleaseTimer();
   if (
-// @ts-expect-error
     !propertyLockRecoverySiteId ||
     !propertyLockRecoveryClientId ||
     propertyLockRecoveryDeadlineAt <= Date.now()
@@ -5778,7 +5806,6 @@ function armPropertyLockCrossPropertyRelease() {
   propertyLockRecoveryReleaseTimer = window.setTimeout(() => {
     propertyLockRecoveryReleaseTimer = 0;
     if (
-// @ts-expect-error
       !propertyLockRecoverySiteId ||
       !propertyLockRecoveryClientId ||
       propertyLockRecoveryDeadlineAt <= 0 ||
@@ -5798,19 +5825,21 @@ function armPropertyLockCrossPropertyRelease() {
   }, Math.max(1, propertyLockRecoveryDeadlineAt - Date.now() + 100));
 }
 
-// @ts-expect-error
-function startPropertyLockCrossPropertyWarning(recoveryState) {
-// @ts-expect-error
-  return getPropertyLockStateMachine().startCrossPropertyWarning(recoveryState);
+function startPropertyLockCrossPropertyWarning(recoveryState: PropertyLockRecoveryStateInput) {
+  if (!recoveryState) {
+    return getPropertyLockStateMachine().startCrossPropertyWarning(recoveryState);
+  }
+  return getPropertyLockStateMachine().startCrossPropertyWarning({
+    ...recoveryState,
+    baseUrl: recoveryState.baseUrl || undefined
+  });
 }
 
 function startPropertyLockOffCandidateWarning() {
-// @ts-expect-error
   return getPropertyLockStateMachine().startOffCandidateWarning();
 }
 
 function clearPropertyLockReconnectTimer() {
-// @ts-expect-error
   getPropertyLockPortClient().clearReconnectTimer();
 }
 
@@ -5818,14 +5847,11 @@ function schedulePropertyLockReconnect(options = {}) {
   if (!ensurePropertyLockCollaborationActive()) {
     return;
   }
-// @ts-expect-error
   getPropertyLockPortClient().scheduleReconnect(options);
 }
 
-function disconnectPropertyLockPort(options = {}) {
-// @ts-expect-error
+function disconnectPropertyLockPort(options: { notifyBackground?: boolean } = {}) {
   const { notifyBackground = true } = options || {};
-// @ts-expect-error
   getPropertyLockPortClient().disconnect({ notifyBackground });
   resetPropertyLockUiState();
 }
@@ -5858,26 +5884,22 @@ function queuePropertyLockEditorClaim() {
   propertyLockEditorClaimPending = true;
 }
 
-function mergePropertyLockSyncOptions(currentOptions = {}, incomingOptions = {}) {
-  const mergedOptions = {};
-// @ts-expect-error
+function mergePropertyLockSyncOptions(
+  currentOptions: PropertyLockSyncOptions = {},
+  incomingOptions: PropertyLockSyncOptions = {}
+) {
+  const mergedOptions: PropertyLockSyncOptions = {};
   const currentPageUrl = typeof currentOptions.pageUrl === "string" && currentOptions.pageUrl
-// @ts-expect-error
     ? currentOptions.pageUrl
     : "";
-// @ts-expect-error
   const incomingPageUrl = typeof incomingOptions.pageUrl === "string" && incomingOptions.pageUrl
-// @ts-expect-error
     ? incomingOptions.pageUrl
     : "";
   const mergedPageUrl = incomingPageUrl || currentPageUrl;
   if (mergedPageUrl) {
-// @ts-expect-error
     mergedOptions.pageUrl = mergedPageUrl;
   }
-// @ts-expect-error
   if (Boolean(currentOptions.forceSiteIdRefresh) || Boolean(incomingOptions.forceSiteIdRefresh)) {
-// @ts-expect-error
     mergedOptions.forceSiteIdRefresh = true;
   }
   return mergedOptions;
@@ -5891,7 +5913,6 @@ function flushQueuedPropertyLockEditorClaim() {
   if (!propertyLockEditorClaimPending) {
     return;
   }
-// @ts-expect-error
   if (propertyLockState && propertyLockState.isEditor) {
     propertyLockEditorClaimPending = false;
     return;
@@ -5900,7 +5921,7 @@ function flushQueuedPropertyLockEditorClaim() {
   sendPropertyLockMessage(PROPERTY_LOCK_CONTENT_TAKE_LOCK);
 }
 
-function runPropertyLockSync(options = {}) {
+function runPropertyLockSync(options: PropertyLockSyncOptions = {}) {
   if (!ensurePropertyLockCollaborationActive()) {
     return;
   }
@@ -5910,7 +5931,6 @@ function runPropertyLockSync(options = {}) {
   const nextOptions = mergePropertyLockSyncOptions({}, options);
   if (propertyLockSyncInFlight) {
     propertyLockQueuedSyncOptions = mergePropertyLockSyncOptions(
-// @ts-expect-error
       propertyLockQueuedSyncOptions || {},
       nextOptions
     );
@@ -5926,7 +5946,6 @@ function runPropertyLockSync(options = {}) {
       } catch (error) {
         handlePropertyLockSyncError(error, activeOptions);
       }
-// @ts-expect-error
       if (!propertyLockQueuedSyncOptions) {
         break;
       }
@@ -5934,7 +5953,6 @@ function runPropertyLockSync(options = {}) {
       propertyLockQueuedSyncOptions = null;
     }
     propertyLockSyncInFlight = false;
-// @ts-expect-error
     if (propertyLockQueuedSyncOptions && !extensionContextInvalidated) {
       const queuedOptions = propertyLockQueuedSyncOptions;
       propertyLockQueuedSyncOptions = null;
@@ -5977,7 +5995,6 @@ async function syncPropertyLockConnection(options = {}) {
     recoveryState.clientId &&
     !utils.isPageWithinBaseUrl(pageUrl, recoveryState.baseUrl)
   ) {
-// @ts-expect-error
     if (getPropertyLockPortClient().hasPort()) {
       disconnectPropertyLockPort();
     }
@@ -6018,9 +6035,7 @@ async function syncPropertyLockConnection(options = {}) {
   const siteId = target.siteId;
   propertyLockConnectedBaseUrl = target.baseUrl || "";
   const portClient = getPropertyLockPortClient();
-// @ts-expect-error
   if (!(portClient.hasPort() && propertyLockConnectedSiteId === siteId)) {
-// @ts-expect-error
     if (portClient.hasPort()) {
       disconnectPropertyLockPort();
     }
@@ -6029,7 +6044,6 @@ async function syncPropertyLockConnection(options = {}) {
     propertyLockConnectedBaseUrl = target.baseUrl || "";
 
     try {
-// @ts-expect-error
       portClient.connect({
         connectPayload: {
           type: PROPERTY_LOCK_CONTENT_CONNECT,
@@ -6037,7 +6051,6 @@ async function syncPropertyLockConnection(options = {}) {
           ...getPropertyLockDraftStatusPayload()
         },
         onMessage: handlePropertyLockPortMessage,
-// @ts-expect-error
         onDisconnect: (disconnectReason) => {
           propertyLockConnectedSiteId = null;
           propertyLockConnectedBaseUrl = "";
@@ -6068,7 +6081,6 @@ async function syncPropertyLockConnection(options = {}) {
   // Re-run activation/refresh so reveal+freeze still executes per visited page.
   clearPropertyLockCrossPropertyWarning({ preserveSession: true });
   sendPropertyLockActivity();
-// @ts-expect-error
   let shouldRunEditorActivation = Boolean(propertyLockState && propertyLockState.isEditor);
   if (!shouldRunEditorActivation) {
     const snapshot = await fetchPropertyLockStateSnapshot(siteId);
@@ -6172,13 +6184,11 @@ function sendPropertyLockActivity() {
     return;
   }
   const portClient = getPropertyLockPortClient();
-// @ts-expect-error
   if (!portClient.hasPort()) {
     schedulePropertyLockReconnect();
     return;
   }
   try {
-// @ts-expect-error
     portClient.postMessage({
       type: PROPERTY_LOCK_CONTENT_ACTIVITY,
       ...getPropertyLockDraftStatusPayload()
@@ -6204,13 +6214,11 @@ function sendPropertyLockMessage(type, payload = {}) {
     return;
   }
   const portClient = getPropertyLockPortClient();
-// @ts-expect-error
   if (!portClient.hasPort()) {
     schedulePropertyLockReconnect();
     return;
   }
   try {
-// @ts-expect-error
     portClient.postMessage({
       type,
       ...getPropertyLockDraftStatusPayload(),
@@ -6248,9 +6256,7 @@ async function fetchPropertyLockStateSnapshot(siteId) {
   }
 }
 
-// @ts-expect-error
-function applyPropertyLockServerMessage(serverMessage) {
-// @ts-expect-error
+function applyPropertyLockServerMessage(serverMessage: PropertyLockServerMessage) {
   return getPropertyLockStateMachine().applyServerMessage(serverMessage);
 }
 
@@ -6270,16 +6276,13 @@ function createPropertyLockStateMachineDeps() {
     getPropertyLockBannerMode: () => propertyLockBannerMode,
     getPropertyLockClientId: () => getPropertyLockClientId(),
     getPropertyLockConnectedBaseUrl: () => propertyLockConnectedBaseUrl,
-// @ts-expect-error
     getPropertyLockConnectedSiteId: () => propertyLockConnectedSiteId,
     getPropertyLockOffCandidateDeadlineAt: () => propertyLockOffCandidateDeadlineAt,
     getPropertyLockRecoveryBaseUrl: () => propertyLockRecoveryBaseUrl,
     getPropertyLockRecoveryClientId: () => propertyLockRecoveryClientId,
     getPropertyLockRecoveryDeadlineAt: () => propertyLockRecoveryDeadlineAt,
-// @ts-expect-error
     getPropertyLockRecoverySiteId: () => propertyLockRecoverySiteId,
-// @ts-expect-error
-    getPropertyLockState: () => propertyLockState,
+    getPropertyLockState: () => propertyLockState || {},
     getPropertyLockSuggestionFromName: () => propertyLockSuggestionFromName,
     getPropertyLockSuggestionId: () => propertyLockSuggestionId,
     getTimerHost: () => window,
@@ -6322,9 +6325,8 @@ function createPropertyLockStateMachineDeps() {
     setPropertyLockRecoverySiteId: (siteId) => {
       propertyLockRecoverySiteId = siteId;
     },
-// @ts-expect-error
-    setPropertyLockState: (nextState) => {
-      propertyLockState = nextState;
+    setPropertyLockState: (nextState: Record<string, unknown>) => {
+      propertyLockState = nextState as ContentPropertyLockState;
     },
 // @ts-expect-error
     setPropertyLockSuggestionFromName: (fromName) => {
@@ -6368,8 +6370,20 @@ function createPropertyLockBannerModeDeps() {
     clearPropertyLockOffCandidateWarning,
     getPropertyLockRecoveryDeadlineAt: () => propertyLockRecoveryDeadlineAt,
     getPropertyLockOffCandidateDeadlineAt: () => propertyLockOffCandidateDeadlineAt,
-// @ts-expect-error
-    getPropertyLockState: () => propertyLockState,
+    getPropertyLockState: () => {
+      if (!propertyLockState) {
+        return null;
+      }
+      return {
+        state: typeof propertyLockState.state === "string" ? propertyLockState.state : "",
+        isEditor: Boolean(propertyLockState.isEditor),
+        secondsRemaining:
+          typeof propertyLockState.secondsRemaining === "number" ||
+          propertyLockState.secondsRemaining === null
+            ? propertyLockState.secondsRemaining
+            : null
+      };
+    },
     getPropertyLockBannerMode: () => propertyLockBannerMode,
 // @ts-expect-error
     setPropertyLockBannerMode: (mode) => {
@@ -6414,7 +6428,6 @@ function createInspectionStatusDeps() {
     getPageSaveReconciliationState: (pageUrl) => core.getPageSaveReconciliationState(pageUrl),
     getPageUrl: () => location.href,
     getPropertyLockEditorClaimPending: () => propertyLockEditorClaimPending,
-// @ts-expect-error
     getSilentHighlightEditorActivationPromise: () => silentHighlightEditorActivationPromise,
     isMarkingEnabled: () => Boolean(state.enabled),
     isPageInspectionUiActive: () => core.isPageInspectionUiActive(),
@@ -6567,10 +6580,10 @@ function createConfigUpdatedHandlerDeps() {
     mergeDraftEntry: (configValue, pageUrl, draftEntry, savedEntry) =>
       core.mergeDraftEntry(configValue, pageUrl, draftEntry, savedEntry),
 // @ts-expect-error
-notifyDraftStatus: (pageUrl) => core.notifyDraftStatus(pageUrl),
-refreshPageSaveReconciliation: (baseUrl: string, pageUrl: string) =>
-  core.refreshPageSaveReconciliation(baseUrl, pageUrl),
-refreshEnabledAiHighlights,
+    notifyDraftStatus: (pageUrl) => core.notifyDraftStatus(pageUrl),
+    refreshPageSaveReconciliation: (baseUrl: string, pageUrl: string) =>
+      core.refreshPageSaveReconciliation(baseUrl, pageUrl),
+    refreshEnabledAiHighlights,
     refreshSilentHighlightings,
     runPropertyLockSync,
 // @ts-expect-error
@@ -6902,7 +6915,6 @@ function createPropertyLockPortClientDeps() {
       }
     },
     getClientId: () => getPropertyLockClientId(),
-// @ts-expect-error
     getConnectedSiteId: () => propertyLockConnectedSiteId,
     getTimerHost: () => window,
     onPortCleared: () => {
@@ -6928,10 +6940,8 @@ function createPropertyLockBannerDeps() {
     updatePropertyLockBannerMode,
     sendPropertyLockMessage,
     respondToPropertyLockTakeoverSuggestion,
-// @ts-expect-error
     getPropertyLockBannerElement: () => propertyLockBannerElement,
-// @ts-expect-error
-    setPropertyLockBannerElement: (element) => {
+    setPropertyLockBannerElement: (element: HTMLElement) => {
       propertyLockBannerElement = element;
     },
     getPropertyLockBannerMode: () => propertyLockBannerMode,
@@ -6945,11 +6955,9 @@ function createPropertyLockBannerDeps() {
     setPropertyLockBannerCountdownValue: (value) => {
       propertyLockBannerCountdownValue = value;
     },
-// @ts-expect-error
-    setPropertyLockBannerVisible: (visible) => {
+    setPropertyLockBannerVisible: (visible: boolean) => {
       propertyLockBannerVisible = Boolean(visible);
     },
-// @ts-expect-error
     getPropertyLockState: () => propertyLockState,
     getPropertyLockSuggestionFromName: () => propertyLockSuggestionFromName,
     propertyLockText,
@@ -6966,8 +6974,7 @@ function ensurePropertyLockBannerStyle() {
   return ensurePropertyLockBannerStyleOperation(createPropertyLockBannerDeps());
 }
 
-// @ts-expect-error
-async function respondToPropertyLockTakeoverSuggestion(accept) {
+async function respondToPropertyLockTakeoverSuggestion(accept: boolean) {
   if (!ensurePropertyLockCollaborationActive()) {
     return;
   }
@@ -7012,17 +7019,17 @@ function getCurrentContentMode() {
   return state.enabled ? CONTENT_MODES.MARKING : CONTENT_MODES.SILENT;
 }
 
-async function handleSetEnabledCommand(message = {}) {
-// @ts-expect-error
-  if (message.enabled) {
+async function handleSetEnabledCommand(message: LooseRuntimeMessage = {}) {
+  const enabled = Boolean(message.enabled);
+  const baseUrl = typeof message.baseUrl === "string" ? message.baseUrl : "";
+  const operationId = typeof message.operationId === "string" && message.operationId
+    ? message.operationId
+    : createLifecycleOperationId(LIFECYCLE_KINDS.ACTIVATION);
+  const pageType = typeof message.pageType === "string" ? message.pageType : state.currentPageType || "";
+  if (enabled) {
     if (isPropertyLockInteractionBlocked()) {
       return { ok: false, locked: true };
     }
-// @ts-expect-error
-    const operationId = typeof message.operationId === "string" && message.operationId
-// @ts-expect-error
-      ? message.operationId
-      : createLifecycleOperationId(LIFECYCLE_KINDS.ACTIVATION);
     emitLifecycleEvent({
       operationId,
       kind: LIFECYCLE_KINDS.ACTIVATION,
@@ -7031,30 +7038,24 @@ async function handleSetEnabledCommand(message = {}) {
       message: "Inspecting page..."
     });
     sendPropertyLockMessage(PROPERTY_LOCK_CONTENT_TAKE_LOCK);
-// @ts-expect-error
-    state.currentPageType = typeof message.pageType === "string" ? message.pageType : state.currentPageType || "";
+    state.currentPageType = pageType;
     stopSilentHighlightingObserver();
     clearSilentHighlightingMarks();
     setSilentHighlightingsActive(false);
 
     try {
       const shouldPerformInitialReveal = Boolean(
-// @ts-expect-error
         message.performInitialReveal &&
-// @ts-expect-error
-          consumePageVisitRevealFreezeAttempt(message.baseUrl, location.href)
+          consumePageVisitRevealFreezeAttempt(baseUrl, location.href)
       );
       const skipInitialReveal = !shouldPerformInitialReveal;
       const reconciliation = core.getPageSaveReconciliationState(location.href);
       if (reconciliation && reconciliation.reason === SILENT_HIGHLIGHTING_PREPARATION_REASON) {
-// @ts-expect-error
-        await core.clearPageSaveReconciliation(message.baseUrl || state.baseUrl || "", location.href);
+        await core.clearPageSaveReconciliation(baseUrl || state.baseUrl || "", location.href);
       }
-// @ts-expect-error
-      await core.enableForBaseUrl(message.baseUrl, { skipInitialReveal });
+      await core.enableForBaseUrl(baseUrl, { skipInitialReveal });
       if (shouldPerformInitialReveal) {
-// @ts-expect-error
-        markSilentHighlightEditorRevealPrepared(message.baseUrl, location.href);
+        markSilentHighlightEditorRevealPrepared(baseUrl, location.href);
       }
       refreshEnabledAiHighlights();
       emitLifecycleEvent({
@@ -7098,51 +7099,39 @@ async function handleSetEnabledCommand(message = {}) {
 }
 
 function handleGetInspectionStatusCommand() {
-// @ts-expect-error
   return getInspectionStatusResolver().resolve();
 }
 
-function handleSetPopupBusyOnPageCommand(message = {}) {
+function handleSetPopupBusyOnPageCommand(message: LooseRuntimeMessage = {}) {
   return core.setPopupBusyOnPage(
-// @ts-expect-error
     Boolean(message.active),
-// @ts-expect-error
     typeof message.message === "string" ? message.message : "",
     {
-// @ts-expect-error
       operationId: typeof message.operationId === "string" ? message.operationId : "",
-// @ts-expect-error
       operationKind: typeof message.operationKind === "string" ? message.operationKind : "",
-// @ts-expect-error
       operationPhase: typeof message.operationPhase === "string" ? message.operationPhase : "",
-// @ts-expect-error
       releaseBy: Number.isFinite(message.releaseBy) ? Number(message.releaseBy) : 0
     }
   );
 }
 
-function handleRenderModeInspectionBeginCommand(message = {}) {
-// @ts-expect-error
+function handleRenderModeInspectionBeginCommand(message: LooseRuntimeMessage = {}) {
   return getRenderModeInspectionHandlers().begin(message);
 }
 
-async function handleRunRenderModeRevealOnceCommand(message = {}) {
-// @ts-expect-error
+async function handleRunRenderModeRevealOnceCommand(message: LooseRuntimeMessage = {}) {
   return getRenderModeInspectionHandlers().revealOnce(message);
 }
 
-async function handleCaptureRenderModeInspectionHtmlCommand(message = {}) {
-// @ts-expect-error
+async function handleCaptureRenderModeInspectionHtmlCommand(message: LooseRuntimeMessage = {}) {
   return getRenderModeInspectionHandlers().captureHtml(message);
 }
 
-function handleRenderModeInspectionEndCommand(message = {}) {
-// @ts-expect-error
+function handleRenderModeInspectionEndCommand(message: LooseRuntimeMessage = {}) {
   return getRenderModeInspectionHandlers().end(message);
 }
 
 function handleHideConsentForInspectionCommand() {
-// @ts-expect-error
   return getRenderModeInspectionHandlers().hideConsent();
 }
 
@@ -7156,13 +7145,16 @@ function registerContentCommandHandlersOnce() {
     ok: true,
     initialized: Boolean(state.initialized)
   }));
-// @ts-expect-error
-  registerContentCommand("setEnabled", async (_context, payload) => handleSetEnabledCommand(payload));
+  registerContentCommand("setEnabled", async (_context, payload) =>
+    handleSetEnabledCommand(payload as LooseRuntimeMessage | undefined)
+  );
   registerContentCommand("getInspectionStatus", async () => handleGetInspectionStatusCommand());
-// @ts-expect-error
-  registerContentCommand("setPopupBusyOnPage", async (_context, payload) => handleSetPopupBusyOnPageCommand(payload));
-// @ts-expect-error
-  registerContentCommand("runRenderModeRevealOnce", async (_context, payload) => handleRunRenderModeRevealOnceCommand(payload));
+  registerContentCommand("setPopupBusyOnPage", async (_context, payload) =>
+    handleSetPopupBusyOnPageCommand(payload as LooseRuntimeMessage | undefined)
+  );
+  registerContentCommand("runRenderModeRevealOnce", async (_context, payload) =>
+    handleRunRenderModeRevealOnceCommand(payload as LooseRuntimeMessage | undefined)
+  );
 }
 
 function createRuntimeMessageHandlerDeps() {
@@ -7197,8 +7189,7 @@ function createRuntimeMessageHandlerDeps() {
     checkPropertyLockBlocksMarking,
     sendPropertyLockActivity,
     locationHref: () => location.href,
-// @ts-expect-error
-    isPageSaveReconciliationPending: (pageUrl) => core.isPageSaveReconciliationPending(pageUrl)
+    isPageSaveReconciliationPending: (pageUrl: string) => core.isPageSaveReconciliationPending(pageUrl)
   };
 }
 
@@ -7214,7 +7205,16 @@ export function main() {
     renderModeHandlers: {
       beginInspection: handleRenderModeInspectionBeginCommand,
       hideConsent: handleHideConsentForInspectionCommand,
-      captureHtml: handleCaptureRenderModeInspectionHtmlCommand,
+      captureHtml: async (payload) => {
+        const result = await handleCaptureRenderModeInspectionHtmlCommand(payload as LooseRuntimeMessage | undefined);
+        return {
+          hiddenCount:
+            result && typeof result === "object" && "hiddenCount" in result && typeof result.hiddenCount === "number"
+              ? result.hiddenCount
+              : 0,
+          ...(result as Record<string, unknown>)
+        } as import("./common/bus/contracts/render-mode.ts").RenderModeContentCaptureHtmlReply;
+      },
       endInspection: handleRenderModeInspectionEndCommand,
     },
   });
@@ -7368,7 +7368,12 @@ export function main() {
       }
     }
 
-    return handleRuntimeMessage(message, _sender, sendResponse, createRuntimeMessageHandlerDeps() as Parameters<typeof handleRuntimeMessage>[3]);
+    return handleRuntimeMessage(
+      message,
+      _sender,
+      sendResponse,
+      createRuntimeMessageHandlerDeps() as Parameters<typeof handleRuntimeMessage>[3]
+    );
   });
 
   function dispatchContentCommandMessage(message: Parameters<typeof dispatchContentCommand>[0], sender: Browser.runtime.MessageSender | undefined): Promise<unknown> {
@@ -7392,8 +7397,7 @@ export function main() {
     }
     scheduleSilentHighlightReposition();
   });
-// @ts-expect-error
-  const handleSilentOrMarkingScroll = (event) => {
+  const handleSilentOrMarkingScroll = (event: Event) => {
     if (state.enabled) {
       core.handleScroll(event, { hideDuringScroll: true });
       return;
@@ -7418,7 +7422,6 @@ export function main() {
     // actually listening (property-lock collaboration has a live port). The
     // background no-JS inactivity watch is driven by tab/window focus events, so
     // pinging from every injected page would wake the service worker for no gain.
-// @ts-expect-error
     if (pageActivityTimer || !getPropertyLockPortClient().hasPort()) {
       return;
     }

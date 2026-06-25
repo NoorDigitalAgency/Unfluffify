@@ -76,6 +76,6 @@ test("content-main sources the registry and keeps mutable truth clusters inline"
   assert.doesNotMatch(source, /let configUpdatedHandler = null;/);
 
   assert.match(source, /let aiPreviewState = createAiPreviewState\(\);/);
-  assert.match(source, /let propertyLockConnectedSiteId = null;/);
-  assert.match(source, /let silentHighlightEditorActivationPromise = null;/);
+  assert.match(source, /let propertyLockConnectedSiteId(?:\s*:\s*[^=]+)? = null;/);
+  assert.match(source, /let silentHighlightEditorActivationPromise(?:\s*:\s*[^=]+)? = null;/);
 });
