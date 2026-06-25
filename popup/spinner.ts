@@ -28,7 +28,7 @@ type PopupSpinnerTask<T> = (spinnerKey: string | null) => Promise<T>;
 type PopupSpinnerDeps = {
   popupSpinnerQueue: Map<string, PopupSpinnerEntry>;
   popupSpinnerKeyTabIds: Map<string, number>;
-  popupSpinnerWatchdogByKey: Map<string, ReturnType<typeof setTimeout>>;
+  popupSpinnerWatchdogByKey: Map<string, ReturnType<Window["setTimeout"]>>;
   spinnerWatchdogMs: number;
   windowRef: Pick<Window, "setTimeout" | "clearTimeout">;
   cryptoRef: { randomUUID: () => string };

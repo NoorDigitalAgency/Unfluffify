@@ -1,1 +1,1 @@
-void import(chrome.runtime.getURL("legacy/popup.js"));
+import "../../popup.js";

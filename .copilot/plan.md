@@ -59,9 +59,16 @@ The active track is now `.copilot/wxt-native-adoption-plan.md`:
    esbuild bridge. The WXT typecheck is now split between browser entrypoints
    and Node config files to avoid reintroducing Node timer globals into the
    browser runtime graph.
-4. **C3 is next**: native-bundle the popup entrypoint while preserving popup DOM
-   ids, CSS paths, and button-state behavior.
-5. The prior event-bus program remains complete through Track 3 in
+4. **C3 is complete**: `entrypoints/popup/main.ts` now imports `popup.ts`
+   directly, so the WXT popup no longer runtime-loads `legacy/popup.js`. The
+   popup still self-bootstraps through its existing `init();` path, and the
+   browser timer helpers were tightened to explicit browser timer surfaces so
+   the popup graph passes the WXT browser typecheck.
+5. **C4 is next**: native-bundle the main-world/content runtime so the WXT
+   content entrypoint stops booting through legacy dynamic-code shims while
+   preserving content registration and WAR behavior until later phases remove
+   them deliberately.
+6. The prior event-bus program remains complete through Track 3 in
    `.copilot/event-bus-architecture-plan.md`; Part C preserves that higher-level
    architecture and replaces only the lower-level packaging/runtime seams.
 

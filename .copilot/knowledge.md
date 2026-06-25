@@ -75,6 +75,14 @@
   a separate Node-typed project (`tsconfig.wxt-node.json`). Mixing Node globals
   into the entrypoint graph reintroduces timer-signature conflicts in browser
   code such as `common/page-motion-freeze-control.ts`.
+- When the popup runtime is imported into the WXT browser entrypoint graph, do
+  not type shared timer helpers against bare global `setTimeout` /
+  `setInterval` return types. In this repo those can drift to Node `Timeout`
+  under mixed tooling. Popup/browser helpers should use browser-owned timer
+  surfaces (`Window["setTimeout"]`, `Window["setInterval"]`, or an explicit
+  `WindowOrWorkerGlobalScope` timer API) so popup state fields, spinner
+  watchdogs, and async-message timeouts remain compatible with the WXT browser
+  typecheck.
 - `common/page-motion-freeze-control.ts` and
   `common/page-motion-freeze-bridge.ts` are a locked pair: the control function
   body from `const STATE_KEY = "__unfluffifyPageMotionFreezeState";` through the
@@ -132,10 +140,12 @@
   core unflagged behavior when automated validation is not enough, while
   flag-disabled property-lock follow-ups may defer live
   validation until those features are prioritized.
-- Part C native WXT runtime adoption is active on `feat/wxt-port-plan`. C0 and
-  C1 are complete; C2 proved that the background service worker can be
+- Part C native WXT runtime adoption is active on `feat/wxt-port-plan`. C0-C3
+  are complete: C2 proved that the background service worker can be
   native-bundled by making startup explicit behind `startBackground()` while the
-  root `background.ts` still self-starts for the legacy esbuild path.
+  root `background.ts` still self-starts for the legacy esbuild path, and C3
+  proved that the popup can be native-bundled by importing `popup.ts` from the
+  WXT popup entrypoint once timer helpers are kept browser-typed.
 
 ## Popup Preview Exit Contract
 

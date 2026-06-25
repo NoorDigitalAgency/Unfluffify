@@ -1,13 +1,16 @@
+type PopupTimeoutId = ReturnType<Window["setTimeout"]>;
+type PopupIntervalId = ReturnType<Window["setInterval"]>;
+
 type PopupTimerWindow = {
-  setTimeout: (fn: () => void, delay?: number) => ReturnType<typeof setTimeout>;
-  clearTimeout: (id: ReturnType<typeof setTimeout>) => void;
-  setInterval: (fn: () => void, delay?: number) => ReturnType<typeof setInterval>;
-  clearInterval: (id: ReturnType<typeof setInterval>) => void;
+  setTimeout: (fn: () => void, delay?: number) => PopupTimeoutId;
+  clearTimeout: (id: PopupTimeoutId) => void;
+  setInterval: (fn: () => void, delay?: number) => PopupIntervalId;
+  clearInterval: (id: PopupIntervalId) => void;
 };
 
 type PopupTimerRecord =
-  | { kind: "timeout"; id: ReturnType<typeof setTimeout> }
-  | { kind: "interval"; id: ReturnType<typeof setInterval> };
+  | { kind: "timeout"; id: PopupTimeoutId }
+  | { kind: "interval"; id: PopupIntervalId };
 
 function toSafeDelay(value: number | null | undefined, fallback: number | null | undefined = 0): number {
   const numeric = Number(value);
@@ -41,7 +44,7 @@ export function createPopupTimerGroup(options: { windowRef?: PopupTimerWindow } 
     return timersByKey.has(key);
   }
 
-  function setTimeoutTimer(key: unknown, callback: () => void, delayMs: number | null | undefined = 0): ReturnType<typeof setTimeout> {
+  function setTimeoutTimer(key: unknown, callback: () => void, delayMs: number | null | undefined = 0): PopupTimeoutId {
     clear(key);
     const id = windowRef.setTimeout(() => {
       timersByKey.delete(key);
@@ -54,7 +57,7 @@ export function createPopupTimerGroup(options: { windowRef?: PopupTimerWindow } 
     return id;
   }
 
-  function setIntervalTimer(key: unknown, callback: () => void, intervalMs: number | null | undefined = 0): ReturnType<typeof setInterval> {
+  function setIntervalTimer(key: unknown, callback: () => void, intervalMs: number | null | undefined = 0): PopupIntervalId {
     clear(key);
     const id = windowRef.setInterval(callback, toSafeDelay(intervalMs));
     timersByKey.set(key, {

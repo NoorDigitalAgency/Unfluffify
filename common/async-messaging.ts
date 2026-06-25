@@ -45,6 +45,8 @@ type TimeoutHandle = {
   clear: () => void;
 };
 
+type BrowserTimerApi = Pick<WindowOrWorkerGlobalScope, "setTimeout" | "clearTimeout">;
+
 function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object";
 }
@@ -110,9 +112,10 @@ function createTimeoutPromise(
     return null;
   }
   const normalizedTimeoutMs = Math.trunc(timeoutMs);
+  const timerApi = globalThis as BrowserTimerApi;
   let timer = 0;
   const timeoutPromise = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => {
+    timer = timerApi.setTimeout(() => {
       reject(toMessageRequestError("Message request timed out", {
         code: MESSAGE_ERROR_CODES.TIMEOUT,
         tabId: context.tabId,
@@ -128,7 +131,7 @@ function createTimeoutPromise(
     promise: timeoutPromise,
     clear(): void {
       if (timer) {
-        clearTimeout(timer);
+        timerApi.clearTimeout(timer);
         timer = 0;
       }
     }

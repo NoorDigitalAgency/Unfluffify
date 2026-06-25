@@ -2823,8 +2823,8 @@ export function showToast(message) {
     }, 1800);
     return;
   }
-  clearTimeout(state.toastTimer);
-  state.toastTimer = setTimeout(() => {
+  window.clearTimeout(state.toastTimer);
+  state.toastTimer = window.setTimeout(() => {
     setViewState({ toastVisible: false });
   }, 1800);
 }
