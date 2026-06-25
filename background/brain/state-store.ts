@@ -1,3 +1,9 @@
+import type {
+  PopupLegacySpinnerEntry,
+  PopupLifecycleState,
+  PopupTraceEvent,
+} from "../../common/bus/contracts/popup-state.js";
+
 export type SpinnerSelection = Readonly<{
   kind: string;
   phase: string;
@@ -6,9 +12,24 @@ export type SpinnerSelection = Readonly<{
   operationId?: string;
 }>;
 
+export type PopupViewState = Readonly<{
+  traceEnabled: boolean;
+  traceEvents: PopupTraceEvent[];
+  lifecycle: PopupLifecycleState | null;
+  legacySpinnerQueue: PopupLegacySpinnerEntry[];
+  legacyActiveSpinnerLease: PopupLegacySpinnerEntry | null;
+}>;
+
 export type TabLayerState = {
   tabId: number;
   version: number;
+  popupView: {
+    traceEnabled: boolean;
+    traceEvents: PopupTraceEvent[];
+    lifecycle: PopupLifecycleState | null;
+    legacySpinnerQueue: PopupLegacySpinnerEntry[];
+    legacyActiveSpinnerLease: PopupLegacySpinnerEntry | null;
+  };
   spinners: {
     popup: SpinnerSelection | null;
     pageCurtain: SpinnerSelection | null;
@@ -22,6 +43,13 @@ function createInitialTabState(tabId: number): TabLayerState {
   return {
     tabId,
     version: 0,
+    popupView: {
+      traceEnabled: false,
+      traceEvents: [],
+      lifecycle: null,
+      legacySpinnerQueue: [],
+      legacyActiveSpinnerLease: null,
+    },
     spinners: {
       popup: null,
       pageCurtain: null,

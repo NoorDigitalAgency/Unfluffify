@@ -19,6 +19,20 @@ describe("brain state store", () => {
     expect(store.get(7)?.spinners.popup?.phase).toBe("remote-wait");
   });
 
+  it("initializes popup view compatibility state", () => {
+    const store = createStateStore();
+
+    const state = store.getOrInit(4);
+
+    expect(state.popupView).toEqual({
+      traceEnabled: false,
+      traceEvents: [],
+      lifecycle: null,
+      legacySpinnerQueue: [],
+      legacyActiveSpinnerLease: null,
+    });
+  });
+
   it("fires one projection per microtask for repeated tab mutations", async () => {
     const store = createStateStore();
     const projections: Array<{ tabId: number; reason: string; version: number }> = [];
