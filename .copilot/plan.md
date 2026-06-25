@@ -46,9 +46,15 @@ The active track is now `.copilot/wxt-native-adoption-plan.md`:
    that pin `background.ts`, `popup.ts`, `content-main.ts`,
    `content-loader.ts`, `manifest.json`, `scripts/build-extension.ts`, and
    `legacy/` were catalogued phase-by-phase in the Part C appendix.
-2. **C1 is next**: native-bundle the offscreen entrypoint as the lowest-risk
-   first runtime cutover.
-3. The prior event-bus program remains complete through Track 3 in
+2. **C1 is complete**: the offscreen document now boots from a shared
+   `offscreen/bootstrap.ts` module imported by both the legacy root
+   `offscreen.ts` and the WXT `entrypoints/offscreen/main.ts` entrypoint, so the
+   offscreen page no longer depends on `legacy/offscreen.js`. The legacy
+   esbuild path now emits the new `offscreen/` directory, and focused
+   regression coverage locks that contract.
+3. **C2 is next**: native-bundle the background service worker while preserving
+   exact initialization order.
+4. The prior event-bus program remains complete through Track 3 in
    `.copilot/event-bus-architecture-plan.md`; Part C preserves that higher-level
    architecture and replaces only the lower-level packaging/runtime seams.
 

@@ -25,7 +25,7 @@ const ROOT_FILES = [
   "offscreen.html"
 ];
 
-const ROOT_DIRS = ["assets", "background", "common", "content", "cursors", "icons", "popup"];
+const ROOT_DIRS = ["assets", "background", "common", "content", "cursors", "icons", "offscreen", "popup"];
 const CODE_EXTENSIONS = new Set([".js", ".mjs", ".ts"]);
 const WATCH_PATHS = [
   ...ROOT_DIRS,

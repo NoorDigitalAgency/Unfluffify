@@ -1,1 +1,3 @@
-void import(chrome.runtime.getURL("legacy/offscreen.js"));
+import { startOffscreen } from "../../offscreen/bootstrap.js";
+
+startOffscreen();
