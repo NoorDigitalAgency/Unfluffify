@@ -1,4 +1,5 @@
 import { consumeTransferPayload } from "../background/transfer-payload-store.js";
+import { browser } from "../common/browser.js";
 import { refineXPathEntries } from "../common/xpath-utilities.js";
 
 const OFFSCREEN_MESSAGE_TARGET = "offscreen";
@@ -26,7 +27,7 @@ export function startOffscreen(): void {
   }
   started = true;
 
-  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (!isOffscreenRefineRequest(message)) {
       return undefined;
     }

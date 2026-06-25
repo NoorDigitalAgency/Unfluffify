@@ -3,6 +3,9 @@ import type {
   PopupState,
   RenderModeInspectionSnapshot
 } from "../types/popup-state.ts";
+import type { Browser } from "../common/browser.js";
+
+type BrowserApi = typeof import("../common/browser.js").browser;
 
 type RenderModeDetectionResult = {
   result: string;
@@ -56,7 +59,7 @@ interface RenderModeInspectionDeps {
   RENDER_MODE_INSPECTION_LOAD_TIMEOUT_MS: number;
   RENDER_MODE_UNDETERMINED: string;
   windowRef: Window;
-  chromeRef: typeof chrome;
+  browserRef: BrowserApi;
   messages: {
     sendRuntimeMessage(
       message: { type: string; payloadKey?: string }
@@ -292,11 +295,11 @@ export async function waitForTabLoadStart(
       }
       settled = true;
       deps.windowRef.clearTimeout(timeoutId);
-      deps.chromeRef.tabs.onUpdated.removeListener(onUpdated);
+      deps.browserRef.tabs.onUpdated.removeListener(onUpdated);
       resolve(value);
     };
 
-    const onUpdated = (updatedTabId: number, changeInfo: chrome.tabs.OnUpdatedInfo) => {
+    const onUpdated = (updatedTabId: number, changeInfo: Browser.tabs.OnUpdatedInfo) => {
       if (updatedTabId !== tabId) {
         return;
       }
@@ -312,14 +315,17 @@ export async function waitForTabLoadStart(
       finish(false);
     }, timeoutMs);
 
-    deps.chromeRef.tabs.onUpdated.addListener(onUpdated);
-    deps.chromeRef.tabs.get(tabId, (tab: chrome.tabs.Tab) => {
-      if (deps.chromeRef.runtime.lastError) {
-        finish(false);
+    deps.browserRef.tabs.onUpdated.addListener(onUpdated);
+    deps.browserRef.tabs.get(tabId).then((tab: Browser.tabs.Tab) => {
+      if (settled) {
         return;
       }
       if (tab && tab.status === "loading") {
         finish(true);
+      }
+    }).catch(() => {
+      if (!settled) {
+        finish(false);
       }
     });
   });
@@ -348,11 +354,11 @@ export async function waitForTabLoadComplete(
       }
       settled = true;
       deps.windowRef.clearTimeout(timeoutId);
-      deps.chromeRef.tabs.onUpdated.removeListener(onUpdated);
+      deps.browserRef.tabs.onUpdated.removeListener(onUpdated);
       resolve(value);
     };
 
-    const onUpdated = (updatedTabId: number, changeInfo: chrome.tabs.OnUpdatedInfo) => {
+    const onUpdated = (updatedTabId: number, changeInfo: Browser.tabs.OnUpdatedInfo) => {
       if (updatedTabId !== tabId) {
         return;
       }
@@ -369,14 +375,17 @@ export async function waitForTabLoadComplete(
       finish(false);
     }, timeoutMs);
 
-    deps.chromeRef.tabs.onUpdated.addListener(onUpdated);
-    deps.chromeRef.tabs.get(tabId, (tab: chrome.tabs.Tab) => {
-      if (deps.chromeRef.runtime.lastError) {
-        finish(false);
+    deps.browserRef.tabs.onUpdated.addListener(onUpdated);
+    deps.browserRef.tabs.get(tabId).then((tab: Browser.tabs.Tab) => {
+      if (settled) {
         return;
       }
       if (!awaitNextLoad && tab && tab.status === "complete") {
         finish(true);
+      }
+    }).catch(() => {
+      if (!settled) {
+        finish(false);
       }
     });
   });

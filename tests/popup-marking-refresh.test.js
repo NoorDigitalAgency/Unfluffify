@@ -805,7 +805,7 @@ test("tab reload keeps the inspection curtain active while enabled pages re-insp
   assert.match(source, /const popupNavigationInspectionSettlePollByTabId = new Map\(\);/);
 
   const onUpdatedBlock = source.match(
-    /chrome\.tabs\.onUpdated\.addListener\(async \(tabId, changeInfo, tab\) => \{([\s\S]*?)\n {2}\}\);\n {2}window\.addEventListener/
+    /browser\.tabs\.onUpdated\.addListener\(async \(tabId, changeInfo, tab\) => \{([\s\S]*?)\n {2}\}\);\n {2}window\.addEventListener/
   )[1];
 
   assert.match(onUpdatedBlock, /changeInfo\.status === "loading"/);
@@ -861,7 +861,7 @@ test("tab reload keeps the inspection curtain active while enabled pages re-insp
 test("tab activation does not end persisted inspection overlay before old-tab spinner state is cleared", () => {
   const source = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
   const onActivatedBlock = source.match(
-    /chrome\.tabs\.onActivated\.addListener\(async \(\{ tabId \}\) => \{([\s\S]*?)\n {2}\}\);\n\n {2}chrome\.tabs\.onUpdated/
+    /browser\.tabs\.onActivated\.addListener\(async \(\{ tabId \}\) => \{([\s\S]*?)\n {2}\}\);\n\n {2}browser\.tabs\.onUpdated/
   )[1];
 
   assert.doesNotMatch(onActivatedBlock, /endNavigationInspectionOverlay\(/);

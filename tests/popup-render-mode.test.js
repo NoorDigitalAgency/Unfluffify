@@ -365,7 +365,7 @@ test("nav settle and stale clear paths hold navInspect until post-set inspection
   );
   const onUpdatedBlock = extractSourceBlock(
     popupSource,
-    "chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {",
+    "browser.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {",
     "window.addEventListener(\"beforeunload\""
   );
 

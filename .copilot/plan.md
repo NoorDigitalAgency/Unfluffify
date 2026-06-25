@@ -31,7 +31,7 @@ Use these documents before making implementation changes:
     make WXT bundle the real entry graphs, drop esbuild + the `legacy/` mirror,
     eliminate `content/*` WAR, and adopt `wxt/browser` + `wxt/utils/storage` +
     `@webext-core/messaging` (one-shot only) beneath the typed bus / Brain /
-    layer hosts; C0-C5 complete, C6 ready).
+    layer hosts; C0-C5 complete, C6 in progress).
 
 Historical and superseded `.copilot` plans/handoffs have been removed from the
 workspace. If earlier rationale is needed, use git history instead of restoring
@@ -79,12 +79,13 @@ The active track is now `.copilot/wxt-native-adoption-plan.md`:
    asset paths; package staging expands wildcard WAR assets; and the live
    browser launcher reads popup state through the popup debug hook instead of
    mirrored `popup/ui.js`.
-7. **C6 is in progress**: the first shared-adapter batch is complete. The repo
-   now has `common/browser.ts`, shared async messaging and bus transports route
-   through promise-based browser APIs, touched type positions use `Browser.*`,
-   and a browser-polyfill boundary test records the remaining raw-`chrome`
-   runtime debt for later C6 batches. The next C6 batch is the remaining
-   background/content/popup/runtime modules.
+7. **C6 is in progress**: the first two batches are complete. The repo now has
+   `common/browser.ts`; shared async messaging, bus transports, popup/offscreen
+   runtime listeners, popup active-tab fallback lookup, and popup render-mode
+   tab-load waiters route through promise-based browser APIs; touched type
+   positions use `Browser.*`; and a browser-polyfill boundary test records the
+   remaining raw-`chrome` runtime debt for later C6 batches. The next C6 batch
+   is the remaining background/content/common Chrome-only runtime modules.
 8. The prior event-bus program remains complete through Track 3 in
    `.copilot/event-bus-architecture-plan.md`; Part C preserves that higher-level
    architecture and replaces only the lower-level packaging/runtime seams.

@@ -10,19 +10,16 @@ import {
   waitForTabLoadStart
 } from "../popup/render-mode-inspection.js";
 
-function createChromeHarness(initialStatus = "complete") {
+function createBrowserHarness(initialStatus = "complete") {
   const listeners = new Set();
   return {
-    chromeRef: {
-      runtime: {
-        lastError: null
-      },
+    browserRef: {
       tabs: {
         onUpdated: {
           addListener: (listener) => listeners.add(listener),
           removeListener: (listener) => listeners.delete(listener)
         },
-        get: (_tabId, cb) => cb({ status: initialStatus })
+        get: async () => ({ status: initialStatus })
       }
     },
     emit(tabId, changeInfo) {
@@ -65,7 +62,7 @@ function createBaseDeps(overrides = {}) {
       setTimeout,
       clearTimeout
     },
-    chromeRef: createChromeHarness().chromeRef,
+    browserRef: createBrowserHarness().browserRef,
     messages: {
       // deno-lint-ignore require-await -- preserves existing promise/callback contract.
       sendRuntimeMessage: async () => ({ ok: true, rendered: true, accuracy: 0.9 })
@@ -174,9 +171,9 @@ test("popup render-mode inspection preserves confirmed render mode when detectio
 });
 
 test("popup render-mode inspection wait helpers resolve on tab lifecycle signals", async () => {
-  const harness = createChromeHarness("complete");
+  const harness = createBrowserHarness("complete");
   const deps = createBaseDeps({
-    chromeRef: harness.chromeRef,
+    browserRef: harness.browserRef,
     windowRef: {
       setTimeout,
       clearTimeout

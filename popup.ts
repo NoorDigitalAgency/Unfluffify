@@ -19,6 +19,7 @@
  */
 
 import * as chromeHelpers from "./popup/chrome-helpers.js";
+import { browser } from "./common/browser.js";
 import * as config from "./common/config.js";
 import * as constants from "./common/constants.js";
 import {
@@ -610,7 +611,7 @@ function getRenderModeInspectionDeps() {
     RENDER_MODE_INSPECTION_LOAD_TIMEOUT_MS,
     RENDER_MODE_UNDETERMINED,
     windowRef: window,
-    chromeRef: chrome,
+    browserRef: browser,
     messages,
     shouldAutoDetectRenderMode,
     getCurrentRenderModeInspectionSnapshot,
@@ -8311,11 +8312,11 @@ async function init() {
     handlePageSave().then();
   });
 
-  chrome.tabs.onActivated.addListener(async ({ tabId }) => {
+  browser.tabs.onActivated.addListener(async ({ tabId }) => {
     if (!tabId) {
       return;
     }
-    const tab = await chrome.tabs.get(tabId);
+    const tab = await browser.tabs.get(tabId);
     if (state.currentTab && tab.windowId !== state.currentTab.windowId) {
       return;
     }
@@ -8364,7 +8365,7 @@ async function init() {
     await refreshUi({ useBusyOverlay: false });
   });
 
-  chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+  browser.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     if (!(changeInfo.url || changeInfo.status === "loading" || changeInfo.status === "complete")) {
       return;
     }
@@ -8513,7 +8514,7 @@ async function init() {
     }
   });
 
-  chrome.runtime.onMessage.addListener((message, sender) => {
+  browser.runtime.onMessage.addListener((message, sender) => {
     if (
       state.currentTab &&
       sender &&

@@ -1,5 +1,6 @@
 import * as utils from "../common/utilities.js";
 import { requestRuntime } from "../common/async-messaging.js";
+import { browser, type Browser } from "../common/browser.js";
 import * as stateModule from "./state.js";
 import { isDebugFlagEnabled } from "../common/feature-flags.js";
 
@@ -535,65 +536,47 @@ export async function sendTabMessageWithRetry(message: Record<string, unknown>, 
   return null;
 }
 
-function getPopupChromeTabsApi() {
+function getPopupTabsApi() {
   try {
-    return typeof chrome !== "undefined" && chrome.tabs ? chrome.tabs : null;
+    return browser.tabs;
   } catch {
     return null;
   }
 }
 
-function getTabById(tabId: TabId) {
-  const tabsApi = getPopupChromeTabsApi();
-  if (!tabsApi || typeof tabsApi.get !== "function" || !tabId) {
+async function getTabById(tabId: TabId) {
+  const tabsApi = getPopupTabsApi();
+  if (!tabsApi || !tabId) {
     return Promise.resolve(null);
   }
-  return new Promise<chrome.tabs.Tab | null>((resolve) => {
-    try {
-      tabsApi.get(tabId, (tab) => {
-        if (chrome.runtime && chrome.runtime.lastError) {
-          resolve(null);
-          return;
-        }
-        resolve(tab && tab.id ? tab : null);
-      });
-    } catch {
-      resolve(null);
-    }
-  });
+  try {
+    const tab = await tabsApi.get(tabId);
+    return tab && tab.id ? tab : null;
+  } catch {
+    return null;
+  }
 }
 
-function queryActiveTabFallback() {
-  const tabsApi = getPopupChromeTabsApi();
-  if (!tabsApi || typeof tabsApi.query !== "function") {
+function resolveActiveTab(tabs: Browser.tabs.Tab[]) {
+  return Array.isArray(tabs) && tabs[0] && tabs[0].id ? tabs[0] : null;
+}
+
+async function queryActiveTabFallback() {
+  const tabsApi = getPopupTabsApi();
+  if (!tabsApi) {
     return Promise.resolve(null);
   }
-  return new Promise<chrome.tabs.Tab | null>((resolve) => {
-    const finish = (tabs: chrome.tabs.Tab[]) => {
-      resolve(Array.isArray(tabs) && tabs[0] && tabs[0].id ? tabs[0] : null);
-    };
-    try {
-      tabsApi.query({ active: true, currentWindow: true }, (tabs) => {
-        if (chrome.runtime && chrome.runtime.lastError) {
-          finish([]);
-          return;
-        }
-        if (Array.isArray(tabs) && tabs.length) {
-          finish(tabs);
-          return;
-        }
-        tabsApi.query({ active: true, lastFocusedWindow: true }, (fallbackTabs) => {
-          if (chrome.runtime && chrome.runtime.lastError) {
-            finish([]);
-            return;
-          }
-          finish(fallbackTabs);
-        });
-      });
-    } catch {
-      finish([]);
+  try {
+    const currentWindowTabs = await tabsApi.query({ active: true, currentWindow: true });
+    const activeCurrentWindowTab = resolveActiveTab(currentWindowTabs);
+    if (activeCurrentWindowTab) {
+      return activeCurrentWindowTab;
     }
-  });
+    const lastFocusedTabs = await tabsApi.query({ active: true, lastFocusedWindow: true });
+    return resolveActiveTab(lastFocusedTabs);
+  } catch {
+    return null;
+  }
 }
 
 async function loadActiveTabFallback(debugTabId: TabId) {

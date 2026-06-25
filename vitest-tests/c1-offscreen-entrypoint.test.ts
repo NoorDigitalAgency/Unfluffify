@@ -17,6 +17,6 @@ describe("C1 offscreen entrypoint", () => {
     expect(entrypointSource).toContain('../../offscreen/bootstrap.js');
     expect(rootSource).toContain('./offscreen/bootstrap.js');
     expect(bootstrapSource).toContain("export function startOffscreen");
-    expect(bootstrapSource).toContain("chrome.runtime.onMessage.addListener");
+    expect(bootstrapSource).toContain("browser.runtime.onMessage.addListener");
   });
 });

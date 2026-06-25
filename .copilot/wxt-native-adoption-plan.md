@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-25
 Branch: `feat/wxt-port-plan`
-Status: C6 batch 1 complete; C6 in progress
+Status: C6 batch 2 complete; C6 in progress
 
 This is the executor doc for **Part C** of the WXT program. It is written so a
 low-context agent can execute it without inventing architecture or making
@@ -454,6 +454,12 @@ test.
    re-exports `wxt/browser`; raw `chrome.*` is allowed only in an explicit
    allowlist of Chrome-only-API files. This protects against drift.
 4. Each batch is its own commit + review-fix-loop.
+
+**2026-06-25 progress**: batch 1 migrated the shared async-messaging + bus
+transport layer behind `common/browser.ts`; batch 2 migrated popup/offscreen
+runtime listeners, popup active-tab fallback lookup, and popup render-mode
+tab-load waiters to promise-based browser APIs and removed those files from the
+raw-`chrome` debt inventory.
 
 **Expected state**: runtime uses the `browser` polyfill via one seam; Chrome-only
 APIs are the only documented `chrome.*` exceptions.

@@ -181,11 +181,13 @@
   copied through WXT hooks, popup live-debug state comes from the popup debug
   hook instead of mirrored `popup/ui.js`, and the only remaining manifest
   override is restoring the source `action` block to omit `default_popup`.
-- C6 is in progress. The first browser-polyfill batch is complete: the repo now
-  has a dedicated browser seam, shared async messaging and bus transports use
-  promise-based browser APIs through that seam, touched type positions use
-  `Browser.*`, and `tests/browser-polyfill-boundary.test.js` tracks the
-  remaining raw-`chrome` migration debt for later C6 batches.
+- C6 is in progress. The first two browser-polyfill batches are complete: the
+  repo now has a dedicated browser seam; shared async messaging, bus
+  transports, popup/offscreen runtime listeners, popup active-tab fallback
+  lookup, and popup render-mode tab-load waiters use promise-based browser APIs
+  through that seam; touched type positions use `Browser.*`; and
+  `tests/browser-polyfill-boundary.test.js` tracks the remaining raw-`chrome`
+  migration debt for later C6 batches.
 
 ## Popup Preview Exit Contract
 
