@@ -106,7 +106,10 @@ test("popup refresh exposes a feature flag snapshot in view state", () => {
 
 test("popup UI helper treats missing and unknown flags as disabled", () => {
   assert.match(popupUiSource, /featureFlags: FEATURE_FLAGS,/);
-  assert.match(popupUiSource, /export function isPopupFeatureEnabled\(view, flagName\) \{/);
+  assert.match(
+    popupUiSource,
+    /export function isPopupFeatureEnabled\([\s\S]*?view(?:\s*:\s*[^,]+)?,[\s\S]*?flagName(?:\s*:\s*[^)]+)?[\s\S]*?\)\s*(?::\s*[^{]+)?\{/,
+  );
 
   assert.equal(isPopupFeatureEnabled({}, "desktopPreview"), false);
   assert.equal(isPopupFeatureEnabled({ featureFlags: {} }, "desktopPreview"), false);

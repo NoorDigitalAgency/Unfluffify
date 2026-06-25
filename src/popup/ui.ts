@@ -48,6 +48,10 @@ interface PageTypeCandidate {
   url: string;
   label: string;
   marked: boolean;
+  current?: boolean;
+  duplicate?: boolean;
+  navigationDisabled?: boolean;
+  wordsCount?: unknown;
   [key: string]: unknown;
 }
 
@@ -56,6 +60,8 @@ interface PageTypeGroup {
   title: string;
   markedCount: number;
   candidates: PageTypeCandidate[];
+  current?: boolean;
+  missing?: boolean;
   [key: string]: unknown;
 }
 
@@ -74,6 +80,20 @@ interface TraceEventEntry {
   payload: Record<string, unknown>;
   [key: string]: unknown;
 }
+
+type ClassNameValue = string | number | boolean | null | undefined;
+type PopupFeatureFlags = Partial<Record<string, boolean>>;
+type PopupHandlerMap = Record<string, unknown>;
+type BlockingUiCurtainState = {
+  visible: boolean;
+  mode: "busy";
+  message: string;
+  note: string;
+  reason: string;
+  source: string;
+  spinnerKey: string;
+  timerText: string;
+};
 
 const initialViewState = {
   currentView: View.Loading,
@@ -478,10 +498,11 @@ function getBusyCurtainCopy(view: ViewState) {
   };
 }
 
-interface ViewState {
+type ViewState = {
   currentView: string;
   toggleEnabled?: boolean;
   deviceEmulationEnabled: boolean;
+  deviceScale?: number | string;
   desktopPreviewEnabled?: boolean;
   todoSubsectionsExpanded: Record<string, boolean>;
   endpointUrlValue: string;
@@ -495,11 +516,42 @@ interface ViewState {
   sessionHasPendingChanges?: boolean;
   sessionRequiresAiRun?: boolean;
   currentPageHasPendingChanges?: boolean;
+  featureFlags?: PopupFeatureFlags;
+  computeButtonLoading?: boolean;
+  busyReason?: string;
+  busyMessage?: string;
+  aiRunPhase?: string;
+  aiRunSpinnerNote?: string;
+  aiRunCountdownVisible?: boolean;
+  aiRunCountdownText?: string;
+  aiRunDeadlineAt?: unknown;
+  busySource?: string;
+  busySpinnerKey?: string;
+  saveExcludesButtonLoading?: boolean;
+  deviceEmulationApplying?: boolean;
+  previewBlocked?: boolean;
+  previewActive?: boolean;
+  todoListVisible?: boolean;
+  configMenuOpen?: boolean;
+  todoControlsMenuOpen?: boolean;
+  themeMenuOpen?: boolean;
+  themeMenuPlacement?: string;
+  previewItems?: PreviewItem[];
+  previewItemsPending?: boolean;
+  previewFocusedXpath?: string;
+  previewShowAllCategories?: boolean;
+  previewBlockedMessage?: string;
+  toastMessage?: string;
+  toastVisible?: boolean;
+  configurationExtrasExpanded?: boolean;
+  todoSectionExpanded?: boolean;
+  todoAutoCollapse?: boolean;
+  pageTypeGroups?: PageTypeGroup[];
   [key: string]: unknown;
-}
+};
 
 let viewState: ViewState = { ...initialViewState };
-let actions: Record<string, unknown> = {};
+let actions: PopupHandlerMap = {};
 const viewStateListeners = new Set<(nextViewState: ViewState) => void>();
 
 function notifyViewStateListeners() {
@@ -512,13 +564,11 @@ function notifyViewStateListeners() {
   });
 }
 
-// @ts-expect-error - Popup view layer keeps permissive string-or-falsy class inputs.
-function classNames(...values) {
+function classNames(...values: ClassNameValue[]): string {
   return values.filter(Boolean).join(" ");
 }
 
-// @ts-expect-error - Tone values are runtime-driven string flags.
-function toneUtilityClass(tone) {
+function toneUtilityClass(tone: string | null | undefined): string {
   switch (tone) {
     case "success":
       return "u-tone-success";
@@ -531,48 +581,48 @@ function toneUtilityClass(tone) {
   }
 }
 
-// @ts-expect-error - Feature checks intentionally accept loose view snapshots.
-export function isPopupFeatureEnabled(view, flagName) {
+export function isPopupFeatureEnabled(
+  view: Pick<ViewState, "featureFlags"> | null | undefined,
+  flagName: string,
+): boolean {
   const featureFlags = view && typeof view.featureFlags === "object"
-    ? view.featureFlags
+    ? view.featureFlags as PopupFeatureFlags
     : {};
   return Object.prototype.hasOwnProperty.call(FEATURE_FLAGS, flagName) &&
     featureFlags[flagName] === true;
 }
 
-// @ts-expect-error - Extra class fragments are runtime-composed.
-function warningNoticeClass(...extraClasses) {
+function warningNoticeClass(...extraClasses: ClassNameValue[]): string {
   return classNames("u-alert", "u-alert-warn", ...extraClasses);
 }
 
-// @ts-expect-error - Rendering helper accepts heterogeneous list entries.
-function renderListItems(items, emptyText, renderItem) {
+function renderListItems<T>(
+  items: readonly T[],
+  emptyText: string,
+  renderItem: (item: T, index: number) => ReturnType<typeof h>,
+): Array<ReturnType<typeof h>> {
   if (!items.length) {
     return [h("li", { class: "empty" }, emptyText)];
   }
   return items.map(renderItem);
 }
 
-// @ts-expect-error - Icon helper accepts string identifiers from multiple UI modules.
-function icon(name, extraClass = "", btn = false, extending = false) {
+function icon(name: string, extraClass = "", btn = false, extending = false) {
   return h("span", {
     class: classNames("mdi", `mdi-${name}`, !extending && "mdi-18px", btn && "btn-icon", extraClass),
     "aria-hidden": "true"
   });
 }
 
-// @ts-expect-error - Icon helper accepts string identifiers from multiple UI modules.
-function extendIconClass(name, extraClass = "") {
+function extendIconClass(name: string, extraClass = ""): string {
   return classNames("mdi", `mdi-${name}`, extraClass);
 }
 
-// @ts-expect-error - Label is dynamic text from localized copy.
-function editToggleIcon(label) {
+function editToggleIcon(label: string): string {
   return label === ViewText.cancelAction ? "close" : "pencil";
 }
 
-// @ts-expect-error - Tone is sourced from runtime status values.
-function statusToneClass(tone) {
+function statusToneClass(tone: string | null | undefined): string {
   switch (tone) {
     case "success":
       return classNames("status-text", "u-color-success");
@@ -585,18 +635,19 @@ function statusToneClass(tone) {
   }
 }
 
-// @ts-expect-error - Candidate metadata is built from remote payloads.
-function formatCandidateWordsCount(wordsCount) {
-  const value = Number.isFinite(wordsCount) ? Math.max(0, Math.trunc(wordsCount)) : 0;
+function formatCandidateWordsCount(wordsCount: unknown): string {
+  const numericWordsCount = Number(wordsCount);
+  const value = Number.isFinite(numericWordsCount) ? Math.max(0, Math.trunc(numericWordsCount)) : 0;
   return value > 0 ? `${value} ${PopupText.pageTypes.wordsSuffix}` : "";
 }
 
-// @ts-expect-error - View snapshots are intentionally permissive for resilience.
-function getBlockingUiCurtainState(view) {
+function getBlockingUiCurtainState(view: ViewState): BlockingUiCurtainState {
   if (view.computeButtonLoading) {
     const backgroundReason = typeof view.busyReason === "string" ? view.busyReason : "";
     const backgroundMessage = typeof view.busyMessage === "string" ? view.busyMessage : "";
     const aiRunPhase = typeof view.aiRunPhase === "string" ? view.aiRunPhase : "";
+    const aiRunSpinnerNote = typeof view.aiRunSpinnerNote === "string" ? view.aiRunSpinnerNote : "";
+    const aiRunCountdownText = typeof view.aiRunCountdownText === "string" ? view.aiRunCountdownText : "";
     const aiRunIsActiveOnServer =
       backgroundReason === "tab-run-ai-running" ||
       (!backgroundReason && aiRunPhase === "running");
@@ -618,11 +669,11 @@ function getBlockingUiCurtainState(view) {
       visible: true,
       mode: "busy",
       message: PopupText.overlay.computingSelectors,
-      note: view.aiRunSpinnerNote || PopupText.overlay.computingSelectorsNote,
+      note: aiRunSpinnerNote || PopupText.overlay.computingSelectorsNote,
       reason: "ai-run-compute",
       source: "popup-view-state",
       spinnerKey: "",
-      timerText: view.aiRunCountdownVisible ? (liveCountdownText || view.aiRunCountdownText) : "Up to 8:00"
+      timerText: view.aiRunCountdownVisible ? (liveCountdownText || aiRunCountdownText) : "Up to 8:00"
     };
   }
   if (view.isBusy) {
@@ -2722,14 +2773,12 @@ function renderApp() {
   syncBlockingCurtainCountdownTimer(getBlockingUiCurtainState(viewState));
 }
 
-// @ts-expect-error - Action handlers are a loose runtime command map.
-export function initUi(actionHandlers) {
+export function initUi(actionHandlers: PopupHandlerMap | null | undefined): void {
   actions = actionHandlers || {};
   renderApp();
 }
 
-// @ts-expect-error - View state shape is runtime-owned by popup controller.
-function collapseTodoViewState(nextViewState) {
+function collapseTodoViewState(nextViewState: ViewState): ViewState {
   return {
     ...nextViewState,
     todoControlsMenuOpen: false,
@@ -2738,8 +2787,7 @@ function collapseTodoViewState(nextViewState) {
   };
 }
 
-// @ts-expect-error - View state shape is runtime-owned by popup controller.
-function filterTodoSubsectionsExpanded(nextViewState) {
+function filterTodoSubsectionsExpanded(nextViewState: ViewState): ViewState {
   const pageTypeGroups = Array.isArray(nextViewState.pageTypeGroups)
     ? nextViewState.pageTypeGroups
     : [];
@@ -2754,8 +2802,7 @@ function filterTodoSubsectionsExpanded(nextViewState) {
   };
 }
 
-// @ts-expect-error - View state shape is runtime-owned by popup controller.
-function normalizeViewState(nextViewState) {
+function normalizeViewState(nextViewState: ViewState): ViewState {
   let normalizedViewState = nextViewState;
   if (normalizedViewState.previewBlocked || normalizedViewState.previewActive) {
     normalizedViewState = {
@@ -2771,8 +2818,7 @@ function normalizeViewState(nextViewState) {
     : collapseTodoViewState(normalizedViewState);
 }
 
-// @ts-expect-error - Patch payload is runtime-composed across popup modules.
-export function setViewState(patch) {
+export function setViewState<T extends object>(patch: T): void {
   const nextViewState = normalizeViewState({ ...viewState, ...patch });
   viewState = nextViewState;
   renderApp();
@@ -2794,8 +2840,9 @@ export function getViewState() {
   return viewState;
 }
 
-// @ts-expect-error - Listener typing is intentionally permissive at runtime.
-export function onViewStateChange(listener) {
+export function onViewStateChange(
+  listener: ((nextViewState: ViewState) => void) | null | undefined,
+): () => void {
   if (typeof listener !== "function") {
     return () => {};
   }
@@ -2810,9 +2857,11 @@ export function getRefs() {
   return refs;
 }
 
-// @ts-expect-error - Toast message is runtime text payload.
-export function showToast(message) {
-  setViewState({ toastMessage: message, toastVisible: true });
+export function showToast(message: unknown): void {
+  const normalizedMessage = typeof message === "string"
+    ? message
+    : String(message || "");
+  setViewState({ toastMessage: normalizedMessage, toastVisible: true });
   if (!uiTimers && typeof window !== "undefined") {
     uiTimers = createPopupTimerGroup({ windowRef: window });
   }
@@ -2859,8 +2908,7 @@ export function toggleConfigurationExtrasExpanded() {
   });
 }
 
-// @ts-expect-error - Preview blocker payloads are runtime-composed.
-export function setPreviewBlocked(isBlocked, message = ViewText.previewBlockedDefault) {
+export function setPreviewBlocked(isBlocked: boolean, message = ViewText.previewBlockedDefault): void {
   setViewState({
     previewBlocked: Boolean(isBlocked),
     previewActive: isBlocked ? viewState.previewActive : false,
@@ -2874,8 +2922,7 @@ export function setPreviewBlocked(isBlocked, message = ViewText.previewBlockedDe
   });
 }
 
-// @ts-expect-error - Menu open state is runtime-driven.
-export function setConfigMenuOpen(open) {
+export function setConfigMenuOpen(open: boolean): void {
   if (state.configMenuOpen === open) {
     return;
   }
@@ -2883,8 +2930,7 @@ export function setConfigMenuOpen(open) {
   setViewState({ configMenuOpen: open, themeMenuOpen: false });
 }
 
-// @ts-expect-error - Menu open state is runtime-driven.
-export function setThemeMenuOpen(open, placement = "bottom") {
+export function setThemeMenuOpen(open: boolean, placement: "top" | "bottom" = "bottom"): void {
   const normalizedOpen = Boolean(open);
   const normalizedPlacement = placement === "top" ? "top" : "bottom";
   if (
@@ -2902,16 +2948,14 @@ export function setThemeMenuOpen(open, placement = "bottom") {
   });
 }
 
-// @ts-expect-error - Menu open state is runtime-driven.
-export function setTodoControlsMenuOpen(open) {
+export function setTodoControlsMenuOpen(open: boolean): void {
   if (Boolean(viewState.todoControlsMenuOpen) === Boolean(open)) {
     return;
   }
   setViewState({ todoControlsMenuOpen: Boolean(open) });
 }
 
-// @ts-expect-error - Expansion state is runtime-driven.
-export function setTodoSectionExpanded(expanded) {
+export function setTodoSectionExpanded(expanded: boolean): void {
   updateViewState((currentViewState) => ({
     ...currentViewState,
     todoSectionExpanded: Boolean(expanded),
@@ -2921,8 +2965,7 @@ export function setTodoSectionExpanded(expanded) {
   }));
 }
 
-// @ts-expect-error - Expansion state is runtime-driven.
-export function setTodoSubsectionExpanded(key, expanded) {
+export function setTodoSubsectionExpanded(key: string, expanded: boolean): void {
   if (typeof key !== "string" || !key) {
     return;
   }
@@ -2935,8 +2978,7 @@ export function setTodoSubsectionExpanded(key, expanded) {
   }));
 }
 
-// @ts-expect-error - Expansion state is runtime-driven.
-export function setTodoAllSubsectionsExpanded(expanded) {
+export function setTodoAllSubsectionsExpanded(expanded: boolean): void {
   updateViewState((currentViewState) => ({
     ...currentViewState,
     todoControlsMenuOpen: false,
@@ -2949,8 +2991,7 @@ export function setTodoAllSubsectionsExpanded(expanded) {
   }));
 }
 
-// @ts-expect-error - Toggle state is runtime-driven.
-export function setTodoAutoCollapse(checked) {
+export function setTodoAutoCollapse(checked: boolean): void {
   updateViewState((currentViewState) => ({
     ...currentViewState,
     todoControlsMenuOpen: false,
