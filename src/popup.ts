@@ -230,6 +230,34 @@ import type { PageMarkingEntry, PageSaveReconciliation } from "./types/config.ts
 
 type PopupViewState = ReturnType<typeof uiModule.getViewState>;
 type PopupViewStatePatch = Partial<PopupViewState>;
+type PopupCommandSuccess<T extends Record<string, unknown>> = {
+  ok: true;
+  result: T;
+};
+type PreviewViewState = Pick<
+  PopupViewState,
+  | "previewActive"
+  | "previewItemsPending"
+  | "previewWillRestoreMarking"
+  | "previewItems"
+  | "previewFocusedXpath"
+  | "previewShowAllCategories"
+>;
+type PreviewItemInput = Partial<PreviewViewState["previewItems"][number]> & Record<string, unknown>;
+type PreviewStateLike = {
+  baseUrl?: string;
+  active?: boolean;
+  mode?: string;
+  previousEnabled?: boolean;
+  restoreMarkingOnExit?: boolean;
+  items?: PreviewItemInput[];
+  itemsPending?: boolean;
+  focusedXpath?: string;
+  showAllCategories?: boolean;
+};
+type PreviewCommandResult = PreviewStateLike & {
+  previewState?: PreviewStateLike | null;
+};
 
 const { state } = stateModule;
 const popupDebugTarget = globalThis as typeof globalThis & {
@@ -3273,9 +3301,35 @@ function setRemoteConfigConnectionIssue(active) {
   }
 }
 
-// @ts-expect-error
-function setPreviewBlocked(active, message = ViewText.previewBlockedDefault) {
+function setPreviewBlocked(active: boolean, message: string = ViewText.previewBlockedDefault) {
   uiModule.setPreviewBlocked(active, message);
+}
+
+function isPopupCommandSuccess<T extends Record<string, unknown>>(
+  response: unknown
+): response is PopupCommandSuccess<T> {
+  return Boolean(
+    response &&
+      typeof response === "object" &&
+      "ok" in response &&
+      response.ok &&
+      "result" in response &&
+      response.result &&
+      typeof response.result === "object"
+  );
+}
+
+function getPreviewStatePayload(result: PreviewCommandResult | null): PreviewStateLike | null {
+  if (!result || typeof result !== "object") {
+    return null;
+  }
+  return result.previewState && typeof result.previewState === "object"
+    ? result.previewState
+    : result;
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "";
 }
 
 // @ts-expect-error
@@ -7133,14 +7187,10 @@ async function applyComputedSelectorSet(selectorSet, { currentPageUrl = "", toke
   const previewResponse = await messages.requestTabShowAiPreview(tabId, {
     selectorSet
   });
-// @ts-expect-error
-  const previewResult = previewResponse && previewResponse.ok && previewResponse.result
-// @ts-expect-error
+  const previewResult = isPopupCommandSuccess<PreviewCommandResult>(previewResponse)
     ? previewResponse.result
     : null;
-  const previewStatePayload = previewResult && typeof previewResult.previewState === "object"
-    ? previewResult.previewState
-    : previewResult;
+  const previewStatePayload = getPreviewStatePayload(previewResult);
   if (previewResult) {
     queueAiPreviewConfigSync(tabId, state.currentBaseUrl);
     if (!(previewStatePayload && previewStatePayload.itemsPending)) {
@@ -7204,6 +7254,7 @@ async function applyComputedSelectorSet(selectorSet, { currentPageUrl = "", toke
   return { previewOpened };
 }
 
+function applyAiPreviewStateUpdate(message: PreviewStateLike): void;
 // @ts-expect-error
 function applyAiPreviewStateUpdate(message) {
   const messageBaseUrl = typeof message.baseUrl === "string" ? message.baseUrl : "";
@@ -7713,7 +7764,6 @@ async function handlePreviewLatest() {
   }
   clearLastPopupEnabled();
   collapseTodoListForAutoCollapse();
-// @ts-expect-error
   setPreviewBlocked(true, PopupText.preview.blockedActive);
   try {
     const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
@@ -7722,16 +7772,14 @@ async function handlePreviewLatest() {
     const response = await messages.requestTabShowAiPreview(tabId, {
       selectorSet
     });
-// @ts-expect-error
-    if (!response || !response.ok || !response.result) {
+    if (!isPopupCommandSuccess(response)) {
       throw new Error(PopupText.preview.openFailed);
     }
     await refreshUi();
   } catch (error) {
     clearMarkingSessionSnapshot();
     setPreviewBlocked(false);
-// @ts-expect-error
-    uiModule.showToast((error && error.message) || PopupText.preview.openFailed);
+    uiModule.showToast(getErrorMessage(error) || PopupText.preview.openFailed);
     await refreshUi();
   }
 }
@@ -7766,7 +7814,6 @@ async function handleMarkingPreview() {
     return;
   }
   collapseTodoListForAutoCollapse();
-// @ts-expect-error
   setPreviewBlocked(true, PopupText.preview.blockedActive);
   try {
     const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
@@ -7775,16 +7822,14 @@ async function handleMarkingPreview() {
     const response = await messages.requestTabShowAiPreview(tabId, {
       selectorSet
     });
-// @ts-expect-error
-    if (!response || !response.ok || !response.result) {
+    if (!isPopupCommandSuccess(response)) {
       throw new Error(PopupText.preview.openFailed);
     }
     await refreshUi();
   } catch (error) {
     clearMarkingSessionSnapshot();
     setPreviewBlocked(false);
-// @ts-expect-error
-    uiModule.showToast((error && error.message) || PopupText.preview.openFailed);
+    uiModule.showToast(getErrorMessage(error) || PopupText.preview.openFailed);
     await refreshUi();
   }
 }
@@ -7841,6 +7886,9 @@ async function handleExitPreviewMode() {
   }
 }
 
+function normalizePreviewItems(
+  items: PreviewStateLike["items"] | null | undefined
+): PreviewViewState["previewItems"];
 // @ts-expect-error
 function normalizePreviewItems(items) {
   if (!Array.isArray(items)) {
@@ -7856,6 +7904,7 @@ function normalizePreviewItems(items) {
     }));
 }
 
+function buildPreviewViewState(previewState: PreviewStateLike | null | undefined): PreviewViewState;
 // @ts-expect-error
 function buildPreviewViewState(previewState) {
   const previewMode = typeof (previewState && previewState.mode) === "string"
@@ -7890,13 +7939,20 @@ function buildPreviewViewState(previewState) {
   };
 }
 
+async function handlePreviewShowAllCategoriesChange(event: unknown): Promise<void>;
 // @ts-expect-error
 async function handlePreviewShowAllCategoriesChange(event) {
   if (!isFeatureEnabled("previewExpandedStates")) {
     uiModule.setViewState({ previewShowAllCategories: false });
     return;
   }
-  const nextChecked = Boolean(event && event.target && event.target.checked);
+  const nextChecked = Boolean(
+    event &&
+      typeof event === "object" &&
+      "target" in event &&
+      event.target instanceof HTMLInputElement &&
+      event.target.checked
+  );
   const previousChecked = Boolean(uiModule.getViewState().previewShowAllCategories);
   uiModule.setViewState({ previewShowAllCategories: nextChecked });
   if (!await helpers.ensureActiveTab({ requireId: true })) {
@@ -7910,23 +7966,19 @@ async function handlePreviewShowAllCategoriesChange(event) {
     const response = await messages.requestTabSetAiPreviewExpandedMode(tabId, {
       active: nextChecked
     });
-// @ts-expect-error
-    if (!response || !response.ok || !response.result) {
+    if (!isPopupCommandSuccess<PreviewCommandResult>(response)) {
       throw new Error(PopupText.preview.updateFailed);
     }
-// @ts-expect-error
     uiModule.setViewState(buildPreviewViewState(response.result.previewState || null));
   } catch (error) {
     uiModule.setViewState({ previewShowAllCategories: previousChecked });
-// @ts-expect-error
-    uiModule.showToast((error && error.message) || PopupText.preview.updateFailed);
+    uiModule.showToast(getErrorMessage(error) || PopupText.preview.updateFailed);
     await refreshUi({ useBusyOverlay: false, skipPropertyLockFetch: true });
   }
 }
 
-// @ts-expect-error
-async function handlePreviewItemFocus(xpath) {
-  if (!xpath || !await helpers.ensureActiveTab({ requireId: true })) {
+async function handlePreviewItemFocus(xpath: unknown) {
+  if (typeof xpath !== "string" || !xpath || !await helpers.ensureActiveTab({ requireId: true })) {
     return;
   }
   uiModule.setViewState({ previewFocusedXpath: xpath });
@@ -7936,8 +7988,7 @@ async function handlePreviewItemFocus(xpath) {
   const response = await messages.requestTabFocusPreviewElement(tabId, {
     xpath
   });
-// @ts-expect-error
-  if (!response || !response.ok || !response.result) {
+  if (!isPopupCommandSuccess(response)) {
     uiModule.showToast(PopupText.explicitSelection.focusFailed);
     await refreshUi();
   }

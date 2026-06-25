@@ -3061,7 +3061,10 @@ export function toggleConfigurationExtrasExpanded() {
   });
 }
 
-export function setPreviewBlocked(isBlocked: boolean, message = ViewText.previewBlockedDefault): void {
+export function setPreviewBlocked(
+  isBlocked: boolean,
+  message: string = ViewText.previewBlockedDefault
+): void {
   setViewState({
     previewBlocked: Boolean(isBlocked),
     previewActive: isBlocked ? viewState.previewActive : false,
