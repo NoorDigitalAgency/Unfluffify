@@ -8,7 +8,10 @@ import {
   createConfigSyncPayload,
   isPageSaveReconciliationPending,
   isIncomingTimestampNewer,
+  getNewestConfigSelectorSet,
   mergePageMarkingsByTimestamp,
+  mergeConfigSelectorStateByTimestamp,
+  normalizeAiSelectorSet,
   normalizePageMarkings,
   normalizeEntryTimestamp,
   normalizePageSaveReconciliation,
@@ -64,6 +67,56 @@ test("timestamp comparison accepts numeric epochs and Date values", () => {
     normalizeEntryTimestamp(1_700_000_000_000),
     "2023-11-14T22:13:20Z"
   );
+});
+
+test("normalizeAiSelectorSet trims and deduplicates selector lists", () => {
+  const result = normalizeAiSelectorSet({
+    exclusionSelectors: ["  .hero  ", ".hero", null, ""],
+    inclusionSelectors: ["main", "main", " article "]
+  });
+
+  assert.deepEqual(result.normalized, {
+    exclusionSelectors: [".hero"],
+    inclusionSelectors: ["main", "article"]
+  });
+  assert.equal(result.changed, true);
+});
+
+test("mergeConfigSelectorStateByTimestamp keeps the newer selector set fingerprint", () => {
+  const newerSelectorSet = {
+    exclusionSelectors: [".paywall"],
+    inclusionSelectors: ["main article"]
+  };
+  const newerFingerprint = JSON.stringify(newerSelectorSet);
+  const merged = mergeConfigSelectorStateByTimestamp(
+    { exclusionSelectors: [".legacy"], inclusionSelectors: [] },
+    "2026-01-01T00:00:00Z",
+    JSON.stringify({ exclusionSelectors: [".legacy"], inclusionSelectors: [] }),
+    newerSelectorSet,
+    "2026-01-02T00:00:00Z",
+    newerFingerprint
+  );
+
+  assert.deepEqual(merged.selectorSet, newerSelectorSet);
+  assert.equal(merged.updatedAt, "2026-01-02T00:00:00Z");
+  assert.equal(merged.submittedFingerprint, newerFingerprint);
+});
+
+test("getNewestConfigSelectorSet drops stale selectors after a newer render-mode update", () => {
+  const newest = getNewestConfigSelectorSet({
+    selectors: {
+      exclusionSelectors: [".stale"],
+      inclusionSelectors: ["main"]
+    },
+    selectorsUpdatedAt: "2026-01-01T00:00:00Z",
+    renderModeUpdatedAt: "2026-01-02T00:00:00Z"
+  });
+
+  assert.deepEqual(newest.selectorSet, {
+    exclusionSelectors: [],
+    inclusionSelectors: []
+  });
+  assert.equal(newest.updatedAt, "1970-01-01T00:00:00Z");
 });
 
 test("normalizeConfig preserves unsupported page types for later candidate reconciliation", () => {

@@ -151,6 +151,37 @@ interface NormalizeAiSelectorSetResult {
   changed: boolean;
 }
 
+interface MergeSelectorSetResult {
+  selectorSet: AiSelectorSet;
+  updatedAt: string;
+}
+
+interface MergeConfigSelectorStateResult extends MergeSelectorSetResult {
+  submittedFingerprint: string;
+}
+
+interface MergePageMarkingsOptions {
+  preferIncomingOnTimestampTie?: unknown;
+}
+
+interface MergePageMarkingsResult {
+  pageMarkings: PageMarkingsRecord;
+  replacedUrls: string[];
+  replacedExistingUrls: string[];
+}
+
+interface NormalizedConfigSyncPayload {
+  version: number;
+  baseUrl: string;
+  siteId: SiteId;
+  renderMode: RenderMode;
+  renderModeUpdatedAt: string;
+  pageMarkings: Record<string, unknown>;
+  selectors: AiSelectorSet;
+  selectorsUpdatedAt: string;
+  submittedSelectorsFingerprint: string;
+}
+
 interface ConfigSyncPayloadOptions {
   filterPageMarking?: (url: string, entry: NormalizedPageMarkingEntry) => boolean;
 }
@@ -652,14 +683,11 @@ function buildConfigSyncXpathItems(
   return items;
 }
 
-// @ts-expect-error
-function normalizeSelectorList(list) {
-// @ts-expect-error
-  const values = [];
+function normalizeSelectorList(list: unknown): NormalizeStringListResult {
+  const values: string[] = [];
   const seen = new Set();
   let changed = false;
   if (!Array.isArray(list)) {
-// @ts-expect-error
     return { values, changed: true };
   }
   for (const value of list) {
@@ -689,8 +717,7 @@ export function createEmptyAiSelectorSet(): AiSelectorSet {
   return { exclusionSelectors: [], inclusionSelectors: [] };
 }
 
-// @ts-expect-error
-function cloneAiSelectorSet(selectorSet) {
+function cloneAiSelectorSet(selectorSet: unknown): AiSelectorSet {
   const normalized = normalizeAiSelectorSet(selectorSet).normalized;
   return {
     exclusionSelectors: normalized.exclusionSelectors.slice(),
@@ -698,21 +725,15 @@ function cloneAiSelectorSet(selectorSet) {
   };
 }
 
-// @ts-expect-error
-function hasAnySelectors(selectorSet) {
+function hasAnySelectors(selectorSet: unknown): boolean {
+  const normalized = normalizeAiSelectorSet(selectorSet).normalized;
   return Boolean(
-    selectorSet &&
-      (
-        (Array.isArray(selectorSet.exclusionSelectors) &&
-          selectorSet.exclusionSelectors.length > 0) ||
-        (Array.isArray(selectorSet.inclusionSelectors) &&
-          selectorSet.inclusionSelectors.length > 0)
-      )
+    normalized.exclusionSelectors.length > 0 ||
+      normalized.inclusionSelectors.length > 0
   );
 }
 
-// @ts-expect-error
-function selectorSetsEqual(left, right) {
+function selectorSetsEqual(left: unknown, right: unknown): boolean {
   const normalizedLeft = normalizeAiSelectorSet(left).normalized;
   const normalizedRight = normalizeAiSelectorSet(right).normalized;
   return (
@@ -721,32 +742,27 @@ function selectorSetsEqual(left, right) {
   );
 }
 
-// @ts-expect-error
-function createAiSelectorSetFingerprint(selectorSet) {
+function createAiSelectorSetFingerprint(selectorSet: unknown): string {
   const normalized = normalizeAiSelectorSet(selectorSet).normalized;
   return hasAnySelectors(normalized) ? JSON.stringify(normalized) : "";
 }
 
-// @ts-expect-error
-function normalizeSubmittedSelectorsFingerprint(value) {
+function normalizeSubmittedSelectorsFingerprint(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
-// @ts-expect-error
-function isSelectorTimestampCurrent(selectorUpdatedAt, renderModeUpdatedAt) {
+function isSelectorTimestampCurrent(selectorUpdatedAt: unknown, renderModeUpdatedAt: unknown): boolean {
   const normalizedSelectorUpdatedAt = normalizeEntryTimestamp(selectorUpdatedAt);
   const normalizedRenderModeUpdatedAt = normalizeEntryTimestamp(renderModeUpdatedAt);
   return !isIncomingTimestampNewer(normalizedRenderModeUpdatedAt, normalizedSelectorUpdatedAt);
 }
 
-// @ts-expect-error
-export function getSelectorSetTimestampFieldName(fieldName) {
+export function getSelectorSetTimestampFieldName(fieldName: unknown): SelectorTimestampFieldName | "" {
   return fieldName === SELECTOR_SET_FIELD ? SELECTOR_SET_UPDATED_AT_FIELD : "";
 }
 
-// @ts-expect-error
-export function isSelectorSetCurrentForRenderMode(sourceConfig, fieldName) {
-  if (!sourceConfig || typeof sourceConfig !== "object") {
+export function isSelectorSetCurrentForRenderMode(sourceConfig: unknown, fieldName: unknown): boolean {
+  if (!isRecord(sourceConfig)) {
     return false;
   }
   const timestampFieldName = getSelectorSetTimestampFieldName(fieldName);
@@ -760,15 +776,11 @@ export function isSelectorSetCurrentForRenderMode(sourceConfig, fieldName) {
 }
 
 export function mergeSelectorSetsByTimestamp(
-// @ts-expect-error
-  existingSet,
-// @ts-expect-error
-  existingUpdatedAt,
-// @ts-expect-error
-  incomingSet,
-// @ts-expect-error
-  incomingUpdatedAt
-) {
+  existingSet: unknown,
+  existingUpdatedAt: unknown,
+  incomingSet: unknown,
+  incomingUpdatedAt: unknown
+): MergeSelectorSetResult {
   const normalizedExistingSet = normalizeAiSelectorSet(existingSet).normalized;
   const normalizedIncomingSet = normalizeAiSelectorSet(incomingSet).normalized;
   const normalizedExistingUpdatedAt = normalizeEntryTimestamp(existingUpdatedAt);
@@ -815,19 +827,13 @@ export function mergeSelectorSetsByTimestamp(
 }
 
 export function mergeConfigSelectorStateByTimestamp(
-// @ts-expect-error
-  existingSelectors,
-// @ts-expect-error
-  existingUpdatedAt,
-// @ts-expect-error
-  existingSubmittedFingerprint,
-// @ts-expect-error
-  incomingSelectors,
-// @ts-expect-error
-  incomingUpdatedAt,
-// @ts-expect-error
-  incomingSubmittedFingerprint
-) {
+  existingSelectors: unknown,
+  existingUpdatedAt: unknown,
+  existingSubmittedFingerprint: unknown,
+  incomingSelectors: unknown,
+  incomingUpdatedAt: unknown,
+  incomingSubmittedFingerprint: unknown
+): MergeConfigSelectorStateResult {
   const mergedSelectors = mergeSelectorSetsByTimestamp(
     existingSelectors,
     existingUpdatedAt,
@@ -854,9 +860,8 @@ export function mergeConfigSelectorStateByTimestamp(
   };
 }
 
-// @ts-expect-error
-export function areCurrentSelectorsSubmitted(sourceConfig) {
-  if (!sourceConfig || typeof sourceConfig !== "object") {
+export function areCurrentSelectorsSubmitted(sourceConfig: unknown): boolean {
+  if (!isRecord(sourceConfig)) {
     return true;
   }
   const currentFingerprint = createAiSelectorSetFingerprint(sourceConfig[SELECTOR_SET_FIELD]);
@@ -869,12 +874,12 @@ export function areCurrentSelectorsSubmitted(sourceConfig) {
 }
 
 export function getNewestConfigSelectorSet(
-// @ts-expect-error
-  sourceConfig,
-  fieldNames = [SELECTOR_SET_FIELD]
-) {
+  sourceConfig: unknown,
+  fieldNames: unknown = [SELECTOR_SET_FIELD]
+): MergeSelectorSetResult {
   let mergedSelectorSet = createEmptyAiSelectorSet();
   let mergedUpdatedAt = PAGE_TIMESTAMP_FALLBACK;
+  const sourceConfigRecord = isRecord(sourceConfig) ? sourceConfig : null;
 
   for (const fieldName of Array.isArray(fieldNames) ? fieldNames : []) {
     if (typeof fieldName !== "string" || !fieldName) {
@@ -885,14 +890,13 @@ export function getNewestConfigSelectorSet(
     const merged = mergeSelectorSetsByTimestamp(
       mergedSelectorSet,
       mergedUpdatedAt,
-      selectorSetIsCurrent && sourceConfig && typeof sourceConfig === "object"
-        ? sourceConfig[fieldName]
+      selectorSetIsCurrent && sourceConfigRecord
+        ? sourceConfigRecord[fieldName]
         : null,
       timestampFieldName &&
         selectorSetIsCurrent &&
-        sourceConfig &&
-        typeof sourceConfig === "object"
-        ? sourceConfig[timestampFieldName]
+        sourceConfigRecord
+        ? sourceConfigRecord[timestampFieldName]
         : null
     );
     mergedSelectorSet = merged.selectorSet;
@@ -1053,11 +1057,10 @@ export function normalizePageMarkings(pageMarkings: unknown): {
   return { normalized, changed, removedUrls };
 }
 
-// @ts-expect-error
-export function normalizeAiSelectorSet(value) {
+export function normalizeAiSelectorSet(value: unknown): NormalizeAiSelectorSetResult {
   const normalized = createEmptyAiSelectorSet();
   let changed = true;
-  if (!value || typeof value !== "object") {
+  if (!isRecord(value)) {
     return { normalized, changed };
   }
   changed = false;
@@ -1081,14 +1084,13 @@ export function normalizeAiSelectorSet(value) {
   return { normalized, changed };
 }
 
-// @ts-expect-error
-export function normalizeConfig(baseUrl, incoming) {
+export function normalizeConfig(baseUrl: unknown, incoming: unknown): { config: NormalizedConfig; changed: boolean } {
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl) || (typeof baseUrl === "string" ? baseUrl : "");
   let changed = false;
   const defaultConfig = createDefaultConfig(normalizedBaseUrl);
   const normalized = { ...defaultConfig };
 
-  if (!incoming) {
+  if (!isRecord(incoming)) {
     return { config: normalized, changed: true };
   }
 
@@ -1154,19 +1156,17 @@ export function normalizeConfig(baseUrl, incoming) {
   return { config: normalized, changed };
 }
 
-// @ts-expect-error
-export function isRenderModeConfirmed(sourceConfig) {
-  if (!sourceConfig || typeof sourceConfig !== "object") {
+export function isRenderModeConfirmed(sourceConfig: unknown): boolean {
+  if (!isRecord(sourceConfig)) {
     return false;
   }
   return normalizeEntryTimestamp(sourceConfig.renderModeUpdatedAt) !== PAGE_TIMESTAMP_FALLBACK;
 }
 
-// @ts-expect-error
-function cloneNormalizedPageEntry(entry, fallbackUrl = "") {
+function cloneNormalizedPageEntry(entry: unknown, fallbackUrl = ""): NormalizedPageMarkingEntry {
   const normalized = normalizePageMarkings({
     [fallbackUrl || ""]: entry || {}
-  }).normalized;
+  }).normalized as PageMarkingsRecord;
   const key = Object.keys(normalized)[0];
   return key ? normalized[key] : {
     title: "",
@@ -1176,19 +1176,19 @@ function cloneNormalizedPageEntry(entry, fallbackUrl = "") {
     includeXpaths: [],
     selectorSuppressedXpaths: [],
     submissionXpaths: [],
+    silentWhitespaceExcludedXpaths: [],
     renderedHtml: "",
     rawHtml: ""
   };
 }
 
-// @ts-expect-error
-export function normalizeConfigSyncPayload(payload, fallbackBaseUrl = "") {
+export function normalizeConfigSyncPayload(payload: unknown, fallbackBaseUrl = ""): NormalizedConfigSyncPayload {
   const normalizedFallbackBaseUrl =
     normalizeCanonicalBaseUrl(fallbackBaseUrl) ||
     normalizeBaseUrl(fallbackBaseUrl) ||
     fallbackBaseUrl ||
     "";
-  if (!payload || typeof payload !== "object") {
+  if (!isRecord(payload)) {
     return {
       version: SERVER_SYNC_VERSION,
       baseUrl: normalizedFallbackBaseUrl,
@@ -1224,19 +1224,20 @@ export function normalizeConfigSyncPayload(payload, fallbackBaseUrl = "") {
   };
 }
 
-// @ts-expect-error
-export function createConfigSyncPayload(baseUrl, sourceConfig, options = {}) {
+export function createConfigSyncPayload(
+  baseUrl: unknown,
+  sourceConfig: unknown,
+  options: ConfigSyncPayloadOptions = {}
+): NormalizedConfigSyncPayload {
   const normalizedBaseUrl =
     normalizeCanonicalBaseUrl(baseUrl) ||
     normalizeBaseUrl(baseUrl) ||
     (typeof baseUrl === "string" ? baseUrl : "");
   const normalized = normalizeConfig(normalizedBaseUrl, sourceConfig).config;
   const pageMarkings = normalized.pageMarkings || {};
-  const payloadMarkings = {};
+  const payloadMarkings: Record<string, unknown> = {};
   const filterPageMarking =
-// @ts-expect-error
     options && typeof options.filterPageMarking === "function"
-// @ts-expect-error
       ? options.filterPageMarking
       : null;
   Object.entries(pageMarkings).forEach(([url, entry]) => {
@@ -1244,7 +1245,6 @@ export function createConfigSyncPayload(baseUrl, sourceConfig, options = {}) {
     if (typeof filterPageMarking === "function" && !filterPageMarking(url, safeEntry)) {
       return;
     }
-// @ts-expect-error
     payloadMarkings[url] = {
       timestamp: normalizeEntryTimestamp(safeEntry.timestamp),
       title: safeEntry.title || undefined,
@@ -1279,24 +1279,18 @@ export function createConfigSyncPayload(baseUrl, sourceConfig, options = {}) {
 }
 
 export function mergePageMarkingsByTimestamp(
-// @ts-expect-error
-  localPageMarkings,
-// @ts-expect-error
-  incomingPageMarkings,
-  options = {}
-) {
-  const localNormalized = normalizePageMarkings(localPageMarkings).normalized;
-  const incomingNormalized = normalizePageMarkings(incomingPageMarkings).normalized;
-  const merged = { ...localNormalized };
-// @ts-expect-error
-  const replacedUrls = [];
-// @ts-expect-error
-  const replacedExistingUrls = [];
-// @ts-expect-error
+  localPageMarkings: unknown,
+  incomingPageMarkings: unknown,
+  options: MergePageMarkingsOptions = {}
+): MergePageMarkingsResult {
+  const localNormalized = normalizePageMarkings(localPageMarkings).normalized as PageMarkingsRecord;
+  const incomingNormalized = normalizePageMarkings(incomingPageMarkings).normalized as PageMarkingsRecord;
+  const merged: PageMarkingsRecord = { ...localNormalized };
+  const replacedUrls: string[] = [];
+  const replacedExistingUrls: string[] = [];
   const preferIncomingOnTimestampTie = Boolean(options.preferIncomingOnTimestampTie);
 
-// @ts-expect-error
-  const hasSnapshotData = (entry) =>
+  const hasSnapshotData = (entry: NormalizedPageMarkingEntry | undefined) =>
     Boolean(
       entry &&
         (
@@ -1336,9 +1330,7 @@ export function mergePageMarkingsByTimestamp(
 
   return {
     pageMarkings: merged,
-// @ts-expect-error
     replacedUrls,
-// @ts-expect-error
     replacedExistingUrls
   };
 }

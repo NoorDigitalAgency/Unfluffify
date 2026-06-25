@@ -3,7 +3,7 @@
     "src/content/core.ts": 917,
     "src/content-main.ts": 589,
     "src/popup.ts": 532,
-    "src/common/config.ts": 58,
+    "src/common/config.ts": 18,
     "src/popup/ui.ts": 28,
     "src/common/page-motion-freeze-bridge.ts": 43,
     "src/common/page-motion-freeze-control.ts": 37

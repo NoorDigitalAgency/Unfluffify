@@ -349,8 +349,8 @@ export async function mergeServerConfigIntoLocalSnapshot(options = {}) {
     ).pageMarkings;
     if (preferConfirmedPageMarkings) {
       Object.entries(confirmedPageMarkings).forEach(([url, entry]) => {
-          const normalizedSingleAny = configStore.normalizePageMarkings({ [url]: entry }).normalized as PageMarkings;
-          (mergedBackendSavedPageMarkings as PageMarkings)[url] = normalizedSingleAny[url];
+          const normalizedSingleAny = configStore.normalizePageMarkings({ [url]: entry }).normalized as unknown as PageMarkings;
+          (mergedBackendSavedPageMarkings as unknown as PageMarkings)[url] = normalizedSingleAny[url];
       });
     }
   }
@@ -377,7 +377,7 @@ export async function mergeServerConfigIntoLocalSnapshot(options = {}) {
     mergedPageMarkings = { ...mergedPageMarkings };
     Object.entries(confirmedPageMarkings).forEach(([url, entry]) => {
       const normalizedSingleAny = configStore.normalizePageMarkings({ [url]: entry }).normalized as PageMarkings;
-      (mergedPageMarkings as PageMarkings)[url] = normalizedSingleAny[url];
+      (mergedPageMarkings as unknown as PageMarkings)[url] = normalizedSingleAny[url];
     });
   }
   const mergedPageMarkingsSignature = JSON.stringify(mergedPageMarkings);
