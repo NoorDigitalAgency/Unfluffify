@@ -132,6 +132,7 @@ import {
   WORLD_TRACE_EVENT_LIMIT
 } from "./background/world-trace.js";
 import { createPopupStateBroker } from "./background/popup-state-broker.js";
+import type { PopupBrokerState } from "./background/popup-state-broker.js";
 import { createRenderModeInspector } from "./background/render-mode-inspector.js";
 import { createTabOperationRunner } from "./background/tab-operation-runner.js";
 import { createTabInactivityObserver } from "./background/tab-inactivity-observer.js";
@@ -2131,7 +2132,10 @@ const popupStateBroker = createPopupStateBroker({
   appendTrace: appendWorldTraceEvent,
   ensureTraceState,
   isWorldTraceEnabled,
-  updateRuntime: updateTabRuntime
+  updateRuntime: updateTabRuntime,
+  syncPopupView(tabId: number, state: PopupBrokerState, reason: string) {
+    brain.mirrorPopupState(tabId, state, reason);
+  }
 });
 // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 const getSpinnerQueueForTab = popupStateBroker.getSpinnerQueueForTab;
@@ -2142,6 +2146,15 @@ const broadcastBrokerState = popupStateBroker.broadcastBrokerState;
 const updateLifecycleState = popupStateBroker.updateLifecycleState;
 // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 const clearNavInspectCurtain = popupStateBroker.clearNavInspectCurtain;
+const popupStateSeedTabIds = new Set<number>();
+for (const tabId of [...tabLifecycleStateByTabId.keys(), ...tabSpinnerQueueByTabId.keys()]) {
+  const normalizedTabId = normalizeBrokerTabId(tabId);
+  if (!normalizedTabId || popupStateSeedTabIds.has(normalizedTabId)) {
+    continue;
+  }
+  popupStateSeedTabIds.add(normalizedTabId);
+  brain.mirrorPopupState(normalizedTabId, buildBrokerState(normalizedTabId), "popup-state-broker:seed");
+}
 
 const spinnerOperations = createSpinnerOperations({
 // @ts-expect-error

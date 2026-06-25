@@ -1,7 +1,10 @@
 import { createBus } from "../../common/bus/bus.js";
 import { DIAGNOSTIC_REQUEST_TYPES } from "../../common/bus/contracts/index.js";
+import { POPUP_STATE_EVENT_TYPES, POPUP_STATE_REQUEST_TYPES } from "../../common/bus/contracts/popup-state.js";
 import { REALMS } from "../../common/bus/realms.js";
 import { createBackgroundTransport } from "../../common/bus/transport/background-transport.js";
+import type { PopupBrokerState } from "../popup-state-broker.js";
+import { getPopupView, updatePopupViewFromBrokerState } from "./deciders/popup-state-decider.js";
 import { createStateStore, type TabLayerState } from "./state-store.js";
 import { projectSpinners, type SpinnerState } from "./spinner-authority.js";
 import { projectViews } from "./view-projector.js";
@@ -28,7 +31,7 @@ function publishProjectedState(
   const { popupView, contentDirective } = projectViews(state);
   const spinners = projectSpinners(state);
 
-  void bus.publish("view.popup", popupView, { target: REALMS.POPUP, tab: tabId });
+  void bus.publish(POPUP_STATE_EVENT_TYPES.VIEW_UPDATED, popupView, { target: REALMS.POPUP, tab: tabId });
   void bus.publish("directive.content", contentDirective, { target: REALMS.CONTENT, tab: tabId });
   publishSpinnerSurface(bus, tabId, "popup", spinners.popup);
   publishSpinnerSurface(bus, tabId, "pageCurtain", spinners.pageCurtain);
@@ -53,11 +56,20 @@ export function createBrain(options: { logger?: Pick<Console, "error"> } = {}) {
     nonce: payload.nonce,
     realm: REALMS.BACKGROUND,
   }));
+  bus.registerHandler(POPUP_STATE_REQUEST_TYPES.GET, (_payload: Record<never, never>, meta) => {
+    if (!meta.tab) {
+      throw new Error("popup.view.get requires a tab id");
+    }
+    return getPopupView(store, meta.tab);
+  });
 
   return {
     bus,
     store,
     transport,
+    mirrorPopupState(tabId: number, brokerState: PopupBrokerState, reason: string) {
+      return updatePopupViewFromBrokerState(store, tabId, brokerState, reason);
+    },
     registerPopupPort(tabId: number, port: chrome.runtime.Port): void {
       transport.registerPopupPort(tabId, port);
     },

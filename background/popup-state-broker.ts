@@ -7,10 +7,25 @@ import {
   isLifecycleTerminalPhase
 } from "../common/world-messaging-contract.js";
 import { createSpinnerOperationLease } from "../common/spinner-contract.js";
+import type {
+  PopupLegacySpinnerEntry,
+  PopupLifecycleState,
+  PopupTraceEvent,
+} from "../common/bus/contracts/popup-state.js";
 
-type LifecycleState = Record<string, unknown>;
+type LifecycleState = PopupLifecycleState;
 type SpinnerEntry = Record<string, unknown>;
-type TraceState = { events: unknown[] };
+type TraceState = { events: PopupTraceEvent[] };
+
+export type PopupBrokerState = Readonly<{
+  ok: boolean;
+  tabId: number | null;
+  lifecycle: PopupLifecycleState | null;
+  spinnerQueue: PopupLegacySpinnerEntry[];
+  activeSpinnerLease: PopupLegacySpinnerEntry | null;
+  traceEnabled: boolean;
+  traceEvents: PopupTraceEvent[];
+}>;
 
 type PopupStateBrokerOptions = {
   lifecycleStateByTabId?: Map<number, LifecycleState>;
@@ -21,6 +36,7 @@ type PopupStateBrokerOptions = {
   ensureTraceState?: (tabId: number | null) => TraceState;
   isWorldTraceEnabled?: () => boolean;
   updateRuntime?: (tabId: number, patch: Record<string, unknown>) => void;
+  syncPopupView?: (tabId: number, state: PopupBrokerState, reason: string) => void;
 };
 
 function defaultNormalizeTabId(value: unknown): number | null {
@@ -37,6 +53,8 @@ function defaultUpdateRuntime(): void {}
 function defaultIsWorldTraceEnabled(): boolean {
   return false;
 }
+
+function defaultSyncPopupView(): void {}
 
 export function createPopupStateBroker(options = {}) {
   const typedOptions = options as PopupStateBrokerOptions;
@@ -64,6 +82,9 @@ export function createPopupStateBroker(options = {}) {
   const updateRuntime = typeof typedOptions.updateRuntime === "function"
     ? typedOptions.updateRuntime
     : defaultUpdateRuntime;
+  const syncPopupView = typeof typedOptions.syncPopupView === "function"
+    ? typedOptions.syncPopupView
+    : defaultSyncPopupView;
 
   function getSpinnerQueueForTab(tabId: unknown): Map<string, SpinnerEntry> | null {
     const normalizedTabId = normalizeTabId(tabId);
@@ -76,7 +97,7 @@ export function createPopupStateBroker(options = {}) {
     return spinnerQueueByTabId.get(normalizedTabId) || null;
   }
 
-  function serializeSpinnerQueue(tabId: number): Array<Record<string, unknown>> {
+  function serializeSpinnerQueue(tabId: number): PopupLegacySpinnerEntry[] {
     const queue = spinnerQueueByTabId.get(tabId);
     if (!queue || queue.size === 0) {
       return [];
@@ -107,7 +128,7 @@ export function createPopupStateBroker(options = {}) {
         timerMode: entry && typeof entry.timerMode === "string" ? entry.timerMode : undefined,
         updatedAt: entry && Number.isFinite(entry.updatedAt) ? entry.updatedAt : undefined
       });
-      const serializedEntry: Record<string, unknown> = {
+      return {
         key,
         message,
         persistent: Boolean(entry && entry.persistent),
@@ -122,16 +143,13 @@ export function createPopupStateBroker(options = {}) {
         timerMode: lease ? lease.timerMode : "",
         deadlineAt: lease ? lease.deadlineAt : 0,
         maxDurationMs: lease ? lease.maxDurationMs : 0,
-        updatedAt: lease ? lease.updatedAt : 0
-      };
-      if (lease) {
-        serializedEntry.blockSurfaces = { ...lease.blockSurfaces };
-      }
-      return serializedEntry;
+        updatedAt: lease ? lease.updatedAt : 0,
+        ...(lease ? { blockSurfaces: { ...lease.blockSurfaces } } : {}),
+      } satisfies PopupLegacySpinnerEntry;
     });
   }
 
-  function getActiveSpinnerLease(tabId: number): Record<string, unknown> | null {
+  function getActiveSpinnerLease(tabId: number): PopupLegacySpinnerEntry | null {
     const serializedQueue = serializeSpinnerQueue(tabId);
     for (const entry of serializedQueue.slice().reverse()) {
       if (!Object.prototype.hasOwnProperty.call(entry, "blockSurfaces")) {
@@ -147,7 +165,7 @@ export function createPopupStateBroker(options = {}) {
     return serializedQueue.length ? serializedQueue[serializedQueue.length - 1] : null;
   }
 
-  function buildBrokerState(tabId: unknown): Record<string, unknown> {
+  function buildBrokerState(tabId: unknown): PopupBrokerState {
     const normalizedTabId = normalizeTabId(tabId);
     const traceState = ensureTraceState(normalizedTabId);
     return {
@@ -161,23 +179,24 @@ export function createPopupStateBroker(options = {}) {
     };
   }
 
-  function broadcastBrokerState(tabId: unknown): void {
+  function broadcastBrokerState(tabId: unknown, reason = "popup-state-broker:broadcast"): PopupBrokerState {
     const normalizedTabId = normalizeTabId(tabId);
     if (!normalizedTabId) {
-      return;
-    }
-    const ports = popupStatePortsByTabId.get(normalizedTabId);
-    if (!ports || ports.size === 0) {
-      return;
+      return buildBrokerState(normalizedTabId);
     }
     const state = buildBrokerState(normalizedTabId);
-    ports.forEach((port) => {
-      try {
-        port.postMessage({ type: WORLD_MESSAGE_TYPES.BACKGROUND_STATE, state });
-      } catch {
-        ports.delete(port);
-      }
-    });
+    const ports = popupStatePortsByTabId.get(normalizedTabId);
+    if (ports && ports.size > 0) {
+      ports.forEach((port) => {
+        try {
+          port.postMessage({ type: WORLD_MESSAGE_TYPES.BACKGROUND_STATE, state });
+        } catch {
+          ports.delete(port);
+        }
+      });
+    }
+    syncPopupView(normalizedTabId, state, reason);
+    return state;
   }
 
   // function clearNavInspectCurtain(normalizedTabId) {
@@ -209,7 +228,7 @@ export function createPopupStateBroker(options = {}) {
       return buildBrokerState(normalizedTabId);
     }
     const eventRecord = event as Record<string, unknown>;
-    const previous = lifecycleStateByTabId.get(normalizedTabId) || {};
+    const previous: PopupLifecycleState = lifecycleStateByTabId.get(normalizedTabId) || {};
     const eventOperationId = typeof eventRecord.operationId === "string" && eventRecord.operationId
       ? eventRecord.operationId
       : "";
@@ -237,11 +256,11 @@ export function createPopupStateBroker(options = {}) {
       clearNavInspectCurtain(normalizedTabId);
     }
     const operationId = eventOperationId
-      ? eventRecord.operationId
+      ? eventOperationId
       : previous.operationId || `lifecycle:${normalizedTabId}:${Date.now()}`;
     // const hasBusy = Object.prototype.hasOwnProperty.call(event, "busy");
     const hasBusy = Object.prototype.hasOwnProperty.call(eventRecord, "busy");
-    const next = {
+    const next: PopupLifecycleState = {
       ...previous,
       ...eventRecord,
       operationId,
@@ -257,8 +276,7 @@ export function createPopupStateBroker(options = {}) {
       lifecycle: next
     });
     appendTrace(normalizedTabId, "lifecycle", "state-update", next);
-    broadcastBrokerState(normalizedTabId);
-    return buildBrokerState(normalizedTabId);
+    return broadcastBrokerState(normalizedTabId, "popup-state-broker:lifecycle-update");
   }
 
   return {

@@ -69,6 +69,61 @@ test("popup-state broker lifecycle updates broadcast only to target tab ports", 
   assert.equal(otherMessages.length, 0);
 });
 
+test("popup-state broker mirrors lifecycle updates into the brain view even with no popup ports", () => {
+  const mirroredStates = [];
+  const broker = createPopupStateBroker({
+    lifecycleStateByTabId: new Map(),
+    spinnerQueueByTabId: new Map(),
+    popupStatePortsByTabId: new Map(),
+    normalizeTabId,
+    ensureTraceState: () => ({ events: [] }),
+    isWorldTraceEnabled: () => false,
+    updateRuntime: () => {},
+    syncPopupView: (tabId, state, reason) => {
+      mirroredStates.push({ tabId, state, reason });
+    }
+  });
+
+  broker.updateLifecycleState(11, {
+    kind: LIFECYCLE_KINDS.ACTIVATION,
+    phase: LIFECYCLE_PHASES.STARTED,
+    busy: true,
+    message: "warming"
+  });
+
+  assert.equal(mirroredStates.length, 1);
+  assert.equal(mirroredStates[0].tabId, 11);
+  assert.equal(mirroredStates[0].reason, "popup-state-broker:lifecycle-update");
+  assert.equal(mirroredStates[0].state.lifecycle.kind, LIFECYCLE_KINDS.ACTIVATION);
+  assert.equal(mirroredStates[0].state.lifecycle.phase, LIFECYCLE_PHASES.STARTED);
+  assert.equal(mirroredStates[0].state.lifecycle.busy, true);
+  assert.equal(mirroredStates[0].state.lifecycle.message, "warming");
+});
+
+test("popup-state broker mirrors direct broadcasts for spinner-originated updates only on valid tabs", () => {
+  const mirroredStates = [];
+  const broker = createPopupStateBroker({
+    lifecycleStateByTabId: new Map([[12, { kind: LIFECYCLE_KINDS.ACTIVATION, phase: LIFECYCLE_PHASES.STARTED }]]),
+    spinnerQueueByTabId: new Map(),
+    popupStatePortsByTabId: new Map(),
+    normalizeTabId,
+    ensureTraceState: () => ({ events: [] }),
+    isWorldTraceEnabled: () => false,
+    updateRuntime: () => {},
+    syncPopupView: (tabId, state, reason) => {
+      mirroredStates.push({ tabId, state, reason });
+    }
+  });
+
+  broker.broadcastBrokerState(12);
+  broker.broadcastBrokerState(0);
+
+  assert.equal(mirroredStates.length, 1);
+  assert.equal(mirroredStates[0].tabId, 12);
+  assert.equal(mirroredStates[0].reason, "popup-state-broker:broadcast");
+  assert.equal(mirroredStates[0].state.tabId, 12);
+});
+
 test("popup-state broker terminal curtain-bearing lifecycle removes nav inspect spinner", () => {
   const lifecycleStateByTabId = new Map([[4, { operationId: "op-1" }]]);
   const spinnerQueueByTabId = new Map([[4, new Map([[SPINNER_KEYS.NAV_INSPECT, { persistent: true, startedAt: 1 }]])]]);
