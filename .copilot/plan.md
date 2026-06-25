@@ -53,32 +53,32 @@ to that branch of the program.
 
 ### Goal
 
-Remove `require-await` and `no-unused-vars` from `deno.json` lint rule
-exclusions so `deno task lint` enforces them across the repository without
-changing runtime behavior, browser extension contracts, or test intent.
+Finish the remaining repository cleanup now that `deno.json` already enforces
+`require-await` and `no-unused-vars`, so the Deno lint surface can run clean
+without changing runtime behavior, browser extension contracts, or test intent.
 
 ### Current facts
 
-1. `deno.json` defines `lint` as `deno lint .` and `lint:fix` as
-   `deno lint --fix .`.
+1. `deno.json` no longer exposes public `lint` / `lint:fix` tasks; direct Deno
+   lint work in this track should use `deno lint ...` explicitly, while the repo
+   validation baseline remains pnpm-first with `pnpm verify` as the canonical
+   full-suite gate.
 2. The remaining lint exclusions are `ban-ts-comment`, `no-inner-declarations`,
-   `no-sloppy-imports`, `no-unused-vars`, `no-window`, `no-window-prefix`, and
-   `require-await`.
+   `no-sloppy-imports`, `no-window`, and `no-window-prefix`; the target rules are
+   already enabled and guarded by `tests/package-test-script.test.js`.
 3. `no-sloppy-imports` must stay excluded while source `.ts` files intentionally
    import `.js` specifiers for non-bundled browser ESM output. `no-window` and
    `no-window-prefix` must stay excluded for browser-extension code.
-4. A targeted audit with the approved browser/legacy exclusions retained and
-   only `require-await` / `no-unused-vars` enabled found 520 diagnostics:
-   335 `require-await` and 185 `no-unused-vars`.
-5. The largest current hotspots are:
-   - `content/core.ts`: 54 diagnostics, mostly unused legacy symbols.
-   - root entry files: `popup.ts` 42, `content-main.ts` 33, `background.ts` 21.
-   - tests: 246 `require-await` diagnostics and 18 unused-variable diagnostics.
-   - `background/ai-run-orchestrator.ts`: 14 diagnostics.
-   - `common/property-lock-background.ts`: 17 diagnostics.
-   - `scripts/smoke-property-lock-phase2.mjs`: 10 diagnostics.
-6. `tests/package-test-script.test.js` currently asserts that lint targets the
-   whole repo and that the still-approved exclusions remain present.
+4. Re-running the targeted Deno inventory on 2026-06-25 with the approved
+   exclusions retained
+   (`deno lint --rules-exclude=ban-ts-comment,no-inner-declarations,no-sloppy-imports,no-window,no-window-prefix .`)
+   found 26 remaining diagnostics.
+5. The current inventory is:
+   - 10 `require-await` diagnostics, all in tests
+   - 13 `ban-unused-ignore` diagnostics, all from stale narrow ignores in tests
+   - 3 `no-unused-vars` diagnostics in runtime source (`background.ts` and `popup.ts`)
+6. `tests/package-test-script.test.js` already asserts that the target rules are
+   not excluded, so the remaining work is code cleanup rather than config flips.
 
 ### Decisions already made
 
@@ -95,6 +95,9 @@ changing runtime behavior, browser extension contracts, or test intent.
 4. Do not change user-visible button-state behavior, marking/highlighting
    contracts, runtime message names, payload shapes, storage keys, build output
    strategy, or browser launch policy as part of this cleanup.
+5. Remove stale narrow `deno-lint-ignore` comments once the guarded binding or
+   assertion is fixed; they count as remaining lint debt once the target rules
+   are enabled.
 
 ### Open questions
 
@@ -108,15 +111,16 @@ lint ignore with rationale before proceeding.
 1. **Baseline and inventory**
    - Files to inspect: `deno.json`, `tests/package-test-script.test.js`, and the
      lint output for the two target rules.
-   - Run `git --no-pager status --short --branch`, `deno task lint`, then a
+   - Run `git --no-pager status --short --branch`, `pnpm lint`, then a
      targeted lint command that keeps only the approved browser/legacy
      exclusions while enabling `require-await` and `no-unused-vars`.
    - Save no generated output in the repo. Prefer terminal output or
      session-local tooling for diagnostic captures.
    - Expected state: the implementer has a sorted diagnostic list grouped by
-     runtime source, tests, orchestration, and scripts.
-   - Focused validation: the targeted lint command still reports only the two
-     target rules.
+     runtime source, tests, orchestration, and scripts, plus any stale narrow
+     ignore comments surfaced by the now-enabled target rules.
+   - Focused validation: the targeted lint command still reports only the
+     remaining target-rule debt plus stale now-unused narrow ignores.
    - Rollback rule: if unrelated dirty files appear, stop and ask before editing
      those files.
 
@@ -139,7 +143,7 @@ lint ignore with rationale before proceeding.
      ignore with rationale.
    - Expected state: runtime source has zero `no-unused-vars` diagnostics.
    - Focused validation: targeted lint over changed runtime files, then
-     `deno task check`.
+     `pnpm check`.
    - Rollback rule: if deleting a binding changes emitted code or removes an
      import with side effects, restore it and use a contract-preserving fix.
 
@@ -164,7 +168,7 @@ lint ignore with rationale before proceeding.
         narrow `deno-lint-ignore require-await` reason and a focused test.
    - Expected state: runtime source has zero unreviewed `require-await`
      diagnostics.
-   - Focused validation: `deno task check` plus the focused tests for any
+   - Focused validation: `pnpm check` plus the focused tests for any
      changed domain.
    - Rollback rule: if a change alters callback response timing, Chrome runtime
      listener return values, spinner lease cleanup, or render-mode waits, revert
@@ -206,28 +210,26 @@ lint ignore with rationale before proceeding.
      replace the dead import with an assertion that checks the exported value.
    - Expected state: tests have zero target-rule diagnostics without weakening
      assertions.
-   - Focused validation: run each edited test file, then `deno task test`.
+   - Focused validation: run each edited test file, then `pnpm test`.
    - Rollback rule: if a lint cleanup makes a test less representative of an
      async production contract, restore the async fake and add a narrow ignore
      with rationale.
 
-6. **Flip the lint config**
-   - Edit `deno.json` to remove `require-await` and `no-unused-vars` from
-     `lint.rules.exclude`.
-   - Update `tests/package-test-script.test.js` so it asserts the approved
-     browser/legacy exclusions still exist and the two target rules are not
-     excluded.
-   - Run `deno task lint:fix` once only after all manual decisions are complete,
+6. **Lock the lint config and cleanup**
+   - Keep `deno.json` and `tests/package-test-script.test.js` aligned with the
+     already-enabled target rules while removing the remaining diagnostics.
+   - Run `deno lint --fix` once only after all manual decisions are complete,
      then review the diff before keeping any automatic change.
-   - Expected state: `deno task lint` enforces both rules repo-wide.
-   - Focused validation: `deno task lint` and
+   - Expected state: direct `deno lint` can run clean once the remaining targeted
+     diagnostics and stale ignores are removed.
+   - Focused validation: `deno lint .` and
      `deno test --allow-read --allow-write --allow-env --allow-run --allow-sys --allow-net=127.0.0.1 --no-check --unstable-sloppy-imports tests/package-test-script.test.js`.
-   - Rollback rule: if lint:fix rewrites behavior-bearing code, revert only that
+   - Rollback rule: if `deno lint --fix` rewrites behavior-bearing code, revert only that
      automatic hunk and apply a manual fix.
 
 7. **Full validation and handoff**
-   - Run `deno task lint`, `deno task check`, `deno task test`, and
-     `deno task build:release`.
+   - Run `deno lint .` for the track-specific rule gate, then `pnpm verify` for
+     the canonical repo-wide validation handoff.
    - No live browser validation is required unless implementation touches popup
      button-state behavior, browser launch code, or another user-visible runtime
      flow.
@@ -254,19 +256,18 @@ lint ignore with rationale before proceeding.
 1. `deno.json` no longer excludes `require-await` or `no-unused-vars`.
 2. `tests/package-test-script.test.js` fails if either target rule is added back
    to the exclusions.
-3. `deno task lint` reports zero diagnostics under the default repo config.
-4. `deno task check`, `deno task test`, and `deno task build:release` pass.
+3. `deno lint .` reports zero diagnostics under the default repo config.
+4. `pnpm verify` passes.
 5. Any remaining local `deno-lint-ignore require-await` or
    `deno-lint-ignore no-unused-vars` comments are narrow, justified, and covered
    by the relevant focused test or contract assertion.
 
 ### Implementation status
 
-Completed on 2026-06-24. `deno.json` now enforces both target rules
-repo-wide. Existing legacy diagnostics are documented with local
-`deno-lint-ignore` comments at the exact affected lines so the migration does
-not alter runtime or test behavior, while future diagnostics outside those
-legacy sites are caught by `deno task lint`.
+Config flip completed on 2026-06-24, but the cleanup track remains active.
+`deno.json` already enforces both target rules repo-wide; the remaining work is
+to delete the last real diagnostics and stale narrow ignores so direct
+`deno lint` is fully clean without contract drift.
 
 ## Validation Baseline
 
@@ -276,9 +277,7 @@ Known-good current validation baseline:
 git status --short --branch
 # ## main...origin/main
 
-deno task check
-deno task build:release
-deno task test
+pnpm verify
 # 847 pass / 0 fail
 ```
 
