@@ -33,18 +33,6 @@ export default tseslint.config(
   },
   {
     files: [
-      "tests/file-kit.ts",
-      "tests/test-kit.ts",
-      "tests/shims/deno-runtime.js",
-    ],
-    languageOptions: {
-      globals: {
-        Deno: "readonly",
-      },
-    },
-  },
-  {
-    files: [
       "background.ts",
       "content-main.ts",
       "offscreen.ts",

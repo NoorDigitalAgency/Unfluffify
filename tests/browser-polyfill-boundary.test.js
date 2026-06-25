@@ -15,8 +15,7 @@ const EXCLUDED_PATH_PREFIXES = [
   "node_modules/",
   "orchestration/",
   "scripts/",
-  "tests/",
-  "vitest-tests/"
+  "tests/"
 ];
 
 const SOURCE_FILE_PATTERN = /\.(?:c|m)?(?:js|ts)$/i;

@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
+import vitestConfig from "../vitest.config";
 import wxtConfig from "../wxt.config";
 import { restoreSourceAction } from "../wxt.config";
 
@@ -58,6 +59,12 @@ describe("WXT Part A bridge", () => {
     expect(packageJson.scripts.browser).toBeUndefined();
     expect(packageJson.scripts["browser:live"]).toBe("node ./scripts/launch-test-browser.mjs");
     expect(packageJson.scripts["legacy:build:dev"]).toBeUndefined();
+  });
+
+  it("runs the unified tests directory through the shared Vitest setup", () => {
+    expect(vitestConfig.test?.include).toEqual(["tests/**/*.test.{js,ts}"]);
+    expect(vitestConfig.test?.setupFiles).toEqual(["tests/setup-runtime.js"]);
+    expect(vitestConfig.resolve?.alias).toBeUndefined();
   });
 
   it("disables WXT auto-imports and targets MV3", () => {

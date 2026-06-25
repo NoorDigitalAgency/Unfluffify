@@ -71,7 +71,7 @@ Validate: `pnpm test` (targeted on touched tests) then full `pnpm test`,
     (WXT-coverage gap), replacing `restoreSourceAction`.
 - Delete root `manifest.json`.
 - Update all tests that read `manifest.json`:
-  - `vitest-tests/a1-bootstrap.test.ts` (source-manifest assertions →
+  - `tests/a1-bootstrap.test.ts` (source-manifest assertions →
     assert against generated `.output/chrome-mv3/manifest.json` and/or
     `wxt.config.ts` contract).
   - `tests/manifest-permissions.test.js` (default branch read of
@@ -179,7 +179,7 @@ control channel); orchestration bus/rpc smoke; `pnpm test`, `pnpm check`,
 - Delete `tests/shims/deno-runtime.js` and `tests/shims/std-path.ts`.
 - `vitest.config.ts`: remove `setupFiles: ["tests/shims/deno-runtime.js"]` and
   the `@std/path` alias.
-- Move `vitest-tests/*.test.ts` into `tests/` (rename if needed to avoid
+- Move the Vitest-only entrypoint tests into `tests/` (rename if needed to avoid
   collisions) and update `vitest.config.ts` `include` to a single `tests/` glob.
   Update the moved tests' relative paths.
 - `tests/package-test-script.test.js` is rewritten in Phase 2 for the Node

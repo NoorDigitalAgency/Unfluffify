@@ -7,6 +7,13 @@ test("legacy Deno task artifacts are removed from the repo", () => {
   assert.equal(existsSync(new URL("../deno.lock", import.meta.url)), false);
 });
 
+test("legacy Deno test shims are removed from the repo", () => {
+  assert.equal(existsSync(new URL("../tests/shims/deno-runtime.js", import.meta.url)), false);
+  assert.equal(existsSync(new URL("../tests/shims/std-path.ts", import.meta.url)), false);
+  assert.equal(existsSync(new URL("../vitest-tests", import.meta.url)), false);
+  assert.equal(existsSync(new URL("../tests/setup-runtime.js", import.meta.url)), true);
+});
+
 test("public pnpm scripts are node-native after the Deno bridge removal", () => {
   const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url)));
   const scriptEntries = Object.entries(packageJson.scripts || {});

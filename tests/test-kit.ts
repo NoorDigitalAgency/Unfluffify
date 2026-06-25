@@ -1,8 +1,4 @@
-const isDenoTestRuntime = typeof globalThis.Deno?.test === "function";
-
-const denoAssertRuntime = isDenoTestRuntime ? await import("@std/assert") : null;
-const denoBddRuntime = isDenoTestRuntime ? await import("@std/testing/bdd") : null;
-const vitestRuntime = isDenoTestRuntime ? null : await import("vitest");
+import { afterEach, beforeEach, expect, it } from "vitest";
 
 interface TestContextLike {
   after(callback: () => unknown | Promise<unknown>): void;
@@ -13,29 +9,21 @@ type TestOptions = { timeout?: number };
 
 type TestCallable = {
   (name: string, fn: TestFn, options?: TestOptions | number): void;
-  beforeEach: (callback: () => unknown | Promise<unknown>) => void;
-  afterEach: (callback: () => unknown | Promise<unknown>) => void;
+  beforeEach: typeof beforeEach;
+  afterEach: typeof afterEach;
 };
 
-const runtimeBeforeEach = isDenoTestRuntime
-  ? denoBddRuntime.beforeEach
-  : vitestRuntime.beforeEach;
-const runtimeAfterEach = isDenoTestRuntime
-  ? denoBddRuntime.afterEach
-  : vitestRuntime.afterEach;
-
 const test = ((name: string, fn: TestFn, options?: TestOptions | number): void => {
-  const wrappedTest = async (...args: unknown[]) => {
+  const wrappedTest = async () => {
     const afterCallbacks: Array<() => unknown | Promise<unknown>> = [];
-    const baseContext = args[0] && typeof args[0] === "object" ? args[0] as Record<string, unknown> : {};
-    const context = Object.assign(baseContext, {
+    const context: TestContextLike = {
       after(callback: () => unknown | Promise<unknown>): void {
         afterCallbacks.push(callback);
       },
-    });
+    };
 
     try {
-      await fn(context as TestContextLike);
+      await fn(context);
     } finally {
       for (const callback of afterCallbacks.reverse()) {
         await callback();
@@ -43,22 +31,17 @@ const test = ((name: string, fn: TestFn, options?: TestOptions | number): void =
     }
   };
 
-  if (isDenoTestRuntime) {
-    denoBddRuntime.test(name, wrappedTest);
-    return;
-  }
-
   const timeout = typeof options === "number" ? options : options?.timeout;
   if (typeof timeout === "number" && Number.isFinite(timeout)) {
-    vitestRuntime.it(name, wrappedTest, timeout);
+    it(name, wrappedTest, timeout);
     return;
   }
 
-  vitestRuntime.it(name, wrappedTest);
+  it(name, wrappedTest);
 }) as TestCallable;
 
-test.beforeEach = runtimeBeforeEach;
-test.afterEach = runtimeAfterEach;
+test.beforeEach = beforeEach;
+test.afterEach = afterEach;
 
 export { test };
 
@@ -79,27 +62,15 @@ function baseAssert(value: unknown, message?: string): void {
 }
 
 function assertEqual(actual: unknown, expected: unknown, message?: string): void {
-  if (isDenoTestRuntime) {
-    denoAssertRuntime.assertEquals(actual, expected, message);
-    return;
-  }
-  vitestRuntime.expect(actual, message).toEqual(expected);
+  expect(actual, message).toEqual(expected);
 }
 
 function assertMatch(actual: string, matcher: RegExp, message?: string): void {
-  if (isDenoTestRuntime) {
-    denoAssertRuntime.assertMatch(actual, matcher, message);
-    return;
-  }
-  vitestRuntime.expect(actual, message).toMatch(matcher);
+  expect(actual, message).toMatch(matcher);
 }
 
 function assertNotMatch(actual: string, matcher: RegExp, message?: string): void {
-  if (isDenoTestRuntime) {
-    denoAssertRuntime.assertNotMatch(actual, matcher, message);
-    return;
-  }
-  vitestRuntime.expect(actual, message).not.toMatch(matcher);
+  expect(actual, message).not.toMatch(matcher);
 }
 
 function matchesExpected(error: unknown, expected?: AssertMatcher, message?: string): void {
