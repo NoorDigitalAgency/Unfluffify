@@ -264,7 +264,7 @@ test("preview exit restores a captured marking-session snapshot before payload f
   );
   assert.match(
     popupSource,
-    /async function applyPreviewClosedState\(closeState = \{\}\) \{[\s\S]*?const draftStatus = closeState\.draftStatus[\s\S]*?clearPreviewRestorePending\(\);[\s\S]*?clearMarkingSessionSnapshot\(\);[\s\S]*?refreshUi\(\{[\s\S]*?preserveCurrentDraftStatus: Boolean\(hasDraftStatus\)/
+    /async function applyPreviewClosedState\(closeState = \{\}\) \{[\s\S]*?const draftStatus = normalizedCloseState\.draftStatus[\s\S]*?clearPreviewRestorePending\(\);[\s\S]*?clearMarkingSessionSnapshot\(\);[\s\S]*?refreshUi\(\{[\s\S]*?preserveCurrentDraftStatus: Boolean\(hasDraftStatus\)/
   );
   assert.match(
     popupSource,

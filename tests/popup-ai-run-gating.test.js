@@ -402,7 +402,7 @@ test("#21 preview-exit restore prioritizes popup snapshot restore with payload f
   );
   assert.match(
     popupSource,
-    /async function applyPreviewClosedState\(closeState = \{\}\) \{[\s\S]*?const draftStatus = closeState\.draftStatus[\s\S]*?applyDraftStatusToPopupState\(draftStatus\)[\s\S]*?clearPreviewRestorePending\(\);[\s\S]*?clearMarkingSessionSnapshot\(\);/
+    /async function applyPreviewClosedState\(closeState = \{\}\) \{[\s\S]*?const draftStatus = normalizedCloseState\.draftStatus[\s\S]*?applyDraftStatusToPopupState\(draftStatus\)[\s\S]*?clearPreviewRestorePending\(\);[\s\S]*?clearMarkingSessionSnapshot\(\);/
   );
   assert.match(
     popupSource,

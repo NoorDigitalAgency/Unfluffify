@@ -2,7 +2,7 @@
   "budgets": {
     "src/content/core.ts": 908,
     "src/content-main.ts": 564,
-    "src/popup.ts": 318,
+    "src/popup.ts": 306,
     "src/common/page-motion-freeze-bridge.ts": 43,
     "src/common/page-motion-freeze-control.ts": 37
   },

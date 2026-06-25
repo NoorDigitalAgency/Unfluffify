@@ -230,7 +230,7 @@ import type { PageMarkingEntry, PageSaveReconciliation } from "./types/config.ts
 
 type PopupViewState = ReturnType<typeof uiModule.getViewState>;
 type PopupViewStatePatch = Partial<PopupViewState>;
-type PopupCommandSuccess<T extends Record<string, unknown>> = {
+type PopupCommandSuccess<T extends object> = {
   ok: true;
   result: T;
 };
@@ -244,6 +244,10 @@ type PreviewViewState = Pick<
   | "previewShowAllCategories"
 >;
 type PreviewItemInput = Partial<PreviewViewState["previewItems"][number]> & Record<string, unknown>;
+type PreviewRestoreMessage = {
+  previewRestoreToken?: unknown;
+  pageUrl?: unknown;
+};
 type PreviewStateLike = {
   baseUrl?: string;
   active?: boolean;
@@ -2707,6 +2711,18 @@ interface TabDraftStatusResponse {
   [key: string]: unknown;
 }
 
+interface PreviewCloseState extends PreviewRestoreMessage {
+  active?: unknown;
+  markingEnabled?: unknown;
+  baseUrl?: unknown;
+  pageType?: unknown;
+  draftStatus?: unknown;
+}
+
+type PreviewCloseCommandResult = PreviewCloseState & {
+  previewState?: PreviewCloseState | null;
+};
+
 function applyDraftStatusToPopupState(draftStatus: TabDraftStatusResponse | null) {
   if (!draftStatus || !draftStatus.ok) {
     return false;
@@ -2733,16 +2749,18 @@ function clearPreviewRestorePending() {
   clearPreviewRestoreFallbackTimer();
 }
 
+function getPreviewRestoreToken(message?: PreviewRestoreMessage): number | null;
 function getPreviewRestoreToken(message = {}) {
-// @ts-expect-error
-  return Number.isFinite(message.previewRestoreToken)
-// @ts-expect-error
-    ? Math.trunc(message.previewRestoreToken)
+  const previewMessage = (message && typeof message === "object" ? message : {}) as PreviewRestoreMessage;
+  return Number.isFinite(previewMessage.previewRestoreToken)
+    ? Math.trunc(Number(previewMessage.previewRestoreToken))
     : null;
 }
 
+function isPreviewRestoreMessageCurrent(message?: PreviewRestoreMessage): boolean;
 function isPreviewRestoreMessageCurrent(message = {}) {
-  const messageToken = getPreviewRestoreToken(message);
+  const previewMessage = (message && typeof message === "object" ? message : {}) as PreviewRestoreMessage;
+  const messageToken = getPreviewRestoreToken(previewMessage);
   if (
     messageToken !== null &&
     messageToken <= state.previewRestoreAppliedToken
@@ -2756,8 +2774,7 @@ function isPreviewRestoreMessageCurrent(message = {}) {
   ) {
     return false;
   }
-// @ts-expect-error
-  const messagePageUrl = typeof message.pageUrl === "string" ? message.pageUrl : "";
+  const messagePageUrl = typeof previewMessage.pageUrl === "string" ? previewMessage.pageUrl : "";
   const currentPageUrl = state.currentTab && typeof state.currentTab.url === "string"
     ? state.currentTab.url
     : state.lastPopupPageUrl;
@@ -2845,20 +2862,22 @@ function beginPreviewRestorePending() {
   return state.previewRestoreToken;
 }
 
+async function applyPreviewClosedState(closeState?: PreviewCloseState): Promise<void>;
 async function applyPreviewClosedState(closeState = {}) {
-  const messageToken = getPreviewRestoreToken(closeState);
-  if (!isPreviewRestoreMessageCurrent(closeState)) {
+  const normalizedCloseState = (closeState && typeof closeState === "object"
+    ? closeState
+    : {}) as PreviewCloseState;
+  const messageToken = getPreviewRestoreToken(normalizedCloseState);
+  if (!isPreviewRestoreMessageCurrent(normalizedCloseState)) {
     return;
   }
-// @ts-expect-error
-  const draftStatus = closeState.draftStatus && typeof closeState.draftStatus === "object"
-// @ts-expect-error
-    ? closeState.draftStatus
+  const draftStatus = normalizedCloseState.draftStatus && typeof normalizedCloseState.draftStatus === "object"
+    ? normalizedCloseState.draftStatus as TabDraftStatusResponse
     : null;
-// @ts-expect-error
-  const nextBaseUrl = typeof closeState.baseUrl === "string" ? closeState.baseUrl : "";
-// @ts-expect-error
-  const markingEnabled = Boolean(closeState.markingEnabled);
+  const nextBaseUrl = typeof normalizedCloseState.baseUrl === "string"
+    ? normalizedCloseState.baseUrl
+    : "";
+  const markingEnabled = Boolean(normalizedCloseState.markingEnabled);
   setPreviewBlocked(false);
   if (nextBaseUrl) {
     state.currentBaseUrl = nextBaseUrl;
@@ -3305,7 +3324,7 @@ function setPreviewBlocked(active: boolean, message: string = ViewText.previewBl
   uiModule.setPreviewBlocked(active, message);
 }
 
-function isPopupCommandSuccess<T extends Record<string, unknown>>(
+function isPopupCommandSuccess<T extends object>(
   response: unknown
 ): response is PopupCommandSuccess<T> {
   return Boolean(
@@ -3319,7 +3338,9 @@ function isPopupCommandSuccess<T extends Record<string, unknown>>(
   );
 }
 
-function getPreviewStatePayload(result: PreviewCommandResult | null): PreviewStateLike | null {
+function getPreviewStatePayload<T extends object>(
+  result: (T & { previewState?: T | null }) | null
+): T | null {
   if (!result || typeof result !== "object") {
     return null;
   }
@@ -7848,23 +7869,14 @@ async function handleExitPreviewMode() {
   const response = await messages.requestTabCloseAiPreview(tabId, {
     previewRestoreToken
   });
-// @ts-expect-error
-  if (!response || !response.ok || !response.result) {
+  if (!isPopupCommandSuccess<PreviewCloseCommandResult>(response)) {
     clearPreviewRestorePending();
     clearMarkingSessionSnapshot();
     await refreshUi({ useBusyOverlay: false, skipPropertyLockFetch: true });
     uiModule.showToast(PopupText.preview.exitFailed);
     return;
   }
-// @ts-expect-error
-  const closeResult = response.result && typeof response.result === "object"
-// @ts-expect-error
-    ? (response.result.previewState && typeof response.result.previewState === "object"
-// @ts-expect-error
-      ? response.result.previewState
-// @ts-expect-error
-      : response.result)
-    : null;
+  const closeResult = getPreviewStatePayload<PreviewCloseState>(response.result);
   if (shouldRestoreMarking && restoreMarkingSessionSnapshot()) {
     clearPreviewRestorePending();
     await refreshUi({
