@@ -1,6 +1,6 @@
 # Unfluffify Active Architecture Plan
 
-Last updated: 2026-06-24
+Last updated: 2026-06-25
 
 ## Objective
 
@@ -17,11 +17,13 @@ Use these documents before making implementation changes:
 1. `.copilot/popup-preview-exit-button-state-plan.md`
 2. `.copilot/handoff-world-decomposition.md`
 3. `.copilot/knowledge.md`
-4. `.copilot/content-main-followup-refactor-plan.md`
-5. `.copilot/high-risk-content-branches-plan.md` (historical G0-G5 reference only)
-6. `.copilot/typescript-deno-port-plan.md` (completed: autonomous port to TypeScript with a Deno build/watch/hot-reload toolchain; branch `feat/typescript-deno-port`)
-7. `.copilot/typescript-typing-rollout-plan.md` (autonomous plan to remove `@ts-nocheck` and add real types across the ported `.ts` codebase; target GPT-5.3-Codex medium; execute on branch `feat/typescript-deno-port`)
-8. This document's lint strictness track for removing `require-await` and
+4. `.copilot/event-bus-architecture-plan.md`
+5. `.copilot/event-bus/track-03-activation-lifecycle-content-bootstrap.md`
+6. `.copilot/content-main-followup-refactor-plan.md`
+7. `.copilot/high-risk-content-branches-plan.md` (historical G0-G5 reference only)
+8. `.copilot/typescript-deno-port-plan.md` (completed: autonomous port to TypeScript with a Deno build/watch/hot-reload toolchain; branch `feat/typescript-deno-port`)
+9. `.copilot/typescript-typing-rollout-plan.md` (autonomous plan to remove `@ts-nocheck` and add real types across the ported `.ts` codebase; target GPT-5.3-Codex medium; execute on branch `feat/typescript-deno-port`)
+10. This document's lint strictness track for removing `require-await` and
    `no-unused-vars` from the active Deno lint exclusions.
 
 Historical and superseded `.copilot` plans/handoffs have been removed from the
@@ -30,28 +32,22 @@ old archive files into the active `.copilot` folder.
 
 ## Current Architecture Track
 
-The lint strictness track below is complete: `require-await` and
-`no-unused-vars` are no longer active Deno lint exclusions. The preview-exit
-state-neutral restoration slice has also been implemented; any remaining live
-button-state issue, including locally computed unsaved AI selectors not enabling
-Save, is a separate behavior fix and must not be mixed into lint cleanup.
+On branch `feat/wxt-port-plan`, the active work is the event-bus program's
+Track 3 in `.copilot/event-bus-architecture-plan.md`:
+`.copilot/event-bus/track-03-activation-lifecycle-content-bootstrap.md`.
+Tracks 0-2 are complete and green on this branch, so the next work is:
 
-The service-worker authority refactor, storage-access layer refactor, and world
-decomposition program are complete and merged to `main`. Content follow-up
-Tracks D and E are complete, Track F is complete through F24, and the high-risk
-plan is complete through G5.
+1. move lifecycle/content-bootstrap authority into the Brain store and typed bus
+   contracts
+2. make the Brain-authoritative activation/lifecycle state drive the content
+   directive and popup/page curtain bootstrap path
+3. remove the remaining popup-local navigation-inspection overlay authority once
+   the Brain path is green
 
-The active work is now Track H in
-`.copilot/content-main-followup-refactor-plan.md`: shrink `content-main.js` by
-extracting the legacy plain-message runtime router, the support-page runtime
-message subgroup, and the lazy handler/client service registry. Keep popup and
-background plain runtime message callsites unchanged during this track.
-
-This track protects the 11 always-on core features, including reveal/freeze and
-lazy-loading stopping/restoration. Do not resume old implementation tracks unless
-the user explicitly asks for them.
-
-Track H can resume when the user explicitly asks for it.
+The preview-exit state-neutral restoration slice remains implemented on this
+branch; it is not the active architecture track here. The content-main Track H
+follow-up plan remains deferred unless the user explicitly redirects work back
+to that branch of the program.
 
 ## Lint Strictness Track: `require-await` and `no-unused-vars`
 
