@@ -21,7 +21,7 @@ function collectJsFiles(dir) {
 }
 
 test("popup files do not call chrome.tabs.sendMessage directly", () => {
-  const popupDir = fileURLToPath(new URL("../popup", import.meta.url));
+  const popupDir = fileURLToPath(new URL("../src/popup", import.meta.url));
   const popupFiles = collectJsFiles(popupDir);
 
   for (const popupFile of popupFiles) {
@@ -31,8 +31,8 @@ test("popup files do not call chrome.tabs.sendMessage directly", () => {
 });
 
 test("popup content messages are routed through TAB_CONTENT_REQUEST background command", () => {
-  const popupMessagesSource = readFileSync(new URL("../popup/messages.ts", import.meta.url), "utf8");
-  const backgroundSource = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
+  const popupMessagesSource = readFileSync(new URL("../src/popup/messages.ts", import.meta.url), "utf8");
+  const backgroundSource = readFileSync(new URL("../src/background.ts", import.meta.url), "utf8");
 
   assert.match(popupMessagesSource, /TAB_CONTENT_REQUEST_COMMAND = "TAB_CONTENT_REQUEST"/);
   assert.match(popupMessagesSource, /requestRuntime\(\{[\s\S]*?type: TAB_CONTENT_REQUEST_COMMAND/);

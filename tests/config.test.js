@@ -14,7 +14,7 @@ import {
   normalizePageSaveReconciliation,
   normalizeConfig,
   normalizeConfigSyncPayload
-} from "../common/config.js";
+} from "../src/common/config.js";
 
 test("normalizeConfig preserves legacy page markings without pageType for later candidate reconciliation", () => {
   const normalized = normalizeConfig("https://example.com", {

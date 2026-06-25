@@ -1,7 +1,7 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 
-import { createPropertyLockPortClient } from "../content/property-lock-port-client.js";
+import { createPropertyLockPortClient } from "../src/content/property-lock-port-client.js";
 
 function createTimerHost() {
   let nextId = 1;

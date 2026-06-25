@@ -1,7 +1,7 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 
-import { createExplicitMarkingHandler } from "../content/explicit-marking-handler.js";
+import { createExplicitMarkingHandler } from "../src/content/explicit-marking-handler.js";
 
 const pageUrl = "https://example.com/page";
 const baseUrl = "https://example.com";

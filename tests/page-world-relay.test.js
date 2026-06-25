@@ -6,15 +6,15 @@ import {
   __resetPageWorldRelayForTests,
   initializePageWorldRelay,
   requestPageWorldCommand
-} from "../content/page-world-relay.js";
+} from "../src/content/page-world-relay.js";
 import {
   PAGE_WORLD_COMMANDS,
   PAGE_WORLD_RELAY_CHANNEL,
   PAGE_WORLD_RELAY_MESSAGE_KINDS
-} from "../common/page-world-protocol.js";
+} from "../src/common/page-world-protocol.js";
 
 const bridgeSource = readFileSync(
-  new URL("../common/page-motion-freeze-bridge.ts", import.meta.url),
+  new URL("../src/common/page-motion-freeze-bridge.ts", import.meta.url),
   "utf8"
 );
 

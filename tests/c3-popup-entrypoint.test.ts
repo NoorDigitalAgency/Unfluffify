@@ -7,12 +7,12 @@ const REPO_ROOT = resolve(import.meta.dirname, "..");
 describe("C3 popup entrypoint", () => {
   it("boots the popup runtime from the native WXT import graph and preserves popup asset order", () => {
     const entrypointSource = readFileSync(
-      resolve(REPO_ROOT, "entrypoints", "popup", "main.ts"),
+      resolve(REPO_ROOT, "src", "entrypoints", "popup", "main.ts"),
       "utf8",
     );
-    const popupSource = readFileSync(resolve(REPO_ROOT, "popup.ts"), "utf8");
+    const popupSource = readFileSync(resolve(REPO_ROOT, "src", "popup.ts"), "utf8");
     const popupHtml = readFileSync(
-      resolve(REPO_ROOT, "entrypoints", "popup", "index.html"),
+      resolve(REPO_ROOT, "src", "entrypoints", "popup", "index.html"),
       "utf8",
     );
 

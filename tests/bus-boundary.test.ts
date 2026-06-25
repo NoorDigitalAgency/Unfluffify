@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { createBus } from "../common/bus/bus.js";
-import { REALMS } from "../common/bus/realms.js";
+import { createBus } from "../src/common/bus/bus.js";
+import { REALMS } from "../src/common/bus/realms.js";
 import { readFileSync } from "./file-kit.ts";
 
 function readSource(path: string): string {
-  return readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
+  return readFileSync(new URL(`../src/${path}`, import.meta.url), "utf8");
 }
 
 function indexOfOrThrow(source: string, fragment: string): number {

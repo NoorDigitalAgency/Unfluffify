@@ -1,13 +1,13 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 import { readFileSync } from "./file-kit.ts";
-import { buildPageSaveUiState } from "../common/page-save-state.js";
+import { buildPageSaveUiState } from "../src/common/page-save-state.js";
 
-const popupSource = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
-const pageReconciliationSource = readFileSync(new URL("../popup/page-reconciliation.ts", import.meta.url), "utf8");
-const backgroundSource = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
-const uiSource = readFileSync(new URL("../popup/ui.ts", import.meta.url), "utf8");
-const stateSource = readFileSync(new URL("../popup/state.ts", import.meta.url), "utf8");
+const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
+const pageReconciliationSource = readFileSync(new URL("../src/popup/page-reconciliation.ts", import.meta.url), "utf8");
+const backgroundSource = readFileSync(new URL("../src/background.ts", import.meta.url), "utf8");
+const uiSource = readFileSync(new URL("../src/popup/ui.ts", import.meta.url), "utf8");
+const stateSource = readFileSync(new URL("../src/popup/state.ts", import.meta.url), "utf8");
 
 function computeButtonDisabledForState({
   pageScopedUiDisabled = false,

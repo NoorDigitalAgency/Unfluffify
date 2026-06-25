@@ -9,7 +9,7 @@ import {
   resolveBackgroundEndpoint,
   resolveBackgroundNetworkCredentials,
   validateAuthToken
-} from "../background/network-core.js";
+} from "../src/background/network-core.js";
 
 function createResponse({ ok = true, status = 200, payload = null } = {}) {
   return {

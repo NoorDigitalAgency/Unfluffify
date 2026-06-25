@@ -1,7 +1,7 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 
-import { createAiPreviewGetStateHandler } from "../content/ai-preview-get-state-handler.js";
+import { createAiPreviewGetStateHandler } from "../src/content/ai-preview-get-state-handler.js";
 
 test("get-state handler returns builder response as-is", () => {
   const expected = {

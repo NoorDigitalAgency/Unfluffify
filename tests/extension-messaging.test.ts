@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createRequestEnvelope } from "../common/message-protocol.js";
-import { MESSAGE_TARGETS } from "../common/message-protocol.js";
+import { createRequestEnvelope } from "../src/common/message-protocol.js";
+import { MESSAGE_TARGETS } from "../src/common/message-protocol.js";
 
 type RuntimeListener = (message: unknown, sender?: chrome.runtime.MessageSender) => unknown;
 
@@ -49,7 +49,7 @@ function withBrowser(value: unknown, callback: () => Promise<void> | void) {
 
 async function loadExtensionMessaging() {
   vi.resetModules();
-  return await import("../common/extension-messaging.js");
+  return await import("../src/common/extension-messaging.js");
 }
 
 describe("extension messaging", () => {

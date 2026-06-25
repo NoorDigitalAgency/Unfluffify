@@ -3,7 +3,7 @@ import { assert } from "./test-kit.ts";
 import { readFileSync } from "./file-kit.ts";
 
 const remoteConfigSyncSource = readFileSync(
-  new URL("../background/remote-config-sync.ts", import.meta.url),
+  new URL("../src/background/remote-config-sync.ts", import.meta.url),
   "utf8"
 );
 

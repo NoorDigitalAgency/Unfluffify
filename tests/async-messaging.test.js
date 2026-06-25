@@ -2,11 +2,11 @@ import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 import { vi } from "vitest";
 
-import { MESSAGE_ERROR_CODES } from "../common/message-protocol.js";
+import { MESSAGE_ERROR_CODES } from "../src/common/message-protocol.js";
 
 async function loadAsyncMessaging() {
   vi.resetModules();
-  return await import("../common/async-messaging.js");
+  return await import("../src/common/async-messaging.js");
 }
 
 function withBrowser(value, callback) {

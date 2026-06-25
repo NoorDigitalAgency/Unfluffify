@@ -1,7 +1,7 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 
-import { FEATURE_DISABLED_REASON } from "../common/feature-flags.js";
+import { FEATURE_DISABLED_REASON } from "../src/common/feature-flags.js";
 import {
   PROPERTY_LOCK_BACKGROUND_CONNECTION_STATUS,
   PROPERTY_LOCK_CONNECTION_CONNECTED,
@@ -11,15 +11,15 @@ import {
   PROPERTY_LOCK_STATE_UNLOCKED,
   PROPERTY_LOCK_WS_LOCK_STATE,
   createInactiveLockState
-} from "../common/property-lock.js";
-import { state } from "../popup/state.js";
+} from "../src/common/property-lock.js";
+import { state } from "../src/popup/state.js";
 import {
   applyPropertyLockServerMessage,
   fetchPropertyLockState,
   isPropertyLockCollaborationEnabled,
   refreshPropertyLockSnapshot,
   sendPropertyLockCommand
-} from "../popup/property-lock-ui.js";
+} from "../src/popup/property-lock-ui.js";
 
 function resetPropertyLockState() {
   state.propertyLockSiteId = null;

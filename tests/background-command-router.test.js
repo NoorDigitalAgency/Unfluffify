@@ -5,7 +5,7 @@ import {
   __resetBackgroundCommandRegistryForTests,
   dispatchBackgroundCommand,
   registerBackgroundCommand
-} from "../background/command-router.js";
+} from "../src/background/command-router.js";
 import {
   __resetTabRuntimeForTests,
   appendTabCommandLedger,
@@ -13,7 +13,7 @@ import {
   getTabRuntime,
   getTabRuntimeSnapshot,
   updateTabRuntime
-} from "../background/tab-runtime.js";
+} from "../src/background/tab-runtime.js";
 
 function createEnvelope(overrides = {}) {
   return {

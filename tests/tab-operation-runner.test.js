@@ -1,8 +1,8 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 
-import { createTabOperationRunner } from "../background/tab-operation-runner.js";
-import { LIFECYCLE_PHASES } from "../common/world-messaging-contract.js";
+import { createTabOperationRunner } from "../src/background/tab-operation-runner.js";
+import { LIFECYCLE_PHASES } from "../src/common/world-messaging-contract.js";
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));

@@ -1,7 +1,7 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 
-import { runPageMotionFreezeControl } from "../common/page-motion-freeze-control.js";
+import { runPageMotionFreezeControl } from "../src/common/page-motion-freeze-control.js";
 
 const STATE_KEY = "__unfluffifyPageMotionFreezeState";
 

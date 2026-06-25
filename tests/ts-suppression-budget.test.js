@@ -13,14 +13,14 @@ const BUDGET_PATH = path.join(
 );
 
 const RUNTIME_SCAN_TARGETS = [
-  "background",
-  "common",
-  "content",
-  "popup",
-  "background.ts",
-  "entrypoints/content-loader.content.ts",
-  "content-main.ts",
-  "popup.ts",
+  "src/background",
+  "src/common",
+  "src/content",
+  "src/popup",
+  "src/background.ts",
+  "src/entrypoints/content-loader.content.ts",
+  "src/content-main.ts",
+  "src/popup.ts",
 ];
 
 function collectTsIgnoreCounts() {
@@ -88,6 +88,7 @@ function readBudgetFixture() {
 test("runtime suppression directives stay within the tracked budget", () => {
   const { budgets, exempt } = readBudgetFixture();
   const actual = collectTsIgnoreCounts();
+  const staleExemptPaths = exempt.filter((filePath) => !(filePath in budgets));
 
   const unexpectedFiles = Object.keys(actual)
     .filter((filePath) => !(filePath in budgets))
@@ -116,6 +117,12 @@ test("runtime suppression directives stay within the tracked budget", () => {
     overBudget,
     [],
     `runtime suppression budget exceeded:\n${overBudget.join("\n")}`,
+  );
+
+  assert.deepEqual(
+    staleExemptPaths,
+    [],
+    `exempt runtime suppression paths must stay aligned with budget keys:\n${staleExemptPaths.join("\n")}`,
   );
 
   assert.ok(

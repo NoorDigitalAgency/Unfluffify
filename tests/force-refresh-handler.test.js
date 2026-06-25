@@ -1,7 +1,7 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 
-import { createForceRefreshHandler } from "../content/force-refresh-handler.js";
+import { createForceRefreshHandler } from "../src/content/force-refresh-handler.js";
 
 test("force refresh handler refreshes state, highlights, property lock, and silent highlights in order", async () => {
   const calls = [];

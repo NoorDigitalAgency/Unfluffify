@@ -1,7 +1,7 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 
-import { createVisibleXpathsHandler } from "../content/visible-xpaths-handler.js";
+import { createVisibleXpathsHandler } from "../src/content/visible-xpaths-handler.js";
 
 test("visible xpaths handler returns only visible elements", () => {
   const visibleElement = { id: "visible" };

@@ -1,7 +1,7 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 
-import { createPageSaveReconciliationClearHandler } from "../content/page-save-reconciliation-clear-handler.js";
+import { createPageSaveReconciliationClearHandler } from "../src/content/page-save-reconciliation-clear-handler.js";
 
 function createDeps(overrides = {}) {
   const calls = [];

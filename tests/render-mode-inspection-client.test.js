@@ -1,7 +1,7 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 
-import { createRenderModeInspectionClient } from "../content/render-mode-inspection-client.js";
+import { createRenderModeInspectionClient } from "../src/content/render-mode-inspection-client.js";
 
 function createSessionStorageMock() {
   const store = new Map();

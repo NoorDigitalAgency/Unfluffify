@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { createStateStore } from "../background/brain/state-store.js";
-import type { PopupLegacySpinnerEntry } from "../common/bus/contracts/popup-state.js";
+import { createStateStore } from "../src/background/brain/state-store.js";
+import type { PopupLegacySpinnerEntry } from "../src/common/bus/contracts/popup-state.js";
 import {
   deriveSpinnerSelectionsFromLegacyQueue,
   updateSpinnerSelectionsFromLegacyQueue,
-} from "../background/brain/deciders/spinner-state-decider.js";
+} from "../src/background/brain/deciders/spinner-state-decider.js";
 
 function buildEntry(overrides: Partial<PopupLegacySpinnerEntry> = {}): PopupLegacySpinnerEntry {
   return {

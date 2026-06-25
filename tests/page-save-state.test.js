@@ -5,9 +5,9 @@ import { readFileSync } from "./file-kit.ts";
 import {
   NON_BLOCKING_PAGE_SAVE_RECONCILIATION_REASONS,
   isPageSaveReconciliationPending
-} from "../common/config.js";
-import { buildPageSaveUiState } from "../common/page-save-state.js";
-import { PopupText } from "../common/text.js";
+} from "../src/common/config.js";
+import { buildPageSaveUiState } from "../src/common/page-save-state.js";
+import { PopupText } from "../src/common/text.js";
 
 test("shows saved session state and disables save when nothing is pending", () => {
   const state = buildPageSaveUiState({
@@ -48,7 +48,7 @@ test("keeps pending reconciliation messaging without blocking save and discard",
 });
 
 test("page-save UI and config share the non-blocking reconciliation reasons", () => {
-  const pageSaveStateSource = readFileSync(new URL("../common/page-save-state.ts", import.meta.url), "utf8");
+  const pageSaveStateSource = readFileSync(new URL("../src/common/page-save-state.ts", import.meta.url), "utf8");
 
   assert.match(pageSaveStateSource, /import \{ NON_BLOCKING_PAGE_SAVE_RECONCILIATION_REASONS \} from "\.\/config\.js";/);
   assert.doesNotMatch(pageSaveStateSource, /\[\s*""[\s\S]*?"load_failed"[\s\S]*?\]\.includes/);

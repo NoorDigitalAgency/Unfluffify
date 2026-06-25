@@ -1,7 +1,7 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 
-import { updatePropertyLockBannerMode } from "../content/property-lock-banner-mode.js";
+import { updatePropertyLockBannerMode } from "../src/content/property-lock-banner-mode.js";
 
 function createDeps(overrides = {}) {
   let bannerMode = overrides.bannerMode || "no_banner";

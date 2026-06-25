@@ -19,7 +19,7 @@ import {
   state,
   syncPageMarkings,
   syncPageMarkingsAsync
-} from "../content/core.js";
+} from "../src/content/core.js";
 
 const defaultStyle = {
   display: "block",

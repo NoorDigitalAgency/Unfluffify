@@ -1,7 +1,7 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 
-import { createRenderModeInspector } from "../background/render-mode-inspector.js";
+import { createRenderModeInspector } from "../src/background/render-mode-inspector.js";
 
 test("render-mode inspector runs begin, consent hide, capture, and end through injected messaging", async () => {
   const requestTypes = [];

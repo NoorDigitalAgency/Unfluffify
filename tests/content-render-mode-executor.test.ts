@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createRenderModeInspectionExecutor } from "../content/layers/modes/render-mode-inspection-executor.js";
+import { createRenderModeInspectionExecutor } from "../src/content/layers/modes/render-mode-inspection-executor.js";
 
 describe("content render-mode executor", () => {
   it("calls the begin handler directly through the bus executor", async () => {

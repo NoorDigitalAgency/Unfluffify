@@ -4,7 +4,7 @@ import { assert } from "./test-kit.ts";
 import {
   SW_KEEPALIVE_DEFAULT_INTERVAL_MS,
   createSwKeepAlive
-} from "../background/sw-keepalive.js";
+} from "../src/background/sw-keepalive.js";
 
 function createHarness(overrides = {}) {
   const state = { nextId: 1, intervals: new Map(), pings: 0, lastIntervalMs: null };

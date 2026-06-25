@@ -4,7 +4,7 @@ import { assert } from "./test-kit.ts";
 import {
   isAiSubmissionDocumentRootXpath,
   resolveAiSubmissionRowState
-} from "../content/submission-rules.js";
+} from "../src/content/submission-rules.js";
 
 test("document root xpaths are not AI submission rows", () => {
   assert.equal(isAiSubmissionDocumentRootXpath("/html[1]"), true);

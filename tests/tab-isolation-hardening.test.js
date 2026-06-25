@@ -5,14 +5,14 @@ import {
   __resetBackgroundCommandRegistryForTests,
   dispatchBackgroundCommand,
   registerBackgroundCommand
-} from "../background/command-router.js";
+} from "../src/background/command-router.js";
 import {
   __resetTabRuntimeForTests,
   deleteTabRuntime,
   getTabRuntimeSnapshot,
   updateTabRuntime
-} from "../background/tab-runtime.js";
-import { createSpinnerOperations } from "../background/spinner-operations.js";
+} from "../src/background/tab-runtime.js";
+import { createSpinnerOperations } from "../src/background/spinner-operations.js";
 
 function createEnvelope(overrides = {}) {
   return {

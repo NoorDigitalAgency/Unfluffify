@@ -7,11 +7,11 @@ const REPO_ROOT = resolve(import.meta.dirname, "..");
 describe("C1 offscreen entrypoint", () => {
   it("boots from the shared offscreen module instead of the legacy runtime shim", () => {
     const entrypointSource = readFileSync(
-      resolve(REPO_ROOT, "entrypoints", "offscreen", "main.ts"),
+      resolve(REPO_ROOT, "src", "entrypoints", "offscreen", "main.ts"),
       "utf8",
     );
-    const rootSource = readFileSync(resolve(REPO_ROOT, "offscreen.ts"), "utf8");
-    const bootstrapSource = readFileSync(resolve(REPO_ROOT, "offscreen", "bootstrap.ts"), "utf8");
+    const rootSource = readFileSync(resolve(REPO_ROOT, "src", "offscreen.ts"), "utf8");
+    const bootstrapSource = readFileSync(resolve(REPO_ROOT, "src", "offscreen", "bootstrap.ts"), "utf8");
 
     expect(entrypointSource).not.toContain('legacy/offscreen.js');
     expect(entrypointSource).toContain('../../offscreen/bootstrap.js');

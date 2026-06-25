@@ -1,7 +1,7 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 
-import { createPageToast } from "../content/page-toast.js";
+import { createPageToast } from "../src/content/page-toast.js";
 
 function createClassList() {
   const values = new Set();

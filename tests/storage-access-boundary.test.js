@@ -101,13 +101,13 @@ function sortFindings(findings) {
 // Bucket: approved wrapper modules. These are the current generic adapter files
 // that are expected to contain direct storage access before Phase 4 extraction.
 const APPROVED_WRAPPER_FILES = new Set([
-  "common/storage-core.ts",
-  "background/transfer-payload-store.ts",
-  "background/ai-run-record-store.ts",
-  "common/settings-store.ts",
-  "background/tab-session-store.ts",
-  "common/emulation.ts",
-  "common/render-mode-js-state.ts"
+  "src/common/storage-core.ts",
+  "src/background/transfer-payload-store.ts",
+  "src/background/ai-run-record-store.ts",
+  "src/common/settings-store.ts",
+  "src/background/tab-session-store.ts",
+  "src/common/emulation.ts",
+  "src/common/render-mode-js-state.ts"
 ]);
 
 // Bucket: current migration debt. Phase 12 keeps this empty so any new raw
@@ -122,10 +122,10 @@ const SMOKE_ORCHESTRATION_FILES = new Set();
 
 // Page-local storage flags are tracked separately from chrome.storage migration.
 const PAGE_LOCAL_STORAGE_FILES = new Set([
-  "content-main.ts",
-  "content/core.ts",
-  "popup.ts",
-  "popup/ui.ts"
+  "src/content-main.ts",
+  "src/content/core.ts",
+  "src/popup.ts",
+  "src/popup/ui.ts"
 ]);
 
 test("storage boundary inventory buckets every raw storage access", () => {

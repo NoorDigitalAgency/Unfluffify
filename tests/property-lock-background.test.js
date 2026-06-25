@@ -6,7 +6,7 @@ import {
   FEATURE_DISABLED_REASON,
   FEATURE_FLAGS,
   isFeatureEnabled
-} from "../common/feature-flags.js";
+} from "../src/common/feature-flags.js";
 
 import {
   PROPERTY_LOCK_BACKGROUND_STATE_UPDATE,
@@ -26,7 +26,7 @@ import {
   PROPERTY_LOCK_CONNECTION_CONNECTING,
   PROPERTY_LOCK_STATE_LOCKED,
   PROPERTY_LOCK_STATE_UNLOCKED
-} from "../common/property-lock.js";
+} from "../src/common/property-lock.js";
 
 let backgroundModuleCounter = 0;
 void [
@@ -46,22 +46,22 @@ void [
 void createFakeTimerController;
 
 test("property lock background consumes port disconnect lastError", () => {
-  const source = readFileSync(new URL("../common/property-lock-background.ts", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/common/property-lock-background.ts", import.meta.url), "utf8");
 
   assert.match(source, /function consumeRuntimeLastErrorMessage\(\) \{[\s\S]*?const lastError = browser\.runtime\.lastError;[\s\S]*?\}/);
   assert.match(source, /function onPortDisconnect\(\) \{[\s\S]*?consumeRuntimeLastErrorMessage\(\);[\s\S]*?detachPortFromConnection/);
 });
 
 test("background tab removal immediately delegates property lock runtime disposal", () => {
-  const source = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/background.ts", import.meta.url), "utf8");
 
   assert.match(source, /handlePropertyLockBackgroundTabRemoved,\s*initPropertyLockBackground/);
   assert.match(source, /chrome\.tabs\.onRemoved\.addListener\(\(tabId\) => \{[\s\S]*?handlePropertyLockBackgroundTabRemoved\(tabId\);/);
 });
 
 test("property lock holds the service-worker keepalive for active connections", () => {
-  const source = readFileSync(new URL("../common/property-lock-background.ts", import.meta.url), "utf8");
-  const backgroundSource = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/common/property-lock-background.ts", import.meta.url), "utf8");
+  const backgroundSource = readFileSync(new URL("../src/background.ts", import.meta.url), "utf8");
 
   // The keepalive is injected through init and stored for runtime use.
   assert.match(source, /export function initPropertyLockBackground\(\s*options:\s*\{\s*keepAlive\?: PropertyLockKeepAlive\s*\}\s*=\s*\{\}\s*\)/);
@@ -267,7 +267,7 @@ function createChromeMock(storageItems = {}) {
 // deno-lint-ignore require-await -- preserves existing promise/callback contract.
 async function loadPropertyLockBackgroundModule() {
   backgroundModuleCounter += 1;
-  return import(new URL(`../common/property-lock-background.js?case=${backgroundModuleCounter}`, import.meta.url));
+  return import(new URL(`../src/common/property-lock-background.js?case=${backgroundModuleCounter}`, import.meta.url));
 }
 
 async function flushAsyncWork() {

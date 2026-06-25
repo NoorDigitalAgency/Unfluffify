@@ -8,7 +8,7 @@ import {
   normalizeRenderModeDetectionResult,
   waitForTabLoadComplete,
   waitForTabLoadStart
-} from "../popup/render-mode-inspection.js";
+} from "../src/popup/render-mode-inspection.js";
 
 function createBrowserHarness(initialStatus = "complete") {
   const listeners = new Set();

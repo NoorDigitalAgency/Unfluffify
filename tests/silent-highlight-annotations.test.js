@@ -3,7 +3,7 @@ import { assert } from "./test-kit.ts";
 import { readFileSync } from "./file-kit.ts";
 
 test("silent highlight titles combine matched selectors with xpath and fall back to xpath-only", () => {
-  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
 
   assert.match(
     source,
@@ -12,7 +12,7 @@ test("silent highlight titles combine matched selectors with xpath and fall back
 });
 
 test("silent highlight annotations apply selector plus xpath for excluded and explicit include nodes", () => {
-  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
 
   assert.match(
     source,
@@ -21,7 +21,7 @@ test("silent highlight annotations apply selector plus xpath for excluded and ex
 });
 
 test("silent highlight annotations apply xpath-only metadata to by-default-included content", () => {
-  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
 
   assert.match(
     source,
@@ -34,7 +34,7 @@ test("silent highlight annotations apply xpath-only metadata to by-default-inclu
 });
 
 test("silent highlight render keys and stored collections include xpath metadata maps", () => {
-  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
 
   assert.match(
     source,
@@ -47,7 +47,7 @@ test("silent highlight render keys and stored collections include xpath metadata
 });
 
 test("silent highlight keeps source-node collections so reflowed overlays can be rebuilt from stable inputs", () => {
-  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
 
   assert.match(
     source,
@@ -60,7 +60,7 @@ test("silent highlight keeps source-node collections so reflowed overlays can be
 });
 
 test("silent highlighting keeps immutable sources on a dedicated immutable overlay layer", () => {
-  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
 
   assert.match(source, /const SILENT_HIGHLIGHT_LAYER_KEYS = \["immutable", "content", "excluded"\];/);
   assert.match(source, /#\$\{SILENT_HIGHLIGHT_OVERLAY_ID\} \.uf-silent-immutable \{[\s\S]*?border: 1px dashed rgba\(156, 107, 107, 0\.45\);[\s\S]*?background: transparent;/);
@@ -80,8 +80,8 @@ test("silent highlighting keeps immutable sources on a dedicated immutable overl
 });
 
 test("silent highlighting owns page motion pause for matching pages even without overlay targets", () => {
-  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
-  const stateMachineSource = readFileSync(new URL("../content/property-lock-state-machine.ts", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
+  const stateMachineSource = readFileSync(new URL("../src/content/property-lock-state-machine.ts", import.meta.url), "utf8");
 
   assert.match(source, /const SILENT_HIGHLIGHTING_MOTION_PAUSE_REASON = "silent-highlighting";/);
   assert.match(
@@ -123,7 +123,7 @@ test("silent highlighting owns page motion pause for matching pages even without
 });
 
 test("silent highlight reposition and mutation tracking use source collections instead of only stale render targets", () => {
-  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
 
   assert.match(
     source,
@@ -145,7 +145,7 @@ test("silent highlight reposition and mutation tracking use source collections i
 });
 
 test("silent highlight annotated nodes are marked copyable and clicks copy the full title", () => {
-  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
 
   assert.match(source, /const SILENT_TITLE_COPY_ATTR = "data-uf-silent-title-copy";/);
   assert.match(
@@ -167,7 +167,7 @@ test("silent highlight annotated nodes are marked copyable and clicks copy the f
 });
 
 test("silent highlight overlays never capture page clicks", () => {
-  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
   const stylesBody = source.match(
     /function ensureSilentHighlightingStyles\(\) \{[\s\S]*?style\.textContent = `([\s\S]*?)`;[\s\S]*?\n\}/
   )[1];

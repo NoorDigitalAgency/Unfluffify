@@ -4,8 +4,8 @@ import { assert } from "./test-kit.ts";
 import {
   clearDeviceEmulationState,
   setDeviceEmulationEnabled
-} from "../common/emulation.js";
-import { DEVICE_EMULATION_PREFIX } from "../common/constants.js";
+} from "../src/common/emulation.js";
+import { DEVICE_EMULATION_PREFIX } from "../src/common/constants.js";
 
 function withChrome(value, callback) {
   const originalChrome = globalThis.chrome;

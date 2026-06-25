@@ -124,7 +124,7 @@ function collectSemanticContrastFailures(name, mode, card, tokenValues) {
 }
 
 test("theme semantic colors meet AA contrast in text, notice, and badge surfaces", () => {
-  const themeColorCss = readFileSync(new URL("../theme-color.css", import.meta.url), "utf8");
+  const themeColorCss = readFileSync(new URL("../src/theme-color.css", import.meta.url), "utf8");
   const rootVariables = parseRootVariables(themeColorCss);
   const themes = parseThemeVariables(themeColorCss);
   assert.ok(themes.length > 0, "Expected at least one theme");
@@ -149,7 +149,7 @@ test("theme semantic colors meet AA contrast in text, notice, and badge surfaces
 });
 
 test("fallback semantic colors meet AA contrast in text, notice, and badge surfaces", () => {
-  const themeColorCss = readFileSync(new URL("../theme-color.css", import.meta.url), "utf8");
+  const themeColorCss = readFileSync(new URL("../src/theme-color.css", import.meta.url), "utf8");
   const rootVariables = parseRootVariables(themeColorCss);
   const failures = collectSemanticContrastFailures(
     "fallback",
@@ -162,14 +162,14 @@ test("fallback semantic colors meet AA contrast in text, notice, and badge surfa
 });
 
 test("popup color-mix rules no longer use var(--card) as the second color", () => {
-  const popupCss = readFileSync(new URL("../popup.css", import.meta.url), "utf8");
+  const popupCss = readFileSync(new URL("../src/popup.css", import.meta.url), "utf8");
   const matches = popupCss.match(/color-mix\([^\n]*,\s*var\(--card\)\)/g) || [];
 
   assert.deepEqual(matches, []);
 });
 
 test("popup injects the CSS layers in the requested order", () => {
-  const popupHtml = readFileSync(new URL("../entrypoints/popup/index.html", import.meta.url), "utf8");
+  const popupHtml = readFileSync(new URL("../src/entrypoints/popup/index.html", import.meta.url), "utf8");
   const stylesheetHrefs = [...popupHtml.matchAll(/<link rel="stylesheet" href="([^"]+)"/g)].map((match) => match[1]);
 
   assert.deepEqual(stylesheetHrefs, [
@@ -183,9 +183,9 @@ test("popup injects the CSS layers in the requested order", () => {
 });
 
 test("theme layers define shared tokens, components, and utilities", () => {
-  const themeColorCss = readFileSync(new URL("../theme-color.css", import.meta.url), "utf8");
-  const themeComponentsCss = readFileSync(new URL("../theme-components.css", import.meta.url), "utf8");
-  const themeUtilitiesCss = readFileSync(new URL("../theme-utilities.css", import.meta.url), "utf8");
+  const themeColorCss = readFileSync(new URL("../src/theme-color.css", import.meta.url), "utf8");
+  const themeComponentsCss = readFileSync(new URL("../src/theme-components.css", import.meta.url), "utf8");
+  const themeUtilitiesCss = readFileSync(new URL("../src/theme-utilities.css", import.meta.url), "utf8");
 
   assert.match(themeColorCss, /--font-sans:/);
   assert.match(themeColorCss, /--font-mono:/);

@@ -8,7 +8,7 @@ import {
   shouldRetainIncludedSource,
   shouldRenderSilentHighlightOverlay,
   sampleSettledSilentHighlightPosition
-} from "../content/silent-highlight-rules.js";
+} from "../src/content/silent-highlight-rules.js";
 
 function runSamples(samples, sampleMs = 120) {
   let state = {

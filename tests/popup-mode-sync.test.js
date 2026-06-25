@@ -2,9 +2,9 @@ import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 import { readFileSync } from "./file-kit.ts";
 
-const popupSource = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
-const contentSource = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
-const inspectionStatusSource = readFileSync(new URL("../content/inspection-status.ts", import.meta.url), "utf8");
+const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
+const contentSource = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
+const inspectionStatusSource = readFileSync(new URL("../src/content/inspection-status.ts", import.meta.url), "utf8");
 
 function extractSourceBlock(source, startNeedle, endNeedle) {
   const start = source.indexOf(startNeedle);

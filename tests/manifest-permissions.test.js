@@ -56,8 +56,8 @@ test("manifest web-accessible resources avoid broad common/content wildcards", a
 test("every getURL-injected page resource is web-accessible (no under-scoping)", async () => {
   const manifest = await readManifestUnderTest();
   const resources = manifest.web_accessible_resources.flatMap((entry) => entry.resources || []);
-  const contentMain = await readFile(new URL("../content-main.ts", import.meta.url));
-  const core = await readFile(new URL("../content/core.ts", import.meta.url));
+  const contentMain = await readFile(new URL("../src/content-main.ts", import.meta.url));
+  const core = await readFile(new URL("../src/content/core.ts", import.meta.url));
 
   // Any literal getURL("...") string loaded into the page world (e.g. cursor
   // image url) MUST be web-accessible or the browser blocks the load. Guards
@@ -94,7 +94,7 @@ test("every getURL-injected page resource is web-accessible (no under-scoping)",
 test("content and common code modules are not left web-accessible after native content bundling", async () => {
   const manifest = await readManifestUnderTest();
   const resources = manifest.web_accessible_resources.flatMap((entry) => entry.resources || []);
-  const contentMain = await readFile(new URL("../content-main.ts", import.meta.url));
+  const contentMain = await readFile(new URL("../src/content-main.ts", import.meta.url));
   const importedContentModules = new Set();
   const importedCommonModules = new Set();
 

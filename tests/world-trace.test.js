@@ -1,7 +1,7 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 
-import { createWorldTrace } from "../background/world-trace.js";
+import { createWorldTrace } from "../src/background/world-trace.js";
 
 test("world trace keeps state scoped per tab", () => {
   const traceStateByTabId = new Map();

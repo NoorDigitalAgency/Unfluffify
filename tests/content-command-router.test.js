@@ -5,7 +5,7 @@ import {
   __resetContentCommandRegistryForTests,
   dispatchContentCommand,
   registerContentCommand
-} from "../content/content-command-router.js";
+} from "../src/content/content-command-router.js";
 
 function createEnvelope(overrides = {}) {
   return {

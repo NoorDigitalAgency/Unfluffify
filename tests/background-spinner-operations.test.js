@@ -1,7 +1,7 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 
-import { createSpinnerOperations } from "../background/spinner-operations.js";
+import { createSpinnerOperations } from "../src/background/spinner-operations.js";
 
 function createHarness() {
   const queueByTabId = new Map();

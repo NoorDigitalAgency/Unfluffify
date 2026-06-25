@@ -1,7 +1,7 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 
-import { createManagedTimeoutGroup } from "../background/managed-timeouts.js";
+import { createManagedTimeoutGroup } from "../src/background/managed-timeouts.js";
 
 function waitFor(ms) {
   return new Promise((resolve) => {

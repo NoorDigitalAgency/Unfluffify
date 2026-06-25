@@ -2,7 +2,7 @@ import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 import { readFileSync } from "./file-kit.ts";
 
-const remoteNetworkSource = readFileSync(new URL("../background/remote-network.ts", import.meta.url), "utf8");
+const remoteNetworkSource = readFileSync(new URL("../src/background/remote-network.ts", import.meta.url), "utf8");
 
 test("remote-network module exports remote transport handlers", () => {
   assert.match(remoteNetworkSource, /export async function requestAiRunStatus\(options = \{\}\) \{/);

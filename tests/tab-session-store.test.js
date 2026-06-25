@@ -12,7 +12,7 @@ import {
   queueTabSessionWrite,
   setScriptInjected,
   setTabState
-} from "../background/tab-session-store.js";
+} from "../src/background/tab-session-store.js";
 
 function withChrome(value, callback) {
   const originalChrome = globalThis.chrome;

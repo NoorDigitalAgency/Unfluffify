@@ -2,7 +2,7 @@ import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 import { readFileSync } from "./file-kit.ts";
 
-const source = readFileSync(new URL("../content/property-lock-state-machine.ts", import.meta.url), "utf8");
+const source = readFileSync(new URL("../src/content/property-lock-state-machine.ts", import.meta.url), "utf8");
 
 test("property-lock state machine exports a dependency-injected factory", () => {
   assert.match(source, /export function createPropertyLockStateMachine\(deps(?:\s*:\s*[^)]+)?\) \{/);

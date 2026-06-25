@@ -82,25 +82,25 @@ function describeFinding(finding) {
 }
 
 const BROWSER_SEAM_FILES = new Set([
-  "common/browser.ts"
+  "src/common/browser.ts"
 ]);
 
 const CURRENT_MIGRATION_DEBT_FILES = new Set([
-  "background.ts",
-  "background/ai-run-record-store.ts",
-  "background/brain/index.ts",
-  "background/popup-state-broker.ts",
-  "background/render-mode-inspector.ts",
-  "background/tab-inactivity-observer.ts",
-  "background/tab-session-store.ts",
-  "background/transfer-payload-store.ts",
-  "common/emulation.ts",
-  "common/page-motion-freeze-bridge.ts",
-  "common/render-mode-js-state.ts",
-  "common/settings-store.ts",
-  "common/storage-core.ts",
-  "common/utilities.ts",
-  "content/core.ts"
+  "src/background.ts",
+  "src/background/ai-run-record-store.ts",
+  "src/background/brain/index.ts",
+  "src/background/popup-state-broker.ts",
+  "src/background/render-mode-inspector.ts",
+  "src/background/tab-inactivity-observer.ts",
+  "src/background/tab-session-store.ts",
+  "src/background/transfer-payload-store.ts",
+  "src/common/emulation.ts",
+  "src/common/page-motion-freeze-bridge.ts",
+  "src/common/render-mode-js-state.ts",
+  "src/common/settings-store.ts",
+  "src/common/storage-core.ts",
+  "src/common/utilities.ts",
+  "src/content/core.ts"
 ]);
 
 test("browser polyfill boundary buckets every remaining raw chrome usage", () => {

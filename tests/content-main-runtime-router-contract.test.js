@@ -2,8 +2,8 @@ import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 import { existsSync, readFileSync } from "./file-kit.ts";
 
-const contentMainPath = new URL("../content-main.ts", import.meta.url);
-const runtimeMessageHandlerPath = new URL("../content/runtime-message-handler.ts", import.meta.url);
+const contentMainPath = new URL("../src/content-main.ts", import.meta.url);
+const runtimeMessageHandlerPath = new URL("../src/content/runtime-message-handler.ts", import.meta.url);
 
 const contentMainSource = readFileSync(contentMainPath, "utf8");
 const runtimeMessageHandlerSource = existsSync(runtimeMessageHandlerPath)

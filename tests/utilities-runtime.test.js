@@ -5,7 +5,7 @@ import {
   isExtensionContextInvalidatedError,
   sendRuntimeMessage,
   storageGet
-} from "../common/utilities.js";
+} from "../src/common/utilities.js";
 
 function withChrome(value, callback) {
   const originalChrome = globalThis.chrome;

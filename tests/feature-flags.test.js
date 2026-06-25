@@ -10,19 +10,19 @@ import {
   getFeatureFlags,
   isDebugFlagEnabled,
   isFeatureEnabled
-} from "../common/feature-flags.js";
-import { isPopupFeatureEnabled } from "../popup/ui.js";
+} from "../src/common/feature-flags.js";
+import { isPopupFeatureEnabled } from "../src/popup/ui.js";
 
-const popupSource = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
-const popupUiSource = readFileSync(new URL("../popup/ui.ts", import.meta.url), "utf8");
-const backgroundSource = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
-const worldTraceSource = readFileSync(new URL("../background/world-trace.ts", import.meta.url), "utf8");
-const contentMainSource = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
+const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
+const popupUiSource = readFileSync(new URL("../src/popup/ui.ts", import.meta.url), "utf8");
+const backgroundSource = readFileSync(new URL("../src/background.ts", import.meta.url), "utf8");
+const worldTraceSource = readFileSync(new URL("../src/background/world-trace.ts", import.meta.url), "utf8");
+const contentMainSource = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
 const runtimeMessageHandlerSource = readFileSync(
-  new URL("../content/runtime-message-handler.ts", import.meta.url),
+  new URL("../src/content/runtime-message-handler.ts", import.meta.url),
   "utf8"
 );
-const emulationSource = readFileSync(new URL("../common/emulation.ts", import.meta.url), "utf8");
+const emulationSource = readFileSync(new URL("../src/common/emulation.ts", import.meta.url), "utf8");
 
 const EXPECTED_FLAGS = [
   "desktopPreview",

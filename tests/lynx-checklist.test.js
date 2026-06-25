@@ -7,7 +7,7 @@ import {
   buildLynxChecklistViewModel,
   createInitialLynxChecklistState,
   normalizePropertyPageTypes
-} from "../common/lynx-checklist.js";
+} from "../src/common/lynx-checklist.js";
 
 const propertyPageTypes = [
   {

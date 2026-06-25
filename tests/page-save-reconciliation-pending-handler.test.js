@@ -1,7 +1,7 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 
-import { createPageSaveReconciliationPendingHandler } from "../content/page-save-reconciliation-pending-handler.js";
+import { createPageSaveReconciliationPendingHandler } from "../src/content/page-save-reconciliation-pending-handler.js";
 
 function createDeps() {
   const calls = [];

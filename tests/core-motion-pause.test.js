@@ -9,7 +9,7 @@ import {
   revealPageContentBeforeMotionPause,
   resumePageMotion,
   state
-} from "../content/core.js";
+} from "../src/content/core.js";
 
 const PAGE_MOTION_PAUSE_ROOT_CLASS = "uf-page-motion-paused";
 const PAGE_MOTION_PAUSE_STYLE_ID = "unfluffify-page-motion-pause-style";
@@ -674,7 +674,7 @@ test("page inspection reveal scrolls to top, bottom, and then the reserved point
 });
 
 test("page inspection reveal restores reserved scroll without an extra bottom dwell", () => {
-  const source = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
   const start = source.indexOf("export async function revealPageContentBeforeMotionPause(");
   const end = source.indexOf("function blockPageInspectionInput", start);
   assert.ok(start >= 0 && end > start, "Expected to locate reveal function body");
@@ -692,7 +692,7 @@ test("page inspection reveal restores reserved scroll without an extra bottom dw
 });
 
 test("page inspection bottom scroll settles when the page is at bottom", () => {
-  const source = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
 
   assert.match(
     source,
@@ -709,7 +709,7 @@ test("page inspection bottom scroll settles when the page is at bottom", () => {
 });
 
 test("page inspection scroll finishes after dwelling at the reveal goal", () => {
-  const source = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
 
   assert.match(source, /let goalReachedAt = 0;/);
   assert.match(
@@ -728,7 +728,7 @@ test("page inspection scroll finishes after dwelling at the reveal goal", () => 
 });
 
 test("page inspection reveal hides consent before styling or scrolling", () => {
-  const source = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
   const start = source.indexOf("export async function revealPageContentBeforeMotionPause(");
   const end = source.indexOf("function blockPageInspectionInput", start);
   assert.ok(start >= 0 && end > start, "Expected to locate reveal function body");
@@ -1016,7 +1016,7 @@ test("page inspection reveal restores page-world lazy-load suppression in finall
 });
 
 test("page inspection reveal waits for the page-world lazy-load lock before scrolling again", () => {
-  const source = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
   const start = source.indexOf("export async function revealPageContentBeforeMotionPause(");
   const end = source.indexOf("function blockPageInspectionInput", start);
   assert.ok(start >= 0 && end > start, "Expected to locate reveal function body");
@@ -1124,7 +1124,7 @@ test("page inspection reveal stops scrolling once the page-world lazy-load lock 
 });
 
 test("page inspection overlay avoids backdrop blur", () => {
-  const source = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
   const start = source.indexOf(`#unfluffify-overlay.\${PAGE_INSPECTION_OVERLAY_CLASS}`);
   const end = source.indexOf(`#unfluffify-overlay .uf-layer`);
   assert.ok(start >= 0 && end > start, "Expected to locate page inspection overlay CSS in core.js source");
@@ -1362,7 +1362,7 @@ test("page motion locks are restored in sanitized snapshots", () => {
 });
 
 test("page motion pause no longer depends on specific carousel class selectors", () => {
-  const source = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
 
   assert.doesNotMatch(source, /PAGE_MOTION_PAUSE_TARGET_SELECTORS/);
   assert.doesNotMatch(source, /\.w-slider|\.swiper|\.slick-slider|\.splide/);
@@ -1370,7 +1370,7 @@ test("page motion pause no longer depends on specific carousel class selectors",
 });
 
 test("page motion pause stylesheet excludes extension-owned UI", () => {
-  const source = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
 
   assert.match(source, /PAGE_MOTION_PAUSE_INDICATOR_CLASS = "uf-page-motion-pause-indicator"/);
   assert.match(source, /PAGE_MOTION_ICON_FONT_FAMILY = "Unfluffify Material Design Icons"/);
@@ -1386,7 +1386,7 @@ test("page motion pause stylesheet excludes extension-owned UI", () => {
 });
 
 test("marking enable inspects and blocks input before freezing and rendering overlays", () => {
-  const source = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
   const enableIndex = source.indexOf("export async function enableForBaseUrl(baseUrl, options = {})");
 
   assert.ok(enableIndex > -1);
@@ -1425,7 +1425,7 @@ test("marking enable inspects and blocks input before freezing and rendering ove
 });
 
 test("silent warmup temporarily releases timer pausing during reveal and restores pause state", () => {
-  const source = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
   const warmupStart = source.indexOf("export async function warmupSilentHighlightingBeforeMotionPause(");
   const warmupEnd = source.indexOf("export function finishPageInspectionUi()", warmupStart);
 

@@ -1,16 +1,16 @@
 import { describe, expect, it } from "vitest";
 
-import { createStateStore } from "../background/brain/state-store.js";
-import { projectViews } from "../background/brain/view-projector.js";
+import { createStateStore } from "../src/background/brain/state-store.js";
+import { projectViews } from "../src/background/brain/view-projector.js";
 import {
   getRenderModeSnapshot,
   recordInspectionResult,
   recordNoJsHoldState,
-} from "../background/brain/deciders/render-mode-decider.js";
+} from "../src/background/brain/deciders/render-mode-decider.js";
 import {
   RENDER_MODE_EVENT_TYPES as CONTRACT_RENDER_MODE_EVENT_TYPES,
   RENDER_MODE_REQUEST_TYPES as CONTRACT_RENDER_MODE_REQUEST_TYPES,
-} from "../common/bus/contracts/render-mode.js";
+} from "../src/common/bus/contracts/render-mode.js";
 
 describe("render-mode contracts and projection scaffolding", () => {
   it("exposes the typed track-4 render-mode request and event names", () => {

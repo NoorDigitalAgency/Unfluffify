@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { BUS_ERROR_CODES, BusError } from "../common/bus/bus-errors.js";
-import { createBus } from "../common/bus/bus.js";
-import { makeReplyEnvelope } from "../common/bus/envelope.js";
-import { REALMS } from "../common/bus/realms.js";
-import type { BusEnvelope } from "../common/bus/envelope.js";
-import type { InboundTransportHandler, Transport } from "../common/bus/transport/transport-types.js";
+import { BUS_ERROR_CODES, BusError } from "../src/common/bus/bus-errors.js";
+import { createBus } from "../src/common/bus/bus.js";
+import { makeReplyEnvelope } from "../src/common/bus/envelope.js";
+import { REALMS } from "../src/common/bus/realms.js";
+import type { BusEnvelope } from "../src/common/bus/envelope.js";
+import type { InboundTransportHandler, Transport } from "../src/common/bus/transport/transport-types.js";
 
 function createFakeTransport(options: { send?: (env: BusEnvelope) => Promise<BusEnvelope | void> } = {}): Transport {
   let inboundHandler: InboundTransportHandler | null = null;

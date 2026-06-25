@@ -4,14 +4,14 @@ import {
   getActivationSnapshot,
   mirrorActivationLifecycle,
   updateActivationBootstrapState,
-} from "../background/brain/deciders/activation-decider.js";
-import { projectViews } from "../background/brain/view-projector.js";
-import { createStateStore } from "../background/brain/state-store.js";
+} from "../src/background/brain/deciders/activation-decider.js";
+import { projectViews } from "../src/background/brain/view-projector.js";
+import { createStateStore } from "../src/background/brain/state-store.js";
 import {
   ACTIVATION_EVENT_TYPES,
   ACTIVATION_REQUEST_TYPES,
-} from "../common/bus/contracts/activation.js";
-import { LIFECYCLE_KINDS, LIFECYCLE_PHASES } from "../common/world-messaging-contract.js";
+} from "../src/common/bus/contracts/activation.js";
+import { LIFECYCLE_KINDS, LIFECYCLE_PHASES } from "../src/common/world-messaging-contract.js";
 
 describe("activation contracts and projection scaffolding", () => {
   it("exposes the typed track-3 activation request and event names", () => {

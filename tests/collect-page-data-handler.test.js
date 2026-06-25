@@ -1,7 +1,7 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 
-import { createCollectPageDataHandler } from "../content/collect-page-data-handler.js";
+import { createCollectPageDataHandler } from "../src/content/collect-page-data-handler.js";
 
 test("collect-page-data handler builds payload from config entry and snapshot", async () => {
   const handler = createCollectPageDataHandler({

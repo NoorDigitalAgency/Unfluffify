@@ -9,7 +9,7 @@ import {
   SPINNER_TIMER_MODES,
   createSpinnerOperationLease,
   resolveSpinnerPhaseDefinition
-} from "../common/spinner-contract.js";
+} from "../src/common/spinner-contract.js";
 
 test("spinner phase registry defines clear copy and timing for every phase", () => {
   const definitions = Object.values(SPINNER_PHASE_REGISTRY);

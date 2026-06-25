@@ -2,20 +2,20 @@ import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 import { readFileSync } from "./file-kit.ts";
 
-import { runPageMotionFreezeControl } from "../common/page-motion-freeze-control.js";
+import { runPageMotionFreezeControl } from "../src/common/page-motion-freeze-control.js";
 
 const STATE_KEY = "__unfluffifyPageMotionFreezeState";
 
 const bridgeSource = readFileSync(
-  new URL("../common/page-motion-freeze-bridge.ts", import.meta.url),
+  new URL("../src/common/page-motion-freeze-bridge.ts", import.meta.url),
   "utf8"
 );
 const bridgeEntrypointSource = readFileSync(
-  new URL("../entrypoints/page-motion-freeze-bridge.content.ts", import.meta.url),
+  new URL("../src/entrypoints/page-motion-freeze-bridge.content.ts", import.meta.url),
   "utf8"
 );
 const controlSource = readFileSync(
-  new URL("../common/page-motion-freeze-control.ts", import.meta.url),
+  new URL("../src/common/page-motion-freeze-control.ts", import.meta.url),
   "utf8"
 );
 

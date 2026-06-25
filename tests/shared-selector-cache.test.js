@@ -5,10 +5,10 @@ import { readFileSync } from "./file-kit.ts";
 import {
   collectCachedSelectorMatches,
   invalidateSharedSelectorCache
-} from "../content/shared-selector-cache.js";
+} from "../src/content/shared-selector-cache.js";
 
 test("shared selector cache documents filtered-result cache key requirements", () => {
-  const source = readFileSync(new URL("../content/shared-selector-cache.ts", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/content/shared-selector-cache.ts", import.meta.url), "utf8");
   const commentStart = source.indexOf("* Collects selector matches through the shared cache.");
   const functionStart = source.indexOf("export function collectCachedSelectorMatches", commentStart);
   const contract = source.slice(commentStart, functionStart);

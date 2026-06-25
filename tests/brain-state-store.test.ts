@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createStateStore } from "../background/brain/state-store.js";
+import { createStateStore } from "../src/background/brain/state-store.js";
 
 describe("brain state store", () => {
   it("mutates state and bumps the version", () => {

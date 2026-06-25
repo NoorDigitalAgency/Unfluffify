@@ -1,7 +1,7 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 
-import { createTabInactivityObserver } from "../background/tab-inactivity-observer.js";
+import { createTabInactivityObserver } from "../src/background/tab-inactivity-observer.js";
 
 test("tab inactivity observer schedules scoped alarms and emits inactive events", async () => {
   const createdAlarms = [];

@@ -1,7 +1,7 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 
-import { createCapturePageSnapshotHandler } from "../content/capture-page-snapshot-handler.js";
+import { createCapturePageSnapshotHandler } from "../src/content/capture-page-snapshot-handler.js";
 
 function createDeps(overrides = {}) {
   const calls = [];

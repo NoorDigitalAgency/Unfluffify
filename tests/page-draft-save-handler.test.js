@@ -1,7 +1,7 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 
-import { createPageDraftSaveHandler } from "../content/page-draft-save-handler.js";
+import { createPageDraftSaveHandler } from "../src/content/page-draft-save-handler.js";
 
 const pageUrl = "https://example.com/base/page";
 const baseUrl = "https://example.com/base";

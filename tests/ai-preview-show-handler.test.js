@@ -1,7 +1,7 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 
-import { createAiPreviewShowHandler } from "../content/ai-preview-show-handler.js";
+import { createAiPreviewShowHandler } from "../src/content/ai-preview-show-handler.js";
 
 function createDeps(overrides = {}) {
   const calls = [];

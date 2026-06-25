@@ -1,7 +1,7 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 
-import { createAiSubmissionXpathsHandler } from "../content/ai-submission-xpaths-handler.js";
+import { createAiSubmissionXpathsHandler } from "../src/content/ai-submission-xpaths-handler.js";
 
 test("ai submission xpaths handler returns collected xpaths", () => {
   const xpaths = ["//form", "//button[@type='submit']"];

@@ -2,7 +2,7 @@ import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 import { readFileSync } from "./file-kit.ts";
 
-const backgroundSource = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
+const backgroundSource = readFileSync(new URL("../src/background.ts", import.meta.url), "utf8");
 
 function assertImportsBackgroundModule(moduleName) {
   const escapedModuleName = moduleName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

@@ -1,7 +1,7 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 
-import { createDefaultExclusionsHandler } from "../content/default-exclusions-handler.js";
+import { createDefaultExclusionsHandler } from "../src/content/default-exclusions-handler.js";
 
 test("default exclusions handler returns immutable selectors from deps", () => {
   const selectors = [".alpha", ".beta"];

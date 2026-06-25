@@ -1,7 +1,7 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 
-import { createFocusHandler } from "../content/focus-handler.js";
+import { createFocusHandler } from "../src/content/focus-handler.js";
 
 function createDeps(overrides = {}) {
   const calls = {

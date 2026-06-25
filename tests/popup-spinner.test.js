@@ -9,7 +9,7 @@ import {
   pushSpinner,
   runWithSpinner,
   setSpinnerMessage
-} from "../popup/spinner.js";
+} from "../src/popup/spinner.js";
 
 function waitFor(ms) {
   return new Promise((resolve) => {

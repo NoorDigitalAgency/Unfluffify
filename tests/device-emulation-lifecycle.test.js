@@ -2,12 +2,12 @@ import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 import { readFileSync } from "./file-kit.ts";
 
-const backgroundSource = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
-const emulationSource = readFileSync(new URL("../common/emulation.ts", import.meta.url), "utf8");
-const utilitiesSource = readFileSync(new URL("../common/utilities.ts", import.meta.url), "utf8");
-const popupChromeHelpersSource = readFileSync(new URL("../popup/chrome-helpers.ts", import.meta.url), "utf8");
-const popupMessagesSource = readFileSync(new URL("../popup/messages.ts", import.meta.url), "utf8");
-const popupSource = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
+const backgroundSource = readFileSync(new URL("../src/background.ts", import.meta.url), "utf8");
+const emulationSource = readFileSync(new URL("../src/common/emulation.ts", import.meta.url), "utf8");
+const utilitiesSource = readFileSync(new URL("../src/common/utilities.ts", import.meta.url), "utf8");
+const popupChromeHelpersSource = readFileSync(new URL("../src/popup/chrome-helpers.ts", import.meta.url), "utf8");
+const popupMessagesSource = readFileSync(new URL("../src/popup/messages.ts", import.meta.url), "utf8");
+const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
 
 function extractSourceBlock(source, startNeedle, endNeedle) {
   const start = source.indexOf(startNeedle);
@@ -132,7 +132,7 @@ test("marking enable delegates mobile simulation prep to TAB_ACTIVATE_MARKING an
     "async function handleDeviceEmulationEnabledToggle"
   );
   const uiBlock = extractSourceBlock(
-    readFileSync(new URL("../popup/ui.ts", import.meta.url), "utf8"),
+    readFileSync(new URL("../src/popup/ui.ts", import.meta.url), "utf8"),
     "function renderMarkingView({state: view, actions: handlers}) {",
     "function renderConfigurationView"
   );
@@ -171,7 +171,7 @@ test("desktop preview persists on initial tab state and clears itself on debugge
 });
 
 test("desktop preview section is rendered outside renderMarkingView so it is view-independent", () => {
-  const uiSource = readFileSync(new URL("../popup/ui.ts", import.meta.url), "utf8");
+  const uiSource = readFileSync(new URL("../src/popup/ui.ts", import.meta.url), "utf8");
 
   // The section must be rendered at the top-level render call site, NOT inside
   // renderMarkingView, so it appears regardless of the current popup view.
@@ -191,7 +191,7 @@ test("desktop preview section is rendered outside renderMarkingView so it is vie
 });
 
 test("desktop preview section has a section-divider and uses the correct icon and row structure", () => {
-  const uiSource = readFileSync(new URL("../popup/ui.ts", import.meta.url), "utf8");
+  const uiSource = readFileSync(new URL("../src/popup/ui.ts", import.meta.url), "utf8");
   const sectionStart = uiSource.indexOf("key: \"desktop-preview-section\"");
   assert.ok(sectionStart > -1);
   const sectionEnd = uiSource.indexOf(": null,", sectionStart);
@@ -206,7 +206,7 @@ test("desktop preview section has a section-divider and uses the correct icon an
 });
 
 test("desktop preview visibility is gated by silent mode", () => {
-  const source = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
 
   assert.match(
     source,
@@ -215,7 +215,7 @@ test("desktop preview visibility is gated by silent mode", () => {
 });
 
 test("content main registers central page activity listeners for inactivity subscribers", () => {
-  const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
   const mainStart = source.indexOf("export function main()");
   const mainEnd = source.lastIndexOf("}");
   const mainBody = source.slice(mainStart, mainEnd);

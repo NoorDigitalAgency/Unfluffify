@@ -3,10 +3,10 @@ import { assert } from "./test-kit.ts";
 import { readFileSync } from "./file-kit.ts";
 import wxtConfig from "../wxt.config";
 
-const backgroundSource = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
-const renderModeInspectorSource = readFileSync(new URL("../background/render-mode-inspector.ts", import.meta.url), "utf8");
-const popupSource = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
-const popupMessagesSource = readFileSync(new URL("../popup/messages.ts", import.meta.url), "utf8");
+const backgroundSource = readFileSync(new URL("../src/background.ts", import.meta.url), "utf8");
+const renderModeInspectorSource = readFileSync(new URL("../src/background/render-mode-inspector.ts", import.meta.url), "utf8");
+const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
+const popupMessagesSource = readFileSync(new URL("../src/popup/messages.ts", import.meta.url), "utf8");
 const manifestPermissions = wxtConfig.manifest?.permissions || [];
 
 test("background keeps only the granular render-mode helper commands tab-scoped", () => {

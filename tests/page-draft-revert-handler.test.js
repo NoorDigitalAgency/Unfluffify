@@ -1,7 +1,7 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 
-import { createPageDraftRevertHandler } from "../content/page-draft-revert-handler.js";
+import { createPageDraftRevertHandler } from "../src/content/page-draft-revert-handler.js";
 
 function createDeps(overrides = {}) {
   const calls = [];

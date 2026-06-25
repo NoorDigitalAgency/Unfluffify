@@ -3,9 +3,9 @@ import { assert } from "./test-kit.ts";
 import { readFileSync } from "./file-kit.ts";
 import wxtConfig from "../wxt.config";
 
-const contentMainSource = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
+const contentMainSource = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
 const runtimeMessageHandlerSource = readFileSync(
-  new URL("../content/runtime-message-handler.ts", import.meta.url),
+  new URL("../src/content/runtime-message-handler.ts", import.meta.url),
   "utf8"
 );
 const manifestResources = new Set(
@@ -207,7 +207,7 @@ function assertBranchHasCatchFallback(messageType, branch, required) {
 test("revertPageDraft load failures answer ok false", () => {
   const branch = getMessageBranch("revertPageDraft");
   const handlerSource = readFileSync(
-    new URL("../content/page-draft-revert-handler.ts", import.meta.url),
+    new URL("../src/content/page-draft-revert-handler.ts", import.meta.url),
     "utf8"
   );
 

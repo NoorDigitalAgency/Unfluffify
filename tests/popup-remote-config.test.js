@@ -1,13 +1,13 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 
-import { PopupText } from "../common/text.js";
-import { state } from "../popup/state.js";
+import { PopupText } from "../src/common/text.js";
+import { state } from "../src/popup/state.js";
 import {
   loadRemoteConfigForCurrentPage,
   scheduleRemoteConfigRetry,
   syncBaseConfigToServer
-} from "../popup/remote-config.js";
+} from "../src/popup/remote-config.js";
 
 function resetRemoteConfigState() {
   state.remoteConfigLoadKey = "";

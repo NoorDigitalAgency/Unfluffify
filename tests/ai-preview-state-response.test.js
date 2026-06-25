@@ -1,7 +1,7 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 
-import { createAiPreviewStateResponseBuilder } from "../content/ai-preview-state-response.js";
+import { createAiPreviewStateResponseBuilder } from "../src/content/ai-preview-state-response.js";
 
 function createState(overrides = {}) {
   return {

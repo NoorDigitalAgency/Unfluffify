@@ -1,7 +1,7 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 
-import { handleRuntimeMessage } from "../content/runtime-message-handler.js";
+import { handleRuntimeMessage } from "../src/content/runtime-message-handler.js";
 
 function createDeps(overrides = {}) {
   const deps = {

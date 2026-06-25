@@ -7,11 +7,11 @@ import {
   shouldAllowParentMarkingBoundary,
   shouldCollectToggleableDefaultBoundary,
   shouldSelfMarkToggleableDefaultBoundary
-} from "../content/marking-rules.js";
+} from "../src/content/marking-rules.js";
 import {
   DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS,
   DEFAULT_EXCLUDED_TOGGLEABLE_SELECTORS
-} from "../common/constants.js";
+} from "../src/common/constants.js";
 
 test("toggleable boundary self-markability restores 052c direct-text and descendant rules", () => {
   assert.equal(

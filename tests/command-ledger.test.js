@@ -6,7 +6,7 @@ import {
   LEDGER_MAX_OBJECT_KEYS,
   LEDGER_MAX_STRING_LENGTH,
   redactCommandPayloadForLedger
-} from "../background/command-ledger.js";
+} from "../src/background/command-ledger.js";
 
 test("command ledger redacts sensitive payload fields and summaries heavy bodies", () => {
   const jwtLike = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjMifQ.signature";

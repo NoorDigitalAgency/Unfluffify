@@ -11,18 +11,18 @@ const FIXTURE_PATH = join(
   "ts-suppression-budget.json",
 );
 const RUNTIME_SCAN_TARGETS = [
-  "background",
-  "common",
-  "content",
-  "popup",
-  "background.ts",
-  "entrypoints/content-loader.content.ts",
-  "content-main.ts",
-  "popup.ts",
+  "src/background",
+  "src/common",
+  "src/content",
+  "src/popup",
+  "src/background.ts",
+  "src/entrypoints/content-loader.content.ts",
+  "src/content-main.ts",
+  "src/popup.ts",
 ];
 const DEFAULT_EXEMPT = [
-  "common/page-motion-freeze-bridge.ts",
-  "common/page-motion-freeze-control.ts",
+  "src/common/page-motion-freeze-bridge.ts",
+  "src/common/page-motion-freeze-control.ts",
 ];
 
 async function collectTsIgnoreCounts() {
@@ -91,11 +91,31 @@ async function readExistingFixture() {
   }
 }
 
+function resolveExemptPaths(existingExempt, perFile) {
+  if (!Array.isArray(existingExempt)) {
+    return DEFAULT_EXEMPT;
+  }
+  const availablePaths = new Set(Object.keys(perFile));
+  return existingExempt.map((filePath) => {
+    if (typeof filePath !== "string") {
+      return filePath;
+    }
+    if (availablePaths.has(filePath)) {
+      return filePath;
+    }
+    const prefixedPath = `src/${filePath}`;
+    if (availablePaths.has(prefixedPath)) {
+      return prefixedPath;
+    }
+    return filePath;
+  });
+}
+
 async function reseedFixture(perFile) {
   const existing = await readExistingFixture();
   const fixture = {
     budgets: perFile,
-    exempt: existing?.exempt ?? DEFAULT_EXEMPT,
+    exempt: resolveExemptPaths(existing?.exempt, perFile),
   };
   const output = `${JSON.stringify(fixture, null, 2)}\n`;
   await writeFile(FIXTURE_PATH, output, "utf8");

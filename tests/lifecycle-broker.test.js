@@ -2,12 +2,12 @@ import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 import { readFileSync } from "./file-kit.ts";
 
-const backgroundSource = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
-const popupStateBrokerSource = readFileSync(new URL("../background/popup-state-broker.ts", import.meta.url), "utf8");
-const popupSource = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
-const contentSource = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
-const renderModeHandlersSource = readFileSync(new URL("../content/render-mode-inspection-handlers.ts", import.meta.url), "utf8");
-const contractSource = readFileSync(new URL("../common/world-messaging-contract.ts", import.meta.url), "utf8");
+const backgroundSource = readFileSync(new URL("../src/background.ts", import.meta.url), "utf8");
+const popupStateBrokerSource = readFileSync(new URL("../src/background/popup-state-broker.ts", import.meta.url), "utf8");
+const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
+const contentSource = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
+const renderModeHandlersSource = readFileSync(new URL("../src/content/render-mode-inspection-handlers.ts", import.meta.url), "utf8");
+const contractSource = readFileSync(new URL("../src/common/world-messaging-contract.ts", import.meta.url), "utf8");
 
 function extractSourceBlock(source, startNeedle, endNeedle) {
   const start = source.indexOf(startNeedle);

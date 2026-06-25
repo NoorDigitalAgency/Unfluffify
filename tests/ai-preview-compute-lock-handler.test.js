@@ -1,7 +1,7 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 
-import { createAiPreviewComputeLockHandler } from "../content/ai-preview-compute-lock-handler.js";
+import { createAiPreviewComputeLockHandler } from "../src/content/ai-preview-compute-lock-handler.js";
 
 function createDeps(overrides = {}) {
   const calls = {

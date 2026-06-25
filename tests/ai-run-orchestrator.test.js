@@ -1,7 +1,7 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 
-import { createAiRunOrchestrator } from "../background/ai-run-orchestrator.js";
+import { createAiRunOrchestrator } from "../src/background/ai-run-orchestrator.js";
 
 test("ai-run orchestrator computes selectors through lock, prepare, start, poll, and result", async () => {
   const aiComputeLockExpiresAtByTabId = new Map();

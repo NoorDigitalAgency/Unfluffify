@@ -1,7 +1,7 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 
-import { createConfigUpdatedHandler } from "../content/config-updated-handler.js";
+import { createConfigUpdatedHandler } from "../src/content/config-updated-handler.js";
 
 function createDeps(overrides = {}) {
   const calls = [];

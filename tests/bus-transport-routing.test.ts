@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 
-import { BUS_ERROR_CODES } from "../common/bus/bus-errors.js";
-import { BUS_KINDS, makeEventEnvelope, makeRequestEnvelope } from "../common/bus/envelope.js";
-import { PAGE_WORLD_COMMANDS } from "../common/page-world-protocol.js";
-import { REALMS } from "../common/bus/realms.js";
-import { createPageRelayTransport } from "../common/bus/transport/page-relay-transport.js";
-import { buildBusPortName } from "../common/bus/transport/transport-types.js";
-import * as pageWorldRelay from "../content/page-world-relay.js";
+import { BUS_ERROR_CODES } from "../src/common/bus/bus-errors.js";
+import { BUS_KINDS, makeEventEnvelope, makeRequestEnvelope } from "../src/common/bus/envelope.js";
+import { PAGE_WORLD_COMMANDS } from "../src/common/page-world-protocol.js";
+import { REALMS } from "../src/common/bus/realms.js";
+import { createPageRelayTransport } from "../src/common/bus/transport/page-relay-transport.js";
+import { buildBusPortName } from "../src/common/bus/transport/transport-types.js";
+import * as pageWorldRelay from "../src/content/page-world-relay.js";
 
 async function loadBusTransportModule<T>(path: string): Promise<T> {
   vi.resetModules();
@@ -140,7 +140,7 @@ function createFakePort(name: string) {
 
 describe("background transport", () => {
   it("rejects popup requests if the popup port disconnects before replying", async () => {
-    const { createBackgroundTransport } = await loadBusTransportModule<typeof import("../common/bus/transport/background-transport.js")>("../common/bus/transport/background-transport.js");
+    const { createBackgroundTransport } = await loadBusTransportModule<typeof import("../src/common/bus/transport/background-transport.js")>("../src/common/bus/transport/background-transport.js");
     const transport = createBackgroundTransport();
     const popupPort = createFakePort(buildBusPortName(9));
     transport.registerPopupPort(9, popupPort.port);
@@ -160,7 +160,7 @@ describe("background transport", () => {
   });
 
   it("fans out inbound broadcast events to non-source realms", async () => {
-    const { createBackgroundTransport } = await loadBusTransportModule<typeof import("../common/bus/transport/background-transport.js")>("../common/bus/transport/background-transport.js");
+    const { createBackgroundTransport } = await loadBusTransportModule<typeof import("../src/common/bus/transport/background-transport.js")>("../src/common/bus/transport/background-transport.js");
     const transport = createBackgroundTransport();
     const popupPort = createFakePort(buildBusPortName(9));
     const seenLocally: string[] = [];
@@ -183,7 +183,7 @@ describe("background transport", () => {
   });
 
   it("derives missing tab ids from the sender for popup routing", async () => {
-    const { createBackgroundTransport } = await loadBusTransportModule<typeof import("../common/bus/transport/background-transport.js")>("../common/bus/transport/background-transport.js");
+    const { createBackgroundTransport } = await loadBusTransportModule<typeof import("../src/common/bus/transport/background-transport.js")>("../src/common/bus/transport/background-transport.js");
     const transport = createBackgroundTransport();
     const popupPort = createFakePort(buildBusPortName(9));
     transport.registerPopupPort(9, popupPort.port);
@@ -213,7 +213,7 @@ describe("background transport", () => {
         },
       },
     }, async () => {
-      const { createBackgroundTransport } = await loadBusTransportModule<typeof import("../common/bus/transport/background-transport.js")>("../common/bus/transport/background-transport.js");
+      const { createBackgroundTransport } = await loadBusTransportModule<typeof import("../src/common/bus/transport/background-transport.js")>("../src/common/bus/transport/background-transport.js");
       const transport = createBackgroundTransport();
 
       await expect(transport.send(makeRequestEnvelope("diag.ping", { nonce: "n-1" }, {
@@ -240,7 +240,7 @@ describe("content and popup transport", () => {
         },
       },
     }, async () => {
-      const { createContentTransport } = await loadBusTransportModule<typeof import("../common/bus/transport/content-transport.js")>("../common/bus/transport/content-transport.js");
+      const { createContentTransport } = await loadBusTransportModule<typeof import("../src/common/bus/transport/content-transport.js")>("../src/common/bus/transport/content-transport.js");
       const transport = createContentTransport();
       const reply = await transport.send(makeRequestEnvelope("diag.ping", { nonce: "n-1" }, {
         src: REALMS.CONTENT,
@@ -268,7 +268,7 @@ describe("content and popup transport", () => {
         },
       },
     }, async () => {
-      const { createPopupTransport } = await loadBusTransportModule<typeof import("../common/bus/transport/popup-transport.js")>("../common/bus/transport/popup-transport.js");
+      const { createPopupTransport } = await loadBusTransportModule<typeof import("../src/common/bus/transport/popup-transport.js")>("../src/common/bus/transport/popup-transport.js");
       const transport = createPopupTransport(9);
       const reply = await transport.send(makeRequestEnvelope("diag.ping", { nonce: "n-1" }, {
         src: REALMS.POPUP,
@@ -283,9 +283,9 @@ describe("content and popup transport", () => {
   });
 
   it("keeps popup ports on runtime.connect while moving one-shot bus sends to extension messaging", () => {
-    const popupTransportSource = readFileSync(new URL("../common/bus/transport/popup-transport.ts", import.meta.url), "utf8");
-    const contentTransportSource = readFileSync(new URL("../common/bus/transport/content-transport.ts", import.meta.url), "utf8");
-    const backgroundTransportSource = readFileSync(new URL("../common/bus/transport/background-transport.ts", import.meta.url), "utf8");
+    const popupTransportSource = readFileSync(new URL("../src/common/bus/transport/popup-transport.ts", import.meta.url), "utf8");
+    const contentTransportSource = readFileSync(new URL("../src/common/bus/transport/content-transport.ts", import.meta.url), "utf8");
+    const backgroundTransportSource = readFileSync(new URL("../src/common/bus/transport/background-transport.ts", import.meta.url), "utf8");
 
     expect(popupTransportSource).toMatch(/browser\.runtime\.connect\(\{ name: buildBusPortName\(tabId\) \}\)/);
     expect(contentTransportSource).toMatch(/sendBusEnvelope\(env\)/);

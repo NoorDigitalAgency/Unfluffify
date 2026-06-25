@@ -2,15 +2,15 @@ import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 import { readFileSync } from "./file-kit.ts";
 
-const contractSource = readFileSync(new URL("../common/world-messaging-contract.ts", import.meta.url), "utf8");
-const backgroundSource = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
-const worldTraceSource = readFileSync(new URL("../background/world-trace.ts", import.meta.url), "utf8");
-const popupStateBrokerSource = readFileSync(new URL("../background/popup-state-broker.ts", import.meta.url), "utf8");
-const popupSource = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
-const popupUiSource = readFileSync(new URL("../popup/ui.ts", import.meta.url), "utf8");
-const popupMessagesSource = readFileSync(new URL("../popup/messages.ts", import.meta.url), "utf8");
-const contentSource = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
-const textSource = readFileSync(new URL("../common/text.ts", import.meta.url), "utf8");
+const contractSource = readFileSync(new URL("../src/common/world-messaging-contract.ts", import.meta.url), "utf8");
+const backgroundSource = readFileSync(new URL("../src/background.ts", import.meta.url), "utf8");
+const worldTraceSource = readFileSync(new URL("../src/background/world-trace.ts", import.meta.url), "utf8");
+const popupStateBrokerSource = readFileSync(new URL("../src/background/popup-state-broker.ts", import.meta.url), "utf8");
+const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
+const popupUiSource = readFileSync(new URL("../src/popup/ui.ts", import.meta.url), "utf8");
+const popupMessagesSource = readFileSync(new URL("../src/popup/messages.ts", import.meta.url), "utf8");
+const contentSource = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
+const textSource = readFileSync(new URL("../src/common/text.ts", import.meta.url), "utf8");
 
 test("world messaging contract no longer exposes runtime trace toggle message types", () => {
   assert.doesNotMatch(contractSource, /TRACE_SET:/);

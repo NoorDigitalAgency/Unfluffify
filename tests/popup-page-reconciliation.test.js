@@ -1,13 +1,13 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 
-import { PopupText } from "../common/text.js";
-import { state } from "../popup/state.js";
+import { PopupText } from "../src/common/text.js";
+import { state } from "../src/popup/state.js";
 import {
   handlePageRevert,
   handlePageSave,
   hasCurrentPagePendingChanges
-} from "../popup/page-reconciliation.js";
+} from "../src/popup/page-reconciliation.js";
 
 function resetState() {
   state.currentBaseUrl = "https://example.com";

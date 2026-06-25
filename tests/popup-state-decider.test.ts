@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { createStateStore } from "../background/brain/state-store.js";
+import { createStateStore } from "../src/background/brain/state-store.js";
 import {
   buildPopupViewFromBrokerState,
   getPopupView,
   updatePopupViewFromBrokerState,
-} from "../background/brain/deciders/popup-state-decider.js";
+} from "../src/background/brain/deciders/popup-state-decider.js";
 
 describe("popup state decider", () => {
   it("builds a compatibility popup view from broker state", () => {

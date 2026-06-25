@@ -8,7 +8,7 @@ import {
   tabLifecycleStateByTabId,
   tabSpinnerQueueByTabId,
   tabWorldTraceStateByTabId
-} from "../background/background-tab-state.js";
+} from "../src/background/background-tab-state.js";
 
 function clearAllTabStateMaps() {
   tabLifecycleStateByTabId.clear();

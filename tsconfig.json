@@ -12,16 +12,16 @@
     "types": ["chrome"]
   },
   "include": [
-    "background/**/*.ts",
-    "common/**/*.ts",
-    "content/**/*.ts",
-    "popup/**/*.ts",
-    "background.ts",
-    "content-main.ts",
-    "popup.ts",
-    "offscreen.ts",
-    "types/**/*.ts",
-    "types/**/*.d.ts"
+    "src/background/**/*.ts",
+    "src/common/**/*.ts",
+    "src/content/**/*.ts",
+    "src/popup/**/*.ts",
+    "src/background.ts",
+    "src/content-main.ts",
+    "src/popup.ts",
+    "src/offscreen.ts",
+    "src/types/**/*.ts",
+    "src/types/**/*.d.ts"
   ],
   "exclude": [
     "dist",

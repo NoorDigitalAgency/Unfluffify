@@ -1,7 +1,7 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 
-import { createInspectionStatusResolver } from "../content/inspection-status.js";
+import { createInspectionStatusResolver } from "../src/content/inspection-status.js";
 
 test("inspection-status resolver returns pending inspection state and marking mode", () => {
   const resolver = createInspectionStatusResolver({

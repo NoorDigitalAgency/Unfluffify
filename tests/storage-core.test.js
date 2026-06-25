@@ -100,7 +100,7 @@ function createPromiseStorageArea(initialItems = {}) {
 
 async function loadStorageCoreModule() {
   storageCoreImportCounter += 1;
-  return import(new URL(`../common/storage-core.ts?case=${storageCoreImportCounter}`, import.meta.url));
+  return import(new URL(`../src/common/storage-core.ts?case=${storageCoreImportCounter}`, import.meta.url));
 }
 
 test("storageGet resolves successful reads", async () => {

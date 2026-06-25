@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { createRequestEnvelope } from "../common/message-protocol.js";
-import { BUS_ERROR_CODES } from "../common/bus/bus-errors.js";
+import { createRequestEnvelope } from "../src/common/message-protocol.js";
+import { BUS_ERROR_CODES } from "../src/common/bus/bus-errors.js";
 import {
   BUS_KINDS,
   BUS_PROTOCOL,
@@ -13,8 +13,8 @@ import {
   makeReplyEnvelope,
   makeRequestEnvelope,
   newId,
-} from "../common/bus/envelope.js";
-import { REALMS } from "../common/bus/realms.js";
+} from "../src/common/bus/envelope.js";
+import { REALMS } from "../src/common/bus/realms.js";
 
 describe("bus envelope", () => {
   it("creates request and reply envelopes with the bus protocol tag", () => {

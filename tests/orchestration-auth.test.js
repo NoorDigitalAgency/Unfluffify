@@ -194,7 +194,7 @@ test("stage base normalization accepts hosts and URLs", () => {
 });
 
 test("auth setup script targets the current popup configuration controls", async () => {
-  const popupUiSource = await readFile(path.join(process.cwd(), "popup/ui.ts"), "utf8");
+  const popupUiSource = await readFile(path.join(process.cwd(), "src/popup/ui.ts"), "utf8");
   for (const selector of Object.values(AUTH_SETUP_SELECTORS)) {
     const id = selector.replace(/^#/, "");
     if (id.endsWith("-set")) {

@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createBus } from "../common/bus/bus.js";
-import { POPUP_STATE_EVENT_TYPES } from "../common/bus/contracts/popup-state.js";
-import { SPINNER_EVENT_TYPES } from "../common/bus/contracts/spinner.js";
-import { REALMS } from "../common/bus/realms.js";
-import { getLatestPopupView, startPopupLayerHostWithOptions } from "../popup/layers/layer-host.js";
-import { getLatestPopupSpinnerState } from "../popup/layers/spinner-layer.js";
+import { createBus } from "../src/common/bus/bus.js";
+import { POPUP_STATE_EVENT_TYPES } from "../src/common/bus/contracts/popup-state.js";
+import { SPINNER_EVENT_TYPES } from "../src/common/bus/contracts/spinner.js";
+import { REALMS } from "../src/common/bus/realms.js";
+import { getLatestPopupView, startPopupLayerHostWithOptions } from "../src/popup/layers/layer-host.js";
+import { getLatestPopupSpinnerState } from "../src/popup/layers/spinner-layer.js";
 
 function createTestBus() {
   return createBus({

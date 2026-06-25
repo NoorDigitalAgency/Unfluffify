@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { MESSAGE_ERROR_CODES, MESSAGE_TARGETS, createRequestEnvelope } from "../common/message-protocol.js";
-import { routeInboundContentRequestMessage } from "../content/inbound-content-request-dispatch.js";
+import { MESSAGE_ERROR_CODES, MESSAGE_TARGETS, createRequestEnvelope } from "../src/common/message-protocol.js";
+import { routeInboundContentRequestMessage } from "../src/content/inbound-content-request-dispatch.js";
 
 describe("routeInboundContentRequestMessage", () => {
   it("ignores non-content requests", () => {

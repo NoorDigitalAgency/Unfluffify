@@ -7,7 +7,7 @@ import {
   getTabRuntime,
   getTabRuntimeSnapshot,
   updateTabRuntime
-} from "../background/tab-runtime.js";
+} from "../src/background/tab-runtime.js";
 
 test("tab runtime keeps state isolated per tab id", () => {
   __resetTabRuntimeForTests();

@@ -1,7 +1,7 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 
-import { createPageDraftStatusHandler } from "../content/page-draft-status-handler.js";
+import { createPageDraftStatusHandler } from "../src/content/page-draft-status-handler.js";
 
 function createDeps(overrides = {}) {
   let savedEntry = { saved: true };

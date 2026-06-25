@@ -40,7 +40,7 @@ function makeMockSession() {
 
 async function loadRenderModeModule() {
   renderModeImportCounter += 1;
-  return import(new URL(`../common/render-mode-js-state.ts?case=${renderModeImportCounter}`, import.meta.url));
+  return import(new URL(`../src/common/render-mode-js-state.ts?case=${renderModeImportCounter}`, import.meta.url));
 }
 
 function installBrowserMock(chromeMock) {

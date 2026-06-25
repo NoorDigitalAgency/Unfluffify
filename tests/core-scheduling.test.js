@@ -10,7 +10,7 @@ import {
   scheduleSnapshotSave,
   startUrlWatcher,
   state
-} from "../content/core.js";
+} from "../src/content/core.js";
 
 function withFakeTimers(callback, options = {}) {
   const originalWindow = globalThis.window;
@@ -535,7 +535,7 @@ test("URL watcher discards temporary draft cache for clean or cross-base URL cha
 });
 
 test("disable teardown persistence captures state before clearing it", () => {
-  const source = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
   const disableBody = source.match(
     /export function disable\(options = \{\}\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?(?:\n|\r\n)*export async function enableForBaseUrl/
   )[1];
@@ -556,7 +556,7 @@ test("disable teardown persistence captures state before clearing it", () => {
 });
 
 test("explicit overlay refresh updates explicit layers before scheduling full rebuild", () => {
-  const source = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
   const refreshBody = source.match(
     /function refreshExplicitMarkingOverlay\(entry, context = null\) \{([\s\S]*?)\n\}\n\nfunction scheduleExplicitToggleFullRender/
   )[1];
@@ -575,8 +575,8 @@ test("explicit overlay refresh updates explicit layers before scheduling full re
 });
 
 test("explicit toggle full rebuild is deferred and coalesced for responsiveness", () => {
-  const coreSource = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
-  const rulesSource = readFileSync(new URL("../content/marking-rules.ts", import.meta.url), "utf8");
+  const coreSource = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
+  const rulesSource = readFileSync(new URL("../src/content/marking-rules.ts", import.meta.url), "utf8");
 
   const fullRenderBody = coreSource.match(
     /function scheduleExplicitToggleFullRender\(options = \{\}\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?(?:\n|\r\n)*export function scheduleExplicitOverlayRefresh/
@@ -615,7 +615,7 @@ test("cheap leaf explicit toggles defer the invalidating full rebuild", () => {
 });
 
 test("explicit exclude no longer forces immediate full rebuild prechecks", () => {
-  const coreSource = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
+  const coreSource = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
   const excludeStart = coreSource.indexOf("function toggleExplicitExclude(target, options = {})");
   const includeStart = coreSource.indexOf("function toggleExplicitInclude(target, options = {})", excludeStart);
   const excludeSource = coreSource.slice(excludeStart, includeStart);
@@ -626,7 +626,7 @@ test("explicit exclude no longer forces immediate full rebuild prechecks", () =>
 });
 
 test("user-driven explicit toggles draw the marking overlay synchronously (issue #6)", () => {
-  const coreSource = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
+  const coreSource = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
   const completeStart = coreSource.indexOf("function completeExplicitToggle(entry, target, type, mutationStartedAt, options = {})");
   const completeBody = coreSource.slice(completeStart, coreSource.indexOf("\n}\n", completeStart));
 
@@ -639,7 +639,7 @@ test("user-driven explicit toggles draw the marking overlay synchronously (issue
 });
 
 test("marking UI scheduling uses extension-owned timers during page motion pause", () => {
-  const coreSource = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
+  const coreSource = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
   const scheduleRenderBody = coreSource.match(
     /export function scheduleRender\(options\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?(?:\n|\r\n)*export function mergeDraftEntry/
   )[1];
@@ -656,7 +656,7 @@ test("marking UI scheduling uses extension-owned timers during page motion pause
 });
 
 test("page inspection completion waits for a real render before lifting the curtain", () => {
-  const coreSource = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
+  const coreSource = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
 
   assert.match(coreSource, /const PAGE_INSPECTION_RENDER_WAIT_TIMEOUT_MS = 3000;/);
 
@@ -682,7 +682,7 @@ test("page inspection completion waits for a real render before lifting the curt
 });
 
 test("marking passes share broad per-pass element caches", () => {
-  const source = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
 
   assert.match(source, /function withElementComputationCache\(callback\)/);
   assert.match(source, /directTextCache:\s*null/);
@@ -694,7 +694,7 @@ test("marking passes share broad per-pass element caches", () => {
 });
 
 test("marking mode uses Space-held page interaction without changing Alt include or Shift parent selection", () => {
-  const source = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
 
   assert.match(source, /const PAGE_INTERACTION_KEY_CODE = "Space";/);
   assert.match(
@@ -724,7 +724,7 @@ test("marking mode uses Space-held page interaction without changing Alt include
 });
 
 test("explicit toggles yield after the immediate acknowledgement before running the heavy mutation", () => {
-  const source = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
   const handleToggleEventBody = source.match(
     /function handleToggleEvent\(event\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?(?:\n|\r\n)*function handleClick/
   )[1];
@@ -770,7 +770,7 @@ test("explicit toggles yield after the immediate acknowledgement before running 
 });
 
 test("async sync checks aborts through late reconcile before committing entry state", () => {
-  const source = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
   const start = source.indexOf("async function syncPageMarkingsInnerAsync");
   assert.notEqual(start, -1);
   const syncBody = source.slice(start);
@@ -796,8 +796,8 @@ test("async sync checks aborts through late reconcile before committing entry st
 });
 
 test("marking mode surfaces temporary disabled state while save sync blocks editing", () => {
-  const source = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
-  const textSource = readFileSync(new URL("../common/text.ts", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
+  const textSource = readFileSync(new URL("../src/common/text.ts", import.meta.url), "utf8");
 
   assert.match(source, /const MARKING_DISABLED_OVERLAY_CLASS = "uf-marking-temporarily-disabled";/);
   assert.match(source, /const MARKING_DISABLED_CURSOR_CLASS = "uf-cursor-disabled";/);
@@ -815,7 +815,7 @@ test("marking mode surfaces temporary disabled state while save sync blocks edit
 });
 
 test("marking render cache keys include selector and entry fingerprints before reuse", () => {
-  const source = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
 
   assert.match(source, /cachedCollectionsKey:\s*""/);
   assert.match(source, /function buildMarkingCollectionsCacheKey\(\{ pageUrl = "", selectorSet = null, entry = null \} = \{\}\)/);
@@ -827,7 +827,7 @@ test("marking render cache keys include selector and entry fingerprints before r
 });
 
 test("marking enable schedules settle renders that force invalidating rebuilds", () => {
-  const source = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
 
   assert.match(source, /const MARKING_MODE_SETTLE_RENDER_DELAYS_MS = \[180, 700, 1800\];/);
   assert.match(source, /function clearMarkingSettleRenders\(\)/);
@@ -838,7 +838,7 @@ test("marking enable schedules settle renders that force invalidating rebuilds",
 });
 
 test("marking enable starts fresh: wipes stale page draft and reseeds the clean baseline", () => {
-  const source = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
   const enableStart = source.indexOf("export async function enableForBaseUrl(baseUrl, options = {}) {");
   const enableEnd = source.indexOf("export function handleBeforeUnload", enableStart);
   assert.ok(enableStart > -1);
@@ -876,7 +876,7 @@ test("marking enable starts fresh: wipes stale page draft and reseeds the clean 
 });
 
 test("page popup-busy overlay is independent from reveal inspection and freeze UI", () => {
-  const source = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
   const busyStart = source.indexOf("export function setPopupBusyOnPage(active, message = \"\", options = {})");
   const busyEnd = source.indexOf("export function isPopupBusyOnPageActive", busyStart);
   assert.ok(busyStart > -1);
@@ -899,7 +899,7 @@ test("page popup-busy overlay is independent from reveal inspection and freeze U
 });
 
 test("paint reachability allows in-path hits deeper in the hit stack and falls back when all checks reject", () => {
-  const source = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
 
   assert.match(source, /function getPaintReachabilityForRect\(el, rect\) \{[\s\S]*?elementsAtPoint\.some\(\(hit\) => isElementInHitPath\(hit, el\)\)/);
   assert.match(source, /function filterPaintReachableRects\(el, rects\) \{[\s\S]*?const reachableRects = rects\.filter\(\(rect\) => getPaintReachabilityForRect\(el, rect\) !== false\);/);
@@ -908,7 +908,7 @@ test("paint reachability allows in-path hits deeper in the hit stack and falls b
 });
 
 test("paint reachability fallback emits throttled counter telemetry in toggle perf logs", () => {
-  const source = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
 
   assert.match(source, /paintReachabilityFallbackCount:\s*0/);
   assert.match(source, /paintReachabilityFallbackLastLoggedAt:\s*0/);

@@ -2,7 +2,7 @@ import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 import { readFileSync } from "./file-kit.ts";
 
-const contentMainSource = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
+const contentMainSource = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
 
 function assertImportsContentModule(moduleName) {
   const escapedModuleName = moduleName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

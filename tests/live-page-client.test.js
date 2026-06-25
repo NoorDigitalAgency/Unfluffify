@@ -6,7 +6,7 @@ import {
   fetchLivePagePropertyPageTypes,
   normalizeBaseUrlFromDomainName,
   resolveLivePageSiteId
-} from "../background/live-page-client.js";
+} from "../src/background/live-page-client.js";
 
 function createResponse({ ok = true, jsonValue = {}, updateToken = "" } = {}) {
   return {

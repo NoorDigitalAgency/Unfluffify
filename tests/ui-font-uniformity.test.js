@@ -2,11 +2,11 @@ import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 import { readFileSync } from "./file-kit.ts";
 
-const constantsSource = readFileSync(new URL("../common/constants.ts", import.meta.url), "utf8");
-const coreSource = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
-const contentMainSource = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
-const popupCss = readFileSync(new URL("../popup.css", import.meta.url), "utf8");
-const themeColorCss = readFileSync(new URL("../theme-color.css", import.meta.url), "utf8");
+const constantsSource = readFileSync(new URL("../src/common/constants.ts", import.meta.url), "utf8");
+const coreSource = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
+const contentMainSource = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
+const popupCss = readFileSync(new URL("../src/popup.css", import.meta.url), "utf8");
+const themeColorCss = readFileSync(new URL("../src/theme-color.css", import.meta.url), "utf8");
 
 // Hardcoded UI font families that should NOT appear ad-hoc in injected page-world
 // styles — they must go through EXTENSION_UI_FONT_STACK so extension chrome is

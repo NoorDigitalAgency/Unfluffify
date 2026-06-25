@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createPopupRenderModeInspectionLayer } from "../popup/layers/modes/render-mode-inspection.js";
+import { createPopupRenderModeInspectionLayer } from "../src/popup/layers/modes/render-mode-inspection.js";
 
 describe("popup render-mode layer", () => {
   it("wraps a successful bus-backed inspection reply in the legacy popup shape", async () => {

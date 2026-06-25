@@ -11,7 +11,7 @@ import {
   removeTransferPayload,
   sweepStaleTransferPayloads,
   summarizeTransferPayloadForLog
-} from "../background/transfer-payload-store.js";
+} from "../src/background/transfer-payload-store.js";
 
 function withChromeSession(initialStore, callback) {
   const store = { ...(initialStore || {}) };

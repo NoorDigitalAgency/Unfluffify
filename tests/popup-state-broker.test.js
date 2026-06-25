@@ -6,8 +6,8 @@ import {
   LIFECYCLE_PHASES,
   SPINNER_KEYS,
   WORLD_MESSAGE_TYPES
-} from "../common/world-messaging-contract.js";
-import { createPopupStateBroker } from "../background/popup-state-broker.js";
+} from "../src/common/world-messaging-contract.js";
+import { createPopupStateBroker } from "../src/background/popup-state-broker.js";
 
 function normalizeTabId(value) {
   const numeric = Number(value);

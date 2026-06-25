@@ -1,15 +1,15 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 
-import { PopupText, ViewText } from "../common/text.js";
-import { state } from "../popup/state.js";
+import { PopupText, ViewText } from "../src/common/text.js";
+import { state } from "../src/popup/state.js";
 import {
   ensureBaseUrlSiteId,
   ensurePropertyPageTypes,
   fetchPropertyPageTypesFromGraphql,
   mergeConfigEntriesForResolvedBaseUrl,
   resolveSiteIdFromGraphql
-} from "../popup/site-resolution.js";
+} from "../src/popup/site-resolution.js";
 
 function createDeps() {
   const toasts = [];

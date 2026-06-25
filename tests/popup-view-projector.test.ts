@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { projectViews } from "../background/brain/view-projector.js";
-import type { TabLayerState } from "../background/brain/state-store.js";
+import { projectViews } from "../src/background/brain/view-projector.js";
+import type { TabLayerState } from "../src/background/brain/state-store.js";
 
 describe("popup view projector", () => {
   it("projects the compatibility popup view fields from tab state", () => {

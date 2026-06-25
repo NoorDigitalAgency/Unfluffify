@@ -1,7 +1,7 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 
-import { runBackgroundTask } from "../background/async-tasks.js";
+import { runBackgroundTask } from "../src/background/async-tasks.js";
 
 test("runBackgroundTask returns successful work results", async () => {
   const valueResult = await runBackgroundTask("value-success", Promise.resolve("ok"));

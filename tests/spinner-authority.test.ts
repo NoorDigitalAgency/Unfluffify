@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { SPINNER_OPERATION_KINDS, SPINNER_OPERATION_PHASES, SPINNER_TIMER_MODES } from "../common/spinner-contract.js";
-import { phaseToSpinnerState } from "../background/brain/spinner-authority.js";
+import { SPINNER_OPERATION_KINDS, SPINNER_OPERATION_PHASES, SPINNER_TIMER_MODES } from "../src/common/spinner-contract.js";
+import { phaseToSpinnerState } from "../src/background/brain/spinner-authority.js";
 
 describe("spinner authority", () => {
   it("maps countdown phases", () => {

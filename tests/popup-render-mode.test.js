@@ -2,16 +2,16 @@ import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 import { readFileSync } from "./file-kit.ts";
 
-import { PopupText } from "../common/text.js";
+import { PopupText } from "../src/common/text.js";
 import {
   getRenderModeOptionIcon,
   getRenderModeOptionLabel,
   resolveRenderModeInspectionReloadOutcome
-} from "../popup/render-mode.js";
+} from "../src/popup/render-mode.js";
 
-const popupSource = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
-const popupSpinnerSource = readFileSync(new URL("../popup/spinner.ts", import.meta.url), "utf8");
-const uiSource = readFileSync(new URL("../popup/ui.ts", import.meta.url), "utf8");
+const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
+const popupSpinnerSource = readFileSync(new URL("../src/popup/spinner.ts", import.meta.url), "utf8");
+const uiSource = readFileSync(new URL("../src/popup/ui.ts", import.meta.url), "utf8");
 
 function extractSourceBlock(source, startNeedle, endNeedle) {
   const start = source.indexOf(startNeedle);

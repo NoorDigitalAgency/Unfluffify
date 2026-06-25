@@ -12,9 +12,9 @@
     "types": ["chrome"]
   },
   "include": [
-    "entrypoints/**/*.ts",
-    "types/**/*.ts",
-    "types/**/*.d.ts"
+    "src/entrypoints/**/*.ts",
+    "src/types/**/*.ts",
+    "src/types/**/*.d.ts"
   ],
   "exclude": [
     "dist",

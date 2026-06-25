@@ -12,7 +12,7 @@ import {
   parseAiRunStatusResponse,
   normalizePersistedAiRunRecord,
   shouldResumePersistedAiRun
-} from "../popup/ai-run.js";
+} from "../src/popup/ai-run.js";
 
 test("AI run polling uses a five second cadence", () => {
   assert.equal(AI_RUN_POLL_INTERVAL_MS, 5_000);
@@ -77,9 +77,9 @@ test("persisted AI run records normalize and validate the current site", () => {
 });
 
 test("AI compute shows busy feedback and locks marking before payload work", () => {
-  const source = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
-  const backgroundSource = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
-  const aiRunOrchestratorSource = readFileSync(new URL("../background/ai-run-orchestrator.ts", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
+  const backgroundSource = readFileSync(new URL("../src/background.ts", import.meta.url), "utf8");
+  const aiRunOrchestratorSource = readFileSync(new URL("../src/background/ai-run-orchestrator.ts", import.meta.url), "utf8");
   const match = source.match(
     /async function handleComputeSelectors\(\) \{([\s\S]*?)\n\}\n\nasync function postPageTypeAssignmentsToAiServer/
   );
@@ -106,9 +106,9 @@ test("AI compute shows busy feedback and locks marking before payload work", () 
 });
 
 test("AI compute builds the request from stored local page snapshots only", () => {
-  const source = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
-  const backgroundSource = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
-  const aiRunOrchestratorSource = readFileSync(new URL("../background/ai-run-orchestrator.ts", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
+  const backgroundSource = readFileSync(new URL("../src/background.ts", import.meta.url), "utf8");
+  const aiRunOrchestratorSource = readFileSync(new URL("../src/background/ai-run-orchestrator.ts", import.meta.url), "utf8");
   void backgroundSource;
   const match = source.match(
     /async function handleComputeSelectors\(\) \{([\s\S]*?)\n\}\n\nasync function postPageTypeAssignmentsToAiServer/
@@ -186,9 +186,9 @@ test("AI compute builds the request from stored local page snapshots only", () =
 });
 
 test("TAB_RUN_AI resolves omitted credentials from fresh settings reads", () => {
-  const backgroundSource = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
-  const aiRunOrchestratorSource = readFileSync(new URL("../background/ai-run-orchestrator.ts", import.meta.url), "utf8");
-  const networkCoreSource = readFileSync(new URL("../background/network-core.ts", import.meta.url), "utf8");
+  const backgroundSource = readFileSync(new URL("../src/background.ts", import.meta.url), "utf8");
+  const aiRunOrchestratorSource = readFileSync(new URL("../src/background/ai-run-orchestrator.ts", import.meta.url), "utf8");
+  const networkCoreSource = readFileSync(new URL("../src/background/network-core.ts", import.meta.url), "utf8");
 
   assert.match(backgroundSource, /from "\.\/background\/network-core\.js"/);
   assert.doesNotMatch(backgroundSource, /async function resolveBackgroundNetworkCredentials\(options = \{\}\) \{/);
@@ -204,7 +204,7 @@ test("TAB_RUN_AI resolves omitted credentials from fresh settings reads", () => 
 });
 
 test("AI compute reports specific snapshot preparation blockers", () => {
-  const source = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
   const failureStart = source.indexOf("function getAiRunCommandFailureMessage");
   const failureEnd = source.indexOf("async function continueAiRunPolling", failureStart);
   const computeMatch = source.match(
@@ -226,8 +226,8 @@ test("AI compute reports specific snapshot preparation blockers", () => {
 });
 
 test("AI run recovery metadata is persisted through background", () => {
-  const popupSource = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
-  const backgroundSource = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
+  const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
+  const backgroundSource = readFileSync(new URL("../src/background.ts", import.meta.url), "utf8");
   const loadStart = popupSource.indexOf("async function loadPersistedAiRunRecord() {");
   const loadEnd = popupSource.indexOf("async function syncAiComputeLock", loadStart);
   assert.ok(loadStart > -1);
@@ -249,12 +249,12 @@ test("AI run recovery metadata is persisted through background", () => {
 });
 
 test("AI run recovery heartbeat and page lock are coordinated by background", () => {
-  const popupSource = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
-  const backgroundSource = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
-  const aiRunOrchestratorSource = readFileSync(new URL("../background/ai-run-orchestrator.ts", import.meta.url), "utf8");
-  const contentSource = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
+  const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
+  const backgroundSource = readFileSync(new URL("../src/background.ts", import.meta.url), "utf8");
+  const aiRunOrchestratorSource = readFileSync(new URL("../src/background/ai-run-orchestrator.ts", import.meta.url), "utf8");
+  const contentSource = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
   const runtimeMessageHandlerSource = readFileSync(
-    new URL("../content/runtime-message-handler.ts", import.meta.url),
+    new URL("../src/content/runtime-message-handler.ts", import.meta.url),
     "utf8"
   );
   const heartbeatStart = popupSource.indexOf("async function refreshAiRunHeartbeat(options = {}) {");
@@ -299,9 +299,9 @@ test("AI run recovery heartbeat and page lock are coordinated by background", ()
 });
 
 test("AI run start, status polling, and result transport use background messaging with staged heavy bodies", () => {
-  const popupSource = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
-  const backgroundSource = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
-  const remoteNetworkSource = readFileSync(new URL("../background/remote-network.ts", import.meta.url), "utf8");
+  const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
+  const backgroundSource = readFileSync(new URL("../src/background.ts", import.meta.url), "utf8");
+  const remoteNetworkSource = readFileSync(new URL("../src/background/remote-network.ts", import.meta.url), "utf8");
   const statusStart = popupSource.indexOf("async function requestAiRunStatus(");
   const statusEnd = popupSource.indexOf("async function requestAiRunResult", statusStart);
   const startStart = popupSource.indexOf("async function requestAiRunStart(");
@@ -347,10 +347,10 @@ test("AI run start, status polling, and result transport use background messagin
 });
 
 test("selector submit GraphQL mutation and page-type assignment both use background transport", () => {
-  const popupSource = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
-  const backgroundSource = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
-  const remoteNetworkSource = readFileSync(new URL("../background/remote-network.ts", import.meta.url), "utf8");
-  const remoteConfigSyncSource = readFileSync(new URL("../background/remote-config-sync.ts", import.meta.url), "utf8");
+  const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
+  const backgroundSource = readFileSync(new URL("../src/background.ts", import.meta.url), "utf8");
+  const remoteNetworkSource = readFileSync(new URL("../src/background/remote-network.ts", import.meta.url), "utf8");
+  const remoteConfigSyncSource = readFileSync(new URL("../src/background/remote-config-sync.ts", import.meta.url), "utf8");
   const submitStart = popupSource.indexOf("async function submitSelectorSetToServer(");
   const submitEnd = popupSource.indexOf("async function handleSaveExcludes", submitStart);
   const assignmentStart = popupSource.indexOf("async function postPageTypeAssignmentsToAiServer(");

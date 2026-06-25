@@ -1,7 +1,7 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 
-import { REMOVABLE_ELEMENT_SELECTORS } from "../content/constants.js";
+import { REMOVABLE_ELEMENT_SELECTORS } from "../src/content/constants.js";
 
 const all = REMOVABLE_ELEMENT_SELECTORS.join("\n");
 

@@ -7,14 +7,14 @@ const REPO_ROOT = resolve(import.meta.dirname, "..");
 describe("C4 content entrypoints", () => {
   it("bundles the content and MAIN-world runtimes from native WXT entrypoints", () => {
     const contentEntrypointSource = readFileSync(
-      resolve(REPO_ROOT, "entrypoints", "content-loader.content.ts"),
+      resolve(REPO_ROOT, "src", "entrypoints", "content-loader.content.ts"),
       "utf8",
     );
     const bridgeEntrypointSource = readFileSync(
-      resolve(REPO_ROOT, "entrypoints", "page-motion-freeze-bridge.content.ts"),
+      resolve(REPO_ROOT, "src", "entrypoints", "page-motion-freeze-bridge.content.ts"),
       "utf8",
     );
-    const contentMainSource = readFileSync(resolve(REPO_ROOT, "content-main.ts"), "utf8");
+    const contentMainSource = readFileSync(resolve(REPO_ROOT, "src", "content-main.ts"), "utf8");
 
     expect(contentEntrypointSource).toContain('import { exposeDebugSpinnerQueueTabId, main } from "../content-main.js";');
     expect(contentEntrypointSource).not.toContain("legacy/content-loader.js");

@@ -5,7 +5,7 @@ import {
   detachDebugger,
   reloadPageWithJavaScriptControl,
   setPageJavaScriptExecutionDisabled
-} from "../common/utilities.js";
+} from "../src/common/utilities.js";
 
 test("detachDebugger treats an already-detached tab as a successful cleanup", async () => {
   const originalChrome = globalThis.chrome;

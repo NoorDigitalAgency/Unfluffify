@@ -9,14 +9,14 @@ const REPO_ROOT = path.resolve(TESTS_DIR, "..");
 const EXPECTED_PATH = path.join(REPO_ROOT, "tests/fixtures/expected-ts-nocheck.txt");
 
 const RUNTIME_SCAN_TARGETS = [
-  "background",
-  "common",
-  "content",
-  "popup",
-  "background.ts",
-  "entrypoints/content-loader.content.ts",
-  "content-main.ts",
-  "popup.ts"
+  "src/background",
+  "src/common",
+  "src/content",
+  "src/popup",
+  "src/background.ts",
+  "src/entrypoints/content-loader.content.ts",
+  "src/content-main.ts",
+  "src/popup.ts"
 ];
 
 function collectTsNoCheckFiles() {

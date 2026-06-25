@@ -5,7 +5,7 @@ import {
   state,
   isPageDraftDirty,
   setSavedPageEntry
-} from "../content/core.js";
+} from "../src/content/core.js";
 
 const PAGE_URL = "https://example.com/dirty-baseline-test";
 

@@ -70,6 +70,7 @@ describe("WXT Part A bridge", () => {
   it("disables WXT auto-imports and targets MV3", () => {
     expect(wxtConfig.imports).toBe(false);
     expect(wxtConfig.manifestVersion).toBe(3);
+    expect(wxtConfig.srcDir).toBe("src");
   });
 
   it("keeps the manifest contract in wxt.config as the single source of truth", () => {

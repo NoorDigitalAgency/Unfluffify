@@ -5,7 +5,7 @@ import {
   POPUP_READY_LOG_MESSAGE,
   getPopupTelemetryTabId,
   logPopupReady
-} from "../popup/telemetry.js";
+} from "../src/popup/telemetry.js";
 
 test("popup telemetry tab id resolves only finite active tab ids", () => {
   assert.equal(getPopupTelemetryTabId(null), null);

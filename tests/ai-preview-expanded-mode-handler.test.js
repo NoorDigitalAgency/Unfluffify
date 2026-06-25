@@ -1,7 +1,7 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 
-import { createAiPreviewExpandedModeHandler } from "../content/ai-preview-expanded-mode-handler.js";
+import { createAiPreviewExpandedModeHandler } from "../src/content/ai-preview-expanded-mode-handler.js";
 
 function createDeps(overrides = {}) {
   const calls = {

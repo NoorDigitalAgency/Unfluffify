@@ -1,10 +1,10 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 
-import { DIAGNOSTIC_REQUEST_TYPES } from "../common/bus/contracts/index.js";
-import { POPUP_STATE_REQUEST_TYPES } from "../common/bus/contracts/popup-state.js";
-import { REALMS } from "../common/bus/realms.js";
-import { requestPopupView, runPopupBusSelfTest } from "../popup/layers/popup-bus-client.js";
+import { DIAGNOSTIC_REQUEST_TYPES } from "../src/common/bus/contracts/index.js";
+import { POPUP_STATE_REQUEST_TYPES } from "../src/common/bus/contracts/popup-state.js";
+import { REALMS } from "../src/common/bus/realms.js";
+import { requestPopupView, runPopupBusSelfTest } from "../src/popup/layers/popup-bus-client.js";
 
 describe("popup bus self-test", () => {
   it("requests background and content diag.ping round-trips and logs passes", async () => {
@@ -100,7 +100,7 @@ describe("popup bus self-test", () => {
   });
 
   it("allows spinner mutation requests to target an explicit tab after the popup bus retargets", () => {
-    const source = readFileSync(new URL("../popup/layers/popup-bus-client.ts", import.meta.url), "utf8");
+    const source = readFileSync(new URL("../src/popup/layers/popup-bus-client.ts", import.meta.url), "utf8");
     const mutationBody = source.match(
       /async function requestPopupSpinnerMutation<Payload>\([\s\S]*?\): Promise<SpinnerMutationReply \| null> \{([\s\S]*?)\n\}/
     )?.[1];
@@ -112,7 +112,7 @@ describe("popup bus self-test", () => {
   });
 
   it("routes popup consent-hide requests directly to the content realm", () => {
-    const source = readFileSync(new URL("../popup/layers/popup-bus-client.ts", import.meta.url), "utf8");
+    const source = readFileSync(new URL("../src/popup/layers/popup-bus-client.ts", import.meta.url), "utf8");
     const helperBody = source.match(
       /export function requestPopupRenderModeHideConsent\([\s\S]*?\): Promise<RenderModeContentHideConsentReply> \{([\s\S]*?)\n\}/
     )?.[1];
@@ -123,7 +123,7 @@ describe("popup bus self-test", () => {
   });
 
   it("routes popup render-mode HTML capture requests directly to the content realm", () => {
-    const source = readFileSync(new URL("../popup/layers/popup-bus-client.ts", import.meta.url), "utf8");
+    const source = readFileSync(new URL("../src/popup/layers/popup-bus-client.ts", import.meta.url), "utf8");
     const helperBody = source.match(
       /export function requestPopupRenderModeCaptureHtml\([\s\S]*?\): Promise<RenderModeContentCaptureHtmlReply> \{([\s\S]*?)\n\}/
     )?.[1];

@@ -1,7 +1,7 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 
-import { createRenderModeInspectionHandlers } from "../content/render-mode-inspection-handlers.js";
+import { createRenderModeInspectionHandlers } from "../src/content/render-mode-inspection-handlers.js";
 
 function createBaseDeps(overrides = {}) {
   let revealInFlight = 0;

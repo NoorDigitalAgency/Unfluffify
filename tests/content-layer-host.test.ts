@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { createBus } from "../common/bus/bus.js";
-import { SPINNER_EVENT_TYPES } from "../common/bus/contracts/spinner.js";
-import { REALMS } from "../common/bus/realms.js";
-import { startContentLayerHost } from "../content/layers/layer-host.js";
-import { getLatestContentSpinnerState } from "../content/layers/spinner-layer.js";
+import { createBus } from "../src/common/bus/bus.js";
+import { SPINNER_EVENT_TYPES } from "../src/common/bus/contracts/spinner.js";
+import { REALMS } from "../src/common/bus/realms.js";
+import { startContentLayerHost } from "../src/content/layers/layer-host.js";
+import { getLatestContentSpinnerState } from "../src/content/layers/spinner-layer.js";
 
 describe("content layer host", () => {
   it("keeps banner and page-curtain spinner state separated", async () => {

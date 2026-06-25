@@ -3,15 +3,15 @@ import { assert } from "./test-kit.ts";
 import { readFileSync } from "./file-kit.ts";
 
 const backgroundSource = readFileSync(
-  new URL("../background.ts", import.meta.url),
+  new URL("../src/background.ts", import.meta.url),
   "utf8"
 );
 const transferPayloadStoreSource = readFileSync(
-  new URL("../background/transfer-payload-store.ts", import.meta.url),
+  new URL("../src/background/transfer-payload-store.ts", import.meta.url),
   "utf8"
 );
 const contentCoreSource = readFileSync(
-  new URL("../content/core.ts", import.meta.url),
+  new URL("../src/content/core.ts", import.meta.url),
   "utf8"
 );
 

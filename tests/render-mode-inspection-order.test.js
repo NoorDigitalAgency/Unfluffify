@@ -2,12 +2,12 @@ import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 import { readFileSync } from "./file-kit.ts";
 
-const popupSource = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
-const backgroundSource = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
-const renderModeInspectorSource = readFileSync(new URL("../background/render-mode-inspector.ts", import.meta.url), "utf8");
-const contentSource = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
-const renderModeHandlersSource = readFileSync(new URL("../content/render-mode-inspection-handlers.ts", import.meta.url), "utf8");
-const coreSource = readFileSync(new URL("../content/core.ts", import.meta.url), "utf8");
+const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
+const backgroundSource = readFileSync(new URL("../src/background.ts", import.meta.url), "utf8");
+const renderModeInspectorSource = readFileSync(new URL("../src/background/render-mode-inspector.ts", import.meta.url), "utf8");
+const contentSource = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
+const renderModeHandlersSource = readFileSync(new URL("../src/content/render-mode-inspection-handlers.ts", import.meta.url), "utf8");
+const coreSource = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
 
 function extractSourceBlock(source, startNeedle, endNeedle) {
   const start = source.indexOf(startNeedle);
@@ -81,7 +81,7 @@ test("background render mode orchestration waits for content readiness", () => {
 });
 
 test("render mode auto detection consumes the explicit inspection snapshot", () => {
-  const renderModePopupSource = readFileSync(new URL("../popup/render-mode-inspection.ts", import.meta.url), "utf8");
+  const renderModePopupSource = readFileSync(new URL("../src/popup/render-mode-inspection.ts", import.meta.url), "utf8");
   const block = extractSourceBlock(
     renderModePopupSource,
     "export async function maybeAutoDetectRenderMode",
