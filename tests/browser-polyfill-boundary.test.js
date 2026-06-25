@@ -85,20 +85,17 @@ const BROWSER_SEAM_FILES = new Set([
   "src/common/browser.ts"
 ]);
 
+const STORAGE_COMPAT_EXCEPTION_FILES = new Set([
+  "src/common/storage-core.ts"
+]);
+
+const EVAL_BRIDGE_EXCEPTION_FILES = new Set([
+  "src/common/page-motion-freeze-bridge.ts"
+]);
+
 const CURRENT_MIGRATION_DEBT_FILES = new Set([
   "src/background.ts",
-  "src/background/ai-run-record-store.ts",
-  "src/background/brain/index.ts",
-  "src/background/popup-state-broker.ts",
-  "src/background/render-mode-inspector.ts",
-  "src/background/tab-inactivity-observer.ts",
-  "src/background/tab-session-store.ts",
-  "src/background/transfer-payload-store.ts",
   "src/common/emulation.ts",
-  "src/common/page-motion-freeze-bridge.ts",
-  "src/common/render-mode-js-state.ts",
-  "src/common/settings-store.ts",
-  "src/common/storage-core.ts",
   "src/common/utilities.ts",
   "src/content/core.ts"
 ]);
@@ -113,6 +110,8 @@ test("browser polyfill boundary buckets every remaining raw chrome usage", () =>
   const multiBucket = [];
   const bucketCounts = {
     browserSeam: 0,
+    storageCompatException: 0,
+    evalBridgeException: 0,
     currentMigrationDebt: 0
   };
 
@@ -120,6 +119,12 @@ test("browser polyfill boundary buckets every remaining raw chrome usage", () =>
     const matchedBuckets = [];
     if (BROWSER_SEAM_FILES.has(finding.file)) {
       matchedBuckets.push("browserSeam");
+    }
+    if (STORAGE_COMPAT_EXCEPTION_FILES.has(finding.file)) {
+      matchedBuckets.push("storageCompatException");
+    }
+    if (EVAL_BRIDGE_EXCEPTION_FILES.has(finding.file)) {
+      matchedBuckets.push("evalBridgeException");
     }
     if (CURRENT_MIGRATION_DEBT_FILES.has(finding.file)) {
       matchedBuckets.push("currentMigrationDebt");

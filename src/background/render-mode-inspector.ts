@@ -1,3 +1,4 @@
+import { browser } from "../common/browser.js";
 import {
   RENDER_MODE_REQUEST_TYPES,
   type RenderModeContentBeginPayload,
@@ -9,6 +10,7 @@ import {
 } from "../common/bus/contracts/render-mode.js";
 
 type ContentMessageResult = Record<string, unknown>;
+type TabUpdatedChangeInfo = { status?: string; url?: string };
 
 type ManagedTimeoutGroup = {
   set: (fn: () => void, ms: number) => ReturnType<typeof setTimeout>;
@@ -110,10 +112,10 @@ export function createRenderModeInspector(options: RenderModeInspectorOptions = 
         settled = true;
         timeoutGroup.clear(timeoutId);
         timeoutGroup.clearAll();
-        chrome.tabs.onUpdated.removeListener(onUpdated);
+        browser.tabs.onUpdated.removeListener(onUpdated);
         resolve(Boolean(value));
       };
-      const onUpdated = (updatedTabId: number, changeInfo: chrome.tabs.OnUpdatedInfo) => {
+      const onUpdated = (updatedTabId: number, changeInfo: TabUpdatedChangeInfo) => {
         if (updatedTabId !== tabId) {
           return;
         }
@@ -127,8 +129,8 @@ export function createRenderModeInspector(options: RenderModeInspectorOptions = 
       const timeoutId = timeoutGroup.set(() => {
         finish(false);
       }, timeoutMs);
-      chrome.tabs.onUpdated.addListener(onUpdated);
-      chrome.tabs.get(tabId)
+      browser.tabs.onUpdated.addListener(onUpdated);
+      browser.tabs.get(tabId)
         .then((tab) => {
           if (tab && tab.status === "loading") {
             finish(true);
@@ -161,11 +163,11 @@ export function createRenderModeInspector(options: RenderModeInspectorOptions = 
         settled = true;
         timeoutGroup.clear(timeoutId);
         timeoutGroup.clearAll();
-        chrome.tabs.onUpdated.removeListener(onUpdated);
+        browser.tabs.onUpdated.removeListener(onUpdated);
         resolve(Boolean(value));
       };
 
-      const onUpdated = (updatedTabId: number, changeInfo: chrome.tabs.OnUpdatedInfo) => {
+      const onUpdated = (updatedTabId: number, changeInfo: TabUpdatedChangeInfo) => {
         if (updatedTabId !== tabId) {
           return;
         }
@@ -182,8 +184,8 @@ export function createRenderModeInspector(options: RenderModeInspectorOptions = 
         finish(false);
       }, timeoutMs);
 
-      chrome.tabs.onUpdated.addListener(onUpdated);
-      chrome.tabs.get(tabId)
+      browser.tabs.onUpdated.addListener(onUpdated);
+      browser.tabs.get(tabId)
         .then((tab) => {
           if (!awaitNextLoad && tab && tab.status === "complete") {
             finish(true);

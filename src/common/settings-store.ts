@@ -1,3 +1,4 @@
+import { browser } from "./browser.js";
 import { addSyncStorageChangeListener, storageGet, storageSet } from "./storage-core.js";
 import { normalizeStageBase } from "./lynx-live-pages.js";
 
@@ -44,8 +45,18 @@ type SaveLoginSettingsOptions = {
   token?: string | null;
 };
 
+type StorageHost = typeof globalThis & {
+  browser?: { storage?: { sync?: unknown } };
+  chrome?: { storage?: { sync?: unknown } };
+};
+
 function normalizeStringValue(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function getSyncStorageArea(): unknown {
+  const host = globalThis as StorageHost;
+  return host.browser?.storage?.sync || host.chrome?.storage?.sync || browser.storage.sync;
 }
 
 function normalizeStoredTokenValue(value: unknown): string {
@@ -102,7 +113,7 @@ function updateCachedGlobalAiSettings(patch: Partial<GlobalAiSettings> = {}): vo
 }
 
 async function getGlobalSettingsWriteSnapshot(): Promise<GlobalSettingsWriteSnapshot> {
-  const stored = await storageGet(chrome.storage.sync, GLOBAL_AI_SETTINGS_SYNC_DEFAULTS);
+  const stored = await storageGet(getSyncStorageArea(), GLOBAL_AI_SETTINGS_SYNC_DEFAULTS);
   return {
     tokenValue: normalizeStoredTokenValue(stored.globalToken),
     endpointValue: normalizeStringValue(stored.globalEndpoint),
@@ -113,7 +124,7 @@ async function getGlobalSettingsWriteSnapshot(): Promise<GlobalSettingsWriteSnap
 
 async function bumpGlobalAuthContextVersion(): Promise<string> {
   const nextValue = String(Date.now());
-  await storageSet(chrome.storage.sync, { globalAuthContextVersion: nextValue });
+  await storageSet(getSyncStorageArea(), { globalAuthContextVersion: nextValue });
   return nextValue;
 }
 
@@ -146,7 +157,7 @@ export async function getGlobalAiSettings(options: GlobalAiSettingsOptions = {})
     }
   }
 
-  const stored = await storageGet(chrome.storage.sync, GLOBAL_AI_SETTINGS_SYNC_DEFAULTS);
+  const stored = await storageGet(getSyncStorageArea(), GLOBAL_AI_SETTINGS_SYNC_DEFAULTS);
   const normalized = normalizeGlobalAiSettings(stored);
   if (useCache) {
     cachedGlobalAiSettings = { ...normalized };
@@ -169,13 +180,13 @@ export async function getGlobalToken(options: { trim?: boolean } = {}): Promise<
     const settings = await getGlobalAiSettings({ useCache: false });
     return settings.tokenValue;
   }
-  const stored = await storageGet(chrome.storage.sync, { globalToken: "" });
+  const stored = await storageGet(getSyncStorageArea(), { globalToken: "" });
   return normalizeStoredTokenValue(stored.globalToken);
 }
 
 export async function setGlobalToken(tokenValue: unknown): Promise<string> {
   const nextToken = normalizeStoredTokenValue(tokenValue);
-  await storageSet(chrome.storage.sync, { globalToken: nextToken });
+  await storageSet(getSyncStorageArea(), { globalToken: nextToken });
   updateCachedGlobalAiSettings({ tokenValue: nextToken.trim() });
   return nextToken;
 }
@@ -190,7 +201,7 @@ export async function saveLoginSettings(
 ): Promise<{ stageBaseValue: string; tokenValue: string }> {
   const stageBaseValue = normalizeStringValue(options.stageBase);
   const tokenValue = normalizeStoredTokenValue(options.token);
-  await storageSet(chrome.storage.sync, {
+  await storageSet(getSyncStorageArea(), {
     globalStageBase: stageBaseValue,
     globalToken: tokenValue,
     globalAuthContextVersion: String(Date.now())
@@ -219,7 +230,7 @@ export async function saveGlobalConfigEndpoint(endpointValue: unknown): Promise<
     getEndpointOrigin(previousEndpoint) !== getEndpointOrigin(nextEndpointValue);
   const tokenCleared = Boolean(stored.tokenValue) && endpointOriginChanged;
   const nextTokenValue = tokenCleared ? "" : stored.tokenValue;
-  await storageSet(chrome.storage.sync, {
+  await storageSet(getSyncStorageArea(), {
     globalConfigEndpoint: nextEndpointValue,
     globalToken: nextTokenValue,
     ...(tokenCleared ? { globalAuthContextVersion: String(Date.now()) } : {})
@@ -249,7 +260,7 @@ export async function saveGlobalEndpoint(endpointValue: unknown): Promise<{
     getEndpointOrigin(previousEndpoint) !== getEndpointOrigin(nextEndpointValue);
   const tokenCleared = Boolean(stored.tokenValue) && endpointOriginChanged;
   const nextTokenValue = tokenCleared ? "" : stored.tokenValue;
-  await storageSet(chrome.storage.sync, {
+  await storageSet(getSyncStorageArea(), {
     globalEndpoint: nextEndpointValue,
     globalToken: nextTokenValue,
     ...(tokenCleared ? { globalAuthContextVersion: String(Date.now()) } : {})
@@ -275,7 +286,7 @@ export async function saveGlobalStageBase(stageBaseValue: unknown): Promise<{
   const previousStageBase = normalizeStageBase(stored.stageBaseValue);
   const tokenCleared = Boolean(stored.tokenValue) && previousStageBase !== nextStageBaseValue;
   const nextTokenValue = tokenCleared ? "" : stored.tokenValue;
-  await storageSet(chrome.storage.sync, {
+  await storageSet(getSyncStorageArea(), {
     globalStageBase: nextStageBaseValue,
     globalToken: nextTokenValue,
     ...(tokenCleared ? { globalAuthContextVersion: String(Date.now()) } : {})
@@ -302,7 +313,7 @@ export async function getThemeSettings(
     typeof options.normalizeThemeModeValue === "function"
       ? options.normalizeThemeModeValue
       : (value: unknown) => normalizeStringValue(value);
-  const stored = await storageGet(chrome.storage.sync, GLOBAL_THEME_SETTINGS_SYNC_DEFAULTS);
+  const stored = await storageGet(getSyncStorageArea(), GLOBAL_THEME_SETTINGS_SYNC_DEFAULTS);
   return {
     themeValue: normalizeThemeValue(stored.globalTheme),
     themeModeValue: normalizeThemeModeValue(stored.globalThemeMode)
@@ -324,7 +335,7 @@ export async function setThemeSettings(
       : (value: unknown) => normalizeStringValue(value);
   const nextThemeValue = normalizeThemeValue(themeValue);
   const nextThemeModeValue = normalizeThemeModeValue(themeModeValue);
-  await storageSet(chrome.storage.sync, {
+  await storageSet(getSyncStorageArea(), {
     globalTheme: nextThemeValue,
     globalThemeMode: nextThemeModeValue
   });

@@ -6,6 +6,7 @@ import {
   isCurtainBearingLifecycleKind,
   isLifecycleTerminalPhase
 } from "../common/world-messaging-contract.js";
+import type { Browser } from "../common/browser.js";
 import { createSpinnerOperationLease } from "../common/spinner-contract.js";
 import type {
   PopupLegacySpinnerEntry,
@@ -30,7 +31,7 @@ export type PopupBrokerState = Readonly<{
 type PopupStateBrokerOptions = {
   lifecycleStateByTabId?: Map<number, LifecycleState>;
   spinnerQueueByTabId?: Map<number, Map<string, SpinnerEntry>>;
-  popupStatePortsByTabId?: Map<number, Set<chrome.runtime.Port>>;
+  popupStatePortsByTabId?: Map<number, Set<Browser.runtime.Port>>;
   normalizeTabId?: (value: unknown) => number | null;
   appendTrace?: (tabId: number, channel: string, event: string, payload: Record<string, unknown>) => void;
   ensureTraceState?: (tabId: number | null) => TraceState;
@@ -66,7 +67,7 @@ export function createPopupStateBroker(options = {}) {
     : new Map<number, Map<string, SpinnerEntry>>();
   const popupStatePortsByTabId = typedOptions.popupStatePortsByTabId instanceof Map
     ? typedOptions.popupStatePortsByTabId
-    : new Map<number, Set<chrome.runtime.Port>>();
+    : new Map<number, Set<Browser.runtime.Port>>();
   const normalizeTabId = typeof typedOptions.normalizeTabId === "function"
     ? typedOptions.normalizeTabId
     : defaultNormalizeTabId;

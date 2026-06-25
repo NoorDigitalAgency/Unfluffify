@@ -1,6 +1,16 @@
 const DEFAULT_ALARM_PREFIX = "unfluffify-tab-inactivity:";
 const DEFAULT_INACTIVITY_TIMEOUT_MS = 30_000;
 
+type AlarmApiLike = {
+  create?: (name: string, options: { when: number }) => Promise<unknown> | unknown;
+  clear?: (name: string) => Promise<boolean> | boolean;
+  get?: (name: string) => Promise<unknown> | unknown;
+};
+
+type AlarmHostLike = {
+  alarms?: AlarmApiLike | null;
+};
+
 function normalizeTabId(value: unknown): number | null {
   const numeric = Number(value);
   return Number.isFinite(numeric) && numeric > 0 ? Math.trunc(numeric) : null;
@@ -10,14 +20,14 @@ function normalizeScope(value: unknown): string {
   return typeof value === "string" && value.trim() ? value.trim() : "default";
 }
 
-function getAlarmsApi(chromeRef: typeof chrome | null): typeof chrome.alarms | null {
+function getAlarmsApi(chromeRef: AlarmHostLike | null): AlarmApiLike | null {
   return chromeRef && chromeRef.alarms && typeof chromeRef.alarms.create === "function"
     ? chromeRef.alarms
     : null;
 }
 
 type TabInactivityObserverOptions = {
-  chromeRef?: typeof chrome | null;
+  chromeRef?: AlarmHostLike | null;
   alarmPrefix?: string | null;
   defaultTimeoutMs?: number | null;
   now?: () => number;
@@ -86,7 +96,7 @@ export function createTabInactivityObserver(options: TabInactivityObserverOption
     scheduledByKey.delete(key);
     const alarms = getAlarmsApi(chromeRef);
     if (alarms && typeof alarms.clear === "function") {
-      await alarms.clear(buildAlarmName(normalizedTabId, scope)).catch(() => false);
+      await Promise.resolve(alarms.clear(buildAlarmName(normalizedTabId, scope))).catch(() => false);
     }
     return true;
   }
@@ -97,7 +107,7 @@ export function createTabInactivityObserver(options: TabInactivityObserverOption
     }
     const alarms = getAlarmsApi(chromeRef);
     if (alarms && typeof alarms.get === "function") {
-      const existing = await alarms.get(alarmName).catch(() => null);
+      const existing = await Promise.resolve(alarms.get(alarmName)).catch(() => null);
       if (existing) {
         return true;
       }
@@ -136,8 +146,8 @@ export function createTabInactivityObserver(options: TabInactivityObserverOption
       tabId: normalizedTabId
     });
     const alarms = getAlarmsApi(chromeRef);
-    if (alarms) {
-      await alarms.create(alarmName, { when: deadlineAt });
+    if (alarms && typeof alarms.create === "function") {
+      await Promise.resolve(alarms.create(alarmName, { when: deadlineAt }));
     }
     await notify({
       type: "scheduled",

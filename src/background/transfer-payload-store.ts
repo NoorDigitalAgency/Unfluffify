@@ -1,7 +1,18 @@
+import { browser } from "../common/browser.js";
 import * as utils from "../common/utilities.js";
 
 export const TRANSFER_PAYLOAD_KEY_PREFIX = "remote-config-";
 const DEFAULT_TRANSFER_PAYLOAD_MAX_AGE_MS = 5 * 60_000;
+
+type StorageHost = typeof globalThis & {
+  browser?: { storage?: { session?: unknown } };
+  chrome?: { storage?: { session?: unknown } };
+};
+
+function getSessionStorageArea(): unknown {
+  const host = globalThis as StorageHost;
+  return host.browser?.storage?.session || host.chrome?.storage?.session || browser.storage.session;
+}
 
 function normalizePayloadKey(payloadKey: unknown): string {
   return typeof payloadKey === "string" ? payloadKey.trim() : "";
@@ -74,7 +85,7 @@ export async function putTransferPayload(
   const scopeForKey = typeof scope === "string" ? scope : "payload";
   const payloadKey = normalizePayloadKey(options.payloadKey) || buildTransferPayloadKey(scopeForKey);
   try {
-    await utils.storageSet(chrome.storage.session, { [payloadKey]: payload });
+    await utils.storageSet(getSessionStorageArea(), { [payloadKey]: payload });
     return { ok: true, payloadKey };
   } catch {
     return { ok: false, reason: "storage_failed", payloadKey: "" };
@@ -92,7 +103,7 @@ export async function getTransferPayload(
 
   let payloadStore = null;
   try {
-    payloadStore = await utils.storageGet(chrome.storage.session, normalizedPayloadKey);
+    payloadStore = await utils.storageGet(getSessionStorageArea(), normalizedPayloadKey);
   } catch {
     return { ok: false, reason: "storage_failed", payloadKey: normalizedPayloadKey };
   }
@@ -142,7 +153,7 @@ export async function removeTransferPayload(payloadKey: unknown): Promise<{ ok: 
     return { ok: false, reason: "missing_key", payloadKey: "" };
   }
   try {
-    await utils.storageRemove(chrome.storage.session, normalizedPayloadKey);
+    await utils.storageRemove(getSessionStorageArea(), normalizedPayloadKey);
     return { ok: true, payloadKey: normalizedPayloadKey };
   } catch {
     return { ok: false, reason: "storage_failed", payloadKey: normalizedPayloadKey };
@@ -160,7 +171,7 @@ export async function sweepStaleTransferPayloads(options = {}) {
 
   let allSession = null;
   try {
-    allSession = await utils.storageGet(chrome.storage.session, null);
+    allSession = await utils.storageGet(getSessionStorageArea(), null);
   } catch {
     return { ok: false, reason: "storage_failed", removedKeys: [] };
   }
@@ -182,7 +193,7 @@ export async function sweepStaleTransferPayloads(options = {}) {
   }
 
   try {
-    await utils.storageRemove(chrome.storage.session, staleKeys);
+    await utils.storageRemove(getSessionStorageArea(), staleKeys);
     return {
       ok: true,
       removedKeys: staleKeys,

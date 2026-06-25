@@ -1,4 +1,5 @@
 import { createBus } from "../../common/bus/bus.js";
+import type { Browser } from "../../common/browser.js";
 import { DIAGNOSTIC_REQUEST_TYPES } from "../../common/bus/contracts/index.js";
 import { POPUP_STATE_EVENT_TYPES, POPUP_STATE_REQUEST_TYPES } from "../../common/bus/contracts/popup-state.js";
 import { SPINNER_EVENT_TYPES, type SpinnerSurface } from "../../common/bus/contracts/spinner.js";
@@ -126,7 +127,7 @@ export function createBrain(options: { logger?: Pick<Console, "error"> } = {}) {
     mirrorLegacySpinnerQueue(tabId: number, queue: readonly PopupLegacySpinnerEntry[], reason: string) {
       return updateSpinnerSelectionsFromLegacyQueue(store, tabId, queue, reason);
     },
-    registerPopupPort(tabId: number, port: chrome.runtime.Port): void {
+    registerPopupPort(tabId: number, port: Browser.runtime.Port): void {
       transport.registerPopupPort(tabId, port);
     },
   };

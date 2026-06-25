@@ -1,10 +1,11 @@
-// Per-tab "Without JavaScript" render-mode hold state, persisted in
-// chrome.storage.session so it survives service-worker restarts and is readable
+// Per-tab "Without JavaScript" render-mode hold state, persisted in extension
+// session storage so it survives service-worker restarts and is readable
 // from the popup. A tab is "no-JS held" when a render-mode "Without JavaScript"
 // inspection has left it running with JavaScript disabled for inspection. The
 // hold is cleared on "With JavaScript", render-mode exit, a genuine navigation,
 // or tab close.
 
+import { browser } from "./browser.js";
 import { storageGet, storageRemove, storageSet } from "./storage-core.js";
 
 const RENDER_MODE_NO_JS_HELD_PREFIX = "renderModeNoJsHeld:";
@@ -14,11 +15,15 @@ function normalizeTabId(value: unknown): number | null {
   return Number.isFinite(numeric) && numeric > 0 ? Math.trunc(numeric) : null;
 }
 
-function getSessionArea(): chrome.storage.StorageArea | null {
+type StorageHost = typeof globalThis & {
+  browser?: { storage?: { session?: unknown } };
+  chrome?: { storage?: { session?: unknown } };
+};
+
+function getSessionArea(): unknown | null {
   try {
-    return globalThis.chrome && chrome.storage && chrome.storage.session
-      ? chrome.storage.session
-      : null;
+    const host = globalThis as StorageHost;
+    return host.browser?.storage?.session || host.chrome?.storage?.session || browser.storage.session || null;
   } catch {
     return null;
   }

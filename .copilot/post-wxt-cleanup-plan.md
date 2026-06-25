@@ -303,25 +303,40 @@ source-contract tests in the same commit without weakening their intent.
 
 ### Phase 4 - Reduce raw Chrome API debt
 
-**Files to edit**
+**Status:** in progress. Batch 1 completed 2026-06-25.
 
-- `tests/browser-polyfill-boundary.test.js`
-- `src/common/browser.ts`
-- low-risk raw Chrome callers first:
+**Completed in batch 1**
+
+- migrated low-risk storage callers to active browser/storage roots with browser
+  seam fallback:
   - `src/background/ai-run-record-store.ts`
   - `src/background/tab-session-store.ts`
   - `src/background/transfer-payload-store.ts`
   - `src/common/settings-store.ts`
   - `src/common/render-mode-js-state.ts`
-- type-only / event-listener surfaces:
+- removed type-only `chrome.runtime.Port` debt from:
   - `src/background/brain/index.ts`
   - `src/background/popup-state-broker.ts`
+- migrated small runtime/event surfaces:
   - `src/background/render-mode-inspector.ts`
   - `src/background/tab-inactivity-observer.ts`
-- likely permanent exception surfaces:
+- moved true WXT-gap surfaces into named boundary exception buckets:
   - `src/common/storage-core.ts`
   - `src/common/page-motion-freeze-bridge.ts`
-- then larger/hotter files:
+
+**Remaining migration-debt files after batch 1**
+
+- `src/background.ts`
+- `src/common/emulation.ts`
+- `src/common/utilities.ts`
+- `src/content/core.ts`
+
+**Files to edit**
+
+- `tests/browser-polyfill-boundary.test.js`
+- `src/common/browser.ts` only if a remaining hot-file migration needs a seam
+  helper; batch 1 did not require direct seam changes
+- remaining larger/hotter migration-debt files:
   - `src/background.ts`
   - `src/common/emulation.ts`
   - `src/common/utilities.ts`

@@ -1,3 +1,4 @@
+import { browser } from "../common/browser.js";
 import { SCRIPT_INJECTED_PREFIX, TAB_STATE_PREFIX } from "../common/constants.js";
 import { storageGet, storageRemove, storageSet } from "../common/storage-core.js";
 
@@ -10,7 +11,17 @@ type TabSessionOptions = {
   includeScriptInjected?: boolean;
 };
 
+type StorageHost = typeof globalThis & {
+  browser?: { storage?: { session?: unknown } };
+  chrome?: { storage?: { session?: unknown } };
+};
+
 const TAB_SESSION_WRITE_QUEUE_BY_TAB_ID = new Map<number, Promise<unknown>>();
+
+function getSessionStorageArea(): unknown {
+  const host = globalThis as StorageHost;
+  return host.browser?.storage?.session || host.chrome?.storage?.session || browser.storage.session;
+}
 
 function normalizeTabId(tabId: unknown): number {
   const normalized = Number(tabId);
@@ -135,7 +146,7 @@ export async function getTabState(tabId: unknown, scope: string | null = null, o
     return null;
   }
   const useNormalization = options && options.normalize !== false;
-  const result = await storageGet(chrome.storage.session, key);
+  const result = await storageGet(getSessionStorageArea(), key);
   const value = (result[key] as TabSessionState) || null;
   return useNormalization ? normalizeTabSessionState(value) : value;
 }
@@ -152,10 +163,10 @@ export async function setTabState(
   }
   const normalizedState = normalizeTabSessionState(state);
   if (options && options.skipQueue) {
-    await storageSet(chrome.storage.session, { [key]: normalizedState });
+    await storageSet(getSessionStorageArea(), { [key]: normalizedState });
     return;
   }
-  await queueTabSessionWrite(tabId, () => storageSet(chrome.storage.session, { [key]: normalizedState }));
+  await queueTabSessionWrite(tabId, () => storageSet(getSessionStorageArea(), { [key]: normalizedState }));
 }
 
 export async function clearTabState(tabId: unknown, options: TabSessionOptions = {}): Promise<void> {
@@ -171,7 +182,7 @@ export async function clearTabState(tabId: unknown, options: TabSessionOptions =
   if (!keysToRemove.length) {
     return;
   }
-  await queueTabSessionWrite(tabId, () => storageRemove(chrome.storage.session, keysToRemove));
+  await queueTabSessionWrite(tabId, () => storageRemove(getSessionStorageArea(), keysToRemove));
 }
 
 export async function clearTabStateScope(tabId: unknown, scope: string | null = null): Promise<void> {
@@ -179,7 +190,7 @@ export async function clearTabStateScope(tabId: unknown, scope: string | null = 
   if (!key) {
     return;
   }
-  await queueTabSessionWrite(tabId, () => storageRemove(chrome.storage.session, key));
+  await queueTabSessionWrite(tabId, () => storageRemove(getSessionStorageArea(), key));
 }
 
 export async function isScriptInjected(tabId: unknown): Promise<boolean> {
@@ -187,7 +198,7 @@ export async function isScriptInjected(tabId: unknown): Promise<boolean> {
   if (!key) {
     return false;
   }
-  const result = await storageGet(chrome.storage.session, key);
+  const result = await storageGet(getSessionStorageArea(), key);
   return Boolean(result[key]);
 }
 
@@ -197,10 +208,10 @@ export async function setScriptInjected(tabId: unknown, injected: unknown): Prom
     return;
   }
   if (injected) {
-    await queueTabSessionWrite(tabId, () => storageSet(chrome.storage.session, { [key]: true }));
+    await queueTabSessionWrite(tabId, () => storageSet(getSessionStorageArea(), { [key]: true }));
     return;
   }
-  await queueTabSessionWrite(tabId, () => storageRemove(chrome.storage.session, key));
+  await queueTabSessionWrite(tabId, () => storageRemove(getSessionStorageArea(), key));
 }
 
 export async function clearScriptInjected(tabId: unknown): Promise<void> {
@@ -208,7 +219,7 @@ export async function clearScriptInjected(tabId: unknown): Promise<void> {
   if (!key) {
     return;
   }
-  await queueTabSessionWrite(tabId, () => storageRemove(chrome.storage.session, key));
+  await queueTabSessionWrite(tabId, () => storageRemove(getSessionStorageArea(), key));
 }
 
 export async function clearTrackedTabSessionState(tabId: unknown, options: TabSessionOptions = {}): Promise<void> {
@@ -228,5 +239,5 @@ export async function clearTrackedTabSessionState(tabId: unknown, options: TabSe
   if (!keysToRemove.length) {
     return;
   }
-  await queueTabSessionWrite(tabId, () => storageRemove(chrome.storage.session, keysToRemove));
+  await queueTabSessionWrite(tabId, () => storageRemove(getSessionStorageArea(), keysToRemove));
 }
