@@ -822,6 +822,11 @@ test("tab reload keeps the inspection curtain active while enabled pages re-insp
     /function beginNavigationInspectionOverlay\(tabId\) \{([\s\S]*?)\n\}/
   )[1];
   assert.match(beginBody, /clearNavigationInspectionSettlePollsExcept\(tabId\);/);
+  const endBody = source.match(
+    /function endNavigationInspectionOverlay\(tabId = popupNavigationInspectionOverlayTabId\) \{([\s\S]*?)\n\}/
+  )[1];
+  assert.match(endBody, /removeSpinnerEntryFromBackground\("navInspect", tabId\)/);
+  assert.match(endBody, /if \(!response\) \{\s*popSpinner\("navInspect"\);/);
 
   const refreshBody = source.match(
     /async function refreshUiInner\(options = \{\}\) \{([\s\S]*?)\n\}\n\nasync function maybeResumePersistedAiRun/

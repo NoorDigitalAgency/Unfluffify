@@ -1441,7 +1441,6 @@ function scheduleStaleInspectionBusyClear(
             { tabId, attempt }
           );
           endNavigationInspectionOverlay(tabId);
-          popSpinner("navInspect");
         } else {
           logPopupSpinnerDebug("stale-inspection-busy-clear", { tabId, attempt });
           uiModule.setUiBusy(false);
@@ -3179,7 +3178,11 @@ function endNavigationInspectionOverlay(tabId = popupNavigationInspectionOverlay
     return;
   }
   if (popupNavigationInspectionOverlayStarted) {
-    popSpinner("navInspect");
+    void removeSpinnerEntryFromBackground("navInspect", tabId).then((response) => {
+      if (!response) {
+        popSpinner("navInspect");
+      }
+    });
   }
   if (tabId) {
     clearRenderModeSetNavGuard(tabId);
