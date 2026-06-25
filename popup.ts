@@ -100,7 +100,15 @@ import type { PopupStateGetReply } from "./common/bus/contracts/popup-state.js";
 import { deriveSpinnerSelectionsFromLegacyQueue } from "./background/brain/deciders/spinner-state-decider.js";
 import { phaseToSpinnerState } from "./background/brain/spinner-authority.js";
 import { createSpinnerOperationLease } from "./common/spinner-contract.js";
-import { requestPopupView, runPopupBusSelfTest, startPopupBusClient } from "./popup/layers/popup-bus-client.js";
+import { SPINNER_REQUEST_TYPES } from "./common/bus/contracts/spinner.js";
+import {
+  requestPopupSpinnerClear,
+  requestPopupSpinnerRemove,
+  requestPopupSpinnerSet,
+  requestPopupView,
+  runPopupBusSelfTest,
+  startPopupBusClient
+} from "./popup/layers/popup-bus-client.js";
 import {
   clearPopupSpinnerSurface,
   getLatestPopupSpinnerState,
@@ -1215,16 +1223,35 @@ function sendSpinnerBrokerMessage(message, options = {}) {
 // @ts-expect-error
     ? options.shouldApplySnapshot
     : () => true;
-  logWorldTrace("runtime-send", { tabId, type: message.type || "" });
-  return messages.sendRuntimeMessage({ tabId, owner: SPINNER_OWNERS.POPUP, ...message })
+  const request = message.type === SPINNER_REQUEST_TYPES.SET
+    ? requestPopupSpinnerSet(tabId, {
+      key: typeof message.key === "string" ? message.key : "",
+      message: typeof message.message === "string" ? message.message : "",
+      persistent: Boolean(message.persistent),
+      reason: typeof message.reason === "string" ? message.reason : "",
+      source: typeof message.source === "string" ? message.source : "",
+      startedAt: Number.isFinite(message.startedAt) ? Number(message.startedAt) : Date.now(),
+      operationId: typeof message.operationId === "string" ? message.operationId : "",
+      operationKind: typeof message.operationKind === "string" ? message.operationKind : "",
+      operationPhase: typeof message.operationPhase === "string" ? message.operationPhase : "",
+      deadlineAt: Number.isFinite(message.deadlineAt) ? Number(message.deadlineAt) : undefined,
+      maxDurationMs: Number.isFinite(message.maxDurationMs) ? Number(message.maxDurationMs) : undefined,
+      blockSurfaces: message.blockSurfaces && typeof message.blockSurfaces === "object"
+        ? message.blockSurfaces
+        : undefined,
+      timerMode: typeof message.timerMode === "string" ? message.timerMode : ""
+    })
+    : Promise.resolve(null);
+  logWorldTrace("bus-send", { tabId, type: message.type || "" });
+  return request
     .then((response) => {
-      if (response && response.ok && shouldApplySnapshot(response)) {
-        applyBackgroundStateSnapshot(response);
+      if (response && shouldApplySnapshot(response)) {
+        applyPopupViewSnapshot(response);
       }
-      logWorldTrace("runtime-response", {
+      logWorldTrace("bus-response", {
         tabId,
         type: message.type || "",
-        ok: Boolean(response && response.ok)
+        ok: Boolean(response)
       });
       return response;
     })
@@ -1248,7 +1275,7 @@ function syncSpinnerEntryToBackground(key) {
       Boolean(currentEntry.persistent) === Boolean(expectedPersistent);
   };
   return sendSpinnerBrokerMessage({
-    type: WORLD_MESSAGE_TYPES.SPINNER_SET,
+    type: SPINNER_REQUEST_TYPES.SET,
     key,
     message: expectedMessage,
     persistent: expectedPersistent,
@@ -1272,30 +1299,28 @@ function removeSpinnerEntryFromBackground(key, tabId = getCurrentPopupTabId()) {
   if (!tabId || !key) {
     return Promise.resolve(null);
   }
-  return messages.sendRuntimeMessage({
-    type: WORLD_MESSAGE_TYPES.SPINNER_REMOVE,
-    tabId,
+  return requestPopupSpinnerRemove(tabId, {
     key
   }).then((response) => {
-    if (response && response.ok) {
-      applyBackgroundStateSnapshot(response);
+    if (response) {
+      applyPopupViewSnapshot(response);
     }
     return response;
   }).catch(() => null);
 }
 
-function clearSpinnerQueueInBackground(tabId = getCurrentPopupTabId(), options = {}) {
+function clearSpinnerQueueInBackground(
+  tabId = getCurrentPopupTabId(),
+  options: { transientOnly?: boolean } = {}
+) {
   if (!tabId) {
     return Promise.resolve(null);
   }
-  return messages.sendRuntimeMessage({
-    type: WORLD_MESSAGE_TYPES.SPINNER_CLEAR,
-    tabId,
-// @ts-expect-error
+  return requestPopupSpinnerClear(tabId, {
     transientOnly: Boolean(options.transientOnly)
   }).then((response) => {
-    if (response && response.ok) {
-      applyBackgroundStateSnapshot(response);
+    if (response) {
+      applyPopupViewSnapshot(response);
     }
     return response;
   }).catch(() => null);

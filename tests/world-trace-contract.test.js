@@ -46,9 +46,10 @@ test("background spinner broker preserves blocking reason metadata", () => {
   assert.match(popupStateBrokerSource, /activeSpinnerLease: normalizedTabId \? getActiveSpinnerLease\(normalizedTabId\) : null/);
   assert.match(backgroundSource, /reason: typeof entry\.reason === "string" && entry\.reason \? entry\.reason : `spinner:\$\{String\(key\)\}`/);
   assert.match(backgroundSource, /source: typeof entry\.source === "string" && entry\.source \? entry\.source : "background-spinner-broker"/);
-  assert.match(backgroundSource, /reason: message\.reason,/);
-  assert.match(backgroundSource, /source: message\.source,/);
-  assert.match(backgroundSource, /startedAt: message\.startedAt/);
+  assert.match(backgroundSource, /brain\.bus\.registerHandler\(SPINNER_REQUEST_TYPES\.SET, \(payload(?:\s*:\s*[^,)]+)?, meta\) => \{/);
+  assert.match(backgroundSource, /setBackgroundSpinnerEntry\(meta\.tab, payload\.key, \{/);
+  assert.match(backgroundSource, /\.\.\.payload,/);
+  assert.match(backgroundSource, /owner: SPINNER_OWNERS\.POPUP/);
 });
 
 test("popup keeps trace diagnostics behind a disabled feature flag", () => {

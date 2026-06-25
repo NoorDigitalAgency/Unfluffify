@@ -9,6 +9,13 @@ import {
   type PopupStateGetPayload,
   type PopupStateGetReply,
 } from "../../common/bus/contracts/popup-state.js";
+import {
+  SPINNER_REQUEST_TYPES,
+  type SpinnerClearRequestPayload,
+  type SpinnerMutationReply,
+  type SpinnerRemoveRequestPayload,
+  type SpinnerSetRequestPayload,
+} from "../../common/bus/contracts/spinner.js";
 import { REALMS } from "../../common/bus/realms.js";
 import { createPopupTransport } from "../../common/bus/transport/popup-transport.js";
 import { startPopupLayerHostWithOptions } from "./layer-host.js";
@@ -80,6 +87,46 @@ export async function requestPopupView(bus: Bus, tabId: number): Promise<PopupSt
   } catch {
     return null;
   }
+}
+
+async function requestPopupSpinnerMutation<Payload>(
+  type: string,
+  tabId: number,
+  payload: Payload,
+): Promise<SpinnerMutationReply | null> {
+  if (!tabId || !popupBus) {
+    return null;
+  }
+  try {
+    return await popupBus.request<Payload, SpinnerMutationReply>(
+      type,
+      payload,
+      { target: REALMS.BACKGROUND, tab: tabId, timeoutMs: 3000 },
+    );
+  } catch {
+    return null;
+  }
+}
+
+export function requestPopupSpinnerSet(
+  tabId: number,
+  payload: SpinnerSetRequestPayload,
+): Promise<SpinnerMutationReply | null> {
+  return requestPopupSpinnerMutation(SPINNER_REQUEST_TYPES.SET, tabId, payload);
+}
+
+export function requestPopupSpinnerRemove(
+  tabId: number,
+  payload: SpinnerRemoveRequestPayload,
+): Promise<SpinnerMutationReply | null> {
+  return requestPopupSpinnerMutation(SPINNER_REQUEST_TYPES.REMOVE, tabId, payload);
+}
+
+export function requestPopupSpinnerClear(
+  tabId: number,
+  payload: SpinnerClearRequestPayload,
+): Promise<SpinnerMutationReply | null> {
+  return requestPopupSpinnerMutation(SPINNER_REQUEST_TYPES.CLEAR, tabId, payload);
 }
 
 export function startPopupBusClient(tabId: number, options: PopupBusClientOptions = {}): Bus {

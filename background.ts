@@ -40,6 +40,12 @@ import {
   isDebugFlagEnabled,
   isFeatureEnabled
 } from "./common/feature-flags.js";
+import {
+  SPINNER_REQUEST_TYPES,
+  type SpinnerClearRequestPayload,
+  type SpinnerRemoveRequestPayload,
+  type SpinnerSetRequestPayload
+} from "./common/bus/contracts/spinner.js";
 import * as constants from "./common/constants.js";
 import {
   normalizeSiteIdValue
@@ -2188,6 +2194,35 @@ async function withBackgroundTabSpinner(tabId, descriptor, work) {
   return spinnerOperations.withTabSpinner(tabId, descriptor, work);
 }
 
+brain.bus.registerHandler(SPINNER_REQUEST_TYPES.SET, (payload: SpinnerSetRequestPayload, meta) => {
+  if (!meta.tab) {
+    throw new Error("spinner.entry.set requires a tab id");
+  }
+  setBackgroundSpinnerEntry(meta.tab, payload.key, {
+    ...payload,
+    owner: SPINNER_OWNERS.POPUP
+  });
+  return brain.getPopupView(meta.tab);
+});
+
+brain.bus.registerHandler(SPINNER_REQUEST_TYPES.REMOVE, (payload: SpinnerRemoveRequestPayload, meta) => {
+  if (!meta.tab) {
+    throw new Error("spinner.entry.remove requires a tab id");
+  }
+  removeBackgroundSpinnerEntry(meta.tab, payload.key);
+  return brain.getPopupView(meta.tab);
+});
+
+brain.bus.registerHandler(SPINNER_REQUEST_TYPES.CLEAR, (payload: SpinnerClearRequestPayload, meta) => {
+  if (!meta.tab) {
+    throw new Error("spinner.queue.clear requires a tab id");
+  }
+  clearBackgroundSpinnerQueue(meta.tab, {
+    transientOnly: Boolean(payload.transientOnly)
+  });
+  return brain.getPopupView(meta.tab);
+});
+
 const tabOperationRunner = createTabOperationRunner({
 // @ts-expect-error
   normalizeTabId: normalizeBrokerTabId,
@@ -2613,41 +2648,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const tabId = getMessageTabId(message, sender);
     const state = updateLifecycleState(tabId, message.event || {});
     sendResponse(state);
-    return;
-  }
-
-  if (message.type === WORLD_MESSAGE_TYPES.SPINNER_SET) {
-    sendResponse(setBackgroundSpinnerEntry(
-      getMessageTabId(message, sender),
-      message.key,
-      {
-        message: message.message,
-        persistent: message.persistent,
-        owner: message.owner,
-        reason: message.reason,
-        source: message.source,
-        startedAt: message.startedAt,
-        operationId: message.operationId,
-        operationKind: message.operationKind,
-        operationPhase: message.operationPhase,
-        deadlineAt: message.deadlineAt,
-        maxDurationMs: message.maxDurationMs,
-        blockSurfaces: message.blockSurfaces,
-        timerMode: message.timerMode
-      }
-    ));
-    return;
-  }
-
-  if (message.type === WORLD_MESSAGE_TYPES.SPINNER_REMOVE) {
-    sendResponse(removeBackgroundSpinnerEntry(getMessageTabId(message, sender), message.key));
-    return;
-  }
-
-  if (message.type === WORLD_MESSAGE_TYPES.SPINNER_CLEAR) {
-    sendResponse(clearBackgroundSpinnerQueue(getMessageTabId(message, sender), {
-      transientOnly: Boolean(message.transientOnly)
-    }));
     return;
   }
 

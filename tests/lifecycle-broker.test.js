@@ -83,9 +83,9 @@ test("background exposes lifecycle and spinner state over broker updates and bus
   );
   assert.match(backgroundSource, /if \(message\.type === WORLD_MESSAGE_TYPES\.LIFECYCLE_EVENT\) \{/);
   assert.doesNotMatch(backgroundSource, /if \(message\.type === WORLD_MESSAGE_TYPES\.GET_BACKGROUND_STATE\) \{/);
-  assert.match(backgroundSource, /if \(message\.type === WORLD_MESSAGE_TYPES\.SPINNER_SET\) \{/);
-  assert.match(backgroundSource, /if \(message\.type === WORLD_MESSAGE_TYPES\.SPINNER_REMOVE\) \{/);
-  assert.match(backgroundSource, /if \(message\.type === WORLD_MESSAGE_TYPES\.SPINNER_CLEAR\) \{/);
+  assert.match(backgroundSource, /brain\.bus\.registerHandler\(SPINNER_REQUEST_TYPES\.SET, \(payload(?:\s*:\s*[^,)]+)?, meta\) => \{/);
+  assert.match(backgroundSource, /brain\.bus\.registerHandler\(SPINNER_REQUEST_TYPES\.REMOVE, \(payload(?:\s*:\s*[^,)]+)?, meta\) => \{/);
+  assert.match(backgroundSource, /brain\.bus\.registerHandler\(SPINNER_REQUEST_TYPES\.CLEAR, \(payload(?:\s*:\s*[^,)]+)?, meta\) => \{/);
 });
 
 test("background restore activation starts an operation and passes its id to content", () => {
@@ -129,9 +129,9 @@ test("popup spinner UI mirrors background current state instead of session stora
   assert.match(popupSource, /function applyBackgroundStateSnapshot\(snapshot\) \{/);
   assert.match(popupSource, /function applyPopupViewSnapshot\(snapshot(?:: [^)]+)?\) \{/);
   assert.match(popupSource, /function syncUiBusyFromBrokerState\(\) \{/);
-  assert.match(popupSource, /type: WORLD_MESSAGE_TYPES\.SPINNER_SET/);
-  assert.match(popupSource, /type: WORLD_MESSAGE_TYPES\.SPINNER_REMOVE/);
-  assert.match(popupSource, /type: WORLD_MESSAGE_TYPES\.SPINNER_CLEAR/);
+  assert.match(popupSource, /type: SPINNER_REQUEST_TYPES\.SET/);
+  assert.match(popupSource, /requestPopupSpinnerRemove\(tabId, \{/);
+  assert.match(popupSource, /requestPopupSpinnerClear\(tabId, \{/);
   assert.doesNotMatch(popupSource, /restoreSpinnerQueueFromStorage/);
   assert.doesNotMatch(popupSource, /persistSpinnerQueueToStorage/);
 });

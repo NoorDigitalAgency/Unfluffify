@@ -74,6 +74,9 @@ export function createBrain(options: { logger?: Pick<Console, "error"> } = {}) {
     bus,
     store,
     transport,
+    getPopupView(tabId: number) {
+      return getPopupView(store, tabId);
+    },
     mirrorPopupState(tabId: number, brokerState: PopupBrokerState, reason: string) {
       return updatePopupViewFromBrokerState(store, tabId, brokerState, reason);
     },

@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 
 import { DIAGNOSTIC_REQUEST_TYPES } from "../common/bus/contracts/index.js";
@@ -96,5 +97,17 @@ describe("popup bus self-test", () => {
       {},
       { target: REALMS.BACKGROUND, tab: 11, timeoutMs: 3000 },
     );
+  });
+
+  it("allows spinner mutation requests to target an explicit tab after the popup bus retargets", () => {
+    const source = readFileSync(new URL("../popup/layers/popup-bus-client.ts", import.meta.url), "utf8");
+    const mutationBody = source.match(
+      /async function requestPopupSpinnerMutation<Payload>\([\s\S]*?\): Promise<SpinnerMutationReply \| null> \{([\s\S]*?)\n\}/
+    )?.[1];
+
+    expect(mutationBody).toBeTruthy();
+    expect(mutationBody).toMatch(/if \(!tabId \|\| !popupBus\) \{/);
+    expect(mutationBody).not.toMatch(/popupBusTabId !== tabId/);
+    expect(mutationBody).toMatch(/\{ target: REALMS\.BACKGROUND, tab: tabId, timeoutMs: 3000 \}/);
   });
 });
