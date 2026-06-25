@@ -68,7 +68,7 @@ export function createRpcServer(options = {}) {
   const transcriptPath = join(runDir, "rpc.log");
   const expectedToken = options.token || Deno.env.get("UNFLUFFIFY_RPC_TOKEN") || "";
   const repoPath = resolve(options.repoPath || Deno.cwd());
-  const extensionPath = resolve(options.extensionPath || Deno.cwd());
+  const extensionPath = resolve(options.extensionPath || join(Deno.cwd(), ".output", "chrome-mv3"));
   const startMs = Date.now();
   const peers = new Set();
 
@@ -281,7 +281,9 @@ async function main() {
   const runRoot = typeof args["run-root"] === "string" ? args["run-root"] : resolve("orchestration/runs");
   const token = typeof args.token === "string" ? args.token : Deno.env.get("UNFLUFFIFY_RPC_TOKEN") || "";
   const repoPath = typeof args["repo-path"] === "string" ? args["repo-path"] : Deno.cwd();
-  const extensionPath = typeof args["extension-path"] === "string" ? args["extension-path"] : Deno.cwd();
+  const extensionPath = typeof args["extension-path"] === "string"
+    ? args["extension-path"]
+    : join(Deno.cwd(), ".output", "chrome-mv3");
   const rpc = createRpcServer({ host, runRoot, token, repoPath, extensionPath });
   const listening = await rpc.listen(port);
   console.log(`[rpc] listening ${listening.url}`);

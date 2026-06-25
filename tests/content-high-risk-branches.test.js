@@ -1,15 +1,15 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 import { readFileSync } from "./file-kit.ts";
+import wxtConfig from "../wxt.config";
 
 const contentMainSource = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
 const runtimeMessageHandlerSource = readFileSync(
   new URL("../content/runtime-message-handler.ts", import.meta.url),
   "utf8"
 );
-const manifest = JSON.parse(readFileSync(new URL("../manifest.json", import.meta.url), "utf8"));
 const manifestResources = new Set(
-  manifest.web_accessible_resources.flatMap((entry) => entry.resources || [])
+  (wxtConfig.manifest?.web_accessible_resources || []).flatMap((entry) => entry.resources || [])
 );
 
 const remainingHighRiskBranches = new Map([
@@ -98,7 +98,7 @@ function assertManifestDoesNotExposeContentModule(moduleName) {
   assert.equal(
     manifestResources.has(`content/${moduleName}.js`),
     false,
-    `expected manifest.json to stop exposing content/${moduleName}.js`
+    `expected WXT manifest config to stop exposing content/${moduleName}.js`
   );
 }
 

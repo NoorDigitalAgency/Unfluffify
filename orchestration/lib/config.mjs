@@ -7,6 +7,7 @@ const DEFAULT_CONFIG_PATHS = [
 ];
 const DEFAULT_PROFILE_DIR = "orchestration/profiles/director";
 const DEFAULT_TEST_PROPERTY_URL = "https://www.bonliva.no/";
+const DEFAULT_EXTENSION_PATH = ".output/chrome-mv3";
 
 export function parseCliArgs(argv = []) {
   const result = {};
@@ -205,7 +206,10 @@ export async function loadOrchestrationConfig(options = {}) {
   const account = normalizeString(merged.account) || side;
   const busHost = normalizeString(merged.busHost) || "127.0.0.1";
   const busPort = normalizePort(merged.busPort);
-  const extensionPath = resolveMaybeRelativePath(merged.extensionPath || ".", cwd);
+  const extensionPath = resolveMaybeRelativePath(
+    merged.extensionPath || DEFAULT_EXTENSION_PATH,
+    cwd,
+  );
   const profileDir = resolveMaybeRelativePath(merged.profileDir || DEFAULT_PROFILE_DIR, cwd);
   const mediaModeFromLegacy = normalizeBooleanLike(merged.useFakeMedia);
   const mediaMode = deriveMediaMode(merged.mediaMode, mediaModeFromLegacy);

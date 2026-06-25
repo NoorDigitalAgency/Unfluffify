@@ -35,9 +35,9 @@
   // installed in this repo. Leave blank to use normal module resolution.
   "playwrightModulePath": "",
 
-  // Path to the unpacked extension root. When running commands from the repo
-  // root, "." is this extension checkout.
-  "extensionPath": ".",
+  // Path to the unpacked extension root. The supported WXT output is
+  // `.output/chrome-mv3`.
+  "extensionPath": ".output/chrome-mv3",
 
   // Persistent Chrome profile directory for this side. Use a different
   // directory per side/account so auth and extension state do not collide.

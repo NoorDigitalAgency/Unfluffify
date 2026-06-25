@@ -2,14 +2,15 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { defineConfig } from "wxt";
 
-const sourceManifest = JSON.parse(
-  readFileSync(new URL("./manifest.json", import.meta.url), "utf8"),
+const packageJson = JSON.parse(
+  readFileSync(new URL("./package.json", import.meta.url), "utf8"),
 );
+const SOURCE_ACTION = {
+  default_title: "Unfluffify",
+};
 
 export function restoreSourceAction(manifest: Record<string, unknown>) {
-  if (sourceManifest?.action) {
-    manifest.action = structuredClone(sourceManifest.action);
-  }
+  manifest.action = structuredClone(SOURCE_ACTION);
 }
 
 const REQUIRED_PUBLIC_ASSETS = [
@@ -58,12 +59,10 @@ export default defineConfig({
   },
   manifest: {
     name: "Unfluffify",
-    version: sourceManifest.version,
+    version: packageJson.version,
     description:
       "Chrome extension to label what's non-meaningful text content to help AI find the meaningful text content.",
-    action: {
-      default_title: "Unfluffify",
-    },
+    action: SOURCE_ACTION,
     permissions: [
       "storage",
       "sidePanel",

@@ -2,7 +2,7 @@
  * @fileoverview Page-world (MAIN) document_start bridge for page-motion freeze.
  *
  * This classic content script is injected at document_start into the page's MAIN
- * world (see manifest.json content_scripts). Running before the page's own
+ * world (see entrypoints/page-motion-freeze-bridge.content.ts). Running before the page's own
  * scripts lets it install the lazy-loading interception (IntersectionObserver /
  * ResizeObserver constructors and scroll/wheel/touchmove listeners) BEFORE the
  * page creates its lazy-load observers. Wrapping them after the fact (the old

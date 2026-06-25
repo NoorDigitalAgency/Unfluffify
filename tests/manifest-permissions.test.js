@@ -1,22 +1,29 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 import { existsSync, readFile } from "./file-kit.ts";
+import wxtConfig from "../wxt.config";
+
+function readSourceManifestContract() {
+  return {
+    manifest_version: wxtConfig.manifestVersion,
+    ...structuredClone(wxtConfig.manifest || {}),
+  };
+}
 
 function resolveManifestUrl() {
-  const manifestSource = process.env.UF_MANIFEST_SOURCE || "source";
-  if (manifestSource === "generated") {
-    const generatedManifestUrl = new URL("../.output/chrome-mv3/manifest.json", import.meta.url);
-    assert.ok(
-      existsSync(generatedManifestUrl),
-      "Expected generated WXT manifest at .output/chrome-mv3/manifest.json",
-    );
-    return generatedManifestUrl;
-  }
-  return new URL("../manifest.json", import.meta.url);
+  const generatedManifestUrl = new URL("../.output/chrome-mv3/manifest.json", import.meta.url);
+  assert.ok(
+    existsSync(generatedManifestUrl),
+    "Expected generated WXT manifest at .output/chrome-mv3/manifest.json",
+  );
+  return generatedManifestUrl;
 }
 
 async function readManifestUnderTest() {
-  return JSON.parse(await readFile(resolveManifestUrl()));
+  if ((process.env.UF_MANIFEST_SOURCE || "source") === "generated") {
+    return JSON.parse(await readFile(resolveManifestUrl()));
+  }
+  return readSourceManifestContract();
 }
 
 test("manifest uses extension-compatible media permissions", async () => {

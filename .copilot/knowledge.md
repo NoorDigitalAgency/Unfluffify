@@ -51,10 +51,10 @@
 ## WXT migration facts
 
 - WXT treats `entrypoints/popup.html` / `entrypoints/popup/index.html` as a
-  special popup entrypoint and auto-generates `action.default_popup`. When the
-  source-of-truth manifest intentionally omits that field (as Unfluffify does
-  for side-panel-driven popup opening), the generated manifest still needs its
-  `action` block restored to the source contract before shipping.
+  special popup entrypoint and auto-generates `action.default_popup`. Unfluffify
+  now keeps the manifest contract entirely in `wxt.config.ts` (version from
+  `package.json`), and the generated manifest still needs its `action` block
+  restored to the source contract before shipping.
 - WXT emits content-script bundles under `content-scripts/<name>.js`. After C5,
   Unfluffify's source manifest and manual injection paths use those native WXT
   output paths directly instead of materializing root alias files.

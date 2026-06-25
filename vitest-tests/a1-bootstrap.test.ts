@@ -9,9 +9,37 @@ const REPO_ROOT = resolve(import.meta.dirname, "..");
 const packageJson = JSON.parse(
   readFileSync(resolve(REPO_ROOT, "package.json"), "utf8"),
 );
-const sourceManifest = JSON.parse(
-  readFileSync(resolve(REPO_ROOT, "manifest.json"), "utf8"),
-);
+const EXPECTED_ACTION = {
+  default_title: "Unfluffify",
+};
+const EXPECTED_PERMISSIONS = [
+  "storage",
+  "sidePanel",
+  "tabs",
+  "scripting",
+  "debugger",
+  "alarms",
+  "browsingData",
+  "webNavigation",
+  "activeTab",
+  "offscreen",
+];
+const EXPECTED_HOST_PERMISSIONS = ["<all_urls>"];
+const EXPECTED_WAR = [
+  {
+    resources: [
+      "assets/materialdesignicons-webfont.woff2",
+      "cursors/*.svg",
+    ],
+    matches: ["<all_urls>"],
+  },
+];
+const EXPECTED_ICONS = {
+  "16": "icons/default/icon16.png",
+  "32": "icons/default/icon32.png",
+  "48": "icons/default/icon48.png",
+  "128": "icons/default/icon128.png",
+};
 
 describe("WXT Part A bridge", () => {
   it("defines the expected bootstrap scripts", () => {
@@ -43,21 +71,21 @@ describe("WXT Part A bridge", () => {
     expect(wxtConfig.manifestVersion).toBe(3);
   });
 
-  it("keeps the baseline manifest fields that still belong in wxt.config during A2", () => {
-    expect(wxtConfig.manifest?.name).toBe(sourceManifest.name);
-    expect(wxtConfig.manifest?.version).toBe(sourceManifest.version);
-    expect(wxtConfig.manifest?.description).toBe(sourceManifest.description);
-    expect(wxtConfig.manifest?.action).toEqual(sourceManifest.action);
-    expect(wxtConfig.manifest?.permissions).toEqual(sourceManifest.permissions);
+  it("keeps the manifest contract in wxt.config as the single source of truth", () => {
+    expect(wxtConfig.manifest?.name).toBe("Unfluffify");
+    expect(wxtConfig.manifest?.version).toBe(packageJson.version);
+    expect(wxtConfig.manifest?.description).toBe(
+      "Chrome extension to label what's non-meaningful text content to help AI find the meaningful text content.",
+    );
+    expect(wxtConfig.manifest?.action).toEqual(EXPECTED_ACTION);
+    expect(wxtConfig.manifest?.permissions).toEqual(EXPECTED_PERMISSIONS);
     expect(wxtConfig.manifest?.host_permissions).toEqual(
-      sourceManifest.host_permissions,
+      EXPECTED_HOST_PERMISSIONS,
     );
     expect(wxtConfig.manifest).not.toHaveProperty("background");
     expect(wxtConfig.manifest).not.toHaveProperty("content_scripts");
-    expect(wxtConfig.manifest?.web_accessible_resources).toEqual(
-      sourceManifest.web_accessible_resources,
-    );
-    expect(wxtConfig.manifest?.icons).toEqual(sourceManifest.icons);
+    expect(wxtConfig.manifest?.web_accessible_resources).toEqual(EXPECTED_WAR);
+    expect(wxtConfig.manifest?.icons).toEqual(EXPECTED_ICONS);
   });
 
   it("restores the source-owned action after WXT generation", () => {
@@ -73,26 +101,5 @@ describe("WXT Part A bridge", () => {
         default_title: "Unfluffify",
       },
     });
-  });
-
-  it("keeps WXT-native content-script paths in the source manifest", () => {
-    expect(sourceManifest.background).toEqual({
-      service_worker: "background.js",
-      type: "module",
-    });
-    expect(sourceManifest.content_scripts).toEqual([
-      {
-        matches: ["<all_urls>"],
-        js: ["content-scripts/page-motion-freeze-bridge.js"],
-        run_at: "document_start",
-        all_frames: true,
-        world: "MAIN",
-      },
-      {
-        matches: ["<all_urls>"],
-        js: ["content-scripts/content-loader.js"],
-        run_at: "document_start",
-      },
-    ]);
   });
 });

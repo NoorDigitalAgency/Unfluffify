@@ -2,6 +2,7 @@ import { dirname, join, resolve, toFileUrl } from "@std/path";
 
 const DEFAULT_VIEWPORT = { width: 1280, height: 1024 };
 const CHROME_PROFILE_PREFERENCES_PATH = join("Default", "Preferences");
+const DEFAULT_EXTENSION_PATH = join(Deno.cwd(), ".output", "chrome-mv3");
 
 async function resolvePlaywright(config) {
   const candidates = [
@@ -30,7 +31,7 @@ async function resolvePlaywright(config) {
 }
 
 export function buildChromeLaunchArgs(config = {}) {
-  const extensionPath = config.extensionPath || Deno.cwd();
+  const extensionPath = config.extensionPath || DEFAULT_EXTENSION_PATH;
   const mediaMode = config.mediaMode === "real" ? "real" : "fake";
   const extraOrigins = Array.isArray(config.insecureOrigins) ? config.insecureOrigins : [];
   const originCandidates = [config.testPropertyUrl, config.supportPageUrl, ...extraOrigins]
@@ -206,7 +207,7 @@ export async function clearDisabledUnpackedExtensionPreference(config = {}) {
     return { ok: true, cleared: 0, reason: "missingProfileDir" };
   }
 
-  const extensionPath = resolve(config.extensionPath || Deno.cwd());
+  const extensionPath = resolve(config.extensionPath || DEFAULT_EXTENSION_PATH);
   const preferencesPath = join(profileDir, CHROME_PROFILE_PREFERENCES_PATH);
   let rawPreferences;
   try {

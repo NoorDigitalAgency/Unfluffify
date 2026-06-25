@@ -1,12 +1,13 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 import { readFileSync } from "./file-kit.ts";
+import wxtConfig from "../wxt.config";
 
 const backgroundSource = readFileSync(new URL("../background.ts", import.meta.url), "utf8");
 const renderModeInspectorSource = readFileSync(new URL("../background/render-mode-inspector.ts", import.meta.url), "utf8");
 const popupSource = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
 const popupMessagesSource = readFileSync(new URL("../popup/messages.ts", import.meta.url), "utf8");
-const manifestSource = readFileSync(new URL("../manifest.json", import.meta.url), "utf8");
+const manifestPermissions = wxtConfig.manifest?.permissions || [];
 
 test("background keeps only the granular render-mode helper commands tab-scoped", () => {
   assert.match(backgroundSource, /TAB_BEGIN_RENDER_MODE_INSPECTION: "TAB_BEGIN_RENDER_MODE_INSPECTION"/);
@@ -125,7 +126,6 @@ test("background executeRenderModeInspectionEnd restores JavaScript and clears t
 });
 
 test("background restores no-JS render-mode holds after central tab inactivity", () => {
-  const manifest = JSON.parse(manifestSource);
   const commandBlock = backgroundSource.match(
     /async function executeRenderModeInspection\([\s\S]*?\{([\s\S]*?)\n\}\n\nregisterBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_RUN_AI/
   )[1];
@@ -133,7 +133,7 @@ test("background restores no-JS render-mode holds after central tab inactivity",
     /if \(message\.type === "pageActivityObserved"\) \{([\s\S]*?)\n {2}\}\n\n {2}if \(PROPERTY_LOCK_MESSAGE_TYPES/
   )[1];
 
-  assert.equal(manifest.permissions.includes("alarms"), true);
+  assert.equal(manifestPermissions.includes("alarms"), true);
   assert.match(backgroundSource, /from "\.\/background\/tab-inactivity-observer\.js"/);
   assert.match(backgroundSource, /const RENDER_MODE_NO_JS_INACTIVITY_SCOPE = "render-mode-no-js";/);
   assert.match(backgroundSource, /const RENDER_MODE_NO_JS_INACTIVITY_TIMEOUT_MS = 30_000;/);

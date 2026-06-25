@@ -1,5 +1,5 @@
 import { assert } from "./test-kit.ts";
-import { mkdtemp, rm } from "./file-kit.ts";
+import { mkdir, mkdtemp, rm, writeFile } from "./file-kit.ts";
 import os from "node:os";
 import { path } from "./file-kit.ts";
 import { test } from "./test-kit.ts";
@@ -44,13 +44,21 @@ class MockWebSocket {
   }
 }
 
+async function createExtensionRoot(baseDir) {
+  const extensionPath = path.join(baseDir, "extension");
+  await mkdir(extensionPath, { recursive: true });
+  await writeFile(path.join(extensionPath, "manifest.json"), "{}\n");
+  return extensionPath;
+}
+
 test("rpc server handles system.ping and system.preflight over json-rpc", async () => {
   const runRoot = await mkdtemp(path.join(os.tmpdir(), "unfluffify-rpc-test-"));
+  const extensionPath = await createExtensionRoot(runRoot);
   const rpc = createRpcServer({
     runRoot,
     token: "secret-token",
     repoPath: process.cwd(),
-    extensionPath: process.cwd()
+    extensionPath,
   });
 
   try {
@@ -95,11 +103,12 @@ test("rpc client wraps non-Error open failures in Error instances", async () => 
 
 test("rpc server enforces upgrade token when configured", async () => {
   const runRoot = await mkdtemp(path.join(os.tmpdir(), "unfluffify-rpc-auth-test-"));
+  const extensionPath = await createExtensionRoot(runRoot);
   const rpc = createRpcServer({
     runRoot,
     token: "secret-token",
     repoPath: process.cwd(),
-    extensionPath: process.cwd()
+    extensionPath,
   });
 
   try {
@@ -188,10 +197,11 @@ test("rpc client wraps JSON-RPC error responses in Error instances", async () =>
 
 test("rpc server method-not-found errors use stable message and include method in data", async () => {
   const runRoot = await mkdtemp(path.join(os.tmpdir(), "unfluffify-rpc-method-not-found-test-"));
+  const extensionPath = await createExtensionRoot(runRoot);
   const rpc = createRpcServer({
     runRoot,
     repoPath: process.cwd(),
-    extensionPath: process.cwd()
+    extensionPath,
   });
 
   try {

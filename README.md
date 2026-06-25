@@ -187,8 +187,8 @@ deno test --allow-read --allow-write --allow-env --allow-run --allow-sys --allow
 ### Resources
 
 - **`popup.css`** - Popup UI styles
-- **`popup.html`** - Popup container
-- **`manifest.json`** - Extension manifest (Manifest V3)
+- **`entrypoints/popup/index.html`** - Popup entrypoint container
+- **`wxt.config.ts`** - WXT config and manifest source of truth
 - **`icons/`** - Extension icons
 - **`cursors/`** - Custom cursor SVGs
 - **`assets/`** - Material Design Icons

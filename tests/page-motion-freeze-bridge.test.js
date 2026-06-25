@@ -10,6 +10,10 @@ const bridgeSource = readFileSync(
   new URL("../common/page-motion-freeze-bridge.ts", import.meta.url),
   "utf8"
 );
+const bridgeEntrypointSource = readFileSync(
+  new URL("../entrypoints/page-motion-freeze-bridge.content.ts", import.meta.url),
+  "utf8"
+);
 const controlSource = readFileSync(
   new URL("../common/page-motion-freeze-control.ts", import.meta.url),
   "utf8"
@@ -47,16 +51,11 @@ test("page-motion-freeze bridge embeds a control function identical to the modul
 });
 
 test("page-motion-freeze bridge registered at document_start in the MAIN world", () => {
-  const manifest = JSON.parse(
-    readFileSync(new URL("../manifest.json", import.meta.url), "utf8")
-  );
-  const bridgeEntry = (manifest.content_scripts || []).find(
-    (entry) => Array.isArray(entry.js) && entry.js.includes("content-scripts/page-motion-freeze-bridge.js")
-  );
-  assert.ok(bridgeEntry, "Expected a content_scripts entry for the bridge");
-  assert.equal(bridgeEntry.run_at, "document_start");
-  assert.equal(bridgeEntry.world, "MAIN");
-  assert.equal(bridgeEntry.all_frames, true);
+  assert.match(bridgeEntrypointSource, /defineContentScript\(\{/);
+  assert.match(bridgeEntrypointSource, /runAt:\s*"document_start"/);
+  assert.match(bridgeEntrypointSource, /allFrames:\s*true/);
+  assert.match(bridgeEntrypointSource, /world:\s*"MAIN"/);
+  assert.match(bridgeEntrypointSource, /matches:\s*\["<all_urls>"\]/);
 });
 
 function createObserverWindow() {
