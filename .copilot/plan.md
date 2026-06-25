@@ -4,13 +4,13 @@ Last updated: 2026-06-25
 
 ## Objective
 
-Execute Part C of the WXT program on `feat/wxt-port-plan`: make the extension
-genuinely WXT-native at runtime by moving from the current hybrid
-WXT-wrapper-plus-`legacy/` mirror shape to WXT-bundled entry graphs, while
-preserving the existing higher-level architecture (typed bus, background Brain
-authority, popup/content layer hosts) and all locked runtime behavior
-(marking/highlighting, silent-highlight, visibility, reconciliation, XPath,
-AI-submission, property-lock, spinner/activation contracts).
+With Part C complete on `feat/wxt-port-plan`, resume Part B of the event-bus
+program by continuing the Brain/layer migration on the WXT-native runtime
+baseline. The next active slice is Track 4 (render-mode inspection), which must
+move render-mode inspection authority into the Brain while preserving all locked
+runtime behavior (marking/highlighting, silent-highlight, visibility,
+reconciliation, XPath, AI-submission, property-lock, spinner/activation
+contracts, and the already-fixed Bonliva render-mode flow).
 
 ## Active Documents
 
@@ -20,7 +20,7 @@ Use these documents before making implementation changes:
 2. `.copilot/handoff-world-decomposition.md`
 3. `.copilot/knowledge.md`
 4. `.copilot/event-bus-architecture-plan.md`
-5. `.copilot/event-bus/track-03-activation-lifecycle-content-bootstrap.md`
+5. `.copilot/event-bus/track-04-render-mode-inspection.md`
 6. `.copilot/content-main-followup-refactor-plan.md`
 7. `.copilot/high-risk-content-branches-plan.md` (historical G0-G5 reference only)
 8. `.copilot/typescript-deno-port-plan.md` (completed: autonomous port to TypeScript with a Deno build/watch/hot-reload toolchain; branch `feat/typescript-deno-port`)
@@ -39,7 +39,22 @@ old archive files into the active `.copilot` folder.
 
 ## Current Architecture Track
 
-The active track is now `.copilot/wxt-native-adoption-plan.md`:
+The active track is now `.copilot/event-bus/track-04-render-mode-inspection.md`:
+
+1. **Part C is complete**: the runtime is now fully WXT-native on this branch,
+   including the browser seam, storage seam, hybrid extension messaging, and the
+   final Bonliva render-mode regression closeout.
+2. **Event-bus Tracks 0-3 are complete**: the typed bus core, popup state
+   projection, spinner authority, and activation/lifecycle/bootstrap authority
+   are all green and already live on this branch.
+3. **Track 4 is next**: move render-mode inspection orchestration into a new
+   Brain render-mode decider plus popup/content executors, replacing the
+   remaining direct popup/background render-mode wire without changing behavior.
+4. The current Track 4 executor doc is
+   `.copilot/event-bus/track-04-render-mode-inspection.md`; follow it literally
+   and do not infer scope beyond the written phases.
+
+Historical Part C status on this branch:
 
 1. **C0 is complete**: green `pnpm verify` baseline confirmed, branch clean and
    in sync, generated manifest WAR snapshot captured, and the exact test files
