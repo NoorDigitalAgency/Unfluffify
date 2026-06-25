@@ -1,18 +1,20 @@
 # Content Main Runtime Router Plan
 
-Last updated: 2026-06-12
-Status: CURRENT EXECUTOR PLAN - Track H is active. Track F and high-risk phases G0-G5 are complete historical work.
+Last updated: 2026-06-25
+Status: HISTORICAL EXECUTOR RECORD ONLY. Track H through H3 is complete on
+`feat/wxt-port-plan`. Do not resume deeper `content-main.js` extraction from
+this file alone; a new post-H3 review plan is required first.
 
 ## Purpose
 
-This plan is the active, executor-grade follow-up for `content-main.js` after
-G5. The goal is structural only: reduce the remaining `content-main.js`
-entanglement without changing any locked marking, save, preview, property-lock,
-or render-mode behavior.
+This plan records the executor-grade follow-up that carried `content-main.js`
+through Track H3 after G5. The goal of that completed work was structural only:
+reduce the remaining `content-main.js` entanglement without changing any locked
+marking, save, preview, property-lock, or render-mode behavior.
 
-This track is intentionally written so a less capable model can execute it
-mechanically. The design decisions have already been made here. The executor
-must follow them literally instead of inventing a new architecture.
+Treat this file as the historical ceiling for H0-H3 plus the explicit stop
+condition after H3. It is not approval to continue into deeper mutable-state
+extraction.
 
 ## Current Baseline
 
@@ -113,9 +115,9 @@ Do not drift into these areas during this plan.
 9. Moving the large mutable property-lock or silent-highlighting state clusters
    out of `content-main.js`.
 
-## Required Baseline Before Every Phase
+## Historical Baseline Before Each Completed Phase
 
-Run before each phase:
+During the original H0-H3 execution, each phase used this baseline:
 
 ```bash
 git status --short --branch
@@ -123,7 +125,7 @@ git pull --ff-only
 npm test
 ```
 
-Expected:
+Historical expectation:
 
 1. Clean `main...origin/main`.
 2. Full suite passes.

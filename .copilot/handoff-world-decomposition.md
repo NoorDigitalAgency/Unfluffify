@@ -1,13 +1,26 @@
 # Handoff - Content Main Decomposition
 
-Last updated: 2026-06-23
-Branch: `main`
-Status: world decomposition complete; content follow-up D0-D2, E0-E2, Track F F1-F24, and high-risk phases G0-G5 complete. Track H runtime-router/service work H0-H3 is complete and remains paused for post-H3 review. Temporary immediate priority: the popup preview-exit button-state contract bugfix documented in `.copilot/popup-preview-exit-button-state-plan.md`.
+Last updated: 2026-06-25
+Branch: `feat/wxt-port-plan`
+Status: world decomposition complete; content follow-up D0-D2, E0-E2, Track F
+F1-F24, and high-risk phases G0-G5 complete. Track H runtime-router/service
+work H0-H3 is complete and remains paused for post-H3 review. On
+`feat/wxt-port-plan`, the popup preview-exit snapshot-restore fix is already
+implemented; remaining live closeout depends on a configured/authenticated
+marking session rather than missing code.
 
-## Temporary Priority Bugfix Handoff
+## Preview-Exit Status Handoff
 
-Before any further Track H work, execute
-`.copilot/popup-preview-exit-button-state-plan.md`.
+The v2 popup preview-exit fix documented in
+`.copilot/popup-preview-exit-button-state-plan.md` is implemented on
+`feat/wxt-port-plan` and focused regression tests are green. The remaining live
+closeout on Bonliva is currently blocked by environment readiness: an
+unconfigured launch opens with `mainUiHidden: true`, no marking controls, and
+`No remote data (404)`, so the actual Show Content List -> Exit Preview
+round-trip cannot be exercised autonomously.
+
+Before any deeper Track H work, do the post-H3 review and write the next
+explicit plan instead of inferring mutable-state extraction by continuity.
 
 Confirmed user-approved button-state contract:
 
@@ -34,23 +47,25 @@ Confirmed user-approved button-state contract:
 5. A short restore-pending bridge is acceptable, but it should be effectively
    immediate in the normal path and must not exceed 1 second as fallback.
 
-Highest-confidence root cause:
+Implemented root-cause conclusion:
 
-1. popup-initiated preview close currently starts `previewRestorePending`
-2. the close command returns before the popover-close path has the
-   authoritative restored draft/runtime snapshot
-3. the authoritative state arrives later via async `aiPreviewClosed`
-4. this split close protocol creates the race/window that leaves the post-exit
-   buttons wrong or wrong for too long
+1. The durable fix on `feat/wxt-port-plan` is popup-owned snapshot restore, not
+   additional close-protocol timing work.
+2. The preview is read-only, so popup-initiated exit must restore the exact
+   pre-preview marking-session snapshot instead of re-deriving state from a
+   transient content re-probe.
+3. The async `aiPreviewClosed` notification remains only as a guarded backup
+   path after the synchronous snapshot restore.
 
 Next exact step:
 
-1. lock the matrix and close protocol in focused tests
-2. change popup-initiated popover close to return the authoritative close
-   payload synchronously
-3. make the popup apply that payload immediately while keeping the later async
-   notification as a compatibility backup
-4. reduce the restore fallback window to no more than 1 second
+1. treat the preview-exit implementation work as complete on
+   `feat/wxt-port-plan`
+2. when a configured/authenticated marking session is available, perform the
+   remaining Bonliva live closeout for the real Show Content List -> Exit
+   Preview round-trip
+3. do the post-H3 `content-main.js` review and write the next explicit plan
+   before resuming deeper Track H work
 
 ## Current Repository State
 
@@ -58,7 +73,7 @@ Latest validated implementation baseline:
 
 ```bash
 git status --short --branch
-# ## main...origin/main
+# ## feat/wxt-port-plan...origin/feat/wxt-port-plan
 
 npm test
 # 961 pass / 0 fail
@@ -201,20 +216,18 @@ Track F mechanical slices are complete through F24. High-risk phases G0-G5 are
 also complete and remain documented for history in
 `.copilot/high-risk-content-branches-plan.md`.
 
-The next exact step is Track H in
-`.copilot/content-main-followup-refactor-plan.md`.
+No new implementation track is approved from this handoff alone.
 
-Track H is already scoped. Do not redesign it. H0-H3 are complete. Stop here
-and review before any deeper mutable-state extraction. The approved outcome is:
-
-1. extract the legacy plain-message runtime router from `content-main.js`
-2. extract the support-page runtime-message subgroup from that router
-3. extract the lazy handler/client service registry
-4. stop after H3 and review again before any mutable-state extraction
+1. Track H through H3 is already complete on `feat/wxt-port-plan`.
+2. Do not resume deeper `content-main.js` extraction by continuity.
+3. The next planning task is a post-H3 review that writes the next explicit plan
+   before any new Track H-style implementation begins.
+4. Separately, when a configured/authenticated marking session is available, run
+   the remaining Bonliva live closeout for the preview-exit snapshot restore.
 
 Current baseline expectations:
 
-1. clean `main...origin/main`
+1. clean `feat/wxt-port-plan...origin/feat/wxt-port-plan`
 2. full test suite passes (`961 pass / 0 fail` at the current baseline)
 3. `manifest.json` keeps explicit web-accessible resource entries, no broad
    `content/*.js` or `common/*.js` wildcards

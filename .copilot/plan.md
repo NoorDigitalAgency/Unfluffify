@@ -4,24 +4,25 @@ Last updated: 2026-06-25
 
 ## Objective
 
-With Part C complete on `feat/wxt-port-plan`, resume Part B of the event-bus
-program by continuing the Brain/layer migration on the WXT-native runtime
-baseline. The next active slice is Track 4 (render-mode inspection), which must
-move render-mode inspection authority into the Brain while preserving all locked
-runtime behavior (marking/highlighting, silent-highlight, visibility,
-reconciliation, XPath, AI-submission, property-lock, spinner/activation
-contracts, and the already-fixed Bonliva render-mode flow).
+With Part C complete on `feat/wxt-port-plan`, keep the active architecture index
+aligned with the real branch state. Event-bus Track 4 is now complete, the
+preview-exit snapshot-restore fix is implemented, and no further source-change
+track is approved until the post-H3 content review is turned into a new written
+plan.
 
 ## Active Documents
 
 Use these documents before making implementation changes:
 
-1. `.copilot/popup-preview-exit-button-state-plan.md`
-2. `.copilot/handoff-world-decomposition.md`
-3. `.copilot/knowledge.md`
-4. `.copilot/event-bus-architecture-plan.md`
-5. `.copilot/event-bus/track-04-render-mode-inspection.md`
-6. `.copilot/content-main-followup-refactor-plan.md`
+1. `.copilot/knowledge.md`
+2. `.copilot/popup-preview-exit-button-state-plan.md`
+3. `.copilot/handoff-world-decomposition.md`
+4. `.copilot/content-main-followup-refactor-plan.md` (historical H0-H3 ceiling and
+   stop condition; not authorization to continue Track H implementation)
+5. `.copilot/event-bus-architecture-plan.md` (historical event-bus program
+   reference; Tracks 0-4 are complete on this branch)
+6. `.copilot/event-bus/track-04-render-mode-inspection.md` (historical Track 4
+   executor record; completed on this branch)
 7. `.copilot/high-risk-content-branches-plan.md` (historical G0-G5 reference only)
 8. `.copilot/typescript-deno-port-plan.md` (completed: autonomous port to TypeScript with a Deno build/watch/hot-reload toolchain; branch `feat/typescript-deno-port`)
 9. `.copilot/typescript-typing-rollout-plan.md` (autonomous plan to remove `@ts-nocheck` and add real types across the ported `.ts` codebase; target GPT-5.3-Codex medium; execute on branch `feat/typescript-deno-port`)
@@ -39,20 +40,25 @@ old archive files into the active `.copilot` folder.
 
 ## Current Architecture Track
 
-The active track is now `.copilot/event-bus/track-04-render-mode-inspection.md`:
+There is no unfinished source-change track currently approved in this document.
+The branch state is:
 
-1. **Part C is complete**: the runtime is now fully WXT-native on this branch,
-   including the browser seam, storage seam, hybrid extension messaging, and the
-   final Bonliva render-mode regression closeout.
-2. **Event-bus Tracks 0-3 are complete**: the typed bus core, popup state
-   projection, spinner authority, and activation/lifecycle/bootstrap authority
-   are all green and already live on this branch.
-3. **Track 4 is next**: move render-mode inspection orchestration into a new
-   Brain render-mode decider plus popup/content executors, replacing the
-   remaining direct popup/background render-mode wire without changing behavior.
-4. The current Track 4 executor doc is
-   `.copilot/event-bus/track-04-render-mode-inspection.md`; follow it literally
-   and do not infer scope beyond the written phases.
+1. **Part C is complete**: the runtime is fully WXT-native on this branch,
+   including the browser seam, storage seam, hybrid extension messaging, and
+   the final Bonliva render-mode regression closeout.
+2. **Event-bus Tracks 0-4 are complete**: typed bus core, popup state
+   projection, spinner authority, activation/lifecycle/bootstrap authority, and
+   render-mode inspection authority are all green on this branch.
+3. **The popup preview-exit snapshot-restore fix is implemented**: the popup now
+   restores an authoritative pre-preview marking-session snapshot and guards the
+   late async close notification with `previewRestoreAppliedToken`. Live
+   closeout on Bonliva still needs a configured/authenticated marking session;
+   a plain launch currently opens with `mainUiHidden: true` and no marking
+   controls, so the preview round-trip cannot be exercised autonomously there.
+4. **Track H remains paused after H3 by design**: use
+   `.copilot/content-main-followup-refactor-plan.md` only as the historical H3
+   ceiling and explicit stop condition. Do not resume deeper `content-main.js`
+   extraction until a new post-H3 review plan is written.
 
 Historical Part C status on this branch:
 

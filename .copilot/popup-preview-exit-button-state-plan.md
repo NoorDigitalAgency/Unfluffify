@@ -1,11 +1,14 @@
 # Popup Preview-Exit Button-State Plan
 
-Last updated: 2026-06-24
-Status: v1 (close-protocol timing fix) IMPLEMENTED and committed (fe89f2b) but
-the bug PERSISTS in live testing. This document is now the v2 corrected plan.
-The approved behavior matrix (States A-E) below is unchanged and still valid.
-Everything from "Root-cause summary (v2 - corrected)" onward supersedes the v1
-root cause and v1 implementation phases.
+Last updated: 2026-06-25
+Status: the v2 snapshot-restore implementation is now present on
+`feat/wxt-port-plan`. The approved behavior matrix (States A-E) below is still
+the contract. Focused regression tests for the v2 snapshot/restore flow are
+green on this branch. Live Bonliva closeout is still pending a configured and
+authenticated marking session: an unconfigured launch currently opens with
+`mainUiHidden: true`, no marking controls, and `syncLoadStatusText` reporting
+`No remote data (404)`, so the real preview round-trip cannot be exercised
+autonomously there yet.
 
 ## Goal
 
@@ -14,6 +17,23 @@ popup returns to the exact pre-preview marking-session button state after the
 preview closes. The preview is read-only. Exiting it must not drift Run AI,
 Show Content List, Save, Discard, or the marking toggle into a recomputed or
 stale state.
+
+## Current implementation status
+
+Verified on `feat/wxt-port-plan` as of 2026-06-25:
+
+1. `popup/state.ts` now includes `previewMarkingSessionSnapshot`.
+2. `popup.ts` now exposes `captureMarkingSessionSnapshot()`,
+   `restoreMarkingSessionSnapshot()`, and `clearMarkingSessionSnapshot()`.
+3. The snapshot is captured at both preview-open points and restored on
+   popup-initiated exit before the payload fallback path.
+4. `previewRestoreAppliedToken` is advanced so the later async
+   `aiPreviewClosed` message cannot re-derive over the restored snapshot.
+5. Focused validation passed with:
+   - `pnpm exec vitest run tests/popup-marking-refresh.test.js tests/popup-ai-run-gating.test.js tests/ai-preview-close-handler.test.js tests/page-save-state.test.js`
+6. Live Bonliva validation remains pending only because the current environment
+   is not configured far enough to expose the marking controls needed to enter
+   preview.
 
 ## Current facts
 
@@ -39,16 +59,17 @@ Verified facts from the current repository:
 6. `popup.ts:refreshCurrentPageRuntimeStatus()` already supports
    `preserveDraft`, specifically to avoid clobbering the authoritative restored
    draft snapshot with a transient re-derived draft during preview exit.
-7. `content/ai-preview-close-handler.ts` currently has two close paths:
-   - no popover -> await `exitAiPreviewMode()` and return the authoritative
-     close state immediately
-   - popover present -> call `requestAiPopoverClose(...)` and return early
-     without the authoritative close payload
-8. `content/core.ts:closeAiPopover()` later sends the authoritative
+7. `content/ai-preview-close-handler.ts` now awaits an authoritative close state
+   for both close paths:
+   - no popover -> await `exitAiPreviewMode()` and return the close state
+   - popover present -> await `requestAiPopoverClose(...)` and return the close
+     state instead of returning early
+8. `content/core.ts:closeAiPopover()` still sends the authoritative
    `aiPreviewClosed` runtime message asynchronously after the close callback
-   resolves.
-9. `popup.ts:AI_PREVIEW_RESTORE_FALLBACK_MS` is currently `8000`, which is far
-   above the confirmed acceptable fallback window.
+   resolves, but the popup now treats that as a guarded compatibility backup
+   rather than the source of truth for popup-initiated restore.
+9. `popup.ts:AI_PREVIEW_RESTORE_FALLBACK_MS` is now `1000`, matching the
+   approved maximum fallback window.
 10. Existing tests already cover large parts of this contract:
     - `tests/popup-ai-run-gating.test.js`
     - `tests/popup-marking-refresh.test.js`
@@ -117,7 +138,10 @@ Do not change:
 4. Save/Discard semantics outside this preview-exit contract
 5. popup layout or copy beyond the restore-pending lifecycle needed for this fix
 
-## Root-cause summary (v2 - corrected)
+## Root-cause summary (historical v2 context)
+
+This section records the pre-fix diagnosis that led to the v2 implementation.
+Do not treat it as the current live codepath description.
 
 The v1 plan assumed the bug was the split preview-close protocol (async
 `aiPreviewClosed` vs synchronous close payload) and timing. That fix shipped
@@ -228,36 +252,15 @@ depend on close-payload completeness or content-side re-probe timing.
    in place as a compatibility/backup path but must no longer be the source of
    truth for popup-initiated restore.
 
-## Open questions (v2)
+## Resolved design decisions (v2)
 
-The implementing agent should proceed with the Recommended option for each unless
-the user answers otherwise. None of these change the approved State A-E matrix;
-they only decide the restore mechanism.
+These questions are no longer open on `feat/wxt-port-plan`:
 
-Q1. What should the popup snapshot and restore on Exit Preview?
-
-1. (Recommended) Snapshot the nine authoritative `state.*` session fields listed
-   in Verified fact 4 when preview opens; on exit restore them and run a single
-   `refreshUi({ preserveCurrentDraftStatus: true })` so the buttons are derived
-   from the restored, stable session state and the content re-probe cannot
-   overwrite it.
-2. Snapshot the rendered ViewState disabled flags only (`toggleEnabledDisabled`,
-   `computeButtonDisabled`, `markingPreviewDisabled`, `pageSaveDisabled`,
-   `pageRevertDisabled`, `toggleEnabled`, `pageDraftStatusText/Tone`) and
-   re-apply them directly on exit without a refresh. Simpler but leaves the
-   underlying `state.*` inconsistent for the next mark/unmark, risking a fresh
-   drift on the following action.
-3. Keep re-deriving but force `preserveCurrentDraftStatus=true` and
-   `preserveDraft=true` on every preview-exit refresh regardless of close
-   payload. Smallest change but still trusts whatever `state.*` happens to be
-   live at exit rather than a captured snapshot.
-
-Q2. If, on exit, the live content markings differ from the snapshot (should not
-happen because preview is read-only), which wins?
-
-1. (Recommended) The snapshot wins. State D/E requires the exact pre-preview
-   state; a divergent live probe is the drift we are eliminating.
-2. The live probe wins (current behavior) - rejected, this is the bug.
+1. The popup snapshots and restores the nine authoritative `state.*` fields
+   listed in Verified fact 4, then runs a single
+   `refreshUi({ preserveCurrentDraftStatus: true })`.
+2. On exit, the snapshot wins over any divergent live probe because the preview
+   is read-only and State D/E requires restoring the exact pre-preview state.
 
 ## Non-goals (v2)
 
@@ -273,166 +276,46 @@ Unchanged from the v1 Non-goals section above, plus:
    `aiSelectorsComputedSinceLastSubmit` semantics; only preserve their value
    across the preview round-trip.
 
-## Implementation phases (v2)
+## Implementation record (v2)
 
-Assumes Q1=option 1 and Q2=option 1 (the Recommended answers).
+The implementation phases below are historical record only. They were executed
+on `feat/wxt-port-plan` and are no longer pending work items for this branch.
 
-### Phase 1 - Lock the snapshot/restore contract in tests first
+1. **Phase 1 - contract tests**
+   - `tests/popup-marking-refresh.test.js` and
+     `tests/popup-ai-run-gating.test.js` were updated to lock the
+     snapshot/restore contract.
+2. **Phase 2 - snapshot state + helpers**
+   - `popup/state.ts` gained `previewMarkingSessionSnapshot`.
+   - `popup.ts` gained `captureMarkingSessionSnapshot()`,
+     `restoreMarkingSessionSnapshot()`, and `clearMarkingSessionSnapshot()`.
+3. **Phase 3 - preview-open capture**
+   - the snapshot is captured at both preview-open points.
+4. **Phase 4 - preview-exit restore**
+   - popup-initiated exit restores the snapshot before the payload fallback,
+     clears the snapshot on finalized exit paths, and advances
+     `previewRestoreAppliedToken` to guard the async backup notification.
+5. **Phase 5 - focused validation**
+   - focused regression coverage is green on this branch.
 
-Files to edit:
+## Remaining live closeout
 
-- `tests/popup-marking-refresh.test.js`
-- `tests/popup-ai-run-gating.test.js`
-
-Steps:
-
-1. In `tests/popup-marking-refresh.test.js`, update the source-pattern regexes at
-   lines ~222-244 to expect the new shape: `handleMarkingPreview` and the AI-run
-   `previewOpened` block call a new `captureMarkingSessionSnapshot()`;
-   `handleExitPreviewMode` calls a new `restoreMarkingSessionSnapshot()` and then
-   `refreshUi({ ... preserveCurrentDraftStatus: true })` when a snapshot exists.
-2. Add a new behavioral test `popup restores exact pre-preview marking buttons on
-   exit` that: seeds `state.*` to a State C snapshot, simulates open (capture) ->
-   a drifting content `getPageDraftStatus` probe -> exit (restore), and asserts
-   the five disabled flags + `pageDraftStatusText` equal the State C snapshot, not
-   the drifted probe.
-3. In `tests/popup-ai-run-gating.test.js`, keep State A/B/C rows; add an assertion
-   that a snapshot restore reproduces State C exactly.
-
-Expected intermediate state: new/updated tests fail against current source.
-
-Focused validation:
-
-```bash
-deno test --allow-read --allow-write --allow-env --allow-run --allow-sys --allow-net=127.0.0.1 --no-check --unstable-sloppy-imports tests/popup-marking-refresh.test.js tests/popup-ai-run-gating.test.js
-```
-
-Rollback rule: if a new assertion implies behavior outside State A-E, fix the
-test before touching runtime code.
-
-### Phase 2 - Add the snapshot state field and helpers
-
-Files to edit:
-
-- `popup/state.ts`
-- `popup.ts`
-
-Steps:
-
-1. `popup/state.ts`: add `previewMarkingSessionSnapshot: null,` near line 69
-   (next to the `previewRestore*` fields) with a comment that it holds the
-   authoritative pre-preview marking session for exact restore.
-2. `popup.ts`: add `captureMarkingSessionSnapshot()` that deep-copies the nine
-   fields from Verified fact 4 into `state.previewMarkingSessionSnapshot`
-   (use `clonePageMarkingEntry` for `currentDraftEntry`/`currentSavedEntry`;
-   primitives copied directly; `currentPageSaveReconciliation` cloned via
-   `JSON.parse(JSON.stringify(...))` or null).
-3. `popup.ts`: add `restoreMarkingSessionSnapshot()` that, if
-   `state.previewMarkingSessionSnapshot` is set, writes those fields back onto
-   `state` and returns `true`; otherwise returns `false`. It must NOT itself call
-   `refreshUi`.
-4. `popup.ts`: add `clearMarkingSessionSnapshot()` that sets the field to null.
-
-Expected intermediate state: helpers compile; not yet wired.
-
-Focused validation:
+The only remaining open item for this plan is live confirmation on a configured
+and authenticated marking session where the real Show Content List -> Exit
+Preview round-trip can be exercised. On an unconfigured Bonliva launch, the
+popup opens with `mainUiHidden: true`, no marking controls, and `No remote data
+(404)`, which blocks that live round-trip independently of the shipped code.
 
 ```bash
-deno task check
-```
-
-Rollback rule: if `deno task check` fails on the new field/typing, keep the field
-untyped-compatible with the existing `// @ts-expect-error` popup-state pattern.
-
-### Phase 3 - Capture the snapshot at both preview-open points
-
-Files to edit:
-
-- `popup.ts`
-
-Steps:
-
-1. In `applyComputedSelectorSet()`, inside the `if (previewOpened)` block
-   (line ~7072), call `captureMarkingSessionSnapshot()` AFTER
-   `captureAiRunMarkingsFingerprint()` / `resetAiRunState()` and BEFORE the
-   `uiModule.setViewState({ previewActive:true, ... })` call, so the snapshot
-   reflects the settled post-run State C session.
-2. In `handleMarkingPreview()` (line 7651), call
-   `captureMarkingSessionSnapshot()` immediately AFTER the successful
-   `refreshCurrentPageRuntimeStatus()` (line 7666) and the reconciliation guard,
-   and BEFORE `setPreviewBlocked(true, ...)`, so the snapshot reflects the live
-   marking-mode session being previewed.
-
-Expected intermediate state: opening preview records a snapshot; exit does not yet
-use it.
-
-Focused validation:
-
-```bash
-deno task check
-deno test --allow-read --allow-write --allow-env --allow-run --allow-sys --allow-net=127.0.0.1 --no-check --unstable-sloppy-imports tests/popup-marking-refresh.test.js
-```
-
-Rollback rule: if either capture point runs when markings are not the source of
-truth (e.g., reconciliation pending), guard the capture with the same condition
-that already gates that open path.
-
-### Phase 4 - Restore the snapshot on exit instead of re-deriving
-
-Files to edit:
-
-- `popup.ts`
-
-Steps:
-
-1. In `handleExitPreviewMode()` (line 7702), after a successful close response,
-   replace the current `applyPreviewClosedState(closeResult)` branch with:
-   - if `restoreMarkingSessionSnapshot()` returns `true`: call
-     `clearPreviewRestorePending()` then
-     `await refreshUi({ useBusyOverlay:false, skipPropertyLockFetch:true,
-     preserveCurrentDraftStatus:true })`, then `clearMarkingSessionSnapshot()`,
-     then advance `state.previewRestoreAppliedToken` to the current
-     `previewRestoreToken` so the later async `aiPreviewClosed` cannot re-derive.
-   - else (no snapshot, e.g. spontaneous/non-marking preview): keep the existing
-     `applyPreviewClosedState(closeResult)` fallback.
-2. In the error branch of `handleExitPreviewMode` (line 7718) and in
-   `applyPreviewClosedState`/`finalizePreviewRestoreFromRuntime`, call
-   `clearMarkingSessionSnapshot()` once restore is finalized so a stale snapshot
-   never leaks into the next preview.
-3. In the async `aiPreviewClosed` handler (line ~8241), if a snapshot restore has
-   already advanced `previewRestoreAppliedToken` for this token, the existing
-   `isPreviewRestoreMessageCurrent()` guard (line 2479) must short-circuit; verify
-   it does and, if the close message is tokenless, additionally skip when
-   `state.previewMarkingSessionSnapshot` is null AND pending is already cleared.
-
-Expected intermediate state: popup-initiated exit restores the exact snapshot;
-the drift and all-disabled end state are gone; close payload/async message are
-backup only.
-
-Focused validation:
-
-```bash
-deno task check
-deno test --allow-read --allow-write --allow-env --allow-run --allow-sys --allow-net=127.0.0.1 --no-check --unstable-sloppy-imports tests/popup-marking-refresh.test.js tests/popup-ai-run-gating.test.js tests/ai-preview-close-handler.test.js tests/page-save-state.test.js
-```
-
-Rollback rule: if the snapshot restore suppresses a legitimate spontaneous close
-(no prior snapshot), confirm `restoreMarkingSessionSnapshot()` returned `false`
-and fell through to `applyPreviewClosedState`.
-
-### Phase 5 - Full validation and live confirmation
-
-```bash
-deno task check
-deno task test
-deno task build:release
+pnpm test
+pnpm build
 ```
 
 Live confirmation (the bug only reproduces in a real page round-trip):
 
 ```bash
-deno task build:dev
-deno task browser:live https://bonliva.se
+pnpm build
+pnpm browser:live https://bonliva.se
 ```
 
 Then connect over CDP per `.github/skills/launch-test-browser/SKILL.md`
@@ -454,12 +337,12 @@ Then connect over CDP per `.github/skills/launch-test-browser/SKILL.md`
 ### Full repository validation
 
 ```bash
-deno task check
-deno task test
-deno task build:release
+pnpm check
+pnpm test
+pnpm build
 ```
 
-### Live/manual (against dist/extension-dev on https://bonliva.se)
+### Live/manual (against `.output/chrome-mv3` on https://bonliva.se)
 
 1. Enter marking mode fresh -> State A.
 2. Run AI -> preview opens.
@@ -480,8 +363,9 @@ deno task build:release
 3. Double application (snapshot restore + async `aiPreviewClosed`) ->
    `previewRestoreAppliedToken` must be advanced by the snapshot restore so
    `isPreviewRestoreMessageCurrent()` rejects the late message.
-4. Source-pattern tests in `tests/popup-marking-refresh.test.js` will fail until
-   their regexes are updated for the new function bodies.
+4. Source-pattern tests in `tests/popup-marking-refresh.test.js` were updated
+   together with the implementation and remain a guard for the shipped
+   function bodies.
 5. `currentConfig`/`pageMarkings` are still fetched during the restore refresh;
    if a real navigation happened during preview the snapshot could be wrong - but
    preview exit on a navigated page already drops marking via existing pageUrl
@@ -497,21 +381,11 @@ deno task build:release
 3. State A, B, and C still match the approved matrix.
 4. Spontaneous/non-marking preview closes still restore via the existing payload
    path (no snapshot present).
-5. `deno task check`, `deno task test`, and `deno task build:release` pass.
+5. `pnpm check`, `pnpm test`, and `pnpm build` pass.
 
-## Todo chain (v2)
+## Historical todo chain (v2)
 
-1. Lock the snapshot/restore contract in `tests/popup-marking-refresh.test.js` and
-   `tests/popup-ai-run-gating.test.js` (Phase 1).
-2. Add `previewMarkingSessionSnapshot` to `popup/state.ts` and the
-   capture/restore/clear helpers in `popup.ts` (Phase 2).
-3. Capture the snapshot at both preview-open points (Phase 3).
-4. Restore the snapshot on exit and demote the close payload/async message to
-   backup, advancing `previewRestoreAppliedToken` (Phase 4).
-5. Run focused tests, then `deno task check && deno task test &&
-   deno task build:release` (Phase 5).
-6. `deno task build:dev` + live CDP confirmation on https://bonliva.se (Phase 5).
-7. Commit the still-uncommitted launcher + docs changes (`scripts/
-   launch-test-browser.ts`, `.github/instructions/browser-launch.instructions.md`,
-   `.github/skills/launch-test-browser/SKILL.md`, `.copilot/knowledge.md`)
-   together with this fix via review-fix-commit-push.
+The v2 implementation todo chain is complete on `feat/wxt-port-plan`. The only
+remaining open item is live confirmation on a configured/authenticated marking
+session where the real Show Content List -> Exit Preview round-trip can be
+performed.

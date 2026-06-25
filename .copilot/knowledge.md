@@ -153,18 +153,17 @@
   `sessionStorage` usage is tracked separately from this Chrome storage rule.
 - Earlier world-decomposition work is complete. Content follow-up Tracks D/E are
   complete, Track F is complete through F24, and the high-risk plan is complete
-  through G5. The active post-G5 work is Track H in
-  `.copilot/content-main-followup-refactor-plan.md`: extract the legacy
-  plain-message runtime router, the support-page runtime-message subgroup, and
-  the lazy handler/client service registry from `content-main.js` while keeping
-  popup/background plain runtime message callsites unchanged. Hard rules
-  remain: never edit `content/core.js` or locked marking/silent-highlight/
-  visibility/reconciliation logic without a new high-risk plan; every new
-  imported `content/*` module must be added to `web_accessible_resources` with
+  through G5. Track H is complete through H3 on `feat/wxt-port-plan` and is now
+  paused pending a new post-H3 review plan; use
+  `.copilot/content-main-followup-refactor-plan.md` only as the historical H3
+  ceiling/stop-condition reference. Hard rules remain: never edit
+  `content/core.js` or locked marking/silent-highlight/visibility/
+  reconciliation logic without a new high-risk plan; every new `content/*`
+  module must be added to `web_accessible_resources` with
   `tests/manifest-permissions.test.js` green; live validation is required for
   core unflagged behavior when automated validation is not enough, while
-  flag-disabled property-lock follow-ups may defer live
-  validation until those features are prioritized.
+  flag-disabled property-lock follow-ups may defer live validation until those
+  features are prioritized.
 - Part C native WXT runtime adoption is complete on `feat/wxt-port-plan`. The
   runtime is now genuinely WXT-native end to end: WXT bundles the real
   background, popup, content, offscreen, and MAIN-world bridge graphs; the
@@ -222,13 +221,12 @@
   - Show Content List preview is read-only, and exiting it must be
     state-neutral: restore the exact pre-preview marking state after at most a
     brief restore-pending bridge
-- Known preview-exit pitfall: the current bug source is the split close
-  protocol between the immediate `TAB_CLOSE_AI_PREVIEW` response and the later
-  async `aiPreviewClosed` notification. Future fix work must make
-  popup-initiated preview close restore from an authoritative close payload
-  synchronously while keeping the async notification as compatibility backup,
-  and must preserve the authoritative draft snapshot instead of re-probing a
-  transient re-derived draft during preview exit.
+- The preview-exit fix on `feat/wxt-port-plan` now captures an authoritative
+  popup-owned marking-session snapshot before preview opens, restores that
+  snapshot synchronously on popup-initiated exit, clears it on every finalized
+  exit path, and advances `previewRestoreAppliedToken` so the later async
+  `aiPreviewClosed` notification remains a compatibility backup instead of
+  re-deriving over the restored state.
 
 ## AI Submission Rules
 
