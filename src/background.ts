@@ -261,6 +261,26 @@ type PopupTabContextResult = {
   source: "debug" | "sidePanel" | "activeTab" | "none";
 };
 
+type BackgroundOperationResult = {
+  ok: boolean;
+  error?: string;
+};
+
+type RenderModeRecoveryOptions = {
+  waitForDetach?: boolean;
+  requireLoadComplete?: boolean;
+};
+
+type RenderModeDetachResult = BackgroundOperationResult & {
+  keptForDeviceEmulation?: boolean;
+  detachPending?: boolean;
+};
+
+type RenderModeReloadRecoveryResult = BackgroundOperationResult & {
+  loadCompleted?: boolean;
+  detachResult?: RenderModeDetachResult;
+};
+
 function buildFeatureDisabledResponse(featureName: string): FeatureDisabledResponse {
   return {
     ok: false,
@@ -427,8 +447,7 @@ async function openBrowserSidePanel(options: { tabId: number }) {
   );
 }
 
-// @ts-expect-error
-function clearBrowsingDataForOrigin(origin) {
+function clearBrowsingDataForOrigin(origin: unknown): Promise<BackgroundOperationResult> {
   if (!origin || typeof origin !== "string") {
     return Promise.resolve({ ok: false, error: "Missing origin" });
   }
@@ -1824,8 +1843,9 @@ async function executeRenderModeInspection(
         }
         return scriptEnableResult;
       };
-      const detachRenderModeDebuggerIfIdle = async (options = {}) => {
-// @ts-expect-error
+      const detachRenderModeDebuggerIfIdle = async (
+        options: RenderModeRecoveryOptions = {}
+      ): Promise<RenderModeDetachResult> => {
         const waitForDetach = options.waitForDetach !== false;
         const deviceState = await getDeviceEmulationState(normalizedTabId).catch(() => null);
         if (deviceState && deviceState.enabled) {
@@ -1841,8 +1861,9 @@ async function executeRenderModeInspection(
         }
         return detachPromise;
       };
-      const reloadPageWithJavaScriptForRenderModeRecovery = async (options = {}) => {
-// @ts-expect-error
+      const reloadPageWithJavaScriptForRenderModeRecovery = async (
+        options: RenderModeRecoveryOptions = {}
+      ): Promise<RenderModeReloadRecoveryResult> => {
         const requireLoadComplete = options.requireLoadComplete !== false;
         const loadStartPromise = waitForTabLoadStartInBackground(
           normalizedTabId,
@@ -1852,12 +1873,12 @@ async function executeRenderModeInspection(
         // this reload's loading -> complete cycle. Creating it after the reload (and
         // after the loading event already fired) makes awaitNextLoad wait for a
         // second navigation that never happens, which would time out.
-        const loadCompletePromise = requireLoadComplete
+        const loadCompletePromise: Promise<boolean> = requireLoadComplete
           ? waitForTabLoadCompleteInBackground(
             normalizedTabId,
             RENDER_MODE_INSPECTION_LOAD_TIMEOUT_MS,
             { awaitNextLoad: true }
-          )
+          ) as Promise<boolean>
           : Promise.resolve(true);
         const reloadResult = await utils.reloadPageWithJavaScriptControl(
           normalizedTabId,
@@ -1873,7 +1894,6 @@ async function executeRenderModeInspection(
         }
         let loadCompleted = false;
         if (requireLoadComplete) {
-// @ts-expect-error
           loadCompleted = await loadCompletePromise;
           if (!loadCompleted) {
             return { ok: false, error: "Timed out while loading page with JavaScript" };
@@ -1908,7 +1928,6 @@ async function executeRenderModeInspection(
             // a hydrated page.
             const noJsRecoveryResult = await reloadPageWithJavaScriptForRenderModeRecovery();
             if (!noJsRecoveryResult.ok) {
-// @ts-expect-error
               commandResult.followUpError = noJsRecoveryResult.error || "Unable to reload page with JavaScript";
               return commandResult;
             }
@@ -1951,10 +1970,10 @@ async function executeRenderModeInspection(
             : { ok: false, error: "Unable to reload page for render mode inspection" }
         });
 
-// @ts-expect-error
-        if (!commandResult.reloadResult.ok || !loadStarted) {
+        const reloadOutcome = commandResult.reloadResult;
+        if (!reloadOutcome || !reloadOutcome.ok || !loadStarted) {
           commandResult.followUpError =
-            (commandResult.reloadResult && commandResult.reloadResult.error) ||
+            reloadOutcome?.error ||
             "Unable to reload page for render mode inspection";
           return commandResult;
         }
@@ -1967,8 +1986,8 @@ async function executeRenderModeInspection(
           return commandResult;
         }
 
-        let hideConsentResult = { ok: true, hiddenCount: 0 };
-        let captureResult = null;
+        let hideConsentResult: Awaited<ReturnType<typeof runRenderModeHideConsentStep>> = { ok: true, hiddenCount: 0 };
+        let captureResult: RenderModeHtmlCaptureResult | Awaited<ReturnType<typeof runRenderModeCaptureHtmlStep>>;
         if (javaScriptDisabled) {
           captureResult = await captureRenderModeHtmlWithDebugger(normalizedTabId);
         } else {
@@ -1978,10 +1997,8 @@ async function executeRenderModeInspection(
             source: "background-command-router"
           });
 
-// @ts-expect-error
           hideConsentResult = await runRenderModeHideConsentStep(normalizedTabId);
           if (!hideConsentResult.ok) {
-// @ts-expect-error
             commandResult.followUpError = hideConsentResult.error || "Unable to hide consent form";
             return commandResult;
           }
@@ -2000,16 +2017,17 @@ async function executeRenderModeInspection(
           await detachRenderModeDebuggerIfIdle({ waitForDetach: false });
         }
 
+        const inspectionCapture = captureResult;
         Object.assign(commandResult, {
           ok: true,
           followUpCompleted: true,
           followUpError: "",
           inspectionSnapshot: {
-            pageUrl: captureResult.pageUrl || "",
-            renderedHtml: captureResult.renderedHtml || "",
-            rawHtml: captureResult.rawHtml || "",
-            renderMode: captureResult.renderMode || "",
-            hiddenCount: Number(captureResult.hiddenCount || hideConsentResult.hiddenCount || 0)
+            pageUrl: inspectionCapture.pageUrl || "",
+            renderedHtml: inspectionCapture.renderedHtml || "",
+            rawHtml: inspectionCapture.rawHtml || "",
+            renderMode: inspectionCapture.renderMode || "",
+            hiddenCount: Number(inspectionCapture.hiddenCount || hideConsentResult.hiddenCount || 0)
           }
         });
         return commandResult;
@@ -2696,12 +2714,10 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     try {
       console.debug("[world-trace][background] runtime:inbound", {
         type: message.type,
-        tabId: Number.isFinite(sender && sender.tab && sender.tab.id)
-// @ts-expect-error
+        tabId: typeof sender?.tab?.id === "number" && Number.isFinite(sender.tab.id)
           ? Math.trunc(sender.tab.id)
           : null,
-        frameId: Number.isFinite(sender && sender.frameId)
-// @ts-expect-error
+        frameId: typeof sender?.frameId === "number" && Number.isFinite(sender.frameId)
           ? Math.trunc(sender.frameId)
           : null
       });

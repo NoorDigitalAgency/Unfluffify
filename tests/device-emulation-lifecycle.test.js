@@ -275,7 +275,7 @@ test("popup delegates active tab context resolution to the background", () => {
 });
 
 test("popup chrome helpers route privileged tab and browsing-data APIs through background", () => {
-  assert.match(backgroundSource, /function clearBrowsingDataForOrigin\(origin\) \{/);
+  assert.match(backgroundSource, /function clearBrowsingDataForOrigin\(origin(?:\s*:\s*[^)]+)?\)(?:\s*:\s*[^{]+)? \{/);
   assert.match(backgroundSource, /callBrowserApiVoid\([\s\S]*?api\.browsingData\.remove/);
   assert.match(backgroundSource, /if \(message\.type === "clearBrowsingDataForOrigin"\) \{/);
   assert.match(backgroundSource, /function reloadTab\(tabId(?:\s*:\s*[^)]+)?\) \{/);

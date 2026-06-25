@@ -69,7 +69,7 @@ test("background executeRenderModeInspection orchestrates reload, consent hide, 
   // The render-mode recovery reload sets up its load-complete waiter (awaitNextLoad)
   // BEFORE issuing the reload so it observes that reload's loading -> complete
   // cycle; creating it afterwards would wait for a second navigation and time out.
-  assert.match(commandBlock, /const loadCompletePromise = requireLoadComplete[\s\S]*?waitForTabLoadCompleteInBackground\([\s\S]*?\{ awaitNextLoad: true \}[\s\S]*?const reloadResult = await utils\.reloadPageWithJavaScriptControl\(\s*normalizedTabId,\s*false[\s\S]*?loadCompleted = await loadCompletePromise;/);
+  assert.match(commandBlock, /const loadCompletePromise(?:\s*:\s*[^=]+)? = requireLoadComplete[\s\S]*?waitForTabLoadCompleteInBackground\([\s\S]*?\{ awaitNextLoad: true \}[\s\S]*?const reloadResult = await utils\.reloadPageWithJavaScriptControl\(\s*normalizedTabId,\s*false[\s\S]*?loadCompleted = await loadCompletePromise;/);
   assert.match(commandBlock, /requireLoadComplete = options\.requireLoadComplete !== false/);
   assert.match(commandBlock, /if \(requireLoadComplete\) \{[\s\S]*?loadCompleted = await loadCompletePromise;[\s\S]*?if \(!loadCompleted\) \{/);
   assert.match(commandBlock, /const detachResult = await detachRenderModeDebuggerIfIdle\(\{[\s\S]*?waitForDetach: requireLoadComplete[\s\S]*?\}\);/);
