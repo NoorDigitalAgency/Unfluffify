@@ -44,12 +44,12 @@ test("repo-wide deno lint excludes approved legacy/browser rules only", () => {
   }
 });
 
-test("public pnpm script entrypoints resolve Deno instead of assuming PATH", () => {
-  const launchScript = readFileSync(new URL("../scripts/launch-test-browser.ts", import.meta.url));
-  const resolverScript = readFileSync(new URL("../scripts/deno-executable.ts", import.meta.url));
+test("public pnpm browser launcher is node-native", () => {
+  const launchScript = readFileSync(new URL("../scripts/launch-test-browser.mjs", import.meta.url));
+  const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url)));
 
-  assert.equal(launchScript.includes('new Deno.Command("deno"'), false);
-  assert.equal(launchScript.includes('run("deno"'), false);
-  assert.equal(launchScript.includes("resolveDenoExecutable"), true);
-  assert.equal(resolverScript.includes('Deno.env.get("DENO_BIN")'), true);
+  assert.equal(packageJson.scripts["browser:live"], "node ./scripts/launch-test-browser.mjs");
+  assert.equal(launchScript.includes("resolveDenoExecutable"), false);
+  assert.equal(launchScript.includes("Deno."), false);
+  assert.equal(launchScript.includes('spawn("npx", ["-y", "@playwright/mcp@latest"'), true);
 });

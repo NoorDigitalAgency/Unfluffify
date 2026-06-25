@@ -61,8 +61,7 @@ describe("WXT Part A bridge", () => {
     expect(packageJson.scripts.verify).toContain("UF_MANIFEST_SOURCE=generated");
     expect(packageJson.scripts.verify).toContain("manifest-permissions.test.js");
     expect(packageJson.scripts.browser).toBeUndefined();
-    expect(packageJson.scripts["browser:live"]).toContain("run-deno.mjs run");
-    expect(packageJson.scripts["browser:live"]).toContain("./scripts/launch-test-browser.ts");
+    expect(packageJson.scripts["browser:live"]).toBe("node ./scripts/launch-test-browser.mjs");
     expect(packageJson.scripts["legacy:build:dev"]).toBeUndefined();
   });
 

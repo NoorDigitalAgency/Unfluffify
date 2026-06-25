@@ -10,7 +10,7 @@ test("repo MCP specs stay placeholdered (non-launchable) and keep no-sandbox lau
 
   // The committed playwright-local MCP specs must carry the repo-root placeholder
   // so they are intentionally non-launchable as-is. The launcher
-  // (scripts/launch-test-browser.ts) substitutes them into .temp/ per environment.
+  // (scripts/launch-test-browser.mjs) substitutes them into .temp/ per environment.
   for (const spec of [vscodeMcp, rootMcp, codexConfig]) {
     assert.match(spec, /--user-data-dir=__UNFLUFFIFY_REPO_ROOT__\/\.mcp-browser-profile/);
     assert.match(spec, /--config=__UNFLUFFIFY_REPO_ROOT__\/\.vscode\/browser-mcp\.config\.json/);
@@ -18,6 +18,9 @@ test("repo MCP specs stay placeholdered (non-launchable) and keep no-sandbox lau
     assert.doesNotMatch(spec, /\/home\/[^"\s]+\/\.mcp-browser-profile/);
     assert.doesNotMatch(spec, /\/Users\/[^"\s]+\/\.mcp-browser-profile/);
   }
+  assert.match(vscodeMcp, /"command": "npx"/);
+  assert.match(rootMcp, /"command": "npx"/);
+  assert.match(codexConfig, /command = "npx"/);
 
   // The browser config keeps the no-sandbox launch contract and stays placeholdered
   // for both the repo root and the (launcher-dropped) Chromium executable path.
@@ -29,10 +32,11 @@ test("repo MCP specs stay placeholdered (non-launchable) and keep no-sandbox lau
 });
 
 test("live browser launcher targets the WXT output and canonical pnpm command", () => {
-  const launcher = readFileSync(new URL("../scripts/launch-test-browser.ts", import.meta.url), "utf8");
+  const launcher = readFileSync(new URL("../scripts/launch-test-browser.mjs", import.meta.url), "utf8");
 
   assert.match(launcher, /Usage:\s*\n \* {3}pnpm browser:live <target-url> \[--no-build\]/);
   assert.match(launcher, /const EXT_DIR = join\(repoRoot, "\.output", "chrome-mv3"\);/);
   assert.match(launcher, /await run\("pnpm", \["build"\]\);/);
   assert.match(launcher, /Run \\`pnpm build\\` first/);
+  assert.match(launcher, /spawn\("npx", \["-y", "@playwright\/mcp@latest"/);
 });

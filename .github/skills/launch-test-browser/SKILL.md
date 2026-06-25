@@ -54,7 +54,7 @@ pnpm browser:live <target-url>
 
 Example: `pnpm browser:live https://bonliva.se`
 
-That single command runs the entire proven flow (`scripts/launch-test-browser.ts`):
+That single command runs the entire proven flow (`scripts/launch-test-browser.mjs`):
 
 1. Resolves the active repo root for the current environment (no hardcoded
    machine paths).
@@ -124,11 +124,12 @@ cannot write to the running shell session, rely on the launcher's auto-enabled
 observation output and use the CDP path below for active control.
 
 If you need direct programmatic control beyond the launcher commands, connect to
-the same browser over CDP instead of starting another MCP server:
+the same browser over CDP instead of starting another MCP server, using any
+Node environment where the `playwright` package is already available:
 
 ```bash
-node ./scripts/run-deno.mjs eval --allow-net --allow-env --allow-read --allow-sys '
-const { chromium } = await import("npm:playwright");
+node --input-type=module -e '
+import { chromium } from "playwright";
 const browser = await chromium.connectOverCDP("http://127.0.0.1:9222");
 const context = browser.contexts()[0];
 const pages = context.pages();
@@ -175,7 +176,7 @@ then wait for the new service worker before retesting. Re-running
 ## Debugging the launcher (internals)
 
 If you must drive the MCP browser by hand to extend the flow, mirror
-`scripts/launch-test-browser.ts` and `orchestration/steps/browser.mjs`:
+`scripts/launch-test-browser.mjs` and `orchestration/steps/browser.mjs`:
 
 - The `browser_run_code_unsafe` sandbox is NOT a full Node context: `setTimeout`
   and `URL` are undefined there. Use Playwright APIs (`page.waitForTimeout`) and

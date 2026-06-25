@@ -10,11 +10,13 @@
   `launch-test-browser` to open the live/dev Chromium with the unpacked
   extension loaded for observation or manual testing.
 - Live test browser: launch with `pnpm browser:live <target-url>`
-  (`scripts/launch-test-browser.ts`).
+  (`scripts/launch-test-browser.mjs`).
   A target URL is mandatory. It runs `pnpm build`, loads `.output/chrome-mv3`,
   writes a per-environment `.temp/browser-mcp.config.json` (drops
   `executablePath`), and drives ONLY the `npm:@playwright/mcp@latest` managed
-  Chromium over a single launcher-owned stdio client — never the OS Chrome. The
+  Chromium through the Node-backed launcher (`npx -y @playwright/mcp@latest`
+  under the hood) over a single launcher-owned stdio client — never the OS
+  Chrome. The
   launcher exposes a same-session control channel on its shell `shellId`; when
   the host environment supports writing to that running shell, use `state`,
   `exit-preview`, `observe`, `stop-observe`, and `help` there to
@@ -41,9 +43,9 @@
 
 - Use pnpm/WXT as the primary release/CI toolchain: `pnpm lint`, `pnpm check`,
   `pnpm test`, `pnpm build`, `pnpm zip`, and `pnpm verify`.
-- Keep Deno only as an internal implementation dependency behind the pnpm
-  scripts and for the remaining orchestration/browser tasks; the shipped
-  extension build itself is now WXT-native.
+- Keep Deno only for the remaining orchestration tasks; the shipped extension
+  build, packaging flow, and live-browser launcher are now pnpm/Node-based and
+  WXT-native.
 - `deno task <script>` can still resolve npm scripts implicitly via
   `package.json`, but the supported/public workflow is pnpm-first and docs/tests
   should treat those Deno aliases as unsupported compatibility fallbacks.

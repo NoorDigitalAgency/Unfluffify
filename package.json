@@ -10,9 +10,9 @@
     "build": "wxt build",
     "zip": "pnpm build && node ./scripts/create-output-zip.mjs ./.output/chrome-mv3 ./.output/unfluffify-bootstrap.zip",
     "check": "wxt prepare && tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.wxt.json && tsc --noEmit -p tsconfig.wxt-node.json",
-    "lint": "eslint eslint.config.js wxt.config.ts vitest.config.ts entrypoints/**/*.ts scripts/run-deno.mjs scripts/create-output-zip.mjs scripts/remove-path.mjs tests/**/*.test.js tests/**/*.ts tests/shims/*.js vitest-tests/**/*.test.ts",
+    "lint": "eslint eslint.config.js wxt.config.ts vitest.config.ts entrypoints/**/*.ts scripts/launch-test-browser.mjs scripts/create-output-zip.mjs scripts/remove-path.mjs tests/**/*.test.js tests/**/*.ts tests/shims/*.js vitest-tests/**/*.test.ts",
     "test": "vitest run",
-    "browser:live": "node ./scripts/run-deno.mjs run --allow-read --allow-write --allow-env --allow-run --allow-sys --allow-net ./scripts/launch-test-browser.ts",
+    "browser:live": "node ./scripts/launch-test-browser.mjs",
     "verify": "pnpm lint && pnpm check && pnpm test && node ./scripts/remove-path.mjs ./.output && pnpm build && UF_MANIFEST_SOURCE=generated vitest run tests/manifest-permissions.test.js"
   },
   "devDependencies": {

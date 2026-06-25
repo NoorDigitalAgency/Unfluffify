@@ -16,7 +16,7 @@ pnpm browser:live <target-url>
 Example: `pnpm browser:live https://bonliva.se`
 
 This is the only supported way to open the live test browser. It is a thin,
-proven driver (`scripts/launch-test-browser.ts`) around the `playwright-local`
+proven driver (`scripts/launch-test-browser.mjs`) around the `playwright-local`
 (`npm:@playwright/mcp@latest`) MCP server and its own managed Chromium. Run it
 from the repository root, in the background, so it can keep running while you
 observe. The browser stays open until you stop it with Ctrl-C or `kill <pid>`.
@@ -53,8 +53,7 @@ to re-derive it:
    `.vscode/browser-mcp.config.json` stay placeholdered and intentionally
    non-launchable; never edit them to bake in current-environment paths.
 4. Ensures the MCP-managed Chromium is installed
-   (`node ./scripts/run-deno.mjs run -A npm:@playwright/mcp@latest install-browser chromium`,
-   idempotent).
+   (`npx -y @playwright/mcp@latest install-browser chromium`, idempotent).
 5. Starts `npm:@playwright/mcp@latest` over stdio (a single launcher-owned
    client = no profile-lock) with
    `--user-data-dir=<repoRoot>/.mcp-browser-profile` and
@@ -77,7 +76,7 @@ stdin/stdout.
 
 ## Required control protocol for observation/debugging
 
-The Playwright MCP server is owned by `scripts/launch-test-browser.ts` over
+The Playwright MCP server is owned by `scripts/launch-test-browser.mjs` over
 stdio. Do **not** start a second MCP server/client against the same
 `.mcp-browser-profile` to inspect the browser; it either profile-locks or leaves
 the agent unable to control the already-open page/popup. Use the launcher's
@@ -115,11 +114,12 @@ output plus the CDP flow below; use the same browser session over CDP to inspect
 popup state and click controls manually.
 
 If the launcher control channel output is not enough, connect to the same live
-browser over CDP:
+browser over CDP from any Node environment where the `playwright` package is
+already available:
 
 ```bash
-node ./scripts/run-deno.mjs eval --allow-net --allow-env --allow-read --allow-sys '
-const { chromium } = await import("npm:playwright");
+node --input-type=module -e '
+import { chromium } from "playwright";
 const browser = await chromium.connectOverCDP("http://127.0.0.1:9222");
 const context = browser.contexts()[0];
 const pages = context.pages();
@@ -161,7 +161,7 @@ stop rebuilds and reloads from scratch.
 ## Debugging the launcher (internals)
 
 If you must drive the MCP browser by hand (e.g. to extend the flow), mirror
-`scripts/launch-test-browser.ts` and `orchestration/steps/browser.mjs`:
+`scripts/launch-test-browser.mjs` and `orchestration/steps/browser.mjs`:
 
 - The `browser_run_code_unsafe` sandbox is NOT a full Node context: `setTimeout`
   and `URL` are undefined there. Use Playwright APIs (`page.waitForTimeout`) and

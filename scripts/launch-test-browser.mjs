@@ -24,10 +24,15 @@
  *
  * The browser stays open until this process is stopped (Ctrl-C / kill <pid>).
  */
-import { resolve, join, fromFileUrl } from "@std/path";
-import { resolveDenoExecutable } from "./deno-executable.ts";
+import { spawn } from "node:child_process";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { join, resolve } from "node:path";
+import { createInterface } from "node:readline";
+import { setTimeout as delay } from "node:timers/promises";
+import { fileURLToPath } from "node:url";
 
-const repoRoot = resolve(fromFileUrl(new URL("..", import.meta.url)));
+const repoRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const EXT_DIR = join(repoRoot, ".output", "chrome-mv3");
 const PROFILE_DIR = join(repoRoot, ".mcp-browser-profile");
 const TEMP_DIR = join(repoRoot, ".temp");
@@ -37,9 +42,9 @@ const COMMITTED_CONFIG = join(repoRoot, ".vscode", "browser-mcp.config.json");
 const CDP_PORT = 9222;
 
 // --- args -----------------------------------------------------------------
-const positionals: string[] = [];
-const flags = new Set<string>();
-for (const a of Deno.args) {
+const positionals = [];
+const flags = new Set();
+for (const a of process.argv.slice(2)) {
   if (a.startsWith("--")) flags.add(a);
   else positionals.push(a);
 }
@@ -56,36 +61,49 @@ if (!target) {
       "Usage: pnpm browser:live <target-url> [--no-build]",
     ].join("\n"),
   );
-  Deno.exit(2);
+  process.exit(2);
 }
 if (!/^https?:\/\//i.test(target)) target = `https://${target}`;
 const doBuild = !flags.has("--no-build");
 
 // --- helpers --------------------------------------------------------------
-async function run(cmd: string, args: string[]): Promise<void> {
-  const child = new Deno.Command(cmd, {
-    args,
-    cwd: repoRoot,
-    stdout: "inherit",
-    stderr: "inherit",
-  }).spawn();
-  const status = await child.status;
-  if (!status.success) {
-    throw new Error(`\`${cmd} ${args.join(" ")}\` failed (code ${status.code})`);
-  }
+async function run(cmd, args) {
+  const child = spawn(cmd, args, {
+   cwd: repoRoot,
+   env: process.env,
+   stdio: "inherit",
+  });
+  await new Promise((resolvePromise, rejectPromise) => {
+   child.once("error", rejectPromise);
+   child.once("close", (code, signal) => {
+     if (signal) {
+       rejectPromise(new Error(`\`${cmd} ${args.join(" ")}\` exited via signal ${signal}`));
+       return;
+     }
+     if ((code ?? 0) !== 0) {
+       rejectPromise(new Error(`\`${cmd} ${args.join(" ")}\` failed (code ${code ?? 0})`));
+       return;
+     }
+     resolvePromise();
+   });
+  });
 }
 
-const denoExecutable = await resolveDenoExecutable();
+function spawnPlaywrightMcp(extraArgs, stdio) {
+  return spawn("npx", ["-y", "@playwright/mcp@latest", ...extraArgs], {
+   cwd: repoRoot,
+   env: process.env,
+   stdio,
+  });
+}
 
 /** Chrome derives an unpacked extension id from the absolute load path:
  *  first 16 bytes of SHA-256(path), each nibble mapped 0..15 -> 'a'..'p'. */
-async function deterministicExtensionId(path: string): Promise<string> {
-  const digest = new Uint8Array(
-    await crypto.subtle.digest("SHA-256", new TextEncoder().encode(path)),
-  ).slice(0, 16);
+async function deterministicExtensionId(path) {
+  const digest = createHash("sha256").update(path).digest().subarray(0, 16);
   let out = "";
   for (const b of digest) {
-    out += String.fromCharCode(97 + (b >> 4));
+   out += String.fromCharCode(97 + (b >> 4));
     out += String.fromCharCode(97 + (b & 0x0f));
   }
   return out;
@@ -124,13 +142,12 @@ const BIND_SCRIPT = `async (page) => {
   return JSON.stringify({ extId: extId, tabId: tabId, boundUrl: boundUrl, pageUrl: pageUrl });
 }`;
 
-// --- minimal JSON-RPC stdio client ---------------------------------------
-type Json = Record<string, unknown>;
-const encoder = new TextEncoder();
-
-function makeClient(child: Deno.ChildProcess) {
-  const writer = child.stdin.getWriter();
-  const pending = new Map<number, (msg: Json) => void>();
+function makeClient(child) {
+  if (!child.stdin || !child.stdout || !child.stderr) {
+    throw new Error("Playwright MCP child did not expose piped stdio");
+  }
+  const writer = child.stdin;
+  const pending = new Map();
   let nextId = 1;
 
   (async () => {
@@ -138,12 +155,12 @@ function makeClient(child: Deno.ChildProcess) {
     let buf = "";
     for await (const chunk of child.stdout) {
       buf += decoder.decode(chunk, { stream: true });
-      let idx: number;
+      let idx;
       while ((idx = buf.indexOf("\n")) >= 0) {
         const line = buf.slice(0, idx).trim();
         buf = buf.slice(idx + 1);
         if (!line) continue;
-        let msg: Json;
+        let msg;
         try {
           msg = JSON.parse(line);
         } catch {
@@ -151,7 +168,7 @@ function makeClient(child: Deno.ChildProcess) {
         }
         const id = msg["id"];
         if (typeof id === "number" && pending.has(id)) {
-          pending.get(id)!(msg);
+          pending.get(id)(msg);
           pending.delete(id);
         }
       }
@@ -159,16 +176,24 @@ function makeClient(child: Deno.ChildProcess) {
   })();
 
   (async () => {
-    for await (const chunk of child.stderr) await Deno.stderr.write(chunk);
+    for await (const chunk of child.stderr) process.stderr.write(chunk);
   })();
 
-  async function write(obj: Json): Promise<void> {
-    await writer.write(encoder.encode(JSON.stringify(obj) + "\n"));
+  async function write(obj) {
+    await new Promise((resolvePromise, rejectPromise) => {
+      writer.write(`${JSON.stringify(obj)}\n`, (error) => {
+        if (error) {
+          rejectPromise(error);
+          return;
+        }
+        resolvePromise();
+      });
+    });
   }
 
-  function request(method: string, params: Json, timeoutMs = 180_000): Promise<Json> {
+  function request(method, params, timeoutMs = 180_000) {
     const id = nextId++;
-    return new Promise<Json>((res, rej) => {
+    return new Promise((res, rej) => {
       const timer = setTimeout(() => {
         pending.delete(id);
         rej(new Error(`timeout waiting for ${method}`));
@@ -181,13 +206,26 @@ function makeClient(child: Deno.ChildProcess) {
     });
   }
 
-  function notify(method: string, params: Json): Promise<void> {
+  function notify(method, params) {
     return write({ jsonrpc: "2.0", method, params });
   }
 
-  async function closeStdin(): Promise<void> {
+  async function closeStdin() {
     try {
-      await writer.close();
+      if (writer.writableEnded) {
+        return;
+      }
+      await new Promise((resolvePromise, rejectPromise) => {
+        const onError = (error) => {
+          writer.off("error", onError);
+          rejectPromise(error);
+        };
+        writer.once("error", onError);
+        writer.end(() => {
+          writer.off("error", onError);
+          resolvePromise();
+        });
+      });
     } catch {
       // ignore
     }
@@ -196,20 +234,20 @@ function makeClient(child: Deno.ChildProcess) {
   return { request, notify, closeStdin };
 }
 
-function toolText(resp: Json): string {
+function toolText(resp) {
   try {
-    const content = (resp["result"] as { content?: Array<{ type: string; text?: string }> })
-      ?.content ?? [];
+    const result = resp?.result;
+    const content = Array.isArray(result?.content) ? result.content : [];
     return content
-      .filter((c) => c.type === "text")
-      .map((c) => c.text ?? "")
+      .filter((entry) => entry?.type === "text")
+      .map((entry) => entry.text ?? "")
       .join("\n");
   } catch {
     return JSON.stringify(resp);
   }
 }
 
-function extractJsonObject(text: string): Json {
+function extractJsonObject(text) {
   const trimmed = text.trim();
   const candidates = [
     trimmed,
@@ -221,7 +259,10 @@ function extractJsonObject(text: string): Json {
       if (typeof parsed === "string") {
         return extractJsonObject(parsed);
       }
-      return parsed;
+      if (parsed && typeof parsed === "object") {
+        return parsed;
+      }
+      return { value: parsed };
     } catch {
       // Try the next candidate.
     }
@@ -229,7 +270,7 @@ function extractJsonObject(text: string): Json {
   return { raw: text };
 }
 
-function buildLiveStateScript(action: "state" | "exit-preview"): string {
+function buildLiveStateScript(action) {
   return `async (page) => {
   const action = ${JSON.stringify(action)};
   const ctx = page.context();
@@ -328,15 +369,15 @@ function buildLiveStateScript(action: "state" | "exit-preview"): string {
 }`;
 }
 
-function summarizeButtonState(result: Json): Json {
-  const state = (result.state && typeof result.state === "object")
-    ? result.state as Json
-    : (result.after && typeof result.after === "object")
-      ? result.after as Json
-      : result;
-  const popup = state.popup && typeof state.popup === "object" ? state.popup as Json : {};
-  const view = popup.view && typeof popup.view === "object" ? popup.view as Json : {};
-  const dom = popup.dom && typeof popup.dom === "object" ? popup.dom as Json : {};
+function asJson(value) {
+  return value && typeof value === "object" ? value : {};
+}
+
+function summarizeButtonState(result) {
+  const state = asJson(result.state ?? result.after ?? result);
+  const popup = asJson(state.popup);
+  const view = asJson(popup.view);
+  const dom = asJson(popup.dom);
   return {
     previewActive: view.previewActive,
     previewWillRestoreMarking: view.previewWillRestoreMarking,
@@ -354,18 +395,19 @@ function summarizeButtonState(result: Json): Json {
   };
 }
 
-function makeControlChannel(client: ReturnType<typeof makeClient>) {
+function makeControlChannel(client) {
   let queue = Promise.resolve();
   let observing = true;
   let lastObserved = "";
+  let readlineInterface = null;
 
-  function enqueue<T>(task: () => Promise<T>): Promise<T> {
+  function enqueue(task) {
     const next = queue.then(task, task);
     queue = next.then(() => undefined, () => undefined);
     return next;
   }
 
-  async function runStateAction(action: "state" | "exit-preview"): Promise<Json> {
+  async function runStateAction(action) {
     const response = await client.request("tools/call", {
       name: "browser_run_code_unsafe",
       arguments: { code: buildLiveStateScript(action) },
@@ -373,7 +415,7 @@ function makeControlChannel(client: ReturnType<typeof makeClient>) {
     return extractJsonObject(toolText(response));
   }
 
-  function printJson(prefix: string, value: unknown) {
+  function printJson(prefix, value) {
     console.log(`${prefix} ${JSON.stringify(value, null, 2)}`);
   }
 
@@ -390,11 +432,11 @@ function makeControlChannel(client: ReturnType<typeof makeClient>) {
       } catch (error) {
         console.log(`[observe:buttons:error] ${String(error && error.message ? error.message : error)}`);
       }
-      await new Promise((resolveDelay) => setTimeout(resolveDelay, 500));
+      await delay(500);
     }
   }
 
-  async function handleCommand(rawLine: string) {
+  async function handleCommand(rawLine) {
     const line = rawLine.trim();
     if (!line) {
       return;
@@ -430,19 +472,14 @@ function makeControlChannel(client: ReturnType<typeof makeClient>) {
   }
 
   async function readCommands() {
-    const decoder = new TextDecoder();
-    let buffer = "";
-    for await (const chunk of Deno.stdin.readable) {
-      buffer += decoder.decode(chunk, { stream: true });
-      let newlineIndex = buffer.indexOf("\n");
-      while (newlineIndex >= 0) {
-        const line = buffer.slice(0, newlineIndex);
-        buffer = buffer.slice(newlineIndex + 1);
-        handleCommand(line).catch((error) => {
-          console.log(`[control:error] ${String(error && error.message ? error.message : error)}`);
-        });
-        newlineIndex = buffer.indexOf("\n");
-      }
+    readlineInterface = createInterface({
+      input: process.stdin,
+      crlfDelay: Infinity,
+    });
+    for await (const line of readlineInterface) {
+      handleCommand(line).catch((error) => {
+        console.log(`[control:error] ${String(error && error.message ? error.message : error)}`);
+      });
     }
   }
 
@@ -455,6 +492,7 @@ function makeControlChannel(client: ReturnType<typeof makeClient>) {
     },
     stop() {
       observing = false;
+      readlineInterface?.close();
     }
   };
 }
@@ -468,19 +506,19 @@ if (doBuild) {
   await run("pnpm", ["build"]);
 }
 try {
-  await Deno.stat(join(EXT_DIR, "manifest.json"));
+  await stat(join(EXT_DIR, "manifest.json"));
 } catch {
   console.error(
     `ERROR: ${EXT_DIR}/manifest.json not found. Run \`pnpm build\` first ` +
       `(or omit --no-build).`,
   );
-  Deno.exit(1);
+  process.exit(1);
 }
 
-await Deno.mkdir(TEMP_DIR, { recursive: true });
-await Deno.mkdir(TEMP_OUT, { recursive: true });
+await mkdir(TEMP_DIR, { recursive: true });
+await mkdir(TEMP_OUT, { recursive: true });
 
-const rawConfig = await Deno.readTextFile(COMMITTED_CONFIG);
+const rawConfig = await readFile(COMMITTED_CONFIG, "utf8");
 const config = JSON.parse(rawConfig.replaceAll("__UNFLUFFIFY_REPO_ROOT__", repoRoot));
 // Force Playwright's managed Chromium — never the OS browser.
 if (config?.browser?.launchOptions) delete config.browser.launchOptions.executablePath;
@@ -489,7 +527,7 @@ if (config?.browser?.launchOptions) {
     ? config.browser.launchOptions.args
     : [];
   config.browser.launchOptions.args = [
-    ...args.filter((arg: unknown) =>
+    ...args.filter((arg) =>
       typeof arg === "string" &&
       !arg.startsWith("--remote-debugging-port=") &&
       !arg.startsWith("--remote-allow-origins=")
@@ -501,13 +539,13 @@ if (config?.browser?.launchOptions) {
 const serializedConfig = JSON.stringify(config, null, 2);
 if (serializedConfig.includes("__") || serializedConfig.includes("executablePath")) {
   console.error("ERROR: temp config still contains placeholders or an executablePath; aborting.");
-  Deno.exit(1);
+  process.exit(1);
 }
-await Deno.writeTextFile(TEMP_CONFIG, serializedConfig);
+await writeFile(TEMP_CONFIG, serializedConfig);
 console.log(`[launch] wrote ${TEMP_CONFIG}`);
 
 console.log("[launch] ensuring MCP-managed Chromium is installed (idempotent)…");
-await run(denoExecutable, ["run", "-A", "npm:@playwright/mcp@latest", "install-browser", "chromium"]);
+await run("npx", ["-y", "@playwright/mcp@latest", "install-browser", "chromium"]);
 
 const predictedId = await deterministicExtensionId(EXT_DIR);
 console.log(`[launch] deterministic extension id for ${EXT_DIR}: ${predictedId}`);
@@ -515,34 +553,25 @@ console.log(`[launch] CDP endpoint: http://127.0.0.1:${CDP_PORT} (for same-brows
 
 // --- launch MCP server + drive -------------------------------------------
 console.log("[launch] starting npm:@playwright/mcp@latest (managed Chromium)…");
-const server = new Deno.Command(denoExecutable, {
-  args: [
-    "run",
-    "-A",
-    "npm:@playwright/mcp@latest",
-    `--user-data-dir=${PROFILE_DIR}`,
-    `--config=${TEMP_CONFIG}`,
-    `--output-dir=${TEMP_OUT}`,
-  ],
-  cwd: repoRoot,
-  stdin: "piped",
-  stdout: "piped",
-  stderr: "piped",
-}).spawn();
+const server = spawnPlaywrightMcp([
+  `--user-data-dir=${PROFILE_DIR}`,
+  `--config=${TEMP_CONFIG}`,
+  `--output-dir=${TEMP_OUT}`,
+], ["pipe", "pipe", "pipe"]);
 
 const client = makeClient(server);
-let controlChannel: ReturnType<typeof makeControlChannel> | null = null;
+let controlChannel = null;
 
 const stop = async () => {
   controlChannel?.stop();
   await client.closeStdin();
 };
-Deno.addSignalListener("SIGINT", () => {
+process.on("SIGINT", () => {
   console.log("\n[launch] stopping…");
-  stop().finally(() => Deno.exit(0));
+  stop().finally(() => process.exit(0));
 });
-Deno.addSignalListener("SIGTERM", () => {
-  stop().finally(() => Deno.exit(0));
+process.on("SIGTERM", () => {
+  stop().finally(() => process.exit(0));
 });
 
 const init = await client.request("initialize", {
@@ -550,7 +579,9 @@ const init = await client.request("initialize", {
   capabilities: {},
   clientInfo: { name: "unfluffify-launch-test-browser", version: "1.0.0" },
 }, 60_000);
-const serverInfo = (init["result"] as { serverInfo?: unknown })?.serverInfo;
+const serverInfo = init?.result && typeof init.result === "object"
+  ? init.result.serverInfo
+  : undefined;
 console.log(`[launch] MCP initialized: ${JSON.stringify(serverInfo)}`);
 await client.notify("notifications/initialized", {});
 
@@ -591,4 +622,7 @@ if (extId && tabId && boundUrl) {
   console.error("[launch] the page is loaded; browser left open for inspection.");
 }
 
-await server.status;
+await new Promise((resolvePromise, rejectPromise) => {
+  server.once("error", rejectPromise);
+  server.once("close", () => resolvePromise());
+});
