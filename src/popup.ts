@@ -2662,8 +2662,34 @@ function clearLastPopupEnabled() {
   setLastPopupEnabled(null);
 }
 
-// @ts-expect-error
-async function setCurrentPageSaveReconciliationReason(reason) {
+interface InspectionStatusResponse {
+  ok?: unknown;
+  active?: unknown;
+  pending?: unknown;
+  markingEnabled?: unknown;
+  lockClaimPending?: unknown;
+  renderModeInspectionActive?: unknown;
+  [key: string]: unknown;
+}
+
+interface PreviewRestoreRuntimeOptions {
+  token?: unknown;
+}
+
+interface CurrentPageRuntimeStatus {
+  inspectionStatus: InspectionStatusResponse | null;
+  draftStatus: TabDraftStatusResponse | null;
+  inspectionPending: boolean;
+  reconciliationPending: boolean;
+}
+
+interface RuntimeStatusRefreshOptions {
+  tabId?: unknown;
+  baseUrl?: unknown;
+  preserveDraft?: unknown;
+}
+
+async function setCurrentPageSaveReconciliationReason(reason: unknown): Promise<PageSaveReconciliation | null> {
   const pageUrl = getCurrentPageUrl();
   if (!state.currentBaseUrl || !pageUrl) {
     return null;
@@ -2781,9 +2807,10 @@ function isPreviewRestoreMessageCurrent(message = {}) {
   return !messagePageUrl || !currentPageUrl || messagePageUrl === currentPageUrl;
 }
 
-async function finalizePreviewRestoreFromRuntime(options = {}) {
-// @ts-expect-error
-  const token = Number.isFinite(options.token) ? Math.trunc(options.token) : state.previewRestoreToken;
+async function finalizePreviewRestoreFromRuntime(options: PreviewRestoreRuntimeOptions = {}): Promise<void> {
+  const token = Number.isFinite(options.token)
+    ? Math.trunc(Number(options.token))
+    : state.previewRestoreToken;
   if (!state.previewRestorePending || token !== state.previewRestoreToken) {
     return;
   }
@@ -2813,7 +2840,7 @@ async function finalizePreviewRestoreFromRuntime(options = {}) {
   const [inspectionStatus, draftStatus] = await Promise.all([
     messages.sendTabMessageWithRetry({ type: "getInspectionStatus" }, 3).catch(() => null),
     messages.sendTabMessageWithRetry({ type: "getPageDraftStatus", baseUrl }, 3).catch(() => null)
-  ]) as [Record<string, unknown> | null, TabDraftStatusResponse | null];
+  ]) as [InspectionStatusResponse | null, TabDraftStatusResponse | null];
   if (!state.previewRestorePending || token !== state.previewRestoreToken) {
     return;
   }
@@ -2895,21 +2922,17 @@ async function applyPreviewClosedState(closeState = {}) {
   }
 }
 
-async function refreshCurrentPageRuntimeStatus(options = {}) {
-// @ts-expect-error
+async function refreshCurrentPageRuntimeStatus(
+  options: RuntimeStatusRefreshOptions = {}
+): Promise<CurrentPageRuntimeStatus> {
   const tabId = Number.isFinite(options.tabId)
-// @ts-expect-error
-    ? Math.trunc(options.tabId)
+    ? Math.trunc(Number(options.tabId))
     : state.currentTab && Number.isFinite(state.currentTab.id)
-// @ts-expect-error
-      ? Math.trunc(state.currentTab.id)
+      ? Math.trunc(Number(state.currentTab.id))
       : null;
-// @ts-expect-error
   const baseUrl = typeof options.baseUrl === "string" && options.baseUrl
-// @ts-expect-error
     ? options.baseUrl
     : state.currentBaseUrl;
-// @ts-expect-error
   const preserveDraft = Boolean(options.preserveDraft);
   if (!tabId) {
     return {
@@ -2928,7 +2951,7 @@ async function refreshCurrentPageRuntimeStatus(options = {}) {
         baseUrl
       }).catch(() => null)
       : Promise.resolve(null)
-  ]) as [Record<string, unknown> | null, TabDraftStatusResponse | null];
+  ]) as [InspectionStatusResponse | null, TabDraftStatusResponse | null];
 
   // After an authoritative preview close, the caller has already applied the
   // restored draft snapshot from the close payload. Re-probing getPageDraftStatus
