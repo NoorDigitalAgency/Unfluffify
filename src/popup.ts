@@ -2434,7 +2434,6 @@ async function pruneLocalInvalidPageMarkings(options = {}) {
     return [];
   }
   const configs = await config.getConfigs();
-// @ts-expect-error
   const sourceConfig = configs[normalizedBaseUrl];
   if (!sourceConfig || !sourceConfig.pageMarkings || typeof sourceConfig.pageMarkings !== "object") {
     return [];
@@ -2450,7 +2449,6 @@ async function pruneLocalInvalidPageMarkings(options = {}) {
     }
   });
   if (removedUrls.length) {
-// @ts-expect-error
     configs[normalizedBaseUrl] = nextConfig;
     await config.saveConfigs(configs);
   }
@@ -2469,23 +2467,21 @@ async function repairLocalPageMarkingPageTypes(options = {}) {
   if (!normalizedBaseUrl || !Array.isArray(repairedMarkedPages) || !repairedMarkedPages.length) {
     return [];
   }
-  const repairsByUrl = new Map(
-// @ts-expect-error
+  const repairsByUrl = new Map<string, string>(
     repairedMarkedPages
       .map((item) => {
         const url = normalizeCandidatePageUrl(item && item.url);
         const pageType = item && typeof item.pageType === "string"
           ? item.pageType.trim()
           : "";
-        return url && pageType ? [url, pageType] : null;
+        return url && pageType ? [url, pageType] as const : null;
       })
-      .filter(Boolean)
+      .filter((item): item is readonly [string, string] => Boolean(item))
   );
   if (!repairsByUrl.size) {
     return [];
   }
   const configs = await config.getConfigs();
-// @ts-expect-error
   const sourceConfig = configs[normalizedBaseUrl];
   if (!sourceConfig || !sourceConfig.pageMarkings || typeof sourceConfig.pageMarkings !== "object") {
     return [];
@@ -2506,7 +2502,6 @@ async function repairLocalPageMarkingPageTypes(options = {}) {
     repairedUrls.push(url);
   });
   if (repairedUrls.length) {
-// @ts-expect-error
     configs[normalizedBaseUrl] = nextConfig;
     await config.saveConfigs(configs);
   }
@@ -3410,7 +3405,6 @@ function getCurrentSelectorsFromConfig(sourceConfig = state.currentConfig) {
   if (!config.isSelectorSetCurrentForRenderMode(sourceConfig, "selectors")) {
     return normalizeAiSelectorSet(null);
   }
-// @ts-expect-error
   return normalizeAiSelectorSet(sourceConfig && sourceConfig.selectors);
 }
 
@@ -3419,7 +3413,6 @@ function getLastSubmittedSelectorsFromConfig(sourceConfig = state.currentConfig)
     return normalizeAiSelectorSet(null);
   }
   return config.areCurrentSelectorsSubmitted(sourceConfig)
-// @ts-expect-error
     ? normalizeAiSelectorSet(sourceConfig && sourceConfig.selectors)
     : normalizeAiSelectorSet(null);
 }
@@ -3438,7 +3431,6 @@ function hasCalculatedSelectorsFromConfig(sourceConfig = state.currentConfig) {
   if (updatedAt === config.PAGE_TIMESTAMP_FALLBACK) {
     return false;
   }
-// @ts-expect-error
   return combineAiSelectorSet(sourceConfig && sourceConfig.selectors).length > 0;
 }
 
@@ -3832,15 +3824,11 @@ async function refreshUiInner(options = {}) {
     ? (effectiveTabState.baseUrl || fallbackBaseUrl || "")
     : "";
   if (state.currentBaseUrl) {
-// @ts-expect-error
     const normalized = config.normalizeConfig(state.currentBaseUrl, configs[state.currentBaseUrl]);
-// @ts-expect-error
     if (configs[state.currentBaseUrl] && normalized.changed) {
-// @ts-expect-error
       configs[state.currentBaseUrl] = normalized.config;
       await config.saveConfigs(configs);
     }
-// @ts-expect-error
     state.currentConfig = configs[state.currentBaseUrl] || normalized.config;
     const siteIdResult = await ensureBaseUrlSiteId({
       baseUrl: state.currentBaseUrl,
@@ -3937,19 +3925,15 @@ async function refreshUiInner(options = {}) {
         )
       ) {
         configs = await config.getConfigs();
-// @ts-expect-error
         if (state.currentBaseUrl && configs[state.currentBaseUrl]) {
           const normalizedCurrent = config.normalizeConfig(
             state.currentBaseUrl,
-// @ts-expect-error
             configs[state.currentBaseUrl]
           );
           if (normalizedCurrent.changed) {
-// @ts-expect-error
             configs[state.currentBaseUrl] = normalizedCurrent.config;
             await config.saveConfigs(configs);
           }
-// @ts-expect-error
           state.currentConfig = configs[state.currentBaseUrl];
         }
       }
@@ -4026,10 +4010,8 @@ async function refreshUiInner(options = {}) {
         state.siteIdLookupByBaseUrl.set(fallbackBaseUrl, fallbackSiteId);
         state.currentBaseUrl = fallbackBaseUrl;
         currentSiteId = fallbackSiteId;
-// @ts-expect-error
         state.currentConfig = config.normalizeConfig(
           fallbackBaseUrl,
-// @ts-expect-error
           configs[fallbackBaseUrl]
         ).config;
       }
@@ -4426,10 +4408,8 @@ async function refreshUiInner(options = {}) {
       if (repairedStoredPageUrls.length) {
         didReconcileStoredPageMarkings = true;
         configs = await config.getConfigs();
-// @ts-expect-error
         state.currentConfig = config.normalizeConfig(
           state.currentBaseUrl,
-// @ts-expect-error
           configs[state.currentBaseUrl]
         ).config;
         pageMarkings = (state.currentConfig && state.currentConfig.pageMarkings) || {};
@@ -4457,10 +4437,8 @@ async function refreshUiInner(options = {}) {
       if (removedInvalidUrls.length) {
         didReconcileStoredPageMarkings = true;
         configs = await config.getConfigs();
-// @ts-expect-error
         state.currentConfig = config.normalizeConfig(
           state.currentBaseUrl,
-// @ts-expect-error
           configs[state.currentBaseUrl]
         ).config;
         pageMarkings = (state.currentConfig && state.currentConfig.pageMarkings) || {};
@@ -5995,7 +5973,6 @@ async function handleRenderModeSet() {
       return;
     }
     const renderModeUpdatedAt = config.createTimestampNow();
-// @ts-expect-error
     state.currentConfig = await config.updateConfig(state.currentBaseUrl, (targetConfig) => {
       targetConfig.renderMode = nextRenderMode;
       targetConfig.renderModeUpdatedAt = renderModeUpdatedAt;
@@ -6678,9 +6655,7 @@ async function handleEnableToggle(event) {
           }
           {
             const currentConfigs = await config.getConfigs();
-// @ts-expect-error
             const normalizedCurrent = config.normalizeConfig(baseUrlValue, currentConfigs[baseUrlValue]);
-// @ts-expect-error
             state.currentConfig = normalizedCurrent.config;
           }
           const { stageBaseValue, tokenValue } = await helpers.loadGlobalAiSettings();
@@ -7183,7 +7158,6 @@ async function applyLocalPageDiscard() {
   const backendSavedPageMarkings = await config.getBackendSavedPageMarkings(baseUrl);
   const backendEntry = findBackendSavedPageMarkingEntry(backendSavedPageMarkings, pageUrl);
   const normalizedTargetUrl = normalizeCandidatePageUrl(pageUrl);
-// @ts-expect-error
   state.currentConfig = await config.updateConfig(baseUrl, (targetConfig) => {
     if (!targetConfig.pageMarkings || typeof targetConfig.pageMarkings !== "object") {
       targetConfig.pageMarkings = {};
@@ -7284,7 +7258,6 @@ async function applyComputedSelectorSet(selectorSet, { currentPageUrl = "", toke
     !config.isSelectorSetCurrentForRenderMode(state.currentConfig, "selectors") ||
     !aiSelectorSetsEqual(
       selectorSet,
-// @ts-expect-error
       state.currentConfig && state.currentConfig.selectors
     );
   const selectorSetUpdatedAt = selectorsChanged
@@ -7292,7 +7265,6 @@ async function applyComputedSelectorSet(selectorSet, { currentPageUrl = "", toke
     : config.normalizeEntryTimestamp(
         state.currentConfig && state.currentConfig.selectorsUpdatedAt
       );
-// @ts-expect-error
   state.currentConfig = await config.updateConfig(state.currentBaseUrl, (targetConfig) => {
     targetConfig.selectors = normalizeAiSelectorSet(selectorSet);
     targetConfig.selectorsUpdatedAt = selectorSetUpdatedAt;
@@ -7545,8 +7517,7 @@ async function handleComputeSelectors() {
       uiModule.showToast(PopupText.ai.currentPageUnavailable);
       return;
     }
-// @ts-expect-error
-    const pageMarkings = state.currentConfig.pageMarkings || {};
+    const pageMarkings = (state.currentConfig && state.currentConfig.pageMarkings) || {};
     const currentPageEntry = pageMarkings[currentPageUrl];
     const currentRenderMode = config.getConfigRenderMode(state.currentConfig);
     const hasCurrentSubmissionXpaths =
@@ -7758,7 +7729,6 @@ async function submitSelectorSetToServer(options = {}) {
       !config.isSelectorSetCurrentForRenderMode(state.currentConfig, "selectors") ||
       !aiSelectorSetsEqual(
         normalizedSelectorSet,
-// @ts-expect-error
         state.currentConfig && state.currentConfig.selectors
       );
     const selectorSetUpdatedAt = selectorsNeedRefresh
@@ -7767,7 +7737,6 @@ async function submitSelectorSetToServer(options = {}) {
           state.currentConfig && state.currentConfig.selectorsUpdatedAt
         );
     const submittedSelectorsFingerprint = getSelectorSetFingerprint(normalizedSelectorSet);
-// @ts-expect-error
     state.currentConfig = await config.updateConfig(effectiveBaseUrl, (targetConfig) => {
       targetConfig.selectors = normalizeAiSelectorSet(normalizedSelectorSet);
       targetConfig.selectorsUpdatedAt = selectorSetUpdatedAt;

@@ -4,20 +4,24 @@ export interface PageMarkingConfig {
 }
 
 export interface SelectorSet {
-  includeXpaths: string[];
-  excludeXpaths: string[];
-  selectorSuppressedXpaths?: string[];
-  submissionXpaths?: string[];
+  exclusionSelectors: string[];
+  inclusionSelectors: string[];
+}
+
+export interface XpathEntry {
+  xpath: string;
+  excluded: boolean;
+  explicit?: boolean;
 }
 
 export interface PageMarkingEntry {
   title?: string;
   timestamp?: string;
   pageType?: string;
-  xpaths: string[];
+  xpaths: XpathEntry[];
   includeXpaths: string[];
   selectorSuppressedXpaths: string[];
-  submissionXpaths: string[];
+  submissionXpaths: XpathEntry[];
   silentWhitespaceExcludedXpaths: string[];
   renderedHtml?: string;
   rawHtml?: string;
@@ -51,9 +55,10 @@ export interface PropertyLockState {
 export interface Config {
   baseUrl?: string;
   stageBase?: string;
-  siteId?: string;
+  siteId?: string | number | null;
   token?: string;
   renderMode?: string;
+  renderModeUpdatedAt?: string;
   pageMarkings: PageMarkings;
   selectors?: SelectorSet;
   selectorsUpdatedAt?: string;

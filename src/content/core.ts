@@ -1,4 +1,5 @@
 import * as config from "../common/config.js";
+import type { Config } from "../types/config.ts";
 import * as utils from "../common/utilities.js";
 import {
   DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS,
@@ -42,7 +43,7 @@ export const state = {
   enabled: false,
   baseUrl: "",
   currentPageType: "",
-  config: null,
+  config: null as Config | null,
   overlay: null,
   layers: {},
   hoverBox: null,
@@ -8453,7 +8454,6 @@ function toggleExplicitExclude(target, options = {}) {
     entry.xpaths = items;
     touchPageEntryTimestamp(entry);
     normalizePageEntryXpaths(entry);
-// @ts-expect-error
     setPageMarkingEntry(config.pageMarkings, location.href, entry);
     state.config = config;
     completeExplicitToggle(entry, target, "exclude", mutationStartedAt, options);
@@ -8599,7 +8599,6 @@ function toggleExplicitExclude(target, options = {}) {
   entry.xpaths = items;
   touchPageEntryTimestamp(entry);
   normalizePageEntryXpaths(entry);
-// @ts-expect-error
   setPageMarkingEntry(config.pageMarkings, location.href, entry);
   state.config = config;
   completeExplicitToggle(entry, target, "exclude", mutationStartedAt, options);
@@ -8662,7 +8661,6 @@ function toggleExplicitInclude(target, options = {}) {
       entry.xpaths = items;
       touchPageEntryTimestamp(entry);
       normalizePageEntryXpaths(entry);
-// @ts-expect-error
       setPageMarkingEntry(config.pageMarkings, location.href, entry);
       state.config = config;
       completeExplicitToggle(entry, target, "include", mutationStartedAt, options);
@@ -8714,7 +8712,6 @@ function toggleExplicitInclude(target, options = {}) {
   entry.xpaths = items;
   touchPageEntryTimestamp(entry);
   normalizePageEntryXpaths(entry);
-// @ts-expect-error
   setPageMarkingEntry(config.pageMarkings, location.href, entry);
   state.config = config;
   completeExplicitToggle(entry, target, "include", mutationStartedAt, options);
@@ -10914,12 +10911,9 @@ export function canApplyExplicitInclude(
   const xpath = getXPath(el);
   const configEntry =
     configValue &&
-// @ts-expect-error
     configValue.pageMarkings &&
-// @ts-expect-error
     typeof configValue.pageMarkings === "object" &&
     pageUrl
-// @ts-expect-error
       ? configValue.pageMarkings[pageUrl] || null
       : null;
   const sourceEntries = [configEntry, entryOverride];
@@ -10945,7 +10939,7 @@ export function canApplyExplicitInclude(
     return false;
   }
   for (const entry of sourceEntries) {
-    const includeXpaths = Array.isArray(entry && entry.includeXpaths) ? entry.includeXpaths : [];
+    const includeXpaths = Array.isArray(entry?.includeXpaths) ? entry.includeXpaths : [];
     if (includeXpaths.includes(xpath)) {
       return true;
     }
@@ -11758,9 +11752,7 @@ export function getDraftPageEntry(pageUrl) {
   if (
       !pageUrl ||
       !state.config ||
-// @ts-expect-error
       !state.config.pageMarkings ||
-// @ts-expect-error
       typeof state.config.pageMarkings !== "object"
   ) {
     return null;

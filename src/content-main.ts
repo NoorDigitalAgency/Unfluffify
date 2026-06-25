@@ -1,5 +1,6 @@
 import * as core from "./content/core.js";
 import { browser, type Browser } from "./common/browser.js";
+import type { Config } from "./types/config.ts";
 import {
   addBusEnvelopeListener,
   addRequestEnvelopeListener
@@ -389,7 +390,7 @@ function createAiPreviewState() {
     restoreMarkingOnExit: false,
     previousBaseUrl: "",
     previousPageUrl: "",
-    previousConfig: null,
+    previousConfig: null as Config | null,
     previousDraftEntry: null,
     previousSavedEntry: null,
     previousAutoSeededPendingSavePageUrl: ""
@@ -850,7 +851,6 @@ async function recheckSiteIdForCurrentUrlPath(tabState) {
   }
   const currentConfigs = await config.getConfigs();
   const normalizedBaseUrl = utils.normalizeBaseUrl(tabState.baseUrl) || tabState.baseUrl;
-// @ts-expect-error
   const currentConfig = config.normalizeConfig(normalizedBaseUrl, currentConfigs[normalizedBaseUrl]).config;
   const oldSiteId = normalizeSiteIdValue(currentConfig.siteId);
   if (oldSiteId && oldSiteId !== newSiteId) {
@@ -888,14 +888,14 @@ async function fetchPropertyPageTypesForSiteId(siteId, stageBaseValue, tokenValu
   };
 }
 
-// @ts-expect-error
-async function resolveCurrentLivePageTarget(baseUrl, options = {}) {
-// @ts-expect-error
+async function resolveCurrentLivePageTarget(
+  baseUrl: unknown,
+  options: { pageUrl?: unknown; forceSiteIdRefresh?: unknown } = {}
+) {
   const pageUrl = typeof options.pageUrl === "string" && options.pageUrl
-// @ts-expect-error
     ? options.pageUrl
     : location.href;
-  const normalizedBaseUrl = utils.normalizeBaseUrl(baseUrl) || baseUrl;
+  const normalizedBaseUrl = utils.normalizeBaseUrl(baseUrl) || (typeof baseUrl === "string" ? baseUrl : "");
   if (!normalizedBaseUrl || !pageUrl || !utils.isPageWithinBaseUrl(pageUrl, normalizedBaseUrl)) {
     return { ok: false, reason: "Set Base Page URL in the Unfluffify popup first." };
   }
@@ -908,12 +908,10 @@ async function resolveCurrentLivePageTarget(baseUrl, options = {}) {
   const currentConfigs = await config.getConfigs();
   const normalizedConfig = config.normalizeConfig(
     normalizedBaseUrl,
-// @ts-expect-error
     currentConfigs[normalizedBaseUrl]
   ).config;
   const storedSiteId = normalizeSiteIdValue(normalizedConfig.siteId);
   let siteId = storedSiteId;
-// @ts-expect-error
   if (Boolean(options.forceSiteIdRefresh) || !siteId) {
     const resolvedSiteId = await resolveSiteIdFromGraphql({
       stageBase: stageBaseValue,
@@ -923,7 +921,6 @@ async function resolveCurrentLivePageTarget(baseUrl, options = {}) {
     if (resolvedSiteId) {
       siteId = resolvedSiteId;
       if (siteId !== storedSiteId) {
-// @ts-expect-error
         await config.updateConfig(normalizedBaseUrl, (targetConfig) => {
           targetConfig.siteId = siteId;
         });
@@ -966,10 +963,10 @@ async function resolveCurrentLivePageTarget(baseUrl, options = {}) {
   };
 }
 
-async function resolveCurrentPropertyLockConnectionTarget(options = {}) {
-// @ts-expect-error
+async function resolveCurrentPropertyLockConnectionTarget(
+  options: { pageUrl?: unknown; forceSiteIdRefresh?: unknown } = {}
+) {
   const pageUrl = typeof options.pageUrl === "string" && options.pageUrl
-// @ts-expect-error
     ? options.pageUrl
     : location.href;
   if (!pageUrl) {
@@ -987,13 +984,11 @@ async function resolveCurrentPropertyLockConnectionTarget(options = {}) {
   const normalizedConfig = normalizedBaseUrl
     ? config.normalizeConfig(
       normalizedBaseUrl,
-// @ts-expect-error
       currentConfigs[normalizedBaseUrl]
     ).config
     : null;
   const storedSiteId = normalizeSiteIdValue(normalizedConfig && normalizedConfig.siteId);
   let siteId = storedSiteId;
-// @ts-expect-error
   if (Boolean(options.forceSiteIdRefresh) || !siteId) {
     const resolvedSiteId = await resolveSiteIdFromGraphql({
       stageBase: stageBaseValue,
@@ -1003,7 +998,6 @@ async function resolveCurrentPropertyLockConnectionTarget(options = {}) {
     if (resolvedSiteId) {
       siteId = resolvedSiteId;
       if (normalizedBaseUrl && siteId !== storedSiteId) {
-// @ts-expect-error
         await config.updateConfig(normalizedBaseUrl, (targetConfig) => {
           targetConfig.siteId = siteId;
         });
@@ -3353,17 +3347,13 @@ function restoreAiPreviewDraftState(restoreState) {
   if (!pageUrl || location.href !== pageUrl) {
     return;
   }
-// @ts-expect-error
   if (!state.config.pageMarkings || typeof state.config.pageMarkings !== "object") {
-// @ts-expect-error
     state.config.pageMarkings = {};
   }
   const previousDraftEntry = core.clonePageEntry(restoreState.previousDraftEntry);
   if (previousDraftEntry) {
-// @ts-expect-error
     state.config.pageMarkings[pageUrl] = previousDraftEntry;
   } else {
-// @ts-expect-error
     delete state.config.pageMarkings[pageUrl];
   }
   core.setSavedPageEntry(pageUrl, restoreState.previousSavedEntry || null);
@@ -3372,8 +3362,7 @@ function restoreAiPreviewDraftState(restoreState) {
     restoreState.previousAutoSeededPendingSavePageUrl || "";
 }
 
-// @ts-expect-error
-function scheduleAiComputeLockRelease(expiresAt) {
+function scheduleAiComputeLockRelease(expiresAt: number) {
   if (aiComputeLockReleaseTimer) {
     window.clearTimeout(aiComputeLockReleaseTimer);
     aiComputeLockReleaseTimer = 0;
@@ -3391,8 +3380,8 @@ function scheduleAiComputeLockRelease(expiresAt) {
 }
 
 function beginAiPreviewMode(options = {}) {
-// @ts-expect-error
-  const nextMode = typeof options.mode === "string" ? options.mode : "preview";
+  const previewOptions = options as { mode?: unknown };
+  const nextMode = typeof previewOptions.mode === "string" ? previewOptions.mode : "preview";
   const restoreMarkingOnExit = nextMode === "compute_lock";
   if (!aiPreviewState.active) {
     const previousPageUrl = location.href;
@@ -5288,15 +5277,12 @@ function refreshEnabledAiHighlights() {
   clearSilentHighlightingMarks();
   setSilentHighlightingsActive(false);
   const selectorSet = getEffectiveAiSelectorSet(state.config);
-// @ts-expect-error
   if (!state.config.selectors || typeof state.config.selectors !== "object") {
-// @ts-expect-error
     state.config.selectors = {
       exclusionSelectors: [],
       inclusionSelectors: []
     };
   }
-// @ts-expect-error
   state.config.selectors = selectorSet;
 // @ts-expect-error
   core.scheduleRender();
@@ -5343,11 +5329,9 @@ async function refreshSilentHighlightings() {
       currentSilentRevealKey === silentHighlightEditorRevealKey
   );
   setSilentHighlightingPageMotionPaused(holdSilentMotionPause);
-// @ts-expect-error
   const normalized = config.normalizeConfig(baseUrl, configs[baseUrl]);
   const baseConfig = normalized.config || {};
   if (normalized.changed) {
-// @ts-expect-error
     configs[baseUrl] = baseConfig;
     await config.saveConfigs(configs);
     if (refreshGeneration !== silentHighlightingRefreshGeneration) {
@@ -7269,9 +7253,7 @@ export function main() {
                               utils.normalizeBaseUrl(siteIdCheckResult.currentUrl) ||
                               state.baseUrl;
           const configs = await config.getConfigs();
-// @ts-expect-error
           configs[normBaseUrl] = configs[normBaseUrl] || {};
-// @ts-expect-error
           await config.updateConfig(normBaseUrl, (targetConfig) => {
             targetConfig.siteId = siteIdCheckResult.newSiteId;
           });

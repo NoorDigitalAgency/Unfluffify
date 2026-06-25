@@ -71,7 +71,7 @@ interface AiRunManagedTimeoutGroup {
 
 interface AiRunConfigStore {
   ensureConfig(baseUrl: string): Promise<Config>;
-  updateConfig(baseUrl: string, mutate: (config: Config) => void): Promise<void>;
+  updateConfig(baseUrl: string, mutate: (config: Config) => void): Promise<Config>;
 }
 
 type AiRunProgressUpdate = (
@@ -274,7 +274,7 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
     ? options.configStore
     : {
       ensureConfig: async () => ({ pageMarkings: {} }),
-      updateConfig: async () => {}
+      updateConfig: async () => ({ pageMarkings: {} })
     };
 
   const defaultExcludedImmutableSelectors = Array.isArray(options.defaultExcludedImmutableSelectors)

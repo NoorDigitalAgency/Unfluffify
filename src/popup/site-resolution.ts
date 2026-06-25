@@ -12,7 +12,7 @@ const { state } = stateModule;
 const FALLBACK_PROPERTY_PAGE_TYPES_REFRESH_INTERVAL_MS = 120 * 1000;
 
 type StoredPageMarkings = Record<string, Record<string, unknown>>;
-type StoredConfigEntry = { pageMarkings?: StoredPageMarkings; [key: string]: unknown };
+type StoredConfigEntry = Config;
 type StoredConfigs = Record<string, StoredConfigEntry>;
 
 type PropertyPageTypeCandidate = { url?: string; wordsCount?: number; duplicate?: boolean };

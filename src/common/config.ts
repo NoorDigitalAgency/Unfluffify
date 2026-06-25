@@ -6,6 +6,13 @@ import {
   normalizeCanonicalBaseUrl
 } from "./utilities.js";
 import { normalizeSiteIdValue } from "./lynx-live-pages.js";
+import type {
+  Config,
+  PageMarkingEntry,
+  PageMarkings,
+  SelectorSet,
+  XpathEntry
+} from "../types/config.ts";
 
 /** Fallback timestamp for pages with no recorded data */
 export const PAGE_TIMESTAMP_FALLBACK = "1970-01-01T00:00:00Z";
@@ -60,11 +67,7 @@ interface PageSaveReconciliation {
   updatedAt: string;
 }
 
-interface XpathItem {
-  xpath: string;
-  excluded: boolean;
-  explicit?: boolean;
-}
+type XpathItem = XpathEntry;
 
 interface PageMarkingInput extends UnknownRecord {
   timestamp?: unknown;
@@ -82,7 +85,7 @@ interface PageMarkingInput extends UnknownRecord {
   url?: unknown;
 }
 
-interface NormalizedPageMarkingEntry extends UnknownRecord {
+interface NormalizedPageMarkingEntry extends PageMarkingEntry, UnknownRecord {
   timestamp: string;
   xpaths: XpathItem[];
   includeXpaths: string[];
@@ -118,14 +121,14 @@ interface ConfigInput extends UnknownRecord {
   aiSelectorModifiers?: unknown;
 }
 
-interface NormalizedConfig extends UnknownRecord {
+interface NormalizedConfig extends Config, UnknownRecord {
   baseUrl: string;
   domain: string;
   siteId: SiteId;
   renderMode: RenderMode;
   renderModeUpdatedAt: string;
-  pageMarkings: Record<string, Record<string, unknown>>;
-  selectors: Record<string, unknown>;
+  pageMarkings: PageMarkings;
+  selectors: SelectorSet;
   selectorsUpdatedAt: string;
   submittedSelectorsFingerprint: string;
 }
@@ -170,6 +173,7 @@ interface MergePageMarkingsResult {
   replacedExistingUrls: string[];
 }
 
+type NormalizedConfigMap = Record<string, NormalizedConfig>;
 interface NormalizedConfigSyncPayload {
   version: number;
   baseUrl: string;
@@ -931,7 +935,7 @@ export function createDefaultConfig(baseUrl: unknown): NormalizedConfig {
 }
 
 export function normalizePageMarkings(pageMarkings: unknown): {
-  normalized: Record<string, Record<string, unknown>>;
+  normalized: PageMarkingsRecord;
   changed: boolean;
   removedUrls: string[];
 } {
@@ -1335,20 +1339,18 @@ export function mergePageMarkingsByTimestamp(
   };
 }
 
-export async function getConfigs() {
+export async function getConfigs(): Promise<Record<string, Config>> {
   const result = await idbGet("configs");
-  const rawConfigs = result.configs || {};
-  const normalizedConfigs = {};
+  const rawConfigs = isRecord(result.configs) ? result.configs : {};
+  const normalizedConfigs: NormalizedConfigMap = {};
   let changed = false;
   Object.entries(rawConfigs).forEach(([key, value]) => {
     const normalizedKey = normalizeBaseUrl(key) || key;
     if (normalizedKey !== key) {
       changed = true;
     }
-// @ts-expect-error
     if (!normalizedConfigs[normalizedKey]) {
       const normalizedValue = normalizeConfig(normalizedKey, value);
-// @ts-expect-error
       normalizedConfigs[normalizedKey] = normalizedValue.config;
       if (normalizedValue.changed) {
         changed = true;
@@ -1356,7 +1358,6 @@ export async function getConfigs() {
       return;
     }
     changed = true;
-// @ts-expect-error
     const existing = normalizeConfig(normalizedKey, normalizedConfigs[normalizedKey]).config;
     const incoming = normalizeConfig(normalizedKey, value).config;
     const mergedPageMarkings = mergePageMarkingsByTimestamp(
@@ -1377,7 +1378,6 @@ export async function getConfigs() {
       incoming.renderMode,
       incoming.renderModeUpdatedAt
     );
-// @ts-expect-error
     normalizedConfigs[normalizedKey] = {
       ...existing,
       siteId: existing.siteId || incoming.siteId || null,
@@ -1392,72 +1392,64 @@ export async function getConfigs() {
   if (changed) {
     await idbSet({ configs: normalizedConfigs });
   }
-  return normalizedConfigs;
+  return normalizedConfigs as unknown as Record<string, Config>;
 }
 
-// @ts-expect-error
-function normalizeConfigsForStorage(configs) {
-  const normalizedConfigs = {};
+function normalizeConfigsForStorage(configs: unknown): NormalizedConfigMap {
+  const normalizedConfigs: NormalizedConfigMap = {};
   Object.entries(configs || {}).forEach(([key, value]) => {
     const normalizedKey = normalizeBaseUrl(key) || key;
-// @ts-expect-error
     normalizedConfigs[normalizedKey] = normalizeConfig(normalizedKey, value).config;
   });
   return normalizedConfigs;
 }
 
-// @ts-expect-error
-async function saveConfigsDirect(configs) {
+async function saveConfigsDirect(configs: unknown): Promise<void> {
   const normalizedConfigs = normalizeConfigsForStorage(configs);
   await idbSet({ configs: normalizedConfigs });
 }
 
-// @ts-expect-error
-async function queueConfigPersistence(work) {
-  const next = configPersistenceQueue
+async function queueConfigPersistence<T>(work: () => Promise<T> | T): Promise<T> {
+  const resultPromise = configPersistenceQueue
     .catch(() => {})
     .then(work);
-  configPersistenceQueue = next;
-  return next;
+  configPersistenceQueue = resultPromise.then(() => undefined, () => undefined);
+  return resultPromise;
 }
 
-// @ts-expect-error
-export async function saveConfigs(configs) {
+export async function saveConfigs(configs: unknown): Promise<void> {
   await queueConfigPersistence(() => saveConfigsDirect(configs));
 }
 
-// @ts-expect-error
-async function saveConfigEntry(baseUrl, config) {
-  const normalizedBaseUrl = normalizeBaseUrl(baseUrl) || baseUrl;
+async function saveConfigEntry(baseUrl: unknown, config: unknown): Promise<Config> {
+  const normalizedBaseUrl = getConfigQueueKey(baseUrl);
   return queueConfigPersistence(async () => {
     const configs = await getConfigs();
     const normalizedConfig = normalizeConfig(normalizedBaseUrl, config).config;
-// @ts-expect-error
     configs[normalizedBaseUrl] = normalizedConfig;
     await saveConfigsDirect(configs);
     return normalizedConfig;
   });
 }
 
-// @ts-expect-error
-function getConfigQueueKey(baseUrl) {
+function getConfigQueueKey(baseUrl: unknown): string {
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl) || (typeof baseUrl === "string" ? baseUrl : "");
   return typeof normalizedBaseUrl === "string" ? normalizedBaseUrl : "";
 }
 
-// @ts-expect-error
-async function queueConfigWrite(baseUrl, work) {
+async function queueConfigWrite<T>(baseUrl: unknown, work: () => Promise<T> | T): Promise<T> {
   const queueKey = getConfigQueueKey(baseUrl);
   if (!queueKey) {
     return work();
   }
   const previous = configWriteQueueByBaseUrl.get(queueKey) || Promise.resolve();
-  const next = previous
+  const resultPromise = previous
     .catch(() => {})
     .then(work);
+  const next = resultPromise.then(() => undefined, () => undefined);
   configWriteQueueByBaseUrl.set(queueKey, next);
   try {
-    return await next;
+    return await resultPromise;
   } finally {
     if (configWriteQueueByBaseUrl.get(queueKey) === next) {
       configWriteQueueByBaseUrl.delete(queueKey);
@@ -1465,17 +1457,14 @@ async function queueConfigWrite(baseUrl, work) {
   }
 }
 
-// @ts-expect-error
-export async function ensureConfig(baseUrl) {
-  const normalizedBaseUrl = normalizeBaseUrl(baseUrl) || baseUrl;
+export async function ensureConfig(baseUrl: unknown): Promise<Config> {
+  const normalizedBaseUrl = getConfigQueueKey(baseUrl);
   return queueConfigWrite(normalizedBaseUrl, async () => {
     const configs = await getConfigs();
-// @ts-expect-error
     if (!configs[normalizedBaseUrl]) {
       const defaultConfig = createDefaultConfig(normalizedBaseUrl);
       return saveConfigEntry(normalizedBaseUrl, defaultConfig);
     }
-// @ts-expect-error
     const { config, changed } = normalizeConfig(normalizedBaseUrl, configs[normalizedBaseUrl]);
     if (changed) {
       return saveConfigEntry(normalizedBaseUrl, config);
@@ -1484,12 +1473,13 @@ export async function ensureConfig(baseUrl) {
   });
 }
 
-// @ts-expect-error
-export async function updateConfig(baseUrl, updater) {
-  const normalizedBaseUrl = normalizeBaseUrl(baseUrl) || baseUrl;
+export async function updateConfig(
+  baseUrl: unknown,
+  updater: (config: Config) => void
+): Promise<Config> {
+  const normalizedBaseUrl = getConfigQueueKey(baseUrl);
   return queueConfigWrite(normalizedBaseUrl, async () => {
     const configs = await getConfigs();
-// @ts-expect-error
     const { config } = normalizeConfig(normalizedBaseUrl, configs[normalizedBaseUrl]);
     updater(config);
     return saveConfigEntry(normalizedBaseUrl, config);
