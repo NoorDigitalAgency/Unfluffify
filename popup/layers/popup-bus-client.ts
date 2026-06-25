@@ -4,9 +4,14 @@ import {
   type DiagnosticPingPayload,
   type DiagnosticPingReply,
 } from "../../common/bus/contracts/index.js";
+import {
+  POPUP_STATE_REQUEST_TYPES,
+  type PopupStateGetPayload,
+  type PopupStateGetReply,
+} from "../../common/bus/contracts/popup-state.js";
 import { REALMS } from "../../common/bus/realms.js";
 import { createPopupTransport } from "../../common/bus/transport/popup-transport.js";
-import { startPopupLayerHost } from "./layer-host.js";
+import { startPopupLayerHostWithOptions } from "./layer-host.js";
 
 let popupBus: Bus | null = null;
 let popupTransport: ReturnType<typeof createPopupTransport> | null = null;
@@ -14,6 +19,9 @@ let popupLayerHostStop: (() => void) | null = null;
 let popupBusTabId: number | null = null;
 
 export type PopupBusSelfTestLogger = (eventName: string, details?: Record<string, unknown>) => void;
+export type PopupBusClientOptions = {
+  applyPopupView?: (view: PopupStateGetReply) => void;
+};
 
 function buildDiagnosticNonce(tabId: number, target: string): string {
   return `popup:${tabId}:${target}:${Date.now()}`;
@@ -59,7 +67,22 @@ export async function runPopupBusSelfTest(
   }
 }
 
-export function startPopupBusClient(tabId: number): Bus {
+export async function requestPopupView(bus: Bus, tabId: number): Promise<PopupStateGetReply | null> {
+  if (!tabId) {
+    return null;
+  }
+  try {
+    return await bus.request<PopupStateGetPayload, PopupStateGetReply>(
+      POPUP_STATE_REQUEST_TYPES.GET,
+      {},
+      { target: REALMS.BACKGROUND, tab: tabId, timeoutMs: 3000 },
+    );
+  } catch {
+    return null;
+  }
+}
+
+export function startPopupBusClient(tabId: number, options: PopupBusClientOptions = {}): Bus {
   if (popupBus && popupTransport && popupBusTabId === tabId) {
     return popupBus;
   }
@@ -78,7 +101,7 @@ export function startPopupBusClient(tabId: number): Bus {
     nonce: payload.nonce,
     realm: REALMS.POPUP,
   }));
-  popupLayerHostStop = startPopupLayerHost(popupBus);
+  popupLayerHostStop = startPopupLayerHostWithOptions(popupBus, options);
   popupBusTabId = tabId;
   return popupBus;
 }

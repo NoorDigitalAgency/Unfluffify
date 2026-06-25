@@ -96,7 +96,8 @@ import * as stateModule from "./popup/state.js";
 import {
   logPopupReady
 } from "./popup/telemetry.js";
-import { runPopupBusSelfTest, startPopupBusClient } from "./popup/layers/popup-bus-client.js";
+import type { PopupStateGetReply } from "./common/bus/contracts/popup-state.js";
+import { requestPopupView, runPopupBusSelfTest, startPopupBusClient } from "./popup/layers/popup-bus-client.js";
 import {
   armSpinnerWatchdog as armSpinnerWatchdogOperation,
   clearSpinnerWatchdog as clearSpinnerWatchdogOperation,
@@ -1039,6 +1040,21 @@ function applyBackgroundStateSnapshot(snapshot) {
   });
 }
 
+function applyPopupViewSnapshot(snapshot: PopupStateGetReply | null) {
+  if (!snapshot || typeof snapshot !== "object") {
+    return;
+  }
+  applyBackgroundStateSnapshot({
+    ok: true,
+    tabId: snapshot.tabId,
+    lifecycle: snapshot.lifecycle || null,
+    traceEnabled: Boolean(snapshot.traceEnabled),
+    traceEvents: Array.isArray(snapshot.traceEvents) ? snapshot.traceEvents : [],
+    spinnerQueue: Array.isArray(snapshot.legacySpinnerQueue) ? snapshot.legacySpinnerQueue : [],
+    activeSpinnerLease: snapshot.legacyActiveSpinnerLease || null
+  });
+}
+
 // @ts-expect-error
 function sendSpinnerBrokerMessage(message, options = {}) {
   const tabId = getCurrentPopupTabId();
@@ -1137,15 +1153,13 @@ function clearSpinnerQueueInBackground(tabId = getCurrentPopupTabId(), options =
 }
 
 // @ts-expect-error
-async function restoreSpinnerQueueFromBackground(tabId) {
-  if (!tabId) {
+async function restoreSpinnerQueueFromBackground(tabId, popupBus) {
+  if (!tabId || !popupBus) {
     return;
   }
-  const viewState = await messages.requestPopupTabViewState(tabId).catch(() => null);
-// @ts-expect-error
-  if (viewState && viewState.state && viewState.state.ok) {
-// @ts-expect-error
-    applyBackgroundStateSnapshot(viewState.state);
+  const viewState = await requestPopupView(popupBus, tabId).catch(() => null);
+  if (viewState) {
+    applyPopupViewSnapshot(viewState);
   }
 }
 
@@ -7991,8 +8005,8 @@ async function init() {
   const initTabId = state.currentTab && state.currentTab.id;
   if (initTabId) {
     connectBackgroundStatePort(initTabId);
-    const popupBus = startPopupBusClient(initTabId);
-    await restoreSpinnerQueueFromBackground(initTabId);
+    const popupBus = startPopupBusClient(initTabId, { applyPopupView: applyPopupViewSnapshot });
+    await restoreSpinnerQueueFromBackground(initTabId, popupBus);
     await applyTraceModePreferenceToTab(initTabId, state.traceModeEnabled).catch(() => null);
     maybeRunPopupBusSelfTest(initTabId, popupBus);
     if (popupSpinnerQueue.has("navInspect")) {
@@ -8163,8 +8177,8 @@ async function init() {
     if (newTabId) {
       try {
         connectBackgroundStatePort(newTabId);
-        const popupBus = startPopupBusClient(newTabId);
-        await restoreSpinnerQueueFromBackground(newTabId);
+        const popupBus = startPopupBusClient(newTabId, { applyPopupView: applyPopupViewSnapshot });
+        await restoreSpinnerQueueFromBackground(newTabId, popupBus);
         maybeRunPopupBusSelfTest(newTabId, popupBus);
       } catch {
         // Restoration failure is non-fatal; queue remains empty for this tab.

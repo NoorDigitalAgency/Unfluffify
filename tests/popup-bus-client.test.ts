@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { DIAGNOSTIC_REQUEST_TYPES } from "../common/bus/contracts/index.js";
+import { POPUP_STATE_REQUEST_TYPES } from "../common/bus/contracts/popup-state.js";
 import { REALMS } from "../common/bus/realms.js";
-import { runPopupBusSelfTest } from "../popup/layers/popup-bus-client.js";
+import { requestPopupView, runPopupBusSelfTest } from "../popup/layers/popup-bus-client.js";
 
 describe("popup bus self-test", () => {
   it("requests background and content diag.ping round-trips and logs passes", async () => {
@@ -65,6 +66,35 @@ describe("popup bus self-test", () => {
     expect(log).toHaveBeenCalledWith(
       "bus-self-test:fail",
       expect.objectContaining({ tabId: 9, target: REALMS.BACKGROUND, error: "background failed" }),
+    );
+  });
+
+  it("requests the popup view from the background realm over the bus", async () => {
+    const request = vi.fn().mockResolvedValue({
+      version: 3,
+      tabId: 11,
+      traceEnabled: true,
+      traceEvents: [],
+      lifecycle: null,
+      legacySpinnerQueue: [],
+      legacyActiveSpinnerLease: null,
+    });
+
+    await expect(requestPopupView({
+      request,
+      tryRequest: vi.fn(),
+      registerHandler: vi.fn(),
+      publish: vi.fn(),
+      subscribe: vi.fn(),
+    }, 11)).resolves.toMatchObject({
+      version: 3,
+      tabId: 11,
+    });
+
+    expect(request).toHaveBeenCalledWith(
+      POPUP_STATE_REQUEST_TYPES.GET,
+      {},
+      { target: REALMS.BACKGROUND, tab: 11, timeoutMs: 3000 },
     );
   });
 });

@@ -1,8 +1,11 @@
 import type { Bus } from "../../common/bus/bus.js";
+import { POPUP_STATE_EVENT_TYPES, type PopupStateGetReply } from "../../common/bus/contracts/popup-state.js";
 import { clearPopupSpinner, renderPopupSpinner } from "./spinner-layer.js";
 
-type PopupViewLike = {
-  version?: unknown;
+type PopupViewLike = PopupStateGetReply;
+
+type PopupLayerHostOptions = {
+  applyPopupView?: (view: PopupViewLike) => void;
 };
 
 let popupLayerHostStarted = false;
@@ -13,13 +16,24 @@ function normalizePopupView(value: unknown): PopupViewLike | null {
 }
 
 export function startPopupLayerHost(bus: Bus): () => void {
+  return startPopupLayerHostWithOptions(bus, {});
+}
+
+export function startPopupLayerHostWithOptions(bus: Bus, options: PopupLayerHostOptions): () => void {
   if (popupLayerHostStarted) {
     return () => {};
   }
   popupLayerHostStarted = true;
+  const applyPopupView = typeof options.applyPopupView === "function"
+    ? options.applyPopupView
+    : () => {};
   const unsubscribes = [
-    bus.subscribe("view.popup", (payload) => {
-      latestPopupView = normalizePopupView(payload);
+    bus.subscribe(POPUP_STATE_EVENT_TYPES.VIEW_UPDATED, (payload) => {
+      const popupView = normalizePopupView(payload);
+      latestPopupView = popupView;
+      if (popupView) {
+        applyPopupView(popupView);
+      }
       renderPopupSpinner(null);
     }),
     bus.subscribe("spinner.set", (payload) => {

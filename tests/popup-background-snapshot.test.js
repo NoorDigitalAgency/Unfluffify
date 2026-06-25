@@ -4,21 +4,21 @@ import { readFileSync } from "./file-kit.ts";
 
 test("popup restores startup/tab snapshot from background command", () => {
   const source = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
-  const start = source.indexOf("async function restoreSpinnerQueueFromBackground(tabId)");
+  const start = source.indexOf("async function restoreSpinnerQueueFromBackground(tabId, popupBus)");
   const end = source.indexOf("async function handleTraceModeToggle", start);
   assert.ok(start >= 0 && end > start, "Expected restoreSpinnerQueueFromBackground in popup.js");
   const block = source.slice(start, end);
 
-  assert.match(block, /messages\.requestPopupTabViewState\(tabId\)/);
-  assert.match(block, /applyBackgroundStateSnapshot\(viewState\.state\)/);
+  assert.match(block, /requestPopupView\(popupBus, tabId\)/);
+  assert.match(block, /applyPopupViewSnapshot\(viewState\)/);
   assert.doesNotMatch(block, /setTabState\(/);
 });
 
-test("popup tab snapshot helper sends POPUP_GET_TAB_VIEW_STATE via runtime envelope", () => {
-  const source = readFileSync(new URL("../popup/messages.ts", import.meta.url), "utf8");
+test("popup tab snapshot helper sends popup.view.get to background over the bus", () => {
+  const source = readFileSync(new URL("../popup/layers/popup-bus-client.ts", import.meta.url), "utf8");
 
-  assert.match(source, /requestPopupTabViewState\(tabId/);
-  assert.match(source, /requestRuntime\(\{/);
-  assert.match(source, /type:\s*POPUP_GET_TAB_VIEW_STATE_COMMAND/);
-  assert.match(source, /tabId,/);
+  assert.match(source, /requestPopupView\(bus/);
+  assert.match(source, /POPUP_STATE_REQUEST_TYPES\.GET/);
+  assert.match(source, /target: REALMS\.BACKGROUND/);
+  assert.match(source, /tab: tabId/);
 });

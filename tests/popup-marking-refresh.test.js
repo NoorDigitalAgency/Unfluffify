@@ -766,14 +766,14 @@ test("popup ignores stale spinner-set broker snapshots after local removal", () 
 test("popup restores spinner state from background current state", () => {
   const source = readFileSync(new URL("../popup.ts", import.meta.url), "utf8");
   const restoreBody = source.match(
-    /async function restoreSpinnerQueueFromBackground\(tabId\) \{([\s\S]*?)\n\}/
+    /async function restoreSpinnerQueueFromBackground\(tabId, popupBus\) \{([\s\S]*?)\n\}/
   )[1];
   const applyBody = source.match(
     /function applyBackgroundStateSnapshot\(snapshot\) \{([\s\S]*?)\n\}/
   )[1];
 
-  assert.match(restoreBody, /messages\.requestPopupTabViewState\(tabId\)/);
-  assert.match(restoreBody, /applyBackgroundStateSnapshot\(viewState\.state\)/);
+  assert.match(restoreBody, /requestPopupView\(popupBus, tabId\)/);
+  assert.match(restoreBody, /applyPopupViewSnapshot\(viewState\)/);
   assert.doesNotMatch(restoreBody, /WORLD_MESSAGE_TYPES\.GET_BACKGROUND_STATE/);
   assert.match(applyBody, /popupSpinnerQueue\.clear\(\);/);
   assert.match(applyBody, /Array\.isArray\(snapshot\.spinnerQueue\)/);

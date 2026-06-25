@@ -72,7 +72,7 @@ test("popup keeps trace diagnostics behind a disabled feature flag", () => {
   assert.match(popupSource, /async function loadTraceModeSetting\(\) \{/);
   assert.match(popupSource, /return isFeatureEnabled\("traceDiagnostics"\) && isDebugFlagEnabled\("worldTraceEnabled"\);/);
   assert.match(popupSource, /async function applyTraceModePreferenceToTab\(tabId, enabled\) \{[\s\S]*?if \(!isFeatureEnabled\("traceDiagnostics"\)\) \{[\s\S]*?traceModeEnabled: false[\s\S]*?return null;/);
-  assert.match(popupSource, /messages\.requestPopupTabViewState\(tabId\)/);
+  assert.match(popupSource, /requestPopupView\(popupBus, tabId\)/);
   assert.doesNotMatch(popupSource, /WORLD_MESSAGE_TYPES\.GET_BACKGROUND_STATE/);
   assert.match(popupSource, /state\.traceModeEnabled = await loadTraceModeSetting\(\)\.catch\(\(\) => false\);/);
   assert.match(popupSource, /await applyTraceModePreferenceToTab\(initTabId, state\.traceModeEnabled\)\.catch\(\(\) => null\);/);

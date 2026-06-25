@@ -134,7 +134,7 @@ test("disabled optional state cannot leak through hidden controls", () => {
   assert.match(popupSource, /function isWorldTraceEnabled\(\) \{\s*return isFeatureEnabled\("traceDiagnostics"\) && isDebugFlagEnabled\("worldTraceEnabled"\);\s*\}/);
   assert.match(popupSource, /async function loadTraceModeSetting\(\) \{\s*return isFeatureEnabled\("traceDiagnostics"\) && isDebugFlagEnabled\("worldTraceEnabled"\);\s*\}/);
   assert.match(popupSource, /async function applyTraceModePreferenceToTab\(tabId, enabled\) \{[\s\S]*?if \(!isFeatureEnabled\("traceDiagnostics"\)\) \{[\s\S]*?traceModeEnabled: false[\s\S]*?return null;/);
-  assert.match(popupSource, /messages\.requestPopupTabViewState\(tabId\)/);
+  assert.match(popupSource, /requestPopupView\(popupBus, tabId\)/);
   assert.match(backgroundSource, /from "\.\/background\/world-trace\.js"/);
   assert.match(worldTraceSource, /return isFeatureEnabled\("traceDiagnostics"\) && isDebugFlagEnabled\("worldTraceEnabled"\);/);
   assert.doesNotMatch(backgroundSource, /if \(message\.type === WORLD_MESSAGE_TYPES\.TRACE_SET\) \{/);
