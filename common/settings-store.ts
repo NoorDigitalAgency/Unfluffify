@@ -1,4 +1,4 @@
-import { storageGet, storageSet } from "./storage-core.js";
+import { addSyncStorageChangeListener, storageGet, storageSet } from "./storage-core.js";
 import { normalizeStageBase } from "./lynx-live-pages.js";
 
 const GLOBAL_AI_SETTINGS_SYNC_DEFAULTS = {
@@ -121,21 +121,15 @@ function installSyncSettingsCacheInvalidationListener() {
   if (syncChangeListenerInstalled) {
     return;
   }
-  if (!globalThis.chrome || !chrome.storage || !chrome.storage.onChanged) {
-    return;
-  }
-  if (typeof chrome.storage.onChanged.addListener !== "function") {
-    return;
-  }
-  chrome.storage.onChanged.addListener((changes, areaName) => {
-    if (areaName !== "sync") {
-      return;
-    }
+  const installed = addSyncStorageChangeListener((changes) => {
     if (!hasRelevantSyncSettingsChange(changes)) {
       return;
     }
     cachedGlobalAiSettings = null;
   });
+  if (!installed) {
+    return;
+  }
   syncChangeListenerInstalled = true;
 }
 

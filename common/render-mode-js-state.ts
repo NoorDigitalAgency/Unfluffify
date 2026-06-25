@@ -5,6 +5,8 @@
 // hold is cleared on "With JavaScript", render-mode exit, a genuine navigation,
 // or tab close.
 
+import { storageGet, storageRemove, storageSet } from "./storage-core.js";
+
 const RENDER_MODE_NO_JS_HELD_PREFIX = "renderModeNoJsHeld:";
 
 function normalizeTabId(value: unknown): number | null {
@@ -35,9 +37,9 @@ export async function setRenderModeNoJsHeld(tabId: unknown, held: boolean): Prom
   }
   try {
     if (held) {
-      await session.set({ [key]: true });
+      await storageSet(session, { [key]: true });
     } else {
-      await session.remove(key);
+      await storageRemove(session, key);
     }
   } catch {
     // Ignore — session storage may be unavailable during teardown.
@@ -55,7 +57,7 @@ export async function isRenderModeNoJsHeld(tabId: unknown): Promise<boolean> {
     return false;
   }
   try {
-    const data = await session.get(key);
+    const data = await storageGet(session, key);
     return Boolean(data && data[key]);
   } catch {
     return false;
@@ -68,7 +70,7 @@ export async function listRenderModeNoJsHeldTabIds(): Promise<number[]> {
     return [];
   }
   try {
-    const data = await session.get(null);
+    const data = await storageGet(session, null);
     return Object.keys(data || {})
       .filter((key) => key.startsWith(RENDER_MODE_NO_JS_HELD_PREFIX) && data[key])
       .map((key) => normalizeTabId(key.slice(RENDER_MODE_NO_JS_HELD_PREFIX.length)))

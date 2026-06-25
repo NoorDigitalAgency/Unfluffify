@@ -2,6 +2,7 @@ import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 
 let settingsStoreImportCounter = 0;
+const stableBrowser = globalThis.browser || { runtime: { id: "test-extension", lastError: null }, storage: {} };
 
 function createChromeSyncMock(initialItems = {}) {
   const storageItems = { ...initialItems };
@@ -15,32 +16,37 @@ function createChromeSyncMock(initialItems = {}) {
       sync: {
         get(keys, callback) {
           getCalls.push(keys);
-          if (keys && typeof keys === "object" && !Array.isArray(keys)) {
-            const result = { ...keys };
-            Object.keys(keys).forEach((key) => {
-              if (Object.prototype.hasOwnProperty.call(storageItems, key)) {
-                result[key] = storageItems[key];
-              }
-            });
-            callback(result);
-            return;
-          }
-          if (typeof keys === "string") {
-            callback(
-              Object.prototype.hasOwnProperty.call(storageItems, keys)
+          const resolveResult = () => {
+            if (keys && typeof keys === "object" && !Array.isArray(keys)) {
+              const result = { ...keys };
+              Object.keys(keys).forEach((key) => {
+                if (Object.prototype.hasOwnProperty.call(storageItems, key)) {
+                  result[key] = storageItems[key];
+                }
+              });
+              return result;
+            }
+            if (typeof keys === "string") {
+              return Object.prototype.hasOwnProperty.call(storageItems, keys)
                 ? { [keys]: storageItems[keys] }
-                : {}
-            );
+                : {};
+            }
+            return { ...storageItems };
+          };
+          if (typeof callback === "function") {
+            callback(resolveResult());
             return;
           }
-          callback({ ...storageItems });
+          return Promise.resolve(resolveResult());
         },
         set(items, callback) {
           setCalls.push(items || {});
           Object.assign(storageItems, items || {});
           if (typeof callback === "function") {
             callback();
+            return;
           }
+          return Promise.resolve();
         }
       },
       onChanged: {
@@ -67,7 +73,11 @@ function createChromeSyncMock(initialItems = {}) {
 
 async function withChromeMock(chromeMock, callback) {
   const originalChrome = globalThis.chrome;
+  const originalBrowser = globalThis.browser;
   globalThis.chrome = chromeMock;
+  stableBrowser.runtime = chromeMock?.runtime || { id: "test-extension", lastError: null };
+  stableBrowser.storage = chromeMock?.storage || {};
+  globalThis.browser = stableBrowser;
   try {
     return await callback();
   } finally {
@@ -75,6 +85,11 @@ async function withChromeMock(chromeMock, callback) {
       delete globalThis.chrome;
     } else {
       globalThis.chrome = originalChrome;
+    }
+    if (typeof originalBrowser === "undefined") {
+      delete globalThis.browser;
+    } else {
+      globalThis.browser = originalBrowser;
     }
   }
 }

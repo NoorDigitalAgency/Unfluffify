@@ -31,7 +31,7 @@ Use these documents before making implementation changes:
     make WXT bundle the real entry graphs, drop esbuild + the `legacy/` mirror,
     eliminate `content/*` WAR, and adopt `wxt/browser` + `wxt/utils/storage` +
     `@webext-core/messaging` (one-shot only) beneath the typed bus / Brain /
-    layer hosts; C0-C5 complete, C6 in progress).
+    layer hosts; C0-C7 complete, C8 next).
 
 Historical and superseded `.copilot` plans/handoffs have been removed from the
 workspace. If earlier rationale is needed, use git history instead of restoring
@@ -79,17 +79,22 @@ The active track is now `.copilot/wxt-native-adoption-plan.md`:
    asset paths; package staging expands wildcard WAR assets; and the live
    browser launcher reads popup state through the popup debug hook instead of
    mirrored `popup/ui.js`.
-7. **C6 is in progress**: the first four batches are complete. The repo now
+7. **C6 is complete**: the first four batches landed. The repo now
    has `common/browser.ts`; shared async messaging, bus transports,
    popup/offscreen runtime listeners, popup active-tab fallback lookup, popup
    render-mode tab-load waiters, content loader/runtime listeners, content
    one-shot sends, property-lock port connect/background port wiring, and
    touched content sender types route through promise-based browser APIs;
    touched type positions use `Browser.*`; and a browser-polyfill boundary test
-   records the remaining raw-`chrome` runtime debt for later C6 batches. The
-   next phase is deciding whether the remaining storage-heavy/common debt closes
-   under C6 or rolls directly into the planned C7 storage adoption.
-8. The prior event-bus program remains complete through Track 3 in
+   records the remaining raw-`chrome` runtime debt for later C6 batches.
+8. **C7 is complete**: `common/storage-core.ts` now
+   adopts `wxt/utils/storage` behind the unchanged storage boundary, the
+   settings-store sync cache listener routes through
+   `addSyncStorageChangeListener`, render-mode hold state routes through the
+   storage-core boundary, focused/full validation is green, and the required
+   Bonliva live smoke confirmed both sync-setting persistence and popup refresh
+   on session-backed device/render-mode-hold state.
+9. The prior event-bus program remains complete through Track 3 in
    `.copilot/event-bus-architecture-plan.md`; Part C preserves that higher-level
    architecture and replaces only the lower-level packaging/runtime seams.
 

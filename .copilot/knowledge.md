@@ -190,6 +190,13 @@
   seam; touched type positions use `Browser.*`; and
   `tests/browser-polyfill-boundary.test.js` tracks the remaining raw-`chrome`
   migration debt for later C6 batches.
+- C7 storage adoption now routes `common/storage-core.ts` through
+  `wxt/utils/storage` for real extension hosts while preserving the legacy
+  callback-style contract for Node/test hosts and existing callers. Keep the
+  public `storageGet` / `storageSet` / `storageRemove` / `storageClear` /
+  `addStorageChangeListener` surface unchanged, keep keys/areas identical, and
+  route settings-cache invalidation through `addSyncStorageChangeListener`
+  instead of direct `chrome.storage.onChanged` usage.
 
 ## Popup Preview Exit Contract
 

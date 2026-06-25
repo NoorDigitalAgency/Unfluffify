@@ -11,6 +11,7 @@ const EXCLUDED_PATH_PREFIXES = [
   ".scratch-blink-test/",
   ".tmp/",
   ".output/",
+  ".wxt/",
   "dist/",
   "node_modules/",
   "tests/",
@@ -19,7 +20,8 @@ const EXCLUDED_PATH_PREFIXES = [
 ];
 
 const SOURCE_FILE_PATTERN = /\.(?:c|m)?(?:js|ts)$/i;
-const STORAGE_ACCESS_PATTERN = /(chrome\.storage\.|utils\.storage(?:Get|Set|Remove|Clear)\(|\bstorage(?:Get|Set|Remove|Clear)\()/;
+const STORAGE_ACCESS_PATTERN =
+  /(chrome\.storage\.|wxt\/utils\/storage|utils\.storage(?:Get|Set|Remove|Clear)\(|\bstorage(?:Get|Set|Remove|Clear)\()/;
 const PAGE_LOCAL_STORAGE_PATTERN = /\bwindow\.(?:localStorage|sessionStorage)\b/;
 
 function toRepoPath(absolutePath) {

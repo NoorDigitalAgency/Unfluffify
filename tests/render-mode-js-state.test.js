@@ -1,13 +1,8 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 
-import {
-  clearRenderModeNoJsHeld,
-  isRenderModeNoJsHeld,
-  listRenderModeNoJsHeldTabIds,
-  renderModeNoJsHeldStorageKey,
-  setRenderModeNoJsHeld
-} from "../common/render-mode-js-state.js";
+let renderModeImportCounter = 0;
+const stableBrowser = globalThis.browser || { runtime: { id: "test-extension", lastError: null }, storage: {} };
 
 function makeMockSession() {
   const store = new Map();
@@ -43,7 +38,20 @@ function makeMockSession() {
   };
 }
 
-test("render mode no-JS held key is tab-scoped and rejects invalid ids", () => {
+async function loadRenderModeModule() {
+  renderModeImportCounter += 1;
+  return import(new URL(`../common/render-mode-js-state.ts?case=${renderModeImportCounter}`, import.meta.url));
+}
+
+function installBrowserMock(chromeMock) {
+  globalThis.chrome = chromeMock;
+  stableBrowser.runtime = chromeMock?.runtime || { id: "test-extension", lastError: null };
+  stableBrowser.storage = chromeMock?.storage || {};
+  globalThis.browser = stableBrowser;
+}
+
+test("render mode no-JS held key is tab-scoped and rejects invalid ids", async () => {
+  const { renderModeNoJsHeldStorageKey } = await loadRenderModeModule();
   assert.equal(renderModeNoJsHeldStorageKey(7), "renderModeNoJsHeld:7");
   assert.equal(renderModeNoJsHeldStorageKey("12"), "renderModeNoJsHeld:12");
   assert.equal(renderModeNoJsHeldStorageKey(0), "");
@@ -53,7 +61,16 @@ test("render mode no-JS held key is tab-scoped and rejects invalid ids", () => {
 
 test("render mode no-JS held state round-trips through chrome.storage.session", async () => {
   const session = makeMockSession();
-  globalThis.chrome = { storage: { session } };
+  installBrowserMock({
+    runtime: { id: "test-extension", lastError: null },
+    storage: { session }
+  });
+  const {
+    clearRenderModeNoJsHeld,
+    isRenderModeNoJsHeld,
+    listRenderModeNoJsHeldTabIds,
+    setRenderModeNoJsHeld
+  } = await loadRenderModeModule();
 
   assert.equal(await isRenderModeNoJsHeld(7), false);
 
@@ -79,13 +96,22 @@ test("render mode no-JS held state round-trips through chrome.storage.session", 
 
 test("render mode no-JS held state ignores invalid ids and missing session storage", async () => {
   const session = makeMockSession();
-  globalThis.chrome = { storage: { session } };
+  installBrowserMock({
+    runtime: { id: "test-extension", lastError: null },
+    storage: { session }
+  });
+  const {
+    clearRenderModeNoJsHeld,
+    isRenderModeNoJsHeld,
+    listRenderModeNoJsHeldTabIds,
+    setRenderModeNoJsHeld
+  } = await loadRenderModeModule();
 
   await setRenderModeNoJsHeld(0, true);
   assert.equal(session.store.size, 0);
   assert.equal(await isRenderModeNoJsHeld(0), false);
 
-  globalThis.chrome = { storage: {} };
+  installBrowserMock({ runtime: { id: "test-extension", lastError: null }, storage: {} });
   assert.equal(await isRenderModeNoJsHeld(7), false);
   assert.deepEqual(await listRenderModeNoJsHeldTabIds(), []);
   await setRenderModeNoJsHeld(7, true);

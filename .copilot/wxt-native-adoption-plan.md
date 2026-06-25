@@ -500,6 +500,17 @@ boundary; identical keys/areas/behavior.
 persistence + per-tab state + device emulation + render-mode hold.
 **Rollback**: restore the `chrome.storage` callback wrappers in `storage-core.ts`.
 
+**2026-06-25 progress**: C7 is complete. `common/storage-core.ts`
+now imports `wxt/utils/storage`, routes known-area reads/writes through that
+boundary in real extension hosts, preserves the existing callback-style
+contract for Node/test hosts, updates `settings-store.ts` to use
+`addSyncStorageChangeListener`, updates `render-mode-js-state.ts` to route
+session persistence through `storage-core.ts`, and expands the storage boundary
+tests to recognize the new WXT storage seam. Focused storage regressions and
+full `pnpm verify` are green, and the required live smoke on
+`https://bonliva.se` confirmed persisted sync settings plus popup refresh on
+session-backed device-emulation and render-mode-hold state.
+
 ### Phase C8 — Port one-shot request/reply messaging to `@webext-core/messaging`
 
 **Files**: `package.json` (+`@webext-core/messaging`),
