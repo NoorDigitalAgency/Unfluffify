@@ -303,7 +303,7 @@ source-contract tests in the same commit without weakening their intent.
 
 ### Phase 4 - Reduce raw Chrome API debt
 
-**Status:** in progress. Batch 1 completed 2026-06-25.
+**Status:** completed 2026-06-25.
 
 **Completed in batch 1**
 
@@ -324,55 +324,40 @@ source-contract tests in the same commit without weakening their intent.
   - `src/common/storage-core.ts`
   - `src/common/page-motion-freeze-bridge.ts`
 
-**Remaining migration-debt files after batch 1**
+**Completed in batch 2**
 
-- `src/background.ts`
-- `src/common/emulation.ts`
-- `src/common/utilities.ts`
-- `src/content/core.ts`
-
-**Files to edit**
-
-- `tests/browser-polyfill-boundary.test.js`
-- `src/common/browser.ts` only if a remaining hot-file migration needs a seam
-  helper; batch 1 did not require direct seam changes
-- remaining larger/hotter migration-debt files:
+- migrated the remaining hot-file runtime seams to the shared browser layer:
   - `src/background.ts`
   - `src/common/emulation.ts`
   - `src/common/utilities.ts`
   - `src/content/core.ts`
 
+**Remaining migration-debt files after Phase 4**
+
+- none; `tests/browser-polyfill-boundary.test.js` now leaves only the deliberate
+  seam/compatibility buckets:
+  - `src/common/browser.ts`
+  - `src/common/storage-core.ts`
+  - `src/common/page-motion-freeze-bridge.ts`
+
+**Files edited**
+
+- `tests/browser-polyfill-boundary.test.js`
+- `src/background.ts`
+- `src/common/emulation.ts`
+- `src/common/utilities.ts`
+- `src/content/core.ts`
+
 **Steps**
 
-1. Migrate one file at a time from raw `chrome.*` to `browser.*` from
-   `src/common/browser.ts` when promise semantics are compatible.
-2. Keep raw `chrome.*` only when Chrome-only callback behavior, executeScript
-   serialization, extension-id/runtime edge behavior, or test-host fallback makes
-   it necessary.
-3. Explicitly resolve the currently tracked debt files in
-   `tests/browser-polyfill-boundary.test.js`:
-   - `src/common/storage-core.ts`: move to a named storage-compatibility
-     exception bucket unless the storage boundary is redesigned. It intentionally
-     supports WXT storage in extension hosts plus browser/chrome callback-style
-     storage in Node/test hosts.
-   - `src/common/page-motion-freeze-bridge.ts`: move to a named eval-bridge
-     exception bucket if the only `chrome.` matches are in plain-JS/JSDoc bridge
-     text that must stay eval-safe.
-   - `src/background/render-mode-inspector.ts` and
-     `src/background/tab-inactivity-observer.ts`: migrate only if WXT/browser
-     gives equivalent event-listener/callback behavior; otherwise move to named
-     Chrome-event exception buckets with comments.
-   - `src/background/brain/index.ts` and
-     `src/background/popup-state-broker.ts`: first check whether `chrome.*` usage
-     is type-only (`chrome.runtime.Port`). If so, prefer importing `Browser` types
-     from `src/common/browser.ts` or a local structural type. If runtime semantics
-     require Chrome ports, move them to a named port-compatibility exception
-     bucket.
-4. Update `tests/browser-polyfill-boundary.test.js` after each migrated file:
-   - remove migrated files from `CURRENT_MIGRATION_DEBT_FILES`
-   - create named permanent exception buckets only for true WXT gaps.
-5. Do not change `src/common/storage-core.ts` storage semantics unless updating
-   storage-boundary tests in lockstep.
+1. Batch 1 migrated the low-risk storage, type-only, and smaller event surfaces.
+2. Batch 2 migrated the remaining hot files to the shared browser seam while
+   preserving Node/test-host compatibility where needed.
+3. `tests/browser-polyfill-boundary.test.js` no longer carries a live
+   migration-debt bucket; only named exception buckets remain for true
+   compatibility surfaces.
+4. `src/common/storage-core.ts` storage semantics stayed unchanged; the storage
+   boundary remains explicit and separately tested.
 
 **Expected intermediate state**
 

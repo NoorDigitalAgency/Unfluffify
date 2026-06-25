@@ -30,7 +30,7 @@ test("background executes the page motion control function in MAIN world", () =>
 
   assert.match(source, /import \{ runPageMotionFreezeControl \} from "\.\/common\/page-motion-freeze-control\.js";/);
   assert.match(source, /if \(message\.type === "pageMotionFreezeControl"\) \{/);
-  assert.match(source, /chrome\.scripting\.executeScript\(\{/);
+  assert.match(source, /browser\.scripting\.executeScript\(\{/);
   assert.match(source, /world:\s*"MAIN"/);
   assert.match(source, /func:\s*runPageMotionFreezeControl/);
   assert.match(source, /pageMotionFreezeControlQueueByTarget/);

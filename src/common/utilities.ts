@@ -1,4 +1,5 @@
 import { isDebugFlagEnabled } from "./feature-flags.js";
+import { browser, callBrowserApi, callBrowserApiVoid, type Browser } from "./browser.js";
 import {
   addStorageChangeListener,
   getStorageAreaName,
@@ -28,6 +29,24 @@ export {
   storageSet
 };
 
+type BrowserApi = typeof browser;
+type BrowserHost = typeof globalThis & {
+  browser?: BrowserApi;
+  chrome?: BrowserApi;
+};
+type RuntimeUrlHost = typeof globalThis & {
+  browser?: {
+    runtime?: {
+      getURL?: (path?: string) => string;
+    };
+  };
+  chrome?: {
+    runtime?: {
+      getURL?: (path?: string) => string;
+    };
+  };
+};
+
 /**
  * Checks if the content script has been injected into a specific tab.
  * @async
@@ -51,10 +70,16 @@ export async function injectContentScript(tabId: number, options: { force?: unkn
     return { ok: true, alreadyInjected: true };
   }
   try {
-    await chrome.scripting.executeScript({
-      target: { tabId },
-      files: ["content-scripts/content-loader.js"]
-    });
+    await callBrowserApi(
+      (api, callback) => api.scripting.executeScript({
+        target: { tabId },
+        files: ["content-scripts/content-loader.js"]
+      }, callback),
+      (api) => api.scripting.executeScript({
+        target: { tabId },
+        files: ["content-scripts/content-loader.js"]
+      })
+    );
     await setStoredScriptInjectedState(tabId, true);
     return { ok: true };
   } catch (error: unknown) {
@@ -70,13 +95,19 @@ export async function disableExtensionForTab(tabId: number) {
   ]);
   await updateActionForTab(tabId);
   try {
-    await chrome.tabs.sendMessage(tabId, { type: "setEnabled", enabled: false });
+    await callBrowserApiVoid(
+      (api, callback) => api.tabs.sendMessage(tabId, { type: "setEnabled", enabled: false }, callback),
+      (api) => api.tabs.sendMessage(tabId, { type: "setEnabled", enabled: false })
+    );
   } catch (error) {
     // Content script may not be loaded
   }
 }
-export const tabsQuery = (query: chrome.tabs.QueryInfo) =>
-    new Promise<chrome.tabs.Tab[]>((resolve) => chrome.tabs.query(query, resolve));
+export const tabsQuery = (query: Browser.tabs.QueryInfo) =>
+  callBrowserApi<Browser.tabs.Tab[]>(
+    (api, callback) => api.tabs.query(query, callback),
+    (api) => api.tabs.query(query)
+  );
 
 const EXTENSION_CONTEXT_INVALIDATED_PATTERN = /extension context invalidated|context invalidated/i;
 
@@ -97,12 +128,18 @@ export function isExtensionContextInvalidatedError(error: unknown) {
   return EXTENSION_CONTEXT_INVALIDATED_PATTERN.test(getErrorMessage(error));
 }
 
+function getRuntimeApi() {
+  const host = globalThis as BrowserHost;
+  return host.browser?.runtime || host.chrome?.runtime || browser.runtime || null;
+}
+
 function getChromeRuntimeLastError() {
   try {
-    if (!globalThis.chrome || !chrome.runtime) {
+    const runtime = getRuntimeApi();
+    if (!runtime) {
       return null;
     }
-    return chrome.runtime.lastError || null;
+    return runtime.lastError || null;
   } catch (error) {
     if (isExtensionContextInvalidatedError(error)) {
       return { message: getErrorMessage(error) || "Extension context invalidated." };
@@ -149,8 +186,12 @@ function logRuntimeMessage(direction: string, message: unknown, details: Record<
 
 export function sendRuntimeMessage(message: unknown) {
   logRuntimeMessage("send", message);
+  const runtime = getRuntimeApi();
+  if (!runtime || typeof runtime.sendMessage !== "function") {
+    return Promise.reject(new Error("Runtime messaging unavailable"));
+  }
   try {
-    const promise = chrome.runtime.sendMessage(message);
+    const promise = runtime.sendMessage(message);
     if (promise && typeof promise.then === "function") {
       return promise
         .then((response) => {
@@ -197,7 +238,7 @@ export function sendRuntimeMessage(message: unknown) {
   }
   return new Promise((resolve, reject) => {
     try {
-      chrome.runtime.sendMessage(message, (response) => {
+      runtime.sendMessage(message, (response) => {
         let lastError = null;
         try {
           lastError = getChromeRuntimeLastError();
@@ -495,13 +536,25 @@ let idbPromise: Promise<IDBDatabase> | null = null;
 
 function getExtensionOrigin() {
   try {
-    if (chrome && chrome.runtime && chrome.runtime.getURL) {
-      return new URL(chrome.runtime.getURL("")).origin;
-    }
+    const resourceUrl = getExtensionResourceUrl("");
+    return resourceUrl ? new URL(resourceUrl).origin : "";
   } catch (error) {
     // Ignore origin detection errors
   }
   return "";
+}
+
+export function getExtensionResourceUrl(path: string) {
+  const host = globalThis as RuntimeUrlHost;
+  const getUrl = host.browser?.runtime?.getURL || host.chrome?.runtime?.getURL;
+  if (typeof getUrl !== "function") {
+    return "";
+  }
+  try {
+    return getUrl(path) || "";
+  } catch {
+    return "";
+  }
 }
 
 function isExtensionContext() {
@@ -679,12 +732,15 @@ export async function clearTabState(tabId: number) {
 
 // Action icon utilities
 export async function updateActionForTab(tabId: number) {
-  if (!chrome.action || !tabId) {
+  if (!browser.action || !tabId) {
     return;
   }
   let tab = null;
   try {
-    tab = await chrome.tabs.get(tabId);
+    tab = await callBrowserApi<Browser.tabs.Tab>(
+      (api, callback) => api.tabs.get(tabId, callback),
+      (api) => api.tabs.get(tabId)
+    );
   } catch (error) {
     return;
   }
@@ -713,9 +769,14 @@ export async function updateActionForTab(tabId: number) {
         48: "icons/default/icon48.png",
         128: "icons/default/icon128.png"
       };
-  chrome.action.setIcon({tabId, path}, () => {
-    void chrome.runtime.lastError;
-  });
+  try {
+    await callBrowserApiVoid(
+        (api, callback) => api.action.setIcon({ tabId, path }, callback),
+        (api) => Promise.resolve(api.action.setIcon({ tabId, path }))
+    );
+  } catch {
+    // Ignore icon update failures for tabs that vanished mid-refresh.
+  }
 }
 
 /**
@@ -731,7 +792,10 @@ export async function attachDebugger(tabId: number) {
 
   try {
     const target = { tabId };
-    await chrome.debugger.attach(target, "1.3");
+    await callBrowserApiVoid(
+      (api, callback) => api.debugger.attach(target, "1.3", callback),
+      (api) => api.debugger.attach(target, "1.3")
+    );
     return { ok: true };
   } catch (error: unknown) {
     // Check if already attached
@@ -758,7 +822,10 @@ export async function detachDebugger(tabId: number) {
 
   try {
     const target = { tabId };
-    await chrome.debugger.detach(target);
+    await callBrowserApiVoid(
+      (api, callback) => api.debugger.detach(target, callback),
+      (api) => api.debugger.detach(target)
+    );
     return { ok: true };
   } catch (error: unknown) {
     const errorMessage = getErrorMessage(error) || "Failed to detach debugger";
@@ -782,9 +849,14 @@ export async function setPageJavaScriptExecutionDisabled(tabId: number, disabled
       return { ok: false, error: attachResult.error };
     }
 
-    await chrome.debugger.sendCommand(target, "Emulation.setScriptExecutionDisabled", {
-      value: Boolean(disabled)
-    });
+    await callBrowserApiVoid(
+      (api, callback) => api.debugger.sendCommand(target, "Emulation.setScriptExecutionDisabled", {
+        value: Boolean(disabled)
+      }, callback),
+      (api) => api.debugger.sendCommand(target, "Emulation.setScriptExecutionDisabled", {
+        value: Boolean(disabled)
+      })
+    );
     return { ok: true };
   } catch (error: unknown) {
     const errorMessage = getErrorMessage(error) || "Failed to update JavaScript execution state";
@@ -814,9 +886,14 @@ export async function reloadPageWithJavaScriptControl(tabId: number, javaScriptD
     }
 
     // Reload the page
-    await chrome.debugger.sendCommand(target, "Page.reload", {
-      ignoreCache: true
-    });
+    await callBrowserApiVoid(
+      (api, callback) => api.debugger.sendCommand(target, "Page.reload", {
+        ignoreCache: true
+      }, callback),
+      (api) => api.debugger.sendCommand(target, "Page.reload", {
+        ignoreCache: true
+      })
+    );
 
     console.log(`Page is reloading with JavaScript ${javaScriptDisabled ? "disabled" : "enabled"}.`);
 

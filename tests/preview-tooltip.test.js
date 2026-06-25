@@ -135,7 +135,7 @@ test("content preview close notification includes authoritative restore payload"
 
   assert.match(
     source,
-    /chrome\.runtime\.sendMessage\(\{[\s\S]*?type: "aiPreviewClosed",[\s\S]*?markingEnabled: typeof closePayload\.markingEnabled === "boolean"[\s\S]*?\.\.\.closePayload/
+    /utils\.sendRuntimeMessage\(\{[\s\S]*?type: "aiPreviewClosed",[\s\S]*?markingEnabled: typeof closePayload\.markingEnabled === "boolean"[\s\S]*?\.\.\.closePayload/
   );
   assert.match(
     contentMainSource,

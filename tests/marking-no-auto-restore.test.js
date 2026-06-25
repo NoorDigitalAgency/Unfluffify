@@ -41,7 +41,7 @@ test("disableExtensionOnTopLevelNavigation clears the reload restore scope witho
   const block = extractFunctionBody(
     backgroundSource,
     "async function disableExtensionOnTopLevelNavigation",
-    "chrome.webNavigation.onCommitted"
+    "browser.webNavigation.onCommitted"
   );
 
   assert.match(block, /await clearReloadRestoreTabState\(tabId\);/);
@@ -57,7 +57,7 @@ test("disableExtensionOnTopLevelNavigation never preserves marking for same-base
   const block = extractFunctionBody(
     backgroundSource,
     "async function disableExtensionOnTopLevelNavigation",
-    "chrome.webNavigation.onCommitted"
+    "browser.webNavigation.onCommitted"
   );
 
   assert.doesNotMatch(block, /preserveEnabledOnNavigation/);

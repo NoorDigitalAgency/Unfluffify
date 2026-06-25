@@ -4184,16 +4184,11 @@ function normalizePageMotionPauseReason(reason) {
 
 // @ts-expect-error
 function getExtensionResourceUrl(path) {
-  if (
-    !path ||
-    !globalThis.chrome ||
-    !chrome.runtime ||
-    typeof chrome.runtime.getURL !== "function"
-  ) {
+  if (!path) {
     return "";
   }
   try {
-    return chrome.runtime.getURL(path) || "";
+    return utils.getExtensionResourceUrl(path) || "";
   } catch (error) {
     return "";
   }
@@ -5215,13 +5210,7 @@ function ensurePageMotionRelaySession() {
 
 // @ts-expect-error
 function sendPageMotionFreezeControlThroughBackground(command, details = null) {
-  if (
-    !globalThis.chrome ||
-    !chrome.runtime ||
-    typeof chrome.runtime.sendMessage !== "function" ||
-    typeof command !== "string" ||
-    !command
-  ) {
+  if (typeof command !== "string" || !command) {
     return Promise.resolve();
   }
   const message = {
@@ -6474,8 +6463,8 @@ function createOverlay() {
 
   const style = document.createElement("style");
   style.id = "unfluffify-freeze-style";
-  const excludeCursorUrl = chrome.runtime.getURL("cursors/exclude.svg");
-  const includeCursorUrl = chrome.runtime.getURL("cursors/include.svg");
+  const excludeCursorUrl = utils.getExtensionResourceUrl("cursors/exclude.svg");
+  const includeCursorUrl = utils.getExtensionResourceUrl("cursors/include.svg");
   style.textContent = `
       html {
         scroll-behavior: auto !important;
@@ -7711,7 +7700,7 @@ function closeAiPopover(options = {}) {
       const closePayload = closeState && typeof closeState === "object"
         ? closeState
         : {};
-      chrome.runtime.sendMessage({
+      utils.sendRuntimeMessage({
         type: "aiPreviewClosed",
         markingEnabled: typeof closePayload.markingEnabled === "boolean"
           ? closePayload.markingEnabled
@@ -10748,7 +10737,7 @@ export function notifyDraftStatus(pageUrl) {
   if (!state.enabled || !state.baseUrl || !state.config) {
     return;
   }
-  chrome.runtime.sendMessage({
+  utils.sendRuntimeMessage({
     type: "pageDraftChanged",
     baseUrl: state.baseUrl,
     pageUrl: pageUrl || location.href,

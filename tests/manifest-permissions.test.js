@@ -59,9 +59,9 @@ test("every getURL-injected page resource is web-accessible (no under-scoping)",
   const contentMain = await readFile(new URL("../src/content-main.ts", import.meta.url));
   const core = await readFile(new URL("../src/content/core.ts", import.meta.url));
 
-  // Any literal getURL("...") string loaded into the page world (e.g. cursor
-  // image url) MUST be web-accessible or the browser blocks the load. Guards
-  // against the CR-1 under-scoping regression.
+  // Any literal extension-resource helper call loaded into the page world
+  // (e.g. cursor image url) MUST be web-accessible or the browser blocks the
+  // load. Guards against the CR-1 under-scoping regression.
   const wildcardMatches = (resource) =>
     resources.some((entry) => {
       if (entry === resource) {
@@ -75,18 +75,18 @@ test("every getURL-injected page resource is web-accessible (no under-scoping)",
 
   const literalGetUrls = new Set();
   for (const source of [contentMain, core]) {
-    const matches = source.matchAll(/getURL\(\s*"([^"]+)"\s*\)/g);
+    const matches = source.matchAll(/(?:getURL|getExtensionResourceUrl)\(\s*"([^"]+)"\s*\)/g);
     for (const match of matches) {
       literalGetUrls.add(match[1]);
     }
   }
 
   assert.ok(literalGetUrls.has("cursors/exclude.svg"),
-    "expected cursor SVGs to be injected via getURL (test premise)");
+    "expected cursor SVGs to be injected via an extension resource helper (test premise)");
   for (const resource of literalGetUrls) {
     assert.ok(
       wildcardMatches(resource),
-      `getURL("${resource}") is injected into the page but is not web-accessible`
+      `extension resource "${resource}" is injected into the page but is not web-accessible`
     );
   }
 });

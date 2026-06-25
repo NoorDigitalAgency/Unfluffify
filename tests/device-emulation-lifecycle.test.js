@@ -21,15 +21,15 @@ test("top-level navigation preserves user-controlled device emulation", () => {
   const block = extractSourceBlock(
     backgroundSource,
     "async function disableExtensionOnTopLevelNavigation",
-    "chrome.webNavigation.onCommitted"
+    "browser.webNavigation.onCommitted"
   );
 
   // onCommitted (not onBeforeNavigate) fires after the navigation actually
   // commits, so rejected beforeunload dialogs don't prematurely tear down
   // the marking session. The listener fully tears down marking tab state
   // via utils.disableExtensionForTab, which does NOT touch device emulation.
-  assert.match(backgroundSource, /chrome\.webNavigation\.onCommitted\.addListener\(disableExtensionOnTopLevelNavigation\)/);
-  assert.doesNotMatch(backgroundSource, /chrome\.webNavigation\.onBeforeNavigate\.addListener\(disableExtensionOnTopLevelNavigation\)/);
+  assert.match(backgroundSource, /browser\.webNavigation\.onCommitted\.addListener\(disableExtensionOnTopLevelNavigation\)/);
+  assert.doesNotMatch(backgroundSource, /browser\.webNavigation\.onBeforeNavigate\.addListener\(disableExtensionOnTopLevelNavigation\)/);
   assert.match(block, /await clearReloadRestoreTabState\(tabId\);/);
   assert.match(block, /await utils\.disableExtensionForTab\(tabId\);/);
   assert.doesNotMatch(block, /updateDeviceEmulation\(tabId,\s*\{\s*enabled:\s*false\s*\}\)/);
@@ -40,10 +40,10 @@ test("top-level navigation normalizes render-mode JavaScript debugging state", (
   const normalizeBlock = extractSourceBlock(
     backgroundSource,
     "async function normalizeRenderModeJavaScriptOnTopLevelNavigation",
-    "chrome.webNavigation.onBeforeNavigate.addListener"
+    "browser.webNavigation.onBeforeNavigate.addListener"
   );
 
-  assert.match(backgroundSource, /chrome\.webNavigation\.onBeforeNavigate\.addListener\(normalizeRenderModeJavaScriptOnTopLevelNavigation\)/);
+  assert.match(backgroundSource, /browser\.webNavigation\.onBeforeNavigate\.addListener\(normalizeRenderModeJavaScriptOnTopLevelNavigation\)/);
   // Only act on tabs intentionally left in "Without JavaScript" render mode (tracked
   // in chrome.storage.session). The inspection's own reload also fires
   // onBeforeNavigate, but those tabs are not held yet, so JavaScript is never
@@ -83,7 +83,7 @@ test("background centralizes tracked tab-session cleanup with optional device-st
   );
   const onRemovedBlock = extractSourceBlock(
     backgroundSource,
-    "chrome.tabs.onRemoved.addListener((tabId) => {",
+    "browser.tabs.onRemoved.addListener((tabId) => {",
     "async function disableExtensionOnTopLevelNavigation"
   );
 
@@ -99,7 +99,7 @@ test("background centralizes tracked tab-session cleanup with optional device-st
 test("extension activation enables default mobile emulation for fresh tab sessions", () => {
   const actionBlock = extractSourceBlock(
     backgroundSource,
-    "chrome.action.onClicked.addListener",
+    "browser.action.onClicked.addListener",
     "// Sweep orphaned transfer-payload keys on every service-worker start."
   );
   const bootstrapBlock = extractSourceBlock(
@@ -110,10 +110,10 @@ test("extension activation enables default mobile emulation for fresh tab sessio
   const helperBlock = extractSourceBlock(
     backgroundSource,
     "async function ensureDefaultMobileEmulationForTab",
-    "chrome.tabs.onUpdated.addListener"
+    "browser.tabs.onUpdated.addListener"
   );
 
-  assert.match(actionBlock, /chrome\.sidePanel\.open\(\{\s*tabId:\s*tab\.id\s*\}\)\.then\(\)/);
+  assert.match(actionBlock, /openBrowserSidePanel\(\{\s*tabId:\s*tab\.id\s*\}\)\.then\(\)/);
   assert.match(bootstrapBlock, /await utils\.setTabState\(normalizedTabId,\s*\{\s*active:\s*true\s*\},\s*"initial"\)/);
   assert.match(bootstrapBlock, /await utils\.updateActionForTab\(normalizedTabId\)/);
   assert.match(bootstrapBlock, /await ensureDefaultMobileEmulationForTab\(normalizedTabId,\s*tabUrl\)/);
@@ -156,7 +156,7 @@ test("desktop preview persists on initial tab state and clears itself on debugge
   );
   const detachBlock = extractSourceBlock(
     backgroundSource,
-    "chrome.debugger.onDetach.addListener(async (source) => {",
+    "browser.debugger.onDetach.addListener(async (source) => {",
     "async function refreshActionIconsForWindow"
   );
 
@@ -252,17 +252,17 @@ test("popup delegates active tab context resolution to the background", () => {
 
   assert.match(backgroundSource, /if \(message\.type === "resolvePopupTabContext"\) \{/);
   assert.match(backgroundSource, /async function resolvePopupSidePanelBoundTab\(sender = \{\}\) \{/);
-  assert.match(backgroundSource, /chrome\.runtime\.getContexts/);
+  assert.match(backgroundSource, /browser\.runtime\.getContexts/);
   assert.match(backgroundSource, /contextTypes: \["SIDE_PANEL"\]/);
-  assert.match(backgroundSource, /documentUrls: \[chrome\.runtime\.getURL\("popup\.html"\)\]/);
+  assert.match(backgroundSource, /documentUrls: \[utils\.getExtensionResourceUrl\("popup\.html"\)\]/);
   assert.match(backgroundSource, /const senderDocumentId = typeof sender\.documentId === "string" \? sender\.documentId : "";/);
   assert.match(backgroundSource, /context && context\.documentId === senderDocumentId/);
   assert.match(backgroundSource, /getExtensionContextWindowId\(context\) === senderWindowId/);
   assert.match(backgroundResolveBlock, /const debugTabId = normalizeBrokerTabId\(message\.debugTabId\);/);
-  assert.match(backgroundResolveBlock, /const tab = await chrome\.tabs\.get\(debugTabId\);/);
+  assert.match(backgroundResolveBlock, /const tab = await getBrowserTab\(debugTabId\);/);
   assert.match(backgroundResolveBlock, /const sidePanelBoundTab = await resolvePopupSidePanelBoundTab\(sender\);/);
-  assert.match(backgroundResolveBlock, /chrome\.tabs\.query\(\{ active: true, currentWindow: true \}\)/);
-  assert.match(backgroundResolveBlock, /chrome\.tabs\.query\(\{ active: true, lastFocusedWindow: true \}\)/);
+  assert.match(backgroundResolveBlock, /queryBrowserTabs\(\{ active: true, currentWindow: true \}\)/);
+  assert.match(backgroundResolveBlock, /queryBrowserTabs\(\{ active: true, lastFocusedWindow: true \}\)/);
   assert.match(loadActiveTabBlock, /type: "resolvePopupTabContext"/);
   assert.match(loadActiveTabBlock, /debugTabId: Number\.isFinite\(debugTabIdParam\)/);
   assert.match(loadActiveTabBlock, /state(?:Any)?\.currentTab = response && response\.ok && response\.tab[\s\S]*?\? response\.tab[\s\S]*?: await loadActiveTabFallback\(debugTabIdParam\);/);
@@ -276,10 +276,10 @@ test("popup delegates active tab context resolution to the background", () => {
 
 test("popup chrome helpers route privileged tab and browsing-data APIs through background", () => {
   assert.match(backgroundSource, /function clearBrowsingDataForOrigin\(origin\) \{/);
-  assert.match(backgroundSource, /chrome\.browsingData\.remove/);
+  assert.match(backgroundSource, /callBrowserApiVoid\([\s\S]*?api\.browsingData\.remove/);
   assert.match(backgroundSource, /if \(message\.type === "clearBrowsingDataForOrigin"\) \{/);
-  assert.match(backgroundSource, /function reloadTab\(tabId\) \{/);
-  assert.match(backgroundSource, /chrome\.tabs\.reload\(normalizedTabId/);
+  assert.match(backgroundSource, /function reloadTab\(tabId(?:\s*:\s*[^)]+)?\) \{/);
+  assert.match(backgroundSource, /reloadBrowserTab\(normalizedTabId\)/);
   assert.match(backgroundSource, /if \(message\.type === "reloadTab"\) \{/);
 
   assert.match(popupChromeHelpersSource, /utils\.sendRuntimeMessage\(message\)/);
@@ -339,7 +339,7 @@ test("shared clearTabState removes initial tab lifecycle state as well as live t
 test("completed reload reactivates live enabled tabs without restore scope fallback", () => {
   const onUpdatedBlock = extractSourceBlock(
     backgroundSource,
-    "chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {",
+    "browser.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {",
     "utils.addStorageChangeListener"
   );
 
@@ -372,7 +372,8 @@ test("successful same-base restore activation clears restore intent after conten
     "function requestContentActivation"
   );
 
-  assert.match(restoreBlock, /if \(chrome\.runtime\.lastError \|\| !response \|\| response\.ok === false\) \{/);
+  assert.match(restoreBlock, /const normalizedResponse = response && typeof response === "object"/);
+  assert.match(restoreBlock, /if \(!normalizedResponse \|\| normalizedResponse\.ok === false\) \{/);
   assert.match(restoreBlock, /runBackgroundTask\([\s\S]*?clearReloadRestoreTabStateAfterActivation\(tabId, tabState\)/);
   assert.doesNotMatch(clearBlock, /getReloadRestoreTabState|restoreState|await getTabUrl/);
   assert.match(clearBlock, /await clearReloadRestoreTabState\(tabId\);/);
@@ -383,7 +384,7 @@ test("successful same-base restore activation clears restore intent after conten
 test("completed navigation clears marking when the new page leaves the saved base URL", () => {
   const onUpdatedBlock = extractSourceBlock(
     backgroundSource,
-    "chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {",
+    "browser.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {",
     "utils.addStorageChangeListener"
   );
 
@@ -487,7 +488,7 @@ test("device emulation debugger operations serialize per tab", () => {
   assert.match(emulationSource, /export async function setDeviceEmulationEnabled\(tabId(?:\s*:\s*[^,]+)?, enabled(?:\s*:\s*[^)]+)?\) \{/);
   assert.match(emulationSource, /export async function clearDeviceEmulationState\(tabId(?:\s*:\s*[^)]+)?\) \{/);
   assert.match(emulationSource, /runDeviceEmulationOperation\(tabId, async \(\) => \{/);
-  assert.match(emulationSource, /runDeviceEmulationOperation\(tabId, \(\) => storageRemove\(chrome\.storage\.session, key\)\)/);
+  assert.match(emulationSource, /runDeviceEmulationOperation\(tabId, \(\) => storageRemove\(getSessionStorageArea\(\), key\)\)/);
   assert.match(updateBlock, /return runDeviceEmulationOperation\(tabId, async \(\)(?:\s*:\s*[^=]+)? => \{/);
   assert.match(cleanupBlock, /return runDeviceEmulationOperation\(tabId, async \(\) => \{/);
 });
@@ -495,7 +496,7 @@ test("device emulation debugger operations serialize per tab", () => {
 test("debugger detach reapplies mobile emulation while marking stays enabled", () => {
   const detachBlock = extractSourceBlock(
     backgroundSource,
-    "chrome.debugger.onDetach.addListener(async (source) => {",
+    "browser.debugger.onDetach.addListener(async (source) => {",
     "async function refreshActionIconsForWindow"
   );
 

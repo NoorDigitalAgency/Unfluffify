@@ -24,6 +24,7 @@
  */
 
 import * as utils from "./common/utilities.js";
+import { browser, callBrowserApi, callBrowserApiVoid, type Browser } from "./common/browser.js";
 import * as configStore from "./common/config.js";
 import { runPageMotionFreezeControl } from "./common/page-motion-freeze-control.js";
 import {
@@ -265,101 +266,146 @@ const POPUP_TAB_COMMAND_POLICY = Object.freeze({
 const RENDER_MODE_INSPECTION_START_TIMEOUT_MS = 8000;
 const RENDER_MODE_INSPECTION_LOAD_TIMEOUT_MS = 15000;
 const RENDER_MODE_INSPECTION_OPERATION_TIMEOUT_MS = 60000;
+
+async function getBrowserTab(tabId: number): Promise<Browser.tabs.Tab | undefined> {
+  return callBrowserApi<Browser.tabs.Tab | undefined>(
+    (api, callback) => api.tabs.get(tabId, callback),
+    (api) => api.tabs.get(tabId)
+  );
+}
+
+async function queryBrowserTabs(query: Browser.tabs.QueryInfo): Promise<Browser.tabs.Tab[]> {
+  return callBrowserApi<Browser.tabs.Tab[]>(
+    (api, callback) => api.tabs.query(query, callback),
+    (api) => api.tabs.query(query)
+  );
+}
+
+async function reloadBrowserTab(tabId: number) {
+  return callBrowserApiVoid(
+    (api, callback) => api.tabs.reload(tabId, callback),
+    (api) => api.tabs.reload(tabId)
+  );
+}
+
+async function updateBrowserTab(tabId: number, updateProperties: Browser.tabs.UpdateProperties): Promise<Browser.tabs.Tab | undefined> {
+  return callBrowserApi<Browser.tabs.Tab | undefined>(
+    (api, callback) => api.tabs.update(tabId, updateProperties, callback),
+    (api) => api.tabs.update(tabId, updateProperties)
+  );
+}
+
+async function sendBrowserTabMessage(
+  tabId: number,
+  message: unknown,
+  options: { frameId?: number } | undefined = undefined
+): Promise<object | undefined> {
+  return callBrowserApi<object | undefined>(
+    (api, callback) => (
+      options
+        ? api.tabs.sendMessage(tabId, message, options, callback)
+        : api.tabs.sendMessage(tabId, message, callback)
+    ),
+    (api) => (
+      options
+        ? api.tabs.sendMessage(tabId, message, options)
+        : api.tabs.sendMessage(tabId, message)
+    )
+  );
+}
+
+async function getBrowserWindow(windowId: number): Promise<Browser.windows.Window> {
+  return callBrowserApi<Browser.windows.Window>(
+    (api, callback) => api.windows.get(windowId, callback),
+    (api) => api.windows.get(windowId)
+  );
+}
+
+async function sendBrowserDebuggerCommand(
+  target: { tabId: number },
+  method: string,
+  params?: Record<string, unknown>
+): Promise<object | undefined> {
+  return callBrowserApi<object | undefined>(
+    (api, callback) => api.debugger.sendCommand(target, method, params, callback),
+    (api) => api.debugger.sendCommand(target, method, params)
+  );
+}
+
+async function setBrowserSidePanelOptions(options: { tabId?: number; path?: string; enabled?: boolean }) {
+  return callBrowserApiVoid(
+    (api, callback) => api.sidePanel.setOptions(options, callback),
+    (api) => Promise.resolve(api.sidePanel.setOptions(options))
+  );
+}
+
+async function openBrowserSidePanel(options: { tabId: number }) {
+  return callBrowserApiVoid(
+    (api, callback) => api.sidePanel.open(options, callback),
+    (api) => Promise.resolve(api.sidePanel.open(options))
+  );
+}
+
 // @ts-expect-error
 function clearBrowsingDataForOrigin(origin) {
-  return new Promise((resolve) => {
-    if (!origin || typeof origin !== "string") {
-      resolve({ ok: false, error: "Missing origin" });
-      return;
-    }
-    try {
-      chrome.browsingData.remove(
-        { origins: [origin] },
-        {
-          cookies: true,
-          cacheStorage: true,
-          localStorage: true,
-          indexedDB: true,
-          serviceWorkers: true
-        },
-        () => {
-          if (chrome.runtime.lastError) {
-            resolve({
-              ok: false,
-              error: chrome.runtime.lastError.message || "Unable to clear cache"
-            });
-            return;
-          }
-          resolve({ ok: true });
-        }
-      );
-    } catch (error) {
-      resolve({
-        ok: false,
-// @ts-expect-error
-        error: (error && error.message) || "Unable to clear cache"
-      });
-    }
-  });
+  if (!origin || typeof origin !== "string") {
+    return Promise.resolve({ ok: false, error: "Missing origin" });
+  }
+  return callBrowserApiVoid(
+    (api, callback) => api.browsingData.remove(
+      { origins: [origin] },
+      {
+        cookies: true,
+        cacheStorage: true,
+        localStorage: true,
+        indexedDB: true,
+        serviceWorkers: true
+      },
+      callback
+    ),
+    (api) => api.browsingData.remove(
+      { origins: [origin] },
+      {
+        cookies: true,
+        cacheStorage: true,
+        localStorage: true,
+        indexedDB: true,
+        serviceWorkers: true
+      }
+    )
+  )
+    .then(() => ({ ok: true }))
+    .catch((error) => ({
+      ok: false,
+      error: error instanceof Error ? error.message : "Unable to clear cache"
+    }));
 }
 
-// @ts-expect-error
-function reloadTab(tabId) {
-  return new Promise((resolve) => {
-    const normalizedTabId = normalizeBrokerTabId(tabId);
-    if (!normalizedTabId) {
-      resolve({ ok: false, error: "Missing tab" });
-      return;
-    }
-    try {
-      chrome.tabs.reload(normalizedTabId, () => {
-        if (chrome.runtime.lastError) {
-          resolve({
-            ok: false,
-            error: chrome.runtime.lastError.message || "Unable to reload tab"
-          });
-          return;
-        }
-        resolve({ ok: true });
-      });
-    } catch (error) {
-      resolve({
-        ok: false,
-// @ts-expect-error
-        error: (error && error.message) || "Unable to reload tab"
-      });
-    }
-  });
+function reloadTab(tabId: unknown) {
+  const normalizedTabId = normalizeBrokerTabId(tabId);
+  if (!normalizedTabId) {
+    return Promise.resolve({ ok: false, error: "Missing tab" });
+  }
+  return reloadBrowserTab(normalizedTabId)
+    .then(() => ({ ok: true }))
+    .catch((error) => ({
+      ok: false,
+      error: error instanceof Error ? error.message : "Unable to reload tab"
+    }));
 }
 
-// @ts-expect-error
-function navigateTabToUrl(tabId, url) {
-  return new Promise((resolve) => {
-    const normalizedTabId = normalizeBrokerTabId(tabId);
-    const targetUrl = typeof url === "string" ? url.trim() : "";
-    if (!normalizedTabId || !targetUrl) {
-      resolve({ ok: false, error: "Missing tab or URL" });
-      return;
-    }
-    try {
-      chrome.tabs.update(normalizedTabId, { url: targetUrl }, () => {
-        if (chrome.runtime.lastError) {
-          resolve({
-            ok: false,
-            error: chrome.runtime.lastError.message || "Unable to navigate tab"
-          });
-          return;
-        }
-        resolve({ ok: true });
-      });
-    } catch (error) {
-      resolve({
-        ok: false,
-// @ts-expect-error
-        error: (error && error.message) || "Unable to navigate tab"
-      });
-    }
-  });
+function navigateTabToUrl(tabId: unknown, url: unknown) {
+  const normalizedTabId = normalizeBrokerTabId(tabId);
+  const targetUrl = typeof url === "string" ? url.trim() : "";
+  if (!normalizedTabId || !targetUrl) {
+    return Promise.resolve({ ok: false, error: "Missing tab or URL" });
+  }
+  return updateBrowserTab(normalizedTabId, { url: targetUrl })
+    .then(() => ({ ok: true }))
+    .catch((error) => ({
+      ok: false,
+      error: error instanceof Error ? error.message : "Unable to navigate tab"
+    }));
 }
 
 // @ts-expect-error
@@ -383,24 +429,22 @@ function sendContentMessageToTab(tabId, message, timeoutMs = 15000) {
     const timeoutId = setTimeout(() => {
       finish({ ok: false, error: "Content message timed out" });
     }, Math.max(1, Number(timeoutMs) || 15000));
-    try {
-      chrome.tabs.sendMessage(normalizedTabId, message, { frameId: 0 }, (response) => {
-        if (chrome.runtime.lastError) {
-          finish({
-            ok: false,
-            error: chrome.runtime.lastError.message || "Content message failed"
-          });
-          return;
-        }
-        finish(response && typeof response === "object" ? response : { ok: false });
+    sendBrowserTabMessage(
+      normalizedTabId,
+      message,
+      { frameId: 0 }
+    )
+      .then((response) => {
+        finish(response && typeof response === "object"
+          ? response as { ok?: boolean; error?: string; reconciliationPending?: boolean; locked?: boolean }
+          : { ok: false });
+      })
+      .catch((error) => {
+        finish({
+          ok: false,
+          error: error instanceof Error ? error.message : "Content message failed"
+        });
       });
-    } catch (error) {
-      finish({
-        ok: false,
-// @ts-expect-error
-        error: (error && error.message) || "Content message failed"
-      });
-    }
   });
 }
 
@@ -513,11 +557,11 @@ async function isTabActiveInFocusedWindow(tabId) {
     return false;
   }
   try {
-    const tab = await chrome.tabs.get(normalizedTabId);
+    const tab = await getBrowserTab(normalizedTabId);
     if (!tab || !tab.active || !Number.isFinite(tab.windowId)) {
       return false;
     }
-    const windowInfo = await chrome.windows.get(tab.windowId);
+    const windowInfo = await getBrowserWindow(tab.windowId);
     return Boolean(windowInfo && windowInfo.focused);
   } catch {
     return false;
@@ -617,8 +661,8 @@ tabInactivityObserver.subscribe(async (event) => {
   await restoreRenderModeJavaScriptAfterNoJsInactivity(event.tabId);
 });
 
-if (chrome.alarms && chrome.alarms.onAlarm && typeof chrome.alarms.onAlarm.addListener === "function") {
-  chrome.alarms.onAlarm.addListener((alarm) => {
+if (browser.alarms && browser.alarms.onAlarm && typeof browser.alarms.onAlarm.addListener === "function") {
+  browser.alarms.onAlarm.addListener((alarm) => {
     tabInactivityObserver.handleAlarm(alarm).catch(() => {});
   });
 }
@@ -632,30 +676,26 @@ async function captureRenderModeHtmlWithDebugger(tabId) {
   const target = { tabId: normalizedTabId };
   let tab = null;
   try {
-    tab = await chrome.tabs.get(normalizedTabId);
+    tab = await getBrowserTab(normalizedTabId);
   } catch {
     tab = null;
   }
   const pageUrl = tab && typeof tab.url === "string" ? tab.url : "";
   try {
-    const documentResult = await chrome.debugger.sendCommand(target, "DOM.getDocument", {
+    const documentResult = await sendBrowserDebuggerCommand(target, "DOM.getDocument", {
       depth: -1,
       pierce: true
-    });
-// @ts-expect-error
+    }) as { root?: { nodeId?: number } } | undefined;
     const rootNodeId = documentResult && documentResult.root && Number.isFinite(documentResult.root.nodeId)
-// @ts-expect-error
       ? documentResult.root.nodeId
       : 0;
     if (!rootNodeId) {
       return { ok: false, error: "Unable to read inspected document" };
     }
-    const htmlResult = await chrome.debugger.sendCommand(target, "DOM.getOuterHTML", {
+    const htmlResult = await sendBrowserDebuggerCommand(target, "DOM.getOuterHTML", {
       nodeId: rootNodeId
-    });
-// @ts-expect-error
+    }) as { outerHTML?: string } | undefined;
     const renderedHtml = htmlResult && typeof htmlResult.outerHTML === "string"
-// @ts-expect-error
       ? htmlResult.outerHTML
       : "";
     const rawResult = pageUrl ? await fetchStaticPageHtmlForBackground(pageUrl).catch(() => null) : null;
@@ -708,13 +748,13 @@ function createOffscreenRefineTimeout<T>(fallback: T, timeoutMs = OFFSCREEN_REFI
 }
 
 async function offscreenDocumentExists(): Promise<boolean> {
-  if (typeof chrome.runtime.getContexts !== "function") {
+  if (typeof browser.runtime.getContexts !== "function") {
     return false;
   }
   try {
-    const contexts = await chrome.runtime.getContexts({
+    const contexts = await browser.runtime.getContexts({
       contextTypes: ["OFFSCREEN_DOCUMENT"],
-      documentUrls: [chrome.runtime.getURL(OFFSCREEN_DOCUMENT_PATH)]
+      documentUrls: [utils.getExtensionResourceUrl(OFFSCREEN_DOCUMENT_PATH)]
     });
     return Array.isArray(contexts) && contexts.length > 0;
   } catch {
@@ -723,14 +763,14 @@ async function offscreenDocumentExists(): Promise<boolean> {
 }
 
 async function ensureOffscreenDocument(): Promise<void> {
-  if (!chrome.offscreen || typeof chrome.offscreen.createDocument !== "function") {
+  if (!browser.offscreen || typeof browser.offscreen.createDocument !== "function") {
     throw new Error("Offscreen documents are not supported in this environment");
   }
   if (await offscreenDocumentExists()) {
     return;
   }
   if (!offscreenDocumentSetup) {
-    offscreenDocumentSetup = chrome.offscreen
+    offscreenDocumentSetup = browser.offscreen
       .createDocument({
         url: OFFSCREEN_DOCUMENT_PATH,
         reasons: ["DOM_PARSER"],
@@ -765,7 +805,7 @@ async function refineXPathEntriesViaOffscreen(
     const timeout = createOffscreenRefineTimeout(null);
     try {
       response = await Promise.race([
-        chrome.runtime.sendMessage({
+        utils.sendRuntimeMessage({
           target: OFFSCREEN_MESSAGE_TARGET,
           type: OFFSCREEN_REFINE_XPATHS_TYPE,
           payloadKey: stored.payloadKey,
@@ -844,13 +884,12 @@ const swKeepAlive = createSwKeepAlive({
   setIntervalRef: (callback, ms) => setInterval(callback, ms),
   clearIntervalRef: (handle) => clearInterval(handle),
   ping: () => {
-    try {
-      chrome.runtime.getPlatformInfo(() => {
-        void chrome.runtime.lastError;
-      });
-    } catch {
+    callBrowserApi(
+      (api, callback) => api.runtime.getPlatformInfo(callback),
+      (api) => api.runtime.getPlatformInfo()
+    ).catch(() => {
       // The ping only needs to touch an extension API to reset the idle timer.
-    }
+    });
   }
 });
 
@@ -865,7 +904,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_BOOTSTRAP_CONTENT, async (cont
 
   let tab = null;
   try {
-    tab = await chrome.tabs.get(normalizedTabId);
+    tab = await getBrowserTab(normalizedTabId);
   } catch {
     tab = null;
   }
@@ -963,7 +1002,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_ACTIVATE_MARKING, async (conte
 
   let tab = null;
   try {
-    tab = await chrome.tabs.get(normalizedTabId);
+    tab = await getBrowserTab(normalizedTabId);
   } catch {
     tab = null;
   }
@@ -1142,7 +1181,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_DEACTIVATE_MARKING, async (con
 
   let tab = null;
   try {
-    tab = await chrome.tabs.get(normalizedTabId);
+    tab = await getBrowserTab(normalizedTabId);
   } catch {
     tab = null;
   }
@@ -1957,7 +1996,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_AI, async (context, payloa
 
   let tab = null;
   try {
-    tab = await chrome.tabs.get(normalizedTabId);
+    tab = await getBrowserTab(normalizedTabId);
   } catch {
     tab = null;
   }
@@ -2026,7 +2065,7 @@ function maybeGetCommandPayloadForLedger(message: RuntimeMessage) {
   return redactCommandPayloadForLedger(message.payload);
 }
 
-function recordBackgroundCommandLedger(message: RuntimeMessage, sender: chrome.runtime.MessageSender, reply: RuntimeMessageReply | null, startedAt: number, resolvedContextTabId: number | null = null) {
+function recordBackgroundCommandLedger(message: RuntimeMessage, sender: Browser.runtime.MessageSender, reply: RuntimeMessageReply | null, startedAt: number, resolvedContextTabId: number | null = null) {
   if (!message || typeof message !== "object") {
     return;
   }
@@ -2164,10 +2203,10 @@ function getPageMotionFreezeControlTargetKey(target) {
 
 // @ts-expect-error
 async function executePageMotionFreezeControlNow(target, command, details) {
-  if (!chrome.scripting || typeof chrome.scripting.executeScript !== "function") {
+  if (!browser.scripting || typeof browser.scripting.executeScript !== "function") {
     return { ok: false, error: "Scripting API unavailable" };
   }
-  await chrome.scripting.executeScript({
+  await browser.scripting.executeScript({
     target,
     world: "MAIN",
     func: runPageMotionFreezeControl,
@@ -2212,17 +2251,17 @@ function getExtensionContextWindowId(context) {
 
 async function resolvePopupSidePanelBoundTab(sender = {}) {
   if (
-    !chrome.runtime ||
-    typeof chrome.runtime.getContexts !== "function" ||
-    !chrome.tabs ||
-    typeof chrome.tabs.get !== "function"
+    !browser.runtime ||
+    typeof browser.runtime.getContexts !== "function" ||
+    !browser.tabs ||
+    typeof browser.tabs.get !== "function"
   ) {
     return null;
   }
   try {
-    const contexts = await chrome.runtime.getContexts({
+    const contexts = await browser.runtime.getContexts({
       contextTypes: ["SIDE_PANEL"],
-      documentUrls: [chrome.runtime.getURL("popup.html")]
+      documentUrls: [utils.getExtensionResourceUrl("popup.html")]
     });
     if (!Array.isArray(contexts)) {
       return null;
@@ -2240,7 +2279,7 @@ async function resolvePopupSidePanelBoundTab(sender = {}) {
     if (!boundContext) {
       return null;
     }
-    return await chrome.tabs.get(Math.trunc(boundContext.tabId));
+    return await getBrowserTab(Math.trunc(boundContext.tabId));
   } catch {
     return null;
   }
@@ -2251,7 +2290,7 @@ async function resolvePopupTabContext(message = {}, sender = {}) {
   const debugTabId = normalizeBrokerTabId(message.debugTabId);
   if (debugTabId) {
     try {
-      const tab = await chrome.tabs.get(debugTabId);
+      const tab = await getBrowserTab(debugTabId);
       if (tab && tab.id) {
         return { ok: true, tab, source: "debug" };
       }
@@ -2265,17 +2304,15 @@ async function resolvePopupTabContext(message = {}, sender = {}) {
     return { ok: true, tab: sidePanelBoundTab, source: "sidePanel" };
   }
 
-// @ts-expect-error
-  let tabs = [];
+  let tabs: Browser.tabs.Tab[] = [];
   try {
-    tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    tabs = await queryBrowserTabs({ active: true, currentWindow: true });
     if (!tabs.length) {
-      tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      tabs = await queryBrowserTabs({ active: true, lastFocusedWindow: true });
     }
   } catch {
     tabs = [];
   }
-// @ts-expect-error
   return { ok: Boolean(tabs[0] && tabs[0].id), tab: tabs[0] || null, source: tabs[0] ? "activeTab" : "none" };
 }
 
@@ -2453,7 +2490,7 @@ async function runBackgroundTabOperation(tabId, descriptor, work) {
   return tabOperationRunner.runTabOperation(tabId, descriptor, work);
 }
 
-chrome.runtime.onConnect.addListener((port) => {
+browser.runtime.onConnect.addListener((port) => {
   if (port && typeof port.name === "string" && port.name.startsWith(BUS_PORT_PREFIX)) {
     const tabId = normalizeBrokerTabId(port.name.slice(BUS_PORT_PREFIX.length));
     if (!tabId) {
@@ -2514,24 +2551,24 @@ function logSwLifecycleDiagnostic(event: string, extra: Record<string, unknown> 
   }
 }
 
-if (chrome.runtime && typeof chrome.runtime.onSuspend !== "undefined") {
-  chrome.runtime.onSuspend.addListener(() => {
+if (browser.runtime && typeof browser.runtime.onSuspend !== "undefined") {
+  browser.runtime.onSuspend.addListener(() => {
     logSwLifecycleDiagnostic("suspend");
   });
 }
-if (chrome.runtime && typeof chrome.runtime.onSuspendCanceled !== "undefined") {
-  chrome.runtime.onSuspendCanceled.addListener(() => {
+if (browser.runtime && typeof browser.runtime.onSuspendCanceled !== "undefined") {
+  browser.runtime.onSuspendCanceled.addListener(() => {
     logSwLifecycleDiagnostic("suspend-canceled");
   });
 }
-if (chrome.runtime && typeof chrome.runtime.onStartup !== "undefined") {
-  chrome.runtime.onStartup.addListener(() => {
+if (browser.runtime && typeof browser.runtime.onStartup !== "undefined") {
+  browser.runtime.onStartup.addListener(() => {
     logSwLifecycleDiagnostic("startup");
   });
 }
 logSwLifecycleDiagnostic("worker-evaluated");
 
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (legacyBridge.isBusMessage(message)) {
     brain.transport.inbound(message, sender)
       .then((reply) => sendResponse(reply))
@@ -3180,7 +3217,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       await clearTrackedTabSessionState(tabId);
       await utils.updateActionForTab(tabId);
       try {
-        await chrome.sidePanel.setOptions({
+        await setBrowserSidePanelOptions({
           tabId,
           path: "popup.html",
           enabled: false
@@ -3188,16 +3225,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       } catch (error) {
         // Side panel may already be disabled for this tab.
       }
-      await new Promise((resolve, reject) => {
-        chrome.tabs.reload(tabId, () => {
-          if (chrome.runtime.lastError) {
-            reject(new Error(chrome.runtime.lastError.message || "Unable to reload tab"));
-            return;
-          }
-// @ts-expect-error
-          resolve();
-        });
-      });
+      await reloadBrowserTab(tabId);
       sendResponse({ ok: true });
     })().catch((error) => {
       sendResponse({
@@ -3359,7 +3387,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 });
 
-chrome.tabs.onRemoved.addListener((tabId) => {
+browser.tabs.onRemoved.addListener((tabId) => {
   clearTrackedTabSessionState(tabId, { includeDeviceState: true }).then();
   clearRenderModeNoJsHeld(tabId).catch(() => null);
   brain.recordRenderModeNoJsHold(tabId, {
@@ -3406,7 +3434,7 @@ async function disableExtensionOnTopLevelNavigation(details) {
 // navigation actually commits. onBeforeNavigate fires before the browser shows
 // the "Leave site?" dialog; if the user clicks "Stay", the navigation is
 // cancelled but we would have already torn down the marking session.
-chrome.webNavigation.onCommitted.addListener(disableExtensionOnTopLevelNavigation);
+browser.webNavigation.onCommitted.addListener(disableExtensionOnTopLevelNavigation);
 
 // @ts-expect-error
 async function normalizeRenderModeJavaScriptOnTopLevelNavigation(details) {
@@ -3435,9 +3463,9 @@ async function normalizeRenderModeJavaScriptOnTopLevelNavigation(details) {
   }
 }
 
-chrome.webNavigation.onBeforeNavigate.addListener(normalizeRenderModeJavaScriptOnTopLevelNavigation);
+browser.webNavigation.onBeforeNavigate.addListener(normalizeRenderModeJavaScriptOnTopLevelNavigation);
 
-chrome.webNavigation.onCompleted.addListener(async (details) => {
+browser.webNavigation.onCompleted.addListener(async (details) => {
   if (details.frameId !== 0) {
     return;
   }
@@ -3451,10 +3479,10 @@ chrome.webNavigation.onCompleted.addListener(async (details) => {
     // Ignore — the tab may have already navigated away or been closed.
   }
 });
-chrome.webNavigation.onHistoryStateUpdated.addListener(disableExtensionOnTopLevelNavigation);
-chrome.webNavigation.onReferenceFragmentUpdated.addListener(disableExtensionOnTopLevelNavigation);
+browser.webNavigation.onHistoryStateUpdated.addListener(disableExtensionOnTopLevelNavigation);
+browser.webNavigation.onReferenceFragmentUpdated.addListener(disableExtensionOnTopLevelNavigation);
 
-chrome.debugger.onDetach.addListener(async (source) => {
+browser.debugger.onDetach.addListener(async (source) => {
   if (!source || !source.tabId) {
     return;
   }
@@ -3502,32 +3530,29 @@ chrome.debugger.onDetach.addListener(async (source) => {
   await setDeviceEmulationEnabled(source.tabId, false);
 });
 
-// @ts-expect-error
-async function refreshActionIconsForWindow(windowId) {
-  if (!windowId || windowId === chrome.windows.WINDOW_ID_NONE) {
+async function refreshActionIconsForWindow(windowId: number) {
+  if (!windowId || windowId === browser.windows.WINDOW_ID_NONE) {
     return;
   }
-// @ts-expect-error
-  let tabs = [];
+  let tabs: Browser.tabs.Tab[] = [];
   try {
-    tabs = await chrome.tabs.query({ windowId });
+    tabs = await queryBrowserTabs({ windowId });
   } catch (error) {
     tabs = [];
   }
   await Promise.all(
-// @ts-expect-error
     tabs
       .map((tab) => (tab && tab.id ? utils.updateActionForTab(tab.id) : null))
       .filter(Boolean)
   );
 }
 
-chrome.tabs.onActivated.addListener(async ({ windowId }) => {
+browser.tabs.onActivated.addListener(async ({ windowId }) => {
   await refreshActionIconsForWindow(windowId);
   await updateRenderModeNoJsInactivityWatches();
 });
 
-chrome.windows.onFocusChanged.addListener(async (windowId) => {
+browser.windows.onFocusChanged.addListener(async (windowId) => {
   await refreshActionIconsForWindow(windowId);
   await updateRenderModeNoJsInactivityWatches();
 });
@@ -3571,13 +3596,12 @@ function requestContentActivation(tabId, attempt = 0) {
   if (!tabId) {
     return;
   }
-  chrome.tabs.sendMessage(tabId, { type: "activateContentMain" }, { frameId: 0 }, () => {
-    if (chrome.runtime.lastError && attempt < 3) {
-      setTimeout(() => requestContentActivation(tabId, attempt + 1), 200);
-      return;
-    }
-    void chrome.runtime.lastError;
-  });
+  sendBrowserTabMessage(tabId, { type: "activateContentMain" }, { frameId: 0 })
+    .catch(() => {
+      if (attempt < 3) {
+        setTimeout(() => requestContentActivation(tabId, attempt + 1), 200);
+      }
+    });
 }
 
 // @ts-expect-error
@@ -3593,7 +3617,7 @@ function restoreEnabledStateForTab(tabId, tabState, attempt = 0) {
     busy: true,
     message: "Preparing page content for marking..."
   }, "background:restore-enabled-state:lifecycle-started");
-  chrome.tabs.sendMessage(
+  sendBrowserTabMessage(
     tabId,
     {
       type: "setEnabled",
@@ -3603,10 +3627,14 @@ function restoreEnabledStateForTab(tabId, tabState, attempt = 0) {
       performInitialReveal: true,
       operationId
     },
-    { frameId: 0 },
-    (response) => {
-      if (chrome.runtime.lastError || !response || response.ok === false) {
-        if (attempt < 4 && !(response && response.locked)) {
+    { frameId: 0 }
+  )
+    .then((response) => {
+      const normalizedResponse = response && typeof response === "object"
+        ? response as { ok?: boolean; locked?: boolean }
+        : undefined;
+      if (!normalizedResponse || normalizedResponse.ok === false) {
+        if (attempt < 4 && !(normalizedResponse && normalizedResponse.locked)) {
           setTimeout(() => restoreEnabledStateForTab(tabId, tabState, attempt + 1), 200);
         } else {
           brain.mirrorActivationLifecycle(tabId, {
@@ -3620,7 +3648,6 @@ function restoreEnabledStateForTab(tabId, tabState, attempt = 0) {
         }
         return;
       }
-      void chrome.runtime.lastError;
       runBackgroundTask(
         "clear-reload-restore-tab-state-after-activation",
         clearReloadRestoreTabStateAfterActivation(tabId, tabState),
@@ -3629,14 +3656,27 @@ function restoreEnabledStateForTab(tabId, tabState, attempt = 0) {
           appendTrace: appendWorldTraceEvent
         }
       );
-    }
-  );
+    })
+    .catch(() => {
+      if (attempt < 4) {
+        setTimeout(() => restoreEnabledStateForTab(tabId, tabState, attempt + 1), 200);
+        return;
+      }
+      brain.mirrorActivationLifecycle(tabId, {
+        operationId,
+        kind: LIFECYCLE_KINDS.ACTIVATION,
+        phase: LIFECYCLE_PHASES.FAILED,
+        busy: false,
+        message: ""
+      }, "background:restore-enabled-state:lifecycle-failed");
+      removeBackgroundSpinnerEntry(tabId, "navInspect");
+    });
 }
 
 // @ts-expect-error
 async function getTabUrl(tabId) {
   try {
-    const tab = await chrome.tabs.get(tabId);
+    const tab = await getBrowserTab(tabId);
     return (tab && typeof tab.url === "string") ? tab.url : "";
   } catch (error) {
     return "";
@@ -3669,7 +3709,7 @@ async function ensureDefaultMobileEmulationForTab(tabId, tabUrl = "") {
   }
 }
 
-chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+browser.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (!tabId || !tab) {
     return;
   }
@@ -3716,14 +3756,14 @@ utils.addStorageChangeListener((changes, areaName) => {
   });
 });
 
-chrome.action.onClicked.addListener((tab) => {
+browser.action.onClicked.addListener((tab) => {
   if (tab.id) {
-    chrome.sidePanel.setOptions({
+    setBrowserSidePanelOptions({
       tabId: tab.id,
       path: "popup.html",
       enabled: true
     }).then();
-    chrome.sidePanel.open({ tabId: tab.id }).then();
+    openBrowserSidePanel({ tabId: tab.id }).then();
   }
 });
 

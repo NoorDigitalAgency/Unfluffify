@@ -7,6 +7,7 @@ import {
   FEATURE_DISABLED_REASON,
   isFeatureEnabled
 } from "./feature-flags.js";
+import { browser, callBrowserApi, callBrowserApiVoid, type Browser } from "./browser.js";
 import { storageGet, storageRemove, storageSet } from "./utilities.js";
 
 type DeviceMode = "mobile" | "desktop";
@@ -38,8 +39,26 @@ type DeviceEmulationResult = {
   error?: string;
   alreadyAttached?: boolean;
 };
+type BrowserApi = typeof browser;
+type BrowserHost = typeof globalThis & {
+  browser?: BrowserApi;
+  chrome?: BrowserApi;
+};
+type DebuggerTargetInfo = Browser.debugger.TargetInfo;
 
 const deviceEmulationQueueByTabId = new Map();
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return typeof error === "string" ? error : "";
+}
+
+function getSessionStorageArea() {
+  const host = globalThis as BrowserHost;
+  return host.browser?.storage?.session || host.chrome?.storage?.session || browser.storage.session;
+}
 
 function normalizeDeviceMode(mode: unknown): DeviceMode {
   return mode === "mobile" ? "mobile" : "desktop";
@@ -94,54 +113,56 @@ function buildFeatureDisabledResult(featureName: string, state: DeviceState | nu
 }
 
 async function getTabViewportSize(tabId: number): Promise<ViewportSize | null> {
-  return new Promise((resolve) => {
-    if (!chrome.tabs || !tabId) {
-      resolve(null);
-      return;
+  if (!tabId) {
+    return null;
+  }
+  try {
+    const tab = await callBrowserApi<Browser.tabs.Tab>(
+      (api, callback) => api.tabs.get(tabId, callback),
+      (api) => api.tabs.get(tabId)
+    );
+    if (!tab) {
+      return null;
     }
-    chrome.tabs.get(tabId, (tab: chrome.tabs.Tab) => {
-      if (chrome.runtime.lastError || !tab) {
-        resolve(null);
-        return;
-      }
-      const width = Number(tab.width);
-      const height = Number(tab.height);
-      if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
-        resolve(null);
-        return;
-      }
-      resolve({ width, height });
-    });
-  });
+    const width = Number(tab.width);
+    const height = Number(tab.height);
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+      return null;
+    }
+    return { width, height };
+  } catch {
+    return null;
+  }
 }
 
 async function getPageViewportSize(tabId: number): Promise<ViewportSize | null> {
-  return new Promise((resolve) => {
-    if (!chrome.scripting || !tabId) {
-      resolve(null);
-      return;
-    }
-    chrome.scripting.executeScript(
-      {
+  if (!tabId) {
+    return null;
+  }
+  try {
+    const results = await callBrowserApi<Browser.scripting.InjectionResult[]>(
+      (api, callback) => api.scripting.executeScript({
         target: { tabId },
         func: () => ({
           width: window.innerWidth,
           height: window.innerHeight
         })
-      },
-      (results: chrome.scripting.InjectionResult[]) => {
-        if (chrome.runtime.lastError) {
-          resolve(null);
-          return;
-        }
-        if (!results || !results.length || !results[0].result) {
-          resolve(null);
-          return;
-        }
-        resolve(results[0].result as ViewportSize);
-      }
+      }, callback),
+      (api) => api.scripting.executeScript({
+        target: { tabId },
+        func: () => ({
+          width: window.innerWidth,
+          height: window.innerHeight
+        })
+      })
     );
-  });
+    if (!results || !results.length || !results[0].result) {
+      return null;
+    }
+    return results[0].result as ViewportSize;
+  } catch {
+    return null;
+  }
 }
 
 async function getViewportSize(tabId: number): Promise<ViewportSize | null> {
@@ -176,7 +197,7 @@ async function getBestDeviceScale(tabId: number, mode: DeviceMode) {
 
 export async function getDeviceEmulationState(tabId: number): Promise<DeviceState> {
   const key = `${DEVICE_EMULATION_PREFIX}${tabId}`;
-  const result = await storageGet(chrome.storage.session, key);
+  const result = await storageGet(getSessionStorageArea(), key);
   return normalizeDeviceEmulationState(result[key]);
 }
 
@@ -185,13 +206,13 @@ export async function hasStoredDeviceEmulationState(tabId: number) {
     return false;
   }
   const key = `${DEVICE_EMULATION_PREFIX}${tabId}`;
-  const result = await storageGet(chrome.storage.session, key);
+  const result = await storageGet(getSessionStorageArea(), key);
   return Object.prototype.hasOwnProperty.call(result || {}, key);
 }
 
 async function setDeviceEmulationState(tabId: number, state: DeviceState) {
   const key = `${DEVICE_EMULATION_PREFIX}${tabId}`;
-  await storageSet(chrome.storage.session, { [key]: state });
+  await storageSet(getSessionStorageArea(), { [key]: state });
 }
 
 export async function setDeviceEmulationEnabled(tabId: number, enabled: unknown) {
@@ -214,7 +235,7 @@ export async function clearDeviceEmulationState(tabId: number) {
     return;
   }
   const key = `${DEVICE_EMULATION_PREFIX}${tabId}`;
-  await runDeviceEmulationOperation(tabId, () => storageRemove(chrome.storage.session, key));
+  await runDeviceEmulationOperation(tabId, () => storageRemove(getSessionStorageArea(), key));
 }
 
 function getDeviceEmulationQueueKey(tabId: number) {
@@ -243,20 +264,19 @@ async function runDeviceEmulationOperation(tabId: number, operation: () => unkno
   }
 }
 
-function getDebuggerTargets(): Promise<chrome.debugger.TargetInfo[] | null> {
-  return new Promise<chrome.debugger.TargetInfo[] | null>((resolve) => {
-    if (!chrome.debugger || !chrome.debugger.getTargets) {
-      resolve(null);
-      return;
-    }
-    chrome.debugger.getTargets((targets: chrome.debugger.TargetInfo[]) => {
-      if (chrome.runtime.lastError || !Array.isArray(targets)) {
-        resolve(null);
-        return;
-      }
-      resolve(targets);
-    });
-  });
+async function getDebuggerTargets(): Promise<DebuggerTargetInfo[] | null> {
+  if (!browser.debugger || typeof browser.debugger.getTargets !== "function") {
+    return null;
+  }
+  try {
+    const targets = await callBrowserApi<DebuggerTargetInfo[]>(
+      (api, callback) => api.debugger.getTargets(callback),
+      (api) => api.debugger.getTargets()
+    );
+    return Array.isArray(targets) ? targets : null;
+  } catch {
+    return null;
+  }
 }
 
 async function isDebuggerAttachedToTab(tabId: number) {
@@ -306,50 +326,42 @@ export async function reconcileDeviceEmulationState(tabId: number) {
 }
 
 function attachDebugger(tabId: number): Promise<DebuggerActionResult> {
-  return new Promise<DebuggerActionResult>((resolve) => {
-    chrome.debugger.attach({ tabId }, "1.3", () => {
-      if (chrome.runtime.lastError) {
-        const message = chrome.runtime.lastError.message || "Debugger attach failed";
-        if (message.toLowerCase().includes("already attached")) {
-          resolve({ ok: true, alreadyAttached: true });
-          return;
-        }
-        resolve({ ok: false, error: message });
-        return;
+  return callBrowserApiVoid(
+    (api, callback) => api.debugger.attach({ tabId }, "1.3", callback),
+    (api) => api.debugger.attach({ tabId }, "1.3")
+  )
+    .then(() => ({ ok: true }))
+    .catch((error: unknown) => {
+      const message = getErrorMessage(error) || "Debugger attach failed";
+      if (message.toLowerCase().includes("already attached")) {
+        return { ok: true, alreadyAttached: true };
       }
-      resolve({ ok: true });
+      return { ok: false, error: message };
     });
-  });
 }
 
 function sendDebuggerCommand(tabId: number, method: string, params?: Record<string, unknown>): Promise<DebuggerActionResult> {
-  return new Promise<DebuggerActionResult>((resolve) => {
-    chrome.debugger.sendCommand({ tabId }, method, params, () => {
-      if (chrome.runtime.lastError) {
-        resolve({
-          ok: false,
-          error: chrome.runtime.lastError.message || "Debugger command failed"
-        });
-        return;
-      }
-      resolve({ ok: true });
-    });
-  });
+  return callBrowserApiVoid(
+    (api, callback) => api.debugger.sendCommand({ tabId }, method, params, callback),
+    (api) => api.debugger.sendCommand({ tabId }, method, params)
+  )
+    .then(() => ({ ok: true }))
+    .catch((error: unknown) => ({
+      ok: false,
+      error: getErrorMessage(error) || "Debugger command failed"
+    }));
 }
 
 function detachDebugger(tabId: number): Promise<DebuggerActionResult> {
-  return new Promise<DebuggerActionResult>((resolve) => {
-    chrome.debugger.detach({ tabId }, () => {
-      if (chrome.runtime.lastError) {
-        resolve({
-          ok: false,
-          error: chrome.runtime.lastError.message || "Debugger detach failed"
-        });
-        return;
-      }
-      resolve({ ok: true });
-    });
-  });
+  return callBrowserApiVoid(
+    (api, callback) => api.debugger.detach({ tabId }, callback),
+    (api) => api.debugger.detach({ tabId })
+  )
+    .then(() => ({ ok: true }))
+    .catch((error: unknown) => ({
+      ok: false,
+      error: getErrorMessage(error) || "Debugger detach failed"
+    }));
 }
 
 async function applyDeviceEmulation(tabId: number, state: DeviceState): Promise<DebuggerActionResult> {

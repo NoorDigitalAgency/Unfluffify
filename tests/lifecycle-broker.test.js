@@ -69,7 +69,7 @@ test("background authoritatively tears down the navigation-inspection curtain on
 });
 
 test("background exposes lifecycle and spinner state over broker updates and bus ports", () => {
-  assert.match(backgroundSource, /chrome\.runtime\.onConnect\.addListener\(\(port\) => \{/);
+  assert.match(backgroundSource, /browser\.runtime\.onConnect\.addListener\(\(port\) => \{/);
   assert.match(backgroundSource, /port\.name\.startsWith\(BUS_PORT_PREFIX\)/);
   assert.doesNotMatch(backgroundSource, /WORLD_PORTS\.POPUP_STATE_PREFIX/);
   assert.doesNotMatch(backgroundSource, /WORLD_MESSAGE_TYPES\.BACKGROUND_STATE/);

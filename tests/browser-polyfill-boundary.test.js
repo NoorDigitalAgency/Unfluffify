@@ -93,12 +93,7 @@ const EVAL_BRIDGE_EXCEPTION_FILES = new Set([
   "src/common/page-motion-freeze-bridge.ts"
 ]);
 
-const CURRENT_MIGRATION_DEBT_FILES = new Set([
-  "src/background.ts",
-  "src/common/emulation.ts",
-  "src/common/utilities.ts",
-  "src/content/core.ts"
-]);
+const CURRENT_MIGRATION_DEBT_FILES = new Set([]);
 
 test("browser polyfill boundary buckets every remaining raw chrome usage", () => {
   const files = collectSourceFiles(REPO_ROOT);

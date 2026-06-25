@@ -56,7 +56,7 @@ test("background tab removal immediately delegates property lock runtime disposa
   const source = readFileSync(new URL("../src/background.ts", import.meta.url), "utf8");
 
   assert.match(source, /handlePropertyLockBackgroundTabRemoved,\s*initPropertyLockBackground/);
-  assert.match(source, /chrome\.tabs\.onRemoved\.addListener\(\(tabId\) => \{[\s\S]*?handlePropertyLockBackgroundTabRemoved\(tabId\);/);
+  assert.match(source, /browser\.tabs\.onRemoved\.addListener\(\(tabId\) => \{[\s\S]*?handlePropertyLockBackgroundTabRemoved\(tabId\);/);
 });
 
 test("property lock holds the service-worker keepalive for active connections", () => {

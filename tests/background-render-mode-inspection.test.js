@@ -138,7 +138,7 @@ test("background restores no-JS render-mode holds after central tab inactivity",
   assert.match(backgroundSource, /const RENDER_MODE_NO_JS_INACTIVITY_SCOPE = "render-mode-no-js";/);
   assert.match(backgroundSource, /const RENDER_MODE_NO_JS_INACTIVITY_TIMEOUT_MS = 30_000;/);
   assert.match(backgroundSource, /const tabInactivityObserver = createTabInactivityObserver\(\{/);
-  assert.match(backgroundSource, /chrome\.alarms\.onAlarm\.addListener\(\(alarm\) => \{[\s\S]*?tabInactivityObserver\.handleAlarm\(alarm\)/);
+  assert.match(backgroundSource, /browser\.alarms\.onAlarm\.addListener\(\(alarm\) => \{[\s\S]*?tabInactivityObserver\.handleAlarm\(alarm\)/);
   assert.match(backgroundSource, /async function updateRenderModeNoJsInactivityWatch\(tabId\) \{[\s\S]*?isTabActiveInFocusedWindow\(normalizedTabId\)[\s\S]*?tabInactivityObserver\.scheduleInactive\(normalizedTabId, \{[\s\S]*?scope: RENDER_MODE_NO_JS_INACTIVITY_SCOPE/);
   assert.match(backgroundSource, /async function restoreRenderModeJavaScriptAfterNoJsInactivity\(tabId\) \{[\s\S]*?isTabActiveInFocusedWindow\(normalizedTabId\)[\s\S]*?clearRenderModeNoJsHeld\(normalizedTabId\)[\s\S]*?utils\.reloadPageWithJavaScriptControl\(normalizedTabId, false\)[\s\S]*?utils\.detachDebugger\(normalizedTabId\)/);
   assert.match(backgroundSource, /async function restoreRenderModeJavaScriptAfterNoJsInactivity\(tabId\) \{[\s\S]*?brain\.recordRenderModeNoJsHold\(normalizedTabId, \{[\s\S]*?held: false,[\s\S]*?javaScriptDisabled: false[\s\S]*?\}, "render-mode:no-js-inactivity:cleared"\)/);
@@ -148,8 +148,8 @@ test("background restores no-JS render-mode holds after central tab inactivity",
   assert.match(commandBlock, /setRenderModeNoJsHeld\(normalizedTabId, true\)[\s\S]*?updateRenderModeNoJsInactivityWatch\(normalizedTabId\)/);
   assert.match(activityMessageBlock, /tabInactivityObserver\.recordActivity\(tabId, \{[\s\S]*?source: "content"/);
   assert.match(activityMessageBlock, /updateRenderModeNoJsInactivityWatch\(tabId\)/);
-  assert.match(backgroundSource, /chrome\.tabs\.onActivated\.addListener\(async \(\{ windowId \}\) => \{[\s\S]*?updateRenderModeNoJsInactivityWatches\(\);/);
-  assert.match(backgroundSource, /chrome\.windows\.onFocusChanged\.addListener\(async \(windowId\) => \{[\s\S]*?updateRenderModeNoJsInactivityWatches\(\);/);
+  assert.match(backgroundSource, /browser\.tabs\.onActivated\.addListener\(async \(\{ windowId \}\) => \{[\s\S]*?updateRenderModeNoJsInactivityWatches\(\);/);
+  assert.match(backgroundSource, /browser\.windows\.onFocusChanged\.addListener\(async \(windowId\) => \{[\s\S]*?updateRenderModeNoJsInactivityWatches\(\);/);
   assert.match(backgroundSource, /updateRenderModeNoJsInactivityWatches\(\)\.catch\(\(\) => \{\}\);/);
 });
 
