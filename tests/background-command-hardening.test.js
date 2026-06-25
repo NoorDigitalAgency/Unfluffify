@@ -28,7 +28,7 @@ test("command ledger payloads are redacted before persistence", () => {
 });
 
 test("command ledger records use resolved command-context tab id", () => {
-  assert.match(backgroundSource, /let resolvedContextTabId = null;/);
-  assert.match(backgroundSource, /onDispatched\(context\) \{/);
-  assert.match(backgroundSource, /recordBackgroundCommandLedger\(message, sender, reply, startedAt, resolvedContextTabId\);/);
+  assert.match(backgroundSource, /let resolvedContextTabId(?:\s*:\s*[^=]+)? = null;/);
+  assert.match(backgroundSource, /onDispatched\(context(?:\s*:\s*[^)]+)?\) \{/);
+  assert.match(backgroundSource, /recordBackgroundCommandLedger\((?:message|runtimeRequest), sender, reply, startedAt, resolvedContextTabId\);/);
 });

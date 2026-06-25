@@ -95,7 +95,8 @@ import {
   createRequestEnvelope,
   createFailureEnvelope,
   isReplyEnvelope,
-  isRequestEnvelope
+  isRequestEnvelope,
+  type RequestEnvelope
 } from "./common/message-protocol.js";
 import type {
   RenderModeSnapshotPayload,
@@ -182,7 +183,14 @@ import {
 } from "./background/tab-session-store.js";
 import { createLegacyBridge } from "./common/bus/transport/legacy-bridge.js";
 import { BUS_PORT_PREFIX } from "./common/bus/transport/transport-types.js";
-import type { TabOperationContext } from "./types/operations.js";
+import type {
+  TabOperationContext,
+  TabOperationDescriptor,
+  TabOperationSpinnerContext,
+  TabOperationResult,
+  TabOperationWork,
+  TabSpinnerDescriptor
+} from "./types/operations.js";
 import type { RuntimeMessage, RuntimeMessageReply } from "./types/messaging.js";
 
 type FeatureDisabledResponse = {
@@ -224,6 +232,35 @@ type RenderModeHtmlCaptureResult = {
   error: string;
 };
 
+type BackgroundCommandRequest = RequestEnvelope<Record<string, unknown>>;
+
+type BackgroundSpinnerEntry = Record<string, unknown> & {
+  reason?: string;
+  source?: string;
+};
+
+type BackgroundSpinnerQueue = Map<string, BackgroundSpinnerEntry>;
+
+type PageMotionFreezeControlTarget = {
+  tabId: number;
+  frameIds?: number[];
+};
+
+type PageMotionFreezeControlResult = {
+  ok: boolean;
+  error?: string;
+};
+
+type PopupContextSender = Browser.runtime.MessageSender & {
+  documentId?: string;
+};
+
+type PopupTabContextResult = {
+  ok: boolean;
+  tab: Browser.tabs.Tab | null;
+  source: "debug" | "sidePanel" | "activeTab" | "none";
+};
+
 function buildFeatureDisabledResponse(featureName: string): FeatureDisabledResponse {
   return {
     ok: false,
@@ -245,10 +282,17 @@ const PROPERTY_LOCK_MESSAGE_TYPES = new Set([
 ]);
 const RENDER_MODE_NO_JS_INACTIVITY_SCOPE = "render-mode-no-js";
 const RENDER_MODE_NO_JS_INACTIVITY_TIMEOUT_MS = 30_000;
+const backgroundSpinnerQueueByTabId = tabSpinnerQueueByTabId as Map<number, BackgroundSpinnerQueue>;
+const pageMotionFreezeControlQueue =
+  pageMotionFreezeControlQueueByTarget as Map<string, Promise<PageMotionFreezeControlResult>>;
 
 function normalizeBrokerTabId(value: unknown): number | null {
   const numeric = Number(value);
   return Number.isFinite(numeric) && numeric > 0 ? Math.trunc(numeric) : null;
+}
+
+function normalizeSpinnerTabId(value: unknown): number {
+  return normalizeBrokerTabId(value) || 0;
 }
 
 const worldTrace = createWorldTrace({
@@ -1099,7 +1143,6 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_ACTIVATE_MARKING, async (conte
       source: "background-command-router",
       persistent: false
     },
-// @ts-expect-error
     async ({ update }) => {
       await update({
         message: "Applying the marking page setup...",
@@ -1249,7 +1292,6 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_DEACTIVATE_MARKING, async (con
       source: "background-command-router",
       persistent: false
     },
-// @ts-expect-error
     async ({ update }) => {
       await update({
         message: "Returning this page to silent mode...",
@@ -2063,7 +2105,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_AI, async (context, payloa
         source: "background-command-router",
         persistent: false
       },
-    async ({ update }: TabOperationContext) => {
+      async ({ update }) => {
         const result = await runAiCommandForTab(normalizedTabId, payload, update);
         if (!result || !result.ok) {
           return context.replyFail(
@@ -2127,8 +2169,11 @@ function recordBackgroundCommandLedger(message: RuntimeMessage, sender: Browser.
   });
 }
 
-// @ts-expect-error
-function handleBackgroundCommandEnvelope(message, sender, sendResponse) {
+function handleBackgroundCommandEnvelope(
+  message: unknown,
+  sender: Browser.runtime.MessageSender,
+  sendResponse: (reply: RuntimeMessageReply | undefined) => void
+): boolean {
   const dispatch = dispatchBackgroundCommandEnvelope(message, sender);
   if (!dispatch) {
     return false;
@@ -2145,49 +2190,50 @@ function handleBackgroundCommandEnvelope(message, sender, sendResponse) {
   return true;
 }
 
-// @ts-expect-error
-function dispatchBackgroundCommandEnvelope(message, sender) {
+function dispatchBackgroundCommandEnvelope(
+  message: unknown,
+  sender: Browser.runtime.MessageSender
+): Promise<RuntimeMessageReply | undefined> | null {
   if (!isRequestEnvelope(message) || message.target !== MESSAGE_TARGETS.BACKGROUND) {
     return null;
   }
+  const request: BackgroundCommandRequest = message;
+  const runtimeRequest: RuntimeMessage = {
+    ...request,
+    tabId: request.tabId ?? undefined
+  };
   const startedAt = Date.now();
-  const expectsReply = message.expectsReply !== false;
-// @ts-expect-error
-  let resolvedContextTabId = null;
-  const dispatch = dispatchBackgroundCommand(message, sender, {
+  const expectsReply = request.expectsReply !== false;
+  let resolvedContextTabId: number | null = null;
+  const dispatch = dispatchBackgroundCommand(request, sender, {
     requireTabForTypes: TAB_SCOPED_BACKGROUND_COMMANDS,
-// @ts-expect-error
-    onDispatched(context) {
+    onDispatched(context: { tabId?: unknown } | null) {
       if (context && Number.isFinite(context.tabId)) {
-        resolvedContextTabId = context.tabId;
+        resolvedContextTabId = Math.trunc(Number(context.tabId));
       }
     }
-  });
+  }) as Promise<RuntimeMessageReply>;
 
   return dispatch
     .then((reply) => {
       if (!expectsReply) {
-// @ts-expect-error
-        recordBackgroundCommandLedger(message, sender, reply, startedAt, resolvedContextTabId);
+        recordBackgroundCommandLedger(runtimeRequest, sender, reply, startedAt, resolvedContextTabId);
         return undefined;
       }
-// @ts-expect-error
-      recordBackgroundCommandLedger(message, sender, reply, startedAt, resolvedContextTabId);
+      recordBackgroundCommandLedger(runtimeRequest, sender, reply, startedAt, resolvedContextTabId);
       return reply;
     })
     .catch((error) => {
       const reply = createFailureEnvelope(
-        message,
+        request,
         MESSAGE_ERROR_CODES.HANDLER_FAILED,
         (error && error.message) || "Background command failed"
       );
       if (!expectsReply) {
-// @ts-expect-error
-        recordBackgroundCommandLedger(message, sender, reply, startedAt, resolvedContextTabId);
+        recordBackgroundCommandLedger(runtimeRequest, sender, reply, startedAt, resolvedContextTabId);
         return undefined;
       }
-// @ts-expect-error
-      recordBackgroundCommandLedger(message, sender, reply, startedAt, resolvedContextTabId);
+      recordBackgroundCommandLedger(runtimeRequest, sender, reply, startedAt, resolvedContextTabId);
       return reply;
     });
 }
@@ -2214,83 +2260,98 @@ brain.bus.registerHandler(RENDER_MODE_REQUEST_TYPES.END_INSPECTION, (payload: Re
   return executeRenderModeInspectionEnd(normalizedTabId, payload);
 });
 
-// @ts-expect-error
-function getMessageTabId(message, sender) {
+function getMessageTabId(
+  message: Partial<RuntimeMessage> | null | undefined,
+  sender: Browser.runtime.MessageSender
+): number | null {
   return normalizeBrokerTabId(message && message.tabId) ||
     normalizeBrokerTabId(sender && sender.tab && sender.tab.id);
 }
 
-// @ts-expect-error
-function getPageMotionFreezeControlTarget(message, sender) {
+function getPageMotionFreezeControlTarget(
+  message: Partial<RuntimeMessage> | null | undefined,
+  sender: Browser.runtime.MessageSender
+): PageMotionFreezeControlTarget | null {
   const tabId = getMessageTabId(message, sender);
   if (!tabId) {
     return null;
   }
-  const target = { tabId };
-  if (Number.isInteger(sender && sender.frameId) && sender.frameId >= 0) {
-// @ts-expect-error
-    target.frameIds = [sender.frameId];
+  const target: PageMotionFreezeControlTarget = { tabId };
+  const senderFrameId = sender && sender.frameId;
+  if (typeof senderFrameId === "number" && Number.isInteger(senderFrameId) && senderFrameId >= 0) {
+    target.frameIds = [senderFrameId];
   }
   return target;
 }
 
-// @ts-expect-error
-function getPageMotionFreezeControlTargetKey(target) {
+function getPageMotionFreezeControlTargetKey(target: PageMotionFreezeControlTarget): string {
   const frameId = Array.isArray(target.frameIds) && target.frameIds.length
     ? target.frameIds[0]
     : "all";
   return `${target.tabId}:${frameId}`;
 }
 
-// @ts-expect-error
-async function executePageMotionFreezeControlNow(target, command, details) {
+async function executePageMotionFreezeControlNow(
+  target: PageMotionFreezeControlTarget,
+  command: string,
+  details: Record<string, unknown> | null
+): Promise<PageMotionFreezeControlResult> {
   if (!browser.scripting || typeof browser.scripting.executeScript !== "function") {
     return { ok: false, error: "Scripting API unavailable" };
   }
-  await browser.scripting.executeScript({
-    target,
+  const injection = {
+    target: {
+      tabId: target.tabId,
+      ...(target.frameIds ? { frameIds: target.frameIds } : {})
+    },
     world: "MAIN",
     func: runPageMotionFreezeControl,
     args: [command, details]
-  });
+  } as Parameters<typeof browser.scripting.executeScript>[0];
+  await browser.scripting.executeScript(injection);
   return { ok: true };
 }
 
-// @ts-expect-error
-async function executePageMotionFreezeControl(message, sender) {
-  const target = getPageMotionFreezeControlTarget(message, sender);
+async function executePageMotionFreezeControl(
+  message: Partial<RuntimeMessage> | null | undefined,
+  sender: Browser.runtime.MessageSender
+): Promise<PageMotionFreezeControlResult> {
+  const normalizedMessage = message || {};
+  const target = getPageMotionFreezeControlTarget(normalizedMessage, sender);
   if (!target) {
     return { ok: false, error: "Missing tab" };
   }
-  const command = typeof message.command === "string" && message.command
-    ? message.command
+  const command = typeof normalizedMessage.command === "string" && normalizedMessage.command
+    ? normalizedMessage.command
     : "setPaused";
-  const details = message.details && typeof message.details === "object"
-    ? message.details
+  const details = normalizedMessage.details && typeof normalizedMessage.details === "object"
+    ? normalizedMessage.details as Record<string, unknown>
     : null;
   const queueKey = getPageMotionFreezeControlTargetKey(target);
-  const previous = pageMotionFreezeControlQueueByTarget.get(queueKey) || Promise.resolve();
+  const previous = pageMotionFreezeControlQueue.get(queueKey) || Promise.resolve({ ok: true });
   const next = runBackgroundTask("page-motion-freeze-control-queue", previous, {
     tabId: target.tabId,
     appendTrace: appendWorldTraceEvent
   })
     .then(() => executePageMotionFreezeControlNow(target, command, details));
-  pageMotionFreezeControlQueueByTarget.set(queueKey, next);
+  pageMotionFreezeControlQueue.set(queueKey, next);
   try {
     return await next;
   } finally {
-    if (pageMotionFreezeControlQueueByTarget.get(queueKey) === next) {
-      pageMotionFreezeControlQueueByTarget.delete(queueKey);
+    if (pageMotionFreezeControlQueue.get(queueKey) === next) {
+      pageMotionFreezeControlQueue.delete(queueKey);
     }
   }
 }
 
-// @ts-expect-error
-function getExtensionContextWindowId(context) {
-  return Number.isFinite(context && context.windowId) ? Math.trunc(context.windowId) : null;
+function getExtensionContextWindowId(context: { windowId?: unknown } | null | undefined): number | null {
+  if (!context || !Number.isFinite(context.windowId)) {
+    return null;
+  }
+  return Math.trunc(Number(context.windowId));
 }
 
-async function resolvePopupSidePanelBoundTab(sender = {}) {
+async function resolvePopupSidePanelBoundTab(sender: PopupContextSender = {}): Promise<Browser.tabs.Tab | null> {
   if (
     !browser.runtime ||
     typeof browser.runtime.getContexts !== "function" ||
@@ -2307,7 +2368,6 @@ async function resolvePopupSidePanelBoundTab(sender = {}) {
     if (!Array.isArray(contexts)) {
       return null;
     }
-// @ts-expect-error
     const senderDocumentId = typeof sender.documentId === "string" ? sender.documentId : "";
     const senderContext = senderDocumentId
       ? contexts.find((context) => context && context.documentId === senderDocumentId)
@@ -2320,14 +2380,20 @@ async function resolvePopupSidePanelBoundTab(sender = {}) {
     if (!boundContext) {
       return null;
     }
-    return await getBrowserTab(Math.trunc(boundContext.tabId));
+    const boundTabId = Number.isFinite(boundContext.tabId) ? Math.trunc(Number(boundContext.tabId)) : 0;
+    if (!boundTabId) {
+      return null;
+    }
+    return (await getBrowserTab(boundTabId)) || null;
   } catch {
     return null;
   }
 }
 
-async function resolvePopupTabContext(message = {}, sender = {}) {
-// @ts-expect-error
+async function resolvePopupTabContext(
+  message: Partial<RuntimeMessage> = {},
+  sender: PopupContextSender = {}
+): Promise<PopupTabContextResult> {
   const debugTabId = normalizeBrokerTabId(message.debugTabId);
   if (debugTabId) {
     try {
@@ -2390,10 +2456,8 @@ for (const tabId of [...tabLifecycleStateByTabId.keys(), ...tabSpinnerQueueByTab
 }
 
 const spinnerOperations = createSpinnerOperations({
-// @ts-expect-error
-  queueByTabId: tabSpinnerQueueByTabId,
-// @ts-expect-error
-  normalizeTabId: normalizeBrokerTabId,
+  queueByTabId: backgroundSpinnerQueueByTabId,
+  normalizeTabId: normalizeSpinnerTabId,
   appendTrace: appendWorldTraceEvent,
   broadcastState: broadcastBrokerState,
   buildState: buildBrokerState,
@@ -2407,19 +2471,15 @@ const spinnerOperations = createSpinnerOperations({
   }
 });
 
-// @ts-expect-error
-function setBackgroundSpinnerEntry(tabId, key, entry = {}) {
+function setBackgroundSpinnerEntry(tabId: unknown, key: unknown, entry: BackgroundSpinnerEntry = {}) {
   return spinnerOperations.setBackgroundSpinnerEntry(tabId, key, {
     ...entry,
-// @ts-expect-error
     reason: typeof entry.reason === "string" && entry.reason ? entry.reason : `spinner:${String(key)}`,
-// @ts-expect-error
     source: typeof entry.source === "string" && entry.source ? entry.source : "background-spinner-broker"
   });
 }
 
-// @ts-expect-error
-function removeBackgroundSpinnerEntry(tabId, key) {
+function removeBackgroundSpinnerEntry(tabId: unknown, key: unknown) {
   return spinnerOperations.removeBackgroundSpinnerEntry(tabId, key);
 }
 
@@ -2479,14 +2539,20 @@ function buildRuntimeLifecycleSnapshot(
   };
 }
 
-// @ts-expect-error
-function clearBackgroundSpinnerQueue(tabId, options = {}) {
+function clearBackgroundSpinnerQueue(tabId: unknown, options: { transientOnly?: unknown } = {}) {
   return spinnerOperations.clearBackgroundSpinnerQueue(tabId, options);
 }
 
-// @ts-expect-error
-async function withBackgroundTabSpinner(tabId, descriptor, work) {
-  return spinnerOperations.withTabSpinner(tabId, descriptor, work);
+function withBackgroundTabSpinner<TResult>(
+  tabId: number,
+  descriptor: TabSpinnerDescriptor,
+  work: (context: TabOperationSpinnerContext) => Promise<TResult>
+): Promise<TResult> {
+  return spinnerOperations.withTabSpinner(
+    tabId,
+    descriptor,
+    (context) => work({ update: context.update })
+  ) as Promise<TResult>;
 }
 
 brain.bus.registerHandler(SPINNER_REQUEST_TYPES.SET, (payload: SpinnerSetRequestPayload, meta) => {
@@ -2519,16 +2585,21 @@ brain.bus.registerHandler(SPINNER_REQUEST_TYPES.CLEAR, (payload: SpinnerClearReq
 });
 
 const tabOperationRunner = createTabOperationRunner({
-// @ts-expect-error
-  normalizeTabId: normalizeBrokerTabId,
+  normalizeTabId: normalizeSpinnerTabId,
   updateLifecycleState,
-// @ts-expect-error
   withTabSpinner: withBackgroundTabSpinner
 });
 
-// @ts-expect-error
-async function runBackgroundTabOperation(tabId, descriptor, work) {
-  return tabOperationRunner.runTabOperation(tabId, descriptor, work);
+async function runBackgroundTabOperation<TResult extends Record<string, unknown> = Record<string, unknown>>(
+  tabId: unknown,
+  descriptor: TabOperationDescriptor,
+  work: TabOperationWork<TResult>
+): Promise<TabOperationResult<TResult>> {
+  return tabOperationRunner.runTabOperation(
+    normalizeSpinnerTabId(tabId),
+    descriptor,
+    work
+  ) as Promise<TabOperationResult<TResult>>;
 }
 
 browser.runtime.onConnect.addListener((port) => {
@@ -2691,7 +2762,8 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
           message: "Clearing this site's cache...",
           owner: SPINNER_OWNERS.POPUP,
           reason: "clear-cache",
-          source: "background-command"
+          source: "background-command",
+          persistent: false
         },
         async () => clearBrowsingDataForOrigin(message.origin)
       )

@@ -29,9 +29,9 @@ test("background owns per-tab lifecycle and spinner current state", () => {
   assert.match(backgroundSource, /const popupStateBroker = createPopupStateBroker\(\{/);
   assert.match(backgroundSource, /const updateLifecycleState = popupStateBroker\.updateLifecycleState;/);
   assert.match(popupStateBrokerSource, /function updateLifecycleState\(tabId, event = \{\}\) \{/);
-  assert.match(backgroundSource, /function setBackgroundSpinnerEntry\(tabId, key, entry = \{\}\) \{/);
-  assert.match(backgroundSource, /function removeBackgroundSpinnerEntry\(tabId, key\) \{/);
-  assert.match(backgroundSource, /function clearBackgroundSpinnerQueue\(tabId, options = \{\}\) \{/);
+  assert.match(backgroundSource, /function setBackgroundSpinnerEntry\(tabId(?:\s*:\s*[^,]+)?, key(?:\s*:\s*[^,]+)?, entry(?:\s*:\s*[^=]+)? = \{\}\) \{/);
+  assert.match(backgroundSource, /function removeBackgroundSpinnerEntry\(tabId(?:\s*:\s*[^,]+)?, key(?:\s*:\s*[^)]+)?\) \{/);
+  assert.match(backgroundSource, /function clearBackgroundSpinnerQueue\(tabId(?:\s*:\s*[^,]+)?, options(?:\s*:\s*[^=]+)? = \{\}\) \{/);
   assert.match(popupStateBrokerSource, /const hasBusy = Object\.prototype\.hasOwnProperty\.call\(event, "busy"\);/);
   assert.match(popupStateBrokerSource, /busy: hasBusy \? Boolean\(event\.busy\) : Boolean\(previous\.busy\)/);
   assert.match(popupStateBrokerSource, /eventOperationId !== previous\.operationId[\s\S]*?isTerminalEvent[\s\S]*?return buildBrokerState\(normalizedTabId\);/);

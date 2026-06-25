@@ -243,7 +243,7 @@ test("content main registers central page activity listeners for inactivity subs
 test("popup delegates active tab context resolution to the background", () => {
   const backgroundResolveBlock = extractSourceBlock(
     backgroundSource,
-    "async function resolvePopupTabContext(message = {}, sender = {}) {",
+    "async function resolvePopupTabContext(",
     "const popupStateBroker = createPopupStateBroker"
   );
   const loadActiveTabBlock = popupMessagesSource.match(
@@ -251,7 +251,7 @@ test("popup delegates active tab context resolution to the background", () => {
   )[0];
 
   assert.match(backgroundSource, /if \(message\.type === "resolvePopupTabContext"\) \{/);
-  assert.match(backgroundSource, /async function resolvePopupSidePanelBoundTab\(sender = \{\}\) \{/);
+  assert.match(backgroundSource, /async function resolvePopupSidePanelBoundTab\(sender(?:\s*:\s*[^=]+)? = \{\}\)(?:\s*:\s*[^{]+)? \{/);
   assert.match(backgroundSource, /browser\.runtime\.getContexts/);
   assert.match(backgroundSource, /contextTypes: \["SIDE_PANEL"\]/);
   assert.match(backgroundSource, /documentUrls: \[utils\.getExtensionResourceUrl\("popup\.html"\)\]/);
