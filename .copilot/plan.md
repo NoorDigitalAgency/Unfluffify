@@ -72,11 +72,15 @@ without changing runtime behavior, browser extension contracts, or test intent.
 4. Re-running the targeted Deno inventory on 2026-06-25 with the approved
    exclusions retained
    (`deno lint --rules-exclude=ban-ts-comment,no-inner-declarations,no-sloppy-imports,no-window,no-window-prefix .`)
-   found 26 remaining diagnostics.
+   found 26 remaining diagnostics at baseline.
 5. The current inventory is:
-   - 10 `require-await` diagnostics, all in tests
+   - runtime-source `require-await` is now clean after the 2026-06-25 audit
+     (`deno lint --rules-include=require-await background.ts content-main.ts popup.ts background common content popup`)
+   - 10 `require-await` diagnostics remain, all in tests
    - 13 `ban-unused-ignore` diagnostics, all from stale narrow ignores in tests
-   - 3 `no-unused-vars` diagnostics in runtime source (`background.ts` and `popup.ts`)
+   - runtime-source `no-unused-vars` is now clean after removing the dead
+     `background.ts` / `popup.ts` world-messaging imports
+   - 23 targeted diagnostics remain in total, all in tests
 6. `tests/package-test-script.test.js` already asserts that the target rules are
    not excluded, so the remaining work is code cleanup rather than config flips.
 
