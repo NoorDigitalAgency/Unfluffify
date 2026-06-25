@@ -25,6 +25,11 @@ Use these documents before making implementation changes:
 9. `.copilot/typescript-typing-rollout-plan.md` (autonomous plan to remove `@ts-nocheck` and add real types across the ported `.ts` codebase; target GPT-5.3-Codex medium; execute on branch `feat/typescript-deno-port`)
 10. This document's lint strictness track for removing `require-await` and
    `no-unused-vars` from the active Deno lint exclusions.
+11. `.copilot/wxt-native-adoption-plan.md` (Part C: native WXT runtime adoption —
+    make WXT bundle the real entry graphs, drop esbuild + the `legacy/` mirror,
+    eliminate `content/*` WAR, and adopt `wxt/browser` + `wxt/utils/storage` +
+    `@webext-core/messaging` (one-shot only) beneath the typed bus / Brain /
+    layer hosts; planned, not started).
 
 Historical and superseded `.copilot` plans/handoffs have been removed from the
 workspace. If earlier rationale is needed, use git history instead of restoring
