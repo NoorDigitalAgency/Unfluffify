@@ -10,6 +10,7 @@ import {
   SPINNER_TIMER_MODES,
   resolveSpinnerPhaseDefinition
 } from "../common/spinner-contract.js";
+import type { PopupView } from "../types/popup-state.ts";
 import {
   buildLynxChecklistViewModel,
   createInitialLynxChecklistState
@@ -33,10 +34,10 @@ let blockingCurtainCountdownTimer: ReturnType<typeof setInterval> | null = null;
 let blockingCurtainCountdownDeadlineAt = 0;
 
 export const View = {
-    Loading: 'Loading',
-    Configuration: 'Configuration',
-    Marking: 'Marking'
-}
+  Loading: "Loading",
+  Configuration: "Configuration",
+  Marking: "Marking"
+} as const;
 
 interface ThemeOption {
   value: string;
@@ -83,7 +84,87 @@ interface TraceEventEntry {
 
 type ClassNameValue = string | number | boolean | null | undefined;
 type PopupFeatureFlags = Partial<Record<string, boolean>>;
-type PopupHandlerMap = Record<string, unknown>;
+type PopupHandler = (...args: unknown[]) => unknown;
+interface PopupActions {
+  onToggleEnabled: PopupHandler;
+  onDeviceEmulationEnabledChange: PopupHandler;
+  onDesktopPreviewEnabledChange: PopupHandler;
+  onDeviceScaleInput: PopupHandler;
+  onDeviceScaleChange: PopupHandler;
+  onConfigToggle: PopupHandler;
+  onConfigMenuClick: PopupHandler;
+  onTodoControlsMenuToggle: PopupHandler;
+  onTodoControlsMenuClick: PopupHandler;
+  onTodoSectionToggle: PopupHandler;
+  onTodoSubsectionToggle: (key: string) => unknown;
+  onTodoExpandAll: PopupHandler;
+  onTodoCollapseAll: PopupHandler;
+  onTodoAutoCollapseToggle: PopupHandler;
+  onTraceModeToggle: PopupHandler;
+  onConfigurationExtrasToggle: PopupHandler;
+  onOpenConfiguration: PopupHandler;
+  onConfigurationContinue: PopupHandler;
+  onClearDomainCache: PopupHandler;
+  onUnregisterCurrentTab: PopupHandler;
+  onPageSave: PopupHandler;
+  onPageRevert: PopupHandler;
+  onMarkingPreview: PopupHandler;
+  onConfigEndpointInput: PopupHandler;
+  onConfigEndpointKeyDown: PopupHandler;
+  onConfigEndpointSet: PopupHandler;
+  onConfigEndpointEditToggle: PopupHandler;
+  onEndpointInput: PopupHandler;
+  onEndpointKeyDown: PopupHandler;
+  onEndpointSet: PopupHandler;
+  onEndpointEditToggle: PopupHandler;
+  onStageBaseInput: PopupHandler;
+  onThemeInput: PopupHandler;
+  onThemePrevious: PopupHandler;
+  onThemeNext: PopupHandler;
+  onThemeMenuToggle: PopupHandler;
+  onThemeMenuKeyDown: PopupHandler;
+  onThemeOptionSelect: (value: string) => unknown;
+  onThemeModeInput: PopupHandler;
+  onRenderModeInput: PopupHandler;
+  onRenderModeChoiceInput: PopupHandler;
+  onRenderModeSummaryToggle: PopupHandler;
+  onRenderModeInspectWithJavaScript: PopupHandler;
+  onRenderModeInspectWithoutJavaScript: PopupHandler;
+  onLynxChecklistPageTypeDecisionChange: PopupHandler;
+  onLynxChecklistPageTypePageChange: PopupHandler;
+  onLynxChecklistCandidateNavigate: (url: string) => unknown;
+  onLynxChecklistCancel: PopupHandler;
+  onLynxChecklistSend: PopupHandler;
+  onRenderModeSet: PopupHandler;
+  onRenderModeEditToggle: PopupHandler;
+  onOpenRenderModeSection: PopupHandler;
+  onStageBaseKeyDown: PopupHandler;
+  onStageBaseSet: PopupHandler;
+  onStageBaseEditToggle: PopupHandler;
+  onLoginEmailInput: PopupHandler;
+  onLoginPasswordInput: PopupHandler;
+  onLoginPasswordKeyDown: PopupHandler;
+  onLoginAction: PopupHandler;
+  onPropertyLockTake: PopupHandler;
+  onPropertyLockSuggest: PopupHandler;
+  onPropertyLockContinue: PopupHandler;
+  onPropertyLockForceContinue: PopupHandler;
+  onPropertyLockAcceptSuggestion: PopupHandler;
+  onPropertyLockRejectSuggestion: PopupHandler;
+  onCompute: PopupHandler;
+  onSaveExcludes: PopupHandler;
+  onPreviewLatest: PopupHandler;
+  onPreviewItemFocus: (xpath: string) => unknown;
+  onPreviewShowAllCategoriesChange: PopupHandler;
+  onExitPreviewMode: PopupHandler;
+  onExplicitExcludeView: PopupHandler;
+  onExplicitExcludeRemove: PopupHandler;
+  onExplicitIncludeView: PopupHandler;
+  onExplicitIncludeRemove: PopupHandler;
+  onMarkedPageNavigate: (url: string) => unknown;
+}
+type PopupMarkedPage = Record<string, unknown>;
+type PopupLynxPageType = Record<string, unknown>;
 type BlockingUiCurtainState = {
   visible: boolean;
   mode: "busy";
@@ -94,6 +175,13 @@ type BlockingUiCurtainState = {
   spinnerKey: string;
   timerText: string;
 };
+type WidenLiteral<T> =
+  T extends string ? string
+    : T extends number ? number
+      : T extends boolean ? boolean
+        : T extends readonly (infer U)[] ? WidenLiteral<U>[]
+          : T extends object ? { [K in keyof T]: WidenLiteral<T[K]> }
+            : T;
 
 const initialViewState = {
   currentView: View.Loading,
@@ -498,60 +586,163 @@ function getBusyCurtainCopy(view: ViewState) {
   };
 }
 
-type ViewState = {
-  currentView: string;
-  toggleEnabled?: boolean;
-  deviceEmulationEnabled: boolean;
-  deviceScale?: number | string;
-  desktopPreviewEnabled?: boolean;
-  todoSubsectionsExpanded: Record<string, boolean>;
-  endpointUrlValue: string;
-  configEndpointUrlValue: string;
-  stageBaseValue: string;
-  stageBaseReadOnly?: boolean;
-  loginEmailValue: string;
-  loginPasswordValue: string;
-  aiControlsBusy?: boolean;
-  isBusy?: boolean;
-  sessionHasPendingChanges?: boolean;
-  sessionRequiresAiRun?: boolean;
-  currentPageHasPendingChanges?: boolean;
+type ViewState = Omit<
+  WidenLiteral<typeof initialViewState>,
+  | "deviceScale"
+  | "todoSubsectionsExpanded"
+  | "themeOptions"
+  | "themeModeOptions"
+  | "markedPages"
+  | "pageTypeGroups"
+  | "previewItems"
+  | "lynxChecklistPageTypes"
+  | "markingPreviewVisible"
+  | "markingPreviewDisabled"
+  | "previewWillRestoreMarking"
+> & {
+  currentView: PopupView;
+  deviceScale: number | string;
   featureFlags?: PopupFeatureFlags;
-  computeButtonLoading?: boolean;
-  busyReason?: string;
-  busyMessage?: string;
-  aiRunPhase?: string;
-  aiRunSpinnerNote?: string;
-  aiRunCountdownVisible?: boolean;
-  aiRunCountdownText?: string;
-  aiRunDeadlineAt?: unknown;
-  busySource?: string;
-  busySpinnerKey?: string;
-  saveExcludesButtonLoading?: boolean;
-  deviceEmulationApplying?: boolean;
-  previewBlocked?: boolean;
-  previewActive?: boolean;
-  todoListVisible?: boolean;
-  configMenuOpen?: boolean;
-  todoControlsMenuOpen?: boolean;
-  themeMenuOpen?: boolean;
-  themeMenuPlacement?: string;
-  previewItems?: PreviewItem[];
-  previewItemsPending?: boolean;
-  previewFocusedXpath?: string;
-  previewShowAllCategories?: boolean;
-  previewBlockedMessage?: string;
-  toastMessage?: string;
-  toastVisible?: boolean;
-  configurationExtrasExpanded?: boolean;
-  todoSectionExpanded?: boolean;
-  todoAutoCollapse?: boolean;
-  pageTypeGroups?: PageTypeGroup[];
-  [key: string]: unknown;
+  todoSubsectionsExpanded: Record<string, boolean>;
+  traceEvents: TraceEventEntry[];
+  themeOptions: ThemeOption[];
+  themeModeOptions: ThemeOption[];
+  markedPages: PopupMarkedPage[];
+  pageTypeGroups: PageTypeGroup[];
+  previewItems: PreviewItem[];
+  lynxChecklistPageTypes: PopupLynxPageType[];
+  markingPreviewVisible?: boolean;
+  markingPreviewDisabled?: boolean;
+  previewWillRestoreMarking?: boolean;
 };
+type LynxChecklistViewModel = ReturnType<typeof buildLynxChecklistViewModel>;
+
+interface PopupRenderProps {
+  state: ViewState;
+  actions: PopupActions;
+}
+
+interface EditableConfigurationFieldOptions {
+  inputId: string;
+  noticeId: string;
+  label: string;
+  placeholder?: string;
+  readOnly?: boolean;
+  value?: string | number;
+  disabled?: boolean;
+  onInput?: PopupHandler;
+  onKeyDown?: PopupHandler;
+  inputRef?: (element: HTMLInputElement | null) => void;
+  setVisible?: boolean;
+  setDisabled?: boolean;
+  onSet?: PopupHandler;
+  editVisible?: boolean;
+  editDisabled?: boolean;
+  onEditToggle?: PopupHandler;
+  editText?: string;
+  noticeVisible?: boolean;
+  noticeText?: string;
+}
+
+interface BusyDetails {
+  reason?: string;
+  source?: string;
+  spinnerKey?: string;
+  operationKind?: string;
+  operationPhase?: string;
+  startedAt?: number;
+  deadlineAt?: number;
+  timerMode?: string;
+  [key: string]: unknown;
+}
+
+interface ResettablePreactRoot extends HTMLElement {
+  _children?: unknown;
+  __k?: unknown;
+}
 
 let viewState: ViewState = { ...initialViewState };
-let actions: PopupHandlerMap = {};
+const noopHandler: PopupHandler = () => undefined;
+const noopValueHandler = (_value: string) => undefined;
+const EMPTY_POPUP_ACTIONS: PopupActions = {
+  onToggleEnabled: noopHandler,
+  onDeviceEmulationEnabledChange: noopHandler,
+  onDesktopPreviewEnabledChange: noopHandler,
+  onDeviceScaleInput: noopHandler,
+  onDeviceScaleChange: noopHandler,
+  onConfigToggle: noopHandler,
+  onConfigMenuClick: noopHandler,
+  onTodoControlsMenuToggle: noopHandler,
+  onTodoControlsMenuClick: noopHandler,
+  onTodoSectionToggle: noopHandler,
+  onTodoSubsectionToggle: noopValueHandler,
+  onTodoExpandAll: noopHandler,
+  onTodoCollapseAll: noopHandler,
+  onTodoAutoCollapseToggle: noopHandler,
+  onTraceModeToggle: noopHandler,
+  onConfigurationExtrasToggle: noopHandler,
+  onOpenConfiguration: noopHandler,
+  onConfigurationContinue: noopHandler,
+  onClearDomainCache: noopHandler,
+  onUnregisterCurrentTab: noopHandler,
+  onPageSave: noopHandler,
+  onPageRevert: noopHandler,
+  onMarkingPreview: noopHandler,
+  onConfigEndpointInput: noopHandler,
+  onConfigEndpointKeyDown: noopHandler,
+  onConfigEndpointSet: noopHandler,
+  onConfigEndpointEditToggle: noopHandler,
+  onEndpointInput: noopHandler,
+  onEndpointKeyDown: noopHandler,
+  onEndpointSet: noopHandler,
+  onEndpointEditToggle: noopHandler,
+  onStageBaseInput: noopHandler,
+  onThemeInput: noopHandler,
+  onThemePrevious: noopHandler,
+  onThemeNext: noopHandler,
+  onThemeMenuToggle: noopHandler,
+  onThemeMenuKeyDown: noopHandler,
+  onThemeOptionSelect: noopValueHandler,
+  onThemeModeInput: noopHandler,
+  onRenderModeInput: noopHandler,
+  onRenderModeChoiceInput: noopHandler,
+  onRenderModeSummaryToggle: noopHandler,
+  onRenderModeInspectWithJavaScript: noopHandler,
+  onRenderModeInspectWithoutJavaScript: noopHandler,
+  onLynxChecklistPageTypeDecisionChange: noopHandler,
+  onLynxChecklistPageTypePageChange: noopHandler,
+  onLynxChecklistCandidateNavigate: noopValueHandler,
+  onLynxChecklistCancel: noopHandler,
+  onLynxChecklistSend: noopHandler,
+  onRenderModeSet: noopHandler,
+  onRenderModeEditToggle: noopHandler,
+  onOpenRenderModeSection: noopHandler,
+  onStageBaseKeyDown: noopHandler,
+  onStageBaseSet: noopHandler,
+  onStageBaseEditToggle: noopHandler,
+  onLoginEmailInput: noopHandler,
+  onLoginPasswordInput: noopHandler,
+  onLoginPasswordKeyDown: noopHandler,
+  onLoginAction: noopHandler,
+  onPropertyLockTake: noopHandler,
+  onPropertyLockSuggest: noopHandler,
+  onPropertyLockContinue: noopHandler,
+  onPropertyLockForceContinue: noopHandler,
+  onPropertyLockAcceptSuggestion: noopHandler,
+  onPropertyLockRejectSuggestion: noopHandler,
+  onCompute: noopHandler,
+  onSaveExcludes: noopHandler,
+  onPreviewLatest: noopHandler,
+  onPreviewItemFocus: noopValueHandler,
+  onPreviewShowAllCategoriesChange: noopHandler,
+  onExitPreviewMode: noopHandler,
+  onExplicitExcludeView: noopHandler,
+  onExplicitExcludeRemove: noopHandler,
+  onExplicitIncludeView: noopHandler,
+  onExplicitIncludeRemove: noopHandler,
+  onMarkedPageNavigate: noopValueHandler
+};
+let actions: PopupActions = EMPTY_POPUP_ACTIONS;
 const viewStateListeners = new Set<(nextViewState: ViewState) => void>();
 
 function notifyViewStateListeners() {
@@ -798,8 +989,7 @@ function isPopupBlockerDebugEnabled() {
   }
 }
 
-// @ts-expect-error - Debug logger accepts raw event payload shapes.
-function logPopupBlockerReason(eventName, curtain) {
+function logPopupBlockerReason(eventName: string, curtain: BlockingUiCurtainState | null | undefined) {
   if (!curtain) {
     return;
   }
@@ -867,8 +1057,7 @@ function syncBlockingUiCurtainDom() {
   }
 }
 
-// @ts-expect-error - Property-lock UI consumes flexible runtime state.
-function renderPropertyLockIndicator(view, handlers) {
+function renderPropertyLockIndicator(view: ViewState, handlers: PopupActions) {
   if (!isPopupFeatureEnabled(view, "propertyLockCollaboration") || !view.propertyLockVisible) {
     return null;
   }
@@ -980,8 +1169,7 @@ function renderPropertyLockIndicator(view, handlers) {
   );
 }
 
-// @ts-expect-error - Theme options are normalized at runtime.
-function renderThemePalette(option, extraClassName = "") {
+function renderThemePalette(option: ThemeOption | null | undefined, extraClassName = "") {
   const themeId = option && typeof option.value === "string" ? option.value : "";
   return h(
     "span",
@@ -999,17 +1187,15 @@ function renderThemePalette(option, extraClassName = "") {
   );
 }
 
-// @ts-expect-error - Theme values are runtime settings values.
-function getSelectedThemeOption(view) {
-  const themeOptions = Array.isArray(view.themeOptions) ? view.themeOptions : [];
+function getSelectedThemeOption(view: ViewState): ThemeOption | null {
+  const themeOptions: ThemeOption[] = Array.isArray(view.themeOptions) ? view.themeOptions : [];
   const themeValue = view && typeof view.themeValue === "string" ? view.themeValue : "";
   return themeOptions.find((option: ThemeOption) => option && option.value === themeValue) || themeOptions[0] || null;
 }
 
-// @ts-expect-error - Theme dropdown handlers/options are runtime-injected.
-function renderThemeDropdown(view, handlers) {
+function renderThemeDropdown(view: ViewState, handlers: PopupActions) {
   const selectedTheme = getSelectedThemeOption(view);
-  const themeOptions = Array.isArray(view.themeOptions) ? view.themeOptions : [];
+  const themeOptions: ThemeOption[] = Array.isArray(view.themeOptions) ? view.themeOptions : [];
   return h(
     "div",
     { class: "theme-dropdown" },
@@ -1074,8 +1260,7 @@ function renderThemeDropdown(view, handlers) {
   );
 }
 
-// @ts-expect-error - Todo controls consume runtime popup state.
-function renderTodoControlsMenu(view, handlers) {
+function renderTodoControlsMenu(view: ViewState, handlers: PopupActions) {
   return h(
     "div",
     {
@@ -1118,8 +1303,7 @@ function renderTodoControlsMenu(view, handlers) {
   );
 }
 
-// @ts-expect-error - Theme mode list is runtime-provided.
-function renderThemeModeButtons(view, handlers) {
+function renderThemeModeButtons(view: ViewState, handlers: PopupActions) {
   const iconByMode = {
     system: "theme-light-dark",
     light: "white-balance-sunny",
@@ -1150,8 +1334,7 @@ function renderThemeModeButtons(view, handlers) {
   );
 }
 
-// @ts-expect-error - Render-mode controls consume dynamic runtime state.
-function renderRenderModeEditor(view, handlers) {
+function renderRenderModeEditor(view: ViewState, handlers: PopupActions) {
   const renderModeInputDisabled = view.renderModeInputDisabled || view.renderModeReadOnly;
   const selectedRenderModeLabel = getRenderModeOptionLabel(view.renderModeValue);
   const selectedRenderModeIcon = getRenderModeOptionIcon(view.renderModeValue);
@@ -1327,8 +1510,7 @@ function renderRenderModeEditor(view, handlers) {
   );
 }
 
-// @ts-expect-error - Todo view model is runtime-generated.
-function getTodoProgress(view) {
+function getTodoProgress(view: ViewState) {
   const pageTypeGroups = Array.isArray(view.pageTypeGroups) ? view.pageTypeGroups : [];
   const total = pageTypeGroups.length;
   const completed = pageTypeGroups.reduce(
@@ -1342,8 +1524,7 @@ function getTodoProgress(view) {
   };
 }
 
-// @ts-expect-error - Indicator helper accepts flexible icon/tone inputs.
-function renderTodoIndicator(iconName, done = false, extraClassName = "") {
+function renderTodoIndicator(iconName: string, done = false, extraClassName = "") {
   return icon(
     iconName,
     classNames(
@@ -1354,8 +1535,7 @@ function renderTodoIndicator(iconName, done = false, extraClassName = "") {
   );
 }
 
-// @ts-expect-error - Marked-pages section consumes dynamic page-type models.
-function renderMarkedPagesSection(view, handlers, extraClassName = "") {
+function renderMarkedPagesSection(view: ViewState, handlers: PopupActions, extraClassName = "") {
   const progress = getTodoProgress(view);
   const sectionExpanded = Boolean(view.todoSectionExpanded);
 
@@ -1564,8 +1744,7 @@ function renderMarkedPagesSection(view, handlers, extraClassName = "") {
   );
 }
 
-// @ts-expect-error - Preview sidebar consumes runtime preview payloads.
-function renderPreviewSidebar(view, handlers) {
+function renderPreviewSidebar(view: ViewState, handlers: PopupActions) {
   const openingPreview = view.previewBlocked && (!view.previewActive || view.previewItemsPending);
   const previewTitle = view.previewShowAllCategories
     ? PopupText.preview.sidebarAllTitle
@@ -1665,8 +1844,7 @@ function renderPreviewSidebar(view, handlers) {
   );
 }
 
-// @ts-expect-error - Loading state payload is runtime-derived.
-function renderPopupLoadingView(view) {
+function renderPopupLoadingView(view: ViewState) {
   return h(
     "section",
     {
@@ -1680,8 +1858,7 @@ function renderPopupLoadingView(view) {
   );
 }
 
-// @ts-expect-error - App props are runtime-injected from popup controller.
-function App({ state: view, actions: handlers }) {
+function App({ state: view, actions: handlers }: PopupRenderProps) {
   const curtain = getBlockingUiCurtainState(view);
   logPopupBlockerReason("render", curtain);
   const previewVisible = view.previewBlocked || view.previewActive;
@@ -1931,8 +2108,7 @@ function App({ state: view, actions: handlers }) {
   );
 }
 
-// @ts-expect-error - AI controls consume runtime state/handlers.
-function renderAiControlsContent(view, handlers) {
+function renderAiControlsContent(view: ViewState, handlers: PopupActions) {
   const computeButtonClass = classNames(
     "u-full-width",
     view.computeButtonLoading && "loading"
@@ -1975,8 +2151,7 @@ function renderAiControlsContent(view, handlers) {
   );
 }
 
-// @ts-expect-error - Checklist/view payloads are assembled dynamically.
-function getLynxChecklistNoticeText(checklist, view) {
+function getLynxChecklistNoticeText(checklist: LynxChecklistViewModel, view: ViewState) {
   if (view && typeof view.lynxChecklistNoticeText === "string" && view.lynxChecklistNoticeText) {
     return view.lynxChecklistNoticeText;
   }
@@ -1987,14 +2162,6 @@ function getLynxChecklistNoticeText(checklist, view) {
         .filter(Boolean)
     : [];
 
-  if (blockingReason.code === "ai_no") {
-    // @ts-expect-error - Legacy copy keys remain contract-locked in runtime payloads.
-    return PopupText.lynxChecklist.noticeAiNo;
-  }
-  if (blockingReason.code === "ai_unanswered") {
-    // @ts-expect-error - Legacy copy keys remain contract-locked in runtime payloads.
-    return PopupText.lynxChecklist.noticeAiUnanswered;
-  }
   if (blockingReason.code === "no_candidates") {
     return PopupText.lynxChecklist.noticeNoCandidates;
   }
@@ -2004,8 +2171,7 @@ function getLynxChecklistNoticeText(checklist, view) {
   return "";
 }
 
-// @ts-expect-error - Checklist popover consumes runtime checklist structures.
-function renderLynxChecklistPopover(view, handlers) {
+function renderLynxChecklistPopover(view: ViewState, handlers: PopupActions) {
   const checklist = buildLynxChecklistViewModel({
     pageTypes: view.lynxChecklistPageTypes,
     markedPages: view.markedPages
@@ -2132,8 +2298,7 @@ function renderLynxChecklistPopover(view, handlers) {
   );
 }
 
-// @ts-expect-error - Marking view props are runtime-injected.
-function renderMarkingView({state: view, actions: handlers}) {
+function renderMarkingView({state: view, actions: handlers}: PopupRenderProps) {
   const postRenderModeControlsVisible = view.renderModeReady;
   const markingMode = !view.mainUiHidden;
   const pageSaveNotice = view.pageSessionNoticeVisible
@@ -2289,8 +2454,7 @@ function renderMarkingView({state: view, actions: handlers}) {
   );
 }
 
-// @ts-expect-error - Configuration appearance state is runtime-driven.
-function renderConfigurationAppearanceSection(view, handlers) {
+function renderConfigurationAppearanceSection(view: ViewState, handlers: PopupActions) {
   return h(
     "section",
     { class: "config-extra-subsection config-appearance-section" },
@@ -2346,8 +2510,7 @@ function renderConfigurationAppearanceSection(view, handlers) {
   );
 }
 
-// @ts-expect-error - Extras section consumes runtime diagnostics payloads.
-function renderConfigurationExtrasSection(view, handlers) {
+function renderConfigurationExtrasSection(view: ViewState, handlers: PopupActions) {
   const expanded = Boolean(view.configurationExtrasExpanded);
   const traceEvents = Array.isArray(view.traceEvents) ? view.traceEvents : [];
   const traceLines = traceEvents
@@ -2442,8 +2605,7 @@ function renderConfigurationExtrasSection(view, handlers) {
   );
 }
 
-// @ts-expect-error - CSS selector controls consume runtime view state.
-function renderCssSelectorsSection({ state: view, actions: handlers }) {
+function renderCssSelectorsSection({ state: view, actions: handlers }: PopupRenderProps) {
   const previewClass = classNames("u-full-width", "u-btn-secondary");
   const submitClass = classNames(
     "u-full-width",
@@ -2480,8 +2642,7 @@ function renderCssSelectorsSection({ state: view, actions: handlers }) {
   );
 }
 
-  // @ts-expect-error - Field descriptor shape is runtime-composed per control.
-  function renderEditableConfigurationField(options) {
+  function renderEditableConfigurationField(options: EditableConfigurationFieldOptions) {
     const {
       inputId,
       noticeId,
@@ -2546,7 +2707,7 @@ function renderCssSelectorsSection({ state: view, actions: handlers }) {
               disabled: editDisabled,
               onClick: onEditToggle
             },
-            icon(editToggleIcon(editText)),
+            icon(editToggleIcon(editText || "")),
             editText
           )
         )
@@ -2565,8 +2726,7 @@ function renderCssSelectorsSection({ state: view, actions: handlers }) {
     );
   }
 
-// @ts-expect-error - Configuration view props are runtime-injected.
-function renderConfigurationView({state: view, actions: handlers}) {
+function renderConfigurationView({state: view, actions: handlers}: PopupRenderProps) {
     return h(
       Fragment,
       null,
@@ -2736,10 +2896,8 @@ function renderApp() {
     // remaining structural vnode problem, so log it loudly for diagnosis.
     console.error("[unfluffify] popup render failed; remounting from scratch", renderError);
     try {
-      // @ts-expect-error - Internal preact root fields are intentionally cleared on hard remount.
-      delete root._children;
-      // @ts-expect-error - Internal preact root fields are intentionally cleared on hard remount.
-      delete root.__k;
+      delete (root as ResettablePreactRoot)._children;
+      delete (root as ResettablePreactRoot).__k;
       root.textContent = "";
       render(h(App, { state: viewState, actions }), root);
     } catch (remountError) {
@@ -2773,8 +2931,8 @@ function renderApp() {
   syncBlockingCurtainCountdownTimer(getBlockingUiCurtainState(viewState));
 }
 
-export function initUi(actionHandlers: PopupHandlerMap | null | undefined): void {
-  actions = actionHandlers || {};
+export function initUi(actionHandlers: PopupActions | null | undefined): void {
+  actions = actionHandlers || EMPTY_POPUP_ACTIONS;
   renderApp();
 }
 
@@ -2818,7 +2976,7 @@ function normalizeViewState(nextViewState: ViewState): ViewState {
     : collapseTodoViewState(normalizedViewState);
 }
 
-export function setViewState<T extends object>(patch: T): void {
+export function setViewState(patch: Partial<ViewState>): void {
   const nextViewState = normalizeViewState({ ...viewState, ...patch });
   viewState = nextViewState;
   renderApp();
@@ -2877,8 +3035,7 @@ export function showToast(message: unknown): void {
   }, 1800);
 }
 
-// @ts-expect-error - Busy details object is optional and runtime-extended.
-export function setUiBusy(isBusy, message = "", details: Record<string, unknown> = {}) {
+export function setUiBusy(isBusy: unknown, message = "", details: BusyDetails = {}) {
   const patch = {
     isBusy: Boolean(isBusy),
     busyMessage: isBusy ? (message || PopupText.overlay.pleaseWait) : "",
@@ -2979,13 +3136,14 @@ export function setTodoSubsectionExpanded(key: string, expanded: boolean): void 
 }
 
 export function setTodoAllSubsectionsExpanded(expanded: boolean): void {
+  const collectExpandedState = (groups: PageTypeGroup[]) =>
+    Object.fromEntries(groups.map((group) => [group.key, true]));
   updateViewState((currentViewState) => ({
     ...currentViewState,
     todoControlsMenuOpen: false,
     todoSubsectionsExpanded: expanded
-      ? Object.fromEntries(
-          (Array.isArray(currentViewState.pageTypeGroups) ? currentViewState.pageTypeGroups : [])
-            .map((group) => [group.key, true])
+      ? collectExpandedState(
+          Array.isArray(currentViewState.pageTypeGroups) ? currentViewState.pageTypeGroups : []
         )
       : {}
   }));

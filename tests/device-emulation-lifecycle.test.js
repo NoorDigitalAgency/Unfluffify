@@ -133,7 +133,7 @@ test("marking enable delegates mobile simulation prep to TAB_ACTIVATE_MARKING an
   );
   const uiBlock = extractSourceBlock(
     readFileSync(new URL("../src/popup/ui.ts", import.meta.url), "utf8"),
-    "function renderMarkingView({state: view, actions: handlers}) {",
+    "function renderMarkingView({state: view, actions: handlers}: PopupRenderProps)",
     "function renderConfigurationView"
   );
   void uiBlock;
@@ -175,7 +175,7 @@ test("desktop preview section is rendered outside renderMarkingView so it is vie
 
   // The section must be rendered at the top-level render call site, NOT inside
   // renderMarkingView, so it appears regardless of the current popup view.
-  const markingViewStart = uiSource.indexOf("function renderMarkingView({state: view, actions: handlers})");
+  const markingViewStart = uiSource.indexOf("function renderMarkingView({state: view, actions: handlers}: PopupRenderProps)");
   const markingViewEnd = uiSource.indexOf("\nfunction ", markingViewStart + 1);
   const markingViewBody = uiSource.slice(markingViewStart, markingViewEnd);
   assert.doesNotMatch(markingViewBody, /desktop-preview-section/,

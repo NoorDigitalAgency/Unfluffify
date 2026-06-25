@@ -12,6 +12,7 @@ import {
 const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
 const popupSpinnerSource = readFileSync(new URL("../src/popup/spinner.ts", import.meta.url), "utf8");
 const uiSource = readFileSync(new URL("../src/popup/ui.ts", import.meta.url), "utf8");
+const popupStateTypeSource = readFileSync(new URL("../src/types/popup-state.ts", import.meta.url), "utf8");
 
 function extractSourceBlock(source, startNeedle, endNeedle) {
   const start = source.indexOf(startNeedle);
@@ -33,13 +34,23 @@ test("render mode text copy uses the updated manual comparison wording", () => {
 });
 
 test("popup startup hides configuration view until destination view is known", () => {
-  assert.match(uiSource, /Loading:\s*'Loading'/);
+  assert.match(uiSource, /Loading:\s*"Loading"/);
   assert.match(uiSource, /currentView:\s*View\.Loading/);
-  assert.match(uiSource, /function renderPopupLoadingView\(view\) \{/);
+  assert.match(uiSource, /currentView:\s*PopupView;/);
+  assert.match(popupStateTypeSource, /export type PopupView = "Loading" \| "Configuration" \| "Marking";/);
+  assert.match(popupStateTypeSource, /currentView:\s*PopupView;/);
+  assert.match(uiSource, /function renderPopupLoadingView\(view:\s*ViewState\) \{/);
+  assert.match(uiSource, /export function setViewState\(patch: Partial<ViewState>\): void \{/);
+  assert.match(uiSource, /interface PopupActions \{/);
+  assert.match(uiSource, /onCompute:\s*PopupHandler;/);
+  assert.match(uiSource, /onThemeOptionSelect:\s*\(value: string\) => unknown;/);
+  assert.match(uiSource, /onPreviewItemFocus:\s*\(xpath: string\) => unknown;/);
+  assert.match(uiSource, /let actions:\s*PopupActions = EMPTY_POPUP_ACTIONS;/);
+  assert.match(uiSource, /export function initUi\(actionHandlers: PopupActions \| null \| undefined\): void \{/);
 
   const appBlock = extractSourceBlock(
     uiSource,
-    "function App({ state: view, actions: handlers })",
+    "function App({ state: view, actions: handlers }: PopupRenderProps)",
     "function renderAiControlsContent"
   );
 

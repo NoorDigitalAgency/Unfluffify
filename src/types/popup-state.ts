@@ -7,6 +7,7 @@ import type {
 import type { Browser } from "../common/browser.js";
 
 export type PopupTone = "muted" | "success" | "warning" | "danger";
+export type PopupView = "Loading" | "Configuration" | "Marking";
 
 export type AiRunPhase = "" | "idle" | "starting" | "running" | "completed" | "failed";
 
@@ -53,7 +54,7 @@ export interface PopupPreviewMarkingSessionSnapshot {
 }
 
 export interface PopupState {
-  currentView: string;
+  currentView: PopupView;
   currentTheme: string;
   currentThemeMode: string;
   currentTab: Browser.tabs.Tab | null;

@@ -674,7 +674,7 @@ test("popup blocks the interface with a spinner while page inspection is running
     uiSource,
     /const signature = \[\s*curtain\.message \|\| "",\s*curtain\.reason \|\| "",\s*curtain\.source \|\| "",\s*curtain\.spinnerKey \|\| ""\s*\]\.join\("\|"\);/
   );
-  assert.match(uiSource, /function App\(\{ state: view, actions: handlers \}\) \{\s*const curtain = getBlockingUiCurtainState\(view\);\s*logPopupBlockerReason\("render", curtain\);/);
+  assert.match(uiSource, /function App\(\{ state: view, actions: handlers \}:\s*PopupRenderProps\) \{\s*const curtain = getBlockingUiCurtainState\(view\);\s*logPopupBlockerReason\("render", curtain\);/);
   assert.match(uiSource, /if \(!curtain\.visible\) \{\s*lastPopupBlockerLogSignature = "";\s*return;\s*\}/);
   // A stale "Inspecting page..." curtain is cleared once the spinner queue
   // drains and the content side reports no pending inspection.

@@ -24,13 +24,14 @@ WXT does not provide the required functionality.
   shared types in `src/types`, and stable public assets in `src/public`.
 - The repo has no runtime `@ts-ignore` and no runtime `@ts-nocheck`, guarded by
   `tests/no-ts-ignore-guard.test.js` and `tests/typing-ratchet.test.js`.
-- Runtime still has 2,081 tracked `@ts-expect-error` suppressions across:
-  `src/content/core.ts`, `src/content-main.ts`, `src/popup.ts`,
-  `src/popup/ui.ts`, and the eval
+- Runtime still has 2,053 tracked `@ts-expect-error` suppressions across:
+  `src/content/core.ts`, `src/content-main.ts`, `src/popup.ts`, and the eval
   bridge pair `src/common/page-motion-freeze-bridge.ts` /
   `src/common/page-motion-freeze-control.ts`.
 - `src/common/config.ts` is now suppression-free after the config
   normalization/persistence cleanup batches.
+- `src/popup/ui.ts` is now suppression-free after typing the popup view state,
+  render props, and configuration/control helper surfaces.
 - `tests/browser-polyfill-boundary.test.js` still keeps an explicit
   `CURRENT_MIGRATION_DEBT_FILES` bucket, but it is now empty. The remaining
   named boundary buckets are `src/common/browser.ts`,
