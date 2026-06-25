@@ -1,11 +1,16 @@
 # TypeScript Strict-Typing Rollout Plan
 
+> Historical strategy reference. This document predates the repository's
+> pnpm/Node/WXT finalization and still contains old Deno-era commands and
+> pre-`src/` paths. Do **not** execute it literally. When borrowing rationale
+> from it, use the current workflow from `.copilot/plan.md` and
+> `.copilot/knowledge.md` instead.
+
 Last updated: 2026-06-17
 
 ## 0. Purpose And Scope
 
-The TypeScript + Deno toolchain port (`.copilot/typescript-deno-port-plan.md`) is
-complete: every runtime file is now a `.ts` file built by Deno/esbuild to a
+The initial TypeScript toolchain port is complete: every runtime file is now a `.ts` file built to a
 loadable MV3 artifact. BUT the port was a file-extension rename only — every
 runtime `.ts` file begins with `// @ts-nocheck`, carries zero type annotations,
 and the shared `types/` contracts are unused. `deno task check` therefore passes
@@ -411,8 +416,8 @@ Steps:
 3. Update `README.md`, `.copilot/plan.md` "Validation Baseline",
    `.copilot/knowledge.md`, and repo memory (`/memories/repo/`): the canonical gate
    is now `deno task check` (real) + `deno task test` + `deno task build:release`.
-4. Update `.copilot/typescript-deno-port-progress.md` to note the typing rollout
-   completed the port's deferred Phase 2 type-foundation goal.
+4. Update `.copilot/typescript-typing-rollout-progress.md` to note the typing
+   rollout completed the port's deferred type-foundation goal.
 
 Exit criteria: `deno task check` is a real, green, enforced gate; CI updated; docs
 consistent; full suite green; release build loads.

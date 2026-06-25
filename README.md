@@ -68,10 +68,11 @@ no longer depends on Deno for CI, packaging, browser launch, or orchestration.
 
 The current migration cleanup command surface is tracked in
 `.copilot/wxt-finalization-plan.md` and is WXT-native for the shipped extension
-pipeline. `pnpm build` produces
-the runnable unpacked extension under `.output/chrome-mv3`, and the only
-remaining manifest bridge is the source-owned `action` block so WXT's popup
-entrypoint does not reintroduce `action.default_popup` into the shipped
+pipeline. `pnpm build` produces the runnable unpacked extension under
+`.output/chrome-mv3`. Source code now lives under `src/`, stable public assets
+under `src/public/`, and `wxt.config.ts` is the sole manifest source of truth.
+The only remaining manifest bridge is the source-owned `action` block so WXT's
+popup entrypoint does not reintroduce `action.default_popup` into the shipped
 manifest. Content scripts now ship on WXT's native `content-scripts/` paths.
 
 The live-browser launcher targets the WXT unpacked output:
@@ -132,31 +133,26 @@ pnpm exec vitest run tests/core-visibility.test.js tests/core-motion-pause.test.
 
 ## Project Structure
 
-### Core Entry Points
+### Source Layout (`/src`)
 
-- **`background.js`** - Service worker handling tab state, messaging, device emulation, and cleanup
-- **`popup.js`** - Main popup UI and state management (uses Preact framework)
-- **`content-scripts/content-loader.js`** - Initial content script that loads the main content runtime
-- **`content-main.js`** - Main content script that runs on web pages (large, complex logic)
+- **`src/entrypoints/`** - WXT entrypoints for background, popup, offscreen, and
+  content-script bootstraps
+- **`src/background.ts`** - Service worker bootstrap and command wiring
+- **`src/popup.ts`** - Main popup runtime bootstrap
+- **`src/content-main.ts`** - Main content runtime that runs on web pages
+- **`src/offscreen.ts`** - Offscreen runtime bootstrap
 
-### Common Utilities (`/common`)
+### Shared Runtime Modules
 
-- **`config.js`** - Configuration management, timestamps, selector sets, page markings
-- **`constants.js`** - Global constants including device emulation presets, default exclusions
-- **`utilities.js`** - Shared utilities: tab state, script injection, URL normalization, storage
-- **`emulation.js`** - Device emulation state and debugger protocol management
-- **`selector-set.js`** - AI selector set operations and deduplication
-- **`xpath-utilities.js`** - XPath refinement and manipulation utilities
-- **`property-lock.js`** - Property edit-lock constants, timing windows, WebSocket protocol names, and normalized state helpers
-- **`property-lock-background.js`** - Background-side per-property/per-client lock WebSocket orchestration with stable page-session IDs and tab-local popup routing
-
-### Content Scripts (`/content`)
-
-- **`core.js`** - Main content script logic: DOM manipulation, element selection, marking synchronization, overlay rendering, and per-pass marking caches
-- **`marking-rules.js`** - Shared pure rules for 052c-derived toggleable markability, Shift parent-boundary choice, and explicit toggle pacing
-- **`shared-inclusion.js`** - Shared logic for element selection and inclusion/exclusion
-- **`silent-highlight-rules.js`** - Shared pure rules for movement-settle sampling in silent highlighting
-- **`constants.js`** - Content script constants (removable element selectors, etc.)
+- **`src/common/`** - Shared browser/runtime helpers, messaging seams, config,
+  storage boundaries, and domain contracts
+- **`src/background/`** - Background-side orchestration, tab state, bus/Brain,
+  remote config, and operation routing
+- **`src/content/`** - Content-side handlers, overlays, marking logic helpers,
+  render-mode inspection, and page-side coordination
+- **`src/popup/`** - Popup state, UI helpers, render-mode flows, and Preact UI
+- **`src/offscreen/`** - Offscreen document support modules
+- **`src/types/`** - Shared TypeScript contracts for runtime surfaces
 
 ### Regression Tests (`/tests`)
 
@@ -175,23 +171,25 @@ pnpm exec vitest run tests/core-visibility.test.js tests/core-motion-pause.test.
 - **`utilities-runtime.test.js`** - Coverage for Chrome runtime/storage wrappers, including extension-context invalidation handling
 - **`lynx-checklist.test.js`** - Coverage for Lynx checklist assignment and view-model building
 
-### Popup UI (`/popup`)
+### Popup UI (`/src/popup`)
 
-- **`ui.js`** - Preact-based UI component rendering and state management (1300+ lines)
-- **`helpers.js`** - Helper functions for tab operations, device emulation, AI settings
-- **`chrome-helpers.js`** - Chrome API wrappers (browsing data, tab reloading)
-- **`messages.js`** - Message passing utilities
-- **`state.js`** - Popup UI state management
-- **`emulation.js`** - Device emulation state in popup
+- **`ui.ts`** - Preact-based UI component rendering and state management
+- **`helpers.ts`** - Helper functions for tab operations, device emulation, and
+  AI settings
+- **`chrome-helpers.ts`** - Browser-tab helpers and popup-triggered tab actions
+- **`messages.ts`** - Popup message and background command helpers
+- **`state.ts`** - Popup state management helpers
+- **`emulation.ts`** - Device emulation state in the popup
 
 ### Resources
 
-- **`popup.css`** - Popup UI styles
-- **`entrypoints/popup/index.html`** - Popup entrypoint container
+- **`src/popup.css`** - Popup UI styles
+- **`src/entrypoints/popup/index.html`** - Popup entrypoint container
 - **`wxt.config.ts`** - WXT config and manifest source of truth
-- **`icons/`** - Extension icons
-- **`cursors/`** - Custom cursor SVGs
-- **`assets/`** - Material Design Icons
+- **`src/public/icons/`** - Extension icons copied to stable output paths
+- **`src/public/cursors/`** - Custom cursor SVGs copied to stable output paths
+- **`src/public/assets/`** - Material Design Icons and font assets copied to
+  stable output paths
 
 ## How to Use
 

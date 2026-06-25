@@ -49,11 +49,15 @@
 
 ## WXT migration facts
 
-- WXT treats `entrypoints/popup.html` / `entrypoints/popup/index.html` as a
-  special popup entrypoint and auto-generates `action.default_popup`. Unfluffify
-  now keeps the manifest contract entirely in `wxt.config.ts` (version from
-  `package.json`), and the generated manifest still needs its `action` block
-  restored to the source contract before shipping.
+- The shipped WXT source tree now lives under `src/`: runtime modules in
+  `src/background`, `src/common`, `src/content`, `src/offscreen`, and
+  `src/popup`; entrypoints in `src/entrypoints`; shared types in `src/types`;
+  stable public assets in `src/public`.
+- WXT treats `src/entrypoints/popup/index.html` as a special popup entrypoint
+  and auto-generates `action.default_popup`. Unfluffify keeps the manifest
+  contract entirely in `wxt.config.ts` (version from `package.json`), and the
+  generated manifest still needs its `action` block restored to the source
+  contract before shipping.
 - WXT emits content-script bundles under `content-scripts/<name>.js`. After C5,
   Unfluffify's source manifest and manual injection paths use those native WXT
   output paths directly instead of materializing root alias files.
@@ -80,10 +84,10 @@
   (for the native-bundling cutover), keep the WXT typecheck split between
   **browser entrypoints** and **Node config files**. In this repo that means
   `tsconfig.wxt.json` should stay browser-typed (`chrome`, DOM/WebWorker libs)
-  for `entrypoints/**/*.ts`, while `wxt.config.ts` / `vitest.config.ts` live in
-  a separate Node-typed project (`tsconfig.wxt-node.json`). Mixing Node globals
-  into the entrypoint graph reintroduces timer-signature conflicts in browser
-  code such as `common/page-motion-freeze-control.ts`.
+  for `src/entrypoints/**/*.ts`, while `wxt.config.ts` / `vitest.config.ts`
+  live in a separate Node-typed project (`tsconfig.wxt-node.json`). Mixing Node
+  globals into the entrypoint graph reintroduces timer-signature conflicts in
+  browser code such as `src/common/page-motion-freeze-control.ts`.
 - When the popup runtime is imported into the WXT browser entrypoint graph, do
   not type shared timer helpers against bare global `setTimeout` /
   `setInterval` return types. In this repo those can drift to Node `Timeout`
@@ -150,19 +154,17 @@
   content production paths should call domain helpers rather than direct
   `chrome.storage` or `utils.storage*` wrappers. Page-local `localStorage` /
   `sessionStorage` usage is tracked separately from this Chrome storage rule.
-- Earlier world-decomposition work is complete. Content follow-up Tracks D/E are
-  complete, Track F is complete through F24, and the high-risk plan is complete
-  through G5. Track H is complete through H3 on `feat/wxt-port-plan` and is now
-  paused pending a new post-H3 review plan; use
-  `.copilot/content-main-followup-refactor-plan.md` only as the historical H3
-  ceiling/stop-condition reference. Hard rules remain: never edit
-  `content/core.js` or locked marking/silent-highlight/visibility/
-  reconciliation logic without a new high-risk plan; every new `content/*`
-  module must be added to `web_accessible_resources` with
-  `tests/manifest-permissions.test.js` green; live validation is required for
-  core unflagged behavior when automated validation is not enough, while
-  flag-disabled property-lock follow-ups may defer live validation until those
-  features are prioritized.
+- Earlier world-decomposition work is complete. Content follow-up Tracks D/E,
+  the mechanical Track F slices, and the high-risk G0-G5 plan are historical
+  work on this branch. Track H is complete through H3 on `feat/wxt-port-plan`
+  and remains paused pending a new post-H3 review plan. Hard rules remain:
+  never edit `src/content/core.ts` or locked
+  marking/silent-highlight/visibility/reconciliation logic without a new
+  approved plan; every new `content/*` module must be added to
+  `web_accessible_resources` with `tests/manifest-permissions.test.js` green;
+  live validation is required for core unflagged behavior when automated
+  validation is not enough, while flag-disabled property-lock follow-ups may
+  defer live validation until those features are prioritized.
 - Part C native WXT runtime adoption is complete on `feat/wxt-port-plan`. The
   runtime is now genuinely WXT-native end to end: WXT bundles the real
   background, popup, content, offscreen, and MAIN-world bridge graphs; the
