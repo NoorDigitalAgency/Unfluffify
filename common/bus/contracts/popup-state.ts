@@ -1,4 +1,5 @@
 import type { ActivationSnapshot } from "./activation.js";
+import type { RenderModeViewState } from "./render-mode.js";
 
 export const POPUP_STATE_REQUEST_TYPES = Object.freeze({
   GET: "popup.view.get",
@@ -76,6 +77,7 @@ export type PopupViewEnvelope = Readonly<{
   traceEvents: PopupTraceEvent[];
   lifecycle: PopupLifecycleState | null;
   activation?: ActivationSnapshot | null;
+  renderMode?: RenderModeViewState | null;
   legacySpinnerQueue: PopupLegacySpinnerEntry[];
   legacyActiveSpinnerLease: PopupLegacySpinnerEntry | null;
 }>;

@@ -22,3 +22,4 @@ export type DiagnosticEchoPayload = Readonly<{
 }>;
 
 export * from "./activation.js";
+export * from "./render-mode.js";

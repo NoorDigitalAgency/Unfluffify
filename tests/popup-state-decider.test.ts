@@ -133,6 +133,16 @@ describe("popup state decider", () => {
         lastLifecycle: null,
         lastContentPageUrl: "",
       },
+      renderMode: {
+        inspecting: false,
+        javaScriptDisabled: false,
+        noJsHeld: false,
+        operationId: "",
+        baseUrl: "",
+        lastSnapshotPageUrl: "",
+        followUpCompleted: false,
+        lastError: "",
+      },
       legacySpinnerQueue: [],
       legacyActiveSpinnerLease: null,
     });

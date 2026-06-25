@@ -31,6 +31,16 @@ describe("brain state store", () => {
       legacySpinnerQueue: [],
       legacyActiveSpinnerLease: null,
     });
+    expect(state.renderMode).toEqual({
+      inspecting: false,
+      javaScriptDisabled: false,
+      noJsHeld: false,
+      operationId: "",
+      baseUrl: "",
+      lastSnapshotPageUrl: "",
+      followUpCompleted: false,
+      lastError: "",
+    });
   });
 
   it("fires one projection per microtask for repeated tab mutations", async () => {

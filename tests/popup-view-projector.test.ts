@@ -93,6 +93,16 @@ describe("popup view projector", () => {
         },
         lastContentPageUrl: "https://example.com/page",
       },
+      renderMode: {
+        inspecting: true,
+        javaScriptDisabled: true,
+        noJsHeld: true,
+        operationId: "render-mode:12:1",
+        baseUrl: "https://example.com",
+        lastSnapshotPageUrl: "https://example.com/page",
+        followUpCompleted: true,
+        lastError: "",
+      },
       spinners: {
         popup: null,
         pageCurtain: null,
@@ -122,6 +132,12 @@ describe("popup view projector", () => {
           pageUrl: "https://example.com/page",
         },
         lastContentPageUrl: "https://example.com/page",
+      },
+      renderMode: {
+        inspecting: true,
+        operationId: "render-mode:12:1",
+        noJsHeld: true,
+        javaScriptDisabled: true,
       },
     });
     expect(popupView).toEqual({
@@ -167,6 +183,16 @@ describe("popup view projector", () => {
           pageUrl: "https://example.com/page",
         },
         lastContentPageUrl: "https://example.com/page",
+      },
+      renderMode: {
+        inspecting: true,
+        javaScriptDisabled: true,
+        noJsHeld: true,
+        operationId: "render-mode:12:1",
+        baseUrl: "https://example.com",
+        lastSnapshotPageUrl: "https://example.com/page",
+        followUpCompleted: true,
+        lastError: "",
       },
       legacySpinnerQueue: [{
         key: "navInspect",
@@ -270,6 +296,16 @@ describe("popup view projector", () => {
         },
         lastContentPageUrl: "https://example.com/page",
       },
+      renderMode: {
+        inspecting: false,
+        javaScriptDisabled: false,
+        noJsHeld: false,
+        operationId: "",
+        baseUrl: "",
+        lastSnapshotPageUrl: "",
+        followUpCompleted: false,
+        lastError: "",
+      },
       spinners: {
         popup: null,
         pageCurtain: null,
@@ -320,6 +356,16 @@ describe("popup view projector", () => {
       lastContentPageUrl: "https://example.com/page",
     });
     expect(projected.legacySpinnerQueue[0].blockSurfaces).toEqual({ popup: true });
+    expect(projected.renderMode).toEqual({
+      inspecting: false,
+      javaScriptDisabled: false,
+      noJsHeld: false,
+      operationId: "",
+      baseUrl: "",
+      lastSnapshotPageUrl: "",
+      followUpCompleted: false,
+      lastError: "",
+    });
   });
 
   it("projects activation lifecycle into the popup lifecycle view for activation-owned states", () => {
@@ -351,6 +397,16 @@ describe("popup view projector", () => {
           pageUrl: "https://example.com/property",
         },
         lastContentPageUrl: "https://example.com/property",
+      },
+      renderMode: {
+        inspecting: false,
+        javaScriptDisabled: false,
+        noJsHeld: false,
+        operationId: "",
+        baseUrl: "",
+        lastSnapshotPageUrl: "",
+        followUpCompleted: false,
+        lastError: "",
       },
       spinners: {
         popup: null,

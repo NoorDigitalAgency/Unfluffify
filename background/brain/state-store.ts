@@ -8,6 +8,7 @@ import type {
   PopupLifecycleState,
   PopupTraceEvent,
 } from "../../common/bus/contracts/popup-state.js";
+import type { RenderModeViewState } from "../../common/bus/contracts/render-mode.js";
 
 export type SpinnerSelection = Readonly<{
   kind: string;
@@ -31,6 +32,8 @@ export type PopupViewState = Readonly<{
 
 export type ActivationState = ActivationSnapshot;
 
+export type RenderModeState = RenderModeViewState;
+
 function createInitialActivationState(): ActivationState {
   return {
     contentReady: false,
@@ -39,6 +42,19 @@ function createInitialActivationState(): ActivationState {
     lastError: "",
     lastLifecycle: null,
     lastContentPageUrl: "",
+  };
+}
+
+function createInitialRenderModeState(): RenderModeState {
+  return {
+    inspecting: false,
+    javaScriptDisabled: false,
+    noJsHeld: false,
+    operationId: "",
+    baseUrl: "",
+    lastSnapshotPageUrl: "",
+    followUpCompleted: false,
+    lastError: "",
   };
 }
 
@@ -59,6 +75,16 @@ export type TabLayerState = {
     lastError: string;
     lastLifecycle: ActivationLifecycleSnapshot | null;
     lastContentPageUrl: string;
+  };
+  renderMode: {
+    inspecting: boolean;
+    javaScriptDisabled: boolean;
+    noJsHeld: boolean;
+    operationId: string;
+    baseUrl: string;
+    lastSnapshotPageUrl: string;
+    followUpCompleted: boolean;
+    lastError: string;
   };
   spinners: {
     popup: SpinnerSelection | null;
@@ -81,6 +107,7 @@ function createInitialTabState(tabId: number): TabLayerState {
       legacyActiveSpinnerLease: null,
     },
     activation: createInitialActivationState(),
+    renderMode: createInitialRenderModeState(),
     spinners: {
       popup: null,
       pageCurtain: null,

@@ -1,4 +1,8 @@
 import type { ActivationSnapshot } from "../../common/bus/contracts/activation.js";
+import type {
+  RenderModeDirectiveState,
+  RenderModeViewState,
+} from "../../common/bus/contracts/render-mode.js";
 import { LIFECYCLE_KINDS } from "../../common/world-messaging-contract.js";
 import type { PopupViewEnvelope } from "../../common/bus/contracts/popup-state.js";
 import type { TabLayerState } from "./state-store.js";
@@ -8,6 +12,7 @@ export type PopupView = PopupViewEnvelope;
 export type ContentDirective = Readonly<{
   version: number;
   activation: ActivationSnapshot;
+  renderMode: RenderModeDirectiveState;
 }>;
 
 function cloneActivationSnapshot(value: TabLayerState["activation"]): ActivationSnapshot {
@@ -63,11 +68,34 @@ function cloneProjectedPopupLifecycle(state: TabLayerState): PopupViewEnvelope["
   return null;
 }
 
+function cloneRenderModeViewState(value: TabLayerState["renderMode"]): RenderModeViewState {
+  return {
+    inspecting: value.inspecting,
+    javaScriptDisabled: value.javaScriptDisabled,
+    noJsHeld: value.noJsHeld,
+    operationId: value.operationId,
+    baseUrl: value.baseUrl,
+    lastSnapshotPageUrl: value.lastSnapshotPageUrl,
+    followUpCompleted: value.followUpCompleted,
+    lastError: value.lastError,
+  };
+}
+
+function cloneRenderModeDirectiveState(value: TabLayerState["renderMode"]): RenderModeDirectiveState {
+  return {
+    inspecting: value.inspecting,
+    operationId: value.operationId,
+    noJsHeld: value.noJsHeld,
+    javaScriptDisabled: value.javaScriptDisabled,
+  };
+}
+
 export function projectViews(state: TabLayerState): {
   popupView: PopupView;
   contentDirective: ContentDirective;
 } {
   const activation = cloneActivationSnapshot(state.activation);
+  const renderMode = cloneRenderModeViewState(state.renderMode);
   return {
     popupView: {
       version: state.version,
@@ -79,6 +107,7 @@ export function projectViews(state: TabLayerState): {
       })),
       lifecycle: cloneProjectedPopupLifecycle(state),
       activation,
+      renderMode,
       legacySpinnerQueue: state.popupView.legacySpinnerQueue.map((entry) => {
         const clone = { ...entry };
         if (entry.blockSurfaces) {
@@ -101,6 +130,7 @@ export function projectViews(state: TabLayerState): {
     contentDirective: {
       version: state.version,
       activation,
+      renderMode: cloneRenderModeDirectiveState(state.renderMode),
     },
   };
 }
