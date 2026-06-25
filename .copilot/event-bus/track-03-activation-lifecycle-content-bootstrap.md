@@ -53,6 +53,10 @@ into the Brain so popup/content no longer decide or bootstrap the navigation
   - the instant local `beginNavigationInspectionOverlay(...)` bridge remains in
     place to avoid a visible curtain gap while background activation state
     catches up
+  - background-owned activation/content-ready world lifecycle events now keep
+    runtime lifecycle snapshots and stale-terminal protection without persisting
+    popup broker lifecycle authority; popup lifecycle falls back to Brain
+    activation state unless an unrelated lifecycle is still actively busy
 - next slice:
   - delete the remaining direct legacy lifecycle authority and close Track 3
 inspection curtain locally. User-visible behavior must stay unchanged: content

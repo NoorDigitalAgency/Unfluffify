@@ -137,6 +137,19 @@ describe("activation contracts and projection scaffolding", () => {
   it("promotes content-ready lifecycle events into the activation snapshot", () => {
     const store = createStateStore();
 
+    mirrorActivationLifecycle(store, 9, {
+      kind: LIFECYCLE_KINDS.ACTIVATION,
+      phase: LIFECYCLE_PHASES.STARTED,
+      message: "Preparing page content for marking...",
+      busy: true,
+      operationId: "activation:9:1",
+      reason: "activation-started",
+      source: "background",
+      contentMode: "marking",
+      markingEnabled: true,
+      pageUrl: "https://example.com/ready",
+    }, "activation:started");
+
     const activation = mirrorActivationLifecycle(store, 9, {
       kind: LIFECYCLE_KINDS.CONTENT_READY,
       phase: LIFECYCLE_PHASES.FINISHED,
@@ -159,7 +172,44 @@ describe("activation contracts and projection scaffolding", () => {
     expect(getActivationSnapshot(store, 9).lastLifecycle).toMatchObject({
       kind: LIFECYCLE_KINDS.CONTENT_READY,
       phase: LIFECYCLE_PHASES.FINISHED,
+      operationId: "activation:9:1",
       pageUrl: "https://example.com/ready",
+    });
+  });
+
+  it("ignores non-activation lifecycle kinds so activation state stays scoped", () => {
+    const store = createStateStore();
+
+    mirrorActivationLifecycle(store, 12, {
+      kind: LIFECYCLE_KINDS.ACTIVATION,
+      phase: LIFECYCLE_PHASES.STARTED,
+      message: "Preparing page content for marking...",
+      busy: true,
+      operationId: "activation:12:1",
+      reason: "activation-started",
+      source: "background",
+      contentMode: "marking",
+      markingEnabled: true,
+      pageUrl: "https://example.com/page",
+    }, "activation:started");
+
+    const activation = mirrorActivationLifecycle(store, 12, {
+      kind: LIFECYCLE_KINDS.RENDER_MODE_INSPECTION,
+      phase: LIFECYCLE_PHASES.STARTED,
+      message: "Inspecting render mode...",
+      busy: true,
+      operationId: "render-mode:12:1",
+      reason: "render-mode-inspection",
+      source: "background",
+      contentMode: "marking",
+      markingEnabled: true,
+      pageUrl: "https://example.com/page",
+    }, "activation:ignored-non-activation");
+
+    expect(activation.lastLifecycle).toMatchObject({
+      kind: LIFECYCLE_KINDS.ACTIVATION,
+      phase: LIFECYCLE_PHASES.STARTED,
+      operationId: "activation:12:1",
     });
   });
 });

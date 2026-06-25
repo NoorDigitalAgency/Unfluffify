@@ -279,12 +279,54 @@ export function createPopupStateBroker(options = {}) {
     return broadcastBrokerState(normalizedTabId, "popup-state-broker:lifecycle-update");
   }
 
+  function clearLifecycleState(
+    tabId: unknown,
+    options: Readonly<{
+      kinds?: readonly string[];
+      reason?: string;
+      runtimeLifecycle?: Readonly<Record<string, unknown>> | null;
+    }> = {},
+  ) {
+    const normalizedTabId = normalizeTabId(tabId);
+    if (!normalizedTabId) {
+      return buildBrokerState(normalizedTabId);
+    }
+    const previous = lifecycleStateByTabId.get(normalizedTabId) || null;
+    if (!previous) {
+      return buildBrokerState(normalizedTabId);
+    }
+    const previousKind = typeof previous.kind === "string" ? previous.kind : "";
+    const kinds = Array.isArray(options.kinds)
+      ? options.kinds.filter((kind): kind is string => typeof kind === "string" && kind.length > 0)
+      : [];
+    if (kinds.length > 0 && !kinds.includes(previousKind)) {
+      return buildBrokerState(normalizedTabId);
+    }
+    lifecycleStateByTabId.delete(normalizedTabId);
+    updateRuntime(normalizedTabId, {
+      lifecycle: Object.prototype.hasOwnProperty.call(options, "runtimeLifecycle")
+        ? options.runtimeLifecycle || null
+        : null
+    });
+    appendTrace(normalizedTabId, "lifecycle", "state-clear", {
+      kind: previousKind,
+      reason: typeof options.reason === "string" ? options.reason : "popup-state-broker:lifecycle-clear"
+    });
+    return broadcastBrokerState(
+      normalizedTabId,
+      typeof options.reason === "string" && options.reason
+        ? options.reason
+        : "popup-state-broker:lifecycle-clear"
+    );
+  }
+
   return {
     getSpinnerQueueForTab,
     serializeSpinnerQueue,
     buildBrokerState,
     broadcastBrokerState,
     updateLifecycleState,
+    clearLifecycleState,
     clearNavInspectCurtain
   };
 }

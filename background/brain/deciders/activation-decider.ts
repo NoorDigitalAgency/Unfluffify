@@ -83,8 +83,20 @@ export function mirrorActivationLifecycle(
   lifecycle: PopupLifecycleState,
   reason: string,
 ): ActivationSnapshot {
-  const snapshot = normalizeLifecycleSnapshot(lifecycle);
+  let snapshot = normalizeLifecycleSnapshot(lifecycle);
+  if (
+    snapshot.kind !== LIFECYCLE_KINDS.ACTIVATION &&
+    snapshot.kind !== LIFECYCLE_KINDS.CONTENT_READY
+  ) {
+    return cloneActivationState(store.getOrInit(tabId).activation);
+  }
   const state = store.mutate(tabId, reason, (draft) => {
+    if (!snapshot.operationId && draft.activation.lastLifecycle?.operationId) {
+      snapshot = {
+        ...snapshot,
+        operationId: draft.activation.lastLifecycle.operationId,
+      };
+    }
     draft.activation.lastLifecycle = snapshot;
     if (snapshot.pageUrl) {
       draft.activation.lastContentPageUrl = snapshot.pageUrl;
@@ -96,6 +108,7 @@ export function mirrorActivationLifecycle(
     ) {
       draft.activation.contentReady = true;
       draft.activation.bootstrapStatus = "ready";
+      draft.activation.restorePending = false;
       draft.activation.lastError = "";
       return;
     }

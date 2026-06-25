@@ -7,6 +7,7 @@ import { createBackgroundTransport } from "../../common/bus/transport/background
 import type { PopupLegacySpinnerEntry } from "../../common/bus/contracts/popup-state.js";
 import type { PopupBrokerState } from "../popup-state-broker.js";
 import {
+  getActivationSnapshot as getActivationSnapshotValue,
   mirrorActivationLifecycle as mirrorActivationLifecycleState,
   updateActivationBootstrapState as updateActivationBootstrapStateValue,
 } from "./deciders/activation-decider.js";
@@ -96,6 +97,9 @@ export function createBrain(options: { logger?: Pick<Console, "error"> } = {}) {
       reason: string,
     ) {
       return updateActivationBootstrapStateValue(store, tabId, patch, reason);
+    },
+    getActivationSnapshot(tabId: number) {
+      return getActivationSnapshotValue(store, tabId);
     },
     mirrorLegacySpinnerQueue(tabId: number, queue: readonly PopupLegacySpinnerEntry[], reason: string) {
       return updateSpinnerSelectionsFromLegacyQueue(store, tabId, queue, reason);

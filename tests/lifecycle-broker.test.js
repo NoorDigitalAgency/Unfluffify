@@ -82,6 +82,15 @@ test("background exposes lifecycle and spinner state over broker updates and bus
     /const brokerState = buildBrokerState\(normalizedTabId\);[\s\S]*?brain\.mirrorPopupState\(normalizedTabId, brokerState, "popup-state-broker:seed"\);[\s\S]*?if \(brokerState\.lifecycle\) \{[\s\S]*?brain\.mirrorActivationLifecycle\(normalizedTabId, brokerState\.lifecycle, "popup-state-broker:seed:activation"\);[\s\S]*?\}[\s\S]*?brain\.mirrorLegacySpinnerQueue\(normalizedTabId, brokerState\.spinnerQueue, "popup-state-broker:seed:spinners"\);/
   );
   assert.match(backgroundSource, /if \(message\.type === WORLD_MESSAGE_TYPES\.LIFECYCLE_EVENT\) \{/);
+  assert.match(backgroundSource, /if \(normalizedTabId && isActivationLifecycleKind\(eventKind\)\) \{/);
+  assert.match(backgroundSource, /const runtimeLifecycle = buildRuntimeLifecycleSnapshot\([\s\S]*?normalizedTabId,[\s\S]*?event[\s\S]*?\);/);
+  assert.match(backgroundSource, /updateTabRuntime\(normalizedTabId, \{[\s\S]*?lifecycle: runtimeLifecycle[\s\S]*?\}\);/);
+  assert.match(backgroundSource, /appendWorldTraceEvent\(normalizedTabId, "lifecycle", "state-update", runtimeLifecycle\);/);
+  assert.match(backgroundSource, /brain\.mirrorActivationLifecycle\([\s\S]*?"background:world-lifecycle-event"/);
+  assert.match(backgroundSource, /if \([\s\S]*?eventKind === LIFECYCLE_KINDS\.ACTIVATION[\s\S]*?isLifecycleTerminalPhase\(eventPhase\)[\s\S]*?\) \{[\s\S]*?removeBackgroundSpinnerEntry\(normalizedTabId, "navInspect"\);/);
+  assert.match(backgroundSource, /const currentBrokerLifecycle = buildBrokerState\(normalizedTabId\)\.lifecycle;/);
+  assert.match(backgroundSource, /const shouldClearPopupLifecycleAuthority = Boolean\([\s\S]*?!currentBrokerLifecycle[\s\S]*?currentBrokerLifecycle\.busy !== true[\s\S]*?isActivationLifecycleKind\(currentBrokerLifecycleKind\)/);
+  assert.match(backgroundSource, /const state = shouldClearPopupLifecycleAuthority[\s\S]*?clearLifecycleState\(normalizedTabId, \{[\s\S]*?reason: "popup-state-broker:lifecycle-clear:activation"[\s\S]*?runtimeLifecycle[\s\S]*?\}\)[\s\S]*?: buildBrokerState\(normalizedTabId\);/);
   assert.doesNotMatch(backgroundSource, /if \(message\.type === WORLD_MESSAGE_TYPES\.GET_BACKGROUND_STATE\) \{/);
   assert.match(backgroundSource, /brain\.bus\.registerHandler\(SPINNER_REQUEST_TYPES\.SET, \(payload(?:\s*:\s*[^,)]+)?, meta\) => \{/);
   assert.match(backgroundSource, /brain\.bus\.registerHandler\(SPINNER_REQUEST_TYPES\.REMOVE, \(payload(?:\s*:\s*[^,)]+)?, meta\) => \{/);

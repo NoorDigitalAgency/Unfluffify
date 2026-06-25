@@ -161,6 +161,43 @@ test("popup-state broker terminal curtain-bearing lifecycle removes nav inspect 
   assert.deepEqual(mirroredStates[0].state.spinnerQueue, []);
 });
 
+test("popup-state broker can clear only activation-scoped lifecycle state", () => {
+  const lifecycleStateByTabId = new Map([
+    [5, { kind: LIFECYCLE_KINDS.ACTIVATION, phase: LIFECYCLE_PHASES.STARTED }],
+    [6, { kind: LIFECYCLE_KINDS.RENDER_MODE_INSPECTION, phase: LIFECYCLE_PHASES.STARTED }]
+  ]);
+  const mirroredStates = [];
+  const broker = createPopupStateBroker({
+    lifecycleStateByTabId,
+    spinnerQueueByTabId: new Map(),
+    popupStatePortsByTabId: new Map(),
+    normalizeTabId,
+    ensureTraceState: () => ({ events: [] }),
+    isWorldTraceEnabled: () => false,
+    appendTrace: () => {},
+    updateRuntime: () => {},
+    syncPopupView(tabId, state, reason) {
+      mirroredStates.push({ tabId, state, reason });
+    }
+  });
+
+  const cleared = broker.clearLifecycleState(5, {
+    kinds: [LIFECYCLE_KINDS.ACTIVATION, LIFECYCLE_KINDS.CONTENT_READY],
+    reason: "popup-state-broker:lifecycle-clear:activation"
+  });
+  const untouched = broker.clearLifecycleState(6, {
+    kinds: [LIFECYCLE_KINDS.ACTIVATION, LIFECYCLE_KINDS.CONTENT_READY],
+    reason: "popup-state-broker:lifecycle-clear:activation"
+  });
+
+  assert.equal(lifecycleStateByTabId.has(5), false);
+  assert.equal(lifecycleStateByTabId.has(6), true);
+  assert.equal(cleared.lifecycle, null);
+  assert.equal(untouched.lifecycle.kind, LIFECYCLE_KINDS.RENDER_MODE_INSPECTION);
+  assert.equal(mirroredStates.length, 1);
+  assert.equal(mirroredStates[0].reason, "popup-state-broker:lifecycle-clear:activation");
+});
+
 test("popup-state broker serializes active spinner lease metadata", () => {
   const spinnerQueueByTabId = new Map([
     [7, new Map([

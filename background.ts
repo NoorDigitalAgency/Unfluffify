@@ -46,6 +46,7 @@ import {
   type SpinnerRemoveRequestPayload,
   type SpinnerSetRequestPayload
 } from "./common/bus/contracts/spinner.js";
+import type { PopupLifecycleState } from "./common/bus/contracts/popup-state.js";
 import * as constants from "./common/constants.js";
 import {
   normalizeSiteIdValue
@@ -60,6 +61,7 @@ import {
   LIFECYCLE_KINDS,
   LIFECYCLE_PHASES,
   SPINNER_OWNERS,
+  isLifecycleTerminalPhase,
   WORLD_MESSAGE_TYPES,
   WORLD_PORTS
 } from "./common/world-messaging-contract.js";
@@ -2158,6 +2160,7 @@ const serializeSpinnerQueue = popupStateBroker.serializeSpinnerQueue;
 const buildBrokerState = popupStateBroker.buildBrokerState;
 const broadcastBrokerState = popupStateBroker.broadcastBrokerState;
 const updateLifecycleState = popupStateBroker.updateLifecycleState;
+const clearLifecycleState = popupStateBroker.clearLifecycleState;
 // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 const clearNavInspectCurtain = popupStateBroker.clearNavInspectCurtain;
 const popupStateSeedTabIds = new Set<number>();
@@ -2207,6 +2210,62 @@ function setBackgroundSpinnerEntry(tabId, key, entry = {}) {
 // @ts-expect-error
 function removeBackgroundSpinnerEntry(tabId, key) {
   return spinnerOperations.removeBackgroundSpinnerEntry(tabId, key);
+}
+
+function isActivationLifecycleKind(kind: unknown): boolean {
+  return kind === LIFECYCLE_KINDS.ACTIVATION || kind === LIFECYCLE_KINDS.CONTENT_READY;
+}
+
+function isStaleActivationTerminalEvent(
+  tabId: number,
+  event: PopupLifecycleState = {}
+): boolean {
+  const eventKind = typeof event.kind === "string" ? event.kind : "";
+  const eventPhase = typeof event.phase === "string" ? event.phase : "";
+  const eventOperationId = typeof event.operationId === "string" ? event.operationId : "";
+  if (
+    eventKind !== LIFECYCLE_KINDS.ACTIVATION ||
+    !isLifecycleTerminalPhase(eventPhase) ||
+    !eventOperationId
+  ) {
+    return false;
+  }
+  const currentOperationId = brain.getActivationSnapshot(tabId).lastLifecycle?.operationId || "";
+  return Boolean(currentOperationId && currentOperationId !== eventOperationId);
+}
+
+function buildRuntimeLifecycleSnapshot(
+  tabId: number,
+  event: PopupLifecycleState = {}
+): Record<string, string | number | boolean | null> {
+  const previousRuntime = getTabRuntimeSnapshot(tabId);
+  const previous: Record<string, unknown> = previousRuntime &&
+    previousRuntime.lifecycle &&
+    typeof previousRuntime.lifecycle === "object"
+    ? previousRuntime.lifecycle
+    : {};
+  const eventOperationId = typeof event.operationId === "string" && event.operationId
+    ? event.operationId
+    : "";
+  const eventKind = typeof event.kind === "string" && event.kind ? event.kind : "";
+  const eventPhase = typeof event.phase === "string" && event.phase ? event.phase : "";
+  const hasBusy = Object.prototype.hasOwnProperty.call(event, "busy");
+  return {
+    ...previous,
+    ...event,
+    operationId: eventOperationId
+      ? eventOperationId
+      : (typeof previous.operationId === "string" && previous.operationId)
+        ? previous.operationId
+        : `lifecycle:${tabId}:${Date.now()}`,
+    kind: eventKind || (typeof previous.kind === "string" ? previous.kind : "") || LIFECYCLE_KINDS.UNKNOWN,
+    phase: eventPhase || (typeof previous.phase === "string" ? previous.phase : "") || LIFECYCLE_PHASES.UNKNOWN,
+    message: typeof event.message === "string"
+      ? event.message
+      : (typeof previous.message === "string" ? previous.message : ""),
+    busy: hasBusy ? Boolean(event.busy) : Boolean(previous.busy),
+    updatedAt: Date.now()
+  };
 }
 
 // @ts-expect-error
@@ -2672,7 +2731,55 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === WORLD_MESSAGE_TYPES.LIFECYCLE_EVENT) {
     const tabId = getMessageTabId(message, sender);
-    const state = updateLifecycleState(tabId, message.event || {});
+    const normalizedTabId = normalizeBrokerTabId(tabId);
+    const event = message.event && typeof message.event === "object"
+      ? message.event
+      : {};
+    const eventKind = typeof event.kind === "string" ? event.kind : "";
+    const eventPhase = typeof event.phase === "string" ? event.phase : "";
+    if (normalizedTabId && isActivationLifecycleKind(eventKind)) {
+      if (isStaleActivationTerminalEvent(normalizedTabId, event)) {
+        sendResponse(buildBrokerState(normalizedTabId));
+        return;
+      }
+      const runtimeLifecycle = buildRuntimeLifecycleSnapshot(
+        normalizedTabId,
+        event
+      );
+      updateTabRuntime(normalizedTabId, {
+        lifecycle: runtimeLifecycle
+      });
+      appendWorldTraceEvent(normalizedTabId, "lifecycle", "state-update", runtimeLifecycle);
+      brain.mirrorActivationLifecycle(
+        normalizedTabId,
+        event,
+        "background:world-lifecycle-event"
+      );
+      if (
+        eventKind === LIFECYCLE_KINDS.ACTIVATION &&
+        isLifecycleTerminalPhase(eventPhase)
+      ) {
+        removeBackgroundSpinnerEntry(normalizedTabId, "navInspect");
+      }
+      const currentBrokerLifecycle = buildBrokerState(normalizedTabId).lifecycle;
+      const currentBrokerLifecycleKind = typeof currentBrokerLifecycle?.kind === "string"
+        ? currentBrokerLifecycle.kind
+        : "";
+      const shouldClearPopupLifecycleAuthority = Boolean(
+        !currentBrokerLifecycle ||
+        currentBrokerLifecycle.busy !== true ||
+        isActivationLifecycleKind(currentBrokerLifecycleKind)
+      );
+      const state = shouldClearPopupLifecycleAuthority
+        ? clearLifecycleState(normalizedTabId, {
+          reason: "popup-state-broker:lifecycle-clear:activation",
+          runtimeLifecycle
+        })
+        : buildBrokerState(normalizedTabId);
+      sendResponse(state);
+      return;
+    }
+    const state = updateLifecycleState(tabId, event);
     sendResponse(state);
     return;
   }
