@@ -222,6 +222,16 @@ import type {
 import type { PageMarkingEntry, PageSaveReconciliation } from "./types/config.ts";
 
 const { state } = stateModule;
+const popupDebugTarget = globalThis as typeof globalThis & {
+  __UNFLUFFIFY_POPUP_DEBUG__?: {
+    getViewState: typeof uiModule.getViewState;
+  };
+};
+
+popupDebugTarget.__UNFLUFFIFY_POPUP_DEBUG__ = {
+  getViewState: uiModule.getViewState,
+};
+
 const PAGE_SAVE_SYNC_MAX_ATTEMPTS = 5;
 const PAGE_SAVE_SYNC_INITIAL_RETRY_DELAY_MS = 1500;
 const PAGE_SAVE_SYNC_MAX_RETRY_DELAY_MS = 10000;

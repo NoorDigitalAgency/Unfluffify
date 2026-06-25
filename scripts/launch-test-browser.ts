@@ -240,8 +240,11 @@ function buildLiveStateScript(action: "state" | "exit-preview"): string {
 
   async function collectPopupState() {
     const popupState = await popup.evaluate(async () => {
-      const ui = await import(chrome.runtime.getURL('popup/ui.js'));
-      const view = ui.getViewState();
+      const popupDebug = window.__UNFLUFFIFY_POPUP_DEBUG__;
+      if (!popupDebug || typeof popupDebug.getViewState !== 'function') {
+        throw new Error('Popup debug hook is unavailable');
+      }
+      const view = popupDebug.getViewState();
       const viewKeys = [
         'previewActive',
         'previewBlocked',

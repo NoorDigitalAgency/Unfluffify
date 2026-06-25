@@ -53,20 +53,25 @@ test("package script stages runtime files and excludes repo-only files", async (
     assert.equal(metadata.stagedFiles.includes("manifest.json"), true);
     assert.equal(metadata.stagedFiles.includes("background.js"), true);
     assert.equal(metadata.stagedFiles.includes("popup.html"), true);
-    assert.equal(metadata.stagedFiles.includes("content-loader.js"), true);
-    assert.equal(metadata.stagedFiles.includes("common/page-motion-freeze-bridge.js"), true);
+    assert.equal(metadata.stagedFiles.includes("content-scripts/content-loader.js"), true);
+    assert.equal(metadata.stagedFiles.includes("content-scripts/page-motion-freeze-bridge.js"), true);
     assert.equal(metadata.stagedFiles.includes("content-main.js"), false);
-    assert.equal(metadata.stagedFiles.includes("content/submission-rules.js"), true);
-    assert.equal(metadata.stagedFiles.includes("common/config.js"), true);
+    assert.equal(metadata.stagedFiles.includes("content/submission-rules.js"), false);
+    assert.equal(metadata.stagedFiles.includes("common/config.js"), false);
+    assert.equal(metadata.stagedFiles.includes("cursors/exclude.svg"), true);
+    assert.equal(metadata.stagedFiles.includes("cursors/include.svg"), true);
     assert.equal(metadata.stagedFiles.includes("icons/default/icon16.png"), true);
 
     assert.equal(metadata.stagedFiles.includes("README.md"), false);
     assert.equal(metadata.stagedFiles.includes(".github/workflows/build-extension-package.yml"), false);
     assert.equal(metadata.stagedFiles.some((filePath) => filePath.startsWith("tests/")), false);
 
-    assert.equal(existsSync(path.join(stageDir, "common/page-motion-freeze-bridge.js")), true);
-    assert.equal(existsSync(path.join(stageDir, "content/submission-rules.js")), true);
-    assert.equal(existsSync(path.join(stageDir, "common/config.js")), true);
+    assert.equal(existsSync(path.join(stageDir, "content-scripts/page-motion-freeze-bridge.js")), true);
+    assert.equal(existsSync(path.join(stageDir, "content-scripts/content-loader.js")), true);
+    assert.equal(existsSync(path.join(stageDir, "content/submission-rules.js")), false);
+    assert.equal(existsSync(path.join(stageDir, "common/config.js")), false);
+    assert.equal(existsSync(path.join(stageDir, "cursors/exclude.svg")), true);
+    assert.equal(existsSync(path.join(stageDir, "cursors/include.svg")), true);
     assert.equal(existsSync(path.join(stageDir, "icons/default/icon128.png")), true);
     assert.equal(existsSync(path.join(stageDir, "popup.html")), true);
   } finally {

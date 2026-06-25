@@ -31,7 +31,7 @@ Use these documents before making implementation changes:
     make WXT bundle the real entry graphs, drop esbuild + the `legacy/` mirror,
     eliminate `content/*` WAR, and adopt `wxt/browser` + `wxt/utils/storage` +
     `@webext-core/messaging` (one-shot only) beneath the typed bus / Brain /
-    layer hosts; C0 complete, C1 ready).
+    layer hosts; C0-C5 complete, C6 ready).
 
 Historical and superseded `.copilot` plans/handoffs have been removed from the
 workspace. If earlier rationale is needed, use git history instead of restoring
@@ -72,10 +72,16 @@ The active track is now `.copilot/wxt-native-adoption-plan.md`:
    popup/live-debug tooling and mirrored root background/popup runtime keep
    working, and the raw `activateContentMain` reply contract remains intact for
    background bootstrap compatibility.
-6. **C5 is next**: retire the remaining hybrid esbuild/sync bridge ownership so
-   the output/package shape stops depending on mirrored legacy runtime files and
-   source-manifest path aliasing.
-7. The prior event-bus program remains complete through Track 3 in
+6. **C5 is complete**: the esbuild build, `legacy/` mirror, and standalone sync
+   bridge are gone. `pnpm build` now runs pure `wxt build`; the source manifest
+   and manual injection path use native `content-scripts/*` outputs; WXT hooks
+   restore the source `action` block and copy the stable manifest/cursor/icon
+   asset paths; package staging expands wildcard WAR assets; and the live
+   browser launcher reads popup state through the popup debug hook instead of
+   mirrored `popup/ui.js`.
+7. **C6 is next**: adopt the `wxt/browser` polyfill behind a repo seam while
+   preserving Chrome-only API exceptions explicitly.
+8. The prior event-bus program remains complete through Track 3 in
    `.copilot/event-bus-architecture-plan.md`; Part C preserves that higher-level
    architecture and replaces only the lower-level packaging/runtime seams.
 

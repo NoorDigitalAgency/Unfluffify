@@ -142,8 +142,60 @@ async function isFile(filePath) {
   }
 }
 
+async function expandManifestResource(resourcePath) {
+  if (typeof resourcePath !== "string") {
+    return [];
+  }
+
+  if (!resourcePath.includes("*")) {
+    const normalized = normalizeRelativePath(resourcePath);
+    return normalized ? [normalized] : [];
+  }
+
+  const wildcardIndex = resourcePath.indexOf("*");
+  const slashIndex = resourcePath.lastIndexOf("/", wildcardIndex);
+  if (slashIndex < 0) {
+    return [];
+  }
+
+  const directory = normalizeRelativePath(resourcePath.slice(0, slashIndex));
+  if (!directory) {
+    return [];
+  }
+
+  const prefix = resourcePath.slice(slashIndex + 1, wildcardIndex);
+  const suffix = resourcePath.slice(wildcardIndex + 1);
+  const directoryPath = join(SOURCE_ROOT, directory);
+  const matches = [];
+
+  try {
+    for await (const entry of Deno.readDir(directoryPath)) {
+      if (!entry.isFile) {
+        continue;
+      }
+      if (prefix && !entry.name.startsWith(prefix)) {
+        continue;
+      }
+      if (suffix && !entry.name.endsWith(suffix)) {
+        continue;
+      }
+      matches.push(normalizeRelativePath(join(directory, entry.name)));
+    }
+  } catch {
+    return [];
+  }
+
+  return matches.filter(Boolean);
+}
+
 async function collectManifestEntryPoints(manifest) {
   const entryPoints = new Set(["manifest.json"]);
+  for (const extensionPage of ["popup.html", "offscreen.html"]) {
+    const absolutePath = join(SOURCE_ROOT, extensionPage);
+    if (await isFile(absolutePath)) {
+      entryPoints.add(extensionPage);
+    }
+  }
 
   if (manifest && manifest.background && typeof manifest.background.service_worker === "string") {
     entryPoints.add(normalizeRelativePath(manifest.background.service_worker));
@@ -186,10 +238,13 @@ async function collectManifestEntryPoints(manifest) {
 
   for (const resourceGroup of Array.isArray(manifest.web_accessible_resources) ? manifest.web_accessible_resources : []) {
     for (const resourcePath of Array.isArray(resourceGroup && resourceGroup.resources) ? resourceGroup.resources : []) {
-      if (typeof resourcePath !== "string" || resourcePath.includes("*")) {
+      if (typeof resourcePath !== "string") {
         continue;
       }
-      entryPoints.add(normalizeRelativePath(resourcePath));
+      const expandedPaths = await expandManifestResource(resourcePath);
+      for (const expandedPath of expandedPaths) {
+        entryPoints.add(expandedPath);
+      }
     }
   }
 

@@ -42,8 +42,8 @@
 - Use pnpm/WXT as the primary release/CI toolchain: `pnpm lint`, `pnpm check`,
   `pnpm test`, `pnpm build`, `pnpm zip`, and `pnpm verify`.
 - Keep Deno only as an internal implementation dependency behind the pnpm
-  scripts and for the remaining orchestration tasks while the runtime bridge
-  still depends on legacy-built modules.
+  scripts and for the remaining orchestration/browser tasks; the shipped
+  extension build itself is now WXT-native.
 - `deno task <script>` can still resolve npm scripts implicitly via
   `package.json`, but the supported/public workflow is pnpm-first and docs/tests
   should treat those Deno aliases as unsupported compatibility fallbacks.
@@ -53,15 +53,17 @@
 - WXT treats `entrypoints/popup.html` / `entrypoints/popup/index.html` as a
   special popup entrypoint and auto-generates `action.default_popup`. When the
   source-of-truth manifest intentionally omits that field (as Unfluffify does
-  for side-panel-driven popup opening), the generated manifest must be bridged
-  back to the source `action` block before shipping.
-- WXT emits content-script bundles under `content-scripts/<name>.js`. If the
-  current runtime and manifest contract depend on legacy root-relative paths such
-  as `content-loader.js`, a post-build bridge must materialize those alias files
-  and restore the source manifest's `content_scripts` entries. MAIN-world bridge
-  scripts are stricter: if they are not web-accessible, they cannot be
-  runtime-imported from a page-world wrapper and must keep shipping as their
-  original root artifact until a safe replacement exists.
+  for side-panel-driven popup opening), the generated manifest still needs its
+  `action` block restored to the source contract before shipping.
+- WXT emits content-script bundles under `content-scripts/<name>.js`. After C5,
+  Unfluffify's source manifest and manual injection paths use those native WXT
+  output paths directly instead of materializing root alias files.
+- The WXT build must also copy stable manifest-named public assets into the
+  output root: `assets/materialdesignicons-webfont.woff2`,
+  `cursors/exclude.svg`, `cursors/include.svg`, and the default icon set under
+  `icons/default/`. WXT still emits hashed CSS/font assets for the popup bundle,
+  but the manifest, cursor `getURL(...)` calls, and package staging contract
+  depend on these stable output paths existing alongside the hashed assets.
 - Do not import the legacy browser-source entry roots directly from WXT
   entrypoint definition files. WXT imports those files in Node during
   prepare/build, which drags browser code into the WXT/Node typecheck and
@@ -83,14 +85,15 @@
   `WindowOrWorkerGlobalScope` timer API) so popup state fields, spinner
   watchdogs, and async-message timeouts remain compatible with the WXT browser
   typecheck.
-- After C4 native-bundles the content runtime, do **not** strip the mirrored
-  root `common/*` or `content/*` support modules from `.output/chrome-mv3` yet.
-  The live browser launcher's popup inspection path still imports
-  `chrome.runtime.getURL("popup/ui.js")`, which transitively depends on root
-  `common/*`, and the mirrored root background/popup graph still imports root
-  `content/*` modules such as `content/submission-rules.js`. Only the root
-  `content-main.js` artifact can stop being mirrored in C4; the broader root
-  support trees must stay until C5 retires the remaining hybrid root runtime.
+- The live browser launcher no longer imports `chrome.runtime.getURL("popup/ui.js")`
+  from the built extension. Popup live-debug inspection now reads
+  `window.__UNFLUFFIFY_POPUP_DEBUG__.getViewState()` from the running popup page
+  so the build can stay WXT-native without mirroring the old popup module tree.
+- `scripts/package-extension.mjs` must expand wildcard manifest
+  `web_accessible_resources` entries (currently `cursors/*.svg`) when staging
+  the release zip. The bundled content script references those cursor assets via
+  runtime `getURL(...)`, so only reading literal quoted JS imports is not enough
+  to produce a complete release package.
 - Even after the content entrypoint native-bundles `content-main.ts`, the raw
   runtime message handshake `chrome.tabs.sendMessage(tabId, { type:
   "activateContentMain" })` must keep returning `{ ok: true, initialized: true
@@ -154,7 +157,7 @@
   core unflagged behavior when automated validation is not enough, while
   flag-disabled property-lock follow-ups may defer live
   validation until those features are prioritized.
-- Part C native WXT runtime adoption is active on `feat/wxt-port-plan`. C0-C4
+- Part C native WXT runtime adoption is active on `feat/wxt-port-plan`. C0-C5
   are complete: C2 proved that the background service worker can be
   native-bundled by making startup explicit behind `startBackground()` while the
   root `background.ts` still self-starts for the legacy esbuild path, and C3
@@ -164,7 +167,12 @@
   code WAR is removed, the MAIN-world bridge is aliased back onto the source
   manifest path, the root `content-main.js` artifact is retired, and the legacy
   `activateContentMain` reply contract stays intact for background bootstrap
-  compatibility while the remaining mirrored root support modules wait for C5.
+  compatibility. C5 removed the esbuild build, the `legacy/` mirror, and the
+  standalone sync bridge: `pnpm build` is now pure `wxt build`, the source
+  manifest uses native `content-scripts/*` paths, stable public assets are
+  copied through WXT hooks, popup live-debug state comes from the popup debug
+  hook instead of mirrored `popup/ui.js`, and the only remaining manifest
+  override is restoring the source `action` block to omit `default_popup`.
 
 ## Popup Preview Exit Contract
 

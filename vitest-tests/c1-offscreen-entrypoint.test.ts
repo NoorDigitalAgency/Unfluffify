@@ -12,13 +12,11 @@ describe("C1 offscreen entrypoint", () => {
     );
     const rootSource = readFileSync(resolve(REPO_ROOT, "offscreen.ts"), "utf8");
     const bootstrapSource = readFileSync(resolve(REPO_ROOT, "offscreen", "bootstrap.ts"), "utf8");
-    const buildScriptSource = readFileSync(resolve(REPO_ROOT, "scripts", "build-extension.ts"), "utf8");
 
     expect(entrypointSource).not.toContain('legacy/offscreen.js');
     expect(entrypointSource).toContain('../../offscreen/bootstrap.js');
     expect(rootSource).toContain('./offscreen/bootstrap.js');
     expect(bootstrapSource).toContain("export function startOffscreen");
     expect(bootstrapSource).toContain("chrome.runtime.onMessage.addListener");
-    expect(buildScriptSource).toMatch(/ROOT_DIRS = \[[^\]]*"offscreen"/s);
   });
 });

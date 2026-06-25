@@ -45,14 +45,11 @@ test("repo-wide deno lint excludes approved legacy/browser rules only", () => {
 });
 
 test("public pnpm script entrypoints resolve Deno instead of assuming PATH", () => {
-  const buildScript = readFileSync(new URL("../scripts/build-extension.ts", import.meta.url));
   const launchScript = readFileSync(new URL("../scripts/launch-test-browser.ts", import.meta.url));
   const resolverScript = readFileSync(new URL("../scripts/deno-executable.ts", import.meta.url));
 
-  assert.equal(buildScript.includes('new Deno.Command("deno"'), false);
   assert.equal(launchScript.includes('new Deno.Command("deno"'), false);
   assert.equal(launchScript.includes('run("deno"'), false);
-  assert.equal(buildScript.includes("resolveDenoExecutable"), true);
   assert.equal(launchScript.includes("resolveDenoExecutable"), true);
   assert.equal(resolverScript.includes('Deno.env.get("DENO_BIN")'), true);
 });

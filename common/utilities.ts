@@ -54,7 +54,7 @@ export async function injectContentScript(tabId: number, options: { force?: unkn
   try {
     await chrome.scripting.executeScript({
       target: { tabId },
-      files: ["content-loader.js"]
+      files: ["content-scripts/content-loader.js"]
     });
     await setStoredScriptInjectedState(tabId, true);
     return { ok: true };

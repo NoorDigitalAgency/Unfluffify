@@ -95,7 +95,8 @@ ready banner appears, the launcher prints:
 If your host environment supports writing to the running shell session, use the
 launcher's stdin control channel with that same `shellId` to send commands:
 
-- `state` — captures the bound popup's `popup/ui.js#getViewState()` fields,
+- `state` — captures the bound popup's
+  `window.__UNFLUFFIFY_POPUP_DEBUG__.getViewState()` fields,
   live DOM state for `#compute`, `#marking-preview`, `#page-save`,
   `#page-revert`, and `#toggle-enabled`, plus a target-page summary and open
   page URLs.
@@ -129,7 +130,8 @@ await browser.close();
 '
 ```
 
-Use that CDP connection to evaluate popup state (`import(chrome.runtime.getURL("popup/ui.js"))`),
+Use that CDP connection to evaluate popup state
+(`window.__UNFLUFFIFY_POPUP_DEBUG__.getViewState()`),
 click popup controls, inspect the target page, and capture screenshots/logs.
 Close only the CDP client (`browser.close()`); do not kill the launcher unless
 you intend to close the live browser.

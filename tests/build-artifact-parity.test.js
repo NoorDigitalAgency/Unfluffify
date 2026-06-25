@@ -4,7 +4,7 @@ import { readFileSync, existsSync, fileURLToPath } from "./file-kit.ts";
 import { path } from "./file-kit.ts";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const DIST_ROOT = path.join(REPO_ROOT, "dist", "extension");
+const OUTPUT_ROOT = path.join(REPO_ROOT, ".output", "chrome-mv3");
 
 function normalizePath(value) {
   if (typeof value !== "string") {
@@ -13,18 +13,19 @@ function normalizePath(value) {
   return value.replace(/\\/g, "/").replace(/^\/+/, "");
 }
 
-test("dist extension manifest and resources resolve when release build exists", () => {
-  if (!existsSync(DIST_ROOT)) {
+test("generated extension manifest and resources resolve when build output exists", () => {
+  if (!existsSync(OUTPUT_ROOT)) {
     return;
   }
 
-  const manifestPath = path.join(DIST_ROOT, "manifest.json");
-  assert.equal(existsSync(manifestPath), true, "dist manifest.json should exist");
+  const manifestPath = path.join(OUTPUT_ROOT, "manifest.json");
+  assert.equal(existsSync(manifestPath), true, "generated manifest.json should exist");
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
 
   const required = new Set();
   required.add("manifest.json");
-  required.add("logo.png");
+  required.add("popup.html");
+  required.add("offscreen.html");
 
   if (manifest?.background?.service_worker) {
     required.add(normalizePath(manifest.background.service_worker));
@@ -51,6 +52,9 @@ test("dist extension manifest and resources resolve when release build exists", 
   }
 
   for (const rel of required) {
-    assert.equal(existsSync(path.join(DIST_ROOT, rel)), true, `missing dist file: ${rel}`);
+    assert.equal(existsSync(path.join(OUTPUT_ROOT, rel)), true, `missing generated file: ${rel}`);
   }
+
+  assert.equal(existsSync(path.join(OUTPUT_ROOT, "cursors/exclude.svg")), true, "missing generated file: cursors/exclude.svg");
+  assert.equal(existsSync(path.join(OUTPUT_ROOT, "cursors/include.svg")), true, "missing generated file: cursors/include.svg");
 });

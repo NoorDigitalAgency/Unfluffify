@@ -51,7 +51,7 @@ test("page-motion-freeze bridge registered at document_start in the MAIN world",
     readFileSync(new URL("../manifest.json", import.meta.url), "utf8")
   );
   const bridgeEntry = (manifest.content_scripts || []).find(
-    (entry) => Array.isArray(entry.js) && entry.js.includes("common/page-motion-freeze-bridge.js")
+    (entry) => Array.isArray(entry.js) && entry.js.includes("content-scripts/page-motion-freeze-bridge.js")
   );
   assert.ok(bridgeEntry, "Expected a content_scripts entry for the bridge");
   assert.equal(bridgeEntry.run_at, "document_start");

@@ -18,6 +18,8 @@ describe("C3 popup entrypoint", () => {
 
     expect(entrypointSource).toContain('import "../../popup.js";');
     expect(entrypointSource).not.toContain("legacy/popup.js");
+    expect(popupSource).toContain("__UNFLUFFIFY_POPUP_DEBUG__");
+    expect(popupSource).toContain("getViewState: uiModule.getViewState");
     expect(popupSource).toContain("async function init()");
     expect(popupSource).toContain("init();");
     expect([...popupHtml.matchAll(/<link rel="stylesheet" href="([^"]+)"/g)].map((match) => match[1])).toEqual([

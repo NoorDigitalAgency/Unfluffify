@@ -15,10 +15,6 @@ describe("C4 content entrypoints", () => {
       "utf8",
     );
     const contentMainSource = readFileSync(resolve(REPO_ROOT, "content-main.ts"), "utf8");
-    const syncScriptSource = readFileSync(
-      resolve(REPO_ROOT, "scripts", "sync-wxt-bootstrap.mjs"),
-      "utf8",
-    );
 
     expect(contentEntrypointSource).toContain('import { exposeDebugSpinnerQueueTabId, main } from "../content-main.js";');
     expect(contentEntrypointSource).not.toContain("legacy/content-loader.js");
@@ -30,7 +26,5 @@ describe("C4 content entrypoints", () => {
     expect(contentMainSource).toContain("export function main()");
     expect(contentMainSource).toContain("if (state.initialized) {");
     expect(contentMainSource).toContain("export function exposeDebugSpinnerQueueTabId()");
-    expect(syncScriptSource).toContain('destination: join("common", "page-motion-freeze-bridge.js")');
-    expect(syncScriptSource).toContain('return relPath === "content-main.js";');
   });
 });

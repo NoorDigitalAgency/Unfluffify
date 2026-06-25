@@ -31,7 +31,7 @@
         "<all_urls>"
       ],
       "js": [
-        "common/page-motion-freeze-bridge.js"
+        "content-scripts/page-motion-freeze-bridge.js"
       ],
       "run_at": "document_start",
       "all_frames": true,
@@ -42,7 +42,7 @@
         "<all_urls>"
       ],
       "js": [
-        "content-loader.js"
+        "content-scripts/content-loader.js"
       ],
       "run_at": "document_start"
     }

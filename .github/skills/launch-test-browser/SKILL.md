@@ -106,7 +106,8 @@ the ready banner appears, the launcher prints:
 If your host environment supports writing to the running shell session, use the
 launcher's stdin control channel with the same `shellId`:
 
-- `state` captures the bound popup's `popup/ui.js#getViewState()` button fields,
+- `state` captures the bound popup's
+  `window.__UNFLUFFIFY_POPUP_DEBUG__.getViewState()` button fields,
   the live DOM state for `#compute`, `#marking-preview`, `#page-save`,
   `#page-revert`, and `#toggle-enabled`, a target-page summary, and open page
   URLs.
@@ -139,8 +140,8 @@ await browser.close();
 ```
 
 Through that CDP connection you can evaluate popup state with
-`import(chrome.runtime.getURL("popup/ui.js"))`, click popup controls, observe the
-target page, and capture screenshots/logs. Close only the CDP client with
+`window.__UNFLUFFIFY_POPUP_DEBUG__.getViewState()`, click popup controls,
+observe the target page, and capture screenshots/logs. Close only the CDP client with
 `browser.close()`; stop the launcher only when the live browser should close.
 
 ### 4. Reload after every rebuild

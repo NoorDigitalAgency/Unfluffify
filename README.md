@@ -42,7 +42,7 @@ node ./scripts/run-deno.mjs run -A ./scripts/package-extension.mjs --stage-dir .
 ## Development Workflow
 
 Run `pnpm install` once after cloning if you want to use the checked-in WXT/pnpm
-toolchain or the hybrid verification path.
+toolchain.
 
 Common local release/CI commands:
 
@@ -57,9 +57,7 @@ pnpm browser:live <target-url>
 pnpm verify
 ```
 
-`pnpm dev` runs the watched development bridge build through the legacy Deno
-build script and refreshes `dist/extension-dev` while the runtime bridge still
-depends on those legacy-built modules.
+`pnpm dev` runs the WXT development server for the unpacked extension output.
 
 `pnpm verify` is the current release/CI verification path: it runs lint, type
 check, the Vitest suite, rebuilds the synced WXT output, and then runs the
@@ -70,20 +68,13 @@ Treat the pnpm commands above as the supported public workflow. `deno task
 are no longer documented or supported as the primary command surface.
 
 The eventual cutover command surface is tracked in `.copilot/wxt-port-plan.md`
-and will replace the Deno workflow phase-by-phase. As of the current A6 bridge,
-`pnpm build` now produces a runnable WXT output under `.output/chrome-mv3`:
-WXT owns the safe runtime roots (`content-loader.js`, `popup.html`, and
-`offscreen.html`), while `background.js` and
-`common/page-motion-freeze-bridge.js` still ship from the mirrored legacy root
-artifacts. The current Deno release tree is also mirrored under
-`.output/chrome-mv3/legacy/` and root support modules/assets are copied over so
-existing `chrome.runtime.getURL(...)` paths keep working. The final manifest is
-bridged back to the current source contract (including no `action.default_popup`
-and the legacy content-script paths) until full manifest authority moves into
-WXT in a later phase.
+and is now WXT-native for the shipped extension pipeline. `pnpm build` produces
+the runnable unpacked extension under `.output/chrome-mv3`, and the only
+remaining manifest bridge is the source-owned `action` block so WXT's popup
+entrypoint does not reintroduce `action.default_popup` into the shipped
+manifest. Content scripts now ship on WXT's native `content-scripts/` paths.
 
-The dev watcher still shells through the legacy Deno build script until a
-watch-time WXT bridge lands. The live-browser launcher now targets the WXT unpacked output:
+The live-browser launcher targets the WXT unpacked output:
 `pnpm browser:live <target-url>` shells through the committed launcher, runs
 `pnpm build` by default, and loads `.output/chrome-mv3` into the managed
 Playwright Chromium.
@@ -116,10 +107,10 @@ deno task orchestrate:property-lock -- --property-url https://example.com/
 
 ## Installation (Developer Mode)
 
-1. Run `pnpm dev` for the watched legacy bridge build, or `pnpm build` for the current WXT build.
+1. Run `pnpm dev` for the WXT development server, or `pnpm build` for the production WXT build.
 2. Open Chrome and navigate to `chrome://extensions`
 3. Enable **Developer mode** (toggle in top right corner)
-4. Click **Load unpacked** and select `dist/extension-dev` for the watched bridge build or `.output/chrome-mv3` for the WXT build.
+4. Click **Load unpacked** and select `.output/chrome-mv3`.
 5. Pin the extension for easy access
 
 ## Testing
@@ -145,7 +136,7 @@ deno test --allow-read --allow-write --allow-env --allow-run --allow-sys --allow
 
 - **`background.js`** - Service worker handling tab state, messaging, device emulation, and cleanup
 - **`popup.js`** - Main popup UI and state management (uses Preact framework)
-- **`content-loader.js`** - Initial content script that loads the main content script
+- **`content-scripts/content-loader.js`** - Initial content script that loads the main content runtime
 - **`content-main.js`** - Main content script that runs on web pages (large, complex logic)
 
 ### Common Utilities (`/common`)
