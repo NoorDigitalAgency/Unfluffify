@@ -14,7 +14,8 @@ refactor track is approved beyond the paused post-H3 state.
 1. `.copilot/knowledge.md`
 2. `.github/instructions/*.instructions.md`
 3. `.github/skills/*/SKILL.md` relevant to the task
-4. `.copilot/wxt-finalization-plan.md` while Phase 5/6 closeout remains active
+4. `.copilot/wxt-finalization-plan.md` when prior WXT finalization decisions or
+   migration rationale are relevant
 5. `.copilot/popup-preview-exit-button-state-plan.md` for popup preview/exit
    behavior
 6. Active TypeScript safety docs when touching ratchets or suppressions:
@@ -61,6 +62,19 @@ removed from the workspace. Use git history if older rationale is needed.
    - generated manifest output must keep stable WAR/icon/cursor paths
 4. For browser/live validation, use only `pnpm browser:live <target-url>` and
    the managed Playwright MCP Chromium.
+
+## Marking Contract Lock
+
+The 052c-derived marking restoration completed on this branch and remains a
+locked compatibility contract. Do not change default-exclusion taxonomy, target resolution, sync semantics, or overlay projection unless the user explicitly asks for a marking contract change.
+
+Key reminders for any future work in this area:
+
+1. Keep silent-highlighting and marking behavior aligned with
+   `MARKING_AND_HIGHLIGHTING_LOGIC.md`.
+2. Keep selector/default precedence and overlay projection behavior unchanged
+   unless the task explicitly authorizes a contract change.
+3. Keep AI submission behavior aligned with the locked contract: submit every stored excluded XPath row as excluded.
 
 ## Validation policy
 
