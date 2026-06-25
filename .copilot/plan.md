@@ -14,17 +14,19 @@ refactor track is approved beyond the paused post-H3 state.
 1. `.copilot/knowledge.md`
 2. `.github/instructions/*.instructions.md`
 3. `.github/skills/*/SKILL.md` relevant to the task
-4. `.copilot/wxt-finalization-plan.md` when prior WXT finalization decisions or
+4. `.copilot/post-wxt-cleanup-plan.md` for the active cleanup/type-safety
+   finalization track
+5. `.copilot/wxt-finalization-plan.md` when prior WXT finalization decisions or
    migration rationale are relevant
-5. `.copilot/popup-preview-exit-button-state-plan.md` for popup preview/exit
+6. `.copilot/popup-preview-exit-button-state-plan.md` for popup preview/exit
    behavior
-6. Active TypeScript safety docs when touching ratchets or suppressions:
+7. Active TypeScript safety docs when touching ratchets or suppressions:
    - `.copilot/full-typesafety-plan.md`
    - `.copilot/full-typesafety-progress.md`
    - `.copilot/ts-expect-error-migration-plan.md`
    - `.copilot/ts-expect-error-migration-progress.md`
    - `.copilot/typescript-typesafety-port-plan.md`
-7. Older retained typing-rollout notes may still exist for historical rationale,
+8. Older retained typing-rollout notes may still exist for historical rationale,
    but validate all commands and paths against the current pnpm/`src/` workflow
    in this document and `.copilot/knowledge.md`.
 
@@ -45,9 +47,11 @@ removed from the workspace. Use git history if older rationale is needed.
    - packaging: `pnpm zip`, `node ./scripts/package-extension.mjs`
    - live browser: `pnpm browser:live <target-url>`
    - orchestration: `pnpm orchestrate:*`
-3. Event-bus Tracks 0-4 and Part C native WXT adoption are complete on this
+3. The post-WXT cleanup/type-safety finalization track is approved and specified
+   in `.copilot/post-wxt-cleanup-plan.md`.
+4. Event-bus Tracks 0-4 and Part C native WXT adoption are complete on this
    branch.
-4. Track H remains paused after H3 by design. Do not resume deeper
+5. Track H remains paused after H3 by design. Do not resume deeper
    `content-main` extraction unless a new written plan is approved.
 
 ## Guardrails

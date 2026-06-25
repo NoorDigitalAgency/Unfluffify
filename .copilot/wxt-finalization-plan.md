@@ -1,5 +1,9 @@
 # WXT Migration Finalization Plan
 
+Status: complete on `feat/wxt-port-plan`. This file is retained for migration
+rationale and phase history. The active follow-up cleanup/type-safety work is
+now tracked in `.copilot/post-wxt-cleanup-plan.md`.
+
 Goal: Remove every WXT-migration hybrid/leftover so the repo is WXT-native end to
 end, with custom solutions kept ONLY where WXT has no coverage (the dev test
 browser launcher). Approved scope decisions (Q&A with @Sojaner):
