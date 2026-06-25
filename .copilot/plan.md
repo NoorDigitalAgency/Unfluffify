@@ -74,6 +74,8 @@ without changing runtime behavior, browser extension contracts, or test intent.
    (`deno lint --rules-exclude=ban-ts-comment,no-inner-declarations,no-sloppy-imports,no-window,no-window-prefix .`)
    found 26 remaining diagnostics at baseline.
 5. The current inventory is:
+   - orchestration and smoke scripts are now clean after the 2026-06-25 audit
+     (`deno lint --rules-include=require-await,no-unused-vars orchestration scripts`)
    - runtime-source `require-await` is now clean after the 2026-06-25 audit
      (`deno lint --rules-include=require-await background.ts content-main.ts popup.ts background common content popup`)
    - 10 `require-await` diagnostics remain, all in tests
