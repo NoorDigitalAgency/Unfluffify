@@ -94,10 +94,11 @@ function assertImportsContentModule(moduleName) {
   assert.match(contentMainSource, importPattern, `expected content-main.js to import ${moduleName}`);
 }
 
-function assertManifestExposesContentModule(moduleName) {
-  assert.ok(
+function assertManifestDoesNotExposeContentModule(moduleName) {
+  assert.equal(
     manifestResources.has(`content/${moduleName}.js`),
-    `expected manifest.json to expose content/${moduleName}.js`
+    false,
+    `expected manifest.json to stop exposing content/${moduleName}.js`
   );
 }
 
@@ -133,7 +134,7 @@ function branchOrPlannedHandler(messageType) {
     if (handlerDelegation && handlerDelegation.test(branch)) {
       const moduleName = remainingHighRiskBranches.get(messageType);
       assertImportsContentModule(moduleName);
-      assertManifestExposesContentModule(moduleName);
+      assertManifestDoesNotExposeContentModule(moduleName);
       return fullyDelegatedBranches.has(messageType) ? "" : branch;
     }
     return branch;
@@ -141,7 +142,7 @@ function branchOrPlannedHandler(messageType) {
   const moduleName = remainingHighRiskBranches.get(messageType);
   assert.ok(moduleName, `missing planned module for ${messageType}`);
   assertImportsContentModule(moduleName);
-  assertManifestExposesContentModule(moduleName);
+  assertManifestDoesNotExposeContentModule(moduleName);
   return "";
 }
 
@@ -224,10 +225,10 @@ test("high-risk branch inventory remains inline until planned handlers are expos
   }
 });
 
-test("Track F handler modules stay imported and manifest-exposed", () => {
+test("Track F handler modules stay imported and stop requiring manifest exposure", () => {
   for (const moduleName of completedTrackFHandlers) {
     assertImportsContentModule(moduleName);
-    assertManifestExposesContentModule(moduleName);
+    assertManifestDoesNotExposeContentModule(moduleName);
   }
 });
 

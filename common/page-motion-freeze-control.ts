@@ -213,7 +213,13 @@ export function runPageMotionFreezeControl(command = "setPaused", details = null
       return true;
     }
     if (state.originalSetTimeout) {
-      root.setTimeout = function unfluffifySetTimeout(callback, delay, ...args) {
+      /**
+       * @param {TimerHandler} callback
+       * @param {number} [delay]
+       * @param {...unknown} args
+       */
+      // @ts-expect-error preserve JS-runtime signature parity with bridge copy
+      const unfluffifySetTimeout = function unfluffifySetTimeout(callback, delay, ...args) {
         if (typeof callback !== "function") {
           return state.originalSetTimeout.call(root, callback, delay, ...args);
         }
@@ -228,6 +234,9 @@ export function runPageMotionFreezeControl(command = "setPaused", details = null
           runCallback(state, callback, args);
         }, delay);
       };
+      Object.assign(root, {
+        setTimeout: /** @type {any} */ (unfluffifySetTimeout)
+      });
     }
     if (state.originalClearTimeout) {
       root.clearTimeout = function unfluffifyClearTimeout(id) {
@@ -243,7 +252,13 @@ export function runPageMotionFreezeControl(command = "setPaused", details = null
       };
     }
     if (state.originalSetInterval) {
-      root.setInterval = function unfluffifySetInterval(callback, delay, ...args) {
+      /**
+       * @param {TimerHandler} callback
+       * @param {number} [delay]
+       * @param {...unknown} args
+       */
+      // @ts-expect-error preserve JS-runtime signature parity with bridge copy
+      const unfluffifySetInterval = function unfluffifySetInterval(callback, delay, ...args) {
         if (typeof callback !== "function") {
           return state.originalSetInterval.call(root, callback, delay, ...args);
         }
@@ -254,6 +269,7 @@ export function runPageMotionFreezeControl(command = "setPaused", details = null
           runCallback(state, callback, args);
         }, delay);
       };
+      root.setInterval = /** @type {typeof root.setInterval} */ (unfluffifySetInterval);
     }
     if (state.originalClearInterval) {
       root.clearInterval = function unfluffifyClearInterval(id) {

@@ -292,7 +292,7 @@ export function renderPropertyLockBanner(deps: PropertyLockBannerDeps): void {
 export function clearPropertyLockBannerCountdown(deps: PropertyLockBannerDeps): void {
   const propertyLockBannerCountdownTimer = deps.getPropertyLockBannerCountdownTimer();
   if (propertyLockBannerCountdownTimer) {
-    clearInterval(propertyLockBannerCountdownTimer);
+    window.clearInterval(propertyLockBannerCountdownTimer);
     deps.setPropertyLockBannerCountdownTimer(0);
   }
 }
@@ -306,7 +306,7 @@ export function restartPropertyLockBannerCountdown(deps: PropertyLockBannerDeps)
   if (deps.getPropertyLockBannerCountdownValue() <= 0) {
     return;
   }
-  deps.setPropertyLockBannerCountdownTimer(setInterval(() => {
+  deps.setPropertyLockBannerCountdownTimer(window.setInterval(() => {
     deps.setPropertyLockBannerCountdownValue(Math.max(0, deps.getPropertyLockBannerCountdownValue() - 1));
     deps.renderPropertyLockBanner();
     if (deps.getPropertyLockBannerCountdownValue() <= 0) {

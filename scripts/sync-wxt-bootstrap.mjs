@@ -9,6 +9,7 @@ const sourceManifestPath = join(repoRoot, "manifest.json");
 const outputManifestPath = join(outputRoot, "manifest.json");
 const WXT_OWNED_OUTPUT_PATHS = new Set([
   "content-loader.js",
+  "common/page-motion-freeze-bridge.js",
   "popup.html",
   "offscreen.html",
 ]);
@@ -17,7 +18,15 @@ const WXT_CONTENT_SCRIPT_ALIASES = [
     source: join("content-scripts", "content-loader.js"),
     destination: "content-loader.js",
   },
+  {
+    source: join("content-scripts", "page-motion-freeze-bridge.js"),
+    destination: join("common", "page-motion-freeze-bridge.js"),
+  },
 ];
+
+function shouldSkipLegacyRootCodeInOutput(relPath) {
+  return relPath === "content-main.js";
+}
 
 export function bridgeManifest(outputManifest, sourceManifest) {
   const next = structuredClone(outputManifest);
@@ -44,6 +53,7 @@ function copyTree(sourceDir, sourceRoot, outputRoot, options = {}) {
 
     if (
       relPath === "manifest.json" ||
+      (skipWxtOwned && shouldSkipLegacyRootCodeInOutput(relPath)) ||
       (skipWxtOwned && WXT_OWNED_OUTPUT_PATHS.has(relPath))
     ) {
       continue;

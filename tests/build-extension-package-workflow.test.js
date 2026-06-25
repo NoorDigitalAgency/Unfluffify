@@ -10,7 +10,10 @@ test("build-extension-package workflow uses the pnpm/WXT release pipeline", () =
   assert.match(workflow, /node \.\/scripts\/run-deno\.mjs run -A \.\/scripts\/package-extension\.mjs/);
   assert.match(workflow, /LC_ALL=C comm -23/);
   assert.match(workflow, /required_files=\(/);
-  assert.match(workflow, /"content-main\.js"/);
+  assert.match(workflow, /"common\/page-motion-freeze-bridge\.js"/);
+  assert.match(workflow, /"content\/submission-rules\.js"/);
+  assert.match(workflow, /"common\/config\.js"/);
+  assert.doesNotMatch(workflow, /"content-main\.js"/);
   assert.doesNotMatch(workflow, /run: deno task verify/);
   assert.doesNotMatch(workflow, /run: deno task build:release/);
   assert.doesNotMatch(workflow, /deno task package --/);

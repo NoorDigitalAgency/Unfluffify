@@ -125,7 +125,8 @@ jobs:
             "popup.html"
             "offscreen.html"
             "content-loader.js"
-            "content-main.js"
+            "common/page-motion-freeze-bridge.js"
+            "content/submission-rules.js"
             "common/config.js"
             "icons/default/icon16.png"
           )

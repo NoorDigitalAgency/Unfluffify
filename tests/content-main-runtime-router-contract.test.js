@@ -22,6 +22,7 @@ const commandRegistrations = [
 ];
 
 const legacyRuntimeMessages = [
+  "activateContentMain",
   "setEnabled",
   "getInspectionStatus",
   "renderModeInspectionBegin",

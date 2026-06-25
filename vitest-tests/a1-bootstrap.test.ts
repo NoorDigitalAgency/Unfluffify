@@ -121,6 +121,7 @@ describe("WXT Part A bridge", () => {
       const sourceRoot = resolve(tempRoot, "dist-extension");
       const outputRoot = resolve(tempRoot, "output");
       mkdirSync(resolve(sourceRoot, "common"), { recursive: true });
+      mkdirSync(resolve(sourceRoot, "content"), { recursive: true });
       mkdirSync(resolve(sourceRoot, "popup"), { recursive: true });
       mkdirSync(resolve(outputRoot, "content-scripts"), { recursive: true });
 
@@ -130,6 +131,8 @@ describe("WXT Part A bridge", () => {
         resolve(sourceRoot, "common", "page-motion-freeze-bridge.js"),
         'console.log("legacy-bridge");\n',
       );
+      writeFileSync(resolve(sourceRoot, "common", "config.js"), 'console.log("legacy-common-config");\n');
+      writeFileSync(resolve(sourceRoot, "content", "submission-rules.js"), 'export const submissionRules = true;\n');
       writeFileSync(resolve(sourceRoot, "popup.html"), "<!doctype html><title>legacy popup</title>\n");
       writeFileSync(resolve(sourceRoot, "offscreen.html"), "<!doctype html><title>legacy offscreen</title>\n");
       writeFileSync(resolve(sourceRoot, "popup", "ui.js"), "export const popupView = true;\n");
@@ -162,6 +165,10 @@ describe("WXT Part A bridge", () => {
       writeFileSync(
         resolve(outputRoot, "content-scripts", "content-loader.js"),
         'console.log("wxt-loader");\n',
+      );
+      writeFileSync(
+        resolve(outputRoot, "content-scripts", "page-motion-freeze-bridge.js"),
+        'console.log("wxt-bridge");\n',
       );
       writeFileSync(resolve(outputRoot, "manifest.json"), JSON.stringify({
         action: {
@@ -198,7 +205,9 @@ describe("WXT Part A bridge", () => {
       expect(readFileSync(resolve(outputRoot, "content-loader.js"), "utf8")).toContain("wxt-loader");
       expect(
         readFileSync(resolve(outputRoot, "common", "page-motion-freeze-bridge.js"), "utf8"),
-      ).toContain("legacy-bridge");
+      ).toContain("wxt-bridge");
+      expect(readFileSync(resolve(outputRoot, "content", "submission-rules.js"), "utf8")).toContain("submissionRules = true");
+      expect(readFileSync(resolve(outputRoot, "common", "config.js"), "utf8")).toContain("legacy-common-config");
       expect(readFileSync(resolve(outputRoot, "legacy", "background.js"), "utf8")).toContain("legacy-background");
       expect(readFileSync(resolve(outputRoot, "legacy", "content-loader.js"), "utf8")).toContain("legacy-loader");
       expect(

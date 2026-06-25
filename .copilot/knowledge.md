@@ -83,6 +83,20 @@
   `WindowOrWorkerGlobalScope` timer API) so popup state fields, spinner
   watchdogs, and async-message timeouts remain compatible with the WXT browser
   typecheck.
+- After C4 native-bundles the content runtime, do **not** strip the mirrored
+  root `common/*` or `content/*` support modules from `.output/chrome-mv3` yet.
+  The live browser launcher's popup inspection path still imports
+  `chrome.runtime.getURL("popup/ui.js")`, which transitively depends on root
+  `common/*`, and the mirrored root background/popup graph still imports root
+  `content/*` modules such as `content/submission-rules.js`. Only the root
+  `content-main.js` artifact can stop being mirrored in C4; the broader root
+  support trees must stay until C5 retires the remaining hybrid root runtime.
+- Even after the content entrypoint native-bundles `content-main.ts`, the raw
+  runtime message handshake `chrome.tabs.sendMessage(tabId, { type:
+  "activateContentMain" })` must keep returning `{ ok: true, initialized: true
+  }`. Background bootstrap (`ensureContentMainForTab`) still depends on that
+  legacy reply contract while later phases keep the old retry/injection path
+  alive.
 - `common/page-motion-freeze-control.ts` and
   `common/page-motion-freeze-bridge.ts` are a locked pair: the control function
   body from `const STATE_KEY = "__unfluffifyPageMotionFreezeState";` through the
@@ -140,12 +154,17 @@
   core unflagged behavior when automated validation is not enough, while
   flag-disabled property-lock follow-ups may defer live
   validation until those features are prioritized.
-- Part C native WXT runtime adoption is active on `feat/wxt-port-plan`. C0-C3
+- Part C native WXT runtime adoption is active on `feat/wxt-port-plan`. C0-C4
   are complete: C2 proved that the background service worker can be
   native-bundled by making startup explicit behind `startBackground()` while the
   root `background.ts` still self-starts for the legacy esbuild path, and C3
   proved that the popup can be native-bundled by importing `popup.ts` from the
-  WXT popup entrypoint once timer helpers are kept browser-typed.
+  WXT popup entrypoint once timer helpers are kept browser-typed. C4 proved the
+  content runtime can be native-bundled through WXT entrypoints while content
+  code WAR is removed, the MAIN-world bridge is aliased back onto the source
+  manifest path, the root `content-main.js` artifact is retired, and the legacy
+  `activateContentMain` reply contract stays intact for background bootstrap
+  compatibility while the remaining mirrored root support modules wait for C5.
 
 ## Popup Preview Exit Contract
 

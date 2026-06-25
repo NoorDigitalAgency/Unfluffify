@@ -640,6 +640,26 @@ function isPageBlockerDebugEnabled() {
   }
 }
 
+export function exposeDebugSpinnerQueueTabId() {
+  if (!isPageBlockerDebugEnabled()) {
+    return;
+  }
+  try {
+    chrome.runtime.sendMessage({ type: "getTabState" }, (response) => {
+      if (
+        response &&
+        Number.isFinite(response.tabId) &&
+        typeof document !== "undefined" &&
+        document.documentElement
+      ) {
+        document.documentElement.dataset.ufDebugTabId = String(response.tabId);
+      }
+    });
+  } catch {
+    // Best-effort debug hook; never block normal extension operation.
+  }
+}
+
 function normalizePageBlockingReason(event = {}) {
 // @ts-expect-error
   if (typeof event.reason === "string" && event.reason.trim()) {

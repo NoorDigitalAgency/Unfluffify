@@ -111,6 +111,12 @@ test("content-main warn/error diagnostics are trace-gated", () => {
   assert.match(source, /logContentDiagnostic\("warn", "\[Unfluffify\] Property lock sync failed; retrying\.", error\);/);
 });
 
+test("activateContentMain keeps a legacy raw runtime reply for background bootstrap", () => {
+  const branch = getMessageBranch(runtimeMessageHandlerSource, "activateContentMain");
+
+  assert.match(branch, /sendResponse\(\{\s*ok: true,\s*initialized: true\s*\}\);/);
+});
+
 test("manual page enable waits for activation reveal before refreshing highlight state", () => {
   const source = readFileSync(new URL("../content-main.ts", import.meta.url), "utf8");
   const toggleStart = source.indexOf("async function toggleEnabledFromPage(options = {})");

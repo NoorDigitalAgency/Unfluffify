@@ -1,6 +1,8 @@
+type PropertyLockTimeoutId = ReturnType<WindowOrWorkerGlobalScope["setTimeout"]>;
+
 type PropertyLockTimerHost = {
-  setTimeout: (fn: () => void, ms?: number) => ReturnType<typeof setTimeout>;
-  clearTimeout: (id: ReturnType<typeof setTimeout>) => void;
+  setTimeout: (fn: () => void, ms?: number) => PropertyLockTimeoutId;
+  clearTimeout: (id: PropertyLockTimeoutId) => void;
 };
 
 type PropertyLockPortClientDeps = {
@@ -19,7 +21,7 @@ type PropertyLockPortClientDeps = {
 
 export function createPropertyLockPortClient(deps: PropertyLockPortClientDeps) {
   let port: chrome.runtime.Port | null = null;
-  let reconnectTimer: ReturnType<typeof setTimeout> | 0 = 0;
+  let reconnectTimer: PropertyLockTimeoutId | 0 = 0;
 
   const getTimerHost = () => {
     if (typeof deps.getTimerHost === "function") {
@@ -28,7 +30,7 @@ export function createPropertyLockPortClient(deps: PropertyLockPortClientDeps) {
         return timerHost;
       }
     }
-    return globalThis.window || globalThis;
+    return (globalThis.window || globalThis) as PropertyLockTimerHost;
   };
 
   const clearPortState = () => {
@@ -41,7 +43,7 @@ export function createPropertyLockPortClient(deps: PropertyLockPortClientDeps) {
     if (!reconnectTimer) {
       return;
     }
-    getTimerHost().clearTimeout(reconnectTimer as ReturnType<typeof setTimeout>);
+    getTimerHost().clearTimeout(reconnectTimer);
     reconnectTimer = 0;
   };
 

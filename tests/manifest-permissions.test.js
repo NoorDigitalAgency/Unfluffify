@@ -41,9 +41,9 @@ test("manifest web-accessible resources avoid broad common/content wildcards", a
 
   assert.equal(resources.includes("content/*.js"), false);
   assert.equal(resources.includes("common/*.js"), false);
-  assert.ok(resources.includes("content-main.js"));
-  assert.ok(resources.includes("content/core.js"));
-  assert.ok(resources.includes("common/config.js"));
+  assert.equal(resources.includes("content-main.js"), false);
+  assert.equal(resources.includes("content/core.js"), false);
+  assert.equal(resources.includes("common/config.js"), false);
 });
 
 test("every getURL-injected page resource is web-accessible (no under-scoping)", async () => {
@@ -84,25 +84,33 @@ test("every getURL-injected page resource is web-accessible (no under-scoping)",
   }
 });
 
-test("every content/* module imported by content-main.js is web-accessible", async () => {
+test("content and common code modules are not left web-accessible after native content bundling", async () => {
   const manifest = await readManifestUnderTest();
   const resources = manifest.web_accessible_resources.flatMap((entry) => entry.resources || []);
   const contentMain = await readFile(new URL("../content-main.ts", import.meta.url));
-
   const importedContentModules = new Set();
+  const importedCommonModules = new Set();
+
   for (const match of contentMain.matchAll(/from\s+"(\.\/content\/[^"]+\.js)"/g)) {
     importedContentModules.add(match[1].replace(/^\.\//, ""));
+  }
+  for (const match of contentMain.matchAll(/from\s+"(\.\/common\/[^"]+\.js)"/g)) {
+    importedCommonModules.add(match[1].replace(/^\.\//, ""));
   }
 
   assert.ok(
     importedContentModules.size > 0,
     "expected content-main.js to import at least one content/* module"
   );
+  assert.ok(
+    importedCommonModules.size > 0,
+    "expected content-main.js to import at least one common/* module"
+  );
 
   for (const modulePath of importedContentModules) {
-    assert.ok(
-      resources.includes(modulePath),
-      `${modulePath} is imported by content-main.js but is not web-accessible`
-    );
+    assert.equal(resources.includes(modulePath), false, `${modulePath} should not remain web-accessible`);
+  }
+  for (const modulePath of importedCommonModules) {
+    assert.equal(resources.includes(modulePath), false, `${modulePath} should not remain web-accessible`);
   }
 });

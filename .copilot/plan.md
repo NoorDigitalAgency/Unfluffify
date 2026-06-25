@@ -64,11 +64,18 @@ The active track is now `.copilot/wxt-native-adoption-plan.md`:
    popup still self-bootstraps through its existing `init();` path, and the
    browser timer helpers were tightened to explicit browser timer surfaces so
    the popup graph passes the WXT browser typecheck.
-5. **C4 is next**: native-bundle the main-world/content runtime so the WXT
-   content entrypoint stops booting through legacy dynamic-code shims while
-   preserving content registration and WAR behavior until later phases remove
-   them deliberately.
-6. The prior event-bus program remains complete through Track 3 in
+5. **C4 is complete**: the WXT content entrypoint now boots `content-main.ts`
+   lazily behind the legacy `activateContentMain` handshake, the MAIN-world
+   bridge is native-bundled and aliased back onto the source manifest path, and
+   the content WAR list has been reduced to real assets only. The temporary
+   bridge still mirrors root `common/*` and `content/*` support modules so the
+   popup/live-debug tooling and mirrored root background/popup runtime keep
+   working, and the raw `activateContentMain` reply contract remains intact for
+   background bootstrap compatibility.
+6. **C5 is next**: retire the remaining hybrid esbuild/sync bridge ownership so
+   the output/package shape stops depending on mirrored legacy runtime files and
+   source-manifest path aliasing.
+7. The prior event-bus program remains complete through Track 3 in
    `.copilot/event-bus-architecture-plan.md`; Part C preserves that higher-level
    architecture and replaces only the lower-level packaging/runtime seams.
 

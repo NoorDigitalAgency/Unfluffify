@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-25
 Branch: `feat/wxt-port-plan`
-Status: C3 complete; C4 ready
+Status: C4 complete; C5 ready
 
 This is the executor doc for **Part C** of the WXT program. It is written so a
 low-context agent can execute it without inventing architecture or making

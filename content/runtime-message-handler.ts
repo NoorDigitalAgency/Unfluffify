@@ -105,6 +105,14 @@ export function handleRuntimeMessage(
     return;
   }
 
+  if (message.type === "activateContentMain") {
+    sendResponse({
+      ok: true,
+      initialized: true
+    });
+    return;
+  }
+
   if (message.type === "setEnabled") {
     deps.handleSetEnabledCommand(message)
       .then((response) => {
