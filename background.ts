@@ -2119,6 +2119,7 @@ const popupStateBroker = createPopupStateBroker({
   updateRuntime: updateTabRuntime,
   syncPopupView(tabId: number, state: PopupBrokerState, reason: string) {
     brain.mirrorPopupState(tabId, state, reason);
+    brain.mirrorLegacySpinnerQueue(tabId, state.spinnerQueue, `${reason}:spinners`);
   }
 });
 // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
@@ -2137,7 +2138,9 @@ for (const tabId of [...tabLifecycleStateByTabId.keys(), ...tabSpinnerQueueByTab
     continue;
   }
   popupStateSeedTabIds.add(normalizedTabId);
-  brain.mirrorPopupState(normalizedTabId, buildBrokerState(normalizedTabId), "popup-state-broker:seed");
+  const brokerState = buildBrokerState(normalizedTabId);
+  brain.mirrorPopupState(normalizedTabId, brokerState, "popup-state-broker:seed");
+  brain.mirrorLegacySpinnerQueue(normalizedTabId, brokerState.spinnerQueue, "popup-state-broker:seed:spinners");
 }
 
 const spinnerOperations = createSpinnerOperations({
@@ -2152,6 +2155,9 @@ const spinnerOperations = createSpinnerOperations({
     updateTabRuntime(tabId, {
       spinnerQueue: queue
     });
+  },
+  syncProjectedSpinnerState(tabId, queue, reason) {
+    brain.mirrorLegacySpinnerQueue(tabId, queue, `spinner-operations:${reason}`);
   }
 });
 

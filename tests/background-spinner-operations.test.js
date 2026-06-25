@@ -7,6 +7,7 @@ function createHarness() {
   const queueByTabId = new Map();
   const traces = [];
   const broadcasts = [];
+  const mirroredQueues = [];
 
   const operations = createSpinnerOperations({
     queueByTabId,
@@ -33,6 +34,13 @@ function createHarness() {
     },
     updateRuntimeSpinnerQueue() {
       // Test harness intentionally does not track runtime state.
+    },
+    syncProjectedSpinnerState(tabId, queue, reason) {
+      mirroredQueues.push({
+        tabId,
+        reason,
+        queue
+      });
     }
   });
 
@@ -40,7 +48,8 @@ function createHarness() {
     operations,
     queueByTabId,
     traces,
-    broadcasts
+    broadcasts,
+    mirroredQueues
   };
 }
 
@@ -156,6 +165,35 @@ test("spinner entries publish deterministic operation lease metadata", () => {
   assert.equal(entry.timerMode, "countdown");
   assert.equal(entry.deadlineAt, 481_000);
   assert.deepEqual(entry.blockSurfaces, { page: true, popup: true });
+});
+
+test("spinner queue mutations mirror serialized queue snapshots for projection", () => {
+  const { operations, mirroredQueues } = createHarness();
+
+  operations.setBackgroundSpinnerEntry(51, "first", {
+    message: "Blocking",
+    reason: "page-inspection-pending"
+  });
+  operations.setBackgroundSpinnerEntry(51, "second", {
+    message: "Saving",
+    reason: "config-sync-saving"
+  });
+  operations.removeBackgroundSpinnerEntry(51, "second");
+  operations.clearBackgroundSpinnerQueue(51);
+
+  assert.deepEqual(
+    mirroredQueues.map(({ tabId, reason, queue }) => ({
+      tabId,
+      reason,
+      keys: queue.map((entry) => entry.key)
+    })),
+    [
+      { tabId: 51, reason: "set", keys: ["first"] },
+      { tabId: 51, reason: "set", keys: ["first", "second"] },
+      { tabId: 51, reason: "remove", keys: ["first"] },
+      { tabId: 51, reason: "clear", keys: [] }
+    ]
+  );
 });
 
 test("spinner operation metadata survives progress-only updates", async () => {

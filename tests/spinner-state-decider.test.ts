@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
+import { createStateStore } from "../background/brain/state-store.js";
 import type { PopupLegacySpinnerEntry } from "../common/bus/contracts/popup-state.js";
-import { deriveSpinnerSelectionsFromLegacyQueue } from "../background/brain/deciders/spinner-state-decider.js";
+import {
+  deriveSpinnerSelectionsFromLegacyQueue,
+  updateSpinnerSelectionsFromLegacyQueue,
+} from "../background/brain/deciders/spinner-state-decider.js";
 
 function buildEntry(overrides: Partial<PopupLegacySpinnerEntry> = {}): PopupLegacySpinnerEntry {
   return {
@@ -136,17 +140,17 @@ describe("spinner state decider", () => {
   it("skips entries without projected operation metadata", () => {
     const selections = deriveSpinnerSelectionsFromLegacyQueue([
       buildEntry({
+        key: "older-projectable",
+        operationId: "older-op",
+        operationKind: "ai-run",
+        operationPhase: "remote-wait",
+        blockSurfaces: { page: true, popup: true },
+      }),
+      buildEntry({
         key: "missing-metadata",
         operationId: "",
         operationKind: "",
         operationPhase: "",
-        blockSurfaces: { page: true, popup: true },
-      }),
-      buildEntry({
-        key: "fallback",
-        operationId: "fallback-op",
-        operationKind: "ai-run",
-        operationPhase: "remote-wait",
         blockSurfaces: { page: true, popup: true },
       }),
     ]);
@@ -156,14 +160,58 @@ describe("spinner state decider", () => {
       phase: "remote-wait",
       startedAt: 10,
       deadlineAt: 20,
-      operationId: "fallback-op",
+      operationId: "older-op",
     });
     expect(selections.pageCurtain).toEqual({
       kind: "ai-run",
       phase: "remote-wait",
       startedAt: 10,
       deadlineAt: 20,
-      operationId: "fallback-op",
+      operationId: "older-op",
     });
+  });
+
+  it("mirrors derived selections into the brain spinner state", () => {
+    const store = createStateStore();
+    const queue = [
+      buildEntry({
+        operationId: "popup-op",
+        operationKind: "ai-run",
+        operationPhase: "preparing-page",
+        blockSurfaces: { page: false, popup: true },
+      }),
+      buildEntry({
+        operationId: "banner-op",
+        operationKind: "config-sync",
+        operationPhase: "saving",
+        blockSurfaces: { page: false, popup: false },
+      }),
+    ];
+
+    const selections = updateSpinnerSelectionsFromLegacyQueue(
+      store,
+      99,
+      queue,
+      "spinner-operations:set",
+    );
+
+    expect(selections).toEqual({
+      popup: {
+        kind: "ai-run",
+        phase: "preparing-page",
+        startedAt: 10,
+        deadlineAt: 20,
+        operationId: "popup-op",
+      },
+      pageCurtain: null,
+      banner: {
+        kind: "config-sync",
+        phase: "saving",
+        startedAt: 10,
+        deadlineAt: 20,
+        operationId: "banner-op",
+      },
+    });
+    expect(store.get(99)?.spinners).toEqual(selections);
   });
 });

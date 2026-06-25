@@ -4,8 +4,10 @@ import { POPUP_STATE_EVENT_TYPES, POPUP_STATE_REQUEST_TYPES } from "../../common
 import { SPINNER_EVENT_TYPES, type SpinnerSurface } from "../../common/bus/contracts/spinner.js";
 import { REALMS } from "../../common/bus/realms.js";
 import { createBackgroundTransport } from "../../common/bus/transport/background-transport.js";
+import type { PopupLegacySpinnerEntry } from "../../common/bus/contracts/popup-state.js";
 import type { PopupBrokerState } from "../popup-state-broker.js";
 import { getPopupView, updatePopupViewFromBrokerState } from "./deciders/popup-state-decider.js";
+import { updateSpinnerSelectionsFromLegacyQueue } from "./deciders/spinner-state-decider.js";
 import { createStateStore, type TabLayerState } from "./state-store.js";
 import { projectSpinners, type SpinnerState } from "./spinner-authority.js";
 import { projectViews } from "./view-projector.js";
@@ -70,6 +72,9 @@ export function createBrain(options: { logger?: Pick<Console, "error"> } = {}) {
     transport,
     mirrorPopupState(tabId: number, brokerState: PopupBrokerState, reason: string) {
       return updatePopupViewFromBrokerState(store, tabId, brokerState, reason);
+    },
+    mirrorLegacySpinnerQueue(tabId: number, queue: readonly PopupLegacySpinnerEntry[], reason: string) {
+      return updateSpinnerSelectionsFromLegacyQueue(store, tabId, queue, reason);
     },
     registerPopupPort(tabId: number, port: chrome.runtime.Port): void {
       transport.registerPopupPort(tabId, port);

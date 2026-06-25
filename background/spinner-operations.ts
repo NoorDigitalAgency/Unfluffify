@@ -3,6 +3,7 @@ import {
   WORLD_MESSAGE_TYPES
 } from "../common/world-messaging-contract.js";
 import { createSpinnerOperationLease } from "../common/spinner-contract.js";
+import type { PopupLegacySpinnerEntry } from "../common/bus/contracts/popup-state.js";
 
 type SpinnerEntry = {
   blockSurfaces?: {
@@ -36,6 +37,7 @@ type SpinnerOperationsOptions = {
   broadcastState?: (tabId: number) => void;
   buildState?: (tabId: number) => Record<string, unknown>;
   updateRuntimeSpinnerQueue?: (tabId: number, queue: SpinnerQueue) => void;
+  syncProjectedSpinnerState?: (tabId: number, queue: PopupLegacySpinnerEntry[], reason: string) => void;
 };
 
 function defaultNormalizeTabId(value: unknown): number {
@@ -156,6 +158,9 @@ export function createSpinnerOperations(options: SpinnerOperationsOptions = {}) 
   const updateRuntimeSpinnerQueue = typeof options.updateRuntimeSpinnerQueue === "function"
     ? options.updateRuntimeSpinnerQueue
     : () => {};
+  const syncProjectedSpinnerState = typeof options.syncProjectedSpinnerState === "function"
+    ? options.syncProjectedSpinnerState
+    : () => {};
 
   function getSpinnerQueueForTab(tabId: unknown): SpinnerQueue | null {
     const normalizedTabId = normalizeTabId(tabId);
@@ -168,7 +173,7 @@ export function createSpinnerOperations(options: SpinnerOperationsOptions = {}) 
     return queueByTabId.get(normalizedTabId) || null;
   }
 
-  function serializeSpinnerQueue(tabId: unknown): Array<Record<string, unknown>> {
+  function serializeSpinnerQueue(tabId: unknown): PopupLegacySpinnerEntry[] {
     const normalizedTabId = normalizeTabId(tabId);
     if (!normalizedTabId) {
       return [];
@@ -178,7 +183,7 @@ export function createSpinnerOperations(options: SpinnerOperationsOptions = {}) 
       return [];
     }
     return [...queue.entries()].map(([key, entry]) => {
-      const serializedEntry: Record<string, unknown> = {
+      return {
         key,
         message: entry && typeof entry.message === "string" ? entry.message : "",
         persistent: Boolean(entry && entry.persistent),
@@ -193,15 +198,16 @@ export function createSpinnerOperations(options: SpinnerOperationsOptions = {}) 
         timerMode: entry && typeof entry.timerMode === "string" ? entry.timerMode : "",
         deadlineAt: entry && Number.isFinite(entry.deadlineAt) ? Number(entry.deadlineAt) : 0,
         maxDurationMs: entry && Number.isFinite(entry.maxDurationMs) ? Number(entry.maxDurationMs) : 0,
-        updatedAt: entry && Number.isFinite(entry.updatedAt) ? Number(entry.updatedAt) : 0
-      };
-      if (entry && entry.blockSurfaces && typeof entry.blockSurfaces === "object") {
-        serializedEntry.blockSurfaces = {
-          page: Boolean(entry.blockSurfaces.page),
-          popup: Boolean(entry.blockSurfaces.popup)
-        };
-      }
-      return serializedEntry;
+        updatedAt: entry && Number.isFinite(entry.updatedAt) ? Number(entry.updatedAt) : 0,
+        ...(entry && entry.blockSurfaces && typeof entry.blockSurfaces === "object"
+          ? {
+            blockSurfaces: {
+              page: Boolean(entry.blockSurfaces.page),
+              popup: Boolean(entry.blockSurfaces.popup)
+            }
+          }
+          : {})
+      } satisfies PopupLegacySpinnerEntry;
     });
   }
 
@@ -214,6 +220,7 @@ export function createSpinnerOperations(options: SpinnerOperationsOptions = {}) 
     const normalizedEntry = normalizeSpinnerEntry(String(key), entry, queue?.get(String(key)) || null, normalizedTabId);
     queue?.set(String(key), normalizedEntry);
     updateRuntimeSpinnerQueue(normalizedTabId, queue || new Map<string, SpinnerEntry>());
+    syncProjectedSpinnerState(normalizedTabId, serializeSpinnerQueue(normalizedTabId), "set");
     appendTrace(normalizedTabId, "spinner", "set", {
       type: WORLD_MESSAGE_TYPES.SPINNER_SET,
       key: String(key),
@@ -254,6 +261,7 @@ export function createSpinnerOperations(options: SpinnerOperationsOptions = {}) 
       queueByTabId.delete(normalizedTabId);
     }
     updateRuntimeSpinnerQueue(normalizedTabId, queue || new Map<string, SpinnerEntry>());
+    syncProjectedSpinnerState(normalizedTabId, serializeSpinnerQueue(normalizedTabId), "remove");
     appendTrace(normalizedTabId, "spinner", "remove", {
       type: WORLD_MESSAGE_TYPES.SPINNER_REMOVE,
       key: String(key),
@@ -288,6 +296,7 @@ export function createSpinnerOperations(options: SpinnerOperationsOptions = {}) 
       queueByTabId.delete(normalizedTabId);
     }
     updateRuntimeSpinnerQueue(normalizedTabId, queueByTabId.get(normalizedTabId) || new Map<string, SpinnerEntry>());
+    syncProjectedSpinnerState(normalizedTabId, serializeSpinnerQueue(normalizedTabId), "clear");
     appendTrace(normalizedTabId, "spinner", "clear", {
       type: WORLD_MESSAGE_TYPES.SPINNER_CLEAR,
       message: transientOnly ? "transient-only" : "all",

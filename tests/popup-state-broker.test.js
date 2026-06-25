@@ -129,6 +129,7 @@ test("popup-state broker terminal curtain-bearing lifecycle removes nav inspect 
   const spinnerQueueByTabId = new Map([[4, new Map([[SPINNER_KEYS.NAV_INSPECT, { persistent: true, startedAt: 1 }]])]]);
   const popupStatePortsByTabId = new Map();
   const traceEvents = [];
+  const mirroredStates = [];
 
   const broker = createPopupStateBroker({
     lifecycleStateByTabId,
@@ -140,7 +141,10 @@ test("popup-state broker terminal curtain-bearing lifecycle removes nav inspect 
     appendTrace: (tabId, channel, event, payload) => {
       traceEvents.push({ tabId, channel, event, payload });
     },
-    updateRuntime: () => {}
+    updateRuntime: () => {},
+    syncPopupView(tabId, state, reason) {
+      mirroredStates.push({ tabId, state, reason });
+    }
   });
 
   broker.updateLifecycleState(4, {
@@ -152,6 +156,9 @@ test("popup-state broker terminal curtain-bearing lifecycle removes nav inspect 
 
   assert.equal(spinnerQueueByTabId.has(4), false);
   assert.equal(traceEvents.some((entry) => entry.channel === "spinner" && entry.event === "remove"), true);
+  assert.equal(mirroredStates.length, 1);
+  assert.equal(mirroredStates[0].reason, "popup-state-broker:lifecycle-update");
+  assert.deepEqual(mirroredStates[0].state.spinnerQueue, []);
 });
 
 test("popup-state broker serializes active spinner lease metadata", () => {
