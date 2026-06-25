@@ -51,6 +51,8 @@ test("background TAB_RUN_RENDER_MODE_INSPECTION orchestrates reload, consent hid
   assert.match(commandBlock, /runBackgroundTabOperation\([\s\S]*?kind: LIFECYCLE_KINDS\.RENDER_MODE_INSPECTION,[\s\S]*?timeoutMs: RENDER_MODE_INSPECTION_OPERATION_TIMEOUT_MS,[\s\S]*?reason: "tab-render-mode-inspection"/);
   assert.match(backgroundSource, /from "\.\/background\/render-mode-inspector\.js"/);
   assert.match(backgroundSource, /const renderModeInspector = createRenderModeInspector\(\{/);
+  assert.match(backgroundSource, /brain\.recordRenderModeInspection\(normalizedTabId, \{[\s\S]*?inspecting: true,[\s\S]*?operationId,[\s\S]*?baseUrl/);
+  assert.match(backgroundSource, /brain\.recordRenderModeInspection\(normalizedTabId, \{[\s\S]*?followUpCompleted: Boolean\(commandResult\.followUpCompleted\),[\s\S]*?lastError: commandResult\.followUpError \|\| ""/);
   assert.match(commandBlock, /if \(!javaScriptDisabled\) \{[\s\S]*?utils\.setPageJavaScriptExecutionDisabled\([\s\S]*?normalizedTabId,[\s\S]*?false/);
   assert.match(commandBlock, /runRenderModeInspectionBeginStep\(normalizedTabId, operationId\)/);
   assert.match(commandBlock, /waitForTabLoadStartInBackground\(/);
@@ -80,7 +82,9 @@ test("background TAB_RUN_RENDER_MODE_INSPECTION orchestrates reload, consent hid
   // tab (in chrome.storage.session) so JavaScript is restored on the next genuine
   // navigation (not its own reload) and the popup can show the current JS mode.
   assert.match(commandBlock, /clearRenderModeNoJsHeld\(normalizedTabId\)/);
+  assert.match(commandBlock, /brain\.recordRenderModeNoJsHold\(normalizedTabId, \{[\s\S]*?held: false,[\s\S]*?operationId,[\s\S]*?javaScriptDisabled[\s\S]*?\}, "render-mode:run:cleared-hold"\)/);
   assert.match(commandBlock, /if \(javaScriptDisabled && javaScriptReloadAttempted\) \{[\s\S]*?await setRenderModeNoJsHeld\(normalizedTabId, true\);[\s\S]*?updateRenderModeNoJsInactivityWatch\(normalizedTabId\)\.catch\(\(\) => null\);/);
+  assert.match(commandBlock, /brain\.recordRenderModeNoJsHold\(normalizedTabId, \{[\s\S]*?held: true,[\s\S]*?operationId,[\s\S]*?javaScriptDisabled: true[\s\S]*?\}, "render-mode:run:set-hold"\)/);
   // "With JavaScript" on a tab held in no-JS mode reloads with JavaScript first so
   // content scripts are present before the begin handshake (otherwise it retries
   // content readiness for tens of seconds against the stale no-JS page).
@@ -103,10 +107,12 @@ test("background TAB_END_RENDER_MODE_INSPECTION restores JavaScript and clears t
   // does not need the debugger.
   assert.match(endBlock, /if \(await isRenderModeNoJsHeld\(normalizedTabId\)\) \{/);
   assert.match(endBlock, /clearRenderModeNoJsHeld\(normalizedTabId\)/);
+  assert.match(endBlock, /brain\.recordRenderModeNoJsHold\(normalizedTabId, \{[\s\S]*?held: false,[\s\S]*?operationId,[\s\S]*?javaScriptDisabled: false[\s\S]*?\}, "render-mode:end:cleared-hold"\)/);
   assert.match(endBlock, /tabInactivityObserver\.clearTab\(normalizedTabId,[\s\S]*?scope: RENDER_MODE_NO_JS_INACTIVITY_SCOPE/);
   assert.match(endBlock, /utils\.setPageJavaScriptExecutionDisabled\(normalizedTabId, false\)/);
   assert.match(endBlock, /getDeviceEmulationState\(normalizedTabId\)/);
   assert.match(endBlock, /utils\.detachDebugger\(normalizedTabId\)/);
+  assert.match(endBlock, /brain\.recordRenderModeInspection\(normalizedTabId, \{[\s\S]*?inspecting: false,[\s\S]*?noJsHeld: false,[\s\S]*?lastError: endAcknowledged \? "" : "Unable to end render mode inspection"/);
 });
 
 test("background restores no-JS render-mode holds after central tab inactivity", () => {
@@ -126,7 +132,9 @@ test("background restores no-JS render-mode holds after central tab inactivity",
   assert.match(backgroundSource, /chrome\.alarms\.onAlarm\.addListener\(\(alarm\) => \{[\s\S]*?tabInactivityObserver\.handleAlarm\(alarm\)/);
   assert.match(backgroundSource, /async function updateRenderModeNoJsInactivityWatch\(tabId\) \{[\s\S]*?isTabActiveInFocusedWindow\(normalizedTabId\)[\s\S]*?tabInactivityObserver\.scheduleInactive\(normalizedTabId, \{[\s\S]*?scope: RENDER_MODE_NO_JS_INACTIVITY_SCOPE/);
   assert.match(backgroundSource, /async function restoreRenderModeJavaScriptAfterNoJsInactivity\(tabId\) \{[\s\S]*?isTabActiveInFocusedWindow\(normalizedTabId\)[\s\S]*?clearRenderModeNoJsHeld\(normalizedTabId\)[\s\S]*?utils\.reloadPageWithJavaScriptControl\(normalizedTabId, false\)[\s\S]*?utils\.detachDebugger\(normalizedTabId\)/);
+  assert.match(backgroundSource, /async function restoreRenderModeJavaScriptAfterNoJsInactivity\(tabId\) \{[\s\S]*?brain\.recordRenderModeNoJsHold\(normalizedTabId, \{[\s\S]*?held: false,[\s\S]*?javaScriptDisabled: false[\s\S]*?\}, "render-mode:no-js-inactivity:cleared"\)/);
   assert.match(backgroundSource, /async function restoreRenderModeJavaScriptAfterNoJsInactivity\(tabId\) \{[\s\S]*?setPageJavaScriptExecutionDisabled\(normalizedTabId, false\)[\s\S]*?setRenderModeNoJsHeld\(normalizedTabId, true\)[\s\S]*?updateRenderModeNoJsInactivityWatch\(normalizedTabId\)/);
+  assert.match(backgroundSource, /async function restoreRenderModeJavaScriptAfterNoJsInactivity\(tabId\) \{[\s\S]*?setRenderModeNoJsHeld\(normalizedTabId, true\)\.catch\(\(\) => null\);[\s\S]*?brain\.recordRenderModeNoJsHold\(normalizedTabId, \{[\s\S]*?held: true,[\s\S]*?javaScriptDisabled: true[\s\S]*?\}, "render-mode:no-js-inactivity:restored-hold"\)/);
   assert.match(backgroundSource, /tabInactivityObserver\.subscribe\(async \(event\) => \{[\s\S]*?event\.scope !== RENDER_MODE_NO_JS_INACTIVITY_SCOPE[\s\S]*?restoreRenderModeJavaScriptAfterNoJsInactivity\(event\.tabId\)/);
   assert.match(commandBlock, /setRenderModeNoJsHeld\(normalizedTabId, true\)[\s\S]*?updateRenderModeNoJsInactivityWatch\(normalizedTabId\)/);
   assert.match(activityMessageBlock, /tabInactivityObserver\.recordActivity\(tabId, \{[\s\S]*?source: "content"/);

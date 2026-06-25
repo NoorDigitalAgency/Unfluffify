@@ -47,6 +47,7 @@ import {
   type SpinnerSetRequestPayload
 } from "./common/bus/contracts/spinner.js";
 import type { PopupLifecycleState } from "./common/bus/contracts/popup-state.js";
+import type { RenderModeSnapshotPayload } from "./common/bus/contracts/render-mode.js";
 import * as constants from "./common/constants.js";
 import {
   normalizeSiteIdValue
@@ -562,6 +563,10 @@ async function restoreRenderModeJavaScriptAfterNoJsInactivity(tabId) {
     return { ok: true, skipped: true };
   }
   await clearRenderModeNoJsHeld(normalizedTabId);
+  brain.recordRenderModeNoJsHold(normalizedTabId, {
+    held: false,
+    javaScriptDisabled: false
+  }, "render-mode:no-js-inactivity:cleared");
   const reloadResult = await utils.reloadPageWithJavaScriptControl(normalizedTabId, false)
     .catch((error) => ({
       ok: false,
@@ -575,6 +580,10 @@ async function restoreRenderModeJavaScriptAfterNoJsInactivity(tabId) {
       // no-JS mode. Re-mark it held and reschedule the watch so a later focus
       // change or alarm retries the restore instead of leaving it stuck.
       await setRenderModeNoJsHeld(normalizedTabId, true).catch(() => null);
+      brain.recordRenderModeNoJsHold(normalizedTabId, {
+        held: true,
+        javaScriptDisabled: true
+      }, "render-mode:no-js-inactivity:restored-hold");
       await updateRenderModeNoJsInactivityWatch(normalizedTabId);
       return reloadResult || { ok: false, error: "Unable to reload page with JavaScript" };
     }
@@ -1461,6 +1470,11 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_BEGIN_RENDER_MODE_INSPECTION, 
       { tabId: normalizedTabId }
     );
   }
+  brain.recordRenderModeInspection(normalizedTabId, {
+    inspecting: true,
+    operationId,
+    lastError: ""
+  }, "render-mode:begin");
   return {
     ok: true,
     tabId: normalizedTabId,
@@ -1548,6 +1562,11 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_END_RENDER_MODE_INSPECTION, as
   // when device emulation is not relying on it.
   if (await isRenderModeNoJsHeld(normalizedTabId)) {
     await clearRenderModeNoJsHeld(normalizedTabId);
+    brain.recordRenderModeNoJsHold(normalizedTabId, {
+      held: false,
+      operationId,
+      javaScriptDisabled: false
+    }, "render-mode:end:cleared-hold");
     await tabInactivityObserver.clearTab(normalizedTabId, {
       scope: RENDER_MODE_NO_JS_INACTIVITY_SCOPE
     });
@@ -1562,6 +1581,13 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_END_RENDER_MODE_INSPECTION, as
   updateTabRuntime(normalizedTabId, {
     mode: tabState && tabState.enabled ? "marking" : "silent"
   });
+  brain.recordRenderModeInspection(normalizedTabId, {
+    inspecting: false,
+    javaScriptDisabled: false,
+    noJsHeld: false,
+    operationId,
+    lastError: endAcknowledged ? "" : "Unable to end render mode inspection"
+  }, "render-mode:end");
   updateLifecycleState(normalizedTabId, {
     operationId,
     kind: LIFECYCLE_KINDS.RENDER_MODE_INSPECTION,
@@ -1632,10 +1658,36 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
       // after the reload's navigation events have already been dispatched.
       const wasHeldInNoJsMode = await isRenderModeNoJsHeld(normalizedTabId);
       await clearRenderModeNoJsHeld(normalizedTabId);
+      brain.recordRenderModeNoJsHold(normalizedTabId, {
+        held: false,
+        operationId,
+        javaScriptDisabled
+      }, "render-mode:run:cleared-hold");
       await tabInactivityObserver.clearTab(normalizedTabId, {
         scope: RENDER_MODE_NO_JS_INACTIVITY_SCOPE
       });
-      const commandResult = {
+      brain.recordRenderModeInspection(normalizedTabId, {
+        inspecting: true,
+        javaScriptDisabled,
+        noJsHeld: false,
+        operationId,
+        baseUrl,
+        followUpCompleted: false,
+        lastError: ""
+      }, "render-mode:run:started");
+      const commandResult: {
+        ok: boolean;
+        tabId: number;
+        operationId: string;
+        loadStarted: boolean;
+        reloadResult: { ok: boolean; error?: string } | null;
+        followUpCompleted: boolean;
+        followUpError: string;
+        inspectionSnapshot: RenderModeSnapshotPayload | null;
+        endAcknowledged: boolean;
+        runtime?: unknown;
+        state?: unknown;
+      } = {
         ok: false,
         tabId: normalizedTabId,
         operationId,
@@ -1792,7 +1844,6 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
 // @ts-expect-error
         if (!commandResult.reloadResult.ok || !loadStarted) {
           commandResult.followUpError =
-// @ts-expect-error
             (commandResult.reloadResult && commandResult.reloadResult.error) ||
             "Unable to reload page for render mode inspection";
           return commandResult;
@@ -1863,6 +1914,11 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
           // which has already fired its navigation events by now), and so the popup
           // can show the page as currently held in "Without JavaScript" mode.
           await setRenderModeNoJsHeld(normalizedTabId, true);
+          brain.recordRenderModeNoJsHold(normalizedTabId, {
+            held: true,
+            operationId,
+            javaScriptDisabled: true
+          }, "render-mode:run:set-hold");
           updateRenderModeNoJsInactivityWatch(normalizedTabId).catch(() => null);
         }
         const endAcknowledged = javaScriptDisabled
@@ -1880,6 +1936,21 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
           runtime: getTabRuntimeSnapshot(normalizedTabId),
           state: tabState
         });
+        brain.recordRenderModeInspection(normalizedTabId, {
+          inspecting: Boolean(javaScriptDisabled && javaScriptReloadAttempted),
+          javaScriptDisabled,
+          noJsHeld: Boolean(javaScriptDisabled && javaScriptReloadAttempted),
+          operationId,
+          baseUrl,
+          lastSnapshotPageUrl:
+            commandResult.inspectionSnapshot &&
+            typeof commandResult.inspectionSnapshot === "object" &&
+            typeof commandResult.inspectionSnapshot.pageUrl === "string"
+              ? commandResult.inspectionSnapshot.pageUrl
+              : "",
+          followUpCompleted: Boolean(commandResult.followUpCompleted),
+          lastError: commandResult.followUpError || ""
+        }, "render-mode:run:finished");
       }
     }
   );
@@ -3288,6 +3359,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 chrome.tabs.onRemoved.addListener((tabId) => {
   clearTrackedTabSessionState(tabId, { includeDeviceState: true }).then();
   clearRenderModeNoJsHeld(tabId).catch(() => null);
+  brain.recordRenderModeNoJsHold(tabId, {
+    held: false,
+    javaScriptDisabled: false
+  }, "render-mode:tab-removed");
   tabInactivityObserver.clearTab(tabId, {
     scope: RENDER_MODE_NO_JS_INACTIVITY_SCOPE
   }).catch(() => null);
@@ -3343,6 +3418,10 @@ async function normalizeRenderModeJavaScriptOnTopLevelNavigation(details) {
     return;
   }
   await clearRenderModeNoJsHeld(details.tabId);
+  brain.recordRenderModeNoJsHold(details.tabId, {
+    held: false,
+    javaScriptDisabled: false
+  }, "render-mode:top-level-navigation");
   await tabInactivityObserver.clearTab(details.tabId, {
     scope: RENDER_MODE_NO_JS_INACTIVITY_SCOPE
   });

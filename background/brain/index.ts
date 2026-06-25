@@ -12,6 +12,11 @@ import {
   updateActivationBootstrapState as updateActivationBootstrapStateValue,
 } from "./deciders/activation-decider.js";
 import { getPopupView, updatePopupViewFromBrokerState } from "./deciders/popup-state-decider.js";
+import {
+  getRenderModeSnapshot as getRenderModeSnapshotValue,
+  recordInspectionResult as recordRenderModeInspectionValue,
+  recordNoJsHoldState as recordRenderModeNoJsHoldValue,
+} from "./deciders/render-mode-decider.js";
 import { updateSpinnerSelectionsFromLegacyQueue } from "./deciders/spinner-state-decider.js";
 import { createStateStore, type TabLayerState } from "./state-store.js";
 import { projectSpinners, type SpinnerState } from "./spinner-authority.js";
@@ -100,6 +105,23 @@ export function createBrain(options: { logger?: Pick<Console, "error"> } = {}) {
     },
     getActivationSnapshot(tabId: number) {
       return getActivationSnapshotValue(store, tabId);
+    },
+    recordRenderModeInspection(
+      tabId: number,
+      patch: Parameters<typeof recordRenderModeInspectionValue>[2],
+      reason: string,
+    ) {
+      return recordRenderModeInspectionValue(store, tabId, patch, reason);
+    },
+    recordRenderModeNoJsHold(
+      tabId: number,
+      patch: Parameters<typeof recordRenderModeNoJsHoldValue>[2],
+      reason: string,
+    ) {
+      return recordRenderModeNoJsHoldValue(store, tabId, patch, reason);
+    },
+    getRenderModeSnapshot(tabId: number) {
+      return getRenderModeSnapshotValue(store, tabId);
     },
     mirrorLegacySpinnerQueue(tabId: number, queue: readonly PopupLegacySpinnerEntry[], reason: string) {
       return updateSpinnerSelectionsFromLegacyQueue(store, tabId, queue, reason);

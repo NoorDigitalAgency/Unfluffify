@@ -50,6 +50,7 @@ test("top-level navigation normalizes render-mode JavaScript debugging state", (
   // re-enabled mid-inspection.
   assert.match(normalizeBlock, /if \(!\(await isRenderModeNoJsHeld\(details\.tabId\)\)\)/);
   assert.match(normalizeBlock, /clearRenderModeNoJsHeld\(details\.tabId\)/);
+  assert.match(normalizeBlock, /brain\.recordRenderModeNoJsHold\(details\.tabId, \{[\s\S]*?held: false,[\s\S]*?javaScriptDisabled: false[\s\S]*?\}, "render-mode:top-level-navigation"\)/);
   assert.match(normalizeBlock, /utils\.setPageJavaScriptExecutionDisabled\(details\.tabId, false\)/);
   assert.match(normalizeBlock, /getDeviceEmulationState\(details\.tabId\)/);
   assert.match(normalizeBlock, /utils\.detachDebugger\(details\.tabId\)/);
@@ -92,6 +93,7 @@ test("background centralizes tracked tab-session cleanup with optional device-st
   assert.match(helperBlock, /includeScriptInjected: true/);
   assert.match(helperBlock, /if \(includeDeviceState\) \{\s*await clearDeviceEmulationState\(tabId\);\s*\}/);
   assert.match(onRemovedBlock, /clearTrackedTabSessionState\(tabId, \{ includeDeviceState: true \}\)\.then\(\);/);
+  assert.match(onRemovedBlock, /brain\.recordRenderModeNoJsHold\(tabId, \{[\s\S]*?held: false,[\s\S]*?javaScriptDisabled: false[\s\S]*?\}, "render-mode:tab-removed"\)/);
 });
 
 test("extension activation enables default mobile emulation for fresh tab sessions", () => {
