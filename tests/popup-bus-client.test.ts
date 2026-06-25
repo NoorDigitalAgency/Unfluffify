@@ -110,4 +110,26 @@ describe("popup bus self-test", () => {
     expect(mutationBody).not.toMatch(/popupBusTabId !== tabId/);
     expect(mutationBody).toMatch(/\{ target: REALMS\.BACKGROUND, tab: tabId, timeoutMs: 3000 \}/);
   });
+
+  it("routes popup consent-hide requests directly to the content realm", () => {
+    const source = readFileSync(new URL("../popup/layers/popup-bus-client.ts", import.meta.url), "utf8");
+    const helperBody = source.match(
+      /export function requestPopupRenderModeHideConsent\([\s\S]*?\): Promise<RenderModeContentHideConsentReply> \{([\s\S]*?)\n\}/
+    )?.[1];
+
+    expect(helperBody).toBeTruthy();
+    expect(helperBody).toMatch(/RENDER_MODE_REQUEST_TYPES\.CONTENT_HIDE_CONSENT/);
+    expect(helperBody).toMatch(/REALMS\.CONTENT/);
+  });
+
+  it("routes popup render-mode HTML capture requests directly to the content realm", () => {
+    const source = readFileSync(new URL("../popup/layers/popup-bus-client.ts", import.meta.url), "utf8");
+    const helperBody = source.match(
+      /export function requestPopupRenderModeCaptureHtml\([\s\S]*?\): Promise<RenderModeContentCaptureHtmlReply> \{([\s\S]*?)\n\}/
+    )?.[1];
+
+    expect(helperBody).toBeTruthy();
+    expect(helperBody).toMatch(/RENDER_MODE_REQUEST_TYPES\.CONTENT_CAPTURE_HTML/);
+    expect(helperBody).toMatch(/REALMS\.CONTENT/);
+  });
 });

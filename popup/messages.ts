@@ -15,8 +15,6 @@ const TAB_SHOW_AI_PREVIEW_COMMAND = "TAB_SHOW_AI_PREVIEW";
 const TAB_CLOSE_AI_PREVIEW_COMMAND = "TAB_CLOSE_AI_PREVIEW";
 const TAB_SET_AI_PREVIEW_EXPANDED_MODE_COMMAND = "TAB_SET_AI_PREVIEW_EXPANDED_MODE";
 const TAB_FOCUS_PREVIEW_ELEMENT_COMMAND = "TAB_FOCUS_PREVIEW_ELEMENT";
-const TAB_RUN_RENDER_MODE_INSPECTION_COMMAND = "TAB_RUN_RENDER_MODE_INSPECTION";
-const TAB_END_RENDER_MODE_INSPECTION_COMMAND = "TAB_END_RENDER_MODE_INSPECTION";
 const TAB_RUN_AI_COMMAND = "TAB_RUN_AI";
 
 export const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -375,47 +373,6 @@ export function requestTabDeactivateMarking(tabId: TabId, payload: TabRequestPay
   });
 }
 
-export function requestTabRunRenderModeInspection(tabId: TabId, payload = {}, options: TabRequestOptions = {}) {
-  if (!tabId) {
-    return Promise.resolve({
-      ok: false,
-      error: "Missing tab"
-    });
-  }
-  const normalizedPayload: { operationId?: unknown } = payload && typeof payload === "object" ? payload : {};
-  return requestRuntime({
-    type: TAB_RUN_RENDER_MODE_INSPECTION_COMMAND,
-    payload: normalizedPayload
-  }, {
-    tabId,
-    timeoutMs: resolveTimeoutMs(options, 120000)
-  }).then((result) => ({
-    ok: true,
-    result: result && typeof result === "object" ? result : {}
-  })).catch(async (error) => {
-    if (typeof normalizedPayload.operationId === "string" && normalizedPayload.operationId) {
-      await requestRuntime({
-        type: TAB_END_RENDER_MODE_INSPECTION_COMMAND,
-        payload: {
-          operationId: normalizedPayload.operationId
-        }
-      }, {
-        tabId,
-        timeoutMs: 5000
-      }).catch(() => null);
-    }
-    const reply = error && error.details && error.details.reply && typeof error.details.reply === "object"
-      ? error.details.reply
-      : null;
-    return {
-      ok: false,
-      code: typeof error.code === "string" ? error.code : (reply && reply.code) || "handler_failed",
-      error: (error && error.message) || (reply && reply.error) || "Unable to inspect render mode",
-      details: reply && reply.details && typeof reply.details === "object" ? reply.details : {}
-    };
-  });
-}
-
 export function requestTabRunAi(tabId: TabId, payload: TabRequestPayload = {}, options: TabRequestOptions = {}) {
   const opts = options;
   if (!tabId) {
@@ -441,36 +398,6 @@ export function requestTabRunAi(tabId: TabId, payload: TabRequestPayload = {}, o
       ok: false,
       code: typeof error.code === "string" ? error.code : (reply && reply.code) || "handler_failed",
       error: (error && error.message) || (reply && reply.error) || "Unable to run AI",
-      details: reply && reply.details && typeof reply.details === "object" ? reply.details : {}
-    };
-  });
-}
-
-export function requestTabEndRenderModeInspection(tabId: TabId, payload: TabRequestPayload = {}, options: TabRequestOptions = {}) {
-  const opts = options;
-  if (!tabId) {
-    return Promise.resolve({
-      ok: false,
-      error: "Missing tab"
-    });
-  }
-  return requestRuntime({
-    type: TAB_END_RENDER_MODE_INSPECTION_COMMAND,
-    payload: payload && typeof payload === "object" ? payload : {}
-  }, {
-    tabId,
-    timeoutMs: resolveTimeoutMs(opts, 15000)
-  }).then((result) => ({
-    ok: true,
-    result: result && typeof result === "object" ? result : {}
-  })).catch((error) => {
-    const reply = error && error.details && error.details.reply && typeof error.details.reply === "object"
-      ? error.details.reply
-      : null;
-    return {
-      ok: false,
-      code: typeof error.code === "string" ? error.code : (reply && reply.code) || "handler_failed",
-      error: (error && error.message) || (reply && reply.error) || "Unable to end render mode inspection",
       details: reply && reply.details && typeof reply.details === "object" ? reply.details : {}
     };
   });

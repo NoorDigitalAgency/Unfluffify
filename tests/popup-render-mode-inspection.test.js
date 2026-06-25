@@ -84,6 +84,8 @@ function createBaseDeps(overrides = {}) {
     isRetryableHttpStatus: () => true,
     // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     ensureContentReadyForRenderModeInspection: async () => true,
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
+    captureRenderModeInspectionHtml: async () => ({ ok: true, pageUrl: "https://example.com/page" }),
     rememberRenderModeInspectionSnapshot() {},
     hideConsentForRenderModeInspection: async () => {},
     reconcilePropertyLockAfterRenderModeReload: async () => {},
@@ -196,25 +198,20 @@ test("popup render-mode inspection wait helpers resolve on tab lifecycle signals
 test("popup render-mode follow-up hides consent before capture without reveal", async () => {
   const calls = [];
   const deps = createBaseDeps({
-    messages: {
-      // deno-lint-ignore require-await -- preserves existing promise/callback contract.
-      sendTabMessageToTab: async (_tabId, message) => {
-        calls.push(message.type);
-        if (message.type === "captureRenderModeInspectionHtml") {
-          return {
-            ok: true,
-            pageUrl: "https://example.com/page",
-            renderedHtml: "<html>rendered</html>",
-            rawHtml: "<html>raw</html>"
-          };
-        }
-        return { ok: true };
-      }
-    },
     // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     hideConsentForRenderModeInspection: async () => {
       calls.push("hideConsentForRenderModeInspection");
-    }
+    },
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
+    captureRenderModeInspectionHtml: async () => {
+      calls.push("captureRenderModeInspectionHtml");
+      return {
+        ok: true,
+        pageUrl: "https://example.com/page",
+        renderedHtml: "<html>rendered</html>",
+        rawHtml: "<html>raw</html>"
+      };
+    },
   });
 
   const result = await completeRenderModeInspectionReloadFollowUp(deps, 7, "op-1");

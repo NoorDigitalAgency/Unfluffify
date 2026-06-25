@@ -44,7 +44,7 @@ export type RenderModeRunInspectionPayload = Readonly<{
   operationId: string;
 }>;
 
-export type RenderModeRunInspectionReply = Readonly<{
+export type RenderModeRunInspectionResult = Readonly<{
   ok: boolean;
   tabId: number;
   operationId: string;
@@ -60,6 +60,32 @@ export type RenderModeRunInspectionReply = Readonly<{
   runtime?: RenderModeDebugRecord;
   state?: RenderModeDebugRecord;
 }>;
+
+export type RenderModeRunInspectionOperationReply = Readonly<{
+  ok: boolean;
+  tabId: number;
+  operationId: string;
+  kind: string;
+  timedOut: boolean;
+  cancelled: boolean;
+  error: string;
+  startedAt: number;
+  finishedAt: number;
+  durationMs: number;
+  result: RenderModeRunInspectionResult | null;
+}>;
+
+export type RenderModeRunInspectionReply =
+  | RenderModeRunInspectionResult
+  | RenderModeRunInspectionOperationReply;
+
+export function isRenderModeRunInspectionResult(value: unknown): value is RenderModeRunInspectionResult {
+  return value !== null && typeof value === "object" && "loadStarted" in value && "reloadResult" in value;
+}
+
+export function isRenderModeRunInspectionOperationReply(value: unknown): value is RenderModeRunInspectionOperationReply {
+  return value !== null && typeof value === "object" && "kind" in value && "result" in value && "startedAt" in value;
+}
 
 export type RenderModeEndInspectionPayload = Readonly<{
   operationId: string;

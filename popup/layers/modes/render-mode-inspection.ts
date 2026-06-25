@@ -1,3 +1,7 @@
+import {
+  isRenderModeRunInspectionOperationReply,
+  isRenderModeRunInspectionResult,
+} from "../../../common/bus/contracts/render-mode.js";
 import type {
   RenderModeEndInspectionPayload,
   RenderModeEndInspectionReply,
@@ -46,6 +50,38 @@ function buildLayerFailure(error: unknown, fallback: string): PopupLayerReply<ne
   };
 }
 
+function getRunInspectionFailureMessage(reply: RenderModeRunInspectionReply): string {
+  if (isRenderModeRunInspectionOperationReply(reply)) {
+    if (typeof reply.error === "string" && reply.error) {
+      return reply.error;
+    }
+    if (isRenderModeRunInspectionResult(reply.result)) {
+      if (typeof reply.result.followUpError === "string" && reply.result.followUpError) {
+        return reply.result.followUpError;
+      }
+      if (reply.result.reloadResult && typeof reply.result.reloadResult.error === "string" && reply.result.reloadResult.error) {
+        return reply.result.reloadResult.error;
+      }
+    }
+  }
+  if (isRenderModeRunInspectionResult(reply)) {
+    if (typeof reply.followUpError === "string" && reply.followUpError) {
+      return reply.followUpError;
+    }
+    if (reply.reloadResult && typeof reply.reloadResult.error === "string" && reply.reloadResult.error) {
+      return reply.reloadResult.error;
+    }
+  }
+  return "Unable to inspect render mode";
+}
+
+function runInspectionNeedsCleanup(reply: RenderModeRunInspectionReply): boolean {
+  if (isRenderModeRunInspectionOperationReply(reply)) {
+    return !reply.ok;
+  }
+  return !reply.ok;
+}
+
 export function createPopupRenderModeInspectionLayer(
   deps: PopupRenderModeInspectionLayerDeps = {
     requestRunInspection: requestPopupRenderModeRun,
@@ -58,9 +94,19 @@ export function createPopupRenderModeInspectionLayer(
         return { ok: false, error: "Missing tab" };
       }
       try {
+        const reply = await deps.requestRunInspection(tabId, payload);
+        if (runInspectionNeedsCleanup(reply)) {
+          if (typeof payload.operationId === "string" && payload.operationId) {
+            await deps.requestEndInspection(tabId, { operationId: payload.operationId }, 5000).catch(() => null);
+          }
+          return {
+            ok: false,
+            error: getRunInspectionFailureMessage(reply),
+          };
+        }
         return {
           ok: true,
-          result: await deps.requestRunInspection(tabId, payload),
+          result: reply,
         };
       } catch (error) {
         if (typeof payload.operationId === "string" && payload.operationId) {

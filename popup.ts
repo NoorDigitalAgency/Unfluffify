@@ -101,9 +101,15 @@ import type { ActivationSnapshot } from "./common/bus/contracts/activation.js";
 import type { PopupStateGetReply } from "./common/bus/contracts/popup-state.js";
 import { deriveSpinnerSelectionsFromLegacyQueue } from "./background/brain/deciders/spinner-state-decider.js";
 import { phaseToSpinnerState } from "./background/brain/spinner-authority.js";
+import {
+  isRenderModeRunInspectionOperationReply,
+  isRenderModeRunInspectionResult,
+} from "./common/bus/contracts/render-mode.js";
 import { createSpinnerOperationLease } from "./common/spinner-contract.js";
 import { SPINNER_REQUEST_TYPES } from "./common/bus/contracts/spinner.js";
 import {
+  requestPopupRenderModeCaptureHtml,
+  requestPopupRenderModeHideConsent,
   requestPopupSpinnerClear,
   requestPopupSpinnerRemove,
   requestPopupSpinnerSet,
@@ -632,6 +638,8 @@ function getRenderModeInspectionDeps() {
     ensureContentReadyForRenderModeInspection,
     rememberRenderModeInspectionSnapshot,
     hideConsentForRenderModeInspection,
+    captureRenderModeInspectionHtml: (tabId: number, baseUrl: string, operationId: string) =>
+      requestPopupRenderModeCaptureHtml(tabId, { baseUrl, operationId }),
     reconcilePropertyLockAfterRenderModeReload,
     scheduleStaleInspectionBusyClear
   };
@@ -3480,9 +3488,7 @@ async function hideConsentForRenderModeInspection(targetTabId = state.currentTab
 // @ts-expect-error
   const sendHideMessageWithRetry = async (attempts) => {
     for (let index = 0; index < attempts; index += 1) {
-      const response = await messages.sendTabMessageToTab(tabId, {
-        type: "hideConsentForInspection"
-      });
+      const response = await requestPopupRenderModeHideConsent(tabId).catch(() => null);
       if (response) {
         return response;
       }
@@ -5811,18 +5817,23 @@ async function runRenderModeInspectionReload(javaScriptDisabled) {
           operationId
         });
         const operationResult = inspectionResponse && inspectionResponse.ok && inspectionResponse.result &&
-            typeof inspectionResponse.result === "object"
+          typeof inspectionResponse.result === "object"
           ? inspectionResponse.result
           : null;
-        const inspectionResult = operationResult && typeof operationResult === "object"
-          ? operationResult
-          : null;
-        const inspectionFailureError = inspectionResult && typeof inspectionResult.followUpError === "string" && inspectionResult.followUpError
+        const inspectionResult = isRenderModeRunInspectionOperationReply(operationResult)
+          ? operationResult.result
+          : (isRenderModeRunInspectionResult(operationResult) ? operationResult : null);
+        const inspectionFailureError = inspectionResult && inspectionResult.followUpError
           ? inspectionResult.followUpError
-          : (inspectionResponse && typeof inspectionResponse === "object" && "error" in inspectionResponse &&
+          : (
+          (isRenderModeRunInspectionOperationReply(operationResult) && operationResult.error
+            ? operationResult.error
+            : "")
+          || (inspectionResponse && typeof inspectionResponse === "object" && "error" in inspectionResponse &&
               typeof inspectionResponse.error === "string"
             ? inspectionResponse.error
-            : "");
+            : "")
+          );
         const reloadResult = inspectionResult && inspectionResult.reloadResult && typeof inspectionResult.reloadResult === "object"
           ? inspectionResult.reloadResult
           : {

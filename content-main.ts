@@ -7207,18 +7207,7 @@ function registerContentCommandHandlersOnce() {
   registerContentCommand("setPopupBusyOnPage", async (_context, payload) => handleSetPopupBusyOnPageCommand(payload));
 // @ts-expect-error
   // deno-lint-ignore require-await -- preserves existing promise/callback contract.
-  registerContentCommand("renderModeInspectionBegin", async (_context, payload) => handleRenderModeInspectionBeginCommand(payload));
-// @ts-expect-error
-  // deno-lint-ignore require-await -- preserves existing promise/callback contract.
   registerContentCommand("runRenderModeRevealOnce", async (_context, payload) => handleRunRenderModeRevealOnceCommand(payload));
-// @ts-expect-error
-  // deno-lint-ignore require-await -- preserves existing promise/callback contract.
-  registerContentCommand("captureRenderModeInspectionHtml", async (_context, payload) => handleCaptureRenderModeInspectionHtmlCommand(payload));
-// @ts-expect-error
-  // deno-lint-ignore require-await -- preserves existing promise/callback contract.
-  registerContentCommand("renderModeInspectionEnd", async (_context, payload) => handleRenderModeInspectionEndCommand(payload));
-  // deno-lint-ignore require-await -- preserves existing promise/callback contract.
-  registerContentCommand("hideConsentForInspection", async () => handleHideConsentForInspectionCommand());
 }
 
 function createRuntimeMessageHandlerDeps() {
@@ -7226,11 +7215,7 @@ function createRuntimeMessageHandlerDeps() {
     handleSetEnabledCommand,
     handleGetInspectionStatusCommand,
     handleSetPopupBusyOnPageCommand,
-    handleRenderModeInspectionBeginCommand,
     handleRunRenderModeRevealOnceCommand,
-    handleCaptureRenderModeInspectionHtmlCommand,
-    handleRenderModeInspectionEndCommand,
-    handleHideConsentForInspectionCommand,
     getAiPreviewGetStateHandler,
     getAiPreviewExpandedModeHandler,
     getAiPreviewComputeLockHandler,
@@ -7270,7 +7255,14 @@ export function main() {
   state.initialized = true;
   registerContentCommandHandlersOnce();
   subscribePageActivity(sendPropertyLockActivity);
-  startContentBusClient({ dispatchContentCommandMessage });
+  startContentBusClient({
+    renderModeHandlers: {
+      beginInspection: handleRenderModeInspectionBeginCommand,
+      hideConsent: handleHideConsentForInspectionCommand,
+      captureHtml: handleCaptureRenderModeInspectionHtmlCommand,
+      endInspection: handleRenderModeInspectionEndCommand,
+    },
+  });
 
   initializePageWorldRelay().catch(() => {
     // Best-effort initialization. Core operations keep a background relay

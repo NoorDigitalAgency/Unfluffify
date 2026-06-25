@@ -3,49 +3,50 @@ import { describe, expect, it, vi } from "vitest";
 import { createRenderModeInspectionExecutor } from "../content/layers/modes/render-mode-inspection-executor.js";
 
 describe("content render-mode executor", () => {
-  it("dispatches content begin through the legacy content command router", async () => {
-    const dispatchContentCommandMessage = vi.fn().mockResolvedValue({
-      id: "req-1",
-      ok: true,
-      result: { ok: true },
-    });
-    const executor = createRenderModeInspectionExecutor({ dispatchContentCommandMessage });
-
-    await expect(executor.handleBegin({ operationId: "render-mode:5:1" }, { tab: 5 })).resolves.toEqual({ ok: true });
-    expect(dispatchContentCommandMessage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: "renderModeInspectionBegin",
-        source: "background",
-        target: "content",
-        tabId: 5,
-        payload: { operationId: "render-mode:5:1" },
-      }),
-      undefined,
-    );
-  });
-
-  it("unwraps captured HTML replies from the legacy content command router", async () => {
-    const dispatchContentCommandMessage = vi.fn().mockResolvedValue({
-      id: "req-2",
-      ok: true,
-      result: {
-        ok: true,
-        pageUrl: "https://example.com/page",
-        renderedHtml: "<html>rendered</html>",
-        rawHtml: "<html>raw</html>",
-        renderMode: "rendered",
-        hiddenCount: 1,
+  it("calls the begin handler directly through the bus executor", async () => {
+    const beginInspection = vi.fn().mockReturnValue({ ok: true });
+    const executor = createRenderModeInspectionExecutor({
+      handlers: {
+        beginInspection,
+        hideConsent: vi.fn(),
+        captureHtml: vi.fn(),
+        endInspection: vi.fn(),
       },
     });
-    const executor = createRenderModeInspectionExecutor({ dispatchContentCommandMessage });
+
+    expect(executor.handleBegin({ operationId: "render-mode:5:1" })).toEqual({ ok: true });
+    expect(beginInspection).toHaveBeenCalledWith({ operationId: "render-mode:5:1" });
+  });
+
+  it("returns the capture-html handler result directly", async () => {
+    const captureHtml = vi.fn().mockResolvedValue({
+      ok: true,
+      pageUrl: "https://example.com/page",
+      renderedHtml: "<html>rendered</html>",
+      rawHtml: "<html>raw</html>",
+      renderMode: "rendered",
+      hiddenCount: 1,
+    });
+    const executor = createRenderModeInspectionExecutor({
+      handlers: {
+        beginInspection: vi.fn(),
+        hideConsent: vi.fn(),
+        captureHtml,
+        endInspection: vi.fn(),
+      },
+    });
 
     await expect(executor.handleCaptureHtml({
       baseUrl: "https://example.com",
       operationId: "render-mode:5:1",
-    }, { tab: 5 })).resolves.toMatchObject({
+    })).resolves.toMatchObject({
       ok: true,
       pageUrl: "https://example.com/page",
       hiddenCount: 1,
+    });
+    expect(captureHtml).toHaveBeenCalledWith({
+      baseUrl: "https://example.com",
+      operationId: "render-mode:5:1",
     });
   });
 });

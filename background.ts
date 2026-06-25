@@ -46,6 +46,7 @@ import {
   type SpinnerRemoveRequestPayload,
   type SpinnerSetRequestPayload
 } from "./common/bus/contracts/spinner.js";
+import { REALMS } from "./common/bus/realms.js";
 import type { PopupLifecycleState } from "./common/bus/contracts/popup-state.js";
 import * as constants from "./common/constants.js";
 import {
@@ -101,8 +102,8 @@ import type {
   RenderModeSnapshotPayload,
   RenderModeEndInspectionPayload,
   RenderModeEndInspectionReply,
+  RenderModeRunInspectionOperationReply,
   RenderModeRunInspectionPayload,
-  RenderModeRunInspectionReply,
 } from "./common/bus/contracts/render-mode.js";
 import { RENDER_MODE_REQUEST_TYPES } from "./common/bus/contracts/render-mode.js";
 import {
@@ -240,8 +241,6 @@ const BACKGROUND_COMMANDS = Object.freeze({
   TAB_BEGIN_RENDER_MODE_INSPECTION: "TAB_BEGIN_RENDER_MODE_INSPECTION",
   TAB_RUN_REVEAL_FREEZE: "TAB_RUN_REVEAL_FREEZE",
   TAB_CAPTURE_RENDER_MODE_HTML: "TAB_CAPTURE_RENDER_MODE_HTML",
-  TAB_END_RENDER_MODE_INSPECTION: "TAB_END_RENDER_MODE_INSPECTION",
-  TAB_RUN_RENDER_MODE_INSPECTION: "TAB_RUN_RENDER_MODE_INSPECTION",
   TAB_RUN_AI: "TAB_RUN_AI"
 });
 const TAB_SCOPED_BACKGROUND_COMMANDS = new Set([
@@ -258,8 +257,6 @@ const TAB_SCOPED_BACKGROUND_COMMANDS = new Set([
   BACKGROUND_COMMANDS.TAB_BEGIN_RENDER_MODE_INSPECTION,
   BACKGROUND_COMMANDS.TAB_RUN_REVEAL_FREEZE,
   BACKGROUND_COMMANDS.TAB_CAPTURE_RENDER_MODE_HTML,
-  BACKGROUND_COMMANDS.TAB_END_RENDER_MODE_INSPECTION,
-  BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION,
   BACKGROUND_COMMANDS.TAB_RUN_AI
 ]);
 const POPUP_TAB_COMMAND_POLICY = Object.freeze({
@@ -485,6 +482,10 @@ function normalizeActivationBaseUrl(value) {
 
 const renderModeInspector = createRenderModeInspector({
   sendContentMessageToTab,
+  requestContentRenderMode: (type, payload, tabId) => brain.bus.request(type, payload, {
+    target: REALMS.CONTENT,
+    tab: tabId,
+  }),
   ensureContentMainForTab,
 // @ts-expect-error
   waitForBackgroundRetryDelay,
@@ -1551,24 +1552,15 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_CAPTURE_RENDER_MODE_HTML, asyn
     renderedHtml: captureResult.renderedHtml || "",
     rawHtml: captureResult.rawHtml || "",
     renderMode: captureResult.renderMode || "",
-// @ts-expect-error
     hiddenCount: Number(captureResult.hiddenCount || 0)
   };
 }, POPUP_TAB_COMMAND_POLICY);
 
-registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_END_RENDER_MODE_INSPECTION, async (context, payload) => {
-  const normalizedTabId = normalizeBrokerTabId(context.tabId);
-  if (!normalizedTabId) {
-    return context.replyFail(
-      MESSAGE_ERROR_CODES.INVALID_TAB,
-      "Missing tab for render mode inspection end"
-    );
-  }
+async function executeRenderModeInspectionEnd(
+  normalizedTabId: number,
+  payload: RenderModeEndInspectionPayload | Record<string, unknown>,
+): Promise<RenderModeEndInspectionReply> {
   const operationId = normalizeRenderModeOperationId(payload, normalizedTabId);
-  // Ending render-mode inspection is an explicit exit, so always restore
-  // JavaScript and clear any "Without JavaScript" hold for this tab. Restoring is
-  // a no-op when JavaScript is already enabled, and we only detach the debugger
-  // when device emulation is not relying on it.
   if (await isRenderModeNoJsHeld(normalizedTabId)) {
     await clearRenderModeNoJsHeld(normalizedTabId);
     brain.recordRenderModeNoJsHold(normalizedTabId, {
@@ -1605,7 +1597,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_END_RENDER_MODE_INSPECTION, as
     message: ""
   });
   if (!endAcknowledged) {
-    return context.replyFail(
+    throw createBackgroundCommandError(
       MESSAGE_ERROR_CODES.CONTENT_UNAVAILABLE,
       "Unable to end render mode inspection",
       {
@@ -1620,23 +1612,18 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_END_RENDER_MODE_INSPECTION, as
     tabId: normalizedTabId,
     operationId,
     endAcknowledged,
-    runtime: getTabRuntimeSnapshot(normalizedTabId),
-    state: tabState
+    runtime: getTabRuntimeSnapshot(normalizedTabId) || undefined,
+    state: tabState || undefined
   };
-}, POPUP_TAB_COMMAND_POLICY);
+}
 
-// deno-lint-ignore require-await -- preserves existing promise/callback contract.
-registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, async (context, payload) => {
-  const normalizedTabId = normalizeBrokerTabId(context.tabId);
-  if (!normalizedTabId) {
-    return context.replyFail(
-      MESSAGE_ERROR_CODES.INVALID_TAB,
-      "Missing tab for render mode inspection"
-    );
-  }
+async function executeRenderModeInspection(
+  normalizedTabId: number,
+  payload: RenderModeRunInspectionPayload | Record<string, unknown>,
+): Promise<RenderModeRunInspectionOperationReply> {
   const baseUrl = normalizeActivationBaseUrl(payload && payload.baseUrl);
   if (!baseUrl) {
-    return context.replyFail(
+    throw createBackgroundCommandError(
       MESSAGE_ERROR_CODES.HANDLER_FAILED,
       "Missing base URL for render mode inspection",
       { tabId: normalizedTabId }
@@ -1645,7 +1632,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
   const operationId = normalizeRenderModeOperationId(payload, normalizedTabId);
   const javaScriptDisabled = Boolean(payload && payload.javaScriptDisabled);
 
-  return runBackgroundTabOperation(
+  return await runBackgroundTabOperation(
     normalizedTabId,
     {
       operationId,
@@ -1660,7 +1647,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
         persistent: false
       }
     },
-  async ({ update }: TabOperationContext) => {
+  async ({ update, signal }: TabOperationContext) => {
       // Clear any prior "Without JavaScript" hold for this tab before we start.
       // This inspection's own reload also fires webNavigation events, so the tab
       // must NOT be marked held while we reload — it is re-marked in `finally` only
@@ -1694,8 +1681,8 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
         followUpError: string;
         inspectionSnapshot: RenderModeSnapshotPayload | null;
         endAcknowledged: boolean;
-        runtime?: unknown;
-        state?: unknown;
+        runtime?: Record<string, unknown>;
+        state?: Record<string, unknown>;
       } = {
         ok: false,
         tabId: normalizedTabId,
@@ -1705,7 +1692,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
         followUpCompleted: false,
         followUpError: "Unable to inspect page",
         inspectionSnapshot: null,
-        endAcknowledged: false
+        endAcknowledged: false,
       };
       let javaScriptReloadAttempted = false;
       let javaScriptRestored = !javaScriptDisabled;
@@ -1821,7 +1808,6 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
           }
         }
         if (!beginResult.ok) {
-// @ts-expect-error
           commandResult.followUpError = beginResult.error || "Unable to begin render mode inspection";
           return commandResult;
         }
@@ -1908,7 +1894,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
             renderedHtml: captureResult.renderedHtml || "",
             rawHtml: captureResult.rawHtml || "",
             renderMode: captureResult.renderMode || "",
-            hiddenCount: Number(hideConsentResult.hiddenCount || 0)
+            hiddenCount: Number(captureResult.hiddenCount || hideConsentResult.hiddenCount || 0)
           }
         });
         return commandResult;
@@ -1916,54 +1902,56 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
         if (!javaScriptDisabled && javaScriptReloadAttempted && !javaScriptRestored) {
           await restoreJavaScriptAfterNoJsReload().catch(() => null);
         }
-        if (javaScriptDisabled && javaScriptReloadAttempted) {
-          // The page is now reloaded with JavaScript disabled and is left that
-          // way for inspection. Remember the tab so JavaScript is restored on the
-          // next genuine top-level navigation (not on this inspection's own reload,
-          // which has already fired its navigation events by now), and so the popup
-          // can show the page as currently held in "Without JavaScript" mode.
-          await setRenderModeNoJsHeld(normalizedTabId, true);
-          brain.recordRenderModeNoJsHold(normalizedTabId, {
-            held: true,
+        if (!signal || !signal.aborted) {
+          if (javaScriptDisabled && javaScriptReloadAttempted) {
+            // The page is now reloaded with JavaScript disabled and is left that
+            // way for inspection. Remember the tab so JavaScript is restored on the
+            // next genuine top-level navigation (not on this inspection's own reload,
+            // which has already fired its navigation events by now), and so the popup
+            // can show the page as currently held in "Without JavaScript" mode.
+            await setRenderModeNoJsHeld(normalizedTabId, true);
+            brain.recordRenderModeNoJsHold(normalizedTabId, {
+              held: true,
+              operationId,
+              javaScriptDisabled: true
+            }, "render-mode:run:set-hold");
+            updateRenderModeNoJsInactivityWatch(normalizedTabId).catch(() => null);
+          }
+          const endAcknowledged = javaScriptDisabled
+            ? false
+            : await sendRenderModeInspectionEndWithRetry(
+              normalizedTabId,
+              operationId
+            );
+          const tabState = await utils.getTabState(normalizedTabId);
+          updateTabRuntime(normalizedTabId, {
+            mode: tabState && tabState.enabled ? "marking" : "silent"
+          });
+          Object.assign(commandResult, {
+            endAcknowledged,
+            runtime: getTabRuntimeSnapshot(normalizedTabId),
+            state: tabState
+          });
+          brain.recordRenderModeInspection(normalizedTabId, {
+            inspecting: Boolean(javaScriptDisabled && javaScriptReloadAttempted),
+            javaScriptDisabled,
+            noJsHeld: Boolean(javaScriptDisabled && javaScriptReloadAttempted),
             operationId,
-            javaScriptDisabled: true
-          }, "render-mode:run:set-hold");
-          updateRenderModeNoJsInactivityWatch(normalizedTabId).catch(() => null);
+            baseUrl,
+            lastSnapshotPageUrl:
+              commandResult.inspectionSnapshot &&
+              typeof commandResult.inspectionSnapshot === "object" &&
+              typeof commandResult.inspectionSnapshot.pageUrl === "string"
+                ? commandResult.inspectionSnapshot.pageUrl
+                : "",
+            followUpCompleted: Boolean(commandResult.followUpCompleted),
+            lastError: commandResult.followUpError || ""
+          }, "render-mode:run:finished");
         }
-        const endAcknowledged = javaScriptDisabled
-          ? false
-          : await sendRenderModeInspectionEndWithRetry(
-            normalizedTabId,
-            operationId
-          );
-        const tabState = await utils.getTabState(normalizedTabId);
-        updateTabRuntime(normalizedTabId, {
-          mode: tabState && tabState.enabled ? "marking" : "silent"
-        });
-        Object.assign(commandResult, {
-          endAcknowledged,
-          runtime: getTabRuntimeSnapshot(normalizedTabId),
-          state: tabState
-        });
-        brain.recordRenderModeInspection(normalizedTabId, {
-          inspecting: Boolean(javaScriptDisabled && javaScriptReloadAttempted),
-          javaScriptDisabled,
-          noJsHeld: Boolean(javaScriptDisabled && javaScriptReloadAttempted),
-          operationId,
-          baseUrl,
-          lastSnapshotPageUrl:
-            commandResult.inspectionSnapshot &&
-            typeof commandResult.inspectionSnapshot === "object" &&
-            typeof commandResult.inspectionSnapshot.pageUrl === "string"
-              ? commandResult.inspectionSnapshot.pageUrl
-              : "",
-          followUpCompleted: Boolean(commandResult.followUpCompleted),
-          lastError: commandResult.followUpError || ""
-        }, "render-mode:run:finished");
       }
     }
-  );
-}, POPUP_TAB_COMMAND_POLICY);
+  ) as unknown as RenderModeRunInspectionOperationReply;
+}
 
 registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_AI, async (context, payload) => {
   const normalizedTabId = normalizeBrokerTabId(context.tabId);
@@ -2130,6 +2118,28 @@ function dispatchBackgroundCommandEnvelope(message, sender) {
       return reply;
     });
 }
+
+brain.bus.registerHandler(RENDER_MODE_REQUEST_TYPES.RUN_INSPECTION, (payload: RenderModeRunInspectionPayload, meta) => {
+  const normalizedTabId = normalizeBrokerTabId(meta.tab);
+  if (!normalizedTabId) {
+    throw createBackgroundCommandError(
+      MESSAGE_ERROR_CODES.INVALID_TAB,
+      "renderMode.runInspection requires a tab id",
+    );
+  }
+  return executeRenderModeInspection(normalizedTabId, payload);
+});
+
+brain.bus.registerHandler(RENDER_MODE_REQUEST_TYPES.END_INSPECTION, (payload: RenderModeEndInspectionPayload, meta) => {
+  const normalizedTabId = normalizeBrokerTabId(meta.tab);
+  if (!normalizedTabId) {
+    throw createBackgroundCommandError(
+      MESSAGE_ERROR_CODES.INVALID_TAB,
+      "renderMode.endInspection requires a tab id",
+    );
+  }
+  return executeRenderModeInspectionEnd(normalizedTabId, payload);
+});
 
 // @ts-expect-error
 function getMessageTabId(message, sender) {
@@ -2439,56 +2449,6 @@ brain.bus.registerHandler(SPINNER_REQUEST_TYPES.CLEAR, (payload: SpinnerClearReq
     transientOnly: Boolean(payload.transientOnly)
   });
   return brain.getPopupView(meta.tab);
-});
-
-async function dispatchPopupTabCommandFromBus<TPayload extends Record<string, unknown>, TReply extends Record<string, unknown>>(
-  type: string,
-  payload: TPayload,
-  meta: { tab?: number | null },
-  missingTabMessage: string,
-): Promise<TReply> {
-  if (!meta.tab) {
-    throw new Error(missingTabMessage);
-  }
-  const reply = await dispatchBackgroundCommand(
-    createRequestEnvelope(type, payload, {
-      source: MESSAGE_SOURCES.POPUP,
-      target: MESSAGE_TARGETS.BACKGROUND,
-      tabId: meta.tab,
-    }),
-    {} as Parameters<typeof dispatchBackgroundCommand>[1],
-  );
-  if (!isReplyEnvelope(reply)) {
-    throw new Error(`Invalid background command reply for ${type}`);
-  }
-  if (!reply.ok) {
-    const error = new Error(reply.error || `Unable to execute ${type}`) as Error & {
-      code?: string;
-      details?: { reply: unknown };
-    };
-    error.code = reply.code;
-    error.details = { reply };
-    throw error;
-  }
-  return (reply.result && typeof reply.result === "object" ? reply.result : {}) as TReply;
-}
-
-brain.bus.registerHandler(RENDER_MODE_REQUEST_TYPES.RUN_INSPECTION, (payload: RenderModeRunInspectionPayload, meta) => {
-  return dispatchPopupTabCommandFromBus<RenderModeRunInspectionPayload, RenderModeRunInspectionReply>(
-    BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION,
-    payload,
-    meta,
-    "renderMode.runInspection requires a tab id",
-  );
-});
-
-brain.bus.registerHandler(RENDER_MODE_REQUEST_TYPES.END_INSPECTION, (payload: RenderModeEndInspectionPayload, meta) => {
-  return dispatchPopupTabCommandFromBus<RenderModeEndInspectionPayload, RenderModeEndInspectionReply>(
-    BACKGROUND_COMMANDS.TAB_END_RENDER_MODE_INSPECTION,
-    payload,
-    meta,
-    "renderMode.endInspection requires a tab id",
-  );
 });
 
 const tabOperationRunner = createTabOperationRunner({

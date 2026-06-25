@@ -93,6 +93,11 @@ interface RenderModeInspectionDeps {
   isRetryableHttpStatus(status: unknown): boolean;
   ensureContentReadyForRenderModeInspection(tabId: number): Promise<boolean>;
   hideConsentForRenderModeInspection(tabId: number): Promise<boolean>;
+  captureRenderModeInspectionHtml(
+    tabId: number,
+    baseUrl: string,
+    operationId: string
+  ): Promise<RenderModeInspectionHtmlResponse | null>;
   rememberRenderModeInspectionSnapshot(
     baseUrl: string,
     pageUrl: string,
@@ -405,11 +410,11 @@ export async function completeRenderModeInspectionReloadFollowUp(deps: RenderMod
     return false;
   }
   await deps.hideConsentForRenderModeInspection(tabId);
-  const htmlResponse = await deps.messages.sendTabMessageToTab(tabId, {
-    type: "captureRenderModeInspectionHtml",
-    baseUrl: deps.state.currentBaseUrl,
-    operationId
-  });
+  const htmlResponse = await deps.captureRenderModeInspectionHtml(
+    tabId,
+    deps.state.currentBaseUrl,
+    operationId,
+  );
   if (!htmlResponse || !htmlResponse.ok) {
     return false;
   }

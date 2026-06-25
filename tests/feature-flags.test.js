@@ -195,11 +195,11 @@ test("render mode auto detection is blocked while manual inspection remains", ()
     /if \(message\.type === "requestRenderModeDetection"\) \{[\s\S]*?if \(!isFeatureEnabled\("renderModeAutoDetection"\)\) \{[\s\S]*?sendResponse\(buildFeatureDisabledResponse\("renderModeAutoDetection"\)\);/
   );
   assert.match(popupSource, /requestPopupRenderModeInspection\(/);
-  assert.match(backgroundSource, /TAB_RUN_RENDER_MODE_INSPECTION: "TAB_RUN_RENDER_MODE_INSPECTION"/);
   assert.match(backgroundSource, /TAB_BEGIN_RENDER_MODE_INSPECTION: "TAB_BEGIN_RENDER_MODE_INSPECTION"/);
   assert.match(backgroundSource, /TAB_RUN_REVEAL_FREEZE: "TAB_RUN_REVEAL_FREEZE"/);
   assert.match(backgroundSource, /TAB_CAPTURE_RENDER_MODE_HTML: "TAB_CAPTURE_RENDER_MODE_HTML"/);
-  assert.match(backgroundSource, /TAB_END_RENDER_MODE_INSPECTION: "TAB_END_RENDER_MODE_INSPECTION"/);
+  assert.doesNotMatch(backgroundSource, /TAB_RUN_RENDER_MODE_INSPECTION: "TAB_RUN_RENDER_MODE_INSPECTION"/);
+  assert.doesNotMatch(backgroundSource, /TAB_END_RENDER_MODE_INSPECTION: "TAB_END_RENDER_MODE_INSPECTION"/);
 });
 
 test("cache and unregister tools are hidden and blocked when disabled", () => {

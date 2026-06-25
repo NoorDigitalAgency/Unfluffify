@@ -4,7 +4,7 @@ import { assert } from "./test-kit.ts";
 import { createRenderModeInspector } from "../background/render-mode-inspector.js";
 
 test("render-mode inspector runs begin, consent hide, capture, and end through injected messaging", async () => {
-  const messageTypes = [];
+  const requestTypes = [];
   const runtimeUpdates = [];
   const inspector = createRenderModeInspector({
     // deno-lint-ignore require-await -- preserves existing promise/callback contract.
@@ -15,26 +15,31 @@ test("render-mode inspector runs begin, consent hide, capture, and end through i
     },
     // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     sendContentMessageToTab: async (_tabId, message) => {
-      messageTypes.push(message.type);
       if (message.type === "getInspectionStatus") {
         return { ok: true };
       }
-      if (message.type === "renderModeInspectionBegin") {
+      return { ok: false };
+    },
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
+    requestContentRenderMode: async (type) => {
+      requestTypes.push(type);
+      if (type === "renderMode.contentBegin") {
         return { ok: true };
       }
-      if (message.type === "captureRenderModeInspectionHtml") {
+      if (type === "renderMode.contentCaptureHtml") {
         return {
           ok: true,
           pageUrl: "https://example.test/page",
           renderedHtml: "<html>rendered</html>",
           rawHtml: "<html>raw</html>",
-          renderMode: "dynamic"
+          renderMode: "dynamic",
+          hiddenCount: 2,
         };
       }
-      if (message.type === "hideConsentForInspection") {
+      if (type === "renderMode.contentHideConsent") {
         return { ok: true, hiddenCount: 2 };
       }
-      if (message.type === "renderModeInspectionEnd") {
+      if (type === "renderMode.contentEnd") {
         return { ok: true };
       }
       return { ok: false };
@@ -50,14 +55,14 @@ test("render-mode inspector runs begin, consent hide, capture, and end through i
   assert.equal(hideConsent.ok, true);
   assert.equal(hideConsent.hiddenCount, 2);
   assert.equal(capture.ok, true);
+  assert.equal(capture.hiddenCount, 2);
   assert.equal(ended, true);
   assert.equal(runtimeUpdates.length, 1);
   assert.deepEqual(runtimeUpdates[0], { tabId: 5, patch: { mode: "inspection" } });
-  assert.equal(messageTypes.includes("renderModeInspectionBegin"), true);
-  assert.equal(messageTypes.includes("runRenderModeRevealOnce"), false);
-  assert.equal(messageTypes.includes("captureRenderModeInspectionHtml"), true);
-  assert.equal(messageTypes.includes("hideConsentForInspection"), true);
-  assert.equal(messageTypes.includes("renderModeInspectionEnd"), true);
+  assert.equal(requestTypes.includes("renderMode.contentBegin"), true);
+  assert.equal(requestTypes.includes("renderMode.contentCaptureHtml"), true);
+  assert.equal(requestTypes.includes("renderMode.contentHideConsent"), true);
+  assert.equal(requestTypes.includes("renderMode.contentEnd"), true);
 });
 
 test("render-mode end step retries up to three attempts", async () => {
@@ -71,8 +76,10 @@ test("render-mode end step retries up to three attempts", async () => {
       retryDelayCalls += 1;
     },
     // deno-lint-ignore require-await -- preserves existing promise/callback contract.
-    sendContentMessageToTab: async (_tabId, message) => {
-      if (message.type !== "renderModeInspectionEnd") {
+    sendContentMessageToTab: async () => ({ ok: true }),
+    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
+    requestContentRenderMode: async (type) => {
+      if (type !== "renderMode.contentEnd") {
         return { ok: true };
       }
       endAttempts += 1;

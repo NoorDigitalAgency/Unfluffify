@@ -27,11 +27,7 @@ interface RuntimeMessageHandlerDeps {
   handleSetEnabledCommand(message: RuntimeMessage): RuntimePromiseResponse;
   handleGetInspectionStatusCommand(): RuntimeResponse;
   handleSetPopupBusyOnPageCommand(message: RuntimeMessage): RuntimeResponse;
-  handleRenderModeInspectionBeginCommand(message: RuntimeMessage): RuntimeResponse;
   handleRunRenderModeRevealOnceCommand(message: RuntimeMessage): RuntimePromiseResponse;
-  handleCaptureRenderModeInspectionHtmlCommand(message: RuntimeMessage): RuntimePromiseResponse;
-  handleRenderModeInspectionEndCommand(message: RuntimeMessage): RuntimeResponse;
-  handleHideConsentForInspectionCommand(): RuntimeResponse;
   getAiPreviewGetStateHandler(): SyncMessageHandler;
   getAiPreviewExpandedModeHandler(): SyncMessageHandler;
   getAiPreviewComputeLockHandler(): AsyncMessageHandler;
@@ -135,11 +131,6 @@ export function handleRuntimeMessage(
     return;
   }
 
-  if (message.type === "renderModeInspectionBegin") {
-    sendResponse(deps.handleRenderModeInspectionBeginCommand(message));
-    return;
-  }
-
   if (message.type === "runRenderModeRevealOnce") {
     deps.handleRunRenderModeRevealOnceCommand(message)
       .then((response) => {
@@ -149,27 +140,6 @@ export function handleRuntimeMessage(
         sendResponse({ ok: false });
       });
     return true;
-  }
-
-  if (message.type === "captureRenderModeInspectionHtml") {
-    deps.handleCaptureRenderModeInspectionHtmlCommand(message)
-      .then((response) => {
-        sendResponse(response && typeof response === "object" ? response : { ok: false });
-      })
-      .catch(() => {
-        sendResponse({ ok: false });
-      });
-    return true;
-  }
-
-  if (message.type === "renderModeInspectionEnd") {
-    sendResponse(deps.handleRenderModeInspectionEndCommand(message));
-    return;
-  }
-
-  if (message.type === "hideConsentForInspection") {
-    sendResponse(deps.handleHideConsentForInspectionCommand());
-    return;
   }
 
   if (message.type === "getAiPreviewState") {

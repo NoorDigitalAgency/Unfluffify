@@ -1,10 +1,15 @@
 import { createBus, type Bus } from "../../common/bus/bus.js";
 import { DIAGNOSTIC_REQUEST_TYPES } from "../../common/bus/contracts/index.js";
+import type {
+  RenderModeContentBeginReply,
+  RenderModeContentCaptureHtmlReply,
+  RenderModeContentEndReply,
+  RenderModeContentHideConsentReply,
+} from "../../common/bus/contracts/render-mode.js";
 import { isBusEnvelope, type BusEnvelope } from "../../common/bus/envelope.js";
 import { REALMS } from "../../common/bus/realms.js";
 import { createContentTransport } from "../../common/bus/transport/content-transport.js";
 import type { Browser } from "../../common/browser.js";
-import type { RequestEnvelope } from "../../common/message-protocol.js";
 import { startContentLayerHost } from "./layer-host.js";
 import { registerRenderModeInspectionExecutor } from "./modes/render-mode-inspection-executor.js";
 
@@ -13,10 +18,12 @@ let contentTransport: ReturnType<typeof createContentTransport> | null = null;
 let contentLayerHostStop: (() => void) | null = null;
 
 export type ContentBusClientOptions = {
-  dispatchContentCommandMessage?: (
-    message: RequestEnvelope,
-    sender: Browser.runtime.MessageSender | undefined,
-  ) => Promise<unknown>;
+  renderModeHandlers?: {
+    beginInspection: (payload?: Record<string, unknown>) => RenderModeContentBeginReply;
+    hideConsent: () => RenderModeContentHideConsentReply;
+    captureHtml: (payload?: Record<string, unknown>) => Promise<RenderModeContentCaptureHtmlReply>;
+    endInspection: (payload?: Record<string, unknown>) => RenderModeContentEndReply;
+  };
 };
 
 export function startContentBusClient(options: ContentBusClientOptions = {}): Bus {
@@ -35,9 +42,9 @@ export function startContentBusClient(options: ContentBusClientOptions = {}): Bu
     nonce: payload.nonce,
     realm: REALMS.CONTENT,
   }));
-  if (typeof options.dispatchContentCommandMessage === "function") {
+  if (options.renderModeHandlers) {
     registerRenderModeInspectionExecutor(contentBus, {
-      dispatchContentCommandMessage: options.dispatchContentCommandMessage,
+      handlers: options.renderModeHandlers,
     });
   }
   contentLayerHostStop = startContentLayerHost(contentBus);

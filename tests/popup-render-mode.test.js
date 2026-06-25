@@ -197,9 +197,11 @@ test("popup render mode inspection surfaces follow-up errors before reload", () 
     "async function normalizeRenderModeDebuggerPage"
   );
 
-  assert.match(inspectionBlock, /const inspectionFailureError = inspectionResult && typeof inspectionResult\.followUpError === "string"/);
+  assert.match(inspectionBlock, /const inspectionFailureError = inspectionResult && inspectionResult\.followUpError/);
   assert.match(inspectionBlock, /const operationResult = inspectionResponse && inspectionResponse\.ok && inspectionResponse\.result/);
-  assert.match(inspectionBlock, /const inspectionResult = operationResult && typeof operationResult === "object"/);
+  assert.match(inspectionBlock, /const inspectionResult = isRenderModeRunInspectionOperationReply\(operationResult\)/);
+  assert.match(inspectionBlock, /isRenderModeRunInspectionResult\(operationResult\)/);
+  assert.match(inspectionBlock, /isRenderModeRunInspectionOperationReply\(operationResult\) && operationResult\.error/);
   assert.match(inspectionBlock, /inspectionResponse && typeof inspectionResponse === "object" && "error" in inspectionResponse/);
   assert.match(inspectionBlock, /error: inspectionFailureError \|\| PopupText\.renderMode\.toastInspectReloadFailed/);
 });

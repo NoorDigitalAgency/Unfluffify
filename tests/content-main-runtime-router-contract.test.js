@@ -14,22 +14,14 @@ const commandRegistrations = [
   "activateContentMain",
   "setEnabled",
   "getInspectionStatus",
-  "renderModeInspectionBegin",
   "runRenderModeRevealOnce",
-  "captureRenderModeInspectionHtml",
-  "renderModeInspectionEnd",
-  "hideConsentForInspection"
 ];
 
 const legacyRuntimeMessages = [
   "activateContentMain",
   "setEnabled",
   "getInspectionStatus",
-  "renderModeInspectionBegin",
   "runRenderModeRevealOnce",
-  "captureRenderModeInspectionHtml",
-  "renderModeInspectionEnd",
-  "hideConsentForInspection",
   "getAiPreviewState",
   "setAiPreviewExpandedMode",
   "setAiComputeLock",
@@ -73,6 +65,26 @@ test("runtime command registrations stay present in content-main", () => {
       contentMainSource,
       new RegExp(`registerContentCommand\\("${commandName}"`),
       `expected command registration for ${commandName}`
+    );
+  }
+});
+
+test("removed render-mode legacy command registrations stay deleted", () => {
+  for (const commandName of [
+    "renderModeInspectionBegin",
+    "captureRenderModeInspectionHtml",
+    "renderModeInspectionEnd",
+    "hideConsentForInspection",
+  ]) {
+    assert.doesNotMatch(
+      contentMainSource,
+      new RegExp(`registerContentCommand\\("${commandName}"`),
+      `did not expect legacy command registration for ${commandName}`,
+    );
+    assert.equal(
+      containsMessageType(runtimeMessageHandlerSource, commandName),
+      false,
+      `did not expect legacy runtime message branch for ${commandName}`,
     );
   }
 });

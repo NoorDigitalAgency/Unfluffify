@@ -8,13 +8,14 @@ const popupSource = readFileSync(new URL("../popup.ts", import.meta.url), "utf8"
 const popupMessagesSource = readFileSync(new URL("../popup/messages.ts", import.meta.url), "utf8");
 const manifestSource = readFileSync(new URL("../manifest.json", import.meta.url), "utf8");
 
-test("background registers render-mode inspection commands as tab-scoped", () => {
+test("background keeps only the granular render-mode helper commands tab-scoped", () => {
   assert.match(backgroundSource, /TAB_BEGIN_RENDER_MODE_INSPECTION: "TAB_BEGIN_RENDER_MODE_INSPECTION"/);
   assert.match(backgroundSource, /TAB_RUN_REVEAL_FREEZE: "TAB_RUN_REVEAL_FREEZE"/);
   assert.match(backgroundSource, /TAB_CAPTURE_RENDER_MODE_HTML: "TAB_CAPTURE_RENDER_MODE_HTML"/);
-  assert.match(backgroundSource, /TAB_END_RENDER_MODE_INSPECTION: "TAB_END_RENDER_MODE_INSPECTION"/);
-  assert.match(backgroundSource, /TAB_RUN_RENDER_MODE_INSPECTION: "TAB_RUN_RENDER_MODE_INSPECTION"/);
-  assert.match(backgroundSource, /TAB_SCOPED_BACKGROUND_COMMANDS = new Set\(\[[\s\S]*?BACKGROUND_COMMANDS\.TAB_RUN_RENDER_MODE_INSPECTION/);
+  assert.doesNotMatch(backgroundSource, /TAB_END_RENDER_MODE_INSPECTION: "TAB_END_RENDER_MODE_INSPECTION"/);
+  assert.doesNotMatch(backgroundSource, /TAB_RUN_RENDER_MODE_INSPECTION: "TAB_RUN_RENDER_MODE_INSPECTION"/);
+  assert.match(backgroundSource, /TAB_SCOPED_BACKGROUND_COMMANDS = new Set\(\[[\s\S]*?BACKGROUND_COMMANDS\.TAB_CAPTURE_RENDER_MODE_HTML/);
+  assert.doesNotMatch(backgroundSource, /TAB_SCOPED_BACKGROUND_COMMANDS = new Set\(\[[\s\S]*?BACKGROUND_COMMANDS\.TAB_RUN_RENDER_MODE_INSPECTION/);
 });
 
 test("popup render mode inspection delegates to the popup render-mode bus layer", () => {
@@ -32,31 +33,31 @@ test("popup render mode inspection delegates to the popup render-mode bus layer"
   assert.doesNotMatch(block, /messages\.requestTabRunRenderModeInspection/);
 });
 
-test("background registers render-mode bus handlers that bridge to the legacy tab commands", () => {
-  assert.match(backgroundSource, /brain\.bus\.registerHandler\(RENDER_MODE_REQUEST_TYPES\.RUN_INSPECTION,[\s\S]*?BACKGROUND_COMMANDS\.TAB_RUN_RENDER_MODE_INSPECTION/);
-  assert.match(backgroundSource, /brain\.bus\.registerHandler\(RENDER_MODE_REQUEST_TYPES\.END_INSPECTION,[\s\S]*?BACKGROUND_COMMANDS\.TAB_END_RENDER_MODE_INSPECTION/);
+test("background registers render-mode bus handlers directly against the new helpers", () => {
+  assert.match(backgroundSource, /brain\.bus\.registerHandler\(RENDER_MODE_REQUEST_TYPES\.RUN_INSPECTION,[\s\S]*?executeRenderModeInspection\(normalizedTabId, payload\)/);
+  assert.match(backgroundSource, /brain\.bus\.registerHandler\(RENDER_MODE_REQUEST_TYPES\.END_INSPECTION,[\s\S]*?executeRenderModeInspectionEnd\(normalizedTabId, payload\)/);
+  const runHandlerIndex = backgroundSource.indexOf("brain.bus.registerHandler(RENDER_MODE_REQUEST_TYPES.RUN_INSPECTION");
+  const popupStateBrokerIndex = backgroundSource.indexOf("const popupStateBroker = createPopupStateBroker(");
+  assert.ok(runHandlerIndex > -1);
+  assert.ok(popupStateBrokerIndex > -1);
+  assert.ok(runHandlerIndex < popupStateBrokerIndex);
 });
 
-test("popup render mode inspection uses long timeout and fail-open end cleanup", () => {
-  const helperBlock = popupMessagesSource.match(
-    /export function requestTabRunRenderModeInspection\(tabId(?:\s*:\s*[^,]+)?, payload = \{\}, options(?:\s*:\s*[^=]+)? = \{\}\) \{([\s\S]*?)\n\}\n\nexport function requestTabRunAi/
-  )[1];
-
-  assert.match(helperBlock, /const normalizedPayload(?:\s*:\s*[^=]+)? = payload && typeof payload === "object" \? payload : \{\};/);
-  assert.match(helperBlock, /timeoutMs: (?:Number\.isFinite\(options\.timeoutMs\) \? Math\.trunc\(options\.timeoutMs\) : 120000|resolveTimeoutMs\(options, 120000\))/);
-  assert.match(helperBlock, /catch\(async \(error\) => \{[\s\S]*?normalizedPayload\.operationId[\s\S]*?type: TAB_END_RENDER_MODE_INSPECTION_COMMAND,[\s\S]*?operationId: normalizedPayload\.operationId/);
+test("popup messages no longer exposes the legacy render-mode runtime wrappers", () => {
+  assert.doesNotMatch(popupMessagesSource, /export function requestTabRunRenderModeInspection\(/);
+  assert.doesNotMatch(popupMessagesSource, /export function requestTabEndRenderModeInspection\(/);
 });
 
-test("background TAB_RUN_RENDER_MODE_INSPECTION orchestrates reload, consent hide, capture, and end", () => {
+test("background executeRenderModeInspection orchestrates reload, consent hide, capture, and end", () => {
   const commandBlock = backgroundSource.match(
-    /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_RUN_RENDER_MODE_INSPECTION, async \(context, payload\) => \{([\s\S]*?)\n\}, POPUP_TAB_COMMAND_POLICY\);\n(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?\n*function maybeGetCommandPayloadForLedger\(message(?:\s*:\s*[^)]+)?\)/
+    /async function executeRenderModeInspection\([\s\S]*?\{([\s\S]*?)\n\}\n\nregisterBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_RUN_AI/
   )[1];
 
   assert.match(backgroundSource, /from "\.\/background\/tab-operation-runner\.js"/);
   assert.match(backgroundSource, /const tabOperationRunner = createTabOperationRunner\(\{[\s\S]*?updateLifecycleState,[\s\S]*?withTabSpinner: withBackgroundTabSpinner/);
   assert.match(commandBlock, /runBackgroundTabOperation\([\s\S]*?kind: LIFECYCLE_KINDS\.RENDER_MODE_INSPECTION,[\s\S]*?timeoutMs: RENDER_MODE_INSPECTION_OPERATION_TIMEOUT_MS,[\s\S]*?reason: "tab-render-mode-inspection"/);
   assert.match(backgroundSource, /from "\.\/background\/render-mode-inspector\.js"/);
-  assert.match(backgroundSource, /const renderModeInspector = createRenderModeInspector\(\{/);
+  assert.match(backgroundSource, /const renderModeInspector = createRenderModeInspector\(\{[\s\S]*?requestContentRenderMode: \(type, payload, tabId\) => brain\.bus\.request\(type, payload, \{[\s\S]*?target: REALMS\.CONTENT/);
   assert.match(backgroundSource, /brain\.recordRenderModeInspection\(normalizedTabId, \{[\s\S]*?inspecting: true,[\s\S]*?operationId,[\s\S]*?baseUrl/);
   assert.match(backgroundSource, /brain\.recordRenderModeInspection\(normalizedTabId, \{[\s\S]*?followUpCompleted: Boolean\(commandResult\.followUpCompleted\),[\s\S]*?lastError: commandResult\.followUpError \|\| ""/);
   assert.match(commandBlock, /if \(!javaScriptDisabled\) \{[\s\S]*?utils\.setPageJavaScriptExecutionDisabled\([\s\S]*?normalizedTabId,[\s\S]*?false/);
@@ -79,6 +80,8 @@ test("background TAB_RUN_RENDER_MODE_INSPECTION orchestrates reload, consent hid
     /let beginResult = await runRenderModeInspectionBeginStep\(normalizedTabId, operationId\);[\s\S]*?beginResult\.error === "Content activation failed"[\s\S]*?reloadPageWithJavaScriptForRenderModeRecovery\(\)[\s\S]*?beginResult = await runRenderModeInspectionBeginStep\(normalizedTabId, operationId\);/
   );
   assert.match(commandBlock, /if \(!javaScriptDisabled && javaScriptReloadAttempted && !javaScriptRestored\) \{[\s\S]*?restoreJavaScriptAfterNoJsReload\(\)\.catch\(\(\) => null\);/);
+  assert.match(commandBlock, /async \(\{ update, signal \}: TabOperationContext\) =>/);
+  assert.match(commandBlock, /if \(!signal \|\| !signal\.aborted\) \{[\s\S]*?await setRenderModeNoJsHeld\(normalizedTabId, true\);[\s\S]*?sendRenderModeInspectionEndWithRetry\(/);
   assert.doesNotMatch(commandBlock, /scheduleJavaScriptRestoreAfterNoJsInspection/);
   assert.doesNotMatch(commandBlock, /runRenderModeRevealFreezeStep\(/);
   assert.match(commandBlock, /if \(javaScriptDisabled\) \{[\s\S]*?captureResult = await captureRenderModeHtmlWithDebugger\(normalizedTabId\);[\s\S]*?\} else \{[\s\S]*?runRenderModeHideConsentStep\(normalizedTabId\)[\s\S]*?runRenderModeCaptureHtmlStep\(\s*normalizedTabId,\s*baseUrl,\s*operationId\s*\)/);
@@ -103,9 +106,9 @@ test("background TAB_RUN_RENDER_MODE_INSPECTION orchestrates reload, consent hid
   assert.doesNotMatch(commandBlock, /phase: commandResult\.ok \? LIFECYCLE_PHASES\.FINISHED : LIFECYCLE_PHASES\.FAILED/);
 });
 
-test("background TAB_END_RENDER_MODE_INSPECTION restores JavaScript and clears the no-JS hold", () => {
+test("background executeRenderModeInspectionEnd restores JavaScript and clears the no-JS hold", () => {
   const endBlock = backgroundSource.match(
-    /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_END_RENDER_MODE_INSPECTION, async \(context, payload\) => \{([\s\S]*?)\n\}, POPUP_TAB_COMMAND_POLICY\);/
+    /async function executeRenderModeInspectionEnd\([\s\S]*?\{([\s\S]*?)\n\}\n\nasync function executeRenderModeInspection/
   )[1];
 
   // Ending render-mode inspection is an explicit exit, so JavaScript must be
@@ -124,7 +127,7 @@ test("background TAB_END_RENDER_MODE_INSPECTION restores JavaScript and clears t
 test("background restores no-JS render-mode holds after central tab inactivity", () => {
   const manifest = JSON.parse(manifestSource);
   const commandBlock = backgroundSource.match(
-    /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_RUN_RENDER_MODE_INSPECTION, async \(context, payload\) => \{([\s\S]*?)\n\}, POPUP_TAB_COMMAND_POLICY\);\n(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?\n*function maybeGetCommandPayloadForLedger\(message(?:\s*:\s*[^)]+)?\)/
+    /async function executeRenderModeInspection\([\s\S]*?\{([\s\S]*?)\n\}\n\nregisterBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_RUN_AI/
   )[1];
   const activityMessageBlock = backgroundSource.match(
     /if \(message\.type === "pageActivityObserved"\) \{([\s\S]*?)\n {2}\}\n\n {2}if \(PROPERTY_LOCK_MESSAGE_TYPES/
@@ -153,12 +156,12 @@ test("background restores no-JS render-mode holds after central tab inactivity",
 test("background render-mode consent hide is separate from HTML capture", () => {
   assert.match(
     renderModeInspectorSource,
-    /async function runRenderModeHideConsentStep\(tabId\) \{[\s\S]*?type: "hideConsentForInspection"/
+    /async function runRenderModeHideConsentStep\(tabId\) \{[\s\S]*?RENDER_MODE_REQUEST_TYPES\.CONTENT_HIDE_CONSENT/
   );
   const helperBlock = renderModeInspectorSource.match(
     /async function runRenderModeCaptureHtmlStep\(tabId, baseUrl, operationId\) \{([\s\S]*?)\n {2}\}/
   )[1];
 
-  assert.match(helperBlock, /type: "captureRenderModeInspectionHtml"/);
+  assert.match(helperBlock, /RENDER_MODE_REQUEST_TYPES\.CONTENT_CAPTURE_HTML/);
   assert.doesNotMatch(helperBlock, /hideConsentForInspection/);
 });

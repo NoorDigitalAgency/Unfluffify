@@ -36,8 +36,8 @@ test("render mode reload delegates inspection orchestration to background", () =
 test("background render mode command skips reveal and hides consent before capture", () => {
   const block = extractSourceBlock(
     backgroundSource,
-    "registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION",
-    "function maybeGetCommandPayloadForLedger"
+    "async function executeRenderModeInspection",
+    "registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_AI"
   );
 
   const beginIndex = block.indexOf("runRenderModeInspectionBeginStep(");
@@ -47,7 +47,7 @@ test("background render mode command skips reveal and hides consent before captu
   const debuggerCaptureIndex = block.indexOf("captureRenderModeHtmlWithDebugger(", loadCompleteIndex);
   const hideConsentIndex = block.indexOf("runRenderModeHideConsentStep(");
   const captureIndex = block.indexOf("runRenderModeCaptureHtmlStep(");
-  const endIndex = block.indexOf("sendRenderModeInspectionEndWithRetry(");
+  const endIndex = block.lastIndexOf("sendRenderModeInspectionEndWithRetry(");
 
   assert.ok(beginIndex > -1);
   assert.ok(enableJavaScriptIndex > -1);
@@ -63,7 +63,7 @@ test("background render mode command skips reveal and hides consent before captu
   assert.doesNotMatch(block, /runRenderModeRevealFreezeStep\(/);
   assert.match(
     renderModeInspectorSource,
-    /async function runRenderModeHideConsentStep\(tabId\) \{[\s\S]*?hideConsentForInspection/
+    /async function runRenderModeHideConsentStep\(tabId\) \{[\s\S]*?RENDER_MODE_REQUEST_TYPES\.CONTENT_HIDE_CONSENT/
   );
 });
 

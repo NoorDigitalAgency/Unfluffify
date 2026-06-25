@@ -11,6 +11,10 @@ import {
   type PopupStateGetReply,
 } from "../../common/bus/contracts/popup-state.js";
 import type {
+  RenderModeContentCaptureHtmlPayload,
+  RenderModeContentCaptureHtmlReply,
+  RenderModeContentHideConsentPayload,
+  RenderModeContentHideConsentReply,
   RenderModeEndInspectionPayload,
   RenderModeEndInspectionReply,
   RenderModeRunInspectionPayload,
@@ -23,7 +27,7 @@ import {
   type SpinnerRemoveRequestPayload,
   type SpinnerSetRequestPayload,
 } from "../../common/bus/contracts/spinner.js";
-import { REALMS } from "../../common/bus/realms.js";
+import { REALMS, type BusTarget } from "../../common/bus/realms.js";
 import { createPopupTransport } from "../../common/bus/transport/popup-transport.js";
 import { startPopupLayerHostWithOptions } from "./layer-host.js";
 
@@ -141,6 +145,7 @@ async function requestPopupRenderMode<Payload, Reply>(
   tabId: number,
   payload: Payload,
   timeoutMs: number,
+  target: BusTarget = REALMS.BACKGROUND,
 ): Promise<Reply> {
   if (!tabId || !popupBus) {
     throw new Error("Popup bus unavailable");
@@ -148,7 +153,7 @@ async function requestPopupRenderMode<Payload, Reply>(
   return await popupBus.request<Payload, Reply>(
     type,
     payload,
-    { target: REALMS.BACKGROUND, tab: tabId, timeoutMs },
+    { target, tab: tabId, timeoutMs },
   );
 }
 
@@ -174,6 +179,32 @@ export function requestPopupRenderModeEnd(
     tabId,
     payload,
     timeoutMs,
+  );
+}
+
+export function requestPopupRenderModeHideConsent(
+  tabId: number,
+  payload: RenderModeContentHideConsentPayload = {},
+): Promise<RenderModeContentHideConsentReply> {
+  return requestPopupRenderMode(
+    RENDER_MODE_REQUEST_TYPES.CONTENT_HIDE_CONSENT,
+    tabId,
+    payload,
+    3000,
+    REALMS.CONTENT,
+  );
+}
+
+export function requestPopupRenderModeCaptureHtml(
+  tabId: number,
+  payload: RenderModeContentCaptureHtmlPayload,
+): Promise<RenderModeContentCaptureHtmlReply> {
+  return requestPopupRenderMode(
+    RENDER_MODE_REQUEST_TYPES.CONTENT_CAPTURE_HTML,
+    tabId,
+    payload,
+    15000,
+    REALMS.CONTENT,
   );
 }
 

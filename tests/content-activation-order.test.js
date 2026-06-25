@@ -213,7 +213,7 @@ test("content exposes inspection status while reveal or reconciliation is pendin
   assert.match(coreSource, /state\.inspectionBlocker/);
 
   const messageStart = runtimeMessageHandlerSource.indexOf('if (message.type === "getInspectionStatus") {');
-  const messageEnd = runtimeMessageHandlerSource.indexOf('if (message.type === "hideConsentForInspection") {', messageStart);
+  const messageEnd = runtimeMessageHandlerSource.indexOf('if (message.type === "runRenderModeRevealOnce") {', messageStart);
   assert.ok(messageStart > -1);
   assert.ok(messageEnd > messageStart);
   const messageSource = runtimeMessageHandlerSource.slice(messageStart, messageEnd);

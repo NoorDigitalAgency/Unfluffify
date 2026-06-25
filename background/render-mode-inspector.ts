@@ -1,3 +1,13 @@
+import {
+  RENDER_MODE_REQUEST_TYPES,
+  type RenderModeContentBeginPayload,
+  type RenderModeContentBeginReply,
+  type RenderModeContentCaptureHtmlPayload,
+  type RenderModeContentCaptureHtmlReply,
+  type RenderModeContentEndPayload,
+  type RenderModeContentHideConsentReply,
+} from "../common/bus/contracts/render-mode.js";
+
 type ContentMessageResult = Record<string, unknown>;
 
 type ManagedTimeoutGroup = {
@@ -8,6 +18,11 @@ type ManagedTimeoutGroup = {
 
 type RenderModeInspectorOptions = {
   sendContentMessageToTab?: (tabId: number, message: Record<string, unknown>) => Promise<ContentMessageResult>;
+  requestContentRenderMode?: <TPayload extends Record<string, unknown>, TReply extends Record<string, unknown>>(
+    type: string,
+    payload: TPayload,
+    tabId: number,
+  ) => Promise<TReply>;
   ensureContentMainForTab?: (tabId: number) => Promise<{ ok?: boolean }>;
   waitForBackgroundRetryDelay?: (ms: number) => Promise<void>;
   updateTabRuntime?: (tabId: number, patch: Record<string, unknown>) => void;
@@ -18,6 +33,10 @@ type RenderModeInspectorOptions = {
 
 function defaultSendContentMessageToTab() {
   return Promise.resolve({ ok: false, error: "Content message failed" });
+}
+
+function defaultRequestContentRenderMode() {
+  return Promise.reject(new Error("Render-mode content bus unavailable"));
 }
 
 function defaultEnsureContentMainForTab() {
@@ -46,6 +65,9 @@ export function createRenderModeInspector(options: RenderModeInspectorOptions = 
   const sendContentMessageToTab = typeof options.sendContentMessageToTab === "function"
     ? options.sendContentMessageToTab
     : defaultSendContentMessageToTab;
+  const requestContentRenderMode = typeof options.requestContentRenderMode === "function"
+    ? options.requestContentRenderMode
+    : defaultRequestContentRenderMode;
   const ensureContentMainForTab = typeof options.ensureContentMainForTab === "function"
     ? options.ensureContentMainForTab
     : defaultEnsureContentMainForTab;
@@ -197,13 +219,31 @@ export function createRenderModeInspector(options: RenderModeInspectorOptions = 
     return false;
   }
 
+  async function requestRenderModeContentStep<TPayload extends Record<string, unknown>, TReply extends ContentMessageResult>(
+    type: string,
+    payload: TPayload,
+    tabId: number,
+    fallback: string,
+  ): Promise<TReply> {
+    try {
+      return await requestContentRenderMode<TPayload, TReply>(type, payload, tabId);
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error && error.message ? error.message : fallback,
+      } as unknown as TReply;
+    }
+  }
+
   async function sendRenderModeInspectionEndWithRetry(tabId: number, operationId: string) {
     for (let attempt = 0; attempt < 3; attempt += 1) {
       await ensureContentMainForTab(tabId).catch(() => ({ ok: false }));
-      const response = await sendContentMessageToTab(tabId, {
-        type: "renderModeInspectionEnd",
-        operationId
-      });
+      const response = await requestRenderModeContentStep<RenderModeContentEndPayload, ContentMessageResult>(
+        RENDER_MODE_REQUEST_TYPES.CONTENT_END,
+        { operationId },
+        tabId,
+        "Unable to end render mode inspection",
+      );
       if (response && response.ok) {
         return true;
       }
@@ -219,10 +259,12 @@ export function createRenderModeInspector(options: RenderModeInspectorOptions = 
     if (!contentReady) {
       return { ok: false, error: "Content activation failed" };
     }
-    const beginResponse = await sendContentMessageToTab(tabId, {
-      type: "renderModeInspectionBegin",
-      operationId
-    });
+    const beginResponse = await requestRenderModeContentStep<RenderModeContentBeginPayload, RenderModeContentBeginReply>(
+      RENDER_MODE_REQUEST_TYPES.CONTENT_BEGIN,
+      { operationId },
+      tabId,
+      "Unable to begin render mode inspection",
+    );
     if (!beginResponse || !beginResponse.ok) {
       return { ok: false, error: (beginResponse && beginResponse.error) || "Unable to begin render mode inspection" };
     }
@@ -258,9 +300,12 @@ export function createRenderModeInspector(options: RenderModeInspectorOptions = 
     if (!contentReady) {
       return { ok: false, error: "Content activation failed" };
     }
-    const response = await sendContentMessageToTab(tabId, {
-      type: "hideConsentForInspection"
-    });
+    const response = await requestRenderModeContentStep<Record<string, never>, RenderModeContentHideConsentReply>(
+      RENDER_MODE_REQUEST_TYPES.CONTENT_HIDE_CONSENT,
+      {},
+      tabId,
+      "Unable to hide consent form",
+    );
     const responseRecord = (response || {}) as Record<string, unknown>;
     if (!response || !response.ok) {
       return { ok: false, error: (response && response.error) || "Unable to hide consent form" };
@@ -279,11 +324,15 @@ export function createRenderModeInspector(options: RenderModeInspectorOptions = 
     if (!contentReady) {
       return { ok: false, error: "Content activation failed" };
     }
-    const response = await sendContentMessageToTab(tabId, {
-      type: "captureRenderModeInspectionHtml",
-      baseUrl,
-      operationId
-    });
+    const response = await requestRenderModeContentStep<RenderModeContentCaptureHtmlPayload, RenderModeContentCaptureHtmlReply>(
+      RENDER_MODE_REQUEST_TYPES.CONTENT_CAPTURE_HTML,
+      {
+        baseUrl,
+        operationId,
+      },
+      tabId,
+      "Unable to capture render mode HTML",
+    );
     const responseRecord = (response || {}) as Record<string, unknown>;
     if (!response || !response.ok) {
       return { ok: false, error: (response && response.error) || "Unable to capture render mode HTML" };
@@ -293,7 +342,8 @@ export function createRenderModeInspector(options: RenderModeInspectorOptions = 
       pageUrl: typeof responseRecord.pageUrl === "string" ? responseRecord.pageUrl : "",
       renderedHtml: typeof responseRecord.renderedHtml === "string" ? responseRecord.renderedHtml : "",
       rawHtml: typeof responseRecord.rawHtml === "string" ? responseRecord.rawHtml : "",
-      renderMode: typeof responseRecord.renderMode === "string" ? responseRecord.renderMode : ""
+      renderMode: typeof responseRecord.renderMode === "string" ? responseRecord.renderMode : "",
+      hiddenCount: Number.isFinite(responseRecord.hiddenCount) ? Number(responseRecord.hiddenCount) : 0,
     };
   }
 

@@ -202,6 +202,12 @@
   Bonliva live popup regression still passes the render-mode
   "Without JavaScript" flow by entering "Starting render-mode inspection"
   instead of the prior "No response" failure.
+- `renderMode.runInspection` is served through the background tab-operation
+  runner, so the live popup/background bus reply is the operation envelope
+  (`{ ok, kind, ..., result }`), not just the inner inspection payload. Popup
+  callers must unwrap `result`, and keeping the render-mode bus handlers
+  registered before later popup-state/spinner bootstrap avoids live MV3 startup
+  gaps where those requests are missing while other bus handlers already work.
 
 ## Popup Preview Exit Contract
 
