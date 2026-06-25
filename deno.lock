@@ -14,6 +14,7 @@
     "npm:@types/chrome@0.2": "0.2.0",
     "npm:@types/chrome@~0.1.43": "0.1.43",
     "npm:@types/node@26": "26.0.0",
+    "npm:@webext-core/messaging@^3.0.2": "3.0.2",
     "npm:esbuild@*": "0.28.1",
     "npm:esbuild@~0.28.1": "0.28.1",
     "npm:eslint@^10.5.0": "10.5.0",
@@ -66,6 +67,9 @@
         "yargs"
       ],
       "bin": true
+    },
+    "@aklinker1/zero-serialize-error@1.0.2": {
+      "integrity": "sha512-hGVkgFqb8Zs80JJ7MOSCGQXH2SyWfwnJwOl8Qpp1lUdkp5T7GTf8QrAMib42Hnzx6HtnNYdmNaSSg4MQy+MDRQ=="
     },
     "@babel/code-frame@7.29.7": {
       "integrity": "sha512-Aup7aUOfpbAUg2ROOJN6Iw5f9DMBlzu0mIkm/malLQFN/YQgO48wCj0Kxa3sEHJvPVFg7siR+qRInwXd2qhQKw==",
@@ -848,6 +852,13 @@
     },
     "@webext-core/match-patterns@1.0.3": {
       "integrity": "sha512-NY39ACqCxdKBmHgw361M9pfJma8e4AZo20w9AY+5ZjIj1W2dvXC8J31G5fjfOGbulW9w4WKpT8fPooi0mLkn9A=="
+    },
+    "@webext-core/messaging@3.0.2": {
+      "integrity": "sha512-tUeF0s+3d/Am6jKuXpET973ZatN3sD3mp6Fy/3GYzIQG3TQbc1Ia9I4x7lwysLSL4teroMVkoyFwafmbrGn/WA==",
+      "dependencies": [
+        "@aklinker1/zero-serialize-error",
+        "webextension-polyfill"
+      ]
     },
     "@wxt-dev/browser@0.1.43": {
       "integrity": "sha512-RMB0zgfe7uuiTp18s9taLeKXoOCLBV418797dnEggiMWmM1JDJekiLtlvrNc6QeZg+amDBy2/KKYuQB2kh/K9A==",
@@ -2728,13 +2739,11 @@
       "integrity": "sha512-6nGlT7EHsS+tTcTdAkYFqXIUwDrMJyJvHFNYGSr4x2/2ySIcV4f5e1RAJUeDyfOJPR8TF0auE8l+82PLhKjqsA==",
       "dependencies": [
         "@jridgewell/remapping",
-        "esbuild@0.27.7",
         "picomatch@4.0.4",
         "vite@8.1.0_@types+node@26.0.0_esbuild@0.27.7",
         "webpack-virtual-modules"
       ],
       "optionalPeers": [
-        "esbuild@0.27.7",
         "vite@8.1.0_@types+node@26.0.0_esbuild@0.27.7"
       ]
     },
@@ -2782,7 +2791,6 @@
       "integrity": "sha512-BuJcQK/56NQTWDGn4ABea3q4SSBdNPWwNZKTkkUpcMPnLoquSYH8llRtSUIgoL1KSCpHt5eghLShn50mH36y7Q==",
       "dependencies": [
         "@types/node",
-        "esbuild@0.27.7",
         "lightningcss",
         "picomatch@4.0.4",
         "postcss",
@@ -2793,8 +2801,7 @@
         "fsevents@2.3.3"
       ],
       "optionalPeers": [
-        "@types/node",
-        "esbuild@0.27.7"
+        "@types/node"
       ],
       "bin": true
     },
@@ -2879,6 +2886,9 @@
         "watchpack",
         "zip-dir"
       ]
+    },
+    "webextension-polyfill@0.12.0": {
+      "integrity": "sha512-97TBmpoWJEE+3nFBQ4VocyCdLKfw54rFaJ6EVQYLBCXqCIpLSZkwGgASpv4oPt9gdKCJ80RJlcmNzNn008Ag6Q=="
     },
     "webpack-virtual-modules@0.6.2": {
       "integrity": "sha512-66/V2i5hQanC51vBQKPH4aI8NMAcBW59FVBs+rC7eGHupMyfn34q7rZIE+ETlJ+XTevqfUhVVBgSUNSW2flEUQ=="
@@ -3065,6 +3075,7 @@
         "npm:@eslint/js@^10.0.1",
         "npm:@types/chrome@0.2",
         "npm:@types/node@26",
+        "npm:@webext-core/messaging@^3.0.2",
         "npm:eslint@^10.5.0",
         "npm:globals@^17.7.0",
         "npm:typescript-eslint@^8.62.0",

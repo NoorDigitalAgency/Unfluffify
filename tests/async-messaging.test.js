@@ -1,13 +1,13 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
+import { vi } from "vitest";
 
-import {
-  MessageRequestError,
-  requestContent,
-  requestRuntime,
-  requestTab
-} from "../common/async-messaging.js";
 import { MESSAGE_ERROR_CODES } from "../common/message-protocol.js";
+
+async function loadAsyncMessaging() {
+  vi.resetModules();
+  return await import("../common/async-messaging.js");
+}
 
 function withBrowser(value, callback) {
   const originalBrowser = globalThis.browser;
@@ -39,6 +39,7 @@ test("requestRuntime resolves the response result on success", async () => {
       }
     }
   }, async () => {
+    const { requestRuntime } = await loadAsyncMessaging();
     const result = await requestRuntime({ type: "runtime:ping" });
     assert.deepEqual(result, { echoed: "runtime:ping" });
   });
@@ -53,6 +54,7 @@ test("requestRuntime rejects when reply envelope has ok:false", async () => {
       }
     }
   }, async () => {
+    const { MessageRequestError, requestRuntime } = await loadAsyncMessaging();
     await assert.rejects(
       requestRuntime({ type: "runtime:fail" }),
       (error) => {
@@ -74,6 +76,7 @@ test("requestRuntime rejects on browser runtime errors", async () => {
       }
     }
   }, async () => {
+    const { MessageRequestError, requestRuntime } = await loadAsyncMessaging();
     await assert.rejects(
       requestRuntime({ type: "runtime:last-error" }),
       (error) => {
@@ -113,6 +116,7 @@ test("requestRuntime rejects on timeout and clears timeout after completion", as
         }
       }
     }, async () => {
+      const { MessageRequestError, requestRuntime } = await loadAsyncMessaging();
       await assert.rejects(
         requestRuntime({ type: "runtime:timeout" }, { timeoutMs: 10 }),
         (error) => {
@@ -132,6 +136,7 @@ test("requestRuntime rejects on timeout and clears timeout after completion", as
         }
       }
     }, async () => {
+      const { requestRuntime } = await loadAsyncMessaging();
       const result = await requestRuntime({ type: "runtime:fast" }, { timeoutMs: 100 });
       assert.deepEqual(result, { ok: true });
       assert.equal(activeTimers.size, 0);
@@ -151,6 +156,7 @@ test("requestRuntime rejects when reply is missing for acknowledged request", as
       }
     }
   }, async () => {
+    const { MessageRequestError, requestRuntime } = await loadAsyncMessaging();
     await assert.rejects(
       requestRuntime({ type: "runtime:missing" }),
       (error) => {
@@ -171,6 +177,7 @@ test("requestRuntime resolves fire-and-forget calls when expectsReply is false",
       }
     }
   }, async () => {
+    const { requestRuntime } = await loadAsyncMessaging();
     const result = await requestRuntime(
       { type: "runtime:notify" },
       { expectsReply: false }
@@ -190,6 +197,7 @@ test("requestTab/requestContent include tab and frame context in failures", asyn
       }
     }
   }, async () => {
+    const { MessageRequestError, requestContent, requestTab } = await loadAsyncMessaging();
     await assert.rejects(
       requestTab(77, { type: "tab:status" }, { frameId: 2 }),
       (error) => {

@@ -1,6 +1,7 @@
 import { BUS_ERROR_CODES, BusError } from "../bus-errors.js";
 import { BUS_KINDS, isBusEnvelope, makeReplyEnvelope, type BusEnvelope, type BusRequestEnvelope } from "../envelope.js";
 import { browser, type Browser } from "../../browser.js";
+import { sendBusEnvelope } from "../../extension-messaging.js";
 import { buildBusPortName, type InboundTransportHandler, type Transport } from "./transport-types.js";
 
 function toBusError(error: unknown, fallbackCode: string, fallbackMessage: string): BusError {
@@ -57,7 +58,7 @@ export function createPopupTransport(tabId: number): Transport {
         return;
       }
       try {
-        return await browser.runtime.sendMessage(env) as BusEnvelope | void;
+        return await sendBusEnvelope(env);
       } catch (error) {
         throw new BusError(
           BUS_ERROR_CODES.TRANSPORT_FAILED,

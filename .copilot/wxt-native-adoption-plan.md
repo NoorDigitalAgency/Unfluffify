@@ -181,9 +181,12 @@ User-approved for Part C (this session):
 1. **Full native bundling.** WXT bundles the real code; drop esbuild
    (`build-extension.ts`) and the `legacy/` mirror. Eliminate all `content/*`
    web-accessible resources and `getURL` dynamic imports of code modules.
-2. **Messaging = HYBRID.** Port the one-shot request/reply paths
+2. **Messaging = HYBRID.** Port the supported one-shot request/reply paths
    (`content-transport`, `popup-transport` request path, `async-messaging`) to
-   `@webext-core/messaging` for portability/maintainability. KEEP the three
+   `@webext-core/messaging` where the live MV3 worker path supports it. Keep
+   popup/content -> background runtime requests on the repo's raw request
+   envelopes after live Chromium verification showed wrapped
+   `runtime.sendMessage` requests never reached the background worker. KEEP the three
    persistent port channels (popup bus port, property-lock, popup-state-broker)
    on raw `chrome.*` ports — `@webext-core/messaging` is one-shot-only and
    cannot model long-lived connections; this is a functional requirement, not a
@@ -511,7 +514,7 @@ full `pnpm verify` are green, and the required live smoke on
 `https://bonliva.se` confirmed persisted sync settings plus popup refresh on
 session-backed device-emulation and render-mode-hold state.
 
-### Phase C8 — Port one-shot request/reply messaging to `@webext-core/messaging`
+### Phase C8 — Port supported one-shot request/reply messaging to `@webext-core/messaging`
 
 **Files**: `package.json` (+`@webext-core/messaging`),
 `common/bus/transport/content-transport.ts`,
@@ -524,22 +527,26 @@ session-backed device-emulation and render-mode-hold state.
 1. Add `@webext-core/messaging`; define a typed protocol map for the existing
    one-shot envelope contract. Do NOT change the bus envelope shape
    (`uf-bus/1`) or the `Transport` interface.
-2. Replace the one-shot `chrome.runtime.sendMessage` / `chrome.tabs.sendMessage`
-   calls inside the transports with `@webext-core/messaging` send/onMessage,
-   keeping send semantics, error mapping (`chrome.runtime.lastError` →
-   reject), and reply timing identical.
+2. Replace the supported one-shot `chrome.tabs.sendMessage` calls inside the
+   transports with `@webext-core/messaging`, keeping send semantics, error
+   mapping (`chrome.runtime.lastError` → reject), and reply timing identical.
 3. **Do NOT touch** the persistent port paths: `popup-transport.ts:23`
    `chrome.runtime.connect` + event `postMessage`; `background-transport.ts`
    popup port handling; `property-lock-*` ports; `popup-state-broker` ports.
    These stay on `chrome.*`.
-4. Migrate `async-messaging.ts` legacy request helpers to the same protocol where
-   they are one-shot; keep behavior identical for `popup/messages.ts` callers.
+4. Migrate `async-messaging.ts` legacy request helpers only where the live MV3
+   path supports the package. Keep popup/content -> background runtime requests
+   on the repo's raw envelopes; keep behavior identical for `popup/messages.ts`
+   callers.
 5. Add `tests/messaging-port-boundary` coverage: assert the three persistent
    port channels still use `chrome.runtime.connect`/ports (regression guard), and
-   that one-shot bus paths route through `@webext-core/messaging`.
+   that supported tab-targeted one-shot bus paths route through
+   `@webext-core/messaging`.
 
-**Expected state**: one-shot request/reply runs on `@webext-core/messaging` under
-the bus; ports unchanged; bus API and Brain authority unchanged.
+**Expected state**: supported tab-targeted one-shot request/reply runs on
+`@webext-core/messaging`; popup/content -> background runtime requests remain on
+the raw envelopes after the live worker probe; ports unchanged; bus API and
+Brain authority unchanged.
 **Validation**: `pnpm test` (bus/transport tests); `pnpm verify`;
 `pnpm browser:live https://bonliva.se` — content↔background requests, popup
 requests, legacy commands, AND the port-based popup state stream + property-lock

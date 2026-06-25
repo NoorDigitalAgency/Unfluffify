@@ -1,7 +1,8 @@
 import { BUS_ERROR_CODES, BusError } from "../bus-errors.js";
 import { type BusEnvelope } from "../envelope.js";
 import { REALMS } from "../realms.js";
-import { browser, type Browser } from "../../browser.js";
+import { type Browser } from "../../browser.js";
+import { sendBusEnvelope } from "../../extension-messaging.js";
 import { createPageRelayTransport } from "./page-relay-transport.js";
 import type { InboundTransportHandler, Transport } from "./transport-types.js";
 
@@ -15,7 +16,7 @@ export function createContentTransport(): ContentTransport {
 
   async function sendToRuntime(env: BusEnvelope): Promise<BusEnvelope | void> {
     try {
-      return await browser.runtime.sendMessage(env) as BusEnvelope | void;
+      return await sendBusEnvelope(env);
     } catch (error) {
       throw new BusError(
         BUS_ERROR_CODES.TRANSPORT_FAILED,

@@ -4,7 +4,7 @@ import {
   createRequestEnvelope,
   isReplyEnvelope
 } from "./message-protocol.js";
-import { browser } from "./browser.js";
+import { sendRequestEnvelope } from "./extension-messaging.js";
 
 type MessageLike = {
   id?: string;
@@ -264,7 +264,7 @@ export function requestWithChromeCallback(
 
 export function requestRuntime(message: unknown, options: RequestOptions = {}): Promise<unknown> {
   return requestWithChromeCallback((envelope) => {
-    return browser.runtime.sendMessage(envelope);
+    return sendRequestEnvelope(envelope);
   }, message, {
     ...options,
     target: options.target || "background"
@@ -285,7 +285,11 @@ export function requestTab(tabId: number | null, message: unknown, options: Requ
   }
   const frameId = Number.isFinite(options.frameId) ? Math.trunc(options.frameId as number) : 0;
   return requestWithChromeCallback((envelope) => {
-    return browser.tabs.sendMessage(normalizedTabId, envelope, { frameId });
+    return sendRequestEnvelope({
+      ...envelope,
+      tabId: normalizedTabId,
+      frameId,
+    });
   }, message, {
     ...options,
     tabId: normalizedTabId,

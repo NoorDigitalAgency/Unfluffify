@@ -30,8 +30,9 @@ Use these documents before making implementation changes:
 11. `.copilot/wxt-native-adoption-plan.md` (Part C: native WXT runtime adoption —
     make WXT bundle the real entry graphs, drop esbuild + the `legacy/` mirror,
     eliminate `content/*` WAR, and adopt `wxt/browser` + `wxt/utils/storage` +
-    `@webext-core/messaging` (one-shot only) beneath the typed bus / Brain /
-    layer hosts; C0-C7 complete, C8 next).
+    `@webext-core/messaging` (tab-targeted one-shot only) beneath the typed bus /
+    Brain / layer hosts; popup/content -> background runtime requests stay raw
+    after the live MV3 worker probe; C0-C8 complete, C9 next).
 
 Historical and superseded `.copilot` plans/handoffs have been removed from the
 workspace. If earlier rationale is needed, use git history instead of restoring

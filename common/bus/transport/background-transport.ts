@@ -1,7 +1,8 @@
 import { BUS_ERROR_CODES, BusError } from "../bus-errors.js";
 import { BUS_KINDS, isBusEnvelope, makeReplyEnvelope, type BusEnvelope, type BusRequestEnvelope } from "../envelope.js";
 import { REALMS } from "../realms.js";
-import { browser, type Browser } from "../../browser.js";
+import { type Browser } from "../../browser.js";
+import { sendBusEnvelope } from "../../extension-messaging.js";
 import { BUS_PORT_PREFIX, type InboundTransportHandler, type Transport } from "./transport-types.js";
 
 function normalizeTabId(value: unknown): number | null {
@@ -138,11 +139,11 @@ export function createBackgroundTransport(): BackgroundTransport {
       ));
     }
     try {
-      return await browser.tabs.sendMessage(
-        tabId,
-        env,
-        normalizeFrameId(env.frame) !== undefined ? { frameId: normalizeFrameId(env.frame) } : undefined,
-      ) as BusEnvelope | void;
+      return await sendBusEnvelope({
+        ...env,
+        tab: tabId,
+        frame: normalizeFrameId(env.frame) ?? 0,
+      });
     } catch (error) {
       throw new BusError(
         BUS_ERROR_CODES.TRANSPORT_FAILED,

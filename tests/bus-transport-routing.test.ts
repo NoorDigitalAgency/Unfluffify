@@ -1,15 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
 
 import { BUS_ERROR_CODES } from "../common/bus/bus-errors.js";
 import { BUS_KINDS, makeEventEnvelope, makeRequestEnvelope } from "../common/bus/envelope.js";
-import { createContentTransport } from "../common/bus/transport/content-transport.js";
 import { PAGE_WORLD_COMMANDS } from "../common/page-world-protocol.js";
 import { REALMS } from "../common/bus/realms.js";
-import { createBackgroundTransport } from "../common/bus/transport/background-transport.js";
-import { createPopupTransport } from "../common/bus/transport/popup-transport.js";
 import { createPageRelayTransport } from "../common/bus/transport/page-relay-transport.js";
 import { buildBusPortName } from "../common/bus/transport/transport-types.js";
 import * as pageWorldRelay from "../content/page-world-relay.js";
+
+async function loadBusTransportModule<T>(path: string): Promise<T> {
+  vi.resetModules();
+  return await import(path) as T;
+}
 
 describe("page relay transport", () => {
   beforeEach(() => {
@@ -137,6 +140,7 @@ function createFakePort(name: string) {
 
 describe("background transport", () => {
   it("rejects popup requests if the popup port disconnects before replying", async () => {
+    const { createBackgroundTransport } = await loadBusTransportModule<typeof import("../common/bus/transport/background-transport.js")>("../common/bus/transport/background-transport.js");
     const transport = createBackgroundTransport();
     const popupPort = createFakePort(buildBusPortName(9));
     transport.registerPopupPort(9, popupPort.port);
@@ -156,6 +160,7 @@ describe("background transport", () => {
   });
 
   it("fans out inbound broadcast events to non-source realms", async () => {
+    const { createBackgroundTransport } = await loadBusTransportModule<typeof import("../common/bus/transport/background-transport.js")>("../common/bus/transport/background-transport.js");
     const transport = createBackgroundTransport();
     const popupPort = createFakePort(buildBusPortName(9));
     const seenLocally: string[] = [];
@@ -178,6 +183,7 @@ describe("background transport", () => {
   });
 
   it("derives missing tab ids from the sender for popup routing", async () => {
+    const { createBackgroundTransport } = await loadBusTransportModule<typeof import("../common/bus/transport/background-transport.js")>("../common/bus/transport/background-transport.js");
     const transport = createBackgroundTransport();
     const popupPort = createFakePort(buildBusPortName(9));
     transport.registerPopupPort(9, popupPort.port);
@@ -207,6 +213,7 @@ describe("background transport", () => {
         },
       },
     }, async () => {
+      const { createBackgroundTransport } = await loadBusTransportModule<typeof import("../common/bus/transport/background-transport.js")>("../common/bus/transport/background-transport.js");
       const transport = createBackgroundTransport();
 
       await expect(transport.send(makeRequestEnvelope("diag.ping", { nonce: "n-1" }, {
@@ -233,6 +240,7 @@ describe("content and popup transport", () => {
         },
       },
     }, async () => {
+      const { createContentTransport } = await loadBusTransportModule<typeof import("../common/bus/transport/content-transport.js")>("../common/bus/transport/content-transport.js");
       const transport = createContentTransport();
       const reply = await transport.send(makeRequestEnvelope("diag.ping", { nonce: "n-1" }, {
         src: REALMS.CONTENT,
@@ -241,6 +249,7 @@ describe("content and popup transport", () => {
       }));
 
       expect(sent).toHaveLength(1);
+      expect(sent[0]).toMatchObject({ p: "uf-bus/1", t: "diag.ping" });
       expect(reply).toMatchObject({ ok: true });
     });
   });
@@ -259,6 +268,7 @@ describe("content and popup transport", () => {
         },
       },
     }, async () => {
+      const { createPopupTransport } = await loadBusTransportModule<typeof import("../common/bus/transport/popup-transport.js")>("../common/bus/transport/popup-transport.js");
       const transport = createPopupTransport(9);
       const reply = await transport.send(makeRequestEnvelope("diag.ping", { nonce: "n-1" }, {
         src: REALMS.POPUP,
@@ -267,7 +277,19 @@ describe("content and popup transport", () => {
       }));
 
       expect(sent).toHaveLength(1);
+      expect(sent[0]).toMatchObject({ p: "uf-bus/1", t: "diag.ping" });
       expect(reply).toMatchObject({ ok: true });
     });
+  });
+
+  it("keeps popup ports on runtime.connect while moving one-shot bus sends to extension messaging", () => {
+    const popupTransportSource = readFileSync(new URL("../common/bus/transport/popup-transport.ts", import.meta.url), "utf8");
+    const contentTransportSource = readFileSync(new URL("../common/bus/transport/content-transport.ts", import.meta.url), "utf8");
+    const backgroundTransportSource = readFileSync(new URL("../common/bus/transport/background-transport.ts", import.meta.url), "utf8");
+
+    expect(popupTransportSource).toMatch(/browser\.runtime\.connect\(\{ name: buildBusPortName\(tabId\) \}\)/);
+    expect(contentTransportSource).toMatch(/sendBusEnvelope\(env\)/);
+    expect(popupTransportSource).toMatch(/sendBusEnvelope\(env\)/);
+    expect(backgroundTransportSource).toMatch(/sendBusEnvelope\(\{\s*\.\.\.env,/);
   });
 });

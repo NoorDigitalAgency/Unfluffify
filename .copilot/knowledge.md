@@ -197,6 +197,16 @@
   `addStorageChangeListener` surface unchanged, keep keys/areas identical, and
   route settings-cache invalidation through `addSyncStorageChangeListener`
   instead of direct `chrome.storage.onChanged` usage.
+- C8 one-shot messaging adoption uses `@webext-core/messaging` only for
+  **tab-targeted** one-shot delivery (`tabs.sendMessage` paths into content).
+  In live Chromium MV3, popup/content -> background `runtime.sendMessage`
+  requests wrapped in the package's `{ id, type, data, timestamp }` envelope did
+  not reach the background worker at all, even though the equivalent raw request
+  envelopes did. Keep popup/content -> background one-shot requests and bus
+  sends on the repo's existing raw runtime-message shape; keep the content-side
+  runtime listeners able to unwrap `uf-bus/1` / `uf-runtime-request/1` package
+  envelopes so background -> content one-shot delivery can still use the package
+  where it works.
 
 ## Popup Preview Exit Contract
 

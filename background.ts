@@ -1988,8 +1988,26 @@ function recordBackgroundCommandLedger(message: RuntimeMessage, sender: chrome.r
 
 // @ts-expect-error
 function handleBackgroundCommandEnvelope(message, sender, sendResponse) {
-  if (!isRequestEnvelope(message) || message.target !== MESSAGE_TARGETS.BACKGROUND) {
+  const dispatch = dispatchBackgroundCommandEnvelope(message, sender);
+  if (!dispatch) {
     return false;
+  }
+  dispatch
+    .then((reply) => sendResponse(reply))
+    .catch((error) => {
+      sendResponse(createFailureEnvelope(
+        message,
+        MESSAGE_ERROR_CODES.HANDLER_FAILED,
+        (error && error.message) || "Background command failed"
+      ));
+    });
+  return true;
+}
+
+// @ts-expect-error
+function dispatchBackgroundCommandEnvelope(message, sender) {
+  if (!isRequestEnvelope(message) || message.target !== MESSAGE_TARGETS.BACKGROUND) {
+    return null;
   }
   const startedAt = Date.now();
   const expectsReply = message.expectsReply !== false;
@@ -2005,31 +2023,16 @@ function handleBackgroundCommandEnvelope(message, sender, sendResponse) {
     }
   });
 
-  if (!expectsReply) {
-    dispatch
-      .then((reply) => {
-// @ts-expect-error
-        recordBackgroundCommandLedger(message, sender, reply, startedAt, resolvedContextTabId);
-        sendResponse(undefined);
-      })
-      .catch((error) => {
-        const reply = createFailureEnvelope(
-          message,
-          MESSAGE_ERROR_CODES.HANDLER_FAILED,
-          (error && error.message) || "Background command failed"
-        );
-// @ts-expect-error
-        recordBackgroundCommandLedger(message, sender, reply, startedAt, resolvedContextTabId);
-        sendResponse(undefined);
-      });
-    return true;
-  }
-
-  dispatch
+  return dispatch
     .then((reply) => {
+      if (!expectsReply) {
+// @ts-expect-error
+        recordBackgroundCommandLedger(message, sender, reply, startedAt, resolvedContextTabId);
+        return undefined;
+      }
 // @ts-expect-error
       recordBackgroundCommandLedger(message, sender, reply, startedAt, resolvedContextTabId);
-      sendResponse(reply);
+      return reply;
     })
     .catch((error) => {
       const reply = createFailureEnvelope(
@@ -2037,11 +2040,15 @@ function handleBackgroundCommandEnvelope(message, sender, sendResponse) {
         MESSAGE_ERROR_CODES.HANDLER_FAILED,
         (error && error.message) || "Background command failed"
       );
+      if (!expectsReply) {
+// @ts-expect-error
+        recordBackgroundCommandLedger(message, sender, reply, startedAt, resolvedContextTabId);
+        return undefined;
+      }
 // @ts-expect-error
       recordBackgroundCommandLedger(message, sender, reply, startedAt, resolvedContextTabId);
-      sendResponse(reply);
+      return reply;
     });
-  return true;
 }
 
 // @ts-expect-error

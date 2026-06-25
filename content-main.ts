@@ -1,5 +1,9 @@
 import * as core from "./content/core.js";
 import { browser, type Browser } from "./common/browser.js";
+import {
+  addBusEnvelopeListener,
+  addRequestEnvelopeListener
+} from "./common/extension-messaging.js";
 import * as config from "./common/config.js";
 import {
   FEATURE_DISABLED_REASON,
@@ -138,11 +142,10 @@ import { createPropertyLockPortClient } from "./content/property-lock-port-clien
 import { createPropertyLockStateMachine } from "./content/property-lock-state-machine.js";
 import {
   MESSAGE_ERROR_CODES,
-  MESSAGE_TARGETS,
-  createFailureEnvelope,
-  isRequestEnvelope
+  MESSAGE_TARGETS
 } from "./common/message-protocol.js";
 import { getGlobalAiSettings } from "./common/settings-store.js";
+import { routeInboundContentRequestMessage } from "./content/inbound-content-request-dispatch.js";
 
 const { state } = core;
 
@@ -7381,9 +7384,26 @@ export function main() {
   document.addEventListener("keydown", handleBlockedPropertyLockInteraction, true);
   document.addEventListener("keyup", handleBlockedPropertyLockInteraction, true);
 
+  addBusEnvelopeListener((message, sender) => handleContentBusMessage(message, sender));
+  addRequestEnvelopeListener((message, sender) => {
+    const routed = routeInboundContentRequestMessage(message, sender, dispatchContentCommandMessage);
+    return routed.handled ? routed.reply : undefined;
+  });
+
   browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message && typeof message === "object" && (message as { p?: unknown }).p === "uf-bus/1") {
       handleContentBusMessage(message, _sender)
+        .then((reply) => sendResponse(reply))
+        .catch(() => sendResponse(undefined));
+      return true;
+    }
+
+    const routed = routeInboundContentRequestMessage(message, _sender, dispatchContentCommandMessage);
+    if (routed.handled) {
+      if (!routed.reply) {
+        return;
+      }
+      routed.reply
         .then((reply) => sendResponse(reply))
         .catch(() => sendResponse(undefined));
       return true;
@@ -7403,29 +7423,15 @@ export function main() {
       }
     }
 
-    if (isRequestEnvelope(message) && message.target === MESSAGE_TARGETS.CONTENT) {
-      const expectsReply = message.expectsReply !== false;
-      const dispatchPromise = dispatchContentCommand(message, _sender, {
-        pageUrl: () => location.href,
-        mode: () => getCurrentContentMode()
-      });
-      if (!expectsReply) {
-        dispatchPromise.catch(() => {});
-        return;
-      }
-      dispatchPromise
-        .then((reply) => sendResponse(reply))
-        .catch((error) => {
-          sendResponse(createFailureEnvelope(
-            message,
-            MESSAGE_ERROR_CODES.HANDLER_FAILED,
-            (error && error.message) || "Content command failed"
-          ));
-        });
-        return true;
-    }
     return handleRuntimeMessage(message, _sender, sendResponse, createRuntimeMessageHandlerDeps() as Parameters<typeof handleRuntimeMessage>[3]);
   });
+
+  function dispatchContentCommandMessage(message: Parameters<typeof dispatchContentCommand>[0], sender: Browser.runtime.MessageSender | undefined): Promise<unknown> {
+    return dispatchContentCommand(message, sender, {
+      pageUrl: () => location.href,
+      mode: () => getCurrentContentMode()
+    });
+  }
 
   window.addEventListener(URL_CHANGED_EVENT, () => {
     resetPageVisitRevealFreezeKeys();
