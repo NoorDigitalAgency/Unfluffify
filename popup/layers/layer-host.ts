@@ -1,5 +1,6 @@
 import type { Bus } from "../../common/bus/bus.js";
 import { POPUP_STATE_EVENT_TYPES, type PopupStateGetReply } from "../../common/bus/contracts/popup-state.js";
+import { SPINNER_EVENT_TYPES } from "../../common/bus/contracts/spinner.js";
 import { clearPopupSpinner, renderPopupSpinner } from "./spinner-layer.js";
 
 type PopupViewLike = PopupStateGetReply;
@@ -36,13 +37,13 @@ export function startPopupLayerHostWithOptions(bus: Bus, options: PopupLayerHost
       }
       renderPopupSpinner(null);
     }),
-    bus.subscribe("spinner.set", (payload) => {
+    bus.subscribe(SPINNER_EVENT_TYPES.SET, (payload) => {
       if (!payload || typeof payload !== "object" || (payload as { surface?: unknown }).surface !== "popup") {
         return;
       }
       renderPopupSpinner((payload as { state?: unknown }).state ?? null);
     }),
-    bus.subscribe("spinner.clear", (payload) => {
+    bus.subscribe(SPINNER_EVENT_TYPES.CLEAR, (payload) => {
       if (!payload || typeof payload !== "object" || (payload as { surface?: unknown }).surface !== "popup") {
         return;
       }

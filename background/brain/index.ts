@@ -1,6 +1,7 @@
 import { createBus } from "../../common/bus/bus.js";
 import { DIAGNOSTIC_REQUEST_TYPES } from "../../common/bus/contracts/index.js";
 import { POPUP_STATE_EVENT_TYPES, POPUP_STATE_REQUEST_TYPES } from "../../common/bus/contracts/popup-state.js";
+import { SPINNER_EVENT_TYPES, type SpinnerSurface } from "../../common/bus/contracts/spinner.js";
 import { REALMS } from "../../common/bus/realms.js";
 import { createBackgroundTransport } from "../../common/bus/transport/background-transport.js";
 import type { PopupBrokerState } from "../popup-state-broker.js";
@@ -12,11 +13,11 @@ import { projectViews } from "./view-projector.js";
 function publishSpinnerSurface(
   bus: ReturnType<typeof createBus>,
   tabId: number,
-  surface: "popup" | "pageCurtain" | "banner",
+  surface: SpinnerSurface,
   state: SpinnerState | null,
 ): void {
   const target = surface === "popup" ? REALMS.POPUP : REALMS.CONTENT;
-  const eventType = state ? "spinner.set" : "spinner.clear";
+  const eventType = state ? SPINNER_EVENT_TYPES.SET : SPINNER_EVENT_TYPES.CLEAR;
   const payload = state
     ? { surface, state }
     : { surface };

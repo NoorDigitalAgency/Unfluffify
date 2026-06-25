@@ -1,4 +1,5 @@
 import type { Bus } from "../../common/bus/bus.js";
+import { SPINNER_EVENT_TYPES } from "../../common/bus/contracts/spinner.js";
 import { clearContentSpinner, renderContentSpinner } from "./spinner-layer.js";
 
 type ContentDirectiveLike = {
@@ -17,7 +18,7 @@ export function startContentLayerHost(bus: Bus): () => void {
     bus.subscribe("directive.content", (payload) => {
       latestContentDirective = payload && typeof payload === "object" ? payload as ContentDirectiveLike : null;
     }),
-    bus.subscribe("spinner.set", (payload) => {
+    bus.subscribe(SPINNER_EVENT_TYPES.SET, (payload) => {
       if (!payload || typeof payload !== "object") {
         return;
       }
@@ -27,7 +28,7 @@ export function startContentLayerHost(bus: Bus): () => void {
       }
       renderContentSpinner(surface, (payload as { state?: unknown }).state ?? null);
     }),
-    bus.subscribe("spinner.clear", (payload) => {
+    bus.subscribe(SPINNER_EVENT_TYPES.CLEAR, (payload) => {
       if (!payload || typeof payload !== "object") {
         return;
       }
