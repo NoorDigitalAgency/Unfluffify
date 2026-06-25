@@ -405,11 +405,21 @@ async function ensureContentMainForTab(tabId) {
   if (!normalizedTabId) {
     return { ok: false, error: "Missing tab" };
   }
+  brain.updateActivationBootstrapState(normalizedTabId, {
+    contentReady: false,
+    bootstrapStatus: "bootstrapping",
+    lastError: ""
+  }, "background:ensure-content-main:start");
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const response = await sendContentMessageToTab(normalizedTabId, {
       type: "activateContentMain"
     });
     if (response && response.ok) {
+      brain.updateActivationBootstrapState(normalizedTabId, {
+        contentReady: true,
+        bootstrapStatus: "ready",
+        lastError: ""
+      }, "background:ensure-content-main:ready");
       return { ok: true, tabId: normalizedTabId };
     }
     const injection = await utils.injectContentScript(normalizedTabId, { force: true });
@@ -418,6 +428,11 @@ async function ensureContentMainForTab(tabId) {
         type: "activateContentMain"
       });
       if (retryResponse && retryResponse.ok) {
+        brain.updateActivationBootstrapState(normalizedTabId, {
+          contentReady: true,
+          bootstrapStatus: "ready",
+          lastError: ""
+        }, "background:ensure-content-main:ready");
         return { ok: true, tabId: normalizedTabId };
       }
     }
@@ -425,6 +440,11 @@ async function ensureContentMainForTab(tabId) {
       await waitForBackgroundRetryDelay(150 * (attempt + 1));
     }
   }
+  brain.updateActivationBootstrapState(normalizedTabId, {
+    contentReady: false,
+    bootstrapStatus: "failed",
+    lastError: "Content activation failed"
+  }, "background:ensure-content-main:failed");
   return { ok: false, tabId: normalizedTabId, error: "Content activation failed" };
 }
 
@@ -2125,6 +2145,9 @@ const popupStateBroker = createPopupStateBroker({
   updateRuntime: updateTabRuntime,
   syncPopupView(tabId: number, state: PopupBrokerState, reason: string) {
     brain.mirrorPopupState(tabId, state, reason);
+    if (state.lifecycle) {
+      brain.mirrorActivationLifecycle(tabId, state.lifecycle, `${reason}:activation`);
+    }
     brain.mirrorLegacySpinnerQueue(tabId, state.spinnerQueue, `${reason}:spinners`);
   }
 });
@@ -2146,6 +2169,9 @@ for (const tabId of [...tabLifecycleStateByTabId.keys(), ...tabSpinnerQueueByTab
   popupStateSeedTabIds.add(normalizedTabId);
   const brokerState = buildBrokerState(normalizedTabId);
   brain.mirrorPopupState(normalizedTabId, brokerState, "popup-state-broker:seed");
+  if (brokerState.lifecycle) {
+    brain.mirrorActivationLifecycle(normalizedTabId, brokerState.lifecycle, "popup-state-broker:seed:activation");
+  }
   brain.mirrorLegacySpinnerQueue(normalizedTabId, brokerState.spinnerQueue, "popup-state-broker:seed:spinners");
 }
 

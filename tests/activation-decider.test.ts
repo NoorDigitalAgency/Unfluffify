@@ -1,11 +1,17 @@
 import { describe, expect, it } from "vitest";
 
+import {
+  getActivationSnapshot,
+  mirrorActivationLifecycle,
+  updateActivationBootstrapState,
+} from "../background/brain/deciders/activation-decider.js";
 import { projectViews } from "../background/brain/view-projector.js";
 import { createStateStore } from "../background/brain/state-store.js";
 import {
   ACTIVATION_EVENT_TYPES,
   ACTIVATION_REQUEST_TYPES,
 } from "../common/bus/contracts/activation.js";
+import { LIFECYCLE_KINDS, LIFECYCLE_PHASES } from "../common/world-messaging-contract.js";
 
 describe("activation contracts and projection scaffolding", () => {
   it("exposes the typed track-3 activation request and event names", () => {
@@ -92,5 +98,68 @@ describe("activation contracts and projection scaffolding", () => {
     expect(state.activation.lastLifecycle?.message).toBe(
       "Preparing page content for marking...",
     );
+  });
+
+  it("mirrors bootstrap patches without clearing the last lifecycle snapshot", () => {
+    const store = createStateStore();
+
+    mirrorActivationLifecycle(store, 8, {
+      kind: LIFECYCLE_KINDS.ACTIVATION,
+      phase: LIFECYCLE_PHASES.STARTED,
+      message: "Preparing page content for marking...",
+      busy: true,
+      operationId: "activation:8:1",
+      reason: "activation-started",
+      source: "background",
+      contentMode: "marking",
+      markingEnabled: true,
+      pageUrl: "https://example.com/page",
+    }, "activation:lifecycle");
+
+    const activation = updateActivationBootstrapState(store, 8, {
+      contentReady: true,
+      bootstrapStatus: "ready",
+      lastError: "",
+    }, "activation:bootstrap");
+
+    expect(activation).toMatchObject({
+      contentReady: true,
+      bootstrapStatus: "ready",
+      restorePending: true,
+      lastError: "",
+    });
+    expect(activation.lastLifecycle).toMatchObject({
+      kind: LIFECYCLE_KINDS.ACTIVATION,
+      phase: LIFECYCLE_PHASES.STARTED,
+    });
+  });
+
+  it("promotes content-ready lifecycle events into the activation snapshot", () => {
+    const store = createStateStore();
+
+    const activation = mirrorActivationLifecycle(store, 9, {
+      kind: LIFECYCLE_KINDS.CONTENT_READY,
+      phase: LIFECYCLE_PHASES.FINISHED,
+      message: "",
+      busy: false,
+      reason: "content-ready",
+      source: "content-lifecycle",
+      contentMode: "silent",
+      markingEnabled: false,
+      pageUrl: "https://example.com/ready",
+    }, "activation:content-ready");
+
+    expect(activation).toMatchObject({
+      contentReady: true,
+      bootstrapStatus: "ready",
+      restorePending: false,
+      lastError: "",
+      lastContentPageUrl: "https://example.com/ready",
+    });
+    expect(getActivationSnapshot(store, 9).lastLifecycle).toMatchObject({
+      kind: LIFECYCLE_KINDS.CONTENT_READY,
+      phase: LIFECYCLE_PHASES.FINISHED,
+      pageUrl: "https://example.com/ready",
+    });
   });
 });

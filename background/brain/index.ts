@@ -6,6 +6,10 @@ import { REALMS } from "../../common/bus/realms.js";
 import { createBackgroundTransport } from "../../common/bus/transport/background-transport.js";
 import type { PopupLegacySpinnerEntry } from "../../common/bus/contracts/popup-state.js";
 import type { PopupBrokerState } from "../popup-state-broker.js";
+import {
+  mirrorActivationLifecycle as mirrorActivationLifecycleState,
+  updateActivationBootstrapState as updateActivationBootstrapStateValue,
+} from "./deciders/activation-decider.js";
 import { getPopupView, updatePopupViewFromBrokerState } from "./deciders/popup-state-decider.js";
 import { updateSpinnerSelectionsFromLegacyQueue } from "./deciders/spinner-state-decider.js";
 import { createStateStore, type TabLayerState } from "./state-store.js";
@@ -79,6 +83,19 @@ export function createBrain(options: { logger?: Pick<Console, "error"> } = {}) {
     },
     mirrorPopupState(tabId: number, brokerState: PopupBrokerState, reason: string) {
       return updatePopupViewFromBrokerState(store, tabId, brokerState, reason);
+    },
+    mirrorActivationLifecycle(tabId: number, lifecycle: PopupBrokerState["lifecycle"], reason: string) {
+      if (!lifecycle) {
+        return null;
+      }
+      return mirrorActivationLifecycleState(store, tabId, lifecycle, reason);
+    },
+    updateActivationBootstrapState(
+      tabId: number,
+      patch: Parameters<typeof updateActivationBootstrapStateValue>[2],
+      reason: string,
+    ) {
+      return updateActivationBootstrapStateValue(store, tabId, patch, reason);
     },
     mirrorLegacySpinnerQueue(tabId: number, queue: readonly PopupLegacySpinnerEntry[], reason: string) {
       return updateSpinnerSelectionsFromLegacyQueue(store, tabId, queue, reason);

@@ -75,11 +75,11 @@ test("background exposes lifecycle and spinner state over broker updates and bus
   assert.doesNotMatch(backgroundSource, /WORLD_MESSAGE_TYPES\.BACKGROUND_STATE/);
   assert.match(
     backgroundSource,
-    /syncPopupView\(tabId: number, state: PopupBrokerState, reason: string\) \{[\s\S]*?brain\.mirrorPopupState\(tabId, state, reason\);[\s\S]*?brain\.mirrorLegacySpinnerQueue\(tabId, state\.spinnerQueue, `\$\{reason\}:spinners`\);[\s\S]*?\}/
+    /syncPopupView\(tabId: number, state: PopupBrokerState, reason: string\) \{[\s\S]*?brain\.mirrorPopupState\(tabId, state, reason\);[\s\S]*?if \(state\.lifecycle\) \{[\s\S]*?brain\.mirrorActivationLifecycle\(tabId, state\.lifecycle, `\$\{reason\}:activation`\);[\s\S]*?\}[\s\S]*?brain\.mirrorLegacySpinnerQueue\(tabId, state\.spinnerQueue, `\$\{reason\}:spinners`\);[\s\S]*?\}/
   );
   assert.match(
     backgroundSource,
-    /const brokerState = buildBrokerState\(normalizedTabId\);[\s\S]*?brain\.mirrorPopupState\(normalizedTabId, brokerState, "popup-state-broker:seed"\);[\s\S]*?brain\.mirrorLegacySpinnerQueue\(normalizedTabId, brokerState\.spinnerQueue, "popup-state-broker:seed:spinners"\);/
+    /const brokerState = buildBrokerState\(normalizedTabId\);[\s\S]*?brain\.mirrorPopupState\(normalizedTabId, brokerState, "popup-state-broker:seed"\);[\s\S]*?if \(brokerState\.lifecycle\) \{[\s\S]*?brain\.mirrorActivationLifecycle\(normalizedTabId, brokerState\.lifecycle, "popup-state-broker:seed:activation"\);[\s\S]*?\}[\s\S]*?brain\.mirrorLegacySpinnerQueue\(normalizedTabId, brokerState\.spinnerQueue, "popup-state-broker:seed:spinners"\);/
   );
   assert.match(backgroundSource, /if \(message\.type === WORLD_MESSAGE_TYPES\.LIFECYCLE_EVENT\) \{/);
   assert.doesNotMatch(backgroundSource, /if \(message\.type === WORLD_MESSAGE_TYPES\.GET_BACKGROUND_STATE\) \{/);
@@ -100,6 +100,31 @@ test("background restore activation starts an operation and passes its id to con
   assert.match(block, /operationId/);
   assert.match(block, /phase: LIFECYCLE_PHASES\.FAILED[\s\S]*?busy: false/);
   assert.match(block, /runBackgroundTask\([\s\S]*?clearReloadRestoreTabStateAfterActivation\(tabId, tabState\)/);
+});
+
+test("background content bootstrap mirrors activation bootstrap state into the brain", () => {
+  const block = extractSourceBlock(
+    backgroundSource,
+    "async function ensureContentMainForTab",
+    "function createBackgroundCommandError"
+  );
+
+  assert.match(
+    block,
+    /brain\.updateActivationBootstrapState\(normalizedTabId, \{[\s\S]*?contentReady: false,[\s\S]*?bootstrapStatus: "bootstrapping"[\s\S]*?\}, "background:ensure-content-main:start"\);/
+  );
+  assert.match(
+    block,
+    /if \(response && response\.ok\) \{[\s\S]*?brain\.updateActivationBootstrapState\(normalizedTabId, \{[\s\S]*?contentReady: true,[\s\S]*?bootstrapStatus: "ready"[\s\S]*?\}, "background:ensure-content-main:ready"\);/
+  );
+  assert.match(
+    block,
+    /if \(retryResponse && retryResponse\.ok\) \{[\s\S]*?brain\.updateActivationBootstrapState\(normalizedTabId, \{[\s\S]*?contentReady: true,[\s\S]*?bootstrapStatus: "ready"[\s\S]*?\}, "background:ensure-content-main:ready"\);/
+  );
+  assert.match(
+    block,
+    /brain\.updateActivationBootstrapState\(normalizedTabId, \{[\s\S]*?contentReady: false,[\s\S]*?bootstrapStatus: "failed"[\s\S]*?lastError: "Content activation failed"[\s\S]*?\}, "background:ensure-content-main:failed"\);/
+  );
 });
 
 test("content emits lifecycle events for readiness, activation, and render-mode inspection", () => {
