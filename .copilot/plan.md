@@ -78,13 +78,15 @@ without changing runtime behavior, browser extension contracts, or test intent.
      (`deno lint --rules-include=require-await,no-unused-vars orchestration scripts`)
    - runtime-source `require-await` is now clean after the 2026-06-25 audit
      (`deno lint --rules-include=require-await background.ts content-main.ts popup.ts background common content popup`)
-   - 10 `require-await` diagnostics remain, all in tests
-   - 13 `ban-unused-ignore` diagnostics, all from stale narrow ignores in tests
    - runtime-source `no-unused-vars` is now clean after removing the dead
      `background.ts` / `popup.ts` world-messaging imports
-   - 23 targeted diagnostics remain in total, all in tests
+   - tests are now clean after replacing no-op async fakes with explicit promise
+     returns or sync callbacks as appropriate and deleting stale narrow ignores
+   - direct `deno lint .` now reports zero diagnostics
+   - `pnpm verify` now passes with the target rules enforced
 6. `tests/package-test-script.test.js` already asserts that the target rules are
-   not excluded, so the remaining work is code cleanup rather than config flips.
+   not excluded, so the closeout keeps config coverage aligned with the now-clean
+   lint surface.
 
 ### Decisions already made
 
@@ -270,21 +272,19 @@ lint ignore with rationale before proceeding.
 
 ### Implementation status
 
-Config flip completed on 2026-06-24, but the cleanup track remains active.
-`deno.json` already enforces both target rules repo-wide; the remaining work is
-to delete the last real diagnostics and stale narrow ignores so direct
-`deno lint` is fully clean without contract drift.
+Completed on 2026-06-25. `deno.json` now enforces both target rules repo-wide,
+direct `deno lint .` is clean, and `pnpm verify` passes without restoring broad
+rule exclusions or weakening the runtime/test contracts.
 
 ## Validation Baseline
 
-Known-good current validation baseline:
+Closeout validation commands:
 
 ```bash
-git status --short --branch
-# ## main...origin/main
-
+deno lint .
+deno test --allow-read --allow-write --allow-env --allow-run --allow-sys --allow-net=127.0.0.1 --no-check --unstable-sloppy-imports tests/package-test-script.test.js
 pnpm verify
-# 847 pass / 0 fail
+# success
 ```
 
 Review status on 2026-06-11: F1-F19 were reviewed with no behavioral regression
