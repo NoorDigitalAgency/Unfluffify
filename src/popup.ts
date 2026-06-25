@@ -472,16 +472,14 @@ const POPUP_PAGE_BUSY_MIRROR_DELAY_MS = 3500;
 const POPUP_PAGE_BUSY_MIRROR_FAIL_OPEN_MS = 65000;
 const popupSpinnerWatchdogByKey = new Map();
 let popupNavigationInspectionOverlayStarted = false;
-// @ts-expect-error
-let popupNavigationInspectionOverlayTabId = null;
+let popupNavigationInspectionOverlayTabId: number | null = null;
 const popupNavigationInspectionSettlePollByTabId = new Map();
 const popupRenderModeSetNavGuardByTabId = new Map();
 let popupStaleInspectionBusyClearTimer = 0;
 let popupBackgroundLifecycle: PopupStateGetReply["lifecycle"] = null;
 let popupBackgroundStateTabId: number | null = null;
 let popupBackgroundActivation: ActivationSnapshot | null = null;
-// @ts-expect-error
-let popupPageBusyMirrorTabId = null;
+let popupPageBusyMirrorTabId: number | null = null;
 let popupPageBusyMirrorActive = false;
 let popupPageBusyMirrorSignature = "";
 let popupPageBusyMirrorPendingSignature = "";
@@ -959,7 +957,6 @@ function logPopupSpinnerDebug(eventName, details = {}) {
       visible: popupSpinnerVisible,
       timerActive: Boolean(popupSpinnerTimer),
       navOverlayStarted: popupNavigationInspectionOverlayStarted,
-// @ts-expect-error
       navOverlayTabId: popupNavigationInspectionOverlayTabId,
       ...details
     });
@@ -1052,7 +1049,6 @@ function syncPageBusyFromPopupSpinner() {
     const message = snapshot.entry.message || PopupText.overlay.pleaseWait;
     const leaseDetails = getPopupBusyMirrorLeaseDetails(snapshot);
     const signature = `${tabId}|${message}|${leaseDetails.operationId}|${leaseDetails.releaseBy}`;
-// @ts-expect-error
     if (popupPageBusyMirrorActive && popupPageBusyMirrorTabId && popupPageBusyMirrorTabId !== tabId) {
       sendPopupBusyMirrorMessage(popupPageBusyMirrorTabId, false, "", {
         operationId: popupPageBusyMirrorOperationId
@@ -1113,11 +1109,9 @@ function syncPageBusyFromPopupSpinner() {
   }
 
   clearPopupPageBusyMirrorShowTimer();
-// @ts-expect-error
   if (!popupPageBusyMirrorActive && !popupPageBusyMirrorTabId) {
     return;
   }
-// @ts-expect-error
   const clearTabId = popupPageBusyMirrorTabId || tabId;
   const clearOperationId = popupPageBusyMirrorOperationId;
   popupPageBusyMirrorActive = false;
@@ -2689,6 +2683,11 @@ interface RuntimeStatusRefreshOptions {
   preserveDraft?: unknown;
 }
 
+interface RenderModeSetNavGuardState {
+  startedAt: number;
+  inspectionSeen: boolean;
+}
+
 async function setCurrentPageSaveReconciliationReason(reason: unknown): Promise<PageSaveReconciliation | null> {
   const pageUrl = getCurrentPageUrl();
   if (!state.currentBaseUrl || !pageUrl) {
@@ -3001,7 +3000,7 @@ async function waitForEnableMarkingInspectionToSettle(tabId, baseUrl) {
           baseUrl
         })
         : Promise.resolve(null)
-    ]) as [Record<string, unknown> | null, TabDraftStatusResponse | null];
+    ]) as [InspectionStatusResponse | null, TabDraftStatusResponse | null];
     if (
       (inspectionStatus && inspectionStatus.ok) ||
       (draftStatus && draftStatus.ok)
@@ -3041,9 +3040,11 @@ async function waitForEnableMarkingInspectionToSettle(tabId, baseUrl) {
   };
 }
 
-// @ts-expect-error
-function clearNavigationInspectionSettlePoll(tabId) {
-  const timer = popupNavigationInspectionSettlePollByTabId.get(tabId);
+function clearNavigationInspectionSettlePoll(tabId: number | null): void {
+  if (tabId === null) {
+    return;
+  }
+  const timer = popupNavigationInspectionSettlePollByTabId.get(tabId) as ReturnType<typeof window.setTimeout> | undefined;
   if (!timer) {
     return;
   }
@@ -3061,8 +3062,7 @@ function clearNavigationInspectionSettlePollsExcept(tabIdToKeep = null) {
   });
 }
 
-// @ts-expect-error
-function startRenderModeSetNavGuard(tabId) {
+function startRenderModeSetNavGuard(tabId: number | null): void {
   if (!tabId) {
     return;
   }
@@ -3073,8 +3073,7 @@ function startRenderModeSetNavGuard(tabId) {
   logPopupSpinnerDebug("render-mode-set-nav-guard-start", { tabId });
 }
 
-// @ts-expect-error
-function clearRenderModeSetNavGuard(tabId) {
+function clearRenderModeSetNavGuard(tabId: number | null): void {
   if (!tabId) {
     return;
   }
@@ -3083,12 +3082,11 @@ function clearRenderModeSetNavGuard(tabId) {
   }
 }
 
-// @ts-expect-error
-function noteRenderModeSetNavGuardInspection(tabId) {
+function noteRenderModeSetNavGuardInspection(tabId: number | null): void {
   if (!tabId) {
     return;
   }
-  const guard = popupRenderModeSetNavGuardByTabId.get(tabId);
+  const guard = popupRenderModeSetNavGuardByTabId.get(tabId) as RenderModeSetNavGuardState | undefined;
   if (!guard || guard.inspectionSeen) {
     return;
   }
@@ -3097,12 +3095,11 @@ function noteRenderModeSetNavGuardInspection(tabId) {
   logPopupSpinnerDebug("render-mode-set-nav-guard-observed", { tabId });
 }
 
-// @ts-expect-error
-function shouldHoldNavInspectUntilRenderModeInspectionSeen(tabId) {
+function shouldHoldNavInspectUntilRenderModeInspectionSeen(tabId: number | null): boolean {
   if (!tabId) {
     return false;
   }
-  const guard = popupRenderModeSetNavGuardByTabId.get(tabId);
+  const guard = popupRenderModeSetNavGuardByTabId.get(tabId) as RenderModeSetNavGuardState | undefined;
   if (!guard) {
     return false;
   }
@@ -3122,12 +3119,11 @@ function shouldHoldNavInspectUntilRenderModeInspectionSeen(tabId) {
 // expired). Used by the tab onUpdated listener so it keeps the navInspect overlay
 // alive across the post-Set reload even in silent mode, where the tab is not
 // marking-enabled and the listener would otherwise tear the overlay down.
-// @ts-expect-error
-function isRenderModeSetNavGuardActive(tabId) {
+function isRenderModeSetNavGuardActive(tabId: number | null): boolean {
   if (!tabId) {
     return false;
   }
-  const guard = popupRenderModeSetNavGuardByTabId.get(tabId);
+  const guard = popupRenderModeSetNavGuardByTabId.get(tabId) as RenderModeSetNavGuardState | undefined;
   if (!guard) {
     return false;
   }
@@ -3139,8 +3135,7 @@ function isRenderModeSetNavGuardActive(tabId) {
   return true;
 }
 
-// @ts-expect-error
-function scheduleNavigationInspectionSettlePoll(tabId, baseUrl) {
+function scheduleNavigationInspectionSettlePoll(tabId: number | null, baseUrl: string | null): void {
   if (!tabId) {
     return;
   }
@@ -3149,7 +3144,6 @@ function scheduleNavigationInspectionSettlePoll(tabId, baseUrl) {
   let attempt = 0;
   const maxAttempts = 30;
   const run = async () => {
-// @ts-expect-error
     if (popupNavigationInspectionOverlayTabId !== tabId) {
       clearNavigationInspectionSettlePoll(tabId);
       return;
@@ -3234,13 +3228,10 @@ function beginNavigationInspectionOverlay(tabId) {
   return popupNavigationInspectionOverlayStarted;
 }
 
-// @ts-expect-error
 function endNavigationInspectionOverlay(tabId = popupNavigationInspectionOverlayTabId) {
   if (
-// @ts-expect-error
     popupNavigationInspectionOverlayTabId !== null &&
     tabId !== null &&
-// @ts-expect-error
     popupNavigationInspectionOverlayTabId !== tabId
   ) {
     return;
@@ -4702,7 +4693,6 @@ async function refreshUiInner(options = {}) {
     backgroundActivationInspectionPending ||
     (currentTabId &&
       popupNavigationInspectionOverlayStarted &&
-// @ts-expect-error
       popupNavigationInspectionOverlayTabId === currentTabId &&
       toggleEnabled &&
       effectiveTabState.enabled &&
@@ -4712,7 +4702,6 @@ async function refreshUiInner(options = {}) {
   if (
     popupSpinnerVisible &&
     popupNavigationInspectionOverlayStarted &&
-// @ts-expect-error
     popupNavigationInspectionOverlayTabId === currentTabId
   ) {
     setSpinnerMessage("navInspect", PopupText.overlay.pageInspection);
@@ -8279,7 +8268,6 @@ async function init() {
         (!candidateUrl || utils.isPageWithinBaseUrl(candidateUrl, settleBaseUrl)))
     );
     if (!inspectionExpected) {
-// @ts-expect-error
       if (popupNavigationInspectionOverlayTabId === tabId) {
         endNavigationInspectionOverlay(tabId);
       }

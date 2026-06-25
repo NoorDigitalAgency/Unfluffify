@@ -803,7 +803,10 @@ test("tab reload keeps the inspection curtain active while enabled pages re-insp
   assert.doesNotMatch(source, /restoreInspectionPending/);
   assert.match(source, /function beginNavigationInspectionOverlay\(tabId\) \{/);
   assert.match(source, /function endNavigationInspectionOverlay\(tabId = popupNavigationInspectionOverlayTabId\) \{/);
-  assert.match(source, /function scheduleNavigationInspectionSettlePoll\(tabId, baseUrl\) \{/);
+  assert.match(
+    source,
+    /function scheduleNavigationInspectionSettlePoll\(tabId(?:: [^,)]+)?, baseUrl(?:: [^,)]+)?\)(?:: [^{]+)? \{/
+  );
   assert.match(source, /function clearNavigationInspectionSettlePollsExcept\(tabIdToKeep = null\) \{/);
   assert.match(source, /const popupNavigationInspectionSettlePollByTabId = new Map\(\);/);
 
