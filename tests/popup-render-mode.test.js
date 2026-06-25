@@ -141,6 +141,10 @@ test("popup preserves broker lease metadata when rebuilding spinner snapshots", 
   assert.match(snapshotBlock, /operationId: typeof entry\.operationId === "string" \? entry\.operationId : ""/);
   assert.match(snapshotBlock, /maxDurationMs: Number\.isFinite\(entry\.maxDurationMs\) \? Number\(entry\.maxDurationMs\) : undefined/);
   assert.match(snapshotBlock, /updatedAt: Number\.isFinite\(entry\.updatedAt\) \? Number\(entry\.updatedAt\) : 0/);
+  assert.match(snapshotBlock, /popupBackgroundStateTabId = tabId;/);
+  assert.match(snapshotBlock, /popupBackgroundActivation = snapshot\.activation \|\| null;/);
+  assert.match(snapshotBlock, /const activationBootstrapPending = Boolean\([\s\S]*?snapshot\.activation[\s\S]*?bootstrapStatus === "bootstrapping"/);
+  assert.match(snapshotBlock, /popupNavigationInspectionOverlayStarted =[\s\S]*?popupSpinnerQueue\.has\("navInspect"\) \|\| activationBootstrapPending/);
 });
 
 test("render mode editor shows a textual selected-mode summary instead of a visible dropdown", () => {

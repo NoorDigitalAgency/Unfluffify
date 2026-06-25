@@ -792,6 +792,8 @@ test("tab reload keeps the inspection curtain active while enabled pages re-insp
   assert.match(source, /responseObserved = true;/);
   assert.match(source, /\(responseObserved && attempt >= 2\) \|\| attempt >= 6/);
   assert.match(source, /const navigationInspectionPending = Boolean\(/);
+  assert.match(source, /let popupBackgroundStateTabId(?:: [^=]+)? = null;/);
+  assert.match(source, /let popupBackgroundActivation(?:: [^=]+)? = null;/);
   assert.match(source, /popupNavigationInspectionOverlayStarted/);
   assert.match(source, /popupNavigationInspectionOverlayTabId === currentTabId/);
   assert.match(source, /let contentInspectionPending = Boolean\(/);
@@ -828,6 +830,11 @@ test("tab reload keeps the inspection curtain active while enabled pages re-insp
   assert.match(endBody, /removeSpinnerEntryFromBackground\("navInspect", tabId\)/);
   assert.match(endBody, /if \(!response\) \{\s*popSpinner\("navInspect"\);/);
 
+  const snapshotApplyBody = source.match(
+    /function applyPopupViewSnapshot\(snapshot(?:: [^)]+)?\) \{([\s\S]*?)\n\}/
+  )[1];
+  assert.match(snapshotApplyBody, /activation: snapshot\.activation \|\| null,/);
+
   const refreshBody = source.match(
     /async function refreshUiInner\(options = \{\}\) \{([\s\S]*?)\n\}\n\nasync function maybeResumePersistedAiRun/
   )[1];
@@ -843,6 +850,9 @@ test("tab reload keeps the inspection curtain active while enabled pages re-insp
   assert.match(refreshBody, /const runtimeStatusBaseUrl = state\.currentBaseUrl \|\| effectiveTabState\.baseUrl \|\| "";/);
   assert.doesNotMatch(refreshBody, /latestRuntimeResponseObserved/);
   assert.match(refreshBody, /inspectionStatus = latestRuntimeStatus\.inspectionStatus;/);
+  assert.match(refreshBody, /const backgroundActivationInspectionPending = Boolean\(/);
+  assert.match(refreshBody, /popupBackgroundStateTabId === currentTabId/);
+  assert.match(refreshBody, /popupBackgroundActivation\.bootstrapStatus === "bootstrapping"/);
   assert.match(refreshBody, /!navigationInspectionPending &&\s*\(!siteIdReady \|\| !renderModeReady \|\| pageTypeUiBlocked\)/);
   assert.doesNotMatch(refreshBody, /const pageScopedUiDisabled =[\s\S]*pageTypeUiBlocked && !navigationInspectionPending/);
   assert.match(refreshBody, /nextViewState\.mainUiHidden =[\s\S]*?!isEnabled[\s\S]*?\(!navigationInspectionPending && \(!siteIdReady \|\| !renderModeReady\)\)/);
@@ -858,6 +868,9 @@ test("tab activation does not end persisted inspection overlay before old-tab sp
   assert.match(onActivatedBlock, /clearSpinnerQueueInBackground\(oldTabId, \{ transientOnly: true \}\)\.catch\(\(\) => \{\}\);/);
   assert.match(onActivatedBlock, /clearNavigationInspectionSettlePollsExcept\(\);/);
   assert.match(onActivatedBlock, /popupNavigationInspectionOverlayStarted = false;/);
+  assert.match(onActivatedBlock, /popupBackgroundLifecycle = null;/);
+  assert.match(onActivatedBlock, /popupBackgroundStateTabId = null;/);
+  assert.match(onActivatedBlock, /popupBackgroundActivation = null;/);
   assert.match(onActivatedBlock, /popupNavigationInspectionOverlayTabId = null;/);
 });
 

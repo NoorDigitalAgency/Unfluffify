@@ -35,14 +35,13 @@ old archive files into the active `.copilot` folder.
 On branch `feat/wxt-port-plan`, the active work is the event-bus program's
 Track 3 in `.copilot/event-bus-architecture-plan.md`:
 `.copilot/event-bus/track-03-activation-lifecycle-content-bootstrap.md`.
-Tracks 0-2 are complete and green on this branch, so the next work is:
+Tracks 0-2 are complete and green on this branch, and Track 3 has completed its
+planning, contracts, mirroring, and curtain slices. The next work is:
 
-1. move lifecycle/content-bootstrap authority into the Brain store and typed bus
-   contracts
-2. make the Brain-authoritative activation/lifecycle state drive the content
-   directive and popup/page curtain bootstrap path
-3. remove the remaining popup-local navigation-inspection overlay authority once
-   the Brain path is green
+1. remove the remaining direct legacy lifecycle authority and finish Track 3
+2. update plan docs/status once the teardown slice lands green
+3. keep the current Brain-projected curtain path gap-free while deleting the
+   old authority path
 
 The preview-exit state-neutral restoration slice remains implemented on this
 branch; it is not the active architecture track here. The content-main Track H

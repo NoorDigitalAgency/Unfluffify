@@ -38,6 +38,23 @@ and does not change locked marking, AI, render-mode, or property-lock behavior.
 
 Move activation state, lifecycle event authority, and content-bootstrap truth
 into the Brain so popup/content no longer decide or bootstrap the navigation
+
+## Progress checkpoint
+
+- completed and pushed:
+  - `e5f8522` — Track 3 planning/executor doc
+  - `c77c68a` — activation contracts + Brain scaffolding
+  - `d01c267` — lifecycle/bootstrap mirroring into Brain activation state
+  - `44f3edf` — curtain teardown routed through Brain spinner removal
+- current boundary:
+  - popup now consumes Brain-projected activation snapshots so a reopened popup
+    keeps the navigation-inspection curtain active across activation bootstrap,
+    including the pre-lifecycle `bootstrapStatus: "bootstrapping"` window
+  - the instant local `beginNavigationInspectionOverlay(...)` bridge remains in
+    place to avoid a visible curtain gap while background activation state
+    catches up
+- next slice:
+  - delete the remaining direct legacy lifecycle authority and close Track 3
 inspection curtain locally. User-visible behavior must stay unchanged: content
 activation retries, reload/devtools reinjection restore, lifecycle-driven
 curtain teardown, content-ready reporting, and the render-mode/marking curtain

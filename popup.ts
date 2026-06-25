@@ -96,6 +96,7 @@ import * as stateModule from "./popup/state.js";
 import {
   logPopupReady
 } from "./popup/telemetry.js";
+import type { ActivationSnapshot } from "./common/bus/contracts/activation.js";
 import type { PopupStateGetReply } from "./common/bus/contracts/popup-state.js";
 import { deriveSpinnerSelectionsFromLegacyQueue } from "./background/brain/deciders/spinner-state-decider.js";
 import { phaseToSpinnerState } from "./background/brain/spinner-authority.js";
@@ -182,6 +183,7 @@ import {
   aiSelectorSetsEqual
 } from "./common/selector-set.js";
 import {
+  LIFECYCLE_KINDS,
   SPINNER_OWNERS,
   WORLD_MESSAGE_TYPES
 } from "./common/world-messaging-contract.js";
@@ -427,6 +429,8 @@ const popupRenderModeSetNavGuardByTabId = new Map();
 let popupStaleInspectionBusyClearTimer = 0;
 // @ts-expect-error
 let popupBackgroundLifecycle = null;
+let popupBackgroundStateTabId: number | null = null;
+let popupBackgroundActivation: ActivationSnapshot | null = null;
 // @ts-expect-error
 let popupPageBusyMirrorTabId = null;
 let popupPageBusyMirrorActive = false;
@@ -1148,6 +1152,8 @@ function applyBackgroundStateSnapshot(snapshot) {
     return;
   }
   popupBackgroundLifecycle = snapshot.lifecycle || null;
+  popupBackgroundStateTabId = tabId;
+  popupBackgroundActivation = snapshot.activation || null;
   const traceDiagnosticsEnabled = isFeatureEnabled("traceDiagnostics");
   state.traceModeEnabled = traceDiagnosticsEnabled && Boolean(snapshot.traceEnabled);
   state.traceEvents = traceDiagnosticsEnabled && Array.isArray(snapshot.traceEvents) ? [...snapshot.traceEvents] : [];
@@ -1184,7 +1190,12 @@ function applyBackgroundStateSnapshot(snapshot) {
     }
   });
   syncProjectedSpinnerStateFromQueue();
-  popupNavigationInspectionOverlayStarted = popupSpinnerQueue.has("navInspect");
+  const activationBootstrapPending = Boolean(
+    snapshot.activation &&
+      snapshot.activation.bootstrapStatus === "bootstrapping"
+  );
+  popupNavigationInspectionOverlayStarted =
+    popupSpinnerQueue.has("navInspect") || activationBootstrapPending;
   popupNavigationInspectionOverlayTabId = popupNavigationInspectionOverlayStarted ? tabId : null;
   syncUiBusyFromBrokerState();
   logWorldTrace("background-state", {
@@ -1192,6 +1203,7 @@ function applyBackgroundStateSnapshot(snapshot) {
     traceEnabled: Boolean(snapshot.traceEnabled),
     lifecycleKind: popupBackgroundLifecycle && popupBackgroundLifecycle.kind,
     lifecyclePhase: popupBackgroundLifecycle && popupBackgroundLifecycle.phase,
+    activationBootstrapStatus: popupBackgroundActivation && popupBackgroundActivation.bootstrapStatus,
     spinnerCount: popupSpinnerQueue.size,
     traceEvents: Array.isArray(snapshot.traceEvents) ? snapshot.traceEvents.length : 0
   });
@@ -1205,6 +1217,7 @@ function applyPopupViewSnapshot(snapshot: PopupStateGetReply | null) {
     ok: true,
     tabId: snapshot.tabId,
     lifecycle: snapshot.lifecycle || null,
+    activation: snapshot.activation || null,
     traceEnabled: Boolean(snapshot.traceEnabled),
     traceEvents: Array.isArray(snapshot.traceEvents) ? snapshot.traceEvents : [],
     spinnerQueue: Array.isArray(snapshot.legacySpinnerQueue) ? snapshot.legacySpinnerQueue : [],
@@ -4617,7 +4630,17 @@ async function refreshUiInner(options = {}) {
       inspectionStatus.ok &&
       (inspectionStatus.active || inspectionStatus.pending)
   );
+  const backgroundActivationInspectionPending = Boolean(
+    currentTabId &&
+      popupBackgroundStateTabId === currentTabId &&
+      popupBackgroundActivation &&
+      popupBackgroundActivation.bootstrapStatus === "bootstrapping" &&
+      toggleEnabled &&
+      effectiveTabState.enabled &&
+      effectiveTabState.baseUrl
+  );
   const navigationInspectionPending = Boolean(
+    backgroundActivationInspectionPending ||
     (currentTabId &&
       popupNavigationInspectionOverlayStarted &&
 // @ts-expect-error
@@ -8311,6 +8334,9 @@ async function init() {
     }
     popupNavigationInspectionOverlayStarted = false;
     popupNavigationInspectionOverlayTabId = null;
+    popupBackgroundLifecycle = null;
+    popupBackgroundStateTabId = null;
+    popupBackgroundActivation = null;
     await helpers.ensureActiveTab();
     // Restore spinner queue for the newly active tab.
     const newTabId = state.currentTab && state.currentTab.id;
