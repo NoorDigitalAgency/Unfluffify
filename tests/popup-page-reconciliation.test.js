@@ -36,7 +36,6 @@ function createDeps(overrides = {}) {
       confirm: () => true
     },
     hasCurrentPageMarkingChanges: () => false,
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     ensureActiveTab: async () => ({ id: 1 }),
     ensureBaseUrl: () => true,
     refreshCurrentPageRuntimeStatus: async () => {},
@@ -51,43 +50,34 @@ function createDeps(overrides = {}) {
     updateLastConfigSaveStatus: (message) => {
       calls.saveStatus.push(message);
     },
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     validateStoredToken: async () => true,
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     runWithSpinner: async (_key, _message, task) => task(),
     getCurrentPageUrl: () => "https://example.com/page",
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     loadGlobalAiSettings: async () => ({
       tokenValue: "token",
       configEndpointValue: "https://api.example.com/config",
       stageBaseValue: "https://stage.example.com"
     }),
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     syncBaseConfigToServer: async () => {
       calls.sync += 1;
       return { ok: true };
     },
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     clearCurrentPageSaveReconciliation: async () => {
       calls.clear += 1;
     },
     resetAiRunMarkingsFingerprint: () => {
       calls.resetFingerprint += 1;
     },
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     applyPostSaveSilentTransition: async () => {
       calls.postSave += 1;
     },
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     refreshUi: async () => {
       calls.refresh += 1;
     },
     setUiBusy: () => {},
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     waitForRetryDelay: async (ms) => {
       calls.retries.push(ms);
     },
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     applyLocalPageDiscard: async () => {
       calls.discard += 1;
     },
@@ -149,7 +139,6 @@ test("popup page reconciliation save retries retryable failures then succeeds", 
   resetState();
   let saveAttempts = 0;
   const { deps, calls } = createDeps({
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     syncBaseConfigToServer: async () => {
       saveAttempts += 1;
       if (saveAttempts === 1) {

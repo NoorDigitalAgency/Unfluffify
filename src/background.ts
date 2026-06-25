@@ -67,12 +67,10 @@ import {
 } from "./common/world-messaging-contract.js";
 import {
   AI_RUN_POLL_INTERVAL_MS,
-  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   AI_RUN_PERSIST_KEY,
   AI_RUN_TIMEOUT_MS,
   buildAiSubmissionXpaths,
   getAiRunResumeExpiresAt,
-  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   normalizePersistedAiRunRecord
 } from "./popup/ai-run.js";
 import {
@@ -497,7 +495,6 @@ const renderModeInspector = createRenderModeInspector({
 const normalizeRenderModeOperationId = renderModeInspector.normalizeRenderModeOperationId;
 const waitForTabLoadStartInBackground = renderModeInspector.waitForTabLoadStartInBackground;
 const waitForTabLoadCompleteInBackground = renderModeInspector.waitForTabLoadCompleteInBackground;
-// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 const ensureContentReadyForRenderModeInspectionInBackground = renderModeInspector.ensureContentReadyForRenderModeInspectionInBackground;
 const sendRenderModeInspectionEndWithRetry = renderModeInspector.sendRenderModeInspectionEndWithRetry;
 const runRenderModeInspectionBeginStep = renderModeInspector.runRenderModeInspectionBeginStep;
@@ -830,13 +827,9 @@ const aiRunOrchestrator = createAiRunOrchestrator({
   aiRunPollIntervalMs: AI_RUN_POLL_INTERVAL_MS,
   createManagedTimeoutGroup
 });
-// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 const getAiRunCurrentPageEntry = aiRunOrchestrator.getAiRunCurrentPageEntry;
-// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 const isAiRunCurrentPageSnapshotMissing = aiRunOrchestrator.isAiRunCurrentPageSnapshotMissing;
-// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 const refineAiRunPayloadXpathsInBackground = aiRunOrchestrator.refineAiRunPayloadXpathsInBackground;
-// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 const loadAiRunSelectorSetFromPayloadKey = aiRunOrchestrator.loadAiRunSelectorSetFromPayloadKey;
 const runAiCommandForTab = aiRunOrchestrator.runAiCommandForTab;
 const setAiComputeLockForTab = aiRunOrchestrator.setAiComputeLockForTab;
@@ -2299,15 +2292,12 @@ const popupStateBroker = createPopupStateBroker({
     brain.mirrorLegacySpinnerQueue(tabId, state.spinnerQueue, `${reason}:spinners`);
   }
 });
-// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 const getSpinnerQueueForTab = popupStateBroker.getSpinnerQueueForTab;
-// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 const serializeSpinnerQueue = popupStateBroker.serializeSpinnerQueue;
 const buildBrokerState = popupStateBroker.buildBrokerState;
 const broadcastBrokerState = popupStateBroker.broadcastBrokerState;
 const updateLifecycleState = popupStateBroker.updateLifecycleState;
 const clearLifecycleState = popupStateBroker.clearLifecycleState;
-// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 const clearNavInspectCurtain = popupStateBroker.clearNavInspectCurtain;
 const popupStateSeedTabIds = new Set<number>();
 for (const tabId of [...tabLifecycleStateByTabId.keys(), ...tabSpinnerQueueByTabId.keys()]) {
@@ -2417,7 +2407,6 @@ function clearBackgroundSpinnerQueue(tabId, options = {}) {
 }
 
 // @ts-expect-error
-// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 async function withBackgroundTabSpinner(tabId, descriptor, work) {
   return spinnerOperations.withTabSpinner(tabId, descriptor, work);
 }
@@ -2460,7 +2449,6 @@ const tabOperationRunner = createTabOperationRunner({
 });
 
 // @ts-expect-error
-// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 async function runBackgroundTabOperation(tabId, descriptor, work) {
   return tabOperationRunner.runTabOperation(tabId, descriptor, work);
 }
@@ -2627,7 +2615,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           reason: "clear-cache",
           source: "background-command"
         },
-        // deno-lint-ignore require-await -- preserves existing promise/callback contract.
         async () => clearBrowsingDataForOrigin(message.origin)
       )
       : clearBrowsingDataForOrigin(message.origin);
@@ -3187,7 +3174,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     (async () => {
       try {
         await utils.disableExtensionForTab(tabId);
-      // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
       } catch (error) {
         // Continue with hard state cleanup below.
       }
@@ -3199,7 +3185,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           path: "popup.html",
           enabled: false
         });
-      // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
       } catch (error) {
         // Side panel may already be disabled for this tab.
       }
@@ -3330,7 +3315,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     let parsedUrl = null;
     try {
       parsedUrl = new URL(targetUrl);
-    // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
     } catch (error) {
       sendResponse({ ok: false, error: "Invalid URL" });
       return;
@@ -3463,7 +3447,6 @@ chrome.webNavigation.onCompleted.addListener(async (details) => {
   }
   try {
     await clearDeviceEmulationAfterNavigation(tabId);
-  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   } catch (error) {
     // Ignore — the tab may have already navigated away or been closed.
   }
@@ -3528,7 +3511,6 @@ async function refreshActionIconsForWindow(windowId) {
   let tabs = [];
   try {
     tabs = await chrome.tabs.query({ windowId });
-  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   } catch (error) {
     tabs = [];
   }
@@ -3656,7 +3638,6 @@ async function getTabUrl(tabId) {
   try {
     const tab = await chrome.tabs.get(tabId);
     return (tab && typeof tab.url === "string") ? tab.url : "";
-  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   } catch (error) {
     return "";
   }

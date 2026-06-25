@@ -109,7 +109,6 @@ async function withNonExtensionRuntime(chromeMock, callback) {
   }
 }
 
-// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 async function loadConfigModule() {
   configStoreImportCounter += 1;
   return import(new URL(`../src/common/config.js?queue=${configStoreImportCounter}`, import.meta.url));

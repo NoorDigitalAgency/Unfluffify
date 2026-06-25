@@ -115,7 +115,6 @@ async function withObserverWindow(callback) {
 }
 
 test("document_start arming makes a later suppression toggle stop a pre-existing observer", async () => {
-  // deno-lint-ignore require-await -- preserves existing promise/callback contract.
   await withObserverWindow(async ({ windowObject, originalIntersectionObserver }) => {
     // 1. Bridge arms at document_start: the IntersectionObserver constructor is
     //    wrapped before the page creates any observer; suppression stays off.

@@ -12,11 +12,9 @@ function createDeps(overrides = {}) {
   const deps = {
     isAiPreviewActive: () => false,
     hasAiPopover: () => false,
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     requestAiPopoverClose: async () => {
       calls.requestedClose += 1;
     },
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     exitAiPreviewMode: async () => {
       calls.exited += 1;
     },
@@ -54,7 +52,6 @@ test("close handler requests popover close when preview popover is present", asy
   const { calls, deps } = createDeps({
     isAiPreviewActive: () => true,
     hasAiPopover: () => true,
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     requestAiPopoverClose: async (options) => {
       calls.requestedClose += 1;
       requestedCloseArgs.push(options);

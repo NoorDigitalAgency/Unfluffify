@@ -93,7 +93,6 @@ function buildFeatureDisabledResult(featureName: string, state: DeviceState | nu
   };
 }
 
-// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 async function getTabViewportSize(tabId: number): Promise<ViewportSize | null> {
   return new Promise((resolve) => {
     if (!chrome.tabs || !tabId) {
@@ -116,7 +115,6 @@ async function getTabViewportSize(tabId: number): Promise<ViewportSize | null> {
   });
 }
 
-// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 async function getPageViewportSize(tabId: number): Promise<ViewportSize | null> {
   return new Promise((resolve) => {
     if (!chrome.scripting || !tabId) {
@@ -196,7 +194,6 @@ async function setDeviceEmulationState(tabId: number, state: DeviceState) {
   await storageSet(chrome.storage.session, { [key]: state });
 }
 
-// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 export async function setDeviceEmulationEnabled(tabId: number, enabled: unknown) {
   if (!tabId) {
     return null;
@@ -382,7 +379,6 @@ async function clearDeviceEmulation(tabId: number) {
   return { ok: true };
 }
 
-// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 export async function updateDeviceEmulation(tabId: number, updates: DeviceEmulationUpdate): Promise<DeviceEmulationResult> {
   return runDeviceEmulationOperation(tabId, async (): Promise<DeviceEmulationResult> => {
     const current = await getDeviceEmulationState(tabId);
@@ -460,7 +456,6 @@ export function normalizeDeviceEmulationStateForUi(value: unknown) {
 // Chrome can re-apply setDeviceMetricsOverride to a newly loaded page even after
 // clearDeviceMetricsOverride + detach. Call this after onCompleted to fix the
 // new page's renderer if emulation was previously used but is now disabled.
-// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 export async function clearDeviceEmulationAfterNavigation(tabId: number) {
   return runDeviceEmulationOperation(tabId, async () => {
     const hasState = await hasStoredDeviceEmulationState(tabId);

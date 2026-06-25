@@ -270,7 +270,6 @@ export async function reloadExtension(browserContext, worker) {
   return browserContext.waitForEvent("serviceworker", { timeout: 5000 });
 }
 
-// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 async function getTargetTabId(worker, url) {
   return worker.evaluate(async (targetUrl) => {
     const tabs = await chrome.tabs.query({});
@@ -287,7 +286,6 @@ async function getTargetTabId(worker, url) {
   }, url);
 }
 
-// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 async function activateContentMain(worker, tabId) {
   if (!worker || !Number.isFinite(tabId)) {
     return { ok: false, error: "Missing worker or tab id" };
@@ -301,7 +299,6 @@ async function activateContentMain(worker, tabId) {
   }, tabId);
 }
 
-// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 async function readBackgroundTabState(worker, tabId) {
   if (!worker || !Number.isFinite(tabId)) {
     return { ok: false, error: "Missing worker or tab id" };
@@ -327,7 +324,6 @@ async function readBackgroundTabState(worker, tabId) {
   }, tabId);
 }
 
-// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 async function readPageBanner(page) {
   if (!page) {
     return { ok: false, error: "No active page" };
@@ -338,7 +334,6 @@ async function readPageBanner(page) {
   }));
 }
 
-// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 async function readPopupState(popup) {
   if (!popup) {
     return { ok: false, error: "No popup page" };

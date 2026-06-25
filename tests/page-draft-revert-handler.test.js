@@ -26,7 +26,6 @@ function createDeps(overrides = {}) {
       calls.push(["isPageDraftDirty", pageUrl]);
       return false;
     },
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     loadConfig: async (baseUrl) => {
       calls.push(["loadConfig", baseUrl]);
       return config;
@@ -72,7 +71,6 @@ test("page draft revert reloads config, syncs stored entry, and reports status",
 
 test("page draft revert clears saved entry when config has no current page entry", async () => {
   const deps = createDeps({
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     loadConfig: async () => ({ pageMarkings: {} }),
     getSavedPageEntry: (pageUrl) => {
       deps.calls.push(["getSavedPageEntry", pageUrl]);
@@ -94,7 +92,6 @@ test("page draft revert clears saved entry when config has no current page entry
 
 test("page draft revert propagates load failures to the runtime catch", async () => {
   const deps = createDeps({
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     loadConfig: async () => {
       throw new Error("load failed");
     }

@@ -16,7 +16,6 @@ test("ai-run orchestrator computes selectors through lock, prepare, start, poll,
     normalizeAiSelectorSet: (payload) => payload,
     buildAiSubmissionXpaths: (entry) => entry.submissionXpaths || [],
     isPageWithinBaseUrl: () => true,
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     resolveBackgroundNetworkCredentials: async () => ({ endpointValue: "https://api.test", tokenValue: "token" }),
     requestAiRunStartSnapshot: async (options) => {
       await options.onBeforeRequest?.({
@@ -26,15 +25,10 @@ test("ai-run orchestrator computes selectors through lock, prepare, start, poll,
       events.push("start-request");
       return { ok: true, sessionId: "session-1" };
     },
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     requestAiRunStatus: async () => ({ ok: true, status: "done" }),
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     requestAiRunResultSnapshot: async () => ({ ok: true, payloadKey: "result-key" }),
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     fetchStaticPageHtmlForBackground: async () => ({ ok: true, html: "<html/>" }),
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     getTransferPayload: async () => ({ ok: true, payload: { pages: [] } }),
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     putTransferPayload: async (label, payload) => {
       if (label === "ai-run-start-refined") {
         return { ok: true, payloadKey: "refined-key" };
@@ -45,7 +39,6 @@ test("ai-run orchestrator computes selectors through lock, prepare, start, poll,
       return { ok: true, payloadKey: `${label}-key` };
     },
     removeTransferPayload: async () => {},
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     consumeTransferPayload: async () => ({
       ok: true,
       payload: {
@@ -54,9 +47,7 @@ test("ai-run orchestrator computes selectors through lock, prepare, start, poll,
       }
     }),
     clearPersistedAiRunRecord: async () => {},
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     savePersistedAiRunRecord: async (record) => record,
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     sendContentMessageToTab: async (_tabId, message) => {
       sentMessages.push(message.type);
       if (message.type === "capturePageSnapshot") {
@@ -67,9 +58,7 @@ test("ai-run orchestrator computes selectors through lock, prepare, start, poll,
       }
       return { ok: true };
     },
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     ensureContentMainForTab: async () => ({ ok: true }),
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     getTabState: async () => ({ enabled: true }),
     setTabState: async () => {},
     updateActionForTab: async () => {},
@@ -77,7 +66,6 @@ test("ai-run orchestrator computes selectors through lock, prepare, start, poll,
     waitForBackgroundRetryDelay: async () => {},
     getAiRunResumeExpiresAt: () => Date.now() + 20_000,
     configStore: {
-      // deno-lint-ignore require-await -- preserves existing promise/callback contract.
       ensureConfig: async () => ({
         siteId: 7,
         pageMarkings: {
@@ -106,7 +94,6 @@ test("ai-run orchestrator computes selectors through lock, prepare, start, poll,
       siteId: 7,
       deadlineAt: Date.now() + 5000
     },
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     async (update) => {
       if (update.reason) {
         events.push(update.reason);
@@ -142,22 +129,15 @@ test("ai-run orchestrator treats static XPath refinement as best-effort", async 
     normalizeAiSelectorSet: (payload) => payload,
     buildAiSubmissionXpaths: (entry) => entry.submissionXpaths || [],
     isPageWithinBaseUrl: () => true,
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     resolveBackgroundNetworkCredentials: async () => ({ endpointValue: "https://api.test", tokenValue: "token" }),
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     requestAiRunStartSnapshot: async () => {
       startRequested = true;
       return { ok: true, sessionId: "session-1" };
     },
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     requestAiRunStatus: async () => ({ ok: true, status: "done" }),
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     requestAiRunResultSnapshot: async () => ({ ok: true, payloadKey: "result-key" }),
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     fetchStaticPageHtmlForBackground: async () => ({ ok: true, html: "<html/>" }),
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     getTransferPayload: async (key) => ({ ok: true, payload: payloads.get(key) || { pages: [] } }),
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     putTransferPayload: async (label, payload) => {
       if (label === "ai-run-prepare") {
         payloads.set("prepared-key", payload);
@@ -167,7 +147,6 @@ test("ai-run orchestrator treats static XPath refinement as best-effort", async 
       return { ok: true, payloadKey: `${label}-key` };
     },
     removeTransferPayload: async () => {},
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     consumeTransferPayload: async () => ({
       ok: true,
       payload: {
@@ -176,13 +155,9 @@ test("ai-run orchestrator treats static XPath refinement as best-effort", async 
       }
     }),
     clearPersistedAiRunRecord: async () => {},
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     savePersistedAiRunRecord: async (record) => record,
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     sendContentMessageToTab: async () => ({ ok: true }),
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     ensureContentMainForTab: async () => ({ ok: true }),
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     getTabState: async () => ({ enabled: true }),
     setTabState: async () => {},
     updateActionForTab: async () => {},
@@ -192,7 +167,6 @@ test("ai-run orchestrator treats static XPath refinement as best-effort", async 
     },
     getAiRunResumeExpiresAt: () => Date.now() + 20_000,
     configStore: {
-      // deno-lint-ignore require-await -- preserves existing promise/callback contract.
       ensureConfig: async () => ({
         siteId: 7,
         pageMarkings: {
@@ -242,23 +216,16 @@ test("ai-run orchestrator keeps polling when the in-loop heartbeat lock fails", 
     normalizeAiSelectorSet: (payload) => payload,
     buildAiSubmissionXpaths: (entry) => entry.submissionXpaths || [],
     isPageWithinBaseUrl: () => true,
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     resolveBackgroundNetworkCredentials: async () => ({ endpointValue: "https://api.test", tokenValue: "token" }),
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     requestAiRunStartSnapshot: async () => ({ ok: true, sessionId: "session-1" }),
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     requestAiRunStatus: async () => {
       statusCalls += 1;
       events.push("status");
       return statusCalls < 2 ? { ok: true, status: "running" } : { ok: true, status: "done" };
     },
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     requestAiRunResultSnapshot: async () => ({ ok: true, payloadKey: "result-key" }),
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     fetchStaticPageHtmlForBackground: async () => ({ ok: true, html: "<html/>" }),
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     getTransferPayload: async () => ({ ok: true, payload: { pages: [] } }),
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     putTransferPayload: async (label, payload) => {
       if (label === "ai-run-prepare") {
         return { ok: true, payloadKey: "prepared-key", payload };
@@ -266,7 +233,6 @@ test("ai-run orchestrator keeps polling when the in-loop heartbeat lock fails", 
       return { ok: true, payloadKey: `${label}-key` };
     },
     removeTransferPayload: async () => {},
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     consumeTransferPayload: async () => ({
       ok: true,
       payload: {
@@ -275,9 +241,7 @@ test("ai-run orchestrator keeps polling when the in-loop heartbeat lock fails", 
       }
     }),
     clearPersistedAiRunRecord: async () => {},
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     savePersistedAiRunRecord: async (record) => record,
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     sendContentMessageToTab: async (_tabId, message) => {
       if (message.type === "setAiComputeLock" && message.active) {
         activeLockCalls += 1;
@@ -286,9 +250,7 @@ test("ai-run orchestrator keeps polling when the in-loop heartbeat lock fails", 
       }
       return { ok: true };
     },
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     ensureContentMainForTab: async () => ({ ok: true }),
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     getTabState: async () => ({ enabled: true }),
     setTabState: async () => {},
     updateActionForTab: async () => {},
@@ -296,7 +258,6 @@ test("ai-run orchestrator keeps polling when the in-loop heartbeat lock fails", 
     waitForBackgroundRetryDelay: async () => {},
     getAiRunResumeExpiresAt: () => Date.now() + 20_000,
     configStore: {
-      // deno-lint-ignore require-await -- preserves existing promise/callback contract.
       ensureConfig: async () => ({
         siteId: 7,
         pageMarkings: {
@@ -339,15 +300,11 @@ test("ai-run orchestrator reports heartbeat lock failures", async () => {
     aiComputeLockExpiresAtByTabId: new Map(),
     normalizeTabId: (value) => Number(value),
     normalizeSiteIdValue: (value) => Number(value) || null,
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     savePersistedAiRunRecord: async (record) => record,
     clearPersistedAiRunRecord: async () => {},
     getAiRunResumeExpiresAt: () => Date.now() + 20_000,
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     sendContentMessageToTab: async () => ({ ok: false, error: "lock failed" }),
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     ensureContentMainForTab: async () => ({ ok: true }),
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     getTabState: async () => ({}),
     setTabState: async () => {},
     updateActionForTab: async () => {}

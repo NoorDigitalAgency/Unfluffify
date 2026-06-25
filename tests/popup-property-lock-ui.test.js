@@ -75,7 +75,6 @@ function createDeps(overrides = {}) {
       state.propertyLockSiteId = null;
       state.propertyLockState = null;
     },
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     sendRuntimeMessage: async (payload) => {
       calls.messages.push(payload);
       return {
@@ -87,7 +86,6 @@ function createDeps(overrides = {}) {
     },
     refreshCurrentPageRuntimeStatus: async () => {},
     isPropertyLockCollaborationEnabled: () => true,
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     fetchPropertyLockState: async () => ({
       state: { state: PROPERTY_LOCK_STATE_UNLOCKED, isEditor: true },
       connectionStatus: PROPERTY_LOCK_CONNECTION_CONNECTED,

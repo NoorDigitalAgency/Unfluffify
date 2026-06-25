@@ -109,9 +109,7 @@ async function setConfigurationField(page, { input, set, edit }, value) {
   }, input, { timeout: 10000 }).catch(() => {});
 }
 
-// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 async function readGlobalSettings(worker) {
-  // deno-lint-ignore require-await -- preserves existing promise/callback contract.
   return worker.evaluate(async () => chrome.storage.sync.get([
     "globalConfigEndpoint",
     "globalEndpoint",
@@ -126,7 +124,6 @@ export async function clearStoredAuthToken(worker) {
   });
 }
 
-// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 async function readAuthStatus(popup) {
   if (!popup) {
     return null;

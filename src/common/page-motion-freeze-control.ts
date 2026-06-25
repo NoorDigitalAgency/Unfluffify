@@ -336,7 +336,6 @@ export function runPageMotionFreezeControl(command = "setPaused", details = null
       Object.defineProperty(UnfluffifyObserver, "name", {
         value: OriginalObserver.name || "UnfluffifyObserver"
       });
-    // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
     } catch (error) {
       // Function names are cosmetic; bridge behavior does not depend on them.
     }
@@ -511,7 +510,6 @@ export function runPageMotionFreezeControl(command = "setPaused", details = null
     try {
       // @ts-expect-error root is runtime-mutable and indexed by internal state key
       delete root[STATE_KEY];
-    // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
     } catch (error) {
       Object.defineProperty(root, STATE_KEY, {
         value: undefined,

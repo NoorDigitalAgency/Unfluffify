@@ -324,7 +324,6 @@ export function createSpinnerOperations(options: SpinnerOperationsOptions = {}) 
     try {
       return await work({
         key,
-        // deno-lint-ignore require-await -- preserves existing promise/callback contract.
         update: async (patch = {}) => {
           return updateBackgroundSpinnerEntry(tabId, key, patch);
         }

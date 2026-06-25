@@ -366,7 +366,6 @@ function runPageMotionFreezeControl(command = "setPaused", details = null) {
       Object.defineProperty(UnfluffifyObserver, "name", {
         value: OriginalObserver.name || "UnfluffifyObserver"
       });
-    // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
     } catch (error) {
       // Function names are cosmetic; bridge behavior does not depend on them.
     }
@@ -541,7 +540,6 @@ function runPageMotionFreezeControl(command = "setPaused", details = null) {
     try {
       // @ts-expect-error root is runtime-mutable and indexed by internal state key
       delete root[STATE_KEY];
-    // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
     } catch (error) {
       Object.defineProperty(root, STATE_KEY, {
         value: undefined,
@@ -775,7 +773,6 @@ function runPageMotionFreezeControl(command = "setPaused", details = null) {
     if (typeof window.addEventListener === "function") {
       window.addEventListener("message", handlePageWorldRelayRequest, false);
     }
-  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   } catch (error) {
     // Best-effort early arming; the executeScript toggle path still applies the
     // pause/suppression flags if arming did not run for any reason.

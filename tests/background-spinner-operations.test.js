@@ -59,7 +59,6 @@ test("withTabSpinner removes spinner after successful work", async () => {
   const result = await operations.withTabSpinner(
     10,
     { key: "sync-a", message: "Running" },
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     async ({ key }) => {
       const queue = queueByTabId.get(10);
       assert.equal(queue.has(key), true);
@@ -75,7 +74,6 @@ test("withTabSpinner removes spinner and rethrows when work fails", async () => 
   const { operations, queueByTabId } = createHarness();
 
   await assert.rejects(
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     operations.withTabSpinner(11, { key: "sync-b", message: "Running" }, async () => {
       throw new Error("boom");
     }),

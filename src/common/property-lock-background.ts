@@ -65,7 +65,6 @@ import {
   FEATURE_DISABLED_REASON,
   isFeatureEnabled
 } from "./feature-flags.js";
-// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 import * as utils from "./utilities.js";
 import { getPropertyLockConnectionSettings } from "./settings-store.js";
 
@@ -175,7 +174,6 @@ class PropertyLockConnectionRuntime {
     if (this.socket) {
       try {
         this.socket.close(1000);
-      // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
       } catch (e) {
         // Socket already closed
       }
@@ -200,7 +198,6 @@ class PropertyLockConnectionRuntime {
     if (this.networkCheckAbortController) {
       try {
         this.networkCheckAbortController.abort();
-      // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
       } catch (e) {
         // Ignore abort errors.
       }
@@ -267,7 +264,6 @@ function disposeAllPropertyLockConnections() {
       if (portEntry.port) {
         try {
           portEntry.port.disconnect();
-        // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
         } catch (error) {
           // Port may already be closed.
         }
@@ -309,7 +305,6 @@ function createUniqueClientIdForSite(siteId: unknown) {
   return nextClientId;
 }
 
-// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 function resolveConnectionIdentityForPort(portId: number, portEntry: PortEntry, siteId: number | null, requestedClientId: string) {
   const normalizedSiteId = normalizePropertyLockSiteId(siteId);
   const normalizedClientId = normalizePropertyLockClientId(requestedClientId);
@@ -456,7 +451,6 @@ function handlePropertyLockPortConnect(port: Browser.runtime.Port) {
   if (!ensurePropertyLockBackgroundActive()) {
     try {
       port.disconnect();
-    // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
     } catch (error) {
       // Port may already be closed.
     }
@@ -486,7 +480,6 @@ function handlePropertyLockPortConnect(port: Browser.runtime.Port) {
           connectionStatus: PROPERTY_LOCK_CONNECTION_UNAVAILABLE,
           error: FEATURE_DISABLED_REASON
         });
-      // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
       } catch (error) {
         // Port may already be closed.
       }
@@ -755,7 +748,6 @@ function connectWebSocket(runtime: PropertyLockConnectionRuntime) {
       runtime.socket.onmessage = (event: MessageEvent) => onWebSocketMessage(runtime, event);
       runtime.socket.onerror = () => onWebSocketError(runtime);
       runtime.socket.onclose = () => onWebSocketClose(runtime);
-    // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
     } catch (e) {
       setConnectionStatus(runtime, PROPERTY_LOCK_CONNECTION_UNAVAILABLE, "socket_create_failed");
       scheduleReconnect(runtime);
@@ -905,7 +897,6 @@ async function checkNetworkConnectivity(runtime: PropertyLockConnectionRuntime) 
   if (runtime.networkCheckAbortController) {
     try {
       runtime.networkCheckAbortController.abort();
-    // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
     } catch (e) {
       // Ignore abort errors.
     }
@@ -926,7 +917,6 @@ async function checkNetworkConnectivity(runtime: PropertyLockConnectionRuntime) 
           signal: controller ? controller.signal : undefined
         });
         return true;
-      // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
       } catch (e) {
         // Try the next stable endpoint.
       }
@@ -981,7 +971,6 @@ function onWebSocketMessage(runtime: PropertyLockConnectionRuntime, event: Messa
   let message: PropertyLockMessage;
   try {
     message = JSON.parse(event.data);
-  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   } catch (e) {
     return;
   }
@@ -1060,7 +1049,6 @@ function sendToServer(runtime: PropertyLockConnectionRuntime, message: OutboundM
 
   try {
     runtime.socket.send(JSON.stringify(message));
-  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   } catch (e) {
     runtime.isConnected = false;
   }
@@ -1097,7 +1085,6 @@ function broadcastToContentScriptPorts(connectionKey: string, message: OutboundM
           tabId,
           message
         });
-      // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
       } catch (e) {
         // Port may be closed
       }
@@ -1115,7 +1102,6 @@ function broadcastToContentScriptPorts(connectionKey: string, message: OutboundM
     if (updatePromise && typeof updatePromise.catch === "function") {
       updatePromise.catch(() => {});
     }
-  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   } catch (e) {
     // No popup listener may be open.
   }
@@ -1153,7 +1139,6 @@ function scheduleReconnect(runtime: PropertyLockConnectionRuntime) {
   if (runtime.socket) {
     try {
       runtime.socket.close();
-    // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
     } catch (e) {
       // Already closed
     }
@@ -1196,7 +1181,6 @@ function scheduleDisconnectCheck(connectionKey: string) {
 /**
  * Handle getPropertyLockState message from popup.
  */
-// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 export async function handleGetPropertyLockState(message: PropertyLockMessage, sender?: Browser.runtime.MessageSender) {
   if (!ensurePropertyLockBackgroundActive()) {
     return {
@@ -1315,7 +1299,6 @@ function handlePropertyLockCommand(message: PropertyLockMessage, sender?: Browse
 /**
  * Message handler for all property lock background messages.
  */
-// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 export async function handlePropertyLockBackgroundMessage(message: PropertyLockMessage, sender?: Browser.runtime.MessageSender) {
   if (!ensurePropertyLockBackgroundActive()) {
     return buildDisabledPropertyLockResponse();

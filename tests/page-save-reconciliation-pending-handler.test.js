@@ -6,7 +6,6 @@ import { createPageSaveReconciliationPendingHandler } from "../src/content/page-
 function createDeps() {
   const calls = [];
   const deps = {
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     setPageSaveReconciliationPending: async (baseUrl, pageUrl, options) => {
       calls.push({ baseUrl, pageUrl, options });
       return {

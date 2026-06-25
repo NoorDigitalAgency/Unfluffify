@@ -101,7 +101,6 @@ test("spinner state in tab A is invisible to tab B", () => {
 });
 
 test("lifecycle updates from tab A do not mutate tab B runtime", async () => {
-  // deno-lint-ignore require-await -- preserves existing promise/callback contract.
   registerBackgroundCommand("UF_LIFECYCLE_EVENT", async (context, payload) => {
     const nextLifecycle = payload && payload.lifecycle && typeof payload.lifecycle === "object"
       ? payload.lifecycle
@@ -134,7 +133,6 @@ test("lifecycle updates from tab A do not mutate tab B runtime", async () => {
 });
 
 test("page-world command resolves only against the addressed tab", async () => {
-  // deno-lint-ignore require-await -- preserves existing promise/callback contract.
   registerBackgroundCommand("PAGE_WORLD_RESOLVE", async (context, payload) => {
     const runtime = getTabRuntimeSnapshot(context.tabId);
     const nonce = runtime && runtime.pageWorld ? runtime.pageWorld.nonce : "";
@@ -204,7 +202,6 @@ test("shared site id across tabs does not merge tab UI runtime state", () => {
 });
 
 test("popup debug-tab binding uses request tabId runtime, not sender tabId", async () => {
-  // deno-lint-ignore require-await -- preserves existing promise/callback contract.
   registerBackgroundCommand("POPUP_GET_TAB_VIEW_STATE", async (context) => {
     return {
       runtime: getTabRuntimeSnapshot(context.tabId)

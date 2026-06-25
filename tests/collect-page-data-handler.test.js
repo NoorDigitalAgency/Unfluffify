@@ -10,7 +10,6 @@ test("collect-page-data handler builds payload from config entry and snapshot", 
     getImmutableSelectors: () => [".immutable"],
     getPageMarkingEntry: () => ({ rawHtml: "<raw></raw>", xpaths: ["//main"] }),
     getPageUrl: () => "https://page.example",
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     loadConfig: async (baseUrl) => ({ baseUrl })
   });
 
@@ -34,7 +33,6 @@ test("collect-page-data handler normalizes missing entry fields", async () => {
     getImmutableSelectors: () => [".immutable"],
     getPageMarkingEntry: () => ({ rawHtml: null, xpaths: null }),
     getPageUrl: () => "https://page.example",
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     loadConfig: async () => ({})
   });
 

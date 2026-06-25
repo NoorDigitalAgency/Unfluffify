@@ -210,7 +210,6 @@ function sendRelayRequest(
   });
 }
 
-// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 export async function initializePageWorldRelay(options: { timeoutMs?: number | null } = {}): Promise<{ ok: true; nonce: string }> {
   const pageWindow = getPageWindow();
   if (!pageWindow) {
@@ -272,7 +271,6 @@ export function isPageWorldRelayReady(): boolean {
   return Boolean(relaySession && relaySession.ready);
 }
 
-// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 export async function requestPageWorldCommand(
   command: unknown,
   payload: Record<string, unknown> = {},

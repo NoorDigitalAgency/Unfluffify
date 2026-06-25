@@ -28,7 +28,6 @@ function createDeps(overrides = {}) {
       return Promise.resolve();
     },
     isComputeLockPreviewActive: () => false,
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     exitAiPreviewMode: async () => {
       calls.exited += 1;
     },

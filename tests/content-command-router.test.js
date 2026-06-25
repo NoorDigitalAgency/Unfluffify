@@ -36,7 +36,6 @@ test("dispatchContentCommand returns handler_not_found for unknown command", asy
 });
 
 test("dispatchContentCommand resolves successful handler responses", async () => {
-  // deno-lint-ignore require-await -- preserves existing promise/callback contract.
   registerContentCommand("CONTENT_TEST", async (context, payload) => {
     assert.equal(context.tabId, 91);
     assert.equal(context.frameId, 0);
@@ -65,7 +64,6 @@ test("dispatchContentCommand resolves successful handler responses", async () =>
 });
 
 test("dispatchContentCommand normalizes thrown handler errors", async () => {
-  // deno-lint-ignore require-await -- preserves existing promise/callback contract.
   registerContentCommand("CONTENT_TEST", async () => {
     const error = new Error("content failure");
     error.code = "handler_failed";

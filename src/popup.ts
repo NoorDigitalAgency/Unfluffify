@@ -36,7 +36,6 @@ import {
   createInitialLynxChecklistState,
   normalizeCandidatePageUrl,
   normalizePageTypeKey,
-  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   normalizePropertyPageTypes
 } from "./common/lynx-checklist.js";
 import {
@@ -70,7 +69,6 @@ import {
   formatConfigLoadStatusLabel,
   formatLoginFailedStatus,
   formatScalePercent,
-  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   formatSelectorsComputedLocally,
   formatTimestampedStatus,
   propertyLockText
@@ -83,7 +81,6 @@ import {
   AI_RUN_TIMEOUT_MS,
   formatAiRunCountdown,
   getAiRunRemainingMs,
-  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   getAiRunResumeExpiresAt,
   normalizePersistedAiRunRecord,
   shouldResumePersistedAiRun
@@ -185,7 +182,6 @@ import {
   createPopupTimerGroup
 } from "./popup/timers.js";
 import {
-  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   refineXPathEntries
 } from "./common/xpath-utilities.js";
 import {
@@ -505,18 +501,14 @@ function getSpinnerDeps() {
   };
 }
 
-// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 const currentSpinnerMessage = () => currentSpinnerMessageOperation(getSpinnerDeps());
-// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 const currentSpinnerSnapshot = () => currentSpinnerSnapshotOperation(getSpinnerDeps());
 // @ts-expect-error
 const normalizeSpinnerReason = (reason, key, message) =>
   normalizeSpinnerReasonOperation(getSpinnerDeps(), reason, key, message);
 // @ts-expect-error
-// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 const clearSpinnerWatchdog = (key) => clearSpinnerWatchdogOperation(getSpinnerDeps(), key);
 // @ts-expect-error
-// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 const armSpinnerWatchdog = (key) => armSpinnerWatchdogOperation(getSpinnerDeps(), key);
 // @ts-expect-error
 const pushSpinner = (key, message, options = {}) =>
@@ -552,7 +544,6 @@ function getSiteResolutionDeps() {
   };
 }
 
-// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 const fetchPropertyPageTypesFromGraphql = (options = {}) =>
   fetchPropertyPageTypesFromGraphqlOperation(getSiteResolutionDeps(), options);
 const ensurePropertyPageTypes = (options = {}) =>
@@ -560,7 +551,6 @@ const ensurePropertyPageTypes = (options = {}) =>
 const resolveSiteIdFromGraphql = (options = {}) =>
   resolveSiteIdFromGraphqlOperation(getSiteResolutionDeps(), options);
 // @ts-expect-error
-// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 const mergeConfigEntriesForResolvedBaseUrl = (resolvedBaseUrl, preferredEntry, existingEntry) =>
   mergeConfigEntriesForResolvedBaseUrlOperation(
     getSiteResolutionDeps(),
@@ -646,20 +636,16 @@ function getRenderModeInspectionDeps() {
 }
 
 // @ts-expect-error
-// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 const normalizeRenderModeDetectionResult = (payload) =>
   normalizeRenderModeDetectionResultOperation(getRenderModeInspectionDeps(), payload);
 // @ts-expect-error
 const maybeAutoDetectRenderMode = (pageUrl) =>
   maybeAutoDetectRenderModeOperation(getRenderModeInspectionDeps(), pageUrl);
-// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 const detectRenderModeViaEndpoint = (options = {}) =>
   detectRenderModeViaEndpointOperation(getRenderModeInspectionDeps(), options);
 // @ts-expect-error
-// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 const waitForTabLoadStart = (tabId, timeoutMs = RENDER_MODE_INSPECTION_START_TIMEOUT_MS) =>
   waitForTabLoadStartOperation(getRenderModeInspectionDeps(), tabId, timeoutMs);
-// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 const waitForTabLoadComplete = (
 // @ts-expect-error
   tabId,
@@ -667,7 +653,6 @@ const waitForTabLoadComplete = (
   options = {}
 ) => waitForTabLoadCompleteOperation(getRenderModeInspectionDeps(), tabId, timeoutMs, options);
 // @ts-expect-error
-// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 const completeRenderModeInspectionReloadFollowUp = (tabId, operationId = "") =>
   completeRenderModeInspectionReloadFollowUpOperation(getRenderModeInspectionDeps(), tabId, operationId);
 
@@ -965,7 +950,6 @@ function isRenderDetectionPopupSpinner(snapshot) {
 }
 
 // @ts-expect-error
-// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 function spinnerSnapshotBlocksPage(snapshot) {
   return spinnerSnapshotBlocksSurface(snapshot, "page");
 }
@@ -1372,7 +1356,6 @@ async function restoreSpinnerQueueFromBackground(tabId, popupBus) {
 }
 
 // @ts-expect-error
-// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 async function handleTraceModeToggle(event) {
   if (event && event.currentTarget) {
     event.currentTarget.checked = Boolean(state.traceModeEnabled);
@@ -1519,7 +1502,6 @@ function ensureMobileSimulationForSave() {
   return false;
 }
 
-// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 async function ensureEditorMobileSimulation() {
   if (isMobileSimulationActive({
     enabled: state.currentDeviceEmulationEnabled,
@@ -1555,7 +1537,6 @@ async function persistDesktopPreviewEnabled(tabId, enabled) {
 function resolveRelativeEndpoint(baseUrl, path) {
   try {
     return new URL(path, baseUrl).toString();
-  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   } catch (error) {
     return "";
   }
@@ -1603,7 +1584,6 @@ function resetDisabledAppearanceCustomization() {
   });
 }
 
-// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 async function loadThemeSettings() {
   return getThemeSettings({
     normalizeThemeValue,
@@ -1631,7 +1611,6 @@ async function ensureThemeSettings() {
   await persistThemeSettings(themeValue, themeModeValue);
 }
 
-// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 async function loadTraceModeSetting() {
   return isFeatureEnabled("traceDiagnostics") && isDebugFlagEnabled("worldTraceEnabled");
 }
@@ -1742,7 +1721,6 @@ function formatPageTypeCandidateLabel(url) {
   try {
     const parsed = new URL(url);
     return `${parsed.pathname || "/"}${parsed.search || ""}` || "/";
-  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   } catch (error) {
     return url;
   }
@@ -1863,7 +1841,6 @@ function doesSessionRequireAiRun(sourceConfig, localPageMarkings, backendSavedPa
 }
 
 // @ts-expect-error
-// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 function hasSessionPendingChanges(sourceConfig, localPageMarkings, backendSavedPageMarkings, options = {}) {
   return Boolean(
 // @ts-expect-error
@@ -1991,7 +1968,6 @@ function resetAiRunMarkingsFingerprint() {
   state.aiRunMarkingsFingerprint = null;
 }
 
-// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 function mergeSelectorSetForBaseUrlMigration(
 // @ts-expect-error
   preferredSelectorSet,
@@ -2169,7 +2145,6 @@ function rememberRenderModeInspectionSnapshot(baseUrl, pageUrl, snapshot) {
 }
 
 // @ts-expect-error
-// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 function createConfigSyncHeaders(token) {
   const headers = { "Content-Type": "application/json" };
   if (token) {
@@ -2179,7 +2154,6 @@ function createConfigSyncHeaders(token) {
   return headers;
 }
 
-// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 async function getStoredGlobalToken(options = {}) {
   return getGlobalToken(options);
 }
@@ -2187,7 +2161,6 @@ async function getStoredGlobalToken(options = {}) {
 function formatSyncStatusTimestamp(value = Date.now()) {
   try {
     return new Date(value).toLocaleTimeString();
-  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   } catch (error) {
     return "";
   }
@@ -2622,7 +2595,6 @@ function isSuccessfulConfigSyncResult(syncResult) {
 }
 
 // @ts-expect-error
-// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 function isCompletedPageConfigSyncResult(syncResult) {
   return Boolean(syncResult && syncResult.ok && !syncResult.skipped);
 }
@@ -2666,7 +2638,6 @@ function clearLastPopupEnabled() {
 }
 
 // @ts-expect-error
-// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 async function setCurrentPageSaveReconciliationReason(reason) {
   const pageUrl = getCurrentPageUrl();
   if (!state.currentBaseUrl || !pageUrl) {
@@ -3801,7 +3772,6 @@ async function refreshUiInner(options = {}) {
   const aiPreviewSessionActive = Boolean(previewActive);
   let localMatchingBaseUrl = utils.findMatchingBaseUrl(pageUrl, configs);
   let hasLocalConfigForWebsite = Boolean(localMatchingBaseUrl);
-  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   let discoveredBaseUrlFromGraphql = "";
   let currentSiteId = null;
   let siteIdBlockedReason = "";
@@ -4706,7 +4676,6 @@ async function refreshUiInner(options = {}) {
     }
   }
   const currentSelectors = getCurrentSelectorsFromConfig();
-  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   const latestAvailableSelectors = getLatestAvailableSelectorsFromConfig();
   const lastSaved = getLastSubmittedSelectorsFromConfig();
   const selectorCount = combineAiSelectorSet(currentSelectors).length;
@@ -6950,7 +6919,6 @@ async function handleClearDomainCache() {
   try {
 // @ts-expect-error
     hostname = new URL(tab.url).hostname;
-  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   } catch (error) {
     hostname = origin;
   }
@@ -7036,7 +7004,6 @@ async function handleConfigEndpointSet() {
   }
   try {
     new URL(endpointValue);
-  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   } catch (error) {
     uiModule.showToast(PopupText.configuration.endpointEnterValid);
     return;
@@ -7067,7 +7034,6 @@ async function handleEndpointSet() {
   }
   try {
     new URL(endpointValue);
-  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   } catch (error) {
     uiModule.showToast(PopupText.configuration.aiEndpointEnterValid);
     return;
@@ -7163,7 +7129,6 @@ async function handleLoginAction() {
         loginSucceeded = true;
       }
     }
-  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   } catch (error) {
     loginFailureMessage = PopupText.authentication.toastRequestFailed;
   } finally {
@@ -7249,9 +7214,7 @@ async function applyLocalPageDiscard() {
   resetAiRunMarkingsFingerprint();
 }
 
-// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 async function requestAiRunStart({
-  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   endpointValue = "",
   payload = null,
   payloadKey = ""
@@ -7321,7 +7284,6 @@ async function requestAiRunResult({ sessionId = "" } = {}) {
 }
 
 // @ts-expect-error
-// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 async function applyComputedSelectorSet(selectorSet, { currentPageUrl = "", tokenValue = "" } = {}) {
   const selectorsChanged =
     !config.isSelectorSetCurrentForRenderMode(state.currentConfig, "selectors") ||
@@ -7476,7 +7438,6 @@ function getAiRunCommandFailureMessage(response) {
   return PopupText.ai.saveCurrentPageBeforeComputing;
 }
 
-// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 async function continueAiRunPolling({ endpointValue = "", tokenValue = "", currentPageUrl = "" } = {}) {
   while (state.aiRequestInFlight === "compute" && state.aiRunSessionId) {
     const sessionId = state.aiRunSessionId;
@@ -7715,7 +7676,6 @@ async function submitSelectorSetToServer(options = {}) {
     return { ok: false, skipped: true, reason: PopupText.ai.noSelectorsToSubmit };
   }
 
-  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   const { stageBaseValue, configEndpointValue, endpointValue } = await helpers.loadGlobalAiSettings();
   const graphqlEndpoint = buildGraphqlEndpointFromStageBase(stageBaseValue);
   if (!graphqlEndpoint) {
@@ -7830,7 +7790,6 @@ async function submitSelectorSetToServer(options = {}) {
       alertOnCurrentReplacement: false
     });
     return { ok: true, baseUrl: effectiveBaseUrl, configSyncResult };
-  // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
   } catch (error) {
     return { ok: false, reason: PopupText.ai.submitRequestFailed };
   } finally {

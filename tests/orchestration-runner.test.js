@@ -41,7 +41,6 @@ function sendJson(socket, message) {
   socket.send(JSON.stringify(message));
 }
 
-// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 async function sendHello(socket, role, side) {
   const ackPromise = waitForMessage(socket, (message) => message.type === "report" && message.stepId === "bus:hello");
   sendJson(socket, { channel: "control", type: "hello", role, side });
@@ -212,7 +211,6 @@ test("extension reload starts waiting for the replacement worker before reloadin
     }
   };
   const worker = {
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     async evaluate() {
       calls.push("evaluate");
       resolveReplacementWorker(replacementWorker);
@@ -242,7 +240,6 @@ test("extension reload falls back to the active worker when Chrome emits no repl
     }
   };
   const worker = {
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     async evaluate() {
       calls.push("evaluate");
     }
@@ -319,7 +316,6 @@ test("runner executes bus step messages and reports structured results", async (
       },
       runId: "runner",
       registry: {
-        // deno-lint-ignore require-await -- preserves existing promise/callback contract.
         readState: async (params) => ({
           ok: true,
           echoed: params,

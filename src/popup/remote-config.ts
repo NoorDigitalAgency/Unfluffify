@@ -600,7 +600,6 @@ export async function syncBaseConfigToServer(deps: RemoteConfigDeps, options: Sy
       typeof sourceConfig.pageMarkings === "object"
         ? sourceConfig.pageMarkings[pageUrl]
         : null;
-    // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
     let filterPageMarking = (url: string, entry?: { pageType?: unknown }) =>
       includeAllLocalPageMarkings ||
       backendSavedPageUrls.has(url) ||
@@ -712,7 +711,6 @@ export async function syncBaseConfigToServer(deps: RemoteConfigDeps, options: Sy
         replacedCurrentPage: mergeResult.replacedCurrentPage,
         baseUrl: resolvedBaseUrl
       };
-    // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
     } catch (error) {
       if (attempt + 1 < attempts) {
         await deps.waitForRetryDelay(retryDelayMs);

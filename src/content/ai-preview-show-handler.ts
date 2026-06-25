@@ -42,7 +42,6 @@ export function createAiPreviewShowHandler(deps: AiPreviewShowDeps) {
     void deps.refreshSilentHighlightings().catch(() => null);
   }
 
-  // deno-lint-ignore require-await -- preserves existing promise/callback contract.
   async function handleMessage(message: AiPreviewShowMessage = {}): Promise<Record<string, unknown>> {
     const selectorSet = deps.normalizeAiSelectorSet(message.selectorSet);
     deps.beginAiPreviewMode({ mode: "preview" });

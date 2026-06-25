@@ -477,7 +477,6 @@ test("URL watcher disables marking without preserving drafts across same-base sa
   ];
 
   for (const [label, nextUrl] of cases) {
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     await withDisableFlushHarness(async ({
       pageUrl,
       intervals,
@@ -516,7 +515,6 @@ test("URL watcher discards temporary draft cache for clean or cross-base URL cha
   ];
 
   for (const { label, nextUrl, dirty } of cases) {
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     await withDisableFlushHarness(async ({ pageUrl, intervals, dispatchedEvents }) => {
       if (dirty) {
         state.cleanBaselineFingerprintByPageUrl.set(pageUrl, "clean-before-user-edit");

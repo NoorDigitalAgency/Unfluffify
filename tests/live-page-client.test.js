@@ -19,7 +19,6 @@ function createResponse({ ok = true, jsonValue = {}, updateToken = "" } = {}) {
         return null;
       }
     },
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     async json() {
       return jsonValue;
     }
@@ -56,7 +55,6 @@ test("buildPropertyPageTypesSignature is deterministic for identical input", () 
 
 test("resolveLivePageSiteId returns resolved site id and base url", async () => {
   const originalFetch = globalThis.fetch;
-  // deno-lint-ignore require-await -- preserves existing promise/callback contract.
   globalThis.fetch = async () => createResponse({
     ok: true,
     jsonValue: {
@@ -73,7 +71,6 @@ test("resolveLivePageSiteId returns resolved site id and base url", async () => 
     const result = await resolveLivePageSiteId({
       stageBase: "a.lynxdev.se",
       pageUrl: "https://www.bonliva.no",
-      // deno-lint-ignore require-await -- preserves existing promise/callback contract.
       resolveBackgroundNetworkCredentials: async () => ({
         stageBaseValue: "a.lynxdev.se",
         tokenValue: "token"
@@ -91,7 +88,6 @@ test("resolveLivePageSiteId returns resolved site id and base url", async () => 
 
 test("resolveLivePageSiteId handles not found response", async () => {
   const originalFetch = globalThis.fetch;
-  // deno-lint-ignore require-await -- preserves existing promise/callback contract.
   globalThis.fetch = async () => createResponse({
     ok: true,
     jsonValue: {
@@ -103,7 +99,6 @@ test("resolveLivePageSiteId handles not found response", async () => {
     const result = await resolveLivePageSiteId({
       stageBase: "a.lynxdev.se",
       pageUrl: "https://www.bonliva.no",
-      // deno-lint-ignore require-await -- preserves existing promise/callback contract.
       resolveBackgroundNetworkCredentials: async () => ({
         stageBaseValue: "a.lynxdev.se",
         tokenValue: ""
@@ -123,7 +118,6 @@ test("resolveLivePageSiteId handles not found response", async () => {
 
 test("fetchLivePagePropertyPageTypes returns normalized candidates with signature", async () => {
   const originalFetch = globalThis.fetch;
-  // deno-lint-ignore require-await -- preserves existing promise/callback contract.
   globalThis.fetch = async () => createResponse({
     ok: true,
     jsonValue: {
@@ -145,7 +139,6 @@ test("fetchLivePagePropertyPageTypes returns normalized candidates with signatur
       siteId: 5542,
       stageBase: "a.lynxdev.se",
       tokenValue: "token",
-      // deno-lint-ignore require-await -- preserves existing promise/callback contract.
       resolveBackgroundNetworkCredentials: async () => ({
         stageBaseValue: "a.lynxdev.se",
         tokenValue: "token"

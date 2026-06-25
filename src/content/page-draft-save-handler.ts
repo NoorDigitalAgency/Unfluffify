@@ -145,7 +145,6 @@ export function createPageDraftSaveHandler(deps: PageDraftSaveDeps) {
       deps.touchPageEntryTimestamp(entry);
       config.pageMarkings[pageUrl] = entry;
       await deps.saveConfig(targetBaseUrl, config);
-    // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
     } catch (error) {
       if (!hadReconciliationPending) {
         try {
@@ -166,7 +165,6 @@ export function createPageDraftSaveHandler(deps: PageDraftSaveDeps) {
     deps.setSavedPageEntry(pageUrl, entry);
     try {
       await deps.setPageSaveReconciliationPending(targetBaseUrl, pageUrl, { reason: "pending" });
-    // deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
     } catch (error) {
       if (showToast) {
         deps.showPageToast("Unable to track server sync for saved page");

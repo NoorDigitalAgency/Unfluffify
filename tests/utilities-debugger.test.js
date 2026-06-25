@@ -14,7 +14,6 @@ test("detachDebugger treats an already-detached tab as a successful cleanup", as
 
   globalThis.chrome = {
     debugger: {
-      // deno-lint-ignore require-await -- preserves existing promise/callback contract.
       async detach(target) {
         assert.deepEqual(target, { tabId: 123 });
         throw new Error("Debugger is not attached to the tab with id: 123.");
@@ -47,7 +46,6 @@ test("detachDebugger still reports unexpected detach failures", async () => {
 
   globalThis.chrome = {
     debugger: {
-      // deno-lint-ignore require-await -- preserves existing promise/callback contract.
       async detach() {
         throw new Error("Permission denied");
       }
@@ -78,11 +76,9 @@ test("setPageJavaScriptExecutionDisabled attaches and updates script execution",
 
   globalThis.chrome = {
     debugger: {
-      // deno-lint-ignore require-await -- preserves existing promise/callback contract.
       async attach(target, version) {
         calls.push(["attach", target, version]);
       },
-      // deno-lint-ignore require-await -- preserves existing promise/callback contract.
       async sendCommand(target, command, params) {
         calls.push(["sendCommand", target, command, params]);
       }
@@ -112,11 +108,9 @@ test("reloadPageWithJavaScriptControl sets script state before reload", async ()
 
   globalThis.chrome = {
     debugger: {
-      // deno-lint-ignore require-await -- preserves existing promise/callback contract.
       async attach(target, version) {
         calls.push(["attach", target, version]);
       },
-      // deno-lint-ignore require-await -- preserves existing promise/callback contract.
       async sendCommand(target, command, params) {
         calls.push(["sendCommand", target, command, params]);
       }

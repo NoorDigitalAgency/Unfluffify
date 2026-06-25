@@ -546,7 +546,6 @@ function warningNoticeClass(...extraClasses) {
 }
 
 // @ts-expect-error - Rendering helper accepts heterogeneous list entries.
-// deno-lint-ignore no-unused-vars -- retained for existing source-contract compatibility.
 function renderListItems(items, emptyText, renderItem) {
   if (!items.length) {
     return [h("li", { class: "empty" }, emptyText)];

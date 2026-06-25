@@ -388,7 +388,7 @@ test("session save uploads all local page markings while default sync stays back
     /export async function handlePageRevert\(deps(?:\s*:\s*[^)]+)?\) \{([\s\S]*?)\n\}/
   )[1];
   const applyLocalPageDiscardBody = source.match(
-    /async function applyLocalPageDiscard\(\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ deno-lint-ignore[^\n]*\n)*async function requestAiRunStart/
+    /async function applyLocalPageDiscard\(\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:(?:\/\/ (?:eslint-disable-next-line|@ts-(?:ignore|expect-error))[^\n]*\n))*async function requestAiRunStart/
   )[1];
 
   assert.match(remoteConfigSource, /includeCurrentPageMarking = false/);

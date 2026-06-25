@@ -147,7 +147,6 @@ test("tab-session-store queues writes per tab", async () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     order.push("first:end");
   });
-  // deno-lint-ignore require-await -- preserves existing promise/callback contract.
   const second = queueTabSessionWrite(15, async () => {
     order.push("second");
   });

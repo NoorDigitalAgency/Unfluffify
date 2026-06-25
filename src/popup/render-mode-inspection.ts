@@ -281,7 +281,6 @@ export async function maybeAutoDetectRenderMode(
   }
 }
 
-// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 export async function waitForTabLoadStart(
   deps: RenderModeInspectionDeps,
   tabId: number,
@@ -336,7 +335,6 @@ export async function waitForTabLoadStart(
   });
 }
 
-// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 export async function waitForTabLoadComplete(
   deps: RenderModeInspectionDeps,
   tabId: number,

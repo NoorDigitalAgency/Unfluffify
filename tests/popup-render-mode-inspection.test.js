@@ -64,27 +64,21 @@ function createBaseDeps(overrides = {}) {
     },
     browserRef: createBrowserHarness().browserRef,
     messages: {
-      // deno-lint-ignore require-await -- preserves existing promise/callback contract.
       sendRuntimeMessage: async () => ({ ok: true, rendered: true, accuracy: 0.9 })
     },
     shouldAutoDetectRenderMode: () => true,
     getCurrentRenderModeInspectionSnapshot: () => ({ rawHtml: "<html>", renderedHtml: "<body>" }),
     getSuggestedRenderModeForPage: () => "static",
     markRenderModeUndetermined() {},
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     loadGlobalAiSettings: async () => ({ tokenValue: "token", endpointValue: "endpoint" }),
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     runWithSpinner: async (_key, _message, work) => work(),
     normalizeUiRenderModeValue: (value) => value,
     buildTransferPayloadKey: () => "payload-key",
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     putTransferPayload: async () => ({ ok: true }),
     waitForRetryDelay: async () => {},
     getRetryDelayMs: () => 1,
     isRetryableHttpStatus: () => true,
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     ensureContentReadyForRenderModeInspection: async () => true,
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     captureRenderModeInspectionHtml: async () => ({ ok: true, pageUrl: "https://example.com/page" }),
     rememberRenderModeInspectionSnapshot() {},
     hideConsentForRenderModeInspection: async () => {},
@@ -106,7 +100,6 @@ test("popup render-mode inspection detection retries and succeeds", async () => 
   let calls = 0;
   const deps = createBaseDeps({
     messages: {
-      // deno-lint-ignore require-await -- preserves existing promise/callback contract.
       sendRuntimeMessage: async () => {
         calls += 1;
         if (calls === 1) {
@@ -198,11 +191,9 @@ test("popup render-mode inspection wait helpers resolve on tab lifecycle signals
 test("popup render-mode follow-up hides consent before capture without reveal", async () => {
   const calls = [];
   const deps = createBaseDeps({
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     hideConsentForRenderModeInspection: async () => {
       calls.push("hideConsentForRenderModeInspection");
     },
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     captureRenderModeInspectionHtml: async () => {
       calls.push("captureRenderModeInspectionHtml");
       return {

@@ -20,7 +20,6 @@ function createResponse({ ok = true, status = 200, payload = null } = {}) {
         return null;
       }
     },
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     async json() {
       return payload;
     }
@@ -75,7 +74,6 @@ test("build auth endpoints from stage base", () => {
 
 test("validateAuthToken maps 401 and 403 responses to invalid", async () => {
   const originalFetch = globalThis.fetch;
-  // deno-lint-ignore require-await -- preserves existing promise/callback contract.
   globalThis.fetch = async () => createResponse({ ok: false, status: 401, payload: null });
   try {
     const unauthorized = await validateAuthToken({
@@ -87,7 +85,6 @@ test("validateAuthToken maps 401 and 403 responses to invalid", async () => {
     globalThis.fetch = originalFetch;
   }
 
-  // deno-lint-ignore require-await -- preserves existing promise/callback contract.
   globalThis.fetch = async () => createResponse({ ok: false, status: 403, payload: null });
   try {
     const forbidden = await validateAuthToken({
@@ -102,7 +99,6 @@ test("validateAuthToken maps 401 and 403 responses to invalid", async () => {
 
 test("requestAuthLogin returns parsed payload", async () => {
   const originalFetch = globalThis.fetch;
-  // deno-lint-ignore require-await -- preserves existing promise/callback contract.
   globalThis.fetch = async () => createResponse({
     ok: true,
     status: 200,

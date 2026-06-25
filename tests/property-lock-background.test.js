@@ -264,7 +264,6 @@ function createChromeMock(storageItems = {}) {
   };
 }
 
-// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 async function loadPropertyLockBackgroundModule() {
   backgroundModuleCounter += 1;
   return import(new URL(`../src/common/property-lock-background.js?case=${backgroundModuleCounter}`, import.meta.url));

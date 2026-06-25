@@ -52,7 +52,6 @@ test("popup site resolution fetches page types through runtime messaging", async
   const sentMessages = [];
   globalThis.chrome = {
     runtime: {
-      // deno-lint-ignore require-await -- preserves existing promise/callback contract.
       sendMessage: async (message) => {
         sentMessages.push(message);
         return {
@@ -87,7 +86,6 @@ test("popup site resolution reuses fresh page-type cache", async () => {
   const originalChrome = globalThis.chrome;
   globalThis.chrome = {
     runtime: {
-      // deno-lint-ignore require-await -- preserves existing promise/callback contract.
       sendMessage: async () => {
         throw new Error("should not fetch while cache is fresh");
       }
@@ -120,7 +118,6 @@ test("popup site resolution updates page-type state and emits toast on changed s
   const originalChrome = globalThis.chrome;
   globalThis.chrome = {
     runtime: {
-      // deno-lint-ignore require-await -- preserves existing promise/callback contract.
       sendMessage: async () => ({
         ok: true,
         signature: "new-signature",
@@ -158,7 +155,6 @@ test("popup site resolution resolves site id through runtime and preserves notFo
   const originalChrome = globalThis.chrome;
   globalThis.chrome = {
     runtime: {
-      // deno-lint-ignore require-await -- preserves existing promise/callback contract.
       sendMessage: async () => ({
         ok: true,
         siteId: "",
@@ -189,7 +185,6 @@ test("popup site resolution merges resolved-base config and persists site id in-
   const originalChrome = globalThis.chrome;
   globalThis.chrome = {
     runtime: {
-      // deno-lint-ignore require-await -- preserves existing promise/callback contract.
       sendMessage: async () => ({
         ok: true,
         siteId: 200,

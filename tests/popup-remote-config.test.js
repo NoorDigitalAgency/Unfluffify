@@ -61,14 +61,12 @@ function createDeps(overrides = {}) {
       showToast: (message) => {
         toasts.push(message);
       },
-      // deno-lint-ignore require-await -- preserves existing promise/callback contract.
       ensureBaseUrlSiteId: async () => ({
         ok: true,
         siteId: 5,
         baseUrl: "https://example.com",
         configs: configStore
       }),
-      // deno-lint-ignore require-await -- preserves existing promise/callback contract.
       getConfigs: async () => configStore,
       saveConfigs: async () => {},
       normalizeConfig: (_baseUrl, value) => ({
@@ -84,37 +82,30 @@ function createDeps(overrides = {}) {
         changed: false
       }),
       clearBackendSavedPageMarkings: async () => {},
-      // deno-lint-ignore require-await -- preserves existing promise/callback contract.
       getBackendSavedPageMarkings: async () => ({}),
       createConfigSyncPayload: (_baseUrl, sourceConfig) => ({
         pageMarkings: sourceConfig && sourceConfig.pageMarkings ? sourceConfig.pageMarkings : {}
       }),
-      // deno-lint-ignore require-await -- preserves existing promise/callback contract.
       replaceServerConfigIntoLocalSnapshot: async () => ({
         ok: true,
         changed: false,
         baseUrl: "https://example.com",
         replacedCurrentPage: false
       }),
-      // deno-lint-ignore require-await -- preserves existing promise/callback contract.
       getStoredGlobalToken: async () => "",
-      // deno-lint-ignore require-await -- preserves existing promise/callback contract.
       ensurePropertyPageTypes: async () => ({ ok: false }),
       collectStoredPageMarkingItems: () => [],
       buildLynxChecklistViewModel: () => ({ activeMarkedPages: [] }),
       buildPageMarkingKey: () => "",
       buildTransferPayloadKey: () => "payload-key",
-      // deno-lint-ignore require-await -- preserves existing promise/callback contract.
       putTransferPayload: async (_type, payload) => {
         savedPayloads.push(payload);
         return { ok: true };
       },
-      // deno-lint-ignore require-await -- preserves existing promise/callback contract.
       waitForRetryDelay: async (ms) => {
         waits.push(ms);
       },
       isRetryableHttpStatus: () => false,
-      // deno-lint-ignore require-await -- preserves existing promise/callback contract.
       pruneRemoteInvalidPageMarkings: async (payload) => {
         prunedInvalidUrls.push(payload);
       },
@@ -140,7 +131,6 @@ test("popup remote config retry schedules refresh only once", async () => {
       },
       alert: () => {}
     },
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     refreshUi: async () => {
       refreshCount += 1;
     }
@@ -175,7 +165,6 @@ test("popup remote config load caches successful load by key", async () => {
   let runtimeCalls = 0;
   globalThis.chrome = {
     runtime: {
-      // deno-lint-ignore require-await -- preserves existing promise/callback contract.
       sendMessage: async (message) => {
         runtimeCalls += 1;
         if (message.type === "loadRemoteConfigSnapshot") {
@@ -222,7 +211,6 @@ test("popup remote config load ignores token rotation within the same page-load 
   let runtimeCalls = 0;
   globalThis.chrome = {
     runtime: {
-      // deno-lint-ignore require-await -- preserves existing promise/callback contract.
       sendMessage: async (message) => {
         runtimeCalls += 1;
         if (message.type === "loadRemoteConfigSnapshot") {
@@ -288,7 +276,6 @@ test("popup remote config load clears local page markings when upstream is missi
   };
   globalThis.chrome = {
     runtime: {
-      // deno-lint-ignore require-await -- preserves existing promise/callback contract.
       sendMessage: async (message) => {
         runtimeCalls.push(message);
         if (message.type === "loadRemoteConfigSnapshot") {
@@ -303,9 +290,7 @@ test("popup remote config load clears local page markings when upstream is missi
   };
 
   const { deps, statusUpdates } = createDeps({
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     getConfigs: async () => configStore,
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     getBackendSavedPageMarkings: async () => ({
       "https://example.com/page": {
         timestamp: "2026-06-10T10:00:00Z",
@@ -367,7 +352,6 @@ test("popup remote config load clears selector state on not_found even without p
   };
   globalThis.chrome = {
     runtime: {
-      // deno-lint-ignore require-await -- preserves existing promise/callback contract.
       sendMessage: async (message) => {
         if (message.type === "loadRemoteConfigSnapshot") {
           return { ok: true, status: "not_found", payloadKey: "" };
@@ -381,9 +365,7 @@ test("popup remote config load clears selector state on not_found even without p
   };
 
   const { deps } = createDeps({
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     getConfigs: async () => configStore,
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     getBackendSavedPageMarkings: async () => ({})
   });
   state.currentTab = { id: 1, url: "https://example.com/page" };
@@ -422,7 +404,6 @@ test("popup remote config load clears cached site entries on not_found", async (
   let runtimeCalls = 0;
   globalThis.chrome = {
     runtime: {
-      // deno-lint-ignore require-await -- preserves existing promise/callback contract.
       sendMessage: async (message) => {
         runtimeCalls += 1;
         if (message.type === "loadRemoteConfigSnapshot") {
@@ -437,7 +418,6 @@ test("popup remote config load clears cached site entries on not_found", async (
   };
 
   const { deps } = createDeps({
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     getBackendSavedPageMarkings: async () => ({})
   });
   state.currentTab = { id: 1, url: "https://example.com/page-a" };
@@ -553,9 +533,7 @@ test("popup remote config load skips stale not_found resets after cache epoch ad
   };
 
   const { deps } = createDeps({
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     getConfigs: async () => configStore,
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     getBackendSavedPageMarkings: async () => ({})
   });
   state.currentTab = { id: 1, url: "https://example.com/page-a" };
@@ -623,7 +601,6 @@ test("popup remote config not_found fences off older same-site ok loads", async 
   };
 
   const { deps } = createDeps({
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     getBackendSavedPageMarkings: async () => ({})
   });
 
@@ -680,7 +657,6 @@ test("popup remote config save merges server payload and prunes invalid urls", a
   const originalChrome = globalThis.chrome;
   globalThis.chrome = {
     runtime: {
-      // deno-lint-ignore require-await -- preserves existing promise/callback contract.
       sendMessage: async (message) => {
         if (message.type === "saveRemoteConfigSnapshot") {
           return { ok: true, status: "ok", payloadKey: "response-key" };
@@ -700,7 +676,6 @@ test("popup remote config save merges server payload and prunes invalid urls", a
   };
 
   const { deps, savedPayloads, prunedInvalidUrls } = createDeps({
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     ensurePropertyPageTypes: async () => ({ ok: true, pageTypes: [] })
   });
 
@@ -728,7 +703,6 @@ test("popup remote config save retries retryable errors before succeeding", asyn
   let saveCalls = 0;
   globalThis.chrome = {
     runtime: {
-      // deno-lint-ignore require-await -- preserves existing promise/callback contract.
       sendMessage: async (message) => {
         if (message.type === "saveRemoteConfigSnapshot") {
           saveCalls += 1;

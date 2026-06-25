@@ -7,20 +7,17 @@ test("render-mode inspector runs begin, consent hide, capture, and end through i
   const requestTypes = [];
   const runtimeUpdates = [];
   const inspector = createRenderModeInspector({
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     ensureContentMainForTab: async () => ({ ok: true }),
     waitForBackgroundRetryDelay: async () => {},
     updateTabRuntime: (tabId, patch) => {
       runtimeUpdates.push({ tabId, patch });
     },
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     sendContentMessageToTab: async (_tabId, message) => {
       if (message.type === "getInspectionStatus") {
         return { ok: true };
       }
       return { ok: false };
     },
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     requestContentRenderMode: async (type) => {
       requestTypes.push(type);
       if (type === "renderMode.contentBegin") {
@@ -69,15 +66,11 @@ test("render-mode end step retries up to three attempts", async () => {
   let endAttempts = 0;
   let retryDelayCalls = 0;
   const inspector = createRenderModeInspector({
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     ensureContentMainForTab: async () => ({ ok: true }),
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     waitForBackgroundRetryDelay: async () => {
       retryDelayCalls += 1;
     },
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     sendContentMessageToTab: async () => ({ ok: true }),
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     requestContentRenderMode: async (type) => {
       if (type !== "renderMode.contentEnd") {
         return { ok: true };
@@ -103,7 +96,6 @@ test("render-mode load wait helpers time out when tab updates never arrive", asy
         addListener: (listener) => listeners.add(listener),
         removeListener: (listener) => listeners.delete(listener)
       },
-      // deno-lint-ignore require-await -- preserves existing promise/callback contract.
       get: async () => ({ status: "complete" })
     }
   };

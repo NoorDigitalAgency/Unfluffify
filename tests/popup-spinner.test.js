@@ -63,15 +63,12 @@ function createDeps() {
       uiBusySyncs.push([...queue.keys()]);
     },
     syncUiBusyFromBrokerState() {},
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     syncSpinnerEntryToBackground: async (key) => {
       synced.push(key);
     },
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     removeSpinnerEntryFromBackground: async (key, tabId) => {
       removed.push({ key, tabId });
     },
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
     clearSpinnerQueueInBackground: async (tabId) => {
       cleared.push(tabId);
     },
@@ -146,7 +143,6 @@ test("popup spinner watchdog arms and can be cleared", async () => {
 test("popup spinner runWithSpinner pops after task settles", async () => {
   const { deps, queue, projectedSyncs } = createDeps();
 
-  // deno-lint-ignore require-await -- preserves existing promise/callback contract.
   const result = await runWithSpinner(deps, "task", "Running", async () => "ok");
   assert.equal(result, "ok");
   assert.equal(queue.has("task"), false);

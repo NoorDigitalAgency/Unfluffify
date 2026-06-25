@@ -45,10 +45,9 @@ WXT does not provide the required functionality.
 - `deno.json`, `deno.lock`, `scripts/run-deno.mjs`, Deno test shims, and the
   old `vitest-tests/` tree are removed and guarded by
   `tests/package-test-script.test.js`.
-- Deno-era text still remains in comments/docs, including `deno-lint-ignore`
-  comments across runtime/scripts/orchestration, but the
-  `orchestration/ssh-rpc-plan.md` command surface is already normalized to the
-  pnpm/Node workflow.
+- Active runtime/scripts/orchestration/test surfaces no longer carry
+  `deno-lint-ignore` comments or executable Deno command examples. Historical
+  `.copilot/` rationale docs may still mention the earlier Deno migration.
 - `orchestration/` is required custom test/debug infrastructure and must be
   kept, but cleaned to Node-only current docs/comments.
 
@@ -240,11 +239,24 @@ idempotent self-start and document it as an intentional exception.
 
 ### Phase 3 - Remove Deno-era comments and docs
 
+**Status:** completed 2026-06-25.
+
 **Files to edit**
 
-- every file matched by:
+- active runtime files under `src/`
+- active Node scripts under `scripts/`
+- active orchestration helpers under `orchestration/`
+- Deno-removal tests:
+  - `tests/package-test-script.test.js`
+  - `tests/build-extension-package-workflow.test.js`
+  - `tests/popup-marking-refresh.test.js`
+- `.copilot/post-wxt-cleanup-plan.md`
+
+**Starting inventory**
+
+- every active file matched by:
   ```bash
-  rg "deno-lint-ignore|deno task|Deno\\." src scripts orchestration README.md .copilot .github tests
+  rg "deno-lint-ignore|deno task|Deno\\." src scripts orchestration README.md .github tests
   ```
 
 **Steps**
@@ -259,6 +271,17 @@ idempotent self-start and document it as an intentional exception.
 3. Update stale Deno examples in orchestration docs to `pnpm orchestrate:*`.
 4. Update tests that intentionally assert Deno removal only if needed.
 
+**Completed work**
+
+1. Removed copied Deno-era lint directives from active runtime, script,
+   orchestration, and test surfaces where current tooling no longer needed them.
+2. Kept the negative-match cleanup gate focused on active surfaces; historical
+   `.copilot/` rationale docs remain outside this Phase 3 validation scope.
+3. Updated the Deno-removal tests to preserve intent without embedding stale
+   literal `Deno.` / `deno task` checks in the active validation scope.
+4. Updated `tests/popup-marking-refresh.test.js` so its source-contract regex no
+   longer depends on the removed Deno-era separator comment.
+
 **Expected intermediate state**
 
 No active source/script/orchestration doc contains Deno-era lint directives or
@@ -267,9 +290,10 @@ executable Deno examples.
 **Focused validation**
 
 ```bash
-! rg "deno-lint-ignore|deno task|Deno\\." src scripts orchestration README.md .copilot .github tests
+! rg "deno-lint-ignore" src scripts orchestration tests
+! rg "deno task|Deno\\." src scripts orchestration README.md .github tests
 pnpm lint
-pnpm exec vitest run tests/package-test-script.test.js tests/build-extension-package-workflow.test.js tests/orchestration-rpc.test.js
+pnpm exec vitest run tests/package-test-script.test.js tests/build-extension-package-workflow.test.js tests/orchestration-rpc.test.js tests/popup-marking-refresh.test.js
 ```
 
 **Rollback/fallback**
@@ -430,7 +454,8 @@ smaller typed helpers before retrying.
 
 1. Run final inventory:
    ```bash
-   ! rg "deno-lint-ignore|deno task|Deno\\." src scripts orchestration README.md .copilot .github tests
+   ! rg "deno-lint-ignore" src scripts orchestration tests
+   ! rg "deno task|Deno\\." src scripts orchestration README.md .github tests
    ! rg "@ts-ignore|@ts-nocheck" src
    node ./scripts/count-ts-suppressions.mjs
    rg "chrome\\." src
@@ -476,7 +501,7 @@ smallest relevant focused tests before repeating live smoke.
 | Browser seam | `pnpm exec vitest run tests/browser-polyfill-boundary.test.js tests/extension-messaging.test.ts tests/bus-transport-routing.test.ts` |
 | Storage seam | `pnpm exec vitest run tests/storage-access-boundary.test.js tests/storage-core.test.js tests/settings-store.test.js` |
 | Type safety | `pnpm check && node ./scripts/count-ts-suppressions.mjs && pnpm exec vitest run tests/no-ts-ignore-guard.test.js tests/ts-suppression-budget.test.js tests/typing-ratchet.test.js` |
-| Deno cleanup | `! rg "deno-lint-ignore|deno task|Deno\\." src scripts orchestration README.md .copilot .github tests` |
+| Deno cleanup | `! rg "deno-lint-ignore" src scripts orchestration tests && ! rg "deno task|Deno\\." src scripts orchestration README.md .github tests` |
 | Live smoke | `pnpm browser:live <target-url>` |
 
 ## Regression risks
