@@ -183,9 +183,7 @@ import {
   aiSelectorSetsEqual
 } from "./common/selector-set.js";
 import {
-  LIFECYCLE_KINDS,
-  SPINNER_OWNERS,
-  WORLD_MESSAGE_TYPES
+  SPINNER_OWNERS
 } from "./common/world-messaging-contract.js";
 import {
   PROPERTY_LOCK_BACKGROUND_GET_STATE,

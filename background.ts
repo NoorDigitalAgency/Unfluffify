@@ -62,8 +62,7 @@ import {
   LIFECYCLE_PHASES,
   SPINNER_OWNERS,
   isLifecycleTerminalPhase,
-  WORLD_MESSAGE_TYPES,
-  WORLD_PORTS
+  WORLD_MESSAGE_TYPES
 } from "./common/world-messaging-contract.js";
 import {
   AI_RUN_POLL_INTERVAL_MS,
