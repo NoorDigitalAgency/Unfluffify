@@ -185,8 +185,46 @@ import { BUS_PORT_PREFIX } from "./common/bus/transport/transport-types.js";
 import type { TabOperationContext } from "./types/operations.js";
 import type { RuntimeMessage, RuntimeMessageReply } from "./types/messaging.js";
 
-// @ts-expect-error
-function buildFeatureDisabledResponse(featureName) {
+type FeatureDisabledResponse = {
+  ok: false;
+  reason: typeof FEATURE_DISABLED_REASON;
+  feature: string;
+  error: string;
+};
+
+type ContentMessageResponse = {
+  ok: boolean;
+  error?: string;
+  reconciliationPending?: boolean;
+  locked?: boolean;
+};
+
+type ContentBootstrapResult =
+  | { ok: true; tabId: number }
+  | { ok: false; tabId?: number; error: string };
+
+type BackgroundCommandError = Error & {
+  code: string;
+  details: Record<string, unknown>;
+};
+
+type RenderModeNoJsRestoreResult = {
+  ok: boolean;
+  skipped?: boolean;
+  error?: string;
+};
+
+type RenderModeHtmlCaptureResult = {
+  ok: boolean;
+  pageUrl: string;
+  renderedHtml: string;
+  rawHtml: string;
+  renderMode: string;
+  hiddenCount: number;
+  error: string;
+};
+
+function buildFeatureDisabledResponse(featureName: string): FeatureDisabledResponse {
   return {
     ok: false,
     reason: FEATURE_DISABLED_REASON,
@@ -208,8 +246,7 @@ const PROPERTY_LOCK_MESSAGE_TYPES = new Set([
 const RENDER_MODE_NO_JS_INACTIVITY_SCOPE = "render-mode-no-js";
 const RENDER_MODE_NO_JS_INACTIVITY_TIMEOUT_MS = 30_000;
 
-// @ts-expect-error
-function normalizeBrokerTabId(value) {
+function normalizeBrokerTabId(value: unknown): number | null {
   const numeric = Number(value);
   return Number.isFinite(numeric) && numeric > 0 ? Math.trunc(numeric) : null;
 }
@@ -408,17 +445,19 @@ function navigateTabToUrl(tabId: unknown, url: unknown) {
     }));
 }
 
-// @ts-expect-error
-function sendContentMessageToTab(tabId, message, timeoutMs = 15000) {
-  return new Promise<{ ok: boolean; error?: string; reconciliationPending?: boolean; locked?: boolean }>((resolve) => {
+function sendContentMessageToTab(
+  tabId: unknown,
+  message: Record<string, unknown>,
+  timeoutMs = 15000,
+): Promise<ContentMessageResponse> {
+  return new Promise<ContentMessageResponse>((resolve) => {
     const normalizedTabId = normalizeBrokerTabId(tabId);
     if (!normalizedTabId) {
       resolve({ ok: false, error: "Missing tab" });
       return;
     }
     let settled = false;
-// @ts-expect-error
-    const finish = (result) => {
+    const finish = (result: ContentMessageResponse) => {
       if (settled) {
         return;
       }
@@ -436,7 +475,7 @@ function sendContentMessageToTab(tabId, message, timeoutMs = 15000) {
     )
       .then((response) => {
         finish(response && typeof response === "object"
-          ? response as { ok?: boolean; error?: string; reconciliationPending?: boolean; locked?: boolean }
+          ? response as ContentMessageResponse
           : { ok: false });
       })
       .catch((error) => {
@@ -448,15 +487,13 @@ function sendContentMessageToTab(tabId, message, timeoutMs = 15000) {
   });
 }
 
-// @ts-expect-error
-function waitForBackgroundRetryDelay(delayMs) {
-  return new Promise((resolve) => {
+function waitForBackgroundRetryDelay(delayMs: number): Promise<void> {
+  return new Promise<void>((resolve) => {
     setTimeout(resolve, delayMs);
   });
 }
 
-// @ts-expect-error
-async function ensureContentMainForTab(tabId) {
+async function ensureContentMainForTab(tabId: unknown): Promise<ContentBootstrapResult> {
   const normalizedTabId = normalizeBrokerTabId(tabId);
   if (!normalizedTabId) {
     return { ok: false, error: "Missing tab" };
@@ -504,18 +541,18 @@ async function ensureContentMainForTab(tabId) {
   return { ok: false, tabId: normalizedTabId, error: "Content activation failed" };
 }
 
-// @ts-expect-error
-function createBackgroundCommandError(code, message, details = {}) {
-  const error = new Error(message || "Background command failed");
-// @ts-expect-error
+function createBackgroundCommandError(
+  code: string,
+  message: string,
+  details: Record<string, unknown> = {},
+): BackgroundCommandError {
+  const error = new Error(message || "Background command failed") as BackgroundCommandError;
   error.code = typeof code === "string" && code ? code : MESSAGE_ERROR_CODES.HANDLER_FAILED;
-// @ts-expect-error
   error.details = details && typeof details === "object" ? details : {};
   return error;
 }
 
-// @ts-expect-error
-function normalizeActivationBaseUrl(value) {
+function normalizeActivationBaseUrl(value: unknown): string {
   if (typeof value !== "string") {
     return "";
   }
@@ -529,7 +566,6 @@ const renderModeInspector = createRenderModeInspector({
     tab: tabId,
   }),
   ensureContentMainForTab,
-// @ts-expect-error
   waitForBackgroundRetryDelay,
   updateTabRuntime,
   createManagedTimeoutGroup,
@@ -550,8 +586,7 @@ const tabInactivityObserver = createTabInactivityObserver({
   defaultTimeoutMs: RENDER_MODE_NO_JS_INACTIVITY_TIMEOUT_MS
 });
 
-// @ts-expect-error
-async function isTabActiveInFocusedWindow(tabId) {
+async function isTabActiveInFocusedWindow(tabId: unknown): Promise<boolean> {
   const normalizedTabId = normalizeBrokerTabId(tabId);
   if (!normalizedTabId) {
     return false;
@@ -568,8 +603,7 @@ async function isTabActiveInFocusedWindow(tabId) {
   }
 }
 
-// @ts-expect-error
-async function updateRenderModeNoJsInactivityWatch(tabId) {
+async function updateRenderModeNoJsInactivityWatch(tabId: unknown): Promise<void> {
   const normalizedTabId = normalizeBrokerTabId(tabId);
   if (!normalizedTabId) {
     return;
@@ -598,8 +632,9 @@ async function updateRenderModeNoJsInactivityWatches() {
   await Promise.all(heldTabIds.map((tabId) => updateRenderModeNoJsInactivityWatch(tabId)));
 }
 
-// @ts-expect-error
-async function restoreRenderModeJavaScriptAfterNoJsInactivity(tabId) {
+async function restoreRenderModeJavaScriptAfterNoJsInactivity(
+  tabId: unknown,
+): Promise<RenderModeNoJsRestoreResult> {
   const normalizedTabId = normalizeBrokerTabId(tabId);
   if (!normalizedTabId || !(await isRenderModeNoJsHeld(normalizedTabId))) {
     return { ok: true, skipped: true };
@@ -667,16 +702,15 @@ if (browser.alarms && browser.alarms.onAlarm && typeof browser.alarms.onAlarm.ad
   });
 }
 
-// @ts-expect-error
-async function captureRenderModeHtmlWithDebugger(tabId) {
+async function captureRenderModeHtmlWithDebugger(tabId: unknown): Promise<RenderModeHtmlCaptureResult> {
   const normalizedTabId = normalizeBrokerTabId(tabId);
   if (!normalizedTabId) {
-    return { ok: false, error: "Missing tab" };
+    return { ok: false, pageUrl: "", renderedHtml: "", rawHtml: "", renderMode: "", hiddenCount: 0, error: "Missing tab" };
   }
   const target = { tabId: normalizedTabId };
-  let tab = null;
+  let tab: Browser.tabs.Tab | null = null;
   try {
-    tab = await getBrowserTab(normalizedTabId);
+    tab = (await getBrowserTab(normalizedTabId)) || null;
   } catch {
     tab = null;
   }
@@ -690,7 +724,15 @@ async function captureRenderModeHtmlWithDebugger(tabId) {
       ? documentResult.root.nodeId
       : 0;
     if (!rootNodeId) {
-      return { ok: false, error: "Unable to read inspected document" };
+      return {
+        ok: false,
+        pageUrl,
+        renderedHtml: "",
+        rawHtml: "",
+        renderMode: "",
+        hiddenCount: 0,
+        error: "Unable to read inspected document"
+      };
     }
     const htmlResult = await sendBrowserDebuggerCommand(target, "DOM.getOuterHTML", {
       nodeId: rootNodeId
@@ -719,8 +761,7 @@ async function captureRenderModeHtmlWithDebugger(tabId) {
       rawHtml: "",
       renderMode: "",
       hiddenCount: 0,
-// @ts-expect-error
-      error: (error && error.message) || "Unable to capture inspected document HTML"
+      error: error instanceof Error ? error.message : "Unable to capture inspected document HTML"
     };
   }
 }
@@ -959,7 +1000,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_CONTENT_REQUEST, async (contex
   }
 
   const message = payload && payload.message && typeof payload.message === "object"
-    ? payload.message
+    ? payload.message as Record<string, unknown>
     : null;
   if (!message) {
     return context.replyFail(

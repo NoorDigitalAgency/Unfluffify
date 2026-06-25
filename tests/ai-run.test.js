@@ -268,10 +268,16 @@ test("AI run recovery heartbeat and page lock are coordinated by background", ()
   const popupHeartbeatBlock = popupSource.slice(heartbeatStart, heartbeatEnd);
   const contentComputeLockBlock = runtimeMessageHandlerSource.slice(computeLockStart, computeLockEnd);
 
-  assert.match(backgroundSource, /function sendContentMessageToTab\(tabId, message, timeoutMs = 15000\) \{/);
+  assert.match(
+    backgroundSource,
+    /function sendContentMessageToTab\([\s\S]*?timeoutMs(?:\s*:\s*[^=]+)? = 15000,?\s*\)(?:\s*:\s*[^{]+)? \{/
+  );
   assert.match(backgroundSource, /Content message timed out/);
   assert.match(backgroundSource, /if \(settled\) \{[\s\S]*?return;[\s\S]*?\}/);
-  assert.match(backgroundSource, /async function ensureContentMainForTab\(tabId\) \{/);
+  assert.match(
+    backgroundSource,
+    /async function ensureContentMainForTab\(tabId(?:\s*:\s*[^)]+)?\)(?:\s*:\s*[^{]+)? \{/
+  );
   assert.match(backgroundSource, /type: "activateContentMain"/);
   assert.match(backgroundSource, /utils\.injectContentScript\(normalizedTabId, \{ force: true \}\)/);
   assert.match(aiRunOrchestratorSource, /async function setAiComputeLockForTab\(tabId(?:\s*:\s*[^,]+)?, active(?:\s*:\s*[^,]+)?, expiresAt(?:\s*:\s*[^=]+)? = 0, baseUrl(?:\s*:\s*[^=]+)? = ""(?:, lockOptions(?:\s*:\s*[^=]+)? = \{\})?\) \{/);
