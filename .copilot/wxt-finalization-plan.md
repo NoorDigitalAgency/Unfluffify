@@ -247,10 +247,8 @@ Validate: `pnpm prepare` + `pnpm build`; diff `.output/chrome-mv3` file list and
   `event-bus/` (track-00..04 + template), `track-f-protected-content-plan.md`,
   `typescript-deno-port-plan.md`, `typescript-deno-port-progress.md`.
 - KEEP active TypeScript-typing plans: `full-typesafety-plan.md` (+progress),
-  `ts-expect-error-migration-plan.md` (+progress),
-  `typescript-typing-rollout-plan.md` (+progress),
-  `typescript-typesafety-port-plan.md`, plus `knowledge.md`, `plan.md`,
-  `popup-preview-exit-button-state-plan.md`.
+  `ts-expect-error-migration-plan.md` (+progress), plus `knowledge.md`,
+  `plan.md`, `popup-preview-exit-button-state-plan.md`.
 - Before deleting, scan `knowledge.md`/instructions/skills for references to the
   deleted docs and update those references (e.g. the
   `content-main-followup-refactor-plan.md` H3 ceiling reference) to avoid

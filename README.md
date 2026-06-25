@@ -66,14 +66,15 @@ generated-manifest permission/WAR check against `.output/chrome-mv3/manifest.jso
 Treat the pnpm commands above as the supported public workflow. The repository
 no longer depends on Deno for CI, packaging, browser launch, or orchestration.
 
-The current migration cleanup command surface is tracked in
-`.copilot/wxt-finalization-plan.md` and is WXT-native for the shipped extension
-pipeline. `pnpm build` produces the runnable unpacked extension under
-`.output/chrome-mv3`. Source code now lives under `src/`, stable public assets
-under `src/public/`, and `wxt.config.ts` is the sole manifest source of truth.
-The only remaining manifest bridge is the source-owned `action` block so WXT's
-popup entrypoint does not reintroduce `action.default_popup` into the shipped
-manifest. Content scripts now ship on WXT's native `content-scripts/` paths.
+The active post-migration cleanup/type-safety track is documented in
+`.copilot/post-wxt-cleanup-plan.md`; `.copilot/wxt-finalization-plan.md`
+remains as historical rationale for the earlier WXT cutover. `pnpm build`
+produces the runnable unpacked extension under `.output/chrome-mv3`. Source code
+now lives under `src/`, stable public assets under `src/public/`, and
+`wxt.config.ts` is the sole manifest source of truth. The only remaining
+manifest bridge is the source-owned `action` block so WXT's popup entrypoint
+does not reintroduce `action.default_popup` into the shipped manifest. Content
+scripts now ship on WXT's native `content-scripts/` paths.
 
 The live-browser launcher targets the WXT unpacked output:
 `pnpm browser:live <target-url>` shells through the committed launcher, runs

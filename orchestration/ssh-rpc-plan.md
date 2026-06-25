@@ -124,8 +124,12 @@ Create `orchestration/setup-ssh-rpc.mjs`.
 4. Prompt for the remote repo path and verify/install:
    - `test -d <repo>/.git`
    - `node --version`
+   - `pnpm --version` (or enable/install pnpm first)
+   - `pnpm install --frozen-lockfile`
    - Playwright import via the configured `UNFLUFFIFY_PLAYWRIGHT_PATH`
-   - extension files exist, including `manifest.json`
+   - `pnpm build` (or sync the generated `.output/chrome-mv3/` tree as part of
+     the selected checkout-sync policy)
+   - built extension output exists, including `.output/chrome-mv3/manifest.json`
    - install missing dependencies (`xvfb-run`, `rsync`, `sshpass`, browser
      binaries) when absent
 5. Prompt for extension configuration:
@@ -165,7 +169,7 @@ Create `orchestration/rpc-server.mjs`.
   ```bash
   cd <repo> &&
   UNFLUFFIFY_PLAYWRIGHT_PATH=<path> \
-  deno task orchestrate:rpc-server -- --host 127.0.0.1 --port 9876
+  pnpm orchestrate:rpc-server -- --host 127.0.0.1 --port 9876
   ```
 
 - The server owns one or more named browser contexts and rejects attempts to

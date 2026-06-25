@@ -46,9 +46,10 @@ WXT does not provide the required functionality.
 - `deno.json`, `deno.lock`, `scripts/run-deno.mjs`, Deno test shims, and the
   old `vitest-tests/` tree are removed and guarded by
   `tests/package-test-script.test.js`.
-- Deno-era text remains in comments/docs: `deno-lint-ignore` comments across
-  runtime/scripts/orchestration and at least one stale Deno command example in
-  `orchestration/ssh-rpc-plan.md`.
+- Deno-era text still remains in comments/docs, including `deno-lint-ignore`
+  comments across runtime/scripts/orchestration, but the
+  `orchestration/ssh-rpc-plan.md` command surface is already normalized to the
+  pnpm/Node workflow.
 - `orchestration/` is required custom test/debug infrastructure and must be
   kept, but cleaned to Node-only current docs/comments.
 
@@ -145,29 +146,30 @@ before starting cleanup edits.
 
 ### Phase 1 - Filesystem prune and active-plan cleanup
 
-**Files to edit/delete**
+**Status:** completed 2026-06-25.
+
+**Files edited/deleted**
 
 - `.copilot/plan.md`
-- `.copilot/knowledge.md` if plan references change
-- `.copilot/typescript-typesafety-port-plan.md`
-- `.copilot/typescript-typing-rollout-plan.md`
+- `.copilot/wxt-finalization-plan.md`
+- `.copilot/typescript-typesafety-port-plan.md` (deleted)
+- `.copilot/typescript-typing-rollout-plan.md` (deleted)
+- `.copilot/typescript-typing-rollout-progress.md` (deleted)
 - `orchestration/ssh-rpc-plan.md`
-- any tracked obsolete plan/doc discovered by Phase 0 inventory
+- `README.md`
 
-**Steps**
+**Completed work**
 
-1. Classify every remaining plan/doc as one of:
-   - `active`: current and executable
-   - `historical-current`: useful rationale, explicitly marked historical, no
-     stale executable commands
-   - `delete`: obsolete, superseded, or misleading
-2. Delete files classified `delete`.
-3. For `historical-current` files, add a top warning that commands/paths are not
-   executable if they still contain old context.
-4. Replace stale Deno command examples in `orchestration/ssh-rpc-plan.md` with
-   pnpm/Node equivalents or delete the file if it is only stale planning.
-5. Update `.copilot/plan.md` so this file is the active cleanup plan and stale
-   type-safety plans are not presented as executable.
+1. Deleted the obsolete Deno-era typing rollout plan/progress files that no
+   longer matched the pnpm/`src/` repository state.
+2. Updated `.copilot/plan.md` so only current suppression/type-safety plans are
+   presented as active inputs.
+3. Updated `.copilot/wxt-finalization-plan.md` to stop listing the deleted docs
+   as retained active typing plans.
+4. Updated `orchestration/ssh-rpc-plan.md` to use the current pnpm/Node
+   orchestration command surface and generated-output preflight.
+5. Updated `README.md` so the current cleanup track points to this plan, while
+   `.copilot/wxt-finalization-plan.md` remains historical rationale.
 
 **Expected intermediate state**
 
@@ -271,7 +273,7 @@ executable Deno examples.
 **Focused validation**
 
 ```bash
-rg "deno-lint-ignore|deno task|Deno\\." src scripts orchestration README.md .copilot .github tests
+! rg "deno-lint-ignore|deno task|Deno\\." src scripts orchestration README.md .copilot .github tests
 pnpm lint
 pnpm exec vitest run tests/package-test-script.test.js tests/build-extension-package-workflow.test.js tests/orchestration-rpc.test.js
 ```
@@ -378,9 +380,9 @@ and classify it as a permanent exception with a test comment explaining why.
 
 **Steps**
 
-1. Treat `.copilot/full-typesafety-plan.md` as the active type-safety strategy.
-2. Mark or delete stale type-safety plans that still contain Deno/pre-`src`
-   executable instructions.
+1. Treat this Phase 5 section as the active type-safety execution strategy.
+2. Use older type-safety plans only as historical rationale after validating any
+   borrowed command/path against the current pnpm/`src/` repository layout.
 3. Remove `@ts-expect-error` in micro-batches of 10-50 directives.
 4. Add real types from the code's logic:
    - typed state interfaces
@@ -434,8 +436,8 @@ smaller typed helpers before retrying.
 
 1. Run final inventory:
    ```bash
-   rg "deno-lint-ignore|deno task|Deno\\." src scripts orchestration README.md .copilot .github tests
-   rg "@ts-ignore|@ts-nocheck" src
+   ! rg "deno-lint-ignore|deno task|Deno\\." src scripts orchestration README.md .copilot .github tests
+   ! rg "@ts-ignore|@ts-nocheck" src
    node ./scripts/count-ts-suppressions.mjs
    rg "chrome\\." src
    ```
@@ -480,7 +482,7 @@ smallest relevant focused tests before repeating live smoke.
 | Browser seam | `pnpm exec vitest run tests/browser-polyfill-boundary.test.js tests/extension-messaging.test.ts tests/bus-transport-routing.test.ts` |
 | Storage seam | `pnpm exec vitest run tests/storage-access-boundary.test.js tests/storage-core.test.js tests/settings-store.test.js` |
 | Type safety | `pnpm check && node ./scripts/count-ts-suppressions.mjs && pnpm exec vitest run tests/no-ts-ignore-guard.test.js tests/ts-suppression-budget.test.js tests/typing-ratchet.test.js` |
-| Deno cleanup | `rg "deno-lint-ignore|deno task|Deno\\." src scripts orchestration README.md .copilot .github tests` |
+| Deno cleanup | `! rg "deno-lint-ignore|deno task|Deno\\." src scripts orchestration README.md .copilot .github tests` |
 | Live smoke | `pnpm browser:live <target-url>` |
 
 ## Regression risks

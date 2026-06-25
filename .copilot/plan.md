@@ -20,15 +20,14 @@ refactor track is approved beyond the paused post-H3 state.
    migration rationale are relevant
 6. `.copilot/popup-preview-exit-button-state-plan.md` for popup preview/exit
    behavior
-7. Active TypeScript safety docs when touching ratchets or suppressions:
-   - `.copilot/full-typesafety-plan.md`
-   - `.copilot/full-typesafety-progress.md`
-   - `.copilot/ts-expect-error-migration-plan.md`
-   - `.copilot/ts-expect-error-migration-progress.md`
-   - `.copilot/typescript-typesafety-port-plan.md`
-8. Older retained typing-rollout notes may still exist for historical rationale,
-   but validate all commands and paths against the current pnpm/`src/` workflow
-   in this document and `.copilot/knowledge.md`.
+7. For suppression/ratchet cleanup, use `.copilot/post-wxt-cleanup-plan.md` as
+   the active execution plan.
+8. `.copilot/full-typesafety-plan.md`, `.copilot/full-typesafety-progress.md`,
+   `.copilot/ts-expect-error-migration-plan.md`, and
+   `.copilot/ts-expect-error-migration-progress.md` remain historical rationale
+   until they are refreshed for the current pnpm/`src/` repository layout.
+9. Older Deno-era typing rollout notes were removed after the WXT/pnpm cleanup.
+   Use git history if earlier rationale is needed.
 
 Historical `.copilot` plans that no longer describe current execution have been
 removed from the workspace. Use git history if older rationale is needed.
