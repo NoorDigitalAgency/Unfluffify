@@ -1,31 +1,28 @@
 import { BUS_ERROR_CODES, BusError } from "../bus-errors.js";
 import { type BusEnvelope } from "../envelope.js";
 import { REALMS } from "../realms.js";
+import { browser, type Browser } from "../../browser.js";
 import { createPageRelayTransport } from "./page-relay-transport.js";
 import type { InboundTransportHandler, Transport } from "./transport-types.js";
 
 export type ContentTransport = Transport & {
-  inbound(env: BusEnvelope, sender?: chrome.runtime.MessageSender): Promise<BusEnvelope | void>;
+  inbound(env: BusEnvelope, sender?: Browser.runtime.MessageSender): Promise<BusEnvelope | void>;
 };
 
 export function createContentTransport(): ContentTransport {
   let inboundHandler: InboundTransportHandler | null = null;
   const pageRelayTransport = createPageRelayTransport();
 
-  function sendToRuntime(env: BusEnvelope): Promise<BusEnvelope | void> {
-    return new Promise<BusEnvelope | void>((resolve, reject) => {
-      chrome.runtime.sendMessage(env, (reply?: unknown) => {
-        if (chrome.runtime.lastError) {
-          reject(new BusError(
-            BUS_ERROR_CODES.TRANSPORT_FAILED,
-            chrome.runtime.lastError.message || `Content transport failed for ${env.t}`,
-            { type: env.t, dst: env.dst },
-          ));
-          return;
-        }
-        resolve(reply as BusEnvelope | void);
-      });
-    });
+  async function sendToRuntime(env: BusEnvelope): Promise<BusEnvelope | void> {
+    try {
+      return await browser.runtime.sendMessage(env) as BusEnvelope | void;
+    } catch (error) {
+      throw new BusError(
+        BUS_ERROR_CODES.TRANSPORT_FAILED,
+        error instanceof Error && error.message ? error.message : `Content transport failed for ${env.t}`,
+        { type: env.t, dst: env.dst },
+      );
+    }
   }
 
   return {

@@ -79,8 +79,12 @@ The active track is now `.copilot/wxt-native-adoption-plan.md`:
    asset paths; package staging expands wildcard WAR assets; and the live
    browser launcher reads popup state through the popup debug hook instead of
    mirrored `popup/ui.js`.
-7. **C6 is next**: adopt the `wxt/browser` polyfill behind a repo seam while
-   preserving Chrome-only API exceptions explicitly.
+7. **C6 is in progress**: the first shared-adapter batch is complete. The repo
+   now has `common/browser.ts`, shared async messaging and bus transports route
+   through promise-based browser APIs, touched type positions use `Browser.*`,
+   and a browser-polyfill boundary test records the remaining raw-`chrome`
+   runtime debt for later C6 batches. The next C6 batch is the remaining
+   background/content/popup/runtime modules.
 8. The prior event-bus program remains complete through Track 3 in
    `.copilot/event-bus-architecture-plan.md`; Part C preserves that higher-level
    architecture and replaces only the lower-level packaging/runtime seams.

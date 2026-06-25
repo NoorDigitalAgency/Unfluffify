@@ -58,6 +58,14 @@
 - WXT emits content-script bundles under `content-scripts/<name>.js`. After C5,
   Unfluffify's source manifest and manual injection paths use those native WXT
   output paths directly instead of materializing root alias files.
+- C6 browser polyfill adoption starts from `common/browser.ts`, which is now the
+  runtime seam for browser-compatible extension APIs. Shared one-shot messaging,
+  bus transports, and touched type positions should import `browser` /
+  `Browser.*` from that seam instead of reaching for raw `chrome.*` directly.
+- The browser seam must prefer a promise-capable browser surface (`globalThis.browser`
+  or the WXT/browser export) ahead of any raw `globalThis.chrome` fallback. The
+  C6 shared adapters (`common/async-messaging.ts`, `common/bus/transport/*`)
+  now assume promise-based `sendMessage` semantics.
 - The WXT build must also copy stable manifest-named public assets into the
   output root: `assets/materialdesignicons-webfont.woff2`,
   `cursors/exclude.svg`, `cursors/include.svg`, and the default icon set under
@@ -173,6 +181,11 @@
   copied through WXT hooks, popup live-debug state comes from the popup debug
   hook instead of mirrored `popup/ui.js`, and the only remaining manifest
   override is restoring the source `action` block to omit `default_popup`.
+- C6 is in progress. The first browser-polyfill batch is complete: the repo now
+  has a dedicated browser seam, shared async messaging and bus transports use
+  promise-based browser APIs through that seam, touched type positions use
+  `Browser.*`, and `tests/browser-polyfill-boundary.test.js` tracks the
+  remaining raw-`chrome` migration debt for later C6 batches.
 
 ## Popup Preview Exit Contract
 

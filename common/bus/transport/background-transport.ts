@@ -1,6 +1,7 @@
 import { BUS_ERROR_CODES, BusError } from "../bus-errors.js";
 import { BUS_KINDS, isBusEnvelope, makeReplyEnvelope, type BusEnvelope, type BusRequestEnvelope } from "../envelope.js";
 import { REALMS } from "../realms.js";
+import { browser, type Browser } from "../../browser.js";
 import { BUS_PORT_PREFIX, type InboundTransportHandler, type Transport } from "./transport-types.js";
 
 function normalizeTabId(value: unknown): number | null {
@@ -36,20 +37,20 @@ function toBusError(error: unknown, fallbackCode: string, fallbackMessage: strin
 }
 
 export type BackgroundTransport = Transport & {
-  inbound(env: BusEnvelope, sender?: chrome.runtime.MessageSender): Promise<BusEnvelope | void>;
-  registerPopupPort(tabId: number, port: chrome.runtime.Port): void;
+  inbound(env: BusEnvelope, sender?: Browser.runtime.MessageSender): Promise<BusEnvelope | void>;
+  registerPopupPort(tabId: number, port: Browser.runtime.Port): void;
 };
 
 export function createBackgroundTransport(): BackgroundTransport {
   let inboundHandler: InboundTransportHandler | null = null;
-  const popupPortsByTabId = new Map<number, Set<chrome.runtime.Port>>();
+  const popupPortsByTabId = new Map<number, Set<Browser.runtime.Port>>();
   const pendingPopupReplies = new Map<string, {
-    port: chrome.runtime.Port;
+    port: Browser.runtime.Port;
     resolve: (value: BusEnvelope | void) => void;
     reject: (reason: unknown) => void;
   }>();
 
-  function applySenderContext(env: BusEnvelope, sender?: chrome.runtime.MessageSender): BusEnvelope {
+  function applySenderContext(env: BusEnvelope, sender?: Browser.runtime.MessageSender): BusEnvelope {
     const senderTabId = normalizeTabId(sender?.tab?.id);
     const senderFrameId = normalizeFrameId(sender?.frameId);
     const shouldPatchTab = env.tab == null && senderTabId != null;
@@ -64,7 +65,7 @@ export function createBackgroundTransport(): BackgroundTransport {
     };
   }
 
-  function handlePopupMessage(port: chrome.runtime.Port, message: unknown): void {
+  function handlePopupMessage(port: Browser.runtime.Port, message: unknown): void {
     if (!isBusEnvelope(message)) {
       return;
     }
@@ -127,7 +128,7 @@ export function createBackgroundTransport(): BackgroundTransport {
     });
   }
 
-  function sendToContent(env: BusEnvelope): Promise<BusEnvelope | void> {
+  async function sendToContent(env: BusEnvelope): Promise<BusEnvelope | void> {
     const tabId = normalizeTabId(env.tab);
     if (!tabId) {
       return Promise.reject(new BusError(
@@ -136,24 +137,19 @@ export function createBackgroundTransport(): BackgroundTransport {
         { type: env.t },
       ));
     }
-    return new Promise<BusEnvelope | void>((resolve, reject) => {
-      chrome.tabs.sendMessage(
+    try {
+      return await browser.tabs.sendMessage(
         tabId,
         env,
         normalizeFrameId(env.frame) !== undefined ? { frameId: normalizeFrameId(env.frame) } : undefined,
-        (reply?: unknown) => {
-          if (chrome.runtime.lastError) {
-            reject(new BusError(
-              BUS_ERROR_CODES.TRANSPORT_FAILED,
-              chrome.runtime.lastError.message || `Content delivery failed for ${env.t}`,
-              { type: env.t, tabId },
-            ));
-            return;
-          }
-          resolve(reply as BusEnvelope | void);
-        },
+      ) as BusEnvelope | void;
+    } catch (error) {
+      throw new BusError(
+        BUS_ERROR_CODES.TRANSPORT_FAILED,
+        error instanceof Error && error.message ? error.message : `Content delivery failed for ${env.t}`,
+        { type: env.t, tabId },
       );
-    });
+    }
   }
 
   async function send(env: BusEnvelope): Promise<BusEnvelope | void> {
@@ -204,7 +200,7 @@ export function createBackgroundTransport(): BackgroundTransport {
       pendingPopupReplies.clear();
       popupPortsByTabId.clear();
     },
-    async inbound(env: BusEnvelope, sender?: chrome.runtime.MessageSender): Promise<BusEnvelope | void> {
+    async inbound(env: BusEnvelope, sender?: Browser.runtime.MessageSender): Promise<BusEnvelope | void> {
       const routedEnv = applySenderContext(env, sender);
       if (routedEnv.dst === REALMS.BACKGROUND) {
         if (!inboundHandler) {
@@ -225,14 +221,14 @@ export function createBackgroundTransport(): BackgroundTransport {
       }
       return await send(routedEnv);
     },
-    registerPopupPort(tabId: number, port: chrome.runtime.Port): void {
+    registerPopupPort(tabId: number, port: Browser.runtime.Port): void {
       if (!port.name.startsWith(BUS_PORT_PREFIX)) {
         return;
       }
       if (!popupPortsByTabId.has(tabId)) {
         popupPortsByTabId.set(tabId, new Set());
       }
-      const ports = popupPortsByTabId.get(tabId) as Set<chrome.runtime.Port>;
+      const ports = popupPortsByTabId.get(tabId) as Set<Browser.runtime.Port>;
       ports.add(port);
       port.onMessage.addListener((message) => handlePopupMessage(port, message));
       port.onDisconnect.addListener(() => {

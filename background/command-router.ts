@@ -5,6 +5,7 @@ import {
   isReplyEnvelope,
   isRequestEnvelope
 } from "../common/message-protocol.js";
+import type { Browser } from "../common/browser.js";
 
 type RegistrationOptions = {
   allowedSources: Set<string> | null;
@@ -13,7 +14,7 @@ type RegistrationOptions = {
 };
 
 type CommandMessage = Record<string, unknown>;
-type CommandSender = chrome.runtime.MessageSender;
+type CommandSender = Browser.runtime.MessageSender;
 type CommandHandler = (context: CommandContext, payload: Record<string, unknown>) => unknown;
 type CommandContext = ReturnType<typeof createCommandContext>;
 

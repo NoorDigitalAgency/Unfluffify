@@ -4,6 +4,7 @@ import {
   createRequestEnvelope,
   isReplyEnvelope
 } from "./message-protocol.js";
+import { browser } from "./browser.js";
 
 type MessageLike = {
   id?: string;
@@ -62,13 +63,6 @@ function getErrorMessage(value: unknown): string {
     return value.message;
   }
   return "";
-}
-
-function getRuntimeLastError(): { message?: string } | null {
-  if (!globalThis.chrome || !chrome.runtime) {
-    return null;
-  }
-  return chrome.runtime.lastError || null;
 }
 
 function normalizeRequest(message: unknown, options: RequestOptions = {}): RequestEnvelopeLike {
@@ -224,10 +218,7 @@ export class MessageRequestError extends Error {
 }
 
 export function requestWithChromeCallback(
-  startSend: (
-    envelope: RequestEnvelopeLike,
-    callback: (response: unknown) => void
-  ) => void | Promise<unknown>,
+  startSend: (envelope: RequestEnvelopeLike) => Promise<unknown>,
   message: unknown,
   options: RequestOptions = {}
 ): Promise<unknown> {
@@ -243,63 +234,10 @@ export function requestWithChromeCallback(
     timeoutMs
   };
 
-  const sendPromise = new Promise<unknown>((resolve, reject) => {
-    let settled = false;
-
-    function settleReject(error: unknown): void {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      reject(error);
-    }
-
-    function settleResolve(response: unknown): void {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      resolve(response);
-    }
-
-    try {
-      const maybePromise = startSend(envelope, (response) => {
-        const lastError = getRuntimeLastError();
-        if (lastError) {
-          settleReject(toMessageRequestError(getErrorMessage(lastError) || "Chrome runtime error", {
-            code: MESSAGE_ERROR_CODES.RUNTIME_ERROR,
-            tabId: context.tabId,
-            frameId: context.frameId,
-            timeoutMs,
-            details: {
-              requestId: envelope.id,
-              lastError: getErrorMessage(lastError)
-            }
-          }, envelope));
-          return;
-        }
-        settleResolve(response);
-      });
-
-      if (maybePromise && typeof maybePromise.then === "function") {
-        maybePromise
-          .then((response) => {
-            settleResolve(response);
-          })
-          .catch((error) => {
-            settleReject(toMessageRequestError(error, {
-              code: MESSAGE_ERROR_CODES.RUNTIME_ERROR,
-              tabId: context.tabId,
-              frameId: context.frameId,
-              timeoutMs,
-              details: {
-                requestId: envelope.id
-              }
-            }, envelope));
-          });
-      }
-    } catch (error) {
-      settleReject(toMessageRequestError(error, {
+  const sendPromise = Promise.resolve()
+    .then(() => startSend(envelope))
+    .catch((error) => {
+      throw toMessageRequestError(error, {
         code: MESSAGE_ERROR_CODES.RUNTIME_ERROR,
         tabId: context.tabId,
         frameId: context.frameId,
@@ -307,9 +245,8 @@ export function requestWithChromeCallback(
         details: {
           requestId: envelope.id
         }
-      }, envelope));
-    }
-  });
+      }, envelope);
+    });
 
   const timeoutHandle = createTimeoutPromise(timeoutMs, envelope, context);
   const racedPromise = timeoutHandle
@@ -326,8 +263,8 @@ export function requestWithChromeCallback(
 }
 
 export function requestRuntime(message: unknown, options: RequestOptions = {}): Promise<unknown> {
-  return requestWithChromeCallback((envelope, callback) => {
-    return chrome.runtime.sendMessage(envelope, callback);
+  return requestWithChromeCallback((envelope) => {
+    return browser.runtime.sendMessage(envelope);
   }, message, {
     ...options,
     target: options.target || "background"
@@ -347,8 +284,8 @@ export function requestTab(tabId: number | null, message: unknown, options: Requ
     }));
   }
   const frameId = Number.isFinite(options.frameId) ? Math.trunc(options.frameId as number) : 0;
-  return requestWithChromeCallback((envelope, callback) => {
-    return chrome.tabs.sendMessage(normalizedTabId, envelope, { frameId }, callback);
+  return requestWithChromeCallback((envelope) => {
+    return browser.tabs.sendMessage(normalizedTabId, envelope, { frameId });
   }, message, {
     ...options,
     tabId: normalizedTabId,

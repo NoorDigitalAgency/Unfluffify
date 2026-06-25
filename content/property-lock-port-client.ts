@@ -1,3 +1,5 @@
+import type { Browser } from "../common/browser.js";
+
 type PropertyLockTimeoutId = ReturnType<WindowOrWorkerGlobalScope["setTimeout"]>;
 
 type PropertyLockTimerHost = {
@@ -14,13 +16,13 @@ type PropertyLockPortClientDeps = {
   getConnectedSiteId?: () => number | null;
   PROPERTY_LOCK_CONTENT_DISCONNECT: string;
   getClientId: () => string;
-  connectRuntimePort: (options: { name: string }) => chrome.runtime.Port;
+  connectRuntimePort: (options: { name: string }) => Browser.runtime.Port;
   PROPERTY_LOCK_PORT_NAME: string;
   consumeRuntimeLastErrorMessage: () => string;
 };
 
 export function createPropertyLockPortClient(deps: PropertyLockPortClientDeps) {
-  let port: chrome.runtime.Port | null = null;
+  let port: Browser.runtime.Port | null = null;
   let reconnectTimer: PropertyLockTimeoutId | 0 = 0;
 
   const getTimerHost = () => {
@@ -98,11 +100,11 @@ export function createPropertyLockPortClient(deps: PropertyLockPortClientDeps) {
     forceSiteIdRefresh = false
   }: {
     connectPayload?: unknown;
-    onMessage?: ((message: unknown, port: chrome.runtime.Port) => void) | null;
+    onMessage?: ((message: unknown, port: Browser.runtime.Port) => void) | null;
     onDisconnect?: ((reason: string, options: { forceSiteIdRefresh: boolean }) => void) | null;
     forceSiteIdRefresh?: boolean;
-  } = {}): chrome.runtime.Port => {
-    let nextPort: chrome.runtime.Port | null = null;
+  } = {}): Browser.runtime.Port => {
+    let nextPort: Browser.runtime.Port | null = null;
     try {
       nextPort = deps.connectRuntimePort({ name: deps.PROPERTY_LOCK_PORT_NAME });
       port = nextPort;

@@ -4,6 +4,7 @@ import type {
   PageSaveReconciliation,
   PropertyLockState
 } from "./config.ts";
+import type { Browser } from "../common/browser.js";
 
 export type PopupTone = "muted" | "success" | "warning" | "danger";
 
@@ -55,7 +56,7 @@ export interface PopupState {
   currentView: string;
   currentTheme: string;
   currentThemeMode: string;
-  currentTab: chrome.tabs.Tab | null;
+  currentTab: Browser.tabs.Tab | null;
   currentBaseUrl: string;
   currentSiteId: string;
   currentConfig: Config | null;

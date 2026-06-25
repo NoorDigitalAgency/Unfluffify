@@ -5,6 +5,7 @@ import { PopupText, ViewText, formatScalePercent } from "../common/text.js";
 import * as uiModule from "./ui.js";
 import * as utils from "../common/utilities.js";
 import { getGlobalAiSettings } from "../common/settings-store.js";
+import type { Browser } from "../common/browser.js";
 
 const { state } = stateModule;
 
@@ -12,10 +13,10 @@ export async function ensureActiveTab(options: {
   requireId?: boolean;
   requireUrl?: boolean;
   toastOnMissing?: string;
-} = {}): Promise<chrome.tabs.Tab | null> {
+} = {}): Promise<Browser.tabs.Tab | null> {
   const { requireId = false, requireUrl = false, toastOnMissing = "" } = options;
   await messages.loadActiveTab();
-  const tab = state.currentTab as chrome.tabs.Tab | null;
+  const tab = state.currentTab as Browser.tabs.Tab | null;
   if (!tab || (requireId && !tab.id) || (requireUrl && !tab.url)) {
     if (toastOnMissing) {
       uiModule.showToast(toastOnMissing);
@@ -34,7 +35,7 @@ export function ensureBaseUrl(message = ViewText.noMappedBaseUrlOrSiteId): boole
 }
 
 export async function injectContentScriptIfNeeded() {
-  const currentTab = state.currentTab as chrome.tabs.Tab | null;
+  const currentTab = state.currentTab as Browser.tabs.Tab | null;
   if (!currentTab || !currentTab.id) {
     return { ok: false, error: PopupText.helper.injectNoActiveTab };
   }
@@ -56,7 +57,7 @@ export async function updateDeviceEmulation({
   scale: number;
   recalculateScale?: boolean;
 }): Promise<{ enabled: boolean; mode: string; scale: number } | null> {
-  const currentTab = state.currentTab as chrome.tabs.Tab | null;
+  const currentTab = state.currentTab as Browser.tabs.Tab | null;
   if (!currentTab || !currentTab.id) {
     return null;
   }

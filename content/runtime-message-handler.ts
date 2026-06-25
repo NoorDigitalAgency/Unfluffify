@@ -1,4 +1,5 @@
 import type { RuntimeMessage, RuntimeMessageReply } from "../types/messaging.ts";
+import type { Browser } from "../common/browser.js";
 
 type RuntimeResponse = RuntimeMessageReply | Record<string, unknown>;
 type RuntimePromiseResponse = Promise<RuntimeResponse>;
@@ -92,7 +93,7 @@ interface RuntimeMessageHandlerDeps {
 
 export function handleRuntimeMessage(
   message: RuntimeMessage,
-  _sender: chrome.runtime.MessageSender,
+  _sender: Browser.runtime.MessageSender,
   sendResponse: (response?: RuntimeResponse | null) => void,
   deps: RuntimeMessageHandlerDeps
 ) {

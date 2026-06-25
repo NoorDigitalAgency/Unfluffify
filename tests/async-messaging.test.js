@@ -9,12 +9,19 @@ import {
 } from "../common/async-messaging.js";
 import { MESSAGE_ERROR_CODES } from "../common/message-protocol.js";
 
-function withChrome(value, callback) {
+function withBrowser(value, callback) {
+  const originalBrowser = globalThis.browser;
   const originalChrome = globalThis.chrome;
-  globalThis.chrome = value;
+  delete globalThis.chrome;
+  globalThis.browser = value;
   return Promise.resolve()
     .then(callback)
     .finally(() => {
+      if (typeof originalBrowser === "undefined") {
+        delete globalThis.browser;
+      } else {
+        globalThis.browser = originalBrowser;
+      }
       if (typeof originalChrome === "undefined") {
         delete globalThis.chrome;
       } else {
@@ -24,11 +31,11 @@ function withChrome(value, callback) {
 }
 
 test("requestRuntime resolves the response result on success", async () => {
-  await withChrome({
+  await withBrowser({
     runtime: {
-      lastError: null,
-      sendMessage(message, callback) {
-        callback({ id: message.id, ok: true, result: { echoed: message.type } });
+      id: "test-runtime",
+      sendMessage(message) {
+        return Promise.resolve({ id: message.id, ok: true, result: { echoed: message.type } });
       }
     }
   }, async () => {
@@ -38,11 +45,11 @@ test("requestRuntime resolves the response result on success", async () => {
 });
 
 test("requestRuntime rejects when reply envelope has ok:false", async () => {
-  await withChrome({
+  await withBrowser({
     runtime: {
-      lastError: null,
-      sendMessage(_message, callback) {
-        callback({ id: "x", ok: false, code: "handler_failed", error: "nope" });
+      id: "test-runtime",
+      sendMessage() {
+        return Promise.resolve({ id: "x", ok: false, code: "handler_failed", error: "nope" });
       }
     }
   }, async () => {
@@ -58,14 +65,12 @@ test("requestRuntime rejects when reply envelope has ok:false", async () => {
   });
 });
 
-test("requestRuntime rejects on chrome.runtime.lastError", async () => {
-  await withChrome({
+test("requestRuntime rejects on browser runtime errors", async () => {
+  await withBrowser({
     runtime: {
-      lastError: null,
-      sendMessage(_message, callback) {
-        this.lastError = { message: "runtime exploded" };
-        callback(undefined);
-        this.lastError = null;
+      id: "test-runtime",
+      sendMessage() {
+        return Promise.reject(new Error("runtime exploded"));
       }
     }
   }, async () => {
@@ -100,11 +105,11 @@ test("requestRuntime rejects on timeout and clears timeout after completion", as
   };
 
   try {
-    await withChrome({
+    await withBrowser({
       runtime: {
-        lastError: null,
+        id: "test-runtime",
         sendMessage() {
-          // Intentionally never reply to trigger timeout.
+          return new Promise(() => {});
         }
       }
     }, async () => {
@@ -119,11 +124,11 @@ test("requestRuntime rejects on timeout and clears timeout after completion", as
       );
     });
 
-    await withChrome({
+    await withBrowser({
       runtime: {
-        lastError: null,
-        sendMessage(message, callback) {
-          callback({ id: message.id, ok: true, result: { ok: true } });
+        id: "test-runtime",
+        sendMessage(message) {
+          return Promise.resolve({ id: message.id, ok: true, result: { ok: true } });
         }
       }
     }, async () => {
@@ -138,11 +143,11 @@ test("requestRuntime rejects on timeout and clears timeout after completion", as
 });
 
 test("requestRuntime rejects when reply is missing for acknowledged request", async () => {
-  await withChrome({
+  await withBrowser({
     runtime: {
-      lastError: null,
-      sendMessage(_message, callback) {
-        callback(undefined);
+      id: "test-runtime",
+      sendMessage() {
+        return Promise.resolve(undefined);
       }
     }
   }, async () => {
@@ -158,11 +163,11 @@ test("requestRuntime rejects when reply is missing for acknowledged request", as
 });
 
 test("requestRuntime resolves fire-and-forget calls when expectsReply is false", async () => {
-  await withChrome({
+  await withBrowser({
     runtime: {
-      lastError: null,
-      sendMessage(_message, callback) {
-        callback(undefined);
+      id: "test-runtime",
+      sendMessage() {
+        return Promise.resolve(undefined);
       }
     }
   }, async () => {
@@ -175,15 +180,13 @@ test("requestRuntime resolves fire-and-forget calls when expectsReply is false",
 });
 
 test("requestTab/requestContent include tab and frame context in failures", async () => {
-  await withChrome({
+  await withBrowser({
     runtime: {
-      lastError: null
+      id: "test-runtime"
     },
     tabs: {
-      sendMessage(_tabId, _message, _options, callback) {
-        globalThis.chrome.runtime.lastError = { message: "tab unreachable" };
-        callback(undefined);
-        globalThis.chrome.runtime.lastError = null;
+      sendMessage() {
+        return Promise.reject(new Error("tab unreachable"));
       }
     }
   }, async () => {

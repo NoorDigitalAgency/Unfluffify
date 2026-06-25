@@ -2,9 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { BUS_ERROR_CODES } from "../common/bus/bus-errors.js";
 import { BUS_KINDS, makeEventEnvelope, makeRequestEnvelope } from "../common/bus/envelope.js";
+import { createContentTransport } from "../common/bus/transport/content-transport.js";
 import { PAGE_WORLD_COMMANDS } from "../common/page-world-protocol.js";
 import { REALMS } from "../common/bus/realms.js";
 import { createBackgroundTransport } from "../common/bus/transport/background-transport.js";
+import { createPopupTransport } from "../common/bus/transport/popup-transport.js";
 import { createPageRelayTransport } from "../common/bus/transport/page-relay-transport.js";
 import { buildBusPortName } from "../common/bus/transport/transport-types.js";
 import * as pageWorldRelay from "../content/page-world-relay.js";
@@ -86,6 +88,27 @@ function createPortEvent<T>() {
       }
     },
   };
+}
+
+function withBrowser(value: unknown, callback: () => Promise<void> | void) {
+  const originalBrowser = globalThis.browser;
+  const originalChrome = globalThis.chrome;
+  delete globalThis.chrome;
+  globalThis.browser = value;
+  return Promise.resolve()
+    .then(callback)
+    .finally(() => {
+      if (typeof originalBrowser === "undefined") {
+        delete globalThis.browser;
+      } else {
+        globalThis.browser = originalBrowser;
+      }
+      if (typeof originalChrome === "undefined") {
+        delete globalThis.chrome;
+      } else {
+        globalThis.chrome = originalChrome;
+      }
+    });
 }
 
 function createFakePort(name: string) {
@@ -172,6 +195,79 @@ describe("background transport", () => {
     expect(popupPort.postedMessages[0]).toMatchObject({
       tab: 9,
       frame: 4,
+    });
+  });
+
+  it("maps browser tab send failures into transport errors", async () => {
+    await withBrowser({
+      runtime: { id: "test-runtime" },
+      tabs: {
+        sendMessage() {
+          return Promise.reject(new Error("tab unreachable"));
+        },
+      },
+    }, async () => {
+      const transport = createBackgroundTransport();
+
+      await expect(transport.send(makeRequestEnvelope("diag.ping", { nonce: "n-1" }, {
+        src: REALMS.BACKGROUND,
+        dst: REALMS.CONTENT,
+        tab: 9,
+      }))).rejects.toMatchObject({
+        code: BUS_ERROR_CODES.TRANSPORT_FAILED,
+        message: "tab unreachable",
+      });
+    });
+  });
+});
+
+describe("content and popup transport", () => {
+  it("uses the browser runtime promise path for content delivery", async () => {
+    const sent: unknown[] = [];
+    await withBrowser({
+      runtime: {
+        id: "test-runtime",
+        sendMessage(message: unknown) {
+          sent.push(message);
+          return Promise.resolve({ ok: true });
+        },
+      },
+    }, async () => {
+      const transport = createContentTransport();
+      const reply = await transport.send(makeRequestEnvelope("diag.ping", { nonce: "n-1" }, {
+        src: REALMS.CONTENT,
+        dst: REALMS.BACKGROUND,
+        tab: 2,
+      }));
+
+      expect(sent).toHaveLength(1);
+      expect(reply).toMatchObject({ ok: true });
+    });
+  });
+
+  it("uses the browser runtime promise path for popup request delivery", async () => {
+    const sent: unknown[] = [];
+    await withBrowser({
+      runtime: {
+        id: "test-runtime",
+        connect() {
+          throw new Error("connect should not be used for request/reply");
+        },
+        sendMessage(message: unknown) {
+          sent.push(message);
+          return Promise.resolve({ ok: true });
+        },
+      },
+    }, async () => {
+      const transport = createPopupTransport(9);
+      const reply = await transport.send(makeRequestEnvelope("diag.ping", { nonce: "n-1" }, {
+        src: REALMS.POPUP,
+        dst: REALMS.BACKGROUND,
+        tab: 9,
+      }));
+
+      expect(sent).toHaveLength(1);
+      expect(reply).toMatchObject({ ok: true });
     });
   });
 });
