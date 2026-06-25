@@ -257,7 +257,8 @@ test("AI run recovery heartbeat and page lock are coordinated by background", ()
     new URL("../src/content/runtime-message-handler.ts", import.meta.url),
     "utf8"
   );
-  const heartbeatStart = popupSource.indexOf("async function refreshAiRunHeartbeat(options = {}) {");
+  const heartbeatMatch = popupSource.match(/async function refreshAiRunHeartbeat\(options(?:\s*:\s*[^)]+)? = \{\}\) \{/);
+  const heartbeatStart = heartbeatMatch ? heartbeatMatch.index ?? -1 : -1;
   const heartbeatEnd = popupSource.indexOf("async function stopAiRun", heartbeatStart);
   const computeLockStart = runtimeMessageHandlerSource.indexOf('if (message.type === "setAiComputeLock") {');
   const computeLockEnd = runtimeMessageHandlerSource.indexOf('if (message.type === "closeAiPreview") {', computeLockStart);

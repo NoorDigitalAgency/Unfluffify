@@ -325,7 +325,7 @@ test("Todo List marks the current candidate's parent subsection", () => {
 test("periodic page-type refresh stays quiet unless candidates change", () => {
   const source = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
   const refreshBody = source.match(
-    /function schedulePropertyPageTypesRefresh\(options = \{\}\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?(?:\n|\r\n)*function formatPageTypeCandidateLabel/
+    /function schedulePropertyPageTypesRefresh\(options(?:\s*:\s*[^)]+)? = \{\}\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?(?:\n|\r\n)*function formatPageTypeCandidateLabel/
   )[1];
 
   assert.match(refreshBody, /force: true,[\s\S]*?notifyOnChange: false/);
@@ -488,10 +488,10 @@ test("invalid remote page pruning delegates the remove transport to background",
   const backgroundSource = readFileSync(new URL("../src/background.ts", import.meta.url), "utf8");
   const remoteNetworkSource = readFileSync(new URL("../src/background/remote-network.ts", import.meta.url), "utf8");
   const removeBody = popupSource.match(
-    /async function removePageMarkingFromRemote\(options = \{\}\) \{([\s\S]*?)\n\}\n\nasync function pruneRemoteInvalidPageMarkings/
+    /async function removePageMarkingFromRemote\(options(?:\s*:\s*[^)]+)? = \{\}\) \{([\s\S]*?)\n\}\n\nasync function pruneRemoteInvalidPageMarkings/
   )[1];
   const pruneBody = popupSource.match(
-    /async function pruneRemoteInvalidPageMarkings\(options = \{\}\) \{([\s\S]*?)\n\}\n\nasync function pruneLocalInvalidPageMarkings/
+    /async function pruneRemoteInvalidPageMarkings\(options(?:\s*:\s*[^)]+)? = \{\}\) \{([\s\S]*?)\n\}\n\nasync function pruneLocalInvalidPageMarkings/
   )[1];
 
   assert.match(backgroundSource, /from "\.\/background\/remote-network\.js"/);
@@ -893,7 +893,7 @@ test("popup unload clears navigation inspection settle polls", () => {
 test("session pending is no longer tied to Lynx selector submission state", () => {
   const source = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
   const pendingBody = source.match(
-    /function hasSessionPendingChanges\(sourceConfig, localPageMarkings, backendSavedPageMarkings, options = \{\}\) \{([\s\S]*?)\n\}/
+    /function hasSessionPendingChanges\(\s*sourceConfig(?:\s*:\s*[^,)]+)?,\s*localPageMarkings(?:\s*:\s*[^,)]+)?,\s*backendSavedPageMarkings(?:\s*:\s*[^,)]+)?,\s*options(?:\s*:\s*[^)]+)? = \{\}\s*\) \{([\s\S]*?)\n\}/
   )[1];
 
   assert.match(pendingBody, /options\.currentDraftDirty/);
@@ -970,8 +970,8 @@ test("popup scopes optimistic enabled state to the current tab page and base URL
   const source = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
 
   assert.match(source, /lastPopupEnabledContext/);
-  assert.match(source, /function buildPopupEnabledContext\(tab = state\.currentTab, baseUrl = state\.currentBaseUrl\) \{/);
-  assert.match(source, /function isPopupEnabledContextCurrent\(context, currentContext = buildPopupEnabledContext\(\)\) \{/);
+  assert.match(source, /function buildPopupEnabledContext\(tab(?:\s*:\s*[^=]+)? = state\.currentTab, baseUrl(?:\s*:\s*[^=]+)? = state\.currentBaseUrl\)(?:\s*:\s*[^{]+)? \{/);
+  assert.match(source, /function isPopupEnabledContextCurrent\(\s*context(?:\s*:\s*[^)]+)?,\s*currentContext(?:\s*:\s*[^)]+)? = buildPopupEnabledContext\(\)\s*\) \{/);
   assert.match(source, /function clearLastPopupEnabled\(\) \{/);
   assert.match(source, /if \(tabChanged\) \{[\s\S]*?clearLastPopupEnabled\(\);/);
   assert.match(source, /if \(!tabChanged && pageUrl !== state\.lastPopupPageUrl\) \{[\s\S]*?clearLastPopupEnabled\(\);/);

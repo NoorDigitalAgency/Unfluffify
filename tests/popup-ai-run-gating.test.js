@@ -50,7 +50,7 @@ test("state tracks the AI-run markings fingerprint", () => {
 
 test("fingerprint only covers exclude and include xpaths", () => {
   const fnBody = popupSource.match(
-    /function fingerprintPageMarkingEntry\(entry\) \{([\s\S]*?)\n\}/
+    /function fingerprintPageMarkingEntry\(entry(?:\s*:\s*[^)]+)?\) \{([\s\S]*?)\n\}/
   )[1];
   assert.match(fnBody, /entry\.xpaths/);
   assert.match(fnBody, /entry\.includeXpaths/);
@@ -312,7 +312,7 @@ test("silent-mode reveal/freeze surfaces the inspecting curtain", () => {
 
 test("#21 fingerprint normalizes markings to xpath identity strings", () => {
   const fnBody = popupSource.match(
-    /function fingerprintPageMarkingEntry\(entry\) \{([\s\S]*?)\n\}/
+    /function fingerprintPageMarkingEntry\(entry(?:\s*:\s*[^)]+)?\) \{([\s\S]*?)\n\}/
   )[1];
   // Exclude markings are reduced to `${xpath}|${excluded?1:0}` so incidental
   // entry-object shape/order differences across the run+exit cycle do not
@@ -461,7 +461,7 @@ test("#23 the post-AI cleanup refresh stays quiet and preserves draft only for p
   // keeps State C instead of recomputing from preview-mode content state.
   assert.match(
     popupSource,
-    /async function stopAiRun\(options = \{\}\) \{[\s\S]*?const currentView = uiModule\.getViewState\(\);[\s\S]*?const previewShowing = Boolean\(currentView\.previewBlocked \|\| currentView\.previewActive\);[\s\S]*?const preserveCurrentDraftStatus = Boolean\(\s*previewShowing && currentView\.previewWillRestoreMarking\s*\);[\s\S]*?await refreshUi\(\{\s*useBusyOverlay: false,\s*preserveCurrentDraftStatus\s*\}\);/
+    /async function stopAiRun\(options(?:\s*:\s*[^)]+)? = \{\}\) \{[\s\S]*?const currentView = uiModule\.getViewState\(\);[\s\S]*?const previewShowing = Boolean\(currentView\.previewBlocked \|\| currentView\.previewActive\);[\s\S]*?const preserveCurrentDraftStatus = Boolean\(\s*previewShowing && currentView\.previewWillRestoreMarking\s*\);[\s\S]*?await refreshUi\(\{\s*useBusyOverlay: false,\s*preserveCurrentDraftStatus\s*\}\);/
   );
 });
 
