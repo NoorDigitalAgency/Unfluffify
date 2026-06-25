@@ -7,7 +7,8 @@ test("build-extension-package workflow uses the pnpm/WXT release pipeline", () =
 
   assert.match(workflow, /run: pnpm verify/);
   assert.match(workflow, /run: pnpm zip/);
-  assert.match(workflow, /node \.\/scripts\/run-deno\.mjs run -A \.\/scripts\/package-extension\.mjs/);
+  assert.match(workflow, /node \.\/scripts\/package-extension\.mjs/);
+  assert.match(workflow, /node \.\/scripts\/emit-package-metadata\.mjs/);
   assert.match(workflow, /LC_ALL=C comm -23/);
   assert.match(workflow, /required_files=\(/);
   assert.match(workflow, /"content-scripts\/page-motion-freeze-bridge\.js"/);

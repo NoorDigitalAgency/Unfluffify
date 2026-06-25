@@ -87,14 +87,14 @@ jobs:
           build_version="${timestamp/-/}"
 
           mkdir -p "$work_dir"
-          node ./scripts/run-deno.mjs run -A ./scripts/package-extension.mjs \
+          node ./scripts/package-extension.mjs \
             --timestamp "$timestamp" \
             --build-version "$build_version" \
             --stage-dir "$stage_dir" \
             --metadata-file "$metadata_path" \
             > /dev/null
 
-          node ./scripts/run-deno.mjs run --allow-read ./scripts/emit-package-metadata.ts "$metadata_path" >> "$GITHUB_OUTPUT"
+          node ./scripts/emit-package-metadata.mjs "$metadata_path" >> "$GITHUB_OUTPUT"
 
       - name: Compare staged package with synced WXT zip
         run: |

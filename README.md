@@ -36,7 +36,7 @@ For a local dry run of the WXT build + staging logic, run:
 
 ```bash
 pnpm build
-node ./scripts/run-deno.mjs run -A ./scripts/package-extension.mjs --stage-dir .tmp/extension-package
+node ./scripts/package-extension.mjs --stage-dir .tmp/extension-package
 ```
 
 ## Development Workflow

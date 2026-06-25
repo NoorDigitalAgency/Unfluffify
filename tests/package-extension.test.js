@@ -1,8 +1,9 @@
 import { assert, test } from "./test-kit.ts";
-import { denoExecutable, execFile, existsSync, fileURLToPath, mkdtemp, path, readFileSync, rm } from "./file-kit.ts";
+import { execFile, existsSync, fileURLToPath, mkdtemp, path, readFileSync, rm } from "./file-kit.ts";
 
 const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
 const PACKAGE_BUILD_TIMEOUT_MS = 45_000;
+const NODE_EXECUTABLE = process.execPath;
 
 async function runCommand(command, args, cwd) {
   const result = await execFile(command, args, { cwd });
@@ -23,10 +24,8 @@ test("package script stages runtime files and excludes repo-only files", async (
     await wxtBuildPromise;
 
     await runCommand(
-      denoExecutable(),
+      NODE_EXECUTABLE,
       [
-        "run",
-        "-A",
         "./scripts/package-extension.mjs",
         "--timestamp",
         "240101-1200",
@@ -88,10 +87,8 @@ test("package script adds a release-only build display version to the staged man
     await wxtBuildPromise;
 
     await runCommand(
-      denoExecutable(),
+      NODE_EXECUTABLE,
       [
-        "run",
-        "-A",
         "./scripts/package-extension.mjs",
         "--timestamp",
         "240101-1200",

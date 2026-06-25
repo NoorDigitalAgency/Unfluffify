@@ -1,6 +1,8 @@
-import { dirname, extname, fromFileUrl, join, normalize, resolve } from "@std/path";
+import { copyFile, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { dirname, extname, join, normalize, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const SCRIPT_DIR = dirname(fromFileUrl(import.meta.url));
+const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(SCRIPT_DIR, "..");
 const DEFAULT_SOURCE_ROOT = join(REPO_ROOT, ".output", "chrome-mv3");
 let SOURCE_ROOT = REPO_ROOT;
@@ -135,8 +137,8 @@ function resolveAssetSpecifier(fromRelativePath, specifier) {
 
 async function isFile(filePath) {
   try {
-    const stats = await Deno.stat(filePath);
-    return stats.isFile;
+    const stats = await stat(filePath);
+    return stats.isFile();
   } catch {
     return false;
   }
@@ -169,8 +171,8 @@ async function expandManifestResource(resourcePath) {
   const matches = [];
 
   try {
-    for await (const entry of Deno.readDir(directoryPath)) {
-      if (!entry.isFile) {
+    for (const entry of await readdir(directoryPath, { withFileTypes: true })) {
+      if (!entry.isFile()) {
         continue;
       }
       if (prefix && !entry.name.startsWith(prefix)) {
@@ -282,7 +284,7 @@ async function collectDependencies(relativePath, collectorState) {
     return;
   }
 
-  const source = await Deno.readTextFile(absolutePath);
+  const source = await readFile(absolutePath, "utf8");
   let matches = [];
   if (JS_EXTENSIONS.has(extension)) {
     matches = collectJsAssetSpecifiers(source, normalizedPath);
@@ -362,15 +364,15 @@ function collectCssAssetSpecifiers(source, fromRelativePath) {
 }
 
 async function stageCollectedFiles(collectedFiles, stagingDirectory) {
-  await Deno.remove(stagingDirectory, { recursive: true }).catch(() => {});
-  await Deno.mkdir(stagingDirectory, { recursive: true });
+  await rm(stagingDirectory, { recursive: true, force: true });
+  await mkdir(stagingDirectory, { recursive: true });
 
   const sortedFiles = [...collectedFiles].sort((left, right) => left.localeCompare(right));
   for (const relativePath of sortedFiles) {
     const sourcePath = join(SOURCE_ROOT, relativePath);
     const destinationPath = join(stagingDirectory, relativePath);
-    await Deno.mkdir(dirname(destinationPath), { recursive: true });
-    await Deno.copyFile(sourcePath, destinationPath);
+    await mkdir(dirname(destinationPath), { recursive: true });
+    await copyFile(sourcePath, destinationPath);
   }
 
   return sortedFiles;
@@ -388,10 +390,10 @@ async function updateStagedManifestReleaseVersion(stagingDirectory, options = {}
   }
 
   const manifestPath = join(stagingDirectory, "manifest.json");
-  const manifest = JSON.parse(await Deno.readTextFile(manifestPath));
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
   const releaseDisplayVersion = `${originalVersion}.${buildVersion}`;
   manifest.version_name = releaseDisplayVersion;
-  await Deno.writeTextFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
   return releaseDisplayVersion;
 }
 
@@ -400,19 +402,19 @@ async function writeMetadataFile(metadataFilePath, metadata) {
     return;
   }
 
-  await Deno.mkdir(dirname(metadataFilePath), { recursive: true });
-  await Deno.writeTextFile(metadataFilePath, `${JSON.stringify(metadata, null, 2)}\n`);
+  await mkdir(dirname(metadataFilePath), { recursive: true });
+  await writeFile(metadataFilePath, `${JSON.stringify(metadata, null, 2)}\n`);
 }
 
 async function main() {
-  const args = parseArgs(Deno.args);
+  const args = parseArgs(process.argv.slice(2));
   const sourceRoot = typeof args["source-root"] === "string" && args["source-root"].trim()
     ? resolve(REPO_ROOT, args["source-root"])
     : DEFAULT_SOURCE_ROOT;
   SOURCE_ROOT = sourceRoot;
 
   const manifestPath = join(SOURCE_ROOT, "manifest.json");
-  const manifest = JSON.parse(await Deno.readTextFile(manifestPath));
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
   const originalVersion = typeof manifest.version === "string" && manifest.version.trim()
     ? manifest.version.trim()
     : "0.0.0";
@@ -469,5 +471,5 @@ async function main() {
 
 main().catch((error) => {
   console.error(error instanceof Error ? error.message : String(error));
-  Deno.exit(1);
+  process.exit(1);
 });
