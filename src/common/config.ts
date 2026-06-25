@@ -32,8 +32,8 @@ const SELECTOR_SET_UPDATED_AT_FIELD = "selectorsUpdatedAt";
 const SUBMITTED_SELECTORS_FINGERPRINT_FIELD = "submittedSelectorsFingerprint";
 const PAGE_SAVE_RECONCILIATIONS_KEY = "pageSaveReconciliations";
 const BACKEND_SAVED_PAGE_MARKINGS_KEY = "backendSavedPageMarkings";
-const configWriteQueueByBaseUrl = new Map();
-let configPersistenceQueue = Promise.resolve();
+const configWriteQueueByBaseUrl = new Map<string, Promise<void>>();
+let configPersistenceQueue: Promise<void> = Promise.resolve();
 export const PAGE_SAVE_RECONCILIATION_STATUS_PENDING = "pending";
 export const NON_BLOCKING_PAGE_SAVE_RECONCILIATION_REASONS = new Set([
   "",
@@ -47,8 +47,122 @@ export const NON_BLOCKING_PAGE_SAVE_RECONCILIATION_REASONS = new Set([
   "load_failed"
 ]);
 
-// @ts-expect-error
-export function buildPageSaveReconciliationKey(baseUrl, pageUrl) {
+type UnknownRecord = Record<string, unknown>;
+type RenderMode = string;
+type SelectorTimestampFieldName = typeof SELECTOR_SET_UPDATED_AT_FIELD;
+type SiteId = ReturnType<typeof normalizeSiteIdValue>;
+
+interface PageSaveReconciliation {
+  status: typeof PAGE_SAVE_RECONCILIATION_STATUS_PENDING;
+  baseUrl: string;
+  pageUrl: string;
+  reason: string;
+  updatedAt: string;
+}
+
+interface XpathItem {
+  xpath: string;
+  excluded: boolean;
+  explicit?: boolean;
+}
+
+interface PageMarkingInput extends UnknownRecord {
+  timestamp?: unknown;
+  xpaths?: unknown;
+  includeXpaths?: unknown;
+  selectorSuppressedXpaths?: unknown;
+  submissionXpaths?: unknown;
+  silentWhitespaceExcludedXpaths?: unknown;
+  renderedHtml?: unknown;
+  rawHtml?: unknown;
+  title?: unknown;
+  pageType?: unknown;
+  consentXpaths?: unknown;
+  renderMode?: unknown;
+  url?: unknown;
+}
+
+interface NormalizedPageMarkingEntry extends UnknownRecord {
+  timestamp: string;
+  xpaths: XpathItem[];
+  includeXpaths: string[];
+  selectorSuppressedXpaths: string[];
+  submissionXpaths: XpathItem[];
+  silentWhitespaceExcludedXpaths: string[];
+  renderedHtml: string;
+  rawHtml: string;
+  title?: string;
+  pageType?: string;
+}
+
+type PageMarkingsRecord = Record<string, NormalizedPageMarkingEntry>;
+type BackendSavedPageMarkingSnapshotEntry = Omit<
+  NormalizedPageMarkingEntry,
+  "silentWhitespaceExcludedXpaths"
+>;
+
+interface AiSelectorSet extends UnknownRecord {
+  exclusionSelectors: string[];
+  inclusionSelectors: string[];
+}
+
+interface ConfigInput extends UnknownRecord {
+  domain?: unknown;
+  renderMode?: unknown;
+  renderModeUpdatedAt?: unknown;
+  siteId?: unknown;
+  pageMarkings?: unknown;
+  selectors?: unknown;
+  selectorsUpdatedAt?: unknown;
+  submittedSelectorsFingerprint?: unknown;
+  aiSelectorModifiers?: unknown;
+}
+
+interface NormalizedConfig extends UnknownRecord {
+  baseUrl: string;
+  domain: string;
+  siteId: SiteId;
+  renderMode: RenderMode;
+  renderModeUpdatedAt: string;
+  pageMarkings: Record<string, Record<string, unknown>>;
+  selectors: Record<string, unknown>;
+  selectorsUpdatedAt: string;
+  submittedSelectorsFingerprint: string;
+}
+
+interface NormalizeStringListResult {
+  values: string[];
+  changed: boolean;
+}
+
+interface NormalizeXpathItemsResult {
+  values: XpathItem[];
+  changed: boolean;
+}
+
+interface NormalizePageMarkingsResult {
+  normalized: PageMarkingsRecord;
+  changed: boolean;
+  removedUrls: string[];
+}
+
+interface NormalizeAiSelectorSetResult {
+  normalized: AiSelectorSet;
+  changed: boolean;
+}
+
+interface ConfigSyncPayloadOptions {
+  filterPageMarking?: (url: string, entry: NormalizedPageMarkingEntry) => boolean;
+}
+
+function isRecord(value: unknown): value is UnknownRecord {
+  return Boolean(value) && typeof value === "object";
+}
+
+export function buildPageSaveReconciliationKey(
+  baseUrl: unknown,
+  pageUrl: unknown
+): string {
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl) || baseUrl;
   const normalizedPageUrl = typeof pageUrl === "string" ? pageUrl.trim() : "";
   if (!normalizedBaseUrl || !normalizedPageUrl) {
@@ -57,9 +171,8 @@ export function buildPageSaveReconciliationKey(baseUrl, pageUrl) {
   return JSON.stringify([normalizedBaseUrl, normalizedPageUrl]);
 }
 
-// @ts-expect-error
-export function normalizePageSaveReconciliation(value) {
-  if (!value || typeof value !== "object") {
+export function normalizePageSaveReconciliation(value: unknown): PageSaveReconciliation | null {
+  if (!isRecord(value)) {
     return null;
   }
   const baseUrl = normalizeBaseUrl(value.baseUrl) || (typeof value.baseUrl === "string" ? value.baseUrl : "");
@@ -83,8 +196,7 @@ export function normalizePageSaveReconciliation(value) {
   };
 }
 
-// @ts-expect-error
-export function isPageSaveReconciliationPending(value) {
+export function isPageSaveReconciliationPending(value: unknown): boolean {
   const normalized = normalizePageSaveReconciliation(value);
   if (!normalized || normalized.status !== PAGE_SAVE_RECONCILIATION_STATUS_PENDING) {
     return false;
@@ -92,14 +204,16 @@ export function isPageSaveReconciliationPending(value) {
   return !NON_BLOCKING_PAGE_SAVE_RECONCILIATION_REASONS.has(normalized.reason);
 }
 
-async function getPageSaveReconciliations() {
+async function getPageSaveReconciliations(): Promise<Record<string, unknown>> {
   const result = await idbGet({ [PAGE_SAVE_RECONCILIATIONS_KEY]: {} });
   const raw = result[PAGE_SAVE_RECONCILIATIONS_KEY];
-  return raw && typeof raw === "object" ? raw : {};
+  return isRecord(raw) ? raw : {};
 }
 
-// @ts-expect-error
-export async function getPageSaveReconciliation(baseUrl, pageUrl) {
+export async function getPageSaveReconciliation(
+  baseUrl: string | null | undefined,
+  pageUrl: string | null | undefined
+): Promise<PageSaveReconciliation | null> {
   const key = buildPageSaveReconciliationKey(baseUrl, pageUrl);
   if (!key) {
     return null;
@@ -108,8 +222,11 @@ export async function getPageSaveReconciliation(baseUrl, pageUrl) {
   return normalizePageSaveReconciliation(reconciliations[key]);
 }
 
-// @ts-expect-error
-export async function setPageSaveReconciliation(baseUrl, pageUrl, value = {}) {
+export async function setPageSaveReconciliation(
+  baseUrl: string | null | undefined,
+  pageUrl: string | null | undefined,
+  value: Partial<PageSaveReconciliation> = {}
+): Promise<PageSaveReconciliation | null> {
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl) || baseUrl;
   const normalizedPageUrl = typeof pageUrl === "string" ? pageUrl.trim() : "";
   const key = buildPageSaveReconciliationKey(normalizedBaseUrl, normalizedPageUrl);
@@ -121,7 +238,6 @@ export async function setPageSaveReconciliation(baseUrl, pageUrl, value = {}) {
     status: PAGE_SAVE_RECONCILIATION_STATUS_PENDING,
     baseUrl: normalizedBaseUrl,
     pageUrl: normalizedPageUrl,
-// @ts-expect-error
     updatedAt: value && value.updatedAt ? value.updatedAt : createTimestampNow()
   });
   if (!nextValue) {
@@ -133,8 +249,10 @@ export async function setPageSaveReconciliation(baseUrl, pageUrl, value = {}) {
   return nextValue;
 }
 
-// @ts-expect-error
-export async function clearPageSaveReconciliation(baseUrl, pageUrl) {
+export async function clearPageSaveReconciliation(
+  baseUrl: string | null | undefined,
+  pageUrl: string | null | undefined
+): Promise<void> {
   const key = buildPageSaveReconciliationKey(baseUrl, pageUrl);
   if (!key) {
     return;
@@ -147,53 +265,46 @@ export async function clearPageSaveReconciliation(baseUrl, pageUrl) {
   await idbSet({ [PAGE_SAVE_RECONCILIATIONS_KEY]: reconciliations });
 }
 
-// @ts-expect-error
-export function createBackendSavedPageMarkingsSnapshot(pageMarkings) {
-  const normalized = normalizePageMarkings(pageMarkings).normalized;
-  const snapshot = {};
+export function createBackendSavedPageMarkingsSnapshot(
+  pageMarkings: unknown
+): Record<string, BackendSavedPageMarkingSnapshotEntry> {
+  const normalized = normalizePageMarkings(pageMarkings).normalized as Record<
+    string,
+    NormalizedPageMarkingEntry
+  >;
+  const snapshot: Record<string, BackendSavedPageMarkingSnapshotEntry> = {};
   Object.entries(normalized).forEach(([url, entry]) => {
-// @ts-expect-error
-    snapshot[url] = {
-// @ts-expect-error
+    const snapshotEntry: BackendSavedPageMarkingSnapshotEntry = {
       timestamp: normalizeEntryTimestamp(entry.timestamp),
-// @ts-expect-error
       xpaths: Array.isArray(entry.xpaths) ? entry.xpaths : [],
-// @ts-expect-error
       includeXpaths: Array.isArray(entry.includeXpaths) ? entry.includeXpaths : [],
-// @ts-expect-error
       selectorSuppressedXpaths: Array.isArray(entry.selectorSuppressedXpaths)
-// @ts-expect-error
         ? entry.selectorSuppressedXpaths
         : [],
-// @ts-expect-error
       submissionXpaths: Array.isArray(entry.submissionXpaths) ? entry.submissionXpaths : [],
-// @ts-expect-error
       renderedHtml: typeof entry.renderedHtml === "string" ? entry.renderedHtml : "",
-// @ts-expect-error
       rawHtml: typeof entry.rawHtml === "string" ? entry.rawHtml : ""
     };
-// @ts-expect-error
     if (entry.title) {
-// @ts-expect-error
-      snapshot[url].title = entry.title;
+      snapshotEntry.title = entry.title;
     }
-// @ts-expect-error
     if (entry.pageType) {
-// @ts-expect-error
-      snapshot[url].pageType = entry.pageType;
+      snapshotEntry.pageType = entry.pageType;
     }
+    snapshot[url] = snapshotEntry;
   });
   return snapshot;
 }
 
-async function getBackendSavedPageMarkingsStore() {
+async function getBackendSavedPageMarkingsStore(): Promise<Record<string, unknown>> {
   const result = await idbGet({ [BACKEND_SAVED_PAGE_MARKINGS_KEY]: {} });
   const store = result[BACKEND_SAVED_PAGE_MARKINGS_KEY];
-  return store && typeof store === "object" ? store : {};
+  return isRecord(store) ? store : {};
 }
 
-// @ts-expect-error
-export async function getBackendSavedPageMarkings(baseUrl) {
+export async function getBackendSavedPageMarkings(
+  baseUrl: string | null | undefined
+): Promise<Record<string, BackendSavedPageMarkingSnapshotEntry>> {
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl) || (typeof baseUrl === "string" ? baseUrl : "");
   if (!normalizedBaseUrl) {
     return {};
@@ -202,8 +313,10 @@ export async function getBackendSavedPageMarkings(baseUrl) {
   return createBackendSavedPageMarkingsSnapshot(store[normalizedBaseUrl]);
 }
 
-// @ts-expect-error
-export async function setBackendSavedPageMarkings(baseUrl, pageMarkings) {
+export async function setBackendSavedPageMarkings(
+  baseUrl: string | null | undefined,
+  pageMarkings: unknown
+): Promise<Record<string, BackendSavedPageMarkingSnapshotEntry>> {
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl) || (typeof baseUrl === "string" ? baseUrl : "");
   if (!normalizedBaseUrl) {
     return {};
@@ -215,8 +328,9 @@ export async function setBackendSavedPageMarkings(baseUrl, pageMarkings) {
   return snapshot;
 }
 
-// @ts-expect-error
-export async function clearBackendSavedPageMarkings(baseUrl) {
+export async function clearBackendSavedPageMarkings(
+  baseUrl: string | null | undefined
+): Promise<void> {
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl) || (typeof baseUrl === "string" ? baseUrl : "");
   if (!normalizedBaseUrl) {
     return;
@@ -234,8 +348,7 @@ export async function clearBackendSavedPageMarkings(baseUrl) {
  * @param {string} value - The render mode value to normalize
  * @returns {string} Either RENDER_MODE_STATIC or RENDER_MODE_RENDERED
  */
-// @ts-expect-error
-export function normalizeRenderMode(value) {
+export function normalizeRenderMode(value: unknown): RenderMode {
   if (typeof value !== "string") {
     return DEFAULT_RENDER_MODE;
   }
@@ -250,16 +363,14 @@ export function normalizeRenderMode(value) {
  * @param {Object} sourceConfig - The configuration object
  * @returns {string} The render mode from the config or DEFAULT_RENDER_MODE
  */
-// @ts-expect-error
-export function getConfigRenderMode(sourceConfig) {
-  if (!sourceConfig || typeof sourceConfig !== "object") {
+export function getConfigRenderMode(sourceConfig: ConfigInput | null | undefined): RenderMode {
+  if (!sourceConfig) {
     return DEFAULT_RENDER_MODE;
   }
   return normalizeRenderMode(sourceConfig.renderMode);
 }
 
-// @ts-expect-error
-function parseTimestampMillis(value) {
+function parseTimestampMillis(value: unknown): number {
   if (typeof value === "number") {
     return Number.isFinite(value) ? value : Number.NaN;
   }
@@ -283,8 +394,7 @@ function parseTimestampMillis(value) {
   return parsed;
 }
 
-// @ts-expect-error
-function toTimestampMillis(value) {
+function toTimestampMillis(value: unknown): number {
   const parsed = parseTimestampMillis(value);
   if (!Number.isFinite(parsed)) {
     return Number.NEGATIVE_INFINITY;
@@ -292,8 +402,7 @@ function toTimestampMillis(value) {
   return parsed;
 }
 
-// @ts-expect-error
-function toUtcTimestampString(value) {
+function toUtcTimestampString(value: string | number | Date): string {
   const date = value instanceof Date ? value : new Date(value);
   return `${date.toISOString().slice(0, 19)}Z`;
 }
@@ -312,8 +421,7 @@ export function createTimestampNow() {
  * @param {string|Date|number} value - The timestamp value to normalize
  * @returns {string} Normalized timestamp in UTC format (YYYY-MM-DDTHH:mm:ssZ)
  */
-// @ts-expect-error
-export function normalizeEntryTimestamp(value) {
+export function normalizeEntryTimestamp(value: unknown): string {
   const parsed = parseTimestampMillis(value);
   if (!Number.isFinite(parsed)) {
     return PAGE_TIMESTAMP_FALLBACK;
@@ -327,21 +435,16 @@ export function normalizeEntryTimestamp(value) {
  * @param {string|Date|number} localTimestamp - The local timestamp to compare
  * @returns {boolean} True if incomingTimestamp is newer than localTimestamp
  */
-// @ts-expect-error
-export function isIncomingTimestampNewer(incomingTimestamp, localTimestamp) {
+export function isIncomingTimestampNewer(incomingTimestamp: unknown, localTimestamp: unknown): boolean {
   return toTimestampMillis(incomingTimestamp) > toTimestampMillis(localTimestamp);
 }
 
 export function mergeRenderModeByTimestamp(
-// @ts-expect-error
-  existingMode,
-// @ts-expect-error
-  existingUpdatedAt,
-// @ts-expect-error
-  incomingMode,
-// @ts-expect-error
-  incomingUpdatedAt
-) {
+  existingMode: unknown,
+  existingUpdatedAt: unknown,
+  incomingMode: unknown,
+  incomingUpdatedAt: unknown
+): { renderMode: RenderMode; updatedAt: string } {
   const normalizedExistingMode = normalizeRenderMode(existingMode);
   const normalizedIncomingMode = normalizeRenderMode(incomingMode);
   const normalizedExistingUpdatedAt = normalizeEntryTimestamp(existingUpdatedAt);
@@ -371,9 +474,8 @@ export function mergeRenderModeByTimestamp(
   };
 }
 
-// @ts-expect-error
-function normalizeUniqueXpathList(list) {
-  const values = [];
+function normalizeUniqueXpathList(list: unknown): NormalizeStringListResult {
+  const values: string[] = [];
   const seen = new Set();
   let changed = false;
   for (const value of Array.isArray(list) ? list : []) {
@@ -399,8 +501,7 @@ function normalizeUniqueXpathList(list) {
   return { values, changed };
 }
 
-// @ts-expect-error
-function normalizeStoredPageTitle(value, fallbackUrl = "") {
+function normalizeStoredPageTitle(value: unknown, fallbackUrl = ""): string {
   if (typeof value !== "string") {
     return "";
   }
@@ -411,8 +512,7 @@ function normalizeStoredPageTitle(value, fallbackUrl = "") {
   return trimmed;
 }
 
-// @ts-expect-error
-function normalizePageTypeValue(value) {
+function normalizePageTypeValue(value: unknown): string {
   if (typeof value !== "string") {
     return "";
   }
@@ -425,40 +525,33 @@ function normalizePageTypeValue(value) {
     .toLowerCase();
 }
 
-// @ts-expect-error
-export function isSupportedPageTypeValue(value) {
+export function isSupportedPageTypeValue(value: unknown): boolean {
   const normalized = normalizePageTypeValue(value);
   return Boolean(normalized && SUPPORTED_PAGE_TYPE_KEYS.has(normalized));
 }
 
-// @ts-expect-error
-export function collectInvalidPageMarkingUrls(pageMarkings) {
-// @ts-expect-error
-  const invalidUrls = [];
-  if (!pageMarkings || typeof pageMarkings !== "object") {
-// @ts-expect-error
+export function collectInvalidPageMarkingUrls(pageMarkings: unknown): string[] {
+  const invalidUrls: string[] = [];
+  if (!isRecord(pageMarkings)) {
     return invalidUrls;
   }
   Object.entries(pageMarkings).forEach(([url, entry]) => {
-    if (!url || !entry || typeof entry !== "object") {
+    if (!url || !isRecord(entry)) {
       return;
     }
-// @ts-expect-error
     const pageType = normalizePageTypeValue(entry.pageType);
     if (!pageType || !SUPPORTED_PAGE_TYPE_KEYS.has(pageType)) {
       invalidUrls.push(url);
     }
   });
-// @ts-expect-error
   return invalidUrls;
 }
 
-// @ts-expect-error
-function normalizeXpathItems(rawXpaths) {
-  const parsed = [];
+function normalizeXpathItems(rawXpaths: unknown): NormalizeXpathItemsResult {
+  const parsed: XpathItem[] = [];
   let changed = false;
   for (const item of Array.isArray(rawXpaths) ? rawXpaths : []) {
-    if (item && typeof item.xpath === "string") {
+    if (isRecord(item) && typeof item.xpath === "string") {
       const xpath = item.xpath.trim();
       if (!xpath) {
         changed = true;
@@ -493,8 +586,7 @@ function normalizeXpathItems(rawXpaths) {
   return { values, changed };
 }
 
-// @ts-expect-error
-function extractExplicitIncludeXpaths(xpathItems) {
+function extractExplicitIncludeXpaths(xpathItems: XpathItem[] | unknown): string[] {
   return (Array.isArray(xpathItems) ? xpathItems : [])
     .filter((item) =>
       item &&
@@ -506,14 +598,12 @@ function extractExplicitIncludeXpaths(xpathItems) {
     .map((item) => item.xpath);
 }
 
-// @ts-expect-error
-function removeExplicitIncludeXpathItems(xpathItems) {
+function removeExplicitIncludeXpathItems(xpathItems: XpathItem[] | unknown): XpathItem[] {
   return (Array.isArray(xpathItems) ? xpathItems : [])
     .filter((item) => !(item && item.explicit === true && item.excluded === false));
 }
 
-// @ts-expect-error
-function appendUniqueXpath(values, xpath) {
+function appendUniqueXpath(values: string[], xpath: unknown): void {
   if (typeof xpath !== "string" || !xpath) {
     return;
   }
@@ -524,41 +614,41 @@ function appendUniqueXpath(values, xpath) {
   values.push(xpath);
 }
 
-// @ts-expect-error
-function buildConfigSyncXpathItems(entry) {
-// @ts-expect-error
-  const items = [];
-// @ts-expect-error
-  const upsertItem = (item) => {
+function buildConfigSyncXpathItems(
+  entry: Pick<PageMarkingInput, "xpaths" | "includeXpaths" | "selectorSuppressedXpaths"> | null | undefined
+): XpathItem[] {
+  const items: XpathItem[] = [];
+  const upsertItem = (item: Partial<XpathItem> | null | undefined) => {
     if (!item || typeof item.xpath !== "string" || !item.xpath) {
       return;
     }
-    const normalizedItem = {
+    const normalizedItem: XpathItem = {
       xpath: item.xpath,
       excluded: Boolean(item.excluded),
       ...(item.explicit === true ? { explicit: true } : {})
     };
-// @ts-expect-error
     const existingIndex = items.findIndex((existing) => existing.xpath === normalizedItem.xpath);
     if (existingIndex >= 0) {
-// @ts-expect-error
       items.splice(existingIndex, 1);
     }
     items.push(normalizedItem);
   };
 
-  for (const item of Array.isArray(entry && entry.xpaths) ? entry.xpaths : []) {
+  const xpathItems = entry && Array.isArray(entry.xpaths) ? entry.xpaths : [];
+  for (const item of xpathItems) {
     upsertItem(item);
   }
-  for (const xpath of Array.isArray(entry && entry.includeXpaths) ? entry.includeXpaths : []) {
+  const includeXpaths = entry && Array.isArray(entry.includeXpaths) ? entry.includeXpaths : [];
+  for (const xpath of includeXpaths) {
     upsertItem({ xpath, excluded: false, explicit: true });
   }
-  for (const xpath of Array.isArray(entry && entry.selectorSuppressedXpaths)
-    ? entry.selectorSuppressedXpaths
-    : []) {
+  const selectorSuppressedXpaths =
+    entry && Array.isArray(entry.selectorSuppressedXpaths)
+      ? entry.selectorSuppressedXpaths
+      : [];
+  for (const xpath of selectorSuppressedXpaths) {
     upsertItem({ xpath, excluded: false, explicit: true });
   }
-// @ts-expect-error
   return items;
 }
 
@@ -595,7 +685,7 @@ function normalizeSelectorList(list) {
   return { values, changed };
 }
 
-export function createEmptyAiSelectorSet() {
+export function createEmptyAiSelectorSet(): AiSelectorSet {
   return { exclusionSelectors: [], inclusionSelectors: [] };
 }
 
@@ -815,8 +905,7 @@ export function getNewestConfigSelectorSet(
   };
 }
 
-// @ts-expect-error
-export function createDefaultConfig(baseUrl) {
+export function createDefaultConfig(baseUrl: unknown): NormalizedConfig {
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl) || (typeof baseUrl === "string" ? baseUrl : "");
   let domain = "";
   try {
@@ -837,26 +926,26 @@ export function createDefaultConfig(baseUrl) {
   };
 }
 
-// @ts-expect-error
-export function normalizePageMarkings(pageMarkings) {
-  const normalized = {};
-// @ts-expect-error
-  const removedUrls = [];
+export function normalizePageMarkings(pageMarkings: unknown): {
+  normalized: Record<string, Record<string, unknown>>;
+  changed: boolean;
+  removedUrls: string[];
+} {
+  const normalized: PageMarkingsRecord = {};
+  const removedUrls: string[] = [];
   let changed = false;
-  if (!pageMarkings || typeof pageMarkings !== "object") {
-// @ts-expect-error
+  if (!isRecord(pageMarkings)) {
     return { normalized, changed, removedUrls };
   }
-  Object.entries(pageMarkings).forEach(([url, entry]) => {
-    if (!url || !entry || typeof entry !== "object") {
+  Object.entries(pageMarkings).forEach(([url, rawEntry]) => {
+    if (!url || !isRecord(rawEntry)) {
       changed = true;
       return;
     }
-// @ts-expect-error
+    const entry = rawEntry as PageMarkingInput;
     if (!Array.isArray(entry.xpaths) && entry.xpaths !== undefined) {
       changed = true;
     }
-// @ts-expect-error
     const rawXpaths = Array.isArray(entry.xpaths) ? entry.xpaths : [];
     const normalizedXpaths = normalizeXpathItems(rawXpaths);
     const explicitIncludeXpaths = extractExplicitIncludeXpaths(normalizedXpaths.values);
@@ -867,33 +956,24 @@ export function normalizePageMarkings(pageMarkings) {
     if (explicitIncludeXpaths.length > 0) {
       changed = true;
     }
-// @ts-expect-error
     const timestamp = normalizeEntryTimestamp(entry.timestamp);
-// @ts-expect-error
     if (entry.timestamp !== timestamp) {
       changed = true;
     }
-// @ts-expect-error
     const renderedHtml = typeof entry.renderedHtml === "string" ? entry.renderedHtml : "";
-// @ts-expect-error
     if (entry.renderedHtml !== undefined && typeof entry.renderedHtml !== "string") {
       changed = true;
     }
-// @ts-expect-error
     const rawHtml = typeof entry.rawHtml === "string" ? entry.rawHtml : "";
-// @ts-expect-error
     if (entry.rawHtml !== undefined && typeof entry.rawHtml !== "string") {
       changed = true;
     }
-// @ts-expect-error
     if (entry.consentXpaths !== undefined) {
       changed = true;
     }
-// @ts-expect-error
     if (!Array.isArray(entry.includeXpaths) && entry.includeXpaths !== undefined) {
       changed = true;
     }
-// @ts-expect-error
     const rawInclude = Array.isArray(entry.includeXpaths) ? [...entry.includeXpaths] : [];
     explicitIncludeXpaths.forEach((xpath) => appendUniqueXpath(rawInclude, xpath));
     const includeResult = normalizeUniqueXpathList(rawInclude);
@@ -901,13 +981,10 @@ export function normalizePageMarkings(pageMarkings) {
     if (includeResult.changed) {
       changed = true;
     }
-// @ts-expect-error
     if (!Array.isArray(entry.selectorSuppressedXpaths) && entry.selectorSuppressedXpaths !== undefined) {
       changed = true;
     }
-// @ts-expect-error
     const rawSelectorSuppressed = Array.isArray(entry.selectorSuppressedXpaths)
-// @ts-expect-error
       ? [...entry.selectorSuppressedXpaths]
       : [];
     explicitIncludeXpaths.forEach((xpath) => appendUniqueXpath(rawSelectorSuppressed, xpath));
@@ -916,13 +993,10 @@ export function normalizePageMarkings(pageMarkings) {
     if (selectorSuppressedResult.changed) {
       changed = true;
     }
-// @ts-expect-error
     if (!Array.isArray(entry.submissionXpaths) && entry.submissionXpaths !== undefined) {
       changed = true;
     }
-// @ts-expect-error
     const rawSubmission = Array.isArray(entry.submissionXpaths)
-// @ts-expect-error
       ? entry.submissionXpaths
       : [];
     const normalizedSubmission = normalizeXpathItems(rawSubmission);
@@ -930,13 +1004,10 @@ export function normalizePageMarkings(pageMarkings) {
     if (normalizedSubmission.changed) {
       changed = true;
     }
-// @ts-expect-error
     if (!Array.isArray(entry.silentWhitespaceExcludedXpaths) && entry.silentWhitespaceExcludedXpaths !== undefined) {
       changed = true;
     }
-// @ts-expect-error
     const rawSilentWhitespaceExcluded = Array.isArray(entry.silentWhitespaceExcludedXpaths)
-// @ts-expect-error
       ? [...entry.silentWhitespaceExcludedXpaths]
       : [];
     const silentWhitespaceExcludedResult = normalizeUniqueXpathList(rawSilentWhitespaceExcluded);
@@ -944,30 +1015,24 @@ export function normalizePageMarkings(pageMarkings) {
     if (silentWhitespaceExcludedResult.changed) {
       changed = true;
     }
-// @ts-expect-error
     const title = normalizeStoredPageTitle(entry.title, url);
-// @ts-expect-error
     const pageType = normalizePageTypeValue(entry.pageType);
     if (Object.prototype.hasOwnProperty.call(entry, "url")) {
       changed = true;
     }
     if (
-// @ts-expect-error
       entry.title !== undefined &&
-// @ts-expect-error
       title !== entry.title
     ) {
       changed = true;
     }
-// @ts-expect-error
     if (entry.pageType !== undefined && pageType !== entry.pageType) {
       changed = true;
     }
-// @ts-expect-error
     if (entry.renderMode !== undefined) {
       changed = true;
     }
-    const normalizedEntry = {
+    const normalizedEntry: NormalizedPageMarkingEntry = {
       timestamp,
       xpaths,
       includeXpaths,
@@ -978,17 +1043,13 @@ export function normalizePageMarkings(pageMarkings) {
       rawHtml
     };
     if (title) {
-// @ts-expect-error
       normalizedEntry.title = title;
     }
     if (pageType) {
-// @ts-expect-error
       normalizedEntry.pageType = pageType;
     }
-// @ts-expect-error
     normalized[url] = normalizedEntry;
   });
-// @ts-expect-error
   return { normalized, changed, removedUrls };
 }
 
@@ -1002,14 +1063,12 @@ export function normalizeAiSelectorSet(value) {
   changed = false;
 
   const exclusionResult = normalizeSelectorList(value.exclusionSelectors);
-// @ts-expect-error
   normalized.exclusionSelectors = exclusionResult.values;
   if (exclusionResult.changed) {
     changed = true;
   }
 
   const inclusionResult = normalizeSelectorList(value.inclusionSelectors);
-// @ts-expect-error
   normalized.inclusionSelectors = inclusionResult.values;
   if (inclusionResult.changed) {
     changed = true;
@@ -1048,7 +1107,6 @@ export function normalizeConfig(baseUrl, incoming) {
     changed = true;
   }
   const siteId = normalizeSiteIdValue(incoming.siteId);
-// @ts-expect-error
   normalized.siteId = siteId;
   if (incoming.siteId !== undefined && siteId !== incoming.siteId) {
     changed = true;
@@ -1110,7 +1168,6 @@ function cloneNormalizedPageEntry(entry, fallbackUrl = "") {
     [fallbackUrl || ""]: entry || {}
   }).normalized;
   const key = Object.keys(normalized)[0];
-// @ts-expect-error
   return key ? normalized[key] : {
     title: "",
     timestamp: PAGE_TIMESTAMP_FALLBACK,
@@ -1198,12 +1255,10 @@ export function createConfigSyncPayload(baseUrl, sourceConfig, options = {}) {
       xpaths: buildConfigSyncXpathItems(safeEntry),
       submissionXpaths: Array.isArray(safeEntry.submissionXpaths)
         ? safeEntry.submissionXpaths
-// @ts-expect-error
           .map((item) => ({
             xpath: item && typeof item.xpath === "string" ? item.xpath : "",
             excluded: Boolean(item && item.excluded)
           }))
-// @ts-expect-error
           .filter((item) => item.xpath)
         : []
     };
@@ -1252,16 +1307,13 @@ export function mergePageMarkingsByTimestamp(
     );
 
   Object.entries(incomingNormalized).forEach(([url, incomingEntry]) => {
-// @ts-expect-error
     const localEntry = merged[url];
     if (!localEntry) {
-// @ts-expect-error
       merged[url] = cloneNormalizedPageEntry(incomingEntry, url);
       replacedUrls.push(url);
       return;
     }
     const timestampsMatch =
-// @ts-expect-error
       normalizeEntryTimestamp(incomingEntry.timestamp) === normalizeEntryTimestamp(localEntry.timestamp);
     const incomingHasRicherSnapshot =
       timestampsMatch && hasSnapshotData(incomingEntry) && !hasSnapshotData(localEntry);
@@ -1271,14 +1323,12 @@ export function mergePageMarkingsByTimestamp(
       JSON.stringify(cloneNormalizedPageEntry(incomingEntry, url)) !==
         JSON.stringify(cloneNormalizedPageEntry(localEntry, url));
     if (
-// @ts-expect-error
       !isIncomingTimestampNewer(incomingEntry.timestamp, localEntry.timestamp) &&
       !incomingHasRicherSnapshot &&
       !incomingWinsTimestampTie
     ) {
       return;
     }
-// @ts-expect-error
     merged[url] = cloneNormalizedPageEntry(incomingEntry, url);
     replacedUrls.push(url);
     replacedExistingUrls.push(url);

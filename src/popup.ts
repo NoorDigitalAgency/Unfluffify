@@ -1789,7 +1789,6 @@ function getNormalizedPageMarkingSnapshotEntry(pageMarkings, pageUrl) {
   const snapshot = createNormalizedPageMarkingsSnapshot({
     [normalizedTargetUrl]: entry
   });
-// @ts-expect-error
   return snapshot[normalizedTargetUrl] || null;
 }
 
@@ -1803,7 +1802,6 @@ function hasCurrentPageMarkingChanges(localPageMarkings, backendSavedPageMarking
 function getLatestPageMarkingTimestamp(pageMarkings) {
   let latestTimestamp = config.PAGE_TIMESTAMP_FALLBACK;
   Object.values(createNormalizedPageMarkingsSnapshot(pageMarkings)).forEach((entry) => {
-// @ts-expect-error
     const timestamp = config.normalizeEntryTimestamp(entry && entry.timestamp);
     if (config.isIncomingTimestampNewer(timestamp, latestTimestamp)) {
       latestTimestamp = timestamp;
@@ -2447,7 +2445,6 @@ async function pruneLocalInvalidPageMarkings(options = {}) {
   Object.keys(nextConfig.pageMarkings || {}).forEach((url) => {
     const normalizedUrl = normalizeCandidatePageUrl(url);
     if (exactInvalidUrls.has(url) || (normalizedUrl && normalizedInvalidUrls.has(normalizedUrl))) {
-// @ts-expect-error
       delete nextConfig.pageMarkings[url];
       removedUrls.push(url);
     }
@@ -2502,11 +2499,9 @@ async function repairLocalPageMarkingPageTypes(options = {}) {
     }
     const normalizedUrl = normalizeCandidatePageUrl(url);
     const repairedPageType = normalizedUrl ? repairsByUrl.get(normalizedUrl) : "";
-// @ts-expect-error
     if (!repairedPageType || entry.pageType === repairedPageType) {
       return;
     }
-// @ts-expect-error
     entry.pageType = repairedPageType;
     repairedUrls.push(url);
   });

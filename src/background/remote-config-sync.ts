@@ -48,7 +48,7 @@ type NormalizedConfigResult = {
 const replaceOwnerByBaseUrl = new Map<string, number>();
 
 function normalizeConfigResult(baseUrl: string, incoming: unknown): NormalizedConfigResult {
-  return configStore.normalizeConfig(baseUrl, incoming) as NormalizedConfigResult;
+  return configStore.normalizeConfig(baseUrl, incoming) as unknown as NormalizedConfigResult;
 }
 
 export function collectStoredPageMarkingItems(pageMarkings: unknown, baseUrl = "") {
@@ -372,7 +372,7 @@ export async function mergeServerConfigIntoLocalSnapshot(options = {}) {
     confirmedPageMarkings,
     { preferIncomingOnTimestampTie: true }
   );
-  let mergedPageMarkings = confirmedPageMarkingsMergeResult.pageMarkings;
+  let mergedPageMarkings = confirmedPageMarkingsMergeResult.pageMarkings as unknown as PageMarkings;
   if (preferConfirmedPageMarkings) {
     mergedPageMarkings = { ...mergedPageMarkings };
     Object.entries(confirmedPageMarkings).forEach(([url, entry]) => {

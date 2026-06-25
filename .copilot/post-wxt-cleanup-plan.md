@@ -24,7 +24,7 @@ WXT does not provide the required functionality.
   shared types in `src/types`, and stable public assets in `src/public`.
 - The repo has no runtime `@ts-ignore` and no runtime `@ts-nocheck`, guarded by
   `tests/no-ts-ignore-guard.test.js` and `tests/typing-ratchet.test.js`.
-- Runtime still has 2,308 tracked `@ts-expect-error` suppressions across:
+- Runtime still has 2,204 tracked `@ts-expect-error` suppressions across:
   `src/content/core.ts`, `src/content-main.ts`, `src/popup.ts`,
   `src/common/config.ts`, `src/popup/ui.ts`, and the eval
   bridge pair `src/common/page-motion-freeze-bridge.ts` /
