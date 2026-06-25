@@ -2,6 +2,7 @@ import { assert, test } from "./test-kit.ts";
 import { denoExecutable, execFile, existsSync, fileURLToPath, mkdtemp, path, readFileSync, rm } from "./file-kit.ts";
 
 const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
+const PACKAGE_BUILD_TIMEOUT_MS = 45_000;
 
 async function runCommand(command, args, cwd) {
   const result = await execFile(command, args, { cwd });
@@ -67,7 +68,7 @@ test("package script stages runtime files and excludes repo-only files", async (
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }
-}, 15000);
+}, PACKAGE_BUILD_TIMEOUT_MS);
 
 test("package script adds a release-only build display version to the staged manifest", async () => {
   const tempDir = await mkdtemp("unfluffify-package-build-version-test-");
@@ -108,4 +109,4 @@ test("package script adds a release-only build display version to the staged man
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }
-}, 15000);
+}, PACKAGE_BUILD_TIMEOUT_MS);

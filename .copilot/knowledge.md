@@ -67,6 +67,22 @@
   prepare/build, which drags browser code into the WXT/Node typecheck and
   reintroduces Node-vs-DOM timer conflicts. Runtime-load mirrored built JS from
   the output tree instead.
+- Once a WXT entrypoint starts importing a real browser runtime graph directly
+  (for the native-bundling cutover), keep the WXT typecheck split between
+  **browser entrypoints** and **Node config files**. In this repo that means
+  `tsconfig.wxt.json` should stay browser-typed (`chrome`, DOM/WebWorker libs)
+  for `entrypoints/**/*.ts`, while `wxt.config.ts` / `vitest.config.ts` live in
+  a separate Node-typed project (`tsconfig.wxt-node.json`). Mixing Node globals
+  into the entrypoint graph reintroduces timer-signature conflicts in browser
+  code such as `common/page-motion-freeze-control.ts`.
+- `common/page-motion-freeze-control.ts` and
+  `common/page-motion-freeze-bridge.ts` are a locked pair: the control function
+  body from `const STATE_KEY = "__unfluffifyPageMotionFreezeState";` through the
+  final `return buildResult();` must stay byte-identical modulo stripped
+  `@ts-` comments, and the bridge source is `eval`'d as plain JavaScript in
+  tests. Any typing needed for the module copy must live **before** the
+  `STATE_KEY` marker or outside that shared body, otherwise parity/eval tests
+  fail.
 - Release packaging now stages from the synced WXT output at
   `.output/chrome-mv3`. `pnpm verify` runs the pnpm lint/check/test pipeline,
   rebuilds via `pnpm build`, and then runs the generated-manifest permission
@@ -116,6 +132,10 @@
   core unflagged behavior when automated validation is not enough, while
   flag-disabled property-lock follow-ups may defer live
   validation until those features are prioritized.
+- Part C native WXT runtime adoption is active on `feat/wxt-port-plan`. C0 and
+  C1 are complete; C2 proved that the background service worker can be
+  native-bundled by making startup explicit behind `startBackground()` while the
+  root `background.ts` still self-starts for the legacy esbuild path.
 
 ## Popup Preview Exit Contract
 

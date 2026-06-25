@@ -52,9 +52,16 @@ The active track is now `.copilot/wxt-native-adoption-plan.md`:
    offscreen page no longer depends on `legacy/offscreen.js`. The legacy
    esbuild path now emits the new `offscreen/` directory, and focused
    regression coverage locks that contract.
-3. **C2 is next**: native-bundle the background service worker while preserving
-   exact initialization order.
-4. The prior event-bus program remains complete through Track 3 in
+3. **C2 is complete**: `entrypoints/background.ts` now calls an explicit
+   `startBackground()` bootstrap from `background.ts`, making the WXT
+   background entrypoint own the real service-worker startup instead of an empty
+   wrapper while the root background module still self-starts for the legacy
+   esbuild bridge. The WXT typecheck is now split between browser entrypoints
+   and Node config files to avoid reintroducing Node timer globals into the
+   browser runtime graph.
+4. **C3 is next**: native-bundle the popup entrypoint while preserving popup DOM
+   ids, CSS paths, and button-state behavior.
+5. The prior event-bus program remains complete through Track 3 in
    `.copilot/event-bus-architecture-plan.md`; Part C preserves that higher-level
    architecture and replaces only the lower-level packaging/runtime seams.
 

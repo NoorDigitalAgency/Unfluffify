@@ -1,4 +1,15 @@
 export function runPageMotionFreezeControl(command = "setPaused", details = null) {
+  type RuntimeRoot = Window & {
+    setTimeout: Window["setTimeout"];
+    clearTimeout: Window["clearTimeout"];
+    setInterval: Window["setInterval"];
+    clearInterval: Window["clearInterval"];
+    requestAnimationFrame: Window["requestAnimationFrame"];
+    cancelAnimationFrame: Window["cancelAnimationFrame"];
+    IntersectionObserver: typeof IntersectionObserver;
+    ResizeObserver: typeof ResizeObserver;
+  };
+  const root = (typeof window !== "undefined" ? window : globalThis) as unknown as RuntimeRoot;
   const STATE_KEY = "__unfluffifyPageMotionFreezeState";
   const VERSION = "main-world-exec-v1";
   const COMMAND_SET_PAUSED = "setPaused";
@@ -6,7 +17,6 @@ export function runPageMotionFreezeControl(command = "setPaused", details = null
   const COMMAND_DESTROY = "destroy";
   const COMMAND_ARM = "arm";
   const LAZY_LOAD_EVENT_TYPES = ["scroll", "wheel", "touchmove"];
-  const root = typeof window !== "undefined" ? window : globalThis;
 
   if (!root) {
     return { ok: false, error: "missing-root" };

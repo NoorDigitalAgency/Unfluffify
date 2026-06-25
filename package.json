@@ -9,7 +9,7 @@
     "dev": "node ./scripts/run-deno.mjs run --allow-read --allow-write --allow-env --allow-run --allow-sys ./scripts/build-extension.ts --dev --watch",
     "build": "node ./scripts/run-deno.mjs run --allow-read --allow-write --allow-env --allow-run --allow-sys ./scripts/build-extension.ts --release && wxt build && node ./scripts/sync-wxt-bootstrap.mjs",
     "zip": "pnpm build && node ./scripts/create-output-zip.mjs ./.output/chrome-mv3 ./.output/unfluffify-bootstrap.zip",
-    "check": "wxt prepare && tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.wxt.json",
+    "check": "wxt prepare && tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.wxt.json && tsc --noEmit -p tsconfig.wxt-node.json",
     "lint": "eslint eslint.config.js wxt.config.ts vitest.config.ts entrypoints/**/*.ts scripts/run-deno.mjs scripts/sync-wxt-bootstrap.mjs scripts/create-output-zip.mjs scripts/remove-path.mjs tests/**/*.test.js tests/**/*.ts tests/shims/*.js vitest-tests/**/*.test.ts",
     "test": "vitest run",
     "browser:live": "node ./scripts/run-deno.mjs run --allow-read --allow-write --allow-env --allow-run --allow-sys --allow-net ./scripts/launch-test-browser.ts",

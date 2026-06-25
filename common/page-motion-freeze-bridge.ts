@@ -27,6 +27,7 @@
   "use strict";
 
 function runPageMotionFreezeControl(command = "setPaused", details = null) {
+  const root = typeof window !== "undefined" ? window : globalThis;
   const STATE_KEY = "__unfluffifyPageMotionFreezeState";
   const VERSION = "main-world-exec-v1";
   const COMMAND_SET_PAUSED = "setPaused";
@@ -34,7 +35,6 @@ function runPageMotionFreezeControl(command = "setPaused", details = null) {
   const COMMAND_DESTROY = "destroy";
   const COMMAND_ARM = "arm";
   const LAZY_LOAD_EVENT_TYPES = ["scroll", "wheel", "touchmove"];
-  const root = typeof window !== "undefined" ? window : globalThis;
 
   if (!root) {
     return { ok: false, error: "missing-root" };

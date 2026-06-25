@@ -198,6 +198,12 @@ const PROPERTY_LOCK_MESSAGE_TYPES = new Set([
 const RENDER_MODE_NO_JS_INACTIVITY_SCOPE = "render-mode-no-js";
 const RENDER_MODE_NO_JS_INACTIVITY_TIMEOUT_MS = 30_000;
 
+// @ts-expect-error
+function normalizeBrokerTabId(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? Math.trunc(numeric) : null;
+}
+
 const worldTrace = createWorldTrace({
   traceStateByTabId: tabWorldTraceStateByTabId,
   normalizeTabId: normalizeBrokerTabId,
@@ -579,6 +585,14 @@ async function restoreRenderModeJavaScriptAfterNoJsInactivity(tabId) {
   }
   return reloadResult || { ok: false, error: "Unable to reload page with JavaScript" };
 }
+
+let backgroundStarted = false;
+
+export function startBackground(): void {
+  if (backgroundStarted) {
+    return;
+  }
+  backgroundStarted = true;
 
 tabInactivityObserver.subscribe(async (event) => {
   if (!event || event.type !== "inactive" || event.scope !== RENDER_MODE_NO_JS_INACTIVITY_SCOPE) {
@@ -2028,12 +2042,6 @@ function handleBackgroundCommandEnvelope(message, sender, sendResponse) {
       sendResponse(reply);
     });
   return true;
-}
-
-// @ts-expect-error
-function normalizeBrokerTabId(value) {
-  const numeric = Number(value);
-  return Number.isFinite(numeric) && numeric > 0 ? Math.trunc(numeric) : null;
 }
 
 // @ts-expect-error
@@ -3638,3 +3646,6 @@ chrome.action.onClicked.addListener((tab) => {
 // mid-flight and did not reach the consume-purge step.
 sweepStaleTransferPayloads().then();
 updateRenderModeNoJsInactivityWatches().catch(() => {});
+}
+
+startBackground();

@@ -8,13 +8,12 @@
     "checkJs": false,
     "noEmit": true,
     "skipLibCheck": true,
-    "lib": ["ES2022", "DOM", "DOM.Iterable", "WebWorker"],
-    "types": ["chrome"]
+    "lib": ["ES2022"],
+    "types": ["node"]
   },
   "include": [
-    "entrypoints/**/*.ts",
-    "types/**/*.ts",
-    "types/**/*.d.ts"
+    "vitest.config.ts",
+    "wxt.config.ts"
   ],
   "exclude": [
     "dist",
