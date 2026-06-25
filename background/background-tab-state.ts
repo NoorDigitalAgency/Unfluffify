@@ -1,6 +1,5 @@
 export const tabLifecycleStateByTabId = new Map<number, unknown>();
 export const tabSpinnerQueueByTabId = new Map<number, unknown>();
-export const popupStatePortsByTabId = new Map<number, unknown>();
 export const tabWorldTraceStateByTabId = new Map<number, unknown>();
 export const aiComputeLockExpiresAtByTabId = new Map<number, number>();
 export const pageMotionFreezeControlQueueByTarget = new Map<string, unknown>();
@@ -17,7 +16,6 @@ export function disposeTabState(tabId: unknown): void {
   }
   tabLifecycleStateByTabId.delete(normalizedTabId);
   tabSpinnerQueueByTabId.delete(normalizedTabId);
-  popupStatePortsByTabId.delete(normalizedTabId);
   tabWorldTraceStateByTabId.delete(normalizedTabId);
   aiComputeLockExpiresAtByTabId.delete(normalizedTabId);
 

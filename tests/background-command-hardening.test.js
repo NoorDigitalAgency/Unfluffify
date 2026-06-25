@@ -11,10 +11,7 @@ test("popup background commands declare explicit source and tab-id policy", () =
     /const POPUP_TAB_COMMAND_POLICY = Object\.freeze\(\{[\s\S]*allowedSources:\s*\[MESSAGE_SOURCES\.POPUP\][\s\S]*tabIdPolicy:\s*"message"[\s\S]*requireTab:\s*true/
   );
 
-  assert.match(
-    backgroundSource,
-    /registerBackgroundCommand\(BACKGROUND_COMMANDS\.POPUP_GET_TAB_VIEW_STATE, async \(context\) => \{[\s\S]*?\}, POPUP_TAB_COMMAND_POLICY\);/
-  );
+  assert.doesNotMatch(backgroundSource, /BACKGROUND_COMMANDS\.POPUP_GET_TAB_VIEW_STATE/);
   assert.match(
     backgroundSource,
     /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_CONTENT_REQUEST, async \(context, payload\) => \{[\s\S]*?\}, POPUP_TAB_COMMAND_POLICY\);/

@@ -5,7 +5,6 @@ import {
   aiComputeLockExpiresAtByTabId,
   disposeTabState,
   pageMotionFreezeControlQueueByTarget,
-  popupStatePortsByTabId,
   tabLifecycleStateByTabId,
   tabSpinnerQueueByTabId,
   tabWorldTraceStateByTabId
@@ -14,7 +13,6 @@ import {
 function clearAllTabStateMaps() {
   tabLifecycleStateByTabId.clear();
   tabSpinnerQueueByTabId.clear();
-  popupStatePortsByTabId.clear();
   tabWorldTraceStateByTabId.clear();
   aiComputeLockExpiresAtByTabId.clear();
   pageMotionFreezeControlQueueByTarget.clear();
@@ -27,8 +25,6 @@ test("disposeTabState removes only the target tab across all maps", () => {
   tabLifecycleStateByTabId.set(2, { busy: false });
   tabSpinnerQueueByTabId.set(1, [{ id: "a" }]);
   tabSpinnerQueueByTabId.set(2, [{ id: "b" }]);
-  popupStatePortsByTabId.set(1, new Set(["p1"]));
-  popupStatePortsByTabId.set(2, new Set(["p2"]));
   tabWorldTraceStateByTabId.set(1, { events: [1] });
   tabWorldTraceStateByTabId.set(2, { events: [2] });
   aiComputeLockExpiresAtByTabId.set(1, Date.now() + 10_000);
@@ -41,7 +37,6 @@ test("disposeTabState removes only the target tab across all maps", () => {
 
   assert.equal(tabLifecycleStateByTabId.has(1), false);
   assert.equal(tabSpinnerQueueByTabId.has(1), false);
-  assert.equal(popupStatePortsByTabId.has(1), false);
   assert.equal(tabWorldTraceStateByTabId.has(1), false);
   assert.equal(aiComputeLockExpiresAtByTabId.has(1), false);
   assert.equal(pageMotionFreezeControlQueueByTarget.has("1:0"), false);
@@ -49,7 +44,6 @@ test("disposeTabState removes only the target tab across all maps", () => {
 
   assert.equal(tabLifecycleStateByTabId.has(2), true);
   assert.equal(tabSpinnerQueueByTabId.has(2), true);
-  assert.equal(popupStatePortsByTabId.has(2), true);
   assert.equal(tabWorldTraceStateByTabId.has(2), true);
   assert.equal(aiComputeLockExpiresAtByTabId.has(2), true);
   assert.equal(pageMotionFreezeControlQueueByTarget.has("2:0"), true);

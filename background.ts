@@ -145,7 +145,6 @@ import {
   aiComputeLockExpiresAtByTabId,
   disposeTabState,
   pageMotionFreezeControlQueueByTarget,
-  popupStatePortsByTabId,
   tabLifecycleStateByTabId,
   tabSpinnerQueueByTabId,
   tabWorldTraceStateByTabId
@@ -220,8 +219,7 @@ const BACKGROUND_COMMANDS = Object.freeze({
   TAB_CAPTURE_RENDER_MODE_HTML: "TAB_CAPTURE_RENDER_MODE_HTML",
   TAB_END_RENDER_MODE_INSPECTION: "TAB_END_RENDER_MODE_INSPECTION",
   TAB_RUN_RENDER_MODE_INSPECTION: "TAB_RUN_RENDER_MODE_INSPECTION",
-  TAB_RUN_AI: "TAB_RUN_AI",
-  POPUP_GET_TAB_VIEW_STATE: "POPUP_GET_TAB_VIEW_STATE"
+  TAB_RUN_AI: "TAB_RUN_AI"
 });
 const TAB_SCOPED_BACKGROUND_COMMANDS = new Set([
   BACKGROUND_COMMANDS.TAB_BOOTSTRAP_CONTENT,
@@ -239,8 +237,7 @@ const TAB_SCOPED_BACKGROUND_COMMANDS = new Set([
   BACKGROUND_COMMANDS.TAB_CAPTURE_RENDER_MODE_HTML,
   BACKGROUND_COMMANDS.TAB_END_RENDER_MODE_INSPECTION,
   BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION,
-  BACKGROUND_COMMANDS.TAB_RUN_AI,
-  BACKGROUND_COMMANDS.POPUP_GET_TAB_VIEW_STATE
+  BACKGROUND_COMMANDS.TAB_RUN_AI
 ]);
 const POPUP_TAB_COMMAND_POLICY = Object.freeze({
   allowedSources: [MESSAGE_SOURCES.POPUP],
@@ -854,18 +851,6 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_CONTENT_REQUEST, async (contex
     tabId: normalizedTabId,
     response,
     runtime: getTabRuntimeSnapshot(normalizedTabId)
-  };
-}, POPUP_TAB_COMMAND_POLICY);
-
-// deno-lint-ignore require-await -- preserves existing promise/callback contract.
-registerBackgroundCommand(BACKGROUND_COMMANDS.POPUP_GET_TAB_VIEW_STATE, async (context) => {
-  appendWorldTraceEvent(context.tabId, "broker", "snapshot-requested", {
-    type: BACKGROUND_COMMANDS.POPUP_GET_TAB_VIEW_STATE,
-    message: "Popup requested background state"
-  });
-  return {
-    state: buildBrokerState(context.tabId),
-    runtime: getTabRuntimeSnapshot(context.tabId)
   };
 }, POPUP_TAB_COMMAND_POLICY);
 
@@ -2127,7 +2112,6 @@ async function resolvePopupTabContext(message = {}, sender = {}) {
 const popupStateBroker = createPopupStateBroker({
   lifecycleStateByTabId: tabLifecycleStateByTabId,
   spinnerQueueByTabId: tabSpinnerQueueByTabId,
-  popupStatePortsByTabId,
   normalizeTabId: normalizeBrokerTabId,
   appendTrace: appendWorldTraceEvent,
   ensureTraceState,
@@ -2226,39 +2210,6 @@ chrome.runtime.onConnect.addListener((port) => {
     brain.registerPopupPort(tabId, port);
     return;
   }
-  if (!port || typeof port.name !== "string" || !port.name.startsWith(WORLD_PORTS.POPUP_STATE_PREFIX)) {
-    return;
-  }
-  const tabId = normalizeBrokerTabId(port.name.slice(WORLD_PORTS.POPUP_STATE_PREFIX.length));
-  if (!tabId) {
-    try {
-      port.disconnect();
-    } catch {
-      // Ignore invalid popup state ports.
-    }
-    return;
-  }
-  if (!popupStatePortsByTabId.has(tabId)) {
-    popupStatePortsByTabId.set(tabId, new Set());
-  }
-  const ports = popupStatePortsByTabId.get(tabId);
-// @ts-expect-error
-  ports.add(port);
-  try {
-    port.postMessage({ type: WORLD_MESSAGE_TYPES.BACKGROUND_STATE, state: buildBrokerState(tabId) });
-  } catch {
-// @ts-expect-error
-    ports.delete(port);
-  }
-  port.onDisconnect.addListener(() => {
-// @ts-expect-error
-    ports.delete(port);
-// @ts-expect-error
-    if (ports.size === 0) {
-      popupStatePortsByTabId.delete(tabId);
-      clearBackgroundSpinnerQueue(tabId, { transientOnly: true });
-    }
-  });
 });
 
 if (isFeatureEnabled("propertyLockCollaboration")) {
@@ -2295,7 +2246,6 @@ function logSwLifecycleDiagnostic(event: string, extra: Record<string, unknown> 
     console.debug("[sw-lifecycle]", event, {
       at: Date.now(),
       activeAiComputeLocks: countActiveAiComputeLocks(),
-      popupStatePorts: popupStatePortsByTabId.size,
       lifecycleStates: tabLifecycleStateByTabId.size,
       spinnerQueues: tabSpinnerQueueByTabId.size,
       worldTraceStates: tabWorldTraceStateByTabId.size,

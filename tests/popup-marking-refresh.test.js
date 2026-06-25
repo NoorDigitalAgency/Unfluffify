@@ -862,6 +862,7 @@ test("popup unload clears navigation inspection settle polls", () => {
   )[1];
 
   assert.match(beforeUnloadBlock, /clearNavigationInspectionSettlePollsExcept\(\);/);
+  assert.match(beforeUnloadBlock, /clearSpinnerQueueInBackground\(tabId, \{ transientOnly: true \}\)\.catch\(\(\) => \{\}\);/);
 });
 
 test("session pending is no longer tied to Lynx selector submission state", () => {

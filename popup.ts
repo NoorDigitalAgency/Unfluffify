@@ -167,8 +167,7 @@ import {
 } from "./common/selector-set.js";
 import {
   SPINNER_OWNERS,
-  WORLD_MESSAGE_TYPES,
-  buildPopupStatePortName
+  WORLD_MESSAGE_TYPES
 } from "./common/world-messaging-contract.js";
 import {
   PROPERTY_LOCK_BACKGROUND_GET_STATE,
@@ -410,8 +409,6 @@ let popupNavigationInspectionOverlayTabId = null;
 const popupNavigationInspectionSettlePollByTabId = new Map();
 const popupRenderModeSetNavGuardByTabId = new Map();
 let popupStaleInspectionBusyClearTimer = 0;
-// @ts-expect-error
-let popupBackgroundStatePort = null;
 // @ts-expect-error
 let popupBackgroundLifecycle = null;
 // @ts-expect-error
@@ -1171,40 +1168,6 @@ async function handleTraceModeToggle(event) {
   }
 }
 
-// @ts-expect-error
-function connectBackgroundStatePort(tabId) {
-  if (!tabId || !chrome.runtime || typeof chrome.runtime.connect !== "function") {
-    return;
-  }
-// @ts-expect-error
-  if (popupBackgroundStatePort) {
-    try {
-      popupBackgroundStatePort.disconnect();
-    } catch {
-      // Existing port may already be closed.
-    }
-    popupBackgroundStatePort = null;
-  }
-  try {
-    const port = chrome.runtime.connect({ name: buildPopupStatePortName(tabId) });
-    popupBackgroundStatePort = port;
-    port.onMessage.addListener((message) => {
-      if (message && message.type === WORLD_MESSAGE_TYPES.BACKGROUND_STATE) {
-        applyBackgroundStateSnapshot(message.state);
-      }
-    });
-    port.onDisconnect.addListener(() => {
-// @ts-expect-error
-      if (popupBackgroundStatePort === port) {
-        popupBackgroundStatePort = null;
-      }
-    });
-  } catch {
-    popupBackgroundStatePort = null;
-  }
-}
-
-
 function clearStaleInspectionBusyClearTimer() {
   if (!popupStaleInspectionBusyClearTimer) {
     return;
@@ -1464,7 +1427,7 @@ async function loadTraceModeSetting() {
 }
 
 // @ts-expect-error
-async function applyTraceModePreferenceToTab(tabId, enabled) {
+async function applyTraceModePreferenceToTab(tabId, enabled, popupBus) {
   void enabled;
   if (!isFeatureEnabled("traceDiagnostics")) {
     state.traceModeEnabled = false;
@@ -1475,13 +1438,10 @@ async function applyTraceModePreferenceToTab(tabId, enabled) {
   if (!tabId) {
     return null;
   }
-  const viewState = await messages.requestPopupTabViewState(tabId).catch(() => null);
-// @ts-expect-error
-  if (viewState && viewState.state && viewState.state.ok) {
-// @ts-expect-error
-    applyBackgroundStateSnapshot(viewState.state);
-// @ts-expect-error
-    return viewState.state;
+  const viewState = await requestPopupView(popupBus, tabId).catch(() => null);
+  if (viewState) {
+    applyPopupViewSnapshot(viewState);
+    return viewState;
   }
   return null;
 }
@@ -8004,10 +7964,9 @@ async function init() {
   await helpers.ensureActiveTab();
   const initTabId = state.currentTab && state.currentTab.id;
   if (initTabId) {
-    connectBackgroundStatePort(initTabId);
     const popupBus = startPopupBusClient(initTabId, { applyPopupView: applyPopupViewSnapshot });
     await restoreSpinnerQueueFromBackground(initTabId, popupBus);
-    await applyTraceModePreferenceToTab(initTabId, state.traceModeEnabled).catch(() => null);
+    await applyTraceModePreferenceToTab(initTabId, state.traceModeEnabled, popupBus).catch(() => null);
     maybeRunPopupBusSelfTest(initTabId, popupBus);
     if (popupSpinnerQueue.has("navInspect")) {
       popupNavigationInspectionOverlayStarted = true;
@@ -8176,7 +8135,6 @@ async function init() {
     const newTabId = state.currentTab && state.currentTab.id;
     if (newTabId) {
       try {
-        connectBackgroundStatePort(newTabId);
         const popupBus = startPopupBusClient(newTabId, { applyPopupView: applyPopupViewSnapshot });
         await restoreSpinnerQueueFromBackground(newTabId, popupBus);
         maybeRunPopupBusSelfTest(newTabId, popupBus);

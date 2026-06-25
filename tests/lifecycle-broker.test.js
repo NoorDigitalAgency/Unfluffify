@@ -22,11 +22,9 @@ test("background owns per-tab lifecycle and spinner current state", () => {
   assert.match(contractSource, /export const LIFECYCLE_KINDS = Object\.freeze/);
   assert.match(contractSource, /SILENT_HIGHLIGHTING: "silent-highlighting"/);
   assert.match(contractSource, /export const LIFECYCLE_PHASES = Object\.freeze/);
-  assert.match(contractSource, /export function buildPopupStatePortName\(tabId(?:\s*:[^)]*)?\)(?:\s*:[^{]+)?/);
   assert.match(backgroundSource, /from "\.\/background\/background-tab-state\.js"/);
   assert.doesNotMatch(backgroundSource, /const tabLifecycleStateByTabId = new Map\(\);/);
   assert.doesNotMatch(backgroundSource, /const tabSpinnerQueueByTabId = new Map\(\);/);
-  assert.doesNotMatch(backgroundSource, /const popupStatePortsByTabId = new Map\(\);/);
   assert.match(backgroundSource, /from "\.\/background\/popup-state-broker\.js"/);
   assert.match(backgroundSource, /const popupStateBroker = createPopupStateBroker\(\{/);
   assert.match(backgroundSource, /const updateLifecycleState = popupStateBroker\.updateLifecycleState;/);
@@ -63,19 +61,18 @@ test("background authoritatively tears down the navigation-inspection curtain on
     popupStateBrokerSource,
     /eventOperationId !== previous\.operationId &&[\s\S]*?isTerminalEvent[\s\S]*?\) \{[\s\S]*?return buildBrokerState\(normalizedTabId\);[\s\S]*?const clearsCurtain = isTerminalEvent && isCurtainBearingLifecycleKind\(eventKind\);/
   );
-  // Transient spinners remain popup-session scoped: the last port disconnect
-  // clears them, while the persistent navInspect curtain is cleared by the
-  // authoritative terminal-lifecycle path above.
-  assert.match(
-    backgroundSource,
-    /port\.onDisconnect\.addListener\(\(\) => \{[\s\S]*?clearBackgroundSpinnerQueue\(tabId, \{ transientOnly: true \}\);[\s\S]*?\}\);/
-  );
+  // After the popup moved to the bus-only snapshot/update path, transient
+  // spinner cleanup no longer depends on popup-state port disconnects; the
+  // persistent navInspect curtain is still cleared authoritatively by the
+  // terminal-lifecycle path above.
+  assert.doesNotMatch(backgroundSource, /clearBackgroundSpinnerQueue\(tabId, \{ transientOnly: true \}\);/);
 });
 
-test("background exposes lifecycle and spinner state over messages and popup ports", () => {
+test("background exposes lifecycle and spinner state over broker updates and bus ports", () => {
   assert.match(backgroundSource, /chrome\.runtime\.onConnect\.addListener\(\(port\) => \{/);
-  assert.match(backgroundSource, /port\.name\.startsWith\(WORLD_PORTS\.POPUP_STATE_PREFIX\)/);
-  assert.match(backgroundSource, /port\.postMessage\(\{ type: WORLD_MESSAGE_TYPES\.BACKGROUND_STATE, state: buildBrokerState\(tabId\) \}\)/);
+  assert.match(backgroundSource, /port\.name\.startsWith\(BUS_PORT_PREFIX\)/);
+  assert.doesNotMatch(backgroundSource, /WORLD_PORTS\.POPUP_STATE_PREFIX/);
+  assert.doesNotMatch(backgroundSource, /WORLD_MESSAGE_TYPES\.BACKGROUND_STATE/);
   assert.match(backgroundSource, /if \(message\.type === WORLD_MESSAGE_TYPES\.LIFECYCLE_EVENT\) \{/);
   assert.doesNotMatch(backgroundSource, /if \(message\.type === WORLD_MESSAGE_TYPES\.GET_BACKGROUND_STATE\) \{/);
   assert.match(backgroundSource, /if \(message\.type === WORLD_MESSAGE_TYPES\.SPINNER_SET\) \{/);
@@ -118,9 +115,11 @@ test("content emits lifecycle events for readiness, activation, and render-mode 
 });
 
 test("popup spinner UI mirrors background current state instead of session storage", () => {
-  assert.match(popupSource, /function connectBackgroundStatePort\(tabId\) \{/);
-  assert.match(popupSource, /chrome\.runtime\.connect\(\{ name: buildPopupStatePortName\(tabId\) \}\)/);
+  assert.match(popupSource, /requestPopupView\(popupBus, tabId\)/);
+  assert.doesNotMatch(popupSource, /function connectBackgroundStatePort\(tabId\) \{/);
+  assert.doesNotMatch(popupSource, /buildPopupStatePortName\(tabId\)/);
   assert.match(popupSource, /function applyBackgroundStateSnapshot\(snapshot\) \{/);
+  assert.match(popupSource, /function applyPopupViewSnapshot\(snapshot(?:: [^)]+)?\) \{/);
   assert.match(popupSource, /function syncUiBusyFromBrokerState\(\) \{/);
   assert.match(popupSource, /type: WORLD_MESSAGE_TYPES\.SPINNER_SET/);
   assert.match(popupSource, /type: WORLD_MESSAGE_TYPES\.SPINNER_REMOVE/);

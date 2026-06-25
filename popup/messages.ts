@@ -4,7 +4,6 @@ import * as stateModule from "./state.js";
 import { isDebugFlagEnabled } from "../common/feature-flags.js";
 
 const { state } = stateModule;
-const POPUP_GET_TAB_VIEW_STATE_COMMAND = "POPUP_GET_TAB_VIEW_STATE";
 const TAB_CONTENT_REQUEST_COMMAND = "TAB_CONTENT_REQUEST";
 const TAB_ACTIVATE_MARKING_COMMAND = "TAB_ACTIVATE_MARKING";
 const TAB_DEACTIVATE_MARKING_COMMAND = "TAB_DEACTIVATE_MARKING";
@@ -266,22 +265,6 @@ export function setTabState(tabId: TabId, tabState: Record<string, unknown>, sco
     scope,
     state: tabState && typeof tabState === "object" ? tabState : {}
   });
-}
-
-export function requestPopupTabViewState(tabId: TabId, options: TabRequestOptions = {}) {
-  const opts = options;
-  if (!tabId) {
-    return Promise.resolve(null);
-  }
-  return requestRuntime({
-    type: POPUP_GET_TAB_VIEW_STATE_COMMAND,
-    payload: {}
-  }, {
-    tabId,
-    timeoutMs: resolveTimeoutMs(opts, 3000)
-  }).then((result) => (
-    result && typeof result === "object" ? result : null
-  )).catch(() => null);
 }
 
 export function requestTabActivateMarking(tabId: TabId, payload: TabRequestPayload = {}, options: TabRequestOptions = {}) {

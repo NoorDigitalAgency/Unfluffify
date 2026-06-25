@@ -126,7 +126,7 @@ test("popup preserves broker lease metadata when rebuilding spinner snapshots", 
   const snapshotBlock = extractSourceBlock(
     popupSource,
     "function applyBackgroundStateSnapshot(snapshot) {",
-    "function connectBackgroundStatePort"
+    "function clearStaleInspectionBusyClearTimer"
   );
 
   assert.match(snapshotBlock, /blockSurfaces: entry\.blockSurfaces && typeof entry\.blockSurfaces === "object"[\s\S]*?page: entry\.blockSurfaces\.page === true,[\s\S]*?popup: entry\.blockSurfaces\.popup === true/);
