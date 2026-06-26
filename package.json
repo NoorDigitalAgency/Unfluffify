@@ -1,0 +1,47 @@
+{
+  "name": "unfluffify",
+  "version": "1.2.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.6.0",
+  "scripts": {
+    "prepare": "wxt prepare",
+    "dev": "wxt",
+    "build": "wxt build",
+    "zip": "pnpm build && node ./scripts/create-output-zip.mjs ./.output/chrome-mv3 ./.output/unfluffify-bootstrap.zip",
+    "check": "wxt prepare && tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.wxt.json && tsc --noEmit -p tsconfig.wxt-node.json",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "browser:live": "node ./scripts/launch-test-browser.mjs",
+    "orchestrate:bus": "node ./orchestration/bus-server.mjs",
+    "orchestrate:mock-client": "node ./orchestration/mock-client.mjs",
+    "orchestrate:runner": "node ./orchestration/runner.mjs",
+    "orchestrate:setup-auth": "node ./orchestration/setup-auth.mjs",
+    "orchestrate:property-lock": "node ./orchestration/scenarios/property-lock-one-machine.mjs",
+    "orchestrate:rpc-server": "node ./orchestration/rpc-server.mjs",
+    "orchestrate:rpc-client": "node ./orchestration/rpc-client.mjs",
+    "verify": "pnpm lint && pnpm check && pnpm test && node ./scripts/remove-path.mjs ./.output && pnpm build && UF_MANIFEST_SOURCE=generated vitest run tests/manifest-permissions.test.ts"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/chrome": "^0.2.0",
+    "@types/node": "^26.0.0",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.3",
+    "@wxt-dev/module-react": "^1.2.2",
+    "eslint": "^10.5.0",
+    "eslint-plugin-unused-imports": "^4.4.1",
+    "globals": "^17.7.0",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.62.0",
+    "vitest": "^4.1.9",
+    "ws": "^8.21.0",
+    "wxt": "^0.20.27"
+  },
+  "dependencies": {
+    "@webext-core/messaging": "^3.0.2",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
+  }
+}

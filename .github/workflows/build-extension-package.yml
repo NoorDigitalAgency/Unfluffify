@@ -22,13 +22,21 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Set up Deno
-        uses: denoland/setup-deno@v1
+      - name: Set up Node
+        uses: actions/setup-node@v4
         with:
-          deno-version: v2.x
+          node-version: 22
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.6.0
+
+      - name: Install Node dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Verify extension
-        run: deno task verify
+        run: pnpm verify
 
   package-extension:
     if: github.event_name == 'workflow_dispatch'
@@ -41,15 +49,23 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Set up Deno
-        uses: denoland/setup-deno@v1
+      - name: Set up Node
+        uses: actions/setup-node@v4
         with:
-          deno-version: v2.x
+          node-version: 22
 
-      - name: Build release extension
-        run: deno task build:release
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.6.0
 
-      - name: Stage extension files
+      - name: Install Node dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Create synced WXT archive
+        run: pnpm zip
+
+      - name: Stage release extension files
         id: package
         run: |
           set -euo pipefail
@@ -61,14 +77,54 @@ jobs:
           build_version="${timestamp/-/}"
 
           mkdir -p "$work_dir"
-          deno task package -- \
+          node ./scripts/package-extension.mjs \
             --timestamp "$timestamp" \
             --build-version "$build_version" \
             --stage-dir "$stage_dir" \
             --metadata-file "$metadata_path" \
             > /dev/null
 
-          deno task package:metadata -- "$metadata_path" >> "$GITHUB_OUTPUT"
+          node ./scripts/emit-package-metadata.mjs "$metadata_path" >> "$GITHUB_OUTPUT"
+
+      - name: Compare staged package with synced WXT zip
+        run: |
+          set -euo pipefail
+
+          work_dir="$RUNNER_TEMP/unfluffify-extension"
+          staged_list="$work_dir/staged-files.txt"
+          wxt_list="$work_dir/wxt-zip-files.txt"
+          missing_list="$work_dir/staged-not-in-wxt.txt"
+
+          (
+            cd "${{ steps.package.outputs.stage_dir }}"
+            find . -type f | sed 's#^\./##' | LC_ALL=C sort
+          ) > "$staged_list"
+
+          unzip -Z1 .output/unfluffify-bootstrap.zip | grep -v '/$' | LC_ALL=C sort > "$wxt_list"
+          LC_ALL=C comm -23 "$staged_list" "$wxt_list" > "$missing_list"
+
+          if [ -s "$missing_list" ]; then
+            echo "Staged package files missing from direct WXT zip:"
+            cat "$missing_list"
+            exit 1
+          fi
+
+          required_files=(
+            "manifest.json"
+            "background.js"
+            "popup.html"
+            "offscreen.html"
+            "content-scripts/content-loader.js"
+            "content-scripts/page-motion-freeze-bridge.js"
+            "icons/default/icon16.png"
+          )
+
+          for relative_path in "${required_files[@]}"; do
+            if [ ! -f "${{ steps.package.outputs.stage_dir }}/$relative_path" ]; then
+              echo "Missing required staged runtime file: $relative_path"
+              exit 1
+            fi
+          done
 
       - name: Create zip archives
         id: archive

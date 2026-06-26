@@ -9,20 +9,21 @@
     "noEmit": true,
     "skipLibCheck": true,
     "lib": ["ES2022", "DOM", "DOM.Iterable", "WebWorker"],
-    "types": ["chrome"]
+    "types": ["chrome"],
+    "jsx": "react-jsx",
+    "jsxImportSource": "react"
   },
   "include": [
-    "background/**/*.ts",
-    "common/**/*.ts",
-    "content/**/*.ts",
-    "popup/**/*.ts",
-    "background.ts",
-    "content-loader.ts",
-    "content-main.ts",
-    "popup.ts",
-    "offscreen.ts",
-    "types/**/*.ts",
-    "types/**/*.d.ts"
+    "src/background/**/*.ts",
+    "src/common/**/*.ts",
+    "src/content/**/*.ts",
+    "src/popup/**/*.ts",
+    "src/popup/**/*.tsx",
+    "src/background.ts",
+    "src/content-main.ts",
+    "src/popup.ts",
+    "src/types/**/*.ts",
+    "src/types/**/*.d.ts"
   ],
   "exclude": [
     "dist",

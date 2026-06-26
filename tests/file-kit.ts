@@ -1,104 +1,93 @@
-import { basename, dirname, extname, fromFileUrl, join, normalize, relative, resolve } from "@std/path";
+import { spawn } from "node:child_process";
+import * as fs from "node:fs";
+import { mkdtemp as fsMkdtemp, mkdir as fsMkdir, readFile as fsReadFile, rm as fsRm, writeFile as fsWriteFile } from "node:fs/promises";
+import os from "node:os";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 
-export function readFileSync(pathOrUrl: string | URL, encoding = "utf8"): string {
+function assertUtf8(encoding = "utf8"): void {
   if (encoding && encoding !== "utf8") {
     throw new Error(`Unsupported encoding: ${encoding}`);
   }
-  return Deno.readTextFileSync(pathOrUrl);
+}
+
+function resolveTempPrefix(prefix: string): string {
+  if (prefix.includes("/") || prefix.includes("\\")) {
+    const dir = path.dirname(prefix);
+    const namePrefix = path.basename(prefix) || "tmp-";
+    return path.join(dir, namePrefix);
+  }
+  return path.join(os.tmpdir(), prefix);
+}
+
+export function readFileSync(pathOrUrl: string | URL, encoding = "utf8"): string {
+  assertUtf8(encoding);
+  return fs.readFileSync(pathOrUrl, "utf8");
 }
 
 export async function readFile(pathOrUrl: string | URL, encoding = "utf8"): Promise<string> {
-  if (encoding && encoding !== "utf8") {
-    throw new Error(`Unsupported encoding: ${encoding}`);
-  }
-  return await Deno.readTextFile(pathOrUrl);
+  assertUtf8(encoding);
+  return await fsReadFile(pathOrUrl, "utf8");
 }
 
 export function existsSync(pathOrUrl: string | URL): boolean {
-  try {
-    Deno.statSync(pathOrUrl);
-    return true;
-  } catch {
-    return false;
-  }
+  return fs.existsSync(pathOrUrl);
 }
 
-interface DirentLike {
-  name: string;
-  isDirectory(): boolean;
-  isFile(): boolean;
-}
-
-export function readdirSync(pathOrUrl: string | URL, options: { withFileTypes?: boolean } = {}): string[] | DirentLike[] {
-  const entries: string[] | DirentLike[] = [];
-  for (const entry of Deno.readDirSync(pathOrUrl)) {
-    if (options.withFileTypes) {
-      (entries as DirentLike[]).push({
-        name: entry.name,
-        isDirectory: () => entry.isDirectory,
-        isFile: () => entry.isFile,
-      });
-      continue;
-    }
-    (entries as string[]).push(entry.name);
-  }
-  return entries;
+export function readdirSync(
+  pathOrUrl: string | URL,
+  options: { withFileTypes?: boolean } = {},
+): unknown {
+  return fs.readdirSync(pathOrUrl, options);
 }
 
 export async function mkdtemp(prefix: string): Promise<string> {
-  if (prefix.includes("/") || prefix.includes("\\")) {
-    const dir = dirname(prefix);
-    const namePrefix = basename(prefix) || "tmp-";
-    return await Deno.makeTempDir({ dir, prefix: namePrefix });
-  }
-  return await Deno.makeTempDir({ prefix });
+  return await fsMkdtemp(resolveTempPrefix(prefix));
 }
 
 export async function mkdir(pathOrUrl: string | URL, options: { recursive?: boolean } = {}): Promise<void> {
-  await Deno.mkdir(pathOrUrl, { recursive: Boolean(options.recursive) });
+  await fsMkdir(pathOrUrl, { recursive: Boolean(options.recursive) });
 }
 
 export async function writeFile(pathOrUrl: string | URL, data: string | Uint8Array): Promise<void> {
-  if (typeof data === "string") {
-    await Deno.writeTextFile(pathOrUrl, data);
-    return;
-  }
-
-  await Deno.writeFile(pathOrUrl, data);
+  await fsWriteFile(pathOrUrl, data);
 }
 
 export async function rm(pathOrUrl: string | URL, options: { recursive?: boolean; force?: boolean } = {}): Promise<void> {
-  try {
-    await Deno.remove(pathOrUrl, { recursive: Boolean(options.recursive) });
-  } catch (error) {
-    if (!options.force) {
-      throw error;
-    }
-  }
-}
-
-export async function execFile(command: string, args: string[] = [], options: { cwd?: string } = {}): Promise<{ stdout: Uint8Array; stderr: Uint8Array; code: number }> {
-  const process = new Deno.Command(command, {
-    args,
-    cwd: options.cwd,
-    stdout: "piped",
-    stderr: "piped"
+  await fsRm(pathOrUrl, {
+    recursive: Boolean(options.recursive),
+    force: Boolean(options.force),
   });
-  const result = await process.output();
-  return result;
 }
 
-export function fileURLToPath(url: string | URL): string {
-  return fromFileUrl(url);
+export async function execFile(
+  command: string,
+  args: string[] = [],
+  options: { cwd?: string } = {},
+): Promise<{ stdout: Uint8Array; stderr: Uint8Array; code: number }> {
+  return await new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd: options.cwd,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const stdoutChunks: Buffer[] = [];
+    const stderrChunks: Buffer[] = [];
+
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdoutChunks.push(chunk);
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderrChunks.push(chunk);
+    });
+    child.on("error", reject);
+    child.on("close", (code: number | null) => {
+      resolve({
+        stdout: Buffer.concat(stdoutChunks),
+        stderr: Buffer.concat(stderrChunks),
+        code: code ?? 0,
+      });
+    });
+  });
 }
 
-export const path = {
-  basename,
-  dirname,
-  extname,
-  join,
-  normalize,
-  relative,
-  resolve,
-  sep: "/"
-};
+export { fileURLToPath, path };

@@ -122,7 +122,7 @@ for (const url of URLS) {
   // Allow saveConfig to flush before reading IDB
   await page.waitForTimeout(2000);
   // Read submissionXpaths from the extension's IndexedDB via the service worker
-  let submissionRows = null;
+  let submissionRows;
   if (typeof targetTabId === 'number') {
     submissionRows = await sw.evaluate(async (href) => {
       function openDb() {

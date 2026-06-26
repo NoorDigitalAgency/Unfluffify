@@ -47,11 +47,11 @@ timeouts, persistence semantics, or fallback behavior.
 Use validation that matches the risk:
 
 - Docs only: `git --no-pager diff --check`
-- Source changes: focused tests while iterating, then `deno task check`,
-  `deno task test`, and `deno task build:release`
-- Live browser behavior: launch with `deno task browser:live <target-url>` (the
-  `launch-test-browser` skill / committed launcher), which builds
-  `dist/extension-dev` and drives only the `npm:@playwright/mcp@latest` managed
+- Source changes: focused tests while iterating, then `pnpm lint`,
+  `pnpm check`, `pnpm test`, and `pnpm build`
+- Live browser behavior: launch with `pnpm browser:live <target-url>` (the
+  `launch-test-browser` skill / committed launcher), which builds and loads
+  `.output/chrome-mv3` in only the `npm:@playwright/mcp@latest` managed
   Chromium; reload the unpacked extension/service worker after a rebuild before
   observing. Never touch the OS Chrome.
 

@@ -9,25 +9,28 @@
   `extract-repo-knowledge` when updating durable architecture knowledge, and
   `launch-test-browser` to open the live/dev Chromium with the unpacked
   extension loaded for observation or manual testing.
-- Live test browser: launch with `deno task browser:live <target-url>`
-  (`scripts/launch-test-browser.ts`). A target URL is mandatory. It builds
-  `dist/extension-dev`, writes a per-environment `.temp/browser-mcp.config.json`
-  (drops `executablePath`), and drives ONLY the `npm:@playwright/mcp@latest`
-  managed Chromium over a single launcher-owned stdio client — never the OS
-  Chrome. The launcher exposes a same-session control channel on its Bash
-  `shellId`; use `state`, `exit-preview`, `observe`, `stop-observe`, and `help`
-  via `write_bash` to inspect/control the bound popup and target page. Do not
-  start a second MCP client/server for the same `.mcp-browser-profile`. The temp
-  config injects CDP at `http://127.0.0.1:9222`; use
-  `chromium.connectOverCDP(...)` for direct programmatic inspection/control of
-  the already-open page and extension popup when the launcher command channel is
-  not enough. The
-  committed `.vscode/mcp.json`, `.mcp.json`, and `.vscode/browser-mcp.config.json`
-  are intentionally placeholdered (`__UNFLUFFIFY_REPO_ROOT__`,
-  `__CHROMIUM_EXECUTABLE_PATH__`) and non-launchable. Unpacked extension id is
-  deterministic: SHA-256 of the absolute load path, first 16 bytes, each nibble
-  mapped `0..15 -> 'a'..'p'`. Inside `browser_run_code_unsafe`, `setTimeout` and
-  `URL` are undefined — use `page.waitForTimeout` and string ops.
+- Live test browser: launch with `pnpm browser:live <target-url>`
+  (`scripts/launch-test-browser.mjs`).
+  A target URL is mandatory. It runs `pnpm build`, loads `.output/chrome-mv3`,
+  writes a per-environment `.temp/browser-mcp.config.json` (drops
+  `executablePath`), and drives ONLY the `npm:@playwright/mcp@latest` managed
+  Chromium through the Node-backed launcher (`npx -y @playwright/mcp@latest`
+  under the hood) over a single launcher-owned stdio client — never the OS
+  Chrome. The
+  launcher exposes a same-session control channel on its shell `shellId`; when
+  the host environment supports writing to that running shell, use `state`,
+  `exit-preview`, `observe`, `stop-observe`, and `help` there to
+  inspect/control the bound popup and target page. Otherwise rely on the
+  auto-enabled observation output plus `chromium.connectOverCDP(...)` against
+  `http://127.0.0.1:9222` for active inspection/control of the already-open page
+  and extension popup. Do not start a second MCP client/server for the same
+  `.mcp-browser-profile`. The committed `.vscode/mcp.json`, `.mcp.json`, and
+  `.vscode/browser-mcp.config.json` are intentionally placeholdered
+  (`__UNFLUFFIFY_REPO_ROOT__`, `__CHROMIUM_EXECUTABLE_PATH__`) and
+  non-launchable. Unpacked extension id is deterministic: SHA-256 of the
+  absolute load path, first 16 bytes, each nibble mapped `0..15 -> 'a'..'p'`.
+  Inside `browser_run_code_unsafe`, `setTimeout` and `URL` are undefined — use
+  `page.waitForTimeout` and string ops.
 - Always-on workflow guardrails live in
   `.github/instructions/agent-workflow-guardrails.instructions.md`. Future
   agents should read the knowledge base, relevant instructions/skills, active
@@ -38,10 +41,96 @@
 
 ## Testing
 
-- Use Deno as the primary test/build toolchain: `deno task check`,
-  `deno task build:release`, and `deno task test`.
-- Keep `deno task test:node` as an optional compatibility fallback while
-  migration-related diagnostics are needed.
+- Use pnpm/WXT as the primary release/CI toolchain: `pnpm lint`, `pnpm check`,
+  `pnpm test`, `pnpm build`, `pnpm zip`, and `pnpm verify`.
+- The shipped extension build, packaging flow, live-browser launcher, and
+  orchestration CLIs are now pnpm/Node-based and WXT-native. The repository no
+  longer depends on Deno for CI, packaging, browser launch, or orchestration.
+- All automated tests now live under `tests/`. The old `vitest-tests/` split and
+  dedicated Deno runtime shim files are gone.
+
+## WXT migration facts
+
+- The shipped WXT source tree now lives under `src/`: runtime modules in
+  `src/background`, `src/common`, `src/content`, `src/offscreen`, and
+  `src/popup`; entrypoints in `src/entrypoints`; shared types in `src/types`;
+  stable public assets in `src/public`.
+- WXT treats `src/entrypoints/popup/index.html` as a special popup entrypoint
+  and auto-generates `action.default_popup`. Unfluffify keeps the manifest
+  contract entirely in `wxt.config.ts` (version from `package.json`); there is
+  no root `manifest.json`. The generated manifest still needs its `action`
+  block restored to the source contract before shipping.
+- WXT emits content-script bundles under `content-scripts/<name>.js`. After C5,
+  Unfluffify's source manifest and manual injection paths use those native WXT
+  output paths directly instead of materializing root alias files.
+- C6 browser polyfill adoption starts from `common/browser.ts`, which is now the
+  runtime seam for browser-compatible extension APIs. Shared one-shot messaging,
+  bus transports, and touched type positions should import `browser` /
+  `Browser.*` from that seam instead of reaching for raw `chrome.*` directly.
+- Promise-capable callers should use the exported `common/browser.ts` proxy or
+  its `callBrowserApi` / `callBrowserApiVoid` helpers. That seam now normalizes
+  promise-only `globalThis.browser` hosts and callback-style `globalThis.chrome`
+  hosts so migrated runtime code does not assume a single async convention.
+- The WXT build must also copy stable manifest-named public assets into the
+  output root: `assets/materialdesignicons-webfont.woff2`,
+  `cursors/exclude.svg`, `cursors/include.svg`, and the default icon set under
+  `icons/default/`. WXT still emits hashed CSS/font assets for the popup bundle,
+  but the manifest, cursor `getURL(...)` calls, and package staging contract
+  depend on these stable output paths existing alongside the hashed assets.
+- Do not import the legacy browser-source entry roots directly from WXT
+  entrypoint definition files. WXT imports those files in Node during
+  prepare/build, which drags browser code into the WXT/Node typecheck and
+  reintroduces Node-vs-DOM timer conflicts. Runtime-load mirrored built JS from
+  the output tree instead.
+- Once a WXT entrypoint starts importing a real browser runtime graph directly
+  (for the native-bundling cutover), keep the WXT typecheck split between
+  **browser entrypoints** and **Node config files**. In this repo that means
+  `tsconfig.wxt.json` should stay browser-typed (`chrome`, DOM/WebWorker libs)
+  for `src/entrypoints/**/*.ts`, while `wxt.config.ts` / `vitest.config.ts`
+  live in a separate Node-typed project (`tsconfig.wxt-node.json`). Mixing Node
+  globals into the entrypoint graph reintroduces timer-signature conflicts in
+  browser code such as `src/common/page-motion-freeze-control.ts`.
+- When the popup runtime is imported into the WXT browser entrypoint graph, do
+  not type shared timer helpers against bare global `setTimeout` /
+  `setInterval` return types. In this repo those can drift to Node `Timeout`
+  under mixed tooling. Popup/browser helpers should use browser-owned timer
+  surfaces (`Window["setTimeout"]`, `Window["setInterval"]`, or an explicit
+  `WindowOrWorkerGlobalScope` timer API) so popup state fields, spinner
+  watchdogs, and async-message timeouts remain compatible with the WXT browser
+  typecheck.
+- The live browser launcher no longer imports `chrome.runtime.getURL("popup/ui.js")`
+  from the built extension. Popup live-debug inspection now reads
+  `window.__UNFLUFFIFY_POPUP_DEBUG__.getViewState()` from the running popup page
+  so the build can stay WXT-native without mirroring the old popup module tree.
+- `scripts/package-extension.mjs` must expand wildcard manifest
+  `web_accessible_resources` entries (currently `cursors/*.svg`) when staging
+  the release zip. The bundled content script references those cursor assets via
+  runtime `getURL(...)`, so only reading literal quoted JS imports is not enough
+  to produce a complete release package.
+- Even after the content entrypoint native-bundles `content-main.ts`, the raw
+  runtime message handshake `chrome.tabs.sendMessage(tabId, { type:
+  "activateContentMain" })` must keep returning `{ ok: true, initialized: true
+  }`. Background bootstrap (`ensureContentMainForTab`) still depends on that
+  legacy reply contract while later phases keep the old retry/injection path
+  alive.
+- `common/page-motion-freeze-control.ts` and
+  `common/page-motion-freeze-bridge.ts` are a locked pair: the control function
+  body from `const STATE_KEY = "__unfluffifyPageMotionFreezeState";` through the
+  final `return buildResult();` must stay byte-identical modulo stripped
+  `@ts-` comments, and the bridge source is `eval`'d as plain JavaScript in
+  tests. Any typing needed for the module copy must live **before** the
+  `STATE_KEY` marker or outside that shared body, otherwise parity/eval tests
+  fail.
+- Runtime suppression tracking is now down to that locked page-motion pair only:
+  `tests/fixtures/ts-suppression-budget.json` should list just
+  `src/common/page-motion-freeze-bridge.ts` and
+  `src/common/page-motion-freeze-control.ts` as the intentional exempt floor.
+- Release packaging now stages from the synced WXT output at
+  `.output/chrome-mv3`. `pnpm verify` runs the pnpm lint/check/test pipeline,
+  rebuilds via `pnpm build`, and then runs the generated-manifest permission
+  test directly. The release workflow uses `pnpm zip` for a synced
+  `.output/chrome-mv3` archive, then `scripts/package-extension.mjs` to preserve the stable
+  `extension-latest` / `Unfluffify-latest.zip` alias semantics.
 
 ## Content script lifecycle
 
@@ -56,7 +145,7 @@
   injected into the page world and must remain web-accessible.
   `common/page-motion-freeze-control.js` is the opposite
   case: it runs via `chrome.scripting.executeScript({ func })` (serialized), so
-  it must NOT be web-accessible. `tests/manifest-permissions.test.js` now
+  it must NOT be web-accessible. `tests/manifest-permissions.test.ts` now
   asserts every literal `getURL("…")` injected resource is web-accessible.
 
 ## Current Architecture Decisions
@@ -67,24 +156,64 @@
 - Earlier storage-access work centralized Chrome storage access through domain
   stores instead of raw scattered `chrome.storage` or `utils.storage*` calls.
 - Chrome storage access is now restricted to approved storage/domain modules
-  guarded by `tests/storage-access-boundary.test.js`; background, popup, and
+  guarded by `tests/storage-access-boundary.test.ts`; background, popup, and
   content production paths should call domain helpers rather than direct
   `chrome.storage` or `utils.storage*` wrappers. Page-local `localStorage` /
   `sessionStorage` usage is tracked separately from this Chrome storage rule.
-- Earlier world-decomposition work is complete. Content follow-up Tracks D/E are
-  complete, Track F is complete through F24, and the high-risk plan is complete
-  through G5. The active post-G5 work is Track H in
-  `.copilot/content-main-followup-refactor-plan.md`: extract the legacy
-  plain-message runtime router, the support-page runtime-message subgroup, and
-  the lazy handler/client service registry from `content-main.js` while keeping
-  popup/background plain runtime message callsites unchanged. Hard rules
-  remain: never edit `content/core.js` or locked marking/silent-highlight/
-  visibility/reconciliation logic without a new high-risk plan; every new
-  imported `content/*` module must be added to `web_accessible_resources` with
-  `tests/manifest-permissions.test.js` green; live validation is required for
-  core unflagged behavior when automated validation is not enough, while
-  flag-disabled property-lock follow-ups may defer live
-  validation until those features are prioritized.
+- Earlier world-decomposition work is complete. Content follow-up Tracks D/E,
+  the mechanical Track F slices, and the high-risk G0-G5 plan are historical
+  work on this branch. Track H is complete through H3 on `feat/wxt-port-plan`
+  and remains paused pending a new post-H3 review plan. Hard rules remain:
+  never edit `src/content/core.ts` or locked
+  marking/silent-highlight/visibility/reconciliation logic without a new
+  approved plan; every new `content/*` module must be added to
+  `web_accessible_resources` with `tests/manifest-permissions.test.ts` green;
+  live validation is required for core unflagged behavior when automated
+  validation is not enough, while flag-disabled property-lock follow-ups may
+  defer live validation until those features are prioritized.
+- Part C native WXT runtime adoption is complete on `feat/wxt-port-plan`. The
+  runtime is now genuinely WXT-native end to end: WXT bundles the real
+  background, popup, content, offscreen, and MAIN-world bridge graphs; the
+  esbuild build, `legacy/` mirror, and standalone sync bridge are gone; `pnpm
+  build` is pure `wxt build`; the source manifest uses native
+  `content-scripts/*` paths; stable public assets are restored through WXT
+  hooks; and the only remaining manifest override is restoring the source
+  `action` block to omit `default_popup`.
+- C6 browser adoption is complete. The repo now has a dedicated
+  `common/browser.ts` seam; shared async messaging, bus transports,
+  popup/offscreen/content runtime listeners, popup active-tab fallback lookup,
+  popup render-mode tab-load waiters, content one-shot sends, property-lock
+  port connect/background port wiring, and touched sender/type positions route
+  through promise-based browser APIs via that seam. Keep
+  `tests/browser-polyfill-boundary.test.ts` as the guard for the intentionally
+  remaining raw `chrome.*` surfaces.
+- C7 storage adoption now routes `common/storage-core.ts` through
+  `wxt/utils/storage` for real extension hosts while preserving the legacy
+  callback-style contract for Node/test hosts and existing callers. Keep the
+  public `storageGet` / `storageSet` / `storageRemove` / `storageClear` /
+  `addStorageChangeListener` surface unchanged, keep keys/areas identical, and
+  route settings-cache invalidation through `addSyncStorageChangeListener`
+  instead of direct `chrome.storage.onChanged` usage.
+- C8 one-shot messaging adoption uses `@webext-core/messaging` only for
+  **tab-targeted** one-shot delivery (`tabs.sendMessage` paths into content).
+  In live Chromium MV3, popup/content -> background `runtime.sendMessage`
+  requests wrapped in the package's `{ id, type, data, timestamp }` envelope did
+  not reach the background worker at all, even though the equivalent raw request
+  envelopes did. Keep popup/content -> background one-shot requests and bus
+  sends on the repo's existing raw runtime-message shape; keep the content-side
+  runtime listeners able to unwrap `uf-bus/1` / `uf-runtime-request/1` package
+  envelopes so background -> content one-shot delivery can still use the package
+  where it works.
+- C9 closeout confirmed the final Part C gate: `pnpm verify` is green, and the
+  Bonliva live popup regression still passes the render-mode
+  "Without JavaScript" flow by entering "Starting render-mode inspection"
+  instead of the prior "No response" failure.
+- `renderMode.runInspection` is served through the background tab-operation
+  runner, so the live popup/background bus reply is the operation envelope
+  (`{ ok, kind, ..., result }`), not just the inner inspection payload. Popup
+  callers must unwrap `result`, and keeping the render-mode bus handlers
+  registered before later popup-state/spinner bootstrap avoids live MV3 startup
+  gaps where those requests are missing while other bus handlers already work.
 
 ## Popup Preview Exit Contract
 
@@ -99,13 +228,12 @@
   - Show Content List preview is read-only, and exiting it must be
     state-neutral: restore the exact pre-preview marking state after at most a
     brief restore-pending bridge
-- Known preview-exit pitfall: the current bug source is the split close
-  protocol between the immediate `TAB_CLOSE_AI_PREVIEW` response and the later
-  async `aiPreviewClosed` notification. Future fix work must make
-  popup-initiated preview close restore from an authoritative close payload
-  synchronously while keeping the async notification as compatibility backup,
-  and must preserve the authoritative draft snapshot instead of re-probing a
-  transient re-derived draft during preview exit.
+- The preview-exit fix on `feat/wxt-port-plan` now captures an authoritative
+  popup-owned marking-session snapshot before preview opens, restores that
+  snapshot synchronously on popup-initiated exit, clears it on every finalized
+  exit path, and advances `previewRestoreAppliedToken` so the later async
+  `aiPreviewClosed` notification remains a compatibility backup instead of
+  re-deriving over the restored state.
 
 ## AI Submission Rules
 
@@ -153,7 +281,7 @@
 - Shift parent selection may climb wrapper chains to cohesive content boundaries, but must reject shallow generic body-level page shells with broad viewport footprint or multiple page landmarks.
 - Marking overlays watch style mutations so dynamic opacity, visibility, and movement changes trigger repositioning.
 - The marking mutation observer re-runs `hideConsentElements()` on any non-overlay `childList` batch so late-injected consent widgets are hidden during active marking. This is idempotent and loop-safe (the consent bypass `<style>` is appended to `document.head`, which the body-scoped observer does not watch). It is currently un-debounced (unlike the adjacent `scheduleRender`); fold it into a throttled path if a highly mutating page shows cost during marking.
-- `REMOVABLE_ELEMENT_SELECTORS` (the consent/overlay matcher) is a HIGH-PRECISION allowlist, not an exhaustive one. It covers cookie/consent/gdpr, modal/popup/dialog/alertdialog/`aria-modal`, native `dialog[open]`, overlay/backdrop, interstitial, and newsletter/subscribe signals across class/id/role/aria-label. Do NOT add generic content words (`banner`, `notice`, `toast`, `lightbox`, `paywall`, the `cmp` substring, `role=banner`) — they match real headers/promos/galleries/AEM components and would hide actual page content. Every non-element entry keeps the `:not(body):not(html)` guard. Any future addition must be validated against the live AI-submission smoke (bonliva 117 / prowork 76 / vitec-pyramid 57 included-visible) so included-content counts do not drop. `tests/consent-selector-precision.test.js` locks the safe-include / forbidden-broad contract.
+- `REMOVABLE_ELEMENT_SELECTORS` (the consent/overlay matcher) is a HIGH-PRECISION allowlist, not an exhaustive one. It covers cookie/consent/gdpr, modal/popup/dialog/alertdialog/`aria-modal`, native `dialog[open]`, overlay/backdrop, interstitial, and newsletter/subscribe signals across class/id/role/aria-label. Do NOT add generic content words (`banner`, `notice`, `toast`, `lightbox`, `paywall`, the `cmp` substring, `role=banner`) — they match real headers/promos/galleries/AEM components and would hide actual page content. Every non-element entry keeps the `:not(body):not(html)` guard. Any future addition must be validated against the live AI-submission smoke (bonliva 117 / prowork 76 / vitec-pyramid 57 included-visible) so included-content counts do not drop. `tests/consent-selector-precision.test.ts` locks the safe-include / forbidden-broad contract.
 - Extension-owned UI injected into the page (toasts, banners, notices, AI popover, motion-pause indicator) uses the shared `EXTENSION_UI_FONT_STACK` constant (mirrors the popup brand `--font-sans` = Inter) rather than ad-hoc per-element families. The Material Design Icons glyph font is intentionally separate.
 - Page motion pause is a shared marking/silent-highlighting lifecycle source. Marking/reveal warmup first hides consent chrome before inspection styling or any scroll, then shows a page-inspection spinner, blocks page/content-overlay input, performs the historical max-scroll reveal walk for lazy content, returns to the reserved scroll position, freezes, and renders overlays. Matching base-URL pages stay frozen even before selector overlays exist; the pause uses broad CSS/Web Animations/SVG/media/style-lock coverage plus a page-world timer/rAF gate, normalizes layout-present scroll/viewport/attribute-driven reveal candidates such as Webflow `data-w-id` blocks to visible posture, shows an Unfluffify-scoped Material Design Icons snowflake/code indicator without injecting global `.mdi` page styles, excludes extension-owned UI, keeps internal marking scheduling on extension-owned timers/rAF, and strips all freeze mechanics from snapshots.
 - Opening Unfluffify on a supported page enables mobile simulation by default for a fresh tab session. A user-disabled mobile simulation state is a per-session choice and must not be auto-enabled again until the tab session state is cleared, except that active marking sessions force mobile simulation back on for the editor tab until marking is disabled.

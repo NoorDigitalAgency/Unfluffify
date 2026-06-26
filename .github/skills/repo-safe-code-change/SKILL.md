@@ -93,8 +93,8 @@ Treat these areas as compatibility contracts:
 - **Storage:** Use approved storage/domain modules. Do not add scattered
   `chrome.storage` or `utils.storage*` access outside allowed boundaries.
 - **Browser live validation:** Follow the `launch-test-browser` skill — run
-  `deno task browser:live <target-url>` (the committed launcher) to build
-  `dist/extension-dev`, write the per-environment `.temp/browser-mcp.config.json`,
+  `pnpm browser:live <target-url>` (the committed launcher) to build and load
+  `.output/chrome-mv3`, write the per-environment `.temp/browser-mcp.config.json`,
   and launch only the `playwright-local` (`npm:@playwright/mcp@latest`) managed
   Chromium bound to `.mcp-browser-profile`. A target page URL is mandatory; never
   touch the OS Chrome. Reload the unpacked extension/service worker after
@@ -102,15 +102,16 @@ Treat these areas as compatibility contracts:
 
 ## Validation defaults
 
-For code changes, use the existing Deno workflow:
+For code changes, use the current pnpm workflow:
 
 ```bash
-deno task check
-deno task test
-deno task build:release
+pnpm lint
+pnpm check
+pnpm test
+pnpm build
 ```
 
-Use `deno task build:dev` when preparing `dist/extension-dev` for live browser
+Use `pnpm build` when preparing `.output/chrome-mv3` for live browser
 validation.
 
 Run focused tests first when iterating, then the broader validation before

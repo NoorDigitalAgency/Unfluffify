@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno run --allow-read --allow-write --allow-env --allow-net
+#!/usr/bin/env node
 
 function parseArgs(argv) {
   const result = {};
@@ -30,7 +30,7 @@ function waitForOpen(socket) {
 }
 
 if (import.meta.main) {
-  const args = parseArgs(Deno.args);
+  const args = parseArgs(process.argv.slice(2));
   const host = typeof args.host === "string" ? args.host : "127.0.0.1";
   const port = Number.isFinite(Number(args.port)) ? Number(args.port) : 8765;
   const role = args.role === "follower" ? "follower" : "director";

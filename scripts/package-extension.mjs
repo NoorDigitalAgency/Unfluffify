@@ -1,7 +1,10 @@
-import { dirname, extname, fromFileUrl, join, normalize, resolve } from "@std/path";
+import { copyFile, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { dirname, extname, join, normalize, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const SCRIPT_DIR = dirname(fromFileUrl(import.meta.url));
+const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(SCRIPT_DIR, "..");
+const DEFAULT_SOURCE_ROOT = join(REPO_ROOT, ".output", "chrome-mv3");
 let SOURCE_ROOT = REPO_ROOT;
 const KNOWN_ASSET_EXTENSIONS = new Set([
   ".css",
@@ -123,26 +126,86 @@ function resolveAssetSpecifier(fromRelativePath, specifier) {
     return "";
   }
 
-  const sanitizedSpecifier = stripQueryAndHash(specifier).replace(/^\//, "");
-  const fromDirectory = fromRelativePath ? dirname(fromRelativePath) : ".";
-  const candidate = sanitizedSpecifier.startsWith("./") || sanitizedSpecifier.startsWith("../")
-    ? normalize(join(fromDirectory, sanitizedSpecifier))
-    : normalize(sanitizedSpecifier);
-
-  return normalizeRelativePath(candidate);
+  const sanitizedSpecifier = stripQueryAndHash(specifier);
+  const basePath = fromRelativePath
+    ? `https://extension.invalid/${normalizeRelativePath(fromRelativePath)}`
+    : "https://extension.invalid/";
+  const resolvedPath = new URL(sanitizedSpecifier, basePath).pathname.replace(/^\/+/, "");
+  return normalizeRelativePath(resolvedPath);
 }
 
 async function isFile(filePath) {
   try {
-    const stats = await Deno.stat(filePath);
-    return stats.isFile;
+    const stats = await stat(filePath);
+    return stats.isFile();
   } catch {
     return false;
   }
 }
 
+async function expandManifestResource(resourcePath) {
+  if (typeof resourcePath !== "string") {
+    return [];
+  }
+
+  if (!resourcePath.includes("*")) {
+    const normalized = normalizeRelativePath(resourcePath);
+    return normalized ? [normalized] : [];
+  }
+
+  const wildcardIndex = resourcePath.indexOf("*");
+  const slashIndex = resourcePath.lastIndexOf("/", wildcardIndex);
+  if (slashIndex < 0) {
+    return [];
+  }
+
+  const directory = normalizeRelativePath(resourcePath.slice(0, slashIndex));
+  if (!directory) {
+    return [];
+  }
+
+  const prefix = resourcePath.slice(slashIndex + 1, wildcardIndex);
+  const suffix = resourcePath.slice(wildcardIndex + 1);
+  const directoryPath = join(SOURCE_ROOT, directory);
+  const matches = [];
+
+  try {
+    for (const entry of await readdir(directoryPath, { withFileTypes: true })) {
+      if (!entry.isFile()) {
+        continue;
+      }
+      if (prefix && !entry.name.startsWith(prefix)) {
+        continue;
+      }
+      if (suffix && !entry.name.endsWith(suffix)) {
+        continue;
+      }
+      matches.push(normalizeRelativePath(join(directory, entry.name)));
+    }
+  } catch {
+    return [];
+  }
+
+  return matches.filter(Boolean);
+}
+
 async function collectManifestEntryPoints(manifest) {
   const entryPoints = new Set(["manifest.json"]);
+  for (const extensionPage of ["popup.html", "offscreen.html"]) {
+    const absolutePath = join(SOURCE_ROOT, extensionPage);
+    if (await isFile(absolutePath)) {
+      entryPoints.add(extensionPage);
+    }
+  }
+  // Static extension-page assets referenced from rendered DOM (e.g. the popup
+  // header `<img src="logo.png">`) are not reachable through JS/CSS import
+  // scanning, so stage them explicitly when present in the build output.
+  for (const staticAsset of ["logo.png"]) {
+    const absolutePath = join(SOURCE_ROOT, staticAsset);
+    if (await isFile(absolutePath)) {
+      entryPoints.add(staticAsset);
+    }
+  }
 
   if (manifest && manifest.background && typeof manifest.background.service_worker === "string") {
     entryPoints.add(normalizeRelativePath(manifest.background.service_worker));
@@ -185,10 +248,13 @@ async function collectManifestEntryPoints(manifest) {
 
   for (const resourceGroup of Array.isArray(manifest.web_accessible_resources) ? manifest.web_accessible_resources : []) {
     for (const resourcePath of Array.isArray(resourceGroup && resourceGroup.resources) ? resourceGroup.resources : []) {
-      if (typeof resourcePath !== "string" || resourcePath.includes("*")) {
+      if (typeof resourcePath !== "string") {
         continue;
       }
-      entryPoints.add(normalizeRelativePath(resourcePath));
+      const expandedPaths = await expandManifestResource(resourcePath);
+      for (const expandedPath of expandedPaths) {
+        entryPoints.add(expandedPath);
+      }
     }
   }
 
@@ -226,7 +292,7 @@ async function collectDependencies(relativePath, collectorState) {
     return;
   }
 
-  const source = await Deno.readTextFile(absolutePath);
+  const source = await readFile(absolutePath, "utf8");
   let matches = [];
   if (JS_EXTENSIONS.has(extension)) {
     matches = collectJsAssetSpecifiers(source, normalizedPath);
@@ -306,15 +372,15 @@ function collectCssAssetSpecifiers(source, fromRelativePath) {
 }
 
 async function stageCollectedFiles(collectedFiles, stagingDirectory) {
-  await Deno.remove(stagingDirectory, { recursive: true }).catch(() => {});
-  await Deno.mkdir(stagingDirectory, { recursive: true });
+  await rm(stagingDirectory, { recursive: true, force: true });
+  await mkdir(stagingDirectory, { recursive: true });
 
   const sortedFiles = [...collectedFiles].sort((left, right) => left.localeCompare(right));
   for (const relativePath of sortedFiles) {
     const sourcePath = join(SOURCE_ROOT, relativePath);
     const destinationPath = join(stagingDirectory, relativePath);
-    await Deno.mkdir(dirname(destinationPath), { recursive: true });
-    await Deno.copyFile(sourcePath, destinationPath);
+    await mkdir(dirname(destinationPath), { recursive: true });
+    await copyFile(sourcePath, destinationPath);
   }
 
   return sortedFiles;
@@ -332,10 +398,10 @@ async function updateStagedManifestReleaseVersion(stagingDirectory, options = {}
   }
 
   const manifestPath = join(stagingDirectory, "manifest.json");
-  const manifest = JSON.parse(await Deno.readTextFile(manifestPath));
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
   const releaseDisplayVersion = `${originalVersion}.${buildVersion}`;
   manifest.version_name = releaseDisplayVersion;
-  await Deno.writeTextFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
   return releaseDisplayVersion;
 }
 
@@ -344,19 +410,19 @@ async function writeMetadataFile(metadataFilePath, metadata) {
     return;
   }
 
-  await Deno.mkdir(dirname(metadataFilePath), { recursive: true });
-  await Deno.writeTextFile(metadataFilePath, `${JSON.stringify(metadata, null, 2)}\n`);
+  await mkdir(dirname(metadataFilePath), { recursive: true });
+  await writeFile(metadataFilePath, `${JSON.stringify(metadata, null, 2)}\n`);
 }
 
 async function main() {
-  const args = parseArgs(Deno.args);
+  const args = parseArgs(process.argv.slice(2));
   const sourceRoot = typeof args["source-root"] === "string" && args["source-root"].trim()
     ? resolve(REPO_ROOT, args["source-root"])
-    : REPO_ROOT;
+    : DEFAULT_SOURCE_ROOT;
   SOURCE_ROOT = sourceRoot;
 
   const manifestPath = join(SOURCE_ROOT, "manifest.json");
-  const manifest = JSON.parse(await Deno.readTextFile(manifestPath));
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
   const originalVersion = typeof manifest.version === "string" && manifest.version.trim()
     ? manifest.version.trim()
     : "0.0.0";
@@ -413,5 +479,5 @@ async function main() {
 
 main().catch((error) => {
   console.error(error instanceof Error ? error.message : String(error));
-  Deno.exit(1);
+  process.exit(1);
 });

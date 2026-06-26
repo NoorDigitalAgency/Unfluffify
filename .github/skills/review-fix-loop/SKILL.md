@@ -60,15 +60,16 @@ The task is complete only when:
    Preferred order for this repo:
 
    ```bash
-   deno task check
-   deno task test
-   deno task build:release
+   pnpm lint
+   pnpm check
+   pnpm test
+   pnpm build
    ```
 
    Use narrower commands only when the change is documentation-only or when a
    full command is clearly unrelated. If browser/live validation is required,
-   use `dist/extension-dev` and reload the extension service worker before
-   observing behavior.
+   use `pnpm browser:live <target-url>` / `.output/chrome-mv3` and reload the
+   extension service worker before observing behavior.
 
 6. Commit with the repository's existing message style.
 

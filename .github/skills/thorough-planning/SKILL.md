@@ -96,13 +96,14 @@ Write plans in this structure:
    appropriate. For this repo, default validation is:
 
    ```bash
-   deno task check
-   deno task test
-   deno task build:release
+   pnpm lint
+   pnpm check
+   pnpm test
+   pnpm build
    ```
 
-   Add `deno task build:dev` when the implementation needs live browser
-   validation against `dist/extension-dev`.
+   Add `pnpm build` / `pnpm browser:live <target-url>` when the implementation
+   needs live browser validation against `.output/chrome-mv3`.
 
 8. **Regression risks**
 

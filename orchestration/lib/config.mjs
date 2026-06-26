@@ -1,4 +1,5 @@
-import { isAbsolute, resolve } from "@std/path";
+import { readFile } from "node:fs/promises";
+import { isAbsolute, resolve } from "node:path";
 import { parseJsonc } from "./jsonc.mjs";
 
 const DEFAULT_CONFIG_PATHS = [
@@ -7,6 +8,7 @@ const DEFAULT_CONFIG_PATHS = [
 ];
 const DEFAULT_PROFILE_DIR = "orchestration/profiles/director";
 const DEFAULT_TEST_PROPERTY_URL = "https://www.bonliva.no/";
+const DEFAULT_EXTENSION_PATH = ".output/chrome-mv3";
 
 export function parseCliArgs(argv = []) {
   const result = {};
@@ -135,13 +137,13 @@ function resolveMaybeRelativePath(value, cwd) {
 async function readJsoncIfExists(filePaths) {
   for (const filePath of filePaths) {
     try {
-      const raw = await Deno.readTextFile(filePath);
+      const raw = await readFile(filePath, "utf8");
       return {
         configPath: filePath,
         config: parseJsonc(raw, filePath)
       };
     } catch (error) {
-      if (error instanceof Deno.errors.NotFound) {
+      if (error && typeof error === "object" && error.code === "ENOENT") {
         continue;
       }
       throw error;
@@ -151,8 +153,8 @@ async function readJsoncIfExists(filePaths) {
 }
 
 export async function loadOrchestrationConfig(options = {}) {
-  const cwd = options.cwd || Deno.cwd();
-  const env = options.env || Deno.env.toObject();
+  const cwd = options.cwd || process.cwd();
+  const env = options.env || process.env;
   const cli = options.cli || parseCliArgs(options.argv || []);
   const configuredPath =
     (typeof cli.config === "string" ? cli.config : "") ||
@@ -205,7 +207,10 @@ export async function loadOrchestrationConfig(options = {}) {
   const account = normalizeString(merged.account) || side;
   const busHost = normalizeString(merged.busHost) || "127.0.0.1";
   const busPort = normalizePort(merged.busPort);
-  const extensionPath = resolveMaybeRelativePath(merged.extensionPath || ".", cwd);
+  const extensionPath = resolveMaybeRelativePath(
+    merged.extensionPath || DEFAULT_EXTENSION_PATH,
+    cwd,
+  );
   const profileDir = resolveMaybeRelativePath(merged.profileDir || DEFAULT_PROFILE_DIR, cwd);
   const mediaModeFromLegacy = normalizeBooleanLike(merged.useFakeMedia);
   const mediaMode = deriveMediaMode(merged.mediaMode, mediaModeFromLegacy);

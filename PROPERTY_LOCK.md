@@ -130,10 +130,10 @@ interruptions recover automatically.
 
 The focused guard tests are:
 
-- `tests/property-lock.test.js`
-- `tests/property-lock-background.test.js`
-- `tests/property-lock-render-mode.test.js`
-- `tests/utilities-runtime.test.js`
+- `tests/property-lock.test.ts`
+- `tests/property-lock-background.test.ts`
+- `tests/property-lock-render-mode.test.ts`
+- `tests/utilities-runtime.test.ts`
 
 They cover stable client IDs, same-user passive locks, heartbeat/release timing,
 navigation grace, cloned-tab client rotation, command routing,

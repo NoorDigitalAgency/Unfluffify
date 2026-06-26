@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno run --allow-read --allow-write --allow-env --allow-run --allow-net --allow-sys
+#!/usr/bin/env node
 import {
   createRpcNotification,
   createRpcRequest,
@@ -196,7 +196,7 @@ export function createRpcClient(options = {}) {
 }
 
 async function main() {
-  const args = parseArgs(Deno.args);
+  const args = parseArgs(process.argv.slice(2));
   const url = typeof args.url === "string" ? args.url : "ws://127.0.0.1:9876";
   const method = typeof args.method === "string" ? args.method : "system.ping";
   const token = typeof args.token === "string" ? args.token : "";
@@ -213,6 +213,6 @@ async function main() {
 if (import.meta.main) {
   main().catch((error) => {
     console.error(error);
-    Deno.exit(1);
+    process.exit(1);
   });
 }

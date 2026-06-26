@@ -1,11 +1,10 @@
 {
   "mcpServers": {
     "playwright-local": {
-      "command": "deno",
+      "command": "npx",
       "args": [
-        "run",
-        "-A",
-        "npm:@playwright/mcp@latest",
+        "-y",
+        "@playwright/mcp@latest",
         "--user-data-dir=__UNFLUFFIFY_REPO_ROOT__/.mcp-browser-profile",
         "--config=__UNFLUFFIFY_REPO_ROOT__/.vscode/browser-mcp.config.json"
       ]

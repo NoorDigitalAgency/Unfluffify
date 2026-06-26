@@ -1,5 +1,5 @@
-#!/usr/bin/env -S deno run --allow-read --allow-write --allow-env --allow-run --allow-net --allow-sys
-import { basename } from "@std/path";
+#!/usr/bin/env node
+import { basename } from "node:path";
 import { loadOrchestrationConfig, parseCliArgs } from "./lib/config.mjs";
 import {
   loadOrchestrationSecrets,
@@ -109,9 +109,7 @@ async function setConfigurationField(page, { input, set, edit }, value) {
   }, input, { timeout: 10000 }).catch(() => {});
 }
 
-// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 async function readGlobalSettings(worker) {
-  // deno-lint-ignore require-await -- preserves existing promise/callback contract.
   return worker.evaluate(async () => chrome.storage.sync.get([
     "globalConfigEndpoint",
     "globalEndpoint",
@@ -126,7 +124,6 @@ export async function clearStoredAuthToken(worker) {
   });
 }
 
-// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 async function readAuthStatus(popup) {
   if (!popup) {
     return null;
@@ -180,7 +177,7 @@ export async function seedAuthProfile(options = {}) {
   const secretsResult = options.secrets
     ? { secrets: options.secrets, secretsPath: "" }
     : await loadOrchestrationSecrets({
-        cwd: options.cwd || Deno.cwd(),
+        cwd: options.cwd || process.cwd(),
         secretsPath: options.secretsPath
       });
   const secrets = secretsResult.secrets;
@@ -241,7 +238,7 @@ export async function seedAuthProfile(options = {}) {
 }
 
 async function main() {
-  const argv = Deno.args;
+  const argv = process.argv.slice(2);
   const cli = parseCliArgs(argv);
   const result = await seedAuthProfile({
     configOptions: { argv, requireConfig: cli["require-config"] === true },
@@ -253,6 +250,6 @@ async function main() {
 if (import.meta.main) {
   main().catch((error) => {
     console.error(error.message || error);
-    Deno.exit(1);
+    process.exit(1);
   });
 }

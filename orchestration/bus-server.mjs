@@ -1,5 +1,8 @@
-#!/usr/bin/env -S deno run --allow-read --allow-write --allow-env --allow-net
-import { join, resolve } from "@std/path";
+#!/usr/bin/env node
+import http from "node:http";
+import { mkdir, writeFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
+import { WebSocketServer } from "ws";
 import { WebSocketPeer } from "./lib/websocket.mjs";
 import {
   BUS_ROLES,
@@ -57,18 +60,19 @@ export function createScenarioBusServer(options = {}) {
   const clock = options.clock || null;
 
   let listener = null;
+  let socketServer = null;
   let listeningUrl = "";
   let writeQueue = Promise.resolve();
 
   async function ensureRunDir() {
-    await Deno.mkdir(runDir, { recursive: true });
+    await mkdir(runDir, { recursive: true });
   }
 
   function appendTranscript(entry) {
     writeQueue = writeQueue
       .then(async () => {
         await ensureRunDir();
-        await Deno.writeTextFile(transcriptPath, `${JSON.stringify(entry)}\n`, { append: true });
+        await writeFile(transcriptPath, `${JSON.stringify(entry)}\n`, { flag: "a" });
       })
       .catch(() => {});
     return writeQueue;
@@ -108,7 +112,7 @@ export function createScenarioBusServer(options = {}) {
   }
 
   function handleRawMessage(peer, rawValue) {
-    let parsed = null;
+    let parsed;
     try {
       parsed = JSON.parse(rawValue);
     } catch {
@@ -198,35 +202,46 @@ export function createScenarioBusServer(options = {}) {
 
   async function listen(port = DEFAULT_PORT, host = DEFAULT_HOST) {
     await ensureRunDir();
-    listener = Deno.serve({
-      hostname: host,
-      port,
-      onListen() {
-      }
-    }, handleRequest);
-    const address = listener.addr;
-    const actualHost = address.hostname === "0.0.0.0" || address.hostname === "::"
+    listener = http.createServer((request, response) => {
+      void handleRequest(request, response);
+    });
+    socketServer = new WebSocketServer({ noServer: true });
+    socketServer.on("connection", (socket) => {
+      attachPeer(socket);
+    });
+    listener.on("upgrade", (request, socket, head) => {
+      socketServer.handleUpgrade(request, socket, head, (webSocket) => {
+        socketServer.emit("connection", webSocket, request);
+      });
+    });
+    await new Promise((resolvePromise, rejectPromise) => {
+      listener.once("error", rejectPromise);
+      listener.listen({ host, port }, () => {
+        listener.off("error", rejectPromise);
+        resolvePromise();
+      });
+    });
+    const address = listener.address();
+    if (!address || typeof address === "string") {
+      throw new Error("Scenario bus listener did not expose a TCP address");
+    }
+    const boundHost = address.address;
+    const actualHost = boundHost === "0.0.0.0" || boundHost === "::"
       ? "127.0.0.1"
-      : address.hostname;
+      : boundHost;
     listeningUrl = `ws://${actualHost}:${address.port}`;
     return listeningUrl;
   }
 
-  // deno-lint-ignore require-await -- preserves existing promise/callback contract.
-  async function handleRequest(request) {
-    const url = new URL(request.url);
+  async function handleRequest(request, response) {
+    const url = new URL(request.url || "/", `http://${request.headers.host || "127.0.0.1"}`);
     if (url.pathname === "/health") {
-      return new Response(JSON.stringify({ ok: true, peers: peers.size }), {
-        status: 200,
-        headers: { "content-type": "application/json" }
-      });
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ ok: true, peers: peers.size }));
+      return;
     }
-    if (request.headers.get("upgrade")?.toLowerCase() === "websocket") {
-      const { socket, response } = Deno.upgradeWebSocket(request);
-      attachPeer(socket);
-      return response;
-    }
-    return new Response(null, { status: 404 });
+    response.writeHead(404);
+    response.end();
   }
 
   async function close() {
@@ -234,8 +249,16 @@ export function createScenarioBusServer(options = {}) {
       peer.connection.close();
     }
     peers.clear();
+    if (socketServer) {
+      await new Promise((resolvePromise) => {
+        socketServer.close(() => resolvePromise());
+      });
+      socketServer = null;
+    }
     if (listener) {
-      await listener.shutdown();
+      await new Promise((resolvePromise) => {
+        listener.close(() => resolvePromise());
+      });
       listener = null;
     }
     await writeQueue;
@@ -256,7 +279,7 @@ export function createScenarioBusServer(options = {}) {
 }
 
 async function main() {
-  const args = parseArgs(Deno.args);
+  const args = parseArgs(process.argv.slice(2));
   const host = typeof args.host === "string" ? args.host : DEFAULT_HOST;
   const port = Number.isFinite(Number(args.port)) ? Number(args.port) : DEFAULT_PORT;
   const runRoot = typeof args["run-root"] === "string" ? args["run-root"] : resolve("orchestration/runs");
@@ -267,15 +290,15 @@ async function main() {
 
   const shutdown = async () => {
     await bus.close();
-    Deno.exit(0);
+    process.exit(0);
   };
-  Deno.addSignalListener("SIGINT", shutdown);
-  Deno.addSignalListener("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
 }
 
 if (import.meta.main) {
   main().catch((error) => {
     console.error(error);
-    Deno.exit(1);
+    process.exit(1);
   });
 }

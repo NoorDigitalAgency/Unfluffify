@@ -1,3 +1,26 @@
+function toTextMessage(value) {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (value instanceof ArrayBuffer) {
+    return Buffer.from(value).toString("utf8");
+  }
+  if (ArrayBuffer.isView(value)) {
+    return Buffer.from(value.buffer, value.byteOffset, value.byteLength).toString("utf8");
+  }
+  return String(value);
+}
+
+function getSocketState(socket, fallback) {
+  if (socket && typeof socket[fallback] === "number") {
+    return socket[fallback];
+  }
+  if (typeof WebSocket !== "undefined" && typeof WebSocket[fallback] === "number") {
+    return WebSocket[fallback];
+  }
+  return fallback === "OPEN" ? 1 : 0;
+}
+
 export class WebSocketPeer {
   constructor(socket, { onMessage, onClose } = {}) {
     this.socket = socket;
@@ -5,14 +28,27 @@ export class WebSocketPeer {
     this.onMessage = typeof onMessage === "function" ? onMessage : () => {};
     this.onClose = typeof onClose === "function" ? onClose : () => {};
 
-    socket.onmessage = (event) => {
-      if (this.closed) {
-        return;
-      }
-      this.onMessage(typeof event.data === "string" ? event.data : String(event.data));
-    };
-    socket.onclose = () => this.handleClose();
-    socket.onerror = () => this.handleClose();
+    if (typeof socket.addEventListener === "function") {
+      socket.addEventListener("message", (event) => {
+        if (this.closed) {
+          return;
+        }
+        this.onMessage(toTextMessage(event.data));
+      });
+      socket.addEventListener("close", () => this.handleClose());
+      socket.addEventListener("error", () => this.handleClose());
+    } else if (typeof socket.on === "function") {
+      socket.on("message", (value) => {
+        if (this.closed) {
+          return;
+        }
+        this.onMessage(toTextMessage(value));
+      });
+      socket.on("close", () => this.handleClose());
+      socket.on("error", () => this.handleClose());
+    } else {
+      throw new Error("Unsupported WebSocket implementation");
+    }
   }
 
   sendJson(value) {
@@ -20,7 +56,7 @@ export class WebSocketPeer {
   }
 
   sendText(value) {
-    if (this.closed || this.socket.readyState !== WebSocket.OPEN) {
+    if (this.closed || this.socket.readyState !== getSocketState(this.socket, "OPEN")) {
       return false;
     }
 
@@ -38,7 +74,10 @@ export class WebSocketPeer {
     }
     this.closed = true;
     try {
-      if (this.socket.readyState === WebSocket.OPEN || this.socket.readyState === WebSocket.CONNECTING) {
+      if (
+        this.socket.readyState === getSocketState(this.socket, "OPEN") ||
+        this.socket.readyState === getSocketState(this.socket, "CONNECTING")
+      ) {
         this.socket.close();
       }
     } catch {

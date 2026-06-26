@@ -30,7 +30,7 @@ instead of re-reading and re-deriving that file.
 
 ## Do NOT use this skill for
 
-- Headless unit/integration tests (`deno task test`) — those do not need a
+- Headless unit/integration tests (`pnpm test`) — those do not need a
   visible browser.
 - Orchestration scenarios under `orchestration/profiles/*` — only use those when
   the user explicitly asks for the orchestration browser path.
@@ -46,20 +46,20 @@ URL, and do not launch until you have an explicit target page.
 ### 2. Launch with the one-command launcher
 
 Run, from the repository root, in the background so the browser stays open while
-you observe and so you can send control commands to the same shell session:
+you observe:
 
 ```
-deno task browser:live <target-url>
+pnpm browser:live <target-url>
 ```
 
-Example: `deno task browser:live https://bonliva.se`
+Example: `pnpm browser:live https://bonliva.se`
 
-That single command runs the entire proven flow (`scripts/launch-test-browser.ts`):
+That single command runs the entire proven flow (`scripts/launch-test-browser.mjs`):
 
 1. Resolves the active repo root for the current environment (no hardcoded
    machine paths).
-2. Builds `dist/extension-dev` (`deno task build:dev`). Pass `--no-build` to skip
-   the rebuild. `dist/extension-dev` is the loadable unpacked root — never the
+2. Builds `.output/chrome-mv3` (`pnpm build`). Pass `--no-build` to skip the
+   rebuild. `.output/chrome-mv3` is the loadable unpacked root — never the
    source checkout root.
 3. Writes a launchable, per-environment copy of the placeholdered config to the
    gitignored `.temp/browser-mcp.config.json` (substitutes the repo root and
@@ -95,7 +95,7 @@ will either profile-lock or leave you unable to control the existing page/popup.
 Use the launcher's stdin/stdout control commands and/or the same-browser CDP
 endpoint `http://127.0.0.1:9222`.
 
-Keep the `shellId` returned by the async `deno task browser:live ...` call. Once
+Keep the `shellId` returned by the async `pnpm browser:live ...` call. Once
 the ready banner appears, the launcher prints:
 
 ```
@@ -103,9 +103,11 @@ the ready banner appears, the launcher prints:
 [control] automatic button-state observation is enabled
 ```
 
-Use `write_bash` with the same `shellId`:
+If your host environment supports writing to the running shell session, use the
+launcher's stdin control channel with the same `shellId`:
 
-- `state` captures the bound popup's `popup/ui.js#getViewState()` button fields,
+- `state` captures the bound popup's
+  `window.__UNFLUFFIFY_POPUP_DEBUG__.getViewState()` button fields,
   the live DOM state for `#compute`, `#marking-preview`, `#page-save`,
   `#page-revert`, and `#toggle-enabled`, a target-page summary, and open page
   URLs.
@@ -116,16 +118,18 @@ Use `write_bash` with the same `shellId`:
 - `stop-observe` stops polling without closing the browser.
 - `help` prints the available commands.
 
-For button-state debugging, run `state` before the critical click, leave
-observation enabled while the user walks through the flow, and use `read_bash`
-often enough to capture every `[observe:buttons]` transition.
+For button-state debugging, run `state` before the critical click and leave
+observation enabled while the user walks through the flow. If your environment
+cannot write to the running shell session, rely on the launcher's auto-enabled
+observation output and use the CDP path below for active control.
 
 If you need direct programmatic control beyond the launcher commands, connect to
-the same browser over CDP instead of starting another MCP server:
+the same browser over CDP instead of starting another MCP server, using any
+Node environment where the `playwright` package is already available:
 
 ```bash
-deno eval --allow-net --allow-env --allow-read --allow-sys '
-const { chromium } = await import("npm:playwright");
+node --input-type=module -e '
+import { chromium } from "playwright";
 const browser = await chromium.connectOverCDP("http://127.0.0.1:9222");
 const context = browser.contexts()[0];
 const pages = context.pages();
@@ -137,8 +141,8 @@ await browser.close();
 ```
 
 Through that CDP connection you can evaluate popup state with
-`import(chrome.runtime.getURL("popup/ui.js"))`, click popup controls, observe the
-target page, and capture screenshots/logs. Close only the CDP client with
+`window.__UNFLUFFIFY_POPUP_DEBUG__.getViewState()`, click popup controls,
+observe the target page, and capture screenshots/logs. Close only the CDP client with
 `browser.close()`; stop the launcher only when the live browser should close.
 
 ### 4. Reload after every rebuild
@@ -151,22 +155,19 @@ or stale behavior still appear:
 - reload the extension on `chrome://extensions`,
 
 then wait for the new service worker before retesting. Re-running
-`deno task browser:live` from a clean stop rebuilds and reloads from scratch.
+`pnpm browser:live` from a clean stop rebuilds and reloads from scratch.
 
 ## Guardrails
 
 - **Use only the Playwright MCP browser; never touch the OS Chrome.** Operate the
-  browser exclusively through `deno task browser:live`, its launcher-owned MCP
+  browser exclusively through `pnpm browser:live`, its launcher-owned MCP
   client, and the same-session control commands. Never run the OS
   Chrome/Chromium app binary directly,
   never `open -a 'Google Chrome'`, never set `executablePath` to the OS browser,
   never automate it with AppleScript/`osascript`, and never quit, kill,
   relaunch, or otherwise interfere with the user's OS Chrome instances, windows,
   or default profile. Only stop the launcher's own managed-Chromium process.
-- Always load `dist/extension-dev` (or `dist/extension` for explicit release
-  runs), never the source checkout root — it lacks the built JS entrypoints
-  Chrome needs (`background.js`, `popup.js`, `content-loader.js`), so
-  service-worker waits and popup targeting will fail.
+- Always load `.output/chrome-mv3`, never the source checkout root.
 - Do not start a second MCP client/server for the same profile and do not
   default to `orchestration/profiles/*` Playwright flows for simple live
   observation; those are for orchestration scenarios and can fail on
@@ -175,7 +176,7 @@ then wait for the new service worker before retesting. Re-running
 ## Debugging the launcher (internals)
 
 If you must drive the MCP browser by hand to extend the flow, mirror
-`scripts/launch-test-browser.ts` and `orchestration/steps/browser.mjs`:
+`scripts/launch-test-browser.mjs` and `orchestration/steps/browser.mjs`:
 
 - The `browser_run_code_unsafe` sandbox is NOT a full Node context: `setTimeout`
   and `URL` are undefined there. Use Playwright APIs (`page.waitForTimeout`) and
@@ -189,8 +190,8 @@ If you must drive the MCP browser by hand to extend the flow, mirror
 ## Example
 
 - Right: confirm the user-instructed target page (ask if missing), then run
-  `deno task browser:live https://bonliva.se` in the background. It builds
-  `dist/extension-dev`, writes `.temp/browser-mcp.config.json`, launches the
+  `pnpm browser:live https://bonliva.se` in the background. It runs `pnpm build`,
+  writes `.temp/browser-mcp.config.json`, launches the
   `playwright-local` MCP managed Chromium with `.mcp-browser-profile`, opens the
   page in the first tab, resolves the extension id and page tabId, and opens a
   second tab `chrome-extension://<id>/popup.html?debugTabId=<pageTabId>` bound to

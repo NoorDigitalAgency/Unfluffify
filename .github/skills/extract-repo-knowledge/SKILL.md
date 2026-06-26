@@ -126,13 +126,14 @@ For any code-adjacent contract change, also run the relevant focused tests or
 full validation:
 
 ```bash
-deno task check
-deno task test
-deno task build:release
+pnpm lint
+pnpm check
+pnpm test
+pnpm build
 ```
 
-Use `deno task build:dev` only when preparing the development extension bundle
-for live browser validation.
+Use `pnpm dev` or `pnpm build` when preparing the development/live-browser
+extension bundle.
 
 ## Knowledge quality checklist
 

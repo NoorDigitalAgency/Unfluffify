@@ -1,4 +1,5 @@
-import { resolve } from "@std/path";
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { parseJsonc } from "./jsonc.mjs";
 
 const DEFAULT_SECRETS_PATHS = [
@@ -91,7 +92,7 @@ export function validateOrchestrationSecrets(candidate) {
 }
 
 export async function loadOrchestrationSecrets(options = {}) {
-  const cwd = options.cwd || Deno.cwd();
+  const cwd = options.cwd || process.cwd();
   const secretsPathCandidates = options.secretsPath
     ? [resolve(cwd, options.secretsPath)]
     : DEFAULT_SECRETS_PATHS.map((candidate) => resolve(cwd, candidate));
@@ -99,11 +100,11 @@ export async function loadOrchestrationSecrets(options = {}) {
   let secretsPath = "";
   for (const candidate of secretsPathCandidates) {
     try {
-      raw = await Deno.readTextFile(candidate);
+      raw = await readFile(candidate, "utf8");
       secretsPath = candidate;
       break;
     } catch (error) {
-      if (error instanceof Deno.errors.NotFound) {
+      if (error && typeof error === "object" && error.code === "ENOENT") {
         continue;
       }
       throw error;
@@ -113,7 +114,7 @@ export async function loadOrchestrationSecrets(options = {}) {
     throw new Error(`Missing orchestration secrets: ${secretsPathCandidates.join(" or ")}`);
   }
 
-  let parsed = null;
+  let parsed;
   try {
     parsed = parseJsonc(raw, secretsPath);
   } catch {

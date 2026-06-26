@@ -1,0 +1,197 @@
+import * as stateModule from "./state";
+
+const { state } = stateModule;
+
+interface PageReconciliationOptions {
+  currentDraftDirty?: boolean;
+  reconciliationPending?: boolean;
+  pageUrl?: string;
+}
+
+type PageReconciliationViewState = {
+  sessionHasPendingChanges?: boolean;
+  sessionRequiresAiRun?: boolean;
+  currentPageHasPendingChanges?: boolean;
+};
+
+type PageSaveSyncResult = {
+  ok?: boolean;
+  authExpired?: boolean;
+  skipped?: boolean;
+  reason?: string;
+};
+
+type GlobalAiSettingsSnapshot = {
+  tokenValue?: string;
+  configEndpointValue?: string;
+  stageBaseValue?: string;
+};
+
+interface PageReconciliationDeps {
+  hasCurrentPageMarkingChanges?: (localPageMarkings: unknown, backendSavedPageMarkings: unknown, pageUrl?: string) => boolean;
+  ensureActiveTab?: (options?: { requireId?: boolean }) => Promise<unknown>;
+  ensureBaseUrl: (message?: string) => boolean;
+  refreshCurrentPageRuntimeStatus: (options?: Record<string, unknown>) => Promise<unknown>;
+  showToast: (message: string) => void;
+  getViewState: () => PageReconciliationViewState;
+  updateLastConfigSaveStatus: (message: string) => void;
+  validateStoredToken: (options?: { force?: boolean }) => Promise<unknown>;
+  runWithSpinner: (
+    key: string | null,
+    label: string,
+    task: () => Promise<unknown>,
+    options?: Record<string, unknown>
+  ) => Promise<unknown>;
+  getCurrentPageUrl: () => string | null;
+  loadGlobalAiSettings: () => Promise<GlobalAiSettingsSnapshot> | GlobalAiSettingsSnapshot;
+  syncBaseConfigToServer: (options?: Record<string, unknown>) => Promise<PageSaveSyncResult> | PageSaveSyncResult;
+  clearCurrentPageSaveReconciliation: () => Promise<unknown>;
+  resetAiRunMarkingsFingerprint: () => void;
+  applyPostSaveSilentTransition: () => Promise<unknown>;
+  refreshUi: (options?: Record<string, unknown>) => Promise<unknown>;
+  setUiBusy: (busy?: boolean, message?: string, details?: Record<string, unknown>) => void;
+  waitForRetryDelay: (delayMs?: number) => Promise<unknown>;
+  applyLocalPageDiscard: () => Promise<unknown>;
+  windowRef: Window;
+  PopupText: Record<string, Record<string, string>>;
+  PAGE_SAVE_SYNC_INITIAL_RETRY_DELAY_MS: number;
+  PAGE_SAVE_SYNC_MAX_ATTEMPTS: number;
+  PAGE_SAVE_SYNC_MAX_RETRY_DELAY_MS: number;
+}
+
+export function hasCurrentPagePendingChanges(
+  deps: PageReconciliationDeps,
+  localPageMarkings: unknown,
+  backendSavedPageMarkings: unknown,
+  options: PageReconciliationOptions = {}
+) {
+  const opts = options;
+  const hasCurrentPageMarkingChanges =
+    typeof deps.hasCurrentPageMarkingChanges === "function"
+      ? deps.hasCurrentPageMarkingChanges
+      : () => false;
+  return Boolean(
+    opts.currentDraftDirty ||
+      opts.reconciliationPending ||
+      hasCurrentPageMarkingChanges(localPageMarkings, backendSavedPageMarkings, opts.pageUrl)
+  );
+}
+
+export async function handlePageSave(deps: PageReconciliationDeps) {
+  const ensureActiveTab =
+    typeof deps.ensureActiveTab === "function"
+      ? deps.ensureActiveTab
+      : async () => null;
+  if (!await ensureActiveTab({ requireId: true })) {
+    return;
+  }
+  if (!deps.ensureBaseUrl()) {
+    return;
+  }
+  await deps.refreshCurrentPageRuntimeStatus();
+  if (state.currentPageSaveReconciliationPending) {
+    deps.showToast(deps.PopupText.page.statusServerSyncPending);
+    return;
+  }
+  const currentViewState = deps.getViewState();
+  if (!currentViewState.sessionHasPendingChanges) {
+    deps.updateLastConfigSaveStatus(deps.PopupText.page.noLocalChangesToSave);
+    deps.showToast(deps.PopupText.page.noChangesToSave);
+    return;
+  }
+  if (currentViewState.sessionRequiresAiRun) {
+    deps.showToast(deps.PopupText.page.noticeRunAiBeforeSaving);
+    return;
+  }
+  const tokenIsValid = await deps.validateStoredToken({ force: true });
+  if (!tokenIsValid) {
+    return;
+  }
+  await deps.runWithSpinner(null, deps.PopupText.overlay.savingPage, async () => {
+    const pageUrl = deps.getCurrentPageUrl();
+    const { tokenValue, configEndpointValue, stageBaseValue } =
+      await deps.loadGlobalAiSettings();
+    let retryDelayMs = deps.PAGE_SAVE_SYNC_INITIAL_RETRY_DELAY_MS;
+    for (let attempt = 0; attempt < deps.PAGE_SAVE_SYNC_MAX_ATTEMPTS; attempt += 1) {
+      const syncResult = await deps.syncBaseConfigToServer({
+        baseUrl: state.currentBaseUrl,
+        pageUrl,
+        endpointValue: configEndpointValue,
+        tokenValue,
+        stageBase: stageBaseValue,
+        alertOnCurrentReplacement: false,
+        includeAllLocalPageMarkings: true,
+        maxAttempts: 1
+      });
+      if (syncResult && syncResult.ok) {
+        await deps.clearCurrentPageSaveReconciliation();
+        deps.resetAiRunMarkingsFingerprint();
+        await deps.applyPostSaveSilentTransition();
+        deps.updateLastConfigSaveStatus(deps.PopupText.page.savedAndSynced);
+        deps.showToast(deps.PopupText.page.sessionSaved);
+        await deps.refreshUi();
+        return;
+      }
+      if (syncResult && syncResult.authExpired) {
+        return;
+      }
+      if (syncResult && syncResult.skipped) {
+        deps.updateLastConfigSaveStatus(deps.PopupText.page.saveFailed);
+        deps.showToast(syncResult.reason || deps.PopupText.page.saveFailedToast);
+        return;
+      }
+      if (attempt + 1 >= deps.PAGE_SAVE_SYNC_MAX_ATTEMPTS) {
+        deps.updateLastConfigSaveStatus(deps.PopupText.page.saveFailed);
+        deps.showToast(deps.PopupText.page.saveFailedToast);
+        await deps.refreshUi();
+        return;
+      }
+      deps.setUiBusy(true, deps.PopupText.status.remoteServerRetryNotice, {
+        reason: "page-save-remote-config-retry",
+        source: "popup-page-save",
+        spinnerKey: ""
+      });
+      await deps.waitForRetryDelay(retryDelayMs);
+      retryDelayMs = Math.min(retryDelayMs * 2, deps.PAGE_SAVE_SYNC_MAX_RETRY_DELAY_MS);
+    }
+  }, {
+    reason: "page-save",
+    source: "popup-page-save"
+  });
+}
+
+export async function handlePageRevert(deps: PageReconciliationDeps) {
+  const ensureActiveTab =
+    typeof deps.ensureActiveTab === "function"
+      ? deps.ensureActiveTab
+      : async () => null;
+  if (!await ensureActiveTab({ requireId: true })) {
+    return;
+  }
+  if (!deps.ensureBaseUrl()) {
+    return;
+  }
+  await deps.refreshCurrentPageRuntimeStatus();
+  if (state.currentPageSaveReconciliationPending) {
+    deps.showToast(deps.PopupText.page.statusServerSyncPending);
+    return;
+  }
+  const currentViewState = deps.getViewState();
+  if (!currentViewState.currentPageHasPendingChanges) {
+    deps.showToast(deps.PopupText.page.noChangesToSave);
+    return;
+  }
+  const confirmed = deps.windowRef.confirm(deps.PopupText.page.revertConfirm);
+  if (!confirmed) {
+    return;
+  }
+  await deps.runWithSpinner(null, deps.PopupText.overlay.revertingPage, async () => {
+    await deps.applyLocalPageDiscard();
+    deps.updateLastConfigSaveStatus(deps.PopupText.page.revertedToLastSaved);
+    deps.showToast(deps.PopupText.page.revertedToLastSaved);
+    await deps.refreshUi();
+  }, {
+    reason: "page-revert",
+    source: "popup-page-save"
+  });
+}

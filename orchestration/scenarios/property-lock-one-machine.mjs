@@ -1,5 +1,6 @@
-#!/usr/bin/env -S deno run --allow-read --allow-write --allow-env --allow-run --allow-net --allow-sys
-import { dirname, join, resolve } from "@std/path";
+#!/usr/bin/env node
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
 import { appendJsonLine, ensureRunDir } from "../lib/artifacts.mjs";
 import { loadOrchestrationConfig, parseCliArgs } from "../lib/config.mjs";
 import {
@@ -97,7 +98,6 @@ async function waitForCondition(label, predicate, options = {}) {
   throw new Error(`Timed out waiting for ${label}${detail}`);
 }
 
-// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 async function createParticipant(baseConfig, overrides = {}) {
   const config = {
     ...baseConfig,
@@ -142,7 +142,6 @@ async function clickPopupButton(participant, labelPattern) {
   return refreshParticipantState(participant, 2_000);
 }
 
-// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 async function waitForEditor(participant, label) {
   return waitForCondition(label, async () => {
     const state = await refreshParticipantState(participant, 1_000);
@@ -154,7 +153,6 @@ async function waitForEditor(participant, label) {
   });
 }
 
-// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 async function waitForPassiveLock(participant, label) {
   return waitForCondition(label, async () => {
     const state = await refreshParticipantState(participant, 1_000);
@@ -166,7 +164,6 @@ async function waitForPassiveLock(participant, label) {
   });
 }
 
-// deno-lint-ignore require-await -- preserves existing promise/callback contract.
 async function waitForButton(participant, labelPattern, label) {
   return waitForCondition(label, async () => {
     const state = await refreshParticipantState(participant, 1_000);
@@ -258,8 +255,8 @@ async function releaseExistingLock(participant, propertyUrl, logPath) {
 }
 
 async function writeJson(filePath, value) {
-  await Deno.mkdir(dirname(filePath), { recursive: true });
-  await Deno.writeTextFile(filePath, JSON.stringify(value, null, 2));
+  await mkdir(dirname(filePath), { recursive: true });
+  await writeFile(filePath, JSON.stringify(value, null, 2));
 }
 
 async function logScenario(logPath, event) {
@@ -270,13 +267,13 @@ async function logScenario(logPath, event) {
 }
 
 export async function runPropertyLockOneMachineScenario(options = {}) {
-  const cwd = options.cwd || Deno.cwd();
+  const cwd = options.cwd || process.cwd();
   const argv = options.argv || [];
   const cli = options.cli || parseCliArgs(argv);
   const baseConfig = options.config || await loadOrchestrationConfig({
     cwd,
     argv,
-    env: options.env || Deno.env.toObject()
+    env: options.env || process.env
   });
   const runDir = options.runDir || await ensureRunDir(baseConfig.runRoot, "property-lock", "phase4", options.runId);
   const logPath = join(runDir, "scenario.log");
@@ -414,19 +411,19 @@ export async function runPropertyLockOneMachineScenario(options = {}) {
 
 async function main() {
   const result = await runPropertyLockOneMachineScenario({
-    argv: Deno.args
+    argv: process.argv.slice(2)
   });
   console.log(JSON.stringify({
     ok: result.ok,
     checks: result.checks,
     runDir: result.artifacts.runDir
   }, null, 2));
-  Deno.exit(result.ok ? 0 : 1);
+  process.exit(result.ok ? 0 : 1);
 }
 
 if (import.meta.main) {
   main().catch((error) => {
     console.error(error && error.stack ? error.stack : error);
-    Deno.exit(1);
+    process.exit(1);
   });
 }

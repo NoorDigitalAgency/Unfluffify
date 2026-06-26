@@ -13,8 +13,14 @@ Run the GitHub Actions workflow at `.github/workflows/build-extension-package.ym
 
 Each run:
 
-- validates the extension with `deno task verify` before packaging
-- stages only files reachable from the extension runtime surface (manifest entrypoints, imported modules, HTML/CSS assets, and extension-local file references)
+- validates the extension with `pnpm verify`, including the post-build WXT
+  manifest/WAR check against `.output/chrome-mv3/manifest.json`
+- creates a synced `.output/chrome-mv3` archive with `pnpm zip`
+- stages release files from the synced WXT output under `.output/chrome-mv3`,
+  keeping only the extension runtime surface (manifest entrypoints, imported
+  modules, HTML/CSS assets, and extension-local file references)
+- checks that every staged release file is also present in the synced
+  `.output/chrome-mv3` zip
 - creates a timestamped archive named `Unfluffify-v<manifest-version>-<yymmdd-hhmm>.zip` using a UTC timestamp
 - refreshes the `extension-latest` release with that timestamped asset and a stable alias named `Unfluffify-latest.zip`
 
@@ -26,38 +32,63 @@ Permanent release page:
 
 `https://github.com/NoorDigitalAgency/Unfluffify/releases/tag/extension-latest`
 
-For a local dry run of the staging logic, run:
+For a local dry run of the WXT build + staging logic, run:
 
 ```bash
-deno task build:release
-deno task package -- --stage-dir .tmp/extension-package
+pnpm build
+node ./scripts/package-extension.mjs --stage-dir .tmp/extension-package
 ```
 
 ## Development Workflow
 
-Common local commands:
+Run `pnpm install` once after cloning if you want to use the checked-in WXT/pnpm
+toolchain.
+
+Common local release/CI commands:
 
 ```bash
-deno task check
-deno task test
-deno task lint
-deno task build
-deno task dev
-deno task verify
+pnpm dev
+pnpm lint
+pnpm check
+pnpm test
+pnpm build
+pnpm zip
+pnpm browser:live <target-url>
+pnpm verify
 ```
 
-`deno task dev` watches extension sources and rebuilds the development extension output under `dist/extension-dev`.
-The dev watcher and one-shot builds share `scripts/build-extension.ts`, so copied assets, bundled files, and dev reload artifacts stay consistent.
-`deno task lint` currently covers the Deno automation files that are lint-clean.
-`deno task verify` runs the type check, regression suite, and release build.
+`pnpm dev` runs the WXT development server for the unpacked extension output.
 
-Orchestration helpers are exposed as Deno tasks as well:
+`pnpm verify` is the current release/CI verification path: it runs lint, type
+check, the Vitest suite, rebuilds the synced WXT output, and then runs the
+generated-manifest permission/WAR check against `.output/chrome-mv3/manifest.json`.
+
+Treat the pnpm commands above as the supported public workflow. The repository
+no longer depends on Deno for CI, packaging, browser launch, or orchestration.
+
+The current active work is tracked in `.copilot/active-implementation-plan.md`,
+and durable architecture knowledge lives in `.copilot/knowledge.md`. `pnpm build`
+produces the runnable unpacked extension under `.output/chrome-mv3`. Source code
+now lives under `src/`, stable public assets under `src/public/`, and
+`wxt.config.ts` is the sole manifest source of truth. The only remaining
+manifest bridge is the source-owned `action` block so WXT's popup entrypoint
+does not reintroduce `action.default_popup` into the shipped manifest. Content
+scripts now ship on WXT's native `content-scripts/` paths. All automated tests
+now live under `tests/`; the old `vitest-tests/` split and dedicated Deno test
+shim files are gone.
+
+The live-browser launcher targets the WXT unpacked output:
+`pnpm browser:live <target-url>` shells through the committed launcher, runs
+`pnpm build` by default, and loads `.output/chrome-mv3` into the managed
+Playwright Chromium.
+
+Orchestration helpers are exposed as pnpm/Node scripts:
 
 ```bash
-deno task orchestrate:bus -- --host 127.0.0.1 --port 8765
-deno task orchestrate:runner -- --role follower --side B
-deno task orchestrate:setup-auth -- --role director --side A --account A
-deno task orchestrate:property-lock -- --property-url https://example.com/
+pnpm orchestrate:bus -- --host 127.0.0.1 --port 8765
+pnpm orchestrate:runner -- --role follower --side B
+pnpm orchestrate:setup-auth -- --role director --side A --account A
+pnpm orchestrate:property-lock -- --property-url https://example.com/
 ```
 
 ## Features
@@ -79,10 +110,10 @@ deno task orchestrate:property-lock -- --property-url https://example.com/
 
 ## Installation (Developer Mode)
 
-1. Run `deno task dev` for a watched development build, or `deno task build` for a one-shot local build.
+1. Run `pnpm dev` for the WXT development server, or `pnpm build` for the production WXT build.
 2. Open Chrome and navigate to `chrome://extensions`
 3. Enable **Developer mode** (toggle in top right corner)
-4. Click **Load unpacked** and select `dist/extension-dev` for development or `dist/extension` for the one-shot build.
+4. Click **Load unpacked** and select `.output/chrome-mv3`.
 5. Pin the extension for easy access
 
 ## Testing
@@ -90,7 +121,7 @@ deno task orchestrate:property-lock -- --property-url https://example.com/
 Run the regression suite from the repository root:
 
 ```bash
-deno task test
+pnpm test
 ```
 
 The tests cover the pure marking/highlighting rules that have caused regressions during recent logic changes.
@@ -99,71 +130,69 @@ Run this command before opening or updating a pull request to catch regressions 
 For marking-rule work, also run the focused guard suite:
 
 ```bash
-deno test --allow-read --allow-write --allow-env --allow-run --allow-sys --allow-net=127.0.0.1 --no-check --unstable-sloppy-imports tests/core-visibility.test.js tests/core-motion-pause.test.js tests/core-scheduling.test.js tests/marking-rules.test.js tests/popup-marking-refresh.test.js tests/selector-suppression.test.js tests/silent-highlight-annotations.test.js tests/silent-highlight-rules.test.js tests/submission-rules.test.js
+pnpm exec vitest run tests/core-visibility.test.ts tests/core-motion-pause.test.ts tests/core-scheduling.test.ts tests/marking-rules.test.ts tests/popup-marking-refresh.test.ts tests/selector-suppression.test.ts tests/silent-highlight-annotations.test.ts tests/silent-highlight-rules.test.ts tests/submission-rules.test.ts
 ```
 
 ## Project Structure
 
-### Core Entry Points
+### Source Layout (`/src`)
 
-- **`background.js`** - Service worker handling tab state, messaging, device emulation, and cleanup
-- **`popup.js`** - Main popup UI and state management (uses Preact framework)
-- **`content-loader.js`** - Initial content script that loads the main content script
-- **`content-main.js`** - Main content script that runs on web pages (large, complex logic)
+- **`src/entrypoints/`** - WXT entrypoints for background, popup, offscreen, and
+  content-script bootstraps
+- **`src/background.ts`** - Service worker bootstrap and command wiring
+- **`src/popup.ts`** - Main popup runtime bootstrap
+- **`src/content-main.ts`** - Main content runtime that runs on web pages
+- **`src/offscreen/bootstrap.ts`** - Offscreen runtime bootstrap owned by the
+  WXT offscreen entrypoint
 
-### Common Utilities (`/common`)
+### Shared Runtime Modules
 
-- **`config.js`** - Configuration management, timestamps, selector sets, page markings
-- **`constants.js`** - Global constants including device emulation presets, default exclusions
-- **`utilities.js`** - Shared utilities: tab state, script injection, URL normalization, storage
-- **`emulation.js`** - Device emulation state and debugger protocol management
-- **`selector-set.js`** - AI selector set operations and deduplication
-- **`xpath-utilities.js`** - XPath refinement and manipulation utilities
-- **`property-lock.js`** - Property edit-lock constants, timing windows, WebSocket protocol names, and normalized state helpers
-- **`property-lock-background.js`** - Background-side per-property/per-client lock WebSocket orchestration with stable page-session IDs and tab-local popup routing
-
-### Content Scripts (`/content`)
-
-- **`core.js`** - Main content script logic: DOM manipulation, element selection, marking synchronization, overlay rendering, and per-pass marking caches
-- **`marking-rules.js`** - Shared pure rules for 052c-derived toggleable markability, Shift parent-boundary choice, and explicit toggle pacing
-- **`shared-inclusion.js`** - Shared logic for element selection and inclusion/exclusion
-- **`silent-highlight-rules.js`** - Shared pure rules for movement-settle sampling in silent highlighting
-- **`constants.js`** - Content script constants (removable element selectors, etc.)
+- **`src/common/`** - Shared browser/runtime helpers, messaging seams, config,
+  storage boundaries, and domain contracts
+- **`src/background/`** - Background-side orchestration, tab state, bus/Brain,
+  remote config, and operation routing
+- **`src/content/`** - Content-side handlers, overlays, marking logic helpers,
+  render-mode inspection, and page-side coordination
+- **`src/popup/`** - Popup state, React UI helpers, and render-mode flows
+- **`src/offscreen/`** - Offscreen document support modules
+- **`src/types/`** - Shared TypeScript contracts for runtime surfaces
 
 ### Regression Tests (`/tests`)
 
-- **`marking-rules.test.js`** - Regression coverage for the locked default-exclusion taxonomy, restored toggleable boundary markability, Shift parent-boundary chooser, and duplicate toggle suppression
-- **`submission-rules.test.js`** - Regression coverage for AI submission roots and content rows: stored excluded rows, hidden textual exclusions, immutable-tag omission, included textual boundaries, and explicit includes
-- **`core-visibility.test.js`** - Regression coverage for content-side visibility guards, restored Shift/Alt target promotion, sanitized snapshot XPath alignment, and dynamic style-mutation redraw decisions used by marking and submission
-- **`core-motion-pause.test.js`** - Regression coverage for pre-freeze page inspection, input blocking, full-scroll lazy-content reveal, and motion-freeze normalization
-- **`theme-colors.test.js`** - Regression coverage for AA contrast on semantic theme colors
-- **`silent-highlight-rules.test.js`** - Regression coverage for settle-before-redraw silent highlight behavior
-- **`config.test.js`** - Coverage for configuration normalization and sync-payload construction
-- **`page-save-state.test.js`** - Coverage for page-save button state, including initial saves when default markings are accepted as-is
-- **`core-scheduling.test.js`** - Coverage for debounced marking work, cheap explicit-overlay refreshes, and per-pass marking cache guards
-- **`popup-marking-refresh.test.js`** - Source-level coverage that Todo List completion reads backend-saved page markings instead of local drafts, enabling marking avoids duplicate refresh work, and periodic Live Page candidate refreshes stay quiet unless the candidate set changes
-- **`property-lock.test.js`** - Coverage for lock URL construction, state normalization, timing windows, stable client identity, and content-source lock guards
-- **`property-lock-background.test.js`** - Coverage for background-side client-session lock routing, navigation grace windows, and lock protocol metadata
-- **`utilities-runtime.test.js`** - Coverage for Chrome runtime/storage wrappers, including extension-context invalidation handling
-- **`lynx-checklist.test.js`** - Coverage for Lynx checklist assignment and view-model building
+- **`marking-rules.test.ts`** - Regression coverage for the locked default-exclusion taxonomy, restored toggleable boundary markability, Shift parent-boundary chooser, and duplicate toggle suppression
+- **`submission-rules.test.ts`** - Regression coverage for AI submission roots and content rows: stored excluded rows, hidden textual exclusions, immutable-tag omission, included textual boundaries, and explicit includes
+- **`core-visibility.test.ts`** - Regression coverage for content-side visibility guards, restored Shift/Alt target promotion, sanitized snapshot XPath alignment, and dynamic style-mutation redraw decisions used by marking and submission
+- **`core-motion-pause.test.ts`** - Regression coverage for pre-freeze page inspection, input blocking, full-scroll lazy-content reveal, and motion-freeze normalization
+- **`theme-colors.test.ts`** - Regression coverage for AA contrast on semantic theme colors
+- **`silent-highlight-rules.test.ts`** - Regression coverage for settle-before-redraw silent highlight behavior
+- **`config.test.ts`** - Coverage for configuration normalization and sync-payload construction
+- **`page-save-state.test.ts`** - Coverage for page-save button state, including initial saves when default markings are accepted as-is
+- **`core-scheduling.test.ts`** - Coverage for debounced marking work, cheap explicit-overlay refreshes, and per-pass marking cache guards
+- **`popup-marking-refresh.test.ts`** - Source-level coverage that Todo List completion reads backend-saved page markings instead of local drafts, enabling marking avoids duplicate refresh work, and periodic Live Page candidate refreshes stay quiet unless the candidate set changes
+- **`property-lock.test.ts`** - Coverage for lock URL construction, state normalization, timing windows, stable client identity, and content-source lock guards
+- **`property-lock-background.test.ts`** - Coverage for background-side client-session lock routing, navigation grace windows, and lock protocol metadata
+- **`utilities-runtime.test.ts`** - Coverage for Chrome runtime/storage wrappers, including extension-context invalidation handling
+- **`lynx-checklist.test.ts`** - Coverage for Lynx checklist assignment and view-model building
 
-### Popup UI (`/popup`)
+### Popup UI (`/src/popup`)
 
-- **`ui.js`** - Preact-based UI component rendering and state management (1300+ lines)
-- **`helpers.js`** - Helper functions for tab operations, device emulation, AI settings
-- **`chrome-helpers.js`** - Chrome API wrappers (browsing data, tab reloading)
-- **`messages.js`** - Message passing utilities
-- **`state.js`** - Popup UI state management
-- **`emulation.js`** - Device emulation state in popup
+- **`ui.tsx`** - React-based UI component rendering and state management
+- **`helpers.ts`** - Helper functions for tab operations, device emulation, and
+  AI settings
+- **`chrome-helpers.ts`** - Browser-tab helpers and popup-triggered tab actions
+- **`messages.ts`** - Popup message and background command helpers
+- **`state.ts`** - Popup state management helpers
+- **`emulation.ts`** - Device emulation state in the popup
 
 ### Resources
 
-- **`popup.css`** - Popup UI styles
-- **`popup.html`** - Popup container
-- **`manifest.json`** - Extension manifest (Manifest V3)
-- **`icons/`** - Extension icons
-- **`cursors/`** - Custom cursor SVGs
-- **`assets/`** - Material Design Icons
+- **`src/popup.css`** - Popup UI styles
+- **`src/entrypoints/popup/index.html`** - Popup entrypoint container
+- **`wxt.config.ts`** - WXT config and manifest source of truth
+- **`src/public/icons/`** - Extension icons copied to stable output paths
+- **`src/public/cursors/`** - Custom cursor SVGs copied to stable output paths
+- **`src/public/assets/`** - Material Design Icons and font assets copied to
+  stable output paths
 
 ## How to Use
 

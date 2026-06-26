@@ -1,5 +1,11 @@
-#!/usr/bin/env -S deno run --allow-read --allow-write --allow-env --allow-run --allow-net --allow-sys
-import { join, resolve } from "@std/path";
+#!/usr/bin/env node
+import { execFile } from "node:child_process";
+import http from "node:http";
+import { mkdir, rm, stat, writeFile } from "node:fs/promises";
+import os from "node:os";
+import { join, resolve } from "node:path";
+import { promisify } from "node:util";
+import { WebSocketServer } from "ws";
 import { appendJsonLine, createRunId } from "./lib/artifacts.mjs";
 import {
   createRpcError,
@@ -9,6 +15,7 @@ import {
 import { WebSocketPeer } from "./lib/websocket.mjs";
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 9876;
+const execFileAsync = promisify(execFile);
 
 function parseArgs(argv = []) {
   const result = {};
@@ -35,25 +42,20 @@ function nowIso() {
 
 async function readGitCommit(cwd) {
   try {
-    const output = await new Deno.Command("git", {
-      args: ["rev-parse", "HEAD"],
-      cwd,
-      stdout: "piped",
-      stderr: "piped"
-    }).output();
-    return new TextDecoder().decode(output.stdout).trim();
+    const output = await execFileAsync("git", ["rev-parse", "HEAD"], { cwd });
+    return output.stdout.trim();
   } catch {
     return "";
   }
 }
 
 function extractToken(request) {
-  const authHeader = request.headers.get("authorization") || "";
+  const authHeader = request.headers?.authorization || "";
   if (typeof authHeader === "string" && authHeader.startsWith("Bearer ")) {
     return authHeader.slice("Bearer ".length).trim();
   }
   try {
-    const url = new URL(request.url || "/", "http://localhost");
+    const url = new URL(request.url || "/", `http://${request.headers?.host || "127.0.0.1"}`);
     return url.searchParams.get("token") || "";
   } catch {
     return "";
@@ -66,13 +68,14 @@ export function createRpcServer(options = {}) {
   const runId = options.runId || `${createRunId()}-rpc-server`;
   const runDir = options.runDir || join(runRoot, runId);
   const transcriptPath = join(runDir, "rpc.log");
-  const expectedToken = options.token || Deno.env.get("UNFLUFFIFY_RPC_TOKEN") || "";
-  const repoPath = resolve(options.repoPath || Deno.cwd());
-  const extensionPath = resolve(options.extensionPath || Deno.cwd());
+  const expectedToken = options.token || process.env.UNFLUFFIFY_RPC_TOKEN || "";
+  const repoPath = resolve(options.repoPath || process.cwd());
+  const extensionPath = resolve(options.extensionPath || join(process.cwd(), ".output", "chrome-mv3"));
   const startMs = Date.now();
   const peers = new Set();
 
   let listener = null;
+  let socketServer = null;
   let listeningPort = 0;
   let shuttingDown = false;
 
@@ -86,18 +89,18 @@ export function createRpcServer(options = {}) {
   async function systemPing() {
     return {
       ok: true,
-      pid: Deno.pid,
-      hostname: typeof Deno.hostname === "function" ? Deno.hostname() : "",
-      platform: Deno.build.os,
-      cwd: Deno.cwd(),
+      pid: process.pid,
+      hostname: os.hostname(),
+      platform: process.platform,
+      cwd: process.cwd(),
       repoPath,
       gitCommit: await readGitCommit(repoPath),
-      nodeVersion: Deno.version.deno,
+      nodeVersion: process.version,
       uptimeMs: Date.now() - startMs,
       display: {
-        DISPLAY: Deno.env.get("DISPLAY") || "",
-        WAYLAND_DISPLAY: Deno.env.get("WAYLAND_DISPLAY") || "",
-        XDG_SESSION_TYPE: Deno.env.get("XDG_SESSION_TYPE") || ""
+        DISPLAY: process.env.DISPLAY || "",
+        WAYLAND_DISPLAY: process.env.WAYLAND_DISPLAY || "",
+        XDG_SESSION_TYPE: process.env.XDG_SESSION_TYPE || ""
       },
       runDir
     };
@@ -110,22 +113,22 @@ export function createRpcServer(options = {}) {
       runDirWritable: false
     };
     try {
-      await Deno.stat(join(repoPath, ".git"));
+      await stat(join(repoPath, ".git"));
       checks.repoGit = true;
     } catch {
       // Ignore missing .git metadata in non-repo launch environments.
     }
     try {
-      await Deno.stat(join(extensionPath, "manifest.json"));
+      await stat(join(extensionPath, "manifest.json"));
       checks.extensionManifest = true;
     } catch {
       // Ignore absent manifest during capability probing.
     }
     try {
-      await Deno.mkdir(runDir, { recursive: true });
+      await mkdir(runDir, { recursive: true });
       const markerPath = join(runDir, ".write-check");
-      await Deno.writeTextFile(markerPath, nowIso());
-      await Deno.remove(markerPath);
+      await writeFile(markerPath, nowIso());
+      await rm(markerPath);
       checks.runDirWritable = true;
     } catch {
       // Ignore writeability probe failures; the returned check remains false.
@@ -133,9 +136,9 @@ export function createRpcServer(options = {}) {
     return {
       ok: Object.values(checks).every(Boolean),
       checks,
-      displayMode: Deno.env.get("WAYLAND_DISPLAY")
+      displayMode: process.env.WAYLAND_DISPLAY
         ? "wayland"
-        : Deno.env.get("DISPLAY")
+        : process.env.DISPLAY
           ? "x11"
           : "none",
       runDir
@@ -210,40 +213,50 @@ export function createRpcServer(options = {}) {
   }
 
   async function listen(port = DEFAULT_PORT) {
-    await Deno.mkdir(runDir, { recursive: true });
-    listener = Deno.serve({
-      hostname: host,
-      port,
-      onListen() {
+    await mkdir(runDir, { recursive: true });
+    listener = http.createServer((request, response) => {
+      if (request.url && new URL(request.url, "http://localhost").pathname === "/health") {
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify({ ok: true, peers: peers.size, shuttingDown }));
+        return;
       }
-    // deno-lint-ignore require-await -- preserves existing promise/callback contract.
-    }, async (request) => {
-      if (request.url && new URL(request.url).pathname === "/health") {
-        return new Response(JSON.stringify({ ok: true, peers: peers.size, shuttingDown }), {
-          status: 200,
-          headers: { "content-type": "application/json" }
-        });
-      }
+      response.writeHead(404);
+      response.end();
+    });
+    socketServer = new WebSocketServer({ noServer: true });
+    socketServer.on("connection", (socket) => {
+      const peer = new WebSocketPeer(socket, {
+        onMessage: (raw) => {
+          onRawMessage(peer, raw).catch(() => {});
+        },
+        onClose: () => {
+          peers.delete(peer);
+        }
+      });
+      peers.add(peer);
+    });
+    listener.on("upgrade", (request, socket, head) => {
       if (expectedToken && extractToken(request) !== expectedToken) {
         append({ direction: "reject", reason: "unauthorized-upgrade" }).catch(() => {});
-        return new Response("", { status: 401 });
+        socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
+        socket.destroy();
+        return;
       }
-      if (request.headers.get("upgrade")?.toLowerCase() === "websocket") {
-        const { socket, response } = Deno.upgradeWebSocket(request);
-        const peer = new WebSocketPeer(socket, {
-          onMessage: (raw) => {
-            onRawMessage(peer, raw).catch(() => {});
-          },
-          onClose: () => {
-            peers.delete(peer);
-          }
-        });
-        peers.add(peer);
-        return response;
-      }
-      return new Response(null, { status: 404 });
+      socketServer.handleUpgrade(request, socket, head, (webSocket) => {
+        socketServer.emit("connection", webSocket, request);
+      });
     });
-    const address = listener.addr;
+    await new Promise((resolvePromise, rejectPromise) => {
+      listener.once("error", rejectPromise);
+      listener.listen({ host, port }, () => {
+        listener.off("error", rejectPromise);
+        resolvePromise();
+      });
+    });
+    const address = listener.address();
+    if (!address || typeof address === "string") {
+      throw new Error("RPC listener did not expose a TCP address");
+    }
     listeningPort = Number(address.port);
     const urlHost = host.includes(":") ? `[${host}]` : (host === "0.0.0.0" || host === "::" ? "127.0.0.1" : host);
     return { host, port: listeningPort, url: `ws://${urlHost}:${listeningPort}` };
@@ -254,8 +267,16 @@ export function createRpcServer(options = {}) {
       peer.close();
     }
     peers.clear();
+    if (socketServer) {
+      await new Promise((resolvePromise) => {
+        socketServer.close(() => resolvePromise());
+      });
+      socketServer = null;
+    }
     if (listener) {
-      await listener.shutdown();
+      await new Promise((resolvePromise) => {
+        listener.close(() => resolvePromise());
+      });
       listener = null;
     }
   }
@@ -272,13 +293,15 @@ export function createRpcServer(options = {}) {
 }
 
 async function main() {
-  const args = parseArgs(Deno.args);
+  const args = parseArgs(process.argv.slice(2));
   const host = typeof args.host === "string" ? args.host : DEFAULT_HOST;
   const port = Number.isFinite(Number(args.port)) ? Number(args.port) : DEFAULT_PORT;
   const runRoot = typeof args["run-root"] === "string" ? args["run-root"] : resolve("orchestration/runs");
-  const token = typeof args.token === "string" ? args.token : Deno.env.get("UNFLUFFIFY_RPC_TOKEN") || "";
-  const repoPath = typeof args["repo-path"] === "string" ? args["repo-path"] : Deno.cwd();
-  const extensionPath = typeof args["extension-path"] === "string" ? args["extension-path"] : Deno.cwd();
+  const token = typeof args.token === "string" ? args.token : process.env.UNFLUFFIFY_RPC_TOKEN || "";
+  const repoPath = typeof args["repo-path"] === "string" ? args["repo-path"] : process.cwd();
+  const extensionPath = typeof args["extension-path"] === "string"
+    ? args["extension-path"]
+    : join(process.cwd(), ".output", "chrome-mv3");
   const rpc = createRpcServer({ host, runRoot, token, repoPath, extensionPath });
   const listening = await rpc.listen(port);
   console.log(`[rpc] listening ${listening.url}`);
@@ -287,15 +310,15 @@ async function main() {
 
   const shutdown = async () => {
     await rpc.close();
-    Deno.exit(0);
+    process.exit(0);
   };
-  Deno.addSignalListener("SIGINT", shutdown);
-  Deno.addSignalListener("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
 }
 
 if (import.meta.main) {
   main().catch((error) => {
     console.error(error);
-    Deno.exit(1);
+    process.exit(1);
   });
 }
