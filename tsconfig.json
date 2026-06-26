@@ -9,13 +9,16 @@
     "noEmit": true,
     "skipLibCheck": true,
     "lib": ["ES2022", "DOM", "DOM.Iterable", "WebWorker"],
-    "types": ["chrome"]
+    "types": ["chrome"],
+    "jsx": "react-jsx",
+    "jsxImportSource": "react"
   },
   "include": [
     "src/background/**/*.ts",
     "src/common/**/*.ts",
     "src/content/**/*.ts",
     "src/popup/**/*.ts",
+    "src/popup/**/*.tsx",
     "src/background.ts",
     "src/content-main.ts",
     "src/popup.ts",

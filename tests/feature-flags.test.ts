@@ -13,7 +13,7 @@ import {
 } from "../src/common/feature-flags.js";
 import { DEVICE_EMULATION_PREFIX } from "../src/common/constants.js";
 import { updateDeviceEmulation } from "../src/common/emulation.js";
-import { isPopupFeatureEnabled } from "../src/popup/ui.js";
+import { isPopupFeatureEnabled } from "../src/popup/feature-flags-helpers.js";
 
 const backgroundSource = readFileSync(new URL("../src/background.ts", import.meta.url), "utf8");
 

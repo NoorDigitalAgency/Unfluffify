@@ -19,7 +19,7 @@ const EXCLUDED_PATH_PREFIXES = [
   "scripts/"
 ];
 
-const SOURCE_FILE_PATTERN = /\.(?:c|m)?(?:js|ts)$/i;
+const SOURCE_FILE_PATTERN = /\.(?:c|m)?(?:js|ts)x?$/i;
 const STORAGE_ACCESS_PATTERN =
   /(chrome\.storage\.|wxt\/utils\/storage|utils\.storage(?:Get|Set|Remove|Clear)\(|\bstorage(?:Get|Set|Remove|Clear)\()/;
 const PAGE_LOCAL_STORAGE_PATTERN = /\bwindow\.(?:localStorage|sessionStorage)\b/;
@@ -125,7 +125,7 @@ const PAGE_LOCAL_STORAGE_FILES = new Set([
   "src/content-main.ts",
   "src/content/core.ts",
   "src/popup.ts",
-  "src/popup/ui.ts"
+  "src/popup/ui.tsx"
 ]);
 
 test("storage boundary inventory buckets every raw storage access", () => {

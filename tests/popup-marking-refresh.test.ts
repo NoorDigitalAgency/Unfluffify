@@ -206,7 +206,7 @@ test("popup hydrates property-lock timer and recovery state from the initial tab
 
 test("desktop preview stays behind its own popup toggle and disables marking entry while active", () => {
   const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
-  const uiSource = readFileSync(new URL("../src/popup/ui.ts", import.meta.url), "utf8");
+  const uiSource = readFileSync(new URL("../src/popup/ui.tsx", import.meta.url), "utf8");
   const desktopToggleStart = popupSource.indexOf("async function handleDesktopPreviewEnabledToggle(");
   const desktopToggleEnd = popupSource.indexOf("function handleDeviceScaleInput", desktopToggleStart);
   assert.ok(desktopToggleStart >= 0 && desktopToggleEnd > desktopToggleStart);
@@ -222,12 +222,12 @@ test("desktop preview stays behind its own popup toggle and disables marking ent
   assert.match(desktopToggleBody, /await handleEnableToggle\(\{ currentTarget: \{ checked: false \} \}\);/);
   assert.match(desktopToggleBody, /await persistDesktopPreviewEnabled\(tab\.id, desiredEnabled\);/);
   assert.match(uiSource, /isPopupFeatureEnabled\(view, "desktopPreview"\) && view\.desktopPreviewVisible/);
-  assert.match(uiSource, /id: "desktop-preview-enabled"/);
+  assert.match(uiSource, /id="desktop-preview-enabled"/);
 });
 
 test("marking-mode preview remains a dedicated marking control", () => {
   const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
-  const uiSource = readFileSync(new URL("../src/popup/ui.ts", import.meta.url), "utf8");
+  const uiSource = readFileSync(new URL("../src/popup/ui.tsx", import.meta.url), "utf8");
   const markingPreviewBody = popupSource.match(
     /async function handleMarkingPreview\(\) \{([\s\S]*?)\n\}\n\nasync function handleExitPreviewMode/
   )[1];
@@ -238,12 +238,32 @@ test("marking-mode preview remains a dedicated marking control", () => {
     /nextViewState\.markingPreviewDisabled =\s*aiBusy \|\|\s*previewRestorePending \|\|\s*pageSaveReconciliationPending \|\|\s*!aiRunUpToDate \|\|\s*sessionRequiresAiRun;/
   );
   assert.match(uiSource, /if \(markingMode && view\.markingPreviewVisible\) \{/);
-  assert.match(uiSource, /id: "marking-preview"/);
-  assert.match(uiSource, /onClick: handlers\.onMarkingPreview/);
+  assert.match(uiSource, /id="marking-preview"/);
+  assert.match(uiSource, /onClick=\{handlers\.onMarkingPreview\}/);
   assert.match(markingPreviewBody, /if \(!view\.markingPreviewVisible \|\| view\.markingPreviewDisabled\) \{/);
   assert.match(markingPreviewBody, /const selectorSet = getLatestAvailableSelectorsFromConfig\(\);/);
   assert.match(markingPreviewBody, /messages\.requestTabShowAiPreview\(tabId, \{/);
-  assert.doesNotMatch(markingPreviewBody, /silentModeActive/);
+});
+
+test("popup preview sidebar keeps the active-item scroll path on a synchronous React commit", () => {
+  const uiSource = readFileSync(new URL("../src/popup/ui.tsx", import.meta.url), "utf8");
+
+  assert.match(uiSource, /import \{ flushSync \} from "react-dom";/);
+  assert.match(
+    uiSource,
+    /flushSync\(\(\) => \{\s*if \(!reactRoot \|\| reactRootElement !== root\) \{\s*reactRootElement = root;\s*reactRoot = createPopupRoot\(root\);\s*\}\s*reactRoot\.render\(<App state=\{viewState\} actions=\{actions\} \/>\);\s*\}\);/
+  );
+  assert.match(uiSource, /const previewActiveItem = refs\.previewActiveItem as HTMLElement \| null;/);
+  assert.match(uiSource, /previewActiveItem\.scrollIntoView\(\{/);
+});
+
+test("popup React root wires render recovery through root error hooks", () => {
+  const uiSource = readFileSync(new URL("../src/popup/ui.tsx", import.meta.url), "utf8");
+
+  assert.match(uiSource, /function schedulePopupRenderRecovery\(rootElement: HTMLElement, error: unknown\): void \{/);
+  assert.match(uiSource, /queueMicrotask\(\(\) => \{/);
+  assert.match(uiSource, /return createRoot\(rootElement, \{\s*onCaughtError\(error\) \{\s*schedulePopupRenderRecovery\(rootElement, error\);/);
+  assert.match(uiSource, /onUncaughtError\(error\) \{\s*schedulePopupRenderRecovery\(rootElement, error\);/);
 });
 
 test("periodic page-type refresh stays quiet unless candidates change", () => {

@@ -26,6 +26,10 @@
     "@eslint/js": "^10.0.1",
     "@types/chrome": "^0.2.0",
     "@types/node": "^26.0.0",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.3",
+    "@wxt-dev/module-react": "^1.2.2",
     "eslint": "^10.5.0",
     "globals": "^17.7.0",
     "typescript": "^6.0.3",
@@ -35,6 +39,8 @@
     "wxt": "^0.20.27"
   },
   "dependencies": {
-    "@webext-core/messaging": "^3.0.2"
+    "@webext-core/messaging": "^3.0.2",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
   }
 }

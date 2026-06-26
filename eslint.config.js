@@ -16,7 +16,7 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    files: ["**/*.{js,mjs,cjs,ts}"],
+    files: ["**/*.{js,mjs,cjs,ts,tsx}"],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: "module",
@@ -41,6 +41,7 @@ export default tseslint.config(
       "src/content/**/*.ts",
       "src/offscreen/**/*.ts",
       "src/popup/**/*.ts",
+      "src/popup/**/*.tsx",
     ],
     rules: {
       "@typescript-eslint/no-unused-vars": "off",

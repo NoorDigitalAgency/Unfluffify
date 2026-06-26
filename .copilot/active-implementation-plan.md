@@ -38,8 +38,12 @@ final narrow behavior/helper-routing contracts. The latest checkpoint then
 completed Phase C by renaming every surviving `tests/**/*.test.js` file to
 `.test.ts`, moving the shared Vitest setup to `tests/setup-runtime.ts`,
 updating the bootstrap/package/docs references, and removing the stale Deno
-locator helpers from `tests/file-kit.ts`. The next active execution step is
-Phase D: port the popup UI to React + JSX.
+locator helpers from `tests/file-kit.ts`. The latest checkpoint then completed
+Phase D by porting `src/popup/ui.ts` to React/JSX in `src/popup/ui.tsx`, adding
+the React/WXT/Vitest tooling, extracting `src/popup/feature-flags-helpers.ts`,
+and preserving the preview-scroll/self-heal seams with `flushSync(...)` plus
+root error-hook remount recovery. The next active execution step is Phase E:
+remove Preact completely.
 
 ## 1. Goal
 
@@ -52,22 +56,25 @@ all with `pnpm verify` green and the live popup behavior unchanged.
 
 ## 2. Current facts (verified)
 
-- Preact is vendored, not a package dep: `src/popup/ui.ts:1` imports
-  `{ h, render, Fragment }` from `./vendor/preact/dist/preact.module.js`. Only
-  `src/popup/ui.ts` (3166 lines, 269 `h(` calls, 17 `Fragment`, 2 `render(`)
-  uses it.
-- `ui.ts` re-renders the whole tree per state change: `renderApp()` calls
-  `render(h(App,{state,actions}),root)` (`src/popup/ui.ts:2879-2904`) with a
-  manual Preact-internal self-heal (`root.__k`/`_children`).
-- `ui.ts` exposes a large public API consumed by `popup.ts` and the live
+- Popup UI now lives in `src/popup/ui.tsx` on React + JSX. It keeps the same
+  public API consumed by `popup.ts` and the live
   launcher: `initUi`, `getViewState`, `setViewState`, `onViewStateChange`,
   `getRefs`, `showToast`, `setUiBusy`, `View`, `ViewText`,
   `isPopupFeatureEnabled`, and many `setX` functions. `popup.ts` wires
   `__UNFLUFFIFY_POPUP_DEBUG__.getViewState = uiModule.getViewState` and the
   `pnpm browser:live` flow depends on it.
-- No JSX tooling exists: `tsconfig*.json` has no `jsx`; tsconfig `include` uses
-  `src/**/*.ts` (not `.tsx`). `vitest.config.ts` now includes only
-  `tests/**/*.test.ts`.
+- `renderApp()` now uses a module-held React root, `flushSync(...)` for
+  immediate ref availability after each render, and root error hooks that
+  schedule a hard remount recovery on caught/uncaught React render failures.
+- React tooling is now wired end-to-end: repo deps include `react`,
+  `react-dom`, `@types/react`, `@types/react-dom`, `@vitejs/plugin-react`, and
+  `@wxt-dev/module-react`; `wxt.config.ts` registers the WXT React module;
+  `vitest.config.ts` uses the React Vite plugin; and `tsconfig.json` /
+  `eslint.config.js` now include `src/popup/**/*.tsx`.
+- Popup feature-flag reads now have a plain-TS home in
+  `src/popup/feature-flags-helpers.ts`, which `ui.tsx` re-exports so runtime
+  callers stay stable while tests avoid importing the JSX module just to probe
+  flag behavior.
 - Tests are now uniformly TypeScript: all surviving test files are `.test.ts`,
   Vitest bootstraps through `tests/setup-runtime.ts`, the older `test-kit.ts`
   compatibility layer remains for the legacy assertion-style suites, and
@@ -208,27 +215,21 @@ table):
 - Validation: `pnpm lint && pnpm check && pnpm test && pnpm build` green; `find
   tests -name '*.test.js'` returns empty.
 
-### Phase D — Port popup UI to React + JSX (task 4)
+### Phase D — Port popup UI to React + JSX (task 4) — complete
 
-- Tooling: add deps `react`, `react-dom`, `@types/react`, `@types/react-dom`,
-  and WXT React support (`@wxt-dev/module-react` registered in `wxt.config.ts`
-  `modules`); add `"jsx": "react-jsx"` to `tsconfig.json`; broaden tsconfig
-  `include` and `pnpm check`/eslint globs to cover `**/*.tsx`; confirm `eslint .`
-  parses `.tsx`.
-- Rename `src/popup/ui.ts` -> `src/popup/ui.tsx`. Convert all
-  `h(Type, props, ...children)` -> JSX, `Fragment` -> `<>…</>`, and
-  `render(h(App,…),root)` -> a module-held `createRoot(root)` whose
-  `.render(<App state={…} actions={…}/>)` is called by `renderApp()`. Replace
-  the Preact-internal `__k`/`_children` self-heal with a React-appropriate
-  remount (recreate root) or error boundary.
-- Preserve exactly: every exported function/const of `ui.ts`, the `App` props
-  shape, `refs` population, toast/busy/menu/preview behaviors, and `getViewState`
-  (the `__UNFLUFFIFY_POPUP_DEBUG__` hook).
-- Convert by render-helper sections (~270 `h()` sites), `pnpm check` after each
-  batch.
-- Validation: `pnpm lint && pnpm check && pnpm test && pnpm build`; then live
-  `pnpm browser:live <target-url>` for popup parity (render, marking preview,
-  busy curtain, menus, exit-preview); reload the SW after rebuild.
+- Added React runtime/tooling deps, registered `@wxt-dev/module-react` in
+  `wxt.config.ts`, wired `@vitejs/plugin-react` into `vitest.config.ts`, and
+  broadened TS/eslint coverage to `src/popup/**/*.tsx`.
+- Renamed `src/popup/ui.ts` -> `src/popup/ui.tsx` and converted the full popup
+  tree from Preact `h(...)` calls to JSX, preserving the exported UI API,
+  preview/menu/toast/busy behaviors, and the popup debug view-state seam.
+- Replaced the Preact-internal root reset with a React root using
+  `flushSync(...)` for post-render ref safety and root error hooks that schedule
+  a hard remount recovery on render failures.
+- Extracted `isPopupFeatureEnabled(...)` into
+  `src/popup/feature-flags-helpers.ts`, updated the coupled source-text tests to
+  read `ui.tsx`, and broadened storage-boundary scanning to include `.tsx`.
+- Validation: `pnpm lint && pnpm check && pnpm test && pnpm build` green.
 
 ### Phase E — Remove Preact completely (task 5)
 

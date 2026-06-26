@@ -13,6 +13,7 @@ export function restoreSourceAction(manifest: Record<string, unknown>) {
 }
 
 export default defineConfig({
+  modules: ["@wxt-dev/module-react"],
   imports: false,
   manifestVersion: 3,
   publicDir: "src/public",

@@ -194,18 +194,18 @@ test("stage base normalization accepts hosts and URLs", () => {
 });
 
 test("auth setup script targets the current popup configuration controls", async () => {
-  const popupUiSource = await readFile(path.join(process.cwd(), "src/popup/ui.ts"), "utf8");
+  const popupUiSource = await readFile(path.join(process.cwd(), "src/popup/ui.tsx"), "utf8");
   for (const selector of Object.values(AUTH_SETUP_SELECTORS)) {
     const id = selector.replace(/^#/, "");
     if (id.endsWith("-set")) {
-      assert.match(popupUiSource, /id: `\$\{inputId\}-set`/);
+      assert.match(popupUiSource, /id=\{`\$\{inputId\}-set`\}/);
       continue;
     }
     if (id.endsWith("-edit")) {
-      assert.match(popupUiSource, /id: `\$\{inputId\}-edit`/);
+      assert.match(popupUiSource, /id=\{`\$\{inputId\}-edit`\}/);
       continue;
     }
-    assert.match(popupUiSource, new RegExp(`(?:id|inputId): "${id}"`));
+    assert.match(popupUiSource, new RegExp(`(?:id="${id}"|inputId: "${id}")`));
   }
 
   assert.equal(AUTH_SETUP_SELECTORS.configurationEndpointInput, "#config-endpoint-url");
