@@ -42,8 +42,10 @@ locator helpers from `tests/file-kit.ts`. The latest checkpoint then completed
 Phase D by porting `src/popup/ui.ts` to React/JSX in `src/popup/ui.tsx`, adding
 the React/WXT/Vitest tooling, extracting `src/popup/feature-flags-helpers.ts`,
 and preserving the preview-scroll/self-heal seams with `flushSync(...)` plus
-root error-hook remount recovery. The next active execution step is Phase E:
-remove Preact completely.
+root error-hook remount recovery. The latest checkpoint then completed Phase E
+by deleting the unused vendored Preact files and the stale vendor ignore,
+leaving the popup stack React-only. The next active execution step is Phase G:
+convert eligible `src` imports to extensionless specifiers.
 
 ## 1. Goal
 
@@ -71,6 +73,9 @@ all with `pnpm verify` green and the live popup behavior unchanged.
   `@wxt-dev/module-react`; `wxt.config.ts` registers the WXT React module;
   `vitest.config.ts` uses the React Vite plugin; and `tsconfig.json` /
   `eslint.config.js` now include `src/popup/**/*.tsx`.
+- The old vendored Preact implementation is gone: `src/popup/vendor/preact/`
+  was deleted, the vendor-specific ESLint ignore was removed, and repo docs now
+  describe the popup UI as React-based.
 - Popup feature-flag reads now have a plain-TS home in
   `src/popup/feature-flags-helpers.ts`, which `ui.tsx` re-exports so runtime
   callers stay stable while tests avoid importing the JSX module just to probe
@@ -233,11 +238,11 @@ table):
 
 ### Phase E — Remove Preact completely (task 5)
 
-- Delete `src/popup/vendor/preact/`; remove the vendor ignore entry from
-  `eslint.config.js`.
-- Confirm zero `preact` references: `grep -rn "preact" src tests *.ts *.json`
-  empty.
-- Validation: `pnpm verify`.
+- Deleted `src/popup/vendor/preact/` and removed the stale vendor ignore entry
+  from `eslint.config.js`.
+- Repo/runtime references to Preact are gone; only this plan keeps historical
+  `preact` mentions to record the completed migration steps.
+- Validation: `pnpm verify` green.
 
 ### Phase G — Convert src imports to extensionless
 

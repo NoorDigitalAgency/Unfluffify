@@ -153,7 +153,7 @@ pnpm exec vitest run tests/core-visibility.test.ts tests/core-motion-pause.test.
   remote config, and operation routing
 - **`src/content/`** - Content-side handlers, overlays, marking logic helpers,
   render-mode inspection, and page-side coordination
-- **`src/popup/`** - Popup state, UI helpers, render-mode flows, and Preact UI
+- **`src/popup/`** - Popup state, React UI helpers, and render-mode flows
 - **`src/offscreen/`** - Offscreen document support modules
 - **`src/types/`** - Shared TypeScript contracts for runtime surfaces
 
@@ -176,7 +176,7 @@ pnpm exec vitest run tests/core-visibility.test.ts tests/core-motion-pause.test.
 
 ### Popup UI (`/src/popup`)
 
-- **`ui.ts`** - Preact-based UI component rendering and state management
+- **`ui.tsx`** - React-based UI component rendering and state management
 - **`helpers.ts`** - Helper functions for tab operations, device emulation, and
   AI settings
 - **`chrome-helpers.ts`** - Browser-tab helpers and popup-triggered tab actions

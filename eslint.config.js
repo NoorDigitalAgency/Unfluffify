@@ -10,7 +10,6 @@ export default tseslint.config(
       ".tmp/**",
       ".output/**",
       ".wxt/**",
-      "src/popup/vendor/**",
     ],
   },
   js.configs.recommended,
