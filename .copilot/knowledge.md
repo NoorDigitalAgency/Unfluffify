@@ -131,6 +131,38 @@
   test directly. The release workflow uses `pnpm zip` for a synced
   `.output/chrome-mv3` archive, then `scripts/package-extension.mjs` to preserve the stable
   `extension-latest` / `Unfluffify-latest.zip` alias semantics.
+- The popup UI is React/JSX in `src/popup/ui.tsx` (Preact is fully removed; no
+  vendored runtime remains). React tooling is wired via `@wxt-dev/module-react`
+  (build) and `@vitejs/plugin-react` (Vitest); `tsconfig.json` uses
+  `jsx: react-jsx` and includes `src/popup/**/*.tsx`. `createRoot().render()` is
+  async — any code that reads refs/DOM immediately after a render must wrap it in
+  `flushSync(...)`, and React render errors do NOT surface through caller
+  `try/catch`; recovery uses `createRoot(el, { onCaughtError, onUncaughtError })`
+  hooks that schedule a `queueMicrotask` unmount+remount. The pure flag helper
+  `isPopupFeatureEnabled` lives in `src/popup/feature-flags-helpers.ts` and is
+  re-exported from `ui.tsx` so flag-logic tests need not import JSX.
+- Relative imports under `src/**/*.{ts,tsx}` are extensionless (bundled build);
+  the only exception is the locked page-motion freeze pair
+  (`src/common/page-motion-freeze-bridge.ts`,
+  `src/common/page-motion-freeze-control.ts`). Source-contract tests that assert
+  import specifier strings expect extensionless paths, but
+  `tests/manifest-permissions.test.ts` re-appends `.js` when comparing source
+  imports against emitted bundle/WAR names.
+- `logo.png` is a public asset at `src/public/logo.png`; WXT copies it to the
+  output root and `scripts/package-extension.mjs` stages it explicitly, with
+  parity assertions in `tests/build-artifact-parity.test.ts` and
+  `tests/package-extension.test.ts`.
+- ESLint enforces unused detection across BOTH `src/**/*.{ts,tsx}` and
+  `tests/**/*.ts` via `eslint-plugin-unused-imports`
+  (`unused-imports/no-unused-imports: error`) and
+  `@typescript-eslint/no-unused-vars: error` (ignore pattern `^_` for
+  args/vars/caught errors), plus `no-useless-assignment`, `no-useless-escape`,
+  and `prefer-spread`. The locked freeze pair has a file-level override that
+  disables `no-unused-vars` and `prefer-spread` (its content stays byte-stable).
+  Prefix intentionally-unused catch bindings and args with `_`.
+- All test files are TypeScript under `tests/` (no `tests/*.test.js` remain);
+  pure structural source-shape tests were removed in favor of behavior,
+  contract/guard, and sentiment tests.
 
 ## Content script lifecycle
 

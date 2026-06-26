@@ -5,8 +5,8 @@ Last updated: 2026-06-26
 ## Objective
 
 Keep the active architecture index aligned with the repository's finalized WXT
-runtime and current approved work. The extension now ships from the WXT-native
-`src/` tree, public assets come from `src/public/`, and no new content/runtime
+runtime. The extension now ships from the WXT-native `src/` tree, public assets
+come from `src/public/`, the popup UI is React/JSX, and no new content/runtime
 refactor track is approved beyond the paused post-H3 state.
 
 ## Read this first before changing code
@@ -14,15 +14,14 @@ refactor track is approved beyond the paused post-H3 state.
 1. `.copilot/knowledge.md`
 2. `.github/instructions/*.instructions.md`
 3. `.github/skills/*/SKILL.md` relevant to the task
-4. `.copilot/active-implementation-plan.md` for the current active execution
-   plan (test cleanup, TS port, React UI port, Preact removal, logo fix,
-   extensionless imports, lint pass).
 
-The completed WXT-migration, type-safety, and post-WXT cleanup plan/progress
+There is no open implementation plan. The completed WXT-migration, type-safety,
+post-WXT cleanup, and final WXT-finalization (test cleanup, TS port, React UI
+port, Preact removal, logo fix, extensionless imports, lint pass) plan/progress
 docs were removed from the workspace; their durable outcomes live in
 `.copilot/knowledge.md`. Use git history if earlier rationale is needed.
 
-## Current branch state
+## Current state
 
 1. The shipped runtime is WXT-native end to end:
    - source code lives under `src/`
@@ -30,18 +29,21 @@ docs were removed from the workspace; their durable outcomes live in
    - shared types live under `src/types/`
    - stable public assets live under `src/public/`
    - `wxt.config.ts` is the sole manifest source of truth
-2. The public workflow is pnpm/Node-only:
+2. The popup UI is React/JSX (`src/popup/ui.tsx`); Preact is fully removed.
+   Relative imports under `src/**` are extensionless except the locked
+   page-motion freeze pair.
+3. The public workflow is pnpm/Node-only:
    - validation: `pnpm lint`, `pnpm check`, `pnpm test`, `pnpm build`,
      `pnpm verify`
    - packaging: `pnpm zip`, `node ./scripts/package-extension.mjs`
    - live browser: `pnpm browser:live <target-url>`
    - orchestration: `pnpm orchestrate:*`
    - tests: all automated coverage lives under `tests/`
-3. The post-WXT cleanup/type-safety finalization track is complete; its durable
+4. The WXT migration, post-WXT cleanup/type-safety finalization, and the final
+   WXT-finalization pass are complete and merged to `main`; their durable
    outcomes are captured in `.copilot/knowledge.md`.
-4. Event-bus Tracks 0-4 and Part C native WXT adoption are complete on this
-   branch.
-5. Track H remains paused after H3 by design. Do not resume deeper
+5. Event-bus Tracks 0-4 and Part C native WXT adoption are complete.
+6. Track H remains paused after H3 by design. Do not resume deeper
    `content-main` extraction unless a new written plan is approved.
 
 ## Guardrails
@@ -59,7 +61,7 @@ docs were removed from the workspace; their durable outcomes live in
 
 ## Marking Contract Lock
 
-The 052c-derived marking restoration completed on this branch and remains a
+The 052c-derived marking restoration is complete and remains a
 locked compatibility contract. Do not change default-exclusion taxonomy, target resolution, sync semantics, or overlay projection unless the user explicitly asks for a marking contract change.
 
 Key reminders for any future work in this area:
