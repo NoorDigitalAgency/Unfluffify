@@ -1,5 +1,5 @@
 import * as config from "../common/config.js";
-import type { Config } from "../types/config.ts";
+import type { Config, PageMarkingEntry, XpathEntry } from "../types/config.ts";
 import * as utils from "../common/utilities.js";
 import {
   DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS,
@@ -39,17 +39,124 @@ import {
 } from "./page-world-relay.js";
 import { PAGE_WORLD_COMMANDS } from "../common/page-world-protocol.js";
 
+type TimerHandle = number;
+type AnimationFrameHandle = number;
+type IdleHandle = number;
+type Point = [number, number];
+type UnknownRecord = Record<string, unknown>;
+type RectLike = Pick<DOMRectReadOnly, "left" | "top" | "right" | "bottom" | "width" | "height">;
+
+type ExtensionSetTimeout = (handler: TimerHandler, timeout?: number, ...args: unknown[]) => TimerHandle;
+type ExtensionClearTimeout = (handle?: TimerHandle) => void;
+type ExtensionSetInterval = (handler: TimerHandler, timeout?: number, ...args: unknown[]) => TimerHandle;
+type ExtensionClearInterval = (handle?: TimerHandle) => void;
+type ExtensionRequestAnimationFrame = (callback: FrameRequestCallback) => AnimationFrameHandle;
+type ExtensionCancelAnimationFrame = (handle: AnimationFrameHandle) => void;
+type ExtensionIdleCallback = (deadline?: IdleDeadline) => void;
+type ExtensionRequestIdleCallback = (callback: ExtensionIdleCallback, options?: IdleRequestOptions) => IdleHandle;
+type ExtensionCancelIdleCallback = (handle: IdleHandle) => void;
+
+interface ExtensionTimerMap {
+  setTimeout: ExtensionSetTimeout | null;
+  clearTimeout: ExtensionClearTimeout | null;
+  setInterval: ExtensionSetInterval | null;
+  clearInterval: ExtensionClearInterval | null;
+  requestAnimationFrame: ExtensionRequestAnimationFrame | null;
+  cancelAnimationFrame: ExtensionCancelAnimationFrame | null;
+  requestIdleCallback: ExtensionRequestIdleCallback | null;
+  cancelIdleCallback: ExtensionCancelIdleCallback | null;
+}
+
+type ExtensionTimerName = keyof ExtensionTimerMap;
+type ExtensionTimerHost = Partial<Record<ExtensionTimerName, (...args: unknown[]) => unknown>>;
+
+interface TheoreticalVisibilityState {
+  definitiveHidden: boolean;
+  ambiguousHidden: boolean;
+}
+
+interface OverflowVisibilityState {
+  overflow: string;
+  overflowX: string;
+  overflowY: string;
+}
+
+interface TextualOptionCache {
+  visible: WeakMap<Element, boolean>;
+  ignoreVisibility: WeakMap<Element, boolean>;
+}
+
+interface ElementComputationCacheSnapshot {
+  visibilityCache: Map<Element, boolean> | null;
+  ancestorVisStateCache: Map<Element, TheoreticalVisibilityState> | null;
+  ancestorOverflowCache: Map<Element, OverflowVisibilityState> | null;
+  directTextCache: WeakMap<Element, boolean> | null;
+  normalizedTextCache: WeakMap<Element, string> | null;
+  toggleableDefaultCache: WeakMap<Element, boolean> | null;
+  immutableMatchCache: WeakMap<Element, boolean> | null;
+  immutableAncestorCache: WeakMap<Element, boolean> | null;
+  textualContainerCache: TextualOptionCache | null;
+  textualDescendantCache: TextualOptionCache | null;
+  textualImmutableDescendantCache: TextualOptionCache | null;
+}
+
+interface TextualDetectionOptions {
+  ignoreVisibilityForInclusionDetection?: boolean;
+}
+
+interface SnapshotXPathOptions {
+  extraStripSelectors?: unknown;
+}
+
+interface SelectorContext {
+  selectorSet: ReturnType<typeof normalizeAiSelectorSet>;
+  hasAiSelectors: boolean;
+  selectorSuppressedXpaths: string[];
+}
+
+function isElementNode(node: unknown): node is Element {
+  if (!node || typeof node !== "object") {
+    return false;
+  }
+  return "nodeType" in node && (node as Node).nodeType === 1;
+}
+
+function hasHiddenProperty(node: Element): node is Element & { hidden: boolean } {
+  return "hidden" in node && typeof (node as { hidden?: unknown }).hidden === "boolean";
+}
+
+function hasInnerTextProperty(node: Element): node is Element & { innerText: string } {
+  return "innerText" in node && typeof (node as { innerText?: unknown }).innerText === "string";
+}
+
+function isDialogLikeElement(node: Element): node is Element & { open: boolean; close: () => void } {
+  return node.tagName.toLowerCase() === "dialog" &&
+    "open" in node &&
+    typeof (node as { open?: unknown }).open === "boolean" &&
+    typeof (node as { close?: unknown }).close === "function";
+}
+
+function isStylableElement(node: Element): node is Element & { style: CSSStyleDeclaration } {
+  return "style" in node &&
+    Boolean((node as { style?: CSSStyleDeclaration | null }).style) &&
+    typeof (node as { style?: CSSStyleDeclaration | null }).style?.setProperty === "function";
+}
+
+function isXpathEntry(value: unknown): value is XpathEntry {
+  return Boolean(value) && typeof value === "object" && typeof (value as XpathEntry).xpath === "string";
+}
+
 export const state = {
   enabled: false,
   baseUrl: "",
   currentPageType: "",
   config: null as Config | null,
-  overlay: null,
-  layers: {},
-  hoverBox: null,
-  focusBox: null,
-  focusElement: null,
-  aiPopover: null,
+  overlay: null as HTMLElement | null,
+  layers: {} as Record<string, HTMLElement>,
+  hoverBox: null as HTMLElement | null,
+  focusBox: null as HTMLElement | null,
+  focusElement: null as Element | null,
+  aiPopover: null as HTMLElement | null,
   aiPopoverCollapsed: false,
   aiPopoverOnClose: null,
   aiPopoverOnCollapsedChange: null,
@@ -70,7 +177,7 @@ export const state = {
   lastPointer: null,
   markIdCounter: 1,
   markIds: new WeakMap(),
-  markedElements: new Set(),
+  markedElements: new Set<Element>(),
   renderRaf: 0,
   renderTimer: 0,
   explicitFullRenderTimer: 0,
@@ -82,7 +189,7 @@ export const state = {
   draftPersistTimer: 0,
   urlCheckTimer: 0,
   mutationObserver: null,
-  savedPageEntry: null,
+  savedPageEntry: null as PageMarkingEntry | null,
   savedPageUrl: "",
   // Per-page fingerprint of the last clean state. Lazy-initialised on the
   // first dirty check after sync populates the draft, and refreshed when a
@@ -93,7 +200,7 @@ export const state = {
   // synced defaults + selector entry on the next render after a marking enable.
   pendingFreshBaselinePageUrl: "",
   consentSyncedPageUrl: "",
-  consentRootElements: new Set(),
+  consentRootElements: new Set<Element>(),
   initialized: false,
   layerBoxes: new WeakMap(),
   cachedCollections: null,
@@ -102,20 +209,20 @@ export const state = {
   paintReachabilityFallbackCount: 0,
   paintReachabilityFallbackLastLoggedAt: 0,
   elementComputationCacheDepth: 0,
-  visibilityCache: null,
-  ancestorVisStateCache: null,
-  ancestorOverflowCache: null,
-  directTextCache: null,
-  normalizedTextCache: null,
-  toggleableDefaultCache: null,
-  immutableMatchCache: null,
-  immutableAncestorCache: null,
-  textualContainerCache: null,
-  textualDescendantCache: null,
-  textualImmutableDescendantCache: null,
+  visibilityCache: null as Map<Element, boolean> | null,
+  ancestorVisStateCache: null as Map<Element, TheoreticalVisibilityState> | null,
+  ancestorOverflowCache: null as Map<Element, OverflowVisibilityState> | null,
+  directTextCache: null as WeakMap<Element, boolean> | null,
+  normalizedTextCache: null as WeakMap<Element, string> | null,
+  toggleableDefaultCache: null as WeakMap<Element, boolean> | null,
+  immutableMatchCache: null as WeakMap<Element, boolean> | null,
+  immutableAncestorCache: null as WeakMap<Element, boolean> | null,
+  textualContainerCache: null as TextualOptionCache | null,
+  textualDescendantCache: null as TextualOptionCache | null,
+  textualImmutableDescendantCache: null as TextualOptionCache | null,
   hoverRaf: 0,
   currentPageUrl: "",
-  currentPageEntry: null,
+  currentPageEntry: null as PageMarkingEntry | null,
   autoSeededPendingSavePageUrl: "",
   autoSeedSuppressedPageUrl: "",
   toggleAckTimer: 0,
@@ -130,7 +237,7 @@ export const state = {
   explicitOverlayRefreshScheduled: false,
   explicitOverlayRefreshHandle: 0,
   explicitOverlayRefreshHandleType: "",
-  explicitOverlayRefreshEntry: null,
+  explicitOverlayRefreshEntry: null as PageMarkingEntry | null,
   explicitOverlayRefreshContext: null,
   pageMotionPause: null,
   pageRevealWarmupId: 0,
@@ -255,8 +362,7 @@ const PAGE_MOTION_REVEAL_INTERACTION_ATTRIBUTE_NAMES = new Set(["data-ix", "data
 const PAGE_MOTION_PAUSE_INLINE_STYLE_RE = /(^|;|\s)(animation|transition|transform|translate|rotate|scale|offset|opacity|filter|clip-path|top|right|bottom|left)\s*:/i;
 let pageMotionFreezeTimersPaused = false;
 let pageMotionFreezeLazyLoadingSuppressed = false;
-// @ts-expect-error
-let pageMotionRelayInitializationPromise = null;
+let pageMotionRelayInitializationPromise: Promise<void> | null = null;
 const PAGE_MOTION_PAUSE_BASE_LOCK_PROPERTIES = [
   "transform",
   "translate",
@@ -303,13 +409,11 @@ const AI_PREVIEW_FOCUS_CLASS = "uf-ai-preview-focus-target";
 const AI_PREVIEW_FOCUS_STYLE_ID = "unfluffify-ai-preview-focus-style";
 const SILENT_HIGHLIGHTING_PREPARATION_REASON = "editor_preparing";
 
-const capturedExtensionTimers = (() => {
-  const root = typeof window !== "undefined" ? window : globalThis;
-// @ts-expect-error
-  const bindTimer = (name) => {
-// @ts-expect-error
-    const value = root && typeof root[name] === "function" ? root[name] : null;
-    return value ? value.bind(root) : null;
+const capturedExtensionTimers: ExtensionTimerMap = (() => {
+  const root = (typeof window !== "undefined" ? window : globalThis) as typeof globalThis & ExtensionTimerHost;
+  const bindTimer = <Name extends ExtensionTimerName>(name: Name): ExtensionTimerMap[Name] => {
+    const value = typeof root[name] === "function" ? root[name] : null;
+    return value ? value.bind(root) as ExtensionTimerMap[Name] : null;
   };
   return {
     setTimeout: bindTimer("setTimeout"),
@@ -323,8 +427,7 @@ const capturedExtensionTimers = (() => {
   };
 })();
 
-// @ts-expect-error
-function isPageMotionFreezeTimerFunction(value) {
+function isPageMotionFreezeTimerFunction(value: unknown): boolean {
   const name = value && typeof value === "function" ? value.name || "" : "";
   return name.startsWith("unfluffifySet") ||
     name.startsWith("unfluffifyClear") ||
@@ -332,17 +435,15 @@ function isPageMotionFreezeTimerFunction(value) {
     name.startsWith("unfluffifyCancel");
 }
 
-// @ts-expect-error
-function getExtensionTimer(name) {
-  const current = typeof window !== "undefined" && typeof window[name] === "function"
-    ? window[name]
+function getExtensionTimer<Name extends ExtensionTimerName>(name: Name): ExtensionTimerMap[Name] {
+  const timerHost = typeof window !== "undefined" ? window as typeof window & ExtensionTimerHost : null;
+  const current = timerHost && typeof timerHost[name] === "function"
+    ? timerHost[name]
     : null;
   if (current && !isPageMotionFreezeTimerFunction(current)) {
-// @ts-expect-error
-    return current.bind(window);
+    return current.bind(window) as ExtensionTimerMap[Name];
   }
-// @ts-expect-error
-  return capturedExtensionTimers[name] || (current ? current.bind(window) : null);
+  return capturedExtensionTimers[name] || (current ? current.bind(window) as ExtensionTimerMap[Name] : null);
 }
 
 function getExtensionNow() {
@@ -352,27 +453,23 @@ function getExtensionNow() {
   return Date.now();
 }
 
-// @ts-expect-error
-function extensionSetTimeout(callback, delay, ...args) {
-  const timer = getExtensionTimer("setTimeout") || setTimeout;
+function extensionSetTimeout(callback: TimerHandler, delay?: number, ...args: unknown[]): TimerHandle {
+  const timer = getExtensionTimer("setTimeout") || globalThis.setTimeout.bind(globalThis);
   return timer(callback, delay, ...args);
 }
 
-// @ts-expect-error
-function extensionClearTimeout(handle) {
-  const timer = getExtensionTimer("clearTimeout") || clearTimeout;
+function extensionClearTimeout(handle: TimerHandle): void {
+  const timer = getExtensionTimer("clearTimeout") || globalThis.clearTimeout.bind(globalThis);
   timer(handle);
 }
 
-// @ts-expect-error
-function extensionSetInterval(callback, delay, ...args) {
-  const timer = getExtensionTimer("setInterval") || setInterval;
+function extensionSetInterval(callback: TimerHandler, delay?: number, ...args: unknown[]): TimerHandle {
+  const timer = getExtensionTimer("setInterval") || globalThis.setInterval.bind(globalThis);
   return timer(callback, delay, ...args);
 }
 
-// @ts-expect-error
-function extensionClearInterval(handle) {
-  const timer = getExtensionTimer("clearInterval") || clearInterval;
+function extensionClearInterval(handle: TimerHandle): void {
+  const timer = getExtensionTimer("clearInterval") || globalThis.clearInterval.bind(globalThis);
   timer(handle);
 }
 
@@ -380,8 +477,7 @@ function getExtensionRequestAnimationFrame() {
   return getExtensionTimer("requestAnimationFrame");
 }
 
-// @ts-expect-error
-function extensionRequestAnimationFrame(callback) {
+function extensionRequestAnimationFrame(callback: FrameRequestCallback): AnimationFrameHandle {
   const requestFrame = getExtensionRequestAnimationFrame();
   if (requestFrame) {
     return requestFrame(callback);
@@ -389,8 +485,7 @@ function extensionRequestAnimationFrame(callback) {
   return extensionSetTimeout(() => callback(getExtensionNow()), 16);
 }
 
-// @ts-expect-error
-function extensionCancelAnimationFrame(handle) {
+function extensionCancelAnimationFrame(handle: AnimationFrameHandle): void {
   const cancelFrame = getExtensionTimer("cancelAnimationFrame");
   if (cancelFrame) {
     cancelFrame(handle);
@@ -399,29 +494,28 @@ function extensionCancelAnimationFrame(handle) {
   extensionClearTimeout(handle);
 }
 
-// @ts-expect-error
-function extensionRequestIdleCallback(callback, options) {
+function extensionRequestIdleCallback(
+  callback: ExtensionIdleCallback,
+  options?: IdleRequestOptions
+): IdleHandle {
   const requestIdle = getExtensionTimer("requestIdleCallback");
   if (requestIdle) {
     return requestIdle(callback, options);
   }
-  return extensionSetTimeout(callback, 0);
+  return extensionSetTimeout(() => callback(), 0);
 }
 
-// @ts-expect-error
-let aiPreviewFocusElement = null;
+let aiPreviewFocusElement: Element | null = null;
 
 function createCurrentTimestamp() {
   return config.createTimestampNow();
 }
 
-// @ts-expect-error
-function normalizeEntryTimestampValue(value) {
+function normalizeEntryTimestampValue(value: unknown): string {
   return config.normalizeEntryTimestamp(value);
 }
 
-// @ts-expect-error
-function normalizePageEntryTitle(value, fallbackUrl = "") {
+function normalizePageEntryTitle(value: unknown, fallbackUrl = ""): string {
   if (typeof value !== "string") {
     return "";
   }
@@ -456,8 +550,7 @@ function isTogglePerfEnabled() {
   return state.perfEnabled;
 }
 
-// @ts-expect-error
-function logTogglePerf(label, startedAt, details = null) {
+function logTogglePerf(label: string, startedAt: number, details: UnknownRecord | null = null): void {
   if (!isTogglePerfEnabled()) {
     return;
   }
@@ -472,238 +565,154 @@ function logTogglePerf(label, startedAt, details = null) {
   }
 }
 
-function createTextualOptionCache() {
+function createTextualOptionCache(): TextualOptionCache {
   return {
-    visible: new WeakMap(),
-    ignoreVisibility: new WeakMap()
+    visible: new WeakMap<Element, boolean>(),
+    ignoreVisibility: new WeakMap<Element, boolean>()
   };
 }
 
-// @ts-expect-error
-function getTextualOptionCache(cache, options = {}) {
+function getTextualOptionCache(
+  cache: TextualOptionCache | null,
+  options: TextualDetectionOptions = {}
+): WeakMap<Element, boolean> | null {
   if (!cache) {
     return null;
   }
-// @ts-expect-error
   return options && options.ignoreVisibilityForInclusionDetection
     ? cache.ignoreVisibility
     : cache.visible;
 }
 
-// @ts-expect-error
-export function withElementComputationCache(callback) {
+function captureElementComputationCaches(): ElementComputationCacheSnapshot {
+  return {
+    visibilityCache: state.visibilityCache,
+    ancestorVisStateCache: state.ancestorVisStateCache,
+    ancestorOverflowCache: state.ancestorOverflowCache,
+    directTextCache: state.directTextCache,
+    normalizedTextCache: state.normalizedTextCache,
+    toggleableDefaultCache: state.toggleableDefaultCache,
+    immutableMatchCache: state.immutableMatchCache,
+    immutableAncestorCache: state.immutableAncestorCache,
+    textualContainerCache: state.textualContainerCache,
+    textualDescendantCache: state.textualDescendantCache,
+    textualImmutableDescendantCache: state.textualImmutableDescendantCache
+  };
+}
+
+function resetElementComputationCaches(): void {
+  state.visibilityCache = new Map<Element, boolean>();
+  state.ancestorVisStateCache = new Map<Element, TheoreticalVisibilityState>();
+  state.ancestorOverflowCache = new Map<Element, OverflowVisibilityState>();
+  state.directTextCache = new WeakMap<Element, boolean>();
+  state.normalizedTextCache = new WeakMap<Element, string>();
+  state.toggleableDefaultCache = new WeakMap<Element, boolean>();
+  state.immutableMatchCache = new WeakMap<Element, boolean>();
+  state.immutableAncestorCache = new WeakMap<Element, boolean>();
+  state.textualContainerCache = createTextualOptionCache();
+  state.textualDescendantCache = createTextualOptionCache();
+  state.textualImmutableDescendantCache = createTextualOptionCache();
+}
+
+function restoreElementComputationCaches(snapshot: ElementComputationCacheSnapshot): void {
+  state.visibilityCache = snapshot.visibilityCache;
+  state.ancestorVisStateCache = snapshot.ancestorVisStateCache;
+  state.ancestorOverflowCache = snapshot.ancestorOverflowCache;
+  state.directTextCache = snapshot.directTextCache;
+  state.normalizedTextCache = snapshot.normalizedTextCache;
+  state.toggleableDefaultCache = snapshot.toggleableDefaultCache;
+  state.immutableMatchCache = snapshot.immutableMatchCache;
+  state.immutableAncestorCache = snapshot.immutableAncestorCache;
+  state.textualContainerCache = snapshot.textualContainerCache;
+  state.textualDescendantCache = snapshot.textualDescendantCache;
+  state.textualImmutableDescendantCache = snapshot.textualImmutableDescendantCache;
+}
+
+export function withElementComputationCache<T>(callback: () => T): T {
   const outermost = state.elementComputationCacheDepth === 0;
-  const previous = outermost
-    ? {
-      visibilityCache: state.visibilityCache,
-      ancestorVisStateCache: state.ancestorVisStateCache,
-      ancestorOverflowCache: state.ancestorOverflowCache,
-      directTextCache: state.directTextCache,
-      normalizedTextCache: state.normalizedTextCache,
-      toggleableDefaultCache: state.toggleableDefaultCache,
-      immutableMatchCache: state.immutableMatchCache,
-      immutableAncestorCache: state.immutableAncestorCache,
-      textualContainerCache: state.textualContainerCache,
-      textualDescendantCache: state.textualDescendantCache,
-      textualImmutableDescendantCache: state.textualImmutableDescendantCache
-    }
-    : null;
+  const previous = outermost ? captureElementComputationCaches() : null;
   if (outermost) {
-// @ts-expect-error
-    state.visibilityCache = new Map();
-// @ts-expect-error
-    state.ancestorVisStateCache = new Map();
-// @ts-expect-error
-    state.ancestorOverflowCache = new Map();
-// @ts-expect-error
-    state.directTextCache = new WeakMap();
-// @ts-expect-error
-    state.normalizedTextCache = new WeakMap();
-// @ts-expect-error
-    state.toggleableDefaultCache = new WeakMap();
-// @ts-expect-error
-    state.immutableMatchCache = new WeakMap();
-// @ts-expect-error
-    state.immutableAncestorCache = new WeakMap();
-// @ts-expect-error
-    state.textualContainerCache = createTextualOptionCache();
-// @ts-expect-error
-    state.textualDescendantCache = createTextualOptionCache();
-// @ts-expect-error
-    state.textualImmutableDescendantCache = createTextualOptionCache();
+    resetElementComputationCaches();
   }
   state.elementComputationCacheDepth += 1;
   try {
     return callback();
   } finally {
     state.elementComputationCacheDepth -= 1;
-    if (outermost) {
-// @ts-expect-error
-      state.visibilityCache = previous.visibilityCache;
-// @ts-expect-error
-      state.ancestorVisStateCache = previous.ancestorVisStateCache;
-// @ts-expect-error
-      state.ancestorOverflowCache = previous.ancestorOverflowCache;
-// @ts-expect-error
-      state.directTextCache = previous.directTextCache;
-// @ts-expect-error
-      state.normalizedTextCache = previous.normalizedTextCache;
-// @ts-expect-error
-      state.toggleableDefaultCache = previous.toggleableDefaultCache;
-// @ts-expect-error
-      state.immutableMatchCache = previous.immutableMatchCache;
-// @ts-expect-error
-      state.immutableAncestorCache = previous.immutableAncestorCache;
-// @ts-expect-error
-      state.textualContainerCache = previous.textualContainerCache;
-// @ts-expect-error
-      state.textualDescendantCache = previous.textualDescendantCache;
-// @ts-expect-error
-      state.textualImmutableDescendantCache = previous.textualImmutableDescendantCache;
+    if (outermost && previous) {
+      restoreElementComputationCaches(previous);
     }
   }
 }
 
-// @ts-expect-error
-async function withElementComputationCacheAsync(callback) {
+async function withElementComputationCacheAsync<T>(callback: () => Promise<T>): Promise<T> {
   const outermost = state.elementComputationCacheDepth === 0;
-  const previous = outermost
-    ? {
-      visibilityCache: state.visibilityCache,
-      ancestorVisStateCache: state.ancestorVisStateCache,
-      ancestorOverflowCache: state.ancestorOverflowCache,
-      directTextCache: state.directTextCache,
-      normalizedTextCache: state.normalizedTextCache,
-      toggleableDefaultCache: state.toggleableDefaultCache,
-      immutableMatchCache: state.immutableMatchCache,
-      immutableAncestorCache: state.immutableAncestorCache,
-      textualContainerCache: state.textualContainerCache,
-      textualDescendantCache: state.textualDescendantCache,
-      textualImmutableDescendantCache: state.textualImmutableDescendantCache
-    }
-    : null;
+  const previous = outermost ? captureElementComputationCaches() : null;
   if (outermost) {
-// @ts-expect-error
-    state.visibilityCache = new Map();
-// @ts-expect-error
-    state.ancestorVisStateCache = new Map();
-// @ts-expect-error
-    state.ancestorOverflowCache = new Map();
-// @ts-expect-error
-    state.directTextCache = new WeakMap();
-// @ts-expect-error
-    state.normalizedTextCache = new WeakMap();
-// @ts-expect-error
-    state.toggleableDefaultCache = new WeakMap();
-// @ts-expect-error
-    state.immutableMatchCache = new WeakMap();
-// @ts-expect-error
-    state.immutableAncestorCache = new WeakMap();
-// @ts-expect-error
-    state.textualContainerCache = createTextualOptionCache();
-// @ts-expect-error
-    state.textualDescendantCache = createTextualOptionCache();
-// @ts-expect-error
-    state.textualImmutableDescendantCache = createTextualOptionCache();
+    resetElementComputationCaches();
   }
   state.elementComputationCacheDepth += 1;
   try {
     return await callback();
   } finally {
     state.elementComputationCacheDepth -= 1;
-    if (outermost) {
-// @ts-expect-error
-      state.visibilityCache = previous.visibilityCache;
-// @ts-expect-error
-      state.ancestorVisStateCache = previous.ancestorVisStateCache;
-// @ts-expect-error
-      state.ancestorOverflowCache = previous.ancestorOverflowCache;
-// @ts-expect-error
-      state.directTextCache = previous.directTextCache;
-// @ts-expect-error
-      state.normalizedTextCache = previous.normalizedTextCache;
-// @ts-expect-error
-      state.toggleableDefaultCache = previous.toggleableDefaultCache;
-// @ts-expect-error
-      state.immutableMatchCache = previous.immutableMatchCache;
-// @ts-expect-error
-      state.immutableAncestorCache = previous.immutableAncestorCache;
-// @ts-expect-error
-      state.textualContainerCache = previous.textualContainerCache;
-// @ts-expect-error
-      state.textualDescendantCache = previous.textualDescendantCache;
-// @ts-expect-error
-      state.textualImmutableDescendantCache = previous.textualImmutableDescendantCache;
+    if (outermost && previous) {
+      restoreElementComputationCaches(previous);
     }
   }
 }
 
-function yieldForToggleReconcileWork() {
-  return new Promise((resolve) => {
+function yieldForToggleReconcileWork(): Promise<void> {
+  return new Promise<void>((resolve) => {
     if (getExtensionRequestAnimationFrame()) {
-// @ts-expect-error
       extensionRequestAnimationFrame(() => resolve());
       return;
     }
     if (getExtensionTimer("setTimeout")) {
-// @ts-expect-error
       extensionSetTimeout(() => resolve(), 0);
       return;
     }
-// @ts-expect-error
     resolve();
   });
 }
 
-// @ts-expect-error
-function runWhenIdle(callback, timeout = SNAPSHOT_IDLE_TIMEOUT_MS) {
+function runWhenIdle(callback: ExtensionIdleCallback, timeout = SNAPSHOT_IDLE_TIMEOUT_MS): IdleHandle {
   return extensionRequestIdleCallback(callback, { timeout });
 }
 
-// @ts-expect-error
-function isTagSelector (selector){
+function isTagSelector(selector: string): boolean {
   return /^[a-z]+$/i.test(selector);
 }
 
-// @ts-expect-error
-function toQuerySelector (selector){
+function toQuerySelector(selector: string): string {
   return isTagSelector(selector) ? selector.toLowerCase() : selector;
 }
 
-// @ts-expect-error
-function getEntryFingerprint(entry) {
+function getEntryFingerprint(entry: PageMarkingEntry | null | undefined): string[] {
   if (!entry || !Array.isArray(entry.xpaths)) {
-    return [];
+      return [];
   }
   const xpathFingerprint = entry.xpaths
-// @ts-expect-error
-      .filter((item) => item && typeof item.xpath === "string")
-// @ts-expect-error
-      .map((item) => `${item.xpath}|${item.excluded ? "1" : "0"}|${item.explicit === true ? "1" : "0"}`)
-      .sort();
+        .filter((item) => item && typeof item.xpath === "string")
+        .map((item) => `${item.xpath}|${item.excluded ? "1" : "0"}|${item.explicit === true ? "1" : "0"}`)
+        .sort();
   const includeFingerprint = Array.isArray(entry.includeXpaths)
       ? entry.includeXpaths
-// @ts-expect-error
-          .filter((xpath) => typeof xpath === "string" && xpath)
-// @ts-expect-error
-          .map((xpath) => `include:${xpath}`)
-          .sort()
+            .filter((xpath) => typeof xpath === "string" && xpath)
+            .map((xpath) => `include:${xpath}`)
+            .sort()
       : [];
   const selectorSuppressedFingerprint = Array.isArray(entry.selectorSuppressedXpaths)
       ? entry.selectorSuppressedXpaths
-// @ts-expect-error
-          .filter((xpath) => typeof xpath === "string" && xpath)
-// @ts-expect-error
-          .map((xpath) => `selectorSuppressed:${xpath}`)
-          .sort()
+            .filter((xpath) => typeof xpath === "string" && xpath)
+            .map((xpath) => `selectorSuppressed:${xpath}`)
+            .sort()
       : [];
   const silentWhitespaceFingerprint = Array.isArray(entry.silentWhitespaceExcludedXpaths)
       ? entry.silentWhitespaceExcludedXpaths
-// @ts-expect-error
-          .filter((xpath) => typeof xpath === "string" && xpath)
-// @ts-expect-error
-          .map((xpath) => `silentWhitespace:${xpath}`)
-          .sort()
+            .filter((xpath) => typeof xpath === "string" && xpath)
+            .map((xpath) => `silentWhitespace:${xpath}`)
+            .sort()
       : [];
   const pageTypeFingerprint = `pageType:${normalizePageEntryPageType(entry.pageType)}`;
   return xpathFingerprint.concat(
@@ -748,9 +757,8 @@ function resolveMarkingSelectorContext(configValue, entry = null) {
   };
 }
 
-// @ts-expect-error
-function isClippedByOverflow(el) {
-  if (!el || el.nodeType !== 1) {
+function isClippedByOverflow(el: Element | null): boolean {
+  if (!el) {
     return false;
   }
   const rect = el.getBoundingClientRect();
@@ -761,18 +769,17 @@ function isClippedByOverflow(el) {
     if (parent === document.body || parent === document.documentElement) {
       break;
     }
-    let overflow, overflowX, overflowY;
-// @ts-expect-error
+    let overflow: string;
+    let overflowX: string;
+    let overflowY: string;
     if (ovCache && ovCache.has(parent)) {
-// @ts-expect-error
-      ({ overflow, overflowX, overflowY } = ovCache.get(parent));
+      ({ overflow, overflowX, overflowY } = ovCache.get(parent)!);
     } else {
       const parentStyle = window.getComputedStyle(parent);
       overflow = parentStyle.overflow;
       overflowX = parentStyle.overflowX;
       overflowY = parentStyle.overflowY;
       if (ovCache) {
-// @ts-expect-error
         ovCache.set(parent, { overflow, overflowX, overflowY });
       }
     }
@@ -802,7 +809,7 @@ function isClippedByOverflow(el) {
   return false;
 }
 
-function getViewportBounds() {
+function getViewportBounds(): RectLike {
   const width = Number(window.innerWidth) || 0;
   const height = Number(window.innerHeight) || 0;
   return {
@@ -815,10 +822,8 @@ function getViewportBounds() {
   };
 }
 
-// @ts-expect-error
-function getPositiveFiniteMax(values) {
-// @ts-expect-error
-  return values.reduce((maxValue, value) => {
+function getPositiveFiniteMax(values: unknown[]): number {
+  return values.reduce<number>((maxValue, value) => {
     const numericValue = Number(value);
     if (!Number.isFinite(numericValue) || numericValue <= 0) {
       return maxValue;
@@ -827,7 +832,7 @@ function getPositiveFiniteMax(values) {
   }, 0);
 }
 
-function getDocumentVisualBounds() {
+function getDocumentVisualBounds(): RectLike {
   const documentElement = document.documentElement;
   const body = document.body;
   const width = getPositiveFiniteMax([
@@ -858,7 +863,7 @@ function getDocumentVisualBounds() {
   };
 }
 
-function getSubmissionVisualBounds() {
+function getSubmissionVisualBounds(): RectLike {
   const documentBounds = getDocumentVisualBounds();
   const viewportBounds = getViewportBounds();
   const width = viewportBounds.width || documentBounds.width;
@@ -872,15 +877,14 @@ function getSubmissionVisualBounds() {
   };
 }
 
-function getWindowScrollOffset() {
+function getWindowScrollOffset(): { x: number; y: number } {
   return {
     x: Number(window.scrollX ?? window.pageXOffset) || 0,
     y: Number(window.scrollY ?? window.pageYOffset) || 0
   };
 }
 
-// @ts-expect-error
-function toDocumentCoordinateRect(rect) {
+function toDocumentCoordinateRect(rect: RectLike): RectLike {
   const scrollOffset = getWindowScrollOffset();
   return {
     left: rect.left + scrollOffset.x,
@@ -892,9 +896,8 @@ function toDocumentCoordinateRect(rect) {
   };
 }
 
-// @ts-expect-error
-function hasFixedPositionAncestor(el) {
-  let node = el;
+function hasFixedPositionAncestor(el: Element | null): boolean {
+  let node: Element | null = el;
   while (node && node.nodeType === 1) {
     const style = window.getComputedStyle(node);
     if (style && style.position === "fixed") {
@@ -905,14 +908,12 @@ function hasFixedPositionAncestor(el) {
   return false;
 }
 
-// @ts-expect-error
-function isReachableInDocumentVisualArea(rect, bounds = getDocumentVisualBounds()) {
+function isReachableInDocumentVisualArea(rect: RectLike, bounds: RectLike = getDocumentVisualBounds()): boolean {
   const documentRect = toDocumentCoordinateRect(rect);
   return Boolean(intersectRects(documentRect, bounds));
 }
 
-// @ts-expect-error
-function intersectRects(rectA, rectB) {
+function intersectRects(rectA: RectLike, rectB: RectLike): RectLike | null {
   const left = Math.max(rectA.left, rectB.left);
   const top = Math.max(rectA.top, rectB.top);
   const right = Math.min(rectA.right, rectB.right);
@@ -932,8 +933,7 @@ function intersectRects(rectA, rectB) {
   };
 }
 
-// @ts-expect-error
-function hasOverflowClipping(style) {
+function hasOverflowClipping(style: CSSStyleDeclaration | null): boolean {
   if (!style) {
     return false;
   }
@@ -947,12 +947,13 @@ function hasOverflowClipping(style) {
   );
 }
 
-// @ts-expect-error
-function getElementEffectiveVisibleRect(el, options = {}) {
-  if (!el || el.nodeType !== 1) {
+function getElementEffectiveVisibleRect(
+  el: Element | null,
+  options: { clipToViewport?: boolean } = {}
+): RectLike | null {
+  if (!el) {
     return null;
   }
-// @ts-expect-error
   const clipToViewport = options.clipToViewport !== false;
   const baseRect = el.getBoundingClientRect();
   if (baseRect.width <= 0 || baseRect.height <= 0) {
@@ -989,12 +990,11 @@ function getElementEffectiveVisibleRect(el, options = {}) {
   return visibleRect;
 }
 
-// @ts-expect-error
-function isTheoreticallyInvisibleNode(node, style) {
-  if (!node || node.nodeType !== 1) {
+function isTheoreticallyInvisibleNode(node: Element | null, style: CSSStyleDeclaration | null): boolean {
+  if (!node) {
     return true;
   }
-  if (node.hidden || node.getAttribute("aria-hidden") === "true") {
+  if ((hasHiddenProperty(node) && node.hidden) || node.getAttribute("aria-hidden") === "true") {
     return true;
   }
   if (
@@ -1015,8 +1015,7 @@ function isTheoreticallyInvisibleNode(node, style) {
   return isVisuallyHiddenByStyle(style);
 }
 
-// @ts-expect-error
-function isElementInHitPath(target, element) {
+function isElementInHitPath(target: Element | null, element: Element | null): boolean {
   if (!target || !element) {
     return false;
   }
@@ -1029,31 +1028,27 @@ function isElementInHitPath(target, element) {
   return false;
 }
 
-// @ts-expect-error
-function isIgnoredHitTestElement(element) {
-  if (!element || element.nodeType !== 1) {
+function isIgnoredHitTestElement(element: Element | null): boolean {
+  if (!element) {
     return true;
   }
-// @ts-expect-error
   if (state.overlay && (element === state.overlay || state.overlay.contains(element))) {
     return true;
   }
   return isWithinExtensionUi(element) || isWithinAiPopover(element);
 }
 
-// @ts-expect-error
-function getPageHitElementsAtPoint(x, y) {
+function getPageHitElementsAtPoint(x: number, y: number): Element[] {
   const rawHits = typeof document.elementsFromPoint === "function"
     ? document.elementsFromPoint(x, y)
     : typeof document.elementFromPoint === "function"
       ? [document.elementFromPoint(x, y)].filter(Boolean)
       : [];
-  return rawHits.filter((hit) => hit && hit.nodeType === 1 && !isIgnoredHitTestElement(hit));
+  return rawHits.filter((hit): hit is Element => isElementNode(hit) && !isIgnoredHitTestElement(hit));
 }
 
-// @ts-expect-error
-function getPaintReachabilityForRect(el, rect) {
-  if (!el || el.nodeType !== 1 || !rect) {
+function getPaintReachabilityForRect(el: Element | null, rect: RectLike | null): boolean | null {
+  if (!el || !rect) {
     return null;
   }
   if (typeof document.elementFromPoint !== "function" && typeof document.elementsFromPoint !== "function") {
@@ -1077,8 +1072,7 @@ function getPaintReachabilityForRect(el, rect) {
   return sawPageHit ? false : null;
 }
 
-// @ts-expect-error
-function reportPaintReachabilityFallback(el, rectCount) {
+function reportPaintReachabilityFallback(el: Element | null, rectCount: number): void {
   state.paintReachabilityFallbackCount += 1;
   if (!isTogglePerfEnabled()) {
     return;
@@ -1093,7 +1087,6 @@ function reportPaintReachabilityFallback(el, rectCount) {
     return;
   }
   state.paintReachabilityFallbackLastLoggedAt = now;
-// @ts-expect-error
   logTogglePerf("render.reachability-fallback", nowMs(), {
     count,
     rectCount,
@@ -1105,8 +1098,7 @@ function reportPaintReachabilityFallback(el, rectCount) {
   });
 }
 
-// @ts-expect-error
-function filterPaintReachableRects(el, rects) {
+function filterPaintReachableRects(el: Element | null, rects: RectLike[]): RectLike[] {
   if (!Array.isArray(rects) || rects.length === 0) {
     return [];
   }
@@ -1118,7 +1110,6 @@ function filterPaintReachableRects(el, rects) {
   // the target can be visible but not top-most at sampled points.
   if (
     el &&
-    el.nodeType === 1 &&
     isVisible(el) &&
     !isDefinitelyHiddenSubtreeElement(el)
   ) {
@@ -1128,9 +1119,8 @@ function filterPaintReachableRects(el, rects) {
   return reachableRects;
 }
 
-// @ts-expect-error
-function isPaintReachableInCurrentViewport(el) {
-  if (!el || el.nodeType !== 1) {
+function isPaintReachableInCurrentViewport(el: Element | null): boolean {
+  if (!el) {
     return false;
   }
   const rects = collectRectsFromClientRects(el.getClientRects());
@@ -1150,8 +1140,7 @@ function isPaintReachableInCurrentViewport(el) {
   return sawUnknown;
 }
 
-// @ts-expect-error
-function getRealityCheckPoints(rect) {
+function getRealityCheckPoints(rect: RectLike): Point[] {
   const inset = 1;
   const left = rect.left + inset;
   const right = rect.right - inset;
@@ -1168,8 +1157,7 @@ function getRealityCheckPoints(rect) {
   ];
 }
 
-// @ts-expect-error
-function isActuallyVisibleToUser(el) {
+function isActuallyVisibleToUser(el: Element | null): boolean {
   const visibleRect = getElementEffectiveVisibleRect(el, { clipToViewport: true });
   if (!visibleRect) {
     return false;
@@ -1190,8 +1178,7 @@ function isActuallyVisibleToUser(el) {
   return false;
 }
 
-// @ts-expect-error
-function isActuallyVisibleInDocument(el) {
+function isActuallyVisibleInDocument(el: Element | null): boolean {
   const visibleRect = getElementEffectiveVisibleRect(el, { clipToViewport: false });
   if (!visibleRect) {
     return false;
@@ -1202,12 +1189,11 @@ function isActuallyVisibleInDocument(el) {
   return isReachableInDocumentVisualArea(visibleRect, getSubmissionVisualBounds());
 }
 
-// @ts-expect-error
-function anyClientRectIntersectsSubmissionArea(el) {
-  if (!el || el.nodeType !== 1 || typeof el.getClientRects !== "function") {
+function anyClientRectIntersectsSubmissionArea(el: Element | null): boolean {
+  if (!el || typeof el.getClientRects !== "function") {
     return false;
   }
-  let clientRects;
+  let clientRects: DOMRectList;
   try {
     clientRects = el.getClientRects();
   } catch (_) {
@@ -1237,9 +1223,11 @@ function anyClientRectIntersectsSubmissionArea(el) {
   return false;
 }
 
-// @ts-expect-error
-function getTheoreticalVisibilityState(node, style) {
-  if (!node || node.nodeType !== 1) {
+function getTheoreticalVisibilityState(
+  node: Element | null,
+  style: CSSStyleDeclaration | null
+): TheoreticalVisibilityState {
+  if (!node) {
     return { definitiveHidden: true, ambiguousHidden: false };
   }
   const ambiguousHidden = Boolean(
@@ -1248,7 +1236,7 @@ function getTheoreticalVisibilityState(node, style) {
       (node.classList.contains("sr-only") || node.classList.contains("visually-hidden")))
   );
   const definitiveHidden = Boolean(
-    node.hidden ||
+    (hasHiddenProperty(node) && node.hidden) ||
     (style && (style.display === "none" || style.visibility === "hidden" || style.visibility === "collapse")) ||
     (style && parseFloat(style.opacity) === 0) ||
     isVisuallyHiddenByStyle(style)
@@ -1256,8 +1244,7 @@ function getTheoreticalVisibilityState(node, style) {
   return { definitiveHidden, ambiguousHidden };
 }
 
-// @ts-expect-error
-function isVisuallyHiddenByStyle(style) {
+function isVisuallyHiddenByStyle(style: CSSStyleDeclaration | null): boolean {
   if (!style) {
     return false;
   }
@@ -1265,7 +1252,6 @@ function isVisuallyHiddenByStyle(style) {
   if (clip && clip !== "auto" && clip.includes("rect(")) {
     const numbers = clip.match(/-?\d*\.?\d+/g);
     if (numbers && numbers.length >= 4) {
-// @ts-expect-error
       const allZero = numbers.every((value) => Number(value) === 0);
       if (allZero) {
         return true;
@@ -1300,54 +1286,43 @@ function isVisuallyHiddenByStyle(style) {
   return false;
 }
 
-// @ts-expect-error
-function hasDirectText(el) {
+function hasDirectText(el: Element): boolean {
   const cache = state.directTextCache;
-// @ts-expect-error
   if (cache && cache.has(el)) {
-// @ts-expect-error
-    return cache.get(el);
+    return cache.get(el)!;
   }
   let result = false;
   for (const node of el.childNodes) {
-    if (node.nodeType === Node.TEXT_NODE && node.textContent.trim()) {
+    if (node.nodeType === Node.TEXT_NODE && node.textContent?.trim()) {
       result = true;
       break;
     }
   }
   if (cache) {
-// @ts-expect-error
     cache.set(el, result);
   }
   return result;
 }
 
-// @ts-expect-error
-function getCachedNormalizedElementText(el) {
+function getCachedNormalizedElementText(el: Element): string {
   const cache = state.normalizedTextCache;
-// @ts-expect-error
   if (cache && cache.has(el)) {
-// @ts-expect-error
-    return cache.get(el);
+    return cache.get(el)!;
   }
   const value = getNormalizedElementText(el);
   if (cache) {
-// @ts-expect-error
     cache.set(el, value);
   }
   return value;
 }
 
-// @ts-expect-error
-function matchesToggleableDefaultExcluded(el) {
-  if (!el || el.nodeType !== 1) {
+function matchesToggleableDefaultExcluded(el: Element | null): boolean {
+  if (!el) {
     return false;
   }
   const cache = state.toggleableDefaultCache;
-// @ts-expect-error
   if (cache && cache.has(el)) {
-// @ts-expect-error
-    return cache.get(el);
+    return cache.get(el)!;
   }
   let result = false;
   for (const selector of DEFAULT_EXCLUDED_TOGGLEABLE_SELECTORS) {
@@ -1366,22 +1341,19 @@ function matchesToggleableDefaultExcluded(el) {
     }
   }
   if (cache) {
-// @ts-expect-error
     cache.set(el, result);
   }
   return result;
 }
 
-// @ts-expect-error
-function hasNestedToggleableDefaultExcludedDescendant(el) {
-  if (!el || el.nodeType !== 1) {
+function hasNestedToggleableDefaultExcludedDescendant(el: Element | null): boolean {
+  if (!el) {
     return false;
   }
-  const stack = Array.from(el.children || []);
+  const stack = Array.from(el.children || []) as Element[];
   while (stack.length) {
     const node = stack.pop();
-// @ts-expect-error
-    if (!node || node.nodeType !== 1) {
+    if (!node) {
       continue;
     }
     if (isWithinAiPopover(node) || isWithinConsentElement(node)) {
@@ -1390,23 +1362,19 @@ function hasNestedToggleableDefaultExcludedDescendant(el) {
     if (matchesToggleableDefaultExcluded(node)) {
       return true;
     }
-// @ts-expect-error
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
-// @ts-expect-error
       stack.push(node.children[i]);
     }
   }
   return false;
 }
 
-// @ts-expect-error
-function isTextualContainer(el, options = {}) {
+function isTextualContainer(el: Element, options: TextualDetectionOptions = {}): boolean {
   const cache = getTextualOptionCache(state.textualContainerCache, options);
   if (cache && cache.has(el)) {
-    return cache.get(el);
+    return cache.get(el)!;
   }
   const ignoreVisibilityForInclusionDetection = Boolean(
-// @ts-expect-error
     options && options.ignoreVisibilityForInclusionDetection
   );
   if (!ignoreVisibilityForInclusionDetection && !isVisible(el)) {
@@ -1422,7 +1390,9 @@ function isTextualContainer(el, options = {}) {
     if (el.children.length > 0) {
       result = true;
     } else {
-      const nestedText = (el.innerText || "").replace(/\s+/g, " ").trim();
+      const nestedText = ((hasInnerTextProperty(el) ? el.innerText : el.textContent) || "")
+        .replace(/\s+/g, " ")
+        .trim();
       result = Boolean(nestedText);
     }
   } else {
@@ -1434,21 +1404,19 @@ function isTextualContainer(el, options = {}) {
   return result;
 }
 
-// @ts-expect-error
-function hasTextualDescendant(el, options = {}) {
-  if (!el || el.nodeType !== 1) {
+function hasTextualDescendant(el: Element | null, options: TextualDetectionOptions = {}): boolean {
+  if (!el) {
     return false;
   }
   const cache = getTextualOptionCache(state.textualDescendantCache, options);
   if (cache && cache.has(el)) {
-    return cache.get(el);
+    return cache.get(el)!;
   }
   let result = false;
-  const stack = Array.from(el.children || []);
+  const stack = Array.from(el.children || []) as Element[];
   while (stack.length) {
     const node = stack.pop();
-// @ts-expect-error
-    if (!node || node.nodeType !== 1) {
+    if (!node) {
       continue;
     }
     if (isWithinAiPopover(node)) {
@@ -1464,9 +1432,7 @@ function hasTextualDescendant(el, options = {}) {
       result = true;
       break;
     }
-// @ts-expect-error
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
-// @ts-expect-error
       stack.push(node.children[i]);
     }
   }
@@ -1476,21 +1442,19 @@ function hasTextualDescendant(el, options = {}) {
   return result;
 }
 
-// @ts-expect-error
-function hasTextualImmutableDescendant(el, options = {}) {
-  if (!el || el.nodeType !== 1) {
+function hasTextualImmutableDescendant(el: Element | null, options: TextualDetectionOptions = {}): boolean {
+  if (!el) {
     return false;
   }
   const cache = getTextualOptionCache(state.textualImmutableDescendantCache, options);
   if (cache && cache.has(el)) {
-    return cache.get(el);
+    return cache.get(el)!;
   }
   let result = false;
-  const stack = Array.from(el.children || []);
+  const stack = Array.from(el.children || []) as Element[];
   while (stack.length) {
     const node = stack.pop();
-// @ts-expect-error
-    if (!node || node.nodeType !== 1) {
+    if (!node) {
       continue;
     }
     if (isWithinAiPopover(node)) {
@@ -1503,9 +1467,7 @@ function hasTextualImmutableDescendant(el, options = {}) {
       result = true;
       break;
     }
-// @ts-expect-error
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
-// @ts-expect-error
       stack.push(node.children[i]);
     }
   }
@@ -1515,16 +1477,14 @@ function hasTextualImmutableDescendant(el, options = {}) {
   return result;
 }
 
-// @ts-expect-error
-function hasVisibleImmutableDescendant(el) {
-  if (!el || el.nodeType !== 1) {
+function hasVisibleImmutableDescendant(el: Element | null): boolean {
+  if (!el) {
     return false;
   }
-  const stack = Array.from(el.children || []);
+  const stack = Array.from(el.children || []) as Element[];
   while (stack.length) {
     const node = stack.pop();
-// @ts-expect-error
-    if (!node || node.nodeType !== 1) {
+    if (!node) {
       continue;
     }
     if (isWithinAiPopover(node) || isWithinConsentElement(node)) {
@@ -1533,21 +1493,18 @@ function hasVisibleImmutableDescendant(el) {
     if (matchesImmutableExcluded(node) && isVisible(node)) {
       return true;
     }
-// @ts-expect-error
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
-// @ts-expect-error
       stack.push(node.children[i]);
     }
   }
   return false;
 }
 
-// @ts-expect-error
-function matchesAutoToggleableDefaultExcluded(el) {
+function matchesAutoToggleableDefaultExcluded(el: Element | null): boolean {
   if (!matchesToggleableDefaultExcluded(el)) {
     return false;
   }
-  if (!el || el.nodeType !== 1) {
+  if (!el) {
     return false;
   }
   if (!hasTextualDescendant(el)) {
@@ -1559,9 +1516,8 @@ function matchesAutoToggleableDefaultExcluded(el) {
   return !hasVisibleImmutableDescendant(el);
 }
 
-// @ts-expect-error
-function hasExplicitlyMarkedDescendant(el) {
-  if (!el || el.nodeType !== 1 || !state.config) {
+function hasExplicitlyMarkedDescendant(el: Element | null): boolean {
+  if (!el || !state.config) {
     return false;
   }
   const explicitExcludeSet = getExcludedXPathSet(state.config, location.href);
@@ -1569,11 +1525,10 @@ function hasExplicitlyMarkedDescendant(el) {
   if (explicitExcludeSet.size === 0 && explicitIncludeSet.size === 0) {
     return false;
   }
-  const stack = Array.from(el.children || []);
+  const stack = Array.from(el.children || []) as Element[];
   while (stack.length) {
     const node = stack.pop();
-// @ts-expect-error
-    if (!node || node.nodeType !== 1) {
+    if (!node) {
       continue;
     }
     if (isWithinAiPopover(node)) {
@@ -1592,9 +1547,7 @@ function hasExplicitlyMarkedDescendant(el) {
     ) {
       return true;
     }
-// @ts-expect-error
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
-// @ts-expect-error
       stack.push(node.children[i]);
     }
   }
@@ -1726,11 +1679,7 @@ function isStructuredGroupExclusionCandidate(el, options = {}) {
   if (isUnsafeShallowParentMarkingTarget(el, options || {})) {
     return false;
   }
-  const children = Array.from(el.children || []).filter((child) => {
-// @ts-expect-error
-    if (!child || child.nodeType !== 1) {
-      return false;
-    }
+  const children = (Array.from(el.children || []) as Element[]).filter((child) => {
     if (isWithinAiPopover(child)) {
       return false;
     }
@@ -1745,16 +1694,13 @@ function isStructuredGroupExclusionCandidate(el, options = {}) {
   return children.every((child) => isGroupedBoundaryChildCandidate(child, options));
 }
 
-// @ts-expect-error
-function matchesImmutableExcluded(el) {
-  if (!el || el.nodeType !== 1) {
+function matchesImmutableExcluded(el: Element | null): boolean {
+  if (!el) {
     return false;
   }
   const cache = state.immutableMatchCache;
-// @ts-expect-error
   if (cache && cache.has(el)) {
-// @ts-expect-error
-    return cache.get(el);
+    return cache.get(el)!;
   }
   let result = false;
   for (const selector of DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS) {
@@ -1773,23 +1719,22 @@ function matchesImmutableExcluded(el) {
     }
   }
   if (cache) {
-// @ts-expect-error
     cache.set(el, result);
   }
   return result;
 }
 
-// @ts-expect-error
-function isWithinImmutableExcluded(el) {
+function isWithinImmutableExcluded(el: Element | null): boolean {
+  if (!el) {
+    return false;
+  }
   const cache = state.immutableAncestorCache;
-// @ts-expect-error
   if (cache && cache.has(el)) {
-// @ts-expect-error
-    return cache.get(el);
+    return cache.get(el)!;
   }
   let result = false;
-  let node = el;
-  while (node && node.nodeType === 1) {
+  let node: Element | null = el;
+  while (node) {
     if (matchesImmutableExcluded(node)) {
       result = true;
       break;
@@ -1797,24 +1742,24 @@ function isWithinImmutableExcluded(el) {
     node = node.parentElement;
   }
   if (cache) {
-// @ts-expect-error
     cache.set(el, result);
   }
   return result;
 }
 
-// @ts-expect-error
-function isToggleableDefaultExcludedElement(el, includedElements) {
+function isToggleableDefaultExcludedElement(el: Element, includedElements: Set<Element> | null | undefined): boolean {
   return matchesAutoToggleableDefaultExcluded(el) && !isWithinElementSet(el, includedElements);
 }
 
-// @ts-expect-error
-function isWithinToggleableDefaultExcludedElement(el, includedElements) {
+function isWithinToggleableDefaultExcludedElement(
+  el: Element | null,
+  includedElements: Set<Element> | null | undefined
+): boolean {
   if (isWithinElementSet(el, includedElements)) {
     return false;
   }
   let node = el;
-  while (node && node.nodeType === 1) {
+  while (node) {
     if (isToggleableDefaultExcludedElement(node, includedElements)) {
       return true;
     }
@@ -1823,28 +1768,23 @@ function isWithinToggleableDefaultExcludedElement(el, includedElements) {
   return false;
 }
 
-// @ts-expect-error
-function isWithinAiPopover(el) {
+function isWithinAiPopover(el: Element | null): boolean {
   return Boolean(
       state.aiPopover &&
       el &&
-      el.nodeType === 1 &&
-// @ts-expect-error
       state.aiPopover.contains(el)
   );
 }
 
-// @ts-expect-error
-function isWithinExtensionUi(el) {
-  if (!el || el.nodeType !== 1) {
+function isWithinExtensionUi(el: Element | null): boolean {
+  if (!el) {
     return false;
   }
   return Boolean(el.closest("[data-uf-extension-ui=\"true\"]"));
 }
 
-// @ts-expect-error
-function registerConsentRoot(element) {
-  if (!element || element.nodeType !== 1) {
+function registerConsentRoot(element: Element | null): boolean {
+  if (!element) {
     return false;
   }
   if (!state.consentRootElements) {
@@ -1852,12 +1792,10 @@ function registerConsentRoot(element) {
   }
   const roots = state.consentRootElements;
   for (const root of roots) {
-// @ts-expect-error
     if (!root || root.isConnected === false) {
       roots.delete(root);
       continue;
     }
-// @ts-expect-error
     if (root === element || root.contains(element)) {
       return false;
     }
@@ -1893,9 +1831,8 @@ function removeConsentBypassStyle() {
   }
 }
 
-// @ts-expect-error
-function hideConsentElementVisibility(element) {
-  if (!element || element.nodeType !== 1) {
+function hideConsentElementVisibility(element: Element | null): void {
+  if (!element || !isStylableElement(element)) {
     return;
   }
   element.style.setProperty("opacity", "0", "important");
@@ -1906,14 +1843,13 @@ function hideConsentElementVisibility(element) {
   // from the top-layer. Calling close() removes it from the top-layer while keeping
   // the element fully in the DOM with all attributes, children and XPath intact,
   // so consent detection is unaffected.
-  if (element.tagName.toLowerCase() === "dialog" && element.hasAttribute("open")) {
-    try { element.close?.(); } catch { /* ignore */ }
+  if (isDialogLikeElement(element) && element.open) {
+    try { element.close(); } catch { /* ignore */ }
   }
 }
 
-// @ts-expect-error
-function markConsentElementHidden(element) {
-  if (!element || element.nodeType !== 1) {
+function markConsentElementHidden(element: Element | null): boolean {
+  if (!element || !isStylableElement(element)) {
     return false;
   }
   const wasAlreadyMarked = element.hasAttribute(CONSENT_HIDDEN_ATTR);
@@ -1922,8 +1858,7 @@ function markConsentElementHidden(element) {
   return !wasAlreadyMarked;
 }
 
-// @ts-expect-error
-function hideConsentElement(element) {
+function hideConsentElement(element: Element): boolean {
   if (isWithinAiPopover(element) || isWithinExtensionUi(element)) {
     return false;
   }
@@ -1937,11 +1872,7 @@ function hideConsentElement(element) {
   }
 
   const descendants = element.querySelectorAll("*");
-// @ts-expect-error
   descendants.forEach((node) => {
-    if (!node || node.nodeType !== 1) {
-      return;
-    }
     if (isWithinAiPopover(node) || isWithinExtensionUi(node)) {
       return;
     }
@@ -1957,20 +1888,17 @@ function hideConsentElement(element) {
   return changed;
 }
 
-// @ts-expect-error
-function isWithinConsentElement(el) {
-  if (!el || el.nodeType !== 1) {
+function isWithinConsentElement(el: Element | null): boolean {
+  if (!el) {
     return false;
   }
   const roots = state.consentRootElements;
   if (roots && roots.size) {
     for (const root of roots) {
-// @ts-expect-error
       if (!root || (root.isConnected === false)) {
         roots.delete(root);
         continue;
       }
-// @ts-expect-error
       if (root === el || root.contains(el)) {
         return true;
       }
@@ -1980,11 +1908,10 @@ function isWithinConsentElement(el) {
 }
 
 export function collectConsentExcludedElements() {
-  const elements = new Set();
+  const elements = new Set<Element>();
   const roots = state.consentRootElements;
   if (roots && roots.size) {
     for (const root of roots) {
-// @ts-expect-error
       if (!root || root.nodeType !== 1 || root.isConnected === false) {
         continue;
       }
@@ -2240,11 +2167,10 @@ function hasExplicitUserMarkings(entry) {
       continue;
     }
     const el = getElementFromXPath(item.xpath);
-    if (!el) {
+    if (!isElementNode(el)) {
       // Missing elements are typically preserved explicit markings from older snapshots.
       return true;
     }
-// @ts-expect-error
     if (isSilentWhitespaceExplicitExclusion(entry, item, el)) {
       continue;
     }
@@ -2259,8 +2185,7 @@ function hasExplicitUserMarkings(entry) {
   return false;
 }
 
-// @ts-expect-error
-function isWithinExcludedParents(el, excludedParents) {
+function isWithinExcludedParents(el: Element | null, excludedParents: Set<Element> | null | undefined): boolean {
   if (!el || !excludedParents || excludedParents.size === 0) {
     return false;
   }
@@ -2272,9 +2197,8 @@ function isWithinExcludedParents(el, excludedParents) {
   return false;
 }
 
-// @ts-expect-error
-function collectExcludedParentElements(items) {
-  const parents = new Set();
+function collectExcludedParentElements(items: Array<XpathEntry | null | undefined> | null | undefined): Set<Element> {
+  const parents = new Set<Element>();
   if (!Array.isArray(items)) {
     return parents;
   }
@@ -2283,7 +2207,7 @@ function collectExcludedParentElements(items) {
       continue;
     }
     const el = getElementFromXPath(item.xpath);
-    if (!el) {
+    if (!isElementNode(el)) {
       continue;
     }
     if (isWithinConsentElement(el)) {
@@ -3125,11 +3049,10 @@ function collectExcludedChildrenInsideIncludedParents(
     if (!parent || parent.nodeType !== 1) {
       return;
     }
-    const stack = Array.from(parent.children || []);
+    const stack = Array.from(parent.children || []) as Element[];
     while (stack.length) {
       const el = stack.pop();
-// @ts-expect-error
-      if (!el || el.nodeType !== 1) {
+      if (!el) {
         continue;
       }
       if (isWithinAiPopover(el) || isWithinConsentElement(el) || isWithinExtensionUi(el)) {
@@ -3156,9 +3079,7 @@ function collectExcludedChildrenInsideIncludedParents(
         }
         continue;
       }
-// @ts-expect-error
       for (let i = el.children.length - 1; i >= 0; i -= 1) {
-// @ts-expect-error
         stack.push(el.children[i]);
       }
     }
@@ -3829,8 +3750,11 @@ function isSilentWhitespaceExclusionCandidate(el) {
   return !hasVisibleNonTextualContent(el);
 }
 
-// @ts-expect-error
-function isSilentWhitespaceExplicitExclusion(entry, item, el = null) {
+function isSilentWhitespaceExplicitExclusion(
+  entry: PageMarkingEntry | null | undefined,
+  item: XpathEntry | null | undefined,
+  el: Element | null = null
+): boolean {
   if (!item || !item.xpath || item.excluded !== true || item.explicit !== true) {
     return false;
   }
@@ -5150,8 +5074,7 @@ function removePageMotionPauseIndicator() {
   }
 }
 
-// @ts-expect-error
-function sendPageMotionFreezeControl(command, details = null) {
+function sendPageMotionFreezeControl(command: string, details: UnknownRecord | null = null): Promise<unknown> {
   if (typeof command !== "string" || !command) {
     return Promise.resolve();
   }
@@ -5163,11 +5086,9 @@ function sendPageMotionFreezeControl(command, details = null) {
       .then(() => requestPageWorldCommand(relayCommand, normalizedDetails, {
         timeoutMs: PAGE_MOTION_PAUSE_RELAY_TIMEOUT_MS
       }))
-// @ts-expect-error
       .catch(() => sendPageMotionFreezeControlThroughBackground(command, normalizedDetails));
   }
 
-// @ts-expect-error
   return sendPageMotionFreezeControlThroughBackground(command, normalizedDetails);
 }
 
@@ -5177,8 +5098,7 @@ function canUsePageWorldRelayTransport() {
     && typeof window.addEventListener === "function";
 }
 
-// @ts-expect-error
-function mapPageMotionFreezeCommandToRelay(command) {
+function mapPageMotionFreezeCommandToRelay(command: string): string {
   if (command === PAGE_MOTION_PAUSE_CONTROL_COMMAND_SET_PAUSED) {
     return PAGE_WORLD_COMMANDS.SET_MOTION_PAUSED;
   }
@@ -5192,7 +5112,6 @@ function ensurePageMotionRelaySession() {
   if (isPageWorldRelayReady()) {
     return Promise.resolve();
   }
-// @ts-expect-error
   if (pageMotionRelayInitializationPromise) {
     return pageMotionRelayInitializationPromise;
   }
@@ -5209,17 +5128,18 @@ function ensurePageMotionRelaySession() {
   return pageMotionRelayInitializationPromise;
 }
 
-// @ts-expect-error
-function sendPageMotionFreezeControlThroughBackground(command, details = null) {
+function sendPageMotionFreezeControlThroughBackground(
+  command: string,
+  details: UnknownRecord | null = null
+): Promise<unknown> {
   if (typeof command !== "string" || !command) {
     return Promise.resolve();
   }
-  const message = {
+  const message: { type: string; command: string; details?: UnknownRecord } = {
     type: "pageMotionFreezeControl",
     command
   };
   if (details && typeof details === "object") {
-// @ts-expect-error
     message.details = details;
   }
   try {
@@ -5241,7 +5161,6 @@ function setPageMotionFreezeTimersPaused(paused) {
   pageMotionFreezeTimersPaused = shouldPause;
   sendPageMotionFreezeControl(
     PAGE_MOTION_PAUSE_CONTROL_COMMAND_SET_PAUSED,
-// @ts-expect-error
     { paused: shouldPause }
   );
 }
@@ -5255,7 +5174,6 @@ function setPageMotionFreezeLazyLoadingSuppressed(suppressed) {
   pageMotionFreezeLazyLoadingSuppressed = shouldSuppress;
   return sendPageMotionFreezeControl(
     PAGE_MOTION_PAUSE_CONTROL_COMMAND_SET_LAZY_LOADING_SUPPRESSED,
-// @ts-expect-error
     { suppressed: shouldSuppress }
   );
 }
@@ -5382,7 +5300,6 @@ function isIgnoredPageMotionElement(element) {
   if (!element || element.nodeType !== 1) {
     return true;
   }
-// @ts-expect-error
   if (state.overlay && (element === state.overlay || state.overlay.contains(element))) {
     return true;
   }
@@ -5414,8 +5331,7 @@ function getComputedCssStyle(element) {
   }
 }
 
-// @ts-expect-error
-function toStylePropertyName(property) {
+function toStylePropertyName(property: string): string {
   return String(property || "").replace(/-([a-z])/g, (match, letter) => letter.toUpperCase());
 }
 
@@ -6743,7 +6659,6 @@ function createOverlay() {
     layer.className = "uf-layer";
     layer.dataset.layer = key;
     overlay.appendChild(layer);
-// @ts-expect-error
     state.layers[key] = layer;
   });
 
@@ -6789,7 +6704,6 @@ function createOverlay() {
   overlay.addEventListener("click", handleClick, true);
   overlay.addEventListener("contextmenu", handleContextMenu, true);
   (document.body || document.documentElement).appendChild(overlay);
-// @ts-expect-error
   state.overlay = overlay;
   if (state.popupBusyOverlay && typeof overlay.appendChild === "function") {
     overlay.appendChild(state.popupBusyOverlay);
@@ -6814,7 +6728,6 @@ function setPageInspectionUiActive(active) {
   }
   if (state.overlay) {
     setElementClassPresence(state.overlay, PAGE_INSPECTION_OVERLAY_CLASS, enabled);
-// @ts-expect-error
     state.overlay.setAttribute("aria-busy", enabled ? "true" : "false");
   }
   if (state.pageInspectionNotice) {
@@ -7029,13 +6942,9 @@ export function finishPageInspectionUiAfterRender() {
 function removeOverlay() {
   setPageInspectionUiActive(false);
   if (state.overlay) {
-// @ts-expect-error
     state.overlay.removeEventListener("mousemove", handleMouseMove, true);
-// @ts-expect-error
     state.overlay.removeEventListener("click", handleClick, true);
-// @ts-expect-error
     state.overlay.removeEventListener("contextmenu", handleContextMenu, true);
-// @ts-expect-error
     state.overlay.remove();
     state.overlay = null;
     state.layers = {};
@@ -7077,9 +6986,7 @@ function updateOverlayGutter() {
   const verticalGutter = window.innerWidth - document.documentElement.clientWidth;
   const horizontalGutter =
       window.innerHeight - document.documentElement.clientHeight;
-// @ts-expect-error
   state.overlay.style.right = verticalGutter > 0 ? `${verticalGutter}px` : "0px";
-// @ts-expect-error
   state.overlay.style.bottom =
       horizontalGutter > 0 ? `${horizontalGutter}px` : "0px";
 }
@@ -7140,20 +7047,15 @@ function updateMarkingTemporarilyDisabledUi() {
   if (disabled && state.altPassThrough) {
     setAltPassThrough(false);
   }
-// @ts-expect-error
   state.overlay.classList.toggle(MARKING_DISABLED_OVERLAY_CLASS, disabled);
   if (disabled) {
-// @ts-expect-error
     state.overlay.setAttribute("aria-disabled", "true");
-// @ts-expect-error
     clearLayer(state.layers["hover"]);
   } else {
-// @ts-expect-error
     state.overlay.removeAttribute("aria-disabled");
   }
-// @ts-expect-error
   const notice = state.markingDisabledNotice || state.overlay.querySelector(".uf-marking-disabled-notice");
-  if (notice) {
+  if (notice && "hidden" in notice) {
     notice.hidden = !disabled;
     notice.textContent = disabled ? getMarkingTemporarilyDisabledMessage(reason) : "";
   }
@@ -7320,7 +7222,6 @@ function handleVisibilityChange() {
 }
 
 function updateFocusHighlight() {
-// @ts-expect-error
   const layerFocus = state.layers["focus"];
   if (!layerFocus) {
     syncAiPreviewFocusElement(state.focusElement);
@@ -7349,7 +7250,6 @@ function updateFocusHighlight() {
 
 // @ts-expect-error
 function showImmediateToggleAcknowledgement(target, mode) {
-// @ts-expect-error
   const interactionLayer = state.layers["interaction"];
   if (!interactionLayer || !target || target.nodeType !== 1) {
     return;
@@ -7373,7 +7273,6 @@ function showImmediateToggleAcknowledgement(target, mode) {
   }
   state.toggleAckTimer = extensionSetTimeout(() => {
     state.toggleAckTimer = 0;
-// @ts-expect-error
     clearLayer(state.layers["interaction"]);
   }, TOGGLE_ACK_CLEAR_MS);
 }
@@ -7648,7 +7547,6 @@ function ensureAiPreviewFocusStyle() {
 }
 
 function clearAiPreviewFocusElement() {
-// @ts-expect-error
   if (aiPreviewFocusElement && aiPreviewFocusElement.classList) {
     aiPreviewFocusElement.classList.remove(AI_PREVIEW_FOCUS_CLASS);
   }
@@ -7658,7 +7556,6 @@ function clearAiPreviewFocusElement() {
 // @ts-expect-error
 function syncAiPreviewFocusElement(target) {
   ensureAiPreviewFocusStyle();
-// @ts-expect-error
   if (aiPreviewFocusElement && aiPreviewFocusElement !== target && aiPreviewFocusElement.classList) {
     aiPreviewFocusElement.classList.remove(AI_PREVIEW_FOCUS_CLASS);
   }
@@ -7683,7 +7580,6 @@ function closeAiPopover(options = {}) {
   state.aiPopoverOnClose = null;
   state.aiPopoverOnCollapsedChange = null;
   clearFocusHighlight();
-// @ts-expect-error
   popover.remove();
   state.aiPopover = null;
   state.aiPopoverCollapsed = false;
@@ -7725,7 +7621,6 @@ function setAiPopoverCollapsed(collapsed) {
     clearFocusHighlight();
   }
   state.aiPopoverCollapsed = Boolean(collapsed);
-// @ts-expect-error
   state.aiPopover.classList.toggle("uf-ai-popover--collapsed", state.aiPopoverCollapsed);
   if (typeof state.aiPopoverOnCollapsedChange === "function") {
     try {
@@ -7774,7 +7669,6 @@ function recordPageSnapshot(configValue, pageUrl) {
   const snapshot = createSanitizedPageSnapshot({
     renderMode: config.getConfigRenderMode(configValue)
   });
-// @ts-expect-error
   logTogglePerf("snapshot.serialize", snapshotStartedAt, { pageUrl });
   entry.renderedHtml = snapshot.renderedHtml;
   entry.title = normalizePageEntryTitle(document.title, pageUrl);
@@ -7800,9 +7694,7 @@ function clearMarkedElements() {
     return;
   }
   for (const el of state.markedElements) {
-// @ts-expect-error
     if (el && el.nodeType === 1) {
-// @ts-expect-error
       el.removeAttribute("data-uf-mark-id");
     }
   }
@@ -7816,9 +7708,7 @@ function updateMarkedElements(currentMarked) {
   }
   const previous = state.markedElements || new Set();
   for (const el of previous) {
-// @ts-expect-error
     if (!currentMarked.has(el) && el && el.nodeType === 1) {
-// @ts-expect-error
       el.removeAttribute("data-uf-mark-id");
     }
   }
@@ -7840,7 +7730,6 @@ function getTargetElement(x, y) {
     if (!el || el.nodeType !== 1) {
       continue;
     }
-// @ts-expect-error
     if (state.overlay && (el === state.overlay || state.overlay.contains(el))) {
       continue;
     }
@@ -7858,12 +7747,11 @@ function hasMultipleMarkableDescendants(el, options = {}) {
   if (!el || el.nodeType !== 1) {
     return false;
   }
-  const stack = Array.from(el.children);
+  const stack = Array.from(el.children) as Element[];
   let markableDescendantCount = 0;
   while (stack.length) {
     const node = stack.pop();
-// @ts-expect-error
-    if (!node || node.nodeType !== 1) {
+    if (!node) {
       continue;
     }
     if (isWithinAiPopover(node)) {
@@ -7884,9 +7772,7 @@ function hasMultipleMarkableDescendants(el, options = {}) {
         return true;
       }
     }
-// @ts-expect-error
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
-// @ts-expect-error
       stack.push(node.children[i]);
     }
   }
@@ -8175,7 +8061,6 @@ export function getMarkableTarget(x, y, options) {
       if (!el || el.nodeType !== 1) {
         continue;
       }
-// @ts-expect-error
       if (state.overlay && (el === state.overlay || state.overlay.contains(el))) {
         continue;
       }
@@ -8221,7 +8106,6 @@ export function getMarkableTarget(x, y, options) {
     if (!el || el.nodeType !== 1) {
       continue;
     }
-// @ts-expect-error
     if (state.overlay && (el === state.overlay || state.overlay.contains(el))) {
       continue;
     }
@@ -8279,14 +8163,12 @@ function updateHoverHighlight(
   if (!state.enabled || state.altPassThrough) {
     return;
   }
-// @ts-expect-error
   const layerHover = state.layers["hover"];
   if (!layerHover) {
     return;
   }
   const savedVisibilityCache = state.visibilityCache;
   if (!savedVisibilityCache) {
-// @ts-expect-error
     state.visibilityCache = new Map();
   }
   const layerState = beginLayerRender(layerHover);
@@ -8330,7 +8212,6 @@ function refreshHoverHighlight() {
     return;
   }
   updateMarkingTemporarilyDisabledUi();
-// @ts-expect-error
   const layerHover = state.layers["hover"];
   if (!layerHover) {
     return;
@@ -8365,7 +8246,6 @@ function handleMouseMove(event) {
   }
   if (isPageSaveReconciliationPending(location.href)) {
     updateMarkingTemporarilyDisabledUi();
-// @ts-expect-error
     clearLayer(state.layers["hover"]);
     return;
   }
@@ -8730,13 +8610,11 @@ function handleToggleEvent(event) {
   if (isPageSaveReconciliationPending(location.href)) {
     updateMarkingTemporarilyDisabledUi();
     showToast(ContentText.marking.saveReconciliationBlocked);
-// @ts-expect-error
     clearLayer(state.layers["hover"]);
     return;
   }
   if (state.focusElement) {
     const rawTarget = getTargetElement(event.clientX, event.clientY);
-// @ts-expect-error
     if (!rawTarget || !state.focusElement.contains(rawTarget)) {
       clearFocusHighlight();
     }
@@ -8763,7 +8641,6 @@ function handleToggleEvent(event) {
     allowImmutableChildren,
     requireExcludedAncestor: false
   });
-// @ts-expect-error
   logTogglePerf("toggle.target-resolution", targetResolutionStartedAt, {
     mode,
     hasTarget: Boolean(target)
@@ -8780,7 +8657,6 @@ function handleToggleEvent(event) {
       lastActionKey: state.lastToggleActionKey,
       lastActionAt: state.lastToggleActionAt
     })) {
-// @ts-expect-error
       logTogglePerf("toggle.duplicate-click-suppressed", toggleStartedAt, { mode });
       return;
     }
@@ -8792,7 +8668,6 @@ function handleToggleEvent(event) {
       interactionNow
     });
   }
-// @ts-expect-error
   logTogglePerf("toggle.total", toggleStartedAt, {
     mode,
     hadTarget: Boolean(target)
@@ -9097,10 +8972,9 @@ export function collectExplicitMarkingElements(entry) {
       continue;
     }
     const el = getElementFromXPath(item.xpath);
-    if (!el) {
+    if (!isElementNode(el)) {
       continue;
     }
-// @ts-expect-error
     if (isSilentWhitespaceExplicitExclusion(entry, item, el)) {
       continue;
     }
@@ -9111,7 +8985,6 @@ export function collectExplicitMarkingElements(entry) {
     }
     if (
       consentExcluded.has(el) ||
-// @ts-expect-error
       isWithinElementSet(el, consentExcluded) ||
       isWithinExplicitInclude(el) ||
       isWithinImmutableExcluded(el)
@@ -9128,15 +9001,17 @@ export function collectExplicitMarkingElements(entry) {
     ...explicitExcludeElements,
     ...hiddenExplicitExcludeElements
   ]);
-  const explicitIncludeElements = [];
-  const hiddenExplicitIncludeElements = [];
-  for (const el of explicitInclude) {
+  const explicitIncludeElements: Element[] = [];
+  const hiddenExplicitIncludeElements: Element[] = [];
+  for (const rawElement of explicitInclude) {
+    if (!isElementNode(rawElement)) {
+      continue;
+    }
+    const el = rawElement;
     if (
       isWithinImmutableExcluded(el) ||
       consentExcluded.has(el) ||
-// @ts-expect-error
       isWithinElementSet(el, consentExcluded) ||
-// @ts-expect-error
       localExplicitExcludeSet.has(el)
     ) {
       continue;
@@ -9303,7 +9178,7 @@ export function collectStoredUnexcludedToggleableDefaultElements(entry) {
       continue;
     }
     const el = getElementFromXPath(item.xpath);
-    if (!el || seen.has(el)) {
+    if (!isElementNode(el) || seen.has(el)) {
       continue;
     }
     if (!matchesToggleableDefaultExcluded(el)) {
@@ -9335,13 +9210,9 @@ function drawExplicitMarkingLayers(
   computeElementRects
 ) {
   const drawStartedAt = nowMs();
-// @ts-expect-error
   const layerSavedExplicitExcludeState = beginLayerRender(state.layers["saved-explicit-exclude"]);
-// @ts-expect-error
   const layerSavedExplicitIncludeState = beginLayerRender(state.layers["saved-explicit-include"]);
-// @ts-expect-error
   const layerSessionExplicitExcludeState = beginLayerRender(state.layers["session-explicit-exclude"]);
-// @ts-expect-error
   const layerSessionExplicitIncludeState = beginLayerRender(state.layers["session-explicit-include"]);
 
   for (const el of fetchedExplicitExcludeElements) {
@@ -9438,7 +9309,6 @@ function drawExplicitMarkingLayers(
   finalizeLayerRender(layerSavedExplicitIncludeState);
   finalizeLayerRender(layerSessionExplicitExcludeState);
   finalizeLayerRender(layerSessionExplicitIncludeState);
-// @ts-expect-error
   logTogglePerf("draw.explicit-layers", drawStartedAt, {
     savedExcludeCount: fetchedExplicitExcludeElements.length,
     savedIncludeCount: fetchedExplicitIncludeElements.length + (hiddenFetchedExplicitIncludeElements || []).length,
@@ -9699,7 +9569,6 @@ async function refreshExplicitMarkingOverlayAsync(entry, context = null) {
       explicitLayerSplit.hiddenSessionExplicitIncludeElements,
       getVisibleRects
     );
-// @ts-expect-error
     logTogglePerf("toggle.explicit-overlay-refresh", refreshStartedAt, { async: true });
     return { ok: true, aborted: false };
   });
@@ -9807,7 +9676,6 @@ function scheduleAsyncExplicitToggleReconcile(entry, context = null) {
 
 // @ts-expect-error
 function completeExplicitToggle(entry, target, type, mutationStartedAt, options = {}) {
-// @ts-expect-error
   logTogglePerf("toggle.mutation", mutationStartedAt, {
     type,
     hasTarget: Boolean(target)
@@ -9878,7 +9746,6 @@ function scheduleQueuedToggleMutationDrain() {
       }
     } finally {
       state.toggleInFlightKey = "";
-// @ts-expect-error
       logTogglePerf("toggle.apply", applyStartedAt, {
 // @ts-expect-error
         mode: nextJob.mode,
@@ -9974,7 +9841,6 @@ function renderHighlightsInner() {
   if (cached && state.cachedCollectionsKey === nextCollectionsCacheKey) {
     const drawStartedAt = nowMs();
     repositionHighlights(cached);
-// @ts-expect-error
     logTogglePerf("render.reposition", drawStartedAt, { pageUrl: location.href });
     return;
   }
@@ -10012,7 +9878,6 @@ function renderHighlightsInner() {
     allowCreate: hasEntry,
     persist: hasEntry
   });
-// @ts-expect-error
   logTogglePerf("render.sync", syncStartedAt, { pageUrl });
   const entry =
       syncResult.entry || getPageMarkingEntry(state.config, pageUrl, { create: false });
@@ -10142,7 +10007,6 @@ function renderHighlightsInner() {
     selectorSet: selectorSetForMarking,
     entry
   });
-// @ts-expect-error
   logTogglePerf("render.rebuild", rebuildStartedAt, { pageUrl });
 
   if (autoSeededFromAiSelectors) {
@@ -10153,9 +10017,7 @@ function renderHighlightsInner() {
 
   const drawStartedAt = nowMs();
   drawCollections(collections, getVisibleRects);
-// @ts-expect-error
   logTogglePerf("draw.collections", drawStartedAt, { pageUrl });
-// @ts-expect-error
   logTogglePerf("render.total", renderStartedAt, { pageUrl });
 }
 
@@ -10186,19 +10048,12 @@ function repositionHighlights(collections) {
 
 // @ts-expect-error
 function drawCollections(collections, getRects) {
-// @ts-expect-error
   const layerHardState = beginLayerRender(state.layers["hard"]);
-// @ts-expect-error
   const layerSavedExplicitExcludeState = beginLayerRender(state.layers["saved-explicit-exclude"]);
-// @ts-expect-error
   const layerSavedExplicitIncludeState = beginLayerRender(state.layers["saved-explicit-include"]);
-// @ts-expect-error
   const layerAiContentState = beginLayerRender(state.layers["ai-content"]);
-// @ts-expect-error
   const layerSessionExplicitExcludeState = beginLayerRender(state.layers["session-explicit-exclude"]);
-// @ts-expect-error
   const layerSessionExplicitIncludeState = beginLayerRender(state.layers["session-explicit-include"]);
-// @ts-expect-error
   const layerDefaultState = beginLayerRender(state.layers["default"]);
   const markedElements = new Set();
 
@@ -10560,8 +10415,7 @@ export function isDefaultToggleableExcludedElement(el) {
  * @param {Element} el - The element to check
  * @returns {boolean} True if the element matches an immutable exclusion
  */
-// @ts-expect-error
-export function isImmutableExcludedElement(el) {
+export function isImmutableExcludedElement(el: Element | null): boolean {
   return matchesImmutableExcluded(el);
 }
 
@@ -10832,13 +10686,9 @@ function setAltPassThrough(enabled) {
   if (!state.overlay) {
     return;
   }
-// @ts-expect-error
   state.overlay.style.pointerEvents = enabled ? "none" : "auto";
-// @ts-expect-error
   state.overlay.style.opacity = enabled ? "0.5" : "1";
-// @ts-expect-error
   if (enabled && state.layers["hover"]) {
-// @ts-expect-error
     clearLayer(state.layers["hover"]);
   }
   if (!enabled) {
@@ -10964,7 +10814,6 @@ export function isVisible(el) {
   }
   const cache = state.visibilityCache;
   if (cache) {
-// @ts-expect-error
     const cached = cache.get(el);
     if (cached !== undefined) {
       return cached;
@@ -10972,7 +10821,6 @@ export function isVisible(el) {
   }
   const result = isVisibleUncached(el);
   if (cache) {
-// @ts-expect-error
     cache.set(el, result);
   }
   return result;
@@ -10987,16 +10835,13 @@ function isVisibleUncached(el) {
   let node = el;
   const visCache = state.ancestorVisStateCache;
   while (node && node.nodeType === 1) {
-    let visState;
-// @ts-expect-error
+    let visState: TheoreticalVisibilityState;
     if (visCache && visCache.has(node)) {
-// @ts-expect-error
-      visState = visCache.get(node);
+      visState = visCache.get(node)!;
     } else {
       const style = window.getComputedStyle(node);
       visState = getTheoreticalVisibilityState(node, style);
       if (visCache) {
-// @ts-expect-error
         visCache.set(node, visState);
       }
     }
@@ -11214,7 +11059,6 @@ export function scheduleRender(options) {
   const shouldInvalidate = !options || options.invalidate !== false;
   state.pendingRenderInvalidate = state.pendingRenderInvalidate || shouldInvalidate;
   if (state.renderTimer) {
-// @ts-expect-error
     logTogglePerf("scheduleRender.skipped-existing", scheduleStartedAt, {
       reason: options && options.reason ? options.reason : "unknown"
     });
@@ -11227,7 +11071,6 @@ export function scheduleRender(options) {
   const waitForInterval =
     minInterval > 0 && sinceLast < minInterval ? minInterval - sinceLast : 0;
   const effectiveDelay = Math.max(delay, waitForInterval);
-// @ts-expect-error
   logTogglePerf("scheduleRender.queued", scheduleStartedAt, {
     reason,
     delay,
@@ -11542,11 +11385,9 @@ export function handleScroll(event, options = {}) {
   const hideDuringScroll = isViewportScroll && (!options || options.hideDuringScroll !== false);
   if (hideDuringScroll && !state.isScrolling) {
     state.isScrolling = true;
-// @ts-expect-error
     state.overlay.classList.add("uf-scrolling");
   } else if (!hideDuringScroll && state.isScrolling) {
     state.isScrolling = false;
-// @ts-expect-error
     state.overlay.classList.remove("uf-scrolling");
   }
   if (state.scrollHideTimer) {
@@ -11566,7 +11407,6 @@ export function handleScroll(event, options = {}) {
           state.isScrolling = false;
         }
         if (state.overlay) {
-// @ts-expect-error
           state.overlay.classList.remove("uf-scrolling");
         }
       });
@@ -11739,7 +11579,6 @@ export function showAiPopover(items, options = {}) {
   marker.hidden = true;
   marker.setAttribute("data-uf-extension-ui", "true");
   document.documentElement.appendChild(marker);
-// @ts-expect-error
   state.aiPopover = marker;
 // @ts-expect-error
   state.aiPopoverOnClose = typeof options.onClose === "function" ? options.onClose : null;
@@ -12132,7 +11971,6 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
     }
     return false;
   };
-// @ts-expect-error
   logTogglePerf("sync.entry-setup", entrySetupStartedAt, {
     previousItemCount: previousItems.length,
     xpathLookupCount
@@ -12144,12 +11982,10 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
   const candidateCollectionStartedAt = nowMs();
   const scannedCandidates = scanReconcileDocumentCandidates(immutableExcluded, excludedParents);
   const candidates = scannedCandidates.toggleableCandidates;
-// @ts-expect-error
   logTogglePerf("sync.candidate-collection", candidateCollectionStartedAt, {
     candidateCount: candidates.length,
     excludedParentCount: excludedParents.size
   });
-// @ts-expect-error
   logTogglePerf("sync.candidate-evaluation", candidateCollectionStartedAt, {
     visitedCount: scannedCandidates.stats.visitedCount,
     autoDefaultCount: scannedCandidates.stats.autoDefaultCount,
@@ -12157,7 +11993,6 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
     selfMarkableCount: scannedCandidates.stats.selfMarkableCount,
     selfMarkableElapsedMs: Number(scannedCandidates.stats.selfMarkableElapsedMs.toFixed(1))
   });
-// @ts-expect-error
   logTogglePerf("sync.candidate-self-markable", candidateCollectionStartedAt, {
     textualContainerElapsedMs: Number(scannedCandidates.stats.textualContainerElapsedMs.toFixed(1)),
     paintReachableElapsedMs: Number(scannedCandidates.stats.paintReachableElapsedMs.toFixed(1)),
@@ -12183,7 +12018,6 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
     isWithinExplicitInclude,
     isWithinExplicitIncludeXpath
   });
-// @ts-expect-error
   logTogglePerf("sync.candidate-merge", candidateMergeStartedAt, {
     candidateCount: candidates.length,
     itemCount: items.length
@@ -12201,7 +12035,6 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
     includeXpaths: explicitIncludeSet,
     prefetchedCandidates: scannedCandidates.silentWhitespaceCandidates
   });
-// @ts-expect-error
   logTogglePerf("sync.silent-whitespace-collection", silentWhitespaceCollectionStartedAt, {
     candidateCount: silentWhitespaceCandidates.length,
     excludedCount: currentExcludedXpaths.size
@@ -12220,7 +12053,6 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
     currentExcludedXpaths.add(xpath);
     silentWhitespaceExcludedXpaths.push(xpath);
   }
-// @ts-expect-error
   logTogglePerf("sync.silent-whitespace-merge", silentWhitespaceMergeStartedAt, {
     candidateCount: silentWhitespaceCandidates.length,
     addedCount: silentWhitespaceExcludedXpaths.length
@@ -12314,7 +12146,6 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
   if (shouldPersist) {
     setPageMarkingEntry(config.pageMarkings, pageUrl, entry);
   }
-// @ts-expect-error
   logTogglePerf("sync.total", syncStartedAt, { pageUrl });
   return { changed, entry, persisted: shouldPersist, hadEntry };
 }
@@ -12460,7 +12291,6 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
     }
     return false;
   };
-// @ts-expect-error
   logTogglePerf("sync.entry-setup", entrySetupStartedAt, {
     previousItemCount: previousItems.length,
     xpathLookupCount,
@@ -12475,13 +12305,11 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
     shouldAbort
   });
   const candidates = scannedCandidates.toggleableCandidates;
-// @ts-expect-error
   logTogglePerf("sync.candidate-collection", candidateCollectionStartedAt, {
     candidateCount: candidates.length,
     excludedParentCount: excludedParents.size,
     async: true
   });
-// @ts-expect-error
   logTogglePerf("sync.candidate-evaluation", candidateCollectionStartedAt, {
     visitedCount: scannedCandidates.stats.visitedCount,
     autoDefaultCount: scannedCandidates.stats.autoDefaultCount,
@@ -12490,7 +12318,6 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
     selfMarkableElapsedMs: Number(scannedCandidates.stats.selfMarkableElapsedMs.toFixed(1)),
     async: true
   });
-// @ts-expect-error
   logTogglePerf("sync.candidate-self-markable", candidateCollectionStartedAt, {
     textualContainerElapsedMs: Number(scannedCandidates.stats.textualContainerElapsedMs.toFixed(1)),
     paintReachableElapsedMs: Number(scannedCandidates.stats.paintReachableElapsedMs.toFixed(1)),
@@ -12522,7 +12349,6 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
   }, {
     shouldAbort
   });
-// @ts-expect-error
   logTogglePerf("sync.candidate-merge", candidateMergeStartedAt, {
     candidateCount: candidates.length,
     itemCount: items.length,
@@ -12544,7 +12370,6 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
     includeXpaths: explicitIncludeSet,
     prefetchedCandidates: scannedCandidates.silentWhitespaceCandidates
   });
-// @ts-expect-error
   logTogglePerf("sync.silent-whitespace-collection", silentWhitespaceCollectionStartedAt, {
     candidateCount: silentWhitespaceCandidates.length,
     excludedCount: currentExcludedXpaths.size,
@@ -12586,7 +12411,6 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
       return abortResult();
     }
   }
-// @ts-expect-error
   logTogglePerf("sync.silent-whitespace-merge", silentWhitespaceMergeStartedAt, {
     candidateCount: silentWhitespaceCandidates.length,
     addedCount: silentWhitespaceExcludedXpaths.length,
@@ -12744,7 +12568,6 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
   if (shouldPersist) {
     setPageMarkingEntry(config.pageMarkings, pageUrl, entry);
   }
-// @ts-expect-error
   logTogglePerf("sync.total", syncStartedAt, { pageUrl, async: true });
   return { changed, entry, persisted: shouldPersist, hadEntry, aborted: false };
 }

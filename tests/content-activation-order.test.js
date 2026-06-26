@@ -513,7 +513,7 @@ test("silent-highlight collection runs inside the shared element-computation cac
   );
 
   const coreSource = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
-  assert.match(coreSource, /export function withElementComputationCache\(callback\) \{/);
+  assert.match(coreSource, /export function withElementComputationCache(?:<[^>]+>)?\(callback[\s\S]*?\)\s*(?::[^{]+)?\{/);
 });
 
 test("silent-highlight observer demotes class mutations on non-tracked targets to reposition", () => {

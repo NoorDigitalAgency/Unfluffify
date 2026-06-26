@@ -682,7 +682,7 @@ test("page inspection completion waits for a real render before lifting the curt
 test("marking passes share broad per-pass element caches", () => {
   const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
 
-  assert.match(source, /function withElementComputationCache\(callback\)/);
+  assert.match(source, /function withElementComputationCache(?:<[^>]+>)?\(callback(?::[^)]*)?\)/);
   assert.match(source, /directTextCache:\s*null/);
   assert.match(source, /normalizedTextCache:\s*null/);
   assert.match(source, /textualDescendantCache:\s*null/);
@@ -899,8 +899,8 @@ test("page popup-busy overlay is independent from reveal inspection and freeze U
 test("paint reachability allows in-path hits deeper in the hit stack and falls back when all checks reject", () => {
   const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
 
-  assert.match(source, /function getPaintReachabilityForRect\(el, rect\) \{[\s\S]*?elementsAtPoint\.some\(\(hit\) => isElementInHitPath\(hit, el\)\)/);
-  assert.match(source, /function filterPaintReachableRects\(el, rects\) \{[\s\S]*?const reachableRects = rects\.filter\(\(rect\) => getPaintReachabilityForRect\(el, rect\) !== false\);/);
+  assert.match(source, /function getPaintReachabilityForRect\(el(?::[^,]+)?, rect(?::[^)]+)?\)(?:: [^{]+)? \{[\s\S]*?elementsAtPoint\.some\(\(hit\) => isElementInHitPath\(hit, el\)\)/);
+  assert.match(source, /function filterPaintReachableRects\(el(?::[^,]+)?, rects(?::[^)]+)?\)(?:: [^{]+)? \{[\s\S]*?const reachableRects = rects\.filter\(\(rect\) => getPaintReachabilityForRect\(el, rect\) !== false\);/);
   assert.match(source, /if \(reachableRects\.length > 0\) \{[\s\S]*?return reachableRects;/);
   assert.match(source, /if \([\s\S]*?isVisible\(el\)[\s\S]*?!isDefinitelyHiddenSubtreeElement\(el\)[\s\S]*?\) \{[\s\S]*?return rects;/);
 });
@@ -910,7 +910,7 @@ test("paint reachability fallback emits throttled counter telemetry in toggle pe
 
   assert.match(source, /paintReachabilityFallbackCount:\s*0/);
   assert.match(source, /paintReachabilityFallbackLastLoggedAt:\s*0/);
-  assert.match(source, /function reportPaintReachabilityFallback\(el, rectCount\) \{/);
+  assert.match(source, /function reportPaintReachabilityFallback\(el(?::[^,]+)?, rectCount(?::[^)]+)?\)(?:: [^{]+)? \{/);
   assert.match(source, /state\.paintReachabilityFallbackCount \+= 1;/);
   assert.match(source, /count <= 3 \|\|[\s\S]*?count % 25 === 0 \|\|[\s\S]*?paintReachabilityFallbackLastLoggedAt >= 5000/);
   assert.match(source, /logTogglePerf\("render\.reachability-fallback", nowMs\(\), \{/);

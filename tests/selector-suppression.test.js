@@ -249,7 +249,7 @@ test("marking mode stores default ancestors as unexcluded when descendants are m
 
   assert.match(
     coreSource,
-    /function collectExcludedParentElements\(items\) \{[\s\S]*?if \(!item \|\| !item\.xpath \|\| !item\.excluded\) \{[\s\S]*?parents\.add\(el\);/
+    /function collectExcludedParentElements\(items(?::[^)]*)?\)(?:: [^{]+)? \{[\s\S]*?if \(!item \|\| !item\.xpath \|\| !item\.excluded\) \{[\s\S]*?parents\.add\(el\);/
   );
   assert.doesNotMatch(
     coreSource,

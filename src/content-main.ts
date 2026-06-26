@@ -5141,7 +5141,7 @@ function collectAiSubmissionXpathsForCurrentPage(sourceConfig: Config | null = s
     if (!xpath) {
       continue;
     }
-    const immutableExcludedRoot = core.isImmutableExcludedElement(node);
+    const immutableExcludedRoot = core.isImmutableExcludedElement(node) === true;
     if (insideImmutableExcluded || immutableExcludedRoot) {
       continue;
     }
