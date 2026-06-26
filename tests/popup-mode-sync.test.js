@@ -20,7 +20,7 @@ test("content inspection status reports the authoritative marking mode", () => {
   assert.match(inspectionStatusSource, /mode: deps\.getCurrentContentMode\(\)/);
 });
 
-test("popup refresh reconciles toggle state to content mode without setEnabled", () => {
+test("popup refresh reconciles toggle state to content inspection status without re-sending setEnabled", () => {
   const refreshBlock = extractSourceBlock(
     popupSource,
     "async function refreshUiInner(",
@@ -43,23 +43,14 @@ test("popup refresh reconciles toggle state to content mode without setEnabled",
     modeBlock,
     /toggleEnabled = shouldPreserveEnabledDuringReactivation[\s\S]*?\? Boolean\(effectiveTabState\.enabled\)[\s\S]*?: contentMarkingEnabled;/
   );
+  assert.match(
+    refreshBlock,
+    /let inspectionStatus =[\s\S]*?contentModeStatus \|\|[\s\S]*?await messages\.sendTabMessageToTab\(currentTabId, \{ type: "getInspectionStatus" \}\)/
+  );
   assert.doesNotMatch(modeBlock, /setEnabled/);
 });
 
-test("popup runtime inspection status reuses the content-mode response", () => {
-  const refreshBlock = extractSourceBlock(
-    popupSource,
-    "async function refreshUiInner(",
-    "async function maybeResumePersistedAiRun"
-  );
-
-  assert.match(
-    refreshBlock,
-    /let inspectionStatus =\s*contentModeStatus \|\|\s*\(markingInspectionInScope \|\| silentInspectionInScope[\s\S]*?type: "getInspectionStatus"/
-  );
-});
-
-test("popup keeps marking mode active when content reports authoritative enabled state", () => {
+test("popup keeps marking mode active across preview restore, AI compute, and authoritative content-mode branches", () => {
   const refreshBlock = extractSourceBlock(
     popupSource,
     "async function refreshUiInner(",
@@ -83,5 +74,8 @@ test("popup keeps marking mode active when content reports authoritative enabled
     refreshBlock,
     /isEnabled = toggleEnabled && \([\s\S]*?contentMarkingModeActive \|\|[\s\S]*?previewRestorePending \|\|[\s\S]*?navigationInspectionPending/
   );
-  assert.match(refreshBlock, /!aiComputeRunActive &&[\s\S]*?!aiPreviewSessionActive &&[\s\S]*?!previewRestorePending &&[\s\S]*?!navigationInspectionPending/);
+  assert.match(
+    refreshBlock,
+    /!aiComputeRunActive &&[\s\S]*?!aiPreviewSessionActive &&[\s\S]*?!previewRestorePending &&[\s\S]*?!navigationInspectionPending/
+  );
 });

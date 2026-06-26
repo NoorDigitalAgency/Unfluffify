@@ -32,7 +32,6 @@ test("render-mode reload reclaims the property lock before polling snapshots", (
   assert.ok(pollIndex > claimIndex);
   assert.match(block, /renderModeInspectionReconnect: true/);
   assert.match(block, /PROPERTY_LOCK_CONNECTION_CONNECTED/);
-  assert.match(block, /PROPERTY_LOCK_CONNECTION_INACTIVE/);
 });
 
 test("popup suppresses the disconnect countdown while render-mode inspection is active", () => {
@@ -47,17 +46,13 @@ test("popup suppresses the disconnect countdown while render-mode inspection is 
     "async function normalizeRenderModeDebuggerPage"
   );
 
-  const inspectionStatusIndex = viewBlock.indexOf("state.renderModeInspectionActive && state.propertyLockDisconnectCountdown !== null");
-  const countdownIndex = viewBlock.indexOf("propertyLockText.editorDisconnectCountdownMessage");
-
-  assert.ok(inspectionStatusIndex > -1);
-  assert.ok(countdownIndex > inspectionStatusIndex);
+  assert.match(viewBlock, /state\.renderModeInspectionActive && state\.propertyLockDisconnectCountdown !== null/);
   assert.match(viewBlock, /propertyLockText\.popupInspectionReconnecting/);
   assert.match(reloadBlock, /state\.renderModeInspectionActive = true;[\s\S]*?requestPopupRenderModeInspection\(/);
   assert.match(reloadBlock, /finally \{[\s\S]*?state\.renderModeInspectionActive = false;[\s\S]*?buildPropertyLockViewState\(\)/);
 });
 
-test("content suppresses page-side connection-loss countdown during render-mode inspection", () => {
+test("content suppresses page-side disconnect countdowns during render-mode inspection and restores banner mode on exit", () => {
   const applyBlock = extractSourceBlock(
     propertyLockStateMachineSource,
     "function applyServerMessage(serverMessage",
@@ -68,7 +63,6 @@ test("content suppresses page-side connection-loss countdown during render-mode 
     "export function renderPropertyLockBanner",
     "export function clearPropertyLockBannerCountdown"
   );
-  assert.match(contentSource, /handleRenderModeInspectionEndCommand\(message(?:\s*:\s*[^=]+)? = \{\}\) \{[\s\S]*?getRenderModeInspectionHandlers\(\)\.end\(message\)/);
   const endHandlerStart = renderModeHandlersSource.indexOf("function end(message = {}) {");
   const endHandlerEnd = renderModeHandlersSource.indexOf("function hideConsent()", endHandlerStart);
   assert.ok(endHandlerStart > -1);

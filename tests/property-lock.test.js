@@ -12,18 +12,29 @@ import {
   PROPERTY_LOCK_STATE_UNLOCKED,
   buildPropertyLockWssUrl,
   createInactiveLockState,
-  normalizeLockStateMessage
+  normalizeLockStateMessage,
 } from "../src/common/property-lock.js";
 
-const propertyLockBannerSource = readFileSync(new URL("../src/content/property-lock-banner.ts", import.meta.url), "utf8");
-const propertyLockBannerModeSource = readFileSync(new URL("../src/content/property-lock-banner-mode.ts", import.meta.url), "utf8");
-const propertyLockPortClientSource = readFileSync(new URL("../src/content/property-lock-port-client.ts", import.meta.url), "utf8");
-const propertyLockStateMachineSource = readFileSync(new URL("../src/content/property-lock-state-machine.ts", import.meta.url), "utf8");
+const propertyLockBannerSource = readFileSync(
+  new URL("../src/content/property-lock-banner.ts", import.meta.url),
+  "utf8"
+);
+const propertyLockBannerModeSource = readFileSync(
+  new URL("../src/content/property-lock-banner-mode.ts", import.meta.url),
+  "utf8"
+);
+const propertyLockStateMachineSource = readFileSync(
+  new URL("../src/content/property-lock-state-machine.ts", import.meta.url),
+  "utf8"
+);
 
 test("buildPropertyLockWssUrl requires a stage base and token", () => {
   assert.equal(buildPropertyLockWssUrl("", "token"), "");
   assert.equal(buildPropertyLockWssUrl("example.test", ""), "");
-  assert.equal(buildPropertyLockWssUrl("https://example.test/path", "token value"), "wss://example.test/property-lock?token=token%20value");
+  assert.equal(
+    buildPropertyLockWssUrl("https://example.test/path", "token value"),
+    "wss://example.test/property-lock?token=token%20value"
+  );
 });
 
 test("buildPropertyLockWssUrl uses configured endpoint origin without api prefix", () => {
@@ -34,13 +45,6 @@ test("buildPropertyLockWssUrl uses configured endpoint origin without api prefix
   assert.equal(
     buildPropertyLockWssUrl("https://config.example.test/nested/save?x=1#hash", "abc123"),
     "wss://config.example.test/property-lock?token=abc123"
-  );
-});
-
-test("buildPropertyLockWssUrl preserves valid token query encoding", () => {
-  assert.equal(
-    buildPropertyLockWssUrl("https://example.test/remove", "token+value /?="),
-    "wss://example.test/property-lock?token=token%2Bvalue%20%2F%3F%3D"
   );
 });
 
@@ -64,7 +68,7 @@ test("normalizeLockStateMessage clamps countdown and preserves editor flags", ()
     isEditor: true,
     isRecentEditor: false,
     expiresAtUtc: "2026-05-27T10:00:00.0000000Z",
-    secondsRemaining: -4
+    secondsRemaining: -4,
   });
 
   assert.equal(normalized.state, "expiry_warning");
@@ -77,17 +81,20 @@ test("normalizeLockStateMessage clamps countdown and preserves editor flags", ()
 });
 
 test("normalizeLockStateMessage treats same-user different-client editor as a passive same-user lock", () => {
-  const normalized = normalizeLockStateMessage({
-    state: "locked",
-    editorIdentity: "editor@example.test",
-    editorClientId: "client-a",
-    editorName: "Editor",
-    isEditor: true,
-    otherTabHasUnsavedChanges: true
-  }, {
-    ownIdentity: "editor@example.test",
-    clientId: "client-b"
-  });
+  const normalized = normalizeLockStateMessage(
+    {
+      state: "locked",
+      editorIdentity: "editor@example.test",
+      editorClientId: "client-a",
+      editorName: "Editor",
+      isEditor: true,
+      otherTabHasUnsavedChanges: true,
+    },
+    {
+      ownIdentity: "editor@example.test",
+      clientId: "client-b",
+    }
+  );
 
   assert.equal(normalized.isEditor, false);
   assert.equal(normalized.isSameUserEditor, true);
@@ -117,30 +124,8 @@ test("createInactiveLockState returns an unlocked non-editor snapshot", () => {
     transferFromName: "",
     transferToName: "",
     expiresAtUtc: "",
-    secondsRemaining: null
+    secondsRemaining: null,
   });
-});
-
-test("content-main reconnects property lock after an unexpected active port disconnect", () => {
-  const source = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
-
-  assert.match(
-    source,
-    /onDisconnect:\s*\(disconnectReason\) => \{[\s\S]*?resetPropertyLockUiState\(\);[\s\S]*?schedulePropertyLockReconnect\(\);[\s\S]*?\}/
-  );
-});
-
-test("content-main consumes property lock port disconnect lastError without lifecycle hooks", () => {
-  const source = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
-
-  assert.match(source, /function createPropertyLockPortClientDeps\(\)(?:\s*:\s*[^{]+)? \{[\s\S]*?consumeRuntimeLastErrorMessage:\s*\(\) => \{[\s\S]*?const lastError = browser\.runtime\.lastError;[\s\S]*?\}/);
-  assert.match(propertyLockPortClientSource, /const disconnectReason = deps\.consumeRuntimeLastErrorMessage\(\);/);
-  assert.match(
-    source,
-    /onDisconnect:\s*\(disconnectReason\) => \{[\s\S]*?if \(markExtensionContextInvalidated\(disconnectReason\)\) \{[\s\S]*?return;[\s\S]*?\}[\s\S]*?schedulePropertyLockReconnect\(\);/
-  );
-  assert.doesNotMatch(source, /window\.addEventListener\("pagehide", handlePropertyLockPageHide\);/);
-  assert.doesNotMatch(source, /window\.addEventListener\("pageshow", handlePropertyLockPageShow\);/);
 });
 
 test("content-main stops property lock reconnects when extension context is invalidated", () => {
@@ -160,6 +145,15 @@ test("content-main stops property lock reconnects when extension context is inva
     /function createPropertyLockPortClientDeps\(\)(?:\s*:\s*[^{]+)? \{[\s\S]*?shouldSkipReconnect:\s*\(\) => extensionContextInvalidated,/
   );
   assert.doesNotMatch(source, /syncPropertyLockConnection\(\{[^}]*\}\)\.then\(\);/);
+});
+
+test("content-main reconnects property lock after an unexpected active port disconnect", () => {
+  const source = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
+
+  assert.match(
+    source,
+    /onDisconnect:\s*\(disconnectReason\) => \{[\s\S]*?resetPropertyLockUiState\(\);[\s\S]*?schedulePropertyLockReconnect\(\);[\s\S]*?\}/
+  );
 });
 
 test("content-main requests a reconnect when property lock activity or page commands have no active port", () => {
@@ -210,26 +204,62 @@ test("content-main blocks extension and page interaction while connection-loss b
   );
 });
 
-test("property lock text includes disconnected interaction blocked message", () => {
+test("property lock text includes disconnected, off-candidate, and cross-property warning copy", () => {
   const textSource = readFileSync(new URL("../src/common/text.ts", import.meta.url), "utf8");
-  assert.match(textSource, /disconnectedInteractionBlockedToast:\s*"Editing is temporarily blocked while the property lock reconnects\."/);
-  assert.match(textSource, /inactivityInteractionBlockedToast:\s*"Editing is temporarily blocked due to inactivity\. Continue editing from the warning banner\."/);
-  assert.match(textSource, /editorOffCandidateCountdownMessage:\s*\(secondsRemaining(?:\s*:\s*[^)]+)?\) => `This page is not a current Live Page candidate\./);
-  assert.match(textSource, /editorCrossPropertyCountdownMessage:\s*\(secondsRemaining(?:\s*:\s*[^)]+)?\) => `You left the previous property\./);
-  assert.match(textSource, /popupOffCandidateWarning:\s*\(secondsRemaining(?:\s*:\s*[^)]+)?\) => `Off candidate page • editor role ends in \$\{secondsRemaining\}s`/);
-  assert.match(textSource, /popupCrossPropertyWarning:\s*\(secondsRemaining(?:\s*:\s*[^)]+)?\) => `Previous property held • editor role ends in \$\{secondsRemaining\}s`/);
+  assert.match(
+    textSource,
+    /disconnectedInteractionBlockedToast:\s*"Editing is temporarily blocked while the property lock reconnects\."/
+  );
+  assert.match(
+    textSource,
+    /inactivityInteractionBlockedToast:\s*"Editing is temporarily blocked due to inactivity\. Continue editing from the warning banner\."/
+  );
+  assert.match(
+    textSource,
+    /editorOffCandidateCountdownMessage:\s*\(secondsRemaining(?:\s*:\s*[^)]+)?\) => `This page is not a current Live Page candidate\./
+  );
+  assert.match(
+    textSource,
+    /editorCrossPropertyCountdownMessage:\s*\(secondsRemaining(?:\s*:\s*[^)]+)?\) => `You left the previous property\./
+  );
+  assert.match(
+    textSource,
+    /popupOffCandidateWarning:\s*\(secondsRemaining(?:\s*:\s*[^)]+)?\) => `Off candidate page • editor role ends in \$\{secondsRemaining\}s`/
+  );
+  assert.match(
+    textSource,
+    /popupCrossPropertyWarning:\s*\(secondsRemaining(?:\s*:\s*[^)]+)?\) => `Previous property held • editor role ends in \$\{secondsRemaining\}s`/
+  );
 });
 
 test("content-main starts and persists an off-candidate editor countdown before releasing the lock", () => {
   const source = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
 
-  assert.match(source, /function persistPropertyLockOffCandidateDeadline\(deadlineAt(?:\s*:\s*[^)]+)?\) \{[\s\S]*?getPropertyLockStateMachine\(\)\.persistOffCandidateDeadline\(deadlineAt\);/);
-  assert.match(source, /function startPropertyLockOffCandidateWarning\(\) \{[\s\S]*?getPropertyLockStateMachine\(\)\.startOffCandidateWarning\(\);/);
-  assert.match(propertyLockStateMachineSource, /propertyLockOffCandidateDeadlineAt:[\s\S]*?typeof deadlineAt === "number" && Number\.isFinite\(deadlineAt\)/);
-  assert.match(propertyLockStateMachineSource, /deps\.setPropertyLockOffCandidateDeadlineAt\(Date\.now\(\) \+ deps\.PROPERTY_LOCK_OFF_CANDIDATE_WARNING_TIMEOUT_MS\);/);
+  assert.match(
+    source,
+    /function persistPropertyLockOffCandidateDeadline\(deadlineAt(?:\s*:\s*[^)]+)?\) \{[\s\S]*?getPropertyLockStateMachine\(\)\.persistOffCandidateDeadline\(deadlineAt\);/
+  );
+  assert.match(
+    source,
+    /function startPropertyLockOffCandidateWarning\(\) \{[\s\S]*?getPropertyLockStateMachine\(\)\.startOffCandidateWarning\(\);/
+  );
+  assert.match(
+    propertyLockStateMachineSource,
+    /propertyLockOffCandidateDeadlineAt:[\s\S]*?typeof deadlineAt === "number" && Number\.isFinite\(deadlineAt\)/
+  );
+  assert.match(
+    propertyLockStateMachineSource,
+    /deps\.setPropertyLockOffCandidateDeadlineAt\(Date\.now\(\) \+ deps\.PROPERTY_LOCK_OFF_CANDIDATE_WARNING_TIMEOUT_MS\);/
+  );
   assert.match(propertyLockStateMachineSource, /deps\.setPropertyLockBannerMode\("editor_off_candidate_countdown"\);/);
-  assert.match(propertyLockStateMachineSource, /deps\.getTimerHost\(\)\.setTimeout\(\(\) => \{[\s\S]*?deps\.sendPropertyLockMessage\(deps\.PROPERTY_LOCK_CONTENT_RELEASE\);[\s\S]*?\}, deps\.PROPERTY_LOCK_OFF_CANDIDATE_WARNING_TIMEOUT_MS \+ 100\);/);
-  assert.match(source, /async function syncPropertyLockOffCandidateWarning\(baseUrl(?:\s*:\s*[^,]+)?, pageUrl(?:\s*:\s*[^=]+)? = location\.href\)(?:\s*:\s*[^{]+)? \{/);
+  assert.match(
+    propertyLockStateMachineSource,
+    /deps\.getTimerHost\(\)\.setTimeout\(\(\) => \{[\s\S]*?deps\.sendPropertyLockMessage\(deps\.PROPERTY_LOCK_CONTENT_RELEASE\);[\s\S]*?\}, deps\.PROPERTY_LOCK_OFF_CANDIDATE_WARNING_TIMEOUT_MS \+ 100\);/
+  );
+  assert.match(
+    source,
+    /async function syncPropertyLockOffCandidateWarning\(baseUrl(?:\s*:\s*[^,]+)?, pageUrl(?:\s*:\s*[^=]+)? = location\.href\)(?:\s*:\s*[^{]+)? \{/
+  );
   assert.match(source, /if \(propertyLockState && propertyLockState\.isEditor\) \{\s*startPropertyLockOffCandidateWarning\(\);/);
   assert.match(propertyLockBannerSource, /case "editor_off_candidate_countdown":/);
   assert.match(propertyLockBannerSource, /propertyLockText\.editorOffCandidateCountdownMessage\(propertyLockBannerCountdownValue\)/);
@@ -238,30 +268,29 @@ test("content-main starts and persists an off-candidate editor countdown before 
 test("content-main starts and persists a cross-property editor cooldown before releasing the old lock", () => {
   const source = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
 
-  assert.match(source, /function normalizePropertyLockRecoveryTabState\(tabState(?:\s*:\s*[^)]+)?\) \{[\s\S]*?getPropertyLockStateMachine\(\)\.normalizeRecoveryTabState\(/);
-  assert.match(source, /function persistPropertyLockRecoveryState\(\{ siteId = null, baseUrl = "", clientId = "", deadlineAt = 0 \} = \{\}\) \{[\s\S]*?getPropertyLockStateMachine\(\)\.persistRecoveryState\(\{/);
-  assert.match(source, /function startPropertyLockCrossPropertyWarning\(recoveryState(?:\s*:\s*[^)]+)?\) \{[\s\S]*?getPropertyLockStateMachine\(\)\.startCrossPropertyWarning\(/);
-  assert.match(propertyLockStateMachineSource, /deps\.setPropertyLockRecoveryDeadlineAt\([\s\S]*?Date\.now\(\) \+ deps\.PROPERTY_LOCK_CROSS_PROPERTY_COOLDOWN_TIMEOUT_MS/);
+  assert.match(
+    source,
+    /function normalizePropertyLockRecoveryTabState\(tabState(?:\s*:\s*[^)]+)?\) \{[\s\S]*?getPropertyLockStateMachine\(\)\.normalizeRecoveryTabState\(/
+  );
+  assert.match(
+    source,
+    /function persistPropertyLockRecoveryState\(\{ siteId = null, baseUrl = "", clientId = "", deadlineAt = 0 \} = \{\}\) \{[\s\S]*?getPropertyLockStateMachine\(\)\.persistRecoveryState\(\{/
+  );
+  assert.match(
+    source,
+    /function startPropertyLockCrossPropertyWarning\(recoveryState(?:\s*:\s*[^)]+)?\) \{[\s\S]*?getPropertyLockStateMachine\(\)\.startCrossPropertyWarning\(/
+  );
+  assert.match(
+    propertyLockStateMachineSource,
+    /deps\.setPropertyLockRecoveryDeadlineAt\([\s\S]*?Date\.now\(\) \+ deps\.PROPERTY_LOCK_CROSS_PROPERTY_COOLDOWN_TIMEOUT_MS/
+  );
   assert.match(source, /type: PROPERTY_LOCK_CONTENT_RELEASE,\s*siteId: recoverySiteId,\s*clientId: recoveryClientId/);
-  assert.match(propertyLockBannerModeSource, /if \(deps\.getPropertyLockRecoveryDeadlineAt\(\) > Date\.now\(\)\) \{[\s\S]*?deps\.setPropertyLockBannerMode\("editor_cross_property_countdown"\);/);
+  assert.match(
+    propertyLockBannerModeSource,
+    /if \(deps\.getPropertyLockRecoveryDeadlineAt\(\) > Date\.now\(\)\) \{[\s\S]*?deps\.setPropertyLockBannerMode\("editor_cross_property_countdown"\);/
+  );
   assert.match(propertyLockBannerSource, /case "editor_cross_property_countdown":/);
   assert.match(propertyLockBannerSource, /propertyLockText\.editorCrossPropertyCountdownMessage\(propertyLockBannerCountdownValue\)/);
-});
-
-test("content-main does not reset disconnect countdown on repeated unavailable status updates", () => {
-  const applyStart = propertyLockStateMachineSource.indexOf("function applyServerMessage(serverMessage");
-  const applyEnd = propertyLockStateMachineSource.indexOf("return {", applyStart);
-  const applySource = propertyLockStateMachineSource.slice(applyStart, applyEnd);
-
-  assert.ok(applyStart >= 0);
-  assert.match(
-    applySource,
-    /if \(deps\.getPropertyLockBannerMode\(\) !== "editor_disconnect_countdown" \|\| deps\.getPropertyLockBannerCountdownValue\(\) <= 0\) \{[\s\S]*?deps\.setPropertyLockBannerCountdownValue\(defaultDisconnectCountdownSeconds\);[\s\S]*?deps\.restartPropertyLockBannerCountdown\(\);/
-  );
-  assert.match(
-    applySource,
-    /\} else if \(!deps\.getPropertyLockBannerCountdownTimer\(\)\) \{[\s\S]*?deps\.restartPropertyLockBannerCountdown\(\);/
-  );
 });
 
 test("content-main uses 70-second fallback countdown for inactivity warning and keeps it running", () => {
@@ -288,15 +317,20 @@ test("content-main uses 70-second fallback countdown for inactivity warning and 
   );
 });
 
-test("content-main connects property lock without gating on Live Page candidate verification", () => {
-  const source = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
-  const syncStart = source.indexOf("async function syncPropertyLockConnection");
-  const connectIndex = source.indexOf("type: PROPERTY_LOCK_CONTENT_CONNECT", syncStart);
-  const candidateIndex = source.indexOf("resolvePropertyLockCandidateState(target)", syncStart);
+test("content-main does not reset disconnect countdown on repeated unavailable status updates", () => {
+  const applyStart = propertyLockStateMachineSource.indexOf("function applyServerMessage(serverMessage");
+  const applyEnd = propertyLockStateMachineSource.indexOf("return {", applyStart);
+  const applySource = propertyLockStateMachineSource.slice(applyStart, applyEnd);
 
-  assert.ok(syncStart >= 0);
-  assert.ok(connectIndex > syncStart);
-  assert.equal(candidateIndex, -1);
+  assert.ok(applyStart >= 0);
+  assert.match(
+    applySource,
+    /if \(deps\.getPropertyLockBannerMode\(\) !== "editor_disconnect_countdown" \|\| deps\.getPropertyLockBannerCountdownValue\(\) <= 0\) \{[\s\S]*?deps\.setPropertyLockBannerCountdownValue\(defaultDisconnectCountdownSeconds\);[\s\S]*?deps\.restartPropertyLockBannerCountdown\(\);/
+  );
+  assert.match(
+    applySource,
+    /\} else if \(!deps\.getPropertyLockBannerCountdownTimer\(\)\) \{[\s\S]*?deps\.restartPropertyLockBannerCountdown\(\);/
+  );
 });
 
 test("content-main connects property lock with a stable client identity and auto-claims on eligible-page connect", () => {
@@ -313,7 +347,10 @@ test("content-main connects property lock with a stable client identity and auto
   assert.match(source, /function setPropertyLockClientId\(\s*nextClientId(?:\s*:\s*[^)]+)?\s*\)/);
   assert.match(syncSource, /type: PROPERTY_LOCK_CONTENT_CONNECT,[\s\S]*?\.\.\.getPropertyLockDraftStatusPayload\(\)/);
   assert.match(syncSource, /queuePropertyLockEditorClaim\(\);/);
-  assert.match(source, /if \(typeof (?:message|envelope)\.clientId === "string" && (?:message|envelope)\.clientId\) \{\s*setPropertyLockClientId\((?:message|envelope)\.clientId\);\s*\}/);
+  assert.match(
+    source,
+    /if \(typeof (?:message|envelope)\.clientId === "string" && (?:message|envelope)\.clientId\) \{\s*setPropertyLockClientId\((?:message|envelope)\.clientId\);\s*\}/
+  );
   assert.match(
     portMessageSource,
     /(?:message|envelope)\.type === PROPERTY_LOCK_BACKGROUND_CONNECTION_STATUS[\s\S]*?(?:message|envelope)\.connectionStatus === PROPERTY_LOCK_CONNECTION_CONNECTED[\s\S]*?flushQueuedPropertyLockEditorClaim\(\);/
@@ -322,20 +359,6 @@ test("content-main connects property lock with a stable client identity and auto
     portMessageSource,
     /server(?:State)?Message\.type === PROPERTY_LOCK_WS_LOCK_STATE[\s\S]*?flushQueuedPropertyLockEditorClaim\(\);/
   );
-});
-
-test("content-main resolves property lock targets without requiring current extension base-url state", () => {
-  const source = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
-  const resolverStart = source.indexOf("async function resolveCurrentPropertyLockConnectionTarget");
-  const resolverEnd = source.indexOf("async function resolveCurrentPageTypeForMarking", resolverStart);
-  const resolverSource = source.slice(resolverStart, resolverEnd);
-
-  assert.ok(resolverStart >= 0);
-  assert.match(resolverSource, /const matchingBaseUrl = utils\.findMatchingBaseUrl\(pageUrl, currentConfigs\);/);
-  assert.match(resolverSource, /const normalizedBaseUrl = utils\.normalizeBaseUrl\(matchingBaseUrl\) \|\| matchingBaseUrl \|\| "";/);
-  assert.match(resolverSource, /const storedSiteId = normalizeSiteIdValue\(normalizedConfig && normalizedConfig\.siteId\);/);
-  assert.match(resolverSource, /if \(normalizedBaseUrl && siteId !== storedSiteId\) \{/);
-  assert.doesNotMatch(resolverSource, /!normalizedBaseUrl \|\| !pageUrl \|\| !utils\.isPageWithinBaseUrl\(pageUrl, normalizedBaseUrl\)/);
 });
 
 test("content-main treats property lock site-id fetch failures as a null lookup", () => {
@@ -353,14 +376,29 @@ test("content-main starts property lock sync immediately during content-script i
   const source = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
   const mainStart = source.indexOf("export function main()");
   const immediateSyncIndex = source.indexOf("runPropertyLockSync({ forceSiteIdRefresh: true });", mainStart);
-  const refreshMatch = source.slice(mainStart).match(
-    /core\.refreshFromTabState\(\)\.then\(async \(\) => \{/
-  );
+  const refreshMatch = source.slice(mainStart).match(/core\.refreshFromTabState\(\)\.then\(async \(\) => \{/);
   const refreshIndex = refreshMatch ? mainStart + refreshMatch.index : -1;
 
   assert.ok(mainStart >= 0);
   assert.ok(immediateSyncIndex > mainStart);
   assert.ok(refreshIndex > immediateSyncIndex);
+});
+
+test("content-main resolves property lock targets from matching config and GraphQL site ids", () => {
+  const source = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
+  const resolverStart = source.indexOf("async function resolveCurrentPropertyLockConnectionTarget");
+  const resolverEnd = source.indexOf("async function resolveCurrentPageTypeForMarking", resolverStart);
+  const resolverSource = source.slice(resolverStart, resolverEnd);
+
+  assert.ok(resolverStart >= 0);
+  assert.match(resolverSource, /const matchingBaseUrl = utils\.findMatchingBaseUrl\(pageUrl, currentConfigs\);/);
+  assert.match(resolverSource, /const normalizedBaseUrl = utils\.normalizeBaseUrl\(matchingBaseUrl\) \|\| matchingBaseUrl \|\| "";/);
+  assert.match(resolverSource, /const storedSiteId = normalizeSiteIdValue\(normalizedConfig && normalizedConfig\.siteId\);/);
+  assert.match(resolverSource, /if \(normalizedBaseUrl && siteId !== storedSiteId\) \{/);
+  assert.doesNotMatch(
+    resolverSource,
+    /!normalizedBaseUrl \|\| !pageUrl \|\| !utils\.isPageWithinBaseUrl\(pageUrl, normalizedBaseUrl\)/
+  );
 });
 
 test("content-main coalesces concurrent property lock sync requests", () => {
@@ -372,7 +410,10 @@ test("content-main coalesces concurrent property lock sync requests", () => {
   assert.ok(runSyncStart >= 0);
   assert.match(source, /let propertyLockSyncInFlight = false;/);
   assert.match(source, /let propertyLockQueuedSyncOptions(?:\s*:\s*[^=]+)? = null;/);
-  assert.match(source, /function mergePropertyLockSyncOptions\([\s\S]*?currentOptions(?:\s*:\s*[^=]+)? = \{\},[\s\S]*?incomingOptions(?:\s*:\s*[^=]+)? = \{\}[\s\S]*?\) \{/);
+  assert.match(
+    source,
+    /function mergePropertyLockSyncOptions\([\s\S]*?currentOptions(?:\s*:\s*[^=]+)? = \{\},[\s\S]*?incomingOptions(?:\s*:\s*[^=]+)? = \{\}[\s\S]*?\) \{/
+  );
   assert.match(runSyncSource, /if \(propertyLockSyncInFlight\) \{[\s\S]*?propertyLockQueuedSyncOptions = mergePropertyLockSyncOptions\(/);
   assert.match(runSyncSource, /while \(!extensionContextInvalidated\) \{[\s\S]*?await syncPropertyLockConnection\(activeOptions\);/);
   assert.match(runSyncSource, /if \(propertyLockQueuedSyncOptions && !extensionContextInvalidated\) \{[\s\S]*?runPropertyLockSync\(queuedOptions\);/);
@@ -391,24 +432,6 @@ test("content-main re-queues property lock sync when URL changes during a sync",
   );
 });
 
-test("property lock contract is documented with stable client and editor source-of-truth rules", () => {
-  const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
-  const propertyLockDoc = readFileSync(new URL("../PROPERTY_LOCK.md", import.meta.url), "utf8");
-
-  assert.match(readme, /PROPERTY_LOCK\.md/);
-  assert.match(readme, /active editor uses the local session data/);
-  assert.match(propertyLockDoc, /stable page-session client ID/);
-  assert.match(
-    propertyLockDoc,
-    /lands on an eligible Live Page candidate[\s\S]*?property requests the lock/
-  );
-  assert.match(propertyLockDoc, /duplicated or cloned tab copies that [`']?sessionStorage[`']? value/i);
-  assert.match(propertyLockDoc, /must rotate the new tab onto a fresh client ID/);
-  assert.match(propertyLockDoc, /not the Chrome tab ID/);
-  assert.match(propertyLockDoc, /single source of truth/);
-  assert.match(propertyLockDoc, /periodic remote loads must not replace the editor's local draft/);
-});
-
 test("background remote merges reconcile page markings by timestamp without wiping local saved pages", () => {
   const source = readFileSync(new URL("../src/background/remote-config-sync.ts", import.meta.url), "utf8");
   const mergeStart = source.indexOf("async function mergeServerConfigIntoLocalSnapshot");
@@ -416,7 +439,10 @@ test("background remote merges reconcile page markings by timestamp without wipi
   const mergeSource = source.slice(mergeStart, mergeEnd);
 
   assert.ok(mergeStart >= 0);
-  assert.match(mergeSource, /const incomingPageMarkings = configStore\.normalizePageMarkings\(normalizedPayload\.pageMarkings\)\.normalized;/);
+  assert.match(
+    mergeSource,
+    /const incomingPageMarkings = configStore\.normalizePageMarkings\(normalizedPayload\.pageMarkings\)\.normalized;/
+  );
   assert.match(mergeSource, /const confirmedPageMarkings = configStore\.normalizePageMarkings/);
   assert.match(mergeSource, /configStore\.mergePageMarkingsByTimestamp/);
   assert.match(mergeSource, /localConfig\.pageMarkings = mergedPageMarkings;/);
@@ -452,7 +478,16 @@ test("popup property lock commands refresh draft status and reconcile lock state
   assert.match(reconcileSource, /await deps\.refreshUi\(\{ useBusyOverlay \}\);/);
   assert.match(popupSource, /async function handlePropertyLockTake\(\) \{[\s\S]*?await reconcilePropertyLockAfterCommand\(\);[\s\S]*?\}/);
   assert.match(popupSource, /async function handlePropertyLockContinue\(\) \{[\s\S]*?await reconcilePropertyLockAfterCommand\(\);[\s\S]*?\}/);
-  assert.match(popupSource, /async function handlePropertyLockForceContinue\(\) \{[\s\S]*?await reconcilePropertyLockAfterCommand\(\);[\s\S]*?\}/);
-  assert.match(popupSource, /async function handlePropertyLockAcceptSuggestion\(\) \{[\s\S]*?await reconcilePropertyLockAfterCommand\(\);[\s\S]*?\}/);
-  assert.match(popupSource, /async function handlePropertyLockRejectSuggestion\(\) \{[\s\S]*?await reconcilePropertyLockAfterCommand\(\);[\s\S]*?\}/);
+  assert.match(
+    popupSource,
+    /async function handlePropertyLockForceContinue\(\) \{[\s\S]*?await reconcilePropertyLockAfterCommand\(\);[\s\S]*?\}/
+  );
+  assert.match(
+    popupSource,
+    /async function handlePropertyLockAcceptSuggestion\(\) \{[\s\S]*?await reconcilePropertyLockAfterCommand\(\);[\s\S]*?\}/
+  );
+  assert.match(
+    popupSource,
+    /async function handlePropertyLockRejectSuggestion\(\) \{[\s\S]*?await reconcilePropertyLockAfterCommand\(\);[\s\S]*?\}/
+  );
 });

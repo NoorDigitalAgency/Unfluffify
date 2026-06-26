@@ -18,14 +18,17 @@ background/content/popup seams, the following batch trimmed
 keeping the unique contracts around manual enable rollback, consent observer
 rescans, editor-reveal gating, queued explicit-toggle draining, stale async
 reconcile aborts, cache-key invalidation, settle renders, and inspection
-scroll-end settling, and the latest batch slimmed
-`popup-marking-refresh`, `selector-suppression`,
-`content-high-risk-branches`, and `page-motion-bridge-isolation` to focused
-popup/property-lock/live-page/page-motion contracts while restoring the
-review-identified guard, transport, and UI-wiring checks. That batch also fixed
-the coupled popup live-page token boundary so `fetchPropertyPageTypesFromGraphql`
-keeps auth handling in the background layer. The next active execution step is
-the remaining smaller Phase B popup/content holdouts before the TS port.
+scroll-end settling, the next batch slimmed `popup-marking-refresh`,
+`selector-suppression`, `content-high-risk-branches`, and
+`page-motion-bridge-isolation` to focused popup/property-lock/live-page/
+page-motion contracts while restoring the review-identified guard, transport,
+and UI-wiring checks, and the latest batch trimmed `property-lock`,
+`popup-mode-sync`, `popup-background-snapshot`, `popup-authority-boundary`,
+`background-render-mode-inspection`, and `property-lock-render-mode` to lean
+property-lock/render-mode/popup contracts while restoring the review-identified
+reconnect, retarget, preserve-enabled, and popup-authority boundary checks. The
+next active execution step is the remaining smaller Phase B popup/content
+holdouts before the TS port.
 
 ## 1. Goal
 
@@ -64,14 +67,16 @@ all with `pnpm verify` green and the live popup behavior unchanged.
 - Many ui/popup/core tests still read source as text (grep or extract+eval) and
   break under the JSX port, but the biggest Phase B holdouts have now been
   reduced. `popup-marking-refresh`, `selector-suppression`,
-  `content-high-risk-branches`, and `page-motion-bridge-isolation` now keep
-  only focused popup/property-lock/live-page/page-motion contracts. The earlier
-  mixed/source-grep `content-activation-order`, `core-scheduling`,
-  `core-motion-pause`, `background-marking-activation`, `preview-tooltip`,
-  `popup-ai-run-gating`, `bus-boundary`, `device-emulation-lifecycle`,
-  `feature-flags`, `lifecycle-broker`, `popup-render-mode`, and
-  `world-trace-contract` files already keep only lean runtime or narrow
-  contract coverage.
+  `content-high-risk-branches`, `page-motion-bridge-isolation`,
+  `property-lock`, `popup-mode-sync`, `popup-background-snapshot`,
+  `popup-authority-boundary`, `background-render-mode-inspection`, and
+  `property-lock-render-mode` now keep only focused popup/property-lock/
+  live-page/render-mode/page-motion contracts. The earlier mixed/source-grep
+  `content-activation-order`, `core-scheduling`, `core-motion-pause`,
+  `background-marking-activation`, `preview-tooltip`, `popup-ai-run-gating`,
+  `bus-boundary`, `device-emulation-lifecycle`, `feature-flags`,
+  `lifecycle-broker`, `popup-render-mode`, and `world-trace-contract` files
+  already keep only lean runtime or narrow contract coverage.
 - `logo.png` (1.1 MB) is at repo root, referenced once in
   `src/popup/ui.ts:1898` as `<img src="logo.png">`, but is NOT in `src/public/`
   and NOT emitted to `.output/chrome-mv3/`; `scripts/package-extension.mjs`

@@ -4,29 +4,30 @@ import { readFileSync, readdirSync } from "./file-kit.ts";
 import { path } from "./file-kit.ts";
 import { fileURLToPath } from "./file-kit.ts";
 
-function collectJsFiles(dir) {
+function collectPopupSourceFiles(dir) {
   const entries = readdirSync(dir, { withFileTypes: true });
   const files = [];
   for (const entry of entries) {
     const fullPath = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      files.push(...collectJsFiles(fullPath));
+      files.push(...collectPopupSourceFiles(fullPath));
       continue;
     }
-    if (entry.isFile() && entry.name.endsWith(".js")) {
+    if (entry.isFile() && /\.(?:js|ts|tsx)$/.test(entry.name) && !entry.name.endsWith(".d.ts")) {
       files.push(fullPath);
     }
   }
   return files;
 }
 
-test("popup files do not call chrome.tabs.sendMessage directly", () => {
+test("popup source files do not call chrome or browser tab sendMessage directly", () => {
   const popupDir = fileURLToPath(new URL("../src/popup", import.meta.url));
-  const popupFiles = collectJsFiles(popupDir);
+  const popupFiles = collectPopupSourceFiles(popupDir);
 
   for (const popupFile of popupFiles) {
     const source = readFileSync(popupFile, "utf8");
     assert.doesNotMatch(source, /chrome\.tabs\.sendMessage\(/, popupFile);
+    assert.doesNotMatch(source, /browser\.tabs\.sendMessage\(/, popupFile);
   }
 });
 
