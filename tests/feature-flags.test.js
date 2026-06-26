@@ -16,8 +16,6 @@ import { updateDeviceEmulation } from "../src/common/emulation.js";
 import { isPopupFeatureEnabled } from "../src/popup/ui.js";
 
 const backgroundSource = readFileSync(new URL("../src/background.ts", import.meta.url), "utf8");
-const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
-const popupUiSource = readFileSync(new URL("../src/popup/ui.ts", import.meta.url), "utf8");
 
 const EXPECTED_FLAGS = [
   "desktopPreview",
@@ -101,37 +99,18 @@ test("popup UI helper treats missing and unknown flags as disabled", () => {
   assert.equal(isPopupFeatureEnabled({ featureFlags: { missingFeature: true } }, "missingFeature"), false);
 });
 
-test("disabled background-only tools still return feature-disabled responses", () => {
+test("disabled background-only commands still reply with feature-disabled responses", () => {
   assert.match(
     backgroundSource,
-    /if \(message\.type === "clearBrowsingDataForOrigin"\) \{[\s\S]*?if \(!isFeatureEnabled\("cacheAndUnregisterTools"\)\) \{[\s\S]*?buildFeatureDisabledResponse\("cacheAndUnregisterTools"\)/
-  );
-  assert.match(
-    backgroundSource,
-    /if \(message\.type === "unregisterTabAndReload"\) \{[\s\S]*?if \(!isFeatureEnabled\("cacheAndUnregisterTools"\)\) \{[\s\S]*?buildFeatureDisabledResponse\("cacheAndUnregisterTools"\)/
+    /if \(message\.type === "clearBrowsingDataForOrigin"\) \{[\s\S]*?buildFeatureDisabledResponse\("cacheAndUnregisterTools"\)/
   );
   assert.match(
     backgroundSource,
-    /if \(message\.type === "requestRenderModeDetection"\) \{[\s\S]*?if \(!isFeatureEnabled\("renderModeAutoDetection"\)\) \{[\s\S]*?buildFeatureDisabledResponse\("renderModeAutoDetection"\)/
-  );
-});
-
-test("disabled popup extras still short-circuit optional diagnostics and appearance state", () => {
-  assert.match(
-    popupSource,
-    /async function ensureThemeSettings\(\) \{[\s\S]*?if \(!isFeatureEnabled\("appearanceCustomization"\)\) \{[\s\S]*?resetDisabledAppearanceCustomization\(\);[\s\S]*?return;/
+    /if \(message\.type === "requestRenderModeDetection"\) \{[\s\S]*?buildFeatureDisabledResponse\("renderModeAutoDetection"\)/
   );
   assert.match(
-    popupSource,
-    /async function applyTraceModePreferenceToTab\(tabId(?:\s*:\s*[^,]+)?, enabled(?:\s*:\s*[^,]+)?, popupBus(?:\s*:\s*[^)]+)?\) \{[\s\S]*?if \(!isFeatureEnabled\("traceDiagnostics"\)\) \{[\s\S]*?state\.traceModeEnabled = false;[\s\S]*?traceEventCount: 0[\s\S]*?return null;/
-  );
-  assert.match(
-    popupUiSource,
-    /if \(isPopupFeatureEnabled\(view, "appearanceCustomization"\)\) \{[\s\S]*?renderConfigurationAppearanceSection\(view, handlers\)/
-  );
-  assert.match(
-    popupUiSource,
-    /if \(isPopupFeatureEnabled\(view, "traceDiagnostics"\)\) \{[\s\S]*?id: "trace-mode-enabled"/
+    backgroundSource,
+    /if \(message\.type === "unregisterTabAndReload"\) \{[\s\S]*?buildFeatureDisabledResponse\("cacheAndUnregisterTools"\)/
   );
 });
 

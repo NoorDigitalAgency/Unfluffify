@@ -27,8 +27,13 @@ and UI-wiring checks, and the latest batch trimmed `property-lock`,
 `background-render-mode-inspection`, and `property-lock-render-mode` to lean
 property-lock/render-mode/popup contracts while restoring the review-identified
 reconnect, retarget, preserve-enabled, and popup-authority boundary checks. The
-next active execution step is the remaining smaller Phase B popup/content
-holdouts before the TS port.
+newest batch then trimmed `preview-tooltip`, `feature-flags`,
+`background-remote-network`, and `background-command-hardening` by deleting
+duplicated preview runtime coverage, dropping redundant flag/network shape
+assertions, and keeping only the unique preview-restore, disabled-command,
+payload-transfer, and background-ledger contracts. The next active execution
+step is the remaining smaller Phase B popup/content holdouts before the TS
+port.
 
 ## 1. Goal
 
@@ -71,12 +76,15 @@ all with `pnpm verify` green and the live popup behavior unchanged.
   `property-lock`, `popup-mode-sync`, `popup-background-snapshot`,
   `popup-authority-boundary`, `background-render-mode-inspection`, and
   `property-lock-render-mode` now keep only focused popup/property-lock/
-  live-page/render-mode/page-motion contracts. The earlier mixed/source-grep
-  `content-activation-order`, `core-scheduling`, `core-motion-pause`,
-  `background-marking-activation`, `preview-tooltip`, `popup-ai-run-gating`,
-  `bus-boundary`, `device-emulation-lifecycle`, `feature-flags`,
-  `lifecycle-broker`, `popup-render-mode`, and `world-trace-contract` files
-  already keep only lean runtime or narrow contract coverage.
+  live-page/render-mode/page-motion contracts. `preview-tooltip`,
+  `feature-flags`, `background-remote-network`, and
+  `background-command-hardening` have now also been reduced to their remaining
+  unique preview, flag-gate, transfer-payload, and ledger contracts. The
+  earlier mixed/source-grep `content-activation-order`, `core-scheduling`,
+  `core-motion-pause`, `background-marking-activation`, `popup-ai-run-gating`,
+  `bus-boundary`, `device-emulation-lifecycle`, `lifecycle-broker`,
+  `popup-render-mode`, and `world-trace-contract` files already keep only lean
+  runtime or narrow contract coverage.
 - `logo.png` (1.1 MB) is at repo root, referenced once in
   `src/popup/ui.ts:1898` as `<img src="logo.png">`, but is NOT in `src/public/`
   and NOT emitted to `.output/chrome-mv3/`; `scripts/package-extension.mjs`
