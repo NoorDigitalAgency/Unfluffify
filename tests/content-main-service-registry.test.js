@@ -72,10 +72,5 @@ test("content-main sources the registry and keeps mutable truth clusters inline"
   const source = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
 
   assert.match(source, /from "\.\/content\/content-main-service-registry\.js"/);
-  assert.doesNotMatch(source, /let pageToastClient = null;/);
-  assert.doesNotMatch(source, /let configUpdatedHandler = null;/);
-
-  assert.match(source, /let aiPreviewState = createAiPreviewState\(\);/);
-  assert.match(source, /let propertyLockConnectedSiteId(?:\s*:\s*[^=]+)? = null;/);
-  assert.match(source, /let silentHighlightEditorActivationPromise(?:\s*:\s*[^=]+)? = null;/);
+  assert.match(source, /const contentMainServiceRegistry = createContentMainServiceRegistry\(/);
 });

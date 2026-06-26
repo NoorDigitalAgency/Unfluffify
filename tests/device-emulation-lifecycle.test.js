@@ -283,7 +283,7 @@ test("clearDeviceEmulationAfterNavigation preserves the stored disabled choice",
   });
 });
 
-test("background bootstrap and unregister flows keep device-state ownership explicit", () => {
+test("background routes device-emulation lifecycle transitions through shared helpers", () => {
   assert.match(
     backgroundSource,
     /await utils\.setTabState\(normalizedTabId, \{ active: true \}, "initial"\);[\s\S]*?const mobileState = await ensureDefaultMobileEmulationForTab\(normalizedTabId, tabUrl\);/
@@ -292,9 +292,6 @@ test("background bootstrap and unregister flows keep device-state ownership expl
     backgroundSource,
     /if \(message\.type === "unregisterTabAndReload"\) \{[\s\S]*?await utils\.disableExtensionForTab\(tabId\);[\s\S]*?await clearTrackedTabSessionState\(tabId\);/
   );
-});
-
-test("background navigation and debugger teardown still route through shared emulation helpers", () => {
   assert.match(
     backgroundSource,
     /browser\.webNavigation\.onCompleted\.addListener\(async \(details\) => \{[\s\S]*?await clearDeviceEmulationAfterNavigation\(tabId\);/

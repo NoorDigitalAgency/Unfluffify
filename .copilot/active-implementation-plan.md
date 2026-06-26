@@ -6,8 +6,8 @@ Status: active. This is the single active handoff plan. `.copilot/plan.md` is th
 durable architecture index and `.copilot/knowledge.md` is durable knowledge; all
 other historical `.copilot` plan/progress docs were removed.
 
-Progress checkpoint: Phase A and Phase F are complete and pushed. Phase B is in
-progress: the first batch removed the pure decomposition/code-shape tests, the
+Progress checkpoint: Phase A and Phase F are complete and pushed. Phase B is
+complete: the first batch removed the pure decomposition/code-shape tests, the
 second batch trimmed the mixed/source-grep bus, feature-flag, lifecycle,
 device-emulation, render-mode, and world-trace files down to lean runtime plus
 narrow contract coverage, the next batch converted
@@ -31,9 +31,11 @@ newest batch then trimmed `preview-tooltip`, `feature-flags`,
 `background-remote-network`, and `background-command-hardening` by deleting
 duplicated preview runtime coverage, dropping redundant flag/network shape
 assertions, and keeping only the unique preview-restore, disabled-command,
-payload-transfer, and background-ledger contracts. The next active execution
-step is the remaining smaller Phase B popup/content holdouts before the TS
-port.
+payload-transfer, and background-ledger contracts. The closeout batch then
+reduced the remaining source-grep holdouts in `page-save-state`,
+`content-main-service-registry`, and `device-emulation-lifecycle` to their
+final narrow behavior/helper-routing contracts. The next active execution step
+is Phase C: port the surviving `.test.js` files to `.test.ts`.
 
 ## 1. Goal
 
@@ -80,9 +82,11 @@ all with `pnpm verify` green and the live popup behavior unchanged.
   `feature-flags`, `background-remote-network`, and
   `background-command-hardening` have now also been reduced to their remaining
   unique preview, flag-gate, transfer-payload, and ledger contracts. The
-  earlier mixed/source-grep `content-activation-order`, `core-scheduling`,
-  `core-motion-pause`, `background-marking-activation`, `popup-ai-run-gating`,
-  `bus-boundary`, `device-emulation-lifecycle`, `lifecycle-broker`,
+  final small holdouts `page-save-state`, `content-main-service-registry`, and
+  `device-emulation-lifecycle` now keep only behavior-first or narrow ownership
+  contracts. The earlier mixed/source-grep `content-activation-order`,
+  `core-scheduling`, `core-motion-pause`, `background-marking-activation`,
+  `popup-ai-run-gating`, `bus-boundary`, `lifecycle-broker`,
   `popup-render-mode`, and `world-trace-contract` files already keep only lean
   runtime or narrow contract coverage.
 - `logo.png` (1.1 MB) is at repo root, referenced once in

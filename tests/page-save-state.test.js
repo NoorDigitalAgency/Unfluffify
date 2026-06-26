@@ -1,6 +1,5 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
-import { readFileSync } from "./file-kit.ts";
 
 import {
   NON_BLOCKING_PAGE_SAVE_RECONCILIATION_REASONS,
@@ -47,11 +46,7 @@ test("keeps pending reconciliation messaging without blocking save and discard",
   assert.equal(state.aiDirtyNoticeText, PopupText.page.statusServerSyncPending);
 });
 
-test("page-save UI and config share the non-blocking reconciliation reasons", () => {
-  const pageSaveStateSource = readFileSync(new URL("../src/common/page-save-state.ts", import.meta.url), "utf8");
-
-  assert.match(pageSaveStateSource, /import \{ NON_BLOCKING_PAGE_SAVE_RECONCILIATION_REASONS \} from "\.\/config\.js";/);
-  assert.doesNotMatch(pageSaveStateSource, /\[\s*""[\s\S]*?"load_failed"[\s\S]*?\]\.includes/);
+test("page-save UI keeps the shared non-blocking reconciliation reasons non-blocking", () => {
   for (const reason of NON_BLOCKING_PAGE_SAVE_RECONCILIATION_REASONS) {
     const reconciliation = {
       status: "pending",
