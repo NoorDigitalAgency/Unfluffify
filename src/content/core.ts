@@ -319,6 +319,65 @@ interface LazyLoadingSuppressionRestorer {
   lazyLoadingSuppressionApplied?: Promise<unknown>;
 }
 
+interface PageMotionLockState {
+  hadInlineValue: boolean;
+  previousValue: string;
+  previousPriority: string;
+  lockValue: string;
+}
+
+interface PageMotionLockRecord {
+  id: string;
+  element: Element & { style: CSSStyleDeclaration };
+  hadStyleAttribute: boolean;
+  properties: Map<string, PageMotionLockState>;
+}
+
+interface PageMotionCandidate {
+  descriptorMatched: boolean;
+  inlineMotion: boolean;
+  computedStyle: CSSStyleDeclaration | null;
+}
+
+interface SvgAnimationState {
+  wasPaused: boolean;
+}
+
+interface MediaPauseState {
+  wasPaused: boolean;
+}
+
+interface SvgAnimationElement extends SVGElement {
+  pauseAnimations(): void;
+  unpauseAnimations(): void;
+  animationsPaused?(): boolean;
+}
+
+type MotionHoverEvent = [string, boolean];
+
+interface PageMotionPauseState {
+  reasons: Set<string>;
+  animations: Set<Animation>;
+  hoverTargets: Set<Element>;
+  mediaElements: Map<HTMLMediaElement, MediaPauseState>;
+  svgElements: Map<SvgAnimationElement, SvgAnimationState>;
+  lockedElements: Map<Element, PageMotionLockRecord>;
+  lockedElementsById: Map<string, PageMotionLockRecord>;
+  lockIdCounter: number;
+  refreshTimer: number;
+  refreshScheduled: boolean;
+  observer: MutationObserver | null;
+}
+
+interface DocumentWithSubtreeAnimations extends Document {
+  getAnimations(): Animation[];
+  getAnimations(options: { subtree: boolean }): Animation[];
+}
+
+interface AnimationEffectWithTarget extends AnimationEffect {
+  target?: EventTarget | null;
+}
+
 interface DefaultHighlightFrame {
   node: Element;
   index: number;
@@ -384,6 +443,22 @@ function isStylableElement(node: Element): node is Element & { style: CSSStyleDe
   return "style" in node &&
     Boolean((node as { style?: CSSStyleDeclaration | null }).style) &&
     typeof (node as { style?: CSSStyleDeclaration | null }).style?.setProperty === "function";
+}
+
+function isSvgAnimationElement(node: Element): node is SvgAnimationElement {
+  return (
+    (typeof SVGElement === "function" ? node instanceof SVGElement : node.tagName.toLowerCase() === "svg")
+    && typeof (node as Partial<SvgAnimationElement>).pauseAnimations === "function"
+  );
+}
+
+function isMediaElement(node: Element): node is HTMLMediaElement {
+  return (
+    (typeof HTMLMediaElement === "function"
+      ? node instanceof HTMLMediaElement
+      : node.tagName.toLowerCase() === "video" || node.tagName.toLowerCase() === "audio")
+    && typeof (node as Partial<HTMLMediaElement>).pause === "function"
+  );
 }
 
 function isXpathEntry(value: unknown): value is XpathEntry {
@@ -483,7 +558,7 @@ export const state = {
   explicitOverlayRefreshHandleType: "",
   explicitOverlayRefreshEntry: null as PageMarkingEntry | null,
   explicitOverlayRefreshContext: null as ExplicitOverlayRefreshContext | null,
-  pageMotionPause: null,
+  pageMotionPause: null as PageMotionPauseState | null,
   pageRevealWarmupId: 0,
   lazyLoadSuppressRestorer: null as LazyLoadingSuppressionRestorer | null,
   perfEnabled: null as boolean | null
@@ -4209,15 +4284,15 @@ export function createSanitizedPageSnapshot(options: SnapshotOptions = {}): Snap
   };
 }
 
-function createPageMotionPauseState() {
+function createPageMotionPauseState(): PageMotionPauseState {
   return {
-    reasons: new Set(),
-    animations: new Set(),
-    hoverTargets: new Set(),
-    mediaElements: new Map(),
-    svgElements: new Map(),
-    lockedElements: new Map(),
-    lockedElementsById: new Map(),
+    reasons: new Set<string>(),
+    animations: new Set<Animation>(),
+    hoverTargets: new Set<Element>(),
+    mediaElements: new Map<HTMLMediaElement, MediaPauseState>(),
+    svgElements: new Map<SvgAnimationElement, SvgAnimationState>(),
+    lockedElements: new Map<Element, PageMotionLockRecord>(),
+    lockedElementsById: new Map<string, PageMotionLockRecord>(),
     lockIdCounter: 1,
     refreshTimer: 0,
     refreshScheduled: false,
@@ -5141,8 +5216,7 @@ function ensurePageMotionPauseIndicator() {
   return indicator;
 }
 
-// @ts-expect-error
-function setPageMotionPauseClass(paused) {
+function setPageMotionPauseClass(paused: unknown): void {
   const root = typeof document !== "undefined" ? document.documentElement : null;
   if (!root || !root.classList) {
     return;
@@ -5154,8 +5228,11 @@ function setPageMotionPauseClass(paused) {
   }
 }
 
-// @ts-expect-error
-function setElementClassPresence(element, className, enabled) {
+function setElementClassPresence(
+  element: Element | null | undefined,
+  className: string,
+  enabled: unknown
+): void {
   if (!element || !element.classList) {
     return;
   }
@@ -5266,8 +5343,7 @@ function sendPageMotionFreezeControlThroughBackground(
   }
 }
 
-// @ts-expect-error
-function setPageMotionFreezeTimersPaused(paused) {
+function setPageMotionFreezeTimersPaused(paused: unknown): void {
   const shouldPause = Boolean(paused);
   if (pageMotionFreezeTimersPaused === shouldPause) {
     return;
@@ -5279,8 +5355,7 @@ function setPageMotionFreezeTimersPaused(paused) {
   );
 }
 
-// @ts-expect-error
-function setPageMotionFreezeLazyLoadingSuppressed(suppressed) {
+function setPageMotionFreezeLazyLoadingSuppressed(suppressed: unknown): Promise<unknown> {
   const shouldSuppress = Boolean(suppressed);
   if (pageMotionFreezeLazyLoadingSuppressed === shouldSuppress) {
     return Promise.resolve();
@@ -5306,13 +5381,12 @@ function restorePageInspectionLazyLoadingSuppression() {
   setPageMotionFreezeLazyLoadingSuppressed(false);
 }
 
-function getDocumentAnimations() {
+function getDocumentAnimations(): Animation[] {
   if (typeof document === "undefined" || typeof document.getAnimations !== "function") {
     return [];
   }
   try {
-// @ts-expect-error
-    return Array.from(document.getAnimations({ subtree: true }) || []);
+    return Array.from((document as DocumentWithSubtreeAnimations).getAnimations({ subtree: true }) || []);
   } catch (error) {
     try {
       return Array.from(document.getAnimations() || []);
@@ -5361,8 +5435,7 @@ function resumeDocumentAnimations(pauseState) {
   }
 }
 
-// @ts-expect-error
-function createSyntheticPageMotionEvent(type, bubbles) {
+function createSyntheticPageMotionEvent(type: string, bubbles: boolean): Event | null {
   const eventOptions = {
     bubbles: Boolean(bubbles),
     cancelable: true,
@@ -5390,8 +5463,7 @@ function createSyntheticPageMotionEvent(type, bubbles) {
   }
 }
 
-// @ts-expect-error
-function dispatchPageMotionEvents(target, events) {
+function dispatchPageMotionEvents(target: Element, events: MotionHoverEvent[]): void {
   if (!target || typeof target.dispatchEvent !== "function") {
     return;
   }
@@ -5408,8 +5480,7 @@ function dispatchPageMotionEvents(target, events) {
   }
 }
 
-// @ts-expect-error
-function isIgnoredPageMotionElement(element) {
+function isIgnoredPageMotionElement(element: Element | null | undefined): boolean {
   if (!element || element.nodeType !== 1) {
     return true;
   }
@@ -5432,9 +5503,8 @@ function isIgnoredPageMotionElement(element) {
   return false;
 }
 
-// @ts-expect-error
-function getComputedCssStyle(element) {
-  if (typeof window === "undefined" || typeof window.getComputedStyle !== "function") {
+function getComputedCssStyle(element: Element | null | undefined): CSSStyleDeclaration | null {
+  if (!element || typeof window === "undefined" || typeof window.getComputedStyle !== "function") {
     return null;
   }
   try {
@@ -5448,19 +5518,20 @@ function toStylePropertyName(property: string): string {
   return String(property || "").replace(/-([a-z])/g, (match, letter) => letter.toUpperCase());
 }
 
-// @ts-expect-error
-function getComputedCssValue(computedStyle, property) {
+function getComputedCssValue(
+  computedStyle: CSSStyleDeclaration | null | undefined,
+  property: string
+): string {
   if (!computedStyle || !property) {
     return "";
   }
   if (typeof computedStyle.getPropertyValue === "function") {
     return computedStyle.getPropertyValue(property) || "";
   }
-  return computedStyle[toStylePropertyName(property)] || "";
+  return (computedStyle as CSSStyleDeclaration & Record<string, string>)[toStylePropertyName(property)] || "";
 }
 
-// @ts-expect-error
-function parseCssTimeMs(value) {
+function parseCssTimeMs(value: unknown): number {
   const normalized = String(value || "").trim().toLowerCase();
   if (!normalized) {
     return 0;
@@ -5472,15 +5543,13 @@ function parseCssTimeMs(value) {
   return normalized.endsWith("ms") ? amount : amount * 1000;
 }
 
-// @ts-expect-error
-function cssTimeListHasPositiveValue(value) {
+function cssTimeListHasPositiveValue(value: unknown): boolean {
   return String(value || "")
     .split(",")
     .some((part) => parseCssTimeMs(part) > 0);
 }
 
-// @ts-expect-error
-function cssNameListHasValue(value) {
+function cssNameListHasValue(value: unknown): boolean {
   return String(value || "")
     .split(",")
     .some((part) => {
@@ -5489,8 +5558,7 @@ function cssNameListHasValue(value) {
     });
 }
 
-// @ts-expect-error
-function isNonDefaultMotionCssValue(property, value) {
+function isNonDefaultMotionCssValue(property: string, value: unknown): boolean {
   const normalized = String(value || "").trim().toLowerCase();
   if (!normalized || normalized === "none" || normalized === "normal" || normalized === "auto") {
     return false;
@@ -5529,18 +5597,17 @@ function hasTimedMotionStyle(computedStyle) {
   );
 }
 
-// @ts-expect-error
-function getElementAttributePairs(element) {
+function getElementAttributePairs(
+  element: Element | null | undefined
+): Array<{ name: string; value: string }> {
   if (!element || !element.attributes) {
     return [];
   }
   try {
     return Array.from(element.attributes)
       .map((attribute) => ({
-// @ts-expect-error
-        name: attribute && typeof attribute.name === "string" ? attribute.name : "",
-// @ts-expect-error
-        value: attribute && typeof attribute.value === "string" ? attribute.value : ""
+        name: typeof attribute.name === "string" ? attribute.name : "",
+        value: typeof attribute.value === "string" ? attribute.value : ""
       }))
       .filter((attribute) => attribute.name);
   } catch (error) {
@@ -5548,9 +5615,8 @@ function getElementAttributePairs(element) {
   }
 }
 
-// @ts-expect-error
-function getElementMotionDescriptorText(element) {
-  const descriptorParts = [];
+function getElementMotionDescriptorText(element: Element | null | undefined): string {
+  const descriptorParts: string[] = [];
   for (const attribute of getElementAttributePairs(element)) {
     const name = attribute.name.toLowerCase();
     if (
@@ -5568,13 +5634,13 @@ function getElementMotionDescriptorText(element) {
   return descriptorParts.join(" ");
 }
 
-// @ts-expect-error
-function elementMatchesMotionDescriptor(element) {
+function elementMatchesMotionDescriptor(element: Element | null | undefined): boolean {
   return PAGE_MOTION_PAUSE_DESCRIPTOR_RE.test(getElementMotionDescriptorText(element));
 }
 
-// @ts-expect-error
-function elementOrAncestorMatchesRevealExcludedDescriptor(element) {
+function elementOrAncestorMatchesRevealExcludedDescriptor(
+  element: Element | null | undefined
+): boolean {
   let current = element;
   let depth = 0;
   while (current && current.nodeType === 1 && depth < 6) {
@@ -5587,30 +5653,26 @@ function elementOrAncestorMatchesRevealExcludedDescriptor(element) {
   return false;
 }
 
-// @ts-expect-error
-function elementHasRevealInteractionAttribute(element) {
+function elementHasRevealInteractionAttribute(element: Element | null | undefined): boolean {
   return getElementAttributePairs(element).some((attribute) =>
     PAGE_MOTION_REVEAL_INTERACTION_ATTRIBUTE_NAMES.has(attribute.name.toLowerCase())
   );
 }
 
-// @ts-expect-error
-function elementMatchesRevealDescriptor(element) {
+function elementMatchesRevealDescriptor(element: Element | null | undefined): boolean {
   const descriptorText = getElementMotionDescriptorText(element);
   return (PAGE_MOTION_REVEAL_DESCRIPTOR_RE.test(descriptorText) || elementHasRevealInteractionAttribute(element)) &&
     !elementOrAncestorMatchesRevealExcludedDescriptor(element);
 }
 
-// @ts-expect-error
-function elementHasInlineMotionStyle(element) {
+function elementHasInlineMotionStyle(element: Element | null | undefined): boolean {
   const styleText = element && typeof element.getAttribute === "function"
     ? element.getAttribute("style") || ""
     : "";
   return PAGE_MOTION_PAUSE_INLINE_STYLE_RE.test(styleText);
 }
 
-// @ts-expect-error
-function computedStyleIndicatesMotion(computedStyle) {
+function computedStyleIndicatesMotion(computedStyle: CSSStyleDeclaration | null | undefined): boolean {
   if (!computedStyle) {
     return false;
   }
@@ -5631,8 +5693,11 @@ function computedStyleIndicatesMotion(computedStyle) {
   );
 }
 
-// @ts-expect-error
-function mergePageMotionCandidate(candidates, element, options = {}) {
+function mergePageMotionCandidate(
+  candidates: Map<Element, PageMotionCandidate>,
+  element: Element,
+  options: Partial<PageMotionCandidate> = {}
+): void {
   if (isIgnoredPageMotionElement(element)) {
     return;
   }
@@ -5642,30 +5707,26 @@ function mergePageMotionCandidate(candidates, element, options = {}) {
     computedStyle: null
   };
   candidates.set(element, {
-// @ts-expect-error
     descriptorMatched: existing.descriptorMatched || Boolean(options.descriptorMatched),
-// @ts-expect-error
     inlineMotion: existing.inlineMotion || Boolean(options.inlineMotion),
-// @ts-expect-error
     computedStyle: existing.computedStyle || options.computedStyle || null
   });
 }
 
-// @ts-expect-error
-function getAnimationEffectTarget(animation) {
+function getAnimationEffectTarget(animation: Animation | null | undefined): Element | null {
   if (!animation || !animation.effect) {
     return null;
   }
   try {
-    const target = animation.effect.target;
-    return target && target.nodeType === 1 ? target : null;
+    const target = (animation.effect as AnimationEffectWithTarget).target;
+    return isElementNode(target) ? target : null;
   } catch (error) {
     return null;
   }
 }
 
-function collectPageMotionCandidates() {
-  const candidates = new Map();
+function collectPageMotionCandidates(): Map<Element, PageMotionCandidate> {
+  const candidates = new Map<Element, PageMotionCandidate>();
   for (const animation of getDocumentAnimations()) {
     const target = getAnimationEffectTarget(animation);
     if (target) {
@@ -5675,15 +5736,13 @@ function collectPageMotionCandidates() {
   if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
     return candidates;
   }
-// @ts-expect-error
-  let elements = [];
+  let elements: Element[] = [];
   try {
     elements = Array.from(document.querySelectorAll("*") || []);
   } catch (error) {
     elements = [];
   }
   const inspectComputedStyle = elements.length <= PAGE_MOTION_PAUSE_MAX_LOCKED_ELEMENTS * 3;
-// @ts-expect-error
   for (const element of elements) {
     if (isIgnoredPageMotionElement(element)) {
       continue;
@@ -5705,8 +5764,7 @@ function collectPageMotionCandidates() {
   return candidates;
 }
 
-// @ts-expect-error
-function getDefaultLockValue(property, computedValue) {
+function getDefaultLockValue(property: string, computedValue: unknown): string {
   const normalized = String(computedValue || "").trim();
   if (normalized) {
     return normalized;
@@ -5720,8 +5778,11 @@ function getDefaultLockValue(property, computedValue) {
   return "none";
 }
 
-// @ts-expect-error
-function shouldLockBaseMotionProperty(property, computedStyle, descriptorMatched) {
+function shouldLockBaseMotionProperty(
+  property: string,
+  computedStyle: CSSStyleDeclaration,
+  descriptorMatched: boolean
+): boolean {
   const value = getComputedCssValue(computedStyle, property);
   if (isNonDefaultMotionCssValue(property, value)) {
     return true;
@@ -5735,12 +5796,14 @@ function shouldLockBaseMotionProperty(property, computedStyle, descriptorMatched
   );
 }
 
-// @ts-expect-error
-function getPageMotionLockProperties(computedStyle, descriptorMatched) {
+function getPageMotionLockProperties(
+  computedStyle: CSSStyleDeclaration | null | undefined,
+  descriptorMatched: boolean
+): string[] {
   if (!computedStyle) {
     return [];
   }
-  const properties = [];
+  const properties: string[] = [];
   const timedMotionStyle = hasTimedMotionStyle(computedStyle);
   for (const property of PAGE_MOTION_PAUSE_BASE_LOCK_PROPERTIES) {
     if (shouldLockBaseMotionProperty(property, computedStyle, descriptorMatched || timedMotionStyle)) {
@@ -5759,15 +5822,17 @@ function getPageMotionLockProperties(computedStyle, descriptorMatched) {
   return properties;
 }
 
-// @ts-expect-error
-function createPageMotionLockRecord(pauseState, element) {
+function createPageMotionLockRecord(
+  pauseState: PageMotionPauseState,
+  element: Element & { style: CSSStyleDeclaration }
+): PageMotionLockRecord {
   const id = `ufm-${pauseState.lockIdCounter}`;
   pauseState.lockIdCounter += 1;
   const record = {
     id,
     element,
     hadStyleAttribute: typeof element.hasAttribute === "function" ? element.hasAttribute("style") : false,
-    properties: new Map()
+    properties: new Map<string, PageMotionLockState>()
   };
   pauseState.lockedElements.set(element, record);
   pauseState.lockedElementsById.set(id, record);
@@ -5777,8 +5842,12 @@ function createPageMotionLockRecord(pauseState, element) {
   return record;
 }
 
-// @ts-expect-error
-function applyPageMotionLockProperty(record, element, property, lockValue) {
+function applyPageMotionLockProperty(
+  record: PageMotionLockRecord,
+  element: Element & { style: CSSStyleDeclaration },
+  property: string,
+  lockValue: string
+): void {
   let lock = record.properties.get(property);
   if (!lock) {
     const previousValue = typeof element.style.getPropertyValue === "function"
@@ -5812,14 +5881,12 @@ function applyPageMotionLockProperty(record, element, property, lockValue) {
   }
 }
 
-// @ts-expect-error
-function parseCssNumber(value) {
+function parseCssNumber(value: unknown): number | null {
   const parsed = Number.parseFloat(String(value || "").trim());
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-// @ts-expect-error
-function elementHasMotionLayoutBox(element) {
+function elementHasMotionLayoutBox(element: Element | null | undefined): boolean {
   if (!element || element.nodeType !== 1) {
     return false;
   }
@@ -5827,7 +5894,6 @@ function elementHasMotionLayoutBox(element) {
     if (typeof element.getClientRects === "function") {
       const rects = Array.from(element.getClientRects() || []);
       if (rects.length > 0) {
-// @ts-expect-error
         return rects.some((rect) => Number(rect.width) > 1 && Number(rect.height) > 1);
       }
     }
@@ -5841,12 +5907,14 @@ function elementHasMotionLayoutBox(element) {
   return true;
 }
 
-// @ts-expect-error
-function isSemanticallyHiddenForReveal(element, computedStyle) {
+function isSemanticallyHiddenForReveal(
+  element: Element | null | undefined,
+  computedStyle: CSSStyleDeclaration | null | undefined
+): boolean {
   if (!element || element.nodeType !== 1) {
     return true;
   }
-  if (element.hidden || (typeof element.hasAttribute === "function" && element.hasAttribute("hidden"))) {
+  if ((hasHiddenProperty(element) && element.hidden) || (typeof element.hasAttribute === "function" && element.hasAttribute("hidden"))) {
     return true;
   }
   if (typeof element.getAttribute === "function" && element.getAttribute("aria-hidden") === "true") {
@@ -5856,12 +5924,13 @@ function isSemanticallyHiddenForReveal(element, computedStyle) {
   return display === "none";
 }
 
-// @ts-expect-error
-function getPageMotionRevealNormalizationProperties(computedStyle) {
+function getPageMotionRevealNormalizationProperties(
+  computedStyle: CSSStyleDeclaration | null | undefined
+): Array<[string, string]> {
   if (!computedStyle) {
     return [];
   }
-  const properties = [];
+  const properties: Array<[string, string]> = [];
   const opacity = parseCssNumber(getComputedCssValue(computedStyle, "opacity"));
   const visibility = getComputedCssValue(computedStyle, "visibility").trim().toLowerCase();
   const clipPath = getComputedCssValue(computedStyle, "clip-path");
@@ -5894,8 +5963,11 @@ function getPageMotionRevealNormalizationProperties(computedStyle) {
   return properties;
 }
 
-// @ts-expect-error
-function shouldNormalizePageMotionRevealCandidate(element, candidate, computedStyle) {
+function shouldNormalizePageMotionRevealCandidate(
+  element: Element,
+  candidate: PageMotionCandidate | null | undefined,
+  computedStyle: CSSStyleDeclaration | null | undefined
+): boolean {
   if (!elementMatchesRevealDescriptor(element)) {
     return false;
   }
@@ -5908,8 +5980,11 @@ function shouldNormalizePageMotionRevealCandidate(element, candidate, computedSt
   return getPageMotionRevealNormalizationProperties(computedStyle).length > 0;
 }
 
-// @ts-expect-error
-function normalizePageMotionRevealElement(pauseState, element, computedStyle) {
+function normalizePageMotionRevealElement(
+  pauseState: PageMotionPauseState,
+  element: Element & { style: CSSStyleDeclaration },
+  computedStyle: CSSStyleDeclaration | null | undefined
+): boolean {
   const properties = getPageMotionRevealNormalizationProperties(computedStyle);
   if (!properties.length) {
     return false;
@@ -5921,9 +5996,12 @@ function normalizePageMotionRevealElement(pauseState, element, computedStyle) {
   return true;
 }
 
-// @ts-expect-error
-function lockPageMotionElement(pauseState, element, candidate) {
-  if (!element || !element.style) {
+function lockPageMotionElement(
+  pauseState: PageMotionPauseState,
+  element: Element,
+  candidate: PageMotionCandidate
+): void {
+  if (!isStylableElement(element)) {
     return;
   }
   if (!pauseState.lockedElements.has(element) && pauseState.lockedElements.size >= PAGE_MOTION_PAUSE_MAX_LOCKED_ELEMENTS) {
@@ -5949,9 +6027,11 @@ function lockPageMotionElement(pauseState, element, candidate) {
   }
 }
 
-// @ts-expect-error
-function restorePageMotionLockRecordOnElement(element, record) {
-  if (!element || !element.style || !record) {
+function restorePageMotionLockRecordOnElement(
+  element: (Element & { style: CSSStyleDeclaration }) | null | undefined,
+  record: PageMotionLockRecord | null | undefined
+): void {
+  if (!element || !record) {
     return;
   }
   for (const [property, lock] of record.properties) {
@@ -5973,8 +6053,7 @@ function restorePageMotionLockRecordOnElement(element, record) {
   }
 }
 
-// @ts-expect-error
-function restorePageMotionLocks(pauseState) {
+function restorePageMotionLocks(pauseState: PageMotionPauseState): void {
   for (const record of pauseState.lockedElements.values()) {
     restorePageMotionLockRecordOnElement(record.element, record);
   }
@@ -5982,14 +6061,12 @@ function restorePageMotionLocks(pauseState) {
   pauseState.lockedElementsById.clear();
 }
 
-// @ts-expect-error
-function restorePageMotionLocksInSnapshotClone(clone) {
+function restorePageMotionLocksInSnapshotClone(clone: Element | null | undefined): void {
   const pauseState = state.pageMotionPause;
-// @ts-expect-error
   if (!pauseState || !pauseState.lockedElementsById || !clone) {
     return;
   }
-  const lockedCloneElements = [];
+  const lockedCloneElements: Element[] = [];
   if (typeof clone.getAttribute === "function" && clone.getAttribute(PAGE_MOTION_PAUSE_LOCK_ATTR)) {
     lockedCloneElements.push(clone);
   }
@@ -6004,26 +6081,26 @@ function restorePageMotionLocksInSnapshotClone(clone) {
     const id = typeof cloneElement.getAttribute === "function"
       ? cloneElement.getAttribute(PAGE_MOTION_PAUSE_LOCK_ATTR)
       : "";
-// @ts-expect-error
     const record = id ? pauseState.lockedElementsById.get(id) : null;
-    if (record) {
+    if (record && isStylableElement(cloneElement)) {
       restorePageMotionLockRecordOnElement(cloneElement, record);
     }
   }
 }
 
-// @ts-expect-error
-function lockPageMotionCandidates(pauseState, candidates) {
+function lockPageMotionCandidates(
+  pauseState: PageMotionPauseState,
+  candidates: Map<Element, PageMotionCandidate>
+): void {
   for (const [element, candidate] of candidates) {
     lockPageMotionElement(pauseState, element, candidate);
   }
 }
 
-// @ts-expect-error
-function collectPageMotionHoverTargets(candidates) {
-  const targets = new Set();
+function collectPageMotionHoverTargets(candidates: Map<Element, PageMotionCandidate>): Set<Element> {
+  const targets = new Set<Element>();
   for (const element of candidates.keys()) {
-    let current = element;
+    let current: Element | null = element;
     let depth = 0;
     while (current && current.nodeType === 1 && depth < 8 && targets.size < PAGE_MOTION_PAUSE_MAX_HOVER_TARGETS) {
       const tagName = current.tagName ? String(current.tagName).toLowerCase() : "";
@@ -6040,8 +6117,10 @@ function collectPageMotionHoverTargets(candidates) {
   return targets;
 }
 
-// @ts-expect-error
-function pauseInteractiveMotionTargets(pauseState, candidates) {
+function pauseInteractiveMotionTargets(
+  pauseState: PageMotionPauseState,
+  candidates: Map<Element, PageMotionCandidate>
+): void {
   for (const target of collectPageMotionHoverTargets(candidates)) {
     pauseState.hoverTargets.add(target);
     dispatchPageMotionEvents(target, [
@@ -6052,8 +6131,7 @@ function pauseInteractiveMotionTargets(pauseState, candidates) {
   }
 }
 
-// @ts-expect-error
-function resumeInteractiveMotionTargets(pauseState) {
+function resumeInteractiveMotionTargets(pauseState: PageMotionPauseState): void {
   for (const target of pauseState.hoverTargets) {
     dispatchPageMotionEvents(target, [
       ["pointerleave", false],
@@ -6064,8 +6142,7 @@ function resumeInteractiveMotionTargets(pauseState) {
   pauseState.hoverTargets.clear();
 }
 
-// @ts-expect-error
-function queryPageMotionElements(selector) {
+function queryPageMotionElements(selector: string): Element[] {
   if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
     return [];
   }
@@ -6076,10 +6153,9 @@ function queryPageMotionElements(selector) {
   }
 }
 
-// @ts-expect-error
-function pauseSvgAnimations(pauseState) {
+function pauseSvgAnimations(pauseState: PageMotionPauseState): void {
   for (const svgElement of queryPageMotionElements("svg")) {
-    if (!svgElement || isIgnoredPageMotionElement(svgElement) || typeof svgElement.pauseAnimations !== "function") {
+    if (!isSvgAnimationElement(svgElement) || isIgnoredPageMotionElement(svgElement)) {
       continue;
     }
     if (!pauseState.svgElements.has(svgElement)) {
@@ -6101,8 +6177,7 @@ function pauseSvgAnimations(pauseState) {
   }
 }
 
-// @ts-expect-error
-function resumeSvgAnimations(pauseState) {
+function resumeSvgAnimations(pauseState: PageMotionPauseState): void {
   for (const [svgElement, svgState] of pauseState.svgElements) {
     if (!svgElement || svgState.wasPaused || typeof svgElement.unpauseAnimations !== "function") {
       continue;
@@ -6116,10 +6191,9 @@ function resumeSvgAnimations(pauseState) {
   pauseState.svgElements.clear();
 }
 
-// @ts-expect-error
-function shouldPauseMediaElement(element) {
+function shouldPauseMediaElement(element: Element | null | undefined): element is HTMLMediaElement {
   const tagName = element && element.tagName ? String(element.tagName).toUpperCase() : "";
-  if (!element || (tagName !== "VIDEO" && tagName !== "AUDIO")) {
+  if (!element || !isMediaElement(element) || (tagName !== "VIDEO" && tagName !== "AUDIO")) {
     return false;
   }
   if (element.paused) {
@@ -6131,8 +6205,7 @@ function shouldPauseMediaElement(element) {
   return Boolean(element.autoplay || element.loop || element.muted);
 }
 
-// @ts-expect-error
-function pauseMediaElements(pauseState) {
+function pauseMediaElements(pauseState: PageMotionPauseState): void {
   for (const mediaElement of queryPageMotionElements("video, audio")) {
     if (isIgnoredPageMotionElement(mediaElement) || !shouldPauseMediaElement(mediaElement) || typeof mediaElement.pause !== "function") {
       continue;
@@ -6148,8 +6221,7 @@ function pauseMediaElements(pauseState) {
   }
 }
 
-// @ts-expect-error
-function resumeMediaElements(pauseState) {
+function resumeMediaElements(pauseState: PageMotionPauseState): void {
   for (const [mediaElement, mediaState] of pauseState.mediaElements) {
     if (!mediaElement || mediaState.wasPaused || typeof mediaElement.play !== "function") {
       continue;
@@ -6166,8 +6238,7 @@ function resumeMediaElements(pauseState) {
   pauseState.mediaElements.clear();
 }
 
-function schedulePageMotionPauseRefresh(pauseState = state.pageMotionPause) {
-// @ts-expect-error
+function schedulePageMotionPauseRefresh(pauseState: PageMotionPauseState | null = state.pageMotionPause) {
   if (!pauseState || pauseState.refreshScheduled) {
     return;
   }
@@ -6175,11 +6246,9 @@ function schedulePageMotionPauseRefresh(pauseState = state.pageMotionPause) {
     if (state.pageMotionPause !== pauseState) {
       return;
     }
-// @ts-expect-error
     pauseState.refreshScheduled = false;
     refreshPageMotionPause();
   };
-// @ts-expect-error
   pauseState.refreshScheduled = true;
   try {
     extensionRequestAnimationFrame(run);
@@ -6189,8 +6258,7 @@ function schedulePageMotionPauseRefresh(pauseState = state.pageMotionPause) {
   }
 }
 
-// @ts-expect-error
-function startPageMotionPauseRefreshTimer(pauseState) {
+function startPageMotionPauseRefreshTimer(pauseState: PageMotionPauseState): void {
   if (pauseState.refreshTimer) {
     return;
   }
@@ -6201,8 +6269,7 @@ function startPageMotionPauseRefreshTimer(pauseState) {
   }, PAGE_MOTION_PAUSE_REFRESH_MS);
 }
 
-// @ts-expect-error
-function stopPageMotionPauseRefreshTimer(pauseState) {
+function stopPageMotionPauseRefreshTimer(pauseState: PageMotionPauseState): void {
   if (!pauseState.refreshTimer) {
     pauseState.refreshTimer = 0;
     return;
@@ -6211,8 +6278,7 @@ function stopPageMotionPauseRefreshTimer(pauseState) {
   pauseState.refreshTimer = 0;
 }
 
-// @ts-expect-error
-function startPageMotionPauseObserver(pauseState) {
+function startPageMotionPauseObserver(pauseState: PageMotionPauseState): void {
   if (pauseState.observer || typeof document === "undefined") {
     return;
   }
@@ -6234,7 +6300,9 @@ function startPageMotionPauseObserver(pauseState) {
         const target = mutation && mutation.target && mutation.target.nodeType === 1
           ? mutation.target
           : null;
-        return target && !isIgnoredPageMotionElement(target) && mutation.attributeName !== PAGE_MOTION_PAUSE_LOCK_ATTR;
+        return isElementNode(target)
+          && !isIgnoredPageMotionElement(target)
+          && mutation.attributeName !== PAGE_MOTION_PAUSE_LOCK_ATTR;
       });
       if (relevant) {
         schedulePageMotionPauseRefresh(pauseState);
@@ -6259,8 +6327,7 @@ function startPageMotionPauseObserver(pauseState) {
   }
 }
 
-// @ts-expect-error
-function stopPageMotionPauseObserver(pauseState) {
+function stopPageMotionPauseObserver(pauseState: PageMotionPauseState): void {
   if (!pauseState.observer) {
     return;
   }
@@ -6272,17 +6339,15 @@ function stopPageMotionPauseObserver(pauseState) {
   pauseState.observer = null;
 }
 
-export function pausePageMotion(reason = PAGE_MOTION_PAUSE_DEFAULT_REASON) {
+export function pausePageMotion(reason: unknown = PAGE_MOTION_PAUSE_DEFAULT_REASON): void {
   const pauseState = state.pageMotionPause || createPageMotionPauseState();
   pauseState.reasons.add(normalizePageMotionPauseReason(reason));
-// @ts-expect-error
   state.pageMotionPause = pauseState;
   refreshPageMotionPause();
 }
 
-export function refreshPageMotionPause() {
+export function refreshPageMotionPause(): void {
   const pauseState = state.pageMotionPause;
-// @ts-expect-error
   if (!pauseState || !pauseState.reasons || pauseState.reasons.size === 0) {
     return;
   }
@@ -6301,7 +6366,7 @@ export function refreshPageMotionPause() {
   startPageMotionPauseObserver(pauseState);
 }
 
-export function resumePageMotion(reason = PAGE_MOTION_PAUSE_DEFAULT_REASON) {
+export function resumePageMotion(reason: unknown = PAGE_MOTION_PAUSE_DEFAULT_REASON): void {
   const pauseState = state.pageMotionPause;
   if (!pauseState) {
     setPageMotionFreezeTimersPaused(false);
@@ -6311,11 +6376,8 @@ export function resumePageMotion(reason = PAGE_MOTION_PAUSE_DEFAULT_REASON) {
     setPageMotionPauseClass(false);
     return;
   }
-// @ts-expect-error
   if (pauseState.reasons) {
-// @ts-expect-error
     pauseState.reasons.delete(normalizePageMotionPauseReason(reason));
-// @ts-expect-error
     if (pauseState.reasons.size > 0) {
       refreshPageMotionPause();
       return;
@@ -6908,14 +6970,11 @@ async function warmupPageRevealBeforeMotionPause(baseUrl, pageUrl, options = {})
   return true;
 }
 
-// @ts-expect-error
-function hasPageMotionPauseReason(reason) {
+function hasPageMotionPauseReason(reason: unknown): boolean {
   const pauseState = state.pageMotionPause;
-// @ts-expect-error
   if (!pauseState || !pauseState.reasons || pauseState.reasons.size === 0) {
     return false;
   }
-// @ts-expect-error
   return pauseState.reasons.has(normalizePageMotionPauseReason(reason));
 }
 
