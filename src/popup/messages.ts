@@ -529,7 +529,7 @@ export async function loadActiveTab() {
     state.currentTab = response && response.ok && response.tab
       ? response.tab
       : await loadActiveTabFallback(debugTabIdParam);
-  } catch (error) {
+  } catch (_error) {
     state.currentTab = await loadActiveTabFallback(debugTabIdParam);
   }
 }

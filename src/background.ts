@@ -68,11 +68,9 @@ import {
 } from "./common/world-messaging-contract";
 import {
   AI_RUN_POLL_INTERVAL_MS,
-  AI_RUN_PERSIST_KEY,
   AI_RUN_TIMEOUT_MS,
   buildAiSubmissionXpaths,
-  getAiRunResumeExpiresAt,
-  normalizePersistedAiRunRecord
+  getAiRunResumeExpiresAt
 } from "./popup/ai-run";
 import {
   normalizeAiSelectorSet
@@ -92,9 +90,7 @@ import {
   MESSAGE_ERROR_CODES,
   MESSAGE_SOURCES,
   MESSAGE_TARGETS,
-  createRequestEnvelope,
   createFailureEnvelope,
-  isReplyEnvelope,
   isRequestEnvelope,
   type RequestEnvelope
 } from "./common/message-protocol";
@@ -118,6 +114,7 @@ import {
   getPersistedAiRunRecord,
   savePersistedAiRunRecord
 } from "./background/ai-run-record-store";
+import { AI_RUN_PERSIST_KEY } from "./popup/ai-run";
 import { redactCommandPayloadForLedger } from "./background/command-ledger";
 import {
   fetchLivePagePropertyPageTypes,
@@ -157,6 +154,8 @@ import { createTabInactivityObserver } from "./background/tab-inactivity-observe
 import { createAiRunOrchestrator } from "./background/ai-run-orchestrator";
 import { runBackgroundTask } from "./background/async-tasks";
 import { createManagedTimeoutGroup } from "./background/managed-timeouts";
+
+void AI_RUN_PERSIST_KEY;
 import { createSwKeepAlive } from "./background/sw-keepalive";
 import { createBrain } from "./background/brain/index";
 import {
@@ -671,7 +670,6 @@ const renderModeInspector = createRenderModeInspector({
 const normalizeRenderModeOperationId = renderModeInspector.normalizeRenderModeOperationId;
 const waitForTabLoadStartInBackground = renderModeInspector.waitForTabLoadStartInBackground;
 const waitForTabLoadCompleteInBackground = renderModeInspector.waitForTabLoadCompleteInBackground;
-const ensureContentReadyForRenderModeInspectionInBackground = renderModeInspector.ensureContentReadyForRenderModeInspectionInBackground;
 const sendRenderModeInspectionEndWithRetry = renderModeInspector.sendRenderModeInspectionEndWithRetry;
 const runRenderModeInspectionBeginStep = renderModeInspector.runRenderModeInspectionBeginStep;
 const runRenderModeRevealFreezeStep = renderModeInspector.runRenderModeRevealFreezeStep;
@@ -804,12 +802,7 @@ async function captureRenderModeHtmlWithDebugger(tabId: unknown): Promise<Render
     return { ok: false, pageUrl: "", renderedHtml: "", rawHtml: "", renderMode: "", hiddenCount: 0, error: "Missing tab" };
   }
   const target = { tabId: normalizedTabId };
-  let tab: Browser.tabs.Tab | null = null;
-  try {
-    tab = (await getBrowserTab(normalizedTabId)) || null;
-  } catch {
-    tab = null;
-  }
+  const tab = await getBrowserTab(normalizedTabId).catch(() => null);
   const pageUrl = tab && typeof tab.url === "string" ? tab.url : "";
   try {
     const documentResult = await sendBrowserDebuggerCommand(target, "DOM.getDocument", {
@@ -1004,10 +997,6 @@ const aiRunOrchestrator = createAiRunOrchestrator({
   aiRunPollIntervalMs: AI_RUN_POLL_INTERVAL_MS,
   createManagedTimeoutGroup
 });
-const getAiRunCurrentPageEntry = aiRunOrchestrator.getAiRunCurrentPageEntry;
-const isAiRunCurrentPageSnapshotMissing = aiRunOrchestrator.isAiRunCurrentPageSnapshotMissing;
-const refineAiRunPayloadXpathsInBackground = aiRunOrchestrator.refineAiRunPayloadXpathsInBackground;
-const loadAiRunSelectorSetFromPayloadKey = aiRunOrchestrator.loadAiRunSelectorSetFromPayloadKey;
 const runAiCommandForTab = aiRunOrchestrator.runAiCommandForTab;
 const setAiComputeLockForTab = aiRunOrchestrator.setAiComputeLockForTab;
 const isAiComputeLockActiveForTab = aiRunOrchestrator.isAiComputeLockActiveForTab;
@@ -1039,12 +1028,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_BOOTSTRAP_CONTENT, async (cont
     );
   }
 
-  let tab = null;
-  try {
-    tab = await getBrowserTab(normalizedTabId);
-  } catch {
-    tab = null;
-  }
+  const tab = await getBrowserTab(normalizedTabId).catch(() => null);
   if (!tab || !tab.id) {
     return context.replyFail(
       MESSAGE_ERROR_CODES.INVALID_TAB,
@@ -1137,12 +1121,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_ACTIVATE_MARKING, async (conte
     );
   }
 
-  let tab = null;
-  try {
-    tab = await getBrowserTab(normalizedTabId);
-  } catch {
-    tab = null;
-  }
+  const tab = await getBrowserTab(normalizedTabId).catch(() => null);
   if (!tab || !tab.id) {
     return context.replyFail(
       MESSAGE_ERROR_CODES.INVALID_TAB,
@@ -1315,12 +1294,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_DEACTIVATE_MARKING, async (con
     );
   }
 
-  let tab = null;
-  try {
-    tab = await getBrowserTab(normalizedTabId);
-  } catch {
-    tab = null;
-  }
+  const tab = await getBrowserTab(normalizedTabId).catch(() => null);
   if (!tab || !tab.id) {
     return context.replyFail(
       MESSAGE_ERROR_CODES.INVALID_TAB,
@@ -2128,12 +2102,7 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_AI, async (context, payloa
     );
   }
 
-  let tab = null;
-  try {
-    tab = await getBrowserTab(normalizedTabId);
-  } catch {
-    tab = null;
-  }
+  const tab = await getBrowserTab(normalizedTabId).catch(() => null);
   if (!tab || !tab.id) {
     return context.replyFail(
       MESSAGE_ERROR_CODES.INVALID_TAB,
@@ -2462,15 +2431,17 @@ async function resolvePopupTabContext(
     return { ok: true, tab: sidePanelBoundTab, source: "sidePanel" };
   }
 
-  let tabs: Browser.tabs.Tab[] = [];
-  try {
-    tabs = await queryBrowserTabs({ active: true, currentWindow: true });
-    if (!tabs.length) {
-      tabs = await queryBrowserTabs({ active: true, lastFocusedWindow: true });
+  const tabs = await (async (): Promise<Browser.tabs.Tab[]> => {
+    try {
+      const currentWindowTabs = await queryBrowserTabs({ active: true, currentWindow: true });
+      if (currentWindowTabs.length) {
+        return currentWindowTabs;
+      }
+      return await queryBrowserTabs({ active: true, lastFocusedWindow: true });
+    } catch {
+      return [];
     }
-  } catch {
-    tabs = [];
-  }
+  })();
   return { ok: Boolean(tabs[0] && tabs[0].id), tab: tabs[0] || null, source: tabs[0] ? "activeTab" : "none" };
 }
 
@@ -2487,13 +2458,10 @@ const popupStateBroker = createPopupStateBroker({
     brain.syncProjectedSpinnerQueue(tabId, state.spinnerQueue, `${reason}:spinners`);
   }
 });
-const getSpinnerQueueForTab = popupStateBroker.getSpinnerQueueForTab;
-const serializeSpinnerQueue = popupStateBroker.serializeSpinnerQueue;
 const buildBrokerState = popupStateBroker.buildBrokerState;
 const broadcastBrokerState = popupStateBroker.broadcastBrokerState;
 const updateLifecycleState = popupStateBroker.updateLifecycleState;
 const clearLifecycleState = popupStateBroker.clearLifecycleState;
-const clearNavInspectCurtain = popupStateBroker.clearNavInspectCurtain;
 const popupStateSeedTabIds = new Set<number>();
 for (const tabId of [...tabLifecycleStateByTabId.keys(), ...tabSpinnerQueueByTabId.keys()]) {
   const normalizedTabId = normalizeBrokerTabId(tabId);
@@ -2693,12 +2661,13 @@ function logSwLifecycleDiagnostic(event: string, extra: Record<string, unknown> 
   if (!isDebugFlagEnabled("swLifecycleDiagnostics")) {
     return;
   }
-  let propertyLock: Record<string, unknown> = {};
-  try {
-    propertyLock = getPropertyLockConnectionDiagnostics();
-  } catch {
-    propertyLock = {};
-  }
+  const propertyLock = (() => {
+    try {
+      return getPropertyLockConnectionDiagnostics();
+    } catch {
+      return {};
+    }
+  })();
   try {
     console.debug("[sw-lifecycle]", event, {
       at: Date.now(),
@@ -3372,7 +3341,7 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     (async () => {
       try {
         await utils.disableExtensionForTab(tabId);
-      } catch (error) {
+      } catch (_error) {
         // Continue with hard state cleanup below.
       }
       await clearTrackedTabSessionState(tabId);
@@ -3383,7 +3352,7 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
           path: "popup.html",
           enabled: false
         });
-      } catch (error) {
+      } catch (_error) {
         // Side panel may already be disabled for this tab.
       }
       await reloadBrowserTab(tabId);
@@ -3504,7 +3473,7 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     let parsedUrl = null;
     try {
       parsedUrl = new URL(targetUrl);
-    } catch (error) {
+    } catch (_error) {
       sendResponse({ ok: false, error: "Invalid URL" });
       return;
     }
@@ -3635,7 +3604,7 @@ browser.webNavigation.onCompleted.addListener(async (details) => {
   }
   try {
     await clearDeviceEmulationAfterNavigation(tabId);
-  } catch (error) {
+  } catch (_error) {
     // Ignore — the tab may have already navigated away or been closed.
   }
 });
@@ -3694,12 +3663,7 @@ async function refreshActionIconsForWindow(windowId: number) {
   if (!windowId || windowId === browser.windows.WINDOW_ID_NONE) {
     return;
   }
-  let tabs: Browser.tabs.Tab[] = [];
-  try {
-    tabs = await queryBrowserTabs({ windowId });
-  } catch (error) {
-    tabs = [];
-  }
+  const tabs = await queryBrowserTabs({ windowId }).catch((_error) => []);
   await Promise.all(
     tabs
       .map((tab) => (tab && tab.id ? utils.updateActionForTab(tab.id) : null))
@@ -3846,7 +3810,7 @@ async function getTabUrl(tabId: unknown): Promise<string> {
   try {
     const tab = await getBrowserTab(normalizedTabId);
     return (tab && typeof tab.url === "string") ? tab.url : "";
-  } catch (error) {
+  } catch (_error) {
     return "";
   }
 }

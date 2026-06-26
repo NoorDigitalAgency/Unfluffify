@@ -143,12 +143,6 @@ interface NormalizeXpathItemsResult {
   changed: boolean;
 }
 
-interface NormalizePageMarkingsResult {
-  normalized: PageMarkingsRecord;
-  changed: boolean;
-  removedUrls: string[];
-}
-
 interface NormalizeAiSelectorSetResult {
   normalized: AiSelectorSet;
   changed: boolean;
@@ -420,7 +414,7 @@ function parseTimestampMillis(value: unknown): number {
   if (!trimmed) {
     return Number.NaN;
   }
-  const hasExplicitTimezone = /(?:z|[+\-]\d{2}:?\d{2})$/i.test(trimmed);
+  const hasExplicitTimezone = /(?:z|[+-]\d{2}:?\d{2})$/i.test(trimmed);
   const parseValue = hasExplicitTimezone ? trimmed : `${trimmed}Z`;
   const parsed = Date.parse(parseValue);
   if (!Number.isFinite(parsed)) {
@@ -915,10 +909,10 @@ export function getNewestConfigSelectorSet(
 
 export function createDefaultConfig(baseUrl: unknown): NormalizedConfig {
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl) || (typeof baseUrl === "string" ? baseUrl : "");
-  let domain = "";
+  let domain: string;
   try {
     domain = new URL(normalizedBaseUrl).hostname;
-  } catch (error) {
+  } catch (_error) {
     domain = "";
   }
   return {

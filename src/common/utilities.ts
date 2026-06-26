@@ -99,7 +99,7 @@ export async function disableExtensionForTab(tabId: number) {
       (api, callback) => api.tabs.sendMessage(tabId, { type: "setEnabled", enabled: false }, callback),
       (api) => api.tabs.sendMessage(tabId, { type: "setEnabled", enabled: false })
     );
-  } catch (error) {
+  } catch (_error) {
     // Content script may not be loaded
   }
 }
@@ -146,10 +146,6 @@ function getChromeRuntimeLastError() {
     }
     throw error;
   }
-}
-
-function makeChromeRuntimeError(error: unknown) {
-  return new Error(getErrorMessage(error) || "Chrome runtime operation failed");
 }
 
 function makeInvalidatedRuntimeResponse(error: unknown) {
@@ -239,7 +235,7 @@ export function sendRuntimeMessage(message: unknown) {
   return new Promise((resolve, reject) => {
     try {
       runtime.sendMessage(message, (response) => {
-        let lastError = null;
+        let lastError: ReturnType<typeof getChromeRuntimeLastError>;
         try {
           lastError = getChromeRuntimeLastError();
         } catch (error) {
@@ -316,7 +312,7 @@ export function parseBaseUrl(value: unknown) {
   }
   try {
     return new URL(normalized);
-  } catch (error) {
+  } catch (_error) {
     return null;
   }
 }
@@ -331,7 +327,7 @@ function parseHttpUrl(value: unknown) {
       return null;
     }
     return parsed;
-  } catch (error) {
+  } catch (_error) {
     return null;
   }
 }
@@ -505,7 +501,7 @@ export function getOriginFromUrl(url: unknown) {
       return null;
     }
     return parsed.origin;
-  } catch (error) {
+  } catch (_error) {
     return null;
   }
 }
@@ -538,7 +534,7 @@ function getExtensionOrigin() {
   try {
     const resourceUrl = getExtensionResourceUrl("");
     return resourceUrl ? new URL(resourceUrl).origin : "";
-  } catch (error) {
+  } catch (_error) {
     // Ignore origin detection errors
   }
   return "";
@@ -735,13 +731,11 @@ export async function updateActionForTab(tabId: number) {
   if (!browser.action || !tabId) {
     return;
   }
-  let tab = null;
-  try {
-    tab = await callBrowserApi<Browser.tabs.Tab>(
-      (api, callback) => api.tabs.get(tabId, callback),
-      (api) => api.tabs.get(tabId)
-    );
-  } catch (error) {
+  const tab = await callBrowserApi<Browser.tabs.Tab>(
+    (api, callback) => api.tabs.get(tabId, callback),
+    (api) => api.tabs.get(tabId)
+  ).catch((_error) => null);
+  if (!tab) {
     return;
   }
   const [initialState, tabState] = await Promise.all([

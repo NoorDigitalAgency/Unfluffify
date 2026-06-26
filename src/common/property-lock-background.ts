@@ -65,7 +65,6 @@ import {
   FEATURE_DISABLED_REASON,
   isFeatureEnabled
 } from "./feature-flags";
-import * as utils from "./utilities";
 import { getPropertyLockConnectionSettings } from "./settings-store";
 
 /** Normalized lock-state shape produced by the property-lock helpers. */
@@ -174,7 +173,7 @@ class PropertyLockConnectionRuntime {
     if (this.socket) {
       try {
         this.socket.close(1000);
-      } catch (e) {
+      } catch (_e) {
         // Socket already closed
       }
       this.socket = null;
@@ -198,7 +197,7 @@ class PropertyLockConnectionRuntime {
     if (this.networkCheckAbortController) {
       try {
         this.networkCheckAbortController.abort();
-      } catch (e) {
+      } catch (_e) {
         // Ignore abort errors.
       }
       this.networkCheckAbortController = null;
@@ -264,7 +263,7 @@ function disposeAllPropertyLockConnections() {
       if (portEntry.port) {
         try {
           portEntry.port.disconnect();
-        } catch (error) {
+        } catch (_error) {
           // Port may already be closed.
         }
       }
@@ -298,7 +297,7 @@ function createUniqueClientIdForSite(siteId: unknown) {
   if (!normalizedSiteId) {
     return "";
   }
-  let nextClientId = "";
+  let nextClientId: string;
   do {
     nextClientId = createPropertyLockClientId();
   } while (buildConnectionKey(normalizedSiteId, nextClientId) && lockConnections.has(buildConnectionKey(normalizedSiteId, nextClientId)));
@@ -451,7 +450,7 @@ function handlePropertyLockPortConnect(port: Browser.runtime.Port) {
   if (!ensurePropertyLockBackgroundActive()) {
     try {
       port.disconnect();
-    } catch (error) {
+    } catch (_error) {
       // Port may already be closed.
     }
     return;
@@ -480,7 +479,7 @@ function handlePropertyLockPortConnect(port: Browser.runtime.Port) {
           connectionStatus: PROPERTY_LOCK_CONNECTION_UNAVAILABLE,
           error: FEATURE_DISABLED_REASON
         });
-      } catch (error) {
+      } catch (_error) {
         // Port may already be closed.
       }
       return;
@@ -748,7 +747,7 @@ function connectWebSocket(runtime: PropertyLockConnectionRuntime) {
       runtime.socket.onmessage = (event: MessageEvent) => onWebSocketMessage(runtime, event);
       runtime.socket.onerror = () => onWebSocketError(runtime);
       runtime.socket.onclose = () => onWebSocketClose(runtime);
-    } catch (e) {
+    } catch (_e) {
       setConnectionStatus(runtime, PROPERTY_LOCK_CONNECTION_UNAVAILABLE, "socket_create_failed");
       scheduleReconnect(runtime);
     }
@@ -897,7 +896,7 @@ async function checkNetworkConnectivity(runtime: PropertyLockConnectionRuntime) 
   if (runtime.networkCheckAbortController) {
     try {
       runtime.networkCheckAbortController.abort();
-    } catch (e) {
+    } catch (_e) {
       // Ignore abort errors.
     }
   }
@@ -917,7 +916,7 @@ async function checkNetworkConnectivity(runtime: PropertyLockConnectionRuntime) 
           signal: controller ? controller.signal : undefined
         });
         return true;
-      } catch (e) {
+      } catch (_e) {
         // Try the next stable endpoint.
       }
     }
@@ -971,7 +970,7 @@ function onWebSocketMessage(runtime: PropertyLockConnectionRuntime, event: Messa
   let message: PropertyLockMessage;
   try {
     message = JSON.parse(event.data);
-  } catch (e) {
+  } catch (_e) {
     return;
   }
 
@@ -1049,7 +1048,7 @@ function sendToServer(runtime: PropertyLockConnectionRuntime, message: OutboundM
 
   try {
     runtime.socket.send(JSON.stringify(message));
-  } catch (e) {
+  } catch (_e) {
     runtime.isConnected = false;
   }
 }
@@ -1085,7 +1084,7 @@ function broadcastToContentScriptPorts(connectionKey: string, message: OutboundM
           tabId,
           message
         });
-      } catch (e) {
+      } catch (_e) {
         // Port may be closed
       }
     }
@@ -1102,7 +1101,7 @@ function broadcastToContentScriptPorts(connectionKey: string, message: OutboundM
     if (updatePromise && typeof updatePromise.catch === "function") {
       updatePromise.catch(() => {});
     }
-  } catch (e) {
+  } catch (_e) {
     // No popup listener may be open.
   }
 }
@@ -1139,7 +1138,7 @@ function scheduleReconnect(runtime: PropertyLockConnectionRuntime) {
   if (runtime.socket) {
     try {
       runtime.socket.close();
-    } catch (e) {
+    } catch (_e) {
       // Already closed
     }
     runtime.socket = null;

@@ -111,7 +111,7 @@ export function normalizeBaseUrlFromDomainName(domainName: unknown, pageUrl: unk
   } catch {
     // Use HTTPS default.
   }
-  let parsed = null;
+  let parsed: URL;
   try {
     parsed = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw)
       ? new URL(raw)
@@ -119,7 +119,7 @@ export function normalizeBaseUrlFromDomainName(domainName: unknown, pageUrl: unk
   } catch {
     return "";
   }
-  if (!parsed || (parsed.protocol !== "http:" && parsed.protocol !== "https:")) {
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     return "";
   }
   const hostname = (parsed.hostname || "").trim().toLowerCase();

@@ -145,7 +145,7 @@ export function createPageDraftSaveHandler(deps: PageDraftSaveDeps) {
       deps.touchPageEntryTimestamp(entry);
       config.pageMarkings[pageUrl] = entry;
       await deps.saveConfig(targetBaseUrl, config);
-    } catch (error) {
+    } catch (_error) {
       if (!hadReconciliationPending) {
         try {
           await deps.clearPageSaveReconciliation(targetBaseUrl, pageUrl);
@@ -165,7 +165,7 @@ export function createPageDraftSaveHandler(deps: PageDraftSaveDeps) {
     deps.setSavedPageEntry(pageUrl, entry);
     try {
       await deps.setPageSaveReconciliationPending(targetBaseUrl, pageUrl, { reason: "pending" });
-    } catch (error) {
+    } catch (_error) {
       if (showToast) {
         deps.showPageToast("Unable to track server sync for saved page");
       }

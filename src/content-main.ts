@@ -25,10 +25,8 @@ import {
   getNormalizedTextContent as getNormalizedNodeText,
   canUseCollapsedTextFallback as canUseCollapsedTextFallbackNode
 } from "./content/shared-inclusion";
-import {
-  normalizeCandidatePageUrl,
-  normalizePropertyPageTypes
-} from "./common/lynx-checklist";
+
+
 import {
   getCurrentPageCandidateState,
   normalizeSiteIdValue,
@@ -63,7 +61,6 @@ import {
   PROPERTY_LOCK_CONTENT_CONNECT,
   PROPERTY_LOCK_CONTENT_DISCONNECT,
   PROPERTY_LOCK_CONTENT_ACTIVITY,
-  PROPERTY_LOCK_CONTENT_DRAFT_STATUS,
   PROPERTY_LOCK_CONTENT_TAKE_LOCK,
   PROPERTY_LOCK_CONTENT_RELEASE,
   PROPERTY_LOCK_CONTENT_SUGGEST,
@@ -132,17 +129,14 @@ import { createRenderModeInspectionHandlers } from "./content/render-mode-inspec
 import { createVisibleXpathsHandler } from "./content/visible-xpaths-handler";
 import {
   clearPropertyLockBannerCountdown as clearPropertyLockBannerCountdownOperation,
-  ensurePropertyLockBannerStyle as ensurePropertyLockBannerStyleOperation,
   renderPropertyLockBanner as renderPropertyLockBannerOperation,
   restartPropertyLockBannerCountdown as restartPropertyLockBannerCountdownOperation
 } from "./content/property-lock-banner";
 import { updatePropertyLockBannerMode as updatePropertyLockBannerModeOperation } from "./content/property-lock-banner-mode";
 import { createPropertyLockPortClient } from "./content/property-lock-port-client";
 import { createPropertyLockStateMachine } from "./content/property-lock-state-machine";
-import {
-  MESSAGE_ERROR_CODES,
-  MESSAGE_TARGETS
-} from "./common/message-protocol";
+
+
 import { getGlobalAiSettings } from "./common/settings-store";
 import { routeInboundContentRequestMessage } from "./content/inbound-content-request-dispatch";
 import type { RuntimeMessage } from "./types/messaging.ts";
@@ -150,7 +144,6 @@ import type { RuntimeMessage } from "./types/messaging.ts";
 const { state } = core;
 
 type LooseRuntimeMessage = Partial<RuntimeMessage>;
-type ContentRuntimeMessageHandlerDeps = Parameters<typeof handleRuntimeMessage>[3];
 type PageToastDeps = Parameters<typeof createPageToast>[0];
 type PageSaveReconciliationClearDeps = Parameters<typeof createPageSaveReconciliationClearHandler>[0];
 type PageSaveReconciliationPendingDeps = Parameters<typeof createPageSaveReconciliationPendingHandler>[0];
@@ -161,20 +154,12 @@ type PageDraftRevertDeps = Parameters<typeof createPageDraftRevertHandler>[0];
 type PageDraftSaveDeps = Parameters<typeof createPageDraftSaveHandler>[0];
 type ExplicitMarkingDeps = Parameters<typeof createExplicitMarkingHandler>[0];
 type PageDraftStatusDeps = Parameters<typeof createPageDraftStatusHandler>[0];
-type AiPreviewStateResponseDeps = Parameters<typeof createAiPreviewStateResponseBuilder>[0];
-type AiPreviewCloseHandlerDeps = Parameters<typeof createAiPreviewCloseHandler>[0];
-type AiPreviewComputeLockHandlerDeps = Parameters<typeof createAiPreviewComputeLockHandler>[0];
-type AiPreviewExpandedModeHandlerDeps = Parameters<typeof createAiPreviewExpandedModeHandler>[0];
-type AiPreviewGetStateHandlerDeps = Parameters<typeof createAiPreviewGetStateHandler>[0];
 type AiPreviewShowHandlerDeps = Parameters<typeof createAiPreviewShowHandler>[0];
-type AiSubmissionXpathsHandlerDeps = Parameters<typeof createAiSubmissionXpathsHandler>[0];
 type CapturePageSnapshotDeps = Parameters<typeof createCapturePageSnapshotHandler>[0];
 type ConfigUpdatedHandlerDeps = Parameters<typeof createConfigUpdatedHandler>[0];
 type CollectPageDataHandlerDeps = Parameters<typeof createCollectPageDataHandler>[0];
-type DefaultExclusionsHandlerDeps = Parameters<typeof createDefaultExclusionsHandler>[0];
 type DescribeXpathsDeps = Parameters<typeof createDescribeXpathsHandler>[0];
 type FocusHandlerDeps = Parameters<typeof createFocusHandler>[0];
-type ForceRefreshHandlerDeps = Parameters<typeof createForceRefreshHandler>[0];
 type InvisibleXpathsDeps = Parameters<typeof createInvisibleXpathsHandler>[0];
 type VisibleXpathsDeps = Parameters<typeof createVisibleXpathsHandler>[0];
 type PropertyLockPortClientDeps = Parameters<typeof createPropertyLockPortClient>[0];
@@ -405,8 +390,6 @@ const SILENT_SELECTOR_EXCLUDE_ATTR = "data-uf-silent-selector-exclude";
 const SILENT_TITLE_COPY_ATTR = "data-uf-silent-title-copy";
 const AI_PREVIEW_CLICKABLE_ATTR = "data-uf-ai-preview-clickable";
 const SILENT_SELECTOR_TITLE_PREFIX = "Unfluffify selector: ";
-const PAGE_SAVE_MOBILE_SIMULATION_REQUIRED_MESSAGE =
-  "Mobile simulation must be enabled to save markings.";
 const PAGE_TOAST_ID = "unfluffify-page-toast";
 const PAGE_TOAST_STYLE_ID = "unfluffify-page-toast-style";
 const PROPERTY_LOCK_CLIENT_SESSION_KEY = "unfluffify:propertyLockClientId";
@@ -565,7 +548,6 @@ let silentHighlightEditorActivationPromise: Promise<unknown> | null = null;
 let silentHighlightEditorActivationQueued = false;
 let silentHighlightEditorActivationIdCounter = 0;
 let renderModeInspectionActive = false;
-let renderModeInspectionWatchdogTimer = 0;
 let lifecycleOperationCounter = 0;
 const silentSelectorAnnotatedNodes = new Set<Element>();
 const aiPreviewClickableNodes = new Set<Element>();
@@ -1020,6 +1002,7 @@ async function loadGlobalAiSettingsForContent() {
   };
 }
 
+/* eslint-disable @typescript-eslint/no-unused-vars */
 async function resolveSiteIdFromGraphql(
   options: { stageBase?: string; pageUrl?: string; tokenValue?: string } = {}
 ) {
@@ -1030,7 +1013,7 @@ async function resolveSiteIdFromGraphql(
   if (!stageBase || !pageUrl) {
     return null;
   }
-  let response = null;
+  let response: Awaited<ReturnType<typeof utils.sendRuntimeMessage>>;
   try {
     response = await utils.sendRuntimeMessage({
       type: "resolveLivePageSiteId",
@@ -1045,6 +1028,7 @@ async function resolveSiteIdFromGraphql(
   }
   return normalizeSiteIdValue(response.siteId);
 }
+/* eslint-enable @typescript-eslint/no-unused-vars */
 
 function extractUrlPathAndHostname(url = location.href) {
   try {
@@ -1810,18 +1794,15 @@ function isRenderModeInspectionActive() {
 
 function clearRenderModeInspectionWatchdog() {
   getRenderModeInspectionClient().clearWatchdog();
-  renderModeInspectionWatchdogTimer = 0;
 }
 
 function armRenderModeInspectionWatchdog() {
   getRenderModeInspectionClient().armWatchdog({
     timeoutMs: RENDER_MODE_INSPECTION_WATCHDOG_MS,
     onTimeout: () => {
-      renderModeInspectionWatchdogTimer = 0;
       recoverFromStuckRenderModeInspection();
     }
   });
-  renderModeInspectionWatchdogTimer = 1;
 }
 
 // Force-clear a render-mode inspection that never received its terminating
@@ -1889,7 +1870,7 @@ async function fetchCurrentPageRawHtml(pageUrl = location.href) {
       return null;
     }
     return response.html;
-  } catch (error) {
+  } catch (_error) {
     return null;
   }
 }
@@ -1901,14 +1882,6 @@ function matchesActiveBaseUrl(baseUrl: unknown): boolean {
       state.baseUrl &&
       utils.sameBaseUrl(baseUrl, state.baseUrl)
   );
-}
-
-async function isMobileSimulationActiveForCurrentTab() {
-  const response = await utils.sendRuntimeMessage({ type: "getDeviceEmulationState" });
-  if (!response || !response.ok || !response.state) {
-    return false;
-  }
-  return Boolean(response.state.enabled) && response.state.mode === "mobile";
 }
 
 async function resolveBaseUrlForCurrentPage() {
@@ -1944,44 +1917,6 @@ async function isEnableHotkeyAllowedOnPage() {
   return { allowed: true, baseUrl, pageType: pageTypeResult.pageType };
 }
 
-function hasSavedPageDataForHotkey(entry: ContentPageEntry | null | undefined): boolean {
-  return Boolean(
-    entry &&
-      ((Array.isArray(entry.xpaths) && entry.xpaths.length > 0) ||
-        (Array.isArray(entry.includeXpaths) && entry.includeXpaths.length > 0) ||
-        (typeof entry.renderedHtml === "string" && entry.renderedHtml.length > 0))
-  );
-}
-
-function hasSavedAiSnapshotForHotkey(entry: ContentPageEntry | null | undefined): boolean {
-  return Boolean(
-    entry &&
-      typeof entry.renderedHtml === "string" &&
-      entry.renderedHtml.length > 0 &&
-      Array.isArray(entry.submissionXpaths) &&
-      entry.submissionXpaths.length > 0
-  );
-}
-
-async function isPageSaveHotkeyAllowedOnPage() {
-  if (!state.enabled || !state.baseUrl || !state.config) {
-    return false;
-  }
-  const pageUrl = location.href;
-  const draftEntry = core.getDraftPageEntry(pageUrl);
-  if (!draftEntry) {
-    return false;
-  }
-  const savedEntry = core.getSavedPageEntry(pageUrl);
-  const hasSavedPageData = hasSavedPageDataForHotkey(savedEntry);
-  const needsAiSnapshotBackfill = hasSavedPageData && !hasSavedAiSnapshotForHotkey(savedEntry);
-  const mobileSimulationActive = await isMobileSimulationActiveForCurrentTab();
-  return Boolean(
-    mobileSimulationActive &&
-    (core.isPageDraftDirty(pageUrl) || !hasSavedPageData || needsAiSnapshotBackfill)
-  );
-}
-
 async function toggleDeviceEmulationFromPage() {
   if (!isFeatureEnabled("deviceEmulationToggle")) {
     return;
@@ -1995,7 +1930,7 @@ async function toggleDeviceEmulationFromPage() {
     if (response && response.ok && response.state) {
       currentState = response.state;
     }
-  } catch (error) {
+  } catch (_error) {
     currentState = null;
   }
 
@@ -2011,7 +1946,7 @@ async function toggleDeviceEmulationFromPage() {
       mode: "mobile"
     };
   deviceEmulationHotkeyBusy = true;
-  let result = null;
+  let result: Awaited<ReturnType<typeof utils.sendRuntimeMessage>>;
   try {
     result = await utils.sendRuntimeMessage(request);
   } finally {
@@ -2263,7 +2198,7 @@ async function runEditorSilentHighlightingActivationOnce() {
   }
   const activationId = ++silentHighlightEditorActivationIdCounter;
   silentHighlightEditorRevealInFlight = activationId;
-  let shouldRefreshAfterActivation = false;
+  let shouldRefreshAfterActivation: boolean | undefined;
   let lifecycleOperationId = "";
   let lifecycleStarted = false;
   let lifecycleFinished = false;
@@ -3596,6 +3531,8 @@ async function enterAiPreviewMode(options = {}) {
   await refreshSilentHighlightings();
 }
 
+void enterAiPreviewMode;
+
 function buildCurrentPageDraftStatusSnapshot(pageUrl = location.href) {
   if (!state.config) {
     return null;
@@ -3834,20 +3771,6 @@ function resolveSelectorForNode(
     current = current.parentElement;
   }
   return "";
-}
-
-function isWithinExcludedNode(node: Element | null | undefined, excluded: Set<Element> | null | undefined): boolean {
-  if (!node || !excluded || excluded.size === 0) {
-    return false;
-  }
-  let current: Element | null = node;
-  while (current && current.nodeType === 1) {
-    if (excluded.has(current)) {
-      return true;
-    }
-    current = current.parentElement;
-  }
-  return false;
 }
 
 function isWithinConsentBoundary(node: Element | null | undefined): boolean {
@@ -4440,25 +4363,6 @@ function compareNodeOrder(left: Element, right: Element): number {
     return 1;
   }
   return 0;
-}
-
-function collapseToDeepest(nodes: Iterable<unknown> | null | undefined): Element[] {
-  const sorted = toElementArray(nodes).sort((left, right) => {
-    const depthDiff = getNodeDepth(right) - getNodeDepth(left);
-    if (depthDiff !== 0) {
-      return depthDiff;
-    }
-    return compareNodeOrder(left, right);
-  });
-  const kept: Element[] = [];
-  sorted.forEach((node) => {
-    const isAncestorOfKept = kept.some((descendant) => node.contains(descendant));
-    if (!isAncestorOfKept) {
-      kept.push(node);
-    }
-  });
-  kept.sort(compareNodeOrder);
-  return kept;
 }
 
 function collectExcludedChildrenInsideIncludedParents(
@@ -5586,7 +5490,7 @@ function getPropertyLockClientId() {
         return propertyLockClientId;
       }
     }
-  } catch (error) {
+  } catch (_error) {
     // sessionStorage can be unavailable on some pages; fall back to memory.
   }
   return setPropertyLockClientId(createPropertyLockClientId());
@@ -5600,7 +5504,7 @@ function setPropertyLockClientId(nextClientId: string | null | undefined): strin
   propertyLockClientId = normalizedClientId;
   try {
     window.sessionStorage.setItem(PROPERTY_LOCK_CLIENT_SESSION_KEY, normalizedClientId);
-  } catch (error) {
+  } catch (_error) {
     // In-memory fallback remains valid for the current content-script lifetime.
   }
   return propertyLockClientId;
@@ -5613,24 +5517,6 @@ function getPropertyLockDraftStatusPayload() {
     pageUrl,
     hasUnsavedChanges: Boolean(state.enabled && core.isPageDraftDirty(pageUrl))
   };
-}
-
-function sendPropertyLockDraftStatus() {
-  if (!ensurePropertyLockCollaborationActive()) {
-    return;
-  }
-  const portClient = getPropertyLockPortClient();
-  if (!portClient.hasPort()) {
-    return;
-  }
-  try {
-    portClient.postMessage({
-      type: PROPERTY_LOCK_CONTENT_DRAFT_STATUS,
-      ...getPropertyLockDraftStatusPayload()
-    });
-  } catch (error) {
-    // Activity/reconnect paths will repair the port if it has already closed.
-  }
 }
 
 function handleBlockedPropertyLockInteraction(event: Event | null | undefined): void {
@@ -5719,9 +5605,13 @@ function persistPropertyLockRecoveryState({ siteId = null, baseUrl = "", clientI
   });
 }
 
+void persistPropertyLockRecoveryState;
+
 function persistPropertyLockOffCandidateDeadline(deadlineAt: number) {
   return getPropertyLockStateMachine().persistOffCandidateDeadline(deadlineAt);
 }
+
+void persistPropertyLockOffCandidateDeadline;
 
 function clearPropertyLockOffCandidateWarning() {
   return getPropertyLockStateMachine().clearOffCandidateWarning();
@@ -5945,7 +5835,7 @@ async function syncPropertyLockConnection(options: PropertyLockSyncOptions = {})
     return;
   }
 
-  let target = null;
+  let target: Awaited<ReturnType<typeof resolveCurrentPropertyLockConnectionTarget>>;
   try {
     target = await resolveCurrentPropertyLockConnectionTarget({
       pageUrl,
@@ -6915,10 +6805,6 @@ function createPropertyLockBannerDeps(): PropertyLockBannerDeps {
     PROPERTY_LOCK_CONTENT_SUGGEST,
     PROPERTY_LOCK_CONTENT_TAKE_LOCK
   };
-}
-
-function ensurePropertyLockBannerStyle() {
-  return ensurePropertyLockBannerStyleOperation(createPropertyLockBannerDeps());
 }
 
 async function respondToPropertyLockTakeoverSuggestion(accept: boolean) {

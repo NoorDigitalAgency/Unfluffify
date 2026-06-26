@@ -35,8 +35,7 @@ import {
   buildLynxChecklistViewModel,
   createInitialLynxChecklistState,
   normalizeCandidatePageUrl,
-  normalizePageTypeKey,
-  normalizePropertyPageTypes
+  normalizePageTypeKey
 } from "./common/lynx-checklist";
 import {
   buildPageSaveUiState
@@ -69,7 +68,6 @@ import {
   formatConfigLoadStatusLabel,
   formatLoginFailedStatus,
   formatScalePercent,
-  formatSelectorsComputedLocally,
   formatTimestampedStatus,
   propertyLockText
 } from "./common/text";
@@ -81,7 +79,6 @@ import {
   AI_RUN_TIMEOUT_MS,
   formatAiRunCountdown,
   getAiRunRemainingMs,
-  getAiRunResumeExpiresAt,
   normalizePersistedAiRunRecord,
   shouldResumePersistedAiRun
 } from "./popup/ai-run";
@@ -127,8 +124,6 @@ import {
   renderPopupSpinnerSurface
 } from "./popup/layers/spinner-layer";
 import {
-  armSpinnerWatchdog as armSpinnerWatchdogOperation,
-  clearSpinnerWatchdog as clearSpinnerWatchdogOperation,
   currentSpinnerMessage as currentSpinnerMessageOperation,
   currentSpinnerSnapshot as currentSpinnerSnapshotOperation,
   normalizeSpinnerReason as normalizeSpinnerReasonOperation,
@@ -140,8 +135,6 @@ import {
 import {
   ensureBaseUrlSiteId as ensureBaseUrlSiteIdOperation,
   ensurePropertyPageTypes as ensurePropertyPageTypesOperation,
-  fetchPropertyPageTypesFromGraphql as fetchPropertyPageTypesFromGraphqlOperation,
-  mergeConfigEntriesForResolvedBaseUrl as mergeConfigEntriesForResolvedBaseUrlOperation,
   resolveSiteIdFromGraphql as resolveSiteIdFromGraphqlOperation
 } from "./popup/site-resolution";
 import {
@@ -150,12 +143,8 @@ import {
   syncBaseConfigToServer as syncBaseConfigToServerOperation
 } from "./popup/remote-config";
 import {
-  completeRenderModeInspectionReloadFollowUp as completeRenderModeInspectionReloadFollowUpOperation,
   detectRenderModeViaEndpoint as detectRenderModeViaEndpointOperation,
-  maybeAutoDetectRenderMode as maybeAutoDetectRenderModeOperation,
-  normalizeRenderModeDetectionResult as normalizeRenderModeDetectionResultOperation,
-  waitForTabLoadComplete as waitForTabLoadCompleteOperation,
-  waitForTabLoadStart as waitForTabLoadStartOperation
+  maybeAutoDetectRenderMode as maybeAutoDetectRenderModeOperation
 } from "./popup/render-mode-inspection";
 import {
   handlePageRevert as handlePageRevertOperation,
@@ -184,9 +173,8 @@ import {
 import {
   createPopupTimerGroup
 } from "./popup/timers";
-import {
-  refineXPathEntries
-} from "./common/xpath-utilities";
+
+
 import {
   normalizeAiSelectorSet,
   combineAiSelectorSet,
@@ -289,7 +277,6 @@ type RemoteConfigDeps = Parameters<typeof scheduleRemoteConfigRetryOperation>[0]
 type RenderModeInspectionDeps = Parameters<typeof detectRenderModeViaEndpointOperation>[0];
 type PageReconciliationDeps = Parameters<typeof handlePageSaveOperation>[0];
 type PopupBusClient = Parameters<typeof runPopupBusSelfTest>[0];
-type PopupBusLogger = Parameters<typeof runPopupBusSelfTest>[2];
 type PopupSpinnerBrokerResponse = Awaited<ReturnType<typeof requestPopupSpinnerSet>>;
 type PopupSpinnerSurface = "popup" | "page";
 type SpinnerBrokerMessage = {
@@ -471,10 +458,6 @@ type AiRunCommandFailureDetails = {
   reconciliationPending?: unknown;
   locked?: unknown;
   reason?: unknown;
-};
-type AiRunCommandFailureResponse = {
-  details?: AiRunCommandFailureDetails | null;
-  error?: unknown;
 };
 type PopupFailureLike = Record<string, unknown> | null | undefined;
 type AiRunResultResponse =
@@ -843,18 +826,12 @@ function getSpinnerDeps(): PopupSpinnerDeps {
   };
 }
 
-const currentSpinnerMessage = () => currentSpinnerMessageOperation(getSpinnerDeps());
-const currentSpinnerSnapshot = () => currentSpinnerSnapshotOperation(getSpinnerDeps());
 const normalizeSpinnerReason = (
   reason: Parameters<typeof normalizeSpinnerReasonOperation>[1],
   key: Parameters<typeof normalizeSpinnerReasonOperation>[2],
   message: Parameters<typeof normalizeSpinnerReasonOperation>[3]
 ) =>
   normalizeSpinnerReasonOperation(getSpinnerDeps(), reason, key, message);
-const clearSpinnerWatchdog = (key: Parameters<typeof clearSpinnerWatchdogOperation>[1]) =>
-  clearSpinnerWatchdogOperation(getSpinnerDeps(), key);
-const armSpinnerWatchdog = (key: Parameters<typeof armSpinnerWatchdogOperation>[1]) =>
-  armSpinnerWatchdogOperation(getSpinnerDeps(), key);
 const pushSpinner = (
   key: Parameters<typeof pushSpinnerOperation>[1],
   message: Parameters<typeof pushSpinnerOperation>[2],
@@ -891,23 +868,10 @@ function getSiteResolutionDeps(): SiteResolutionDeps {
   };
 }
 
-const fetchPropertyPageTypesFromGraphql = (options = {}) =>
-  fetchPropertyPageTypesFromGraphqlOperation(getSiteResolutionDeps(), options);
 const ensurePropertyPageTypes = (options = {}) =>
   ensurePropertyPageTypesOperation(getSiteResolutionDeps(), options);
 const resolveSiteIdFromGraphql = (options = {}) =>
   resolveSiteIdFromGraphqlOperation(getSiteResolutionDeps(), options);
-const mergeConfigEntriesForResolvedBaseUrl = (
-  resolvedBaseUrl: Parameters<typeof mergeConfigEntriesForResolvedBaseUrlOperation>[1],
-  preferredEntry: Parameters<typeof mergeConfigEntriesForResolvedBaseUrlOperation>[2],
-  existingEntry: Parameters<typeof mergeConfigEntriesForResolvedBaseUrlOperation>[3]
-) =>
-  mergeConfigEntriesForResolvedBaseUrlOperation(
-    getSiteResolutionDeps(),
-    resolvedBaseUrl,
-    preferredEntry,
-    existingEntry
-  );
 const ensureBaseUrlSiteId = (options = {}) =>
   ensureBaseUrlSiteIdOperation(getSiteResolutionDeps(), options);
 
@@ -983,33 +947,10 @@ function getRenderModeInspectionDeps(): RenderModeInspectionDeps {
   };
 }
 
-const normalizeRenderModeDetectionResult = (
-  payload: Parameters<typeof normalizeRenderModeDetectionResultOperation>[1]
-) =>
-  normalizeRenderModeDetectionResultOperation(getRenderModeInspectionDeps(), payload);
 const maybeAutoDetectRenderMode = (
   pageUrl: Parameters<typeof maybeAutoDetectRenderModeOperation>[1]
 ) =>
   maybeAutoDetectRenderModeOperation(getRenderModeInspectionDeps(), pageUrl);
-const detectRenderModeViaEndpoint = (
-  options: Parameters<typeof detectRenderModeViaEndpointOperation>[1] = {}
-) =>
-  detectRenderModeViaEndpointOperation(getRenderModeInspectionDeps(), options);
-const waitForTabLoadStart = (
-  tabId: Parameters<typeof waitForTabLoadStartOperation>[1],
-  timeoutMs: Parameters<typeof waitForTabLoadStartOperation>[2] = RENDER_MODE_INSPECTION_START_TIMEOUT_MS
-) =>
-  waitForTabLoadStartOperation(getRenderModeInspectionDeps(), tabId, timeoutMs);
-const waitForTabLoadComplete = (
-  tabId: Parameters<typeof waitForTabLoadCompleteOperation>[1],
-  timeoutMs: Parameters<typeof waitForTabLoadCompleteOperation>[2] = RENDER_MODE_INSPECTION_LOAD_TIMEOUT_MS,
-  options: Parameters<typeof waitForTabLoadCompleteOperation>[3] = {}
-) => waitForTabLoadCompleteOperation(getRenderModeInspectionDeps(), tabId, timeoutMs, options);
-const completeRenderModeInspectionReloadFollowUp = (
-  tabId: Parameters<typeof completeRenderModeInspectionReloadFollowUpOperation>[1],
-  operationId: Parameters<typeof completeRenderModeInspectionReloadFollowUpOperation>[2] = ""
-) =>
-  completeRenderModeInspectionReloadFollowUpOperation(getRenderModeInspectionDeps(), tabId, operationId);
 
 function getPageReconciliationDeps(): PageReconciliationDeps {
   return {
@@ -1071,19 +1012,6 @@ function buildSpinnerBusyDetails(key: string | null, entry: PopupSpinnerEntry | 
     deadlineAt: Number.isFinite(spinnerEntry.deadlineAt) ? Number(spinnerEntry.deadlineAt) : 0,
     timerMode: typeof spinnerEntry.timerMode === "string" ? spinnerEntry.timerMode : ""
   };
-}
-
-function spinnerSnapshotBlocksSurface(snapshot: PopupSpinnerSnapshot, surface: PopupSpinnerSurface) {
-  const entry: PopupSpinnerEntry | null = snapshot && snapshot.entry && typeof snapshot.entry === "object"
-    ? snapshot.entry
-    : null;
-  if (!entry) {
-    return false;
-  }
-  if (entry.blockSurfaces && typeof entry.blockSurfaces === "object") {
-    return entry.blockSurfaces[surface] === true;
-  }
-  return true;
 }
 
 function projectedSpinnerStateBlocksSurface(
@@ -1294,10 +1222,6 @@ function isRenderDetectionPopupSpinner(snapshot: PopupSpinnerSnapshot): boolean 
     ? snapshot.entry.message
     : "";
   return message === PopupText.overlay.detectingRenderMode;
-}
-
-function spinnerSnapshotBlocksPage(snapshot: PopupSpinnerSnapshot): boolean {
-  return spinnerSnapshotBlocksSurface(snapshot, "page");
 }
 
 function getPopupBusyMirrorLeaseDetails(snapshot: PopupSpinnerSnapshot): PopupBusyMirrorLeaseDetails {
@@ -1850,24 +1774,6 @@ function ensureMobileSimulationForSave() {
   return false;
 }
 
-async function ensureEditorMobileSimulation() {
-  if (isMobileSimulationActive({
-    enabled: state.currentDeviceEmulationEnabled,
-    mode: state.currentDeviceMode
-  })) {
-    return true;
-  }
-  const normalized = await helpers.updateDeviceEmulation({
-    enabled: true,
-    mode: "mobile",
-    scale: state.currentDeviceScale,
-    recalculateScale:
-      !state.currentDeviceEmulationEnabled ||
-      state.currentDeviceMode !== "mobile"
-  });
-  return Boolean(normalized && normalized.enabled && normalized.mode === "mobile");
-}
-
 async function persistDesktopPreviewEnabled(tabId: number | null | undefined, enabled: boolean) {
   if (!tabId) {
     return;
@@ -1883,7 +1789,7 @@ async function persistDesktopPreviewEnabled(tabId: number | null | undefined, en
 function resolveRelativeEndpoint(baseUrl: string, path: string) {
   try {
     return new URL(path, baseUrl).toString();
-  } catch (error) {
+  } catch (_error) {
     return "";
   }
 }
@@ -2058,7 +1964,7 @@ function formatPageTypeCandidateLabel(url: unknown) {
   try {
     const parsed = new URL(url);
     return `${parsed.pathname || "/"}${parsed.search || ""}` || "/";
-  } catch (error) {
+  } catch (_error) {
     return url;
   }
 }
@@ -2289,20 +2195,6 @@ function resetAiRunMarkingsFingerprint() {
   state.aiRunMarkingsFingerprint = null;
 }
 
-function mergeSelectorSetForBaseUrlMigration(
-  preferredSelectorSet: SelectorSet | null | undefined,
-  preferredUpdatedAt: unknown,
-  existingSelectorSet: SelectorSet | null | undefined,
-  existingUpdatedAt: unknown
-) {
-  return config.mergeSelectorSetsByTimestamp(
-    existingSelectorSet,
-    existingUpdatedAt,
-    preferredSelectorSet,
-    preferredUpdatedAt
-  );
-}
-
 function getSelectorSetFingerprint(selectorSet: SelectorSet | null | undefined) {
   const normalized = normalizeAiSelectorSet(selectorSet);
   return combineAiSelectorSet(normalized).length ? JSON.stringify(normalized) : "";
@@ -2453,14 +2345,6 @@ function rememberRenderModeInspectionSnapshot(
   return true;
 }
 
-function createConfigSyncHeaders(token: string | null | undefined) {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
-  }
-  return headers;
-}
-
 async function getStoredGlobalToken(options = {}) {
   return getGlobalToken(options);
 }
@@ -2468,7 +2352,7 @@ async function getStoredGlobalToken(options = {}) {
 function formatSyncStatusTimestamp(value = Date.now()) {
   try {
     return new Date(value).toLocaleTimeString();
-  } catch (error) {
+  } catch (_error) {
     return "";
   }
 }
@@ -2868,10 +2752,6 @@ function isSuccessfulConfigSyncResult(syncResult: ConfigSyncResult | null | unde
   return Boolean(syncResult && (syncResult.ok || syncResult.skipped));
 }
 
-function isCompletedPageConfigSyncResult(syncResult: ConfigSyncResult | null | undefined) {
-  return Boolean(syncResult && syncResult.ok && !syncResult.skipped);
-}
-
 function getCurrentPageUrl() {
   return (state.currentTab && state.currentTab.url) || "";
 }
@@ -2940,25 +2820,6 @@ interface RuntimeStatusRefreshOptions {
 interface RenderModeSetNavGuardState {
   startedAt: number;
   inspectionSeen: boolean;
-}
-
-async function setCurrentPageSaveReconciliationReason(reason: unknown): Promise<PageSaveReconciliation | null> {
-  const pageUrl = getCurrentPageUrl();
-  if (!state.currentBaseUrl || !pageUrl) {
-    return null;
-  }
-  const reconciliation = await config.setPageSaveReconciliation(state.currentBaseUrl, pageUrl, {
-    reason: typeof reason === "string" ? reason : "pending"
-  });
-  state.currentPageSaveReconciliation = reconciliation;
-  state.currentPageSaveReconciliationPending = config.isPageSaveReconciliationPending(reconciliation);
-  await messages.sendTabMessage({
-    type: "setPageSaveReconciliationPending",
-    baseUrl: state.currentBaseUrl,
-    pageUrl,
-    reason: reconciliation && reconciliation.reason ? reconciliation.reason : "pending"
-  });
-  return reconciliation;
 }
 
 async function clearCurrentPageSaveReconciliation(baseUrl = state.currentBaseUrl) {
@@ -4095,7 +3956,6 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
   const aiPreviewSessionActive = Boolean(previewActive);
   let localMatchingBaseUrl = utils.findMatchingBaseUrl(pageUrl, configs);
   let hasLocalConfigForWebsite = Boolean(localMatchingBaseUrl);
-  let discoveredBaseUrlFromGraphql = "";
   let currentSiteId = null;
   let siteIdBlockedReason = "";
   let unsupportedByGraphql = false;
@@ -4111,7 +3971,6 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
   }
   let propertyPageTypes: Array<Record<string, unknown>> = [];
   let propertyPageTypesFetchError = "";
-  let propertyPageTypesLoaded = false;
   if (
     !aiComputeRunActive &&
     !aiPreviewSessionActive &&
@@ -4146,7 +4005,6 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
       const discoveredSiteId = normalizeSiteIdValue(discoveryResult.siteId);
       if (discoveredSiteId) {
         state.siteIdLookupByBaseUrl.set(discoveredBaseUrl, discoveredSiteId);
-        discoveredBaseUrlFromGraphql = discoveredBaseUrl;
         localMatchingBaseUrl = discoveredBaseUrl;
         hasLocalConfigForWebsite = Boolean(localMatchingBaseUrl);
       }
@@ -4207,7 +4065,6 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
           force: false,
           notifyOnChange: false
         });
-        propertyPageTypesLoaded = true;
         if (propertyPageTypesResult && propertyPageTypesResult.ok) {
           propertyPageTypes = propertyPageTypesResult.pageTypes || [];
           propertyPageTypesFetchError = propertyPageTypesResult.error || "";
@@ -4215,8 +4072,7 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
           propertyPageTypesFetchError = propertyPageTypesResult.error || "";
         }
       }
-      const bootstrapCandidateSiteId = propertyPageTypesLoaded &&
-        getCurrentPageCandidateState(pageUrl, propertyPageTypes).status === "candidate"
+      const bootstrapCandidateSiteId = getCurrentPageCandidateState(pageUrl, propertyPageTypes).status === "candidate"
         ? currentSiteId
         : null;
       if (bootstrapCandidateSiteId && isPropertyLockCollaborationEnabled()) {
@@ -4512,6 +4368,7 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
       contentModeStatus.markingEnabled
   );
   let isEnabled = toggleEnabled;
+  void isEnabled;
   const storedDeviceState = currentTabId
     ? await emulation.reconcileDeviceEmulationState(currentTabId)
     : {
@@ -4592,7 +4449,6 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
   );
   state.currentSiteId = liveSiteId || "";
   if (
-    !propertyPageTypesLoaded &&
     tabInScope &&
     state.currentBaseUrl &&
     liveSiteId &&
@@ -4606,7 +4462,6 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
       force: false,
       notifyOnChange: false
     });
-    propertyPageTypesLoaded = true;
     if (propertyPageTypesResult && propertyPageTypesResult.ok) {
       propertyPageTypes = propertyPageTypesResult.pageTypes || [];
       propertyPageTypesFetchError = propertyPageTypesResult.error || "";
@@ -4981,7 +4836,6 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
     }
   }
   const currentSelectors = getCurrentSelectorsFromConfig();
-  const latestAvailableSelectors = getLatestAvailableSelectorsFromConfig();
   const lastSaved = getLastSubmittedSelectorsFromConfig();
   const selectorCount = combineAiSelectorSet(currentSelectors).length;
   const hasNewSelectors =
@@ -5021,10 +4875,10 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
     latestRuntimeStatus.inspectionStatus.ok
   ) {
     inspectionStatus = latestRuntimeStatus.inspectionStatus;
+    void inspectionStatus;
     contentInspectionPending = Boolean(latestRuntimeStatus.inspectionPending);
     if (latestRuntimeStatus.inspectionStatus.markingEnabled) {
       isEnabled = true;
-      toggleEnabled = true;
     }
   }
   const pageSaveReconciliationPending = Boolean(state.currentPageSaveReconciliationPending);
@@ -7025,12 +6879,13 @@ async function handleClearDomainCache() {
     uiModule.showToast(PopupText.cache.toastUnsupportedPage);
     return;
   }
-  let hostname = origin;
-  try {
-    hostname = new URL(tabUrl).hostname;
-  } catch (error) {
-    hostname = origin;
-  }
+  const hostname = (() => {
+    try {
+      return new URL(tabUrl).hostname;
+    } catch (_error) {
+      return origin;
+    }
+  })();
   const confirmed = window.confirm(formatClearDomainCacheConfirm(hostname));
   if (!confirmed) {
     return;
@@ -7112,7 +6967,7 @@ async function handleConfigEndpointSet() {
   }
   try {
     new URL(endpointValue);
-  } catch (error) {
+  } catch (_error) {
     uiModule.showToast(PopupText.configuration.endpointEnterValid);
     return;
   }
@@ -7142,7 +6997,7 @@ async function handleEndpointSet() {
   }
   try {
     new URL(endpointValue);
-  } catch (error) {
+  } catch (_error) {
     uiModule.showToast(PopupText.configuration.aiEndpointEnterValid);
     return;
   }
@@ -7237,7 +7092,7 @@ async function handleLoginAction() {
         loginSucceeded = true;
       }
     }
-  } catch (error) {
+  } catch (_error) {
     loginFailureMessage = PopupText.authentication.toastRequestFailed;
   } finally {
     state.aiRequestInFlight = null;
@@ -7325,7 +7180,7 @@ async function applyLocalPageDiscard() {
 }
 
 async function requestAiRunStart({
-  endpointValue = "",
+  endpointValue: _endpointValue = "",
   payload = null,
   payloadKey = ""
 } = {}) {
@@ -7353,6 +7208,8 @@ async function requestAiRunStart({
   }
   return { ok: true, sessionId: response.sessionId.trim() };
 }
+
+void requestAiRunStart;
 
 async function requestAiRunStatus({ sessionId = "" } = {}) {
   const response = await messages.sendRuntimeMessage({
@@ -7389,7 +7246,7 @@ async function requestAiRunResult({ sessionId = "" } = {}): Promise<AiRunResultR
 
 async function applyComputedSelectorSet(
   selectorSet: SelectorSet,
-  { currentPageUrl = "", tokenValue = "" }: ComputedSelectorSetApplyOptions = {}
+  { currentPageUrl: _currentPageUrl = "", tokenValue: _tokenValue = "" }: ComputedSelectorSetApplyOptions = {}
 ) {
   const selectorsChanged =
     !config.isSelectorSetCurrentForRenderMode(state.currentConfig, "selectors") ||
@@ -7536,7 +7393,7 @@ function getAiRunCommandFailureMessage(response: PopupFailureLike) {
   return PopupText.ai.saveCurrentPageBeforeComputing;
 }
 
-async function continueAiRunPolling({ endpointValue = "", tokenValue = "", currentPageUrl = "" } = {}) {
+async function continueAiRunPolling({ endpointValue: _endpointValue = "", tokenValue = "", currentPageUrl = "" } = {}) {
   while (state.aiRequestInFlight === "compute" && state.aiRunSessionId) {
     const sessionId = state.aiRunSessionId;
     const remainingMs = getAiRunRemainingMs(state.aiRunDeadlineAt);
@@ -7761,7 +7618,7 @@ async function submitSelectorSetToServer(options: SelectorSetSubmitOptions = {})
     return { ok: false, skipped: true, reason: PopupText.ai.noSelectorsToSubmit };
   }
 
-  const { stageBaseValue, configEndpointValue, endpointValue } = await helpers.loadGlobalAiSettings();
+  const { stageBaseValue, configEndpointValue, endpointValue: _endpointValue } = await helpers.loadGlobalAiSettings();
   const graphqlEndpoint = buildGraphqlEndpointFromStageBase(stageBaseValue);
   if (!graphqlEndpoint) {
     return { ok: false, skipped: true, reason: PopupText.authentication.toastSetStageBaseFirst };
@@ -7873,7 +7730,7 @@ async function submitSelectorSetToServer(options: SelectorSetSubmitOptions = {})
       alertOnCurrentReplacement: false
     });
     return { ok: true, baseUrl: effectiveBaseUrl, configSyncResult };
-  } catch (error) {
+  } catch (_error) {
     return { ok: false, reason: PopupText.ai.submitRequestFailed };
   } finally {
     state.aiRequestInFlight = null;

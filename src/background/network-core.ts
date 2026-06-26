@@ -4,12 +4,6 @@ import {
   normalizeStageBase
 } from "../common/lynx-live-pages";
 
-type BackgroundNetworkCredentials = {
-  endpointValue: string;
-  tokenValue: string;
-  stageBaseValue: string;
-};
-
 type ResolveBackgroundNetworkCredentialsOptions = {
   endpointValue?: unknown;
   tokenValue?: unknown;

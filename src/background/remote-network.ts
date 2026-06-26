@@ -435,7 +435,7 @@ export async function requestAiRunResultSnapshot(options = {}) {
 
 export async function fetchStaticPageHtmlForBackground(url: unknown) {
   const targetUrl = typeof url === "string" ? url.trim() : "";
-  let parsedUrl = null;
+  let parsedUrl: URL;
   try {
     parsedUrl = new URL(targetUrl);
   } catch {

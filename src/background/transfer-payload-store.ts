@@ -101,7 +101,7 @@ export async function getTransferPayload(
     return { ok: false, reason: "missing_key", payloadKey: "" };
   }
 
-  let payloadStore = null;
+  let payloadStore: Awaited<ReturnType<typeof utils.storageGet>>;
   try {
     payloadStore = await utils.storageGet(getSessionStorageArea(), normalizedPayloadKey);
   } catch {
@@ -169,7 +169,7 @@ export async function sweepStaleTransferPayloads(options = {}) {
   const nowValue = Number(resolvedOptions.now);
   const now = Number.isFinite(nowValue) ? nowValue : Date.now();
 
-  let allSession = null;
+  let allSession: Awaited<ReturnType<typeof utils.storageGet>>;
   try {
     allSession = await utils.storageGet(getSessionStorageArea(), null);
   } catch {
@@ -213,14 +213,15 @@ export function summarizeTransferPayloadForLog(payload: unknown): {
   const keys = payload && typeof payload === "object" && !Array.isArray(payload)
     ? Object.keys(payload)
     : [];
-  let byteEstimate = 0;
-  try {
-    byteEstimate = typeof payload === "undefined"
-      ? 0
-      : new TextEncoder().encode(JSON.stringify(payload)).length;
-  } catch {
-    byteEstimate = 0;
-  }
+  const byteEstimate = (() => {
+    try {
+      return typeof payload === "undefined"
+        ? 0
+        : new TextEncoder().encode(JSON.stringify(payload)).length;
+    } catch {
+      return 0;
+    }
+  })();
   return {
     type,
     keys,

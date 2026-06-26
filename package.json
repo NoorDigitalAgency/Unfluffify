@@ -31,6 +31,7 @@
     "@vitejs/plugin-react": "^6.0.3",
     "@wxt-dev/module-react": "^1.2.2",
     "eslint": "^10.5.0",
+    "eslint-plugin-unused-imports": "^4.4.1",
     "globals": "^17.7.0",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.62.0",

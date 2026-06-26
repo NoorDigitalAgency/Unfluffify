@@ -69,13 +69,14 @@ export function buildPageSaveUiState(options: BuildPageSaveUiStateOptions = {}) 
     pageSaveReconciliationPending ||
     !currentDraftDirty;
 
-  let pageDraftStatusText = "";
-  let pageDraftStatusTone = "muted";
+  let pageDraftStatusText: string;
+  let pageDraftStatusTone: string;
   let pageSessionNoticeVisible = false;
   let pageSessionNoticeText = "";
 
   if (!pageControlsVisible) {
     pageDraftStatusText = "";
+    pageDraftStatusTone = "success";
   } else if (pageSaveReconciliationPending) {
     pageDraftStatusText = getPageSaveReconciliationStatusText(reconciliation);
     pageDraftStatusTone = "warning";

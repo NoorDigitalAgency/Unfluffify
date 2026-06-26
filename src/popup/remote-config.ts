@@ -600,7 +600,7 @@ export async function syncBaseConfigToServer(deps: RemoteConfigDeps, options: Sy
       typeof sourceConfig.pageMarkings === "object"
         ? sourceConfig.pageMarkings[pageUrl]
         : null;
-    let filterPageMarking = (url: string, entry?: { pageType?: unknown }) =>
+    let filterPageMarking = (url: string, _entry?: { pageType?: unknown }) =>
       includeAllLocalPageMarkings ||
       backendSavedPageUrls.has(url) ||
       (includeCurrentPageMarking && url === pageUrl);
@@ -620,8 +620,8 @@ export async function syncBaseConfigToServer(deps: RemoteConfigDeps, options: Sy
       if (includeCurrentPageMarking && currentPageEntry) {
         activePageMarkingKeys.add(deps.buildPageMarkingKey(pageUrl, currentPageEntry.pageType));
       }
-      filterPageMarking = (url: string, entry?: { pageType?: unknown }) =>
-        activePageMarkingKeys.has(deps.buildPageMarkingKey(url, entry && entry.pageType));
+      filterPageMarking = (url: string, _entry?: { pageType?: unknown }) =>
+        activePageMarkingKeys.has(deps.buildPageMarkingKey(url, _entry && _entry.pageType));
     }
     const payload = createConfigSyncPayload(resolvedBaseUrl, sourceConfig, {
       filterPageMarking
@@ -711,7 +711,7 @@ export async function syncBaseConfigToServer(deps: RemoteConfigDeps, options: Sy
         replacedCurrentPage: mergeResult.replacedCurrentPage,
         baseUrl: resolvedBaseUrl
       };
-    } catch (error) {
+    } catch (_error) {
       if (attempt + 1 < attempts) {
         await deps.waitForRetryDelay(retryDelayMs);
         retryDelayMs = Math.min(retryDelayMs * 2, 10000);

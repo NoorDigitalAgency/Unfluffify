@@ -44,7 +44,7 @@ function normalizeTabStateBaseUrl(value: unknown): string {
   if (typeof value !== "string" || !value) {
     return "";
   }
-  let parsed = null;
+  let parsed: URL;
   try {
     parsed = new URL(value);
   } catch {

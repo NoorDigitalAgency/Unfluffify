@@ -1,5 +1,6 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
+import { readFileSync } from "./file-kit.ts";
 
 import {
   chooseExcludeParentBoundaryTarget,
@@ -12,6 +13,8 @@ import {
   DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS,
   DEFAULT_EXCLUDED_TOGGLEABLE_SELECTORS
 } from "../src/common/constants.js";
+
+const coreSource = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
 
 test("toggleable boundary self-markability restores 052c direct-text and descendant rules", () => {
   assert.equal(
@@ -65,6 +68,22 @@ test("toggleable default boundary collection trusts structural auto-default elig
     }),
     false
   );
+});
+
+test("reconcile candidate scans keep immutable and excluded-parent guards ahead of self-markable fallback", () => {
+  const syncScan = coreSource.slice(
+    coreSource.indexOf("function scanReconcileDocumentCandidates("),
+    coreSource.indexOf("async function scanReconcileDocumentCandidatesAsync(")
+  );
+  const asyncScan = coreSource.slice(
+    coreSource.indexOf("async function scanReconcileDocumentCandidatesAsync("),
+    coreSource.indexOf("function collectDefaultHighlightTargets(")
+  );
+
+  assert.match(syncScan, /const autoToggleableDefault = !current\.withinExcludedParent && !withinImmutable/);
+  assert.match(syncScan, /\} else if \(!current\.withinExcludedParent && !withinImmutable\) \{/);
+  assert.match(asyncScan, /const autoToggleableDefault = !current\.withinExcludedParent && !withinImmutable/);
+  assert.match(asyncScan, /\} else if \(!current\.withinExcludedParent && !withinImmutable\) \{/);
 });
 
 test("Shift parent chooser prefers 052c structured, toggleable, then broadest markable ancestors", () => {

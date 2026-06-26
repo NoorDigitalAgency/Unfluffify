@@ -11,7 +11,6 @@ import * as stateModule from "./state";
 const { state } = stateModule;
 const FALLBACK_PROPERTY_PAGE_TYPES_REFRESH_INTERVAL_MS = 120 * 1000;
 
-type StoredPageMarkings = Record<string, Record<string, unknown>>;
 type StoredConfigEntry = Config;
 type StoredConfigs = Record<string, StoredConfigEntry>;
 
@@ -298,7 +297,7 @@ export async function resolveSiteIdFromGraphql(_deps: SiteResolutionDeps, option
       baseUrl,
       notFound: false
     };
-  } catch (error) {
+  } catch (_error) {
     return { ok: false, siteId: null, baseUrl: "", notFound: false };
   }
 }

@@ -1,5 +1,6 @@
 import js from "@eslint/js";
 import globals from "globals";
+import unusedImports from "eslint-plugin-unused-imports";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
@@ -32,20 +33,33 @@ export default tseslint.config(
   },
   {
     files: [
-      "src/background.ts",
-      "src/content-main.ts",
-      "src/popup.ts",
-      "src/background/**/*.ts",
-      "src/common/**/*.ts",
-      "src/content/**/*.ts",
-      "src/offscreen/**/*.ts",
-      "src/popup/**/*.ts",
-      "src/popup/**/*.tsx",
+      "src/*.{ts,tsx}",
+      "src/**/*.{ts,tsx}",
+      "tests/**/*.ts",
+    ],
+    plugins: {
+      "unused-imports": unusedImports,
+    },
+    rules: {
+      "unused-imports/no-unused-imports": "error",
+      "@typescript-eslint/no-unused-vars": ["error", {
+        argsIgnorePattern: "^_",
+        caughtErrorsIgnorePattern: "^_",
+        ignoreRestSiblings: true,
+        varsIgnorePattern: "^_",
+      }],
+      "no-useless-assignment": "error",
+      "no-useless-escape": "error",
+      "prefer-spread": "error",
+    },
+  },
+  {
+    files: [
+      "src/common/page-motion-freeze-bridge.ts",
+      "src/common/page-motion-freeze-control.ts",
     ],
     rules: {
       "@typescript-eslint/no-unused-vars": "off",
-      "no-useless-assignment": "off",
-      "no-useless-escape": "off",
       "prefer-spread": "off",
     },
   },

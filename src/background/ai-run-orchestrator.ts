@@ -1,4 +1,4 @@
-import type { Config, PageMarkingEntry } from "../types/config.ts";
+import type { Config } from "../types/config.ts";
 
 type TabLike = number | string | null | undefined;
 type SiteIdLike = number | string | null | undefined;

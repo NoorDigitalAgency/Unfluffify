@@ -24,15 +24,17 @@ type AiPreviewShowMessage = {
 
 export function createAiPreviewShowHandler(deps: AiPreviewShowDeps) {
   function hydratePreviewItems(selectorSet: unknown) {
-    let defaultItems: unknown[] = [];
-    let expandedItems: unknown[] = [];
-    try {
-      defaultItems = deps.collectPreviewItems(selectorSet);
-      expandedItems = deps.buildAiPreviewItemsWithCategories(selectorSet, defaultItems);
-    } catch {
-      defaultItems = [];
-      expandedItems = [];
-    }
+    const [defaultItems, expandedItems] = (() => {
+      try {
+        const nextDefaultItems = deps.collectPreviewItems(selectorSet);
+        return [
+          nextDefaultItems,
+          deps.buildAiPreviewItemsWithCategories(selectorSet, nextDefaultItems)
+        ];
+      } catch {
+        return [[], []];
+      }
+    })();
     if (!deps.isAiPreviewActive()) {
       return;
     }

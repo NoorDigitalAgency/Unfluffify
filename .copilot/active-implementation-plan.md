@@ -1,6 +1,6 @@
 # Active Implementation Plan: Test cleanup → TS uniformity → React port → drop Preact
 
-Last updated: 2026-06-26
+Last updated: 2026-06-27
 
 Status: active. This is the single active handoff plan. `.copilot/plan.md` is the
 durable architecture index and `.copilot/knowledge.md` is durable knowledge; all
@@ -47,8 +47,15 @@ by deleting the unused vendored Preact files and the stale vendor ignore,
 leaving the popup stack React-only. The latest checkpoint then completed Phase G
 by converting relative `.js` source imports under `src/**/*.{ts,tsx}` to
 extensionless specifiers while preserving the frozen page-motion pair and
-updating the coupled source-contract tests. The next active execution step is
-Phase H: the final lint/dead-code cleanup pass.
+updating the coupled source-contract tests. The latest checkpoint then completed
+Phase H: the final lint/dead-code cleanup pass. Unused catch bindings renamed to
+`_error`/`_e`/`_fallbackError`; unused vars, functions, and type imports removed;
+no-useless-assignment patterns fixed by removing the dead first assignment or
+prefixing unused destructured args with `_`; the no-useless-escape in
+`src/common/config.ts` fixed; and the locked freeze pair
+(`page-motion-freeze-bridge.ts` / `page-motion-freeze-control.ts`) exempted from
+`@typescript-eslint/no-unused-vars` and `prefer-spread` via a file-level ESLint
+override rather than editing their content. All phases are now complete.
 
 ## 1. Goal
 
@@ -262,19 +269,29 @@ table):
   `.js` artifact names where required.
 - Validation: `pnpm lint && pnpm check && pnpm test && pnpm build` green.
 
-### Phase H — Lint + dead-code cleanup pass
+### Phase H — Lint + dead-code cleanup pass — complete
 
-- Add `eslint-plugin-unused-imports`; enable
-  `unused-imports/no-unused-imports: "error"` (auto-fixable) and turn
+- Added `eslint-plugin-unused-imports`; enabled
+  `unused-imports/no-unused-imports: "error"` (auto-fixable) and turned
   `@typescript-eslint/no-unused-vars` back to `"error"`
-  (`argsIgnorePattern: "^_"`); re-enable `no-useless-assignment`,
-  `no-useless-escape`, `prefer-spread`. Apply to BOTH runtime `src` globs and
-  `tests/**`. Keep `ban-ts-comment: off` only where the freeze pair needs it.
-- Run `eslint . --fix` to strip dead imports, then manually remove remaining
-  unused vars/exports, leftover commented-out port scaffolding, and now-unused
-  types. Removal only; no behavior change.
-- Validation: final `pnpm verify` + `pnpm zip` + `pnpm browser:live
-  <target-url>` live smoke.
+  (`argsIgnorePattern: "^_"`); re-enabled `no-useless-assignment`,
+  `no-useless-escape`, `prefer-spread`. Applied to BOTH runtime `src` globs and
+  `tests/**`.
+- Added file-level ESLint override for the locked freeze pair
+  (`src/common/page-motion-freeze-bridge.ts` and
+  `src/common/page-motion-freeze-control.ts`) disabling
+  `@typescript-eslint/no-unused-vars` and `prefer-spread` without editing their
+  content.
+- Renamed all unused catch bindings (`error`, `e`, `fallbackError`) to
+  `_error`, `_e`, `_fallbackError` to satisfy `caughtErrorsIgnorePattern: "^_"`.
+- Removed/deleted dead functions, types, and imports across all flagged files.
+- Fixed `no-useless-assignment` patterns by removing dead first-assignments.
+- Fixed `no-useless-escape` in `src/common/config.ts` (unnecessary `\-` in
+  character class).
+- Prefixed unused function/callback args with `_`.
+- Validation: `pnpm lint && pnpm check && pnpm test && pnpm build && pnpm verify
+  && pnpm zip` all green. Live smoke (`pnpm browser:live <target-url>`) still
+  requires an explicit target URL from the user.
 
 ## 7. Test matrix
 

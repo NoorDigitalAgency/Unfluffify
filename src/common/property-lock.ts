@@ -153,7 +153,7 @@ export function buildPropertyLockWssUrl(endpointUrl: string | null | undefined, 
     url = trimmed.includes("://")
       ? new URL(trimmed)
       : new URL(`https://${trimmed}`);
-  } catch (error) {
+  } catch (_error) {
     return "";
   }
   const hostname = (url.hostname || "").replace(/^\.+/, "").replace(/\.+$/, "");

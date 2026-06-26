@@ -109,11 +109,6 @@ interface SnapshotXPathOptions {
   extraStripSelectors?: unknown;
 }
 
-interface ClassSelectorInfo {
-  classes: string[];
-  selector: string;
-}
-
 interface SelectorContext {
   selectorSet: NormalizedAiSelectorSet;
   hasAiSelectors: boolean;
@@ -497,10 +492,6 @@ interface PageMarkingEntryLookupCacheEntry {
   entriesByLooseKey: Map<string, PageMarkingEntry>;
 }
 
-interface PageMarkingSource {
-  pageMarkings?: unknown;
-}
-
 interface ScheduleRenderOptions {
   delay?: number;
   minInterval?: number;
@@ -599,10 +590,6 @@ function hasScrollIntoViewMethod(
   node: Element
 ): node is Element & { scrollIntoView: (options?: ScrollIntoViewOptions) => void } {
   return typeof (node as { scrollIntoView?: unknown }).scrollIntoView === "function";
-}
-
-function hasClosestMethod(node: EventTarget | null): node is Element & { closest: (selector: string) => Element | null } {
-  return isElementNode(node) && typeof (node as { closest?: unknown }).closest === "function";
 }
 
 function isTabStateResponse(value: unknown): value is TabStateResponse {
@@ -2109,9 +2096,8 @@ function isSelfMarkableWithoutParentMode(
     }
     return true;
   }
-  let hasMarkedDescendant = false;
   const explicitMarkedDescendantStartedAt = diagnostics ? nowMs() : 0;
-  hasMarkedDescendant = hasExplicitlyMarkedDescendant(el);
+  const hasMarkedDescendant = hasExplicitlyMarkedDescendant(el);
   if (diagnostics) {
     diagnostics.explicitMarkedDescendantCount += 1;
     diagnostics.explicitMarkedDescendantElapsedMs += nowMs() - explicitMarkedDescendantStartedAt;
@@ -2556,90 +2542,6 @@ function isWithinExplicitExcludedXpath(
   return false;
 }
 
-function escapeCssIdentifier(value: string): string {
-  if (window.CSS && typeof window.CSS.escape === "function") {
-    return window.CSS.escape(value);
-  }
-  return value.replace(/[^a-zA-Z0-9_-]/g, (char) => `\\${char}`);
-}
-
-function getClassSelector(node: Element | null | undefined): ClassSelectorInfo | "" {
-  if (!node || !node.classList) {
-    return "";
-  }
-  const classes = Array.from(node.classList)
-    .map((value) => value.trim())
-    .filter((value) => value.length > 0 && !value.startsWith("uf-"));
-  if (!classes.length) {
-    return "";
-  }
-  return {
-    classes,
-    selector: `.${classes.map((value) => escapeCssIdentifier(value)).join(".")}`
-  };
-}
-
-function getNthOfTypeIndex(el: Element): number {
-  let index = 1;
-  let sibling = el.previousElementSibling;
-  while (sibling) {
-    if (sibling.tagName === el.tagName) {
-      index += 1;
-    }
-    sibling = sibling.previousElementSibling;
-  }
-  return index;
-}
-
-/**
- * Builds a CSS selector path for an element, including class selectors or nth-of-type.
- * Used primarily for debugging or advanced element targeting.
- * @private
- * @param {Element} el - The element to build a selector path for
- * @returns {string} A CSS selector path from body to the element
- */
-function buildCssSelectorPath(el: Element | null | undefined): string {
-  if (!isElementNode(el)) {
-    return "";
-  }
-  if (el === document.documentElement || el === document.body) {
-    return "";
-  }
-  const parts = [];
-  let node: Element | null = el;
-  while (node && node.nodeType === 1) {
-    if (node === document.documentElement || node === document.body) {
-      break;
-    }
-    const tag = node.tagName.toLowerCase();
-    const classInfo = getClassSelector(node);
-    const classSelector = classInfo ? classInfo.selector : "";
-    let segment = `${tag}${classSelector}`;
-    if (!classSelector) {
-      const index = getNthOfTypeIndex(node);
-      segment = `${tag}:nth-of-type(${index})`;
-    } else if (classInfo && node.parentElement) {
-      const nodeTagName = node.tagName;
-      const siblings = Array.from(node.parentElement.children).filter((sibling) => {
-        if (sibling.tagName !== nodeTagName) {
-          return false;
-        }
-        return classInfo.classes.every((cls: string) => sibling.classList.contains(cls));
-      });
-      if (siblings.length > 1) {
-        const index = getNthOfTypeIndex(node);
-        segment = `${segment}:nth-of-type(${index})`;
-      }
-    }
-    parts.unshift(segment);
-    if (node === document.documentElement) {
-      break;
-    }
-    node = node.parentElement;
-  }
-  return parts.join(" > ");
-}
-
 function collectXPathElements(xpaths: Iterable<string> | null | undefined): Set<Element> {
   const elements = new Set<Element>();
   for (const xpath of xpaths || []) {
@@ -2681,42 +2583,6 @@ function hasExplicitUserMarkings(entry: PageMarkingEntry | null | undefined): bo
     }
   }
   return false;
-}
-
-function isWithinExcludedParents(el: Element | null, excludedParents: Set<Element> | null | undefined): boolean {
-  if (!el || !excludedParents || excludedParents.size === 0) {
-    return false;
-  }
-  for (const parent of excludedParents) {
-    if (parent && parent !== el && parent.contains(el)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-function collectExcludedParentElements(items: Array<XpathEntry | null | undefined> | null | undefined): Set<Element> {
-  const parents = new Set<Element>();
-  if (!Array.isArray(items)) {
-    return parents;
-  }
-  for (const item of items) {
-    if (!item || !item.xpath || !item.excluded) {
-      continue;
-    }
-    const el = getElementFromXPath(item.xpath);
-    if (!isElementNode(el)) {
-      continue;
-    }
-    if (isWithinConsentElement(el)) {
-      continue;
-    }
-    if (isWithinImmutableExcluded(el)) {
-      continue;
-    }
-    parents.add(el);
-  }
-  return parents;
 }
 
 function scanReconcileDocumentCandidates(
@@ -2784,25 +2650,24 @@ function scanReconcileDocumentCandidates(
     }
     const withinImmutable = isWithinImmutableExcluded(node);
     const isExcludedParentBoundary = hasExcludedParents && excludedParentSet.has(node);
-    let autoToggleableDefault = false;
-    if (
-      !current.withinExcludedParent &&
-      !withinImmutable
-    ) {
-      const autoDefaultStartedAt = nowMs();
-      autoToggleableDefault = matchesAutoToggleableDefaultExcluded(node) && isTextualContainer(node);
-      stats.autoDefaultElapsedMs += nowMs() - autoDefaultStartedAt;
-      stats.autoDefaultCount += 1;
-      if (autoToggleableDefault) {
+    const autoToggleableDefault = !current.withinExcludedParent && !withinImmutable
+      ? (() => {
+          const autoDefaultStartedAt = nowMs();
+          const value = matchesAutoToggleableDefaultExcluded(node) && isTextualContainer(node);
+          stats.autoDefaultElapsedMs += nowMs() - autoDefaultStartedAt;
+          stats.autoDefaultCount += 1;
+          return value;
+        })()
+      : false;
+    if (autoToggleableDefault) {
+      toggleableCandidates.push(node);
+    } else if (!current.withinExcludedParent && !withinImmutable) {
+      const selfMarkableStartedAt = nowMs();
+      const selfMarkable = isSelfMarkableWithoutParentMode(node, { __diagnostics: stats });
+      stats.selfMarkableElapsedMs += nowMs() - selfMarkableStartedAt;
+      stats.selfMarkableCount += 1;
+      if (selfMarkable) {
         toggleableCandidates.push(node);
-      } else {
-        const selfMarkableStartedAt = nowMs();
-        const selfMarkable = isSelfMarkableWithoutParentMode(node, { __diagnostics: stats });
-        stats.selfMarkableElapsedMs += nowMs() - selfMarkableStartedAt;
-        stats.selfMarkableCount += 1;
-        if (selfMarkable) {
-          toggleableCandidates.push(node);
-        }
       }
     }
     if (
@@ -2900,25 +2765,24 @@ async function scanReconcileDocumentCandidatesAsync(
     }
     const withinImmutable = isWithinImmutableExcluded(node);
     const isExcludedParentBoundary = hasExcludedParents && excludedParentSet.has(node);
-    let autoToggleableDefault = false;
-    if (
-      !current.withinExcludedParent &&
-      !withinImmutable
-    ) {
-      const autoDefaultStartedAt = nowMs();
-      autoToggleableDefault = matchesAutoToggleableDefaultExcluded(node) && isTextualContainer(node);
-      stats.autoDefaultElapsedMs += nowMs() - autoDefaultStartedAt;
-      stats.autoDefaultCount += 1;
-      if (autoToggleableDefault) {
+    const autoToggleableDefault = !current.withinExcludedParent && !withinImmutable
+      ? (() => {
+          const autoDefaultStartedAt = nowMs();
+          const value = matchesAutoToggleableDefaultExcluded(node) && isTextualContainer(node);
+          stats.autoDefaultElapsedMs += nowMs() - autoDefaultStartedAt;
+          stats.autoDefaultCount += 1;
+          return value;
+        })()
+      : false;
+    if (autoToggleableDefault) {
+      toggleableCandidates.push(node);
+    } else if (!current.withinExcludedParent && !withinImmutable) {
+      const selfMarkableStartedAt = nowMs();
+      const selfMarkable = isSelfMarkableWithoutParentMode(node, { __diagnostics: stats });
+      stats.selfMarkableElapsedMs += nowMs() - selfMarkableStartedAt;
+      stats.selfMarkableCount += 1;
+      if (selfMarkable) {
         toggleableCandidates.push(node);
-      } else {
-        const selfMarkableStartedAt = nowMs();
-        const selfMarkable = isSelfMarkableWithoutParentMode(node, { __diagnostics: stats });
-        stats.selfMarkableElapsedMs += nowMs() - selfMarkableStartedAt;
-        stats.selfMarkableCount += 1;
-        if (selfMarkable) {
-          toggleableCandidates.push(node);
-        }
       }
     }
     if (
@@ -2946,22 +2810,6 @@ async function scanReconcileDocumentCandidatesAsync(
     silentWhitespaceCandidates,
     stats
   };
-}
-
-function collectToggleableTargets(
-  immutableExcluded: ElementCollection,
-  excludedParents: ElementCollection
-): Element[] {
-  return scanReconcileDocumentCandidates(immutableExcluded, excludedParents).toggleableCandidates;
-}
-
-async function collectToggleableTargetsAsync(
-  immutableExcluded: ElementCollection,
-  excludedParents: ElementCollection,
-  options: ReconcileScanOptions = {}
-): Promise<Element[]> {
-  const scanned = await scanReconcileDocumentCandidatesAsync(immutableExcluded, excludedParents, options);
-  return scanned.toggleableCandidates;
 }
 
 function collectDefaultHighlightTargets(
@@ -3288,7 +3136,7 @@ function isSelectorExcludedElement(
   el: Element,
   excludedElements: Set<Element>,
   includedElements: Set<Element>,
-  inclusionContextSet: Set<Element>
+  _inclusionContextSet: Set<Element>
 ): boolean {
   return isRawSelectorExcludedElement(el, excludedElements, includedElements);
 }
@@ -3345,13 +3193,11 @@ function isDefinitelyHiddenSubtreeElement(el: Element | null | undefined): boole
   if (!el || el.nodeType !== 1) {
     return true;
   }
-  let theoreticallyHidden = false;
   try {
-    theoreticallyHidden = isTheoreticallyInvisibleNode(el, window.getComputedStyle(el));
+    if (!isTheoreticallyInvisibleNode(el, window.getComputedStyle(el))) {
+      return false;
+    }
   } catch {
-    return false;
-  }
-  if (!theoreticallyHidden) {
     return false;
   }
   return !isActuallyVisibleToUser(el);
@@ -3431,7 +3277,7 @@ function hasRenderableTextForHighlight(
 function hasRenderableTextForExcludedHighlight(
   el: Element | null | undefined,
   includedElements: Set<Element>,
-  inclusionContextSet: Set<Element>
+  _inclusionContextSet: Set<Element>
 ): boolean {
   if (!el || el.nodeType !== 1) {
     return false;
@@ -4175,21 +4021,6 @@ function setEntrySilentWhitespaceExcludedXpaths(
   });
 }
 
-function isXpathCoveredByAncestor(
-  xpath: string | null | undefined,
-  ancestorXpaths: Iterable<string> | null | undefined
-): boolean {
-  if (!xpath || !ancestorXpaths) {
-    return false;
-  }
-  for (const ancestorXpath of ancestorXpaths) {
-    if (ancestorXpath && ancestorXpath !== xpath && isXPathDescendant(ancestorXpath, xpath)) {
-      return true;
-    }
-  }
-  return false;
-}
-
 function isStaleSilentWhitespaceExclusion(
   xpath: string,
   el: Element | null | undefined,
@@ -4491,7 +4322,7 @@ function getExtensionResourceUrl(path: string | null | undefined): string {
   }
   try {
     return utils.getExtensionResourceUrl(path) || "";
-  } catch (error) {
+  } catch (_error) {
     return "";
   }
 }
@@ -4510,69 +4341,6 @@ function getMaterialDesignIconFontFaceCss() {
       font-display: block;
     }
   `;
-}
-
-function getViewportHeightForPageInspection() {
-  if (typeof document === "undefined" || typeof window === "undefined") {
-    return 0;
-  }
-  return getPositiveFiniteMax([
-    window.innerHeight,
-    window.visualViewport?.height,
-    document.documentElement?.clientHeight,
-    document.body?.clientHeight
-  ]);
-}
-
-function getDocumentScrollHeightForPageInspection() {
-  if (typeof document === "undefined" || typeof window === "undefined") {
-    return 0;
-  }
-  return getPositiveFiniteMax([
-    document.documentElement?.scrollHeight,
-    document.body?.scrollHeight,
-    document.documentElement?.offsetHeight,
-    document.body?.offsetHeight,
-    document.documentElement?.clientHeight,
-    document.body?.clientHeight
-  ]);
-}
-
-function getMaxScrollYForPageInspection() {
-  if (typeof document === "undefined" || typeof window === "undefined") {
-    return 0;
-  }
-  const viewportHeight = getViewportHeightForPageInspection();
-  if (!viewportHeight) {
-    return 0;
-  }
-  const documentHeight = getDocumentScrollHeightForPageInspection();
-  return Math.max(0, Math.round(documentHeight - viewportHeight));
-}
-
-function scrollWindowInstantlyTo(x: unknown, y: unknown): boolean {
-  if (typeof window === "undefined") {
-    return false;
-  }
-  try {
-    if (typeof window.scrollTo === "function") {
-      window.scrollTo(Number(x) || 0, Number(y) || 0);
-      return true;
-    }
-    const documentElement = typeof document !== "undefined" ? document.documentElement : null;
-    const body = typeof document !== "undefined" ? document.body : null;
-    if (documentElement) {
-      documentElement.scrollLeft = Number(x) || 0;
-      documentElement.scrollTop = Number(y) || 0;
-    }
-    if (body) {
-      body.scrollLeft = Number(x) || 0;
-      body.scrollTop = Number(y) || 0;
-    }
-    return Boolean(documentElement || body);
-  } catch (error) {
-    return false;
-  }
 }
 
 function ensurePageInspectionStyle() {
@@ -5516,7 +5284,7 @@ function sendPageMotionFreezeControlThroughBackground(
     // The runtime response resolves only after the background relays the command
     // into the page (MAIN) world, so awaiting this confirms the lock is applied.
     return utils.sendRuntimeMessage(message).catch(() => {});
-  } catch (error) {
+  } catch (_error) {
     // Best-effort page-world motion control; CSS/Web Animations freezing still applies.
     return Promise.resolve();
   }
@@ -5553,7 +5321,7 @@ function restorePageInspectionLazyLoadingSuppression() {
     try {
       restorer();
       return;
-    } catch (error) {
+    } catch (_error) {
       // Fall through to direct cleanup below.
     }
   }
@@ -5566,10 +5334,10 @@ function getDocumentAnimations(): Animation[] {
   }
   try {
     return Array.from((document as DocumentWithSubtreeAnimations).getAnimations({ subtree: true }) || []);
-  } catch (error) {
+  } catch (_error) {
     try {
       return Array.from(document.getAnimations() || []);
-    } catch (fallbackError) {
+    } catch (_fallbackError) {
       return [];
     }
   }
@@ -5593,7 +5361,7 @@ function pauseDocumentAnimations(pauseState: PageMotionPauseState): void {
     pauseState.animations.add(animation);
     try {
       animation.pause();
-    } catch (error) {
+    } catch (_error) {
       // Ignore animations that cannot be controlled by content scripts.
     }
   }
@@ -5606,7 +5374,7 @@ function resumeDocumentAnimations(pauseState: PageMotionPauseState): void {
     }
     try {
       animation.play();
-    } catch (error) {
+    } catch (_error) {
       // Ignore animations that were removed while marking mode was active.
     }
   }
@@ -5631,10 +5399,10 @@ function createSyntheticPageMotionEvent(type: string, bubbles: boolean): Event |
   }
   try {
     return new EventConstructor(type, eventOptions);
-  } catch (error) {
+  } catch (_error) {
     try {
       return new Event(type, eventOptions);
-    } catch (fallbackError) {
+    } catch (_fallbackError) {
       return null;
     }
   }
@@ -5651,7 +5419,7 @@ function dispatchPageMotionEvents(target: Element, events: MotionHoverEvent[]): 
     }
     try {
       target.dispatchEvent(event);
-    } catch (error) {
+    } catch (_error) {
       // Ignore third-party widgets that reject synthetic events.
     }
   }
@@ -5673,7 +5441,7 @@ function isIgnoredPageMotionElement(element: Element | null | undefined): boolea
   if (typeof element.closest === "function") {
     try {
       return Boolean(element.closest("[data-uf-extension-ui=\"true\"]"));
-    } catch (error) {
+    } catch (_error) {
       return false;
     }
   }
@@ -5686,7 +5454,7 @@ function getComputedCssStyle(element: Element | null | undefined): CSSStyleDecla
   }
   try {
     return window.getComputedStyle(element);
-  } catch (error) {
+  } catch (_error) {
     return null;
   }
 }
@@ -5785,7 +5553,7 @@ function getElementAttributePairs(
         value: typeof attribute.value === "string" ? attribute.value : ""
       }))
       .filter((attribute) => attribute.name);
-  } catch (error) {
+  } catch (_error) {
     return [];
   }
 }
@@ -5895,7 +5663,7 @@ function getAnimationEffectTarget(animation: Animation | null | undefined): Elem
   try {
     const target = (animation.effect as AnimationEffectWithTarget).target;
     return isElementNode(target) ? target : null;
-  } catch (error) {
+  } catch (_error) {
     return null;
   }
 }
@@ -5911,12 +5679,13 @@ function collectPageMotionCandidates(): Map<Element, PageMotionCandidate> {
   if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
     return candidates;
   }
-  let elements: Element[] = [];
-  try {
-    elements = Array.from(document.querySelectorAll("*") || []);
-  } catch (error) {
-    elements = [];
-  }
+  const elements = (() => {
+    try {
+      return Array.from(document.querySelectorAll("*") || []);
+    } catch (_error) {
+      return [] as Element[];
+    }
+  })();
   const inspectComputedStyle = elements.length <= PAGE_MOTION_PAUSE_MAX_LOCKED_ELEMENTS * 3;
   for (const element of elements) {
     if (isIgnoredPageMotionElement(element)) {
@@ -6050,7 +5819,7 @@ function applyPageMotionLockProperty(
   if (currentValue !== lock.lockValue || currentPriority !== "important") {
     try {
       element.style.setProperty(property, lock.lockValue, "important");
-    } catch (error) {
+    } catch (_error) {
       // Ignore immutable inline style declarations.
     }
   }
@@ -6076,7 +5845,7 @@ function elementHasMotionLayoutBox(element: Element | null | undefined): boolean
       const rect = element.getBoundingClientRect();
       return Boolean(rect && Number(rect.width) > 1 && Number(rect.height) > 1);
     }
-  } catch (error) {
+  } catch (_error) {
     return true;
   }
   return true;
@@ -6216,7 +5985,7 @@ function restorePageMotionLockRecordOnElement(
       } else if (typeof element.style.removeProperty === "function") {
         element.style.removeProperty(property);
       }
-    } catch (error) {
+    } catch (_error) {
       // Ignore detached elements and immutable inline style declarations.
     }
   }
@@ -6248,7 +6017,7 @@ function restorePageMotionLocksInSnapshotClone(clone: Element | null | undefined
   if (typeof clone.querySelectorAll === "function") {
     try {
       lockedCloneElements.push(...clone.querySelectorAll(`[${PAGE_MOTION_PAUSE_LOCK_ATTR}]`));
-    } catch (error) {
+    } catch (_error) {
       // Ignore selector support differences on cloned documents.
     }
   }
@@ -6323,7 +6092,7 @@ function queryPageMotionElements(selector: string): Element[] {
   }
   try {
     return Array.from(document.querySelectorAll(selector) || []);
-  } catch (error) {
+  } catch (_error) {
     return [];
   }
 }
@@ -6338,7 +6107,7 @@ function pauseSvgAnimations(pauseState: PageMotionPauseState): void {
       if (typeof svgElement.animationsPaused === "function") {
         try {
           wasPaused = Boolean(svgElement.animationsPaused());
-        } catch (error) {
+        } catch (_error) {
           wasPaused = false;
         }
       }
@@ -6346,7 +6115,7 @@ function pauseSvgAnimations(pauseState: PageMotionPauseState): void {
     }
     try {
       svgElement.pauseAnimations();
-    } catch (error) {
+    } catch (_error) {
       // Ignore SVG roots whose animation clock is unavailable.
     }
   }
@@ -6359,7 +6128,7 @@ function resumeSvgAnimations(pauseState: PageMotionPauseState): void {
     }
     try {
       svgElement.unpauseAnimations();
-    } catch (error) {
+    } catch (_error) {
       // Ignore SVG roots removed while page motion was paused.
     }
   }
@@ -6390,7 +6159,7 @@ function pauseMediaElements(pauseState: PageMotionPauseState): void {
     }
     try {
       mediaElement.pause();
-    } catch (error) {
+    } catch (_error) {
       // Ignore media controlled by page policies.
     }
   }
@@ -6406,7 +6175,7 @@ function resumeMediaElements(pauseState: PageMotionPauseState): void {
       if (result && typeof result.catch === "function") {
         result.catch(() => {});
       }
-    } catch (error) {
+    } catch (_error) {
       // Ignore media that cannot resume due to browser autoplay policy.
     }
   }
@@ -6428,7 +6197,7 @@ function schedulePageMotionPauseRefresh(pauseState: PageMotionPauseState | null 
   try {
     extensionRequestAnimationFrame(run);
     return;
-  } catch (error) {
+  } catch (_error) {
     extensionSetTimeout(run, 0);
   }
 }
@@ -6497,7 +6266,7 @@ function startPageMotionPauseObserver(pauseState: PageMotionPauseState): void {
         "role"
       ]
     });
-  } catch (error) {
+  } catch (_error) {
     pauseState.observer = null;
   }
 }
@@ -6508,7 +6277,7 @@ function stopPageMotionPauseObserver(pauseState: PageMotionPauseState): void {
   }
   try {
     pauseState.observer.disconnect();
-  } catch (error) {
+  } catch (_error) {
     // Ignore observers already detached by the browser.
   }
   pauseState.observer = null;
@@ -7610,257 +7379,6 @@ function showImmediateToggleAcknowledgement(
   }, TOGGLE_ACK_CLEAR_MS);
 }
 
-function ensureAiPopoverStyle() {
-  if (document.getElementById("unfluffify-ai-popover-style")) {
-    return;
-  }
-  const style = document.createElement("style");
-  style.id = "unfluffify-ai-popover-style";
-  style.textContent = `
-      .uf-ai-popover {
-        position: fixed;
-        inset: 0;
-        z-index: 2147483647;
-        pointer-events: none;
-      }
-      .uf-ai-popover-backdrop {
-        position: absolute;
-        inset: 0;
-        background: rgba(26, 22, 18, 0.42);
-        opacity: 1;
-        transition: opacity 0.26s ease;
-        pointer-events: auto;
-      }
-      .uf-ai-popover-stage {
-        position: absolute;
-        inset: 0;
-        display: flex;
-        align-items: flex-start;
-        justify-content: center;
-        padding: 20px;
-        overflow: auto;
-        opacity: 1;
-        transform: translateX(0);
-        transition: transform 0.34s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.24s ease;
-        pointer-events: auto;
-      }
-      .uf-ai-popover-modal {
-        margin-top: max(24px, 5vh);
-        background: linear-gradient(180deg, #fffaf2 0%, #fffdf8 100%);
-        color: #2f2a24;
-        width: min(720px, 100%);
-        max-height: min(82vh, 720px);
-        border: 1px solid #eadccc;
-        border-radius: 18px;
-        box-shadow: 0 28px 70px rgba(0, 0, 0, 0.22);
-        display: flex;
-        flex-direction: column;
-        overflow: hidden;
-      }
-      .uf-ai-popover-toggle {
-        appearance: none;
-        -webkit-appearance: none;
-        width: 36px;
-        height: 36px;
-        padding: 0;
-        margin: 0;
-        border: 1px solid #dcc9ae;
-        border-radius: 10px;
-        background: linear-gradient(180deg, #fff8ef 0%, #f6ead9 100%);
-        color: #6c4c2b;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        line-height: 1;
-        box-shadow: none;
-        transition: transform 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
-      }
-      .uf-ai-popover-toggle:hover,
-      .uf-ai-popover-close:hover {
-        background: linear-gradient(180deg, #fffdf8 0%, #f7efe3 100%);
-      }
-      .uf-ai-popover-toggle:focus-visible,
-      .uf-ai-popover-close:focus-visible {
-        outline: 2px solid #6c4c2b;
-        outline-offset: 2px;
-      }
-      .uf-ai-popover-toggle:active,
-      .uf-ai-popover-close:active {
-        transform: translateY(1px);
-      }
-      .uf-ai-popover-icon {
-        width: 18px;
-        height: 18px;
-        display: block;
-      }
-      .uf-ai-popover-toggle--restore {
-        position: fixed;
-        left: -16px;
-        top: 50%;
-        width: 40px;
-        height: 40px;
-        opacity: 0;
-        transform: translateY(-50%) translateX(-18px);
-        transition: opacity 0.22s ease, transform 0.3s cubic-bezier(0.22, 1, 0.36, 1), background 0.2s ease, box-shadow 0.2s ease, left 0.2s ease;
-        pointer-events: none;
-        box-shadow: 0 10px 24px rgba(0, 0, 0, 0.14);
-        border-top-left-radius: 0;
-        border-bottom-left-radius: 0;
-      }
-      .uf-ai-popover-toggle--restore:hover {
-        left: 0;
-      }
-      .uf-ai-popover--collapsed {
-        pointer-events: none;
-      }
-      .uf-ai-popover--collapsed .uf-ai-popover-backdrop {
-        opacity: 0;
-        pointer-events: none;
-      }
-      .uf-ai-popover--collapsed .uf-ai-popover-stage {
-        opacity: 0;
-        transform: translateX(calc(-100% - 48px));
-        pointer-events: none;
-      }
-      .uf-ai-popover--collapsed .uf-ai-popover-toggle--restore {
-        opacity: 1;
-        transform: translateY(-50%) translateX(0);
-        pointer-events: auto;
-      }
-      .uf-ai-popover-header {
-        display: grid;
-        grid-template-columns: auto 1fr auto;
-        align-items: center;
-        gap: 12px;
-        padding: 16px 18px 12px;
-        border-bottom: 1px solid #eadccc;
-      }
-      .uf-ai-popover-title {
-        font-size: 13px;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        color: #6c4c2b;
-        text-align: center;
-      }
-      .uf-ai-popover-close {
-        appearance: none;
-        -webkit-appearance: none;
-        border: 1px solid #dcc9ae;
-        background: linear-gradient(180deg, #fff8ef 0%, #f6ead9 100%);
-        color: #6c4c2b;
-        border-radius: 999px;
-        width: 34px;
-        height: 34px;
-        min-width: 34px;
-        min-height: 34px;
-        padding: 0;
-        margin: 0;
-        flex: 0 0 34px;
-        cursor: pointer;
-        font-size: 16px;
-        font-weight: 700;
-        font-family: ${EXTENSION_UI_FONT_STACK};
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        line-height: 1;
-        text-transform: none;
-        text-indent: 0;
-        box-shadow: none;
-        overflow: hidden;
-        transition: transform 0.2s ease, background 0.2s ease;
-        visibility: hidden;
-      }
-      .uf-ai-popover-body {
-        padding: 14px 22px 22px;
-        overflow: auto;
-        min-height: 0;
-      }
-      .uf-ai-popover-list {
-        margin: 0;
-        padding: 0 0 0 22px;
-        display: grid;
-        gap: 10px;
-        font-size: 13px;
-        line-height: 1.45;
-        color: #2f2a24;
-      }
-      .uf-ai-popover-list li {
-        font-size: 13px;
-        line-height: 1.45;
-        color: #2f2a24;
-        white-space: pre-line;
-      }
-      .uf-ai-popover-item-button {
-        appearance: none;
-        -webkit-appearance: none;
-        display: block;
-        width: 100%;
-        margin: 0;
-        padding: 0;
-        border: 0;
-        background: transparent;
-        color: inherit;
-        font: inherit;
-        line-height: inherit;
-        text-align: left;
-        cursor: pointer;
-      }
-      .uf-ai-popover-item-button:hover,
-      .uf-ai-popover-item-button:focus-visible {
-        color: #6c4c2b;
-        text-decoration: underline;
-      }
-    `;
-  document.documentElement.appendChild(style);
-}
-
-function createAiPopoverPanelIcon(direction: "left" | "right"): SVGSVGElement {
-  const svgNs = "http://www.w3.org/2000/svg";
-  const svg = document.createElementNS(svgNs, "svg");
-  svg.setAttribute("viewBox", "0 0 18 18");
-  svg.setAttribute("aria-hidden", "true");
-  svg.setAttribute("focusable", "false");
-  svg.setAttribute("class", "uf-ai-popover-icon");
-
-  const frame = document.createElementNS(svgNs, "rect");
-  frame.setAttribute("x", "1.5");
-  frame.setAttribute("y", "2.5");
-  frame.setAttribute("width", "15");
-  frame.setAttribute("height", "13");
-  frame.setAttribute("rx", "2.5");
-  frame.setAttribute("fill", "none");
-  frame.setAttribute("stroke", "currentColor");
-  frame.setAttribute("stroke-width", "1.4");
-
-  const divider = document.createElementNS(svgNs, "line");
-  divider.setAttribute("x1", "5.2");
-  divider.setAttribute("y1", "3.6");
-  divider.setAttribute("x2", "5.2");
-  divider.setAttribute("y2", "14.4");
-  divider.setAttribute("stroke", "currentColor");
-  divider.setAttribute("stroke-width", "1.4");
-  divider.setAttribute("stroke-linecap", "round");
-
-  const arrow = document.createElementNS(svgNs, "path");
-  const pathValue = direction === "right"
-    ? "M7.2 9h5.2M10.7 6.2l2.6 2.8-2.6 2.8"
-    : "M12.4 9H7.2M8.9 6.2 6.3 9l2.6 2.8";
-  arrow.setAttribute("d", pathValue);
-  arrow.setAttribute("fill", "none");
-  arrow.setAttribute("stroke", "currentColor");
-  arrow.setAttribute("stroke-width", "1.6");
-  arrow.setAttribute("stroke-linecap", "round");
-  arrow.setAttribute("stroke-linejoin", "round");
-
-  svg.appendChild(frame);
-  svg.appendChild(divider);
-  svg.appendChild(arrow);
-  return svg;
-}
-
 function ensureAiPreviewFocusStyle() {
   if (document.getElementById(AI_PREVIEW_FOCUS_STYLE_ID)) {
     return;
@@ -7940,24 +7458,6 @@ function closeAiPopover(options: AiPopoverCloseOptions = {}): Promise<AiPopoverC
     });
   }
   return afterClose;
-}
-
-function setAiPopoverCollapsed(collapsed: boolean): void {
-  if (!state.aiPopover) {
-    return;
-  }
-  if (!collapsed) {
-    clearFocusHighlight();
-  }
-  state.aiPopoverCollapsed = Boolean(collapsed);
-  state.aiPopover.classList.toggle("uf-ai-popover--collapsed", state.aiPopoverCollapsed);
-  if (typeof state.aiPopoverOnCollapsedChange === "function") {
-    try {
-      state.aiPopoverOnCollapsedChange(state.aiPopoverCollapsed);
-    } catch {
-      // Ignore preview collapse state sync failures.
-    }
-  }
 }
 
 export function hasAiPopover() {
@@ -8158,7 +7658,7 @@ function hasBroadParentMarkingFootprint(el: Element | null | undefined): boolean
   let rect;
   try {
     rect = el.getBoundingClientRect();
-  } catch (error) {
+  } catch (_error) {
     return false;
   }
   if (!rect || rect.width <= 0 || rect.height <= 0) {
@@ -9623,7 +9123,7 @@ function drawExplicitMarkingLayers(
   });
 }
 
-function shouldUseImmediateFullRenderForExplicitToggle(options = {}) {
+function shouldUseImmediateFullRenderForExplicitToggle(_options = {}) {
   // Keep toggles responsive: explicit layers update immediately, while the
   // heavier invalidating rebuild is deferred and coalesced.
   return false;
@@ -10540,7 +10040,7 @@ function startObservers() {
         minInterval: 250,
         invalidate: renderMode === "rebuild"
       });
-    } catch (error) {
+    } catch (_error) {
       // Silently handle errors to prevent observer from stopping
     }
   });
@@ -10552,7 +10052,7 @@ function startObservers() {
         attributes: true,
         attributeFilter: ["class", "id", "hidden", "aria-hidden", "style"]
       });
-    } catch (error) {
+    } catch (_error) {
       // Silently handle if body is not available
       state.mutationObserver = null;
     }
@@ -11218,7 +10718,7 @@ export function getElementFromXPath(xpath: string | null | undefined): Element |
       return node;
     }
     return null;
-  } catch (error) {
+  } catch (_error) {
     return null;
   }
 }
@@ -11999,7 +11499,6 @@ function appendSyncedCandidateItem(el: Element, context: SyncedCandidateContext)
     explicitExcludeAncestorSet,
     excludedLookup,
     explicitXpathSet,
-    getCachedElementFromXPath,
     items,
     previousSilentWhitespaceExcludedSet,
     isExplicitlyMarkedXpath,

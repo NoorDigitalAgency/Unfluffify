@@ -98,7 +98,7 @@ export function normalizeCandidatePageUrl(value: unknown): string {
     }
     parsed.pathname = parsed.pathname.replace(/\/+$/, "") || "/";
     return parsed.toString();
-  } catch (error) {
+  } catch (_error) {
     return "";
   }
 }
@@ -342,7 +342,7 @@ export function createInitialLynxChecklistState() {
   };
 }
 
-export function buildLynxChecklistPromptState(options = {}) {
+export function buildLynxChecklistPromptState(_options = {}) {
   return {
     aiAnswer: "",
     aiQuestionDisabled: true,

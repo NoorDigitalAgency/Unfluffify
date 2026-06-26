@@ -51,13 +51,13 @@ export function normalizeStageBase(value: unknown): string {
   if (!trimmed) {
     return "";
   }
-  let hostname = "";
+  let hostname: string;
   try {
     const url = trimmed.includes("://")
       ? new URL(trimmed)
       : new URL(`https://${trimmed}`);
     hostname = (url.hostname || "").trim().toLowerCase();
-  } catch (error) {
+  } catch (_error) {
     return "";
   }
   const normalized = hostname.replace(/^\.+/, "").replace(/\.+$/, "");

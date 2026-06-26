@@ -772,17 +772,6 @@ function warningNoticeClass(...extraClasses: ClassNameValue[]): string {
   return classNames("u-alert", "u-alert-warn", ...extraClasses);
 }
 
-function renderListItems<T>(
-  items: readonly T[],
-  emptyText: string,
-  renderItem: (item: T, index: number) => ReactElement | null,
-): Array<ReactElement | null> {
-  if (!items.length) {
-    return [<li className="empty">{emptyText}</li>];
-  }
-  return items.map(renderItem);
-}
-
 function icon(name: string, extraClass = "", btn = false, extending = false): ReactElement {
   return (
     <span
