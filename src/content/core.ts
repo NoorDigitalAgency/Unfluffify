@@ -252,6 +252,73 @@ interface SyncedCandidateContext {
   isWithinExplicitIncludeXpath: (xpath: string | null | undefined) => boolean;
 }
 
+interface SilentWhitespaceCandidateOptions {
+  excludedXpaths?: Set<string>;
+  includeXpaths?: Set<string>;
+  prefetchedCandidates?: Element[] | null;
+}
+
+interface SnapshotOptions extends SnapshotXPathOptions {
+  renderMode?: unknown;
+  extraRootClasses?: unknown;
+  titlePrefix?: unknown;
+}
+
+interface SnapshotResult {
+  renderedHtml: string;
+  renderMode: string;
+}
+
+type InputBlockerTarget = Window | Document;
+
+interface InputBlockerState {
+  targets: InputBlockerTarget[];
+  options: AddEventListenerOptions;
+}
+
+interface PopupBusyLeaseOptions {
+  operationId?: unknown;
+  operationKind?: unknown;
+  operationPhase?: unknown;
+  releaseBy?: unknown;
+}
+
+interface NormalizedPopupBusyLeaseOptions {
+  operationId: string;
+  releaseBy: number;
+}
+
+interface PopupBusyResult {
+  ok: boolean;
+  active?: boolean;
+  ignored?: boolean;
+  operationId?: string;
+  releaseBy?: number;
+  [key: string]: unknown;
+}
+
+type PageInspectionScrollTarget = "start" | "end" | number;
+
+interface PageInspectionProgressOptions {
+  onProgress?: () => void;
+}
+
+interface PageInspectionScrollEndOptions extends PageInspectionProgressOptions {
+  scrollEndTimeoutMs?: number;
+  scrollSettleMs?: number;
+  targetY?: number | null;
+  targetKind?: string | number;
+}
+
+interface RevealPageContentOptions extends PageInspectionScrollEndOptions {
+  retainLazyLoadSuppression?: boolean;
+}
+
+interface LazyLoadingSuppressionRestorer {
+  (): void;
+  lazyLoadingSuppressionApplied?: Promise<unknown>;
+}
+
 interface DefaultHighlightFrame {
   node: Element;
   index: number;
@@ -341,10 +408,10 @@ export const state = {
   toastHideTimer: 0,
   markingDisabledNotice: null,
   pageInspectionNotice: null,
-  inspectionBlocker: null,
-  popupBusyOverlay: null,
-  popupBusyNotice: null,
-  popupBusyBlocker: null,
+  inspectionBlocker: null as InputBlockerState | null,
+  popupBusyOverlay: null as HTMLElement | null,
+  popupBusyNotice: null as HTMLElement | null,
+  popupBusyBlocker: null as InputBlockerState | null,
   popupBusyFailOpenTimer: 0,
   popupBusyOperationId: "",
   popupBusyReleaseBy: 0,
@@ -418,7 +485,7 @@ export const state = {
   explicitOverlayRefreshContext: null as ExplicitOverlayRefreshContext | null,
   pageMotionPause: null,
   pageRevealWarmupId: 0,
-  lazyLoadSuppressRestorer: null,
+  lazyLoadSuppressRestorer: null as LazyLoadingSuppressionRestorer | null,
   perfEnabled: null as boolean | null
 };
 
@@ -3728,12 +3795,11 @@ function collapseElementsByNestingWithOppositeBoundary(
   return kept;
 }
 
-// @ts-expect-error
-function collectExcludedXPaths(items) {
+function collectExcludedXPaths(items: XpathEntry[] | null | undefined): string[] {
   if (!Array.isArray(items)) {
     return [];
   }
-  const results = [];
+  const results: string[] = [];
   for (const item of items) {
     if (item && item.xpath && item.excluded) {
       results.push(item.xpath);
@@ -3742,12 +3808,11 @@ function collectExcludedXPaths(items) {
   return results;
 }
 
-// @ts-expect-error
-function collectExplicitExcludedXPaths(items) {
+function collectExplicitExcludedXPaths(items: XpathEntry[] | null | undefined): string[] {
   if (!Array.isArray(items)) {
     return [];
   }
-  const results = [];
+  const results: string[] = [];
   for (const item of items) {
     if (item && item.xpath && item.excluded && item.explicit === true) {
       results.push(item.xpath);
@@ -3760,12 +3825,11 @@ function collectSilentWhitespaceExcludedXPaths(entry: PageMarkingEntry | null | 
   return normalizeXPathList(entry && entry.silentWhitespaceExcludedXpaths);
 }
 
-// @ts-expect-error
-function hasVisibleNonTextualContent(el) {
+function hasVisibleNonTextualContent(el: Element | null | undefined): boolean {
   if (!el || el.nodeType !== 1) {
     return false;
   }
-  const stack = [el];
+  const stack: Element[] = [el];
   while (stack.length) {
     const node = stack.pop();
     if (!node || node.nodeType !== 1) {
@@ -3796,8 +3860,7 @@ function hasVisibleNonTextualContent(el) {
   return false;
 }
 
-// @ts-expect-error
-function isSilentWhitespaceExclusionCandidate(el) {
+function isSilentWhitespaceExclusionCandidate(el: Element | null | undefined): boolean {
   if (!el || el.nodeType !== 1) {
     return false;
   }
@@ -3840,7 +3903,7 @@ function isSilentWhitespaceExplicitExclusion(
     return true;
   }
   const resolved = el || getElementFromXPath(item.xpath);
-  return isSilentWhitespaceExclusionCandidate(resolved);
+  return isSilentWhitespaceExclusionCandidate(isElementNode(resolved) ? resolved : null);
 }
 
 function setEntrySilentWhitespaceExcludedXpaths(
@@ -3858,8 +3921,10 @@ function setEntrySilentWhitespaceExcludedXpaths(
   });
 }
 
-// @ts-expect-error
-function isXpathCoveredByAncestor(xpath, ancestorXpaths) {
+function isXpathCoveredByAncestor(
+  xpath: string | null | undefined,
+  ancestorXpaths: Iterable<string> | null | undefined
+): boolean {
   if (!xpath || !ancestorXpaths) {
     return false;
   }
@@ -3871,8 +3936,11 @@ function isXpathCoveredByAncestor(xpath, ancestorXpaths) {
   return false;
 }
 
-// @ts-expect-error
-function isStaleSilentWhitespaceExclusion(xpath, el, previousSilentWhitespaceExcludedSet) {
+function isStaleSilentWhitespaceExclusion(
+  xpath: string,
+  el: Element | null | undefined,
+  previousSilentWhitespaceExcludedSet: Set<string> | null | undefined
+): boolean {
   return Boolean(
     previousSilentWhitespaceExcludedSet &&
     previousSilentWhitespaceExcludedSet.has(xpath) &&
@@ -3880,25 +3948,22 @@ function isStaleSilentWhitespaceExclusion(xpath, el, previousSilentWhitespaceExc
   );
 }
 
-function collectSilentWhitespaceExclusionCandidates(options = {}) {
+function collectSilentWhitespaceExclusionCandidates(
+  options: SilentWhitespaceCandidateOptions = {}
+): Element[] {
   if (!document.body) {
     return [];
   }
-// @ts-expect-error
-  const excludedXpaths = options.excludedXpaths || new Set();
-// @ts-expect-error
-  const includeXpaths = options.includeXpaths || new Set();
-// @ts-expect-error
-  const results = [];
-// @ts-expect-error
+  const excludedXpaths = options.excludedXpaths || new Set<string>();
+  const includeXpaths = options.includeXpaths || new Set<string>();
+  const results: Element[] = [];
   const prefetchedCandidates = Array.isArray(options.prefetchedCandidates)
-// @ts-expect-error
     ? options.prefetchedCandidates
     : null;
-  const excludedElements = new Set();
+  const excludedElements = new Set<Element>();
   for (const xpath of excludedXpaths) {
     const el = getElementFromXPath(xpath);
-    if (el) {
+    if (isElementNode(el)) {
       excludedElements.add(el);
     }
   }
@@ -3913,7 +3978,6 @@ function collectSilentWhitespaceExclusionCandidates(options = {}) {
       if (isWithinImmutableExcluded(node)) {
         continue;
       }
-// @ts-expect-error
       if (isWithinElementSet(node, excludedElements)) {
         continue;
       }
@@ -3922,7 +3986,6 @@ function collectSilentWhitespaceExclusionCandidates(options = {}) {
         xpath &&
         !includeXpaths.has(xpath) &&
         !excludedXpaths.has(xpath) &&
-// @ts-expect-error
         !results.some((resultEl) => resultEl !== node && resultEl.contains(node))
       ) {
         results.push(node);
@@ -3931,7 +3994,9 @@ function collectSilentWhitespaceExclusionCandidates(options = {}) {
     results.sort(compareDocumentOrder);
     return results;
   }
-  const stack = [{ node: document.body, withinExcludedSubtree: false }];
+  const stack: Array<{ node: Element; withinExcludedSubtree: boolean }> = [
+    { node: document.body, withinExcludedSubtree: false }
+  ];
   while (stack.length) {
     const current = stack.pop();
     const node = current && current.node;
@@ -3951,7 +4016,6 @@ function collectSilentWhitespaceExclusionCandidates(options = {}) {
     if (!isSilentWhitespaceExclusionCandidate(node)) {
       for (let i = node.children.length - 1; i >= 0; i -= 1) {
         stack.push({
-// @ts-expect-error
           node: node.children[i],
           withinExcludedSubtree: isExcludedBoundary
         });
@@ -3969,7 +4033,6 @@ function collectSilentWhitespaceExclusionCandidates(options = {}) {
     }
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
       stack.push({
-// @ts-expect-error
         node: node.children[i],
         withinExcludedSubtree: isExcludedBoundary
       });
@@ -3979,16 +4042,15 @@ function collectSilentWhitespaceExclusionCandidates(options = {}) {
   return results;
 }
 
-// @ts-expect-error
-function normalizeXPathItems(items) {
+function normalizeXPathItems(items: unknown): XpathEntry[] {
   if (!Array.isArray(items)) {
     return [];
   }
-  const seen = new Set();
-  const normalized = [];
+  const seen = new Set<string>();
+  const normalized: XpathEntry[] = [];
   for (let i = items.length - 1; i >= 0; i -= 1) {
     const item = items[i];
-    if (!item || typeof item.xpath !== "string") {
+    if (!isXpathEntry(item)) {
       continue;
     }
     const xpath = item.xpath.trim();
@@ -4006,13 +4068,12 @@ function normalizeXPathItems(items) {
   return normalized;
 }
 
-// @ts-expect-error
-function normalizeXPathList(list) {
+function normalizeXPathList(list: unknown): string[] {
   if (!Array.isArray(list)) {
     return [];
   }
-  const seen = new Set();
-  const normalized = [];
+  const seen = new Set<string>();
+  const normalized: string[] = [];
   for (const value of list) {
     if (typeof value !== "string") {
       continue;
@@ -4027,10 +4088,13 @@ function normalizeXPathList(list) {
   return normalized;
 }
 
-// @ts-expect-error
-export function normalizePageEntryXpaths(entry) {
+export function normalizePageEntryXpaths(entry: PageMarkingEntry): PageMarkingEntry;
+export function normalizePageEntryXpaths(entry: null | undefined): null;
+export function normalizePageEntryXpaths(
+  entry: PageMarkingEntry | null | undefined
+): PageMarkingEntry | null {
   if (!entry || typeof entry !== "object") {
-    return entry;
+    return null;
   }
   const normalizedXpaths = normalizeXPathItems(entry.xpaths);
   const explicitIncludeXpaths = normalizedXpaths
@@ -4042,8 +4106,7 @@ export function normalizePageEntryXpaths(entry) {
       item.xpath
     )
     .map((item) => item.xpath);
-// @ts-expect-error
-  const appendUnique = (values, xpath) => {
+  const appendUnique = (values: string[], xpath: string): void => {
     if (!xpath) {
       return;
     }
@@ -4073,8 +4136,7 @@ export function normalizePageEntryXpaths(entry) {
   return entry;
 }
 
-// @ts-expect-error
-function normalizePageEntryPageType(value) {
+function normalizePageEntryPageType(value: unknown): string {
   if (typeof value !== "string") {
     return "";
   }
@@ -4087,8 +4149,7 @@ function normalizePageEntryPageType(value) {
     .toLowerCase();
 }
 
-export function createSanitizedPageSnapshot(options = {}) {
-// @ts-expect-error
+export function createSanitizedPageSnapshot(options: SnapshotOptions = {}): SnapshotResult {
   const normalizedRenderMode = config.normalizeRenderMode(options.renderMode);
   const root = document.documentElement;
   if (!root) {
@@ -4098,44 +4159,33 @@ export function createSanitizedPageSnapshot(options = {}) {
     };
   }
 
-  const clone = root.cloneNode(true);
+  const clone = root.cloneNode(true) as Element;
   const stripSelectors = getSnapshotStripSelectors(options);
   if (stripSelectors.length) {
-// @ts-expect-error
     clone.querySelectorAll(stripSelectors.join(",")).forEach((node) => {
       node.remove();
     });
   }
 
   const rootClasses = EXTENSION_SNAPSHOT_ROOT_CLASSES.concat(
-// @ts-expect-error
     Array.isArray(options.extraRootClasses)
-// @ts-expect-error
-      ? options.extraRootClasses.filter((value) => typeof value === "string" && value)
+      ? options.extraRootClasses.filter((value): value is string => typeof value === "string" && value.length > 0)
       : []
   );
-// @ts-expect-error
   if (clone.classList && rootClasses.length) {
-// @ts-expect-error
     clone.classList.remove(...rootClasses);
   }
 
   restorePageMotionLocksInSnapshotClone(clone);
 
-// @ts-expect-error
   const titlePrefix = typeof options.titlePrefix === "string" ? options.titlePrefix : "";
-// @ts-expect-error
-  const elements = [clone, ...clone.querySelectorAll("*")];
+  const elements: Element[] = [clone, ...Array.from(clone.querySelectorAll("*"))];
   for (const element of elements) {
     if (!element || element.nodeType !== 1) {
       continue;
     }
     for (const attribute of Array.from(element.attributes || [])) {
-// @ts-expect-error
-      const attributeName = attribute && typeof attribute.name === "string"
-// @ts-expect-error
-        ? attribute.name
-        : "";
+      const attributeName = typeof attribute.name === "string" ? attribute.name : "";
       if (!attributeName) {
         continue;
       }
@@ -4146,9 +4196,6 @@ export function createSanitizedPageSnapshot(options = {}) {
       if (
         titlePrefix &&
         attributeName === "title" &&
-// @ts-expect-error
-        typeof attribute.value === "string" &&
-// @ts-expect-error
         attribute.value.startsWith(titlePrefix)
       ) {
         element.removeAttribute(attributeName);
@@ -4157,7 +4204,6 @@ export function createSanitizedPageSnapshot(options = {}) {
   }
 
   return {
-// @ts-expect-error
     renderedHtml: clone.outerHTML,
     renderMode: normalizedRenderMode
   };
@@ -4179,15 +4225,13 @@ function createPageMotionPauseState() {
   };
 }
 
-// @ts-expect-error
-function normalizePageMotionPauseReason(reason) {
+function normalizePageMotionPauseReason(reason: unknown): string {
   return typeof reason === "string" && reason.trim()
     ? reason.trim()
     : PAGE_MOTION_PAUSE_DEFAULT_REASON;
 }
 
-// @ts-expect-error
-function getExtensionResourceUrl(path) {
+function getExtensionResourceUrl(path: string | null | undefined): string {
   if (!path) {
     return "";
   }
@@ -4252,8 +4296,7 @@ function getMaxScrollYForPageInspection() {
   return Math.max(0, Math.round(documentHeight - viewportHeight));
 }
 
-// @ts-expect-error
-function scrollWindowInstantlyTo(x, y) {
+function scrollWindowInstantlyTo(x: unknown, y: unknown): boolean {
   if (typeof window === "undefined") {
     return false;
   }
@@ -4318,23 +4361,23 @@ function removePageInspectionStyle() {
   }
 }
 
-// @ts-expect-error
-function waitForPageInspectionDelay(ms, isStillCurrent = () => true) {
+function waitForPageInspectionDelay(
+  ms: unknown,
+  isStillCurrent: () => boolean = () => true
+): Promise<void> {
   const delay = Math.max(0, Math.trunc(Number(ms) || 0));
   if (delay === 0 || !isStillCurrent()) {
     return Promise.resolve();
   }
-  return new Promise((resolve) => {
+  return new Promise<void>((resolve) => {
     const startedAt = Date.now();
     const tick = () => {
       if (!isStillCurrent()) {
-// @ts-expect-error
         resolve();
         return;
       }
       const elapsed = Date.now() - startedAt;
       if (elapsed >= delay) {
-// @ts-expect-error
         resolve();
         return;
       }
@@ -4344,24 +4387,23 @@ function waitForPageInspectionDelay(ms, isStillCurrent = () => true) {
   });
 }
 
-// @ts-expect-error
-function normalizePageInspectionScrollDirection(value) {
+function normalizePageInspectionScrollDirection(value: unknown): "top" | "bottom" | "both" {
   const direction = typeof value === "string" ? value.trim().toLowerCase() : "";
   return direction === "top" || direction === "bottom" || direction === "both"
     ? direction
     : "both";
 }
 
-// @ts-expect-error
-function waitForPageInspectionScrollEnd(isStillCurrent, options = {}) {
+function waitForPageInspectionScrollEnd(
+  isStillCurrent: () => boolean,
+  options: PageInspectionScrollEndOptions = {}
+): Promise<void> {
   const timeout = Math.max(
     0,
     Math.trunc(
-// @ts-expect-error
-      options.scrollEndTimeoutMs === undefined
-        ? PAGE_INSPECTION_SCROLL_END_TIMEOUT_MS
-// @ts-expect-error
-        : Number(options.scrollEndTimeoutMs) || 0
+    options.scrollEndTimeoutMs === undefined
+      ? PAGE_INSPECTION_SCROLL_END_TIMEOUT_MS
+      : Number(options.scrollEndTimeoutMs) || 0
     )
   );
   if (timeout === 0 || !isStillCurrent()) {
@@ -4370,18 +4412,14 @@ function waitForPageInspectionScrollEnd(isStillCurrent, options = {}) {
   const settleMs = Math.max(
     0,
     Math.trunc(
-// @ts-expect-error
-      options.scrollSettleMs === undefined
-        ? PAGE_INSPECTION_SCROLL_SETTLE_MS
-// @ts-expect-error
-        : Number(options.scrollSettleMs) || 0
+    options.scrollSettleMs === undefined
+      ? PAGE_INSPECTION_SCROLL_SETTLE_MS
+      : Number(options.scrollSettleMs) || 0
     )
   );
-// @ts-expect-error
   const targetY = Number.isFinite(options.targetY) ? Number(options.targetY) : null;
-// @ts-expect-error
   const targetKind = typeof options.targetKind === "string" ? options.targetKind : "";
-  return new Promise((resolve) => {
+  return new Promise<void>((resolve) => {
     let resolved = false;
     let timeoutHandle = 0;
     let rafHandle = 0;
@@ -4401,7 +4439,6 @@ function waitForPageInspectionScrollEnd(isStillCurrent, options = {}) {
         extensionClearTimeout(timeoutHandle);
         timeoutHandle = 0;
       }
-// @ts-expect-error
       resolve();
     };
     const isAtGoal = () => {
@@ -4497,8 +4534,7 @@ function isPageInspectionAtBottom() {
   return currentY + viewportHeight >= scrollHeight - PAGE_INSPECTION_SCROLL_TOLERANCE_PX;
 }
 
-// @ts-expect-error
-function getPageInspectionScrollTarget(target) {
+function getPageInspectionScrollTarget(target: PageInspectionScrollTarget): number {
   if (target === "end") {
     const viewportHeight = (
       window?.innerHeight
@@ -4537,8 +4573,9 @@ function suppressPageInspectionLazyLoading() {
   return restore;
 }
 
-// @ts-expect-error
-async function waitForPageInspectionLazyLoadingLock(restorer) {
+async function waitForPageInspectionLazyLoadingLock(
+  restorer: LazyLoadingSuppressionRestorer | null | undefined
+): Promise<void> {
   const applied = restorer && restorer.lazyLoadingSuppressionApplied;
   if (!applied || typeof applied.then !== "function") {
     return;
@@ -4550,8 +4587,9 @@ async function waitForPageInspectionLazyLoadingLock(restorer) {
   }
 }
 
-// @ts-expect-error
-async function ensurePageInspectionLazyLoadingSuppressed(currentRestorer) {
+async function ensurePageInspectionLazyLoadingSuppressed(
+  currentRestorer: LazyLoadingSuppressionRestorer | null | undefined
+): Promise<LazyLoadingSuppressionRestorer> {
   if (typeof currentRestorer === "function") {
     return currentRestorer;
   }
@@ -4559,7 +4597,6 @@ async function ensurePageInspectionLazyLoadingSuppressed(currentRestorer) {
     return state.lazyLoadSuppressRestorer;
   }
   const restorer = suppressPageInspectionLazyLoading();
-// @ts-expect-error
   state.lazyLoadSuppressRestorer = restorer;
   // Wait for the page-world lock to actually apply before scrolling again;
   // otherwise lazy loading keeps firing for every scroll pass.
@@ -4567,11 +4604,9 @@ async function ensurePageInspectionLazyLoadingSuppressed(currentRestorer) {
   return restorer;
 }
 
-function notifyPageInspectionProgress(options = {}) {
-// @ts-expect-error
+function notifyPageInspectionProgress(options: PageInspectionProgressOptions = {}): void {
   if (options && typeof options.onProgress === "function") {
     try {
-// @ts-expect-error
       options.onProgress();
     } catch {
       // Progress hooks are best-effort and must not affect reveal/freeze.
@@ -4579,8 +4614,11 @@ function notifyPageInspectionProgress(options = {}) {
   }
 }
 
-// @ts-expect-error
-async function scrollPageInspectionTo(target, isStillCurrent, options = {}) {
+async function scrollPageInspectionTo(
+  target: PageInspectionScrollTarget,
+  isStillCurrent: () => boolean,
+  options: PageInspectionScrollEndOptions = {}
+): Promise<boolean> {
   if (!isStillCurrent() || typeof window === "undefined" || typeof window.scrollTo !== "function") {
     return false;
   }
@@ -4596,12 +4634,12 @@ async function scrollPageInspectionTo(target, isStillCurrent, options = {}) {
 }
 
 export async function revealPageContentBeforeMotionPause(
-  scrollDirection = "both",
+  scrollDirection: unknown = "both",
   maximumScrollCount = PAGE_INSPECTION_DEFAULT_MAX_SCROLLS,
   pauseMs = PAGE_INSPECTION_DEFAULT_PAUSE_MS,
-  isStillCurrent = () => true,
-  options = {}
-) {
+  isStillCurrent: () => boolean = () => true,
+  options: RevealPageContentOptions = {}
+): Promise<boolean> {
   if (typeof document === "undefined" || typeof window === "undefined" || !isStillCurrent()) {
     return false;
   }
@@ -4614,7 +4652,6 @@ export async function revealPageContentBeforeMotionPause(
   const pauseDelay = Math.max(0, Math.trunc(Number(pauseMs) || 0));
   const reservedScrollY = Math.max(0, Math.round(getWindowScrollOffset().y));
   const lazyLoadSuppressionTargetY = getPageInspectionLazyLoadSuppressionTarget();
-// @ts-expect-error
   const retainLazyLoadSuppression = Boolean(options.retainLazyLoadSuppression);
   let visited = false;
   let lazyLoadRestorer = null;
@@ -4673,8 +4710,7 @@ export async function revealPageContentBeforeMotionPause(
   return visited;
 }
 
-// @ts-expect-error
-function blockPageInspectionInput(event) {
+function blockPageInspectionInput(event: Event): void {
   if (!state.inspectionBlocker) {
     return;
   }
@@ -4694,16 +4730,19 @@ function startPageInspectionInputBlocker() {
   if (state.inspectionBlocker) {
     return;
   }
-  const targets = [window, document].filter((target) =>
-    target && typeof target.addEventListener === "function"
-  );
-  const options = { capture: true, passive: false };
+  const targets: InputBlockerTarget[] = [];
+  if (window && typeof window.addEventListener === "function") {
+    targets.push(window);
+  }
+  if (document && typeof document.addEventListener === "function") {
+    targets.push(document);
+  }
+  const options: AddEventListenerOptions = { capture: true, passive: false };
   for (const target of targets) {
     for (const eventName of PAGE_INSPECTION_INPUT_EVENTS) {
       target.addEventListener(eventName, blockPageInspectionInput, options);
     }
   }
-// @ts-expect-error
   state.inspectionBlocker = { targets, options };
 }
 
@@ -4712,21 +4751,18 @@ function stopPageInspectionInputBlocker() {
   if (!blocker) {
     return;
   }
-// @ts-expect-error
   for (const target of blocker.targets) {
     if (!target || typeof target.removeEventListener !== "function") {
       continue;
     }
     for (const eventName of PAGE_INSPECTION_INPUT_EVENTS) {
-// @ts-expect-error
       target.removeEventListener(eventName, blockPageInspectionInput, blocker.options);
     }
   }
   state.inspectionBlocker = null;
 }
 
-// @ts-expect-error
-function blockPopupBusyInput(event) {
+function blockPopupBusyInput(event: Event): void {
   if (!state.popupBusyBlocker) {
     return;
   }
@@ -4746,16 +4782,19 @@ function startPopupBusyInputBlocker() {
   if (state.popupBusyBlocker) {
     return;
   }
-  const targets = [window, document].filter((target) =>
-    target && typeof target.addEventListener === "function"
-  );
-  const options = { capture: true, passive: false };
+  const targets: InputBlockerTarget[] = [];
+  if (window && typeof window.addEventListener === "function") {
+    targets.push(window);
+  }
+  if (document && typeof document.addEventListener === "function") {
+    targets.push(document);
+  }
+  const options: AddEventListenerOptions = { capture: true, passive: false };
   for (const target of targets) {
     for (const eventName of PAGE_INSPECTION_INPUT_EVENTS) {
       target.addEventListener(eventName, blockPopupBusyInput, options);
     }
   }
-// @ts-expect-error
   state.popupBusyBlocker = { targets, options };
 }
 
@@ -4764,13 +4803,11 @@ function stopPopupBusyInputBlocker() {
   if (!blocker) {
     return;
   }
-// @ts-expect-error
   for (const target of blocker.targets) {
     if (!target || typeof target.removeEventListener !== "function") {
       continue;
     }
     for (const eventName of PAGE_INSPECTION_INPUT_EVENTS) {
-// @ts-expect-error
       target.removeEventListener(eventName, blockPopupBusyInput, blocker.options);
     }
   }
@@ -4872,10 +4909,8 @@ function ensurePopupBusyOverlay() {
     ) {
       preferredParent.appendChild(existing);
     }
-// @ts-expect-error
     state.popupBusyOverlay = existing;
-// @ts-expect-error
-    state.popupBusyNotice = existing.querySelector(".uf-popup-busy-message");
+    state.popupBusyNotice = existing.querySelector<HTMLElement>(".uf-popup-busy-message");
     return existing;
   }
   if (typeof document.createElement !== "function") {
@@ -4902,9 +4937,7 @@ function ensurePopupBusyOverlay() {
   if (preferredParent && typeof preferredParent.appendChild === "function") {
     preferredParent.appendChild(overlay);
   }
-// @ts-expect-error
   state.popupBusyOverlay = overlay;
-// @ts-expect-error
   state.popupBusyNotice = message;
   return overlay;
 }
@@ -4916,8 +4949,10 @@ function clearPopupBusyFailOpenTimer() {
   }
 }
 
-function normalizePopupBusyLeaseOptions(options = {}) {
-  const optionRecord = options && typeof options === "object" ? options as Record<string, unknown> : {};
+function normalizePopupBusyLeaseOptions(
+  options: PopupBusyLeaseOptions = {}
+): NormalizedPopupBusyLeaseOptions {
+  const optionRecord = options && typeof options === "object" ? options : {};
   const now = Date.now();
   const releaseBy = Number.isFinite(optionRecord.releaseBy) && Number(optionRecord.releaseBy) > now
     ? Number(optionRecord.releaseBy)
@@ -4930,8 +4965,11 @@ function normalizePopupBusyLeaseOptions(options = {}) {
   };
 }
 
-// @ts-expect-error
-export function setPopupBusyOnPage(active, message = "", options = {}) {
+export function setPopupBusyOnPage(
+  active: unknown,
+  message = "",
+  options: PopupBusyLeaseOptions = {}
+): PopupBusyResult {
   const enabled = Boolean(active);
   const leaseOptions = normalizePopupBusyLeaseOptions(options);
   if (!enabled) {
@@ -4953,7 +4991,6 @@ export function setPopupBusyOnPage(active, message = "", options = {}) {
     state.popupBusyReleaseBy = 0;
     stopPopupBusyInputBlocker();
     if (state.popupBusyOverlay) {
-// @ts-expect-error
       state.popupBusyOverlay.hidden = true;
     }
     return { ok: true, active: false, operationId: releasedOperationId };
@@ -4968,7 +5005,6 @@ export function setPopupBusyOnPage(active, message = "", options = {}) {
     ? message.trim()
     : ContentText.marking.popupBusy;
   if (state.popupBusyNotice) {
-// @ts-expect-error
     state.popupBusyNotice.textContent = normalizedMessage;
   }
   overlay.hidden = false;
@@ -4987,7 +5023,6 @@ export function setPopupBusyOnPage(active, message = "", options = {}) {
 }
 
 export function isPopupBusyOnPageActive() {
-// @ts-expect-error
   return Boolean(state.popupBusyOverlay && !state.popupBusyOverlay.hidden);
 }
 
@@ -5262,7 +5297,6 @@ function restorePageInspectionLazyLoadingSuppression() {
   state.lazyLoadSuppressRestorer = null;
   if (typeof restorer === "function") {
     try {
-// @ts-expect-error
       restorer();
       return;
     } catch (error) {
@@ -7742,7 +7776,6 @@ function recordPageSnapshot(configValue, pageUrl) {
   const snapshotStartedAt = nowMs();
   const immutableExcluded = collectImmutableElements() as Set<Element>;
   syncPageMarkings(configValue, pageUrl, immutableExcluded);
-// @ts-expect-error
   const entry = getPageMarkingEntry(configValue, pageUrl);
   const snapshot = createSanitizedPageSnapshot({
     renderMode: config.getConfigRenderMode(configValue)
@@ -8382,7 +8415,6 @@ function toggleExplicitExclude(target, options = {}) {
 
   const mutationStartedAt = nowMs();
   const config = state.config;
-// @ts-expect-error
   const entry = getPageMarkingEntry(config, location.href);
   const items = Array.isArray(entry.xpaths) ? entry.xpaths : [];
   const includeXpaths = Array.isArray(entry.includeXpaths) ? entry.includeXpaths : [];
@@ -8527,7 +8559,6 @@ function toggleExplicitExclude(target, options = {}) {
   };
 
   let addedExclude;
-// @ts-expect-error
   let targetItem = items.find((item) => item && item.xpath === xpath);
   if (!targetItem) {
     targetItem = { xpath, excluded: true, explicit: true };
@@ -8547,7 +8578,6 @@ function toggleExplicitExclude(target, options = {}) {
     cleanupAncestorHierarchy(xpath);
     cleanupIncludeHierarchy(xpath);
     if (Array.isArray(entry.includeXpaths)) {
-// @ts-expect-error
       entry.includeXpaths = entry.includeXpaths.filter((value) => value !== xpath);
     }
   } else if (targetItem && !targetItem.excluded) {
@@ -8584,7 +8614,6 @@ function toggleExplicitInclude(target, options = {}) {
 
   const mutationStartedAt = nowMs();
   const config = state.config;
-// @ts-expect-error
   const entry = getPageMarkingEntry(config, location.href);
   const includeXpaths = Array.isArray(entry.includeXpaths) ? entry.includeXpaths : [];
   const items = Array.isArray(entry.xpaths) ? entry.xpaths : [];
@@ -8601,7 +8630,6 @@ function toggleExplicitInclude(target, options = {}) {
     xpathElementCache.set(value, resolved);
     return resolved;
   };
-// @ts-expect-error
   const targetItemIndex = items.findIndex((item) => item && item.xpath === xpath);
   const targetItem = targetItemIndex >= 0 ? items[targetItemIndex] : null;
   let convertedFromExcluded = false;
@@ -10573,8 +10601,10 @@ export function areEntriesEquivalent(left, right) {
   return true;
 }
 
-// @ts-expect-error
-export function clonePageEntry(entry) {
+export function clonePageEntry(entry: PageMarkingEntry): PageMarkingEntry;
+export function clonePageEntry(entry: PageMarkingEntry | null | undefined): PageMarkingEntry | null;
+export function clonePageEntry(entry: null | undefined): null;
+export function clonePageEntry(entry: PageMarkingEntry | null | undefined): PageMarkingEntry | null {
   if (!entry || typeof entry !== "object") {
     return null;
   }
@@ -11165,8 +11195,11 @@ export function mergeDraftEntry(config, pageUrl, draftEntry, savedEntry) {
   setPageMarkingEntry(config.pageMarkings, pageUrl, clonePageEntry(draftEntry));
 }
 
-// @ts-expect-error
-export function getPageMarkingEntry(configValue, pageUrl, options) {
+export function getPageMarkingEntry(
+  configValue: Config | null | undefined,
+  pageUrl: string,
+  options?: { create?: boolean; persist?: boolean }
+): PageMarkingEntry {
   const { create = true, persist = true } = options || {};
   const currentPageType = normalizePageEntryPageType(state.currentPageType);
   if (!configValue) {
@@ -11176,6 +11209,7 @@ export function getPageMarkingEntry(configValue, pageUrl, options) {
       pageType: currentPageType,
       xpaths: [],
       includeXpaths: [],
+      selectorSuppressedXpaths: [],
       silentWhitespaceExcludedXpaths: [],
       submissionXpaths: [],
       renderedHtml: "",
@@ -11198,6 +11232,7 @@ export function getPageMarkingEntry(configValue, pageUrl, options) {
     pageType: currentPageType,
     xpaths: [],
     includeXpaths: [],
+    selectorSuppressedXpaths: [],
     silentWhitespaceExcludedXpaths: [],
     submissionXpaths: [],
     renderedHtml: "",
@@ -11642,8 +11677,7 @@ export function showAiPopover(items, options = {}) {
   state.aiPopoverCollapsed = false;
 }
 
-// @ts-expect-error
-export function getDraftPageEntry(pageUrl) {
+export function getDraftPageEntry(pageUrl: string | null | undefined): PageMarkingEntry | null {
   if (
       !pageUrl ||
       !state.config ||
@@ -11655,8 +11689,7 @@ export function getDraftPageEntry(pageUrl) {
   return findPageMarkingEntry(state.config, pageUrl);
 }
 
-// @ts-expect-error
-export function getSavedPageEntry(pageUrl) {
+export function getSavedPageEntry(pageUrl: string | null | undefined): PageMarkingEntry | null {
   if (!pageUrl || state.savedPageUrl !== pageUrl) {
     return null;
   }

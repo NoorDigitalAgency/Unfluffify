@@ -291,6 +291,11 @@ Validate: `pnpm prepare` + `pnpm build`; diff `.output/chrome-mv3` file list and
 
 ## Progress checkpoint
 
+- The latest `src/content/core.ts` entry-normalization/page-inspection checkpoint is complete: exclusion XPath normalization, sanitized snapshot creation, page-inspection reveal scrolling, lazy-loading suppression, input blockers, popup-busy leasing, and the coupled page-entry/core helper contracts now use concrete DOM/state/result types instead of broad helper suppressions.
+- The coupled source-contract tests were relaxed only enough to tolerate the new TypeScript annotations for the popup-busy/page-inspection helper signatures while preserving the same wiring assertions.
+- Current suppression count is 491 total; the remaining tracked files are `src/content/core.ts` (275), `src/popup.ts` (111), `src/content-main.ts` (25), and the exempt eval bridge pair (`src/common/page-motion-freeze-bridge.ts` 43, `src/common/page-motion-freeze-control.ts` 37).
+- Next immediate step: continue the remaining `src/content/core.ts` page-motion/save-adjacent hotspots before returning to the smaller `src/popup.ts` tail and the final `src/content-main.ts` cleanup.
+
 - The latest `src/content/core.ts` save/reconcile checkpoint is complete: `syncPageMarkings*`, synced-candidate append/merge, previous-item reconcile state, cached XPath element resolution, and silent-whitespace exclusion persistence now use concrete config/XPath/DOM contracts instead of broad helper suppressions.
 - The coupled source-contract tests were relaxed only enough to tolerate the new TypeScript annotations for save/reconcile helper signatures and typed `Set<string>` / `Set<Element>` locals while preserving the same wiring assertions.
 - Current suppression count is 574 total; the remaining tracked files are `src/content/core.ts` (358), `src/popup.ts` (111), `src/content-main.ts` (25), and the exempt eval bridge pair (`src/common/page-motion-freeze-bridge.ts` 43, `src/common/page-motion-freeze-control.ts` 37).

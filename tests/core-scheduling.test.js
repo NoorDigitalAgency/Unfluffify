@@ -893,7 +893,10 @@ test("marking enable starts fresh: wipes stale page draft and reseeds the clean 
 
 test("page popup-busy overlay is independent from reveal inspection and freeze UI", () => {
   const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
-  const busyStart = source.indexOf("export function setPopupBusyOnPage(active, message = \"\", options = {})");
+  const busyStartMatch = source.match(
+    /export function setPopupBusyOnPage\(\s*active(?:\s*:\s*[^,)]+)?\s*,\s*message\s*=\s*""\s*,\s*options(?:\s*:\s*[^)=]+)?\s*=\s*\{\}\s*\)/
+  );
+  const busyStart = busyStartMatch ? busyStartMatch.index : -1;
   const busyEnd = source.indexOf("export function isPopupBusyOnPageActive", busyStart);
   assert.ok(busyStart > -1);
   assert.ok(busyEnd > busyStart);

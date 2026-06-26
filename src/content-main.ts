@@ -6466,8 +6466,9 @@ function createCapturePageSnapshotHandlerDeps(): CapturePageSnapshotDeps {
     ) => core.hasPageMarkingEntry(configValue as Config, pageUrl),
     loadConfig: (baseUrl: unknown) => core.loadConfig(baseUrl as string | undefined),
     matchesActiveBaseUrl,
-    refreshSavedPageEntryFromBackendCache: (baseUrl: unknown, pageUrl: string) =>
-      core.refreshSavedPageEntryFromBackendCache(baseUrl as string | undefined, pageUrl),
+    refreshSavedPageEntryFromBackendCache: async (baseUrl: unknown, pageUrl: string) => {
+      await core.refreshSavedPageEntryFromBackendCache(baseUrl as string | undefined, pageUrl);
+    },
     saveConfig: (
       baseUrl: unknown,
       configValue: Parameters<CapturePageSnapshotDeps["saveConfig"]>[1]
@@ -6655,7 +6656,7 @@ function createPageSaveReconciliationClearHandlerDeps(): PageSaveReconciliationC
   return {
     clearPageSaveReconciliation: (baseUrl: unknown, pageUrl: unknown) =>
       core.clearPageSaveReconciliation(baseUrl as string | undefined, pageUrl as string | undefined),
-    clonePageEntry: (entry: unknown) => core.clonePageEntry(entry),
+    clonePageEntry: (entry: unknown) => core.clonePageEntry((entry as ContentPageEntry | null | undefined) ?? null),
     findPageMarkingEntry: (configValue: { pageMarkings: unknown }, pageUrl: string, baseUrl: unknown) =>
       core.findPageMarkingEntry(configValue as Config, pageUrl, baseUrl),
     getBackendSavedPageMarkings: (baseUrl: unknown) => config.getBackendSavedPageMarkings(baseUrl as string | undefined),
@@ -6725,8 +6726,9 @@ function createPageDraftSaveHandlerDeps(): PageDraftSaveDeps {
       logContentDiagnostic(level === "error" ? "error" : "warn", message, error),
     matchesActiveBaseUrl,
     notifyDraftStatus: (pageUrl: string) => core.notifyDraftStatus(pageUrl),
-    refreshSavedPageEntryFromBackendCache: (baseUrl: string, pageUrl: string) =>
-      core.refreshSavedPageEntryFromBackendCache(baseUrl, pageUrl),
+    refreshSavedPageEntryFromBackendCache: async (baseUrl: string, pageUrl: string) => {
+      await core.refreshSavedPageEntryFromBackendCache(baseUrl, pageUrl);
+    },
     saveConfig: (
       baseUrl: string,
       configValue: Parameters<PageDraftSaveDeps["saveConfig"]>[1]
@@ -6770,8 +6772,9 @@ function createPageDraftStatusHandlerDeps(): PageDraftStatusDeps {
     getPageUrl: () => location.href,
     getSavedPageEntry: (pageUrl: string) => core.getSavedPageEntry(pageUrl),
     hasPageMarkingEntry: (configValue: unknown, pageUrl: string) => core.hasPageMarkingEntry(configValue, pageUrl),
-    refreshSavedPageEntryFromBackendCache: (baseUrl: unknown, pageUrl: string) =>
-      core.refreshSavedPageEntryFromBackendCache(baseUrl as string | undefined, pageUrl),
+    refreshSavedPageEntryFromBackendCache: async (baseUrl: unknown, pageUrl: string) => {
+      await core.refreshSavedPageEntryFromBackendCache(baseUrl as string | undefined, pageUrl);
+    },
     setSavedPageEntry: (
       pageUrl: string,
       entry: Parameters<PageDraftStatusDeps["setSavedPageEntry"]>[1]
