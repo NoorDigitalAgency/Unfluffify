@@ -212,7 +212,7 @@ test("content exposes inspection status while reveal or reconciliation is pendin
   const inspectionStatusSource = readFileSync(new URL("../src/content/inspection-status.ts", import.meta.url), "utf8");
   const coreSource = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
 
-  assert.match(coreSource, /export function isPageInspectionUiActive\(\) \{/);
+  assert.match(coreSource, /export function isPageInspectionUiActive\(\s*\)(?:: [^{]+)? \{/);
   assert.match(coreSource, /state\.pageInspectionNotice && !state\.pageInspectionNotice\.hidden/);
   assert.match(coreSource, /state\.inspectionBlocker/);
 

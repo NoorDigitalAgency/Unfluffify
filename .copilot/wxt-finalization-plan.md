@@ -291,6 +291,11 @@ Validate: `pnpm prepare` + `pnpm build`; diff `.output/chrome-mv3` file list and
 
 ## Progress checkpoint
 
+- The latest `src/content/core.ts` inspection-ui / mark-mode helper checkpoint is complete: page-entry timestamp helpers, per-entry include/exclude XPath set lookups, mutation render-mode detection, inspection-notice/UI activation plumbing, pre-motion inspection warmup flows, toast/temporary-disable messaging, and mark-mode/modifier helpers now use concrete DOM/state/event types instead of broad helper suppressions.
+- The coupled source-contract tests were relaxed only enough to tolerate the new TypeScript annotations for `isPageInspectionUiActive()`, `getMarkingTemporarilyDisabledReason()`, and `getMarkMode()` while preserving the same wiring assertions.
+- Current suppression count is 379 total; the remaining tracked files are `src/content/core.ts` (163), `src/popup.ts` (111), `src/content-main.ts` (25), and the exempt eval bridge pair (`src/common/page-motion-freeze-bridge.ts` 43, `src/common/page-motion-freeze-control.ts` 37).
+- Next immediate step: finish the remaining `src/content/core.ts` helper/save-adjacent tail before returning to the smaller `src/popup.ts` tail and the final `src/content-main.ts` cleanup.
+
 - The latest `src/content/core.ts` page-motion pause checkpoint is complete: motion-pause state ownership, animation/media/SVG freezing, motion candidate collection, reveal normalization, pause-refresh scheduling/observation, and pause/resume restoration now use concrete DOM/style/pause-state types instead of broad helper suppressions.
 - The existing page-motion/source-contract coverage stayed intact without behavior changes; the typed guards preserve extension-UI exclusion, reveal normalization, and the page-world freeze bridge flow.
 - Current suppression count is 417 total; the remaining tracked files are `src/content/core.ts` (201), `src/popup.ts` (111), `src/content-main.ts` (25), and the exempt eval bridge pair (`src/common/page-motion-freeze-bridge.ts` 43, `src/common/page-motion-freeze-control.ts` 37).

@@ -319,6 +319,12 @@ interface LazyLoadingSuppressionRestorer {
   lazyLoadingSuppressionApplied?: Promise<unknown>;
 }
 
+interface PageInspectionWarmupOptions {
+  keepUiActive?: boolean;
+  retainLazyLoadSuppression?: boolean;
+  onRevealProgress?: () => void;
+}
+
 interface PageMotionLockState {
   hadInlineValue: boolean;
   previousValue: string;
@@ -354,6 +360,7 @@ interface SvgAnimationElement extends SVGElement {
 }
 
 type MotionHoverEvent = [string, boolean];
+type MarkMode = "disabled" | "passthrough" | "exclude" | "include";
 
 interface PageMotionPauseState {
   reasons: Set<string>;
@@ -376,6 +383,14 @@ interface DocumentWithSubtreeAnimations extends Document {
 
 interface AnimationEffectWithTarget extends AnimationEffect {
   target?: EventTarget | null;
+}
+
+interface MutationLike {
+  type: string;
+  attributeName?: string | null;
+  target: Node;
+  addedNodes?: Iterable<Node> | ArrayLike<Node>;
+  removedNodes?: Iterable<Node> | ArrayLike<Node>;
 }
 
 interface DefaultHighlightFrame {
@@ -445,6 +460,11 @@ function isStylableElement(node: Element): node is Element & { style: CSSStyleDe
     typeof (node as { style?: CSSStyleDeclaration | null }).style?.setProperty === "function";
 }
 
+function isContentEditableElement(node: Element): node is Element & { isContentEditable: boolean } {
+  return "isContentEditable" in node &&
+    typeof (node as { isContentEditable?: unknown }).isContentEditable === "boolean";
+}
+
 function isSvgAnimationElement(node: Element): node is SvgAnimationElement {
   return (
     (typeof SVGElement === "function" ? node instanceof SVGElement : node.tagName.toLowerCase() === "svg")
@@ -479,10 +499,10 @@ export const state = {
   aiPopoverCollapsed: false,
   aiPopoverOnClose: null,
   aiPopoverOnCollapsedChange: null,
-  toast: null,
+  toast: null as HTMLDivElement | null,
   toastHideTimer: 0,
-  markingDisabledNotice: null,
-  pageInspectionNotice: null,
+  markingDisabledNotice: null as HTMLDivElement | null,
+  pageInspectionNotice: null as HTMLDivElement | null,
   inspectionBlocker: null as InputBlockerState | null,
   popupBusyOverlay: null as HTMLElement | null,
   popupBusyNotice: null as HTMLElement | null,
@@ -6398,12 +6418,13 @@ export function resumePageMotion(reason: unknown = PAGE_MOTION_PAUSE_DEFAULT_REA
   resumeDocumentAnimations(pauseState);
 }
 
-// @ts-expect-error
-export function touchPageEntryTimestamp(entry, timestamp = null) {
+export function touchPageEntryTimestamp(
+  entry: PageMarkingEntry | null | undefined,
+  timestamp: string | null = null
+): string {
   if (!entry || typeof entry !== "object") {
     return "";
   }
-// @ts-expect-error
   if (typeof timestamp === "string" && timestamp.trim()) {
     entry.timestamp = config.normalizeEntryTimestamp(timestamp);
     return entry.timestamp;
@@ -6422,55 +6443,49 @@ export function touchPageEntryTimestamp(entry, timestamp = null) {
   return entry.timestamp;
 }
 
-// @ts-expect-error
-function getExcludedXPathSet(config, pageUrl) {
-  const entry =
-    config &&
-    config.pageMarkings &&
-    typeof config.pageMarkings === "object" &&
-    config.pageMarkings[pageUrl]
-      ? config.pageMarkings[pageUrl]
-      : state.currentPageUrl === pageUrl && state.currentPageEntry
-        ? state.currentPageEntry
-        : null;
-  const items = entry && Array.isArray(entry.xpaths) ? entry.xpaths : [];
-  return new Set(collectExcludedXPaths(items));
+function getPageEntryFromConfigOrState(
+  configValue: Config | null | undefined,
+  pageUrl: string
+): PageMarkingEntry | null {
+  if (
+    configValue &&
+    configValue.pageMarkings &&
+    typeof configValue.pageMarkings === "object" &&
+    configValue.pageMarkings[pageUrl]
+  ) {
+    return configValue.pageMarkings[pageUrl] || null;
+  }
+  return state.currentPageUrl === pageUrl && state.currentPageEntry
+    ? state.currentPageEntry
+    : null;
 }
 
-// @ts-expect-error
-function getIncludeXPathSet(config, pageUrl) {
-  const entry =
-    config &&
-    config.pageMarkings &&
-    typeof config.pageMarkings === "object" &&
-    config.pageMarkings[pageUrl]
-      ? config.pageMarkings[pageUrl]
-      : state.currentPageUrl === pageUrl && state.currentPageEntry
-        ? state.currentPageEntry
-        : null;
-  const includeXpaths = entry && Array.isArray(entry.includeXpaths)
-// @ts-expect-error
-    ? entry.includeXpaths.filter((xpath) => typeof xpath === "string" && xpath)
+function getExcludedXPathSet(configValue: Config | null | undefined, pageUrl: string): Set<string> {
+  const entry = getPageEntryFromConfigOrState(configValue, pageUrl);
+  const items = Array.isArray(entry?.xpaths) ? entry.xpaths : [];
+  return new Set<string>(collectExcludedXPaths(items));
+}
+
+function getIncludeXPathSet(configValue: Config | null | undefined, pageUrl: string): Set<string> {
+  const entry = getPageEntryFromConfigOrState(configValue, pageUrl);
+  const includeXpaths = Array.isArray(entry?.includeXpaths)
+    ? entry.includeXpaths.filter((xpath): xpath is string => typeof xpath === "string" && xpath.length > 0)
     : [];
-  return new Set(includeXpaths);
+  return new Set<string>(includeXpaths);
 }
 
-// @ts-expect-error
-function getSilentWhitespaceExcludedXPathSet(config, pageUrl) {
-  const entry =
-    config &&
-    config.pageMarkings &&
-    typeof config.pageMarkings === "object" &&
-    config.pageMarkings[pageUrl]
-      ? config.pageMarkings[pageUrl]
-      : state.currentPageUrl === pageUrl && state.currentPageEntry
-        ? state.currentPageEntry
-        : null;
-  return new Set(collectSilentWhitespaceExcludedXPaths(entry));
+function getSilentWhitespaceExcludedXPathSet(
+  configValue: Config | null | undefined,
+  pageUrl: string
+): Set<string> {
+  const entry = getPageEntryFromConfigOrState(configValue, pageUrl);
+  return new Set<string>(collectSilentWhitespaceExcludedXPaths(entry));
 }
 
-// @ts-expect-error
-function isExplicitlyExcludedElement(el, excludedSet) {
+function isExplicitlyExcludedElement(
+  el: Element | null | undefined,
+  excludedSet: Set<string> | null | undefined
+): boolean {
   if (!el || !excludedSet || excludedSet.size === 0) {
     return false;
   }
@@ -6478,14 +6493,12 @@ function isExplicitlyExcludedElement(el, excludedSet) {
   return Boolean(xpath && excludedSet.has(xpath));
 }
 
-// @ts-expect-error
-export function getMutationRenderMode(mutations) {
-  const mode = "none";
+export function getMutationRenderMode(mutations: MutationLike[]): "none" | "rebuild" {
+  const mode: "none" | "rebuild" = "none";
   for (const mutation of mutations) {
-    const targetNode =
-      mutation.target && mutation.target.nodeType === 1
-        ? mutation.target
-        : mutation.target && mutation.target.parentElement;
+    const targetNode = isElementNode(mutation.target)
+      ? mutation.target
+      : mutation.target?.parentElement || null;
     if (targetNode && isWithinConsentElement(targetNode)) {
       continue;
     }
@@ -6506,7 +6519,7 @@ export function getMutationRenderMode(mutations) {
       continue;
     }
     if (mutation.type === "characterData") {
-      const parent = mutation.target && mutation.target.parentElement;
+      const parent = mutation.target?.parentElement || null;
       if (parent && isWithinConsentElement(parent)) {
         continue;
       }
@@ -6517,15 +6530,15 @@ export function getMutationRenderMode(mutations) {
     }
     if (mutation.type === "childList") {
       let hasRelevantChange = false;
-      for (const node of mutation.addedNodes || []) {
-        if (node && node.nodeType === 1 && !isWithinConsentElement(node)) {
+      for (const node of Array.from(mutation.addedNodes || [])) {
+        if (isElementNode(node) && !isWithinConsentElement(node)) {
           hasRelevantChange = true;
           break;
         }
       }
       if (!hasRelevantChange) {
-        for (const node of mutation.removedNodes || []) {
-          if (node && node.nodeType === 1 && !isWithinConsentElement(node)) {
+        for (const node of Array.from(mutation.removedNodes || [])) {
+          if (isElementNode(node) && !isWithinConsentElement(node)) {
             hasRelevantChange = true;
             break;
           }
@@ -6539,8 +6552,10 @@ export function getMutationRenderMode(mutations) {
   return mode;
 }
 
-// @ts-expect-error
-function isExplicitlyIncludedElement(el, includeSet) {
+function isExplicitlyIncludedElement(
+  el: Element | null | undefined,
+  includeSet: Set<string> | null | undefined
+): boolean {
   if (!el || !includeSet || includeSet.size === 0) {
     return false;
   }
@@ -6844,7 +6859,6 @@ function createOverlay() {
   const toast = document.createElement("div");
   toast.className = "uf-toast";
   overlay.appendChild(toast);
-// @ts-expect-error
   state.toast = toast;
 
   const disabledNotice = document.createElement("div");
@@ -6854,7 +6868,6 @@ function createOverlay() {
   disabledNotice.setAttribute("role", "status");
   disabledNotice.setAttribute("aria-live", "polite");
   overlay.appendChild(disabledNotice);
-// @ts-expect-error
   state.markingDisabledNotice = disabledNotice;
 
   const inspectionNotice = document.createElement("div");
@@ -6872,7 +6885,6 @@ function createOverlay() {
   inspectionNotice.appendChild(inspectionSpinner);
   inspectionNotice.appendChild(inspectionMessage);
   overlay.appendChild(inspectionNotice);
-// @ts-expect-error
   state.pageInspectionNotice = inspectionNotice;
 
   overlay.addEventListener("mousemove", handleMouseMove, true);
@@ -6895,8 +6907,7 @@ function createOverlay() {
   updateOverlayGutter();
 }
 
-// @ts-expect-error
-function setPageInspectionUiActive(active) {
+function setPageInspectionUiActive(active: unknown): void {
   const enabled = Boolean(active);
   if (typeof document !== "undefined" && document.documentElement) {
     setElementClassPresence(document.documentElement, PAGE_INSPECTION_OVERLAY_CLASS, enabled);
@@ -6906,25 +6917,23 @@ function setPageInspectionUiActive(active) {
     state.overlay.setAttribute("aria-busy", enabled ? "true" : "false");
   }
   if (state.pageInspectionNotice) {
-// @ts-expect-error
     state.pageInspectionNotice.hidden = !enabled;
   }
   updateCursorMode();
 }
 
-export function isPageInspectionUiActive() {
+export function isPageInspectionUiActive(): boolean {
   return Boolean(
-// @ts-expect-error
     (state.pageInspectionNotice && !state.pageInspectionNotice.hidden) ||
       state.inspectionBlocker
   );
 }
 
-// @ts-expect-error
-async function inspectPageBeforeMotionPause(isStillCurrent, options = {}) {
-// @ts-expect-error
+async function inspectPageBeforeMotionPause(
+  isStillCurrent: () => boolean,
+  options: PageInspectionWarmupOptions = {}
+): Promise<boolean> {
   const keepUiActive = Boolean(options.keepUiActive);
-// @ts-expect-error
   const retainLazyLoadSuppression = Boolean(options.retainLazyLoadSuppression);
   startPageInspectionInputBlocker();
   try {
@@ -6945,9 +6954,11 @@ async function inspectPageBeforeMotionPause(isStillCurrent, options = {}) {
   }
 }
 
-// @ts-expect-error
-async function warmupPageRevealBeforeMotionPause(baseUrl, pageUrl, options = {}) {
-// @ts-expect-error
+async function warmupPageRevealBeforeMotionPause(
+  baseUrl: string,
+  pageUrl: string,
+  options: PageInspectionWarmupOptions = {}
+): Promise<boolean> {
   const keepUiActive = Boolean(options.keepUiActive);
   const revealWarmupId = state.pageRevealWarmupId + 1;
   state.pageRevealWarmupId = revealWarmupId;
@@ -6979,18 +6990,13 @@ function hasPageMotionPauseReason(reason: unknown): boolean {
 }
 
 export async function warmupSilentHighlightingBeforeMotionPause(
-// @ts-expect-error
-  baseUrl,
-// @ts-expect-error
-  pageUrl,
+  baseUrl: string | null | undefined,
+  pageUrl: string,
   reason = PAGE_MOTION_PAUSE_DEFAULT_REASON,
-  options = {}
-) {
-// @ts-expect-error
+  options: PageInspectionWarmupOptions = {}
+): Promise<boolean> {
   const keepUiActive = Boolean(options.keepUiActive);
-// @ts-expect-error
   const onRevealProgress = typeof options.onRevealProgress === "function"
-// @ts-expect-error
     ? options.onRevealProgress
     : null;
   const revealWarmupId = state.pageRevealWarmupId + 1;
@@ -7083,7 +7089,7 @@ function flushPendingInspectionRender() {
 }
 
 export function finishPageInspectionUiAfterRender() {
-  return new Promise((resolve) => {
+  return new Promise<void>((resolve) => {
     const startedAt = Date.now();
     const pollUntilRendered = () => {
       if (state.renderTimer || state.renderRaf) {
@@ -7103,7 +7109,6 @@ export function finishPageInspectionUiAfterRender() {
         return;
       }
       finishPageInspectionUi();
-// @ts-expect-error
       resolve();
     };
     pollUntilRendered();
@@ -7163,19 +7168,15 @@ function updateOverlayGutter() {
       horizontalGutter > 0 ? `${horizontalGutter}px` : "0px";
 }
 
-// @ts-expect-error
-function showToast(message) {
+function showToast(message: string): void {
   if (!state.toast) {
     return;
   }
-// @ts-expect-error
   state.toast.textContent = message;
-// @ts-expect-error
   state.toast.classList.add("uf-toast-show");
   extensionClearTimeout(state.toastHideTimer);
   state.toastHideTimer = extensionSetTimeout(() => {
     if (state.toast) {
-// @ts-expect-error
       state.toast.classList.remove("uf-toast-show");
     }
   }, 1800);
@@ -7184,18 +7185,19 @@ function showToast(message) {
 function getMarkingTemporarilyDisabledReason() {
   const pageUrl = typeof location !== "undefined" ? location.href : "";
   const reconciliation = pageUrl ? getPageSaveReconciliationState(pageUrl) : null;
+  const reason = reconciliation && typeof reconciliation === "object" && typeof (reconciliation as { reason?: unknown }).reason === "string"
+    ? (reconciliation as { reason: string }).reason
+    : "";
   if (config.isPageSaveReconciliationPending(reconciliation)) {
-    if (reconciliation && reconciliation.reason === SILENT_HIGHLIGHTING_PREPARATION_REASON) {
+    if (reason === SILENT_HIGHLIGHTING_PREPARATION_REASON) {
       return "";
     }
-// @ts-expect-error
-    return reconciliation.reason || "pending";
+    return reason || "pending";
   }
   return "";
 }
 
-// @ts-expect-error
-function getMarkingTemporarilyDisabledMessage(reason) {
+function getMarkingTemporarilyDisabledMessage(reason: string): string {
   if (reason === "saving") {
     return ContentText.marking.temporarilyDisabledSaving;
   }
@@ -7234,7 +7236,7 @@ function updateMarkingTemporarilyDisabledUi() {
   updateCursorMode();
 }
 
-function getMarkMode() {
+function getMarkMode(): MarkMode {
   if (!state.enabled || !state.overlay) {
     return "disabled";
   }
@@ -7250,8 +7252,9 @@ function getMarkMode() {
   return "exclude";
 }
 
-// @ts-expect-error
-function getMarkModeFromEvent(event) {
+function getMarkModeFromEvent(
+  event: Pick<KeyboardEvent, "altKey"> | Pick<MouseEvent, "altKey"> | null | undefined
+): MarkMode {
   if (!event) {
     return getMarkMode();
   }
@@ -7261,8 +7264,7 @@ function getMarkModeFromEvent(event) {
   return "exclude";
 }
 
-// @ts-expect-error
-function shouldAllowParentMarking(mode, shiftHeld) {
+function shouldAllowParentMarking(mode: MarkMode, shiftHeld: unknown): boolean {
   return mode !== "include" && Boolean(shiftHeld);
 }
 
@@ -7301,8 +7303,7 @@ function updateAltPassThroughFromModifiers() {
   updateCursorMode();
 }
 
-// @ts-expect-error
-function isPageInteractionKeyEvent(event) {
+function isPageInteractionKeyEvent(event: KeyboardEvent | null | undefined): boolean {
   if (!event || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {
     return false;
   }
@@ -7311,12 +7312,11 @@ function isPageInteractionKeyEvent(event) {
     event.key === PAGE_INTERACTION_LEGACY_KEY;
 }
 
-// @ts-expect-error
-function isEditableKeyEventTarget(target) {
-  if (!target || target.nodeType !== 1) {
+function isEditableKeyEventTarget(target: EventTarget | null | undefined): boolean {
+  if (!isElementNode(target)) {
     return false;
   }
-  if (target.isContentEditable) {
+  if (isContentEditableElement(target) && target.isContentEditable) {
     return true;
   }
   const tagName = target.tagName ? String(target.tagName).toUpperCase() : "";
@@ -7342,8 +7342,12 @@ function isEditableKeyEventTarget(target) {
   ].includes(inputType);
 }
 
-// @ts-expect-error
-function syncModifierState(event) {
+function syncModifierState(
+  event: Pick<KeyboardEvent, "getModifierState" | "altKey" | "shiftKey">
+    | Pick<MouseEvent, "getModifierState" | "altKey" | "shiftKey">
+    | null
+    | undefined
+): void {
   if (!event) {
     return;
   }
@@ -7420,8 +7424,10 @@ function updateFocusHighlight() {
   finalizeLayerRender(layerState);
 }
 
-// @ts-expect-error
-function showImmediateToggleAcknowledgement(target, mode) {
+function showImmediateToggleAcknowledgement(
+  target: Element | null | undefined,
+  mode: "exclude" | "include"
+): void {
   const interactionLayer = state.layers["interaction"];
   if (!interactionLayer || !target || target.nodeType !== 1) {
     return;

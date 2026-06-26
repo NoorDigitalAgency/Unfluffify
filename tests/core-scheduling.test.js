@@ -716,11 +716,11 @@ test("marking mode uses Space-held page interaction without changing Alt include
   );
   assert.match(
     source,
-    /function getMarkModeFromEvent\(event\) \{[\s\S]*?if \(event\.altKey\) \{[\s\S]*?return "include";[\s\S]*?return "exclude";/
+    /function getMarkModeFromEvent\(\s*event(?:\s*:\s*[^)]+)?\s*\)(?:: [^{]+)? \{[\s\S]*?if \(event\.altKey\) \{[\s\S]*?return "include";[\s\S]*?return "exclude";/
   );
   assert.match(
     source,
-    /function shouldAllowParentMarking\(mode, shiftHeld\) \{\s*return mode !== "include" && Boolean\(shiftHeld\);\s*\}/
+    /function shouldAllowParentMarking\(\s*mode(?:\s*:\s*[^,]+)?\s*,\s*shiftHeld(?:\s*:\s*[^)]+)?\s*\)(?:: [^{]+)? \{\s*return mode !== "include" && Boolean\(shiftHeld\);\s*\}/
   );
 });
 
@@ -815,9 +815,12 @@ test("marking mode surfaces temporary disabled state while save sync blocks edit
   assert.match(source, /disabledNotice\.setAttribute\("data-uf-extension-ui", "true"\);/);
   assert.match(source, /disabledNotice\.setAttribute\("role", "status"\);/);
   assert.match(source, /disabledNotice\.setAttribute\("aria-live", "polite"\);/);
-  assert.match(source, /function getMarkingTemporarilyDisabledReason\(\) \{[\s\S]*?const pageUrl = typeof location !== "undefined" \? location\.href : "";[\s\S]*?getPageSaveReconciliationState\(pageUrl\)[\s\S]*?config\.isPageSaveReconciliationPending\(reconciliation\)[\s\S]*?return reconciliation\.reason \|\| "pending";/);
+  assert.match(
+    source,
+    /function getMarkingTemporarilyDisabledReason\(\) \{[\s\S]*?const pageUrl = typeof location !== "undefined" \? location\.href : "";[\s\S]*?getPageSaveReconciliationState\(pageUrl\)[\s\S]*?const reason =[\s\S]*?config\.isPageSaveReconciliationPending\(reconciliation\)[\s\S]*?return reason \|\| "pending";/
+  );
   assert.match(source, /function updateMarkingTemporarilyDisabledUi\(\) \{[\s\S]*?classList\.toggle\(MARKING_DISABLED_OVERLAY_CLASS, disabled\)[\s\S]*?setAttribute\("aria-disabled", "true"\)[\s\S]*?clearLayer\(state\.layers\["hover"\]\)[\s\S]*?getMarkingTemporarilyDisabledMessage\(reason\)/);
-  assert.match(source, /function getMarkMode\(\) \{[\s\S]*?isMarkingTemporarilyDisabled\(\)[\s\S]*?return "disabled";[\s\S]*?state\.altPassThrough/);
+  assert.match(source, /function getMarkMode\(\s*\)(?:: [^{]+)? \{[\s\S]*?isMarkingTemporarilyDisabled\(\)[\s\S]*?return "disabled";[\s\S]*?state\.altPassThrough/);
   assert.match(source, /export async function setPageSaveReconciliationPending[\s\S]*?state\.pageSaveReconciliation = reconciliation;[\s\S]*?updateMarkingTemporarilyDisabledUi\(\);[\s\S]*?notifyDraftStatus\(pageUrl\);/);
   assert.match(source, /export async function clearPageSaveReconciliation[\s\S]*?state\.pageSaveReconciliation = null;[\s\S]*?updateMarkingTemporarilyDisabledUi\(\);[\s\S]*?notifyDraftStatus\(pageUrl\);/);
   assert.match(textSource, /temporarilyDisabledSaving: "Saving page\.\.\. marking paused"/);
