@@ -1,6 +1,6 @@
 import * as core from "./content/core.js";
 import { browser, type Browser } from "./common/browser.js";
-import type { Config } from "./types/config.ts";
+import type { Config, SelectorSet, XpathEntry } from "./types/config.ts";
 import {
   addBusEnvelopeListener,
   addRequestEnvelopeListener
@@ -249,6 +249,48 @@ type SilentHighlightTrackedNodeIndex = {
   ancestors: Set<Node>;
 };
 type ContentPageEntry = NonNullable<Config["pageMarkings"][string]>;
+type SelectorSetInput = {
+  exclusionSelectors?: unknown;
+  inclusionSelectors?: unknown;
+  suppressedXpaths?: unknown;
+};
+type SuppressedSelectorBoundaries = {
+  xpaths: string[];
+  elements: Element[];
+};
+type SelectorCollectionOptions = {
+  suppressedXpaths?: unknown;
+};
+type InclusionSelectionOptions = {
+  ignoreVisibilityForInclusionDetection?: boolean;
+  preserveNestedExplicitIncludedDescendants?: boolean;
+  keepAllExplicitMatches?: boolean;
+};
+type SilentHighlightRenderTargetOptions = {
+  keepShallowestOnly?: boolean;
+};
+type RenderableNodeListOptions = {
+  dedupeTargets?: boolean;
+  keepShallowestFallbackTargets?: boolean;
+};
+type IncludedSelectorSetResult = {
+  included: Element[];
+  excluded: Element[];
+  immutableExcluded: Element[];
+  explicitIncluded: Element[];
+  hiddenExplicitIncluded: Element[];
+  inclusionSelectorByNode: Map<Element, string>;
+  exclusionSelectorByNode: Map<Element, string>;
+};
+type RenderableNodeListResult = {
+  nodes: Element[];
+  selectorByNode: Map<Element, string>;
+  sourceByTarget: Map<Element, Element>;
+};
+type SnapshotTraversalItem = {
+  node: Element;
+  insideImmutableExcluded: boolean;
+};
 
 const SILENT_CONTENT_HIGHLIGHTING_ATTR = "data-uf-silent-content-highlighting";
 const SILENT_CONTENT_EXCLUDED_ATTR = "data-uf-silent-content-excluded";
@@ -310,6 +352,49 @@ const SILENT_HIGHLIGHTING_POSITION_REFRESH_ATTRS = new Set([
 // Record Separator keeps the composite suppression fingerprint separate from
 // the selector fingerprint's Unit Separator without colliding with selector text.
 const SELECTOR_CACHE_SCOPE_FINGERPRINT_SEPARATOR = "\u001e";
+
+function isElementNode(node: unknown): node is Element {
+  return Boolean(
+    node &&
+      typeof node === "object" &&
+      "nodeType" in node &&
+      (node as { nodeType?: unknown }).nodeType === 1
+  );
+}
+
+function pushChildElementsReverse(stack: Element[], parent: Element): void {
+  for (let i = parent.children.length - 1; i >= 0; i -= 1) {
+    const child = parent.children.item(i);
+    if (child) {
+      stack.push(child);
+    }
+  }
+}
+
+function pushChildElementsForward(stack: Element[], parent: Element): void {
+  for (let i = 0; i < parent.children.length; i += 1) {
+    const child = parent.children.item(i);
+    if (child) {
+      stack.push(child);
+    }
+  }
+}
+
+function toElementArray(nodes: Iterable<unknown> | null | undefined): Element[] {
+  const elements: Element[] = [];
+  for (const node of nodes || []) {
+    if (isElementNode(node)) {
+      elements.push(node);
+    }
+  }
+  return elements;
+}
+
+function getSuppressedXpathList(suppressedXpaths: unknown): string[] {
+  return Array.isArray(suppressedXpaths)
+    ? suppressedXpaths.filter((xpath): xpath is string => typeof xpath === "string" && Boolean(xpath))
+    : [];
+}
 
 let silentHighlightingUrlTimer = 0;
 
@@ -1132,7 +1217,7 @@ function mapAiPreviewItemsToRenderableTargets(items) {
       return;
     }
     const sourceNode = core.getElementFromXPath(sourceXpath);
-    if (!sourceNode || sourceNode.nodeType !== 1 || isExtensionUiNode(sourceNode)) {
+    if (!isElementNode(sourceNode) || isExtensionUiNode(sourceNode)) {
       return;
     }
     const renderTargets = collectSilentHighlightRenderTargets(sourceNode, {
@@ -2477,7 +2562,6 @@ function buildSilentHighlightRenderableCollections(collections) {
   const contentNodes = toRenderableNodeList(sourceContentNodes);
   const explicitIncludedRenderable = toRenderableNodeListWithSelectors(
     sourceExplicitIncludeNodes,
-// @ts-expect-error
     (node) => resolveSelectorForNode(node, sourceInclusionSelectorByNode, false)
   );
   const sourceHiddenExplicitIncludeSet = new Set(sourceHiddenExplicitIncludeNodes);
@@ -2490,7 +2574,6 @@ function buildSilentHighlightRenderableCollections(collections) {
   );
   const excludedRenderable = toRenderableNodeListWithSelectors(
     sourceExcludedNodes,
-// @ts-expect-error
     (node) => resolveSelectorForNode(node, sourceExclusionSelectorByNode, true)
   );
   const excludedNodes = excludedRenderable.nodes;
@@ -3579,8 +3662,7 @@ async function exitAiPreviewMode() {
   };
 }
 
-// @ts-expect-error
-function normalizeUrlPath(pathname) {
+function normalizeUrlPath(pathname: unknown): string {
   if (typeof pathname !== "string" || !pathname) {
     return "/";
   }
@@ -3588,13 +3670,13 @@ function normalizeUrlPath(pathname) {
   return trimmed || "/";
 }
 
-// @ts-expect-error
-function toLooseUrlKey(value, baseUrl) {
+function toLooseUrlKey(value: unknown, baseUrl: unknown): string {
   if (typeof value !== "string" || !value) {
     return "";
   }
   try {
-    const url = new URL(value, baseUrl || location.href);
+    const lookupBaseUrl = typeof baseUrl === "string" && baseUrl ? baseUrl : location.href;
+    const url = new URL(value, lookupBaseUrl);
     const host = url.host.toLowerCase();
     const path = normalizeUrlPath(url.pathname);
     return `${host}${path}${url.search || ""}`;
@@ -3603,24 +3685,19 @@ function toLooseUrlKey(value, baseUrl) {
   }
 }
 
-// @ts-expect-error
-function getStoredAiSelectorSet(baseConfig) {
+function getStoredAiSelectorSet(baseConfig: unknown): SelectorSet {
   if (!baseConfig || typeof baseConfig !== "object") {
     return { exclusionSelectors: [], inclusionSelectors: [] };
   }
   return config.getNewestConfigSelectorSet(baseConfig).selectorSet;
 }
 
-// @ts-expect-error
-function getSelectorSuppressedXpaths(baseConfig, pageUrl = location.href) {
+function getSelectorSuppressedXpaths(baseConfig: unknown, pageUrl = location.href): string[] {
   const pageMarkings = baseConfig && typeof baseConfig === "object"
-    ? baseConfig.pageMarkings
+    ? (baseConfig as { pageMarkings?: unknown }).pageMarkings
     : null;
   const entry = core.findPageMarkingEntry({ pageMarkings }, pageUrl, state.baseUrl || "");
-  return Array.isArray(entry && entry.selectorSuppressedXpaths)
-// @ts-expect-error
-    ? entry.selectorSuppressedXpaths.filter((xpath) => typeof xpath === "string" && xpath)
-    : [];
+  return getSuppressedXpathList(entry?.selectorSuppressedXpaths);
 }
 
 // @ts-expect-error
@@ -3636,22 +3713,21 @@ function getEffectiveAiSelectorSet(baseConfig) {
   };
 }
 
-// @ts-expect-error
-function resolveSuppressedSelectorBoundaries(suppressedXpaths) {
-  const xpaths = Array.isArray(suppressedXpaths)
-    ? suppressedXpaths.filter((xpath) => typeof xpath === "string" && xpath)
-    : [];
+function resolveSuppressedSelectorBoundaries(suppressedXpaths: unknown): SuppressedSelectorBoundaries {
+  const xpaths = getSuppressedXpathList(suppressedXpaths);
   return {
     xpaths,
     elements: xpaths
       .map((xpath) => core.getElementFromXPath(xpath))
-      .filter((element) => element && element.nodeType === 1)
+      .filter(isElementNode)
   };
 }
 
-// @ts-expect-error
-function isSuppressedSelectorNode(node, suppressedBoundaries) {
-  if (!node || node.nodeType !== 1 || !suppressedBoundaries || !suppressedBoundaries.xpaths.length) {
+function isSuppressedSelectorNode(
+  node: Element | null | undefined,
+  suppressedBoundaries: SuppressedSelectorBoundaries | null | undefined
+): boolean {
+  if (!node || !suppressedBoundaries || !suppressedBoundaries.xpaths.length) {
     return false;
   }
   for (const element of suppressedBoundaries.elements) {
@@ -3663,27 +3739,19 @@ function isSuppressedSelectorNode(node, suppressedBoundaries) {
   if (!xpath) {
     return false;
   }
-// @ts-expect-error
   return suppressedBoundaries.xpaths.some((suppressedXpath) =>
     suppressedXpath === xpath || core.isXPathDescendant(suppressedXpath, xpath)
   );
 }
 
-// @ts-expect-error
-function getSuppressedSelectorFingerprint(suppressedXpaths) {
-  if (!Array.isArray(suppressedXpaths)) {
-    return "";
-  }
-  return suppressedXpaths
-    .filter((xpath) => typeof xpath === "string" && xpath)
+function getSuppressedSelectorFingerprint(suppressedXpaths: unknown): string {
+  return getSuppressedXpathList(suppressedXpaths)
     .slice()
     .sort()
     .join(SELECTOR_LIST_DELIMITER);
 }
 
-// @ts-expect-error
-function collectNodesFromSelectors(selectors, options = {}) {
-// @ts-expect-error
+function collectNodesFromSelectors(selectors: unknown, options: SelectorCollectionOptions = {}) {
   const suppressedBoundaries = resolveSuppressedSelectorBoundaries(options.suppressedXpaths);
   return collectCachedSelectorMatches({
     root: document,
@@ -3692,7 +3760,6 @@ function collectNodesFromSelectors(selectors, options = {}) {
     scope: "silent-highlight-selectors",
     suppressionFingerprint: [
       getSelectorFingerprint(selectors),
-// @ts-expect-error
       getSuppressedSelectorFingerprint(options.suppressedXpaths)
     ].join(SELECTOR_CACHE_SCOPE_FINGERPRINT_SEPARATOR),
     includeSelectorByNode: true,
@@ -3702,8 +3769,11 @@ function collectNodesFromSelectors(selectors, options = {}) {
   });
 }
 
-// @ts-expect-error
-function resolveSelectorForNode(node, selectorByNode, allowAncestorMatch = false) {
+function resolveSelectorForNode(
+  node: Element | null | undefined,
+  selectorByNode: Map<Element, string> | null | undefined,
+  allowAncestorMatch = false
+): string {
   if (!node || !selectorByNode || selectorByNode.size === 0) {
     return "";
   }
@@ -3723,12 +3793,11 @@ function resolveSelectorForNode(node, selectorByNode, allowAncestorMatch = false
   return "";
 }
 
-// @ts-expect-error
-function isWithinExcludedNode(node, excluded) {
+function isWithinExcludedNode(node: Element | null | undefined, excluded: Set<Element> | null | undefined): boolean {
   if (!node || !excluded || excluded.size === 0) {
     return false;
   }
-  let current = node;
+  let current: Element | null = node;
   while (current && current.nodeType === 1) {
     if (excluded.has(current)) {
       return true;
@@ -3738,19 +3807,16 @@ function isWithinExcludedNode(node, excluded) {
   return false;
 }
 
-// @ts-expect-error
-function isWithinConsentBoundary(node) {
+function isWithinConsentBoundary(node: Element | null | undefined): boolean {
   return Boolean(
     node &&
-    node.nodeType === 1 &&
     typeof node.closest === "function" &&
     node.closest(`[${core.CONSENT_HIDDEN_ATTR}]`)
   );
 }
 
-// @ts-expect-error
-function hasDirectRenderableText(node) {
-  if (!node || node.nodeType !== 1) {
+function hasDirectRenderableText(node: Element | null | undefined): boolean {
+  if (!node) {
     return false;
   }
   if (
@@ -3772,12 +3838,11 @@ function hasDirectRenderableText(node) {
   return false;
 }
 
-// @ts-expect-error
-function isDefinitelyHiddenSubtreeNode(node) {
-  if (!node || node.nodeType !== 1) {
+function isDefinitelyHiddenSubtreeNode(node: Element | null | undefined): boolean {
+  if (!node) {
     return true;
   }
-  if (node.hidden) {
+  if ("hidden" in node && node.hidden === true) {
     return true;
   }
   const ariaHidden = node.getAttribute("aria-hidden");
@@ -3805,9 +3870,8 @@ function isDefinitelyHiddenSubtreeNode(node) {
   return false;
 }
 
-// @ts-expect-error
-function matchesImmutableDefaultSelector(node) {
-  if (!node || node.nodeType !== 1) {
+function matchesImmutableDefaultSelector(node: Element | null | undefined): boolean {
+  if (!node) {
     return false;
   }
   for (const selector of DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS) {
@@ -3823,9 +3887,8 @@ function matchesImmutableDefaultSelector(node) {
   return false;
 }
 
-// @ts-expect-error
-function matchesToggleableDefaultSelector(node) {
-  if (!node || node.nodeType !== 1) {
+function matchesToggleableDefaultSelector(node: Element | null | undefined): boolean {
+  if (!node) {
     return false;
   }
   for (const selector of DEFAULT_EXCLUDED_TOGGLEABLE_SELECTORS) {
@@ -3841,16 +3904,14 @@ function matchesToggleableDefaultSelector(node) {
   return false;
 }
 
-// @ts-expect-error
-function hasNestedToggleableDefaultExcludedDescendant(node) {
-  if (!node || node.nodeType !== 1) {
+function hasNestedToggleableDefaultExcludedDescendant(node: Element | null | undefined): boolean {
+  if (!node) {
     return false;
   }
-  const stack = Array.from(node.children || []);
+  const stack = Array.from(node.children);
   while (stack.length) {
     const current = stack.pop();
-// @ts-expect-error
-    if (!current || current.nodeType !== 1) {
+    if (!current) {
       continue;
     }
     if (isExtensionUiNode(current) || isWithinConsentBoundary(current)) {
@@ -3859,25 +3920,19 @@ function hasNestedToggleableDefaultExcludedDescendant(node) {
     if (matchesToggleableDefaultSelector(current)) {
       return true;
     }
-// @ts-expect-error
-    for (let i = current.children.length - 1; i >= 0; i -= 1) {
-// @ts-expect-error
-      stack.push(current.children[i]);
-    }
+    pushChildElementsReverse(stack, current);
   }
   return false;
 }
 
-// @ts-expect-error
-function hasVisibleImmutableDescendant(node) {
-  if (!node || node.nodeType !== 1) {
+function hasVisibleImmutableDescendant(node: Element | null | undefined): boolean {
+  if (!node) {
     return false;
   }
-  const stack = Array.from(node.children || []);
+  const stack = Array.from(node.children);
   while (stack.length) {
     const current = stack.pop();
-// @ts-expect-error
-    if (!current || current.nodeType !== 1) {
+    if (!current) {
       continue;
     }
     if (isExtensionUiNode(current) || isWithinConsentBoundary(current)) {
@@ -3886,21 +3941,16 @@ function hasVisibleImmutableDescendant(node) {
     if (matchesImmutableDefaultSelector(current) && core.isVisible(current)) {
       return true;
     }
-// @ts-expect-error
-    for (let i = current.children.length - 1; i >= 0; i -= 1) {
-// @ts-expect-error
-      stack.push(current.children[i]);
-    }
+    pushChildElementsReverse(stack, current);
   }
   return false;
 }
 
-// @ts-expect-error
-function matchesAutoToggleableDefaultSelector(node) {
+function matchesAutoToggleableDefaultSelector(node: Element | null | undefined): boolean {
   if (!matchesToggleableDefaultSelector(node)) {
     return false;
   }
-  if (!node || node.nodeType !== 1) {
+  if (!node) {
     return false;
   }
   if (!hasTextualDescendantForInclusion(node)) {
@@ -3912,8 +3962,7 @@ function matchesAutoToggleableDefaultSelector(node) {
   return !hasVisibleImmutableDescendant(node);
 }
 
-// @ts-expect-error
-function isWithinImmutableDefaultNode(node) {
+function isWithinImmutableDefaultNode(node: Element | null | undefined): boolean {
   let current = node;
   while (current && current.nodeType === 1) {
     if (matchesImmutableDefaultSelector(current)) {
@@ -3924,13 +3973,17 @@ function isWithinImmutableDefaultNode(node) {
   return false;
 }
 
-// @ts-expect-error
-function isToggleableDefaultExcludedNode(node, includedNodes) {
+function isToggleableDefaultExcludedNode(
+  node: Element | null | undefined,
+  includedNodes: Set<Element> | null | undefined
+): boolean {
   return matchesAutoToggleableDefaultSelector(node) && !isWithinNodeSet(node, includedNodes);
 }
 
-// @ts-expect-error
-function isWithinToggleableDefaultExcludedNode(node, includedNodes) {
+function isWithinToggleableDefaultExcludedNode(
+  node: Element | null | undefined,
+  includedNodes: Set<Element> | null | undefined
+): boolean {
   if (isWithinNodeSet(node, includedNodes)) {
     return false;
   }
@@ -3944,39 +3997,43 @@ function isWithinToggleableDefaultExcludedNode(node, includedNodes) {
   return false;
 }
 
-// @ts-expect-error
-function isRawSelectorExcludedNode(node, excludedNodes, includedNodes) {
+function isRawSelectorExcludedNode(
+  node: Element | null | undefined,
+  excludedNodes: Set<Element> | null | undefined,
+  includedNodes: Set<Element> | null | undefined
+): boolean {
   return isWithinNodeSet(node, excludedNodes) && !isWithinNodeSet(node, includedNodes);
 }
 
-// @ts-expect-error
-function isSelectorExcludedNode(node, excludedNodes, includedNodes, inclusionContextSet) {
+function isSelectorExcludedNode(
+  node: Element | null | undefined,
+  excludedNodes: Set<Element> | null | undefined,
+  includedNodes: Set<Element> | null | undefined,
+  _inclusionContextSet: Set<Element> | null | undefined
+): boolean {
   return isRawSelectorExcludedNode(node, excludedNodes, includedNodes);
 }
 
-// @ts-expect-error
-function isExcludedNatureNode(node, excludedNodes, includedNodes, inclusionContextSet) {
+function isExcludedNatureNode(
+  node: Element | null | undefined,
+  excludedNodes: Set<Element> | null | undefined,
+  includedNodes: Set<Element> | null | undefined,
+  inclusionContextSet: Set<Element> | null | undefined
+): boolean {
   return matchesImmutableDefaultSelector(node) ||
     isToggleableDefaultExcludedNode(node, includedNodes) ||
     isSelectorExcludedNode(node, excludedNodes, includedNodes, inclusionContextSet);
 }
 
 function isInclusionEligibleNode(
-// @ts-expect-error
-  node,
-// @ts-expect-error
-  excludedNodes,
-// @ts-expect-error
-  includedNodes,
-// @ts-expect-error
-  inclusionContextSet,
-  options = {}
-) {
-  const ignoreVisibilityForInclusionDetection = Boolean(
-// @ts-expect-error
-    options && options.ignoreVisibilityForInclusionDetection
-  );
-  if (!node || node.nodeType !== 1) {
+  node: Element | null | undefined,
+  excludedNodes: Set<Element> | null | undefined,
+  includedNodes: Set<Element> | null | undefined,
+  inclusionContextSet: Set<Element> | null | undefined,
+  options: InclusionSelectionOptions = {}
+): boolean {
+  const ignoreVisibilityForInclusionDetection = Boolean(options.ignoreVisibilityForInclusionDetection);
+  if (!node) {
     return false;
   }
   if (isExtensionUiNode(node)) {
@@ -4003,13 +4060,12 @@ function isInclusionEligibleNode(
     Boolean(inclusionContextSet && inclusionContextSet.has(node));
 }
 
-// @ts-expect-error
-function isTextualContainerForInclusion(node, options = {}) {
-  const ignoreVisibilityForInclusionDetection = Boolean(
-// @ts-expect-error
-    options && options.ignoreVisibilityForInclusionDetection
-  );
-  if (!node || node.nodeType !== 1) {
+function isTextualContainerForInclusion(
+  node: Element | null | undefined,
+  options: InclusionSelectionOptions = {}
+): boolean {
+  const ignoreVisibilityForInclusionDetection = Boolean(options.ignoreVisibilityForInclusionDetection);
+  if (!node) {
     return false;
   }
   if (!ignoreVisibilityForInclusionDetection && !core.isVisible(node)) {
@@ -4022,22 +4078,25 @@ function isTextualContainerForInclusion(node, options = {}) {
     if (node.children.length > 0) {
       return true;
     }
-    const nestedText = (node.innerText || "").replace(/\s+/g, " ").trim();
+    const nestedText = (
+      (node instanceof HTMLElement ? node.innerText : node.textContent) || ""
+    ).replace(/\s+/g, " ").trim();
     return Boolean(nestedText);
   }
   return Boolean(getNormalizedNodeText(node));
 }
 
-// @ts-expect-error
-function hasTextualDescendantForInclusion(node, options = {}) {
-  if (!node || node.nodeType !== 1) {
+function hasTextualDescendantForInclusion(
+  node: Element | null | undefined,
+  options: InclusionSelectionOptions = {}
+): boolean {
+  if (!node) {
     return false;
   }
-  const stack = Array.from(node.children || []);
+  const stack = Array.from(node.children);
   while (stack.length) {
     const current = stack.pop();
-// @ts-expect-error
-    if (!current || current.nodeType !== 1) {
+    if (!current) {
       continue;
     }
     if (isExtensionUiNode(current)) {
@@ -4049,25 +4108,22 @@ function hasTextualDescendantForInclusion(node, options = {}) {
     if (isTextualContainerForInclusion(current, options)) {
       return true;
     }
-// @ts-expect-error
-    for (let i = current.children.length - 1; i >= 0; i -= 1) {
-// @ts-expect-error
-      stack.push(current.children[i]);
-    }
+    pushChildElementsReverse(stack, current);
   }
   return false;
 }
 
-// @ts-expect-error
-function hasTextualImmutableDescendantForInclusion(node, options = {}) {
-  if (!node || node.nodeType !== 1) {
+function hasTextualImmutableDescendantForInclusion(
+  node: Element | null | undefined,
+  options: InclusionSelectionOptions = {}
+): boolean {
+  if (!node) {
     return false;
   }
-  const stack = Array.from(node.children || []);
+  const stack = Array.from(node.children);
   while (stack.length) {
     const current = stack.pop();
-// @ts-expect-error
-    if (!current || current.nodeType !== 1) {
+    if (!current) {
       continue;
     }
     if (isExtensionUiNode(current)) {
@@ -4079,25 +4135,22 @@ function hasTextualImmutableDescendantForInclusion(node, options = {}) {
     ) {
       return true;
     }
-// @ts-expect-error
-    for (let i = current.children.length - 1; i >= 0; i -= 1) {
-// @ts-expect-error
-      stack.push(current.children[i]);
-    }
+    pushChildElementsReverse(stack, current);
   }
   return false;
 }
 
-// @ts-expect-error
-function isSelfMarkableInclusionNode(node, options = {}) {
+function isSelfMarkableInclusionNode(
+  node: Element | null | undefined,
+  options: InclusionSelectionOptions = {}
+): boolean {
   if (!isTextualContainerForInclusion(node, options)) {
     return false;
   }
   // Keep ancestor/descendant self-markable decisions stable even when
   // inclusion detection ignores visibility (used by silent highlight/preview).
   // Otherwise hidden responsive descendants can suppress a visible ancestor.
-// @ts-expect-error
-  const descendantShapeOptions = options && options.ignoreVisibilityForInclusionDetection
+  const descendantShapeOptions: InclusionSelectionOptions = options.ignoreVisibilityForInclusionDetection
     ? {
       ...options,
       ignoreVisibilityForInclusionDetection: false
@@ -4127,27 +4180,20 @@ function isSelfMarkableInclusionNode(node, options = {}) {
 }
 
 function hasRenderableTextOutsideExcludedNature(
-// @ts-expect-error
-  node,
-// @ts-expect-error
-  excludedNodes,
-// @ts-expect-error
-  includedNodes,
-// @ts-expect-error
-  inclusionContextSet,
-  options = {}
-) {
-  const ignoreVisibilityForInclusionDetection = Boolean(
-// @ts-expect-error
-    options && options.ignoreVisibilityForInclusionDetection
-  );
-  if (!node || node.nodeType !== 1) {
+  node: Element | null | undefined,
+  excludedNodes: Set<Element> | null | undefined,
+  includedNodes: Set<Element> | null | undefined,
+  inclusionContextSet: Set<Element> | null | undefined,
+  options: InclusionSelectionOptions = {}
+): boolean {
+  const ignoreVisibilityForInclusionDetection = Boolean(options.ignoreVisibilityForInclusionDetection);
+  if (!node) {
     return false;
   }
-  const stack = [node];
+  const stack: Element[] = [node];
   while (stack.length) {
     const current = stack.pop();
-    if (!current || current.nodeType !== 1) {
+    if (!current) {
       continue;
     }
     if (isExtensionUiNode(current)) {
@@ -4175,25 +4221,19 @@ function hasRenderableTextOutsideExcludedNature(
     if (hasDirectRenderableText(current)) {
       return true;
     }
-    for (let i = current.children.length - 1; i >= 0; i -= 1) {
-      stack.push(current.children[i]);
-    }
+    pushChildElementsReverse(stack, current);
   }
   return false;
 }
 
 function hasRenderableTextForHighlight(
-// @ts-expect-error
-  node,
-// @ts-expect-error
-  excludedNodes,
-// @ts-expect-error
-  includedNodes,
-// @ts-expect-error
-  inclusionContextSet,
-  options = {}
-) {
-  if (!node || node.nodeType !== 1) {
+  node: Element | null | undefined,
+  excludedNodes: Set<Element> | null | undefined,
+  includedNodes: Set<Element> | null | undefined,
+  inclusionContextSet: Set<Element> | null | undefined,
+  options: InclusionSelectionOptions = {}
+): boolean {
+  if (!node) {
     return false;
   }
   if (hasDirectRenderableText(node)) {
@@ -4209,23 +4249,20 @@ function hasRenderableTextForHighlight(
 }
 
 function hasRenderableTextForExcludedHighlight(
-// @ts-expect-error
-  node,
-// @ts-expect-error
-  includedNodes,
-// @ts-expect-error
-  inclusionContextSet
-) {
-  if (!node || node.nodeType !== 1) {
+  node: Element | null | undefined,
+  includedNodes: Set<Element> | null | undefined,
+  _inclusionContextSet: Set<Element> | null | undefined
+): boolean {
+  if (!node) {
     return false;
   }
   if (hasDirectRenderableText(node)) {
     return true;
   }
-  const stack = [node];
+  const stack: Element[] = [node];
   while (stack.length) {
     const current = stack.pop();
-    if (!current || current.nodeType !== 1) {
+    if (!current) {
       continue;
     }
     if (isExtensionUiNode(current)) {
@@ -4247,15 +4284,12 @@ function hasRenderableTextForExcludedHighlight(
     if (hasDirectRenderableText(current)) {
       return true;
     }
-    for (let i = current.children.length - 1; i >= 0; i -= 1) {
-      stack.push(current.children[i]);
-    }
+    pushChildElementsReverse(stack, current);
   }
   return false;
 }
 
-// @ts-expect-error
-function getNodeDepth(node) {
+function getNodeDepth(node: Element | null | undefined): number {
   let depth = 0;
   let current = node;
   while (current && current.parentElement) {
@@ -4265,51 +4299,39 @@ function getNodeDepth(node) {
   return depth;
 }
 
-// @ts-expect-error
-function collapseToShallowest(nodes) {
-  const sorted = Array.from(nodes || []).sort((left, right) => {
+function collapseToShallowest(nodes: Iterable<unknown> | null | undefined): Element[] {
+  const sorted = toElementArray(nodes).sort((left, right) => {
     const depthDiff = getNodeDepth(left) - getNodeDepth(right);
     if (depthDiff !== 0) {
       return depthDiff;
     }
     return 0;
   });
-// @ts-expect-error
-  const kept = [];
+  const kept: Element[] = [];
   sorted.forEach((node) => {
-// @ts-expect-error
-    if (!node || node.nodeType !== 1) {
-      return;
-    }
-// @ts-expect-error
     const hasAncestor = kept.some((ancestor) => ancestor.contains(node));
     if (!hasAncestor) {
       kept.push(node);
     }
   });
-// @ts-expect-error
   return kept;
 }
 
-// @ts-expect-error
-function collapseToShallowestWithOppositeBoundary(nodes, oppositeNodes) {
-  const oppositeSet = new Set(oppositeNodes || []);
-  const sorted = Array.from(new Set(nodes || [])).sort((left, right) => {
+function collapseToShallowestWithOppositeBoundary(
+  nodes: Iterable<unknown> | null | undefined,
+  oppositeNodes: Iterable<unknown> | null | undefined
+): Element[] {
+  const oppositeSet = new Set(toElementArray(oppositeNodes));
+  const sorted = Array.from(new Set(toElementArray(nodes))).sort((left, right) => {
     const depthDiff = getNodeDepth(left) - getNodeDepth(right);
     if (depthDiff !== 0) {
       return depthDiff;
     }
     return compareNodeOrder(left, right);
   });
-// @ts-expect-error
-  const kept = [];
-  const keptSet = new Set();
+  const kept: Element[] = [];
+  const keptSet = new Set<Element>();
   sorted.forEach((node) => {
-// @ts-expect-error
-    if (!node || node.nodeType !== 1) {
-      return;
-    }
-// @ts-expect-error
     let current = node.parentElement;
     while (current && current.nodeType === 1) {
       if (oppositeSet.has(current)) {
@@ -4323,30 +4345,25 @@ function collapseToShallowestWithOppositeBoundary(nodes, oppositeNodes) {
     kept.push(node);
     keptSet.add(node);
   });
-// @ts-expect-error
   kept.sort(compareNodeOrder);
-// @ts-expect-error
   return kept;
 }
 
-// @ts-expect-error
-function collapseToShallowestPreservingExplicitNodes(nodes, explicitNodes) {
-  const explicitSet = new Set(explicitNodes || []);
-  const sorted = Array.from(new Set(nodes || [])).sort((left, right) => {
+function collapseToShallowestPreservingExplicitNodes(
+  nodes: Iterable<unknown> | null | undefined,
+  explicitNodes: Iterable<unknown> | null | undefined
+): Element[] {
+  const explicitSet = new Set(toElementArray(explicitNodes));
+  const sorted = Array.from(new Set(toElementArray(nodes))).sort((left, right) => {
     const depthDiff = getNodeDepth(left) - getNodeDepth(right);
     if (depthDiff !== 0) {
       return depthDiff;
     }
     return compareNodeOrder(left, right);
   });
-// @ts-expect-error
-  const kept = [];
-  const keptSet = new Set();
+  const kept: Element[] = [];
+  const keptSet = new Set<Element>();
   sorted.forEach((node) => {
-// @ts-expect-error
-    if (!node || node.nodeType !== 1) {
-      return;
-    }
     if (explicitSet.has(node)) {
       if (!keptSet.has(node)) {
         kept.push(node);
@@ -4354,7 +4371,6 @@ function collapseToShallowestPreservingExplicitNodes(nodes, explicitNodes) {
       }
       return;
     }
-// @ts-expect-error
     let current = node.parentElement;
     while (current && current.nodeType === 1) {
       if (keptSet.has(current)) {
@@ -4365,14 +4381,11 @@ function collapseToShallowestPreservingExplicitNodes(nodes, explicitNodes) {
     kept.push(node);
     keptSet.add(node);
   });
-// @ts-expect-error
   kept.sort(compareNodeOrder);
-// @ts-expect-error
   return kept;
 }
 
-// @ts-expect-error
-function compareNodeOrder(left, right) {
+function compareNodeOrder(left: Element, right: Element): number {
   if (left === right) {
     return 0;
   }
@@ -4386,57 +4399,38 @@ function compareNodeOrder(left, right) {
   return 0;
 }
 
-// @ts-expect-error
-function collapseToDeepest(nodes) {
-  const sorted = Array.from(nodes || []).sort((left, right) => {
+function collapseToDeepest(nodes: Iterable<unknown> | null | undefined): Element[] {
+  const sorted = toElementArray(nodes).sort((left, right) => {
     const depthDiff = getNodeDepth(right) - getNodeDepth(left);
     if (depthDiff !== 0) {
       return depthDiff;
     }
     return compareNodeOrder(left, right);
   });
-// @ts-expect-error
-  const kept = [];
+  const kept: Element[] = [];
   sorted.forEach((node) => {
-// @ts-expect-error
-    if (!node || node.nodeType !== 1) {
-      return;
-    }
-// @ts-expect-error
     const isAncestorOfKept = kept.some((descendant) => node.contains(descendant));
     if (!isAncestorOfKept) {
       kept.push(node);
     }
   });
-// @ts-expect-error
   kept.sort(compareNodeOrder);
-// @ts-expect-error
   return kept;
 }
 
 function collectExcludedChildrenInsideIncludedParents(
-// @ts-expect-error
-  includedParents,
-// @ts-expect-error
-  excludedNodes,
-// @ts-expect-error
-  includedNodes,
-// @ts-expect-error
-  inclusionContextSet
-) {
-// @ts-expect-error
-  const marked = [];
-  const seen = new Set();
-// @ts-expect-error
-  includedParents.forEach((parent) => {
-    if (!parent || parent.nodeType !== 1) {
-      return;
-    }
-    const stack = Array.from(parent.children || []);
+  includedParents: Iterable<unknown> | null | undefined,
+  excludedNodes: Set<Element> | null | undefined,
+  includedNodes: Set<Element> | null | undefined,
+  inclusionContextSet: Set<Element> | null | undefined
+): Element[] {
+  const marked: Element[] = [];
+  const seen = new Set<Element>();
+  toElementArray(includedParents).forEach((parent) => {
+    const stack = Array.from(parent.children);
     while (stack.length) {
       const node = stack.pop();
-// @ts-expect-error
-      if (!node || node.nodeType !== 1) {
+      if (!node) {
         continue;
       }
       if (isExtensionUiNode(node)) {
@@ -4462,30 +4456,19 @@ function collectExcludedChildrenInsideIncludedParents(
         }
         continue;
       }
-// @ts-expect-error
-      for (let i = node.children.length - 1; i >= 0; i -= 1) {
-// @ts-expect-error
-        stack.push(node.children[i]);
-      }
+      pushChildElementsReverse(stack, node);
     }
   });
-// @ts-expect-error
   return marked;
 }
 
 function collectSelectorExcludedNodes(
-// @ts-expect-error
-  excludedNodes,
-// @ts-expect-error
-  includedNodes,
-// @ts-expect-error
-  inclusionContextSet
-) {
-  const marked = new Set();
-  for (const node of excludedNodes || []) {
-    if (!node || node.nodeType !== 1) {
-      continue;
-    }
+  excludedNodes: Iterable<unknown> | null | undefined,
+  includedNodes: Set<Element> | null | undefined,
+  inclusionContextSet: Set<Element> | null | undefined
+): Element[] {
+  const marked = new Set<Element>();
+  for (const node of toElementArray(excludedNodes)) {
     if (isExtensionUiNode(node)) {
       continue;
     }
@@ -4504,16 +4487,15 @@ function collectSelectorExcludedNodes(
   return Array.from(marked).sort(compareNodeOrder);
 }
 
-// @ts-expect-error
-function collectToggleableDefaultExcludedNodes(includedNodes) {
+function collectToggleableDefaultExcludedNodes(includedNodes: Set<Element> | null | undefined): Element[] {
   if (!document.body) {
     return [];
   }
-  const results = [];
-  const stack = [document.body];
+  const results: Element[] = [];
+  const stack: Element[] = [document.body];
   while (stack.length) {
     const node = stack.pop();
-    if (!node || node.nodeType !== 1) {
+    if (!node) {
       continue;
     }
     if (isExtensionUiNode(node) || isWithinConsentBoundary(node)) {
@@ -4529,24 +4511,20 @@ function collectToggleableDefaultExcludedNodes(includedNodes) {
       results.push(node);
       continue;
     }
-    for (let i = node.children.length - 1; i >= 0; i -= 1) {
-// @ts-expect-error
-      stack.push(node.children[i]);
-    }
+    pushChildElementsReverse(stack, node);
   }
   return results.sort(compareNodeOrder);
 }
 
-// @ts-expect-error
-function collectImmutableDefaultExcludedNodes(includedNodes) {
+function collectImmutableDefaultExcludedNodes(includedNodes: Set<Element> | null | undefined): Element[] {
   if (!document.body) {
     return [];
   }
-  const results = [];
-  const stack = [document.body];
+  const results: Element[] = [];
+  const stack: Element[] = [document.body];
   while (stack.length) {
     const node = stack.pop();
-    if (!node || node.nodeType !== 1) {
+    if (!node) {
       continue;
     }
     if (isExtensionUiNode(node) || isWithinConsentBoundary(node)) {
@@ -4561,39 +4539,27 @@ function collectImmutableDefaultExcludedNodes(includedNodes) {
     if (isWithinNodeSet(node, includedNodes)) {
       continue;
     }
-    for (let i = node.children.length - 1; i >= 0; i -= 1) {
-// @ts-expect-error
-      stack.push(node.children[i]);
-    }
+    pushChildElementsReverse(stack, node);
   }
   return results.sort(compareNodeOrder);
 }
 
 function collectExplicitIncludedNodes(
-// @ts-expect-error
-  explicitIncludedMatches,
-// @ts-expect-error
-  excludedNodes,
-// @ts-expect-error
-  includedNodes,
-// @ts-expect-error
-  inclusionContextSet,
-  options = {}
-) {
-// @ts-expect-error
-  const keepAllExplicitMatches = Boolean(options && options.keepAllExplicitMatches);
+  explicitIncludedMatches: Iterable<unknown> | null | undefined,
+  excludedNodes: Set<Element> | null | undefined,
+  includedNodes: Set<Element> | null | undefined,
+  inclusionContextSet: Set<Element> | null | undefined,
+  options: InclusionSelectionOptions = {}
+): Element[] {
+  const keepAllExplicitMatches = Boolean(options.keepAllExplicitMatches);
   const preserveNestedExplicitIncludedDescendants = Boolean(
-// @ts-expect-error
-    options && options.preserveNestedExplicitIncludedDescendants
+    options.preserveNestedExplicitIncludedDescendants
   );
-  const selected = new Set();
+  const selected = new Set<Element>();
   const ordered = preserveNestedExplicitIncludedDescendants
-    ? Array.from(new Set(explicitIncludedMatches || [])).sort(compareNodeOrder)
+    ? Array.from(new Set(toElementArray(explicitIncludedMatches))).sort(compareNodeOrder)
     : collapseToShallowest(explicitIncludedMatches);
   ordered.forEach((node) => {
-    if (!node || node.nodeType !== 1) {
-      return;
-    }
     if (!isInclusionEligibleNode(
       node,
       excludedNodes,
@@ -4633,28 +4599,23 @@ function collectExplicitIncludedNodes(
 }
 
 function collectImplicitIncludedNodesOutsideExplicit(
-// @ts-expect-error
-  explicitIncluded,
-// @ts-expect-error
-  excludedNodes,
-// @ts-expect-error
-  includedNodes,
-// @ts-expect-error
-  inclusionContextSet,
-  options = {}
-) {
-  const explicitIncludedSet = new Set(explicitIncluded || []);
-  const baseSelected = new Set();
-  const stack = [document.body];
+  explicitIncluded: Iterable<unknown> | null | undefined,
+  excludedNodes: Set<Element> | null | undefined,
+  includedNodes: Set<Element> | null | undefined,
+  inclusionContextSet: Set<Element> | null | undefined,
+  options: InclusionSelectionOptions = {}
+): Element[] {
+  const explicitIncludedSet = new Set(toElementArray(explicitIncluded));
+  const baseSelected = new Set<Element>();
+  const stack: Element[] = document.body ? [document.body] : [];
   while (stack.length) {
     const node = stack.pop();
-    if (!node || node.nodeType !== 1) {
+    if (!node) {
       continue;
     }
     if (
       explicitIncludedSet.size > 0 &&
       !explicitIncludedSet.has(node) &&
-// @ts-expect-error
       isWithinNodeSet(node, explicitIncludedSet)
     ) {
       continue;
@@ -4693,10 +4654,7 @@ function collectImplicitIncludedNodesOutsideExplicit(
     ) {
       baseSelected.add(node);
     }
-    for (let i = node.children.length - 1; i >= 0; i -= 1) {
-// @ts-expect-error
-      stack.push(node.children[i]);
-    }
+    pushChildElementsReverse(stack, node);
   }
   return collapseToShallowest(baseSelected).filter((node) =>
     hasRenderableTextForHighlight(
@@ -4709,34 +4667,36 @@ function collectImplicitIncludedNodesOutsideExplicit(
   );
 }
 
-// @ts-expect-error
-function collectIncludedNodesFromSelectorSet(selectorSet) {
+function collectIncludedNodesFromSelectorSet(
+  selectorSet: SelectorSetInput | null | undefined
+): IncludedSelectorSetResult {
   // Silent highlighting inclusion selection is visibility-agnostic:
   // implicit non-excluded content + all explicit inclusion selector matches.
-  const inclusionSelectionOptions = {
+  const inclusionSelectionOptions: InclusionSelectionOptions = {
     ignoreVisibilityForInclusionDetection: true,
     preserveNestedExplicitIncludedDescendants: true,
     keepAllExplicitMatches: true
   };
   const normalized = normalizeAiSelectorSet(selectorSet);
-  const suppressedXpaths = Array.isArray(selectorSet && selectorSet.suppressedXpaths)
-    ? selectorSet.suppressedXpaths
-    : [];
+  const suppressedXpaths = getSuppressedXpathList(selectorSet?.suppressedXpaths);
   const excludedMatches = collectNodesFromSelectors(normalized.exclusionSelectors, {
     suppressedXpaths
   });
   const includedMatches = collectNodesFromSelectors(normalized.inclusionSelectors, {
     suppressedXpaths
   });
-  const filteredIncludedNodes = new Set();
-  const filteredInclusionSelectorByNode = new Map();
+  const filteredIncludedNodes = new Set<Element>();
+  const filteredInclusionSelectorByNode = new Map<Element, string>();
   for (const node of includedMatches.nodes || []) {
     if (!node || isWithinConsentBoundary(node)) {
       continue;
     }
     filteredIncludedNodes.add(node);
     if (includedMatches.selectorByNode.has(node)) {
-      filteredInclusionSelectorByNode.set(node, includedMatches.selectorByNode.get(node));
+      const selector = includedMatches.selectorByNode.get(node);
+      if (selector) {
+        filteredInclusionSelectorByNode.set(node, selector);
+      }
     }
   }
   const rawExcludedNodes = collapseToShallowest(excludedMatches.nodes);
@@ -4745,7 +4705,6 @@ function collectIncludedNodesFromSelectorSet(selectorSet) {
   // them through the existing boundary rules.
   const excludedNodes = new Set(rawExcludedNodes);
   const includedNodes = filteredIncludedNodes;
-// @ts-expect-error
   const inclusionContextSet = buildInclusionContextSet(includedNodes);
   const explicitIncluded = collectExplicitIncludedNodes(
     includedNodes,
@@ -4759,18 +4718,16 @@ function collectIncludedNodesFromSelectorSet(selectorSet) {
   // `shouldRetainIncludedSource(...)`, so the same node can be queried several
   // times in one collection pass. The WeakMap is scoped to this invocation
   // and discarded with the closure, so there is no staleness window.
-  const visibilityMemo = new WeakMap();
-// @ts-expect-error
-  const memoIsVisible = (node) => {
-    if (!node || node.nodeType !== 1) return false;
+  const visibilityMemo = new WeakMap<Element, boolean>();
+  const memoIsVisible = (node: Element | null | undefined): boolean => {
+    if (!node) return false;
     const cached = visibilityMemo.get(node);
     if (cached !== undefined) return cached;
     const visible = core.isVisible(node);
     visibilityMemo.set(node, visible);
     return visible;
   };
-// @ts-expect-error
-  const isIncludedNodeAvailableForUser = (node) =>
+  const isIncludedNodeAvailableForUser = (node: Element | null | undefined): boolean =>
     memoIsVisible(node) || !isDefinitelyHiddenSubtreeNode(node);
   const explicitIncludedSet = new Set(explicitIncluded);
   const hiddenExplicitIncluded = explicitIncluded.filter((node) =>
@@ -4842,9 +4799,8 @@ function collectIncludedNodesFromSelectorSet(selectorSet) {
 let silentRenderNodeIdCounter = 0;
 const silentRenderNodeIds = new WeakMap();
 
-// @ts-expect-error
-function getSilentRenderNodeId(node) {
-  if (!node || node.nodeType !== 1) {
+function getSilentRenderNodeId(node: Element | null | undefined): number {
+  if (!node) {
     return 0;
   }
   let id = silentRenderNodeIds.get(node);
@@ -4856,43 +4812,36 @@ function getSilentRenderNodeId(node) {
 }
 
 function buildSilentHighlightingRenderKey(
-// @ts-expect-error
-  immutableNodes,
-// @ts-expect-error
-  contentNodes,
-// @ts-expect-error
-  excludedNodes,
-  ghostContentNodes = [],
-  explicitIncludeSelectorByNode = null,
-  excludedSelectorByNode = null,
-  explicitIncludeXpathByNode = null,
-  excludedXpathByNode = null,
-  implicitIncludeXpathByNode = null
-) {
+  immutableNodes: Element[],
+  contentNodes: Element[],
+  excludedNodes: Element[],
+  ghostContentNodes: Element[] = [],
+  explicitIncludeSelectorByNode: Map<Element, string> | null = null,
+  excludedSelectorByNode: Map<Element, string> | null = null,
+  explicitIncludeXpathByNode: Map<Element, string> | null = null,
+  excludedXpathByNode: Map<Element, string> | null = null,
+  implicitIncludeXpathByNode: Map<Element, string> | null = null
+): string {
   const immutableIds = immutableNodes
     .map(getSilentRenderNodeId)
     .filter(Boolean)
-// @ts-expect-error
     .sort((a, b) => a - b);
   const contentIds = contentNodes
     .map(getSilentRenderNodeId)
     .filter(Boolean)
-// @ts-expect-error
     .sort((a, b) => a - b);
   const excludedIds = excludedNodes
     .map(getSilentRenderNodeId)
     .filter(Boolean)
-// @ts-expect-error
     .sort((a, b) => a - b);
   const ghostContentIds = ghostContentNodes
     .map(getSilentRenderNodeId)
     .filter(Boolean)
     .sort((a, b) => a - b);
-// @ts-expect-error
-  const buildNodeValueKey = (valueByNode) => JSON.stringify(
+  const buildNodeValueKey = (valueByNode: Map<Element, string> | null) => JSON.stringify(
     (valueByNode instanceof Map ? Array.from(valueByNode.entries()) : [])
-      .map(([node, value]) => [getSilentRenderNodeId(node), value || ""])
-      .filter(([id, value]) => id && value)
+      .map(([node, value]): [number, string] => [getSilentRenderNodeId(node), value || ""])
+      .filter(([id, value]) => Boolean(id && value))
       .sort((left, right) => {
         if (left[0] !== right[0]) {
           return left[0] - right[0];
@@ -4918,34 +4867,33 @@ function buildSilentHighlightingRenderKey(
   ].join("|");
 }
 
-// @ts-expect-error
-function hasRenderableClientBox(node) {
-  if (!node || node.nodeType !== 1) {
+function hasRenderableClientBox(node: Element | null | undefined): boolean {
+  if (!node) {
     return false;
   }
   const rect = node.getBoundingClientRect();
   return rect.width > 0 && rect.height > 0;
 }
 
-// @ts-expect-error
-function collectSilentHighlightRenderTargets(node, options = {}) {
-// @ts-expect-error
-  const keepShallowestOnly = !options || options.keepShallowestOnly !== false;
-  if (!node || node.nodeType !== 1) {
+function collectSilentHighlightRenderTargets(
+  node: Element | null | undefined,
+  options: SilentHighlightRenderTargetOptions = {}
+): Element[] {
+  const keepShallowestOnly = options.keepShallowestOnly !== false;
+  if (!node) {
     return [];
   }
   if (hasRenderableClientBox(node)) {
     return [node];
   }
-  const targets = [];
-  const stack = Array.from(node.children || []);
+  const targets: Element[] = [];
+  const stack = Array.from(node.children);
   let inspected = 0;
   const MAX_INSPECTED = 400;
   while (stack.length && inspected < MAX_INSPECTED) {
     const current = stack.shift();
     inspected += 1;
-// @ts-expect-error
-    if (!current || current.nodeType !== 1) {
+    if (!current) {
       continue;
     }
     if (isExtensionUiNode(current)) {
@@ -4961,32 +4909,24 @@ function collectSilentHighlightRenderTargets(node, options = {}) {
         continue;
       }
     }
-// @ts-expect-error
-    for (let i = 0; i < current.children.length; i += 1) {
-// @ts-expect-error
-      stack.push(current.children[i]);
-    }
+    pushChildElementsForward(stack, current);
   }
   return targets;
 }
 
 function toRenderableNodeListWithSelectors(
-// @ts-expect-error
-  nodes,
-  selectorResolver = null,
-  options = {}
-) {
-// @ts-expect-error
-  const dedupeTargets = !options || options.dedupeTargets !== false;
+  nodes: Iterable<unknown> | null | undefined,
+  selectorResolver: ((node: Element) => string) | null = null,
+  options: RenderableNodeListOptions = {}
+): RenderableNodeListResult {
+  const dedupeTargets = options.dedupeTargets !== false;
   const keepShallowestFallbackTargets =
-// @ts-expect-error
-    !options || options.keepShallowestFallbackTargets !== false;
-  const results = [];
-  const seen = new Set();
-  const selectorByNode = new Map();
-  const sourceByTarget = new Map();
-// @ts-expect-error
-  const appendSelector = (targetNode, selector) => {
+    options.keepShallowestFallbackTargets !== false;
+  const results: Element[] = [];
+  const seen = new Set<Element>();
+  const selectorByNode = new Map<Element, string>();
+  const sourceByTarget = new Map<Element, Element>();
+  const appendSelector = (targetNode: Element | null | undefined, selector: string) => {
     if (
       !targetNode ||
       typeof selector !== "string" ||
@@ -5008,12 +4948,11 @@ function toRenderableNodeListWithSelectors(
       selectorByNode.set(targetNode, parts.join("\n"));
     }
   };
-  for (const node of nodes || []) {
+  for (const node of toElementArray(nodes)) {
     const targets = collectSilentHighlightRenderTargets(node, {
       keepShallowestOnly: keepShallowestFallbackTargets
     });
     const selector = typeof selectorResolver === "function"
-// @ts-expect-error
       ? selectorResolver(node)
       : "";
     if (!targets.length) {
@@ -5043,12 +4982,11 @@ function toRenderableNodeListWithSelectors(
   return { nodes: results, selectorByNode, sourceByTarget };
 }
 
-// @ts-expect-error
-function toRenderableNodeList(nodes) {
+function toRenderableNodeList(nodes: Iterable<unknown> | null | undefined): Element[] {
   return toRenderableNodeListWithSelectors(nodes).nodes;
 }
 
-function collectAiSubmissionXpathsForCurrentPage(sourceConfig = state.config) {
+function collectAiSubmissionXpathsForCurrentPage(sourceConfig: Config | null = state.config): XpathEntry[] {
   core.refreshPageMotionPause();
   const configValue = sourceConfig || state.config;
   if (!configValue) {
@@ -5059,25 +4997,20 @@ function collectAiSubmissionXpathsForCurrentPage(sourceConfig = state.config) {
     create: false,
     persist: false
   });
-  const explicitExcludedXpaths = new Set();
-  const explicitIncludedXpaths = new Set();
-  const rowIndexByXpath = new Map();
-// @ts-expect-error
-  const excludedRowXpaths = [];
+  const explicitExcludedXpaths = new Set<string>();
+  const explicitIncludedXpaths = new Set<string>();
+  const rowIndexByXpath = new Map<string, number>();
+  const excludedRowXpaths: string[] = [];
   const excludedRowXpathSet = new Set();
-// @ts-expect-error
-  const rows = [];
-// @ts-expect-error
-  const pushRow = (xpath, excluded) => {
+  const rows: XpathEntry[] = [];
+  const pushRow = (xpath: string, excluded: boolean): void => {
     if (typeof xpath !== "string" || !xpath) {
       return;
     }
     if (isAiSubmissionDocumentRootXpath(xpath)) {
       return;
     }
-    const existingIndex = rowIndexByXpath.has(xpath)
-      ? rowIndexByXpath.get(xpath)
-      : -1;
+    const existingIndex = rowIndexByXpath.get(xpath) ?? -1;
     if (existingIndex >= 0) {
       // `excluded: true` wins for duplicate xpaths so a later hidden/excluded
       // determination cannot be accidentally downgraded by an earlier include row.
@@ -5097,10 +5030,8 @@ function collectAiSubmissionXpathsForCurrentPage(sourceConfig = state.config) {
       excludedRowXpaths.push(xpath);
     }
   };
-// @ts-expect-error
-  const normalizeXPath = (value) => (typeof value === "string" ? value.trim() : "");
-// @ts-expect-error
-  const isWithinImmutableExcludedBoundary = (element) => {
+  const normalizeXPath = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
+  const isWithinImmutableExcludedBoundary = (element: Element | null | undefined): boolean => {
     let current = element;
     while (current && current.nodeType === 1) {
       if (core.isImmutableExcludedElement(current)) {
@@ -5110,14 +5041,13 @@ function collectAiSubmissionXpathsForCurrentPage(sourceConfig = state.config) {
     }
     return false;
   };
-// @ts-expect-error
-  const toSnapshotXPath = (value) => {
+  const toSnapshotXPath = (value: unknown): string => {
     const xpath = normalizeXPath(value);
     if (!xpath) {
       return "";
     }
     const element = core.getElementFromXPath(xpath);
-    if (!element) {
+    if (!isElementNode(element)) {
       return "";
     }
     if (isWithinImmutableExcludedBoundary(element)) {
@@ -5125,14 +5055,13 @@ function collectAiSubmissionXpathsForCurrentPage(sourceConfig = state.config) {
     }
     return getCurrentPageSnapshotXPath(element);
   };
-  const explicitRows = Array.isArray(entry && entry.xpaths) ? entry.xpaths : [];
-// @ts-expect-error
-  explicitRows.forEach((item) => {
+  const explicitRows = Array.isArray(entry && entry.xpaths) ? entry.xpaths as XpathEntry[] : [];
+  explicitRows.forEach((item: XpathEntry) => {
     if (!item || typeof item.xpath !== "string" || !item.excluded) {
       return;
     }
     const element = core.getElementFromXPath(item.xpath);
-    if (!element || isWithinImmutableExcludedBoundary(element)) {
+    if (!isElementNode(element) || isWithinImmutableExcludedBoundary(element)) {
       return;
     }
     const xpath = getCurrentPageSnapshotXPath(element);
@@ -5143,8 +5072,7 @@ function collectAiSubmissionXpathsForCurrentPage(sourceConfig = state.config) {
       explicitExcludedXpaths.add(xpath);
     }
   });
-// @ts-expect-error
-  (Array.isArray(entry && entry.includeXpaths) ? entry.includeXpaths : []).forEach((xpath) => {
+  (Array.isArray(entry && entry.includeXpaths) ? entry.includeXpaths as string[] : []).forEach((xpath: string) => {
     const normalized = toSnapshotXPath(xpath);
     if (normalized) {
       explicitIncludedXpaths.add(normalized);
@@ -5153,12 +5081,10 @@ function collectAiSubmissionXpathsForCurrentPage(sourceConfig = state.config) {
 
   explicitExcludedXpaths.forEach((xpath) => pushRow(xpath, true));
 
-// @ts-expect-error
-  const hasExcludedAncestorRow = (xpath) => {
+  const hasExcludedAncestorRow = (xpath: string): boolean => {
     if (!xpath || excludedRowXpaths.length === 0) {
       return false;
     }
-// @ts-expect-error
     for (const excludedXpath of excludedRowXpaths) {
       if (
         excludedXpath &&
@@ -5170,17 +5096,15 @@ function collectAiSubmissionXpathsForCurrentPage(sourceConfig = state.config) {
     }
     return false;
   };
-
   if (!document.body) {
-// @ts-expect-error
     return rows;
   }
-  const stack = [{ node: document.body, insideImmutableExcluded: false }];
+  const stack: SnapshotTraversalItem[] = [{ node: document.body, insideImmutableExcluded: false }];
   while (stack.length) {
     const stackItem = stack.pop();
-    const node = stackItem && stackItem.node;
-    const insideImmutableExcluded = Boolean(stackItem && stackItem.insideImmutableExcluded);
-    if (!node || node.nodeType !== 1) {
+    const node = stackItem?.node;
+    const insideImmutableExcluded = Boolean(stackItem?.insideImmutableExcluded);
+    if (!node) {
       continue;
     }
     const xpath = getCurrentPageSnapshotXPath(node);
@@ -5192,9 +5116,12 @@ function collectAiSubmissionXpathsForCurrentPage(sourceConfig = state.config) {
       continue;
     }
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
+      const child = node.children.item(i);
+      if (!child) {
+        continue;
+      }
       stack.push({
-// @ts-expect-error
-        node: node.children[i],
+        node: child,
         insideImmutableExcluded: immutableExcludedRoot
       });
     }
@@ -5226,8 +5153,6 @@ function collectAiSubmissionXpathsForCurrentPage(sourceConfig = state.config) {
       insideExcludedAncestor: insideExcludedAncestorRow,
       visibleToUser,
       immutableExcludedRoot: false,
-// @ts-expect-error
-      hiddenToggleableRoot: false,
       markableTextual: isMarkableTextual
     });
     if (!submissionRow.shouldSubmit) {
@@ -5251,27 +5176,25 @@ function collectAiSubmissionXpathsForCurrentPage(sourceConfig = state.config) {
     }
     pushRow(xpath, submissionRow.excluded);
   }
-// @ts-expect-error
   return rows;
 }
 
-// @ts-expect-error
-function hasVisibleMarkableTextualSubmissionDescendant(root, configValue) {
-  if (!root || root.nodeType !== 1) {
+function hasVisibleMarkableTextualSubmissionDescendant(
+  root: Element | null | undefined,
+  configValue: Config
+): boolean {
+  if (!root) {
     return false;
   }
   const children = root.children;
   if (!children || children.length === 0) {
     return false;
   }
-  const stack = [];
-  for (let i = 0; i < children.length; i += 1) {
-    stack.push(children[i]);
-  }
+  const stack: Element[] = [];
+  pushChildElementsForward(stack, root);
   while (stack.length) {
-// @ts-expect-error
     const node = stack.pop();
-    if (!node || node.nodeType !== 1) {
+    if (!node) {
       continue;
     }
     if (core.isImmutableExcludedElement(node)) {
@@ -5288,14 +5211,11 @@ function hasVisibleMarkableTextualSubmissionDescendant(root, configValue) {
         return true;
       }
     }
-// @ts-expect-error
     const childList = node.children;
     if (!childList || childList.length === 0) {
       continue;
     }
-    for (let i = 0; i < childList.length; i += 1) {
-      stack.push(childList[i]);
-    }
+    pushChildElementsForward(stack, node);
   }
   return false;
 }
@@ -5316,8 +5236,7 @@ function refreshEnabledAiHighlights() {
     };
   }
   state.config.selectors = selectorSet;
-// @ts-expect-error
-  core.scheduleRender();
+  core.scheduleRender(undefined);
 }
 
 async function refreshSilentHighlightings() {
@@ -5399,9 +5318,9 @@ async function refreshSilentHighlightings() {
     setSilentHighlightingsActive(holdSilentMotionPause);
     return;
   }
-  let contentNodes = [];
-  let excludedNodes = [];
-  let immutableNodes = [];
+  let contentNodes: Element[] = [];
+  let excludedNodes: Element[] = [];
+  let immutableNodes: Element[] = [];
   let renderCollections = buildSilentHighlightRenderableCollections({
     sourceImmutableNodes: [],
     sourceContentNodes: [],
@@ -5426,9 +5345,8 @@ async function refreshSilentHighlightings() {
       // expansion so a long page can break up the synchronous work. The next
       // task re-checks the generation token; a newer refresh that started
       // while we were computing source nodes wins and this older call bails.
-      await new Promise((resolve) => {
+      await new Promise<void>((resolve) => {
         if (typeof window.setTimeout !== "function") {
-// @ts-expect-error
           resolve();
           return;
         }
@@ -5479,7 +5397,6 @@ async function refreshSilentHighlightings() {
     immutableNodes,
     contentNodes,
     excludedNodes,
-// @ts-expect-error
     renderCollections.ghostContentNodes,
     renderCollections.explicitIncludeSelectorByNode,
     renderCollections.excludedSelectorByNode,
@@ -5532,16 +5449,14 @@ async function refreshSilentHighlightings() {
     applyOverlayUpdate();
     return;
   }
-  await new Promise((resolve) => {
+  await new Promise<void>((resolve) => {
     if (typeof window.requestAnimationFrame !== "function") {
       applyOverlayUpdate();
-// @ts-expect-error
       resolve();
       return;
     }
     window.requestAnimationFrame(() => {
       applyOverlayUpdate();
-// @ts-expect-error
       resolve();
     });
   });

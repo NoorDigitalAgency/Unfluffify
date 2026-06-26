@@ -38,7 +38,7 @@ test("silent highlight render keys and stored collections include xpath metadata
 
   assert.match(
     source,
-    /function buildSilentHighlightingRenderKey\([\s\S]*?explicitIncludeXpathByNode = null,[\s\S]*?excludedXpathByNode = null,[\s\S]*?implicitIncludeXpathByNode = null[\s\S]*?const explicitIncludeXpathKey = buildNodeValueKey\(explicitIncludeXpathByNode\);[\s\S]*?const excludedXpathKey = buildNodeValueKey\(excludedXpathByNode\);[\s\S]*?const implicitIncludeXpathKey = buildNodeValueKey\(implicitIncludeXpathByNode\);[\s\S]*?explicitIncludeXpathKey,[\s\S]*?excludedXpathKey,[\s\S]*?implicitIncludeXpathKey[\s\S]*?\.join\("\|"\);/
+    /function buildSilentHighlightingRenderKey\([\s\S]*?explicitIncludeXpathByNode(?:\s*:\s*[^=]+)? = null,[\s\S]*?excludedXpathByNode(?:\s*:\s*[^=]+)? = null,[\s\S]*?implicitIncludeXpathByNode(?:\s*:\s*[^=]+)? = null[\s\S]*?const explicitIncludeXpathKey = buildNodeValueKey\(explicitIncludeXpathByNode\);[\s\S]*?const excludedXpathKey = buildNodeValueKey\(excludedXpathByNode\);[\s\S]*?const implicitIncludeXpathKey = buildNodeValueKey\(implicitIncludeXpathByNode\);[\s\S]*?explicitIncludeXpathKey,[\s\S]*?excludedXpathKey,[\s\S]*?implicitIncludeXpathKey[\s\S]*?\.join\("\|"\);/
   );
   assert.match(
     source,
@@ -64,7 +64,10 @@ test("silent highlighting keeps immutable sources on a dedicated immutable overl
 
   assert.match(source, /const SILENT_HIGHLIGHT_LAYER_KEYS = \["immutable", "content", "excluded"\];/);
   assert.match(source, /#\$\{SILENT_HIGHLIGHT_OVERLAY_ID\} \.uf-silent-immutable \{[\s\S]*?border: 1px dashed rgba\(156, 107, 107, 0\.45\);[\s\S]*?background: transparent;/);
-  assert.match(source, /function collectImmutableDefaultExcludedNodes\(includedNodes\) \{/);
+  assert.match(
+    source,
+    /function collectImmutableDefaultExcludedNodes\(includedNodes(?:\s*:\s*[^)]+)?\)(?:\s*:\s*[^{]+)? \{/
+  );
   assert.match(
     source,
     /function buildSilentHighlightRenderableCollections\(collections\) \{[\s\S]*?const sourceImmutableNodes = cloneSilentHighlightNodes\([\s\S]*?const immutableNodes = toRenderableNodeList\(sourceImmutableNodes\);[\s\S]*?return \{[\s\S]*?immutableNodes,[\s\S]*?sourceImmutableNodes,[\s\S]*?contentNodes,[\s\S]*?excludedNodes/

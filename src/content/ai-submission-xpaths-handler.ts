@@ -1,9 +1,11 @@
+import type { XpathEntry } from "../types/config.ts";
+
 type AiSubmissionXpathsDeps = {
-  collectAiSubmissionXpathsForCurrentPage: () => string[];
+  collectAiSubmissionXpathsForCurrentPage: () => XpathEntry[];
 };
 
 export function createAiSubmissionXpathsHandler(deps: AiSubmissionXpathsDeps) {
-  function handleMessage(): { xpaths: string[] } {
+  function handleMessage(): { xpaths: XpathEntry[] } {
     return {
       xpaths: deps.collectAiSubmissionXpathsForCurrentPage()
     };

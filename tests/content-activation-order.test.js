@@ -323,7 +323,10 @@ test("capturePageSnapshot collects AI submission rows from the target config", (
   const collectorSource = source.slice(collectorStart, collectorEnd);
   const captureSource = runtimeMessageHandlerSource.slice(captureStart, captureEnd);
 
-  assert.match(collectorSource, /function collectAiSubmissionXpathsForCurrentPage\(sourceConfig = state\.config\) \{/);
+  assert.match(
+    collectorSource,
+    /function collectAiSubmissionXpathsForCurrentPage\(sourceConfig(?:\s*:\s*[^=)]+)? = state\.config\)(?:\s*:\s*[^{]+)? \{/
+  );
   assert.match(collectorSource, /const configValue = sourceConfig \|\| state\.config;/);
   assert.match(collectorSource, /core\.getPageMarkingEntry\(configValue, pageUrl, \{/);
   assert.match(collectorSource, /core\.isMarkableElement\(node, configValue, \{/);
@@ -469,7 +472,10 @@ test("refreshSilentHighlightings yields between source-set collection and render
   const buildIdx = fnSource.indexOf("renderCollections = buildSilentHighlightRenderableCollections({", collectIdx);
   assert.ok(buildIdx > collectIdx);
   const between = fnSource.slice(collectIdx, buildIdx);
-  assert.match(between, /await new Promise\(\(resolve\) => \{[\s\S]*?window\.setTimeout\(resolve, 0\);[\s\S]*?\}\);/);
+  assert.match(
+    between,
+    /await new Promise(?:<[^>]+>)?\(\(resolve\) => \{[\s\S]*?window\.setTimeout\(resolve, 0\);[\s\S]*?\}\);/
+  );
   assert.match(between, /if \(refreshGeneration !== silentHighlightingRefreshGeneration\) \{\s*return;\s*\}/);
 });
 
@@ -485,9 +491,12 @@ test("collectIncludedNodesFromSelectorSet memoizes core.isVisible per call", () 
 
   // Local WeakMap + memoized wrapper for repeated visibility lookups inside the
   // explicit-include and final-include filters.
-  assert.match(fnSource, /const visibilityMemo = new WeakMap\(\);/);
-  assert.match(fnSource, /const memoIsVisible = \(node\) => \{/);
-  assert.match(fnSource, /isIncludedNodeAvailableForUser = \(node\) =>\s*memoIsVisible\(node\)/);
+  assert.match(fnSource, /const visibilityMemo = new WeakMap(?:<[^>]+>)?\(\);/);
+  assert.match(fnSource, /const memoIsVisible = \(node(?:\s*:\s*[^)=]+)?\)(?:\s*:\s*[^{=]+)? => \{/);
+  assert.match(
+    fnSource,
+    /isIncludedNodeAvailableForUser = \(node(?:\s*:\s*[^)=]+)?\)(?:\s*:\s*[^=]+)? =>\s*memoIsVisible\(node\)/
+  );
 });
 
 test("silent-highlight collection runs inside the shared element-computation cache (sub-6)", () => {
