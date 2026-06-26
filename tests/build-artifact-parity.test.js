@@ -2,9 +2,11 @@ import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 import { readFileSync, existsSync, fileURLToPath } from "./file-kit.ts";
 import { path } from "./file-kit.ts";
+import { ensureBuildOutput } from "./build-output-kit.ts";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const OUTPUT_ROOT = path.join(REPO_ROOT, ".output", "chrome-mv3");
+const PACKAGE_BUILD_TIMEOUT_MS = 45_000;
 
 function normalizePath(value) {
   if (typeof value !== "string") {
@@ -13,11 +15,8 @@ function normalizePath(value) {
   return value.replace(/\\/g, "/").replace(/^\/+/, "");
 }
 
-test("generated extension manifest and resources resolve when build output exists", () => {
-  if (!existsSync(OUTPUT_ROOT)) {
-    return;
-  }
-
+test("generated extension manifest and resources resolve", async () => {
+  await ensureBuildOutput();
   const manifestPath = path.join(OUTPUT_ROOT, "manifest.json");
   assert.equal(existsSync(manifestPath), true, "generated manifest.json should exist");
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
@@ -57,4 +56,5 @@ test("generated extension manifest and resources resolve when build output exist
 
   assert.equal(existsSync(path.join(OUTPUT_ROOT, "cursors/exclude.svg")), true, "missing generated file: cursors/exclude.svg");
   assert.equal(existsSync(path.join(OUTPUT_ROOT, "cursors/include.svg")), true, "missing generated file: cursors/include.svg");
-});
+  assert.equal(existsSync(path.join(OUTPUT_ROOT, "logo.png")), true, "missing generated file: logo.png");
+}, PACKAGE_BUILD_TIMEOUT_MS);

@@ -1,5 +1,6 @@
 import { assert, test } from "./test-kit.ts";
 import { execFile, existsSync, fileURLToPath, mkdtemp, path, readFileSync, rm } from "./file-kit.ts";
+import { ensureBuildOutput } from "./build-output-kit.ts";
 
 const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
 const PACKAGE_BUILD_TIMEOUT_MS = 45_000;
@@ -13,15 +14,13 @@ async function runCommand(command, args, cwd) {
   return new TextDecoder().decode(result.stdout);
 }
 
-const wxtBuildPromise = runCommand("pnpm", ["build"], REPO_ROOT);
-
 test("package script stages runtime files and excludes repo-only files", async () => {
   const tempDir = await mkdtemp("unfluffify-package-test-");
   const stageDir = path.join(tempDir, "stage");
   const metadataPath = path.join(tempDir, "metadata.json");
 
   try {
-    await wxtBuildPromise;
+    await ensureBuildOutput();
 
     await runCommand(
       NODE_EXECUTABLE,
@@ -57,9 +56,14 @@ test("package script stages runtime files and excludes repo-only files", async (
     assert.equal(metadata.stagedFiles.includes("content-main.js"), false);
     assert.equal(metadata.stagedFiles.includes("content/submission-rules.js"), false);
     assert.equal(metadata.stagedFiles.includes("common/config.js"), false);
+    assert.equal(metadata.stagedFiles.includes("assets/fonts/fonts.css"), true);
+    assert.equal(metadata.stagedFiles.includes("assets/materialdesignicons.min.css"), true);
+    assert.equal(metadata.stagedFiles.includes("assets/fonts/inter-latin-400-normal.woff2"), true);
+    assert.equal(metadata.stagedFiles.includes("assets/materialdesignicons-webfont.woff2"), true);
     assert.equal(metadata.stagedFiles.includes("cursors/exclude.svg"), true);
     assert.equal(metadata.stagedFiles.includes("cursors/include.svg"), true);
     assert.equal(metadata.stagedFiles.includes("icons/default/icon16.png"), true);
+    assert.equal(metadata.stagedFiles.includes("logo.png"), true);
 
     assert.equal(metadata.stagedFiles.includes("README.md"), false);
     assert.equal(metadata.stagedFiles.includes(".github/workflows/build-extension-package.yml"), false);
@@ -69,9 +73,14 @@ test("package script stages runtime files and excludes repo-only files", async (
     assert.equal(existsSync(path.join(stageDir, "content-scripts/content-loader.js")), true);
     assert.equal(existsSync(path.join(stageDir, "content/submission-rules.js")), false);
     assert.equal(existsSync(path.join(stageDir, "common/config.js")), false);
+    assert.equal(existsSync(path.join(stageDir, "assets/fonts/fonts.css")), true);
+    assert.equal(existsSync(path.join(stageDir, "assets/materialdesignicons.min.css")), true);
+    assert.equal(existsSync(path.join(stageDir, "assets/fonts/inter-latin-400-normal.woff2")), true);
+    assert.equal(existsSync(path.join(stageDir, "assets/materialdesignicons-webfont.woff2")), true);
     assert.equal(existsSync(path.join(stageDir, "cursors/exclude.svg")), true);
     assert.equal(existsSync(path.join(stageDir, "cursors/include.svg")), true);
     assert.equal(existsSync(path.join(stageDir, "icons/default/icon128.png")), true);
+    assert.equal(existsSync(path.join(stageDir, "logo.png")), true);
     assert.equal(existsSync(path.join(stageDir, "popup.html")), true);
   } finally {
     await rm(tempDir, { recursive: true, force: true });
@@ -84,7 +93,7 @@ test("package script adds a release-only build display version to the staged man
   const metadataPath = path.join(tempDir, "metadata.json");
 
   try {
-    await wxtBuildPromise;
+    await ensureBuildOutput();
 
     await runCommand(
       NODE_EXECUTABLE,

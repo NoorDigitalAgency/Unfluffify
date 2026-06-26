@@ -126,13 +126,12 @@ function resolveAssetSpecifier(fromRelativePath, specifier) {
     return "";
   }
 
-  const sanitizedSpecifier = stripQueryAndHash(specifier).replace(/^\//, "");
-  const fromDirectory = fromRelativePath ? dirname(fromRelativePath) : ".";
-  const candidate = sanitizedSpecifier.startsWith("./") || sanitizedSpecifier.startsWith("../")
-    ? normalize(join(fromDirectory, sanitizedSpecifier))
-    : normalize(sanitizedSpecifier);
-
-  return normalizeRelativePath(candidate);
+  const sanitizedSpecifier = stripQueryAndHash(specifier);
+  const basePath = fromRelativePath
+    ? `https://extension.invalid/${normalizeRelativePath(fromRelativePath)}`
+    : "https://extension.invalid/";
+  const resolvedPath = new URL(sanitizedSpecifier, basePath).pathname.replace(/^\/+/, "");
+  return normalizeRelativePath(resolvedPath);
 }
 
 async function isFile(filePath) {
@@ -196,6 +195,15 @@ async function collectManifestEntryPoints(manifest) {
     const absolutePath = join(SOURCE_ROOT, extensionPage);
     if (await isFile(absolutePath)) {
       entryPoints.add(extensionPage);
+    }
+  }
+  // Static extension-page assets referenced from rendered DOM (e.g. the popup
+  // header `<img src="logo.png">`) are not reachable through JS/CSS import
+  // scanning, so stage them explicitly when present in the build output.
+  for (const staticAsset of ["logo.png"]) {
+    const absolutePath = join(SOURCE_ROOT, staticAsset);
+    if (await isFile(absolutePath)) {
+      entryPoints.add(staticAsset);
     }
   }
 

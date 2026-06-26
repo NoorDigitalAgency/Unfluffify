@@ -6,6 +6,9 @@ Status: active. This is the single active handoff plan. `.copilot/plan.md` is th
 durable architecture index and `.copilot/knowledge.md` is durable knowledge; all
 other historical `.copilot` plan/progress docs were removed.
 
+Progress checkpoint: Phase A and Phase F are complete and pushed. The next active
+execution step is Phase B (test-suite triage and code-shape cleanup).
+
 ## 1. Goal
 
 Make the test suite lean and uniformly TypeScript (only contract/behavior/
@@ -115,9 +118,11 @@ time.
 - Add `logo.png` to an explicit static-asset include in
   `scripts/package-extension.mjs` `collectManifestEntryPoints()`.
 - Add assertions: `tests/build-artifact-parity.test.js` requires `logo.png` in
-  output; `tests/package-extension.test.js` asserts it is staged.
-- Validation: `pnpm build` then `ls .output/chrome-mv3/logo.png`; `pnpm test`
-  for the two updated tests.
+  output and triggers `pnpm build` itself when `.output/chrome-mv3` is absent;
+  `tests/package-extension.test.js` asserts `logo.png` is both listed in staged
+  metadata and physically present in the stage directory.
+- Validation: `pnpm exec vitest run tests/build-artifact-parity.test.js
+  tests/package-extension.test.js`, including a clean `.output` run.
 
 ### Phase B — Remove code-shape tests, preserve real coverage (task 1)
 
