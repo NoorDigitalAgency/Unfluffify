@@ -33,8 +33,8 @@ describe("popup layer host", () => {
       traceEnabled: true,
       traceEvents: [],
       lifecycle: { kind: "activation", phase: "started" },
-      legacySpinnerQueue: [],
-      legacyActiveSpinnerLease: null,
+      spinnerQueue: [],
+      activeSpinnerLease: null,
     }, { target: REALMS.POPUP, tab: 12 });
 
     expect(applyPopupView).toHaveBeenCalledWith(expect.objectContaining({
@@ -59,8 +59,8 @@ describe("popup layer host", () => {
       traceEnabled: false,
       traceEvents: [],
       lifecycle: null,
-      legacySpinnerQueue: [],
-      legacyActiveSpinnerLease: null,
+      spinnerQueue: [],
+      activeSpinnerLease: null,
     }, { target: REALMS.POPUP, tab: 5 })).resolves.toBeUndefined();
 
     stop();
@@ -93,8 +93,8 @@ describe("popup layer host", () => {
       traceEnabled: false,
       traceEvents: [],
       lifecycle: { kind: "activation", phase: "started" },
-      legacySpinnerQueue: [],
-      legacyActiveSpinnerLease: null,
+      spinnerQueue: [],
+      activeSpinnerLease: null,
     }, { target: REALMS.POPUP, tab: 12 });
 
     expect(getLatestPopupSpinnerState("pageCurtain")).toMatchObject({

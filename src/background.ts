@@ -181,7 +181,7 @@ import {
   queueTabSessionWrite,
   setTabState as setStoredTabState
 } from "./background/tab-session-store.js";
-import { createLegacyBridge } from "./common/bus/transport/legacy-bridge.js";
+import { createBusProtocolBridge } from "./common/bus/transport/bus-protocol-bridge.js";
 import { BUS_PORT_PREFIX } from "./common/bus/transport/transport-types.js";
 import type {
   TabOperationContext,
@@ -358,7 +358,7 @@ const worldTrace = createWorldTrace({
 const ensureTraceState = worldTrace.ensureTraceState;
 const isWorldTraceEnabled = worldTrace.isWorldTraceEnabled;
 const appendWorldTraceEvent = worldTrace.appendWorldTraceEvent;
-const legacyBridge = createLegacyBridge();
+const busProtocolBridge = createBusProtocolBridge();
 const brain = createBrain({ logger: console });
 const BACKGROUND_COMMANDS = Object.freeze({
   TAB_BOOTSTRAP_CONTENT: "TAB_BOOTSTRAP_CONTENT",
@@ -2484,7 +2484,7 @@ const popupStateBroker = createPopupStateBroker({
   updateRuntime: updateTabRuntime,
   syncPopupView(tabId: number, state: PopupBrokerState, reason: string) {
     brain.mirrorPopupState(tabId, state, reason);
-    brain.mirrorLegacySpinnerQueue(tabId, state.spinnerQueue, `${reason}:spinners`);
+    brain.syncProjectedSpinnerQueue(tabId, state.spinnerQueue, `${reason}:spinners`);
   }
 });
 const getSpinnerQueueForTab = popupStateBroker.getSpinnerQueueForTab;
@@ -2503,7 +2503,7 @@ for (const tabId of [...tabLifecycleStateByTabId.keys(), ...tabSpinnerQueueByTab
   popupStateSeedTabIds.add(normalizedTabId);
   const brokerState = buildBrokerState(normalizedTabId);
   brain.mirrorPopupState(normalizedTabId, brokerState, "popup-state-broker:seed");
-  brain.mirrorLegacySpinnerQueue(normalizedTabId, brokerState.spinnerQueue, "popup-state-broker:seed:spinners");
+  brain.syncProjectedSpinnerQueue(normalizedTabId, brokerState.spinnerQueue, "popup-state-broker:seed:spinners");
 }
 
 const spinnerOperations = createSpinnerOperations({
@@ -2518,7 +2518,7 @@ const spinnerOperations = createSpinnerOperations({
     });
   },
   syncProjectedSpinnerState(tabId, queue, reason) {
-    brain.mirrorLegacySpinnerQueue(tabId, queue, `spinner-operations:${reason}`);
+    brain.syncProjectedSpinnerQueue(tabId, queue, `spinner-operations:${reason}`);
   }
 });
 
@@ -2732,7 +2732,7 @@ if (browser.runtime && typeof browser.runtime.onStartup !== "undefined") {
 logSwLifecycleDiagnostic("worker-evaluated");
 
 browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (legacyBridge.isBusMessage(message)) {
+  if (busProtocolBridge.isBusMessage(message)) {
     brain.transport.inbound(message, sender)
       .then((reply) => sendResponse(reply))
       .catch(() => sendResponse(undefined));

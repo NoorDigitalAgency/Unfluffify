@@ -1,4 +1,4 @@
-import type { PopupLegacySpinnerEntry } from "../../../common/bus/contracts/popup-state.js";
+import type { PopupSpinnerEntry } from "../../../common/bus/contracts/popup-state.js";
 import type { SpinnerSelection, TabLayerState } from "../state-store.js";
 
 type SpinnerSelections = Readonly<Pick<TabLayerState["spinners"], "popup" | "pageCurtain" | "banner">>;
@@ -7,21 +7,21 @@ type SpinnerStateStore = {
   mutate(tabId: number, reason: string, fn: (state: TabLayerState) => void): TabLayerState;
 };
 
-function blocksSurface(entry: PopupLegacySpinnerEntry, surface: BlockingSurface): boolean {
+function blocksSurface(entry: PopupSpinnerEntry, surface: BlockingSurface): boolean {
   if (entry.blockSurfaces && typeof entry.blockSurfaces === "object") {
     return entry.blockSurfaces[surface] === true;
   }
   return true;
 }
 
-function rendersAsBanner(entry: PopupLegacySpinnerEntry): boolean {
+function rendersAsBanner(entry: PopupSpinnerEntry): boolean {
   if (!entry.blockSurfaces || typeof entry.blockSurfaces !== "object") {
     return false;
   }
   return entry.blockSurfaces.page !== true && entry.blockSurfaces.popup !== true;
 }
 
-function toSpinnerSelection(entry: PopupLegacySpinnerEntry): SpinnerSelection | null {
+function toSpinnerSelection(entry: PopupSpinnerEntry): SpinnerSelection | null {
   if (!entry.operationKind || !entry.operationPhase) {
     return null;
   }
@@ -39,8 +39,8 @@ function toSpinnerSelection(entry: PopupLegacySpinnerEntry): SpinnerSelection | 
 }
 
 function selectLatestSpinner(
-  queue: readonly PopupLegacySpinnerEntry[],
-  predicate: (entry: PopupLegacySpinnerEntry) => boolean,
+  queue: readonly PopupSpinnerEntry[],
+  predicate: (entry: PopupSpinnerEntry) => boolean,
 ): SpinnerSelection | null {
   for (let index = queue.length - 1; index >= 0; index -= 1) {
     const entry = queue[index];
@@ -55,7 +55,7 @@ function selectLatestSpinner(
   return null;
 }
 
-function selectLegacyActiveSpinner(queue: readonly PopupLegacySpinnerEntry[]): SpinnerSelection | null {
+function selectActiveSpinner(queue: readonly PopupSpinnerEntry[]): SpinnerSelection | null {
   for (let index = queue.length - 1; index >= 0; index -= 1) {
     const entry = queue[index];
     if (!entry) {
@@ -79,10 +79,10 @@ function selectLegacyActiveSpinner(queue: readonly PopupLegacySpinnerEntry[]): S
 }
 
 export function deriveSpinnerSelectionsFromLegacyQueue(
-  queue: readonly PopupLegacySpinnerEntry[],
+  queue: readonly PopupSpinnerEntry[],
 ): SpinnerSelections {
   return {
-    popup: selectLegacyActiveSpinner(queue),
+    popup: selectActiveSpinner(queue),
     pageCurtain: selectLatestSpinner(queue, (entry) => blocksSurface(entry, "page")),
     banner: selectLatestSpinner(queue, rendersAsBanner),
   };
@@ -91,7 +91,7 @@ export function deriveSpinnerSelectionsFromLegacyQueue(
 export function updateSpinnerSelectionsFromLegacyQueue(
   store: SpinnerStateStore,
   tabId: number,
-  queue: readonly PopupLegacySpinnerEntry[],
+  queue: readonly PopupSpinnerEntry[],
   reason: string,
 ): SpinnerSelections {
   const nextSelections = deriveSpinnerSelectionsFromLegacyQueue(queue);

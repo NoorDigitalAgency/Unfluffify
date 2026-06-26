@@ -9,7 +9,7 @@ import {
 import type { Browser } from "../common/browser.js";
 import { createSpinnerOperationLease } from "../common/spinner-contract.js";
 import type {
-  PopupLegacySpinnerEntry,
+  PopupSpinnerEntry,
   PopupLifecycleState,
   PopupTraceEvent,
 } from "../common/bus/contracts/popup-state.js";
@@ -22,8 +22,8 @@ export type PopupBrokerState = Readonly<{
   ok: boolean;
   tabId: number | null;
   lifecycle: PopupLifecycleState | null;
-  spinnerQueue: PopupLegacySpinnerEntry[];
-  activeSpinnerLease: PopupLegacySpinnerEntry | null;
+  spinnerQueue: PopupSpinnerEntry[];
+  activeSpinnerLease: PopupSpinnerEntry | null;
   traceEnabled: boolean;
   traceEvents: PopupTraceEvent[];
 }>;
@@ -98,7 +98,7 @@ export function createPopupStateBroker(options = {}) {
     return spinnerQueueByTabId.get(normalizedTabId) || null;
   }
 
-  function serializeSpinnerQueue(tabId: number): PopupLegacySpinnerEntry[] {
+  function serializeSpinnerQueue(tabId: number): PopupSpinnerEntry[] {
     const queue = spinnerQueueByTabId.get(tabId);
     if (!queue || queue.size === 0) {
       return [];
@@ -146,11 +146,11 @@ export function createPopupStateBroker(options = {}) {
         maxDurationMs: lease ? lease.maxDurationMs : 0,
         updatedAt: lease ? lease.updatedAt : 0,
         ...(lease ? { blockSurfaces: { ...lease.blockSurfaces } } : {}),
-      } satisfies PopupLegacySpinnerEntry;
+      } satisfies PopupSpinnerEntry;
     });
   }
 
-  function getActiveSpinnerLease(tabId: number): PopupLegacySpinnerEntry | null {
+  function getActiveSpinnerLease(tabId: number): PopupSpinnerEntry | null {
     const serializedQueue = serializeSpinnerQueue(tabId);
     for (const entry of serializedQueue.slice().reverse()) {
       if (!Object.prototype.hasOwnProperty.call(entry, "blockSurfaces")) {

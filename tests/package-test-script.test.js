@@ -14,6 +14,11 @@ test("legacy Deno test shims are removed from the repo", () => {
   assert.equal(existsSync(new URL("../tests/setup-runtime.js", import.meta.url)), true);
 });
 
+test("non-Copilot agent and editor workspace artifacts are removed from the repo", () => {
+  assert.equal(existsSync(new URL("../.codex/config.toml", import.meta.url)), false);
+  assert.equal(existsSync(new URL("../.vscode/unfluffify-stack.code-workspace", import.meta.url)), false);
+});
+
 test("public pnpm scripts are node-native after the Deno bridge removal", () => {
   const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url)));
   const scriptEntries = Object.entries(packageJson.scripts || {});

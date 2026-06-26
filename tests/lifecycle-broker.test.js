@@ -75,7 +75,7 @@ test("background exposes lifecycle and spinner state over broker updates and bus
   assert.doesNotMatch(backgroundSource, /WORLD_MESSAGE_TYPES\.BACKGROUND_STATE/);
   assert.match(
     backgroundSource,
-    /syncPopupView\(tabId: number, state: PopupBrokerState, reason: string\) \{[\s\S]*?brain\.mirrorPopupState\(tabId, state, reason\);[\s\S]*?brain\.mirrorLegacySpinnerQueue\(tabId, state\.spinnerQueue, `\$\{reason\}:spinners`\);[\s\S]*?\}/
+    /syncPopupView\(tabId: number, state: PopupBrokerState, reason: string\) \{[\s\S]*?brain\.mirrorPopupState\(tabId, state, reason\);[\s\S]*?brain\.syncProjectedSpinnerQueue\(tabId, state\.spinnerQueue, `\$\{reason\}:spinners`\);[\s\S]*?\}/
   );
   assert.doesNotMatch(
     backgroundSource,
@@ -83,7 +83,7 @@ test("background exposes lifecycle and spinner state over broker updates and bus
   );
   assert.match(
     backgroundSource,
-    /const brokerState = buildBrokerState\(normalizedTabId\);[\s\S]*?brain\.mirrorPopupState\(normalizedTabId, brokerState, "popup-state-broker:seed"\);[\s\S]*?brain\.mirrorLegacySpinnerQueue\(normalizedTabId, brokerState\.spinnerQueue, "popup-state-broker:seed:spinners"\);/
+    /const brokerState = buildBrokerState\(normalizedTabId\);[\s\S]*?brain\.mirrorPopupState\(normalizedTabId, brokerState, "popup-state-broker:seed"\);[\s\S]*?brain\.syncProjectedSpinnerQueue\(normalizedTabId, brokerState\.spinnerQueue, "popup-state-broker:seed:spinners"\);/
   );
   assert.doesNotMatch(
     backgroundSource,

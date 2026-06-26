@@ -108,19 +108,19 @@ export function projectViews(state: TabLayerState): {
       lifecycle: cloneProjectedPopupLifecycle(state),
       activation,
       renderMode,
-      legacySpinnerQueue: state.popupView.legacySpinnerQueue.map((entry) => {
+      spinnerQueue: state.popupView.spinnerQueue.map((entry) => {
         const clone = { ...entry };
         if (entry.blockSurfaces) {
           clone.blockSurfaces = { ...entry.blockSurfaces };
         }
         return clone;
       }),
-      legacyActiveSpinnerLease: state.popupView.legacyActiveSpinnerLease
+      activeSpinnerLease: state.popupView.activeSpinnerLease
         ? (() => {
-          const clone = { ...state.popupView.legacyActiveSpinnerLease };
-          if (state.popupView.legacyActiveSpinnerLease.blockSurfaces) {
+          const clone = { ...state.popupView.activeSpinnerLease };
+          if (state.popupView.activeSpinnerLease.blockSurfaces) {
             clone.blockSurfaces = {
-              ...state.popupView.legacyActiveSpinnerLease.blockSurfaces,
+              ...state.popupView.activeSpinnerLease.blockSurfaces,
             };
           }
           return clone;

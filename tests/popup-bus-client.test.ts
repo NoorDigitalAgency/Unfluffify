@@ -77,8 +77,8 @@ describe("popup bus self-test", () => {
       traceEnabled: true,
       traceEvents: [],
       lifecycle: null,
-      legacySpinnerQueue: [],
-      legacyActiveSpinnerLease: null,
+      spinnerQueue: [],
+      activeSpinnerLease: null,
     });
 
     await expect(requestPopupView({

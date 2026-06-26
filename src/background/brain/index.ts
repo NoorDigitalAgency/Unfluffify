@@ -5,7 +5,7 @@ import { POPUP_STATE_EVENT_TYPES, POPUP_STATE_REQUEST_TYPES } from "../../common
 import { SPINNER_EVENT_TYPES, type SpinnerSurface } from "../../common/bus/contracts/spinner.js";
 import { REALMS } from "../../common/bus/realms.js";
 import { createBackgroundTransport } from "../../common/bus/transport/background-transport.js";
-import type { PopupLegacySpinnerEntry } from "../../common/bus/contracts/popup-state.js";
+import type { PopupSpinnerEntry } from "../../common/bus/contracts/popup-state.js";
 import type { PopupBrokerState } from "../popup-state-broker.js";
 import {
   getActivationSnapshot as getActivationSnapshotValue,
@@ -124,7 +124,7 @@ export function createBrain(options: { logger?: Pick<Console, "error"> } = {}) {
     getRenderModeSnapshot(tabId: number) {
       return getRenderModeSnapshotValue(store, tabId);
     },
-    mirrorLegacySpinnerQueue(tabId: number, queue: readonly PopupLegacySpinnerEntry[], reason: string) {
+    syncProjectedSpinnerQueue(tabId: number, queue: readonly PopupSpinnerEntry[], reason: string) {
       return updateSpinnerSelectionsFromLegacyQueue(store, tabId, queue, reason);
     },
     registerPopupPort(tabId: number, port: Browser.runtime.Port): void {

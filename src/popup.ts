@@ -96,7 +96,7 @@ import {
 } from "./popup/telemetry.js";
 import type { ActivationSnapshot } from "./common/bus/contracts/activation.js";
 import type {
-  PopupLegacySpinnerEntry,
+  PopupSpinnerEntry as PopupViewSpinnerEntry,
   PopupStateGetReply
 } from "./common/bus/contracts/popup-state.js";
 import { deriveSpinnerSelectionsFromLegacyQueue } from "./background/brain/deciders/spinner-state-decider.js";
@@ -325,8 +325,8 @@ type PopupBackgroundStateSnapshot = {
   activation?: PopupStateGetReply["activation"] | null;
   traceEnabled?: boolean;
   traceEvents?: PopupStateGetReply["traceEvents"] | null;
-  spinnerQueue?: PopupLegacySpinnerEntry[] | null;
-  activeSpinnerLease?: PopupLegacySpinnerEntry | null;
+  spinnerQueue?: PopupViewSpinnerEntry[] | null;
+  activeSpinnerLease?: PopupViewSpinnerEntry | null;
 };
 type TraceModeToggleEvent = Event & {
   currentTarget?: (EventTarget & { checked?: boolean }) | null;
@@ -1513,7 +1513,7 @@ function applyBackgroundStateSnapshot(snapshot: PopupBackgroundStateSnapshot | n
     if (!entry || typeof entry.key !== "string" || !entry.key) {
       return;
     }
-    const entryWithDetails = entry as PopupLegacySpinnerEntry & { details?: Record<string, unknown> };
+    const entryWithDetails = entry as PopupViewSpinnerEntry & { details?: Record<string, unknown> };
     popupSpinnerQueue.set(entry.key, {
       blockSurfaces: entry.blockSurfaces && typeof entry.blockSurfaces === "object"
         ? {
@@ -1572,8 +1572,8 @@ function applyPopupViewSnapshot(snapshot: PopupStateGetReply | null) {
     activation: snapshot.activation || null,
     traceEnabled: Boolean(snapshot.traceEnabled),
     traceEvents: Array.isArray(snapshot.traceEvents) ? snapshot.traceEvents : [],
-    spinnerQueue: Array.isArray(snapshot.legacySpinnerQueue) ? snapshot.legacySpinnerQueue : [],
-    activeSpinnerLease: snapshot.legacyActiveSpinnerLease || null
+    spinnerQueue: Array.isArray(snapshot.spinnerQueue) ? snapshot.spinnerQueue : [],
+    activeSpinnerLease: snapshot.activeSpinnerLease || null
   });
 }
 

@@ -52,7 +52,7 @@ describe("bus boundaries", () => {
     const backgroundSource = readSource("background.ts");
     const contentSource = readSource("content-main.ts");
 
-    expect(indexOfOrThrow(backgroundSource, 'if (legacyBridge.isBusMessage(message))')).toBeLessThan(
+    expect(indexOfOrThrow(backgroundSource, 'if (busProtocolBridge.isBusMessage(message))')).toBeLessThan(
       indexOfOrThrow(backgroundSource, "if (!message || !message.type)"),
     );
     expect(indexOfOrThrow(contentSource, '(message as { p?: unknown }).p === "uf-bus/1"')).toBeLessThan(

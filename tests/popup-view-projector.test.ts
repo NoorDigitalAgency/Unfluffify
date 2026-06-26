@@ -31,7 +31,7 @@ describe("popup view projector", () => {
           operationPhase: "page-inspection",
           contentMode: "marking",
         },
-        legacySpinnerQueue: [{
+        spinnerQueue: [{
           key: "navInspect",
           message: "Inspecting",
           persistent: true,
@@ -52,7 +52,7 @@ describe("popup view projector", () => {
             popup: true,
           },
         }],
-        legacyActiveSpinnerLease: {
+        activeSpinnerLease: {
           key: "navInspect",
           message: "Inspecting",
           persistent: true,
@@ -194,7 +194,7 @@ describe("popup view projector", () => {
         followUpCompleted: true,
         lastError: "",
       },
-      legacySpinnerQueue: [{
+      spinnerQueue: [{
         key: "navInspect",
         message: "Inspecting",
         persistent: true,
@@ -215,7 +215,7 @@ describe("popup view projector", () => {
           popup: true,
         },
       }],
-      legacyActiveSpinnerLease: {
+      activeSpinnerLease: {
         key: "navInspect",
         message: "Inspecting",
         persistent: true,
@@ -256,7 +256,7 @@ describe("popup view projector", () => {
         lifecycle: {
           message: "before",
         },
-        legacySpinnerQueue: [{
+        spinnerQueue: [{
           key: "q",
           message: "Queue",
           persistent: false,
@@ -276,7 +276,7 @@ describe("popup view projector", () => {
             popup: true,
           },
         }],
-        legacyActiveSpinnerLease: null,
+        activeSpinnerLease: null,
       },
       activation: {
         contentReady: false,
@@ -331,7 +331,7 @@ describe("popup view projector", () => {
       markingEnabled: true,
       pageUrl: "https://example.com/page",
     };
-    state.popupView.legacySpinnerQueue[0].blockSurfaces = {
+    state.popupView.spinnerQueue[0].blockSurfaces = {
       popup: false,
     };
 
@@ -355,7 +355,7 @@ describe("popup view projector", () => {
       },
       lastContentPageUrl: "https://example.com/page",
     });
-    expect(projected.legacySpinnerQueue[0].blockSurfaces).toEqual({ popup: true });
+    expect(projected.spinnerQueue[0].blockSurfaces).toEqual({ popup: true });
     expect(projected.renderMode).toEqual({
       inspecting: false,
       javaScriptDisabled: false,
@@ -376,8 +376,8 @@ describe("popup view projector", () => {
         traceEnabled: false,
         traceEvents: [],
         lifecycle: null,
-        legacySpinnerQueue: [],
-        legacyActiveSpinnerLease: null,
+        spinnerQueue: [],
+        activeSpinnerLease: null,
       },
       activation: {
         contentReady: false,

@@ -20,14 +20,14 @@ function clonePopupBrokerState(state: PopupBrokerState): Omit<PopupViewEnvelope,
       payload: event.payload ? { ...event.payload } : null,
     })),
     lifecycle: state.lifecycle ? { ...state.lifecycle } : null,
-    legacySpinnerQueue: state.spinnerQueue.map((entry) => {
+    spinnerQueue: state.spinnerQueue.map((entry) => {
       const clone = { ...entry };
       if (entry.blockSurfaces) {
         clone.blockSurfaces = { ...entry.blockSurfaces };
       }
       return clone;
     }),
-    legacyActiveSpinnerLease: state.activeSpinnerLease
+    activeSpinnerLease: state.activeSpinnerLease
       ? (() => {
         const clone = { ...state.activeSpinnerLease };
         if (state.activeSpinnerLease.blockSurfaces) {
@@ -60,8 +60,8 @@ export function updatePopupViewFromBrokerState(
     draft.popupView.traceEnabled = nextState.traceEnabled;
     draft.popupView.traceEvents = nextState.traceEvents;
     draft.popupView.lifecycle = nextState.lifecycle;
-    draft.popupView.legacySpinnerQueue = nextState.legacySpinnerQueue;
-    draft.popupView.legacyActiveSpinnerLease = nextState.legacyActiveSpinnerLease;
+    draft.popupView.spinnerQueue = nextState.spinnerQueue;
+    draft.popupView.activeSpinnerLease = nextState.activeSpinnerLease;
   });
   return buildPopupViewFromBrokerState(brokerState, state.version);
 }

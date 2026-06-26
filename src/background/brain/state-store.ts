@@ -4,7 +4,7 @@ import type {
   ActivationSnapshot,
 } from "../../common/bus/contracts/activation.js";
 import type {
-  PopupLegacySpinnerEntry,
+  PopupSpinnerEntry,
   PopupLifecycleState,
   PopupTraceEvent,
 } from "../../common/bus/contracts/popup-state.js";
@@ -26,8 +26,8 @@ export type PopupViewState = Readonly<{
   traceEnabled: boolean;
   traceEvents: PopupTraceEvent[];
   lifecycle: PopupLifecycleState | null;
-  legacySpinnerQueue: PopupLegacySpinnerEntry[];
-  legacyActiveSpinnerLease: PopupLegacySpinnerEntry | null;
+  spinnerQueue: PopupSpinnerEntry[];
+  activeSpinnerLease: PopupSpinnerEntry | null;
 }>;
 
 export type ActivationState = ActivationSnapshot;
@@ -65,8 +65,8 @@ export type TabLayerState = {
     traceEnabled: boolean;
     traceEvents: PopupTraceEvent[];
     lifecycle: PopupLifecycleState | null;
-    legacySpinnerQueue: PopupLegacySpinnerEntry[];
-    legacyActiveSpinnerLease: PopupLegacySpinnerEntry | null;
+    spinnerQueue: PopupSpinnerEntry[];
+    activeSpinnerLease: PopupSpinnerEntry | null;
   };
   activation: {
     contentReady: boolean;
@@ -103,8 +103,8 @@ function createInitialTabState(tabId: number): TabLayerState {
       traceEnabled: false,
       traceEvents: [],
       lifecycle: null,
-      legacySpinnerQueue: [],
-      legacyActiveSpinnerLease: null,
+      spinnerQueue: [],
+      activeSpinnerLease: null,
     },
     activation: createInitialActivationState(),
     renderMode: createInitialRenderModeState(),

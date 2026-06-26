@@ -48,7 +48,7 @@ type PopupLifecycleKnownFields = Readonly<{
 
 export type PopupLifecycleState = PopupLifecycleKnownFields & Readonly<Record<string, unknown>>;
 
-export type PopupLegacySpinnerEntry = Readonly<{
+export type PopupSpinnerEntry = Readonly<{
   key: string;
   message: string;
   persistent: boolean;
@@ -78,8 +78,8 @@ export type PopupViewEnvelope = Readonly<{
   lifecycle: PopupLifecycleState | null;
   activation?: ActivationSnapshot | null;
   renderMode?: RenderModeViewState | null;
-  legacySpinnerQueue: PopupLegacySpinnerEntry[];
-  legacyActiveSpinnerLease: PopupLegacySpinnerEntry | null;
+  spinnerQueue: PopupSpinnerEntry[];
+  activeSpinnerLease: PopupSpinnerEntry | null;
 }>;
 
 export type PopupStateGetReply = PopupViewEnvelope;

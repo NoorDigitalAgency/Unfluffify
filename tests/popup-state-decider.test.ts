@@ -65,7 +65,7 @@ describe("popup state decider", () => {
         message: "warming",
         contentMode: "marking",
       },
-      legacySpinnerQueue: [{
+      spinnerQueue: [{
         key: "navInspect",
         message: "Inspecting",
         persistent: true,
@@ -82,7 +82,7 @@ describe("popup state decider", () => {
         maxDurationMs: 0,
         updatedAt: 1_000,
       }],
-      legacyActiveSpinnerLease: null,
+      activeSpinnerLease: null,
     });
   });
 
@@ -143,8 +143,8 @@ describe("popup state decider", () => {
         followUpCompleted: false,
         lastError: "",
       },
-      legacySpinnerQueue: [],
-      legacyActiveSpinnerLease: null,
+      spinnerQueue: [],
+      activeSpinnerLease: null,
     });
   });
 });

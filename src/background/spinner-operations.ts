@@ -3,7 +3,7 @@ import {
   WORLD_MESSAGE_TYPES
 } from "../common/world-messaging-contract.js";
 import { createSpinnerOperationLease } from "../common/spinner-contract.js";
-import type { PopupLegacySpinnerEntry } from "../common/bus/contracts/popup-state.js";
+import type { PopupSpinnerEntry } from "../common/bus/contracts/popup-state.js";
 
 type SpinnerEntry = {
   blockSurfaces?: {
@@ -37,7 +37,7 @@ type SpinnerOperationsOptions = {
   broadcastState?: (tabId: number) => void;
   buildState?: (tabId: number) => Record<string, unknown>;
   updateRuntimeSpinnerQueue?: (tabId: number, queue: SpinnerQueue) => void;
-  syncProjectedSpinnerState?: (tabId: number, queue: PopupLegacySpinnerEntry[], reason: string) => void;
+  syncProjectedSpinnerState?: (tabId: number, queue: PopupSpinnerEntry[], reason: string) => void;
 };
 
 function defaultNormalizeTabId(value: unknown): number {
@@ -173,7 +173,7 @@ export function createSpinnerOperations(options: SpinnerOperationsOptions = {}) 
     return queueByTabId.get(normalizedTabId) || null;
   }
 
-  function serializeSpinnerQueue(tabId: unknown): PopupLegacySpinnerEntry[] {
+  function serializeSpinnerQueue(tabId: unknown): PopupSpinnerEntry[] {
     const normalizedTabId = normalizeTabId(tabId);
     if (!normalizedTabId) {
       return [];
@@ -207,7 +207,7 @@ export function createSpinnerOperations(options: SpinnerOperationsOptions = {}) 
             }
           }
           : {})
-      } satisfies PopupLegacySpinnerEntry;
+      } satisfies PopupSpinnerEntry;
     });
   }
 

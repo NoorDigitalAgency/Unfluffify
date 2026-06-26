@@ -28,8 +28,8 @@ describe("brain state store", () => {
       traceEnabled: false,
       traceEvents: [],
       lifecycle: null,
-      legacySpinnerQueue: [],
-      legacyActiveSpinnerLease: null,
+      spinnerQueue: [],
+      activeSpinnerLease: null,
     });
     expect(state.renderMode).toEqual({
       inspecting: false,
