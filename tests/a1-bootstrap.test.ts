@@ -55,15 +55,15 @@ describe("WXT Part A bridge", () => {
     expect(packageJson.scripts.verify).toContain("pnpm build");
     expect(packageJson.scripts.verify).toContain("remove-path.mjs");
     expect(packageJson.scripts.verify).toContain("UF_MANIFEST_SOURCE=generated");
-    expect(packageJson.scripts.verify).toContain("manifest-permissions.test.js");
+    expect(packageJson.scripts.verify).toContain("manifest-permissions.test.ts");
     expect(packageJson.scripts.browser).toBeUndefined();
     expect(packageJson.scripts["browser:live"]).toBe("node ./scripts/launch-test-browser.mjs");
     expect(packageJson.scripts["legacy:build:dev"]).toBeUndefined();
   });
 
   it("runs the unified tests directory through the shared Vitest setup", () => {
-    expect(vitestConfig.test?.include).toEqual(["tests/**/*.test.{js,ts}"]);
-    expect(vitestConfig.test?.setupFiles).toEqual(["tests/setup-runtime.js"]);
+    expect(vitestConfig.test?.include).toEqual(["tests/**/*.test.ts"]);
+    expect(vitestConfig.test?.setupFiles).toEqual(["tests/setup-runtime.ts"]);
     expect(vitestConfig.resolve?.alias).toBeUndefined();
   });
 

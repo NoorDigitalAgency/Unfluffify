@@ -618,13 +618,13 @@ force a repaint on full active refreshes even when the render key is unchanged.
 
 Focused rule coverage lives in:
 
-- `tests/config.test.js`
-- `tests/core-motion-pause.test.js`
-- `tests/marking-rules.test.js`
-- `tests/core-visibility.test.js`
-- `tests/submission-rules.test.js`
-- `tests/silent-highlight-rules.test.js`
-- `tests/selector-suppression.test.js`
-- `tests/silent-highlight-annotations.test.js`
-- `tests/core-scheduling.test.js`
-- `tests/popup-marking-refresh.test.js`
+- `tests/config.test.ts`
+- `tests/core-motion-pause.test.ts`
+- `tests/marking-rules.test.ts`
+- `tests/core-visibility.test.ts`
+- `tests/submission-rules.test.ts`
+- `tests/silent-highlight-rules.test.ts`
+- `tests/selector-suppression.test.ts`
+- `tests/silent-highlight-annotations.test.ts`
+- `tests/core-scheduling.test.ts`
+- `tests/popup-marking-refresh.test.ts`

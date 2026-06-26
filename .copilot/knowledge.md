@@ -145,7 +145,7 @@
   injected into the page world and must remain web-accessible.
   `common/page-motion-freeze-control.js` is the opposite
   case: it runs via `chrome.scripting.executeScript({ func })` (serialized), so
-  it must NOT be web-accessible. `tests/manifest-permissions.test.js` now
+  it must NOT be web-accessible. `tests/manifest-permissions.test.ts` now
   asserts every literal `getURL("…")` injected resource is web-accessible.
 
 ## Current Architecture Decisions
@@ -156,7 +156,7 @@
 - Earlier storage-access work centralized Chrome storage access through domain
   stores instead of raw scattered `chrome.storage` or `utils.storage*` calls.
 - Chrome storage access is now restricted to approved storage/domain modules
-  guarded by `tests/storage-access-boundary.test.js`; background, popup, and
+  guarded by `tests/storage-access-boundary.test.ts`; background, popup, and
   content production paths should call domain helpers rather than direct
   `chrome.storage` or `utils.storage*` wrappers. Page-local `localStorage` /
   `sessionStorage` usage is tracked separately from this Chrome storage rule.
@@ -167,7 +167,7 @@
   never edit `src/content/core.ts` or locked
   marking/silent-highlight/visibility/reconciliation logic without a new
   approved plan; every new `content/*` module must be added to
-  `web_accessible_resources` with `tests/manifest-permissions.test.js` green;
+  `web_accessible_resources` with `tests/manifest-permissions.test.ts` green;
   live validation is required for core unflagged behavior when automated
   validation is not enough, while flag-disabled property-lock follow-ups may
   defer live validation until those features are prioritized.
@@ -185,7 +185,7 @@
   popup render-mode tab-load waiters, content one-shot sends, property-lock
   port connect/background port wiring, and touched sender/type positions route
   through promise-based browser APIs via that seam. Keep
-  `tests/browser-polyfill-boundary.test.js` as the guard for the intentionally
+  `tests/browser-polyfill-boundary.test.ts` as the guard for the intentionally
   remaining raw `chrome.*` surfaces.
 - C7 storage adoption now routes `common/storage-core.ts` through
   `wxt/utils/storage` for real extension hosts while preserving the legacy
@@ -281,7 +281,7 @@
 - Shift parent selection may climb wrapper chains to cohesive content boundaries, but must reject shallow generic body-level page shells with broad viewport footprint or multiple page landmarks.
 - Marking overlays watch style mutations so dynamic opacity, visibility, and movement changes trigger repositioning.
 - The marking mutation observer re-runs `hideConsentElements()` on any non-overlay `childList` batch so late-injected consent widgets are hidden during active marking. This is idempotent and loop-safe (the consent bypass `<style>` is appended to `document.head`, which the body-scoped observer does not watch). It is currently un-debounced (unlike the adjacent `scheduleRender`); fold it into a throttled path if a highly mutating page shows cost during marking.
-- `REMOVABLE_ELEMENT_SELECTORS` (the consent/overlay matcher) is a HIGH-PRECISION allowlist, not an exhaustive one. It covers cookie/consent/gdpr, modal/popup/dialog/alertdialog/`aria-modal`, native `dialog[open]`, overlay/backdrop, interstitial, and newsletter/subscribe signals across class/id/role/aria-label. Do NOT add generic content words (`banner`, `notice`, `toast`, `lightbox`, `paywall`, the `cmp` substring, `role=banner`) — they match real headers/promos/galleries/AEM components and would hide actual page content. Every non-element entry keeps the `:not(body):not(html)` guard. Any future addition must be validated against the live AI-submission smoke (bonliva 117 / prowork 76 / vitec-pyramid 57 included-visible) so included-content counts do not drop. `tests/consent-selector-precision.test.js` locks the safe-include / forbidden-broad contract.
+- `REMOVABLE_ELEMENT_SELECTORS` (the consent/overlay matcher) is a HIGH-PRECISION allowlist, not an exhaustive one. It covers cookie/consent/gdpr, modal/popup/dialog/alertdialog/`aria-modal`, native `dialog[open]`, overlay/backdrop, interstitial, and newsletter/subscribe signals across class/id/role/aria-label. Do NOT add generic content words (`banner`, `notice`, `toast`, `lightbox`, `paywall`, the `cmp` substring, `role=banner`) — they match real headers/promos/galleries/AEM components and would hide actual page content. Every non-element entry keeps the `:not(body):not(html)` guard. Any future addition must be validated against the live AI-submission smoke (bonliva 117 / prowork 76 / vitec-pyramid 57 included-visible) so included-content counts do not drop. `tests/consent-selector-precision.test.ts` locks the safe-include / forbidden-broad contract.
 - Extension-owned UI injected into the page (toasts, banners, notices, AI popover, motion-pause indicator) uses the shared `EXTENSION_UI_FONT_STACK` constant (mirrors the popup brand `--font-sans` = Inter) rather than ad-hoc per-element families. The Material Design Icons glyph font is intentionally separate.
 - Page motion pause is a shared marking/silent-highlighting lifecycle source. Marking/reveal warmup first hides consent chrome before inspection styling or any scroll, then shows a page-inspection spinner, blocks page/content-overlay input, performs the historical max-scroll reveal walk for lazy content, returns to the reserved scroll position, freezes, and renders overlays. Matching base-URL pages stay frozen even before selector overlays exist; the pause uses broad CSS/Web Animations/SVG/media/style-lock coverage plus a page-world timer/rAF gate, normalizes layout-present scroll/viewport/attribute-driven reveal candidates such as Webflow `data-w-id` blocks to visible posture, shows an Unfluffify-scoped Material Design Icons snowflake/code indicator without injecting global `.mdi` page styles, excludes extension-owned UI, keeps internal marking scheduling on extension-owned timers/rAF, and strips all freeze mechanics from snapshots.
 - Opening Unfluffify on a supported page enables mobile simulation by default for a fresh tab session. A user-disabled mobile simulation state is a per-session choice and must not be auto-enabled again until the tab session state is cleared, except that active marking sessions force mobile simulation back on for the editor tab until marking is disabled.

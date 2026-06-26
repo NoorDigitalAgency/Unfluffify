@@ -11,7 +11,7 @@ test("legacy Deno test shims are removed from the repo", () => {
   assert.equal(existsSync(new URL("../tests/shims/deno-runtime.js", import.meta.url)), false);
   assert.equal(existsSync(new URL("../tests/shims/std-path.ts", import.meta.url)), false);
   assert.equal(existsSync(new URL("../vitest-tests", import.meta.url)), false);
-  assert.equal(existsSync(new URL("../tests/setup-runtime.js", import.meta.url)), true);
+  assert.equal(existsSync(new URL("../tests/setup-runtime.ts", import.meta.url)), true);
 });
 
 test("non-Copilot agent and editor workspace artifacts are removed from the repo", () => {

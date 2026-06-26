@@ -34,8 +34,12 @@ assertions, and keeping only the unique preview-restore, disabled-command,
 payload-transfer, and background-ledger contracts. The closeout batch then
 reduced the remaining source-grep holdouts in `page-save-state`,
 `content-main-service-registry`, and `device-emulation-lifecycle` to their
-final narrow behavior/helper-routing contracts. The next active execution step
-is Phase C: port the surviving `.test.js` files to `.test.ts`.
+final narrow behavior/helper-routing contracts. The latest checkpoint then
+completed Phase C by renaming every surviving `tests/**/*.test.js` file to
+`.test.ts`, moving the shared Vitest setup to `tests/setup-runtime.ts`,
+updating the bootstrap/package/docs references, and removing the stale Deno
+locator helpers from `tests/file-kit.ts`. The next active execution step is
+Phase D: port the popup UI to React + JSX.
 
 ## 1. Goal
 
@@ -62,11 +66,13 @@ all with `pnpm verify` green and the live popup behavior unchanged.
   `__UNFLUFFIFY_POPUP_DEBUG__.getViewState = uiModule.getViewState` and the
   `pnpm browser:live` flow depends on it.
 - No JSX tooling exists: `tsconfig*.json` has no `jsx`; tsconfig `include` uses
-  `src/**/*.ts` (not `.tsx`). `vitest.config.ts` includes
-  `tests/**/*.test.{js,ts}`.
-- Tests: 132 `.js` + 24 `.ts`. `.js` tests use `tests/test-kit.ts`
-  (`test()`+`assert`); `.ts` tests use native vitest. `tests/file-kit.ts` still
-  has Deno leftovers (`resolveNodeDenoPath`, `denoExecutable`, `DENO_BIN`).
+  `src/**/*.ts` (not `.tsx`). `vitest.config.ts` now includes only
+  `tests/**/*.test.ts`.
+- Tests are now uniformly TypeScript: all surviving test files are `.test.ts`,
+  Vitest bootstraps through `tests/setup-runtime.ts`, the older `test-kit.ts`
+  compatibility layer remains for the legacy assertion-style suites, and
+  `tests/file-kit.ts` is now Node-only with the stale Deno locator helpers
+  removed.
 - Verified pure structural-shape tests (no execution):
   `popup-decomposition-boundary`, `background-decomposition-boundary`,
   `content-decomposition-boundary`, `content-main-runtime-router-contract`,
@@ -157,12 +163,12 @@ time.
   `src: "logo.png"` reference unchanged).
 - Add `logo.png` to an explicit static-asset include in
   `scripts/package-extension.mjs` `collectManifestEntryPoints()`.
-- Add assertions: `tests/build-artifact-parity.test.js` requires `logo.png` in
+- Add assertions: `tests/build-artifact-parity.test.ts` requires `logo.png` in
   output and triggers `pnpm build` itself when `.output/chrome-mv3` is absent;
-  `tests/package-extension.test.js` asserts `logo.png` is both listed in staged
+  `tests/package-extension.test.ts` asserts `logo.png` is both listed in staged
   metadata and physically present in the stage directory.
-- Validation: `pnpm exec vitest run tests/build-artifact-parity.test.js
-  tests/package-extension.test.js`, including a clean `.output` run.
+- Validation: `pnpm exec vitest run tests/build-artifact-parity.test.ts
+  tests/package-extension.test.ts`, including a clean `.output` run.
 
 ### Phase B — Remove code-shape tests, preserve real coverage (task 1)
 
@@ -191,14 +197,16 @@ table):
   `no-ts-ignore-guard`); sentiment/style (`ui-font-uniformity`, `theme-colors`).
 - Validation per batch: `pnpm exec vitest run` on touched files; then `pnpm test`.
 
-### Phase C — Port remaining tests to TS (task 2)
+### Phase C — Port remaining tests to TS (task 2) — complete
 
-- Rename every surviving `tests/*.test.js` -> `tests/*.test.ts` (keep
-  `test-kit`/`file-kit` imports; vitest resolves them).
-- Remove Deno leftovers from `tests/file-kit.ts` (`resolveNodeDenoPath`,
-  `denoExecutable`, `DENO_BIN`, the `deno` import); verify nothing imports them.
-- Fix only real TS syntax errors surfaced by `.ts` parsing.
-- Validation: `pnpm test` green; `ls tests/*.test.js` empty.
+- Renamed every surviving `tests/*.test.js` file to `tests/*.test.ts` and moved
+  the shared Vitest setup file to `tests/setup-runtime.ts`.
+- Updated package/bootstrap/docs/source-comment references to the `.ts` paths,
+  including the generated-manifest verify command and the Vitest include glob.
+- Removed the stale Deno locator helpers from `tests/file-kit.ts`; nothing
+  imports them anymore.
+- Validation: `pnpm lint && pnpm check && pnpm test && pnpm build` green; `find
+  tests -name '*.test.js'` returns empty.
 
 ### Phase D — Port popup UI to React + JSX (task 4)
 

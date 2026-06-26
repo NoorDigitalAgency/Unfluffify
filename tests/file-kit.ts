@@ -20,21 +20,6 @@ function resolveTempPrefix(prefix: string): string {
   return path.join(os.tmpdir(), prefix);
 }
 
-function resolveNodeDenoPath(): string {
-  const envPath = typeof process.env.DENO_BIN === "string" ? process.env.DENO_BIN.trim() : "";
-  if (envPath) {
-    return envPath;
-  }
-
-  const executableName = process.platform === "win32" ? "deno.exe" : "deno";
-  const localInstallPath = path.join(os.homedir(), ".deno", "bin", executableName);
-  if (fs.existsSync(localInstallPath)) {
-    return localInstallPath;
-  }
-
-  return "deno";
-}
-
 export function readFileSync(pathOrUrl: string | URL, encoding = "utf8"): string {
   assertUtf8(encoding);
   return fs.readFileSync(pathOrUrl, "utf8");
@@ -103,10 +88,6 @@ export async function execFile(
       });
     });
   });
-}
-
-export function denoExecutable(): string {
-  return resolveNodeDenoPath();
 }
 
 export { fileURLToPath, path };

@@ -20,7 +20,7 @@
     "orchestrate:property-lock": "node ./orchestration/scenarios/property-lock-one-machine.mjs",
     "orchestrate:rpc-server": "node ./orchestration/rpc-server.mjs",
     "orchestrate:rpc-client": "node ./orchestration/rpc-client.mjs",
-    "verify": "pnpm lint && pnpm check && pnpm test && node ./scripts/remove-path.mjs ./.output && pnpm build && UF_MANIFEST_SOURCE=generated vitest run tests/manifest-permissions.test.js"
+    "verify": "pnpm lint && pnpm check && pnpm test && node ./scripts/remove-path.mjs ./.output && pnpm build && UF_MANIFEST_SOURCE=generated vitest run tests/manifest-permissions.test.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

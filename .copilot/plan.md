@@ -49,7 +49,7 @@ docs were removed from the workspace; their durable outcomes live in
 1. Do not change locked marking/highlighting/property-lock contracts without an
    explicit new plan.
 2. Keep Chrome storage access behind the approved storage/domain modules guarded
-   by `tests/storage-access-boundary.test.js`.
+   by `tests/storage-access-boundary.test.ts`.
 3. Keep the WXT/browser seams intact:
    - `common/browser.ts` remains the browser-compatible extension API seam
    - `common/storage-core.ts` remains the storage seam

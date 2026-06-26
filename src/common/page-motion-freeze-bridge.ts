@@ -18,7 +18,7 @@
  *
  * IMPORTANT: runPageMotionFreezeControl below must stay byte-identical (modulo
  * the leading `export ` keyword) to common/page-motion-freeze-control.js. The
- * test tests/page-motion-freeze-bridge.test.js enforces this so the document_start
+ * test tests/page-motion-freeze-bridge.test.ts enforces this so the document_start
  * arming and the executeScript toggling share an identical state shape/version
  * and therefore interoperate on the same window.__unfluffifyPageMotionFreezeState.
  */

@@ -130,7 +130,7 @@ Run this command before opening or updating a pull request to catch regressions 
 For marking-rule work, also run the focused guard suite:
 
 ```bash
-pnpm exec vitest run tests/core-visibility.test.js tests/core-motion-pause.test.js tests/core-scheduling.test.js tests/marking-rules.test.js tests/popup-marking-refresh.test.js tests/selector-suppression.test.js tests/silent-highlight-annotations.test.js tests/silent-highlight-rules.test.js tests/submission-rules.test.js
+pnpm exec vitest run tests/core-visibility.test.ts tests/core-motion-pause.test.ts tests/core-scheduling.test.ts tests/marking-rules.test.ts tests/popup-marking-refresh.test.ts tests/selector-suppression.test.ts tests/silent-highlight-annotations.test.ts tests/silent-highlight-rules.test.ts tests/submission-rules.test.ts
 ```
 
 ## Project Structure
@@ -159,20 +159,20 @@ pnpm exec vitest run tests/core-visibility.test.js tests/core-motion-pause.test.
 
 ### Regression Tests (`/tests`)
 
-- **`marking-rules.test.js`** - Regression coverage for the locked default-exclusion taxonomy, restored toggleable boundary markability, Shift parent-boundary chooser, and duplicate toggle suppression
-- **`submission-rules.test.js`** - Regression coverage for AI submission roots and content rows: stored excluded rows, hidden textual exclusions, immutable-tag omission, included textual boundaries, and explicit includes
-- **`core-visibility.test.js`** - Regression coverage for content-side visibility guards, restored Shift/Alt target promotion, sanitized snapshot XPath alignment, and dynamic style-mutation redraw decisions used by marking and submission
-- **`core-motion-pause.test.js`** - Regression coverage for pre-freeze page inspection, input blocking, full-scroll lazy-content reveal, and motion-freeze normalization
-- **`theme-colors.test.js`** - Regression coverage for AA contrast on semantic theme colors
-- **`silent-highlight-rules.test.js`** - Regression coverage for settle-before-redraw silent highlight behavior
-- **`config.test.js`** - Coverage for configuration normalization and sync-payload construction
-- **`page-save-state.test.js`** - Coverage for page-save button state, including initial saves when default markings are accepted as-is
-- **`core-scheduling.test.js`** - Coverage for debounced marking work, cheap explicit-overlay refreshes, and per-pass marking cache guards
-- **`popup-marking-refresh.test.js`** - Source-level coverage that Todo List completion reads backend-saved page markings instead of local drafts, enabling marking avoids duplicate refresh work, and periodic Live Page candidate refreshes stay quiet unless the candidate set changes
-- **`property-lock.test.js`** - Coverage for lock URL construction, state normalization, timing windows, stable client identity, and content-source lock guards
-- **`property-lock-background.test.js`** - Coverage for background-side client-session lock routing, navigation grace windows, and lock protocol metadata
-- **`utilities-runtime.test.js`** - Coverage for Chrome runtime/storage wrappers, including extension-context invalidation handling
-- **`lynx-checklist.test.js`** - Coverage for Lynx checklist assignment and view-model building
+- **`marking-rules.test.ts`** - Regression coverage for the locked default-exclusion taxonomy, restored toggleable boundary markability, Shift parent-boundary chooser, and duplicate toggle suppression
+- **`submission-rules.test.ts`** - Regression coverage for AI submission roots and content rows: stored excluded rows, hidden textual exclusions, immutable-tag omission, included textual boundaries, and explicit includes
+- **`core-visibility.test.ts`** - Regression coverage for content-side visibility guards, restored Shift/Alt target promotion, sanitized snapshot XPath alignment, and dynamic style-mutation redraw decisions used by marking and submission
+- **`core-motion-pause.test.ts`** - Regression coverage for pre-freeze page inspection, input blocking, full-scroll lazy-content reveal, and motion-freeze normalization
+- **`theme-colors.test.ts`** - Regression coverage for AA contrast on semantic theme colors
+- **`silent-highlight-rules.test.ts`** - Regression coverage for settle-before-redraw silent highlight behavior
+- **`config.test.ts`** - Coverage for configuration normalization and sync-payload construction
+- **`page-save-state.test.ts`** - Coverage for page-save button state, including initial saves when default markings are accepted as-is
+- **`core-scheduling.test.ts`** - Coverage for debounced marking work, cheap explicit-overlay refreshes, and per-pass marking cache guards
+- **`popup-marking-refresh.test.ts`** - Source-level coverage that Todo List completion reads backend-saved page markings instead of local drafts, enabling marking avoids duplicate refresh work, and periodic Live Page candidate refreshes stay quiet unless the candidate set changes
+- **`property-lock.test.ts`** - Coverage for lock URL construction, state normalization, timing windows, stable client identity, and content-source lock guards
+- **`property-lock-background.test.ts`** - Coverage for background-side client-session lock routing, navigation grace windows, and lock protocol metadata
+- **`utilities-runtime.test.ts`** - Coverage for Chrome runtime/storage wrappers, including extension-context invalidation handling
+- **`lynx-checklist.test.ts`** - Coverage for Lynx checklist assignment and view-model building
 
 ### Popup UI (`/src/popup`)
 
