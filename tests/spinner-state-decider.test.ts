@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import { createStateStore } from "../src/background/brain/state-store.js";
 import type { PopupSpinnerEntry } from "../src/common/bus/contracts/popup-state.js";
 import {
-  deriveSpinnerSelectionsFromLegacyQueue,
-  updateSpinnerSelectionsFromLegacyQueue,
+  deriveSpinnerSelectionsFromQueue,
+  updateSpinnerSelectionsFromQueue,
 } from "../src/background/brain/deciders/spinner-state-decider.js";
 
 function buildEntry(overrides: Partial<PopupSpinnerEntry> = {}): PopupSpinnerEntry {
@@ -41,8 +41,8 @@ function buildExpectedSelection(overrides: Record<string, unknown> = {}) {
 }
 
 describe("spinner state decider", () => {
-  it("maps blocking legacy leases to popup and page-curtain selections", () => {
-    const selections = deriveSpinnerSelectionsFromLegacyQueue([
+  it("maps blocking spinner leases to popup and page-curtain selections", () => {
+    const selections = deriveSpinnerSelectionsFromQueue([
       buildEntry({
         operationId: "blocking-op",
         operationKind: "content-bootstrap",
@@ -66,8 +66,8 @@ describe("spinner state decider", () => {
     });
   });
 
-  it("maps explicit non-blocking legacy leases to the banner surface", () => {
-    const selections = deriveSpinnerSelectionsFromLegacyQueue([
+  it("maps explicit non-blocking spinner leases to the banner surface", () => {
+    const selections = deriveSpinnerSelectionsFromQueue([
       buildEntry({
         operationId: "banner-op",
         operationKind: "config-sync",
@@ -92,7 +92,7 @@ describe("spinner state decider", () => {
   });
 
   it("selects the latest matching entry per surface", () => {
-    const selections = deriveSpinnerSelectionsFromLegacyQueue([
+    const selections = deriveSpinnerSelectionsFromQueue([
       buildEntry({
         key: "older-page",
         operationId: "page-op",
@@ -139,7 +139,7 @@ describe("spinner state decider", () => {
   });
 
   it("skips entries without projected operation metadata", () => {
-    const selections = deriveSpinnerSelectionsFromLegacyQueue([
+    const selections = deriveSpinnerSelectionsFromQueue([
       buildEntry({
         key: "older-projectable",
         operationId: "older-op",
@@ -191,7 +191,7 @@ describe("spinner state decider", () => {
       }),
     ];
 
-    const selections = updateSpinnerSelectionsFromLegacyQueue(
+    const selections = updateSpinnerSelectionsFromQueue(
       store,
       99,
       queue,

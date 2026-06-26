@@ -18,7 +18,7 @@ import {
   recordInspectionResult as recordRenderModeInspectionValue,
   recordNoJsHoldState as recordRenderModeNoJsHoldValue,
 } from "./deciders/render-mode-decider.js";
-import { updateSpinnerSelectionsFromLegacyQueue } from "./deciders/spinner-state-decider.js";
+import { updateSpinnerSelectionsFromQueue } from "./deciders/spinner-state-decider.js";
 import { createStateStore, type TabLayerState } from "./state-store.js";
 import { projectSpinners, type SpinnerState } from "./spinner-authority.js";
 import { projectViews } from "./view-projector.js";
@@ -125,7 +125,7 @@ export function createBrain(options: { logger?: Pick<Console, "error"> } = {}) {
       return getRenderModeSnapshotValue(store, tabId);
     },
     syncProjectedSpinnerQueue(tabId: number, queue: readonly PopupSpinnerEntry[], reason: string) {
-      return updateSpinnerSelectionsFromLegacyQueue(store, tabId, queue, reason);
+      return updateSpinnerSelectionsFromQueue(store, tabId, queue, reason);
     },
     registerPopupPort(tabId: number, port: Browser.runtime.Port): void {
       transport.registerPopupPort(tabId, port);

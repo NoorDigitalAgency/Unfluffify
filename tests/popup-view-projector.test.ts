@@ -19,7 +19,7 @@ describe("popup view projector", () => {
             kind: "activation",
             phase: "started",
             message: "warming",
-            label: "legacy-extra",
+            label: "spinner-extra",
           },
         }],
         lifecycle: {
@@ -153,7 +153,7 @@ describe("popup view projector", () => {
           kind: "activation",
           phase: "started",
           message: "warming",
-          label: "legacy-extra",
+          label: "spinner-extra",
         },
       }],
       lifecycle: {

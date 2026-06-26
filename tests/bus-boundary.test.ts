@@ -48,7 +48,7 @@ describe("bus boundaries", () => {
     expect(() => bus.registerHandler("diag.ping", () => ({ ok: false }))).toThrow();
   });
 
-  it("keeps bus routing branches ahead of legacy message.type guards", () => {
+  it("keeps bus routing branches ahead of raw message.type guards", () => {
     const backgroundSource = readSource("background.ts");
     const contentSource = readSource("content-main.ts");
 

@@ -78,7 +78,7 @@ function selectActiveSpinner(queue: readonly PopupSpinnerEntry[]): SpinnerSelect
   return queue.length ? toSpinnerSelection(queue[queue.length - 1]) : null;
 }
 
-export function deriveSpinnerSelectionsFromLegacyQueue(
+export function deriveSpinnerSelectionsFromQueue(
   queue: readonly PopupSpinnerEntry[],
 ): SpinnerSelections {
   return {
@@ -88,13 +88,13 @@ export function deriveSpinnerSelectionsFromLegacyQueue(
   };
 }
 
-export function updateSpinnerSelectionsFromLegacyQueue(
+export function updateSpinnerSelectionsFromQueue(
   store: SpinnerStateStore,
   tabId: number,
   queue: readonly PopupSpinnerEntry[],
   reason: string,
 ): SpinnerSelections {
-  const nextSelections = deriveSpinnerSelectionsFromLegacyQueue(queue);
+  const nextSelections = deriveSpinnerSelectionsFromQueue(queue);
   store.mutate(tabId, reason, (state) => {
     state.spinners.popup = nextSelections.popup;
     state.spinners.pageCurtain = nextSelections.pageCurtain;

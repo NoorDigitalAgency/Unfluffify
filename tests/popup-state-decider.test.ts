@@ -19,7 +19,7 @@ describe("popup state decider", () => {
         event: "state-update",
         payload: {
           message: "warming",
-          label: "legacy-extra",
+          label: "spinner-extra",
         },
       }],
       lifecycle: {
@@ -57,7 +57,7 @@ describe("popup state decider", () => {
         event: "state-update",
         payload: {
           message: "warming",
-          label: "legacy-extra",
+          label: "spinner-extra",
         },
       }],
       lifecycle: {

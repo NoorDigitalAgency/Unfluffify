@@ -99,7 +99,7 @@ import type {
   PopupSpinnerEntry as PopupViewSpinnerEntry,
   PopupStateGetReply
 } from "./common/bus/contracts/popup-state.js";
-import { deriveSpinnerSelectionsFromLegacyQueue } from "./background/brain/deciders/spinner-state-decider.js";
+import { deriveSpinnerSelectionsFromQueue } from "./background/brain/deciders/spinner-state-decider.js";
 import { phaseToSpinnerState } from "./background/brain/spinner-authority.js";
 import {
   isRenderModeRunInspectionOperationReply,
@@ -280,7 +280,7 @@ type PopupSpinnerEntry =
   PopupSpinnerDeps["popupSpinnerQueue"] extends Map<string, infer Entry> ? Entry : never;
 type PopupSpinnerSnapshot = ReturnType<typeof currentSpinnerSnapshotOperation>;
 type PopupSpinnerState = NonNullable<ReturnType<typeof getLatestPopupSpinnerState>>;
-type PopupSpinnerSelectionSet = ReturnType<typeof deriveSpinnerSelectionsFromLegacyQueue>;
+type PopupSpinnerSelectionSet = ReturnType<typeof deriveSpinnerSelectionsFromQueue>;
 type PopupSpinnerSelection = PopupSpinnerSelectionSet[keyof PopupSpinnerSelectionSet];
 type PendingPropertyPageTypesRequest =
   ReturnType<Parameters<typeof ensurePropertyPageTypesOperation>[0]["getPropertyPageTypesRequest"]>;
@@ -1223,7 +1223,7 @@ function selectionToProjectedSpinnerState(selection: PopupSpinnerSelection | nul
 }
 
 function syncProjectedSpinnerStateFromQueue() {
-  const selections = deriveSpinnerSelectionsFromLegacyQueue(serializePopupSpinnerQueueForProjection());
+  const selections = deriveSpinnerSelectionsFromQueue(serializePopupSpinnerQueueForProjection());
   const popupSpinnerState = selectionToProjectedSpinnerState(selections.popup);
   const pageCurtainSpinnerState = selectionToProjectedSpinnerState(selections.pageCurtain);
   const bannerSpinnerState = selectionToProjectedSpinnerState(selections.banner);
