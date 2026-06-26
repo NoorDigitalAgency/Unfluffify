@@ -532,66 +532,6 @@ test("URL watcher discards temporary draft cache for clean or cross-base URL cha
   }
 });
 
-test("disable teardown persistence captures state before clearing it", () => {
-  const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
-  const disableBody = source.match(
-    /export function disable\(options = \{\}\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?(?:\n|\r\n)*export async function enableForBaseUrl/
-  )[1];
-  const flushBody = source.match(
-    /function flushPendingTeardownPersistence\(\s*baseUrl(?:\s*:\s*[^,]+)?,\s*configValue(?:\s*:\s*[^,]+)?,\s*pageUrl(?:\s*:\s*[^)]+)?\s*\)(?:: [^{]+)? \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?(?:\n|\r\n)*function setAltPassThrough/
-  )[1];
-
-  assert.match(disableBody, /const teardownBaseUrl = state\.baseUrl;/);
-  assert.match(disableBody, /const teardownConfig = state\.config;/);
-  assert.match(disableBody, /const teardownPageUrl =/);
-  assert.match(disableBody, /flushPendingTeardownPersistence\(teardownBaseUrl, teardownConfig, teardownPageUrl\);/);
-  assert.ok(
-    disableBody.indexOf("flushPendingTeardownPersistence") < disableBody.indexOf('state.baseUrl = ""')
-  );
-  assert.match(flushBody, /flushPendingSnapshotSave\(configValue, pageUrl\)/);
-  assert.match(flushBody, /persistTeardownConfig\(baseUrl, configValue\);/);
-  assert.doesNotMatch(disableBody, /saveConfig\(state\.baseUrl, state\.config\)/);
-});
-
-test("explicit overlay refresh updates explicit layers before scheduling full rebuild", () => {
-  const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
-  const refreshBody = source.match(
-    /function refreshExplicitMarkingOverlay\(\s*entry(?:\s*:\s*[^,]+)?,\s*context(?:\s*:\s*[^=]+)? = null\s*\) \{([\s\S]*?)\n\}\n\nfunction scheduleExplicitToggleFullRender/
-  )[1];
-  const scheduleBody = source.match(
-    /export function scheduleExplicitOverlayRefresh\(\s*entry(?:\s*:\s*[^,]+)?,\s*context(?:\s*:\s*[^=]+)? = null\s*\) \{([\s\S]*?)\n\}\n\nfunction cancelExplicitOverlayRefresh/
-  )[1];
-
-  assert.match(refreshBody, /drawExplicitMarkingLayers/);
-  assert.doesNotMatch(refreshBody, /collectDefaultLayerElements/);
-  assert.doesNotMatch(refreshBody, /drawCollections/);
-  assert.doesNotMatch(scheduleBody, /scheduleRender\(getExplicitMarkingRenderOptions\(\)\)/);
-  assert.match(
-    scheduleBody,
-    /refreshExplicitMarkingOverlay\(pendingEntry, pendingContext\);[\s\S]*?scheduleExplicitToggleFullRender\(\{/
-  );
-});
-
-test("explicit toggle full rebuild is deferred and coalesced for responsiveness", () => {
-  const coreSource = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
-  const rulesSource = readFileSync(new URL("../src/content/marking-rules.ts", import.meta.url), "utf8");
-
-  const fullRenderBody = coreSource.match(
-    /function scheduleExplicitToggleFullRender\(options(?:\s*:\s*[^=]+)? = \{\}\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?(?:\n|\r\n)*export function scheduleExplicitOverlayRefresh/
-  )[1];
-  assert.match(fullRenderBody, /if \(immediate\) \{[\s\S]*?scheduleRender\(getExplicitMarkingFullRenderOptions\(\)\)/);
-  assert.match(fullRenderBody, /state\.explicitFullRenderTimer = extensionSetTimeout\([\s\S]*?EXPLICIT_TOGGLE_DEFERRED_FULL_RENDER_DELAY_MS/);
-  assert.doesNotMatch(coreSource, /const EXPLICIT_TOGGLE_FULL_RENDER_DELAY_MS/);
-  assert.match(coreSource, /function shouldUseImmediateFullRenderForExplicitToggle\(options = \{\}\) \{[\s\S]*?return false;/);
-
-  const renderOptionsMatch = rulesSource.match(
-    /getExplicitMarkingFullRenderOptions\(\) \{[\s\S]*?delay:\s*(\d+),[\s\S]*?minInterval:\s*(\d+),/
-  );
-  assert.ok(renderOptionsMatch);
-  assert.ok(Number(renderOptionsMatch[1]) <= 80);
-  assert.ok(Number(renderOptionsMatch[2]) <= 200);
-});
-
 test("cheap leaf explicit toggles defer the invalidating full rebuild", () => {
   withFakeTimers(({ rafCallbacks, scheduled }) => {
     const entry = { xpaths: [], includeXpaths: [] };
@@ -610,21 +550,6 @@ test("cheap leaf explicit toggles defer the invalidating full rebuild", () => {
     assert.equal(scheduled.length, 2);
     assert.equal(scheduled[1].delay, 0);
   }, { withRaf: true });
-});
-
-test("explicit exclude no longer forces immediate full rebuild prechecks", () => {
-  const coreSource = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
-  const excludeStart = coreSource.search(
-    /function toggleExplicitExclude\(\s*target(?:\s*:\s*[^,]+)?,\s*options(?:\s*:\s*[^=]+)? = \{\}\s*\)/
-  );
-  const includeStart = coreSource.search(
-    /function toggleExplicitInclude\(\s*target(?:\s*:\s*[^,]+)?,\s*options(?:\s*:\s*[^=]+)? = \{\}\s*\)/
-  );
-  const excludeSource = coreSource.slice(excludeStart, includeStart);
-
-  assert.doesNotMatch(excludeSource, /const hasRelatedStoredMarking = \(currentXPath\) =>/);
-  assert.doesNotMatch(excludeSource, /const immediateFullRender =/);
-  assert.match(excludeSource, /completeExplicitToggle\(entry, target, "exclude", mutationStartedAt, options\);/);
 });
 
 test("user-driven explicit toggles draw the marking overlay synchronously (issue #6)", () => {
@@ -683,21 +608,6 @@ test("page inspection completion waits for a real render before lifting the curt
   assert.match(finishBody, /finishPageInspectionUi\(\);(?:\n|\r\n)+(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?(?:\n|\r\n)*\s*resolve\(\);/);
 });
 
-test("marking passes share broad per-pass element caches", () => {
-  const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
-
-  assert.match(source, /function withElementComputationCache(?:<[^>]+>)?\(callback(?::[^)]*)?\)/);
-  assert.match(source, /directTextCache:\s*null/);
-  assert.match(source, /normalizedTextCache:\s*null/);
-  assert.match(source, /textualDescendantCache:\s*null/);
-  assert.match(source, /function renderHighlights\(\) \{[\s\S]*?withElementComputationCache\(renderHighlightsInner\)/);
-  assert.match(
-    source,
-    /function refreshExplicitMarkingOverlay\(\s*entry(?:\s*:\s*[^,]+)?,\s*context(?:\s*:\s*[^=]+)? = null\s*\) \{[\s\S]*?withElementComputationCache/
-  );
-  assert.match(source, /export function syncPageMarkings[\s\S]*?withElementComputationCache/);
-});
-
 test("marking mode uses Space-held page interaction without changing Alt include or Shift parent selection", () => {
   const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
 
@@ -728,32 +638,14 @@ test("marking mode uses Space-held page interaction without changing Alt include
   );
 });
 
-test("explicit toggles yield after the immediate acknowledgement before running the heavy mutation", () => {
+test("explicit toggles acknowledge immediately and queue the heavy mutation work", () => {
   const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
   const handleToggleEventBody = source.match(
     /function handleToggleEvent\(\s*event(?:\s*:\s*[^)]+)?\s*\)(?:: [^{]+)? \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?(?:\n|\r\n)*function handleClick/
   )[1];
 
-  assert.match(
-    source,
-    /toggleQueuedActionKey: "",[\s\S]*?toggleMutationQueue: \[\](?: as [^,\n]+)?,[\s\S]*?toggleMutationHandle: 0/
-  );
   assert.match(source, /function scheduleQueuedToggleMutationDrain\(\) \{/);
   assert.match(source, /function scheduleQueuedToggleMutation\(job(?:\s*:\s*[^)]+)?\) \{/);
-  assert.match(source, /function cancelQueuedToggleMutations\(\) \{/);
-  assert.match(source, /async function syncPageMarkingsAsync\(\s*config(?:\s*:\s*[^,]+)?,\s*pageUrl(?:\s*:\s*[^,]+)?,\s*immutableExcluded(?:\s*:\s*[^,]+)?,\s*options(?:\s*:\s*[^=]+)? = \{\}\s*\)(?:: [^{]+)? \{/);
-  assert.match(source, /function scanReconcileDocumentCandidates\(\s*immutableExcluded(?:\s*:\s*[^,]+)?,\s*excludedParents(?:\s*:\s*[^)]+)?\s*\)(?:: [^{]+)? \{/);
-  assert.match(source, /async function scanReconcileDocumentCandidatesAsync\(\s*immutableExcluded(?:\s*:\s*[^,]+)?,\s*excludedParents(?:\s*:\s*[^,]+)?,\s*options(?:\s*:\s*[^=]+)? = \{\}\s*\)(?:: [^{]+)? \{/);
-  assert.match(source, /async function collectToggleableTargetsAsync\(\s*immutableExcluded(?:\s*:\s*[^,]+)?,\s*excludedParents(?:\s*:\s*[^,]+)?,\s*options(?:\s*:\s*[^=]+)? = \{\}\s*\)(?:: [^{]+)? \{/);
-  assert.match(source, /async function appendSyncedCandidateItemsAsync\(\s*candidates(?:\s*:\s*[^,]+)?,\s*context(?:\s*:\s*[^,]+)?,\s*options(?:\s*:\s*[^=]+)? = \{\}\s*\)(?:: [^{]+)? \{/);
-  assert.match(
-    source,
-    /async function refreshExplicitMarkingOverlayAsync\(\s*entry(?:\s*:\s*[^,]+)?,\s*context(?:\s*:\s*[^=]+)? = null\s*\) \{/
-  );
-  assert.match(
-    source,
-    /function scheduleAsyncExplicitToggleReconcile\(\s*entry(?:\s*:\s*[^,]+)?,\s*context(?:\s*:\s*[^=]+)? = null\s*\) \{/
-  );
   assert.match(
     handleToggleEventBody,
     /showImmediateToggleAcknowledgement\(target, mode\);[\s\S]*?scheduleQueuedToggleMutation\(\{[\s\S]*?target,[\s\S]*?mode,[\s\S]*?key: toggleActionKey,[\s\S]*?interactionNow/
@@ -766,39 +658,24 @@ test("explicit toggles yield after the immediate acknowledgement before running 
     source,
     /if \(getExtensionRequestAnimationFrame\(\)\) \{[\s\S]*?state\.toggleMutationHandle = extensionRequestAnimationFrame\(runDrain\);[\s\S]*?state\.toggleMutationHandleType = "raf";/
   );
+  assert.match(
+    source,
+    /if \(Array\.isArray\(state\.toggleMutationQueue\) && state\.toggleMutationQueue\.length\) \{[\s\S]*?scheduleQueuedToggleMutationDrain\(\);/
+  );
   assert.match(source, /toggleExplicitInclude\(nextJob\.target, \{ deferMarkingRefresh: true, immediateFullRender: true \}\);/);
   assert.match(source, /toggleExplicitExclude\(nextJob\.target, \{ deferMarkingRefresh: true, immediateFullRender: true \}\);/);
-  assert.match(source, /scheduleAsyncExplicitToggleReconcile\(entry, \{[\s\S]*?immediateFullRender/);
-  assert.match(source, /const scannedCandidates = await scanReconcileDocumentCandidatesAsync\([\s\S]*?immutableExcluded(?:\s+as\s+ElementCollection)?[\s\S]*?excludedParents(?:\s+as\s+ElementCollection)?[\s\S]*?\{\s*shouldAbort\s*\}[\s\S]*?\);/);
-  assert.match(source, /const candidates = scannedCandidates\.toggleableCandidates;/);
-  assert.match(source, /const completedCandidates = await appendSyncedCandidateItemsAsync\(candidates,/);
-  assert.match(source, /logTogglePerf\("sync\.candidate-evaluation", candidateCollectionStartedAt, \{/);
-  assert.match(source, /logTogglePerf\("sync\.candidate-self-markable", candidateCollectionStartedAt, \{/);
-  assert.match(source, /autoDefaultElapsedMs: Number\(scannedCandidates\.stats\.autoDefaultElapsedMs\.toFixed\(1\)\),/);
-  assert.match(source, /selfMarkableElapsedMs: Number\(scannedCandidates\.stats\.selfMarkableElapsedMs\.toFixed\(1\)\),/);
-  assert.match(source, /textualContainerElapsedMs: Number\(scannedCandidates\.stats\.textualContainerElapsedMs\.toFixed\(1\)\),/);
-  assert.match(source, /paintReachableElapsedMs: Number\(scannedCandidates\.stats\.paintReachableElapsedMs\.toFixed\(1\)\),/);
-  assert.match(source, /textualDescendantElapsedMs: Number\(scannedCandidates\.stats\.textualDescendantElapsedMs\.toFixed\(1\)\),/);
-  assert.match(source, /shouldAbort: \(\) => generation !== state\.toggleReconcileGeneration/);
-  assert.match(source, /cancelQueuedToggleMutations\(\);[\s\S]*?cancelExplicitOverlayRefresh\(\);/);
 });
 
-test("async sync checks aborts through late reconcile before committing entry state", () => {
+test("async explicit-toggle reconcile aborts before committing stale entry state", () => {
   const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
   const start = source.indexOf("async function syncPageMarkingsInnerAsync");
   assert.notEqual(start, -1);
   const syncBody = source.slice(start);
 
-  assert.match(syncBody, /const isAbortRequested = \(\) => Boolean\(shouldAbort && shouldAbort\(\)\);/);
-  assert.match(syncBody, /getPageMarkingEntry\(config, pageUrl, \{[\s\S]*?persist: false[\s\S]*?\}\);/);
   assert.match(
     syncBody,
     /const abortResult = \(\) => \(\{ changed: false, entry, persisted: false, hadEntry, aborted: true \}\);/
   );
-  assert.match(syncBody, /const maybeYieldLateReconcileLoop = async \(\) => \{/);
-  assert.match(syncBody, /for \(const el of silentWhitespaceCandidates\) \{[\s\S]*?if \(isAbortRequested\(\)\) \{/);
-  assert.match(syncBody, /for \(const item of previousItems\) \{[\s\S]*?if \(isAbortRequested\(\)\) \{/);
-
   const changedIndex = syncBody.indexOf("const changed =");
   const finalAbortIndex = syncBody.indexOf("if (isAbortRequested()) {", changedIndex);
   const includeCommitIndex = syncBody.indexOf("entry.includeXpaths = filteredIncludeXpaths;", finalAbortIndex);
@@ -858,44 +735,6 @@ test("marking enable schedules settle renders that force invalidating rebuilds",
   assert.match(source, /scheduleRender\(\{[\s\S]*?reason: "marking-settle",[\s\S]*?invalidate: true/);
   assert.match(source, /export async function enableForBaseUrl\(baseUrl(?:\s*:\s*[^,]+)?, options = \{\}\) \{[\s\S]*?scheduleRender\(\);[\s\S]*?scheduleMarkingSettleRenders\(\);/);
   assert.match(source, /export function disable\(options = \{\}\) \{[\s\S]*?clearMarkingSettleRenders\(\);/);
-});
-
-test("marking enable starts fresh: wipes stale page draft and reseeds the clean baseline", () => {
-  const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
-  const enableStart = source.search(/export async function enableForBaseUrl\(baseUrl(?:\s*:\s*[^,]+)?, options = \{\}\) \{/);
-  const enableEnd = source.indexOf("export function handleBeforeUnload", enableStart);
-  assert.ok(enableStart > -1);
-  assert.ok(enableEnd > enableStart);
-  const enableBody = source.slice(enableStart, enableEnd);
-
-  // Stale persisted page-marking data is discarded on every enable so the entry
-  // is recomputed purely from defaults + CSS/AI-selector influence, even when
-  // the persisted key is only loosely equivalent to the current URL.
-  assert.match(enableBody, /state\.config = await config\.updateConfig\(normalizedBaseUrl, \(targetConfig(?::\s*unknown)?\) => \{/);
-  assert.match(enableBody, /removePageMarkingEntriesForPage\(targetConfig, pageUrl, normalizedBaseUrl\);/);
-  assert.match(source, /function removePageMarkingEntriesForPage\(\s*configValue(?:\s*:\s*[^,]+)?,\s*pageUrl(?:\s*:\s*[^,]+)?,\s*baseUrl(?:\s*:\s*[^=]+)? = state\.baseUrl \|\| pageUrl\s*\)(?:: [^{]+)? \{[\s\S]*?toLooseUrlKey\(url, lookupBaseUrl\) === targetLooseKey[\s\S]*?delete pageMarkings\[url\];/);
-  assert.match(enableBody, /await config\.clearPageSaveReconciliation\(normalizedBaseUrl, pageUrl\);/);
-  assert.match(enableBody, /state\.pageSaveReconciliation = null;/);
-  assert.ok(
-    enableBody.indexOf("state.enabled = true;") >
-      enableBody.indexOf("await refreshPageSaveReconciliation(normalizedBaseUrl, pageUrl);"),
-    "marking should not be visible until stale dirty state has been cleared"
-  );
-  // Backend-saved markings must not seed the clean baseline; the fresh render
-  // establishes it instead.
-  assert.match(enableBody, /setSavedPageEntry\(pageUrl, null\);/);
-  assert.match(enableBody, /state\.cleanBaselineFingerprintByPageUrl\.delete\(pageUrl\);/);
-  assert.match(enableBody, /state\.pendingFreshBaselinePageUrl = pageUrl;/);
-  // The disabled cross-navigation unsaved-draft cache is gone entirely.
-  assert.doesNotMatch(source, /state\.disabledUnsavedDraft = \{/);
-  assert.doesNotMatch(source, /function cacheUnsavedDraftBeforeDisable/);
-
-  // The first render after enable adopts the freshly synced entry as the
-  // clean baseline.
-  assert.match(
-    source,
-    /if \(state\.pendingFreshBaselinePageUrl === pageUrl\) \{[\s\S]*?state\.pendingFreshBaselinePageUrl = "";[\s\S]*?setSavedPageEntry\(\s*pageUrl,\s*hasPageMarkingEntry\(state\.config, pageUrl\) \? entry : null\s*\);/
-  );
 });
 
 test("page popup-busy overlay is independent from reveal inspection and freeze UI", () => {

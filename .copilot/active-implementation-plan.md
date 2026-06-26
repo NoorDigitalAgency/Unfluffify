@@ -10,12 +10,18 @@ Progress checkpoint: Phase A and Phase F are complete and pushed. Phase B is in
 progress: the first batch removed the pure decomposition/code-shape tests, the
 second batch trimmed the mixed/source-grep bus, feature-flag, lifecycle,
 device-emulation, render-mode, and world-trace files down to lean runtime plus
-narrow contract coverage, and the latest batch converted
+narrow contract coverage, the next batch converted
 `background-marking-activation`, `preview-tooltip`, and `popup-ai-run-gating`
 into slimmer runtime/contract coverage while restoring the review-identified
-background/content/popup seams. The next active execution step is the remaining
-content/core-heavy source-grep cleanup inside Phase B (`content-activation-
-order`, `core-scheduling`, `core-motion-pause`, and adjacent leftovers).
+background/content/popup seams, and the latest batch trimmed
+`content-activation-order`, `core-scheduling`, and `core-motion-pause` while
+keeping the unique contracts around manual enable rollback, consent observer
+rescans, editor-reveal gating, queued explicit-toggle draining, stale async
+reconcile aborts, cache-key invalidation, settle renders, and inspection
+scroll-end settling. The next active execution step is the remaining mixed
+source-grep holdouts inside Phase B (`popup-marking-refresh`,
+`selector-suppression`, and adjacent leftovers that still block the later JSX
+port).
 
 ## 1. Goal
 
@@ -53,12 +59,13 @@ all with `pnpm verify` green and the live popup behavior unchanged.
   `a1-bootstrap`, `c1/c2/c3/c4-entrypoint`.
 - Many ui/popup/core tests still read source as text (grep or extract+eval) and
   break under the JSX port; the highest remaining examples are now
-  `popup-marking-refresh`, `content-activation-order`, `core-scheduling`,
-  `core-motion-pause`, and similar content/core holdouts. The mixed/source-grep
-  `background-marking-activation`, `preview-tooltip`, `popup-ai-run-gating`,
-  `bus-boundary`, `device-emulation-lifecycle`, `feature-flags`,
-  `lifecycle-broker`, `popup-render-mode`, and `world-trace-contract` files now
-  keep only lean runtime or narrow contract coverage.
+  `popup-marking-refresh`, `selector-suppression`, and smaller adjacent popup/
+  content holdouts. The mixed/source-grep `content-activation-order`,
+  `core-scheduling`, `core-motion-pause`, `background-marking-activation`,
+  `preview-tooltip`, `popup-ai-run-gating`, `bus-boundary`,
+  `device-emulation-lifecycle`, `feature-flags`, `lifecycle-broker`,
+  `popup-render-mode`, and `world-trace-contract` files now keep only lean
+  runtime or narrow contract coverage.
 - `logo.png` (1.1 MB) is at repo root, referenced once in
   `src/popup/ui.ts:1898` as `<img src="logo.png">`, but is NOT in `src/public/`
   and NOT emitted to `.output/chrome-mv3/`; `scripts/package-extension.mjs`

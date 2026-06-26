@@ -673,24 +673,6 @@ test("page inspection reveal scrolls to top, bottom, and then the reserved point
   }
 });
 
-test("page inspection reveal restores reserved scroll without an extra bottom dwell", () => {
-  const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
-  const start = source.indexOf("export async function revealPageContentBeforeMotionPause(");
-  const end = source.indexOf("function blockPageInspectionInput", start);
-  assert.ok(start >= 0 && end > start, "Expected to locate reveal function body");
-  const fnBody = source.slice(start, end);
-  const bottomLoopIndex = fnBody.indexOf("while (scrollCount < maxScrolls && isStillCurrent())");
-  const finalRestoreIndex = fnBody.indexOf('if (direction === "both" && isStillCurrent())', bottomLoopIndex);
-  assert.ok(bottomLoopIndex > -1);
-  assert.ok(finalRestoreIndex > bottomLoopIndex);
-  const betweenBottomLoopAndRestore = fnBody.slice(bottomLoopIndex, finalRestoreIndex);
-
-  assert.doesNotMatch(
-    betweenBottomLoopAndRestore,
-    /await waitForPageInspectionDelay\(pauseDelay, isStillCurrent\);\s*$/
-  );
-});
-
 test("page inspection bottom scroll settles when the page is at bottom", () => {
   const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
 
@@ -720,27 +702,10 @@ test("page inspection scroll finishes after dwelling at the reveal goal", () => 
     source,
     /const hasDwelledAtGoal = \(\) =>\s*goalReachedAt !== 0 && Date\.now\(\) - goalReachedAt >= settleMs;/
   );
-  // scrollend is authoritative: reaching the goal finishes immediately.
   assert.match(
     source,
     /const onScrollEnd = \(\) => \{[\s\S]*?if \(isAtGoal\(\)\) \{[\s\S]*?finish\(\);[\s\S]*?return;[\s\S]*?\}/
   );
-});
-
-test("page inspection reveal hides consent before styling or scrolling", () => {
-  const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
-  const start = source.indexOf("export async function revealPageContentBeforeMotionPause(");
-  const end = source.indexOf("function blockPageInspectionInput", start);
-  assert.ok(start >= 0 && end > start, "Expected to locate reveal function body");
-  const fnBody = source.slice(start, end);
-
-  const consentIndex = fnBody.indexOf("hideConsentBeforeReveal();");
-  const styleIndex = fnBody.indexOf("ensurePageInspectionStyle();");
-  const scrollIndex = fnBody.indexOf("scrollPageInspectionTo(");
-
-  assert.ok(consentIndex > 0, "Expected reveal to hide consent before scrolling");
-  assert.ok(styleIndex > consentIndex, "Consent hiding must precede inspection styling");
-  assert.ok(scrollIndex > consentIndex, "Consent hiding must precede reveal scrolling");
 });
 
 test("page inspection reveal still scrolls on pages without vertical scroll room", async () => {
@@ -1015,31 +980,6 @@ test("page inspection reveal restores page-world lazy-load suppression in finall
   }
 });
 
-test("page inspection reveal waits for the page-world lazy-load lock before scrolling again", () => {
-  const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
-  const start = source.indexOf("export async function revealPageContentBeforeMotionPause(");
-  const end = source.indexOf("function blockPageInspectionInput", start);
-  assert.ok(start >= 0 && end > start, "Expected to locate reveal function body");
-  const fnBody = source.slice(start, end);
-  const helperStart = source.indexOf("async function ensurePageInspectionLazyLoadingSuppressed(");
-  const helperEnd = source.indexOf("function notifyPageInspectionProgress", helperStart);
-  assert.ok(helperStart >= 0 && helperEnd > helperStart, "Expected to locate suppression helper");
-  const helperBody = source.slice(helperStart, helperEnd);
-
-  const halfScrollIndex = fnBody.indexOf("scrollPageInspectionTo(lazyLoadSuppressionTargetY");
-  const suppressIndex = fnBody.indexOf("await ensurePageInspectionLazyLoadingSuppressed(");
-  const scrollEndIndex = fnBody.indexOf("scrollPageInspectionTo(\"end\"");
-
-  assert.ok(halfScrollIndex > 0, "Expected reveal to scroll halfway before suppressing lazy loading");
-  assert.ok(suppressIndex > 0, "Expected reveal to suppress lazy loading");
-  assert.ok(suppressIndex > halfScrollIndex, "Suppression must follow the halfway scroll");
-  assert.ok(
-    scrollEndIndex > suppressIndex,
-    "Reveal must await the suppression helper before scrolling to end"
-  );
-  assert.match(helperBody, /const restorer = suppressPageInspectionLazyLoading\(\);[\s\S]*?await waitForPageInspectionLazyLoadingLock\(restorer\);/);
-});
-
 test("page inspection reveal stops scrolling once the page-world lazy-load lock applies", async () => {
   const dom = installMotionDom();
   const originalChrome = globalThis.chrome;
@@ -1121,16 +1061,6 @@ test("page inspection reveal stops scrolling once the page-world lazy-load lock 
     }
     dom.restore();
   }
-});
-
-test("page inspection overlay avoids backdrop blur", () => {
-  const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
-  const start = source.indexOf(`#unfluffify-overlay.\${PAGE_INSPECTION_OVERLAY_CLASS}`);
-  const end = source.indexOf(`#unfluffify-overlay .uf-layer`);
-  assert.ok(start >= 0 && end > start, "Expected to locate page inspection overlay CSS in core.js source");
-  const inspectionOverlaySource = source.slice(start, end);
-
-  assert.doesNotMatch(inspectionOverlaySource, /backdrop-filter/);
 });
 
 test("page motion pause normalizes scroll reveal candidates to their visible posture", () => {
@@ -1359,69 +1289,6 @@ test("page motion locks are restored in sanitized snapshots", () => {
   } finally {
     dom.restore();
   }
-});
-
-test("page motion pause no longer depends on specific carousel class selectors", () => {
-  const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
-
-  assert.doesNotMatch(source, /PAGE_MOTION_PAUSE_TARGET_SELECTORS/);
-  assert.doesNotMatch(source, /\.w-slider|\.swiper|\.slick-slider|\.splide/);
-  assert.match(source, /PAGE_MOTION_PAUSE_DESCRIPTOR_RE/);
-});
-
-test("page motion pause stylesheet excludes extension-owned UI", () => {
-  const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
-
-  assert.match(source, /PAGE_MOTION_PAUSE_INDICATOR_CLASS = "uf-page-motion-pause-indicator"/);
-  assert.match(source, /PAGE_MOTION_ICON_FONT_FAMILY = "Unfluffify Material Design Icons"/);
-  assert.match(source, /MATERIAL_DESIGN_ICONS_FONT_PATH = "assets\/materialdesignicons-webfont\.woff2"/);
-  assert.match(source, /MATERIAL_DESIGN_ICON_SNOWFLAKE = "\\\\F0717"/);
-  assert.match(source, /MATERIAL_DESIGN_ICON_CODE_TAGS = "\\\\F1C86"/);
-  assert.match(source, /PAGE_MOTION_PAUSE_CONTENT_SELECTOR/);
-  assert.match(source, /:not\(\[data-uf-extension-ui="true"\]\)/);
-  assert.match(source, /:not\(\[data-uf-extension-ui="true"\] \*\)/);
-  assert.match(source, /:not\(\[id\^="unfluffify-"\]\)/);
-  assert.match(source, /:not\(\[id\^="unfluffify-"\] \*\)/);
-  assert.doesNotMatch(source, /html\.\$\{PAGE_MOTION_PAUSE_ROOT_CLASS\} \*,/);
-});
-
-test("marking enable inspects and blocks input before freezing and rendering overlays", () => {
-  const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
-  const enableIndex = source.search(/export async function enableForBaseUrl\(baseUrl(?:\s*:\s*[^,]+)?, options = \{\}\)/);
-
-  assert.ok(enableIndex > -1);
-  const revealWarmupIndex = source.indexOf("await warmupPageRevealBeforeMotionPause", enableIndex);
-  const scheduleRenderIndex = source.indexOf("scheduleRender();", enableIndex);
-  const pauseIndex = source.indexOf("pausePageMotion();");
-  const inspectSource = source.slice(
-    source.indexOf("async function inspectPageBeforeMotionPause"),
-    source.indexOf("function removeOverlay", source.indexOf("async function inspectPageBeforeMotionPause"))
-  );
-  const warmupSource = source.slice(
-    source.indexOf("async function warmupPageRevealBeforeMotionPause"),
-    source.indexOf("function removeOverlay", source.indexOf("async function warmupPageRevealBeforeMotionPause"))
-  );
-
-  assert.ok(revealWarmupIndex > -1);
-  assert.ok(scheduleRenderIndex > revealWarmupIndex);
-  assert.ok(pauseIndex > -1);
-  assert.match(inspectSource, /startPageInspectionInputBlocker\(\);[\s\S]*?createOverlay\(\);/);
-  assert.match(inspectSource, /setPageInspectionUiActive\(true\);/);
-  assert.match(inspectSource, /revealPageContentBeforeMotionPause\(\s*"both",/);
-  assert.match(inspectSource, /if \(!keepUiActive\) \{[\s\S]*?setPageInspectionUiActive\(false\);[\s\S]*?stopPageInspectionInputBlocker\(\);[\s\S]*?\}/);
-  assert.match(warmupSource, /const keepUiActive = Boolean\(options\.keepUiActive\);/);
-  assert.match(warmupSource, /await inspectPageBeforeMotionPause\(isRevealWarmupCurrent, \{[\s\S]*?keepUiActive,[\s\S]*?retainLazyLoadSuppression: true[\s\S]*?\}\);[\s\S]*?pausePageMotion\(\);/);
-  assert.match(source, /await finishPageInspectionUiAfterRender\(\);/);
-  assert.match(source, /ContentText\.marking\.pageInspection/);
-  assert.match(source, /PAGE_INSPECTION_INPUT_EVENTS = \[[\s\S]*?"wheel"/);
-  assert.match(source, /PAGE_INSPECTION_INPUT_EVENTS = \[[\s\S]*?"keydown"/);
-  assert.match(source, /PAGE_INSPECTION_INPUT_EVENTS = \[[\s\S]*?"touchmove"/);
-  assert.match(source, /const PAGE_INSPECTION_SCROLL_END_TIMEOUT_MS = 8000;/);
-  assert.match(source, /const PAGE_INSPECTION_SCROLL_SETTLE_MS = 220;/);
-  assert.match(source, /const PAGE_INSPECTION_SCROLL_TOLERANCE_PX = 2;/);
-  assert.match(source, /const targetY = Number\.isFinite\(options\.targetY\) \? Number\(options\.targetY\) : null;/);
-  assert.match(source, /const pollUntilSettled = \(\) => \{[\s\S]*?if \(hasDwelledAtGoal\(\)\) \{[\s\S]*?finish\(\);/);
-  assert.match(source, /await waitForPageInspectionScrollEnd\(isStillCurrent, \{[\s\S]*?targetY: targetScrollY[\s\S]*?\}\);/);
 });
 
 test("silent warmup temporarily releases timer pausing during reveal and restores pause state", () => {
