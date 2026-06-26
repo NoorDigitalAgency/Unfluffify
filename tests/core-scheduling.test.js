@@ -614,8 +614,12 @@ test("cheap leaf explicit toggles defer the invalidating full rebuild", () => {
 
 test("explicit exclude no longer forces immediate full rebuild prechecks", () => {
   const coreSource = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
-  const excludeStart = coreSource.indexOf("function toggleExplicitExclude(target, options = {})");
-  const includeStart = coreSource.indexOf("function toggleExplicitInclude(target, options = {})", excludeStart);
+  const excludeStart = coreSource.search(
+    /function toggleExplicitExclude\(\s*target(?:\s*:\s*[^,]+)?,\s*options(?:\s*:\s*[^=]+)? = \{\}\s*\)/
+  );
+  const includeStart = coreSource.search(
+    /function toggleExplicitInclude\(\s*target(?:\s*:\s*[^,]+)?,\s*options(?:\s*:\s*[^=]+)? = \{\}\s*\)/
+  );
   const excludeSource = coreSource.slice(excludeStart, includeStart);
 
   assert.doesNotMatch(excludeSource, /const hasRelatedStoredMarking = \(currentXPath\) =>/);
@@ -700,15 +704,15 @@ test("marking mode uses Space-held page interaction without changing Alt include
   assert.match(source, /const PAGE_INTERACTION_KEY_CODE = "Space";/);
   assert.match(
     source,
-    /function handleKeydown\(event\) \{[\s\S]*?isPageInteractionKeyEvent\(event\)[\s\S]*?isEditableKeyEventTarget\(event\.target\)[\s\S]*?event\.preventDefault\(\);[\s\S]*?setAltPassThrough\(true\);[\s\S]*?ContentText\.marking\.pageInteractionMode[\s\S]*?if \(event\.key !== "Alt" && event\.key !== "Shift"\)/
+    /function handleKeydown\(\s*event(?:\s*:\s*[^)]+)?\s*\)(?:: [^{]+)? \{[\s\S]*?isPageInteractionKeyEvent\(event\)[\s\S]*?isEditableKeyEventTarget\(event\.target\)[\s\S]*?event\.preventDefault\(\);[\s\S]*?setAltPassThrough\(true\);[\s\S]*?ContentText\.marking\.pageInteractionMode[\s\S]*?if \(event\.key !== "Alt" && event\.key !== "Shift"\)/
   );
   assert.match(
     source,
-    /function handleKeyup\(event\) \{[\s\S]*?isPageInteractionKeyEvent\(event\)[\s\S]*?setAltPassThrough\(false\);[\s\S]*?refreshHoverHighlight\(\);[\s\S]*?if \(event\.key !== "Alt" && event\.key !== "Shift"\)/
+    /function handleKeyup\(\s*event(?:\s*:\s*[^)]+)?\s*\)(?:: [^{]+)? \{[\s\S]*?isPageInteractionKeyEvent\(event\)[\s\S]*?setAltPassThrough\(false\);[\s\S]*?refreshHoverHighlight\(\);[\s\S]*?if \(event\.key !== "Alt" && event\.key !== "Shift"\)/
   );
   assert.match(
     source,
-    /function handleToggleEvent\(event\) \{[\s\S]*?if \(!state\.enabled \|\| state\.altPassThrough\) \{[\s\S]*?return;/
+    /function handleToggleEvent\(\s*event(?:\s*:\s*[^)]+)?\s*\)(?:: [^{]+)? \{[\s\S]*?if \(!state\.enabled \|\| state\.altPassThrough\) \{[\s\S]*?return;/
   );
   assert.match(
     source,
@@ -727,7 +731,7 @@ test("marking mode uses Space-held page interaction without changing Alt include
 test("explicit toggles yield after the immediate acknowledgement before running the heavy mutation", () => {
   const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
   const handleToggleEventBody = source.match(
-    /function handleToggleEvent\(event\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?(?:\n|\r\n)*function handleClick/
+    /function handleToggleEvent\(\s*event(?:\s*:\s*[^)]+)?\s*\)(?:: [^{]+)? \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?(?:\n|\r\n)*function handleClick/
   )[1];
 
   assert.match(
@@ -833,7 +837,7 @@ test("marking render cache keys include selector and entry fingerprints before r
   assert.match(source, /cachedCollectionsKey:\s*""/);
   assert.match(
     source,
-    /function buildMarkingCollectionsCacheKey\(\s*\{ pageUrl = "", selectorSet = null, entry = null \}(?:: [^)]+)? = \{\}\s*\)/
+    /function buildMarkingCollectionsCacheKey\(\s*\{[\s\S]*?pageUrl = ""[\s\S]*?selectorSet = null[\s\S]*?entry = null[\s\S]*?\}(?:: [^)]+)? = \{\}\s*\)/
   );
   assert.match(
     source,

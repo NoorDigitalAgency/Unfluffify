@@ -1,5 +1,5 @@
 import * as config from "../common/config.js";
-import type { Config, PageMarkings, PageMarkingEntry, XpathEntry } from "../types/config.ts";
+import type { Config, PageMarkings, PageMarkingEntry, PageSaveReconciliation, XpathEntry } from "../types/config.ts";
 import type { ExplicitToggleJob, MarkingCollections } from "../types/content-state.ts";
 import * as utils from "../common/utilities.js";
 import {
@@ -107,6 +107,11 @@ interface TextualDetectionOptions {
 
 interface SnapshotXPathOptions {
   extraStripSelectors?: unknown;
+}
+
+interface ClassSelectorInfo {
+  classes: string[];
+  selector: string;
 }
 
 interface SelectorContext {
@@ -511,6 +516,10 @@ interface EnableForBaseUrlOptions {
   skipInitialReveal?: boolean;
 }
 
+interface PageSaveReconciliationPendingOptions {
+  reason?: string;
+}
+
 interface ScrollOptions {
   hideDuringScroll?: boolean;
 }
@@ -662,14 +671,14 @@ export const state = {
   snapshotTimer: 0,
   draftPersistTimer: 0,
   urlCheckTimer: 0,
-  mutationObserver: null,
+  mutationObserver: null as MutationObserver | null,
   savedPageEntry: null as PageMarkingEntry | null,
   savedPageUrl: "",
   // Per-page fingerprint of the last clean state. Lazy-initialised on the
   // first dirty check after sync populates the draft, and refreshed when a
   // backend-confirmed entry lands via setSavedPageEntry. Cleared in disable().
-  cleanBaselineFingerprintByPageUrl: new Map(),
-  pageSaveReconciliation: null,
+  cleanBaselineFingerprintByPageUrl: new Map<string, string>(),
+  pageSaveReconciliation: null as PageSaveReconciliation | null,
   // Page URL whose clean baseline must be (re)established from the freshly
   // synced defaults + selector entry on the next render after a marking enable.
   pendingFreshBaselinePageUrl: "",
@@ -1200,8 +1209,7 @@ function getEntryFingerprint(entry: PageMarkingEntry | null | undefined): string
   );
 }
 
-// @ts-expect-error
-function getSelectorSetFingerprint(selectorSet) {
+function getSelectorSetFingerprint(selectorSet: Parameters<typeof normalizeAiSelectorSet>[0]): string {
   const normalized = normalizeAiSelectorSet(selectorSet);
   if (combineAiSelectorSet(normalized).length === 0) {
     return "";
@@ -1210,7 +1218,15 @@ function getSelectorSetFingerprint(selectorSet) {
 }
 
 function buildMarkingCollectionsCacheKey(
-  { pageUrl = "", selectorSet = null, entry = null }: { pageUrl?: string; selectorSet?: unknown; entry?: PageMarkingEntry | null } = {}
+  {
+    pageUrl = "",
+    selectorSet = null,
+    entry = null
+  }: {
+    pageUrl?: string;
+    selectorSet?: Parameters<typeof normalizeAiSelectorSet>[0];
+    entry?: PageMarkingEntry | null;
+  } = {}
 ) {
   const entryFingerprint = getEntryFingerprint(entry);
   return [
@@ -2030,9 +2046,13 @@ function hasExplicitlyMarkedDescendant(el: Element | null): boolean {
   return false;
 }
 
-// @ts-expect-error
-function isSelfMarkableWithoutParentMode(el, options = {}) {
-// @ts-expect-error
+function isSelfMarkableWithoutParentMode(
+  el: Element | null | undefined,
+  options: InclusionDetectionOptions = {}
+): boolean {
+  if (!isElementNode(el)) {
+    return false;
+  }
   const diagnostics = options && options.__diagnostics ? options.__diagnostics : null;
   const textualContainerStartedAt = diagnostics ? nowMs() : 0;
   const textualContainer = isTextualContainer(el, options);
@@ -2055,7 +2075,6 @@ function isSelfMarkableWithoutParentMode(el, options = {}) {
   // Preserve the previous shallowest-ancestor behavior: hidden responsive
   // descendants should not suppress a visible ancestor just because preview/
   // silent inclusion detection is configured to ignore visibility.
-// @ts-expect-error
   const descendantShapeOptions = options && options.ignoreVisibilityForInclusionDetection
     ? {
       ...options,
@@ -2104,8 +2123,10 @@ function isSelfMarkableWithoutParentMode(el, options = {}) {
   });
 }
 
-// @ts-expect-error
-function isExplicitIncludeBoundaryCandidate(el, options = {}) {
+function isExplicitIncludeBoundaryCandidate(
+  el: Element | null | undefined,
+  options: ParentMarkingOptions = {}
+): boolean {
   if (!el || el.nodeType !== 1) {
     return false;
   }
@@ -2121,8 +2142,10 @@ function isExplicitIncludeBoundaryCandidate(el, options = {}) {
   return matchesToggleableDefaultExcluded(el) && hasDirectText(el) && isTextualContainer(el, options);
 }
 
-// @ts-expect-error
-function isGroupedBoundaryChildCandidate(el, options = {}) {
+function isGroupedBoundaryChildCandidate(
+  el: Element | null | undefined,
+  options: ParentMarkingOptions = {}
+): boolean {
   if (!el || el.nodeType !== 1) {
     return false;
   }
@@ -2138,8 +2161,10 @@ function isGroupedBoundaryChildCandidate(el, options = {}) {
   return matchesToggleableDefaultExcluded(el) && hasDirectText(el);
 }
 
-// @ts-expect-error
-function isStructuredGroupExclusionCandidate(el, options = {}) {
+function isStructuredGroupExclusionCandidate(
+  el: Element | null | undefined,
+  options: ParentMarkingOptions = {}
+): boolean {
   if (!el || el.nodeType !== 1) {
     return false;
   }
@@ -2402,13 +2427,12 @@ export function collectConsentExcludedElements() {
   return elements;
 }
 
-// @ts-expect-error
-export function getXPath(el) {
-  if (!el || el.nodeType !== 1) {
+export function getXPath(el: Element | null | undefined): string {
+  if (!isElementNode(el)) {
     return "";
   }
   const parts = [];
-  let node = el;
+  let node: Element | null = el;
   while (node && node.nodeType === 1) {
     const tag = node.tagName.toLowerCase();
     let index = 1;
@@ -2428,17 +2452,17 @@ export function getXPath(el) {
   return `/${parts.join("/")}`;
 }
 
-function getSnapshotStripSelectors(options = {}) {
-// @ts-expect-error
+function getSnapshotStripSelectors(options: SnapshotXPathOptions = {}): string[] {
   const extraStripSelectors = Array.isArray(options.extraStripSelectors)
-// @ts-expect-error
     ? options.extraStripSelectors.filter((value) => typeof value === "string" && value)
     : [];
   return EXTENSION_SNAPSHOT_STRIP_SELECTORS.concat(extraStripSelectors);
 }
 
-// @ts-expect-error
-function matchesAnySelector(el, selectors) {
+function matchesAnySelector(
+  el: Element | null | undefined,
+  selectors: readonly string[] | null | undefined
+): boolean {
   if (!el || el.nodeType !== 1 || typeof el.matches !== "function") {
     return false;
   }
@@ -2454,8 +2478,10 @@ function matchesAnySelector(el, selectors) {
   return false;
 }
 
-// @ts-expect-error
-function isStrippedFromSnapshot(el, options = {}) {
+function isStrippedFromSnapshot(
+  el: Element | null | undefined,
+  options: SnapshotXPathOptions = {}
+): boolean {
   const stripSelectors = getSnapshotStripSelectors(options);
   let node = el;
   while (node && node.nodeType === 1) {
@@ -2467,13 +2493,15 @@ function isStrippedFromSnapshot(el, options = {}) {
   return false;
 }
 
-// @ts-expect-error
-export function getSnapshotXPath(el, options = {}) {
-  if (!el || el.nodeType !== 1 || isStrippedFromSnapshot(el, options)) {
+export function getSnapshotXPath(
+  el: Element | null | undefined,
+  options: SnapshotXPathOptions = {}
+): string {
+  if (!isElementNode(el) || isStrippedFromSnapshot(el, options)) {
     return "";
   }
   const parts = [];
-  let node = el;
+  let node: Element | null = el;
   while (node && node.nodeType === 1) {
     if (isStrippedFromSnapshot(node, options)) {
       return "";
@@ -2499,8 +2527,10 @@ export function getSnapshotXPath(el, options = {}) {
   return `/${parts.join("/")}`;
 }
 
-// @ts-expect-error
-export function isXPathDescendant(parentXpath, childXpath) {
+export function isXPathDescendant(
+  parentXpath: string | null | undefined,
+  childXpath: string | null | undefined
+): boolean {
   if (!parentXpath || !childXpath) {
     return false;
   }
@@ -2508,8 +2538,10 @@ export function isXPathDescendant(parentXpath, childXpath) {
   return childXpath.startsWith(prefix);
 }
 
-// @ts-expect-error
-function isWithinExplicitExcludedXpath(xpath, excludedSet) {
+function isWithinExplicitExcludedXpath(
+  xpath: string | null | undefined,
+  excludedSet: Set<string> | null | undefined
+): boolean {
   if (!xpath || !excludedSet || excludedSet.size === 0) {
     return false;
   }
@@ -2524,22 +2556,18 @@ function isWithinExplicitExcludedXpath(xpath, excludedSet) {
   return false;
 }
 
-// @ts-expect-error
-function escapeCssIdentifier(value) {
+function escapeCssIdentifier(value: string): string {
   if (window.CSS && typeof window.CSS.escape === "function") {
     return window.CSS.escape(value);
   }
-// @ts-expect-error
   return value.replace(/[^a-zA-Z0-9_-]/g, (char) => `\\${char}`);
 }
 
-// @ts-expect-error
-function getClassSelector(node) {
+function getClassSelector(node: Element | null | undefined): ClassSelectorInfo | "" {
   if (!node || !node.classList) {
     return "";
   }
   const classes = Array.from(node.classList)
-// @ts-expect-error
     .map((value) => value.trim())
     .filter((value) => value.length > 0 && !value.startsWith("uf-"));
   if (!classes.length) {
@@ -2551,8 +2579,7 @@ function getClassSelector(node) {
   };
 }
 
-// @ts-expect-error
-function getNthOfTypeIndex(el) {
+function getNthOfTypeIndex(el: Element): number {
   let index = 1;
   let sibling = el.previousElementSibling;
   while (sibling) {
@@ -2571,16 +2598,15 @@ function getNthOfTypeIndex(el) {
  * @param {Element} el - The element to build a selector path for
  * @returns {string} A CSS selector path from body to the element
  */
-// @ts-expect-error
-function buildCssSelectorPath(el) {
-  if (!el || el.nodeType !== 1) {
+function buildCssSelectorPath(el: Element | null | undefined): string {
+  if (!isElementNode(el)) {
     return "";
   }
   if (el === document.documentElement || el === document.body) {
     return "";
   }
   const parts = [];
-  let node = el;
+  let node: Element | null = el;
   while (node && node.nodeType === 1) {
     if (node === document.documentElement || node === document.body) {
       break;
@@ -2592,14 +2618,13 @@ function buildCssSelectorPath(el) {
     if (!classSelector) {
       const index = getNthOfTypeIndex(node);
       segment = `${tag}:nth-of-type(${index})`;
-    } else if (node.parentElement) {
+    } else if (classInfo && node.parentElement) {
+      const nodeTagName = node.tagName;
       const siblings = Array.from(node.parentElement.children).filter((sibling) => {
-// @ts-expect-error
-        if (sibling.tagName !== node.tagName) {
+        if (sibling.tagName !== nodeTagName) {
           return false;
         }
-// @ts-expect-error
-        return classInfo.classes.every((cls) => sibling.classList.contains(cls));
+        return classInfo.classes.every((cls: string) => sibling.classList.contains(cls));
       });
       if (siblings.length > 1) {
         const index = getNthOfTypeIndex(node);
@@ -2615,9 +2640,8 @@ function buildCssSelectorPath(el) {
   return parts.join(" > ");
 }
 
-// @ts-expect-error
-function collectXPathElements(xpaths) {
-  const elements = new Set();
+function collectXPathElements(xpaths: Iterable<string> | null | undefined): Set<Element> {
+  const elements = new Set<Element>();
   for (const xpath of xpaths || []) {
     const el = getElementFromXPath(xpath);
     if (el) {
@@ -2627,13 +2651,11 @@ function collectXPathElements(xpaths) {
   return elements;
 }
 
-// @ts-expect-error
-function hasExplicitUserMarkings(entry) {
+function hasExplicitUserMarkings(entry: PageMarkingEntry | null | undefined): boolean {
   if (!entry || typeof entry !== "object") {
     return false;
   }
   const includeXpaths = Array.isArray(entry.includeXpaths) ? entry.includeXpaths : [];
-// @ts-expect-error
   if (includeXpaths.some((xpath) => typeof xpath === "string" && xpath)) {
     return true;
   }
@@ -3856,8 +3878,7 @@ function getElementDepth(el: Element) {
   return depth;
 }
 
-// @ts-expect-error
-function compareDocumentOrder(left, right) {
+function compareDocumentOrder(left: Element, right: Element): number {
   if (left === right) {
     return 0;
   }
@@ -5554,8 +5575,7 @@ function getDocumentAnimations(): Animation[] {
   }
 }
 
-// @ts-expect-error
-function pauseDocumentAnimations(pauseState) {
+function pauseDocumentAnimations(pauseState: PageMotionPauseState): void {
   for (const animation of getDocumentAnimations()) {
     if (!animation || typeof animation.pause !== "function") {
       continue;
@@ -5579,8 +5599,7 @@ function pauseDocumentAnimations(pauseState) {
   }
 }
 
-// @ts-expect-error
-function resumeDocumentAnimations(pauseState) {
+function resumeDocumentAnimations(pauseState: PageMotionPauseState): void {
   for (const animation of pauseState.animations) {
     if (!animation || typeof animation.play !== "function") {
       continue;
@@ -5733,14 +5752,12 @@ function isNonDefaultMotionCssValue(property: string, value: unknown): boolean {
   return !/^0(?:px|%|deg|rad|turn|s|ms)?$/.test(normalized);
 }
 
-// @ts-expect-error
-function hasMotionWillChange(computedStyle) {
+function hasMotionWillChange(computedStyle: CSSStyleDeclaration | null | undefined): boolean {
   const willChange = getComputedCssValue(computedStyle, "will-change");
   return /transform|translate|rotate|scale|top|right|bottom|left|opacity|filter|clip-path|offset/i.test(willChange);
 }
 
-// @ts-expect-error
-function hasTimedMotionStyle(computedStyle) {
+function hasTimedMotionStyle(computedStyle: CSSStyleDeclaration | null | undefined): boolean {
   if (!computedStyle) {
     return false;
   }
@@ -8573,8 +8590,10 @@ function handleMouseMove(event: MouseEvent): void {
   });
 }
 
-// @ts-expect-error
-function toggleExplicitExclude(target, options = {}) {
+function toggleExplicitExclude(
+  target: Element,
+  options: ExplicitToggleMutationOptions = {}
+): void {
   if (!state.baseUrl || !state.config) {
     return;
   }
@@ -8598,14 +8617,13 @@ function toggleExplicitExclude(target, options = {}) {
   const entry = getPageMarkingEntry(config, location.href);
   const items = Array.isArray(entry.xpaths) ? entry.xpaths : [];
   const includeXpaths = Array.isArray(entry.includeXpaths) ? entry.includeXpaths : [];
-  const xpathElementCache = new Map();
-// @ts-expect-error
-  const getCachedElementFromXPath = (value) => {
+  const xpathElementCache = new Map<string, Element | null>();
+  const getCachedElementFromXPath = (value: string | null | undefined): Element | null => {
     if (typeof value !== "string" || !value) {
       return null;
     }
     if (xpathElementCache.has(value)) {
-      return xpathElementCache.get(value);
+      return xpathElementCache.get(value) ?? null;
     }
     const resolved = getElementFromXPath(value);
     xpathElementCache.set(value, resolved);
@@ -8629,8 +8647,7 @@ function toggleExplicitExclude(target, options = {}) {
     completeExplicitToggle(entry, target, "exclude", mutationStartedAt, options);
     return;
   }
-// @ts-expect-error
-  const cleanupHierarchy = (currentXPath) => {
+  const cleanupHierarchy = (currentXPath: string) => {
     for (let i = items.length - 1; i >= 0; i -= 1) {
       const item = items[i];
       if (!item || !item.xpath || item.xpath === currentXPath) {
@@ -8645,9 +8662,10 @@ function toggleExplicitExclude(target, options = {}) {
       }
     }
   };
-// @ts-expect-error
-  const cleanupDescendantIncludeOverrides = (currentXPath, currentTarget = null) => {
-// @ts-expect-error
+  const cleanupDescendantIncludeOverrides = (
+    currentXPath: string,
+    currentTarget: Element | null = null
+  ) => {
     const boundaryTarget = currentTarget && currentTarget.nodeType === 1
       ? currentTarget
       : getCachedElementFromXPath(currentXPath);
@@ -8678,8 +8696,7 @@ function toggleExplicitExclude(target, options = {}) {
       }
     }
   };
-// @ts-expect-error
-  const cleanupAncestorHierarchy = (currentXPath) => {
+  const cleanupAncestorHierarchy = (currentXPath: string) => {
     for (let i = items.length - 1; i >= 0; i -= 1) {
       const item = items[i];
       if (!item || !item.xpath || item.xpath === currentXPath || !item.excluded) {
@@ -8700,8 +8717,7 @@ function toggleExplicitExclude(target, options = {}) {
       }
     }
   };
-// @ts-expect-error
-  const cleanupIncludeHierarchy = (currentXPath) => {
+  const cleanupIncludeHierarchy = (currentXPath: string) => {
     for (let i = includeXpaths.length - 1; i >= 0; i -= 1) {
       const includeXPath = includeXpaths[i];
       if (!includeXPath) {
@@ -8772,8 +8788,10 @@ function toggleExplicitExclude(target, options = {}) {
   completeExplicitToggle(entry, target, "exclude", mutationStartedAt, options);
 }
 
-// @ts-expect-error
-function toggleExplicitInclude(target, options = {}) {
+function toggleExplicitInclude(
+  target: Element,
+  options: ExplicitToggleMutationOptions = {}
+): void {
   if (!state.baseUrl || !state.config) {
     return;
   }
@@ -8797,14 +8815,13 @@ function toggleExplicitInclude(target, options = {}) {
   const entry = getPageMarkingEntry(config, location.href);
   const includeXpaths = Array.isArray(entry.includeXpaths) ? entry.includeXpaths : [];
   const items = Array.isArray(entry.xpaths) ? entry.xpaths : [];
-  const xpathElementCache = new Map();
-// @ts-expect-error
-  const getCachedElementFromXPath = (value) => {
+  const xpathElementCache = new Map<string, Element | null>();
+  const getCachedElementFromXPath = (value: string | null | undefined): Element | null => {
     if (typeof value !== "string" || !value) {
       return null;
     }
     if (xpathElementCache.has(value)) {
-      return xpathElementCache.get(value);
+      return xpathElementCache.get(value) ?? null;
     }
     const resolved = getElementFromXPath(value);
     xpathElementCache.set(value, resolved);
@@ -8883,8 +8900,7 @@ function toggleExplicitInclude(target, options = {}) {
   completeExplicitToggle(entry, target, "include", mutationStartedAt, options);
 }
 
-// @ts-expect-error
-function handleToggleEvent(event) {
+function handleToggleEvent(event: MouseEvent): void {
   if (!state.enabled || state.altPassThrough) {
     return;
   }
@@ -8963,18 +8979,15 @@ function handleToggleEvent(event) {
   });
 }
 
-// @ts-expect-error
-function handleClick(event) {
+function handleClick(event: MouseEvent): void {
   handleToggleEvent(event);
 }
 
-// @ts-expect-error
-function handleContextMenu(event) {
+function handleContextMenu(event: MouseEvent): void {
   handleToggleEvent(event);
 }
 
-// @ts-expect-error
-function handleKeydown(event) {
+function handleKeydown(event: KeyboardEvent): void {
   if (!state.enabled) {
     return;
   }
@@ -9000,8 +9013,7 @@ function handleKeydown(event) {
   syncModifierState(event);
 }
 
-// @ts-expect-error
-function handleKeyup(event) {
+function handleKeyup(event: KeyboardEvent): void {
   if (!state.enabled) {
     return;
   }
@@ -9022,8 +9034,7 @@ function handleKeyup(event) {
   syncModifierState(event);
 }
 
-// @ts-expect-error
-function handleAltClick(event) {
+function handleAltClick(event: MouseEvent): void {
   if (!state.enabled || !state.altPassThrough) {
     return;
   }
@@ -9034,10 +9045,10 @@ function handleAltClick(event) {
     return;
   }
   const target = event.target;
-  if (!target || !target.closest) {
+  if (!isElementNode(target) || typeof target.closest !== "function") {
     return;
   }
-  const link = target.closest("a[href]");
+  const link = target.closest("a[href]") as HTMLAnchorElement | null;
   if (!link) {
     return;
   }
@@ -10502,14 +10513,13 @@ function startObservers() {
   if (state.mutationObserver) {
     return;
   }
-// @ts-expect-error
   state.mutationObserver = new MutationObserver((mutations) => {
     try {
-      if (state.overlay) {
+      const overlay = state.overlay;
+      if (overlay) {
         const hasNonOverlayChange = mutations.some((mutation) => {
           const target = mutation.target;
-// @ts-expect-error
-          return !(target === state.overlay || state.overlay.contains(target));
+          return !(target === overlay || overlay.contains(target));
         });
         if (!hasNonOverlayChange) {
           return;
@@ -10536,7 +10546,6 @@ function startObservers() {
   });
   if (document.body) {
     try {
-// @ts-expect-error
       state.mutationObserver.observe(document.body, {
         childList: true,
         subtree: true,
@@ -10552,14 +10561,12 @@ function startObservers() {
 
 function stopObservers() {
   if (state.mutationObserver) {
-// @ts-expect-error
     state.mutationObserver.disconnect();
     state.mutationObserver = null;
   }
 }
 
-// @ts-expect-error
-export function handleUrlWatcherTransition(previousUrl, nextUrl) {
+export function handleUrlWatcherTransition(previousUrl: string, nextUrl: string): void {
   void nextUrl;
   // Marking is disabled on any navigation. Unsaved page-marking drafts are not
   // preserved across the transition, so the next enable starts fresh from
@@ -10615,8 +10622,7 @@ function restorePageScrolling() {
 
   if (!html || !body) return;
 
-// @ts-expect-error
-  const setStyle = (el, prop, value) => {
+  const setStyle = (el: HTMLElement, prop: string, value: string): void => {
     el.style.setProperty(prop, value, "important");
   };
 
@@ -10648,8 +10654,7 @@ function restorePageScrolling() {
   });
 }
 
-// @ts-expect-error
-function hideConsentOnEnable(pageUrl) {
+function hideConsentOnEnable(pageUrl: string | null | undefined): number {
   if (!pageUrl || state.consentSyncedPageUrl === pageUrl) {
     return 0;
   }
@@ -10674,9 +10679,8 @@ function hideConsentBeforeReveal() {
  * @param {Element} el - The element to check
  * @returns {boolean} True if the element matches a toggleable default exclusion
  */
-// @ts-expect-error
-export function isDefaultToggleableExcludedElement(el) {
-  return matchesToggleableDefaultExcluded(el);
+export function isDefaultToggleableExcludedElement(el: Element | null | undefined): boolean {
+  return matchesToggleableDefaultExcluded(el ?? null);
 }
 
 /**
@@ -10688,8 +10692,7 @@ export function isImmutableExcludedElement(el: Element | null): boolean {
   return matchesImmutableExcluded(el);
 }
 
-// @ts-expect-error
-export function isPageDraftDirty(pageUrl) {
+export function isPageDraftDirty(pageUrl: string): boolean {
   if (pageUrl && state.autoSeededPendingSavePageUrl === pageUrl) {
     return true;
   }
@@ -10736,21 +10739,22 @@ export async function refreshPageSaveReconciliation(baseUrl = state.baseUrl, pag
     return null;
   }
   const reconciliation = await config.getPageSaveReconciliation(baseUrl, pageUrl);
-// @ts-expect-error
   state.pageSaveReconciliation = reconciliation;
   updateMarkingTemporarilyDisabledUi();
   return reconciliation;
 }
 
-export async function setPageSaveReconciliationPending(baseUrl = state.baseUrl, pageUrl = location.href, options = {}) {
+export async function setPageSaveReconciliationPending(
+  baseUrl = state.baseUrl,
+  pageUrl = location.href,
+  options: PageSaveReconciliationPendingOptions = {}
+) {
   if (!baseUrl || !pageUrl) {
     return null;
   }
   const reconciliation = await config.setPageSaveReconciliation(baseUrl, pageUrl, {
-// @ts-expect-error
     reason: typeof options.reason === "string" ? options.reason : "pending"
   });
-// @ts-expect-error
   state.pageSaveReconciliation = reconciliation;
   updateMarkingTemporarilyDisabledUi();
   notifyDraftStatus(pageUrl);
@@ -10769,8 +10773,10 @@ export async function clearPageSaveReconciliation(baseUrl = state.baseUrl, pageU
   notifyDraftStatus(pageUrl);
 }
 
-// @ts-expect-error
-export function areEntriesEquivalent(left, right) {
+export function areEntriesEquivalent(
+  left: PageMarkingEntry | null | undefined,
+  right: PageMarkingEntry | null | undefined
+): boolean {
   const leftFingerprint = getEntryFingerprint(left);
   const rightFingerprint = getEntryFingerprint(right);
   if (leftFingerprint.length !== rightFingerprint.length) {
@@ -10810,8 +10816,10 @@ export function clonePageEntry(entry: PageMarkingEntry | null | undefined): Page
   return normalizePageEntryXpaths(cloned);
 }
 
-// @ts-expect-error
-export function setSavedPageEntry(pageUrl, entry) {
+export function setSavedPageEntry(
+  pageUrl: string,
+  entry: PageMarkingEntry | null | undefined
+): void {
   state.savedPageUrl = pageUrl || "";
   state.savedPageEntry = clonePageEntry(entry);
   if (pageUrl && state.autoSeededPendingSavePageUrl === pageUrl) {
@@ -10854,8 +10862,7 @@ export async function refreshSavedPageEntryFromBackendCache(baseUrl = state.base
   return getSavedPageEntry(pageUrl);
 }
 
-// @ts-expect-error
-export function notifyDraftStatus(pageUrl) {
+export function notifyDraftStatus(pageUrl: string | null | undefined): void {
   if (!state.enabled || !state.baseUrl || !state.config) {
     return;
   }

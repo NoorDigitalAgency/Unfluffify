@@ -1778,7 +1778,7 @@ function createCurrentPageSnapshot() {
 }
 
 function getCurrentPageSnapshotXPath(node: Node | null | undefined) {
-  return core.getSnapshotXPath(node, getCurrentPageSnapshotOptions());
+  return isElementNode(node) ? core.getSnapshotXPath(node, getCurrentPageSnapshotOptions()) : "";
 }
 
 function readRenderModeInspectionActive() {
@@ -6670,7 +6670,8 @@ function createPageSaveReconciliationClearHandlerDeps(): PageSaveReconciliationC
     setConfig: (nextConfig: Parameters<PageSaveReconciliationClearDeps["setConfig"]>[0]) => {
       state.config = nextConfig as Config;
     },
-    setSavedPageEntry: (pageUrl: string, entry: unknown) => core.setSavedPageEntry(pageUrl, entry)
+    setSavedPageEntry: (pageUrl: string, entry: unknown) =>
+      core.setSavedPageEntry(pageUrl, (entry as ContentPageEntry | null | undefined) ?? null)
   };
 }
 
@@ -6689,7 +6690,8 @@ function createPageDraftRevertHandlerDeps(): PageDraftRevertDeps {
     setConfig: (configValue: Parameters<PageDraftRevertDeps["setConfig"]>[0]) => {
       state.config = configValue as Config;
     },
-    setSavedPageEntry: (pageUrl: string, entry: unknown) => core.setSavedPageEntry(pageUrl, entry),
+    setSavedPageEntry: (pageUrl: string, entry: unknown) =>
+      core.setSavedPageEntry(pageUrl, (entry as ContentPageEntry | null | undefined) ?? null),
     syncPageMarkings: (
       configValue: unknown,
       pageUrl: string,
@@ -6702,7 +6704,11 @@ function createPageDraftRevertHandlerDeps(): PageDraftRevertDeps {
 
 function createPageDraftSaveHandlerDeps(): PageDraftSaveDeps {
   return {
-    areEntriesEquivalent: (left: unknown, right: unknown) => core.areEntriesEquivalent(left, right),
+    areEntriesEquivalent: (left: unknown, right: unknown) =>
+      core.areEntriesEquivalent(
+        (left as ContentPageEntry | null | undefined) ?? null,
+        (right as ContentPageEntry | null | undefined) ?? null
+      ),
     clearPageSaveReconciliation: (baseUrl: string, pageUrl: string) =>
       core.clearPageSaveReconciliation(baseUrl, pageUrl),
     collectAiSubmissionXpathsForCurrentPage,
@@ -6759,7 +6765,11 @@ function createPageDraftSaveHandlerDeps(): PageDraftSaveDeps {
 
 function createPageDraftStatusHandlerDeps(): PageDraftStatusDeps {
   return {
-    areEntriesEquivalent: (left: unknown, right: unknown) => core.areEntriesEquivalent(left, right),
+    areEntriesEquivalent: (left: unknown, right: unknown) =>
+      core.areEntriesEquivalent(
+        (left as ContentPageEntry | null | undefined) ?? null,
+        (right as ContentPageEntry | null | undefined) ?? null
+      ),
     clonePageEntry: (entry: Parameters<PageDraftStatusDeps["clonePageEntry"]>[0]) =>
       core.clonePageEntry(entry as ContentPageEntry),
     collectAiSubmissionXpathsForCurrentPage,

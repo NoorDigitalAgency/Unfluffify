@@ -75,7 +75,7 @@ test("content loader and consent scroll restore avoid production page-console lo
   const loaderSource = readFileSync(new URL("../src/entrypoints/content-loader.content.ts", import.meta.url), "utf8");
   const coreSource = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
   const restoreStart = coreSource.indexOf("function restorePageScrolling() {");
-  const restoreEnd = coreSource.indexOf("function hideConsentOnEnable(pageUrl)", restoreStart);
+  const restoreEnd = coreSource.indexOf("function hideConsentOnEnable(", restoreStart);
 
   assert.ok(restoreStart > -1);
   assert.ok(restoreEnd > restoreStart);
@@ -616,7 +616,7 @@ test("URL watcher disables marking on navigation without preserving a draft cach
   assert.doesNotMatch(source, /preserveUnsavedDraftCache/);
   assert.match(
     source,
-    /export function handleUrlWatcherTransition\(previousUrl, nextUrl\) \{[\s\S]*?disable\(\{ pageUrl: previousUrl \}\);[\s\S]*?\}/
+    /export function handleUrlWatcherTransition\(\s*previousUrl(?:\s*:\s*[^,]+)?,\s*nextUrl(?:\s*:\s*[^)]+)?\s*\)(?:: [^{]+)? \{[\s\S]*?disable\(\{ pageUrl: previousUrl \}\);[\s\S]*?\}/
   );
   assert.match(watcherSource, /const previousUrl = lastUrl;/);
   assert.match(watcherSource, /const nextUrl = location\.href;/);
