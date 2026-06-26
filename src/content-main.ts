@@ -319,6 +319,11 @@ type PageBlockerEvent = {
 type SiteIdPathCheckState = {
   baseUrl?: string;
 };
+type EnableHotkeyGateResult = Awaited<ReturnType<typeof isEnableHotkeyAllowedOnPage>>;
+type ToggleEnabledFromPageOptions = {
+  gate?: EnableHotkeyGateResult | null;
+  showDisabledToast?: boolean;
+};
 type SilentHighlightLayerMap = Record<string, HTMLElement>;
 type SilentHighlightLayerBoxMap = Record<string, Map<string, HTMLElement>>;
 type SilentHighlightCollections = {
@@ -344,6 +349,9 @@ type SilentHighlightTrackedNodeIndex = {
   ancestors: Set<Node>;
 };
 type ContentPageEntry = NonNullable<Config["pageMarkings"][string]>;
+type EffectiveSelectorSet = SelectorSet & {
+  suppressedXpaths?: string[];
+};
 type SelectorSetInput = {
   exclusionSelectors?: unknown;
   inclusionSelectors?: unknown;
@@ -386,6 +394,7 @@ type SnapshotTraversalItem = {
   node: Element;
   insideImmutableExcluded: boolean;
 };
+type LifecyclePhase = typeof LIFECYCLE_PHASES[keyof typeof LIFECYCLE_PHASES];
 
 const SILENT_CONTENT_HIGHLIGHTING_ATTR = "data-uf-silent-content-highlighting";
 const SILENT_CONTENT_EXCLUDED_ATTR = "data-uf-silent-content-excluded";
@@ -1885,9 +1894,13 @@ async function fetchCurrentPageRawHtml(pageUrl = location.href) {
   }
 }
 
-// @ts-expect-error
-function matchesActiveBaseUrl(baseUrl) {
-  return Boolean(baseUrl && state.baseUrl && utils.sameBaseUrl(baseUrl, state.baseUrl));
+function matchesActiveBaseUrl(baseUrl: unknown): boolean {
+  return Boolean(
+    typeof baseUrl === "string" &&
+      baseUrl &&
+      state.baseUrl &&
+      utils.sameBaseUrl(baseUrl, state.baseUrl)
+  );
 }
 
 async function isMobileSimulationActiveForCurrentTab() {
@@ -1931,8 +1944,7 @@ async function isEnableHotkeyAllowedOnPage() {
   return { allowed: true, baseUrl, pageType: pageTypeResult.pageType };
 }
 
-// @ts-expect-error
-function hasSavedPageDataForHotkey(entry) {
+function hasSavedPageDataForHotkey(entry: ContentPageEntry | null | undefined): boolean {
   return Boolean(
     entry &&
       ((Array.isArray(entry.xpaths) && entry.xpaths.length > 0) ||
@@ -1941,8 +1953,7 @@ function hasSavedPageDataForHotkey(entry) {
   );
 }
 
-// @ts-expect-error
-function hasSavedAiSnapshotForHotkey(entry) {
+function hasSavedAiSnapshotForHotkey(entry: ContentPageEntry | null | undefined): boolean {
   return Boolean(
     entry &&
       typeof entry.renderedHtml === "string" &&
@@ -2017,8 +2028,7 @@ async function toggleDeviceEmulationFromPage() {
   }
 }
 
-async function toggleEnabledFromPage(options = {}) {
-// @ts-expect-error
+async function toggleEnabledFromPage(options: ToggleEnabledFromPageOptions = {}) {
   const { gate = null, showDisabledToast = true } = options || {};
   const tabState = await utils.sendRuntimeMessage({ type: "getTabState" });
   const currentlyEnabled = Boolean(state.enabled || (tabState && tabState.enabled));
@@ -2142,8 +2152,7 @@ function ensureSilentHighlightingStyles() {
   }
 }
 
-// @ts-expect-error
-function setSilentHighlightingsActive(active) {
+function setSilentHighlightingsActive(active: boolean): void {
   if (active) {
     document.documentElement.setAttribute(SILENT_HIGHLIGHTINGS_ACTIVE_ATTR, "on");
   } else {
@@ -2151,8 +2160,7 @@ function setSilentHighlightingsActive(active) {
   }
 }
 
-// @ts-expect-error
-function setSilentHighlightingPageMotionPaused(paused) {
+function setSilentHighlightingPageMotionPaused(paused: boolean): void {
   if (paused) {
     core.pausePageMotion(SILENT_HIGHLIGHTING_MOTION_PAUSE_REASON);
   } else {
@@ -2160,8 +2168,10 @@ function setSilentHighlightingPageMotionPaused(paused) {
   }
 }
 
-// @ts-expect-error
-function getSilentHighlightEditorRevealKey(baseUrl, pageUrl) {
+function getSilentHighlightEditorRevealKey(
+  baseUrl: string | null | undefined,
+  pageUrl: string | null | undefined
+): string {
   const normalizedBaseUrl = utils.normalizeBaseUrl(baseUrl) || baseUrl;
   if (!normalizedBaseUrl || !pageUrl) {
     return "";
@@ -2169,13 +2179,17 @@ function getSilentHighlightEditorRevealKey(baseUrl, pageUrl) {
   return `${normalizedBaseUrl}|${pageUrl}`;
 }
 
-// @ts-expect-error
-function getPageVisitRevealFreezeKey(baseUrl, pageUrl) {
+function getPageVisitRevealFreezeKey(
+  baseUrl: string | null | undefined,
+  pageUrl: string | null | undefined
+): string {
   return getSilentHighlightEditorRevealKey(baseUrl, pageUrl);
 }
 
-// @ts-expect-error
-function consumePageVisitRevealFreezeAttempt(baseUrl, pageUrl) {
+function consumePageVisitRevealFreezeAttempt(
+  baseUrl: string | null | undefined,
+  pageUrl: string | null | undefined
+): boolean {
   const revealKey = getPageVisitRevealFreezeKey(baseUrl, pageUrl);
   if (!revealKey || !baseUrl || !utils.isPageWithinBaseUrl(pageUrl, baseUrl)) {
     return false;
@@ -2187,8 +2201,10 @@ function consumePageVisitRevealFreezeAttempt(baseUrl, pageUrl) {
   return true;
 }
 
-// @ts-expect-error
-function markSilentHighlightEditorRevealPrepared(baseUrl, pageUrl) {
+function markSilentHighlightEditorRevealPrepared(
+  baseUrl: string | null | undefined,
+  pageUrl: string | null | undefined
+): void {
   const revealKey = getSilentHighlightEditorRevealKey(baseUrl, pageUrl);
   if (!revealKey) {
     return;
@@ -2251,9 +2267,12 @@ async function runEditorSilentHighlightingActivationOnce() {
   let lifecycleOperationId = "";
   let lifecycleStarted = false;
   let lifecycleFinished = false;
-  let lifecyclePhase = LIFECYCLE_PHASES.FINISHED;
-// @ts-expect-error
-  const emitSilentHighlightLifecycle = (phase, busy, message = "") => {
+  let lifecyclePhase: LifecyclePhase = LIFECYCLE_PHASES.FINISHED;
+  const emitSilentHighlightLifecycle = (
+    phase: LifecyclePhase,
+    busy: boolean,
+    message = ""
+  ): void => {
     if (!lifecycleOperationId) {
       lifecycleOperationId = createLifecycleOperationId(LIFECYCLE_KINDS.SILENT_HIGHLIGHTING);
     }
@@ -2335,7 +2354,6 @@ async function runEditorSilentHighlightingActivationOnce() {
       });
     }
   } catch (error) {
-// @ts-expect-error
     lifecyclePhase = LIFECYCLE_PHASES.FAILED;
     core.finishPageInspectionUi();
     finishSilentHighlightLifecycle();
@@ -2360,17 +2378,17 @@ async function runEditorSilentHighlightingActivationOnce() {
 
 function ensureSilentHighlightOverlay() {
   ensureSilentHighlightingStyles();
-  let overlay = document.getElementById(SILENT_HIGHLIGHT_OVERLAY_ID);
+  let overlay = document.getElementById(SILENT_HIGHLIGHT_OVERLAY_ID) as HTMLElement | null;
   if (!overlay) {
     overlay = document.createElement("div");
     overlay.id = SILENT_HIGHLIGHT_OVERLAY_ID;
     overlay.setAttribute("data-uf-extension-ui", "true");
+    const createdOverlay = overlay;
     SILENT_HIGHLIGHT_LAYER_KEYS.forEach((key) => {
       const layer = document.createElement("div");
       layer.className = "uf-silent-layer";
       layer.dataset.layer = key;
-// @ts-expect-error
-      overlay.appendChild(layer);
+      createdOverlay.appendChild(layer);
     });
   }
   const host = document.documentElement || document.body;
@@ -2386,23 +2404,20 @@ function ensureSilentHighlightOverlay() {
     silentHighlightLayers = {};
     silentHighlightLayerBoxes = {};
   }
-  overlay.querySelectorAll(".uf-silent-layer[data-layer]").forEach((layer) => {
-// @ts-expect-error
+  overlay.querySelectorAll<HTMLElement>(".uf-silent-layer[data-layer]").forEach((layer) => {
     if (!SILENT_HIGHLIGHT_LAYER_KEYS.includes(layer.dataset.layer || "")) {
       layer.remove();
     }
   });
   SILENT_HIGHLIGHT_LAYER_KEYS.forEach((key) => {
-    let layer = overlay.querySelector(`[data-layer="${key}"]`);
+    let layer = overlay.querySelector<HTMLElement>(`[data-layer="${key}"]`);
     if (!layer) {
       layer = document.createElement("div");
       layer.className = "uf-silent-layer";
-// @ts-expect-error
       layer.dataset.layer = key;
     }
     // Enforce stacking order: later siblings render above earlier ones.
     overlay.appendChild(layer);
-// @ts-expect-error
     silentHighlightLayers[key] = layer;
     if (!silentHighlightLayerBoxes[key]) {
       silentHighlightLayerBoxes[key] = new Map();
@@ -2427,8 +2442,7 @@ function clearSilentHighlightOverlay() {
   clearSilentSelectorAnnotations();
 }
 
-// @ts-expect-error
-function setSilentHighlightOverlayHidden(hidden) {
+function setSilentHighlightOverlayHidden(hidden: boolean): void {
   if (!silentHighlightOverlay) {
     return;
   }
@@ -3730,8 +3744,7 @@ function getSelectorSuppressedXpaths(baseConfig: unknown, pageUrl = location.hre
   return getSuppressedXpathList(entry?.selectorSuppressedXpaths);
 }
 
-// @ts-expect-error
-function getEffectiveAiSelectorSet(baseConfig) {
+function getEffectiveAiSelectorSet(baseConfig: unknown): EffectiveSelectorSet {
   const storedSelectors = getStoredAiSelectorSet(baseConfig);
   const suppressedXpaths = getSelectorSuppressedXpaths(baseConfig);
   if (!suppressedXpaths.length) {
@@ -5579,8 +5592,7 @@ function getPropertyLockClientId() {
   return setPropertyLockClientId(createPropertyLockClientId());
 }
 
-// @ts-expect-error
-function setPropertyLockClientId(nextClientId) {
+function setPropertyLockClientId(nextClientId: string | null | undefined): string {
   const normalizedClientId = normalizePropertyLockClientId(nextClientId);
   if (!normalizedClientId) {
     return propertyLockClientId || "";
@@ -5621,8 +5633,7 @@ function sendPropertyLockDraftStatus() {
   }
 }
 
-// @ts-expect-error
-function handleBlockedPropertyLockInteraction(event) {
+function handleBlockedPropertyLockInteraction(event: Event | null | undefined): void {
   if (!isPropertyLockCollaborationEnabled()) {
     return;
   }
@@ -5635,7 +5646,7 @@ function handleBlockedPropertyLockInteraction(event) {
     return;
   }
 
-  const target = event.target && event.target.nodeType === 1 ? event.target : null;
+  const target = isElementNode(event.target) ? event.target : null;
   const isInactivityRescueControl = Boolean(
     blockDuringInactivityWarning &&
     target &&
@@ -5793,8 +5804,7 @@ function disconnectPropertyLockPort(options: { notifyBackground?: boolean } = {}
   resetPropertyLockUiState();
 }
 
-// @ts-expect-error
-function markExtensionContextInvalidated(error) {
+function markExtensionContextInvalidated(error: unknown): boolean {
   if (!utils.isExtensionContextInvalidatedError(error)) {
     return false;
   }
@@ -5804,8 +5814,7 @@ function markExtensionContextInvalidated(error) {
   return true;
 }
 
-// @ts-expect-error
-function handlePropertyLockSyncError(error, options = {}) {
+function handlePropertyLockSyncError(error: unknown, options: PropertyLockSyncOptions = {}): void {
   if (markExtensionContextInvalidated(error)) {
     return;
   }
@@ -5898,7 +5907,7 @@ function runPropertyLockSync(options: PropertyLockSyncOptions = {}) {
   })();
 }
 
-async function syncPropertyLockConnection(options = {}) {
+async function syncPropertyLockConnection(options: PropertyLockSyncOptions = {}) {
   if (!ensurePropertyLockCollaborationActive()) {
     return;
   }
@@ -5907,12 +5916,9 @@ async function syncPropertyLockConnection(options = {}) {
   }
   const syncToken = ++propertyLockSyncToken;
   clearPropertyLockReconnectTimer();
-// @ts-expect-error
   const pageUrl = typeof options.pageUrl === "string" && options.pageUrl
-// @ts-expect-error
     ? options.pageUrl
     : location.href;
-// @ts-expect-error
   const forceSiteIdRefresh = Boolean(options.forceSiteIdRefresh);
   const recoveryState = await loadPropertyLockRecoveryTabState();
   if (recoveryState.clientId && recoveryState.baseUrl && utils.isPageWithinBaseUrl(pageUrl, recoveryState.baseUrl)) {

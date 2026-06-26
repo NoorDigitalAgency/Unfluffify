@@ -89,7 +89,7 @@ test("silent highlighting owns page motion pause for matching pages even without
   assert.match(source, /const SILENT_HIGHLIGHTING_MOTION_PAUSE_REASON = "silent-highlighting";/);
   assert.match(
     source,
-    /function setSilentHighlightingPageMotionPaused\(paused\) \{[\s\S]*?core\.pausePageMotion\(SILENT_HIGHLIGHTING_MOTION_PAUSE_REASON\);[\s\S]*?core\.resumePageMotion\(SILENT_HIGHLIGHTING_MOTION_PAUSE_REASON\);[\s\S]*?\}/
+    /function setSilentHighlightingPageMotionPaused\(\s*paused(?:\s*:\s*[^)]+)?\s*\)(?:: [^{]+)? \{[\s\S]*?core\.pausePageMotion\(SILENT_HIGHLIGHTING_MOTION_PAUSE_REASON\);[\s\S]*?core\.resumePageMotion\(SILENT_HIGHLIGHTING_MOTION_PAUSE_REASON\);[\s\S]*?\}/
   );
   assert.match(
     source,

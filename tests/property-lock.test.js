@@ -149,7 +149,7 @@ test("content-main stops property lock reconnects when extension context is inva
   assert.match(source, /let extensionContextInvalidated = false;/);
   assert.match(
     source,
-    /function markExtensionContextInvalidated\(error\) \{[\s\S]*?utils\.isExtensionContextInvalidatedError\(error\)[\s\S]*?extensionContextInvalidated = true;[\s\S]*?disconnectPropertyLockPort\(\{ notifyBackground: false \}\);[\s\S]*?return true;[\s\S]*?\}/
+    /function markExtensionContextInvalidated\(\s*error(?:\s*:\s*[^)]+)?\s*\)(?:: [^{]+)? \{[\s\S]*?utils\.isExtensionContextInvalidatedError\(error\)[\s\S]*?extensionContextInvalidated = true;[\s\S]*?disconnectPropertyLockPort\(\{ notifyBackground: false \}\);[\s\S]*?return true;[\s\S]*?\}/
   );
   assert.match(
     source,
@@ -190,7 +190,7 @@ test("content-main blocks extension and page interaction while connection-loss b
   );
   assert.match(
     source,
-    /function handleBlockedPropertyLockInteraction\(event\) \{[\s\S]*?const blockDuringDisconnect = isPropertyLockDisconnectedForInteractionBlock\(\);[\s\S]*?const blockDuringInactivityWarning = isPropertyLockInactivityWarningForInteractionBlock\(\);[\s\S]*?const blockDuringEditorWarning =[\s\S]*?blockDuringDisconnect \|\|[\s\S]*?blockDuringInactivityWarning;[\s\S]*?if \(\(!blockDuringEditorWarning && !isMarkingBlockedByPropertyLock\(\)\) \|\| !event \|\| !event\.isTrusted\) \{/
+    /function handleBlockedPropertyLockInteraction\(\s*event(?:\s*:\s*[^)]+)?\s*\)(?:: [^{]+)? \{[\s\S]*?const blockDuringDisconnect = isPropertyLockDisconnectedForInteractionBlock\(\);[\s\S]*?const blockDuringInactivityWarning = isPropertyLockInactivityWarningForInteractionBlock\(\);[\s\S]*?const blockDuringEditorWarning =[\s\S]*?blockDuringDisconnect \|\|[\s\S]*?blockDuringInactivityWarning;[\s\S]*?if \(\(!blockDuringEditorWarning && !isMarkingBlockedByPropertyLock\(\)\) \|\| !event \|\| !event\.isTrusted\) \{/
   );
   assert.match(
     source,
@@ -310,7 +310,7 @@ test("content-main connects property lock with a stable client identity and auto
 
   assert.match(source, /const PROPERTY_LOCK_CLIENT_SESSION_KEY = "unfluffify:propertyLockClientId";/);
   assert.match(source, /function getPropertyLockClientId\(\)/);
-  assert.match(source, /function setPropertyLockClientId\(nextClientId\)/);
+  assert.match(source, /function setPropertyLockClientId\(\s*nextClientId(?:\s*:\s*[^)]+)?\s*\)/);
   assert.match(syncSource, /type: PROPERTY_LOCK_CONTENT_CONNECT,[\s\S]*?\.\.\.getPropertyLockDraftStatusPayload\(\)/);
   assert.match(syncSource, /queuePropertyLockEditorClaim\(\);/);
   assert.match(source, /if \(typeof (?:message|envelope)\.clientId === "string" && (?:message|envelope)\.clientId\) \{\s*setPropertyLockClientId\((?:message|envelope)\.clientId\);\s*\}/);

@@ -15,7 +15,10 @@ test("core render path and silent highlighting both honor selector suppression x
   const contentSource = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
   const coreSource = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
 
-  assert.match(contentSource, /function getEffectiveAiSelectorSet\(baseConfig\) \{[\s\S]*?suppressedXpaths/);
+  assert.match(
+    contentSource,
+    /function getEffectiveAiSelectorSet\(\s*baseConfig(?:\s*:\s*[^)]+)?\s*\)(?:: [^{]+)? \{[\s\S]*?suppressedXpaths/
+  );
   assert.match(contentSource, /collectNodesFromSelectors\(normalized\.exclusionSelectors, \{[\s\S]*?suppressedXpaths/);
   assert.match(coreSource, /collectIncludedElementsFromSelectorSet\(\s*selectorSet(?:\s*:\s*[^,]+)?,\s*options(?:\s*:\s*[^=]+)? = \{\}\s*\)(?:: [^{]+)? \{[\s\S]*?suppressedXpaths/);
   assert.match(coreSource, /collectIncludedElementsFromSelectorSet\(normalizedAiSelectorSet, \{[\s\S]*?suppressedXpaths: selectorSuppressedXpaths/);

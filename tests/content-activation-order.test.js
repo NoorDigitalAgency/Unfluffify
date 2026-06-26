@@ -123,7 +123,9 @@ test("activateContentMain keeps a legacy raw runtime reply for background bootst
 
 test("manual page enable waits for activation reveal before refreshing highlight state", () => {
   const source = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
-  const toggleStart = source.indexOf("async function toggleEnabledFromPage(options = {})");
+  const toggleStart = source.search(
+    /async function toggleEnabledFromPage\(options(?:\s*:\s*[^=]+)? = \{\}\)/
+  );
   const toggleEnd = source.indexOf("function ensureSilentHighlightingStyles()", toggleStart);
 
   assert.ok(toggleStart > -1);
