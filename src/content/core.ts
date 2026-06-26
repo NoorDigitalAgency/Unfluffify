@@ -425,6 +425,68 @@ interface ToggleableDefaultBoundaryOptions {
   boundarySubtreeSkip?: ElementCollection;
 }
 
+interface ParentMarkingOptions extends InclusionDetectionOptions {
+  allowParent?: boolean;
+  allowImmutableChildren?: boolean;
+  allowConsentElements?: boolean;
+  explicitlyExcluded?: boolean;
+  explicitlyIncluded?: boolean;
+  preferMixedTextAncestor?: boolean;
+  hitPoint?: { x: number; y: number };
+}
+
+interface AiPopoverClosePayload extends UnknownRecord {
+  markingEnabled?: boolean;
+}
+
+type AiPopoverCloseResult =
+  | AiPopoverClosePayload
+  | null
+  | undefined
+  | Promise<AiPopoverClosePayload | null | undefined>;
+
+type AiPopoverCloseHandler = () => AiPopoverCloseResult;
+type AiPopoverCollapsedChangeHandler = (collapsed: boolean) => void;
+
+interface AiPopoverCloseOptions {
+  notify?: boolean;
+  suppressCallback?: boolean;
+  closeToken?: number | null;
+}
+
+interface FocusPreviewOptions {
+  center?: boolean;
+}
+
+interface PointerState {
+  x: number;
+  y: number;
+  shiftKey: boolean;
+}
+
+interface ExcludedAncestorCheckerOptions {
+  config?: Config | null;
+  pageUrl?: string;
+  entry?: PageMarkingEntry | null;
+}
+
+interface GetMarkableTargetOptions extends ParentMarkingOptions {
+  allowExplicitTarget?: boolean;
+  preferExplicitTarget?: boolean;
+  excludedSet?: Set<string> | null;
+  includeSet?: Set<string> | null;
+  silentWhitespaceExcludedSet?: Set<string> | null;
+  explicitParentSet?: Set<string> | null;
+  allowExcludedParentChildren?: boolean;
+  requireExcludedAncestor?: boolean;
+}
+
+interface LayerRenderState {
+  layer: HTMLElement;
+  map: Map<string, HTMLDivElement>;
+  used: Set<string>;
+}
+
 interface SelectorInclusionCollections {
   included: Element[];
   excluded: Element[];
@@ -465,6 +527,16 @@ function isContentEditableElement(node: Element): node is Element & { isContentE
     typeof (node as { isContentEditable?: unknown }).isContentEditable === "boolean";
 }
 
+function hasScrollIntoViewMethod(
+  node: Element
+): node is Element & { scrollIntoView: (options?: ScrollIntoViewOptions) => void } {
+  return typeof (node as { scrollIntoView?: unknown }).scrollIntoView === "function";
+}
+
+function hasClosestMethod(node: EventTarget | null): node is Element & { closest: (selector: string) => Element | null } {
+  return isElementNode(node) && typeof (node as { closest?: unknown }).closest === "function";
+}
+
 function isSvgAnimationElement(node: Element): node is SvgAnimationElement {
   return (
     (typeof SVGElement === "function" ? node instanceof SVGElement : node.tagName.toLowerCase() === "svg")
@@ -497,8 +569,8 @@ export const state = {
   focusElement: null as Element | null,
   aiPopover: null as HTMLElement | null,
   aiPopoverCollapsed: false,
-  aiPopoverOnClose: null,
-  aiPopoverOnCollapsedChange: null,
+  aiPopoverOnClose: null as AiPopoverCloseHandler | null,
+  aiPopoverOnCollapsedChange: null as AiPopoverCollapsedChangeHandler | null,
   toast: null as HTMLDivElement | null,
   toastHideTimer: 0,
   markingDisabledNotice: null as HTMLDivElement | null,
@@ -513,9 +585,9 @@ export const state = {
   altPassThrough: false,
   altHeld: false,
   shiftHeld: false,
-  lastPointer: null,
+  lastPointer: null as PointerState | null,
   markIdCounter: 1,
-  markIds: new WeakMap(),
+  markIds: new WeakMap<Element, string>(),
   markedElements: new Set<Element>(),
   renderRaf: 0,
   renderTimer: 0,
@@ -541,7 +613,7 @@ export const state = {
   consentSyncedPageUrl: "",
   consentRootElements: new Set<Element>(),
   initialized: false,
-  layerBoxes: new WeakMap(),
+  layerBoxes: new WeakMap<HTMLElement, Map<string, HTMLDivElement>>(),
   cachedCollections: null as MarkingCollections | null,
   cachedCollectionsKey: "",
   markingSettleTimers: [],
@@ -7662,8 +7734,7 @@ function ensureAiPopoverStyle() {
   document.documentElement.appendChild(style);
 }
 
-// @ts-expect-error
-function createAiPopoverPanelIcon(direction) {
+function createAiPopoverPanelIcon(direction: "left" | "right"): SVGSVGElement {
   const svgNs = "http://www.w3.org/2000/svg";
   const svg = document.createElementNS(svgNs, "svg");
   svg.setAttribute("viewBox", "0 0 18 18");
@@ -7731,8 +7802,7 @@ function clearAiPreviewFocusElement() {
   aiPreviewFocusElement = null;
 }
 
-// @ts-expect-error
-function syncAiPreviewFocusElement(target) {
+function syncAiPreviewFocusElement(target: Element | null): void {
   ensureAiPreviewFocusStyle();
   if (aiPreviewFocusElement && aiPreviewFocusElement !== target && aiPreviewFocusElement.classList) {
     aiPreviewFocusElement.classList.remove(AI_PREVIEW_FOCUS_CLASS);
@@ -7743,13 +7813,12 @@ function syncAiPreviewFocusElement(target) {
   }
 }
 
-function closeAiPopover(options = {}) {
-// @ts-expect-error
+function closeAiPopover(options: AiPopoverCloseOptions = {}): Promise<AiPopoverClosePayload | null> {
   const notify = options.notify !== false;
-// @ts-expect-error
   const suppressCallback = options.suppressCallback === true;
-// @ts-expect-error
-  const closeToken = Number.isFinite(options.closeToken) ? Math.trunc(options.closeToken) : null;
+  const closeToken = typeof options.closeToken === "number" && Number.isFinite(options.closeToken)
+    ? Math.trunc(options.closeToken)
+    : null;
   if (!state.aiPopover) {
     return Promise.resolve(null);
   }
@@ -7761,10 +7830,10 @@ function closeAiPopover(options = {}) {
   popover.remove();
   state.aiPopover = null;
   state.aiPopoverCollapsed = false;
-  const afterClose = !suppressCallback && typeof onClose === "function"
+  const afterClose: Promise<AiPopoverClosePayload | null> = !suppressCallback && typeof onClose === "function"
     ? Promise.resolve()
-// @ts-expect-error
         .then(() => onClose())
+        .then((closeState) => closeState && typeof closeState === "object" ? closeState : null)
         .catch(() => {
           // Ignore preview restore callback failures during teardown.
           return null;
@@ -7772,7 +7841,7 @@ function closeAiPopover(options = {}) {
     : Promise.resolve(null);
   if (notify) {
     afterClose.then((closeState) => {
-      const closePayload = closeState && typeof closeState === "object"
+      const closePayload: AiPopoverClosePayload = closeState && typeof closeState === "object"
         ? closeState
         : {};
       utils.sendRuntimeMessage({
@@ -7790,8 +7859,7 @@ function closeAiPopover(options = {}) {
   return afterClose;
 }
 
-// @ts-expect-error
-function setAiPopoverCollapsed(collapsed) {
+function setAiPopoverCollapsed(collapsed: boolean): void {
   if (!state.aiPopover) {
     return;
   }
@@ -7802,7 +7870,6 @@ function setAiPopoverCollapsed(collapsed) {
   state.aiPopover.classList.toggle("uf-ai-popover--collapsed", state.aiPopoverCollapsed);
   if (typeof state.aiPopoverOnCollapsedChange === "function") {
     try {
-// @ts-expect-error
       state.aiPopoverOnCollapsedChange(state.aiPopoverCollapsed);
     } catch {
       // Ignore preview collapse state sync failures.
@@ -7814,27 +7881,27 @@ export function hasAiPopover() {
   return Boolean(state.aiPopover);
 }
 
-export function requestAiPopoverClose(options = {}) {
+export function requestAiPopoverClose(options: AiPopoverCloseOptions = {}): Promise<AiPopoverClosePayload | null> {
   return closeAiPopover(options);
 }
 
-// @ts-expect-error
-export function focusPreviewElement(target, options = {}) {
+export function focusPreviewElement(
+  target: Element | null | undefined,
+  options: FocusPreviewOptions = {}
+): boolean {
   if (!target || target.nodeType !== 1) {
     return false;
   }
   state.focusElement = target;
   syncAiPreviewFocusElement(target);
-// @ts-expect-error
-  if (options.center !== false && typeof target.scrollIntoView === "function") {
+  if (options.center !== false && hasScrollIntoViewMethod(target)) {
     target.scrollIntoView({ block: "center", inline: "center" });
   }
   updateFocusHighlight();
   return true;
 }
 
-// @ts-expect-error
-function recordPageSnapshot(configValue, pageUrl) {
+function recordPageSnapshot(configValue: Config | null | undefined, pageUrl: string | null | undefined): void {
   if (!configValue || !pageUrl) {
     return;
   }
@@ -7851,8 +7918,7 @@ function recordPageSnapshot(configValue, pageUrl) {
   setPageMarkingEntry(configValue.pageMarkings, pageUrl, entry);
 }
 
-// @ts-expect-error
-function getMarkId(el) {
+function getMarkId(el: Element | null | undefined): string {
   if (!el || el.nodeType !== 1) {
     return "";
   }
@@ -7877,8 +7943,7 @@ function clearMarkedElements() {
   state.markedElements = new Set();
 }
 
-// @ts-expect-error
-function updateMarkedElements(currentMarked) {
+function updateMarkedElements(currentMarked: Set<Element> | null | undefined): void {
   if (!currentMarked) {
     return;
   }
@@ -7899,8 +7964,7 @@ function updateMarkedElements(currentMarked) {
   state.markedElements = currentMarked;
 }
 
-// @ts-expect-error
-function getTargetElement(x, y) {
+function getTargetElement(x: number, y: number): Element | null {
   const elements = document.elementsFromPoint(x, y);
   for (const el of elements) {
     if (!el || el.nodeType !== 1) {
@@ -7918,8 +7982,10 @@ function getTargetElement(x, y) {
 }
 
 
-// @ts-expect-error
-function hasMultipleMarkableDescendants(el, options = {}) {
+function hasMultipleMarkableDescendants(
+  el: Element | null | undefined,
+  options: ParentMarkingOptions = {}
+): boolean {
   if (!el || el.nodeType !== 1) {
     return false;
   }
@@ -7955,13 +8021,12 @@ function hasMultipleMarkableDescendants(el, options = {}) {
   return false;
 }
 
-// @ts-expect-error
-function getDepthBelowBody(el) {
+function getDepthBelowBody(el: Element | null | undefined): number {
   if (!el || el.nodeType !== 1 || typeof document === "undefined" || !document.body) {
     return Number.POSITIVE_INFINITY;
   }
   let depth = 0;
-  let node = el;
+  let node: Element | null = el;
   while (node && node.nodeType === 1 && node !== document.body && node !== document.documentElement) {
     depth += 1;
     node = node.parentElement;
@@ -7969,30 +8034,25 @@ function getDepthBelowBody(el) {
   return node === document.body ? depth : Number.POSITIVE_INFINITY;
 }
 
-// @ts-expect-error
-function isParentMarkingContentBoundary(el) {
+function isParentMarkingContentBoundary(el: Element | null | undefined): boolean {
   const tagName = el && el.tagName ? String(el.tagName).toUpperCase() : "";
-  return PARENT_MARKING_CONTENT_BOUNDARY_TAGS.has(tagName) || matchesToggleableDefaultExcluded(el);
+  return PARENT_MARKING_CONTENT_BOUNDARY_TAGS.has(tagName) || matchesToggleableDefaultExcluded(el || null);
 }
 
-// @ts-expect-error
-function getElementRole(el) {
+function getElementRole(el: Element | null | undefined): string {
   return el && typeof el.getAttribute === "function"
     ? String(el.getAttribute("role") || "").trim().toLowerCase()
     : "";
 }
 
-// @ts-expect-error
-function containsPageShellLandmark(el) {
+function containsPageShellLandmark(el: Element | null | undefined): boolean {
   const landmarkKinds = new Set();
-  const stack = Array.from(el && el.children ? el.children : []);
+  const stack: Element[] = Array.from(el?.children || []);
   while (stack.length && landmarkKinds.size < 2) {
     const node = stack.pop();
-// @ts-expect-error
-    if (!node || node.nodeType !== 1) {
+    if (!isElementNode(node)) {
       continue;
     }
-// @ts-expect-error
     const tagName = node.tagName ? String(node.tagName).toUpperCase() : "";
     if (PARENT_MARKING_PAGE_SHELL_LANDMARK_TAGS.has(tagName)) {
       landmarkKinds.add(tagName);
@@ -8001,17 +8061,14 @@ function containsPageShellLandmark(el) {
     if (PARENT_MARKING_PAGE_SHELL_ROLES.has(role)) {
       landmarkKinds.add(role);
     }
-// @ts-expect-error
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
-// @ts-expect-error
       stack.push(node.children[i]);
     }
   }
   return landmarkKinds.size >= 2;
 }
 
-// @ts-expect-error
-function hasBroadParentMarkingFootprint(el) {
+function hasBroadParentMarkingFootprint(el: Element | null | undefined): boolean {
   if (!el || typeof el.getBoundingClientRect !== "function") {
     return false;
   }
@@ -8035,9 +8092,10 @@ function hasBroadParentMarkingFootprint(el) {
   return widthRatio >= 0.85 && heightRatio >= 0.65;
 }
 
-// @ts-expect-error
-function isUnsafeShallowParentMarkingTarget(el, options = {}) {
-// @ts-expect-error
+function isUnsafeShallowParentMarkingTarget(
+  el: Element | null | undefined,
+  options: ParentMarkingOptions = {}
+): boolean {
   if (!options || !options.allowParent || !el || el.nodeType !== 1) {
     return false;
   }
@@ -8054,25 +8112,14 @@ function isUnsafeShallowParentMarkingTarget(el, options = {}) {
   return containsPageShellLandmark(el) || hasBroadParentMarkingFootprint(el);
 }
 
-function createExcludedAncestorChecker(options = {}) {
-// @ts-expect-error
+function createExcludedAncestorChecker(
+  options: ExcludedAncestorCheckerOptions = {}
+): (element: Element) => boolean {
   const configValue = options.config || state.config;
-// @ts-expect-error
   const pageUrl = options.pageUrl || location.href;
-// @ts-expect-error
-  const entry = options.entry || (
-    configValue &&
-    configValue.pageMarkings &&
-    typeof configValue.pageMarkings === "object"
-      ? configValue.pageMarkings[pageUrl] || null
-      : null
-  ) || (
-    state.currentPageUrl === pageUrl && state.currentPageEntry
-      ? state.currentPageEntry
-      : null
-  );
-  const excludedLookup = new Map();
-  const includeSet = new Set();
+  const entry = options.entry || getPageEntryFromConfigOrState(configValue, pageUrl);
+  const excludedLookup = new Map<string, boolean>();
+  const includeSet = new Set<string>();
   if (entry && typeof entry === "object") {
     const items = Array.isArray(entry.xpaths) ? entry.xpaths : [];
     for (const item of items) {
@@ -8087,8 +8134,7 @@ function createExcludedAncestorChecker(options = {}) {
       }
     }
   }
-// @ts-expect-error
-  return (element) => {
+  return (element: Element) => {
     if (!element || element.nodeType !== 1) {
       return false;
     }
@@ -8119,8 +8165,11 @@ function createExcludedAncestorChecker(options = {}) {
   };
 }
 
-// @ts-expect-error
-function resolveMarkableElement(el, config, options) {
+function resolveMarkableElement(
+  el: Element | null | undefined,
+  config: Config | null,
+  options: ParentMarkingOptions
+): Element | null {
   if (!el || el.nodeType !== 1) {
     return null;
   }
@@ -8146,7 +8195,12 @@ function resolveMarkableElement(el, config, options) {
       !isWithinConsentElement(el) &&
       matchesToggleableDefaultExcluded(el) &&
       isTextualContainer(el, ancestorOptions);
-    const ancestorCandidates = [];
+    const ancestorCandidates: Array<{
+      value: Element;
+      isStructuredGroup: boolean;
+      isToggleableBoundary: boolean;
+      isMarkable: boolean;
+    }> = [];
     let ancestor = el.parentElement;
     while (ancestor && ancestor.nodeType === 1) {
       if (ancestor === document.documentElement || ancestor === document.body) {
@@ -8211,8 +8265,11 @@ function resolveMarkableElement(el, config, options) {
   return el;
 }
 
-// @ts-expect-error
-export function getMarkableTarget(x, y, options) {
+export function getMarkableTarget(
+  x: number,
+  y: number,
+  options: GetMarkableTargetOptions = {}
+): Element | null {
   const allowParent = options && options.allowParent;
   const allowExplicitTarget = options && options.allowExplicitTarget;
   const preferExplicitTarget = !options || options.preferExplicitTarget !== false;
@@ -8250,14 +8307,16 @@ export function getMarkableTarget(x, y, options) {
         continue;
       }
       const xpath = (explicitParentSet || excludedSet || includeSet) ? getXPath(el) : "";
-      const explicitlyExcluded =
+      const explicitlyExcluded = Boolean(
         xpath &&
         excludedSet &&
         excludedSet.size > 0 &&
         excludedSet.has(xpath) &&
-        !(silentWhitespaceExcludedSet && silentWhitespaceExcludedSet.has(xpath));
-      const explicitlyIncluded =
-        xpath && includeSet && includeSet.size > 0 && includeSet.has(xpath);
+        !(silentWhitespaceExcludedSet && silentWhitespaceExcludedSet.has(xpath))
+      );
+      const explicitlyIncluded = Boolean(
+        xpath && includeSet && includeSet.size > 0 && includeSet.has(xpath)
+      );
       const withinExplicitExcludedParent =
         !allowExcludedParentChildren &&
         xpath &&
@@ -8291,12 +8350,14 @@ export function getMarkableTarget(x, y, options) {
     if (isWithinConsentElement(el)) {
       continue;
     }
-    const explicitlyExcluded =
+    const explicitlyExcluded = Boolean(
         allowExplicitTarget &&
         isExplicitlyExcludedElement(el, excludedSet) &&
-        !(silentWhitespaceExcludedSet && silentWhitespaceExcludedSet.has(getXPath(el)));
-    const explicitlyIncluded =
-        allowExplicitTarget && isExplicitlyIncludedElement(el, includeSet);
+        !(silentWhitespaceExcludedSet && silentWhitespaceExcludedSet.has(getXPath(el)))
+    );
+    const explicitlyIncluded = Boolean(
+      allowExplicitTarget && isExplicitlyIncludedElement(el, includeSet)
+    );
     if (
       requireExcludedAncestor &&
       !explicitlyExcluded &&
@@ -8325,17 +8386,12 @@ export function getMarkableTarget(x, y, options) {
 }
 
 function updateHoverHighlight(
-// @ts-expect-error
-  x,
-// @ts-expect-error
-  y,
-// @ts-expect-error
-  allowParent,
-// @ts-expect-error
-  allowExcludedParentChildren,
-// @ts-expect-error
-  allowImmutableChildren
-) {
+  x: number,
+  y: number,
+  allowParent: boolean,
+  allowExcludedParentChildren: boolean,
+  allowImmutableChildren: boolean
+): void {
   if (!state.enabled || state.altPassThrough) {
     return;
   }
@@ -8405,9 +8461,7 @@ function refreshHoverHighlight() {
   const allowImmutableChildren = false;
   const allowParent = shouldAllowParentMarking(mode, state.shiftHeld);
   updateHoverHighlight(
-// @ts-expect-error
       state.lastPointer.x,
-// @ts-expect-error
       state.lastPointer.y,
       allowParent,
       allowExcludedParentChildren,
@@ -8415,8 +8469,7 @@ function refreshHoverHighlight() {
   );
 }
 
-// @ts-expect-error
-function handleMouseMove(event) {
+function handleMouseMove(event: MouseEvent): void {
   if (!state.enabled) {
     return;
   }
@@ -8427,7 +8480,6 @@ function handleMouseMove(event) {
   }
   event.stopPropagation();
   syncModifierState(event);
-// @ts-expect-error
   state.lastPointer = {
     x: event.clientX,
     y: event.clientY,
@@ -8444,12 +8496,9 @@ function handleMouseMove(event) {
     const mode = getMarkModeFromEvent(event);
     const allowExcludedParentChildren = mode === "include";
     const allowImmutableChildren = false;
-// @ts-expect-error
     const allowParent = shouldAllowParentMarking(mode, state.lastPointer.shiftKey);
     updateHoverHighlight(
-// @ts-expect-error
       state.lastPointer.x,
-// @ts-expect-error
       state.lastPointer.y,
       allowParent,
       allowExcludedParentChildren,
@@ -8942,8 +8991,7 @@ function handleAltClick(event) {
   }
 }
 
-// @ts-expect-error
-function clearLayer(layer) {
+function clearLayer(layer: HTMLElement | null | undefined): void {
   if (!layer) {
     return;
   }
@@ -8958,8 +9006,7 @@ function clearLayer(layer) {
   }
 }
 
-// @ts-expect-error
-function getLayerBoxMap(layer) {
+function getLayerBoxMap(layer: HTMLElement): Map<string, HTMLDivElement> {
   if (!state.layerBoxes) {
     state.layerBoxes = new WeakMap();
   }
@@ -8971,13 +9018,11 @@ function getLayerBoxMap(layer) {
   return map;
 }
 
-// @ts-expect-error
-function beginLayerRender(layer) {
+function beginLayerRender(layer: HTMLElement): LayerRenderState {
   return { layer, map: getLayerBoxMap(layer), used: new Set() };
 }
 
-// @ts-expect-error
-function finalizeLayerRender(layerState) {
+function finalizeLayerRender(layerState: LayerRenderState): void {
   const { map, used } = layerState;
   for (const [key, box] of map) {
     if (!used.has(key)) {
@@ -8987,8 +9032,15 @@ function finalizeLayerRender(layerState) {
   }
 }
 
-// @ts-expect-error
-function drawRectReuse(layerState, rect, className, el, kind, markedSet, index) {
+function drawRectReuse(
+  layerState: LayerRenderState,
+  rect: RectLike,
+  className: string,
+  el: Element | null,
+  kind: string | null,
+  markedSet: Set<Element> | null,
+  index: number
+): void {
   const { layer, map, used } = layerState;
   const markId = el ? getMarkId(el) : "";
   const key = `${markId || "anon"}|${className}|${kind || ""}|${index}`;
@@ -9019,8 +9071,14 @@ function drawRectReuse(layerState, rect, className, el, kind, markedSet, index) 
   used.add(key);
 }
 
-// @ts-expect-error
-function drawMultiRectReuse(layerState, rects, className, el, kind, markedSet) {
+function drawMultiRectReuse(
+  layerState: LayerRenderState,
+  rects: RectLike[],
+  className: string,
+  el: Element | null,
+  kind: string | null,
+  markedSet: Set<Element> | null
+): void {
   if (rects.length === 0) {
     return;
   }
@@ -9033,10 +9091,9 @@ function drawMultiRectReuse(layerState, rects, className, el, kind, markedSet) {
   }
 }
 
-// @ts-expect-error
-function collectRectsFromClientRects(clientRects) {
-  const visibleRects = [];
-  for (let i = 0; i < clientRects.length; i++) {
+function collectRectsFromClientRects(clientRects: DOMRectList | ArrayLike<DOMRectReadOnly>): RectLike[] {
+  const visibleRects: RectLike[] = [];
+  for (let i = 0; i < clientRects.length; i += 1) {
     const rect = clientRects[i];
     if (rect.width === 0 || rect.height === 0) {
       continue;
@@ -9061,40 +9118,34 @@ function collectRectsFromClientRects(clientRects) {
   return visibleRects;
 }
 
-// @ts-expect-error
-function getCollapsedTextualFallbackRects(el) {
+function getCollapsedTextualFallbackRects(el: Element): RectLike[] {
   if (!getCachedNormalizedElementText(el)) {
     return [];
   }
-  const stack = Array.from(el.children || []);
+  const stack: Element[] = Array.from(el.children || []);
   let inspected = 0;
   const MAX_INSPECTED = 200;
   while (stack.length && inspected < MAX_INSPECTED) {
     const node = stack.shift();
     inspected += 1;
-// @ts-expect-error
-    if (!node || node.nodeType !== 1) {
+    if (!isElementNode(node)) {
       continue;
     }
     if (!isVisible(node)) {
       continue;
     }
-// @ts-expect-error
     const rects = collectRectsFromClientRects(node.getClientRects());
     if (rects.length > 0) {
       return rects;
     }
-// @ts-expect-error
     for (let i = 0; i < node.children.length; i += 1) {
-// @ts-expect-error
       stack.push(node.children[i]);
     }
   }
   return [];
 }
 
-// @ts-expect-error
-function getVisibleRects(el) {
+function getVisibleRects(el: Element): RectLike[] {
   const allowCollapsedTextFallback = Boolean(getCachedNormalizedElementText(el));
   if (!isVisible(el)) {
     return allowCollapsedTextFallback
@@ -9111,28 +9162,29 @@ function getVisibleRects(el) {
   return [];
 }
 
-// @ts-expect-error
-function hasRenderableMarkingTargetGeometry(el, options = {}) {
+function hasRenderableMarkingTargetGeometry(
+  el: Element | null | undefined,
+  options: { allowGhost?: boolean } = {}
+): boolean {
   if (!el || el.nodeType !== 1) {
     return false;
   }
   if (getVisibleRects(el).length > 0) {
     return true;
   }
-// @ts-expect-error
   return Boolean(options.allowGhost && getGhostRects(el).length > 0);
 }
 
-// @ts-expect-error
-export function collectExplicitMarkingElements(entry) {
-  const items = Array.isArray(entry && entry.xpaths) ? entry.xpaths : [];
-  const explicitInclude = collectXPathElements(entry && entry.includeXpaths);
+export function collectExplicitMarkingElements(
+  entry: PageMarkingEntry | null | undefined
+): ExplicitLayerCollections {
+  const items = Array.isArray(entry?.xpaths) ? entry.xpaths : [];
+  const explicitInclude = Array.from(collectXPathElements(entry?.includeXpaths))
+    .filter((el): el is Element => isElementNode(el));
   const consentExcluded = collectConsentExcludedElements();
-  const explicitIncludeSet = new Set(explicitInclude);
-// @ts-expect-error
-  const isWithinExplicitInclude = (el) => {
+  const explicitIncludeSet = new Set<Element>(explicitInclude);
+  const isWithinExplicitInclude = (el: Element) => {
     for (const includeEl of explicitIncludeSet) {
-// @ts-expect-error
       if (includeEl && includeEl !== el && includeEl.contains(el)) {
         return true;
       }

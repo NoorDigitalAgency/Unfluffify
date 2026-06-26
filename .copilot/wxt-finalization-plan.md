@@ -291,6 +291,11 @@ Validate: `pnpm prepare` + `pnpm build`; diff `.output/chrome-mv3` file list and
 
 ## Progress checkpoint
 
+- The latest `src/content/core.ts` preview-targeting / layer-geometry checkpoint is complete: AI preview close/focus helpers, mark-id/marked-element tracking, markable-target resolution, excluded-ancestor checks, hover-pointer updates, layer box reuse, visible-rect fallback collection, and explicit-marking element collection now use concrete DOM/state/collection types instead of broad helper suppressions.
+- The existing preview/visibility/source contracts stayed intact, including explicit-target preference, excluded-ancestor filtering, hover highlighting, ghost-rect eligibility, and AI preview close notifications.
+- Current suppression count is 317 total; the remaining tracked files are `src/content/core.ts` (101), `src/popup.ts` (111), `src/content-main.ts` (25), and the exempt eval bridge pair (`src/common/page-motion-freeze-bridge.ts` 43, `src/common/page-motion-freeze-control.ts` 37).
+- Next immediate step: finish the remaining `src/content/core.ts` toggle/save-adjacent tail before returning to the smaller `src/popup.ts` tail and the final `src/content-main.ts` cleanup.
+
 - The latest `src/content/core.ts` inspection-ui / mark-mode helper checkpoint is complete: page-entry timestamp helpers, per-entry include/exclude XPath set lookups, mutation render-mode detection, inspection-notice/UI activation plumbing, pre-motion inspection warmup flows, toast/temporary-disable messaging, and mark-mode/modifier helpers now use concrete DOM/state/event types instead of broad helper suppressions.
 - The coupled source-contract tests were relaxed only enough to tolerate the new TypeScript annotations for `isPageInspectionUiActive()`, `getMarkingTemporarilyDisabledReason()`, and `getMarkMode()` while preserving the same wiring assertions.
 - Current suppression count is 379 total; the remaining tracked files are `src/content/core.ts` (163), `src/popup.ts` (111), `src/content-main.ts` (25), and the exempt eval bridge pair (`src/common/page-motion-freeze-bridge.ts` 43, `src/common/page-motion-freeze-control.ts` 37).
