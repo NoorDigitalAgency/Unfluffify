@@ -14,25 +14,13 @@ refactor track is approved beyond the paused post-H3 state.
 1. `.copilot/knowledge.md`
 2. `.github/instructions/*.instructions.md`
 3. `.github/skills/*/SKILL.md` relevant to the task
-4. `.copilot/post-wxt-cleanup-plan.md` for the cleanup/type-safety execution
-   history, closeout status, and permanent-exception rationale
-5. `.copilot/wxt-finalization-plan.md` when prior WXT finalization decisions or
-   migration rationale are relevant
-6. `.copilot/popup-preview-exit-button-state-plan.md` for popup preview/exit
-   behavior
-7. For suppression/ratchet context, use `.copilot/post-wxt-cleanup-plan.md` for
-   the executed cleanup history and `.copilot/knowledge.md` for the live rule.
-8. `.copilot/full-typesafety-plan.md`, `.copilot/full-typesafety-progress.md`,
-   `.copilot/ts-expect-error-migration-plan.md`, and
-   `.copilot/ts-expect-error-migration-progress.md` remain historical rationale
-   until they are refreshed for the current pnpm/`src/` repository layout.
-9. Older Deno-era typing rollout notes were removed after the WXT/pnpm cleanup.
-   Use git history if earlier rationale is needed.
+4. `.copilot/active-implementation-plan.md` for the current active execution
+   plan (test cleanup, TS port, React UI port, Preact removal, logo fix,
+   extensionless imports, lint pass).
 
-Older `.copilot` plans beyond the retained historical rationale files listed
-above were removed from the workspace when they stopped matching the current
-architecture or executed cleanup history. Use git history if earlier rationale
-is needed.
+The completed WXT-migration, type-safety, and post-WXT cleanup plan/progress
+docs were removed from the workspace; their durable outcomes live in
+`.copilot/knowledge.md`. Use git history if earlier rationale is needed.
 
 ## Current branch state
 
@@ -49,8 +37,8 @@ is needed.
    - live browser: `pnpm browser:live <target-url>`
    - orchestration: `pnpm orchestrate:*`
    - tests: all automated coverage lives under `tests/`
-3. The post-WXT cleanup/type-safety finalization track is complete and recorded
-   in `.copilot/post-wxt-cleanup-plan.md`.
+3. The post-WXT cleanup/type-safety finalization track is complete; its durable
+   outcomes are captured in `.copilot/knowledge.md`.
 4. Event-bus Tracks 0-4 and Part C native WXT adoption are complete on this
    branch.
 5. Track H remains paused after H3 by design. Do not resume deeper
