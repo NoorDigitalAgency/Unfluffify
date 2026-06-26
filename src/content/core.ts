@@ -1,5 +1,6 @@
 import * as config from "../common/config.js";
 import type { Config, PageMarkingEntry, XpathEntry } from "../types/config.ts";
+import type { ExplicitToggleJob, MarkingCollections } from "../types/content-state.ts";
 import * as utils from "../common/utilities.js";
 import {
   DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS,
@@ -109,10 +110,62 @@ interface SnapshotXPathOptions {
 }
 
 interface SelectorContext {
-  selectorSet: ReturnType<typeof normalizeAiSelectorSet>;
+  selectorSet: unknown;
   hasAiSelectors: boolean;
   selectorSuppressedXpaths: string[];
 }
+
+interface ExplicitLayerCollections {
+  explicitExcludeElements: Element[];
+  hiddenExplicitExcludeElements: Element[];
+  explicitIncludeElements: Element[];
+  hiddenExplicitIncludeElements: Element[];
+}
+
+interface ExplicitLayerSplit {
+  fetchedExplicitExcludeElements: Element[];
+  sessionExplicitExcludeElements: Element[];
+  fetchedExplicitIncludeElements: Element[];
+  sessionExplicitIncludeElements: Element[];
+  hiddenFetchedExplicitIncludeElements: Element[];
+  hiddenSessionExplicitIncludeElements: Element[];
+}
+
+interface AiSelectorCollections {
+  included?: Element[];
+  excluded?: Element[];
+}
+
+interface AiContentRenderOptions {
+  immutableExcluded?: Set<Element>;
+  consentExcluded?: Set<Element>;
+  excludedByState?: Set<Element>;
+  explicitInclude?: Set<Element>;
+}
+
+interface AiContentRenderCollections {
+  aiContentElements: Element[];
+  hiddenAiContentElements: Element[];
+  selectorExcludedElements: Element[];
+}
+
+interface ExplicitOverlayRefreshContext {
+  immediateFullRender?: boolean;
+  shouldAbort?: () => boolean;
+  target?: Element | null;
+  type?: string;
+}
+
+interface ExplicitToggleRenderOptions {
+  immediate?: boolean;
+}
+
+interface ExplicitToggleMutationOptions {
+  deferMarkingRefresh?: boolean;
+  immediateFullRender?: boolean;
+}
+
+type ElementRectProvider = (element: Element) => RectLike[];
 
 function isElementNode(node: unknown): node is Element {
   if (!node || typeof node !== "object") {
@@ -203,7 +256,7 @@ export const state = {
   consentRootElements: new Set<Element>(),
   initialized: false,
   layerBoxes: new WeakMap(),
-  cachedCollections: null,
+  cachedCollections: null as MarkingCollections | null,
   cachedCollectionsKey: "",
   markingSettleTimers: [],
   paintReachabilityFallbackCount: 0,
@@ -228,7 +281,7 @@ export const state = {
   toggleAckTimer: 0,
   toggleInFlightKey: "",
   toggleQueuedActionKey: "",
-  toggleMutationQueue: [],
+  toggleMutationQueue: [] as ExplicitToggleJob[],
   toggleMutationHandle: 0,
   toggleMutationHandleType: "",
   toggleReconcileGeneration: 0,
@@ -238,7 +291,7 @@ export const state = {
   explicitOverlayRefreshHandle: 0,
   explicitOverlayRefreshHandleType: "",
   explicitOverlayRefreshEntry: null as PageMarkingEntry | null,
-  explicitOverlayRefreshContext: null,
+  explicitOverlayRefreshContext: null as ExplicitOverlayRefreshContext | null,
   pageMotionPause: null,
   pageRevealWarmupId: 0,
   lazyLoadSuppressRestorer: null,
@@ -732,7 +785,9 @@ function getSelectorSetFingerprint(selectorSet) {
   return JSON.stringify(normalized);
 }
 
-function buildMarkingCollectionsCacheKey({ pageUrl = "", selectorSet = null, entry = null } = {}) {
+function buildMarkingCollectionsCacheKey(
+  { pageUrl = "", selectorSet = null, entry = null }: { pageUrl?: string; selectorSet?: unknown; entry?: PageMarkingEntry | null } = {}
+) {
   const entryFingerprint = getEntryFingerprint(entry);
   return [
     pageUrl,
@@ -741,13 +796,10 @@ function buildMarkingCollectionsCacheKey({ pageUrl = "", selectorSet = null, ent
   ].join("\u001f");
 }
 
-// @ts-expect-error
-function resolveMarkingSelectorContext(configValue, entry = null) {
+function resolveMarkingSelectorContext(configValue: Config | null, entry: PageMarkingEntry | null = null): SelectorContext {
   const selectorSet = config.getNewestConfigSelectorSet(configValue).selectorSet;
   const hasAiSelectors = combineAiSelectorSet(selectorSet).length > 0;
-// @ts-expect-error
-  const selectorSuppressedXpaths = Array.isArray(entry && entry.selectorSuppressedXpaths)
-// @ts-expect-error
+  const selectorSuppressedXpaths = Array.isArray(entry?.selectorSuppressedXpaths)
     ? entry.selectorSuppressedXpaths
     : [];
   return {
@@ -7661,7 +7713,7 @@ function recordPageSnapshot(configValue, pageUrl) {
     return;
   }
   const snapshotStartedAt = nowMs();
-  const immutableExcluded = collectImmutableElements();
+  const immutableExcluded = collectImmutableElements() as Set<Element>;
 // @ts-expect-error
   syncPageMarkings(configValue, pageUrl, immutableExcluded);
 // @ts-expect-error
@@ -8605,6 +8657,9 @@ function handleToggleEvent(event) {
   const toggleStartedAt = nowMs();
   syncModifierState(event);
   const mode = getMarkModeFromEvent(event);
+  if (mode !== "include" && mode !== "exclude") {
+    return;
+  }
   event.preventDefault();
   event.stopPropagation();
   if (isPageSaveReconciliationPending(location.href)) {
@@ -9030,15 +9085,14 @@ export function collectExplicitMarkingElements(entry) {
   };
 }
 
-// @ts-expect-error
-function collectEntryExplicitXpathSets(entry) {
+function collectEntryExplicitXpathSets(entry: PageMarkingEntry | null | undefined) {
+  const entryValue = entry && typeof entry === "object" ? entry as PageMarkingEntry : null;
   const excludedXpaths = new Set(
-    collectExcludedXPaths(Array.isArray(entry && entry.xpaths) ? entry.xpaths : [])
+    collectExcludedXPaths(Array.isArray(entryValue?.xpaths) ? entryValue.xpaths : [])
   );
   const includeXpaths = new Set(
-    Array.isArray(entry && entry.includeXpaths)
-// @ts-expect-error
-      ? entry.includeXpaths.filter((xpath) => typeof xpath === "string" && xpath)
+    Array.isArray(entryValue?.includeXpaths)
+      ? entryValue.includeXpaths.filter((xpath): xpath is string => typeof xpath === "string" && Boolean(xpath))
       : []
   );
   return {
@@ -9047,13 +9101,17 @@ function collectEntryExplicitXpathSets(entry) {
   };
 }
 
-// @ts-expect-error
-function splitExplicitMarkingCollectionsBySavedState(currentCollections, savedEntry) {
+function splitExplicitMarkingCollectionsBySavedState(
+  currentCollections: ExplicitLayerCollections | null | undefined,
+  savedEntry: PageMarkingEntry | null | undefined
+): ExplicitLayerSplit {
+  const collections = currentCollections && typeof currentCollections === "object"
+    ? currentCollections as ExplicitLayerCollections
+    : null;
   const savedSets = collectEntryExplicitXpathSets(savedEntry);
-// @ts-expect-error
-  const splitByXpath = (items, savedXpathSet) => {
-    const fetched = [];
-    const session = [];
+  const splitByXpath = (items: Element[] | undefined, savedXpathSet: Set<string>) => {
+    const fetched: Element[] = [];
+    const session: Element[] = [];
     for (const el of Array.isArray(items) ? items : []) {
       const xpath = getXPath(el);
       if (xpath && savedXpathSet.has(xpath)) {
@@ -9066,15 +9124,15 @@ function splitExplicitMarkingCollectionsBySavedState(currentCollections, savedEn
   };
 
   const excludeSplit = splitByXpath(
-    currentCollections && currentCollections.explicitExcludeElements,
+    collections?.explicitExcludeElements,
     savedSets.excludedXpaths
   );
   const includeSplit = splitByXpath(
-    currentCollections && currentCollections.explicitIncludeElements,
+    collections?.explicitIncludeElements,
     savedSets.includeXpaths
   );
   const hiddenIncludeSplit = splitByXpath(
-    currentCollections && currentCollections.hiddenExplicitIncludeElements,
+    collections?.hiddenExplicitIncludeElements,
     savedSets.includeXpaths
   );
 
@@ -9088,21 +9146,19 @@ function splitExplicitMarkingCollectionsBySavedState(currentCollections, savedEn
   };
 }
 
-// @ts-expect-error
-export function collectAiContentElementsForRender(aiCollections, options = {}) {
-// @ts-expect-error
-  const immutableExcluded = options.immutableExcluded || new Set();
-// @ts-expect-error
-  const consentExcluded = options.consentExcluded || new Set();
-// @ts-expect-error
-  const excludedByState = options.excludedByState || new Set();
-// @ts-expect-error
-  const explicitInclude = options.explicitInclude || new Set();
-  const aiContent = new Set();
-  const hiddenAiContent = new Set();
-  const selectorExcludedSet = new Set();
-// @ts-expect-error
-  const isWithinExplicitInclude = (el) => {
+export function collectAiContentElementsForRender(
+  aiCollections: AiSelectorCollections | null | undefined,
+  options: AiContentRenderOptions = {}
+): AiContentRenderCollections {
+  const renderOptions = options as AiContentRenderOptions;
+  const immutableExcluded = renderOptions.immutableExcluded || new Set<Element>();
+  const consentExcluded = renderOptions.consentExcluded || new Set<Element>();
+  const excludedByState = renderOptions.excludedByState || new Set<Element>();
+  const explicitInclude = renderOptions.explicitInclude || new Set<Element>();
+  const aiContent = new Set<Element>();
+  const hiddenAiContent = new Set<Element>();
+  const selectorExcludedSet = new Set<Element>();
+  const isWithinExplicitInclude = (el: Element) => {
     if (!el || explicitInclude.size === 0) {
       return false;
     }
@@ -9114,8 +9170,7 @@ export function collectAiContentElementsForRender(aiCollections, options = {}) {
     return false;
   };
   const shouldSkipAiCollectionElement = (
-// @ts-expect-error
-    el,
+    el: Element | null | undefined,
     { skipExplicitExcludedUnlessIncluded = false } = {}
   ) => {
     if (!el || el.nodeType !== 1) {
@@ -9133,8 +9188,7 @@ export function collectAiContentElementsForRender(aiCollections, options = {}) {
     }
     return false;
   };
-// @ts-expect-error
-  const addAiContentElement = (el) => {
+  const addAiContentElement = (el: Element) => {
     if (shouldSkipAiCollectionElement(el, { skipExplicitExcludedUnlessIncluded: true })) {
       return;
     }
@@ -9168,11 +9222,11 @@ export function collectAiContentElementsForRender(aiCollections, options = {}) {
   };
 }
 
-// @ts-expect-error
-export function collectStoredUnexcludedToggleableDefaultElements(entry) {
-  const items = Array.isArray(entry && entry.xpaths) ? entry.xpaths : [];
-  const elements = [];
-  const seen = new Set();
+export function collectStoredUnexcludedToggleableDefaultElements(entry: PageMarkingEntry | null | undefined): Element[] {
+  const entryValue = entry && typeof entry === "object" ? entry as PageMarkingEntry : null;
+  const items = Array.isArray(entryValue?.xpaths) ? entryValue.xpaths : [];
+  const elements: Element[] = [];
+  const seen = new Set<Element>();
   for (const item of items) {
     if (!item || !item.xpath || item.excluded) {
       continue;
@@ -9194,29 +9248,33 @@ export function collectStoredUnexcludedToggleableDefaultElements(entry) {
 }
 
 function drawExplicitMarkingLayers(
-// @ts-expect-error
-  fetchedExplicitExcludeElements,
-// @ts-expect-error
-  fetchedExplicitIncludeElements,
-// @ts-expect-error
-  hiddenFetchedExplicitIncludeElements,
-// @ts-expect-error
-  sessionExplicitExcludeElements,
-// @ts-expect-error
-  sessionExplicitIncludeElements,
-// @ts-expect-error
-  hiddenSessionExplicitIncludeElements,
-// @ts-expect-error
-  computeElementRects
+  fetchedExplicitExcludeElements: Element[] | undefined,
+  fetchedExplicitIncludeElements: Element[] | undefined,
+  hiddenFetchedExplicitIncludeElements: Element[] | undefined,
+  sessionExplicitExcludeElements: Element[] | undefined,
+  sessionExplicitIncludeElements: Element[] | undefined,
+  hiddenSessionExplicitIncludeElements: Element[] | undefined,
+  computeElementRects: ElementRectProvider
 ) {
+  const fetchedExclude = Array.isArray(fetchedExplicitExcludeElements) ? fetchedExplicitExcludeElements as Element[] : [];
+  const fetchedInclude = Array.isArray(fetchedExplicitIncludeElements) ? fetchedExplicitIncludeElements as Element[] : [];
+  const hiddenFetchedInclude = Array.isArray(hiddenFetchedExplicitIncludeElements)
+    ? hiddenFetchedExplicitIncludeElements as Element[]
+    : [];
+  const sessionExclude = Array.isArray(sessionExplicitExcludeElements) ? sessionExplicitExcludeElements as Element[] : [];
+  const sessionInclude = Array.isArray(sessionExplicitIncludeElements) ? sessionExplicitIncludeElements as Element[] : [];
+  const hiddenSessionInclude = Array.isArray(hiddenSessionExplicitIncludeElements)
+    ? hiddenSessionExplicitIncludeElements as Element[]
+    : [];
+  const computeRects = computeElementRects as ElementRectProvider;
   const drawStartedAt = nowMs();
   const layerSavedExplicitExcludeState = beginLayerRender(state.layers["saved-explicit-exclude"]);
   const layerSavedExplicitIncludeState = beginLayerRender(state.layers["saved-explicit-include"]);
   const layerSessionExplicitExcludeState = beginLayerRender(state.layers["session-explicit-exclude"]);
   const layerSessionExplicitIncludeState = beginLayerRender(state.layers["session-explicit-include"]);
 
-  for (const el of fetchedExplicitExcludeElements) {
-    const rects = computeElementRects(el);
+  for (const el of fetchedExclude) {
+    const rects = computeRects(el);
     if (rects.length > 0) {
       const presentation = getExplicitMarkingPresentation({ type: "exclude" });
       drawMultiRectReuse(
@@ -9230,8 +9288,8 @@ function drawExplicitMarkingLayers(
     }
   }
 
-  for (const el of fetchedExplicitIncludeElements) {
-    const rects = computeElementRects(el);
+  for (const el of fetchedInclude) {
+    const rects = computeRects(el);
     if (rects.length > 0) {
       const presentation = getExplicitMarkingPresentation({ type: "include" });
       drawMultiRectReuse(
@@ -9245,7 +9303,7 @@ function drawExplicitMarkingLayers(
     }
   }
 
-  for (const el of hiddenFetchedExplicitIncludeElements || []) {
+  for (const el of hiddenFetchedInclude) {
     const rects = getGhostRects(el);
     if (rects.length > 0) {
       const presentation = getExplicitMarkingPresentation({ type: "include", ghost: true });
@@ -9260,8 +9318,8 @@ function drawExplicitMarkingLayers(
     }
   }
 
-  for (const el of sessionExplicitExcludeElements) {
-    const rects = computeElementRects(el);
+  for (const el of sessionExclude) {
+    const rects = computeRects(el);
     if (rects.length > 0) {
       const presentation = getExplicitMarkingPresentation({ type: "exclude" });
       drawMultiRectReuse(
@@ -9275,8 +9333,8 @@ function drawExplicitMarkingLayers(
     }
   }
 
-  for (const el of sessionExplicitIncludeElements) {
-    const rects = computeElementRects(el);
+  for (const el of sessionInclude) {
+    const rects = computeRects(el);
     if (rects.length > 0) {
       const presentation = getExplicitMarkingPresentation({ type: "include" });
       drawMultiRectReuse(
@@ -9290,7 +9348,7 @@ function drawExplicitMarkingLayers(
     }
   }
 
-  for (const el of hiddenSessionExplicitIncludeElements || []) {
+  for (const el of hiddenSessionInclude) {
     const rects = getGhostRects(el);
     if (rects.length > 0) {
       const presentation = getExplicitMarkingPresentation({ type: "include", ghost: true });
@@ -9310,10 +9368,10 @@ function drawExplicitMarkingLayers(
   finalizeLayerRender(layerSessionExplicitExcludeState);
   finalizeLayerRender(layerSessionExplicitIncludeState);
   logTogglePerf("draw.explicit-layers", drawStartedAt, {
-    savedExcludeCount: fetchedExplicitExcludeElements.length,
-    savedIncludeCount: fetchedExplicitIncludeElements.length + (hiddenFetchedExplicitIncludeElements || []).length,
-    sessionExcludeCount: sessionExplicitExcludeElements.length,
-    sessionIncludeCount: sessionExplicitIncludeElements.length + (hiddenSessionExplicitIncludeElements || []).length
+    savedExcludeCount: fetchedExclude.length,
+    savedIncludeCount: fetchedInclude.length + hiddenFetchedInclude.length,
+    sessionExcludeCount: sessionExclude.length,
+    sessionIncludeCount: sessionInclude.length + hiddenSessionInclude.length
   });
 }
 
@@ -9324,45 +9382,45 @@ function shouldUseImmediateFullRenderForExplicitToggle(options = {}) {
 }
 
 function applyExplicitStateToCachedCollections(
-// @ts-expect-error
-  cachedCollections,
-// @ts-expect-error
-  explicitExcludeElements,
-// @ts-expect-error
-  explicitIncludeElements
+  cachedCollections: MarkingCollections | null | undefined,
+  explicitExcludeElements: Element[] | undefined,
+  explicitIncludeElements: Element[] | undefined
 ) {
-  if (!cachedCollections) {
+  const collections = cachedCollections && typeof cachedCollections === "object"
+    ? cachedCollections as MarkingCollections
+    : null;
+  if (!collections) {
     return;
   }
-  const explicitExcludeSet = new Set(explicitExcludeElements || []);
+  const explicitExcludeSet = new Set(Array.isArray(explicitExcludeElements) ? explicitExcludeElements as Element[] : []);
   if (explicitExcludeSet.size === 0) {
     return;
   }
-  const explicitIncludeSet = new Set(explicitIncludeElements || []);
-// @ts-expect-error
-  const isProtectedByExplicitInclude = (el) =>
-// @ts-expect-error
+  const explicitIncludeSet = new Set(Array.isArray(explicitIncludeElements) ? explicitIncludeElements as Element[] : []);
+  const isProtectedByExplicitInclude = (el: Element) =>
     explicitIncludeSet.size > 0 && isWithinElementSet(el, explicitIncludeSet);
-// @ts-expect-error
-  const isSuppressedByExplicitExclude = (el) =>
-// @ts-expect-error
+  const isSuppressedByExplicitExclude = (el: Element) =>
     isWithinElementSet(el, explicitExcludeSet) && !isProtectedByExplicitInclude(el);
-// @ts-expect-error
-  const filterSuppressed = (items) =>
+  const filterSuppressed = (items: Element[] | undefined) =>
     Array.isArray(items) ? items.filter((el) => !isSuppressedByExplicitExclude(el)) : [];
 
-  cachedCollections.defaultElements = filterSuppressed(cachedCollections.defaultElements);
-  cachedCollections.aiContentElements = filterSuppressed(cachedCollections.aiContentElements);
-  cachedCollections.hiddenAiContentElements = filterSuppressed(cachedCollections.hiddenAiContentElements);
-  cachedCollections.selectorExcludedElements = filterSuppressed(cachedCollections.selectorExcludedElements);
+  collections.defaultElements = filterSuppressed(collections.defaultElements);
+  collections.aiContentElements = filterSuppressed(collections.aiContentElements);
+  collections.hiddenAiContentElements = filterSuppressed(collections.hiddenAiContentElements);
+  collections.selectorExcludedElements = filterSuppressed(collections.selectorExcludedElements);
 }
 
-// @ts-expect-error
-function refreshExplicitMarkingOverlay(entry, context = null) {
+function refreshExplicitMarkingOverlay(
+  entry: PageMarkingEntry | null | undefined,
+  context: ExplicitOverlayRefreshContext | null = null
+) {
   if (!state.enabled || !state.overlay) {
     return;
   }
   withElementComputationCache(() => {
+    const refreshContext = context && typeof context === "object"
+      ? context as ExplicitOverlayRefreshContext
+      : null;
     const refreshStartedAt = nowMs();
     const pageUrl = location.href;
     const immutableExcluded = collectImmutableElements();
@@ -9392,56 +9450,40 @@ function refreshExplicitMarkingOverlay(entry, context = null) {
     );
     const cachedCollections = state.cachedCollections;
     if (cachedCollections) {
-      const selectorContext = resolveMarkingSelectorContext(state.config, syncedEntry);
+      const selectorContext = resolveMarkingSelectorContext(state.config, syncedEntry) as SelectorContext;
       const consentExcluded = collectConsentExcludedElements();
-// @ts-expect-error
-      const aiContentSet = new Set(cachedCollections.aiContentElements || []);
-// @ts-expect-error
-      const hiddenAiContentSet = new Set(cachedCollections.hiddenAiContentElements || []);
-      const hiddenStoredExplicitExclude = new Set(hiddenExplicitExcludeElements || []);
-// @ts-expect-error
+      const aiContentSet = new Set<Element>(cachedCollections.aiContentElements || []);
+      const hiddenAiContentSet = new Set<Element>(cachedCollections.hiddenAiContentElements || []);
+      const hiddenStoredExplicitExclude = new Set<Element>(hiddenExplicitExcludeElements || []);
       cachedCollections.explicitExcludeElements = explicitExcludeElements;
-// @ts-expect-error
       cachedCollections.explicitIncludeElements = explicitIncludeElements;
-// @ts-expect-error
       cachedCollections.hiddenExplicitIncludeElements = hiddenExplicitIncludeElements;
-// @ts-expect-error
       cachedCollections.fetchedExplicitExcludeElements = explicitLayerSplit.fetchedExplicitExcludeElements;
-// @ts-expect-error
       cachedCollections.fetchedExplicitIncludeElements = explicitLayerSplit.fetchedExplicitIncludeElements;
-// @ts-expect-error
       cachedCollections.hiddenFetchedExplicitIncludeElements = explicitLayerSplit.hiddenFetchedExplicitIncludeElements;
-// @ts-expect-error
       cachedCollections.sessionExplicitExcludeElements = explicitLayerSplit.sessionExplicitExcludeElements;
-// @ts-expect-error
       cachedCollections.sessionExplicitIncludeElements = explicitLayerSplit.sessionExplicitIncludeElements;
-// @ts-expect-error
       cachedCollections.hiddenSessionExplicitIncludeElements = explicitLayerSplit.hiddenSessionExplicitIncludeElements;
-// @ts-expect-error
-      if (context && context.immediateFullRender === false) {
+      if (refreshContext && refreshContext.immediateFullRender === false) {
         applyExplicitStateToCachedCollections(
           cachedCollections,
           explicitLayerSplit.sessionExplicitExcludeElements,
           explicitLayerSplit.sessionExplicitIncludeElements
         );
       }
-// @ts-expect-error
-      cachedCollections.hardElements = Array.from(new Set([
-        ...immutableExcluded,
-        ...hiddenStoredExplicitExclude
-      ])).filter((el) =>
-// @ts-expect-error
+      const hardElements = [
+        ...Array.from(immutableExcluded as Set<Element>),
+        ...Array.from(hiddenStoredExplicitExclude as Set<Element>)
+      ] as Element[];
+      cachedCollections.hardElements = Array.from(new Set<Element>(hardElements)).filter((el) =>
         !isWithinElementSet(el, consentExcluded)
       );
-// @ts-expect-error
       cachedCollections.aiAnimatedExplicitIncludeElements =
         explicitLayerSplit.sessionExplicitIncludeElements.filter((el) => aiContentSet.has(el));
-// @ts-expect-error
       cachedCollections.hiddenAiAnimatedExplicitIncludeElements =
         explicitLayerSplit.hiddenSessionExplicitIncludeElements.filter((el) => hiddenAiContentSet.has(el));
       state.cachedCollectionsKey = buildMarkingCollectionsCacheKey({
         pageUrl,
-// @ts-expect-error
         selectorSet: selectorContext.selectorSet,
         entry: syncedEntry
       });
@@ -9459,24 +9501,27 @@ function refreshExplicitMarkingOverlay(entry, context = null) {
   });
 }
 
-// @ts-expect-error
-async function refreshExplicitMarkingOverlayAsync(entry, context = null) {
+async function refreshExplicitMarkingOverlayAsync(
+  entry: PageMarkingEntry | null | undefined,
+  context: ExplicitOverlayRefreshContext | null = null
+) {
   if (!state.enabled || !state.overlay) {
     return { ok: false, aborted: false };
   }
   return withElementComputationCacheAsync(async () => {
+    const refreshContext = context && typeof context === "object"
+      ? context as ExplicitOverlayRefreshContext
+      : null;
     const refreshStartedAt = nowMs();
     const pageUrl = location.href;
-    const immutableExcluded = collectImmutableElements();
+    const immutableExcluded = collectImmutableElements() as Set<Element>;
     let syncedEntry = entry;
     if (state.config && pageUrl && hasPageMarkingEntry(state.config, pageUrl)) {
       const syncResult = await syncPageMarkingsAsync(state.config, pageUrl, immutableExcluded, {
         allowCreate: true,
         persist: true,
-// @ts-expect-error
-        shouldAbort: context && typeof context.shouldAbort === "function"
-// @ts-expect-error
-          ? context.shouldAbort
+        shouldAbort: refreshContext && typeof refreshContext.shouldAbort === "function"
+          ? refreshContext.shouldAbort
           : null
       });
       if (syncResult && syncResult.aborted) {
@@ -9485,8 +9530,7 @@ async function refreshExplicitMarkingOverlayAsync(entry, context = null) {
       syncedEntry = syncResult.entry || syncedEntry;
       state.currentPageEntry = syncedEntry || null;
     }
-// @ts-expect-error
-    if (context && typeof context.shouldAbort === "function" && context.shouldAbort()) {
+    if (refreshContext && typeof refreshContext.shouldAbort === "function" && refreshContext.shouldAbort()) {
       return { ok: false, aborted: true };
     }
     const {
@@ -9506,56 +9550,40 @@ async function refreshExplicitMarkingOverlayAsync(entry, context = null) {
     );
     const cachedCollections = state.cachedCollections;
     if (cachedCollections) {
-      const selectorContext = resolveMarkingSelectorContext(state.config, syncedEntry);
+      const selectorContext = resolveMarkingSelectorContext(state.config, syncedEntry) as SelectorContext;
       const consentExcluded = collectConsentExcludedElements();
-// @ts-expect-error
-      const aiContentSet = new Set(cachedCollections.aiContentElements || []);
-// @ts-expect-error
-      const hiddenAiContentSet = new Set(cachedCollections.hiddenAiContentElements || []);
-      const hiddenStoredExplicitExclude = new Set(hiddenExplicitExcludeElements || []);
-// @ts-expect-error
+      const aiContentSet = new Set<Element>(cachedCollections.aiContentElements || []);
+      const hiddenAiContentSet = new Set<Element>(cachedCollections.hiddenAiContentElements || []);
+      const hiddenStoredExplicitExclude = new Set<Element>(hiddenExplicitExcludeElements || []);
       cachedCollections.explicitExcludeElements = explicitExcludeElements;
-// @ts-expect-error
       cachedCollections.explicitIncludeElements = explicitIncludeElements;
-// @ts-expect-error
       cachedCollections.hiddenExplicitIncludeElements = hiddenExplicitIncludeElements;
-// @ts-expect-error
       cachedCollections.fetchedExplicitExcludeElements = explicitLayerSplit.fetchedExplicitExcludeElements;
-// @ts-expect-error
       cachedCollections.fetchedExplicitIncludeElements = explicitLayerSplit.fetchedExplicitIncludeElements;
-// @ts-expect-error
       cachedCollections.hiddenFetchedExplicitIncludeElements = explicitLayerSplit.hiddenFetchedExplicitIncludeElements;
-// @ts-expect-error
       cachedCollections.sessionExplicitExcludeElements = explicitLayerSplit.sessionExplicitExcludeElements;
-// @ts-expect-error
       cachedCollections.sessionExplicitIncludeElements = explicitLayerSplit.sessionExplicitIncludeElements;
-// @ts-expect-error
       cachedCollections.hiddenSessionExplicitIncludeElements = explicitLayerSplit.hiddenSessionExplicitIncludeElements;
-// @ts-expect-error
-      if (context && context.immediateFullRender === false) {
+      if (refreshContext && refreshContext.immediateFullRender === false) {
         applyExplicitStateToCachedCollections(
           cachedCollections,
           explicitLayerSplit.sessionExplicitExcludeElements,
           explicitLayerSplit.sessionExplicitIncludeElements
         );
       }
-// @ts-expect-error
-      cachedCollections.hardElements = Array.from(new Set([
-        ...immutableExcluded,
-        ...hiddenStoredExplicitExclude
-      ])).filter((el) =>
-// @ts-expect-error
+      const hardElements = [
+        ...Array.from(immutableExcluded as Set<Element>),
+        ...Array.from(hiddenStoredExplicitExclude as Set<Element>)
+      ] as Element[];
+      cachedCollections.hardElements = Array.from(new Set<Element>(hardElements)).filter((el) =>
         !isWithinElementSet(el, consentExcluded)
       );
-// @ts-expect-error
       cachedCollections.aiAnimatedExplicitIncludeElements =
         explicitLayerSplit.sessionExplicitIncludeElements.filter((el) => aiContentSet.has(el));
-// @ts-expect-error
       cachedCollections.hiddenAiAnimatedExplicitIncludeElements =
         explicitLayerSplit.hiddenSessionExplicitIncludeElements.filter((el) => hiddenAiContentSet.has(el));
       state.cachedCollectionsKey = buildMarkingCollectionsCacheKey({
         pageUrl,
-// @ts-expect-error
         selectorSet: selectorContext.selectorSet,
         entry: syncedEntry
       });
@@ -9574,9 +9602,9 @@ async function refreshExplicitMarkingOverlayAsync(entry, context = null) {
   });
 }
 
-function scheduleExplicitToggleFullRender(options = {}) {
-// @ts-expect-error
-  const immediate = options.immediate !== false;
+function scheduleExplicitToggleFullRender(options: ExplicitToggleRenderOptions = {}) {
+  const renderOptions = options as ExplicitToggleRenderOptions;
+  const immediate = renderOptions.immediate !== false;
   if (immediate && state.explicitFullRenderTimer) {
     extensionClearTimeout(state.explicitFullRenderTimer);
     state.explicitFullRenderTimer = 0;
@@ -9595,9 +9623,11 @@ function scheduleExplicitToggleFullRender(options = {}) {
   }, EXPLICIT_TOGGLE_DEFERRED_FULL_RENDER_DELAY_MS);
 }
 
-// @ts-expect-error
-export function scheduleExplicitOverlayRefresh(entry, context = null) {
-  state.explicitOverlayRefreshEntry = entry;
+export function scheduleExplicitOverlayRefresh(
+  entry: PageMarkingEntry | null | undefined,
+  context: ExplicitOverlayRefreshContext | null = null
+) {
+  state.explicitOverlayRefreshEntry = entry ?? null;
   state.explicitOverlayRefreshContext = context;
   if (state.explicitOverlayRefreshScheduled) {
     return;
@@ -9617,7 +9647,6 @@ export function scheduleExplicitOverlayRefresh(entry, context = null) {
     const coalesceStartedAt = nowMs();
     refreshExplicitMarkingOverlay(pendingEntry, pendingContext);
     scheduleExplicitToggleFullRender({
-// @ts-expect-error
       immediate: !pendingContext || pendingContext.immediateFullRender !== false
     });
     logTogglePerf("toggle.coalesced-refresh", coalesceStartedAt);
@@ -9653,40 +9682,45 @@ function cancelExplicitOverlayRefresh() {
   state.explicitOverlayRefreshContext = null;
 }
 
-// @ts-expect-error
-function scheduleAsyncExplicitToggleReconcile(entry, context = null) {
+function scheduleAsyncExplicitToggleReconcile(
+  entry: PageMarkingEntry | null | undefined,
+  context: ExplicitOverlayRefreshContext | null = null
+) {
+  const reconcileContext = context && typeof context === "object"
+    ? context as ExplicitOverlayRefreshContext
+    : null;
   const generation = state.toggleReconcileGeneration + 1;
   state.toggleReconcileGeneration = generation;
   const runReconcile = async () => {
-// @ts-expect-error
     const result = await refreshExplicitMarkingOverlayAsync(entry, {
-      ...(context || {}),
+      ...(reconcileContext || {}),
       shouldAbort: () => generation !== state.toggleReconcileGeneration
     });
     if (!result || result.aborted || generation !== state.toggleReconcileGeneration) {
       return;
     }
     scheduleExplicitToggleFullRender({
-// @ts-expect-error
-      immediate: !context || context.immediateFullRender !== false
+      immediate: !reconcileContext || reconcileContext.immediateFullRender !== false
     });
   };
   runReconcile().catch(() => {});
 }
 
-// @ts-expect-error
-function completeExplicitToggle(entry, target, type, mutationStartedAt, options = {}) {
+function completeExplicitToggle(
+  entry: PageMarkingEntry | null | undefined,
+  target: Element | null,
+  type: string,
+  mutationStartedAt: number,
+  options: ExplicitToggleMutationOptions = {}
+) {
   logTogglePerf("toggle.mutation", mutationStartedAt, {
     type,
     hasTarget: Boolean(target)
   });
   const immediateFullRender = Object.prototype.hasOwnProperty.call(options, "immediateFullRender")
-// @ts-expect-error
     ? Boolean(options.immediateFullRender)
     : shouldUseImmediateFullRenderForExplicitToggle({ target, type });
-// @ts-expect-error
-  if (options && options.deferMarkingRefresh && !immediateFullRender) {
-// @ts-expect-error
+  if (options.deferMarkingRefresh && !immediateFullRender) {
     scheduleAsyncExplicitToggleReconcile(entry, {
       target,
       type,
@@ -9697,7 +9731,6 @@ function completeExplicitToggle(entry, target, type, mutationStartedAt, options 
     // appears immediately. The async reconcile path delayed the visible mark by
     // up to ~2s on large pages (the explicit layer only drew after the chunked
     // document re-scan), which made clicks feel unregistered (issue #6).
-// @ts-expect-error
     scheduleExplicitOverlayRefresh(entry, {
       target,
       type,
@@ -9724,37 +9757,29 @@ function scheduleQueuedToggleMutationDrain() {
       return;
     }
     const applyStartedAt = nowMs();
-// @ts-expect-error
     state.toggleInFlightKey = nextJob.key || "";
     try {
-// @ts-expect-error
       if (!nextJob.target || nextJob.target.nodeType !== 1 || nextJob.target.isConnected === false) {
         return;
       }
-// @ts-expect-error
       if (nextJob.mode === "include") {
-// @ts-expect-error
         toggleExplicitInclude(nextJob.target, { deferMarkingRefresh: true, immediateFullRender: true });
       } else {
-// @ts-expect-error
         toggleExplicitExclude(nextJob.target, { deferMarkingRefresh: true, immediateFullRender: true });
       }
       if (state.toggleInFlightKey) {
         state.lastToggleActionKey = state.toggleInFlightKey;
-// @ts-expect-error
         state.lastToggleActionAt = Number(nextJob.interactionNow) || nowMs();
       }
     } finally {
       state.toggleInFlightKey = "";
       logTogglePerf("toggle.apply", applyStartedAt, {
-// @ts-expect-error
         mode: nextJob.mode,
         queued: true,
         remainingQueue: Array.isArray(state.toggleMutationQueue) ? state.toggleMutationQueue.length : 0
       });
       if (Array.isArray(state.toggleMutationQueue) && state.toggleMutationQueue.length) {
         const pendingJob = state.toggleMutationQueue[state.toggleMutationQueue.length - 1];
-// @ts-expect-error
         state.toggleQueuedActionKey = pendingJob && pendingJob.key ? pendingJob.key : "";
         scheduleQueuedToggleMutationDrain();
       } else {
@@ -9775,17 +9800,16 @@ function scheduleQueuedToggleMutationDrain() {
   runDrain();
 }
 
-// @ts-expect-error
-function scheduleQueuedToggleMutation(job) {
-  if (!job || !job.target || (job.mode !== "include" && job.mode !== "exclude")) {
+function scheduleQueuedToggleMutation(job: ExplicitToggleJob | null | undefined) {
+  const nextJob = job && typeof job === "object" ? job as ExplicitToggleJob : null;
+  if (!nextJob || !nextJob.target || (nextJob.mode !== "include" && nextJob.mode !== "exclude")) {
     return;
   }
   if (!Array.isArray(state.toggleMutationQueue)) {
     state.toggleMutationQueue = [];
   }
-// @ts-expect-error
-  state.toggleMutationQueue.push(job);
-  state.toggleQueuedActionKey = job.key || state.toggleQueuedActionKey;
+  state.toggleMutationQueue.push(nextJob);
+  state.toggleQueuedActionKey = nextJob.key || state.toggleQueuedActionKey;
   scheduleQueuedToggleMutationDrain();
 }
 
@@ -9829,10 +9853,9 @@ function renderHighlightsInner() {
   state.currentPageUrl = location.href;
   const pageUrl = location.href;
   const latestEntry = findPageMarkingEntry(state.config, pageUrl);
-  const latestSelectorContext = resolveMarkingSelectorContext(state.config, latestEntry);
+  const latestSelectorContext = resolveMarkingSelectorContext(state.config, latestEntry) as SelectorContext;
   const nextCollectionsCacheKey = buildMarkingCollectionsCacheKey({
     pageUrl,
-// @ts-expect-error
     selectorSet: latestSelectorContext.selectorSet,
     entry: latestEntry
   });
@@ -9846,7 +9869,7 @@ function renderHighlightsInner() {
   }
 
   const rebuildStartedAt = nowMs();
-  const immutableExcluded = collectImmutableElements();
+  const immutableExcluded = collectImmutableElements() as Set<Element>;
   const selectorSetForSeed = latestSelectorContext.selectorSet;
   const hasAiSelectors = latestSelectorContext.hasAiSelectors;
   const existingPageEntry = findPageMarkingEntry(state.config, pageUrl);
@@ -9897,15 +9920,15 @@ function renderHighlightsInner() {
   const selectorSuppressedXpaths = selectorContext.selectorSuppressedXpaths;
   const excludedByState = collectXPathElements(
     collectExcludedXPaths(entry.xpaths)
-  );
+  ) as Set<Element>;
   const explicitExclude = collectXPathElements(
     collectExplicitExcludedXPaths(entry.xpaths)
-  );
-  const explicitInclude = collectXPathElements(entry.includeXpaths);
-  const consentExcluded = collectConsentExcludedElements();
-  let aiContent = new Set();
-  let hiddenAiContent = new Set();
-  const selectorExcludedSet = new Set();
+  ) as Set<Element>;
+  const explicitInclude = collectXPathElements(entry.includeXpaths) as Set<Element>;
+  const consentExcluded = collectConsentExcludedElements() as Set<Element>;
+  let aiContent = new Set<Element>();
+  let hiddenAiContent = new Set<Element>();
+  const selectorExcludedSet = new Set<Element>();
   const {
     explicitExcludeElements: filteredExplicitExclude,
     hiddenExplicitExcludeElements: hiddenStoredExplicitExclude,
@@ -9922,14 +9945,14 @@ function renderHighlightsInner() {
     getSavedPageEntry(pageUrl)
   );
   const savedEntryExplicitSets = collectEntryExplicitXpathSets(getSavedPageEntry(pageUrl));
-  const aiSuppressedBySessionExcluded = new Set([
+  const aiSuppressedBySessionExcluded = new Set<Element>([
     ...explicitLayerSplit.sessionExplicitExcludeElements,
     ...hiddenStoredExplicitExclude.filter((el) => {
       const xpath = getXPath(el);
       return Boolean(xpath && savedEntryExplicitSets.excludedXpaths.has(xpath) === false);
     })
   ]);
-  const sessionExplicitIncludeForAi = new Set([
+  const sessionExplicitIncludeForAi = new Set<Element>([
     ...explicitLayerSplit.sessionExplicitIncludeElements,
     ...explicitLayerSplit.hiddenSessionExplicitIncludeElements
   ]);
@@ -9939,7 +9962,7 @@ function renderHighlightsInner() {
       preserveExplicitIncludedDescendants: true,
       includeAllExplicitMatches: true,
       suppressedXpaths: selectorSuppressedXpaths
-    });
+    }) as AiSelectorCollections;
     const aiRenderCollections = collectAiContentElementsForRender(aiCollections, {
       immutableExcluded,
       consentExcluded,
@@ -9961,7 +9984,7 @@ function renderHighlightsInner() {
   const storedUnexcludedToggleableDefaultElements =
     collectStoredUnexcludedToggleableDefaultElements(entry);
 
-  const hardExcludedSet = new Set([
+  const hardExcludedSet = new Set<Element>([
     ...immutableExcluded,
     ...hiddenStoredExplicitExclude
   ]);
@@ -9976,11 +9999,10 @@ function renderHighlightsInner() {
     selectorExcluded: selectorExcludedSet,
     hiddenStoredExplicitExclude,
     unexcludedToggleableDefault: new Set(storedUnexcludedToggleableDefaultElements)
-  });
+  }) as Element[];
 
   const collections = {
     hardElements: Array.from(hardExcludedSet).filter((el) =>
-// @ts-expect-error
       !isWithinElementSet(el, consentExcluded)
     ),
     explicitExcludeElements: filteredExplicitExclude,
@@ -9998,12 +10020,10 @@ function renderHighlightsInner() {
     hiddenAiContentElements: Array.from(hiddenAiContent),
     selectorExcludedElements: Array.from(selectorExcludedSet),
     defaultElements: defaultTargets
-  };
-// @ts-expect-error
+  } satisfies MarkingCollections;
   state.cachedCollections = collections;
   state.cachedCollectionsKey = buildMarkingCollectionsCacheKey({
     pageUrl,
-// @ts-expect-error
     selectorSet: selectorSetForMarking,
     entry
   });
@@ -10021,8 +10041,10 @@ function renderHighlightsInner() {
   logTogglePerf("render.total", renderStartedAt, { pageUrl });
 }
 
-// @ts-expect-error
-function getRectsInViewport(el) {
+function getRectsInViewport(el: Element | null | undefined): RectLike[] {
+  if (!isElementNode(el)) {
+    return [];
+  }
   const visibleRects = collectRectsFromClientRects(el.getClientRects());
   if (visibleRects.length > 0) {
     return filterPaintReachableRects(el, visibleRects);
@@ -10033,21 +10055,31 @@ function getRectsInViewport(el) {
   return [];
 }
 
-// @ts-expect-error
-function getGhostRects(el) {
-  if (!el || el.nodeType !== 1) {
+function getGhostRects(el: Element | null | undefined): RectLike[] {
+  if (!isElementNode(el)) {
     return [];
   }
   return collectRectsFromClientRects(el.getClientRects());
 }
 
-// @ts-expect-error
-function repositionHighlights(collections) {
-  drawCollections(collections, getRectsInViewport);
+function repositionHighlights(collections: MarkingCollections | null | undefined) {
+  const cachedCollections = collections && typeof collections === "object"
+    ? collections as MarkingCollections
+    : null;
+  if (!cachedCollections) {
+    return;
+  }
+  drawCollections(cachedCollections, getRectsInViewport);
 }
 
-// @ts-expect-error
-function drawCollections(collections, getRects) {
+function drawCollections(
+  collections: MarkingCollections | null | undefined,
+  getRects: ElementRectProvider
+) {
+  if (!collections || typeof collections !== "object") {
+    return;
+  }
+  const getRectsForElement = getRects as ElementRectProvider;
   const layerHardState = beginLayerRender(state.layers["hard"]);
   const layerSavedExplicitExcludeState = beginLayerRender(state.layers["saved-explicit-exclude"]);
   const layerSavedExplicitIncludeState = beginLayerRender(state.layers["saved-explicit-include"]);
@@ -10055,10 +10087,10 @@ function drawCollections(collections, getRects) {
   const layerSessionExplicitExcludeState = beginLayerRender(state.layers["session-explicit-exclude"]);
   const layerSessionExplicitIncludeState = beginLayerRender(state.layers["session-explicit-include"]);
   const layerDefaultState = beginLayerRender(state.layers["default"]);
-  const markedElements = new Set();
+  const markedElements = new Set<Element>();
 
   for (const el of collections.hardElements) {
-    const rects = getRects(el);
+    const rects = getRectsForElement(el);
     if (rects.length > 0) {
       drawMultiRectReuse(
         layerHardState, rects, "uf-hard-locked", el, "immutable", markedElements
@@ -10067,7 +10099,7 @@ function drawCollections(collections, getRects) {
   }
 
   for (const el of collections.fetchedExplicitExcludeElements || []) {
-    const rects = getRects(el);
+    const rects = getRectsForElement(el);
     if (rects.length > 0) {
       const presentation = getExplicitMarkingPresentation({ type: "exclude" });
       drawMultiRectReuse(
@@ -10082,7 +10114,7 @@ function drawCollections(collections, getRects) {
   }
 
   for (const el of collections.fetchedExplicitIncludeElements || []) {
-    const rects = getRects(el);
+    const rects = getRectsForElement(el);
     if (rects.length > 0) {
       const presentation = getExplicitMarkingPresentation({ type: "include" });
       drawMultiRectReuse(
@@ -10112,7 +10144,7 @@ function drawCollections(collections, getRects) {
   }
 
   for (const el of collections.aiContentElements) {
-    const rects = getRects(el);
+    const rects = getRectsForElement(el);
     if (rects.length > 0) {
       drawMultiRectReuse(
         layerAiContentState, rects, "uf-ai-content", el, "ai-content", markedElements
@@ -10135,7 +10167,7 @@ function drawCollections(collections, getRects) {
   }
 
   for (const el of collections.aiAnimatedExplicitIncludeElements || []) {
-    const rects = getRects(el);
+    const rects = getRectsForElement(el);
     if (rects.length > 0) {
       drawMultiRectReuse(
         layerAiContentState,
@@ -10163,7 +10195,7 @@ function drawCollections(collections, getRects) {
   }
 
   for (const el of collections.sessionExplicitExcludeElements || []) {
-    const rects = getRects(el);
+    const rects = getRectsForElement(el);
     if (rects.length > 0) {
       const presentation = getExplicitMarkingPresentation({ type: "exclude" });
       drawMultiRectReuse(
@@ -10178,7 +10210,7 @@ function drawCollections(collections, getRects) {
   }
 
   for (const el of collections.sessionExplicitIncludeElements || []) {
-    const rects = getRects(el);
+    const rects = getRectsForElement(el);
     if (rects.length > 0) {
       const presentation = getExplicitMarkingPresentation({ type: "include" });
       drawMultiRectReuse(
@@ -10208,7 +10240,7 @@ function drawCollections(collections, getRects) {
   }
 
   for (const el of collections.defaultElements) {
-    const rects = getRects(el);
+    const rects = getRectsForElement(el);
     if (rects.length > 0) {
       drawMultiRectReuse(
         layerDefaultState, rects, "uf-default", el, "default", markedElements

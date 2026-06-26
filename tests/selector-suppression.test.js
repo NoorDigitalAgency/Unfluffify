@@ -112,7 +112,7 @@ test("marking mode keeps selector-matched elements off the default layer without
 
   assert.match(
     coreSource,
-    /export function collectAiContentElementsForRender\(aiCollections, options = \{\}\) \{[\s\S]*?for \(const el of aiCollections\?\.excluded \|\| \[\]\) \{/
+    /export function collectAiContentElementsForRender\(\s*aiCollections(?:\s*:\s*[^,]+)?,\s*options(?:\s*:\s*[^=]+)? = \{\}\s*\)(?:: [^{]+)? \{[\s\S]*?for \(const el of aiCollections\?\.excluded \|\| \[\]\) \{/
   );
   assert.match(
     coreSource,

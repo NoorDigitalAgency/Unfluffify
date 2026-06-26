@@ -291,7 +291,7 @@ Validate: `pnpm prepare` + `pnpm build`; diff `.output/chrome-mv3` file list and
 
 ## Progress checkpoint
 
-- The latest `src/content/core.ts` utility/visibility/cache checkpoint is complete: the extension-timer capture helpers, element-computation cache lifecycle, visibility/geometry/reachability helpers, textual/immutable detection helpers, consent-root helpers, explicit-parent collection helpers, and several explicit-overlay/update flows now use concrete DOM/cache/state types instead of broad helper suppressions.
-- The coupled source-contract tests were relaxed only enough to tolerate the new TypeScript annotations while preserving the same wiring assertions, and the small `src/content-main.ts` follow-up keeps immutable-exclusion traversal boolean-safe at the typed `core` seam.
-- Current suppression count is 838 total; the remaining tracked files are `src/content/core.ts` (622), `src/popup.ts` (111), `src/content-main.ts` (25), and the exempt eval bridge pair (`src/common/page-motion-freeze-bridge.ts` 43, `src/common/page-motion-freeze-control.ts` 37).
-- Next immediate step: continue the remaining `src/content/core.ts` reconcile/render tranche before returning to the smaller `src/popup.ts` tail and the final `src/content-main.ts` cleanup.
+- The latest `src/content/core.ts` explicit-overlay/render checkpoint is complete: saved/session explicit-layer splitting, AI selector render filtering, cached explicit-state application, explicit overlay refresh/reconcile scheduling, queued toggle mutation jobs, and draw/reposition helpers now use concrete collection/context types instead of broad helper suppressions.
+- The coupled source-contract tests were relaxed only enough to tolerate the new TypeScript annotations for cache-key, explicit-overlay, and queued-toggle helpers while preserving the same wiring assertions.
+- Current suppression count is 739 total; the remaining tracked files are `src/content/core.ts` (523), `src/popup.ts` (111), `src/content-main.ts` (25), and the exempt eval bridge pair (`src/common/page-motion-freeze-bridge.ts` 43, `src/common/page-motion-freeze-control.ts` 37).
+- Next immediate step: continue the remaining `src/content/core.ts` mid-file/default-layer hotspots before returning to the smaller `src/popup.ts` tail and the final `src/content-main.ts` cleanup.
