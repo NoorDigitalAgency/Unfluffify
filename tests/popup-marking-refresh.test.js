@@ -27,11 +27,11 @@ test("explicit include and exclude removals use the quiet refresh path", () => {
 
   assert.match(
     source,
-    /async function handleExplicitExcludeRemove\(xpath\) \{[\s\S]*?await refreshUi\(\{ useBusyOverlay: false, skipPropertyLockFetch: true \}\);[\s\S]*?\}/
+    /async function handleExplicitExcludeRemove\(xpath(?:\s*:\s*[^)]*)?\) \{[\s\S]*?await refreshUi\(\{ useBusyOverlay: false, skipPropertyLockFetch: true \}\);[\s\S]*?\}/
   );
   assert.match(
     source,
-    /async function handleExplicitIncludeRemove\(xpath\) \{[\s\S]*?await refreshUi\(\{ useBusyOverlay: false, skipPropertyLockFetch: true \}\);[\s\S]*?\}/
+    /async function handleExplicitIncludeRemove\(xpath(?:\s*:\s*[^)]*)?\) \{[\s\S]*?await refreshUi\(\{ useBusyOverlay: false, skipPropertyLockFetch: true \}\);[\s\S]*?\}/
   );
 });
 
@@ -157,7 +157,7 @@ test("popup mirrors the cross-property editor cooldown from initial tab state an
 test("desktop preview is a separate popup section that disables marking entry while active", () => {
   const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
   const uiSource = readFileSync(new URL("../src/popup/ui.ts", import.meta.url), "utf8");
-  const desktopToggleStart = popupSource.indexOf("async function handleDesktopPreviewEnabledToggle(event) {");
+  const desktopToggleStart = popupSource.indexOf("async function handleDesktopPreviewEnabledToggle(");
   const desktopToggleEnd = popupSource.indexOf("function handleDeviceScaleInput", desktopToggleStart);
   assert.ok(desktopToggleStart >= 0 && desktopToggleEnd > desktopToggleStart);
   const desktopToggleBody = popupSource.slice(desktopToggleStart, desktopToggleEnd);
@@ -219,7 +219,7 @@ test("preview exit restores a captured marking-session snapshot before payload f
 
   assert.match(
     popupSource,
-    /function buildPreviewViewState\(previewState\) \{[\s\S]*?previewWillRestoreMarking: Boolean\([\s\S]*?\(previewState\.previousEnabled \|\| previewState\.restoreMarkingOnExit\)/
+    /function buildPreviewViewState\(previewState(?:\s*:\s*[^)]*)?\)(?:\s*:\s*[^{]+)? \{[\s\S]*?previewWillRestoreMarking: Boolean\([\s\S]*?\(previewState\.previousEnabled \|\| previewState\.restoreMarkingOnExit\)/
   );
   assert.match(
     popupSource,
@@ -343,7 +343,7 @@ test("periodic page-type refresh stays quiet unless candidates change", () => {
 test("changed page-type refresh alerts before rendering the warning notice", () => {
   const source = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
   const refreshBody = source.match(
-    /async function refreshUiInner\(options = \{\}\) \{([\s\S]*?)\n\}\n\nasync function maybeResumePersistedAiRun/
+    /async function refreshUiInner\(options(?:\s*:\s*[^)]*)? = \{\}\) \{([\s\S]*?)\n\}\n\nasync function maybeResumePersistedAiRun/
   )[1];
 
   assert.match(
@@ -511,7 +511,7 @@ test("token validation delegates the auth transport to background", () => {
   const backgroundSource = readFileSync(new URL("../src/background.ts", import.meta.url), "utf8");
   const networkCoreSource = readFileSync(new URL("../src/background/network-core.ts", import.meta.url), "utf8");
   const validateBody = popupSource.match(
-    /async function validateStoredToken\(options = \{\}\) \{([\s\S]*?)\n\}\n\nasync function clearFocusedElement/
+    /async function validateStoredToken\(options(?:\s*:\s*[^)]*)? = \{\}\) \{([\s\S]*?)\n\}\n\nasync function clearFocusedElement/
   )[1];
 
   assert.match(backgroundSource, /from "\.\/background\/network-core\.js"/);
@@ -788,7 +788,7 @@ test("popup restores spinner state from background current state", () => {
 test("tab reload keeps the inspection curtain active while enabled pages re-inspect", () => {
   const source = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
 
-  assert.match(source, /async function waitForEnableMarkingInspectionToSettle\(tabId, baseUrl\) \{/);
+  assert.match(source, /async function waitForEnableMarkingInspectionToSettle\(\s*tabId(?:\s*:\s*[^,)]+)?,\s*baseUrl(?:\s*:\s*[^)]+)?\)(?:\s*:\s*[^{]+)? \{/);
   assert.match(source, /type: "getInspectionStatus"/);
   assert.match(source, /type: "getPageDraftStatus",\s*\n\s*baseUrl/);
   assert.match(source, /let responseObserved = false;/);
@@ -801,13 +801,13 @@ test("tab reload keeps the inspection curtain active while enabled pages re-insp
   assert.match(source, /popupNavigationInspectionOverlayTabId === currentTabId/);
   assert.match(source, /let contentInspectionPending = Boolean\(/);
   assert.doesNotMatch(source, /restoreInspectionPending/);
-  assert.match(source, /function beginNavigationInspectionOverlay\(tabId\) \{/);
+  assert.match(source, /function beginNavigationInspectionOverlay\(tabId(?:\s*:\s*[^)]*)?\)(?:\s*:\s*[^{]+)? \{/);
   assert.match(source, /function endNavigationInspectionOverlay\(tabId = popupNavigationInspectionOverlayTabId\) \{/);
   assert.match(
     source,
     /function scheduleNavigationInspectionSettlePoll\(tabId(?:: [^,)]+)?, baseUrl(?:: [^,)]+)?\)(?:: [^{]+)? \{/
   );
-  assert.match(source, /function clearNavigationInspectionSettlePollsExcept\(tabIdToKeep = null\) \{/);
+  assert.match(source, /function clearNavigationInspectionSettlePollsExcept\(tabIdToKeep(?:\s*:\s*[^=]+)? = null\) \{/);
   assert.match(source, /const popupNavigationInspectionSettlePollByTabId = new Map(?:<[^;]+>)?\(\);/);
 
   const onUpdatedBlock = source.match(
@@ -827,7 +827,7 @@ test("tab reload keeps the inspection curtain active while enabled pages re-insp
   assert.doesNotMatch(onUpdatedBlock, /finally \{[\s\S]*?endNavigationInspectionOverlay\(tabId\);/);
 
   const beginBody = source.match(
-    /function beginNavigationInspectionOverlay\(tabId\) \{([\s\S]*?)\n\}/
+    /function beginNavigationInspectionOverlay\(tabId(?:\s*:\s*[^)]*)?\)(?:\s*:\s*[^{]+)? \{([\s\S]*?)\n\}/
   )[1];
   assert.match(beginBody, /clearNavigationInspectionSettlePollsExcept\(tabId\);/);
   const endBody = source.match(
@@ -842,7 +842,7 @@ test("tab reload keeps the inspection curtain active while enabled pages re-insp
   assert.match(snapshotApplyBody, /activation: snapshot\.activation \|\| null,/);
 
   const refreshBody = source.match(
-    /async function refreshUiInner\(options = \{\}\) \{([\s\S]*?)\n\}\n\nasync function maybeResumePersistedAiRun/
+    /async function refreshUiInner\(options(?:\s*:\s*[^)]*)? = \{\}\) \{([\s\S]*?)\n\}\n\nasync function maybeResumePersistedAiRun/
   )[1];
   assert.match(refreshBody, /const persistedTabState = await messages\.getTabState\(state\.currentTab\.id\);/);
   assert.match(refreshBody, /type: "clearReloadRestoreTabState"/);
@@ -913,7 +913,7 @@ test("popup no longer schedules observer remote config polling", () => {
 test("marking enable does not send a redundant force refresh after TAB_ACTIVATE_MARKING", () => {
   const source = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
   const enableBody = source.match(
-    /async function handleEnableToggle\(event\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?(?:\n|\r\n)*async function handleDeviceEmulationEnabledToggle/
+    /async function handleEnableToggle\(event(?:\s*:\s*[^)]*)?\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?(?:\n|\r\n)*async function handleDeviceEmulationEnabledToggle/
   )[1];
 
   assert.match(enableBody, /messages\.requestTabActivateMarking\(tab\.id, \{/);
@@ -927,7 +927,7 @@ test("marking enable upgrades the popup spinner to page inspection during reveal
     /export async function runWithSpinner\(deps, key, message, task, options = \{\}\) \{([\s\S]*?)\n\}/
   )[1];
   const enableBody = source.match(
-    /async function handleEnableToggle\(event\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?(?:\n|\r\n)*async function handleDeviceEmulationEnabledToggle/
+    /async function handleEnableToggle\(event(?:\s*:\s*[^)]*)?\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?(?:\n|\r\n)*async function handleDeviceEmulationEnabledToggle/
   )[1];
 
   assert.match(runWithSpinnerBody, /return await task\(pushed\);/);
@@ -946,7 +946,7 @@ test("marking enable upgrades the popup spinner to page inspection during reveal
 test("disabling marking with a pending session prompts to discard before exiting", () => {
   const source = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
   const enableBody = source.match(
-    /async function handleEnableToggle\(event\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?(?:\n|\r\n)*async function handleDeviceEmulationEnabledToggle/
+    /async function handleEnableToggle\(event(?:\s*:\s*[^)]*)?\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?(?:\n|\r\n)*async function handleDeviceEmulationEnabledToggle/
   )[1];
 
   assert.match(enableBody, /const pendingKnownFromCurrentView = Boolean\([\s\S]*?!desiredEnabled && currentViewState\.sessionHasPendingChanges[\s\S]*?\);/);

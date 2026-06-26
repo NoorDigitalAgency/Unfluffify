@@ -128,7 +128,7 @@ test("extension activation enables default mobile emulation for fresh tab sessio
 test("marking enable delegates mobile simulation prep to TAB_ACTIVATE_MARKING and keeps popup device toggle locked", () => {
   const enableBlock = extractSourceBlock(
     popupSource,
-    "async function handleEnableToggle(event) {",
+    "async function handleEnableToggle(",
     "async function handleDeviceEmulationEnabledToggle"
   );
   const uiBlock = extractSourceBlock(

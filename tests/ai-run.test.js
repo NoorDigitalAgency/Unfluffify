@@ -217,11 +217,11 @@ test("AI compute reports specific snapshot preparation blockers", () => {
   const failureSource = source.slice(failureStart, failureEnd);
   const computeBody = computeMatch[1];
 
-  assert.match(failureSource, /if \(details\.reconciliationPending\) \{[\s\S]*?PopupText\.page\.statusServerSyncPending/);
-  assert.match(failureSource, /if \(details\.locked\) \{[\s\S]*?propertyLockText\.lockedInteractionBlockedToast/);
-  assert.match(failureSource, /if \(details\.reason === "missing_current_page"\)/);
-  assert.match(failureSource, /if \(details\.reason === "missing_saved_pages"\)/);
-  assert.match(failureSource, /if \(details\.reason === "timed_out"\)/);
+  assert.match(failureSource, /if \(details && details\.reconciliationPending\) \{[\s\S]*?PopupText\.page\.statusServerSyncPending/);
+  assert.match(failureSource, /if \(details && details\.locked\) \{[\s\S]*?propertyLockText\.lockedInteractionBlockedToast/);
+  assert.match(failureSource, /if \(details && details\.reason === "missing_current_page"\)/);
+  assert.match(failureSource, /if \(details && details\.reason === "missing_saved_pages"\)/);
+  assert.match(failureSource, /if \(details && details\.reason === "timed_out"\)/);
   assert.match(computeBody, /await failAiRun\(getAiRunCommandFailureMessage\(aiRunResponse\)\);/);
 });
 

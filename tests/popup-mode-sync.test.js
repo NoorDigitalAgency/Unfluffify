@@ -23,7 +23,7 @@ test("content inspection status reports the authoritative marking mode", () => {
 test("popup refresh reconciles toggle state to content mode without setEnabled", () => {
   const refreshBlock = extractSourceBlock(
     popupSource,
-    "async function refreshUiInner(options = {})",
+    "async function refreshUiInner(",
     "async function maybeResumePersistedAiRun"
   );
   const modeStart = refreshBlock.indexOf("let contentModeStatus = null;");
@@ -49,7 +49,7 @@ test("popup refresh reconciles toggle state to content mode without setEnabled",
 test("popup runtime inspection status reuses the content-mode response", () => {
   const refreshBlock = extractSourceBlock(
     popupSource,
-    "async function refreshUiInner(options = {})",
+    "async function refreshUiInner(",
     "async function maybeResumePersistedAiRun"
   );
 
@@ -62,7 +62,7 @@ test("popup runtime inspection status reuses the content-mode response", () => {
 test("popup keeps marking mode active when content reports authoritative enabled state", () => {
   const refreshBlock = extractSourceBlock(
     popupSource,
-    "async function refreshUiInner(options = {})",
+    "async function refreshUiInner(",
     "async function maybeResumePersistedAiRun"
   );
 

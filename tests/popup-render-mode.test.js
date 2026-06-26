@@ -80,7 +80,7 @@ test("render mode inspect buttons alternate by the tab's current JavaScript mode
     /nextViewState\.renderModeInspectWithJavaScriptDisabled =[\s\S]*?!state\.renderModeTabJsDisabled/
   );
   // The popup refreshes when the persisted no-JS-held key changes for the current tab.
-  assert.match(popupSource, /changes\[renderModeNoJsHeldStorageKey\(state\.currentTab\.id\)\]/);
+  assert.match(popupSource, /storageChanges\[renderModeNoJsHeldStorageKey\(currentTabId\)\]/);
 
   // Each button is wired to its own disabled flag.
   const editorBlock = extractSourceBlock(

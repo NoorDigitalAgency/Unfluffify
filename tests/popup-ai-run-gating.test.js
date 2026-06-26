@@ -264,7 +264,7 @@ test("navigating away from a pending marking session prompts to discard first", 
   // All user-initiated navigation funnels through the guard.
   assert.match(
     popupSource,
-    /async function navigateActiveTabToUrlWithTodoCollapse\(url\) \{\s*if \(!\(await confirmNavigationAwayFromMarking\(\)\)\) \{/
+    /async function navigateActiveTabToUrlWithTodoCollapse\(url(?:\s*:\s*[^)]*)?\)(?:\s*:\s*[^{]+)? \{\s*if \(!\(await confirmNavigationAwayFromMarking\(\)\)\) \{/
   );
   assert.match(popupSource, /type: "navigateTabToUrl"/);
   assert.doesNotMatch(popupSource, /chrome\.tabs\.update/);
@@ -348,11 +348,11 @@ test("#21 a clean AI run opens preview before config sync can hydrate content st
 test("#21 config sync flushes after async preview item hydration", () => {
   assert.match(
     popupSource,
-    /function applyAiPreviewStateUpdate\(message\) \{[\s\S]*?const nextPreviewState = buildPreviewViewState\(message\);[\s\S]*?uiModule\.setViewState\(\{[\s\S]*?\}\);[\s\S]*?if \(!nextPreviewState\.previewItemsPending\) \{[\s\S]*?flushPendingAiPreviewConfigSync\(\);/
+    /function applyAiPreviewStateUpdate\(message(?:\s*:\s*[^)]*)?\) \{[\s\S]*?const nextPreviewState = buildPreviewViewState\(message\);[\s\S]*?uiModule\.setViewState\(\{[\s\S]*?\}\);[\s\S]*?if \(!nextPreviewState\.previewItemsPending\) \{[\s\S]*?flushPendingAiPreviewConfigSync\(\);/
   );
   assert.match(
     popupSource,
-    /function buildPreviewViewState\(previewState\) \{[\s\S]*?previewItemsPending: Boolean\([\s\S]*?previewState\.itemsPending[\s\S]*?\),/
+    /function buildPreviewViewState\(previewState(?:\s*:\s*[^)]*)?\)(?:\s*:\s*[^{]+)? \{[\s\S]*?previewItemsPending: Boolean\([\s\S]*?previewState\.itemsPending[\s\S]*?\),/
   );
 });
 

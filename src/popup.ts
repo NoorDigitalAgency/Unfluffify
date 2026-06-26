@@ -229,7 +229,8 @@ import type {
   PopupTone,
   PopupPreviewMarkingSessionSnapshot,
   RenderModeInspectionSnapshot,
-  RemoteConfigLoadResult
+  RemoteConfigLoadResult,
+  TodoExpansionState
 } from "./types/popup-state.ts";
 import type {
   Config,
@@ -384,9 +385,112 @@ type PageMarkingListItem = {
   count: number;
 };
 type ConfigSyncResult = {
-  ok?: unknown;
-  skipped?: unknown;
+  ok?: boolean;
+  skipped?: boolean;
 };
+type PopupEventLike<TTarget extends object = object> = {
+  target?: (EventTarget & TTarget) | TTarget | null;
+  currentTarget?: (EventTarget & TTarget) | TTarget | null;
+  key?: unknown;
+  stopPropagation?: () => void;
+  preventDefault?: () => void;
+};
+type PopupValueEvent = PopupEventLike<{ value?: unknown }>;
+type PopupCheckedEvent = PopupEventLike<{ checked?: unknown }>;
+type PopupOpenEvent = PopupEventLike<{ open?: unknown }>;
+type PopupRefreshOptions = {
+  useBusyOverlay?: boolean;
+  skipPropertyLockFetch?: boolean;
+  propertyPageTypesRefreshChanged?: boolean;
+  preserveCurrentDraftStatus?: boolean;
+};
+type InspectionSettleResult = {
+  inspectionObserved: boolean;
+  responseObserved: boolean;
+  settled: boolean;
+  attempts: number;
+};
+type ValidateStoredTokenOptions = {
+  force?: boolean;
+  showToastOnInvalid?: boolean;
+};
+type EditableFieldStateOptions = {
+  inputRef?: Element | null;
+  currentValue?: string;
+  value?: string;
+  isSet?: boolean;
+  editMode?: boolean;
+  suggestedValue?: string;
+  preserveCurrentValueWhileEditing?: boolean;
+  noticeUnset?: string;
+  noticeEdit?: string;
+};
+type EditableFieldState = {
+  isEditing: boolean;
+  isReady: boolean;
+  value: string;
+  noticeText: string;
+  noticeVisible: boolean;
+};
+type AiRunActiveStateOptions = {
+  sessionId?: string;
+  siteId?: string | number | null;
+  deadlineAt?: number;
+  resumed?: boolean;
+  phase?: string;
+};
+type ComputedSelectorSetApplyOptions = {
+  currentPageUrl?: string;
+  tokenValue?: string;
+};
+type PageTypeAssignmentsSubmitOptions = {
+  baseUrl?: string;
+  checklistPageTypes?: Array<Record<string, unknown>>;
+  pageMarkings?: PageMarkings;
+};
+type SelectorSetSubmitOptions = {
+  baseUrl?: string;
+  selectorSet?: SelectorSet;
+  tokenValue?: string;
+};
+type RenderModeDebuggerLifecycleOptions = {
+  wasVisible: boolean;
+  isVisible: boolean;
+  currentTabId: number | null;
+};
+type TodoExpansionViewState = {
+  todoControlsMenuOpen: false;
+  todoSectionExpanded: boolean;
+  todoSubsectionsExpanded: Record<string, boolean>;
+};
+type SelectorSetTransferPayload = {
+  exclusionSelectors: unknown[];
+  inclusionSelectors: unknown[];
+};
+type AiRunCommandFailureDetails = {
+  reconciliationPending?: unknown;
+  locked?: unknown;
+  reason?: unknown;
+};
+type AiRunCommandFailureResponse = {
+  details?: AiRunCommandFailureDetails | null;
+  error?: unknown;
+};
+type PopupFailureLike = Record<string, unknown> | null | undefined;
+type AiRunResultResponse =
+  | { ok: true; selectorSet: SelectorSet }
+  | { ok: false; notFound?: boolean };
+type FailedPopupOperationResponse = {
+  ok: false;
+  error?: string;
+  locked?: boolean;
+  details?: Record<string, unknown> | null;
+};
+type StorageChangeLike = {
+  oldValue?: unknown;
+  newValue?: unknown;
+};
+type StorageChangeMap = Record<string, StorageChangeLike | undefined>;
 
 const { state } = stateModule;
 const popupDebugTarget = globalThis as typeof globalThis & {
@@ -398,6 +502,73 @@ const popupDebugTarget = globalThis as typeof globalThis & {
 popupDebugTarget.__UNFLUFFIFY_POPUP_DEBUG__ = {
   getViewState: uiModule.getViewState,
 };
+
+function getPopupEventSource<TTarget extends object>(
+  event: PopupEventLike<TTarget> | null | undefined
+): ((EventTarget & TTarget) | TTarget | null) {
+  return event?.currentTarget ?? event?.target ?? null;
+}
+
+function getPopupEventValue(
+  event: PopupValueEvent | null | undefined,
+  fallback = ""
+): string {
+  const source = getPopupEventSource(event);
+  return typeof source?.value === "string" ? source.value : fallback;
+}
+
+function getPopupEventChecked(
+  event: PopupCheckedEvent | null | undefined,
+  fallback = false
+): boolean {
+  const source = getPopupEventSource(event);
+  return typeof source?.checked === "boolean" ? source.checked : fallback;
+}
+
+function getPopupEventOpen(
+  event: PopupOpenEvent | null | undefined,
+  fallback = false
+): boolean {
+  const source = getPopupEventSource(event);
+  return typeof source?.open === "boolean" ? source.open : fallback;
+}
+
+function isSelectorSetTransferPayload(value: unknown): value is SelectorSetTransferPayload {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      Array.isArray((value as SelectorSetTransferPayload).exclusionSelectors) &&
+      Array.isArray((value as SelectorSetTransferPayload).inclusionSelectors)
+  );
+}
+
+function isFailedPopupOperationResponse(response: unknown): response is FailedPopupOperationResponse {
+  return Boolean(
+    response &&
+      typeof response === "object" &&
+      "ok" in response &&
+      response.ok === false
+  );
+}
+
+function getPropertyLockEditorName(): string {
+  return state.propertyLockState &&
+    typeof state.propertyLockState.editorName === "string" &&
+    state.propertyLockState.editorName
+    ? state.propertyLockState.editorName
+    : "Someone";
+}
+
+function getStorageChangeMap(changes: unknown): StorageChangeMap {
+  return changes && typeof changes === "object"
+    ? changes as StorageChangeMap
+    : {};
+}
+
+function asPopupHandler<TArgs extends unknown[]>(handler: (...args: TArgs) => unknown) {
+  return (...args: unknown[]) => handler(...args as TArgs);
+}
 
 const PAGE_SAVE_SYNC_MAX_ATTEMPTS = 5;
 const PAGE_SAVE_SYNC_INITIAL_RETRY_DELAY_MS = 1500;
@@ -557,7 +728,13 @@ const THEME_ACCENT_CLUSTER_ORDER = Object.freeze({
   warm: 3,
   violet: 4
 });
-const THEME_CATALOG = Object.freeze([
+type ThemeAccentCluster = keyof typeof THEME_ACCENT_CLUSTER_ORDER;
+type ThemeCatalogEntry = {
+  value: string;
+  label: string;
+  cluster: ThemeAccentCluster;
+};
+const THEME_CATALOG: readonly ThemeCatalogEntry[] = Object.freeze([
   { value: "blueprint", label: "Blueprint", cluster: "blue" },
   { value: "swedish-minimal", label: "Swedish Minimal", cluster: "blue" },
   { value: "cool", label: "Cool", cluster: "blue" },
@@ -579,9 +756,7 @@ const THEME_IDS = new Set(THEME_CATALOG.map((theme) => theme.value));
 const THEME_OPTIONS = Object.freeze(
   [...THEME_CATALOG]
     .sort((left, right) => {
-// @ts-expect-error
       const leftOrder = THEME_ACCENT_CLUSTER_ORDER[left.cluster] ?? Number.MAX_SAFE_INTEGER;
-// @ts-expect-error
       const rightOrder = THEME_ACCENT_CLUSTER_ORDER[right.cluster] ?? Number.MAX_SAFE_INTEGER;
       if (leftOrder !== rightOrder) {
         return leftOrder - rightOrder;
@@ -624,11 +799,15 @@ let pendingAiPreviewConfigSync: { tabId: number; baseUrl: string } | null = null
 let propertyPageTypesRequest: PendingPropertyPageTypesRequest = null;
 const popupTimers = createPopupTimerGroup({ windowRef: window });
 
-// @ts-expect-error
-function isEditableTarget(el) {
-  if (!el) return false;
+function isEditableTarget(el: EventTarget | null | undefined): boolean {
+  if (!(el instanceof Element)) return false;
   const tag = el.tagName;
-  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable;
+  return (
+    tag === "INPUT" ||
+    tag === "TEXTAREA" ||
+    tag === "SELECT" ||
+    (el instanceof HTMLElement && el.isContentEditable)
+  );
 }
 
 function getSpinnerDeps(): PopupSpinnerDeps {
@@ -2388,12 +2567,12 @@ function setAiRunActiveState({
   deadlineAt = Date.now() + AI_RUN_TIMEOUT_MS,
   resumed = false,
   phase = "starting"
-} = {}) {
+}: AiRunActiveStateOptions = {}) {
   state.aiComputeStartPending = false;
   state.aiRequestInFlight = "compute";
   state.aiRunPhase = phase;
   state.aiRunSessionId = sessionId;
-  state.aiRunSiteId = siteId;
+  state.aiRunSiteId = siteId ?? "";
   state.aiRunDeadlineAt = deadlineAt;
   state.aiRunRemainingMs = getAiRunRemainingMs(deadlineAt);
   state.aiRunResumed = Boolean(resumed);
@@ -3062,8 +3241,10 @@ function waitForRetryDelay(delayMs?: number): Promise<void> {
   });
 }
 
-// @ts-expect-error
-async function waitForEnableMarkingInspectionToSettle(tabId, baseUrl) {
+async function waitForEnableMarkingInspectionToSettle(
+  tabId: number,
+  baseUrl: string | null
+): Promise<InspectionSettleResult> {
   let inspectionObserved = false;
   let responseObserved = false;
   for (let attempt = 0; attempt < 12; attempt += 1) {
@@ -3127,7 +3308,7 @@ function clearNavigationInspectionSettlePoll(tabId: number | null): void {
   popupNavigationInspectionSettlePollByTabId.delete(tabId);
 }
 
-function clearNavigationInspectionSettlePollsExcept(tabIdToKeep = null) {
+function clearNavigationInspectionSettlePollsExcept(tabIdToKeep: number | null = null) {
   popupNavigationInspectionSettlePollByTabId.forEach((timer, tabId) => {
     if (tabIdToKeep !== null && tabId === tabIdToKeep) {
       return;
@@ -3282,8 +3463,7 @@ function scheduleNavigationInspectionSettlePoll(tabId: number | null, baseUrl: s
   logPopupSpinnerDebug("nav-settle-poll-scheduled", { tabId, baseUrl });
 }
 
-// @ts-expect-error
-function beginNavigationInspectionOverlay(tabId) {
+function beginNavigationInspectionOverlay(tabId: number | null): boolean {
   if (!tabId) {
     return false;
   }
@@ -3328,14 +3508,13 @@ function endNavigationInspectionOverlay(tabId = popupNavigationInspectionOverlay
 }
 
 function waitForPopupUiPaint() {
-  return new Promise((resolve) => {
+  return new Promise<void>((resolve) => {
     let settled = false;
     const finish = () => {
       if (settled) {
         return;
       }
       settled = true;
-// @ts-expect-error
       resolve();
     };
     window.setTimeout(finish, 75);
@@ -3348,16 +3527,15 @@ function waitForPopupUiPaint() {
   });
 }
 
-// @ts-expect-error
-function isRetryableHttpStatus(status) {
-  if (!Number.isFinite(status) || status <= 0) {
+function isRetryableHttpStatus(status: number | null | undefined): boolean {
+  const normalizedStatus = Number(status);
+  if (!Number.isFinite(normalizedStatus) || normalizedStatus <= 0) {
     return true;
   }
-  return RETRYABLE_HTTP_STATUSES.has(status);
+  return RETRYABLE_HTTP_STATUSES.has(normalizedStatus);
 }
 
-// @ts-expect-error
-function getRetryDelayMs(attempt, baseDelayMs = 450, maxDelayMs = 10000) {
+function getRetryDelayMs(attempt: number, baseDelayMs = 450, maxDelayMs = 10000): number {
   const boundedAttempt = Math.max(0, Number(attempt) || 0);
   const exponentialDelay = Math.min(baseDelayMs * (2 ** boundedAttempt), maxDelayMs);
   const jitter = Math.round(exponentialDelay * (0.1 + (Math.random() * 0.2)));
@@ -3400,8 +3578,7 @@ function clearRemoteConfigLoadCache() {
   state.remoteConfigLatestRequestIdByPageLoadKey.clear();
 }
 
-// @ts-expect-error
-function setRemoteConfigConnectionIssue(active) {
+function setRemoteConfigConnectionIssue(active: boolean): void {
   const nextActive = Boolean(active);
   state.remoteConfigConnectionIssue = nextActive;
   if (!nextActive) {
@@ -3442,8 +3619,7 @@ function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "";
 }
 
-// @ts-expect-error
-function shouldSkipRemoteConfigLoadForPropertyEditor(siteId) {
+function shouldSkipRemoteConfigLoadForPropertyEditor(siteId: unknown): boolean {
   const normalizedSiteId = normalizeSiteIdValue(siteId);
   return Boolean(
     normalizedSiteId &&
@@ -3486,8 +3662,7 @@ async function invalidateTokenAndLockConfiguration(showToast = true) {
   }
 }
 
-async function validateStoredToken(options = {}) {
-// @ts-expect-error
+async function validateStoredToken(options: ValidateStoredTokenOptions = {}) {
   const { force = false, showToastOnInvalid = true } = options;
   if (state.tokenValidationInFlight) {
     return true;
@@ -3524,18 +3699,17 @@ async function clearFocusedElement() {
   await messages.sendTabMessage({ type: "clearFocus" });
 }
 
-// @ts-expect-error
-function getEditableFieldState(options) {
+function getEditableFieldState(options: EditableFieldStateOptions): EditableFieldState {
   const {
     inputRef,
     currentValue,
     value,
-    isSet,
-    editMode,
+    isSet = false,
+    editMode = false,
     suggestedValue,
     preserveCurrentValueWhileEditing = false,
-    noticeUnset,
-    noticeEdit
+    noticeUnset = "",
+    noticeEdit = ""
   } = options;
   const isEditing = !isSet || editMode;
   const isFocused = inputRef && document.activeElement === inputRef;
@@ -3601,17 +3775,17 @@ function hasCalculatedSelectorsFromConfig(sourceConfig = state.currentConfig) {
   return combineAiSelectorSet(sourceConfig && sourceConfig.selectors).length > 0;
 }
 
-async function hideConsentForRenderModeInspection(targetTabId = state.currentTab && state.currentTab.id) {
-  const tabId = Number.isFinite(targetTabId)
-// @ts-expect-error
+async function hideConsentForRenderModeInspection(
+  targetTabId: number | null | undefined = state.currentTab && state.currentTab.id
+) {
+  const tabId = typeof targetTabId === "number" && Number.isFinite(targetTabId)
     ? Math.trunc(targetTabId)
     : null;
   if (!tabId) {
     return false;
   }
 
-// @ts-expect-error
-  const sendHideMessageWithRetry = async (attempts) => {
+  const sendHideMessageWithRetry = async (attempts: number) => {
     for (let index = 0; index < attempts; index += 1) {
       const response = await requestPopupRenderModeHideConsent(tabId).catch(() => null);
       if (response) {
@@ -3630,8 +3804,7 @@ async function hideConsentForRenderModeInspection(targetTabId = state.currentTab
   return Boolean(hideResponse && hideResponse.ok);
 }
 
-// @ts-expect-error
-async function ensureContentReadyForRenderModeInspection(tabId) {
+async function ensureContentReadyForRenderModeInspection(tabId: number | null) {
   if (!tabId) {
     return false;
   }
@@ -3743,12 +3916,11 @@ function getCollapsedTodoExpansionState() {
   };
 }
 
-// @ts-expect-error
-function getSavedTodoExpansionState(key) {
+function getSavedTodoExpansionState(key: string): TodoExpansionViewState | null {
   if (!key || !(state.todoExpansionStateByContext instanceof Map)) {
     return null;
   }
-  const saved = state.todoExpansionStateByContext.get(key);
+  const saved = state.todoExpansionStateByContext.get(key) as TodoExpansionState | undefined;
   if (!saved || typeof saved !== "object") {
     return null;
   }
@@ -3772,12 +3944,9 @@ function collapseTodoListForAutoCollapse() {
   }
 }
 
-async function refreshUiInner(options = {}) {
-// @ts-expect-error
+async function refreshUiInner(options: PopupRefreshOptions = {}) {
   const skipPropertyLockFetch = Boolean(options.skipPropertyLockFetch);
-// @ts-expect-error
   const propertyPageTypesRefreshChanged = Boolean(options.propertyPageTypesRefreshChanged);
-// @ts-expect-error
   const preserveCurrentDraftStatus = Boolean(options.preserveCurrentDraftStatus);
   if (!state.currentTab) {
     return;
@@ -4421,8 +4590,7 @@ async function refreshUiInner(options = {}) {
       (state.currentConfig && state.currentConfig.siteId) ||
       (state.currentBaseUrl ? state.siteIdLookupByBaseUrl.get(state.currentBaseUrl) : null)
   );
-// @ts-expect-error
-  state.currentSiteId = liveSiteId;
+  state.currentSiteId = liveSiteId || "";
   if (
     !propertyPageTypesLoaded &&
     tabInScope &&
@@ -5493,7 +5661,6 @@ async function maybeResumePersistedAiRun() {
     const currentPageUrl = getCurrentPageUrl();
     setAiRunActiveState({
       sessionId: persistedRun.sessionId,
-// @ts-expect-error
       siteId,
       deadlineAt: persistedRun.deadlineAt,
       resumed: true,
@@ -5516,12 +5683,10 @@ async function maybeResumePersistedAiRun() {
           sessionId: persistedRun.sessionId
         });
       } catch {
-// @ts-expect-error
         await failAiRun(PopupText.ai.runUnavailable);
         return;
       }
       if (!result.ok) {
-// @ts-expect-error
         await failAiRun(result.notFound ? PopupText.ai.runUnavailable : PopupText.ai.runFailed);
         return;
       }
@@ -5542,15 +5707,11 @@ async function maybeResumePersistedAiRun() {
   }
 }
 
-async function refreshUi(options = {}) {
-// @ts-expect-error
+async function refreshUi(options: PopupRefreshOptions = {}) {
   const useBusyOverlay = options.useBusyOverlay !== false;
   const refreshOptions = {
-// @ts-expect-error
     skipPropertyLockFetch: Boolean(options.skipPropertyLockFetch),
-// @ts-expect-error
     propertyPageTypesRefreshChanged: Boolean(options.propertyPageTypesRefreshChanged),
-// @ts-expect-error
     preserveCurrentDraftStatus: Boolean(options.preserveCurrentDraftStatus)
   };
   const response = useBusyOverlay
@@ -5570,35 +5731,30 @@ async function refreshUi(options = {}) {
   return response;
 }
 
-// @ts-expect-error
-function handleConfigEndpointInput(event) {
-  uiModule.setViewState({ configEndpointUrlValue: event.target.value });
+function handleConfigEndpointInput(event: PopupValueEvent) {
+  uiModule.setViewState({ configEndpointUrlValue: getPopupEventValue(event) });
 }
 
-// @ts-expect-error
-function handleEndpointInput(event) {
-  uiModule.setViewState({ endpointUrlValue: event.target.value });
+function handleEndpointInput(event: PopupValueEvent) {
+  uiModule.setViewState({ endpointUrlValue: getPopupEventValue(event) });
 }
 
-// @ts-expect-error
-function handleStageBaseInput(event) {
-  uiModule.setViewState({ stageBaseValue: event.target.value });
+function handleStageBaseInput(event: PopupValueEvent) {
+  uiModule.setViewState({ stageBaseValue: getPopupEventValue(event) });
 }
 
-// @ts-expect-error
-async function handleThemeInput(event) {
+async function handleThemeInput(event: PopupValueEvent) {
   if (!isFeatureEnabled("appearanceCustomization")) {
     resetDisabledAppearanceCustomization();
     return;
   }
   const nextThemeValue = normalizeThemeValue(
-    event && event.target ? event.target.value : state.currentTheme
+    getPopupEventValue(event, state.currentTheme)
   );
   await applyThemeValue(nextThemeValue);
 }
 
-// @ts-expect-error
-async function applyThemeValue(nextThemeValue) {
+async function applyThemeValue(nextThemeValue: string) {
   if (!isFeatureEnabled("appearanceCustomization")) {
     resetDisabledAppearanceCustomization();
     return;
@@ -5626,20 +5782,18 @@ function getThemeMenuPlacement() {
   return spaceBelow < 220 && spaceAbove > spaceBelow ? "top" : "bottom";
 }
 
-// @ts-expect-error
-function handleThemeMenuToggle(event) {
+function handleThemeMenuToggle(event: PopupEventLike) {
   if (!isFeatureEnabled("appearanceCustomization")) {
     resetDisabledAppearanceCustomization();
     return;
   }
-  event.stopPropagation();
+  event.stopPropagation?.();
   const view = uiModule.getViewState();
   uiModule.setThemeMenuOpen(!view.themeMenuOpen, getThemeMenuPlacement());
 }
 
-// @ts-expect-error
-function handleThemeMenuKeyDown(event) {
-  const key = event && typeof event.key === "string" ? event.key : "";
+function handleThemeMenuKeyDown(event: PopupEventLike) {
+  const key = typeof event?.key === "string" ? event.key : "";
   let indexDelta = null;
   if (key === "ArrowDown") {
     indexDelta = 1;
@@ -5655,22 +5809,25 @@ function handleThemeMenuKeyDown(event) {
   ) {
     return;
   }
-  event.preventDefault();
-  event.stopPropagation();
+  event.preventDefault?.();
+  event.stopPropagation?.();
   const currentTheme = normalizeThemeValue(state.currentTheme);
   const currentIndex = options.findIndex((item) => item && item.value === currentTheme);
   const safeIndex = currentIndex >= 0 ? currentIndex : 0;
   const nextIndex = (safeIndex + indexDelta + options.length) % options.length;
+  const nextOption = options[nextIndex];
+  if (!nextOption) {
+    return;
+  }
   if (!uiModule.getViewState().themeMenuOpen) {
     uiModule.setThemeMenuOpen(true, getThemeMenuPlacement());
   }
-  void handleThemeOptionSelect(options[nextIndex].value).catch(() => {
+  void handleThemeOptionSelect(nextOption.value).catch(() => {
     uiModule.showToast(PopupText.page.saveFailed);
   });
 }
 
-// @ts-expect-error
-async function handleThemeOptionSelect(value) {
+async function handleThemeOptionSelect(value: string) {
   if (!isFeatureEnabled("appearanceCustomization")) {
     resetDisabledAppearanceCustomization();
     return;
@@ -5678,8 +5835,7 @@ async function handleThemeOptionSelect(value) {
   await applyThemeValue(normalizeThemeValue(value));
 }
 
-// @ts-expect-error
-async function cycleTheme(direction) {
+async function cycleTheme(direction: number) {
   if (!isFeatureEnabled("appearanceCustomization")) {
     resetDisabledAppearanceCustomization();
     return;
@@ -5693,7 +5849,11 @@ async function cycleTheme(direction) {
   const safeIndex = currentIndex >= 0 ? currentIndex : 0;
   const delta = direction < 0 ? -1 : 1;
   const nextIndex = (safeIndex + delta + options.length) % options.length;
-  state.currentTheme = normalizeThemeValue(options[nextIndex].value);
+  const nextOption = options[nextIndex];
+  if (!nextOption) {
+    return;
+  }
+  state.currentTheme = normalizeThemeValue(nextOption.value);
   applyPopupTheme(state.currentTheme, state.currentThemeMode);
   uiModule.setViewState({
     themeValue: state.currentTheme,
@@ -5711,16 +5871,13 @@ async function handleThemeNext() {
   await cycleTheme(1);
 }
 
-// @ts-expect-error
-async function handleThemeModeInput(event) {
+async function handleThemeModeInput(event: PopupValueEvent) {
   if (!isFeatureEnabled("appearanceCustomization")) {
     resetDisabledAppearanceCustomization();
     return;
   }
   const nextThemeModeValue = normalizeThemeModeValue(
-    event && (event.currentTarget || event.target)
-      ? (event.currentTarget || event.target).value
-      : state.currentThemeMode
+    getPopupEventValue(event, state.currentThemeMode)
   );
   state.currentThemeMode = nextThemeModeValue;
   applyPopupTheme(state.currentTheme, state.currentThemeMode);
@@ -5731,10 +5888,9 @@ async function handleThemeModeInput(event) {
   await persistThemeSettings(state.currentTheme, state.currentThemeMode);
 }
 
-// @ts-expect-error
-function handleRenderModeInput(event) {
+function handleRenderModeInput(event: PopupValueEvent) {
   const nextRenderMode = normalizeUiRenderModeValue(
-    event && event.target ? event.target.value : uiModule.getViewState().renderModeValue
+    getPopupEventValue(event, uiModule.getViewState().renderModeValue)
   );
   const view = uiModule.getViewState();
   const renderModeSetDisabled = Boolean(
@@ -5748,8 +5904,7 @@ function handleRenderModeInput(event) {
   });
 }
 
-// @ts-expect-error
-async function runRenderModeInspectionReload(javaScriptDisabled) {
+async function runRenderModeInspectionReload(javaScriptDisabled: boolean) {
   const tabId = state.currentTab && state.currentTab.id;
   if (!tabId) {
     uiModule.showToast(PopupText.renderMode.toastUnavailable);
@@ -5828,8 +5983,7 @@ async function runRenderModeInspectionReload(javaScriptDisabled) {
   }
 }
 
-// @ts-expect-error
-async function normalizeRenderModeDebuggerPage(tabId) {
+async function normalizeRenderModeDebuggerPage(tabId: number | null) {
   if (!tabId) {
     return;
   }
@@ -5857,8 +6011,11 @@ async function normalizeRenderModeDebuggerPage(tabId) {
   }
 }
 
-// @ts-expect-error
-async function syncRenderModeDebuggerLifecycle({ wasVisible, isVisible, currentTabId }) {
+async function syncRenderModeDebuggerLifecycle({
+  wasVisible,
+  isVisible,
+  currentTabId
+}: RenderModeDebuggerLifecycleOptions) {
   const managedTabId = state.renderModeDebuggerTabId;
 
   if (isVisible) {
@@ -5938,14 +6095,12 @@ function closeLynxChecklistPopover() {
   setLynxChecklistViewState();
 }
 
-// @ts-expect-error
-function handleLynxChecklistPageTypeDecisionChange(pageTypeKey, event) {
+function handleLynxChecklistPageTypeDecisionChange(pageTypeKey: string, event: Event) {
   void pageTypeKey;
   void event;
 }
 
-// @ts-expect-error
-function handleLynxChecklistPageTypePageChange(pageTypeKey, event) {
+function handleLynxChecklistPageTypePageChange(pageTypeKey: string, event: Event) {
   void pageTypeKey;
   void event;
 }
@@ -6089,10 +6244,8 @@ async function handleOpenRenderModeSection() {
   await refreshUi({ useBusyOverlay: false });
 }
 
-// @ts-expect-error
-function handleRenderModeSummaryToggle(event) {
-  const target = event && event.currentTarget;
-  const nextOpen = Boolean(target && target.open);
+function handleRenderModeSummaryToggle(event: PopupOpenEvent) {
+  const nextOpen = getPopupEventOpen(event);
   const resolvedOpen =
     !state.currentBaseUrlHasConfirmedRenderMode || state.renderModeEditMode
       ? true
@@ -6101,18 +6254,19 @@ function handleRenderModeSummaryToggle(event) {
   uiModule.setViewState({ renderModeSummaryOpen: resolvedOpen });
 }
 
-// @ts-expect-error
-function handleLoginEmailInput(event) {
-  updateLoginActionState({ loginEmailValue: event.target.value });
+function handleLoginEmailInput(event: PopupValueEvent) {
+  updateLoginActionState({ loginEmailValue: getPopupEventValue(event) });
 }
 
-// @ts-expect-error
-function handleLoginPasswordInput(event) {
-  updateLoginActionState({ loginPasswordValue: event.target.value });
+function handleLoginPasswordInput(event: PopupValueEvent) {
+  updateLoginActionState({ loginPasswordValue: getPopupEventValue(event) });
 }
 
-// @ts-expect-error
-function handleEnterKeyDown(event, shouldHandle, handler) {
+function handleEnterKeyDown(
+  event: PopupEventLike,
+  shouldHandle: () => boolean,
+  handler: () => void
+) {
   if (event.key !== "Enter") {
     return;
   }
@@ -6122,8 +6276,7 @@ function handleEnterKeyDown(event, shouldHandle, handler) {
   handler();
 }
 
-// @ts-expect-error
-function handleConfigEndpointKeyDown(event) {
+function handleConfigEndpointKeyDown(event: PopupEventLike) {
   handleEnterKeyDown(
     event,
     () => !uiModule.getViewState().configEndpointUrlReadOnly,
@@ -6131,8 +6284,7 @@ function handleConfigEndpointKeyDown(event) {
   );
 }
 
-// @ts-expect-error
-function handleEndpointKeyDown(event) {
+function handleEndpointKeyDown(event: PopupEventLike) {
   handleEnterKeyDown(
     event,
     () => !uiModule.getViewState().endpointUrlReadOnly,
@@ -6140,8 +6292,7 @@ function handleEndpointKeyDown(event) {
   );
 }
 
-// @ts-expect-error
-function handleStageBaseKeyDown(event) {
+function handleStageBaseKeyDown(event: PopupEventLike) {
   handleEnterKeyDown(
     event,
     () => !uiModule.getViewState().stageBaseReadOnly,
@@ -6149,8 +6300,7 @@ function handleStageBaseKeyDown(event) {
   );
 }
 
-// @ts-expect-error
-function handleLoginPasswordKeyDown(event) {
+function handleLoginPasswordKeyDown(event: PopupEventLike) {
   handleEnterKeyDown(
     event,
     () => !uiModule.getViewState().loginActionDisabled,
@@ -6264,29 +6414,25 @@ async function handlePropertyLockRejectSuggestion() {
   await reconcilePropertyLockAfterCommand();
 }
 
-// @ts-expect-error
-function handleConfigToggle(event) {
-  event.stopPropagation();
+function handleConfigToggle(event: PopupEventLike) {
+  event.stopPropagation?.();
   uiModule.setTodoControlsMenuOpen(false);
   uiModule.setConfigMenuOpen(!state.configMenuOpen);
 }
 
-// @ts-expect-error
-function handleConfigMenuClick(event) {
-  event.stopPropagation();
+function handleConfigMenuClick(event: PopupEventLike) {
+  event.stopPropagation?.();
 }
 
-// @ts-expect-error
-function handleTodoControlsMenuToggle(event) {
-  event.stopPropagation();
+function handleTodoControlsMenuToggle(event: PopupEventLike) {
+  event.stopPropagation?.();
   const view = uiModule.getViewState();
   uiModule.setConfigMenuOpen(false);
   uiModule.setTodoControlsMenuOpen(!view.todoControlsMenuOpen);
 }
 
-// @ts-expect-error
-function handleTodoControlsMenuClick(event) {
-  event.stopPropagation();
+function handleTodoControlsMenuClick(event: PopupEventLike) {
+  event.stopPropagation?.();
 }
 
 function handleTodoSectionToggle() {
@@ -6295,8 +6441,7 @@ function handleTodoSectionToggle() {
   saveCurrentTodoExpansionState();
 }
 
-// @ts-expect-error
-function handleTodoSubsectionToggle(key) {
+function handleTodoSubsectionToggle(key: string) {
   const view = uiModule.getViewState();
   const expanded = Boolean(view.todoSubsectionsExpanded && view.todoSubsectionsExpanded[key]);
   uiModule.setTodoSubsectionExpanded(key, !expanded);
@@ -6359,8 +6504,7 @@ async function handleConfigurationContinue() {
   await refreshUi();
 }
 
-// @ts-expect-error
-async function handleExplicitExcludeView(xpath) {
+async function handleExplicitExcludeView(xpath: string) {
   await runWithSpinner(null, PopupText.overlay.locatingElement, async () => {
     const response = await messages.sendTabMessage({
       type: "focusElement",
@@ -6376,8 +6520,7 @@ async function handleExplicitExcludeView(xpath) {
   });
 }
 
-// @ts-expect-error
-async function handleExplicitExcludeRemove(xpath) {
+async function handleExplicitExcludeRemove(xpath: string) {
   if (!state.currentBaseUrl) {
     return;
   }
@@ -6400,8 +6543,7 @@ async function handleExplicitExcludeRemove(xpath) {
   await refreshUi({ useBusyOverlay: false, skipPropertyLockFetch: true });
 }
 
-// @ts-expect-error
-async function handleExplicitIncludeView(xpath) {
+async function handleExplicitIncludeView(xpath: string) {
   await runWithSpinner(null, PopupText.overlay.locatingElement, async () => {
     const response = await messages.sendTabMessage({
       type: "focusElement",
@@ -6417,8 +6559,7 @@ async function handleExplicitIncludeView(xpath) {
   });
 }
 
-// @ts-expect-error
-async function handleExplicitIncludeRemove(xpath) {
+async function handleExplicitIncludeRemove(xpath: string) {
   if (!state.currentBaseUrl) {
     return;
   }
@@ -6441,8 +6582,7 @@ async function handleExplicitIncludeRemove(xpath) {
   await refreshUi({ useBusyOverlay: false, skipPropertyLockFetch: true });
 }
 
-// @ts-expect-error
-async function navigateActiveTabToUrl(url) {
+async function navigateActiveTabToUrl(url: string): Promise<boolean> {
   const tab = await helpers.ensureActiveTab({ requireId: true });
   if (!tab) {
     return false;
@@ -6498,8 +6638,7 @@ async function confirmNavigationAwayFromMarking() {
   return true;
 }
 
-// @ts-expect-error
-async function navigateActiveTabToUrlWithTodoCollapse(url) {
+async function navigateActiveTabToUrlWithTodoCollapse(url: string): Promise<boolean> {
   if (!(await confirmNavigationAwayFromMarking())) {
     return false;
   }
@@ -6510,13 +6649,11 @@ async function navigateActiveTabToUrlWithTodoCollapse(url) {
   return navigated;
 }
 
-// @ts-expect-error
-async function handleMarkedPageNavigate(url) {
+async function handleMarkedPageNavigate(url: string) {
   await navigateActiveTabToUrlWithTodoCollapse(url);
 }
 
-// @ts-expect-error
-async function handleLynxChecklistCandidateNavigate(url) {
+async function handleLynxChecklistCandidateNavigate(url: string) {
   if (!url) {
     return;
   }
@@ -6524,13 +6661,9 @@ async function handleLynxChecklistCandidateNavigate(url) {
   await navigateActiveTabToUrlWithTodoCollapse(url);
 }
 
-// @ts-expect-error
-async function handleEnableToggle(event) {
-  const source = event && (event.currentTarget || event.target);
+async function handleEnableToggle(event: PopupCheckedEvent) {
   const currentViewState = uiModule.getViewState();
-  const desiredEnabled = source
-    ? Boolean(source.checked)
-    : currentViewState.toggleEnabled;
+  const desiredEnabled = getPopupEventChecked(event, currentViewState.toggleEnabled);
   if (desiredEnabled !== currentViewState.toggleEnabled) {
     collapseTodoListForAutoCollapse();
   }
@@ -6538,12 +6671,9 @@ async function handleEnableToggle(event) {
   const pendingKnownFromCurrentView = Boolean(
     !desiredEnabled && currentViewState.sessionHasPendingChanges
   );
-// @ts-expect-error
-  let immediateDisableSpinnerKey = null;
+  let immediateDisableSpinnerKey: string | null = null;
   const showImmediateDisableSpinner = () => {
-// @ts-expect-error
     if (desiredEnabled || immediateDisableSpinnerKey) {
-// @ts-expect-error
       return immediateDisableSpinnerKey;
     }
     immediateDisableSpinnerKey = pushSpinner(null, PopupText.overlay.disablingMarking, {
@@ -6553,7 +6683,6 @@ async function handleEnableToggle(event) {
     return immediateDisableSpinnerKey;
   };
   const clearImmediateDisableSpinner = () => {
-// @ts-expect-error
     if (!immediateDisableSpinnerKey) {
       return;
     }
@@ -6700,13 +6829,15 @@ async function handleEnableToggle(event) {
           if (!enableResponse || !enableResponse.ok) {
             uiModule.setViewState({ toggleEnabled: false });
             clearLastPopupEnabled();
-// @ts-expect-error
-            if (enableResponse?.locked) {
-// @ts-expect-error
-              uiModule.showToast(propertyLockText.lockedInteractionBlockedToast(state.propertyLockState?.editorName || "Someone"));
+            if (isFailedPopupOperationResponse(enableResponse) && enableResponse.locked) {
+              uiModule.showToast(
+                propertyLockText.lockedInteractionBlockedToast(getPropertyLockEditorName())
+              );
             } else {
-// @ts-expect-error
-              uiModule.showToast(enableResponse?.error || PopupText.helper.activateFailedOnPage);
+              uiModule.showToast(
+                (isFailedPopupOperationResponse(enableResponse) && enableResponse.error) ||
+                  PopupText.helper.activateFailedOnPage
+              );
             }
             await refreshUi();
             return;
@@ -6723,8 +6854,10 @@ async function handleEnableToggle(event) {
           if (!disableResponse || !disableResponse.ok) {
             uiModule.setViewState({ toggleEnabled: true });
             setLastPopupEnabled(true, buildPopupEnabledContext(tab, state.currentBaseUrl));
-// @ts-expect-error
-            uiModule.showToast((disableResponse && disableResponse.error) || "Unable to disable marking");
+            uiModule.showToast(
+              (isFailedPopupOperationResponse(disableResponse) && disableResponse.error) ||
+                "Unable to disable marking"
+            );
             await refreshUi();
             return;
           }
@@ -6743,17 +6876,17 @@ async function handleEnableToggle(event) {
   }
 }
 
-// @ts-expect-error
-async function handleDeviceEmulationEnabledToggle(event) {
+async function handleDeviceEmulationEnabledToggle(event: PopupCheckedEvent) {
   if (!isFeatureEnabled("deviceEmulationToggle")) {
     return;
   }
   if (uiModule.getViewState().toggleEnabled) {
     return;
   }
-  const desiredEnabled = event && event.currentTarget
-    ? Boolean(event.currentTarget.checked)
-    : uiModule.getViewState().deviceEmulationEnabled;
+  const desiredEnabled = getPopupEventChecked(
+    event,
+    uiModule.getViewState().deviceEmulationEnabled
+  );
   if (!await helpers.ensureActiveTab({ requireId: true })) {
     return;
   }
@@ -6768,14 +6901,14 @@ async function handleDeviceEmulationEnabledToggle(event) {
   });
 }
 
-// @ts-expect-error
-async function handleDesktopPreviewEnabledToggle(event) {
+async function handleDesktopPreviewEnabledToggle(event: PopupCheckedEvent) {
   if (!isFeatureEnabled("desktopPreview")) {
     return;
   }
-  const desiredEnabled = event && event.currentTarget
-    ? Boolean(event.currentTarget.checked)
-    : uiModule.getViewState().desktopPreviewEnabled;
+  const desiredEnabled = getPopupEventChecked(
+    event,
+    uiModule.getViewState().desktopPreviewEnabled
+  );
   if (!await helpers.ensureActiveTab({ requireId: true })) {
     return;
   }
@@ -6826,11 +6959,8 @@ async function handleDesktopPreviewEnabledToggle(event) {
 }
 
 
-// @ts-expect-error
-function handleDeviceScaleInput(event) {
-  const value = event && event.currentTarget
-    ? event.currentTarget.value
-    : uiModule.getViewState().deviceScale;
+function handleDeviceScaleInput(event: PopupValueEvent) {
+  const value = getPopupEventValue(event, String(uiModule.getViewState().deviceScale ?? ""));
   const scale = Number.parseFloat(value);
   if (!Number.isFinite(scale)) {
     return;
@@ -6841,11 +6971,8 @@ function handleDeviceScaleInput(event) {
   });
 }
 
-// @ts-expect-error
-async function handleDeviceScaleChange(event) {
-  const value = event && event.currentTarget
-    ? event.currentTarget.value
-    : uiModule.getViewState().deviceScale;
+async function handleDeviceScaleChange(event: PopupValueEvent) {
+  const value = getPopupEventValue(event, String(uiModule.getViewState().deviceScale ?? ""));
   if (!await helpers.ensureActiveTab({ requireId: true })) {
     return;
   }
@@ -6893,10 +7020,14 @@ async function handleClearDomainCache() {
     uiModule.showToast(PopupText.cache.toastUnsupportedPage);
     return;
   }
+  const tabUrl = typeof tab.url === "string" ? tab.url : "";
+  if (!tabUrl) {
+    uiModule.showToast(PopupText.cache.toastUnsupportedPage);
+    return;
+  }
   let hostname = origin;
   try {
-// @ts-expect-error
-    hostname = new URL(tab.url).hostname;
+    hostname = new URL(tabUrl).hostname;
   } catch (error) {
     hostname = origin;
   }
@@ -6923,8 +7054,7 @@ async function handleClearDomainCache() {
     }
   } catch (error) {
     uiModule.showToast(
-// @ts-expect-error
-      (error && error.message) || PopupText.cache.toastClearFailed
+      getErrorMessage(error) || PopupText.cache.toastClearFailed
     );
   } finally {
     state.clearDomainCacheDisabled = false;
@@ -7232,7 +7362,7 @@ async function requestAiRunStatus({ sessionId = "" } = {}) {
   return response && typeof response === "object" ? response : { ok: false };
 }
 
-async function requestAiRunResult({ sessionId = "" } = {}) {
+async function requestAiRunResult({ sessionId = "" } = {}): Promise<AiRunResultResponse> {
   const response = await messages.sendRuntimeMessage({
     type: "requestAiRunResultSnapshot",
     sessionId
@@ -7250,21 +7380,17 @@ async function requestAiRunResult({ sessionId = "" } = {}) {
       removeInvalid: true
     })
     : { ok: false };
-// @ts-expect-error
-  const data = loaded.ok ? loaded.payload : null;
-  if (
-    !data ||
-    typeof data !== "object" ||
-    !Array.isArray(data.exclusionSelectors) ||
-    !Array.isArray(data.inclusionSelectors)
-  ) {
+  const data = loaded.ok && "payload" in loaded ? loaded.payload : null;
+  if (!isSelectorSetTransferPayload(data)) {
     return { ok: false };
   }
   return { ok: true, selectorSet: normalizeAiSelectorSet(data) };
 }
 
-// @ts-expect-error
-async function applyComputedSelectorSet(selectorSet, { currentPageUrl = "", tokenValue = "" } = {}) {
+async function applyComputedSelectorSet(
+  selectorSet: SelectorSet,
+  { currentPageUrl = "", tokenValue = "" }: ComputedSelectorSetApplyOptions = {}
+) {
   const selectorsChanged =
     !config.isSelectorSetCurrentForRenderMode(state.currentConfig, "selectors") ||
     !aiSelectorSetsEqual(
@@ -7362,8 +7488,7 @@ async function applyComputedSelectorSet(selectorSet, { currentPageUrl = "", toke
 }
 
 function applyAiPreviewStateUpdate(message: PreviewStateLike): void;
-// @ts-expect-error
-function applyAiPreviewStateUpdate(message) {
+function applyAiPreviewStateUpdate(message: PreviewStateLike) {
   const messageBaseUrl = typeof message.baseUrl === "string" ? message.baseUrl : "";
   if (state.currentBaseUrl && messageBaseUrl && !utils.sameBaseUrl(messageBaseUrl, state.currentBaseUrl)) {
     return;
@@ -7381,30 +7506,28 @@ function applyAiPreviewStateUpdate(message) {
   }
 }
 
-async function failAiRun(message = PopupText.ai.runFailed) {
+async function failAiRun(message: string = PopupText.ai.runFailed) {
   await stopAiRun({ unlockPage: true });
   uiModule.showToast(message);
 }
 
-// @ts-expect-error
-function getAiRunCommandFailureMessage(response) {
+function getAiRunCommandFailureMessage(response: PopupFailureLike) {
   const details = response && response.details && typeof response.details === "object"
-    ? response.details
-    : {};
-  if (details.reconciliationPending) {
+    ? response.details as AiRunCommandFailureDetails
+    : null;
+  if (details && details.reconciliationPending) {
     return PopupText.page.statusServerSyncPending;
   }
-  if (details.locked) {
-// @ts-expect-error
-    return propertyLockText.lockedInteractionBlockedToast(state.propertyLockState?.editorName || "Someone");
+  if (details && details.locked) {
+    return propertyLockText.lockedInteractionBlockedToast(getPropertyLockEditorName());
   }
-  if (details.reason === "missing_current_page") {
+  if (details && details.reason === "missing_current_page") {
     return PopupText.ai.saveCurrentPageBeforeComputing;
   }
-  if (details.reason === "missing_saved_pages") {
+  if (details && details.reason === "missing_saved_pages") {
     return PopupText.ai.savePagesBeforeComputing;
   }
-  if (details.reason === "timed_out") {
+  if (details && details.reason === "timed_out") {
     return PopupText.ai.runTimedOut;
   }
   if (response && typeof response.error === "string" && response.error) {
@@ -7418,7 +7541,6 @@ async function continueAiRunPolling({ endpointValue = "", tokenValue = "", curre
     const sessionId = state.aiRunSessionId;
     const remainingMs = getAiRunRemainingMs(state.aiRunDeadlineAt);
     if (!remainingMs) {
-// @ts-expect-error
       await failAiRun(PopupText.ai.runTimedOut);
       return;
     }
@@ -7430,7 +7552,6 @@ async function continueAiRunPolling({ endpointValue = "", tokenValue = "", curre
       return;
     }
     if (!getAiRunRemainingMs(state.aiRunDeadlineAt)) {
-// @ts-expect-error
       await failAiRun(PopupText.ai.runTimedOut);
       return;
     }
@@ -7444,7 +7565,6 @@ async function continueAiRunPolling({ endpointValue = "", tokenValue = "", curre
       return;
     }
     if (statusResult.notFound) {
-// @ts-expect-error
       await failAiRun(state.aiRunResumed ? PopupText.ai.runUnavailable : PopupText.ai.runFailed);
       return;
     }
@@ -7474,8 +7594,7 @@ async function continueAiRunPolling({ endpointValue = "", tokenValue = "", curre
       await failAiRun(PopupText.ai.runFailed);
       return;
     }
-    if (result.notFound) {
-// @ts-expect-error
+    if (!result.ok && result.notFound) {
       await failAiRun(state.aiRunResumed ? PopupText.ai.runUnavailable : PopupText.ai.runFailed);
       return;
     }
@@ -7548,7 +7667,6 @@ async function handleComputeSelectors() {
     const siteId = normalizeSiteIdValue(state.currentSiteId || (state.currentConfig && state.currentConfig.siteId));
     const deadlineAt = Date.now() + AI_RUN_TIMEOUT_MS;
     setAiRunActiveState({
-// @ts-expect-error
       siteId,
       deadlineAt,
       resumed: false,
@@ -7565,15 +7683,13 @@ async function handleComputeSelectors() {
         siteId,
         deadlineAt
       });
-// @ts-expect-error
-      if (!aiRunResponse || !aiRunResponse.ok || !aiRunResponse.result) {
+      if (!isPopupCommandSuccess<Record<string, unknown>>(aiRunResponse)) {
         await failAiRun(getAiRunCommandFailureMessage(aiRunResponse));
         return;
       }
 
-// @ts-expect-error
       const runResult = aiRunResponse.result;
-      if (!Array.isArray(runResult.selectorSet?.exclusionSelectors) || !Array.isArray(runResult.selectorSet?.inclusionSelectors)) {
+      if (!isSelectorSetTransferPayload(runResult.selectorSet)) {
         await failAiRun(PopupText.ai.runFailed);
         return;
       }
@@ -7593,11 +7709,9 @@ async function handleComputeSelectors() {
   }
 }
 
-async function postPageTypeAssignmentsToAiServer(options = {}) {
+async function postPageTypeAssignmentsToAiServer(options: PageTypeAssignmentsSubmitOptions = {}) {
   const {
-// @ts-expect-error
     baseUrl = state.currentBaseUrl,
-// @ts-expect-error
     checklistPageTypes = state.lynxChecklistPageTypes
   } = options;
   try {
@@ -7627,13 +7741,10 @@ async function postPageTypeAssignmentsToAiServer(options = {}) {
   }
 }
 
-async function submitSelectorSetToServer(options = {}) {
+async function submitSelectorSetToServer(options: SelectorSetSubmitOptions = {}) {
   const {
-// @ts-expect-error
     baseUrl = state.currentBaseUrl,
-// @ts-expect-error
     selectorSet = getCurrentSelectorsFromConfig(),
-// @ts-expect-error
     tokenValue = ""
   } = options;
 
@@ -7984,29 +8095,28 @@ async function handleExitPreviewMode() {
   }
 }
 
-function normalizePreviewItems(
-  items: PreviewStateLike["items"] | null | undefined
-): PreviewViewState["previewItems"];
-// @ts-expect-error
-function normalizePreviewItems(items) {
+function normalizePreviewItems(items: PreviewStateLike["items"] | null | undefined) {
   if (!Array.isArray(items)) {
     return [];
   }
   return items
     .filter((item) => item && typeof item === "object" && typeof item.xpath === "string")
-    .map((item) => ({
-      xpath: item.xpath,
-      text: typeof item.text === "string" ? item.text : "",
-      title: typeof item.title === "string" && item.title ? item.title : item.xpath,
-      kind: typeof item.kind === "string" ? item.kind : ""
-    }));
+    .map((item) => {
+      const xpath = typeof item.xpath === "string" ? item.xpath : "";
+      return {
+        xpath,
+        text: typeof item.text === "string" ? item.text : "",
+        title: typeof item.title === "string" && item.title ? item.title : xpath,
+        kind: typeof item.kind === "string" ? item.kind : ""
+      };
+    });
 }
 
-function buildPreviewViewState(previewState: PreviewStateLike | null | undefined): PreviewViewState;
-// @ts-expect-error
-function buildPreviewViewState(previewState) {
-  const previewMode = typeof (previewState && previewState.mode) === "string"
-    ? previewState.mode
+function buildPreviewViewState(previewState: PreviewStateLike | null | undefined): PreviewViewState {
+  const previewStateMode = previewState?.mode;
+  const previewMode = typeof previewStateMode === "string" ? previewStateMode : "";
+  const previewFocusedXpath = typeof previewState?.focusedXpath === "string"
+    ? previewState.focusedXpath
     : "";
   const previewExpandedStatesEnabled = isFeatureEnabled("previewExpandedStates");
   return {
@@ -8024,9 +8134,7 @@ function buildPreviewViewState(previewState) {
         (previewState.previousEnabled || previewState.restoreMarkingOnExit)
     ),
     previewItems: normalizePreviewItems(previewState && previewState.items),
-    previewFocusedXpath: typeof (previewState && previewState.focusedXpath) === "string"
-      ? previewState.focusedXpath
-      : "",
+    previewFocusedXpath,
     previewShowAllCategories: Boolean(
       previewExpandedStatesEnabled &&
       previewState &&
@@ -8037,20 +8145,12 @@ function buildPreviewViewState(previewState) {
   };
 }
 
-async function handlePreviewShowAllCategoriesChange(event: unknown): Promise<void>;
-// @ts-expect-error
-async function handlePreviewShowAllCategoriesChange(event) {
+async function handlePreviewShowAllCategoriesChange(event: PopupCheckedEvent) {
   if (!isFeatureEnabled("previewExpandedStates")) {
     uiModule.setViewState({ previewShowAllCategories: false });
     return;
   }
-  const nextChecked = Boolean(
-    event &&
-      typeof event === "object" &&
-      "target" in event &&
-      event.target instanceof HTMLInputElement &&
-      event.target.checked
-  );
+  const nextChecked = getPopupEventChecked(event);
   const previousChecked = Boolean(uiModule.getViewState().previewShowAllCategories);
   uiModule.setViewState({ previewShowAllCategories: nextChecked });
   if (!await helpers.ensureActiveTab({ requireId: true })) {
@@ -8122,15 +8222,15 @@ async function init() {
   await ensureThemeSettings();
 
   uiModule.initUi({
-    onToggleEnabled: handleEnableToggle,
-    onDeviceEmulationEnabledChange: handleDeviceEmulationEnabledToggle,
-    onDesktopPreviewEnabledChange: handleDesktopPreviewEnabledToggle,
-    onDeviceScaleInput: handleDeviceScaleInput,
-    onDeviceScaleChange: handleDeviceScaleChange,
-    onConfigToggle: handleConfigToggle,
-    onConfigMenuClick: handleConfigMenuClick,
-    onTodoControlsMenuToggle: handleTodoControlsMenuToggle,
-    onTodoControlsMenuClick: handleTodoControlsMenuClick,
+    onToggleEnabled: asPopupHandler(handleEnableToggle),
+    onDeviceEmulationEnabledChange: asPopupHandler(handleDeviceEmulationEnabledToggle),
+    onDesktopPreviewEnabledChange: asPopupHandler(handleDesktopPreviewEnabledToggle),
+    onDeviceScaleInput: asPopupHandler(handleDeviceScaleInput),
+    onDeviceScaleChange: asPopupHandler(handleDeviceScaleChange),
+    onConfigToggle: asPopupHandler(handleConfigToggle),
+    onConfigMenuClick: asPopupHandler(handleConfigMenuClick),
+    onTodoControlsMenuToggle: asPopupHandler(handleTodoControlsMenuToggle),
+    onTodoControlsMenuClick: asPopupHandler(handleTodoControlsMenuClick),
     onTodoSectionToggle: handleTodoSectionToggle,
     onTodoSubsectionToggle: handleTodoSubsectionToggle,
     onTodoExpandAll: handleTodoExpandAll,
@@ -8145,41 +8245,41 @@ async function init() {
     onPageSave: handlePageSave,
     onPageRevert: handlePageRevert,
     onMarkingPreview: handleMarkingPreview,
-    onConfigEndpointInput: handleConfigEndpointInput,
-    onConfigEndpointKeyDown: handleConfigEndpointKeyDown,
+    onConfigEndpointInput: asPopupHandler(handleConfigEndpointInput),
+    onConfigEndpointKeyDown: asPopupHandler(handleConfigEndpointKeyDown),
     onConfigEndpointSet: handleConfigEndpointSet,
     onConfigEndpointEditToggle: handleConfigEndpointEditToggle,
-    onEndpointInput: handleEndpointInput,
-    onEndpointKeyDown: handleEndpointKeyDown,
+    onEndpointInput: asPopupHandler(handleEndpointInput),
+    onEndpointKeyDown: asPopupHandler(handleEndpointKeyDown),
     onEndpointSet: handleEndpointSet,
     onEndpointEditToggle: handleEndpointEditToggle,
-    onStageBaseInput: handleStageBaseInput,
-    onThemeInput: handleThemeInput,
+    onStageBaseInput: asPopupHandler(handleStageBaseInput),
+    onThemeInput: asPopupHandler(handleThemeInput),
     onThemePrevious: handleThemePrevious,
     onThemeNext: handleThemeNext,
-    onThemeMenuToggle: handleThemeMenuToggle,
-    onThemeMenuKeyDown: handleThemeMenuKeyDown,
-    onThemeOptionSelect: handleThemeOptionSelect,
-    onThemeModeInput: handleThemeModeInput,
-    onRenderModeInput: handleRenderModeInput,
-    onRenderModeChoiceInput: handleRenderModeInput,
-    onRenderModeSummaryToggle: handleRenderModeSummaryToggle,
+    onThemeMenuToggle: asPopupHandler(handleThemeMenuToggle),
+    onThemeMenuKeyDown: asPopupHandler(handleThemeMenuKeyDown),
+    onThemeOptionSelect: asPopupHandler(handleThemeOptionSelect),
+    onThemeModeInput: asPopupHandler(handleThemeModeInput),
+    onRenderModeInput: asPopupHandler(handleRenderModeInput),
+    onRenderModeChoiceInput: asPopupHandler(handleRenderModeInput),
+    onRenderModeSummaryToggle: asPopupHandler(handleRenderModeSummaryToggle),
     onRenderModeInspectWithJavaScript: handleRenderModeInspectWithJavaScript,
     onRenderModeInspectWithoutJavaScript: handleRenderModeInspectWithoutJavaScript,
-    onLynxChecklistPageTypeDecisionChange: handleLynxChecklistPageTypeDecisionChange,
-    onLynxChecklistPageTypePageChange: handleLynxChecklistPageTypePageChange,
-    onLynxChecklistCandidateNavigate: handleLynxChecklistCandidateNavigate,
+    onLynxChecklistPageTypeDecisionChange: asPopupHandler(handleLynxChecklistPageTypeDecisionChange),
+    onLynxChecklistPageTypePageChange: asPopupHandler(handleLynxChecklistPageTypePageChange),
+    onLynxChecklistCandidateNavigate: asPopupHandler(handleLynxChecklistCandidateNavigate),
     onLynxChecklistCancel: handleLynxChecklistCancel,
     onLynxChecklistSend: handleLynxChecklistSend,
     onRenderModeSet: handleRenderModeSet,
     onRenderModeEditToggle: handleRenderModeEditToggle,
     onOpenRenderModeSection: handleOpenRenderModeSection,
-    onStageBaseKeyDown: handleStageBaseKeyDown,
+    onStageBaseKeyDown: asPopupHandler(handleStageBaseKeyDown),
     onStageBaseSet: handleStageBaseSet,
     onStageBaseEditToggle: handleStageBaseEditToggle,
-    onLoginEmailInput: handleLoginEmailInput,
-    onLoginPasswordInput: handleLoginPasswordInput,
-    onLoginPasswordKeyDown: handleLoginPasswordKeyDown,
+    onLoginEmailInput: asPopupHandler(handleLoginEmailInput),
+    onLoginPasswordInput: asPopupHandler(handleLoginPasswordInput),
+    onLoginPasswordKeyDown: asPopupHandler(handleLoginPasswordKeyDown),
     onLoginAction: handleLoginAction,
     onPropertyLockTake: handlePropertyLockTake,
     onPropertyLockSuggest: handlePropertyLockSuggest,
@@ -8191,13 +8291,13 @@ async function init() {
     onSaveExcludes: handleSaveExcludes,
     onPreviewLatest: handlePreviewLatest,
     onPreviewItemFocus: handlePreviewItemFocus,
-    onPreviewShowAllCategoriesChange: handlePreviewShowAllCategoriesChange,
+    onPreviewShowAllCategoriesChange: asPopupHandler(handlePreviewShowAllCategoriesChange),
     onExitPreviewMode: handleExitPreviewMode,
-    onExplicitExcludeView: handleExplicitExcludeView,
-    onExplicitExcludeRemove: handleExplicitExcludeRemove,
-    onExplicitIncludeView: handleExplicitIncludeView,
-    onExplicitIncludeRemove: handleExplicitIncludeRemove,
-    onMarkedPageNavigate: handleMarkedPageNavigate
+    onExplicitExcludeView: asPopupHandler(handleExplicitExcludeView),
+    onExplicitExcludeRemove: asPopupHandler(handleExplicitExcludeRemove),
+    onExplicitIncludeView: asPopupHandler(handleExplicitIncludeView),
+    onExplicitIncludeRemove: asPopupHandler(handleExplicitIncludeRemove),
+    onMarkedPageNavigate: asPopupHandler(handleMarkedPageNavigate)
   });
 
   document.addEventListener("click", () => {
@@ -8394,34 +8494,33 @@ async function init() {
   });
 
   utils.addStorageChangeListener((changes, areaName) => {
+    const storageChanges = getStorageChangeMap(changes);
     if (areaName === "sync") {
-// @ts-expect-error
-      if (changes[GLOBAL_AUTH_CONTEXT_VERSION_KEY] || changes[GLOBAL_STAGE_BASE_KEY] || changes[GLOBAL_CONFIG_ENDPOINT_KEY]) {
+      const authContextChange = storageChanges[GLOBAL_AUTH_CONTEXT_VERSION_KEY];
+      const stageBaseChange = storageChanges[GLOBAL_STAGE_BASE_KEY];
+      const configEndpointChange = storageChanges[GLOBAL_CONFIG_ENDPOINT_KEY];
+      if (authContextChange || stageBaseChange || configEndpointChange) {
         state.lastTokenValidationAt = 0;
         state.siteIdLookupByBaseUrl.clear();
         clearRemoteConfigLoadCache();
         setRemoteConfigConnectionIssue(false);
         scheduleRefresh();
       }
-// @ts-expect-error
-      if (changes[GLOBAL_THEME_KEY] || changes[GLOBAL_THEME_MODE_KEY]) {
+      const themeChange = storageChanges[GLOBAL_THEME_KEY];
+      const themeModeChange = storageChanges[GLOBAL_THEME_MODE_KEY];
+      if (themeChange || themeModeChange) {
         const appearanceCustomizationEnabled = isFeatureEnabled("appearanceCustomization");
-// @ts-expect-error
-        if (!appearanceCustomizationEnabled && (changes[GLOBAL_THEME_KEY] || changes[GLOBAL_THEME_MODE_KEY])) {
+        if (!appearanceCustomizationEnabled && (themeChange || themeModeChange)) {
           resetDisabledAppearanceCustomization();
         }
-// @ts-expect-error
-        if (appearanceCustomizationEnabled && changes[GLOBAL_THEME_KEY]) {
+        if (appearanceCustomizationEnabled && themeChange) {
           state.currentTheme = normalizeThemeValue(
-// @ts-expect-error
-            changes[GLOBAL_THEME_KEY].newValue
+            themeChange.newValue
           );
         }
-// @ts-expect-error
-        if (appearanceCustomizationEnabled && changes[GLOBAL_THEME_MODE_KEY]) {
+        if (appearanceCustomizationEnabled && themeModeChange) {
           state.currentThemeMode = normalizeThemeModeValue(
-// @ts-expect-error
-            changes[GLOBAL_THEME_MODE_KEY].newValue
+            themeModeChange.newValue
           );
         }
         if (appearanceCustomizationEnabled) {
@@ -8434,17 +8533,17 @@ async function init() {
     if (areaName !== "local" && areaName !== "session") {
       return;
     }
+    const currentTabIdValue = state.currentTab?.id;
+    const currentTabId = typeof currentTabIdValue === "number" && Number.isFinite(currentTabIdValue)
+      ? Math.trunc(currentTabIdValue)
+      : null;
     if (
-// @ts-expect-error
-      (areaName === "local" && changes.configs) ||
+      (areaName === "local" && storageChanges.configs) ||
       (areaName === "session" &&
-        state.currentTab &&
-// @ts-expect-error
-        (changes[`${constants.TAB_STATE_PREFIX}${state.currentTab.id}`] ||
-// @ts-expect-error
-          changes[`${constants.DEVICE_EMULATION_PREFIX}${state.currentTab.id}`] ||
-// @ts-expect-error
-          changes[renderModeNoJsHeldStorageKey(state.currentTab.id)]))
+        currentTabId !== null &&
+        (storageChanges[`${constants.TAB_STATE_PREFIX}${currentTabId}`] ||
+          storageChanges[`${constants.DEVICE_EMULATION_PREFIX}${currentTabId}`] ||
+          storageChanges[renderModeNoJsHeldStorageKey(currentTabId)]))
     ) {
       scheduleRefresh();
     }
@@ -8468,12 +8567,14 @@ async function init() {
       }
       const messageSiteId = normalizeSiteIdValue(message.siteId);
       const messageTabId = Number.isFinite(message.tabId) ? Math.trunc(message.tabId) : null;
+      const currentTabIdValue = state.currentTab?.id;
+      const currentTabId = typeof currentTabIdValue === "number" && Number.isFinite(currentTabIdValue)
+        ? Math.trunc(currentTabIdValue)
+        : null;
       if (
         messageTabId !== null &&
-        state.currentTab &&
-        Number.isFinite(state.currentTab.id) &&
-// @ts-expect-error
-        messageTabId !== Math.trunc(state.currentTab.id)
+        currentTabId !== null &&
+        messageTabId !== currentTabId
       ) {
         return;
       }

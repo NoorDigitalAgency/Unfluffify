@@ -60,7 +60,7 @@ export interface PopupState {
   currentThemeMode: string;
   currentTab: Browser.tabs.Tab | null;
   currentBaseUrl: string;
-  currentSiteId: string;
+  currentSiteId: string | number;
   currentConfig: Config | null;
   toastTimer: number;
   refreshTimer: number;
@@ -73,7 +73,7 @@ export interface PopupState {
   aiComputeStartPending: boolean;
   aiRunPhase: AiRunPhase | string;
   aiRunSessionId: string;
-  aiRunSiteId: string;
+  aiRunSiteId: string | number;
   aiRunDeadlineAt: number;
   aiRunRemainingMs: number;
   aiRunResumeExpiresAt: number;

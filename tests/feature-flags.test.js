@@ -144,8 +144,8 @@ test("disabled optional state cannot leak through hidden controls", () => {
 
   assert.match(popupSource, /function resetDisabledAppearanceCustomization\(\) \{[\s\S]*?state\.currentTheme = THEME_DEFAULT;[\s\S]*?state\.currentThemeMode = THEME_MODE_DEFAULT;[\s\S]*?applyPopupTheme\(state\.currentTheme, state\.currentThemeMode\);/);
   assert.match(popupSource, /async function ensureThemeSettings\(\) \{\s*if \(!isFeatureEnabled\("appearanceCustomization"\)\) \{[\s\S]*?resetDisabledAppearanceCustomization\(\);[\s\S]*?return;/);
-  assert.match(popupSource, /async function applyThemeValue\(nextThemeValue\) \{\s*if \(!isFeatureEnabled\("appearanceCustomization"\)\) \{/);
-  assert.match(popupSource, /const appearanceCustomizationEnabled = isFeatureEnabled\("appearanceCustomization"\);[\s\S]*?if \(!appearanceCustomizationEnabled && \(changes\[GLOBAL_THEME_KEY\] \|\| changes\[GLOBAL_THEME_MODE_KEY\]\)\) \{/);
+  assert.match(popupSource, /async function applyThemeValue\(nextThemeValue(?:\s*:\s*[^)]*)?\) \{\s*if \(!isFeatureEnabled\("appearanceCustomization"\)\) \{/);
+  assert.match(popupSource, /const appearanceCustomizationEnabled = isFeatureEnabled\("appearanceCustomization"\);[\s\S]*?if \(!appearanceCustomizationEnabled && \(themeChange \|\| themeModeChange\)\) \{/);
 
   assert.match(contentMainSource, /FEATURE_DISABLED_REASON,[\s\S]*?isFeatureEnabled/);
   assert.match(contentMainSource, /function setAiPreviewExpandedMode\(active(?:\s*:\s*[^)]+)?\)(?:\s*:\s*[^{]+)? \{\s*if \(!isFeatureEnabled\("previewExpandedStates"\)\) \{[\s\S]*?aiPreviewState\.showAllCategories = false;[\s\S]*?return false;/);

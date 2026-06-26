@@ -86,15 +86,15 @@ test("popup.js sends preview list mode changes to the content script and normali
   );
   assert.match(
     source,
-    /function buildPreviewViewState\(previewState\) \{[\s\S]*?previewShowAllCategories:[\s\S]*?previewState\.showAllCategories/
+    /function buildPreviewViewState\(previewState(?:\s*:\s*[^)]*)?\)(?:\s*:\s*[^{]+)? \{[\s\S]*?previewShowAllCategories:[\s\S]*?previewState\.showAllCategories/
   );
   assert.match(
     source,
-    /async function handlePreviewShowAllCategoriesChange\(event\) \{[\s\S]*?if \(!isFeatureEnabled\("previewExpandedStates"\)\) \{[\s\S]*?previewShowAllCategories: false[\s\S]*?return;/
+    /async function handlePreviewShowAllCategoriesChange\(event(?:\s*:\s*[^)]*)?\)(?:\s*:\s*[^{]+)? \{[\s\S]*?if \(!isFeatureEnabled\("previewExpandedStates"\)\) \{[\s\S]*?previewShowAllCategories: false[\s\S]*?return;/
   );
   assert.match(
     source,
-    /async function handlePreviewShowAllCategoriesChange\(event\) \{[\s\S]*?messages\.requestTabSetAiPreviewExpandedMode\(tabId, \{[\s\S]*?active: nextChecked[\s\S]*?uiModule\.setViewState\(buildPreviewViewState\(response\.result\.previewState \|\| null\)\);/
+    /async function handlePreviewShowAllCategoriesChange\(event(?:\s*:\s*[^)]*)?\)(?:\s*:\s*[^{]+)? \{[\s\S]*?messages\.requestTabSetAiPreviewExpandedMode\(tabId, \{[\s\S]*?active: nextChecked[\s\S]*?uiModule\.setViewState\(buildPreviewViewState\(response\.result\.previewState \|\| null\)\);/
   );
 });
 

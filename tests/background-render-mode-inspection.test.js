@@ -21,7 +21,7 @@ test("background keeps only the granular render-mode helper commands tab-scoped"
 
 test("popup render mode inspection delegates to the popup render-mode bus layer", () => {
   const block = popupSource.match(
-    /async function runRenderModeInspectionReload\(javaScriptDisabled\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?(?:\n|\r\n)*async function normalizeRenderModeDebuggerPage/
+    /async function runRenderModeInspectionReload\(javaScriptDisabled(?:\s*:\s*[^)]*)?\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?(?:\n|\r\n)*async function normalizeRenderModeDebuggerPage/
   )[1];
 
   assert.match(block, /requestPopupRenderModeInspection\(tabId, \{/);
