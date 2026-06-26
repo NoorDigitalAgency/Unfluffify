@@ -197,7 +197,7 @@ test("reveal activation starts on becameEditor transition and not on marking ena
     );
 
   const syncStart = source.search(/async function syncPropertyLockConnection\(options(?:\s*:\s*[^=]+)? = \{\}\) \{/);
-  const syncEnd = source.indexOf("function handlePropertyLockPortMessage(message) {", syncStart);
+  const syncEnd = source.search(/function handlePropertyLockPortMessage\(/);
   const syncSource = source.slice(syncStart, syncEnd);
   assert.ok(syncStart > -1);
   assert.ok(syncEnd > syncStart);
@@ -434,7 +434,7 @@ test("silent-highlight reposition reuses cached render targets between settle sa
   const source = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
 
   // Cache state exists at module scope.
-  assert.match(source, /let silentHighlightRenderTargetCache = new Map\(\);/);
+  assert.match(source, /let silentHighlightRenderTargetCache = new Map(?:<[^>]+>)?\(\);/);
 
   // Signature builder reads from the cache on hit, populates it on miss.
   const sigStart = source.indexOf("function buildSilentHighlightPositionSignature");

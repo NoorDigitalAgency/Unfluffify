@@ -7,7 +7,7 @@ test("silent highlight titles combine matched selectors with xpath and fall back
 
   assert.match(
     source,
-    /function buildSilentHighlightTitle\(selector, xpath\) \{[\s\S]*?"Matched CSS selectors:"[\s\S]*?`Matched CSS selector: \$\{selectorLines\[0\]\}`[\s\S]*?`XPath: \$\{normalizedXpath\}`[\s\S]*?return normalizedXpath \|\| normalizedSelector;[\s\S]*?\}/
+    /function buildSilentHighlightTitle\(selector(?:\s*:\s*[^,]+)?, xpath(?:\s*:\s*[^)]+)?\)(?:\s*:\s*[^{]+)? \{[\s\S]*?"Matched CSS selectors:"[\s\S]*?`Matched CSS selector: \$\{selectorLines\[0\]\}`[\s\S]*?`XPath: \$\{normalizedXpath\}`[\s\S]*?return normalizedXpath \|\| normalizedSelector;[\s\S]*?\}/
   );
 });
 
@@ -16,7 +16,7 @@ test("silent highlight annotations apply selector plus xpath for excluded and ex
 
   assert.match(
     source,
-    /function applySilentSelectorAnnotations\(collections\) \{[\s\S]*?const explicitIncludeXpathByNode =[\s\S]*?const excludedXpathByNode =[\s\S]*?explicitIncludeXpathByNode\.forEach\(\(xpath, node\) => \{[\s\S]*?setSilentSelectorAnnotation\([\s\S]*?"included",[\s\S]*?explicitIncludeSelectorByNode\.get\(node\) \|\| "",[\s\S]*?xpath[\s\S]*?\);[\s\S]*?\}\);[\s\S]*?excludedXpathByNode\.forEach\(\(xpath, node\) => \{[\s\S]*?setSilentSelectorAnnotation\([\s\S]*?"excluded",[\s\S]*?excludedSelectorByNode\.get\(node\) \|\| "",[\s\S]*?xpath[\s\S]*?\);[\s\S]*?\}\);/
+    /function applySilentSelectorAnnotations\(collections(?:\s*:\s*[^)]+)?\)(?:\s*:\s*[^{]+)? \{[\s\S]*?const explicitIncludeXpathByNode =[\s\S]*?const excludedXpathByNode =[\s\S]*?explicitIncludeXpathByNode\.forEach\(\(xpath, node\) => \{[\s\S]*?setSilentSelectorAnnotation\([\s\S]*?"included",[\s\S]*?explicitIncludeSelectorByNode\.get\(node\) \|\| "",[\s\S]*?xpath[\s\S]*?\);[\s\S]*?\}\);[\s\S]*?excludedXpathByNode\.forEach\(\(xpath, node\) => \{[\s\S]*?setSilentSelectorAnnotation\([\s\S]*?"excluded",[\s\S]*?excludedSelectorByNode\.get\(node\) \|\| "",[\s\S]*?xpath[\s\S]*?\);[\s\S]*?\}\);/
   );
 });
 
@@ -51,7 +51,7 @@ test("silent highlight keeps source-node collections so reflowed overlays can be
 
   assert.match(
     source,
-    /function buildSilentHighlightRenderableCollections\(collections\) \{[\s\S]*?const sourceContentNodes = cloneSilentHighlightNodes\([\s\S]*?const sourceExcludedNodes = cloneSilentHighlightNodes\([\s\S]*?const sourceExplicitIncludeNodes = cloneSilentHighlightNodes\([\s\S]*?const contentNodes = toRenderableNodeList\(sourceContentNodes\);[\s\S]*?const excludedRenderable = toRenderableNodeListWithSelectors\([\s\S]*?sourceExcludedNodes,[\s\S]*?return \{[\s\S]*?sourceContentNodes,[\s\S]*?sourceExcludedNodes,[\s\S]*?sourceExplicitIncludeNodes,[\s\S]*?sourceInclusionSelectorByNode,[\s\S]*?sourceExclusionSelectorByNode,[\s\S]*?implicitIncludeXpathByNode[\s\S]*?\};/
+    /function buildSilentHighlightRenderableCollections\([\s\S]*?collections(?:\s*:\s*[^)]+)?[\s\S]*?\)(?:\s*:\s*[^{]+)? \{[\s\S]*?const sourceContentNodes = cloneSilentHighlightNodes\([\s\S]*?const sourceExcludedNodes = cloneSilentHighlightNodes\([\s\S]*?const sourceExplicitIncludeNodes = cloneSilentHighlightNodes\([\s\S]*?const contentNodes = toRenderableNodeList\(sourceContentNodes\);[\s\S]*?const excludedRenderable = toRenderableNodeListWithSelectors\([\s\S]*?sourceExcludedNodes,[\s\S]*?return \{[\s\S]*?sourceContentNodes,[\s\S]*?sourceExcludedNodes,[\s\S]*?sourceExplicitIncludeNodes,[\s\S]*?sourceInclusionSelectorByNode,[\s\S]*?sourceExclusionSelectorByNode,[\s\S]*?implicitIncludeXpathByNode[\s\S]*?\};/
   );
   assert.match(
     source,
@@ -70,11 +70,11 @@ test("silent highlighting keeps immutable sources on a dedicated immutable overl
   );
   assert.match(
     source,
-    /function buildSilentHighlightRenderableCollections\(collections\) \{[\s\S]*?const sourceImmutableNodes = cloneSilentHighlightNodes\([\s\S]*?const immutableNodes = toRenderableNodeList\(sourceImmutableNodes\);[\s\S]*?return \{[\s\S]*?immutableNodes,[\s\S]*?sourceImmutableNodes,[\s\S]*?contentNodes,[\s\S]*?excludedNodes/
+    /function buildSilentHighlightRenderableCollections\([\s\S]*?collections(?:\s*:\s*[^)]+)?[\s\S]*?\)(?:\s*:\s*[^{]+)? \{[\s\S]*?const sourceImmutableNodes = cloneSilentHighlightNodes\([\s\S]*?const immutableNodes = toRenderableNodeList\(sourceImmutableNodes\);[\s\S]*?return \{[\s\S]*?immutableNodes,[\s\S]*?sourceImmutableNodes,[\s\S]*?contentNodes,[\s\S]*?excludedNodes/
   );
   assert.match(
     source,
-    /function renderSilentHighlightOverlay\(collections, options = \{\}\) \{[\s\S]*?const immutableNodes = Array\.from\(collections\.immutableNodes \|\| \[\]\);[\s\S]*?const immutableLayerState = beginSilentLayerRender\("immutable"\);[\s\S]*?drawSilentRectsForNode\(immutableLayerState, node, "uf-silent-immutable"\);/
+    /function renderSilentHighlightOverlay\([\s\S]*?collections(?:\s*:\s*[^,]+)?[\s\S]*?options(?:\s*:\s*[^=]+)? = \{\}[\s\S]*?\)(?:\s*:\s*[^{]+)? \{[\s\S]*?const immutableNodes = Array\.from\(collections\.immutableNodes \|\| \[\]\);[\s\S]*?const immutableLayerState = beginSilentLayerRender\("immutable"\);[\s\S]*?drawSilentRectsForNode\(immutableLayerState, node, "uf-silent-immutable"\);/
   );
   assert.match(
     source,
@@ -130,7 +130,7 @@ test("silent highlight reposition and mutation tracking use source collections i
 
   assert.match(
     source,
-    /function repositionSilentHighlightOverlay\(options = \{\}\) \{[\s\S]*?const keepVisible = Boolean\(options\.keepVisible\);[\s\S]*?const nextCollections = buildSilentHighlightRenderableCollections\(silentHighlightCollections\);[\s\S]*?renderSilentHighlightOverlay\(nextCollections, \{ keepVisible \}\);[\s\S]*?\}/
+    /function repositionSilentHighlightOverlay\(options(?:\s*:\s*[^=]+)? = \{\}\)(?:\s*:\s*[^{]+)? \{[\s\S]*?const keepVisible = Boolean\(options\.keepVisible\);[\s\S]*?const nextCollections = buildSilentHighlightRenderableCollections\(silentHighlightCollections\);[\s\S]*?renderSilentHighlightOverlay\(nextCollections, \{ keepVisible \}\);[\s\S]*?\}/
   );
   // Settle-driven repositions keep the overlay visible (no hide->reveal blink),
   // while scroll/resize repositions still hide up front.
@@ -143,7 +143,7 @@ test("silent highlight reposition and mutation tracking use source collections i
   // anywhere in the tracked subtree triggers a refresh.
   assert.match(
     source,
-    /function buildSilentHighlightTrackedNodeIndex\(\) \{[\s\S]*?silentHighlightCollections\.sourceContentNodes[\s\S]*?silentHighlightCollections\.sourceExcludedNodes[\s\S]*?silentHighlightCollections\.sourceExplicitIncludeNodes[\s\S]*?silentHighlightCollections\.contentNodes[\s\S]*?silentHighlightCollections\.excludedNodes[\s\S]*?\];/
+    /function buildSilentHighlightTrackedNodeIndex\(\)(?:\s*:\s*[^{]+)? \{[\s\S]*?silentHighlightCollections\.sourceImmutableNodes[\s\S]*?silentHighlightCollections\.sourceContentNodes[\s\S]*?silentHighlightCollections\.sourceExcludedNodes[\s\S]*?silentHighlightCollections\.sourceExplicitIncludeNodes[\s\S]*?silentHighlightCollections\.immutableNodes[\s\S]*?silentHighlightCollections\.contentNodes[\s\S]*?silentHighlightCollections\.excludedNodes[\s\S]*?\];/
   );
 });
 
@@ -157,7 +157,7 @@ test("silent highlight annotated nodes are marked copyable and clicks copy the f
   );
   assert.match(
     source,
-    /function setSilentSelectorAnnotation\(node, kind, selector = "", xpath = ""\) \{[\s\S]*?node\.setAttribute\(SILENT_TITLE_COPY_ATTR, "on"\);[\s\S]*?node\.setAttribute\("title", title\);[\s\S]*?\}/
+    /function setSilentSelectorAnnotation\([\s\S]*?node(?:\s*:\s*[^,]+)?[\s\S]*?kind(?:\s*:\s*[^,]+)?[\s\S]*?selector(?:\s*:\s*[^=]+)? = ""[\s\S]*?xpath(?:\s*:\s*[^=]+)? = ""[\s\S]*?\)(?:\s*:\s*[^{]+)? \{[\s\S]*?node\.setAttribute\(SILENT_TITLE_COPY_ATTR, "on"\);[\s\S]*?node\.setAttribute\("title", title\);[\s\S]*?\}/
   );
   assert.match(
     source,
@@ -165,7 +165,7 @@ test("silent highlight annotated nodes are marked copyable and clicks copy the f
   );
   assert.match(
     source,
-    /function handleSilentSelectorClickCopy\(event\) \{[\s\S]*?const annotated = target\.closest\(`\[\$\{SILENT_TITLE_COPY_ATTR\}\]`\);[\s\S]*?const title = annotated\.getAttribute\("title"\) \|\| "";[\s\S]*?copyTextToClipboard\(title\)\.then\(\);[\s\S]*?\}/
+    /function handleSilentSelectorClickCopy\(event(?:\s*:\s*[^)]+)?\)(?:\s*:\s*[^{]+)? \{[\s\S]*?const annotated = target\.closest\(`\[\$\{SILENT_TITLE_COPY_ATTR\}\]`\);[\s\S]*?const title = annotated\.getAttribute\("title"\) \|\| "";[\s\S]*?copyTextToClipboard\(title\)\.then\(\);[\s\S]*?\}/
   );
 });
 

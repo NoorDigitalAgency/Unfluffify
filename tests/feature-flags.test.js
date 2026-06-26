@@ -148,7 +148,7 @@ test("disabled optional state cannot leak through hidden controls", () => {
   assert.match(popupSource, /const appearanceCustomizationEnabled = isFeatureEnabled\("appearanceCustomization"\);[\s\S]*?if \(!appearanceCustomizationEnabled && \(changes\[GLOBAL_THEME_KEY\] \|\| changes\[GLOBAL_THEME_MODE_KEY\]\)\) \{/);
 
   assert.match(contentMainSource, /FEATURE_DISABLED_REASON,[\s\S]*?isFeatureEnabled/);
-  assert.match(contentMainSource, /function setAiPreviewExpandedMode\(active\) \{\s*if \(!isFeatureEnabled\("previewExpandedStates"\)\) \{[\s\S]*?aiPreviewState\.showAllCategories = false;[\s\S]*?return false;/);
+  assert.match(contentMainSource, /function setAiPreviewExpandedMode\(active(?:\s*:\s*[^)]+)?\)(?:\s*:\s*[^{]+)? \{\s*if \(!isFeatureEnabled\("previewExpandedStates"\)\) \{[\s\S]*?aiPreviewState\.showAllCategories = false;[\s\S]*?return false;/);
   assert.match(runtimeMessageHandlerSource, /if \(message\.type === "setAiPreviewExpandedMode"\) \{[\s\S]*?deps\.getAiPreviewExpandedModeHandler\(\)\.handleMessage\(message\)[\s\S]*?sendResponse\(response && typeof response === "object" \? response : \{ ok: false \}\);/);
 });
 

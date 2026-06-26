@@ -222,7 +222,7 @@ test("content main registers central page activity listeners for inactivity subs
 
   // Activity debounce timer and subscriber set are declared at module scope.
   assert.match(source, /let pageActivityTimer = 0;/);
-  assert.match(source, /const pageActivitySubscribers = new Set\(\);/);
+  assert.match(source, /const pageActivitySubscribers = new Set(?:<[^>]+>)?\(\);/);
   assert.match(source, /function sendPageActivityObserved\(\) \{/);
   assert.match(source, /type: "pageActivityObserved"/);
   assert.match(source, /function publishPageActivity\(\) \{/);

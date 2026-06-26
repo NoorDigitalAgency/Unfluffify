@@ -28,14 +28,14 @@ test("preview sidebar gates the expanded content-state checkbox behind a feature
 test("content-main applies the matching xpath as the preview target title", () => {
   const source = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
 
-  assert.match(source, /const aiPreviewOriginalTitles = new WeakMap\(\);/);
+  assert.match(source, /const aiPreviewOriginalTitles = new WeakMap(?:<[^>]+>)?\(\);/);
   assert.match(
     source,
-    /function setAiPreviewClickableTitle\(node, title\) \{[\s\S]*?previewTitle: title[\s\S]*?node\.setAttribute\("title", title\);[\s\S]*?\}/
+    /function setAiPreviewClickableTitle\(node(?:\s*:\s*[^,]+)?, title(?:\s*:\s*[^)]+)?\)(?:\s*:\s*[^{]+)? \{[\s\S]*?previewTitle: title[\s\S]*?node\.setAttribute\("title", title\);[\s\S]*?\}/
   );
   assert.match(
     source,
-    /function syncAiPreviewClickableTargets\(items\) \{[\s\S]*?const title = item && typeof item\.title === "string" && item\.title[\s\S]*?setAiPreviewClickableTitle\(node, title\);[\s\S]*?aiPreviewClickableNodes\.add\(node\);[\s\S]*?\}/
+    /function syncAiPreviewClickableTargets\(items(?:\s*:\s*[^)]+)?\)(?:\s*:\s*[^{]+)? \{[\s\S]*?const title = item && typeof item\.title === "string" && item\.title[\s\S]*?setAiPreviewClickableTitle\(node, title\);[\s\S]*?aiPreviewClickableNodes\.add\(node\);[\s\S]*?\}/
   );
 });
 
@@ -49,11 +49,11 @@ test("content-main tracks separate default and expanded preview item sets", () =
 
   assert.match(
     source,
-    /function createAiPreviewState\(\) \{[\s\S]*?defaultItems: \[],[\s\S]*?expandedItems: \[],[\s\S]*?showAllCategories: false,[\s\S]*?\}/
+    /function createAiPreviewState\(\)(?:\s*:\s*[^{]+)? \{[\s\S]*?defaultItems: \[],[\s\S]*?expandedItems: \[],[\s\S]*?showAllCategories: false,[\s\S]*?\}/
   );
   assert.match(
     source,
-    /function setAiPreviewExpandedMode\(active\) \{[\s\S]*?if \(!isFeatureEnabled\("previewExpandedStates"\)\) \{[\s\S]*?aiPreviewState\.showAllCategories = false;[\s\S]*?return false;[\s\S]*?aiPreviewState\.showAllCategories = Boolean\(active\);[\s\S]*?aiPreviewState\.showAllCategories[\s\S]*?aiPreviewState\.expandedItems[\s\S]*?aiPreviewState\.defaultItems/
+    /function setAiPreviewExpandedMode\(active(?:\s*:\s*[^)]+)?\)(?:\s*:\s*[^{]+)? \{[\s\S]*?if \(!isFeatureEnabled\("previewExpandedStates"\)\) \{[\s\S]*?aiPreviewState\.showAllCategories = false;[\s\S]*?return false;[\s\S]*?aiPreviewState\.showAllCategories = Boolean\(active\);[\s\S]*?aiPreviewState\.showAllCategories[\s\S]*?aiPreviewState\.expandedItems[\s\S]*?aiPreviewState\.defaultItems/
   );
   assert.match(
     runtimeMessageHandlerSource,
@@ -73,7 +73,7 @@ test("content-main keeps preview category hydration independent of disabled mark
   );
   assert.match(
     source,
-    /function collectUndetectedAiPreviewNodes\(trackedNodes\) \{[\s\S]*?const markabilityConfig = aiPreviewState\.previousConfig \|\| state\.config;[\s\S]*?core\.isMarkableElement\(node, markabilityConfig, \{/
+    /function collectUndetectedAiPreviewNodes\(trackedNodes(?:\s*:\s*[^)]+)?\)(?:\s*:\s*[^{]+)? \{[\s\S]*?const markabilityConfig = aiPreviewState\.previousConfig \|\| state\.config;[\s\S]*?core\.isMarkableElement\(node, markabilityConfig, \{/
   );
 });
 
@@ -112,7 +112,7 @@ test("content-main copies the preview target title while keeping preview focus b
 
   assert.match(
     source,
-    /function handleAiPreviewClick\(event\) \{[\s\S]*?if \(target\) \{[\s\S]*?copyTextToClipboard\(target\.element\.getAttribute\("title"\) \|\| target\.xpath\)\.then\(\);[\s\S]*?core\.focusPreviewElement\(target\.element, \{ center: false \}\);[\s\S]*?setAiPreviewFocusedXpath\(target\.xpath\);[\s\S]*?return true;[\s\S]*?\}/
+    /function handleAiPreviewClick\(event(?:\s*:\s*[^)]+)?\)(?:\s*:\s*[^{]+)? \{[\s\S]*?if \(target\) \{[\s\S]*?copyTextToClipboard\(target\.element\.getAttribute\("title"\) \|\| target\.xpath\)\.then\(\);[\s\S]*?core\.focusPreviewElement\(target\.element, \{ center: false \}\);[\s\S]*?setAiPreviewFocusedXpath\(target\.xpath\);[\s\S]*?return true;[\s\S]*?\}/
   );
 });
 
@@ -121,11 +121,11 @@ test("content-main remaps preview rows to renderable targets before syncing prev
 
   assert.match(
     source,
-    /function mapAiPreviewItemsToRenderableTargets\(items\) \{[\s\S]*?collectSilentHighlightRenderTargets\(sourceNode,[\s\S]*?hasRenderableClientBox\(sourceNode\)[\s\S]*?core\.getXPath\(target\)[\s\S]*?seenXpaths\.add\(xpath\);[\s\S]*?\}/
+    /function mapAiPreviewItemsToRenderableTargets\(items(?:\s*:\s*[^)]+)?\)(?:\s*:\s*[^{]+)? \{[\s\S]*?collectSilentHighlightRenderTargets\(sourceNode,[\s\S]*?hasRenderableClientBox\(sourceNode\)[\s\S]*?core\.getXPath\(target\)[\s\S]*?seenXpaths\.add\(xpath\);[\s\S]*?\}/
   );
   assert.match(
     source,
-    /function setAiPreviewItemSets\(defaultItems, expandedItems, options = \{\}\) \{[\s\S]*?aiPreviewState\.defaultItems = mapAiPreviewItemsToRenderableTargets\(defaultItems\);[\s\S]*?aiPreviewState\.expandedItems = mapAiPreviewItemsToRenderableTargets\(expandedItems\);/
+    /function setAiPreviewItemSets\([\s\S]*?defaultItems(?:\s*:\s*[^,]+)?[\s\S]*?expandedItems(?:\s*:\s*[^,]+)?[\s\S]*?options(?:\s*:\s*[^=]+)? = \{\}[\s\S]*?\)(?:\s*:\s*[^{]+)? \{[\s\S]*?aiPreviewState\.defaultItems = mapAiPreviewItemsToRenderableTargets\(defaultItems\);[\s\S]*?aiPreviewState\.expandedItems = mapAiPreviewItemsToRenderableTargets\(expandedItems\);/
   );
 });
 

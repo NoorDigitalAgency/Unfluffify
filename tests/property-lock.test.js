@@ -171,7 +171,7 @@ test("content-main requests a reconnect when property lock activity or page comm
   );
   assert.match(
     source,
-    /function sendPropertyLockMessage\(type, payload = \{\}\) \{[\s\S]*?const portClient = getPropertyLockPortClient\(\);[\s\S]*?if \(!portClient\.hasPort\(\)\) \{[\s\S]*?schedulePropertyLockReconnect\(\);[\s\S]*?return;[\s\S]*?\}/
+    /function sendPropertyLockMessage\(type(?:\s*:\s*[^,]+)?, payload(?:\s*:\s*[^=]+)? = \{\}\)(?:\s*:\s*[^{]+)? \{[\s\S]*?const portClient = getPropertyLockPortClient\(\);[\s\S]*?if \(!portClient\.hasPort\(\)\) \{[\s\S]*?schedulePropertyLockReconnect\(\);[\s\S]*?return;[\s\S]*?\}/
   );
 });
 
@@ -229,7 +229,7 @@ test("content-main starts and persists an off-candidate editor countdown before 
   assert.match(propertyLockStateMachineSource, /deps\.setPropertyLockOffCandidateDeadlineAt\(Date\.now\(\) \+ deps\.PROPERTY_LOCK_OFF_CANDIDATE_WARNING_TIMEOUT_MS\);/);
   assert.match(propertyLockStateMachineSource, /deps\.setPropertyLockBannerMode\("editor_off_candidate_countdown"\);/);
   assert.match(propertyLockStateMachineSource, /deps\.getTimerHost\(\)\.setTimeout\(\(\) => \{[\s\S]*?deps\.sendPropertyLockMessage\(deps\.PROPERTY_LOCK_CONTENT_RELEASE\);[\s\S]*?\}, deps\.PROPERTY_LOCK_OFF_CANDIDATE_WARNING_TIMEOUT_MS \+ 100\);/);
-  assert.match(source, /async function syncPropertyLockOffCandidateWarning\(baseUrl, pageUrl = location\.href\) \{/);
+  assert.match(source, /async function syncPropertyLockOffCandidateWarning\(baseUrl(?:\s*:\s*[^,]+)?, pageUrl(?:\s*:\s*[^=]+)? = location\.href\)(?:\s*:\s*[^{]+)? \{/);
   assert.match(source, /if \(propertyLockState && propertyLockState\.isEditor\) \{\s*startPropertyLockOffCandidateWarning\(\);/);
   assert.match(propertyLockBannerSource, /case "editor_off_candidate_countdown":/);
   assert.match(propertyLockBannerSource, /propertyLockText\.editorOffCandidateCountdownMessage\(propertyLockBannerCountdownValue\)/);
@@ -313,14 +313,14 @@ test("content-main connects property lock with a stable client identity and auto
   assert.match(source, /function setPropertyLockClientId\(nextClientId\)/);
   assert.match(syncSource, /type: PROPERTY_LOCK_CONTENT_CONNECT,[\s\S]*?\.\.\.getPropertyLockDraftStatusPayload\(\)/);
   assert.match(syncSource, /queuePropertyLockEditorClaim\(\);/);
-  assert.match(source, /if \(typeof message\.clientId === "string" && message\.clientId\) \{\s*setPropertyLockClientId\(message\.clientId\);\s*\}/);
+  assert.match(source, /if \(typeof (?:message|envelope)\.clientId === "string" && (?:message|envelope)\.clientId\) \{\s*setPropertyLockClientId\((?:message|envelope)\.clientId\);\s*\}/);
   assert.match(
     portMessageSource,
-    /message\.type === PROPERTY_LOCK_BACKGROUND_CONNECTION_STATUS[\s\S]*?message\.connectionStatus === PROPERTY_LOCK_CONNECTION_CONNECTED[\s\S]*?flushQueuedPropertyLockEditorClaim\(\);/
+    /(?:message|envelope)\.type === PROPERTY_LOCK_BACKGROUND_CONNECTION_STATUS[\s\S]*?(?:message|envelope)\.connectionStatus === PROPERTY_LOCK_CONNECTION_CONNECTED[\s\S]*?flushQueuedPropertyLockEditorClaim\(\);/
   );
   assert.match(
     portMessageSource,
-    /serverMessage\.type === PROPERTY_LOCK_WS_LOCK_STATE[\s\S]*?flushQueuedPropertyLockEditorClaim\(\);/
+    /server(?:State)?Message\.type === PROPERTY_LOCK_WS_LOCK_STATE[\s\S]*?flushQueuedPropertyLockEditorClaim\(\);/
   );
 });
 

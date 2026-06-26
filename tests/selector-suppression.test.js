@@ -28,7 +28,7 @@ test("content-main routes live-page GraphQL lookups through background runtime m
   assert.ok(resolveSiteIdStart > -1);
   assert.ok(resolveSiteIdEnd > resolveSiteIdStart);
   const resolveSiteIdBlock = contentSource.slice(resolveSiteIdStart, resolveSiteIdEnd);
-  const fetchPageTypesStart = contentSource.indexOf("async function fetchPropertyPageTypesForSiteId(siteId, stageBaseValue, tokenValue) {");
+  const fetchPageTypesStart = contentSource.search(/async function fetchPropertyPageTypesForSiteId\(/);
   const fetchPageTypesEnd = contentSource.indexOf("async function resolveCurrentLivePageTarget", fetchPageTypesStart);
   assert.ok(fetchPageTypesStart > -1);
   assert.ok(fetchPageTypesEnd > fetchPageTypesStart);
@@ -45,12 +45,12 @@ test("content-main routes live-page GraphQL lookups through background runtime m
   assert.doesNotMatch(resolveSiteIdBlock, /utils\.sendRuntimeMessage\(\{[\s\S]*?tokenValue[\s\S]*?\}\);/);
   assert.match(
     contentSource,
-    /async function fetchPropertyPageTypesForSiteId\(siteId, stageBaseValue, tokenValue\) \{[\s\S]*?utils\.sendRuntimeMessage\(\{[\s\S]*?type: "fetchLivePagePropertyPageTypes"/
+    /async function fetchPropertyPageTypesForSiteId\([\s\S]*?siteId(?:\s*:\s*[^,]+)?[\s\S]*?stageBaseValue(?:\s*:\s*[^,]+)?[\s\S]*?tokenValue(?:\s*:\s*[^)]+)?[\s\S]*?\)(?:\s*:\s*[^{]+)? \{[\s\S]*?utils\.sendRuntimeMessage\(\{[\s\S]*?type: "fetchLivePagePropertyPageTypes"/
   );
   assert.doesNotMatch(fetchPageTypesBlock, /utils\.sendRuntimeMessage\(\{[\s\S]*?tokenValue[\s\S]*?\}\);/);
   assert.doesNotMatch(
     contentSource,
-    /async function fetchPropertyPageTypesForSiteId\(siteId, stageBaseValue, tokenValue\) \{[\s\S]*?fetch\(/
+    /async function fetchPropertyPageTypesForSiteId\([\s\S]*?\)(?:\s*:\s*[^{]+)? \{[\s\S]*?fetch\(/
   );
 });
 

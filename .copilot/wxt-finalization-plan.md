@@ -288,3 +288,10 @@ Validate: `pnpm prepare` + `pnpm build`; diff `.output/chrome-mv3` file list and
 - If WXT `srcDir`/`publicDir` behaves differently than assumed (e.g. publicDir
   resolves to `<rootDir>/public` not `<srcDir>/public`), adjust the public-assets
   approach (keep the hook) rather than changing output paths.
+
+## Progress checkpoint
+
+- The latest `src/content-main.ts` utility-typing checkpoint is complete: the AI-preview/property-lock/silent-highlight utility seam now uses explicit client, DOM, XPath, and state-machine types instead of broad helper suppressions, including the typed page-toast/render-mode client getters, live-page/property-lock target resolution, AI-preview normalization/render-target/focus/click/category helpers, silent-highlight renderable-collection/annotation/mutation-refresh helpers, and property-lock port/state-machine dependency wiring.
+- The affected source-contract tests were relaxed only enough to tolerate the new TypeScript annotations and generic collection types while keeping the same wiring assertions.
+- Current suppression count is 1,124 total; the remaining tracked files are `src/content/core.ts` (908), `src/popup.ts` (111), `src/content-main.ts` (25), and the exempt eval bridge pair (`src/common/page-motion-freeze-bridge.ts` 43, `src/common/page-motion-freeze-control.ts` 37).
+- Next immediate step: move to the next biggest non-exempt type-safety tranche in `src/content/core.ts`, with the smaller `src/popup.ts` tail and the final `src/content-main.ts` cleanup left for later reviewed checkpoints.

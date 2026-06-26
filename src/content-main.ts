@@ -196,6 +196,101 @@ type PropertyLockRecoveryStateInput = {
 type PropertyLockServerMessage = Parameters<PropertyLockStateMachine["applyServerMessage"]>[0];
 type RenderModeInspectionHandlers = ReturnType<typeof createRenderModeInspectionHandlers>;
 type InspectionStatusResolver = ReturnType<typeof createInspectionStatusResolver>;
+type PageToastClient = ReturnType<typeof createPageToast>;
+type RenderModeInspectionClient = ReturnType<typeof createRenderModeInspectionClient>;
+type SiteIdValue = ReturnType<typeof normalizeSiteIdValue>;
+type CurrentPageCandidateState = ReturnType<typeof getCurrentPageCandidateState>;
+type PropertyPageTypes = NonNullable<Parameters<typeof getCurrentPageCandidateState>[1]>;
+type PageActivityListener = () => void;
+type SilentHighlightAnnotationKind = "included" | "excluded" | "implicit";
+type SilentHighlightTitleState = {
+  hadTitle: boolean;
+  title: string;
+  annotationTitle: string;
+};
+type AiPreviewTitleState = {
+  hadTitle: boolean;
+  title: string;
+  previewTitle: string;
+};
+type AiPreviewItem = {
+  xpath: string;
+  text: string;
+  title: string;
+  kind: string;
+};
+type AiPreviewItemWithPosition = AiPreviewItem & {
+  top: number;
+  left: number;
+};
+type AiPreviewState = {
+  active: boolean;
+  mode: string;
+  items: AiPreviewItem[];
+  defaultItems: AiPreviewItem[];
+  expandedItems: AiPreviewItem[];
+  itemsPending: boolean;
+  showAllCategories: boolean;
+  itemXpathSet: Set<string>;
+  focusedXpath: string;
+  previousEnabled: boolean;
+  restoreMarkingOnExit: boolean;
+  previousBaseUrl: string;
+  previousPageUrl: string;
+  previousConfig: Config | null;
+  previousDraftEntry: ContentPageEntry | null;
+  previousSavedEntry: ContentPageEntry | null;
+  previousAutoSeededPendingSavePageUrl: string;
+};
+type FetchPropertyPageTypesResult =
+  | { ok: false; pageTypes: PropertyPageTypes; reason: string }
+  | { ok: true; pageTypes: PropertyPageTypes };
+type LivePageTargetResult =
+  | { ok: false; reason: string }
+  | {
+    ok: true;
+    baseUrl: string;
+    siteId: number;
+    pageType: string;
+    candidateState: CurrentPageCandidateState;
+  };
+type PropertyLockConnectionTargetResult =
+  | { ok: false; reason: string }
+  | {
+    ok: true;
+    baseUrl: string;
+    pageUrl: string;
+    siteId: number;
+    stageBaseValue: string;
+    tokenValue: string;
+  };
+type AiPreviewItemSetOptions = {
+  showAllCategories?: boolean;
+};
+type AiPreviewStateUpdateOptions = {
+  notify?: boolean;
+  preserveFocusedXpath?: boolean;
+};
+type SilentHighlightOverlayOptions = {
+  keepVisible?: boolean;
+};
+type SilentHighlightRefreshScheduleOptions = {
+  debounceMs?: unknown;
+  minIntervalMs?: unknown;
+};
+type SilentHighlightLayerState =
+  | {
+    layer: HTMLElement;
+    map: Map<string, HTMLElement>;
+    used: Set<string>;
+  }
+  | null;
+type PropertyLockPortEnvelope = {
+  clientId?: unknown;
+  connectionStatus?: unknown;
+  message?: unknown;
+  type?: unknown;
+};
 type ContentPropertyLockState = {
   state?: string;
   isEditor?: boolean;
@@ -227,22 +322,22 @@ type SiteIdPathCheckState = {
 type SilentHighlightLayerMap = Record<string, HTMLElement>;
 type SilentHighlightLayerBoxMap = Record<string, Map<string, HTMLElement>>;
 type SilentHighlightCollections = {
-  immutableNodes: unknown[];
-  contentNodes: unknown[];
-  excludedNodes: unknown[];
-  sourceImmutableNodes: unknown[];
-  sourceContentNodes: unknown[];
-  sourceExcludedNodes: unknown[];
-  sourceExplicitIncludeNodes: unknown[];
-  sourceHiddenExplicitIncludeNodes: unknown[];
-  ghostContentNodes: unknown[];
-  sourceInclusionSelectorByNode: Map<unknown, string>;
-  sourceExclusionSelectorByNode: Map<unknown, string>;
-  explicitIncludeSelectorByNode: Map<unknown, string>;
-  excludedSelectorByNode: Map<unknown, string>;
-  explicitIncludeXpathByNode: Map<unknown, string>;
-  excludedXpathByNode: Map<unknown, string>;
-  implicitIncludeXpathByNode: Map<unknown, string>;
+  immutableNodes: Element[];
+  contentNodes: Element[];
+  excludedNodes: Element[];
+  sourceImmutableNodes: Element[];
+  sourceContentNodes: Element[];
+  sourceExcludedNodes: Element[];
+  sourceExplicitIncludeNodes: Element[];
+  sourceHiddenExplicitIncludeNodes: Element[];
+  ghostContentNodes: Element[];
+  sourceInclusionSelectorByNode: Map<Element, string>;
+  sourceExclusionSelectorByNode: Map<Element, string>;
+  explicitIncludeSelectorByNode: Map<Element, string>;
+  excludedSelectorByNode: Map<Element, string>;
+  explicitIncludeXpathByNode: Map<Element, string>;
+  excludedXpathByNode: Map<Element, string>;
+  implicitIncludeXpathByNode: Map<Element, string>;
 };
 type SilentHighlightTrackedNodeIndex = {
   tracked: Set<Node>;
@@ -422,7 +517,7 @@ let propertyLockConnectedBaseUrl = "";
 // Debounce timer for central page-level activity pings (mouse/keyboard/scroll).
 // Property lock and background inactivity observers subscribe to this signal.
 let pageActivityTimer = 0;
-const pageActivitySubscribers = new Set();
+const pageActivitySubscribers = new Set<PageActivityListener>();
 let propertyLockEditorClaimPending = false;
 let propertyLockSyncToken = 0;
 let propertyLockSyncInFlight = false;
@@ -442,7 +537,7 @@ let silentHighlightOverlay: HTMLElement | null = null;
 let silentHighlightLayers: SilentHighlightLayerMap = {};
 let silentHighlightLayerBoxes: SilentHighlightLayerBoxMap = {};
 let silentHighlightCollections: SilentHighlightCollections | null = null;
-let silentHighlightRenderTargetCache = new Map();
+let silentHighlightRenderTargetCache = new Map<Element, Element[]>();
 let silentHighlightTrackedNodeIndex: SilentHighlightTrackedNodeIndex | null = null;
 let silentHighlightScrollTimer = 0;
 let silentHighlightRepositionRaf = 0;
@@ -463,8 +558,8 @@ let silentHighlightEditorActivationIdCounter = 0;
 let renderModeInspectionActive = false;
 let renderModeInspectionWatchdogTimer = 0;
 let lifecycleOperationCounter = 0;
-const silentSelectorAnnotatedNodes = new Set();
-const aiPreviewClickableNodes = new Set();
+const silentSelectorAnnotatedNodes = new Set<Element>();
+const aiPreviewClickableNodes = new Set<Element>();
 
 function isWorldTraceEnabled() {
   return isDebugFlagEnabled("worldTraceEnabled");
@@ -532,8 +627,8 @@ function ensurePropertyLockCollaborationActive() {
 }
 let aiComputeLockReleaseTimer = 0;
 let deviceEmulationHotkeyBusy = false;
-const silentSelectorOriginalTitles = new WeakMap();
-const aiPreviewOriginalTitles = new WeakMap();
+const silentSelectorOriginalTitles = new WeakMap<Element, SilentHighlightTitleState>();
+const aiPreviewOriginalTitles = new WeakMap<Element, AiPreviewTitleState>();
 const AI_PREVIEW_KIND_EXCLUDED = "excluded";
 const AI_PREVIEW_KIND_EXPLICIT_INCLUDED = "explicit_included";
 const AI_PREVIEW_KIND_IMPLICIT_INCLUDED = "implicit_included";
@@ -545,7 +640,7 @@ const AI_PREVIEW_KINDS = new Set([
   AI_PREVIEW_KIND_UNDETECTED
 ]);
 
-function createAiPreviewState() {
+function createAiPreviewState(): AiPreviewState {
   return {
     active: false,
     mode: "",
@@ -554,7 +649,7 @@ function createAiPreviewState() {
     expandedItems: [],
     itemsPending: false,
     showAllCategories: false,
-    itemXpathSet: new Set(),
+    itemXpathSet: new Set<string>(),
     focusedXpath: "",
     previousEnabled: false,
     restoreMarkingOnExit: false,
@@ -614,8 +709,7 @@ const contentMainServiceRegistry = createContentMainServiceRegistry({
   createPropertyLockStateMachine: () => createPropertyLockStateMachine(createPropertyLockStateMachineDeps())
 });
 
-// @ts-expect-error
-function sendRuntimeMessageSafely(message) {
+function sendRuntimeMessageSafely(message: Record<string, unknown>): Promise<Record<string, unknown> | null> {
   if (
     extensionContextInvalidated ||
     !message ||
@@ -672,8 +766,8 @@ function sendRuntimeMessageSafely(message) {
     });
 }
 
-function getPageToastClient() {
-  return contentMainServiceRegistry.getPageToastClient();
+function getPageToastClient(): PageToastClient {
+  return contentMainServiceRegistry.getPageToastClient() as PageToastClient;
 }
 
 function getPageSaveReconciliationClearHandler() {
@@ -684,8 +778,8 @@ function getPageSaveReconciliationPendingHandler() {
   return contentMainServiceRegistry.getPageSaveReconciliationPendingHandler();
 }
 
-function getRenderModeInspectionClient() {
-  return contentMainServiceRegistry.getRenderModeInspectionClient();
+function getRenderModeInspectionClient(): RenderModeInspectionClient {
+  return contentMainServiceRegistry.getRenderModeInspectionClient() as RenderModeInspectionClient;
 }
 
 function getRenderModeInspectionHandlers() {
@@ -1004,8 +1098,11 @@ async function recheckSiteIdForCurrentUrlPath(tabState: SiteIdPathCheckState | n
   return null;
 }
 
-// @ts-expect-error
-async function fetchPropertyPageTypesForSiteId(siteId, stageBaseValue, tokenValue) {
+async function fetchPropertyPageTypesForSiteId(
+  siteId: SiteIdValue,
+  stageBaseValue: string,
+  tokenValue: string
+): Promise<FetchPropertyPageTypesResult> {
   void tokenValue;
   const response = await utils.sendRuntimeMessage({
     type: "fetchLivePagePropertyPageTypes",
@@ -1031,7 +1128,7 @@ async function fetchPropertyPageTypesForSiteId(siteId, stageBaseValue, tokenValu
 async function resolveCurrentLivePageTarget(
   baseUrl: unknown,
   options: { pageUrl?: unknown; forceSiteIdRefresh?: unknown } = {}
-) {
+): Promise<LivePageTargetResult> {
   const pageUrl = typeof options.pageUrl === "string" && options.pageUrl
     ? options.pageUrl
     : location.href;
@@ -1105,7 +1202,7 @@ async function resolveCurrentLivePageTarget(
 
 async function resolveCurrentPropertyLockConnectionTarget(
   options: { pageUrl?: unknown; forceSiteIdRefresh?: unknown } = {}
-) {
+): Promise<PropertyLockConnectionTargetResult> {
   const pageUrl = typeof options.pageUrl === "string" && options.pageUrl
     ? options.pageUrl
     : location.href;
@@ -1157,17 +1254,15 @@ async function resolveCurrentPropertyLockConnectionTarget(
   };
 }
 
-// @ts-expect-error
-async function resolveCurrentPageTypeForMarking(baseUrl, pageUrl = location.href) {
+async function resolveCurrentPageTypeForMarking(baseUrl: unknown, pageUrl = location.href) {
   const target = await resolveCurrentLivePageTarget(baseUrl, { pageUrl });
-  if (!target.ok || !target.pageType) {
+  if (!target.ok) {
     return { ok: false, reason: target.reason || "This page is not a current Live Page candidate." };
   }
   return { ok: true, pageType: target.pageType };
 }
 
-// @ts-expect-error
-async function syncPropertyLockOffCandidateWarning(baseUrl, pageUrl = location.href) {
+async function syncPropertyLockOffCandidateWarning(baseUrl: string, pageUrl = location.href): Promise<void> {
   if (!ensurePropertyLockCollaborationActive()) {
     return;
   }
@@ -1187,30 +1282,27 @@ async function syncPropertyLockOffCandidateWarning(baseUrl, pageUrl = location.h
   clearPropertyLockOffCandidateWarning();
 }
 
-// @ts-expect-error
-function normalizeAiPreviewItems(items) {
+function normalizeAiPreviewItems(items: unknown): AiPreviewItem[] {
   if (!Array.isArray(items)) {
     return [];
   }
   return items
-    .filter((item) => item && typeof item === "object")
+    .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
     .map((item) => ({
       xpath: typeof item.xpath === "string" ? item.xpath : "",
       text: typeof item.text === "string" ? item.text : "",
       title: typeof item.title === "string" && item.title
         ? item.title
         : (typeof item.xpath === "string" ? item.xpath : ""),
-      kind: AI_PREVIEW_KINDS.has(item.kind) ? item.kind : ""
+      kind: typeof item.kind === "string" && AI_PREVIEW_KINDS.has(item.kind) ? item.kind : ""
     }))
     .filter((item) => item.xpath);
 }
 
-// @ts-expect-error
-function mapAiPreviewItemsToRenderableTargets(items) {
+function mapAiPreviewItemsToRenderableTargets(items: unknown): AiPreviewItem[] {
   const normalized = normalizeAiPreviewItems(items);
-// @ts-expect-error
-  const rows = [];
-  const seenXpaths = new Set();
+  const rows: AiPreviewItemWithPosition[] = [];
+  const seenXpaths = new Set<string>();
   normalized.forEach((item) => {
     const sourceXpath = typeof item.xpath === "string" ? item.xpath : "";
     if (!sourceXpath) {
@@ -1247,37 +1339,32 @@ function mapAiPreviewItemsToRenderableTargets(items) {
         xpath,
         text,
         title: typeof item.title === "string" && item.title ? item.title : sourceXpath,
-        kind: AI_PREVIEW_KINDS.has(item.kind) ? item.kind : "",
+        kind: typeof item.kind === "string" && AI_PREVIEW_KINDS.has(item.kind) ? item.kind : "",
         top: rect.top + window.scrollY,
         left: rect.left + window.scrollX
       });
       seenXpaths.add(xpath);
     });
   });
-// @ts-expect-error
   rows.sort((left, right) => {
     if (left.top === right.top) {
       return left.left - right.left;
     }
     return left.top - right.top;
   });
-// @ts-expect-error
   return rows.map(({ xpath, text, title, kind }) => ({ xpath, text, title, kind }));
 }
 
-// @ts-expect-error
-function setAiPreviewItems(items, options = {}) {
+function setAiPreviewItems(items: unknown, options: AiPreviewStateUpdateOptions = {}): void {
   const normalized = normalizeAiPreviewItems(items);
   const previousFocusedXpath = aiPreviewState.focusedXpath;
   const nextItemXpathSet = new Set(normalized.map((item) => item.xpath));
-// @ts-expect-error
   const preserveFocusedXpath = Boolean(options.preserveFocusedXpath);
   const keepFocusedXpath = Boolean(
     preserveFocusedXpath &&
       previousFocusedXpath &&
       nextItemXpathSet.has(previousFocusedXpath)
   );
-// @ts-expect-error
   aiPreviewState.items = normalized;
   aiPreviewState.itemXpathSet = nextItemXpathSet;
   aiPreviewState.focusedXpath = keepFocusedXpath ? previousFocusedXpath : "";
@@ -1288,13 +1375,13 @@ function setAiPreviewItems(items, options = {}) {
   syncAiPreviewClickableTargets(normalized);
 }
 
-// @ts-expect-error
-function setAiPreviewItemSets(defaultItems, expandedItems, options = {}) {
-// @ts-expect-error
+function setAiPreviewItemSets(
+  defaultItems: unknown,
+  expandedItems: unknown,
+  options: AiPreviewItemSetOptions = {}
+): void {
   aiPreviewState.defaultItems = mapAiPreviewItemsToRenderableTargets(defaultItems);
-// @ts-expect-error
   aiPreviewState.expandedItems = mapAiPreviewItemsToRenderableTargets(expandedItems);
-// @ts-expect-error
   aiPreviewState.showAllCategories = Boolean(options.showAllCategories);
   setAiPreviewItems(
     aiPreviewState.showAllCategories
@@ -1308,8 +1395,7 @@ function setAiPreviewItemsPending(pending: boolean) {
   aiPreviewState.itemsPending = Boolean(pending);
 }
 
-// @ts-expect-error
-function setAiPreviewExpandedMode(active) {
+function setAiPreviewExpandedMode(active: unknown): boolean {
   if (!isFeatureEnabled("previewExpandedStates")) {
     aiPreviewState.showAllCategories = false;
     setAiPreviewItems(aiPreviewState.defaultItems, { preserveFocusedXpath: true });
@@ -1328,9 +1414,8 @@ function setAiPreviewExpandedMode(active) {
   return true;
 }
 
-// @ts-expect-error
-function setAiPreviewClickableTitle(node, title) {
-  if (!node || node.nodeType !== 1 || typeof title !== "string" || !title) {
+function setAiPreviewClickableTitle(node: Element | null | undefined, title: string): void {
+  if (!node || !title) {
     return;
   }
   const previous = aiPreviewOriginalTitles.get(node);
@@ -1356,20 +1441,12 @@ function clearAiPreviewClickableTargets() {
     return;
   }
   for (const node of aiPreviewClickableNodes) {
-// @ts-expect-error
-    if (!node || node.nodeType !== 1) {
-      continue;
-    }
-// @ts-expect-error
     node.removeAttribute(AI_PREVIEW_CLICKABLE_ATTR);
     const originalTitleState = aiPreviewOriginalTitles.get(node);
     if (originalTitleState && typeof originalTitleState === "object") {
       if (originalTitleState.hadTitle) {
-// @ts-expect-error
         node.setAttribute("title", originalTitleState.title || "");
-// @ts-expect-error
       } else if (node.getAttribute("title") === originalTitleState.previewTitle) {
-// @ts-expect-error
         node.removeAttribute("title");
       }
       aiPreviewOriginalTitles.delete(node);
@@ -1378,8 +1455,7 @@ function clearAiPreviewClickableTargets() {
   aiPreviewClickableNodes.clear();
 }
 
-// @ts-expect-error
-function syncAiPreviewClickableTargets(items) {
+function syncAiPreviewClickableTargets(items: AiPreviewItem[]): void {
   clearAiPreviewClickableTargets();
   if (!Array.isArray(items) || !items.length) {
     return;
@@ -1393,18 +1469,16 @@ function syncAiPreviewClickableTargets(items) {
       return;
     }
     const node = core.getElementFromXPath(xpath);
-    if (!node || node.nodeType !== 1 || isExtensionUiNode(node)) {
+    if (!isElementNode(node) || isExtensionUiNode(node)) {
       return;
     }
-// @ts-expect-error
     node.setAttribute(AI_PREVIEW_CLICKABLE_ATTR, "on");
     setAiPreviewClickableTitle(node, title);
     aiPreviewClickableNodes.add(node);
   });
 }
 
-// @ts-expect-error
-function notifyAiPreviewFocusChanged(xpath) {
+function notifyAiPreviewFocusChanged(xpath: string): void {
   void sendRuntimeMessageSafely({
     type: "aiPreviewFocusChanged",
     baseUrl: state.baseUrl || "",
@@ -1413,8 +1487,7 @@ function notifyAiPreviewFocusChanged(xpath) {
   });
 }
 
-// @ts-expect-error
-function setAiPreviewFocusedXpath(xpath, options = {}) {
+function setAiPreviewFocusedXpath(xpath: unknown, options: AiPreviewStateUpdateOptions = {}): boolean {
   if (!aiPreviewState.active) {
     return false;
   }
@@ -1423,21 +1496,20 @@ function setAiPreviewFocusedXpath(xpath, options = {}) {
     return false;
   }
   aiPreviewState.focusedXpath = nextXpath;
-// @ts-expect-error
   if (options.notify !== false) {
     notifyAiPreviewFocusChanged(nextXpath);
   }
   return true;
 }
 
-// @ts-expect-error
-function getAiPreviewClickTarget(eventTarget) {
-  let node = eventTarget && eventTarget.nodeType === 1
-    ? eventTarget
-    : eventTarget && eventTarget.parentElement
-      ? eventTarget.parentElement
-      : null;
-  while (node && node.nodeType === 1) {
+function getAiPreviewClickTarget(eventTarget: EventTarget | null | undefined) {
+  let node: Element | null =
+    isElementNode(eventTarget)
+      ? eventTarget
+      : eventTarget instanceof Node && isElementNode(eventTarget.parentElement)
+        ? eventTarget.parentElement
+        : null;
+  while (node) {
     if (isExtensionUiNode(node)) {
       return null;
     }
@@ -1450,8 +1522,7 @@ function getAiPreviewClickTarget(eventTarget) {
   return null;
 }
 
-// @ts-expect-error
-function handleAiPreviewClick(event) {
+function handleAiPreviewClick(event: MouseEvent | null | undefined): boolean {
   if (!aiPreviewState.active || !event || event.button !== 0) {
     return false;
   }
@@ -1470,9 +1541,11 @@ function handleAiPreviewClick(event) {
   return true;
 }
 
-// @ts-expect-error
-function resolveAiPreviewSelectorForNode(node, selectorByNode) {
-  if (!node || node.nodeType !== 1 || !(selectorByNode instanceof Map) || !selectorByNode.size) {
+function resolveAiPreviewSelectorForNode(
+  node: Element | null | undefined,
+  selectorByNode: Map<Element, string> | null | undefined
+): string {
+  if (!node || !(selectorByNode instanceof Map) || !selectorByNode.size) {
     return "";
   }
   if (selectorByNode.has(node)) {
@@ -1488,7 +1561,7 @@ function resolveAiPreviewSelectorForNode(node, selectorByNode) {
     }
     if (matchedNode.contains(node)) {
       let distance = 0;
-      let current = node;
+      let current: Element | null = node;
       while (current && current !== matchedNode) {
         distance += 1;
         current = current.parentElement;
@@ -1501,7 +1574,7 @@ function resolveAiPreviewSelectorForNode(node, selectorByNode) {
     }
     if (node.contains(matchedNode)) {
       let distance = 0;
-      let current = matchedNode;
+      let current: Element | null = matchedNode;
       while (current && current !== node) {
         distance += 1;
         current = current.parentElement;
@@ -1515,8 +1588,7 @@ function resolveAiPreviewSelectorForNode(node, selectorByNode) {
   return nearestAncestorSelector || nearestDescendantSelector;
 }
 
-// @ts-expect-error
-function isWithinTrackedPreviewNode(node, trackedNodes) {
+function isWithinTrackedPreviewNode(node: Element, trackedNodes: readonly Element[]): boolean {
   for (const trackedNode of trackedNodes) {
     if (trackedNode === node || trackedNode.contains(node)) {
       return true;
@@ -1525,8 +1597,7 @@ function isWithinTrackedPreviewNode(node, trackedNodes) {
   return false;
 }
 
-// @ts-expect-error
-function hasTrackedPreviewDescendant(node, trackedNodes) {
+function hasTrackedPreviewDescendant(node: Element, trackedNodes: readonly Element[]): boolean {
   for (const trackedNode of trackedNodes) {
     if (trackedNode !== node && node.contains(trackedNode)) {
       return true;
@@ -1535,17 +1606,16 @@ function hasTrackedPreviewDescendant(node, trackedNodes) {
   return false;
 }
 
-// @ts-expect-error
-function collectUndetectedAiPreviewNodes(trackedNodes) {
+function collectUndetectedAiPreviewNodes(trackedNodes: readonly Element[]): Element[] {
   if (!document.body) {
     return [];
   }
   const markabilityConfig = aiPreviewState.previousConfig || state.config;
-  const results = [];
-  const stack = [document.body];
+  const results: Element[] = [];
+  const stack: Element[] = [document.body];
   while (stack.length) {
     const node = stack.pop();
-    if (!node || node.nodeType !== 1) {
+    if (!node) {
       continue;
     }
     if (isExtensionUiNode(node) || isWithinConsentBoundary(node)) {
@@ -1563,37 +1633,35 @@ function collectUndetectedAiPreviewNodes(trackedNodes) {
       results.push(node);
       continue;
     }
-    for (let i = node.children.length - 1; i >= 0; i -= 1) {
-// @ts-expect-error
-      stack.push(node.children[i]);
-    }
+    pushChildElementsReverse(stack, node);
   }
   return results.sort(compareNodeOrder);
 }
 
-// @ts-expect-error
-function buildAiPreviewItemsWithCategories(selectorSet, defaultItems = []) {
+function buildAiPreviewItemsWithCategories(
+  selectorSet: SelectorSetInput | null | undefined,
+  defaultItems: unknown[] = []
+): AiPreviewItem[] {
   const defaultPreviewItems = normalizeAiPreviewItems(defaultItems);
-  const defaultTextByXpath = new Map(
+  const defaultTextByXpath = new Map<string, string>(
     defaultPreviewItems.map((item) => [item.xpath, item.text])
   );
   const collections = core.withElementComputationCache(() =>
     collectIncludedNodesFromSelectorSet(selectorSet)
   );
-  const explicitIncludedSet = new Set(collections.explicitIncluded || []);
-// @ts-expect-error
-  const implicitIncluded = (collections.included || []).filter((node) => !explicitIncludedSet.has(node));
-  const trackedNodes = [
+  const explicitIncludedSet = new Set<Element>(collections.explicitIncluded || []);
+  const implicitIncluded: Element[] = (collections.included || []).filter(
+    (node: unknown): node is Element => isElementNode(node) && !explicitIncludedSet.has(node)
+  );
+  const trackedNodes: Element[] = [
     ...(collections.excluded || []),
     ...(collections.included || [])
-  ].filter((node) => node && node.nodeType === 1);
-// @ts-expect-error
-  const rows = [];
-  const seenXpaths = new Set();
+  ].filter(isElementNode);
+  const rows: AiPreviewItemWithPosition[] = [];
+  const seenXpaths = new Set<string>();
 
-// @ts-expect-error
-  function pushRow(node, kind, selector = "") {
-    if (!node || node.nodeType !== 1) {
+  function pushRow(node: Element | null | undefined, kind: string, selector = ""): void {
+    if (!node) {
       return;
     }
     const xpath = core.getXPath(node);
@@ -1619,38 +1687,33 @@ function buildAiPreviewItemsWithCategories(selectorSet, defaultItems = []) {
     seenXpaths.add(xpath);
   }
 
-// @ts-expect-error
-  (collections.excluded || []).forEach((node) => {
+  (collections.excluded || []).forEach((node: Element) => {
     pushRow(
       node,
       AI_PREVIEW_KIND_EXCLUDED,
       resolveAiPreviewSelectorForNode(node, collections.exclusionSelectorByNode)
     );
   });
-// @ts-expect-error
-  (collections.explicitIncluded || []).forEach((node) => {
+  (collections.explicitIncluded || []).forEach((node: Element) => {
     pushRow(
       node,
       AI_PREVIEW_KIND_EXPLICIT_INCLUDED,
       resolveAiPreviewSelectorForNode(node, collections.inclusionSelectorByNode)
     );
   });
-// @ts-expect-error
-  implicitIncluded.forEach((node) => {
+  implicitIncluded.forEach((node: Element) => {
     pushRow(node, AI_PREVIEW_KIND_IMPLICIT_INCLUDED);
   });
   collectUndetectedAiPreviewNodes(trackedNodes).forEach((node) => {
     pushRow(node, AI_PREVIEW_KIND_UNDETECTED);
   });
 
-// @ts-expect-error
   rows.sort((left, right) => {
     if (left.top === right.top) {
       return left.left - right.left;
     }
     return left.top - right.top;
   });
-// @ts-expect-error
   return rows.map(({ xpath, text, title, kind }) => ({ xpath, text, title, kind }));
 }
 
@@ -1665,23 +1728,22 @@ const SILENT_HIGHLIGHTING_INTERNAL_ATTRS = new Set([
   core.CONSENT_HIDDEN_ATTR
 ]);
 
-// @ts-expect-error
-function showPageToast(message) {
-// @ts-expect-error
+function showPageToast(message: string): void {
   getPageToastClient().show(message);
 }
 
-// @ts-expect-error
-function submissionXpathsEqual(left, right) {
+function submissionXpathsEqual(left: unknown, right: unknown): boolean {
+  const leftXpaths = Array.isArray(left) ? left as XpathEntry[] : null;
+  const rightXpaths = Array.isArray(right) ? right as XpathEntry[] : null;
   if (left === right) {
     return true;
   }
-  if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) {
+  if (!leftXpaths || !rightXpaths || leftXpaths.length !== rightXpaths.length) {
     return false;
   }
-  for (let i = 0; i < left.length; i += 1) {
-    const leftItem = left[i];
-    const rightItem = right[i];
+  for (let i = 0; i < leftXpaths.length; i += 1) {
+    const leftItem = leftXpaths[i];
+    const rightItem = rightXpaths[i];
     if (
       !leftItem ||
       !rightItem ||
@@ -1702,7 +1764,6 @@ function getCurrentPageSnapshotOptions() {
   return {
     renderMode: getConfiguredRenderMode(),
     extraStripSelectors: [
-// @ts-expect-error
       ...getPageToastClient().getStripSelectors(),
       `#${SILENT_HIGHLIGHT_OVERLAY_ID}`,
       `#${SILENT_HIGHLIGHT_STYLE_ID}`
@@ -1716,20 +1777,16 @@ function createCurrentPageSnapshot() {
   return core.createSanitizedPageSnapshot(getCurrentPageSnapshotOptions());
 }
 
-// @ts-expect-error
-function getCurrentPageSnapshotXPath(node) {
+function getCurrentPageSnapshotXPath(node: Node | null | undefined) {
   return core.getSnapshotXPath(node, getCurrentPageSnapshotOptions());
 }
 
 function readRenderModeInspectionActive() {
-// @ts-expect-error
   return getRenderModeInspectionClient().readActiveFlag();
 }
 
-// @ts-expect-error
-function setRenderModeInspectionActive(active) {
+function setRenderModeInspectionActive(active: unknown): void {
   renderModeInspectionActive = Boolean(active);
-// @ts-expect-error
   getRenderModeInspectionClient().writeActiveFlag(renderModeInspectionActive);
   if (renderModeInspectionActive) {
     armRenderModeInspectionWatchdog();
@@ -1743,13 +1800,11 @@ function isRenderModeInspectionActive() {
 }
 
 function clearRenderModeInspectionWatchdog() {
-// @ts-expect-error
   getRenderModeInspectionClient().clearWatchdog();
   renderModeInspectionWatchdogTimer = 0;
 }
 
 function armRenderModeInspectionWatchdog() {
-// @ts-expect-error
   getRenderModeInspectionClient().armWatchdog({
     timeoutMs: RENDER_MODE_INSPECTION_WATCHDOG_MS,
     onTimeout: () => {
@@ -1803,8 +1858,7 @@ function cancelSilentHighlightEditorActivation() {
   silentHighlightEditorRevealInFlight = ++silentHighlightEditorActivationIdCounter;
 }
 
-// @ts-expect-error
-function isRenderModeConfirmedForBaseUrl(baseUrl, configs) {
+function isRenderModeConfirmedForBaseUrl(baseUrl: string, configs: Record<string, Config> | null | undefined): boolean {
   if (!baseUrl || !configs || !Object.prototype.hasOwnProperty.call(configs, baseUrl)) {
     return false;
   }
@@ -2429,19 +2483,17 @@ function clearSilentHighlightRepositionTimers() {
   }
 }
 
-// @ts-expect-error
-function beginSilentLayerRender(key) {
+function beginSilentLayerRender(key: string): SilentHighlightLayerState {
   const layer = silentHighlightLayers[key];
   if (!layer) {
     return null;
   }
-  const map = silentHighlightLayerBoxes[key] || new Map();
+  const map = silentHighlightLayerBoxes[key] || new Map<string, HTMLElement>();
   silentHighlightLayerBoxes[key] = map;
-  return { layer, map, used: new Set() };
+  return { layer, map, used: new Set<string>() };
 }
 
-// @ts-expect-error
-function finalizeSilentLayerRender(layerState) {
+function finalizeSilentLayerRender(layerState: SilentHighlightLayerState): void {
   if (!layerState) {
     return;
   }
@@ -2454,12 +2506,11 @@ function finalizeSilentLayerRender(layerState) {
   }
 }
 
-// @ts-expect-error
-function collectSilentHighlightRects(node) {
-  if (!node || node.nodeType !== 1 || !core.isVisible(node)) {
+function collectSilentHighlightRects(node: Element | null | undefined) {
+  if (!node || !core.isVisible(node)) {
     return [];
   }
-  const rects = [];
+  const rects: Array<{ top: number; left: number; width: number; height: number }> = [];
   const clientRects = node.getClientRects();
   for (let i = 0; i < clientRects.length; i += 1) {
     const rect = clientRects[i];
@@ -2506,57 +2557,58 @@ function collectSilentHighlightRects(node) {
   ];
 }
 
-// @ts-expect-error
-function cloneSilentHighlightNodes(nodes) {
-// @ts-expect-error
-  return Array.from(nodes || []).filter((node) => node && node.nodeType === 1);
+function cloneSilentHighlightNodes(nodes: Iterable<unknown> | null | undefined): Element[] {
+  return Array.from(nodes || []).filter(isElementNode);
 }
 
-// @ts-expect-error
-function cloneSilentHighlightNodeValueMap(valueByNode) {
-  return valueByNode instanceof Map ? new Map(valueByNode) : new Map();
+function cloneSilentHighlightNodeValueMap(
+  valueByNode: Map<Element, string> | Map<unknown, string> | null | undefined
+): Map<Element, string> {
+  return valueByNode instanceof Map ? new Map(valueByNode as Map<Element, string>) : new Map();
 }
 
-// @ts-expect-error
-function buildSilentHighlightRenderableCollections(collections) {
+function buildSilentHighlightRenderableCollections(
+  collections: Partial<SilentHighlightCollections> | null | undefined
+): SilentHighlightCollections {
+  const sourceCollections = collections || {};
   const sourceImmutableNodes = cloneSilentHighlightNodes(
-    Array.isArray(collections && collections.sourceImmutableNodes)
-      ? collections.sourceImmutableNodes
-      : collections && collections.immutableNodes
+    Array.isArray(sourceCollections.sourceImmutableNodes)
+      ? sourceCollections.sourceImmutableNodes
+      : sourceCollections.immutableNodes
   );
   const sourceContentNodes = cloneSilentHighlightNodes(
-    Array.isArray(collections && collections.sourceContentNodes)
-      ? collections.sourceContentNodes
-      : collections && collections.contentNodes
+    Array.isArray(sourceCollections.sourceContentNodes)
+      ? sourceCollections.sourceContentNodes
+      : sourceCollections.contentNodes
   );
   const sourceExcludedNodes = cloneSilentHighlightNodes(
-    Array.isArray(collections && collections.sourceExcludedNodes)
-      ? collections.sourceExcludedNodes
-      : collections && collections.excludedNodes
+    Array.isArray(sourceCollections.sourceExcludedNodes)
+      ? sourceCollections.sourceExcludedNodes
+      : sourceCollections.excludedNodes
   );
   const fallbackExplicitIncludeNodes =
-    collections && collections.explicitIncludeXpathByNode instanceof Map
-      ? Array.from(collections.explicitIncludeXpathByNode.keys())
+    sourceCollections.explicitIncludeXpathByNode instanceof Map
+      ? Array.from(sourceCollections.explicitIncludeXpathByNode.keys())
       : [];
   const sourceExplicitIncludeNodes = cloneSilentHighlightNodes(
-    Array.isArray(collections && collections.sourceExplicitIncludeNodes)
-      ? collections.sourceExplicitIncludeNodes
+    Array.isArray(sourceCollections.sourceExplicitIncludeNodes)
+      ? sourceCollections.sourceExplicitIncludeNodes
       : fallbackExplicitIncludeNodes
   );
   const sourceHiddenExplicitIncludeNodes = cloneSilentHighlightNodes(
-    Array.isArray(collections && collections.sourceHiddenExplicitIncludeNodes)
-      ? collections.sourceHiddenExplicitIncludeNodes
+    Array.isArray(sourceCollections.sourceHiddenExplicitIncludeNodes)
+      ? sourceCollections.sourceHiddenExplicitIncludeNodes
       : []
   );
   const sourceInclusionSelectorByNode = cloneSilentHighlightNodeValueMap(
-    collections && collections.sourceInclusionSelectorByNode instanceof Map
-      ? collections.sourceInclusionSelectorByNode
-      : collections && collections.explicitIncludeSelectorByNode
+    sourceCollections.sourceInclusionSelectorByNode instanceof Map
+      ? sourceCollections.sourceInclusionSelectorByNode
+      : sourceCollections.explicitIncludeSelectorByNode
   );
   const sourceExclusionSelectorByNode = cloneSilentHighlightNodeValueMap(
-    collections && collections.sourceExclusionSelectorByNode instanceof Map
-      ? collections.sourceExclusionSelectorByNode
-      : collections && collections.excludedSelectorByNode
+    sourceCollections.sourceExclusionSelectorByNode instanceof Map
+      ? sourceCollections.sourceExclusionSelectorByNode
+      : sourceCollections.excludedSelectorByNode
   );
   const immutableNodes = toRenderableNodeList(sourceImmutableNodes);
   const contentNodes = toRenderableNodeList(sourceContentNodes);
@@ -2569,9 +2621,10 @@ function buildSilentHighlightRenderableCollections(collections) {
   const explicitIncludeXpathByNode = buildSilentHighlightXpathByNode(
     explicitIncludedRenderable.nodes
   );
-  const ghostContentNodes = explicitIncludedRenderable.nodes.filter((node) =>
-    sourceHiddenExplicitIncludeSet.has(explicitIncludedRenderable.sourceByTarget.get(node))
-  );
+  const ghostContentNodes = explicitIncludedRenderable.nodes.filter((node) => {
+    const sourceNode = explicitIncludedRenderable.sourceByTarget.get(node);
+    return Boolean(sourceNode && sourceHiddenExplicitIncludeSet.has(sourceNode));
+  });
   const excludedRenderable = toRenderableNodeListWithSelectors(
     sourceExcludedNodes,
     (node) => resolveSelectorForNode(node, sourceExclusionSelectorByNode, true)
@@ -2602,9 +2655,13 @@ function buildSilentHighlightRenderableCollections(collections) {
   };
 }
 
-// @ts-expect-error
-function drawSilentRectsForNode(layerState, node, className, keySalt = "") {
-  if (!layerState || !node || node.nodeType !== 1 || !className) {
+function drawSilentRectsForNode(
+  layerState: SilentHighlightLayerState,
+  node: Element | null | undefined,
+  className: string,
+  keySalt = ""
+): void {
+  if (!layerState || !node || !className) {
     return;
   }
   const rects = collectSilentHighlightRects(node);
@@ -2629,8 +2686,10 @@ function drawSilentRectsForNode(layerState, node, className, keySalt = "") {
   }
 }
 
-// @ts-expect-error
-function renderSilentHighlightOverlay(collections, options = {}) {
+function renderSilentHighlightOverlay(
+  collections: SilentHighlightCollections,
+  options: SilentHighlightOverlayOptions = {}
+): void {
   const overlay = ensureSilentHighlightOverlay();
   if (!overlay) {
     return;
@@ -2639,7 +2698,6 @@ function renderSilentHighlightOverlay(collections, options = {}) {
   // untouched: boxes are reused DOM nodes whose positions update atomically in
   // this synchronous pass, so there is no half-built frame to hide. The
   // hide->reveal cycle is reserved for full rebuilds and scroll repositions.
-// @ts-expect-error
   const keepVisible = Boolean(options.keepVisible);
   if (!keepVisible) {
     setSilentHighlightOverlayHidden(true);
@@ -2728,7 +2786,7 @@ function renderSilentHighlightOverlay(collections, options = {}) {
   }
 }
 
-function repositionSilentHighlightOverlay(options = {}) {
+function repositionSilentHighlightOverlay(options: SilentHighlightOverlayOptions = {}) {
   if (!lastSilentHighlightingsActive || state.enabled || !silentHighlightCollections) {
     return;
   }
@@ -2736,7 +2794,6 @@ function repositionSilentHighlightOverlay(options = {}) {
   // place without the hide->reveal cycle, which is what produced the periodic
   // silent-highlight blink (#1). Scroll/resize repositions still hide first
   // because their viewport-fixed rects go stale during the gesture.
-// @ts-expect-error
   const keepVisible = Boolean(options.keepVisible);
   if (!keepVisible) {
     setSilentHighlightOverlayHidden(true);
@@ -2745,15 +2802,14 @@ function repositionSilentHighlightOverlay(options = {}) {
   renderSilentHighlightOverlay(nextCollections, { keepVisible });
 }
 
-function buildSilentHighlightPositionSignature(collections = silentHighlightCollections) {
+function buildSilentHighlightPositionSignature(
+  collections: SilentHighlightCollections | null = silentHighlightCollections
+): string {
   if (!collections) {
     return "";
   }
-// @ts-expect-error
-  const entries = [];
-// @ts-expect-error
-  const appendNodes = (nodes, prefix) => {
-// @ts-expect-error
+  const entries: string[] = [];
+  const appendNodes = (nodes: Element[] | null | undefined, prefix: string) => {
     (nodes || []).forEach((node, nodeIndex) => {
       let targets = silentHighlightRenderTargetCache.get(node);
       if (!targets) {
@@ -2763,9 +2819,8 @@ function buildSilentHighlightPositionSignature(collections = silentHighlightColl
         silentHighlightRenderTargetCache.set(node, targets);
       }
       const renderTargets = targets.length > 0 ? targets : [node];
-// @ts-expect-error
       renderTargets.forEach((target, targetIndex) => {
-        if (!target || target.nodeType !== 1) {
+        if (!target) {
           return;
         }
         const rect = target.getBoundingClientRect();
@@ -2785,9 +2840,7 @@ function buildSilentHighlightPositionSignature(collections = silentHighlightColl
   appendNodes(collections.immutableNodes, "immutable");
   appendNodes(collections.contentNodes, "content");
   appendNodes(collections.excludedNodes, "excluded");
-// @ts-expect-error
   entries.sort();
-// @ts-expect-error
   return entries.join("|");
 }
 
@@ -2832,11 +2885,10 @@ function runSilentHighlightSettledRepositionSample() {
   );
 }
 
-function scheduleSilentHighlightReposition(options = {}) {
+function scheduleSilentHighlightReposition(options: { waitForSettle?: boolean } = {}): void {
   if (state.enabled || !lastSilentHighlightingsActive || !silentHighlightCollections) {
     return;
   }
-// @ts-expect-error
   if (options && options.waitForSettle) {
     // Settle-driven repositions (layout-shift / DOM mutation) keep the overlay
     // visible and reposition in place when settled, so they do not blink. Only
@@ -2872,8 +2924,9 @@ function scheduleSilentHighlightReposition(options = {}) {
   }, SILENT_SCROLL_REPOSITION_DEBOUNCE_MS);
 }
 
-// @ts-expect-error
-function isViewportScrollEvent(event) {
+function isViewportScrollEvent(
+  event: Event | { target?: EventTarget | null; currentTarget?: EventTarget | null } | null | undefined
+): boolean {
   if (!event) {
     return true;
   }
@@ -2915,42 +2968,28 @@ function clearSilentSelectorAnnotations() {
     return;
   }
   for (const node of silentSelectorAnnotatedNodes) {
-// @ts-expect-error
-    if (!node || node.nodeType !== 1) {
-      continue;
-    }
-// @ts-expect-error
     node.removeAttribute(SILENT_SELECTOR_EXPLICIT_INCLUDE_ATTR);
-// @ts-expect-error
     node.removeAttribute(SILENT_SELECTOR_EXCLUDE_ATTR);
-// @ts-expect-error
     node.removeAttribute(SILENT_TITLE_COPY_ATTR);
     const originalTitleState = silentSelectorOriginalTitles.get(node);
     if (originalTitleState && typeof originalTitleState === "object") {
       if (originalTitleState.hadTitle) {
-// @ts-expect-error
         node.setAttribute("title", originalTitleState.title || "");
       } else if (
-// @ts-expect-error
         node.getAttribute("title") === originalTitleState.annotationTitle ||
-// @ts-expect-error
         (node.getAttribute("title") || "").startsWith(SILENT_SELECTOR_TITLE_PREFIX)
       ) {
-// @ts-expect-error
         node.removeAttribute("title");
       }
       silentSelectorOriginalTitles.delete(node);
-// @ts-expect-error
     } else if ((node.getAttribute("title") || "").startsWith(SILENT_SELECTOR_TITLE_PREFIX)) {
-// @ts-expect-error
       node.removeAttribute("title");
     }
   }
   silentSelectorAnnotatedNodes.clear();
 }
 
-// @ts-expect-error
-function buildSilentHighlightTitle(selector, xpath) {
+function buildSilentHighlightTitle(selector: unknown, xpath: unknown): string {
   const normalizedSelector = typeof selector === "string"
     ? selector
       .split("\n")
@@ -2977,9 +3016,13 @@ function buildSilentHighlightTitle(selector, xpath) {
   return normalizedXpath || normalizedSelector;
 }
 
-// @ts-expect-error
-function setSilentSelectorAnnotation(node, kind, selector = "", xpath = "") {
-  if (!node || node.nodeType !== 1) {
+function setSilentSelectorAnnotation(
+  node: Element | null | undefined,
+  kind: SilentHighlightAnnotationKind,
+  selector = "",
+  xpath = ""
+): void {
+  if (!node) {
     return;
   }
   const normalizedSelector = typeof selector === "string" ? selector.trim() : "";
@@ -3016,11 +3059,10 @@ function setSilentSelectorAnnotation(node, kind, selector = "", xpath = "") {
   silentSelectorAnnotatedNodes.add(node);
 }
 
-// @ts-expect-error
-function buildSilentHighlightXpathByNode(nodes) {
-  const xpathByNode = new Map();
+function buildSilentHighlightXpathByNode(nodes: Iterable<unknown> | null | undefined): Map<Element, string> {
+  const xpathByNode = new Map<Element, string>();
   for (const node of nodes || []) {
-    if (!node || node.nodeType !== 1) {
+    if (!isElementNode(node)) {
       continue;
     }
     const xpath = core.getXPath(node);
@@ -3031,8 +3073,7 @@ function buildSilentHighlightXpathByNode(nodes) {
   return xpathByNode;
 }
 
-// @ts-expect-error
-function applySilentSelectorAnnotations(collections) {
+function applySilentSelectorAnnotations(collections: SilentHighlightCollections | null | undefined): void {
   clearSilentSelectorAnnotations();
   if (!collections || typeof collections !== "object") {
     return;
@@ -3057,7 +3098,6 @@ function applySilentSelectorAnnotations(collections) {
     collections.implicitIncludeXpathByNode instanceof Map
       ? collections.implicitIncludeXpathByNode
       : new Map();
-// @ts-expect-error
   explicitIncludeXpathByNode.forEach((xpath, node) => {
     setSilentSelectorAnnotation(
       node,
@@ -3066,7 +3106,6 @@ function applySilentSelectorAnnotations(collections) {
       xpath
     );
   });
-// @ts-expect-error
   excludedXpathByNode.forEach((xpath, node) => {
     setSilentSelectorAnnotation(
       node,
@@ -3075,14 +3114,12 @@ function applySilentSelectorAnnotations(collections) {
       xpath
     );
   });
-// @ts-expect-error
   implicitIncludeXpathByNode.forEach((xpath, node) => {
     setSilentSelectorAnnotation(node, "implicit", "", xpath);
   });
 }
 
-// @ts-expect-error
-async function copyTextToClipboard(text) {
+async function copyTextToClipboard(text: unknown): Promise<boolean> {
   if (typeof text !== "string" || !text) {
     return false;
   }
@@ -3113,16 +3150,16 @@ async function copyTextToClipboard(text) {
   }
 }
 
-// @ts-expect-error
-function handleSilentSelectorClickCopy(event) {
+function handleSilentSelectorClickCopy(event: MouseEvent | null | undefined): void {
   if (!event || event.defaultPrevented || event.button !== 0) {
     return;
   }
-  const target = event.target && event.target.nodeType === 1
-    ? event.target
-    : event.target && event.target.parentElement
-      ? event.target.parentElement
-      : null;
+  const target =
+    isElementNode(event.target)
+      ? event.target
+      : event.target instanceof Node && isElementNode(event.target.parentElement)
+        ? event.target.parentElement
+        : null;
   if (!target || isExtensionUiNode(target)) {
     return;
   }
@@ -3164,16 +3201,14 @@ function stopSilentHighlightingObserver() {
   clearSilentHighlightRepositionTimers();
 }
 
-function scheduleSilentHighlightingsRefresh(options = {}) {
-// @ts-expect-error
-  const debounceMs = Number.isFinite(options && options.debounceMs)
-// @ts-expect-error
-    ? Math.max(0, Math.trunc(options.debounceMs))
+function scheduleSilentHighlightingsRefresh(options: SilentHighlightRefreshScheduleOptions = {}): void {
+  const debounceMsValue = options && options.debounceMs;
+  const minIntervalMsValue = options && options.minIntervalMs;
+  const debounceMs = Number.isFinite(debounceMsValue)
+    ? Math.max(0, Math.trunc(Number(debounceMsValue)))
     : SILENT_HIGHLIGHTING_MUTATION_DEBOUNCE_MS;
-// @ts-expect-error
-  const minIntervalMs = Number.isFinite(options && options.minIntervalMs)
-// @ts-expect-error
-    ? Math.max(0, Math.trunc(options.minIntervalMs))
+  const minIntervalMs = Number.isFinite(minIntervalMsValue)
+    ? Math.max(0, Math.trunc(Number(minIntervalMsValue)))
     : SILENT_HIGHLIGHTING_MUTATION_MIN_INTERVAL_MS;
   const now = Date.now();
   const sinceLast = now - lastSilentHighlightingRefreshAt;
@@ -3203,9 +3238,8 @@ function scheduleSilentHighlightingsRefresh(options = {}) {
   }, delay);
 }
 
-// @ts-expect-error
-function isExtensionUiNode(node) {
-  if (!node || node.nodeType !== 1) {
+function isExtensionUiNode(node: Element | null | undefined): boolean {
+  if (!node) {
     return false;
   }
   if (node.getAttribute("data-uf-extension-ui") === "true") {
@@ -3214,8 +3248,7 @@ function isExtensionUiNode(node) {
   return Boolean(node.closest("[data-uf-extension-ui=\"true\"]"));
 }
 
-// @ts-expect-error
-function shouldRefreshForSilentMutation(mutation) {
+function shouldRefreshForSilentMutation(mutation: MutationRecord | null | undefined): boolean {
   if (!mutation) {
     return false;
   }
@@ -3227,28 +3260,28 @@ function shouldRefreshForSilentMutation(mutation) {
     if (!SILENT_HIGHLIGHTING_RELEVANT_MUTATION_ATTRS.has(attrName)) {
       return false;
     }
-    return !isExtensionUiNode(mutation.target);
+    return !(isElementNode(mutation.target) && isExtensionUiNode(mutation.target));
   }
   if (mutation.type !== "childList") {
     return false;
   }
-  if (isExtensionUiNode(mutation.target)) {
+  if (isElementNode(mutation.target) && isExtensionUiNode(mutation.target)) {
     return false;
   }
   for (const node of mutation.addedNodes || []) {
-    if (node && node.nodeType === 1 && !isExtensionUiNode(node)) {
+    if (isElementNode(node) && !isExtensionUiNode(node)) {
       return true;
     }
   }
   for (const node of mutation.removedNodes || []) {
-    if (node && node.nodeType === 1 && !isExtensionUiNode(node)) {
+    if (isElementNode(node) && !isExtensionUiNode(node)) {
       return true;
     }
   }
   return false;
 }
 
-function buildSilentHighlightTrackedNodeIndex() {
+function buildSilentHighlightTrackedNodeIndex(): SilentHighlightTrackedNodeIndex {
   // tracked: every node the silent overlay cares about, by reference.
   // ancestors: every ancestor of any tracked node, so we can detect a mutation
   //   whose target is an ancestor of a tracked node (target.contains(tracked))
@@ -3286,7 +3319,7 @@ function buildSilentHighlightTrackedNodeIndex() {
   return { tracked, ancestors };
 }
 
-function mutationTargetTouchesSilentCollections(target: Node | null | undefined) {
+function mutationTargetTouchesSilentCollections(target: Node | null | undefined): boolean {
   if (!target || target.nodeType !== 1 || !silentHighlightCollections) {
     return false;
   }
@@ -3354,7 +3387,7 @@ function startSilentHighlightingObserver() {
       break;
     }
 
-if (needsFullRefresh) {
+   if (needsFullRefresh) {
       invalidateSharedSelectorCache({ domStructure: true });
       silentHighlightingPositionRefreshPending = true;
       scheduleSilentHighlightingsRefresh();
@@ -3393,10 +3426,8 @@ if (needsFullRefresh) {
           return;
         }
         const hasLayoutShift = entries.some((entry) =>
-// @ts-expect-error
-          entry && typeof entry.value === "number"
-// @ts-expect-error
-            ? entry.value > 0
+          entry && typeof (entry as PerformanceEntry & { value?: unknown }).value === "number"
+            ? Number((entry as PerformanceEntry & { value?: number }).value) > 0
             : Boolean(entry)
         );
         if (!hasLayoutShift) {
@@ -3449,8 +3480,7 @@ function clearAiPreviewState() {
   return true;
 }
 
-// @ts-expect-error
-function restoreAiPreviewDraftState(restoreState) {
+function restoreAiPreviewDraftState(restoreState: AiPreviewState): void {
   if (
     !restoreState ||
     !(restoreState.previousEnabled || restoreState.restoreMarkingOnExit) ||
@@ -5999,7 +6029,7 @@ async function syncPropertyLockConnection(options = {}) {
       return;
     }
     const snapshotState = snapshot && snapshot.state && typeof snapshot.state === "object"
-      ? snapshot.state
+      ? snapshot.state as ContentPropertyLockState
       : null;
     if (snapshotState) {
       propertyLockState = snapshotState;
@@ -6019,40 +6049,43 @@ async function syncPropertyLockConnection(options = {}) {
   refreshSilentHighlightings().then();
 }
 
-// @ts-expect-error
-function handlePropertyLockPortMessage(message) {
+function handlePropertyLockPortMessage(
+  message: unknown,
+  _port?: Browser.runtime.Port
+): void {
   if (!ensurePropertyLockCollaborationActive()) {
     return;
   }
   if (!message || typeof message !== "object") {
     return;
   }
+  const envelope = message as PropertyLockPortEnvelope;
 
-  if (typeof message.clientId === "string" && message.clientId) {
-    setPropertyLockClientId(message.clientId);
+  if (typeof envelope.clientId === "string" && envelope.clientId) {
+    setPropertyLockClientId(envelope.clientId);
   }
 
   if (
-    message.type === PROPERTY_LOCK_BACKGROUND_CONNECTION_STATUS &&
-    message.connectionStatus === PROPERTY_LOCK_CONNECTION_CONNECTED
+    envelope.type === PROPERTY_LOCK_BACKGROUND_CONNECTION_STATUS &&
+    envelope.connectionStatus === PROPERTY_LOCK_CONNECTION_CONNECTED
   ) {
     flushQueuedPropertyLockEditorClaim();
     return;
   }
 
-  const { type, message: serverMessage } = message;
+  const { type, message: serverMessage } = envelope;
   if (type !== PROPERTY_LOCK_BACKGROUND_STATE_UPDATE || !serverMessage || typeof serverMessage !== "object") {
     return;
   }
 
-  applyPropertyLockServerMessage(serverMessage);
-  if (serverMessage.type === PROPERTY_LOCK_WS_LOCK_STATE) {
+  const serverStateMessage = serverMessage as PropertyLockServerMessage;
+  applyPropertyLockServerMessage(serverStateMessage);
+  if (serverStateMessage.type === PROPERTY_LOCK_WS_LOCK_STATE) {
     flushQueuedPropertyLockEditorClaim();
   }
 }
 
-// @ts-expect-error
-function subscribePageActivity(listener) {
+function subscribePageActivity(listener: PageActivityListener | null | undefined): void {
   if (typeof listener === "function") {
     pageActivitySubscribers.add(listener);
   }
@@ -6078,7 +6111,6 @@ function sendPageActivityObserved() {
 function publishPageActivity() {
   sendPageActivityObserved();
   for (const listener of pageActivitySubscribers) {
-// @ts-expect-error
     listener();
   }
 }
@@ -6112,8 +6144,7 @@ function sendPropertyLockActivity() {
   }
 }
 
-// @ts-expect-error
-function sendPropertyLockMessage(type, payload = {}) {
+function sendPropertyLockMessage(type: string, payload: Record<string, unknown> = {}): void {
   if (!ensurePropertyLockCollaborationActive()) {
     return;
   }
@@ -6143,8 +6174,7 @@ function sendPropertyLockMessage(type, payload = {}) {
   }
 }
 
-// @ts-expect-error
-async function fetchPropertyLockStateSnapshot(siteId) {
+async function fetchPropertyLockStateSnapshot(siteId: unknown): Promise<Record<string, unknown> | null> {
   if (!ensurePropertyLockCollaborationActive()) {
     return null;
   }
@@ -6167,7 +6197,7 @@ function applyPropertyLockServerMessage(serverMessage: PropertyLockServerMessage
   return getPropertyLockStateMachine().applyServerMessage(serverMessage);
 }
 
-function createPropertyLockStateMachineDeps() {
+function createPropertyLockStateMachineDeps(): PropertyLockStateMachineDeps {
   return {
     armPropertyLockCrossPropertyRelease,
     clearPropertyLockBannerCountdown,
@@ -6202,44 +6232,34 @@ function createPropertyLockStateMachineDeps() {
     restartPropertyLockBannerCountdown,
     runEditorSilentHighlightingActivation,
     sendPropertyLockMessage,
-// @ts-expect-error
     sendRuntimeMessage: (message) => utils.sendRuntimeMessage(message),
-// @ts-expect-error
     setPropertyLockBannerCountdownValue: (value) => {
       propertyLockBannerCountdownValue = value;
     },
-// @ts-expect-error
     setPropertyLockBannerMode: (mode) => {
       propertyLockBannerMode = mode;
     },
-// @ts-expect-error
     setPropertyLockOffCandidateDeadlineAt: (deadlineAt) => {
       propertyLockOffCandidateDeadlineAt = deadlineAt;
     },
-// @ts-expect-error
     setPropertyLockRecoveryBaseUrl: (baseUrl) => {
       propertyLockRecoveryBaseUrl = baseUrl;
     },
-// @ts-expect-error
     setPropertyLockRecoveryClientId: (clientId) => {
       propertyLockRecoveryClientId = clientId;
     },
-// @ts-expect-error
     setPropertyLockRecoveryDeadlineAt: (deadlineAt) => {
       propertyLockRecoveryDeadlineAt = deadlineAt;
     },
-// @ts-expect-error
     setPropertyLockRecoverySiteId: (siteId) => {
       propertyLockRecoverySiteId = siteId;
     },
     setPropertyLockState: (nextState: Record<string, unknown>) => {
       propertyLockState = nextState as ContentPropertyLockState;
     },
-// @ts-expect-error
     setPropertyLockSuggestionFromName: (fromName) => {
       propertyLockSuggestionFromName = fromName;
     },
-// @ts-expect-error
     setPropertyLockSuggestionId: (suggestionId) => {
       propertyLockSuggestionId = suggestionId;
     },
@@ -6268,7 +6288,7 @@ function updatePropertyLockBannerMode() {
   return updatePropertyLockBannerModeOperation(createPropertyLockBannerModeDeps());
 }
 
-function createPropertyLockBannerModeDeps() {
+function createPropertyLockBannerModeDeps(): PropertyLockBannerModeDeps {
   return {
     isPropertyLockCollaborationEnabled,
     clearPropertyLockBannerCountdown,
@@ -6292,12 +6312,10 @@ function createPropertyLockBannerModeDeps() {
       };
     },
     getPropertyLockBannerMode: () => propertyLockBannerMode,
-// @ts-expect-error
     setPropertyLockBannerMode: (mode) => {
       propertyLockBannerMode = mode;
     },
     getPropertyLockBannerCountdownValue: () => propertyLockBannerCountdownValue,
-// @ts-expect-error
     setPropertyLockBannerCountdownValue: (value) => {
       propertyLockBannerCountdownValue = value;
     },
@@ -6310,7 +6328,7 @@ function createPropertyLockBannerModeDeps() {
   };
 }
 
-function createPageToastDeps() {
+function createPageToastDeps(): PageToastDeps {
   return {
     EXTENSION_UI_FONT_STACK,
     PAGE_TOAST_ID,
@@ -6321,24 +6339,22 @@ function createPageToastDeps() {
   };
 }
 
-function createRenderModeInspectionClientDeps() {
+function createRenderModeInspectionClientDeps(): RenderModeInspectionClientDeps {
   return {
     RENDER_MODE_INSPECTION_SESSION_KEY,
     getWindow: () => window
   };
 }
 
-function createInspectionStatusDeps() {
+function createInspectionStatusDeps(): InspectionStatusDeps {
   return {
     getCurrentContentMode,
-// @ts-expect-error
     getPageSaveReconciliationState: (pageUrl) => core.getPageSaveReconciliationState(pageUrl),
     getPageUrl: () => location.href,
     getPropertyLockEditorClaimPending: () => propertyLockEditorClaimPending,
     getSilentHighlightEditorActivationPromise: () => silentHighlightEditorActivationPromise,
     isMarkingEnabled: () => Boolean(state.enabled),
     isPageInspectionUiActive: () => core.isPageInspectionUiActive(),
-// @ts-expect-error
     isPageSaveReconciliationPending: (pageUrl) => core.isPageSaveReconciliationPending(pageUrl),
     isRenderModeInspectionActive,
     SILENT_HIGHLIGHTING_PREPARATION_REASON
