@@ -2,217 +2,6 @@ import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 import { readFileSync } from "./file-kit.ts";
 
-test("popup scheduleRefresh uses the quiet refresh path", () => {
-  const source = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
-
-  assert.match(
-    source,
-    /function scheduleRefresh\(\) \{[\s\S]*?await refreshUi\(\{ useBusyOverlay: false, skipPropertyLockFetch: true \}\);[\s\S]*?\}/
-  );
-});
-
-test("quiet popup refresh skips redundant property lock fetches", () => {
-  const source = readFileSync(new URL("../src/popup/property-lock-ui.ts", import.meta.url), "utf8");
-  const refreshSource = source.match(
-    /export async function refreshPropertyLockSnapshot\(deps(?:\s*:\s*[^,]+)?, siteId(?:\s*:\s*[^,]+)?, options(?:\s*:\s*[^=]+)? = \{\}\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?(?:\n|\r\n)*export async function sendPropertyLockCommand/
-  )[1];
-
-  assert.match(refreshSource, /const \{ skipFetch = false \} = options;/);
-  assert.match(refreshSource, /if \(skipFetch && state\.propertyLockState\) \{\s*return state\.propertyLockState;\s*\}/);
-  assert.match(refreshSource, /const lockResponse = await deps\.fetchPropertyLockState\(normalizedSiteId\)(?: as [^;]+)?;/);
-});
-
-test("explicit include and exclude removals use the quiet refresh path", () => {
-  const source = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
-
-  assert.match(
-    source,
-    /async function handleExplicitExcludeRemove\(xpath(?:\s*:\s*[^)]*)?\) \{[\s\S]*?await refreshUi\(\{ useBusyOverlay: false, skipPropertyLockFetch: true \}\);[\s\S]*?\}/
-  );
-  assert.match(
-    source,
-    /async function handleExplicitIncludeRemove\(xpath(?:\s*:\s*[^)]*)?\) \{[\s\S]*?await refreshUi\(\{ useBusyOverlay: false, skipPropertyLockFetch: true \}\);[\s\S]*?\}/
-  );
-});
-
-test("Todo List completion is sourced from backend-saved markings only", () => {
-  const source = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
-
-  assert.match(
-    source,
-    /const backendSavedPageMarkings = state\.currentBaseUrl[\s\S]*?config\.getBackendSavedPageMarkings\(state\.currentBaseUrl\)/
-  );
-  assert.match(
-    source,
-    /const coverageMarkedPageItems = backendSavedPageMarkingItems;/
-  );
-  assert.match(
-    source,
-    /const pageTypeCoverageModel = buildLynxChecklistViewModel\(\{[\s\S]*?markedPages: coverageMarkedPageItems[\s\S]*?\}\);/
-  );
-  assert.match(
-    source,
-    /const pageMarkingItemByKey = new Map\(\s*coverageMarkedPageItems\.map/
-  );
-  assert.doesNotMatch(source, /useLocalMarkedPagesForCoverage/);
-});
-
-test("silent Preview Contents and Send to Lynx actions are exposed from silent mode only", () => {
-  const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
-  const uiSource = readFileSync(new URL("../src/popup/ui.ts", import.meta.url), "utf8");
-  const previewBody = popupSource.match(
-    /async function handlePreviewLatest\(\) \{([\s\S]*?)\n\}\n\nasync function handleExitPreviewMode/
-  )[1];
-  const saveExcludesBody = popupSource.match(
-    /async function handleSaveExcludes\(\) \{([\s\S]*?)\n\}\n\nasync function handlePreviewLatest/
-  )[1];
-
-  assert.match(
-    popupSource,
-    /const silentModeActive =[\s\S]*?resolvedView === uiModule\.View\.Marking[\s\S]*?!isEnabled;/
-  );
-  assert.match(
-    popupSource,
-    /nextViewState\.saveExcludesButtonDisabled =[\s\S]*?!silentModeActive/
-  );
-  assert.match(
-    popupSource,
-    /nextViewState\.previewLatestButtonDisabled =[\s\S]*?!silentModeActive/
-  );
-  assert.match(
-    popupSource,
-    /nextViewState\.cssSelectorsVisible = silentModeActive;/
-  );
-  assert.match(previewBody, /if \(!uiModule\.getViewState\(\)\.silentModeActive\) \{\s*return;\s*\}/);
-  assert.match(saveExcludesBody, /if \(!uiModule\.getViewState\(\)\.silentModeActive\) \{\s*return;\s*\}/);
-  assert.match(
-    uiSource,
-    /const mergedControlsSection = mergedControlsSectionChildren\.length/
-  );
-  assert.doesNotMatch(uiSource, /title: PopupText\.tooltips\.pageSaveHotkey/);
-  assert.doesNotMatch(uiSource, /lynx-checklist-ai|PopupText\.lynxChecklist\.aiQuestion/);
-});
-
-test("same-property non-candidate pages keep silent mode and property-lock scope while marking stays blocked", () => {
-  const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
-
-  assert.match(
-    popupSource,
-    /const propertyLockScopeSiteId = isPropertyLockCollaborationEnabled\(\)\s*\?[\s\S]*?state\.propertyLockRecoveryDeadlineAt > Date\.now\(\) && state\.propertyLockRecoverySiteId[\s\S]*?state\.propertyLockRecoverySiteId\s*:\s*liveSiteId[\s\S]*?: null;/
-  );
-  assert.match(popupSource, /if \(propertyLockScopeSiteId && state\.currentBaseUrl && tokenValue\) \{/);
-  assert.match(popupSource, /const pageScopedUiDisabled =[\s\S]*?remoteConfigRetryBlocked[\s\S]*?isPropertyLockBlockingEditing\(\)/);
-  assert.doesNotMatch(
-    popupSource,
-    /const pageScopedUiDisabled =[\s\S]*pageTypeUiBlocked && !navigationInspectionPending/
-  );
-  assert.match(popupSource, /const silentModeActive =[\s\S]*?resolvedView === uiModule\.View\.Marking[\s\S]*?!isEnabled;/);
-  assert.match(
-    popupSource,
-    /if \(\s*tabInScope &&\s*toggleEnabled &&\s*!aiComputeRunActive &&\s*!aiPreviewSessionActive &&\s*!previewRestorePending &&\s*!navigationInspectionPending &&\s*\(!siteIdReady \|\| !renderModeReady \|\| pageTypeUiBlocked\)/
-  );
-});
-
-test("popup mirrors the off-candidate editor countdown from initial tab state", () => {
-  const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
-  const propertyLockUiSource = readFileSync(new URL("../src/popup/property-lock-ui.ts", import.meta.url), "utf8");
-  const backgroundSource = readFileSync(new URL("../src/background.ts", import.meta.url), "utf8");
-
-  assert.match(propertyLockUiSource, /export function syncPropertyLockOffCandidateRefreshTimer\(deps(?:\s*:\s*[^,]+)?, active(?:\s*:\s*[^)]+)?\) \{/);
-  assert.match(propertyLockUiSource, /state\.propertyLockOffCandidateRefreshTimer = deps\.windowRef\.setInterval\(\(\) => \{/);
-  assert.match(popupSource, /state\.propertyLockOffCandidateDeadlineAt =\s*initialTabState && Number\.isFinite\(initialTabState\.propertyLockOffCandidateDeadlineAt\)/);
-  assert.match(
-    popupSource,
-    /syncPropertyLockOffCandidateRefreshTimer\(\s*Boolean\([\s\S]*state\.propertyLockOffCandidateDeadlineAt[\s\S]*state\.propertyLockRecoveryDeadlineAt[\s\S]*\)\s*\);/
-  );
-  assert.match(propertyLockUiSource, /if \(offCandidateSecondsRemaining > 0\) \{/);
-  assert.match(propertyLockUiSource, /deps\.propertyLockText\.popupOffCandidateWarning\(offCandidateSecondsRemaining\)/);
-  assert.match(backgroundSource, /nextState\.propertyLockOffCandidateDeadlineAt = Number\.isFinite\(message\.state\.propertyLockOffCandidateDeadlineAt\)/);
-});
-
-test("popup mirrors the cross-property editor cooldown from initial tab state and recovery scope", () => {
-  const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
-  const propertyLockUiSource = readFileSync(new URL("../src/popup/property-lock-ui.ts", import.meta.url), "utf8");
-  const backgroundSource = readFileSync(new URL("../src/background.ts", import.meta.url), "utf8");
-
-  assert.match(popupSource, /const persistedRecoveryState = \{\s*siteId: state\.propertyLockRecoverySiteId,\s*baseUrl: state\.propertyLockRecoveryBaseUrl,\s*clientId: state\.propertyLockRecoveryClientId,\s*deadlineAt: state\.propertyLockRecoveryDeadlineAt\s*\};/);
-  assert.match(popupSource, /const recoverySiteId = normalizeSiteIdValue\(\s*state\.propertyLockRecoverySiteId \|\| persistedRecoveryState\.siteId\s*\);/);
-  assert.match(popupSource, /const recoveryBaseUrl =\s*state\.propertyLockRecoveryBaseUrl \|\| persistedRecoveryState\.baseUrl \|\| "";/);
-  assert.match(popupSource, /const recoveryClientId =\s*state\.propertyLockRecoveryClientId \|\| persistedRecoveryState\.clientId \|\| "";/);
-  assert.match(popupSource, /const hasPersistedRecoverySession = Boolean\(\s*recoverySiteId &&\s*recoveryBaseUrl &&\s*recoveryClientId\s*\);/);
-  assert.match(popupSource, /const isOutsideRecoveryBaseUrl = Boolean\(\s*hasPersistedRecoverySession &&\s*pageUrl &&\s*!utils\.isPageWithinBaseUrl\(pageUrl, recoveryBaseUrl\)\s*\);/);
-  assert.match(popupSource, /state\.propertyLockRecoverySiteId =\s*initialTabState && Number\.isFinite\(initialTabState\.propertyLockRecoverySiteId\)/);
-  assert.match(popupSource, /state\.propertyLockRecoveryClientId =\s*initialTabState && typeof initialTabState\.propertyLockRecoveryClientId === "string"/);
-  assert.match(popupSource, /state\.propertyLockRecoveryDeadlineAt =\s*initialTabState && Number\.isFinite\(initialTabState\.propertyLockRecoveryDeadlineAt\)/);
-  assert.match(popupSource, /const propertyLockScopeSiteId = isPropertyLockCollaborationEnabled\(\)\s*\?[\s\S]*?state\.propertyLockRecoveryDeadlineAt > Date\.now\(\) && state\.propertyLockRecoverySiteId[\s\S]*?state\.propertyLockRecoverySiteId\s*:\s*liveSiteId[\s\S]*?: null;/);
-  assert.match(propertyLockUiSource, /state\.propertyLockRecoverySiteId === normalizedSiteId\s*\?\s*state\.propertyLockRecoveryClientId/);
-  assert.match(popupSource, /if \(hasPersistedRecoverySession && isOutsideRecoveryBaseUrl\) \{\s*const nextRecoveryDeadlineAt = recoveryDeadlineAt > Date\.now\(\)\s*\?\s*recoveryDeadlineAt\s*:\s*Date\.now\(\) \+ PROPERTY_LOCK_CROSS_PROPERTY_COOLDOWN_TIMEOUT_MS;/);
-  assert.match(propertyLockUiSource, /if \(crossPropertySecondsRemaining > 0\) \{/);
-  assert.match(propertyLockUiSource, /deps\.propertyLockText\.popupCrossPropertyWarning\(crossPropertySecondsRemaining\)/);
-  assert.match(backgroundSource, /nextState\.propertyLockRecoverySiteId = Number\.isFinite\(message\.state\.propertyLockRecoverySiteId\)/);
-  assert.match(backgroundSource, /nextState\.propertyLockRecoveryClientId = typeof message\.state\.propertyLockRecoveryClientId === "string"/);
-  assert.match(backgroundSource, /nextState\.propertyLockRecoveryDeadlineAt = Number\.isFinite\(message\.state\.propertyLockRecoveryDeadlineAt\)/);
-});
-
-test("desktop preview is a separate popup section that disables marking entry while active", () => {
-  const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
-  const uiSource = readFileSync(new URL("../src/popup/ui.ts", import.meta.url), "utf8");
-  const desktopToggleStart = popupSource.indexOf("async function handleDesktopPreviewEnabledToggle(");
-  const desktopToggleEnd = popupSource.indexOf("function handleDeviceScaleInput", desktopToggleStart);
-  assert.ok(desktopToggleStart >= 0 && desktopToggleEnd > desktopToggleStart);
-  const desktopToggleBody = popupSource.slice(desktopToggleStart, desktopToggleEnd);
-
-  assert.match(popupSource, /state\.currentDesktopPreviewEnabled = Boolean\(\s*desktopPreviewFeatureEnabled && initialTabState && initialTabState\.desktopPreviewEnabled\s*\);/);
-  assert.match(
-    popupSource,
-    /const desktopPreviewVisible = Boolean\(\s*desktopPreviewFeatureEnabled &&\s*silentModeActive &&/
-  );
-  assert.match(popupSource, /const desktopPreviewActive = Boolean\(\s*desktopPreviewVisible && state\.currentDesktopPreviewEnabled\s*\);/);
-  assert.match(popupSource, /nextViewState\.desktopPreviewVisible = desktopPreviewVisible;/);
-  assert.match(popupSource, /nextViewState\.desktopPreviewEnabled = desktopPreviewActive;/);
-  assert.match(popupSource, /nextViewState\.toggleEnabledDisabled =[\s\S]*desktopPreviewActive;/);
-  // Non-candidate pages (pageTypeUiBlocked) must disable the marking toggle so
-  // marking cannot be enabled where it is not allowed.
-  assert.match(
-    popupSource,
-    /nextViewState\.toggleEnabledDisabled =[\s\S]*?\(!navigationInspectionPending && \(!siteIdReady \|\| !renderModeReady \|\| pageTypeUiBlocked\)\)[\s\S]*?desktopPreviewActive;/
-  );
-  assert.match(desktopToggleBody, /if \(!isFeatureEnabled\("desktopPreview"\)\) \{\s*return;\s*\}/);
-  assert.match(desktopToggleBody, /if \(desiredEnabled && uiModule\.getViewState\(\)\.toggleEnabled\) \{/);
-  assert.match(desktopToggleBody, /await handleEnableToggle\(\{ currentTarget: \{ checked: false \} \}\);/);
-  assert.match(desktopToggleBody, /const targetMode = desiredEnabled \? "desktop" : "mobile";/);
-  assert.match(desktopToggleBody, /await persistDesktopPreviewEnabled\(tab\.id, desiredEnabled\);/);
-  assert.match(uiSource, /isPopupFeatureEnabled\(view, "desktopPreview"\) && view\.desktopPreviewVisible/);
-  assert.match(uiSource, /id: "desktop-preview-enabled"/);
-  assert.match(uiSource, /PopupText\.device\.desktopPreviewLabel/);
-  assert.match(uiSource, /view\.desktopPreviewNoticeVisible/);
-});
-
-test("marking-mode Preview Contents stays separate from silent Preview and Send to Lynx", () => {
-  const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
-  const uiSource = readFileSync(new URL("../src/popup/ui.ts", import.meta.url), "utf8");
-  const markingPreviewBody = popupSource.match(
-    /async function handleMarkingPreview\(\) \{([\s\S]*?)\n\}\n\nasync function handleExitPreviewMode/
-  )[1];
-
-  assert.match(popupSource, /nextViewState\.markingPreviewVisible = pageControlsVisible && Boolean\(isEnabled\);/);
-  assert.match(
-    popupSource,
-    /nextViewState\.markingPreviewDisabled =\s*aiBusy \|\|\s*previewRestorePending \|\|\s*pageSaveReconciliationPending \|\|\s*!aiRunUpToDate \|\|\s*sessionRequiresAiRun;/
-  );
-  assert.match(uiSource, /if \(markingMode && view\.markingPreviewVisible\) \{/);
-  assert.match(uiSource, /id: "marking-preview"/);
-  assert.match(uiSource, /onClick: handlers\.onMarkingPreview/);
-  assert.match(markingPreviewBody, /const view = uiModule\.getViewState\(\);/);
-  assert.match(markingPreviewBody, /if \(!view\.markingPreviewVisible \|\| view\.markingPreviewDisabled\) \{/);
-  assert.match(markingPreviewBody, /await refreshCurrentPageRuntimeStatus\(\);/);
-  assert.match(markingPreviewBody, /const selectorSet = getLatestAvailableSelectorsFromConfig\(\);/);
-  assert.match(markingPreviewBody, /messages\.requestTabShowAiPreview\(tabId, \{/);
-  assert.doesNotMatch(markingPreviewBody, /silentModeActive/);
-  assert.doesNotMatch(markingPreviewBody, /openLynxChecklistPopover|submitSelectorSetToServer|syncBaseConfigToServer/);
-  assert.doesNotMatch(markingPreviewBody, /setCurrentPageSaveReconciliation|markCurrentPageSaveReconciliationDirty/);
-});
-
 test("preview exit restores a captured marking-session snapshot before payload fallback", () => {
   const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
   const popupStateSource = readFileSync(new URL("../src/popup/state.ts", import.meta.url), "utf8");
@@ -286,40 +75,175 @@ test("Preview Contents uses the latest stored selector set and stays disabled wi
   assert.doesNotMatch(previewBody, /getCurrentSelectorsFromConfig\(/);
 });
 
-test("Lynx checklist submission uses the current view's marked-page coverage without AI-answer gating", () => {
+test("silent mode gates preview, save-excludes, and Lynx checklist submission", () => {
   const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
-  const uiSource = readFileSync(new URL("../src/popup/ui.ts", import.meta.url), "utf8");
+  const previewBody = popupSource.match(
+    /async function handlePreviewLatest\(\) \{([\s\S]*?)\n\}\n\nasync function handleExitPreviewMode/
+  )[1];
+  const saveExcludesBody = popupSource.match(
+    /async function handleSaveExcludes\(\) \{([\s\S]*?)\n\}\n\nasync function handlePreviewLatest/
+  )[1];
   const sendBody = popupSource.match(
     /async function handleLynxChecklistSend\(\) \{([\s\S]*?)\n\}\n\nasync function handleSaveExcludes/
   )[1];
 
+  assert.match(
+    popupSource,
+    /const silentModeActive =[\s\S]*?resolvedView === uiModule\.View\.Marking[\s\S]*?!isEnabled;/
+  );
+  assert.match(
+    popupSource,
+    /nextViewState\.saveExcludesButtonDisabled =[\s\S]*?!silentModeActive/
+  );
+  assert.match(
+    popupSource,
+    /nextViewState\.previewLatestButtonDisabled =[\s\S]*?!silentModeActive/
+  );
+  assert.match(
+    popupSource,
+    /nextViewState\.cssSelectorsVisible = silentModeActive;/
+  );
+  assert.match(previewBody, /if \(!uiModule\.getViewState\(\)\.silentModeActive\) \{\s*return;\s*\}/);
+  assert.match(saveExcludesBody, /if \(!uiModule\.getViewState\(\)\.silentModeActive\) \{\s*return;\s*\}/);
   assert.match(sendBody, /if \(!uiModule\.getViewState\(\)\.silentModeActive\) \{\s*return;\s*\}/);
   assert.match(sendBody, /markedPages: uiModule\.getViewState\(\)\.markedPages/);
   assert.doesNotMatch(sendBody, /aiAnswer:/);
-  assert.doesNotMatch(uiSource, /lynx-checklist-popover__choices|lynx-checklist-popover__choice/);
-  assert.doesNotMatch(uiSource, /onLynxChecklistAiAnswerChange/);
 });
 
-test("Todo List marks the current candidate's parent subsection", () => {
-  const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
-  const uiSource = readFileSync(new URL("../src/popup/ui.ts", import.meta.url), "utf8");
+test("Todo List completion is sourced from backend-saved markings only", () => {
+  const source = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
 
   assert.match(
-    popupSource,
-    /const groupCurrent =\s*currentPageMarkingAllowed &&\s*currentPageCandidateState\.pageTypeKey === pageType\.key;/
+    source,
+    /const backendSavedPageMarkings = state\.currentBaseUrl[\s\S]*?config\.getBackendSavedPageMarkings\(state\.currentBaseUrl\)/
   );
+  assert.match(
+    source,
+    /const coverageMarkedPageItems = backendSavedPageMarkingItems;/
+  );
+  assert.match(
+    source,
+    /const pageTypeCoverageModel = buildLynxChecklistViewModel\(\{[\s\S]*?markedPages: coverageMarkedPageItems[\s\S]*?\}\);/
+  );
+  assert.match(
+    source,
+    /const pageMarkingItemByKey = new Map\(\s*coverageMarkedPageItems\.map/
+  );
+  assert.doesNotMatch(source, /useLocalMarkedPagesForCoverage/);
+});
+
+test("popup auth transport stays in the background layer", () => {
+  const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
+  const validateBody = popupSource.match(
+    /async function validateStoredToken\(options(?:\s*:\s*[^)]*)? = \{\}\) \{([\s\S]*?)\n\}\n\nasync function clearFocusedElement/
+  )[1];
+  const loginBody = popupSource.match(
+    /async function handleLoginAction\(\) \{([\s\S]*?)\n\}\n\nasync function alignPopupToSilentMode/
+  )[1];
+
+  assert.match(validateBody, /type: "validateAuthToken"/);
+  assert.match(validateBody, /messages\.sendRuntimeMessage/);
+  assert.doesNotMatch(validateBody, /fetch\(|buildValidateEndpointFromStageBase|maybeUpdateStoredTokenFromResponse/);
+  assert.match(loginBody, /type: "requestAuthLogin"/);
+  assert.match(loginBody, /messages\.sendRuntimeMessage/);
+  assert.doesNotMatch(loginBody, /fetch\(|buildLoginEndpointFromStageBase|maybeUpdateStoredTokenFromResponse/);
+});
+
+test("popup remote page removal delegates privileged network transport to the background", () => {
+  const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
+  const removeBody = popupSource.match(
+    /async function removePageMarkingFromRemote\(options(?:\s*:\s*[^)]+)? = \{\}\) \{([\s\S]*?)\n\}\n\nasync function pruneRemoteInvalidPageMarkings/
+  )[1];
+
+  assert.match(removeBody, /type: "removeRemotePageMarking"/);
+  assert.match(removeBody, /messages\.sendRuntimeMessage/);
+  assert.doesNotMatch(removeBody, /fetch\(|maybeUpdateStoredTokenFromResponse|createConfigSyncHeaders/);
+});
+
+test("popup render-mode detection delegates heavy network transport to the background", () => {
+  const popupSource = readFileSync(new URL("../src/popup/render-mode-inspection.ts", import.meta.url), "utf8");
+  const detectBody = popupSource.match(
+    /export async function detectRenderModeViaEndpoint\(deps(?:\s*:\s*[^,]+)?, options(?:\s*:\s*[^)]+)? = \{\}\)(?:\s*:\s*[^{]+)? \{([\s\S]*?)\n\}\n\nexport async function maybeAutoDetectRenderMode/
+  )[1];
+
+  assert.match(detectBody, /type: "requestRenderModeDetection"/);
+  assert.match(detectBody, /const requestPayloadKey = deps\.buildTransferPayloadKey\("render-mode-request"\);/);
+  assert.match(detectBody, /const stored = await deps\.putTransferPayload\("render-mode-request", \{/);
+  assert.doesNotMatch(detectBody, /fetch\(detectUrl|createConfigSyncHeaders|maybeUpdateStoredTokenFromResponse/);
+});
+
+test("popup hydrates property-lock timer and recovery state from the initial tab snapshot", () => {
+  const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
+  const propertyLockUiSource = readFileSync(new URL("../src/popup/property-lock-ui.ts", import.meta.url), "utf8");
+  const backgroundSource = readFileSync(new URL("../src/background.ts", import.meta.url), "utf8");
+
+  assert.match(propertyLockUiSource, /export function syncPropertyLockOffCandidateRefreshTimer\(deps(?:\s*:\s*[^,]+)?, active(?:\s*:\s*[^)]+)?\) \{/);
+  assert.match(popupSource, /state\.propertyLockOffCandidateDeadlineAt =\s*initialTabState && Number\.isFinite\(initialTabState\.propertyLockOffCandidateDeadlineAt\)/);
   assert.match(
     popupSource,
-    /current: groupCurrent,[\s\S]*?const isCurrent = groupCurrent && currentPageCandidateState\.url === candidate\.url;/
+    /syncPropertyLockOffCandidateRefreshTimer\(\s*Boolean\([\s\S]*state\.propertyLockOffCandidateDeadlineAt[\s\S]*state\.propertyLockRecoveryDeadlineAt[\s\S]*\)\s*\);/
   );
+  assert.match(popupSource, /state\.propertyLockRecoverySiteId =\s*initialTabState && Number\.isFinite\(initialTabState\.propertyLockRecoverySiteId\)/);
+  assert.match(popupSource, /state\.propertyLockRecoveryBaseUrl =\s*initialTabState && typeof initialTabState\.propertyLockRecoveryBaseUrl === "string"/);
+  assert.match(popupSource, /state\.propertyLockRecoveryClientId =\s*initialTabState && typeof initialTabState\.propertyLockRecoveryClientId === "string"/);
+  assert.match(popupSource, /state\.propertyLockRecoveryDeadlineAt =\s*initialTabState && Number\.isFinite\(initialTabState\.propertyLockRecoveryDeadlineAt\)/);
+  assert.match(popupSource, /const persistedRecoveryState = \{\s*siteId: state\.propertyLockRecoverySiteId,\s*baseUrl: state\.propertyLockRecoveryBaseUrl,\s*clientId: state\.propertyLockRecoveryClientId,\s*deadlineAt: state\.propertyLockRecoveryDeadlineAt\s*\};/);
+  assert.match(popupSource, /const recoveryBaseUrl =\s*state\.propertyLockRecoveryBaseUrl \|\| persistedRecoveryState\.baseUrl \|\| "";/);
+  assert.match(popupSource, /const isOutsideRecoveryBaseUrl = Boolean\(\s*hasPersistedRecoverySession &&\s*pageUrl &&\s*!utils\.isPageWithinBaseUrl\(pageUrl, recoveryBaseUrl\)\s*\);/);
+  assert.match(popupSource, /if \(hasPersistedRecoverySession && isOutsideRecoveryBaseUrl\) \{\s*const nextRecoveryDeadlineAt = recoveryDeadlineAt > Date\.now\(\)\s*\?\s*recoveryDeadlineAt\s*:\s*Date\.now\(\) \+ PROPERTY_LOCK_CROSS_PROPERTY_COOLDOWN_TIMEOUT_MS;/);
+  assert.match(popupSource, /state\.propertyLockRecoveryBaseUrl = recoveryBaseUrl;/);
+  assert.match(popupSource, /state\.propertyLockRecoveryDeadlineAt = nextRecoveryDeadlineAt;/);
+  assert.match(popupSource, /deadlineAt: nextRecoveryDeadlineAt/);
+  assert.match(popupSource, /const propertyLockScopeSiteId = isPropertyLockCollaborationEnabled\(\)\s*\?[\s\S]*?state\.propertyLockRecoveryDeadlineAt > Date\.now\(\) && state\.propertyLockRecoverySiteId[\s\S]*?state\.propertyLockRecoverySiteId\s*:\s*liveSiteId[\s\S]*?: null;/);
+  assert.match(propertyLockUiSource, /state\.propertyLockRecoverySiteId === normalizedSiteId\s*\?\s*state\.propertyLockRecoveryClientId/);
+  assert.match(propertyLockUiSource, /deps\.propertyLockText\.popupOffCandidateWarning\(offCandidateSecondsRemaining\)/);
+  assert.match(propertyLockUiSource, /deps\.propertyLockText\.popupCrossPropertyWarning\(crossPropertySecondsRemaining\)/);
+  assert.match(backgroundSource, /nextState\.propertyLockOffCandidateDeadlineAt = Number\.isFinite\(message\.state\.propertyLockOffCandidateDeadlineAt\)/);
+  assert.match(backgroundSource, /nextState\.propertyLockRecoverySiteId = Number\.isFinite\(message\.state\.propertyLockRecoverySiteId\)/);
+  assert.match(backgroundSource, /nextState\.propertyLockRecoveryClientId = typeof message\.state\.propertyLockRecoveryClientId === "string"/);
+  assert.match(backgroundSource, /nextState\.propertyLockRecoveryDeadlineAt = Number\.isFinite\(message\.state\.propertyLockRecoveryDeadlineAt\)/);
+});
+
+test("desktop preview stays behind its own popup toggle and disables marking entry while active", () => {
+  const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
+  const uiSource = readFileSync(new URL("../src/popup/ui.ts", import.meta.url), "utf8");
+  const desktopToggleStart = popupSource.indexOf("async function handleDesktopPreviewEnabledToggle(");
+  const desktopToggleEnd = popupSource.indexOf("function handleDeviceScaleInput", desktopToggleStart);
+  assert.ok(desktopToggleStart >= 0 && desktopToggleEnd > desktopToggleStart);
+  const desktopToggleBody = popupSource.slice(desktopToggleStart, desktopToggleEnd);
+
+  assert.match(popupSource, /const desktopPreviewVisible = Boolean\(\s*desktopPreviewFeatureEnabled &&\s*silentModeActive &&/);
+  assert.match(popupSource, /const desktopPreviewActive = Boolean\(\s*desktopPreviewVisible && state\.currentDesktopPreviewEnabled\s*\);/);
+  assert.match(popupSource, /nextViewState\.desktopPreviewVisible = desktopPreviewVisible;/);
+  assert.match(popupSource, /nextViewState\.desktopPreviewEnabled = desktopPreviewActive;/);
+  assert.match(popupSource, /nextViewState\.toggleEnabledDisabled =[\s\S]*desktopPreviewActive;/);
+  assert.match(desktopToggleBody, /if \(!isFeatureEnabled\("desktopPreview"\)\) \{\s*return;\s*\}/);
+  assert.match(desktopToggleBody, /if \(desiredEnabled && uiModule\.getViewState\(\)\.toggleEnabled\) \{/);
+  assert.match(desktopToggleBody, /await handleEnableToggle\(\{ currentTarget: \{ checked: false \} \}\);/);
+  assert.match(desktopToggleBody, /await persistDesktopPreviewEnabled\(tab\.id, desiredEnabled\);/);
+  assert.match(uiSource, /isPopupFeatureEnabled\(view, "desktopPreview"\) && view\.desktopPreviewVisible/);
+  assert.match(uiSource, /id: "desktop-preview-enabled"/);
+});
+
+test("marking-mode preview remains a dedicated marking control", () => {
+  const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
+  const uiSource = readFileSync(new URL("../src/popup/ui.ts", import.meta.url), "utf8");
+  const markingPreviewBody = popupSource.match(
+    /async function handleMarkingPreview\(\) \{([\s\S]*?)\n\}\n\nasync function handleExitPreviewMode/
+  )[1];
+
+  assert.match(popupSource, /nextViewState\.markingPreviewVisible = pageControlsVisible && Boolean\(isEnabled\);/);
   assert.match(
-    uiSource,
-    /group\.current && "todo-subsection--current"/
+    popupSource,
+    /nextViewState\.markingPreviewDisabled =\s*aiBusy \|\|\s*previewRestorePending \|\|\s*pageSaveReconciliationPending \|\|\s*!aiRunUpToDate \|\|\s*sessionRequiresAiRun;/
   );
-  assert.match(
-    uiSource,
-    /group\.current[\s\S]*?todo-subsection-current-badge[\s\S]*?PopupText\.pageTypes\.currentBadge/
-  );
+  assert.match(uiSource, /if \(markingMode && view\.markingPreviewVisible\) \{/);
+  assert.match(uiSource, /id: "marking-preview"/);
+  assert.match(uiSource, /onClick: handlers\.onMarkingPreview/);
+  assert.match(markingPreviewBody, /if \(!view\.markingPreviewVisible \|\| view\.markingPreviewDisabled\) \{/);
+  assert.match(markingPreviewBody, /const selectorSet = getLatestAvailableSelectorsFromConfig\(\);/);
+  assert.match(markingPreviewBody, /messages\.requestTabShowAiPreview\(tabId, \{/);
+  assert.doesNotMatch(markingPreviewBody, /silentModeActive/);
 });
 
 test("periodic page-type refresh stays quiet unless candidates change", () => {
@@ -367,13 +291,6 @@ test("changed page-type refresh expands the Todo List root", () => {
     source,
     /propertyPageTypesRefreshChanged &&[\s\S]*?state\.propertyPageTypesChangeForceTodoOpen &&[\s\S]*?todoListVisible[\s\S]*?nextViewState\.todoSectionExpanded = true;[\s\S]*?state\.propertyPageTypesChangeForceTodoOpen = false;/
   );
-});
-
-test("page-type refresh change copy is documented in shared text", () => {
-  const textSource = readFileSync(new URL("../src/common/text.ts", import.meta.url), "utf8");
-
-  assert.match(textSource, /changedNotice: "Live Page candidates changed in Lynx\./);
-  assert.match(textSource, /currentPageInvalidAfterRefreshAlert: "Live Page candidates changed in Lynx,[\s\S]*?Marking has been stopped/);
 });
 
 test("session save uploads all local page markings while default sync stays backend-scoped", () => {
@@ -483,308 +400,6 @@ test("todo completion backend cache ignores local confirmed page markings unless
   );
 });
 
-test("invalid remote page pruning delegates the remove transport to background", () => {
-  const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
-  const backgroundSource = readFileSync(new URL("../src/background.ts", import.meta.url), "utf8");
-  const remoteNetworkSource = readFileSync(new URL("../src/background/remote-network.ts", import.meta.url), "utf8");
-  const removeBody = popupSource.match(
-    /async function removePageMarkingFromRemote\(options(?:\s*:\s*[^)]+)? = \{\}\) \{([\s\S]*?)\n\}\n\nasync function pruneRemoteInvalidPageMarkings/
-  )[1];
-  const pruneBody = popupSource.match(
-    /async function pruneRemoteInvalidPageMarkings\(options(?:\s*:\s*[^)]+)? = \{\}\) \{([\s\S]*?)\n\}\n\nasync function pruneLocalInvalidPageMarkings/
-  )[1];
-
-  assert.match(backgroundSource, /from "\.\/background\/remote-network\.js"/);
-  assert.match(remoteNetworkSource, /export async function removeRemotePageMarking\(options = \{\}\) \{/);
-  assert.match(remoteNetworkSource, /const removeUrl = resolveBackgroundEndpoint\(endpointValue, "\/remove"\);/);
-  assert.match(remoteNetworkSource, /body: JSON\.stringify\(\{[\s\S]*?siteId: normalizedSiteId,[\s\S]*?url: pageUrl[\s\S]*?\}\)/);
-  assert.match(backgroundSource, /if \(message\.type === "removeRemotePageMarking"\) \{/);
-  assert.match(removeBody, /type: "removeRemotePageMarking"/);
-  assert.match(removeBody, /messages\.sendRuntimeMessage/);
-  assert.doesNotMatch(removeBody, /fetch\(|maybeUpdateStoredTokenFromResponse|createConfigSyncHeaders/);
-  assert.match(pruneBody, /state\.removedRemotePageKeys\.has\(removalKey\)/);
-  assert.match(pruneBody, /state\.removedRemotePageKeys\.add\(removalKey\)/);
-});
-
-test("token validation delegates the auth transport to background", () => {
-  const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
-  const backgroundSource = readFileSync(new URL("../src/background.ts", import.meta.url), "utf8");
-  const networkCoreSource = readFileSync(new URL("../src/background/network-core.ts", import.meta.url), "utf8");
-  const validateBody = popupSource.match(
-    /async function validateStoredToken\(options(?:\s*:\s*[^)]*)? = \{\}\) \{([\s\S]*?)\n\}\n\nasync function clearFocusedElement/
-  )[1];
-
-  assert.match(backgroundSource, /from "\.\/background\/network-core\.js"/);
-  assert.match(networkCoreSource, /export function buildValidateEndpointFromStageBase\(stageBase(?:\s*:\s*[^)]+)?\) \{/);
-  assert.match(networkCoreSource, /export async function validateAuthToken\(options = \{\}\) \{/);
-  assert.match(networkCoreSource, /const validateUrl = buildValidateEndpointFromStageBase\(stageBase\);/);
-  assert.match(backgroundSource, /if \(message\.type === "validateAuthToken"\) \{/);
-  assert.match(validateBody, /type: "validateAuthToken"/);
-  assert.match(validateBody, /messages\.sendRuntimeMessage/);
-  assert.doesNotMatch(validateBody, /fetch\(|buildValidateEndpointFromStageBase|maybeUpdateStoredTokenFromResponse/);
-});
-
-test("login delegates the auth transport to background while popup keeps token persistence", () => {
-  const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
-  const backgroundSource = readFileSync(new URL("../src/background.ts", import.meta.url), "utf8");
-  const networkCoreSource = readFileSync(new URL("../src/background/network-core.ts", import.meta.url), "utf8");
-  const loginBody = popupSource.match(
-    /async function handleLoginAction\(\) \{([\s\S]*?)\n\}\n\nasync function alignPopupToSilentMode/
-  )[1];
-
-  assert.match(backgroundSource, /from "\.\/background\/network-core\.js"/);
-  assert.match(networkCoreSource, /export function buildLoginEndpointFromStageBase\(stageBase(?:\s*:\s*[^)]+)?\) \{/);
-  assert.match(networkCoreSource, /export async function requestAuthLogin\(options = \{\}\) \{/);
-  assert.match(networkCoreSource, /const loginUrl = buildLoginEndpointFromStageBase\(stageBase\);/);
-  assert.match(backgroundSource, /if \(message\.type === "requestAuthLogin"\) \{/);
-  assert.match(loginBody, /type: "requestAuthLogin"/);
-  assert.match(loginBody, /messages\.sendRuntimeMessage/);
-  assert.match(loginBody, /await saveLoginSettings\(\{ stageBase, token \}\);/);
-  assert.doesNotMatch(loginBody, /fetch\(|buildLoginEndpointFromStageBase|maybeUpdateStoredTokenFromResponse/);
-});
-
-test("remote config load delegates transport to background and hydrates the payload from session storage", () => {
-  const popupSource = readFileSync(new URL("../src/popup/remote-config.ts", import.meta.url), "utf8");
-  const backgroundSource = readFileSync(new URL("../src/background.ts", import.meta.url), "utf8");
-  const remoteNetworkSource = readFileSync(new URL("../src/background/remote-network.ts", import.meta.url), "utf8");
-  const remoteConfigSyncSource = readFileSync(new URL("../src/background/remote-config-sync.ts", import.meta.url), "utf8");
-  const loadBody = popupSource.match(
-    /export async function loadRemoteConfigForCurrentPage\(deps(?:\s*:\s*[^,]+)?, options(?:\s*:\s*[^=]+)? = \{\}\) \{([\s\S]*?)\n\}\n\n(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?export async function syncBaseConfigToServer/
-  )[1];
-
-  assert.match(backgroundSource, /from "\.\/background\/remote-network\.js"/);
-  assert.match(remoteNetworkSource, /export async function loadRemoteConfigSnapshot\(options = \{\}\) \{/);
-  assert.match(remoteNetworkSource, /const loadUrl = resolveBackgroundEndpoint\(endpointValue, "\/load"\);/);
-  assert.match(remoteNetworkSource, /const stored = await putTransferPayload\("load", payload\);/);
-  assert.match(backgroundSource, /from "\.\/background\/remote-config-sync\.js"/);
-  assert.match(remoteConfigSyncSource, /export async function replaceServerConfigIntoLocalSnapshot\(options = \{\}\) \{/);
-  assert.match(backgroundSource, /if \(message\.type === "loadRemoteConfigSnapshot"\) \{/);
-  assert.match(loadBody, /type: "loadRemoteConfigSnapshot"/);
-  assert.match(loadBody, /await replaceServerConfigIntoLocal\(\{/);
-  assert.match(loadBody, /payloadKey: typeof response\.payloadKey === "string" \? response\.payloadKey : ""/);
-  assert.doesNotMatch(loadBody, /await utils\.storageGet\(chrome\.storage\.session, payloadKey\)/);
-  assert.doesNotMatch(loadBody, /await utils\.storageRemove\(chrome\.storage\.session, payloadKey\)/);
-  assert.doesNotMatch(loadBody, /fetch\(loadUrl|createConfigSyncHeaders|maybeUpdateStoredTokenFromResponse/);
-});
-
-test("remote config save delegates transport to background and hydrates the response from session storage", () => {
-  const popupSource = readFileSync(new URL("../src/popup/remote-config.ts", import.meta.url), "utf8");
-  const backgroundSource = readFileSync(new URL("../src/background.ts", import.meta.url), "utf8");
-  const remoteNetworkSource = readFileSync(new URL("../src/background/remote-network.ts", import.meta.url), "utf8");
-  const remoteConfigSyncSource = readFileSync(new URL("../src/background/remote-config-sync.ts", import.meta.url), "utf8");
-  const saveBody = popupSource.match(
-    /export async function syncBaseConfigToServer\(deps(?:\s*:\s*[^,]+)?, options(?:\s*:\s*[^=]+)? = \{\}\) \{([\s\S]*?)\n\}/
-  )[1];
-
-  assert.match(backgroundSource, /from "\.\/background\/remote-network\.js"/);
-  assert.match(remoteNetworkSource, /export async function saveRemoteConfigSnapshot\(\s*options(?:\s*:\s*[^=]+)? = \{\}\s*\) \{/);
-  assert.match(remoteNetworkSource, /const saveUrl = resolveBackgroundEndpoint\(endpointValue, "\/save"\);/);
-  assert.match(remoteNetworkSource, /const requestPayloadKey = typeof options\.payloadKey === "string" \? options\.payloadKey\.trim\(\) : "";/);
-  assert.match(remoteNetworkSource, /const loaded = await getTransferPayload\(requestPayloadKey, \{ expectedType: "object" \}\);/);
-  assert.match(remoteNetworkSource, /await removeTransferPayload\(requestPayloadKey\);/);
-  assert.match(backgroundSource, /from "\.\/background\/remote-config-sync\.js"/);
-  assert.match(remoteConfigSyncSource, /export async function mergeServerConfigIntoLocalSnapshot\(options = \{\}\) \{/);
-  assert.match(backgroundSource, /if \(message\.type === "mergeServerConfigIntoLocalSnapshot"\) \{/);
-  assert.match(backgroundSource, /if \(message\.type === "saveRemoteConfigSnapshot"\) \{/);
-  assert.match(saveBody, /type: "saveRemoteConfigSnapshot"/);
-  assert.match(saveBody, /const requestPayloadKey = deps\.buildTransferPayloadKey\("save-request"\);/);
-  assert.match(saveBody, /const stored = await deps\.putTransferPayload\("save-request", payload, \{/);
-  assert.match(saveBody, /payloadKey: requestPayloadKey/);
-  assert.match(saveBody, /type: "mergeServerConfigIntoLocalSnapshot"/);
-  assert.match(saveBody, /payloadKey: responsePayloadKey/);
-  assert.doesNotMatch(saveBody, /await utils\.storageGet\(chrome\.storage\.session, responsePayloadKey\)/);
-  assert.doesNotMatch(saveBody, /await utils\.storageRemove\(chrome\.storage\.session, responsePayloadKey\)/);
-  assert.doesNotMatch(saveBody, /fetch\(saveUrl|createConfigSyncHeaders|maybeUpdateStoredTokenFromResponse/);
-});
-
-test("render-mode detection delegates the heavy html transport to background", () => {
-  const popupSource = readFileSync(new URL("../src/popup/render-mode-inspection.ts", import.meta.url), "utf8");
-  const backgroundSource = readFileSync(new URL("../src/background.ts", import.meta.url), "utf8");
-  const remoteNetworkSource = readFileSync(new URL("../src/background/remote-network.ts", import.meta.url), "utf8");
-  const detectBody = popupSource.match(
-    /export async function detectRenderModeViaEndpoint\(deps(?:\s*:\s*[^,]+)?, options(?:\s*:\s*[^)]+)? = \{\}\)(?:\s*:\s*[^{]+)? \{([\s\S]*?)\n\}\n\nexport async function maybeAutoDetectRenderMode/
-  )[1];
-
-  assert.match(backgroundSource, /from "\.\/background\/remote-network\.js"/);
-  assert.match(remoteNetworkSource, /export async function requestRenderModeDetection\(options = \{\}\) \{/);
-  assert.match(remoteNetworkSource, /const detectUrl = resolveBackgroundEndpoint\(endpointValue, "\/is_js_rendered"\);/);
-  assert.match(backgroundSource, /if \(message\.type === "requestRenderModeDetection"\) \{/);
-  assert.match(detectBody, /type: "requestRenderModeDetection"/);
-  assert.match(detectBody, /const requestPayloadKey = deps\.buildTransferPayloadKey\("render-mode-request"\);/);
-  assert.match(detectBody, /const stored = await deps\.putTransferPayload\("render-mode-request", \{/);
-  assert.match(detectBody, /rawHtml,/);
-  assert.match(detectBody, /renderedHtml/);
-  assert.match(detectBody, /normalizeRenderModeDetectionResult\(deps, response\.payload\)/);
-  assert.doesNotMatch(detectBody, /fetch\(detectUrl|createConfigSyncHeaders|maybeUpdateStoredTokenFromResponse/);
-});
-
-test("popup blocks the interface with a spinner while page inspection is running", () => {
-  const source = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
-  const uiSource = readFileSync(new URL("../src/popup/ui.ts", import.meta.url), "utf8");
-
-  assert.match(source, /const SILENT_HIGHLIGHTING_PREPARATION_REASON = "editor_preparing";/);
-  assert.match(source, /let contentInspectionPending = Boolean\(/);
-  assert.doesNotMatch(source, /restoreInspectionPending/);
-  assert.match(
-    source,
-    /const pageInspectionBusy =[\s\S]*?contentInspectionPending[\s\S]*?pageSaveReconciliationPending[\s\S]*?state\.currentPageSaveReconciliation\.reason === SILENT_HIGHLIGHTING_PREPARATION_REASON/
-  );
-  assert.match(
-    source,
-    /nextViewState\.isBusy = popupBusyActive \|\| backgroundLifecycleBusy \|\| remoteConfigRetryBlocked \|\| pageInspectionBusy;/
-  );
-  assert.match(
-    source,
-    /nextViewState\.busyMessage = popupBusyActive[\s\S]*?PopupText\.overlay\.pageInspection/
-  );
-  // The blocking curtain DOM is reconciled by a module-scope helper, not an
-  // IIFE buried inside a render call, so the popup never throws a reference
-  // error while toggling the busy state.
-  assert.match(uiSource, /^function syncBlockingUiCurtainDom\(\) \{/m);
-  assert.match(uiSource, /document\.body\.classList\.toggle\("is-busy", curtain\.visible\)/);
-  assert.match(uiSource, /function setUiBusy\([\s\S]*?try \{[\s\S]*?setViewState\(patch\);[\s\S]*?\} catch[\s\S]*?syncBlockingUiCurtainDom\(\);/);
-  assert.match(uiSource, /busyReason: isBusy && details && typeof details\.reason === "string" \? details\.reason : ""/);
-  assert.match(uiSource, /console\.debug\("\[popup-blocker\]", eventName/);
-  assert.match(uiSource, /const busyCopy = getBusyCurtainCopy\(view\);[\s\S]*?note: busyCopy\.note,[\s\S]*?reason: view\.busyReason \|\| "popup-busy"/);
-  assert.match(
-    uiSource,
-    /function getBlockingUiCurtainState\(\s*view(?:\s*:\s*[^)]+)?\)\s*(?::\s*[^{]+)?\{[\s\S]*?if \(view\.computeButtonLoading\)[\s\S]*?PopupText\.overlay\.computingSelectors[\s\S]*?if \(view\.isBusy\)/
-  );
-  assert.match(uiSource, /function formatCountdownFromDeadline\(deadlineAt(?::\s*unknown)?\)(?::\s*string)? \{/);
-  assert.match(uiSource, /const liveCountdownText = formatCountdownFromDeadline\(view\.aiRunDeadlineAt\);/);
-  assert.match(uiSource, /backgroundReason === "tab-run-ai-running"/);
-  assert.match(uiSource, /aiRunPhase === "running"/);
-  assert.match(uiSource, /reason: "ai-run-compute-preparing"[\s\S]*?timerText: ""/);
-  assert.match(
-    uiSource,
-    /timerText: view\.aiRunCountdownVisible \? \(liveCountdownText \|\| aiRunCountdownText\) : "Up to 8:00"/
-  );
-  assert.match(uiSource, /function syncBlockingCurtainCountdownTimer\(curtain/);
-  assert.match(uiSource, /blockingCurtainCountdownTimer = setInterval\(\(\) => \{\s*renderApp\(\);/);
-  assert.match(source, /aiRunDeadlineAt: state\.aiRunDeadlineAt/);
-  assert.match(source, /formatAiRunCountdown\(\s*getAiRunRemainingMs\(state\.aiRunDeadlineAt\)\s*\)/);
-  assert.doesNotMatch(source, /state\.aiRunRemainingMs\s*\|\|\s*getAiRunRemainingMs\(state\.aiRunDeadlineAt\)/);
-  assert.match(uiSource, /function getBusyCurtainCopy\(view(?::\s*ViewState)?\) \{/);
-  assert.match(uiSource, /reason === "popup-refresh"/);
-  assert.match(uiSource, /reason === "render-mode-inspection-start"/);
-  assert.match(uiSource, /reason === "tab-run-ai"/);
-  assert.match(uiSource, /spinnerKey === "navInspect" \|\| reason === "page-inspection-pending"/);
-  assert.match(uiSource, /let lastPopupBlockerLogSignature = "";/);
-  assert.match(
-    uiSource,
-    /const signature = \[\s*curtain\.message \|\| "",\s*curtain\.reason \|\| "",\s*curtain\.source \|\| "",\s*curtain\.spinnerKey \|\| ""\s*\]\.join\("\|"\);/
-  );
-  assert.match(uiSource, /function App\(\{ state: view, actions: handlers \}:\s*PopupRenderProps\) \{\s*const curtain = getBlockingUiCurtainState\(view\);\s*logPopupBlockerReason\("render", curtain\);/);
-  assert.match(uiSource, /if \(!curtain\.visible\) \{\s*lastPopupBlockerLogSignature = "";\s*return;\s*\}/);
-  // A stale "Inspecting page..." curtain is cleared once the spinner queue
-  // drains and the content side reports no pending inspection.
-  assert.match(source, /function scheduleStaleInspectionBusyClear\(/);
-  assert.match(source, /logPopupSpinnerDebug\("stale-inspection-busy-clear"/);
-  assert.match(source, /reconcileRenderModeNavSpinner = false/);
-  assert.match(source, /const renderModeNavSpinnerStuck = Boolean\(\s*reconcileRenderModeNavSpinner &&\s*popupSpinnerQueue\.has\("navInspect"\)\s*\);/);
-  assert.match(source, /render-mode-nav-curtain-clear/);
-  assert.match(source, /popSpinner\("navInspect"\);/);
-  assert.match(source, /const backgroundLifecycleBusy = Boolean\(popupBackgroundLifecycle && popupBackgroundLifecycle\.busy\);/);
-  assert.match(
-    source,
-    /nextViewState\.isBusy = popupBusyActive \|\| backgroundLifecycleBusy \|\| remoteConfigRetryBlocked \|\| pageInspectionBusy;/
-  );
-  assert.match(
-    source,
-    /backgroundLifecycleBusy[\s\S]*?\? \(popupBackgroundLifecycle\?\.message \|\| PopupText\.overlay\.pleaseWait\)/
-  );
-});
-
-test("popup spinner queue pushSpinner returns key and handles delays correctly", () => {
-  const source = readFileSync(new URL("../src/popup/spinner.ts", import.meta.url), "utf8");
-  const pushBody = source.match(
-    /export function pushSpinner\(deps, key, message, options = \{\}\) \{([\s\S]*?)\n\}/
-  )[1];
-
-  // suppressIfActive path returns null when queue is active
-  assert.match(pushBody, /suppressIfActive[\s\S]*?return null;/);
-  // delay path sets timer and returns effectiveKey
-  assert.match(pushBody, /if \(delayMs > 0\) \{[\s\S]*?getPopupSpinnerTimer\(\)[\s\S]*?setPopupSpinnerTimer\([\s\S]*?return effectiveKey;/);
-  // immediate show path sets popupSpinnerVisible and applies reason-aware busy details.
-  assert.match(pushBody, /setPopupSpinnerVisible\(true\);[\s\S]*?setUiBusyFromCurrentSpinner\(\)/);
-  assert.match(pushBody, /const reason = normalizeSpinnerReason\(deps, options\.reason, effectiveKey, msg\);/);
-  assert.match(pushBody, /const source = typeof options\.source === "string"/);
-  // upsert path updates in-place without re-checking suppressIfActive
-  assert.match(pushBody, /const isUpdate = deps\.popupSpinnerQueue\.has\(effectiveKey\)/);
-  assert.match(pushBody, /syncSpinnerEntryToBackground\(effectiveKey\)/);
-});
-
-test("popup spinner pop removes entries from the background broker", () => {
-  const source = readFileSync(new URL("../src/popup/spinner.ts", import.meta.url), "utf8");
-  const popBody = source.match(
-    /export function popSpinner\(deps, key\) \{([\s\S]*?)\n\}/
-  )[1];
-
-  assert.match(popBody, /const mappedTabId = deps\.popupSpinnerKeyTabIds\.get\(key\);/);
-  assert.match(popBody, /if \(!deps\.popupSpinnerQueue\.has\(key\)\) \{[\s\S]*?deps\.removeSpinnerEntryFromBackground\(key, mappedTabId\)/);
-  assert.match(popBody, /deps\.removeSpinnerEntryFromBackground\(key, mappedTabId \|\| deps\.getCurrentPopupTabId\(\)\)/);
-});
-
-test("popup delegates spinner queue state to the background broker", () => {
-  const source = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
-  const setBody = source.match(
-    /function syncSpinnerEntryToBackground\(key(?:: [^)]+)?\)(?:: [^{]+)? \{([\s\S]*?)\n\}/
-  )[1];
-  const clearBody = source.match(
-    /function clearSpinnerQueueInBackground\(\s*tabId = getCurrentPopupTabId\(\),\s*options(?:\s*:\s*[^=]+)? = \{\}\s*\) \{([\s\S]*?)\n\}/
-  )[1];
-
-  assert.match(setBody, /type: SPINNER_REQUEST_TYPES\.SET/);
-  assert.match(setBody, /persistent: expectedPersistent/);
-  assert.match(setBody, /reason: normalizeSpinnerReason\(entry\.reason, key, expectedMessage\)/);
-  assert.match(setBody, /source: typeof entry\.source === "string" && entry\.source \? entry\.source : "popup-spinner"/);
-  assert.match(setBody, /startedAt: Number\.isFinite\(entry\.startedAt\) \? entry\.startedAt : Date\.now\(\)/);
-  assert.match(clearBody, /requestPopupSpinnerClear\(tabId, \{/);
-  assert.match(clearBody, /transientOnly: Boolean\(options\.transientOnly\)/);
-  assert.doesNotMatch(source, /spinnerQueue:<tabId>/);
-  assert.doesNotMatch(source, /restoreSpinnerQueueFromStorage/);
-});
-
-test("popup ignores stale spinner-set broker snapshots after local removal", () => {
-  const source = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
-  const sendBody = source.match(
-    /function sendSpinnerBrokerMessage\(\s*message(?:\s*:\s*[^,)]+)?(?:\s*\|\s*null)?(?:\s*\|\s*undefined)?,\s*options(?:\s*:\s*[^=]+)? = \{\}\s*\)(?:: [^{]+)? \{([\s\S]*?)\n\}/
-  )[1];
-  const setBody = source.match(
-    /function syncSpinnerEntryToBackground\(key(?:\s*:\s*[^)]+)?\)(?:: [^{]+)? \{([\s\S]*?)\n\}/
-  )[1];
-
-  assert.match(sendBody, /const shouldApplySnapshot = typeof options\.shouldApplySnapshot === "function"/);
-  assert.match(sendBody, /response && shouldApplySnapshot\(response\)/);
-  assert.match(setBody, /const entry = popupSpinnerQueue\.get\(key\);/);
-  assert.match(setBody, /const expectedMessage = entry\.message;/);
-  assert.match(setBody, /const expectedPersistent = entry\.persistent;/);
-  assert.match(setBody, /const shouldApplySnapshot = \(\) => \{[\s\S]*?const currentEntry = popupSpinnerQueue\.get\(key\);/);
-  assert.match(setBody, /if \(!currentEntry\) \{[\s\S]*?return false;/);
-  assert.match(setBody, /currentEntry\.message === expectedMessage/);
-  assert.match(setBody, /Boolean\(currentEntry\.persistent\) === Boolean\(expectedPersistent\)/);
-  assert.match(setBody, /shouldApplySnapshot/);
-  assert.match(sendBody, /requestPopupSpinnerSet\(tabId, \{/);
-});
-
-test("popup restores spinner state from background current state", () => {
-  const source = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
-  const restoreBody = source.match(
-    /async function restoreSpinnerQueueFromBackground\(tabId(?:\s*:\s*[^,)]+)?, popupBus(?:\s*:\s*[^,)]+)?\)(?:: [^{]+)? \{([\s\S]*?)\n\}/
-  )[1];
-  const applyBody = source.match(
-    /function applyBackgroundStateSnapshot\(snapshot(?:\s*:\s*[^)]+)?\)(?:: [^{]+)? \{([\s\S]*?)\n\}/
-  )[1];
-
-  assert.match(restoreBody, /requestPopupView\(popupBus, tabId\)/);
-  assert.match(restoreBody, /applyPopupViewSnapshot\(viewState\)/);
-  assert.doesNotMatch(restoreBody, /WORLD_MESSAGE_TYPES\.GET_BACKGROUND_STATE/);
-  assert.match(applyBody, /popupSpinnerQueue\.clear\(\);/);
-  assert.match(applyBody, /Array\.isArray\(snapshot\.spinnerQueue\)/);
-  assert.match(applyBody, /popupSpinnerQueue\.set\(entry\.key/);
-  assert.match(applyBody, /syncUiBusyFromBrokerState\(\);/);
-});
-
 test("tab reload keeps the inspection curtain active while enabled pages re-inspect", () => {
   const source = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
 
@@ -849,9 +464,6 @@ test("tab reload keeps the inspection curtain active while enabled pages re-insp
   assert.doesNotMatch(refreshBody, /messages\.getTabState\(state\.currentTab\.id, "restore"\)/);
   assert.match(refreshBody, /await messages\.sendTabMessageToTab\(currentTabId, \{ type: "getInspectionStatus" \}\)/);
   assert.match(refreshBody, /contentInspectionPending/);
-  // After a tab reload, the latest runtime status response is authoritative:
-  // once it arrives the popup adopts the fresh inspection status instead of
-  // stale optimistic UI state.
   assert.match(refreshBody, /let latestRuntimeStatus = null;/);
   assert.match(refreshBody, /const runtimeStatusBaseUrl = state\.currentBaseUrl \|\| effectiveTabState\.baseUrl \|\| "";/);
   assert.doesNotMatch(refreshBody, /latestRuntimeResponseObserved/);
@@ -902,24 +514,6 @@ test("session pending is no longer tied to Lynx selector submission state", () =
   assert.doesNotMatch(pendingBody, /areCurrentSelectorsSubmitted|submittedSelectorsFingerprint/);
 });
 
-test("popup no longer schedules observer remote config polling", () => {
-  const source = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
-
-  assert.doesNotMatch(source, /OBSERVER_REMOTE_CONFIG_REFRESH_INTERVAL_MS/);
-  assert.doesNotMatch(source, /syncObserverRemoteConfigRefreshTimer/);
-  assert.doesNotMatch(source, /remoteConfigLoadMode:\s*"observer_poll"/);
-});
-
-test("marking enable does not send a redundant force refresh after TAB_ACTIVATE_MARKING", () => {
-  const source = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
-  const enableBody = source.match(
-    /async function handleEnableToggle\(event(?:\s*:\s*[^)]*)?\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?(?:\n|\r\n)*async function handleDeviceEmulationEnabledToggle/
-  )[1];
-
-  assert.match(enableBody, /messages\.requestTabActivateMarking\(tab\.id, \{/);
-  assert.doesNotMatch(enableBody, /type: "forceRefresh"/);
-});
-
 test("marking enable upgrades the popup spinner to page inspection during reveal warmup", () => {
   const source = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
   const spinnerSource = readFileSync(new URL("../src/popup/spinner.ts", import.meta.url), "utf8");
@@ -957,11 +551,8 @@ test("disabling marking with a pending session prompts to discard before exiting
   assert.match(enableBody, /clearImmediateDisableSpinner\(\);[\s\S]*?const confirmedDiscard = window\.confirm\(PopupText\.page\.disableDiscardConfirm\);/);
   assert.match(enableBody, /PopupText\.page\.exitRequiresAiResolution/);
   assert.match(enableBody, /PopupText\.page\.exitRequiresResolution/);
-  // A toast is shown, then a confirm dialog gates discard+disable.
   assert.match(enableBody, /const confirmedDiscard = window\.confirm\(PopupText\.page\.disableDiscardConfirm\);/);
-  // Cancel keeps the session and stays in marking mode.
   assert.match(enableBody, /if \(!confirmedDiscard\) \{[\s\S]*?uiModule\.setViewState\(\{ toggleEnabled: true \}\)[\s\S]*?setLastPopupEnabled\(true, buildPopupEnabledContext\(tab, state\.currentBaseUrl\)\)[\s\S]*?return;/);
-  // OK discards locally, then falls through to disable.
   assert.match(enableBody, /showImmediateDisableSpinner\(\);[\s\S]*?await applyLocalPageDiscard\(\);/);
   assert.match(enableBody, /desiredEnabled \? null : immediateDisableSpinnerKey,[\s\S]*?\{[\s\S]*?delayMs: desiredEnabled \? POPUP_BUSY_OVERLAY_DELAY_MS : 0[\s\S]*?\}/);
 });
@@ -985,16 +576,6 @@ test("run ai refreshes page runtime status before honoring reconciliation gates"
   )[1];
 
   assert.match(computeBody, /await refreshCurrentPageRuntimeStatus\(\);[\s\S]*?if \(state\.currentPageSaveReconciliationPending\) \{/);
-});
-
-test("content-side save hotkey workflow is removed from the marking session", () => {
-  const source = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
-  const keydownBody = source.match(
-    /document\.addEventListener\("keydown", \(event\) => \{([\s\S]*?)\n\s*\}, true\);/
-  )[1];
-
-  assert.match(keydownBody, /if \(key !== "e" && key !== "m"\) \{/);
-  assert.doesNotMatch(keydownBody, /key === "s"|isPageSaveHotkeyAllowedOnPage|saveCurrentPageDraft/);
 });
 
 test("content saved baseline is refreshed from backend cache, not local drafts", () => {
@@ -1049,10 +630,6 @@ test("submission-xpath staleness only counts when the entry already has prior ru
     /const entrySubmissionXpaths =[\s\S]*?reconciliationPending: deps\.getPageSaveReconciliationPending\(pageUrl\)/
   )[0];
 
-  // The stale check must be gated on the entry carrying submission xpaths from a
-  // prior AI run/save. Without this gate a freshly enabled page (empty
-  // submissionXpaths vs. non-empty live xpaths) is wrongly flagged dirty and the
-  // Discard button false-enables.
   assert.match(
     block,
     /const entrySubmissionXpaths =\s*\n?\s*entry && Array\.isArray\(entry\.submissionXpaths\) \? entry\.submissionXpaths : \[\];/

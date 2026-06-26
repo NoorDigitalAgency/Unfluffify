@@ -129,8 +129,7 @@ export async function fetchPropertyPageTypesFromGraphql(_deps: SiteResolutionDep
   const opts = options || {};
   const {
     siteId = null,
-    stageBase = "",
-    tokenValue = ""
+    stageBase = ""
   } = opts;
   const normalizedSiteId = normalizeSiteIdValue(siteId);
   const normalizedStageBase = normalizeStageBase(stageBase);
@@ -140,8 +139,7 @@ export async function fetchPropertyPageTypesFromGraphql(_deps: SiteResolutionDep
   const response = await messages.sendRuntimeMessage({
     type: "fetchLivePagePropertyPageTypes",
     siteId: normalizedSiteId,
-    stageBase: normalizedStageBase,
-    tokenValue
+    stageBase: normalizedStageBase
   });
   if (!response || !response.ok) {
     return {

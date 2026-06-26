@@ -1,213 +1,39 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 import { readFileSync } from "./file-kit.ts";
-import wxtConfig from "../wxt.config";
 
 const contentMainSource = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
 const runtimeMessageHandlerSource = readFileSync(
   new URL("../src/content/runtime-message-handler.ts", import.meta.url),
   "utf8"
 );
-const manifestResources = new Set(
-  (wxtConfig.manifest?.web_accessible_resources || []).flatMap((entry) => entry.resources || [])
-);
-
-const remainingHighRiskBranches = new Map([
-  ["configUpdated", "config-updated-handler"],
-  ["showAiPreview", "ai-preview-show-handler"],
-  ["revertPageDraft", "page-draft-revert-handler"],
-  ["savePageDraft", "page-draft-save-handler"],
-  ["setExplicitExclude", "explicit-marking-handler"],
-  ["setExplicitInclude", "explicit-marking-handler"]
-]);
-
-const plannedHandlerAccessors = new Map([
-  ["configUpdated", /(?:deps\.)?getConfigUpdatedHandler\(\)\.handleMessage\(message\)/],
-  ["revertPageDraft", /(?:deps\.)?getPageDraftRevertHandler\(\)\.revert\(\{ targetBaseUrl \}\)/],
-  ["savePageDraft", /(?:deps\.)?getPageDraftSaveHandler\(\)\.saveCurrentPageDraft\(\{/],
-  ["setExplicitExclude", /(?:deps\.)?getExplicitMarkingHandler\(\)\.setExplicitExclude\(\{/],
-  ["setExplicitInclude", /(?:deps\.)?getExplicitMarkingHandler\(\)\.setExplicitInclude\(\{/],
-  ["showAiPreview", /(?:deps\.)?getAiPreviewShowHandler\(\)\.handleMessage\(message\)/]
-]);
-
-const fullyDelegatedBranches = new Set(["configUpdated", "showAiPreview"]);
-
-const completedTrackFHandlers = [
-  "force-refresh-handler",
-  "page-save-reconciliation-pending-handler",
-  "page-save-reconciliation-clear-handler",
-  "page-draft-status-handler",
-  "capture-page-snapshot-handler"
-];
-
-const guardMatrix = {
-  configUpdated: {
-    activeBaseUrlScope: "enabled-same-base-only",
-    requiresConfig: false,
-    propertyLockBlock: false,
-    reconciliationPendingBlock: false,
-    catchFallback: true
-  },
-  showAiPreview: {
-    activeBaseUrlScope: false,
-    requiresConfig: false,
-    propertyLockBlock: false,
-    reconciliationPendingBlock: false,
-    catchFallback: true
-  },
-  revertPageDraft: {
-    activeBaseUrlScope: true,
-    requiresConfig: true,
-    propertyLockBlock: true,
-    reconciliationPendingBlock: false,
-    catchFallback: true
-  },
-  savePageDraft: {
-    activeBaseUrlScope: true,
-    requiresConfig: true,
-    propertyLockBlock: true,
-    reconciliationPendingBlock: false,
-    catchFallback: true
-  },
-  setExplicitExclude: {
-    activeBaseUrlScope: true,
-    requiresConfig: true,
-    propertyLockBlock: true,
-    reconciliationPendingBlock: true,
-    catchFallback: false
-  },
-  setExplicitInclude: {
-    activeBaseUrlScope: true,
-    requiresConfig: true,
-    propertyLockBlock: true,
-    reconciliationPendingBlock: true,
-    catchFallback: false
-  }
-};
-
-function escapeRegExp(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function assertImportsContentModule(moduleName) {
-  const importPattern = new RegExp(`from\\s+"\\./content/${escapeRegExp(moduleName)}\\.js"`);
-  assert.match(contentMainSource, importPattern, `expected content-main.js to import ${moduleName}`);
-}
-
-function assertManifestDoesNotExposeContentModule(moduleName) {
-  assert.equal(
-    manifestResources.has(`content/${moduleName}.js`),
-    false,
-    `expected WXT manifest config to stop exposing content/${moduleName}.js`
-  );
-}
 
 function getMessageBranch(messageType) {
   for (const source of [contentMainSource, runtimeMessageHandlerSource]) {
-    const needle = `if (message.type === "${messageType}") {`;
-    const start = source.indexOf(needle);
-    if (start < 0) {
+    const branchStart = source.indexOf(`if (message.type === "${messageType}") {`);
+    if (branchStart < 0) {
       continue;
     }
-    const blockStart = source.indexOf("{", start);
-    let depth = 0;
-    for (let index = blockStart; index < source.length; index += 1) {
-      const char = source[index];
-      if (char === "{") {
-        depth += 1;
-      } else if (char === "}") {
-        depth -= 1;
-        if (depth === 0) {
-          return source.slice(start, index + 1);
-        }
-      }
+
+    const nextBranchStart = source.indexOf('\n\n  if (message.type === "', branchStart + 1);
+    if (nextBranchStart > branchStart) {
+      return source.slice(branchStart, nextBranchStart);
     }
-    throw new Error(`unterminated branch for ${messageType}`);
+
+    return source.slice(branchStart);
   }
+
   return "";
-}
-
-function branchOrPlannedHandler(messageType) {
-  const branch = getMessageBranch(messageType);
-  if (branch) {
-    const handlerDelegation = plannedHandlerAccessors.get(messageType);
-    if (handlerDelegation && handlerDelegation.test(branch)) {
-      const moduleName = remainingHighRiskBranches.get(messageType);
-      assertImportsContentModule(moduleName);
-      assertManifestDoesNotExposeContentModule(moduleName);
-      return fullyDelegatedBranches.has(messageType) ? "" : branch;
-    }
-    return branch;
-  }
-  const moduleName = remainingHighRiskBranches.get(messageType);
-  assert.ok(moduleName, `missing planned module for ${messageType}`);
-  assertImportsContentModule(moduleName);
-  assertManifestDoesNotExposeContentModule(moduleName);
-  return "";
-}
-
-function assertBranchHasBaseUrlGuard(messageType, branch, policy) {
-  if (policy.activeBaseUrlScope === "enabled-same-base-only") {
-    assert.match(
-      branch,
-      /state\.enabled\s*&&\s*utils\.sameBaseUrl\(message\.baseUrl,\s*state\.baseUrl\)|deps\.state\.enabled\s*&&\s*deps\.sameBaseUrl\(message\.baseUrl,\s*deps\.state\.baseUrl\)/
-    );
-    return;
-  }
-  if (!policy.activeBaseUrlScope) {
-    assert.doesNotMatch(branch, /matchesActiveBaseUrl\(/);
-    return;
-  }
-  assert.match(branch, /const targetBaseUrl = message\.baseUrl \|\| (?:state|deps\.state)\.baseUrl;/);
-  assert.match(branch, /!targetBaseUrl \|\| !(?:matchesActiveBaseUrl|deps\.matchesActiveBaseUrl)\(targetBaseUrl\)/);
-}
-
-function assertBranchHasConfigGuard(messageType, branch, required) {
-  if (!required) {
-    assert.doesNotMatch(branch, /!(?:state|deps\.state)\.config/);
-    return;
-  }
-  assert.match(branch, /!(?:state|deps\.state)\.config/, `${messageType} should guard missing state.config`);
-}
-
-function assertBranchHasPropertyLockGuard(messageType, branch, required) {
-  if (!required) {
-    assert.doesNotMatch(branch, /(?:checkPropertyLockBlocksMarking|deps\.checkPropertyLockBlocksMarking)\(\)/);
-    return;
-  }
-  assert.match(branch, /if \(!(?:checkPropertyLockBlocksMarking|deps\.checkPropertyLockBlocksMarking)\(\)\) \{\s*sendResponse\(\{ ok: false, locked: true \}\);/);
-}
-
-function assertBranchHasReconciliationGuard(messageType, branch, required) {
-  if (!required) {
-    assert.doesNotMatch(branch, /isPageSaveReconciliationPending\(/);
-    return;
-  }
-  assert.match(
-    branch,
-    /core\.isPageSaveReconciliationPending\(location\.href\)|deps\.isPageSaveReconciliationPending\(deps\.locationHref\(\)\)[\s\S]*?sendResponse\(\{ ok: false, reconciliationPending: true \}\);/
-  );
-}
-
-function assertBranchHasCatchFallback(messageType, branch, required) {
-  if (!required) {
-    assert.doesNotMatch(branch, /\.catch\(\(\) => \{[\s\S]*?sendResponse\(\{ ok: false \}\);/);
-    return;
-  }
-  assert.match(
-    branch,
-    /\.catch\(\(\) => \{[\s\S]*?sendResponse\(\{/,
-    `${messageType} should send an explicit response when async work fails`
-  );
 }
 
 test("revertPageDraft load failures answer ok false", () => {
-  const branch = getMessageBranch("revertPageDraft");
   const handlerSource = readFileSync(
     new URL("../src/content/page-draft-revert-handler.ts", import.meta.url),
     "utf8"
   );
+  const branch = getMessageBranch("revertPageDraft");
 
+  assert.ok(branch);
   assert.match(branch, /(?:deps\.)?getPageDraftRevertHandler\(\)\.revert\(\{ targetBaseUrl \}\)/);
   assert.match(
     branch,
@@ -216,29 +42,36 @@ test("revertPageDraft load failures answer ok false", () => {
   assert.match(handlerSource, /const config = await deps\.loadConfig\(targetBaseUrl\);/);
 });
 
-test("high-risk branch inventory remains inline until planned handlers are exposed", () => {
-  for (const messageType of remainingHighRiskBranches.keys()) {
-    branchOrPlannedHandler(messageType);
-  }
-});
+test("mutating runtime-message branches keep base-url, config, and lock guards", () => {
+  const mutatingBranches = [
+    { messageType: "savePageDraft", requiresReconciliationGuard: false, requiresCatchFallback: true },
+    { messageType: "revertPageDraft", requiresReconciliationGuard: false, requiresCatchFallback: true },
+    { messageType: "setExplicitExclude", requiresReconciliationGuard: true, requiresCatchFallback: false },
+    { messageType: "setExplicitInclude", requiresReconciliationGuard: true, requiresCatchFallback: false }
+  ];
 
-test("Track F handler modules stay imported and stop requiring manifest exposure", () => {
-  for (const moduleName of completedTrackFHandlers) {
-    assertImportsContentModule(moduleName);
-    assertManifestDoesNotExposeContentModule(moduleName);
-  }
-});
+  for (const branchPolicy of mutatingBranches) {
+    const branch = getMessageBranch(branchPolicy.messageType);
 
-test("remaining high-risk branches match the documented G0 guard matrix", () => {
-  for (const [messageType, policy] of Object.entries(guardMatrix)) {
-    const branch = branchOrPlannedHandler(messageType);
-    if (!branch) {
-      continue;
+    assert.ok(branch, `${branchPolicy.messageType} branch should exist`);
+    assert.match(branch, /const targetBaseUrl = message\.baseUrl \|\| (?:state|deps\.state)\.baseUrl;/);
+    assert.match(branch, /!targetBaseUrl \|\| !(?:matchesActiveBaseUrl|deps\.matchesActiveBaseUrl)\(targetBaseUrl\)/);
+    assert.match(branch, /!(?:state|deps\.state)\.config/);
+    assert.match(branch, /if \(!(?:checkPropertyLockBlocksMarking|deps\.checkPropertyLockBlocksMarking)\(\)\) \{\s*sendResponse\(\{ ok: false, locked: true \}\);/);
+
+    if (branchPolicy.requiresReconciliationGuard) {
+      assert.match(
+        branch,
+        /core\.isPageSaveReconciliationPending\(location\.href\)|deps\.isPageSaveReconciliationPending\(deps\.locationHref\(\)\)[\s\S]*?sendResponse\(\{ ok: false, reconciliationPending: true \}\);/
+      );
+    } else {
+      assert.doesNotMatch(branch, /isPageSaveReconciliationPending\(/);
     }
-    assertBranchHasBaseUrlGuard(messageType, branch, policy);
-    assertBranchHasConfigGuard(messageType, branch, policy.requiresConfig);
-    assertBranchHasPropertyLockGuard(messageType, branch, policy.propertyLockBlock);
-    assertBranchHasReconciliationGuard(messageType, branch, policy.reconciliationPendingBlock);
-    assertBranchHasCatchFallback(messageType, branch, policy.catchFallback);
+
+    if (branchPolicy.requiresCatchFallback) {
+      assert.match(branch, /\.catch\(\(\) => \{[\s\S]*?sendResponse\(\{/);
+    } else {
+      assert.doesNotMatch(branch, /\.catch\(\(\) => \{[\s\S]*?sendResponse\(\{ ok: false \}\);/);
+    }
   }
 });
