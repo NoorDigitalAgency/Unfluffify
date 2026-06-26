@@ -2,14 +2,22 @@
 
 Last updated: 2026-06-26
 
+Status: completed 2026-06-26.
+
+This document now serves as the archived execution history for the completed
+cleanup track. The phase sections below intentionally preserve the original plan
+structure plus completion notes, so imperative wording inside historical phases
+is retained as recorded execution context rather than active guidance. Use
+`.copilot/knowledge.md` and `.copilot/plan.md` for the live repository rules.
+
 ## Goal
 
 Bring the repository from "WXT-native build/runtime with tracked cleanup debt" to
 an after-cleanup state where only required source, tests, docs, config, and
-intentional custom infrastructure remain. The final state must be WXT-native,
-pnpm/Node-only, free of stale Deno-era artifacts, type-safe except for explicitly
-documented eval-only exceptions, and clear about every custom seam kept because
-WXT does not provide the required functionality.
+intentional custom infrastructure remain. That end state is now in place: the
+repo is WXT-native, pnpm/Node-only, free of stale Deno-era artifacts, type-safe
+except for the explicitly documented eval-only bridge pair, and clear about the
+custom seams kept because WXT does not provide the required functionality.
 
 ## Current facts
 
@@ -177,8 +185,9 @@ before starting cleanup edits.
    as retained active typing plans.
 4. Updated `orchestration/ssh-rpc-plan.md` to use the current pnpm/Node
    orchestration command surface and generated-output preflight.
-5. Updated `README.md` so the current cleanup track points to this plan, while
-   `.copilot/wxt-finalization-plan.md` remains historical rationale.
+5. Updated `README.md` so the cleanup work and closeout history point to this
+   plan, while `.copilot/wxt-finalization-plan.md` remains historical
+   rationale.
 
 **Expected intermediate state**
 
@@ -252,7 +261,7 @@ idempotent self-start and document it as an intentional exception.
 
 **Status:** completed 2026-06-25.
 
-**Files to edit**
+**Files edited across the Deno-era cleanup**
 
 - active runtime files under `src/`
 - active Node scripts under `scripts/`
@@ -407,29 +416,31 @@ and classify it as a permanent exception with a test comment explaining why.
 - `src/common/page-motion-freeze-bridge.ts`
 - `src/common/page-motion-freeze-control.ts`
 
-**Steps**
+**Completed work**
 
-1. Treat this Phase 5 section as the active type-safety execution strategy.
-2. Use older type-safety plans only as historical rationale after validating any
-   borrowed command/path against the current pnpm/`src/` repository layout.
-3. Remove `@ts-expect-error` in micro-batches of 10-50 directives.
-4. Add real types from the code's logic:
+1. Used older type-safety plans only as historical rationale after validating
+   borrowed command/path details against the pnpm/`src/` repository layout.
+2. Removed non-exempt `@ts-expect-error` directives in controlled batches.
+3. Added real types from the code's logic:
    - typed state interfaces
    - DOM/Window types
    - domain interfaces under `src/types`
    - narrow runtime guards at JSON/browser boundaries
-5. Avoid blanket `unknown` replacements where real types can be inferred.
-6. Re-run the count and update `tests/fixtures/ts-suppression-budget.json` only
-   after actual suppression count decreases.
-7. Keep eval bridge suppressions unless a JSDoc-only approach is separately
+4. Avoided blanket `unknown` replacements where real types could be inferred.
+5. Re-ran the suppression count and tightened
+   `tests/fixtures/ts-suppression-budget.json` only when the actual suppression
+   floor decreased.
+6. Kept the eval bridge suppressions because the locked byte-parity/eval seam
+   still requires them unless a JSDoc-only approach is separately
    approved and proven safe.
 
-**Expected intermediate state**
+**Outcome**
 
-Non-exempt `@ts-expect-error` count monotonically decreases to zero. Eval bridge
-exceptions remain documented and budgeted unless removed safely.
+The non-exempt `@ts-expect-error` count is zero. Only the eval bridge
+exceptions remain documented and budgeted unless they are removed safely in a
+separate approved change.
 
-**Focused validation per batch**
+**Validation used during execution**
 
 ```bash
 pnpm check
@@ -437,7 +448,7 @@ node ./scripts/count-ts-suppressions.mjs
 pnpm exec vitest run tests/no-ts-ignore-guard.test.js tests/ts-suppression-budget.test.js tests/typing-ratchet.test.js
 ```
 
-**Full validation per major file**
+**Full validation used for major-file checkpoints**
 
 ```bash
 pnpm lint
@@ -446,14 +457,14 @@ pnpm test
 pnpm build
 ```
 
-**Rollback/fallback**
+**Fallback used during execution**
 
 If a type fix changes runtime behavior, revert that batch and split it into
 smaller typed helpers before retrying.
 
 ### Phase 6 - Final closeout
 
-**Files to update**
+**Files updated during closeout**
 
 - `.copilot/knowledge.md`
 - `.copilot/plan.md`
@@ -461,9 +472,9 @@ smaller typed helpers before retrying.
 - `README.md`
 - relevant boundary/ratchet tests
 
-**Steps**
+**Completed work**
 
-1. Run final inventory:
+1. Ran the final inventory:
    ```bash
    ! rg "deno-lint-ignore" src scripts orchestration tests
    ! rg "deno task|Deno\\." src scripts orchestration README.md .github tests
@@ -471,32 +482,32 @@ smaller typed helpers before retrying.
    node ./scripts/count-ts-suppressions.mjs
    rg "chrome\\." src
    ```
-2. Expected final suppression output:
+2. Confirmed the final suppression output:
    - zero non-exempt suppressions
    - only the eval bridge exceptions remain, unless safely removed
-3. Run:
+3. Ran:
    ```bash
    pnpm verify
    pnpm zip
    ```
-4. If bootstrap/browser-seam behavior changed, live-smoke with the user-provided
-   target:
+4. Kept the live-smoke instruction available for any future source change that
+   touches bootstrap/browser-seam behavior:
    ```bash
    pnpm browser:live https://copy.noorlynx.com/content-generation/77aa5711-4589-4a6a-8c28-27081acfa2f9
    ```
-5. Update docs/knowledge to describe the final state.
-6. Run review/fix until clean, then commit and push.
+5. Updated docs/knowledge to describe the final state.
+6. Closeout publications use the repository review/fix/commit/push loop.
 
-**Expected intermediate state**
+**Outcome**
 
 The repository has no misleading cleanup plan left and the final architecture is
 documented by current files only.
 
-**Focused validation**
+**Closeout validation**
 
 `pnpm verify && pnpm zip`
 
-**Rollback/fallback**
+**Fallback used during execution**
 
 If live smoke fails after source changes, stop the launcher, inspect service
 worker/popup state through the committed browser launcher, fix, and rerun the
@@ -548,9 +559,11 @@ smallest relevant focused tests before repeating live smoke.
 - README, `.copilot/knowledge.md`, `.copilot/plan.md`, and boundary tests
   describe the final state accurately.
 
-## Todo chain
+**Status:** met on 2026-06-26 (`pnpm verify`, `pnpm zip`).
 
-Use the existing SQL todos for this plan:
+## Completed todo chain
+
+The plan was executed through the existing SQL todo chain:
 
 1. `cleanup-phase-0-inventory`
 2. `cleanup-phase-1-filesystem-prune`

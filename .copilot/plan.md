@@ -1,6 +1,6 @@
 # Unfluffify Active Architecture Plan
 
-Last updated: 2026-06-25
+Last updated: 2026-06-26
 
 ## Objective
 
@@ -14,14 +14,14 @@ refactor track is approved beyond the paused post-H3 state.
 1. `.copilot/knowledge.md`
 2. `.github/instructions/*.instructions.md`
 3. `.github/skills/*/SKILL.md` relevant to the task
-4. `.copilot/post-wxt-cleanup-plan.md` for the active cleanup/type-safety
-   finalization track
+4. `.copilot/post-wxt-cleanup-plan.md` for the cleanup/type-safety execution
+   history, closeout status, and permanent-exception rationale
 5. `.copilot/wxt-finalization-plan.md` when prior WXT finalization decisions or
    migration rationale are relevant
 6. `.copilot/popup-preview-exit-button-state-plan.md` for popup preview/exit
    behavior
-7. For suppression/ratchet cleanup, use `.copilot/post-wxt-cleanup-plan.md` as
-   the active execution plan.
+7. For suppression/ratchet context, use `.copilot/post-wxt-cleanup-plan.md` for
+   the executed cleanup history and `.copilot/knowledge.md` for the live rule.
 8. `.copilot/full-typesafety-plan.md`, `.copilot/full-typesafety-progress.md`,
    `.copilot/ts-expect-error-migration-plan.md`, and
    `.copilot/ts-expect-error-migration-progress.md` remain historical rationale
@@ -29,8 +29,10 @@ refactor track is approved beyond the paused post-H3 state.
 9. Older Deno-era typing rollout notes were removed after the WXT/pnpm cleanup.
    Use git history if earlier rationale is needed.
 
-Historical `.copilot` plans that no longer describe current execution have been
-removed from the workspace. Use git history if older rationale is needed.
+Older `.copilot` plans beyond the retained historical rationale files listed
+above were removed from the workspace when they stopped matching the current
+architecture or executed cleanup history. Use git history if earlier rationale
+is needed.
 
 ## Current branch state
 
@@ -47,7 +49,7 @@ removed from the workspace. Use git history if older rationale is needed.
    - live browser: `pnpm browser:live <target-url>`
    - orchestration: `pnpm orchestrate:*`
    - tests: all automated coverage lives under `tests/`
-3. The post-WXT cleanup/type-safety finalization track is approved and specified
+3. The post-WXT cleanup/type-safety finalization track is complete and recorded
    in `.copilot/post-wxt-cleanup-plan.md`.
 4. Event-bus Tracks 0-4 and Part C native WXT adoption are complete on this
    branch.

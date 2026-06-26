@@ -66,8 +66,8 @@ generated-manifest permission/WAR check against `.output/chrome-mv3/manifest.jso
 Treat the pnpm commands above as the supported public workflow. The repository
 no longer depends on Deno for CI, packaging, browser launch, or orchestration.
 
-The active post-migration cleanup/type-safety track is documented in
-`.copilot/post-wxt-cleanup-plan.md`; `.copilot/wxt-finalization-plan.md`
+The post-migration cleanup/type-safety work and closeout history are documented
+in `.copilot/post-wxt-cleanup-plan.md`; `.copilot/wxt-finalization-plan.md`
 remains as historical rationale for the earlier WXT cutover. `pnpm build`
 produces the runnable unpacked extension under `.output/chrome-mv3`. Source code
 now lives under `src/`, stable public assets under `src/public/`, and
