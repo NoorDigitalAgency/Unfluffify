@@ -6,8 +6,11 @@ Status: active. This is the single active handoff plan. `.copilot/plan.md` is th
 durable architecture index and `.copilot/knowledge.md` is durable knowledge; all
 other historical `.copilot` plan/progress docs were removed.
 
-Progress checkpoint: Phase A and Phase F are complete and pushed. The next active
-execution step is Phase B (test-suite triage and code-shape cleanup).
+Progress checkpoint: Phase A and Phase F are complete and pushed. Phase B is in
+progress: the first batch removed the pure decomposition/code-shape tests and
+replaced the entrypoint/runtime-router coverage with narrower contract/runtime
+tests. The next active execution step is the remaining source-grep and mixed
+test cleanup inside Phase B.
 
 ## 1. Goal
 

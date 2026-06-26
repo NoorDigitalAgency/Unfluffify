@@ -1,7 +1,44 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
+import { readFileSync } from "./file-kit.ts";
 
 import { handleRuntimeMessage } from "../src/content/runtime-message-handler.js";
+
+const contentMainSource = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
+const runtimeMessageHandlerSource = readFileSync(
+  new URL("../src/content/runtime-message-handler.ts", import.meta.url),
+  "utf8",
+);
+const ACTIVE_RAW_RUNTIME_MESSAGE_TYPES = [
+  "activateContentMain",
+  "setEnabled",
+  "getInspectionStatus",
+  "setPopupBusyOnPage",
+  "runRenderModeRevealOnce",
+  "getAiPreviewState",
+  "setAiPreviewExpandedMode",
+  "setAiComputeLock",
+  "closeAiPreview",
+  "configUpdated",
+  "forceRefresh",
+  "getDefaultExclusions",
+  "collectPageData",
+  "filterXPathsOnPage",
+  "collectAiSubmissionXpaths",
+  "filterInvisibleXpathsOnPage",
+  "describeXPathsOnPage",
+  "focusElement",
+  "clearFocus",
+  "capturePageSnapshot",
+  "getPageDraftStatus",
+  "setPageSaveReconciliationPending",
+  "clearPageSaveReconciliation",
+  "setExplicitExclude",
+  "setExplicitInclude",
+  "savePageDraft",
+  "revertPageDraft",
+  "showAiPreview",
+];
 
 function createDeps(overrides = {}) {
   const deps = {
@@ -95,6 +132,175 @@ test("setPopupBusyOnPage responds synchronously", () => {
   assert.equal(result, undefined);
   assert.deepEqual(calls, [message]);
   assert.deepEqual(responses, [{ ok: true, active: true }]);
+});
+
+test("content-main keeps the raw runtime listener bridge", () => {
+  assert.match(contentMainSource, /browser\.runtime\.onMessage\.addListener\(/);
+});
+
+test("runtime message handler keeps the active raw router inventory", () => {
+  for (const messageType of ACTIVE_RAW_RUNTIME_MESSAGE_TYPES) {
+    assert.match(
+      runtimeMessageHandlerSource,
+      new RegExp(`if \\(message\\.type === "${messageType}"\\) \\{`),
+      `expected raw runtime route for ${messageType}`,
+    );
+  }
+});
+
+test("activateContentMain responds synchronously", () => {
+  const deps = createDeps();
+  const responses = [];
+
+  const result = handleRuntimeMessage({ type: "activateContentMain" }, {}, (response) => {
+    responses.push(response);
+  }, deps);
+
+  assert.equal(result, undefined);
+  assert.deepEqual(responses, [{ ok: true, initialized: true }]);
+});
+
+test("setEnabled delegates asynchronously", async () => {
+  const calls = [];
+  const deps = createDeps({
+    handleSetEnabledCommand: async (message) => {
+      calls.push(message);
+      return { ok: true, enabled: Boolean(message.enabled) };
+    },
+  });
+  const responses = [];
+  const message = { type: "setEnabled", enabled: true };
+
+  const result = handleRuntimeMessage(message, {}, (response) => {
+    responses.push(response);
+  }, deps);
+
+  assert.equal(result, true);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(calls, [message]);
+  assert.deepEqual(responses, [{ ok: true, enabled: true }]);
+});
+
+test("getInspectionStatus responds synchronously", () => {
+  const deps = createDeps({
+    handleGetInspectionStatusCommand: () => ({ ok: true, mode: "marking" }),
+  });
+  const responses = [];
+
+  const result = handleRuntimeMessage({ type: "getInspectionStatus" }, {}, (response) => {
+    responses.push(response);
+  }, deps);
+
+  assert.equal(result, undefined);
+  assert.deepEqual(responses, [{ ok: true, mode: "marking" }]);
+});
+
+test("getAiPreviewState responds synchronously", () => {
+  const deps = createDeps({
+    getAiPreviewGetStateHandler: () => ({ handleMessage: () => ({ ok: true, active: true }) }),
+  });
+  const responses = [];
+
+  const result = handleRuntimeMessage({ type: "getAiPreviewState" }, {}, (response) => {
+    responses.push(response);
+  }, deps);
+
+  assert.equal(result, undefined);
+  assert.deepEqual(responses, [{ ok: true, active: true }]);
+});
+
+test("focusElement responds synchronously", () => {
+  const calls = [];
+  const deps = createDeps({
+    getFocusHandler: () => ({
+      handleFocusMessage: (message) => {
+        calls.push(message);
+        return { ok: true, focused: true };
+      },
+      handleClearFocusMessage: () => ({ ok: true }),
+    }),
+  });
+  const responses = [];
+  const message = { type: "focusElement", xpath: "//main" };
+
+  const result = handleRuntimeMessage(message, {}, (response) => {
+    responses.push(response);
+  }, deps);
+
+  assert.equal(result, undefined);
+  assert.deepEqual(calls, [message]);
+  assert.deepEqual(responses, [{ ok: true, focused: true }]);
+});
+
+test("clearFocus responds synchronously", () => {
+  const deps = createDeps({
+    getFocusHandler: () => ({
+      handleFocusMessage: () => ({ ok: true }),
+      handleClearFocusMessage: () => ({ ok: true, cleared: true }),
+    }),
+  });
+  const responses = [];
+
+  const result = handleRuntimeMessage({ type: "clearFocus" }, {}, (response) => {
+    responses.push(response);
+  }, deps);
+
+  assert.equal(result, undefined);
+  assert.deepEqual(responses, [{ ok: true, cleared: true }]);
+});
+
+test("setPageSaveReconciliationPending delegates asynchronously", async () => {
+  const calls = [];
+  const deps = createDeps({
+    locationHref: () => "https://example.com/article",
+    getPageSaveReconciliationPendingHandler: () => ({
+      setPending: async (options) => {
+        calls.push(options);
+        return { ok: true, pending: true };
+      },
+    }),
+  });
+  const responses = [];
+  const message = {
+    type: "setPageSaveReconciliationPending",
+    baseUrl: "https://example.com",
+    pageUrl: "https://example.com/article",
+    reason: "popup-save",
+  };
+
+  const result = handleRuntimeMessage(message, {}, (response) => {
+    responses.push(response);
+  }, deps);
+
+  assert.equal(result, true);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(calls, [{
+    targetBaseUrl: "https://example.com",
+    pageUrl: "https://example.com/article",
+    reason: "popup-save",
+  }]);
+  assert.deepEqual(responses, [{ ok: true, pending: true }]);
+});
+
+test("runRenderModeRevealOnce delegates asynchronously", async () => {
+  const calls = [];
+  const deps = createDeps({
+    handleRunRenderModeRevealOnceCommand: async (message) => {
+      calls.push(message);
+      return { ok: true, revealed: true };
+    },
+  });
+  const responses = [];
+  const message = { type: "runRenderModeRevealOnce", keepCurrentSelection: true };
+
+  const result = handleRuntimeMessage(message, {}, (response) => {
+    responses.push(response);
+  }, deps);
+
+  assert.equal(result, true);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(calls, [message]);
+  assert.deepEqual(responses, [{ ok: true, revealed: true }]);
 });
 
 test("setAiComputeLock returns true and responds on success", async () => {
