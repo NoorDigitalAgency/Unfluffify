@@ -9,8 +9,10 @@ other historical `.copilot` plan/progress docs were removed.
 Progress checkpoint: Phase A and Phase F are complete and pushed. Phase B is in
 progress: the first batch removed the pure decomposition/code-shape tests and
 replaced the entrypoint/runtime-router coverage with narrower contract/runtime
-tests. The next active execution step is the remaining source-grep and mixed
-test cleanup inside Phase B.
+tests, and the second batch has now trimmed the mixed/source-grep bus,
+feature-flag, lifecycle, device-emulation, render-mode, and world-trace files
+down to lean runtime plus narrow contract coverage. The next active execution
+step is the remaining popup/core source-grep cleanup inside Phase B.
 
 ## 1. Goal
 
@@ -46,12 +48,14 @@ all with `pnpm verify` green and the live popup behavior unchanged.
   `popup-decomposition-boundary`, `background-decomposition-boundary`,
   `content-decomposition-boundary`, `content-main-runtime-router-contract`,
   `a1-bootstrap`, `c1/c2/c3/c4-entrypoint`.
-- Many ui/popup/core tests read source as text (grep or extract+eval) and break
-  under the JSX port: `popup-marking-refresh`, `popup-render-mode`,
-  `device-emulation-lifecycle`, `popup-ai-run-gating`, `world-trace-contract`,
-  `preview-tooltip`, `feature-flags`, `background-marking-activation`,
-  `content-activation-order`, `core-scheduling`, `core-motion-pause`,
-  `lifecycle-broker`, and similar.
+- Many ui/popup/core tests still read source as text (grep or extract+eval) and
+  break under the JSX port; the highest remaining examples are
+  `popup-marking-refresh`, `popup-ai-run-gating`, `preview-tooltip`,
+  `background-marking-activation`, `content-activation-order`,
+  `core-scheduling`, `core-motion-pause`, and similar. The mixed/source-grep
+  `bus-boundary`, `device-emulation-lifecycle`, `feature-flags`,
+  `lifecycle-broker`, `popup-render-mode`, and `world-trace-contract` files now
+  keep only lean runtime or narrow contract coverage.
 - `logo.png` (1.1 MB) is at repo root, referenced once in
   `src/popup/ui.ts:1898` as `<img src="logo.png">`, but is NOT in `src/public/`
   and NOT emitted to `.output/chrome-mv3/`; `scripts/package-extension.mjs`
