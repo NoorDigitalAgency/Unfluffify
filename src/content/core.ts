@@ -213,6 +213,45 @@ interface CollapseElementsOptions {
   prefer?: "shallowest" | "deepest";
 }
 
+interface SyncPageMarkingsOptions {
+  allowCreate?: boolean;
+  persist?: boolean;
+  shouldAbort?: () => boolean;
+}
+
+interface SyncPageMarkingsResult {
+  changed: boolean;
+  entry: PageMarkingEntry | null;
+  persisted: boolean;
+  hadEntry: boolean;
+  aborted?: boolean;
+}
+
+interface ReconcilePreviousItemState {
+  excludedLookup: Map<string, boolean>;
+  explicitXpathSet: Set<string>;
+  explicitExcludeSet: Set<string>;
+  explicitUserExcludeSet: Set<string>;
+  excludedParents: Set<Element>;
+}
+
+interface SyncedCandidateContext {
+  seen: Set<string>;
+  generatedExcludedSet: Set<string>;
+  explicitMarkedAncestorSet: Set<Element>;
+  explicitExcludeSet: Set<string>;
+  explicitIncludeSet: Set<string>;
+  explicitExcludeAncestorSet: Set<Element>;
+  excludedLookup: Map<string, boolean>;
+  explicitXpathSet: Set<string>;
+  getCachedElementFromXPath: (value: string) => Element | null;
+  items: XpathEntry[];
+  previousSilentWhitespaceExcludedSet: Set<string>;
+  isExplicitlyMarkedXpath: (xpath: string | null | undefined) => boolean;
+  isWithinExplicitInclude: (el: Element | null | undefined) => boolean;
+  isWithinExplicitIncludeXpath: (xpath: string | null | undefined) => boolean;
+}
+
 interface DefaultHighlightFrame {
   node: Element;
   index: number;
@@ -3717,8 +3756,7 @@ function collectExplicitExcludedXPaths(items) {
   return results;
 }
 
-// @ts-expect-error
-function collectSilentWhitespaceExcludedXPaths(entry) {
+function collectSilentWhitespaceExcludedXPaths(entry: PageMarkingEntry | null | undefined): string[] {
   return normalizeXPathList(entry && entry.silentWhitespaceExcludedXpaths);
 }
 
@@ -3805,8 +3843,10 @@ function isSilentWhitespaceExplicitExclusion(
   return isSilentWhitespaceExclusionCandidate(resolved);
 }
 
-// @ts-expect-error
-function setEntrySilentWhitespaceExcludedXpaths(entry, xpaths) {
+function setEntrySilentWhitespaceExcludedXpaths(
+  entry: PageMarkingEntry | null | undefined,
+  xpaths: Iterable<string> | null | undefined
+): void {
   if (!entry || typeof entry !== "object" || entry === Object.prototype) {
     return;
   }
@@ -7701,7 +7741,6 @@ function recordPageSnapshot(configValue, pageUrl) {
   }
   const snapshotStartedAt = nowMs();
   const immutableExcluded = collectImmutableElements() as Set<Element>;
-// @ts-expect-error
   syncPageMarkings(configValue, pageUrl, immutableExcluded);
 // @ts-expect-error
   const entry = getPageMarkingEntry(configValue, pageUrl);
@@ -9410,7 +9449,7 @@ function refreshExplicitMarkingOverlay(
       : null;
     const refreshStartedAt = nowMs();
     const pageUrl = location.href;
-    const immutableExcluded = collectImmutableElements();
+    const immutableExcluded = collectImmutableElements() as Set<Element>;
     let syncedEntry = entry;
     if (state.config && pageUrl && hasPageMarkingEntry(state.config, pageUrl)) {
       const syncResult = syncPageMarkings(state.config, pageUrl, immutableExcluded, {
@@ -9509,7 +9548,7 @@ async function refreshExplicitMarkingOverlayAsync(
         persist: true,
         shouldAbort: refreshContext && typeof refreshContext.shouldAbort === "function"
           ? refreshContext.shouldAbort
-          : null
+          : undefined
       });
       if (syncResult && syncResult.aborted) {
         return { ok: false, aborted: true };
@@ -11660,7 +11699,7 @@ export async function refreshFromTabState(options = {}) {
       setSavedPageEntry(pageUrl, storedBackendEntry || null);
       await refreshPageSaveReconciliation(response.baseUrl, pageUrl);
       if (storedEntry) {
-        const immutableExcluded = collectImmutableElements();
+        const immutableExcluded = collectImmutableElements() as Set<Element>;
         const syncResult = syncPageMarkings(loadedConfig, pageUrl, immutableExcluded, {
           allowCreate: true,
           persist: true
@@ -11686,22 +11725,29 @@ export async function refreshFromTabState(options = {}) {
   disable();
 }
 
-// @ts-expect-error
-export function syncPageMarkings(config, pageUrl, immutableExcluded, options) {
+export function syncPageMarkings(
+  config: Config | null | undefined,
+  pageUrl: string,
+  immutableExcluded: ElementCollection,
+  options: SyncPageMarkingsOptions = {}
+): SyncPageMarkingsResult {
   return withElementComputationCache(() =>
     syncPageMarkingsInner(config, pageUrl, immutableExcluded, options)
   );
 }
 
-// @ts-expect-error
-export async function syncPageMarkingsAsync(config, pageUrl, immutableExcluded, options) {
+export async function syncPageMarkingsAsync(
+  config: Config | null | undefined,
+  pageUrl: string,
+  immutableExcluded: ElementCollection,
+  options: SyncPageMarkingsOptions = {}
+): Promise<SyncPageMarkingsResult> {
   return withElementComputationCacheAsync(() =>
     syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, options)
   );
 }
 
-// @ts-expect-error
-function appendSyncedCandidateItem(el, context) {
+function appendSyncedCandidateItem(el: Element, context: SyncedCandidateContext): void {
   const {
     seen,
     generatedExcludedSet,
@@ -11778,20 +11824,20 @@ function appendSyncedCandidateItem(el, context) {
   }
 }
 
-// @ts-expect-error
-function appendSyncedCandidateItems(candidates, context) {
+function appendSyncedCandidateItems(candidates: Iterable<Element>, context: SyncedCandidateContext): void {
   for (const el of candidates) {
     appendSyncedCandidateItem(el, context);
   }
 }
 
-// @ts-expect-error
-async function appendSyncedCandidateItemsAsync(candidates, context, options = {}) {
-// @ts-expect-error
+async function appendSyncedCandidateItemsAsync(
+  candidates: Iterable<Element>,
+  context: SyncedCandidateContext,
+  options: SyncPageMarkingsOptions = {}
+): Promise<boolean> {
   const shouldAbort = typeof options.shouldAbort === "function"
-// @ts-expect-error
     ? options.shouldAbort
-    : null;
+    : undefined;
   let processedCount = 0;
   for (const el of candidates) {
     if (shouldAbort && shouldAbort()) {
@@ -11807,13 +11853,15 @@ async function appendSyncedCandidateItemsAsync(candidates, context, options = {}
   return true;
 }
 
-// @ts-expect-error
-function collectReconcilePreviousItemState(previousItems, getCachedElementFromXPath) {
-  const excludedLookup = new Map();
-  const explicitXpathSet = new Set();
-  const explicitExcludeSet = new Set();
-  const explicitUserExcludeSet = new Set();
-  const excludedParents = new Set();
+function collectReconcilePreviousItemState(
+  previousItems: XpathEntry[],
+  getCachedElementFromXPath: (value: string) => Element | null
+): ReconcilePreviousItemState {
+  const excludedLookup = new Map<string, boolean>();
+  const explicitXpathSet = new Set<string>();
+  const explicitExcludeSet = new Set<string>();
+  const explicitUserExcludeSet = new Set<string>();
+  const excludedParents = new Set<Element>();
   for (const item of previousItems) {
     const xpath = item && item.xpath;
     if (typeof xpath !== "string" || !xpath) {
@@ -11851,8 +11899,12 @@ function collectReconcilePreviousItemState(previousItems, getCachedElementFromXP
   };
 }
 
-// @ts-expect-error
-function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
+function syncPageMarkingsInner(
+  config: Config | null | undefined,
+  pageUrl: string,
+  immutableExcluded: ElementCollection,
+  options: SyncPageMarkingsOptions = {}
+): SyncPageMarkingsResult {
   const syncStartedAt = nowMs();
   if (!config || !pageUrl) {
     return { changed: false, entry: null, persisted: false, hadEntry: false };
@@ -11869,22 +11921,22 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
   });
   normalizePageEntryXpaths(entry);
   const entrySetupStartedAt = nowMs();
-  const xpathElementCache = new Map();
+  const xpathElementCache = new Map<string, Element | null>();
   let xpathLookupCount = 0;
-// @ts-expect-error
-  const getCachedElementFromXPath = (value) => {
+  const getCachedElementFromXPath = (value: string): Element | null => {
     if (typeof value !== "string" || !value) {
       return null;
     }
     if (xpathElementCache.has(value)) {
-      return xpathElementCache.get(value);
+      return xpathElementCache.get(value) ?? null;
     }
     xpathLookupCount += 1;
     const resolved = getElementFromXPath(value);
-    xpathElementCache.set(value, resolved);
-    return resolved;
+    const element = isElementNode(resolved) ? resolved : null;
+    xpathElementCache.set(value, element);
+    return element;
   };
-  const previousItems = Array.isArray(entry.xpaths) ? entry.xpaths : [];
+  const previousItems: XpathEntry[] = Array.isArray(entry.xpaths) ? entry.xpaths : [];
   const {
     excludedLookup,
     explicitXpathSet,
@@ -11895,22 +11947,21 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
   const previousSilentWhitespaceExcludedSet = new Set(
     collectSilentWhitespaceExcludedXPaths(entry)
   );
-  const explicitExcludeAncestorSet = new Set();
+  const explicitExcludeAncestorSet = new Set<Element>();
   for (const xpath of explicitExcludeSet) {
     const explicitExcludedEl = getCachedElementFromXPath(xpath);
-    let current = explicitExcludedEl && explicitExcludedEl.nodeType === 1
+    let current: Element | null = isElementNode(explicitExcludedEl)
       ? explicitExcludedEl.parentElement
       : null;
-    while (current && current.nodeType === 1) {
+    while (current) {
       explicitExcludeAncestorSet.add(current);
       current = current.parentElement;
     }
   }
   const rawIncludeXpaths = Array.isArray(entry.includeXpaths)
-// @ts-expect-error
-    ? entry.includeXpaths.filter((xpath) => typeof xpath === "string" && xpath)
+    ? entry.includeXpaths.filter((xpath: unknown): xpath is string => typeof xpath === "string" && xpath.length > 0)
     : [];
-  const filteredIncludeXpaths = [];
+  const filteredIncludeXpaths: string[] = [];
   for (const xpath of rawIncludeXpaths) {
     const includeEl = getCachedElementFromXPath(xpath);
     if (!includeEl) {
@@ -11925,10 +11976,10 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
     }
     filteredIncludeXpaths.push(xpath);
   }
-  const explicitIncludeSet = new Set(filteredIncludeXpaths);
+  const explicitIncludeSet = new Set<string>(filteredIncludeXpaths);
   entry.includeXpaths = filteredIncludeXpaths;
-  const explicitMarkedAncestorSet = new Set();
-  const explicitMarkedXpaths = new Set([
+  const explicitMarkedAncestorSet = new Set<Element>();
+  const explicitMarkedXpaths = new Set<string>([
     ...Array.from(excludedLookup.keys()),
     ...filteredIncludeXpaths
   ]);
@@ -11937,16 +11988,15 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
       continue;
     }
     const explicitMarkedEl = getCachedElementFromXPath(xpath);
-    let current = explicitMarkedEl && explicitMarkedEl.nodeType === 1
+    let current: Element | null = isElementNode(explicitMarkedEl)
       ? explicitMarkedEl.parentElement
       : null;
-    while (current && current.nodeType === 1) {
+    while (current) {
       explicitMarkedAncestorSet.add(current);
       current = current.parentElement;
     }
   }
-// @ts-expect-error
-  const isExplicitlyMarkedXpath = (xpath) => {
+  const isExplicitlyMarkedXpath = (xpath: string | null | undefined): boolean => {
     if (!xpath) {
       return false;
     }
@@ -11955,16 +12005,14 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
     }
     return explicitXpathSet.has(xpath);
   };
-// @ts-expect-error
-  const explicitIncludeElements = [];
+  const explicitIncludeElements: Element[] = [];
   for (const xpath of explicitIncludeSet) {
     const el = getCachedElementFromXPath(xpath);
     if (el) {
       explicitIncludeElements.push(el);
     }
   }
-// @ts-expect-error
-  const isWithinExplicitIncludeXpath = (xpath) => {
+  const isWithinExplicitIncludeXpath = (xpath: string | null | undefined): boolean => {
     if (!xpath || explicitIncludeSet.size === 0) {
       return false;
     }
@@ -11975,12 +12023,10 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
     }
     return false;
   };
-// @ts-expect-error
-  const isWithinExplicitInclude = (el) => {
+  const isWithinExplicitInclude = (el: Element | null | undefined): boolean => {
     if (!el || explicitIncludeElements.length === 0) {
       return false;
     }
-// @ts-expect-error
     for (const includeEl of explicitIncludeElements) {
       if (includeEl && includeEl !== el && includeEl.contains(el)) {
         return true;
@@ -11992,10 +12038,9 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
     previousItemCount: previousItems.length,
     xpathLookupCount
   });
-// @ts-expect-error
-  const items = [];
-  const seen = new Set();
-  const generatedExcludedSet = new Set();
+  const items: XpathEntry[] = [];
+  const seen = new Set<string>();
+  const generatedExcludedSet = new Set<string>();
   const candidateCollectionStartedAt = nowMs();
   const scannedCandidates = scanReconcileDocumentCandidates(
     immutableExcluded as ElementCollection,
@@ -12031,7 +12076,6 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
     excludedLookup,
     explicitXpathSet,
     getCachedElementFromXPath,
-// @ts-expect-error
     items,
     previousSilentWhitespaceExcludedSet,
     isExplicitlyMarkedXpath,
@@ -12042,13 +12086,12 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
     candidateCount: candidates.length,
     itemCount: items.length
   });
-  const currentExcludedXpaths = new Set(
-// @ts-expect-error
+  const currentExcludedXpaths = new Set<string>(
     items
       .filter((item) => item && item.xpath && item.excluded)
       .map((item) => item.xpath)
   );
-  const silentWhitespaceExcludedXpaths = [];
+  const silentWhitespaceExcludedXpaths: string[] = [];
   const silentWhitespaceCollectionStartedAt = nowMs();
   const silentWhitespaceCandidates = collectSilentWhitespaceExclusionCandidates({
     excludedXpaths: currentExcludedXpaths,
@@ -12170,12 +12213,16 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
   return { changed, entry, persisted: shouldPersist, hadEntry };
 }
 
-// @ts-expect-error
-async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, options) {
+async function syncPageMarkingsInnerAsync(
+  config: Config | null | undefined,
+  pageUrl: string,
+  immutableExcluded: ElementCollection,
+  options: SyncPageMarkingsOptions = {}
+): Promise<SyncPageMarkingsResult> {
   const syncStartedAt = nowMs();
   const shouldAbort = options && typeof options.shouldAbort === "function"
     ? options.shouldAbort
-    : null;
+    : undefined;
   const isAbortRequested = () => Boolean(shouldAbort && shouldAbort());
   if (!config || !pageUrl) {
     return { changed: false, entry: null, persisted: false, hadEntry: false, aborted: false };
@@ -12193,22 +12240,22 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
   const abortResult = () => ({ changed: false, entry, persisted: false, hadEntry, aborted: true });
   normalizePageEntryXpaths(entry);
   const entrySetupStartedAt = nowMs();
-  const xpathElementCache = new Map();
+  const xpathElementCache = new Map<string, Element | null>();
   let xpathLookupCount = 0;
-// @ts-expect-error
-  const getCachedElementFromXPath = (value) => {
+  const getCachedElementFromXPath = (value: string): Element | null => {
     if (typeof value !== "string" || !value) {
       return null;
     }
     if (xpathElementCache.has(value)) {
-      return xpathElementCache.get(value);
+      return xpathElementCache.get(value) ?? null;
     }
     xpathLookupCount += 1;
     const resolved = getElementFromXPath(value);
-    xpathElementCache.set(value, resolved);
-    return resolved;
+    const element = isElementNode(resolved) ? resolved : null;
+    xpathElementCache.set(value, element);
+    return element;
   };
-  const previousItems = Array.isArray(entry.xpaths) ? entry.xpaths : [];
+  const previousItems: XpathEntry[] = Array.isArray(entry.xpaths) ? entry.xpaths : [];
   const {
     excludedLookup,
     explicitXpathSet,
@@ -12219,22 +12266,21 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
   const previousSilentWhitespaceExcludedSet = new Set(
     collectSilentWhitespaceExcludedXPaths(entry)
   );
-  const explicitExcludeAncestorSet = new Set();
+  const explicitExcludeAncestorSet = new Set<Element>();
   for (const xpath of explicitExcludeSet) {
     const explicitExcludedEl = getCachedElementFromXPath(xpath);
-    let current = explicitExcludedEl && explicitExcludedEl.nodeType === 1
+    let current: Element | null = isElementNode(explicitExcludedEl)
       ? explicitExcludedEl.parentElement
       : null;
-    while (current && current.nodeType === 1) {
+    while (current) {
       explicitExcludeAncestorSet.add(current);
       current = current.parentElement;
     }
   }
   const rawIncludeXpaths = Array.isArray(entry.includeXpaths)
-// @ts-expect-error
-    ? entry.includeXpaths.filter((xpath) => typeof xpath === "string" && xpath)
+    ? entry.includeXpaths.filter((xpath: unknown): xpath is string => typeof xpath === "string" && xpath.length > 0)
     : [];
-  const filteredIncludeXpaths = [];
+  const filteredIncludeXpaths: string[] = [];
   for (const xpath of rawIncludeXpaths) {
     const includeEl = getCachedElementFromXPath(xpath);
     if (!includeEl) {
@@ -12249,9 +12295,9 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
     }
     filteredIncludeXpaths.push(xpath);
   }
-  const explicitIncludeSet = new Set(filteredIncludeXpaths);
-  const explicitMarkedAncestorSet = new Set();
-  const explicitMarkedXpaths = new Set([
+  const explicitIncludeSet = new Set<string>(filteredIncludeXpaths);
+  const explicitMarkedAncestorSet = new Set<Element>();
+  const explicitMarkedXpaths = new Set<string>([
     ...Array.from(excludedLookup.keys()),
     ...filteredIncludeXpaths
   ]);
@@ -12260,16 +12306,15 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
       continue;
     }
     const explicitMarkedEl = getCachedElementFromXPath(xpath);
-    let current = explicitMarkedEl && explicitMarkedEl.nodeType === 1
+    let current: Element | null = isElementNode(explicitMarkedEl)
       ? explicitMarkedEl.parentElement
       : null;
-    while (current && current.nodeType === 1) {
+    while (current) {
       explicitMarkedAncestorSet.add(current);
       current = current.parentElement;
     }
   }
-// @ts-expect-error
-  const isExplicitlyMarkedXpath = (xpath) => {
+  const isExplicitlyMarkedXpath = (xpath: string | null | undefined): boolean => {
     if (!xpath) {
       return false;
     }
@@ -12278,16 +12323,14 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
     }
     return explicitXpathSet.has(xpath);
   };
-// @ts-expect-error
-  const explicitIncludeElements = [];
+  const explicitIncludeElements: Element[] = [];
   for (const xpath of explicitIncludeSet) {
     const el = getCachedElementFromXPath(xpath);
     if (el) {
       explicitIncludeElements.push(el);
     }
   }
-// @ts-expect-error
-  const isWithinExplicitIncludeXpath = (xpath) => {
+  const isWithinExplicitIncludeXpath = (xpath: string | null | undefined): boolean => {
     if (!xpath || explicitIncludeSet.size === 0) {
       return false;
     }
@@ -12298,12 +12341,10 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
     }
     return false;
   };
-// @ts-expect-error
-  const isWithinExplicitInclude = (el) => {
+  const isWithinExplicitInclude = (el: Element | null | undefined): boolean => {
     if (!el || explicitIncludeElements.length === 0) {
       return false;
     }
-// @ts-expect-error
     for (const includeEl of explicitIncludeElements) {
       if (includeEl && includeEl !== el && includeEl.contains(el)) {
         return true;
@@ -12316,10 +12357,9 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
     xpathLookupCount,
     async: true
   });
-// @ts-expect-error
-  const items = [];
-  const seen = new Set();
-  const generatedExcludedSet = new Set();
+  const items: XpathEntry[] = [];
+  const seen = new Set<string>();
+  const generatedExcludedSet = new Set<string>();
   const candidateCollectionStartedAt = nowMs();
   const scannedCandidates = await scanReconcileDocumentCandidatesAsync(
     immutableExcluded as ElementCollection,
@@ -12362,7 +12402,6 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
     excludedLookup,
     explicitXpathSet,
     getCachedElementFromXPath,
-// @ts-expect-error
     items,
     previousSilentWhitespaceExcludedSet,
     isExplicitlyMarkedXpath,
@@ -12379,13 +12418,12 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
   if (!completedCandidates || isAbortRequested()) {
     return abortResult();
   }
-  const currentExcludedXpaths = new Set(
-// @ts-expect-error
+  const currentExcludedXpaths = new Set<string>(
     items
       .filter((item) => item && item.xpath && item.excluded)
       .map((item) => item.xpath)
   );
-  const silentWhitespaceExcludedXpaths = [];
+  const silentWhitespaceExcludedXpaths: string[] = [];
   const silentWhitespaceCollectionStartedAt = nowMs();
   const silentWhitespaceCandidates = collectSilentWhitespaceExclusionCandidates({
     excludedXpaths: currentExcludedXpaths,

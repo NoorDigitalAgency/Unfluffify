@@ -737,11 +737,11 @@ test("explicit toggles yield after the immediate acknowledgement before running 
   assert.match(source, /function scheduleQueuedToggleMutationDrain\(\) \{/);
   assert.match(source, /function scheduleQueuedToggleMutation\(job(?:\s*:\s*[^)]+)?\) \{/);
   assert.match(source, /function cancelQueuedToggleMutations\(\) \{/);
-  assert.match(source, /async function syncPageMarkingsAsync\(config, pageUrl, immutableExcluded, options\) \{/);
+  assert.match(source, /async function syncPageMarkingsAsync\(\s*config(?:\s*:\s*[^,]+)?,\s*pageUrl(?:\s*:\s*[^,]+)?,\s*immutableExcluded(?:\s*:\s*[^,]+)?,\s*options(?:\s*:\s*[^=]+)? = \{\}\s*\)(?:: [^{]+)? \{/);
   assert.match(source, /function scanReconcileDocumentCandidates\(\s*immutableExcluded(?:\s*:\s*[^,]+)?,\s*excludedParents(?:\s*:\s*[^)]+)?\s*\)(?:: [^{]+)? \{/);
   assert.match(source, /async function scanReconcileDocumentCandidatesAsync\(\s*immutableExcluded(?:\s*:\s*[^,]+)?,\s*excludedParents(?:\s*:\s*[^,]+)?,\s*options(?:\s*:\s*[^=]+)? = \{\}\s*\)(?:: [^{]+)? \{/);
   assert.match(source, /async function collectToggleableTargetsAsync\(\s*immutableExcluded(?:\s*:\s*[^,]+)?,\s*excludedParents(?:\s*:\s*[^,]+)?,\s*options(?:\s*:\s*[^=]+)? = \{\}\s*\)(?:: [^{]+)? \{/);
-  assert.match(source, /async function appendSyncedCandidateItemsAsync\(candidates, context, options = \{\}\) \{/);
+  assert.match(source, /async function appendSyncedCandidateItemsAsync\(\s*candidates(?:\s*:\s*[^,]+)?,\s*context(?:\s*:\s*[^,]+)?,\s*options(?:\s*:\s*[^=]+)? = \{\}\s*\)(?:: [^{]+)? \{/);
   assert.match(
     source,
     /async function refreshExplicitMarkingOverlayAsync\(\s*entry(?:\s*:\s*[^,]+)?,\s*context(?:\s*:\s*[^=]+)? = null\s*\) \{/

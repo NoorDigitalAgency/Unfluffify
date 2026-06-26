@@ -291,6 +291,11 @@ Validate: `pnpm prepare` + `pnpm build`; diff `.output/chrome-mv3` file list and
 
 ## Progress checkpoint
 
+- The latest `src/content/core.ts` save/reconcile checkpoint is complete: `syncPageMarkings*`, synced-candidate append/merge, previous-item reconcile state, cached XPath element resolution, and silent-whitespace exclusion persistence now use concrete config/XPath/DOM contracts instead of broad helper suppressions.
+- The coupled source-contract tests were relaxed only enough to tolerate the new TypeScript annotations for save/reconcile helper signatures and typed `Set<string>` / `Set<Element>` locals while preserving the same wiring assertions.
+- Current suppression count is 574 total; the remaining tracked files are `src/content/core.ts` (358), `src/popup.ts` (111), `src/content-main.ts` (25), and the exempt eval bridge pair (`src/common/page-motion-freeze-bridge.ts` 43, `src/common/page-motion-freeze-control.ts` 37).
+- Next immediate step: continue the remaining `src/content/core.ts` entry-normalization and save-adjacent helper hotspots before returning to the smaller `src/popup.ts` tail and the final `src/content-main.ts` cleanup.
+
 - The latest `src/content/core.ts` mid-file/default-layer checkpoint is complete: reconcile candidate scanning, toggleable-target collection, selector suppression/inclusion traversal, explicit-vs-implicit include partitioning, excluded-descendant collection, and nesting-collapse helpers now use concrete DOM/collection types instead of broad helper suppressions.
 - The coupled source-contract tests were relaxed only enough to tolerate the new TypeScript annotations for reconcile/default-layer/selector helper signatures and typed `Set<Element>` locals while preserving the same wiring assertions.
 - Current suppression count is 607 total; the remaining tracked files are `src/content/core.ts` (391), `src/popup.ts` (111), `src/content-main.ts` (25), and the exempt eval bridge pair (`src/common/page-motion-freeze-bridge.ts` 43, `src/common/page-motion-freeze-control.ts` 37).

@@ -6482,7 +6482,7 @@ function createCapturePageSnapshotHandlerDeps(): CapturePageSnapshotDeps {
       immutableExcluded: unknown,
       options: { allowCreate: boolean; persist: boolean }
     ) =>
-      core.syncPageMarkings(configValue as Config, pageUrl, immutableExcluded, options),
+      core.syncPageMarkings(configValue as Config, pageUrl, immutableExcluded as Set<Element>, options),
     touchPageEntryTimestamp: (entry: Parameters<CapturePageSnapshotDeps["touchPageEntryTimestamp"]>[0]) =>
       core.touchPageEntryTimestamp(entry as ContentPageEntry)
   };
@@ -6695,7 +6695,7 @@ function createPageDraftRevertHandlerDeps(): PageDraftRevertDeps {
       immutableExcluded: unknown,
       options: { allowCreate: boolean; persist: boolean }
     ) =>
-      core.syncPageMarkings(configValue, pageUrl, immutableExcluded, options)
+      core.syncPageMarkings(configValue as Config, pageUrl, immutableExcluded as Set<Element>, options)
   };
 }
 
@@ -6749,7 +6749,7 @@ function createPageDraftSaveHandlerDeps(): PageDraftSaveDeps {
       immutableExcluded: unknown,
       options: { allowCreate: boolean; persist: boolean }
     ) =>
-      core.syncPageMarkings(configValue as Config, pageUrl, immutableExcluded, options),
+      core.syncPageMarkings(configValue as Config, pageUrl, immutableExcluded as Set<Element>, options),
     touchPageEntryTimestamp: (entry: Parameters<PageDraftSaveDeps["touchPageEntryTimestamp"]>[0]) =>
       core.touchPageEntryTimestamp(entry as ContentPageEntry)
   };
@@ -6783,7 +6783,7 @@ function createPageDraftStatusHandlerDeps(): PageDraftStatusDeps {
       immutableExcluded: unknown,
       options: { allowCreate: boolean; persist: boolean }
     ) =>
-      core.syncPageMarkings(configValue, pageUrl, immutableExcluded, options)
+      core.syncPageMarkings(configValue as Config, pageUrl, immutableExcluded as Set<Element>, options)
   };
 }
 

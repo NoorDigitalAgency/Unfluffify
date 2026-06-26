@@ -257,7 +257,7 @@ test("marking mode stores default ancestors as unexcluded when descendants are m
   );
   assert.match(
     coreSource,
-    /const explicitMarkedXpaths = new Set\(\[[\s\S]*?\.\.\.Array\.from\(excludedLookup\.keys\(\)\),[\s\S]*?\.\.\.filteredIncludeXpaths/
+    /const explicitMarkedXpaths = new Set(?:<[^>]+>)?\(\[[\s\S]*?\.\.\.Array\.from\(excludedLookup\.keys\(\)\),[\s\S]*?\.\.\.filteredIncludeXpaths/
   );
   assert.match(
     coreSource,
