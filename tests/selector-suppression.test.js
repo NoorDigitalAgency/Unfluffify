@@ -17,7 +17,7 @@ test("core render path and silent highlighting both honor selector suppression x
 
   assert.match(contentSource, /function getEffectiveAiSelectorSet\(baseConfig\) \{[\s\S]*?suppressedXpaths/);
   assert.match(contentSource, /collectNodesFromSelectors\(normalized\.exclusionSelectors, \{[\s\S]*?suppressedXpaths/);
-  assert.match(coreSource, /collectIncludedElementsFromSelectorSet\(selectorSet, options = \{\}\) \{[\s\S]*?suppressedXpaths/);
+  assert.match(coreSource, /collectIncludedElementsFromSelectorSet\(\s*selectorSet(?:\s*:\s*[^,]+)?,\s*options(?:\s*:\s*[^=]+)? = \{\}\s*\)(?:: [^{]+)? \{[\s\S]*?suppressedXpaths/);
   assert.match(coreSource, /collectIncludedElementsFromSelectorSet\(normalizedAiSelectorSet, \{[\s\S]*?suppressedXpaths: selectorSuppressedXpaths/);
 });
 
@@ -120,11 +120,11 @@ test("marking mode keeps selector-matched elements off the default layer without
   );
   assert.match(
     coreSource,
-    /export function collectDefaultLayerElements\(root, options = \{\}\) \{[\s\S]*?const selectorExcluded = new Set\(options\.selectorExcluded \|\| options\.selectorExcludedSet \|\| \[\]\);/
+    /export function collectDefaultLayerElements\(\s*root(?:\s*:\s*[^,]+)?,\s*options(?:\s*:\s*[^=]+)? = \{\}\s*\)(?:: [^{]+)? \{[\s\S]*?const selectorExcluded = new Set\(options\.selectorExcluded \|\| options\.selectorExcludedSet \|\| \[\]\);/
   );
   assert.match(
     coreSource,
-    /const precedenceSet = new Set\(\[[\s\S]*?\.\.\.selectorExcluded[\s\S]*?\]\);/
+    /const precedenceSet = new Set(?:<[^>]+>)?\(\[[\s\S]*?\.\.\.selectorExcluded[\s\S]*?\]\);/
   );
   assert.doesNotMatch(
     coreSource,
@@ -305,10 +305,10 @@ test("render collection hot paths avoid nested contains scans", () => {
   const selectorEnd = coreSource.indexOf("function getElementDepth", selectorStart);
   const selectorSource = coreSource.slice(selectorStart, selectorEnd);
 
-  assert.match(collapseSource, /const keptSet = new Set\(\);/);
+  assert.match(collapseSource, /const keptSet = new Set(?:<[^>]+>)?\(\);/);
   assert.match(collapseSource, /addElementAndAncestorsToSet\(keptDeepAncestorSet, candidate\);/);
   assert.doesNotMatch(collapseSource, /\.some\([\s\S]*?\.contains\(/);
-  assert.match(selectorSource, /const suppressedElementSet = new Set\(suppressedElementsByXpath\.values\(\)\);/);
+  assert.match(selectorSource, /const suppressedElementSet = new Set(?:<[^>]+>)?\(suppressedElementsByXpath\.values\(\)\);/);
   assert.match(selectorSource, /isWithinElementSet\(element, suppressedElementSet\)/);
   assert.doesNotMatch(selectorSource, /for \(const suppressedElement of suppressedElements\)/);
 });
@@ -323,7 +323,7 @@ test("marking mode keeps unexcluded default ancestors off the default layer", ()
   );
   assert.match(
     coreSource,
-    /const precedenceSet = new Set\(\[[\s\S]*?\.\.\.unexcludedToggleableDefault[\s\S]*?\]\);/
+    /const precedenceSet = new Set(?:<[^>]+>)?\(\[[\s\S]*?\.\.\.unexcludedToggleableDefault[\s\S]*?\]\);/
   );
   assert.doesNotMatch(
     coreSource,

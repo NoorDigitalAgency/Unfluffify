@@ -110,7 +110,7 @@ interface SnapshotXPathOptions {
 }
 
 interface SelectorContext {
-  selectorSet: unknown;
+  selectorSet: NormalizedAiSelectorSet;
   hasAiSelectors: boolean;
   selectorSuppressedXpaths: string[];
 }
@@ -163,6 +163,91 @@ interface ExplicitToggleRenderOptions {
 interface ExplicitToggleMutationOptions {
   deferMarkingRefresh?: boolean;
   immediateFullRender?: boolean;
+}
+
+type NormalizedAiSelectorSet = ReturnType<typeof normalizeAiSelectorSet>;
+type ElementCollection = Iterable<Element> | null | undefined;
+
+interface ReconcileScanStats {
+  visitedCount: number;
+  autoDefaultCount: number;
+  autoDefaultElapsedMs: number;
+  selfMarkableCount: number;
+  selfMarkableElapsedMs: number;
+  textualContainerCount: number;
+  textualContainerElapsedMs: number;
+  paintReachableCount: number;
+  paintReachableElapsedMs: number;
+  textualDescendantCount: number;
+  textualDescendantElapsedMs: number;
+  immutableTextualDescendantCount: number;
+  immutableTextualDescendantElapsedMs: number;
+  explicitMarkedDescendantCount: number;
+  explicitMarkedDescendantElapsedMs: number;
+}
+
+interface ReconcileScanResult {
+  toggleableCandidates: Element[];
+  silentWhitespaceCandidates: Element[];
+  stats: ReconcileScanStats;
+}
+
+interface ReconcileScanFrame {
+  node: Element;
+  withinExcludedParent: boolean;
+}
+
+interface ReconcileScanOptions {
+  shouldAbort?: () => boolean;
+}
+
+interface DefaultHighlightOptions {
+  excludedSet?: Set<Element>;
+  hardExcludedSet?: Set<Element>;
+  hasHigherPrecedence?: (element: Element) => boolean;
+  excludedAncestorSet?: Set<Element>;
+}
+
+interface CollapseElementsOptions {
+  onlyVisible?: boolean;
+  prefer?: "shallowest" | "deepest";
+}
+
+interface DefaultHighlightFrame {
+  node: Element;
+  index: number;
+  ancestorHardExcluded: boolean;
+  ancestorExcluded: boolean;
+}
+
+interface DefaultLayerOptions {
+  immutableExcluded?: ElementCollection;
+  consentExcluded?: ElementCollection;
+  explicitExclude?: ElementCollection;
+  explicitInclude?: ElementCollection;
+  excludedByStateAncestors?: ElementCollection;
+  aiContent?: ElementCollection;
+  selectorExcluded?: ElementCollection;
+  selectorExcludedSet?: ElementCollection;
+  hiddenStoredExplicitExclude?: ElementCollection;
+  unexcludedToggleableDefault?: ElementCollection;
+}
+
+interface InclusionDetectionOptions extends TextualDetectionOptions {
+  preserveExplicitIncludedDescendants?: boolean;
+  includeAllExplicitMatches?: boolean;
+  suppressedXpaths?: string[];
+  __diagnostics?: ReconcileScanStats;
+}
+
+interface ToggleableDefaultBoundaryOptions {
+  boundarySelfSkip?: ElementCollection;
+  boundarySubtreeSkip?: ElementCollection;
+}
+
+interface SelectorInclusionCollections {
+  included: Element[];
+  excluded: Element[];
 }
 
 type ElementRectProvider = (element: Element) => RectLike[];
@@ -2273,17 +2358,15 @@ function collectExcludedParentElements(items: Array<XpathEntry | null | undefine
   return parents;
 }
 
-// @ts-expect-error
-function scanReconcileDocumentCandidates(immutableExcluded, excludedParents) {
-// @ts-expect-error
-  const toggleableCandidates = [];
-// @ts-expect-error
-  const silentWhitespaceCandidates = [];
+function scanReconcileDocumentCandidates(
+  immutableExcluded: ElementCollection,
+  excludedParents: ElementCollection
+): ReconcileScanResult {
+  const toggleableCandidates: Element[] = [];
+  const silentWhitespaceCandidates: Element[] = [];
   if (!document.body) {
     return {
-// @ts-expect-error
       toggleableCandidates,
-// @ts-expect-error
       silentWhitespaceCandidates,
       stats: {
         visitedCount: 0,
@@ -2304,9 +2387,10 @@ function scanReconcileDocumentCandidates(immutableExcluded, excludedParents) {
       }
     };
   }
-  const stack = [{ node: document.body, withinExcludedParent: false }];
-  const hasExcludedParents = Boolean(excludedParents && excludedParents.size);
-  const stats = {
+  const stack: ReconcileScanFrame[] = [{ node: document.body, withinExcludedParent: false }];
+  const excludedParentSet = new Set<Element>(excludedParents || []);
+  const hasExcludedParents = excludedParentSet.size > 0;
+  const stats: ReconcileScanStats = {
     visitedCount: 0,
     autoDefaultCount: 0,
     autoDefaultElapsedMs: 0,
@@ -2338,7 +2422,7 @@ function scanReconcileDocumentCandidates(immutableExcluded, excludedParents) {
       continue;
     }
     const withinImmutable = isWithinImmutableExcluded(node);
-    const isExcludedParentBoundary = hasExcludedParents && excludedParents.has(node);
+    const isExcludedParentBoundary = hasExcludedParents && excludedParentSet.has(node);
     let autoToggleableDefault = false;
     if (
       !current.withinExcludedParent &&
@@ -2368,9 +2452,9 @@ function scanReconcileDocumentCandidates(immutableExcluded, excludedParents) {
       silentWhitespaceCandidates.push(node);
     }
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
+      const child = node.children[i];
       stack.push({
-// @ts-expect-error
-        node: node.children[i],
+        node: child,
         withinExcludedParent: current.withinExcludedParent || isExcludedParentBoundary
       });
     }
@@ -2382,17 +2466,16 @@ function scanReconcileDocumentCandidates(immutableExcluded, excludedParents) {
   };
 }
 
-// @ts-expect-error
-async function scanReconcileDocumentCandidatesAsync(immutableExcluded, excludedParents, options = {}) {
-// @ts-expect-error
-  const toggleableCandidates = [];
-// @ts-expect-error
-  const silentWhitespaceCandidates = [];
+async function scanReconcileDocumentCandidatesAsync(
+  immutableExcluded: ElementCollection,
+  excludedParents: ElementCollection,
+  options: ReconcileScanOptions = {}
+): Promise<ReconcileScanResult> {
+  const toggleableCandidates: Element[] = [];
+  const silentWhitespaceCandidates: Element[] = [];
   if (!document.body) {
     return {
-// @ts-expect-error
       toggleableCandidates,
-// @ts-expect-error
       silentWhitespaceCandidates,
       stats: {
         visitedCount: 0,
@@ -2413,14 +2496,13 @@ async function scanReconcileDocumentCandidatesAsync(immutableExcluded, excludedP
       }
     };
   }
-// @ts-expect-error
   const shouldAbort = typeof options.shouldAbort === "function"
-// @ts-expect-error
     ? options.shouldAbort
     : null;
-  const stack = [{ node: document.body, withinExcludedParent: false }];
-  const hasExcludedParents = Boolean(excludedParents && excludedParents.size);
-  const stats = {
+  const stack: ReconcileScanFrame[] = [{ node: document.body, withinExcludedParent: false }];
+  const excludedParentSet = new Set<Element>(excludedParents || []);
+  const hasExcludedParents = excludedParentSet.size > 0;
+  const stats: ReconcileScanStats = {
     visitedCount: 0,
     autoDefaultCount: 0,
     autoDefaultElapsedMs: 0,
@@ -2456,7 +2538,7 @@ async function scanReconcileDocumentCandidatesAsync(immutableExcluded, excludedP
       continue;
     }
     const withinImmutable = isWithinImmutableExcluded(node);
-    const isExcludedParentBoundary = hasExcludedParents && excludedParents.has(node);
+    const isExcludedParentBoundary = hasExcludedParents && excludedParentSet.has(node);
     let autoToggleableDefault = false;
     if (
       !current.withinExcludedParent &&
@@ -2486,9 +2568,9 @@ async function scanReconcileDocumentCandidatesAsync(immutableExcluded, excludedP
       silentWhitespaceCandidates.push(node);
     }
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
+      const child = node.children[i];
       stack.push({
-// @ts-expect-error
-        node: node.children[i],
+        node: child,
         withinExcludedParent: current.withinExcludedParent || isExcludedParentBoundary
       });
     }
@@ -2505,19 +2587,26 @@ async function scanReconcileDocumentCandidatesAsync(immutableExcluded, excludedP
   };
 }
 
-// @ts-expect-error
-function collectToggleableTargets(immutableExcluded, excludedParents) {
+function collectToggleableTargets(
+  immutableExcluded: ElementCollection,
+  excludedParents: ElementCollection
+): Element[] {
   return scanReconcileDocumentCandidates(immutableExcluded, excludedParents).toggleableCandidates;
 }
 
-// @ts-expect-error
-async function collectToggleableTargetsAsync(immutableExcluded, excludedParents, options = {}) {
+async function collectToggleableTargetsAsync(
+  immutableExcluded: ElementCollection,
+  excludedParents: ElementCollection,
+  options: ReconcileScanOptions = {}
+): Promise<Element[]> {
   const scanned = await scanReconcileDocumentCandidatesAsync(immutableExcluded, excludedParents, options);
   return scanned.toggleableCandidates;
 }
 
-// @ts-expect-error
-function collectDefaultHighlightTargets(root, options) {
+function collectDefaultHighlightTargets(
+  root: Element | null | undefined,
+  options: DefaultHighlightOptions = {}
+): Element[] {
   if (!root) {
     return [];
   }
@@ -2527,8 +2616,8 @@ function collectDefaultHighlightTargets(root, options) {
     hasHigherPrecedence = () => false,
     excludedAncestorSet = new Set()
   } = options || {};
-  const results = [];
-  const stack = [
+  const results: Element[] = [];
+  const stack: DefaultHighlightFrame[] = [
     {
       node: root,
       index: 0,
@@ -2585,27 +2674,17 @@ function collectDefaultHighlightTargets(root, options) {
   return results;
 }
 
-// @ts-expect-error
-export function collectDefaultLayerElements(root, options = {}) {
-// @ts-expect-error
+export function collectDefaultLayerElements(root: Element | null | undefined, options: DefaultLayerOptions = {}): Element[] {
   const immutableExcluded = new Set(options.immutableExcluded || []);
-// @ts-expect-error
   const consentExcluded = new Set(options.consentExcluded || []);
-// @ts-expect-error
   const explicitExclude = new Set(options.explicitExclude || []);
-// @ts-expect-error
   const explicitInclude = new Set(options.explicitInclude || []);
-// @ts-expect-error
   const excludedByStateAncestors = new Set(options.excludedByStateAncestors || []);
-// @ts-expect-error
   const aiContent = new Set(options.aiContent || []);
-// @ts-expect-error
   const selectorExcluded = new Set(options.selectorExcluded || options.selectorExcludedSet || []);
-// @ts-expect-error
   const hiddenStoredExplicitExclude = new Set(options.hiddenStoredExplicitExclude || []);
-// @ts-expect-error
   const unexcludedToggleableDefault = new Set(options.unexcludedToggleableDefault || []);
-  const precedenceSet = new Set([
+  const precedenceSet = new Set<Element>([
     ...immutableExcluded,
     ...consentExcluded,
     ...explicitExclude,
@@ -2615,7 +2694,7 @@ export function collectDefaultLayerElements(root, options = {}) {
     ...selectorExcluded,
     ...unexcludedToggleableDefault
   ]);
-  const hardExcludedSet = new Set([
+  const hardExcludedSet = new Set<Element>([
     ...immutableExcluded,
     ...hiddenStoredExplicitExclude
   ]);
@@ -2623,8 +2702,7 @@ export function collectDefaultLayerElements(root, options = {}) {
   return collectDefaultHighlightTargets(root, {
     excludedSet: precedenceSet,
     hardExcludedSet,
-// @ts-expect-error
-    hasHigherPrecedence: (el) => precedenceSet.has(el),
+    hasHigherPrecedence: (el: Element) => precedenceSet.has(el),
     // Selector-excluded elements do not render their own marking-mode layer, so
     // only the matched element should suppress the default layer, not its whole subtree.
     // Stored unexcluded default boundaries follow the same self-only rule.
@@ -2639,8 +2717,7 @@ export function collectDefaultLayerElements(root, options = {}) {
   });
 }
 
-// @ts-expect-error
-function collectSelectorElements(selectors) {
+function collectSelectorElements(selectors: unknown): Set<Element> {
   return collectCachedSelectorMatches({
     root: document,
     selectors,
@@ -2653,15 +2730,11 @@ function collectSelectorElements(selectors) {
 }
 
 function seedMarkingsFromAiSelectorsForUnmarkedPage(
-// @ts-expect-error
-  configValue,
-// @ts-expect-error
-  pageUrl,
-// @ts-expect-error
-  selectorSet,
-// @ts-expect-error
-  immutableExcluded
-) {
+  configValue: Config | null | undefined,
+  pageUrl: string,
+  selectorSet: NormalizedAiSelectorSet | null | undefined,
+  immutableExcluded: Set<Element> | null | undefined
+): { createdEntry: boolean; changed: boolean } {
   if (!configValue || !pageUrl) {
     return { createdEntry: false, changed: false };
   }
@@ -2682,26 +2755,21 @@ function seedMarkingsFromAiSelectorsForUnmarkedPage(
     return { createdEntry: false, changed: false };
   }
 
-  const entry = getPageMarkingEntry(configValue, pageUrl, { create: true, persist: true });
+  const entry = getPageMarkingEntry(configValue, pageUrl, { create: true, persist: true }) as PageMarkingEntry;
   const existingItems = Array.isArray(entry.xpaths) ? entry.xpaths : [];
   const existingIncludeXpaths = Array.isArray(entry.includeXpaths) ? entry.includeXpaths : [];
   // This seeding path is only for pages without explicit saved marks. Reset any
   // previously generated/default-only rows first so CSS-seeded explicit marks become
   // the true precedence baseline for the subsequent default sync pass.
-// @ts-expect-error
-  const items = [];
-// @ts-expect-error
-  const includeXpaths = [];
+  const items: XpathEntry[] = [];
+  const includeXpaths: string[] = [];
   let changed = existingItems.length > 0 || existingIncludeXpaths.length > 0;
 
-// @ts-expect-error
-  const removeItemByXpath = (xpath) => {
+  const removeItemByXpath = (xpath: string) => {
     let removed = false;
     for (let i = items.length - 1; i >= 0; i -= 1) {
-// @ts-expect-error
       const item = items[i];
       if (item && item.xpath === xpath) {
-// @ts-expect-error
         items.splice(i, 1);
         removed = true;
       }
@@ -2712,13 +2780,10 @@ function seedMarkingsFromAiSelectorsForUnmarkedPage(
     return removed;
   };
 
-// @ts-expect-error
-  const removeIncludeByXpath = (xpath) => {
+  const removeIncludeByXpath = (xpath: string) => {
     let removed = false;
     for (let i = includeXpaths.length - 1; i >= 0; i -= 1) {
-// @ts-expect-error
       if (includeXpaths[i] === xpath) {
-// @ts-expect-error
         includeXpaths.splice(i, 1);
         removed = true;
       }
@@ -2729,28 +2794,23 @@ function seedMarkingsFromAiSelectorsForUnmarkedPage(
     return removed;
   };
 
-// @ts-expect-error
-  const removeDescendants = (xpath) => {
+  const removeDescendants = (xpath: string) => {
     for (let i = items.length - 1; i >= 0; i -= 1) {
-// @ts-expect-error
       const item = items[i];
       if (!item || !item.xpath || item.xpath === xpath) {
         continue;
       }
       if (isXPathDescendant(xpath, item.xpath)) {
-// @ts-expect-error
         items.splice(i, 1);
         changed = true;
       }
     }
     for (let i = includeXpaths.length - 1; i >= 0; i -= 1) {
-// @ts-expect-error
       const childXpath = includeXpaths[i];
       if (!childXpath || childXpath === xpath) {
         continue;
       }
       if (isXPathDescendant(xpath, childXpath)) {
-// @ts-expect-error
         includeXpaths.splice(i, 1);
         changed = true;
       }
@@ -2759,15 +2819,12 @@ function seedMarkingsFromAiSelectorsForUnmarkedPage(
 
   const getExplicitExcludeXPathSet = () =>
     new Set(
-// @ts-expect-error
       items
         .filter((item) => item && item.xpath && item.excluded)
         .map((item) => item.xpath)
     );
 
-// @ts-expect-error
-  const setExplicitExclude = (xpath) => {
-// @ts-expect-error
+  const setExplicitExclude = (xpath: string) => {
     const targetItem = items.find((item) => item && item.xpath === xpath);
     if (!targetItem) {
       items.push({ xpath, excluded: true });
@@ -2834,15 +2891,13 @@ function seedMarkingsFromAiSelectorsForUnmarkedPage(
     }
     const entryOverride = {
       ...entry,
-// @ts-expect-error
       xpaths: items,
       includeXpaths
-    };
+    } as PageMarkingEntry;
     if (!canApplyExplicitInclude(el, configValue, pageUrl, entryOverride)) {
       continue;
     }
     removeItemByXpath(xpath);
-// @ts-expect-error
     if (!includeXpaths.includes(xpath)) {
       includeXpaths.push(xpath);
       changed = true;
@@ -2850,7 +2905,6 @@ function seedMarkingsFromAiSelectorsForUnmarkedPage(
     removeDescendants(xpath);
   }
 
-// @ts-expect-error
   entry.xpaths = items;
   entry.includeXpaths = includeXpaths;
   normalizePageEntryXpaths(entry);
@@ -2861,34 +2915,29 @@ function seedMarkingsFromAiSelectorsForUnmarkedPage(
   return { createdEntry: true, changed };
 }
 
-// @ts-expect-error
-function isRawSelectorExcludedElement(el, excludedElements, includedElements) {
+function isRawSelectorExcludedElement(
+  el: Element,
+  excludedElements: Set<Element>,
+  includedElements: Set<Element>
+): boolean {
   return isWithinElementSet(el, excludedElements) && !isWithinElementSet(el, includedElements);
 }
 
 function isSelectorExcludedElement(
-// @ts-expect-error
-  el,
-// @ts-expect-error
-  excludedElements,
-// @ts-expect-error
-  includedElements,
-// @ts-expect-error
-  inclusionContextSet
-) {
+  el: Element,
+  excludedElements: Set<Element>,
+  includedElements: Set<Element>,
+  inclusionContextSet: Set<Element>
+): boolean {
   return isRawSelectorExcludedElement(el, excludedElements, includedElements);
 }
 
 function isExcludedNatureElement(
-// @ts-expect-error
-  el,
-// @ts-expect-error
-  excludedElements,
-// @ts-expect-error
-  includedElements,
-// @ts-expect-error
-  inclusionContextSet
-) {
+  el: Element,
+  excludedElements: Set<Element>,
+  includedElements: Set<Element>,
+  inclusionContextSet: Set<Element>
+): boolean {
   return matchesImmutableExcluded(el) ||
     isToggleableDefaultExcludedElement(el, includedElements) ||
     isSelectorExcludedElement(
@@ -2900,20 +2949,13 @@ function isExcludedNatureElement(
 }
 
 function isInclusionEligibleElement(
-// @ts-expect-error
-  el,
-// @ts-expect-error
-  excludedElements,
-// @ts-expect-error
-  includedElements,
-// @ts-expect-error
-  inclusionContextSet,
-  options = {}
-) {
-  const ignoreVisibilityForInclusionDetection = Boolean(
-// @ts-expect-error
-    options && options.ignoreVisibilityForInclusionDetection
-  );
+  el: Element | null | undefined,
+  excludedElements: Set<Element>,
+  includedElements: Set<Element>,
+  inclusionContextSet: Set<Element>,
+  options: InclusionDetectionOptions = {}
+): boolean {
+  const ignoreVisibilityForInclusionDetection = Boolean(options.ignoreVisibilityForInclusionDetection);
   if (!el || el.nodeType !== 1) {
     return false;
   }
@@ -2938,8 +2980,7 @@ function isInclusionEligibleElement(
     Boolean(inclusionContextSet && inclusionContextSet.has(el));
 }
 
-// @ts-expect-error
-function isDefinitelyHiddenSubtreeElement(el) {
+function isDefinitelyHiddenSubtreeElement(el: Element | null | undefined): boolean {
   if (!el || el.nodeType !== 1) {
     return true;
   }
@@ -2956,24 +2997,17 @@ function isDefinitelyHiddenSubtreeElement(el) {
 }
 
 function hasRenderableTextOutsideExcludedNature(
-// @ts-expect-error
-  el,
-// @ts-expect-error
-  excludedElements,
-// @ts-expect-error
-  includedElements,
-// @ts-expect-error
-  inclusionContextSet,
-  options = {}
-) {
-  const ignoreVisibilityForInclusionDetection = Boolean(
-// @ts-expect-error
-    options && options.ignoreVisibilityForInclusionDetection
-  );
+  el: Element | null | undefined,
+  excludedElements: Set<Element>,
+  includedElements: Set<Element>,
+  inclusionContextSet: Set<Element>,
+  options: InclusionDetectionOptions = {}
+): boolean {
+  const ignoreVisibilityForInclusionDetection = Boolean(options.ignoreVisibilityForInclusionDetection);
   if (!el || el.nodeType !== 1) {
     return false;
   }
-  const stack = [el];
+  const stack: Element[] = [el];
   while (stack.length) {
     const node = stack.pop();
     if (!node || node.nodeType !== 1) {
@@ -3012,16 +3046,12 @@ function hasRenderableTextOutsideExcludedNature(
 }
 
 function hasRenderableTextForHighlight(
-// @ts-expect-error
-  el,
-// @ts-expect-error
-  excludedElements,
-// @ts-expect-error
-  includedElements,
-// @ts-expect-error
-  inclusionContextSet,
-  options = {}
-) {
+  el: Element | null | undefined,
+  excludedElements: Set<Element>,
+  includedElements: Set<Element>,
+  inclusionContextSet: Set<Element>,
+  options: InclusionDetectionOptions = {}
+): boolean {
   if (!el || el.nodeType !== 1) {
     return false;
   }
@@ -3038,20 +3068,17 @@ function hasRenderableTextForHighlight(
 }
 
 function hasRenderableTextForExcludedHighlight(
-// @ts-expect-error
-  el,
-// @ts-expect-error
-  includedElements,
-// @ts-expect-error
-  inclusionContextSet
-) {
+  el: Element | null | undefined,
+  includedElements: Set<Element>,
+  inclusionContextSet: Set<Element>
+): boolean {
   if (!el || el.nodeType !== 1) {
     return false;
   }
   if (hasDirectText(el)) {
     return true;
   }
-  const stack = [el];
+  const stack: Element[] = [el];
   while (stack.length) {
     const node = stack.pop();
     if (!node || node.nodeType !== 1) {
@@ -3084,22 +3111,16 @@ function hasRenderableTextForExcludedHighlight(
 }
 
 function collectExcludedChildrenInsideIncludedParents(
-// @ts-expect-error
-  includedParents,
-// @ts-expect-error
-  excludedElements,
-// @ts-expect-error
-  includedElements,
-// @ts-expect-error
-  inclusionContextSet
-) {
-// @ts-expect-error
-  const marked = [];
-  const seen = new Set();
-// @ts-expect-error
-  includedParents.forEach((parent) => {
+  includedParents: ElementCollection,
+  excludedElements: Set<Element>,
+  includedElements: Set<Element>,
+  inclusionContextSet: Set<Element>
+): Element[] {
+  const marked: Element[] = [];
+  const seen = new Set<Element>();
+  for (const parent of includedParents || []) {
     if (!parent || parent.nodeType !== 1) {
-      return;
+      continue;
     }
     const stack = Array.from(parent.children || []) as Element[];
     while (stack.length) {
@@ -3135,20 +3156,16 @@ function collectExcludedChildrenInsideIncludedParents(
         stack.push(el.children[i]);
       }
     }
-  });
-// @ts-expect-error
+  }
   return marked;
 }
 
 function collectSelectorExcludedElements(
-// @ts-expect-error
-  excludedElements,
-// @ts-expect-error
-  includedElements,
-// @ts-expect-error
-  inclusionContextSet
-) {
-  const marked = new Set();
+  excludedElements: ElementCollection,
+  includedElements: Set<Element>,
+  inclusionContextSet: Set<Element>
+): Element[] {
+  const marked = new Set<Element>();
   for (const el of excludedElements || []) {
     if (!el || el.nodeType !== 1) {
       continue;
@@ -3170,21 +3187,21 @@ function collectSelectorExcludedElements(
   return Array.from(marked).sort(compareDocumentOrder);
 }
 
-// @ts-expect-error
-export function collectToggleableDefaultExcludedElements(includedElements, options = {}) {
+export function collectToggleableDefaultExcludedElements(
+  includedElements: ElementCollection,
+  options: ToggleableDefaultBoundaryOptions = {}
+): Element[] {
   if (!document.body) {
     return [];
   }
   const boundarySelfSkipSet = new Set(
-// @ts-expect-error
     options.boundarySelfSkip || includedElements || []
   );
   const boundarySubtreeSkipSet = new Set(
-// @ts-expect-error
     options.boundarySubtreeSkip || includedElements || []
   );
-  const results = [];
-  const stack = [document.body];
+  const results: Element[] = [];
+  const stack: Element[] = [document.body];
   while (stack.length) {
     const el = stack.pop();
     if (!el || el.nodeType !== 1) {
@@ -3192,7 +3209,6 @@ export function collectToggleableDefaultExcludedElements(includedElements, optio
     }
     const isToggleableDefaultExcluded = matchesAutoToggleableDefaultExcluded(el);
     const isBoundarySelfSkipped = boundarySelfSkipSet.has(el);
-// @ts-expect-error
     const isWithinBoundarySubtreeSkip = isWithinElementSet(el, boundarySubtreeSkipSet);
     const isWithinImmutableBoundary = isWithinImmutableExcluded(el);
     if (shouldCollectToggleableDefaultBoundary({
@@ -3221,7 +3237,6 @@ export function collectToggleableDefaultExcludedElements(includedElements, optio
       continue;
     }
     for (let i = el.children.length - 1; i >= 0; i -= 1) {
-// @ts-expect-error
       stack.push(el.children[i]);
     }
   }
@@ -3229,33 +3244,23 @@ export function collectToggleableDefaultExcludedElements(includedElements, optio
 }
 
 function collectExplicitIncludedElements(
-// @ts-expect-error
-  explicitIncludedMatches,
-// @ts-expect-error
-  excludedElements,
-// @ts-expect-error
-  includedElements,
-// @ts-expect-error
-  inclusionContextSet,
-  options = {}
-) {
-  const preserveExplicitIncludedDescendants = Boolean(
-// @ts-expect-error
-    options && options.preserveExplicitIncludedDescendants
-  );
-// @ts-expect-error
-  const includeAllExplicitMatches = Boolean(options && options.includeAllExplicitMatches);
-  const selected = new Set();
+  explicitIncludedMatches: ElementCollection,
+  excludedElements: Set<Element>,
+  includedElements: Set<Element>,
+  inclusionContextSet: Set<Element>,
+  options: InclusionDetectionOptions = {}
+): Element[] {
+  const preserveExplicitIncludedDescendants = Boolean(options.preserveExplicitIncludedDescendants);
+  const includeAllExplicitMatches = Boolean(options.includeAllExplicitMatches);
+  const selected = new Set<Element>();
   const ordered = preserveExplicitIncludedDescendants
     ? Array.from(new Set(explicitIncludedMatches || []))
-// @ts-expect-error
       .filter((el) => el && el.nodeType === 1)
       .sort(compareDocumentOrder)
     : collapseElementsByNesting(explicitIncludedMatches, {
       prefer: "shallowest"
-    });
+    }) as Element[];
   for (const el of ordered) {
-// @ts-expect-error
     if (!el || el.nodeType !== 1) {
       continue;
     }
@@ -3287,7 +3292,7 @@ function collectExplicitIncludedElements(
   if (preserveExplicitIncludedDescendants) {
     return Array.from(selected).sort(compareDocumentOrder);
   }
-  return collapseElementsByNesting(selected, { prefer: "shallowest" }).filter((el) =>
+  return (collapseElementsByNesting(selected, { prefer: "shallowest" }) as Element[]).filter((el) =>
     hasRenderableTextForHighlight(
       el,
       excludedElements,
@@ -3299,19 +3304,15 @@ function collectExplicitIncludedElements(
 }
 
 function collectImplicitIncludedElementsOutsideExplicit(
-// @ts-expect-error
-  explicitIncluded,
-// @ts-expect-error
-  excludedElements,
-// @ts-expect-error
-  includedElements,
-// @ts-expect-error
-  inclusionContextSet,
-  options = {}
-) {
+  explicitIncluded: ElementCollection,
+  excludedElements: Set<Element>,
+  includedElements: Set<Element>,
+  inclusionContextSet: Set<Element>,
+  options: InclusionDetectionOptions = {}
+): Element[] {
   const explicitIncludedSet = new Set(explicitIncluded || []);
-  const baseSelected = new Set();
-  const stack = document.body ? [document.body] : [];
+  const baseSelected = new Set<Element>();
+  const stack: Element[] = document.body ? [document.body] : [];
   while (stack.length) {
     const el = stack.pop();
     if (!el || el.nodeType !== 1) {
@@ -3320,7 +3321,6 @@ function collectImplicitIncludedElementsOutsideExplicit(
     if (
       explicitIncludedSet.size > 0 &&
       !explicitIncludedSet.has(el) &&
-// @ts-expect-error
       isWithinElementSet(el, explicitIncludedSet)
     ) {
       continue;
@@ -3361,11 +3361,10 @@ function collectImplicitIncludedElementsOutsideExplicit(
       baseSelected.add(el);
     }
     for (let i = el.children.length - 1; i >= 0; i -= 1) {
-// @ts-expect-error
       stack.push(el.children[i]);
     }
   }
-  return collapseElementsByNesting(baseSelected, { prefer: "shallowest" }).filter((el) =>
+  return (collapseElementsByNesting(baseSelected, { prefer: "shallowest" }) as Element[]).filter((el) =>
     hasRenderableTextForHighlight(
       el,
       excludedElements,
@@ -3376,29 +3375,26 @@ function collectImplicitIncludedElementsOutsideExplicit(
   );
 }
 
-// @ts-expect-error
-function collectIncludedElementsFromSelectorSet(selectorSet, options = {}) {
+function collectIncludedElementsFromSelectorSet(
+  selectorSet: NormalizedAiSelectorSet | null | undefined,
+  options: InclusionDetectionOptions = {}
+): SelectorInclusionCollections {
   const normalized = normalizeAiSelectorSet(selectorSet);
-// @ts-expect-error
-  const suppressedXpaths = Array.isArray(options && options.suppressedXpaths)
-// @ts-expect-error
+  const suppressedXpaths = Array.isArray(options.suppressedXpaths)
     ? options.suppressedXpaths.filter((xpath) => typeof xpath === "string" && xpath)
     : [];
-  const suppressedElementsByXpath = new Map();
-// @ts-expect-error
+  const suppressedElementsByXpath = new Map<string, Element>();
   suppressedXpaths.forEach((xpath) => {
     const element = getElementFromXPath(xpath);
-    if (element && element.nodeType === 1) {
+    if (isElementNode(element)) {
       suppressedElementsByXpath.set(xpath, element);
     }
   });
-  const suppressedElementSet = new Set(suppressedElementsByXpath.values());
-// @ts-expect-error
+  const suppressedElementSet = new Set<Element>(suppressedElementsByXpath.values());
   const unresolvedSuppressedXpaths = suppressedXpaths.filter((xpath) =>
     !suppressedElementsByXpath.has(xpath)
   );
-// @ts-expect-error
-  const isSuppressedSelectorElement = (element) => {
+  const isSuppressedSelectorElement = (element: Element | null | undefined) => {
     if (!element || !suppressedXpaths.length) {
       return false;
     }
@@ -3412,15 +3408,14 @@ function collectIncludedElementsFromSelectorSet(selectorSet, options = {}) {
     if (!xpath) {
       return false;
     }
-// @ts-expect-error
     return unresolvedSuppressedXpaths.some((suppressedXpath) =>
       suppressedXpath === xpath || isXPathDescendant(suppressedXpath, xpath)
     );
   };
-  const excludedElements = new Set(
+  const excludedElements = new Set<Element>(
     collapseElementsByNesting(collectSelectorElements(normalized.exclusionSelectors), {
       prefer: "shallowest"
-    })
+    }) as Element[]
   );
   for (const element of Array.from(excludedElements)) {
     if (isSuppressedSelectorElement(element)) {
@@ -3428,7 +3423,7 @@ function collectIncludedElementsFromSelectorSet(selectorSet, options = {}) {
     }
   }
   const rawIncludedElements = collectSelectorElements(normalized.inclusionSelectors);
-  const includedElements = new Set();
+  const includedElements = new Set<Element>();
   rawIncludedElements.forEach((el) => {
     if (
       el &&
@@ -3439,7 +3434,6 @@ function collectIncludedElementsFromSelectorSet(selectorSet, options = {}) {
       includedElements.add(el);
     }
   });
-// @ts-expect-error
   const inclusionContextSet = buildInclusionContextSet(includedElements);
   const explicitIncluded = collectExplicitIncludedElements(
     includedElements,
@@ -3449,10 +3443,9 @@ function collectIncludedElementsFromSelectorSet(selectorSet, options = {}) {
     options
   );
   const explicitIncludedSet = new Set(explicitIncluded);
-// @ts-expect-error
   const explicitIncludedContextSet = buildInclusionContextSet(explicitIncludedSet);
   const toggleableDefaultExcluded = collectToggleableDefaultExcludedElements(explicitIncludedSet);
-  const excludedBoundaryElements = new Set([
+  const excludedBoundaryElements = new Set<Element>([
     ...Array.from(excludedElements),
     ...toggleableDefaultExcluded
   ]);
@@ -3463,10 +3456,7 @@ function collectIncludedElementsFromSelectorSet(selectorSet, options = {}) {
     inclusionContextSet,
     options
   );
-  const preserveExplicitIncludedDescendants = Boolean(
-// @ts-expect-error
-    options && options.preserveExplicitIncludedDescendants
-  );
+  const preserveExplicitIncludedDescendants = Boolean(options.preserveExplicitIncludedDescendants);
   const included = (
     preserveExplicitIncludedDescendants
       ? collapseElementsByNestingPreservingExplicit(
@@ -3477,7 +3467,8 @@ function collectIncludedElementsFromSelectorSet(selectorSet, options = {}) {
         new Set([...explicitIncluded, ...implicitIncluded]),
         { prefer: "shallowest" }
       )
-  ).filter((el) =>
+  ) as Element[];
+  const filteredIncluded = included.filter((el) =>
     shouldRetainIncludedSource({
       explicitlyIncluded: explicitIncludedSet.has(el),
       visibleToUser: isVisible(el) || !isDefinitelyHiddenSubtreeElement(el)
@@ -3491,11 +3482,10 @@ function collectIncludedElementsFromSelectorSet(selectorSet, options = {}) {
         inclusionContextSet,
         options
       )
-    )
-  );
+    ));
   const includedScopeRootsForExcludedTraversal = collapseElementsByNesting(includedElements, {
     prefer: "shallowest"
-  });
+  }) as Element[];
   const excludedDescendants = collectExcludedChildrenInsideIncludedParents(
     includedScopeRootsForExcludedTraversal,
     excludedElements,
@@ -3510,15 +3500,14 @@ function collectIncludedElementsFromSelectorSet(selectorSet, options = {}) {
   const inferredExcluded = collapseElementsByNestingWithOppositeBoundary(
     excludedDescendants,
     explicitIncludedSet
-  );
+  ) as Element[];
   const excluded = Array.from(
-    new Set([...(selectorExcluded || []), ...(inferredExcluded || [])])
+    new Set<Element>([...(selectorExcluded || []), ...(inferredExcluded || [])])
   ).sort(compareDocumentOrder);
-  return { included, excluded };
+  return { included: filteredIncluded, excluded };
 }
 
-// @ts-expect-error
-function getElementDepth(el) {
+function getElementDepth(el: Element) {
   let depth = 0;
   let current = el;
   while (current && current.parentElement) {
@@ -3543,8 +3532,7 @@ function compareDocumentOrder(left, right) {
   return 0;
 }
 
-// @ts-expect-error
-function addElementAndAncestorsToSet(targetSet, element) {
+function addElementAndAncestorsToSet(targetSet: Set<Element>, element: Element | null | undefined): void {
   let current = element;
   while (current && current.nodeType === 1) {
     targetSet.add(current);
@@ -3561,12 +3549,12 @@ function addElementAndAncestorsToSet(targetSet, element) {
  * @param {string} [options.prefer='shallowest'] - 'shallowest' to keep ancestors or 'deepest' to keep descendants
  * @returns {Element[]} Collapsed array of elements
  */
-// @ts-expect-error
-export function collapseElementsByNesting(elements, options = {}) {
-// @ts-expect-error
+export function collapseElementsByNesting(
+  elements: ElementCollection,
+  options: CollapseElementsOptions = {}
+): Element[] {
   const { onlyVisible = false, prefer = "shallowest" } = options;
-  const list = Array.from(new Set(elements || [])).filter((el) => {
-// @ts-expect-error
+  const list = Array.from(new Set(elements || [])).filter((el): el is Element => {
     if (!el || el.nodeType !== 1) {
       return false;
     }
@@ -3590,8 +3578,8 @@ export function collapseElementsByNesting(elements, options = {}) {
       }
       return compareDocumentOrder(left, right);
     });
-    const keptDeep = [];
-    const keptDeepAncestorSet = new Set();
+    const keptDeep: Element[] = [];
+    const keptDeepAncestorSet = new Set<Element>();
     for (const candidate of reverseSorted) {
       if (!keptDeepAncestorSet.has(candidate)) {
         keptDeep.push(candidate);
@@ -3601,10 +3589,9 @@ export function collapseElementsByNesting(elements, options = {}) {
     keptDeep.sort(compareDocumentOrder);
     return keptDeep;
   }
-  const kept = [];
-  const keptSet = new Set();
+  const kept: Element[] = [];
+  const keptSet = new Set<Element>();
   for (const candidate of list) {
-// @ts-expect-error
     let current = candidate.parentElement;
     let hasAncestor = false;
     while (current && current.nodeType === 1) {
@@ -3623,11 +3610,12 @@ export function collapseElementsByNesting(elements, options = {}) {
   return kept;
 }
 
-// @ts-expect-error
-function collapseElementsByNestingPreservingExplicit(elements, explicitElements) {
-  const explicitSet = new Set(explicitElements || []);
-// @ts-expect-error
-  const list = Array.from(new Set(elements || [])).filter((el) => el && el.nodeType === 1);
+function collapseElementsByNestingPreservingExplicit(
+  elements: ElementCollection,
+  explicitElements: ElementCollection
+): Element[] {
+  const explicitSet = new Set<Element>(explicitElements || []);
+  const list = Array.from(new Set(elements || [])).filter((el): el is Element => Boolean(el && el.nodeType === 1));
   list.sort((left, right) => {
     const depthDiff = getElementDepth(left) - getElementDepth(right);
     if (depthDiff !== 0) {
@@ -3635,8 +3623,8 @@ function collapseElementsByNestingPreservingExplicit(elements, explicitElements)
     }
     return compareDocumentOrder(left, right);
   });
-  const kept = [];
-  const keptSet = new Set();
+  const kept: Element[] = [];
+  const keptSet = new Set<Element>();
   for (const candidate of list) {
     if (explicitSet.has(candidate)) {
       if (!keptSet.has(candidate)) {
@@ -3645,7 +3633,6 @@ function collapseElementsByNestingPreservingExplicit(elements, explicitElements)
       }
       continue;
     }
-// @ts-expect-error
     let current = candidate.parentElement;
     let suppressed = false;
     while (current && current.nodeType === 1) {
@@ -3665,11 +3652,12 @@ function collapseElementsByNestingPreservingExplicit(elements, explicitElements)
   return kept;
 }
 
-// @ts-expect-error
-function collapseElementsByNestingWithOppositeBoundary(elements, oppositeElements) {
-  const oppositeSet = new Set(oppositeElements || []);
-// @ts-expect-error
-  const list = Array.from(new Set(elements || [])).filter((el) => el && el.nodeType === 1);
+function collapseElementsByNestingWithOppositeBoundary(
+  elements: ElementCollection,
+  oppositeElements: ElementCollection
+): Element[] {
+  const oppositeSet = new Set<Element>(oppositeElements || []);
+  const list = Array.from(new Set(elements || [])).filter((el): el is Element => Boolean(el && el.nodeType === 1));
   list.sort((left, right) => {
     const depthDiff = getElementDepth(left) - getElementDepth(right);
     if (depthDiff !== 0) {
@@ -3677,10 +3665,9 @@ function collapseElementsByNestingWithOppositeBoundary(elements, oppositeElement
     }
     return compareDocumentOrder(left, right);
   });
-  const kept = [];
-  const keptSet = new Set();
+  const kept: Element[] = [];
+  const keptSet = new Set<Element>();
   for (const candidate of list) {
-// @ts-expect-error
     let current = candidate.parentElement;
     while (current && current.nodeType === 1) {
       if (oppositeSet.has(current)) {
@@ -10769,12 +10756,11 @@ export function isMarkableElement(el, config, options) {
 }
 
 export function canApplyExplicitInclude(
-// @ts-expect-error
-  el,
+  el: Element | null | undefined,
   configValue = state.config,
   pageUrl = location.href,
-  entryOverride = null
-) {
+  entryOverride: PageMarkingEntry | null = null
+): boolean {
   if (isExplicitIncludeBoundaryCandidate(el, {
     allowParent: false,
     allowImmutableChildren: false
@@ -11477,7 +11463,6 @@ export function collectPreviewItems(selectorSet) {
     if (!text) {
       continue;
     }
-// @ts-expect-error
     const rect = el.getBoundingClientRect();
     rows.push({
       xpath: getXPath(el),
@@ -12012,7 +11997,10 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
   const seen = new Set();
   const generatedExcludedSet = new Set();
   const candidateCollectionStartedAt = nowMs();
-  const scannedCandidates = scanReconcileDocumentCandidates(immutableExcluded, excludedParents);
+  const scannedCandidates = scanReconcileDocumentCandidates(
+    immutableExcluded as ElementCollection,
+    excludedParents as ElementCollection
+  );
   const candidates = scannedCandidates.toggleableCandidates;
   logTogglePerf("sync.candidate-collection", candidateCollectionStartedAt, {
     candidateCount: candidates.length,
@@ -12333,9 +12321,11 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
   const seen = new Set();
   const generatedExcludedSet = new Set();
   const candidateCollectionStartedAt = nowMs();
-  const scannedCandidates = await scanReconcileDocumentCandidatesAsync(immutableExcluded, excludedParents, {
-    shouldAbort
-  });
+  const scannedCandidates = await scanReconcileDocumentCandidatesAsync(
+    immutableExcluded as ElementCollection,
+    excludedParents as ElementCollection,
+    { shouldAbort }
+  );
   const candidates = scannedCandidates.toggleableCandidates;
   logTogglePerf("sync.candidate-collection", candidateCollectionStartedAt, {
     candidateCount: candidates.length,

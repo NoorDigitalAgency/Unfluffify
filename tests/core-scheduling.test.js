@@ -738,9 +738,9 @@ test("explicit toggles yield after the immediate acknowledgement before running 
   assert.match(source, /function scheduleQueuedToggleMutation\(job(?:\s*:\s*[^)]+)?\) \{/);
   assert.match(source, /function cancelQueuedToggleMutations\(\) \{/);
   assert.match(source, /async function syncPageMarkingsAsync\(config, pageUrl, immutableExcluded, options\) \{/);
-  assert.match(source, /function scanReconcileDocumentCandidates\(immutableExcluded, excludedParents\) \{/);
-  assert.match(source, /async function scanReconcileDocumentCandidatesAsync\(immutableExcluded, excludedParents, options = \{\}\) \{/);
-  assert.match(source, /async function collectToggleableTargetsAsync\(immutableExcluded, excludedParents, options = \{\}\) \{/);
+  assert.match(source, /function scanReconcileDocumentCandidates\(\s*immutableExcluded(?:\s*:\s*[^,]+)?,\s*excludedParents(?:\s*:\s*[^)]+)?\s*\)(?:: [^{]+)? \{/);
+  assert.match(source, /async function scanReconcileDocumentCandidatesAsync\(\s*immutableExcluded(?:\s*:\s*[^,]+)?,\s*excludedParents(?:\s*:\s*[^,]+)?,\s*options(?:\s*:\s*[^=]+)? = \{\}\s*\)(?:: [^{]+)? \{/);
+  assert.match(source, /async function collectToggleableTargetsAsync\(\s*immutableExcluded(?:\s*:\s*[^,]+)?,\s*excludedParents(?:\s*:\s*[^,]+)?,\s*options(?:\s*:\s*[^=]+)? = \{\}\s*\)(?:: [^{]+)? \{/);
   assert.match(source, /async function appendSyncedCandidateItemsAsync\(candidates, context, options = \{\}\) \{/);
   assert.match(
     source,
@@ -765,7 +765,7 @@ test("explicit toggles yield after the immediate acknowledgement before running 
   assert.match(source, /toggleExplicitInclude\(nextJob\.target, \{ deferMarkingRefresh: true, immediateFullRender: true \}\);/);
   assert.match(source, /toggleExplicitExclude\(nextJob\.target, \{ deferMarkingRefresh: true, immediateFullRender: true \}\);/);
   assert.match(source, /scheduleAsyncExplicitToggleReconcile\(entry, \{[\s\S]*?immediateFullRender/);
-  assert.match(source, /const scannedCandidates = await scanReconcileDocumentCandidatesAsync\(immutableExcluded, excludedParents, \{/);
+  assert.match(source, /const scannedCandidates = await scanReconcileDocumentCandidatesAsync\([\s\S]*?immutableExcluded(?:\s+as\s+ElementCollection)?[\s\S]*?excludedParents(?:\s+as\s+ElementCollection)?[\s\S]*?\{\s*shouldAbort\s*\}[\s\S]*?\);/);
   assert.match(source, /const candidates = scannedCandidates\.toggleableCandidates;/);
   assert.match(source, /const completedCandidates = await appendSyncedCandidateItemsAsync\(candidates,/);
   assert.match(source, /logTogglePerf\("sync\.candidate-evaluation", candidateCollectionStartedAt, \{/);
