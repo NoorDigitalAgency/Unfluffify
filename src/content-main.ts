@@ -248,6 +248,7 @@ type SilentHighlightTrackedNodeIndex = {
   tracked: Set<Node>;
   ancestors: Set<Node>;
 };
+type ContentPageEntry = NonNullable<Config["pageMarkings"][string]>;
 
 const SILENT_CONTENT_HIGHLIGHTING_ATTR = "data-uf-silent-content-highlighting";
 const SILENT_CONTENT_EXCLUDED_ATTR = "data-uf-silent-content-excluded";
@@ -486,7 +487,6 @@ let aiPreviewState = createAiPreviewState();
 const contentMainServiceRegistry = createContentMainServiceRegistry({
   createPageToastClient: () => createPageToast(createPageToastDeps()),
   createPageSaveReconciliationClearHandler: () => createPageSaveReconciliationClearHandler(
-// @ts-expect-error
     createPageSaveReconciliationClearHandlerDeps()
   ),
   createPageSaveReconciliationPendingHandler: () => createPageSaveReconciliationPendingHandler(
@@ -500,9 +500,7 @@ const contentMainServiceRegistry = createContentMainServiceRegistry({
   ),
   createInspectionStatusResolver: () => createInspectionStatusResolver(createInspectionStatusDeps()),
   createPageDraftRevertHandler: () => createPageDraftRevertHandler(createPageDraftRevertHandlerDeps()),
-// @ts-expect-error
   createPageDraftSaveHandler: () => createPageDraftSaveHandler(createPageDraftSaveHandlerDeps()),
-// @ts-expect-error
   createExplicitMarkingHandler: () => createExplicitMarkingHandler(createExplicitMarkingHandlerDeps()),
   createPageDraftStatusHandler: () => createPageDraftStatusHandler(createPageDraftStatusHandlerDeps()),
   createAiPreviewStateResponseBuilder: () => createAiPreviewStateResponseBuilder(
@@ -516,22 +514,16 @@ const contentMainServiceRegistry = createContentMainServiceRegistry({
     createAiPreviewExpandedModeHandlerDeps()
   ),
   createAiPreviewGetStateHandler: () => createAiPreviewGetStateHandler(createAiPreviewGetStateHandlerDeps()),
-// @ts-expect-error
   createAiPreviewShowHandler: () => createAiPreviewShowHandler(createAiPreviewShowHandlerDeps()),
   createAiSubmissionXpathsHandler: () => createAiSubmissionXpathsHandler(createAiSubmissionXpathsHandlerDeps()),
-// @ts-expect-error
   createCapturePageSnapshotHandler: () => createCapturePageSnapshotHandler(createCapturePageSnapshotHandlerDeps()),
   createConfigUpdatedHandler: () => createConfigUpdatedHandler(createConfigUpdatedHandlerDeps()),
   createCollectPageDataHandler: () => createCollectPageDataHandler(createCollectPageDataHandlerDeps()),
   createDefaultExclusionsHandler: () => createDefaultExclusionsHandler(createDefaultExclusionsHandlerDeps()),
-// @ts-expect-error
   createDescribeXpathsHandler: () => createDescribeXpathsHandler(createDescribeXpathsHandlerDeps()),
-// @ts-expect-error
   createFocusHandler: () => createFocusHandler(createFocusHandlerDeps()),
   createForceRefreshHandler: () => createForceRefreshHandler(createForceRefreshHandlerDeps()),
-// @ts-expect-error
   createInvisibleXpathsHandler: () => createInvisibleXpathsHandler(createInvisibleXpathsHandlerDeps()),
-// @ts-expect-error
   createVisibleXpathsHandler: () => createVisibleXpathsHandler(createVisibleXpathsHandlerDeps()),
   createPropertyLockPortClient: () => createPropertyLockPortClient(createPropertyLockPortClientDeps()),
   createPropertyLockStateMachine: () => createPropertyLockStateMachine(createPropertyLockStateMachineDeps())
@@ -6490,16 +6482,20 @@ function createAiPreviewGetStateHandlerDeps() {
   };
 }
 
-function createAiPreviewShowHandlerDeps() {
+function createAiPreviewShowHandlerDeps(): AiPreviewShowHandlerDeps {
   return {
     beginAiPreviewMode,
-    buildAiPreviewItemsWithCategories,
-// @ts-expect-error
-    collectPreviewItems: (selectorSet) => core.collectPreviewItems(selectorSet),
+    buildAiPreviewItemsWithCategories: (selectorSet: unknown, defaultItems: unknown[]) =>
+      buildAiPreviewItemsWithCategories(
+        selectorSet as Parameters<typeof buildAiPreviewItemsWithCategories>[0],
+        defaultItems as Parameters<typeof buildAiPreviewItemsWithCategories>[1]
+      ),
+    collectPreviewItems: (selectorSet: unknown) => core.collectPreviewItems(selectorSet),
     exitAiPreviewMode,
     isAiPreviewActive: () => Boolean(aiPreviewState.active),
     buildPreviewState: () => buildAiPreviewStateSnapshot(),
-    normalizeAiSelectorSet,
+    normalizeAiSelectorSet: (value: unknown) =>
+      normalizeAiSelectorSet(value as Parameters<typeof normalizeAiSelectorSet>[0]),
     notifyPreviewStateChanged: notifyAiPreviewStateChanged,
     refreshSilentHighlightings,
     schedulePreviewItemsHydration: (callback: () => void) => {
@@ -6507,8 +6503,8 @@ function createAiPreviewShowHandlerDeps() {
     },
     setAiPreviewItemSets,
     setPreviewItemsPending: setAiPreviewItemsPending,
-// @ts-expect-error
-    showAiPopover: (items, options) => core.showAiPopover(items, options)
+    showAiPopover: (items: unknown[], options: { onClose: () => Promise<unknown> | void }) =>
+      core.showAiPopover(items, options)
   };
 }
 
@@ -6518,102 +6514,110 @@ function createAiSubmissionXpathsHandlerDeps() {
   };
 }
 
-function createCapturePageSnapshotHandlerDeps() {
+function createCapturePageSnapshotHandlerDeps(): CapturePageSnapshotDeps {
   return {
-    collectAiSubmissionXpathsForCurrentPage,
+    collectAiSubmissionXpathsForCurrentPage: (configValue: Parameters<CapturePageSnapshotDeps["collectAiSubmissionXpathsForCurrentPage"]>[0]) =>
+      collectAiSubmissionXpathsForCurrentPage(configValue as Config),
     collectImmutableElements: () => core.collectImmutableElements(),
     createCurrentPageSnapshot,
     fetchCurrentPageRawHtml,
     getActiveConfig: () => state.config,
     getCurrentPageType: () => state.currentPageType,
     getDocumentTitle: () => document.title,
-// @ts-expect-error
-    getPageMarkingEntry: (configValue, pageUrl) => core.getPageMarkingEntry(configValue, pageUrl),
+    getPageMarkingEntry: (
+      configValue: Parameters<CapturePageSnapshotDeps["getPageMarkingEntry"]>[0],
+      pageUrl: string
+    ) => core.getPageMarkingEntry(configValue as Config, pageUrl, undefined),
     getPageUrl: () => location.href,
-// @ts-expect-error
-    hasPageMarkingEntry: (configValue, pageUrl) => core.hasPageMarkingEntry(configValue, pageUrl),
-// @ts-expect-error
-    loadConfig: (baseUrl) => core.loadConfig(baseUrl),
+    hasPageMarkingEntry: (
+      configValue: Parameters<CapturePageSnapshotDeps["hasPageMarkingEntry"]>[0],
+      pageUrl: string
+    ) => core.hasPageMarkingEntry(configValue as Config, pageUrl),
+    loadConfig: (baseUrl: unknown) => core.loadConfig(baseUrl as string | undefined),
     matchesActiveBaseUrl,
-// @ts-expect-error
-    refreshSavedPageEntryFromBackendCache: (baseUrl, pageUrl) =>
-      core.refreshSavedPageEntryFromBackendCache(baseUrl, pageUrl),
-// @ts-expect-error
-    saveConfig: (baseUrl, configValue) => core.saveConfig(baseUrl, configValue),
+    refreshSavedPageEntryFromBackendCache: (baseUrl: unknown, pageUrl: string) =>
+      core.refreshSavedPageEntryFromBackendCache(baseUrl as string | undefined, pageUrl),
+    saveConfig: (
+      baseUrl: unknown,
+      configValue: Parameters<CapturePageSnapshotDeps["saveConfig"]>[1]
+    ) => core.saveConfig(baseUrl as string, configValue as Config),
     sendPropertyLockActivity,
-// @ts-expect-error
-    setConfig: (configValue) => {
-      state.config = configValue;
+    setConfig: (configValue: Parameters<CapturePageSnapshotDeps["setConfig"]>[0]) => {
+      state.config = configValue as Config;
     },
-// @ts-expect-error
-    syncPageMarkings: (configValue, pageUrl, immutableExcluded, options) =>
-      core.syncPageMarkings(configValue, pageUrl, immutableExcluded, options),
-// @ts-expect-error
-    touchPageEntryTimestamp: (entry) => core.touchPageEntryTimestamp(entry)
+    syncPageMarkings: (
+      configValue: Parameters<CapturePageSnapshotDeps["syncPageMarkings"]>[0],
+      pageUrl: string,
+      immutableExcluded: unknown,
+      options: { allowCreate: boolean; persist: boolean }
+    ) =>
+      core.syncPageMarkings(configValue as Config, pageUrl, immutableExcluded, options),
+    touchPageEntryTimestamp: (entry: Parameters<CapturePageSnapshotDeps["touchPageEntryTimestamp"]>[0]) =>
+      core.touchPageEntryTimestamp(entry as ContentPageEntry)
   };
 }
 
-function createConfigUpdatedHandlerDeps() {
+function createConfigUpdatedHandlerDeps(): ConfigUpdatedHandlerDeps {
   return {
     clearAiPreviewState,
     disable: () => core.disable(),
-// @ts-expect-error
-    findPageMarkingEntry: (configValue, pageUrl, baseUrl) =>
-      core.findPageMarkingEntry(configValue, pageUrl, baseUrl),
-// @ts-expect-error
-    getBackendSavedPageMarkings: (baseUrl) => config.getBackendSavedPageMarkings(baseUrl),
+    findPageMarkingEntry: (
+      configValue: Parameters<ConfigUpdatedHandlerDeps["findPageMarkingEntry"]>[0],
+      pageUrl: string,
+      baseUrl: string
+    ) => core.findPageMarkingEntry(configValue as Config, pageUrl, baseUrl),
+    getBackendSavedPageMarkings: (baseUrl: string) => config.getBackendSavedPageMarkings(baseUrl),
     getBaseUrl: () => state.baseUrl,
     clearPageSaveReconciliation: (baseUrl: string, pageUrl: string) =>
       core.clearPageSaveReconciliation(baseUrl, pageUrl),
     clearPageDraftBaseline: (pageUrl: string) => core.clearPageDraftBaseline(pageUrl),
     getCurrentPageType: () => state.currentPageType,
-// @ts-expect-error
-    getDraftPageEntry: (pageUrl) => core.getDraftPageEntry(pageUrl),
+    getDraftPageEntry: (pageUrl: string) => core.getDraftPageEntry(pageUrl),
     getPageUrl: () => location.href,
-// @ts-expect-error
-    getSavedPageEntry: (pageUrl) => core.getSavedPageEntry(pageUrl),
+    getSavedPageEntry: (pageUrl: string) => core.getSavedPageEntry(pageUrl),
     isAiPreviewActive: () => aiPreviewState.active,
     isEnabled: () => state.enabled,
-// @ts-expect-error
-    loadConfig: (baseUrl) => core.loadConfig(baseUrl),
-// @ts-expect-error
-    mergeDraftEntry: (configValue, pageUrl, draftEntry, savedEntry) =>
-      core.mergeDraftEntry(configValue, pageUrl, draftEntry, savedEntry),
-// @ts-expect-error
-    notifyDraftStatus: (pageUrl) => core.notifyDraftStatus(pageUrl),
+    loadConfig: (baseUrl: string) => core.loadConfig(baseUrl),
+    mergeDraftEntry: (
+      configValue: Parameters<ConfigUpdatedHandlerDeps["mergeDraftEntry"]>[0],
+      pageUrl: string,
+      draftEntry: unknown,
+      savedEntry: unknown
+    ) => core.mergeDraftEntry(configValue as Config, pageUrl, draftEntry, savedEntry),
+    notifyDraftStatus: (pageUrl: string) => core.notifyDraftStatus(pageUrl),
     refreshPageSaveReconciliation: (baseUrl: string, pageUrl: string) =>
       core.refreshPageSaveReconciliation(baseUrl, pageUrl),
     refreshEnabledAiHighlights,
     refreshSilentHighlightings,
     runPropertyLockSync,
-// @ts-expect-error
-    sameBaseUrl: (left, right) => utils.sameBaseUrl(left, right),
-// @ts-expect-error
-    scheduleRender: () => core.scheduleRender(),
-// @ts-expect-error
-    setConfig: (configValue) => {
-      state.config = configValue;
+    sameBaseUrl: (left: unknown, right: unknown) => utils.sameBaseUrl(left, right),
+    scheduleRender: () => core.scheduleRender(undefined),
+    setConfig: (configValue: Parameters<ConfigUpdatedHandlerDeps["setConfig"]>[0]) => {
+      state.config = configValue as Config;
     },
-// @ts-expect-error
-    setCurrentPageType: (pageType) => {
+    setCurrentPageType: (pageType: string) => {
       state.currentPageType = pageType;
     },
-// @ts-expect-error
-    setSavedPageEntry: (pageUrl, entry) => core.setSavedPageEntry(pageUrl, entry)
+    setSavedPageEntry: (
+      pageUrl: string,
+      entry: Parameters<ConfigUpdatedHandlerDeps["setSavedPageEntry"]>[1]
+    ) => core.setSavedPageEntry(pageUrl, entry as ContentPageEntry | null)
   };
 }
 
-function createCollectPageDataHandlerDeps() {
+function createCollectPageDataHandlerDeps(): CollectPageDataHandlerDeps {
   return {
     createCurrentPageSnapshot,
     getBaseUrl: () => state.baseUrl,
     getImmutableSelectors: () => DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS.slice(),
-// @ts-expect-error
-    getPageMarkingEntry: (configValue, pageUrl, options) =>
-      core.getPageMarkingEntry(configValue, pageUrl, options),
+    getPageMarkingEntry: (
+      configValue: Parameters<CollectPageDataHandlerDeps["getPageMarkingEntry"]>[0],
+      pageUrl: string,
+      options: { create: boolean; persist: boolean }
+    ) =>
+      core.getPageMarkingEntry(configValue as Config, pageUrl, options),
     getPageUrl: () => location.href,
-// @ts-expect-error
-    loadConfig: (baseUrl) => core.loadConfig(baseUrl)
+    loadConfig: (baseUrl: string) => core.loadConfig(baseUrl)
   };
 }
 
@@ -6623,42 +6627,40 @@ function createDefaultExclusionsHandlerDeps() {
   };
 }
 
-function createVisibleXpathsHandlerDeps() {
+function getXPathElement(xpath: string): Element | null {
+  const element = core.getElementFromXPath(xpath);
+  return element instanceof Element ? element : null;
+}
+
+function createVisibleXpathsHandlerDeps(): VisibleXpathsDeps {
   return {
-// @ts-expect-error
-    getElementFromXPath: (xpath) => core.getElementFromXPath(xpath),
-// @ts-expect-error
-    isVisible: (element) => core.isVisible(element)
+    getElementFromXPath: getXPathElement,
+    isVisible: (element: Element) => core.isVisible(element)
   };
 }
 
-function createInvisibleXpathsHandlerDeps() {
+function createInvisibleXpathsHandlerDeps(): InvisibleXpathsDeps {
   return {
-// @ts-expect-error
-    getElementFromXPath: (xpath) => core.getElementFromXPath(xpath),
-// @ts-expect-error
-    isVisible: (element) => core.isVisible(element)
+    getElementFromXPath: getXPathElement,
+    isVisible: (element: Element) => core.isVisible(element)
   };
 }
 
-function createDescribeXpathsHandlerDeps() {
+function createDescribeXpathsHandlerDeps(): DescribeXpathsDeps {
   return {
-// @ts-expect-error
-    getElementFromXPath: (xpath) => core.getElementFromXPath(xpath),
-// @ts-expect-error
-    getElementLabel: (element) => core.getElementLabel(element),
-// @ts-expect-error
-    isVisible: (element) => core.isVisible(element)
+    getElementFromXPath: getXPathElement,
+    getElementLabel: (element: Element) => core.getElementLabel(element),
+    isVisible: (element: Element) => core.isVisible(element)
   };
 }
 
-function createFocusHandlerDeps() {
+function createFocusHandlerDeps(): FocusHandlerDeps {
   return {
     clearFocusHighlight: () => core.clearFocusHighlight(),
-// @ts-expect-error
-    focusPreviewElement: (element) => core.focusPreviewElement(element),
-// @ts-expect-error
-    getElementFromXPath: (xpath) => core.getElementFromXPath(xpath),
+    focusPreviewElement: (element: Element) => {
+      core.focusPreviewElement(element);
+    },
+    getElementFromXPath: getXPathElement,
     isAiPreviewActive: () => aiPreviewState.active,
     setAiPreviewFocusedXpath
   };
@@ -6673,112 +6675,103 @@ function createForceRefreshHandlerDeps() {
   };
 }
 
-function createExplicitMarkingHandlerDeps() {
+function createExplicitMarkingHandlerDeps(): ExplicitMarkingDeps {
   return {
-// @ts-expect-error
-    canApplyExplicitInclude: (target, configValue, pageUrl, entry) =>
-      core.canApplyExplicitInclude(target, configValue, pageUrl, entry),
-    getConfig: () => state.config,
-// @ts-expect-error
-    getElementFromXPath: (xpath) => core.getElementFromXPath(xpath),
-// @ts-expect-error
-    getPageMarkingEntry: (configValue, pageUrl) => core.getPageMarkingEntry(configValue, pageUrl),
+    canApplyExplicitInclude: (
+      target: Element,
+      configValue: Parameters<ExplicitMarkingDeps["canApplyExplicitInclude"]>[1],
+      pageUrl: string,
+      entry: Parameters<ExplicitMarkingDeps["canApplyExplicitInclude"]>[3]
+    ) =>
+      (core.canApplyExplicitInclude as unknown as (
+        target: Element,
+        configValue: Config,
+        pageUrl: string,
+        entryOverride: ContentPageEntry
+      ) => boolean)(target, configValue as Config, pageUrl, entry as ContentPageEntry),
+    getConfig: () => state.config as Config,
+    getElementFromXPath: getXPathElement,
+    getPageMarkingEntry: (
+      configValue: Parameters<ExplicitMarkingDeps["getPageMarkingEntry"]>[0],
+      pageUrl: string
+    ) => core.getPageMarkingEntry(configValue as Config, pageUrl, undefined),
     getPageUrl: () => location.href,
-// @ts-expect-error
-    isDefaultToggleableExcludedElement: (element) => core.isDefaultToggleableExcludedElement(element),
-// @ts-expect-error
-    isPageDraftDirty: (pageUrl) => core.isPageDraftDirty(pageUrl),
-// @ts-expect-error
-    isXPathDescendant: (parentXpath, childXpath) => core.isXPathDescendant(parentXpath, childXpath),
-// @ts-expect-error
-    normalizePageEntryXpaths: (entry) => core.normalizePageEntryXpaths(entry),
-// @ts-expect-error
-    notifyDraftStatus: (pageUrl) => core.notifyDraftStatus(pageUrl),
-// @ts-expect-error
-    scheduleDraftPersist: (baseUrl) => core.scheduleDraftPersist(baseUrl),
-// @ts-expect-error
-    scheduleRender: () => core.scheduleRender(),
+    isDefaultToggleableExcludedElement: (element: Element | null) => core.isDefaultToggleableExcludedElement(element),
+    isPageDraftDirty: (pageUrl: string) => core.isPageDraftDirty(pageUrl),
+    isXPathDescendant: (parentXpath: string, childXpath: string) => core.isXPathDescendant(parentXpath, childXpath),
+    normalizePageEntryXpaths: (entry: Parameters<ExplicitMarkingDeps["normalizePageEntryXpaths"]>[0]) =>
+      core.normalizePageEntryXpaths(entry as ContentPageEntry),
+    notifyDraftStatus: (pageUrl: string) => core.notifyDraftStatus(pageUrl),
+    scheduleDraftPersist: (baseUrl: string) => core.scheduleDraftPersist(baseUrl),
+    scheduleRender: () => core.scheduleRender(undefined),
     scheduleSnapshotSave: () => core.scheduleSnapshotSave(),
-// @ts-expect-error
-    touchPageEntryTimestamp: (entry) => core.touchPageEntryTimestamp(entry)
+    touchPageEntryTimestamp: (entry: Parameters<ExplicitMarkingDeps["touchPageEntryTimestamp"]>[0]) =>
+      core.touchPageEntryTimestamp(entry as ContentPageEntry)
   };
 }
 
-function createPageSaveReconciliationPendingHandlerDeps() {
+function createPageSaveReconciliationPendingHandlerDeps(): PageSaveReconciliationPendingDeps {
   return {
-// @ts-expect-error
-    setPageSaveReconciliationPending: (baseUrl, pageUrl, options) =>
-      core.setPageSaveReconciliationPending(baseUrl, pageUrl, options)
+    setPageSaveReconciliationPending: (
+      baseUrl: Parameters<PageSaveReconciliationPendingDeps["setPageSaveReconciliationPending"]>[0],
+      pageUrl: Parameters<PageSaveReconciliationPendingDeps["setPageSaveReconciliationPending"]>[1],
+      options: Parameters<PageSaveReconciliationPendingDeps["setPageSaveReconciliationPending"]>[2]
+    ) => core.setPageSaveReconciliationPending(baseUrl as string, pageUrl as string, options)
   };
 }
 
-function createPageSaveReconciliationClearHandlerDeps() {
+function createPageSaveReconciliationClearHandlerDeps(): PageSaveReconciliationClearDeps {
   return {
-// @ts-expect-error
-    clearPageSaveReconciliation: (baseUrl, pageUrl) =>
-      core.clearPageSaveReconciliation(baseUrl, pageUrl),
-// @ts-expect-error
-    clonePageEntry: (entry) => core.clonePageEntry(entry),
-// @ts-expect-error
-    findPageMarkingEntry: (configValue, pageUrl, baseUrl) =>
-      core.findPageMarkingEntry(configValue, pageUrl, baseUrl),
-// @ts-expect-error
-    getBackendSavedPageMarkings: (baseUrl) => config.getBackendSavedPageMarkings(baseUrl),
+    clearPageSaveReconciliation: (baseUrl: unknown, pageUrl: unknown) =>
+      core.clearPageSaveReconciliation(baseUrl as string | undefined, pageUrl as string | undefined),
+    clonePageEntry: (entry: unknown) => core.clonePageEntry(entry),
+    findPageMarkingEntry: (configValue: { pageMarkings: unknown }, pageUrl: string, baseUrl: unknown) =>
+      core.findPageMarkingEntry(configValue as Config, pageUrl, baseUrl),
+    getBackendSavedPageMarkings: (baseUrl: unknown) => config.getBackendSavedPageMarkings(baseUrl as string | undefined),
     getPageUrl: () => location.href,
-// @ts-expect-error
-    loadConfig: (baseUrl) => core.loadConfig(baseUrl),
-// @ts-expect-error
-    notifyDraftStatus: (pageUrl) => core.notifyDraftStatus(pageUrl),
-// @ts-expect-error
-    refreshPageSaveReconciliation: (baseUrl, pageUrl) =>
-      core.refreshPageSaveReconciliation(baseUrl, pageUrl),
-// @ts-expect-error
-    scheduleRender: () => core.scheduleRender(),
-// @ts-expect-error
-    setConfig: (nextConfig) => {
-      state.config = nextConfig;
+    loadConfig: (baseUrl: unknown) => core.loadConfig(baseUrl as string | undefined),
+    notifyDraftStatus: (pageUrl: string) => core.notifyDraftStatus(pageUrl),
+    refreshPageSaveReconciliation: async (baseUrl: unknown, pageUrl: string) => {
+      await core.refreshPageSaveReconciliation(baseUrl as string | undefined, pageUrl);
     },
-// @ts-expect-error
-    setSavedPageEntry: (pageUrl, entry) => core.setSavedPageEntry(pageUrl, entry)
+    scheduleRender: () => core.scheduleRender(undefined),
+    setConfig: (nextConfig: Parameters<PageSaveReconciliationClearDeps["setConfig"]>[0]) => {
+      state.config = nextConfig as Config;
+    },
+    setSavedPageEntry: (pageUrl: string, entry: unknown) => core.setSavedPageEntry(pageUrl, entry)
   };
 }
 
-function createPageDraftRevertHandlerDeps() {
+function createPageDraftRevertHandlerDeps(): PageDraftRevertDeps {
   return {
     collectImmutableElements: () => core.collectImmutableElements(),
     getPageUrl: () => location.href,
-// @ts-expect-error
-    getSavedPageEntry: (pageUrl) => core.getSavedPageEntry(pageUrl),
-// @ts-expect-error
-    isPageDraftDirty: (pageUrl) => core.isPageDraftDirty(pageUrl),
-// @ts-expect-error
-    loadConfig: (baseUrl) => core.loadConfig(baseUrl),
-// @ts-expect-error
-    notifyDraftStatus: (pageUrl) => core.notifyDraftStatus(pageUrl),
-// @ts-expect-error
-    scheduleRender: () => core.scheduleRender(),
-// @ts-expect-error
-    setBaseUrl: (baseUrl) => {
-      state.baseUrl = baseUrl;
+    getSavedPageEntry: (pageUrl: string) => core.getSavedPageEntry(pageUrl),
+    isPageDraftDirty: (pageUrl: string) => core.isPageDraftDirty(pageUrl),
+    loadConfig: (baseUrl: unknown) => core.loadConfig(baseUrl as string | undefined),
+    notifyDraftStatus: (pageUrl: string) => core.notifyDraftStatus(pageUrl),
+    scheduleRender: () => core.scheduleRender(undefined),
+    setBaseUrl: (baseUrl: unknown) => {
+      state.baseUrl = typeof baseUrl === "string" ? baseUrl : "";
     },
-// @ts-expect-error
-    setConfig: (configValue) => {
-      state.config = configValue;
+    setConfig: (configValue: Parameters<PageDraftRevertDeps["setConfig"]>[0]) => {
+      state.config = configValue as Config;
     },
-// @ts-expect-error
-    setSavedPageEntry: (pageUrl, entry) => core.setSavedPageEntry(pageUrl, entry),
-// @ts-expect-error
-    syncPageMarkings: (configValue, pageUrl, immutableExcluded, options) =>
+    setSavedPageEntry: (pageUrl: string, entry: unknown) => core.setSavedPageEntry(pageUrl, entry),
+    syncPageMarkings: (
+      configValue: unknown,
+      pageUrl: string,
+      immutableExcluded: unknown,
+      options: { allowCreate: boolean; persist: boolean }
+    ) =>
       core.syncPageMarkings(configValue, pageUrl, immutableExcluded, options)
   };
 }
 
-function createPageDraftSaveHandlerDeps() {
+function createPageDraftSaveHandlerDeps(): PageDraftSaveDeps {
   return {
-// @ts-expect-error
-    areEntriesEquivalent: (left, right) => core.areEntriesEquivalent(left, right),
-// @ts-expect-error
-    clearPageSaveReconciliation: (baseUrl, pageUrl) =>
+    areEntriesEquivalent: (left: unknown, right: unknown) => core.areEntriesEquivalent(left, right),
+    clearPageSaveReconciliation: (baseUrl: string, pageUrl: string) =>
       core.clearPageSaveReconciliation(baseUrl, pageUrl),
     collectAiSubmissionXpathsForCurrentPage,
     collectImmutableElements: () => core.collectImmutableElements(),
@@ -6788,77 +6781,82 @@ function createPageDraftSaveHandlerDeps() {
     getConfig: () => state.config,
     getCurrentPageType: () => state.currentPageType,
     getDocumentTitle: () => document.title,
-// @ts-expect-error
-    getDraftPageEntry: (pageUrl) => core.getDraftPageEntry(pageUrl),
-// @ts-expect-error
-    getPageMarkingEntry: (configValue, pageUrl) => core.getPageMarkingEntry(configValue, pageUrl),
-// @ts-expect-error
-    getPageSaveReconciliationState: (pageUrl) => core.getPageSaveReconciliationState(pageUrl),
+    getDraftPageEntry: (pageUrl: string) => core.getDraftPageEntry(pageUrl),
+    getPageMarkingEntry: (
+      configValue: Parameters<PageDraftSaveDeps["getPageMarkingEntry"]>[0],
+      pageUrl: string
+    ) => core.getPageMarkingEntry(configValue as Config, pageUrl, undefined),
+    getPageSaveReconciliationState: (pageUrl: string) => core.getPageSaveReconciliationState(pageUrl),
     getPageUrl: () => location.href,
-// @ts-expect-error
-    getSavedPageEntry: (pageUrl) => core.getSavedPageEntry(pageUrl),
+    getSavedPageEntry: (pageUrl: string) => core.getSavedPageEntry(pageUrl),
     hideConsentElements: () => core.hideConsentElements(),
-    logContentDiagnostic,
+    logContentDiagnostic: (level: string, message: string, error: unknown) =>
+      logContentDiagnostic(level === "error" ? "error" : "warn", message, error),
     matchesActiveBaseUrl,
-// @ts-expect-error
-    notifyDraftStatus: (pageUrl) => core.notifyDraftStatus(pageUrl),
-// @ts-expect-error
-    refreshSavedPageEntryFromBackendCache: (baseUrl, pageUrl) =>
+    notifyDraftStatus: (pageUrl: string) => core.notifyDraftStatus(pageUrl),
+    refreshSavedPageEntryFromBackendCache: (baseUrl: string, pageUrl: string) =>
       core.refreshSavedPageEntryFromBackendCache(baseUrl, pageUrl),
-// @ts-expect-error
-    saveConfig: (baseUrl, configValue) => core.saveConfig(baseUrl, configValue),
-// @ts-expect-error
-    scheduleRender: () => core.scheduleRender(),
-// @ts-expect-error
-    setPageSaveReconciliationPending: (baseUrl, pageUrl, options) =>
-      core.setPageSaveReconciliationPending(baseUrl, pageUrl, options),
-// @ts-expect-error
-    setSavedPageEntry: (pageUrl, entry) => core.setSavedPageEntry(pageUrl, entry),
+    saveConfig: (
+      baseUrl: string,
+      configValue: Parameters<PageDraftSaveDeps["saveConfig"]>[1]
+    ) => core.saveConfig(baseUrl, configValue as Config),
+    scheduleRender: () => core.scheduleRender(undefined),
+    setPageSaveReconciliationPending: (
+      baseUrl: string,
+      pageUrl: string,
+      options: { reason: string }
+    ) => core.setPageSaveReconciliationPending(baseUrl, pageUrl, options).then(() => undefined),
+    setSavedPageEntry: (
+      pageUrl: string,
+      entry: Parameters<PageDraftSaveDeps["setSavedPageEntry"]>[1]
+    ) => core.setSavedPageEntry(pageUrl, entry as ContentPageEntry),
     showPageToast,
     submissionXpathsEqual,
-// @ts-expect-error
-    syncPageMarkings: (configValue, pageUrl, immutableExcluded, options) =>
-      core.syncPageMarkings(configValue, pageUrl, immutableExcluded, options),
-// @ts-expect-error
-    touchPageEntryTimestamp: (entry) => core.touchPageEntryTimestamp(entry)
+    syncPageMarkings: (
+      configValue: Parameters<PageDraftSaveDeps["syncPageMarkings"]>[0],
+      pageUrl: string,
+      immutableExcluded: unknown,
+      options: { allowCreate: boolean; persist: boolean }
+    ) =>
+      core.syncPageMarkings(configValue as Config, pageUrl, immutableExcluded, options),
+    touchPageEntryTimestamp: (entry: Parameters<PageDraftSaveDeps["touchPageEntryTimestamp"]>[0]) =>
+      core.touchPageEntryTimestamp(entry as ContentPageEntry)
   };
 }
 
-function createPageDraftStatusHandlerDeps() {
+function createPageDraftStatusHandlerDeps(): PageDraftStatusDeps {
   return {
-// @ts-expect-error
-    areEntriesEquivalent: (left, right) => core.areEntriesEquivalent(left, right),
-// @ts-expect-error
-    clonePageEntry: (entry) => core.clonePageEntry(entry),
+    areEntriesEquivalent: (left: unknown, right: unknown) => core.areEntriesEquivalent(left, right),
+    clonePageEntry: (entry: Parameters<PageDraftStatusDeps["clonePageEntry"]>[0]) =>
+      core.clonePageEntry(entry as ContentPageEntry),
     collectAiSubmissionXpathsForCurrentPage,
     collectImmutableElements: () => core.collectImmutableElements(),
     getConfig: () => state.config,
-// @ts-expect-error
-    getDraftPageEntry: (pageUrl) => core.getDraftPageEntry(pageUrl),
-// @ts-expect-error
-    getPageDraftDirty: (pageUrl) => core.isPageDraftDirty(pageUrl),
-// @ts-expect-error
-    getPageSaveReconciliationPending: (pageUrl) => core.isPageSaveReconciliationPending(pageUrl),
-// @ts-expect-error
-    getPageSaveReconciliationState: (pageUrl) => core.getPageSaveReconciliationState(pageUrl),
+    getDraftPageEntry: (pageUrl: string) => core.getDraftPageEntry(pageUrl),
+    getPageDraftDirty: (pageUrl: string) => core.isPageDraftDirty(pageUrl),
+    getPageSaveReconciliationPending: (pageUrl: string) => core.isPageSaveReconciliationPending(pageUrl),
+    getPageSaveReconciliationState: (pageUrl: string) => core.getPageSaveReconciliationState(pageUrl),
     getPageUrl: () => location.href,
-// @ts-expect-error
-    getSavedPageEntry: (pageUrl) => core.getSavedPageEntry(pageUrl),
-// @ts-expect-error
-    hasPageMarkingEntry: (configValue, pageUrl) => core.hasPageMarkingEntry(configValue, pageUrl),
-// @ts-expect-error
-    refreshSavedPageEntryFromBackendCache: (baseUrl, pageUrl) =>
-      core.refreshSavedPageEntryFromBackendCache(baseUrl, pageUrl),
-// @ts-expect-error
-    setSavedPageEntry: (pageUrl, entry) => core.setSavedPageEntry(pageUrl, entry),
+    getSavedPageEntry: (pageUrl: string) => core.getSavedPageEntry(pageUrl),
+    hasPageMarkingEntry: (configValue: unknown, pageUrl: string) => core.hasPageMarkingEntry(configValue, pageUrl),
+    refreshSavedPageEntryFromBackendCache: (baseUrl: unknown, pageUrl: string) =>
+      core.refreshSavedPageEntryFromBackendCache(baseUrl as string | undefined, pageUrl),
+    setSavedPageEntry: (
+      pageUrl: string,
+      entry: Parameters<PageDraftStatusDeps["setSavedPageEntry"]>[1]
+    ) => core.setSavedPageEntry(pageUrl, entry as ContentPageEntry),
     submissionXpathsEqual,
-// @ts-expect-error
-    syncPageMarkings: (configValue, pageUrl, immutableExcluded, options) =>
+    syncPageMarkings: (
+      configValue: unknown,
+      pageUrl: string,
+      immutableExcluded: unknown,
+      options: { allowCreate: boolean; persist: boolean }
+    ) =>
       core.syncPageMarkings(configValue, pageUrl, immutableExcluded, options)
   };
 }
 
-function createRenderModeInspectionHandlersDeps() {
+function createRenderModeInspectionHandlersDeps(): RenderModeInspectionDeps {
   return {
     armRenderModeInspectionWatchdog,
     cancelSilentHighlightEditorActivation,
@@ -6871,8 +6869,7 @@ function createRenderModeInspectionHandlersDeps() {
     getPropertyLockBannerMode: () => propertyLockBannerMode,
     getSilentHighlightEditorRevealInFlight: () => silentHighlightEditorRevealInFlight,
     hideConsentElements: () => core.hideConsentElements(),
-// @ts-expect-error
-    isPageWithinBaseUrl: (pageUrl, baseUrl) => utils.isPageWithinBaseUrl(pageUrl, baseUrl),
+    isPageWithinBaseUrl: (pageUrl: string, baseUrl: string) => utils.isPageWithinBaseUrl(pageUrl, baseUrl),
     isRenderModeInspectionActive,
     isRenderModeInspectionFlagSet: () => renderModeInspectionActive,
     consumePageVisitRevealFreezeAttempt,
@@ -6881,13 +6878,16 @@ function createRenderModeInspectionHandlersDeps() {
     renderPropertyLockBanner,
     resolveBaseUrlForCurrentPage,
     setRenderModeInspectionActive,
-// @ts-expect-error
-    setSilentHighlightEditorRevealInFlight: (value) => {
+    setSilentHighlightEditorRevealInFlight: (value: number) => {
       silentHighlightEditorRevealInFlight = value;
     },
     updatePropertyLockBannerMode,
-// @ts-expect-error
-    warmupSilentHighlightingBeforeMotionPause: (baseUrl, pageUrl, reason, options) =>
+    warmupSilentHighlightingBeforeMotionPause: (
+      baseUrl: string,
+      pageUrl: string,
+      reason: string,
+      options: { keepUiActive: boolean; onRevealProgress: () => void }
+    ) =>
       core.warmupSilentHighlightingBeforeMotionPause(baseUrl, pageUrl, reason, options),
     LIFECYCLE_KINDS,
     LIFECYCLE_PHASES,
@@ -6895,10 +6895,10 @@ function createRenderModeInspectionHandlersDeps() {
   };
 }
 
-function createPropertyLockPortClientDeps() {
+function createPropertyLockPortClientDeps(): PropertyLockPortClientDeps {
   return {
-// @ts-expect-error
-    connectRuntimePort: (options) => browser.runtime.connect(options),
+    connectRuntimePort: (options: Parameters<PropertyLockPortClientDeps["connectRuntimePort"]>[0]) =>
+      browser.runtime.connect(options),
     consumeRuntimeLastErrorMessage: () => {
       try {
         if (!browser.runtime) {
@@ -6908,8 +6908,7 @@ function createPropertyLockPortClientDeps() {
         return lastError && typeof lastError.message === "string" ? lastError.message : "";
       } catch (error) {
         if (utils.isExtensionContextInvalidatedError(error)) {
-// @ts-expect-error
-          return error && error.message ? error.message : "Extension context invalidated.";
+          return error instanceof Error && error.message ? error.message : "Extension context invalidated.";
         }
         throw error;
       }
@@ -6923,7 +6922,7 @@ function createPropertyLockPortClientDeps() {
       propertyLockEditorClaimPending = false;
     },
     shouldSkipReconnect: () => extensionContextInvalidated,
-    runSync: ({ forceSiteIdRefresh = false } = {}) => {
+    runSync: ({ forceSiteIdRefresh }: Parameters<PropertyLockPortClientDeps["runSync"]>[0]) => {
       runPropertyLockSync({ forceSiteIdRefresh });
     },
     PROPERTY_LOCK_CONTENT_DISCONNECT,
@@ -6932,7 +6931,7 @@ function createPropertyLockPortClientDeps() {
   };
 }
 
-function createPropertyLockBannerDeps() {
+function createPropertyLockBannerDeps(): PropertyLockBannerDeps {
   return {
     isPropertyLockCollaborationEnabled,
     clearPropertyLockBannerCountdown,
@@ -6946,13 +6945,11 @@ function createPropertyLockBannerDeps() {
     },
     getPropertyLockBannerMode: () => propertyLockBannerMode,
     getPropertyLockBannerCountdownTimer: () => propertyLockBannerCountdownTimer,
-// @ts-expect-error
-    setPropertyLockBannerCountdownTimer: (timer) => {
+    setPropertyLockBannerCountdownTimer: (timer: Parameters<PropertyLockBannerDeps["setPropertyLockBannerCountdownTimer"]>[0]) => {
       propertyLockBannerCountdownTimer = timer;
     },
     getPropertyLockBannerCountdownValue: () => propertyLockBannerCountdownValue,
-// @ts-expect-error
-    setPropertyLockBannerCountdownValue: (value) => {
+    setPropertyLockBannerCountdownValue: (value: Parameters<PropertyLockBannerDeps["setPropertyLockBannerCountdownValue"]>[0]) => {
       propertyLockBannerCountdownValue = value;
     },
     setPropertyLockBannerVisible: (visible: boolean) => {

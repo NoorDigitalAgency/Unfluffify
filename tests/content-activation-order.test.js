@@ -101,11 +101,15 @@ test("content-main warn/error diagnostics are trace-gated", () => {
     new URL("../src/content/page-draft-save-handler.ts", import.meta.url),
     "utf8"
   );
+  const draftSaveDepsStart = source.indexOf("function createPageDraftSaveHandlerDeps()");
+  const draftSaveDepsEnd = source.indexOf("function createPageDraftStatusHandlerDeps()", draftSaveDepsStart);
 
   assert.match(source, /function logContentDiagnostic\(level(?:\s*:\s*[^,]+)?, \.\.\.args(?:\s*:\s*[^)]+)?\) \{/);
   assert.match(source, /if \(!isWorldTraceEnabled\(\)\) \{\s*return;\s*\}/);
   assert.match(source, /const logger = level === "error" \? console\.error : console\.warn;/);
-  assert.match(source, /logContentDiagnostic,/);
+  assert.ok(draftSaveDepsStart > -1);
+  assert.ok(draftSaveDepsEnd > draftSaveDepsStart);
+  assert.match(source.slice(draftSaveDepsStart, draftSaveDepsEnd), /logContentDiagnostic:\s*\(/);
   assert.match(saveHandlerSource, /deps\.logContentDiagnostic\(\s*"warn",\s*"Failed to clear page-save reconciliation after save failure"/);
   assert.match(source, /logContentDiagnostic\("error", "Failed to enable marking from page:", error\);/);
   assert.match(source, /logContentDiagnostic\("warn", "\[Unfluffify\] Property lock sync failed; retrying\.", error\);/);
