@@ -1,5 +1,5 @@
 import { test } from "./test-kit.ts";
-// Tracks runtime @ts-ignore AND @ts-expect-error suppressions (migration in progress)
+// Tracks the documented runtime suppression floor for intentional exemptions.
 import { assert } from "./test-kit.ts";
 import { readdirSync, readFileSync } from "./file-kit.ts";
 import { path } from "./file-kit.ts";
@@ -12,16 +12,7 @@ const BUDGET_PATH = path.join(
   "tests/fixtures/ts-suppression-budget.json",
 );
 
-const RUNTIME_SCAN_TARGETS = [
-  "src/background",
-  "src/common",
-  "src/content",
-  "src/popup",
-  "src/background.ts",
-  "src/entrypoints/content-loader.content.ts",
-  "src/content-main.ts",
-  "src/popup.ts",
-];
+const RUNTIME_SCAN_TARGETS = ["src"];
 
 function collectTsIgnoreCounts() {
   const counts = new Map();
@@ -85,10 +76,14 @@ function readBudgetFixture() {
   };
 }
 
-test("runtime suppression directives stay within the tracked budget", () => {
+test("runtime suppression directives stay within the documented floor", () => {
   const { budgets, exempt } = readBudgetFixture();
   const actual = collectTsIgnoreCounts();
+  const actualPaths = Object.keys(actual).sort((a, b) => a.localeCompare(b));
+  const budgetPaths = Object.keys(budgets).sort((a, b) => a.localeCompare(b));
+  const exemptPaths = [...exempt].sort((a, b) => a.localeCompare(b));
   const staleExemptPaths = exempt.filter((filePath) => !(filePath in budgets));
+  const staleBudgetPaths = budgetPaths.filter((filePath) => !exempt.includes(filePath));
 
   const unexpectedFiles = Object.keys(actual)
     .filter((filePath) => !(filePath in budgets))
@@ -123,6 +118,24 @@ test("runtime suppression directives stay within the tracked budget", () => {
     staleExemptPaths,
     [],
     `exempt runtime suppression paths must stay aligned with budget keys:\n${staleExemptPaths.join("\n")}`,
+  );
+
+  assert.deepEqual(
+    staleBudgetPaths,
+    [],
+    `runtime suppression budgets must only track exempt paths:\n${staleBudgetPaths.join("\n")}`,
+  );
+
+  assert.deepEqual(
+    budgetPaths,
+    exemptPaths,
+    `runtime suppression budget keys must exactly match the exempt set:\nexpected ${exemptPaths.join(", ")}\nactual ${budgetPaths.join(", ")}`,
+  );
+
+  assert.deepEqual(
+    actualPaths,
+    budgetPaths,
+    `runtime suppression budget keys must exactly match the live suppression files:\nexpected ${actualPaths.join(", ")}\nactual ${budgetPaths.join(", ")}`,
   );
 
   assert.ok(

@@ -1,6 +1,6 @@
 # Post-WXT Cleanup and Type-Safety Finalization Plan
 
-Last updated: 2026-06-25
+Last updated: 2026-06-26
 
 ## Goal
 
@@ -24,45 +24,16 @@ WXT does not provide the required functionality.
   shared types in `src/types`, and stable public assets in `src/public`.
 - The repo has no runtime `@ts-ignore` and no runtime `@ts-nocheck`, guarded by
   `tests/no-ts-ignore-guard.test.js` and `tests/typing-ratchet.test.js`.
-- Runtime still has 1,663 tracked `@ts-expect-error` suppressions across:
-  `src/content/core.ts`, `src/content-main.ts`, `src/popup.ts`, and the eval
-  bridge pair `src/common/page-motion-freeze-bridge.ts` /
-  `src/common/page-motion-freeze-control.ts`.
-- `src/common/config.ts` is now suppression-free after the config
-  normalization/persistence cleanup batches.
-- `src/popup/ui.ts` is now suppression-free after typing the popup view state,
-  render props, and configuration/control helper surfaces.
-- `src/popup.ts` is down to 111 tracked suppressions after typing the
-  `refreshUi()` view-state projector against `uiModule.getViewState()` and
-  tightening the preview-state/open-flow helpers around `buildPreviewViewState()`
-  plus the preview close/restore helpers around `requestTabCloseAiPreview()`,
-  `applyPreviewClosedState()`, preview-restore token handling, and the
-  runtime-status / preview-restore reconciliation helpers around
-  `setCurrentPageSaveReconciliationReason()`,
-  `finalizePreviewRestoreFromRuntime()`, and
-  `refreshCurrentPageRuntimeStatus()`, then typing the navigation-inspection /
-  render-mode-set guard helpers around
-  `clearNavigationInspectionSettlePoll()`,
-  `startRenderModeSetNavGuard()`,
-  `clearRenderModeSetNavGuard()`,
-  `noteRenderModeSetNavGuardInspection()`,
-  `shouldHoldNavInspectUntilRenderModeInspectionSeen()`,
-  `isRenderModeSetNavGuardActive()`, and
-  `scheduleNavigationInspectionSettlePoll()`, then typing the large popup
-  dependency-bag / broker / spinner-helper seam around:
-  `getPropertyLockUiDeps()`,
-  `getSpinnerDeps()`,
-  `getSiteResolutionDeps()`,
-  `getRemoteConfigDeps()`,
-  `getRenderModeInspectionDeps()`,
-  `getPageReconciliationDeps()`,
-  spinner projection/busy-mirror helpers, and the popup background snapshot /
-  spinner-broker restore path, then typing the remaining helper-heavy popup seam
-  around theme/device-preview persistence, trace-mode tab sync,
-  page-marking snapshot/fingerprint utilities, render-mode suggestion and
-  inspection snapshot helpers, AI-run heartbeat/cleanup helpers, remote invalid
-  page-marking cleanup, config sync status helpers, and popup enabled-context
-  tracking.
+- All non-exempt runtime `@ts-expect-error` suppressions are gone. The only
+  remaining tracked suppressions are the intentional eval/byte-parity bridge pair
+  `src/common/page-motion-freeze-bridge.ts` (43) and
+  `src/common/page-motion-freeze-control.ts` (37), for a total of 80, ratcheted
+  by `tests/fixtures/ts-suppression-budget.json` and
+  `tests/ts-suppression-budget.test.js`.
+- `src/background.ts`, `src/common/config.ts`, `src/content/core.ts`,
+  `src/content-main.ts`, `src/popup/ui.ts`, and `src/popup.ts` are now
+  suppression-free after the cleanup batches that typed their remaining runtime,
+  DOM, config, message, and UI-helper seams without changing locked behavior.
 - `tests/browser-polyfill-boundary.test.js` still keeps an explicit
   `CURRENT_MIGRATION_DEBT_FILES` bucket, but it is now empty. The remaining
   named boundary buckets are `src/common/browser.ts`,

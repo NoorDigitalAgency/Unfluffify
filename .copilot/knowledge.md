@@ -121,6 +121,10 @@
   tests. Any typing needed for the module copy must live **before** the
   `STATE_KEY` marker or outside that shared body, otherwise parity/eval tests
   fail.
+- Runtime suppression tracking is now down to that locked page-motion pair only:
+  `tests/fixtures/ts-suppression-budget.json` should list just
+  `src/common/page-motion-freeze-bridge.ts` and
+  `src/common/page-motion-freeze-control.ts` as the intentional exempt floor.
 - Release packaging now stages from the synced WXT output at
   `.output/chrome-mv3`. `pnpm verify` runs the pnpm lint/check/test pipeline,
   rebuilds via `pnpm build`, and then runs the generated-manifest permission

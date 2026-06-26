@@ -1,7 +1,7 @@
 import { extname, join, relative } from "node:path";
 import { readFile, readdir, writeFile } from "node:fs/promises";
 
-// Tracks runtime @ts-ignore AND @ts-expect-error suppressions (migration in progress)
+// Tracks runtime suppression counts and can reseed the intentional exemption floor.
 
 const REPO_ROOT = process.cwd();
 const FIXTURE_PATH = join(
@@ -10,16 +10,7 @@ const FIXTURE_PATH = join(
   "fixtures",
   "ts-suppression-budget.json",
 );
-const RUNTIME_SCAN_TARGETS = [
-  "src/background",
-  "src/common",
-  "src/content",
-  "src/popup",
-  "src/background.ts",
-  "src/entrypoints/content-loader.content.ts",
-  "src/content-main.ts",
-  "src/popup.ts",
-];
+const RUNTIME_SCAN_TARGETS = ["src"];
 const DEFAULT_EXEMPT = [
   "src/common/page-motion-freeze-bridge.ts",
   "src/common/page-motion-freeze-control.ts",
@@ -113,9 +104,13 @@ function resolveExemptPaths(existingExempt, perFile) {
 
 async function reseedFixture(perFile) {
   const existing = await readExistingFixture();
+  const exempt = resolveExemptPaths(existing?.exempt, perFile)
+    .filter((filePath) => filePath in perFile);
   const fixture = {
-    budgets: perFile,
-    exempt: resolveExemptPaths(existing?.exempt, perFile),
+    budgets: Object.fromEntries(
+      exempt.map((filePath) => [filePath, perFile[filePath]]),
+    ),
+    exempt,
   };
   const output = `${JSON.stringify(fixture, null, 2)}\n`;
   await writeFile(FIXTURE_PATH, output, "utf8");
