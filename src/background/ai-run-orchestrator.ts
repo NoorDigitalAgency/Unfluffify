@@ -9,9 +9,9 @@ type PersistedAiRunRecord = {
   expiresAt: number;
   deadlineAt: number;
 };
-type AiSelectorSet = ReturnType<typeof import("../common/selector-set.js").normalizeAiSelectorSet>;
-type AiRunSubmissionEntry = Parameters<typeof import("../popup/ai-run.js").buildAiSubmissionXpaths>[0];
-type AiRunSubmissionXpath = ReturnType<typeof import("../popup/ai-run.js").buildAiSubmissionXpaths>[number];
+type AiSelectorSet = ReturnType<typeof import("../common/selector-set").normalizeAiSelectorSet>;
+type AiRunSubmissionEntry = Parameters<typeof import("../popup/ai-run").buildAiSubmissionXpaths>[0];
+type AiRunSubmissionXpath = ReturnType<typeof import("../popup/ai-run").buildAiSubmissionXpaths>[number];
 type AiRunPayloadPage = {
   url: string;
   renderedHtml: string;
@@ -94,7 +94,7 @@ interface AiRunOrchestratorOptions {
   normalizeActivationBaseUrl?(value: string | null | undefined): string;
   normalizeSiteIdValue?(value: SiteIdLike): number | null;
   normalizeAiSelectorSet?(
-    value: Parameters<typeof import("../common/selector-set.js").normalizeAiSelectorSet>[0]
+    value: Parameters<typeof import("../common/selector-set").normalizeAiSelectorSet>[0]
   ): AiSelectorSet;
   buildAiSubmissionXpaths?(
     entry: AiRunSubmissionEntry

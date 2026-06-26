@@ -1,13 +1,13 @@
-import * as configStore from "../common/config.js";
-import { buildLynxChecklistAssignments, normalizePropertyPageTypes } from "../common/lynx-checklist.js";
-import { normalizeSiteIdValue } from "../common/lynx-live-pages.js";
-import { aiSelectorSetsEqual, normalizeAiSelectorSet } from "../common/selector-set.js";
-import * as utils from "../common/utilities.js";
+import * as configStore from "../common/config";
+import { buildLynxChecklistAssignments, normalizePropertyPageTypes } from "../common/lynx-checklist";
+import { normalizeSiteIdValue } from "../common/lynx-live-pages";
+import { aiSelectorSetsEqual, normalizeAiSelectorSet } from "../common/selector-set";
+import * as utils from "../common/utilities";
 import {
   consumeTransferPayload,
   putTransferPayload
-} from "./transfer-payload-store.js";
-import { fetchStaticPageHtmlForBackground } from "./remote-network.js";
+} from "./transfer-payload-store";
+import { fetchStaticPageHtmlForBackground } from "./remote-network";
 import type { Config, PageMarkings } from "../types/config.ts";
 
 type StoredConfigs = Record<string, unknown>;

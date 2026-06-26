@@ -1,11 +1,11 @@
-import type { ActivationSnapshot } from "../../common/bus/contracts/activation.js";
+import type { ActivationSnapshot } from "../../common/bus/contracts/activation";
 import type {
   RenderModeDirectiveState,
   RenderModeViewState,
-} from "../../common/bus/contracts/render-mode.js";
-import { LIFECYCLE_KINDS } from "../../common/world-messaging-contract.js";
-import type { PopupViewEnvelope } from "../../common/bus/contracts/popup-state.js";
-import type { TabLayerState } from "./state-store.js";
+} from "../../common/bus/contracts/render-mode";
+import { LIFECYCLE_KINDS } from "../../common/world-messaging-contract";
+import type { PopupViewEnvelope } from "../../common/bus/contracts/popup-state";
+import type { TabLayerState } from "./state-store";
 
 export type PopupView = PopupViewEnvelope;
 

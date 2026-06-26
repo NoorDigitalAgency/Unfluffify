@@ -4,8 +4,8 @@ import {
   idbSet,
   normalizeBaseUrl,
   normalizeCanonicalBaseUrl
-} from "./utilities.js";
-import { normalizeSiteIdValue } from "./lynx-live-pages.js";
+} from "./utilities";
+import { normalizeSiteIdValue } from "./lynx-live-pages";
 import type {
   Config,
   PageMarkingEntry,

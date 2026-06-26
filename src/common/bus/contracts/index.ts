@@ -1,4 +1,4 @@
-import type { Realm } from "../realms.js";
+import type { Realm } from "../realms";
 
 export const DIAGNOSTIC_REQUEST_TYPES = Object.freeze({
   PING: "diag.ping",
@@ -21,5 +21,5 @@ export type DiagnosticEchoPayload = Readonly<{
   nonce: string;
 }>;
 
-export * from "./activation.js";
-export * from "./render-mode.js";
+export * from "./activation";
+export * from "./render-mode";

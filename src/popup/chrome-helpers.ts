@@ -1,4 +1,4 @@
-import * as utils from "../common/utilities.js";
+import * as utils from "../common/utilities";
 
 const CLEAR_BROWSING_DATA_TIMEOUT_MS = 20000;
 const RELOAD_TAB_TIMEOUT_MS = 10000;

@@ -1,3 +1,3 @@
-import { startOffscreen } from "../../offscreen/bootstrap.js";
+import { startOffscreen } from "../../offscreen/bootstrap";
 
 startOffscreen();

@@ -1,7 +1,7 @@
 import {
   LIFECYCLE_PHASES,
   SPINNER_OWNERS
-} from "../common/world-messaging-contract.js";
+} from "../common/world-messaging-contract";
 import type {
   TabLifecycleUpdate,
   TabOperationBase,
@@ -14,7 +14,7 @@ import type {
   TabOperationWork,
   TabSpinnerDescriptor,
   TabSpinnerRunner
-} from "../types/operations.js";
+} from "../types/operations";
 
 type SettledOutcome =
   | { status: "fulfilled"; result: Record<string, unknown> }

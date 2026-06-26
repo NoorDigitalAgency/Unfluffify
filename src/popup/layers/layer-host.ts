@@ -1,7 +1,7 @@
-import type { Bus } from "../../common/bus/bus.js";
-import { POPUP_STATE_EVENT_TYPES, type PopupStateGetReply } from "../../common/bus/contracts/popup-state.js";
-import { SPINNER_EVENT_TYPES } from "../../common/bus/contracts/spinner.js";
-import { clearPopupSpinnerSurface, renderPopupSpinnerSurface } from "./spinner-layer.js";
+import type { Bus } from "../../common/bus/bus";
+import { POPUP_STATE_EVENT_TYPES, type PopupStateGetReply } from "../../common/bus/contracts/popup-state";
+import { SPINNER_EVENT_TYPES } from "../../common/bus/contracts/spinner";
+import { clearPopupSpinnerSurface, renderPopupSpinnerSurface } from "./spinner-layer";
 
 type PopupViewLike = PopupStateGetReply;
 

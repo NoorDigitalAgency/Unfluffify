@@ -11,7 +11,7 @@
  * - Tab IDs are used only for local popup-to-port lookup, never as lock identity
  */
 
-import { browser, type Browser } from "./browser.js";
+import { browser, type Browser } from "./browser";
 import {
   PROPERTY_LOCK_PORT_NAME,
   PROPERTY_LOCK_CONTENT_CONNECT,
@@ -60,13 +60,13 @@ import {
   buildPropertyLockWssUrl,
   normalizeLockStateMessage,
   createInactiveLockState
-} from "./property-lock.js";
+} from "./property-lock";
 import {
   FEATURE_DISABLED_REASON,
   isFeatureEnabled
-} from "./feature-flags.js";
-import * as utils from "./utilities.js";
-import { getPropertyLockConnectionSettings } from "./settings-store.js";
+} from "./feature-flags";
+import * as utils from "./utilities";
+import { getPropertyLockConnectionSettings } from "./settings-store";
 
 /** Normalized lock-state shape produced by the property-lock helpers. */
 type LockState = ReturnType<typeof createInactiveLockState>;

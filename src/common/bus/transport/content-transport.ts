@@ -1,10 +1,10 @@
-import { BUS_ERROR_CODES, BusError } from "../bus-errors.js";
-import { type BusEnvelope } from "../envelope.js";
-import { REALMS } from "../realms.js";
-import { type Browser } from "../../browser.js";
-import { sendBusEnvelope } from "../../extension-messaging.js";
-import { createPageRelayTransport } from "./page-relay-transport.js";
-import type { InboundTransportHandler, Transport } from "./transport-types.js";
+import { BUS_ERROR_CODES, BusError } from "../bus-errors";
+import { type BusEnvelope } from "../envelope";
+import { REALMS } from "../realms";
+import { type Browser } from "../../browser";
+import { sendBusEnvelope } from "../../extension-messaging";
+import { createPageRelayTransport } from "./page-relay-transport";
+import type { InboundTransportHandler, Transport } from "./transport-types";
 
 export type ContentTransport = Transport & {
   inbound(env: BusEnvelope, sender?: Browser.runtime.MessageSender): Promise<BusEnvelope | void>;

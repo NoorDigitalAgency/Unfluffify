@@ -5,7 +5,7 @@ import { readFileSync } from "./file-kit.ts";
 const remoteNetworkSource = readFileSync(new URL("../src/background/remote-network.ts", import.meta.url), "utf8");
 
 test("remote-network uses transfer payload store for heavy request and response bodies", () => {
-  assert.match(remoteNetworkSource, /from "\.\/transfer-payload-store\.js"/);
+  assert.match(remoteNetworkSource, /from "\.\/transfer-payload-store"/);
   assert.match(remoteNetworkSource, /await putTransferPayload\("load", payload\)/);
   assert.match(remoteNetworkSource, /await getTransferPayload\(requestPayloadKey, \{ expectedType: "object" \}\)/);
   assert.match(remoteNetworkSource, /await putTransferPayload\("save-response", payload\)/);

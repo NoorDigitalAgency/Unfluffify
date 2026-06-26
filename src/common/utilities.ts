@@ -1,5 +1,5 @@
-import { isDebugFlagEnabled } from "./feature-flags.js";
-import { browser, callBrowserApi, callBrowserApiVoid, type Browser } from "./browser.js";
+import { isDebugFlagEnabled } from "./feature-flags";
+import { browser, callBrowserApi, callBrowserApiVoid, type Browser } from "./browser";
 import {
   addStorageChangeListener,
   getStorageAreaName,
@@ -8,7 +8,7 @@ import {
   storageGet,
   storageRemove,
   storageSet
-} from "./storage-core.js";
+} from "./storage-core";
 import {
   clearScriptInjected as clearStoredScriptInjectedState,
   clearTabStateScope,
@@ -17,7 +17,7 @@ import {
   isScriptInjected as getScriptInjectedState,
   setScriptInjected as setStoredScriptInjectedState,
   setTabState as setStoredTabState
-} from "../background/tab-session-store.js";
+} from "../background/tab-session-store";
 
 export {
   addStorageChangeListener,

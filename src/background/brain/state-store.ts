@@ -2,13 +2,13 @@ import type {
   ActivationBootstrapStatus,
   ActivationLifecycleSnapshot,
   ActivationSnapshot,
-} from "../../common/bus/contracts/activation.js";
+} from "../../common/bus/contracts/activation";
 import type {
   PopupSpinnerEntry,
   PopupLifecycleState,
   PopupTraceEvent,
-} from "../../common/bus/contracts/popup-state.js";
-import type { RenderModeViewState } from "../../common/bus/contracts/render-mode.js";
+} from "../../common/bus/contracts/popup-state";
+import type { RenderModeViewState } from "../../common/bus/contracts/render-mode";
 
 export type SpinnerSelection = Readonly<{
   kind: string;

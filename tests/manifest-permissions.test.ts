@@ -98,11 +98,11 @@ test("content and common code modules are not left web-accessible after native c
   const importedContentModules = new Set();
   const importedCommonModules = new Set();
 
-  for (const match of contentMain.matchAll(/from\s+"(\.\/content\/[^"]+\.js)"/g)) {
-    importedContentModules.add(match[1].replace(/^\.\//, ""));
+  for (const match of contentMain.matchAll(/from\s+"(\.\/content\/[^"]+)"/g)) {
+    importedContentModules.add(`${match[1].replace(/^\.\//, "")}.js`);
   }
-  for (const match of contentMain.matchAll(/from\s+"(\.\/common\/[^"]+\.js)"/g)) {
-    importedCommonModules.add(match[1].replace(/^\.\//, ""));
+  for (const match of contentMain.matchAll(/from\s+"(\.\/common\/[^"]+)"/g)) {
+    importedCommonModules.add(`${match[1].replace(/^\.\//, "")}.js`);
   }
 
   assert.ok(

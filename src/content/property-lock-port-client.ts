@@ -1,4 +1,4 @@
-import type { Browser } from "../common/browser.js";
+import type { Browser } from "../common/browser";
 
 type PropertyLockTimeoutId = ReturnType<WindowOrWorkerGlobalScope["setTimeout"]>;
 

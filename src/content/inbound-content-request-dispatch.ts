@@ -1,11 +1,11 @@
-import { type Browser } from "../common/browser.js";
+import { type Browser } from "../common/browser";
 import {
   MESSAGE_ERROR_CODES,
   MESSAGE_TARGETS,
   createFailureEnvelope,
   isRequestEnvelope,
   type RequestEnvelope
-} from "../common/message-protocol.js";
+} from "../common/message-protocol";
 
 type DispatchInboundContentCommand = (
   message: RequestEnvelope,

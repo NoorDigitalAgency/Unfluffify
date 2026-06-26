@@ -1,12 +1,12 @@
-import { normalizePropertyPageTypes } from "../common/lynx-checklist.js";
+import { normalizePropertyPageTypes } from "../common/lynx-checklist";
 import {
   PROPERTY_PAGE_TYPES_QUERY,
   URL_SEARCH_INFO_QUERY,
   buildGraphqlEndpointFromStageBase,
   maybeUpdateStoredTokenFromResponse,
   normalizeSiteIdValue
-} from "../common/lynx-live-pages.js";
-import { normalizeCanonicalBaseUrl } from "../common/utilities.js";
+} from "../common/lynx-live-pages";
+import { normalizeCanonicalBaseUrl } from "../common/utilities";
 
 type ResolveCredentialsResult = {
   stageBaseValue: string;

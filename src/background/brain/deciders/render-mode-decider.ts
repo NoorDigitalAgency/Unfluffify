@@ -1,5 +1,5 @@
-import type { RenderModeViewState } from "../../../common/bus/contracts/render-mode.js";
-import type { TabLayerState } from "../state-store.js";
+import type { RenderModeViewState } from "../../../common/bus/contracts/render-mode";
+import type { TabLayerState } from "../state-store";
 
 type RenderModeStateStore = {
   getOrInit(tabId: number): TabLayerState;

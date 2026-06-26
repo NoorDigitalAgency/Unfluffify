@@ -1,9 +1,9 @@
 import { defineExtensionMessaging } from "@webext-core/messaging";
 
-import { browser, type Browser } from "./browser.js";
-import { type BusEnvelope, BUS_PROTOCOL } from "./bus/envelope.js";
-import { REALMS } from "./bus/realms.js";
-import { MESSAGE_TARGETS, type RequestEnvelope } from "./message-protocol.js";
+import { browser, type Browser } from "./browser";
+import { type BusEnvelope, BUS_PROTOCOL } from "./bus/envelope";
+import { REALMS } from "./bus/realms";
+import { MESSAGE_TARGETS, type RequestEnvelope } from "./message-protocol";
 
 export const REQUEST_PROTOCOL = "uf-runtime-request/1" as const;
 

@@ -3,9 +3,9 @@ import type {
   PopupState,
   RenderModeInspectionSnapshot
 } from "../types/popup-state.ts";
-import type { Browser } from "../common/browser.js";
+import type { Browser } from "../common/browser";
 
-type BrowserApi = typeof import("../common/browser.js").browser;
+type BrowserApi = typeof import("../common/browser").browser;
 
 type RenderModeDetectionResult = {
   result: string;

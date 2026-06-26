@@ -4,8 +4,8 @@ import {
   createSuccessEnvelope,
   isReplyEnvelope,
   isRequestEnvelope
-} from "../common/message-protocol.js";
-import type { Browser } from "../common/browser.js";
+} from "../common/message-protocol";
+import type { Browser } from "../common/browser";
 
 type ContentCommandContext = {
   message: unknown;

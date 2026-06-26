@@ -5,14 +5,14 @@ import {
   WORLD_MESSAGE_TYPES,
   isCurtainBearingLifecycleKind,
   isLifecycleTerminalPhase
-} from "../common/world-messaging-contract.js";
-import type { Browser } from "../common/browser.js";
-import { createSpinnerOperationLease } from "../common/spinner-contract.js";
+} from "../common/world-messaging-contract";
+import type { Browser } from "../common/browser";
+import { createSpinnerOperationLease } from "../common/spinner-contract";
 import type {
   PopupSpinnerEntry,
   PopupLifecycleState,
   PopupTraceEvent,
-} from "../common/bus/contracts/popup-state.js";
+} from "../common/bus/contracts/popup-state";
 
 type LifecycleState = PopupLifecycleState;
 type SpinnerEntry = Record<string, unknown>;

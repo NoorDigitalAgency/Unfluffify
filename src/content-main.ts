@@ -1,22 +1,22 @@
-import * as core from "./content/core.js";
-import { browser, type Browser } from "./common/browser.js";
+import * as core from "./content/core";
+import { browser, type Browser } from "./common/browser";
 import type { Config, SelectorSet, XpathEntry } from "./types/config.ts";
 import {
   addBusEnvelopeListener,
   addRequestEnvelopeListener
-} from "./common/extension-messaging.js";
-import * as config from "./common/config.js";
+} from "./common/extension-messaging";
+import * as config from "./common/config";
 import {
   FEATURE_DISABLED_REASON,
   isDebugFlagEnabled,
   isFeatureEnabled
-} from "./common/feature-flags.js";
-import * as utils from "./common/utilities.js";
+} from "./common/feature-flags";
+import * as utils from "./common/utilities";
 import {
   DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS,
   DEFAULT_EXCLUDED_TOGGLEABLE_SELECTORS,
   EXTENSION_UI_FONT_STACK
-} from "./common/constants.js";
+} from "./common/constants";
 import {
   normalizeAiSelectorSet,
   combineAiSelectorSet,
@@ -24,16 +24,16 @@ import {
   buildInclusionContextSet,
   getNormalizedTextContent as getNormalizedNodeText,
   canUseCollapsedTextFallback as canUseCollapsedTextFallbackNode
-} from "./content/shared-inclusion.js";
+} from "./content/shared-inclusion";
 import {
   normalizeCandidatePageUrl,
   normalizePropertyPageTypes
-} from "./common/lynx-checklist.js";
+} from "./common/lynx-checklist";
 import {
   getCurrentPageCandidateState,
   normalizeSiteIdValue,
   normalizeStageBase as normalizeStageBaseValue
-} from "./common/lynx-live-pages.js";
+} from "./common/lynx-live-pages";
 import {
   DEFAULT_SILENT_HIGHLIGHT_SETTLE_MAX_WAIT_MS,
   DEFAULT_SILENT_HIGHLIGHT_SETTLE_STABLE_SAMPLES,
@@ -41,17 +41,17 @@ import {
   shouldRetainIncludedSource,
   shouldRenderSilentHighlightOverlay,
   sampleSettledSilentHighlightPosition
-} from "./content/silent-highlight-rules.js";
+} from "./content/silent-highlight-rules";
 import {
   collectCachedSelectorMatches,
   SELECTOR_LIST_DELIMITER,
   getSelectorFingerprint,
   invalidateSharedSelectorCache
-} from "./content/shared-selector-cache.js";
+} from "./content/shared-selector-cache";
 import {
   isAiSubmissionDocumentRootXpath,
   resolveAiSubmissionRowState
-} from "./content/submission-rules.js";
+} from "./content/submission-rules";
 
 import {
   PROPERTY_LOCK_STATE_UNLOCKED,
@@ -88,63 +88,63 @@ import {
   PROPERTY_LOCK_WS_ERROR,
   normalizePropertyLockClientId,
   createPropertyLockClientId
-} from "./common/property-lock.js";
-import { propertyLockText } from "./common/text.js";
+} from "./common/property-lock";
+import { propertyLockText } from "./common/text";
 import {
   CONTENT_MODES,
   LIFECYCLE_KINDS,
   LIFECYCLE_PHASES,
   WORLD_MESSAGE_TYPES
-} from "./common/world-messaging-contract.js";
+} from "./common/world-messaging-contract";
 import {
   dispatchContentCommand,
   registerContentCommand
-} from "./content/content-command-router.js";
-import { createContentMainServiceRegistry } from "./content/content-main-service-registry.js";
-import { handleRuntimeMessage } from "./content/runtime-message-handler.js";
-import { createAiPreviewCloseHandler } from "./content/ai-preview-close-handler.js";
-import { createAiPreviewComputeLockHandler } from "./content/ai-preview-compute-lock-handler.js";
-import { createAiPreviewExpandedModeHandler } from "./content/ai-preview-expanded-mode-handler.js";
-import { createAiPreviewGetStateHandler } from "./content/ai-preview-get-state-handler.js";
-import { createAiPreviewShowHandler } from "./content/ai-preview-show-handler.js";
-import { createAiPreviewStateResponseBuilder } from "./content/ai-preview-state-response.js";
-import { createAiSubmissionXpathsHandler } from "./content/ai-submission-xpaths-handler.js";
-import { createCollectPageDataHandler } from "./content/collect-page-data-handler.js";
-import { createCapturePageSnapshotHandler } from "./content/capture-page-snapshot-handler.js";
-import { createConfigUpdatedHandler } from "./content/config-updated-handler.js";
-import { createDefaultExclusionsHandler } from "./content/default-exclusions-handler.js";
-import { createDescribeXpathsHandler } from "./content/describe-xpaths-handler.js";
-import { createExplicitMarkingHandler } from "./content/explicit-marking-handler.js";
-import { createFocusHandler } from "./content/focus-handler.js";
-import { createForceRefreshHandler } from "./content/force-refresh-handler.js";
-import { createInvisibleXpathsHandler } from "./content/invisible-xpaths-handler.js";
-import { createInspectionStatusResolver } from "./content/inspection-status.js";
-import { createPageDraftStatusHandler } from "./content/page-draft-status-handler.js";
-import { createPageDraftRevertHandler } from "./content/page-draft-revert-handler.js";
-import { createPageDraftSaveHandler } from "./content/page-draft-save-handler.js";
-import { createPageSaveReconciliationClearHandler } from "./content/page-save-reconciliation-clear-handler.js";
-import { createPageSaveReconciliationPendingHandler } from "./content/page-save-reconciliation-pending-handler.js";
-import { initializePageWorldRelay } from "./content/page-world-relay.js";
-import { createPageToast } from "./content/page-toast.js";
-import { handleContentBusMessage, startContentBusClient } from "./content/layers/content-bus-client.js";
-import { createRenderModeInspectionClient } from "./content/render-mode-inspection-client.js";
-import { createRenderModeInspectionHandlers } from "./content/render-mode-inspection-handlers.js";
-import { createVisibleXpathsHandler } from "./content/visible-xpaths-handler.js";
+} from "./content/content-command-router";
+import { createContentMainServiceRegistry } from "./content/content-main-service-registry";
+import { handleRuntimeMessage } from "./content/runtime-message-handler";
+import { createAiPreviewCloseHandler } from "./content/ai-preview-close-handler";
+import { createAiPreviewComputeLockHandler } from "./content/ai-preview-compute-lock-handler";
+import { createAiPreviewExpandedModeHandler } from "./content/ai-preview-expanded-mode-handler";
+import { createAiPreviewGetStateHandler } from "./content/ai-preview-get-state-handler";
+import { createAiPreviewShowHandler } from "./content/ai-preview-show-handler";
+import { createAiPreviewStateResponseBuilder } from "./content/ai-preview-state-response";
+import { createAiSubmissionXpathsHandler } from "./content/ai-submission-xpaths-handler";
+import { createCollectPageDataHandler } from "./content/collect-page-data-handler";
+import { createCapturePageSnapshotHandler } from "./content/capture-page-snapshot-handler";
+import { createConfigUpdatedHandler } from "./content/config-updated-handler";
+import { createDefaultExclusionsHandler } from "./content/default-exclusions-handler";
+import { createDescribeXpathsHandler } from "./content/describe-xpaths-handler";
+import { createExplicitMarkingHandler } from "./content/explicit-marking-handler";
+import { createFocusHandler } from "./content/focus-handler";
+import { createForceRefreshHandler } from "./content/force-refresh-handler";
+import { createInvisibleXpathsHandler } from "./content/invisible-xpaths-handler";
+import { createInspectionStatusResolver } from "./content/inspection-status";
+import { createPageDraftStatusHandler } from "./content/page-draft-status-handler";
+import { createPageDraftRevertHandler } from "./content/page-draft-revert-handler";
+import { createPageDraftSaveHandler } from "./content/page-draft-save-handler";
+import { createPageSaveReconciliationClearHandler } from "./content/page-save-reconciliation-clear-handler";
+import { createPageSaveReconciliationPendingHandler } from "./content/page-save-reconciliation-pending-handler";
+import { initializePageWorldRelay } from "./content/page-world-relay";
+import { createPageToast } from "./content/page-toast";
+import { handleContentBusMessage, startContentBusClient } from "./content/layers/content-bus-client";
+import { createRenderModeInspectionClient } from "./content/render-mode-inspection-client";
+import { createRenderModeInspectionHandlers } from "./content/render-mode-inspection-handlers";
+import { createVisibleXpathsHandler } from "./content/visible-xpaths-handler";
 import {
   clearPropertyLockBannerCountdown as clearPropertyLockBannerCountdownOperation,
   ensurePropertyLockBannerStyle as ensurePropertyLockBannerStyleOperation,
   renderPropertyLockBanner as renderPropertyLockBannerOperation,
   restartPropertyLockBannerCountdown as restartPropertyLockBannerCountdownOperation
-} from "./content/property-lock-banner.js";
-import { updatePropertyLockBannerMode as updatePropertyLockBannerModeOperation } from "./content/property-lock-banner-mode.js";
-import { createPropertyLockPortClient } from "./content/property-lock-port-client.js";
-import { createPropertyLockStateMachine } from "./content/property-lock-state-machine.js";
+} from "./content/property-lock-banner";
+import { updatePropertyLockBannerMode as updatePropertyLockBannerModeOperation } from "./content/property-lock-banner-mode";
+import { createPropertyLockPortClient } from "./content/property-lock-port-client";
+import { createPropertyLockStateMachine } from "./content/property-lock-state-machine";
 import {
   MESSAGE_ERROR_CODES,
   MESSAGE_TARGETS
-} from "./common/message-protocol.js";
-import { getGlobalAiSettings } from "./common/settings-store.js";
-import { routeInboundContentRequestMessage } from "./content/inbound-content-request-dispatch.js";
+} from "./common/message-protocol";
+import { getGlobalAiSettings } from "./common/settings-store";
+import { routeInboundContentRequestMessage } from "./content/inbound-content-request-dispatch";
 import type { RuntimeMessage } from "./types/messaging.ts";
 
 const { state } = core;

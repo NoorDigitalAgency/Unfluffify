@@ -2,8 +2,8 @@ import {
   getSpinnerPhaseDefinition,
   type SpinnerBlockSurfaces,
   type SpinnerTimerMode,
-} from "../../common/spinner-contract.js";
-import type { SpinnerSelection, TabLayerState } from "./state-store.js";
+} from "../../common/spinner-contract";
+import type { SpinnerSelection, TabLayerState } from "./state-store";
 
 export type SpinnerState = Readonly<{
   title: string;

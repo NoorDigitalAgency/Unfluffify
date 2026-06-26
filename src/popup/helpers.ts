@@ -1,11 +1,11 @@
-import * as emulation from "./emulation.js";
-import * as messages from "./messages.js";
-import * as stateModule from "./state.js";
-import { PopupText, ViewText, formatScalePercent } from "../common/text.js";
-import * as uiModule from "./ui.js";
-import * as utils from "../common/utilities.js";
-import { getGlobalAiSettings } from "../common/settings-store.js";
-import type { Browser } from "../common/browser.js";
+import * as emulation from "./emulation";
+import * as messages from "./messages";
+import * as stateModule from "./state";
+import { PopupText, ViewText, formatScalePercent } from "../common/text";
+import * as uiModule from "./ui";
+import * as utils from "../common/utilities";
+import { getGlobalAiSettings } from "../common/settings-store";
+import type { Browser } from "../common/browser";
 
 const { state } = stateModule;
 

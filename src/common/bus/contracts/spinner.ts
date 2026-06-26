@@ -1,8 +1,8 @@
-import type { PopupStateGetReply } from "./popup-state.js";
+import type { PopupStateGetReply } from "./popup-state";
 import type {
   SpinnerBlockSurfaces,
   SpinnerTimerMode,
-} from "../../spinner-contract.js";
+} from "../../spinner-contract";
 
 export const SPINNER_REQUEST_TYPES = Object.freeze({
   SET: "spinner.entry.set",

@@ -1,8 +1,8 @@
-import * as utils from "../common/utilities.js";
-import { requestRuntime } from "../common/async-messaging.js";
-import { browser, type Browser } from "../common/browser.js";
-import * as stateModule from "./state.js";
-import { isDebugFlagEnabled } from "../common/feature-flags.js";
+import * as utils from "../common/utilities";
+import { requestRuntime } from "../common/async-messaging";
+import { browser, type Browser } from "../common/browser";
+import * as stateModule from "./state";
+import { isDebugFlagEnabled } from "../common/feature-flags";
 
 const { state } = stateModule;
 const TAB_BOOTSTRAP_CONTENT_COMMAND = "TAB_BOOTSTRAP_CONTENT";

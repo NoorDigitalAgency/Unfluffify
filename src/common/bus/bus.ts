@@ -1,14 +1,14 @@
-import { BUS_ERROR_CODES, BusError } from "./bus-errors.js";
-import type { BusEnvelope, BusReplyEnvelope } from "./envelope.js";
+import { BUS_ERROR_CODES, BusError } from "./bus-errors";
+import type { BusEnvelope, BusReplyEnvelope } from "./envelope";
 import {
   BUS_KINDS,
   makeEventEnvelope,
   makeReplyEnvelope,
   makeRequestEnvelope,
   newId,
-} from "./envelope.js";
-import type { BusTarget, Realm } from "./realms.js";
-import type { Transport } from "./transport/transport-types.js";
+} from "./envelope";
+import type { BusTarget, Realm } from "./realms";
+import type { Transport } from "./transport/transport-types";
 
 export type BusReplyOk<R> = { ok: true; result: R };
 export type BusReplyErr = { ok: false; code: string; error: string; details: Record<string, unknown> };

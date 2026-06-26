@@ -1,5 +1,5 @@
 import type { RuntimeMessage, RuntimeMessageReply } from "../types/messaging.ts";
-import type { Browser } from "../common/browser.js";
+import type { Browser } from "../common/browser";
 
 type RuntimeResponse = RuntimeMessageReply | Record<string, unknown>;
 type RuntimePromiseResponse = Promise<RuntimeResponse>;

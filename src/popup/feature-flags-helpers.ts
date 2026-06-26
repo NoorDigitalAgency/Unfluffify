@@ -1,4 +1,4 @@
-import { FEATURE_FLAGS } from "../common/feature-flags.js";
+import { FEATURE_FLAGS } from "../common/feature-flags";
 
 type PopupFeatureFlags = Partial<Record<string, boolean>>;
 

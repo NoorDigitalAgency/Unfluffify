@@ -1,5 +1,5 @@
-import type { BusTarget, Realm } from "./realms.js";
-import { normalizeTarget, isRealm } from "./realms.js";
+import type { BusTarget, Realm } from "./realms";
+import { normalizeTarget, isRealm } from "./realms";
 
 export const BUS_PROTOCOL = "uf-bus/1" as const;
 

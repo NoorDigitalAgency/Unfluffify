@@ -2,13 +2,13 @@ import {
   DEVICE_EMULATION_PREFIX,
   DEVICE_EMULATION_PRESETS,
   DEVICE_SCALE_DEFAULTS
-} from "./constants.js";
+} from "./constants";
 import {
   FEATURE_DISABLED_REASON,
   isFeatureEnabled
-} from "./feature-flags.js";
-import { browser, callBrowserApi, callBrowserApiVoid, type Browser } from "./browser.js";
-import { storageGet, storageRemove, storageSet } from "./utilities.js";
+} from "./feature-flags";
+import { browser, callBrowserApi, callBrowserApiVoid, type Browser } from "./browser";
+import { storageGet, storageRemove, storageSet } from "./utilities";
 
 type DeviceMode = "mobile" | "desktop";
 type DeviceState = {

@@ -3,8 +3,8 @@ import {
   createFailureEnvelope,
   createRequestEnvelope,
   isReplyEnvelope
-} from "./message-protocol.js";
-import { sendRequestEnvelope } from "./extension-messaging.js";
+} from "./message-protocol";
+import { sendRequestEnvelope } from "./extension-messaging";
 
 type MessageLike = {
   id?: string;

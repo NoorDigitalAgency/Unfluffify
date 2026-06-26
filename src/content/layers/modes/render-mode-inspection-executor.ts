@@ -1,4 +1,4 @@
-import type { Bus } from "../../../common/bus/bus.js";
+import type { Bus } from "../../../common/bus/bus";
 import {
   RENDER_MODE_REQUEST_TYPES,
   type RenderModeContentBeginPayload,
@@ -8,7 +8,7 @@ import {
   type RenderModeContentEndPayload,
   type RenderModeContentEndReply,
   type RenderModeContentHideConsentReply,
-} from "../../../common/bus/contracts/render-mode.js";
+} from "../../../common/bus/contracts/render-mode";
 
 type RenderModeInspectionExecutorHandlers = {
   beginInspection: (payload?: Record<string, unknown>) => RenderModeContentBeginReply;

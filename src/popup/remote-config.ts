@@ -1,7 +1,7 @@
-import * as config from "../common/config.js";
-import { replaceServerConfigIntoLocalSnapshot } from "../background/remote-config-sync.js";
-import * as messages from "./messages.js";
-import * as stateModule from "./state.js";
+import * as config from "../common/config";
+import { replaceServerConfigIntoLocalSnapshot } from "../background/remote-config-sync";
+import * as messages from "./messages";
+import * as stateModule from "./state";
 
 const { state } = stateModule;
 const DEFAULT_REMOTE_CONFIG_RETRY_DELAY_MS = 2500;

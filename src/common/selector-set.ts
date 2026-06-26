@@ -1,4 +1,4 @@
-import * as utils from "./utilities.js";
+import * as utils from "./utilities";
 
 type AiSelectorSetLike = {
   exclusionSelectors?: unknown;

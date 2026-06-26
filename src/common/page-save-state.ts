@@ -1,5 +1,5 @@
-import { NON_BLOCKING_PAGE_SAVE_RECONCILIATION_REASONS } from "./config.js";
-import { PopupText } from "./text.js";
+import { NON_BLOCKING_PAGE_SAVE_RECONCILIATION_REASONS } from "./config";
+import { PopupText } from "./text";
 
 type PageSaveReconciliation = {
   status?: string;

@@ -23,10 +23,10 @@
  * - fetchStaticPageHtml: Fetch HTML from external URLs
  */
 
-import * as utils from "./common/utilities.js";
-import { browser, callBrowserApi, callBrowserApiVoid, type Browser } from "./common/browser.js";
-import * as configStore from "./common/config.js";
-import { runPageMotionFreezeControl } from "./common/page-motion-freeze-control.js";
+import * as utils from "./common/utilities";
+import { browser, callBrowserApi, callBrowserApiVoid, type Browser } from "./common/browser";
+import * as configStore from "./common/config";
+import { runPageMotionFreezeControl } from "./common/page-motion-freeze-control";
 import {
   clearDeviceEmulationState,
   clearDeviceEmulationAfterNavigation,
@@ -35,37 +35,37 @@ import {
   reconcileDeviceEmulationState,
   setDeviceEmulationEnabled,
   updateDeviceEmulation
-} from "./common/emulation.js";
+} from "./common/emulation";
 import {
   FEATURE_DISABLED_REASON,
   isDebugFlagEnabled,
   isFeatureEnabled
-} from "./common/feature-flags.js";
+} from "./common/feature-flags";
 import {
   SPINNER_REQUEST_TYPES,
   type SpinnerClearRequestPayload,
   type SpinnerRemoveRequestPayload,
   type SpinnerSetRequestPayload
-} from "./common/bus/contracts/spinner.js";
-import { REALMS } from "./common/bus/realms.js";
-import type { PopupLifecycleState } from "./common/bus/contracts/popup-state.js";
-import * as constants from "./common/constants.js";
+} from "./common/bus/contracts/spinner";
+import { REALMS } from "./common/bus/realms";
+import type { PopupLifecycleState } from "./common/bus/contracts/popup-state";
+import * as constants from "./common/constants";
 import {
   normalizeSiteIdValue
-} from "./common/lynx-live-pages.js";
+} from "./common/lynx-live-pages";
 import {
   getPropertyLockConnectionDiagnostics,
   handlePropertyLockBackgroundMessage,
   handlePropertyLockBackgroundTabRemoved,
   initPropertyLockBackground
-} from "./common/property-lock-background.js";
+} from "./common/property-lock-background";
 import {
   LIFECYCLE_KINDS,
   LIFECYCLE_PHASES,
   SPINNER_OWNERS,
   isLifecycleTerminalPhase,
   WORLD_MESSAGE_TYPES
-} from "./common/world-messaging-contract.js";
+} from "./common/world-messaging-contract";
 import {
   AI_RUN_POLL_INTERVAL_MS,
   AI_RUN_PERSIST_KEY,
@@ -73,21 +73,21 @@ import {
   buildAiSubmissionXpaths,
   getAiRunResumeExpiresAt,
   normalizePersistedAiRunRecord
-} from "./popup/ai-run.js";
+} from "./popup/ai-run";
 import {
   normalizeAiSelectorSet
-} from "./common/selector-set.js";
+} from "./common/selector-set";
 import {
   appendTabCommandLedger,
   deleteTabRuntime,
   getTabRuntimeSnapshot,
   updateTabRuntime
-} from "./background/tab-runtime.js";
+} from "./background/tab-runtime";
 import {
   dispatchBackgroundCommand,
   registerBackgroundCommand
-} from "./background/command-router.js";
-import { createSpinnerOperations } from "./background/spinner-operations.js";
+} from "./background/command-router";
+import { createSpinnerOperations } from "./background/spinner-operations";
 import {
   MESSAGE_ERROR_CODES,
   MESSAGE_SOURCES,
@@ -97,37 +97,37 @@ import {
   isReplyEnvelope,
   isRequestEnvelope,
   type RequestEnvelope
-} from "./common/message-protocol.js";
+} from "./common/message-protocol";
 import type {
   RenderModeSnapshotPayload,
   RenderModeEndInspectionPayload,
   RenderModeEndInspectionReply,
   RenderModeRunInspectionOperationReply,
   RenderModeRunInspectionPayload,
-} from "./common/bus/contracts/render-mode.js";
-import { RENDER_MODE_REQUEST_TYPES } from "./common/bus/contracts/render-mode.js";
+} from "./common/bus/contracts/render-mode";
+import { RENDER_MODE_REQUEST_TYPES } from "./common/bus/contracts/render-mode";
 import {
   consumeTransferPayload,
   getTransferPayload,
   putTransferPayload,
   removeTransferPayload,
   sweepStaleTransferPayloads
-} from "./background/transfer-payload-store.js";
+} from "./background/transfer-payload-store";
 import {
   clearPersistedAiRunRecord,
   getPersistedAiRunRecord,
   savePersistedAiRunRecord
-} from "./background/ai-run-record-store.js";
-import { redactCommandPayloadForLedger } from "./background/command-ledger.js";
+} from "./background/ai-run-record-store";
+import { redactCommandPayloadForLedger } from "./background/command-ledger";
 import {
   fetchLivePagePropertyPageTypes,
   resolveLivePageSiteId
-} from "./background/live-page-client.js";
+} from "./background/live-page-client";
 import {
   requestAuthLogin,
   resolveBackgroundNetworkCredentials,
   validateAuthToken
-} from "./background/network-core.js";
+} from "./background/network-core";
 import {
   fetchStaticPageHtmlForBackground,
   loadRemoteConfigSnapshot,
@@ -139,26 +139,26 @@ import {
   saveRemoteConfigSnapshot,
   submitPageTypeAssignments,
   submitSelectorSetGraphqlUpdate
-} from "./background/remote-network.js";
+} from "./background/remote-network";
 import {
   mergeServerConfigIntoLocalSnapshot,
   preparePageTypeAssignmentsSnapshot,
   replaceServerConfigIntoLocalSnapshot
-} from "./background/remote-config-sync.js";
+} from "./background/remote-config-sync";
 import {
   createWorldTrace,
   WORLD_TRACE_EVENT_LIMIT
-} from "./background/world-trace.js";
-import { createPopupStateBroker } from "./background/popup-state-broker.js";
-import type { PopupBrokerState } from "./background/popup-state-broker.js";
-import { createRenderModeInspector } from "./background/render-mode-inspector.js";
-import { createTabOperationRunner } from "./background/tab-operation-runner.js";
-import { createTabInactivityObserver } from "./background/tab-inactivity-observer.js";
-import { createAiRunOrchestrator } from "./background/ai-run-orchestrator.js";
-import { runBackgroundTask } from "./background/async-tasks.js";
-import { createManagedTimeoutGroup } from "./background/managed-timeouts.js";
-import { createSwKeepAlive } from "./background/sw-keepalive.js";
-import { createBrain } from "./background/brain/index.js";
+} from "./background/world-trace";
+import { createPopupStateBroker } from "./background/popup-state-broker";
+import type { PopupBrokerState } from "./background/popup-state-broker";
+import { createRenderModeInspector } from "./background/render-mode-inspector";
+import { createTabOperationRunner } from "./background/tab-operation-runner";
+import { createTabInactivityObserver } from "./background/tab-inactivity-observer";
+import { createAiRunOrchestrator } from "./background/ai-run-orchestrator";
+import { runBackgroundTask } from "./background/async-tasks";
+import { createManagedTimeoutGroup } from "./background/managed-timeouts";
+import { createSwKeepAlive } from "./background/sw-keepalive";
+import { createBrain } from "./background/brain/index";
 import {
   aiComputeLockExpiresAtByTabId,
   disposeTabState,
@@ -166,13 +166,13 @@ import {
   tabLifecycleStateByTabId,
   tabSpinnerQueueByTabId,
   tabWorldTraceStateByTabId
-} from "./background/background-tab-state.js";
+} from "./background/background-tab-state";
 import {
   clearRenderModeNoJsHeld,
   isRenderModeNoJsHeld,
   listRenderModeNoJsHeldTabIds,
   setRenderModeNoJsHeld
-} from "./common/render-mode-js-state.js";
+} from "./common/render-mode-js-state";
 import {
   clearTrackedTabSessionState as clearStoredTrackedTabSessionState,
   clearTabStateScope,
@@ -180,9 +180,9 @@ import {
   parseTabStateStorageKey,
   queueTabSessionWrite,
   setTabState as setStoredTabState
-} from "./background/tab-session-store.js";
-import { createBusProtocolBridge } from "./common/bus/transport/bus-protocol-bridge.js";
-import { BUS_PORT_PREFIX } from "./common/bus/transport/transport-types.js";
+} from "./background/tab-session-store";
+import { createBusProtocolBridge } from "./common/bus/transport/bus-protocol-bridge";
+import { BUS_PORT_PREFIX } from "./common/bus/transport/transport-types";
 import type {
   TabOperationContext,
   TabOperationDescriptor,
@@ -190,8 +190,8 @@ import type {
   TabOperationResult,
   TabOperationWork,
   TabSpinnerDescriptor
-} from "./types/operations.js";
-import type { RuntimeMessage, RuntimeMessageReply } from "./types/messaging.js";
+} from "./types/operations";
+import type { RuntimeMessage, RuntimeMessageReply } from "./types/messaging";
 
 type FeatureDisabledResponse = {
   ok: false;

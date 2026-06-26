@@ -1,6 +1,6 @@
-import { browser } from "../common/browser.js";
-import { AI_RUN_PERSIST_KEY, normalizePersistedAiRunRecord } from "../popup/ai-run.js";
-import { storageGet, storageRemove, storageSet } from "../common/storage-core.js";
+import { browser } from "../common/browser";
+import { AI_RUN_PERSIST_KEY, normalizePersistedAiRunRecord } from "../popup/ai-run";
+import { storageGet, storageRemove, storageSet } from "../common/storage-core";
 
 type StorageHost = typeof globalThis & {
   browser?: { storage?: { session?: unknown } };

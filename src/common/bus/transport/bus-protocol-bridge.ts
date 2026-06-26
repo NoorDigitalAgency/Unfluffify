@@ -1,4 +1,4 @@
-import { BUS_PROTOCOL } from "../envelope.js";
+import { BUS_PROTOCOL } from "../envelope";
 
 export function createBusProtocolBridge() {
   return {

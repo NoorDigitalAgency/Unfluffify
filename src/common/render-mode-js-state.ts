@@ -5,8 +5,8 @@
 // hold is cleared on "With JavaScript", render-mode exit, a genuine navigation,
 // or tab close.
 
-import { browser } from "./browser.js";
-import { storageGet, storageRemove, storageSet } from "./storage-core.js";
+import { browser } from "./browser";
+import { storageGet, storageRemove, storageSet } from "./storage-core";
 
 const RENDER_MODE_NO_JS_HELD_PREFIX = "renderModeNoJsHeld:";
 

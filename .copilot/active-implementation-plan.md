@@ -44,8 +44,11 @@ the React/WXT/Vitest tooling, extracting `src/popup/feature-flags-helpers.ts`,
 and preserving the preview-scroll/self-heal seams with `flushSync(...)` plus
 root error-hook remount recovery. The latest checkpoint then completed Phase E
 by deleting the unused vendored Preact files and the stale vendor ignore,
-leaving the popup stack React-only. The next active execution step is Phase G:
-convert eligible `src` imports to extensionless specifiers.
+leaving the popup stack React-only. The latest checkpoint then completed Phase G
+by converting relative `.js` source imports under `src/**/*.{ts,tsx}` to
+extensionless specifiers while preserving the frozen page-motion pair and
+updating the coupled source-contract tests. The next active execution step is
+Phase H: the final lint/dead-code cleanup pass.
 
 ## 1. Goal
 
@@ -76,6 +79,10 @@ all with `pnpm verify` green and the live popup behavior unchanged.
 - The old vendored Preact implementation is gone: `src/popup/vendor/preact/`
   was deleted, the vendor-specific ESLint ignore was removed, and repo docs now
   describe the popup UI as React-based.
+- Relative source imports are now extensionless across `src/**/*.{ts,tsx}`
+  except the locked `page-motion-freeze-bridge.ts` /
+  `page-motion-freeze-control.ts` pair, whose source content stays frozen for
+  parity/eval reasons.
 - Popup feature-flag reads now have a plain-TS home in
   `src/popup/feature-flags-helpers.ts`, which `ui.tsx` re-exports so runtime
   callers stay stable while tests avoid importing the JSX module just to probe
@@ -246,14 +253,14 @@ table):
 
 ### Phase G — Convert src imports to extensionless
 
-- Rewrite relative specifiers `from "./X.js"` -> `from "./X"` across
-  `src/**/*.{ts,tsx}`.
-- Exclude the freeze pair (`src/common/page-motion-freeze-bridge.ts`,
-  `page-motion-freeze-control.ts`) to preserve parity/eval tests; do NOT touch
-  `scripts/**`, `orchestration/**`, `wxt.config.ts`.
-- Validation: `pnpm check`, `pnpm build`, `pnpm test`.
-- Fallback: if a specifier fails WXT/Vite resolution, restore the explicit
-  `.ts`/`.tsx` extension for that one import only.
+- Rewrote relative `from "./X.js"` / `import("./X.js")` specifiers to
+  extensionless paths across `src/**/*.{ts,tsx}`.
+- Kept the locked `src/common/page-motion-freeze-bridge.ts` and
+  `src/common/page-motion-freeze-control.ts` pair untouched.
+- Updated the coupled source-contract tests so they now assert extensionless
+  imports while still normalizing manifest guard comparisons back to emitted
+  `.js` artifact names where required.
+- Validation: `pnpm lint && pnpm check && pnpm test && pnpm build` green.
 
 ### Phase H — Lint + dead-code cleanup pass
 

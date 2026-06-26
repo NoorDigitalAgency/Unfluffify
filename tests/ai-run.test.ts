@@ -98,7 +98,7 @@ test("AI compute shows busy feedback and locks marking before payload work", () 
   assert.match(backgroundSource, /TAB_RUN_AI: "TAB_RUN_AI"/);
   assert.match(backgroundSource, /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_RUN_AI, async \(context, payload\) => \{/);
   assert.match(backgroundSource, /reason: "tab-run-ai-preparing"/);
-  assert.match(backgroundSource, /from "\.\/background\/ai-run-orchestrator\.js"/);
+  assert.match(backgroundSource, /from "\.\/background\/ai-run-orchestrator"/);
   assert.match(backgroundSource, /const aiRunOrchestrator = createAiRunOrchestrator\(\{/);
   assert.match(aiRunOrchestratorSource, /async function prepareAiRunPayloadSnapshot\(options(?:\s*:\s*[^=]+)? = \{\}\) \{/);
   assert.match(aiRunOrchestratorSource, /fetchStaticPageHtmlForBackground/);
@@ -190,7 +190,7 @@ test("TAB_RUN_AI resolves omitted credentials from fresh settings reads", () => 
   const aiRunOrchestratorSource = readFileSync(new URL("../src/background/ai-run-orchestrator.ts", import.meta.url), "utf8");
   const networkCoreSource = readFileSync(new URL("../src/background/network-core.ts", import.meta.url), "utf8");
 
-  assert.match(backgroundSource, /from "\.\/background\/network-core\.js"/);
+  assert.match(backgroundSource, /from "\.\/background\/network-core"/);
   assert.doesNotMatch(backgroundSource, /async function resolveBackgroundNetworkCredentials\(options = \{\}\) \{/);
   assert.match(networkCoreSource, /export async function resolveBackgroundNetworkCredentials\(options = \{\}\) \{/);
   assert.match(networkCoreSource, /const needsFreshSettings = !requestedEndpoint \|\| !requestedToken \|\| !requestedStageBase;/);
@@ -235,7 +235,7 @@ test("AI run recovery metadata is persisted through background", () => {
   const popupPersistenceBlock = popupSource.slice(loadStart, loadEnd);
 
   assert.match(backgroundSource, /AI_RUN_PERSIST_KEY/);
-  assert.match(backgroundSource, /from "\.\/background\/ai-run-record-store\.js"/);
+  assert.match(backgroundSource, /from "\.\/background\/ai-run-record-store"/);
   assert.match(backgroundSource, /if \(message\.type === "getPersistedAiRunRecord"\) \{/);
   assert.match(backgroundSource, /if \(message\.type === "savePersistedAiRunRecord"\) \{/);
   assert.match(backgroundSource, /if \(message\.type === "clearPersistedAiRunRecord"\) \{/);
@@ -325,7 +325,7 @@ test("AI run start, status polling, and result transport use background messagin
   const startBlock = popupSource.slice(startStart, startEnd);
   const resultBlock = popupSource.slice(resultStart, resultEnd);
 
-  assert.match(backgroundSource, /from "\.\/background\/remote-network\.js"/);
+  assert.match(backgroundSource, /from "\.\/background\/remote-network"/);
   assert.match(remoteNetworkSource, /export async function requestAiRunStartSnapshot\(options = \{\}\) \{/);
   assert.match(remoteNetworkSource, /export async function requestAiRunStatus\(options = \{\}\) \{/);
   assert.match(remoteNetworkSource, /export async function requestAiRunResultSnapshot\(options = \{\}\) \{/);
@@ -369,8 +369,8 @@ test("selector submit GraphQL mutation and page-type assignment both use backgro
   const submitBlock = popupSource.slice(submitStart, submitEnd);
   const assignmentBlock = popupSource.slice(assignmentStart, assignmentEnd);
 
-  assert.match(backgroundSource, /from "\.\/background\/remote-network\.js"/);
-  assert.match(backgroundSource, /from "\.\/background\/remote-config-sync\.js"/);
+  assert.match(backgroundSource, /from "\.\/background\/remote-network"/);
+  assert.match(backgroundSource, /from "\.\/background\/remote-config-sync"/);
   assert.match(remoteNetworkSource, /export async function submitSelectorSetGraphqlUpdate\(options = \{\}\) \{/);
   assert.match(remoteNetworkSource, /export async function submitPageTypeAssignments\(options = \{\}\) \{/);
   assert.match(remoteConfigSyncSource, /export async function preparePageTypeAssignmentsSnapshot\(options = \{\}\) \{/);

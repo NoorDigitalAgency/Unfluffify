@@ -1,17 +1,17 @@
 import {
   isRenderModeRunInspectionOperationReply,
   isRenderModeRunInspectionResult,
-} from "../../../common/bus/contracts/render-mode.js";
+} from "../../../common/bus/contracts/render-mode";
 import type {
   RenderModeEndInspectionPayload,
   RenderModeEndInspectionReply,
   RenderModeRunInspectionPayload,
   RenderModeRunInspectionReply,
-} from "../../../common/bus/contracts/render-mode.js";
+} from "../../../common/bus/contracts/render-mode";
 import {
   requestPopupRenderModeEnd,
   requestPopupRenderModeRun,
-} from "../popup-bus-client.js";
+} from "../popup-bus-client";
 
 type PopupLayerReply<TReply> =
   | { ok: true; result: TReply }

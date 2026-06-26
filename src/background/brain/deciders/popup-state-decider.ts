@@ -1,7 +1,7 @@
-import type { PopupStateGetReply, PopupViewEnvelope } from "../../../common/bus/contracts/popup-state.js";
-import type { PopupBrokerState } from "../../popup-state-broker.js";
-import { projectViews } from "../view-projector.js";
-import type { TabLayerState } from "../state-store.js";
+import type { PopupStateGetReply, PopupViewEnvelope } from "../../../common/bus/contracts/popup-state";
+import type { PopupBrokerState } from "../../popup-state-broker";
+import { projectViews } from "../view-projector";
+import type { TabLayerState } from "../state-store";
 
 type PopupStateStore = {
   getOrInit(tabId: number): TabLayerState;

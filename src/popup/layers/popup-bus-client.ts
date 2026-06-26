@@ -1,15 +1,15 @@
-import { createBus, type Bus } from "../../common/bus/bus.js";
+import { createBus, type Bus } from "../../common/bus/bus";
 import {
   DIAGNOSTIC_REQUEST_TYPES,
   type DiagnosticPingPayload,
   type DiagnosticPingReply,
   RENDER_MODE_REQUEST_TYPES,
-} from "../../common/bus/contracts/index.js";
+} from "../../common/bus/contracts/index";
 import {
   POPUP_STATE_REQUEST_TYPES,
   type PopupStateGetPayload,
   type PopupStateGetReply,
-} from "../../common/bus/contracts/popup-state.js";
+} from "../../common/bus/contracts/popup-state";
 import type {
   RenderModeContentCaptureHtmlPayload,
   RenderModeContentCaptureHtmlReply,
@@ -19,17 +19,17 @@ import type {
   RenderModeEndInspectionReply,
   RenderModeRunInspectionPayload,
   RenderModeRunInspectionReply,
-} from "../../common/bus/contracts/render-mode.js";
+} from "../../common/bus/contracts/render-mode";
 import {
   SPINNER_REQUEST_TYPES,
   type SpinnerClearRequestPayload,
   type SpinnerMutationReply,
   type SpinnerRemoveRequestPayload,
   type SpinnerSetRequestPayload,
-} from "../../common/bus/contracts/spinner.js";
-import { REALMS, type BusTarget } from "../../common/bus/realms.js";
-import { createPopupTransport } from "../../common/bus/transport/popup-transport.js";
-import { startPopupLayerHostWithOptions } from "./layer-host.js";
+} from "../../common/bus/contracts/spinner";
+import { REALMS, type BusTarget } from "../../common/bus/realms";
+import { createPopupTransport } from "../../common/bus/transport/popup-transport";
+import { startPopupLayerHostWithOptions } from "./layer-host";
 
 let popupBus: Bus | null = null;
 let popupTransport: ReturnType<typeof createPopupTransport> | null = null;

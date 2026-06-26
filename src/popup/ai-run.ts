@@ -1,6 +1,6 @@
 import {
   isAiSubmissionDocumentRootXpath
-} from "../content/submission-rules.js";
+} from "../content/submission-rules";
 
 export const AI_RUN_POLL_INTERVAL_MS = 5_000;
 export const AI_RUN_TIMEOUT_MS = 8 * 60 * 1000;

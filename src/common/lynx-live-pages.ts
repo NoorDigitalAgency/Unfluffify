@@ -1,6 +1,6 @@
-import { setGlobalToken } from "./settings-store.js";
+import { setGlobalToken } from "./settings-store";
 
-import { normalizeCandidatePageUrl } from "./lynx-checklist.js";
+import { normalizeCandidatePageUrl } from "./lynx-checklist";
 
 type CandidatePage = {
   url?: string;

@@ -1,5 +1,5 @@
-import { browser } from "../common/browser.js";
-import * as utils from "../common/utilities.js";
+import { browser } from "../common/browser";
+import * as utils from "../common/utilities";
 
 export const TRANSFER_PAYLOAD_KEY_PREFIX = "remote-config-";
 const DEFAULT_TRANSFER_PAYLOAD_MAX_AGE_MS = 5 * 60_000;

@@ -1,6 +1,6 @@
-import { browser } from "./browser.js";
-import { addSyncStorageChangeListener, storageGet, storageSet } from "./storage-core.js";
-import { normalizeStageBase } from "./lynx-live-pages.js";
+import { browser } from "./browser";
+import { addSyncStorageChangeListener, storageGet, storageSet } from "./storage-core";
+import { normalizeStageBase } from "./lynx-live-pages";
 
 const GLOBAL_AI_SETTINGS_SYNC_DEFAULTS = {
   globalToken: "",

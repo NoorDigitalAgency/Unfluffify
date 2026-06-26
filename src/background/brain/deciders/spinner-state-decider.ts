@@ -1,5 +1,5 @@
-import type { PopupSpinnerEntry } from "../../../common/bus/contracts/popup-state.js";
-import type { SpinnerSelection, TabLayerState } from "../state-store.js";
+import type { PopupSpinnerEntry } from "../../../common/bus/contracts/popup-state";
+import type { SpinnerSelection, TabLayerState } from "../state-store";
 
 type SpinnerSelections = Readonly<Pick<TabLayerState["spinners"], "popup" | "pageCurtain" | "banner">>;
 type BlockingSurface = "popup" | "page";

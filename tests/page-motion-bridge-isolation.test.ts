@@ -28,7 +28,7 @@ test("content core uses page-world relay with background fallback", () => {
 test("background executes the page motion control function in MAIN world", () => {
   const source = readFileSync(new URL("../src/background.ts", import.meta.url), "utf8");
 
-  assert.match(source, /import \{ runPageMotionFreezeControl \} from "\.\/common\/page-motion-freeze-control\.js";/);
+  assert.match(source, /import \{ runPageMotionFreezeControl \} from "\.\/common\/page-motion-freeze-control";/);
   assert.match(source, /if \(message\.type === "pageMotionFreezeControl"\) \{/);
   assert.match(source, /browser\.scripting\.executeScript\((?:\{|injection)/);
   assert.match(source, /world:\s*"MAIN"/);

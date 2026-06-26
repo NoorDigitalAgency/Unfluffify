@@ -1,6 +1,6 @@
-import { browser } from "../common/browser.js";
-import { SCRIPT_INJECTED_PREFIX, TAB_STATE_PREFIX } from "../common/constants.js";
-import { storageGet, storageRemove, storageSet } from "../common/storage-core.js";
+import { browser } from "../common/browser";
+import { SCRIPT_INJECTED_PREFIX, TAB_STATE_PREFIX } from "../common/constants";
+import { storageGet, storageRemove, storageSet } from "../common/storage-core";
 
 type TabSessionState = Record<string, unknown> | null;
 type QueueableWork<T> = () => Promise<T> | T;

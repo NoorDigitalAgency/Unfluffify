@@ -1,6 +1,6 @@
-import * as commonEmulation from "../common/emulation.js";
-import * as stateModule from "./state.js";
-import * as uiModule from "./ui.js";
+import * as commonEmulation from "../common/emulation";
+import * as stateModule from "./state";
+import * as uiModule from "./ui";
 
 const { state } = stateModule;
 

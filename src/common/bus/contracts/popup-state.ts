@@ -1,5 +1,5 @@
-import type { ActivationSnapshot } from "./activation.js";
-import type { RenderModeViewState } from "./render-mode.js";
+import type { ActivationSnapshot } from "./activation";
+import type { RenderModeViewState } from "./render-mode";
 
 export const POPUP_STATE_REQUEST_TYPES = Object.freeze({
   GET: "popup.view.get",

@@ -1,6 +1,6 @@
-import type { Bus } from "../../common/bus/bus.js";
-import { SPINNER_EVENT_TYPES } from "../../common/bus/contracts/spinner.js";
-import { clearContentSpinner, renderContentSpinner } from "./spinner-layer.js";
+import type { Bus } from "../../common/bus/bus";
+import { SPINNER_EVENT_TYPES } from "../../common/bus/contracts/spinner";
+import { clearContentSpinner, renderContentSpinner } from "./spinner-layer";
 
 type ContentDirectiveLike = {
   version?: unknown;

@@ -2,10 +2,10 @@ import type {
   ActivationBootstrapStatus,
   ActivationLifecycleSnapshot,
   ActivationSnapshot,
-} from "../../../common/bus/contracts/activation.js";
-import { LIFECYCLE_KINDS, LIFECYCLE_PHASES } from "../../../common/world-messaging-contract.js";
-import type { PopupLifecycleState } from "../../../common/bus/contracts/popup-state.js";
-import type { TabLayerState } from "../state-store.js";
+} from "../../../common/bus/contracts/activation";
+import { LIFECYCLE_KINDS, LIFECYCLE_PHASES } from "../../../common/world-messaging-contract";
+import type { PopupLifecycleState } from "../../../common/bus/contracts/popup-state";
+import type { TabLayerState } from "../state-store";
 
 type ActivationStateStore = {
   getOrInit(tabId: number): TabLayerState;

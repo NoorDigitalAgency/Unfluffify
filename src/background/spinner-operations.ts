@@ -1,9 +1,9 @@
 import {
   SPINNER_OWNERS,
   WORLD_MESSAGE_TYPES
-} from "../common/world-messaging-contract.js";
-import { createSpinnerOperationLease } from "../common/spinner-contract.js";
-import type { PopupSpinnerEntry } from "../common/bus/contracts/popup-state.js";
+} from "../common/world-messaging-contract";
+import { createSpinnerOperationLease } from "../common/spinner-contract";
+import type { PopupSpinnerEntry } from "../common/bus/contracts/popup-state";
 
 type SpinnerEntry = {
   blockSurfaces?: {

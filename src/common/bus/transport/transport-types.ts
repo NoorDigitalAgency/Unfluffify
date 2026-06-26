@@ -1,4 +1,4 @@
-import type { BusEnvelope } from "../envelope.js";
+import type { BusEnvelope } from "../envelope";
 
 export const BUS_PORT_PREFIX = "ufBus:";
 

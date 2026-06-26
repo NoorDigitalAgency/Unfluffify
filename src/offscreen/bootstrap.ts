@@ -1,6 +1,6 @@
-import { consumeTransferPayload } from "../background/transfer-payload-store.js";
-import { browser } from "../common/browser.js";
-import { refineXPathEntries } from "../common/xpath-utilities.js";
+import { consumeTransferPayload } from "../background/transfer-payload-store";
+import { browser } from "../common/browser";
+import { refineXPathEntries } from "../common/xpath-utilities";
 
 const OFFSCREEN_MESSAGE_TARGET = "offscreen";
 const OFFSCREEN_REFINE_XPATHS_TYPE = "offscreenRefineXPaths";

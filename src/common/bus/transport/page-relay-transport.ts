@@ -1,9 +1,9 @@
-import { BusError, BUS_ERROR_CODES } from "../bus-errors.js";
-import { BUS_KINDS, makeReplyEnvelope } from "../envelope.js";
-import type { BusEnvelope } from "../envelope.js";
-import type { Transport, InboundTransportHandler } from "./transport-types.js";
-import { isPageWorldRelayReady, requestPageWorldCommand } from "../../../content/page-world-relay.js";
-import { isPageWorldRelayCommand } from "../../page-world-protocol.js";
+import { BusError, BUS_ERROR_CODES } from "../bus-errors";
+import { BUS_KINDS, makeReplyEnvelope } from "../envelope";
+import type { BusEnvelope } from "../envelope";
+import type { Transport, InboundTransportHandler } from "./transport-types";
+import { isPageWorldRelayReady, requestPageWorldCommand } from "../../../content/page-world-relay";
+import { isPageWorldRelayCommand } from "../../page-world-protocol";
 
 function normalizePayload(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)

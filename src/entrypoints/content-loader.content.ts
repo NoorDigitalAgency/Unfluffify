@@ -1,6 +1,6 @@
 import { defineContentScript } from "wxt/utils/define-content-script";
-import { browser } from "../common/browser.js";
-import { exposeDebugSpinnerQueueTabId, main } from "../content-main.js";
+import { browser } from "../common/browser";
+import { exposeDebugSpinnerQueueTabId, main } from "../content-main";
 
 type ContentLoaderState = typeof globalThis & {
   __unfluffifyContentLoaderInitialized?: boolean;

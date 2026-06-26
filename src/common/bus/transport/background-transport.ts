@@ -1,9 +1,9 @@
-import { BUS_ERROR_CODES, BusError } from "../bus-errors.js";
-import { BUS_KINDS, isBusEnvelope, makeReplyEnvelope, type BusEnvelope, type BusRequestEnvelope } from "../envelope.js";
-import { REALMS } from "../realms.js";
-import { type Browser } from "../../browser.js";
-import { sendBusEnvelope } from "../../extension-messaging.js";
-import { BUS_PORT_PREFIX, type InboundTransportHandler, type Transport } from "./transport-types.js";
+import { BUS_ERROR_CODES, BusError } from "../bus-errors";
+import { BUS_KINDS, isBusEnvelope, makeReplyEnvelope, type BusEnvelope, type BusRequestEnvelope } from "../envelope";
+import { REALMS } from "../realms";
+import { type Browser } from "../../browser";
+import { sendBusEnvelope } from "../../extension-messaging";
+import { BUS_PORT_PREFIX, type InboundTransportHandler, type Transport } from "./transport-types";
 
 function normalizeTabId(value: unknown): number | null {
   const numeric = Number(value);

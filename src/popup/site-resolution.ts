@@ -1,12 +1,12 @@
-import * as config from "../common/config.js";
+import * as config from "../common/config";
 import type { Config } from "../types/config.ts";
 import {
   normalizeSiteIdValue,
   normalizeStageBase
-} from "../common/lynx-live-pages.js";
-import * as utils from "../common/utilities.js";
-import * as messages from "./messages.js";
-import * as stateModule from "./state.js";
+} from "../common/lynx-live-pages";
+import * as utils from "../common/utilities";
+import * as messages from "./messages";
+import * as stateModule from "./state";
 
 const { state } = stateModule;
 const FALLBACK_PROPERTY_PAGE_TYPES_REFRESH_INTERVAL_MS = 120 * 1000;
@@ -42,8 +42,8 @@ interface EnsureBaseUrlSiteIdResult {
 type PropertyPageTypesRequest = { key: string; promise: Promise<EnsurePropertyPageTypesResult> };
 
 interface SiteResolutionDeps {
-  PopupText: typeof import("../common/text.js").PopupText;
-  ViewText: typeof import("../common/text.js").ViewText;
+  PopupText: typeof import("../common/text").PopupText;
+  ViewText: typeof import("../common/text").ViewText;
   showToast(message: string): void;
   propertyPageTypesRefreshIntervalMs: number;
   getPropertyPageTypesRequest(): PropertyPageTypesRequest | null;

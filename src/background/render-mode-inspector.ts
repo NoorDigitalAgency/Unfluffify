@@ -1,4 +1,4 @@
-import { browser } from "../common/browser.js";
+import { browser } from "../common/browser";
 import {
   RENDER_MODE_REQUEST_TYPES,
   type RenderModeContentBeginPayload,
@@ -7,7 +7,7 @@ import {
   type RenderModeContentCaptureHtmlReply,
   type RenderModeContentEndPayload,
   type RenderModeContentHideConsentReply,
-} from "../common/bus/contracts/render-mode.js";
+} from "../common/bus/contracts/render-mode";
 
 type ContentMessageResult = Record<string, unknown>;
 type TabUpdatedChangeInfo = { status?: string; url?: string };

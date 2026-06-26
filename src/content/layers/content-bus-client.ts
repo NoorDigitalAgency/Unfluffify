@@ -1,17 +1,17 @@
-import { createBus, type Bus } from "../../common/bus/bus.js";
-import { DIAGNOSTIC_REQUEST_TYPES } from "../../common/bus/contracts/index.js";
+import { createBus, type Bus } from "../../common/bus/bus";
+import { DIAGNOSTIC_REQUEST_TYPES } from "../../common/bus/contracts/index";
 import type {
   RenderModeContentBeginReply,
   RenderModeContentCaptureHtmlReply,
   RenderModeContentEndReply,
   RenderModeContentHideConsentReply,
-} from "../../common/bus/contracts/render-mode.js";
-import { isBusEnvelope, type BusEnvelope } from "../../common/bus/envelope.js";
-import { REALMS } from "../../common/bus/realms.js";
-import { createContentTransport } from "../../common/bus/transport/content-transport.js";
-import type { Browser } from "../../common/browser.js";
-import { startContentLayerHost } from "./layer-host.js";
-import { registerRenderModeInspectionExecutor } from "./modes/render-mode-inspection-executor.js";
+} from "../../common/bus/contracts/render-mode";
+import { isBusEnvelope, type BusEnvelope } from "../../common/bus/envelope";
+import { REALMS } from "../../common/bus/realms";
+import { createContentTransport } from "../../common/bus/transport/content-transport";
+import type { Browser } from "../../common/browser";
+import { startContentLayerHost } from "./layer-host";
+import { registerRenderModeInspectionExecutor } from "./modes/render-mode-inspection-executor";
 
 let contentBus: Bus | null = null;
 let contentTransport: ReturnType<typeof createContentTransport> | null = null;

@@ -18,18 +18,18 @@
  * - Silent Highlight: Visual overlay and highlighting modes
  */
 
-import * as chromeHelpers from "./popup/chrome-helpers.js";
-import { browser } from "./common/browser.js";
-import * as config from "./common/config.js";
-import * as constants from "./common/constants.js";
+import * as chromeHelpers from "./popup/chrome-helpers";
+import { browser } from "./common/browser";
+import * as config from "./common/config";
+import * as constants from "./common/constants";
 import {
   FEATURE_DISABLED_REASON,
   getFeatureFlags,
   isDebugFlagEnabled,
   isFeatureEnabled
-} from "./common/feature-flags.js";
-import * as emulation from "./popup/emulation.js";
-import * as uiModule from "./popup/ui.js";
+} from "./common/feature-flags";
+import * as emulation from "./popup/emulation";
+import * as uiModule from "./popup/ui";
 import {
   buildLynxChecklistPromptState,
   buildLynxChecklistViewModel,
@@ -37,16 +37,16 @@ import {
   normalizeCandidatePageUrl,
   normalizePageTypeKey,
   normalizePropertyPageTypes
-} from "./common/lynx-checklist.js";
+} from "./common/lynx-checklist";
 import {
   buildPageSaveUiState
-} from "./common/page-save-state.js";
+} from "./common/page-save-state";
 import {
   buildGraphqlEndpointFromStageBase,
   getCurrentPageCandidateState,
   normalizeSiteIdValue,
   normalizeStageBase
-} from "./common/lynx-live-pages.js";
+} from "./common/lynx-live-pages";
 import {
   clearGlobalToken,
   getGlobalToken,
@@ -56,12 +56,12 @@ import {
   saveGlobalStageBase,
   saveLoginSettings,
   setThemeSettings
-} from "./common/settings-store.js";
+} from "./common/settings-store";
 import {
   buildTransferPayloadKey,
   consumeTransferPayload,
   putTransferPayload
-} from "./background/transfer-payload-store.js";
+} from "./background/transfer-payload-store";
 import {
   PopupText,
   ViewText,
@@ -72,10 +72,10 @@ import {
   formatSelectorsComputedLocally,
   formatTimestampedStatus,
   propertyLockText
-} from "./common/text.js";
-import * as utils from "./common/utilities.js";
-import * as messages from "./popup/messages.js";
-import * as helpers from "./popup/helpers.js";
+} from "./common/text";
+import * as utils from "./common/utilities";
+import * as messages from "./popup/messages";
+import * as helpers from "./popup/helpers";
 import {
   AI_RUN_POLL_INTERVAL_MS,
   AI_RUN_TIMEOUT_MS,
@@ -84,29 +84,29 @@ import {
   getAiRunResumeExpiresAt,
   normalizePersistedAiRunRecord,
   shouldResumePersistedAiRun
-} from "./popup/ai-run.js";
-import { resolveRenderModeInspectionReloadOutcome } from "./popup/render-mode.js";
+} from "./popup/ai-run";
+import { resolveRenderModeInspectionReloadOutcome } from "./popup/render-mode";
 import {
   isRenderModeNoJsHeld,
   renderModeNoJsHeldStorageKey
-} from "./common/render-mode-js-state.js";
-import * as stateModule from "./popup/state.js";
+} from "./common/render-mode-js-state";
+import * as stateModule from "./popup/state";
 import {
   logPopupReady
-} from "./popup/telemetry.js";
-import type { ActivationSnapshot } from "./common/bus/contracts/activation.js";
+} from "./popup/telemetry";
+import type { ActivationSnapshot } from "./common/bus/contracts/activation";
 import type {
   PopupSpinnerEntry as PopupViewSpinnerEntry,
   PopupStateGetReply
-} from "./common/bus/contracts/popup-state.js";
-import { deriveSpinnerSelectionsFromQueue } from "./background/brain/deciders/spinner-state-decider.js";
-import { phaseToSpinnerState } from "./background/brain/spinner-authority.js";
+} from "./common/bus/contracts/popup-state";
+import { deriveSpinnerSelectionsFromQueue } from "./background/brain/deciders/spinner-state-decider";
+import { phaseToSpinnerState } from "./background/brain/spinner-authority";
 import {
   isRenderModeRunInspectionOperationReply,
   isRenderModeRunInspectionResult,
-} from "./common/bus/contracts/render-mode.js";
-import { createSpinnerOperationLease } from "./common/spinner-contract.js";
-import { SPINNER_REQUEST_TYPES } from "./common/bus/contracts/spinner.js";
+} from "./common/bus/contracts/render-mode";
+import { createSpinnerOperationLease } from "./common/spinner-contract";
+import { SPINNER_REQUEST_TYPES } from "./common/bus/contracts/spinner";
 import {
   requestPopupRenderModeCaptureHtml,
   requestPopupRenderModeHideConsent,
@@ -116,16 +116,16 @@ import {
   requestPopupView,
   runPopupBusSelfTest,
   startPopupBusClient
-} from "./popup/layers/popup-bus-client.js";
+} from "./popup/layers/popup-bus-client";
 import {
   requestPopupRenderModeInspection,
   requestPopupRenderModeInspectionEnd,
-} from "./popup/layers/modes/render-mode-inspection.js";
+} from "./popup/layers/modes/render-mode-inspection";
 import {
   clearPopupSpinnerSurface,
   getLatestPopupSpinnerState,
   renderPopupSpinnerSurface
-} from "./popup/layers/spinner-layer.js";
+} from "./popup/layers/spinner-layer";
 import {
   armSpinnerWatchdog as armSpinnerWatchdogOperation,
   clearSpinnerWatchdog as clearSpinnerWatchdogOperation,
@@ -136,19 +136,19 @@ import {
   pushSpinner as pushSpinnerOperation,
   runWithSpinner as runWithSpinnerOperation,
   setSpinnerMessage as setSpinnerMessageOperation
-} from "./popup/spinner.js";
+} from "./popup/spinner";
 import {
   ensureBaseUrlSiteId as ensureBaseUrlSiteIdOperation,
   ensurePropertyPageTypes as ensurePropertyPageTypesOperation,
   fetchPropertyPageTypesFromGraphql as fetchPropertyPageTypesFromGraphqlOperation,
   mergeConfigEntriesForResolvedBaseUrl as mergeConfigEntriesForResolvedBaseUrlOperation,
   resolveSiteIdFromGraphql as resolveSiteIdFromGraphqlOperation
-} from "./popup/site-resolution.js";
+} from "./popup/site-resolution";
 import {
   loadRemoteConfigForCurrentPage as loadRemoteConfigForCurrentPageOperation,
   scheduleRemoteConfigRetry as scheduleRemoteConfigRetryOperation,
   syncBaseConfigToServer as syncBaseConfigToServerOperation
-} from "./popup/remote-config.js";
+} from "./popup/remote-config";
 import {
   completeRenderModeInspectionReloadFollowUp as completeRenderModeInspectionReloadFollowUpOperation,
   detectRenderModeViaEndpoint as detectRenderModeViaEndpointOperation,
@@ -156,12 +156,12 @@ import {
   normalizeRenderModeDetectionResult as normalizeRenderModeDetectionResultOperation,
   waitForTabLoadComplete as waitForTabLoadCompleteOperation,
   waitForTabLoadStart as waitForTabLoadStartOperation
-} from "./popup/render-mode-inspection.js";
+} from "./popup/render-mode-inspection";
 import {
   handlePageRevert as handlePageRevertOperation,
   handlePageSave as handlePageSaveOperation,
   hasCurrentPagePendingChanges as hasCurrentPagePendingChangesOperation
-} from "./popup/page-reconciliation.js";
+} from "./popup/page-reconciliation";
 import {
   applyPropertyLockConnectionStatus as applyPropertyLockConnectionStatusOperation,
   applyPropertyLockServerMessage as applyPropertyLockServerMessageOperation,
@@ -180,21 +180,21 @@ import {
   resetPropertyLockState as resetPropertyLockStateOperation,
   sendPropertyLockCommand as sendPropertyLockCommandOperation,
   syncPropertyLockOffCandidateRefreshTimer as syncPropertyLockOffCandidateRefreshTimerOperation
-} from "./popup/property-lock-ui.js";
+} from "./popup/property-lock-ui";
 import {
   createPopupTimerGroup
-} from "./popup/timers.js";
+} from "./popup/timers";
 import {
   refineXPathEntries
-} from "./common/xpath-utilities.js";
+} from "./common/xpath-utilities";
 import {
   normalizeAiSelectorSet,
   combineAiSelectorSet,
   aiSelectorSetsEqual
-} from "./common/selector-set.js";
+} from "./common/selector-set";
 import {
   SPINNER_OWNERS
-} from "./common/world-messaging-contract.js";
+} from "./common/world-messaging-contract";
 import {
   PROPERTY_LOCK_BACKGROUND_GET_STATE,
   PROPERTY_LOCK_BACKGROUND_STATE_UPDATE,
@@ -224,7 +224,7 @@ import {
   PROPERTY_LOCK_WS_ERROR,
   createInactiveLockState,
   normalizeLockStateMessage
-} from "./common/property-lock.js";
+} from "./common/property-lock";
 import type {
   PopupTone,
   PopupPreviewMarkingSessionSnapshot,

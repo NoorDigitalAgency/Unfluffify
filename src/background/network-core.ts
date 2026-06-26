@@ -1,8 +1,8 @@
-import { getGlobalAiSettings } from "../common/settings-store.js";
+import { getGlobalAiSettings } from "../common/settings-store";
 import {
   maybeUpdateStoredTokenFromResponse,
   normalizeStageBase
-} from "../common/lynx-live-pages.js";
+} from "../common/lynx-live-pages";
 
 type BackgroundNetworkCredentials = {
   endpointValue: string;

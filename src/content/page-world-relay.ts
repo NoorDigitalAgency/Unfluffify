@@ -1,10 +1,10 @@
-import { MESSAGE_ERROR_CODES } from "../common/message-protocol.js";
+import { MESSAGE_ERROR_CODES } from "../common/message-protocol";
 import {
   PAGE_WORLD_COMMANDS,
   PAGE_WORLD_RELAY_CHANNEL,
   PAGE_WORLD_RELAY_MESSAGE_KINDS,
   isPageWorldRelayCommand
-} from "../common/page-world-protocol.js";
+} from "../common/page-world-protocol";
 
 const DEFAULT_RELAY_TIMEOUT_MS = 1200;
 const FALLBACK_REQUEST_PREFIX = "uf-page-world";

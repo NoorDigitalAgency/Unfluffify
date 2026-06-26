@@ -1,4 +1,4 @@
-import * as stateModule from "./state.js";
+import * as stateModule from "./state";
 
 const { state } = stateModule;
 

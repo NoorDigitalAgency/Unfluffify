@@ -1,27 +1,27 @@
-import { createBus } from "../../common/bus/bus.js";
-import type { Browser } from "../../common/browser.js";
-import { DIAGNOSTIC_REQUEST_TYPES } from "../../common/bus/contracts/index.js";
-import { POPUP_STATE_EVENT_TYPES, POPUP_STATE_REQUEST_TYPES } from "../../common/bus/contracts/popup-state.js";
-import { SPINNER_EVENT_TYPES, type SpinnerSurface } from "../../common/bus/contracts/spinner.js";
-import { REALMS } from "../../common/bus/realms.js";
-import { createBackgroundTransport } from "../../common/bus/transport/background-transport.js";
-import type { PopupSpinnerEntry } from "../../common/bus/contracts/popup-state.js";
-import type { PopupBrokerState } from "../popup-state-broker.js";
+import { createBus } from "../../common/bus/bus";
+import type { Browser } from "../../common/browser";
+import { DIAGNOSTIC_REQUEST_TYPES } from "../../common/bus/contracts/index";
+import { POPUP_STATE_EVENT_TYPES, POPUP_STATE_REQUEST_TYPES } from "../../common/bus/contracts/popup-state";
+import { SPINNER_EVENT_TYPES, type SpinnerSurface } from "../../common/bus/contracts/spinner";
+import { REALMS } from "../../common/bus/realms";
+import { createBackgroundTransport } from "../../common/bus/transport/background-transport";
+import type { PopupSpinnerEntry } from "../../common/bus/contracts/popup-state";
+import type { PopupBrokerState } from "../popup-state-broker";
 import {
   getActivationSnapshot as getActivationSnapshotValue,
   mirrorActivationLifecycle as mirrorActivationLifecycleState,
   updateActivationBootstrapState as updateActivationBootstrapStateValue,
-} from "./deciders/activation-decider.js";
-import { getPopupView, updatePopupViewFromBrokerState } from "./deciders/popup-state-decider.js";
+} from "./deciders/activation-decider";
+import { getPopupView, updatePopupViewFromBrokerState } from "./deciders/popup-state-decider";
 import {
   getRenderModeSnapshot as getRenderModeSnapshotValue,
   recordInspectionResult as recordRenderModeInspectionValue,
   recordNoJsHoldState as recordRenderModeNoJsHoldValue,
-} from "./deciders/render-mode-decider.js";
-import { updateSpinnerSelectionsFromQueue } from "./deciders/spinner-state-decider.js";
-import { createStateStore, type TabLayerState } from "./state-store.js";
-import { projectSpinners, type SpinnerState } from "./spinner-authority.js";
-import { projectViews } from "./view-projector.js";
+} from "./deciders/render-mode-decider";
+import { updateSpinnerSelectionsFromQueue } from "./deciders/spinner-state-decider";
+import { createStateStore, type TabLayerState } from "./state-store";
+import { projectSpinners, type SpinnerState } from "./spinner-authority";
+import { projectViews } from "./view-projector";
 
 function publishSpinnerSurface(
   bus: ReturnType<typeof createBus>,

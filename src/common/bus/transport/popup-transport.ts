@@ -1,8 +1,8 @@
-import { BUS_ERROR_CODES, BusError } from "../bus-errors.js";
-import { BUS_KINDS, isBusEnvelope, makeReplyEnvelope, type BusEnvelope, type BusRequestEnvelope } from "../envelope.js";
-import { browser, type Browser } from "../../browser.js";
-import { sendBusEnvelope } from "../../extension-messaging.js";
-import { buildBusPortName, type InboundTransportHandler, type Transport } from "./transport-types.js";
+import { BUS_ERROR_CODES, BusError } from "../bus-errors";
+import { BUS_KINDS, isBusEnvelope, makeReplyEnvelope, type BusEnvelope, type BusRequestEnvelope } from "../envelope";
+import { browser, type Browser } from "../../browser";
+import { sendBusEnvelope } from "../../extension-messaging";
+import { buildBusPortName, type InboundTransportHandler, type Transport } from "./transport-types";
 
 function toBusError(error: unknown, fallbackCode: string, fallbackMessage: string): BusError {
   if (error instanceof BusError) {

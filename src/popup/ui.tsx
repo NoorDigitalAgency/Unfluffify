@@ -2,33 +2,33 @@ import { Fragment } from "react";
 import type { ReactElement, ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
-import * as stateModule from "./state.js";
+import * as stateModule from "./state";
 import {
   PopupText,
   ViewText,
   formatScalePercent,
   propertyLockText
-} from "../common/text.js";
+} from "../common/text";
 import {
   SPINNER_TIMER_MODES,
   resolveSpinnerPhaseDefinition
-} from "../common/spinner-contract.js";
-import type { PopupTraceEvent } from "../common/bus/contracts/popup-state.js";
+} from "../common/spinner-contract";
+import type { PopupTraceEvent } from "../common/bus/contracts/popup-state";
 import type { PopupView } from "../types/popup-state.ts";
 import {
   buildLynxChecklistViewModel,
   createInitialLynxChecklistState
-} from "../common/lynx-checklist.js";
+} from "../common/lynx-checklist";
 import {
   getRenderModeOptionIcon,
   getRenderModeOptionLabel
-} from "./render-mode.js";
-import { FEATURE_FLAGS, isDebugFlagEnabled } from "../common/feature-flags.js";
-import { isPopupFeatureEnabled } from "./feature-flags-helpers.js";
-import { createPopupTimerGroup } from "./timers.js";
+} from "./render-mode";
+import { FEATURE_FLAGS, isDebugFlagEnabled } from "../common/feature-flags";
+import { isPopupFeatureEnabled } from "./feature-flags-helpers";
+import { createPopupTimerGroup } from "./timers";
 
-export { ViewText } from "../common/text.js";
-export { isPopupFeatureEnabled } from "./feature-flags-helpers.js";
+export { ViewText } from "../common/text";
+export { isPopupFeatureEnabled } from "./feature-flags-helpers";
 
 const { state } = stateModule;
 

@@ -2,21 +2,21 @@ import {
   buildGraphqlEndpointFromStageBase,
   maybeUpdateStoredTokenFromResponse,
   normalizeSiteIdValue
-} from "../common/lynx-live-pages.js";
+} from "../common/lynx-live-pages";
 import {
   parseAiRunStartResponse,
   parseAiRunStatusResponse
-} from "../popup/ai-run.js";
+} from "../popup/ai-run";
 import {
   createBackgroundJsonHeaders,
   resolveBackgroundEndpoint,
   resolveBackgroundNetworkCredentials
-} from "./network-core.js";
+} from "./network-core";
 import {
   getTransferPayload,
   putTransferPayload,
   removeTransferPayload
-} from "./transfer-payload-store.js";
+} from "./transfer-payload-store";
 
 export const UPDATE_SCRAPING_CONDITIONS_MUTATION = `
 mutation updateScrapingConditions($domainId: Int!, $includeCss: String!, $excludeCss: String!, $renderingMode: String) {

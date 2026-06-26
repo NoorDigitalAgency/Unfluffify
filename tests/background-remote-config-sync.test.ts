@@ -18,8 +18,8 @@ test("remote-config-sync module exports config reconciliation handlers", () => {
 });
 
 test("remote-config-sync relies on shared config normalization and transfer payload storage", () => {
-  assert.match(remoteConfigSyncSource, /from "\.\.\/common\/config\.js"/);
-  assert.match(remoteConfigSyncSource, /from "\.\/transfer-payload-store\.js"/);
+  assert.match(remoteConfigSyncSource, /from "\.\.\/common\/config"/);
+  assert.match(remoteConfigSyncSource, /from "\.\/transfer-payload-store"/);
   assert.match(remoteConfigSyncSource, /configStore\.normalizeConfigSyncPayload\(/);
   assert.match(remoteConfigSyncSource, /configStore\.mergePageMarkingsByTimestamp\(/);
   assert.match(remoteConfigSyncSource, /configStore\.setBackendSavedPageMarkings\(/);
@@ -28,7 +28,7 @@ test("remote-config-sync relies on shared config normalization and transfer payl
 });
 
 test("remote-config-sync prepare step backfills missing raw HTML through remote-network", () => {
-  assert.match(remoteConfigSyncSource, /from "\.\/remote-network\.js"/);
+  assert.match(remoteConfigSyncSource, /from "\.\/remote-network"/);
   assert.match(remoteConfigSyncSource, /const urlsMissingRawHtml = assignments/);
   assert.match(remoteConfigSyncSource, /await fetchStaticPageHtmlForBackground\(url\)/);
   assert.match(remoteConfigSyncSource, /const payload = assignments\.map\(\(item\) => \{/);

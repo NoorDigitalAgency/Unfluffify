@@ -14,7 +14,7 @@ interface PropertyLockBannerDeps {
   PROPERTY_LOCK_CONTENT_CONTINUE: string;
   PROPERTY_LOCK_CONTENT_SUGGEST: string;
   PROPERTY_LOCK_CONTENT_TAKE_LOCK: string;
-  propertyLockText: typeof import("../common/text.js").propertyLockText;
+  propertyLockText: typeof import("../common/text").propertyLockText;
   isPropertyLockCollaborationEnabled: () => boolean;
   clearPropertyLockBannerCountdown: () => void;
   renderPropertyLockBanner: () => void;

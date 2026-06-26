@@ -56,7 +56,7 @@ test("background owns live-page GraphQL runtime dispatch", () => {
     backgroundSource.indexOf('if (message.type === "fetchLivePagePropertyPageTypes") {')
   );
 
-  assert.match(backgroundSource, /from "\.\/background\/live-page-client\.js"/);
+  assert.match(backgroundSource, /from "\.\/background\/live-page-client"/);
   assert.match(backgroundSource, /if \(message\.type === "resolveLivePageSiteId"\) \{/);
   assert.match(backgroundSource, /if \(message\.type === "fetchLivePagePropertyPageTypes"\) \{/);
   assert.match(resolveBranch, /resolveBackgroundNetworkCredentials/);

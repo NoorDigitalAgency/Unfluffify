@@ -1,4 +1,4 @@
-import { PopupText } from "../common/text.js";
+import { PopupText } from "../common/text";
 
 const RENDER_MODE_DEFAULT_ICON = "monitor-dashboard";
 

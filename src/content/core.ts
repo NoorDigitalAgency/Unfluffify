@@ -1,14 +1,14 @@
-import * as config from "../common/config.js";
+import * as config from "../common/config";
 import type { Config, PageMarkings, PageMarkingEntry, PageSaveReconciliation, XpathEntry } from "../types/config.ts";
 import type { ExplicitToggleJob, MarkingCollections } from "../types/content-state.ts";
-import * as utils from "../common/utilities.js";
+import * as utils from "../common/utilities";
 import {
   DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS,
   DEFAULT_EXCLUDED_TOGGLEABLE_SELECTORS,
   EXTENSION_UI_FONT_STACK
-} from "../common/constants.js";
-import { ContentText } from "../common/text.js";
-import { REMOVABLE_ELEMENT_SELECTORS } from "./constants.js";
+} from "../common/constants";
+import { ContentText } from "../common/text";
+import { REMOVABLE_ELEMENT_SELECTORS } from "./constants";
 import {
   normalizeAiSelectorSet,
   combineAiSelectorSet,
@@ -16,7 +16,7 @@ import {
   buildInclusionContextSet,
   getNormalizedTextContent as getNormalizedElementText,
   canUseCollapsedTextFallback as canUseCollapsedTextFallbackElement
-} from "./shared-inclusion.js";
+} from "./shared-inclusion";
 import {
   chooseExcludeParentBoundaryTarget,
   getExplicitMarkingFullRenderOptions,
@@ -27,18 +27,18 @@ import {
   shouldCollectToggleableDefaultBoundary,
   shouldIgnoreDuplicateUserToggle,
   shouldSelfMarkToggleableDefaultBoundary
-} from "./marking-rules.js";
+} from "./marking-rules";
 import {
   collectCachedSelectorMatches,
   invalidateSharedSelectorCache
-} from "./shared-selector-cache.js";
-import { shouldRetainIncludedSource } from "./silent-highlight-rules.js";
+} from "./shared-selector-cache";
+import { shouldRetainIncludedSource } from "./silent-highlight-rules";
 import {
   initializePageWorldRelay,
   isPageWorldRelayReady,
   requestPageWorldCommand
-} from "./page-world-relay.js";
-import { PAGE_WORLD_COMMANDS } from "../common/page-world-protocol.js";
+} from "./page-world-relay";
+import { PAGE_WORLD_COMMANDS } from "../common/page-world-protocol";
 
 type TimerHandle = number;
 type AnimationFrameHandle = number;

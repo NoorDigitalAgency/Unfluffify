@@ -1,8 +1,8 @@
-import * as stateModule from "./state.js";
+import * as stateModule from "./state";
 
 const { state } = stateModule;
 
-type NormalizedLockState = ReturnType<typeof import("../common/property-lock.js").createInactiveLockState>;
+type NormalizedLockState = ReturnType<typeof import("../common/property-lock").createInactiveLockState>;
 
 interface PropertyLockFetchResult {
   state?: unknown;
@@ -34,12 +34,12 @@ interface PropertyLockViewState {
 }
 
 interface PropertyLockUiDeps {
-  isFeatureEnabled: typeof import("../common/feature-flags.js").isFeatureEnabled;
+  isFeatureEnabled: typeof import("../common/feature-flags").isFeatureEnabled;
   FEATURE_DISABLED_REASON: string;
-  propertyLockText: typeof import("../common/text.js").propertyLockText;
-  createInactiveLockState: typeof import("../common/property-lock.js").createInactiveLockState;
-  normalizeLockStateMessage: typeof import("../common/property-lock.js").normalizeLockStateMessage;
-  normalizeSiteIdValue: typeof import("../common/lynx-live-pages.js").normalizeSiteIdValue;
+  propertyLockText: typeof import("../common/text").propertyLockText;
+  createInactiveLockState: typeof import("../common/property-lock").createInactiveLockState;
+  normalizeLockStateMessage: typeof import("../common/property-lock").normalizeLockStateMessage;
+  normalizeSiteIdValue: typeof import("../common/lynx-live-pages").normalizeSiteIdValue;
   PROPERTY_LOCK_BACKGROUND_GET_STATE: string;
   PROPERTY_LOCK_BACKGROUND_CONNECTION_STATUS: string;
   PROPERTY_LOCK_CONNECTION_INACTIVE: string;

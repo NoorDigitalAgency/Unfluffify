@@ -2,7 +2,7 @@ import {
   normalizeSelectorList,
   normalizeAiSelectorSet,
   combineAiSelectorSet
-} from "../common/selector-set.js";
+} from "../common/selector-set";
 
 export { normalizeSelectorList, normalizeAiSelectorSet, combineAiSelectorSet };
 

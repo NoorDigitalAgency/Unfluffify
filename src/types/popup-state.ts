@@ -4,8 +4,8 @@ import type {
   PageSaveReconciliation,
   PropertyLockState
 } from "./config.ts";
-import type { Browser } from "../common/browser.js";
-import type { PopupTraceEvent } from "../common/bus/contracts/popup-state.js";
+import type { Browser } from "../common/browser";
+import type { PopupTraceEvent } from "../common/bus/contracts/popup-state";
 
 export type PopupTone = "muted" | "success" | "warning" | "danger";
 export type PopupView = "Loading" | "Configuration" | "Marking";
