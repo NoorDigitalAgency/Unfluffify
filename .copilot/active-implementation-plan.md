@@ -7,12 +7,15 @@ durable architecture index and `.copilot/knowledge.md` is durable knowledge; all
 other historical `.copilot` plan/progress docs were removed.
 
 Progress checkpoint: Phase A and Phase F are complete and pushed. Phase B is in
-progress: the first batch removed the pure decomposition/code-shape tests and
-replaced the entrypoint/runtime-router coverage with narrower contract/runtime
-tests, and the second batch has now trimmed the mixed/source-grep bus,
-feature-flag, lifecycle, device-emulation, render-mode, and world-trace files
-down to lean runtime plus narrow contract coverage. The next active execution
-step is the remaining popup/core source-grep cleanup inside Phase B.
+progress: the first batch removed the pure decomposition/code-shape tests, the
+second batch trimmed the mixed/source-grep bus, feature-flag, lifecycle,
+device-emulation, render-mode, and world-trace files down to lean runtime plus
+narrow contract coverage, and the latest batch converted
+`background-marking-activation`, `preview-tooltip`, and `popup-ai-run-gating`
+into slimmer runtime/contract coverage while restoring the review-identified
+background/content/popup seams. The next active execution step is the remaining
+content/core-heavy source-grep cleanup inside Phase B (`content-activation-
+order`, `core-scheduling`, `core-motion-pause`, and adjacent leftovers).
 
 ## 1. Goal
 
@@ -49,10 +52,10 @@ all with `pnpm verify` green and the live popup behavior unchanged.
   `content-decomposition-boundary`, `content-main-runtime-router-contract`,
   `a1-bootstrap`, `c1/c2/c3/c4-entrypoint`.
 - Many ui/popup/core tests still read source as text (grep or extract+eval) and
-  break under the JSX port; the highest remaining examples are
-  `popup-marking-refresh`, `popup-ai-run-gating`, `preview-tooltip`,
-  `background-marking-activation`, `content-activation-order`,
-  `core-scheduling`, `core-motion-pause`, and similar. The mixed/source-grep
+  break under the JSX port; the highest remaining examples are now
+  `popup-marking-refresh`, `content-activation-order`, `core-scheduling`,
+  `core-motion-pause`, and similar content/core holdouts. The mixed/source-grep
+  `background-marking-activation`, `preview-tooltip`, `popup-ai-run-gating`,
   `bus-boundary`, `device-emulation-lifecycle`, `feature-flags`,
   `lifecycle-broker`, `popup-render-mode`, and `world-trace-contract` files now
   keep only lean runtime or narrow contract coverage.

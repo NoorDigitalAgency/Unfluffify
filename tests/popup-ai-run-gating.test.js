@@ -6,7 +6,6 @@ import { buildPageSaveUiState } from "../src/common/page-save-state.js";
 const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
 const pageReconciliationSource = readFileSync(new URL("../src/popup/page-reconciliation.ts", import.meta.url), "utf8");
 const backgroundSource = readFileSync(new URL("../src/background.ts", import.meta.url), "utf8");
-const uiSource = readFileSync(new URL("../src/popup/ui.ts", import.meta.url), "utf8");
 const stateSource = readFileSync(new URL("../src/popup/state.ts", import.meta.url), "utf8");
 
 function computeButtonDisabledForState({
@@ -44,17 +43,8 @@ function markingPreviewDisabledForState({
   );
 }
 
-test("state tracks the AI-run markings fingerprint", () => {
+test("state tracks the AI-run markings fingerprint with a null sentinel", () => {
   assert.match(stateSource, /aiRunMarkingsFingerprint: null/);
-});
-
-test("fingerprint only covers exclude and include xpaths", () => {
-  const fnBody = popupSource.match(
-    /function fingerprintPageMarkingEntry\(entry(?:\s*:\s*[^)]+)?\) \{([\s\S]*?)\n\}/
-  )[1];
-  assert.match(fnBody, /entry\.xpaths/);
-  assert.match(fnBody, /entry\.includeXpaths/);
-  assert.doesNotMatch(fnBody, /cssSelectors/);
 });
 
 test("a successful AI run captures the markings fingerprint", () => {
@@ -105,14 +95,14 @@ test("a successful save transitions the popup from marking to silent mode", () =
   assert.match(fnBody, /await alignPopupToSilentMode\(\);/);
 });
 
-test("aligning to silent mode clears the popup toggle without touching content", () => {
+test("aligning to silent mode clears popup state without sending a fresh content setEnabled hop", () => {
   const fnBody = popupSource.match(
     /async function alignPopupToSilentMode\(\) \{([\s\S]*?)\n\}/
   )[1];
+
   assert.match(fnBody, /enabled: false/);
   assert.match(fnBody, /clearLastPopupEnabled\(\);/);
   assert.match(fnBody, /toggleEnabled: false/);
-  // No enable/disable message is sent to the content script here.
   assert.doesNotMatch(fnBody, /setEnabled/);
 });
 
@@ -197,7 +187,7 @@ test("State C clean post-AI-run keeps Run AI disabled and enables Show Content L
   assert.equal(pageSaveUiState.pageRevertDisabled, false);
 });
 
-test("Run AI stays enabled when the session needs a rerun elsewhere", () => {
+test("Run AI stays wired to the real popup view-state gating expression", () => {
   assert.match(
     popupSource,
     /nextViewState\.computeButtonDisabled =\s*pageScopedUiDisabled \|\|\s*aiBusy \|\|\s*previewRestorePending \|\|\s*!aiReady \|\|\s*pageSaveReconciliationPending \|\|\s*\(aiRunUpToDate && !sessionRequiresAiRun\);/
@@ -217,27 +207,6 @@ test("Save uses the page-save state instead of the redundant AI-run fingerprint 
     popupSource,
     /sessionRequiresAiRun,[\s\S]*?reconciliation: state\.currentPageSaveReconciliation/
   );
-});
-
-test("marking-mode preview stays gated on AI-run freshness and session freshness", () => {
-  assert.match(
-    popupSource,
-    /nextViewState\.markingPreviewVisible = pageControlsVisible && Boolean\(isEnabled\);/
-  );
-  assert.match(
-    popupSource,
-    /nextViewState\.markingPreviewDisabled =\s*aiBusy \|\|\s*previewRestorePending \|\|\s*pageSaveReconciliationPending \|\|\s*!aiRunUpToDate \|\|\s*sessionRequiresAiRun;/
-  );
-  assert.match(popupSource, /onMarkingPreview: handleMarkingPreview,/);
-  assert.match(popupSource, /async function handleMarkingPreview\(\) \{/);
-  assert.match(uiSource, /id: "marking-preview"/);
-  assert.match(uiSource, /onClick: handlers\.onMarkingPreview/);
-  // The preview button renders full-width (not inside the half-width button-row grid).
-  const previewBlock = uiSource.match(
-    /markingMode && view\.markingPreviewVisible\) \{([\s\S]*?)\n {2}\}/
-  )[1];
-  assert.match(previewBlock, /class: "u-btn-secondary u-full-width"/);
-  assert.doesNotMatch(previewBlock, /button-row/);
 });
 
 test("navigating away from a pending marking session prompts to discard first", () => {
@@ -314,6 +283,7 @@ test("#21 fingerprint normalizes markings to xpath identity strings", () => {
   const fnBody = popupSource.match(
     /function fingerprintPageMarkingEntry\(entry(?:\s*:\s*[^)]+)?\) \{([\s\S]*?)\n\}/
   )[1];
+  assert.match(fnBody, /entry\.includeXpaths/);
   // Exclude markings are reduced to `${xpath}|${excluded?1:0}` so incidental
   // entry-object shape/order differences across the run+exit cycle do not
   // spuriously invalidate the fingerprint.
@@ -374,53 +344,6 @@ test("#21 refresh feeds aiRunUpToDate into the session-requires-AI-run check", (
     popupSource,
     /const aiRunUpToDate = isAiRunUpToDateForCurrentMarkings\(\);\s*const sessionRequiresAiRun = doesSessionRequireAiRun\([\s\S]*?\{ currentDraftDirty: state\.currentDraftDirty, aiRunUpToDate \}\s*\);/
   );
-});
-
-test("#21 preview-exit restore prioritizes popup snapshot restore with payload fallback", () => {
-  assert.match(
-    popupSource,
-    /function beginPreviewRestorePending\(\) \{[\s\S]*?state\.previewRestoreToken \+= 1;[\s\S]*?state\.previewRestorePending = true;[\s\S]*?schedulePreviewRestoreFallback\(state\.previewRestoreToken\);/
-  );
-  assert.match(popupSource, /function captureMarkingSessionSnapshot\(\) \{/);
-  assert.match(popupSource, /function restoreMarkingSessionSnapshot\(\) \{/);
-  assert.match(popupSource, /function clearMarkingSessionSnapshot\(\) \{/);
-  assert.match(
-    popupSource,
-    /if \(previewOpened\) \{[\s\S]*?resetAiRunState\(\);[\s\S]*?captureMarkingSessionSnapshot\(\);[\s\S]*?uiModule\.setViewState\(\{/
-  );
-  assert.match(
-    popupSource,
-    /async function handleMarkingPreview\(\) \{[\s\S]*?await refreshCurrentPageRuntimeStatus\(\);[\s\S]*?captureMarkingSessionSnapshot\(\);[\s\S]*?setPreviewBlocked\(true, PopupText\.preview\.blockedActive\);/
-  );
-  assert.match(
-    popupSource,
-    /const preserveEnabledDuringPreviewCloseRestore = Boolean\(\s*previewRestorePending &&\s*tabInScope &&\s*!contentMarkingEnabled\s*\);/
-  );
-  assert.match(
-    popupSource,
-    /async function handleExitPreviewMode\(\) \{[\s\S]*?if \(shouldRestoreMarking && restoreMarkingSessionSnapshot\(\)\) \{[\s\S]*?clearPreviewRestorePending\(\);[\s\S]*?await refreshUi\(\{[\s\S]*?preserveCurrentDraftStatus: true[\s\S]*?\}\)(?:\.catch\(\(\) => null\))?;[\s\S]*?if \(previewRestoreToken !== null\) \{[\s\S]*?state\.previewRestoreAppliedToken = Math\.max\(\s*state\.previewRestoreAppliedToken,\s*previewRestoreToken\s*\);[\s\S]*?\}[\s\S]*?clearMarkingSessionSnapshot\(\);[\s\S]*?return;[\s\S]*?\}[\s\S]*?if \(closeResult && \(typeof closeResult\.markingEnabled === "boolean" \|\| closeResult\.draftStatus\)\) \{[\s\S]*?await applyPreviewClosedState\(closeResult\);/
-  );
-  assert.match(
-    popupSource,
-    /async function applyPreviewClosedState\(closeState = \{\}\) \{[\s\S]*?const draftStatus = normalizedCloseState\.draftStatus[\s\S]*?applyDraftStatusToPopupState\(draftStatus\)[\s\S]*?clearPreviewRestorePending\(\);[\s\S]*?clearMarkingSessionSnapshot\(\);/
-  );
-  assert.match(
-    popupSource,
-    /nextViewState\.toggleEnabledDisabled =[\s\S]*?previewRestorePending[\s\S]*?pageSaveReconciliationPending/
-  );
-  assert.match(
-    popupSource,
-    /nextViewState\.pageSaveDisabled =\s*pageSaveUiState\.pageSaveDisabled \|\| previewRestorePending;/
-  );
-  assert.match(
-    popupSource,
-    /nextViewState\.pageRevertDisabled =\s*pageSaveUiState\.pageRevertDisabled \|\| previewRestorePending;/
-  );
-  assert.match(
-    popupSource,
-    /function schedulePreviewRestoreFallback\(token: number, delayMs = AI_PREVIEW_RESTORE_FALLBACK_MS\) \{[\s\S]*?finalizePreviewRestoreFromRuntime\(\{ token \}\)/
-  );
-  assert.match(popupSource, /const AI_PREVIEW_RESTORE_FALLBACK_MS = 1000;/);
 });
 
 // --- #22: exiting the content list must be state-neutral (S4 == S3) ---
