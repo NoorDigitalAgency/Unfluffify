@@ -538,7 +538,7 @@ test("disable teardown persistence captures state before clearing it", () => {
     /export function disable\(options = \{\}\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?(?:\n|\r\n)*export async function enableForBaseUrl/
   )[1];
   const flushBody = source.match(
-    /function flushPendingTeardownPersistence\(baseUrl, configValue, pageUrl\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?(?:\n|\r\n)*function setAltPassThrough/
+    /function flushPendingTeardownPersistence\(\s*baseUrl(?:\s*:\s*[^,]+)?,\s*configValue(?:\s*:\s*[^,]+)?,\s*pageUrl(?:\s*:\s*[^)]+)?\s*\)(?:: [^{]+)? \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?(?:\n|\r\n)*function setAltPassThrough/
   )[1];
 
   assert.match(disableBody, /const teardownBaseUrl = state\.baseUrl;/);
@@ -639,7 +639,7 @@ test("user-driven explicit toggles draw the marking overlay synchronously (issue
 test("marking UI scheduling uses extension-owned timers during page motion pause", () => {
   const coreSource = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
   const scheduleRenderBody = coreSource.match(
-    /export function scheduleRender\(options\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?(?:\n|\r\n)*export function mergeDraftEntry/
+    /export function scheduleRender\(options(?:\s*\?:\s*[^)]+)?\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?(?:\n|\r\n)*export function mergeDraftEntry/
   )[1];
 
   assert.match(coreSource, /capturedExtensionTimers/);
@@ -852,13 +852,13 @@ test("marking enable schedules settle renders that force invalidating rebuilds",
   assert.match(source, /function clearMarkingSettleRenders\(\)/);
   assert.match(source, /function scheduleMarkingSettleRenders\(\) \{[\s\S]*?MARKING_MODE_SETTLE_RENDER_DELAYS_MS/);
   assert.match(source, /scheduleRender\(\{[\s\S]*?reason: "marking-settle",[\s\S]*?invalidate: true/);
-  assert.match(source, /export async function enableForBaseUrl\(baseUrl, options = \{\}\) \{[\s\S]*?scheduleRender\(\);[\s\S]*?scheduleMarkingSettleRenders\(\);/);
+  assert.match(source, /export async function enableForBaseUrl\(baseUrl(?:\s*:\s*[^,]+)?, options = \{\}\) \{[\s\S]*?scheduleRender\(\);[\s\S]*?scheduleMarkingSettleRenders\(\);/);
   assert.match(source, /export function disable\(options = \{\}\) \{[\s\S]*?clearMarkingSettleRenders\(\);/);
 });
 
 test("marking enable starts fresh: wipes stale page draft and reseeds the clean baseline", () => {
   const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
-  const enableStart = source.indexOf("export async function enableForBaseUrl(baseUrl, options = {}) {");
+  const enableStart = source.search(/export async function enableForBaseUrl\(baseUrl(?:\s*:\s*[^,]+)?, options = \{\}\) \{/);
   const enableEnd = source.indexOf("export function handleBeforeUnload", enableStart);
   assert.ok(enableStart > -1);
   assert.ok(enableEnd > enableStart);
@@ -869,7 +869,7 @@ test("marking enable starts fresh: wipes stale page draft and reseeds the clean 
   // the persisted key is only loosely equivalent to the current URL.
   assert.match(enableBody, /state\.config = await config\.updateConfig\(normalizedBaseUrl, \(targetConfig(?::\s*unknown)?\) => \{/);
   assert.match(enableBody, /removePageMarkingEntriesForPage\(targetConfig, pageUrl, normalizedBaseUrl\);/);
-  assert.match(source, /function removePageMarkingEntriesForPage\(configValue, pageUrl, baseUrl = state\.baseUrl \|\| pageUrl\) \{[\s\S]*?toLooseUrlKey\(url, lookupBaseUrl\) === targetLooseKey[\s\S]*?delete pageMarkings\[url\];/);
+  assert.match(source, /function removePageMarkingEntriesForPage\(\s*configValue(?:\s*:\s*[^,]+)?,\s*pageUrl(?:\s*:\s*[^,]+)?,\s*baseUrl(?:\s*:\s*[^=]+)? = state\.baseUrl \|\| pageUrl\s*\)(?:: [^{]+)? \{[\s\S]*?toLooseUrlKey\(url, lookupBaseUrl\) === targetLooseKey[\s\S]*?delete pageMarkings\[url\];/);
   assert.match(enableBody, /await config\.clearPageSaveReconciliation\(normalizedBaseUrl, pageUrl\);/);
   assert.match(enableBody, /state\.pageSaveReconciliation = null;/);
   assert.ok(

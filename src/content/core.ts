@@ -1,5 +1,5 @@
 import * as config from "../common/config.js";
-import type { Config, PageMarkingEntry, XpathEntry } from "../types/config.ts";
+import type { Config, PageMarkings, PageMarkingEntry, XpathEntry } from "../types/config.ts";
 import type { ExplicitToggleJob, MarkingCollections } from "../types/content-state.ts";
 import * as utils from "../common/utilities.js";
 import {
@@ -487,6 +487,61 @@ interface LayerRenderState {
   used: Set<string>;
 }
 
+interface PageMarkingEntryLookupCacheEntry {
+  baseUrl: string;
+  entriesByLooseKey: Map<string, PageMarkingEntry>;
+}
+
+interface PageMarkingSource {
+  pageMarkings?: unknown;
+}
+
+interface ScheduleRenderOptions {
+  delay?: number;
+  minInterval?: number;
+  invalidate?: boolean;
+  reason?: string;
+}
+
+interface DisableOptions {
+  pageUrl?: string;
+}
+
+interface EnableForBaseUrlOptions {
+  skipInitialReveal?: boolean;
+}
+
+interface ScrollOptions {
+  hideDuringScroll?: boolean;
+}
+
+interface ScrollEventLike {
+  target?: EventTarget | null;
+  currentTarget?: EventTarget | null;
+}
+
+interface PreviewItemRow {
+  xpath: string;
+  text: string;
+  top: number;
+  left: number;
+}
+
+interface PreviewItem {
+  xpath: string;
+  text: string;
+}
+
+interface AiPopoverShowOptions {
+  onClose?: AiPopoverCloseHandler | null;
+}
+
+interface TabStateResponse {
+  enabled?: boolean;
+  baseUrl?: string;
+  pageType?: string;
+}
+
 interface SelectorInclusionCollections {
   included: Element[];
   excluded: Element[];
@@ -499,6 +554,10 @@ function isElementNode(node: unknown): node is Element {
     return false;
   }
   return "nodeType" in node && (node as Node).nodeType === 1;
+}
+
+function isUnknownRecord(value: unknown): value is UnknownRecord {
+  return Boolean(value) && typeof value === "object";
 }
 
 function hasHiddenProperty(node: Element): node is Element & { hidden: boolean } {
@@ -535,6 +594,10 @@ function hasScrollIntoViewMethod(
 
 function hasClosestMethod(node: EventTarget | null): node is Element & { closest: (selector: string) => Element | null } {
   return isElementNode(node) && typeof (node as { closest?: unknown }).closest === "function";
+}
+
+function isTabStateResponse(value: unknown): value is TabStateResponse {
+  return isUnknownRecord(value);
 }
 
 function isSvgAnimationElement(node: Element): node is SvgAnimationElement {
@@ -616,7 +679,7 @@ export const state = {
   layerBoxes: new WeakMap<HTMLElement, Map<string, HTMLDivElement>>(),
   cachedCollections: null as MarkingCollections | null,
   cachedCollectionsKey: "",
-  markingSettleTimers: [],
+  markingSettleTimers: [] as number[],
   paintReachabilityFallbackCount: 0,
   paintReachabilityFallbackLastLoggedAt: 0,
   elementComputationCacheDepth: 0,
@@ -659,7 +722,10 @@ export const state = {
 export const CONSENT_HIDDEN_ATTR = "data-uf-consent-hidden";
 const CONSENT_BYPASS_STYLE_ID = "uf-consent-bypass";
 const CONSENT_SELECTOR = REMOVABLE_ELEMENT_SELECTORS.join(",");
-const pageMarkingEntryLookupCache = new WeakMap();
+const pageMarkingEntryLookupCache = new WeakMap<
+  Record<string, unknown>,
+  PageMarkingEntryLookupCacheEntry
+>();
 const SCROLL_DEBOUNCE_MS = 250;
 const TOGGLE_ACK_ANIMATION_MS = 160;
 const TOGGLE_ACK_CLEAR_MS = TOGGLE_ACK_ANIMATION_MS + 20;
@@ -10843,8 +10909,10 @@ export function scheduleDraftPersist(baseUrl = state.baseUrl, delayMs = 220) {
   }, Math.max(0, Math.trunc(delayMs)));
 }
 
-// @ts-expect-error
-function flushPendingSnapshotSave(configValue, pageUrl) {
+function flushPendingSnapshotSave(
+  configValue: Config | null | undefined,
+  pageUrl: string | null | undefined
+): boolean {
   if (!configValue || !pageUrl) {
     return false;
   }
@@ -10856,8 +10924,10 @@ function flushPendingSnapshotSave(configValue, pageUrl) {
   }
 }
 
-// @ts-expect-error
-function persistTeardownConfig(baseUrl, configValue) {
+function persistTeardownConfig(
+  baseUrl: string | null | undefined,
+  configValue: Config | null | undefined
+): void {
   if (!baseUrl || !configValue) {
     return;
   }
@@ -10866,8 +10936,11 @@ function persistTeardownConfig(baseUrl, configValue) {
   });
 }
 
-// @ts-expect-error
-function flushPendingTeardownPersistence(baseUrl, configValue, pageUrl) {
+function flushPendingTeardownPersistence(
+  baseUrl: string | null | undefined,
+  configValue: Config | null | undefined,
+  pageUrl: string | null | undefined
+): void {
   let shouldPersist = false;
   if (state.snapshotTimer) {
     extensionClearTimeout(state.snapshotTimer);
@@ -10884,8 +10957,7 @@ function flushPendingTeardownPersistence(baseUrl, configValue, pageUrl) {
   }
 }
 
-// @ts-expect-error
-function setAltPassThrough(enabled) {
+function setAltPassThrough(enabled: boolean): void {
   const changed = state.altPassThrough !== enabled;
   state.altPassThrough = enabled;
   if (!state.overlay) {
@@ -10897,7 +10969,6 @@ function setAltPassThrough(enabled) {
     clearLayer(state.layers["hover"]);
   }
   if (!enabled) {
-// @ts-expect-error
     scheduleRender();
   }
   if (changed) {
@@ -10905,40 +10976,44 @@ function setAltPassThrough(enabled) {
   }
 }
 
-// @ts-expect-error
-export function isMarkableElement(el, config, options) {
-  if (!config) {
+export function isMarkableElement(
+  el: Element | null | undefined,
+  config: Config | null | undefined,
+  options: ParentMarkingOptions = {}
+): boolean {
+  if (!config || !el || el.nodeType !== 1) {
     return false;
   }
+  const currentOptions = options || {};
   if (isWithinAiPopover(el)) {
     return false;
   }
-  if (!(options && options.allowConsentElements) && isWithinConsentElement(el)) {
+  if (!currentOptions.allowConsentElements && isWithinConsentElement(el)) {
     return false;
   }
   if (isSilentWhitespaceExclusionCandidate(el)) {
     return false;
   }
-  if (options && options.allowImmutableChildren) {
+  if (currentOptions.allowImmutableChildren) {
     if (matchesImmutableExcluded(el)) {
       return false;
     }
   } else if (isWithinImmutableExcluded(el)) {
     return false;
   }
-  if (options && (options.explicitlyExcluded || options.explicitlyIncluded)) {
+  if (currentOptions.explicitlyExcluded || currentOptions.explicitlyIncluded) {
     return true;
   }
-  if (isSelfMarkableWithoutParentMode(el, options || {})) {
+  if (isSelfMarkableWithoutParentMode(el, currentOptions)) {
     return true;
   }
-  if (!options || !options.allowParent) {
+  if (!currentOptions.allowParent) {
     return false;
   }
-  if (isUnsafeShallowParentMarkingTarget(el, options || {})) {
+  if (isUnsafeShallowParentMarkingTarget(el, currentOptions)) {
     return false;
   }
-  return hasMultipleMarkableDescendants(el, options || {});
+  return hasMultipleMarkableDescendants(el, currentOptions);
 }
 
 export function canApplyExplicitInclude(
@@ -11011,8 +11086,7 @@ export function clearFocusHighlight() {
   updateFocusHighlight();
 }
 
-// @ts-expect-error
-export function isVisible(el) {
+export function isVisible(el: Element | null | undefined): boolean {
   if (!el || el.nodeType !== 1) {
     return false;
   }
@@ -11030,13 +11104,12 @@ export function isVisible(el) {
   return result;
 }
 
-// @ts-expect-error
-function isVisibleUncached(el) {
+function isVisibleUncached(el: Element): boolean {
   if (isWithinExtensionUi(el)) {
     return false;
   }
   let ambiguousHidden = false;
-  let node = el;
+  let node: Element | null = el;
   const visCache = state.ancestorVisStateCache;
   while (node && node.nodeType === 1) {
     let visState: TheoreticalVisibilityState;
@@ -11070,8 +11143,7 @@ function isVisibleUncached(el) {
   return isActuallyVisibleToUser(el);
 }
 
-// @ts-expect-error
-export function isVisibleForSubmission(el) {
+export function isVisibleForSubmission(el: Element | null | undefined): boolean {
   if (!el || el.nodeType !== 1) {
     return false;
   }
@@ -11079,7 +11151,7 @@ export function isVisibleForSubmission(el) {
     return false;
   }
   let ambiguousHidden = false;
-  let node = el;
+  let node: Element | null = el;
   while (node && node.nodeType === 1) {
     const style = window.getComputedStyle(node);
     const state = getTheoreticalVisibilityState(node, style);
@@ -11122,8 +11194,10 @@ export function isVisibleForSubmission(el) {
   return anyClientRectIntersectsSubmissionArea(el);
 }
 
-// @ts-expect-error
-export function getElementFromXPath(xpath) {
+export function getElementFromXPath(xpath: string | null | undefined): Element | null {
+  if (typeof xpath !== "string" || !xpath) {
+    return null;
+  }
   try {
     const result = document.evaluate(
         xpath,
@@ -11133,7 +11207,7 @@ export function getElementFromXPath(xpath) {
         null
     );
     const node = result.singleNodeValue;
-    if (node && node.nodeType === 1) {
+    if (isElementNode(node)) {
       return node;
     }
     return null;
@@ -11142,17 +11216,15 @@ export function getElementFromXPath(xpath) {
   }
 }
 
-// @ts-expect-error
-export function hasPageMarkingEntry(config, pageUrl) {
-  if (!config || !config.pageMarkings || typeof config.pageMarkings !== "object") {
+export function hasPageMarkingEntry(config: unknown, pageUrl: string): boolean {
+  if (!isUnknownRecord(config) || !isUnknownRecord(config.pageMarkings)) {
     return false;
   }
   return Boolean(findPageMarkingEntry(config, pageUrl));
 }
 
 // Normalize URL paths so "/page" and "/page/" resolve to the same page-marking entry.
-// @ts-expect-error
-function normalizeUrlPath(pathname) {
+function normalizeUrlPath(pathname: string | null | undefined): string {
   if (typeof pathname !== "string" || !pathname) {
     return "/";
   }
@@ -11161,8 +11233,7 @@ function normalizeUrlPath(pathname) {
 }
 
 // Build a stable page-marking key for equivalent URLs by ignoring trailing slashes.
-// @ts-expect-error
-function toLooseUrlKey(value, baseUrl) {
+function toLooseUrlKey(value: string | null | undefined, baseUrl: string | null | undefined): string {
   if (typeof value !== "string" || !value) {
     return "";
   }
@@ -11176,14 +11247,20 @@ function toLooseUrlKey(value, baseUrl) {
   }
 }
 
-// @ts-expect-error
-export function findPageMarkingEntry(configValue, pageUrl, baseUrl = state.baseUrl || pageUrl) {
-  const pageMarkings = configValue && configValue.pageMarkings;
-  if (!pageMarkings || typeof pageMarkings !== "object" || !pageUrl) {
+export function findPageMarkingEntry(
+  configValue: unknown,
+  pageUrl: string,
+  baseUrl: string | undefined = state.baseUrl || pageUrl
+): PageMarkingEntry | null {
+  const pageMarkings = isUnknownRecord(configValue) ? configValue.pageMarkings : null;
+  if (!isUnknownRecord(pageMarkings) || !pageUrl) {
     return null;
   }
-  if (pageMarkings[pageUrl]) {
-    return pageMarkings[pageUrl];
+  const directEntry = isUnknownRecord(pageMarkings[pageUrl])
+    ? normalizePageEntryXpaths(pageMarkings[pageUrl] as PageMarkingEntry)
+    : null;
+  if (directEntry) {
+    return directEntry;
   }
   const targetLooseKey = toLooseUrlKey(pageUrl, baseUrl || pageUrl);
   if (!targetLooseKey) {
@@ -11192,11 +11269,14 @@ export function findPageMarkingEntry(configValue, pageUrl, baseUrl = state.baseU
   const lookupBaseUrl = baseUrl || pageUrl;
   let cached = pageMarkingEntryLookupCache.get(pageMarkings);
   if (!cached || cached.baseUrl !== lookupBaseUrl) {
-    const entriesByLooseKey = new Map();
+    const entriesByLooseKey = new Map<string, PageMarkingEntry>();
     Object.keys(pageMarkings).forEach((url) => {
       const looseKey = toLooseUrlKey(url, lookupBaseUrl);
-      if (looseKey && !entriesByLooseKey.has(looseKey)) {
-        entriesByLooseKey.set(looseKey, pageMarkings[url]);
+      const entry = isUnknownRecord(pageMarkings[url])
+        ? normalizePageEntryXpaths(pageMarkings[url] as PageMarkingEntry)
+        : null;
+      if (looseKey && entry && !entriesByLooseKey.has(looseKey)) {
+        entriesByLooseKey.set(looseKey, entry);
       }
     });
     cached = { baseUrl: lookupBaseUrl, entriesByLooseKey };
@@ -11205,10 +11285,13 @@ export function findPageMarkingEntry(configValue, pageUrl, baseUrl = state.baseU
   return cached.entriesByLooseKey.get(targetLooseKey) || null;
 }
 
-// @ts-expect-error
-function removePageMarkingEntriesForPage(configValue, pageUrl, baseUrl = state.baseUrl || pageUrl) {
-  const pageMarkings = configValue && configValue.pageMarkings;
-  if (!pageMarkings || typeof pageMarkings !== "object" || !pageUrl) {
+function removePageMarkingEntriesForPage(
+  configValue: unknown,
+  pageUrl: string,
+  baseUrl: string | undefined = state.baseUrl || pageUrl
+): boolean {
+  const pageMarkings = isUnknownRecord(configValue) ? configValue.pageMarkings : null;
+  if (!isUnknownRecord(pageMarkings) || !pageUrl) {
     return false;
   }
   const lookupBaseUrl = baseUrl || pageUrl;
@@ -11231,14 +11314,13 @@ function removePageMarkingEntriesForPage(configValue, pageUrl, baseUrl = state.b
 
 // Write an entry into a pageMarkings object and evict its loose-lookup cache
 // so that the next findPageMarkingEntry call rebuilds with up-to-date data.
-// @ts-expect-error
-function setPageMarkingEntry(pageMarkings, url, entry) {
+function setPageMarkingEntry(pageMarkings: PageMarkings, url: string, entry: PageMarkingEntry): void {
   pageMarkings[url] = entry;
   pageMarkingEntryLookupCache.delete(pageMarkings);
 }
 
-export function collectImmutableElements() {
-  const immutable = new Set();
+export function collectImmutableElements(): Set<Element> {
+  const immutable = new Set<Element>();
   for (const selector of DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS) {
     if (!selector) {
       continue;
@@ -11257,8 +11339,7 @@ export function collectImmutableElements() {
   return immutable;
 }
 
-// @ts-expect-error
-export function scheduleRender(options) {
+export function scheduleRender(options?: ScheduleRenderOptions) {
   const scheduleStartedAt = nowMs();
   const shouldInvalidate = !options || options.invalidate !== false;
   state.pendingRenderInvalidate = state.pendingRenderInvalidate || shouldInvalidate;
@@ -11298,18 +11379,30 @@ export function scheduleRender(options) {
   }, effectiveDelay);
 }
 
-// @ts-expect-error
-export function mergeDraftEntry(config, pageUrl, draftEntry, savedEntry) {
-  if (!config || !pageUrl || !draftEntry) {
+export function mergeDraftEntry(
+  config: Config | null | undefined,
+  pageUrl: string,
+  draftEntry: unknown,
+  savedEntry: unknown
+): void {
+  let normalizedDraftEntry: PageMarkingEntry | null = null;
+  if (isUnknownRecord(draftEntry)) {
+    normalizedDraftEntry = normalizePageEntryXpaths(draftEntry as PageMarkingEntry);
+  }
+  let normalizedSavedEntry: PageMarkingEntry | null = null;
+  if (isUnknownRecord(savedEntry)) {
+    normalizedSavedEntry = normalizePageEntryXpaths(savedEntry as PageMarkingEntry);
+  }
+  if (!config || !pageUrl || !normalizedDraftEntry) {
     return;
   }
-  if (areEntriesEquivalent(draftEntry, savedEntry)) {
+  if (areEntriesEquivalent(normalizedDraftEntry, normalizedSavedEntry)) {
     return;
   }
   if (!config.pageMarkings || typeof config.pageMarkings !== "object") {
     config.pageMarkings = {};
   }
-  setPageMarkingEntry(config.pageMarkings, pageUrl, clonePageEntry(draftEntry));
+  setPageMarkingEntry(config.pageMarkings, pageUrl, clonePageEntry(normalizedDraftEntry));
 }
 
 export function getPageMarkingEntry(
@@ -11361,16 +11454,16 @@ export function getPageMarkingEntry(
   return entry;
 }
 
-// @ts-expect-error
-export async function loadConfig(baseUrl) {
+export async function loadConfig(baseUrl: string | undefined): Promise<Config> {
   const result = await utils.idbGet("configs");
-  const configs = result.configs || {};
-  const normalized = config.normalizeConfig(baseUrl, configs[baseUrl]);
-  configs[baseUrl] = normalized.config;
+  const configs = isUnknownRecord(result.configs) ? result.configs : {};
+  const normalizedBaseUrl = typeof baseUrl === "string" ? baseUrl : "";
+  const normalized = config.normalizeConfig(normalizedBaseUrl, configs[normalizedBaseUrl]);
+  configs[normalizedBaseUrl] = normalized.config;
   if (normalized.changed) {
     await utils.idbSet({ configs });
   }
-  return configs[baseUrl];
+  return normalized.config;
 }
 
 function clearMarkingSettleRenders() {
@@ -11388,7 +11481,7 @@ function clearMarkingSettleRenders() {
 
 function scheduleMarkingSettleRenders() {
   clearMarkingSettleRenders();
-  const timers = [];
+  const timers: number[] = [];
   for (const delay of MARKING_MODE_SETTLE_RENDER_DELAYS_MS) {
     const timerId = extensionSetTimeout(() => {
       state.markingSettleTimers = state.markingSettleTimers.filter((id) => id !== timerId);
@@ -11403,16 +11496,14 @@ function scheduleMarkingSettleRenders() {
     }, delay);
     timers.push(timerId);
   }
-// @ts-expect-error
   state.markingSettleTimers = timers;
 }
 
 export function disable(options = {}) {
+  const currentOptions = options as DisableOptions | undefined;
   const optionPageUrl =
-// @ts-expect-error
-    typeof options.pageUrl === "string" && options.pageUrl
-// @ts-expect-error
-      ? options.pageUrl
+    typeof currentOptions?.pageUrl === "string" && currentOptions.pageUrl
+      ? currentOptions.pageUrl
       : "";
   const teardownBaseUrl = state.baseUrl;
   const teardownConfig = state.config;
@@ -11492,10 +11583,9 @@ export function disable(options = {}) {
   stopUrlWatcher();
 }
 
-// @ts-expect-error
-export async function enableForBaseUrl(baseUrl, options = {}) {
-// @ts-expect-error
-  const skipInitialReveal = Boolean(options && options.skipInitialReveal);
+export async function enableForBaseUrl(baseUrl: string, options = {}) {
+  const currentOptions = options as EnableForBaseUrlOptions | undefined;
+  const skipInitialReveal = Boolean(currentOptions?.skipInitialReveal);
   const normalizedBaseUrl = utils.normalizeBaseUrl(baseUrl) || baseUrl;
   if (!normalizedBaseUrl || !utils.isPageWithinBaseUrl(location.href, normalizedBaseUrl)) {
     disable();
@@ -11540,7 +11630,6 @@ export async function enableForBaseUrl(baseUrl, options = {}) {
       return;
     }
   }
-// @ts-expect-error
   scheduleRender();
   scheduleMarkingSettleRenders();
   startObservers();
@@ -11550,8 +11639,7 @@ export async function enableForBaseUrl(baseUrl, options = {}) {
   }
 }
 
-// @ts-expect-error
-export function handleBeforeUnload(event) {
+export function handleBeforeUnload(event: BeforeUnloadEvent): void {
   if (!state.enabled) {
     return;
   }
@@ -11562,8 +11650,7 @@ export function handleBeforeUnload(event) {
   event.returnValue = "";
 }
 
-// @ts-expect-error
-function isViewportScrollEvent(event) {
+function isViewportScrollEvent(event: ScrollEventLike | Event | null | undefined): boolean {
   if (!event) {
     return true;
   }
@@ -11581,8 +11668,7 @@ function isViewportScrollEvent(event) {
   return false;
 }
 
-// @ts-expect-error
-export function handleScroll(event, options = {}) {
+export function handleScroll(event: ScrollEventLike | Event, options = {}) {
   if (!state.enabled || state.aiPopover || !state.overlay) {
     return;
   }
@@ -11590,8 +11676,8 @@ export function handleScroll(event, options = {}) {
   // Nested scroll containers still need a debounced redraw so partially visible
   // marked content tracks carousels and internal panes. Only viewport scrolls
   // hide the overlay during motion to avoid full-page flicker.
-// @ts-expect-error
-  const hideDuringScroll = isViewportScroll && (!options || options.hideDuringScroll !== false);
+  const currentOptions = options as ScrollOptions | undefined;
+  const hideDuringScroll = isViewportScroll && (!currentOptions || currentOptions.hideDuringScroll !== false);
   if (hideDuringScroll && !state.isScrolling) {
     state.isScrolling = true;
     state.overlay.classList.add("uf-scrolling");
@@ -11623,27 +11709,27 @@ export function handleScroll(event, options = {}) {
   }, SCROLL_DEBOUNCE_MS);
 }
 
-// @ts-expect-error
-export function collectPreviewItems(selectorSet) {
-  const normalized = normalizeAiSelectorSet(selectorSet);
+export function collectPreviewItems(selectorSet: unknown): PreviewItem[] {
+  const normalized = normalizeAiSelectorSet(
+    selectorSet as Parameters<typeof normalizeAiSelectorSet>[0]
+  );
   const excludedElements = collectSelectorElements(normalized.exclusionSelectors);
-  const includedElements = new Set();
+  const includedElements = new Set<Element>();
   collectSelectorElements(normalized.inclusionSelectors).forEach((el) => {
     if (el && el.nodeType === 1 && !isWithinConsentElement(el)) {
       includedElements.add(el);
     }
   });
-// @ts-expect-error
   const inclusionContextSet = buildInclusionContextSet(includedElements);
   // Preview mirrors silent highlighting inclusion detection: implicit
   // non-excluded content plus explicit includes, while ignoring visibility for
   // inclusion selection (text extraction still honors exclusions).
-  const { included: elements } = collectIncludedElementsFromSelectorSet(selectorSet, {
+  const { included: elements } = collectIncludedElementsFromSelectorSet(normalized, {
     ignoreVisibilityForInclusionDetection: true,
     preserveExplicitIncludedDescendants: true,
     includeAllExplicitMatches: true
   });
-  const rows = [];
+  const rows: PreviewItemRow[] = [];
   for (const el of elements) {
     const text = getPreviewTextForIncludedElement(
       el,
@@ -11674,20 +11760,16 @@ export function collectPreviewItems(selectorSet) {
 }
 
 function getPreviewTextForIncludedElement(
-// @ts-expect-error
-  root,
-// @ts-expect-error
-  excludedElements,
-// @ts-expect-error
-  includedElements,
-// @ts-expect-error
-  inclusionContextSet
-) {
+  root: Element | null | undefined,
+  excludedElements: Set<Element>,
+  includedElements: Set<Element>,
+  inclusionContextSet: Set<Element>
+): string {
   if (!root || root.nodeType !== 1) {
     return "";
   }
-  const chunks = [];
-  const stack = [root];
+  const chunks: string[] = [];
+  const stack: Node[] = [root];
   while (stack.length) {
     const node = stack.pop();
     if (!node) {
@@ -11704,6 +11786,9 @@ function getPreviewTextForIncludedElement(
       continue;
     }
 
+    if (!isElementNode(node)) {
+      continue;
+    }
     const el = node;
     if (el.tagName === "BR" || el.tagName === "WBR") {
       chunks.push("\n");
@@ -11750,12 +11835,13 @@ function getPreviewTextForIncludedElement(
     .trim();
 }
 
-// @ts-expect-error
-export function getElementLabel(el) {
+export function getElementLabel(el: Element | null | undefined): string {
   if (!el || el.nodeType !== 1) {
     return "";
   }
-  let text = (el.innerText || "").replace(/\s+/g, " ").trim();
+  let text = hasInnerTextProperty(el)
+    ? el.innerText.replace(/\s+/g, " ").trim()
+    : "";
   if (!text) {
     text = (el.getAttribute("aria-label") || "").trim();
   }
@@ -11771,16 +11857,16 @@ export function getElementLabel(el) {
   return text;
 }
 
-// @ts-expect-error
-export async function saveConfig(baseUrl, configValue) {
+export async function saveConfig(baseUrl: string, configValue: Config): Promise<void> {
   const result = await utils.idbGet("configs");
-  const configs = result.configs || {};
+  const configs = isUnknownRecord(result.configs) ? result.configs : {};
   configs[baseUrl] = config.normalizeConfig(baseUrl, configValue).config;
   await utils.idbSet({ configs });
 }
 
-// @ts-expect-error
-export function showAiPopover(items, options = {}) {
+export function showAiPopover(items: unknown[], options = {}) {
+  void items;
+  const currentOptions = options as AiPopoverShowOptions | undefined;
   clearFocusHighlight();
   closeAiPopover({ notify: false, suppressCallback: true });
   const marker = document.createElement("div");
@@ -11788,8 +11874,7 @@ export function showAiPopover(items, options = {}) {
   marker.setAttribute("data-uf-extension-ui", "true");
   document.documentElement.appendChild(marker);
   state.aiPopover = marker;
-// @ts-expect-error
-  state.aiPopoverOnClose = typeof options.onClose === "function" ? options.onClose : null;
+  state.aiPopoverOnClose = typeof currentOptions?.onClose === "function" ? currentOptions.onClose : null;
   state.aiPopoverOnCollapsedChange = null;
   state.aiPopoverCollapsed = false;
 }
@@ -11815,7 +11900,8 @@ export function getSavedPageEntry(pageUrl: string | null | undefined): PageMarki
 
 export async function refreshFromTabState(options = {}) {
   void options;
-  const response = await utils.sendRuntimeMessage({ type: "getTabState" });
+  const rawResponse = await utils.sendRuntimeMessage({ type: "getTabState" });
+  const response = isTabStateResponse(rawResponse) ? rawResponse : null;
   if (response && response.enabled && response.baseUrl) {
     // Enable if the URL still matches the baseUrl.
     if (utils.isPageWithinBaseUrl(location.href, response.baseUrl)) {
@@ -11865,7 +11951,6 @@ export async function refreshFromTabState(options = {}) {
       // silent-highlighting activation gate (and to manual marking enable), so a
       // marking-restore reload (e.g. render-mode inspection) does not re-trigger
       // the scroll-reveal routine.
-// @ts-expect-error
       scheduleRender();
       startObservers();
       startUrlWatcher();

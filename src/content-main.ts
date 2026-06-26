@@ -6658,7 +6658,7 @@ function createPageSaveReconciliationClearHandlerDeps(): PageSaveReconciliationC
       core.clearPageSaveReconciliation(baseUrl as string | undefined, pageUrl as string | undefined),
     clonePageEntry: (entry: unknown) => core.clonePageEntry((entry as ContentPageEntry | null | undefined) ?? null),
     findPageMarkingEntry: (configValue: { pageMarkings: unknown }, pageUrl: string, baseUrl: unknown) =>
-      core.findPageMarkingEntry(configValue as Config, pageUrl, baseUrl),
+      core.findPageMarkingEntry(configValue as Config, pageUrl, baseUrl as string | undefined),
     getBackendSavedPageMarkings: (baseUrl: unknown) => config.getBackendSavedPageMarkings(baseUrl as string | undefined),
     getPageUrl: () => location.href,
     loadConfig: (baseUrl: unknown) => core.loadConfig(baseUrl as string | undefined),

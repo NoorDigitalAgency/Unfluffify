@@ -1387,7 +1387,7 @@ test("page motion pause stylesheet excludes extension-owned UI", () => {
 
 test("marking enable inspects and blocks input before freezing and rendering overlays", () => {
   const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
-  const enableIndex = source.indexOf("export async function enableForBaseUrl(baseUrl, options = {})");
+  const enableIndex = source.search(/export async function enableForBaseUrl\(baseUrl(?:\s*:\s*[^,]+)?, options = \{\}\)/);
 
   assert.ok(enableIndex > -1);
   const revealWarmupIndex = source.indexOf("await warmupPageRevealBeforeMotionPause", enableIndex);

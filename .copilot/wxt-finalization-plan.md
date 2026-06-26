@@ -291,6 +291,12 @@ Validate: `pnpm prepare` + `pnpm build`; diff `.output/chrome-mv3` file list and
 
 ## Progress checkpoint
 
+- The latest `src/content/core.ts` tail typing checkpoint is complete: pending snapshot/teardown persistence, markability/visibility checks, loose page-marking lookup/cache helpers, immutable-element collection, render scheduling/config loading, enable/disable/scroll handlers, preview-item extraction, element labeling, save-config / AI popover helpers, and tab-state refresh helpers now use concrete DOM/state/config/message types instead of broad helper suppressions.
+- The coupled `src/content-main.ts` wrappers were tightened only where the stricter `core` signatures required it, and the affected source-contract tests were relaxed only enough to tolerate the new TypeScript annotations for `scheduleRender(...)`, `flushPendingTeardownPersistence(...)`, `removePageMarkingEntriesForPage(...)`, and `enableForBaseUrl(...)` while preserving the same wiring assertions.
+- Full review/validation is green for that checkpoint (`code-review`: CLEAN, then `pnpm lint && pnpm check && pnpm test && pnpm build`).
+- Current suppression count is 277 total; the remaining tracked files are `src/content/core.ts` (61), `src/popup.ts` (111), `src/content-main.ts` (25), and the exempt eval bridge pair (`src/common/page-motion-freeze-bridge.ts` 43, `src/common/page-motion-freeze-control.ts` 37).
+- Next immediate step: finish the final `src/content/core.ts` tail before pivoting back to the `src/popup.ts` tail and the last `src/content-main.ts` cleanup.
+
 - The latest `src/content/core.ts` preview-targeting / layer-geometry checkpoint is complete: AI preview close/focus helpers, mark-id/marked-element tracking, markable-target resolution, excluded-ancestor checks, hover-pointer updates, layer box reuse, visible-rect fallback collection, and explicit-marking element collection now use concrete DOM/state/collection types instead of broad helper suppressions.
 - The existing preview/visibility/source contracts stayed intact, including explicit-target preference, excluded-ancestor filtering, hover highlighting, ghost-rect eligibility, and AI preview close notifications.
 - Current suppression count is 317 total; the remaining tracked files are `src/content/core.ts` (101), `src/popup.ts` (111), `src/content-main.ts` (25), and the exempt eval bridge pair (`src/common/page-motion-freeze-bridge.ts` 43, `src/common/page-motion-freeze-control.ts` 37).
