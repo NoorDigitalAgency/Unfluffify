@@ -32,6 +32,12 @@ Pass `--no-build` to skip the rebuild. By default the launcher runs `pnpm build`
 first so the browser always loads the current WXT output from
 `.output/chrome-mv3`.
 
+On Linux hosts with no `DISPLAY` or `WAYLAND_DISPLAY`, the launcher now
+auto-relaunches itself through
+`xvfb-run -a --server-args="-screen 0 1280x900x24"` when `xvfb-run` is
+available. If not, it prints that exact wrapper command and stops before trying
+to launch Chromium.
+
 ## What `pnpm browser:live` does (and why)
 
 The launcher performs the exact, proven flow so a low-context agent does not have
@@ -39,10 +45,13 @@ to re-derive it:
 
 1. Resolves the active repository root from its own file location — works in any
    environment, with no hardcoded machine paths.
-2. Builds the current unpacked WXT extension (`pnpm build` ->
+2. On headless Linux hosts, auto-relaunches inside `xvfb-run` when available so
+   the managed Chromium still gets a display server. If `xvfb-run` is missing,
+   it prints the manual wrapper command and aborts before browser launch.
+3. Builds the current unpacked WXT extension (`pnpm build` ->
    `.output/chrome-mv3`) unless `--no-build` is given. `.output/chrome-mv3` is
    the loadable unpacked root; never load the source checkout root.
-3. Materializes a launchable, per-environment copy of the placeholdered config
+4. Materializes a launchable, per-environment copy of the placeholdered config
    into the gitignored `.temp/browser-mcp.config.json`: it substitutes
    `__UNFLUFFIFY_REPO_ROOT__` with the resolved root and DROPS `executablePath`
    entirely so Playwright uses its own managed Chromium (never the OS browser).
@@ -52,21 +61,21 @@ to re-derive it:
    The committed `.vscode/mcp.json`, `.mcp.json`, and
    `.vscode/browser-mcp.config.json` stay placeholdered and intentionally
    non-launchable; never edit them to bake in current-environment paths.
-4. Ensures the MCP-managed Chromium is installed
+5. Ensures the MCP-managed Chromium is installed
    (`npx -y @playwright/mcp@latest install-browser chromium`, idempotent).
-5. Starts `npm:@playwright/mcp@latest` over stdio (a single launcher-owned
+6. Starts `npm:@playwright/mcp@latest` over stdio (a single launcher-owned
    client = no profile-lock) with
   `--user-data-dir=<repoRoot>/.wxt/browser-profile` and
    `--config=<repoRoot>/.temp/browser-mcp.config.json`.
-6. Navigates the first tab to the target URL.
-7. Resolves the loaded extension id from the running extension service worker
+7. Navigates the first tab to the target URL.
+8. Resolves the loaded extension id from the running extension service worker
    (`worker.url().split('/')[2]`) and cross-checks it against the deterministic
    path-hash id. Chrome derives an unpacked extension id from SHA-256 of the
    absolute load path: first 16 bytes, each nibble mapped `0..15 -> 'a'..'p'`.
    The id changes per environment / load path — never hardcode it.
-8. Resolves the target page's Chrome tab id via the service worker
+9. Resolves the target page's Chrome tab id via the service worker
    (`chrome.tabs.query`) matched against `page.url()`.
-9. Opens a SECOND tab `chrome-extension://<id>/popup.html?debugTabId=<pageTabId>`
+10. Opens a SECOND tab `chrome-extension://<id>/popup.html?debugTabId=<pageTabId>`
    so the extension binds to the target page. `<pageTabId>` is the target page's
    tab id, never the popup's own tab.
 

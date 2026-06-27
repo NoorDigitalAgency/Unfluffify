@@ -14,6 +14,10 @@
 - Live test browser: launch with `pnpm browser:live <target-url>`
   (`scripts/launch-test-browser.mjs`).
   A target URL is mandatory. It runs `pnpm build`, loads `.output/chrome-mv3`,
+  and on Linux hosts with no `DISPLAY`/`WAYLAND_DISPLAY` it now auto-relaunches
+  itself through `xvfb-run -a --server-args="-screen 0 1280x900x24"` when that
+  wrapper is installed. If `xvfb-run` is unavailable, the launcher prints the
+  exact manual wrapper command and stops before trying to boot Chromium. It
   writes a per-environment `.temp/browser-mcp.config.json` (drops
   `executablePath`), and drives ONLY the `npm:@playwright/mcp@latest` managed
   Chromium through the Node-backed launcher (`npx -y @playwright/mcp@latest`
@@ -36,6 +40,11 @@
 - Dev browser startup mode is explicit: `pnpm dev` auto-opens browser by default,
   while `pnpm dev:no-browser` sets `UNFLUFFIFY_NO_BROWSER=1` and runs WXT with
   browser auto-open disabled (preferred when paired with `pnpm browser:live`).
+  A 2026-06-27 recheck showed `pnpm dev:no-browser` stayed resident both under
+  `script -qec 'pnpm dev:no-browser' /dev/null` and
+  `bash -lc 'exec </dev/null; pnpm dev:no-browser'`; no stdin/TTY workaround is
+  required in this repo for that command, and WXT will move to the next free
+  localhost port if `3000` is already occupied.
 - Always-on workflow guardrails live in
   `.github/instructions/agent-workflow-guardrails.instructions.md`. Future
   agents should read the knowledge base, relevant instructions/skills, active

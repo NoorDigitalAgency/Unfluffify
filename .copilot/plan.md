@@ -76,14 +76,12 @@ unverified because they are gated behind real backend credentials.
 - `web-ext.config.ts` sets `disabled: UNFLUFFIFY_NO_BROWSER==='1'` and
   `chromiumArgs: ['--user-data-dir=./.wxt/browser-profile']`; it has no headless
   handling either.
-- `pnpm dev` / `pnpm dev:no-browser` builds `.output/chrome-mv3-dev` then the
-  process exits; the Vite dev server on `http://localhost:3000` closes and no
-  `wxt`/`vite` watcher survives. Reproduced 3x including fully detached
-  (`setsid ... < /dev/null`), so it is not a SIGHUP artifact. Root cause is
-  **not yet proven**: most likely the WXT/web-ext CLI exiting on non-TTY stdin
-  EOF (`< /dev/null`), but possibly the `disabled:true` no-browser runner path.
-  The `dev-live-round-control` skill assumes `pnpm dev` "is healthy and still
-  running", so this gap breaks that documented workflow on non-interactive hosts.
+- A 2026-06-27 recheck found `pnpm dev:no-browser` stayed resident after the
+  initial build in both `script -qec 'pnpm dev:no-browser' /dev/null` and
+  `bash -lc 'exec </dev/null; pnpm dev:no-browser'` launches. When `3000` was
+  already occupied, WXT moved to `3001` instead of exiting. The earlier
+  non-interactive exit report is not reproducible in the current repo/runtime,
+  so this plan does **not** justify a dev-config change.
 
 ### Decisions already made (constraints)
 
@@ -95,16 +93,16 @@ unverified because they are gated behind real backend credentials.
 - Do not touch locked marking/highlighting/property-lock contracts or the
   storage/browser seams while fixing tooling.
 
-### Open questions (resolve before coding)
+### Resolved questions (2026-06-27)
 
-1. Headless strategy: (a) auto-detect missing `$DISPLAY` in
-   `scripts/launch-test-browser.mjs` and self-wrap with `xvfb-run`; (b) add a
-   separate `pnpm browser:live:headless` script; or (c) document the `xvfb-run`
-   requirement only. Recommended: (a) with a clear log line, falling back to a
-   documented manual `xvfb-run` path.
-2. Dev-server persistence: confirm whether `pnpm dev` stays alive under a real
-   TTY (e.g. `script -qec 'pnpm dev:no-browser' /dev/null`) before changing any
-   config, so we do not "fix" a non-TTY-only artifact.
+1. Headless strategy: option (a) was chosen. `scripts/launch-test-browser.mjs`
+   now auto-detects missing `DISPLAY`/`WAYLAND_DISPLAY` on Linux and
+   self-relaunches through
+   `xvfb-run -a --server-args="-screen 0 1280x900x24"` when available; if not,
+   it prints that exact manual wrapper command and stops before Chromium launch.
+2. Dev-server persistence: the current repo/runtime keeps `pnpm dev:no-browser`
+   alive in both TTY and `/dev/null` launches, so no dev-config change is part
+   of this plan.
 
 ### Non-goals
 

@@ -24,7 +24,7 @@
  *
  * The browser stays open until this process is stopped (Ctrl-C / kill <pid>).
  */
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { join, resolve } from "node:path";
@@ -32,6 +32,7 @@ import { createInterface } from "node:readline";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
+const selfPath = fileURLToPath(import.meta.url);
 const repoRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const EXT_DIR = join(repoRoot, ".output", "chrome-mv3");
 const PROFILE_DIR = join(repoRoot, ".wxt", "browser-profile");
@@ -40,6 +41,10 @@ const TEMP_CONFIG = join(TEMP_DIR, "browser-mcp.config.json");
 const TEMP_OUT = join(TEMP_DIR, "out");
 const COMMITTED_CONFIG = join(repoRoot, ".vscode", "browser-mcp.config.json");
 const CDP_PORT = 9222;
+const XVFB_WRAP_ENV = "UNFLUFFIFY_BROWSER_LIVE_XVFB_WRAPPED";
+const XVFB_RUN_ARGS = ["-a", "--server-args=-screen 0 1280x900x24"];
+const MANUAL_XVFB_COMMAND =
+  'xvfb-run -a --server-args="-screen 0 1280x900x24" pnpm browser:live <target-url> [--no-build]';
 
 // --- args -----------------------------------------------------------------
 const positionals = [];
@@ -67,6 +72,57 @@ if (!/^https?:\/\//i.test(target)) target = `https://${target}`;
 const doBuild = !flags.has("--no-build");
 
 // --- helpers --------------------------------------------------------------
+function commandExists(command) {
+  const probe = spawnSync(command, ["--help"], { stdio: "ignore" });
+  return probe.error?.code !== "ENOENT";
+}
+
+function shouldWrapWithXvfb() {
+  return (
+   process.platform === "linux" &&
+   !process.env.DISPLAY &&
+   !process.env.WAYLAND_DISPLAY &&
+   process.env[XVFB_WRAP_ENV] !== "1"
+  );
+}
+
+async function maybeWrapWithXvfb() {
+  if (!shouldWrapWithXvfb()) {
+   return;
+  }
+  if (!commandExists("xvfb-run")) {
+   console.warn("[launch] no DISPLAY or WAYLAND_DISPLAY detected.");
+   console.warn(`[launch] headless Linux runs need xvfb-run. Re-run as: ${MANUAL_XVFB_COMMAND}`);
+   return;
+  }
+  console.log("[launch] no display detected; relaunching inside xvfb-run...");
+  const child = spawn(
+   "xvfb-run",
+   [
+     ...XVFB_RUN_ARGS,
+     process.execPath,
+     selfPath,
+     ...process.argv.slice(2),
+   ],
+   {
+     cwd: repoRoot,
+     env: { ...process.env, [XVFB_WRAP_ENV]: "1" },
+     stdio: "inherit",
+   },
+  );
+  const exitCode = await new Promise((resolvePromise, rejectPromise) => {
+   child.once("error", rejectPromise);
+   child.once("close", (code, signal) => {
+     if (signal) {
+       rejectPromise(new Error(`xvfb-run exited via signal ${signal}`));
+       return;
+     }
+     resolvePromise(code ?? 0);
+   });
+  });
+  process.exit(exitCode);
+}
+
 async function run(cmd, args) {
   const child = spawn(cmd, args, {
    cwd: repoRoot,
@@ -498,6 +554,8 @@ function makeControlChannel(client) {
 }
 
 // --- prepare --------------------------------------------------------------
+await maybeWrapWithXvfb();
+
 console.log(`[launch] repo root: ${repoRoot}`);
 console.log(`[launch] target:    ${target}`);
 

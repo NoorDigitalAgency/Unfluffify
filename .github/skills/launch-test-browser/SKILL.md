@@ -58,10 +58,14 @@ That single command runs the entire proven flow (`scripts/launch-test-browser.mj
 
 1. Resolves the active repo root for the current environment (no hardcoded
    machine paths).
-2. Builds `.output/chrome-mv3` (`pnpm build`). Pass `--no-build` to skip the
+2. On Linux hosts with no `DISPLAY` or `WAYLAND_DISPLAY`, auto-relaunches
+   itself through `xvfb-run -a --server-args="-screen 0 1280x900x24"` when
+   `xvfb-run` is installed. If not, it prints that exact wrapper command and
+   stops before trying to launch Chromium.
+3. Builds `.output/chrome-mv3` (`pnpm build`). Pass `--no-build` to skip the
    rebuild. `.output/chrome-mv3` is the loadable unpacked root — never the
    source checkout root.
-3. Writes a launchable, per-environment copy of the placeholdered config to the
+4. Writes a launchable, per-environment copy of the placeholdered config to the
    gitignored `.temp/browser-mcp.config.json` (substitutes the repo root and
    drops `executablePath` so Playwright uses its own managed Chromium). The
    committed `.vscode/mcp.json`, `.mcp.json`, and
@@ -70,16 +74,16 @@ That single command runs the entire proven flow (`scripts/launch-test-browser.mj
    `--remote-debugging-port=9222` and `--remote-allow-origins=*` into the temp
    config so the same browser is controllable over CDP without opening a second
    profile.
-4. Ensures the MCP-managed Chromium is installed (idempotent).
-5. Starts `npm:@playwright/mcp@latest` over stdio (single launcher-owned client
+5. Ensures the MCP-managed Chromium is installed (idempotent).
+6. Starts `npm:@playwright/mcp@latest` over stdio (single launcher-owned client
   = no profile-lock) with `--user-data-dir=<repoRoot>/.wxt/browser-profile` and
    `--config=<repoRoot>/.temp/browser-mcp.config.json`.
-6. Navigates the first tab to `<target-url>`.
-7. Resolves the loaded extension id from the service worker and cross-checks it
+7. Navigates the first tab to `<target-url>`.
+8. Resolves the loaded extension id from the service worker and cross-checks it
    against the deterministic path-hash id (changes per environment — never
    hardcode it).
-8. Resolves the target page's Chrome tab id via the service worker.
-9. Opens a SECOND tab `chrome-extension://<id>/popup.html?debugTabId=<pageTabId>`
+9. Resolves the target page's Chrome tab id via the service worker.
+10. Opens a SECOND tab `chrome-extension://<id>/popup.html?debugTabId=<pageTabId>`
    so the extension binds to the target page (`<pageTabId>` is the page's tab,
    never the popup's own tab).
 
@@ -172,6 +176,8 @@ then wait for the new service worker before retesting. Re-running
   default to `orchestration/profiles/*` Playwright flows for simple live
   observation; those are for orchestration scenarios and can fail on
   service-worker waits or profile-lock issues.
+- On headless Linux, rely on the launcher's built-in `xvfb-run` relaunch first;
+  if it prints the manual wrapper command instead, re-run exactly that command.
 
 ## Debugging the launcher (internals)
 

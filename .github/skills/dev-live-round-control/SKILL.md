@@ -40,6 +40,10 @@ export default defineWebExtConfig({
 
 3. Always use one dev process and one `pnpm browser:live` process.
 4. Use timeout guards for one-shot commands.
+5. `pnpm dev:no-browser` is expected to stay resident after the initial build in
+   both interactive and `/dev/null` launches. If port `3000` is already in use,
+   WXT will pick the next free localhost port, so trust the printed
+   `Started dev server @ http://localhost:<port>` line instead of assuming 3000.
 
 ## Timeout policy
 
@@ -96,6 +100,11 @@ pnpm dev
 ```bash
 pnpm browser:live <target-url> --no-build
 ```
+
+On headless Linux hosts with no `DISPLAY`/`WAYLAND_DISPLAY`, the launcher now
+relaunches itself through `xvfb-run -a --server-args="-screen 0 1280x900x24"`
+when that wrapper is installed. If `xvfb-run` is missing, it prints the exact
+manual wrapper command and exits before MCP startup.
 
 Expected output includes:
 
