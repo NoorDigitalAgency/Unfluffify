@@ -330,6 +330,7 @@ type SessionChangeOptions = {
   currentDraftDirty?: boolean;
   aiRunUpToDate?: boolean;
   reconciliationPending?: boolean;
+  selectorsPendingConfigSync?: boolean;
 };
 type AiRunHeartbeatOptions = {
   sessionId?: string;
@@ -974,6 +975,7 @@ function getPageReconciliationDeps(): PageReconciliationDeps {
     loadGlobalAiSettings: () => helpers.loadGlobalAiSettings(),
     syncBaseConfigToServer: (options) => syncBaseConfigToServer(options),
     clearCurrentPageSaveReconciliation,
+    clearSelectorsPendingConfigSync,
     resetAiRunMarkingsFingerprint,
     applyPostSaveSilentTransition,
     refreshUi: (options) => refreshUi(options),
@@ -2079,6 +2081,7 @@ function hasSessionPendingChanges(
   return Boolean(
     options.currentDraftDirty ||
       options.reconciliationPending ||
+      options.selectorsPendingConfigSync ||
       hasSessionPageMarkingChanges(localPageMarkings, backendSavedPageMarkings)
   );
 }
@@ -2121,7 +2124,9 @@ function captureMarkingSessionSnapshot() {
     currentPageSaveReconciliationPending: state.currentPageSaveReconciliationPending,
     aiRunMarkingsFingerprint: state.aiRunMarkingsFingerprint,
     aiSelectorsComputedSinceLastSubmit: state.aiSelectorsComputedSinceLastSubmit,
-    aiSelectorsComputedBaseUrl: state.aiSelectorsComputedBaseUrl
+    aiSelectorsComputedBaseUrl: state.aiSelectorsComputedBaseUrl,
+    selectorsPendingConfigSync: state.selectorsPendingConfigSync,
+    selectorsPendingConfigSyncBaseUrl: state.selectorsPendingConfigSyncBaseUrl
   };
   state.previewMarkingSessionSnapshot = snapshot;
 }
@@ -2140,6 +2145,8 @@ function restoreMarkingSessionSnapshot() {
   state.aiRunMarkingsFingerprint = snapshot.aiRunMarkingsFingerprint;
   state.aiSelectorsComputedSinceLastSubmit = snapshot.aiSelectorsComputedSinceLastSubmit;
   state.aiSelectorsComputedBaseUrl = snapshot.aiSelectorsComputedBaseUrl;
+  state.selectorsPendingConfigSync = snapshot.selectorsPendingConfigSync;
+  state.selectorsPendingConfigSyncBaseUrl = snapshot.selectorsPendingConfigSyncBaseUrl;
   return true;
 }
 
@@ -2193,6 +2200,11 @@ function captureAiRunMarkingsFingerprint() {
 
 function resetAiRunMarkingsFingerprint() {
   state.aiRunMarkingsFingerprint = null;
+}
+
+function clearSelectorsPendingConfigSync() {
+  state.selectorsPendingConfigSync = false;
+  state.selectorsPendingConfigSyncBaseUrl = "";
 }
 
 function getSelectorSetFingerprint(selectorSet: SelectorSet | null | undefined) {
@@ -2530,9 +2542,7 @@ async function stopAiRun(options: StopAiRunOptions = {}) {
   // duration of the (sometimes slow) post-run refresh.
   const currentView = uiModule.getViewState();
   const previewShowing = Boolean(currentView.previewBlocked || currentView.previewActive);
-  const preserveCurrentDraftStatus = Boolean(
-    previewShowing && currentView.previewWillRestoreMarking
-  );
+  const preserveCurrentDraftStatus = Boolean(previewShowing);
   await refreshUi({
     useBusyOverlay: false,
     preserveCurrentDraftStatus
@@ -2930,12 +2940,12 @@ async function finalizePreviewRestoreFromRuntime(options: PreviewRestoreRuntimeO
   }
   if (restoreMarkingSessionSnapshot()) {
     clearPreviewRestorePending();
+    state.previewRestoreAppliedToken = Math.max(state.previewRestoreAppliedToken, token);
     await refreshUi({
       useBusyOverlay: false,
       skipPropertyLockFetch: true,
       preserveCurrentDraftStatus: true
     }).catch(() => null);
-    state.previewRestoreAppliedToken = Math.max(state.previewRestoreAppliedToken, token);
     clearMarkingSessionSnapshot();
     return;
   }
@@ -3034,6 +3044,21 @@ async function applyPreviewClosedState(closeState = {}) {
   if (messageToken !== null) {
     state.previewRestoreAppliedToken = Math.max(state.previewRestoreAppliedToken, messageToken);
   }
+}
+
+function previewCloseIndicatesNavigation(closeState?: PreviewCloseState | null): boolean;
+function previewCloseIndicatesNavigation(closeState: PreviewCloseState | null | undefined = {}) {
+  const normalizedCloseState = (closeState && typeof closeState === "object"
+    ? closeState
+    : {}) as PreviewCloseState;
+  const nextBaseUrl = typeof normalizedCloseState.baseUrl === "string"
+    ? normalizedCloseState.baseUrl
+    : "";
+  return Boolean(
+    state.currentBaseUrl &&
+      nextBaseUrl &&
+      !utils.sameBaseUrl(nextBaseUrl, state.currentBaseUrl)
+  );
 }
 
 async function refreshCurrentPageRuntimeStatus(
@@ -4215,6 +4240,7 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
   if (state.currentBaseUrl !== previousBaseUrl) {
     state.aiSelectorsComputedSinceLastSubmit = false;
     state.aiSelectorsComputedBaseUrl = "";
+    clearSelectorsPendingConfigSync();
     state.renderModeEditMode = false;
     state.renderModeSummaryOpen = false;
     state.renderModeDetectionInFlight = false;
@@ -4847,6 +4873,9 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
   }
   const aiBusy = Boolean(state.aiRequestInFlight);
   const hasStoredSelectors = hasCalculatedSelectorsFromConfig();
+  const selectorsPendingConfigSync =
+    state.selectorsPendingConfigSync &&
+    utils.sameBaseUrl(state.selectorsPendingConfigSyncBaseUrl, state.currentBaseUrl);
 
   if (!preserveCurrentDraftStatus) {
     state.currentDraftEntry = null;
@@ -4910,7 +4939,8 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
     backendSavedPageMarkings,
     {
       currentDraftDirty: state.currentDraftDirty,
-      reconciliationPending: pageSaveReconciliationPending
+      reconciliationPending: pageSaveReconciliationPending,
+      selectorsPendingConfigSync
     }
   );
   const currentPageHasPendingChanges = hasCurrentPagePendingChanges(
@@ -7176,6 +7206,7 @@ async function applyLocalPageDiscard() {
   await clearCurrentPageSaveReconciliation();
   state.aiSelectorsComputedSinceLastSubmit = false;
   state.aiSelectorsComputedBaseUrl = "";
+  clearSelectorsPendingConfigSync();
   resetAiRunMarkingsFingerprint();
 }
 
@@ -7267,6 +7298,8 @@ async function applyComputedSelectorSet(
     !aiSelectorSetsEqual(selectorSet, getLastSubmittedSelectorsFromConfig(state.currentConfig));
   state.aiSelectorsComputedSinceLastSubmit = hasComputedNewSelectors;
   state.aiSelectorsComputedBaseUrl = hasComputedNewSelectors ? state.currentBaseUrl : "";
+  state.selectorsPendingConfigSync = hasComputedNewSelectors;
+  state.selectorsPendingConfigSyncBaseUrl = hasComputedNewSelectors ? state.currentBaseUrl : "";
   // The AI run is scoped to the current element markings. Capture that stable
   // state before the preview starts slower content-side reconciliation.
   captureAiRunMarkingsFingerprint();
@@ -7720,6 +7753,7 @@ async function submitSelectorSetToServer(options: SelectorSetSubmitOptions = {})
     });
     state.aiSelectorsComputedSinceLastSubmit = false;
     state.aiSelectorsComputedBaseUrl = "";
+    clearSelectorsPendingConfigSync();
     const currentPageUrl = (state.currentTab && state.currentTab.url) || "";
     const configSyncResult = await syncBaseConfigToServer({
       baseUrl: effectiveBaseUrl,
@@ -7913,7 +7947,8 @@ async function handleExitPreviewMode() {
   if (!await helpers.ensureActiveTab({ requireId: true })) {
     return;
   }
-  const shouldRestoreMarking = Boolean(uiModule.getViewState().previewWillRestoreMarking);
+  const currentView = uiModule.getViewState();
+  const shouldRestoreMarking = Boolean(currentView.previewWillRestoreMarking);
   const previewRestoreToken = shouldRestoreMarking
     ? beginPreviewRestorePending()
     : null;
@@ -7931,19 +7966,19 @@ async function handleExitPreviewMode() {
     return;
   }
   const closeResult = getPreviewStatePayload<PreviewCloseState>(response.result);
-  if (shouldRestoreMarking && restoreMarkingSessionSnapshot()) {
-    clearPreviewRestorePending();
-    await refreshUi({
-      useBusyOverlay: false,
-      skipPropertyLockFetch: true,
-      preserveCurrentDraftStatus: true
-    }).catch(() => null);
+  if (!previewCloseIndicatesNavigation(closeResult) && restoreMarkingSessionSnapshot()) {
     if (previewRestoreToken !== null) {
+      clearPreviewRestorePending();
       state.previewRestoreAppliedToken = Math.max(
         state.previewRestoreAppliedToken,
         previewRestoreToken
       );
     }
+    await refreshUi({
+      useBusyOverlay: false,
+      skipPropertyLockFetch: true,
+      preserveCurrentDraftStatus: true
+    }).catch(() => null);
     clearMarkingSessionSnapshot();
     return;
   }

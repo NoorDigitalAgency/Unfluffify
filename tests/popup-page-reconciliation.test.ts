@@ -21,6 +21,7 @@ function createDeps(overrides = {}) {
     retries: [],
     sync: 0,
     clear: 0,
+    clearSelectorsPendingConfigSync: 0,
     resetFingerprint: 0,
     postSave: 0,
     refresh: 0,
@@ -64,6 +65,9 @@ function createDeps(overrides = {}) {
     },
     clearCurrentPageSaveReconciliation: async () => {
       calls.clear += 1;
+    },
+    clearSelectorsPendingConfigSync: () => {
+      calls.clearSelectorsPendingConfigSync += 1;
     },
     resetAiRunMarkingsFingerprint: () => {
       calls.resetFingerprint += 1;
@@ -153,9 +157,30 @@ test("popup page reconciliation save retries retryable failures then succeeds", 
   assert.equal(saveAttempts, 2);
   assert.equal(calls.retries.length, 1);
   assert.equal(calls.clear, 1);
+  assert.equal(calls.clearSelectorsPendingConfigSync, 1);
   assert.equal(calls.resetFingerprint, 1);
   assert.equal(calls.postSave, 1);
   assert.equal(calls.toast.at(-1), PopupText.page.sessionSaved);
+});
+
+test("popup page reconciliation save proceeds for session-level pending changes without page-marking diffs", async () => {
+  resetState();
+  const { deps, calls } = createDeps({
+    hasCurrentPageMarkingChanges: () => false,
+    getViewState: () => ({
+      sessionHasPendingChanges: true,
+      sessionRequiresAiRun: false,
+      currentPageHasPendingChanges: false
+    })
+  });
+
+  await handlePageSave(deps);
+
+  assert.equal(calls.sync, 1);
+  assert.equal(calls.clear, 1);
+  assert.equal(calls.clearSelectorsPendingConfigSync, 1);
+  assert.equal(calls.saveStatus.includes(PopupText.page.noLocalChangesToSave), false);
+  assert.equal(calls.toast.includes(PopupText.page.noChangesToSave), false);
 });
 
 test("popup page reconciliation revert respects current-page pending gate", async () => {

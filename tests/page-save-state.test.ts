@@ -130,6 +130,8 @@ test("keeps session save available while disabling discard when only another pag
 
   assert.equal(state.pageSaveDisabled, false);
   assert.equal(state.pageRevertDisabled, true);
+  assert.equal(state.pageDraftStatusText, PopupText.page.statusSessionChangesReadyToSave);
+  assert.equal(state.pageDraftStatusTone, "warning");
 });
 
 test("enables discard when the page is dirty even with no saved baseline to revert to", () => {

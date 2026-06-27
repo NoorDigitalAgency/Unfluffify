@@ -34,6 +34,8 @@ export const state: PopupState = {
   aiRunResumeInFlight: false,
   aiSelectorsComputedSinceLastSubmit: false,
   aiSelectorsComputedBaseUrl: "",
+  selectorsPendingConfigSync: false,
+  selectorsPendingConfigSyncBaseUrl: "",
   // Fingerprint of the page markings (exclude + include xpaths) captured at the
   // moment the last successful AI run completed for the current page. Used to
   // gate Run AI / Save / Preview: while this equals the live markings, the AI

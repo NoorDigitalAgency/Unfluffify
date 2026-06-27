@@ -52,6 +52,8 @@ export interface PopupPreviewMarkingSessionSnapshot {
   aiRunMarkingsFingerprint: string | null;
   aiSelectorsComputedSinceLastSubmit: boolean;
   aiSelectorsComputedBaseUrl: string;
+  selectorsPendingConfigSync: boolean;
+  selectorsPendingConfigSyncBaseUrl: string;
 }
 
 export interface PopupState {
@@ -84,6 +86,8 @@ export interface PopupState {
   aiRunResumeInFlight: boolean;
   aiSelectorsComputedSinceLastSubmit: boolean;
   aiSelectorsComputedBaseUrl: string;
+  selectorsPendingConfigSync: boolean;
+  selectorsPendingConfigSyncBaseUrl: string;
   aiRunMarkingsFingerprint: string | null;
   configMenuOpen: boolean;
   currentTodoExpansionKey: string;

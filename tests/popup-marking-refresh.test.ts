@@ -12,11 +12,15 @@ test("preview exit restores a captured marking-session snapshot before payload f
   );
   assert.match(
     popupSource,
-    /async function handleExitPreviewMode\(\) \{[\s\S]*?const shouldRestoreMarking = Boolean\(uiModule\.getViewState\(\)\.previewWillRestoreMarking\);[\s\S]*?const previewRestoreToken = shouldRestoreMarking[\s\S]*?\? beginPreviewRestorePending\(\)[\s\S]*?: null;[\s\S]*?messages\.requestTabCloseAiPreview\(tabId, \{\s*previewRestoreToken\s*\}\)/
+    /async function handleExitPreviewMode\(\) \{[\s\S]*?const currentView = uiModule\.getViewState\(\);[\s\S]*?const shouldRestoreMarking = Boolean\(currentView\.previewWillRestoreMarking\);[\s\S]*?const previewRestoreToken = shouldRestoreMarking[\s\S]*?\? beginPreviewRestorePending\(\)[\s\S]*?: null;[\s\S]*?messages\.requestTabCloseAiPreview\(tabId, \{\s*previewRestoreToken\s*\}\)/
   );
   assert.match(
     popupSource,
-    /async function handleExitPreviewMode\(\) \{[\s\S]*?if \(shouldRestoreMarking && restoreMarkingSessionSnapshot\(\)\) \{[\s\S]*?clearPreviewRestorePending\(\);[\s\S]*?await refreshUi\(\{[\s\S]*?preserveCurrentDraftStatus: true[\s\S]*?\}\)(?:\.catch\(\(\) => null\))?;[\s\S]*?if \(previewRestoreToken !== null\) \{[\s\S]*?state\.previewRestoreAppliedToken = Math\.max\(\s*state\.previewRestoreAppliedToken,\s*previewRestoreToken\s*\);[\s\S]*?\}[\s\S]*?clearMarkingSessionSnapshot\(\);[\s\S]*?return;[\s\S]*?\}[\s\S]*?if \(closeResult && \(typeof closeResult\.markingEnabled === "boolean" \|\| closeResult\.draftStatus\)\) \{[\s\S]*?await applyPreviewClosedState\(closeResult\);/
+    /async function handleExitPreviewMode\(\) \{[\s\S]*?if \(!previewCloseIndicatesNavigation\(closeResult\) && restoreMarkingSessionSnapshot\(\)\) \{[\s\S]*?if \(previewRestoreToken !== null\) \{[\s\S]*?clearPreviewRestorePending\(\);[\s\S]*?state\.previewRestoreAppliedToken = Math\.max\(\s*state\.previewRestoreAppliedToken,\s*previewRestoreToken\s*\);[\s\S]*?\}[\s\S]*?await refreshUi\(\{[\s\S]*?preserveCurrentDraftStatus: true[\s\S]*?\}\)(?:\.catch\(\(\) => null\))?;[\s\S]*?clearMarkingSessionSnapshot\(\);[\s\S]*?return;[\s\S]*?\}[\s\S]*?if \(closeResult && \(typeof closeResult\.markingEnabled === "boolean" \|\| closeResult\.draftStatus\)\) \{[\s\S]*?await applyPreviewClosedState\(closeResult\);/
+  );
+  assert.match(
+    popupSource,
+    /function previewCloseIndicatesNavigation\(closeState(?:\s*:\s*[^=]+)? = \{\}\) \{[\s\S]*?const nextBaseUrl = typeof normalizedCloseState\.baseUrl === "string"[\s\S]*?return Boolean\([\s\S]*?state\.currentBaseUrl[\s\S]*?nextBaseUrl[\s\S]*?!utils\.sameBaseUrl\(nextBaseUrl, state\.currentBaseUrl\)/
   );
   assert.match(
     popupStateSource,
@@ -27,11 +31,11 @@ test("preview exit restores a captured marking-session snapshot before payload f
   assert.match(popupSource, /function clearMarkingSessionSnapshot\(\) \{/);
   assert.match(
     popupSource,
-    /function captureMarkingSessionSnapshot\(\) \{[\s\S]*?currentDraftEntry:[\s\S]*?currentSavedEntry:[\s\S]*?currentDraftDirty:[\s\S]*?currentDraftAvailable:[\s\S]*?currentPageSaveReconciliation:[\s\S]*?currentPageSaveReconciliationPending:[\s\S]*?aiRunMarkingsFingerprint:[\s\S]*?aiSelectorsComputedSinceLastSubmit:[\s\S]*?aiSelectorsComputedBaseUrl:/
+    /function captureMarkingSessionSnapshot\(\) \{[\s\S]*?currentDraftEntry:[\s\S]*?currentSavedEntry:[\s\S]*?currentDraftDirty:[\s\S]*?currentDraftAvailable:[\s\S]*?currentPageSaveReconciliation:[\s\S]*?currentPageSaveReconciliationPending:[\s\S]*?aiRunMarkingsFingerprint:[\s\S]*?aiSelectorsComputedSinceLastSubmit:[\s\S]*?aiSelectorsComputedBaseUrl:[\s\S]*?selectorsPendingConfigSync:[\s\S]*?selectorsPendingConfigSyncBaseUrl:/
   );
   assert.match(
     popupSource,
-    /function restoreMarkingSessionSnapshot\(\) \{[\s\S]*?state\.currentDraftEntry =[\s\S]*?state\.currentSavedEntry =[\s\S]*?state\.currentDraftDirty =[\s\S]*?state\.currentDraftAvailable =[\s\S]*?state\.currentPageSaveReconciliation =[\s\S]*?state\.currentPageSaveReconciliationPending =[\s\S]*?state\.aiRunMarkingsFingerprint =[\s\S]*?state\.aiSelectorsComputedSinceLastSubmit =[\s\S]*?state\.aiSelectorsComputedBaseUrl =/
+    /function restoreMarkingSessionSnapshot\(\) \{[\s\S]*?state\.currentDraftEntry =[\s\S]*?state\.currentSavedEntry =[\s\S]*?state\.currentDraftDirty =[\s\S]*?state\.currentDraftAvailable =[\s\S]*?state\.currentPageSaveReconciliation =[\s\S]*?state\.currentPageSaveReconciliationPending =[\s\S]*?state\.aiRunMarkingsFingerprint =[\s\S]*?state\.aiSelectorsComputedSinceLastSubmit =[\s\S]*?state\.aiSelectorsComputedBaseUrl =[\s\S]*?state\.selectorsPendingConfigSync =[\s\S]*?state\.selectorsPendingConfigSyncBaseUrl =/
   );
   assert.match(
     popupSource,
@@ -50,6 +54,10 @@ test("preview exit restores a captured marking-session snapshot before payload f
   assert.match(
     popupSource,
     /if \(\s*messageToken !== null &&\s*messageToken <= state\.previewRestoreAppliedToken\s*\) \{\s*return false;\s*\}/
+  );
+  assert.match(
+    popupSource,
+    /async function finalizePreviewRestoreFromRuntime\(options(?:\s*:\s*[^)]*)? = \{\}\)(?:\s*:\s*[^{]+)? \{[\s\S]*?if \(restoreMarkingSessionSnapshot\(\)\) \{[\s\S]*?clearPreviewRestorePending\(\);[\s\S]*?state\.previewRestoreAppliedToken = Math\.max\(state\.previewRestoreAppliedToken, token\);[\s\S]*?refreshUi\(\{[\s\S]*?preserveCurrentDraftStatus: true/
   );
   assert.match(
     popupSource,

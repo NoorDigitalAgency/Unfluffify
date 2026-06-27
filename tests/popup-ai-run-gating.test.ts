@@ -72,12 +72,12 @@ test("entering marking mode, saving, and discarding reset the fingerprint", () =
   // Save success.
   assert.match(
     pageReconciliationSource,
-    /await deps\.clearCurrentPageSaveReconciliation\(\);\s*deps\.resetAiRunMarkingsFingerprint\(\);\s*await deps\.applyPostSaveSilentTransition\(\);\s*deps\.updateLastConfigSaveStatus\(deps\.PopupText\.page\.savedAndSynced\);/
+    /await deps\.clearCurrentPageSaveReconciliation\(\);\s*deps\.clearSelectorsPendingConfigSync\?\.\(\);\s*deps\.resetAiRunMarkingsFingerprint\(\);\s*await deps\.applyPostSaveSilentTransition\(\);\s*deps\.updateLastConfigSaveStatus\(deps\.PopupText\.page\.savedAndSynced\);/
   );
   // Discard (applyLocalPageDiscard, shared by manual discard + disable/nav confirm).
   assert.match(
     popupSource,
-    /state\.aiSelectorsComputedBaseUrl = "";\s*resetAiRunMarkingsFingerprint\(\);\s*\}/
+    /state\.aiSelectorsComputedBaseUrl = "";\s*clearSelectorsPendingConfigSync\(\);\s*resetAiRunMarkingsFingerprint\(\);\s*\}/
   );
 });
 
@@ -346,6 +346,39 @@ test("#21 refresh feeds aiRunUpToDate into the session-requires-AI-run check", (
   );
 });
 
+test("#21 locally computed selectors keep session save pending until config sync clears them", () => {
+  const applyComputedSelectorSetBody = popupSource.match(
+    /async function applyComputedSelectorSet\([\s\S]*?\n\}\n\n/
+  )[0];
+  assert.match(
+    applyComputedSelectorSetBody,
+    /state\.aiSelectorsComputedSinceLastSubmit = hasComputedNewSelectors;\s*state\.aiSelectorsComputedBaseUrl = hasComputedNewSelectors \? state\.currentBaseUrl : "";\s*state\.selectorsPendingConfigSync = hasComputedNewSelectors;\s*state\.selectorsPendingConfigSyncBaseUrl = hasComputedNewSelectors \? state\.currentBaseUrl : "";\s*\/\/[\s\S]*?captureAiRunMarkingsFingerprint\(\);/
+  );
+  assert.match(
+    popupSource,
+    /function hasSessionPendingChanges\([\s\S]*?options\.currentDraftDirty \|\|[\s\S]*?options\.reconciliationPending \|\|[\s\S]*?options\.selectorsPendingConfigSync \|\|[\s\S]*?hasSessionPageMarkingChanges/
+  );
+  assert.match(
+    popupSource,
+    /const selectorsPendingConfigSync =\s*state\.selectorsPendingConfigSync &&\s*utils\.sameBaseUrl\(state\.selectorsPendingConfigSyncBaseUrl, state\.currentBaseUrl\);[\s\S]*?const sessionHasPendingChanges = hasSessionPendingChanges\([\s\S]*?selectorsPendingConfigSync[\s\S]*?\);/
+  );
+});
+
+test("#21 base-url change and Lynx submit clear pending config sync state", () => {
+  assert.match(
+    popupSource,
+    /function clearSelectorsPendingConfigSync\(\) \{\s*state\.selectorsPendingConfigSync = false;\s*state\.selectorsPendingConfigSyncBaseUrl = "";\s*\}/
+  );
+  assert.match(
+    popupSource,
+    /if \(state\.currentBaseUrl !== previousBaseUrl\) \{[\s\S]*?state\.aiSelectorsComputedSinceLastSubmit = false;[\s\S]*?state\.aiSelectorsComputedBaseUrl = "";[\s\S]*?clearSelectorsPendingConfigSync\(\);[\s\S]*?\}/
+  );
+  assert.match(
+    popupSource,
+    /state\.aiSelectorsComputedSinceLastSubmit = false;\s*state\.aiSelectorsComputedBaseUrl = "";\s*clearSelectorsPendingConfigSync\(\);\s*const currentPageUrl =/
+  );
+});
+
 // --- #22: exiting the content list must be state-neutral (S4 == S3) ---
 // Show Content List is read-only. After exit, the caller applies the
 // authoritative preview-close draft snapshot; the marking refresh must NOT
@@ -384,7 +417,7 @@ test("#23 the post-AI cleanup refresh stays quiet and preserves draft only for p
   // keeps State C instead of recomputing from preview-mode content state.
   assert.match(
     popupSource,
-    /async function stopAiRun\(options(?:\s*:\s*[^)]+)? = \{\}\) \{[\s\S]*?const currentView = uiModule\.getViewState\(\);[\s\S]*?const previewShowing = Boolean\(currentView\.previewBlocked \|\| currentView\.previewActive\);[\s\S]*?const preserveCurrentDraftStatus = Boolean\(\s*previewShowing && currentView\.previewWillRestoreMarking\s*\);[\s\S]*?await refreshUi\(\{\s*useBusyOverlay: false,\s*preserveCurrentDraftStatus\s*\}\);/
+    /async function stopAiRun\(options(?:\s*:\s*[^)]+)? = \{\}\) \{[\s\S]*?const currentView = uiModule\.getViewState\(\);[\s\S]*?const previewShowing = Boolean\(currentView\.previewBlocked \|\| currentView\.previewActive\);[\s\S]*?const preserveCurrentDraftStatus = Boolean\(previewShowing\);[\s\S]*?await refreshUi\(\{\s*useBusyOverlay: false,\s*preserveCurrentDraftStatus\s*\}\);/
   );
 });
 

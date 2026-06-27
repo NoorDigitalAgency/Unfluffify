@@ -46,6 +46,7 @@ interface PageReconciliationDeps {
   loadGlobalAiSettings: () => Promise<GlobalAiSettingsSnapshot> | GlobalAiSettingsSnapshot;
   syncBaseConfigToServer: (options?: Record<string, unknown>) => Promise<PageSaveSyncResult> | PageSaveSyncResult;
   clearCurrentPageSaveReconciliation: () => Promise<unknown>;
+  clearSelectorsPendingConfigSync?: () => void;
   resetAiRunMarkingsFingerprint: () => void;
   applyPostSaveSilentTransition: () => Promise<unknown>;
   refreshUi: (options?: Record<string, unknown>) => Promise<unknown>;
@@ -125,6 +126,7 @@ export async function handlePageSave(deps: PageReconciliationDeps) {
       });
       if (syncResult && syncResult.ok) {
         await deps.clearCurrentPageSaveReconciliation();
+        deps.clearSelectorsPendingConfigSync?.();
         deps.resetAiRunMarkingsFingerprint();
         await deps.applyPostSaveSilentTransition();
         deps.updateLastConfigSaveStatus(deps.PopupText.page.savedAndSynced);
