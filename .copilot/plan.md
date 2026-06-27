@@ -153,6 +153,29 @@ unverified because they are gated behind real backend credentials.
   flow per `dev-live-round-control` and capture popup/SW/content console + page
   errors via CDP. Do not fabricate credentials.
 
+#### 2026-06-27 live verification result
+
+- Live config/login was provided and exercised on `https://www.bonliva.no/`.
+- The popup authenticated successfully, render mode was manually verified and
+  set to **Static**, marking mode enabled, and AI content detection produced the
+  Detected Content preview and the local-sync toast
+  `Selectors computed locally — Save to sync`.
+- After exiting preview, the flow did **not** reach a saveable/sendable state.
+  The popup remained stuck with:
+  - `busyReason: "tab-run-ai-preparing"`
+  - `busySource: "background-command-router"`
+  - `busyOperationKind: "ai-run"`
+  - `busyOperationPhase: "preparing-page"`
+  - `aiRunPhase: "starting"`
+  - countdown visible, `busyMessage: "Preparing page content for AI..."`
+- In that stuck state, `compute`, `Show Content List`, `Save Session`, and
+  `Send to Lynx` stayed disabled, while `syncSaveStatusText` still reported
+  `Selectors computed locally ...`. No page types were recorded as marked, so
+  the full Send-to-Lynx flow could not be completed live.
+- Treat this as the current blocker for Phase 4 completion. It is no longer a
+  missing-config issue; it is a runtime/button-state issue after the AI preview
+  flow on the configured site.
+
 ### Test matrix
 
 - Tooling phases: targeted manual runs of `pnpm dev:no-browser` and
@@ -189,6 +212,8 @@ unverified because they are gated behind real backend credentials.
 2. Phase 2 headless launcher support.
 3. Phase 3 docs/skills/knowledge updates.
 4. Phase 4 gated-flow verification once credentials are provided.
+5. Follow-up fix for the post-preview AI/button-state blocker before retrying
+   the full save / Send-to-Lynx flow.
 
 ## Current state
 
