@@ -41,4 +41,5 @@ test("live browser launcher targets the WXT output and canonical pnpm command", 
   assert.match(launcher, /const XVFB_RUN_ARGS = \["-a", "--server-args=-screen 0 1280x900x24"\];/);
   assert.match(launcher, /spawn\(\s*"xvfb-run"/);
   assert.match(launcher, /headless Linux runs need xvfb-run\. Re-run as:/);
+  assert.match(launcher, /process\.exit\(1\);/);
 });

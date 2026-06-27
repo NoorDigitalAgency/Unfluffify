@@ -93,7 +93,7 @@ async function maybeWrapWithXvfb() {
   if (!commandExists("xvfb-run")) {
    console.warn("[launch] no DISPLAY or WAYLAND_DISPLAY detected.");
    console.warn(`[launch] headless Linux runs need xvfb-run. Re-run as: ${MANUAL_XVFB_COMMAND}`);
-   return;
+   process.exit(1);
   }
   console.log("[launch] no display detected; relaunching inside xvfb-run...");
   const child = spawn(
