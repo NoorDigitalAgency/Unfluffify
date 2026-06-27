@@ -6,6 +6,8 @@
   `review-fix-commit-push` for clean-review/fix/commit/push loops,
   `autonomous-implementation-plan` for precise implementation handoffs,
   `repo-safe-code-change` before non-trivial source edits,
+  `dev-live-round-control` for stable pnpm dev + pnpm browser:live rounds with
+  launcher/popup control verification and stuck-state recovery,
   `extract-repo-knowledge` when updating durable architecture knowledge, and
   `launch-test-browser` to open the live/dev Chromium with the unpacked
   extension loaded for observation or manual testing.
