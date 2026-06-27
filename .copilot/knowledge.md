@@ -33,6 +33,9 @@
   absolute load path, first 16 bytes, each nibble mapped `0..15 -> 'a'..'p'`.
   Inside `browser_run_code_unsafe`, `setTimeout` and `URL` are undefined — use
   `page.waitForTimeout` and string ops.
+- Dev browser startup mode is explicit: `pnpm dev` auto-opens browser by default,
+  while `pnpm dev:no-browser` sets `UNFLUFFIFY_NO_BROWSER=1` and runs WXT with
+  browser auto-open disabled (preferred when paired with `pnpm browser:live`).
 - Always-on workflow guardrails live in
   `.github/instructions/agent-workflow-guardrails.instructions.md`. Future
   agents should read the knowledge base, relevant instructions/skills, active

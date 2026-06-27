@@ -7,6 +7,7 @@
   "scripts": {
     "prepare": "wxt prepare",
     "dev": "wxt",
+    "dev:no-browser": "UNFLUFFIFY_NO_BROWSER=1 wxt",
     "build": "wxt build",
     "zip": "pnpm build && node ./scripts/create-output-zip.mjs ./.output/chrome-mv3 ./.output/unfluffify-bootstrap.zip",
     "check": "wxt prepare && tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.wxt.json && tsc --noEmit -p tsconfig.wxt-node.json",

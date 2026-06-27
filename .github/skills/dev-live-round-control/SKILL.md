@@ -21,20 +21,25 @@ locks, and popup control loss.
 
 ## Preconditions
 
-1. Keep browser auto-open disabled for WXT dev in local config:
+1. Keep browser auto-open enabled by default, and use explicit no-browser mode when needed:
 
 ```ts
 // web-ext.config.ts
 import { defineWebExtConfig } from 'wxt';
 
 export default defineWebExtConfig({
-  disabled: true,
+  disabled: process.env.UNFLUFFIFY_NO_BROWSER === '1',
   chromiumArgs: ['--user-data-dir=./.wxt/browser-profile'],
 });
 ```
 
-2. Always use one `pnpm dev` process and one `pnpm browser:live` process.
-3. Use timeout guards for one-shot commands.
+2. Use these scripts intentionally:
+
+- `pnpm dev` = normal mode (auto-opens browser)
+- `pnpm dev:no-browser` = round-control mode (no auto-open; preferred with `pnpm browser:live`)
+
+3. Always use one dev process and one `pnpm browser:live` process.
+4. Use timeout guards for one-shot commands.
 
 ## Timeout policy
 
@@ -72,13 +77,19 @@ Expected: no launcher/MCP entries except the `rg` line itself.
 ### 2. Start dev session first
 
 ```bash
-pnpm dev
+pnpm dev:no-browser
 ```
 
 Expected output includes:
 
 - `Started dev server @ http://localhost:<port>`
 - `Load ".output/chrome-mv3-dev" as an unpacked extension manually`
+
+If you intentionally want browser auto-open (outside round-control mode), use:
+
+```bash
+pnpm dev
+```
 
 ### 3. Start live browser launcher second
 

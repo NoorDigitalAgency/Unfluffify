@@ -48,6 +48,7 @@ Common local release/CI commands:
 
 ```bash
 pnpm dev
+pnpm dev:no-browser
 pnpm lint
 pnpm check
 pnpm test
@@ -58,6 +59,10 @@ pnpm verify
 ```
 
 `pnpm dev` runs the WXT development server for the unpacked extension output.
+
+`pnpm dev:no-browser` runs the same development server with browser auto-open
+disabled (via `UNFLUFFIFY_NO_BROWSER=1`). Use this mode when pairing dev logs
+with `pnpm browser:live <target-url>` control flows.
 
 `pnpm verify` is the current release/CI verification path: it runs lint, type
 check, the Vitest suite, rebuilds the synced WXT output, and then runs the
