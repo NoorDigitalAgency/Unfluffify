@@ -6,6 +6,7 @@ node_modules/
 .temp/
 .tmp/
 .wxt/
+.scratch-blink-test/
 dist/
 coverage/
 *.log
