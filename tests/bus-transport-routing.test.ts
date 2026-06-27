@@ -226,6 +226,26 @@ describe("background transport", () => {
       });
     });
   });
+
+  it("drops transient content event delivery failures during reload windows", async () => {
+    await withBrowser({
+      runtime: { id: "test-runtime" },
+      tabs: {
+        sendMessage() {
+          return Promise.reject(new Error("tab unreachable"));
+        },
+      },
+    }, async () => {
+      const { createBackgroundTransport } = await loadBusTransportModule<typeof import("../src/common/bus/transport/background-transport.js")>("../src/common/bus/transport/background-transport.js");
+      const transport = createBackgroundTransport();
+
+      await expect(transport.send(makeEventEnvelope("diag.event", { ok: true }, {
+        src: REALMS.BACKGROUND,
+        dst: REALMS.CONTENT,
+        tab: 9,
+      }))).resolves.toBeUndefined();
+    });
+  });
 });
 
 describe("content and popup transport", () => {

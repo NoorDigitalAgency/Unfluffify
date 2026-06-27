@@ -152,6 +152,14 @@
   output root and `scripts/package-extension.mjs` stages it explicitly, with
   parity assertions in `tests/build-artifact-parity.test.ts` and
   `tests/package-extension.test.ts`.
+- Popup stylesheet layering now bundles through side-effect CSS imports in
+  `src/entrypoints/popup/main.ts` (fonts, theme-color, theme-components,
+  popup, theme-utilities, materialdesignicons). Do not reintroduce raw
+  stylesheet `<link>` tags in `src/entrypoints/popup/index.html`: WXT/Vite must
+  rewrite those CSS/font URLs into the generated popup asset bundle, while
+  `scripts/package-extension.mjs` still stages the stable raw public
+  `assets/fonts/fonts.css` and `assets/materialdesignicons.min.css` files for
+  packaging parity.
 - ESLint enforces unused detection across BOTH `src/**/*.{ts,tsx}` and
   `tests/**/*.ts` via `eslint-plugin-unused-imports`
   (`unused-imports/no-unused-imports: error`) and

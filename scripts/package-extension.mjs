@@ -197,10 +197,14 @@ async function collectManifestEntryPoints(manifest) {
       entryPoints.add(extensionPage);
     }
   }
-  // Static extension-page assets referenced from rendered DOM (e.g. the popup
-  // header `<img src="logo.png">`) are not reachable through JS/CSS import
-  // scanning, so stage them explicitly when present in the build output.
-  for (const staticAsset of ["logo.png"]) {
+  // Stable extension-page public assets (for example the popup logo and the
+  // raw font/icon stylesheets) are not guaranteed to appear in built HTML after
+  // bundling, so stage them explicitly when present in the build output.
+  for (const staticAsset of [
+    "logo.png",
+    "assets/fonts/fonts.css",
+    "assets/materialdesignicons.min.css",
+  ]) {
     const absolutePath = join(SOURCE_ROOT, staticAsset);
     if (await isFile(absolutePath)) {
       entryPoints.add(staticAsset);

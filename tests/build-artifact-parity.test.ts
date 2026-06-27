@@ -16,10 +16,11 @@ function normalizePath(value) {
 }
 
 test("generated extension manifest and resources resolve", async () => {
-  await ensureBuildOutput();
+  await ensureBuildOutput({ force: true });
   const manifestPath = path.join(OUTPUT_ROOT, "manifest.json");
   assert.equal(existsSync(manifestPath), true, "generated manifest.json should exist");
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  const popupHtml = readFileSync(path.join(OUTPUT_ROOT, "popup.html"), "utf8");
 
   const required = new Set();
   required.add("manifest.json");
@@ -57,4 +58,9 @@ test("generated extension manifest and resources resolve", async () => {
   assert.equal(existsSync(path.join(OUTPUT_ROOT, "cursors/exclude.svg")), true, "missing generated file: cursors/exclude.svg");
   assert.equal(existsSync(path.join(OUTPUT_ROOT, "cursors/include.svg")), true, "missing generated file: cursors/include.svg");
   assert.equal(existsSync(path.join(OUTPUT_ROOT, "logo.png")), true, "missing generated file: logo.png");
+  assert.match(popupHtml, /<link rel="stylesheet" crossorigin href="\/assets\/popup-[^"]+\.css">/);
+  assert.doesNotMatch(
+    popupHtml,
+    /\/assets\/fonts\/fonts\.css|\/assets\/materialdesignicons\.min\.css|\/theme-color\.css|\/theme-components\.css|\/popup\.css|\/theme-utilities\.css/
+  );
 }, PACKAGE_BUILD_TIMEOUT_MS);

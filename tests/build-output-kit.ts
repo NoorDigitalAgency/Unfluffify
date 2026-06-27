@@ -69,8 +69,10 @@ async function readBuildLockOwnerPid(): Promise<number | null> {
   }
 }
 
-export async function ensureBuildOutput(): Promise<void> {
-  if (existsSync(MANIFEST_PATH) && !existsSync(BUILD_LOCK_PATH)) {
+export async function ensureBuildOutput(options: { force?: boolean } = {}): Promise<void> {
+  const force = options.force === true;
+
+  if (!force && existsSync(MANIFEST_PATH) && !existsSync(BUILD_LOCK_PATH)) {
     return;
   }
 
@@ -86,7 +88,7 @@ export async function ensureBuildOutput(): Promise<void> {
         const heartbeatTimer = setInterval(() => {
           void writeFile(BUILD_LOCK_HEARTBEAT_PATH, `${Date.now()}`);
         }, BUILD_LOCK_HEARTBEAT_INTERVAL_MS);
-        if (!existsSync(MANIFEST_PATH)) {
+        if (force || !existsSync(MANIFEST_PATH)) {
           try {
             await runBuild();
           } finally {
@@ -104,13 +106,13 @@ export async function ensureBuildOutput(): Promise<void> {
         const ownerPid = await readBuildLockOwnerPid();
         if (ownerPid === null || !isProcessAlive(ownerPid)) {
           await rm(BUILD_LOCK_PATH, { recursive: true, force: true });
-          if (existsSync(MANIFEST_PATH)) {
+          if (!force && existsSync(MANIFEST_PATH)) {
             return;
           }
           continue;
         }
       }
-      if (existsSync(MANIFEST_PATH) && !existsSync(BUILD_LOCK_PATH)) {
+      if (!force && existsSync(MANIFEST_PATH) && !existsSync(BUILD_LOCK_PATH)) {
         return;
       }
       const errorCode = typeof error === "object" && error !== null && "code" in error

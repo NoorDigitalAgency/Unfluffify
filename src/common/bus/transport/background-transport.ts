@@ -5,6 +5,9 @@ import { type Browser } from "../../browser";
 import { sendBusEnvelope } from "../../extension-messaging";
 import { BUS_PORT_PREFIX, type InboundTransportHandler, type Transport } from "./transport-types";
 
+const TRANSIENT_CONTENT_EVENT_DELIVERY_ERROR_PATTERN =
+  /receiving end does not exist|message port closed before a response was received|no tab with id|no frame with id|tab unreachable|extension context invalidated|context invalidated|the tab was closed/i;
+
 function normalizeTabId(value: unknown): number | null {
   const numeric = Number(value);
   return Number.isFinite(numeric) && numeric > 0 ? Math.trunc(numeric) : null;
@@ -35,6 +38,16 @@ function toBusError(error: unknown, fallbackCode: string, fallbackMessage: strin
     fallbackCode,
     error instanceof Error && error.message ? error.message : fallbackMessage,
   );
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error
+    ? error.message
+    : (typeof error === "string" ? error : "");
+}
+
+function isTransientContentEventDeliveryError(error: unknown): boolean {
+  return TRANSIENT_CONTENT_EVENT_DELIVERY_ERROR_PATTERN.test(getErrorMessage(error));
 }
 
 export type BackgroundTransport = Transport & {
@@ -145,6 +158,9 @@ export function createBackgroundTransport(): BackgroundTransport {
         frame: normalizeFrameId(env.frame) ?? 0,
       });
     } catch (error) {
+      if (env.k === BUS_KINDS.EVENT && isTransientContentEventDeliveryError(error)) {
+        return;
+      }
       throw new BusError(
         BUS_ERROR_CODES.TRANSPORT_FAILED,
         error instanceof Error && error.message ? error.message : `Content delivery failed for ${env.t}`,
