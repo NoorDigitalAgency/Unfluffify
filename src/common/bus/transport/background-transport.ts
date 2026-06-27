@@ -7,6 +7,8 @@ import { BUS_PORT_PREFIX, type InboundTransportHandler, type Transport } from ".
 
 const TRANSIENT_CONTENT_EVENT_DELIVERY_ERROR_PATTERN =
   /receiving end does not exist|message port closed before a response was received|no tab with id|no frame with id|tab unreachable|extension context invalidated|context invalidated|the tab was closed/i;
+const TRANSIENT_POPUP_EVENT_DELIVERY_ERROR_PATTERN =
+  /disconnected port object|message port closed|extension context invalidated|context invalidated/i;
 
 function normalizeTabId(value: unknown): number | null {
   const numeric = Number(value);
@@ -48,6 +50,10 @@ function getErrorMessage(error: unknown): string {
 
 function isTransientContentEventDeliveryError(error: unknown): boolean {
   return TRANSIENT_CONTENT_EVENT_DELIVERY_ERROR_PATTERN.test(getErrorMessage(error));
+}
+
+function isTransientPopupEventDeliveryError(error: unknown): boolean {
+  return TRANSIENT_POPUP_EVENT_DELIVERY_ERROR_PATTERN.test(getErrorMessage(error));
 }
 
 export type BackgroundTransport = Transport & {
@@ -130,7 +136,19 @@ export function createBackgroundTransport(): BackgroundTransport {
 
     if (env.k === BUS_KINDS.EVENT) {
       for (const port of activePorts) {
-        port.postMessage(env);
+        try {
+          port.postMessage(env);
+        } catch (error) {
+          ports?.delete(port);
+          if (isTransientPopupEventDeliveryError(error)) {
+            continue;
+          }
+          return Promise.reject(new BusError(
+            BUS_ERROR_CODES.TRANSPORT_FAILED,
+            error instanceof Error && error.message ? error.message : `Popup delivery failed for ${env.t}`,
+            { tabId, type: env.t },
+          ));
+        }
       }
       return Promise.resolve();
     }
@@ -138,7 +156,16 @@ export function createBackgroundTransport(): BackgroundTransport {
     const targetPort = activePorts[0];
     return new Promise<BusEnvelope | void>((resolve, reject) => {
       pendingPopupReplies.set(env.id, { port: targetPort, resolve, reject });
-      targetPort.postMessage(env);
+      try {
+        targetPort.postMessage(env);
+      } catch (error) {
+        pendingPopupReplies.delete(env.id);
+        reject(new BusError(
+          BUS_ERROR_CODES.TRANSPORT_FAILED,
+          error instanceof Error && error.message ? error.message : `Popup delivery failed for ${env.t}`,
+          { tabId, type: env.t },
+        ));
+      }
     });
   }
 

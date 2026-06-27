@@ -123,7 +123,10 @@ describe("bus core", () => {
     bus.subscribe("diag.echo", () => Promise.reject(new Error("listener failed")));
 
     await expect(bus.publish("diag.echo", { nonce: "n-5" }, { target: REALMS.BACKGROUND })).resolves.toBeUndefined();
-    expect(error).toHaveBeenCalled();
+    expect(error).toHaveBeenCalledWith("Bus publish listener rejected", {
+      type: "diag.echo",
+      realm: REALMS.BACKGROUND,
+    });
   });
 
   it("logs synchronous listener throws without rejecting publish", async () => {
@@ -139,7 +142,57 @@ describe("bus core", () => {
     });
 
     await expect(bus.publish("diag.echo", { nonce: "n-5b" }, { target: REALMS.BACKGROUND })).resolves.toBeUndefined();
-    expect(error).toHaveBeenCalled();
+    expect(error).toHaveBeenCalledWith("Bus publish listener rejected", {
+      type: "diag.echo",
+      realm: REALMS.BACKGROUND,
+    });
+  });
+
+  it("logs transport rejections separately from listener failures", async () => {
+    const error = vi.fn();
+    const bus = createBus({
+      realm: REALMS.BACKGROUND,
+      transport: createFakeTransport({
+        send: () => Promise.reject(new Error("popup disconnected")),
+      }),
+      logger: { error },
+    });
+
+    await expect(bus.publish("diag.echo", { nonce: "n-5c" }, { target: REALMS.POPUP })).resolves.toBeUndefined();
+    expect(error).toHaveBeenCalledWith("Bus publish transport rejected", {
+      type: "diag.echo",
+      realm: REALMS.BACKGROUND,
+    });
+  });
+
+  it("handles fast transport rejections without surfacing unhandled rejections", async () => {
+    const error = vi.fn();
+    const onUnhandledRejection = vi.fn();
+    const bus = createBus({
+      realm: REALMS.BACKGROUND,
+      transport: createFakeTransport({
+        send: () => Promise.reject(new Error("popup disconnected")),
+      }),
+      logger: { error },
+    });
+
+    bus.subscribe("diag.echo", async () => {
+      await new Promise((resolve) => globalThis.setTimeout(resolve, 10));
+    });
+
+    process.once("unhandledRejection", onUnhandledRejection);
+    try {
+      await expect(bus.publish("diag.echo", { nonce: "n-5d" }, { target: REALMS.POPUP })).resolves.toBeUndefined();
+      await new Promise((resolve) => globalThis.setTimeout(resolve, 0));
+    } finally {
+      process.off("unhandledRejection", onUnhandledRejection);
+    }
+
+    expect(onUnhandledRejection).not.toHaveBeenCalled();
+    expect(error).toHaveBeenCalledWith("Bus publish transport rejected", {
+      type: "diag.echo",
+      realm: REALMS.BACKGROUND,
+    });
   });
 
   it("times out unresolved remote requests", async () => {

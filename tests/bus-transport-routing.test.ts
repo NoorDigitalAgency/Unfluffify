@@ -118,11 +118,15 @@ function createFakePort(name: string) {
   const onMessage = createPortEvent<unknown>();
   const onDisconnect = createPortEvent<chrome.runtime.Port>();
   const postedMessages: unknown[] = [];
+  let postMessageError: Error | null = null;
   const port = {
     name,
     onMessage,
     onDisconnect,
     postMessage(message: unknown) {
+      if (postMessageError) {
+        throw postMessageError;
+      }
       postedMessages.push(message);
     },
     disconnect() {
@@ -132,6 +136,9 @@ function createFakePort(name: string) {
   return {
     port: port as unknown as chrome.runtime.Port,
     postedMessages,
+    setPostMessageError(error: Error | null) {
+      postMessageError = error;
+    },
     disconnect() {
       onDisconnect.dispatch(port as unknown as chrome.runtime.Port);
     },
@@ -202,6 +209,20 @@ describe("background transport", () => {
       tab: 9,
       frame: 4,
     });
+  });
+
+  it("drops transient popup event delivery failures during popup disconnect windows", async () => {
+    const { createBackgroundTransport } = await loadBusTransportModule<typeof import("../src/common/bus/transport/background-transport.js")>("../src/common/bus/transport/background-transport.js");
+    const transport = createBackgroundTransport();
+    const popupPort = createFakePort(buildBusPortName(9));
+    popupPort.setPostMessageError(new Error("Attempting to use a disconnected port object"));
+    transport.registerPopupPort(9, popupPort.port);
+
+    await expect(transport.send(makeEventEnvelope("diag.event", { ok: true }, {
+      src: REALMS.BACKGROUND,
+      dst: REALMS.POPUP,
+      tab: 9,
+    }))).resolves.toBeUndefined();
   });
 
   it("maps browser tab send failures into transport errors", async () => {

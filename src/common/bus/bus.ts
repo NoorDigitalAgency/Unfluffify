@@ -311,12 +311,20 @@ export function createBus(options: CreateBusOptions): Bus {
               `Bus publish transport failed for ${type}`,
             );
           });
+      const transportResultPromise = transportPromise.then(
+        () => ({ ok: true as const }),
+        (error: unknown) => ({ ok: false as const, error }),
+      );
 
-      const settled = await Promise.allSettled([...listenerPromises, transportPromise]);
-      for (const result of settled) {
+      const listenerResults = await Promise.allSettled(listenerPromises);
+      for (const result of listenerResults) {
         if (result.status === "rejected") {
           logger?.error?.("Bus publish listener rejected", { type, realm });
         }
+      }
+      const transportResult = await transportResultPromise;
+      if (!transportResult.ok) {
+        logger?.error?.("Bus publish transport rejected", { type, realm });
       }
     },
   };
