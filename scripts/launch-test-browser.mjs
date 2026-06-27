@@ -14,7 +14,7 @@
  *      uses its managed Chromium).
  *   3. Ensures the MCP-managed Chromium is installed (idempotent).
  *   4. Starts the `npm:@playwright/mcp@latest` server over stdio (single client
- *      = no profile-lock) bound to `.mcp-browser-profile`.
+ *      = no profile-lock) bound to `.wxt/browser-profile`.
  *   5. Navigates the first tab to <target-url>.
  *   6. Resolves the loaded extension id from the service worker (and verifies it
  *      against the deterministic path-hash id).
@@ -34,7 +34,7 @@ import { fileURLToPath } from "node:url";
 
 const repoRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const EXT_DIR = join(repoRoot, ".output", "chrome-mv3");
-const PROFILE_DIR = join(repoRoot, ".mcp-browser-profile");
+const PROFILE_DIR = join(repoRoot, ".wxt", "browser-profile");
 const TEMP_DIR = join(repoRoot, ".temp");
 const TEMP_CONFIG = join(TEMP_DIR, "browser-mcp.config.json");
 const TEMP_OUT = join(TEMP_DIR, "out");

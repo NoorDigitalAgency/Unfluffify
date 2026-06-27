@@ -24,7 +24,7 @@
   auto-enabled observation output plus `chromium.connectOverCDP(...)` against
   `http://127.0.0.1:9222` for active inspection/control of the already-open page
   and extension popup. Do not start a second MCP client/server for the same
-  `.mcp-browser-profile`. The committed `.vscode/mcp.json`, `.mcp.json`, and
+  `.wxt/browser-profile`. The committed `.vscode/mcp.json`, `.mcp.json`, and
   `.vscode/browser-mcp.config.json` are intentionally placeholdered
   (`__UNFLUFFIFY_REPO_ROOT__`, `__CHROMIUM_EXECUTABLE_PATH__`) and
   non-launchable. Unpacked extension id is deterministic: SHA-256 of the

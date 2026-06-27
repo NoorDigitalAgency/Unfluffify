@@ -30,7 +30,7 @@ const REPO = "/home/rojan/Documents/Git/GitHub/Unfluffify";
 const useFreshProfile = process.env.UNFLUFFIFY_SMOKE_FRESH_PROFILE === "1";
 const PROFILE = useFreshProfile
   ? await fs.mkdtemp(path.join(os.tmpdir(), "unfluffify-smoke-profile-"))
-  : path.join(REPO, ".mcp-browser-profile");
+  : path.join(REPO, ".wxt", "browser-profile");
 const CHROME = "/home/rojan/.cache/ms-playwright/chromium-1223/chrome-linux64/chrome";
 
 const START_URL = process.argv[2] || "https://seo.se/";

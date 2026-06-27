@@ -11,11 +11,11 @@ test("repo MCP specs stay placeholdered (non-launchable) and keep no-sandbox lau
   // so they are intentionally non-launchable as-is. The launcher
   // (scripts/launch-test-browser.mjs) substitutes them into .temp/ per environment.
   for (const spec of [vscodeMcp, rootMcp]) {
-    assert.match(spec, /--user-data-dir=__UNFLUFFIFY_REPO_ROOT__\/\.mcp-browser-profile/);
+    assert.match(spec, /--user-data-dir=__UNFLUFFIFY_REPO_ROOT__\/\.wxt\/browser-profile/);
     assert.match(spec, /--config=__UNFLUFFIFY_REPO_ROOT__\/\.vscode\/browser-mcp\.config\.json/);
     // No hardcoded machine-specific absolute paths may leak back in.
-    assert.doesNotMatch(spec, /\/home\/[^"\s]+\/\.mcp-browser-profile/);
-    assert.doesNotMatch(spec, /\/Users\/[^"\s]+\/\.mcp-browser-profile/);
+    assert.doesNotMatch(spec, /\/home\/[^"\s]+\/\.wxt\/browser-profile/);
+    assert.doesNotMatch(spec, /\/Users\/[^"\s]+\/\.wxt\/browser-profile/);
   }
   assert.match(vscodeMcp, /"command": "npx"/);
   assert.match(rootMcp, /"command": "npx"/);

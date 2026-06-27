@@ -56,7 +56,7 @@ to re-derive it:
    (`npx -y @playwright/mcp@latest install-browser chromium`, idempotent).
 5. Starts `npm:@playwright/mcp@latest` over stdio (a single launcher-owned
    client = no profile-lock) with
-   `--user-data-dir=<repoRoot>/.mcp-browser-profile` and
+  `--user-data-dir=<repoRoot>/.wxt/browser-profile` and
    `--config=<repoRoot>/.temp/browser-mcp.config.json`.
 6. Navigates the first tab to the target URL.
 7. Resolves the loaded extension id from the running extension service worker
@@ -78,7 +78,7 @@ stdin/stdout.
 
 The Playwright MCP server is owned by `scripts/launch-test-browser.mjs` over
 stdio. Do **not** start a second MCP server/client against the same
-`.mcp-browser-profile` to inspect the browser; it either profile-locks or leaves
+`.wxt/browser-profile` to inspect the browser; it either profile-locks or leaves
 the agent unable to control the already-open page/popup. Use the launcher's
 control channel on the original Bash `shellId` and/or the CDP endpoint
 `http://127.0.0.1:9222` instead.
@@ -139,7 +139,7 @@ you intend to close the live browser.
 ## Use only the Playwright MCP browser; never touch the OS Chrome
 
 - Operate only the Playwright MCP managed Chromium bound to
-  `.mcp-browser-profile`, exclusively via `pnpm browser:live` and the
+  `.wxt/browser-profile`, exclusively via `pnpm browser:live` and the
   launcher's same-session control channel.
 - Never run the OS Chrome/Chromium application binary directly, never
   `open -a 'Google Chrome'`, and never set `executablePath` to the OS browser.

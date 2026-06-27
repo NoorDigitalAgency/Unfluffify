@@ -5,7 +5,7 @@
       "args": [
         "-y",
         "@playwright/mcp@latest",
-        "--user-data-dir=__UNFLUFFIFY_REPO_ROOT__/.mcp-browser-profile",
+        "--user-data-dir=__UNFLUFFIFY_REPO_ROOT__/.wxt/browser-profile",
         "--config=__UNFLUFFIFY_REPO_ROOT__/.vscode/browser-mcp.config.json"
       ]
     }

@@ -12,8 +12,8 @@ coverage/
 pnpm-debug.log*
 
 # Local browser / MCP state
-.mcp-browser-profile/
-.mcp-browser-profile-reuse/
+.wxt/browser-profile/
+.wxt/browser-profile-reuse/
 .playwright-mcp/
 
 # Non-Copilot local agent state

@@ -72,7 +72,7 @@ That single command runs the entire proven flow (`scripts/launch-test-browser.mj
    profile.
 4. Ensures the MCP-managed Chromium is installed (idempotent).
 5. Starts `npm:@playwright/mcp@latest` over stdio (single launcher-owned client
-   = no profile-lock) with `--user-data-dir=<repoRoot>/.mcp-browser-profile` and
+  = no profile-lock) with `--user-data-dir=<repoRoot>/.wxt/browser-profile` and
    `--config=<repoRoot>/.temp/browser-mcp.config.json`.
 6. Navigates the first tab to `<target-url>`.
 7. Resolves the loaded extension id from the service worker and cross-checks it
@@ -90,7 +90,7 @@ stdin/stdout. To close the browser, stop the launcher (Ctrl-C or `kill <pid>`).
 ### 3. Control and observe through the launcher
 
 The MCP server is intentionally owned by the launcher. Do not start a second MCP
-server/client for the same `.mcp-browser-profile` to debug the open browser; it
+server/client for the same `.wxt/browser-profile` to debug the open browser; it
 will either profile-lock or leave you unable to control the existing page/popup.
 Use the launcher's stdin/stdout control commands and/or the same-browser CDP
 endpoint `http://127.0.0.1:9222`.
@@ -192,7 +192,7 @@ If you must drive the MCP browser by hand to extend the flow, mirror
 - Right: confirm the user-instructed target page (ask if missing), then run
   `pnpm browser:live https://bonliva.se` in the background. It runs `pnpm build`,
   writes `.temp/browser-mcp.config.json`, launches the
-  `playwright-local` MCP managed Chromium with `.mcp-browser-profile`, opens the
+  `playwright-local` MCP managed Chromium with `.wxt/browser-profile`, opens the
   page in the first tab, resolves the extension id and page tabId, and opens a
   second tab `chrome-extension://<id>/popup.html?debugTabId=<pageTabId>` bound to
   the page.

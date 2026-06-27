@@ -25,7 +25,7 @@ const { chromium } = await resolvePlaywright();
 import path from 'path';
 
 const REPO = '/home/rojan/Documents/Git/GitHub/Unfluffify';
-const PROFILE = path.join(REPO, '.mcp-browser-profile');
+const PROFILE = path.join(REPO, '.wxt', 'browser-profile');
 const CHROME = '/home/rojan/.cache/ms-playwright/chromium-1223/chrome-linux64/chrome';
 
 const URLS = process.argv.slice(2);
