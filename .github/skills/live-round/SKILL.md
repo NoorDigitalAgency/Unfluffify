@@ -1,5 +1,5 @@
 ---
-name: dev-live-round-control
+name: live-round
 description: Run a stable full roundtrip with pnpm dev + pnpm browser:live, keep stdout/stderr monitored, verify popup control, and recover from stuck launcher/profile states.
 ---
 

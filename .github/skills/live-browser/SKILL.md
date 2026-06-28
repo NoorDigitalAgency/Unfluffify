@@ -1,5 +1,5 @@
 ---
-name: launch-test-browser
+name: live-browser
 description: Launch the live/dev test browser for this repo with the unpacked extension loaded, using the repo-local playwright-local MCP browser. Use whenever you need to observe, debug, or manually test the extension in a real Chromium.
 ---
 

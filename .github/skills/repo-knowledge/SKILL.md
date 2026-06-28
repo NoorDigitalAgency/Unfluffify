@@ -1,5 +1,5 @@
 ---
-name: extract-repo-knowledge
+name: repo-knowledge
 description: Read the codebase by domain, extract durable architectural knowledge, ask deterministic clarification questions, and update repo knowledge/skills/instructions.
 ---
 

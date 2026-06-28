@@ -1,5 +1,5 @@
 ---
-name: review-fix-commit-push
+name: review-push
 description: Run a review and fix loop until clean, validate, commit, push, and continue to the next ready task.
 ---
 

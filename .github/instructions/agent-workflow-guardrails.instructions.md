@@ -7,11 +7,19 @@ applyTo: "**"
 
 Use the repository skills before improvising repeatable workflows:
 
-- `review-fix-commit-push` for review/fix/commit/push loops.
-- `autonomous-implementation-plan` for detailed implementation handoffs.
-- `repo-safe-code-change` before non-trivial source changes.
-- `extract-repo-knowledge` for durable knowledge-base and skill updates.
-- `launch-test-browser` to open the live/dev Chromium with the unpacked
+- Follow `.github/skills/branch-sync/SKILL.md` before starting a
+  repository task so work begins from a current branch or stops on a clear sync
+  blocker. Invoke the `branch-sync` skill directly when it is
+  exposed in the environment. Read-only review or inspection tasks are exempt.
+- `review-push` for review/fix/commit/push loops.
+- Follow `.github/skills/run-plan/SKILL.md` only when the user
+  explicitly wants active-plan execution to continue through commit/push
+  publication. Invoke the `run-plan` skill directly when it is
+  exposed in the environment.
+- `impl-plan` for detailed implementation handoffs.
+- `safe-change` before non-trivial source changes.
+- `repo-knowledge` for durable knowledge-base and skill updates.
+- `live-browser` to open the live/dev Chromium with the unpacked
   extension loaded for observation or manual testing.
 
 ## Low-context agent rules
@@ -24,6 +32,16 @@ patterns. Read the repo knowledge first:
 3. relevant `.github/skills/*/SKILL.md`
 4. the active session plan, if present
 5. the exact source files and tests for the behavior
+
+Before starting a new repository planning or editing task, follow
+`.github/skills/branch-sync/SKILL.md` so the current branch is
+checked against its upstream and safely fast-forwarded when possible. Invoke the
+skill directly when it is exposed in the environment. If the worktree is dirty
+and upstream moved, or the branch diverged, stop and ask instead of guessing.
+
+Pure read-only review or inspection may proceed without this sync step.
+Entering `review-push` on an already-dirty worktree is also exempt;
+that workflow handles upstream movement at the publish step.
 
 If a behavior decision is unclear, ask the user a deterministic multiple-choice
 question before implementing. Do not invent product behavior, contracts, UI copy,
@@ -50,7 +68,7 @@ Use validation that matches the risk:
 - Source changes: focused tests while iterating, then `pnpm lint`,
   `pnpm check`, `pnpm test`, and `pnpm build`
 - Live browser behavior: launch with `pnpm browser:live <target-url>` (the
-  `launch-test-browser` skill / committed launcher), which builds and loads
+  `live-browser` skill / committed launcher), which builds and loads
   `.output/chrome-mv3` in only the `npm:@playwright/mcp@latest` managed
   Chromium; reload the unpacked extension/service worker after a rebuild before
   observing. Never touch the OS Chrome.

@@ -1,6 +1,6 @@
 ---
-name: observe-live-session
-description: Run a full live observation session for the Unfluffify extension — ask for a URL, start pnpm dev:no-browser + pnpm browser:live, attach a raw-CDP console/JS-stack observer over popup + target page + background service worker, signal ready, then triage user-reported bugs (backlog vs stop) and route to thorough-planning or repo-safe-code-change + review-fix-commit-push. Use when the user wants to drive the extension live while you watch everything and collect bugs.
+name: live-watch
+description: Run a full live observation session for the Unfluffify extension — ask for a URL, start pnpm dev:no-browser + pnpm browser:live, attach a raw-CDP console/JS-stack observer over popup + target page + background service worker, signal ready, then triage user-reported bugs (backlog vs stop) and route to impl-plan or safe-change + review-push. Use when the user wants to drive the extension live while you watch everything and collect bugs.
 ---
 
 # Run a Live Observation Session
@@ -12,9 +12,9 @@ plan or a fix.
 
 This skill composes two existing skills; do not improvise around them:
 
-- `launch-test-browser` — the ONLY supported way to open the live Chromium with
+- `live-browser` — the ONLY supported way to open the live Chromium with
   the unpacked extension loaded (`pnpm browser:live <url>`).
-- `dev-live-round-control` — the `pnpm dev` + launcher lifecycle and recovery.
+- `live-round` — the `pnpm dev` + launcher lifecycle and recovery.
 
 It adds the **observation + triage + routing loop** on top.
 
@@ -24,7 +24,7 @@ It adds the **observation + triage + routing loop** on top.
   for it (one question). Never guess, never reuse a previous URL.
 - Operate only the launcher-owned managed Playwright MCP Chromium. Never touch the
   OS Chrome, never set `executablePath` to the OS browser, never `osascript`/
-  `open -a`. See `launch-test-browser`.
+  `open -a`. See `live-browser`.
 - Never start a second MCP client/server against the same `.wxt/browser-profile`.
   Inspect the already-open browser only via the launcher control channel or the
   CDP endpoint `http://127.0.0.1:9222`.
@@ -43,7 +43,7 @@ question for the URL and wait. Do not launch until you have it.
 Confirm no stale launcher/MCP/dev processes are holding the profile or port:
 
 ```bash
-pgrep -af "launch-test-browser|@playwright/mcp|wxt|remote-debugging-port=9222" || echo "clean"
+pgrep -af "launch-test-browser.mjs|@playwright/mcp|wxt|remote-debugging-port=9222" || echo "clean"
 ```
 
 If anything is left over from a previous run, stop those shells (`stop_bash`) or
@@ -61,7 +61,7 @@ pnpm dev:no-browser
 Run it `mode="async"` and keep the shellId (e.g. `dev-server`). Wait for the
 "built" / server-ready banner. Note: `dev:no-browser` builds `.output/chrome-mv3-dev`,
 while `pnpm browser:live` builds and loads `.output/chrome-mv3` — they are
-separate outputs. See `dev-live-round-control` for lifecycle/recovery details.
+separate outputs. See `live-round` for lifecycle/recovery details.
 
 ## Step 4 — Launch the live browser bound to the page
 
@@ -146,27 +146,27 @@ When the user says stop, tear down in reverse order and verify nothing is left:
 
 ```bash
 # stop_bash cdp-observer ; stop_bash browser-live ; stop_bash dev-server
-pgrep -af "launch-test-browser|@playwright/mcp|wxt|remote-debugging-port=9222" || echo "ALL_STOPPED"
+pgrep -af "launch-test-browser.mjs|@playwright/mcp|wxt|remote-debugging-port=9222" || echo "ALL_STOPPED"
 ```
 
 ## Step 9 — Route the backlog
 
 Ask the user exactly one question: for the reported bugs, do they want
-**thorough-planning** or a **repo-safe-code-change followed by
-review-fix-commit-push**? Then act:
+**impl-plan** or a **safe-change followed by
+review-push**? Then act:
 
-- **Thorough planning** → invoke the `thorough-planning` /
-  `autonomous-implementation-plan` skill. Produce a deterministic, file-cited plan
+- **Thorough planning** → invoke the `impl-plan` /
+  `impl-plan` skill. Produce a deterministic, file-cited plan
   and a SQL todo chain. Do NOT edit `src/` (planning only) unless the user later
   asks to implement.
-- **Fix now** → invoke `repo-safe-code-change` for each bug (read knowledge +
+- **Fix now** → invoke `safe-change` for each bug (read knowledge +
   exact source/tests first, keep changes scoped, add regression coverage), then
-  run `review-fix-commit-push` to review, validate
+  run `review-push` to review, validate
   (`pnpm lint && pnpm check && pnpm test && pnpm build`), commit, and push.
 
 Re-validate core unflagged behavior live with `pnpm browser:live <url>` when a fix
 touches runtime behavior; reload the unpacked extension/service worker after any
-rebuild before re-observing (see `launch-test-browser`).
+rebuild before re-observing (see `live-browser`).
 
 ## Cleanup
 

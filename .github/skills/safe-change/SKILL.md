@@ -1,5 +1,5 @@
 ---
-name: repo-safe-code-change
+name: safe-change
 description: Modify, fix, or add repository code while strictly following the knowledge base, plan, instructions, and regression guardrails.
 ---
 
@@ -92,7 +92,7 @@ Treat these areas as compatibility contracts:
   lease metadata exists.
 - **Storage:** Use approved storage/domain modules. Do not add scattered
   `chrome.storage` or `utils.storage*` access outside allowed boundaries.
-- **Browser live validation:** Follow the `launch-test-browser` skill — run
+- **Browser live validation:** Follow the `live-browser` skill — run
   `pnpm browser:live <target-url>` (the committed launcher) to build and load
   `.output/chrome-mv3`, write the per-environment `.temp/browser-mcp.config.json`,
   and launch only the `playwright-local` (`npm:@playwright/mcp@latest`) managed

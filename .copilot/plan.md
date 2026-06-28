@@ -137,8 +137,8 @@ unverified because they are gated behind real backend credentials.
 
 **Phase 3 - Docs/skills/knowledge alignment.**
 
-- Update `.github/skills/launch-test-browser/SKILL.md`,
-  `.github/skills/dev-live-round-control/SKILL.md`, and
+- Update `.github/skills/live-browser/SKILL.md`,
+  `.github/skills/live-round/SKILL.md`, and
   `.github/instructions/browser-launch.instructions.md` with the headless
   requirement/behavior and the verified `xvfb-run` fallback command.
 - Add a `.copilot/knowledge.md` fact for headless live-browser runs and the
@@ -151,7 +151,7 @@ unverified because they are gated behind real backend credentials.
   render-mode inspection, and property-lock flows are gated behind a real
   Configuration Endpoint + AI Endpoint + Stage Base + login and were NOT
   exercised live. Once the user supplies a staging config/credentials, drive the
-  flow per `dev-live-round-control` and capture popup/SW/content console + page
+  flow per `live-round` and capture popup/SW/content console + page
   errors via CDP. Do not fabricate credentials.
 
 #### 2026-06-27 live verification result

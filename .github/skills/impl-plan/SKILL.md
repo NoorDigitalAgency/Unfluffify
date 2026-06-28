@@ -1,5 +1,5 @@
 ---
-name: autonomous-implementation-plan
+name: impl-plan
 description: Create a precise implementation plan that a low-context agent can execute end-to-end without major reasoning or design decisions.
 ---
 

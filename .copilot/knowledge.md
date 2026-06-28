@@ -3,13 +3,23 @@
 ## Agent Workflow Assets
 
 - Repository-level repeatable workflows live in `.github/skills/`. Use
-  `review-fix-commit-push` for clean-review/fix/commit/push loops,
-  `autonomous-implementation-plan` for precise implementation handoffs,
-  `repo-safe-code-change` before non-trivial source edits,
-  `dev-live-round-control` for stable pnpm dev + pnpm browser:live rounds with
+  `.github/skills/branch-sync/SKILL.md` before starting
+  repository work so the current branch is checked against upstream and clean
+  behind-only branches are fast-forwarded before task execution; invoke the
+  `branch-sync` skill directly when it is exposed in the
+  environment. Read-only review/inspection and entering
+  `review-push` on an already-dirty worktree are exempt,
+  `review-push` for clean-review/fix/commit/push loops,
+  `.github/skills/run-plan/SKILL.md` only when the user explicitly
+  wants autonomous active-plan execution to continue through
+  `review-push`; invoke the `run-plan` skill directly
+  when it is exposed in the environment,
+  `impl-plan` for precise implementation handoffs,
+  `safe-change` before non-trivial source edits,
+  `live-round` for stable pnpm dev + pnpm browser:live rounds with
   launcher/popup control verification and stuck-state recovery,
-  `extract-repo-knowledge` when updating durable architecture knowledge, and
-  `launch-test-browser` to open the live/dev Chromium with the unpacked
+  `repo-knowledge` when updating durable architecture knowledge, and
+  `live-browser` to open the live/dev Chromium with the unpacked
   extension loaded for observation or manual testing.
 - Live test browser: launch with `pnpm browser:live <target-url>`
   (`scripts/launch-test-browser.mjs`).
