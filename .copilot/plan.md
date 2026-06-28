@@ -746,30 +746,61 @@ Each phase is independently shippable and ends with full validation +
 review-push. Order is by value and risk (P1 first; it also fixes the reported
 stuck spinner).
 
-**P1 — Inspection-settled event (fixes stuck spinner; removes 2 popup polls)**
+**P1 — Inspection-settled via brain authority (fixes stuck spinner; removes 2
+popup polls)**
 
-- Add a content-side notification: when the page-inspection lifecycle reaches a
-  terminal settled state (the same condition `inspection-status.ts:resolve()`
-  reports as `pending === false`), publish an inspection fact over the bus to the
-  brain and/or a direct `inspectionSettled` message to the popup, instead of
-  waiting to be polled. Emit at the existing completion points
-  (`finishPageInspectionUi` / reconciliation clear in `content-main.ts` /
-  `core.ts`).
-- Files: `src/common/bus/contracts/session-state.ts` (add fact field or a new
-  report type), `src/content/inspection-status.ts` (expose an
-  emit-on-change hook), `src/content-main.ts` (call the emit at settle points),
-  `src/popup.ts` (subscribe; clear `navInspect` overlay on the event; delete
-  `scheduleNavigationInspectionSettlePoll`, `scheduleStaleInspectionBusyClear`
-  and their timers/maps), plus a bounded one-shot safety deadline (keep existing
-  watchdog, not a poll).
-- Expected state: navigating/reload clears the "Inspecting page..." curtain on
-  the content event; no 350ms/500-2000ms/150ms/400ms polling remains.
-- Tests: `tests/popup-*` inspection/curtain tests; add a regression asserting the
-  curtain clears on the inspection-settled event and that no settle-poll timer is
-  scheduled. Add a content test that the emit fires once on settle.
-- Validation: focused tests, then `pnpm lint && pnpm check && pnpm test && pnpm build`.
-- Rollback: if the event path regresses, the existing render-mode watchdog
-  deadline still force-clears; revert popup subscription edit.
+CRITICAL CONSTRAINT (curtain authority): the guardrails forbid reintroducing
+popup-local curtain authority once a brain-side dictation/decider exists. So P1
+MUST route the `navInspect` curtain clear through the existing lifecycle-event /
+brain-decider seam and report content facts to the brain. Do NOT add a
+popup-local `inspectionSettled` message handler that decides the curtain.
+
+- Current seam facts: content already emits lifecycle events via
+  `emitLifecycleEvent({ kind: LIFECYCLE_KINDS.SILENT_HIGHLIGHTING, phase,
+  busy, message })` (`src/content-main.ts` `runEditorSilentHighlightingActivationOnce`
+  emits `REVEAL_STARTED` busy=true "Inspecting page..." and a terminal busy=false
+  via `finishSilentHighlightLifecycle`). Render-mode inspection emits its own
+  lifecycle kind. The background broker
+  (`src/background/popup-state-broker.ts`) already clears curtain-bearing
+  lifecycle kinds on terminal phases (`isCurtainBearingLifecycleKind` in
+  `src/common/world-messaging-contract.ts`). The popup polls
+  (`scheduleNavigationInspectionSettlePoll`,
+  `scheduleStaleInspectionBusyClear`) are the redundant/legacy path.
+- Approach: (a) ensure EVERY inspection completion path (silent highlighting,
+  render-mode inspection, marking-enable inspection) emits a terminal
+  curtain-bearing lifecycle event when it settles, so the broker/decider clears
+  `navInspect` deterministically; (b) if any settle source is not covered by a
+  lifecycle kind, add it as a reported `SessionFacts` field
+  (`navigationInspectionPending` / `pageInspectionBusy` already exist in
+  `src/common/bus/contracts/session-state.ts`) via a content fact reporter
+  (content currently has no fact reporter; add a minimal content bus client
+  mirroring `src/popup/layers/popup-bus-client.ts`), and let the existing
+  decider clear the curtain; (c) remove the popup settle polls and replace any
+  residual safety with a single bounded brain-side deadline (not a poll).
+- Files: `src/content-main.ts` / `src/content/core.ts` (emit terminal lifecycle
+  at all settle points; the central chokepoint is `setPageInspectionUiActive`
+  in `core.ts` and `finishPageInspectionUi`), optionally a new
+  `src/content/*-bus-client.ts` fact reporter + `src/common/bus/contracts/
+  session-state.ts`, `src/background/brain/deciders/*` (only if a new fact must
+  drive the curtain), and `src/popup.ts` (delete
+  `scheduleNavigationInspectionSettlePoll`, `scheduleStaleInspectionBusyClear`,
+  `popupNavigationInspectionSettlePollByTabId`, `popupStaleInspectionBusyClearTimer`
+  and their callers at popup.ts:8905/8913/5273/6367,
+  `src/popup/render-mode-inspection.ts:107/425`, `src/popup/spinner.ts:352`).
+- Expected state: after reveal/freeze, navigation, and render-mode set, the
+  curtain clears from the lifecycle/decider event; no 350ms/500-2000ms/150ms/
+  400ms popup polling remains.
+- Tests: `tests/lifecycle-broker.test.ts`, `tests/popup-marking-refresh.test.ts`,
+  `tests/popup-central-state-dictation.test.ts`, `tests/inspection-status.test.ts`;
+  add a regression asserting the curtain clears on the terminal lifecycle event
+  and that no settle-poll timer is scheduled; add a content test that the
+  terminal lifecycle/fact fires once per settle.
+- Validation: focused tests, then `pnpm lint && pnpm check && pnpm test && pnpm build`,
+  plus a live round confirming the "Inspecting page.../Working..." curtain clears
+  after reveal/freeze.
+- Rollback: the broker's existing terminal-lifecycle clear and the render-mode
+  watchdog deadline remain as non-poll safety nets; revert the popup poll removal
+  if a settle path is found uncovered.
 
 **P2 — AI status push (removes popup `continueAiRunPolling`)**
 
