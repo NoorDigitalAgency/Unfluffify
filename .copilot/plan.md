@@ -666,11 +666,38 @@ the brain `SessionFacts` bus) or a single deterministic deadline/one-shot timer.
 KEEP (backend / unreplaceable):
 
 - `src/background/ai-run-orchestrator.ts` `executeAiRunWithStatusPolling`
-  (backend AI readiness) — EXEMPT.
-- `src/popup.ts` property page types refresh
-  (`PROPERTY_PAGE_TYPES_REFRESH_INTERVAL_MS`, ~120s GraphQL) — backend poll with
-  no server push. KEEP as a documented backend poll.
+  (backend AI readiness) — EXEMPT. Already background; keeps the SW alive via
+  `sw-keepalive` for the duration of an in-flight run.
 - `src/background/sw-keepalive.ts` keepalive ping — not polling. KEEP.
+
+RELOCATE to background `chrome.alarms` (MV3 suspension-safe) — added 2026-06-28
+after the "can any poll move to background safely" review:
+
+- `src/popup.ts` token validation
+  (`TOKEN_VALIDATION_INTERVAL_MS`, ~10min `popupTimers.setInterval`,
+  `state.tokenValidationTimer`) -> background `chrome.alarms` periodic alarm. The
+  stored token is global, so this has no popup-view coupling. Background
+  validates and, on invalid, pushes a `tokenInvalid` event the popup renders as
+  the existing toast + refresh. Removes the popup interval.
+- `src/popup.ts` property page types refresh
+  (`PROPERTY_PAGE_TYPES_REFRESH_INTERVAL_MS`, ~120s `popupTimers.setInterval`,
+  `schedulePropertyPageTypesRefresh`) -> background `chrome.alarms` keyed by the
+  popup-registered active property (`siteId` + `stageBase`). Background runs the
+  `ensurePropertyPageTypes` backend fetch + change detection and pushes a
+  `propertyPageTypesChanged` event the popup folds into its existing change
+  notice flags. Removes the popup interval.
+
+Why `chrome.alarms` is the suspension-safe choice: MV3 service workers suspend
+after ~30s idle, which would kill a background `setInterval`. A `chrome.alarms`
+period survives suspension because the alarm wakes the worker, runs one fetch,
+then lets it idle again — no keepalive required for these periodic backend
+checks. The repo already holds the `alarms` permission (`wxt.config.ts`) and a
+working alarms pattern in `src/background/tab-inactivity-observer.ts`. Relocating
+these two also removes their popup-lifetime coupling so a closed popup no longer
+silently stops the checks. NOTE: do not relocate periodic checks that must run
+continuously within a tight window onto bare background `setInterval`; either
+keep them event/alarm-driven or hold a `sw-keepalive` ref only for a bounded
+in-flight operation (as the AI run poll already does).
 
 CONVERT (phases below):
 
@@ -798,6 +825,38 @@ stuck spinner).
   transitionend/animationend instead of the recursive 120ms position sampler.
 - Files: `src/content-main.ts`.
 - Tests: reposition fires on observer/transition events; no recursive sampler.
+
+**P8 — Relocate global backend polls to background `chrome.alarms`
+(suspension-safe)**
+
+- Token validation: add a background periodic `chrome.alarms` alarm that runs
+  the token validation backend check; on invalid, publish a `tokenInvalid`
+  event. Popup subscribes, shows the existing toast, and refreshes. Delete the
+  popup `state.tokenValidationTimer` interval and `TOKEN_VALIDATION_INTERVAL_MS`
+  popup scheduling.
+- Property page types: add a background periodic `chrome.alarms` alarm keyed by
+  the active property the popup registers with the background (on property
+  change). The alarm runs `ensurePropertyPageTypes` change detection in the
+  background and publishes `propertyPageTypesChanged`. Popup subscribes and sets
+  the existing change-notice flags. Delete `schedulePropertyPageTypesRefresh`'s
+  popup interval. If active-property registration proves too invasive, fall back
+  to keeping this one popup-scoped as a documented backend poll and ship only
+  the token-validation relocation.
+- Files: new `src/background/*` alarm owner(s) modeled on
+  `src/background/tab-inactivity-observer.ts`, bus contract additions for
+  `tokenInvalid` / `propertyPageTypesChanged`, `src/popup.ts` (register active
+  property, subscribe to events, remove the two intervals).
+- Reuse `src/common/browser.ts` for alarm APIs; keep storage access behind the
+  approved domain/storage modules.
+- Tests: a background alarm test (alarm fires -> backend check -> event
+  published), a popup test (event -> toast/notice flags, no interval scheduled),
+  and extend the source-contract guard so no popup `setInterval` remains for
+  these two.
+- Validation: focused tests, then `pnpm lint && pnpm check && pnpm test && pnpm build`.
+- Rollback: if alarms misbehave on a host, revert to the popup-scoped interval
+  for the affected check (token first); the bus events are additive.
+- Suspension note: alarms wake the SW, so suspension cannot stop these checks;
+  do not replace them with a background `setInterval`.
 
 ### Test matrix
 
