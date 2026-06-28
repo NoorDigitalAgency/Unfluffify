@@ -309,6 +309,22 @@
   `deriveDictation(...)` in `src/background/brain/deciders/` decide the 5-button
   matrix and blocking curtain; popup-local overrides must stay limited to
   short-lived fallback bridges until projected dictation arrives.
+- The brain broadcasts curtain/spinner via `SPINNER_EVENT_TYPES` to BOTH popup
+  and content (`pageCurtain`/`banner` → CONTENT+POPUP) and clears `navInspect`
+  on terminal curtain-bearing lifecycle. The popup curtain is driven by the
+  `navigationInspectionPending` fact, computed from content inspection status. To
+  avoid a stuck "Inspecting page…/Working…" curtain, content emits
+  `inspectionSettled` (core `setPageInspectionUiSettledListener` fired in
+  `finishPageInspectionUi`) so the popup ends its overlay and the fact clears
+  deterministically. Settle safety is a single bounded one-shot fail-open
+  deadline (no polling). Polling-elimination: only backend/readiness polls stay
+  (popup `continueAiRunPolling`; background `chrome.alarms` token monitor;
+  property-page-types backend poll). SPA URL detection is event-based
+  (`ensureNavigationNotifierInstalled`: history pushState/replaceState patch +
+  popstate/hashchange). Page-motion-pause 250ms refresh and silent-highlight
+  position dwell stay (re-scan `getAnimations()`/dwell have no DOM event); 1s
+  countdown timers are display clocks. Visible countdown clocks must be exempted
+  in any "no setInterval" source-contract guard.
 
 ## AI Submission Rules
 

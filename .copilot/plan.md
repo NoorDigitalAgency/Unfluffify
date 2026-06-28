@@ -968,6 +968,29 @@ popup-local `inspectionSettled` message handler that decides the curtain.
 - All AI-run, property-lock, marking, and silent-highlight behaviors remain
   observably unchanged under the full test suite and a live round.
 
+### Run completion status (2026-06-28)
+
+- P1 DONE (6998ef8): inspection curtain now clears via the content
+  `inspectionSettled` event; both settle polls converted to one-shot fail-open
+  deadlines. Live-verified on bonliva (curtain raises then clears <1s, no stuck).
+- P2 RESOLVED: popup `continueAiRunPolling` is the exempt AI readiness poll
+  (popup is not the SW); background loop was dead code. No change.
+- P3 RESOLVED: countdown timers are visible display clocks; KEEP.
+- P4 DONE (400d42e): SPA URL detection is event-based (history patch +
+  popstate/hashchange); both 800ms URL polls removed.
+- P5 KEEP: page-motion-pause 250ms refresh re-scans `document.getAnimations()`
+  and media; JS-driven Web Animations/media have no DOM event, so it is
+  unreplaceable. MutationObserver already covers DOM-driven changes.
+- P6 KEEP: `pollUntilRendered` is a bounded (3s) render-completion wait;
+  `pollUntilSettled` already uses `scrollend`; not safely replaceable in locked
+  render scheduler.
+- P7 KEEP: silent-highlight position settle is a dwell sampler (already paired
+  with a layout-shift PerformanceObserver); dwell detection needs sampling.
+- P8 token DONE (aac4944): token validation relocated to a background
+  `chrome.alarms` monitor (suspension-safe). Property-page-types stays
+  popup-scoped as a documented backend poll (active-property coupling makes
+  relocation invasive; allowed fallback).
+
 ## Guardrails
 
 1. Do not change locked marking/highlighting/property-lock contracts without an
