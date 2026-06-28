@@ -12,13 +12,15 @@ import {
   PROPERTY_LOCK_WS_LOCK_STATE,
   createInactiveLockState
 } from "../src/common/property-lock.js";
+import { propertyLockText } from "../src/common/text.js";
 import { state } from "../src/popup/state.js";
 import {
   applyPropertyLockServerMessage,
   fetchPropertyLockState,
   isPropertyLockCollaborationEnabled,
   refreshPropertyLockSnapshot,
-  sendPropertyLockCommand
+  sendPropertyLockCommand,
+  syncPropertyLockOffCandidateRefreshTimer
 } from "../src/popup/property-lock-ui.js";
 
 function resetPropertyLockState() {
@@ -40,6 +42,7 @@ function createDeps(overrides = {}) {
   };
   const deps = {
     FEATURE_DISABLED_REASON,
+    propertyLockText,
     PROPERTY_LOCK_BACKGROUND_GET_STATE: "propertyLockGetState",
     PROPERTY_LOCK_BACKGROUND_CONNECTION_STATUS,
     PROPERTY_LOCK_CONNECTION_CONNECTED,
@@ -71,9 +74,36 @@ function createDeps(overrides = {}) {
     queueEditorBootstrapOnLockTransition: () => {},
     resetDisabledPropertyLockState: () => {},
     clearPropertyLockTransientState: () => {},
+    clearPropertyLockOffCandidateRefreshTimer: () => {
+      state.propertyLockOffCandidateRefreshTimer = 0;
+    },
     resetPropertyLockState: () => {
       state.propertyLockSiteId = null;
       state.propertyLockState = null;
+    },
+    setViewState: () => {},
+    buildPropertyLockViewState: () => ({
+      propertyLockVisible: false,
+      propertyLockTone: "muted",
+      propertyLockIcon: "lock-open-outline",
+      propertyLockStatusText: "",
+      propertyLockDetailText: "",
+      propertyLockSuggestVisible: false,
+      propertyLockTakeVisible: false,
+      propertyLockTakeText: "",
+      propertyLockContinueVisible: false,
+      propertyLockContinueText: "",
+      propertyLockContinueDisabled: false,
+      propertyLockForceContinueVisible: false,
+      propertyLockForceContinueText: "",
+      propertyLockSuggestionVisible: false,
+      propertyLockAcceptVisible: false,
+      propertyLockRejectVisible: false
+    }),
+    refreshUi: async () => {},
+    windowRef: {
+      setInterval: globalThis.setInterval.bind(globalThis),
+      clearInterval: globalThis.clearInterval.bind(globalThis)
     },
     sendRuntimeMessage: async (payload) => {
       calls.messages.push(payload);
@@ -169,4 +199,54 @@ test("popup property-lock-ui command transport includes draft status and client 
   assert.equal(calls.messages[0].siteId, 44);
   assert.equal(calls.messages[0].clientId, "client-7");
   assert.equal(calls.messages[0].hasUnsavedChanges, true);
+});
+
+test("popup property-lock-ui deadline timer repaints locally and only refreshes on expiry", () => {
+  resetPropertyLockState();
+  state.propertyLockSiteId = 44;
+  state.propertyLockOffCandidateDeadlineAt = 103_000;
+  let tick = null;
+  let setViewStateCalls = 0;
+  let refreshCalls = 0;
+  let clearCalls = 0;
+  const originalNow = Date.now;
+  Date.now = () => 100_000;
+  try {
+    const { deps } = createDeps({
+      setViewState: () => {
+        setViewStateCalls += 1;
+      },
+      refreshUi: async () => {
+        refreshCalls += 1;
+      },
+      clearPropertyLockOffCandidateRefreshTimer: () => {
+        clearCalls += 1;
+        state.propertyLockOffCandidateRefreshTimer = 0;
+      },
+      windowRef: {
+        setInterval: (callback) => {
+          tick = callback;
+          return 77;
+        },
+        clearInterval: () => {}
+      }
+    });
+
+    syncPropertyLockOffCandidateRefreshTimer(deps, true);
+    assert.equal(state.propertyLockOffCandidateRefreshTimer, 77);
+    assert.ok(typeof tick === "function");
+
+    tick();
+    assert.equal(setViewStateCalls, 1);
+    assert.equal(refreshCalls, 0);
+    assert.equal(clearCalls, 0);
+
+    Date.now = () => 104_000;
+    tick();
+    assert.equal(setViewStateCalls, 2);
+    assert.equal(refreshCalls, 1);
+    assert.equal(clearCalls, 1);
+  } finally {
+    Date.now = originalNow;
+  }
 });

@@ -3,7 +3,7 @@ import { assert } from "./test-kit.ts";
 import { readFileSync } from "./file-kit.ts";
 
 const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
-const propertyLockUiSource = readFileSync(new URL("../src/popup/property-lock-ui.ts", import.meta.url), "utf8");
+const propertyLockDeciderSource = readFileSync(new URL("../src/background/brain/deciders/property-lock-decider.ts", import.meta.url), "utf8");
 const contentSource = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
 const renderModeHandlersSource = readFileSync(new URL("../src/content/render-mode-inspection-handlers.ts", import.meta.url), "utf8");
 const propertyLockBannerSource = readFileSync(new URL("../src/content/property-lock-banner.ts", import.meta.url), "utf8");
@@ -35,21 +35,17 @@ test("render-mode reload reclaims the property lock before polling snapshots", (
 });
 
 test("popup suppresses the disconnect countdown while render-mode inspection is active", () => {
-  const viewBlock = extractSourceBlock(
-    propertyLockUiSource,
-    "export function buildPropertyLockViewState",
-    "export async function fetchPropertyLockState"
-  );
+  const viewBlock = propertyLockDeciderSource;
   const reloadBlock = extractSourceBlock(
     popupSource,
     "async function runRenderModeInspectionReload",
     "async function normalizeRenderModeDebuggerPage"
   );
 
-  assert.match(viewBlock, /state\.renderModeInspectionActive && state\.propertyLockDisconnectCountdown !== null/);
+  assert.match(viewBlock, /input\.renderModeInspectionActive &&\s*input\.propertyLockDisconnectCountdown !== null/);
   assert.match(viewBlock, /propertyLockText\.popupInspectionReconnecting/);
   assert.match(reloadBlock, /state\.renderModeInspectionActive = true;[\s\S]*?requestPopupRenderModeInspection\(/);
-  assert.match(reloadBlock, /finally \{[\s\S]*?state\.renderModeInspectionActive = false;[\s\S]*?buildPropertyLockViewState\(\)/);
+  assert.match(reloadBlock, /finally \{[\s\S]*?state\.renderModeInspectionActive = false;[\s\S]*?setPropertyLockViewStateFromLocalProjection\(\)/);
 });
 
 test("content suppresses page-side disconnect countdowns during render-mode inspection and restores banner mode on exit", () => {

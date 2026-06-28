@@ -1,3 +1,5 @@
+import type { SecondaryGatesChecklistBlockingState } from "./secondary-gates-state";
+
 export const SESSION_PHASES = Object.freeze({
   LOADING: "loading",
   OUT_OF_SCOPE: "out_of_scope",
@@ -62,7 +64,11 @@ export type SessionFacts = Readonly<{
   siteIdReady: boolean;
   renderModeReady: boolean;
   pageTypeUiBlocked: boolean;
+  currentPageHasPendingChanges: boolean;
+  pageInspectionBusy: boolean;
+  desktopPreviewVisible: boolean;
   desktopPreviewActive: boolean;
+  deviceControlsDisabled: boolean;
   isEnabled: boolean;
   silentModeActive: boolean;
   aiReady: boolean;
@@ -80,6 +86,8 @@ export type SessionFacts = Readonly<{
   saving: boolean;
   discarding: boolean;
   hasStoredSelectors: boolean;
+  lynxChecklistCanSend: boolean;
+  lynxChecklistBlockingReason: SecondaryGatesChecklistBlockingState;
   busyVisible: boolean;
   busyMessage: string;
   busyNote: string;

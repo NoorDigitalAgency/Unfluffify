@@ -46,7 +46,9 @@ function createDeps(overrides = {}) {
     getViewState: () => ({
       sessionHasPendingChanges: true,
       sessionRequiresAiRun: false,
-      currentPageHasPendingChanges: true
+      currentPageHasPendingChanges: true,
+      pageSaveBlockedReason: "",
+      pageRevertBlockedReason: ""
     }),
     updateLastConfigSaveStatus: (message) => {
       calls.saveStatus.push(message);
@@ -128,7 +130,9 @@ test("popup page reconciliation save exits early when session has no pending cha
     getViewState: () => ({
       sessionHasPendingChanges: false,
       sessionRequiresAiRun: false,
-      currentPageHasPendingChanges: false
+      currentPageHasPendingChanges: false,
+      pageSaveBlockedReason: "no_session_changes",
+      pageRevertBlockedReason: "no_page_changes"
     })
   });
 
@@ -170,7 +174,9 @@ test("popup page reconciliation save proceeds for session-level pending changes 
     getViewState: () => ({
       sessionHasPendingChanges: true,
       sessionRequiresAiRun: false,
-      currentPageHasPendingChanges: false
+      currentPageHasPendingChanges: false,
+      pageSaveBlockedReason: "",
+      pageRevertBlockedReason: "no_page_changes"
     })
   });
 
@@ -189,7 +195,9 @@ test("popup page reconciliation revert respects current-page pending gate", asyn
     getViewState: () => ({
       sessionHasPendingChanges: false,
       sessionRequiresAiRun: false,
-      currentPageHasPendingChanges: false
+      currentPageHasPendingChanges: false,
+      pageSaveBlockedReason: "no_session_changes",
+      pageRevertBlockedReason: "no_page_changes"
     })
   });
 
@@ -202,7 +210,15 @@ test("popup page reconciliation revert respects current-page pending gate", asyn
 test("popup page reconciliation blocks save and revert while an AI run is active", async () => {
   resetState();
   state.aiRequestInFlight = "compute";
-  const { deps, calls } = createDeps();
+  const { deps, calls } = createDeps({
+    getViewState: () => ({
+      sessionHasPendingChanges: true,
+      sessionRequiresAiRun: false,
+      currentPageHasPendingChanges: true,
+      pageSaveBlockedReason: "busy",
+      pageRevertBlockedReason: "busy"
+    })
+  });
 
   await handlePageSave(deps);
   await handlePageRevert(deps);
@@ -224,7 +240,9 @@ test("popup page reconciliation treats AI startup and projected computing curtai
       currentPageHasPendingChanges: true,
       aiRunCountdownVisible: false,
       sessionCurtainPhase: "computing_ai",
-      sessionCurtainOperation: "computing_ai"
+      sessionCurtainOperation: "computing_ai",
+      pageSaveBlockedReason: "busy",
+      pageRevertBlockedReason: "busy"
     })
   });
 

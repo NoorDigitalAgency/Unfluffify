@@ -17,8 +17,15 @@ test("brain ingests reported session facts and projects optional dictation into 
       isEnabled: true,
       aiReady: true,
       sessionHasPendingChanges: true,
+      currentPageHasPendingChanges: true,
       currentDraftDirty: true,
       aiRunUpToDate: true,
+      pageInspectionBusy: false,
+      desktopPreviewVisible: false,
+      deviceControlsDisabled: false,
+      hasStoredSelectors: false,
+      lynxChecklistCanSend: true,
+      lynxChecklistBlockingReason: { code: "", pageTypeKeys: [] },
     },
   }, {
     target: REALMS.BACKGROUND,
@@ -33,4 +40,9 @@ test("brain ingests reported session facts and projects optional dictation into 
   assert.equal(popupView.sessionDictation?.phase, SESSION_PHASES.READY_TO_SAVE);
   assert.equal(popupView.sessionDictation?.buttons["page-save"].enabled, true);
   assert.equal(popupView.sessionDictation?.buttons["marking-preview"].enabled, true);
+  assert.equal(popupView.secondaryGates?.previewLatestBlockedReason, "not_available");
+  assert.deepEqual(popupView.secondaryGates?.lynxChecklistSendBlockedReason, {
+    code: "not_available",
+    pageTypeKeys: [],
+  });
 });

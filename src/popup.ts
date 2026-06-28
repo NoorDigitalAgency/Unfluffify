@@ -96,7 +96,13 @@ import type {
   PopupSpinnerEntry as PopupViewSpinnerEntry,
   PopupStateGetReply
 } from "./common/bus/contracts/popup-state";
+import {
+  PROPERTY_LOCK_TIMER_SOURCES,
+  type PropertyLockSnapshot
+} from "./common/bus/contracts/property-lock-state";
+import { SECONDARY_GATES_BLOCK_REASONS } from "./common/bus/contracts/secondary-gates-state";
 import type { SessionDictation, SessionFactsPatch } from "./common/bus/contracts/session-state";
+import { deriveSecondaryGatesViewState } from "./background/brain/deciders/secondary-gates-decider";
 import { deriveSpinnerSelectionsFromQueue } from "./background/brain/deciders/spinner-state-decider";
 import { phaseToSpinnerState } from "./background/brain/spinner-authority";
 import {
@@ -106,6 +112,7 @@ import {
 import { createSpinnerOperationLease } from "./common/spinner-contract";
 import { SPINNER_REQUEST_TYPES } from "./common/bus/contracts/spinner";
 import {
+  publishPopupPropertyLockSnapshot,
   publishPopupSessionFacts,
   requestPopupRenderModeCaptureHtml,
   requestPopupRenderModeHideConsent,
@@ -131,6 +138,14 @@ import {
   hasProjectedCentralSessionDictationForTab as hasProjectedCentralSessionDictationForTabOperation,
   shouldUseLocalSessionAuthorityFallback as shouldUseLocalSessionAuthorityFallbackOperation
 } from "./popup/central-state-dictation";
+import {
+  deriveProjectedPropertyLockSnapshotEffect,
+  hasProjectedPropertyLockViewForTab as hasProjectedPropertyLockViewForTabOperation
+} from "./popup/property-lock-state-dictation";
+import {
+  deriveProjectedSecondaryGatesSnapshotEffect,
+  hasProjectedSecondaryGatesForTab as hasProjectedSecondaryGatesForTabOperation
+} from "./popup/secondary-gates-state-dictation";
 import {
   currentSpinnerMessage as currentSpinnerMessageOperation,
   currentSpinnerSnapshot as currentSpinnerSnapshotOperation,
@@ -320,6 +335,9 @@ type PopupBackgroundStateSnapshot = {
   activation?: PopupStateGetReply["activation"] | null;
   sessionPhase?: PopupStateGetReply["sessionPhase"] | null;
   sessionDictation?: PopupStateGetReply["sessionDictation"] | null;
+  propertyLockView?: PopupStateGetReply["propertyLockView"] | null;
+  propertyLockTimer?: PopupStateGetReply["propertyLockTimer"] | null;
+  secondaryGates?: PopupStateGetReply["secondaryGates"] | null;
   traceEnabled?: boolean;
   traceEvents?: PopupStateGetReply["traceEvents"] | null;
   spinnerQueue?: PopupViewSpinnerEntry[] | null;
@@ -785,6 +803,9 @@ let popupBackgroundStateTabId: number | null = null;
 let popupBackgroundActivation: ActivationSnapshot | null = null;
 let popupBackgroundSessionPhase: PopupStateGetReply["sessionPhase"] = null;
 let popupBackgroundSessionDictation: SessionDictation | null = null;
+let popupBackgroundPropertyLockView: PopupStateGetReply["propertyLockView"] = null;
+let popupBackgroundPropertyLockTimer: PopupStateGetReply["propertyLockTimer"] = null;
+let popupBackgroundSecondaryGates: PopupStateGetReply["secondaryGates"] = null;
 let popupPageBusyMirrorTabId: number | null = null;
 let popupPageBusyMirrorActive = false;
 let popupPageBusyMirrorSignature = "";
@@ -1444,6 +1465,9 @@ function applyBackgroundStateSnapshot(snapshot: PopupBackgroundStateSnapshot | n
   popupBackgroundActivation = snapshot.activation || null;
   popupBackgroundSessionPhase = snapshot.sessionPhase || null;
   popupBackgroundSessionDictation = snapshot.sessionDictation || null;
+  popupBackgroundPropertyLockView = snapshot.propertyLockView || null;
+  popupBackgroundPropertyLockTimer = snapshot.propertyLockTimer || null;
+  popupBackgroundSecondaryGates = snapshot.secondaryGates || null;
   const traceDiagnosticsEnabled = isFeatureEnabled("traceDiagnostics");
   state.traceModeEnabled = traceDiagnosticsEnabled && Boolean(snapshot.traceEnabled);
   state.traceEvents = traceDiagnosticsEnabled && Array.isArray(snapshot.traceEvents) ? [...snapshot.traceEvents] : [];
@@ -1508,6 +1532,8 @@ function applyPopupViewSnapshot(snapshot: PopupStateGetReply | null) {
   }
   const currentTabId = getCurrentPopupTabId();
   const hadProjectedSessionDictation = hasProjectedCentralSessionDictationForTab(currentTabId);
+  const hadProjectedPropertyLockView = hasProjectedPropertyLockViewForTab(currentTabId);
+  const hadProjectedSecondaryGates = hasProjectedSecondaryGatesForTab(currentTabId);
   applyBackgroundStateSnapshot({
     ok: true,
     tabId: snapshot.tabId,
@@ -1515,6 +1541,9 @@ function applyPopupViewSnapshot(snapshot: PopupStateGetReply | null) {
     activation: snapshot.activation || null,
     sessionPhase: snapshot.sessionPhase || null,
     sessionDictation: snapshot.sessionDictation || null,
+    propertyLockView: snapshot.propertyLockView || null,
+    propertyLockTimer: snapshot.propertyLockTimer || null,
+    secondaryGates: snapshot.secondaryGates || null,
     traceEnabled: Boolean(snapshot.traceEnabled),
     traceEvents: Array.isArray(snapshot.traceEvents) ? snapshot.traceEvents : [],
     spinnerQueue: Array.isArray(snapshot.spinnerQueue) ? snapshot.spinnerQueue : [],
@@ -1528,21 +1557,103 @@ function applyPopupViewSnapshot(snapshot: PopupStateGetReply | null) {
     sessionDictation: popupBackgroundSessionDictation,
     hadProjectedSessionDictation
   });
-  if (nextCentralSessionDictationEffect.patch) {
-    uiModule.setViewState(nextCentralSessionDictationEffect.patch);
-    return;
+  const nextProjectedPropertyLockEffect = deriveProjectedPropertyLockSnapshotEffect({
+    featureEnabled: isPropertyLockCollaborationEnabled(),
+    currentTabId,
+    projectedTabId: popupBackgroundStateTabId,
+    propertyLockView: popupBackgroundPropertyLockView || null,
+    hadProjectedPropertyLockView
+  });
+  const nextProjectedSecondaryGatesEffect = deriveProjectedSecondaryGatesSnapshotEffect({
+    currentTabId,
+    projectedTabId: popupBackgroundStateTabId,
+    secondaryGates: popupBackgroundSecondaryGates || null,
+    hadProjectedSecondaryGates: Boolean(hadProjectedSecondaryGates)
+  });
+  if (
+    nextCentralSessionDictationEffect.patch ||
+    nextProjectedPropertyLockEffect.patch ||
+    nextProjectedSecondaryGatesEffect.patch
+  ) {
+    uiModule.setViewState({
+      ...(nextCentralSessionDictationEffect.patch || {}),
+      ...(nextProjectedPropertyLockEffect.patch || {}),
+      ...(nextProjectedSecondaryGatesEffect.patch || {})
+    });
   }
-  if (nextCentralSessionDictationEffect.refreshRequired) {
+  if (
+    nextCentralSessionDictationEffect.refreshRequired ||
+    nextProjectedPropertyLockEffect.refreshRequired ||
+    nextProjectedSecondaryGatesEffect.refreshRequired
+  ) {
     void refreshUi({
       useBusyOverlay: false,
       skipPropertyLockFetch: true,
       preserveCurrentDraftStatus: true
     }).catch(() => null);
+    return;
   }
 }
 
 function publishCurrentSessionFacts(tabId: number, facts: SessionFactsPatch): void {
   publishPopupSessionFacts(tabId, facts).catch(() => null);
+}
+
+function buildCurrentPropertyLockSnapshot(): PropertyLockSnapshot {
+  const propertyLockState = state.propertyLockState;
+  return {
+    siteId: Number.isFinite(state.propertyLockSiteId) ? Math.trunc(Number(state.propertyLockSiteId)) : null,
+    connectionStatus: typeof state.propertyLockConnectionStatus === "string"
+      ? state.propertyLockConnectionStatus
+      : "",
+    secondsRemaining: Number.isFinite(state.propertyLockSecondsRemaining)
+      ? Math.max(0, Math.trunc(Number(state.propertyLockSecondsRemaining)))
+      : null,
+    suggestionFromName: typeof state.propertyLockSuggestionFromName === "string"
+      ? state.propertyLockSuggestionFromName
+      : "",
+    suggestionVisible: state.propertyLockSuggestionVisible === true,
+    suggestionPending: state.propertyLockSuggestionPending === true,
+    suggestionRejected: state.propertyLockSuggestionRejected === true,
+    inactivityWarningVisible: state.propertyLockInactivityWarningVisible === true,
+    disconnectCountdown: Number.isFinite(state.propertyLockDisconnectCountdown)
+      ? Math.max(0, Math.trunc(Number(state.propertyLockDisconnectCountdown)))
+      : null,
+    transferCountdown: Number.isFinite(state.propertyLockTransferCountdown)
+      ? Math.max(0, Math.trunc(Number(state.propertyLockTransferCountdown)))
+      : null,
+    offCandidateDeadlineAt: Number.isFinite(state.propertyLockOffCandidateDeadlineAt)
+      ? Math.max(0, Math.trunc(Number(state.propertyLockOffCandidateDeadlineAt)))
+      : 0,
+    recoveryDeadlineAt: Number.isFinite(state.propertyLockRecoveryDeadlineAt)
+      ? Math.max(0, Math.trunc(Number(state.propertyLockRecoveryDeadlineAt)))
+      : 0,
+    renderModeInspectionActive: state.renderModeInspectionActive === true,
+    lockState: propertyLockState && typeof propertyLockState === "object"
+      ? {
+        state: typeof propertyLockState.state === "string" ? propertyLockState.state : "",
+        editorName: typeof propertyLockState.editorName === "string" ? propertyLockState.editorName : "",
+        isEditor: propertyLockState.isEditor === true,
+        isRecentEditor: propertyLockState.isRecentEditor === true,
+        isSameUserEditor: propertyLockState.isSameUserEditor === true,
+        otherTabHasUnsavedChanges: propertyLockState.otherTabHasUnsavedChanges === true,
+        transferFromName: typeof propertyLockState.transferFromName === "string" ? propertyLockState.transferFromName : "",
+        transferToName: typeof propertyLockState.transferToName === "string" ? propertyLockState.transferToName : "",
+      }
+      : null
+  };
+}
+
+function publishCurrentPropertyLockSnapshot(tabId: number): void {
+  publishPopupPropertyLockSnapshot(tabId, buildCurrentPropertyLockSnapshot()).catch(() => null);
+}
+
+function publishCurrentTabPropertyLockSnapshot(): void {
+  const currentTabId = getCurrentPopupTabId();
+  if (!currentTabId) {
+    return;
+  }
+  publishCurrentPropertyLockSnapshot(currentTabId);
 }
 
 function publishCurrentTabSessionFacts(facts: SessionFactsPatch): void {
@@ -1561,6 +1672,38 @@ function hasProjectedCentralSessionDictationForTab(tabId: number | null): boolea
     sessionPhase: popupBackgroundSessionPhase || null,
     sessionDictation: popupBackgroundSessionDictation
   });
+}
+
+function hasProjectedPropertyLockViewForTab(tabId: number | null): boolean {
+  return hasProjectedPropertyLockViewForTabOperation({
+    featureEnabled: isPropertyLockCollaborationEnabled(),
+    currentTabId: tabId,
+    projectedTabId: popupBackgroundStateTabId,
+    propertyLockView: popupBackgroundPropertyLockView || null
+  });
+}
+
+function hasProjectedSecondaryGatesForTab(tabId: number | null): boolean {
+  return hasProjectedSecondaryGatesForTabOperation({
+    currentTabId: tabId,
+    projectedTabId: popupBackgroundStateTabId,
+    secondaryGates: popupBackgroundSecondaryGates || null
+  });
+}
+
+function hasProjectedPropertyLockDeadlineTimerForTab(tabId: number | null): boolean {
+  return Boolean(
+    hasProjectedPropertyLockViewForTab(tabId) &&
+      popupBackgroundPropertyLockTimer &&
+      popupBackgroundPropertyLockTimer.source === PROPERTY_LOCK_TIMER_SOURCES.DEADLINE &&
+      Number.isFinite(popupBackgroundPropertyLockTimer.deadlineAt) &&
+      popupBackgroundPropertyLockTimer.deadlineAt > Date.now()
+  );
+}
+
+function setPropertyLockViewStateFromLocalProjection(): void {
+  uiModule.setViewState(buildPropertyLockViewState());
+  publishCurrentTabPropertyLockSnapshot();
 }
 
 function shouldUseLocalSessionAuthorityFallback(tabId: number | null): boolean {
@@ -1583,6 +1726,19 @@ function shouldUseLocalPreviewRevealFallback(tabId: number | null): boolean {
 
 function shouldUseLocalPreviewRestoreLockout(tabId: number | null): boolean {
   return shouldUseLocalSessionAuthorityFallback(tabId) || popupBackgroundSessionPhase !== "preview_restoring";
+}
+
+function shouldUseLocalSecondaryGatesFallback(tabId: number | null): boolean {
+  return !hasProjectedSecondaryGatesForTab(tabId);
+}
+
+async function refreshUiForActionGates(): Promise<PopupViewState> {
+  await refreshUi({
+    useBusyOverlay: false,
+    skipPropertyLockFetch: true,
+    preserveCurrentDraftStatus: true
+  });
+  return uiModule.getViewState();
 }
 
 function clearProjectedComputingAiState(): boolean {
@@ -2546,11 +2702,19 @@ function updateAiRunCountdownState() {
   state.aiRunRemainingMs = getAiRunRemainingMs(state.aiRunDeadlineAt);
   const currentTabId = getCurrentPopupTabId();
   const useLocalComputingAiLockout = shouldUseLocalComputingAiLockout(currentTabId);
+  const useLocalSecondaryGates = shouldUseLocalSecondaryGatesFallback(currentTabId);
   const aiRunCountdownText = formatAiRunCountdown(state.aiRunRemainingMs);
   uiModule.setViewState({
     computeButtonText: ViewText.computeButtonBusy,
-    saveExcludesButtonDisabled: true,
-    previewLatestButtonDisabled: true,
+    ...(useLocalSecondaryGates
+      ? {
+        saveExcludesButtonDisabled: true,
+        saveExcludesBlockedReason: SECONDARY_GATES_BLOCK_REASONS.BUSY,
+        previewLatestButtonDisabled: true,
+        previewLatestBlockedReason: SECONDARY_GATES_BLOCK_REASONS.BUSY,
+        lynxChecklistSendBlockedReason: SECONDARY_GATES_BLOCK_REASONS.BUSY
+      }
+      : {}),
     aiRunSpinnerNote: PopupText.overlay.computingSelectorsNote,
     aiRunCountdownVisible: true,
     aiRunCountdownText,
@@ -2577,13 +2741,6 @@ function updateAiRunCountdownState() {
 function startAiRunCountdownTimer() {
   clearAiRunCountdownTimer();
   updateAiRunCountdownState();
-  state.aiRunCountdownTimer = window.setInterval(() => {
-    if (state.aiRequestInFlight !== "compute") {
-      clearAiRunCountdownTimer();
-      return;
-    }
-    updateAiRunCountdownState();
-  }, 1000);
 }
 
 function resetAiRunState() {
@@ -3911,7 +4068,7 @@ async function reconcilePropertyLockAfterRenderModeReload() {
   const maxAttempts = 6;
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     await refreshPropertyLockSnapshot(siteId).catch(() => null);
-    uiModule.setViewState(buildPropertyLockViewState());
+    setPropertyLockViewStateFromLocalProjection();
     const status = state.propertyLockConnectionStatus;
     if (
       status === PROPERTY_LOCK_CONNECTION_CONNECTED ||
@@ -4874,12 +5031,17 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
     (item) => normalizeCandidatePageUrl(item.url) === normalizedCurrentPageUrl
   );
   syncPropertyLockOffCandidateRefreshTimer(
+    hasProjectedPropertyLockDeadlineTimerForTab(currentTabId) ||
     Boolean(
       (state.propertyLockOffCandidateDeadlineAt && state.propertyLockOffCandidateDeadlineAt > Date.now()) ||
       (state.propertyLockRecoveryDeadlineAt && state.propertyLockRecoveryDeadlineAt > Date.now())
     )
   );
-  Object.assign(nextViewState, buildPropertyLockViewState());
+  Object.assign(
+    nextViewState,
+    buildPropertyLockViewState()
+  );
+  publishCurrentTabPropertyLockSnapshot();
   const currentPageMarkingAllowed = currentPageCandidateState.status === "candidate";
   const pageTypeUiBlocked = Boolean(
     tabInScope &&
@@ -5233,17 +5395,6 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
     nextViewState.silentModeActive = silentModeActive;
     nextViewState.computeButtonDisabled = computeButtonDisabled;
   }
-  nextViewState.saveExcludesButtonDisabled =
-    !silentModeActive ||
-    aiBusy ||
-    !baseUrlReady ||
-    !siteIdReady;
-  nextViewState.previewLatestButtonDisabled =
-    !silentModeActive ||
-    aiBusy ||
-    !baseUrlReady ||
-    !siteIdReady ||
-    !hasStoredSelectors;
   nextViewState.renderModeReady = renderModeReady;
   const todoListVisible = siteIdReady && renderModeReady;
   nextViewState.todoListVisible = todoListVisible;
@@ -5382,6 +5533,23 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
     state.aiRequestInFlight === "save"
       ? ViewText.saveExcludesBusy
       : ViewText.saveExcludesIdle;
+  const popupSpinnerSnapshot = getActiveSpinnerSnapshotForSurface("popup");
+  const popupBusyActive = Boolean(popupSpinnerVisible && popupSpinnerSnapshot);
+  const backgroundLifecycleBusy = Boolean(popupBackgroundLifecycle && popupBackgroundLifecycle.busy);
+  const projectedAiRunCountdownVisible = Boolean(
+    popupBusyActive &&
+      popupSpinnerSnapshot?.entry?.operationKind === "ai-run" &&
+      popupSpinnerSnapshot?.entry?.timerMode === "countdown"
+  );
+  const projectedAiRunDeadlineAt = projectedAiRunCountdownVisible &&
+      Number.isFinite(popupSpinnerSnapshot?.entry?.deadlineAt)
+    ? Number(popupSpinnerSnapshot?.entry?.deadlineAt)
+    : 0;
+  const aiRunCountdownDeadlineAt = projectedAiRunDeadlineAt > 0
+    ? projectedAiRunDeadlineAt
+    : state.aiRequestInFlight === "compute"
+      ? state.aiRunDeadlineAt
+      : 0;
   if (useLocalSessionAuthorityFallback) {
     nextViewState.computeButtonLoading = state.aiRequestInFlight === "compute";
   }
@@ -5391,17 +5559,16 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
       ? PopupText.overlay.computingSelectorsNote
       : "";
   nextViewState.aiRunCountdownVisible =
-    state.aiRequestInFlight === "compute" && state.aiRunDeadlineAt > 0;
+    projectedAiRunCountdownVisible ||
+    (state.aiRequestInFlight === "compute" && state.aiRunDeadlineAt > 0);
   nextViewState.aiRunCountdownText =
-    state.aiRequestInFlight === "compute"
+    nextViewState.aiRunCountdownVisible
       ? formatAiRunCountdown(
-          getAiRunRemainingMs(state.aiRunDeadlineAt)
+          getAiRunRemainingMs(aiRunCountdownDeadlineAt)
         )
       : "0:00";
   nextViewState.aiRunDeadlineAt =
-    state.aiRequestInFlight === "compute"
-      ? state.aiRunDeadlineAt
-      : 0;
+    aiRunCountdownDeadlineAt;
   nextViewState.aiRunPhase =
     state.aiRequestInFlight === "compute"
       ? state.aiRunPhase
@@ -5453,6 +5620,77 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
     nextViewState.markingPreviewVisible = markingPreviewVisible;
     nextViewState.markingPreviewDisabled = markingPreviewDisabled;
   }
+  const projectedComputingAiActive =
+    Boolean(currentTabId) &&
+    popupBackgroundStateTabId === currentTabId &&
+    popupBackgroundSessionPhase === "computing_ai";
+  const aiBusyForSecondaryGates =
+    Boolean(state.aiRequestInFlight) || state.aiComputeStartPending || projectedComputingAiActive;
+  const aiComputingForSecondaryGates =
+    state.aiRequestInFlight === "compute" || state.aiComputeStartPending || projectedComputingAiActive;
+  const localSecondaryGates = deriveSecondaryGatesViewState({
+    baseUrlReady,
+    pageScopedUiDisabled,
+    navigationInspectionPending,
+    siteIdReady,
+    renderModeReady,
+    pageTypeUiBlocked,
+    currentPageHasPendingChanges,
+    pageInspectionBusy,
+    desktopPreviewVisible,
+    desktopPreviewActive,
+    deviceControlsDisabled: Boolean(state.deviceControlsDisabled || isEnabled),
+    isEnabled,
+    silentModeActive,
+    aiReady,
+    aiBusy: aiBusyForSecondaryGates,
+    aiComputing: aiComputingForSecondaryGates,
+    aiRunUpToDate,
+    previewActive,
+    previewBlocked: Boolean(nextViewState.previewBlocked),
+    previewRestorePending,
+    sessionHasPendingChanges,
+    sessionRequiresAiRun,
+    currentDraftDirty: state.currentDraftDirty,
+    pageSaveReconciliationPending,
+    propertyLockBlocked: isPropertyLockBlockingEditing(),
+    saving: state.aiRequestInFlight === "save",
+    discarding: false,
+    hasStoredSelectors,
+    lynxChecklistCanSend: pageTypeCoverageModel.canSend,
+    lynxChecklistBlockingReason: pageTypeCoverageModel.canSend
+      ? { code: "", pageTypeKeys: [] }
+      : {
+        code: typeof pageTypeCoverageModel.blockingReason.code === "string"
+          ? pageTypeCoverageModel.blockingReason.code
+          : "",
+        pageTypeKeys: Array.isArray(pageTypeCoverageModel.blockingReason.pageTypeKeys)
+          ? pageTypeCoverageModel.blockingReason.pageTypeKeys.filter(
+            (value): value is string => typeof value === "string"
+          )
+          : []
+      },
+    busyVisible: false,
+    busyMessage: "",
+    busyNote: "",
+    busyTimerText: ""
+  });
+  nextViewState.pageSaveBlockedReason = localSecondaryGates.pageSaveBlockedReason;
+  nextViewState.pageRevertBlockedReason = localSecondaryGates.pageRevertBlockedReason;
+  nextViewState.markingPreviewBlockedReason = localSecondaryGates.markingPreviewBlockedReason;
+  nextViewState.saveExcludesButtonDisabled = localSecondaryGates.saveExcludesButtonDisabled;
+  nextViewState.saveExcludesBlockedReason = localSecondaryGates.saveExcludesBlockedReason;
+  nextViewState.previewLatestButtonDisabled = localSecondaryGates.previewLatestButtonDisabled;
+  nextViewState.previewLatestBlockedReason = localSecondaryGates.previewLatestBlockedReason;
+  nextViewState.desktopPreviewVisible = localSecondaryGates.desktopPreviewVisible;
+  nextViewState.desktopPreviewEnabled = localSecondaryGates.desktopPreviewEnabled;
+  nextViewState.desktopPreviewDisabled = localSecondaryGates.desktopPreviewDisabled;
+  nextViewState.desktopPreviewBlockedReason = localSecondaryGates.desktopPreviewBlockedReason;
+  nextViewState.lynxChecklistSendBlockedReason = localSecondaryGates.lynxChecklistSendBlockedReason.code;
+  nextViewState.lynxChecklistSendBlockedPageTypeKeys = [
+    ...localSecondaryGates.lynxChecklistSendBlockedReason.pageTypeKeys
+  ];
+  nextViewState.navigationInspectionActive = localSecondaryGates.navigationInspectionActive;
   nextViewState.pageDraftStatusText = pageSaveUiState.pageDraftStatusText;
   nextViewState.pageDraftStatusTone = pageSaveUiState.pageDraftStatusTone;
   nextViewState.pageSessionNoticeVisible = pageSaveUiState.pageSessionNoticeVisible;
@@ -5462,9 +5700,6 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
   nextViewState.syncLoadStatusTone = state.lastConfigLoadStatusTone || "muted";
   nextViewState.syncSaveStatusText = state.lastConfigSaveStatusText || ViewText.syncSaveIdle;
   nextViewState.syncSaveStatusTone = state.lastConfigSaveStatusTone || "muted";
-  const popupSpinnerSnapshot = getActiveSpinnerSnapshotForSurface("popup");
-  const popupBusyActive = Boolean(popupSpinnerVisible && popupSpinnerSnapshot);
-  const backgroundLifecycleBusy = Boolean(popupBackgroundLifecycle && popupBackgroundLifecycle.busy);
   nextViewState.isBusy = popupBusyActive || backgroundLifecycleBusy || remoteConfigRetryBlocked || pageInspectionBusy;
   nextViewState.busyMessage = popupBusyActive
     ? (popupSpinnerSnapshot?.entry?.message || "")
@@ -5532,15 +5767,7 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
   nextViewState.deviceScale = normalizedDeviceState.scale.toFixed(2);
   nextViewState.deviceScaleValue = formatScalePercent(normalizedDeviceState.scale);
   nextViewState.deviceControlsDisabled = Boolean(state.deviceControlsDisabled || isEnabled);
-  nextViewState.desktopPreviewVisible = desktopPreviewVisible;
-  nextViewState.desktopPreviewEnabled = desktopPreviewActive;
-  nextViewState.desktopPreviewDisabled =
-    aiBusy ||
-    !currentTabId ||
-    !renderModeReady ||
-    pageInspectionBusy ||
-    state.deviceControlsDisabled;
-  nextViewState.desktopPreviewNoticeVisible = desktopPreviewActive;
+  nextViewState.desktopPreviewNoticeVisible = localSecondaryGates.desktopPreviewEnabled;
   nextViewState.desktopPreviewNoticeText = PopupText.device.desktopPreviewNotice;
   nextViewState.pageTypeGroups = pageTypeCoverageModel.pageTypes.map((pageType) => {
     const groupCurrent =
@@ -5702,13 +5929,24 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
           ? nextViewState.aiRunSpinnerNote
           : "";
     const busyTimerTextForSessionFacts =
+      nextViewState.aiRunCountdownVisible
+        ? formatAiRunCountdown(
+            getAiRunRemainingMs(
+              Number.isFinite(nextViewState.busyDeadlineAt) && nextViewState.busyDeadlineAt > 0
+                ? nextViewState.busyDeadlineAt
+                : nextViewState.aiRunDeadlineAt
+            )
+          )
+        : "";
+    const resolvedBusyTimerTextForSessionFacts =
       projectedComputingAiActive &&
         typeof nextViewState.sessionCurtainTimerText === "string" &&
         nextViewState.sessionCurtainTimerText
         ? nextViewState.sessionCurtainTimerText
-        : typeof nextViewState.aiRunCountdownText === "string" && nextViewState.aiRunCountdownVisible
+        : busyTimerTextForSessionFacts ||
+          (typeof nextViewState.aiRunCountdownText === "string" && nextViewState.aiRunCountdownVisible
           ? nextViewState.aiRunCountdownText
-          : "";
+          : "");
     publishCurrentSessionFacts(currentTabId, {
       baseUrlReady,
       pageScopedUiDisabled,
@@ -5716,7 +5954,11 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
       siteIdReady,
       renderModeReady,
       pageTypeUiBlocked,
+      currentPageHasPendingChanges,
+      pageInspectionBusy,
+      desktopPreviewVisible,
       desktopPreviewActive,
+      deviceControlsDisabled: Boolean(state.deviceControlsDisabled || isEnabled),
       isEnabled,
       silentModeActive,
       aiReady,
@@ -5734,10 +5976,23 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
       saving: state.aiRequestInFlight === "save",
       discarding: false,
       hasStoredSelectors,
+      lynxChecklistCanSend: pageTypeCoverageModel.canSend,
+      lynxChecklistBlockingReason: pageTypeCoverageModel.canSend
+        ? { code: "", pageTypeKeys: [] }
+        : {
+          code: typeof pageTypeCoverageModel.blockingReason.code === "string"
+            ? pageTypeCoverageModel.blockingReason.code
+            : "",
+          pageTypeKeys: Array.isArray(pageTypeCoverageModel.blockingReason.pageTypeKeys)
+            ? pageTypeCoverageModel.blockingReason.pageTypeKeys.filter(
+              (value): value is string => typeof value === "string"
+            )
+            : []
+        },
       busyVisible: busyVisibleForSessionFacts,
       busyMessage: busyMessageForSessionFacts,
       busyNote: busyNoteForSessionFacts,
-      busyTimerText: busyTimerTextForSessionFacts
+      busyTimerText: resolvedBusyTimerTextForSessionFacts
     });
   }
 }
@@ -6118,7 +6373,7 @@ async function runRenderModeInspectionReload(javaScriptDisabled: boolean) {
         uiModule.showToast(outcome.toast);
       } finally {
         state.renderModeInspectionActive = false;
-        uiModule.setViewState(buildPropertyLockViewState());
+        setPropertyLockViewStateFromLocalProjection();
       }
     }, {
       reason: "render-mode-inspection-start",
@@ -6473,7 +6728,7 @@ async function handlePropertyLockSuggest() {
   await sendPropertyLockCommand(PROPERTY_LOCK_CONTENT_SUGGEST);
   state.propertyLockSuggestionPending = true;
   state.propertyLockSuggestionRejected = false;
-  uiModule.setViewState(buildPropertyLockViewState());
+  setPropertyLockViewStateFromLocalProjection();
 }
 
 async function handlePropertyLockContinue() {
@@ -6484,7 +6739,7 @@ async function handlePropertyLockContinue() {
   await sendPropertyLockCommand(PROPERTY_LOCK_CONTENT_CONTINUE);
   state.propertyLockInactivityWarningVisible = false;
   state.propertyLockSecondsRemaining = null;
-  uiModule.setViewState(buildPropertyLockViewState());
+  setPropertyLockViewStateFromLocalProjection();
   await reconcilePropertyLockAfterCommand();
 }
 
@@ -6499,7 +6754,7 @@ async function handlePropertyLockForceContinue() {
   });
   state.propertyLockInactivityWarningVisible = false;
   state.propertyLockSecondsRemaining = null;
-  uiModule.setViewState(buildPropertyLockViewState());
+  setPropertyLockViewStateFromLocalProjection();
   await reconcilePropertyLockAfterCommand();
 }
 
@@ -6538,7 +6793,7 @@ async function handlePropertyLockAcceptSuggestion() {
   state.propertyLockSuggestionVisible = false;
   state.propertyLockSuggestionId = "";
   state.propertyLockSuggestionFromName = "";
-  uiModule.setViewState(buildPropertyLockViewState());
+  setPropertyLockViewStateFromLocalProjection();
   await reconcilePropertyLockAfterCommand();
 }
 
@@ -6558,7 +6813,7 @@ async function handlePropertyLockRejectSuggestion() {
   state.propertyLockSuggestionVisible = false;
   state.propertyLockSuggestionId = "";
   state.propertyLockSuggestionFromName = "";
-  uiModule.setViewState(buildPropertyLockViewState());
+  setPropertyLockViewStateFromLocalProjection();
   await reconcilePropertyLockAfterCommand();
 }
 
@@ -7053,9 +7308,10 @@ async function handleDesktopPreviewEnabledToggle(event: PopupCheckedEvent) {
   if (!isFeatureEnabled("desktopPreview")) {
     return;
   }
+  const currentView = uiModule.getViewState();
   const desiredEnabled = getPopupEventChecked(
     event,
-    uiModule.getViewState().desktopPreviewEnabled
+    currentView.desktopPreviewEnabled
   );
   if (!await helpers.ensureActiveTab({ requireId: true })) {
     return;
@@ -7067,11 +7323,18 @@ async function handleDesktopPreviewEnabledToggle(event: PopupCheckedEvent) {
   if (desiredEnabled === state.currentDesktopPreviewEnabled) {
     return;
   }
-  if (desiredEnabled && !hasCalculatedSelectorsFromConfig(state.currentConfig)) {
+  if (
+    desiredEnabled &&
+    (
+      !currentView.desktopPreviewVisible ||
+      currentView.desktopPreviewDisabled ||
+      currentView.desktopPreviewBlockedReason !== SECONDARY_GATES_BLOCK_REASONS.NONE
+    )
+  ) {
     await refreshUi({ useBusyOverlay: false, skipPropertyLockFetch: true });
     return;
   }
-  if (desiredEnabled && uiModule.getViewState().toggleEnabled) {
+  if (desiredEnabled && currentView.toggleEnabled) {
     await handleEnableToggle({ currentTarget: { checked: false } });
     if (uiModule.getViewState().toggleEnabled) {
       await refreshUi({ useBusyOverlay: false, skipPropertyLockFetch: true });
@@ -8062,14 +8325,8 @@ async function submitSelectorSetToServer(options: SelectorSetSubmitOptions = {})
 }
 
 async function handleLynxChecklistSend() {
-  if (!uiModule.getViewState().silentModeActive) {
-    return;
-  }
-  const checklist = buildLynxChecklistViewModel({
-    pageTypes: state.lynxChecklistPageTypes,
-    markedPages: uiModule.getViewState().markedPages
-  });
-  if (!checklist.canSend) {
+  const view = await refreshUiForActionGates();
+  if (view.lynxChecklistSendBlockedReason) {
     setLynxChecklistViewState();
     return;
   }
@@ -8116,21 +8373,18 @@ async function handleSaveExcludes() {
     uiModule.showToast(PopupText.renderMode.toastConfirmBeforeSubmitting);
     return;
   }
-  await refreshCurrentPageRuntimeStatus();
-  if (state.currentPageSaveReconciliationPending) {
+  const view = await refreshUiForActionGates();
+  if (view.saveExcludesBlockedReason === SECONDARY_GATES_BLOCK_REASONS.SERVER_SYNC_PENDING) {
     uiModule.showToast(PopupText.page.statusServerSyncPending);
     return;
   }
-  if (!uiModule.getViewState().silentModeActive) {
+  if (view.saveExcludesBlockedReason !== SECONDARY_GATES_BLOCK_REASONS.NONE) {
     return;
   }
   openLynxChecklistPopover();
 }
 
 async function handlePreviewLatest() {
-  if (!uiModule.getViewState().silentModeActive) {
-    return;
-  }
   if (!await helpers.ensureActiveTab({ requireId: true })) {
     return;
   }
@@ -8145,13 +8399,16 @@ async function handlePreviewLatest() {
     uiModule.showToast(PopupText.preview.noStoredSelectors);
     return;
   }
-  await refreshCurrentPageRuntimeStatus();
-  if (state.currentPageSaveReconciliationPending) {
+  const view = await refreshUiForActionGates();
+  if (view.previewLatestBlockedReason === SECONDARY_GATES_BLOCK_REASONS.SERVER_SYNC_PENDING) {
     uiModule.showToast(PopupText.page.statusServerSyncPending);
     return;
   }
-  const { aiRunUpToDate, sessionRequiresAiRun } = await getCurrentSessionActionGateState();
-  if (state.previewRestorePending || !aiRunUpToDate || sessionRequiresAiRun) {
+  if (view.previewLatestBlockedReason === SECONDARY_GATES_BLOCK_REASONS.NO_STORED_SELECTORS) {
+    uiModule.showToast(PopupText.preview.noStoredSelectors);
+    return;
+  }
+  if (view.previewLatestBlockedReason !== SECONDARY_GATES_BLOCK_REASONS.NONE) {
     return;
   }
   captureMarkingSessionSnapshot();
@@ -8160,8 +8417,8 @@ async function handlePreviewLatest() {
     uiModule.showToast(PopupText.preview.noStoredSelectors);
     return;
   }
-  const view = uiModule.getViewState();
-  if (view.previewBlocked) {
+  const latestView = uiModule.getViewState();
+  if (latestView.previewBlocked) {
     return;
   }
   clearLastPopupEnabled();
@@ -8201,9 +8458,12 @@ async function handleMarkingPreview() {
     uiModule.showToast(ViewText.noMappedBaseUrlOrSiteId);
     return;
   }
-  await refreshCurrentPageRuntimeStatus();
-  if (state.currentPageSaveReconciliationPending) {
+  const latestView = await refreshUiForActionGates();
+  if (latestView.markingPreviewBlockedReason === SECONDARY_GATES_BLOCK_REASONS.SERVER_SYNC_PENDING) {
     uiModule.showToast(PopupText.page.statusServerSyncPending);
+    return;
+  }
+  if (latestView.markingPreviewBlockedReason !== SECONDARY_GATES_BLOCK_REASONS.NONE) {
     return;
   }
   captureMarkingSessionSnapshot();
@@ -8572,6 +8832,9 @@ async function init() {
     popupBackgroundActivation = null;
     popupBackgroundSessionPhase = null;
     popupBackgroundSessionDictation = null;
+    popupBackgroundPropertyLockView = null;
+    popupBackgroundPropertyLockTimer = null;
+    popupBackgroundSecondaryGates = null;
     await helpers.ensureActiveTab();
     // Restore spinner queue for the newly active tab.
     const newTabId = state.currentTab && state.currentTab.id;
@@ -8755,7 +9018,7 @@ async function init() {
     if (message && message.type === PROPERTY_LOCK_BACKGROUND_STATE_UPDATE) {
       if (!isPropertyLockCollaborationEnabled()) {
         resetDisabledPropertyLockState();
-        uiModule.setViewState(buildPropertyLockViewState());
+        setPropertyLockViewStateFromLocalProjection();
         return;
       }
       const messageSiteId = normalizeSiteIdValue(message.siteId);
@@ -8783,7 +9046,7 @@ async function init() {
       }
       const applied = applyPropertyLockServerMessage(message.message || null, messageSiteId);
       if (applied) {
-        uiModule.setViewState(buildPropertyLockViewState());
+        setPropertyLockViewStateFromLocalProjection();
         if (message.message && message.message.type === PROPERTY_LOCK_WS_LOCK_STATE) {
           scheduleRefresh();
         }

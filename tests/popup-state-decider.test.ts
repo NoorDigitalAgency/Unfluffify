@@ -145,6 +145,9 @@ describe("popup state decider", () => {
       },
       sessionPhase: null,
       sessionDictation: null,
+      propertyLockView: null,
+      propertyLockTimer: null,
+      secondaryGates: null,
       spinnerQueue: [],
       activeSpinnerLease: null,
     });

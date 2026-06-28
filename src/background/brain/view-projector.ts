@@ -3,6 +3,7 @@ import type {
   RenderModeDirectiveState,
   RenderModeViewState,
 } from "../../common/bus/contracts/render-mode";
+import type { SecondaryGatesViewState } from "../../common/bus/contracts/secondary-gates-state";
 import { LIFECYCLE_KINDS } from "../../common/world-messaging-contract";
 import type { PopupViewEnvelope } from "../../common/bus/contracts/popup-state";
 import type { TabLayerState } from "./state-store";
@@ -107,6 +108,39 @@ function cloneSessionDictation(value: TabLayerState["sessionDictation"]): PopupV
   };
 }
 
+function clonePropertyLockView(
+  value: TabLayerState["propertyLockView"]
+): PopupViewEnvelope["propertyLockView"] {
+  if (!value) {
+    return null;
+  }
+  return { ...value };
+}
+
+function clonePropertyLockTimer(
+  value: TabLayerState["propertyLockTimer"]
+): PopupViewEnvelope["propertyLockTimer"] {
+  if (!value) {
+    return null;
+  }
+  return { ...value };
+}
+
+function cloneSecondaryGates(
+  value: TabLayerState["secondaryGates"]
+): SecondaryGatesViewState | null {
+  if (!value) {
+    return null;
+  }
+  return {
+    ...value,
+    lynxChecklistSendBlockedReason: {
+      code: value.lynxChecklistSendBlockedReason.code,
+      pageTypeKeys: [...value.lynxChecklistSendBlockedReason.pageTypeKeys],
+    },
+  };
+}
+
 export function projectViews(state: TabLayerState): {
   popupView: PopupView;
   contentDirective: ContentDirective;
@@ -127,6 +161,9 @@ export function projectViews(state: TabLayerState): {
       renderMode,
       sessionPhase: state.sessionFactsReported && state.sessionDictation ? state.sessionDictation.phase : null,
       sessionDictation: state.sessionFactsReported ? cloneSessionDictation(state.sessionDictation) : null,
+      propertyLockView: clonePropertyLockView(state.propertyLockView),
+      propertyLockTimer: clonePropertyLockTimer(state.propertyLockTimer),
+      secondaryGates: state.sessionFactsReported ? cloneSecondaryGates(state.secondaryGates) : null,
       spinnerQueue: state.popupView.spinnerQueue.map((entry) => {
         const clone = { ...entry };
         if (entry.blockSurfaces) {

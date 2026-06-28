@@ -16,7 +16,11 @@ const DEFAULT_SESSION_FACTS: SessionFacts = Object.freeze({
   siteIdReady: false,
   renderModeReady: false,
   pageTypeUiBlocked: false,
+  currentPageHasPendingChanges: false,
+  pageInspectionBusy: false,
+  desktopPreviewVisible: false,
   desktopPreviewActive: false,
+  deviceControlsDisabled: false,
   isEnabled: false,
   silentModeActive: false,
   aiReady: false,
@@ -34,6 +38,11 @@ const DEFAULT_SESSION_FACTS: SessionFacts = Object.freeze({
   saving: false,
   discarding: false,
   hasStoredSelectors: false,
+  lynxChecklistCanSend: false,
+  lynxChecklistBlockingReason: {
+    code: "",
+    pageTypeKeys: [],
+  },
   busyVisible: false,
   busyMessage: "",
   busyNote: "",
@@ -47,7 +56,11 @@ const BOOLEAN_FACT_KEYS = [
   "siteIdReady",
   "renderModeReady",
   "pageTypeUiBlocked",
+  "currentPageHasPendingChanges",
+  "pageInspectionBusy",
+  "desktopPreviewVisible",
   "desktopPreviewActive",
+  "deviceControlsDisabled",
   "isEnabled",
   "silentModeActive",
   "aiReady",
@@ -65,6 +78,7 @@ const BOOLEAN_FACT_KEYS = [
   "saving",
   "discarding",
   "hasStoredSelectors",
+  "lynxChecklistCanSend",
   "busyVisible",
 ] as const satisfies readonly (keyof SessionFacts)[];
 
@@ -155,6 +169,10 @@ export function applySessionFactsPatch(
   patch: SessionFactsPatch = {},
 ): { facts: SessionFacts; dictation: SessionDictation } {
   const nextFacts: MutableSessionFacts = { ...currentFacts };
+  nextFacts.lynxChecklistBlockingReason = {
+    code: currentFacts.lynxChecklistBlockingReason.code,
+    pageTypeKeys: [...currentFacts.lynxChecklistBlockingReason.pageTypeKeys],
+  };
 
   for (const key of BOOLEAN_FACT_KEYS) {
     if (Object.prototype.hasOwnProperty.call(patch, key)) {
@@ -166,6 +184,16 @@ export function applySessionFactsPatch(
     if (Object.prototype.hasOwnProperty.call(patch, key)) {
       nextFacts[key] = typeof patch[key] === "string" ? patch[key] : "";
     }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(patch, "lynxChecklistBlockingReason")) {
+    const reason = patch.lynxChecklistBlockingReason;
+    nextFacts.lynxChecklistBlockingReason = {
+      code: reason && typeof reason.code === "string" ? reason.code : "",
+      pageTypeKeys: reason && Array.isArray(reason.pageTypeKeys)
+        ? reason.pageTypeKeys.filter((value): value is string => typeof value === "string")
+        : [],
+    };
   }
 
   return {

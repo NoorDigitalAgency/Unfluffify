@@ -1,5 +1,10 @@
 import type { ActivationSnapshot } from "./activation";
+import type {
+  PropertyLockTimerState,
+  PropertyLockViewState
+} from "./property-lock-state";
 import type { RenderModeViewState } from "./render-mode";
+import type { SecondaryGatesViewState } from "./secondary-gates-state";
 import type { SessionDictation, SessionPhase } from "./session-state";
 
 export const POPUP_STATE_REQUEST_TYPES = Object.freeze({
@@ -81,6 +86,9 @@ export type PopupViewEnvelope = Readonly<{
   renderMode?: RenderModeViewState | null;
   sessionPhase?: SessionPhase | null;
   sessionDictation?: SessionDictation | null;
+  propertyLockView?: PropertyLockViewState | null;
+  propertyLockTimer?: PropertyLockTimerState | null;
+  secondaryGates?: SecondaryGatesViewState | null;
   spinnerQueue: PopupSpinnerEntry[];
   activeSpinnerLease: PopupSpinnerEntry | null;
 }>;

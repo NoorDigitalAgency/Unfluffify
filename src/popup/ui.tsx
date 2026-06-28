@@ -234,7 +234,9 @@ const initialViewState = {
   deviceEmulationApplying: false,
   pageDataNewNoticeHidden: true,
   pageSaveDisabled: true,
+  pageSaveBlockedReason: "",
   pageRevertDisabled: true,
+  pageRevertBlockedReason: "",
   pageDraftStatusText: "",
   pageDraftStatusTone: "muted",
   syncLoadStatusText: ViewText.syncLoadIdle,
@@ -339,8 +341,10 @@ const initialViewState = {
   computeButtonLoading: false,
   saveExcludesButtonText: ViewText.saveExcludesIdle,
   saveExcludesButtonDisabled: true,
+  saveExcludesBlockedReason: "",
   saveExcludesButtonLoading: false,
   previewLatestButtonDisabled: true,
+  previewLatestBlockedReason: "",
   cssSelectorsVisible: false,
   previewActive: false,
   previewItems: [],
@@ -349,6 +353,7 @@ const initialViewState = {
   previewShowAllCategories: false,
   previewBlocked: false,
   previewBlockedMessage: ViewText.previewBlockedDefault,
+  markingPreviewBlockedReason: "",
   aiRunSpinnerNote: "",
   aiRunCountdownVisible: false,
   aiRunCountdownText: "0:00",
@@ -360,6 +365,10 @@ const initialViewState = {
   sessionCurtainTimerText: "",
   sessionCurtainOperation: "",
   sessionCurtainPhase: "",
+  desktopPreviewBlockedReason: "",
+  lynxChecklistSendBlockedReason: "",
+  lynxChecklistSendBlockedPageTypeKeys: [] as string[],
+  navigationInspectionActive: false,
   configMenuOpen: false,
   clearDomainCacheDisabled: false,
   unregisterCurrentTabDisabled: false,
@@ -816,6 +825,16 @@ function formatCandidateWordsCount(wordsCount: unknown): string {
 
 function getBlockingUiCurtainState(view: ViewState): BlockingUiCurtainState {
   if (view.sessionCurtainVisible) {
+    const liveSessionCurtainTimerText =
+      typeof view.busyTimerMode === "string" && view.busyTimerMode === SPINNER_TIMER_MODES.COUNTDOWN
+        ? formatCountdownFromDeadline(
+            Number(view.busyDeadlineAt) > 0 ? view.busyDeadlineAt : view.aiRunDeadlineAt
+          )
+        : typeof view.busyTimerMode === "string" && view.busyTimerMode === SPINNER_TIMER_MODES.ELAPSED
+          ? formatElapsedFromStartedAt(view.busyStartedAt)
+          : view.sessionCurtainOperation === "computing_ai"
+            ? formatCountdownFromDeadline(view.aiRunDeadlineAt)
+            : "";
     return {
       visible: true,
       mode: "busy",
@@ -824,7 +843,7 @@ function getBlockingUiCurtainState(view: ViewState): BlockingUiCurtainState {
       reason: view.sessionCurtainPhase || "session-dictation",
       source: "background-session-dictation",
       spinnerKey: view.sessionCurtainOperation || "",
-      timerText: view.sessionCurtainTimerText || ""
+      timerText: liveSessionCurtainTimerText || view.sessionCurtainTimerText || ""
     };
   }
   if (view.computeButtonLoading) {
@@ -935,7 +954,11 @@ function syncBlockingCurtainCountdownTimer(curtain: {
   const countdownActive = Boolean(
     curtain &&
       curtain.visible &&
-      (curtain.reason === "ai-run-compute" || viewState.busyTimerMode === SPINNER_TIMER_MODES.COUNTDOWN) &&
+      (
+        curtain.reason === "ai-run-compute" ||
+        curtain.reason === "computing_ai" ||
+        viewState.busyTimerMode === SPINNER_TIMER_MODES.COUNTDOWN
+      ) &&
       Number.isFinite(deadlineAt) &&
       deadlineAt > Date.now()
   );
@@ -2749,6 +2772,10 @@ function updateViewState(updater: (current: ViewState) => ViewState) {
 
 export function getViewState() {
   return viewState;
+}
+
+export function resolveBlockingUiCurtainState(view: ReturnType<typeof getViewState>) {
+  return getBlockingUiCurtainState(view);
 }
 
 export function onViewStateChange(

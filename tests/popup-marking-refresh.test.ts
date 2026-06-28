@@ -46,7 +46,7 @@ test("preview exit restores a captured marking-session snapshot before payload f
   );
   assert.match(
     popupSource,
-    /async function handleMarkingPreview\(\) \{[\s\S]*?await refreshCurrentPageRuntimeStatus\(\);[\s\S]*?captureMarkingSessionSnapshot\(\);[\s\S]*?setPreviewBlocked\(true, PopupText\.preview\.blockedActive\);/
+    /async function handleMarkingPreview\(\) \{[\s\S]*?const latestView = await refreshUiForActionGates\(\);[\s\S]*?captureMarkingSessionSnapshot\(\);[\s\S]*?setPreviewBlocked\(true, PopupText\.preview\.blockedActive\);/
   );
   assert.match(
     popupSource,
@@ -79,8 +79,10 @@ test("Preview Contents uses the latest stored selector set and stays disabled wi
   )[1];
 
   assert.match(source, /const hasStoredSelectors = hasCalculatedSelectorsFromConfig\(\);/);
-  assert.match(source, /nextViewState\.previewLatestButtonDisabled =[\s\S]*?!hasStoredSelectors/);
+  assert.match(source, /const localSecondaryGates = deriveSecondaryGatesViewState\(/);
+  assert.match(source, /nextViewState\.previewLatestButtonDisabled = localSecondaryGates\.previewLatestButtonDisabled;/);
   assert.match(previewBody, /if \(!hasCalculatedSelectorsFromConfig\(state\.currentConfig\)\) \{[\s\S]*?PopupText\.preview\.noStoredSelectors/);
+  assert.match(previewBody, /if \(view\.previewLatestBlockedReason === SECONDARY_GATES_BLOCK_REASONS\.NO_STORED_SELECTORS\) \{[\s\S]*?PopupText\.preview\.noStoredSelectors/);
   assert.match(previewBody, /const selectorSet = getLatestAvailableSelectorsFromConfig\(\);/);
   assert.match(previewBody, /if \(!combineAiSelectorSet\(selectorSet\)\.length\) \{[\s\S]*?PopupText\.preview\.noStoredSelectors/);
   assert.doesNotMatch(previewBody, /getCurrentSelectorsFromConfig\(/);
@@ -104,20 +106,19 @@ test("silent mode gates preview, save-excludes, and Lynx checklist submission", 
   );
   assert.match(
     popupSource,
-    /nextViewState\.saveExcludesButtonDisabled =[\s\S]*?!silentModeActive/
+    /nextViewState\.saveExcludesButtonDisabled = localSecondaryGates\.saveExcludesButtonDisabled;/
   );
   assert.match(
     popupSource,
-    /nextViewState\.previewLatestButtonDisabled =[\s\S]*?!silentModeActive/
+    /nextViewState\.previewLatestButtonDisabled = localSecondaryGates\.previewLatestButtonDisabled;/
   );
   assert.match(
     popupSource,
     /nextViewState\.cssSelectorsVisible = silentModeActive;/
   );
-  assert.match(previewBody, /if \(!uiModule\.getViewState\(\)\.silentModeActive\) \{\s*return;\s*\}/);
-  assert.match(saveExcludesBody, /if \(!uiModule\.getViewState\(\)\.silentModeActive\) \{\s*return;\s*\}/);
-  assert.match(sendBody, /if \(!uiModule\.getViewState\(\)\.silentModeActive\) \{\s*return;\s*\}/);
-  assert.match(sendBody, /markedPages: uiModule\.getViewState\(\)\.markedPages/);
+  assert.match(previewBody, /if \(view\.previewLatestBlockedReason !== SECONDARY_GATES_BLOCK_REASONS\.NONE\) \{\s*return;\s*\}/);
+  assert.match(saveExcludesBody, /if \(view\.saveExcludesBlockedReason !== SECONDARY_GATES_BLOCK_REASONS\.NONE\) \{\s*return;\s*\}/);
+  assert.match(sendBody, /const view = await refreshUiForActionGates\(\);[\s\S]*?if \(view\.lynxChecklistSendBlockedReason\) \{/);
   assert.doesNotMatch(sendBody, /aiAnswer:/);
 });
 
@@ -186,13 +187,14 @@ test("popup render-mode detection delegates heavy network transport to the backg
 test("popup hydrates property-lock timer and recovery state from the initial tab snapshot", () => {
   const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
   const propertyLockUiSource = readFileSync(new URL("../src/popup/property-lock-ui.ts", import.meta.url), "utf8");
+  const propertyLockDeciderSource = readFileSync(new URL("../src/background/brain/deciders/property-lock-decider.ts", import.meta.url), "utf8");
   const backgroundSource = readFileSync(new URL("../src/background.ts", import.meta.url), "utf8");
 
   assert.match(propertyLockUiSource, /export function syncPropertyLockOffCandidateRefreshTimer\(deps(?:\s*:\s*[^,]+)?, active(?:\s*:\s*[^)]+)?\) \{/);
   assert.match(popupSource, /state\.propertyLockOffCandidateDeadlineAt =\s*initialTabState && Number\.isFinite\(initialTabState\.propertyLockOffCandidateDeadlineAt\)/);
   assert.match(
     popupSource,
-    /syncPropertyLockOffCandidateRefreshTimer\(\s*Boolean\([\s\S]*state\.propertyLockOffCandidateDeadlineAt[\s\S]*state\.propertyLockRecoveryDeadlineAt[\s\S]*\)\s*\);/
+    /syncPropertyLockOffCandidateRefreshTimer\(\s*hasProjectedPropertyLockDeadlineTimerForTab\(currentTabId\)\s*\|\|[\s\S]*state\.propertyLockOffCandidateDeadlineAt[\s\S]*state\.propertyLockRecoveryDeadlineAt[\s\S]*\);/
   );
   assert.match(popupSource, /state\.propertyLockRecoverySiteId =\s*initialTabState && Number\.isFinite\(initialTabState\.propertyLockRecoverySiteId\)/);
   assert.match(popupSource, /state\.propertyLockRecoveryBaseUrl =\s*initialTabState && typeof initialTabState\.propertyLockRecoveryBaseUrl === "string"/);
@@ -206,9 +208,13 @@ test("popup hydrates property-lock timer and recovery state from the initial tab
   assert.match(popupSource, /state\.propertyLockRecoveryDeadlineAt = nextRecoveryDeadlineAt;/);
   assert.match(popupSource, /deadlineAt: nextRecoveryDeadlineAt/);
   assert.match(popupSource, /const propertyLockScopeSiteId = isPropertyLockCollaborationEnabled\(\)\s*\?[\s\S]*?state\.propertyLockRecoveryDeadlineAt > Date\.now\(\) && state\.propertyLockRecoverySiteId[\s\S]*?state\.propertyLockRecoverySiteId\s*:\s*liveSiteId[\s\S]*?: null;/);
+  assert.match(popupSource, /await refreshPropertyLockSnapshot\(propertyLockScopeSiteId,\s*\{\s*skipFetch: skipPropertyLockFetch\s*\}\s*\);/);
+  assert.match(popupSource, /resetDisabledPropertyLockState\(\);/);
+  assert.match(popupSource, /Object\.assign\(\s*nextViewState,\s*buildPropertyLockViewState\(\)\s*\);/);
   assert.match(propertyLockUiSource, /state\.propertyLockRecoverySiteId === normalizedSiteId\s*\?\s*state\.propertyLockRecoveryClientId/);
-  assert.match(propertyLockUiSource, /deps\.propertyLockText\.popupOffCandidateWarning\(offCandidateSecondsRemaining\)/);
-  assert.match(propertyLockUiSource, /deps\.propertyLockText\.popupCrossPropertyWarning\(crossPropertySecondsRemaining\)/);
+  assert.match(propertyLockUiSource, /projection\.timerState\.source === PROPERTY_LOCK_TIMER_SOURCES\.DEADLINE/);
+  assert.match(propertyLockDeciderSource, /deps\.propertyLockText\.popupOffCandidateWarning\(\s*timerState\.secondsRemaining\s*\)/);
+  assert.match(propertyLockDeciderSource, /deps\.propertyLockText\.popupCrossPropertyWarning\(\s*timerState\.secondsRemaining\s*\)/);
   assert.match(backgroundSource, /nextState\.propertyLockOffCandidateDeadlineAt = Number\.isFinite\(message\.state\.propertyLockOffCandidateDeadlineAt\)/);
   assert.match(backgroundSource, /nextState\.propertyLockRecoverySiteId = Number\.isFinite\(message\.state\.propertyLockRecoverySiteId\)/);
   assert.match(backgroundSource, /nextState\.propertyLockRecoveryClientId = typeof message\.state\.propertyLockRecoveryClientId === "string"/);
@@ -225,10 +231,11 @@ test("desktop preview stays behind its own popup toggle and disables marking ent
 
   assert.match(popupSource, /const desktopPreviewVisible = Boolean\(\s*desktopPreviewFeatureEnabled &&\s*silentModeActive &&/);
   assert.match(popupSource, /const desktopPreviewActive = Boolean\(\s*desktopPreviewVisible && state\.currentDesktopPreviewEnabled\s*\);/);
-  assert.match(popupSource, /nextViewState\.desktopPreviewVisible = desktopPreviewVisible;/);
-  assert.match(popupSource, /nextViewState\.desktopPreviewEnabled = desktopPreviewActive;/);
+  assert.match(popupSource, /nextViewState\.desktopPreviewVisible = localSecondaryGates\.desktopPreviewVisible;/);
+  assert.match(popupSource, /nextViewState\.desktopPreviewEnabled = localSecondaryGates\.desktopPreviewEnabled;/);
   assert.match(desktopToggleBody, /if \(!isFeatureEnabled\("desktopPreview"\)\) \{\s*return;\s*\}/);
-  assert.match(desktopToggleBody, /if \(desiredEnabled && uiModule\.getViewState\(\)\.toggleEnabled\) \{/);
+  assert.match(desktopToggleBody, /if \(\s*desiredEnabled &&\s*\(\s*!currentView\.desktopPreviewVisible \|\|[\s\S]*?currentView\.desktopPreviewBlockedReason !== SECONDARY_GATES_BLOCK_REASONS\.NONE/);
+  assert.match(desktopToggleBody, /if \(desiredEnabled && currentView\.toggleEnabled\) \{/);
   assert.match(desktopToggleBody, /await handleEnableToggle\(\{ currentTarget: \{ checked: false \} \}\);/);
   assert.match(desktopToggleBody, /await persistDesktopPreviewEnabled\(tab\.id, desiredEnabled\);/);
   assert.match(uiSource, /isPopupFeatureEnabled\(view, "desktopPreview"\) && view\.desktopPreviewVisible/);
@@ -241,7 +248,11 @@ test("desktop preview stays behind its own popup toggle and disables marking ent
     siteIdReady: true,
     renderModeReady: true,
     pageTypeUiBlocked: false,
+    currentPageHasPendingChanges: false,
+    pageInspectionBusy: false,
+    desktopPreviewVisible: true,
     desktopPreviewActive: true,
+    deviceControlsDisabled: false,
     isEnabled: true,
     silentModeActive: false,
     aiReady: true,
@@ -259,6 +270,8 @@ test("desktop preview stays behind its own popup toggle and disables marking ent
     saving: false,
     discarding: false,
     hasStoredSelectors: true,
+    lynxChecklistCanSend: false,
+    lynxChecklistBlockingReason: { code: "", pageTypeKeys: [] },
     busyVisible: false,
     busyMessage: "",
     busyNote: "",
@@ -270,7 +283,11 @@ test("desktop preview stays behind its own popup toggle and disables marking ent
     siteIdReady: true,
     renderModeReady: true,
     pageTypeUiBlocked: false,
+    currentPageHasPendingChanges: false,
+    pageInspectionBusy: false,
+    desktopPreviewVisible: true,
     desktopPreviewActive: true,
+    deviceControlsDisabled: false,
     isEnabled: true,
     silentModeActive: false,
     aiReady: true,
@@ -288,6 +305,8 @@ test("desktop preview stays behind its own popup toggle and disables marking ent
     saving: false,
     discarding: false,
     hasStoredSelectors: true,
+    lynxChecklistCanSend: false,
+    lynxChecklistBlockingReason: { code: "", pageTypeKeys: [] },
     busyVisible: false,
     busyMessage: "",
     busyNote: "",
@@ -317,7 +336,11 @@ test("marking-mode preview remains a dedicated marking control", () => {
     siteIdReady: true,
     renderModeReady: true,
     pageTypeUiBlocked: false,
+    currentPageHasPendingChanges: true,
+    pageInspectionBusy: false,
+    desktopPreviewVisible: false,
     desktopPreviewActive: false,
+    deviceControlsDisabled: false,
     isEnabled: true,
     silentModeActive: false,
     aiReady: true,
@@ -335,6 +358,8 @@ test("marking-mode preview remains a dedicated marking control", () => {
     saving: false,
     discarding: false,
     hasStoredSelectors: true,
+    lynxChecklistCanSend: false,
+    lynxChecklistBlockingReason: { code: "", pageTypeKeys: [] },
     busyVisible: false,
     busyMessage: "",
     busyNote: "",
@@ -480,7 +505,7 @@ test("session save uploads all local page markings while default sync stays back
   assert.doesNotMatch(applyLocalPageDiscardBody, /loadRemoteConfigForCurrentPage/);
   assert.doesNotMatch(applyLocalPageDiscardBody, /validateStoredToken/);
   assert.match(applyLocalPageDiscardBody, /await clearCurrentPageSaveReconciliation\(\);/);
-  assert.match(handlePageRevertHandlerBody, /if \(!currentViewState\.currentPageHasPendingChanges\) \{/);
+  assert.match(handlePageRevertHandlerBody, /const blockedReason = typeof currentViewState\.pageRevertBlockedReason === "string"/);
   assert.doesNotMatch(handlePageSaveBody, /type: "savePageDraft"/);
 });
 

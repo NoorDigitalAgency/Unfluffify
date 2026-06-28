@@ -1,4 +1,9 @@
 import * as stateModule from "./state";
+import { derivePropertyLockViewState } from "../background/brain/deciders/property-lock-decider";
+import {
+  PROPERTY_LOCK_TIMER_SOURCES,
+  type PropertyLockViewState,
+} from "../common/bus/contracts/property-lock-state";
 
 const { state } = stateModule;
 
@@ -12,25 +17,6 @@ interface PropertyLockFetchResult {
   name?: string;
   clientId?: string;
   [key: string]: unknown;
-}
-
-interface PropertyLockViewState {
-  propertyLockVisible: boolean;
-  propertyLockTone: string;
-  propertyLockIcon: string;
-  propertyLockStatusText: string;
-  propertyLockDetailText: string;
-  propertyLockSuggestVisible: boolean;
-  propertyLockTakeVisible: boolean;
-  propertyLockTakeText: string;
-  propertyLockContinueVisible: boolean;
-  propertyLockContinueText: string;
-  propertyLockContinueDisabled: boolean;
-  propertyLockForceContinueVisible: boolean;
-  propertyLockForceContinueText: string;
-  propertyLockSuggestionVisible: boolean;
-  propertyLockAcceptVisible: boolean;
-  propertyLockRejectVisible: boolean;
 }
 
 interface PropertyLockUiDeps {
@@ -153,20 +139,47 @@ export function syncPropertyLockOffCandidateRefreshTimer(deps: PropertyLockUiDep
     return;
   }
   state.propertyLockOffCandidateRefreshTimer = deps.windowRef.setInterval(() => {
-    if (
-      (
-        !state.propertyLockOffCandidateDeadlineAt ||
-        state.propertyLockOffCandidateDeadlineAt <= Date.now()
-      ) &&
-      (
-        !state.propertyLockRecoveryDeadlineAt ||
-        state.propertyLockRecoveryDeadlineAt <= Date.now()
-      )
-    ) {
+    const projection = buildPropertyLockViewProjection(deps);
+    const hasActiveDeadlineTimer = Boolean(
+      projection.timerState &&
+        projection.timerState.source === PROPERTY_LOCK_TIMER_SOURCES.DEADLINE &&
+        projection.timerState.deadlineAt > Date.now()
+    );
+    deps.setViewState(projection.viewState);
+    if (!hasActiveDeadlineTimer) {
       deps.clearPropertyLockOffCandidateRefreshTimer();
+      deps.refreshUi({ useBusyOverlay: false, skipPropertyLockFetch: true }).catch(() => {});
+      return;
     }
-    deps.refreshUi({ useBusyOverlay: false, skipPropertyLockFetch: true }).catch(() => {});
   }, 1000);
+}
+
+function buildPropertyLockViewProjection(deps: PropertyLockUiDeps) {
+  const propertyLockFeatureEnabled = deps.isPropertyLockCollaborationEnabled();
+  const lockState: NormalizedLockState = propertyLockFeatureEnabled
+    ? ((state.propertyLockState as NormalizedLockState | null) || deps.createInactiveLockState())
+    : deps.createInactiveLockState();
+  return derivePropertyLockViewState(
+    deps,
+    {
+      propertyLockFeatureEnabled,
+      propertyLockSiteId: state.propertyLockSiteId,
+      lockState,
+      propertyLockConnectionStatus: state.propertyLockConnectionStatus,
+      propertyLockSecondsRemaining: state.propertyLockSecondsRemaining,
+      propertyLockSuggestionFromName: state.propertyLockSuggestionFromName,
+      propertyLockSuggestionVisible: state.propertyLockSuggestionVisible,
+      propertyLockSuggestionPending: state.propertyLockSuggestionPending,
+      propertyLockSuggestionRejected: state.propertyLockSuggestionRejected,
+      propertyLockInactivityWarningVisible: state.propertyLockInactivityWarningVisible,
+      propertyLockDisconnectCountdown: state.propertyLockDisconnectCountdown,
+      propertyLockTransferCountdown: state.propertyLockTransferCountdown,
+      propertyLockOffCandidateDeadlineAt: state.propertyLockOffCandidateDeadlineAt,
+      propertyLockRecoveryDeadlineAt: state.propertyLockRecoveryDeadlineAt,
+      renderModeInspectionActive: state.renderModeInspectionActive,
+      now: Date.now()
+    }
+  );
 }
 
 export async function persistPropertyLockRecoveryMetadata(deps: PropertyLockUiDeps, tabId: number | null | undefined, recoveryState: Record<string, unknown> = {}) {
@@ -359,209 +372,7 @@ export function isPropertyLockBlockingEditing(deps: PropertyLockUiDeps) {
 }
 
 export function buildPropertyLockViewState(deps: PropertyLockUiDeps) {
-  const propertyLockFeatureEnabled = deps.isPropertyLockCollaborationEnabled();
-  const lockState: NormalizedLockState = propertyLockFeatureEnabled
-    ? ((state.propertyLockState as NormalizedLockState | null) || deps.createInactiveLockState())
-    : deps.createInactiveLockState();
-  const editorName = lockState.editorName || "Someone";
-  const sameUserEditor = Boolean(lockState.isSameUserEditor);
-  const otherTabHasUnsavedChanges = Boolean(lockState.otherTabHasUnsavedChanges);
-  const secondsRemaining = state.propertyLockSecondsRemaining;
-  const offCandidateSecondsRemaining = state.propertyLockOffCandidateDeadlineAt > Date.now()
-    ? Math.max(0, Math.ceil((state.propertyLockOffCandidateDeadlineAt - Date.now()) / 1000))
-    : 0;
-  const crossPropertySecondsRemaining = state.propertyLockRecoveryDeadlineAt > Date.now()
-    ? Math.max(0, Math.ceil((state.propertyLockRecoveryDeadlineAt - Date.now()) / 1000))
-    : 0;
-  const visible = propertyLockFeatureEnabled && Boolean(state.propertyLockSiteId);
-  const viewState: PropertyLockViewState = {
-    propertyLockVisible: visible,
-    propertyLockTone: "muted",
-    propertyLockIcon: "lock-open-outline",
-    propertyLockStatusText: "",
-    propertyLockDetailText: "",
-    propertyLockSuggestVisible: false,
-    propertyLockTakeVisible: false,
-    propertyLockTakeText: deps.propertyLockText.takeoverButton,
-    propertyLockContinueVisible: false,
-    propertyLockContinueText: deps.propertyLockText.continueEditingButton,
-    propertyLockContinueDisabled: false,
-    propertyLockForceContinueVisible: false,
-    propertyLockForceContinueText: deps.propertyLockText.continueEditingHereAnywayButton,
-    propertyLockSuggestionVisible: false,
-    propertyLockAcceptVisible: false,
-    propertyLockRejectVisible: false
-  };
-
-  if (!visible) {
-    return viewState;
-  }
-
-  if (
-    lockState.state === deps.PROPERTY_LOCK_STATE_UNLOCKED &&
-    state.propertyLockConnectionStatus === deps.PROPERTY_LOCK_CONNECTION_CONNECTING
-  ) {
-    viewState.propertyLockTone = "muted";
-    viewState.propertyLockIcon = "sync";
-    viewState.propertyLockStatusText = deps.propertyLockText.popupConnecting;
-    return viewState;
-  }
-
-  if (
-    lockState.state === deps.PROPERTY_LOCK_STATE_UNLOCKED &&
-    state.propertyLockConnectionStatus === deps.PROPERTY_LOCK_CONNECTION_UNAVAILABLE
-  ) {
-    viewState.propertyLockTone = "warning";
-    viewState.propertyLockIcon = "cloud-off-outline";
-    viewState.propertyLockStatusText = deps.propertyLockText.popupUnavailable;
-    viewState.propertyLockDetailText = deps.propertyLockText.popupUnavailableDetail;
-    return viewState;
-  }
-
-  if (state.propertyLockSuggestionVisible) {
-    viewState.propertyLockTone = "warning";
-    viewState.propertyLockIcon = "account-switch-outline";
-    viewState.propertyLockStatusText = deps.propertyLockText.takeoverSuggestionMessage(
-      state.propertyLockSuggestionFromName || "Someone"
-    );
-    viewState.propertyLockDetailText = deps.propertyLockText.popupEditorDetail;
-    viewState.propertyLockSuggestionVisible = true;
-    viewState.propertyLockAcceptVisible = true;
-    viewState.propertyLockRejectVisible = true;
-    return viewState;
-  }
-
-  if (state.renderModeInspectionActive && state.propertyLockDisconnectCountdown !== null) {
-    viewState.propertyLockTone = "muted";
-    viewState.propertyLockIcon = "sync";
-    viewState.propertyLockStatusText = deps.propertyLockText.popupInspectionReconnecting;
-    return viewState;
-  }
-
-  if (state.propertyLockDisconnectCountdown !== null) {
-    viewState.propertyLockTone = "warning";
-    viewState.propertyLockIcon = "wifi-off";
-    viewState.propertyLockStatusText = deps.propertyLockText.editorDisconnectCountdownMessage(
-      state.propertyLockDisconnectCountdown || 0
-    );
-    return viewState;
-  }
-
-  if (state.propertyLockInactivityWarningVisible) {
-    viewState.propertyLockTone = "warning";
-    viewState.propertyLockIcon = "timer-alert-outline";
-    viewState.propertyLockStatusText = deps.propertyLockText.editorInactivityWarningMessage(secondsRemaining || 0);
-    viewState.propertyLockContinueVisible = true;
-    return viewState;
-  }
-
-  if (crossPropertySecondsRemaining > 0) {
-    viewState.propertyLockTone = "warning";
-    viewState.propertyLockIcon = "home-export-outline";
-    viewState.propertyLockStatusText = deps.propertyLockText.popupCrossPropertyWarning(crossPropertySecondsRemaining);
-    viewState.propertyLockDetailText = deps.propertyLockText.editorCrossPropertyCountdownMessage(crossPropertySecondsRemaining);
-    return viewState;
-  }
-
-  if (offCandidateSecondsRemaining > 0) {
-    viewState.propertyLockTone = "warning";
-    viewState.propertyLockIcon = "map-marker-alert-outline";
-    viewState.propertyLockStatusText = deps.propertyLockText.popupOffCandidateWarning(offCandidateSecondsRemaining);
-    viewState.propertyLockDetailText = deps.propertyLockText.editorOffCandidateCountdownMessage(offCandidateSecondsRemaining);
-    return viewState;
-  }
-
-  if (state.propertyLockTransferCountdown !== null) {
-    viewState.propertyLockTone = "warning";
-    viewState.propertyLockIcon = "swap-horizontal";
-    viewState.propertyLockStatusText = deps.propertyLockText.editorTransferCountdownMessage(
-      lockState.transferFromName || editorName,
-      lockState.transferToName || state.propertyLockSuggestionFromName || "the next editor",
-      state.propertyLockTransferCountdown || 0
-    );
-    return viewState;
-  }
-
-  if (state.propertyLockSuggestionPending) {
-    viewState.propertyLockTone = "warning";
-    viewState.propertyLockIcon = "clock-outline";
-    viewState.propertyLockStatusText = deps.propertyLockText.passiveSuggestionPendingMessage(editorName);
-    viewState.propertyLockDetailText = deps.propertyLockText.popupPassiveDetail;
-    return viewState;
-  }
-
-  if (state.propertyLockSuggestionRejected) {
-    viewState.propertyLockTone = "danger";
-    viewState.propertyLockIcon = "lock-alert-outline";
-    viewState.propertyLockStatusText = deps.propertyLockText.passiveSuggestionRejectedMessage(editorName);
-    viewState.propertyLockDetailText = deps.propertyLockText.popupPassiveDetail;
-    viewState.propertyLockSuggestVisible = true;
-    return viewState;
-  }
-
-  if (lockState.state === deps.PROPERTY_LOCK_STATE_UNLOCKED) {
-    viewState.propertyLockTone = "success";
-    viewState.propertyLockStatusText = deps.propertyLockText.popupUnlocked;
-    return viewState;
-  }
-
-  if (lockState.state === deps.PROPERTY_LOCK_STATE_TAKEOVER_AVAILABLE) {
-    viewState.propertyLockTone = "warning";
-    viewState.propertyLockIcon = "lock-open-variant-outline";
-    viewState.propertyLockStatusText = lockState.isRecentEditor
-      ? deps.propertyLockText.recentEditorInactiveMessage
-      : deps.propertyLockText.takeoverAvailableMessage;
-    viewState.propertyLockTakeVisible = true;
-    viewState.propertyLockTakeText = lockState.isRecentEditor
-      ? deps.propertyLockText.continueEditingButton
-      : deps.propertyLockText.takeoverButton;
-    return viewState;
-  }
-
-  if (lockState.state === deps.PROPERTY_LOCK_STATE_TRANSFER) {
-    viewState.propertyLockTone = "warning";
-    viewState.propertyLockIcon = "swap-horizontal";
-    viewState.propertyLockStatusText = deps.propertyLockText.editorTransferCountdownMessage(
-      lockState.transferFromName || editorName,
-      lockState.transferToName || "the next editor",
-      secondsRemaining || 0
-    );
-    return viewState;
-  }
-
-  if (lockState.isEditor) {
-    viewState.propertyLockTone = "success";
-    viewState.propertyLockIcon = "lock-check-outline";
-    viewState.propertyLockStatusText = deps.propertyLockText.popupEditorActive;
-    viewState.propertyLockDetailText = deps.propertyLockText.popupEditorDetail;
-    return viewState;
-  }
-
-  viewState.propertyLockTone = lockState.state === deps.PROPERTY_LOCK_STATE_EXPIRY_WARNING
-    ? "warning"
-    : "danger";
-  viewState.propertyLockIcon = "lock-outline";
-  viewState.propertyLockStatusText = sameUserEditor
-    ? deps.propertyLockText.sameUserLockedMessage
-    : lockState.state === deps.PROPERTY_LOCK_STATE_EXPIRY_WARNING
-      ? deps.propertyLockText.passiveExpiryCountdownMessage(editorName, secondsRemaining || 0)
-      : deps.propertyLockText.passiveLockedMessage(editorName);
-  viewState.propertyLockDetailText = deps.propertyLockText.popupPassiveDetail;
-  if (sameUserEditor) {
-    viewState.propertyLockSuggestVisible = false;
-    viewState.propertyLockContinueVisible = true;
-    viewState.propertyLockContinueText = deps.propertyLockText.continueEditingHereButton;
-    viewState.propertyLockContinueDisabled = otherTabHasUnsavedChanges;
-    viewState.propertyLockDetailText = otherTabHasUnsavedChanges
-      ? deps.propertyLockText.otherTabUnsavedChangesLabel
-      : deps.propertyLockText.popupSameUserPassiveDetail;
-    viewState.propertyLockForceContinueVisible = otherTabHasUnsavedChanges;
-  } else {
-    viewState.propertyLockSuggestVisible =
-      lockState.state === deps.PROPERTY_LOCK_STATE_LOCKED ||
-      lockState.state === deps.PROPERTY_LOCK_STATE_EXPIRY_WARNING;
-  }
-  return viewState;
+  return buildPropertyLockViewProjection(deps).viewState;
 }
 
 export async function fetchPropertyLockState(deps: PropertyLockUiDeps, siteId: number | string | null) {

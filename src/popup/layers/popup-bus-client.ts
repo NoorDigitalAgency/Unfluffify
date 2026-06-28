@@ -6,6 +6,11 @@ import {
   RENDER_MODE_REQUEST_TYPES,
 } from "../../common/bus/contracts/index";
 import {
+  PROPERTY_LOCK_REPORT_TYPES,
+  type PropertyLockSnapshot,
+  type PropertyLockSnapshotReportedPayload,
+} from "../../common/bus/contracts/property-lock-state";
+import {
   SESSION_REPORT_TYPES,
   type SessionFactsPatch,
   type SessionFactsReportedPayload,
@@ -157,6 +162,23 @@ export function publishPopupSessionFacts(
     facts,
   };
   return popupBus.publish(SESSION_REPORT_TYPES.FACTS_REPORTED, payload, {
+    target: REALMS.BACKGROUND,
+    tab: tabId,
+  });
+}
+
+export function publishPopupPropertyLockSnapshot(
+  tabId: number,
+  snapshot: PropertyLockSnapshot | null,
+): Promise<void> {
+  if (!tabId || !popupBus) {
+    return Promise.resolve();
+  }
+  const payload: PropertyLockSnapshotReportedPayload = {
+    source: "popup",
+    snapshot,
+  };
+  return popupBus.publish(PROPERTY_LOCK_REPORT_TYPES.SNAPSHOT_REPORTED, payload, {
     target: REALMS.BACKGROUND,
     tab: tabId,
   });

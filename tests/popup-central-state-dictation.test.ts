@@ -1,12 +1,14 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 import { readFileSync } from "./file-kit.ts";
+import { vi } from "vitest";
 import { deriveDictation } from "../src/background/brain/deciders/dictation-decider.js";
 import { decideSessionPhase } from "../src/background/brain/deciders/session-phase-decider.js";
 import {
   buildCentralSessionDictationViewStatePatch,
   deriveCentralSessionDictationSnapshotEffect
 } from "../src/popup/central-state-dictation.js";
+import { getViewState, resolveBlockingUiCurtainState } from "../src/popup/ui.tsx";
 
 const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
 const uiSource = readFileSync(new URL("../src/popup/ui.tsx", import.meta.url), "utf8");
@@ -19,7 +21,11 @@ function buildFacts(overrides = {}) {
     siteIdReady: true,
     renderModeReady: true,
     pageTypeUiBlocked: false,
+    currentPageHasPendingChanges: false,
+    pageInspectionBusy: false,
+    desktopPreviewVisible: false,
     desktopPreviewActive: false,
+    deviceControlsDisabled: false,
     isEnabled: true,
     silentModeActive: false,
     aiReady: true,
@@ -37,6 +43,8 @@ function buildFacts(overrides = {}) {
     saving: false,
     discarding: false,
     hasStoredSelectors: false,
+    lynxChecklistCanSend: false,
+    lynxChecklistBlockingReason: { code: "", pageTypeKeys: [] },
     busyVisible: false,
     busyMessage: "",
     busyNote: "",
@@ -114,6 +122,38 @@ test("popup curtain rendering prioritizes session dictation when present", () =>
   assert.match(uiSource, /sessionCurtainMessage: "",/);
   assert.match(uiSource, /function getBlockingUiCurtainState\(view: ViewState\): BlockingUiCurtainState \{\s*if \(view\.sessionCurtainVisible\)/);
   assert.match(uiSource, /message: view\.sessionCurtainMessage \|\| PopupText\.overlay\.pleaseWait/);
+  assert.match(uiSource, /const liveSessionCurtainTimerText =[\s\S]*?view\.busyTimerMode === SPINNER_TIMER_MODES\.COUNTDOWN[\s\S]*?formatCountdownFromDeadline\([\s\S]*?view\.busyDeadlineAt[\s\S]*?view\.aiRunDeadlineAt/);
+  assert.match(uiSource, /timerText: liveSessionCurtainTimerText \|\| view\.sessionCurtainTimerText \|\| ""/);
+});
+
+test("session dictation curtain formats projected countdowns from live deadlines", ({ after }) => {
+  const nowSpy = vi.spyOn(Date, "now").mockReturnValue(100_000);
+  after(() => nowSpy.mockRestore());
+  const baseView = getViewState();
+
+  const projectedCountdownCurtain = resolveBlockingUiCurtainState({
+    ...baseView,
+    sessionCurtainVisible: true,
+    sessionCurtainPhase: "computing_ai",
+    sessionCurtainOperation: "computing_ai",
+    sessionCurtainTimerText: "Up to 8:00",
+    busyTimerMode: "countdown",
+    busyDeadlineAt: 341_000,
+    aiRunDeadlineAt: 0
+  });
+  assert.equal(projectedCountdownCurtain.timerText, "4:01");
+
+  const fallbackCountdownCurtain = resolveBlockingUiCurtainState({
+    ...baseView,
+    sessionCurtainVisible: true,
+    sessionCurtainPhase: "computing_ai",
+    sessionCurtainOperation: "computing_ai",
+    sessionCurtainTimerText: "Up to 8:00",
+    busyTimerMode: "",
+    busyDeadlineAt: 0,
+    aiRunDeadlineAt: 341_000
+  });
+  assert.equal(fallbackCountdownCurtain.timerText, "4:01");
 });
 
 test("popup wiring repaints live brain snapshots and keeps imperative writers behind the local fallback guard", () => {
@@ -152,6 +192,10 @@ test("popup wiring repaints live brain snapshots and keeps imperative writers be
   );
   assert.match(
     popupSource,
-    /await refreshCurrentPageRuntimeStatus\(\);[\s\S]*?const \{ aiRunUpToDate, sessionRequiresAiRun \} = await getCurrentSessionActionGateState\(\);[\s\S]*?if \(state\.previewRestorePending \|\| !aiRunUpToDate \|\| sessionRequiresAiRun\) \{\s*return;\s*\}/
+    /await refreshCurrentPageRuntimeStatus\(\);[\s\S]*?const view = uiModule\.getViewState\(\);[\s\S]*?if \(view\.previewLatestBlockedReason === SECONDARY_GATES_BLOCK_REASONS\.SERVER_SYNC_PENDING\) \{[\s\S]*?if \(view\.previewLatestBlockedReason !== SECONDARY_GATES_BLOCK_REASONS\.NONE\) \{\s*return;\s*\}/
+  );
+  assert.match(
+    popupSource,
+    /if \([\s\S]*?nextCentralSessionDictationEffect\.patch[\s\S]*?nextProjectedPropertyLockEffect\.patch[\s\S]*?nextProjectedSecondaryGatesEffect\.patch[\s\S]*?\) \{[\s\S]*?uiModule\.setViewState\(\{[\s\S]*?\}\);[\s\S]*?\}[\s\S]*?if \([\s\S]*?nextCentralSessionDictationEffect\.refreshRequired[\s\S]*?nextProjectedPropertyLockEffect\.refreshRequired[\s\S]*?nextProjectedSecondaryGatesEffect\.refreshRequired[\s\S]*?\) \{[\s\S]*?void refreshUi\(/
   );
 });

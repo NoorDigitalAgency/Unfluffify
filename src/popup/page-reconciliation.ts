@@ -15,6 +15,8 @@ type PageReconciliationViewState = {
   aiRunCountdownVisible?: boolean;
   sessionCurtainPhase?: string;
   sessionCurtainOperation?: string;
+  pageSaveBlockedReason?: string;
+  pageRevertBlockedReason?: string;
 };
 
 type PageSaveSyncResult = {
@@ -109,12 +111,23 @@ export async function handlePageSave(deps: PageReconciliationDeps) {
     deps.showToast(deps.PopupText.page.statusServerSyncPending);
     return;
   }
-  if (!currentViewState.sessionHasPendingChanges) {
+  const blockedReason = typeof currentViewState.pageSaveBlockedReason === "string"
+    ? currentViewState.pageSaveBlockedReason
+    : "";
+  if (blockedReason === "busy") {
+    deps.showToast(deps.PopupText.overlay.pleaseWait);
+    return;
+  }
+  if (blockedReason === "server_sync_pending") {
+    deps.showToast(deps.PopupText.page.statusServerSyncPending);
+    return;
+  }
+  if (blockedReason === "no_session_changes") {
     deps.updateLastConfigSaveStatus(deps.PopupText.page.noLocalChangesToSave);
     deps.showToast(deps.PopupText.page.noChangesToSave);
     return;
   }
-  if (currentViewState.sessionRequiresAiRun) {
+  if (blockedReason === "requires_ai_run") {
     deps.showToast(deps.PopupText.page.noticeRunAiBeforeSaving);
     return;
   }
@@ -204,7 +217,18 @@ export async function handlePageRevert(deps: PageReconciliationDeps) {
     deps.showToast(deps.PopupText.page.statusServerSyncPending);
     return;
   }
-  if (!currentViewState.currentPageHasPendingChanges) {
+  const blockedReason = typeof currentViewState.pageRevertBlockedReason === "string"
+    ? currentViewState.pageRevertBlockedReason
+    : "";
+  if (blockedReason === "busy") {
+    deps.showToast(deps.PopupText.overlay.pleaseWait);
+    return;
+  }
+  if (blockedReason === "server_sync_pending") {
+    deps.showToast(deps.PopupText.page.statusServerSyncPending);
+    return;
+  }
+  if (blockedReason === "no_page_changes") {
     deps.showToast(deps.PopupText.page.noChangesToSave);
     return;
   }

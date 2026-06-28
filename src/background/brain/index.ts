@@ -2,6 +2,12 @@ import { createBus } from "../../common/bus/bus";
 import type { Browser } from "../../common/browser";
 import { DIAGNOSTIC_REQUEST_TYPES } from "../../common/bus/contracts/index";
 import { POPUP_STATE_EVENT_TYPES, POPUP_STATE_REQUEST_TYPES } from "../../common/bus/contracts/popup-state";
+import {
+  PROPERTY_LOCK_REPORT_TYPES,
+  type PropertyLockSnapshot,
+  type PropertyLockSnapshotLockState,
+  type PropertyLockSnapshotReportedPayload,
+} from "../../common/bus/contracts/property-lock-state";
 import { SESSION_REPORT_TYPES, type SessionFactsReportedPayload } from "../../common/bus/contracts/session-state";
 import { SPINNER_EVENT_TYPES, type SpinnerSurface } from "../../common/bus/contracts/spinner";
 import { REALMS } from "../../common/bus/realms";
@@ -9,21 +15,108 @@ import { createBackgroundTransport } from "../../common/bus/transport/background
 import type { PopupSpinnerEntry } from "../../common/bus/contracts/popup-state";
 import type { PopupBrokerState } from "../popup-state-broker";
 import {
+  PROPERTY_LOCK_CONNECTION_CONNECTING,
+  PROPERTY_LOCK_CONNECTION_UNAVAILABLE,
+  PROPERTY_LOCK_STATE_EXPIRY_WARNING,
+  PROPERTY_LOCK_STATE_LOCKED,
+  PROPERTY_LOCK_STATE_TAKEOVER_AVAILABLE,
+  PROPERTY_LOCK_STATE_TRANSFER,
+  PROPERTY_LOCK_STATE_UNLOCKED,
+  createInactiveLockState,
+} from "../../common/property-lock";
+import { propertyLockText } from "../../common/text";
+import {
   getActivationSnapshot as getActivationSnapshotValue,
   mirrorActivationLifecycle as mirrorActivationLifecycleState,
   updateActivationBootstrapState as updateActivationBootstrapStateValue,
 } from "./deciders/activation-decider";
+import { derivePropertyLockViewState } from "./deciders/property-lock-decider";
 import { getPopupView, updatePopupViewFromBrokerState } from "./deciders/popup-state-decider";
 import {
   getRenderModeSnapshot as getRenderModeSnapshotValue,
   recordInspectionResult as recordRenderModeInspectionValue,
   recordNoJsHoldState as recordRenderModeNoJsHoldValue,
 } from "./deciders/render-mode-decider";
+import { deriveSecondaryGatesViewState } from "./deciders/secondary-gates-decider";
 import { updateSpinnerSelectionsFromQueue } from "./deciders/spinner-state-decider";
 import { applySessionFactsPatch } from "./deciders/session-phase-decider";
 import { createStateStore, type TabLayerState } from "./state-store";
 import { projectSpinners, type SpinnerState } from "./spinner-authority";
 import { projectViews } from "./view-projector";
+
+const propertyLockDeciderDeps = {
+  propertyLockText,
+  PROPERTY_LOCK_CONNECTION_CONNECTING,
+  PROPERTY_LOCK_CONNECTION_UNAVAILABLE,
+  PROPERTY_LOCK_STATE_UNLOCKED,
+  PROPERTY_LOCK_STATE_LOCKED,
+  PROPERTY_LOCK_STATE_EXPIRY_WARNING,
+  PROPERTY_LOCK_STATE_TAKEOVER_AVAILABLE,
+  PROPERTY_LOCK_STATE_TRANSFER
+} as const;
+
+function normalizePropertyLockSnapshotLockState(
+  value: PropertyLockSnapshot["lockState"]
+) {
+  const defaultLockState = createInactiveLockState();
+  if (!value) {
+    return defaultLockState;
+  }
+  const lockState = value as PropertyLockSnapshotLockState;
+  return {
+    ...defaultLockState,
+    state: typeof lockState.state === "string" ? lockState.state : defaultLockState.state,
+    editorName: typeof lockState.editorName === "string" ? lockState.editorName : "",
+    isEditor: lockState.isEditor === true,
+    isRecentEditor: lockState.isRecentEditor === true,
+    isSameUserEditor: lockState.isSameUserEditor === true,
+    otherTabHasUnsavedChanges: lockState.otherTabHasUnsavedChanges === true,
+    transferFromName: typeof lockState.transferFromName === "string" ? lockState.transferFromName : "",
+    transferToName: typeof lockState.transferToName === "string" ? lockState.transferToName : "",
+  };
+}
+
+function normalizePropertyLockSnapshot(value: unknown): PropertyLockSnapshot | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const snapshot = value as Record<string, unknown>;
+  return {
+    siteId: Number.isFinite(snapshot.siteId) ? Math.trunc(Number(snapshot.siteId)) : null,
+    connectionStatus: typeof snapshot.connectionStatus === "string" ? snapshot.connectionStatus : "",
+    secondsRemaining: Number.isFinite(snapshot.secondsRemaining) ? Math.max(0, Math.trunc(Number(snapshot.secondsRemaining))) : null,
+    suggestionFromName: typeof snapshot.suggestionFromName === "string" ? snapshot.suggestionFromName : "",
+    suggestionVisible: snapshot.suggestionVisible === true,
+    suggestionPending: snapshot.suggestionPending === true,
+    suggestionRejected: snapshot.suggestionRejected === true,
+    inactivityWarningVisible: snapshot.inactivityWarningVisible === true,
+    disconnectCountdown: Number.isFinite(snapshot.disconnectCountdown) ? Math.max(0, Math.trunc(Number(snapshot.disconnectCountdown))) : null,
+    transferCountdown: Number.isFinite(snapshot.transferCountdown) ? Math.max(0, Math.trunc(Number(snapshot.transferCountdown))) : null,
+    offCandidateDeadlineAt: Number.isFinite(snapshot.offCandidateDeadlineAt) ? Math.max(0, Math.trunc(Number(snapshot.offCandidateDeadlineAt))) : 0,
+    recoveryDeadlineAt: Number.isFinite(snapshot.recoveryDeadlineAt) ? Math.max(0, Math.trunc(Number(snapshot.recoveryDeadlineAt))) : 0,
+    renderModeInspectionActive: snapshot.renderModeInspectionActive === true,
+    lockState: snapshot.lockState && typeof snapshot.lockState === "object"
+      ? {
+        state: typeof (snapshot.lockState as Record<string, unknown>).state === "string"
+          ? String((snapshot.lockState as Record<string, unknown>).state)
+          : "",
+        editorName: typeof (snapshot.lockState as Record<string, unknown>).editorName === "string"
+          ? String((snapshot.lockState as Record<string, unknown>).editorName)
+          : "",
+        isEditor: (snapshot.lockState as Record<string, unknown>).isEditor === true,
+        isRecentEditor: (snapshot.lockState as Record<string, unknown>).isRecentEditor === true,
+        isSameUserEditor: (snapshot.lockState as Record<string, unknown>).isSameUserEditor === true,
+        otherTabHasUnsavedChanges: (snapshot.lockState as Record<string, unknown>).otherTabHasUnsavedChanges === true,
+        transferFromName: typeof (snapshot.lockState as Record<string, unknown>).transferFromName === "string"
+          ? String((snapshot.lockState as Record<string, unknown>).transferFromName)
+          : "",
+        transferToName: typeof (snapshot.lockState as Record<string, unknown>).transferToName === "string"
+          ? String((snapshot.lockState as Record<string, unknown>).transferToName)
+          : ""
+      }
+      : null,
+  };
+}
 
 function publishSpinnerSurface(
   bus: ReturnType<typeof createBus>,
@@ -96,6 +189,44 @@ export function createBrain(options: { logger?: Pick<Console, "error"> } = {}) {
       draft.sessionFactsReported = true;
       draft.sessionFacts = next.facts;
       draft.sessionDictation = next.dictation;
+      draft.secondaryGates = deriveSecondaryGatesViewState(next.facts);
+    });
+  });
+  bus.subscribe(PROPERTY_LOCK_REPORT_TYPES.SNAPSHOT_REPORTED, (payload, meta) => {
+    if (!meta.tab || !payload || typeof payload !== "object") {
+      return;
+    }
+    const typedPayload = payload as PropertyLockSnapshotReportedPayload;
+    const snapshot = normalizePropertyLockSnapshot(typedPayload.snapshot);
+    store.mutate(meta.tab, "property-lock-snapshot:popup", (draft) => {
+      if (!snapshot) {
+        draft.propertyLockView = null;
+        draft.propertyLockTimer = null;
+        return;
+      }
+      const next = derivePropertyLockViewState(
+        propertyLockDeciderDeps,
+        {
+          propertyLockFeatureEnabled: true,
+          propertyLockSiteId: snapshot.siteId,
+          lockState: normalizePropertyLockSnapshotLockState(snapshot.lockState),
+          propertyLockConnectionStatus: snapshot.connectionStatus,
+          propertyLockSecondsRemaining: snapshot.secondsRemaining,
+          propertyLockSuggestionFromName: snapshot.suggestionFromName,
+          propertyLockSuggestionVisible: snapshot.suggestionVisible,
+          propertyLockSuggestionPending: snapshot.suggestionPending,
+          propertyLockSuggestionRejected: snapshot.suggestionRejected,
+          propertyLockInactivityWarningVisible: snapshot.inactivityWarningVisible,
+          propertyLockDisconnectCountdown: snapshot.disconnectCountdown,
+          propertyLockTransferCountdown: snapshot.transferCountdown,
+          propertyLockOffCandidateDeadlineAt: snapshot.offCandidateDeadlineAt,
+          propertyLockRecoveryDeadlineAt: snapshot.recoveryDeadlineAt,
+          renderModeInspectionActive: snapshot.renderModeInspectionActive,
+          now: Date.now()
+        }
+      );
+      draft.propertyLockView = next.viewState;
+      draft.propertyLockTimer = next.timerState;
     });
   });
 

@@ -248,6 +248,25 @@ test("AI run recovery metadata is persisted through background", () => {
   assert.doesNotMatch(popupPersistenceBlock, /storageGet|storageSet|storageRemove|AI_RUN_PERSIST_KEY/);
 });
 
+test("AI run countdown timing prefers projected deadlines instead of a popup-owned interval loop", () => {
+  const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
+  const timerStart = popupSource.indexOf("function startAiRunCountdownTimer() {");
+  const timerEnd = popupSource.indexOf("function resetAiRunState()", timerStart);
+  const refreshStart = popupSource.indexOf("nextViewState.computeButtonText =");
+  const refreshEnd = popupSource.indexOf("nextViewState.aiDirtyNoticeVisible =", refreshStart);
+  assert.ok(timerStart > -1);
+  assert.ok(timerEnd > timerStart);
+  assert.ok(refreshStart > -1);
+  assert.ok(refreshEnd > refreshStart);
+  const timerBlock = popupSource.slice(timerStart, timerEnd);
+  const refreshBlock = popupSource.slice(refreshStart, refreshEnd);
+
+  assert.match(timerBlock, /function startAiRunCountdownTimer\(\) \{\s*clearAiRunCountdownTimer\(\);\s*updateAiRunCountdownState\(\);\s*\}/);
+  assert.doesNotMatch(timerBlock, /setInterval\(/);
+  assert.match(refreshBlock, /const projectedAiRunCountdownVisible = Boolean\([\s\S]*?operationKind === "ai-run"[\s\S]*?timerMode === "countdown"/);
+  assert.match(refreshBlock, /const aiRunCountdownDeadlineAt = projectedAiRunDeadlineAt > 0[\s\S]*?state\.aiRunDeadlineAt/);
+});
+
 test("AI run recovery heartbeat and page lock are coordinated by background", () => {
   const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
   const backgroundSource = readFileSync(new URL("../src/background.ts", import.meta.url), "utf8");

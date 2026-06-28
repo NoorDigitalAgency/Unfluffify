@@ -22,5 +22,7 @@ export type DiagnosticEchoPayload = Readonly<{
 }>;
 
 export * from "./activation";
+export * from "./property-lock-state";
 export * from "./render-mode";
+export * from "./secondary-gates-state";
 export * from "./session-state";

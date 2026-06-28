@@ -8,7 +8,12 @@ import type {
   PopupLifecycleState,
   PopupTraceEvent,
 } from "../../common/bus/contracts/popup-state";
+import type {
+  PropertyLockTimerState,
+  PropertyLockViewState
+} from "../../common/bus/contracts/property-lock-state";
 import type { RenderModeViewState } from "../../common/bus/contracts/render-mode";
+import type { SecondaryGatesViewState } from "../../common/bus/contracts/secondary-gates-state";
 import type { SessionDictation, SessionFacts } from "../../common/bus/contracts/session-state";
 import { createDefaultSessionFacts } from "./deciders/session-phase-decider";
 
@@ -37,6 +42,9 @@ export type ActivationState = ActivationSnapshot;
 export type RenderModeState = RenderModeViewState;
 export type SessionFactsState = SessionFacts;
 export type SessionDictationState = SessionDictation | null;
+export type PropertyLockViewProjectionState = PropertyLockViewState | null;
+export type PropertyLockTimerProjectionState = PropertyLockTimerState | null;
+export type SecondaryGatesProjectionState = SecondaryGatesViewState | null;
 
 function createInitialActivationState(): ActivationState {
   return {
@@ -93,6 +101,9 @@ export type TabLayerState = {
   sessionFactsReported: boolean;
   sessionFacts: SessionFactsState;
   sessionDictation: SessionDictationState;
+  propertyLockView: PropertyLockViewProjectionState;
+  propertyLockTimer: PropertyLockTimerProjectionState;
+  secondaryGates: SecondaryGatesProjectionState;
   spinners: {
     popup: SpinnerSelection | null;
     pageCurtain: SpinnerSelection | null;
@@ -118,6 +129,9 @@ function createInitialTabState(tabId: number): TabLayerState {
     sessionFactsReported: false,
     sessionFacts: createDefaultSessionFacts(),
     sessionDictation: null,
+    propertyLockView: null,
+    propertyLockTimer: null,
+    secondaryGates: null,
     spinners: {
       popup: null,
       pageCurtain: null,
