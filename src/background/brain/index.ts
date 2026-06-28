@@ -38,7 +38,7 @@ import {
   recordNoJsHoldState as recordRenderModeNoJsHoldValue,
 } from "./deciders/render-mode-decider";
 import { deriveSecondaryGatesViewState } from "./deciders/secondary-gates-decider";
-import { updateSpinnerSelectionsFromQueue } from "./deciders/spinner-state-decider";
+import { updateSpinnerSelectionsFromQueue, isAiRunComputeSpinnerActive } from "./deciders/spinner-state-decider";
 import { applySessionFactsPatch } from "./deciders/session-phase-decider";
 import { createStateStore, type TabLayerState } from "./state-store";
 import { projectSpinners, type SpinnerState } from "./spinner-authority";
@@ -274,7 +274,32 @@ export function createBrain(options: { logger?: Pick<Console, "error"> } = {}) {
       return getRenderModeSnapshotValue(store, tabId);
     },
     syncProjectedSpinnerQueue(tabId: number, queue: readonly PopupSpinnerEntry[], reason: string) {
-      return updateSpinnerSelectionsFromQueue(store, tabId, queue, reason);
+      const selections = updateSpinnerSelectionsFromQueue(store, tabId, queue, reason);
+      const aiRunComputeActive = isAiRunComputeSpinnerActive(queue);
+      const current = store.get(tabId);
+      const leaseOwned = current?.aiRunLeaseOwned ?? false;
+      const factsAlreadySet = Boolean(
+        current?.sessionFacts.aiBusy && current?.sessionFacts.aiComputing,
+      );
+      // Only the brain-owned lease drives these facts. When no lease exists and
+      // the brain never owned one (e.g. a popup-driven resumed run owns
+      // aiBusy/aiComputing), leave the facts to their authority.
+      const needsUpdate = aiRunComputeActive
+        ? !leaseOwned || !factsAlreadySet
+        : leaseOwned;
+      if (needsUpdate) {
+        store.mutate(tabId, `${reason}:ai-run-facts`, (draft) => {
+          draft.aiRunLeaseOwned = aiRunComputeActive;
+          const next = applySessionFactsPatch(draft.sessionFacts, {
+            aiBusy: aiRunComputeActive,
+            aiComputing: aiRunComputeActive,
+          });
+          draft.sessionFacts = next.facts;
+          draft.sessionDictation = next.dictation;
+          draft.secondaryGates = deriveSecondaryGatesViewState(next.facts);
+        });
+      }
+      return selections;
     },
     registerPopupPort(tabId: number, port: Browser.runtime.Port): void {
       transport.registerPopupPort(tabId, port);

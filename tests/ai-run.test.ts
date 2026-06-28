@@ -267,6 +267,52 @@ test("AI run countdown timing prefers projected deadlines instead of a popup-own
   assert.match(refreshBlock, /const aiRunCountdownDeadlineAt = projectedAiRunDeadlineAt > 0[\s\S]*?state\.aiRunDeadlineAt/);
 });
 
+test("background owns the authoritative AI-run countdown deadline for the primary compute path", () => {
+  const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
+  const aiRunOrchestratorSource = readFileSync(new URL("../src/background/ai-run-orchestrator.ts", import.meta.url), "utf8");
+  const handleMatch = popupSource.match(
+    /async function handleComputeSelectors\(\) \{([\s\S]*?)\n\}\n\nasync function postPageTypeAssignmentsToAiServer/
+  );
+  assert.ok(handleMatch, "handleComputeSelectors body should be found");
+  const handleBody = handleMatch[1];
+
+  // The popup no longer generates or forwards a deadline; the background brain owns it.
+  assert.doesNotMatch(handleBody, /const deadlineAt = Date\.now\(\) \+ AI_RUN_TIMEOUT_MS;/);
+  const requestBlock = handleBody.slice(handleBody.indexOf("messages.requestTabRunAi(tabId, {"));
+  assert.doesNotMatch(requestBlock.slice(0, requestBlock.indexOf("}")), /deadlineAt/);
+
+  // The orchestrator stamps the running-phase spinner lease with the authoritative deadline.
+  assert.match(
+    aiRunOrchestratorSource,
+    /await update\(\{[\s\S]*?reason: "tab-run-ai-running",[\s\S]*?deadlineAt\s*\}\)/
+  );
+});
+
+test("popup only pushes AI-run busy facts on the resume path and never dictates timer text", () => {
+  const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
+  const countdownStart = popupSource.indexOf("function updateAiRunCountdownState() {");
+  const countdownEnd = popupSource.indexOf("function startAiRunCountdownTimer()", countdownStart);
+  assert.ok(countdownStart > -1);
+  assert.ok(countdownEnd > countdownStart);
+  const countdownBlock = popupSource.slice(countdownStart, countdownEnd);
+
+  // The compute-path activation never dictates a timer text; the spinner self-ticks.
+  assert.doesNotMatch(countdownBlock, /busyTimerText:/);
+  // Busy facts are only reported when the popup itself owns a resumed run.
+  assert.match(
+    countdownBlock,
+    /if \(state\.aiRunResumed\) \{\s*publishCurrentTabSessionFacts\(\{\s*aiBusy: true,[\s\S]*?aiComputing: true,/
+  );
+
+  // The continuous publisher gates aiBusy/aiComputing behind resume ownership and emits no dictated timer text.
+  assert.match(popupSource, /const popupOwnsAiRunFacts = state\.aiRunResumed;/);
+  assert.match(
+    popupSource,
+    /\.\.\.\(popupOwnsAiRunFacts\s*\?\s*\{ aiBusy: aiBusyForSessionFacts, aiComputing: aiComputingForSessionFacts \}/
+  );
+  assert.match(popupSource, /busyNote: busyNoteForSessionFacts,\s*busyTimerText: ""/);
+});
+
 test("AI run recovery heartbeat and page lock are coordinated by background", () => {
   const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
   const backgroundSource = readFileSync(new URL("../src/background.ts", import.meta.url), "utf8");

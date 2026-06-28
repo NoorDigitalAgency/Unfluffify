@@ -4,6 +4,7 @@ import { createStateStore } from "../src/background/brain/state-store.js";
 import type { PopupSpinnerEntry } from "../src/common/bus/contracts/popup-state.js";
 import {
   deriveSpinnerSelectionsFromQueue,
+  isAiRunComputeSpinnerActive,
   updateSpinnerSelectionsFromQueue,
 } from "../src/background/brain/deciders/spinner-state-decider.js";
 
@@ -212,5 +213,40 @@ describe("spinner state decider", () => {
       }),
     });
     expect(store.get(99)?.spinners).toEqual(selections);
+  });
+
+  it("flags AI-run compute phases as the authoritative aiComputing source", () => {
+    for (const phase of [
+      "preparing-page",
+      "capture-marked-content",
+      "prepare-selector-payload",
+      "refining-static-xpaths",
+      "remote-wait",
+    ]) {
+      expect(
+        isAiRunComputeSpinnerActive([
+          buildEntry({ operationKind: "ai-run", operationPhase: phase }),
+        ]),
+      ).toBe(true);
+    }
+  });
+
+  it("excludes post-result AI-run phases and non-AI leases from aiComputing", () => {
+    expect(
+      isAiRunComputeSpinnerActive([
+        buildEntry({ operationKind: "ai-run", operationPhase: "opening-preview" }),
+      ]),
+    ).toBe(false);
+    expect(
+      isAiRunComputeSpinnerActive([
+        buildEntry({ operationKind: "ai-run", operationPhase: "syncing-markings" }),
+      ]),
+    ).toBe(false);
+    expect(
+      isAiRunComputeSpinnerActive([
+        buildEntry({ operationKind: "config-sync", operationPhase: "saving" }),
+      ]),
+    ).toBe(false);
+    expect(isAiRunComputeSpinnerActive([])).toBe(false);
   });
 });

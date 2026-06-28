@@ -1,4 +1,5 @@
 import type { PopupSpinnerEntry } from "../../../common/bus/contracts/popup-state";
+import { SPINNER_OPERATION_KINDS, SPINNER_OPERATION_PHASES } from "../../../common/spinner-contract";
 import type { SpinnerSelection, TabLayerState } from "../state-store";
 
 type SpinnerSelections = Readonly<Pick<TabLayerState["spinners"], "popup" | "pageCurtain" | "banner">>;
@@ -6,6 +7,32 @@ type BlockingSurface = "popup" | "page";
 type SpinnerStateStore = {
   mutate(tabId: number, reason: string, fn: (state: TabLayerState) => void): TabLayerState;
 };
+
+const AI_RUN_COMPUTE_PHASES: ReadonlySet<string> = new Set([
+  SPINNER_OPERATION_PHASES.AI_RUN.PREPARING_PAGE,
+  SPINNER_OPERATION_PHASES.AI_RUN.CAPTURE_MARKED_CONTENT,
+  SPINNER_OPERATION_PHASES.AI_RUN.PREPARE_SELECTOR_PAYLOAD,
+  SPINNER_OPERATION_PHASES.AI_RUN.REFINING_STATIC_XPATHS,
+  SPINNER_OPERATION_PHASES.AI_RUN.REMOTE_WAIT,
+]);
+
+/**
+ * Detects whether the projected spinner queue contains an active AI-run compute
+ * lease (the synchronous prepare -> remote-wait phases). The brain uses this as
+ * the single source of truth for aiBusy/aiComputing so the popup no longer
+ * pushes those facts. Post-result AI-run phases (opening-preview, syncing-
+ * markings) are intentionally excluded so they do not force the COMPUTING_AI
+ * curtain.
+ */
+export function isAiRunComputeSpinnerActive(queue: readonly PopupSpinnerEntry[]): boolean {
+  return queue.some(
+    (entry) =>
+      Boolean(entry) &&
+      entry.operationKind === SPINNER_OPERATION_KINDS.AI_RUN &&
+      typeof entry.operationPhase === "string" &&
+      AI_RUN_COMPUTE_PHASES.has(entry.operationPhase),
+  );
+}
 
 function blocksSurface(entry: PopupSpinnerEntry, surface: BlockingSurface): boolean {
   if (entry.blockSurfaces && typeof entry.blockSurfaces === "object") {

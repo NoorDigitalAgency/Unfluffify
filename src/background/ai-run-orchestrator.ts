@@ -795,7 +795,8 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
           await update({
             message: "Analyzing page content with AI...",
             reason: "tab-run-ai-running",
-            source: "background-command-router"
+            source: "background-command-router",
+            deadlineAt
           });
         }
       });

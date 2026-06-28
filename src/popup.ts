@@ -2728,14 +2728,15 @@ function updateAiRunCountdownState() {
         }
       : {})
   });
-  publishCurrentTabSessionFacts({
-    aiBusy: true,
-    aiComputing: true,
-    busyVisible: true,
-    busyMessage: "",
-    busyNote: PopupText.overlay.computingSelectorsNote,
-    busyTimerText: aiRunCountdownText
-  });
+  if (state.aiRunResumed) {
+    publishCurrentTabSessionFacts({
+      aiBusy: true,
+      aiComputing: true,
+      busyVisible: true,
+      busyMessage: "",
+      busyNote: PopupText.overlay.computingSelectorsNote
+    });
+  }
 }
 
 function startAiRunCountdownTimer() {
@@ -5928,25 +5929,7 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
         : typeof nextViewState.aiRunSpinnerNote === "string"
           ? nextViewState.aiRunSpinnerNote
           : "";
-    const busyTimerTextForSessionFacts =
-      nextViewState.aiRunCountdownVisible
-        ? formatAiRunCountdown(
-            getAiRunRemainingMs(
-              Number.isFinite(nextViewState.busyDeadlineAt) && nextViewState.busyDeadlineAt > 0
-                ? nextViewState.busyDeadlineAt
-                : nextViewState.aiRunDeadlineAt
-            )
-          )
-        : "";
-    const resolvedBusyTimerTextForSessionFacts =
-      projectedComputingAiActive &&
-        typeof nextViewState.sessionCurtainTimerText === "string" &&
-        nextViewState.sessionCurtainTimerText
-        ? nextViewState.sessionCurtainTimerText
-        : busyTimerTextForSessionFacts ||
-          (typeof nextViewState.aiRunCountdownText === "string" && nextViewState.aiRunCountdownVisible
-          ? nextViewState.aiRunCountdownText
-          : "");
+    const popupOwnsAiRunFacts = state.aiRunResumed;
     publishCurrentSessionFacts(currentTabId, {
       baseUrlReady,
       pageScopedUiDisabled,
@@ -5962,8 +5945,9 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
       isEnabled,
       silentModeActive,
       aiReady,
-      aiBusy: aiBusyForSessionFacts,
-      aiComputing: aiComputingForSessionFacts,
+      ...(popupOwnsAiRunFacts
+        ? { aiBusy: aiBusyForSessionFacts, aiComputing: aiComputingForSessionFacts }
+        : {}),
       aiRunUpToDate,
       previewActive,
       previewBlocked: nextViewState.previewBlocked,
@@ -5992,7 +5976,7 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
       busyVisible: busyVisibleForSessionFacts,
       busyMessage: busyMessageForSessionFacts,
       busyNote: busyNoteForSessionFacts,
-      busyTimerText: resolvedBusyTimerTextForSessionFacts
+      busyTimerText: ""
     });
   }
 }
@@ -8107,10 +8091,8 @@ async function handleComputeSelectors() {
     }
 
     const siteId = normalizeSiteIdValue(state.currentSiteId || (state.currentConfig && state.currentConfig.siteId));
-    const deadlineAt = Date.now() + AI_RUN_TIMEOUT_MS;
     setAiRunActiveState({
       siteId,
-      deadlineAt,
       resumed: false,
       phase: "starting"
     });
@@ -8122,8 +8104,7 @@ async function handleComputeSelectors() {
         currentPageUrl,
         pageType: state.currentPageTypeKey || "",
         currentRenderMode,
-        siteId,
-        deadlineAt
+        siteId
       });
       if (!isPopupCommandSuccess<Record<string, unknown>>(aiRunResponse)) {
         await failAiRun(getAiRunCommandFailureMessage(aiRunResponse));

@@ -101,6 +101,13 @@ export type TabLayerState = {
   sessionFactsReported: boolean;
   sessionFacts: SessionFactsState;
   sessionDictation: SessionDictationState;
+  /**
+   * True while the brain is the authority for aiBusy/aiComputing because an
+   * active AI-run compute spinner lease drove those facts. Lets the brain clear
+   * only the facts it set from a lease, without clobbering the resume path where
+   * the popup legitimately owns aiBusy/aiComputing (no background lease exists).
+   */
+  aiRunLeaseOwned: boolean;
   propertyLockView: PropertyLockViewProjectionState;
   propertyLockTimer: PropertyLockTimerProjectionState;
   secondaryGates: SecondaryGatesProjectionState;
@@ -129,6 +136,7 @@ function createInitialTabState(tabId: number): TabLayerState {
     sessionFactsReported: false,
     sessionFacts: createDefaultSessionFacts(),
     sessionDictation: null,
+    aiRunLeaseOwned: false,
     propertyLockView: null,
     propertyLockTimer: null,
     secondaryGates: null,
