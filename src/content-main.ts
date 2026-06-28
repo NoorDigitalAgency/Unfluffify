@@ -3562,6 +3562,14 @@ function notifyAiPreviewStateChanged() {
   });
 }
 
+function notifyInspectionSettled() {
+  void sendRuntimeMessageSafely({
+    type: "inspectionSettled",
+    baseUrl: state.baseUrl || "",
+    pageUrl: location.href
+  });
+}
+
 async function exitAiPreviewMode() {
   if (!aiPreviewState.active) {
     return {
@@ -7034,6 +7042,7 @@ export function main() {
   state.initialized = true;
   registerContentCommandHandlersOnce();
   subscribePageActivity(sendPropertyLockActivity);
+  core.setPageInspectionUiSettledListener(notifyInspectionSettled);
   startContentBusClient({
     renderModeHandlers: {
       beginInspection: handleRenderModeInspectionBeginCommand,

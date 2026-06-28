@@ -1931,6 +1931,12 @@ function clearStaleInspectionBusyClearTimer() {
   popupStaleInspectionBusyClearTimer = 0;
 }
 
+// Bounded last-resort fail-open windows. The deterministic clear now comes from
+// the content `inspectionSettled` event; these single one-shot timers only force
+// a clear if that settle signal never arrives. They do NOT poll content status.
+const NAV_INSPECTION_SETTLE_FAILOPEN_MS = 15_000;
+const STALE_INSPECTION_FAILOPEN_MS = 15_000;
+
 function scheduleStaleInspectionBusyClear(
   tabId = state.currentTab && state.currentTab.id,
   baseUrl = state.currentBaseUrl,
@@ -2030,9 +2036,12 @@ function scheduleStaleInspectionBusyClear(
       failOpenClear();
       return;
     }
+    // No re-polling: the content `inspectionSettled` event drives the
+    // deterministic clear. Arm a single bounded fail-open as last resort only.
     popupStaleInspectionBusyClearTimer = window.setTimeout(() => {
-      void run();
-    }, 400);
+      popupStaleInspectionBusyClearTimer = 0;
+      failOpenClear();
+    }, STALE_INSPECTION_FAILOPEN_MS);
   };
   popupStaleInspectionBusyClearTimer = window.setTimeout(() => {
     void run();
@@ -3673,9 +3682,17 @@ function scheduleNavigationInspectionSettlePoll(tabId: number | null, baseUrl: s
       void refreshUi({ useBusyOverlay: false });
       return;
     }
+    // No re-polling: the content `inspectionSettled` event ends this overlay
+    // deterministically. Arm a single bounded fail-open as last resort only.
     const timer = window.setTimeout(() => {
-      void run();
-    }, getRetryDelayMs(attempt, 500, 2000));
+      popupNavigationInspectionSettlePollByTabId.delete(tabId);
+      if (popupNavigationInspectionOverlayTabId !== tabId) {
+        return;
+      }
+      logPopupSpinnerDebug("nav-settle-failopen", { tabId });
+      endNavigationInspectionOverlay(tabId);
+      void refreshUi({ useBusyOverlay: false });
+    }, NAV_INSPECTION_SETTLE_FAILOPEN_MS);
     popupNavigationInspectionSettlePollByTabId.set(tabId, timer);
   };
   const timer = window.setTimeout(() => {
@@ -9051,6 +9068,18 @@ async function init() {
     }
     if (message && message.type === "aiPreviewStateChanged") {
       applyAiPreviewStateUpdate(message);
+      return;
+    }
+    if (message && message.type === "inspectionSettled") {
+      if (
+        !state.currentBaseUrl ||
+        typeof message.baseUrl !== "string" ||
+        !message.baseUrl ||
+        utils.sameBaseUrl(message.baseUrl, state.currentBaseUrl)
+      ) {
+        endNavigationInspectionOverlay();
+        scheduleRefresh();
+      }
       return;
     }
     if (!message || message.type !== "pageDraftChanged") {

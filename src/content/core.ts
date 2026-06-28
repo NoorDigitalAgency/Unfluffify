@@ -6980,11 +6980,20 @@ export async function warmupSilentHighlightingBeforeMotionPause(
   }
 }
 
+let pageInspectionUiSettledListener: (() => void) | null = null;
+
+export function setPageInspectionUiSettledListener(listener: (() => void) | null): void {
+  pageInspectionUiSettledListener = listener;
+}
+
 export function finishPageInspectionUi() {
   setPageInspectionUiActive(false);
   stopPageInspectionInputBlocker();
   if (!state.enabled) {
     removeOverlay();
+  }
+  if (pageInspectionUiSettledListener) {
+    pageInspectionUiSettledListener();
   }
 }
 
