@@ -1032,14 +1032,27 @@ controls, and leaves the popup curtain up while the main world has no curtain;
   receivers; benign but logged at error. Tests assert current logging — change
   log + tests together.
 
-### Open questions (resolve before coding)
+### Open questions (resolved 2026-06-29 by @Sojaner)
 
-1. Page-world overlay ownership: should the main world render its inspection
-   spinner solely from the brain `pageCurtain` broadcast (recommended) or keep a
-   local overlay mirrored to brain dictation? Affects locked `core.ts`.
-2. Render-mode inspect: when inspect cannot confirm a mode, should the curtain
-   auto-clear to a usable render-mode chooser (recommended) or show an explicit
-   error toast and stay blocked?
+1. Page-world overlay ownership: render the main world's inspection spinner
+   SOLELY from the brain `pageCurtain` broadcast (chosen).
+2. Render-mode inspect with no confirmable mode: auto-clear to a usable
+   render-mode chooser AND show a toast telling the user something went wrong and
+   to try again (chosen).
+
+### Progress (2026-06-29)
+
+- P-E (Bug B) DONE: bus EVENT publish to an absent realm now logs at `debug`
+  (`src/common/bus/bus.ts:327`), not `error`; brain logger accepts `debug`;
+  `tests/bus-core.test.ts` updated. No more `Bus publish transport rejected`
+  error spam.
+- P-A/P-B/P-C/P-D BLOCKED on a live verification session: acceptance requires
+  live-round on `sove.se` (no render mode) and `bonliva.se` with backend creds to
+  confirm dual-sync + bounded recovery without regressing locked curtain/marking
+  contracts. Popup curtain is already watchdog-bounded; render-mode inspect
+  already toasts + bounds via `scheduleStaleInspectionBusyClear`. The main-world
+  overlay still renders locally (`setPageInspectionUiActive`) rather than from the
+  `pageCurtain` broadcast.
 
 ### Non-goals
 

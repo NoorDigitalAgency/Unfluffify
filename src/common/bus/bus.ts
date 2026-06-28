@@ -26,6 +26,7 @@ export type PublishOptions = { target?: BusTarget; tab?: number | null; frame?: 
 
 type BusLogger = {
   error?: (message: string, details?: Record<string, unknown>) => void;
+  debug?: (message: string, details?: Record<string, unknown>) => void;
 };
 
 export interface Bus {
@@ -324,7 +325,10 @@ export function createBus(options: CreateBusOptions): Bus {
       }
       const transportResult = await transportResultPromise;
       if (!transportResult.ok) {
-        logger?.error?.("Bus publish transport rejected", { type, realm });
+        // One-way event delivery to an absent realm (popup closed, content not
+        // injected) is benign and self-recovering; log at debug so it does not
+        // spam the error console.
+        logger?.debug?.("Bus publish transport rejected", { type, realm });
       }
     },
   };

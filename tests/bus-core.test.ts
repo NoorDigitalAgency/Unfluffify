@@ -150,30 +150,33 @@ describe("bus core", () => {
 
   it("logs transport rejections separately from listener failures", async () => {
     const error = vi.fn();
+    const debug = vi.fn();
     const bus = createBus({
       realm: REALMS.BACKGROUND,
       transport: createFakeTransport({
         send: () => Promise.reject(new Error("popup disconnected")),
       }),
-      logger: { error },
+      logger: { error, debug },
     });
 
     await expect(bus.publish("diag.echo", { nonce: "n-5c" }, { target: REALMS.POPUP })).resolves.toBeUndefined();
-    expect(error).toHaveBeenCalledWith("Bus publish transport rejected", {
+    expect(debug).toHaveBeenCalledWith("Bus publish transport rejected", {
       type: "diag.echo",
       realm: REALMS.BACKGROUND,
     });
+    expect(error).not.toHaveBeenCalled();
   });
 
   it("handles fast transport rejections without surfacing unhandled rejections", async () => {
     const error = vi.fn();
+    const debug = vi.fn();
     const onUnhandledRejection = vi.fn();
     const bus = createBus({
       realm: REALMS.BACKGROUND,
       transport: createFakeTransport({
         send: () => Promise.reject(new Error("popup disconnected")),
       }),
-      logger: { error },
+      logger: { error, debug },
     });
 
     bus.subscribe("diag.echo", async () => {
@@ -189,7 +192,7 @@ describe("bus core", () => {
     }
 
     expect(onUnhandledRejection).not.toHaveBeenCalled();
-    expect(error).toHaveBeenCalledWith("Bus publish transport rejected", {
+    expect(debug).toHaveBeenCalledWith("Bus publish transport rejected", {
       type: "diag.echo",
       realm: REALMS.BACKGROUND,
     });

@@ -151,7 +151,7 @@ function publishProjectedState(
   publishSpinnerSurface(bus, tabId, "banner", spinners.banner);
 }
 
-export function createBrain(options: { logger?: Pick<Console, "error"> } = {}) {
+export function createBrain(options: { logger?: Pick<Console, "error" | "debug"> } = {}) {
   const transport = createBackgroundTransport();
   const bus = createBus({
     realm: REALMS.BACKGROUND,
