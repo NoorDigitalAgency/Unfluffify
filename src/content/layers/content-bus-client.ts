@@ -16,6 +16,8 @@ import { REALMS } from "../../common/bus/realms";
 import { createContentTransport } from "../../common/bus/transport/content-transport";
 import type { Browser } from "../../common/browser";
 import { startContentLayerHost } from "./layer-host";
+import { setPageCurtainRenderer } from "./spinner-layer";
+import { setPageInspectionUiActive } from "../core";
 import { registerRenderModeInspectionExecutor } from "./modes/render-mode-inspection-executor";
 
 let contentBus: Bus | null = null;
@@ -52,6 +54,11 @@ export function startContentBusClient(options: ContentBusClientOptions = {}): Bu
       handlers: options.renderModeHandlers,
     });
   }
+  // The page-world inspection curtain renders solely from the brain pageCurtain
+  // broadcast: brain hide -> both popup and page clear together.
+  setPageCurtainRenderer((visible) => {
+    setPageInspectionUiActive(visible);
+  });
   contentLayerHostStop = startContentLayerHost(contentBus);
   return contentBus;
 }
@@ -69,6 +76,7 @@ export async function handleContentBusMessage(
 export function stopContentBusClient(): void {
   contentLayerHostStop?.();
   contentLayerHostStop = null;
+  setPageCurtainRenderer(null);
   contentTransport?.stop();
   contentTransport = null;
   contentBus = null;

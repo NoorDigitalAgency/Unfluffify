@@ -1042,17 +1042,21 @@ controls, and leaves the popup curtain up while the main world has no curtain;
 
 ### Progress (2026-06-29)
 
-- P-E (Bug B) DONE: bus EVENT publish to an absent realm now logs at `debug`
-  (`src/common/bus/bus.ts:327`), not `error`; brain logger accepts `debug`;
-  `tests/bus-core.test.ts` updated. No more `Bus publish transport rejected`
-  error spam.
-- P-A/P-B/P-C/P-D BLOCKED on a live verification session: acceptance requires
-  live-round on `sove.se` (no render mode) and `bonliva.se` with backend creds to
-  confirm dual-sync + bounded recovery without regressing locked curtain/marking
-  contracts. Popup curtain is already watchdog-bounded; render-mode inspect
-  already toasts + bounds via `scheduleStaleInspectionBusyClear`. The main-world
-  overlay still renders locally (`setPageInspectionUiActive`) rather than from the
-  `pageCurtain` broadcast.
+- P-E (Bug B) DONE: bus EVENT publish to an absent realm now logs at `debug`,
+  not `error` (`src/common/bus/bus.ts`); tests updated.
+- P-A/P-D DONE: brain spinner selection now fail-open drops expired
+  non-persistent leases (`deadlineAt` past) so a missed main-world ack clears the
+  spinner on both layers and AI-run compute facts release
+  (`spinner-state-decider.ts`); covered by `tests/spinner-state-decider.test.ts`.
+- P-B DONE: page-world inspection curtain renders from the brain `pageCurtain`
+  broadcast (`content/layers/spinner-layer.ts` renderer wired in
+  `content-bus-client.ts` -> `core.setPageInspectionUiActive`); brain hide clears
+  both layers; covered by `tests/content-layer-host.test.ts`.
+- P-C DONE: render-mode inspect with no confirmable mode toasts
+  `toastInspectModeNotConfirmed` and bails to a usable chooser
+  (`src/popup.ts`); curtain cleared by the watchdog/stale-busy path.
+- Remaining: live verify on `sove.se` (no render mode) + `bonliva.se` deferred to
+  a future live session per user; tests/lint/check/build all pass.
 
 ### Non-goals
 

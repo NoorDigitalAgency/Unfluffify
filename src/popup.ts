@@ -6370,6 +6370,12 @@ async function runRenderModeInspectionReload(javaScriptDisabled: boolean) {
           }
           await reconcilePropertyLockAfterRenderModeReload();
           await refreshUi({ useBusyOverlay: false });
+        } else {
+          // Inspection reload finished but never confirmed a render mode (e.g. a
+          // site with no render mode set). Auto-clear the curtain to a usable
+          // chooser and tell the user to try again instead of spinning forever.
+          uiModule.showToast(PopupText.renderMode.toastInspectModeNotConfirmed);
+          return;
         }
         uiModule.showToast(outcome.toast);
       } finally {

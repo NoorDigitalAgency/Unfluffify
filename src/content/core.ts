@@ -6831,7 +6831,7 @@ function createOverlay() {
   updateOverlayGutter();
 }
 
-function setPageInspectionUiActive(active: unknown): void {
+export function setPageInspectionUiActive(active: unknown): void {
   const enabled = Boolean(active);
   if (typeof document !== "undefined" && document.documentElement) {
     setElementClassPresence(document.documentElement, PAGE_INSPECTION_OVERLAY_CLASS, enabled);

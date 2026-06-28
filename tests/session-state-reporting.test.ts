@@ -78,7 +78,7 @@ test("brain derives the COMPUTING_AI phase from an AI-run spinner lease, not pop
     operationKind: "ai-run",
     operationPhase: "remote-wait",
     timerMode: "countdown",
-    deadlineAt: 481000,
+    deadlineAt: Date.now() + 480000,
     maxDurationMs: 480000,
     updatedAt: 1000,
     blockSurfaces: { page: true, popup: true },

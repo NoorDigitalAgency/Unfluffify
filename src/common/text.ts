@@ -280,6 +280,7 @@ export const PopupText = Object.freeze({
     toastInspectWithJavaScriptStarted: "Reloading page with JavaScript enabled for inspection", // Toast shown when starting step-1 inspection reload.
     toastInspectWithoutJavaScriptStarted: "Reloading page with JavaScript disabled for inspection", // Toast shown when starting step-2 inspection reload.
     toastInspectReloadFailed: "Unable to reload page for render mode inspection", // Toast shown when the inspection reload fails.
+    toastInspectModeNotConfirmed: "Something went wrong and the render mode could not be confirmed. Please try again.", // Toast shown when inspection finished without confirming a render mode.
     toastConfirmBeforeEnabling: "Confirm Render Mode before enabling marking", // Guard toast before enabling page marking.
     toastConfirmBeforeUsingAi: "Confirm Render Mode before continuing", // Guard toast before computing selectors.
     toastConfirmBeforeSubmitting: "Confirm Render Mode before sending to Lynx" // Guard toast before submitting selectors.
