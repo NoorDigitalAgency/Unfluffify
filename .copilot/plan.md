@@ -610,6 +610,228 @@ brain-followup-secondary-gates -> brain-followup-cleanup (COMPLETE).
 6. Track H remains paused after H3 by design. Do not resume deeper
    `content-main` extraction unless a new written plan is approved.
 
+---
+
+## Open Implementation Plan: Eliminate Non-Backend Polling (2026-06-28)
+
+### Goal
+
+Make every runtime state transition event-based, predictable, and
+deterministic. Remove every timer that exists only to repeatedly re-read a value
+to detect a change. The only polling that may remain is polling a backend server
+that offers no push channel, plus any single poll that genuinely cannot be made
+event-based without breaking functionality. Each converted site must route its
+state-change detection through an existing event/observer/bus seam (preferably
+the brain `SessionFacts` bus) or a single deterministic deadline/one-shot timer.
+
+### Approved decisions (2026-06-28, user)
+
+1. Keep backend-server polls and any poll that genuinely cannot be event-based
+   without breaking behavior. Convert everything else that can be safely made
+   event-based.
+2. AI run readiness: keep the background backend poll
+   (`executeAiRunWithStatusPolling`). Convert the popup mirror
+   (`continueAiRunPolling`) to subscribe to a background-pushed status event.
+3. Editing the locked `src/content/core.ts` polls is approved for this plan,
+   provided marking / visibility / reconciliation behavior is preserved and
+   covered by regression tests.
+4. SPA URL detection is replaced with a `history.pushState`/`replaceState`
+   patch plus `popstate`/`hashchange` listeners (in-page, deterministic).
+
+### Current facts (verified)
+
+- Event seam already exists: layers publish `SessionFactsPatch` over the bus
+  (`src/popup/layers/popup-bus-client.ts:publishPopupSessionFacts`,
+  `src/popup.ts:publishCurrentTabSessionFacts`), the background brain folds them
+  via `applySessionFactsPatch` (`src/background/brain/index.ts`,
+  `src/background/brain/deciders/session-phase-decider.ts`) and pushes dictation
+  back. `SessionFacts` is defined in
+  `src/common/bus/contracts/session-state.ts`.
+- Inspection status today is request/response only:
+  `src/content/inspection-status.ts:createInspectionStatusResolver().resolve()`
+  is returned through `getInspectionStatus` in
+  `src/content/runtime-message-handler.ts`; the popup polls it via
+  `src/popup.ts:scheduleNavigationInspectionSettlePoll` (350ms then 500-2000ms
+  backoff, 30 attempts) and `src/popup.ts:scheduleStaleInspectionBusyClear`
+  (150ms then 400ms retries). These polls drive the stuck "Inspecting page..." /
+  "Working... controls are temporarily blocked." curtain.
+- Background AI poll (EXEMPT, keep): `executeAiRunWithStatusPolling` in
+  `src/background/ai-run-orchestrator.ts` using `AI_RUN_POLL_INTERVAL_MS`
+  (`src/popup/ai-run.ts`).
+- `src/background/sw-keepalive.ts` is a refcounted MV3 keepalive ping, not a
+  state poll. Keep it.
+
+### Polling sites and disposition
+
+KEEP (backend / unreplaceable):
+
+- `src/background/ai-run-orchestrator.ts` `executeAiRunWithStatusPolling`
+  (backend AI readiness) — EXEMPT.
+- `src/popup.ts` property page types refresh
+  (`PROPERTY_PAGE_TYPES_REFRESH_INTERVAL_MS`, ~120s GraphQL) — backend poll with
+  no server push. KEEP as a documented backend poll.
+- `src/background/sw-keepalive.ts` keepalive ping — not polling. KEEP.
+
+CONVERT (phases below):
+
+- P1 popup `scheduleNavigationInspectionSettlePoll` +
+  `scheduleStaleInspectionBusyClear` -> content-emitted inspection-settled fact.
+- P2 popup `continueAiRunPolling` -> background-pushed AI status event.
+- P3 popup curtain countdown (`src/popup/ui.tsx:syncBlockingCurtainCountdownTimer`),
+  popup property-lock off-candidate refresh
+  (`src/popup/property-lock-ui.ts:syncPropertyLockOffCandidateRefreshTimer`),
+  content property-lock banner countdown
+  (`src/content/property-lock-banner.ts`) -> single deadline timer for expiry
+  detection; visible seconds may keep a display-only clock tick (not a state
+  poll) where a number must visibly decrement.
+- P4 content URL watchers (`src/content-main.ts:silentHighlightingUrlTimer`,
+  `src/content/core.ts:state.urlCheckTimer`) -> history API patch +
+  popstate/hashchange.
+- P5 content page-motion-pause refresh
+  (`src/content/core.ts:pauseState.refreshTimer`, 250ms) -> driven by the
+  existing mutation observer + scroll/resize listeners.
+- P6 content completion polls:
+  `src/content/core.ts:pollUntilRendered` -> render-scheduler completion
+  callback/promise; `pollUntilSettled` -> `scrollend` event + bounded fallback;
+  `waitForPageInspectionDelay` -> single `setTimeout(resolve, delay)`.
+- P7 content silent-highlight position settle sampler
+  (`src/content-main.ts:runSilentHighlightSettledRepositionSample`, recursive
+  120ms) -> ResizeObserver + transitionend/animationend driven reposition.
+
+KEEP (not polling — one-shot deadlines, debounces, watchdogs): everything the
+inventory classified DEADLINE / DEBOUNCE / WATCHDOG / ONE-SHOT-DELAY (e.g.
+`aiComputeLockReleaseTimer`, `popupBusyFailOpenTimer`, render-mode watchdog,
+toast hide timers, snapshot/draft/render debounces, bus/tab-op timeouts).
+
+### Non-goals
+
+- Do not change marking/highlighting/visibility/reconciliation contracts; only
+  swap the trigger mechanism (timer -> event) while keeping observable behavior.
+- Do not remove the background AI backend poll, the property-page-types backend
+  poll, or the SW keepalive.
+- Do not change UI copy, button-state matrix, or curtain semantics; only change
+  what makes the curtain clear/expire.
+- Do not introduce new broad catch blocks or silent fallbacks.
+
+### Implementation phases
+
+Each phase is independently shippable and ends with full validation +
+review-push. Order is by value and risk (P1 first; it also fixes the reported
+stuck spinner).
+
+**P1 — Inspection-settled event (fixes stuck spinner; removes 2 popup polls)**
+
+- Add a content-side notification: when the page-inspection lifecycle reaches a
+  terminal settled state (the same condition `inspection-status.ts:resolve()`
+  reports as `pending === false`), publish an inspection fact over the bus to the
+  brain and/or a direct `inspectionSettled` message to the popup, instead of
+  waiting to be polled. Emit at the existing completion points
+  (`finishPageInspectionUi` / reconciliation clear in `content-main.ts` /
+  `core.ts`).
+- Files: `src/common/bus/contracts/session-state.ts` (add fact field or a new
+  report type), `src/content/inspection-status.ts` (expose an
+  emit-on-change hook), `src/content-main.ts` (call the emit at settle points),
+  `src/popup.ts` (subscribe; clear `navInspect` overlay on the event; delete
+  `scheduleNavigationInspectionSettlePoll`, `scheduleStaleInspectionBusyClear`
+  and their timers/maps), plus a bounded one-shot safety deadline (keep existing
+  watchdog, not a poll).
+- Expected state: navigating/reload clears the "Inspecting page..." curtain on
+  the content event; no 350ms/500-2000ms/150ms/400ms polling remains.
+- Tests: `tests/popup-*` inspection/curtain tests; add a regression asserting the
+  curtain clears on the inspection-settled event and that no settle-poll timer is
+  scheduled. Add a content test that the emit fires once on settle.
+- Validation: focused tests, then `pnpm lint && pnpm check && pnpm test && pnpm build`.
+- Rollback: if the event path regresses, the existing render-mode watchdog
+  deadline still force-clears; revert popup subscription edit.
+
+**P2 — AI status push (removes popup `continueAiRunPolling`)**
+
+- Background already polls the backend; have it publish `aiRunStatusChanged`
+  (status running/done/error + result-ready) to the popup. Popup subscribes and
+  updates AI run UI reactively; delete `continueAiRunPolling` and
+  `state.aiRunPollTimer`.
+- Files: `src/background/ai-run-orchestrator.ts` (publish on each status
+  transition), bus contract, `src/popup.ts` / `src/popup/ai-run.ts` (subscribe,
+  remove loop).
+- Tests: `tests/ai-run-orchestrator.test.ts` (asserts a status event is
+  published on transition), popup AI-run test (reacts to event, no poll timer).
+
+**P3 — Deadline-driven expiry (removes 1s re-derive timers)**
+
+- Replace the 1s re-derive timers with one-shot timers scheduled at the known
+  `deadlineAt`; on fire, clear/expire and refresh once. Keep a display-only
+  seconds clock only where a visible countdown number must tick.
+- Files: `src/popup/ui.tsx`, `src/popup/property-lock-ui.ts`,
+  `src/content/property-lock-banner.ts`.
+- Tests: property-lock UI tests assert expiry fires on the deadline timer and no
+  1s re-derive interval is created.
+
+**P4 — Event-based SPA URL detection (removes 2 800ms URL polls)**
+
+- Add a single in-page navigation notifier that patches `history.pushState`/
+  `replaceState` to dispatch a custom event, plus `popstate`/`hashchange`
+  listeners; route both content URL watchers through it. Remove
+  `silentHighlightingUrlTimer` and `state.urlCheckTimer`.
+- Files: `src/content-main.ts`, `src/content/core.ts` (approved), a shared
+  helper in `src/content/` for the history patch.
+- Tests: content URL-watcher tests fire on pushState/replaceState/popstate/
+  hashchange; assert no 800ms interval is created.
+
+**P5 — Event-based page-motion-pause (removes 250ms refresh)**
+
+- Drive `refreshPageMotionPause()` from the existing mutation observer and
+  scroll/resize listeners instead of a 250ms interval.
+- Files: `src/content/core.ts` (approved).
+- Tests: pause re-applies on a simulated mutation/scroll without an interval.
+
+**P6 — Completion as promises/events (removes render/scroll/delay polls)**
+
+- `pollUntilRendered` -> resolve from the render scheduler's existing
+  completion path; `pollUntilSettled` -> `scrollend` + bounded fallback;
+  `waitForPageInspectionDelay` -> single `setTimeout(resolve, delay)`.
+- Files: `src/content/core.ts` (approved).
+- Tests: completion resolves on the event; delay resolves once.
+
+**P7 — Position settle via observers (removes recursive 120ms sampler)**
+
+- Reposition silent-highlight overlays on ResizeObserver +
+  transitionend/animationend instead of the recursive 120ms position sampler.
+- Files: `src/content-main.ts`.
+- Tests: reposition fires on observer/transition events; no recursive sampler.
+
+### Test matrix
+
+- Unit/contract: per-phase tests above plus existing
+  `tests/popup-central-state-dictation.test.ts`,
+  `tests/ai-run-orchestrator.test.ts`.
+- Source-contract guard: add a focused test asserting that, outside the approved
+  backend polls (AI run orchestrator) and `sw-keepalive`, no `setInterval` and no
+  self-rescheduling `setTimeout` poll remains in the converted files.
+- Full: `pnpm lint`, `pnpm check`, `pnpm test`, `pnpm build` each phase.
+- Live: `pnpm browser:live <target-url>` to confirm the curtain clears on
+  reveal/freeze and SPA navigation still resets silent highlighting.
+
+### Regression risks
+
+- Curtain could get stuck if the inspection-settled event is missed: keep the
+  existing render-mode/bus watchdog deadline as a non-poll safety net.
+- SPA navigation reset could be missed if a site mutates the URL by means other
+  than history/popstate/hashchange: covered by keeping the property-lock banner
+  and silent-highlight reset reachable from the same notifier; if a real site
+  regresses, this URL watcher is the one candidate to treat as an unreplaceable
+  exception per decision 1.
+- Editing `core.ts` risks marking behavior: preserve exact call sites; only
+  change the trigger; rely on marking regression tests.
+
+### Acceptance criteria
+
+- After reveal/freeze and after SPA navigation, the popup "Inspecting page..." /
+  "Working..." curtain clears from a content event, not a poll.
+- No `setInterval` or self-rescheduling `setTimeout` poll remains in the
+  converted files except the approved backend polls and `sw-keepalive`.
+- All AI-run, property-lock, marking, and silent-highlight behaviors remain
+  observably unchanged under the full test suite and a live round.
+
 ## Guardrails
 
 1. Do not change locked marking/highlighting/property-lock contracts without an
