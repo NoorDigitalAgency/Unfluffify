@@ -31,6 +31,7 @@ import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import { chromium } from "playwright";
 
 const selfPath = fileURLToPath(import.meta.url);
 const repoRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -41,6 +42,8 @@ const TEMP_CONFIG = join(TEMP_DIR, "browser-mcp.config.json");
 const TEMP_OUT = join(TEMP_DIR, "out");
 const COMMITTED_CONFIG = join(repoRoot, ".vscode", "browser-mcp.config.json");
 const CDP_PORT = 9222;
+const CONTROL_STATE_TIMEOUT_MS = 20_000;
+const CONTROL_OBSERVE_TIMEOUT_MS = 4_000;
 const XVFB_WRAP_ENV = "UNFLUFFIFY_BROWSER_LIVE_XVFB_WRAPPED";
 const XVFB_RUN_ARGS = ["-a", "--server-args=-screen 0 1280x900x24"];
 const MANUAL_XVFB_COMMAND =
@@ -384,16 +387,14 @@ function buildLiveStateScript(action) {
         url: location.href,
         title: document.title,
         view: pickedView,
-        dom,
-        bodyText: String(document.body?.innerText || '').slice(0, 1600)
+        dom
       };
     });
     const targetState = target
       ? await target.evaluate(() => ({
         url: location.href,
         title: document.title,
-        activeElement: document.activeElement ? document.activeElement.tagName : '',
-        bodyText: String(document.body?.innerText || '').slice(0, 1000)
+        activeElement: document.activeElement ? document.activeElement.tagName : ''
       })).catch((error) => ({ error: String(error && error.message ? error.message : error) }))
       : null;
     return { popup: popupState, target: targetState };
@@ -463,12 +464,131 @@ function makeControlChannel(client) {
     return next;
   }
 
-  async function runStateAction(action) {
-    const response = await client.request("tools/call", {
-      name: "browser_run_code_unsafe",
-      arguments: { code: buildLiveStateScript(action) },
-    });
-    return extractJsonObject(toolText(response));
+  async function runStateActionViaCdp(action) {
+    const browser = await chromium.connectOverCDP(`http://127.0.0.1:${CDP_PORT}`);
+    try {
+      const ctx = browser.contexts()[0];
+      const pages = ctx ? ctx.pages() : [];
+      const popup = pages.find(
+        (candidate) => String(candidate.url()).startsWith("chrome-extension://") && String(candidate.url()).includes("/popup.html")
+      );
+      const target = pages.find(
+        (candidate) => !String(candidate.url()).startsWith("chrome-extension://") && !String(candidate.url()).startsWith("chrome://")
+      );
+      if (!popup) {
+        throw new Error("Could not find the bound Unfluffify popup tab");
+      }
+
+      const collectPopupState = async () => {
+        const popupState = await popup.evaluate(() => {
+          const popupDebug = window.__UNFLUFFIFY_POPUP_DEBUG__;
+          if (!popupDebug || typeof popupDebug.getViewState !== "function") {
+            throw new Error("Popup debug hook is unavailable");
+          }
+          const view = popupDebug.getViewState();
+          const viewKeys = [
+            "previewActive",
+            "previewBlocked",
+            "previewItemsPending",
+            "previewWillRestoreMarking",
+            "toggleEnabled",
+            "toggleEnabledDisabled",
+            "computeButtonDisabled",
+            "markingPreviewVisible",
+            "markingPreviewDisabled",
+            "pageSaveDisabled",
+            "pageRevertDisabled",
+            "sessionHasPendingChanges",
+            "currentPageHasPendingChanges",
+            "sessionRequiresAiRun",
+            "currentDraftDirty",
+            "pageDraftStatusText",
+            "aiDirtyNoticeText",
+            "isBusy",
+            "busyMessage"
+          ];
+          const pickedView = {};
+          for (const key of viewKeys) {
+            pickedView[key] = view[key];
+          }
+          const domIds = ["compute", "marking-preview", "page-save", "page-revert", "toggle-enabled"];
+          const dom = {};
+          for (const id of domIds) {
+            const element = document.getElementById(id);
+            dom[id] = element
+              ? {
+                  disabled: Boolean(element.disabled),
+                  checked: "checked" in element ? Boolean(element.checked) : null,
+                  text: String(element.textContent || "").trim(),
+                  title: element.getAttribute("title") || "",
+                  ariaLabel: element.getAttribute("aria-label") || "",
+                  visible: Boolean(element.offsetWidth || element.offsetHeight || element.getClientRects().length)
+                }
+              : null;
+          }
+          return {
+            url: location.href,
+            title: document.title,
+            view: pickedView,
+            dom
+          };
+        });
+        const targetState = target
+          ? await target
+            .evaluate(() => ({
+              url: location.href,
+              title: document.title,
+              activeElement: document.activeElement ? document.activeElement.tagName : ""
+            }))
+            .catch((error) => ({ error: String(error && error.message ? error.message : error) }))
+          : null;
+        return { popup: popupState, target: targetState };
+      };
+
+      if (action === "exit-preview") {
+        const before = await collectPopupState();
+        await popup.evaluate(() => {
+          const button = document.querySelector(".preview-sidebar__dismiss");
+          if (!button) {
+            throw new Error("Exit Preview button not found");
+          }
+          button.click();
+        });
+        await popup.waitForTimeout(1500);
+        const after = await collectPopupState();
+        return {
+          action,
+          before,
+          after,
+          pages: pages.map((candidate) => candidate.url())
+        };
+      }
+
+      const state = await collectPopupState();
+      return {
+        action,
+        state,
+        pages: pages.map((candidate) => candidate.url())
+      };
+    } finally {
+      await browser.close();
+    }
+  }
+
+  async function runStateAction(action, timeoutMs = CONTROL_STATE_TIMEOUT_MS) {
+    try {
+      const response = await client.request("tools/call", {
+        name: "browser_run_code_unsafe",
+        arguments: { code: buildLiveStateScript(action) },
+      }, timeoutMs);
+      return extractJsonObject(toolText(response));
+    } catch (error) {
+      const message = String(error && error.message ? error.message : error);
+      if (message.includes("timeout waiting for tools/call")) {
+        return runStateActionViaCdp(action);
+      }
+      throw error;
+    }
   }
 
   function printJson(prefix, value) {
@@ -478,7 +598,7 @@ function makeControlChannel(client) {
   async function observeLoop() {
     while (observing) {
       try {
-        const result = await enqueue(() => runStateAction("state"));
+        const result = await enqueue(() => runStateAction("state", CONTROL_OBSERVE_TIMEOUT_MS));
         const summary = summarizeButtonState(result);
         const serialized = JSON.stringify(summary);
         if (serialized !== lastObserved) {
@@ -515,13 +635,25 @@ function makeControlChannel(client) {
       return;
     }
     if (line === "state") {
-      const result = await enqueue(() => runStateAction("state"));
+      const resumeObserve = observing;
+      observing = false;
+      const result = await runStateActionViaCdp("state");
       printJson("[control:state]", result);
+      if (resumeObserve) {
+        observing = true;
+        void observeLoop();
+      }
       return;
     }
     if (line === "exit-preview") {
-      const result = await enqueue(() => runStateAction("exit-preview"));
+      const resumeObserve = observing;
+      observing = false;
+      const result = await runStateActionViaCdp("exit-preview");
       printJson("[control:exit-preview]", result);
+      if (resumeObserve) {
+        observing = true;
+        void observeLoop();
+      }
       return;
     }
     console.log(`[control] unknown command ${JSON.stringify(line)}; type "help"`);

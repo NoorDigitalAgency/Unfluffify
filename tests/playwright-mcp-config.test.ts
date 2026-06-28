@@ -42,4 +42,12 @@ test("live browser launcher targets the WXT output and canonical pnpm command", 
   assert.match(launcher, /spawn\(\s*"xvfb-run"/);
   assert.match(launcher, /headless Linux runs need xvfb-run\. Re-run as:/);
   assert.match(launcher, /process\.exit\(1\);/);
+  assert.match(launcher, /const CONTROL_STATE_TIMEOUT_MS = 20_000;/);
+  assert.match(launcher, /const CONTROL_OBSERVE_TIMEOUT_MS = 4_000;/);
+  assert.match(launcher, /runStateAction\("state", CONTROL_OBSERVE_TIMEOUT_MS\)/);
+  assert.doesNotMatch(launcher, /document\.body\?\.innerText/);
+  assert.match(launcher, /chromium\.connectOverCDP\(`http:\/\/127\.0\.0\.1:\$\{CDP_PORT\}`\)/);
+  assert.match(launcher, /if \(message\.includes\("timeout waiting for tools\/call"\)\) \{\s*return runStateActionViaCdp\(action\);/);
+  assert.match(launcher, /if \(line === "state"\) \{[\s\S]*?const resumeObserve = observing;[\s\S]*?observing = false;[\s\S]*?runStateActionViaCdp\("state"\);[\s\S]*?if \(resumeObserve\) \{[\s\S]*?observing = true;[\s\S]*?void observeLoop\(\);/);
+  assert.match(launcher, /if \(line === "exit-preview"\) \{[\s\S]*?runStateActionViaCdp\("exit-preview"\);/);
 });
