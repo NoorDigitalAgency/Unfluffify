@@ -57,6 +57,8 @@ export function buildCentralSessionDictationViewStatePatch(
   }
 
   const dictation = state.sessionDictation;
+  const effectivePhase = state.sessionPhase || dictation.phase;
+  const showCurtain = dictation.curtain.visible && effectivePhase !== "silent";
   return {
     mainUiHidden: dictation.mainUiHidden,
     silentModeActive: dictation.silentModeActive,
@@ -67,12 +69,12 @@ export function buildCentralSessionDictationViewStatePatch(
     markingPreviewDisabled: !dictation.buttons["marking-preview"].enabled,
     pageSaveDisabled: !dictation.buttons["page-save"].enabled,
     pageRevertDisabled: !dictation.buttons["page-revert"].enabled,
-    sessionCurtainVisible: dictation.curtain.visible,
-    sessionCurtainMessage: dictation.curtain.message,
-    sessionCurtainNote: dictation.curtain.note,
-    sessionCurtainTimerText: dictation.curtain.timerText,
-    sessionCurtainOperation: dictation.curtain.operation,
-    sessionCurtainPhase: state.sessionPhase || dictation.phase,
+    sessionCurtainVisible: showCurtain,
+    sessionCurtainMessage: showCurtain ? dictation.curtain.message : "",
+    sessionCurtainNote: showCurtain ? dictation.curtain.note : "",
+    sessionCurtainTimerText: showCurtain ? dictation.curtain.timerText : "",
+    sessionCurtainOperation: showCurtain ? dictation.curtain.operation : "",
+    sessionCurtainPhase: effectivePhase,
   };
 }
 

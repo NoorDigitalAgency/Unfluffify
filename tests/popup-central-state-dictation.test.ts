@@ -117,6 +117,32 @@ test("central-state snapshot effect repaints on same-tab dictation updates and r
   assert.equal(clearEffect.refreshRequired, true);
 });
 
+test("central-state dictation suppresses stale busy curtain when projected phase is silent", () => {
+  const computingFacts = buildFacts({
+    aiBusy: true,
+    aiComputing: true,
+    busyVisible: true,
+    busyMessage: "Refreshing popup data...",
+    busyNote: "Working... controls are temporarily blocked.",
+    busyTimerText: ""
+  });
+  const computingDictation = deriveDictation(decideSessionPhase(computingFacts), computingFacts);
+
+  const patch = buildCentralSessionDictationViewStatePatch({
+    featureEnabled: true,
+    currentTabId: 7,
+    projectedTabId: 7,
+    sessionPhase: "silent",
+    sessionDictation: computingDictation
+  });
+
+  assert.ok(patch);
+  assert.equal(patch.sessionCurtainVisible, false);
+  assert.equal(patch.sessionCurtainMessage, "");
+  assert.equal(patch.sessionCurtainOperation, "");
+  assert.equal(patch.sessionCurtainPhase, "silent");
+});
+
 test("popup curtain rendering prioritizes session dictation when present", () => {
   assert.match(uiSource, /sessionCurtainVisible: false,/);
   assert.match(uiSource, /sessionCurtainMessage: "",/);
