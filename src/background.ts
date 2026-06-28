@@ -116,6 +116,7 @@ import {
 } from "./background/ai-run-record-store";
 import { AI_RUN_PERSIST_KEY } from "./popup/ai-run";
 import { redactCommandPayloadForLedger } from "./background/command-ledger";
+import { createAuthTokenMonitor } from "./background/auth-token-monitor";
 import {
   fetchLivePagePropertyPageTypes,
   resolveLivePageSiteId
@@ -790,11 +791,28 @@ tabInactivityObserver.subscribe(async (event) => {
   await restoreRenderModeJavaScriptAfterNoJsInactivity(event.tabId);
 });
 
+const authTokenMonitor = createAuthTokenMonitor({
+  createAlarm: (name, info) => {
+    if (browser.alarms && typeof browser.alarms.create === "function") {
+      return Promise.resolve(browser.alarms.create(name, info)).then(() => {});
+    }
+    return undefined;
+  },
+  validateAuthToken: () => validateAuthToken({}),
+  notifyTokenInvalid: () =>
+    Promise.resolve(browser.runtime.sendMessage({ type: "tokenInvalid" }))
+      .then(() => {})
+      .catch(() => {})
+});
+
 if (browser.alarms && browser.alarms.onAlarm && typeof browser.alarms.onAlarm.addListener === "function") {
   browser.alarms.onAlarm.addListener((alarm) => {
     tabInactivityObserver.handleAlarm(alarm).catch(() => {});
+    authTokenMonitor.handleAlarm(alarm).catch(() => {});
   });
 }
+
+void authTokenMonitor.start();
 
 async function captureRenderModeHtmlWithDebugger(tabId: unknown): Promise<RenderModeHtmlCaptureResult> {
   const normalizedTabId = normalizeBrokerTabId(tabId);

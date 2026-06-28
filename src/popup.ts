@@ -9082,6 +9082,10 @@ async function init() {
       }
       return;
     }
+    if (message && message.type === "tokenInvalid") {
+      void invalidateTokenAndLockConfiguration(true);
+      return;
+    }
     if (!message || message.type !== "pageDraftChanged") {
       return;
     }
@@ -9090,15 +9094,10 @@ async function init() {
     }
   });
 
-  if (state.tokenValidationTimer) {
-    popupTimers.clear("token-validation");
-  }
-  state.tokenValidationTimer = popupTimers.setInterval("token-validation", async () => {
-    const isValid = await validateStoredToken({ force: true, showToastOnInvalid: true });
-    if (!isValid) {
-      await refreshUi();
-    }
-  }, TOKEN_VALIDATION_INTERVAL_MS);
+  // Token validation cadence now lives in the background browser-alarms monitor
+  // (suspension-safe, runs even when the popup is closed). The popup reacts to a
+  // pushed `tokenInvalid` event via the runtime message handler above; on-demand
+  // `validateStoredToken` calls remain for explicit user actions.
 
   await refreshUi({ useBusyOverlay: false });
 }
