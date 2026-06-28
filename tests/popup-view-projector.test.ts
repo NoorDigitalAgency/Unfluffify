@@ -194,6 +194,8 @@ describe("popup view projector", () => {
         followUpCompleted: true,
         lastError: "",
       },
+      sessionPhase: null,
+      sessionDictation: null,
       spinnerQueue: [{
         key: "navInspect",
         message: "Inspecting",

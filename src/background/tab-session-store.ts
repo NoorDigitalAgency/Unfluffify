@@ -185,9 +185,17 @@ export async function clearTabState(tabId: unknown, options: TabSessionOptions =
   await queueTabSessionWrite(tabId, () => storageRemove(getSessionStorageArea(), keysToRemove));
 }
 
-export async function clearTabStateScope(tabId: unknown, scope: string | null = null): Promise<void> {
+export async function clearTabStateScope(
+  tabId: unknown,
+  scope: string | null = null,
+  options: TabSessionOptions = {}
+): Promise<void> {
   const key = getTabStateKey(tabId, scope);
   if (!key) {
+    return;
+  }
+  if (options && options.skipQueue) {
+    await storageRemove(getSessionStorageArea(), key);
     return;
   }
   await queueTabSessionWrite(tabId, () => storageRemove(getSessionStorageArea(), key));

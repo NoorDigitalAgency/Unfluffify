@@ -2198,6 +2198,7 @@ function handleBackgroundCommandEnvelope(
   if (!dispatch) {
     return false;
   }
+  swKeepAlive.acquire();
   dispatch
     .then((reply) => sendResponse(reply))
     .catch((error) => {
@@ -2206,6 +2207,9 @@ function handleBackgroundCommandEnvelope(
         MESSAGE_ERROR_CODES.HANDLER_FAILED,
         (error && error.message) || "Background command failed"
       ));
+    })
+    .finally(() => {
+      swKeepAlive.release();
     });
   return true;
 }
@@ -2700,6 +2704,29 @@ if (browser.runtime && typeof browser.runtime.onStartup !== "undefined") {
 }
 logSwLifecycleDiagnostic("worker-evaluated");
 
+type KeepAliveResponse = RuntimeMessageReply | Record<string, unknown> | null | undefined;
+
+function replyWithKeepAlive(
+  task: () => Promise<KeepAliveResponse>,
+  sendResponse: (response?: RuntimeMessageReply | Record<string, unknown> | null) => void,
+  fallbackResponse?: RuntimeMessageReply | Record<string, unknown>
+) {
+  swKeepAlive.acquire();
+  Promise.resolve()
+    .then(task)
+    .then((result) => {
+      if (typeof result === "undefined") {
+        sendResponse(fallbackResponse);
+        return;
+      }
+      sendResponse(result);
+    })
+    .catch(() => sendResponse(fallbackResponse))
+    .finally(() => {
+      swKeepAlive.release();
+    });
+}
+
 browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (busProtocolBridge.isBusMessage(message)) {
     brain.transport.inbound(message, sender)
@@ -2911,50 +2938,42 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "loadRemoteConfigSnapshot") {
-    loadRemoteConfigSnapshot({
+    replyWithKeepAlive(() => loadRemoteConfigSnapshot({
       endpointValue: message.endpointValue,
       tokenValue: message.tokenValue,
       siteId: message.siteId
-    })
-      .then((result) => sendResponse(result || { ok: false }))
-      .catch(() => sendResponse({ ok: false }));
+    }), sendResponse, { ok: false });
     return true;
   }
 
   if (message.type === "saveRemoteConfigSnapshot") {
-    saveRemoteConfigSnapshot({
+    replyWithKeepAlive(() => saveRemoteConfigSnapshot({
       endpointValue: message.endpointValue,
       tokenValue: message.tokenValue,
       payloadKey: message.payloadKey
-    })
-      .then((result) => sendResponse(result || { ok: false }))
-      .catch(() => sendResponse({ ok: false }));
+    }), sendResponse, { ok: false });
     return true;
   }
 
   if (message.type === "replaceServerConfigIntoLocalSnapshot") {
-    replaceServerConfigIntoLocalSnapshot({
+    replyWithKeepAlive(() => replaceServerConfigIntoLocalSnapshot({
       payload: message.payload,
       payloadKey: message.payloadKey,
       currentPageUrl: message.currentPageUrl,
       siteId: message.siteId
-    })
-      .then((result) => sendResponse(result || { ok: false }))
-      .catch(() => sendResponse({ ok: false }));
+    }), sendResponse, { ok: false });
     return true;
   }
 
   if (message.type === "mergeServerConfigIntoLocalSnapshot") {
-    mergeServerConfigIntoLocalSnapshot({
+    replyWithKeepAlive(() => mergeServerConfigIntoLocalSnapshot({
       payload: message.payload,
       payloadKey: message.payloadKey,
       currentPageUrl: message.currentPageUrl,
       confirmedPageMarkings: message.confirmedPageMarkings,
       preferConfirmedPageMarkings: message.preferConfirmedPageMarkings,
       applyConfirmedToBackendSaved: message.applyConfirmedToBackendSaved
-    })
-      .then((result) => sendResponse(result || { ok: false }))
-      .catch(() => sendResponse({ ok: false }));
+    }), sendResponse, { ok: false });
     return true;
   }
 
@@ -3101,17 +3120,14 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return;
     }
     const scope = typeof message.scope === "string" && message.scope ? message.scope : null;
-    utils.getTabState(tabId, scope)
+    replyWithKeepAlive(() => utils.getTabState(tabId, scope)
       .then((state) => {
         if (!state && message.nullIfMissing) {
-          sendResponse(null);
-          return;
+          return null;
         }
-        sendResponse(state ? { ...state, tabId } : { enabled: false, baseUrl: "", tabId });
+        return state ? { ...state, tabId } : { enabled: false, baseUrl: "", tabId };
       })
-      .catch(() => {
-        sendResponse({ enabled: false, baseUrl: "", tabId });
-      });
+      .catch(() => ({ enabled: false, baseUrl: "", tabId })), sendResponse, { enabled: false, baseUrl: "", tabId });
     return true;
   }
 
@@ -3121,13 +3137,9 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ ok: false });
       return;
     }
-    clearReloadRestoreTabState(tabId)
-      .then(() => {
-        sendResponse({ ok: true });
-      })
-      .catch(() => {
-        sendResponse({ ok: false });
-      });
+    replyWithKeepAlive(() => clearReloadRestoreTabState(tabId)
+      .then(() => ({ ok: true }))
+      .catch(() => ({ ok: false })), sendResponse, { ok: false });
     return true;
   }
 
@@ -3138,7 +3150,7 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return;
     }
     const scope = typeof message.scope === "string" && message.scope ? message.scope : null;
-    queueTabSessionWrite(tabId, async () => {
+    replyWithKeepAlive(() => queueTabSessionWrite(tabId, async () => {
         const existingState = await getStoredTabState(tabId, scope);
         const existing = asTabStateRecord(existingState)
           ? asTabStateRecord(existingState)
@@ -3224,15 +3236,13 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
         // Per the editor-mobile-only contract, marking enabled state does
         // not survive a navigation/refresh. Skip mirroring into the reload
         // restore scope; always clear any stale restore entry instead.
-        await clearReloadRestoreTabState(tabId);
+        await clearReloadRestoreTabState(tabId, { skipQueue: true });
       })
       .then(() => {
         utils.updateActionForTab(tabId).then();
-        sendResponse({ ok: true });
+        return { ok: true };
       })
-      .catch(() => {
-        sendResponse({ ok: false });
-      });
+      .catch(() => ({ ok: false })), sendResponse, { ok: false });
     return true;
   }
 
@@ -3397,35 +3407,32 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "idbGet") {
-    utils.idbGet(message.keys)
-      .then((result) => {
-        sendResponse({ ok: true, result });
-      })
-      .catch((error) => {
-        sendResponse({ ok: false, error: error && error.message ? error.message : "IndexedDB get failed" });
-      });
+    replyWithKeepAlive(() => utils.idbGet(message.keys)
+      .then((result) => ({ ok: true, result }))
+      .catch((error) => ({
+        ok: false,
+        error: error && error.message ? error.message : "IndexedDB get failed"
+      })), sendResponse, { ok: false, error: "IndexedDB get failed" });
     return true;
   }
 
   if (message.type === "idbSet") {
-    utils.idbSet(message.items)
-      .then(() => {
-        sendResponse({ ok: true });
-      })
-      .catch((error) => {
-        sendResponse({ ok: false, error: error && error.message ? error.message : "IndexedDB set failed" });
-      });
+    replyWithKeepAlive(() => utils.idbSet(message.items)
+      .then(() => ({ ok: true }))
+      .catch((error) => ({
+        ok: false,
+        error: error && error.message ? error.message : "IndexedDB set failed"
+      })), sendResponse, { ok: false, error: "IndexedDB set failed" });
     return true;
   }
 
   if (message.type === "idbRemove") {
-    utils.idbRemove(message.keys)
-      .then(() => {
-        sendResponse({ ok: true });
-      })
-      .catch((error) => {
-        sendResponse({ ok: false, error: error && error.message ? error.message : "IndexedDB remove failed" });
-      });
+    replyWithKeepAlive(() => utils.idbRemove(message.keys)
+      .then(() => ({ ok: true }))
+      .catch((error) => ({
+        ok: false,
+        error: error && error.message ? error.message : "IndexedDB remove failed"
+      })), sendResponse, { ok: false, error: "IndexedDB remove failed" });
     return true;
   }
 
@@ -3701,12 +3708,15 @@ async function clearTrackedTabSessionState(
   }
 }
 
-async function clearReloadRestoreTabState(tabId: unknown): Promise<void> {
+async function clearReloadRestoreTabState(
+  tabId: unknown,
+  options: { skipQueue?: boolean } = {}
+): Promise<void> {
   const normalizedTabId = normalizeBrokerTabId(tabId);
   if (!normalizedTabId) {
     return;
   }
-  await clearTabStateScope(normalizedTabId, TAB_RESTORE_SCOPE);
+  await clearTabStateScope(normalizedTabId, TAB_RESTORE_SCOPE, options);
 }
 
 async function clearReloadRestoreTabStateAfterActivation(

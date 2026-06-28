@@ -1,0 +1,164 @@
+import { buildPageSaveUiState } from "../../../common/page-save-state";
+import {
+  BUTTON_IDS,
+  CURTAIN_OPERATIONS,
+  type ButtonDictation,
+  type ButtonId,
+  type CurtainDictation,
+  type SessionDictation,
+  type SessionFacts,
+  type SessionPhase,
+} from "../../../common/bus/contracts/session-state";
+
+function buildButtonDictation(
+  id: ButtonId,
+  visible: boolean,
+  enabled: boolean,
+  loading = false,
+): ButtonDictation {
+  return {
+    id,
+    visible,
+    enabled: visible && enabled,
+    loading,
+  };
+}
+
+function deriveMainUiHidden(facts: SessionFacts): boolean {
+  return Boolean(
+    facts.pageScopedUiDisabled ||
+      !facts.isEnabled ||
+      (!facts.navigationInspectionPending && (!facts.siteIdReady || !facts.renderModeReady))
+  );
+}
+
+function derivePageControlsVisible(facts: SessionFacts, mainUiHidden: boolean): boolean {
+  return !mainUiHidden && facts.renderModeReady;
+}
+
+function deriveCurtainDictation(phase: SessionPhase, facts: SessionFacts): CurtainDictation {
+  if (phase === "computing_ai") {
+    return {
+      visible: true,
+      operation: CURTAIN_OPERATIONS.COMPUTING_AI,
+      message: facts.busyMessage || "Computing selectors",
+      note: facts.busyNote,
+      timerText: facts.busyTimerText,
+    };
+  }
+
+  if (phase === "saving") {
+    return {
+      visible: true,
+      operation: CURTAIN_OPERATIONS.SAVING,
+      message: facts.busyMessage || "Saving changes",
+      note: facts.busyNote,
+      timerText: facts.busyTimerText,
+    };
+  }
+
+  if (phase === "discarding") {
+    return {
+      visible: true,
+      operation: CURTAIN_OPERATIONS.DISCARDING,
+      message: facts.busyMessage || "Discarding changes",
+      note: facts.busyNote,
+      timerText: facts.busyTimerText,
+    };
+  }
+
+  if (facts.busyVisible || facts.aiBusy) {
+    return {
+      visible: true,
+      operation: CURTAIN_OPERATIONS.BUSY,
+      message: facts.busyMessage || "Please wait",
+      note: facts.busyNote,
+      timerText: facts.busyTimerText,
+    };
+  }
+
+  return {
+    visible: false,
+    operation: CURTAIN_OPERATIONS.IDLE,
+    message: "",
+    note: "",
+    timerText: "",
+  };
+}
+
+export function deriveDictation(phase: SessionPhase, facts: SessionFacts): SessionDictation {
+  const mainUiHidden = deriveMainUiHidden(facts);
+  const pageControlsVisible = derivePageControlsVisible(facts, mainUiHidden);
+
+  const toggleEnabledDisabled = Boolean(
+    facts.pageScopedUiDisabled ||
+      facts.previewRestorePending ||
+      facts.pageSaveReconciliationPending ||
+      !facts.baseUrlReady ||
+      (!facts.navigationInspectionPending && (!facts.siteIdReady || !facts.renderModeReady || facts.pageTypeUiBlocked)) ||
+      facts.desktopPreviewActive
+  );
+
+  const computeButtonDisabled = Boolean(
+    facts.pageScopedUiDisabled ||
+      facts.aiBusy ||
+      facts.previewRestorePending ||
+      !facts.aiReady ||
+      facts.pageSaveReconciliationPending ||
+      (facts.aiRunUpToDate && !facts.sessionRequiresAiRun)
+  );
+
+  const pageSaveUiState = buildPageSaveUiState({
+    pageControlsVisible,
+    sessionHasPendingChanges: facts.sessionHasPendingChanges,
+    sessionRequiresAiRun: facts.sessionRequiresAiRun,
+    currentDraftDirty: facts.currentDraftDirty,
+    reconciliation: facts.pageSaveReconciliationPending
+      ? { status: "pending", reason: "pending" }
+      : null,
+  });
+
+  const buttons = {
+    [BUTTON_IDS.TOGGLE_ENABLED]: buildButtonDictation(
+      BUTTON_IDS.TOGGLE_ENABLED,
+      facts.renderModeReady,
+      !toggleEnabledDisabled,
+    ),
+    [BUTTON_IDS.COMPUTE]: buildButtonDictation(
+      BUTTON_IDS.COMPUTE,
+      !mainUiHidden,
+      !computeButtonDisabled,
+      facts.aiComputing,
+    ),
+    [BUTTON_IDS.MARKING_PREVIEW]: buildButtonDictation(
+      BUTTON_IDS.MARKING_PREVIEW,
+      pageControlsVisible && facts.isEnabled,
+      !(
+        facts.aiBusy ||
+        facts.previewRestorePending ||
+        facts.pageSaveReconciliationPending ||
+        !facts.aiRunUpToDate ||
+        facts.sessionRequiresAiRun
+      ),
+    ),
+    [BUTTON_IDS.PAGE_SAVE]: buildButtonDictation(
+      BUTTON_IDS.PAGE_SAVE,
+      pageControlsVisible,
+      !(pageSaveUiState.pageSaveDisabled || facts.previewRestorePending),
+    ),
+    [BUTTON_IDS.PAGE_REVERT]: buildButtonDictation(
+      BUTTON_IDS.PAGE_REVERT,
+      pageControlsVisible,
+      !(pageSaveUiState.pageRevertDisabled || facts.previewRestorePending),
+    ),
+  };
+
+  return {
+    phase,
+    mainUiHidden,
+    pageControlsVisible,
+    silentModeActive: facts.silentModeActive,
+    buttons,
+    curtain: deriveCurtainDictation(phase, facts),
+  };
+}

@@ -1,6 +1,9 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 import { readFileSync } from "./file-kit.ts";
+import { deriveDictation } from "../src/background/brain/deciders/dictation-decider.js";
+import { decideSessionPhase } from "../src/background/brain/deciders/session-phase-decider.js";
+import { BUTTON_IDS } from "../src/common/bus/contracts/session-state.js";
 
 test("preview exit restores a captured marking-session snapshot before payload fallback", () => {
   const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
@@ -16,7 +19,7 @@ test("preview exit restores a captured marking-session snapshot before payload f
   );
   assert.match(
     popupSource,
-    /async function handleExitPreviewMode\(\) \{[\s\S]*?if \(!previewCloseIndicatesNavigation\(closeResult\) && restoreMarkingSessionSnapshot\(\)\) \{[\s\S]*?if \(previewRestoreToken !== null\) \{[\s\S]*?clearPreviewRestorePending\(\);[\s\S]*?state\.previewRestoreAppliedToken = Math\.max\(\s*state\.previewRestoreAppliedToken,\s*previewRestoreToken\s*\);[\s\S]*?\}[\s\S]*?await refreshUi\(\{[\s\S]*?preserveCurrentDraftStatus: true[\s\S]*?\}\)(?:\.catch\(\(\) => null\))?;[\s\S]*?clearMarkingSessionSnapshot\(\);[\s\S]*?return;[\s\S]*?\}[\s\S]*?if \(closeResult && \(typeof closeResult\.markingEnabled === "boolean" \|\| closeResult\.draftStatus\)\) \{[\s\S]*?await applyPreviewClosedState\(closeResult\);/
+    /async function handleExitPreviewMode\(\) \{[\s\S]*?if \(!previewCloseIndicatesNavigation\(closeResult\) && restoreMarkingSessionSnapshot\(\)\) \{[\s\S]*?const closeDraftStatus = closeResult && closeResult\.draftStatus[\s\S]*?if \(closeResult && closeResult\.markingEnabled\) \{[\s\S]*?applyDraftStatusToPopupState\(closeDraftStatus\);[\s\S]*?\}[\s\S]*?if \(previewRestoreToken !== null\) \{[\s\S]*?clearPreviewRestorePending\(\);[\s\S]*?state\.previewRestoreAppliedToken = Math\.max\(\s*state\.previewRestoreAppliedToken,\s*previewRestoreToken\s*\);[\s\S]*?\}[\s\S]*?await refreshUi\(\{[\s\S]*?preserveCurrentDraftStatus: true[\s\S]*?\}\)(?:\.catch\(\(\) => null\))?;[\s\S]*?clearMarkingSessionSnapshot\(\);[\s\S]*?return;[\s\S]*?\}[\s\S]*?if \(closeResult && \(typeof closeResult\.markingEnabled === "boolean" \|\| closeResult\.draftStatus\)\) \{[\s\S]*?await applyPreviewClosedState\(closeResult\);/
   );
   assert.match(
     popupSource,
@@ -224,13 +227,73 @@ test("desktop preview stays behind its own popup toggle and disables marking ent
   assert.match(popupSource, /const desktopPreviewActive = Boolean\(\s*desktopPreviewVisible && state\.currentDesktopPreviewEnabled\s*\);/);
   assert.match(popupSource, /nextViewState\.desktopPreviewVisible = desktopPreviewVisible;/);
   assert.match(popupSource, /nextViewState\.desktopPreviewEnabled = desktopPreviewActive;/);
-  assert.match(popupSource, /nextViewState\.toggleEnabledDisabled =[\s\S]*desktopPreviewActive;/);
   assert.match(desktopToggleBody, /if \(!isFeatureEnabled\("desktopPreview"\)\) \{\s*return;\s*\}/);
   assert.match(desktopToggleBody, /if \(desiredEnabled && uiModule\.getViewState\(\)\.toggleEnabled\) \{/);
   assert.match(desktopToggleBody, /await handleEnableToggle\(\{ currentTarget: \{ checked: false \} \}\);/);
   assert.match(desktopToggleBody, /await persistDesktopPreviewEnabled\(tab\.id, desiredEnabled\);/);
   assert.match(uiSource, /isPopupFeatureEnabled\(view, "desktopPreview"\) && view\.desktopPreviewVisible/);
   assert.match(uiSource, /id="desktop-preview-enabled"/);
+
+  const dictation = deriveDictation(decideSessionPhase({
+    baseUrlReady: true,
+    pageScopedUiDisabled: false,
+    navigationInspectionPending: false,
+    siteIdReady: true,
+    renderModeReady: true,
+    pageTypeUiBlocked: false,
+    desktopPreviewActive: true,
+    isEnabled: true,
+    silentModeActive: false,
+    aiReady: true,
+    aiBusy: false,
+    aiComputing: false,
+    aiRunUpToDate: false,
+    previewActive: false,
+    previewBlocked: false,
+    previewRestorePending: false,
+    sessionHasPendingChanges: false,
+    sessionRequiresAiRun: false,
+    currentDraftDirty: false,
+    pageSaveReconciliationPending: false,
+    propertyLockBlocked: false,
+    saving: false,
+    discarding: false,
+    hasStoredSelectors: true,
+    busyVisible: false,
+    busyMessage: "",
+    busyNote: "",
+    busyTimerText: ""
+  }), {
+    baseUrlReady: true,
+    pageScopedUiDisabled: false,
+    navigationInspectionPending: false,
+    siteIdReady: true,
+    renderModeReady: true,
+    pageTypeUiBlocked: false,
+    desktopPreviewActive: true,
+    isEnabled: true,
+    silentModeActive: false,
+    aiReady: true,
+    aiBusy: false,
+    aiComputing: false,
+    aiRunUpToDate: false,
+    previewActive: false,
+    previewBlocked: false,
+    previewRestorePending: false,
+    sessionHasPendingChanges: false,
+    sessionRequiresAiRun: false,
+    currentDraftDirty: false,
+    pageSaveReconciliationPending: false,
+    propertyLockBlocked: false,
+    saving: false,
+    discarding: false,
+    hasStoredSelectors: true,
+    busyVisible: false,
+    busyMessage: "",
+    busyNote: "",
+    busyTimerText: ""
+  });
+  assert.equal(dictation.buttons[BUTTON_IDS.TOGGLE_ENABLED].enabled, false);
 });
 
 test("marking-mode preview remains a dedicated marking control", () => {
@@ -240,17 +303,46 @@ test("marking-mode preview remains a dedicated marking control", () => {
     /async function handleMarkingPreview\(\) \{([\s\S]*?)\n\}\n\nasync function handleExitPreviewMode/
   )[1];
 
-  assert.match(popupSource, /nextViewState\.markingPreviewVisible = pageControlsVisible && Boolean\(isEnabled\);/);
-  assert.match(
-    popupSource,
-    /nextViewState\.markingPreviewDisabled =\s*aiBusy \|\|\s*previewRestorePending \|\|\s*pageSaveReconciliationPending \|\|\s*!aiRunUpToDate \|\|\s*sessionRequiresAiRun;/
-  );
   assert.match(uiSource, /if \(markingMode && view\.markingPreviewVisible\) \{/);
   assert.match(uiSource, /id="marking-preview"/);
   assert.match(uiSource, /onClick=\{handlers\.onMarkingPreview\}/);
   assert.match(markingPreviewBody, /if \(!view\.markingPreviewVisible \|\| view\.markingPreviewDisabled\) \{/);
   assert.match(markingPreviewBody, /const selectorSet = getLatestAvailableSelectorsFromConfig\(\);/);
   assert.match(markingPreviewBody, /messages\.requestTabShowAiPreview\(tabId, \{/);
+
+  const readyToSaveFacts = {
+    baseUrlReady: true,
+    pageScopedUiDisabled: false,
+    navigationInspectionPending: false,
+    siteIdReady: true,
+    renderModeReady: true,
+    pageTypeUiBlocked: false,
+    desktopPreviewActive: false,
+    isEnabled: true,
+    silentModeActive: false,
+    aiReady: true,
+    aiBusy: false,
+    aiComputing: false,
+    aiRunUpToDate: true,
+    previewActive: false,
+    previewBlocked: false,
+    previewRestorePending: false,
+    sessionHasPendingChanges: true,
+    sessionRequiresAiRun: false,
+    currentDraftDirty: true,
+    pageSaveReconciliationPending: false,
+    propertyLockBlocked: false,
+    saving: false,
+    discarding: false,
+    hasStoredSelectors: true,
+    busyVisible: false,
+    busyMessage: "",
+    busyNote: "",
+    busyTimerText: ""
+  };
+  const dictation = deriveDictation(decideSessionPhase(readyToSaveFacts), readyToSaveFacts);
+  assert.equal(dictation.buttons[BUTTON_IDS.MARKING_PREVIEW].visible, true);
+  assert.equal(dictation.buttons[BUTTON_IDS.MARKING_PREVIEW].enabled, true);
 });
 
 test("popup preview sidebar keeps the active-item scroll path on a synchronous React commit", () => {
@@ -501,7 +593,8 @@ test("tab reload keeps the inspection curtain active while enabled pages re-insp
   assert.match(refreshBody, /popupBackgroundActivation\.bootstrapStatus === "bootstrapping"/);
   assert.match(refreshBody, /!navigationInspectionPending &&\s*\(!siteIdReady \|\| !renderModeReady \|\| pageTypeUiBlocked\)/);
   assert.doesNotMatch(refreshBody, /const pageScopedUiDisabled =[\s\S]*pageTypeUiBlocked && !navigationInspectionPending/);
-  assert.match(refreshBody, /nextViewState\.mainUiHidden =[\s\S]*?!isEnabled[\s\S]*?\(!navigationInspectionPending && \(!siteIdReady \|\| !renderModeReady\)\)/);
+  assert.match(refreshBody, /const mainUiHidden =[\s\S]*?!isEnabled[\s\S]*?\(!navigationInspectionPending && \(!siteIdReady \|\| !renderModeReady\)\)/);
+  assert.match(refreshBody, /if \(useLocalSessionAuthorityFallback\) \{[\s\S]*?nextViewState\.mainUiHidden = mainUiHidden;/);
 });
 
 test("tab activation does not end persisted inspection overlay before old-tab spinner state is cleared", () => {

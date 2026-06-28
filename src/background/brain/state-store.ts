@@ -9,6 +9,8 @@ import type {
   PopupTraceEvent,
 } from "../../common/bus/contracts/popup-state";
 import type { RenderModeViewState } from "../../common/bus/contracts/render-mode";
+import type { SessionDictation, SessionFacts } from "../../common/bus/contracts/session-state";
+import { createDefaultSessionFacts } from "./deciders/session-phase-decider";
 
 export type SpinnerSelection = Readonly<{
   kind: string;
@@ -33,6 +35,8 @@ export type PopupViewState = Readonly<{
 export type ActivationState = ActivationSnapshot;
 
 export type RenderModeState = RenderModeViewState;
+export type SessionFactsState = SessionFacts;
+export type SessionDictationState = SessionDictation | null;
 
 function createInitialActivationState(): ActivationState {
   return {
@@ -86,6 +90,9 @@ export type TabLayerState = {
     followUpCompleted: boolean;
     lastError: string;
   };
+  sessionFactsReported: boolean;
+  sessionFacts: SessionFactsState;
+  sessionDictation: SessionDictationState;
   spinners: {
     popup: SpinnerSelection | null;
     pageCurtain: SpinnerSelection | null;
@@ -108,6 +115,9 @@ function createInitialTabState(tabId: number): TabLayerState {
     },
     activation: createInitialActivationState(),
     renderMode: createInitialRenderModeState(),
+    sessionFactsReported: false,
+    sessionFacts: createDefaultSessionFacts(),
+    sessionDictation: null,
     spinners: {
       popup: null,
       pageCurtain: null,

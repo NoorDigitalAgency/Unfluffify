@@ -25,10 +25,11 @@ const EXPECTED_FLAGS = [
   "appearanceCustomization",
   "cacheAndUnregisterTools",
   "propertyLockCollaboration",
-  "previewExpandedStates"
+  "previewExpandedStates",
+  "centralStateDictation"
 ];
 
-const EXPECTED_DISABLED_FLAGS = [...EXPECTED_FLAGS];
+const EXPECTED_DISABLED_FLAGS = EXPECTED_FLAGS.filter((flagName) => flagName !== "centralStateDictation");
 const EXPECTED_DEBUG_FLAGS = [
   "ufDebugSpinnerQueue",
   "fullWorldMessagingLogging",
@@ -44,6 +45,8 @@ test("feature flags expose the confirmed disabled stabilization set", () => {
     assert.equal(FEATURE_FLAGS[flagName], false, `${flagName} should default disabled`);
     assert.equal(isFeatureEnabled(flagName), false, `${flagName} should not be enabled`);
   }
+  assert.equal(FEATURE_FLAGS.centralStateDictation, true, "centralStateDictation should default enabled");
+  assert.equal(isFeatureEnabled("centralStateDictation"), true, "centralStateDictation should be enabled");
 
   assert.deepEqual(Object.keys(DEBUG_FLAGS), EXPECTED_DEBUG_FLAGS);
   assert.equal(DEBUG_FLAGS.ufDebugSpinnerQueue, true);

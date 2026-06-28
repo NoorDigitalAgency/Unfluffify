@@ -54,6 +54,9 @@ timeouts, persistence semantics, or fallback behavior.
 - Do not replace source-of-truth ownership without an explicit approved plan.
 - Do not infer behavior from message text or queue position when a typed contract
   exists.
+- Do not reintroduce popup-local button/curtain authority once a brain-side
+  session dictation/decider exists; extend the background deciders and fact
+  reporters instead.
 - Do not edit locked marking/highlighting behavior without explicit user approval
   and matching knowledge/test updates.
 - Do not add broad catch blocks, silent success fallbacks, or hidden early

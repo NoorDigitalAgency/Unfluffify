@@ -1,6 +1,9 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 import { readFileSync } from "./file-kit.ts";
+import { deriveDictation } from "../src/background/brain/deciders/dictation-decider.js";
+import { decideSessionPhase } from "../src/background/brain/deciders/session-phase-decider.js";
+import { BUTTON_IDS } from "../src/common/bus/contracts/session-state.js";
 import { buildPageSaveUiState } from "../src/common/page-save-state.js";
 
 const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
@@ -188,24 +191,95 @@ test("State C clean post-AI-run keeps Run AI disabled and enables Show Content L
 });
 
 test("Run AI stays wired to the real popup view-state gating expression", () => {
-  assert.match(
-    popupSource,
-    /nextViewState\.computeButtonDisabled =\s*pageScopedUiDisabled \|\|\s*aiBusy \|\|\s*previewRestorePending \|\|\s*!aiReady \|\|\s*pageSaveReconciliationPending \|\|\s*\(aiRunUpToDate && !sessionRequiresAiRun\);/
-  );
+  const facts = {
+    baseUrlReady: true,
+    pageScopedUiDisabled: false,
+    navigationInspectionPending: false,
+    siteIdReady: true,
+    renderModeReady: true,
+    pageTypeUiBlocked: false,
+    desktopPreviewActive: false,
+    isEnabled: true,
+    silentModeActive: false,
+    aiReady: true,
+    aiBusy: false,
+    aiComputing: false,
+    aiRunUpToDate: true,
+    previewActive: false,
+    previewBlocked: false,
+    previewRestorePending: false,
+    sessionHasPendingChanges: true,
+    sessionRequiresAiRun: false,
+    currentDraftDirty: true,
+    pageSaveReconciliationPending: false,
+    propertyLockBlocked: false,
+    saving: false,
+    discarding: false,
+    hasStoredSelectors: true,
+    busyVisible: false,
+    busyMessage: "",
+    busyNote: "",
+    busyTimerText: ""
+  };
+  const dictation = deriveDictation(decideSessionPhase(facts), facts);
+
+  assert.equal(dictation.buttons[BUTTON_IDS.COMPUTE].enabled, !computeButtonDisabledForState({
+    aiRunUpToDate: true,
+    sessionRequiresAiRun: false
+  }));
 });
 
 test("Save uses the page-save state instead of the redundant AI-run fingerprint gate", () => {
   assert.match(
     popupSource,
-    /nextViewState\.pageSaveDisabled =\s*pageSaveUiState\.pageSaveDisabled \|\| previewRestorePending;/
-  );
-  assert.doesNotMatch(
-    popupSource,
-    /nextViewState\.pageSaveDisabled = pageSaveUiState\.pageSaveDisabled \|\| !aiRunUpToDate;/
-  );
-  assert.match(
-    popupSource,
     /sessionRequiresAiRun,[\s\S]*?reconciliation: state\.currentPageSaveReconciliation/
+  );
+  const facts = {
+    baseUrlReady: true,
+    pageScopedUiDisabled: false,
+    navigationInspectionPending: false,
+    siteIdReady: true,
+    renderModeReady: true,
+    pageTypeUiBlocked: false,
+    desktopPreviewActive: false,
+    isEnabled: true,
+    silentModeActive: false,
+    aiReady: true,
+    aiBusy: false,
+    aiComputing: false,
+    aiRunUpToDate: false,
+    previewActive: false,
+    previewBlocked: false,
+    previewRestorePending: false,
+    sessionHasPendingChanges: true,
+    sessionRequiresAiRun: true,
+    currentDraftDirty: true,
+    pageSaveReconciliationPending: false,
+    propertyLockBlocked: false,
+    saving: false,
+    discarding: false,
+    hasStoredSelectors: false,
+    busyVisible: false,
+    busyMessage: "",
+    busyNote: "",
+    busyTimerText: ""
+  };
+  const dictation = deriveDictation(decideSessionPhase(facts), facts);
+  const pageSaveUiState = buildPageSaveUiState({
+    pageControlsVisible: true,
+    sessionHasPendingChanges: facts.sessionHasPendingChanges,
+    sessionRequiresAiRun: facts.sessionRequiresAiRun,
+    currentDraftDirty: facts.currentDraftDirty,
+    reconciliation: null
+  });
+
+  assert.equal(
+    dictation.buttons[BUTTON_IDS.PAGE_SAVE].enabled,
+    !(pageSaveUiState.pageSaveDisabled || facts.previewRestorePending)
+  );
+  assert.equal(
+    dictation.buttons[BUTTON_IDS.PAGE_REVERT].enabled,
+    !(pageSaveUiState.pageRevertDisabled || facts.previewRestorePending)
   );
 });
 

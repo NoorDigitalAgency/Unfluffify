@@ -3,6 +3,7 @@ import { assert } from "./test-kit.ts";
 
 import {
   clearTabState,
+  clearTabStateScope,
   clearTrackedTabSessionState,
   getScriptInjectedKey,
   getTabState,
@@ -182,6 +183,21 @@ test("runtime-style queued tab-state merges preserve overlapping field updates",
     assert.equal(finalState.baseUrl, "https://example.com");
     assert.equal(finalState.pageType, "candidate");
     assert.equal(finalState.desktopPreviewEnabled, true);
+  });
+});
+
+test("tab-session-store can clear a scope from inside the tab write queue", async () => {
+  await withChrome(createChrome(), async () => {
+    await setTabState(404, { enabled: true, baseUrl: "https://example.com" }, "restore");
+
+    await Promise.race([
+      queueTabSessionWrite(404, async () => {
+        await clearTabStateScope(404, "restore", { skipQueue: true });
+      }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("timed out waiting for nested queued clear")), 50))
+    ]);
+
+    assert.equal(await getTabState(404, "restore"), null);
   });
 });
 

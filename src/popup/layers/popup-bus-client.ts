@@ -6,6 +6,11 @@ import {
   RENDER_MODE_REQUEST_TYPES,
 } from "../../common/bus/contracts/index";
 import {
+  SESSION_REPORT_TYPES,
+  type SessionFactsPatch,
+  type SessionFactsReportedPayload,
+} from "../../common/bus/contracts/session-state";
+import {
   POPUP_STATE_REQUEST_TYPES,
   type PopupStateGetPayload,
   type PopupStateGetReply,
@@ -138,6 +143,23 @@ export function requestPopupSpinnerClear(
   payload: SpinnerClearRequestPayload,
 ): Promise<SpinnerMutationReply | null> {
   return requestPopupSpinnerMutation(SPINNER_REQUEST_TYPES.CLEAR, tabId, payload);
+}
+
+export function publishPopupSessionFacts(
+  tabId: number,
+  facts: SessionFactsPatch,
+): Promise<void> {
+  if (!tabId || !popupBus) {
+    return Promise.resolve();
+  }
+  const payload: SessionFactsReportedPayload = {
+    source: "popup",
+    facts,
+  };
+  return popupBus.publish(SESSION_REPORT_TYPES.FACTS_REPORTED, payload, {
+    target: REALMS.BACKGROUND,
+    tab: tabId,
+  });
 }
 
 async function requestPopupRenderMode<Payload, Reply>(

@@ -2,6 +2,7 @@ import { createBus } from "../../common/bus/bus";
 import type { Browser } from "../../common/browser";
 import { DIAGNOSTIC_REQUEST_TYPES } from "../../common/bus/contracts/index";
 import { POPUP_STATE_EVENT_TYPES, POPUP_STATE_REQUEST_TYPES } from "../../common/bus/contracts/popup-state";
+import { SESSION_REPORT_TYPES, type SessionFactsReportedPayload } from "../../common/bus/contracts/session-state";
 import { SPINNER_EVENT_TYPES, type SpinnerSurface } from "../../common/bus/contracts/spinner";
 import { REALMS } from "../../common/bus/realms";
 import { createBackgroundTransport } from "../../common/bus/transport/background-transport";
@@ -19,6 +20,7 @@ import {
   recordNoJsHoldState as recordRenderModeNoJsHoldValue,
 } from "./deciders/render-mode-decider";
 import { updateSpinnerSelectionsFromQueue } from "./deciders/spinner-state-decider";
+import { applySessionFactsPatch } from "./deciders/session-phase-decider";
 import { createStateStore, type TabLayerState } from "./state-store";
 import { projectSpinners, type SpinnerState } from "./spinner-authority";
 import { projectViews } from "./view-projector";
@@ -79,6 +81,22 @@ export function createBrain(options: { logger?: Pick<Console, "error"> } = {}) {
       throw new Error("popup.view.get requires a tab id");
     }
     return getPopupView(store, meta.tab);
+  });
+  bus.subscribe(SESSION_REPORT_TYPES.FACTS_REPORTED, (payload, meta) => {
+    if (!meta.tab || !payload || typeof payload !== "object") {
+      return;
+    }
+    const typedPayload = payload as SessionFactsReportedPayload;
+    const source = typedPayload.source === "content" ? "content" : "popup";
+    const facts = typedPayload.facts && typeof typedPayload.facts === "object"
+      ? typedPayload.facts
+      : {};
+    store.mutate(meta.tab, `session-facts:${source}`, (draft) => {
+      const next = applySessionFactsPatch(draft.sessionFacts, facts);
+      draft.sessionFactsReported = true;
+      draft.sessionFacts = next.facts;
+      draft.sessionDictation = next.dictation;
+    });
   });
 
   return {

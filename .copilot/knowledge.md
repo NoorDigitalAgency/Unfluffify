@@ -298,6 +298,11 @@
   exit path, and advances `previewRestoreAppliedToken` so the later async
   `aiPreviewClosed` notification remains a compatibility backup instead of
   re-deriving over the restored state.
+- Brain-centralized session dictation now owns popup button/curtain authority.
+  Layers report raw `SessionFacts`; `decideSessionPhase(...)` +
+  `deriveDictation(...)` in `src/background/brain/deciders/` decide the 5-button
+  matrix and blocking curtain; popup-local overrides must stay limited to
+  short-lived fallback bridges until projected dictation arrives.
 
 ## AI Submission Rules
 

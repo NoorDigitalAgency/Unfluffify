@@ -90,6 +90,23 @@ function cloneRenderModeDirectiveState(value: TabLayerState["renderMode"]): Rend
   };
 }
 
+function cloneSessionDictation(value: TabLayerState["sessionDictation"]): PopupViewEnvelope["sessionDictation"] {
+  if (!value) {
+    return null;
+  }
+  return {
+    ...value,
+    buttons: {
+      "toggle-enabled": { ...value.buttons["toggle-enabled"] },
+      compute: { ...value.buttons.compute },
+      "marking-preview": { ...value.buttons["marking-preview"] },
+      "page-save": { ...value.buttons["page-save"] },
+      "page-revert": { ...value.buttons["page-revert"] },
+    },
+    curtain: { ...value.curtain },
+  };
+}
+
 export function projectViews(state: TabLayerState): {
   popupView: PopupView;
   contentDirective: ContentDirective;
@@ -108,6 +125,8 @@ export function projectViews(state: TabLayerState): {
       lifecycle: cloneProjectedPopupLifecycle(state),
       activation,
       renderMode,
+      sessionPhase: state.sessionFactsReported && state.sessionDictation ? state.sessionDictation.phase : null,
+      sessionDictation: state.sessionFactsReported ? cloneSessionDictation(state.sessionDictation) : null,
       spinnerQueue: state.popupView.spinnerQueue.map((entry) => {
         const clone = { ...entry };
         if (entry.blockSurfaces) {

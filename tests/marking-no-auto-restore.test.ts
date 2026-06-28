@@ -34,7 +34,7 @@ test("setTabState handler does not mirror enabled state into the reload restore 
   );
 
   assert.doesNotMatch(block, /setReloadRestoreTabState\(tabId,/);
-  assert.match(block, /clearReloadRestoreTabState\(tabId\)/);
+  assert.match(block, /clearReloadRestoreTabState\(tabId,\s*\{\s*skipQueue:\s*true\s*\}\)/);
 });
 
 test("disableExtensionOnTopLevelNavigation clears the reload restore scope without re-populating it", () => {

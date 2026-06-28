@@ -143,6 +143,8 @@ describe("popup state decider", () => {
         followUpCompleted: false,
         lastError: "",
       },
+      sessionPhase: null,
+      sessionDictation: null,
       spinnerQueue: [],
       activeSpinnerLease: null,
     });

@@ -1,0 +1,70 @@
+import { test } from "./test-kit.ts";
+import { assert } from "./test-kit.ts";
+
+import { decideSessionPhase } from "../src/background/brain/deciders/session-phase-decider.js";
+import { SESSION_PHASES } from "../src/common/bus/contracts/session-state.js";
+
+function buildFacts(overrides = {}) {
+  return {
+    baseUrlReady: true,
+    pageScopedUiDisabled: false,
+    navigationInspectionPending: false,
+    siteIdReady: true,
+    renderModeReady: true,
+    pageTypeUiBlocked: false,
+    desktopPreviewActive: false,
+    isEnabled: true,
+    silentModeActive: false,
+    aiReady: true,
+    aiBusy: false,
+    aiComputing: false,
+    aiRunUpToDate: false,
+    previewActive: false,
+    previewBlocked: false,
+    previewRestorePending: false,
+    sessionHasPendingChanges: false,
+    sessionRequiresAiRun: false,
+    currentDraftDirty: false,
+    pageSaveReconciliationPending: false,
+    propertyLockBlocked: false,
+    saving: false,
+    discarding: false,
+    hasStoredSelectors: false,
+    busyVisible: false,
+    busyMessage: "",
+    busyNote: "",
+    busyTimerText: "",
+    ...overrides,
+  };
+}
+
+test("session-phase decider picks the expected named phase across the current popup states", () => {
+  assert.equal(decideSessionPhase(buildFacts({ propertyLockBlocked: true })), SESSION_PHASES.PROPERTY_LOCK_BLOCKED);
+  assert.equal(decideSessionPhase(buildFacts({ baseUrlReady: false })), SESSION_PHASES.OUT_OF_SCOPE);
+  assert.equal(decideSessionPhase(buildFacts({ discarding: true })), SESSION_PHASES.DISCARDING);
+  assert.equal(decideSessionPhase(buildFacts({ saving: true })), SESSION_PHASES.SAVING);
+  assert.equal(decideSessionPhase(buildFacts({ aiComputing: true })), SESSION_PHASES.COMPUTING_AI);
+  assert.equal(decideSessionPhase(buildFacts({ previewActive: true })), SESSION_PHASES.PREVIEW_OPEN);
+  assert.equal(decideSessionPhase(buildFacts({ previewRestorePending: true })), SESSION_PHASES.PREVIEW_RESTORING);
+  assert.equal(decideSessionPhase(buildFacts({ pageSaveReconciliationPending: true })), SESSION_PHASES.RECONCILIATION_PENDING);
+  assert.equal(decideSessionPhase(buildFacts({ navigationInspectionPending: true })), SESSION_PHASES.RENDER_MODE_INSPECTION);
+  assert.equal(decideSessionPhase(buildFacts({ siteIdReady: false })), SESSION_PHASES.LOADING);
+  assert.equal(decideSessionPhase(buildFacts({ isEnabled: false, silentModeActive: true })), SESSION_PHASES.SILENT);
+  assert.equal(decideSessionPhase(buildFacts({ sessionHasPendingChanges: true, sessionRequiresAiRun: true })), SESSION_PHASES.MARKING_DIRTY);
+  assert.equal(decideSessionPhase(buildFacts({ sessionHasPendingChanges: true, currentDraftDirty: true })), SESSION_PHASES.READY_TO_SAVE);
+  assert.equal(decideSessionPhase(buildFacts({ aiRunUpToDate: true })), SESSION_PHASES.SAVED);
+  assert.equal(decideSessionPhase(buildFacts()), SESSION_PHASES.MARKING_FRESH);
+});
+
+test("session-phase decider keeps high-priority transient phases ahead of steady-state marking phases", () => {
+  const facts = buildFacts({
+    sessionHasPendingChanges: true,
+    sessionRequiresAiRun: false,
+    currentDraftDirty: true,
+    aiRunUpToDate: true,
+    aiComputing: true,
+    previewRestorePending: true,
+  });
+
+  assert.equal(decideSessionPhase(facts), SESSION_PHASES.COMPUTING_AI);
+});

@@ -354,6 +354,12 @@ const initialViewState = {
   aiRunCountdownText: "0:00",
   aiRunDeadlineAt: 0,
   aiRunPhase: "",
+  sessionCurtainVisible: false,
+  sessionCurtainMessage: "",
+  sessionCurtainNote: "",
+  sessionCurtainTimerText: "",
+  sessionCurtainOperation: "",
+  sessionCurtainPhase: "",
   configMenuOpen: false,
   clearDomainCacheDisabled: false,
   unregisterCurrentTabDisabled: false,
@@ -809,6 +815,18 @@ function formatCandidateWordsCount(wordsCount: unknown): string {
 }
 
 function getBlockingUiCurtainState(view: ViewState): BlockingUiCurtainState {
+  if (view.sessionCurtainVisible) {
+    return {
+      visible: true,
+      mode: "busy",
+      message: view.sessionCurtainMessage || PopupText.overlay.pleaseWait,
+      note: view.sessionCurtainNote || PopupText.overlay.busyHint,
+      reason: view.sessionCurtainPhase || "session-dictation",
+      source: "background-session-dictation",
+      spinnerKey: view.sessionCurtainOperation || "",
+      timerText: view.sessionCurtainTimerText || ""
+    };
+  }
   if (view.computeButtonLoading) {
     const backgroundReason = typeof view.busyReason === "string" ? view.busyReason : "";
     const backgroundMessage = typeof view.busyMessage === "string" ? view.busyMessage : "";

@@ -198,3 +198,42 @@ test("popup page reconciliation revert respects current-page pending gate", asyn
   assert.equal(calls.discard, 0);
   assert.equal(calls.toast.at(-1), PopupText.page.noChangesToSave);
 });
+
+test("popup page reconciliation blocks save and revert while an AI run is active", async () => {
+  resetState();
+  state.aiRequestInFlight = "compute";
+  const { deps, calls } = createDeps();
+
+  await handlePageSave(deps);
+  await handlePageRevert(deps);
+
+  assert.equal(calls.sync, 0);
+  assert.equal(calls.discard, 0);
+  assert.equal(calls.toast.at(0), PopupText.overlay.pleaseWait);
+  assert.equal(calls.toast.at(1), PopupText.overlay.pleaseWait);
+  state.aiRequestInFlight = null;
+});
+
+test("popup page reconciliation treats AI startup and projected computing curtain as busy", async () => {
+  resetState();
+  state.aiComputeStartPending = true;
+  const { deps, calls } = createDeps({
+    getViewState: () => ({
+      sessionHasPendingChanges: true,
+      sessionRequiresAiRun: false,
+      currentPageHasPendingChanges: true,
+      aiRunCountdownVisible: false,
+      sessionCurtainPhase: "computing_ai",
+      sessionCurtainOperation: "computing_ai"
+    })
+  });
+
+  await handlePageSave(deps);
+  await handlePageRevert(deps);
+
+  assert.equal(calls.sync, 0);
+  assert.equal(calls.discard, 0);
+  assert.equal(calls.toast.at(0), PopupText.overlay.pleaseWait);
+  assert.equal(calls.toast.at(1), PopupText.overlay.pleaseWait);
+  state.aiComputeStartPending = false;
+});

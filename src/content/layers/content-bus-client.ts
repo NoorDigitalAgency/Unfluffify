@@ -1,5 +1,10 @@
 import { createBus, type Bus } from "../../common/bus/bus";
 import { DIAGNOSTIC_REQUEST_TYPES } from "../../common/bus/contracts/index";
+import {
+  SESSION_REPORT_TYPES,
+  type SessionFactsPatch,
+  type SessionFactsReportedPayload,
+} from "../../common/bus/contracts/session-state";
 import type {
   RenderModeContentBeginReply,
   RenderModeContentCaptureHtmlReply,
@@ -67,4 +72,17 @@ export function stopContentBusClient(): void {
   contentTransport?.stop();
   contentTransport = null;
   contentBus = null;
+}
+
+export function publishContentSessionFacts(facts: SessionFactsPatch): Promise<void> {
+  if (!contentBus) {
+    return Promise.resolve();
+  }
+  const payload: SessionFactsReportedPayload = {
+    source: "content",
+    facts,
+  };
+  return contentBus.publish(SESSION_REPORT_TYPES.FACTS_REPORTED, payload, {
+    target: REALMS.BACKGROUND,
+  });
 }

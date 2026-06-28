@@ -1,0 +1,157 @@
+import { test } from "./test-kit.ts";
+import { assert } from "./test-kit.ts";
+import { readFileSync } from "./file-kit.ts";
+import { deriveDictation } from "../src/background/brain/deciders/dictation-decider.js";
+import { decideSessionPhase } from "../src/background/brain/deciders/session-phase-decider.js";
+import {
+  buildCentralSessionDictationViewStatePatch,
+  deriveCentralSessionDictationSnapshotEffect
+} from "../src/popup/central-state-dictation.js";
+
+const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
+const uiSource = readFileSync(new URL("../src/popup/ui.tsx", import.meta.url), "utf8");
+
+function buildFacts(overrides = {}) {
+  return {
+    baseUrlReady: true,
+    pageScopedUiDisabled: false,
+    navigationInspectionPending: false,
+    siteIdReady: true,
+    renderModeReady: true,
+    pageTypeUiBlocked: false,
+    desktopPreviewActive: false,
+    isEnabled: true,
+    silentModeActive: false,
+    aiReady: true,
+    aiBusy: false,
+    aiComputing: false,
+    aiRunUpToDate: false,
+    previewActive: false,
+    previewBlocked: false,
+    previewRestorePending: false,
+    sessionHasPendingChanges: false,
+    sessionRequiresAiRun: false,
+    currentDraftDirty: false,
+    pageSaveReconciliationPending: false,
+    propertyLockBlocked: false,
+    saving: false,
+    discarding: false,
+    hasStoredSelectors: false,
+    busyVisible: false,
+    busyMessage: "",
+    busyNote: "",
+    busyTimerText: "",
+    ...overrides,
+  };
+}
+
+test("central-state dictation helper maps projected brain state into popup authority fields", () => {
+  const facts = buildFacts({
+    sessionHasPendingChanges: true,
+    currentDraftDirty: true,
+    aiRunUpToDate: true,
+    hasStoredSelectors: true
+  });
+  const dictation = deriveDictation(decideSessionPhase(facts), facts);
+  const patch = buildCentralSessionDictationViewStatePatch({
+    featureEnabled: true,
+    currentTabId: 12,
+    projectedTabId: 12,
+    sessionPhase: dictation.phase,
+    sessionDictation: dictation
+  });
+
+  assert.ok(patch);
+  assert.equal(patch.mainUiHidden, dictation.mainUiHidden);
+  assert.equal(patch.toggleEnabledDisabled, !dictation.buttons["toggle-enabled"].enabled);
+  assert.equal(patch.computeButtonDisabled, !dictation.buttons.compute.enabled);
+  assert.equal(patch.computeButtonLoading, dictation.buttons.compute.loading);
+  assert.equal(patch.markingPreviewVisible, dictation.buttons["marking-preview"].visible);
+  assert.equal(patch.pageSaveDisabled, !dictation.buttons["page-save"].enabled);
+  assert.equal(patch.sessionCurtainVisible, dictation.curtain.visible);
+  assert.equal(patch.sessionCurtainPhase, dictation.phase);
+});
+
+test("central-state snapshot effect repaints on same-tab dictation updates and refreshes when dictation is removed", () => {
+  const computingFacts = buildFacts({
+    aiBusy: true,
+    aiComputing: true,
+    busyVisible: true,
+    busyMessage: "Computing selectors",
+    busyNote: "Preparing page content for AI...",
+    busyTimerText: "Up to 8:00"
+  });
+  const computingDictation = deriveDictation(decideSessionPhase(computingFacts), computingFacts);
+  const repaintEffect = deriveCentralSessionDictationSnapshotEffect({
+    featureEnabled: true,
+    currentTabId: 7,
+    projectedTabId: 7,
+    sessionPhase: computingDictation.phase,
+    sessionDictation: computingDictation,
+    hadProjectedSessionDictation: false
+  });
+
+  assert.ok(repaintEffect.patch);
+  assert.equal(repaintEffect.patch.sessionCurtainVisible, true);
+  assert.equal(repaintEffect.patch.computeButtonLoading, true);
+  assert.equal(repaintEffect.refreshRequired, false);
+
+  const clearEffect = deriveCentralSessionDictationSnapshotEffect({
+    featureEnabled: true,
+    currentTabId: 7,
+    projectedTabId: 7,
+    sessionPhase: null,
+    sessionDictation: null,
+    hadProjectedSessionDictation: true
+  });
+
+  assert.equal(clearEffect.patch, null);
+  assert.equal(clearEffect.refreshRequired, true);
+});
+
+test("popup curtain rendering prioritizes session dictation when present", () => {
+  assert.match(uiSource, /sessionCurtainVisible: false,/);
+  assert.match(uiSource, /sessionCurtainMessage: "",/);
+  assert.match(uiSource, /function getBlockingUiCurtainState\(view: ViewState\): BlockingUiCurtainState \{\s*if \(view\.sessionCurtainVisible\)/);
+  assert.match(uiSource, /message: view\.sessionCurtainMessage \|\| PopupText\.overlay\.pleaseWait/);
+});
+
+test("popup wiring repaints live brain snapshots and keeps imperative writers behind the local fallback guard", () => {
+  assert.match(popupSource, /deriveCentralSessionDictationSnapshotEffect\(/);
+  assert.match(popupSource, /buildCentralSessionDictationViewStatePatch\(/);
+  assert.match(popupSource, /function shouldUseLocalComputingAiLockout\(tabId: number \| null\): boolean \{/);
+  assert.match(popupSource, /function shouldUseLocalPreviewRevealFallback\(tabId: number \| null\): boolean \{/);
+  assert.match(popupSource, /function shouldUseLocalPreviewRestoreLockout\(tabId: number \| null\): boolean \{/);
+  assert.match(popupSource, /async function getCurrentSessionActionGateState\(sourceConfig: Config \| null \| undefined = state\.currentConfig\) \{/);
+  assert.match(popupSource, /function clearProjectedComputingAiState\(\): boolean \{/);
+  assert.match(popupSource, /async function clearStaleProjectedComputingAiState\(\): Promise<void> \{/);
+  assert.match(popupSource, /publishCurrentTabSessionFacts\(\{\s*aiBusy: true,[\s\S]*?aiComputing: true,[\s\S]*?busyVisible: true,/);
+  assert.match(popupSource, /publishCurrentTabSessionFacts\(\{[\s\S]*?previewActive: true,[\s\S]*?previewBlocked: true,/);
+  assert.match(popupSource, /publishCurrentTabSessionFacts\(\{[\s\S]*?previewRestorePending: true/);
+  assert.match(popupSource, /async function stopAiRun\(options: StopAiRunOptions = \{\}\) \{[\s\S]*?clearProjectedComputingAiState\(\);/);
+  assert.match(popupSource, /const persistedRun = await loadPersistedAiRunRecord\(\);[\s\S]*?if \(!persistedRun\) \{[\s\S]*?await clearStaleProjectedComputingAiState\(\);/);
+  assert.match(
+    popupSource,
+    /function updateAiRunCountdownState\(\) \{[\s\S]*?const useLocalComputingAiLockout = shouldUseLocalComputingAiLockout\(currentTabId\);[\s\S]*?\.\.\.\(useLocalComputingAiLockout[\s\S]*?computeButtonLoading: true,[\s\S]*?computeButtonDisabled: true,[\s\S]*?aiControlsBusy: true/
+  );
+  assert.match(
+    popupSource,
+    /function beginPreviewRestorePending\(\) \{[\s\S]*?const useLocalPreviewRestoreLockout = shouldUseLocalPreviewRestoreLockout\(currentTabId\);[\s\S]*?\.\.\.\(useLocalPreviewRestoreLockout[\s\S]*?toggleEnabledDisabled: true,[\s\S]*?computeButtonDisabled: true,[\s\S]*?markingPreviewDisabled: true,[\s\S]*?pageSaveDisabled: true,[\s\S]*?pageRevertDisabled: true/
+  );
+  assert.match(
+    popupSource,
+    /previewBlockedMessage: PopupText\.preview\.blockedActive,[\s\S]*?\.\.\.\(shouldUseLocalPreviewRevealFallback\(getCurrentPopupTabId\(\)\)[\s\S]*?computeButtonLoading: false,[\s\S]*?aiControlsBusy: false,[\s\S]*?sessionCurtainVisible: false/
+  );
+  assert.match(
+    popupSource,
+    /const useLocalSessionAuthorityFallback = shouldUseLocalSessionAuthorityFallback\(currentTabId\);[\s\S]*?if \(useLocalSessionAuthorityFallback\) \{[\s\S]*?nextViewState\.toggleEnabledDisabled = toggleEnabledDisabled;[\s\S]*?nextViewState\.mainUiHidden = mainUiHidden;[\s\S]*?nextViewState\.computeButtonDisabled = computeButtonDisabled;/
+  );
+  assert.match(
+    popupSource,
+    /state\.currentConfig = await config\.ensureConfig\(state\.currentBaseUrl\);[\s\S]*?const \{ aiRunUpToDate, sessionRequiresAiRun \} = await getCurrentSessionActionGateState\(state\.currentConfig\);[\s\S]*?if \(aiRunUpToDate && !sessionRequiresAiRun\) \{\s*return;\s*\}/
+  );
+  assert.match(
+    popupSource,
+    /await refreshCurrentPageRuntimeStatus\(\);[\s\S]*?const \{ aiRunUpToDate, sessionRequiresAiRun \} = await getCurrentSessionActionGateState\(\);[\s\S]*?if \(state\.previewRestorePending \|\| !aiRunUpToDate \|\| sessionRequiresAiRun\) \{\s*return;\s*\}/
+  );
+});

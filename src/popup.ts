@@ -96,6 +96,7 @@ import type {
   PopupSpinnerEntry as PopupViewSpinnerEntry,
   PopupStateGetReply
 } from "./common/bus/contracts/popup-state";
+import type { SessionDictation, SessionFactsPatch } from "./common/bus/contracts/session-state";
 import { deriveSpinnerSelectionsFromQueue } from "./background/brain/deciders/spinner-state-decider";
 import { phaseToSpinnerState } from "./background/brain/spinner-authority";
 import {
@@ -105,6 +106,7 @@ import {
 import { createSpinnerOperationLease } from "./common/spinner-contract";
 import { SPINNER_REQUEST_TYPES } from "./common/bus/contracts/spinner";
 import {
+  publishPopupSessionFacts,
   requestPopupRenderModeCaptureHtml,
   requestPopupRenderModeHideConsent,
   requestPopupSpinnerClear,
@@ -123,6 +125,12 @@ import {
   getLatestPopupSpinnerState,
   renderPopupSpinnerSurface
 } from "./popup/layers/spinner-layer";
+import {
+  buildCentralSessionDictationViewStatePatch,
+  deriveCentralSessionDictationSnapshotEffect,
+  hasProjectedCentralSessionDictationForTab as hasProjectedCentralSessionDictationForTabOperation,
+  shouldUseLocalSessionAuthorityFallback as shouldUseLocalSessionAuthorityFallbackOperation
+} from "./popup/central-state-dictation";
 import {
   currentSpinnerMessage as currentSpinnerMessageOperation,
   currentSpinnerSnapshot as currentSpinnerSnapshotOperation,
@@ -310,6 +318,8 @@ type PopupBackgroundStateSnapshot = {
   tabId?: number | null;
   lifecycle?: PopupStateGetReply["lifecycle"] | null;
   activation?: PopupStateGetReply["activation"] | null;
+  sessionPhase?: PopupStateGetReply["sessionPhase"] | null;
+  sessionDictation?: PopupStateGetReply["sessionDictation"] | null;
   traceEnabled?: boolean;
   traceEvents?: PopupStateGetReply["traceEvents"] | null;
   spinnerQueue?: PopupViewSpinnerEntry[] | null;
@@ -773,6 +783,8 @@ let popupStaleInspectionBusyClearTimer = 0;
 let popupBackgroundLifecycle: PopupStateGetReply["lifecycle"] = null;
 let popupBackgroundStateTabId: number | null = null;
 let popupBackgroundActivation: ActivationSnapshot | null = null;
+let popupBackgroundSessionPhase: PopupStateGetReply["sessionPhase"] = null;
+let popupBackgroundSessionDictation: SessionDictation | null = null;
 let popupPageBusyMirrorTabId: number | null = null;
 let popupPageBusyMirrorActive = false;
 let popupPageBusyMirrorSignature = "";
@@ -1430,6 +1442,8 @@ function applyBackgroundStateSnapshot(snapshot: PopupBackgroundStateSnapshot | n
   popupBackgroundLifecycle = snapshot.lifecycle || null;
   popupBackgroundStateTabId = tabId;
   popupBackgroundActivation = snapshot.activation || null;
+  popupBackgroundSessionPhase = snapshot.sessionPhase || null;
+  popupBackgroundSessionDictation = snapshot.sessionDictation || null;
   const traceDiagnosticsEnabled = isFeatureEnabled("traceDiagnostics");
   state.traceModeEnabled = traceDiagnosticsEnabled && Boolean(snapshot.traceEnabled);
   state.traceEvents = traceDiagnosticsEnabled && Array.isArray(snapshot.traceEvents) ? [...snapshot.traceEvents] : [];
@@ -1482,6 +1496,7 @@ function applyBackgroundStateSnapshot(snapshot: PopupBackgroundStateSnapshot | n
     lifecycleKind: popupBackgroundLifecycle && popupBackgroundLifecycle.kind,
     lifecyclePhase: popupBackgroundLifecycle && popupBackgroundLifecycle.phase,
     activationBootstrapStatus: popupBackgroundActivation && popupBackgroundActivation.bootstrapStatus,
+    sessionPhase: popupBackgroundSessionPhase,
     spinnerCount: popupSpinnerQueue.size,
     traceEvents: Array.isArray(snapshot.traceEvents) ? snapshot.traceEvents.length : 0
   });
@@ -1491,16 +1506,130 @@ function applyPopupViewSnapshot(snapshot: PopupStateGetReply | null) {
   if (!snapshot || typeof snapshot !== "object") {
     return;
   }
+  const currentTabId = getCurrentPopupTabId();
+  const hadProjectedSessionDictation = hasProjectedCentralSessionDictationForTab(currentTabId);
   applyBackgroundStateSnapshot({
     ok: true,
     tabId: snapshot.tabId,
     lifecycle: snapshot.lifecycle || null,
     activation: snapshot.activation || null,
+    sessionPhase: snapshot.sessionPhase || null,
+    sessionDictation: snapshot.sessionDictation || null,
     traceEnabled: Boolean(snapshot.traceEnabled),
     traceEvents: Array.isArray(snapshot.traceEvents) ? snapshot.traceEvents : [],
     spinnerQueue: Array.isArray(snapshot.spinnerQueue) ? snapshot.spinnerQueue : [],
     activeSpinnerLease: snapshot.activeSpinnerLease || null
   });
+  const nextCentralSessionDictationEffect = deriveCentralSessionDictationSnapshotEffect({
+    featureEnabled: isFeatureEnabled("centralStateDictation"),
+    currentTabId,
+    projectedTabId: popupBackgroundStateTabId,
+    sessionPhase: popupBackgroundSessionPhase || null,
+    sessionDictation: popupBackgroundSessionDictation,
+    hadProjectedSessionDictation
+  });
+  if (nextCentralSessionDictationEffect.patch) {
+    uiModule.setViewState(nextCentralSessionDictationEffect.patch);
+    return;
+  }
+  if (nextCentralSessionDictationEffect.refreshRequired) {
+    void refreshUi({
+      useBusyOverlay: false,
+      skipPropertyLockFetch: true,
+      preserveCurrentDraftStatus: true
+    }).catch(() => null);
+  }
+}
+
+function publishCurrentSessionFacts(tabId: number, facts: SessionFactsPatch): void {
+  publishPopupSessionFacts(tabId, facts).catch(() => null);
+}
+
+function publishCurrentTabSessionFacts(facts: SessionFactsPatch): void {
+  const currentTabId = getCurrentPopupTabId();
+  if (!currentTabId) {
+    return;
+  }
+  publishCurrentSessionFacts(currentTabId, facts);
+}
+
+function hasProjectedCentralSessionDictationForTab(tabId: number | null): boolean {
+  return hasProjectedCentralSessionDictationForTabOperation({
+    featureEnabled: isFeatureEnabled("centralStateDictation"),
+    currentTabId: tabId,
+    projectedTabId: popupBackgroundStateTabId,
+    sessionPhase: popupBackgroundSessionPhase || null,
+    sessionDictation: popupBackgroundSessionDictation
+  });
+}
+
+function shouldUseLocalSessionAuthorityFallback(tabId: number | null): boolean {
+  return shouldUseLocalSessionAuthorityFallbackOperation({
+    featureEnabled: isFeatureEnabled("centralStateDictation"),
+    currentTabId: tabId,
+    projectedTabId: popupBackgroundStateTabId,
+    sessionPhase: popupBackgroundSessionPhase || null,
+    sessionDictation: popupBackgroundSessionDictation
+  });
+}
+
+function shouldUseLocalComputingAiLockout(tabId: number | null): boolean {
+  return shouldUseLocalSessionAuthorityFallback(tabId) || popupBackgroundSessionPhase !== "computing_ai";
+}
+
+function shouldUseLocalPreviewRevealFallback(tabId: number | null): boolean {
+  return shouldUseLocalSessionAuthorityFallback(tabId) || popupBackgroundSessionPhase === "computing_ai";
+}
+
+function shouldUseLocalPreviewRestoreLockout(tabId: number | null): boolean {
+  return shouldUseLocalSessionAuthorityFallback(tabId) || popupBackgroundSessionPhase !== "preview_restoring";
+}
+
+function clearProjectedComputingAiState(): boolean {
+  if (popupBackgroundSessionPhase !== "computing_ai") {
+    return false;
+  }
+  popupBackgroundSessionPhase = null;
+  popupBackgroundSessionDictation = null;
+  return true;
+}
+
+async function clearStaleProjectedComputingAiState(): Promise<void> {
+  if (!clearProjectedComputingAiState()) {
+    return;
+  }
+  publishCurrentTabSessionFacts({
+    aiBusy: false,
+    aiComputing: false,
+    busyVisible: false,
+    busyMessage: "",
+    busyNote: "",
+    busyTimerText: ""
+  });
+  await refreshUi({
+    useBusyOverlay: false,
+    preserveCurrentDraftStatus: true
+  }).catch(() => null);
+}
+
+function applyCentralSessionDictation(nextViewState: PopupViewStatePatch, currentTabId: number | null): void {
+  const nextCentralSessionDictationViewState = buildCentralSessionDictationViewStatePatch({
+    featureEnabled: isFeatureEnabled("centralStateDictation"),
+    currentTabId,
+    projectedTabId: popupBackgroundStateTabId,
+    sessionPhase: popupBackgroundSessionPhase || null,
+    sessionDictation: popupBackgroundSessionDictation
+  });
+  if (!nextCentralSessionDictationViewState) {
+    nextViewState.sessionCurtainVisible = false;
+    nextViewState.sessionCurtainMessage = "";
+    nextViewState.sessionCurtainNote = "";
+    nextViewState.sessionCurtainTimerText = "";
+    nextViewState.sessionCurtainOperation = "";
+    nextViewState.sessionCurtainPhase = "";
+    return;
+  }
+  Object.assign(nextViewState, nextCentralSessionDictationViewState);
 }
 
 function sendSpinnerBrokerMessage(
@@ -2086,6 +2215,28 @@ function hasSessionPendingChanges(
   );
 }
 
+async function getCurrentSessionActionGateState(sourceConfig: Config | null | undefined = state.currentConfig) {
+  const localPageMarkings = (sourceConfig && sourceConfig.pageMarkings) || {};
+  const backendSavedPageMarkings = state.currentBaseUrl
+    ? await config.getBackendSavedPageMarkings(state.currentBaseUrl)
+    : {};
+  const aiRunUpToDate = isAiRunUpToDateForCurrentMarkings();
+  const sessionRequiresAiRun = doesSessionRequireAiRun(
+    sourceConfig,
+    localPageMarkings,
+    backendSavedPageMarkings,
+    {
+      currentDraftDirty: state.currentDraftDirty,
+      aiRunUpToDate
+    }
+  );
+
+  return {
+    aiRunUpToDate,
+    sessionRequiresAiRun
+  };
+}
+
 function findBackendSavedPageMarkingEntry(pageMarkings: unknown, pageUrl: unknown): PageMarkingEntry | null {
   const normalizedTargetUrl = normalizeCandidatePageUrl(pageUrl);
   if (!normalizedTargetUrl || !pageMarkings || typeof pageMarkings !== "object") {
@@ -2393,18 +2544,33 @@ function updateAiRunCountdownState() {
     return;
   }
   state.aiRunRemainingMs = getAiRunRemainingMs(state.aiRunDeadlineAt);
+  const currentTabId = getCurrentPopupTabId();
+  const useLocalComputingAiLockout = shouldUseLocalComputingAiLockout(currentTabId);
+  const aiRunCountdownText = formatAiRunCountdown(state.aiRunRemainingMs);
   uiModule.setViewState({
     computeButtonText: ViewText.computeButtonBusy,
-    computeButtonLoading: true,
-    computeButtonDisabled: true,
     saveExcludesButtonDisabled: true,
     previewLatestButtonDisabled: true,
-    aiControlsBusy: true,
     aiRunSpinnerNote: PopupText.overlay.computingSelectorsNote,
     aiRunCountdownVisible: true,
-    aiRunCountdownText: formatAiRunCountdown(state.aiRunRemainingMs),
+    aiRunCountdownText,
     aiRunDeadlineAt: state.aiRunDeadlineAt,
-    aiRunPhase: state.aiRunPhase
+    aiRunPhase: state.aiRunPhase,
+    ...(useLocalComputingAiLockout
+      ? {
+          computeButtonLoading: true,
+          computeButtonDisabled: true,
+          aiControlsBusy: true
+        }
+      : {})
+  });
+  publishCurrentTabSessionFacts({
+    aiBusy: true,
+    aiComputing: true,
+    busyVisible: true,
+    busyMessage: "",
+    busyNote: PopupText.overlay.computingSelectorsNote,
+    busyTimerText: aiRunCountdownText
   });
 }
 
@@ -2532,6 +2698,7 @@ async function refreshAiRunHeartbeat(options: AiRunHeartbeatOptions = {}) {
 async function stopAiRun(options: StopAiRunOptions = {}) {
   const { unlockPage = true } = options;
   resetAiRunState();
+  clearProjectedComputingAiState();
   await clearPersistedAiRunRecord();
   if (unlockPage) {
     await syncAiComputeLock(false);
@@ -2997,18 +3164,29 @@ function beginPreviewRestorePending() {
   schedulePreviewRestoreFallback(state.previewRestoreToken);
   clearLastPopupEnabled();
   setPreviewBlocked(false);
+  publishCurrentTabSessionFacts({
+    previewActive: false,
+    previewBlocked: false,
+    previewRestorePending: true
+  });
+  const currentTabId = getCurrentPopupTabId();
+  const useLocalPreviewRestoreLockout = shouldUseLocalPreviewRestoreLockout(currentTabId);
   uiModule.setViewState({
     previewActive: false,
     previewBlocked: false,
     previewWillRestoreMarking: false,
     toggleEnabled: true,
-    toggleEnabledDisabled: true,
     mainUiHidden: false,
     silentModeActive: false,
-    computeButtonDisabled: true,
-    markingPreviewDisabled: true,
-    pageSaveDisabled: true,
-    pageRevertDisabled: true
+    ...(useLocalPreviewRestoreLockout
+      ? {
+          toggleEnabledDisabled: true,
+          computeButtonDisabled: true,
+          markingPreviewDisabled: true,
+          pageSaveDisabled: true,
+          pageRevertDisabled: true
+        }
+      : {})
   });
   return state.previewRestoreToken;
 }
@@ -5029,26 +5207,32 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
   const desktopPreviewActive = Boolean(
     desktopPreviewVisible && state.currentDesktopPreviewEnabled
   );
-  nextViewState.toggleEnabled = pageScopedUiDisabled ? false : isEnabled;
-  nextViewState.toggleEnabledDisabled =
+  const useLocalSessionAuthorityFallback = shouldUseLocalSessionAuthorityFallback(currentTabId);
+  const mainUiHidden =
+    pageScopedUiDisabled ||
+    !isEnabled ||
+    (!navigationInspectionPending && (!siteIdReady || !renderModeReady));
+  const toggleEnabledDisabled =
     pageScopedUiDisabled ||
     previewRestorePending ||
     pageSaveReconciliationPending ||
     !baseUrlReady ||
     (!navigationInspectionPending && (!siteIdReady || !renderModeReady || pageTypeUiBlocked)) ||
     desktopPreviewActive;
-  nextViewState.mainUiHidden =
-    pageScopedUiDisabled ||
-    !isEnabled ||
-    (!navigationInspectionPending && (!siteIdReady || !renderModeReady));
-  nextViewState.silentModeActive = silentModeActive;
-  nextViewState.computeButtonDisabled =
+  const computeButtonDisabled =
     pageScopedUiDisabled ||
     aiBusy ||
     previewRestorePending ||
     !aiReady ||
     pageSaveReconciliationPending ||
     (aiRunUpToDate && !sessionRequiresAiRun);
+  nextViewState.toggleEnabled = pageScopedUiDisabled ? false : isEnabled;
+  if (useLocalSessionAuthorityFallback) {
+    nextViewState.toggleEnabledDisabled = toggleEnabledDisabled;
+    nextViewState.mainUiHidden = mainUiHidden;
+    nextViewState.silentModeActive = silentModeActive;
+    nextViewState.computeButtonDisabled = computeButtonDisabled;
+  }
   nextViewState.saveExcludesButtonDisabled =
     !silentModeActive ||
     aiBusy ||
@@ -5198,7 +5382,9 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
     state.aiRequestInFlight === "save"
       ? ViewText.saveExcludesBusy
       : ViewText.saveExcludesIdle;
-  nextViewState.computeButtonLoading = state.aiRequestInFlight === "compute";
+  if (useLocalSessionAuthorityFallback) {
+    nextViewState.computeButtonLoading = state.aiRequestInFlight === "compute";
+  }
   nextViewState.saveExcludesButtonLoading = state.aiRequestInFlight === "save";
   nextViewState.aiRunSpinnerNote =
     state.aiRequestInFlight === "compute"
@@ -5220,7 +5406,9 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
     state.aiRequestInFlight === "compute"
       ? state.aiRunPhase
       : "";
-  nextViewState.aiControlsBusy = aiBusy;
+  if (useLocalSessionAuthorityFallback) {
+    nextViewState.aiControlsBusy = aiBusy;
+  }
   nextViewState.aiDirtyNoticeVisible = pageSaveReconciliationPending;
   nextViewState.aiDirtyNoticeText = pageSaveReconciliationPending
     ? PopupText.page.statusServerSyncPending
@@ -5235,7 +5423,7 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
     state.remoteConfigConnectionIssue ||
     Boolean(effectiveSiteIdBlockedReason) ||
     baseField.noticeVisible;
-  const pageControlsVisible = !nextViewState.mainUiHidden && renderModeReady;
+  const pageControlsVisible = !mainUiHidden && renderModeReady;
   const pageSaveUiState = buildPageSaveUiState({
     pageControlsVisible,
     sessionHasPendingChanges,
@@ -5243,24 +5431,28 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
     currentDraftDirty: state.currentDraftDirty,
     reconciliation: state.currentPageSaveReconciliation
   });
-  nextViewState.pageSaveDisabled =
-    pageSaveUiState.pageSaveDisabled || previewRestorePending;
+  const pageSaveDisabled = pageSaveUiState.pageSaveDisabled || previewRestorePending;
   nextViewState.pageSaveMobileSimulationRequiredVisible =
     pageSaveUiState.pageSaveMobileSimulationRequiredVisible;
   nextViewState.pageSaveMobileSimulationRequiredText =
     PopupText.page.mobileSimulationRequired;
-  nextViewState.pageRevertDisabled =
-    pageSaveUiState.pageRevertDisabled || previewRestorePending;
+  const pageRevertDisabled = pageSaveUiState.pageRevertDisabled || previewRestorePending;
   // Marking-mode "Preview Content": let the user see the AI content detection
   // without leaving marking mode. Mirrors Save gating - only available once a
   // successful AI run matches the live markings (and before the next change).
-  nextViewState.markingPreviewVisible = pageControlsVisible && Boolean(isEnabled);
-  nextViewState.markingPreviewDisabled =
+  const markingPreviewVisible = pageControlsVisible && Boolean(isEnabled);
+  const markingPreviewDisabled =
     aiBusy ||
     previewRestorePending ||
     pageSaveReconciliationPending ||
     !aiRunUpToDate ||
     sessionRequiresAiRun;
+  if (useLocalSessionAuthorityFallback) {
+    nextViewState.pageSaveDisabled = pageSaveDisabled;
+    nextViewState.pageRevertDisabled = pageRevertDisabled;
+    nextViewState.markingPreviewVisible = markingPreviewVisible;
+    nextViewState.markingPreviewDisabled = markingPreviewDisabled;
+  }
   nextViewState.pageDraftStatusText = pageSaveUiState.pageDraftStatusText;
   nextViewState.pageDraftStatusTone = pageSaveUiState.pageDraftStatusTone;
   nextViewState.pageSessionNoticeVisible = pageSaveUiState.pageSessionNoticeVisible;
@@ -5333,6 +5525,7 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
     : backgroundLifecycleBusy
       ? (popupBackgroundLifecycle?.timerMode || "")
       : "";
+  applyCentralSessionDictation(nextViewState, currentTabId);
   nextViewState.pageDataNewNoticeHidden = pageSaveUiState.pageDataNewNoticeHidden;
   nextViewState.deviceEmulationEnabled = normalizedDeviceState.enabled;
   nextViewState.deviceMode = normalizedDeviceState.mode;
@@ -5482,6 +5675,71 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
   });
 
   uiModule.setViewState(nextViewState);
+  if (currentTabId) {
+    const projectedComputingAiActive =
+      popupBackgroundStateTabId === currentTabId &&
+      popupBackgroundSessionPhase === "computing_ai";
+    const aiBusyForSessionFacts =
+      Boolean(state.aiRequestInFlight) || state.aiComputeStartPending || projectedComputingAiActive;
+    const aiComputingForSessionFacts =
+      state.aiRequestInFlight === "compute" || state.aiComputeStartPending || projectedComputingAiActive;
+    const busyVisibleForSessionFacts =
+      projectedComputingAiActive || Boolean(nextViewState.isBusy || nextViewState.aiControlsBusy);
+    const busyMessageForSessionFacts =
+      projectedComputingAiActive &&
+        typeof nextViewState.sessionCurtainMessage === "string" &&
+        nextViewState.sessionCurtainMessage
+        ? nextViewState.sessionCurtainMessage
+        : typeof nextViewState.busyMessage === "string"
+          ? nextViewState.busyMessage
+          : "";
+    const busyNoteForSessionFacts =
+      projectedComputingAiActive &&
+        typeof nextViewState.sessionCurtainNote === "string" &&
+        nextViewState.sessionCurtainNote
+        ? nextViewState.sessionCurtainNote
+        : typeof nextViewState.aiRunSpinnerNote === "string"
+          ? nextViewState.aiRunSpinnerNote
+          : "";
+    const busyTimerTextForSessionFacts =
+      projectedComputingAiActive &&
+        typeof nextViewState.sessionCurtainTimerText === "string" &&
+        nextViewState.sessionCurtainTimerText
+        ? nextViewState.sessionCurtainTimerText
+        : typeof nextViewState.aiRunCountdownText === "string" && nextViewState.aiRunCountdownVisible
+          ? nextViewState.aiRunCountdownText
+          : "";
+    publishCurrentSessionFacts(currentTabId, {
+      baseUrlReady,
+      pageScopedUiDisabled,
+      navigationInspectionPending,
+      siteIdReady,
+      renderModeReady,
+      pageTypeUiBlocked,
+      desktopPreviewActive,
+      isEnabled,
+      silentModeActive,
+      aiReady,
+      aiBusy: aiBusyForSessionFacts,
+      aiComputing: aiComputingForSessionFacts,
+      aiRunUpToDate,
+      previewActive,
+      previewBlocked: nextViewState.previewBlocked,
+      previewRestorePending,
+      sessionHasPendingChanges,
+      sessionRequiresAiRun,
+      currentDraftDirty: state.currentDraftDirty,
+      pageSaveReconciliationPending,
+      propertyLockBlocked: isPropertyLockBlockingEditing(),
+      saving: state.aiRequestInFlight === "save",
+      discarding: false,
+      hasStoredSelectors,
+      busyVisible: busyVisibleForSessionFacts,
+      busyMessage: busyMessageForSessionFacts,
+      busyNote: busyNoteForSessionFacts,
+      busyTimerText: busyTimerTextForSessionFacts
+    });
+  }
 }
 
 async function maybeResumePersistedAiRun() {
@@ -5504,6 +5762,7 @@ async function maybeResumePersistedAiRun() {
   try {
     const persistedRun = await loadPersistedAiRunRecord();
     if (!persistedRun) {
+      await clearStaleProjectedComputingAiState();
       return;
     }
     if (!shouldResumePersistedAiRun(persistedRun, siteId)) {
@@ -5511,12 +5770,14 @@ async function maybeResumePersistedAiRun() {
         await clearPersistedAiRunRecord();
         await syncAiComputeLock(false);
       }
+      await clearStaleProjectedComputingAiState();
       return;
     }
     const { endpointValue, tokenValue } = await helpers.loadGlobalAiSettings();
     if (!endpointValue || !tokenValue) {
       await clearPersistedAiRunRecord();
       await syncAiComputeLock(false);
+      await clearStaleProjectedComputingAiState();
       return;
     }
     let statusResult;
@@ -5527,18 +5788,21 @@ async function maybeResumePersistedAiRun() {
     } catch {
       await clearPersistedAiRunRecord();
       await syncAiComputeLock(false);
+      await clearStaleProjectedComputingAiState();
       uiModule.showToast(PopupText.ai.runFailed);
       return;
     }
     if (statusResult.notFound) {
       await clearPersistedAiRunRecord();
       await syncAiComputeLock(false);
+      await clearStaleProjectedComputingAiState();
       uiModule.showToast(PopupText.ai.runUnavailable);
       return;
     }
     if (!statusResult.ok || statusResult.status === "error") {
       await clearPersistedAiRunRecord();
       await syncAiComputeLock(false);
+      await clearStaleProjectedComputingAiState();
       uiModule.showToast(PopupText.ai.runFailed);
       return;
     }
@@ -7349,6 +7613,17 @@ async function applyComputedSelectorSet(
     // of masking it for the duration of the slow post-run refresh.
     resetAiRunState();
     captureMarkingSessionSnapshot();
+    publishCurrentTabSessionFacts({
+      aiBusy: false,
+      aiComputing: false,
+      busyVisible: false,
+      busyMessage: "",
+      busyNote: "",
+      busyTimerText: "",
+      previewActive: true,
+      previewBlocked: true,
+      previewRestorePending: false
+    });
     uiModule.setViewState({
       previewBlocked: true,
       previewActive: true,
@@ -7361,13 +7636,23 @@ async function applyComputedSelectorSet(
       previewFocusedXpath: "",
       previewShowAllCategories: false,
       previewBlockedMessage: PopupText.preview.blockedActive,
-      computeButtonLoading: false,
       computeButtonText: ViewText.computeButtonIdle,
-      aiControlsBusy: false,
       aiRunSpinnerNote: "",
       aiRunCountdownVisible: false,
       aiRunDeadlineAt: 0,
-      aiRunPhase: ""
+      aiRunPhase: "",
+      ...(shouldUseLocalPreviewRevealFallback(getCurrentPopupTabId())
+        ? {
+            computeButtonLoading: false,
+            aiControlsBusy: false,
+            sessionCurtainVisible: false,
+            sessionCurtainMessage: "",
+            sessionCurtainNote: "",
+            sessionCurtainTimerText: "",
+            sessionCurtainOperation: "",
+            sessionCurtainPhase: ""
+          }
+        : {})
     });
   }
   updateLastConfigSaveStatus(PopupText.ai.selectorsComputedLocally);
@@ -7529,6 +7814,10 @@ async function handleComputeSelectors() {
     const { tokenValue } = credentials;
 
     state.currentConfig = await config.ensureConfig(state.currentBaseUrl);
+    const { aiRunUpToDate, sessionRequiresAiRun } = await getCurrentSessionActionGateState(state.currentConfig);
+    if (aiRunUpToDate && !sessionRequiresAiRun) {
+      return;
+    }
     const currentPageUrl = (state.currentTab && state.currentTab.url) || "";
     if (!currentPageUrl) {
       uiModule.showToast(PopupText.ai.currentPageUnavailable);
@@ -7861,6 +8150,10 @@ async function handlePreviewLatest() {
     uiModule.showToast(PopupText.page.statusServerSyncPending);
     return;
   }
+  const { aiRunUpToDate, sessionRequiresAiRun } = await getCurrentSessionActionGateState();
+  if (state.previewRestorePending || !aiRunUpToDate || sessionRequiresAiRun) {
+    return;
+  }
   captureMarkingSessionSnapshot();
   const selectorSet = getLatestAvailableSelectorsFromConfig();
   if (!combineAiSelectorSet(selectorSet).length) {
@@ -7967,6 +8260,12 @@ async function handleExitPreviewMode() {
   }
   const closeResult = getPreviewStatePayload<PreviewCloseState>(response.result);
   if (!previewCloseIndicatesNavigation(closeResult) && restoreMarkingSessionSnapshot()) {
+    const closeDraftStatus = closeResult && closeResult.draftStatus && typeof closeResult.draftStatus === "object"
+      ? closeResult.draftStatus as TabDraftStatusResponse
+      : null;
+    if (closeResult && closeResult.markingEnabled) {
+      applyDraftStatusToPopupState(closeDraftStatus);
+    }
     if (previewRestoreToken !== null) {
       clearPreviewRestorePending();
       state.previewRestoreAppliedToken = Math.max(
@@ -8271,6 +8570,8 @@ async function init() {
     popupBackgroundLifecycle = null;
     popupBackgroundStateTabId = null;
     popupBackgroundActivation = null;
+    popupBackgroundSessionPhase = null;
+    popupBackgroundSessionDictation = null;
     await helpers.ensureActiveTab();
     // Restore spinner queue for the newly active tab.
     const newTabId = state.currentTab && state.currentTab.id;

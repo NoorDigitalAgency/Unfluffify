@@ -1,5 +1,6 @@
 import type { ActivationSnapshot } from "./activation";
 import type { RenderModeViewState } from "./render-mode";
+import type { SessionDictation, SessionPhase } from "./session-state";
 
 export const POPUP_STATE_REQUEST_TYPES = Object.freeze({
   GET: "popup.view.get",
@@ -78,6 +79,8 @@ export type PopupViewEnvelope = Readonly<{
   lifecycle: PopupLifecycleState | null;
   activation?: ActivationSnapshot | null;
   renderMode?: RenderModeViewState | null;
+  sessionPhase?: SessionPhase | null;
+  sessionDictation?: SessionDictation | null;
   spinnerQueue: PopupSpinnerEntry[];
   activeSpinnerLease: PopupSpinnerEntry | null;
 }>;

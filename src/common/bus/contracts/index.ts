@@ -23,3 +23,4 @@ export type DiagnosticEchoPayload = Readonly<{
 
 export * from "./activation";
 export * from "./render-mode";
+export * from "./session-state";

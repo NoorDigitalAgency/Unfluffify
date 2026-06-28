@@ -12,6 +12,9 @@ type PageReconciliationViewState = {
   sessionHasPendingChanges?: boolean;
   sessionRequiresAiRun?: boolean;
   currentPageHasPendingChanges?: boolean;
+  aiRunCountdownVisible?: boolean;
+  sessionCurtainPhase?: string;
+  sessionCurtainOperation?: string;
 };
 
 type PageSaveSyncResult = {
@@ -90,11 +93,22 @@ export async function handlePageSave(deps: PageReconciliationDeps) {
     return;
   }
   await deps.refreshCurrentPageRuntimeStatus();
+  const currentViewState = deps.getViewState();
+  const aiRunBusy = Boolean(
+    state.aiComputeStartPending ||
+      state.aiRequestInFlight === "compute" ||
+      currentViewState.aiRunCountdownVisible ||
+      currentViewState.sessionCurtainPhase === "computing_ai" ||
+      currentViewState.sessionCurtainOperation === "computing_ai"
+  );
+  if (aiRunBusy) {
+    deps.showToast(deps.PopupText.overlay.pleaseWait);
+    return;
+  }
   if (state.currentPageSaveReconciliationPending) {
     deps.showToast(deps.PopupText.page.statusServerSyncPending);
     return;
   }
-  const currentViewState = deps.getViewState();
   if (!currentViewState.sessionHasPendingChanges) {
     deps.updateLastConfigSaveStatus(deps.PopupText.page.noLocalChangesToSave);
     deps.showToast(deps.PopupText.page.noChangesToSave);
@@ -174,11 +188,22 @@ export async function handlePageRevert(deps: PageReconciliationDeps) {
     return;
   }
   await deps.refreshCurrentPageRuntimeStatus();
+  const currentViewState = deps.getViewState();
+  const aiRunBusy = Boolean(
+    state.aiComputeStartPending ||
+      state.aiRequestInFlight === "compute" ||
+      currentViewState.aiRunCountdownVisible ||
+      currentViewState.sessionCurtainPhase === "computing_ai" ||
+      currentViewState.sessionCurtainOperation === "computing_ai"
+  );
+  if (aiRunBusy) {
+    deps.showToast(deps.PopupText.overlay.pleaseWait);
+    return;
+  }
   if (state.currentPageSaveReconciliationPending) {
     deps.showToast(deps.PopupText.page.statusServerSyncPending);
     return;
   }
-  const currentViewState = deps.getViewState();
   if (!currentViewState.currentPageHasPendingChanges) {
     deps.showToast(deps.PopupText.page.noChangesToSave);
     return;
