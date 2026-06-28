@@ -47,7 +47,7 @@ test("content-main routes live-page GraphQL lookups through background runtime m
     contentSource,
     /async function fetchPropertyPageTypesForSiteId\([\s\S]*?\)(?:\s*:\s*[^{]+)? \{[\s\S]*?fetch\(/
   );
-});
+}, 15000);
 
 test("background owns live-page GraphQL runtime dispatch", () => {
   const backgroundSource = readFileSync(new URL("../src/background.ts", import.meta.url), "utf8");

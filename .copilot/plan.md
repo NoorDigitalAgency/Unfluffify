@@ -394,9 +394,15 @@ stay green.
 phase-0-contracts → phase-1-deciders → phase-2-ingestion → phase-3-parity →
 phase-4-flip → phase-5-remove → {phase-6-spinner, phase-7-knowledge}.
 
-## Open Implementation Plan: Brain-Centralized Deterministic State Coverage Follow-up (2026-06-28)
+## Completed Implementation Plan: Brain-Centralized Deterministic State Coverage Follow-up (2026-06-28)
 
-Status: READY. This plan migrates the post-push semantic-review findings into an
+Status: COMPLETE. Phases 8-11 landed (AI-run lifecycle centralization,
+property-lock/state dictation, secondary gates centralization, and parity
+cleanup), and the validation gate (`pnpm lint && pnpm check && pnpm test &&
+pnpm build`) is green. The detailed section below is preserved as the original
+execution blueprint and pre-implementation investigation snapshot.
+
+This plan migrated the post-push semantic-review findings into an
 implementation sequence. Planning and future implementation should stay
 `codebase-memory-mcp`-first to keep discovery fast and token-light. Project id:
 `home-rojan-Documents-Git-GitHub-Unfluffify`.
@@ -576,8 +582,8 @@ validation passes after the implementation series.
 
 ### Todo chain
 
-brain-followup-ai-run → brain-followup-property-lock →
-brain-followup-secondary-gates → brain-followup-cleanup.
+brain-followup-ai-run -> brain-followup-property-lock ->
+brain-followup-secondary-gates -> brain-followup-cleanup (COMPLETE).
 
 ## Current state
 
