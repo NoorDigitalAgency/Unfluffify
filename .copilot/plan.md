@@ -629,9 +629,13 @@ the brain `SessionFacts` bus) or a single deterministic deadline/one-shot timer.
 1. Keep backend-server polls and any poll that genuinely cannot be event-based
    without breaking behavior. Convert everything else that can be safely made
    event-based.
-2. AI run readiness: keep the background backend poll
-   (`executeAiRunWithStatusPolling`). Convert the popup mirror
-   (`continueAiRunPolling`) to subscribe to a background-pushed status event.
+2. AI run readiness: the exempt poll is the popup's `continueAiRunPolling`
+   (verified 2026-06-28 as the SOLE active AI-readiness poll; the background
+   `executeAiRunWithStatusPolling` loop is dead/uninvoked code). The popup is a
+   page, not the MV3 service worker, so it does not suspend while open. Keep
+   `continueAiRunPolling` as the literal readiness-poll exemption; do NOT convert
+   it. Relocating it to the background would only add "survive popup close"
+   behavior, which is out of scope for polling elimination.
 3. Editing the locked `src/content/core.ts` polls is approved for this plan,
    provided marking / visibility / reconciliation behavior is preserved and
    covered by regression tests.
@@ -666,9 +670,14 @@ the brain `SessionFacts` bus) or a single deterministic deadline/one-shot timer.
   backoff, 30 attempts) and `src/popup.ts:scheduleStaleInspectionBusyClear`
   (150ms then 400ms retries). These polls drive the stuck "Inspecting page..." /
   "Working... controls are temporarily blocked." curtain.
-- Background AI poll (EXEMPT, keep): `executeAiRunWithStatusPolling` in
-  `src/background/ai-run-orchestrator.ts` using `AI_RUN_POLL_INTERVAL_MS`
-  (`src/popup/ai-run.ts`).
+- AI readiness poll (EXEMPT, keep): the popup's `continueAiRunPolling`
+  (`src/popup.ts` ~7961) using `AI_RUN_POLL_INTERVAL_MS` (`src/popup/ai-run.ts`).
+  This is the only active AI-readiness poll. The background
+  `executeAiRunWithStatusPolling` in `src/background/ai-run-orchestrator.ts`
+  (~840) is currently DEAD code (never invoked); the popup owns the loop and
+  hits the backend via `requestAiRunStatus` / `requestAiRunResultSnapshot`
+  message handlers. The popup is not the service worker, so there is no MV3
+  suspension risk while it polls during an open run.
 - `src/background/sw-keepalive.ts` is a refcounted MV3 keepalive ping, not a
   state poll. Keep it.
 
@@ -714,14 +723,18 @@ CONVERT (phases below):
 
 - P1 popup `scheduleNavigationInspectionSettlePoll` +
   `scheduleStaleInspectionBusyClear` -> content-emitted inspection-settled fact.
-- P2 popup `continueAiRunPolling` -> background-pushed AI status event.
+- P2 popup `continueAiRunPolling` -> NO CHANGE. Verified as the exempt AI
+  readiness poll (sole active poller; background loop is dead code; popup is not
+  the SW). Resolved by the exemption.
 - P3 popup curtain countdown (`src/popup/ui.tsx:syncBlockingCurtainCountdownTimer`),
   popup property-lock off-candidate refresh
   (`src/popup/property-lock-ui.ts:syncPropertyLockOffCandidateRefreshTimer`),
   content property-lock banner countdown
-  (`src/content/property-lock-banner.ts`) -> single deadline timer for expiry
-  detection; visible seconds may keep a display-only clock tick (not a state
-  poll) where a number must visibly decrement.
+  (`src/content/property-lock-banner.ts`) -> KEEP. Verified these are visible
+  countdown DISPLAY clocks (they re-render to tick a visible seconds number),
+  not state-rechecking polls. A countdown number cannot update without a tick,
+  so they are not eliminable; the source-contract guard must exempt 1s display
+  clocks.
 - P4 content URL watchers (`src/content-main.ts:silentHighlightingUrlTimer`,
   `src/content/core.ts:state.urlCheckTimer`) -> history API patch +
   popstate/hashchange.
@@ -828,27 +841,28 @@ popup-local `inspectionSettled` message handler that decides the curtain.
   watchdog deadline remain as non-poll safety nets; revert the popup poll removal
   if a settle path is found uncovered.
 
-**P2 — AI status push (removes popup `continueAiRunPolling`)**
+**P2 — AI readiness poll: RESOLVED (no change)**
 
-- Background already polls the backend; have it publish `aiRunStatusChanged`
-  (status running/done/error + result-ready) to the popup. Popup subscribes and
-  updates AI run UI reactively; delete `continueAiRunPolling` and
-  `state.aiRunPollTimer`.
-- Files: `src/background/ai-run-orchestrator.ts` (publish on each status
-  transition), bus contract, `src/popup.ts` / `src/popup/ai-run.ts` (subscribe,
-  remove loop).
-- Tests: `tests/ai-run-orchestrator.test.ts` (asserts a status event is
-  published on transition), popup AI-run test (reacts to event, no poll timer).
+- Verified 2026-06-28: the popup's `continueAiRunPolling` is the sole active AI
+  readiness poll and is the user-approved exemption. The background
+  `executeAiRunWithStatusPolling` loop is dead/uninvoked code, so there is no
+  background poll to subscribe to. The popup is a page (not the SW), so polling
+  during an open run carries no MV3 suspension risk. KEEP the popup poll as-is.
+- Optional future cleanup (NOT part of polling elimination): delete the dead
+  `executeAiRunWithStatusPolling` orchestrator loop, or (separate feature) move
+  the readiness poll to the background so runs survive popup close. Both require
+  their own approval and are out of scope here.
 
-**P3 — Deadline-driven expiry (removes 1s re-derive timers)**
+**P3 — Countdown display clocks: RESOLVED (keep)**
 
-- Replace the 1s re-derive timers with one-shot timers scheduled at the known
-  `deadlineAt`; on fire, clear/expire and refresh once. Keep a display-only
-  seconds clock only where a visible countdown number must tick.
-- Files: `src/popup/ui.tsx`, `src/popup/property-lock-ui.ts`,
-  `src/content/property-lock-banner.ts`.
-- Tests: property-lock UI tests assert expiry fires on the deadline timer and no
-  1s re-derive interval is created.
+- Verified 2026-06-28: `syncBlockingCurtainCountdownTimer`
+  (`src/popup/ui.tsx`) and `syncPropertyLockOffCandidateRefreshTimer`
+  (`src/popup/property-lock-ui.ts`) re-render every 1s to update a VISIBLE
+  countdown/elapsed number; the content property-lock banner countdown
+  (`src/content/property-lock-banner.ts`) does the same. These are display
+  clocks, not state-rechecking polls. KEEP them. The only requirement is that
+  the source-contract guard explicitly allowlists these display-clock
+  `setInterval`s so the "no setInterval" assertion does not fail on them.
 
 **P4 — Event-based SPA URL detection (removes 2 800ms URL polls)**
 
@@ -921,8 +935,11 @@ popup-local `inspectionSettled` message handler that decides the curtain.
   `tests/popup-central-state-dictation.test.ts`,
   `tests/ai-run-orchestrator.test.ts`.
 - Source-contract guard: add a focused test asserting that, outside the approved
-  backend polls (AI run orchestrator) and `sw-keepalive`, no `setInterval` and no
-  self-rescheduling `setTimeout` poll remains in the converted files.
+  exemptions, no `setInterval` and no self-rescheduling `setTimeout` poll remains
+  in the converted files. Approved exemptions: the popup AI readiness poll
+  (`continueAiRunPolling`), `sw-keepalive`, the property-page-types backend poll,
+  and the visible countdown DISPLAY clocks (`syncBlockingCurtainCountdownTimer`,
+  `syncPropertyLockOffCandidateRefreshTimer`, property-lock banner countdown).
 - Full: `pnpm lint`, `pnpm check`, `pnpm test`, `pnpm build` each phase.
 - Live: `pnpm browser:live <target-url>` to confirm the curtain clears on
   reveal/freeze and SPA navigation still resets silent highlighting.
