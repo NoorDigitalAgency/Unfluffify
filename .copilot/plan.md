@@ -991,6 +991,88 @@ popup-local `inspectionSettled` message handler that decides the curtain.
   popup-scoped as a documented backend poll (active-property coupling makes
   relocation invasive; allowed fallback).
 
+---
+
+## Open Implementation Plan: Curtain/Spinner Dual-Sync + Stuck-Recovery (2026-06-29)
+
+### Goal
+
+Every curtain/spinner scenario shows and hides on a single brain dictation, in
+sync on BOTH the popup and the main world, and never gets stuck when a main-world
+event is missed. While stuck, button states stay correct. Two concrete live
+bugs are fixed: (A) on a site with NO render mode set, render-mode inspect
+("With/Without JavaScript") spins forever, never confirms the mode, blocks
+controls, and leaves the popup curtain up while the main world has no curtain;
+(B) console spam `background.js Bus publish transport rejected`.
+
+### Current facts (verified live + graph, 2026-06-29)
+
+- The blocking curtain is centrally decided: `deriveCurtainDictation(phase,
+  facts)` (`src/background/brain/deciders/dictation-decider.ts:39`) returns
+  `visible: true` for `computing_ai/saving/discarding` and whenever
+  `facts.busyVisible || facts.aiBusy`. Phase `render_mode_inspection` does not
+  itself force a curtain; the stuck curtain is `facts.busyVisible` not clearing.
+- Brain broadcasts spinners to BOTH realms: `publishSpinnerSurface`
+  (`src/background/brain/index.ts:121`) sends `SPINNER_EVENT_TYPES` for
+  `pageCurtain`/`banner` to CONTENT+POPUP; `projectSpinners`
+  (`src/background/brain/spinner-authority.ts:73`). Popup renders via its
+  layer-host; content stores via `renderContentSpinner`
+  (`src/content/layers/spinner-layer.ts`).
+- Main-world DESYNC: the page-world inspection overlay is LOCAL
+  (`setPageInspectionUiActive`, `src/content/core.ts:6834`), not rendered from
+  the `pageCurtain` spinner the content layer-host already receives. So popup and
+  main world can diverge (popup curtain up, page clean — and vice versa).
+- Render-mode inspect path: `requestPopupRenderModeInspection`
+  (`src/popup/layers/modes/render-mode-inspection.ts`),
+  `completeRenderModeInspectionReloadFollowUp`
+  (`src/popup/render-mode-inspection.ts:397`), and the 20s
+  `startRenderModeSetNavGuard` (`src/popup.ts:3552`). On a no-render-mode page
+  the inspect leaves `busyVisible` true and never confirms the mode.
+- Bug B: `src/common/bus/bus.ts` publish rejects EVENT broadcasts to absent
+  receivers; benign but logged at error. Tests assert current logging — change
+  log + tests together.
+
+### Open questions (resolve before coding)
+
+1. Page-world overlay ownership: should the main world render its inspection
+   spinner solely from the brain `pageCurtain` broadcast (recommended) or keep a
+   local overlay mirrored to brain dictation? Affects locked `core.ts`.
+2. Render-mode inspect: when inspect cannot confirm a mode, should the curtain
+   auto-clear to a usable render-mode chooser (recommended) or show an explicit
+   error toast and stay blocked?
+
+### Non-goals
+
+- No marking-rules / locked-overlay contract changes.
+- No new product behavior beyond show/hide sync + bounded recovery.
+
+### Phases
+
+- P-A: Single curtain show/hide source per scenario. Audit every
+  `busyVisible`/`aiBusy`/phase curtain producer; ensure each has a deterministic
+  clear; add a bounded brain-side fail-open deadline per blocking operation.
+- P-B: Main-world spinner from brain. Render the page-world overlay from the
+  `pageCurtain` broadcast (content layer-host) and make `setPageInspectionUiActive`
+  mirror the brain signal instead of owning it; "done" → brain hide → both clear.
+- P-C: Render-mode inspect (no mode) recovery: clear `busyVisible`, bound the
+  nav guard, leave the chooser usable; report inspect facts to brain.
+- P-D: Event-loss recovery: if a main-world ack is missed, a bounded deadline
+  clears spinner on both layers and buttons reflect facts (not stuck).
+- P-E: Bug B log fix + tests; regression tests for A/C/D; live verify on sove.se
+  (no render mode) and bonliva.se.
+
+### Test matrix
+
+`pnpm lint && pnpm check && pnpm test && pnpm build`; live: `pnpm browser:live
+https://sove.se/` and `https://bonliva.se` (set render mode → marking → AI →
+save → exit preview; assert popup+page curtain in sync and no stuck state).
+
+### Acceptance criteria
+
+- No-render-mode site: inspect ends bounded, chooser usable, mode sets; no stuck
+  curtain. Popup and page-world curtain always agree. Missed event recovers via
+  deadline; buttons match facts. No bus error spam.
+
 ## Guardrails
 
 1. Do not change locked marking/highlighting/property-lock contracts without an
