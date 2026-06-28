@@ -185,6 +185,29 @@ function defaultCreateManagedTimeoutGroup(): AiRunManagedTimeoutGroup {
   };
 }
 
+function buildAiRunStartErrorMessage(reason: string, httpStatus?: number) {
+  if (reason === "http_error") {
+    const status = Number(httpStatus);
+    if (Number.isFinite(status) && status > 0) {
+      return `Unable to start AI run (HTTP ${status})`;
+    }
+    return "Unable to start AI run (HTTP error)";
+  }
+  if (reason === "network_failed") {
+    return "Unable to start AI run (network error)";
+  }
+  if (reason === "missing_endpoint") {
+    return "Unable to start AI run (missing endpoint)";
+  }
+  if (reason === "missing_payload_key" || reason === "payload_unavailable") {
+    return "Unable to start AI run (missing payload)";
+  }
+  if (reason === "missing_session_id") {
+    return "Unable to start AI run (invalid server response)";
+  }
+  return "Unable to start AI run";
+}
+
 export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) {
   const aiComputeLockExpiresAtByTabId: Map<number, number> = options.aiComputeLockExpiresAtByTabId instanceof Map
     ? options.aiComputeLockExpiresAtByTabId
@@ -801,10 +824,14 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
         }
       });
       if (!startResult || !startResult.ok || !startResult.sessionId) {
+        const startReason =
+          startResult && typeof startResult.reason === "string" && startResult.reason
+            ? startResult.reason
+            : "start_failed";
         return {
           ok: false,
-          reason: (startResult && startResult.reason) || "start_failed",
-          error: "Unable to start AI run"
+          reason: startReason,
+          error: buildAiRunStartErrorMessage(startReason, startResult && startResult.httpStatus)
         };
       }
 

@@ -295,6 +295,71 @@ test("ai-run orchestrator keeps polling when the in-loop heartbeat lock fails", 
   assert.ok(statusCalls >= 2, "status polling should continue after a heartbeat lock failure");
 });
 
+test("ai-run orchestrator returns detailed start failure context", async () => {
+  const orchestrator = createAiRunOrchestrator({
+    aiComputeLockExpiresAtByTabId: new Map(),
+    normalizeTabId: (value) => Number(value),
+    normalizeActivationBaseUrl: (value) => value,
+    normalizeSiteIdValue: (value) => Number(value) || null,
+    normalizeAiSelectorSet: (payload) => payload,
+    buildAiSubmissionXpaths: (entry) => entry.submissionXpaths || [],
+    isPageWithinBaseUrl: () => true,
+    resolveBackgroundNetworkCredentials: async () => ({ endpointValue: "https://api.test", tokenValue: "token" }),
+    requestAiRunStartSnapshot: async () => ({ ok: false, reason: "http_error", httpStatus: 503 }),
+    requestAiRunStatus: async () => ({ ok: false }),
+    requestAiRunResultSnapshot: async () => ({ ok: false }),
+    fetchStaticPageHtmlForBackground: async () => ({ ok: true, html: "<html/>" }),
+    getTransferPayload: async () => ({ ok: true, payload: { pages: [] } }),
+    putTransferPayload: async (_label, payload) => ({ ok: true, payloadKey: "prepared-key", payload }),
+    removeTransferPayload: async () => {},
+    consumeTransferPayload: async () => ({ ok: false }),
+    clearPersistedAiRunRecord: async () => {},
+    savePersistedAiRunRecord: async (record) => record,
+    sendContentMessageToTab: async () => ({ ok: true }),
+    ensureContentMainForTab: async () => ({ ok: true }),
+    getTabState: async () => ({ enabled: true }),
+    setTabState: async () => {},
+    updateActionForTab: async () => {},
+    refineXPathEntries: (_renderedHtml, _rawHtml, renderedXpaths) => renderedXpaths,
+    waitForBackgroundRetryDelay: async () => {},
+    getAiRunResumeExpiresAt: () => Date.now() + 20_000,
+    configStore: {
+      ensureConfig: async () => ({
+        siteId: 7,
+        pageMarkings: {
+          "https://example.test/page": {
+            renderedHtml: "<html/>",
+            rawHtml: "<html/>",
+            submissionXpaths: ["//body"],
+            renderedXpaths: ["//body"]
+          }
+        }
+      }),
+      updateConfig: async () => ({ siteId: 7, pageMarkings: {} })
+    },
+    defaultExcludedImmutableSelectors: ["#fixed"],
+    aiRunTimeoutMs: 60_000,
+    aiRunPollIntervalMs: 1
+  });
+
+  const result = await orchestrator.runAiCommandForTab(
+    5,
+    {
+      baseUrl: "https://example.test",
+      currentPageUrl: "https://example.test/page",
+      pageType: "detail",
+      currentRenderMode: "static",
+      siteId: 7,
+      deadlineAt: Date.now() + 5000
+    },
+    async () => {}
+  );
+
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "http_error");
+  assert.equal(result.error, "Unable to start AI run (HTTP 503)");
+});
+
 test("ai-run orchestrator reports heartbeat lock failures", async () => {
   const orchestrator = createAiRunOrchestrator({
     aiComputeLockExpiresAtByTabId: new Map(),
