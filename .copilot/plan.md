@@ -218,12 +218,11 @@ unverified because they are gated behind real backend credentials.
 
 ---
 
-## Open Implementation Plan: Brain-Centralized Deterministic System State (2026-06-28)
+## Completed Implementation Plan: Brain-Centralized Deterministic System State (2026-06-28)
 
-Status: DRAFT for user review. Plan-only (no implementation started). Five design
-decisions marked **[ASSUMED]** were chosen autonomously while the user was
-unavailable and still need explicit confirmation (see "Open questions"). Full
-working copy of this plan also lives in the session plan file.
+Status: COMPLETE for the initial slice. Phases 0-7 shipped in `eeb2898`
+(`feat(brain): centralize popup session dictation`). The remaining eligible
+non-performance-critical state surfaces are tracked in the follow-up plan below.
 
 ### Goal
 
@@ -394,6 +393,184 @@ stay green.
 
 phase-0-contracts → phase-1-deciders → phase-2-ingestion → phase-3-parity →
 phase-4-flip → phase-5-remove → {phase-6-spinner, phase-7-knowledge}.
+
+## Open Implementation Plan: Brain-Centralized Deterministic State Coverage Follow-up (2026-06-28)
+
+Status: READY. This plan migrates the post-push semantic-review findings into an
+implementation sequence. Planning and future implementation should stay
+`codebase-memory-mcp`-first to keep discovery fast and token-light. Project id:
+`home-rojan-Documents-Git-GitHub-Unfluffify`.
+
+### Goal
+
+Extend brain-owned deterministic state beyond the shipped 5-button matrix and
+curtain so the remaining popup-owned predictable state/action surfaces — AI-run
+countdown/deadline lifecycle, property-lock warnings/countdowns, save/revert and
+preview action gating, navigation-inspection overlay lifecycle, Lynx checklist
+gating, and desktop preview toggle/gating — are projected by the brain instead
+of re-derived imperatively inside `popup.ts`. Out of scope: performance-critical
+marking-mode and silent-highlighting DOM/render loops.
+
+### MCP-first workflow
+
+1. Start each phase with `codebase-memory-mcp-search_graph` on the project id
+   above, using the phase's symbol names/keywords until the exact qualified names
+   are found.
+2. For each target symbol, call
+   `codebase-memory-mcp-get_code_snippet(..., include_neighbors: true)` before
+   opening raw files.
+3. Run `codebase-memory-mcp-trace_path(..., mode: "calls")` from the target
+   symbols and their caller roots to map authority boundaries before editing.
+4. Only then use `view`/`rg` for exact surrounding source-contract lines and
+   tests.
+
+### Current facts (verified)
+
+- Current brain authority stops at `SessionPhase` + `SessionDictation`:
+  `src/background/brain/deciders/session-phase-decider.ts`,
+  `src/background/brain/deciders/dictation-decider.ts`,
+  `src/background/brain/view-projector.ts`, and
+  `src/popup/central-state-dictation.ts`.
+- AI-run countdown/deadline is still popup-owned even though the background
+  orchestrator already owns persisted run records, heartbeats, and compute-lock
+  timing: `src/background/ai-run-orchestrator.ts` (`runAiCommandForTab`,
+  `refreshAiRunHeartbeat`) versus popup-local
+  `loadPersistedAiRunRecord`/`updateAiRunCountdownState`/`handleComputeSelectors`
+  in `src/popup.ts`.
+- Property-lock warnings remain popup-owned timer/view composition:
+  `src/popup/property-lock-ui.ts` (`syncPropertyLockOffCandidateRefreshTimer`,
+  `applyPropertyLockServerMessage`, `buildPropertyLockViewState`) still selects
+  warning/countdown branches locally from popup clock state.
+- Save/revert/preview guards remain duplicated in popup handlers even after
+  central button dictation: `src/popup.ts` (`handleComputeSelectors`,
+  `handleMarkingPreview`) plus busy/preview protections in
+  `src/popup/page-reconciliation.ts`.
+- Navigation inspection overlay lifecycle is still popup-local spinner
+  orchestration: `src/popup.ts` (`beginNavigationInspectionOverlay` and related
+  settle-poll cleanup).
+- Lynx checklist gating remains popup-local:
+  `src/common/lynx-checklist.ts` (`buildLynxChecklistViewModel`) +
+  `src/popup.ts` (`setLynxChecklistViewState`).
+- Desktop preview toggle/gating remains popup-local:
+  `src/popup.ts` (`handleDesktopPreviewEnabledToggle`) still re-derives
+  enablement, spinner copy, and marking-mode coupling inside the handler.
+
+### Decisions already made
+
+- Preserve current behavior and copy; this is an authority migration, not a
+  product-logic rewrite.
+- Keep `centralStateDictation` on. If short-lived bridges are still required,
+  keep them local and explicitly transitional like the shipped popup dictation
+  bridges.
+- Keep performance-critical marking/silent-highlighting DOM decisions local.
+  Centralize only predictable action/state surfaces.
+- Extend the existing session-state/reporting contract rather than introducing a
+  parallel popup-only control channel.
+- For migrated action handlers, brain projections become the primary availability
+  source of truth; handlers keep only irreversible safety checks such as active
+  tab/config existence and stale-roundtrip revalidation where necessary.
+
+### Non-goals
+
+No rewrite of locked content core, property-lock protocol, AI network/orchestrator
+behavior, checklist semantics, or desktop emulation behavior. No work on
+marking-mode or silent-highlighting hot paths.
+
+### Implementation phases
+
+- Phase 8 — Brain-own AI-run lifecycle:
+  - Start with `codebase-memory-mcp-search_graph` /
+    `codebase-memory-mcp-trace_path` on `runAiCommandForTab`,
+    `refreshAiRunHeartbeat`, `loadPersistedAiRunRecord`,
+    `updateAiRunCountdownState`, and `handleComputeSelectors`.
+  - Introduce explicit projected AI lifecycle facts (status, deadline/resume
+    expiry, preview linkage) sourced from background/orchestrator state instead
+    of popup timers.
+  - Project countdown/deadline display fields from the brain envelope; the popup
+    timer becomes a passive renderer or disappears.
+  - Remove popup-local AI countdown-driven button gating, keeping only immediate
+    transition bridges if a roundtrip still exists.
+  - Tests: `tests/ai-run-orchestrator.test.ts`,
+    `tests/popup-ai-run-gating.test.ts`, and popup view-projection coverage.
+- Phase 9 — Property-lock state dictation:
+  - Start with `codebase-memory-mcp-search_graph` /
+    `codebase-memory-mcp-trace_path` on `buildPropertyLockViewState`,
+    `applyPropertyLockServerMessage`,
+    `syncPropertyLockOffCandidateRefreshTimer`, and the property-lock banner
+    flow.
+  - Split property-lock raw facts from popup view composition: background/brain
+    owns countdown timestamps + active mode enum; popup/content render projected
+    tone/icon/text/button surfaces.
+  - Move warning countdown authority out of popup mode selection. If a 1 Hz local
+    repaint remains necessary, it must derive purely from projected deadline
+    timestamps, not popup-owned warning branches.
+  - Add a property-lock decider/projector so popup no longer derives
+    blocking/warning branches from local state bags.
+  - Tests: `tests/popup-property-lock-ui.test.ts`, property-lock banner tests,
+    and popup view projector coverage.
+- Phase 10 — Secondary action/gating surface centralization:
+  - Start with `codebase-memory-mcp-search_graph` /
+    `codebase-memory-mcp-trace_path` on `handleComputeSelectors`,
+    `handleMarkingPreview`, `handleDesktopPreviewEnabledToggle`,
+    `beginNavigationInspectionOverlay`, `setLynxChecklistViewState`, and
+    `buildLynxChecklistViewModel`.
+  - Promote save/revert/preview handler availability, navigation-inspection
+    overlay lifecycle, Lynx checklist send blocking, and desktop preview
+    enable/disable visibility into projected brain state.
+  - Shrink popup handlers so they consume projected allow/deny reasons and keep
+    only irreversible checks (active tab presence, required ids, missing config
+    fetches).
+  - Reuse `SessionFacts` / `PopupViewEnvelope` when fields are session-scoped;
+    add new typed view sections only when a surface is not part of the 5-button
+    matrix.
+  - Tests: `tests/popup-page-reconciliation.test.ts`,
+    `tests/popup-state-decider.test.ts`, checklist tests, and targeted popup
+    source-contract suites.
+- Phase 11 — Parity cleanup and knowledge lock:
+  - Delete remaining long-lived popup-local authority branches for the migrated
+    surfaces.
+  - Update `.copilot/knowledge.md` / guardrails only if new durable authority
+    boundaries are established.
+  - Run full validation (`pnpm lint`, `pnpm check`, `pnpm test`, `pnpm build`)
+    once all follow-up phases land.
+
+### Test matrix
+
+Unit for any new decider/projector helpers; integration for popup consumption of
+projected AI/property-lock/auxiliary view state; regression coverage in
+`tests/popup-ai-run-gating.test.ts`, `tests/ai-run-orchestrator.test.ts`,
+`tests/popup-property-lock-ui.test.ts`,
+`tests/popup-page-reconciliation.test.ts`, and checklist/desktop-preview
+targets; source-contract coverage must preserve regex-sensitive helper names/DI
+param names. Final gate: `pnpm verify`. Use live browser only if automation and
+source review cannot prove overlay/countdown parity.
+
+### Regression risks
+
+AI-run resume/heartbeat state is split between background and popup today, so
+double-owning deadline state can reintroduce stale `computing_ai` or resume
+regressions. Property-lock UI couples time-based copy to collaboration protocol
+state; centralize the mode selection before simplifying timers. Handler gating
+currently duplicates checks to protect against one-roundtrip stale state; do not
+delete those revalidations until projected state carries every required input.
+Checklist/desktop-preview surfaces mix session and config state, so centralize
+authority without inventing new semantics.
+
+### Acceptance criteria
+
+Popup no longer decides AI-run countdown/deadline mode or property-lock warning
+mode; it only renders projected state plus deadline-based local ticking where a
+visual second-by-second countdown is still required. Save/revert/preview,
+navigation inspection, checklist send, and desktop preview controls are all
+explainable from brain-projected state or explicitly documented as
+performance-critical exceptions. No remaining long-lived `uiModule.setViewState`
+authority writes exist for these migrated surfaces inside `popup.ts`. Full
+validation passes after the implementation series.
+
+### Todo chain
+
+brain-followup-ai-run → brain-followup-property-lock →
+brain-followup-secondary-gates → brain-followup-cleanup.
 
 ## Current state
 
