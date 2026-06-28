@@ -637,6 +637,17 @@ the brain `SessionFacts` bus) or a single deterministic deadline/one-shot timer.
    covered by regression tests.
 4. SPA URL detection is replaced with a `history.pushState`/`replaceState`
    patch plus `popstate`/`hashchange` listeners (in-page, deterministic).
+5. Curtain/spinner dictation must be broadcast by the brain to BOTH the popup
+   AND the content/main-world script, so the blocking curtain/spinner is always
+   in sync and visually similar across both surfaces. The main world must not
+   own its own spinner authority: it shows/hides its page-world spinner from the
+   brain dictation signal (the same dictation the popup renders), and reports
+   its lifecycle facts (reveal/freeze started, settled/"done") back to the
+   brain. When an inspection/reveal/freeze ends, the layer reports "done" and the
+   brain broadcasts spinner-hide to every layer, clearing both the page-world
+   spinner and the popup curtain together. This applies to every curtain/spinner
+   scenario (silent-highlighting reveal/freeze, render-mode inspection,
+   marking-enable inspection, AI compute), not just the reported stuck case.
 
 ### Current facts (verified)
 
@@ -777,24 +788,39 @@ popup-local `inspectionSettled` message handler that decides the curtain.
   mirroring `src/popup/layers/popup-bus-client.ts`), and let the existing
   decider clear the curtain; (c) remove the popup settle polls and replace any
   residual safety with a single bounded brain-side deadline (not a poll).
+- Dual-broadcast (decision 5): the brain dictation that drives the curtain must
+  be delivered to BOTH the popup AND the content/main-world. Add a content/
+  main-world dictation subscriber that shows/hides its page-world inspection
+  spinner (`setPageInspectionUiActive` / overlay) from the SAME brain dictation
+  signal the popup renders, instead of the main world deciding locally. The main
+  world keeps emitting its lifecycle/"done" facts (reveal/freeze started and
+  settled) to the brain; the brain folds them and broadcasts spinner-show /
+  spinner-hide to every layer so the page-world spinner and the popup curtain
+  appear and clear together. Confirm the dictation broadcast already targets the
+  content realm (`REALMS`) or extend the brain projector to push dictation to the
+  content tab as well as the popup.
 - Files: `src/content-main.ts` / `src/content/core.ts` (emit terminal lifecycle
   at all settle points; the central chokepoint is `setPageInspectionUiActive`
-  in `core.ts` and `finishPageInspectionUi`), optionally a new
-  `src/content/*-bus-client.ts` fact reporter + `src/common/bus/contracts/
-  session-state.ts`, `src/background/brain/deciders/*` (only if a new fact must
-  drive the curtain), and `src/popup.ts` (delete
-  `scheduleNavigationInspectionSettlePoll`, `scheduleStaleInspectionBusyClear`,
+  in `core.ts` and `finishPageInspectionUi`; add the main-world dictation
+  subscriber that drives the page-world spinner), a content fact/dictation bus
+  client (new `src/content/*-bus-client.ts` mirroring
+  `src/popup/layers/popup-bus-client.ts`) + `src/common/bus/contracts/
+  session-state.ts`, `src/background/brain/*` (broadcast dictation to the content
+  realm; deciders only if a new fact must drive the curtain), and `src/popup.ts`
+  (delete `scheduleNavigationInspectionSettlePoll`,
+  `scheduleStaleInspectionBusyClear`,
   `popupNavigationInspectionSettlePollByTabId`, `popupStaleInspectionBusyClearTimer`
   and their callers at popup.ts:8905/8913/5273/6367,
   `src/popup/render-mode-inspection.ts:107/425`, `src/popup/spinner.ts:352`).
 - Expected state: after reveal/freeze, navigation, and render-mode set, the
-  curtain clears from the lifecycle/decider event; no 350ms/500-2000ms/150ms/
-  400ms popup polling remains.
+  page-world spinner and popup curtain clear together from the same brain
+  dictation; no 350ms/500-2000ms/150ms/400ms popup polling remains.
 - Tests: `tests/lifecycle-broker.test.ts`, `tests/popup-marking-refresh.test.ts`,
   `tests/popup-central-state-dictation.test.ts`, `tests/inspection-status.test.ts`;
   add a regression asserting the curtain clears on the terminal lifecycle event
   and that no settle-poll timer is scheduled; add a content test that the
-  terminal lifecycle/fact fires once per settle.
+  terminal lifecycle/fact fires once per settle and that the main-world spinner
+  subscriber shows/hides from brain dictation (not local authority).
 - Validation: focused tests, then `pnpm lint && pnpm check && pnpm test && pnpm build`,
   plus a live round confirming the "Inspecting page.../Working..." curtain clears
   after reveal/freeze.
@@ -917,6 +943,9 @@ popup-local `inspectionSettled` message handler that decides the curtain.
 
 - After reveal/freeze and after SPA navigation, the popup "Inspecting page..." /
   "Working..." curtain clears from a content event, not a poll.
+- The page-world inspection spinner and the popup curtain show and clear
+  together from the same brain dictation broadcast to both layers; the main
+  world never owns its spinner authority locally.
 - No `setInterval` or self-rescheduling `setTimeout` poll remains in the
   converted files except the approved backend polls and `sw-keepalive`.
 - All AI-run, property-lock, marking, and silent-highlight behaviors remain
