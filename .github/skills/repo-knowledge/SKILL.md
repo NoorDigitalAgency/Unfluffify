@@ -32,6 +32,10 @@ find . -maxdepth 3 -type f | sort
 git --no-pager status --short
 ```
 
+Before broader discovery, refresh the repository graph with
+`codebase-memory-mcp-index_repository` if the current `HEAD` has not already
+been indexed in this session.
+
 Then identify domains by source and tests. For this repo, begin with:
 
 - background/service-worker commands and broker state
@@ -43,8 +47,12 @@ Then identify domains by source and tests. For this repo, begin with:
 - tests that encode architecture contracts
 - existing knowledge/instructions/skills
 
-Use parallel code-search/read passes. Do not read only production code; tests
-often define the real contract.
+Use parallel graph-search/read passes. Start with
+`codebase-memory-mcp-search_graph`, `codebase-memory-mcp-search_code`,
+`codebase-memory-mcp-get_code_snippet`, and
+`codebase-memory-mcp-trace_path`, then fall back to raw file reads for exact
+source text, tests, and non-symbol details. Do not read only production code;
+tests often define the real contract.
 
 ## Phase 2: Extract facts by domain
 

@@ -16,13 +16,15 @@ publishing, use `safe-change` and stop before `review-push`.
 This skill composes existing repository workflows; do not improvise around them:
 
 - `branch-sync` before plan execution starts.
-- `impl-plan` when no executable plan exists yet.
+- `make-plan` when no executable plan exists yet.
 - `safe-change` for each implementation slice.
 - `review-push` after the full plan is complete.
 
 Before any planning or editing, first ensure the branch is current by running
 `branch-sync`. If that skill reports a blocker, stop there rather
 than starting plan execution from a stale or diverged branch.
+Then refresh the repository graph with `codebase-memory-mcp-index_repository`
+unless the current `HEAD` has already been indexed in this session.
 
 ## Contract
 
@@ -46,7 +48,8 @@ Before choosing work, read in this order:
 3. relevant `.github/skills/*/SKILL.md`
 4. active session `plan.md`, if present
 5. repository `.copilot/plan.md`
-6. current worktree state
+6. refreshed `codebase-memory-mcp` graph state for the current `HEAD`
+7. current worktree state
 
 Minimum worktree check:
 
@@ -94,7 +97,7 @@ Stop and ask the user exactly one deterministic question when:
 - push/sync would require rebase, force-push, or another history rewrite
 
 If no implementation plan exists yet but the requirement is clear, invoke
-`impl-plan` first, create the execution plan/todo chain,
+`make-plan` first, create the execution plan/todo chain,
 and then continue this skill.
 
 ## Step 3 - Materialize the plan into SQL todos
@@ -118,7 +121,10 @@ competing plan.
 For each ready todo/phase:
 
 1. Trace the exact source files, owners, message/data contracts, and tests for
-   that step before editing.
+   that step before editing, using `codebase-memory-mcp-search_graph`,
+   `codebase-memory-mcp-search_code`,
+   `codebase-memory-mcp-get_code_snippet`, and
+   `codebase-memory-mcp-trace_path` before `rg` or manual file hunts.
 2. Follow `safe-change`.
 3. Make the smallest complete change for that step.
 4. Add or update focused regression coverage when behavior changes or bugs are
@@ -154,7 +160,11 @@ complete invoke `review-push` for the final round. That round must:
 - run the review/fix loop until clean
 - run validation matching the actual risk
 - commit only intended files
+- refresh the repo graph with `codebase-memory-mcp-index_repository` after the
+  final commit
 - push/sync without force-push
+- refresh the repo graph with `codebase-memory-mcp-index_repository` again after
+  the final successful push
 
 Default repo gate for source changes:
 

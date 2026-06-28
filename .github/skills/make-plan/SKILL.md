@@ -1,5 +1,5 @@
 ---
-name: impl-plan
+name: make-plan
 description: Create a precise implementation plan that a low-context agent can execute end-to-end without major reasoning or design decisions.
 ---
 
@@ -35,16 +35,30 @@ Before writing the plan:
    - any existing `.github/skills/*/SKILL.md` related to the task
    - current session `plan.md`, if present
 
-2. Inspect the current code paths and tests. Do not rely on memory.
+2. Refresh and use the repo graph before manual searching.
 
-   Use targeted searches first, then read the concrete files:
+   - Run `codebase-memory-mcp-index_repository` for the repository root at the
+     start of the session, or before planning if the current `HEAD` has not yet
+     been indexed in this session.
+   - Use `codebase-memory-mcp-search_graph`,
+     `codebase-memory-mcp-search_code`,
+     `codebase-memory-mcp-get_code_snippet`, and
+     `codebase-memory-mcp-trace_path` first to locate owners, call paths, and
+     candidate tests.
+   - Fall back to `view` / `rg` only for exact surrounding source text,
+     regex-sensitive tests, or non-symbol strings the graph does not capture.
 
-   ```bash
-   rg "symbol|message|route|reason" path-or-repo
-   git --no-pager status --short
-   ```
+3. Inspect the current code paths and tests. Do not rely on memory.
 
-3. Identify all unclear decisions. If any decision affects behavior,
+   Use graph-first targeted searches, then read the concrete files:
+
+   - `codebase-memory-mcp-search_graph` for symbols / keywords
+   - `codebase-memory-mcp-get_code_snippet(..., include_neighbors: true)` for
+     exact implementations
+   - `codebase-memory-mcp-trace_path(..., mode: "calls")` for callers/callees
+   - `git --no-pager status --short`
+
+4. Identify all unclear decisions. If any decision affects behavior,
    architecture, data shape, UI copy, persistence, or validation scope, stop and
    ask the user one deterministic question at a time with multiple-choice
    answers.

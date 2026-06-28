@@ -462,6 +462,10 @@ marking-mode and silent-highlighting DOM/render loops.
 - Keep `centralStateDictation` on. If short-lived bridges are still required,
   keep them local and explicitly transitional like the shipped popup dictation
   bridges.
+- Countdown/timer surfaces should be self-operated renderers: the brain projects
+  a timer type plus absolute/remaining time data, while popup/content countdown
+  widgets own local ticking and `mm:ss` formatting without owning the mode
+  selection.
 - Keep performance-critical marking/silent-highlighting DOM decisions local.
   Centralize only predictable action/state surfaces.
 - Extend the existing session-state/reporting contract rather than introducing a
@@ -486,8 +490,9 @@ marking-mode or silent-highlighting hot paths.
   - Introduce explicit projected AI lifecycle facts (status, deadline/resume
     expiry, preview linkage) sourced from background/orchestrator state instead
     of popup timers.
-  - Project countdown/deadline display fields from the brain envelope; the popup
-    timer becomes a passive renderer or disappears.
+  - Project timer type + deadline/remaining-time fields from the brain envelope;
+    the popup countdown self-operates its ticks locally, formats `mm:ss`, and no
+    longer owns AI lifecycle mode selection.
   - Remove popup-local AI countdown-driven button gating, keeping only immediate
     transition bridges if a roundtrip still exists.
   - Tests: `tests/ai-run-orchestrator.test.ts`,
@@ -502,8 +507,9 @@ marking-mode or silent-highlighting hot paths.
     owns countdown timestamps + active mode enum; popup/content render projected
     tone/icon/text/button surfaces.
   - Move warning countdown authority out of popup mode selection. If a 1 Hz local
-    repaint remains necessary, it must derive purely from projected deadline
-    timestamps, not popup-owned warning branches.
+    repaint remains necessary, it must derive purely from projected timer
+    type/deadline fields, self-tick locally, and render `mm:ss` without
+    reintroducing popup-owned warning branches.
   - Add a property-lock decider/projector so popup no longer derives
     blocking/warning branches from local state bags.
   - Tests: `tests/popup-property-lock-ui.test.ts`, property-lock banner tests,
@@ -559,8 +565,9 @@ authority without inventing new semantics.
 ### Acceptance criteria
 
 Popup no longer decides AI-run countdown/deadline mode or property-lock warning
-mode; it only renders projected state plus deadline-based local ticking where a
-visual second-by-second countdown is still required. Save/revert/preview,
+mode; it only renders projected state plus self-operated local ticking from
+projected timer type/time fields, formatted as `mm:ss`, where a visual
+second-by-second countdown is still required. Save/revert/preview,
 navigation inspection, checklist send, and desktop preview controls are all
 explainable from brain-projected state or explicitly documented as
 performance-critical exceptions. No remaining long-lived `uiModule.setViewState`

@@ -16,7 +16,14 @@ storage, render-mode inspection, property lock, or spinner/page-blocking flows.
 2. Read all relevant `.github/instructions/*.instructions.md`.
 3. Read the active session `plan.md`, if present.
 4. Read any relevant `.github/skills/*/SKILL.md`.
-5. Read the exact source files and tests for the target behavior.
+5. Refresh the repo graph with `codebase-memory-mcp-index_repository` if the
+   current `HEAD` has not been indexed in this session.
+6. Read the exact source files and tests for the target behavior using
+   `codebase-memory-mcp-search_graph`,
+   `codebase-memory-mcp-search_code`,
+   `codebase-memory-mcp-get_code_snippet`, and
+   `codebase-memory-mcp-trace_path` before falling back to `rg` / manual file
+   browsing.
 
 Do not start editing from memory or from a vague issue summary.
 
@@ -44,11 +51,13 @@ git --no-pager status --short
 
 2. Reuse existing helpers and contracts.
 
-   Search before adding new helpers:
+   Search before adding new helpers, using the repo graph first:
 
-   ```bash
-   rg "existingConcept|helperName|messageType"
-   ```
+   - `codebase-memory-mcp-search_graph` / `search_code`
+   - `codebase-memory-mcp-get_code_snippet(..., include_neighbors: true)`
+   - `codebase-memory-mcp-trace_path(..., mode: "calls")`
+   - then `rg "existingConcept|helperName|messageType"` only if exact text search
+     is still needed
 
 3. Make the smallest complete change.
 

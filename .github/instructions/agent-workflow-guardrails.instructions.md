@@ -16,7 +16,7 @@ Use the repository skills before improvising repeatable workflows:
   explicitly wants active-plan execution to continue through commit/push
   publication. Invoke the `run-plan` skill directly when it is
   exposed in the environment.
-- `impl-plan` for detailed implementation handoffs.
+- `make-plan` for detailed implementation handoffs.
 - `safe-change` before non-trivial source changes.
 - `repo-knowledge` for durable knowledge-base and skill updates.
 - `live-browser` to open the live/dev Chromium with the unpacked
@@ -32,6 +32,15 @@ patterns. Read the repo knowledge first:
 3. relevant `.github/skills/*/SKILL.md`
 4. the active session plan, if present
 5. the exact source files and tests for the behavior
+
+Before substantive planning, review, or editing work in a fresh session,
+refresh the repository graph with `codebase-memory-mcp-index_repository` unless
+the current `HEAD` has already been indexed in this session. When searching for
+symbols, relationships, or affected code, prefer `codebase-memory-mcp`
+(`search_graph`, `search_code`, `get_code_snippet`, `trace_path`) before
+`glob`, `rg`, or manual browsing. After every commit, and again after every
+successful push, refresh the graph so the next agent inherits the latest local
+and published index.
 
 Before starting a new repository planning or editing task, follow
 `.github/skills/branch-sync/SKILL.md` so the current branch is

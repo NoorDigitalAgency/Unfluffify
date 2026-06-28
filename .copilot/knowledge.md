@@ -14,13 +14,19 @@
   wants autonomous active-plan execution to continue through
   `review-push`; invoke the `run-plan` skill directly
   when it is exposed in the environment,
-  `impl-plan` for precise implementation handoffs,
+  `make-plan` for precise implementation handoffs,
   `safe-change` before non-trivial source edits,
   `live-round` for stable pnpm dev + pnpm browser:live rounds with
   launcher/popup control verification and stuck-state recovery,
   `repo-knowledge` when updating durable architecture knowledge, and
   `live-browser` to open the live/dev Chromium with the unpacked
   extension loaded for observation or manual testing.
+- Repository discovery is `codebase-memory-mcp`-first: refresh the graph with
+  `codebase-memory-mcp-index_repository` at session start (or before the first
+  substantive repo task if that refresh has not happened yet), after every
+  commit, and again after every push, then prefer `search_graph`, `search_code`,
+  `get_code_snippet`, and `trace_path` before `rg`, `glob`, or manual file
+  hunts.
 - Live test browser: launch with `pnpm browser:live <target-url>`
   (`scripts/launch-test-browser.mjs`).
   A target URL is mandatory. It runs `pnpm build`, loads `.output/chrome-mv3`,

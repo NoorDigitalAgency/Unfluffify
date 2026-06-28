@@ -33,6 +33,8 @@ The task is complete only when:
 
    If unrelated user changes are present, leave them alone. If changes are in the
    same files you need to touch, read the file and preserve the user's work.
+   If the current `HEAD` has not been indexed in this session, refresh the repo
+   graph with `codebase-memory-mcp-index_repository` before deep diff analysis.
 
 2. Run a high-signal review of the current diff.
 
@@ -40,6 +42,11 @@ The task is complete only when:
    broken behavior, data loss, race conditions, security/privacy problems,
    runtime/type failures, missing validation for the exact requirement, or
    repository-contract violations. Tell the reviewer to ignore style and trivia.
+   Use `codebase-memory-mcp-search_graph`,
+   `codebase-memory-mcp-search_code`,
+   `codebase-memory-mcp-get_code_snippet`, and
+   `codebase-memory-mcp-trace_path` before `rg` or manual browsing when
+   understanding the diff or a review finding.
 
 3. If the review is not clean, fix every significant finding.
 
@@ -91,6 +98,8 @@ The task is complete only when:
    ```
 
    Scan for accidental secrets or generated artifacts before committing.
+   After a successful commit, run `codebase-memory-mcp-index_repository` so the
+   local graph matches the new `HEAD` before pushing.
 
 7. Push or sync without force-push.
 
@@ -101,6 +110,9 @@ The task is complete only when:
    git --no-pager status --porcelain
    git rev-list --left-right --count HEAD...@{u}
    ```
+
+   After a successful push, run `codebase-memory-mcp-index_repository` again so
+   the durable graph matches the published branch.
 
    If upstream moved and a rebase is needed, preserve both upstream and local
    intent. Ask the user before any history rewrite or force-push.

@@ -1,6 +1,6 @@
 ---
 name: live-watch
-description: Run a full live observation session for the Unfluffify extension — ask for a URL, start pnpm dev:no-browser + pnpm browser:live, attach a raw-CDP console/JS-stack observer over popup + target page + background service worker, signal ready, then triage user-reported bugs (backlog vs stop) and route to impl-plan or safe-change + review-push. Use when the user wants to drive the extension live while you watch everything and collect bugs.
+description: Run a full live observation session for the Unfluffify extension — ask for a URL, start pnpm dev:no-browser + pnpm browser:live, attach a raw-CDP console/JS-stack observer over popup + target page + background service worker, signal ready, then triage user-reported bugs (backlog vs stop) and route to make-plan or safe-change + review-push. Use when the user wants to drive the extension live while you watch everything and collect bugs.
 ---
 
 # Run a Live Observation Session
@@ -152,11 +152,11 @@ pgrep -af "launch-test-browser.mjs|@playwright/mcp|wxt|remote-debugging-port=922
 ## Step 9 — Route the backlog
 
 Ask the user exactly one question: for the reported bugs, do they want
-**impl-plan** or a **safe-change followed by
+**make-plan** or a **safe-change followed by
 review-push**? Then act:
 
-- **Thorough planning** → invoke the `impl-plan` /
-  `impl-plan` skill. Produce a deterministic, file-cited plan
+- **Thorough planning** → invoke the `make-plan` skill. Produce a deterministic,
+  file-cited plan
   and a SQL todo chain. Do NOT edit `src/` (planning only) unless the user later
   asks to implement.
 - **Fix now** → invoke `safe-change` for each bug (read knowledge +
