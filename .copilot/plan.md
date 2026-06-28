@@ -21,8 +21,9 @@ fix, extensionless imports, lint pass) plan/progress docs were removed from the
 workspace; their durable outcomes live in `.copilot/knowledge.md`. Use git
 history if earlier rationale is needed.
 
-There is one open implementation plan below: **Dev/Live-Browser Tooling
-Hardening**, opened 2026-06-27 after a live migration-regression sweep.
+There are two open implementation plans below: **Dev/Live-Browser Tooling
+Hardening**, opened 2026-06-27 after a live migration-regression sweep, and
+**Brain-Centralized Deterministic System State**, opened 2026-06-28.
 
 ---
 
@@ -214,6 +215,185 @@ unverified because they are gated behind real backend credentials.
 4. Phase 4 gated-flow verification once credentials are provided.
 5. Follow-up fix for the post-preview AI/button-state blocker before retrying
    the full save / Send-to-Lynx flow.
+
+---
+
+## Open Implementation Plan: Brain-Centralized Deterministic System State (2026-06-28)
+
+Status: DRAFT for user review. Plan-only (no implementation started). Five design
+decisions marked **[ASSUMED]** were chosen autonomously while the user was
+unavailable and still need explicit confirmation (see "Open questions"). Full
+working copy of this plan also lives in the session plan file.
+
+### Goal
+
+Make every fixed, predictable, cross-cutting system state — the marking-mode
+button matrix, the spinner/busy curtain, readiness, preview, save/discard, and
+reconciliation states — owned and decided by the background brain. Each layer
+(content, popup) stops deciding these states locally; instead each layer reports
+raw facts up to the brain, the brain decides one named state, and the brain
+dictates to every layer which predefined state to render. Single source of truth:
+deterministic, centrally controlled, in sync across layers. Out of scope:
+layer-local rendering (content marking/silent-highlight/visibility DOM); the
+brain dictates intent, the layer owns the pixels.
+
+### Current facts (verified)
+
+- Popup is the sole author of the button matrix today: `src/popup.ts:5033-5263`
+  (`toggleEnabledDisabled`, `computeButtonDisabled`, `markingPreviewDisabled`) and
+  `src/common/page-save-state.ts:42-114` (`buildPageSaveUiState` →
+  `pageSaveDisabled`/`pageRevertDisabled`).
+- Inputs are hybrid: content owns `markingEnabled` (`getInspectionStatus`,
+  popup.ts:2965,4330), draft/pending (`getPageDraftStatus`, popup.ts:2966),
+  preview (`previewActive`/`previewBlocked`, set popup.ts:7353, cleared via
+  `aiPreviewClosed`), and page-save reconciliation pending
+  (`applyDraftStatusToPopupState`, popup.ts:2876-2885, from
+  `src/content/page-draft-status-handler.ts:81-88`); brain owns
+  readiness/render-mode + spinner curtain
+  (`src/background/brain/view-projector.ts:93-136`, `brain/index.ts:44-57`);
+  popup owns ephemerals `aiRunMarkingsFingerprint`→`aiRunUpToDate`
+  (popup.ts:2190-2203), `aiRequestInFlight`→`aiBusy` (popup.ts:4874),
+  `previewRestorePending` (popup.ts:2996, 1s fallback
+  `AI_PREVIEW_RESTORE_FALLBACK_MS` popup.ts:560). Centralization must add a
+  brain ingestion path for reconciliation instead of assuming it is already
+  background-owned.
+- Brain already centralizes lifecycle/activation/render-mode/spinner:
+  `src/background/brain/state-store.ts` (`TabLayerState`), `brain/index.ts`
+  (`createBrain`, `publishProjectedState` → `view.popup` + `directive.content` +
+  spinner surfaces), `brain/view-projector.ts` (`projectViews`),
+  `brain/deciders/*`.
+- Popup consumes the brain envelope at `src/popup/layers/layer-host.ts:32-36`
+  (`VIEW_UPDATED` → `applyPopupView`). Dictation envelope to extend:
+  `src/common/bus/contracts/popup-state.ts` (`PopupViewEnvelope`).
+- Live-verified on bonliva.no: Fresh/Running-AI/ready-to-save rows match; the
+  AI-auto-preview + Exit-Preview path can stick (content `previewBlocked` never
+  unblocks; popup `previewRestorePending` never clears) — fix as part of
+  centralization, do not bake in.
+- Approved contract: `.copilot/knowledge.md` "Popup Preview Exit Contract".
+- Heavy popup source-contract tests encode the current matrix:
+  `tests/popup-marking-refresh.test.ts:227,246`, `tests/page-save-state.test.ts`,
+  `tests/popup-ai-run-gating.test.ts` (migrate, do not delete).
+- Locked: `src/content/core.ts` + marking/highlight/visibility/reconciliation
+  logic (content fact-reporting must be an additive thin reporter, not a core
+  edit).
+
+### Decisions already made
+
+Repository constraints: no edits to locked content core; popup→background keeps
+the raw runtime-message shape (knowledge C8); popup/brain snapshot reads now
+flow through `requestPopupView(...)` using `POPUP_STATE_REQUEST_TYPES.GET`
+(`popup.view.get`), not the older snapshot path; gate is `pnpm lint && pnpm
+check && pnpm test && pnpm build` + live `pnpm browser:live <target-url>`; the
+Enable/Disable toggle stays enabled-with-confirm in the pending-save state
+(user-accepted) — dictation must reproduce "enabled" there, discard-confirm
+stays in the popup action handler.
+
+**[ASSUMED]** (confirm in Open questions): A1 master `SessionPhase` + derived
+per-surface dictations; A2 brain = sole decider, popup = pure renderer (end
+state, migrated behind a flag with a parity bridge); A3 facts flow up, brain
+dictates down, direct popup↔content queries removed only after parity; A4
+centralize intent only; A5 first slice = the 5-button matrix driven by
+`SessionPhase`; A6 persist this plan into `.copilot/plan.md` after approval.
+
+### Open questions (recommended answer first)
+
+1. Model shape — (1) **[ASSUMED]** master phase + derived per-surface dictations;
+   (2) single machine only; (3) independent per-element enums.
+2. Target authority — (1) **[ASSUMED]** brain sole decider / popup pure renderer;
+   (2) permanent hybrid.
+3. Fact routing — (1) **[ASSUMED]** all facts through the brain, remove direct
+   popup↔content queries after parity; (2) keep direct queries, mirror into brain.
+4. Stuck preview-restore — (1) **[ASSUMED]** behavior-preserving migration first,
+   fix the handshake centrally in a follow-up phase; (2) fix in the same phase.
+5. Rollout switch — (1) **[ASSUMED]** feature flag `centralStateDictation`;
+   (2) direct cutover once parity passes.
+
+### Non-goals
+
+No change to content marking/silent/visibility rendering; no change to AI
+payload/GraphQL/server-sync/storage; no change to the approved button-state
+semantics (who-decides refactor, not what); no edit to locked content core or the
+frozen page-motion pair; no implementation in the planning task.
+
+### Implementation phases
+
+- Phase 0 — Contracts (types only): new
+  `src/common/bus/contracts/session-state.ts` with `SESSION_PHASES`/`SessionPhase`
+  (`LOADING, OUT_OF_SCOPE, RENDER_MODE_INSPECTION, SILENT, MARKING_FRESH,
+  MARKING_DIRTY, COMPUTING_AI, PREVIEW_OPEN, PREVIEW_RESTORING, READY_TO_SAVE,
+  SAVING, SAVED, DISCARDING, RECONCILIATION_PENDING, PROPERTY_LOCK_BLOCKED`),
+  `ButtonId`, `ButtonDictation` (shown/hidden + enabled/disabled + loading),
+  `CurtainOperation`/`CurtainDictation`, `SessionFacts`, `SessionDictation`, and
+  `SESSION_REPORT_TYPES`/`SESSION_EVENT_TYPES`. Validate `pnpm check`.
+- Phase 1 — Pure deciders:
+  `src/background/brain/deciders/session-phase-decider.ts`
+  (`decideSessionPhase(facts)` total function, documented precedence) +
+  `dictation-decider.ts` (`deriveDictation(phase, facts)` reproducing
+  popup.ts:5033-5263 + page-save-state.ts exactly). Exhaustive unit tests
+  `tests/session-phase-decider.test.ts`, `tests/dictation-decider.test.ts`.
+- Phase 2 — Ingestion + projection (additive, popup still authoritative): extend
+  `TabLayerState` (`sessionFacts`, `sessionDictation`), recompute on `mutate`;
+  project `sessionPhase`/`buttons`/`curtains` in `view-projector.ts`; extend
+  `PopupViewEnvelope` (optional fields); register `SESSION_REPORT_TYPES` handlers
+  in `brain/index.ts`; add thin content + popup fact reporters.
+- Phase 3 — Parity: `tests/dictation-parity.test.ts` (brain dictation == legacy
+  popup matrix over a fact corpus) + live CDP walk on bonliva.no.
+- Phase 4 — Flip popup behind `centralStateDictation` flag: `applyPopupView` /
+  `popup.ts` read button+curtain dictation instead of local derivation; keep the
+   flag registered in `src/common/feature-flags.ts` and the exact allowed set
+   updated in `tests/feature-flags.test.ts` before rollout validation, otherwise
+   the repo will hard-disable the unknown flag.
+   Also,
+   discard-confirm handler. Before the flag can be considered complete, inventory
+   and gate every direct `uiModule.setViewState` write of button/curtain
+   authority fields (for example `updateAiRunCountdownState`, popup.ts:2391-2408,
+  and `beginPreviewRestorePending`, popup.ts:2996-3012) so no countdown,
+  preview-restore, or similar imperative path can bypass brain dictation.
+  Validate flag on/off.
+- Phase 5 — Remove popup-local decision + direct content decision queries; make
+  dictation default; migrate popup-matrix source-contract tests to target the
+  brain deciders. As part of removal, delete or permanently gate every direct
+  `uiModule.setViewState` writer that still sets button-disabled/visible/loading
+  or curtain-authority fields. Full `pnpm verify`.
+- Phase 6 — Unify spinner/curtain naming into `SessionDictation` on top of
+  `spinner-authority`.
+- Phase 7 — Knowledge + guardrail: add "Brain-Centralized System State" to
+  `.copilot/knowledge.md`; instruction that button/curtain logic lives in brain
+  deciders, never re-added to popup. Optional Q4 follow-up: fix preview-restore
+  handshake with regression tests.
+
+### Test matrix
+
+Unit (phase/dictation deciders, exhaustive); source-contract (new `session-state`
+shape; migrated popup-matrix assertions now on brain deciders); parity
+(`dictation-parity` brain==legacy); integration (brain projects dictation, popup
+applies it); live (`pnpm browser:live https://bonliva.no` walk of all phases +
+Running-AI curtain + Exit-Preview). Gate: `pnpm lint && pnpm check && pnpm test &&
+pnpm build`.
+
+### Regression risks
+
+Locked content core (additive reporter only) — HIGH; heavy popup source-contract
+tests must move not delete — HIGH; post-save silent transition
+(`applyPostSaveSilentTransition`, popup.ts:7156) + Preview Exit Contract must be
+reproduced; spinner authority + MV3 handler-registration ordering — MEDIUM; the
+known stuck preview-restore must not be frozen in as correct (Q4).
+
+### Acceptance criteria
+
+`decideSessionPhase` total (every fact set → exactly one phase, property test);
+`deriveDictation` reproduces the approved contract rows exactly (parity green);
+with the flag on the popup sets zero button-disabled flags locally, and no
+imperative popup path (`uiModule.setViewState` writes such as AI countdown or
+preview-restore) can still override button/curtain authority; live walk on
+bonliva.no shows all three layers agreeing on every phase; no locked-core edits,
+`tests/manifest-permissions.test.ts` + `tests/storage-access-boundary.test.ts`
+stay green.
+
+### Todo chain
+
+phase-0-contracts → phase-1-deciders → phase-2-ingestion → phase-3-parity →
+phase-4-flip → phase-5-remove → {phase-6-spinner, phase-7-knowledge}.
 
 ## Current state
 
