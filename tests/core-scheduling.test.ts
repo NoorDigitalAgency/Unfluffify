@@ -5,6 +5,7 @@ import { readFileSync } from "./file-kit.ts";
 import {
   disable,
   handleScroll,
+  resetNavigationNotifierForTests,
   scheduleDraftPersist,
   scheduleExplicitOverlayRefresh,
   scheduleSnapshotSave,
@@ -142,6 +143,7 @@ async function withDisableFlushHarness(callback) {
   const clearedIntervals = [];
   const dispatchedEvents = [];
   const runtimeMessages = [];
+  const windowListeners = {};
   let nextId = 1;
   const classList = {
     add() {},
@@ -194,13 +196,28 @@ async function withDisableFlushHarness(callback) {
     clearInterval(id) {
       clearedIntervals.push(id);
     },
-    addEventListener() {},
-    removeEventListener() {},
+    addEventListener(type, fn) {
+      (windowListeners[type] = windowListeners[type] || []).push(fn);
+    },
+    removeEventListener(type, fn) {
+      const handlers = windowListeners[type];
+      if (!handlers) {
+        return;
+      }
+      const index = handlers.indexOf(fn);
+      if (index >= 0) {
+        handlers.splice(index, 1);
+      }
+    },
     dispatchEvent(event) {
       dispatchedEvents.push(event && event.type);
       return true;
     },
-    postMessage() {}
+    postMessage() {},
+    history: {
+      pushState() {},
+      replaceState() {}
+    }
   };
   globalThis.document = {
     title: "Example Page",
@@ -301,6 +318,7 @@ async function withDisableFlushHarness(callback) {
   });
 
   try {
+    resetNavigationNotifierForTests();
     await callback({
       baseUrl,
       pageUrl,
@@ -309,9 +327,11 @@ async function withDisableFlushHarness(callback) {
       intervals,
       clearedIntervals,
       dispatchedEvents,
-      runtimeMessages
+      runtimeMessages,
+      windowListeners
     });
   } finally {
+    resetNavigationNotifierForTests();
     globalThis.window = originalWindow;
     globalThis.document = originalDocument;
     globalThis.chrome = originalChrome;
@@ -479,22 +499,23 @@ test("URL watcher disables marking without preserving drafts across same-base sa
   for (const [label, nextUrl] of cases) {
     await withDisableFlushHarness(async ({
       pageUrl,
-      intervals,
-      clearedIntervals,
-      dispatchedEvents
+      dispatchedEvents,
+      windowListeners
     }) => {
       state.cleanBaselineFingerprintByPageUrl.set(pageUrl, "clean-before-user-edit");
 
       startUrlWatcher();
-      assert.equal(intervals.length, 1, label);
       globalThis.location.href = nextUrl;
-      intervals[0].fn();
+      if (label === "hash") {
+        (windowListeners.hashchange || []).forEach((fn) => fn());
+      } else {
+        globalThis.window.history[label]({}, "", nextUrl);
+      }
 
       assert.equal(state.enabled, false, label);
       // Marking data only lives while marking is enabled: no unsaved-draft cache
       // survives the navigation, so the next enable starts fresh.
       assert.equal(state.disabledUnsavedDraft || null, null, label);
-      assert.deepEqual(clearedIntervals, [intervals[0].id], label);
       assert.deepEqual(dispatchedEvents, ["unfluffify:url-changed"], label);
     });
   }
@@ -515,15 +536,18 @@ test("URL watcher discards temporary draft cache for clean or cross-base URL cha
   ];
 
   for (const { label, nextUrl, dirty } of cases) {
-    await withDisableFlushHarness(async ({ pageUrl, intervals, dispatchedEvents }) => {
+    await withDisableFlushHarness(async ({ pageUrl, dispatchedEvents, windowListeners }) => {
       if (dirty) {
         state.cleanBaselineFingerprintByPageUrl.set(pageUrl, "clean-before-user-edit");
       }
 
       startUrlWatcher();
-      assert.equal(intervals.length, 1, label);
       globalThis.location.href = nextUrl;
-      intervals[0].fn();
+      if (nextUrl.includes("#")) {
+        (windowListeners.hashchange || []).forEach((fn) => fn());
+      } else {
+        (windowListeners.popstate || []).forEach((fn) => fn());
+      }
 
       assert.equal(state.enabled, false, label);
       assert.equal(state.disabledUnsavedDraft, null, label);

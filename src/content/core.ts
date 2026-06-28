@@ -10083,26 +10083,88 @@ export function handleUrlWatcherTransition(previousUrl: string, nextUrl: string)
   disable({ pageUrl: previousUrl });
 }
 
-export function startUrlWatcher() {
-  if (state.urlCheckTimer) {
+// Event-based SPA navigation notifier. Replaces the old 800ms URL polling: we
+// patch history.pushState/replaceState and listen for popstate/hashchange, then
+// fan out to subscribers and dispatch the `unfluffify:url-changed` event. This
+// is deterministic and avoids a timer that re-reads location.href on a loop.
+type NavigationChangeHandler = (previousUrl: string, nextUrl: string) => void;
+const navigationChangeHandlers = new Set<NavigationChangeHandler>();
+let navigationNotifierInstalled = false;
+let navigationNotifierLastUrl = "";
+let urlWatcherUnsubscribe: (() => void) | null = null;
+
+function emitNavigationChangeIfUrlChanged(): void {
+  const nextUrl = location.href;
+  if (nextUrl === navigationNotifierLastUrl) {
     return;
   }
-  let lastUrl = location.href;
-  state.urlCheckTimer = extensionSetInterval(() => {
-    if (location.href !== lastUrl) {
-      const previousUrl = lastUrl;
-      const nextUrl = location.href;
-      lastUrl = location.href;
-      handleUrlWatcherTransition(previousUrl, nextUrl);
-      window.dispatchEvent(new Event("unfluffify:url-changed"));
+  const previousUrl = navigationNotifierLastUrl;
+  navigationNotifierLastUrl = nextUrl;
+  for (const handler of Array.from(navigationChangeHandlers)) {
+    try {
+      handler(previousUrl, nextUrl);
+    } catch {
+      // One subscriber must not break the others.
     }
-  }, 800);
+  }
+  window.dispatchEvent(new Event("unfluffify:url-changed"));
+}
+
+export function ensureNavigationNotifierInstalled(): void {
+  if (navigationNotifierInstalled) {
+    return;
+  }
+  navigationNotifierInstalled = true;
+  navigationNotifierLastUrl = location.href;
+  const history = window.history;
+  const patchHistoryMethod = (methodName: "pushState" | "replaceState"): void => {
+    if (!history || typeof history[methodName] !== "function") {
+      return;
+    }
+    const original = history[methodName];
+    history[methodName] = function patchedHistoryMethod(
+      this: History,
+      ...args: Parameters<History["pushState"]>
+    ) {
+      const result = original.apply(this, args);
+      emitNavigationChangeIfUrlChanged();
+      return result;
+    } as History["pushState"];
+  };
+  patchHistoryMethod("pushState");
+  patchHistoryMethod("replaceState");
+  window.addEventListener("popstate", emitNavigationChangeIfUrlChanged);
+  window.addEventListener("hashchange", emitNavigationChangeIfUrlChanged);
+}
+
+export function subscribeNavigationChange(handler: NavigationChangeHandler): () => void {
+  ensureNavigationNotifierInstalled();
+  navigationChangeHandlers.add(handler);
+  return () => {
+    navigationChangeHandlers.delete(handler);
+  };
+}
+
+export function resetNavigationNotifierForTests(): void {
+  navigationChangeHandlers.clear();
+  navigationNotifierInstalled = false;
+  navigationNotifierLastUrl = "";
+  urlWatcherUnsubscribe = null;
+}
+
+export function startUrlWatcher() {
+  if (urlWatcherUnsubscribe) {
+    return;
+  }
+  urlWatcherUnsubscribe = subscribeNavigationChange((previousUrl, nextUrl) => {
+    handleUrlWatcherTransition(previousUrl, nextUrl);
+  });
 }
 
 function stopUrlWatcher() {
-  if (state.urlCheckTimer) {
-    extensionClearInterval(state.urlCheckTimer);
-    state.urlCheckTimer = 0;
+  if (urlWatcherUnsubscribe) {
+    urlWatcherUnsubscribe();
+    urlWatcherUnsubscribe = null;
   }
 }
 

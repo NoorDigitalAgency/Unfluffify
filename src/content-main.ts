@@ -483,8 +483,6 @@ function getSuppressedXpathList(suppressedXpaths: unknown): string[] {
     : [];
 }
 
-let silentHighlightingUrlTimer = 0;
-
 const PROPERTY_LOCK_BANNER_ID = "unfluffify-lock-banner";
 const PROPERTY_LOCK_BANNER_STYLE_ID = "unfluffify-lock-banner-style";
 const PROPERTY_LOCK_RECONNECT_DELAY_MS = 150;
@@ -3396,20 +3394,10 @@ function startSilentHighlightingObserver() {
 }
 
 function startSilentHighlightingUrlWatcher() {
-  if (silentHighlightingUrlTimer) {
-    return;
-  }
-  let lastUrl = location.href;
-  silentHighlightingUrlTimer = window.setInterval(() => {
-    if (location.href !== lastUrl) {
-      lastUrl = location.href;
-      resetPageVisitRevealFreezeKeys();
-      runPropertyLockSync({
-        pageUrl: lastUrl,
-        forceSiteIdRefresh: true
-      });
-    }
-  }, 800);
+  // Event-based: install the shared in-page navigation notifier (history patch +
+  // popstate/hashchange) so the `unfluffify:url-changed` listener fires on SPA
+  // navigation in silent mode too, without an 800ms polling timer.
+  core.ensureNavigationNotifierInstalled();
 }
 
 function resetAiPreviewState() {
