@@ -5379,6 +5379,13 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
     previewRestorePending ||
     pageSaveReconciliationPending ||
     state.aiRequestInFlight === "save";
+  // Discard must stay reachable in POST_AI even when reconciliation is pending so
+  // a stuck pending sync can be unconditionally cleared back to PRE_AI.
+  const revertMatrixDisabled =
+    pageScopedUiDisabled ||
+    aiBusy ||
+    previewRestorePending ||
+    state.aiRequestInFlight === "save";
   const computeButtonDisabled =
     actionMatrixDisabled ||
     postAiActionMatrixEnabled;
@@ -5597,7 +5604,7 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
     pageSaveUiState.pageSaveMobileSimulationRequiredVisible;
   nextViewState.pageSaveMobileSimulationRequiredText =
     PopupText.page.mobileSimulationRequired;
-  const pageRevertDisabled = !postAiActionMatrixEnabled || actionMatrixDisabled;
+  const pageRevertDisabled = !postAiActionMatrixEnabled || revertMatrixDisabled;
   // Marking-mode "Preview Content": let the user see the AI content detection
   // without leaving marking mode. Mirrors Save gating - only available once a
   // successful AI run matches the live markings (and before the next change).

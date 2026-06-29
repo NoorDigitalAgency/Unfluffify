@@ -109,6 +109,17 @@ export function deriveDictation(phase: SessionPhase, facts: SessionFacts): Sessi
       facts.desktopPreviewActive
   );
 
+  // Discard must always be reachable in POST_AI so a stuck/pending reconciliation
+  // can be unconditionally cleared back to PRE_AI; only an active busy/save/discard
+  // run blocks it. Save/List stay gated on reconciliation pending.
+  const revertMatrixDisabled = Boolean(
+    facts.pageScopedUiDisabled ||
+      facts.aiBusy ||
+      facts.previewRestorePending ||
+      facts.saving ||
+      facts.discarding
+  );
+
   const computeButtonDisabled = actionMatrixDisabled || postAi;
 
   const buttons = {
@@ -136,7 +147,7 @@ export function deriveDictation(phase: SessionPhase, facts: SessionFacts): Sessi
     [BUTTON_IDS.PAGE_REVERT]: buildButtonDictation(
       BUTTON_IDS.PAGE_REVERT,
       pageControlsVisible,
-      postAi && !actionMatrixDisabled,
+      postAi && !revertMatrixDisabled,
     ),
   };
 

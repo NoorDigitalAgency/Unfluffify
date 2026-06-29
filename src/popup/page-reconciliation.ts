@@ -213,19 +213,11 @@ export async function handlePageRevert(deps: PageReconciliationDeps) {
     deps.showToast(deps.PopupText.overlay.pleaseWait);
     return;
   }
-  if (state.currentPageSaveReconciliationPending) {
-    deps.showToast(deps.PopupText.page.statusServerSyncPending);
-    return;
-  }
   const blockedReason = typeof currentViewState.pageRevertBlockedReason === "string"
     ? currentViewState.pageRevertBlockedReason
     : "";
   if (blockedReason === "busy") {
     deps.showToast(deps.PopupText.overlay.pleaseWait);
-    return;
-  }
-  if (blockedReason === "server_sync_pending") {
-    deps.showToast(deps.PopupText.page.statusServerSyncPending);
     return;
   }
   if (blockedReason === "no_page_changes") {

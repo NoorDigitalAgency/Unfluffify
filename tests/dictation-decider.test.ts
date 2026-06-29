@@ -96,6 +96,25 @@ test("dictation keeps ready-to-save marking in the approved post-AI state", () =
   assert.equal(dictation.buttons[BUTTON_IDS.PAGE_REVERT].enabled, true);
 });
 
+test("dictation keeps discard reachable in POST_AI when reconciliation is stuck pending", () => {
+  const facts = buildFacts({
+    sessionHasPendingChanges: true,
+    sessionRequiresAiRun: false,
+    currentDraftDirty: true,
+    currentPageHasPendingChanges: true,
+    aiRunPhase: AI_RUN_PHASES.POST_AI,
+    aiRunUpToDate: true,
+    pageSaveReconciliationPending: true,
+  });
+  const dictation = deriveDictation(decideSessionPhase(facts), facts);
+
+  // Save/list stay blocked while a sync is pending, but discard must always be
+  // able to clear the stuck reconciliation back to PRE_AI.
+  assert.equal(dictation.buttons[BUTTON_IDS.PAGE_SAVE].enabled, false);
+  assert.equal(dictation.buttons[BUTTON_IDS.MARKING_PREVIEW].enabled, false);
+  assert.equal(dictation.buttons[BUTTON_IDS.PAGE_REVERT].enabled, true);
+});
+
 test("dictation disables the matrix during preview restore without hiding marking controls", () => {
   const facts = buildFacts({
     previewRestorePending: true,
