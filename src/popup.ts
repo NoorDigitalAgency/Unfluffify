@@ -3149,7 +3149,10 @@ async function clearCurrentPageSaveReconciliation(baseUrl = state.currentBaseUrl
   state.currentPageSaveReconciliation = null;
   state.currentPageSaveReconciliationPending = false;
   const contentBaseUrl = state.currentBaseUrl || baseUrl;
-  await messages.sendTabMessageWithRetry({
+  // Notify content best-effort: the popup-local reconciliation state is already
+  // cleared, so do not block the save/discard spinner on a slow tab roundtrip.
+  // Content re-reports its own pending fact, so a missed clear self-heals.
+  void messages.sendTabMessageWithRetry({
     type: "clearPageSaveReconciliation",
     baseUrl: contentBaseUrl,
     pageUrl
@@ -7669,10 +7672,8 @@ async function applyPostSaveSilentTransition() {
   const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
     ? state.currentTab.id
     : null;
-  // Reset + mode drop are owned by background command authority for this tab.
-  if (tabId !== null) {
-    await messages.requestTabApplyPostSaveTransition(tabId, { baseUrl });
-  }
+  // Reset local PRE_AI/silent state first so a slow/locked tab roundtrip cannot
+  // wedge the popup, then drop the tab to silent best-effort (content re-reports).
   state.currentDraftEntry = null;
   state.currentSavedEntry = null;
   state.currentDraftDirty = false;
@@ -7680,6 +7681,10 @@ async function applyPostSaveSilentTransition() {
   state.currentPageSaveReconciliation = null;
   state.currentPageSaveReconciliationPending = false;
   resetAiRunMarkingsFingerprint();
+  // Reset + mode drop are owned by background command authority for this tab.
+  if (tabId !== null) {
+    void messages.requestTabApplyPostSaveTransition(tabId, { baseUrl });
+  }
   await alignPopupToSilentMode();
 }
 
@@ -7733,7 +7738,9 @@ async function applyLocalPageDiscard() {
   resetAiRunMarkingsFingerprint();
   await clearCurrentPageSaveReconciliation();
   if (tabId !== null) {
-    await messages.requestTabApplyLocalDiscard(tabId, { baseUrl });
+    // Best-effort: the popup is already PRE_AI-clean above, so apply the content
+    // discard without blocking the spinner on a slow/locked tab roundtrip.
+    void messages.requestTabApplyLocalDiscard(tabId, { baseUrl });
   }
 }
 

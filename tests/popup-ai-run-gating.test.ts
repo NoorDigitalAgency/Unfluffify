@@ -102,7 +102,7 @@ test("entering marking mode, saving, and discarding reset the fingerprint", () =
   // failed/slow tab discard cannot leave the popup wedged in POST_AI.
   assert.match(
     popupSource,
-    /state\.currentDraftEntry = null;\s*state\.currentSavedEntry = null;\s*state\.currentDraftDirty = false;\s*state\.currentDraftAvailable = false;\s*state\.aiSelectorsComputedSinceLastSubmit = false;\s*state\.aiSelectorsComputedBaseUrl = "";\s*clearSelectorsPendingConfigSync\(\);\s*resetAiRunMarkingsFingerprint\(\);\s*await clearCurrentPageSaveReconciliation\(\);\s*if \(tabId !== null\) \{\s*await messages\.requestTabApplyLocalDiscard/
+    /state\.currentDraftEntry = null;\s*state\.currentSavedEntry = null;\s*state\.currentDraftDirty = false;\s*state\.currentDraftAvailable = false;\s*state\.aiSelectorsComputedSinceLastSubmit = false;\s*state\.aiSelectorsComputedBaseUrl = "";\s*clearSelectorsPendingConfigSync\(\);\s*resetAiRunMarkingsFingerprint\(\);\s*await clearCurrentPageSaveReconciliation\(\);\s*if \(tabId !== null\) \{[\s\S]*?void messages\.requestTabApplyLocalDiscard/
   );
   // Discard reverts unsaved AI-computed selectors to the last submitted baseline
   // so it returns to a true PRE_AI clean state (selectors only reconcile on Save).
@@ -116,8 +116,9 @@ test("a successful save transitions the popup from marking to silent mode", () =
   const fnBody = popupSource.match(
     /async function applyPostSaveSilentTransition\(\) \{([\s\S]*?)\n\}/
   )[1];
-  // The post-save content transition is delegated to background command authority.
-  assert.match(fnBody, /await messages\.requestTabApplyPostSaveTransition\(tabId, \{ baseUrl \}\);/);
+  // The post-save content transition is delegated to background command authority,
+  // fired best-effort so a slow/locked tab cannot wedge the save spinner.
+  assert.match(fnBody, /void messages\.requestTabApplyPostSaveTransition\(tabId, \{ baseUrl \}\);/);
   assert.match(backgroundSource, /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_APPLY_POST_SAVE_TRANSITION, async \(context, payload\) => \{/);
   assert.match(backgroundSource, /type: "configUpdated",[\s\S]*?forceReloadPageEntry: true/);
   assert.match(backgroundSource, /type: "setEnabled",[\s\S]*?enabled: false/);

@@ -502,12 +502,17 @@ test("session save uploads all local page markings while default sync stays back
   assert.match(applyLocalPageDiscardBody, /messages\.requestTabApplyLocalDiscard\(tabId, \{ baseUrl \}\)/);
   assert.match(backgroundSource, /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_APPLY_LOCAL_DISCARD, async \(context, payload\) => \{/);
   assert.match(backgroundSource, /type: "configUpdated",[\s\S]*?forceReloadPageEntry: true/);
-  assert.match(source, /await messages\.requestTabApplyPostSaveTransition\(tabId, \{ baseUrl \}\);/);
+  assert.match(source, /void messages\.requestTabApplyPostSaveTransition\(tabId, \{ baseUrl \}\);/);
   assert.match(backgroundSource, /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_APPLY_POST_SAVE_TRANSITION, async \(context, payload\) => \{/);
   assert.match(backgroundSource, /type: "setEnabled",[\s\S]*?enabled: false/);
   assert.doesNotMatch(applyLocalPageDiscardBody, /loadRemoteConfigForCurrentPage/);
   assert.doesNotMatch(applyLocalPageDiscardBody, /validateStoredToken/);
   assert.match(applyLocalPageDiscardBody, /await clearCurrentPageSaveReconciliation\(\);/);
+  // Discard/save must not block the spinner on slow tab roundtrips: the popup is
+  // already PRE_AI/silent-clean locally, so the content apply fires best-effort.
+  assert.match(applyLocalPageDiscardBody, /void messages\.requestTabApplyLocalDiscard\(tabId, \{ baseUrl \}\)/);
+  assert.doesNotMatch(applyLocalPageDiscardBody, /await messages\.requestTabApplyLocalDiscard/);
+  assert.doesNotMatch(source, /await messages\.requestTabApplyPostSaveTransition/);
   assert.match(handlePageRevertHandlerBody, /const blockedReason = typeof currentViewState\.pageRevertBlockedReason === "string"/);
   assert.doesNotMatch(handlePageSaveBody, /type: "savePageDraft"/);
 });
