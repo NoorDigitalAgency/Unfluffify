@@ -2,7 +2,6 @@ import type { PopupStateGetReply } from "../common/bus/contracts/popup-state";
 import type { SessionDictation } from "../common/bus/contracts/session-state";
 
 export type CentralSessionDictationProjectionState = {
-  featureEnabled: boolean;
   currentTabId: number | null;
   projectedTabId: number | null;
   sessionPhase: PopupStateGetReply["sessionPhase"] | null;
@@ -19,6 +18,10 @@ export type CentralSessionDictationViewStatePatch = {
   markingPreviewDisabled?: boolean;
   pageSaveDisabled?: boolean;
   pageRevertDisabled?: boolean;
+  previewActive?: boolean;
+  previewBlocked?: boolean;
+  previewItemsPending?: boolean;
+  previewBlockedMessage?: string;
   sessionCurtainVisible?: boolean;
   sessionCurtainMessage?: string;
   sessionCurtainNote?: string;
@@ -36,24 +39,39 @@ export function hasProjectedCentralSessionDictationForTab(
   state: CentralSessionDictationProjectionState,
 ): boolean {
   return Boolean(
-    state.featureEnabled &&
-      state.currentTabId &&
+    state.currentTabId !== null &&
       state.projectedTabId === state.currentTabId &&
       state.sessionDictation
   );
 }
 
-export function shouldUseLocalSessionAuthorityFallback(
-  state: CentralSessionDictationProjectionState,
-): boolean {
-  return !hasProjectedCentralSessionDictationForTab(state);
-}
+const NEUTRAL_SESSION_DICTATION_PATCH: CentralSessionDictationViewStatePatch = {
+  mainUiHidden: true,
+  silentModeActive: false,
+  toggleEnabledDisabled: true,
+  computeButtonDisabled: true,
+  computeButtonLoading: false,
+  markingPreviewVisible: false,
+  markingPreviewDisabled: true,
+  pageSaveDisabled: true,
+  pageRevertDisabled: true,
+  previewActive: false,
+  previewBlocked: false,
+  previewItemsPending: false,
+  previewBlockedMessage: "",
+  sessionCurtainVisible: false,
+  sessionCurtainMessage: "",
+  sessionCurtainNote: "",
+  sessionCurtainTimerText: "",
+  sessionCurtainOperation: "",
+  sessionCurtainPhase: "",
+};
 
 export function buildCentralSessionDictationViewStatePatch(
   state: CentralSessionDictationProjectionState,
 ): CentralSessionDictationViewStatePatch | null {
   if (!hasProjectedCentralSessionDictationForTab(state) || !state.sessionDictation) {
-    return null;
+    return { ...NEUTRAL_SESSION_DICTATION_PATCH };
   }
 
   const dictation = state.sessionDictation;
@@ -69,6 +87,9 @@ export function buildCentralSessionDictationViewStatePatch(
     markingPreviewDisabled: !dictation.buttons["marking-preview"].enabled,
     pageSaveDisabled: !dictation.buttons["page-save"].enabled,
     pageRevertDisabled: !dictation.buttons["page-revert"].enabled,
+    previewActive: dictation.preview.active,
+    previewBlocked: dictation.preview.blocked,
+    previewItemsPending: dictation.preview.itemsPending,
     sessionCurtainVisible: showCurtain,
     sessionCurtainMessage: showCurtain ? dictation.curtain.message : "",
     sessionCurtainNote: showCurtain ? dictation.curtain.note : "",
@@ -84,6 +105,6 @@ export function deriveCentralSessionDictationSnapshotEffect(
   const patch = buildCentralSessionDictationViewStatePatch(state);
   return {
     patch,
-    refreshRequired: !patch && state.hadProjectedSessionDictation,
+    refreshRequired: false,
   };
 }

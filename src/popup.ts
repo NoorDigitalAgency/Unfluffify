@@ -140,8 +140,7 @@ import {
 import {
   buildCentralSessionDictationViewStatePatch,
   deriveCentralSessionDictationSnapshotEffect,
-  hasProjectedCentralSessionDictationForTab as hasProjectedCentralSessionDictationForTabOperation,
-  shouldUseLocalSessionAuthorityFallback as shouldUseLocalSessionAuthorityFallbackOperation
+  hasProjectedCentralSessionDictationForTab as hasProjectedCentralSessionDictationForTabOperation
 } from "./popup/central-state-dictation";
 import {
   deriveProjectedPropertyLockSnapshotEffect,
@@ -1176,7 +1175,6 @@ function applyPopupViewSnapshot(snapshot: PopupStateGetReply | null) {
     traceEvents: Array.isArray(snapshot.traceEvents) ? snapshot.traceEvents : []
   });
   const nextCentralSessionDictationEffect = deriveCentralSessionDictationSnapshotEffect({
-    featureEnabled: isFeatureEnabled("centralStateDictation"),
     currentTabId,
     projectedTabId: popupBackgroundStateTabId,
     sessionPhase: popupBackgroundSessionPhase || null,
@@ -1318,7 +1316,6 @@ function publishManualAiPreviewEvent(eventType: AiRunEventType): void {
 
 function hasProjectedCentralSessionDictationForTab(tabId: number | null): boolean {
   return hasProjectedCentralSessionDictationForTabOperation({
-    featureEnabled: isFeatureEnabled("centralStateDictation"),
     currentTabId: tabId,
     projectedTabId: popupBackgroundStateTabId,
     sessionPhase: popupBackgroundSessionPhase || null,
@@ -1358,26 +1355,14 @@ function setPropertyLockViewStateFromLocalProjection(): void {
   publishCurrentTabPropertyLockSnapshot();
 }
 
-function shouldUseLocalSessionAuthorityFallback(tabId: number | null): boolean {
-  return shouldUseLocalSessionAuthorityFallbackOperation({
-    featureEnabled: isFeatureEnabled("centralStateDictation"),
-    currentTabId: tabId,
-    projectedTabId: popupBackgroundStateTabId,
-    sessionPhase: popupBackgroundSessionPhase || null,
-    sessionDictation: popupBackgroundSessionDictation
-  });
-}
-
 function shouldUseLocalComputingAiLockout(tabId: number | null): boolean {
-  return shouldUseLocalSessionAuthorityFallback(tabId) || popupBackgroundSessionPhase !== "computing_ai";
+  void tabId;
+  return false;
 }
 
 function shouldUseLocalPreviewRevealFallback(tabId: number | null): boolean {
-  return shouldUseLocalSessionAuthorityFallback(tabId) || popupBackgroundSessionPhase === "computing_ai";
-}
-
-function shouldUseLocalPreviewRestoreLockout(tabId: number | null): boolean {
-  return shouldUseLocalSessionAuthorityFallback(tabId) || popupBackgroundSessionPhase !== "preview_restoring";
+  void tabId;
+  return false;
 }
 
 function shouldUseLocalSecondaryGatesFallback(tabId: number | null): boolean {
@@ -1422,7 +1407,6 @@ async function clearStaleProjectedComputingAiState(): Promise<void> {
 
 function applyCentralSessionDictation(nextViewState: PopupViewStatePatch, currentTabId: number | null): void {
   const nextCentralSessionDictationViewState = buildCentralSessionDictationViewStatePatch({
-    featureEnabled: isFeatureEnabled("centralStateDictation"),
     currentTabId,
     projectedTabId: popupBackgroundStateTabId,
     sessionPhase: popupBackgroundSessionPhase || null,
@@ -1438,6 +1422,11 @@ function applyCentralSessionDictation(nextViewState: PopupViewStatePatch, curren
     return;
   }
   Object.assign(nextViewState, nextCentralSessionDictationViewState);
+  if (Object.prototype.hasOwnProperty.call(nextCentralSessionDictationViewState, "previewBlocked")) {
+    nextViewState.previewBlockedMessage = nextCentralSessionDictationViewState.previewBlocked
+      ? PopupText.preview.blockedActive
+      : ViewText.previewBlockedDefault;
+  }
 }
 
 function sendSpinnerBrokerMessage(
@@ -2955,30 +2944,14 @@ function beginPreviewRestorePending() {
   state.previewRestorePending = true;
   schedulePreviewRestoreFallback(state.previewRestoreToken);
   clearLastPopupEnabled();
-  setPreviewBlocked(false);
   publishCurrentTabSessionFacts({
     previewActive: false,
     previewBlocked: false,
+    previewItemsPending: false,
     previewRestorePending: true
   });
-  const currentTabId = getCurrentPopupTabId();
-  const useLocalPreviewRestoreLockout = shouldUseLocalPreviewRestoreLockout(currentTabId);
   uiModule.setViewState({
-    previewActive: false,
-    previewBlocked: false,
-    previewWillRestoreMarking: false,
-    toggleEnabled: true,
-    mainUiHidden: false,
-    silentModeActive: false,
-    ...(useLocalPreviewRestoreLockout
-      ? {
-          toggleEnabledDisabled: true,
-          computeButtonDisabled: true,
-          markingPreviewDisabled: true,
-          pageSaveDisabled: true,
-          pageRevertDisabled: true
-        }
-      : {})
+    previewWillRestoreMarking: false
   });
   return state.previewRestoreToken;
 }
@@ -2999,7 +2972,6 @@ async function applyPreviewClosedState(closeState = {}) {
     ? normalizedCloseState.baseUrl
     : "";
   const markingEnabled = Boolean(normalizedCloseState.markingEnabled);
-  setPreviewBlocked(false);
   if (nextBaseUrl) {
     state.currentBaseUrl = nextBaseUrl;
   }
@@ -3448,10 +3420,6 @@ function setRemoteConfigConnectionIssue(active: boolean): void {
   if (!nextActive) {
     clearRemoteConfigRetryTimer();
   }
-}
-
-function setPreviewBlocked(active: boolean, message: string = ViewText.previewBlockedDefault) {
-  uiModule.setPreviewBlocked(active, message);
 }
 
 function isPopupCommandSuccess<T extends object>(
@@ -5012,43 +4980,11 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
   const desktopPreviewActive = Boolean(
     desktopPreviewVisible && state.currentDesktopPreviewEnabled
   );
-  const useLocalSessionAuthorityFallback = shouldUseLocalSessionAuthorityFallback(currentTabId);
   const mainUiHidden =
     pageScopedUiDisabled ||
     !isEnabled ||
     (!navigationInspectionPending && (!siteIdReady || !renderModeReady));
-  const toggleEnabledDisabled =
-    pageScopedUiDisabled ||
-    state.sessionAiRunPhase === AI_RUN_PHASES.POST_AI ||
-    previewRestorePending ||
-    pageSaveReconciliationPending ||
-    !baseUrlReady ||
-    (!navigationInspectionPending && (!siteIdReady || !renderModeReady || pageTypeUiBlocked)) ||
-    desktopPreviewActive;
-  const postAiActionMatrixEnabled = state.sessionAiRunPhase === AI_RUN_PHASES.POST_AI;
-  const actionMatrixDisabled =
-    pageScopedUiDisabled ||
-    aiBusy ||
-    previewRestorePending ||
-    pageSaveReconciliationPending ||
-    state.aiRequestInFlight === "save";
-  // Discard must stay reachable in POST_AI even when reconciliation is pending so
-  // a stuck pending sync can be unconditionally cleared back to PRE_AI.
-  const revertMatrixDisabled =
-    pageScopedUiDisabled ||
-    aiBusy ||
-    previewRestorePending ||
-    state.aiRequestInFlight === "save";
-  const computeButtonDisabled =
-    actionMatrixDisabled ||
-    postAiActionMatrixEnabled;
   nextViewState.toggleEnabled = pageScopedUiDisabled ? false : isEnabled;
-  if (useLocalSessionAuthorityFallback) {
-    nextViewState.toggleEnabledDisabled = toggleEnabledDisabled;
-    nextViewState.mainUiHidden = mainUiHidden;
-    nextViewState.silentModeActive = silentModeActive;
-    nextViewState.computeButtonDisabled = computeButtonDisabled;
-  }
   nextViewState.renderModeReady = renderModeReady;
   const todoListVisible = siteIdReady && renderModeReady;
   nextViewState.todoListVisible = todoListVisible;
@@ -5204,9 +5140,6 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
     : state.aiRequestInFlight === "compute"
       ? state.aiRunDeadlineAt
       : 0;
-  if (useLocalSessionAuthorityFallback) {
-    nextViewState.computeButtonLoading = state.aiRequestInFlight === "compute";
-  }
   nextViewState.saveExcludesButtonLoading = state.aiRequestInFlight === "save";
   nextViewState.aiRunSpinnerNote =
     state.aiRequestInFlight === "compute"
@@ -5227,9 +5160,6 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
     state.aiRequestInFlight === "compute"
       ? state.aiRunPhase
       : "";
-  if (useLocalSessionAuthorityFallback) {
-    nextViewState.aiControlsBusy = aiBusy;
-  }
   nextViewState.aiDirtyNoticeVisible = pageSaveReconciliationPending;
   nextViewState.aiDirtyNoticeText = pageSaveReconciliationPending
     ? PopupText.page.statusServerSyncPending
@@ -5252,25 +5182,10 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
     currentDraftDirty: state.currentDraftDirty,
     reconciliation: state.currentPageSaveReconciliation
   });
-  const pageSaveDisabled = !postAiActionMatrixEnabled || actionMatrixDisabled;
   nextViewState.pageSaveMobileSimulationRequiredVisible =
     pageSaveUiState.pageSaveMobileSimulationRequiredVisible;
   nextViewState.pageSaveMobileSimulationRequiredText =
     PopupText.page.mobileSimulationRequired;
-  const pageRevertDisabled = !postAiActionMatrixEnabled || revertMatrixDisabled;
-  // Marking-mode "Preview Content": let the user see the AI content detection
-  // without leaving marking mode. Mirrors Save gating - only available once a
-  // successful AI run matches the live markings (and before the next change).
-  const markingPreviewVisible = pageControlsVisible && Boolean(isEnabled);
-  const markingPreviewDisabled =
-    !postAiActionMatrixEnabled ||
-    actionMatrixDisabled;
-  if (useLocalSessionAuthorityFallback) {
-    nextViewState.pageSaveDisabled = pageSaveDisabled;
-    nextViewState.pageRevertDisabled = pageRevertDisabled;
-    nextViewState.markingPreviewVisible = markingPreviewVisible;
-    nextViewState.markingPreviewDisabled = markingPreviewDisabled;
-  }
   const projectedComputingAiActive =
     Boolean(currentTabId) &&
     popupBackgroundStateTabId === currentTabId &&
@@ -5300,6 +5215,7 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
     aiRunUpToDate,
     previewActive,
     previewBlocked: Boolean(nextViewState.previewBlocked),
+    previewItemsPending,
     previewRestorePending,
     sessionHasPendingChanges,
     sessionRequiresAiRun,
@@ -5603,6 +5519,7 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
       aiRunUpToDate,
       previewActive,
       previewBlocked: nextViewState.previewBlocked,
+      previewItemsPending,
       previewRestorePending,
       sessionHasPendingChanges,
       sessionRequiresAiRun,
@@ -7340,42 +7257,50 @@ async function applyPostSaveSilentTransition() {
 
 async function applyLocalPageDiscard() {
   const pageUrl = getCurrentPageUrl();
-  const baseUrl = state.currentBaseUrl;
-  // Discard drops the current-session marking deltas LOCALLY by restoring the
-  // page entry from the already-cached backend-saved markings. No network
-  // round-trip and no forced remote refetch keeps discard fast. AI-computed
-  // selectors that were never submitted are also reverted to baseline below.
-  const backendSavedPageMarkings = await config.getBackendSavedPageMarkings(baseUrl);
-  const backendEntry = findBackendSavedPageMarkingEntry(backendSavedPageMarkings, pageUrl);
-  const normalizedTargetUrl = normalizeCandidatePageUrl(pageUrl);
-  // Selectors are only reconciled to the backend on Save, so an AI run that was
-  // not saved must be fully reverted on Discard: drop the locally-computed AI
-  // selectors back to the last submitted baseline so Discard returns the page to
-  // a true PRE_AI clean state.
-  const submittedSelectorBaseline = getLastSubmittedSelectorsFromConfig(state.currentConfig);
-  state.currentConfig = await config.updateConfig(baseUrl, (targetConfig) => {
-    if (!targetConfig.pageMarkings || typeof targetConfig.pageMarkings !== "object") {
-      targetConfig.pageMarkings = {};
-    }
-    Object.keys(targetConfig.pageMarkings).forEach((url) => {
-      if (normalizeCandidatePageUrl(url) === normalizedTargetUrl) {
-        delete targetConfig.pageMarkings[url];
-      }
-    });
-    if (backendEntry) {
-      const clonedBackendEntry = clonePageMarkingEntry(backendEntry);
-      if (clonedBackendEntry) {
-        targetConfig.pageMarkings[pageUrl] = clonedBackendEntry;
-      }
-    }
-    if (state.selectorsPendingConfigSync) {
-      targetConfig.selectors = normalizeAiSelectorSet(submittedSelectorBaseline);
-    }
-  });
+  let baseUrl = state.currentBaseUrl;
   const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
     ? state.currentTab.id
     : null;
-  // Reset the local session to PRE_AI before the content roundtrip so a failed or
+  const { tokenValue, configEndpointValue, stageBaseValue } = await helpers.loadGlobalAiSettings();
+  let siteId = normalizeSiteIdValue(
+    state.currentSiteId || (state.currentConfig && state.currentConfig.siteId)
+  );
+  if (!siteId && baseUrl && pageUrl && stageBaseValue && tokenValue) {
+    const siteIdResult = await ensureBaseUrlSiteId({
+      baseUrl,
+      pageUrl,
+      stageBase: stageBaseValue,
+      tokenValue,
+      persist: false
+    });
+    if (siteIdResult.ok && siteIdResult.siteId) {
+      siteId = normalizeSiteIdValue(siteIdResult.siteId);
+      baseUrl = siteIdResult.baseUrl || baseUrl;
+      state.currentBaseUrl = baseUrl;
+      state.currentConfig = siteIdResult.config || state.currentConfig;
+    }
+  }
+  if (tabId !== null && pageUrl && baseUrl && siteId && configEndpointValue && tokenValue) {
+    const remoteLoadResult = await loadRemoteConfigForCurrentPage({
+      tabId,
+      pageUrl,
+      baseUrl,
+      siteId,
+      endpointValue: configEndpointValue,
+      tokenValue,
+      force: true
+    });
+    if (
+      remoteLoadResult &&
+      (remoteLoadResult.status === "ok" || remoteLoadResult.status === "not_found")
+    ) {
+      baseUrl = remoteLoadResult.baseUrl || baseUrl;
+      state.currentBaseUrl = baseUrl;
+      const configs = await config.getConfigs();
+      state.currentConfig = config.normalizeConfig(baseUrl, configs[baseUrl]).config;
+    }
+  }
+  // Reset the local session to PRE_AI after the fresh backend load so a failed or
   // slow tab discard can never leave the popup wedged in POST_AI with the markings
   // locked. Discard is unconditionally PRE_AI; the content apply is best-effort.
   state.currentDraftEntry = null;
@@ -7522,17 +7447,13 @@ async function applyComputedSelectorSet(
       previewRestorePending: false
     });
     uiModule.setViewState({
-      previewBlocked: true,
-      previewActive: true,
       previewWillRestoreMarking: Boolean(
         previewStatePayload &&
           (previewStatePayload.previousEnabled || previewStatePayload.restoreMarkingOnExit)
       ),
       previewItems: immediatePreviewItems,
-      previewItemsPending: Boolean(previewStatePayload && previewStatePayload.itemsPending),
       previewFocusedXpath: "",
       previewShowAllCategories: false,
-      previewBlockedMessage: PopupText.preview.blockedActive,
       computeButtonText: ViewText.computeButtonIdle,
       aiRunSpinnerNote: "",
       aiRunCountdownVisible: false,
@@ -7567,11 +7488,10 @@ function applyAiPreviewStateUpdate(message: PreviewStateLike) {
   }
   const nextPreviewState = buildPreviewViewState(message);
   uiModule.setViewState({
-    ...nextPreviewState,
-    previewBlocked: Boolean(nextPreviewState.previewActive),
-    previewBlockedMessage: nextPreviewState.previewActive
-      ? PopupText.preview.blockedActive
-      : ViewText.previewBlockedDefault
+    previewWillRestoreMarking: nextPreviewState.previewWillRestoreMarking,
+    previewItems: nextPreviewState.previewItems,
+    previewFocusedXpath: nextPreviewState.previewFocusedXpath,
+    previewShowAllCategories: nextPreviewState.previewShowAllCategories
   });
   if (!nextPreviewState.previewItemsPending) {
     flushPendingAiPreviewConfigSync();
@@ -7981,7 +7901,6 @@ async function handlePreviewLatest() {
   }
   clearLastPopupEnabled();
   collapseTodoListForAutoCollapse();
-  setPreviewBlocked(true, PopupText.preview.blockedActive);
   try {
     const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
       ? state.currentTab.id
@@ -7996,7 +7915,6 @@ async function handlePreviewLatest() {
     await refreshUi();
   } catch (error) {
     clearMarkingSessionSnapshot();
-    setPreviewBlocked(false);
     uiModule.showToast(getErrorMessage(error) || PopupText.preview.openFailed);
     await refreshUi();
   }
@@ -8035,7 +7953,6 @@ async function handleMarkingPreview() {
     return;
   }
   collapseTodoListForAutoCollapse();
-  setPreviewBlocked(true, PopupText.preview.blockedActive);
   try {
     const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
       ? state.currentTab.id
@@ -8050,7 +7967,6 @@ async function handleMarkingPreview() {
     await refreshUi();
   } catch (error) {
     clearMarkingSessionSnapshot();
-    setPreviewBlocked(false);
     uiModule.showToast(getErrorMessage(error) || PopupText.preview.openFailed);
     await refreshUi();
   }
@@ -8635,7 +8551,6 @@ async function init() {
       applyPreviewClosedState(message).catch(() => {
         clearPreviewRestorePending();
         clearMarkingSessionSnapshot();
-        setPreviewBlocked(false);
       });
       return;
     }

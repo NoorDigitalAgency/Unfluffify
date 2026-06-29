@@ -99,18 +99,18 @@ test("entering marking mode, saving, and discarding reset the fingerprint", () =
     /await deps\.clearCurrentPageSaveReconciliation\(\);\s*deps\.clearSelectorsPendingConfigSync\?\.\(\);\s*deps\.resetAiRunMarkingsFingerprint\(\);\s*await deps\.applyPostSaveSilentTransition\(\);\s*deps\.updateLastConfigSaveStatus\(deps\.PopupText\.page\.savedAndSynced\);/
   );
   // Discard (applyLocalPageDiscard, shared by manual discard + disable/nav confirm).
-  // PRE_AI reset + reconciliation clear run before the content roundtrip so a
-  // failed/slow tab discard cannot leave the popup wedged in POST_AI.
+  // A fresh backend /load runs first, then PRE_AI reset + reconciliation clear
+  // run before the content roundtrip so a failed/slow tab discard cannot leave
+  // the popup wedged in POST_AI.
+  assert.match(
+    popupSource,
+    /async function applyLocalPageDiscard\(\) \{[\s\S]*?loadRemoteConfigForCurrentPage\(\{[\s\S]*?force: true[\s\S]*?\}\);/
+  );
   assert.match(
     popupSource,
     /state\.currentDraftEntry = null;\s*state\.currentSavedEntry = null;\s*state\.currentDraftDirty = false;\s*state\.currentDraftAvailable = false;\s*state\.aiSelectorsComputedSinceLastSubmit = false;\s*state\.aiSelectorsComputedBaseUrl = "";\s*clearSelectorsPendingConfigSync\(\);\s*resetAiRunMarkingsFingerprint\(\);\s*await clearCurrentPageSaveReconciliation\(\);\s*if \(tabId !== null\) \{[\s\S]*?void messages\.requestTabApplyLocalDiscard/
   );
-  // Discard reverts unsaved AI-computed selectors to the last submitted baseline
-  // so it returns to a true PRE_AI clean state (selectors only reconcile on Save).
-  assert.match(
-    popupSource,
-    /if \(state\.selectorsPendingConfigSync\) \{\s*targetConfig\.selectors = normalizeAiSelectorSet\(submittedSelectorBaseline\);\s*\}/
-  );
+  assert.doesNotMatch(popupSource, /targetConfig\.selectors = normalizeAiSelectorSet\(submittedSelectorBaseline\)/);
 });
 
 test("a successful save transitions the popup from marking to silent mode", () => {
@@ -206,6 +206,7 @@ test("Run AI stays wired to the real popup view-state gating expression", () => 
     aiRunUpToDate: true,
     previewActive: false,
     previewBlocked: false,
+    previewItemsPending: false,
     previewRestorePending: false,
     sessionHasPendingChanges: true,
     sessionRequiresAiRun: false,
@@ -255,6 +256,7 @@ test("post-AI phase enables Save/Discard even when legacy freshness facts drift"
     aiRunUpToDate: false,
     previewActive: false,
     previewBlocked: false,
+    previewItemsPending: false,
     previewRestorePending: false,
     sessionHasPendingChanges: true,
     sessionRequiresAiRun: true,

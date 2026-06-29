@@ -65,6 +65,12 @@ export type CurtainDictation = Readonly<{
   timerText: string;
 }>;
 
+export type PreviewDictation = Readonly<{
+  active: boolean;
+  blocked: boolean;
+  itemsPending: boolean;
+}>;
+
 export type SessionFacts = Readonly<{
   baseUrlReady: boolean;
   pageScopedUiDisabled: boolean;
@@ -86,6 +92,7 @@ export type SessionFacts = Readonly<{
   aiRunUpToDate: boolean;
   previewActive: boolean;
   previewBlocked: boolean;
+  previewItemsPending: boolean;
   previewRestorePending: boolean;
   sessionHasPendingChanges: boolean;
   sessionRequiresAiRun: boolean;
@@ -112,6 +119,7 @@ export type SessionDictation = Readonly<{
   silentModeActive: boolean;
   buttons: ButtonDictationMap;
   curtain: CurtainDictation;
+  preview: PreviewDictation;
 }>;
 
 export const SESSION_REPORT_TYPES = Object.freeze({

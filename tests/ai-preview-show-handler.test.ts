@@ -90,6 +90,7 @@ test("show AI preview opens immediately and hydrates items asynchronously", asyn
     "beginAiPreviewMode",
     "setPreviewItemsPending",
     "setAiPreviewItemSets",
+    "notifyPreviewStateChanged",
     "showAiPopover",
     "schedulePreviewItemsHydration",
     "buildPreviewState"
@@ -97,10 +98,11 @@ test("show AI preview opens immediately and hydrates items asynchronously", asyn
   assert.deepEqual(deps.calls[1], ["beginAiPreviewMode", { mode: "preview" }]);
   assert.deepEqual(deps.calls[2], ["setPreviewItemsPending", true]);
   assert.deepEqual(deps.calls[3], ["setAiPreviewItemSets", [], [], { showAllCategories: false }]);
+  assert.deepEqual(deps.calls[4], ["notifyPreviewStateChanged"]);
 
   deps.scheduled[0]();
 
-  assert.deepEqual(deps.calls.slice(7).map((call) => call[0]), [
+  assert.deepEqual(deps.calls.slice(8).map((call) => call[0]), [
     "collectPreviewItems",
     "buildAiPreviewItemsWithCategories",
     "setAiPreviewItemSets",

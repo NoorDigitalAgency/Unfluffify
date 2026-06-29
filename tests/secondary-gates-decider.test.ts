@@ -25,6 +25,7 @@ function buildFacts(overrides = {}) {
     aiRunUpToDate: true,
     previewActive: false,
     previewBlocked: false,
+    previewItemsPending: false,
     previewRestorePending: false,
     sessionHasPendingChanges: true,
     sessionRequiresAiRun: false,

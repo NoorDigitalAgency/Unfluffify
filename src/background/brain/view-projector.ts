@@ -107,6 +107,7 @@ function cloneSessionDictation(value: TabLayerState["sessionDictation"]): PopupV
       "page-revert": { ...value.buttons["page-revert"] },
     },
     curtain: { ...value.curtain },
+    preview: { ...value.preview },
   };
 }
 

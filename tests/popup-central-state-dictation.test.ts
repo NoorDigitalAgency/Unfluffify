@@ -36,6 +36,7 @@ function buildFacts(overrides = {}) {
     aiRunUpToDate: false,
     previewActive: false,
     previewBlocked: false,
+    previewItemsPending: false,
     previewRestorePending: false,
     sessionHasPendingChanges: false,
     sessionRequiresAiRun: false,
@@ -65,7 +66,6 @@ test("central-state dictation helper maps projected brain state into popup autho
   });
   const dictation = deriveDictation(decideSessionPhase(facts), facts);
   const patch = buildCentralSessionDictationViewStatePatch({
-    featureEnabled: true,
     currentTabId: 12,
     projectedTabId: 12,
     sessionPhase: dictation.phase,
@@ -79,11 +79,14 @@ test("central-state dictation helper maps projected brain state into popup autho
   assert.equal(patch.computeButtonLoading, dictation.buttons.compute.loading);
   assert.equal(patch.markingPreviewVisible, dictation.buttons["marking-preview"].visible);
   assert.equal(patch.pageSaveDisabled, !dictation.buttons["page-save"].enabled);
+  assert.equal(patch.previewActive, dictation.preview.active);
+  assert.equal(patch.previewBlocked, dictation.preview.blocked);
+  assert.equal(patch.previewItemsPending, dictation.preview.itemsPending);
   assert.equal(patch.sessionCurtainVisible, dictation.curtain.visible);
   assert.equal(patch.sessionCurtainPhase, dictation.phase);
 });
 
-test("central-state snapshot effect repaints on same-tab dictation updates and refreshes when dictation is removed", () => {
+test("central-state snapshot effect repaints on same-tab dictation updates and neutralizes when dictation is removed", () => {
   const computingFacts = buildFacts({
     aiBusy: true,
     aiComputing: true,
@@ -94,7 +97,6 @@ test("central-state snapshot effect repaints on same-tab dictation updates and r
   });
   const computingDictation = deriveDictation(decideSessionPhase(computingFacts), computingFacts);
   const repaintEffect = deriveCentralSessionDictationSnapshotEffect({
-    featureEnabled: true,
     currentTabId: 7,
     projectedTabId: 7,
     sessionPhase: computingDictation.phase,
@@ -108,7 +110,6 @@ test("central-state snapshot effect repaints on same-tab dictation updates and r
   assert.equal(repaintEffect.refreshRequired, false);
 
   const clearEffect = deriveCentralSessionDictationSnapshotEffect({
-    featureEnabled: true,
     currentTabId: 7,
     projectedTabId: 7,
     sessionPhase: null,
@@ -116,8 +117,12 @@ test("central-state snapshot effect repaints on same-tab dictation updates and r
     hadProjectedSessionDictation: true
   });
 
-  assert.equal(clearEffect.patch, null);
-  assert.equal(clearEffect.refreshRequired, true);
+  assert.ok(clearEffect.patch);
+  assert.equal(clearEffect.patch.mainUiHidden, true);
+  assert.equal(clearEffect.patch.computeButtonDisabled, true);
+  assert.equal(clearEffect.patch.previewActive, false);
+  assert.equal(clearEffect.patch.previewBlocked, false);
+  assert.equal(clearEffect.refreshRequired, false);
 });
 
 test("central-state dictation suppresses stale busy curtain when projected phase is silent", () => {
@@ -132,7 +137,6 @@ test("central-state dictation suppresses stale busy curtain when projected phase
   const computingDictation = deriveDictation(decideSessionPhase(computingFacts), computingFacts);
 
   const patch = buildCentralSessionDictationViewStatePatch({
-    featureEnabled: true,
     currentTabId: 7,
     projectedTabId: 7,
     sessionPhase: "silent",
@@ -190,7 +194,6 @@ test("popup wiring repaints live brain snapshots and keeps imperative writers be
   assert.match(popupSource, /buildCentralSessionDictationViewStatePatch\(/);
   assert.match(popupSource, /function shouldUseLocalComputingAiLockout\(tabId: number \| null\): boolean \{/);
   assert.match(popupSource, /function shouldUseLocalPreviewRevealFallback\(tabId: number \| null\): boolean \{/);
-  assert.match(popupSource, /function shouldUseLocalPreviewRestoreLockout\(tabId: number \| null\): boolean \{/);
   assert.match(popupSource, /async function getCurrentSessionActionGateState\(sourceConfig: Config \| null \| undefined = state\.currentConfig\) \{/);
   assert.match(popupSource, /function clearProjectedComputingAiState\(\): boolean \{/);
   assert.match(popupSource, /async function clearStaleProjectedComputingAiState\(\): Promise<void> \{/);
@@ -199,21 +202,11 @@ test("popup wiring repaints live brain snapshots and keeps imperative writers be
   assert.match(popupSource, /publishCurrentTabSessionFacts\(\{[\s\S]*?previewRestorePending: true/);
   assert.match(popupSource, /async function stopAiRun\(options: StopAiRunOptions = \{\}\) \{[\s\S]*?clearProjectedComputingAiState\(\);/);
   assert.match(popupSource, /const persistedRun = await loadPersistedAiRunRecord\(\);[\s\S]*?if \(!persistedRun\) \{[\s\S]*?await clearStaleProjectedComputingAiState\(\);/);
+  assert.match(popupSource, /function shouldUseLocalComputingAiLockout\(tabId: number \| null\): boolean \{[\s\S]*?return false;/);
+  assert.match(popupSource, /function shouldUseLocalPreviewRevealFallback\(tabId: number \| null\): boolean \{[\s\S]*?return false;/);
   assert.match(
     popupSource,
-    /function updateAiRunCountdownState\(\) \{[\s\S]*?const useLocalComputingAiLockout = shouldUseLocalComputingAiLockout\(currentTabId\);[\s\S]*?\.\.\.\(useLocalComputingAiLockout[\s\S]*?computeButtonLoading: true,[\s\S]*?computeButtonDisabled: true,[\s\S]*?aiControlsBusy: true/
-  );
-  assert.match(
-    popupSource,
-    /function beginPreviewRestorePending\(\) \{[\s\S]*?const useLocalPreviewRestoreLockout = shouldUseLocalPreviewRestoreLockout\(currentTabId\);[\s\S]*?\.\.\.\(useLocalPreviewRestoreLockout[\s\S]*?toggleEnabledDisabled: true,[\s\S]*?computeButtonDisabled: true,[\s\S]*?markingPreviewDisabled: true,[\s\S]*?pageSaveDisabled: true,[\s\S]*?pageRevertDisabled: true/
-  );
-  assert.match(
-    popupSource,
-    /previewBlockedMessage: PopupText\.preview\.blockedActive,[\s\S]*?\.\.\.\(shouldUseLocalPreviewRevealFallback\(getCurrentPopupTabId\(\)\)[\s\S]*?computeButtonLoading: false,[\s\S]*?aiControlsBusy: false,[\s\S]*?sessionCurtainVisible: false/
-  );
-  assert.match(
-    popupSource,
-    /const useLocalSessionAuthorityFallback = shouldUseLocalSessionAuthorityFallback\(currentTabId\);[\s\S]*?if \(useLocalSessionAuthorityFallback\) \{[\s\S]*?nextViewState\.toggleEnabledDisabled = toggleEnabledDisabled;[\s\S]*?nextViewState\.mainUiHidden = mainUiHidden;[\s\S]*?nextViewState\.computeButtonDisabled = computeButtonDisabled;/
+    /uiModule\.setViewState\(\{[\s\S]*?previewWillRestoreMarking:[\s\S]*?previewItems:[\s\S]*?previewFocusedXpath:[\s\S]*?previewShowAllCategories:[\s\S]*?\}\);/
   );
   assert.match(
     popupSource,

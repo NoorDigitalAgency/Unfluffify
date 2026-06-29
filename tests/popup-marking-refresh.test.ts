@@ -46,12 +46,13 @@ test("preview exit restores a captured marking-session snapshot before payload f
   );
   assert.match(
     popupSource,
-    /async function handleMarkingPreview\(\) \{[\s\S]*?const latestView = await refreshUiForActionGates\(\);[\s\S]*?captureMarkingSessionSnapshot\(\);[\s\S]*?setPreviewBlocked\(true, PopupText\.preview\.blockedActive\);/
+    /async function handleMarkingPreview\(\) \{[\s\S]*?const latestView = await refreshUiForActionGates\(\);[\s\S]*?captureMarkingSessionSnapshot\(\);[\s\S]*?messages\.requestTabShowAiPreview\(tabId, \{[\s\S]*?publishCurrentTabAiRunEvent\(AI_RUN_EVENT_TYPES\.PREVIEW_READY\);/
   );
   assert.match(
     popupSource,
-    /if \(message && message\.type === "aiPreviewClosed"\) \{[\s\S]*?applyPreviewClosedState\(message\)\.catch\(\(\) => \{[\s\S]*?clearPreviewRestorePending\(\);[\s\S]*?clearMarkingSessionSnapshot\(\);[\s\S]*?setPreviewBlocked\(false\);/
+    /if \(message && message\.type === "aiPreviewClosed"\) \{[\s\S]*?applyPreviewClosedState\(message\)\.catch\(\(\) => \{[\s\S]*?clearPreviewRestorePending\(\);[\s\S]*?clearMarkingSessionSnapshot\(\);[\s\S]*?\}\);/
   );
+  assert.doesNotMatch(popupSource, /setPreviewBlocked/);
   assert.match(popupStateSource, /previewRestoreAppliedToken: 0,/);
   assert.match(popupSource, /function getPreviewRestoreToken\(message = \{\}\) \{/);
   assert.match(
@@ -262,6 +263,7 @@ test("desktop preview stays behind its own popup toggle and disables marking ent
     aiRunUpToDate: false,
     previewActive: false,
     previewBlocked: false,
+    previewItemsPending: false,
     previewRestorePending: false,
     sessionHasPendingChanges: false,
     sessionRequiresAiRun: false,
@@ -298,6 +300,7 @@ test("desktop preview stays behind its own popup toggle and disables marking ent
     aiRunUpToDate: false,
     previewActive: false,
     previewBlocked: false,
+    previewItemsPending: false,
     previewRestorePending: false,
     sessionHasPendingChanges: false,
     sessionRequiresAiRun: false,
@@ -352,6 +355,7 @@ test("marking-mode preview remains a dedicated marking control", () => {
     aiRunUpToDate: true,
     previewActive: false,
     previewBlocked: false,
+    previewItemsPending: false,
     previewRestorePending: false,
     sessionHasPendingChanges: true,
     sessionRequiresAiRun: false,
@@ -491,21 +495,18 @@ test("session save uploads all local page markings while default sync stays back
     /retryDelayMs = Math\.min\(retryDelayMs \* 2, deps\.PAGE_SAVE_SYNC_MAX_RETRY_DELAY_MS\);/
   );
   assert.match(handlePageSaveBody, /await deps\.clearCurrentPageSaveReconciliation\(\);/);
-  assert.match(
-    applyLocalPageDiscardBody,
-    /const backendSavedPageMarkings = await config\.getBackendSavedPageMarkings\(baseUrl\)/
-  );
-  assert.match(
-    applyLocalPageDiscardBody,
-    /findBackendSavedPageMarkingEntry\(backendSavedPageMarkings, pageUrl\)/
-  );
+  assert.match(applyLocalPageDiscardBody, /helpers\.loadGlobalAiSettings\(\)/);
+  assert.match(applyLocalPageDiscardBody, /ensureBaseUrlSiteId\(\{[\s\S]*?persist: false/);
+  assert.match(applyLocalPageDiscardBody, /loadRemoteConfigForCurrentPage\(\{[\s\S]*?force: true/);
+  assert.doesNotMatch(applyLocalPageDiscardBody, /config\.getBackendSavedPageMarkings\(baseUrl\)/);
+  assert.doesNotMatch(applyLocalPageDiscardBody, /findBackendSavedPageMarkingEntry/);
+  assert.doesNotMatch(applyLocalPageDiscardBody, /config\.updateConfig/);
   assert.match(applyLocalPageDiscardBody, /messages\.requestTabApplyLocalDiscard\(tabId, \{ baseUrl \}\)/);
   assert.match(backgroundSource, /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_APPLY_LOCAL_DISCARD, async \(context, payload\) => \{/);
   assert.match(backgroundSource, /type: "configUpdated",[\s\S]*?forceReloadPageEntry: true/);
   assert.match(source, /void messages\.requestTabApplyPostSaveTransition\(tabId, \{ baseUrl \}\);/);
   assert.match(backgroundSource, /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_APPLY_POST_SAVE_TRANSITION, async \(context, payload\) => \{/);
   assert.match(backgroundSource, /type: "setEnabled",[\s\S]*?enabled: false/);
-  assert.doesNotMatch(applyLocalPageDiscardBody, /loadRemoteConfigForCurrentPage/);
   assert.doesNotMatch(applyLocalPageDiscardBody, /validateStoredToken/);
   assert.match(applyLocalPageDiscardBody, /await clearCurrentPageSaveReconciliation\(\);/);
   // Discard/save must not block the spinner on slow tab roundtrips: the popup is
@@ -627,7 +628,8 @@ test("tab reload keeps the inspection curtain active while enabled pages re-insp
   assert.match(refreshBody, /!navigationInspectionPending &&\s*\(!siteIdReady \|\| !renderModeReady \|\| pageTypeUiBlocked\)/);
   assert.doesNotMatch(refreshBody, /const pageScopedUiDisabled =[\s\S]*pageTypeUiBlocked && !navigationInspectionPending/);
   assert.match(refreshBody, /const mainUiHidden =[\s\S]*?!isEnabled[\s\S]*?\(!navigationInspectionPending && \(!siteIdReady \|\| !renderModeReady\)\)/);
-  assert.match(refreshBody, /if \(useLocalSessionAuthorityFallback\) \{[\s\S]*?nextViewState\.mainUiHidden = mainUiHidden;/);
+  assert.doesNotMatch(refreshBody, /useLocalSessionAuthorityFallback/);
+  assert.match(refreshBody, /applyCentralSessionDictation\(nextViewState, currentTabId\);/);
 });
 
 test("tab activation does not end persisted inspection overlay before old-tab spinner state is cleared", () => {

@@ -8,8 +8,7 @@ export const FEATURE_FLAGS: Readonly<Record<string, boolean>> = Object.freeze({
   appearanceCustomization: false,
   cacheAndUnregisterTools: false,
   propertyLockCollaboration: false,
-  previewExpandedStates: false,
-  centralStateDictation: true
+  previewExpandedStates: false
 });
 
 export const DEBUG_FLAGS: Readonly<Record<string, boolean>> = Object.freeze({

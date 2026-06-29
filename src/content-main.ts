@@ -1386,6 +1386,15 @@ function setAiPreviewItemsPending(pending: boolean) {
   aiPreviewState.itemsPending = Boolean(pending);
 }
 
+function publishAiPreviewSessionFacts() {
+  const previewOpen = Boolean(aiPreviewState.active && aiPreviewState.mode === "preview");
+  void publishContentSessionFacts({
+    previewActive: previewOpen,
+    previewBlocked: previewOpen,
+    previewItemsPending: previewOpen && aiPreviewState.itemsPending
+  });
+}
+
 function setAiPreviewExpandedMode(active: unknown): boolean {
   if (!isFeatureEnabled("previewExpandedStates")) {
     aiPreviewState.showAllCategories = false;
@@ -3542,6 +3551,7 @@ function buildAiPreviewStateSnapshot() {
 }
 
 function notifyAiPreviewStateChanged() {
+  publishAiPreviewSessionFacts();
   void sendRuntimeMessageSafely({
     type: "aiPreviewStateChanged",
     baseUrl: state.baseUrl || "",
@@ -3611,6 +3621,7 @@ async function exitAiPreviewMode() {
       refreshEnabledAiHighlights();
     }
     resetAiPreviewState();
+    publishAiPreviewSessionFacts();
     void utils.sendRuntimeMessage({
       type: "setTabState",
       enabled: true,
@@ -3629,6 +3640,7 @@ async function exitAiPreviewMode() {
 
   await refreshSilentHighlightings();
   resetAiPreviewState();
+  publishAiPreviewSessionFacts();
   return {
     active: false,
     markingEnabled: Boolean(state.enabled),

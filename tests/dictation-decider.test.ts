@@ -27,6 +27,7 @@ function buildFacts(overrides = {}) {
     aiRunUpToDate: false,
     previewActive: false,
     previewBlocked: false,
+    previewItemsPending: false,
     previewRestorePending: false,
     sessionHasPendingChanges: false,
     sessionRequiresAiRun: false,
@@ -60,6 +61,11 @@ test("dictation keeps fresh marking in the approved matrix state", () => {
   assert.equal(dictation.buttons[BUTTON_IDS.MARKING_PREVIEW].enabled, false);
   assert.equal(dictation.buttons[BUTTON_IDS.PAGE_SAVE].enabled, false);
   assert.equal(dictation.buttons[BUTTON_IDS.PAGE_REVERT].enabled, false);
+  assert.deepEqual(dictation.preview, {
+    active: false,
+    blocked: false,
+    itemsPending: false,
+  });
 });
 
 test("dictation keeps pre-AI post-edit marking save/list/discard disabled", () => {
@@ -123,11 +129,27 @@ test("dictation treats AI_PREVIEW as post-AI for the action matrix", () => {
     aiRunPhase: AI_RUN_PHASES.AI_PREVIEW,
     aiRunUpToDate: true,
   });
+
   const dictation = deriveDictation(decideSessionPhase(facts), facts);
   assert.equal(dictation.buttons[BUTTON_IDS.COMPUTE].enabled, false);
   assert.equal(dictation.buttons[BUTTON_IDS.PAGE_SAVE].enabled, true);
   assert.equal(dictation.buttons[BUTTON_IDS.PAGE_REVERT].enabled, true);
   assert.equal(dictation.buttons[BUTTON_IDS.TOGGLE_ENABLED].enabled, false);
+});
+
+test("dictation projects preview authority from reported preview facts", () => {
+  const facts = buildFacts({
+    aiRunPhase: AI_RUN_PHASES.AI_PREVIEW,
+    previewActive: true,
+    previewBlocked: true,
+    previewItemsPending: true,
+    aiRunUpToDate: true,
+  });
+  const dictation = deriveDictation(decideSessionPhase(facts), facts);
+
+  assert.equal(dictation.preview.active, true);
+  assert.equal(dictation.preview.blocked, true);
+  assert.equal(dictation.preview.itemsPending, true);
 });
 
 test("dictation disables the matrix during preview restore without hiding marking controls", () => {

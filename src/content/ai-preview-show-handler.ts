@@ -49,6 +49,7 @@ export function createAiPreviewShowHandler(deps: AiPreviewShowDeps) {
     deps.beginAiPreviewMode({ mode: "preview" });
     deps.setPreviewItemsPending(true);
     deps.setAiPreviewItemSets([], [], { showAllCategories: false });
+    deps.notifyPreviewStateChanged();
     deps.showAiPopover([], {
       onClose: () => deps.exitAiPreviewMode()
     });

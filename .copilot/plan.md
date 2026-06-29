@@ -1443,7 +1443,9 @@ loads. Supersedes the old Plan 5 `p5-*` track.
   Phase-DL wipe+`/load` path (fresh `/load`, no autonomous submits, offline-safe
   fallback) driven to PRE_AI by brain dictation, not popup-local facts. Tests:
   popup-marking-refresh, popup-ai-run-gating, ai-preview-close-handler.
-  Live-verify discard→fresh /load→PRE_AI, instant restore.
+  Live-verify discard→fresh /load→PRE_AI, instant restore. Status: complete for
+  implementation, review, and final gate; ready for the Phase D commit/push
+  handoff.
 - Phase NS — No autonomous submits / no recurring loads (enforcement + guards).
   Inventory every backend WRITE (ensure only user-initiated Save submits — no
   autonomous submit on load/AI/preview/sync) and every backend LOAD (ensure

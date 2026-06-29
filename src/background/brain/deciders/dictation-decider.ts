@@ -158,5 +158,10 @@ export function deriveDictation(phase: SessionPhase, facts: SessionFacts): Sessi
     silentModeActive: facts.silentModeActive,
     buttons,
     curtain: deriveCurtainDictation(phase, facts),
+    preview: {
+      active: facts.previewActive,
+      blocked: facts.previewActive || facts.previewBlocked,
+      itemsPending: facts.previewActive && facts.previewItemsPending,
+    },
   };
 }
