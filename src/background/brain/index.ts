@@ -18,7 +18,9 @@ import {
 import {
   AI_RUN_PHASES,
   SESSION_REPORT_TYPES,
+  SESSION_REQUEST_TYPES,
   type SessionFactsPatch,
+  type SessionFactsApplyPayload,
   type SessionFactsReportedPayload
 } from "../../common/bus/contracts/session-state";
 import { SPINNER_EVENT_TYPES, type SpinnerSurface } from "../../common/bus/contracts/spinner";
@@ -475,8 +477,8 @@ export function createBrain(options: { logger?: Pick<Console, "error" | "debug">
     source: "popup" | "content",
     facts: SessionFactsReportedPayload["facts"],
     reason: string,
-  ): void {
-    store.mutate(tabId, reason, (draft) => {
+  ) {
+    return store.mutate(tabId, reason, (draft) => {
       const nextFacts = shouldKeepBrainAiRunAuthority(draft, source, facts)
         ? omitPopupAiRunAuthorityFacts(facts)
         : facts;
@@ -531,6 +533,23 @@ export function createBrain(options: { logger?: Pick<Console, "error" | "debug">
       ? typedPayload.facts
       : {};
     foldSessionFacts(meta.tab, source, facts, `session-facts:${source}`);
+  });
+  bus.registerHandler(SESSION_REQUEST_TYPES.FACTS_APPLY, (payload: SessionFactsApplyPayload, meta) => {
+    if (!meta.tab) {
+      throw new Error("session.facts.apply requires a tab id");
+    }
+    const typedPayload = payload && typeof payload === "object" ? payload : { source: "popup", facts: {} };
+    const source = typedPayload.source === "content" ? "content" : "popup";
+    const facts = typedPayload.facts && typeof typedPayload.facts === "object"
+      ? typedPayload.facts
+      : {};
+    const state = foldSessionFacts(meta.tab, source, facts, `session-facts-apply:${source}`);
+    return {
+      ok: true,
+      tabId: meta.tab,
+      version: state.version,
+      secondaryGates: state.secondaryGates,
+    };
   });
   for (const eventType of Object.values(AI_RUN_EVENT_TYPES)) {
     bus.subscribe(eventType, (payload, meta) => {

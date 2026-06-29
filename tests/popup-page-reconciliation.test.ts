@@ -207,6 +207,41 @@ test("popup page reconciliation revert respects current-page pending gate", asyn
   assert.equal(calls.toast.at(-1), PopupText.page.noChangesToSave);
 });
 
+test("popup page reconciliation treats unresolved secondary gates as blocking", async () => {
+  resetState();
+  let validateCalls = 0;
+  let confirmCalls = 0;
+  const { deps, calls } = createDeps({
+    getViewState: () => ({
+      sessionHasPendingChanges: true,
+      sessionRequiresAiRun: false,
+      currentPageHasPendingChanges: true,
+      pageSaveBlockedReason: "not_ready",
+      pageRevertBlockedReason: "not_ready"
+    }),
+    validateStoredToken: async () => {
+      validateCalls += 1;
+      return true;
+    },
+    windowRef: {
+      confirm: () => {
+        confirmCalls += 1;
+        return true;
+      }
+    }
+  });
+
+  await handlePageSave(deps);
+  await handlePageRevert(deps);
+
+  assert.equal(validateCalls, 0);
+  assert.equal(confirmCalls, 0);
+  assert.equal(calls.sync, 0);
+  assert.equal(calls.discard, 0);
+  assert.equal(calls.toast.at(0), PopupText.overlay.pleaseWait);
+  assert.equal(calls.toast.at(1), PopupText.overlay.pleaseWait);
+});
+
 test("popup page reconciliation blocks save and revert while an AI run is active", async () => {
   resetState();
   state.aiRequestInFlight = "compute";

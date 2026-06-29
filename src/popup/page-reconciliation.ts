@@ -131,6 +131,10 @@ export async function handlePageSave(deps: PageReconciliationDeps) {
     deps.showToast(deps.PopupText.page.noticeRunAiBeforeSaving);
     return;
   }
+  if (blockedReason) {
+    deps.showToast(deps.PopupText.overlay.pleaseWait);
+    return;
+  }
   const tokenIsValid = await deps.validateStoredToken({ force: true });
   if (!tokenIsValid) {
     return;
@@ -222,6 +226,10 @@ export async function handlePageRevert(deps: PageReconciliationDeps) {
   }
   if (blockedReason === "no_page_changes") {
     deps.showToast(deps.PopupText.page.noChangesToSave);
+    return;
+  }
+  if (blockedReason) {
+    deps.showToast(deps.PopupText.overlay.pleaseWait);
     return;
   }
   const confirmed = deps.windowRef.confirm(deps.PopupText.page.revertConfirm);

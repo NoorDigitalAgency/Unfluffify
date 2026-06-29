@@ -110,7 +110,6 @@ import {
   type SessionDictation,
   type SessionFactsPatch
 } from "./common/bus/contracts/session-state";
-import { deriveSecondaryGatesViewState } from "./background/brain/deciders/secondary-gates-decider";
 import {
   isRenderModeRunInspectionOperationReply,
   isRenderModeRunInspectionResult,
@@ -125,6 +124,7 @@ import {
   publishPopupPropertyLockSnapshot,
   publishPopupAiRunEvent,
   publishPopupSessionFacts,
+  requestPopupSessionFactsApply,
   requestPopupRenderModeCaptureHtml,
   requestPopupRenderModeHideConsent,
   requestPopupSpinnerClear,
@@ -153,7 +153,8 @@ import {
 } from "./popup/property-lock-state-dictation";
 import {
   deriveProjectedSecondaryGatesSnapshotEffect,
-  hasProjectedSecondaryGatesForTab as hasProjectedSecondaryGatesForTabOperation
+  NEUTRAL_SECONDARY_GATES_VIEW_PATCH,
+  resolveSecondaryGatesViewStatePatch
 } from "./popup/secondary-gates-state-dictation";
 import {
   currentSpinnerSnapshot as currentSpinnerSnapshotOperation,
@@ -322,6 +323,7 @@ type SpinnerBrokerMessageOptions = {
 };
 type PopupBackgroundStateSnapshot = {
   ok?: boolean;
+  version?: number;
   tabId?: number | null;
   lifecycle?: PopupStateGetReply["lifecycle"] | null;
   activation?: PopupStateGetReply["activation"] | null;
@@ -778,6 +780,8 @@ let popupBackgroundSessionDictation: SessionDictation | null = null;
 let popupBackgroundPropertyLockView: PopupStateGetReply["propertyLockView"] = null;
 let popupBackgroundPropertyLockTimer: PopupStateGetReply["propertyLockTimer"] = null;
 let popupBackgroundSecondaryGates: PopupStateGetReply["secondaryGates"] = null;
+let activePopupBusClient: PopupBusClient | null = null;
+let latestSessionFactsPatch: SessionFactsPatch = {};
 let pendingAiPreviewConfigSync: { tabId: number; baseUrl: string } | null = null;
 let propertyPageTypesRequest: PendingPropertyPageTypesRequest = null;
 let pageTypesRefreshRunner: (() => void) | null = null;
@@ -1165,7 +1169,11 @@ function applyPopupViewSnapshot(snapshot: PopupStateGetReply | null) {
   const currentTabId = getCurrentPopupTabId();
   const hadProjectedSessionDictation = hasProjectedCentralSessionDictationForTab(currentTabId);
   const hadProjectedPropertyLockView = hasProjectedPropertyLockViewForTab(currentTabId);
-  const hadProjectedSecondaryGates = hasProjectedSecondaryGatesForTab(currentTabId);
+  const hadProjectedSecondaryGates = Boolean(
+    currentTabId &&
+      popupBackgroundStateTabId === currentTabId &&
+      popupBackgroundSecondaryGates
+  );
   applyBackgroundStateSnapshot({
     ok: true,
     tabId: snapshot.tabId,
@@ -1225,6 +1233,7 @@ function applyPopupViewSnapshot(snapshot: PopupStateGetReply | null) {
 }
 
 function publishCurrentSessionFacts(tabId: number, facts: SessionFactsPatch): void {
+  latestSessionFactsPatch = { ...latestSessionFactsPatch, ...facts };
   publishPopupSessionFacts(tabId, facts).catch(() => null);
 }
 
@@ -1337,14 +1346,6 @@ function hasProjectedPropertyLockViewForTab(tabId: number | null): boolean {
   });
 }
 
-function hasProjectedSecondaryGatesForTab(tabId: number | null): boolean {
-  return hasProjectedSecondaryGatesForTabOperation({
-    currentTabId: tabId,
-    projectedTabId: popupBackgroundStateTabId,
-    secondaryGates: popupBackgroundSecondaryGates || null
-  });
-}
-
 function hasProjectedPropertyLockDeadlineTimerForTab(tabId: number | null): boolean {
   return Boolean(
     hasProjectedPropertyLockViewForTab(tabId) &&
@@ -1370,16 +1371,31 @@ function shouldUseLocalPreviewRevealFallback(tabId: number | null): boolean {
   return false;
 }
 
-function shouldUseLocalSecondaryGatesFallback(tabId: number | null): boolean {
-  return !hasProjectedSecondaryGatesForTab(tabId);
-}
-
 async function refreshUiForActionGates(): Promise<PopupViewState> {
   await refreshUi({
     useBusyOverlay: false,
     skipPropertyLockFetch: true,
     preserveCurrentDraftStatus: true
   });
+  const currentTabId = getCurrentPopupTabId();
+  if (currentTabId && activePopupBusClient) {
+    const appliedFacts = await requestPopupSessionFactsApply(
+      activePopupBusClient,
+      currentTabId,
+      latestSessionFactsPatch,
+    );
+    if (appliedFacts && appliedFacts.ok && appliedFacts.tabId === currentTabId && appliedFacts.secondaryGates) {
+      popupBackgroundStateTabId = currentTabId;
+      popupBackgroundSecondaryGates = appliedFacts.secondaryGates;
+      uiModule.setViewState(resolveSecondaryGatesViewStatePatch({
+        currentTabId,
+        projectedTabId: popupBackgroundStateTabId,
+        secondaryGates: popupBackgroundSecondaryGates,
+      }));
+      return uiModule.getViewState();
+    }
+  }
+  uiModule.setViewState(NEUTRAL_SECONDARY_GATES_VIEW_PATCH);
   return uiModule.getViewState();
 }
 
@@ -2408,19 +2424,9 @@ function updateAiRunCountdownState() {
   state.aiRunRemainingMs = getAiRunRemainingMs(state.aiRunDeadlineAt);
   const currentTabId = getCurrentPopupTabId();
   const useLocalComputingAiLockout = shouldUseLocalComputingAiLockout(currentTabId);
-  const useLocalSecondaryGates = shouldUseLocalSecondaryGatesFallback(currentTabId);
   const aiRunCountdownText = formatAiRunCountdown(state.aiRunRemainingMs);
   uiModule.setViewState({
     computeButtonText: ViewText.computeButtonBusy,
-    ...(useLocalSecondaryGates
-      ? {
-        saveExcludesButtonDisabled: true,
-        saveExcludesBlockedReason: SECONDARY_GATES_BLOCK_REASONS.BUSY,
-        previewLatestButtonDisabled: true,
-        previewLatestBlockedReason: SECONDARY_GATES_BLOCK_REASONS.BUSY,
-        lynxChecklistSendBlockedReason: SECONDARY_GATES_BLOCK_REASONS.BUSY
-      }
-      : {}),
     aiRunSpinnerNote: PopupText.overlay.computingSelectorsNote,
     aiRunCountdownVisible: true,
     aiRunCountdownText,
@@ -5224,79 +5230,12 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
     pageSaveUiState.pageSaveMobileSimulationRequiredVisible;
   nextViewState.pageSaveMobileSimulationRequiredText =
     PopupText.page.mobileSimulationRequired;
-  const projectedComputingAiActive =
-    Boolean(currentTabId) &&
-    popupBackgroundStateTabId === currentTabId &&
-    popupBackgroundSessionPhase === "computing_ai";
-  const aiBusyForSecondaryGates =
-    Boolean(state.aiRequestInFlight) || state.aiComputeStartPending || projectedComputingAiActive;
-  const aiComputingForSecondaryGates =
-    state.aiRequestInFlight === "compute" || state.aiComputeStartPending || projectedComputingAiActive;
-  const localSecondaryGates = deriveSecondaryGatesViewState({
-    baseUrlReady,
-    pageScopedUiDisabled,
-    navigationInspectionPending,
-    siteIdReady,
-    renderModeReady,
-    pageTypeUiBlocked,
-    currentPageHasPendingChanges,
-    pageInspectionBusy,
-    desktopPreviewVisible,
-    desktopPreviewActive,
-    deviceControlsDisabled: Boolean(state.deviceControlsDisabled || isEnabled),
-    isEnabled,
-    silentModeActive,
-    aiReady,
-    aiBusy: aiBusyForSecondaryGates,
-    aiComputing: aiComputingForSecondaryGates,
-    aiRunPhase: state.sessionAiRunPhase,
-    aiRunUpToDate,
-    previewActive,
-    previewBlocked: Boolean(nextViewState.previewBlocked),
-    previewItemsPending,
-    previewRestorePending,
-    sessionHasPendingChanges,
-    sessionRequiresAiRun,
-    currentDraftDirty: state.currentDraftDirty,
-    pageSaveReconciliationPending,
-    propertyLockBlocked: isPropertyLockBlockingEditing(),
-    saving: state.aiRequestInFlight === "save",
-    discarding: false,
-    hasStoredSelectors,
-    lynxChecklistCanSend: pageTypeCoverageModel.canSend,
-    lynxChecklistBlockingReason: pageTypeCoverageModel.canSend
-      ? { code: "", pageTypeKeys: [] }
-      : {
-        code: typeof pageTypeCoverageModel.blockingReason.code === "string"
-          ? pageTypeCoverageModel.blockingReason.code
-          : "",
-        pageTypeKeys: Array.isArray(pageTypeCoverageModel.blockingReason.pageTypeKeys)
-          ? pageTypeCoverageModel.blockingReason.pageTypeKeys.filter(
-            (value): value is string => typeof value === "string"
-          )
-          : []
-      },
-    busyVisible: false,
-    busyMessage: "",
-    busyNote: "",
-    busyTimerText: ""
+  const secondaryGatesViewState = resolveSecondaryGatesViewStatePatch({
+    currentTabId,
+    projectedTabId: popupBackgroundStateTabId,
+    secondaryGates: popupBackgroundSecondaryGates || null
   });
-  nextViewState.pageSaveBlockedReason = localSecondaryGates.pageSaveBlockedReason;
-  nextViewState.pageRevertBlockedReason = localSecondaryGates.pageRevertBlockedReason;
-  nextViewState.markingPreviewBlockedReason = localSecondaryGates.markingPreviewBlockedReason;
-  nextViewState.saveExcludesButtonDisabled = localSecondaryGates.saveExcludesButtonDisabled;
-  nextViewState.saveExcludesBlockedReason = localSecondaryGates.saveExcludesBlockedReason;
-  nextViewState.previewLatestButtonDisabled = localSecondaryGates.previewLatestButtonDisabled;
-  nextViewState.previewLatestBlockedReason = localSecondaryGates.previewLatestBlockedReason;
-  nextViewState.desktopPreviewVisible = localSecondaryGates.desktopPreviewVisible;
-  nextViewState.desktopPreviewEnabled = localSecondaryGates.desktopPreviewEnabled;
-  nextViewState.desktopPreviewDisabled = localSecondaryGates.desktopPreviewDisabled;
-  nextViewState.desktopPreviewBlockedReason = localSecondaryGates.desktopPreviewBlockedReason;
-  nextViewState.lynxChecklistSendBlockedReason = localSecondaryGates.lynxChecklistSendBlockedReason.code;
-  nextViewState.lynxChecklistSendBlockedPageTypeKeys = [
-    ...localSecondaryGates.lynxChecklistSendBlockedReason.pageTypeKeys
-  ];
-  nextViewState.navigationInspectionActive = localSecondaryGates.navigationInspectionActive;
+  Object.assign(nextViewState, secondaryGatesViewState);
   nextViewState.pageDraftStatusText = pageSaveUiState.pageDraftStatusText;
   nextViewState.pageDraftStatusTone = pageSaveUiState.pageDraftStatusTone;
   nextViewState.pageSessionNoticeVisible = pageSaveUiState.pageSessionNoticeVisible;
@@ -5373,7 +5312,7 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
   nextViewState.deviceScale = normalizedDeviceState.scale.toFixed(2);
   nextViewState.deviceScaleValue = formatScalePercent(normalizedDeviceState.scale);
   nextViewState.deviceControlsDisabled = Boolean(state.deviceControlsDisabled || isEnabled);
-  nextViewState.desktopPreviewNoticeVisible = localSecondaryGates.desktopPreviewEnabled;
+  nextViewState.desktopPreviewNoticeVisible = secondaryGatesViewState.desktopPreviewEnabled;
   nextViewState.desktopPreviewNoticeText = PopupText.device.desktopPreviewNotice;
   nextViewState.pageTypeGroups = pageTypeCoverageModel.pageTypes.map((pageType) => {
     const groupCurrent =
@@ -8161,6 +8100,7 @@ async function init() {
       applyPopupView: applyPopupViewSnapshot,
       onSpinnerSurfaceChanged: handleSpinnerSurfaceChangedFromBrain
     });
+    activePopupBusClient = popupBus;
     await restoreSpinnerQueueFromBackground(initTabId, popupBus);
     await applyTraceModePreferenceToTab(initTabId, state.traceModeEnabled, popupBus).catch(() => null);
     maybeRunPopupBusSelfTest(initTabId, popupBus);
@@ -8332,6 +8272,7 @@ async function init() {
     popupBackgroundPropertyLockView = null;
     popupBackgroundPropertyLockTimer = null;
     popupBackgroundSecondaryGates = null;
+    activePopupBusClient = null;
     await helpers.ensureActiveTab();
     // Restore brain-projected view state for the newly active tab.
     const newTabId = state.currentTab && state.currentTab.id;
@@ -8341,6 +8282,7 @@ async function init() {
           applyPopupView: applyPopupViewSnapshot,
           onSpinnerSurfaceChanged: handleSpinnerSurfaceChangedFromBrain
         });
+        activePopupBusClient = popupBus;
         await restoreSpinnerQueueFromBackground(newTabId, popupBus);
         maybeRunPopupBusSelfTest(newTabId, popupBus);
       } catch {

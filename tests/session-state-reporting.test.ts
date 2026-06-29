@@ -4,7 +4,12 @@ import { assert } from "./test-kit.ts";
 import { createBrain } from "../src/background/brain/index.js";
 import { AI_RUN_EVENT_TYPES } from "../src/common/bus/contracts/ai-run.js";
 import { REALMS } from "../src/common/bus/realms.js";
-import { AI_RUN_PHASES, SESSION_PHASES, SESSION_REPORT_TYPES } from "../src/common/bus/contracts/session-state.js";
+import {
+  AI_RUN_PHASES,
+  SESSION_PHASES,
+  SESSION_REPORT_TYPES,
+  SESSION_REQUEST_TYPES
+} from "../src/common/bus/contracts/session-state.js";
 import { LIFECYCLE_KINDS, LIFECYCLE_PHASES } from "../src/common/world-messaging-contract.js";
 
 test("brain ingests reported session facts and projects optional dictation into popup view", async () => {
@@ -48,6 +53,43 @@ test("brain ingests reported session facts and projects optional dictation into 
     code: "not_available",
     pageTypeKeys: [],
   });
+});
+
+test("brain acknowledges popup facts apply with freshly derived secondary gates", async () => {
+  const brain = createBrain({ logger: { error() {} } });
+
+  const reply = await brain.bus.request(
+    SESSION_REQUEST_TYPES.FACTS_APPLY,
+    {
+      source: "popup",
+      facts: {
+        baseUrlReady: true,
+        siteIdReady: true,
+        renderModeReady: true,
+        isEnabled: false,
+        silentModeActive: true,
+        aiReady: true,
+        aiRunUpToDate: true,
+        sessionHasPendingChanges: true,
+        currentPageHasPendingChanges: true,
+        currentDraftDirty: true,
+        hasStoredSelectors: true,
+        lynxChecklistCanSend: true,
+        lynxChecklistBlockingReason: { code: "", pageTypeKeys: [] },
+      },
+    },
+    {
+      target: REALMS.BACKGROUND,
+      tab: 104,
+      timeoutMs: 1000,
+    },
+  );
+
+  assert.equal(reply.ok, true);
+  assert.equal(reply.tabId, 104);
+  assert.equal(reply.secondaryGates?.saveExcludesBlockedReason, "");
+  assert.equal(reply.secondaryGates?.previewLatestBlockedReason, "");
+  assert.equal(brain.getPopupView(104).secondaryGates?.previewLatestBlockedReason, "");
 });
 
 test("brain derives the COMPUTING_AI phase from typed AI-run STARTED events", async () => {

@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   buildProjectedSecondaryGatesViewStatePatch,
   deriveProjectedSecondaryGatesSnapshotEffect,
+  NEUTRAL_SECONDARY_GATES_VIEW_PATCH,
+  resolveSecondaryGatesViewStatePatch,
 } from "../src/popup/secondary-gates-state-dictation.js";
 
 describe("popup secondary gates state dictation", () => {
@@ -58,5 +60,13 @@ describe("popup secondary gates state dictation", () => {
       patch: null,
       refreshRequired: true,
     });
+  });
+
+  it("resolves absent projections to a neutral disabled patch", () => {
+    expect(resolveSecondaryGatesViewStatePatch({
+      currentTabId: 12,
+      projectedTabId: 99,
+      secondaryGates: null,
+    })).toEqual(NEUTRAL_SECONDARY_GATES_VIEW_PATCH);
   });
 });

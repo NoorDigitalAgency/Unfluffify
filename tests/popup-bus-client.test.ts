@@ -3,8 +3,13 @@ import { describe, expect, it, vi } from "vitest";
 
 import { DIAGNOSTIC_REQUEST_TYPES } from "../src/common/bus/contracts/index.js";
 import { POPUP_STATE_REQUEST_TYPES } from "../src/common/bus/contracts/popup-state.js";
+import { SESSION_REQUEST_TYPES } from "../src/common/bus/contracts/session-state.js";
 import { REALMS } from "../src/common/bus/realms.js";
-import { requestPopupView, runPopupBusSelfTest } from "../src/popup/layers/popup-bus-client.js";
+import {
+  requestPopupSessionFactsApply,
+  requestPopupView,
+  runPopupBusSelfTest
+} from "../src/popup/layers/popup-bus-client.js";
 
 describe("popup bus self-test", () => {
   it("requests background and content diag.ping round-trips and logs passes", async () => {
@@ -95,6 +100,54 @@ describe("popup bus self-test", () => {
     expect(request).toHaveBeenCalledWith(
       POPUP_STATE_REQUEST_TYPES.GET,
       {},
+      { target: REALMS.BACKGROUND, tab: 11, timeoutMs: 3000 },
+    );
+  });
+
+  it("requests acknowledged popup facts application from the background realm", async () => {
+    const request = vi.fn().mockResolvedValue({
+      ok: true,
+      tabId: 11,
+      version: 4,
+      secondaryGates: {
+        pageSaveBlockedReason: "",
+        pageRevertBlockedReason: "",
+        markingPreviewBlockedReason: "",
+        saveExcludesButtonDisabled: false,
+        saveExcludesBlockedReason: "",
+        previewLatestButtonDisabled: false,
+        previewLatestBlockedReason: "",
+        desktopPreviewVisible: false,
+        desktopPreviewEnabled: false,
+        desktopPreviewDisabled: true,
+        desktopPreviewBlockedReason: "not_available",
+        lynxChecklistSendBlockedReason: { code: "", pageTypeKeys: [] },
+        navigationInspectionActive: false,
+      },
+    });
+
+    await expect(requestPopupSessionFactsApply({
+      request,
+      tryRequest: vi.fn(),
+      registerHandler: vi.fn(),
+      publish: vi.fn(),
+      subscribe: vi.fn(),
+    }, 11, {
+      silentModeActive: true,
+    })).resolves.toMatchObject({
+      ok: true,
+      tabId: 11,
+      version: 4,
+    });
+
+    expect(request).toHaveBeenCalledWith(
+      SESSION_REQUEST_TYPES.FACTS_APPLY,
+      {
+        source: "popup",
+        facts: {
+          silentModeActive: true,
+        },
+      },
       { target: REALMS.BACKGROUND, tab: 11, timeoutMs: 3000 },
     );
   });

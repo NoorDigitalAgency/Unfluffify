@@ -1,4 +1,7 @@
-import type { SecondaryGatesViewState } from "../common/bus/contracts/secondary-gates-state";
+import {
+  SECONDARY_GATES_BLOCK_REASONS,
+  type SecondaryGatesViewState
+} from "../common/bus/contracts/secondary-gates-state";
 
 export type ProjectedSecondaryGatesProjectionState = {
   currentTabId: number | null;
@@ -26,6 +29,23 @@ export type ProjectedSecondaryGatesViewStatePatch = Readonly<{
 export type ProjectedSecondaryGatesSnapshotEffect = {
   patch: ProjectedSecondaryGatesViewStatePatch | null;
   refreshRequired: boolean;
+};
+
+export const NEUTRAL_SECONDARY_GATES_VIEW_PATCH: ProjectedSecondaryGatesViewStatePatch = {
+  pageSaveBlockedReason: SECONDARY_GATES_BLOCK_REASONS.NOT_READY,
+  pageRevertBlockedReason: SECONDARY_GATES_BLOCK_REASONS.NOT_READY,
+  markingPreviewBlockedReason: SECONDARY_GATES_BLOCK_REASONS.NOT_READY,
+  saveExcludesButtonDisabled: true,
+  saveExcludesBlockedReason: SECONDARY_GATES_BLOCK_REASONS.NOT_READY,
+  previewLatestButtonDisabled: true,
+  previewLatestBlockedReason: SECONDARY_GATES_BLOCK_REASONS.NOT_READY,
+  desktopPreviewVisible: false,
+  desktopPreviewEnabled: false,
+  desktopPreviewDisabled: true,
+  desktopPreviewBlockedReason: SECONDARY_GATES_BLOCK_REASONS.NOT_READY,
+  lynxChecklistSendBlockedReason: SECONDARY_GATES_BLOCK_REASONS.NOT_READY,
+  lynxChecklistSendBlockedPageTypeKeys: [],
+  navigationInspectionActive: false,
 };
 
 export function hasProjectedSecondaryGatesForTab(
@@ -62,6 +82,12 @@ export function buildProjectedSecondaryGatesViewStatePatch(
     ],
     navigationInspectionActive: state.secondaryGates.navigationInspectionActive,
   };
+}
+
+export function resolveSecondaryGatesViewStatePatch(
+  state: ProjectedSecondaryGatesProjectionState,
+): ProjectedSecondaryGatesViewStatePatch {
+  return buildProjectedSecondaryGatesViewStatePatch(state) || NEUTRAL_SECONDARY_GATES_VIEW_PATCH;
 }
 
 export function deriveProjectedSecondaryGatesSnapshotEffect(

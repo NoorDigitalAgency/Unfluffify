@@ -80,8 +80,13 @@ test("Preview Contents uses the latest stored selector set and stays disabled wi
   )[1];
 
   assert.match(source, /const hasStoredSelectors = hasCalculatedSelectorsFromConfig\(\);/);
-  assert.match(source, /const localSecondaryGates = deriveSecondaryGatesViewState\(/);
-  assert.match(source, /nextViewState\.previewLatestButtonDisabled = localSecondaryGates\.previewLatestButtonDisabled;/);
+  assert.doesNotMatch(source, /deriveSecondaryGatesViewState/);
+  assert.match(source, /const secondaryGatesViewState = resolveSecondaryGatesViewStatePatch\(\{/);
+  assert.match(source, /Object\.assign\(nextViewState, secondaryGatesViewState\);/);
+  assert.match(
+    source,
+    /async function refreshUiForActionGates\(\)[\s\S]*?requestPopupSessionFactsApply\([\s\S]*?latestSessionFactsPatch[\s\S]*?appliedFacts\.secondaryGates[\s\S]*?resolveSecondaryGatesViewStatePatch\(\{[\s\S]*?uiModule\.setViewState\(NEUTRAL_SECONDARY_GATES_VIEW_PATCH\);/
+  );
   assert.match(previewBody, /if \(!hasCalculatedSelectorsFromConfig\(state\.currentConfig\)\) \{[\s\S]*?PopupText\.preview\.noStoredSelectors/);
   assert.match(previewBody, /if \(view\.previewLatestBlockedReason === SECONDARY_GATES_BLOCK_REASONS\.NO_STORED_SELECTORS\) \{[\s\S]*?PopupText\.preview\.noStoredSelectors/);
   assert.match(previewBody, /const selectorSet = getLatestAvailableSelectorsFromConfig\(\);/);
@@ -107,11 +112,7 @@ test("silent mode gates preview, save-excludes, and Lynx checklist submission", 
   );
   assert.match(
     popupSource,
-    /nextViewState\.saveExcludesButtonDisabled = localSecondaryGates\.saveExcludesButtonDisabled;/
-  );
-  assert.match(
-    popupSource,
-    /nextViewState\.previewLatestButtonDisabled = localSecondaryGates\.previewLatestButtonDisabled;/
+    /Object\.assign\(nextViewState, secondaryGatesViewState\);/
   );
   assert.match(
     popupSource,
@@ -232,8 +233,8 @@ test("desktop preview stays behind its own popup toggle and disables marking ent
 
   assert.match(popupSource, /const desktopPreviewVisible = Boolean\(\s*desktopPreviewFeatureEnabled &&\s*silentModeActive &&/);
   assert.match(popupSource, /const desktopPreviewActive = Boolean\(\s*desktopPreviewVisible && state\.currentDesktopPreviewEnabled\s*\);/);
-  assert.match(popupSource, /nextViewState\.desktopPreviewVisible = localSecondaryGates\.desktopPreviewVisible;/);
-  assert.match(popupSource, /nextViewState\.desktopPreviewEnabled = localSecondaryGates\.desktopPreviewEnabled;/);
+  assert.match(popupSource, /const secondaryGatesViewState = resolveSecondaryGatesViewStatePatch\(\{/);
+  assert.match(popupSource, /nextViewState\.desktopPreviewNoticeVisible = secondaryGatesViewState\.desktopPreviewEnabled;/);
   assert.match(desktopToggleBody, /if \(!isFeatureEnabled\("desktopPreview"\)\) \{\s*return;\s*\}/);
   assert.match(desktopToggleBody, /if \(\s*desiredEnabled &&\s*\(\s*!currentView\.desktopPreviewVisible \|\|[\s\S]*?currentView\.desktopPreviewBlockedReason !== SECONDARY_GATES_BLOCK_REASONS\.NONE/);
   assert.match(desktopToggleBody, /if \(desiredEnabled && currentView\.toggleEnabled\) \{/);

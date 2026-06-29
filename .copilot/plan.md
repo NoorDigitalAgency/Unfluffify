@@ -1529,3 +1529,300 @@ Session DB todos `ar-phase0, A, B, C, DL, D, NS, E, F, G` (dependency-chained)
 mirror the phases above; each is executable from its phase section without
 rereading the whole plan. This is the single source of truth for run-plan; the
 older Plan 5 `p5-*` todos are superseded (folded into Phase DL/D/NS).
+
+## Audit 2 — Residual Authority Sweep (Phases H–K)
+
+### Goal
+
+After Phases A–G+DL+NS landed, a second full-codebase authority sweep confirmed
+the core UI state (5-button matrix, blocking curtain copy, preview, spinner,
+silent-highlight activation, inspection curtain, AI-run lease/deadline/phase,
+render-mode directive, session phase) is brain-dictated and reflected. The sweep
+found four residual non-brain decisions. This audit converts the two genuine
+drifts, makes a scoped tightening of one, keeps one by design, and deletes the
+neutered dead code — so every UI-state decision is either brain-dictated +
+reflected or a justified, documented local mechanic.
+
+### Current facts (verified, file:line)
+
+- Brain projects the 5-button matrix + curtain + preview via
+  `sessionDictation`; popup reflects it in
+  `src/popup/central-state-dictation.ts:84-100`, neutral all-disabled when
+  absent (`NEUTRAL_SESSION_DICTATION_PATCH`). No local matrix survives.
+- Secondary gates: the brain decider
+  `src/background/brain/deciders/secondary-gates-decider.ts:26`
+  (`deriveSecondaryGatesViewState`) is run by the brain
+  (`src/background/brain/index.ts:121,489,521`) AND **re-imported and re-run
+  locally by the popup** in `refreshUi`
+  (`src/popup.ts:113` import, `:5235` call, `:5284-5299` + `:5376` assigns).
+- A projection→view mapper already exists:
+  `src/popup/secondary-gates-state-dictation.ts:41`
+  (`buildProjectedSecondaryGatesViewStatePatch`) returns the exact same view
+  fields from the projected `secondaryGates`, returning `null` when no
+  projection.
+- `shouldUseLocalSecondaryGatesFallback` (`src/popup.ts:1373-1375`) =
+  `!hasProjectedSecondaryGatesForTab`; only consumed by
+  `updateAiRunCountdownState` (`src/popup.ts:2411-2422`).
+- Content marking-temporarily-disabled overlay
+  (`src/content/core.ts:7169 updateMarkingTemporarilyDisabledUi`) reads
+  `getMarkingTemporarilyDisabledReason` (`:7134`): branch 1
+  `isMarkingEditsBlockedByDirective()` → "post_ai" (reflects brain); branch 2
+  reads **local** `getPageSaveReconciliationState(pageUrl)` (`:10322`) and uses
+  its `reason` ("saving"/"syncing"/default "pending"), with the
+  `SILENT_HIGHLIGHTING_PREPARATION_REASON = "editor_preparing"`
+  (`src/content/core.ts:887`) case returning "" (no block).
+  `getMarkingTemporarilyDisabledMessage` (`:7152`) maps reason → copy
+  (saving / post_ai / else=syncing).
+- Reconciliation facts: only `pageSaveReconciliationPending: boolean` exists in
+  `src/common/bus/contracts/session-state.ts:100`. The reconciliation **reason**
+  is NOT reported up; content reports the boolean only via
+  `setPageSaveReconciliationFactReporter` (`src/content-main.ts:7130-7132`).
+- AI compute lock: `setAiComputeLockForTab`/`isAiComputeLockActiveForTab`
+  (`src/background/ai-run-orchestrator.ts:451-518`) use a
+  `aiComputeLockExpiresAtByTabId` map. The `expiresAt` passed is
+  `getAiRunResumeExpiresAt()` = `Date.now()+30_000` (`:295`), **renewed every
+  heartbeat** (`refreshAiRunHeartbeat` `:529,:539`) — i.e. a fail-open TTL. The
+  brain run `deadlineAt` is already threaded through the heartbeat
+  (`:524` param, `:534` persisted). `isAiComputeLockActiveForTab` gates
+  navigation teardown (`src/background.ts:3759`). Content reflects the lock as
+  `compute_lock` preview mode with draft capture/restore + self-release
+  (`src/content-main.ts:3488-3540`).
+- Property-lock content block: `isMarkingBlockedByPropertyLock`
+  (`src/content-main.ts:5507`) + `isPropertyLockInteractionBlocked` (`:5531`)
+  driven by local `propertyLockState`/`propertyLockBannerVisible`. Brain owns the
+  popup `propertyLockView`/`propertyLockTimer` via
+  `deciders/property-lock-decider.ts`.
+- Neutered/dead authority: `setPreviewBlocked` (`src/popup/ui.tsx:2666`, zero
+  callers); `shouldUseLocalComputingAiLockout`/`shouldUseLocalPreviewRevealFallback`
+  (`src/popup.ts:1363-1371`, hardcoded `return false`) with dead branches at
+  `:2429-2435` and `:7469-7480`; `clearNavInspectCurtain`
+  (`src/background/popup-state-broker.ts:238-255`, exported `:364`, zero callers).
+- Source-contract tests pin some of these: `tests/popup-central-state-dictation.test.ts:217-228`
+  asserts the two `return false` stubs exist; `tests/popup-marking-refresh.test.ts:55`
+  asserts popup.ts has no `setPreviewBlocked`.
+
+### Decisions already made (user-approved 2026-06-29)
+
+- #1 Secondary gates → **CONVERT**: popup reflects projected `secondaryGates`,
+  remove the local `deriveSecondaryGatesViewState` call.
+- #2 Content reconciliation overlay → **CONVERT**: brain projects a typed
+  reconciliation-blocked reason; content reflects `markingEditsBlocked(+reason)`
+  for both the post_ai and reconciliation cases. Locked marking — update docs +
+  tests in the same phase.
+- #3 Background AI compute lock → **STAY + scope to deadline only** (operational
+  lock, nav guard, draft lifecycle stay; align the deadline to the brain).
+- #4 Content property-lock block → **KEEP** (collaborative live-lock enforcement
+  boundary; brain still owns the popup property-lock view).
+
+### Finding correction — Phase J (read before implementing)
+
+The Phase J decision ("align the lock deadline to the brain, remove the 30s
+fallback") was taken on the audit's initial characterization that the
+`Date.now()+30_000` is a duplicate run deadline. Closer inspection
+(`refreshAiRunHeartbeat:529,539`) shows it is a **heartbeat-renewed fail-open
+TTL**, and the brain run `deadlineAt` is **already** threaded through the
+heartbeat (`:524,:534`). Removing the 30s TTL and substituting the (~8 min) run
+deadline would WEAKEN fail-open (a wedged lock would survive ~8 min instead of
+~30 s after the heartbeat stops). There is therefore **no duplicate-deadline
+drift to fix**. Phase J is reduced to a no-op confirmation + an optional
+clarifying code comment. CONFIRM on review before doing anything here.
+
+### Non-goals
+
+- Do not change marking taxonomy/target-resolution/sync/overlay semantics; #2
+  changes only WHO decides the temporary-disabled overlay, not its appearance or
+  trigger conditions.
+- Do not move the operational compute lock, navigation-teardown guard, or page
+  draft capture/restore into the brain (#3 stays operational).
+- Do not route content-side property-lock enforcement through the brain (#4).
+- Do not touch the brain decider `deriveSecondaryGatesViewState` itself (it stays
+  the single computation; only the popup's redundant copy is removed).
+- Do not weaken the compute-lock fail-open TTL.
+
+### Phase H — #1 Secondary gates: reflect projection, drop local decider
+
+Files: `src/popup/secondary-gates-state-dictation.ts`, `src/popup.ts`; tests
+`tests/popup-secondary-gates-state-dictation.test.ts`,
+`tests/popup-marking-refresh.test.ts`, `tests/popup-ai-run-gating.test.ts`.
+
+Steps (in order):
+
+1. In `secondary-gates-state-dictation.ts`, add an exported
+   `NEUTRAL_SECONDARY_GATES_VIEW_PATCH` (all secondary buttons disabled:
+   `saveExcludesButtonDisabled/previewLatestButtonDisabled/desktopPreviewDisabled
+   = true`, `desktopPreviewVisible/desktopPreviewEnabled = false`,
+   `navigationInspectionActive = false`, every `*BlockedReason =
+   SECONDARY_GATES_BLOCK_REASONS.NOT_READY`,
+   `lynxChecklistSendBlockedReason = NOT_READY`,
+   `lynxChecklistSendBlockedPageTypeKeys = []`) and an exported
+   `resolveSecondaryGatesViewStatePatch(state)` returning the projected patch
+   when `hasProjectedSecondaryGatesForTab` else the neutral patch. Keep
+   `buildProjectedSecondaryGatesViewStatePatch` (null-on-absent) for the existing
+   snapshot-effect path.
+2. In `src/popup.ts` `refreshUi`: delete the `deriveSecondaryGatesViewState`
+   import (`:113`) and the `localSecondaryGates` block (`:5235` call and the
+   `:5284-5299` + `:5376` assignments). Replace with one application of
+   `resolveSecondaryGatesViewStatePatch({ currentTabId, projectedTabId:
+   popupBackgroundStateTabId, secondaryGates: popupBackgroundSecondaryGates })`
+   into `nextViewState`, and set `nextViewState.desktopPreviewNoticeVisible` from
+   that patch's `desktopPreviewEnabled`.
+3. Remove now-unused locals `projectedComputingAiActive`,
+   `aiBusyForSecondaryGates`, `aiComputingForSecondaryGates` (`:5227-5234`) ONLY
+   after a usage check confirms no other reader; if any remain used, leave them.
+4. In `updateAiRunCountdownState` (`:2411-2422`): remove the
+   `useLocalSecondaryGates`/`shouldUseLocalSecondaryGatesFallback` branch (gates
+   are now reflected); keep the compute-busy note/countdown display fields.
+   Remove `shouldUseLocalSecondaryGatesFallback` (`:1373-1375`) and
+   `hasProjectedSecondaryGatesForTab` helper only if they have no remaining
+   callers after this edit.
+5. Keep all `publishCurrentTabSessionFacts(...)` reporting intact — the brain
+   needs fresh facts to re-project gates promptly.
+6. Update source-contract tests: replace assertions that popup runs
+   `deriveSecondaryGatesViewState`/uses the local fallback with assertions that
+   the popup reflects projected `secondaryGates` and applies the neutral patch
+   when absent. Keep `tests/secondary-gates-decider.test.ts` unchanged.
+
+Expected intermediate state: with a projected `secondaryGates`, the popup view
+matches it exactly; with none, all secondary buttons are disabled (NOT_READY).
+Focused validation:
+`pnpm vitest run tests/popup-secondary-gates-state-dictation.test.ts tests/popup-marking-refresh.test.ts tests/popup-ai-run-gating.test.ts && pnpm check`.
+Fallback rule: if removing the local compute causes a visible disabled/tooltip
+flicker on popup-initiated save/compute (brain fold too slow), STOP and ask
+before adding any local bridge back.
+
+### Phase I — #2 Reconciliation overlay: brain-dictated reason
+
+Files: `src/common/bus/contracts/session-state.ts`, `src/content-main.ts`,
+`src/content/core.ts`, `src/content/layers/layer-host.ts`,
+`src/background/brain/view-projector.ts`; docs
+`MARKING_AND_HIGHLIGHTING_LOGIC.md`, `.copilot/knowledge.md`; tests
+`tests/popup-view-projector.test.ts`, `tests/silent-highlight-annotations.test.ts`,
+`tests/reconciliation-fact-brain-authority.test.ts`,
+`tests/session-state-reporting.test.ts`.
+
+Steps (in order):
+
+1. Add `pageSaveReconciliationReason: "" | "saving" | "syncing" |
+   "editor_preparing"` to `SessionFacts` (and its default/normalizer) in
+   `session-state.ts`.
+2. In `src/content/core.ts`, make the reconciliation fact reporter also surface
+   the reason: where `reportPageSaveReconciliationFact` fires (`:10346,:10363,
+   :10377`), pass the reason from `getPageSaveReconciliationState`. In
+   `src/content-main.ts:7130-7132`, forward it:
+   `publishContentSessionFacts({ pageSaveReconciliationPending: pending,
+   pageSaveReconciliationReason: reason })`.
+3. In `view-projector.ts`: add `markingEditsBlockedReason: string` to
+   `ContentDirective` and extend the decision. Decision rule:
+   - POST_AI or AI_PREVIEW → `markingEditsBlocked = true`, reason `"post_ai"`.
+   - else if `pageSaveReconciliationPending` AND
+     `pageSaveReconciliationReason !== "editor_preparing"` →
+     `markingEditsBlocked = true`, reason =
+     (`pageSaveReconciliationReason === "saving" ? "saving" : "syncing"`).
+   - else → `false`, `""`.
+   Preserve the `editor_preparing` exemption exactly (no block during
+   silent-highlight prep).
+4. In `src/content/layers/layer-host.ts`: add
+   `getMarkingEditsBlockedReasonByDirective()` mirroring the existing
+   `isMarkingEditsBlockedByDirective()`.
+5. In `src/content/core.ts:7134 getMarkingTemporarilyDisabledReason`: reflect the
+   directive — return `getMarkingEditsBlockedReasonByDirective()` and delete the
+   local `getPageSaveReconciliationState` read for the block decision. Keep
+   `getMarkingTemporarilyDisabledMessage` mapping (saving/post_ai/else=syncing).
+6. Docs: update the locked-marking note in `.copilot/knowledge.md` (~line 385)
+   and `MARKING_AND_HIGHLIGHTING_LOGIC.md` to state the temporary-disabled
+   overlay (post_ai AND reconciliation) is brain-dictated via the content
+   directive, with the `editor_preparing` exemption.
+7. Tests: project directive reason for post_ai/saving/syncing and the
+   editor_preparing→not-blocked case (`tests/popup-view-projector.test.ts`);
+   update the `getMarkingTemporarilyDisabledReason` source-contract in
+   `tests/silent-highlight-annotations.test.ts`; assert the reason is reported up
+   in `tests/reconciliation-fact-brain-authority.test.ts` /
+   `tests/session-state-reporting.test.ts`.
+
+Expected intermediate state: the marking-disabled overlay + message are driven
+solely by the content directive for both causes; silent-highlight prep never
+shows the overlay. Focused validation:
+`pnpm vitest run tests/popup-view-projector.test.ts tests/silent-highlight-annotations.test.ts tests/reconciliation-fact-brain-authority.test.ts tests/session-state-reporting.test.ts && pnpm check`.
+Fallback rule: if a dim-latency regression appears on save (overlay lags the
+save), note it; it is the accepted report-up→project→reflect tradeoff, not a
+bug, unless the overlay fails to appear at all.
+
+### Phase J — #3 Compute-lock deadline (no-op confirmation)
+
+See "Finding correction" above. No functional change. Optional: add a one-line
+comment at `src/background/ai-run-orchestrator.ts:459-462` clarifying that the
+30s is a heartbeat-renewed fail-open TTL and the brain run deadline is carried
+separately via the heartbeat. CONFIRM with the user before editing; if they
+still want the lock hard-expiry tied to the brain deadline, that is a separate
+fail-open design change to scope explicitly. No tests change for the no-op.
+
+### Phase K — Dead-code removal (depends on Phase H)
+
+Files: `src/popup/ui.tsx`, `src/popup.ts`,
+`src/background/popup-state-broker.ts`; tests
+`tests/popup-central-state-dictation.test.ts`,
+`tests/popup-marking-refresh.test.ts`, broker tests.
+
+Steps:
+
+1. `src/popup/ui.tsx`: delete `setPreviewBlocked` (`:2666-2681`) after confirming
+   zero importers/callers.
+2. `src/popup.ts`: delete `shouldUseLocalComputingAiLockout` (`:1363-1366`) and
+   `shouldUseLocalPreviewRevealFallback` (`:1368-1371`), the
+   `useLocalComputingAiLockout` local + dead branch in
+   `updateAiRunCountdownState` (`:2410,:2429-2435`), and the dead
+   `shouldUseLocalPreviewRevealFallback` branch in the preview-reveal setter
+   (`:7469-7480`).
+3. `src/background/popup-state-broker.ts`: delete the `clearNavInspectCurtain`
+   comment + function (`:235-255`) and its entry in the returned object (`:364`)
+   after confirming zero callers.
+4. Tests: remove the two stub assertions in
+   `tests/popup-central-state-dictation.test.ts:217-228`; keep the
+   `setPreviewBlocked` doesNotMatch in `tests/popup-marking-refresh.test.ts:55`
+   (still valid for popup.ts); update any broker source-contract test that names
+   `clearNavInspectCurtain`.
+
+Focused validation:
+`pnpm vitest run tests/popup-central-state-dictation.test.ts tests/popup-marking-refresh.test.ts && pnpm check`.
+
+### Test matrix (Audit 2)
+
+Per-phase focused commands above. Full gate after each phase:
+`pnpm lint && pnpm check && pnpm test && pnpm build`. Live (H, I) via
+`pnpm browser:live https://bonliva.no` (managed Chromium, reload SW after
+rebuild): H — open popup on a saved property, confirm Save-excludes /
+Preview-latest / Desktop-preview / Send-to-Lynx enable/disable + tooltips match
+the brain projection through a save/compute cycle with no flicker; I — start a
+Save, confirm the page marking overlay shows the "syncing/saving" disabled
+state and clears on reconciliation, and that entering silent-highlight prep does
+NOT show the disabled overlay.
+
+### Regression risks (highest first, Audit 2)
+
+1. Secondary-gates flicker (H): popup-initiated save/compute briefly not
+   reflected before the brain folds the fact — verify live; if real, STOP and
+   ask before re-adding a bridge. 2. editor_preparing exemption lost (I): silent
+   highlighting prep must never show the marking-disabled overlay — add an
+   explicit test. 3. Locked-marking contract (I): only authority changes; overlay
+   appearance/trigger unchanged; docs+tests updated same phase. 4. Source-contract
+   test breakage (H, K): update in the same phase. 5. Compute-lock fail-open (J):
+   do NOT remove the 30s TTL. 6. Dead-code removal touching a live branch (K):
+   confirm each symbol has zero callers before deleting.
+
+### Acceptance criteria (Audit 2)
+
+Popup no longer imports or runs `deriveSecondaryGatesViewState`; secondary gates
+reflect the projected `secondaryGates` (neutral all-disabled when absent). The
+marking-temporarily-disabled overlay (post_ai AND reconciliation) is driven only
+by the content directive, with the `editor_preparing` exemption preserved; the
+reconciliation reason is reported up as a fact. The compute-lock fail-open TTL is
+unchanged (Phase J no-op confirmed). `setPreviewBlocked`,
+`shouldUseLocalComputingAiLockout`, `shouldUseLocalPreviewRevealFallback`, and
+`clearNavInspectCurtain` no longer exist. Property-lock content enforcement (#4)
+is unchanged. Full gate green.
+
+### Todo chain (Audit 2)
+
+Session DB todos `ar-phaseH` → `ar-phaseI` → `ar-phaseK` (chained; K depends on
+H and I), plus `ar-phaseJ` (confirm-only, depends on nothing). Each is executable
+from its phase section without rereading the whole plan.

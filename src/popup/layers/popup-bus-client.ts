@@ -13,6 +13,8 @@ import {
 import {
   SESSION_REPORT_TYPES,
   SESSION_REQUEST_TYPES,
+  type SessionFactsApplyPayload,
+  type SessionFactsApplyReply,
   type SessionFactsPatch,
   type SessionFactsReportedPayload,
   type SessionStateReply,
@@ -175,6 +177,30 @@ export function publishPopupSessionFacts(
     target: REALMS.BACKGROUND,
     tab: tabId,
   });
+}
+
+export async function requestPopupSessionFactsApply(
+  bus: Bus,
+  tabId: number,
+  facts: SessionFactsPatch,
+): Promise<SessionFactsApplyReply | null> {
+  if (!tabId || !bus) {
+    return null;
+  }
+  lastPopupSessionFacts = { ...lastPopupSessionFacts, ...facts };
+  const payload: SessionFactsApplyPayload = {
+    source: "popup",
+    facts,
+  };
+  try {
+    return await bus.request<SessionFactsApplyPayload, SessionFactsApplyReply>(
+      SESSION_REQUEST_TYPES.FACTS_APPLY,
+      payload,
+      { target: REALMS.BACKGROUND, tab: tabId, timeoutMs: 3000 },
+    );
+  } catch {
+    return null;
+  }
 }
 
 export function publishPopupAiRunEvent(

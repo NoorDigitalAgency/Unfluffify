@@ -7,6 +7,7 @@ import {
   SESSION_EVENT_TYPES,
   SESSION_PHASES,
   SESSION_REPORT_TYPES,
+  SESSION_REQUEST_TYPES,
 } from "../src/common/bus/contracts/session-state.js";
 
 test("session-state contract exposes the approved phase list and button ids", () => {
@@ -43,6 +44,10 @@ test("session-state contract exposes the approved phase list and button ids", ()
   ]);
   assert.deepEqual(SESSION_REPORT_TYPES, {
     FACTS_REPORTED: "session.factsReported",
+  });
+  assert.deepEqual(SESSION_REQUEST_TYPES, {
+    FACTS_APPLY: "session.facts.apply",
+    STATE_GET: "session.state.get",
   });
   assert.deepEqual(SESSION_EVENT_TYPES, {
     DICTATION_UPDATED: "session.dictationUpdated",

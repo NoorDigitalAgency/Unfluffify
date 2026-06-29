@@ -127,6 +127,7 @@ export const SESSION_REPORT_TYPES = Object.freeze({
 } as const);
 
 export const SESSION_REQUEST_TYPES = Object.freeze({
+  FACTS_APPLY: "session.facts.apply",
   STATE_GET: "session.state.get",
 } as const);
 
@@ -137,6 +138,15 @@ export const SESSION_EVENT_TYPES = Object.freeze({
 export type SessionFactsReportedPayload = Readonly<{
   source: "popup" | "content";
   facts: SessionFactsPatch;
+}>;
+
+export type SessionFactsApplyPayload = SessionFactsReportedPayload;
+
+export type SessionFactsApplyReply = Readonly<{
+  ok: boolean;
+  tabId: number;
+  version: number;
+  secondaryGates: import("./secondary-gates-state").SecondaryGatesViewState | null;
 }>;
 
 export type SessionStateGetPayload = Readonly<Record<never, never>>;
