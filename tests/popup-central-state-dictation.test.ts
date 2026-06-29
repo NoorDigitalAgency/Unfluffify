@@ -125,6 +125,28 @@ test("central-state snapshot effect repaints on same-tab dictation updates and n
   assert.equal(clearEffect.refreshRequired, false);
 });
 
+test("central-state dictation safely neutralizes legacy projections without preview", () => {
+  const facts = buildFacts({
+    sessionHasPendingChanges: true,
+    aiRunPhase: AI_RUN_PHASES.POST_AI
+  });
+  const dictation = deriveDictation(decideSessionPhase(facts), facts);
+  const legacyDictation = { ...dictation };
+  delete legacyDictation.preview;
+
+  const patch = buildCentralSessionDictationViewStatePatch({
+    currentTabId: 12,
+    projectedTabId: 12,
+    sessionPhase: dictation.phase,
+    sessionDictation: legacyDictation
+  });
+
+  assert.ok(patch);
+  assert.equal(patch.previewActive, false);
+  assert.equal(patch.previewBlocked, false);
+  assert.equal(patch.previewItemsPending, false);
+});
+
 test("central-state dictation suppresses stale busy curtain when projected phase is silent", () => {
   const computingFacts = buildFacts({
     aiBusy: true,

@@ -6866,7 +6866,6 @@ async function inspectPageBeforeMotionPause(
   startPageInspectionInputBlocker();
   try {
     createOverlay();
-    setPageInspectionUiActive(true);
     return await revealPageContentBeforeMotionPause(
       "both",
       PAGE_INSPECTION_DEFAULT_MAX_SCROLLS,
@@ -6876,7 +6875,6 @@ async function inspectPageBeforeMotionPause(
     );
   } finally {
     if (!keepUiActive) {
-      setPageInspectionUiActive(false);
       stopPageInspectionInputBlocker();
     }
   }
@@ -6943,7 +6941,6 @@ export async function warmupSilentHighlightingBeforeMotionPause(
   try {
     startPageInspectionInputBlocker();
     createOverlay();
-    setPageInspectionUiActive(true);
     await revealPageContentBeforeMotionPause(
       "both",
       PAGE_INSPECTION_DEFAULT_MAX_SCROLLS,
@@ -6971,7 +6968,6 @@ export async function warmupSilentHighlightingBeforeMotionPause(
       refreshPageMotionPause();
     }
     if (!keepUiActive) {
-      setPageInspectionUiActive(false);
       stopPageInspectionInputBlocker();
       // Silent highlighting reveal uses the inspection UI only as a temporary
       // blocker while preparing the frozen page posture.
@@ -7008,7 +7004,6 @@ function reportPageSaveReconciliationFact(pending: boolean): void {
 }
 
 export function finishPageInspectionUi() {
-  setPageInspectionUiActive(false);
   stopPageInspectionInputBlocker();
   if (!state.enabled) {
     removeOverlay();

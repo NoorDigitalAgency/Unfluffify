@@ -5,6 +5,7 @@ import { createBrain } from "../src/background/brain/index.js";
 import { AI_RUN_EVENT_TYPES } from "../src/common/bus/contracts/ai-run.js";
 import { REALMS } from "../src/common/bus/realms.js";
 import { AI_RUN_PHASES, SESSION_PHASES, SESSION_REPORT_TYPES } from "../src/common/bus/contracts/session-state.js";
+import { LIFECYCLE_KINDS, LIFECYCLE_PHASES } from "../src/common/world-messaging-contract.js";
 
 test("brain ingests reported session facts and projects optional dictation into popup view", async () => {
   const brain = createBrain({ logger: { error() {} } });
@@ -167,4 +168,70 @@ test("brain does not clobber popup-owned AI-run facts when no lease exists (resu
   brain.syncProjectedSpinnerQueue(55, [], "spinner-operations:set");
 
   assert.equal(brain.getPopupView(55).sessionPhase, SESSION_PHASES.COMPUTING_AI);
+});
+
+test("brain preserves lifecycle-owned navigation curtain across queue sync and stale false fact replay", async () => {
+  const brain = createBrain({ logger: { error() {} } });
+  const lifecycle = {
+    kind: LIFECYCLE_KINDS.SILENT_HIGHLIGHTING,
+    phase: LIFECYCLE_PHASES.STARTED,
+    busy: true,
+    message: "Inspecting page...",
+    reason: "silent-highlighting",
+    operationId: "silent-nav-1",
+    source: "test",
+  };
+
+  brain.mirrorPopupState(88, {
+    ok: true,
+    tabId: 88,
+    lifecycle,
+    spinnerQueue: [],
+    activeSpinnerLease: null,
+    traceEnabled: false,
+    traceEvents: [],
+  }, "test:lifecycle-started");
+  brain.syncProjectedSpinnerQueue(88, [], "test:empty-queue");
+
+  assert.equal(brain.store.get(88)?.spinners.pageCurtain?.spinnerKey, "navInspect");
+
+  await brain.bus.publish(SESSION_REPORT_TYPES.FACTS_REPORTED, {
+    source: "popup",
+    facts: {
+      navigationInspectionPending: false,
+      pageInspectionBusy: false,
+    },
+  }, {
+    target: REALMS.BACKGROUND,
+    tab: 88,
+  });
+  await new Promise((resolve) => queueMicrotask(resolve));
+
+  assert.equal(brain.store.get(88)?.spinners.pageCurtain?.spinnerKey, "navInspect");
+
+  await brain.bus.publish(SESSION_REPORT_TYPES.FACTS_REPORTED, {
+    source: "popup",
+    facts: {
+      navigationInspectionPending: true,
+      pageInspectionBusy: true,
+    },
+  }, {
+    target: REALMS.BACKGROUND,
+    tab: 88,
+  });
+  await new Promise((resolve) => queueMicrotask(resolve));
+
+  await brain.bus.publish(SESSION_REPORT_TYPES.FACTS_REPORTED, {
+    source: "popup",
+    facts: {
+      navigationInspectionPending: false,
+      pageInspectionBusy: false,
+    },
+  }, {
+    target: REALMS.BACKGROUND,
+    tab: 88,
+  });
+  await new Promise((resolve) => queueMicrotask(resolve));
+
+  assert.equal(brain.store.get(88)?.spinners.pageCurtain, null);
 });

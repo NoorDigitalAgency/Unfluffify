@@ -125,6 +125,7 @@ export type TabLayerState = {
   sessionFacts: SessionFactsState;
   sessionDictation: SessionDictationState;
   aiRun: AiRunState;
+  navigationInspectionCurtainClearBefore: number;
   /**
    * True while the brain is the authority for aiBusy/aiComputing because an
    * active AI-run compute spinner lease drove those facts. Lets the brain clear
@@ -159,6 +160,7 @@ function createInitialTabState(tabId: number): TabLayerState {
     sessionFacts: createDefaultSessionFacts(),
     sessionDictation: null,
     aiRun: createInitialAiRunState(),
+    navigationInspectionCurtainClearBefore: 0,
     aiRunLeaseOwned: false,
     propertyLockView: null,
     propertyLockTimer: null,

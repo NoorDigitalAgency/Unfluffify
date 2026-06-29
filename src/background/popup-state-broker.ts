@@ -247,14 +247,15 @@ export function createPopupStateBroker(options = {}) {
       // entirely and keep the active operation authoritative.
       return buildBrokerState(normalizedTabId);
     }
-    // Authoritative curtain teardown: a terminal curtain-bearing event
-    // (inspection/activation finished/failed) means that operation's persistent
-    // navigation-inspection curtain is now stale, so drop it for this tab.
-    // Routine terminal kinds (content-ready, which fires on every load) are
-    // excluded so unrelated curtains are untouched.
+    // Terminal curtain-bearing lifecycle events are reported upward only. The
+    // brain decides whether the navigation-inspection curtain should clear.
     const clearsCurtain = isTerminalEvent && isCurtainBearingLifecycleKind(eventKind);
     if (clearsCurtain) {
-      clearNavInspectCurtain(normalizedTabId);
+      appendTrace(normalizedTabId, "lifecycle", "terminal-curtain-fact", {
+        kind: eventKind,
+        phase: eventPhase,
+        operationId: eventOperationId,
+      });
     }
     const operationId = eventOperationId
       ? eventOperationId

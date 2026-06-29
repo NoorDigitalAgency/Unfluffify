@@ -124,7 +124,7 @@ test("popup-state broker mirrors direct broadcasts for spinner-originated update
   assert.equal(mirroredStates[0].state.tabId, 12);
 });
 
-test("popup-state broker terminal curtain-bearing lifecycle removes nav inspect spinner", () => {
+test("popup-state broker reports terminal curtain-bearing lifecycle without removing nav inspect spinner", () => {
   const lifecycleStateByTabId = new Map([[4, { operationId: "op-1" }]]);
   const spinnerQueueByTabId = new Map([[4, new Map([[SPINNER_KEYS.NAV_INSPECT, { persistent: true, startedAt: 1 }]])]]);
   const popupStatePortsByTabId = new Map();
@@ -154,11 +154,13 @@ test("popup-state broker terminal curtain-bearing lifecycle removes nav inspect 
     busy: false
   });
 
-  assert.equal(spinnerQueueByTabId.has(4), false);
-  assert.equal(traceEvents.some((entry) => entry.channel === "spinner" && entry.event === "remove"), true);
+  assert.equal(spinnerQueueByTabId.has(4), true);
+  assert.equal(spinnerQueueByTabId.get(4).has(SPINNER_KEYS.NAV_INSPECT), true);
+  assert.equal(traceEvents.some((entry) => entry.channel === "lifecycle" && entry.event === "terminal-curtain-fact"), true);
+  assert.equal(traceEvents.some((entry) => entry.channel === "spinner" && entry.event === "remove"), false);
   assert.equal(mirroredStates.length, 1);
   assert.equal(mirroredStates[0].reason, "popup-state-broker:lifecycle-update");
-  assert.deepEqual(mirroredStates[0].state.spinnerQueue, []);
+  assert.equal(mirroredStates[0].state.spinnerQueue.length, 1);
 });
 
 test("popup-state broker can clear only activation-scoped lifecycle state", () => {

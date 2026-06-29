@@ -1463,7 +1463,9 @@ loads. Supersedes the old Plan 5 `p5-*` track.
   remove content warmup direct `setPageInspectionUiActive` calls
   (`content/core.ts:6866-6984`) — only brain pageCurtain toggles it. Tests:
   popup-marking-refresh, content inspection. Live-verify inspecting curtain
-  shows/clears deterministically.
+  shows/clears deterministically. Status: complete for implementation, review,
+  final gate, and live popup validation; ready for the Phase E commit/push
+  handoff.
 - Phase F — #8. Add `silentHighlightActive` to the content directive (brain
   decides from POST_save/saved selectors); `refreshSilentHighlightings` gates
   activation on the directive, keeps page mechanics, reports facts UP; flatten

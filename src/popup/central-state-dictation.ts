@@ -77,6 +77,7 @@ export function buildCentralSessionDictationViewStatePatch(
   const dictation = state.sessionDictation;
   const effectivePhase = state.sessionPhase || dictation.phase;
   const showCurtain = dictation.curtain.visible && effectivePhase !== "silent";
+  const preview = dictation.preview || { active: false, blocked: false, itemsPending: false };
   return {
     mainUiHidden: dictation.mainUiHidden,
     silentModeActive: dictation.silentModeActive,
@@ -87,9 +88,9 @@ export function buildCentralSessionDictationViewStatePatch(
     markingPreviewDisabled: !dictation.buttons["marking-preview"].enabled,
     pageSaveDisabled: !dictation.buttons["page-save"].enabled,
     pageRevertDisabled: !dictation.buttons["page-revert"].enabled,
-    previewActive: dictation.preview.active,
-    previewBlocked: dictation.preview.blocked,
-    previewItemsPending: dictation.preview.itemsPending,
+    previewActive: preview.active === true,
+    previewBlocked: preview.blocked === true,
+    previewItemsPending: preview.itemsPending === true,
     sessionCurtainVisible: showCurtain,
     sessionCurtainMessage: showCurtain ? dictation.curtain.message : "",
     sessionCurtainNote: showCurtain ? dictation.curtain.note : "",

@@ -602,8 +602,8 @@ test("tab reload keeps the inspection curtain active while enabled pages re-insp
   const endBody = source.match(
     /function endNavigationInspectionOverlay\(tabId = popupNavigationInspectionOverlayTabId\) \{([\s\S]*?)\n\}/
   )[1];
-  assert.match(endBody, /removeSpinnerEntryFromBackground\("navInspect", tabId\)/);
-  assert.match(endBody, /if \(!response\) \{\s*popSpinner\("navInspect"\);/);
+  assert.match(endBody, /reportNavigationInspectionSettledToBrain\(tabId, "nav-overlay-end"\);/);
+  assert.doesNotMatch(endBody, /removeSpinnerEntryFromBackground\("navInspect", tabId\)/);
 
   const snapshotApplyBody = source.match(
     /function applyPopupViewSnapshot\(snapshot(?:: [^)]+)?\) \{([\s\S]*?)\n\}/

@@ -58,8 +58,11 @@ test("content lifecycle events still flow through the background lifecycle broke
     backgroundSource,
     /if \(message\.type === WORLD_MESSAGE_TYPES\.LIFECYCLE_EVENT\) \{[\s\S]*?updateTabRuntime\(normalizedTabId,[\s\S]*?appendWorldTraceEvent\(normalizedTabId, "lifecycle", "state-update", runtimeLifecycle\)[\s\S]*?brain\.mirrorActivationLifecycle\([\s\S]*?"background:world-lifecycle-event"/
   );
+  assert.doesNotMatch(backgroundSource, /removeBackgroundSpinnerEntry\(normalizedTabId, "navInspect"\)/);
   assert.match(
     backgroundSource,
-    /if \(message\.type === WORLD_MESSAGE_TYPES\.LIFECYCLE_EVENT\) \{[\s\S]*?eventKind === LIFECYCLE_KINDS\.ACTIVATION[\s\S]*?isLifecycleTerminalPhase\(eventPhase\)[\s\S]*?removeBackgroundSpinnerEntry\(normalizedTabId, "navInspect"\)/
+    /brain\.mirrorActivationLifecycle\([\s\S]*?"background:world-lifecycle-event"/
   );
+  const brainSource = readFileSync(new URL("../src/background/brain/index.ts", import.meta.url), "utf8");
+  assert.match(brainSource, /syncNavigationInspectionCurtainFromLifecycle\(store, tabId, lifecycle, reason\);/);
 });

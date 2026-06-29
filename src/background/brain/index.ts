@@ -27,6 +27,16 @@ import { createBackgroundTransport } from "../../common/bus/transport/background
 import type { PopupSpinnerEntry } from "../../common/bus/contracts/popup-state";
 import type { PopupBrokerState } from "../popup-state-broker";
 import {
+  SPINNER_KEYS,
+  isCurtainBearingLifecycleKind,
+  isLifecycleTerminalPhase,
+} from "../../common/world-messaging-contract";
+import {
+  SPINNER_OPERATION_KINDS,
+  SPINNER_OPERATION_PHASES,
+  getSpinnerPhaseDefinition,
+} from "../../common/spinner-contract";
+import {
   PROPERTY_LOCK_CONNECTION_CONNECTING,
   PROPERTY_LOCK_CONNECTION_UNAVAILABLE,
   PROPERTY_LOCK_STATE_EXPIRY_WARNING,
@@ -51,8 +61,8 @@ import {
 } from "./deciders/render-mode-decider";
 import { deriveSecondaryGatesViewState } from "./deciders/secondary-gates-decider";
 import { updateSpinnerSelectionsFromQueue } from "./deciders/spinner-state-decider";
-import { applySessionFactsPatch } from "./deciders/session-phase-decider";
-import { createStateStore, type TabLayerState } from "./state-store";
+import { applySessionFactsPatch, buildSessionDictation } from "./deciders/session-phase-decider";
+import { createStateStore, type SpinnerSelection, type TabLayerState } from "./state-store";
 import { createBrainHeartbeat } from "./heartbeat";
 import { projectSpinners, type SpinnerState } from "./spinner-authority";
 import { projectViews } from "./view-projector";
@@ -67,6 +77,115 @@ const propertyLockDeciderDeps = {
   PROPERTY_LOCK_STATE_TAKEOVER_AVAILABLE,
   PROPERTY_LOCK_STATE_TRANSFER
 } as const;
+
+function isNavigationInspectionSelection(selection: SpinnerSelection | null | undefined): boolean {
+  return Boolean(
+    selection &&
+      (selection.spinnerKey === SPINNER_KEYS.NAV_INSPECT ||
+        (selection.kind === SPINNER_OPERATION_KINDS.CONTENT_BOOTSTRAP &&
+          selection.phase === SPINNER_OPERATION_PHASES.CONTENT_BOOTSTRAP.PAGE_INSPECTION))
+  );
+}
+
+function clearNavigationInspectionCurtainDraft(draft: TabLayerState, now = Date.now()): void {
+  const hadNavigationInspectionSpinner = Boolean(
+    isNavigationInspectionSelection(draft.spinners.popup) ||
+      isNavigationInspectionSelection(draft.spinners.pageCurtain)
+  );
+  draft.navigationInspectionCurtainClearBefore = Math.max(
+    draft.navigationInspectionCurtainClearBefore,
+    now,
+  );
+  if (isNavigationInspectionSelection(draft.spinners.popup)) {
+    draft.spinners.popup = null;
+  }
+  if (isNavigationInspectionSelection(draft.spinners.pageCurtain)) {
+    draft.spinners.pageCurtain = null;
+  }
+  if (
+    draft.sessionFactsReported &&
+    (hadNavigationInspectionSpinner ||
+      draft.sessionFacts.navigationInspectionPending ||
+      draft.sessionFacts.pageInspectionBusy)
+  ) {
+    draft.sessionFacts = {
+      ...draft.sessionFacts,
+      navigationInspectionPending: false,
+      pageInspectionBusy: false,
+      busyVisible: false,
+      busyMessage: "",
+      busyNote: "",
+      busyTimerText: "",
+    };
+    draft.sessionDictation = buildSessionDictation(draft.sessionFacts);
+    draft.secondaryGates = deriveSecondaryGatesViewState(draft.sessionFacts);
+  }
+}
+
+function buildNavigationInspectionSelection(
+  tabId: number,
+  lifecycle: NonNullable<PopupBrokerState["lifecycle"]>,
+  existing: SpinnerSelection | null | undefined,
+): SpinnerSelection {
+  const now = Date.now();
+  const definition = getSpinnerPhaseDefinition(
+    SPINNER_OPERATION_KINDS.CONTENT_BOOTSTRAP,
+    SPINNER_OPERATION_PHASES.CONTENT_BOOTSTRAP.PAGE_INSPECTION,
+  );
+  const operationId = typeof lifecycle.operationId === "string" && lifecycle.operationId
+    ? lifecycle.operationId
+    : `${SPINNER_KEYS.NAV_INSPECT}:${tabId}:${now}`;
+  const startedAt = existing && existing.operationId === operationId
+    ? existing.startedAt
+    : now;
+  return {
+    kind: SPINNER_OPERATION_KINDS.CONTENT_BOOTSTRAP,
+    phase: SPINNER_OPERATION_PHASES.CONTENT_BOOTSTRAP.PAGE_INSPECTION,
+    startedAt,
+    deadlineAt: startedAt + (definition?.maxDurationMs ?? 120_000),
+    operationId,
+    message: typeof lifecycle.message === "string" ? lifecycle.message : "",
+    reason: typeof lifecycle.reason === "string" && lifecycle.reason
+      ? lifecycle.reason
+      : `lifecycle:${typeof lifecycle.kind === "string" ? lifecycle.kind : "unknown"}`,
+    source: typeof lifecycle.source === "string" && lifecycle.source
+      ? lifecycle.source
+      : "brain-lifecycle",
+    spinnerKey: SPINNER_KEYS.NAV_INSPECT,
+  };
+}
+
+function syncNavigationInspectionCurtainFromLifecycle(
+  store: ReturnType<typeof createStateStore>,
+  tabId: number,
+  lifecycle: PopupBrokerState["lifecycle"],
+  reason: string,
+): void {
+  if (!lifecycle || !isCurtainBearingLifecycleKind(lifecycle.kind)) {
+    return;
+  }
+  const phase = typeof lifecycle.phase === "string" ? lifecycle.phase : "";
+  if (isLifecycleTerminalPhase(phase)) {
+    store.mutate(tabId, `${reason}:nav-inspect-terminal`, (draft) => {
+      clearNavigationInspectionCurtainDraft(draft);
+    });
+    return;
+  }
+  if (lifecycle.busy !== true) {
+    return;
+  }
+  store.mutate(tabId, `${reason}:nav-inspect-active`, (draft) => {
+    const existing = isNavigationInspectionSelection(draft.spinners.pageCurtain)
+      ? draft.spinners.pageCurtain
+      : isNavigationInspectionSelection(draft.spinners.popup)
+        ? draft.spinners.popup
+        : null;
+    const selection = buildNavigationInspectionSelection(tabId, lifecycle, existing);
+    draft.navigationInspectionCurtainClearBefore = 0;
+    draft.spinners.popup = selection;
+    draft.spinners.pageCurtain = selection;
+  });
+}
 
 function normalizeAiRunEventPayload(value: unknown): AiRunEventPayload {
   if (!value || typeof value !== "object") {
@@ -361,11 +480,26 @@ export function createBrain(options: { logger?: Pick<Console, "error" | "debug">
       const nextFacts = shouldKeepBrainAiRunAuthority(draft, source, facts)
         ? omitPopupAiRunAuthorityFacts(facts)
         : facts;
+      const wasNavigationInspectionPending = draft.sessionFacts.navigationInspectionPending;
+      const wasPageInspectionBusy = draft.sessionFacts.pageInspectionBusy;
       const next = applySessionFactsPatch(draft.sessionFacts, nextFacts);
       draft.sessionFactsReported = true;
       draft.sessionFacts = next.facts;
       draft.sessionDictation = next.dictation;
       draft.secondaryGates = deriveSecondaryGatesViewState(next.facts);
+      const navigationInspectionSettled =
+        nextFacts.navigationInspectionPending === false &&
+        wasNavigationInspectionPending;
+      const pageInspectionSettled =
+        nextFacts.pageInspectionBusy === false &&
+        wasPageInspectionBusy;
+      if (
+        (navigationInspectionSettled || pageInspectionSettled) &&
+        !next.facts.navigationInspectionPending &&
+        !next.facts.pageInspectionBusy
+      ) {
+        clearNavigationInspectionCurtainDraft(draft);
+      }
     });
   }
   function foldAiRunEvent(
@@ -459,13 +593,17 @@ export function createBrain(options: { logger?: Pick<Console, "error" | "debug">
       return getPopupView(store, tabId);
     },
     mirrorPopupState(tabId: number, brokerState: PopupBrokerState, reason: string) {
-      return updatePopupViewFromBrokerState(store, tabId, brokerState, reason);
+      const view = updatePopupViewFromBrokerState(store, tabId, brokerState, reason);
+      syncNavigationInspectionCurtainFromLifecycle(store, tabId, brokerState.lifecycle, reason);
+      return view;
     },
     mirrorActivationLifecycle(tabId: number, lifecycle: PopupBrokerState["lifecycle"], reason: string) {
       if (!lifecycle) {
         return null;
       }
-      return mirrorActivationLifecycleState(store, tabId, lifecycle, reason);
+      const snapshot = mirrorActivationLifecycleState(store, tabId, lifecycle, reason);
+      syncNavigationInspectionCurtainFromLifecycle(store, tabId, lifecycle, reason);
+      return snapshot;
     },
     updateActivationBootstrapState(
       tabId: number,

@@ -116,6 +116,11 @@ import {
   isRenderModeRunInspectionResult,
 } from "./common/bus/contracts/render-mode";
 import { SPINNER_REQUEST_TYPES } from "./common/bus/contracts/spinner";
+import { SPINNER_KEYS } from "./common/world-messaging-contract";
+import {
+  SPINNER_OPERATION_KINDS,
+  SPINNER_OPERATION_PHASES,
+} from "./common/spinner-contract";
 import {
   publishPopupPropertyLockSnapshot,
   publishPopupAiRunEvent,
@@ -1572,6 +1577,61 @@ function clearStaleInspectionBusyClearTimer() {
   popupStaleInspectionBusyClearTimer = 0;
 }
 
+function forgetLocalSpinnerRequest(key: string): void {
+  const delayTimer = popupSpinnerDelayTimersByKey.get(key);
+  if (delayTimer) {
+    window.clearTimeout(delayTimer);
+    popupSpinnerDelayTimersByKey.delete(key);
+  }
+  const watchdogTimer = popupSpinnerWatchdogByKey.get(key);
+  if (watchdogTimer) {
+    window.clearTimeout(watchdogTimer);
+    popupSpinnerWatchdogByKey.delete(key);
+  }
+  popupSpinnerKeyTabIds.delete(key);
+  popupSpinnerEntriesByKey.delete(key);
+}
+
+function reportNavigationInspectionSettledToBrain(
+  tabId: number | null = popupNavigationInspectionOverlayTabId,
+  reason = "navigation-inspection-settled"
+): void {
+  if (tabId) {
+    clearRenderModeSetNavGuard(tabId);
+    clearNavigationInspectionSettlePoll(tabId);
+    publishCurrentSessionFacts(tabId, {
+      navigationInspectionPending: false,
+      pageInspectionBusy: false,
+      busyVisible: false,
+      busyMessage: "",
+      busyNote: "",
+      busyTimerText: ""
+    });
+  }
+  forgetLocalSpinnerRequest("navInspect");
+  logPopupSpinnerDebug(reason, { tabId });
+  popupNavigationInspectionOverlayStarted = false;
+  popupNavigationInspectionOverlayTabId = null;
+}
+
+function isNavigationInspectionBusyView(view: PopupViewState | null | undefined): boolean {
+  if (!view) {
+    return false;
+  }
+  const sessionCurtainMatches = Boolean(
+    view.sessionCurtainVisible &&
+      view.sessionCurtainPhase === SESSION_PHASES.RENDER_MODE_INSPECTION
+  );
+  const spinnerMatches = Boolean(
+    view.isBusy &&
+      (view.busySpinnerKey === SPINNER_KEYS.NAV_INSPECT ||
+        view.busyReason === "page-inspection-pending" ||
+        (view.busyOperationKind === SPINNER_OPERATION_KINDS.CONTENT_BOOTSTRAP &&
+          view.busyOperationPhase === SPINNER_OPERATION_PHASES.CONTENT_BOOTSTRAP.PAGE_INSPECTION))
+  );
+  return sessionCurtainMatches || spinnerMatches;
+}
+
 // Bounded last-resort fail-open windows. The deterministic clear now comes from
 // the content `inspectionSettled` event; these single one-shot timers only force
 // a clear if that settle signal never arrives. They do NOT poll content status.
@@ -1598,31 +1658,20 @@ function scheduleStaleInspectionBusyClear(
   const maxAttempts = 75;
   const failOpenClear = () => {
     const view = uiModule.getViewState();
-    const stillInspectionCurtain =
-      view.isBusy && view.busyMessage === PopupText.overlay.pageInspection;
+    const stillInspectionCurtain = isNavigationInspectionBusyView(view);
     if (!stillInspectionCurtain) {
       return;
     }
-    // Last resort: never leave a blocking curtain up indefinitely. A stuck
-    // curtain blocks the entire popup, which is worse than clearing slightly
-    // early after the (generous) reconcile budget is exhausted.
-    if (popupSpinnerEntriesByKey.has("navInspect")) {
-      endNavigationInspectionOverlay(tabId);
-      popSpinner("navInspect");
-    } else if (
-      popupSpinnerEntriesByKey.size === 0 &&
-      !getActiveSpinnerSnapshotForSurface("popup")
-    ) {
-      uiModule.setUiBusy(false);
-    }
+    // Last resort: report the expired inspection fact upward. The brain decides
+    // and broadcasts the actual curtain clear for popup + page.
+    reportNavigationInspectionSettledToBrain(tabId, "stale-inspection-busy-failopen");
     logPopupSpinnerDebug("stale-inspection-busy-failopen", { tabId, attempt });
   };
   const run = async () => {
     popupStaleInspectionBusyClearTimer = 0;
     attempt += 1;
     const view = uiModule.getViewState();
-    const curtainShowing =
-      view.isBusy && view.busyMessage === PopupText.overlay.pageInspection;
+    const curtainShowing = isNavigationInspectionBusyView(view);
     // A popup-origin navigation-inspection lease can outlive the silent
     // reveal/freeze warmup. Reconcile that case directly once content settles.
     const silentNavSpinnerStuck =
@@ -1660,10 +1709,13 @@ function scheduleStaleInspectionBusyClear(
             renderModeNavSpinnerStuck ? "render-mode-nav-curtain-clear" : "silent-nav-curtain-clear",
             { tabId, attempt }
           );
-          endNavigationInspectionOverlay(tabId);
+          reportNavigationInspectionSettledToBrain(
+            tabId,
+            renderModeNavSpinnerStuck ? "render-mode-nav-curtain-clear" : "silent-nav-curtain-clear"
+          );
         } else {
           logPopupSpinnerDebug("stale-inspection-busy-clear", { tabId, attempt });
-          uiModule.setUiBusy(false);
+          reportNavigationInspectionSettledToBrain(tabId, "stale-inspection-busy-clear");
         }
         return;
       }
@@ -3266,7 +3318,7 @@ function scheduleNavigationInspectionSettlePoll(tabId: number | null, baseUrl: s
       if (shouldHoldNavInspectUntilRenderModeInspectionSeen(tabId)) {
         logPopupSpinnerDebug("nav-settle-poll-hold-for-render-mode-set", { tabId, attempt });
       } else {
-        endNavigationInspectionOverlay(tabId);
+        reportNavigationInspectionSettledToBrain(tabId, "nav-settle-poll-clear");
         clearNavigationInspectionSettlePoll(tabId);
         void refreshUi({ useBusyOverlay: false });
         return;
@@ -3274,7 +3326,7 @@ function scheduleNavigationInspectionSettlePoll(tabId: number | null, baseUrl: s
     }
     if (attempt >= maxAttempts) {
       logPopupSpinnerDebug("nav-settle-poll-timeout", { tabId, attempt });
-      endNavigationInspectionOverlay(tabId);
+      reportNavigationInspectionSettledToBrain(tabId, "nav-settle-poll-timeout");
       clearNavigationInspectionSettlePoll(tabId);
       void refreshUi({ useBusyOverlay: false });
       return;
@@ -3287,7 +3339,7 @@ function scheduleNavigationInspectionSettlePoll(tabId: number | null, baseUrl: s
         return;
       }
       logPopupSpinnerDebug("nav-settle-failopen", { tabId });
-      endNavigationInspectionOverlay(tabId);
+      reportNavigationInspectionSettledToBrain(tabId, "nav-settle-failopen");
       void refreshUi({ useBusyOverlay: false });
     }, NAV_INSPECTION_SETTLE_FAILOPEN_MS);
     popupNavigationInspectionSettlePollByTabId.set(tabId, timer);
@@ -3327,20 +3379,7 @@ function endNavigationInspectionOverlay(tabId = popupNavigationInspectionOverlay
   ) {
     return;
   }
-  if (popupNavigationInspectionOverlayStarted) {
-    void removeSpinnerEntryFromBackground("navInspect", tabId).then((response) => {
-      if (!response) {
-        popSpinner("navInspect");
-      }
-    });
-  }
-  if (tabId) {
-    clearRenderModeSetNavGuard(tabId);
-    clearNavigationInspectionSettlePoll(tabId);
-  }
-  logPopupSpinnerDebug("nav-overlay-end", { tabId });
-  popupNavigationInspectionOverlayStarted = false;
-  popupNavigationInspectionOverlayTabId = null;
+  reportNavigationInspectionSettledToBrain(tabId, "nav-overlay-end");
 }
 
 function waitForPopupUiPaint() {

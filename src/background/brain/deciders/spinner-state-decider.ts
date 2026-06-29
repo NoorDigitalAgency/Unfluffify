@@ -1,4 +1,5 @@
 import type { PopupSpinnerEntry } from "../../../common/bus/contracts/popup-state";
+import { SPINNER_KEYS } from "../../../common/world-messaging-contract";
 import { SPINNER_OPERATION_KINDS, SPINNER_OPERATION_PHASES } from "../../../common/spinner-contract";
 import type { SpinnerSelection, TabLayerState } from "../state-store";
 
@@ -69,6 +70,26 @@ function getSpinnerOrderTimestamp(entry: PopupSpinnerEntry, fallback = 0): numbe
   return Number.isFinite(entry.startedAt) ? Number(entry.startedAt) : fallback;
 }
 
+function isSuppressedNavigationInspectionEntry(
+  entry: PopupSpinnerEntry,
+  clearBefore: number,
+  fallback: number,
+): boolean {
+  if (entry.key !== SPINNER_KEYS.NAV_INSPECT || clearBefore <= 0) {
+    return false;
+  }
+  return getSpinnerOrderTimestamp(entry, fallback) <= clearBefore;
+}
+
+function isNavigationInspectionSelection(selection: SpinnerSelection | null | undefined): boolean {
+  return Boolean(
+    selection &&
+      (selection.spinnerKey === SPINNER_KEYS.NAV_INSPECT ||
+        (selection.kind === SPINNER_OPERATION_KINDS.CONTENT_BOOTSTRAP &&
+          selection.phase === SPINNER_OPERATION_PHASES.CONTENT_BOOTSTRAP.PAGE_INSPECTION))
+  );
+}
+
 function isNewerSpinnerEntry(
   candidate: PopupSpinnerEntry,
   candidateIndex: number,
@@ -136,8 +157,32 @@ export function updateSpinnerSelectionsFromQueue(
   queue: readonly PopupSpinnerEntry[],
   reason: string,
 ): SpinnerSelections {
-  const nextSelections = deriveSpinnerSelectionsFromQueue(queue);
+  let nextSelections = deriveSpinnerSelectionsFromQueue(queue);
   store.mutate(tabId, reason, (state) => {
+    const clearBefore = state.navigationInspectionCurtainClearBefore;
+    const effectiveQueue = clearBefore > 0
+      ? queue.filter((entry, index) => !isSuppressedNavigationInspectionEntry(entry, clearBefore, index))
+      : queue;
+    nextSelections = deriveSpinnerSelectionsFromQueue(effectiveQueue);
+    const existingNavigationInspectionSelection = isNavigationInspectionSelection(state.spinners.pageCurtain)
+      ? state.spinners.pageCurtain
+      : isNavigationInspectionSelection(state.spinners.popup)
+        ? state.spinners.popup
+        : null;
+    const queueOwnsNavigationInspection =
+      isNavigationInspectionSelection(nextSelections.pageCurtain) ||
+      isNavigationInspectionSelection(nextSelections.popup);
+    if (
+      existingNavigationInspectionSelection &&
+      !queueOwnsNavigationInspection &&
+      (clearBefore <= 0 || existingNavigationInspectionSelection.startedAt > clearBefore)
+    ) {
+      nextSelections = {
+        ...nextSelections,
+        popup: nextSelections.popup || existingNavigationInspectionSelection,
+        pageCurtain: nextSelections.pageCurtain || existingNavigationInspectionSelection,
+      };
+    }
     state.spinners.popup = nextSelections.popup;
     state.spinners.pageCurtain = nextSelections.pageCurtain;
     state.spinners.banner = nextSelections.banner;

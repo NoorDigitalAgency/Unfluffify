@@ -296,6 +296,37 @@ describe("spinner state decider", () => {
     expect(store.get(99)?.spinners).toEqual(selections);
   });
 
+  it("preserves a lifecycle-owned navigation inspection curtain across empty queue syncs", () => {
+    const store = createStateStore();
+    store.mutate(100, "lifecycle:nav-inspect-active", (state) => {
+      const selection = {
+        kind: "content-bootstrap",
+        phase: "page-inspection",
+        startedAt: 1_000,
+        deadlineAt: 0,
+        operationId: "lifecycle-op",
+        message: "Working",
+        reason: "spinner:working",
+        source: "test",
+        spinnerKey: "navInspect",
+      };
+      state.spinners.popup = selection;
+      state.spinners.pageCurtain = selection;
+    });
+
+    const selections = updateSpinnerSelectionsFromQueue(
+      store,
+      100,
+      [],
+      "popup-state-broker:spinners",
+    );
+
+    expect(selections.popup?.spinnerKey).toBe("navInspect");
+    expect(selections.pageCurtain?.spinnerKey).toBe("navInspect");
+    expect(store.get(100)?.spinners.popup?.spinnerKey).toBe("navInspect");
+    expect(store.get(100)?.spinners.pageCurtain?.spinnerKey).toBe("navInspect");
+  });
+
   it("flags AI-run compute phases as the authoritative aiComputing source", () => {
     for (const phase of [
       "preparing-page",

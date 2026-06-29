@@ -3252,7 +3252,6 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
       ? message.event
       : {};
     const eventKind = typeof event.kind === "string" ? event.kind : "";
-    const eventPhase = typeof event.phase === "string" ? event.phase : "";
     if (normalizedTabId && isActivationLifecycleKind(eventKind)) {
       if (isStaleActivationTerminalEvent(normalizedTabId, event)) {
         sendResponse(buildBrokerState(normalizedTabId));
@@ -3271,12 +3270,6 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
         event,
         "background:world-lifecycle-event"
       );
-      if (
-        eventKind === LIFECYCLE_KINDS.ACTIVATION &&
-        isLifecycleTerminalPhase(eventPhase)
-      ) {
-        removeBackgroundSpinnerEntry(normalizedTabId, "navInspect");
-      }
       const currentBrokerLifecycle = buildBrokerState(normalizedTabId).lifecycle;
       const currentBrokerLifecycleKind = typeof currentBrokerLifecycle?.kind === "string"
         ? currentBrokerLifecycle.kind
@@ -3995,7 +3988,6 @@ function restoreEnabledStateForTab(tabId: unknown, tabState: TabStateRecord | nu
             busy: false,
             message: ""
           }, "background:restore-enabled-state:lifecycle-failed");
-          removeBackgroundSpinnerEntry(normalizedTabId, "navInspect");
         }
         return;
       }
@@ -4020,7 +4012,6 @@ function restoreEnabledStateForTab(tabId: unknown, tabState: TabStateRecord | nu
         busy: false,
         message: ""
       }, "background:restore-enabled-state:lifecycle-failed");
-      removeBackgroundSpinnerEntry(normalizedTabId, "navInspect");
     });
 }
 

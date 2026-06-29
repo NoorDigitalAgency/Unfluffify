@@ -30,13 +30,32 @@ test("content-main emits inspectionSettled and registers it as the settle listen
   assert.match(source, /core\.setPageInspectionUiSettledListener\(notifyInspectionSettled\);/);
 });
 
-test("popup clears the navigation-inspection overlay on inspectionSettled", () => {
+test("content warmups leave inspection UI toggling to the brain pageCurtain", () => {
+  const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
+  const warmupStart = source.indexOf("async function inspectPageBeforeMotionPause(");
+  const warmupEnd = source.indexOf("export function setPageInspectionUiSettledListener", warmupStart);
+  assert.ok(warmupStart > -1);
+  assert.ok(warmupEnd > warmupStart);
+  const warmupSource = source.slice(warmupStart, warmupEnd);
+  assert.doesNotMatch(warmupSource, /setPageInspectionUiActive\(/);
+  const busSource = readFileSync(new URL("../src/content/layers/content-bus-client.ts", import.meta.url), "utf8");
+  assert.match(busSource, /setPageCurtainRenderer\(\(visible\) => \{[\s\S]*?setPageInspectionUiActive\(visible\);/);
+});
+
+test("popup reports navigation-inspection settle facts on inspectionSettled", () => {
   const source = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
   const handlerStart = source.indexOf('message.type === "inspectionSettled"');
   assert.ok(handlerStart > -1, "popup must handle inspectionSettled");
   const handlerBody = source.slice(handlerStart, handlerStart + 400);
   assert.match(handlerBody, /endNavigationInspectionOverlay\(\)/);
   assert.match(handlerBody, /scheduleRefresh\(\)/);
+  const reporterStart = source.indexOf("function reportNavigationInspectionSettledToBrain(");
+  assert.ok(reporterStart > -1, "popup must report settled inspection facts upward");
+  const reporterBody = source.slice(reporterStart, reporterStart + 900);
+  assert.match(reporterBody, /publishCurrentSessionFacts\(tabId, \{[\s\S]*?navigationInspectionPending: false/);
+  assert.match(reporterBody, /pageInspectionBusy: false/);
+  assert.match(reporterBody, /busyVisible: false/);
+  assert.match(reporterBody, /forgetLocalSpinnerRequest\("navInspect"\)/);
 });
 
 test("popup inspection settle timers are bounded fail-opens, not self-rescheduling polls", () => {
@@ -94,4 +113,23 @@ test("brain heartbeat folds reported inspection facts on each tick", async () =>
   // a popup re-poll.
   assert.equal(folded.includes(true), true);
   assert.equal(folded.includes(false), true);
+});
+
+test("brain owns navigation-inspection curtain fail-open clears from reported facts", () => {
+  const source = readFileSync(new URL("../src/background/brain/index.ts", import.meta.url), "utf8");
+  assert.match(source, /function clearNavigationInspectionCurtainDraft\(/);
+  assert.match(source, /const wasNavigationInspectionPending = draft\.sessionFacts\.navigationInspectionPending/);
+  assert.match(source, /const wasPageInspectionBusy = draft\.sessionFacts\.pageInspectionBusy/);
+  assert.match(source, /nextFacts\.navigationInspectionPending === false &&\s*wasNavigationInspectionPending/);
+  assert.match(source, /nextFacts\.pageInspectionBusy === false &&\s*wasPageInspectionBusy/);
+  assert.match(source, /clearNavigationInspectionCurtainDraft\(draft\);/);
+});
+
+test("popup stale inspection fail-open recognizes local page-inspection busy views", () => {
+  const source = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
+  const fnStart = source.indexOf("function isNavigationInspectionBusyView(");
+  assert.ok(fnStart > -1);
+  const fnEnd = source.indexOf("\n}", fnStart);
+  const body = source.slice(fnStart, fnEnd);
+  assert.match(body, /view\.busyReason === "page-inspection-pending"/);
 });
