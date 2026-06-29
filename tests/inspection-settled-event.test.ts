@@ -61,3 +61,37 @@ test("popup inspection settle timers are bounded fail-opens, not self-rescheduli
   assert.doesNotMatch(staleBody, /void run\(\);\s*\}, 400\);/);
   assert.match(staleBody, /STALE_INSPECTION_FAILOPEN_MS/);
 });
+
+test("popup publishes inspection facts so the brain heartbeat reconciles a lost settle", () => {
+  const source = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
+  const fnStart = source.indexOf("publishCurrentSessionFacts(currentTabId, {");
+  assert.ok(fnStart > -1, "popup must publish session facts each refresh");
+  const factsBlock = source.slice(fnStart, fnStart + 600);
+  // The 1s brain heartbeat pulls these facts; if the inspectionSettled event is
+  // lost, the next published fact value (false) lets the brain clear the curtain
+  // without any popup-local poll.
+  assert.match(factsBlock, /navigationInspectionPending,/);
+  assert.match(factsBlock, /pageInspectionBusy,/);
+});
+
+test("brain heartbeat folds reported inspection facts on each tick", async () => {
+  const { createBrainHeartbeat } = await import("../src/background/brain/heartbeat.js");
+  const folded = [];
+  let pending = true;
+  const heartbeat = createBrainHeartbeat({
+    request: async () => ({ source: "popup", facts: { navigationInspectionPending: pending } }),
+    foldFacts: (_tabId, _source, facts) => folded.push(facts.navigationInspectionPending),
+    intervalMs: 1000,
+    setInterval: (handler) => handler,
+    clearInterval: () => {}
+  });
+  heartbeat.start(3);
+  await heartbeat.tick();
+  pending = false;
+  await heartbeat.tick();
+  // The popup reports pending=true then pending=false; the brain folds both,
+  // so a missed settle event recovers within one heartbeat instead of needing
+  // a popup re-poll.
+  assert.equal(folded.includes(true), true);
+  assert.equal(folded.includes(false), true);
+});
