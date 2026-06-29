@@ -2663,23 +2663,6 @@ export function toggleConfigurationExtrasExpanded() {
   });
 }
 
-export function setPreviewBlocked(
-  isBlocked: boolean,
-  message: string = ViewText.previewBlockedDefault
-): void {
-  setViewState({
-    previewBlocked: Boolean(isBlocked),
-    previewActive: isBlocked ? viewState.previewActive : false,
-    previewItems: isBlocked ? viewState.previewItems : [],
-    previewItemsPending: isBlocked ? Boolean(viewState.previewItemsPending) : false,
-    previewFocusedXpath: isBlocked ? viewState.previewFocusedXpath : "",
-    previewShowAllCategories: isBlocked ? viewState.previewShowAllCategories : false,
-    previewBlockedMessage: isBlocked
-      ? (message || ViewText.previewBlockedDefault)
-      : ViewText.previewBlockedDefault
-  });
-}
-
 export function setConfigMenuOpen(open: boolean): void {
   if (state.configMenuOpen === open) {
     return;

@@ -1,7 +1,6 @@
 import {
   LIFECYCLE_KINDS,
   LIFECYCLE_PHASES,
-  SPINNER_KEYS,
   WORLD_MESSAGE_TYPES,
   isCurtainBearingLifecycleKind,
   isLifecycleTerminalPhase
@@ -232,28 +231,6 @@ export function createPopupStateBroker(options = {}) {
     return state;
   }
 
-  // function clearNavInspectCurtain(normalizedTabId) {
-  //   queue.delete(SPINNER_KEYS.NAV_INSPECT)
-  // }
-  function clearNavInspectCurtain(normalizedTabId: number): boolean {
-    const queue = spinnerQueueByTabId.get(normalizedTabId);
-    if (!queue || !queue.delete(SPINNER_KEYS.NAV_INSPECT)) {
-      return false;
-    }
-    if (queue.size === 0) {
-      spinnerQueueByTabId.delete(normalizedTabId);
-    }
-    updateRuntime(normalizedTabId, {
-      spinnerQueue: queue
-    });
-    appendTrace(normalizedTabId, "spinner", "remove", {
-      type: WORLD_MESSAGE_TYPES.SPINNER_REMOVE,
-      message: SPINNER_KEYS.NAV_INSPECT,
-      reason: "lifecycle-terminal"
-    });
-    return true;
-  }
-
   // function updateLifecycleState(tabId, event = {}) {
   function updateLifecycleState(tabId: unknown, event: unknown = {}) {
     const normalizedTabId = normalizeTabId(tabId);
@@ -360,7 +337,6 @@ export function createPopupStateBroker(options = {}) {
     buildBrokerState,
     broadcastBrokerState,
     updateLifecycleState,
-    clearLifecycleState,
-    clearNavInspectCurtain
+    clearLifecycleState
   };
 }

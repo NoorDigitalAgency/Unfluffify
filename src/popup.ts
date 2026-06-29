@@ -1361,16 +1361,6 @@ function setPropertyLockViewStateFromLocalProjection(): void {
   publishCurrentTabPropertyLockSnapshot();
 }
 
-function shouldUseLocalComputingAiLockout(tabId: number | null): boolean {
-  void tabId;
-  return false;
-}
-
-function shouldUseLocalPreviewRevealFallback(tabId: number | null): boolean {
-  void tabId;
-  return false;
-}
-
 async function refreshUiForActionGates(): Promise<PopupViewState> {
   await refreshUi({
     useBusyOverlay: false,
@@ -2422,8 +2412,6 @@ function updateAiRunCountdownState() {
     return;
   }
   state.aiRunRemainingMs = getAiRunRemainingMs(state.aiRunDeadlineAt);
-  const currentTabId = getCurrentPopupTabId();
-  const useLocalComputingAiLockout = shouldUseLocalComputingAiLockout(currentTabId);
   const aiRunCountdownText = formatAiRunCountdown(state.aiRunRemainingMs);
   uiModule.setViewState({
     computeButtonText: ViewText.computeButtonBusy,
@@ -2431,14 +2419,7 @@ function updateAiRunCountdownState() {
     aiRunCountdownVisible: true,
     aiRunCountdownText,
     aiRunDeadlineAt: state.aiRunDeadlineAt,
-    aiRunPhase: state.aiRunPhase,
-    ...(useLocalComputingAiLockout
-      ? {
-          computeButtonLoading: true,
-          computeButtonDisabled: true,
-          aiControlsBusy: true
-        }
-      : {})
+    aiRunPhase: state.aiRunPhase
   });
   if (state.aiRunResumed) {
     publishCurrentTabSessionFacts({
@@ -7404,19 +7385,7 @@ async function applyComputedSelectorSet(
       aiRunSpinnerNote: "",
       aiRunCountdownVisible: false,
       aiRunDeadlineAt: 0,
-      aiRunPhase: "",
-      ...(shouldUseLocalPreviewRevealFallback(getCurrentPopupTabId())
-        ? {
-            computeButtonLoading: false,
-            aiControlsBusy: false,
-            sessionCurtainVisible: false,
-            sessionCurtainMessage: "",
-            sessionCurtainNote: "",
-            sessionCurtainTimerText: "",
-            sessionCurtainOperation: "",
-            sessionCurtainPhase: ""
-          }
-        : {})
+      aiRunPhase: ""
     });
   }
   updateLastConfigSaveStatus(PopupText.ai.selectorsComputedLocally);

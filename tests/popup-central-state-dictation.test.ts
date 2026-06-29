@@ -214,8 +214,6 @@ test("session dictation curtain formats projected countdowns from live deadlines
 test("popup wiring repaints live brain snapshots and keeps imperative writers behind the local fallback guard", () => {
   assert.match(popupSource, /deriveCentralSessionDictationSnapshotEffect\(/);
   assert.match(popupSource, /buildCentralSessionDictationViewStatePatch\(/);
-  assert.match(popupSource, /function shouldUseLocalComputingAiLockout\(tabId: number \| null\): boolean \{/);
-  assert.match(popupSource, /function shouldUseLocalPreviewRevealFallback\(tabId: number \| null\): boolean \{/);
   assert.match(popupSource, /async function getCurrentSessionActionGateState\(sourceConfig: Config \| null \| undefined = state\.currentConfig\) \{/);
   assert.match(popupSource, /function clearProjectedComputingAiState\(\): boolean \{/);
   assert.match(popupSource, /async function clearStaleProjectedComputingAiState\(\): Promise<void> \{/);
@@ -224,8 +222,6 @@ test("popup wiring repaints live brain snapshots and keeps imperative writers be
   assert.match(popupSource, /publishCurrentTabSessionFacts\(\{[\s\S]*?previewRestorePending: true/);
   assert.match(popupSource, /async function stopAiRun\(options: StopAiRunOptions = \{\}\) \{[\s\S]*?clearProjectedComputingAiState\(\);/);
   assert.match(popupSource, /const persistedRun = await loadPersistedAiRunRecord\(\);[\s\S]*?if \(!persistedRun\) \{[\s\S]*?await clearStaleProjectedComputingAiState\(\);/);
-  assert.match(popupSource, /function shouldUseLocalComputingAiLockout\(tabId: number \| null\): boolean \{[\s\S]*?return false;/);
-  assert.match(popupSource, /function shouldUseLocalPreviewRevealFallback\(tabId: number \| null\): boolean \{[\s\S]*?return false;/);
   assert.match(
     popupSource,
     /uiModule\.setViewState\(\{[\s\S]*?previewWillRestoreMarking:[\s\S]*?previewItems:[\s\S]*?previewFocusedXpath:[\s\S]*?previewShowAllCategories:[\s\S]*?\}\);/
