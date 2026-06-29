@@ -7710,10 +7710,9 @@ async function applyLocalPageDiscard() {
   const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
     ? state.currentTab.id
     : null;
-  if (tabId !== null) {
-    await messages.requestTabApplyLocalDiscard(tabId, { baseUrl });
-  }
-  await clearCurrentPageSaveReconciliation();
+  // Reset the local session to PRE_AI before the content roundtrip so a failed or
+  // slow tab discard can never leave the popup wedged in POST_AI with the markings
+  // locked. Discard is unconditionally PRE_AI; the content apply is best-effort.
   state.currentDraftEntry = null;
   state.currentSavedEntry = null;
   state.currentDraftDirty = false;
@@ -7722,6 +7721,10 @@ async function applyLocalPageDiscard() {
   state.aiSelectorsComputedBaseUrl = "";
   clearSelectorsPendingConfigSync();
   resetAiRunMarkingsFingerprint();
+  await clearCurrentPageSaveReconciliation();
+  if (tabId !== null) {
+    await messages.requestTabApplyLocalDiscard(tabId, { baseUrl });
+  }
 }
 
 async function requestAiRunStart({

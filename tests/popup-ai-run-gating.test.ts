@@ -98,9 +98,11 @@ test("entering marking mode, saving, and discarding reset the fingerprint", () =
     /await deps\.clearCurrentPageSaveReconciliation\(\);\s*deps\.clearSelectorsPendingConfigSync\?\.\(\);\s*deps\.resetAiRunMarkingsFingerprint\(\);\s*await deps\.applyPostSaveSilentTransition\(\);\s*deps\.updateLastConfigSaveStatus\(deps\.PopupText\.page\.savedAndSynced\);/
   );
   // Discard (applyLocalPageDiscard, shared by manual discard + disable/nav confirm).
+  // PRE_AI reset + reconciliation clear run before the content roundtrip so a
+  // failed/slow tab discard cannot leave the popup wedged in POST_AI.
   assert.match(
     popupSource,
-    /state\.currentDraftEntry = null;\s*state\.currentSavedEntry = null;\s*state\.currentDraftDirty = false;\s*state\.currentDraftAvailable = false;\s*state\.aiSelectorsComputedSinceLastSubmit = false;\s*state\.aiSelectorsComputedBaseUrl = "";\s*clearSelectorsPendingConfigSync\(\);\s*resetAiRunMarkingsFingerprint\(\);\s*\}/
+    /state\.currentDraftEntry = null;\s*state\.currentSavedEntry = null;\s*state\.currentDraftDirty = false;\s*state\.currentDraftAvailable = false;\s*state\.aiSelectorsComputedSinceLastSubmit = false;\s*state\.aiSelectorsComputedBaseUrl = "";\s*clearSelectorsPendingConfigSync\(\);\s*resetAiRunMarkingsFingerprint\(\);\s*await clearCurrentPageSaveReconciliation\(\);\s*if \(tabId !== null\) \{\s*await messages\.requestTabApplyLocalDiscard/
   );
 });
 
