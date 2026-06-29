@@ -101,6 +101,7 @@ export function deriveDictation(phase: SessionPhase, facts: SessionFacts): Sessi
 
   const toggleEnabledDisabled = Boolean(
     facts.pageScopedUiDisabled ||
+      postAi ||
       facts.previewRestorePending ||
       facts.pageSaveReconciliationPending ||
       !facts.baseUrlReady ||

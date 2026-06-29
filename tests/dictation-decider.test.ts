@@ -89,6 +89,7 @@ test("dictation keeps ready-to-save marking in the approved post-AI state", () =
   const dictation = deriveDictation(decideSessionPhase(facts), facts);
 
   assert.equal(dictation.phase, SESSION_PHASES.READY_TO_SAVE);
+  assert.equal(dictation.buttons[BUTTON_IDS.TOGGLE_ENABLED].enabled, false);
   assert.equal(dictation.buttons[BUTTON_IDS.COMPUTE].enabled, false);
   assert.equal(dictation.buttons[BUTTON_IDS.MARKING_PREVIEW].enabled, true);
   assert.equal(dictation.buttons[BUTTON_IDS.PAGE_SAVE].enabled, true);

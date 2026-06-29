@@ -57,6 +57,7 @@ function buildLegacyParityState(facts) {
     toggleVisible: facts.renderModeReady,
     toggleEnabled: !(
       facts.pageScopedUiDisabled ||
+      facts.aiRunPhase === AI_RUN_PHASES.POST_AI ||
       facts.previewRestorePending ||
       facts.pageSaveReconciliationPending ||
       !facts.baseUrlReady ||

@@ -5366,6 +5366,7 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
     (!navigationInspectionPending && (!siteIdReady || !renderModeReady));
   const toggleEnabledDisabled =
     pageScopedUiDisabled ||
+    state.sessionAiRunPhase === AI_RUN_PHASES.POST_AI ||
     previewRestorePending ||
     pageSaveReconciliationPending ||
     !baseUrlReady ||
