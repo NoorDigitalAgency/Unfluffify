@@ -117,6 +117,7 @@ import {
 import { AI_RUN_PERSIST_KEY } from "./popup/ai-run";
 import { redactCommandPayloadForLedger } from "./background/command-ledger";
 import { createAuthTokenMonitor } from "./background/auth-token-monitor";
+import { createPageTypesMonitor } from "./background/page-types-monitor";
 import {
   fetchLivePagePropertyPageTypes,
   resolveLivePageSiteId
@@ -807,14 +808,29 @@ const authTokenMonitor = createAuthTokenMonitor({
       .catch(() => {})
 });
 
+const pageTypesMonitor = createPageTypesMonitor({
+  createAlarm: (name, info) => {
+    if (browser.alarms && typeof browser.alarms.create === "function") {
+      return Promise.resolve(browser.alarms.create(name, info)).then(() => {});
+    }
+    return undefined;
+  },
+  notifyRefreshDue: () =>
+    Promise.resolve(browser.runtime.sendMessage({ type: "pageTypesRefreshDue" }))
+      .then(() => {})
+      .catch(() => {})
+});
+
 if (browser.alarms && browser.alarms.onAlarm && typeof browser.alarms.onAlarm.addListener === "function") {
   browser.alarms.onAlarm.addListener((alarm) => {
     tabInactivityObserver.handleAlarm(alarm).catch(() => {});
     authTokenMonitor.handleAlarm(alarm).catch(() => {});
+    pageTypesMonitor.handleAlarm(alarm).catch(() => {});
   });
 }
 
 void authTokenMonitor.start();
+void pageTypesMonitor.start();
 
 async function captureRenderModeHtmlWithDebugger(tabId: unknown): Promise<RenderModeHtmlCaptureResult> {
   const normalizedTabId = normalizeBrokerTabId(tabId);

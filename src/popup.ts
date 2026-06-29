@@ -191,9 +191,6 @@ import {
   sendPropertyLockCommand as sendPropertyLockCommandOperation,
   syncPropertyLockOffCandidateRefreshTimer as syncPropertyLockOffCandidateRefreshTimerOperation
 } from "./popup/property-lock-ui";
-import {
-  createPopupTimerGroup
-} from "./popup/timers";
 
 
 import {
@@ -803,7 +800,8 @@ let popupPageBusyMirrorShowTimer = 0;
 let popupPageBusyMirrorOperationId = "";
 let pendingAiPreviewConfigSync: { tabId: number; baseUrl: string } | null = null;
 let propertyPageTypesRequest: PendingPropertyPageTypesRequest = null;
-const popupTimers = createPopupTimerGroup({ windowRef: window });
+let pageTypesRefreshRunner: (() => void) | null = null;
+
 
 function isEditableTarget(el: EventTarget | null | undefined): boolean {
   if (!(el instanceof Element)) return false;
@@ -2190,7 +2188,7 @@ function resetPropertyPageTypesState() {
 }
 
 function clearPropertyPageTypesRefreshTimer() {
-  popupTimers.clear("property-page-types-refresh");
+  pageTypesRefreshRunner = null;
   state.propertyPageTypesRefreshTimer = 0;
   state.propertyPageTypesRefreshKey = "";
 }
@@ -2217,7 +2215,8 @@ function schedulePropertyPageTypesRefresh(options: PropertyPageTypesRefreshOptio
   }
   clearPropertyPageTypesRefreshTimer();
   state.propertyPageTypesRefreshKey = refreshKey;
-  state.propertyPageTypesRefreshTimer = popupTimers.setInterval("property-page-types-refresh", () => {
+  state.propertyPageTypesRefreshTimer = 1;
+  pageTypesRefreshRunner = () => {
     helpers.loadGlobalAiSettings().then(({ tokenValue: nextTokenValue, stageBaseValue }) => {
       return ensurePropertyPageTypes({
         siteId: normalizedSiteId,
@@ -2239,7 +2238,7 @@ function schedulePropertyPageTypesRefresh(options: PropertyPageTypesRefreshOptio
         propertyPageTypesRefreshChanged: true
       }).then();
     }).catch(() => {});
-  }, PROPERTY_PAGE_TYPES_REFRESH_INTERVAL_MS);
+  };
 }
 
 function formatPageTypeCandidateLabel(url: unknown) {
@@ -8933,6 +8932,12 @@ async function init() {
     }
     if (message && message.type === "tokenInvalid") {
       void invalidateTokenAndLockConfiguration(true);
+      return;
+    }
+    if (message && message.type === "pageTypesRefreshDue") {
+      if (pageTypesRefreshRunner) {
+        pageTypesRefreshRunner();
+      }
       return;
     }
     if (!message || message.type !== "pageDraftChanged") {
