@@ -16,6 +16,7 @@ const TAB_CLOSE_AI_PREVIEW_COMMAND = "TAB_CLOSE_AI_PREVIEW";
 const TAB_SET_AI_PREVIEW_EXPANDED_MODE_COMMAND = "TAB_SET_AI_PREVIEW_EXPANDED_MODE";
 const TAB_FOCUS_PREVIEW_ELEMENT_COMMAND = "TAB_FOCUS_PREVIEW_ELEMENT";
 const TAB_RUN_AI_COMMAND = "TAB_RUN_AI";
+const TAB_RESUME_AI_COMMAND = "TAB_RESUME_AI";
 
 export const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -383,6 +384,36 @@ export function requestTabRunAi(tabId: TabId, payload: TabRequestPayload = {}, o
   }
   return requestRuntime({
     type: TAB_RUN_AI_COMMAND,
+    payload: payload && typeof payload === "object" ? payload : {}
+  }, {
+    tabId,
+    timeoutMs: resolveTimeoutMs(opts, 540000)
+  }).then((result) => ({
+    ok: true,
+    result: result && typeof result === "object" ? result : {}
+  })).catch((error) => {
+    const reply = error && error.details && error.details.reply && typeof error.details.reply === "object"
+      ? error.details.reply
+      : null;
+    return {
+      ok: false,
+      code: typeof error.code === "string" ? error.code : (reply && reply.code) || "handler_failed",
+      error: (error && error.message) || (reply && reply.error) || "Unable to run AI",
+      details: reply && reply.details && typeof reply.details === "object" ? reply.details : {}
+    };
+  });
+}
+
+export function requestTabResumeAi(tabId: TabId, payload: TabRequestPayload = {}, options: TabRequestOptions = {}) {
+  const opts = options;
+  if (!tabId) {
+    return Promise.resolve({
+      ok: false,
+      error: "Missing tab"
+    });
+  }
+  return requestRuntime({
+    type: TAB_RESUME_AI_COMMAND,
     payload: payload && typeof payload === "object" ? payload : {}
   }, {
     tabId,

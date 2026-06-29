@@ -58,7 +58,6 @@ import {
 } from "./common/settings-store";
 import {
   buildTransferPayloadKey,
-  consumeTransferPayload,
   putTransferPayload
 } from "./background/transfer-payload-store";
 import {
@@ -75,7 +74,6 @@ import * as utils from "./common/utilities";
 import * as messages from "./popup/messages";
 import * as helpers from "./popup/helpers";
 import {
-  AI_RUN_POLL_INTERVAL_MS,
   AI_RUN_TIMEOUT_MS,
   formatAiRunCountdown,
   getAiRunRemainingMs,
@@ -360,12 +358,6 @@ type SessionChangeOptions = {
   reconciliationPending?: boolean;
   selectorsPendingConfigSync?: boolean;
 };
-type AiRunHeartbeatOptions = {
-  sessionId?: string;
-  siteId?: number | string | null;
-  deadlineAt?: number;
-  baseUrl?: string;
-};
 type StopAiRunOptions = {
   unlockPage?: boolean;
 };
@@ -489,9 +481,6 @@ type AiRunCommandFailureDetails = {
   reason?: unknown;
 };
 type PopupFailureLike = Record<string, unknown> | null | undefined;
-type AiRunResultResponse =
-  | { ok: true; selectorSet: SelectorSet }
-  | { ok: false; notFound?: boolean };
 type FailedPopupOperationResponse = {
   ok: false;
   error?: string;
@@ -2826,40 +2815,6 @@ async function syncAiComputeLock(active: boolean, expiresAt = 0) {
     baseUrl: state.currentBaseUrl || ""
   });
   return Boolean(response && response.ok);
-}
-
-async function refreshAiRunHeartbeat(options: AiRunHeartbeatOptions = {}) {
-  const sessionId = typeof options.sessionId === "string"
-    ? options.sessionId.trim()
-    : state.aiRunSessionId;
-  const siteId = normalizeSiteIdValue(options.siteId || state.aiRunSiteId);
-  const deadlineAt = typeof options.deadlineAt === "number" && Number.isFinite(options.deadlineAt)
-    ? options.deadlineAt
-    : state.aiRunDeadlineAt;
-  const baseUrl = typeof options.baseUrl === "string"
-    ? options.baseUrl
-    : state.currentBaseUrl || "";
-  if (!sessionId || !siteId || !Number.isFinite(deadlineAt) || deadlineAt <= 0) {
-    return null;
-  }
-  const tabId = getCurrentPopupTabId();
-  if (!tabId) {
-    return null;
-  }
-  const response = await messages.sendRuntimeMessage({
-    type: "refreshAiRunHeartbeat",
-    tabId,
-    sessionId,
-    siteId,
-    deadlineAt,
-    baseUrl
-  });
-  if (!response || !response.ok || !Number.isFinite(Number(response.expiresAt))) {
-    return null;
-  }
-  const expiresAt = Number(response.expiresAt);
-  state.aiRunResumeExpiresAt = expiresAt;
-  return expiresAt;
 }
 
 async function stopAiRun(options: StopAiRunOptions = {}) {
@@ -6070,42 +6025,30 @@ async function maybeResumePersistedAiRun() {
       resumed: true,
       phase: statusResult.status
     });
-    const heartbeat = await refreshAiRunHeartbeat({
+    await refreshUi();
+    const tabId = state.currentTab && state.currentTab.id;
+    const aiRunResponse = await messages.requestTabResumeAi(tabId, {
+      baseUrl: state.currentBaseUrl,
       sessionId: persistedRun.sessionId,
       siteId,
       deadlineAt: persistedRun.deadlineAt
     });
-    if (!heartbeat) {
+    if (!isPopupCommandSuccess<Record<string, unknown>>(aiRunResponse)) {
+      await failAiRun(getAiRunCommandFailureMessage(aiRunResponse));
+      return;
+    }
+    const runResult = aiRunResponse.result;
+    if (!isSelectorSetTransferPayload(runResult.selectorSet)) {
       await failAiRun(PopupText.ai.runFailed);
       return;
     }
-    await refreshUi();
-    if (statusResult.status === "done") {
-      let result;
-      try {
-        result = await requestAiRunResult({
-          sessionId: persistedRun.sessionId
-        });
-      } catch {
-        await failAiRun(PopupText.ai.runUnavailable);
-        return;
-      }
-      if (!result.ok) {
-        await failAiRun(result.notFound ? PopupText.ai.runUnavailable : PopupText.ai.runFailed);
-        return;
-      }
-      const { previewOpened } = await applyComputedSelectorSet(result.selectorSet, {
-        currentPageUrl,
-        tokenValue
-      });
-      await stopAiRun({ unlockPage: !previewOpened });
-      return;
-    }
-    await continueAiRunPolling({
-      endpointValue,
-      tokenValue,
-      currentPageUrl
+    state.aiRunPhase = "done";
+    const { previewOpened } = await applyComputedSelectorSet(normalizeAiSelectorSet(runResult.selectorSet), {
+      currentPageUrl,
+      tokenValue
     });
+    await stopAiRun({ unlockPage: !previewOpened });
+    return;
   } finally {
     state.aiRunResumeInFlight = false;
   }
@@ -7784,31 +7727,6 @@ async function requestAiRunStatus({ sessionId = "" } = {}) {
   return response && typeof response === "object" ? response : { ok: false };
 }
 
-async function requestAiRunResult({ sessionId = "" } = {}): Promise<AiRunResultResponse> {
-  const response = await messages.sendRuntimeMessage({
-    type: "requestAiRunResultSnapshot",
-    sessionId
-  });
-  if (response && response.notFound) {
-    return { ok: false, notFound: true };
-  }
-  if (!response || response.ok !== true) {
-    return { ok: false };
-  }
-  const payloadKey = typeof response.payloadKey === "string" ? response.payloadKey : "";
-  const loaded = payloadKey
-    ? await consumeTransferPayload(payloadKey, {
-      expectedType: "object",
-      removeInvalid: true
-    })
-    : { ok: false };
-  const data = loaded.ok && "payload" in loaded ? loaded.payload : null;
-  if (!isSelectorSetTransferPayload(data)) {
-    return { ok: false };
-  }
-  return { ok: true, selectorSet: normalizeAiSelectorSet(data) };
-}
-
 async function applyComputedSelectorSet(
   selectorSet: SelectorSet,
   { currentPageUrl: _currentPageUrl = "", tokenValue: _tokenValue = "" }: ComputedSelectorSetApplyOptions = {}
@@ -7979,81 +7897,6 @@ function getAiRunCommandFailureMessage(response: PopupFailureLike) {
     return response.error;
   }
   return PopupText.ai.saveCurrentPageBeforeComputing;
-}
-
-async function continueAiRunPolling({ endpointValue: _endpointValue = "", tokenValue = "", currentPageUrl = "" } = {}) {
-  while (state.aiRequestInFlight === "compute" && state.aiRunSessionId) {
-    const sessionId = state.aiRunSessionId;
-    const remainingMs = getAiRunRemainingMs(state.aiRunDeadlineAt);
-    if (!remainingMs) {
-      await failAiRun(PopupText.ai.runTimedOut);
-      return;
-    }
-    await new Promise((resolve) => {
-      state.aiRunPollTimer = window.setTimeout(resolve, Math.min(AI_RUN_POLL_INTERVAL_MS, remainingMs));
-    });
-    state.aiRunPollTimer = 0;
-    if (state.aiRequestInFlight !== "compute" || !state.aiRunSessionId) {
-      return;
-    }
-    if (!getAiRunRemainingMs(state.aiRunDeadlineAt)) {
-      await failAiRun(PopupText.ai.runTimedOut);
-      return;
-    }
-    let statusResult;
-    try {
-      statusResult = await requestAiRunStatus({
-        sessionId
-      });
-    } catch {
-      await failAiRun(PopupText.ai.runFailed);
-      return;
-    }
-    if (statusResult.notFound) {
-      await failAiRun(state.aiRunResumed ? PopupText.ai.runUnavailable : PopupText.ai.runFailed);
-      return;
-    }
-    if (!statusResult.ok) {
-      await failAiRun(PopupText.ai.runFailed);
-      return;
-    }
-    if (statusResult.status === "running") {
-      state.aiRunPhase = "running";
-      const heartbeat = await refreshAiRunHeartbeat();
-      if (!heartbeat) {
-        await failAiRun(PopupText.ai.runFailed);
-        return;
-      }
-      continue;
-    }
-    if (statusResult.status === "error") {
-      await failAiRun(PopupText.ai.runFailed);
-      return;
-    }
-    let result;
-    try {
-        result = await requestAiRunResult({
-          sessionId
-        });
-    } catch {
-      await failAiRun(PopupText.ai.runFailed);
-      return;
-    }
-    if (!result.ok && result.notFound) {
-      await failAiRun(state.aiRunResumed ? PopupText.ai.runUnavailable : PopupText.ai.runFailed);
-      return;
-    }
-    if (!result.ok) {
-      await failAiRun(PopupText.ai.runFailed);
-      return;
-    }
-    const { previewOpened } = await applyComputedSelectorSet(result.selectorSet, {
-      currentPageUrl,
-      tokenValue
-    });
-    await stopAiRun({ unlockPage: !previewOpened });
-    return;
-  }
 }
 
 async function handleComputeSelectors() {

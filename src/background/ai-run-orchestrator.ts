@@ -85,6 +85,7 @@ type AiRunCommandPayload = {
   endpointValue?: string;
   tokenValue?: string;
   siteId?: SiteIdLike;
+  sessionId?: string;
   deadlineAt?: DeadlineLike;
 };
 
@@ -695,7 +696,7 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
     }
   }
 
-  async function runAiCommandForTab(tabId: TabLike, payload: AiRunCommandPayload, update: AiRunProgressUpdate) {
+  async function runAiCommandForTab(tabId: TabLike, payload: AiRunCommandPayload, update: AiRunProgressUpdate): Promise<AiRunPollOutcome> {
     const timeoutGroup = createManagedTimeoutGroup();
     const normalizedTabId = normalizeTabId(tabId);
     const baseUrl = normalizeActivationBaseUrl(payload.baseUrl);
@@ -846,100 +847,16 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
 
       const siteId = requestedSiteId || normalizeSiteIdValue(currentConfig && currentConfig.siteId);
 
-      while (Date.now() < deadlineAt) {
-        const remainingMs = Math.max(0, deadlineAt - Date.now());
-        const pollDelayMs = Math.min(aiRunPollIntervalMs, remainingMs || aiRunPollIntervalMs);
-        await new Promise((resolve) => {
-          timeoutGroup.set(resolve, pollDelayMs);
-        });
-        if (siteId) {
-          await refreshAiRunHeartbeat({
-            tabId: normalizedTabId,
-            sessionId,
-            siteId,
-            deadlineAt,
-            baseUrl
-          }).catch(() => null);
-        }
-
-        let statusResult = null;
-        try {
-          statusResult = await requestAiRunStatus({
-            endpointValue,
-            tokenValue,
-            sessionId
-          });
-        } catch {
-          statusResult = { ok: false };
-        }
-        if (!statusResult || statusResult.notFound) {
-          return {
-            ok: false,
-            reason: "not_found",
-            error: "AI run no longer exists"
-          };
-        }
-        if (!statusResult.ok) {
-          return {
-            ok: false,
-            reason: "status_failed",
-            error: "Unable to read AI run status"
-          };
-        }
-        if (statusResult.status === "running") {
-          continue;
-        }
-        if (statusResult.status === "error") {
-          return {
-            ok: false,
-            reason: "run_error",
-            error: "AI run failed"
-          };
-        }
-
-        const resultSnapshot = await requestAiRunResultSnapshot({
-          endpointValue,
-          tokenValue,
-          sessionId
-        });
-        if (!resultSnapshot || resultSnapshot.notFound) {
-          return {
-            ok: false,
-            reason: "not_found",
-            error: "AI run no longer exists"
-          };
-        }
-        if (!resultSnapshot.ok || !resultSnapshot.payloadKey) {
-          return {
-            ok: false,
-            reason: "result_failed",
-            error: "Unable to fetch AI run result"
-          };
-        }
-
-        const selectorSet = await loadAiRunSelectorSetFromPayloadKey(resultSnapshot.payloadKey);
-        if (!selectorSet) {
-          return {
-            ok: false,
-            reason: "result_invalid",
-            error: "AI run result is invalid"
-          };
-        }
-
-        return {
-          ok: true,
-          sessionId,
-          selectorSet,
-          siteId,
-          deadlineAt
-        };
-      }
-
-      return {
-        ok: false,
-        reason: "timed_out",
-        error: "AI run timed out"
-      };
+      return await pollAiRunUntilDone({
+        sessionId,
+        siteId,
+        deadlineAt,
+        normalizedTabId,
+        baseUrl,
+        endpointValue,
+        tokenValue,
+        timeoutGroup
+      });
     } finally {
       timeoutGroup.clearAll();
       await clearPersistedAiRunRecord().catch(() => null);
@@ -949,12 +866,170 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
     }
   }
 
+type AiRunPollOutcome =
+  | { ok: true; sessionId: string; selectorSet: AiSelectorSet; siteId: number | null; deadlineAt: number }
+  | { ok: false; reason: string; error: string; reconciliationPending?: boolean; locked?: boolean; httpStatus?: number };
+
+  async function pollAiRunUntilDone({
+    sessionId,
+    siteId,
+    deadlineAt,
+    normalizedTabId,
+    baseUrl,
+    endpointValue,
+    tokenValue,
+    timeoutGroup
+  }: {
+    sessionId: string;
+    siteId: number | null;
+    deadlineAt: number;
+    normalizedTabId: number;
+    baseUrl: string;
+    endpointValue: string;
+    tokenValue: string;
+    timeoutGroup: ReturnType<typeof createManagedTimeoutGroup>;
+  }): Promise<AiRunPollOutcome> {
+    while (Date.now() < deadlineAt) {
+      const remainingMs = Math.max(0, deadlineAt - Date.now());
+      const pollDelayMs = Math.min(aiRunPollIntervalMs, remainingMs || aiRunPollIntervalMs);
+      await new Promise((resolve) => {
+        timeoutGroup.set(resolve, pollDelayMs);
+      });
+      if (siteId) {
+        await refreshAiRunHeartbeat({
+          tabId: normalizedTabId,
+          sessionId,
+          siteId,
+          deadlineAt,
+          baseUrl
+        }).catch(() => null);
+      }
+
+      let statusResult;
+      try {
+        statusResult = await requestAiRunStatus({
+          endpointValue,
+          tokenValue,
+          sessionId
+        });
+      } catch {
+        statusResult = { ok: false };
+      }
+      if (!statusResult || statusResult.notFound) {
+        return {
+          ok: false,
+          reason: "not_found",
+          error: "AI run no longer exists"
+        };
+      }
+      if (!statusResult.ok) {
+        return {
+          ok: false,
+          reason: "status_failed",
+          error: "Unable to read AI run status"
+        };
+      }
+      if (statusResult.status === "running") {
+        continue;
+      }
+      if (statusResult.status === "error") {
+        return {
+          ok: false,
+          reason: "run_error",
+          error: "AI run failed"
+        };
+      }
+
+      const resultSnapshot = await requestAiRunResultSnapshot({
+        endpointValue,
+        tokenValue,
+        sessionId
+      });
+      if (!resultSnapshot || resultSnapshot.notFound) {
+        return {
+          ok: false,
+          reason: "not_found",
+          error: "AI run no longer exists"
+        };
+      }
+      if (!resultSnapshot.ok || !resultSnapshot.payloadKey) {
+        return {
+          ok: false,
+          reason: "result_failed",
+          error: "Unable to fetch AI run result"
+        };
+      }
+
+      const selectorSet = await loadAiRunSelectorSetFromPayloadKey(resultSnapshot.payloadKey);
+      if (!selectorSet) {
+        return {
+          ok: false,
+          reason: "result_invalid",
+          error: "AI run result is invalid"
+        };
+      }
+
+      return {
+        ok: true,
+        sessionId,
+        selectorSet,
+        siteId,
+        deadlineAt
+      };
+    }
+
+    return {
+      ok: false,
+      reason: "timed_out",
+      error: "AI run timed out"
+    };
+  }
+
+  async function resumeAiCommandForTab(tabId: TabLike, payload: AiRunCommandPayload): Promise<AiRunPollOutcome> {
+    const timeoutGroup = createManagedTimeoutGroup();
+    const normalizedTabId = normalizeTabId(tabId);
+    const baseUrl = normalizeActivationBaseUrl(payload.baseUrl);
+    const sessionId = String(payload.sessionId || "").trim();
+    const siteId = normalizeSiteIdValue(payload.siteId);
+    const credentials = await resolveBackgroundNetworkCredentials({
+      endpointValue: payload && payload.endpointValue,
+      tokenValue: payload && payload.tokenValue,
+      endpointPreference: "ai"
+    });
+    const endpointValue = credentials.endpointValue;
+    const tokenValue = credentials.tokenValue;
+    const requestedDeadlineAt = Number(payload.deadlineAt);
+    const deadlineAt = Number.isFinite(requestedDeadlineAt) && requestedDeadlineAt > Date.now()
+      ? requestedDeadlineAt
+      : Date.now() + aiRunTimeoutMs;
+
+    if (!normalizedTabId || !baseUrl || !sessionId || !endpointValue || !tokenValue) {
+      return { ok: false, reason: "invalid_request", error: "Missing AI run parameters" };
+    }
+    try {
+      return await pollAiRunUntilDone({
+        sessionId,
+        siteId,
+        deadlineAt,
+        normalizedTabId,
+        baseUrl,
+        endpointValue,
+        tokenValue,
+        timeoutGroup
+      });
+    } finally {
+      timeoutGroup.clearAll();
+      await clearPersistedAiRunRecord().catch(() => null);
+    }
+  }
+
   return {
     getAiRunCurrentPageEntry,
     isAiRunCurrentPageSnapshotMissing,
     refineAiRunPayloadXpathsInBackground,
     loadAiRunSelectorSetFromPayloadKey,
     runAiCommandForTab,
+    resumeAiCommandForTab,
     setAiComputeLockForTab,
     isAiComputeLockActiveForTab,
     refreshAiRunHeartbeat,

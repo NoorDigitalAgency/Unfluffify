@@ -89,7 +89,7 @@ test("AI compute shows busy feedback and locks marking before payload work", () 
   const firstPaintIndex = body.indexOf("await waitForPopupUiPaint();", activeIndex);
   const runCommandIndex = body.indexOf("messages.requestTabRunAi(tabId, {", firstPaintIndex);
 
-  const runAiPattern = /async function runAiCommandForTab\(tabId(?:\s*:\s*[^,]+)?, payload(?:\s*:\s*[^,]+)?, update(?:\s*:\s*[^)]+)?\) \{[\s\S]*?await setAiComputeLockForTab\([\s\S]*?await prepareAiRunPayloadSnapshot\(\{/;
+  const runAiPattern = /async function runAiCommandForTab\(tabId(?:\s*:\s*[^,]+)?, payload(?:\s*:\s*[^,]+)?, update(?:\s*:\s*[^)]+)?\)(?:\s*:\s*[^{]+)? \{[\s\S]*?await setAiComputeLockForTab\([\s\S]*?await prepareAiRunPayloadSnapshot\(\{/;
 
   assert.ok(activeIndex >= 0, "AI run state should be activated");
   assert.ok(firstPaintIndex > activeIndex, "popup should yield for busy feedback before locking");
@@ -206,7 +206,7 @@ test("TAB_RUN_AI resolves omitted credentials from fresh settings reads", () => 
 test("AI compute reports specific snapshot preparation blockers", () => {
   const source = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
   const failureStart = source.indexOf("function getAiRunCommandFailureMessage");
-  const failureEnd = source.indexOf("async function continueAiRunPolling", failureStart);
+  const failureEnd = source.indexOf("async function handleComputeSelectors", failureStart);
   const computeMatch = source.match(
     /async function handleComputeSelectors\(\) \{([\s\S]*?)\n\}\n\nasync function postPageTypeAssignmentsToAiServer/
   );
@@ -322,16 +322,10 @@ test("AI run recovery heartbeat and page lock are coordinated by background", ()
     new URL("../src/content/runtime-message-handler.ts", import.meta.url),
     "utf8"
   );
-  const heartbeatMatch = popupSource.match(/async function refreshAiRunHeartbeat\(options(?:\s*:\s*[^)]+)? = \{\}\) \{/);
-  const heartbeatStart = heartbeatMatch ? heartbeatMatch.index ?? -1 : -1;
-  const heartbeatEnd = popupSource.indexOf("async function stopAiRun", heartbeatStart);
   const computeLockStart = runtimeMessageHandlerSource.indexOf('if (message.type === "setAiComputeLock") {');
   const computeLockEnd = runtimeMessageHandlerSource.indexOf('if (message.type === "closeAiPreview") {', computeLockStart);
-  assert.ok(heartbeatStart > -1);
-  assert.ok(heartbeatEnd > heartbeatStart);
   assert.ok(computeLockStart > -1);
   assert.ok(computeLockEnd > computeLockStart);
-  const popupHeartbeatBlock = popupSource.slice(heartbeatStart, heartbeatEnd);
   const contentComputeLockBlock = runtimeMessageHandlerSource.slice(computeLockStart, computeLockEnd);
 
   assert.match(
@@ -361,9 +355,11 @@ test("AI run recovery heartbeat and page lock are coordinated by background", ()
   );
   assert.match(aiRunOrchestratorSource, /const lockResult = await setAiComputeLockForTab\(tabId, true, expiresAt, baseUrl, \{ skipActivation: true \}\);/);
   assert.match(aiRunOrchestratorSource, /if \(!lockResult\.ok\) \{[\s\S]*?await clearPersistedAiRunRecord\(\);/);
-  assert.match(popupHeartbeatBlock, /type: "refreshAiRunHeartbeat"/);
-  assert.match(popupHeartbeatBlock, /state\.aiRunResumeExpiresAt = expiresAt;/);
-  assert.doesNotMatch(popupHeartbeatBlock, /savePersistedAiRunRecord|clearPersistedAiRunRecord|sendTabMessage\(\{[\s\S]*?setAiComputeLock/);
+  // Resume is owned by the background poller: the popup awaits requestTabResumeAi and never polls locally.
+  assert.match(popupSource, /messages\.requestTabResumeAi\(tabId, \{/);
+  assert.doesNotMatch(popupSource, /async function continueAiRunPolling/);
+  assert.match(backgroundSource, /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_RESUME_AI, async \(context, payload\) => \{/);
+  assert.match(aiRunOrchestratorSource, /async function resumeAiCommandForTab\(tabId(?:\s*:\s*[^,]+)?, payload(?:\s*:\s*[^)]+)?\)(?:\s*:\s*[^{]+)? \{[\s\S]*?await pollAiRunUntilDone\(/);
   assert.match(contentSource, /function beginAiPreviewMode\(options = \{\}\) \{/);
   assert.match(contentSource, /async function enterAiPreviewMode\(options = \{\}\) \{[\s\S]*?beginAiPreviewMode\(options\);[\s\S]*?await refreshSilentHighlightings\(\);/);
   assert.match(contentComputeLockBlock, /deps\.getAiPreviewComputeLockHandler\(\)\.handleMessage\(message\)/);
@@ -374,21 +370,17 @@ test("AI run start, status polling, and result transport use background messagin
   const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
   const backgroundSource = readFileSync(new URL("../src/background.ts", import.meta.url), "utf8");
   const remoteNetworkSource = readFileSync(new URL("../src/background/remote-network.ts", import.meta.url), "utf8");
+  const aiRunOrchestratorSource = readFileSync(new URL("../src/background/ai-run-orchestrator.ts", import.meta.url), "utf8");
   const statusStart = popupSource.indexOf("async function requestAiRunStatus(");
-  const statusEnd = popupSource.indexOf("async function requestAiRunResult", statusStart);
+  const statusEnd = popupSource.indexOf("async function applyComputedSelectorSet", statusStart);
   const startStart = popupSource.indexOf("async function requestAiRunStart(");
   const startEnd = popupSource.indexOf("async function requestAiRunStatus", startStart);
-  const resultStart = popupSource.indexOf("async function requestAiRunResult(");
-  const resultEnd = popupSource.indexOf("async function applyComputedSelectorSet", resultStart);
   assert.ok(statusStart > -1);
   assert.ok(statusEnd > statusStart);
   assert.ok(startStart > -1);
   assert.ok(startEnd > startStart);
-  assert.ok(resultStart > -1);
-  assert.ok(resultEnd > resultStart);
   const statusBlock = popupSource.slice(statusStart, statusEnd);
   const startBlock = popupSource.slice(startStart, startEnd);
-  const resultBlock = popupSource.slice(resultStart, resultEnd);
 
   assert.match(backgroundSource, /from "\.\/background\/remote-network"/);
   assert.match(remoteNetworkSource, /export async function requestAiRunStartSnapshot\(options = \{\}\) \{/);
@@ -409,13 +401,9 @@ test("AI run start, status polling, and result transport use background messagin
   assert.doesNotMatch(statusBlock, /endpointValue|tokenValue/);
   assert.doesNotMatch(statusBlock, /fetch\(|parseAiRunStatusResponse|maybeUpdateStoredTokenFromResponse/);
   assert.doesNotMatch(startBlock, /fetch\(computeSelectorsUrl|createConfigSyncHeaders|maybeUpdateStoredTokenFromResponse/);
-  assert.match(resultBlock, /type: "requestAiRunResultSnapshot"/);
-  assert.doesNotMatch(resultBlock, /endpointValue|tokenValue/);
-  assert.match(resultBlock, /const loaded = payloadKey\s*[\s\S]*consumeTransferPayload\(payloadKey, \{/);
-  assert.match(resultBlock, /expectedType: "object"/);
-  assert.match(resultBlock, /removeInvalid: true/);
-  assert.doesNotMatch(resultBlock, /fetch\(resultUrl|createConfigSyncHeaders|maybeUpdateStoredTokenFromResponse/);
-  assert.match(resultBlock, /selectorSet: normalizeAiSelectorSet\(data\)/);
+  // Result fetching/selector application is owned by the background orchestrator poll loop.
+  assert.match(aiRunOrchestratorSource, /const resultSnapshot = await requestAiRunResultSnapshot\(\{/);
+  assert.match(aiRunOrchestratorSource, /loadAiRunSelectorSetFromPayloadKey\(resultSnapshot\.payloadKey\)/);
 });
 
 test("selector submit GraphQL mutation and page-type assignment both use background transport", () => {

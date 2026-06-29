@@ -374,7 +374,8 @@ const BACKGROUND_COMMANDS = Object.freeze({
   TAB_BEGIN_RENDER_MODE_INSPECTION: "TAB_BEGIN_RENDER_MODE_INSPECTION",
   TAB_RUN_REVEAL_FREEZE: "TAB_RUN_REVEAL_FREEZE",
   TAB_CAPTURE_RENDER_MODE_HTML: "TAB_CAPTURE_RENDER_MODE_HTML",
-  TAB_RUN_AI: "TAB_RUN_AI"
+  TAB_RUN_AI: "TAB_RUN_AI",
+  TAB_RESUME_AI: "TAB_RESUME_AI"
 });
 const TAB_SCOPED_BACKGROUND_COMMANDS = new Set([
   BACKGROUND_COMMANDS.TAB_BOOTSTRAP_CONTENT,
@@ -390,7 +391,8 @@ const TAB_SCOPED_BACKGROUND_COMMANDS = new Set([
   BACKGROUND_COMMANDS.TAB_BEGIN_RENDER_MODE_INSPECTION,
   BACKGROUND_COMMANDS.TAB_RUN_REVEAL_FREEZE,
   BACKGROUND_COMMANDS.TAB_CAPTURE_RENDER_MODE_HTML,
-  BACKGROUND_COMMANDS.TAB_RUN_AI
+  BACKGROUND_COMMANDS.TAB_RUN_AI,
+  BACKGROUND_COMMANDS.TAB_RESUME_AI
 ]);
 const POPUP_TAB_COMMAND_POLICY = Object.freeze({
   allowedSources: [MESSAGE_SOURCES.POPUP],
@@ -1016,6 +1018,7 @@ const aiRunOrchestrator = createAiRunOrchestrator({
   createManagedTimeoutGroup
 });
 const runAiCommandForTab = aiRunOrchestrator.runAiCommandForTab;
+const resumeAiCommandForTab = aiRunOrchestrator.resumeAiCommandForTab;
 const setAiComputeLockForTab = aiRunOrchestrator.setAiComputeLockForTab;
 const isAiComputeLockActiveForTab = aiRunOrchestrator.isAiComputeLockActiveForTab;
 const refreshAiRunHeartbeat = aiRunOrchestrator.refreshAiRunHeartbeat;
@@ -2171,6 +2174,49 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_AI, async (context, payloa
         };
       }
     );
+  } finally {
+    swKeepAlive.release();
+  }
+}, POPUP_TAB_COMMAND_POLICY);
+
+registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RESUME_AI, async (context, payload) => {
+  const normalizedTabId = normalizeBrokerTabId(context.tabId);
+  if (!normalizedTabId) {
+    return context.replyFail(MESSAGE_ERROR_CODES.INVALID_TAB, "Missing tab for AI run");
+  }
+  const tab = await getBrowserTab(normalizedTabId).catch(() => null);
+  if (!tab || !tab.id) {
+    return context.replyFail(
+      MESSAGE_ERROR_CODES.INVALID_TAB,
+      "Target tab is unavailable",
+      { tabId: normalizedTabId }
+    );
+  }
+  swKeepAlive.acquire();
+  try {
+    const result = await resumeAiCommandForTab(normalizedTabId, payload);
+    if (!result || !result.ok) {
+      return context.replyFail(
+        result && result.reason === "timed_out"
+          ? MESSAGE_ERROR_CODES.TIMEOUT
+          : MESSAGE_ERROR_CODES.HANDLER_FAILED,
+        (result && result.error) || "Unable to run AI",
+        {
+          tabId: normalizedTabId,
+          reason: result && result.reason ? result.reason : "handler_failed"
+        }
+      );
+    }
+    return {
+      ok: true,
+      tabId: normalizedTabId,
+      sessionId: result.sessionId,
+      selectorSet: result.selectorSet,
+      deadlineAt: result.deadlineAt,
+      siteId: result.siteId || null,
+      runtime: getTabRuntimeSnapshot(normalizedTabId),
+      state: await utils.getTabState(normalizedTabId)
+    };
   } finally {
     swKeepAlive.release();
   }
