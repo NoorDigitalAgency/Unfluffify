@@ -1290,7 +1290,12 @@ the post-AI 8-minute button wedge at the root by making run-ai lease release
 event-driven instead of timeout-bound. User-visible: after an AI run +
 exit preview the POST_AI matrix (Run AI off; List/Save/Discard on; toggle
 locked) and all curtains/spinners resolve immediately from brain dictation, one
-writer per surface, on every layer.
+writer per surface, on every layer. The brain is also the single authority for
+the page-data lifecycle: on every real navigation/reload the background
+(brain-directed) wipes local IndexedDB + storage for the page and rebuilds it
+from the backend `/load`; discard uses the same wipe; nothing local persists
+beyond the session; there are no autonomous backend submits and no recurring
+loads.
 
 ### Current facts (verified 2026-06-29)
 
@@ -1351,14 +1356,21 @@ under the brain-derived deadline + a real network-abort timeout, reports
 completion/timeout UP). Mechanics: 13 new typed `AI_RUN_EVENT_TYPES` bus events
 on the brain bus (brain subscribes like FACTS_REPORTED); 14 big-bang per phase,
 NO feature flags (remove local authority in the same phase that adds brain
-authority; retire `centralStateDictation` once #3 lands).
+authority; retire `centralStateDictation` once #3 lands). 15 Backend-as-truth
+page-data lifecycle folded into THIS plan as explicit phases (Phase DL/D/NS), so
+one plan is the single source of truth: on every real navigation/reload the
+background wipes local IndexedDB+storage and rebuilds from the backend `/load`
+(404 ⇒ wipe local except a decided render mode), discard reuses the same wipe,
+nothing local persists beyond the session, no autonomous submits, no recurring
+loads. Supersedes the old Plan 5 `p5-*` track.
 
 ### Non-goals
 
 - The approved 5-button matrix SEMANTICS per phase (only WHERE decided moves).
 - Locked marking/highlighting + the `page-motion-freeze-*` pair.
 - Marking-edit contract: post-Discard = PRE_AI, post-Save = silent highlighting.
-- Backend-as-truth load/discard (no autonomous submits, no recurring loads).
+- The render mode, once decided, survives a backend-missing (404) wipe; all other
+  local page data does not persist beyond the session.
 - The real network-abort timeout (stays background; only its VALUE is brain-derived).
 - Property-lock / render-mode / secondary-gates deciders (already brain-owned).
 - No invented product behavior, copy, persistence, or timeouts.
@@ -1400,17 +1412,44 @@ authority; retire `centralStateDictation` once #3 lands).
   the legacy `spinnerQueue`/`activeSpinnerLease` mirror from view-projector +
   state-store. Tests: popup-marking-refresh, popup-mode-sync. Live-verify single
   writer, no flicker.
-- Phase D — #3/#4/#5 + backend-as-truth discard. Content reports preview facts
+- Phase DL — Backend-as-truth page-data lifecycle (on-load wipe + rebuild).
+  Today the wipe+rebuild only runs in the popup
+  (`popup.ts:4446 loadRemoteConfigForCurrentPage`,
+  `src/popup/remote-config.ts:329`), so it never happens when the popup is
+  closed. Move the authority to the brain/background: on every real navigation/
+  reload (webNavigation committed) to an in-scope property page, the background
+  performs a single wipe of local IndexedDB + storage for that page
+  (`src/common/storage-core.ts`, `settings-store.ts`, `config.ts`) and rebuilds
+  it from the backend `/load` via the relocated core of
+  `loadRemoteConfigForCurrentPage` + `replaceServerConfigIntoLocalSnapshot`
+  (`src/background/remote-config-sync.ts`). Backend 404 ⇒
+  `clearLocalPageMarkingsWhenRemoteIsMissing` (`remote-config.ts:192`) wipes local
+  page markings/selectors but PRESERVES a decided render mode. The brain decides
+  WHEN a load is needed (a `pageDataLoadNeeded` fact) and dictates exactly once
+  per navigation; no timers/polling re-load. Reload stays gated behind the
+  existing navigation-confirmation guard (data-loss accepted). Nothing local
+  persists beyond the session. Tests: remote-config, popup-marking-refresh, new
+  `tests/background-page-data-lifecycle.test.ts`. Live-verify: load a property
+  page with popup CLOSED → local is wiped+rebuilt from backend; 404 page → local
+  cleared except render mode.
+- Phase D — #3/#4/#5 + discard reuses the DL wipe. Content reports preview facts
   UP; brain dictates previewActive/blocked/itemsPending; brain owns INSTANT exit
   restore (same fold tick as EXITED, no flicker — if unachievable without a
   content round-trip, STOP and ask); delete popup button-matrix fallback
   (5287-5686) → neutral all-disabled when no dictation; retire
-  `centralStateDictation`; build backend-as-truth discard in `applyLocalPageDiscard`
-  (fresh `/load` via `loadRemoteConfigForCurrentPage({force:true})`, no autonomous
-  submits, offline-safe fallback) driven to PRE_AI by brain dictation, not popup-
-  local facts. Tests: popup-marking-refresh, popup-ai-run-gating,
-  ai-preview-close-handler. Live-verify discard→fresh /load→PRE_AI, instant
-  restore.
+  `centralStateDictation`; discard in `applyLocalPageDiscard` reuses the SAME
+  Phase-DL wipe+`/load` path (fresh `/load`, no autonomous submits, offline-safe
+  fallback) driven to PRE_AI by brain dictation, not popup-local facts. Tests:
+  popup-marking-refresh, popup-ai-run-gating, ai-preview-close-handler.
+  Live-verify discard→fresh /load→PRE_AI, instant restore.
+- Phase NS — No autonomous submits / no recurring loads (enforcement + guards).
+  Inventory every backend WRITE (ensure only user-initiated Save submits — no
+  autonomous submit on load/AI/preview/sync) and every backend LOAD (ensure
+  single-shot per navigation via Phase DL — remove any interval/recurring load).
+  Add regression guards (source-contract: no `setInterval`/recurring backend
+  load; no submit outside the Save path). Files: `src/popup.ts`,
+  `src/background.ts`, `src/popup/remote-config.ts`, config-sync/ai-run paths.
+  Tests: new `tests/no-autonomous-backend-io.test.ts`, remote-config.
 - Phase E — #7/#9/#11. Background reports terminal lifecycle facts UP, brain
   decides nav-inspect curtain teardown (`popup-state-broker.ts:203-281`); popup
   reports stuck-curtain past deadline UP, brain owns the bounded one-shot
@@ -1434,13 +1473,15 @@ authority; retire `centralStateDictation` once #3 lands).
 
 Per phase focused: ai-run-events (new), session-state-reporting, ai-run,
 popup-ai-run-gating, popup-marking-refresh, popup-mode-sync,
-ai-preview-close-handler, property-lock (no regress). Update source-contract
+ai-preview-close-handler, remote-config, background-page-data-lifecycle (new),
+no-autonomous-backend-io (new), property-lock (no regress). Update source-contract
 regex in the SAME phase that rewrites a body (use `[\s\S]*?` across comments).
 Full gate each major phase + Phase G: `pnpm lint && pnpm check && pnpm test &&
-pnpm build`. Live (B,C,D,E,F): `pnpm browser:live https://bonliva.no` (managed
+pnpm build`. Live (B,C,DL,D,E,F): `pnpm browser:live https://bonliva.no` (managed
 Chromium; reload SW after rebuild): marking → run AI → exit → save/discard;
 assert POST_AI matrix immediate, no stuck curtain, page overlay clears, discard→
-fresh /load→PRE_AI, save→silent highlighting.
+fresh /load→PRE_AI, save→silent highlighting; load a page with popup CLOSED →
+local wiped+rebuilt from backend; 404 page → local cleared except render mode.
 
 ### Regression risks (highest first)
 
@@ -1464,9 +1505,14 @@ button matrix is dictation-only (neutral disabled when absent); preview state +
 instant restore brain-dictated; nav-inspect teardown + stale fail-open + page
 inspection UI are brain decisions (only the 1s countdown stays a local clock);
 silent-highlight on/off brain-gated; discard→fresh /load→PRE_AI, save→silent
-highlighting; full gate green.
+highlighting; every real navigation/reload wipes local IndexedDB+storage and
+rebuilds from the backend even with the popup closed; backend 404 ⇒ local
+cleared except a decided render mode; nothing local persists beyond the session;
+no autonomous backend submits and no recurring loads anywhere; full gate green.
 
 ### Todo chain
 
-Session DB todos `ar-phase0`..`ar-phaseG` (dependency-chained) mirror Phases
-0..G; each is executable from its phase section without rereading the whole plan.
+Session DB todos `ar-phase0, A, B, C, DL, D, NS, E, F, G` (dependency-chained)
+mirror the phases above; each is executable from its phase section without
+rereading the whole plan. This is the single source of truth for run-plan; the
+older Plan 5 `p5-*` todos are superseded (folded into Phase DL/D/NS).
