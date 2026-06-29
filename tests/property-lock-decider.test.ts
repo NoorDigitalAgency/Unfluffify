@@ -95,3 +95,44 @@ test("property-lock decider preserves snapshot-backed branches without inventing
   assert.equal(passiveExpiry.timerState?.source, PROPERTY_LOCK_TIMER_SOURCES.SNAPSHOT);
   assert.equal(passiveExpiry.viewState.propertyLockStatusText, "This property will be released for editing in 9s");
 });
+
+test("property-lock decider owns inactivity and transfer timer modes from the snapshot", () => {
+  const inactivity = derivePropertyLockViewState(
+    createDeps(),
+    createInput({
+      propertyLockInactivityWarningVisible: true,
+      propertyLockSecondsRemaining: 12
+    })
+  );
+  assert.equal(inactivity.timerState?.kind, PROPERTY_LOCK_TIMER_KINDS.INACTIVITY);
+  assert.equal(inactivity.timerState?.source, PROPERTY_LOCK_TIMER_SOURCES.SNAPSHOT);
+  assert.equal(inactivity.timerState?.secondsRemaining, 12);
+  assert.equal(inactivity.viewState.propertyLockContinueVisible, true);
+
+  const transfer = derivePropertyLockViewState(
+    createDeps(),
+    createInput({
+      propertyLockTransferCountdown: 8,
+      lockState: {
+        ...createInactiveLockState(),
+        transferFromName: "Alex",
+        transferToName: "Sam"
+      }
+    })
+  );
+  assert.equal(transfer.timerState?.kind, PROPERTY_LOCK_TIMER_KINDS.TRANSFER);
+  assert.equal(transfer.timerState?.source, PROPERTY_LOCK_TIMER_SOURCES.SNAPSHOT);
+  assert.equal(transfer.timerState?.secondsRemaining, 8);
+});
+
+test("property-lock decider suppresses the disconnect timer during render-mode inspection", () => {
+  const reconnecting = derivePropertyLockViewState(
+    createDeps(),
+    createInput({
+      propertyLockDisconnectCountdown: 17,
+      renderModeInspectionActive: true
+    })
+  );
+  assert.equal(reconnecting.timerState, null);
+  assert.equal(reconnecting.viewState.propertyLockStatusText, propertyLockText.popupInspectionReconnecting);
+});
