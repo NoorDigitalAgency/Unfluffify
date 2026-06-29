@@ -76,6 +76,16 @@ test("post-AI phase locks content marking edits through the brain directive", ()
     contentCoreSource,
     /const temporarilyDisabledReason = getMarkingTemporarilyDisabledReason\(\);[\s\S]*if \(temporarilyDisabledReason\) \{[\s\S]*return;/
   );
+  // The blocked-marking toast wording reflects the brain directive reason
+  // (saving/syncing => reconciliation copy) rather than a local reconciliation read.
+  assert.match(
+    contentCoreSource,
+    /if \(temporarilyDisabledReason\) \{[\s\S]*?showToast\(\s*temporarilyDisabledReason === "saving" \|\| temporarilyDisabledReason === "syncing"\s*\?\s*ContentText\.marking\.saveReconciliationBlocked\s*:\s*ContentText\.marking\.temporarilyDisabled\s*\);/
+  );
+  const toggleEventStart = contentCoreSource.indexOf("function handleToggleEvent(");
+  assert.ok(toggleEventStart > -1, "handleToggleEvent must exist");
+  const toggleEventBody = contentCoreSource.slice(toggleEventStart, toggleEventStart + 900);
+  assert.doesNotMatch(toggleEventBody, /isPageSaveReconciliationPending\(/);
 });
 
 test("an AI run computes selectors locally and does not auto-sync to the server", () => {

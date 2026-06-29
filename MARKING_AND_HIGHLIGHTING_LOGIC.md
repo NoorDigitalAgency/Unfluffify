@@ -468,7 +468,10 @@ reason `post_ai`) and a pending page-save reconciliation (reason `saving` or
 locally; it only reports the reconciliation pending flag and its raw reason up to
 the brain. The silent-highlight editor-preparation reconciliation
 (`pageSaveReconciliationReason === "editor_preparing"`) is exempt brain-side and
-never raises this overlay.
+never raises this overlay. The blocked-interaction toast shown when a user tries
+to mark while disabled also reflects the directive reason — `saving`/`syncing`
+show the reconciliation copy, `post_ai` shows the generic temporarily-disabled
+copy — so no marking-block path re-reads local reconciliation state.
 
 ## Self-Markability
 

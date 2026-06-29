@@ -1826,3 +1826,43 @@ is unchanged. Full gate green.
 Session DB todos `ar-phaseH` → `ar-phaseI` → `ar-phaseK` (chained; K depends on
 H and I), plus `ar-phaseJ` (confirm-only, depends on nothing). Each is executable
 from its phase section without rereading the whole plan.
+
+## Audit 3 — Full-codebase brain-authority verification (complete)
+
+A third full sweep (parallel popup/content/background enumeration + direct
+verification of every load-bearing reflection path) confirmed the brain-authority
+refactor is complete. No new session-UI-state drift was found.
+
+### Verified brain-dictated + reflected (no drift)
+
+5-button matrix, session curtain, preview gating (`applyCentralSessionDictation`
+applies the brain patch last, overriding local compute), secondary gates
+(`Object.assign` from projection), property-lock view/timer, render-mode
+directive, silent-highlight activation, marking-edits-blocked (+reason, post_ai &
+reconciliation), AI-run phase/busy/lease/deadline, session phase. The popup
+`toggleEnabled`/`isEnabled` is the content-owned `markingEnabled` fact reported
+up, not local button authority; the button disabled state comes from the brain.
+
+### Sanctioned local-by-design (correctly NOT brain-dictated)
+
+- Popup configuration/auth surfaces (login, base-URL, render-mode setup,
+  page-type setup, theme/endpoint) — per-popup config, not per-tab session state.
+- Global-operation spinner/lease + lifecycle curtain — the service-worker broker
+  owns operation leases by design (`popup-state-broker`, `spinner-operations`);
+  popup renders broker state. Distinct from the brain session curtain.
+- Display-only: 1s countdown clock, busy/idle button text labels.
+- Content DOM/cursor/input mechanics, page scan/motion-pause/settle/reveal,
+  network/storage I/O.
+- Property-lock collaborative live-editor enforcement (latency-sensitive;
+  sanctioned KEEP #4/#18).
+- Fail-open safety timers (preview-restore fallback, stale-inspection).
+
+### Converted residual (the one clean loose end)
+
+The blocked-marking toast wording (`src/content/core.ts` `handleToggleEvent`)
+read a local `isPageSaveReconciliationPending` instead of the brain directive
+reason — Phase I had deferred it. Converted to reflect `temporarilyDisabledReason`
+(saving/syncing → reconciliation copy, post_ai → generic copy), which also fixes a
+latent toast/overlay inconsistency in the post_ai+save co-occurrence. Docs
+(`MARKING_AND_HIGHLIGHTING_LOGIC.md`, `.copilot/knowledge.md`) and the
+`tests/popup-ai-run-gating.test.ts` source-contract updated. Full gate green.

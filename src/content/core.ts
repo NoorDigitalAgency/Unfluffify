@@ -8448,8 +8448,11 @@ function handleToggleEvent(event: MouseEvent): void {
   const temporarilyDisabledReason = getMarkingTemporarilyDisabledReason();
   if (temporarilyDisabledReason) {
     updateMarkingTemporarilyDisabledUi();
+    // Brain-dictated: the reconciliation block reasons (saving/syncing) get the
+    // reconciliation copy; post_ai gets the generic temporarily-disabled copy.
+    // Reflect the directive reason rather than re-reading local reconciliation.
     showToast(
-      isPageSaveReconciliationPending(location.href)
+      temporarilyDisabledReason === "saving" || temporarilyDisabledReason === "syncing"
         ? ContentText.marking.saveReconciliationBlocked
         : ContentText.marking.temporarilyDisabled
     );
