@@ -459,6 +459,17 @@ feedback, switches to a progress cursor, and shows a persistent `aria-live`
 status notice that marking is paused. The notice is extension UI and is stripped
 from saved snapshots with the rest of the overlay.
 
+The decision to enter this state is brain-dictated. The background view-projector
+composes both causes — the post-AI/preview lock (`aiRunPhase` POST_AI/AI_PREVIEW,
+reason `post_ai`) and a pending page-save reconciliation (reason `saving` or
+`syncing`) — into the content directive's `markingEditsBlocked` and
+`markingEditsBlockedReason`. Content reflects the directive via
+`getMarkingEditsBlockedReasonByDirective()` and never re-derives the block
+locally; it only reports the reconciliation pending flag and its raw reason up to
+the brain. The silent-highlight editor-preparation reconciliation
+(`pageSaveReconciliationReason === "editor_preparing"`) is exempt brain-side and
+never raises this overlay.
+
 ## Self-Markability
 
 An element is self-markable when it is a textual container and is not blocked by

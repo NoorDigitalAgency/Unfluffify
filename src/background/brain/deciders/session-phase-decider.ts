@@ -1,6 +1,8 @@
 import {
   AI_RUN_PHASES,
+  PAGE_SAVE_RECONCILIATION_REASONS,
   SESSION_PHASES,
+  normalizePageSaveReconciliationReason,
   type SessionDictation,
   type SessionAiRunPhase,
   type SessionFacts,
@@ -42,6 +44,7 @@ const DEFAULT_SESSION_FACTS: SessionFacts = Object.freeze({
   sessionRequiresAiRun: false,
   currentDraftDirty: false,
   pageSaveReconciliationPending: false,
+  pageSaveReconciliationReason: PAGE_SAVE_RECONCILIATION_REASONS.NONE,
   propertyLockBlocked: false,
   saving: false,
   discarding: false,
@@ -231,6 +234,12 @@ export function applySessionFactsPatch(
 
   if (Object.prototype.hasOwnProperty.call(patch, "aiRunPhase")) {
     nextFacts.aiRunPhase = normalizeSessionAiRunPhase(patch.aiRunPhase);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(patch, "pageSaveReconciliationReason")) {
+    nextFacts.pageSaveReconciliationReason = normalizePageSaveReconciliationReason(
+      patch.pageSaveReconciliationReason
+    );
   }
 
   // Brain composes the distinct AI_PREVIEW phase from the reported run-completion

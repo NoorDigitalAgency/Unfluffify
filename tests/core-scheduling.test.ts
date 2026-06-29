@@ -722,7 +722,7 @@ test("marking mode surfaces temporary disabled state while save sync blocks edit
   assert.match(source, /disabledNotice\.setAttribute\("aria-live", "polite"\);/);
   assert.match(
     source,
-    /function getMarkingTemporarilyDisabledReason\(\) \{[\s\S]*?const pageUrl = typeof location !== "undefined" \? location\.href : "";[\s\S]*?getPageSaveReconciliationState\(pageUrl\)[\s\S]*?const reason =[\s\S]*?config\.isPageSaveReconciliationPending\(reconciliation\)[\s\S]*?return reason \|\| "pending";/
+    /function getMarkingTemporarilyDisabledReason\(\) \{[\s\S]*?return getMarkingEditsBlockedReasonByDirective\(\);[\s\S]*?\}/
   );
   assert.match(source, /function updateMarkingTemporarilyDisabledUi\(\) \{[\s\S]*?classList\.toggle\(MARKING_DISABLED_OVERLAY_CLASS, disabled\)[\s\S]*?setAttribute\("aria-disabled", "true"\)[\s\S]*?clearLayer\(state\.layers\["hover"\]\)[\s\S]*?getMarkingTemporarilyDisabledMessage\(reason\)/);
   assert.match(source, /function getMarkMode\(\s*\)(?:: [^{]+)? \{[\s\S]*?isMarkingTemporarilyDisabled\(\)[\s\S]*?return "disabled";[\s\S]*?state\.altPassThrough/);

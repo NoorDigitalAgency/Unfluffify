@@ -124,6 +124,7 @@ import { createPageSaveReconciliationPendingHandler } from "./content/page-save-
 import { initializePageWorldRelay } from "./content/page-world-relay";
 import { createPageToast } from "./content/page-toast";
 import { handleContentBusMessage, publishContentSessionFacts, startContentBusClient } from "./content/layers/content-bus-client";
+import { normalizePageSaveReconciliationReason } from "./common/bus/contracts/session-state";
 import {
   addContentDirectiveListener,
   isSilentHighlightActiveByDirective
@@ -7127,8 +7128,11 @@ export function main() {
   registerContentCommandHandlersOnce();
   subscribePageActivity(sendPropertyLockActivity);
   core.setPageInspectionUiSettledListener(notifyInspectionSettled);
-  core.setPageSaveReconciliationFactReporter((pending) => {
-    void publishContentSessionFacts({ pageSaveReconciliationPending: pending });
+  core.setPageSaveReconciliationFactReporter((pending, reason) => {
+    void publishContentSessionFacts({
+      pageSaveReconciliationPending: pending,
+      pageSaveReconciliationReason: normalizePageSaveReconciliationReason(reason)
+    });
   });
   startContentBusClient({
     renderModeHandlers: {

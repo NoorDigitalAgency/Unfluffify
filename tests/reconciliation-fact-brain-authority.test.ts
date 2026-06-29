@@ -13,20 +13,20 @@ test("core exposes a reconciliation fact reporter and fires it on set/clear/refr
   const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
   assert.match(
     source,
-    /export function setPageSaveReconciliationFactReporter\(\s*reporter: \(\(pending: boolean\) => void\) \| null\s*\): void \{/
+    /export function setPageSaveReconciliationFactReporter\(\s*reporter: \(\(pending: boolean, reason: string\) => void\) \| null\s*\): void \{/
   );
   const setStart = source.indexOf("export async function setPageSaveReconciliationPending(");
   assert.ok(setStart > -1, "setPageSaveReconciliationPending must exist");
   const setBody = source.slice(setStart, setStart + 800);
-  assert.match(setBody, /reportPageSaveReconciliationFact\(isPageSaveReconciliationPending\(pageUrl\)\);/);
+  assert.match(setBody, /reportPageSaveReconciliationFact\(\s*isPageSaveReconciliationPending\(pageUrl\),\s*getPageSaveReconciliationReason\(pageUrl\)\s*\);/);
   const clearStart = source.indexOf("export async function clearPageSaveReconciliation(");
   assert.ok(clearStart > -1, "clearPageSaveReconciliation must exist");
   const clearBody = source.slice(clearStart, clearStart + 800);
-  assert.match(clearBody, /reportPageSaveReconciliationFact\(isPageSaveReconciliationPending\(pageUrl\)\);/);
+  assert.match(clearBody, /reportPageSaveReconciliationFact\(\s*isPageSaveReconciliationPending\(pageUrl\),\s*getPageSaveReconciliationReason\(pageUrl\)\s*\);/);
   const refreshStart = source.indexOf("export async function refreshPageSaveReconciliation(");
   assert.ok(refreshStart > -1, "refreshPageSaveReconciliation must exist");
   const refreshBody = source.slice(refreshStart, refreshStart + 800);
-  assert.match(refreshBody, /reportPageSaveReconciliationFact\(isPageSaveReconciliationPending\(pageUrl\)\);/);
+  assert.match(refreshBody, /reportPageSaveReconciliationFact\(\s*isPageSaveReconciliationPending\(pageUrl\),\s*getPageSaveReconciliationReason\(pageUrl\)\s*\);/);
 });
 
 test("content-main wires the reporter to publishContentSessionFacts", () => {
@@ -34,7 +34,7 @@ test("content-main wires the reporter to publishContentSessionFacts", () => {
   assert.match(source, /publishContentSessionFacts/);
   assert.match(
     source,
-    /core\.setPageSaveReconciliationFactReporter\(\(pending\) => \{\s*void publishContentSessionFacts\(\{ pageSaveReconciliationPending: pending \}\);/
+    /core\.setPageSaveReconciliationFactReporter\(\(pending, reason\) => \{\s*void publishContentSessionFacts\(\{\s*pageSaveReconciliationPending: pending,\s*pageSaveReconciliationReason: normalizePageSaveReconciliationReason\(reason\)\s*\}\);/
   );
 });
 

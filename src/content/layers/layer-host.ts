@@ -5,6 +5,7 @@ import { clearContentSpinner, renderContentSpinner } from "./spinner-layer";
 export type ContentDirectiveLike = {
   version?: unknown;
   markingEditsBlocked?: unknown;
+  markingEditsBlockedReason?: unknown;
   silentHighlightActive?: unknown;
 };
 
@@ -66,6 +67,14 @@ export function getLatestContentDirective(): ContentDirectiveLike | null {
 
 export function isMarkingEditsBlockedByDirective(): boolean {
   return latestContentDirective?.markingEditsBlocked === true;
+}
+
+export function getMarkingEditsBlockedReasonByDirective(): string {
+  if (latestContentDirective?.markingEditsBlocked !== true) {
+    return "";
+  }
+  const reason = latestContentDirective?.markingEditsBlockedReason;
+  return typeof reason === "string" ? reason : "";
 }
 
 export function isSilentHighlightActiveByDirective(): boolean {

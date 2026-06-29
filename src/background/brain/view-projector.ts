@@ -6,7 +6,7 @@ import type {
 import type { SecondaryGatesViewState } from "../../common/bus/contracts/secondary-gates-state";
 import { LIFECYCLE_KINDS } from "../../common/world-messaging-contract";
 import type { PopupViewEnvelope } from "../../common/bus/contracts/popup-state";
-import { AI_RUN_PHASES } from "../../common/bus/contracts/session-state";
+import { AI_RUN_PHASES, PAGE_SAVE_RECONCILIATION_REASONS } from "../../common/bus/contracts/session-state";
 import type { TabLayerState } from "./state-store";
 
 export type PopupView = PopupViewEnvelope;
@@ -16,6 +16,7 @@ export type ContentDirective = Readonly<{
   activation: ActivationSnapshot;
   renderMode: RenderModeDirectiveState;
   markingEditsBlocked: boolean;
+  markingEditsBlockedReason: string;
   silentHighlightActive: boolean;
 }>;
 
@@ -182,6 +183,28 @@ export function projectViews(state: TabLayerState): {
 } {
   const activation = cloneActivationSnapshot(state.activation);
   const renderMode = cloneRenderModeViewState(state.renderMode);
+  // The brain is the sole authority for the marking-edits-blocked overlay: it
+  // composes both causes (post-AI lock and save reconciliation) into one
+  // directive reason so content only reflects it. The silent-highlight editor
+  // preparation reconciliation is exempt and must never raise the overlay.
+  const aiRunMarkingBlocked = Boolean(
+    state.sessionFactsReported &&
+      (state.sessionFacts.aiRunPhase === AI_RUN_PHASES.POST_AI ||
+        state.sessionFacts.aiRunPhase === AI_RUN_PHASES.AI_PREVIEW)
+  );
+  const reconciliationMarkingBlocked = Boolean(
+    state.sessionFactsReported &&
+      state.sessionFacts.pageSaveReconciliationPending &&
+      state.sessionFacts.pageSaveReconciliationReason !== PAGE_SAVE_RECONCILIATION_REASONS.EDITOR_PREPARING
+  );
+  const markingEditsBlocked = aiRunMarkingBlocked || reconciliationMarkingBlocked;
+  const markingEditsBlockedReason = aiRunMarkingBlocked
+    ? "post_ai"
+    : reconciliationMarkingBlocked
+      ? (state.sessionFacts.pageSaveReconciliationReason === PAGE_SAVE_RECONCILIATION_REASONS.SAVING
+        ? "saving"
+        : "syncing")
+      : "";
   return {
     popupView: {
       version: state.version,
@@ -206,11 +229,8 @@ export function projectViews(state: TabLayerState): {
       version: state.version,
       activation,
       renderMode: cloneRenderModeDirectiveState(state.renderMode),
-      markingEditsBlocked: Boolean(
-        state.sessionFactsReported &&
-          (state.sessionFacts.aiRunPhase === AI_RUN_PHASES.POST_AI ||
-            state.sessionFacts.aiRunPhase === AI_RUN_PHASES.AI_PREVIEW)
-      ),
+      markingEditsBlocked,
+      markingEditsBlockedReason,
       silentHighlightActive: shouldActivateSilentHighlighting(state),
     },
   };

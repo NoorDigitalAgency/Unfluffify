@@ -66,11 +66,11 @@ test("a successful AI run captures the markings fingerprint", () => {
 test("post-AI phase locks content marking edits through the brain directive", () => {
   assert.match(
     viewProjectorSource,
-    /markingEditsBlocked: Boolean\([\s\S]*state\.sessionFacts\.aiRunPhase === AI_RUN_PHASES\.POST_AI/
+    /const aiRunMarkingBlocked = Boolean\([\s\S]*?state\.sessionFacts\.aiRunPhase === AI_RUN_PHASES\.POST_AI/
   );
   assert.match(
     contentCoreSource,
-    /if \(isMarkingEditsBlockedByDirective\(\)\) \{\s*return "post_ai";\s*\}/
+    /function getMarkingTemporarilyDisabledReason\(\) \{[\s\S]*?return getMarkingEditsBlockedReasonByDirective\(\);[\s\S]*?\}/
   );
   assert.match(
     contentCoreSource,

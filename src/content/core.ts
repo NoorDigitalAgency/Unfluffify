@@ -41,7 +41,7 @@ import {
 import { PAGE_WORLD_COMMANDS } from "../common/page-world-protocol";
 import {
   addContentDirectiveListener,
-  isMarkingEditsBlockedByDirective
+  getMarkingEditsBlockedReasonByDirective
 } from "./layers/layer-host";
 
 type TimerHandle = number;
@@ -884,7 +884,6 @@ const EXTENSION_SNAPSHOT_ROOT_CLASSES = [
 ];
 const AI_PREVIEW_FOCUS_CLASS = "uf-ai-preview-focus-target";
 const AI_PREVIEW_FOCUS_STYLE_ID = "unfluffify-ai-preview-focus-style";
-const SILENT_HIGHLIGHTING_PREPARATION_REASON = "editor_preparing";
 
 const capturedExtensionTimers: ExtensionTimerMap = (() => {
   const root = (typeof window !== "undefined" ? window : globalThis) as typeof globalThis & ExtensionTimerHost;
@@ -6986,20 +6985,29 @@ export function setPageInspectionUiSettledListener(listener: (() => void) | null
   pageInspectionUiSettledListener = listener;
 }
 
-// The brain owns the reconciliation-pending session fact; content only reports the
-// save lifecycle (set on save, clear on sync/discard). Content never decides UI
-// dictation from this flag, so this reporter is the single content->brain bridge.
-let pageSaveReconciliationFactReporter: ((pending: boolean) => void) | null = null;
+// The brain owns the reconciliation-pending session fact and the marking-edits
+// overlay reason; content only reports the save lifecycle (set on save, clear on
+// sync/discard) plus the raw reconciliation reason. Content never decides UI
+// dictation from these, so this reporter is the single content->brain bridge.
+let pageSaveReconciliationFactReporter: ((pending: boolean, reason: string) => void) | null = null;
 
 export function setPageSaveReconciliationFactReporter(
-  reporter: ((pending: boolean) => void) | null
+  reporter: ((pending: boolean, reason: string) => void) | null
 ): void {
   pageSaveReconciliationFactReporter = reporter;
 }
 
-function reportPageSaveReconciliationFact(pending: boolean): void {
+function getPageSaveReconciliationReason(pageUrl = location.href): string {
+  const reconciliation = getPageSaveReconciliationState(pageUrl);
+  const reason = reconciliation && typeof (reconciliation as { reason?: unknown }).reason === "string"
+    ? (reconciliation as { reason: string }).reason
+    : "";
+  return reason;
+}
+
+function reportPageSaveReconciliationFact(pending: boolean, reason: string): void {
   if (pageSaveReconciliationFactReporter) {
-    pageSaveReconciliationFactReporter(pending);
+    pageSaveReconciliationFactReporter(pending, reason);
   }
 }
 
@@ -7132,21 +7140,11 @@ function showToast(message: string): void {
 }
 
 function getMarkingTemporarilyDisabledReason() {
-  if (isMarkingEditsBlockedByDirective()) {
-    return "post_ai";
-  }
-  const pageUrl = typeof location !== "undefined" ? location.href : "";
-  const reconciliation = pageUrl ? getPageSaveReconciliationState(pageUrl) : null;
-  const reason = reconciliation && typeof reconciliation === "object" && typeof (reconciliation as { reason?: unknown }).reason === "string"
-    ? (reconciliation as { reason: string }).reason
-    : "";
-  if (config.isPageSaveReconciliationPending(reconciliation)) {
-    if (reason === SILENT_HIGHLIGHTING_PREPARATION_REASON) {
-      return "";
-    }
-    return reason || "pending";
-  }
-  return "";
+  // Brain-dictated: the marking-edits-blocked overlay reason (post_ai / saving /
+  // syncing) is composed entirely by the background view-projector and reflected
+  // here. The silent-highlight editor-preparation reconciliation is exempt
+  // brain-side, so this never raises the overlay during that preparation.
+  return getMarkingEditsBlockedReasonByDirective();
 }
 
 function getMarkingTemporarilyDisabledMessage(reason: string): string {
@@ -10342,7 +10340,10 @@ export async function refreshPageSaveReconciliation(baseUrl = state.baseUrl, pag
   }
   const reconciliation = await config.getPageSaveReconciliation(baseUrl, pageUrl);
   state.pageSaveReconciliation = reconciliation;
-  reportPageSaveReconciliationFact(isPageSaveReconciliationPending(pageUrl));
+  reportPageSaveReconciliationFact(
+    isPageSaveReconciliationPending(pageUrl),
+    getPageSaveReconciliationReason(pageUrl)
+  );
   updateMarkingTemporarilyDisabledUi();
   return reconciliation;
 }
@@ -10359,7 +10360,10 @@ export async function setPageSaveReconciliationPending(
     reason: typeof options.reason === "string" ? options.reason : "pending"
   });
   state.pageSaveReconciliation = reconciliation;
-  reportPageSaveReconciliationFact(isPageSaveReconciliationPending(pageUrl));
+  reportPageSaveReconciliationFact(
+    isPageSaveReconciliationPending(pageUrl),
+    getPageSaveReconciliationReason(pageUrl)
+  );
   updateMarkingTemporarilyDisabledUi();
   notifyDraftStatus(pageUrl);
   return reconciliation;
@@ -10373,7 +10377,10 @@ export async function clearPageSaveReconciliation(baseUrl = state.baseUrl, pageU
   if (!current || !pageUrl || current.pageUrl === pageUrl) {
     state.pageSaveReconciliation = null;
   }
-  reportPageSaveReconciliationFact(isPageSaveReconciliationPending(pageUrl));
+  reportPageSaveReconciliationFact(
+    isPageSaveReconciliationPending(pageUrl),
+    getPageSaveReconciliationReason(pageUrl)
+  );
   updateMarkingTemporarilyDisabledUi();
   notifyDraftStatus(pageUrl);
 }

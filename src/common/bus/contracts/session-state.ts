@@ -28,6 +28,33 @@ export const AI_RUN_PHASES = Object.freeze({
 
 export type SessionAiRunPhase = (typeof AI_RUN_PHASES)[keyof typeof AI_RUN_PHASES];
 
+export const PAGE_SAVE_RECONCILIATION_REASONS = Object.freeze({
+  NONE: "",
+  SAVING: "saving",
+  SYNCING: "syncing",
+  EDITOR_PREPARING: "editor_preparing",
+} as const);
+
+export type PageSaveReconciliationReason =
+  (typeof PAGE_SAVE_RECONCILIATION_REASONS)[keyof typeof PAGE_SAVE_RECONCILIATION_REASONS];
+
+// Normalizes the raw content-side reconciliation reason (e.g. "pending") into the
+// typed brain fact. Only "saving" and "editor_preparing" are preserved verbatim;
+// any other non-empty reason collapses to "syncing" so the brain has a single
+// derived overlay reason to project.
+export function normalizePageSaveReconciliationReason(value: unknown): PageSaveReconciliationReason {
+  if (value === PAGE_SAVE_RECONCILIATION_REASONS.SAVING) {
+    return PAGE_SAVE_RECONCILIATION_REASONS.SAVING;
+  }
+  if (value === PAGE_SAVE_RECONCILIATION_REASONS.EDITOR_PREPARING) {
+    return PAGE_SAVE_RECONCILIATION_REASONS.EDITOR_PREPARING;
+  }
+  if (typeof value === "string" && value !== "") {
+    return PAGE_SAVE_RECONCILIATION_REASONS.SYNCING;
+  }
+  return PAGE_SAVE_RECONCILIATION_REASONS.NONE;
+}
+
 export const BUTTON_IDS = Object.freeze({
   TOGGLE_ENABLED: "toggle-enabled",
   COMPUTE: "compute",
@@ -98,6 +125,7 @@ export type SessionFacts = Readonly<{
   sessionRequiresAiRun: boolean;
   currentDraftDirty: boolean;
   pageSaveReconciliationPending: boolean;
+  pageSaveReconciliationReason: PageSaveReconciliationReason;
   propertyLockBlocked: boolean;
   saving: boolean;
   discarding: boolean;
