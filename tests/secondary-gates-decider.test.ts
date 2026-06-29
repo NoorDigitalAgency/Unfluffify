@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { deriveSecondaryGatesViewState } from "../src/background/brain/deciders/secondary-gates-decider.js";
+import { AI_RUN_PHASES } from "../src/common/bus/contracts/session-state.js";
 
 function buildFacts(overrides = {}) {
   return {
@@ -20,6 +21,7 @@ function buildFacts(overrides = {}) {
     aiReady: true,
     aiBusy: false,
     aiComputing: false,
+    aiRunPhase: AI_RUN_PHASES.PRE_AI,
     aiRunUpToDate: true,
     previewActive: false,
     previewBlocked: false,

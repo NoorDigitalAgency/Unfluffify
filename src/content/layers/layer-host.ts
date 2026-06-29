@@ -4,10 +4,18 @@ import { clearContentSpinner, renderContentSpinner } from "./spinner-layer";
 
 type ContentDirectiveLike = {
   version?: unknown;
+  markingEditsBlocked?: unknown;
 };
 
 let contentLayerHostStarted = false;
 let latestContentDirective: ContentDirectiveLike | null = null;
+const contentDirectiveListeners = new Set<(directive: ContentDirectiveLike | null) => void>();
+
+function notifyContentDirectiveListeners(): void {
+  for (const listener of contentDirectiveListeners) {
+    listener(latestContentDirective);
+  }
+}
 
 export function startContentLayerHost(bus: Bus): () => void {
   if (contentLayerHostStarted) {
@@ -17,6 +25,7 @@ export function startContentLayerHost(bus: Bus): () => void {
   const unsubscribes = [
     bus.subscribe("directive.content", (payload) => {
       latestContentDirective = payload && typeof payload === "object" ? payload as ContentDirectiveLike : null;
+      notifyContentDirectiveListeners();
     }),
     bus.subscribe(SPINNER_EVENT_TYPES.SET, (payload) => {
       if (!payload || typeof payload !== "object") {
@@ -42,6 +51,8 @@ export function startContentLayerHost(bus: Bus): () => void {
 
   return () => {
     contentLayerHostStarted = false;
+    latestContentDirective = null;
+    notifyContentDirectiveListeners();
     for (const unsubscribe of unsubscribes) {
       unsubscribe();
     }
@@ -50,4 +61,17 @@ export function startContentLayerHost(bus: Bus): () => void {
 
 export function getLatestContentDirective(): ContentDirectiveLike | null {
   return latestContentDirective;
+}
+
+export function isMarkingEditsBlockedByDirective(): boolean {
+  return latestContentDirective?.markingEditsBlocked === true;
+}
+
+export function addContentDirectiveListener(
+  listener: (directive: ContentDirectiveLike | null) => void
+): () => void {
+  contentDirectiveListeners.add(listener);
+  return () => {
+    contentDirectiveListeners.delete(listener);
+  };
 }

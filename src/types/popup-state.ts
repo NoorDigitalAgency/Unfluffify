@@ -6,6 +6,7 @@ import type {
 } from "./config.ts";
 import type { Browser } from "../common/browser";
 import type { PopupTraceEvent } from "../common/bus/contracts/popup-state";
+import type { SessionAiRunPhase } from "../common/bus/contracts/session-state";
 
 export type PopupTone = "muted" | "success" | "warning" | "danger";
 export type PopupView = "Loading" | "Configuration" | "Marking";
@@ -49,6 +50,7 @@ export interface PopupPreviewMarkingSessionSnapshot {
   currentDraftAvailable: boolean;
   currentPageSaveReconciliation: PageSaveReconciliation | null;
   currentPageSaveReconciliationPending: boolean;
+  sessionAiRunPhase: SessionAiRunPhase;
   aiRunMarkingsFingerprint: string | null;
   aiSelectorsComputedSinceLastSubmit: boolean;
   aiSelectorsComputedBaseUrl: string;
@@ -84,6 +86,7 @@ export interface PopupState {
   aiRunCountdownTimer: number;
   aiRunResumeCheckKey: string;
   aiRunResumeInFlight: boolean;
+  sessionAiRunPhase: SessionAiRunPhase;
   aiSelectorsComputedSinceLastSubmit: boolean;
   aiSelectorsComputedBaseUrl: string;
   selectorsPendingConfigSync: boolean;

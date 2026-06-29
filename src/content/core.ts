@@ -39,6 +39,10 @@ import {
   requestPageWorldCommand
 } from "./page-world-relay";
 import { PAGE_WORLD_COMMANDS } from "../common/page-world-protocol";
+import {
+  addContentDirectiveListener,
+  isMarkingEditsBlockedByDirective
+} from "./layers/layer-host";
 
 type TimerHandle = number;
 type AnimationFrameHandle = number;
@@ -7116,6 +7120,9 @@ function showToast(message: string): void {
 }
 
 function getMarkingTemporarilyDisabledReason() {
+  if (isMarkingEditsBlockedByDirective()) {
+    return "post_ai";
+  }
   const pageUrl = typeof location !== "undefined" ? location.href : "";
   const reconciliation = pageUrl ? getPageSaveReconciliationState(pageUrl) : null;
   const reason = reconciliation && typeof reconciliation === "object" && typeof (reconciliation as { reason?: unknown }).reason === "string"
@@ -7133,6 +7140,9 @@ function getMarkingTemporarilyDisabledReason() {
 function getMarkingTemporarilyDisabledMessage(reason: string): string {
   if (reason === "saving") {
     return ContentText.marking.temporarilyDisabledSaving;
+  }
+  if (reason === "post_ai") {
+    return ContentText.marking.temporarilyDisabled;
   }
   if (reason) {
     return ContentText.marking.temporarilyDisabledSyncing;
@@ -7168,6 +7178,10 @@ function updateMarkingTemporarilyDisabledUi() {
   }
   updateCursorMode();
 }
+
+addContentDirectiveListener(() => {
+  updateMarkingTemporarilyDisabledUi();
+});
 
 function getMarkMode(): MarkMode {
   if (!state.enabled || !state.overlay) {
@@ -8421,9 +8435,14 @@ function handleToggleEvent(event: MouseEvent): void {
   }
   event.preventDefault();
   event.stopPropagation();
-  if (isPageSaveReconciliationPending(location.href)) {
+  const temporarilyDisabledReason = getMarkingTemporarilyDisabledReason();
+  if (temporarilyDisabledReason) {
     updateMarkingTemporarilyDisabledUi();
-    showToast(ContentText.marking.saveReconciliationBlocked);
+    showToast(
+      isPageSaveReconciliationPending(location.href)
+        ? ContentText.marking.saveReconciliationBlocked
+        : ContentText.marking.temporarilyDisabled
+    );
     clearLayer(state.layers["hover"]);
     return;
   }

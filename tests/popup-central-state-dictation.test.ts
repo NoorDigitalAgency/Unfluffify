@@ -9,6 +9,7 @@ import {
   deriveCentralSessionDictationSnapshotEffect
 } from "../src/popup/central-state-dictation.js";
 import { getViewState, resolveBlockingUiCurtainState } from "../src/popup/ui.tsx";
+import { AI_RUN_PHASES } from "../src/common/bus/contracts/session-state.js";
 
 const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
 const uiSource = readFileSync(new URL("../src/popup/ui.tsx", import.meta.url), "utf8");
@@ -31,6 +32,7 @@ function buildFacts(overrides = {}) {
     aiReady: true,
     aiBusy: false,
     aiComputing: false,
+    aiRunPhase: AI_RUN_PHASES.PRE_AI,
     aiRunUpToDate: false,
     previewActive: false,
     previewBlocked: false,
@@ -57,6 +59,7 @@ test("central-state dictation helper maps projected brain state into popup autho
   const facts = buildFacts({
     sessionHasPendingChanges: true,
     currentDraftDirty: true,
+    aiRunPhase: AI_RUN_PHASES.POST_AI,
     aiRunUpToDate: true,
     hasStoredSelectors: true
   });

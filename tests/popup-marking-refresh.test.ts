@@ -3,7 +3,7 @@ import { assert } from "./test-kit.ts";
 import { readFileSync } from "./file-kit.ts";
 import { deriveDictation } from "../src/background/brain/deciders/dictation-decider.js";
 import { decideSessionPhase } from "../src/background/brain/deciders/session-phase-decider.js";
-import { BUTTON_IDS } from "../src/common/bus/contracts/session-state.js";
+import { AI_RUN_PHASES, BUTTON_IDS } from "../src/common/bus/contracts/session-state.js";
 
 test("preview exit restores a captured marking-session snapshot before payload fallback", () => {
   const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
@@ -258,6 +258,7 @@ test("desktop preview stays behind its own popup toggle and disables marking ent
     aiReady: true,
     aiBusy: false,
     aiComputing: false,
+    aiRunPhase: AI_RUN_PHASES.PRE_AI,
     aiRunUpToDate: false,
     previewActive: false,
     previewBlocked: false,
@@ -293,6 +294,7 @@ test("desktop preview stays behind its own popup toggle and disables marking ent
     aiReady: true,
     aiBusy: false,
     aiComputing: false,
+    aiRunPhase: AI_RUN_PHASES.PRE_AI,
     aiRunUpToDate: false,
     previewActive: false,
     previewBlocked: false,
@@ -346,6 +348,7 @@ test("marking-mode preview remains a dedicated marking control", () => {
     aiReady: true,
     aiBusy: false,
     aiComputing: false,
+    aiRunPhase: AI_RUN_PHASES.POST_AI,
     aiRunUpToDate: true,
     previewActive: false,
     previewBlocked: false,

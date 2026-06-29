@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { projectViews } from "../src/background/brain/view-projector.js";
 import type { TabLayerState } from "../src/background/brain/state-store.js";
+import { AI_RUN_PHASES } from "../src/common/bus/contracts/session-state.js";
 
 const baseSessionFacts = {
   baseUrlReady: true,
@@ -20,6 +21,7 @@ const baseSessionFacts = {
   aiReady: true,
   aiBusy: false,
   aiComputing: false,
+  aiRunPhase: AI_RUN_PHASES.PRE_AI,
   aiRunUpToDate: false,
   previewActive: false,
   previewBlocked: false,
@@ -221,6 +223,7 @@ describe("popup view projector", () => {
         noJsHeld: true,
         javaScriptDisabled: true,
       },
+      markingEditsBlocked: false,
     });
     expect(popupView).toEqual({
       version: 3,

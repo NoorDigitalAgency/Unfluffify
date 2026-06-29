@@ -6,6 +6,7 @@ import type {
 import type { SecondaryGatesViewState } from "../../common/bus/contracts/secondary-gates-state";
 import { LIFECYCLE_KINDS } from "../../common/world-messaging-contract";
 import type { PopupViewEnvelope } from "../../common/bus/contracts/popup-state";
+import { AI_RUN_PHASES } from "../../common/bus/contracts/session-state";
 import type { TabLayerState } from "./state-store";
 
 export type PopupView = PopupViewEnvelope;
@@ -14,6 +15,7 @@ export type ContentDirective = Readonly<{
   version: number;
   activation: ActivationSnapshot;
   renderMode: RenderModeDirectiveState;
+  markingEditsBlocked: boolean;
 }>;
 
 function cloneActivationSnapshot(value: TabLayerState["activation"]): ActivationSnapshot {
@@ -187,6 +189,10 @@ export function projectViews(state: TabLayerState): {
       version: state.version,
       activation,
       renderMode: cloneRenderModeDirectiveState(state.renderMode),
+      markingEditsBlocked: Boolean(
+        state.sessionFactsReported &&
+          state.sessionFacts.aiRunPhase === AI_RUN_PHASES.POST_AI
+      ),
     },
   };
 }

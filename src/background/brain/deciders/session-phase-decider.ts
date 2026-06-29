@@ -1,6 +1,8 @@
 import {
+  AI_RUN_PHASES,
   SESSION_PHASES,
   type SessionDictation,
+  type SessionAiRunPhase,
   type SessionFacts,
   type SessionFactsPatch,
   type SessionPhase,
@@ -26,6 +28,7 @@ const DEFAULT_SESSION_FACTS: SessionFacts = Object.freeze({
   aiReady: false,
   aiBusy: false,
   aiComputing: false,
+  aiRunPhase: AI_RUN_PHASES.PRE_AI,
   aiRunUpToDate: false,
   previewActive: false,
   previewBlocked: false,
@@ -88,6 +91,12 @@ const STRING_FACT_KEYS = [
   "busyTimerText",
 ] as const satisfies readonly (keyof SessionFacts)[];
 
+function normalizeSessionAiRunPhase(value: unknown): SessionAiRunPhase {
+  return value === AI_RUN_PHASES.POST_AI
+    ? AI_RUN_PHASES.POST_AI
+    : AI_RUN_PHASES.PRE_AI;
+}
+
 function isReadinessBlocked(facts: SessionFacts): boolean {
   return Boolean(
     facts.pageScopedUiDisabled ||
@@ -140,7 +149,7 @@ export function decideSessionPhase(facts: SessionFacts): SessionPhase {
     return SESSION_PHASES.SILENT;
   }
 
-  if (facts.sessionHasPendingChanges && !facts.sessionRequiresAiRun) {
+  if (facts.sessionHasPendingChanges && facts.aiRunPhase === AI_RUN_PHASES.POST_AI) {
     return SESSION_PHASES.READY_TO_SAVE;
   }
 
@@ -148,7 +157,7 @@ export function decideSessionPhase(facts: SessionFacts): SessionPhase {
     return SESSION_PHASES.MARKING_DIRTY;
   }
 
-  if (facts.aiRunUpToDate) {
+  if (facts.aiRunPhase === AI_RUN_PHASES.POST_AI || facts.aiRunUpToDate) {
     return SESSION_PHASES.SAVED;
   }
 
@@ -184,6 +193,10 @@ export function applySessionFactsPatch(
     if (Object.prototype.hasOwnProperty.call(patch, key)) {
       nextFacts[key] = typeof patch[key] === "string" ? patch[key] : "";
     }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(patch, "aiRunPhase")) {
+    nextFacts.aiRunPhase = normalizeSessionAiRunPhase(patch.aiRunPhase);
   }
 
   if (Object.prototype.hasOwnProperty.call(patch, "lynxChecklistBlockingReason")) {

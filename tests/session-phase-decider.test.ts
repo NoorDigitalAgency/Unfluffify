@@ -2,7 +2,7 @@ import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 
 import { decideSessionPhase } from "../src/background/brain/deciders/session-phase-decider.js";
-import { SESSION_PHASES } from "../src/common/bus/contracts/session-state.js";
+import { AI_RUN_PHASES, SESSION_PHASES } from "../src/common/bus/contracts/session-state.js";
 
 function buildFacts(overrides = {}) {
   return {
@@ -22,6 +22,7 @@ function buildFacts(overrides = {}) {
     aiReady: true,
     aiBusy: false,
     aiComputing: false,
+    aiRunPhase: AI_RUN_PHASES.PRE_AI,
     aiRunUpToDate: false,
     previewActive: false,
     previewBlocked: false,
@@ -57,8 +58,8 @@ test("session-phase decider picks the expected named phase across the current po
   assert.equal(decideSessionPhase(buildFacts({ siteIdReady: false })), SESSION_PHASES.LOADING);
   assert.equal(decideSessionPhase(buildFacts({ isEnabled: false, silentModeActive: true })), SESSION_PHASES.SILENT);
   assert.equal(decideSessionPhase(buildFacts({ sessionHasPendingChanges: true, sessionRequiresAiRun: true })), SESSION_PHASES.MARKING_DIRTY);
-  assert.equal(decideSessionPhase(buildFacts({ sessionHasPendingChanges: true, currentDraftDirty: true })), SESSION_PHASES.READY_TO_SAVE);
-  assert.equal(decideSessionPhase(buildFacts({ aiRunUpToDate: true })), SESSION_PHASES.SAVED);
+  assert.equal(decideSessionPhase(buildFacts({ sessionHasPendingChanges: true, currentDraftDirty: true, aiRunPhase: AI_RUN_PHASES.POST_AI })), SESSION_PHASES.READY_TO_SAVE);
+  assert.equal(decideSessionPhase(buildFacts({ aiRunPhase: AI_RUN_PHASES.POST_AI })), SESSION_PHASES.SAVED);
   assert.equal(decideSessionPhase(buildFacts()), SESSION_PHASES.MARKING_FRESH);
 });
 
@@ -67,6 +68,7 @@ test("session-phase decider keeps high-priority transient phases ahead of steady
     sessionHasPendingChanges: true,
     sessionRequiresAiRun: false,
     currentDraftDirty: true,
+    aiRunPhase: AI_RUN_PHASES.POST_AI,
     aiRunUpToDate: true,
     aiComputing: true,
     previewRestorePending: true,

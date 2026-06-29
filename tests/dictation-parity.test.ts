@@ -3,7 +3,7 @@ import { assert } from "./test-kit.ts";
 
 import { deriveDictation } from "../src/background/brain/deciders/dictation-decider.js";
 import { decideSessionPhase } from "../src/background/brain/deciders/session-phase-decider.js";
-import { buildPageSaveUiState } from "../src/common/page-save-state.js";
+import { AI_RUN_PHASES } from "../src/common/bus/contracts/session-state.js";
 
 function buildFacts(overrides = {}) {
   return {
@@ -23,6 +23,7 @@ function buildFacts(overrides = {}) {
     aiReady: true,
     aiBusy: false,
     aiComputing: false,
+    aiRunPhase: AI_RUN_PHASES.PRE_AI,
     aiRunUpToDate: false,
     previewActive: false,
     previewBlocked: false,
@@ -51,16 +52,6 @@ function buildLegacyParityState(facts) {
     !facts.isEnabled ||
     (!facts.navigationInspectionPending && (!facts.siteIdReady || !facts.renderModeReady));
   const pageControlsVisible = !mainUiHidden && facts.renderModeReady;
-  const pageSaveUiState = buildPageSaveUiState({
-    pageControlsVisible,
-    sessionHasPendingChanges: facts.sessionHasPendingChanges,
-    sessionRequiresAiRun: facts.sessionRequiresAiRun,
-    currentDraftDirty: facts.currentDraftDirty,
-    reconciliation: facts.pageSaveReconciliationPending
-      ? { status: "pending", reason: "pending" }
-      : null,
-  });
-
   return {
     mainUiHidden,
     toggleVisible: facts.renderModeReady,
@@ -72,6 +63,14 @@ function buildLegacyParityState(facts) {
       (!facts.navigationInspectionPending && (!facts.siteIdReady || !facts.renderModeReady || facts.pageTypeUiBlocked)) ||
       facts.desktopPreviewActive
     ),
+    actionMatrixEnabled: facts.aiRunPhase === AI_RUN_PHASES.POST_AI && !(
+      facts.pageScopedUiDisabled ||
+      facts.aiBusy ||
+      facts.previewRestorePending ||
+      facts.pageSaveReconciliationPending ||
+      facts.saving ||
+      facts.discarding
+    ),
     computeVisible: !mainUiHidden,
     computeEnabled:
       !mainUiHidden &&
@@ -79,30 +78,46 @@ function buildLegacyParityState(facts) {
         facts.pageScopedUiDisabled ||
         facts.aiBusy ||
         facts.previewRestorePending ||
-        !facts.aiReady ||
         facts.pageSaveReconciliationPending ||
-        (facts.aiRunUpToDate && !facts.sessionRequiresAiRun)
+        facts.saving ||
+        facts.discarding ||
+        facts.aiRunPhase === AI_RUN_PHASES.POST_AI
       ),
     previewVisible: pageControlsVisible && facts.isEnabled,
-    previewEnabled: !(
+    previewEnabled: facts.aiRunPhase === AI_RUN_PHASES.POST_AI && !(
+      facts.pageScopedUiDisabled ||
       facts.aiBusy ||
       facts.previewRestorePending ||
       facts.pageSaveReconciliationPending ||
-      !facts.aiRunUpToDate ||
-      facts.sessionRequiresAiRun
+      facts.saving ||
+      facts.discarding
     ),
     saveVisible: pageControlsVisible,
-    saveEnabled: !(pageSaveUiState.pageSaveDisabled || facts.previewRestorePending),
+    saveEnabled: facts.aiRunPhase === AI_RUN_PHASES.POST_AI && !(
+      facts.pageScopedUiDisabled ||
+      facts.aiBusy ||
+      facts.previewRestorePending ||
+      facts.pageSaveReconciliationPending ||
+      facts.saving ||
+      facts.discarding
+    ),
     revertVisible: pageControlsVisible,
-    revertEnabled: !(pageSaveUiState.pageRevertDisabled || facts.previewRestorePending),
+    revertEnabled: facts.aiRunPhase === AI_RUN_PHASES.POST_AI && !(
+      facts.pageScopedUiDisabled ||
+      facts.aiBusy ||
+      facts.previewRestorePending ||
+      facts.pageSaveReconciliationPending ||
+      facts.saving ||
+      facts.discarding
+    ),
   };
 }
 
 for (const [label, facts] of [
   ["fresh-marking", buildFacts()],
   ["stale-dirty-marking", buildFacts({ sessionHasPendingChanges: true, sessionRequiresAiRun: true, currentDraftDirty: true })],
-  ["ready-to-save", buildFacts({ sessionHasPendingChanges: true, currentDraftDirty: true, aiRunUpToDate: true })],
-  ["preview-restoring", buildFacts({ previewRestorePending: true, sessionHasPendingChanges: true, currentDraftDirty: true, aiRunUpToDate: true })],
+  ["ready-to-save", buildFacts({ sessionHasPendingChanges: true, currentDraftDirty: true, aiRunPhase: AI_RUN_PHASES.POST_AI, aiRunUpToDate: true })],
+  ["preview-restoring", buildFacts({ previewRestorePending: true, sessionHasPendingChanges: true, currentDraftDirty: true, aiRunPhase: AI_RUN_PHASES.POST_AI, aiRunUpToDate: true })],
   ["out-of-scope-loading", buildFacts({ baseUrlReady: false, renderModeReady: false, siteIdReady: false, isEnabled: false })],
 ]) {
   test(`brain dictation stays in parity with legacy popup gating for ${label}`, () => {

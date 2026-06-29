@@ -3,7 +3,7 @@ import { assert } from "./test-kit.ts";
 
 import { deriveDictation } from "../src/background/brain/deciders/dictation-decider.js";
 import { decideSessionPhase } from "../src/background/brain/deciders/session-phase-decider.js";
-import { BUTTON_IDS, SESSION_PHASES } from "../src/common/bus/contracts/session-state.js";
+import { AI_RUN_PHASES, BUTTON_IDS, SESSION_PHASES } from "../src/common/bus/contracts/session-state.js";
 
 function buildFacts(overrides = {}) {
   return {
@@ -23,6 +23,7 @@ function buildFacts(overrides = {}) {
     aiReady: true,
     aiBusy: false,
     aiComputing: false,
+    aiRunPhase: AI_RUN_PHASES.PRE_AI,
     aiRunUpToDate: false,
     previewActive: false,
     previewBlocked: false,
@@ -61,7 +62,7 @@ test("dictation keeps fresh marking in the approved matrix state", () => {
   assert.equal(dictation.buttons[BUTTON_IDS.PAGE_REVERT].enabled, false);
 });
 
-test("dictation keeps stale post-edit marking save-disabled while discard stays enabled", () => {
+test("dictation keeps pre-AI post-edit marking save/list/discard disabled", () => {
   const facts = buildFacts({
     sessionHasPendingChanges: true,
     sessionRequiresAiRun: true,
@@ -73,7 +74,7 @@ test("dictation keeps stale post-edit marking save-disabled while discard stays 
   assert.equal(dictation.buttons[BUTTON_IDS.COMPUTE].enabled, true);
   assert.equal(dictation.buttons[BUTTON_IDS.MARKING_PREVIEW].enabled, false);
   assert.equal(dictation.buttons[BUTTON_IDS.PAGE_SAVE].enabled, false);
-  assert.equal(dictation.buttons[BUTTON_IDS.PAGE_REVERT].enabled, true);
+  assert.equal(dictation.buttons[BUTTON_IDS.PAGE_REVERT].enabled, false);
 });
 
 test("dictation keeps ready-to-save marking in the approved post-AI state", () => {
@@ -81,6 +82,7 @@ test("dictation keeps ready-to-save marking in the approved post-AI state", () =
     sessionHasPendingChanges: true,
     sessionRequiresAiRun: false,
     currentDraftDirty: true,
+    aiRunPhase: AI_RUN_PHASES.POST_AI,
     aiRunUpToDate: true,
     hasStoredSelectors: true,
   });
@@ -99,6 +101,7 @@ test("dictation disables the matrix during preview restore without hiding markin
     sessionHasPendingChanges: true,
     sessionRequiresAiRun: false,
     currentDraftDirty: true,
+    aiRunPhase: AI_RUN_PHASES.POST_AI,
     aiRunUpToDate: true,
   });
   const dictation = deriveDictation(decideSessionPhase(facts), facts);
@@ -109,6 +112,23 @@ test("dictation disables the matrix during preview restore without hiding markin
   assert.equal(dictation.buttons[BUTTON_IDS.MARKING_PREVIEW].enabled, false);
   assert.equal(dictation.buttons[BUTTON_IDS.PAGE_SAVE].enabled, false);
   assert.equal(dictation.buttons[BUTTON_IDS.PAGE_REVERT].enabled, false);
+});
+
+test("dictation keeps post-AI actions enabled even when legacy freshness facts drift", () => {
+  const facts = buildFacts({
+    aiReady: false,
+    aiRunPhase: AI_RUN_PHASES.POST_AI,
+    aiRunUpToDate: false,
+    sessionHasPendingChanges: true,
+    sessionRequiresAiRun: true,
+    currentDraftDirty: true,
+  });
+  const dictation = deriveDictation(decideSessionPhase(facts), facts);
+
+  assert.equal(dictation.buttons[BUTTON_IDS.COMPUTE].enabled, false);
+  assert.equal(dictation.buttons[BUTTON_IDS.MARKING_PREVIEW].enabled, true);
+  assert.equal(dictation.buttons[BUTTON_IDS.PAGE_SAVE].enabled, true);
+  assert.equal(dictation.buttons[BUTTON_IDS.PAGE_REVERT].enabled, true);
 });
 
 test("dictation hides post-render controls until render mode is ready", () => {

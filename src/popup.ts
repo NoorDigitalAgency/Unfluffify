@@ -99,7 +99,12 @@ import {
   type PropertyLockSnapshot
 } from "./common/bus/contracts/property-lock-state";
 import { SECONDARY_GATES_BLOCK_REASONS } from "./common/bus/contracts/secondary-gates-state";
-import type { SessionDictation, SessionFactsPatch } from "./common/bus/contracts/session-state";
+import {
+  AI_RUN_PHASES,
+  type SessionAiRunPhase,
+  type SessionDictation,
+  type SessionFactsPatch
+} from "./common/bus/contracts/session-state";
 import { deriveSecondaryGatesViewState } from "./background/brain/deciders/secondary-gates-decider";
 import { deriveSpinnerSelectionsFromQueue } from "./background/brain/deciders/spinner-state-decider";
 import { phaseToSpinnerState } from "./background/brain/spinner-authority";
@@ -2374,15 +2379,17 @@ async function getCurrentSessionActionGateState(sourceConfig: Config | null | un
     ? await config.getBackendSavedPageMarkings(state.currentBaseUrl)
     : {};
   const aiRunUpToDate = isAiRunUpToDateForCurrentMarkings();
-  const sessionRequiresAiRun = doesSessionRequireAiRun(
-    sourceConfig,
-    localPageMarkings,
-    backendSavedPageMarkings,
-    {
-      currentDraftDirty: state.currentDraftDirty,
-      aiRunUpToDate
-    }
-  );
+  const sessionRequiresAiRun = aiRunUpToDate
+    ? false
+    : doesSessionRequireAiRun(
+        sourceConfig,
+        localPageMarkings,
+        backendSavedPageMarkings,
+        {
+          currentDraftDirty: state.currentDraftDirty,
+          aiRunUpToDate
+        }
+      );
 
   return {
     aiRunUpToDate,
@@ -2426,6 +2433,7 @@ function captureMarkingSessionSnapshot() {
     currentDraftAvailable: state.currentDraftAvailable,
     currentPageSaveReconciliation: clonePageSaveReconciliation(state.currentPageSaveReconciliation),
     currentPageSaveReconciliationPending: state.currentPageSaveReconciliationPending,
+    sessionAiRunPhase: state.sessionAiRunPhase,
     aiRunMarkingsFingerprint: state.aiRunMarkingsFingerprint,
     aiSelectorsComputedSinceLastSubmit: state.aiSelectorsComputedSinceLastSubmit,
     aiSelectorsComputedBaseUrl: state.aiSelectorsComputedBaseUrl,
@@ -2446,6 +2454,7 @@ function restoreMarkingSessionSnapshot() {
   state.currentDraftAvailable = snapshot.currentDraftAvailable;
   state.currentPageSaveReconciliation = clonePageSaveReconciliation(snapshot.currentPageSaveReconciliation);
   state.currentPageSaveReconciliationPending = snapshot.currentPageSaveReconciliationPending;
+  state.sessionAiRunPhase = snapshot.sessionAiRunPhase;
   state.aiRunMarkingsFingerprint = snapshot.aiRunMarkingsFingerprint;
   state.aiSelectorsComputedSinceLastSubmit = snapshot.aiSelectorsComputedSinceLastSubmit;
   state.aiSelectorsComputedBaseUrl = snapshot.aiSelectorsComputedBaseUrl;
@@ -2491,19 +2500,27 @@ function getCurrentPageMarkingsFingerprint() {
   return fingerprintPageMarkingEntry(state.currentDraftEntry);
 }
 
+function setSessionAiRunPhase(phase: SessionAiRunPhase) {
+  state.sessionAiRunPhase = phase === AI_RUN_PHASES.POST_AI
+    ? AI_RUN_PHASES.POST_AI
+    : AI_RUN_PHASES.PRE_AI;
+}
+
 function isAiRunUpToDateForCurrentMarkings() {
-  return (
-    state.aiRunMarkingsFingerprint !== null &&
-    state.aiRunMarkingsFingerprint === getCurrentPageMarkingsFingerprint()
-  );
+  return state.sessionAiRunPhase === AI_RUN_PHASES.POST_AI;
 }
 
 function captureAiRunMarkingsFingerprint() {
   state.aiRunMarkingsFingerprint = getCurrentPageMarkingsFingerprint();
 }
 
+function markSessionAiRunPostAi() {
+  setSessionAiRunPhase(AI_RUN_PHASES.POST_AI);
+}
+
 function resetAiRunMarkingsFingerprint() {
   state.aiRunMarkingsFingerprint = null;
+  setSessionAiRunPhase(AI_RUN_PHASES.PRE_AI);
 }
 
 function clearSelectorsPendingConfigSync() {
@@ -5264,16 +5281,17 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
       reconciliationPending: pageSaveReconciliationPending
     }
   );
-  // True only while the last successful AI run still matches the live element
-  // markings. Gates Run AI (disabled when up to date) and Save/Preview (enabled
-  // only when up to date). Any mark/unmark change flips this back to false.
+  // Explicit popup-owned marking session phase. Fingerprints remain captured for
+  // dirty/discard bookkeeping, but button gating no longer depends on their shape.
   const aiRunUpToDate = isAiRunUpToDateForCurrentMarkings();
-  const sessionRequiresAiRun = doesSessionRequireAiRun(
-    state.currentConfig,
-    pageMarkings,
-    backendSavedPageMarkings,
-    { currentDraftDirty: state.currentDraftDirty, aiRunUpToDate }
-  );
+  const sessionRequiresAiRun = aiRunUpToDate
+    ? false
+    : doesSessionRequireAiRun(
+        state.currentConfig,
+        pageMarkings,
+        backendSavedPageMarkings,
+        { currentDraftDirty: state.currentDraftDirty, aiRunUpToDate }
+      );
 
   let resolvedView =
     state.currentView ||
@@ -5353,13 +5371,16 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
     !baseUrlReady ||
     (!navigationInspectionPending && (!siteIdReady || !renderModeReady || pageTypeUiBlocked)) ||
     desktopPreviewActive;
-  const computeButtonDisabled =
+  const postAiActionMatrixEnabled = state.sessionAiRunPhase === AI_RUN_PHASES.POST_AI;
+  const actionMatrixDisabled =
     pageScopedUiDisabled ||
     aiBusy ||
     previewRestorePending ||
-    !aiReady ||
     pageSaveReconciliationPending ||
-    (aiRunUpToDate && !sessionRequiresAiRun);
+    state.aiRequestInFlight === "save";
+  const computeButtonDisabled =
+    actionMatrixDisabled ||
+    postAiActionMatrixEnabled;
   nextViewState.toggleEnabled = pageScopedUiDisabled ? false : isEnabled;
   if (useLocalSessionAuthorityFallback) {
     nextViewState.toggleEnabledDisabled = toggleEnabledDisabled;
@@ -5570,22 +5591,19 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
     currentDraftDirty: state.currentDraftDirty,
     reconciliation: state.currentPageSaveReconciliation
   });
-  const pageSaveDisabled = pageSaveUiState.pageSaveDisabled || previewRestorePending;
+  const pageSaveDisabled = !postAiActionMatrixEnabled || actionMatrixDisabled;
   nextViewState.pageSaveMobileSimulationRequiredVisible =
     pageSaveUiState.pageSaveMobileSimulationRequiredVisible;
   nextViewState.pageSaveMobileSimulationRequiredText =
     PopupText.page.mobileSimulationRequired;
-  const pageRevertDisabled = pageSaveUiState.pageRevertDisabled || previewRestorePending;
+  const pageRevertDisabled = !postAiActionMatrixEnabled || actionMatrixDisabled;
   // Marking-mode "Preview Content": let the user see the AI content detection
   // without leaving marking mode. Mirrors Save gating - only available once a
   // successful AI run matches the live markings (and before the next change).
   const markingPreviewVisible = pageControlsVisible && Boolean(isEnabled);
   const markingPreviewDisabled =
-    aiBusy ||
-    previewRestorePending ||
-    pageSaveReconciliationPending ||
-    !aiRunUpToDate ||
-    sessionRequiresAiRun;
+    !postAiActionMatrixEnabled ||
+    actionMatrixDisabled;
   if (useLocalSessionAuthorityFallback) {
     nextViewState.pageSaveDisabled = pageSaveDisabled;
     nextViewState.pageRevertDisabled = pageRevertDisabled;
@@ -5617,6 +5635,7 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
     aiReady,
     aiBusy: aiBusyForSecondaryGates,
     aiComputing: aiComputingForSecondaryGates,
+    aiRunPhase: state.sessionAiRunPhase,
     aiRunUpToDate,
     previewActive,
     previewBlocked: Boolean(nextViewState.previewBlocked),
@@ -5919,6 +5938,7 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
       ...(popupOwnsAiRunFacts
         ? { aiBusy: aiBusyForSessionFacts, aiComputing: aiComputingForSessionFacts }
         : {}),
+      aiRunPhase: state.sessionAiRunPhase,
       aiRunUpToDate,
       previewActive,
       previewBlocked: nextViewState.previewBlocked,
@@ -7643,7 +7663,13 @@ async function applyPostSaveSilentTransition() {
   if (tabId !== null) {
     await messages.requestTabApplyPostSaveTransition(tabId, { baseUrl });
   }
+  state.currentDraftEntry = null;
+  state.currentSavedEntry = null;
   state.currentDraftDirty = false;
+  state.currentDraftAvailable = false;
+  state.currentPageSaveReconciliation = null;
+  state.currentPageSaveReconciliationPending = false;
+  resetAiRunMarkingsFingerprint();
   await alignPopupToSilentMode();
 }
 
@@ -7680,6 +7706,10 @@ async function applyLocalPageDiscard() {
     await messages.requestTabApplyLocalDiscard(tabId, { baseUrl });
   }
   await clearCurrentPageSaveReconciliation();
+  state.currentDraftEntry = null;
+  state.currentSavedEntry = null;
+  state.currentDraftDirty = false;
+  state.currentDraftAvailable = false;
   state.aiSelectorsComputedSinceLastSubmit = false;
   state.aiSelectorsComputedBaseUrl = "";
   clearSelectorsPendingConfigSync();
@@ -7754,6 +7784,7 @@ async function applyComputedSelectorSet(
   // The AI run is scoped to the current element markings. Capture that stable
   // state before the preview starts slower content-side reconciliation.
   captureAiRunMarkingsFingerprint();
+  markSessionAiRunPostAi();
 
   const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
     ? state.currentTab.id
@@ -7779,6 +7810,7 @@ async function applyComputedSelectorSet(
     });
     await refreshCurrentPageRuntimeStatus();
     captureAiRunMarkingsFingerprint();
+    markSessionAiRunPostAi();
   }
   const previewOpened = Boolean(previewResult);
   if (previewOpened) {
@@ -7807,6 +7839,7 @@ async function applyComputedSelectorSet(
       busyMessage: "",
       busyNote: "",
       busyTimerText: "",
+      aiRunPhase: state.sessionAiRunPhase,
       previewActive: true,
       previewBlocked: true,
       previewRestorePending: false
@@ -7869,6 +7902,7 @@ function applyAiPreviewStateUpdate(message: PreviewStateLike) {
 }
 
 async function failAiRun(message: string = PopupText.ai.runFailed) {
+  resetAiRunMarkingsFingerprint();
   await stopAiRun({ unlockPage: true });
   uiModule.showToast(message);
 }

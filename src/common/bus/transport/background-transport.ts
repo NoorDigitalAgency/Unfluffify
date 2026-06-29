@@ -6,9 +6,9 @@ import { sendBusEnvelope } from "../../extension-messaging";
 import { BUS_PORT_PREFIX, type InboundTransportHandler, type Transport } from "./transport-types";
 
 const TRANSIENT_CONTENT_EVENT_DELIVERY_ERROR_PATTERN =
-  /receiving end does not exist|message port closed before a response was received|no tab with id|no frame with id|tab unreachable|extension context invalidated|context invalidated|the tab was closed/i;
+  /receiving end does not exist|message (?:port|channel) closed before a response was received|no tab with id|no frame with id|tab unreachable|extension context invalidated|context invalidated|the tab was closed/i;
 const TRANSIENT_POPUP_EVENT_DELIVERY_ERROR_PATTERN =
-  /disconnected port object|message port closed|extension context invalidated|context invalidated/i;
+  /disconnected port object|message (?:port|channel) closed|extension context invalidated|context invalidated/i;
 
 function normalizeTabId(value: unknown): number | null {
   const numeric = Number(value);

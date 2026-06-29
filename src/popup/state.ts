@@ -1,5 +1,6 @@
 import { DEVICE_SCALE_DEFAULTS } from "../common/constants";
 import { createInitialLynxChecklistState } from "../common/lynx-checklist";
+import { AI_RUN_PHASES } from "../common/bus/contracts/session-state";
 import type { PopupState } from "../types/popup-state.ts";
 
 const initialLynxChecklistState = createInitialLynxChecklistState();
@@ -32,6 +33,7 @@ export const state: PopupState = {
   aiRunCountdownTimer: 0,
   aiRunResumeCheckKey: "",
   aiRunResumeInFlight: false,
+  sessionAiRunPhase: AI_RUN_PHASES.PRE_AI,
   aiSelectorsComputedSinceLastSubmit: false,
   aiSelectorsComputedBaseUrl: "",
   selectorsPendingConfigSync: false,

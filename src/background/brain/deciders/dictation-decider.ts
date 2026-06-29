@@ -1,5 +1,5 @@
-import { buildPageSaveUiState } from "../../../common/page-save-state";
 import {
+  AI_RUN_PHASES,
   BUTTON_IDS,
   CURTAIN_OPERATIONS,
   type ButtonDictation,
@@ -89,6 +89,15 @@ function deriveCurtainDictation(phase: SessionPhase, facts: SessionFacts): Curta
 export function deriveDictation(phase: SessionPhase, facts: SessionFacts): SessionDictation {
   const mainUiHidden = deriveMainUiHidden(facts);
   const pageControlsVisible = derivePageControlsVisible(facts, mainUiHidden);
+  const postAi = facts.aiRunPhase === AI_RUN_PHASES.POST_AI;
+  const actionMatrixDisabled = Boolean(
+    facts.pageScopedUiDisabled ||
+      facts.aiBusy ||
+      facts.previewRestorePending ||
+      facts.pageSaveReconciliationPending ||
+      facts.saving ||
+      facts.discarding
+  );
 
   const toggleEnabledDisabled = Boolean(
     facts.pageScopedUiDisabled ||
@@ -99,24 +108,7 @@ export function deriveDictation(phase: SessionPhase, facts: SessionFacts): Sessi
       facts.desktopPreviewActive
   );
 
-  const computeButtonDisabled = Boolean(
-    facts.pageScopedUiDisabled ||
-      facts.aiBusy ||
-      facts.previewRestorePending ||
-      !facts.aiReady ||
-      facts.pageSaveReconciliationPending ||
-      (facts.aiRunUpToDate && !facts.sessionRequiresAiRun)
-  );
-
-  const pageSaveUiState = buildPageSaveUiState({
-    pageControlsVisible,
-    sessionHasPendingChanges: facts.sessionHasPendingChanges,
-    sessionRequiresAiRun: facts.sessionRequiresAiRun,
-    currentDraftDirty: facts.currentDraftDirty,
-    reconciliation: facts.pageSaveReconciliationPending
-      ? { status: "pending", reason: "pending" }
-      : null,
-  });
+  const computeButtonDisabled = actionMatrixDisabled || postAi;
 
   const buttons = {
     [BUTTON_IDS.TOGGLE_ENABLED]: buildButtonDictation(
@@ -133,23 +125,17 @@ export function deriveDictation(phase: SessionPhase, facts: SessionFacts): Sessi
     [BUTTON_IDS.MARKING_PREVIEW]: buildButtonDictation(
       BUTTON_IDS.MARKING_PREVIEW,
       pageControlsVisible && facts.isEnabled,
-      !(
-        facts.aiBusy ||
-        facts.previewRestorePending ||
-        facts.pageSaveReconciliationPending ||
-        !facts.aiRunUpToDate ||
-        facts.sessionRequiresAiRun
-      ),
+      postAi && !actionMatrixDisabled,
     ),
     [BUTTON_IDS.PAGE_SAVE]: buildButtonDictation(
       BUTTON_IDS.PAGE_SAVE,
       pageControlsVisible,
-      !(pageSaveUiState.pageSaveDisabled || facts.previewRestorePending),
+      postAi && !actionMatrixDisabled,
     ),
     [BUTTON_IDS.PAGE_REVERT]: buildButtonDictation(
       BUTTON_IDS.PAGE_REVERT,
       pageControlsVisible,
-      !(pageSaveUiState.pageRevertDisabled || facts.previewRestorePending),
+      postAi && !actionMatrixDisabled,
     ),
   };
 

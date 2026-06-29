@@ -3,30 +3,32 @@ import { assert } from "./test-kit.ts";
 import { readFileSync } from "./file-kit.ts";
 import { deriveDictation } from "../src/background/brain/deciders/dictation-decider.js";
 import { decideSessionPhase } from "../src/background/brain/deciders/session-phase-decider.js";
-import { BUTTON_IDS } from "../src/common/bus/contracts/session-state.js";
-import { buildPageSaveUiState } from "../src/common/page-save-state.js";
+import { AI_RUN_PHASES, BUTTON_IDS } from "../src/common/bus/contracts/session-state.js";
 
 const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
 const pageReconciliationSource = readFileSync(new URL("../src/popup/page-reconciliation.ts", import.meta.url), "utf8");
 const backgroundSource = readFileSync(new URL("../src/background.ts", import.meta.url), "utf8");
 const stateSource = readFileSync(new URL("../src/popup/state.ts", import.meta.url), "utf8");
+const contentCoreSource = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
+const viewProjectorSource = readFileSync(new URL("../src/background/brain/view-projector.ts", import.meta.url), "utf8");
 
 function computeButtonDisabledForState({
   pageScopedUiDisabled = false,
   aiBusy = false,
   previewRestorePending = false,
-  aiReady = true,
   pageSaveReconciliationPending = false,
-  aiRunUpToDate = false,
-  sessionRequiresAiRun = false
+  saving = false,
+  discarding = false,
+  aiRunPhase = AI_RUN_PHASES.PRE_AI
 } = {}) {
   return (
     pageScopedUiDisabled ||
     aiBusy ||
     previewRestorePending ||
-    !aiReady ||
     pageSaveReconciliationPending ||
-    (aiRunUpToDate && !sessionRequiresAiRun)
+    saving ||
+    discarding ||
+    aiRunPhase === AI_RUN_PHASES.POST_AI
   );
 }
 
@@ -34,15 +36,17 @@ function markingPreviewDisabledForState({
   aiBusy = false,
   previewRestorePending = false,
   pageSaveReconciliationPending = false,
-  aiRunUpToDate = false,
-  sessionRequiresAiRun = false
+  saving = false,
+  discarding = false,
+  aiRunPhase = AI_RUN_PHASES.PRE_AI
 } = {}) {
   return (
     aiBusy ||
     previewRestorePending ||
     pageSaveReconciliationPending ||
-    !aiRunUpToDate ||
-    sessionRequiresAiRun
+    saving ||
+    discarding ||
+    aiRunPhase !== AI_RUN_PHASES.POST_AI
   );
 }
 
@@ -55,6 +59,22 @@ test("a successful AI run captures the markings fingerprint", () => {
     /function applyComputedSelectorSet\([\s\S]*?\n\}\n\n/
   )[0];
   assert.match(fnBody, /captureAiRunMarkingsFingerprint\(\);/);
+  assert.match(fnBody, /markSessionAiRunPostAi\(\);/);
+});
+
+test("post-AI phase locks content marking edits through the brain directive", () => {
+  assert.match(
+    viewProjectorSource,
+    /markingEditsBlocked: Boolean\([\s\S]*state\.sessionFacts\.aiRunPhase === AI_RUN_PHASES\.POST_AI/
+  );
+  assert.match(
+    contentCoreSource,
+    /if \(isMarkingEditsBlockedByDirective\(\)\) \{\s*return "post_ai";\s*\}/
+  );
+  assert.match(
+    contentCoreSource,
+    /const temporarilyDisabledReason = getMarkingTemporarilyDisabledReason\(\);[\s\S]*if \(temporarilyDisabledReason\) \{[\s\S]*return;/
+  );
 });
 
 test("an AI run computes selectors locally and does not auto-sync to the server", () => {
@@ -80,7 +100,7 @@ test("entering marking mode, saving, and discarding reset the fingerprint", () =
   // Discard (applyLocalPageDiscard, shared by manual discard + disable/nav confirm).
   assert.match(
     popupSource,
-    /state\.aiSelectorsComputedBaseUrl = "";\s*clearSelectorsPendingConfigSync\(\);\s*resetAiRunMarkingsFingerprint\(\);\s*\}/
+    /state\.currentDraftEntry = null;\s*state\.currentSavedEntry = null;\s*state\.currentDraftDirty = false;\s*state\.currentDraftAvailable = false;\s*state\.aiSelectorsComputedSinceLastSubmit = false;\s*state\.aiSelectorsComputedBaseUrl = "";\s*clearSelectorsPendingConfigSync\(\);\s*resetAiRunMarkingsFingerprint\(\);\s*\}/
   );
 });
 
@@ -110,84 +130,48 @@ test("aligning to silent mode clears popup state without sending a fresh content
 });
 
 test("State A fresh marking entry keeps Run AI enabled while Save/Discard/Show Content List stay disabled", () => {
-  const pageSaveUiState = buildPageSaveUiState({
-    pageControlsVisible: true,
-    sessionHasPendingChanges: false,
-    sessionRequiresAiRun: false,
-    currentDraftDirty: false,
-    reconciliation: null
-  });
-
   assert.equal(
     computeButtonDisabledForState({
-      aiRunUpToDate: false,
-      sessionRequiresAiRun: false
+      aiRunPhase: AI_RUN_PHASES.PRE_AI
     }),
     false
   );
   assert.equal(
     markingPreviewDisabledForState({
-      aiRunUpToDate: false,
-      sessionRequiresAiRun: false
+      aiRunPhase: AI_RUN_PHASES.PRE_AI
     }),
     true
   );
-  assert.equal(pageSaveUiState.pageSaveDisabled, true);
-  assert.equal(pageSaveUiState.pageRevertDisabled, true);
 });
 
-test("State B stale post-edit keeps Run AI enabled, disables Show Content List/Save, and keeps Discard enabled", () => {
-  const pageSaveUiState = buildPageSaveUiState({
-    pageControlsVisible: true,
-    sessionHasPendingChanges: true,
-    sessionRequiresAiRun: true,
-    currentDraftDirty: true,
-    reconciliation: null
-  });
-
+test("State B pre-AI post-edit keeps Run AI enabled and disables Show Content List/Save/Discard", () => {
   assert.equal(
     computeButtonDisabledForState({
-      aiRunUpToDate: false,
-      sessionRequiresAiRun: true
+      aiRunPhase: AI_RUN_PHASES.PRE_AI
     }),
     false
   );
   assert.equal(
     markingPreviewDisabledForState({
-      aiRunUpToDate: false,
-      sessionRequiresAiRun: true
+      aiRunPhase: AI_RUN_PHASES.PRE_AI
     }),
     true
   );
-  assert.equal(pageSaveUiState.pageSaveDisabled, true);
-  assert.equal(pageSaveUiState.pageRevertDisabled, false);
 });
 
-test("State C clean post-AI-run keeps Run AI disabled and enables Show Content List/Save/Discard", () => {
-  const pageSaveUiState = buildPageSaveUiState({
-    pageControlsVisible: true,
-    sessionHasPendingChanges: true,
-    sessionRequiresAiRun: false,
-    currentDraftDirty: true,
-    reconciliation: null
-  });
-
+test("State C post-AI-run keeps Run AI disabled and enables Show Content List/Save/Discard", () => {
   assert.equal(
     computeButtonDisabledForState({
-      aiRunUpToDate: true,
-      sessionRequiresAiRun: false
+      aiRunPhase: AI_RUN_PHASES.POST_AI
     }),
     true
   );
   assert.equal(
     markingPreviewDisabledForState({
-      aiRunUpToDate: true,
-      sessionRequiresAiRun: false
+      aiRunPhase: AI_RUN_PHASES.POST_AI
     }),
     false
   );
-  assert.equal(pageSaveUiState.pageSaveDisabled, false);
-  assert.equal(pageSaveUiState.pageRevertDisabled, false);
 });
 
 test("Run AI stays wired to the real popup view-state gating expression", () => {
@@ -208,6 +192,7 @@ test("Run AI stays wired to the real popup view-state gating expression", () => 
     aiReady: true,
     aiBusy: false,
     aiComputing: false,
+    aiRunPhase: AI_RUN_PHASES.POST_AI,
     aiRunUpToDate: true,
     previewActive: false,
     previewBlocked: false,
@@ -230,12 +215,11 @@ test("Run AI stays wired to the real popup view-state gating expression", () => 
   const dictation = deriveDictation(decideSessionPhase(facts), facts);
 
   assert.equal(dictation.buttons[BUTTON_IDS.COMPUTE].enabled, !computeButtonDisabledForState({
-    aiRunUpToDate: true,
-    sessionRequiresAiRun: false
+    aiRunPhase: AI_RUN_PHASES.POST_AI
   }));
 });
 
-test("Save uses the page-save state instead of the redundant AI-run fingerprint gate", () => {
+test("post-AI phase enables Save/Discard even when legacy freshness facts drift", () => {
   assert.match(
     popupSource,
     /sessionRequiresAiRun,[\s\S]*?reconciliation: state\.currentPageSaveReconciliation/
@@ -257,6 +241,7 @@ test("Save uses the page-save state instead of the redundant AI-run fingerprint 
     aiReady: true,
     aiBusy: false,
     aiComputing: false,
+    aiRunPhase: AI_RUN_PHASES.POST_AI,
     aiRunUpToDate: false,
     previewActive: false,
     previewBlocked: false,
@@ -277,21 +262,14 @@ test("Save uses the page-save state instead of the redundant AI-run fingerprint 
     busyTimerText: ""
   };
   const dictation = deriveDictation(decideSessionPhase(facts), facts);
-  const pageSaveUiState = buildPageSaveUiState({
-    pageControlsVisible: true,
-    sessionHasPendingChanges: facts.sessionHasPendingChanges,
-    sessionRequiresAiRun: facts.sessionRequiresAiRun,
-    currentDraftDirty: facts.currentDraftDirty,
-    reconciliation: null
-  });
 
   assert.equal(
     dictation.buttons[BUTTON_IDS.PAGE_SAVE].enabled,
-    !(pageSaveUiState.pageSaveDisabled || facts.previewRestorePending)
+    true
   );
   assert.equal(
     dictation.buttons[BUTTON_IDS.PAGE_REVERT].enabled,
-    !(pageSaveUiState.pageRevertDisabled || facts.previewRestorePending)
+    true
   );
 });
 
@@ -424,11 +402,10 @@ test("#21 an up-to-date AI run no longer forces another run for Save", () => {
   );
 });
 
-test("#21 refresh feeds aiRunUpToDate into the session-requires-AI-run check", () => {
-  // aiRunUpToDate is computed before doesSessionRequireAiRun and passed in.
+test("#21 post-AI phase bypasses legacy session-requires-AI-run fingerprint checks", () => {
   assert.match(
     popupSource,
-    /const aiRunUpToDate = isAiRunUpToDateForCurrentMarkings\(\);\s*const sessionRequiresAiRun = doesSessionRequireAiRun\([\s\S]*?\{ currentDraftDirty: state\.currentDraftDirty, aiRunUpToDate \}\s*\);/
+    /const aiRunUpToDate = isAiRunUpToDateForCurrentMarkings\(\);\s*const sessionRequiresAiRun = aiRunUpToDate\s*\?\s*false\s*:\s*doesSessionRequireAiRun\([\s\S]*?\{[\s\S]*?currentDraftDirty: state\.currentDraftDirty,[\s\S]*?aiRunUpToDate[\s\S]*?\}\s*\);/
   );
 });
 

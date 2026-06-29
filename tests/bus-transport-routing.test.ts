@@ -267,6 +267,28 @@ describe("background transport", () => {
       }))).resolves.toBeUndefined();
     });
   });
+
+  it("drops one-way content events when the async message channel closes", async () => {
+    await withBrowser({
+      runtime: { id: "test-runtime" },
+      tabs: {
+        sendMessage() {
+          return Promise.reject(new Error(
+            "A listener indicated an asynchronous response by returning true, but the message channel closed before a response was received",
+          ));
+        },
+      },
+    }, async () => {
+      const { createBackgroundTransport } = await loadBusTransportModule<typeof import("../src/common/bus/transport/background-transport.js")>("../src/common/bus/transport/background-transport.js");
+      const transport = createBackgroundTransport();
+
+      await expect(transport.send(makeEventEnvelope("directive.content", { ok: true }, {
+        src: REALMS.BACKGROUND,
+        dst: REALMS.CONTENT,
+        tab: 9,
+      }))).resolves.toBeUndefined();
+    });
+  });
 });
 
 describe("content and popup transport", () => {

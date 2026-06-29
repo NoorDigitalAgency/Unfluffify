@@ -3,7 +3,7 @@ import { assert } from "./test-kit.ts";
 
 import { createBrain } from "../src/background/brain/index.js";
 import { REALMS } from "../src/common/bus/realms.js";
-import { SESSION_PHASES, SESSION_REPORT_TYPES } from "../src/common/bus/contracts/session-state.js";
+import { AI_RUN_PHASES, SESSION_PHASES, SESSION_REPORT_TYPES } from "../src/common/bus/contracts/session-state.js";
 
 test("brain ingests reported session facts and projects optional dictation into popup view", async () => {
   const brain = createBrain({ logger: { error() {} } });
@@ -19,6 +19,7 @@ test("brain ingests reported session facts and projects optional dictation into 
       sessionHasPendingChanges: true,
       currentPageHasPendingChanges: true,
       currentDraftDirty: true,
+      aiRunPhase: AI_RUN_PHASES.POST_AI,
       aiRunUpToDate: true,
       pageInspectionBusy: false,
       desktopPreviewVisible: false,

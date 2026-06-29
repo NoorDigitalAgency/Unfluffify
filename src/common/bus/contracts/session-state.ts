@@ -20,6 +20,13 @@ export const SESSION_PHASES = Object.freeze({
 
 export type SessionPhase = (typeof SESSION_PHASES)[keyof typeof SESSION_PHASES];
 
+export const AI_RUN_PHASES = Object.freeze({
+  PRE_AI: "pre_ai",
+  POST_AI: "post_ai",
+} as const);
+
+export type SessionAiRunPhase = (typeof AI_RUN_PHASES)[keyof typeof AI_RUN_PHASES];
+
 export const BUTTON_IDS = Object.freeze({
   TOGGLE_ENABLED: "toggle-enabled",
   COMPUTE: "compute",
@@ -74,6 +81,7 @@ export type SessionFacts = Readonly<{
   aiReady: boolean;
   aiBusy: boolean;
   aiComputing: boolean;
+  aiRunPhase: SessionAiRunPhase;
   aiRunUpToDate: boolean;
   previewActive: boolean;
   previewBlocked: boolean;
