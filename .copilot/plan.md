@@ -1471,6 +1471,8 @@ loads. Supersedes the old Plan 5 `p5-*` track.
   activation on the directive, keeps page mechanics, reports facts UP; flatten
   into `loadAndNormalizeConfigs`/`collectSilentHighlightSources`/`buildOverlayUpdate`/
   `scheduleOverlayApply`. Live-verify post-Save shows it, post-Discard does not.
+  Status: complete for implementation, review, and final gate; ready for the
+  Phase F commit/push handoff.
 - Phase G — Standalone low/medium-risk flattening not already rewritten
   (`background.ts:resolvePopupTabContext`, `spinner-operations.ts:normalizeSpinnerEntry`,
   `popup-state-broker.ts:serializeSpinnerQueue`, `ui.tsx` render helpers,

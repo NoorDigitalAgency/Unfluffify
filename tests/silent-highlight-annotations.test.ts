@@ -78,7 +78,7 @@ test("silent highlighting keeps immutable sources on a dedicated immutable overl
   );
   assert.match(
     source,
-    /refreshSilentHighlightings\(\) \{[\s\S]*?const immutableSourcesForSilentOverlay = Array\.isArray\(contentMarking\.immutableExcluded\)[\s\S]*?sourceImmutableNodes: immutableSourcesForSilentOverlay/
+    /function collectSilentHighlightSources\([\s\S]*?const immutableSourcesForSilentOverlay = Array\.isArray\(contentMarking\.immutableExcluded\)[\s\S]*?sourceImmutableNodes: immutableSourcesForSilentOverlay/
   );
 });
 
@@ -93,7 +93,23 @@ test("silent highlighting owns page motion pause for matching pages even without
   );
   assert.match(
     source,
-    /const baseUrl = utils\.findMatchingBaseUrl\(pageUrl, configs\);[\s\S]*?if \(!baseUrl\) \{[\s\S]*?setSilentHighlightingPageMotionPaused\(false\);[\s\S]*?return;[\s\S]*?\}[\s\S]*?const currentSilentRevealKey = getSilentHighlightEditorRevealKey\(baseUrl, pageUrl\);[\s\S]*?const holdSilentMotionPause = Boolean\([\s\S]*?shouldRunSilentHighlightEditorActivation\(\)[\s\S]*?!silentHighlightEditorRevealInFlight[\s\S]*?currentSilentRevealKey === silentHighlightEditorRevealKey[\s\S]*?\);[\s\S]*?setSilentHighlightingPageMotionPaused\(holdSilentMotionPause\);[\s\S]*?const normalized = config\.normalizeConfig/
+    /async function loadAndNormalizeConfigs\([\s\S]*?const baseUrl = utils\.findMatchingBaseUrl\(pageUrl, configs\);[\s\S]*?if \(!baseUrl\) \{[\s\S]*?snapshot: null[\s\S]*?silentModeActive: false[\s\S]*?\}[\s\S]*?const normalized = config\.normalizeConfig\(baseUrl, configs\[baseUrl\]\);[\s\S]*?const currentSilentRevealKey = getSilentHighlightEditorRevealKey\(baseUrl, pageUrl\);[\s\S]*?const holdSilentMotionPause = Boolean\([\s\S]*?shouldRunSilentHighlightEditorActivation\(\)[\s\S]*?!silentHighlightEditorRevealInFlight[\s\S]*?currentSilentRevealKey === silentHighlightEditorRevealKey[\s\S]*?\);/
+  );
+  assert.match(
+    source,
+    /async function refreshSilentHighlightings\(\) \{[\s\S]*?if \(!isSilentHighlightActiveByDirective\(\)\) \{[\s\S]*?deactivateSilentHighlightings\(\);[\s\S]*?return;[\s\S]*?\}[\s\S]*?setSilentHighlightingPageMotionPaused\(snapshot\.holdSilentMotionPause\);/
+  );
+  assert.match(
+    source,
+    /const loadResult = await loadAndNormalizeConfigs\(pageUrl\);[\s\S]*?if \(refreshGeneration !== silentHighlightingRefreshGeneration \|\| location\.href !== pageUrl\) \{[\s\S]*?return;[\s\S]*?\}[\s\S]*?publishSilentHighlightSessionFacts\(loadResult\.facts\);/
+  );
+  assert.match(
+    source,
+    /function publishSilentHighlightSessionFacts\([\s\S]*?const factsKey = JSON\.stringify\([\s\S]*?if \(factsKey === lastSilentHighlightSessionFactsKey\) \{[\s\S]*?return;[\s\S]*?\}[\s\S]*?publishContentSessionFacts\(facts\);/
+  );
+  assert.match(
+    source,
+    /let lastSilentHighlightDirectiveActive = isSilentHighlightActiveByDirective\(\);[\s\S]*?addContentDirectiveListener\(\(directive\) => \{[\s\S]*?if \(nextSilentHighlightDirectiveActive === lastSilentHighlightDirectiveActive\) \{[\s\S]*?return;[\s\S]*?\}/
   );
   assert.match(
     source,
@@ -101,7 +117,7 @@ test("silent highlighting owns page motion pause for matching pages even without
   );
   assert.match(
     source,
-    /function shouldRunSilentHighlightEditorActivation\(\) \{[\s\S]*?!isPropertyLockCollaborationEnabled\(\)[\s\S]*?propertyLockState && propertyLockState\.isEditor[\s\S]*?\}[\s\S]*?async function runEditorSilentHighlightingActivation\(\) \{[\s\S]*?const pageTypeResult = await resolveCurrentPageTypeForMarking\(baseUrl, pageUrl\);[\s\S]*?if \(!pageTypeResult\.ok \|\| !pageTypeResult\.pageType\) \{[\s\S]*?resetPageVisitRevealFreezeKeys\(\);[\s\S]*?shouldRefreshAfterActivation = true;[\s\S]*?return;[\s\S]*?\}[\s\S]*?if \(!consumePageVisitRevealFreezeAttempt\(baseUrl, pageUrl\)\) \{[\s\S]*?shouldRefreshAfterActivation = true;[\s\S]*?return;[\s\S]*?\}[\s\S]*?core\.setPageSaveReconciliationPending\(baseUrl, pageUrl, \{[\s\S]*?reason: SILENT_HIGHLIGHTING_PREPARATION_REASON[\s\S]*?\}\);[\s\S]*?core\.warmupSilentHighlightingBeforeMotionPause\([\s\S]*?SILENT_HIGHLIGHTING_MOTION_PAUSE_REASON[\s\S]*?\);[\s\S]*?markSilentHighlightEditorRevealPrepared\(baseUrl, pageUrl\);[\s\S]*?await refreshSilentHighlightings\(\);[\s\S]*?\}/
+    /function shouldRunSilentHighlightEditorActivation\(\) \{[\s\S]*?!isSilentHighlightActiveByDirective\(\)[\s\S]*?!isPropertyLockCollaborationEnabled\(\)[\s\S]*?propertyLockState && propertyLockState\.isEditor[\s\S]*?\}[\s\S]*?async function runEditorSilentHighlightingActivation\(\) \{[\s\S]*?const pageTypeResult = await resolveCurrentPageTypeForMarking\(baseUrl, pageUrl\);[\s\S]*?if \(!pageTypeResult\.ok \|\| !pageTypeResult\.pageType\) \{[\s\S]*?resetPageVisitRevealFreezeKeys\(\);[\s\S]*?shouldRefreshAfterActivation = true;[\s\S]*?return;[\s\S]*?\}[\s\S]*?if \(!consumePageVisitRevealFreezeAttempt\(baseUrl, pageUrl\)\) \{[\s\S]*?shouldRefreshAfterActivation = true;[\s\S]*?return;[\s\S]*?\}[\s\S]*?core\.setPageSaveReconciliationPending\(baseUrl, pageUrl, \{[\s\S]*?reason: SILENT_HIGHLIGHTING_PREPARATION_REASON[\s\S]*?\}\);[\s\S]*?core\.warmupSilentHighlightingBeforeMotionPause\([\s\S]*?SILENT_HIGHLIGHTING_MOTION_PAUSE_REASON[\s\S]*?\);[\s\S]*?markSilentHighlightEditorRevealPrepared\(baseUrl, pageUrl\);[\s\S]*?await refreshSilentHighlightings\(\);[\s\S]*?\}/
   );
   assert.match(
     stateMachineSource,
@@ -120,9 +136,9 @@ test("silent highlighting owns page motion pause for matching pages even without
     source,
     /core\.finishPageInspectionUi\(\);\s*finishSilentHighlightLifecycle\(\);/
   );
-  const noTargetsBlock = source.match(/const shouldObserve = hasSelectorHighlights \|\| hasHiddenConsent;[\s\S]*?if \(!shouldObserve\) \{[\s\S]*?return;[\s\S]*?\}/);
+  const noTargetsBlock = source.match(/const shouldObserve = snapshot\.hasSelectorHighlights \|\| hasHiddenConsent;[\s\S]*?if \(!shouldObserve\) \{[\s\S]*?return \{[\s\S]*?\};[\s\S]*?\}/);
   assert.ok(noTargetsBlock);
-  assert.match(noTargetsBlock[0], /setSilentHighlightingsActive\(holdSilentMotionPause\);/);
+  assert.match(source, /setSilentHighlightingsActive\(snapshot\.holdSilentMotionPause\);/);
 });
 
 test("silent highlight reposition and mutation tracking use source collections instead of only stale render targets", () => {

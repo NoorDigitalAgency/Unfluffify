@@ -183,6 +183,7 @@ describe("popup view projector", () => {
         javaScriptDisabled: true,
       },
       markingEditsBlocked: false,
+      silentHighlightActive: false,
     });
     expect(popupView).toEqual({
       version: 3,
@@ -539,5 +540,54 @@ describe("popup view projector", () => {
     expect(projectViews(buildState({ ...baseSessionFacts, aiRunPhase: AI_RUN_PHASES.POST_AI })).contentDirective.markingEditsBlocked).toBe(true);
     expect(projectViews(buildState({ ...baseSessionFacts, aiRunPhase: AI_RUN_PHASES.AI_PREVIEW })).contentDirective.markingEditsBlocked).toBe(true);
     expect(projectViews(buildState({ ...baseSessionFacts, aiRunPhase: AI_RUN_PHASES.PRE_AI })).contentDirective.markingEditsBlocked).toBe(false);
+  });
+
+  it("activates silent highlighting only for clean silent saved-selector state", () => {
+    const buildState = (facts: typeof baseSessionFacts): TabLayerState => ({
+      tabId: 91,
+      version: 7,
+      popupView: {
+        traceEnabled: false,
+        traceEvents: [],
+        lifecycle: null,
+      },
+      activation: {
+        contentReady: false,
+        bootstrapStatus: "bootstrapping",
+        restorePending: false,
+        lastError: "",
+        lastLifecycle: null,
+        lastContentPageUrl: "",
+      },
+      renderMode: {
+        inspecting: false,
+        javaScriptDisabled: false,
+        noJsHeld: false,
+        operationId: "",
+        baseUrl: "",
+        lastSnapshotPageUrl: "",
+        followUpCompleted: false,
+        lastError: "",
+      },
+      sessionFactsReported: true,
+      sessionFacts: facts,
+      sessionDictation: null,
+      propertyLockView: null,
+      propertyLockTimer: null,
+      secondaryGates: null,
+      spinners: { popup: null, pageCurtain: null, banner: null },
+    });
+    const savedSilentFacts = {
+      ...baseSessionFacts,
+      isEnabled: false,
+      silentModeActive: true,
+      aiRunPhase: AI_RUN_PHASES.PRE_AI,
+    };
+
+    expect(projectViews(buildState(savedSilentFacts)).contentDirective.silentHighlightActive).toBe(true);
+    expect(projectViews(buildState({ ...savedSilentFacts, hasStoredSelectors: false })).contentDirective.silentHighlightActive).toBe(false);
+    expect(projectViews(buildState({ ...savedSilentFacts, isEnabled: true, silentModeActive: false })).contentDirective.silentHighlightActive).toBe(false);
+    expect(projectViews(buildState({ ...savedSilentFacts, sessionHasPendingChanges: true })).contentDirective.silentHighlightActive).toBe(false);
+    expect(projectViews(buildState({ ...savedSilentFacts, pageSaveReconciliationPending: true })).contentDirective.silentHighlightActive).toBe(false);
   });
 });

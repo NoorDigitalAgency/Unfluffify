@@ -2,9 +2,10 @@ import type { Bus } from "../../common/bus/bus";
 import { SPINNER_EVENT_TYPES } from "../../common/bus/contracts/spinner";
 import { clearContentSpinner, renderContentSpinner } from "./spinner-layer";
 
-type ContentDirectiveLike = {
+export type ContentDirectiveLike = {
   version?: unknown;
   markingEditsBlocked?: unknown;
+  silentHighlightActive?: unknown;
 };
 
 let contentLayerHostStarted = false;
@@ -65,6 +66,10 @@ export function getLatestContentDirective(): ContentDirectiveLike | null {
 
 export function isMarkingEditsBlockedByDirective(): boolean {
   return latestContentDirective?.markingEditsBlocked === true;
+}
+
+export function isSilentHighlightActiveByDirective(): boolean {
+  return latestContentDirective?.silentHighlightActive === true;
 }
 
 export function addContentDirectiveListener(

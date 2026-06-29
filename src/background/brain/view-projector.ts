@@ -16,6 +16,7 @@ export type ContentDirective = Readonly<{
   activation: ActivationSnapshot;
   renderMode: RenderModeDirectiveState;
   markingEditsBlocked: boolean;
+  silentHighlightActive: boolean;
 }>;
 
 function cloneActivationSnapshot(value: TabLayerState["activation"]): ActivationSnapshot {
@@ -144,6 +145,37 @@ function cloneSecondaryGates(
   };
 }
 
+function shouldActivateSilentHighlighting(state: TabLayerState): boolean {
+  if (!state.sessionFactsReported) {
+    return false;
+  }
+  const facts = state.sessionFacts;
+  return Boolean(
+    facts.silentModeActive &&
+      facts.hasStoredSelectors &&
+      !facts.isEnabled &&
+      !facts.pageScopedUiDisabled &&
+      !facts.navigationInspectionPending &&
+      facts.baseUrlReady &&
+      facts.siteIdReady &&
+      facts.renderModeReady &&
+      !facts.pageTypeUiBlocked &&
+      !facts.pageInspectionBusy &&
+      !facts.sessionHasPendingChanges &&
+      !facts.currentPageHasPendingChanges &&
+      !facts.currentDraftDirty &&
+      !facts.pageSaveReconciliationPending &&
+      !facts.sessionRequiresAiRun &&
+      !facts.aiBusy &&
+      !facts.aiComputing &&
+      !facts.saving &&
+      !facts.discarding &&
+      !facts.previewActive &&
+      !facts.previewBlocked &&
+      !facts.previewRestorePending
+  );
+}
+
 export function projectViews(state: TabLayerState): {
   popupView: PopupView;
   contentDirective: ContentDirective;
@@ -179,6 +211,7 @@ export function projectViews(state: TabLayerState): {
           (state.sessionFacts.aiRunPhase === AI_RUN_PHASES.POST_AI ||
             state.sessionFacts.aiRunPhase === AI_RUN_PHASES.AI_PREVIEW)
       ),
+      silentHighlightActive: shouldActivateSilentHighlighting(state),
     },
   };
 }

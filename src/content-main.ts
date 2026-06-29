@@ -124,6 +124,10 @@ import { createPageSaveReconciliationPendingHandler } from "./content/page-save-
 import { initializePageWorldRelay } from "./content/page-world-relay";
 import { createPageToast } from "./content/page-toast";
 import { handleContentBusMessage, publishContentSessionFacts, startContentBusClient } from "./content/layers/content-bus-client";
+import {
+  addContentDirectiveListener,
+  isSilentHighlightActiveByDirective
+} from "./content/layers/layer-host";
 import { createRenderModeInspectionClient } from "./content/render-mode-inspection-client";
 import { createRenderModeInspectionHandlers } from "./content/render-mode-inspection-handlers";
 import { createVisibleXpathsHandler } from "./content/visible-xpaths-handler";
@@ -263,6 +267,7 @@ type SilentHighlightRefreshScheduleOptions = {
   debounceMs?: unknown;
   minIntervalMs?: unknown;
 };
+type ContentSessionFactsPatch = Parameters<typeof publishContentSessionFacts>[0];
 type SilentHighlightLayerState =
   | {
     layer: HTMLElement;
@@ -328,6 +333,29 @@ type SilentHighlightCollections = {
   explicitIncludeXpathByNode: Map<Element, string>;
   excludedXpathByNode: Map<Element, string>;
   implicitIncludeXpathByNode: Map<Element, string>;
+};
+type SilentHighlightConfigSnapshot = {
+  effectiveSelectorSet: EffectiveSelectorSet;
+  hasSelectorHighlights: boolean;
+  holdSilentMotionPause: boolean;
+};
+type SilentHighlightConfigLoadResult = {
+  snapshot: SilentHighlightConfigSnapshot | null;
+  facts: ContentSessionFactsPatch;
+};
+type SilentHighlightSourceState = {
+  shouldObserve: boolean;
+  renderCollections: SilentHighlightCollections;
+  immutableNodes: Element[];
+  contentNodes: Element[];
+  excludedNodes: Element[];
+};
+type SilentHighlightOverlayUpdate = {
+  renderCollections: SilentHighlightCollections;
+  shouldBeActive: boolean;
+  renderKey: string;
+  renderChanged: boolean;
+  shouldRenderOverlay: boolean;
 };
 type SilentHighlightTrackedNodeIndex = {
   tracked: Set<Node>;
@@ -520,6 +548,7 @@ let silentHighlightingRefreshTimer = 0;
 let silentHighlightingRefreshDueAt = 0;
 let silentHighlightingRefreshGeneration = 0;
 let lastSilentHighlightingRefreshAt = 0;
+let lastSilentHighlightSessionFactsKey = "";
 let lastSilentHighlightingRenderKey = "";
 let lastSilentHighlightingsActive = false;
 let silentHighlightingPositionRefreshPending = false;
@@ -2164,6 +2193,9 @@ function shouldRunSilentHighlightEditorActivation() {
   if (state.enabled) {
     return false;
   }
+  if (!isSilentHighlightActiveByDirective()) {
+    return false;
+  }
   if (!isPropertyLockCollaborationEnabled()) {
     return true;
   }
@@ -2262,7 +2294,7 @@ async function runEditorSilentHighlightingActivationOnce() {
     const previousReconciliation = core.getPageSaveReconciliationState(pageUrl);
     const isStillCurrent = () =>
       silentHighlightEditorRevealInFlight === activationId &&
-      shouldRunSilentHighlightEditorActivation() &&
+      (isSilentHighlightActiveByDirective() || core.isPageSaveReconciliationPending(pageUrl)) &&
       location.href === pageUrl &&
       utils.isPageWithinBaseUrl(location.href, baseUrl);
     lifecycleStarted = true;
@@ -3651,29 +3683,6 @@ async function exitAiPreviewMode() {
   };
 }
 
-function normalizeUrlPath(pathname: unknown): string {
-  if (typeof pathname !== "string" || !pathname) {
-    return "/";
-  }
-  const trimmed = pathname.replace(/\/+$/, "");
-  return trimmed || "/";
-}
-
-function toLooseUrlKey(value: unknown, baseUrl: unknown): string {
-  if (typeof value !== "string" || !value) {
-    return "";
-  }
-  try {
-    const lookupBaseUrl = typeof baseUrl === "string" && baseUrl ? baseUrl : location.href;
-    const url = new URL(value, lookupBaseUrl);
-    const host = url.host.toLowerCase();
-    const path = normalizeUrlPath(url.pathname);
-    return `${host}${path}${url.search || ""}`;
-  } catch {
-    return "";
-  }
-}
-
 function getStoredAiSelectorSet(baseConfig: unknown): SelectorSet {
   if (!baseConfig || typeof baseConfig !== "object") {
     return { exclusionSelectors: [], inclusionSelectors: [] };
@@ -3699,6 +3708,10 @@ function getEffectiveAiSelectorSet(baseConfig: unknown): EffectiveSelectorSet {
     ...storedSelectors,
     suppressedXpaths
   };
+}
+
+function hasStoredAiSelectorHighlights(baseConfig: unknown): boolean {
+  return combineAiSelectorSet(getStoredAiSelectorSet(baseConfig)).length > 0;
 }
 
 function resolveSuppressedSelectorBoundaries(suppressedXpaths: unknown): SuppressedSelectorBoundaries {
@@ -5194,38 +5207,47 @@ function refreshEnabledAiHighlights() {
   core.scheduleRender(undefined);
 }
 
-async function refreshSilentHighlightings() {
-  if (silentHighlightingRefreshTimer) {
-    window.clearTimeout(silentHighlightingRefreshTimer);
-    silentHighlightingRefreshTimer = 0;
-  }
-  silentHighlightingRefreshDueAt = 0;
-  lastSilentHighlightingRefreshAt = Date.now();
-  // Bump the generation token so any older refresh that is still awaiting an
-  // async step can detect it has been superseded and bail out before mutating
-  // observers, overlays, or render-key state with stale data.
-  const refreshGeneration = ++silentHighlightingRefreshGeneration;
-  if (state.enabled) {
-    setSilentHighlightingPageMotionPaused(false);
-    stopSilentHighlightingObserver();
-    clearSilentHighlightingMarks();
-    setSilentHighlightingsActive(false);
-    refreshEnabledAiHighlights();
+function deactivateSilentHighlightings(): void {
+  setSilentHighlightingPageMotionPaused(false);
+  stopSilentHighlightingObserver();
+  clearSilentHighlightingMarks();
+  setSilentHighlightingsActive(false);
+}
+
+function publishSilentHighlightSessionFacts(facts: ContentSessionFactsPatch): void {
+  const factsKey = JSON.stringify(
+    Object.keys(facts)
+      .sort()
+      .map((key) => [key, facts[key as keyof ContentSessionFactsPatch]])
+  );
+  if (factsKey === lastSilentHighlightSessionFactsKey) {
     return;
   }
-  const pageUrl = location.href;
+  lastSilentHighlightSessionFactsKey = factsKey;
+  void publishContentSessionFacts(facts);
+}
+
+async function loadAndNormalizeConfigs(pageUrl: string): Promise<SilentHighlightConfigLoadResult> {
   const configs = await config.getConfigs();
-  if (refreshGeneration !== silentHighlightingRefreshGeneration) {
-    return;
-  }
   const baseUrl = utils.findMatchingBaseUrl(pageUrl, configs);
   if (!baseUrl) {
-    resetPageVisitRevealFreezeKeys();
-    setSilentHighlightingPageMotionPaused(false);
-    stopSilentHighlightingObserver();
-    clearSilentHighlightingMarks();
-    setSilentHighlightingsActive(false);
-    return;
+    return {
+      snapshot: null,
+      facts: {
+        baseUrlReady: false,
+        siteIdReady: false,
+        renderModeReady: false,
+        isEnabled: state.enabled,
+        silentModeActive: false,
+        hasStoredSelectors: false
+      }
+    };
+  }
+  const normalized = config.normalizeConfig(baseUrl, configs[baseUrl]);
+  const baseConfig = (normalized.config || {}) as Config;
+  if (normalized.changed) {
+    configs[baseUrl] = baseConfig;
+    await config.saveConfigs(configs);
   }
   const currentSilentRevealKey = getSilentHighlightEditorRevealKey(baseUrl, pageUrl);
   const holdSilentMotionPause = Boolean(
@@ -5234,72 +5256,56 @@ async function refreshSilentHighlightings() {
       currentSilentRevealKey &&
       currentSilentRevealKey === silentHighlightEditorRevealKey
   );
-  setSilentHighlightingPageMotionPaused(holdSilentMotionPause);
-  const normalized = config.normalizeConfig(baseUrl, configs[baseUrl]);
-  const baseConfig = normalized.config || {};
-  if (normalized.changed) {
-    configs[baseUrl] = baseConfig;
-    await config.saveConfigs(configs);
-    if (refreshGeneration !== silentHighlightingRefreshGeneration) {
-      return;
-    }
-  }
-  const pageMarkings = baseConfig.pageMarkings || {};
   const storedSelectors = getStoredAiSelectorSet(baseConfig);
-  const effectiveSelectorSet = getEffectiveAiSelectorSet(baseConfig);
-  ensureSilentHighlightingStyles();
-  clearLegacySilentHighlightingAttributes();
   const hasSelectorHighlights = combineAiSelectorSet(storedSelectors).length > 0;
-  const savedUrls = new Set();
-  const savedLooseUrls = new Set();
-  Object.keys(pageMarkings).forEach((url) => {
-    if (typeof url !== "string" || !url) {
-      return;
+  return {
+    snapshot: {
+      effectiveSelectorSet: getEffectiveAiSelectorSet(baseConfig),
+      hasSelectorHighlights,
+      holdSilentMotionPause
+    },
+    facts: {
+      baseUrlReady: true,
+      siteIdReady: Boolean(normalizeSiteIdValue(baseConfig.siteId)),
+      renderModeReady: config.isRenderModeConfirmed(baseConfig),
+      isEnabled: state.enabled,
+      silentModeActive: !state.enabled,
+      hasStoredSelectors: hasSelectorHighlights
     }
-    savedUrls.add(url);
-    const loose = toLooseUrlKey(url, pageUrl);
-    if (loose) {
-      savedLooseUrls.add(loose);
-    }
-  });
+  };
+}
+
+async function collectSilentHighlightSources(
+  snapshot: SilentHighlightConfigSnapshot,
+  refreshGeneration: number
+): Promise<SilentHighlightSourceState | null> {
   const newlyHiddenConsentCount = core.hideConsentElements();
   const hasHiddenConsent =
     newlyHiddenConsentCount > 0 ||
     Boolean(document.querySelector(`[${core.CONSENT_HIDDEN_ATTR}]`));
-  const shouldObserve = hasSelectorHighlights || hasHiddenConsent;
-  if (!shouldObserve) {
-    stopSilentHighlightingObserver();
-    clearSilentHighlightingMarks();
-    setSilentHighlightingsActive(holdSilentMotionPause);
-    return;
-  }
+  const shouldObserve = snapshot.hasSelectorHighlights || hasHiddenConsent;
+  let renderCollections = buildSilentHighlightRenderableCollections(null);
   let contentNodes: Element[] = [];
   let excludedNodes: Element[] = [];
   let immutableNodes: Element[] = [];
-  let renderCollections = buildSilentHighlightRenderableCollections({
-    sourceImmutableNodes: [],
-    sourceContentNodes: [],
-    sourceExcludedNodes: [],
-    sourceExplicitIncludeNodes: [],
-    sourceInclusionSelectorByNode: new Map(),
-    sourceExclusionSelectorByNode: new Map()
-  });
-  if (hasSelectorHighlights) {
+  if (!shouldObserve) {
+    return {
+      shouldObserve,
+      renderCollections,
+      immutableNodes,
+      contentNodes,
+      excludedNodes
+    };
+  }
+  if (snapshot.hasSelectorHighlights) {
     try {
-      // Run the (synchronous) source-set collection inside the shared
-      // element-computation cache so the deep helper graph
-      // (collectImplicitIncludedNodesOutsideExplicit, hasRenderableTextForHighlight,
-      // isInclusionEligibleNode, ...) memoizes visibility / text / immutable
-      // lookups per pass instead of recomputing them per node. Scoped to this
-      // synchronous call only — no awaits inside — so cached layout cannot go
-      // stale across a yield. (Plan item 50 sub-6; also cuts sub-2 blocking time.)
+      // Run the synchronous source-set collection inside the shared cache so the
+      // deep helper graph memoizes visibility / text / immutable lookups per pass.
       const contentMarking = core.withElementComputationCache(() =>
-        collectIncludedNodesFromSelectorSet(effectiveSelectorSet)
+        collectIncludedNodesFromSelectorSet(snapshot.effectiveSelectorSet)
       );
-      // Yield to the event loop between source-set computation and renderable
-      // expansion so a long page can break up the synchronous work. The next
-      // task re-checks the generation token; a newer refresh that started
-      // while we were computing source nodes wins and this older call bails.
+      // Yield before renderable expansion so long pages can break up work; the
+      // generation token prevents stale async passes from mutating the page.
       await new Promise<void>((resolve) => {
         if (typeof window.setTimeout !== "function") {
           resolve();
@@ -5308,7 +5314,7 @@ async function refreshSilentHighlightings() {
         window.setTimeout(resolve, 0);
       });
       if (refreshGeneration !== silentHighlightingRefreshGeneration) {
-        return;
+        return null;
       }
       const excludedSourcesForSilentOverlay = Array.isArray(contentMarking.excluded)
         ? contentMarking.excluded
@@ -5332,20 +5338,28 @@ async function refreshSilentHighlightings() {
       contentNodes = renderCollections.contentNodes;
       excludedNodes = renderCollections.excludedNodes;
     } catch {
-      // Keep other silent highlighting features active even if selector processing fails.
+      // Keep consent hiding and observer mechanics active if selector processing fails.
+      renderCollections = buildSilentHighlightRenderableCollections(null);
       immutableNodes = [];
       contentNodes = [];
       excludedNodes = [];
-      renderCollections = buildSilentHighlightRenderableCollections({
-        sourceImmutableNodes: [],
-        sourceContentNodes: [],
-        sourceExcludedNodes: [],
-        sourceExplicitIncludeNodes: [],
-        sourceInclusionSelectorByNode: new Map(),
-        sourceExclusionSelectorByNode: new Map()
-      });
     }
   }
+  return {
+    shouldObserve,
+    renderCollections,
+    immutableNodes,
+    contentNodes,
+    excludedNodes
+  };
+}
+
+function buildOverlayUpdate(
+  renderCollections: SilentHighlightCollections,
+  immutableNodes: Element[],
+  contentNodes: Element[],
+  excludedNodes: Element[]
+): SilentHighlightOverlayUpdate {
   const shouldBeActive =
     immutableNodes.length > 0 || contentNodes.length > 0 || excludedNodes.length > 0;
   const renderKey = buildSilentHighlightingRenderKey(
@@ -5369,52 +5383,122 @@ async function refreshSilentHighlightings() {
     hasOverlay: Boolean(silentHighlightOverlay),
     isFullRefresh: true
   });
-  // Yield to the browser before the overlay DOM write so paint/layout work that
-  // queued up during source collection can flush. The previous overlay stays in
-  // place during the yield, and a newer refresh that bumps the generation token
-  // mid-yield will cause this stale call to bail without mutating anything.
-  const applyOverlayUpdate = () => {
-    if (refreshGeneration !== silentHighlightingRefreshGeneration) {
-      return;
-    }
-    if (shouldRenderOverlay) {
-      // Updating an already-live overlay (it was active and stays active) keeps
-      // it visible and repaints rects in place: boxes are reused DOM nodes whose
-      // positions/membership update atomically in this synchronous rAF pass, so
-      // there is no half-built frame to hide. Running the hide->reveal cycle on
-      // every full refresh - including the common case where a DOM mutation
-      // re-runs the pipeline with identical output - is what blinked the overlay.
-      // Only the initial paint (inactive -> active, or no overlay yet) uses the
-      // hide->reveal transition so the first reveal is correctly scheduled.
-      const overlayAlreadyLive =
-        lastSilentHighlightingsActive && shouldBeActive && Boolean(silentHighlightOverlay);
-      renderSilentHighlightOverlay(renderCollections, { keepVisible: overlayAlreadyLive });
-    } else if (renderChanged) {
-      clearSilentHighlightOverlay();
-    }
-    if (renderChanged) {
-      lastSilentHighlightingRenderKey = renderKey;
-      lastSilentHighlightingsActive = shouldBeActive;
-    }
-    silentHighlightingPositionRefreshPending = false;
-    setSilentHighlightingsActive(shouldBeActive);
-    startSilentHighlightingObserver();
+  return {
+    renderCollections,
+    shouldBeActive,
+    renderKey,
+    renderChanged,
+    shouldRenderOverlay
   };
-  if (!shouldRenderOverlay && !renderChanged) {
-    applyOverlayUpdate();
+}
+
+function applySilentHighlightOverlayUpdate(
+  refreshGeneration: number,
+  update: SilentHighlightOverlayUpdate
+): void {
+  if (refreshGeneration !== silentHighlightingRefreshGeneration) {
     return;
   }
+  if (update.shouldRenderOverlay) {
+    // Updating an already-live overlay keeps it visible and repaints rects in
+    // place; only the initial paint needs the hide->reveal transition.
+    const overlayAlreadyLive =
+      lastSilentHighlightingsActive && update.shouldBeActive && Boolean(silentHighlightOverlay);
+    renderSilentHighlightOverlay(update.renderCollections, { keepVisible: overlayAlreadyLive });
+  } else if (update.renderChanged) {
+    clearSilentHighlightOverlay();
+  }
+  if (update.renderChanged) {
+    lastSilentHighlightingRenderKey = update.renderKey;
+    lastSilentHighlightingsActive = update.shouldBeActive;
+  }
+  silentHighlightingPositionRefreshPending = false;
+  setSilentHighlightingsActive(update.shouldBeActive);
+  startSilentHighlightingObserver();
+}
+
+async function scheduleOverlayApply(
+  refreshGeneration: number,
+  update: SilentHighlightOverlayUpdate
+): Promise<void> {
+  if (!update.shouldRenderOverlay && !update.renderChanged) {
+    applySilentHighlightOverlayUpdate(refreshGeneration, update);
+    return;
+  }
+  // Yield to the browser before the overlay DOM write so paint/layout work that
+  // queued up during source collection can flush.
   await new Promise<void>((resolve) => {
     if (typeof window.requestAnimationFrame !== "function") {
-      applyOverlayUpdate();
+      applySilentHighlightOverlayUpdate(refreshGeneration, update);
       resolve();
       return;
     }
     window.requestAnimationFrame(() => {
-      applyOverlayUpdate();
+      applySilentHighlightOverlayUpdate(refreshGeneration, update);
       resolve();
     });
   });
+}
+
+async function refreshSilentHighlightings() {
+  if (silentHighlightingRefreshTimer) {
+    window.clearTimeout(silentHighlightingRefreshTimer);
+    silentHighlightingRefreshTimer = 0;
+  }
+  silentHighlightingRefreshDueAt = 0;
+  lastSilentHighlightingRefreshAt = Date.now();
+  // Bump the generation token so any older refresh that is still awaiting an
+  // async step can detect it has been superseded and bail out before mutating
+  // observers, overlays, or render-key state with stale data.
+  const refreshGeneration = ++silentHighlightingRefreshGeneration;
+  if (state.enabled) {
+    publishSilentHighlightSessionFacts({
+      isEnabled: true,
+      silentModeActive: false,
+      hasStoredSelectors: hasStoredAiSelectorHighlights(state.config)
+    });
+    deactivateSilentHighlightings();
+    refreshEnabledAiHighlights();
+    return;
+  }
+  const pageUrl = location.href;
+  const loadResult = await loadAndNormalizeConfigs(pageUrl);
+  if (refreshGeneration !== silentHighlightingRefreshGeneration || location.href !== pageUrl) {
+    return;
+  }
+  publishSilentHighlightSessionFacts(loadResult.facts);
+  const snapshot = loadResult.snapshot;
+  if (!snapshot) {
+    resetPageVisitRevealFreezeKeys();
+    deactivateSilentHighlightings();
+    return;
+  }
+  if (!isSilentHighlightActiveByDirective()) {
+    deactivateSilentHighlightings();
+    return;
+  }
+  setSilentHighlightingPageMotionPaused(snapshot.holdSilentMotionPause);
+  ensureSilentHighlightingStyles();
+  clearLegacySilentHighlightingAttributes();
+  const sources = await collectSilentHighlightSources(snapshot, refreshGeneration);
+  if (!sources || refreshGeneration !== silentHighlightingRefreshGeneration) {
+    return;
+  }
+  if (!sources.shouldObserve) {
+    stopSilentHighlightingObserver();
+    clearSilentHighlightingMarks();
+    setSilentHighlightingsActive(snapshot.holdSilentMotionPause);
+    return;
+  }
+  await scheduleOverlayApply(
+    refreshGeneration,
+    buildOverlayUpdate(
+      sources.renderCollections,
+      sources.immutableNodes,
+      sources.contentNodes,
+      sources.excludedNodes
+    )
+  );
 }
 
 /**
@@ -7062,6 +7146,20 @@ export function main() {
       },
       endInspection: handleRenderModeInspectionEndCommand,
     },
+  });
+  let lastSilentHighlightDirectiveActive = isSilentHighlightActiveByDirective();
+  addContentDirectiveListener((directive) => {
+    const nextSilentHighlightDirectiveActive = Boolean(directive && directive.silentHighlightActive === true);
+    if (nextSilentHighlightDirectiveActive === lastSilentHighlightDirectiveActive) {
+      return;
+    }
+    lastSilentHighlightDirectiveActive = nextSilentHighlightDirectiveActive;
+    refreshSilentHighlightings().then(() => {});
+    if (nextSilentHighlightDirectiveActive) {
+      runEditorSilentHighlightingActivation().catch(() => {
+        refreshSilentHighlightings().then(() => {});
+      });
+    }
   });
 
   initializePageWorldRelay().catch(() => {
