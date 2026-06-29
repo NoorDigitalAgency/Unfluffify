@@ -28,6 +28,7 @@ test("background async runtime handlers keep the service worker alive", () => {
 
   const expectedBranches: Array<[string, string]> = [
     ["loadRemoteConfigSnapshot", "loadRemoteConfigSnapshot"],
+    ["loadPageDataForNavigation", "pageDataLifecycle.loadPageDataForNavigation"],
     ["saveRemoteConfigSnapshot", "saveRemoteConfigSnapshot"],
     ["replaceServerConfigIntoLocalSnapshot", "replaceServerConfigIntoLocalSnapshot"],
     ["mergeServerConfigIntoLocalSnapshot", "mergeServerConfigIntoLocalSnapshot"],
@@ -44,7 +45,7 @@ test("background async runtime handlers keep the service worker alive", () => {
     assert.ok(branch, `${messageType} branch should exist`);
     assert.match(
       branch,
-      new RegExp(`replyWithKeepAlive\\(\\(\\) => ${handlerName}\\(`),
+      new RegExp(`replyWithKeepAlive\\(\\(\\) => ${handlerName.replace(/\./g, "\\.")}\\(`),
       `${messageType} should hold the worker awake until sendResponse`
     );
   }

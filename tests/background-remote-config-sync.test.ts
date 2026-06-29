@@ -12,6 +12,7 @@ test("remote-config-sync module exports config reconciliation handlers", () => {
   assert.match(remoteConfigSyncSource, /export function mergeSelectorsIntoConfig\(targetConfig(?:\s*:\s*[^,)]+)?, incomingConfig(?:\s*:\s*[^,)]+)?\) \{/);
   assert.match(remoteConfigSyncSource, /export function getRemoteManagedConfigSignature\(baseUrl(?:\s*:\s*[^,)]+)?, sourceConfig(?:\s*:\s*[^,)]+)?\) \{/);
   assert.match(remoteConfigSyncSource, /export function getNormalizedPageEntrySignature\(pageUrl(?:\s*:\s*[^,)]+)?, entry(?:\s*:\s*[^,)]+)?\) \{/);
+  assert.match(remoteConfigSyncSource, /export async function clearLocalPageDataForMissingRemote\(options = \{\}\) \{/);
   assert.match(remoteConfigSyncSource, /export async function replaceServerConfigIntoLocalSnapshot\(options = \{\}\) \{/);
   assert.match(remoteConfigSyncSource, /export async function mergeServerConfigIntoLocalSnapshot\(options = \{\}\) \{/);
   assert.match(remoteConfigSyncSource, /export async function preparePageTypeAssignmentsSnapshot\(options = \{\}\) \{/);

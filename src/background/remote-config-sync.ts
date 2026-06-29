@@ -18,6 +18,7 @@ type StoredPageMarkingItem = {
   count: number;
 };
 type RemoteConfigSyncOptions = Record<string, unknown>;
+type StoredConfigEntry = Record<string, unknown>;
 
 interface SelectorMergeableConfig {
   selectors?: object | null;
@@ -46,6 +47,7 @@ type NormalizedConfigResult = {
 };
 
 const replaceOwnerByBaseUrl = new Map<string, number>();
+const remoteMissingClearOwnerByBaseUrl = new Map<string, number>();
 
 function normalizeConfigResult(baseUrl: string, incoming: unknown): NormalizedConfigResult {
   return configStore.normalizeConfig(baseUrl, incoming) as unknown as NormalizedConfigResult;
@@ -139,6 +141,126 @@ export function getNormalizedPageEntrySignature(pageUrl: unknown, entry: unknown
   const normalizedEntriesAny = configStore.normalizePageMarkings({ [normalizedPageUrl]: entry }).normalized as PageMarkings;
   const normalizedEntry = normalizedEntriesAny[normalizedPageUrl] || null;
   return JSON.stringify(normalizedEntry);
+}
+
+export async function clearLocalPageDataForMissingRemote(options = {}) {
+  const optionsAny = options as RemoteConfigSyncOptions;
+  const resolvedBaseUrl =
+    utils.normalizeCanonicalBaseUrl(optionsAny.baseUrl) ||
+    utils.normalizeBaseUrl(optionsAny.baseUrl) ||
+    (typeof optionsAny.baseUrl === "string" ? optionsAny.baseUrl.trim() : "");
+  if (!resolvedBaseUrl) {
+    return { changed: false, baseUrl: "" };
+  }
+  const shouldContinue =
+    typeof optionsAny.shouldContinue === "function"
+      ? optionsAny.shouldContinue as () => boolean
+      : () => true;
+  const requestId = Number.isFinite(optionsAny.requestId) ? Math.trunc(optionsAny.requestId as number) : 0;
+
+  const configs = (await configStore.getConfigs()) as Record<string, StoredConfigEntry>;
+  if (!shouldContinue()) {
+    return { changed: false, baseUrl: "" };
+  }
+  const normalizedCurrent = configs[resolvedBaseUrl]
+    ? normalizeConfigResult(resolvedBaseUrl, configs[resolvedBaseUrl]).config
+    : null;
+  const hadLocalPageMarkings = Boolean(
+    normalizedCurrent &&
+      normalizedCurrent.pageMarkings &&
+      typeof normalizedCurrent.pageMarkings === "object" &&
+      Object.keys(normalizedCurrent.pageMarkings).length > 0
+  );
+  const hadLocalSelectorState = Boolean(
+    normalizedCurrent &&
+      (
+        (normalizedCurrent.selectors &&
+          typeof normalizedCurrent.selectors === "object" &&
+          (
+            (Array.isArray((normalizedCurrent.selectors as { exclusionSelectors?: unknown }).exclusionSelectors) &&
+              (normalizedCurrent.selectors as { exclusionSelectors: unknown[] }).exclusionSelectors.length > 0) ||
+            (Array.isArray((normalizedCurrent.selectors as { inclusionSelectors?: unknown }).inclusionSelectors) &&
+              (normalizedCurrent.selectors as { inclusionSelectors: unknown[] }).inclusionSelectors.length > 0)
+          )) ||
+        configStore.normalizeEntryTimestamp(normalizedCurrent.selectorsUpdatedAt) !==
+          configStore.PAGE_TIMESTAMP_FALLBACK ||
+        (
+          typeof normalizedCurrent.submittedSelectorsFingerprint === "string" &&
+          normalizedCurrent.submittedSelectorsFingerprint.trim().length > 0
+        )
+      )
+  );
+  const previousConfigEntry = normalizedCurrent ? { ...normalizedCurrent } : null;
+  const backendSavedPageMarkings = await configStore.getBackendSavedPageMarkings(resolvedBaseUrl);
+  if (!shouldContinue()) {
+    return { changed: false, baseUrl: "" };
+  }
+  const clearedConfigEntry = normalizedCurrent
+    ? {
+      ...normalizedCurrent,
+      pageMarkings: {},
+      selectors: configStore.createEmptyAiSelectorSet(),
+      selectorsUpdatedAt: configStore.PAGE_TIMESTAMP_FALLBACK,
+      submittedSelectorsFingerprint: ""
+    }
+    : null;
+  const restoreLocalState = async (restoreOptions: { expectBackendCleared: boolean }) => {
+    if ((remoteMissingClearOwnerByBaseUrl.get(resolvedBaseUrl) || 0) !== requestId) {
+      return;
+    }
+    const restoreConfigs = (await configStore.getConfigs()) as Record<string, StoredConfigEntry>;
+    if (clearedConfigEntry) {
+      const currentEntry = restoreConfigs[resolvedBaseUrl]
+        ? normalizeConfigResult(resolvedBaseUrl, restoreConfigs[resolvedBaseUrl]).config
+        : null;
+      if (JSON.stringify(currentEntry) !== JSON.stringify(clearedConfigEntry)) {
+        return;
+      }
+    }
+    if (restoreOptions.expectBackendCleared) {
+      const currentBackendSavedPageMarkings = await configStore.getBackendSavedPageMarkings(resolvedBaseUrl);
+      if (JSON.stringify(currentBackendSavedPageMarkings || {}) !== JSON.stringify({})) {
+        return;
+      }
+    }
+    if (previousConfigEntry) {
+      restoreConfigs[resolvedBaseUrl] = previousConfigEntry;
+    } else {
+      delete restoreConfigs[resolvedBaseUrl];
+    }
+    await configStore.saveConfigs(restoreConfigs);
+    await configStore.setBackendSavedPageMarkings(resolvedBaseUrl, backendSavedPageMarkings);
+  };
+  if (requestId) {
+    remoteMissingClearOwnerByBaseUrl.set(resolvedBaseUrl, requestId);
+  }
+  if ((hadLocalPageMarkings || hadLocalSelectorState) && normalizedCurrent && clearedConfigEntry) {
+    configs[resolvedBaseUrl] = clearedConfigEntry;
+    await configStore.saveConfigs(configs);
+    if (!shouldContinue()) {
+      await restoreLocalState({ expectBackendCleared: false });
+      return { changed: false, baseUrl: "" };
+    }
+  }
+
+  const hadBackendSavedPageMarkings = Boolean(
+    backendSavedPageMarkings &&
+      typeof backendSavedPageMarkings === "object" &&
+      Object.keys(backendSavedPageMarkings).length > 0
+  );
+  await configStore.clearBackendSavedPageMarkings(resolvedBaseUrl);
+  if (!shouldContinue()) {
+    await restoreLocalState({ expectBackendCleared: true });
+    return { changed: false, baseUrl: "" };
+  }
+  if ((remoteMissingClearOwnerByBaseUrl.get(resolvedBaseUrl) || 0) === requestId) {
+    remoteMissingClearOwnerByBaseUrl.delete(resolvedBaseUrl);
+  }
+
+  return {
+    changed: hadLocalPageMarkings || hadLocalSelectorState || hadBackendSavedPageMarkings,
+    baseUrl: resolvedBaseUrl
+  };
 }
 
 export async function replaceServerConfigIntoLocalSnapshot(options = {}) {

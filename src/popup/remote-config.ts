@@ -1,11 +1,9 @@
 import * as config from "../common/config";
-import { replaceServerConfigIntoLocalSnapshot } from "../background/remote-config-sync";
 import * as messages from "./messages";
 import * as stateModule from "./state";
 
 const { state } = stateModule;
 const DEFAULT_REMOTE_CONFIG_RETRY_DELAY_MS = 2500;
-const remoteMissingClearOwnerByBaseUrl = new Map<string, number>();
 
 type StoredPageMarkings = Record<string, Record<string, unknown>>;
 type StoredConfigEntry = { pageMarkings?: StoredPageMarkings; [key: string]: unknown };
@@ -104,7 +102,6 @@ interface RemoteConfigDeps {
   getBackendSavedPageMarkings?: typeof config.getBackendSavedPageMarkings;
   setBackendSavedPageMarkings?: typeof config.setBackendSavedPageMarkings;
   createConfigSyncPayload?: typeof config.createConfigSyncPayload;
-  replaceServerConfigIntoLocalSnapshot?: typeof replaceServerConfigIntoLocalSnapshot;
 }
 
 function buildRemoteConfigLoadKey(tabId: unknown, siteId: unknown, endpointValue: unknown) {
@@ -189,143 +186,6 @@ export function scheduleRemoteConfigRetry(deps: RemoteConfigDeps) {
   }, retryDelayMs);
 }
 
-async function clearLocalPageMarkingsWhenRemoteIsMissing(
-  deps: RemoteConfigDeps,
-  baseUrl: string,
-  options: { shouldContinue?: () => boolean; requestId?: number } = {}
-) {
-  const resolvedBaseUrl = typeof baseUrl === "string" ? baseUrl.trim() : "";
-  if (!resolvedBaseUrl) {
-    return { changed: false, baseUrl: "" };
-  }
-  const getConfigs = typeof deps.getConfigs === "function" ? deps.getConfigs : config.getConfigs;
-  const saveConfigs = typeof deps.saveConfigs === "function" ? deps.saveConfigs : config.saveConfigs;
-  const normalizeConfig = typeof deps.normalizeConfig === "function"
-    ? deps.normalizeConfig
-    : config.normalizeConfig;
-  const clearBackendSavedPageMarkings =
-    typeof deps.clearBackendSavedPageMarkings === "function"
-      ? deps.clearBackendSavedPageMarkings
-      : config.clearBackendSavedPageMarkings;
-  const getBackendSavedPageMarkings =
-    typeof deps.getBackendSavedPageMarkings === "function"
-      ? deps.getBackendSavedPageMarkings
-      : config.getBackendSavedPageMarkings;
-  const setBackendSavedPageMarkings =
-    typeof deps.setBackendSavedPageMarkings === "function"
-      ? deps.setBackendSavedPageMarkings
-      : config.setBackendSavedPageMarkings;
-  const shouldContinue =
-    typeof options.shouldContinue === "function"
-      ? options.shouldContinue
-      : () => true;
-  const requestId = Number.isFinite(options.requestId) ? Math.trunc(options.requestId as number) : 0;
-
-  const configs = await getConfigs() as StoredConfigs;
-  if (!shouldContinue()) {
-    return { changed: false, baseUrl: "" };
-  }
-  const normalizedCurrent = configs[resolvedBaseUrl]
-    ? normalizeConfig(resolvedBaseUrl, configs[resolvedBaseUrl]).config
-    : null;
-  const hadLocalPageMarkings = Boolean(
-    normalizedCurrent &&
-      normalizedCurrent.pageMarkings &&
-      typeof normalizedCurrent.pageMarkings === "object" &&
-      Object.keys(normalizedCurrent.pageMarkings).length > 0
-  );
-  const hadLocalSelectorState = Boolean(
-    normalizedCurrent &&
-      (
-        (normalizedCurrent.selectors &&
-          typeof normalizedCurrent.selectors === "object" &&
-          (
-            (Array.isArray(normalizedCurrent.selectors.exclusionSelectors) &&
-              normalizedCurrent.selectors.exclusionSelectors.length > 0) ||
-            (Array.isArray(normalizedCurrent.selectors.inclusionSelectors) &&
-              normalizedCurrent.selectors.inclusionSelectors.length > 0)
-          )) ||
-        config.normalizeEntryTimestamp(normalizedCurrent.selectorsUpdatedAt) !==
-          config.PAGE_TIMESTAMP_FALLBACK ||
-        (
-          typeof normalizedCurrent.submittedSelectorsFingerprint === "string" &&
-          normalizedCurrent.submittedSelectorsFingerprint.trim().length > 0
-        )
-      )
-  );
-  const previousConfigEntry = normalizedCurrent ? { ...normalizedCurrent } : null;
-  const backendSavedPageMarkings = await getBackendSavedPageMarkings(resolvedBaseUrl);
-  if (!shouldContinue()) {
-    return { changed: false, baseUrl: "" };
-  }
-  const clearedConfigEntry = normalizedCurrent
-    ? {
-      ...normalizedCurrent,
-      pageMarkings: {},
-      selectors: config.createEmptyAiSelectorSet(),
-      selectorsUpdatedAt: config.PAGE_TIMESTAMP_FALLBACK,
-      submittedSelectorsFingerprint: ""
-    }
-    : null;
-  const restoreLocalState = async (options: { expectBackendCleared: boolean }) => {
-    if ((remoteMissingClearOwnerByBaseUrl.get(resolvedBaseUrl) || 0) !== requestId) {
-      return;
-    }
-    const restoreConfigs = await getConfigs() as StoredConfigs;
-    if (clearedConfigEntry) {
-      const currentEntry = restoreConfigs[resolvedBaseUrl]
-        ? normalizeConfig(resolvedBaseUrl, restoreConfigs[resolvedBaseUrl]).config
-        : null;
-      if (JSON.stringify(currentEntry) !== JSON.stringify(clearedConfigEntry)) {
-        return;
-      }
-    }
-    if (options.expectBackendCleared) {
-      const currentBackendSavedPageMarkings = await getBackendSavedPageMarkings(resolvedBaseUrl);
-      if (JSON.stringify(currentBackendSavedPageMarkings || {}) !== JSON.stringify({})) {
-        return;
-      }
-    }
-    if (previousConfigEntry) {
-      restoreConfigs[resolvedBaseUrl] = previousConfigEntry;
-    } else {
-      delete restoreConfigs[resolvedBaseUrl];
-    }
-    await saveConfigs(restoreConfigs);
-    await setBackendSavedPageMarkings(resolvedBaseUrl, backendSavedPageMarkings);
-  };
-  if (requestId) {
-    remoteMissingClearOwnerByBaseUrl.set(resolvedBaseUrl, requestId);
-  }
-  if ((hadLocalPageMarkings || hadLocalSelectorState) && normalizedCurrent && clearedConfigEntry) {
-    configs[resolvedBaseUrl] = clearedConfigEntry;
-    await saveConfigs(configs);
-    if (!shouldContinue()) {
-      await restoreLocalState({ expectBackendCleared: false });
-      return { changed: false, baseUrl: "" };
-    }
-  }
-
-  const hadBackendSavedPageMarkings = Boolean(
-    backendSavedPageMarkings &&
-      typeof backendSavedPageMarkings === "object" &&
-      Object.keys(backendSavedPageMarkings).length > 0
-  );
-  await clearBackendSavedPageMarkings(resolvedBaseUrl);
-  if (!shouldContinue()) {
-    await restoreLocalState({ expectBackendCleared: true });
-    return { changed: false, baseUrl: "" };
-  }
-  if ((remoteMissingClearOwnerByBaseUrl.get(resolvedBaseUrl) || 0) === requestId) {
-    remoteMissingClearOwnerByBaseUrl.delete(resolvedBaseUrl);
-  }
-
-  return {
-    changed: hadLocalPageMarkings || hadLocalSelectorState || hadBackendSavedPageMarkings,
-    baseUrl: resolvedBaseUrl
-  };
-}
-
 export async function loadRemoteConfigForCurrentPage(deps: RemoteConfigDeps, options: LoadRemoteConfigOptions = {}) {
   const opts = options;
   const {
@@ -334,6 +194,7 @@ export async function loadRemoteConfigForCurrentPage(deps: RemoteConfigDeps, opt
     baseUrl = "",
     siteId = null,
     endpointValue = "",
+    tokenValue = "",
     force = false,
     notifyOnChange = false
   } = opts;
@@ -375,8 +236,14 @@ export async function loadRemoteConfigForCurrentPage(deps: RemoteConfigDeps, opt
   }
   try {
     const response = await messages.sendRuntimeMessage({
-      type: "loadRemoteConfigSnapshot",
-      siteId
+      type: "loadPageDataForNavigation",
+      tabId,
+      pageUrl,
+      baseUrl,
+      siteId,
+      endpointValue,
+      tokenValue,
+      force
     });
     if (!canApplyRemoteConfigLoadResult(tabId, pageUrl, pageLoadKey, siteCacheKey, requestId)) {
       return { status: "skipped", baseUrl: "" };
@@ -400,41 +267,10 @@ export async function loadRemoteConfigForCurrentPage(deps: RemoteConfigDeps, opt
       if (!canApplyRemoteConfigLoadResult(tabId, pageUrl, pageLoadKey, siteCacheKey, requestId)) {
         return { status: "skipped", baseUrl: "" };
       }
-      const clearResult = await clearLocalPageMarkingsWhenRemoteIsMissing(
-        deps,
-        baseUrl || state.currentBaseUrl,
-        {
-          requestId,
-          shouldContinue: () => canApplyRemoteConfigLoadResult(tabId, pageUrl, pageLoadKey, siteCacheKey, requestId)
-        }
-      );
-      if (!canApplyRemoteConfigLoadResult(tabId, pageUrl, pageLoadKey, siteCacheKey, requestId)) {
-        return { status: "skipped", baseUrl: "" };
-      }
-      if (clearResult.baseUrl && pageUrl) {
-        await messages.sendTabMessageWithRetry({
-          type: "clearPageSaveReconciliation",
-          baseUrl: clearResult.baseUrl,
-          pageUrl
-        }, 2);
-        if (!canApplyRemoteConfigLoadResult(tabId, pageUrl, pageLoadKey, siteCacheKey, requestId)) {
-          return { status: "skipped", baseUrl: "" };
-        }
-      }
-      if (clearResult.baseUrl) {
-        await messages.sendTabMessageWithRetry({
-          type: "configUpdated",
-          baseUrl: clearResult.baseUrl,
-          forceReloadPageEntry: true
-        }, 2);
-        if (!canApplyRemoteConfigLoadResult(tabId, pageUrl, pageLoadKey, siteCacheKey, requestId)) {
-          return { status: "skipped", baseUrl: "" };
-        }
-      }
       const result = {
         status: "not_found",
-        baseUrl: clearResult.baseUrl || (baseUrl || state.currentBaseUrl || ""),
-        changed: clearResult.changed
+        baseUrl: typeof response.baseUrl === "string" ? response.baseUrl : (baseUrl || state.currentBaseUrl || ""),
+        changed: Boolean(response.changed)
       };
       if (pageLoadKey && canApplyRemoteConfigLoadResult(tabId, pageUrl, pageLoadKey, siteCacheKey, requestId)) {
         state.remoteConfigLoadResultByKey.set(pageLoadKey, result);
@@ -445,7 +281,7 @@ export async function loadRemoteConfigForCurrentPage(deps: RemoteConfigDeps, opt
       }
       return result;
     }
-    if (!response || response.ok !== true || response.status !== "ok") {
+    if (!response || response.status !== "ok") {
       const result = { status: "error", baseUrl: "" };
       state.remoteConfigLoadResult = result;
       deps.updateLastConfigLoadStatus(result);
@@ -454,41 +290,12 @@ export async function loadRemoteConfigForCurrentPage(deps: RemoteConfigDeps, opt
     if (!canApplyRemoteConfigLoadResult(tabId, pageUrl, pageLoadKey, siteCacheKey, requestId)) {
       return { status: "skipped", baseUrl: "" };
     }
-    const replaceServerConfigIntoLocal =
-      typeof deps.replaceServerConfigIntoLocalSnapshot === "function"
-        ? deps.replaceServerConfigIntoLocalSnapshot
-        : replaceServerConfigIntoLocalSnapshot;
-    const replaceResult = await replaceServerConfigIntoLocal({
-      payloadKey: typeof response.payloadKey === "string" ? response.payloadKey : "",
-      currentPageUrl: pageUrl,
-      siteId,
-      requestId,
-      shouldContinue: () => canApplyRemoteConfigLoadResult(tabId, pageUrl, pageLoadKey, siteCacheKey, requestId)
-    });
-    if (!canApplyRemoteConfigLoadResult(tabId, pageUrl, pageLoadKey, siteCacheKey, requestId)) {
-      return { status: "skipped", baseUrl: "" };
-    }
-    if (!replaceResult.ok) {
-      const result = { status: "not_found", baseUrl: "" };
-      if (canApplyRemoteConfigLoadResult(tabId, pageUrl, pageLoadKey, siteCacheKey, requestId)) {
-        state.remoteConfigLoadResult = result;
-        deps.updateLastConfigLoadStatus(result);
-      }
-      return result;
-    }
-    if (replaceResult.changed && replaceResult.baseUrl) {
-      await messages.sendTabMessageWithRetry({
-        type: "configUpdated",
-        baseUrl: replaceResult.baseUrl,
-        forceReloadPageEntry: replaceResult.replacedCurrentPage
-      }, 2);
-    }
-    if (replaceResult.changed && notifyOnChange) {
+    if (response.changed && notifyOnChange) {
       deps.showToast(deps.PopupText.page.remoteDataUpdated);
     }
     const result = {
       status: "ok",
-      baseUrl: replaceResult.baseUrl
+      baseUrl: typeof response.baseUrl === "string" ? response.baseUrl : baseUrl || state.currentBaseUrl || ""
     };
     if (pageLoadKey && canApplyRemoteConfigLoadResult(tabId, pageUrl, pageLoadKey, siteCacheKey, requestId)) {
       state.remoteConfigLoadResultByKey.set(pageLoadKey, result);

@@ -148,8 +148,10 @@ import {
 import {
   mergeServerConfigIntoLocalSnapshot,
   preparePageTypeAssignmentsSnapshot,
+  clearLocalPageDataForMissingRemote,
   replaceServerConfigIntoLocalSnapshot
 } from "./background/remote-config-sync";
+import { createPageDataLifecycleLoader } from "./background/page-data-lifecycle";
 import {
   createWorldTrace,
   WORLD_TRACE_EVENT_LIMIT
@@ -303,6 +305,9 @@ type TabStateRecord = Record<string, unknown> & {
 type TopLevelNavigationDetails = {
   frameId?: number;
   tabId?: number;
+  url?: string;
+  timeStamp?: number;
+  documentId?: string;
 };
 
 type TrackedTabSessionClearOptions = {
@@ -622,6 +627,22 @@ function sendContentMessageToTab(
       });
   });
 }
+
+const pageDataLifecycle = createPageDataLifecycleLoader({
+  loadRemoteConfigSnapshot,
+  replaceServerConfigIntoLocalSnapshot,
+  clearLocalPageDataForMissingRemote,
+  resolveLivePageSiteId: (options) => resolveLivePageSiteId({
+    pageUrl: options.pageUrl,
+    resolveBackgroundNetworkCredentials
+  }),
+  getTab: async (tabId) => {
+    const tab = await browser.tabs.get(tabId);
+    return tab ? { id: tab.id, url: tab.url } : null;
+  },
+  getTabState: async (tabId) => utils.getTabState(tabId),
+  sendContentMessageToTab
+});
 
 function waitForBackgroundRetryDelay(delayMs: number): Promise<void> {
   return new Promise<void>((resolve) => {
@@ -3111,6 +3132,19 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === "loadPageDataForNavigation") {
+    replyWithKeepAlive(() => pageDataLifecycle.loadPageDataForNavigation({
+      tabId: message.tabId || (sender.tab && sender.tab.id),
+      pageUrl: message.pageUrl,
+      baseUrl: message.baseUrl,
+      siteId: message.siteId,
+      endpointValue: message.endpointValue,
+      tokenValue: message.tokenValue,
+      force: message.force
+    }), sendResponse, { status: "error", baseUrl: "" });
+    return true;
+  }
+
   if (message.type === "saveRemoteConfigSnapshot") {
     replyWithKeepAlive(() => saveRemoteConfigSnapshot({
       endpointValue: message.endpointValue,
@@ -3734,7 +3768,20 @@ async function disableExtensionOnTopLevelNavigation(details: TopLevelNavigationD
 // navigation actually commits. onBeforeNavigate fires before the browser shows
 // the "Leave site?" dialog; if the user clicks "Stay", the navigation is
 // cancelled but we would have already torn down the marking session.
-browser.webNavigation.onCommitted.addListener(disableExtensionOnTopLevelNavigation);
+browser.webNavigation.onCommitted.addListener((details: TopLevelNavigationDetails) => {
+  const tabId = normalizeBrokerTabId(details.tabId);
+  if (tabId && details.frameId === 0) {
+    runBackgroundTask(
+      "page-data-navigation-load",
+      () => pageDataLifecycle.handleTopLevelNavigationCommitted(details),
+      {
+        tabId,
+        appendTrace: appendWorldTraceEvent
+      }
+    );
+  }
+  void disableExtensionOnTopLevelNavigation(details);
+});
 
 async function normalizeRenderModeJavaScriptOnTopLevelNavigation(
   details: TopLevelNavigationDetails

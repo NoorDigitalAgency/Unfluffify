@@ -1432,7 +1432,8 @@ loads. Supersedes the old Plan 5 `p5-*` track.
   persists beyond the session. Tests: remote-config, popup-marking-refresh, new
   `tests/background-page-data-lifecycle.test.ts`. Live-verify: load a property
   page with popup CLOSED → local is wiped+rebuilt from backend; 404 page → local
-  cleared except render mode.
+  cleared except render mode. Status: complete for implementation, review, and
+  final gate; ready for the Phase DL commit/push handoff.
 - Phase D — #3/#4/#5 + discard reuses the DL wipe. Content reports preview facts
   UP; brain dictates previewActive/blocked/itemsPending; brain owns INSTANT exit
   restore (same fold tick as EXITED, no flicker — if unachievable without a
