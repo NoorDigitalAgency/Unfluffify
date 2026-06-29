@@ -1847,6 +1847,14 @@ up, not local button authority; the button disabled state comes from the brain.
 
 - Popup configuration/auth surfaces (login, base-URL, render-mode setup,
   page-type setup, theme/endpoint) — per-popup config, not per-tab session state.
+- Popup page-save informational notices (`pageDraftStatus`, `pageSessionNotice`,
+  `aiDirtyNotice`) — SANCTIONED shared-derivation reflection. Computed by the
+  shared pure function `buildPageSaveUiState` (`src/common/page-save-state.ts`)
+  from brain-owned facts + reflected `mainUiHidden`; output is byte-identical to
+  a brain projection (no possible divergence), and the gating beneath is already
+  brain-dictated. Evaluated for full brain projection in Audit 3 and KEPT: the
+  conversion is ~14 surfaces + a brain-contract expansion + flicker risk on
+  locked page-save UX for zero functional gain (poor effort/benefit).
 - Global-operation spinner/lease + lifecycle curtain — the service-worker broker
   owns operation leases by design (`popup-state-broker`, `spinner-operations`);
   popup renders broker state. Distinct from the brain session curtain.
