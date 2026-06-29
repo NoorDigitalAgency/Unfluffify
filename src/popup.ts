@@ -4463,7 +4463,6 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
     ? await config.getBackendSavedPageMarkings(state.currentBaseUrl)
     : {};
   const normalizedCurrentPageUrl = normalizeCandidatePageUrl(pageUrl);
-  let invalidStoredPageUrlsForRemote: string[] = [];
   let currentPageEntryMarkedInvalid = false;
   let repairedStoredPageUrls: string[] = [];
   let didReconcileStoredPageMarkings = false;
@@ -4580,7 +4579,7 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
         });
       }
     }
-    invalidStoredPageUrlsForRemote = Array.from(
+    const invalidStoredPageUrlsForRemote = Array.from(
       new Set(
         coverageModel.invalidMarkedPages
           .map((item) => (item && typeof item.url === "string" ? item.url.trim() : ""))
@@ -5402,37 +5401,6 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
   nextViewState.markedPagesEmptyText = baseUrlReady
     ? PopupText.pageTypes.markRequirement
     : effectiveSiteIdBlockedReason || ViewText.noMappedBaseUrlOrSiteId;
-  if (
-    propertyPageTypes.length &&
-    invalidStoredPageUrlsForRemote.length &&
-    configEndpointValue &&
-    tokenValue &&
-    liveSiteId
-  ) {
-    pruneRemoteInvalidPageMarkings({
-      siteId: liveSiteId,
-      invalidUrls: invalidStoredPageUrlsForRemote
-    }).then();
-  }
-  if (
-    propertyPageTypes.length &&
-    repairedStoredPageUrls.length &&
-    configEndpointValue &&
-    tokenValue &&
-    normalizedStageBaseValue &&
-    state.currentBaseUrl &&
-    pageUrl
-  ) {
-    syncBaseConfigToServer({
-      baseUrl: state.currentBaseUrl,
-      pageUrl,
-      endpointValue: configEndpointValue,
-      tokenValue,
-      stageBase: normalizedStageBaseValue,
-      alertOnCurrentReplacement: false
-    }).then();
-  }
-
   const nextTodoExpansionKey = buildTodoExpansionContextKey(currentTabId, state.currentBaseUrl);
   const currentTodoExpansionKey = state.currentTodoExpansionKey;
   const todoExpansionContextChanged = nextTodoExpansionKey !== currentTodoExpansionKey;

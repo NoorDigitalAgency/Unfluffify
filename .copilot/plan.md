@@ -1453,7 +1453,9 @@ loads. Supersedes the old Plan 5 `p5-*` track.
   Add regression guards (source-contract: no `setInterval`/recurring backend
   load; no submit outside the Save path). Files: `src/popup.ts`,
   `src/background.ts`, `src/popup/remote-config.ts`, config-sync/ai-run paths.
-  Tests: new `tests/no-autonomous-backend-io.test.ts`, remote-config.
+  Tests: new `tests/no-autonomous-backend-io.test.ts`, remote-config. Status:
+  complete for implementation, review, and final gate; ready for the Phase NS
+  commit/push handoff.
 - Phase E — #7/#9/#11. Background reports terminal lifecycle facts UP, brain
   decides nav-inspect curtain teardown (`popup-state-broker.ts:203-281`); popup
   reports stuck-curtain past deadline UP, brain owns the bounded one-shot
