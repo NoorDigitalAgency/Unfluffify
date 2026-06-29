@@ -1211,3 +1211,61 @@ never get stuck.
 ### Live verify (deferred)
 
 `pnpm browser:live https://sove.se/` + `https://bonliva.se` — defer per user.
+
+## Open Implementation Plan: Brain-Centric Authority Migration — Remaining Non-Brain Logic (2026-06-29)
+
+### Goal
+
+Remove the remaining popup/content-local polling and non-deterministic, clock-watching
+authorities and replace them with the same brain-centric, push/heartbeat design used for
+the spinner curtain: background/brain is the sole poller + sole decider; layers report
+facts and self-tick projected timers; deterministic events replace local fail-open timers.
+Marking and silent-highlighting hot paths stay local (out of scope).
+
+### Decisions already made (user, 2026-06-29)
+
+1. Full scope: AI-run dual-poll unification (eliminate popup `continueAiRunPolling`),
+   property-lock countdown mode authority, page-types poll, nav-inspection recovery.
+2. AI-run: background orchestrator is the sole remote poller; popup never polls. Brain
+   projects ai facts + deadline; popup self-ticks countdown; background pushes the result.
+3. Property-lock: brain decider owns countdown MODE selection; content/popup self-tick
+   only. WS heartbeat/connection-loss/reconnect protocol timers stay (network-level).
+4. Page-types: background owns periodic refresh via alarm; popup reacts to a reported fact.
+5. Nav-inspection: brain heartbeat reconciliation of pageInspectionBusy/navigationInspectionPending
+   replaces popup settle-poll/fail-open timers.
+
+### Non-goals
+
+- No marking/silent-highlight changes. No property-lock WS protocol/network changes.
+- No new product copy. No change to AI backend endpoints/poll cadence (keep 5s).
+- Keep WS heartbeat/reconnect/connection-loss timers (protocol-level, not UI authority).
+
+### Phase AR — AI-run sole-poller (background) + push result (eliminate popup poll)
+Files: src/popup.ts, src/background/ai-run-orchestrator.ts, src/background.ts,
+src/common/bus/contracts/ (new ai-run event), src/background/brain/index.ts.
+- AR1: Add bus event AI_RUN_EVENT_TYPES.RESULT_PUSHED{sessionId,status,selectorSet?,error?}
+  + deadline in projected facts (reuse spinner deadline). Background pushes to POPUP.
+- AR2: runAiCommandForTab already polls; on done/error publish RESULT_PUSHED to popup tab.
+- AR3: Popup: delete continueAiRunPolling poll loop; register RESULT_PUSHED handler ->
+  applyComputedSelectorSet/failAiRun. maybeResumePersistedAiRun: single status check, no loop.
+- AR4: Countdown self-tick from brain-projected deadline (already projected); remove popup
+  deadline timeout authority for fail; background owns timeout.
+- Tests: ai-run-orchestrator, popup-ai-run-gating, ai-run.
+
+### Phase PL — Property-lock countdown mode authority -> brain decider
+Files: src/content/property-lock-state-machine.ts, src/background/brain/deciders/property-lock-decider.ts.
+- PL1: content stops self-selecting editor_*_countdown modes; reports raw deadlines/flags.
+- PL2: brain property-lock-decider already projects mode/timer; ensure all 4 modes derive
+  from reported snapshot. Banner/popup remain self-tick renderers.
+- Tests: property-lock-state-machine, property-lock-decider, property-lock-banner-mode.
+
+### Phase PT — Page-types refresh: background alarm + reported fact
+Files: src/background.ts, src/popup.ts, session-state contract.
+- PT1: add propertyPageTypesChanged fact; background alarm re-checks; popup reacts, drop
+  popup setInterval. Tests: popup-site-resolution, popup-marking-refresh.
+
+### Phase NI — Nav-inspection recovery via heartbeat reconciliation
+Files: src/popup.ts, brain deciders. Replace popup fail-open settle-poll w/ brain folding
+pageInspectionBusy/navigationInspectionPending. Tests: inspection-settled-event, brain-heartbeat.
+
+### Validation: pnpm lint && pnpm check && pnpm test && pnpm build. Live deferred.
