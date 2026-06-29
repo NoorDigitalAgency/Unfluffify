@@ -7686,11 +7686,16 @@ async function applyLocalPageDiscard() {
   const baseUrl = state.currentBaseUrl;
   // Discard drops the current-session marking deltas LOCALLY by restoring the
   // page entry from the already-cached backend-saved markings. No network
-  // round-trip and no forced remote refetch keeps discard fast; the AI/CSS
-  // selector baseline is intentionally preserved (only page markings revert).
+  // round-trip and no forced remote refetch keeps discard fast. AI-computed
+  // selectors that were never submitted are also reverted to baseline below.
   const backendSavedPageMarkings = await config.getBackendSavedPageMarkings(baseUrl);
   const backendEntry = findBackendSavedPageMarkingEntry(backendSavedPageMarkings, pageUrl);
   const normalizedTargetUrl = normalizeCandidatePageUrl(pageUrl);
+  // Selectors are only reconciled to the backend on Save, so an AI run that was
+  // not saved must be fully reverted on Discard: drop the locally-computed AI
+  // selectors back to the last submitted baseline so Discard returns the page to
+  // a true PRE_AI clean state.
+  const submittedSelectorBaseline = getLastSubmittedSelectorsFromConfig(state.currentConfig);
   state.currentConfig = await config.updateConfig(baseUrl, (targetConfig) => {
     if (!targetConfig.pageMarkings || typeof targetConfig.pageMarkings !== "object") {
       targetConfig.pageMarkings = {};
@@ -7705,6 +7710,9 @@ async function applyLocalPageDiscard() {
       if (clonedBackendEntry) {
         targetConfig.pageMarkings[pageUrl] = clonedBackendEntry;
       }
+    }
+    if (state.selectorsPendingConfigSync) {
+      targetConfig.selectors = normalizeAiSelectorSet(submittedSelectorBaseline);
     }
   });
   const tabId = state.currentTab && Number.isFinite(state.currentTab.id)

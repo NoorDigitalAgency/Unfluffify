@@ -104,6 +104,12 @@ test("entering marking mode, saving, and discarding reset the fingerprint", () =
     popupSource,
     /state\.currentDraftEntry = null;\s*state\.currentSavedEntry = null;\s*state\.currentDraftDirty = false;\s*state\.currentDraftAvailable = false;\s*state\.aiSelectorsComputedSinceLastSubmit = false;\s*state\.aiSelectorsComputedBaseUrl = "";\s*clearSelectorsPendingConfigSync\(\);\s*resetAiRunMarkingsFingerprint\(\);\s*await clearCurrentPageSaveReconciliation\(\);\s*if \(tabId !== null\) \{\s*await messages\.requestTabApplyLocalDiscard/
   );
+  // Discard reverts unsaved AI-computed selectors to the last submitted baseline
+  // so it returns to a true PRE_AI clean state (selectors only reconcile on Save).
+  assert.match(
+    popupSource,
+    /if \(state\.selectorsPendingConfigSync\) \{\s*targetConfig\.selectors = normalizeAiSelectorSet\(submittedSelectorBaseline\);\s*\}/
+  );
 });
 
 test("a successful save transitions the popup from marking to silent mode", () => {
