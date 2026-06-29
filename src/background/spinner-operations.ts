@@ -56,62 +56,124 @@ function randomSpinnerKey(): string {
   return `spinner:${Date.now()}:${Math.floor(Math.random() * 1e6)}`;
 }
 
+function hasSpinnerEntryField(entry: SpinnerEntry, field: keyof SpinnerEntry): boolean {
+  return Object.prototype.hasOwnProperty.call(entry, field);
+}
+
+function getSpinnerStringField(
+  entry: SpinnerEntry | null | undefined,
+  field: keyof SpinnerEntry,
+  fallback = "",
+  requireNonEmpty = false
+): string {
+  const value = entry?.[field];
+  if (typeof value === "string" && (!requireNonEmpty || value)) {
+    return value;
+  }
+  return fallback;
+}
+
+function getSpinnerNumberField(
+  entry: SpinnerEntry | null | undefined,
+  field: keyof SpinnerEntry,
+  fallback = 0
+): number {
+  const value = entry?.[field];
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function shouldPreservePreviousLease(
+  entry: SpinnerEntry,
+  previous: SpinnerEntry | null
+): boolean {
+  const entryReason = getSpinnerStringField(entry, "reason", "", true);
+  const previousReason = getSpinnerStringField(previous, "reason", "", true);
+  const entryOperationKind = getSpinnerStringField(entry, "operationKind", "", true);
+  const previousOperationKind = getSpinnerStringField(previous, "operationKind", "", true);
+  const entryOperationPhase = getSpinnerStringField(entry, "operationPhase", "", true);
+  const previousOperationPhase = getSpinnerStringField(previous, "operationPhase", "", true);
+  const reasonChanged = Boolean(entryReason && previousReason && entryReason !== previousReason);
+  const operationIdentityChanged = Boolean(
+    (entryOperationKind && entryOperationKind !== previousOperationKind) ||
+      (entryOperationPhase && entryOperationPhase !== previousOperationPhase)
+  );
+  return !reasonChanged && !operationIdentityChanged;
+}
+
+function buildBaseSpinnerEntry(key: unknown, entry: SpinnerEntry, previous: SpinnerEntry | null): SpinnerEntry {
+  return {
+    message: getSpinnerStringField(entry, "message", getSpinnerStringField(previous, "message")),
+    persistent: hasSpinnerEntryField(entry, "persistent")
+      ? Boolean(entry.persistent)
+      : Boolean(previous && previous.persistent),
+    owner: getSpinnerStringField(entry, "owner", getSpinnerStringField(previous, "owner", SPINNER_OWNERS.POPUP)),
+    reason: getSpinnerStringField(
+      entry,
+      "reason",
+      getSpinnerStringField(previous, "reason", `spinner:${String(key)}`, true),
+      true
+    ),
+    source: getSpinnerStringField(
+      entry,
+      "source",
+      getSpinnerStringField(previous, "source", "background-spinner-broker", true),
+      true
+    ),
+    startedAt: getSpinnerNumberField(
+      entry,
+      "startedAt",
+      previous && Number.isFinite(previous.startedAt) ? Number(previous.startedAt) : Date.now()
+    ),
+    progress: getSpinnerNumberField(entry, "progress", getSpinnerNumberField(previous, "progress"))
+  };
+}
+
+function serializeSpinnerQueueEntry(key: string, entry: SpinnerEntry | null | undefined): PopupSpinnerEntry {
+  return {
+    key,
+    message: getSpinnerStringField(entry, "message"),
+    persistent: Boolean(entry && entry.persistent),
+    owner: getSpinnerStringField(entry, "owner"),
+    reason: getSpinnerStringField(entry, "reason"),
+    source: getSpinnerStringField(entry, "source"),
+    startedAt: getSpinnerNumberField(entry, "startedAt"),
+    progress: getSpinnerNumberField(entry, "progress"),
+    operationId: getSpinnerStringField(entry, "operationId"),
+    operationKind: getSpinnerStringField(entry, "operationKind"),
+    operationPhase: getSpinnerStringField(entry, "operationPhase"),
+    timerMode: getSpinnerStringField(entry, "timerMode"),
+    deadlineAt: getSpinnerNumberField(entry, "deadlineAt"),
+    maxDurationMs: getSpinnerNumberField(entry, "maxDurationMs"),
+    updatedAt: getSpinnerNumberField(entry, "updatedAt"),
+    ...(entry && entry.blockSurfaces && typeof entry.blockSurfaces === "object"
+      ? {
+        blockSurfaces: {
+          page: Boolean(entry.blockSurfaces.page),
+          popup: Boolean(entry.blockSurfaces.popup)
+        }
+      }
+      : {})
+  } satisfies PopupSpinnerEntry;
+}
+
 function normalizeSpinnerEntry(
   key: unknown,
   entry: SpinnerEntry = {},
   previous: SpinnerEntry | null = null,
   tabId: unknown = null
 ): SpinnerEntry {
-  const entryHasField = (field: keyof SpinnerEntry) => Object.prototype.hasOwnProperty.call(entry, field);
-  const entryReason = typeof entry.reason === "string" && entry.reason ? entry.reason : "";
-  const previousReason = previous && typeof previous.reason === "string" && previous.reason ? previous.reason : "";
-  const entryOperationKind = typeof entry.operationKind === "string" && entry.operationKind ? entry.operationKind : "";
-  const previousOperationKind = previous && typeof previous.operationKind === "string" && previous.operationKind
-    ? previous.operationKind
-    : "";
-  const entryOperationPhase = typeof entry.operationPhase === "string" && entry.operationPhase ? entry.operationPhase : "";
-  const previousOperationPhase = previous && typeof previous.operationPhase === "string" && previous.operationPhase
-    ? previous.operationPhase
-    : "";
-  const reasonChanged = Boolean(entryReason && previousReason && entryReason !== previousReason);
-  const operationIdentityChanged = Boolean(
-    (entryOperationKind && entryOperationKind !== previousOperationKind) ||
-      (entryOperationPhase && entryOperationPhase !== previousOperationPhase)
-  );
-  const preservePreviousLease = !reasonChanged && !operationIdentityChanged;
-  const baseEntry = {
-    message: typeof entry.message === "string"
-      ? entry.message
-      : (previous && typeof previous.message === "string" ? previous.message : ""),
-    persistent: Object.prototype.hasOwnProperty.call(entry, "persistent")
-      ? Boolean(entry.persistent)
-      : Boolean(previous && previous.persistent),
-    owner: typeof entry.owner === "string"
-      ? entry.owner
-      : (previous && typeof previous.owner === "string" ? previous.owner : SPINNER_OWNERS.POPUP),
-    reason: typeof entry.reason === "string" && entry.reason
-      ? entry.reason
-      : (previous && typeof previous.reason === "string" && previous.reason
-        ? previous.reason
-        : `spinner:${String(key)}`),
-    source: typeof entry.source === "string" && entry.source
-      ? entry.source
-      : (previous && typeof previous.source === "string" && previous.source
-        ? previous.source
-        : "background-spinner-broker"),
-    startedAt: Number.isFinite(entry.startedAt)
-      ? Number(entry.startedAt)
-      : (previous && Number.isFinite(previous.startedAt) ? Number(previous.startedAt) : Date.now()),
-    progress: Number.isFinite(entry.progress)
-      ? Number(entry.progress)
-      : (previous && Number.isFinite(previous.progress) ? Number(previous.progress) : 0)
-  };
+  const preservePreviousLease = shouldPreservePreviousLease(entry, previous);
+  const baseEntry = buildBaseSpinnerEntry(key, entry, previous);
+  const entryOperationKind = getSpinnerStringField(entry, "operationKind", "", true);
+  const previousOperationKind = getSpinnerStringField(previous, "operationKind", "", true);
+  const entryOperationPhase = getSpinnerStringField(entry, "operationPhase", "", true);
+  const previousOperationPhase = getSpinnerStringField(previous, "operationPhase", "", true);
   const operationLease = createSpinnerOperationLease({
     blockSurfaces: entry.blockSurfaces || (preservePreviousLease ? previous?.blockSurfaces : undefined),
-    deadlineAt: entryHasField("deadlineAt") ? entry.deadlineAt : (preservePreviousLease ? previous?.deadlineAt : undefined),
+    deadlineAt: hasSpinnerEntryField(entry, "deadlineAt") ? entry.deadlineAt : (preservePreviousLease ? previous?.deadlineAt : undefined),
     details: entry.details || (preservePreviousLease ? previous?.details : undefined),
     kind: entryOperationKind || (preservePreviousLease ? previousOperationKind : undefined),
-    maxDurationMs: entryHasField("maxDurationMs")
+    maxDurationMs: hasSpinnerEntryField(entry, "maxDurationMs")
       ? entry.maxDurationMs
       : (preservePreviousLease ? previous?.maxDurationMs : undefined),
     message: baseEntry.message,
@@ -182,33 +244,7 @@ export function createSpinnerOperations(options: SpinnerOperationsOptions = {}) 
     if (!queue || queue.size === 0) {
       return [];
     }
-    return [...queue.entries()].map(([key, entry]) => {
-      return {
-        key,
-        message: entry && typeof entry.message === "string" ? entry.message : "",
-        persistent: Boolean(entry && entry.persistent),
-        owner: entry && typeof entry.owner === "string" ? entry.owner : "",
-        reason: entry && typeof entry.reason === "string" ? entry.reason : "",
-        source: entry && typeof entry.source === "string" ? entry.source : "",
-        startedAt: entry && Number.isFinite(entry.startedAt) ? Number(entry.startedAt) : 0,
-        progress: entry && Number.isFinite(entry.progress) ? Number(entry.progress) : 0,
-        operationId: entry && typeof entry.operationId === "string" ? entry.operationId : "",
-        operationKind: entry && typeof entry.operationKind === "string" ? entry.operationKind : "",
-        operationPhase: entry && typeof entry.operationPhase === "string" ? entry.operationPhase : "",
-        timerMode: entry && typeof entry.timerMode === "string" ? entry.timerMode : "",
-        deadlineAt: entry && Number.isFinite(entry.deadlineAt) ? Number(entry.deadlineAt) : 0,
-        maxDurationMs: entry && Number.isFinite(entry.maxDurationMs) ? Number(entry.maxDurationMs) : 0,
-        updatedAt: entry && Number.isFinite(entry.updatedAt) ? Number(entry.updatedAt) : 0,
-        ...(entry && entry.blockSurfaces && typeof entry.blockSurfaces === "object"
-          ? {
-            blockSurfaces: {
-              page: Boolean(entry.blockSurfaces.page),
-              popup: Boolean(entry.blockSurfaces.popup)
-            }
-          }
-          : {})
-      } satisfies PopupSpinnerEntry;
-    });
+    return [...queue.entries()].map(([key, entry]) => serializeSpinnerQueueEntry(key, entry));
   }
 
   function setBackgroundSpinnerEntry(tabId: unknown, key: unknown, entry: SpinnerEntry = {}) {

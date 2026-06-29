@@ -2600,39 +2600,55 @@ async function resolvePopupSidePanelBoundTab(sender: PopupContextSender = {}): P
   }
 }
 
+async function resolvePopupDebugTab(message: Partial<RuntimeMessage> = {}): Promise<Browser.tabs.Tab | null> {
+  const debugTabId = normalizeBrokerTabId(message.debugTabId);
+  if (!debugTabId) {
+    return null;
+  }
+  try {
+    const tab = await getBrowserTab(debugTabId);
+    return tab && tab.id ? tab : null;
+  } catch {
+    // Fall through to normal tab resolution if the debug tab is gone.
+    return null;
+  }
+}
+
+async function queryActivePopupCandidateTabs(): Promise<Browser.tabs.Tab[]> {
+  try {
+    const currentWindowTabs = await queryBrowserTabs({ active: true, currentWindow: true });
+    if (currentWindowTabs.length) {
+      return currentWindowTabs;
+    }
+    return await queryBrowserTabs({ active: true, lastFocusedWindow: true });
+  } catch {
+    return [];
+  }
+}
+
+function buildPopupTabContextResult(
+  tab: Browser.tabs.Tab | null | undefined,
+  source: PopupTabContextResult["source"]
+): PopupTabContextResult {
+  return { ok: Boolean(tab && tab.id), tab: tab || null, source: tab ? source : "none" };
+}
+
 async function resolvePopupTabContext(
   message: Partial<RuntimeMessage> = {},
   sender: PopupContextSender = {}
 ): Promise<PopupTabContextResult> {
-  const debugTabId = normalizeBrokerTabId(message.debugTabId);
-  if (debugTabId) {
-    try {
-      const tab = await getBrowserTab(debugTabId);
-      if (tab && tab.id) {
-        return { ok: true, tab, source: "debug" };
-      }
-    } catch {
-      // Fall through to normal tab resolution if the debug tab is gone.
-    }
+  const debugTab = await resolvePopupDebugTab(message);
+  if (debugTab) {
+    return buildPopupTabContextResult(debugTab, "debug");
   }
 
   const sidePanelBoundTab = await resolvePopupSidePanelBoundTab(sender);
-  if (sidePanelBoundTab && sidePanelBoundTab.id) {
-    return { ok: true, tab: sidePanelBoundTab, source: "sidePanel" };
+  if (sidePanelBoundTab) {
+    return buildPopupTabContextResult(sidePanelBoundTab, "sidePanel");
   }
 
-  const tabs = await (async (): Promise<Browser.tabs.Tab[]> => {
-    try {
-      const currentWindowTabs = await queryBrowserTabs({ active: true, currentWindow: true });
-      if (currentWindowTabs.length) {
-        return currentWindowTabs;
-      }
-      return await queryBrowserTabs({ active: true, lastFocusedWindow: true });
-    } catch {
-      return [];
-    }
-  })();
-  return { ok: Boolean(tabs[0] && tabs[0].id), tab: tabs[0] || null, source: tabs[0] ? "activeTab" : "none" };
+  const [activeTab = null] = await queryActivePopupCandidateTabs();
+  return buildPopupTabContextResult(activeTab, "activeTab");
 }
 
 const popupStateBroker = createPopupStateBroker({

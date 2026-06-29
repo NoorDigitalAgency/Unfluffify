@@ -900,6 +900,25 @@ function syncBlockingUiCurtainDom() {
   }
 }
 
+function renderPropertyLockActionButton(
+  key: string,
+  text: string,
+  onClick: PopupHandler,
+  options: { secondary?: boolean; disabled?: boolean } = {}
+): ReactElement {
+  return (
+    <button
+      key={key}
+      type="button"
+      className={classNames("property-lock__button", options.secondary && "u-btn-secondary")}
+      disabled={options.disabled}
+      onClick={onClick}
+    >
+      {text}
+    </button>
+  );
+}
+
 function renderPropertyLockIndicator(view: ViewState, handlers: PopupActions): ReactElement | null {
   if (!isPopupFeatureEnabled(view, "propertyLockCollaboration") || !view.propertyLockVisible) {
     return null;
@@ -907,77 +926,50 @@ function renderPropertyLockIndicator(view: ViewState, handlers: PopupActions): R
 
   const actions: ReactElement[] = [];
   if (view.propertyLockSuggestVisible) {
-    actions.push(
-      <button
-        key="suggest"
-        type="button"
-        className="property-lock__button u-btn-secondary"
-        onClick={handlers.onPropertyLockSuggest}
-      >
-        {propertyLockText.takeoverSuggestButton}
-      </button>
-    );
+    actions.push(renderPropertyLockActionButton(
+      "suggest",
+      propertyLockText.takeoverSuggestButton,
+      handlers.onPropertyLockSuggest,
+      { secondary: true }
+    ));
   }
   if (view.propertyLockTakeVisible) {
-    actions.push(
-      <button
-        key="take"
-        type="button"
-        className="property-lock__button"
-        onClick={handlers.onPropertyLockTake}
-      >
-        {view.propertyLockTakeText || propertyLockText.takeoverButton}
-      </button>
-    );
+    actions.push(renderPropertyLockActionButton(
+      "take",
+      view.propertyLockTakeText || propertyLockText.takeoverButton,
+      handlers.onPropertyLockTake
+    ));
   }
   if (view.propertyLockContinueVisible) {
-    actions.push(
-      <button
-        key="continue"
-        type="button"
-        className="property-lock__button"
-        disabled={Boolean(view.propertyLockContinueDisabled)}
-        onClick={handlers.onPropertyLockContinue}
-      >
-        {view.propertyLockContinueText || propertyLockText.continueEditingButton}
-      </button>
-    );
+    actions.push(renderPropertyLockActionButton(
+      "continue",
+      view.propertyLockContinueText || propertyLockText.continueEditingButton,
+      handlers.onPropertyLockContinue,
+      { disabled: Boolean(view.propertyLockContinueDisabled) }
+    ));
   }
   if (view.propertyLockForceContinueVisible) {
-    actions.push(
-      <button
-        key="force-continue"
-        type="button"
-        className="property-lock__button u-btn-secondary"
-        onClick={handlers.onPropertyLockForceContinue}
-      >
-        {view.propertyLockForceContinueText || propertyLockText.continueEditingHereAnywayButton}
-      </button>
-    );
+    actions.push(renderPropertyLockActionButton(
+      "force-continue",
+      view.propertyLockForceContinueText || propertyLockText.continueEditingHereAnywayButton,
+      handlers.onPropertyLockForceContinue,
+      { secondary: true }
+    ));
   }
   if (view.propertyLockAcceptVisible) {
-    actions.push(
-      <button
-        key="accept"
-        type="button"
-        className="property-lock__button"
-        onClick={handlers.onPropertyLockAcceptSuggestion}
-      >
-        {propertyLockText.acceptButton}
-      </button>
-    );
+    actions.push(renderPropertyLockActionButton(
+      "accept",
+      propertyLockText.acceptButton,
+      handlers.onPropertyLockAcceptSuggestion
+    ));
   }
   if (view.propertyLockRejectVisible) {
-    actions.push(
-      <button
-        key="reject"
-        type="button"
-        className="property-lock__button u-btn-secondary"
-        onClick={handlers.onPropertyLockRejectSuggestion}
-      >
-        {propertyLockText.rejectButton}
-      </button>
-    );
+    actions.push(renderPropertyLockActionButton(
+      "reject",
+      propertyLockText.rejectButton,
+      handlers.onPropertyLockRejectSuggestion,
+      { secondary: true }
+    ));
   }
 
   return (

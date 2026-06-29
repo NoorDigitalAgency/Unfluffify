@@ -1477,7 +1477,10 @@ loads. Supersedes the old Plan 5 `p5-*` track.
   (`background.ts:resolvePopupTabContext`, `spinner-operations.ts:normalizeSpinnerEntry`,
   `popup-state-broker.ts:serializeSpinnerQueue`, `ui.tsx` render helpers,
   `content-main.ts:collectIncludedNodesFromSelectorSet`); SKIP high
-  source-contract-risk bodies unless already rewritten. Full gate.
+  source-contract-risk bodies unless already rewritten. Status: complete for
+  low/medium-risk background/popup helper flattening; skipped locked
+  marking/highlighting source-contract bodies by design; review clean and final
+  gate complete; ready for the Phase G commit/push handoff.
 
 ### Test matrix
 

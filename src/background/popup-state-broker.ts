@@ -57,6 +57,82 @@ function defaultIsWorldTraceEnabled(): boolean {
 
 function defaultSyncPopupView(): void {}
 
+function getSpinnerStringField(
+  entry: SpinnerEntry | null | undefined,
+  field: string,
+  fallback = ""
+): string {
+  const value = entry?.[field];
+  return typeof value === "string" ? value : fallback;
+}
+
+function getSpinnerNumberField(
+  entry: SpinnerEntry | null | undefined,
+  field: string,
+  fallback = 0
+): number {
+  const value = entry?.[field];
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function getOptionalSpinnerStringField(entry: SpinnerEntry | null | undefined, field: string): string | undefined {
+  const value = entry?.[field];
+  return typeof value === "string" ? value : undefined;
+}
+
+function getOptionalSpinnerNumberField(entry: SpinnerEntry | null | undefined, field: string): number | undefined {
+  const value = entry?.[field];
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function getSpinnerRecordField(
+  entry: SpinnerEntry | null | undefined,
+  field: string
+): Record<string, unknown> | undefined {
+  const value = entry?.[field];
+  return value && typeof value === "object" ? value as Record<string, unknown> : undefined;
+}
+
+function serializePopupSpinnerEntry(tabId: number, key: string, entry: SpinnerEntry | null | undefined): PopupSpinnerEntry {
+  const message = getSpinnerStringField(entry, "message");
+  const reason = getSpinnerStringField(entry, "reason");
+  const startedAt = getSpinnerNumberField(entry, "startedAt");
+  const lease = createSpinnerOperationLease({
+    blockSurfaces: getSpinnerRecordField(entry, "blockSurfaces"),
+    deadlineAt: getOptionalSpinnerNumberField(entry, "deadlineAt"),
+    details: getSpinnerRecordField(entry, "details"),
+    kind: getOptionalSpinnerStringField(entry, "operationKind"),
+    maxDurationMs: getOptionalSpinnerNumberField(entry, "maxDurationMs"),
+    message,
+    operationId: getOptionalSpinnerStringField(entry, "operationId"),
+    operationPhase: getOptionalSpinnerStringField(entry, "operationPhase"),
+    reason,
+    spinnerKey: key,
+    startedAt: startedAt || Date.now(),
+    tabId,
+    timerMode: getOptionalSpinnerStringField(entry, "timerMode"),
+    updatedAt: getOptionalSpinnerNumberField(entry, "updatedAt")
+  });
+  return {
+    key,
+    message,
+    persistent: Boolean(entry && entry.persistent),
+    owner: getSpinnerStringField(entry, "owner"),
+    reason,
+    source: getSpinnerStringField(entry, "source"),
+    startedAt,
+    progress: getSpinnerNumberField(entry, "progress"),
+    operationId: lease ? lease.operationId : "",
+    operationKind: lease ? lease.kind : "",
+    operationPhase: lease ? lease.phase : "",
+    timerMode: lease ? lease.timerMode : "",
+    deadlineAt: lease ? lease.deadlineAt : 0,
+    maxDurationMs: lease ? lease.maxDurationMs : 0,
+    updatedAt: lease ? lease.updatedAt : 0,
+    ...(lease ? { blockSurfaces: { ...lease.blockSurfaces } } : {}),
+  } satisfies PopupSpinnerEntry;
+}
+
 export function createPopupStateBroker(options = {}) {
   const typedOptions = options as PopupStateBrokerOptions;
   const lifecycleStateByTabId = typedOptions.lifecycleStateByTabId instanceof Map
@@ -103,51 +179,7 @@ export function createPopupStateBroker(options = {}) {
     if (!queue || queue.size === 0) {
       return [];
     }
-    return [...queue.entries()].map(([key, entry]) => {
-      const message = entry && typeof entry.message === "string" ? entry.message : "";
-      const reason = entry && typeof entry.reason === "string" ? entry.reason : "";
-      const startedAt = entry && Number.isFinite(entry.startedAt) ? Number(entry.startedAt) : 0;
-      const blockSurfaces = entry && entry.blockSurfaces && typeof entry.blockSurfaces === "object"
-        ? entry.blockSurfaces as Record<string, boolean>
-        : undefined;
-      const details = entry && entry.details && typeof entry.details === "object"
-        ? entry.details
-        : undefined;
-      const lease = createSpinnerOperationLease({
-        blockSurfaces,
-        deadlineAt: entry && Number.isFinite(entry.deadlineAt) ? entry.deadlineAt : undefined,
-        details,
-        kind: entry && typeof entry.operationKind === "string" ? entry.operationKind : undefined,
-        maxDurationMs: entry && Number.isFinite(entry.maxDurationMs) ? entry.maxDurationMs : undefined,
-        message,
-        operationId: entry && typeof entry.operationId === "string" ? entry.operationId : undefined,
-        operationPhase: entry && typeof entry.operationPhase === "string" ? entry.operationPhase : undefined,
-        reason,
-        spinnerKey: key,
-        startedAt: startedAt || Date.now(),
-        tabId,
-        timerMode: entry && typeof entry.timerMode === "string" ? entry.timerMode : undefined,
-        updatedAt: entry && Number.isFinite(entry.updatedAt) ? entry.updatedAt : undefined
-      });
-      return {
-        key,
-        message,
-        persistent: Boolean(entry && entry.persistent),
-        owner: entry && typeof entry.owner === "string" ? entry.owner : "",
-        reason,
-        source: entry && typeof entry.source === "string" ? entry.source : "",
-        startedAt,
-        progress: entry && Number.isFinite(entry.progress) ? Number(entry.progress) : 0,
-        operationId: lease ? lease.operationId : "",
-        operationKind: lease ? lease.kind : "",
-        operationPhase: lease ? lease.phase : "",
-        timerMode: lease ? lease.timerMode : "",
-        deadlineAt: lease ? lease.deadlineAt : 0,
-        maxDurationMs: lease ? lease.maxDurationMs : 0,
-        updatedAt: lease ? lease.updatedAt : 0,
-        ...(lease ? { blockSurfaces: { ...lease.blockSurfaces } } : {}),
-      } satisfies PopupSpinnerEntry;
-    });
+    return [...queue.entries()].map(([key, entry]) => serializePopupSpinnerEntry(tabId, key, entry));
   }
 
   function getActiveSpinnerLease(tabId: number): PopupSpinnerEntry | null {
