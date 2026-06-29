@@ -1269,3 +1269,204 @@ Files: src/popup.ts, brain deciders. Replace popup fail-open settle-poll w/ brai
 pageInspectionBusy/navigationInspectionPending. Tests: inspection-settled-event, brain-heartbeat.
 
 ### Validation: pnpm lint && pnpm check && pnpm test && pnpm build. Live deferred.
+
+---
+
+## Open Implementation Plan: Single-Authority UI State — Full Brain-Authority Refactor (2026-06-29)
+
+Supersedes the remaining authority work in **Curtain/Spinner Dual-Sync +
+Stuck-Recovery** (2026-06-29) and consolidates/extends **Brain-Centric Authority
+Migration — Remaining Non-Brain Logic** (2026-06-29). Authored after a fresh
+full audit of every UI-state authority outside the brain (popup, content,
+non-brain background) and 14 user-approved decisions (see Decisions below).
+
+### Goal
+
+Make the background brain (`src/background/brain/`) the single authority for
+every UI-state decision. Each other layer only (a) reports raw facts/events UP
+and (b) renders the brain's dictation DOWN — no layer keeps its own queue,
+phase, curtain, or preview decision. Eliminates the dual-writer spinner bug and
+the post-AI 8-minute button wedge at the root by making run-ai lease release
+event-driven instead of timeout-bound. User-visible: after an AI run +
+exit preview the POST_AI matrix (Run AI off; List/Save/Discard on; toggle
+locked) and all curtains/spinners resolve immediately from brain dictation, one
+writer per surface, on every layer.
+
+### Current facts (verified 2026-06-29)
+
+- Contracts already suffice: `SessionFacts`/`SessionDictation` carry every field
+  (`src/common/bus/contracts/session-state.ts`: aiBusy/aiComputing/aiRunPhase/
+  aiRunUpToDate/preview*/busy*, `buttons` matrix, `curtain{message,note,timerText,
+  operation,phase}`, `AI_RUN_PHASES`, `SESSION_REPORT_TYPES.FACTS_REPORTED`).
+  Spinner phase copy is typed via `getSpinnerPhaseDefinition` (`src/common/
+  spinner-contract.ts`) so the brain can emit curtain copy directly.
+- Active bug = dual writer to the popup spinner sink: brain broadcast
+  (`src/popup/layers/layer-host.ts:39-54` → `renderPopupSpinnerSurface`) AND the
+  popup-local queue (`src/popup.ts:1180-1200 syncProjectedSpinnerStateFromQueue`)
+  both write `renderPopupSpinnerSurface`; last writer wins → stuck spinner.
+- Wedge root cause: background owns the `run-ai:<tabId>` lease with an 8-min
+  `AI_RUN_TIMEOUT_MS` deadline (`src/background.ts:2155-2164`,
+  `src/background/spinner-operations.ts:310-334 withTabSpinner finally`); the
+  in-memory removal is lost across SW suspension, so aiBusy/curtain stay until
+  the deadline. Brain only projects from this queue.
+- Popup still flips phase: `markSessionAiRunPostAi` (`src/popup.ts:2503-2524`),
+  facts published in `applyComputedSelectorSet` (7894-7905). Brain
+  `deriveAiRunPhase` (`session-phase-decider.ts:108-116`) only composes
+  AI_PREVIEW from reported facts. No brain-subscribed run-lifecycle events exist
+  today (only facts + command replies).
+- Button matrix is brain-dictated live (`central-state-dictation.ts:52-79`,
+  `centralStateDictation:true`) with a popup-local FALLBACK at
+  `src/popup.ts:5287-5686`. Content page-curtain already reflects brain
+  (`content-bus-client.ts:64-68`), but local warmup also calls
+  `setPageInspectionUiActive` directly (`content/core.ts:6866-6984`), and
+  `refreshSilentHighlightings` (`content-main.ts:5185-5405`) self-decides
+  silent-highlight on/off.
+
+Baseline: clean `HEAD` (`b0a9cc5`). At HEAD `syncProjectedSpinnerQueue`
+(`src/background/brain/index.ts:291`) already derives `aiBusy`/`aiComputing` from
+`isAiRunComputeSpinnerActive(queue)` but the run-ai lease is only released by the
+background `withTabSpinner` finally — lost across SW suspension — so it lingers
+to its 8-min deadline (the wedge). Phase B replaces that queue-derived authority
+with an event-driven brain lease. This plan builds everything it needs from the
+clean baseline: the dev sourcemap config (Phase 0) and the backend-as-truth
+discard (Phase D) are implemented fresh; no uncommitted WIP is relied upon.
+
+### Decisions already made (user, 2026-06-29)
+
+Authority items (audit → decision): 1 popup spinner queue → convert (render only
+brain broadcast); 2 popup curtain copy from text → convert (brain emits typed
+copy); 3 popup button-matrix fallback → convert (brain-only; neutral all-disabled
+when no dictation); 4 popup preview UI state → convert (brain owns previewActive/
+blocked/itemsPending); 5 popup preview-restore snapshot → convert (brain owns
+restore; MUST stay instant, no flicker/slow round-trip); 6 popup AI-run phase →
+convert (brain decides PRE_AI/AI_PREVIEW/POST_AI from events); 7 popup timers →
+KEEP 1s countdown display clock, CONVERT stale-inspection + preview-restore
+fail-opens to brain; 8 content silent-highlight → convert-gated (brain gates
+activation, content runs mechanics); 9 content inspection-UI warmup → convert
+(only brain pageCurtain toggles it); 10 background run-ai lease lifecycle →
+convert (brain creates/releases from events); 11 background lifecycle→curtain
+teardown → convert (brain decides from facts); 12 background AI compute-lock +
+run deadline → convert (brain owns deadline value; background runs the operation
+under the brain-derived deadline + a real network-abort timeout, reports
+completion/timeout UP). Mechanics: 13 new typed `AI_RUN_EVENT_TYPES` bus events
+on the brain bus (brain subscribes like FACTS_REPORTED); 14 big-bang per phase,
+NO feature flags (remove local authority in the same phase that adds brain
+authority; retire `centralStateDictation` once #3 lands).
+
+### Non-goals
+
+- The approved 5-button matrix SEMANTICS per phase (only WHERE decided moves).
+- Locked marking/highlighting + the `page-motion-freeze-*` pair.
+- Marking-edit contract: post-Discard = PRE_AI, post-Save = silent highlighting.
+- Backend-as-truth load/discard (no autonomous submits, no recurring loads).
+- The real network-abort timeout (stays background; only its VALUE is brain-derived).
+- Property-lock / render-mode / secondary-gates deciders (already brain-owned).
+- No invented product behavior, copy, persistence, or timeouts.
+
+### Phases (each: edits in order → focused validation → rollback)
+
+- Phase 0 — Add dev sourcemap config (build fresh). Env-gated
+  `vite.build.sourcemap` in `wxt.config.ts` via `UNFLUFFIFY_SOURCEMAP`
+  (`inline`/`true`/`hidden` → that mode, `false`/`0` → off, unset → wxt default)
+  so the release `pnpm build` stays map-free; default `pnpm browser:live` to
+  external maps in `scripts/launch-test-browser.mjs` (set
+  `UNFLUFFIFY_SOURCEMAP=true` before `pnpm build`, log the mode). Commit
+  separately; reindex graph.
+- Phase A — Foundation, no behavior change. NEW
+  `src/common/bus/contracts/ai-run.ts` `AI_RUN_EVENT_TYPES{STARTED,PREVIEW_READY,
+  RESULTS_APPLIED,FAILED,TIMED_OUT,EXITED}`; add `state.aiRun{active,phase,
+  deadlineAt,leaseStartedAt,lastEvent}` to brain state-store; subscribe in
+  `brain/index.ts` (mirror FACTS_REPORTED 194-204); add
+  `deriveAiRunPhaseFromRunState` in `session-phase-decider.ts` (parallel path;
+  prefer run-state when present, else reported facts). Tests:
+  new `tests/ai-run-events.test.ts`, `tests/session-state-reporting.test.ts`.
+- Phase B — #6/#10/#12 (root-cause). Background emits the Phase-A events;
+  brain creates the run-ai lease on STARTED and RELEASES it on RESULTS_APPLIED/
+  PREVIEW_READY/EXITED/FAILED/TIMED_OUT (deterministic, not a timeout); brain
+  owns deadline. Remove the `withBackgroundTabSpinner` run-ai wrapper
+  (`background.ts:2155-2164`); replace `syncProjectedSpinnerQueue`'s
+  queue-derived `isAiRunComputeSpinnerActive` lease/aiBusy authority with the
+  event-driven brain lease; delete popup `markSessionAiRunPostAi` + local
+  phase flips. Flatten `syncProjectedSpinnerQueue` into `projectSpinnerSelections`
+  + `syncAiRunLeaseFromEvents`. Tests: ai-run, session-state-reporting,
+  ai-run-events, popup-ai-run-gating (update source-contract regex). LIVE-verify
+  the wedge is gone BEFORE the old queue-derived path stays removed.
+- Phase C — #1/#2. Delete `popupSpinnerQueue`,
+  `syncProjectedSpinnerStateFromQueue`, `setUiBusyFromCurrentSpinner`,
+  `syncPageBusyFromPopupSpinner`, `syncUiBusyFromBrokerState`, `getBusyCurtainCopy`
+  + render-detection message match; route popup-initiated busy reasons UP as
+  brain lease requests (navInspect/disable/cache/unregister); `layer-host`
+  SPINNER subscription becomes the sole `renderPopupSpinnerSurface` writer; remove
+  the legacy `spinnerQueue`/`activeSpinnerLease` mirror from view-projector +
+  state-store. Tests: popup-marking-refresh, popup-mode-sync. Live-verify single
+  writer, no flicker.
+- Phase D — #3/#4/#5 + backend-as-truth discard. Content reports preview facts
+  UP; brain dictates previewActive/blocked/itemsPending; brain owns INSTANT exit
+  restore (same fold tick as EXITED, no flicker — if unachievable without a
+  content round-trip, STOP and ask); delete popup button-matrix fallback
+  (5287-5686) → neutral all-disabled when no dictation; retire
+  `centralStateDictation`; build backend-as-truth discard in `applyLocalPageDiscard`
+  (fresh `/load` via `loadRemoteConfigForCurrentPage({force:true})`, no autonomous
+  submits, offline-safe fallback) driven to PRE_AI by brain dictation, not popup-
+  local facts. Tests: popup-marking-refresh, popup-ai-run-gating,
+  ai-preview-close-handler. Live-verify discard→fresh /load→PRE_AI, instant
+  restore.
+- Phase E — #7/#9/#11. Background reports terminal lifecycle facts UP, brain
+  decides nav-inspect curtain teardown (`popup-state-broker.ts:203-281`); popup
+  reports stuck-curtain past deadline UP, brain owns the bounded one-shot
+  fail-open clear (`popup.ts:1932-2041`), KEEP the 1s countdown display clock;
+  remove content warmup direct `setPageInspectionUiActive` calls
+  (`content/core.ts:6866-6984`) — only brain pageCurtain toggles it. Tests:
+  popup-marking-refresh, content inspection. Live-verify inspecting curtain
+  shows/clears deterministically.
+- Phase F — #8. Add `silentHighlightActive` to the content directive (brain
+  decides from POST_save/saved selectors); `refreshSilentHighlightings` gates
+  activation on the directive, keeps page mechanics, reports facts UP; flatten
+  into `loadAndNormalizeConfigs`/`collectSilentHighlightSources`/`buildOverlayUpdate`/
+  `scheduleOverlayApply`. Live-verify post-Save shows it, post-Discard does not.
+- Phase G — Standalone low/medium-risk flattening not already rewritten
+  (`background.ts:resolvePopupTabContext`, `spinner-operations.ts:normalizeSpinnerEntry`,
+  `popup-state-broker.ts:serializeSpinnerQueue`, `ui.tsx` render helpers,
+  `content-main.ts:collectIncludedNodesFromSelectorSet`); SKIP high
+  source-contract-risk bodies unless already rewritten. Full gate.
+
+### Test matrix
+
+Per phase focused: ai-run-events (new), session-state-reporting, ai-run,
+popup-ai-run-gating, popup-marking-refresh, popup-mode-sync,
+ai-preview-close-handler, property-lock (no regress). Update source-contract
+regex in the SAME phase that rewrites a body (use `[\s\S]*?` across comments).
+Full gate each major phase + Phase G: `pnpm lint && pnpm check && pnpm test &&
+pnpm build`. Live (B,C,D,E,F): `pnpm browser:live https://bonliva.no` (managed
+Chromium; reload SW after rebuild): marking → run AI → exit → save/discard;
+assert POST_AI matrix immediate, no stuck curtain, page overlay clears, discard→
+fresh /load→PRE_AI, save→silent highlighting.
+
+### Regression risks (highest first)
+
+1. Instant preview-exit restore (#5): brain must project restored dictation in
+   the same fold tick as EXITED; if not, STOP and ask. 2. Replacing the HEAD
+   queue-derived lease before the event lease works: Phase A lands events first;
+   remove the old `isAiRunComputeSpinnerActive` authority only after live
+   B-verify. 3. Source-contract test breakage: update in the same phase.
+   4. Dual-writer reintroduction (#1): exactly one writer to
+   `renderPopupSpinnerSurface`. 5. Popup-initiated busy reasons lost: verify each
+   via brain lease live. 6. Neutral-disabled flash (#3): dictation projects fast
+   (already live). 7. Keep the real network-abort timeout (#12).
+
+### Acceptance criteria
+
+POST_AI matrix + curtains resolve immediately (no 8-min wait, no stuck "Working
+with AI…"); exactly one writer per spinner surface; popup has no
+`popupSpinnerQueue`; `aiRunPhase` never set by popup; run-ai lease released by a
+brain event not a timeout; curtain copy is typed dictation not popup inference;
+button matrix is dictation-only (neutral disabled when absent); preview state +
+instant restore brain-dictated; nav-inspect teardown + stale fail-open + page
+inspection UI are brain decisions (only the 1s countdown stays a local clock);
+silent-highlight on/off brain-gated; discard→fresh /load→PRE_AI, save→silent
+highlighting; full gate green.
+
+### Todo chain
+
+Session DB todos `ar-phase0`..`ar-phaseG` (dependency-chained) mirror Phases
+0..G; each is executable from its phase section without rereading the whole plan.
