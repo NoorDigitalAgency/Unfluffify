@@ -6990,6 +6990,23 @@ export function setPageInspectionUiSettledListener(listener: (() => void) | null
   pageInspectionUiSettledListener = listener;
 }
 
+// The brain owns the reconciliation-pending session fact; content only reports the
+// save lifecycle (set on save, clear on sync/discard). Content never decides UI
+// dictation from this flag, so this reporter is the single content->brain bridge.
+let pageSaveReconciliationFactReporter: ((pending: boolean) => void) | null = null;
+
+export function setPageSaveReconciliationFactReporter(
+  reporter: ((pending: boolean) => void) | null
+): void {
+  pageSaveReconciliationFactReporter = reporter;
+}
+
+function reportPageSaveReconciliationFact(pending: boolean): void {
+  if (pageSaveReconciliationFactReporter) {
+    pageSaveReconciliationFactReporter(pending);
+  }
+}
+
 export function finishPageInspectionUi() {
   setPageInspectionUiActive(false);
   stopPageInspectionInputBlocker();
@@ -10330,6 +10347,7 @@ export async function refreshPageSaveReconciliation(baseUrl = state.baseUrl, pag
   }
   const reconciliation = await config.getPageSaveReconciliation(baseUrl, pageUrl);
   state.pageSaveReconciliation = reconciliation;
+  reportPageSaveReconciliationFact(isPageSaveReconciliationPending(pageUrl));
   updateMarkingTemporarilyDisabledUi();
   return reconciliation;
 }
@@ -10346,6 +10364,7 @@ export async function setPageSaveReconciliationPending(
     reason: typeof options.reason === "string" ? options.reason : "pending"
   });
   state.pageSaveReconciliation = reconciliation;
+  reportPageSaveReconciliationFact(isPageSaveReconciliationPending(pageUrl));
   updateMarkingTemporarilyDisabledUi();
   notifyDraftStatus(pageUrl);
   return reconciliation;
@@ -10359,6 +10378,7 @@ export async function clearPageSaveReconciliation(baseUrl = state.baseUrl, pageU
   if (!current || !pageUrl || current.pageUrl === pageUrl) {
     state.pageSaveReconciliation = null;
   }
+  reportPageSaveReconciliationFact(isPageSaveReconciliationPending(pageUrl));
   updateMarkingTemporarilyDisabledUi();
   notifyDraftStatus(pageUrl);
 }

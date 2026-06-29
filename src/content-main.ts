@@ -123,7 +123,7 @@ import { createPageSaveReconciliationClearHandler } from "./content/page-save-re
 import { createPageSaveReconciliationPendingHandler } from "./content/page-save-reconciliation-pending-handler";
 import { initializePageWorldRelay } from "./content/page-world-relay";
 import { createPageToast } from "./content/page-toast";
-import { handleContentBusMessage, startContentBusClient } from "./content/layers/content-bus-client";
+import { handleContentBusMessage, publishContentSessionFacts, startContentBusClient } from "./content/layers/content-bus-client";
 import { createRenderModeInspectionClient } from "./content/render-mode-inspection-client";
 import { createRenderModeInspectionHandlers } from "./content/render-mode-inspection-handlers";
 import { createVisibleXpathsHandler } from "./content/visible-xpaths-handler";
@@ -7031,6 +7031,9 @@ export function main() {
   registerContentCommandHandlersOnce();
   subscribePageActivity(sendPropertyLockActivity);
   core.setPageInspectionUiSettledListener(notifyInspectionSettled);
+  core.setPageSaveReconciliationFactReporter((pending) => {
+    void publishContentSessionFacts({ pageSaveReconciliationPending: pending });
+  });
   startContentBusClient({
     renderModeHandlers: {
       beginInspection: handleRenderModeInspectionBeginCommand,

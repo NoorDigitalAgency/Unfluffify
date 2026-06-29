@@ -5954,7 +5954,9 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
       sessionHasPendingChanges,
       sessionRequiresAiRun,
       currentDraftDirty: state.currentDraftDirty,
-      pageSaveReconciliationPending,
+      // Reconciliation-pending is now brain-owned, fed by content save-lifecycle
+      // events (core.setPageSaveReconciliationFactReporter). The popup no longer
+      // reports the boolean fact; it only consumes brain dictation for it.
       propertyLockBlocked: isPropertyLockBlockingEditing(),
       saving: state.aiRequestInFlight === "save",
       discarding: false,
