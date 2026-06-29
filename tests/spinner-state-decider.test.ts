@@ -231,46 +231,6 @@ describe("spinner state decider", () => {
     }
   });
 
-  it("fail-open drops expired blocking leases from both surfaces", () => {
-    const now = 1_000;
-    const selections = deriveSpinnerSelectionsFromQueue([
-      buildEntry({
-        key: "stuck",
-        operationKind: "content-bootstrap",
-        operationPhase: "page-inspection",
-        blockSurfaces: { page: true, popup: true },
-        startedAt: 0,
-        deadlineAt: 500,
-      }),
-    ], now);
-
-    expect(selections).toEqual({ popup: null, pageCurtain: null, banner: null });
-  });
-
-  it("keeps persistent and not-yet-expired leases past the deadline check", () => {
-    const now = 1_000;
-    const selections = deriveSpinnerSelectionsFromQueue([
-      buildEntry({
-        key: "persistent",
-        operationKind: "content-bootstrap",
-        operationPhase: "page-inspection",
-        blockSurfaces: { page: true, popup: true },
-        persistent: true,
-        deadlineAt: 500,
-      }),
-    ], now);
-
-    expect(selections.pageCurtain).not.toBeNull();
-  });
-
-  it("treats expired AI-run leases as no longer computing", () => {
-    expect(
-      isAiRunComputeSpinnerActive([
-        buildEntry({ operationKind: "ai-run", operationPhase: "remote-wait", deadlineAt: 500 }),
-      ], 1_000),
-    ).toBe(false);
-  });
-
   it("excludes post-result AI-run phases and non-AI leases from aiComputing", () => {
     expect(
       isAiRunComputeSpinnerActive([

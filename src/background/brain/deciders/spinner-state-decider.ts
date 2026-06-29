@@ -24,30 +24,14 @@ const AI_RUN_COMPUTE_PHASES: ReadonlySet<string> = new Set([
  * markings) are intentionally excluded so they do not force the COMPUTING_AI
  * curtain.
  */
-export function isAiRunComputeSpinnerActive(
-  queue: readonly PopupSpinnerEntry[],
-  now: number = Date.now(),
-): boolean {
+export function isAiRunComputeSpinnerActive(queue: readonly PopupSpinnerEntry[]): boolean {
   return queue.some(
     (entry) =>
       Boolean(entry) &&
-      !isSpinnerEntryExpired(entry, now) &&
       entry.operationKind === SPINNER_OPERATION_KINDS.AI_RUN &&
       typeof entry.operationPhase === "string" &&
       AI_RUN_COMPUTE_PHASES.has(entry.operationPhase),
   );
-}
-
-/**
- * Brain-side fail-open: a spinner whose bounded deadline has elapsed is treated
- * as expired so a missed main-world "done" ack can never leave the curtain stuck
- * on either layer. Persistent spinners are explicitly exempt from expiry.
- */
-function isSpinnerEntryExpired(entry: PopupSpinnerEntry, now: number): boolean {
-  if (!entry || entry.persistent === true) {
-    return false;
-  }
-  return Number.isFinite(entry.deadlineAt) && entry.deadlineAt > 0 && now >= entry.deadlineAt;
 }
 
 function blocksSurface(entry: PopupSpinnerEntry, surface: BlockingSurface): boolean {
@@ -123,13 +107,11 @@ function selectActiveSpinner(queue: readonly PopupSpinnerEntry[]): SpinnerSelect
 
 export function deriveSpinnerSelectionsFromQueue(
   queue: readonly PopupSpinnerEntry[],
-  now: number = Date.now(),
 ): SpinnerSelections {
-  const liveQueue = queue.filter((entry) => entry && !isSpinnerEntryExpired(entry, now));
   return {
-    popup: selectActiveSpinner(liveQueue),
-    pageCurtain: selectLatestSpinner(liveQueue, (entry) => blocksSurface(entry, "page")),
-    banner: selectLatestSpinner(liveQueue, rendersAsBanner),
+    popup: selectActiveSpinner(queue),
+    pageCurtain: selectLatestSpinner(queue, (entry) => blocksSurface(entry, "page")),
+    banner: selectLatestSpinner(queue, rendersAsBanner),
   };
 }
 
@@ -138,9 +120,8 @@ export function updateSpinnerSelectionsFromQueue(
   tabId: number,
   queue: readonly PopupSpinnerEntry[],
   reason: string,
-  now: number = Date.now(),
 ): SpinnerSelections {
-  const nextSelections = deriveSpinnerSelectionsFromQueue(queue, now);
+  const nextSelections = deriveSpinnerSelectionsFromQueue(queue);
   store.mutate(tabId, reason, (state) => {
     state.spinners.popup = nextSelections.popup;
     state.spinners.pageCurtain = nextSelections.pageCurtain;

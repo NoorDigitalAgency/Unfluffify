@@ -109,11 +109,22 @@ export const SESSION_REPORT_TYPES = Object.freeze({
   FACTS_REPORTED: "session.factsReported",
 } as const);
 
+export const SESSION_REQUEST_TYPES = Object.freeze({
+  STATE_GET: "session.state.get",
+} as const);
+
 export const SESSION_EVENT_TYPES = Object.freeze({
   DICTATION_UPDATED: "session.dictationUpdated",
 } as const);
 
 export type SessionFactsReportedPayload = Readonly<{
+  source: "popup" | "content";
+  facts: SessionFactsPatch;
+}>;
+
+export type SessionStateGetPayload = Readonly<Record<never, never>>;
+
+export type SessionStateReply = Readonly<{
   source: "popup" | "content";
   facts: SessionFactsPatch;
 }>;

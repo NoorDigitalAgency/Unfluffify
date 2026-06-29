@@ -2,8 +2,10 @@ import { createBus, type Bus } from "../../common/bus/bus";
 import { DIAGNOSTIC_REQUEST_TYPES } from "../../common/bus/contracts/index";
 import {
   SESSION_REPORT_TYPES,
+  SESSION_REQUEST_TYPES,
   type SessionFactsPatch,
   type SessionFactsReportedPayload,
+  type SessionStateReply,
 } from "../../common/bus/contracts/session-state";
 import type {
   RenderModeContentBeginReply,
@@ -23,6 +25,7 @@ import { registerRenderModeInspectionExecutor } from "./modes/render-mode-inspec
 let contentBus: Bus | null = null;
 let contentTransport: ReturnType<typeof createContentTransport> | null = null;
 let contentLayerHostStop: (() => void) | null = null;
+let lastContentSessionFacts: SessionFactsPatch = {};
 
 export type ContentBusClientOptions = {
   renderModeHandlers?: {
@@ -48,6 +51,10 @@ export function startContentBusClient(options: ContentBusClientOptions = {}): Bu
   contentBus.registerHandler(DIAGNOSTIC_REQUEST_TYPES.PING, (payload: { nonce: string }) => ({
     nonce: payload.nonce,
     realm: REALMS.CONTENT,
+  }));
+  contentBus.registerHandler(SESSION_REQUEST_TYPES.STATE_GET, (): SessionStateReply => ({
+    source: "content",
+    facts: lastContentSessionFacts,
   }));
   if (options.renderModeHandlers) {
     registerRenderModeInspectionExecutor(contentBus, {
@@ -90,6 +97,7 @@ export function publishContentSessionFacts(facts: SessionFactsPatch): Promise<vo
     source: "content",
     facts,
   };
+  lastContentSessionFacts = { ...lastContentSessionFacts, ...facts };
   return contentBus.publish(SESSION_REPORT_TYPES.FACTS_REPORTED, payload, {
     target: REALMS.BACKGROUND,
   });

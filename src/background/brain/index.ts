@@ -41,6 +41,7 @@ import { deriveSecondaryGatesViewState } from "./deciders/secondary-gates-decide
 import { updateSpinnerSelectionsFromQueue, isAiRunComputeSpinnerActive } from "./deciders/spinner-state-decider";
 import { applySessionFactsPatch } from "./deciders/session-phase-decider";
 import { createStateStore, type TabLayerState } from "./state-store";
+import { createBrainHeartbeat } from "./heartbeat";
 import { projectSpinners, type SpinnerState } from "./spinner-authority";
 import { projectViews } from "./view-projector";
 
@@ -175,6 +176,20 @@ export function createBrain(options: { logger?: Pick<Console, "error" | "debug">
     }
     return getPopupView(store, meta.tab);
   });
+  function foldSessionFacts(
+    tabId: number,
+    source: "popup" | "content",
+    facts: SessionFactsReportedPayload["facts"],
+    reason: string,
+  ): void {
+    store.mutate(tabId, reason, (draft) => {
+      const next = applySessionFactsPatch(draft.sessionFacts, facts);
+      draft.sessionFactsReported = true;
+      draft.sessionFacts = next.facts;
+      draft.sessionDictation = next.dictation;
+      draft.secondaryGates = deriveSecondaryGatesViewState(next.facts);
+    });
+  }
   bus.subscribe(SESSION_REPORT_TYPES.FACTS_REPORTED, (payload, meta) => {
     if (!meta.tab || !payload || typeof payload !== "object") {
       return;
@@ -184,14 +199,13 @@ export function createBrain(options: { logger?: Pick<Console, "error" | "debug">
     const facts = typedPayload.facts && typeof typedPayload.facts === "object"
       ? typedPayload.facts
       : {};
-    store.mutate(meta.tab, `session-facts:${source}`, (draft) => {
-      const next = applySessionFactsPatch(draft.sessionFacts, facts);
-      draft.sessionFactsReported = true;
-      draft.sessionFacts = next.facts;
-      draft.sessionDictation = next.dictation;
-      draft.secondaryGates = deriveSecondaryGatesViewState(next.facts);
-    });
+    foldSessionFacts(meta.tab, source, facts, `session-facts:${source}`);
   });
+  const heartbeat = createBrainHeartbeat({
+    request: (type, payload, opts) => bus.request(type, payload, opts),
+    foldFacts: (tabId, source, facts, reason) => foldSessionFacts(tabId, source, facts, reason),
+  });
+  const popupPortCounts = new Map<number, number>();
   bus.subscribe(PROPERTY_LOCK_REPORT_TYPES.SNAPSHOT_REPORTED, (payload, meta) => {
     if (!meta.tab || !payload || typeof payload !== "object") {
       return;
@@ -303,6 +317,18 @@ export function createBrain(options: { logger?: Pick<Console, "error" | "debug">
     },
     registerPopupPort(tabId: number, port: Browser.runtime.Port): void {
       transport.registerPopupPort(tabId, port);
+      popupPortCounts.set(tabId, (popupPortCounts.get(tabId) ?? 0) + 1);
+      heartbeat.start(tabId);
+      port.onDisconnect.addListener(() => {
+        const remaining = (popupPortCounts.get(tabId) ?? 1) - 1;
+        if (remaining <= 0) {
+          popupPortCounts.delete(tabId);
+          heartbeat.stop(tabId);
+        } else {
+          popupPortCounts.set(tabId, remaining);
+        }
+      });
     },
+    heartbeat,
   };
 }

@@ -12,8 +12,10 @@ import {
 } from "../../common/bus/contracts/property-lock-state";
 import {
   SESSION_REPORT_TYPES,
+  SESSION_REQUEST_TYPES,
   type SessionFactsPatch,
   type SessionFactsReportedPayload,
+  type SessionStateReply,
 } from "../../common/bus/contracts/session-state";
 import {
   POPUP_STATE_REQUEST_TYPES,
@@ -45,6 +47,7 @@ let popupBus: Bus | null = null;
 let popupTransport: ReturnType<typeof createPopupTransport> | null = null;
 let popupLayerHostStop: (() => void) | null = null;
 let popupBusTabId: number | null = null;
+let lastPopupSessionFacts: SessionFactsPatch = {};
 
 export type PopupBusSelfTestLogger = (eventName: string, details?: Record<string, unknown>) => void;
 export type PopupBusClientOptions = {
@@ -157,6 +160,7 @@ export function publishPopupSessionFacts(
   if (!tabId || !popupBus) {
     return Promise.resolve();
   }
+  lastPopupSessionFacts = { ...lastPopupSessionFacts, ...facts };
   const payload: SessionFactsReportedPayload = {
     source: "popup",
     facts,
@@ -270,6 +274,10 @@ export function startPopupBusClient(tabId: number, options: PopupBusClientOption
   popupBus.registerHandler(DIAGNOSTIC_REQUEST_TYPES.PING, (payload: { nonce: string }) => ({
     nonce: payload.nonce,
     realm: REALMS.POPUP,
+  }));
+  popupBus.registerHandler(SESSION_REQUEST_TYPES.STATE_GET, (): SessionStateReply => ({
+    source: "popup",
+    facts: lastPopupSessionFacts,
   }));
   popupLayerHostStop = startPopupLayerHostWithOptions(popupBus, options);
   popupBusTabId = tabId;
