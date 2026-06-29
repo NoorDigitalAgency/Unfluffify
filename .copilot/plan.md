@@ -1129,3 +1129,85 @@ Key reminders for any future work in this area:
 Use a strong reasoning model for non-trivial runtime changes. Do not let a
 low-context executor infer new product behavior, reopen retired architecture
 tracks, or continue the paused Track H work by continuity alone.
+
+---
+
+## Open Implementation Plan: Brain Heartbeat State Synchronization (2026-06-29)
+
+### Goal
+
+Replace the non-deterministic spinner deadline-expiry (P-A/P-D) with a
+deterministic 1s brain heartbeat. While a popup is connected for a tab, the brain
+pings popup + content every 1000ms, each layer replies with its reported state,
+the brain folds those into central `SessionFacts`, decides the `SessionPhase`,
+and broadcasts a single synchronization (dictation + popup/page spinner SET/CLEAR)
+so all layers and both spinner ends always converge to the central state and
+never get stuck.
+
+### Decisions already made (user, 2026-06-29)
+
+1. Cadence: 1000ms.
+2. Model: PULL — brain `bus.request`s each layer's state, layer replies, brain
+   decides + broadcasts sync. Not push.
+3. Replace the deadline-expiry fail-open added in P-A/P-D; heartbeat
+   reconciliation is the sole clear mechanism.
+4. Active only while a popup is connected for the tab (start on popup port
+   register, stop on disconnect) to avoid draining the MV3 SW.
+
+### Current facts (verified)
+
+- Brain: `src/background/brain/index.ts:createBrain()` owns `bus`, `store`,
+  `transport`; `store.onProjection` -> `publishProjectedState` already broadcasts
+  dictation + popup/pageCurtain/banner spinners. `registerPopupPort` (index.ts:304)
+  wraps transport port registration; transport `onDisconnect` cleans ports
+  (`background-transport.ts:278-292`).
+- Layers report via `SESSION_REPORT_TYPES.FACTS_REPORTED` event subscribed at
+  index.ts:178; folded by `applySessionFactsPatch`. Popup reporter:
+  `popup-bus-client.ts:publishPopupSessionFacts`; content reporter:
+  `content-bus-client.ts:publishContentSessionFacts`.
+- Brain can request layers: bus requests to POPUP/CONTENT are supported
+  (`popup-bus-client.ts:run...PING` proves request/reply); content registers a
+  PING handler (`content-bus-client.ts:48`).
+- Spinner sync: `publishSpinnerSurface` (index.ts:121) emits SET/CLEAR to
+  CONTENT+POPUP; content renders curtain from broadcast (P-B); popup via layer-host.
+- Expiry to remove: `spinner-state-decider.ts:isSpinnerEntryExpired` filtering in
+  `deriveSpinnerSelectionsFromQueue` + `isAiRunComputeSpinnerActive` `now` params.
+
+### Non-goals
+
+- No marking/highlighting/property-lock contract changes.
+- No new product behavior beyond convergence; no UI copy changes.
+- Do not alter `continueAiRunPolling` backend poll or `sw-keepalive`.
+
+### Phases
+
+- H0 Contracts: add `SESSION_REQUEST_TYPES.STATE_GET="session.state.get"` and a
+  `SessionStateReply` (`{facts:SessionFactsPatch}`) to
+  `src/common/bus/contracts/session-state.ts`.
+- H1 Layer handlers: popup registers STATE_GET returning current facts
+  (`popup-bus-client.ts`, fed by popup view); content registers STATE_GET
+  returning inspection facts (`content-bus-client.ts`). Default reply `{}` when no
+  data.
+- H2 Brain heartbeat: add `src/background/brain/heartbeat.ts` `createBrainHeartbeat`
+  ({intervalMs:1000}). Start on `registerPopupPort`, stop on disconnect. Each tick
+  per tab: request POPUP + CONTENT STATE_GET (timeout 800ms, tolerate failure),
+  fold via `applySessionFactsPatch`, decide phase, project. Reuse keepalive while
+  running.
+- H3 Spinner sync: heartbeat re-broadcasts central popup/pageCurtain selections so
+  a missed ack re-converges; brain decides clear/visible from central facts only.
+- H4 Remove expiry: revert `isSpinnerEntryExpired` filter + `now` params; rely on
+  heartbeat. Restore/adjust spinner-state-decider tests.
+- H5 Tests: heartbeat unit (fake timer ticks request->fold->project),
+  layer-handler tests, brain convergence test; `pnpm lint && check && test && build`.
+
+### Acceptance criteria
+
+- With a popup connected, brain requests both layers ~1/s; central facts/phase
+  recomputed; dictation + both spinners re-broadcast each tick.
+- A stuck spinner clears within ~1s once central facts no longer require it (no
+  deadline filter present).
+- Heartbeat stops when popup disconnects. All tests/lint/check/build green.
+
+### Live verify (deferred)
+
+`pnpm browser:live https://sove.se/` + `https://bonliva.se` — defer per user.
