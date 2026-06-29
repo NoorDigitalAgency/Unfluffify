@@ -1,7 +1,7 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 
-import { decideSessionPhase } from "../src/background/brain/deciders/session-phase-decider.js";
+import { decideSessionPhase, applySessionFactsPatch, createDefaultSessionFacts } from "../src/background/brain/deciders/session-phase-decider.js";
 import { AI_RUN_PHASES, SESSION_PHASES } from "../src/common/bus/contracts/session-state.js";
 
 function buildFacts(overrides = {}) {
@@ -61,6 +61,22 @@ test("session-phase decider picks the expected named phase across the current po
   assert.equal(decideSessionPhase(buildFacts({ sessionHasPendingChanges: true, currentDraftDirty: true, aiRunPhase: AI_RUN_PHASES.POST_AI })), SESSION_PHASES.READY_TO_SAVE);
   assert.equal(decideSessionPhase(buildFacts({ aiRunPhase: AI_RUN_PHASES.POST_AI })), SESSION_PHASES.SAVED);
   assert.equal(decideSessionPhase(buildFacts()), SESSION_PHASES.MARKING_FRESH);
+});
+
+test("brain composes AI_PREVIEW from reported POST_AI + preview-open and exits to POST_AI", () => {
+  const base = createDefaultSessionFacts();
+  // Popup reports run completion (POST_AI) and preview-open; brain composes AI_PREVIEW.
+  const open = applySessionFactsPatch(base, {
+    aiRunPhase: AI_RUN_PHASES.POST_AI,
+    previewActive: true,
+  });
+  assert.equal(open.facts.aiRunPhase, AI_RUN_PHASES.AI_PREVIEW);
+  // Exit preview: previewActive clears -> brain drops back to POST_AI.
+  const exited = applySessionFactsPatch(open.facts, { previewActive: false });
+  assert.equal(exited.facts.aiRunPhase, AI_RUN_PHASES.POST_AI);
+  // Discard/save report PRE_AI -> stays PRE_AI regardless of preview facts.
+  const pre = applySessionFactsPatch(exited.facts, { aiRunPhase: AI_RUN_PHASES.PRE_AI });
+  assert.equal(pre.facts.aiRunPhase, AI_RUN_PHASES.PRE_AI);
 });
 
 test("session-phase decider keeps high-priority transient phases ahead of steady-state marking phases", () => {

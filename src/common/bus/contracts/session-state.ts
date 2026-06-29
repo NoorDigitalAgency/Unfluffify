@@ -22,6 +22,7 @@ export type SessionPhase = (typeof SESSION_PHASES)[keyof typeof SESSION_PHASES];
 
 export const AI_RUN_PHASES = Object.freeze({
   PRE_AI: "pre_ai",
+  AI_PREVIEW: "ai_preview",
   POST_AI: "post_ai",
 } as const);
 

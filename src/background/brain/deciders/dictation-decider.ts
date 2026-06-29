@@ -89,7 +89,7 @@ function deriveCurtainDictation(phase: SessionPhase, facts: SessionFacts): Curta
 export function deriveDictation(phase: SessionPhase, facts: SessionFacts): SessionDictation {
   const mainUiHidden = deriveMainUiHidden(facts);
   const pageControlsVisible = derivePageControlsVisible(facts, mainUiHidden);
-  const postAi = facts.aiRunPhase === AI_RUN_PHASES.POST_AI;
+  const postAi = facts.aiRunPhase === AI_RUN_PHASES.POST_AI || facts.aiRunPhase === AI_RUN_PHASES.AI_PREVIEW;
   const actionMatrixDisabled = Boolean(
     facts.pageScopedUiDisabled ||
       facts.aiBusy ||

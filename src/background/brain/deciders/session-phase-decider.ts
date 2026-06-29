@@ -92,9 +92,27 @@ const STRING_FACT_KEYS = [
 ] as const satisfies readonly (keyof SessionFacts)[];
 
 function normalizeSessionAiRunPhase(value: unknown): SessionAiRunPhase {
-  return value === AI_RUN_PHASES.POST_AI
-    ? AI_RUN_PHASES.POST_AI
-    : AI_RUN_PHASES.PRE_AI;
+  if (value === AI_RUN_PHASES.POST_AI) {
+    return AI_RUN_PHASES.POST_AI;
+  }
+  if (value === AI_RUN_PHASES.AI_PREVIEW) {
+    return AI_RUN_PHASES.AI_PREVIEW;
+  }
+  return AI_RUN_PHASES.PRE_AI;
+}
+
+// The brain owns AI_PREVIEW: an AI run that has produced selectors and is showing
+// the preview sidebar is AI_PREVIEW; exiting the preview drops back to POST_AI.
+// Popup/content only report the underlying run-completion (POST_AI) plus the
+// preview-open fact; the brain composes the distinct preview phase.
+function deriveAiRunPhase(facts: { aiRunPhase: SessionAiRunPhase; previewActive: boolean; previewBlocked: boolean }): SessionAiRunPhase {
+  if (facts.aiRunPhase === AI_RUN_PHASES.PRE_AI) {
+    return AI_RUN_PHASES.PRE_AI;
+  }
+  if (facts.previewActive || facts.previewBlocked) {
+    return AI_RUN_PHASES.AI_PREVIEW;
+  }
+  return AI_RUN_PHASES.POST_AI;
 }
 
 function isReadinessBlocked(facts: SessionFacts): boolean {
@@ -198,6 +216,10 @@ export function applySessionFactsPatch(
   if (Object.prototype.hasOwnProperty.call(patch, "aiRunPhase")) {
     nextFacts.aiRunPhase = normalizeSessionAiRunPhase(patch.aiRunPhase);
   }
+
+  // Brain composes the distinct AI_PREVIEW phase from the reported run-completion
+  // (POST_AI) and the preview-open facts; popup/content never report it directly.
+  nextFacts.aiRunPhase = deriveAiRunPhase(nextFacts);
 
   if (Object.prototype.hasOwnProperty.call(patch, "lynxChecklistBlockingReason")) {
     const reason = patch.lynxChecklistBlockingReason;

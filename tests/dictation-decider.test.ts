@@ -115,6 +115,21 @@ test("dictation keeps discard reachable in POST_AI when reconciliation is stuck 
   assert.equal(dictation.buttons[BUTTON_IDS.PAGE_REVERT].enabled, true);
 });
 
+test("dictation treats AI_PREVIEW as post-AI for the action matrix", () => {
+  const facts = buildFacts({
+    sessionHasPendingChanges: true,
+    currentDraftDirty: true,
+    currentPageHasPendingChanges: true,
+    aiRunPhase: AI_RUN_PHASES.AI_PREVIEW,
+    aiRunUpToDate: true,
+  });
+  const dictation = deriveDictation(decideSessionPhase(facts), facts);
+  assert.equal(dictation.buttons[BUTTON_IDS.COMPUTE].enabled, false);
+  assert.equal(dictation.buttons[BUTTON_IDS.PAGE_SAVE].enabled, true);
+  assert.equal(dictation.buttons[BUTTON_IDS.PAGE_REVERT].enabled, true);
+  assert.equal(dictation.buttons[BUTTON_IDS.TOGGLE_ENABLED].enabled, false);
+});
+
 test("dictation disables the matrix during preview restore without hiding marking controls", () => {
   const facts = buildFacts({
     previewRestorePending: true,

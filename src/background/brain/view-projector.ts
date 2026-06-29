@@ -191,7 +191,8 @@ export function projectViews(state: TabLayerState): {
       renderMode: cloneRenderModeDirectiveState(state.renderMode),
       markingEditsBlocked: Boolean(
         state.sessionFactsReported &&
-          state.sessionFacts.aiRunPhase === AI_RUN_PHASES.POST_AI
+          (state.sessionFacts.aiRunPhase === AI_RUN_PHASES.POST_AI ||
+            state.sessionFacts.aiRunPhase === AI_RUN_PHASES.AI_PREVIEW)
       ),
     },
   };

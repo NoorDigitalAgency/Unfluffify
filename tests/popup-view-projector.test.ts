@@ -606,4 +606,47 @@ describe("popup view projector", () => {
       pageUrl: "https://example.com/property",
     });
   });
+
+  it("keeps markingEditsBlocked through POST_AI and AI_PREVIEW, off in PRE_AI", () => {
+    const buildState = (facts: typeof baseSessionFacts): TabLayerState => ({
+      tabId: 91,
+      version: 7,
+      popupView: {
+        traceEnabled: false,
+        traceEvents: [],
+        lifecycle: null,
+        spinnerQueue: [],
+        activeSpinnerLease: null,
+      },
+      activation: {
+        contentReady: false,
+        bootstrapStatus: "bootstrapping",
+        restorePending: false,
+        lastError: "",
+        lastLifecycle: null,
+        lastContentPageUrl: "",
+      },
+      renderMode: {
+        inspecting: false,
+        javaScriptDisabled: false,
+        noJsHeld: false,
+        operationId: "",
+        baseUrl: "",
+        lastSnapshotPageUrl: "",
+        followUpCompleted: false,
+        lastError: "",
+      },
+      sessionFactsReported: true,
+      sessionFacts: facts,
+      sessionDictation: null,
+      propertyLockView: null,
+      propertyLockTimer: null,
+      secondaryGates: null,
+      spinners: { popup: null, pageCurtain: null, banner: null },
+    });
+
+    expect(projectViews(buildState({ ...baseSessionFacts, aiRunPhase: AI_RUN_PHASES.POST_AI })).contentDirective.markingEditsBlocked).toBe(true);
+    expect(projectViews(buildState({ ...baseSessionFacts, aiRunPhase: AI_RUN_PHASES.AI_PREVIEW })).contentDirective.markingEditsBlocked).toBe(true);
+    expect(projectViews(buildState({ ...baseSessionFacts, aiRunPhase: AI_RUN_PHASES.PRE_AI })).contentDirective.markingEditsBlocked).toBe(false);
+  });
 });
