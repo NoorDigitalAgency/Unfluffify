@@ -8,6 +8,20 @@ const SOURCE_ACTION = {
   default_title: "Unfluffify",
 };
 
+function resolveSourcemap(): boolean | "inline" | "hidden" | undefined {
+  const value = process.env.UNFLUFFIFY_SOURCEMAP;
+  if (value === "inline" || value === "hidden") {
+    return value;
+  }
+  if (value === "true" || value === "1") {
+    return true;
+  }
+  if (value === "false" || value === "0") {
+    return false;
+  }
+  return undefined;
+}
+
 export function restoreSourceAction(manifest: Record<string, unknown>) {
   manifest.action = structuredClone(SOURCE_ACTION);
 }
@@ -18,6 +32,11 @@ export default defineConfig({
   manifestVersion: 3,
   publicDir: "src/public",
   srcDir: "src",
+  vite: () => ({
+    build: {
+      sourcemap: resolveSourcemap(),
+    },
+  }),
   hooks: {
     "build:manifestGenerated": (_wxt, manifest) => {
       restoreSourceAction(manifest);

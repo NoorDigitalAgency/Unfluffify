@@ -693,6 +693,10 @@ console.log(`[launch] target:    ${target}`);
 
 if (doBuild) {
   console.log("[launch] building unpacked WXT extension (pnpm build)…");
+  if (!process.env.UNFLUFFIFY_SOURCEMAP) {
+    process.env.UNFLUFFIFY_SOURCEMAP = "true";
+  }
+  console.log(`[launch] sourcemaps: ${process.env.UNFLUFFIFY_SOURCEMAP}`);
   await run("pnpm", ["build"]);
 }
 try {
