@@ -456,6 +456,11 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
     const skipActivation = Boolean(lockOptions && lockOptions.skipActivation);
     const normalizedExpiresAt = Number(expiresAt);
     if (active) {
+      // The 30s default is a heartbeat-renewed fail-open TTL for the compute
+      // lock, not the AI run deadline. The brain's run deadline is carried
+      // separately via the run heartbeat; this TTL only guarantees the lock
+      // self-clears if heartbeats stop, so a wedged compute can never block the
+      // tab indefinitely.
       const nextExpiresAt =
         Number.isFinite(normalizedExpiresAt) && normalizedExpiresAt > Date.now()
           ? normalizedExpiresAt
