@@ -639,6 +639,7 @@ test("tab activation does not end persisted inspection overlay before old-tab sp
   assert.doesNotMatch(onActivatedBlock, /endNavigationInspectionOverlay\(/);
   assert.match(onActivatedBlock, /clearSpinnerQueueInBackground\(oldTabId, \{ transientOnly: true \}\)\.catch\(\(\) => \{\}\);/);
   assert.match(onActivatedBlock, /clearNavigationInspectionSettlePollsExcept\(\);/);
+  assert.match(onActivatedBlock, /clearProjectedPopupSpinnerSurfaces\(\);/);
   assert.match(onActivatedBlock, /popupNavigationInspectionOverlayStarted = false;/);
   assert.match(onActivatedBlock, /popupBackgroundLifecycle = null;/);
   assert.match(onActivatedBlock, /popupBackgroundStateTabId = null;/);
@@ -672,7 +673,7 @@ test("marking enable upgrades the popup spinner to page inspection during reveal
   const source = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
   const spinnerSource = readFileSync(new URL("../src/popup/spinner.ts", import.meta.url), "utf8");
   const runWithSpinnerBody = spinnerSource.match(
-    /export async function runWithSpinner\(deps, key, message, task, options = \{\}\) \{([\s\S]*?)\n\}/
+    /export async function runWithSpinner(?:<[^>]+>)?\(\s*deps(?:\s*:\s*[^,]+)?,\s*key(?:\s*:\s*[^,]+)?,\s*message(?:\s*:\s*[^,]+)?,\s*task(?:\s*:\s*[^,]+)?,\s*options(?:\s*:\s*[^=]+)? = \{\}\s*\)(?::\s*[^{]+)? \{([\s\S]*?)\n\}/
   )[1];
   const enableBody = source.match(
     /async function handleEnableToggle\(event(?:\s*:\s*[^)]*)?\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?(?:\n|\r\n)*async function handleDeviceEmulationEnabledToggle/

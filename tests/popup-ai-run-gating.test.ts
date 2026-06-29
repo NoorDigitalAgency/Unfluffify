@@ -329,11 +329,10 @@ test("silent-mode reveal/freeze surfaces the inspecting curtain", () => {
     /isEnabled \|\| toggleEnabled \|\| effectiveTabState\.enabled \|\| navigationInspectionPending \|\| silentInspectionInScope/
   );
   // Silent mode keeps polling until the reveal/freeze warmup clears the curtain,
-  // including a leftover navigation-inspection spinner restored from a prior
-  // marking session.
+  // including a popup-origin navigation-inspection lease.
   assert.match(
     popupSource,
-    /const silentNavSpinnerStuck = Boolean\(\s*silentInspectionInScope &&\s*currentTabId &&\s*popupSpinnerQueue\.has\("navInspect"\)\s*\);/
+    /const silentNavSpinnerStuck = Boolean\(\s*silentInspectionInScope &&\s*currentTabId &&\s*popupSpinnerEntriesByKey\.has\("navInspect"\)\s*\);/
   );
   assert.match(
     popupSource,

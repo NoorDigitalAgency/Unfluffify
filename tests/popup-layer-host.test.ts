@@ -68,7 +68,8 @@ describe("popup layer host", () => {
 
   it("stores projected spinner surfaces for popup-side busy derivation", async () => {
     const bus = createTestBus();
-    const stop = startPopupLayerHostWithOptions(bus, {});
+    const onSpinnerSurfaceChanged = vi.fn();
+    const stop = startPopupLayerHostWithOptions(bus, { onSpinnerSurfaceChanged });
 
     await bus.publish(SPINNER_EVENT_TYPES.SET, {
       surface: "pageCurtain",
@@ -102,6 +103,7 @@ describe("popup layer host", () => {
       reason: "page-inspection-pending",
       spinnerKey: "navInspect",
     });
+    expect(onSpinnerSurfaceChanged).toHaveBeenCalledWith("pageCurtain");
 
     stop();
   });

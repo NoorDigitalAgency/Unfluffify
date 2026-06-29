@@ -3,12 +3,39 @@ import { assert } from "./test-kit.ts";
 
 import { createBrain } from "../src/background/brain/index.js";
 import { AI_RUN_EVENT_TYPES } from "../src/common/bus/contracts/ai-run.js";
+import { SPINNER_EVENT_TYPES } from "../src/common/bus/contracts/spinner.js";
 import { REALMS } from "../src/common/bus/realms.js";
+import { buildBusPortName } from "../src/common/bus/transport/transport-types.js";
 import {
   AI_RUN_PHASES,
   SESSION_PHASES,
   SESSION_REPORT_TYPES
 } from "../src/common/bus/contracts/session-state.js";
+
+function createFakePopupPort(tabId: number) {
+  const postedMessages: unknown[] = [];
+  const onMessage = {
+    addListener() {},
+    removeListener() {},
+  };
+  const onDisconnect = {
+    addListener() {},
+    removeListener() {},
+  };
+  const port = {
+    name: buildBusPortName(tabId),
+    onMessage,
+    onDisconnect,
+    postMessage(message: unknown) {
+      postedMessages.push(message);
+    },
+    disconnect() {},
+  };
+  return {
+    port: port as unknown as chrome.runtime.Port,
+    postedMessages,
+  };
+}
 
 async function reportReadyMarkingFacts(brain: ReturnType<typeof createBrain>, tabId: number) {
   await brain.bus.publish(SESSION_REPORT_TYPES.FACTS_REPORTED, {
@@ -155,4 +182,48 @@ test("popup fact reports cannot clobber typed AI-run authority except clean PRE_
 
   assert.equal(brain.store.get(tabId)?.aiRun.phase, AI_RUN_PHASES.POST_AI);
   assert.equal(brain.getPopupView(tabId).sessionDictation?.phase, SESSION_PHASES.MARKING_FRESH);
+});
+
+test("brain replays active spinner surfaces when the popup port registers", async () => {
+  const brain = createBrain({ logger: { error() {}, debug() {} } });
+  const tabId = 91;
+  const deadlineAt = Date.now() + 480000;
+
+  await reportReadyMarkingFacts(brain, tabId);
+  await publishAiRunEvent(brain, tabId, AI_RUN_EVENT_TYPES.STARTED, {
+    sessionId: "ai-session",
+    deadlineAt,
+  });
+
+  const popupPort = createFakePopupPort(tabId);
+  brain.registerPopupPort(tabId, popupPort.port);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const popupSpinnerEvent = popupPort.postedMessages.find((message) => {
+    const envelope = message as { t?: unknown; payload?: { surface?: unknown; state?: { operationKind?: unknown } } };
+    return envelope.t === SPINNER_EVENT_TYPES.SET &&
+      envelope.payload?.surface === "popup" &&
+      envelope.payload.state?.operationKind === "ai-run";
+  }) as { payload: { state: { deadlineAt?: unknown; operationPhase?: unknown } } } | undefined;
+
+  assert.ok(popupSpinnerEvent);
+  assert.equal(popupSpinnerEvent.payload.state.operationPhase, "remote-wait");
+  assert.equal(popupSpinnerEvent.payload.state.deadlineAt, deadlineAt);
+});
+
+test("brain publishes spinner clears when a popup registers before tab state exists", async () => {
+  const brain = createBrain({ logger: { error() {}, debug() {} } });
+  const tabId = 92;
+  const popupPort = createFakePopupPort(tabId);
+
+  brain.registerPopupPort(tabId, popupPort.port);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const clearedSurfaces = popupPort.postedMessages
+    .map((message) => message as { t?: unknown; payload?: { surface?: unknown } })
+    .filter((envelope) => envelope.t === SPINNER_EVENT_TYPES.CLEAR)
+    .map((envelope) => envelope.payload?.surface)
+    .sort();
+
+  assert.deepEqual(clearedSurfaces, ["banner", "pageCurtain", "popup"]);
 });

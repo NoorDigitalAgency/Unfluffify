@@ -65,42 +65,57 @@ function toSpinnerSelection(entry: PopupSpinnerEntry): SpinnerSelection | null {
   };
 }
 
+function getSpinnerOrderTimestamp(entry: PopupSpinnerEntry, fallback = 0): number {
+  return Number.isFinite(entry.startedAt) ? Number(entry.startedAt) : fallback;
+}
+
+function isNewerSpinnerEntry(
+  candidate: PopupSpinnerEntry,
+  candidateIndex: number,
+  current: PopupSpinnerEntry,
+  currentIndex: number,
+): boolean {
+  const candidateStartedAt = getSpinnerOrderTimestamp(candidate, candidateIndex);
+  const currentStartedAt = getSpinnerOrderTimestamp(current, currentIndex);
+  if (candidateStartedAt !== currentStartedAt) {
+    return candidateStartedAt > currentStartedAt;
+  }
+  return candidateIndex < currentIndex;
+}
+
 function selectLatestSpinner(
   queue: readonly PopupSpinnerEntry[],
   predicate: (entry: PopupSpinnerEntry) => boolean,
 ): SpinnerSelection | null {
-  for (let index = queue.length - 1; index >= 0; index -= 1) {
+  let selectedEntry: PopupSpinnerEntry | null = null;
+  let selectedIndex = -1;
+  for (let index = 0; index < queue.length; index += 1) {
     const entry = queue[index];
-    if (!predicate(entry)) {
+    if (!predicate(entry) || !toSpinnerSelection(entry)) {
       continue;
     }
-    const selection = toSpinnerSelection(entry);
-    if (selection) {
-      return selection;
+    if (!selectedEntry || isNewerSpinnerEntry(entry, index, selectedEntry, selectedIndex)) {
+      selectedEntry = entry;
+      selectedIndex = index;
     }
   }
-  return null;
+  return selectedEntry ? toSpinnerSelection(selectedEntry) : null;
+}
+
+function isActiveSpinnerCandidate(entry: PopupSpinnerEntry): boolean {
+  if (!entry) {
+    return false;
+  }
+  if (!entry.blockSurfaces || typeof entry.blockSurfaces !== "object") {
+    return true;
+  }
+  return entry.blockSurfaces.popup === true || entry.blockSurfaces.page === true;
 }
 
 function selectActiveSpinner(queue: readonly PopupSpinnerEntry[]): SpinnerSelection | null {
-  for (let index = queue.length - 1; index >= 0; index -= 1) {
-    const entry = queue[index];
-    if (!entry) {
-      continue;
-    }
-    if (!entry.blockSurfaces || typeof entry.blockSurfaces !== "object") {
-      const selection = toSpinnerSelection(entry);
-      if (selection) {
-        return selection;
-      }
-      continue;
-    }
-    if (entry.blockSurfaces.popup === true || entry.blockSurfaces.page === true) {
-      const selection = toSpinnerSelection(entry);
-      if (selection) {
-        return selection;
-      }
-    }
+  const activeSelection = selectLatestSpinner(queue, isActiveSpinnerCandidate);
+  if (activeSelection) {
+    return activeSelection;
   }
   return queue.length ? toSpinnerSelection(queue[queue.length - 1]) : null;
 }

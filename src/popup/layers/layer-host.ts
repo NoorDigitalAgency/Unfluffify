@@ -1,12 +1,13 @@
 import type { Bus } from "../../common/bus/bus";
 import { POPUP_STATE_EVENT_TYPES, type PopupStateGetReply } from "../../common/bus/contracts/popup-state";
 import { SPINNER_EVENT_TYPES } from "../../common/bus/contracts/spinner";
-import { clearPopupSpinnerSurface, renderPopupSpinnerSurface } from "./spinner-layer";
+import { clearPopupSpinnerSurface, renderPopupSpinnerSurface, type PopupSpinnerSurface } from "./spinner-layer";
 
 type PopupViewLike = PopupStateGetReply;
 
 type PopupLayerHostOptions = {
   applyPopupView?: (view: PopupViewLike) => void;
+  onSpinnerSurfaceChanged?: (surface: PopupSpinnerSurface) => void;
 };
 
 let popupLayerHostStarted = false;
@@ -28,6 +29,9 @@ export function startPopupLayerHostWithOptions(bus: Bus, options: PopupLayerHost
   const applyPopupView = typeof options.applyPopupView === "function"
     ? options.applyPopupView
     : () => {};
+  const onSpinnerSurfaceChanged = typeof options.onSpinnerSurfaceChanged === "function"
+    ? options.onSpinnerSurfaceChanged
+    : () => {};
   const unsubscribes = [
     bus.subscribe(POPUP_STATE_EVENT_TYPES.VIEW_UPDATED, (payload) => {
       const popupView = normalizePopupView(payload);
@@ -45,6 +49,7 @@ export function startPopupLayerHostWithOptions(bus: Bus, options: PopupLayerHost
         return;
       }
       renderPopupSpinnerSurface(surface, (payload as { state?: unknown }).state ?? null);
+      onSpinnerSurfaceChanged(surface);
     }),
     bus.subscribe(SPINNER_EVENT_TYPES.CLEAR, (payload) => {
       if (!payload || typeof payload !== "object") {
@@ -55,6 +60,7 @@ export function startPopupLayerHostWithOptions(bus: Bus, options: PopupLayerHost
         return;
       }
       clearPopupSpinnerSurface(surface);
+      onSpinnerSurfaceChanged(surface);
     }),
   ];
 

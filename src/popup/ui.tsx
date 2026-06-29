@@ -10,8 +10,7 @@ import {
   propertyLockText
 } from "../common/text";
 import {
-  SPINNER_TIMER_MODES,
-  resolveSpinnerPhaseDefinition
+  SPINNER_TIMER_MODES
 } from "../common/spinner-contract";
 import type { PopupTraceEvent } from "../common/bus/contracts/popup-state";
 import type { PopupView } from "../types/popup-state.ts";
@@ -430,177 +429,6 @@ function getSpinnerPhaseTimerText(view: ViewState, timerMode: string) {
   return "";
 }
 
-function getBusyCurtainCopy(view: ViewState) {
-  const reason = typeof view.busyReason === "string" ? view.busyReason : "";
-  const spinnerKey = typeof view.busySpinnerKey === "string" ? view.busySpinnerKey : "";
-  const message = typeof view.busyMessage === "string" ? view.busyMessage : "";
-  const spinnerPhase = resolveSpinnerPhaseDefinition({
-    kind: view.busyOperationKind,
-    message,
-    operationPhase: view.busyOperationPhase,
-    reason,
-    spinnerKey,
-    timerMode: view.busyTimerMode
-  });
-  if (spinnerPhase) {
-    const timerMode = typeof view.busyTimerMode === "string" && view.busyTimerMode
-      ? view.busyTimerMode
-      : spinnerPhase.timerMode;
-    const registryTimerText = getSpinnerPhaseTimerText(view, timerMode);
-    return {
-      message: spinnerPhase.title,
-      note: spinnerPhase.note,
-      timerText: registryTimerText
-    };
-  }
-  if (spinnerKey === "navInspect" || reason === "page-inspection-pending") {
-    return {
-      message: PopupText.overlay.pageInspection,
-      note: "Checking the reloaded page and waking blocked content before editing resumes.",
-      timerText: ""
-    };
-  }
-  if (reason === "popup-refresh") {
-    return {
-      message: PopupText.overlay.loadingPopupAndPreparing,
-      note: "Refreshing the popup state, current tab status, and saved settings.",
-      timerText: ""
-    };
-  }
-  if (reason === "render-mode-inspection-start") {
-    return {
-      message: PopupText.overlay.preparingRenderModeInspection,
-      note: "Starting the inspection flow before the page reload begins.",
-      timerText: "Up to 1:00"
-    };
-  }
-  if (
-    reason.startsWith("tab-render-mode") ||
-    message === "Capturing this page for render mode inspection..."
-  ) {
-    return {
-      message: message || "Capturing this page for render mode inspection...",
-      note: "The page may reload while Unfluffify compares the raw and rendered versions.",
-      timerText: "Up to 1:00"
-    };
-  }
-  if (reason === "render-mode-save") {
-    return {
-      message: PopupText.overlay.savingRenderMode,
-      note: "Saving the selected render mode so future visits use the same setting.",
-      timerText: ""
-    };
-  }
-  if (reason === "locate-explicit-exclusion" || reason === "locate-explicit-inclusion") {
-    return {
-      message: PopupText.overlay.locatingElement,
-      note: "Scrolling the page and focusing the selected element for review.",
-      timerText: ""
-    };
-  }
-  if (
-    reason === "marking-enable" ||
-    reason.startsWith("tab-activate-marking")
-  ) {
-    return {
-      message: message || PopupText.overlay.enablingMarking,
-      note: "Applying the correct page setup and checking content before marking starts.",
-      timerText: ""
-    };
-  }
-  if (
-    reason === "marking-disable" ||
-    reason.startsWith("tab-deactivate-marking")
-  ) {
-    return {
-      message: message || PopupText.overlay.disablingMarking,
-      note: "Closing the marking session and returning the tab to silent mode.",
-      timerText: ""
-    };
-  }
-  if (reason === "desktop-preview-toggle") {
-    return {
-      message: PopupText.overlay.applyingDeviceEmulation,
-      note: "Updating the page viewport and zoom for the selected preview mode.",
-      timerText: ""
-    };
-  }
-  if (reason === "clear-cache") {
-    return {
-      message: PopupText.overlay.clearingCacheAndReloading,
-      note: "Clearing browser data for this site before reloading the page.",
-      timerText: ""
-    };
-  }
-  if (reason === "unregister-tab") {
-    return {
-      message: PopupText.overlay.unregisteringTabAndReloading,
-      note: "Disconnecting the current tab from Unfluffify and then reloading it.",
-      timerText: ""
-    };
-  }
-  if (reason === "page-save") {
-    return {
-      message: PopupText.overlay.savingPage,
-      note: "Saving your local edits and syncing the current page session to the server.",
-      timerText: ""
-    };
-  }
-  if (reason === "page-save-remote-config-retry") {
-    return {
-      message,
-      note: "The last sync attempt failed, so Unfluffify is retrying automatically.",
-      timerText: "Retrying…"
-    };
-  }
-  if (reason === "page-revert") {
-    return {
-      message: PopupText.overlay.revertingPage,
-      note: "Removing the unsaved changes for the current page and restoring the last saved state.",
-      timerText: ""
-    };
-  }
-  if (reason === "tab-run-ai") {
-    const liveCountdownText = formatCountdownFromDeadline(view.aiRunDeadlineAt);
-    return {
-      message: message || PopupText.overlay.computingSelectors,
-      note: PopupText.overlay.computingSelectorsNote,
-      timerText: view.aiRunCountdownVisible
-        ? (liveCountdownText || String(view.aiRunCountdownText || ""))
-        : "Up to 8:00"
-    };
-  }
-  if (reason === "tab-run-ai-preparing" || reason === "tab-run-ai-snapshot" || reason === "tab-run-ai-prepare") {
-    return {
-      message: message || "Preparing page content for AI...",
-      note: "Capturing and packaging the marked page content before the AI request starts.",
-      timerText: ""
-    };
-  }
-  if (reason === "tab-run-ai-running") {
-    const liveCountdownText = formatCountdownFromDeadline(view.aiRunDeadlineAt);
-    return {
-      message: message || PopupText.overlay.computingSelectors,
-      note: PopupText.overlay.computingSelectorsNote,
-      timerText: view.aiRunCountdownVisible
-        ? (liveCountdownText || String(view.aiRunCountdownText || ""))
-        : "Up to 8:00"
-    };
-  }
-  if (message === PopupText.overlay.detectingRenderMode) {
-    return {
-      message: PopupText.overlay.detectingRenderMode,
-      note: "Comparing the live page with the raw HTML to choose the right render mode.",
-      timerText: ""
-    };
-  }
-  return {
-    message: message || PopupText.overlay.loadingPopup,
-    note: PopupText.overlay.busyHint,
-    timerText: ""
-  };
-}
-
 type ViewState = Omit<
   WidenLiteral<typeof initialViewState>,
   | "deviceScale"
@@ -856,12 +684,11 @@ function getBlockingUiCurtainState(view: ViewState): BlockingUiCurtainState {
       backgroundReason === "tab-run-ai-running" ||
       (!backgroundReason && aiRunPhase === "running");
     if (!aiRunIsActiveOnServer) {
-      const busyCopy = getBusyCurtainCopy(view);
       return {
         visible: true,
         mode: "busy",
-        message: busyCopy.message || backgroundMessage || "Preparing page content for AI...",
-        note: busyCopy.note,
+        message: backgroundMessage || "Preparing page content for AI...",
+        note: PopupText.overlay.busyHint,
         reason: "ai-run-compute-preparing",
         source: "popup-view-state",
         spinnerKey: "",
@@ -881,16 +708,15 @@ function getBlockingUiCurtainState(view: ViewState): BlockingUiCurtainState {
     };
   }
   if (view.isBusy) {
-    const busyCopy = getBusyCurtainCopy(view);
     return {
       visible: true,
       mode: "busy",
-      message: busyCopy.message,
-      note: busyCopy.note,
+      message: view.busyMessage || PopupText.overlay.loadingPopup,
+      note: PopupText.overlay.busyHint,
       reason: view.busyReason || "popup-busy",
       source: view.busySource || "popup",
       spinnerKey: view.busySpinnerKey || "",
-      timerText: busyCopy.timerText
+      timerText: getSpinnerPhaseTimerText(view, view.busyTimerMode)
     };
   }
   if (view.saveExcludesButtonLoading) {

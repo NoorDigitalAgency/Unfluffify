@@ -70,48 +70,6 @@ describe("popup view projector", () => {
           operationPhase: "page-inspection",
           contentMode: "marking",
         },
-        spinnerQueue: [{
-          key: "navInspect",
-          message: "Inspecting",
-          persistent: true,
-          owner: "popup",
-          reason: "page-inspection-pending",
-          source: "background",
-          startedAt: 1_000,
-          progress: 0,
-          operationId: "content-bootstrap:page-inspection:12:1000",
-          operationKind: "content-bootstrap",
-          operationPhase: "page-inspection",
-          timerMode: "elapsed",
-          deadlineAt: 0,
-          maxDurationMs: 0,
-          updatedAt: 1_000,
-          blockSurfaces: {
-            page: true,
-            popup: true,
-          },
-        }],
-        activeSpinnerLease: {
-          key: "navInspect",
-          message: "Inspecting",
-          persistent: true,
-          owner: "popup",
-          reason: "page-inspection-pending",
-          source: "background",
-          startedAt: 1_000,
-          progress: 0,
-          operationId: "content-bootstrap:page-inspection:12:1000",
-          operationKind: "content-bootstrap",
-          operationPhase: "page-inspection",
-          timerMode: "elapsed",
-          deadlineAt: 0,
-          maxDurationMs: 0,
-          updatedAt: 1_000,
-          blockSurfaces: {
-            page: true,
-            popup: true,
-          },
-        },
       },
       activation: {
         contentReady: true,
@@ -323,48 +281,8 @@ describe("popup view projector", () => {
         },
         navigationInspectionActive: false,
       },
-      spinnerQueue: [{
-        key: "navInspect",
-        message: "Inspecting",
-        persistent: true,
-        owner: "popup",
-        reason: "page-inspection-pending",
-        source: "background",
-        startedAt: 1_000,
-        progress: 0,
-        operationId: "content-bootstrap:page-inspection:12:1000",
-        operationKind: "content-bootstrap",
-        operationPhase: "page-inspection",
-        timerMode: "elapsed",
-        deadlineAt: 0,
-        maxDurationMs: 0,
-        updatedAt: 1_000,
-        blockSurfaces: {
-          page: true,
-          popup: true,
-        },
-      }],
-      activeSpinnerLease: {
-        key: "navInspect",
-        message: "Inspecting",
-        persistent: true,
-        owner: "popup",
-        reason: "page-inspection-pending",
-        source: "background",
-        startedAt: 1_000,
-        progress: 0,
-        operationId: "content-bootstrap:page-inspection:12:1000",
-        operationKind: "content-bootstrap",
-        operationPhase: "page-inspection",
-        timerMode: "elapsed",
-        deadlineAt: 0,
-        maxDurationMs: 0,
-        updatedAt: 1_000,
-        blockSurfaces: {
-          page: true,
-          popup: true,
-        },
-      },
+      spinnerQueue: [],
+      activeSpinnerLease: null,
     });
   });
 
@@ -385,27 +303,6 @@ describe("popup view projector", () => {
         lifecycle: {
           message: "before",
         },
-        spinnerQueue: [{
-          key: "q",
-          message: "Queue",
-          persistent: false,
-          owner: "",
-          reason: "",
-          source: "",
-          startedAt: 1,
-          progress: 0,
-          operationId: "",
-          operationKind: "",
-          operationPhase: "",
-          timerMode: "",
-          deadlineAt: 0,
-          maxDurationMs: 0,
-          updatedAt: 1,
-          blockSurfaces: {
-            popup: true,
-          },
-        }],
-        activeSpinnerLease: null,
       },
       activation: {
         contentReady: false,
@@ -483,10 +380,6 @@ describe("popup view projector", () => {
       markingEnabled: true,
       pageUrl: "https://example.com/page",
     };
-    state.popupView.spinnerQueue[0].blockSurfaces = {
-      popup: false,
-    };
-
     expect(projected.traceEvents[0].payload).toEqual({ message: "before" });
     expect(projected.lifecycle).toEqual({ message: "before" });
     expect(projected.activation).toEqual({
@@ -507,7 +400,8 @@ describe("popup view projector", () => {
       },
       lastContentPageUrl: "https://example.com/page",
     });
-    expect(projected.spinnerQueue[0].blockSurfaces).toEqual({ popup: true });
+    expect(projected.spinnerQueue).toEqual([]);
+    expect(projected.activeSpinnerLease).toEqual(null);
     expect(projected.renderMode).toEqual({
       inspecting: false,
       javaScriptDisabled: false,
@@ -548,8 +442,6 @@ describe("popup view projector", () => {
         traceEnabled: false,
         traceEvents: [],
         lifecycle: null,
-        spinnerQueue: [],
-        activeSpinnerLease: null,
       },
       activation: {
         contentReady: false,
@@ -615,8 +507,6 @@ describe("popup view projector", () => {
         traceEnabled: false,
         traceEvents: [],
         lifecycle: null,
-        spinnerQueue: [],
-        activeSpinnerLease: null,
       },
       activation: {
         contentReady: false,

@@ -46,6 +46,7 @@ import {
 import { REALMS, type BusTarget } from "../../common/bus/realms";
 import { createPopupTransport } from "../../common/bus/transport/popup-transport";
 import { startPopupLayerHostWithOptions } from "./layer-host";
+import type { PopupSpinnerSurface } from "./spinner-layer";
 
 let popupBus: Bus | null = null;
 let popupTransport: ReturnType<typeof createPopupTransport> | null = null;
@@ -56,6 +57,7 @@ let lastPopupSessionFacts: SessionFactsPatch = {};
 export type PopupBusSelfTestLogger = (eventName: string, details?: Record<string, unknown>) => void;
 export type PopupBusClientOptions = {
   applyPopupView?: (view: PopupStateGetReply) => void;
+  onSpinnerSurfaceChanged?: (surface: PopupSpinnerSurface) => void;
 };
 
 function buildDiagnosticNonce(tabId: number, target: string): string {

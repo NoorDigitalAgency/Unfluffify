@@ -91,7 +91,6 @@ import {
 } from "./popup/telemetry";
 import type { ActivationSnapshot } from "./common/bus/contracts/activation";
 import type {
-  PopupSpinnerEntry as PopupViewSpinnerEntry,
   PopupStateGetReply
 } from "./common/bus/contracts/popup-state";
 import {
@@ -112,13 +111,10 @@ import {
   type SessionFactsPatch
 } from "./common/bus/contracts/session-state";
 import { deriveSecondaryGatesViewState } from "./background/brain/deciders/secondary-gates-decider";
-import { deriveSpinnerSelectionsFromQueue } from "./background/brain/deciders/spinner-state-decider";
-import { phaseToSpinnerState } from "./background/brain/spinner-authority";
 import {
   isRenderModeRunInspectionOperationReply,
   isRenderModeRunInspectionResult,
 } from "./common/bus/contracts/render-mode";
-import { createSpinnerOperationLease } from "./common/spinner-contract";
 import { SPINNER_REQUEST_TYPES } from "./common/bus/contracts/spinner";
 import {
   publishPopupPropertyLockSnapshot,
@@ -139,8 +135,7 @@ import {
 } from "./popup/layers/modes/render-mode-inspection";
 import {
   clearPopupSpinnerSurface,
-  getLatestPopupSpinnerState,
-  renderPopupSpinnerSurface
+  getLatestPopupSpinnerState
 } from "./popup/layers/spinner-layer";
 import {
   buildCentralSessionDictationViewStatePatch,
@@ -157,10 +152,10 @@ import {
   hasProjectedSecondaryGatesForTab as hasProjectedSecondaryGatesForTabOperation
 } from "./popup/secondary-gates-state-dictation";
 import {
-  currentSpinnerMessage as currentSpinnerMessageOperation,
   currentSpinnerSnapshot as currentSpinnerSnapshotOperation,
   normalizeSpinnerReason as normalizeSpinnerReasonOperation,
   popSpinner as popSpinnerOperation,
+  type PopupSpinnerEntry,
   pushSpinner as pushSpinnerOperation,
   runWithSpinner as runWithSpinnerOperation,
   setSpinnerMessage as setSpinnerMessageOperation
@@ -210,9 +205,6 @@ import {
   combineAiSelectorSet,
   aiSelectorSetsEqual
 } from "./common/selector-set";
-import {
-  SPINNER_OWNERS
-} from "./common/world-messaging-contract";
 import {
   PROPERTY_LOCK_BACKGROUND_GET_STATE,
   PROPERTY_LOCK_BACKGROUND_STATE_UPDATE,
@@ -293,13 +285,9 @@ type PreviewCommandResult = PreviewStateLike & {
   previewState?: PreviewStateLike | null;
 };
 type PropertyLockUiDeps = Parameters<typeof isPropertyLockCollaborationEnabledOperation>[0];
-type PopupSpinnerDeps = Parameters<typeof currentSpinnerMessageOperation>[0];
-type PopupSpinnerEntry =
-  PopupSpinnerDeps["popupSpinnerQueue"] extends Map<string, infer Entry> ? Entry : never;
+type PopupSpinnerDeps = Parameters<typeof normalizeSpinnerReasonOperation>[0];
 type PopupSpinnerSnapshot = ReturnType<typeof currentSpinnerSnapshotOperation>;
 type PopupSpinnerState = NonNullable<ReturnType<typeof getLatestPopupSpinnerState>>;
-type PopupSpinnerSelectionSet = ReturnType<typeof deriveSpinnerSelectionsFromQueue>;
-type PopupSpinnerSelection = PopupSpinnerSelectionSet[keyof PopupSpinnerSelectionSet];
 type PendingPropertyPageTypesRequest =
   ReturnType<Parameters<typeof ensurePropertyPageTypesOperation>[0]["getPropertyPageTypesRequest"]>;
 type SiteResolutionDeps = Parameters<typeof ensurePropertyPageTypesOperation>[0];
@@ -328,13 +316,6 @@ type SpinnerBrokerMessage = {
 type SpinnerBrokerMessageOptions = {
   shouldApplySnapshot?: (response: NonNullable<PopupSpinnerBrokerResponse>) => boolean;
 };
-type PopupBusyMirrorLeaseDetails = {
-  deadlineAt: number;
-  operationId: string;
-  operationKind: string;
-  operationPhase: string;
-  releaseBy: number;
-};
 type PopupBackgroundStateSnapshot = {
   ok?: boolean;
   tabId?: number | null;
@@ -347,8 +328,6 @@ type PopupBackgroundStateSnapshot = {
   secondaryGates?: PopupStateGetReply["secondaryGates"] | null;
   traceEnabled?: boolean;
   traceEvents?: PopupStateGetReply["traceEvents"] | null;
-  spinnerQueue?: PopupViewSpinnerEntry[] | null;
-  activeSpinnerLease?: PopupViewSpinnerEntry | null;
 };
 type TraceModeToggleEvent = Event & {
   currentTarget?: (EventTarget & { checked?: boolean }) | null;
@@ -775,21 +754,12 @@ const THEME_OPTIONS = Object.freeze(
     })
     .map((theme) => ({ value: theme.value, label: theme.label }))
 );
-const popupSpinnerQueue: PopupSpinnerDeps["popupSpinnerQueue"] = new Map();
+const popupSpinnerEntriesByKey: PopupSpinnerDeps["popupSpinnerEntriesByKey"] = new Map();
+const popupSpinnerDelayTimersByKey: PopupSpinnerDeps["popupSpinnerDelayTimersByKey"] = new Map();
 const popupSpinnerKeyTabIds: PopupSpinnerDeps["popupSpinnerKeyTabIds"] = new Map();
-let popupSpinnerVisible = false;
-let popupSpinnerTimer = 0;
-// Fail-open watchdog: every queued spinner is force-cleared if it makes no
-// progress for this long. runWithSpinner relies on its finally to pop the
-// spinner, but if an awaited operation (e.g. device emulation / debugger
-// attach, a hung network call, a tab reload that never completes) never
-// settles, the finally never runs and the popup stays blocked forever. The
-// watchdog guarantees no spinner can stick. It is reset whenever the spinner's
-// message changes (progress), so legitimately long multi-stage operations are
-// not cut off mid-flight.
+// Fail-open watchdog: every popup-requested background spinner lease is
+// force-cleared if it makes no progress for this long.
 const SPINNER_WATCHDOG_MS = 60000;
-const POPUP_PAGE_BUSY_MIRROR_DELAY_MS = 3500;
-const POPUP_PAGE_BUSY_MIRROR_FAIL_OPEN_MS = 65000;
 const popupSpinnerWatchdogByKey: PopupSpinnerDeps["popupSpinnerWatchdogByKey"] = new Map();
 let popupNavigationInspectionOverlayStarted = false;
 let popupNavigationInspectionOverlayTabId: number | null = null;
@@ -804,12 +774,6 @@ let popupBackgroundSessionDictation: SessionDictation | null = null;
 let popupBackgroundPropertyLockView: PopupStateGetReply["propertyLockView"] = null;
 let popupBackgroundPropertyLockTimer: PopupStateGetReply["propertyLockTimer"] = null;
 let popupBackgroundSecondaryGates: PopupStateGetReply["secondaryGates"] = null;
-let popupPageBusyMirrorTabId: number | null = null;
-let popupPageBusyMirrorActive = false;
-let popupPageBusyMirrorSignature = "";
-let popupPageBusyMirrorPendingSignature = "";
-let popupPageBusyMirrorShowTimer = 0;
-let popupPageBusyMirrorOperationId = "";
 let pendingAiPreviewConfigSync: { tabId: number; baseUrl: string } | null = null;
 let propertyPageTypesRequest: PendingPropertyPageTypesRequest = null;
 let pageTypesRefreshRunner: (() => void) | null = null;
@@ -828,34 +792,21 @@ function isEditableTarget(el: EventTarget | null | undefined): boolean {
 
 function getSpinnerDeps(): PopupSpinnerDeps {
   return {
-    popupSpinnerQueue,
+    popupSpinnerEntriesByKey,
+    popupSpinnerDelayTimersByKey,
     popupSpinnerKeyTabIds,
     popupSpinnerWatchdogByKey,
     spinnerWatchdogMs: SPINNER_WATCHDOG_MS,
-    uiModule,
     windowRef: window,
     cryptoRef: crypto,
     getCurrentPopupTabId,
-    getPopupSpinnerVisible: () => popupSpinnerVisible,
-    setPopupSpinnerVisible: (value) => {
-      popupSpinnerVisible = Boolean(value);
-    },
-    getPopupSpinnerTimer: () => popupSpinnerTimer,
-    setPopupSpinnerTimer: (value) => {
-      popupSpinnerTimer = Number(value) || 0;
-    },
     popSpinner: (key) => {
       popSpinner(key);
     },
     logPopupSpinnerDebug,
-    setUiBusyFromCurrentSpinner,
-    syncUiBusyFromBrokerState,
     syncSpinnerEntryToBackground,
     removeSpinnerEntryFromBackground,
-    clearSpinnerQueueInBackground,
-    scheduleStaleInspectionBusyClear,
-    syncPageBusyFromPopupSpinner,
-    syncProjectedSpinnerStateFromQueue
+    scheduleStaleInspectionBusyClear
   };
 }
 
@@ -1034,20 +985,6 @@ const hasCurrentPagePendingChanges = (
 const handlePageSave = () => handlePageSaveOperation(getPageReconciliationDeps());
 const handlePageRevert = () => handlePageRevertOperation(getPageReconciliationDeps());
 
-function buildSpinnerBusyDetails(key: string | null, entry: PopupSpinnerEntry | null | undefined) {
-  const spinnerEntry = entry && typeof entry === "object" ? entry : {};
-  return {
-    reason: normalizeSpinnerReason(spinnerEntry.reason, key, spinnerEntry.message),
-    source: typeof spinnerEntry.source === "string" && spinnerEntry.source ? spinnerEntry.source : "popup-spinner",
-    spinnerKey: typeof key === "string" ? key : "",
-    operationKind: typeof spinnerEntry.operationKind === "string" ? spinnerEntry.operationKind : "",
-    operationPhase: typeof spinnerEntry.operationPhase === "string" ? spinnerEntry.operationPhase : "",
-    startedAt: Number.isFinite(spinnerEntry.startedAt) ? Number(spinnerEntry.startedAt) : 0,
-    deadlineAt: Number.isFinite(spinnerEntry.deadlineAt) ? Number(spinnerEntry.deadlineAt) : 0,
-    timerMode: typeof spinnerEntry.timerMode === "string" ? spinnerEntry.timerMode : ""
-  };
-}
-
 function projectedSpinnerStateBlocksSurface(
   spinnerState: PopupSpinnerState | null,
   surface: PopupSpinnerSurface
@@ -1081,7 +1018,9 @@ function projectedSpinnerStateToSnapshot(spinnerState: PopupSpinnerState | null)
         }
         : undefined,
       deadlineAt: Number.isFinite(spinnerState.deadlineAt) ? Number(spinnerState.deadlineAt) : 0,
-      message: typeof spinnerState.message === "string" ? spinnerState.message : "",
+      message: typeof spinnerState.title === "string" && spinnerState.title
+        ? spinnerState.title
+        : typeof spinnerState.message === "string" ? spinnerState.message : "",
       maxDurationMs: Number.isFinite(spinnerState.maxDurationMs) ? Number(spinnerState.maxDurationMs) : 0,
       operationId: typeof spinnerState.operationId === "string" ? spinnerState.operationId : "",
       operationKind: typeof spinnerState.operationKind === "string" ? spinnerState.operationKind : "",
@@ -1112,107 +1051,10 @@ function getActiveSpinnerSnapshotForSurface(surface: "popup" | "page") {
   return projectedSpinnerStateToSnapshot(getProjectedPopupBlockingSpinnerState());
 }
 
-function serializePopupSpinnerQueueForProjection() {
-  return [...popupSpinnerQueue.entries()].map(([key, entry]) => {
-    const reason = normalizeSpinnerReason(entry.reason, key, entry.message);
-    const startedAt = Number.isFinite(entry.startedAt) ? Number(entry.startedAt) : Date.now();
-    const normalizedLease = createSpinnerOperationLease({
-      blockSurfaces: entry.blockSurfaces && typeof entry.blockSurfaces === "object"
-        ? {
-          page: entry.blockSurfaces.page === true,
-          popup: entry.blockSurfaces.popup === true
-        }
-        : undefined,
-      deadlineAt: Number.isFinite(entry.deadlineAt) ? Number(entry.deadlineAt) : undefined,
-      kind: typeof entry.operationKind === "string" ? entry.operationKind : "",
-      maxDurationMs: Number.isFinite(entry.maxDurationMs) ? Number(entry.maxDurationMs) : undefined,
-      message: typeof entry.message === "string" ? entry.message : "",
-      operationId: typeof entry.operationId === "string" ? entry.operationId : "",
-      operationPhase: typeof entry.operationPhase === "string" ? entry.operationPhase : "",
-      reason,
-      spinnerKey: key,
-      startedAt,
-      timerMode: typeof entry.timerMode === "string" ? entry.timerMode : ""
-    });
-    return {
-      key,
-      message: typeof entry.message === "string" ? entry.message : "",
-      persistent: Boolean(entry.persistent),
-      owner: SPINNER_OWNERS.POPUP,
-      reason,
-      source: typeof entry.source === "string" && entry.source ? entry.source : "popup-spinner",
-      startedAt,
-      progress: 0,
-      operationId: normalizedLease?.operationId || (typeof entry.operationId === "string" ? entry.operationId : ""),
-      operationKind: normalizedLease?.kind || (typeof entry.operationKind === "string" ? entry.operationKind : ""),
-      operationPhase: normalizedLease?.phase || (typeof entry.operationPhase === "string" ? entry.operationPhase : ""),
-      timerMode: normalizedLease?.timerMode || (typeof entry.timerMode === "string" ? entry.timerMode : ""),
-      deadlineAt: normalizedLease?.deadlineAt || (Number.isFinite(entry.deadlineAt) ? Number(entry.deadlineAt) : 0),
-      maxDurationMs: normalizedLease?.maxDurationMs || (Number.isFinite(entry.maxDurationMs) ? Number(entry.maxDurationMs) : 0),
-      updatedAt: Number.isFinite(entry.updatedAt) ? Number(entry.updatedAt) : 0,
-      ...(normalizedLease
-        ? {
-          blockSurfaces: {
-            page: normalizedLease.blockSurfaces.page === true,
-            popup: normalizedLease.blockSurfaces.popup === true
-          }
-        }
-        : entry.blockSurfaces && typeof entry.blockSurfaces === "object"
-          ? {
-            blockSurfaces: {
-              page: entry.blockSurfaces.page === true,
-              popup: entry.blockSurfaces.popup === true
-            }
-          }
-          : {})
-    };
-  });
-}
-
-function selectionToProjectedSpinnerState(selection: PopupSpinnerSelection | null) {
-  if (!selection || typeof selection !== "object") {
-    return null;
-  }
-  return phaseToSpinnerState(selection.kind, selection.phase, {
-    startedAt: Number.isFinite(selection.startedAt) ? Number(selection.startedAt) : 0,
-    deadlineAt: Number.isFinite(selection.deadlineAt) ? Number(selection.deadlineAt) : 0,
-    operationId: typeof selection.operationId === "string" ? selection.operationId : "",
-    message: typeof selection.message === "string" ? selection.message : "",
-    reason: typeof selection.reason === "string" ? selection.reason : "",
-    source: typeof selection.source === "string" ? selection.source : "",
-    spinnerKey: typeof selection.spinnerKey === "string" ? selection.spinnerKey : ""
-  });
-}
-
-function syncProjectedSpinnerStateFromQueue() {
-  const selections = deriveSpinnerSelectionsFromQueue(serializePopupSpinnerQueueForProjection());
-  const popupSpinnerState = selectionToProjectedSpinnerState(selections.popup);
-  const pageCurtainSpinnerState = selectionToProjectedSpinnerState(selections.pageCurtain);
-  const bannerSpinnerState = selectionToProjectedSpinnerState(selections.banner);
-  if (popupSpinnerState) {
-    renderPopupSpinnerSurface("popup", popupSpinnerState);
-  } else {
-    clearPopupSpinnerSurface("popup");
-  }
-  if (pageCurtainSpinnerState) {
-    renderPopupSpinnerSurface("pageCurtain", pageCurtainSpinnerState);
-  } else {
-    clearPopupSpinnerSurface("pageCurtain");
-  }
-  if (bannerSpinnerState) {
-    renderPopupSpinnerSurface("banner", bannerSpinnerState);
-  } else {
-    clearPopupSpinnerSurface("banner");
-  }
-}
-
-function setUiBusyFromCurrentSpinner() {
-  const snapshot = getActiveSpinnerSnapshotForSurface("popup");
-  if (!snapshot) {
-    uiModule.setUiBusy(false);
-    return;
-  }
-  uiModule.setUiBusy(true, snapshot.entry.message || "", buildSpinnerBusyDetails(snapshot.key, snapshot.entry));
+function clearProjectedPopupSpinnerSurfaces(): void {
+  clearPopupSpinnerSurface("popup");
+  clearPopupSpinnerSurface("pageCurtain");
+  clearPopupSpinnerSurface("banner");
 }
 
 function isPopupSpinnerDebugEnabled() {
@@ -1232,10 +1074,8 @@ function logPopupSpinnerDebug(eventName: string, details: Record<string, unknown
   }
   try {
     console.debug("[popup-spinner]", eventName, {
-      queueKeys: [...popupSpinnerQueue.keys()],
-      queueSize: popupSpinnerQueue.size,
-      visible: popupSpinnerVisible,
-      timerActive: Boolean(popupSpinnerTimer),
+      requestKeys: [...popupSpinnerEntriesByKey.keys()],
+      requestCount: popupSpinnerEntriesByKey.size,
       navOverlayStarted: popupNavigationInspectionOverlayStarted,
       navOverlayTabId: popupNavigationInspectionOverlayTabId,
       ...details
@@ -1249,180 +1089,6 @@ function getCurrentPopupTabId(): number | null {
   return state.currentTab && Number.isFinite(state.currentTab.id)
     ? Math.trunc(Number(state.currentTab.id))
     : null;
-}
-
-function isRenderDetectionPopupSpinner(snapshot: PopupSpinnerSnapshot): boolean {
-  const message = snapshot && snapshot.entry && typeof snapshot.entry.message === "string"
-    ? snapshot.entry.message
-    : "";
-  return message === PopupText.overlay.detectingRenderMode;
-}
-
-function getPopupBusyMirrorLeaseDetails(snapshot: PopupSpinnerSnapshot): PopupBusyMirrorLeaseDetails {
-  const entry = snapshot && snapshot.entry && typeof snapshot.entry === "object"
-    ? snapshot.entry
-    : {};
-  const startedAt = Number.isFinite(entry.startedAt) ? Number(entry.startedAt) : Date.now();
-  const maxDurationMs = Number.isFinite(entry.maxDurationMs) && Number(entry.maxDurationMs) > 0
-    ? Number(entry.maxDurationMs)
-    : POPUP_PAGE_BUSY_MIRROR_FAIL_OPEN_MS;
-  const deadlineAt = Number.isFinite(entry.deadlineAt) && Number(entry.deadlineAt) > 0
-    ? Number(entry.deadlineAt)
-    : startedAt + maxDurationMs;
-  return {
-    deadlineAt,
-    operationId: typeof entry.operationId === "string" && entry.operationId
-      ? entry.operationId
-      : `popup-busy:${deadlineAt}`,
-    operationKind: typeof entry.operationKind === "string" ? entry.operationKind : "",
-    operationPhase: typeof entry.operationPhase === "string" ? entry.operationPhase : "",
-    releaseBy: deadlineAt
-  };
-}
-
-function sendPopupBusyMirrorMessage(
-  tabId: number | null,
-  active: boolean,
-  message = "",
-  leaseDetails: Partial<PopupBusyMirrorLeaseDetails> = {}
-) {
-  if (!tabId) {
-    return;
-  }
-  const leaseRecord = leaseDetails && typeof leaseDetails === "object"
-    ? leaseDetails as Record<string, unknown>
-    : {};
-  messages.sendTabMessageToTab(tabId, {
-    type: "setPopupBusyOnPage",
-    active: Boolean(active),
-    message: typeof message === "string" ? message : "",
-    operationId: typeof leaseRecord.operationId === "string" ? leaseRecord.operationId : "",
-    operationKind: typeof leaseRecord.operationKind === "string" ? leaseRecord.operationKind : "",
-    operationPhase: typeof leaseRecord.operationPhase === "string" ? leaseRecord.operationPhase : "",
-    releaseBy: Number.isFinite(leaseRecord.releaseBy) ? Number(leaseRecord.releaseBy) : 0
-  }).catch(() => {});
-}
-
-function clearPopupPageBusyMirrorShowTimer() {
-  if (popupPageBusyMirrorShowTimer) {
-    window.clearTimeout(popupPageBusyMirrorShowTimer);
-    popupPageBusyMirrorShowTimer = 0;
-  }
-  popupPageBusyMirrorPendingSignature = "";
-}
-
-function syncPageBusyFromPopupSpinner() {
-  const tabId = getCurrentPopupTabId();
-  const snapshot = getActiveSpinnerSnapshotForSurface("page");
-  const active = Boolean(
-    tabId &&
-      popupSpinnerVisible &&
-      snapshot &&
-      !isRenderDetectionPopupSpinner(snapshot)
-  );
-
-  if (active && snapshot) {
-    const message = snapshot.entry.message || PopupText.overlay.pleaseWait;
-    const leaseDetails = getPopupBusyMirrorLeaseDetails(snapshot);
-    const signature = `${tabId}|${message}|${leaseDetails.operationId}|${leaseDetails.releaseBy}`;
-    if (popupPageBusyMirrorActive && popupPageBusyMirrorTabId && popupPageBusyMirrorTabId !== tabId) {
-      sendPopupBusyMirrorMessage(popupPageBusyMirrorTabId, false, "", {
-        operationId: popupPageBusyMirrorOperationId
-      });
-      popupPageBusyMirrorActive = false;
-      popupPageBusyMirrorSignature = "";
-      popupPageBusyMirrorOperationId = "";
-    }
-    if (popupPageBusyMirrorActive && popupPageBusyMirrorSignature === signature) {
-      return;
-    }
-    if (popupPageBusyMirrorActive) {
-      popupPageBusyMirrorTabId = tabId;
-      popupPageBusyMirrorSignature = signature;
-      popupPageBusyMirrorOperationId = leaseDetails.operationId;
-      sendPopupBusyMirrorMessage(tabId, true, message, leaseDetails);
-      return;
-    }
-    if (popupPageBusyMirrorPendingSignature === signature && popupPageBusyMirrorShowTimer) {
-      return;
-    }
-    clearPopupPageBusyMirrorShowTimer();
-    popupPageBusyMirrorTabId = tabId;
-    popupPageBusyMirrorPendingSignature = signature;
-    popupPageBusyMirrorShowTimer = window.setTimeout(() => {
-      popupPageBusyMirrorShowTimer = 0;
-      if (popupPageBusyMirrorPendingSignature !== signature) {
-        return;
-      }
-      const currentTabId = getCurrentPopupTabId();
-      const currentSnapshot = getActiveSpinnerSnapshotForSurface("page");
-      if (
-        currentTabId !== tabId ||
-        !popupSpinnerVisible ||
-        !currentSnapshot ||
-        isRenderDetectionPopupSpinner(currentSnapshot) ||
-        currentSnapshot.entry.message !== message
-      ) {
-        popupPageBusyMirrorPendingSignature = "";
-        syncPageBusyFromPopupSpinner();
-        return;
-      }
-      const currentLeaseDetails = getPopupBusyMirrorLeaseDetails(currentSnapshot);
-      const currentSignature = `${tabId}|${message}|${currentLeaseDetails.operationId}|${currentLeaseDetails.releaseBy}`;
-      if (currentSignature !== signature) {
-        popupPageBusyMirrorPendingSignature = "";
-        syncPageBusyFromPopupSpinner();
-        return;
-      }
-      popupPageBusyMirrorPendingSignature = "";
-      popupPageBusyMirrorActive = true;
-      popupPageBusyMirrorTabId = tabId;
-      popupPageBusyMirrorSignature = signature;
-      popupPageBusyMirrorOperationId = currentLeaseDetails.operationId;
-      sendPopupBusyMirrorMessage(tabId, true, message, currentLeaseDetails);
-    }, POPUP_PAGE_BUSY_MIRROR_DELAY_MS);
-    return;
-  }
-
-  clearPopupPageBusyMirrorShowTimer();
-  if (!popupPageBusyMirrorActive && !popupPageBusyMirrorTabId) {
-    return;
-  }
-  const clearTabId = popupPageBusyMirrorTabId || tabId;
-  const clearOperationId = popupPageBusyMirrorOperationId;
-  popupPageBusyMirrorActive = false;
-  popupPageBusyMirrorTabId = null;
-  popupPageBusyMirrorSignature = "";
-  popupPageBusyMirrorOperationId = "";
-  sendPopupBusyMirrorMessage(clearTabId, false, "", { operationId: clearOperationId });
-}
-
-function syncUiBusyFromBrokerState() {
-  const activePopupSpinner = getActiveSpinnerSnapshotForSurface("popup");
-  if (activePopupSpinner) {
-    popupSpinnerVisible = true;
-    setUiBusyFromCurrentSpinner();
-    syncPageBusyFromPopupSpinner();
-    return;
-  }
-  const lifecycleBusy = Boolean(popupBackgroundLifecycle && popupBackgroundLifecycle.busy);
-  if (lifecycleBusy) {
-    popupSpinnerVisible = false;
-    uiModule.setUiBusy(true, popupBackgroundLifecycle?.message || PopupText.overlay.pleaseWait, {
-      reason: normalizeSpinnerReason(
-        popupBackgroundLifecycle?.reason,
-        popupBackgroundLifecycle?.kind || "lifecycle",
-        popupBackgroundLifecycle?.message
-      ),
-      source: "background-lifecycle",
-      spinnerKey: ""
-    });
-    syncPageBusyFromPopupSpinner();
-    return;
-  }
-  popupSpinnerVisible = false;
-  uiModule.setUiBusy(false);
-  syncPageBusyFromPopupSpinner();
 }
 
 function isWorldTraceEnabled() {
@@ -1458,7 +1124,6 @@ function applyBackgroundStateSnapshot(snapshot: PopupBackgroundStateSnapshot | n
   if (tabId && snapshot.tabId && Math.trunc(snapshot.tabId) !== tabId) {
     return;
   }
-  const spinnerQueueEntries = Array.isArray(snapshot.spinnerQueue) ? snapshot.spinnerQueue : [];
   popupBackgroundLifecycle = snapshot.lifecycle || null;
   popupBackgroundStateTabId = tabId;
   popupBackgroundActivation = snapshot.activation || null;
@@ -1470,49 +1135,13 @@ function applyBackgroundStateSnapshot(snapshot: PopupBackgroundStateSnapshot | n
   const traceDiagnosticsEnabled = isFeatureEnabled("traceDiagnostics");
   state.traceModeEnabled = traceDiagnosticsEnabled && Boolean(snapshot.traceEnabled);
   state.traceEvents = traceDiagnosticsEnabled && Array.isArray(snapshot.traceEvents) ? [...snapshot.traceEvents] : [];
-  popupSpinnerQueue.clear();
-  popupSpinnerKeyTabIds.clear();
-  spinnerQueueEntries.forEach((entry) => {
-    if (!entry || typeof entry.key !== "string" || !entry.key) {
-      return;
-    }
-    const entryWithDetails = entry as PopupViewSpinnerEntry & { details?: Record<string, unknown> };
-    popupSpinnerQueue.set(entry.key, {
-      blockSurfaces: entry.blockSurfaces && typeof entry.blockSurfaces === "object"
-        ? {
-          page: entry.blockSurfaces.page === true,
-          popup: entry.blockSurfaces.popup === true
-        }
-        : undefined,
-      details: entryWithDetails.details && typeof entryWithDetails.details === "object"
-        ? { ...entryWithDetails.details }
-        : undefined,
-      maxDurationMs: Number.isFinite(entry.maxDurationMs) ? Number(entry.maxDurationMs) : undefined,
-      message: typeof entry.message === "string" ? entry.message : "",
-      operationId: typeof entry.operationId === "string" ? entry.operationId : "",
-      persistent: Boolean(entry.persistent),
-      reason: normalizeSpinnerReason(entry.reason, entry.key, entry.message),
-      source: typeof entry.source === "string" && entry.source ? entry.source : "background-broker",
-      startedAt: Number.isFinite(entry.startedAt) ? Number(entry.startedAt) : Date.now(),
-      operationKind: typeof entry.operationKind === "string" ? entry.operationKind : "",
-      operationPhase: typeof entry.operationPhase === "string" ? entry.operationPhase : "",
-      deadlineAt: Number.isFinite(entry.deadlineAt) ? Number(entry.deadlineAt) : 0,
-      timerMode: typeof entry.timerMode === "string" ? entry.timerMode : "",
-      updatedAt: Number.isFinite(entry.updatedAt) ? Number(entry.updatedAt) : 0
-    });
-    if (tabId) {
-      popupSpinnerKeyTabIds.set(entry.key, tabId);
-    }
-  });
-  syncProjectedSpinnerStateFromQueue();
   const activationBootstrapPending = Boolean(
     snapshot.activation &&
       snapshot.activation.bootstrapStatus === "bootstrapping"
   );
   popupNavigationInspectionOverlayStarted =
-    popupSpinnerQueue.has("navInspect") || activationBootstrapPending;
+    popupSpinnerEntriesByKey.has("navInspect") || activationBootstrapPending;
   popupNavigationInspectionOverlayTabId = popupNavigationInspectionOverlayStarted ? tabId : null;
-  syncUiBusyFromBrokerState();
   logWorldTrace("background-state", {
     tabId,
     traceEnabled: Boolean(snapshot.traceEnabled),
@@ -1520,7 +1149,7 @@ function applyBackgroundStateSnapshot(snapshot: PopupBackgroundStateSnapshot | n
     lifecyclePhase: popupBackgroundLifecycle && popupBackgroundLifecycle.phase,
     activationBootstrapStatus: popupBackgroundActivation && popupBackgroundActivation.bootstrapStatus,
     sessionPhase: popupBackgroundSessionPhase,
-    spinnerCount: popupSpinnerQueue.size,
+    spinnerRequestCount: popupSpinnerEntriesByKey.size,
     traceEvents: Array.isArray(snapshot.traceEvents) ? snapshot.traceEvents.length : 0
   });
 }
@@ -1544,9 +1173,7 @@ function applyPopupViewSnapshot(snapshot: PopupStateGetReply | null) {
     propertyLockTimer: snapshot.propertyLockTimer || null,
     secondaryGates: snapshot.secondaryGates || null,
     traceEnabled: Boolean(snapshot.traceEnabled),
-    traceEvents: Array.isArray(snapshot.traceEvents) ? snapshot.traceEvents : [],
-    spinnerQueue: Array.isArray(snapshot.spinnerQueue) ? snapshot.spinnerQueue : [],
-    activeSpinnerLease: snapshot.activeSpinnerLease || null
+    traceEvents: Array.isArray(snapshot.traceEvents) ? snapshot.traceEvents : []
   });
   const nextCentralSessionDictationEffect = deriveCentralSessionDictationSnapshotEffect({
     featureEnabled: isFeatureEnabled("centralStateDictation"),
@@ -1863,14 +1490,14 @@ function sendSpinnerBrokerMessage(
 }
 
 function syncSpinnerEntryToBackground(key: string): Promise<PopupSpinnerBrokerResponse> {
-  const entry = popupSpinnerQueue.get(key);
+  const entry = popupSpinnerEntriesByKey.get(key);
   if (!entry) {
     return Promise.resolve(null);
   }
   const expectedMessage = entry.message;
   const expectedPersistent = entry.persistent;
   const shouldApplySnapshot = () => {
-    const currentEntry = popupSpinnerQueue.get(key);
+    const currentEntry = popupSpinnerEntriesByKey.get(key);
     if (!currentEntry) {
       return false;
     }
@@ -1990,13 +1617,12 @@ function scheduleStaleInspectionBusyClear(
     // Last resort: never leave a blocking curtain up indefinitely. A stuck
     // curtain blocks the entire popup, which is worse than clearing slightly
     // early after the (generous) reconcile budget is exhausted.
-    if (popupSpinnerQueue.has("navInspect")) {
+    if (popupSpinnerEntriesByKey.has("navInspect")) {
       endNavigationInspectionOverlay(tabId);
       popSpinner("navInspect");
     } else if (
-      popupSpinnerQueue.size === 0 &&
-      !popupSpinnerVisible &&
-      !popupSpinnerTimer
+      popupSpinnerEntriesByKey.size === 0 &&
+      !getActiveSpinnerSnapshotForSurface("popup")
     ) {
       uiModule.setUiBusy(false);
     }
@@ -2008,23 +1634,19 @@ function scheduleStaleInspectionBusyClear(
     const view = uiModule.getViewState();
     const curtainShowing =
       view.isBusy && view.busyMessage === PopupText.overlay.pageInspection;
-    // A leftover navigation-inspection spinner from a prior marking session keeps
-    // popupSpinnerVisible true, so the queue-empty gate below never fires and the
-    // fresh-load curtain sticks in silent mode. Reconcile that case directly:
-    // once the silent reveal/freeze warmup is no longer pending, end the stale
-    // overlay (which pops the spinner and drops the curtain).
+    // A popup-origin navigation-inspection lease can outlive the silent
+    // reveal/freeze warmup. Reconcile that case directly once content settles.
     const silentNavSpinnerStuck =
       reconcileSilentNavSpinner &&
       !view.toggleEnabled &&
-      popupSpinnerQueue.has("navInspect");
+      popupSpinnerEntriesByKey.has("navInspect");
     const renderModeNavSpinnerStuck = Boolean(
       reconcileRenderModeNavSpinner &&
-      popupSpinnerQueue.has("navInspect")
+      popupSpinnerEntriesByKey.has("navInspect")
     );
     const queueClearGate =
-      popupSpinnerQueue.size === 0 &&
-      !popupSpinnerVisible &&
-      !popupSpinnerTimer;
+      popupSpinnerEntriesByKey.size === 0 &&
+      !getActiveSpinnerSnapshotForSurface("popup");
     if (curtainShowing && (silentNavSpinnerStuck || renderModeNavSpinnerStuck || queueClearGate)) {
       const runtimeStatus = await refreshCurrentPageRuntimeStatus({
         tabId,
@@ -3712,7 +3334,7 @@ function beginNavigationInspectionOverlay(tabId: number | null): boolean {
   clearNavigationInspectionSettlePollsExcept(tabId);
   popupNavigationInspectionOverlayTabId = tabId;
   clearNavigationInspectionSettlePoll(tabId);
-  if (popupSpinnerQueue.has("navInspect")) {
+  if (popupSpinnerEntriesByKey.has("navInspect")) {
     setSpinnerMessage("navInspect", PopupText.overlay.pageInspection);
     popupNavigationInspectionOverlayStarted = true;
     return true;
@@ -5184,7 +4806,7 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
     contentInspectionPending
   );
   if (
-    popupSpinnerVisible &&
+    popupSpinnerEntriesByKey.has("navInspect") &&
     popupNavigationInspectionOverlayStarted &&
     popupNavigationInspectionOverlayTabId === currentTabId
   ) {
@@ -5281,13 +4903,12 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
       ));
   // In silent mode no spinner key drives the curtain, so keep polling until the
   // editor reveal/freeze warmup clears and then drop the "Inspecting page..."
-  // curtain. A leftover navigation-inspection spinner (restored from a prior
-  // marking session) keeps the curtain up via the spinner queue even after the
-  // warmup settles, so reconcile that case too.
+  // curtain. Reconcile a popup-origin navigation-inspection lease as soon as the
+  // warmup settles.
   const silentNavSpinnerStuck = Boolean(
     silentInspectionInScope &&
     currentTabId &&
-    popupSpinnerQueue.has("navInspect")
+    popupSpinnerEntriesByKey.has("navInspect")
   );
   if (((pageInspectionBusy && silentInspectionInScope) || silentNavSpinnerStuck) && currentTabId) {
     scheduleStaleInspectionBusyClear(currentTabId, runtimeStatusBaseUrl, {
@@ -5567,7 +5188,7 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
       ? ViewText.saveExcludesBusy
       : ViewText.saveExcludesIdle;
   const popupSpinnerSnapshot = getActiveSpinnerSnapshotForSurface("popup");
-  const popupBusyActive = Boolean(popupSpinnerVisible && popupSpinnerSnapshot);
+  const popupBusyActive = Boolean(popupSpinnerSnapshot);
   const backgroundLifecycleBusy = Boolean(popupBackgroundLifecycle && popupBackgroundLifecycle.busy);
   const projectedAiRunCountdownVisible = Boolean(
     popupBusyActive &&
@@ -8596,17 +8217,31 @@ function scheduleRefresh() {
   }, 120);
 }
 
+function handleSpinnerSurfaceChangedFromBrain(surface: "popup" | "pageCurtain" | "banner") {
+  if (surface !== "popup" && surface !== "pageCurtain") {
+    return;
+  }
+  void refreshUi({
+    useBusyOverlay: false,
+    skipPropertyLockFetch: true,
+    preserveCurrentDraftStatus: true
+  }).catch(() => null);
+}
+
 async function init() {
   state.traceEvents = [];
   state.traceModeEnabled = await loadTraceModeSetting().catch(() => false);
   await helpers.ensureActiveTab();
   const initTabId = state.currentTab && state.currentTab.id;
   if (initTabId) {
-    const popupBus = startPopupBusClient(initTabId, { applyPopupView: applyPopupViewSnapshot });
+    const popupBus = startPopupBusClient(initTabId, {
+      applyPopupView: applyPopupViewSnapshot,
+      onSpinnerSurfaceChanged: handleSpinnerSurfaceChangedFromBrain
+    });
     await restoreSpinnerQueueFromBackground(initTabId, popupBus);
     await applyTraceModePreferenceToTab(initTabId, state.traceModeEnabled, popupBus).catch(() => null);
     maybeRunPopupBusSelfTest(initTabId, popupBus);
-    if (popupSpinnerQueue.has("navInspect")) {
+    if (popupSpinnerEntriesByKey.has("navInspect")) {
       popupNavigationInspectionOverlayStarted = true;
       popupNavigationInspectionOverlayTabId = initTabId;
     }
@@ -8750,23 +8385,20 @@ async function init() {
     if (state.currentTab && tab.windowId !== state.currentTab.windowId) {
       return;
     }
-    // Remove old-tab spinner storage when switching tabs; the popup keeps only the active tab queue.
+    // Remove old-tab transient leases when switching tabs; popup-local state only
+    // tracks outstanding mutation requests for the active tab.
     const oldTabId = state.currentTab && state.currentTab.id;
     if (oldTabId) {
       clearSpinnerQueueInBackground(oldTabId, { transientOnly: true }).catch(() => {});
     }
     clearNavigationInspectionSettlePollsExcept();
-    popupSpinnerQueue.clear();
-    syncProjectedSpinnerStateFromQueue();
-    if (popupSpinnerTimer) {
-      window.clearTimeout(popupSpinnerTimer);
-      popupSpinnerTimer = 0;
+    for (const timer of popupSpinnerDelayTimersByKey.values()) {
+      window.clearTimeout(timer);
     }
-    if (popupSpinnerVisible) {
-      popupSpinnerVisible = false;
-      uiModule.setUiBusy(false);
-      syncPageBusyFromPopupSpinner();
-    }
+    popupSpinnerDelayTimersByKey.clear();
+    popupSpinnerEntriesByKey.clear();
+    clearProjectedPopupSpinnerSurfaces();
+    uiModule.setUiBusy(false);
     popupNavigationInspectionOverlayStarted = false;
     popupNavigationInspectionOverlayTabId = null;
     popupBackgroundLifecycle = null;
@@ -8778,23 +8410,26 @@ async function init() {
     popupBackgroundPropertyLockTimer = null;
     popupBackgroundSecondaryGates = null;
     await helpers.ensureActiveTab();
-    // Restore spinner queue for the newly active tab.
+    // Restore brain-projected view state for the newly active tab.
     const newTabId = state.currentTab && state.currentTab.id;
     if (newTabId) {
       try {
-        const popupBus = startPopupBusClient(newTabId, { applyPopupView: applyPopupViewSnapshot });
+        const popupBus = startPopupBusClient(newTabId, {
+          applyPopupView: applyPopupViewSnapshot,
+          onSpinnerSurfaceChanged: handleSpinnerSurfaceChangedFromBrain
+        });
         await restoreSpinnerQueueFromBackground(newTabId, popupBus);
         maybeRunPopupBusSelfTest(newTabId, popupBus);
       } catch {
-        // Restoration failure is non-fatal; queue remains empty for this tab.
+        // Restoration failure is non-fatal; projected state will arrive on the next event.
       }
-      if (popupSpinnerQueue.has("navInspect")) {
+      if (popupSpinnerEntriesByKey.has("navInspect")) {
         popupNavigationInspectionOverlayStarted = true;
         popupNavigationInspectionOverlayTabId = newTabId;
       }
     }
     // Refresh quietly on tab switch: the newly active tab's genuine busy state
-    // (restored spinner queue above) still surfaces through refreshUiInner, but
+    // (restored brain projection above) still surfaces through refreshUiInner, but
     // the refresh itself no longer raises a "Refreshing popup data..." curtain
     // that, on heavy pages, blocked the popup for many seconds per switch.
     await refreshUi({ useBusyOverlay: false });
@@ -8869,7 +8504,7 @@ async function init() {
             await refreshUi({ useBusyOverlay: false });
           }
         } else {
-          // Communication can briefly fail on some pages. Keep queued spinner active
+          // Communication can briefly fail on some pages. Keep the brain lease active
           // until we can explicitly confirm inspection settled.
           scheduleNavigationInspectionSettlePoll(tabId, settleBaseUrl);
         }
@@ -8885,10 +8520,10 @@ async function init() {
       clearSpinnerQueueInBackground(tabId, { transientOnly: true }).catch(() => {});
     }
     clearNavigationInspectionSettlePollsExcept();
-    if (popupSpinnerTimer) {
-      window.clearTimeout(popupSpinnerTimer);
-      popupSpinnerTimer = 0;
+    for (const timer of popupSpinnerDelayTimersByKey.values()) {
+      window.clearTimeout(timer);
     }
+    popupSpinnerDelayTimersByKey.clear();
   });
 
   utils.addStorageChangeListener((changes, areaName) => {

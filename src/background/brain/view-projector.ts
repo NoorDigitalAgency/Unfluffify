@@ -166,24 +166,8 @@ export function projectViews(state: TabLayerState): {
       propertyLockView: clonePropertyLockView(state.propertyLockView),
       propertyLockTimer: clonePropertyLockTimer(state.propertyLockTimer),
       secondaryGates: state.sessionFactsReported ? cloneSecondaryGates(state.secondaryGates) : null,
-      spinnerQueue: state.popupView.spinnerQueue.map((entry) => {
-        const clone = { ...entry };
-        if (entry.blockSurfaces) {
-          clone.blockSurfaces = { ...entry.blockSurfaces };
-        }
-        return clone;
-      }),
-      activeSpinnerLease: state.popupView.activeSpinnerLease
-        ? (() => {
-          const clone = { ...state.popupView.activeSpinnerLease };
-          if (state.popupView.activeSpinnerLease.blockSurfaces) {
-            clone.blockSurfaces = {
-              ...state.popupView.activeSpinnerLease.blockSurfaces,
-            };
-          }
-          return clone;
-        })()
-        : null,
+      spinnerQueue: [],
+      activeSpinnerLease: null,
     },
     contentDirective: {
       version: state.version,

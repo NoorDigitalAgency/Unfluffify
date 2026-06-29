@@ -497,6 +497,14 @@ export function createBrain(options: { logger?: Pick<Console, "error" | "debug">
       transport.registerPopupPort(tabId, port);
       popupPortCounts.set(tabId, (popupPortCounts.get(tabId) ?? 0) + 1);
       heartbeat.start(tabId);
+      const state = store.get(tabId);
+      if (state) {
+        publishProjectedState(bus, tabId, state);
+      } else {
+        publishSpinnerSurface(bus, tabId, "popup", null);
+        publishSpinnerSurface(bus, tabId, "pageCurtain", null);
+        publishSpinnerSurface(bus, tabId, "banner", null);
+      }
       port.onDisconnect.addListener(() => {
         const remaining = (popupPortCounts.get(tabId) ?? 1) - 1;
         if (remaining <= 0) {

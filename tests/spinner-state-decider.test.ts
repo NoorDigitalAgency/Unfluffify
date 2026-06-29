@@ -96,6 +96,7 @@ describe("spinner state decider", () => {
     const selections = deriveSpinnerSelectionsFromQueue([
       buildEntry({
         key: "older-page",
+        startedAt: 10,
         operationId: "page-op",
         operationKind: "content-bootstrap",
         operationPhase: "page-inspection",
@@ -103,6 +104,7 @@ describe("spinner state decider", () => {
       }),
       buildEntry({
         key: "newer-popup",
+        startedAt: 20,
         operationId: "popup-op",
         operationKind: "ai-run",
         operationPhase: "preparing-page",
@@ -110,6 +112,7 @@ describe("spinner state decider", () => {
       }),
       buildEntry({
         key: "banner",
+        startedAt: 30,
         operationId: "banner-op",
         operationKind: "config-sync",
         operationPhase: "saving",
@@ -123,6 +126,7 @@ describe("spinner state decider", () => {
         phase: "preparing-page",
         operationId: "popup-op",
         spinnerKey: "newer-popup",
+        startedAt: 20,
       }),
       pageCurtain: buildExpectedSelection({
         kind: "content-bootstrap",
@@ -135,8 +139,85 @@ describe("spinner state decider", () => {
         phase: "saving",
         operationId: "banner-op",
         spinnerKey: "banner",
+        startedAt: 30,
       }),
     });
+  });
+
+  it("uses original startedAt order so delayed popup requests cannot overtake newer leases", () => {
+    const selections = deriveSpinnerSelectionsFromQueue([
+      buildEntry({
+        key: "newer",
+        startedAt: 200,
+        updatedAt: 200,
+        operationId: "newer-op",
+        operationKind: "content-bootstrap",
+        operationPhase: "page-inspection",
+        blockSurfaces: { page: true, popup: true },
+      }),
+      buildEntry({
+        key: "older-delayed",
+        startedAt: 100,
+        updatedAt: 100,
+        operationId: "older-delayed-op",
+        operationKind: "config-sync",
+        operationPhase: "saving",
+        blockSurfaces: { page: true, popup: true },
+      }),
+    ]);
+
+    expect(selections.popup).toEqual(buildExpectedSelection({
+      kind: "content-bootstrap",
+      phase: "page-inspection",
+      operationId: "newer-op",
+      spinnerKey: "newer",
+      startedAt: 200,
+    }));
+    expect(selections.pageCurtain).toEqual(buildExpectedSelection({
+      kind: "content-bootstrap",
+      phase: "page-inspection",
+      operationId: "newer-op",
+      spinnerKey: "newer",
+      startedAt: 200,
+    }));
+  });
+
+  it("does not let delayed requests overtake newer leases when startedAt ties", () => {
+    const selections = deriveSpinnerSelectionsFromQueue([
+      buildEntry({
+        key: "newer",
+        startedAt: 100,
+        updatedAt: 100,
+        operationId: "newer-op",
+        operationKind: "content-bootstrap",
+        operationPhase: "page-inspection",
+        blockSurfaces: { page: true, popup: true },
+      }),
+      buildEntry({
+        key: "older-delayed",
+        startedAt: 100,
+        updatedAt: 300,
+        operationId: "older-delayed-op",
+        operationKind: "config-sync",
+        operationPhase: "saving",
+        blockSurfaces: { page: true, popup: true },
+      }),
+    ]);
+
+    expect(selections.popup).toEqual(buildExpectedSelection({
+      kind: "content-bootstrap",
+      phase: "page-inspection",
+      operationId: "newer-op",
+      spinnerKey: "newer",
+      startedAt: 100,
+    }));
+    expect(selections.pageCurtain).toEqual(buildExpectedSelection({
+      kind: "content-bootstrap",
+      phase: "page-inspection",
+      operationId: "newer-op",
+      spinnerKey: "newer",
+      startedAt: 100,
+    }));
   });
 
   it("skips entries without projected operation metadata", () => {

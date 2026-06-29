@@ -1,4 +1,4 @@
-type PopupSpinnerEntry = {
+export type PopupSpinnerEntry = {
   blockSurfaces?: {
     page?: boolean;
     popup?: boolean;
@@ -26,28 +26,22 @@ type PopupSpinnerBackgroundResponse = {
 type PopupSpinnerTask<T> = (spinnerKey: string | null) => Promise<T>;
 
 type PopupSpinnerDeps = {
-  popupSpinnerQueue: Map<string, PopupSpinnerEntry>;
+  popupSpinnerEntriesByKey: Map<string, PopupSpinnerEntry>;
+  popupSpinnerDelayTimersByKey: Map<string, ReturnType<Window["setTimeout"]>>;
   popupSpinnerKeyTabIds: Map<string, number>;
   popupSpinnerWatchdogByKey: Map<string, ReturnType<Window["setTimeout"]>>;
   spinnerWatchdogMs: number;
   windowRef: Pick<Window, "setTimeout" | "clearTimeout">;
   cryptoRef: { randomUUID: () => string };
   getCurrentPopupTabId: () => number | null;
-  getPopupSpinnerVisible: () => boolean;
-  setPopupSpinnerVisible: (value: boolean) => void;
-  getPopupSpinnerTimer: () => number;
-  setPopupSpinnerTimer: (value: number) => void;
   popSpinner: (key: string) => void;
   logPopupSpinnerDebug: (event: string, payload?: Record<string, unknown>) => void;
-  setUiBusyFromCurrentSpinner: () => void;
-  syncUiBusyFromBrokerState: () => void;
-  syncSpinnerEntryToBackground: (key: string) => Promise<PopupSpinnerBackgroundResponse | null>;
+  syncSpinnerEntryToBackground: (
+    key: string,
+    entry: PopupSpinnerEntry
+  ) => Promise<PopupSpinnerBackgroundResponse | null>;
   removeSpinnerEntryFromBackground: (key: string, tabId?: number | null) => Promise<PopupSpinnerBackgroundResponse | null>;
-  clearSpinnerQueueInBackground: (tabId?: number | null) => Promise<PopupSpinnerBackgroundResponse | null>;
   scheduleStaleInspectionBusyClear: (tabId?: number | null) => void;
-  syncPageBusyFromPopupSpinner?: () => void;
-  syncProjectedSpinnerStateFromQueue: () => void;
-  uiModule: { setUiBusy: (busy: boolean) => void };
 };
 
 type PopupSpinnerOptions = {
@@ -97,26 +91,24 @@ function applySpinnerOperationOptions(entry: PopupSpinnerEntry, options: PopupSp
   return entry;
 }
 
-export function currentSpinnerMessage(deps: PopupSpinnerDeps): string {
-  const queue = deps.popupSpinnerQueue;
-  if (queue.size === 0) {
-    return "";
-  }
-  const entry = [...queue.values()].at(-1) || null;
-  return entry && typeof entry.message === "string" ? entry.message : "";
-}
-
-export function currentSpinnerSnapshot(deps: PopupSpinnerDeps): { key: string; entry: PopupSpinnerEntry } | null {
-  const queue = deps.popupSpinnerQueue;
-  if (queue.size === 0) {
-    return null;
-  }
-  const snapshot = [...queue.entries()].at(-1) || null;
+function getLastSpinnerEntry(
+  deps: PopupSpinnerDeps
+): { key: string; entry: PopupSpinnerEntry } | null {
+  const snapshot = [...deps.popupSpinnerEntriesByKey.entries()].at(-1) || null;
   if (!snapshot) {
     return null;
   }
   const [key, entry] = snapshot;
   return { key, entry };
+}
+
+export function currentSpinnerMessage(deps: PopupSpinnerDeps): string {
+  const snapshot = getLastSpinnerEntry(deps);
+  return snapshot && typeof snapshot.entry.message === "string" ? snapshot.entry.message : "";
+}
+
+export function currentSpinnerSnapshot(deps: PopupSpinnerDeps): { key: string; entry: PopupSpinnerEntry } | null {
+  return getLastSpinnerEntry(deps);
 }
 
 export function normalizeSpinnerReason(
@@ -148,6 +140,17 @@ export function clearSpinnerWatchdog(deps: PopupSpinnerDeps, key?: string | null
   }
 }
 
+function clearSpinnerDelay(deps: PopupSpinnerDeps, key?: string | null): void {
+  if (!key) {
+    return;
+  }
+  const timer = deps.popupSpinnerDelayTimersByKey.get(key);
+  if (timer) {
+    deps.windowRef.clearTimeout(timer);
+    deps.popupSpinnerDelayTimersByKey.delete(key);
+  }
+}
+
 export function armSpinnerWatchdog(deps: PopupSpinnerDeps, key?: string | null): void {
   if (!key) {
     return;
@@ -155,7 +158,7 @@ export function armSpinnerWatchdog(deps: PopupSpinnerDeps, key?: string | null):
   clearSpinnerWatchdog(deps, key);
   const timer = deps.windowRef.setTimeout(() => {
     deps.popupSpinnerWatchdogByKey.delete(key);
-    if (deps.popupSpinnerQueue.has(key)) {
+    if (deps.popupSpinnerEntriesByKey.has(key)) {
       deps.logPopupSpinnerDebug("spinner-watchdog-failopen", { key });
       deps.popSpinner(key);
     }
@@ -163,19 +166,14 @@ export function armSpinnerWatchdog(deps: PopupSpinnerDeps, key?: string | null):
   deps.popupSpinnerWatchdogByKey.set(key, timer);
 }
 
-// function syncPageBusyFromPopupSpinner(deps)
-function syncPageBusyFromPopupSpinner(deps: PopupSpinnerDeps): void {
-  if (typeof deps.syncPageBusyFromPopupSpinner !== "function") {
+function sendSpinnerEntryToBackground(deps: PopupSpinnerDeps, key: string): void {
+  const entry = deps.popupSpinnerEntriesByKey.get(key);
+  if (!entry) {
     return;
   }
-  try {
-    deps.syncPageBusyFromPopupSpinner();
-  } catch {
-    // Page-busy mirroring is best effort; popup spinner state remains authoritative.
-  }
+  deps.syncSpinnerEntryToBackground(key, entry).catch(() => {});
 }
 
-// export function pushSpinner(deps, key, message, options = {}) {
 export function pushSpinner(
   deps: PopupSpinnerDeps,
   key: string | null,
@@ -190,101 +188,47 @@ export function pushSpinner(
     : "popup-spinner";
   const reason = normalizeSpinnerReason(deps, options.reason, effectiveKey, msg);
   const startedAt = Date.now();
-  const isUpdate = deps.popupSpinnerQueue.has(effectiveKey);
+  const isUpdate = deps.popupSpinnerEntriesByKey.has(effectiveKey);
   const tabId = deps.getCurrentPopupTabId();
 
-  if (!isUpdate) {
-    const suppressIfActive = Boolean(options.suppressIfActive);
-    if (suppressIfActive && (deps.popupSpinnerQueue.size > 0 || deps.getPopupSpinnerVisible() || deps.getPopupSpinnerTimer())) {
-      return null;
-    }
+  if (!isUpdate && options.suppressIfActive && deps.popupSpinnerEntriesByKey.size > 0) {
+    return null;
   }
+
+  const existing = deps.popupSpinnerEntriesByKey.get(effectiveKey) || {};
+  const entry = applySpinnerOperationOptions(
+    {
+      ...existing,
+      message: msg || existing.message || "",
+      persistent,
+      reason,
+      source,
+      startedAt: isUpdate && Number.isFinite(existing.startedAt)
+        ? Number(existing.startedAt)
+        : startedAt
+    },
+    options
+  );
+  deps.popupSpinnerEntriesByKey.set(effectiveKey, entry);
+  if (tabId) {
+    deps.popupSpinnerKeyTabIds.set(effectiveKey, tabId);
+  }
+  clearSpinnerDelay(deps, effectiveKey);
+  armSpinnerWatchdog(deps, effectiveKey);
 
   const delayValue = Number(options.delayMs);
   const delayMs = (!isUpdate && Number.isFinite(delayValue))
     ? Math.max(0, Math.trunc(delayValue))
     : 0;
-
-  if (isUpdate) {
-    const existing = deps.popupSpinnerQueue.get(effectiveKey) || {};
-    if (msg) {
-      existing.message = msg;
-    }
-    existing.persistent = persistent;
-    existing.reason = reason;
-    existing.source = source;
-    applySpinnerOperationOptions(existing, options);
-    deps.syncProjectedSpinnerStateFromQueue();
-    if (deps.getPopupSpinnerTimer()) {
-      deps.windowRef.clearTimeout(deps.getPopupSpinnerTimer());
-      deps.setPopupSpinnerTimer(0);
-      if (!deps.getPopupSpinnerVisible()) {
-        deps.setPopupSpinnerVisible(true);
-        deps.setUiBusyFromCurrentSpinner();
-        syncPageBusyFromPopupSpinner(deps);
-      } else {
-        deps.setUiBusyFromCurrentSpinner();
-        syncPageBusyFromPopupSpinner(deps);
-      }
-    } else if (deps.getPopupSpinnerVisible()) {
-      deps.setUiBusyFromCurrentSpinner();
-      syncPageBusyFromPopupSpinner(deps);
-    }
-    if (tabId) {
-      deps.popupSpinnerKeyTabIds.set(effectiveKey, tabId);
-    }
-    armSpinnerWatchdog(deps, effectiveKey);
-    deps.syncSpinnerEntryToBackground(effectiveKey).catch(() => {});
-    return effectiveKey;
-  }
-
-  deps.popupSpinnerQueue.set(
-    effectiveKey,
-    applySpinnerOperationOptions({ message: msg, persistent, reason, source, startedAt }, options)
-  );
-  deps.syncProjectedSpinnerStateFromQueue();
-  armSpinnerWatchdog(deps, effectiveKey);
-  if (tabId) {
-    deps.popupSpinnerKeyTabIds.set(effectiveKey, tabId);
-  }
-
-  if (deps.getPopupSpinnerVisible()) {
-    deps.logPopupSpinnerDebug("push:update-visible", { key: effectiveKey, message: msg, persistent, reason, source, startedAt });
-    deps.setUiBusyFromCurrentSpinner();
-    syncPageBusyFromPopupSpinner(deps);
-    deps.syncSpinnerEntryToBackground(effectiveKey).catch(() => {});
-    return effectiveKey;
-  }
-
   if (delayMs > 0) {
-    if (!deps.getPopupSpinnerTimer()) {
-      deps.setPopupSpinnerTimer(deps.windowRef.setTimeout(() => {
-        deps.setPopupSpinnerTimer(0);
-        if (deps.popupSpinnerQueue.size === 0 || deps.getPopupSpinnerVisible()) {
-          return;
-        }
-        deps.setPopupSpinnerVisible(true);
-        deps.logPopupSpinnerDebug("push:delayed-show", { key: effectiveKey, message: msg, persistent, reason, source, startedAt });
-        deps.setUiBusyFromCurrentSpinner();
-        syncPageBusyFromPopupSpinner(deps);
-        deps.syncSpinnerEntryToBackground(effectiveKey).catch(() => {});
-      }, delayMs));
-    }
+    deps.popupSpinnerDelayTimersByKey.set(effectiveKey, deps.windowRef.setTimeout(() => {
+      deps.popupSpinnerDelayTimersByKey.delete(effectiveKey);
+      sendSpinnerEntryToBackground(deps, effectiveKey);
+    }, delayMs));
     return effectiveKey;
   }
 
-  if (deps.getPopupSpinnerTimer()) {
-    deps.windowRef.clearTimeout(deps.getPopupSpinnerTimer());
-    deps.setPopupSpinnerTimer(0);
-  }
-  deps.setPopupSpinnerVisible(true);
-  deps.logPopupSpinnerDebug("push:show", { key: effectiveKey, message: msg, persistent, reason, source, startedAt });
-  deps.setUiBusyFromCurrentSpinner();
-  syncPageBusyFromPopupSpinner(deps);
-  if (tabId) {
-    deps.popupSpinnerKeyTabIds.set(effectiveKey, tabId);
-  }
-  deps.syncSpinnerEntryToBackground(effectiveKey).catch(() => {});
+  sendSpinnerEntryToBackground(deps, effectiveKey);
   return effectiveKey;
 }
 
@@ -292,67 +236,35 @@ export function setSpinnerMessage(deps: PopupSpinnerDeps, key: string | null, me
   if (!key || !message.trim()) {
     return;
   }
-  const entry = deps.popupSpinnerQueue.get(key);
+  const entry = deps.popupSpinnerEntriesByKey.get(key);
   if (!entry) {
     return;
   }
   entry.message = message.trim();
   entry.reason = normalizeSpinnerReason(deps, entry.reason, key, entry.message);
   entry.source = typeof entry.source === "string" && entry.source ? entry.source : "popup-spinner";
-  deps.syncProjectedSpinnerStateFromQueue();
+  entry.updatedAt = Date.now();
+  clearSpinnerDelay(deps, key);
   armSpinnerWatchdog(deps, key);
   deps.logPopupSpinnerDebug("set-message", { key, message: entry.message, reason: entry.reason, source: entry.source });
-  deps.syncSpinnerEntryToBackground(key).catch(() => {});
-  if (deps.getPopupSpinnerVisible()) {
-    deps.setUiBusyFromCurrentSpinner();
-    syncPageBusyFromPopupSpinner(deps);
-  }
+  sendSpinnerEntryToBackground(deps, key);
 }
 
-// export function popSpinner(deps, key) {
 export function popSpinner(deps: PopupSpinnerDeps, key: string | null): void {
   if (!key) {
     return;
   }
+  clearSpinnerDelay(deps, key);
   clearSpinnerWatchdog(deps, key);
   const mappedTabId = deps.popupSpinnerKeyTabIds.get(key);
-  if (!deps.popupSpinnerQueue.has(key)) {
-    if (mappedTabId) {
-      deps.popupSpinnerKeyTabIds.delete(key);
-      deps.removeSpinnerEntryFromBackground(key, mappedTabId).catch(() => {});
-    }
-    return;
-  }
+  const tabId = mappedTabId || deps.getCurrentPopupTabId();
   deps.popupSpinnerKeyTabIds.delete(key);
-  deps.popupSpinnerQueue.delete(key);
-  deps.syncProjectedSpinnerStateFromQueue();
+  deps.popupSpinnerEntriesByKey.delete(key);
   deps.logPopupSpinnerDebug("pop", { key, mappedTabId });
-  deps.removeSpinnerEntryFromBackground(key, mappedTabId || deps.getCurrentPopupTabId()).catch(() => {});
-  if (deps.popupSpinnerQueue.size > 0) {
-    if (deps.getPopupSpinnerVisible()) {
-      deps.setUiBusyFromCurrentSpinner();
-      deps.syncUiBusyFromBrokerState();
-      syncPageBusyFromPopupSpinner(deps);
-    }
-    return;
-  }
-  deps.syncProjectedSpinnerStateFromQueue();
-  if (deps.getPopupSpinnerTimer()) {
-    deps.windowRef.clearTimeout(deps.getPopupSpinnerTimer());
-    deps.setPopupSpinnerTimer(0);
-  }
-  const tabId = deps.getCurrentPopupTabId();
-  deps.clearSpinnerQueueInBackground(tabId).catch(() => {});
-  if (deps.getPopupSpinnerVisible()) {
-    deps.setPopupSpinnerVisible(false);
-    deps.logPopupSpinnerDebug("pop:hide", { key, mappedTabId });
-    deps.uiModule.setUiBusy(false);
-    syncPageBusyFromPopupSpinner(deps);
-  }
-  deps.scheduleStaleInspectionBusyClear(mappedTabId || tabId);
+  deps.removeSpinnerEntryFromBackground(key, tabId).catch(() => {});
+  deps.scheduleStaleInspectionBusyClear(tabId);
 }
 
-// export async function runWithSpinner(deps, key, message, task, options = {}) {
 export async function runWithSpinner<T>(
   deps: PopupSpinnerDeps,
   key: string | null,

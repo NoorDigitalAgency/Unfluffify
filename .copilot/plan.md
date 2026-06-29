@@ -1411,7 +1411,8 @@ loads. Supersedes the old Plan 5 `p5-*` track.
   SPINNER subscription becomes the sole `renderPopupSpinnerSurface` writer; remove
   the legacy `spinnerQueue`/`activeSpinnerLease` mirror from view-projector +
   state-store. Tests: popup-marking-refresh, popup-mode-sync. Live-verify single
-  writer, no flicker.
+  writer, no flicker. Status: complete for implementation, review, and final
+  gate; ready for the Phase C commit/push handoff.
 - Phase DL — Backend-as-truth page-data lifecycle (on-load wipe + rebuild).
   Today the wipe+rebuild only runs in the popup
   (`popup.ts:4446 loadRemoteConfigForCurrentPage`,
