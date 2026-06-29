@@ -42,6 +42,12 @@ import {
   isFeatureEnabled
 } from "./common/feature-flags";
 import {
+  AI_RUN_EVENT_REASONS,
+  AI_RUN_EVENT_TYPES,
+  type AiRunEventPayload,
+  type AiRunEventType
+} from "./common/bus/contracts/ai-run";
+import {
   SPINNER_REQUEST_TYPES,
   type SpinnerClearRequestPayload,
   type SpinnerRemoveRequestPayload,
@@ -403,6 +409,37 @@ const POPUP_TAB_COMMAND_POLICY = Object.freeze({
 const RENDER_MODE_INSPECTION_START_TIMEOUT_MS = 8000;
 const RENDER_MODE_INSPECTION_LOAD_TIMEOUT_MS = 15000;
 const RENDER_MODE_INSPECTION_OPERATION_TIMEOUT_MS = 60000;
+
+function publishBackgroundAiRunEvent(
+  tabId: number,
+  eventType: AiRunEventType,
+  payload: AiRunEventPayload = {},
+): Promise<void> {
+  return brain.bus.publish(eventType, { ...payload, tabId }, {
+    target: REALMS.BACKGROUND,
+    tab: tabId,
+  });
+}
+
+function getBrainAiRunDeadlineAt(tabId: number): number {
+  const deadlineAt = brain.store.get(tabId)?.aiRun.deadlineAt;
+  return Number.isFinite(deadlineAt) && Number(deadlineAt) > Date.now()
+    ? Number(deadlineAt)
+    : Date.now() + AI_RUN_TIMEOUT_MS;
+}
+
+function ignoreAiRunProgressUpdate(): Promise<void> {
+  return Promise.resolve();
+}
+
+function getAiRunCommandSessionId(payload: Record<string, unknown> | null | undefined): string {
+  return payload && typeof payload.sessionId === "string" ? payload.sessionId.trim() : "";
+}
+
+function getAiRunCommandDeadlineAt(payload: Record<string, unknown> | null | undefined): number | undefined {
+  const deadlineAt = Number(payload && payload.deadlineAt);
+  return Number.isFinite(deadlineAt) && deadlineAt > Date.now() ? Math.trunc(deadlineAt) : undefined;
+}
 
 async function getBrowserTab(tabId: number): Promise<Browser.tabs.Tab | undefined> {
   return callBrowserApi<Browser.tabs.Tab | undefined>(
@@ -2152,42 +2189,60 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_AI, async (context, payloa
   // cannot kill the poll loop mid-run when the side panel is closed.
   swKeepAlive.acquire();
   try {
-    return await withBackgroundTabSpinner(
+    await publishBackgroundAiRunEvent(normalizedTabId, AI_RUN_EVENT_TYPES.STARTED, {
+      reason: "tab-run-ai-started"
+    });
+    const deadlineAt = getBrainAiRunDeadlineAt(normalizedTabId);
+    const result = await runAiCommandForTab(
       normalizedTabId,
-      {
-        key: `run-ai:${normalizedTabId}`,
-        message: "Preparing page content for AI...",
-        owner: SPINNER_OWNERS.POPUP,
-        reason: "tab-run-ai-preparing",
-        source: "background-command-router",
-        persistent: false
-      },
-      async ({ update }) => {
-        const result = await runAiCommandForTab(normalizedTabId, payload, update);
-        if (!result || !result.ok) {
-          return context.replyFail(
-            result && result.reason === "timed_out"
-              ? MESSAGE_ERROR_CODES.TIMEOUT
-              : MESSAGE_ERROR_CODES.HANDLER_FAILED,
-            (result && result.error) || "Unable to run AI",
-            {
-              tabId: normalizedTabId,
-              reason: result && result.reason ? result.reason : "handler_failed",
-              reconciliationPending: Boolean(result && result.reconciliationPending),
-              locked: Boolean(result && result.locked)
-            }
-          );
-        }
-        return {
-          ok: true,
+      { ...payload, deadlineAt },
+      ignoreAiRunProgressUpdate
+    );
+    if (!result || !result.ok) {
+      const eventType = result && result.reason === "timed_out"
+        ? AI_RUN_EVENT_TYPES.TIMED_OUT
+        : AI_RUN_EVENT_TYPES.FAILED;
+      await publishBackgroundAiRunEvent(normalizedTabId, eventType, {
+        reason: result && result.reason ? result.reason : "handler_failed"
+      });
+      return context.replyFail(
+        result && result.reason === "timed_out"
+          ? MESSAGE_ERROR_CODES.TIMEOUT
+          : MESSAGE_ERROR_CODES.HANDLER_FAILED,
+        (result && result.error) || "Unable to run AI",
+        {
           tabId: normalizedTabId,
-          sessionId: result.sessionId,
-          selectorSet: result.selectorSet,
-          deadlineAt: result.deadlineAt,
-          siteId: result.siteId || null,
-          runtime: getTabRuntimeSnapshot(normalizedTabId),
-          state: await utils.getTabState(normalizedTabId)
-        };
+          reason: result && result.reason ? result.reason : "handler_failed",
+          reconciliationPending: Boolean(result && result.reconciliationPending),
+          locked: Boolean(result && result.locked)
+        }
+      );
+    }
+    await publishBackgroundAiRunEvent(normalizedTabId, AI_RUN_EVENT_TYPES.RESULTS_APPLIED, {
+      sessionId: result.sessionId,
+      deadlineAt: result.deadlineAt,
+      reason: AI_RUN_EVENT_REASONS.RESULTS_READY
+    });
+    return {
+      ok: true,
+      tabId: normalizedTabId,
+      sessionId: result.sessionId,
+      selectorSet: result.selectorSet,
+      deadlineAt: result.deadlineAt,
+      siteId: result.siteId || null,
+      runtime: getTabRuntimeSnapshot(normalizedTabId),
+      state: await utils.getTabState(normalizedTabId)
+    };
+  } catch (error) {
+    await publishBackgroundAiRunEvent(normalizedTabId, AI_RUN_EVENT_TYPES.FAILED, {
+      reason: "handler_exception"
+    }).catch(() => undefined);
+    return context.replyFail(
+      MESSAGE_ERROR_CODES.HANDLER_FAILED,
+      error instanceof Error && error.message ? error.message : "Unable to run AI",
+      {
+        tabId: normalizedTabId,
+        reason: "handler_exception"
       }
     );
   } finally {
@@ -2210,8 +2265,20 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RESUME_AI, async (context, pay
   }
   swKeepAlive.acquire();
   try {
+    await publishBackgroundAiRunEvent(normalizedTabId, AI_RUN_EVENT_TYPES.STARTED, {
+      sessionId: getAiRunCommandSessionId(payload),
+      deadlineAt: getAiRunCommandDeadlineAt(payload),
+      reason: "tab-resume-ai-started"
+    });
     const result = await resumeAiCommandForTab(normalizedTabId, payload);
     if (!result || !result.ok) {
+      const eventType = result && result.reason === "timed_out"
+        ? AI_RUN_EVENT_TYPES.TIMED_OUT
+        : AI_RUN_EVENT_TYPES.FAILED;
+      await publishBackgroundAiRunEvent(normalizedTabId, eventType, {
+        sessionId: getAiRunCommandSessionId(payload),
+        reason: result && result.reason ? result.reason : "handler_failed"
+      });
       return context.replyFail(
         result && result.reason === "timed_out"
           ? MESSAGE_ERROR_CODES.TIMEOUT
@@ -2223,6 +2290,11 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RESUME_AI, async (context, pay
         }
       );
     }
+    await publishBackgroundAiRunEvent(normalizedTabId, AI_RUN_EVENT_TYPES.RESULTS_APPLIED, {
+      sessionId: result.sessionId,
+      deadlineAt: result.deadlineAt,
+      reason: AI_RUN_EVENT_REASONS.RESULTS_READY
+    });
     return {
       ok: true,
       tabId: normalizedTabId,
@@ -2233,6 +2305,19 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RESUME_AI, async (context, pay
       runtime: getTabRuntimeSnapshot(normalizedTabId),
       state: await utils.getTabState(normalizedTabId)
     };
+  } catch (error) {
+    await publishBackgroundAiRunEvent(normalizedTabId, AI_RUN_EVENT_TYPES.FAILED, {
+      sessionId: getAiRunCommandSessionId(payload),
+      reason: "handler_exception"
+    }).catch(() => undefined);
+    return context.replyFail(
+      MESSAGE_ERROR_CODES.HANDLER_FAILED,
+      error instanceof Error && error.message ? error.message : "Unable to run AI",
+      {
+        tabId: normalizedTabId,
+        reason: "handler_exception"
+      }
+    );
   } finally {
     swKeepAlive.release();
   }

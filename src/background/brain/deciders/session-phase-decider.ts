@@ -10,6 +10,10 @@ import {
 import { deriveDictation } from "./dictation-decider";
 
 type MutableSessionFacts = { -readonly [K in keyof SessionFacts]: SessionFacts[K] };
+export type AiRunPhaseSource = Readonly<{
+  phase: SessionAiRunPhase;
+  lastEvent: string;
+}>;
 
 const DEFAULT_SESSION_FACTS: SessionFacts = Object.freeze({
   baseUrlReady: false,
@@ -115,6 +119,15 @@ function deriveAiRunPhase(facts: { aiRunPhase: SessionAiRunPhase; previewActive:
   return AI_RUN_PHASES.POST_AI;
 }
 
+export function deriveAiRunPhaseFromRunState(
+  runState: AiRunPhaseSource | null | undefined
+): SessionAiRunPhase | null {
+  if (!runState || !runState.lastEvent) {
+    return null;
+  }
+  return normalizeSessionAiRunPhase(runState.phase);
+}
+
 function isReadinessBlocked(facts: SessionFacts): boolean {
   return Boolean(
     facts.pageScopedUiDisabled ||
@@ -194,6 +207,7 @@ export function buildSessionDictation(facts: SessionFacts): SessionDictation {
 export function applySessionFactsPatch(
   currentFacts: SessionFacts,
   patch: SessionFactsPatch = {},
+  options: Readonly<{ aiRunState?: AiRunPhaseSource | null }> = {},
 ): { facts: SessionFacts; dictation: SessionDictation } {
   const nextFacts: MutableSessionFacts = { ...currentFacts };
   nextFacts.lynxChecklistBlockingReason = {
@@ -220,6 +234,8 @@ export function applySessionFactsPatch(
   // Brain composes the distinct AI_PREVIEW phase from the reported run-completion
   // (POST_AI) and the preview-open facts; popup/content never report it directly.
   nextFacts.aiRunPhase = deriveAiRunPhase(nextFacts);
+  nextFacts.aiRunPhase =
+    deriveAiRunPhaseFromRunState(options.aiRunState) ?? nextFacts.aiRunPhase;
 
   if (Object.prototype.hasOwnProperty.call(patch, "lynxChecklistBlockingReason")) {
     const reason = patch.lynxChecklistBlockingReason;

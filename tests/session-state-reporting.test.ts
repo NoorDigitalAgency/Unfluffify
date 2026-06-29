@@ -2,6 +2,7 @@ import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 
 import { createBrain } from "../src/background/brain/index.js";
+import { AI_RUN_EVENT_TYPES } from "../src/common/bus/contracts/ai-run.js";
 import { REALMS } from "../src/common/bus/realms.js";
 import { AI_RUN_PHASES, SESSION_PHASES, SESSION_REPORT_TYPES } from "../src/common/bus/contracts/session-state.js";
 
@@ -48,7 +49,7 @@ test("brain ingests reported session facts and projects optional dictation into 
   });
 });
 
-test("brain derives the COMPUTING_AI phase from an AI-run spinner lease, not popup facts", async () => {
+test("brain derives the COMPUTING_AI phase from typed AI-run STARTED events", async () => {
   const brain = createBrain({ logger: { error() {} } });
 
   await brain.bus.publish(SESSION_REPORT_TYPES.FACTS_REPORTED, {
@@ -63,6 +64,51 @@ test("brain derives the COMPUTING_AI phase from an AI-run spinner lease, not pop
   }, {
     target: REALMS.BACKGROUND,
     tab: 77,
+  });
+  await new Promise((resolve) => queueMicrotask(resolve));
+
+  await brain.bus.publish(AI_RUN_EVENT_TYPES.STARTED, {
+    reason: "tab-run-ai-started",
+  }, {
+    target: REALMS.BACKGROUND,
+    tab: 77,
+  });
+  await new Promise((resolve) => queueMicrotask(resolve));
+
+  const computingView = brain.getPopupView(77);
+  assert.equal(computingView.sessionPhase, SESSION_PHASES.COMPUTING_AI);
+  assert.equal(computingView.sessionDictation?.curtain.visible, true);
+  assert.equal(computingView.sessionDictation?.curtain.operation, "computing_ai");
+  assert.equal(computingView.sessionDictation?.curtain.timerText, "");
+  assert.equal(brain.store.get(77)?.aiRun.active, true);
+  assert.ok((brain.store.get(77)?.aiRun.deadlineAt || 0) > Date.now());
+
+  await brain.bus.publish(AI_RUN_EVENT_TYPES.RESULTS_APPLIED, {}, {
+    target: REALMS.BACKGROUND,
+    tab: 77,
+  });
+  await new Promise((resolve) => queueMicrotask(resolve));
+
+  const clearedView = brain.getPopupView(77);
+  assert.notEqual(clearedView.sessionPhase, SESSION_PHASES.COMPUTING_AI);
+  assert.equal(brain.store.get(77)?.aiRun.active, false);
+});
+
+test("brain ignores legacy AI-run spinner leases as AI busy authority", async () => {
+  const brain = createBrain({ logger: { error() {} } });
+
+  await brain.bus.publish(SESSION_REPORT_TYPES.FACTS_REPORTED, {
+    source: "popup",
+    facts: {
+      baseUrlReady: true,
+      siteIdReady: true,
+      renderModeReady: true,
+      isEnabled: true,
+      aiReady: true,
+    },
+  }, {
+    target: REALMS.BACKGROUND,
+    tab: 78,
   });
   await new Promise((resolve) => queueMicrotask(resolve));
 
@@ -85,18 +131,11 @@ test("brain derives the COMPUTING_AI phase from an AI-run spinner lease, not pop
     blockSurfaces: { page: true, popup: true },
   };
 
-  brain.syncProjectedSpinnerQueue(77, [aiRunLease], "spinner-operations:set");
+  brain.syncProjectedSpinnerQueue(78, [aiRunLease], "spinner-operations:set");
 
-  const computingView = brain.getPopupView(77);
-  assert.equal(computingView.sessionPhase, SESSION_PHASES.COMPUTING_AI);
-  assert.equal(computingView.sessionDictation?.curtain.visible, true);
-  assert.equal(computingView.sessionDictation?.curtain.operation, "computing_ai");
-  assert.equal(computingView.sessionDictation?.curtain.timerText, "");
+  assert.notEqual(brain.getPopupView(78).sessionPhase, SESSION_PHASES.COMPUTING_AI);
 
-  brain.syncProjectedSpinnerQueue(77, [], "spinner-operations:remove");
-
-  const clearedView = brain.getPopupView(77);
-  assert.notEqual(clearedView.sessionPhase, SESSION_PHASES.COMPUTING_AI);
+  brain.syncProjectedSpinnerQueue(78, [], "spinner-operations:remove");
 });
 
 test("brain does not clobber popup-owned AI-run facts when no lease exists (resume path)", async () => {

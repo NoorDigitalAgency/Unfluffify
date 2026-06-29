@@ -14,7 +14,13 @@ import type {
 } from "../../common/bus/contracts/property-lock-state";
 import type { RenderModeViewState } from "../../common/bus/contracts/render-mode";
 import type { SecondaryGatesViewState } from "../../common/bus/contracts/secondary-gates-state";
-import type { SessionDictation, SessionFacts } from "../../common/bus/contracts/session-state";
+import {
+  AI_RUN_PHASES,
+  type SessionAiRunPhase,
+  type SessionDictation,
+  type SessionFacts
+} from "../../common/bus/contracts/session-state";
+import type { AiRunEventType } from "../../common/bus/contracts/ai-run";
 import { createDefaultSessionFacts } from "./deciders/session-phase-decider";
 
 export type SpinnerSelection = Readonly<{
@@ -45,6 +51,28 @@ export type SessionDictationState = SessionDictation | null;
 export type PropertyLockViewProjectionState = PropertyLockViewState | null;
 export type PropertyLockTimerProjectionState = PropertyLockTimerState | null;
 export type SecondaryGatesProjectionState = SecondaryGatesViewState | null;
+
+export type AiRunState = {
+  active: boolean;
+  phase: SessionAiRunPhase;
+  deadlineAt: number;
+  leaseStartedAt: number;
+  lastEvent: AiRunEventType | "";
+  sessionId: string;
+  reason: string;
+};
+
+function createInitialAiRunState(): AiRunState {
+  return {
+    active: false,
+    phase: AI_RUN_PHASES.PRE_AI,
+    deadlineAt: 0,
+    leaseStartedAt: 0,
+    lastEvent: "",
+    sessionId: "",
+    reason: "",
+  };
+}
 
 function createInitialActivationState(): ActivationState {
   return {
@@ -101,6 +129,7 @@ export type TabLayerState = {
   sessionFactsReported: boolean;
   sessionFacts: SessionFactsState;
   sessionDictation: SessionDictationState;
+  aiRun: AiRunState;
   /**
    * True while the brain is the authority for aiBusy/aiComputing because an
    * active AI-run compute spinner lease drove those facts. Lets the brain clear
@@ -136,6 +165,7 @@ function createInitialTabState(tabId: number): TabLayerState {
     sessionFactsReported: false,
     sessionFacts: createDefaultSessionFacts(),
     sessionDictation: null,
+    aiRun: createInitialAiRunState(),
     aiRunLeaseOwned: false,
     propertyLockView: null,
     propertyLockTimer: null,

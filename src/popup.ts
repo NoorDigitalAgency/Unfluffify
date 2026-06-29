@@ -100,7 +100,13 @@ import {
 } from "./common/bus/contracts/property-lock-state";
 import { SECONDARY_GATES_BLOCK_REASONS } from "./common/bus/contracts/secondary-gates-state";
 import {
+  AI_RUN_EVENT_TYPES,
+  type AiRunEventPayload,
+  type AiRunEventType
+} from "./common/bus/contracts/ai-run";
+import {
   AI_RUN_PHASES,
+  SESSION_PHASES,
   type SessionAiRunPhase,
   type SessionDictation,
   type SessionFactsPatch
@@ -116,6 +122,7 @@ import { createSpinnerOperationLease } from "./common/spinner-contract";
 import { SPINNER_REQUEST_TYPES } from "./common/bus/contracts/spinner";
 import {
   publishPopupPropertyLockSnapshot,
+  publishPopupAiRunEvent,
   publishPopupSessionFacts,
   requestPopupRenderModeCaptureHtml,
   requestPopupRenderModeHideConsent,
@@ -1656,6 +1663,32 @@ function publishCurrentTabSessionFacts(facts: SessionFactsPatch): void {
   publishCurrentSessionFacts(currentTabId, facts);
 }
 
+function publishCurrentTabAiRunEvent(
+  eventType: AiRunEventType,
+  payload: AiRunEventPayload = {},
+): void {
+  const currentTabId = getCurrentPopupTabId();
+  if (!currentTabId) {
+    return;
+  }
+  publishPopupAiRunEvent(currentTabId, eventType, payload).catch(() => null);
+}
+
+function shouldReportManualAiPreviewEvent(): boolean {
+  return Boolean(
+    state.sessionAiRunPhase === AI_RUN_PHASES.POST_AI ||
+      popupBackgroundSessionPhase === SESSION_PHASES.READY_TO_SAVE ||
+      popupBackgroundSessionPhase === SESSION_PHASES.PREVIEW_OPEN
+  );
+}
+
+function publishManualAiPreviewEvent(eventType: AiRunEventType): void {
+  if (!shouldReportManualAiPreviewEvent()) {
+    return;
+  }
+  publishCurrentTabAiRunEvent(eventType);
+}
+
 function hasProjectedCentralSessionDictationForTab(tabId: number | null): boolean {
   return hasProjectedCentralSessionDictationForTabOperation({
     featureEnabled: isFeatureEnabled("centralStateDictation"),
@@ -2512,10 +2545,6 @@ function isAiRunUpToDateForCurrentMarkings() {
 
 function captureAiRunMarkingsFingerprint() {
   state.aiRunMarkingsFingerprint = getCurrentPageMarkingsFingerprint();
-}
-
-function markSessionAiRunPostAi() {
-  setSessionAiRunPhase(AI_RUN_PHASES.POST_AI);
 }
 
 function resetAiRunMarkingsFingerprint() {
@@ -7812,7 +7841,7 @@ async function applyComputedSelectorSet(
   // The AI run is scoped to the current element markings. Capture that stable
   // state before the preview starts slower content-side reconciliation.
   captureAiRunMarkingsFingerprint();
-  markSessionAiRunPostAi();
+  publishCurrentTabAiRunEvent(AI_RUN_EVENT_TYPES.RESULTS_APPLIED);
 
   const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
     ? state.currentTab.id
@@ -7838,10 +7867,10 @@ async function applyComputedSelectorSet(
     });
     await refreshCurrentPageRuntimeStatus();
     captureAiRunMarkingsFingerprint();
-    markSessionAiRunPostAi();
   }
   const previewOpened = Boolean(previewResult);
   if (previewOpened) {
+    publishManualAiPreviewEvent(AI_RUN_EVENT_TYPES.PREVIEW_READY);
     // Show the Detected Content sidebar immediately from the items the content
     // script just rendered. Waiting for the next full refreshUi() to rediscover
     // the preview via the timeout-prone getAiPreviewState probe is what made the
@@ -7867,7 +7896,6 @@ async function applyComputedSelectorSet(
       busyMessage: "",
       busyNote: "",
       busyTimerText: "",
-      aiRunPhase: state.sessionAiRunPhase,
       previewActive: true,
       previewBlocked: true,
       previewRestorePending: false
@@ -7931,6 +7959,7 @@ function applyAiPreviewStateUpdate(message: PreviewStateLike) {
 
 async function failAiRun(message: string = PopupText.ai.runFailed) {
   resetAiRunMarkingsFingerprint();
+  publishCurrentTabAiRunEvent(AI_RUN_EVENT_TYPES.FAILED);
   await stopAiRun({ unlockPage: true });
   uiModule.showToast(message);
 }
@@ -8342,6 +8371,7 @@ async function handlePreviewLatest() {
     if (!isPopupCommandSuccess(response)) {
       throw new Error(PopupText.preview.openFailed);
     }
+    publishManualAiPreviewEvent(AI_RUN_EVENT_TYPES.PREVIEW_READY);
     await refreshUi();
   } catch (error) {
     clearMarkingSessionSnapshot();
@@ -8395,6 +8425,7 @@ async function handleMarkingPreview() {
     if (!isPopupCommandSuccess(response)) {
       throw new Error(PopupText.preview.openFailed);
     }
+    publishCurrentTabAiRunEvent(AI_RUN_EVENT_TYPES.PREVIEW_READY);
     await refreshUi();
   } catch (error) {
     clearMarkingSessionSnapshot();
@@ -8427,6 +8458,9 @@ async function handleExitPreviewMode() {
     return;
   }
   const closeResult = getPreviewStatePayload<PreviewCloseState>(response.result);
+  if (shouldRestoreMarking || shouldReportManualAiPreviewEvent()) {
+    publishCurrentTabAiRunEvent(AI_RUN_EVENT_TYPES.EXITED);
+  }
   if (!previewCloseIndicatesNavigation(closeResult) && restoreMarkingSessionSnapshot()) {
     const closeDraftStatus = closeResult && closeResult.draftStatus && typeof closeResult.draftStatus === "object"
       ? closeResult.draftStatus as TabDraftStatusResponse

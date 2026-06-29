@@ -97,7 +97,8 @@ test("AI compute shows busy feedback and locks marking before payload work", () 
   assert.match(aiRunOrchestratorSource, runAiPattern);
   assert.match(backgroundSource, /TAB_RUN_AI: "TAB_RUN_AI"/);
   assert.match(backgroundSource, /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_RUN_AI, async \(context, payload\) => \{/);
-  assert.match(backgroundSource, /reason: "tab-run-ai-preparing"/);
+  assert.match(backgroundSource, /publishBackgroundAiRunEvent\(normalizedTabId, AI_RUN_EVENT_TYPES\.STARTED/);
+  assert.doesNotMatch(backgroundSource, /key: `run-ai:\$\{normalizedTabId\}`[\s\S]*?withBackgroundTabSpinner/);
   assert.match(backgroundSource, /from "\.\/background\/ai-run-orchestrator"/);
   assert.match(backgroundSource, /const aiRunOrchestrator = createAiRunOrchestrator\(\{/);
   assert.match(aiRunOrchestratorSource, /async function prepareAiRunPayloadSnapshot\(options(?:\s*:\s*[^=]+)? = \{\}\) \{/);

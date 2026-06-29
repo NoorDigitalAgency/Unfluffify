@@ -59,7 +59,8 @@ test("a successful AI run captures the markings fingerprint", () => {
     /function applyComputedSelectorSet\([\s\S]*?\n\}\n\n/
   )[0];
   assert.match(fnBody, /captureAiRunMarkingsFingerprint\(\);/);
-  assert.match(fnBody, /markSessionAiRunPostAi\(\);/);
+  assert.match(fnBody, /publishCurrentTabAiRunEvent\(AI_RUN_EVENT_TYPES\.RESULTS_APPLIED\);/);
+  assert.doesNotMatch(fnBody, /markSessionAiRunPostAi\(\);/);
 });
 
 test("post-AI phase locks content marking edits through the brain directive", () => {

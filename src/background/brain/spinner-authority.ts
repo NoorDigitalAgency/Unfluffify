@@ -1,5 +1,7 @@
 import {
   getSpinnerPhaseDefinition,
+  SPINNER_OPERATION_KINDS,
+  SPINNER_OPERATION_PHASES,
   type SpinnerBlockSurfaces,
   type SpinnerTimerMode,
 } from "../../common/spinner-contract";
@@ -34,6 +36,23 @@ function projectSurface(selection: SpinnerSelection | null): SpinnerState | null
     source: selection.source,
     spinnerKey: selection.spinnerKey,
   });
+}
+
+function projectAiRunSelection(state: TabLayerState): SpinnerSelection | null {
+  if (!state.aiRun.active) {
+    return null;
+  }
+  return {
+    kind: SPINNER_OPERATION_KINDS.AI_RUN,
+    phase: SPINNER_OPERATION_PHASES.AI_RUN.REMOTE_WAIT,
+    startedAt: state.aiRun.leaseStartedAt,
+    deadlineAt: state.aiRun.deadlineAt,
+    operationId: state.aiRun.sessionId ? `ai-run:${state.aiRun.sessionId}` : `ai-run:${state.tabId}`,
+    message: "Computing selectors",
+    reason: state.aiRun.reason || "ai-run-started",
+    source: "brain-ai-run-events",
+    spinnerKey: `run-ai:${state.tabId}`,
+  };
 }
 
 export function phaseToSpinnerState(
@@ -75,9 +94,10 @@ export function projectSpinners(state: TabLayerState): {
   pageCurtain: SpinnerState | null;
   banner: SpinnerState | null;
 } {
+  const aiRunSelection = projectAiRunSelection(state);
   return {
-    popup: projectSurface(state.spinners.popup),
-    pageCurtain: projectSurface(state.spinners.pageCurtain),
+    popup: projectSurface(aiRunSelection || state.spinners.popup),
+    pageCurtain: projectSurface(aiRunSelection || state.spinners.pageCurtain),
     banner: projectSurface(state.spinners.banner),
   };
 }

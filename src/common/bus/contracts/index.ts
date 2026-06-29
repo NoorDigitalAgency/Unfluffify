@@ -21,6 +21,7 @@ export type DiagnosticEchoPayload = Readonly<{
   nonce: string;
 }>;
 
+export * from "./ai-run";
 export * from "./activation";
 export * from "./property-lock-state";
 export * from "./render-mode";

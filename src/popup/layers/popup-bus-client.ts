@@ -32,6 +32,10 @@ import type {
   RenderModeRunInspectionPayload,
   RenderModeRunInspectionReply,
 } from "../../common/bus/contracts/render-mode";
+import type {
+  AiRunEventPayload,
+  AiRunEventType,
+} from "../../common/bus/contracts/ai-run";
 import {
   SPINNER_REQUEST_TYPES,
   type SpinnerClearRequestPayload,
@@ -166,6 +170,20 @@ export function publishPopupSessionFacts(
     facts,
   };
   return popupBus.publish(SESSION_REPORT_TYPES.FACTS_REPORTED, payload, {
+    target: REALMS.BACKGROUND,
+    tab: tabId,
+  });
+}
+
+export function publishPopupAiRunEvent(
+  tabId: number,
+  eventType: AiRunEventType,
+  payload: AiRunEventPayload = {},
+): Promise<void> {
+  if (!tabId || !popupBus) {
+    return Promise.resolve();
+  }
+  return popupBus.publish(eventType, payload, {
     target: REALMS.BACKGROUND,
     tab: tabId,
   });

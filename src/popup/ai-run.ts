@@ -1,9 +1,10 @@
 import {
   isAiSubmissionDocumentRootXpath
 } from "../content/submission-rules";
+import { AI_RUN_DEFAULT_TIMEOUT_MS } from "../common/bus/contracts/ai-run";
 
 export const AI_RUN_POLL_INTERVAL_MS = 5_000;
-export const AI_RUN_TIMEOUT_MS = 8 * 60 * 1000;
+export const AI_RUN_TIMEOUT_MS = AI_RUN_DEFAULT_TIMEOUT_MS;
 export const AI_RUN_RESUME_TTL_MS = 2 * 60 * 1000;
 export const AI_RUN_PERSIST_KEY = "popupAiRun";
 

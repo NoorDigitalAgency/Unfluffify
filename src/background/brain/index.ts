@@ -8,7 +8,19 @@ import {
   type PropertyLockSnapshotLockState,
   type PropertyLockSnapshotReportedPayload,
 } from "../../common/bus/contracts/property-lock-state";
-import { SESSION_REPORT_TYPES, type SessionFactsReportedPayload } from "../../common/bus/contracts/session-state";
+import {
+  AI_RUN_DEFAULT_TIMEOUT_MS,
+  AI_RUN_EVENT_REASONS,
+  AI_RUN_EVENT_TYPES,
+  type AiRunEventPayload,
+  type AiRunEventType
+} from "../../common/bus/contracts/ai-run";
+import {
+  AI_RUN_PHASES,
+  SESSION_REPORT_TYPES,
+  type SessionFactsPatch,
+  type SessionFactsReportedPayload
+} from "../../common/bus/contracts/session-state";
 import { SPINNER_EVENT_TYPES, type SpinnerSurface } from "../../common/bus/contracts/spinner";
 import { REALMS } from "../../common/bus/realms";
 import { createBackgroundTransport } from "../../common/bus/transport/background-transport";
@@ -38,7 +50,7 @@ import {
   recordNoJsHoldState as recordRenderModeNoJsHoldValue,
 } from "./deciders/render-mode-decider";
 import { deriveSecondaryGatesViewState } from "./deciders/secondary-gates-decider";
-import { updateSpinnerSelectionsFromQueue, isAiRunComputeSpinnerActive } from "./deciders/spinner-state-decider";
+import { updateSpinnerSelectionsFromQueue } from "./deciders/spinner-state-decider";
 import { applySessionFactsPatch } from "./deciders/session-phase-decider";
 import { createStateStore, type TabLayerState } from "./state-store";
 import { createBrainHeartbeat } from "./heartbeat";
@@ -55,6 +67,165 @@ const propertyLockDeciderDeps = {
   PROPERTY_LOCK_STATE_TAKEOVER_AVAILABLE,
   PROPERTY_LOCK_STATE_TRANSFER
 } as const;
+
+function normalizeAiRunEventPayload(value: unknown): AiRunEventPayload {
+  if (!value || typeof value !== "object") {
+    return {};
+  }
+  const payload = value as Record<string, unknown>;
+  return {
+    tabId: Number.isFinite(payload.tabId) ? Math.trunc(Number(payload.tabId)) : undefined,
+    sessionId: typeof payload.sessionId === "string" ? payload.sessionId : undefined,
+    deadlineAt: Number.isFinite(payload.deadlineAt) ? Math.max(0, Math.trunc(Number(payload.deadlineAt))) : undefined,
+    reason: typeof payload.reason === "string" ? payload.reason : undefined,
+  };
+}
+
+function updateAiRunStateFromEvent(
+  state: TabLayerState["aiRun"],
+  eventType: AiRunEventType,
+  payload: AiRunEventPayload,
+): void {
+  const now = Date.now();
+  state.lastEvent = eventType;
+  state.sessionId = payload.sessionId ?? state.sessionId;
+  state.reason = payload.reason ?? "";
+  if (eventType === AI_RUN_EVENT_TYPES.STARTED) {
+    state.active = true;
+    state.phase = AI_RUN_PHASES.PRE_AI;
+    state.leaseStartedAt = now;
+    state.deadlineAt =
+      typeof payload.deadlineAt === "number" && payload.deadlineAt > now
+        ? payload.deadlineAt
+        : now + AI_RUN_DEFAULT_TIMEOUT_MS;
+    return;
+  }
+  state.active = false;
+  state.deadlineAt = typeof payload.deadlineAt === "number" ? payload.deadlineAt : state.deadlineAt;
+  if (
+    eventType === AI_RUN_EVENT_TYPES.RESULTS_APPLIED &&
+    payload.reason === AI_RUN_EVENT_REASONS.RESULTS_READY
+  ) {
+    state.phase = AI_RUN_PHASES.PRE_AI;
+    return;
+  }
+  if (eventType === AI_RUN_EVENT_TYPES.PREVIEW_READY) {
+    state.phase = AI_RUN_PHASES.AI_PREVIEW;
+    return;
+  }
+  if (eventType === AI_RUN_EVENT_TYPES.RESULTS_APPLIED || eventType === AI_RUN_EVENT_TYPES.EXITED) {
+    state.phase = AI_RUN_PHASES.POST_AI;
+    return;
+  }
+  state.phase = AI_RUN_PHASES.PRE_AI;
+}
+
+function buildAiRunFactsPatch(eventType: AiRunEventType, payload: AiRunEventPayload): SessionFactsPatch {
+  if (eventType === AI_RUN_EVENT_TYPES.STARTED) {
+    return {
+      aiBusy: true,
+      aiComputing: true,
+      aiRunPhase: AI_RUN_PHASES.PRE_AI,
+      previewActive: false,
+      previewBlocked: false,
+      previewRestorePending: false,
+      busyVisible: true,
+      busyMessage: "Computing selectors",
+      busyNote: "",
+      busyTimerText: "",
+    };
+  }
+  if (
+    eventType === AI_RUN_EVENT_TYPES.RESULTS_APPLIED &&
+    payload.reason === AI_RUN_EVENT_REASONS.RESULTS_READY
+  ) {
+    return {
+      aiBusy: false,
+      aiComputing: false,
+      busyVisible: false,
+      busyMessage: "",
+      busyNote: "",
+      busyTimerText: "",
+    };
+  }
+  if (eventType === AI_RUN_EVENT_TYPES.PREVIEW_READY) {
+    return {
+      aiBusy: false,
+      aiComputing: false,
+      aiRunPhase: AI_RUN_PHASES.AI_PREVIEW,
+      aiRunUpToDate: true,
+      previewActive: true,
+      previewBlocked: true,
+      previewRestorePending: false,
+      sessionRequiresAiRun: false,
+      busyVisible: false,
+      busyMessage: "",
+      busyNote: "",
+      busyTimerText: "",
+    };
+  }
+  if (eventType === AI_RUN_EVENT_TYPES.RESULTS_APPLIED || eventType === AI_RUN_EVENT_TYPES.EXITED) {
+    return {
+      aiBusy: false,
+      aiComputing: false,
+      aiRunPhase: AI_RUN_PHASES.POST_AI,
+      aiRunUpToDate: true,
+      previewActive: false,
+      previewBlocked: false,
+      previewRestorePending: false,
+      sessionRequiresAiRun: false,
+      busyVisible: false,
+      busyMessage: "",
+      busyNote: "",
+      busyTimerText: "",
+    };
+  }
+  return {
+    aiBusy: false,
+    aiComputing: false,
+    aiRunPhase: AI_RUN_PHASES.PRE_AI,
+    previewActive: false,
+    previewBlocked: false,
+    previewRestorePending: false,
+    busyVisible: false,
+    busyMessage: "",
+    busyNote: "",
+    busyTimerText: "",
+  };
+}
+
+function shouldKeepBrainAiRunAuthority(
+  draft: TabLayerState,
+  source: "popup" | "content",
+  facts: SessionFactsReportedPayload["facts"],
+): boolean {
+  if (source !== "popup" || !draft.aiRun.lastEvent) {
+    return false;
+  }
+  const reportedPreAi = facts.aiRunPhase === AI_RUN_PHASES.PRE_AI;
+  const cleanReset = Boolean(
+    reportedPreAi &&
+      facts.sessionHasPendingChanges === false &&
+      facts.currentDraftDirty === false &&
+      facts.previewActive === false &&
+      facts.previewBlocked === false,
+  );
+  return !cleanReset;
+}
+
+function omitPopupAiRunAuthorityFacts(
+  facts: SessionFactsReportedPayload["facts"],
+): SessionFactsPatch {
+  const {
+    aiBusy: _aiBusy,
+    aiComputing: _aiComputing,
+    aiRunPhase: _aiRunPhase,
+    aiRunUpToDate: _aiRunUpToDate,
+    sessionRequiresAiRun: _sessionRequiresAiRun,
+    ...rest
+  } = facts;
+  return rest;
+}
 
 function normalizePropertyLockSnapshotLockState(
   value: PropertyLockSnapshot["lockState"]
@@ -183,7 +354,29 @@ export function createBrain(options: { logger?: Pick<Console, "error" | "debug">
     reason: string,
   ): void {
     store.mutate(tabId, reason, (draft) => {
-      const next = applySessionFactsPatch(draft.sessionFacts, facts);
+      const nextFacts = shouldKeepBrainAiRunAuthority(draft, source, facts)
+        ? omitPopupAiRunAuthorityFacts(facts)
+        : facts;
+      const next = applySessionFactsPatch(draft.sessionFacts, nextFacts);
+      draft.sessionFactsReported = true;
+      draft.sessionFacts = next.facts;
+      draft.sessionDictation = next.dictation;
+      draft.secondaryGates = deriveSecondaryGatesViewState(next.facts);
+    });
+  }
+  function foldAiRunEvent(
+    tabId: number,
+    eventType: AiRunEventType,
+    payload: AiRunEventPayload,
+    reason: string,
+  ): void {
+    store.mutate(tabId, reason, (draft) => {
+      updateAiRunStateFromEvent(draft.aiRun, eventType, payload);
+      const next = applySessionFactsPatch(
+        draft.sessionFacts,
+        buildAiRunFactsPatch(eventType, payload),
+        { aiRunState: draft.aiRun },
+      );
       draft.sessionFactsReported = true;
       draft.sessionFacts = next.facts;
       draft.sessionDictation = next.dictation;
@@ -201,6 +394,16 @@ export function createBrain(options: { logger?: Pick<Console, "error" | "debug">
       : {};
     foldSessionFacts(meta.tab, source, facts, `session-facts:${source}`);
   });
+  for (const eventType of Object.values(AI_RUN_EVENT_TYPES)) {
+    bus.subscribe(eventType, (payload, meta) => {
+      const eventPayload = normalizeAiRunEventPayload(payload);
+      const tabId = meta.tab || eventPayload.tabId || null;
+      if (!tabId) {
+        return;
+      }
+      foldAiRunEvent(tabId, eventType, eventPayload, `ai-run:${eventType}`);
+    });
+  }
   const heartbeat = createBrainHeartbeat({
     request: (type, payload, opts) => bus.request(type, payload, opts),
     foldFacts: (tabId, source, facts, reason) => foldSessionFacts(tabId, source, facts, reason),
@@ -288,32 +491,7 @@ export function createBrain(options: { logger?: Pick<Console, "error" | "debug">
       return getRenderModeSnapshotValue(store, tabId);
     },
     syncProjectedSpinnerQueue(tabId: number, queue: readonly PopupSpinnerEntry[], reason: string) {
-      const selections = updateSpinnerSelectionsFromQueue(store, tabId, queue, reason);
-      const aiRunComputeActive = isAiRunComputeSpinnerActive(queue);
-      const current = store.get(tabId);
-      const leaseOwned = current?.aiRunLeaseOwned ?? false;
-      const factsAlreadySet = Boolean(
-        current?.sessionFacts.aiBusy && current?.sessionFacts.aiComputing,
-      );
-      // Only the brain-owned lease drives these facts. When no lease exists and
-      // the brain never owned one (e.g. a popup-driven resumed run owns
-      // aiBusy/aiComputing), leave the facts to their authority.
-      const needsUpdate = aiRunComputeActive
-        ? !leaseOwned || !factsAlreadySet
-        : leaseOwned;
-      if (needsUpdate) {
-        store.mutate(tabId, `${reason}:ai-run-facts`, (draft) => {
-          draft.aiRunLeaseOwned = aiRunComputeActive;
-          const next = applySessionFactsPatch(draft.sessionFacts, {
-            aiBusy: aiRunComputeActive,
-            aiComputing: aiRunComputeActive,
-          });
-          draft.sessionFacts = next.facts;
-          draft.sessionDictation = next.dictation;
-          draft.secondaryGates = deriveSecondaryGatesViewState(next.facts);
-        });
-      }
-      return selections;
+      return updateSpinnerSelectionsFromQueue(store, tabId, queue, reason);
     },
     registerPopupPort(tabId: number, port: Browser.runtime.Port): void {
       transport.registerPopupPort(tabId, port);
