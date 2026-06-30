@@ -640,6 +640,55 @@ test("popup remote config save merges server payload and prunes invalid urls", a
   }
 });
 
+test("popup remote config save replaces local from server response when flagged", async () => {
+  resetRemoteConfigState();
+  const originalChrome = globalThis.chrome;
+  const sentMessageTypes = [];
+  globalThis.chrome = {
+    runtime: {
+      sendMessage: async (message) => {
+        sentMessageTypes.push(message.type);
+        if (message.type === "saveRemoteConfigSnapshot") {
+          return { ok: true, status: "ok", payloadKey: "response-key" };
+        }
+        if (message.type === "replaceServerConfigIntoLocalSnapshot") {
+          return {
+            ok: true,
+            changed: true,
+            baseUrl: "https://example.com",
+            replacedCurrentPage: false
+          };
+        }
+        return { ok: false };
+      }
+    }
+  };
+
+  const { deps, prunedInvalidUrls } = createDeps({
+    ensurePropertyPageTypes: async () => ({ ok: true, pageTypes: [] })
+  });
+
+  try {
+    const result = await syncBaseConfigToServer(deps, {
+      baseUrl: "https://example.com",
+      pageUrl: "https://example.com/page",
+      endpointValue: "https://api.example.com",
+      stageBase: "stage.example.com",
+      tokenValue: "token",
+      includeAllLocalPageMarkings: true,
+      replaceLocalFromServerResponse: true
+    });
+
+    assert.equal(result.ok, true);
+    assert.ok(sentMessageTypes.includes("replaceServerConfigIntoLocalSnapshot"));
+    assert.equal(sentMessageTypes.includes("mergeServerConfigIntoLocalSnapshot"), false);
+    assert.equal(prunedInvalidUrls.length, 1);
+    assert.deepEqual(prunedInvalidUrls[0].invalidUrls, []);
+  } finally {
+    globalThis.chrome = originalChrome;
+  }
+});
+
 test("popup remote config save retries retryable errors before succeeding", async () => {
   resetRemoteConfigState();
   const originalChrome = globalThis.chrome;

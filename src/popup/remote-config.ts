@@ -29,6 +29,7 @@ interface SyncBaseConfigOptions {
   alertOnCurrentReplacement?: boolean;
   includeCurrentPageMarking?: boolean;
   includeAllLocalPageMarkings?: boolean;
+  replaceLocalFromServerResponse?: boolean;
   maxAttempts?: number;
 }
 
@@ -327,6 +328,7 @@ export async function syncBaseConfigToServer(deps: RemoteConfigDeps, options: Sy
     alertOnCurrentReplacement = true,
     includeCurrentPageMarking = false,
     includeAllLocalPageMarkings = false,
+    replaceLocalFromServerResponse = false,
     maxAttempts = 5
   } = opts;
   if (!baseUrl || !pageUrl || !endpointValue) {
@@ -489,33 +491,40 @@ export async function syncBaseConfigToServer(deps: RemoteConfigDeps, options: Sy
         return { ok: mergeResult.ok, replacedCurrentPage: false };
       }
 
-      const mergeResult = await messages.sendRuntimeMessage({
-        type: "mergeServerConfigIntoLocalSnapshot",
-        payloadKey: responsePayloadKey,
-        currentPageUrl: pageUrl,
-        confirmedPageMarkings: payload.pageMarkings,
-        preferConfirmedPageMarkings: includeCurrentPageMarking || includeAllLocalPageMarkings
-      });
-      if (!mergeResult.ok) {
+      const snapshotResult = replaceLocalFromServerResponse
+        ? await messages.sendRuntimeMessage({
+            type: "replaceServerConfigIntoLocalSnapshot",
+            payloadKey: responsePayloadKey,
+            currentPageUrl: pageUrl,
+            siteId: siteIdResult.siteId
+          })
+        : await messages.sendRuntimeMessage({
+            type: "mergeServerConfigIntoLocalSnapshot",
+            payloadKey: responsePayloadKey,
+            currentPageUrl: pageUrl,
+            confirmedPageMarkings: payload.pageMarkings,
+            preferConfirmedPageMarkings: includeCurrentPageMarking || includeAllLocalPageMarkings
+          });
+      if (!snapshotResult.ok) {
         return { ok: false };
       }
       await deps.pruneRemoteInvalidPageMarkings({
         siteId: siteIdResult.siteId,
-        invalidUrls: mergeResult.invalidLoadedUrls || []
+        invalidUrls: snapshotResult.invalidLoadedUrls || []
       });
-      if (mergeResult.changed && mergeResult.baseUrl) {
+      if (snapshotResult.changed && snapshotResult.baseUrl) {
         await messages.sendTabMessageWithRetry({
           type: "configUpdated",
-          baseUrl: mergeResult.baseUrl,
-          forceReloadPageEntry: mergeResult.replacedCurrentPage
+          baseUrl: snapshotResult.baseUrl,
+          forceReloadPageEntry: snapshotResult.replacedCurrentPage
         }, 2);
       }
-      if (mergeResult.replacedCurrentPage && alertOnCurrentReplacement) {
+      if (snapshotResult.replacedCurrentPage && alertOnCurrentReplacement) {
         deps.windowRef.alert(deps.PopupText.alerts.newerRemoteDataReplacedLocal);
       }
       return {
         ok: true,
-        replacedCurrentPage: mergeResult.replacedCurrentPage,
+        replacedCurrentPage: snapshotResult.replacedCurrentPage,
         baseUrl: resolvedBaseUrl
       };
     } catch (_error) {

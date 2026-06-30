@@ -33,63 +33,40 @@ clean is `!dirty` because `exitAiPreviewMode` re-enables via
 `core.enableForBaseUrl` which sets `pendingFreshBaselinePageUrl` -> the next
 render re-adopts the current markings as the clean baseline.
 
-## NEXT — Step #15/#12: Save replaces local from save-response snapshot (FULLY DESIGNED)
+## NEXT — Step #15/#12: Save replaces local from save-response snapshot (IMPLEMENTED — live-verify deferred)
 
-Goal: after a successful page Save, rebuild local from the `/save` RESPONSE
-snapshot the same way LOAD does, so `backendSavedPageMarkings` (the Lynx
-checklist "done" coverage source) updates -> current candidate is marked done ->
-Send-to-Lynx unlocks. User direction (#15): "the save returns a new snapshot of
-the save data for the property that must replace the local data similar to load".
+Implemented in this session (scoped option, validated `pnpm lint && check && test
+&& build`; 1018 tests green). Live-verify on a property with backend data remains
+deferred (no backend credentials in the sandbox environment):
+- `SyncBaseConfigOptions.replaceLocalFromServerResponse?: boolean`
+  (src/popup/remote-config.ts) + destructure default `false`.
+- syncBaseConfigToServer success branch now sends
+  `replaceServerConfigIntoLocalSnapshot` (payloadKey/currentPageUrl/siteId) when
+  the flag is set, else the existing merge message. Result var renamed
+  `mergeResult` -> `snapshotResult`; replace returns no `invalidLoadedUrls`, so
+  the prune is a no-op for replace. Selector-submit caller unchanged.
+- handlePageSave (src/popup/page-reconciliation.ts) passes
+  `replaceLocalFromServerResponse: true`.
+- Tests: tests/popup-remote-config.test.ts asserts the replace path sends
+  `replaceServerConfigIntoLocalSnapshot` (not merge) and prunes `[]`;
+  tests/popup-page-reconciliation.test.ts asserts handlePageSave passes the flag.
 
-Diagnosis (verified by reading code):
+Design notes (verified by reading code):
+- Goal: after a successful page Save, rebuild local from the `/save` RESPONSE
+  snapshot the same way LOAD does, so `backendSavedPageMarkings` (the Lynx
+  checklist "done" coverage source) updates -> current candidate is marked done ->
+  Send-to-Lynx unlocks. User direction (#15): "the save returns a new snapshot of
+  the save data for the property that must replace the local data similar to load".
 - LOAD uses `replaceServerConfigIntoLocalSnapshot` (src/background/remote-config-sync.ts:266-404)
   which sets `backendSavedPageMarkings = nextConfig.pageMarkings` (line 383) = full
   server snapshot (REPLACE).
-- SAVE (`handlePageSave` -> `syncBaseConfigToServer`) instead calls
-  `mergeServerConfigIntoLocalSnapshot` (remote-config-sync.ts:406-490) and does
-  NOT pass `applyConfirmedToBackendSaved`, so the just-saved current page is not
-  written into `backendSavedPageMarkings` unless the server snapshot already
-  contains it. This is why the candidate is not marked done (#12).
-- The `/save` response IS a config snapshot (merge already reads
-  `normalizedPayload.pageMarkings`/`selectors` from it). Response payloadKey is
-  `responsePayloadKey` at src/popup/remote-config.ts:477.
-- Message handler `replaceServerConfigIntoLocalSnapshot` already exists
-  (src/background.ts:3191) and forwards only `payload/payloadKey/currentPageUrl/
-  siteId` (requestId defaults 0, shouldContinue defaults ()=>true — fine for a
-  deliberate save, no concurrency machinery needed).
+- The replace handler/function consume only `payload/payloadKey/currentPageUrl/
+  siteId` (background.ts:3191-3199) — it does NOT need `confirmedPageMarkings`/
+  `preferConfirmedPageMarkings`; the full `/save` response snapshot is the source.
 - `syncBaseConfigToServer` has TWO callers: handlePageSave
   (src/popup/page-reconciliation.ts:148, `includeAllLocalPageMarkings: true`) and
-  the selector-submit flow (src/popup.ts:7742, selectors only). The REPLACE must
-  be SCOPED to the save caller (do NOT change selector-submit).
-
-Implementation (scoped option, ready to apply):
-1. `SyncBaseConfigOptions` (src/popup/remote-config.ts:23): add
-   `replaceLocalFromServerResponse?: boolean`.
-2. syncBaseConfigToServer destructure (around :327-331): add
-   `replaceLocalFromServerResponse = false`.
-3. Success branch (src/popup/remote-config.ts:492-520): rename `mergeResult` ->
-   `snapshotResult`; pick the message by the flag:
-   - if `replaceLocalFromServerResponse`: send
-     `{ type: "replaceServerConfigIntoLocalSnapshot", payloadKey: responsePayloadKey,
-       currentPageUrl: pageUrl, siteId: siteIdResult.siteId }`.
-   - else: existing merge message (unchanged).
-   Keep the rest (`pruneRemoteInvalidPageMarkings({ invalidUrls:
-   snapshotResult.invalidLoadedUrls || [] })` -> no-op for replace; configUpdated
-   when `changed && baseUrl`; alert only when `replacedCurrentPage &&
-   alertOnCurrentReplacement`, which is false for save).
-4. handlePageSave (src/popup/page-reconciliation.ts:148-157): add
-   `replaceLocalFromServerResponse: true` to the options.
-5. Tests: existing save tests (tests/popup-remote-config.test.ts:598, 643) use
-   default options (merge) and stay valid. ADD a test: with
-   `replaceLocalFromServerResponse: true`, the flow sends
-   `replaceServerConfigIntoLocalSnapshot` (not merge) and returns ok. Consider a
-   popup-page-reconciliation test asserting handlePageSave passes the flag.
-6. Risk note: REPLACE adopts the server snapshot for ALL pages (wipes local
-   markings not echoed back). Save sends `includeAllLocalPageMarkings: true` but
-   the coverage filter (remote-config.ts:414-432) narrows to coverage-active
-   pages, so non-active local markings could be dropped on replace — this matches
-   "backend is sole source of truth" + load semantics (user-approved), but
-   live-verify it does not wipe needed data.
+  the selector-submit flow (src/popup.ts:7742, selectors only). The REPLACE is
+  SCOPED to the save caller only.
 
 LIVE VERIFY #15/#12 on a property WITH backend data: `pnpm browser:live
 https://bonliva.se` (user said bonliva.se has backend data). Drive a candidate to
@@ -97,6 +74,13 @@ State C, click Save, then confirm via popup `getViewState()`:
 `saveExcludesButtonDisabled`/`lynxChecklistSendBlockedReason` clear and the
 candidate page-type shows covered/done (checklist `markedPages` now includes the
 saved page from `backendSavedPageMarkings`).
+
+Risk to live-verify: REPLACE adopts the server snapshot for ALL pages (wipes local
+markings not echoed back). Save sends `includeAllLocalPageMarkings: true` but the
+coverage filter (remote-config.ts:414-432) narrows to coverage-active pages, so
+non-active local markings could be dropped on replace — this matches "backend is
+sole source of truth" + load semantics (user-approved), but live-verify it does
+not wipe needed data.
 
 ## REMAINING steps (in order, same workflow: implement -> tests -> live-verify -> review -> commit/push -> graph refresh)
 
