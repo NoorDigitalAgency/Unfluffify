@@ -654,7 +654,7 @@ test("popup remote config save replaces local from server response when flagged"
         if (message.type === "replaceServerConfigIntoLocalSnapshot") {
           return {
             ok: true,
-            changed: true,
+            changed: false,
             baseUrl: "https://example.com",
             replacedCurrentPage: false
           };
