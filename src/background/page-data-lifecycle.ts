@@ -96,6 +96,12 @@ type PageDataLifecycleDeps = {
     fact: { pageDataLoadNeeded: boolean; pageUrl: string; baseUrl: string; navigationKey: string },
     reason: string
   ) => void;
+  onSiteContextResolved?: (context: {
+    tabId: number;
+    baseUrl: string;
+    siteId: number;
+    pageDataLoadStatus: string;
+  }) => void;
 };
 
 function normalizeTabId(value: unknown): number {
@@ -230,6 +236,7 @@ export function createPageDataLifecycleLoader(deps: PageDataLifecycleDeps) {
         return null;
       }
       await persistResolvedSiteContext(configs, baseUrl, siteId);
+      deps.onSiteContextResolved?.({ tabId, baseUrl, siteId, pageDataLoadStatus: "pending" });
     }
     const endpointValue = typeof input.endpointValue === "string" ? input.endpointValue.trim() : "";
     const tokenValue = typeof input.tokenValue === "string" ? input.tokenValue : "";
@@ -319,6 +326,12 @@ export function createPageDataLifecycleLoader(deps: PageDataLifecycleDeps) {
         changed: Boolean(clearResult.changed)
       };
       loadResultByNavigationKey.set(context.navigationKey, result);
+      deps.onSiteContextResolved?.({
+        tabId: context.tabId,
+        baseUrl: result.baseUrl,
+        siteId: context.siteId,
+        pageDataLoadStatus: result.status,
+      });
       return result;
     }
     if (!response || response.ok !== true || response.status !== "ok") {
@@ -354,6 +367,12 @@ export function createPageDataLifecycleLoader(deps: PageDataLifecycleDeps) {
       return { status: "skipped", baseUrl: "" };
     }
     loadResultByNavigationKey.set(context.navigationKey, result);
+    deps.onSiteContextResolved?.({
+      tabId: context.tabId,
+      baseUrl: result.baseUrl,
+      siteId: context.siteId,
+      pageDataLoadStatus: result.status,
+    });
     return result;
   }
 

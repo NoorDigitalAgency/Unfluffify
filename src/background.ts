@@ -642,7 +642,14 @@ const pageDataLifecycle = createPageDataLifecycleLoader({
     return tab ? { id: tab.id, url: tab.url } : null;
   },
   getTabState: async (tabId) => utils.getTabState(tabId),
-  sendContentMessageToTab
+  sendContentMessageToTab,
+  onSiteContextResolved: ({ tabId, baseUrl, siteId, pageDataLoadStatus }) => {
+    brain.store.mutate(tabId, "page-data:site-context-resolved", (draft) => {
+      draft.tabState = { ...draft.tabState, baseUrl };
+      draft.siteId = siteId;
+      draft.pageDataLoadStatus = pageDataLoadStatus as "ok" | "not_found" | "skipped" | "error" | "auth_error" | null;
+    });
+  }
 });
 
 function waitForBackgroundRetryDelay(delayMs: number): Promise<void> {
