@@ -1,6 +1,6 @@
 import type { SecondaryGatesViewState } from "../../../common/bus/contracts/secondary-gates-state";
 import { SECONDARY_GATES_BLOCK_REASONS } from "../../../common/bus/contracts/secondary-gates-state";
-import type { SessionFacts } from "../../../common/bus/contracts/session-state";
+import { AI_RUN_PHASES, type SessionFacts } from "../../../common/bus/contracts/session-state";
 
 function isBusy(facts: SessionFacts): boolean {
   return Boolean(
@@ -25,6 +25,15 @@ function cloneChecklistBlockingState(facts: SessionFacts) {
 
 export function deriveSecondaryGatesViewState(facts: SessionFacts): SecondaryGatesViewState {
   const busy = isBusy(facts);
+  // POST_AI/AI_PREVIEW is the phase where the dictation-decider unconditionally
+  // ENABLES the Discard button so the AI run can always be cleared back to
+  // PRE_AI. Keep this gate's blocked-reason consistent with that button: an
+  // enabled button must have an empty (NONE) reason, otherwise the page-revert
+  // handler refuses (e.g. "no changes to save") even though the button is live.
+  // The AI selectors are session-level, so currentPageHasPendingChanges is
+  // typically false right after a run — that must NOT block Discard.
+  const postAi =
+    facts.aiRunPhase === AI_RUN_PHASES.POST_AI || facts.aiRunPhase === AI_RUN_PHASES.AI_PREVIEW;
   const pageSaveBlockedReason = busy
     ? SECONDARY_GATES_BLOCK_REASONS.BUSY
     : facts.pageSaveReconciliationPending
@@ -36,6 +45,8 @@ export function deriveSecondaryGatesViewState(facts: SessionFacts): SecondaryGat
       : SECONDARY_GATES_BLOCK_REASONS.NONE;
   const pageRevertBlockedReason = busy
     ? SECONDARY_GATES_BLOCK_REASONS.BUSY
+    : postAi
+      ? SECONDARY_GATES_BLOCK_REASONS.NONE
     : facts.pageSaveReconciliationPending
       ? SECONDARY_GATES_BLOCK_REASONS.SERVER_SYNC_PENDING
     : !facts.currentPageHasPendingChanges

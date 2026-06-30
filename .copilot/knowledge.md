@@ -293,6 +293,16 @@
     disabled, Discard disabled, marking toggle checked/enabled
   - clean post-AI-run state: Run AI disabled, Show Content List enabled, Save
     enabled, Discard enabled, marking toggle checked/enabled
+  - In POST_AI/AI_PREVIEW the dictation-decider unconditionally ENABLES Discard
+    (so a run can always be cleared back to PRE_AI). The
+    `secondary-gates-decider` `pageRevertBlockedReason` MUST stay consistent with
+    that: it returns `NONE` in POST_AI/AI_PREVIEW regardless of
+    `currentPageHasPendingChanges` or a pending save reconciliation. The AI
+    selectors are session-level, so `currentPageHasPendingChanges` is typically
+    false right after a run; gating the reason on it made the enabled Discard
+    button no-op (the `handlePageRevert` handler refused with
+    `no_page_changes`/"no changes to save"). An enabled button must carry an
+    empty blocked-reason.
   - stale post-edit state: Run AI enabled, Show Content List disabled, Save
     disabled, Discard enabled, marking toggle checked/enabled
   - Show Content List preview is read-only, and exiting it must be

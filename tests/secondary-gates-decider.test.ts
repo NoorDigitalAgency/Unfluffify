@@ -89,4 +89,34 @@ describe("secondary gates decider", () => {
       pageTypeKeys: [],
     });
   });
+
+  it("keeps Discard reachable in POST_AI even with no current page draft changes", () => {
+    // The dictation-decider enables Discard in POST_AI so the AI run can always
+    // be cleared back to PRE_AI; the AI selectors are session-level, so the page
+    // draft has no changes. The blocked-reason must stay NONE so the page-revert
+    // handler does not refuse the click ("no changes to save").
+    const result = deriveSecondaryGatesViewState(buildFacts({
+      aiRunPhase: AI_RUN_PHASES.POST_AI,
+      currentPageHasPendingChanges: false,
+      sessionHasPendingChanges: true,
+    }));
+
+    expect(result.pageRevertBlockedReason).toBe("");
+
+    // A pending save reconciliation must also not block Discard in POST_AI
+    // (Discard is how a stuck reconciliation gets cleared).
+    const reconciling = deriveSecondaryGatesViewState(buildFacts({
+      aiRunPhase: AI_RUN_PHASES.POST_AI,
+      currentPageHasPendingChanges: false,
+      pageSaveReconciliationPending: true,
+    }));
+    expect(reconciling.pageRevertBlockedReason).toBe("");
+
+    // Outside POST_AI with no page changes it stays blocked (button is disabled).
+    const preAi = deriveSecondaryGatesViewState(buildFacts({
+      aiRunPhase: AI_RUN_PHASES.PRE_AI,
+      currentPageHasPendingChanges: false,
+    }));
+    expect(preAi.pageRevertBlockedReason).toBe("no_page_changes");
+  });
 });
