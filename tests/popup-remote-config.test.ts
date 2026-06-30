@@ -667,6 +667,7 @@ test("popup remote config save replaces local from server response when flagged"
   const { deps, prunedInvalidUrls } = createDeps({
     ensurePropertyPageTypes: async () => ({ ok: true, pageTypes: [] })
   });
+  state.currentTab = { id: 1, url: "https://example.com/page" };
 
   try {
     const result = await syncBaseConfigToServer(deps, {
@@ -680,11 +681,14 @@ test("popup remote config save replaces local from server response when flagged"
     });
 
     assert.equal(result.ok, true);
-    assert.ok(sentMessageTypes.includes("replaceServerConfigIntoLocalSnapshot"));
-    assert.equal(sentMessageTypes.includes("mergeServerConfigIntoLocalSnapshot"), false);
+    assert.deepEqual(sentMessageTypes, [
+      "saveRemoteConfigSnapshot",
+      "replaceServerConfigIntoLocalSnapshot"
+    ]);
     assert.equal(prunedInvalidUrls.length, 1);
     assert.deepEqual(prunedInvalidUrls[0].invalidUrls, []);
   } finally {
+    state.currentTab = null;
     globalThis.chrome = originalChrome;
   }
 });
