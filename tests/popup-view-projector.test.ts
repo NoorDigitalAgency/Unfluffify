@@ -189,6 +189,7 @@ describe("popup view projector", () => {
       markingEditsBlocked: false,
       markingEditsBlockedReason: "",
       silentHighlightActive: false,
+      pageRevealFreezeActive: false,
     });
     expect(popupView).toEqual({
       version: 3,
@@ -711,6 +712,26 @@ describe("popup view projector", () => {
       pageSaveReconciliationPending: true,
       pageSaveReconciliationReason: "saving",
     })).contentDirective.silentHighlightActive).toBe(false);
+
+    // #13: page-prep reveal/freeze (pageRevealFreezeActive) is a SUPERSET of
+    // silentHighlightActive — it runs for render-mode-confirmed candidate pages
+    // even with NO stored selectors (a fresh candidate), but still requires
+    // marking off, render mode confirmed, and a clean, non-busy state.
+    expect(projectViews(buildState(savedSilentFacts)).contentDirective.pageRevealFreezeActive).toBe(true);
+    expect(projectViews(buildState({ ...savedSilentFacts, hasStoredSelectors: false })).contentDirective.pageRevealFreezeActive).toBe(true);
+    expect(projectViews(buildState({ ...savedSilentFacts, renderModeReady: false })).contentDirective.pageRevealFreezeActive).toBe(false);
+    expect(projectViews(buildState({ ...savedSilentFacts, isEnabled: true, silentModeActive: false })).contentDirective.pageRevealFreezeActive).toBe(false);
+    expect(projectViews(buildState({ ...savedSilentFacts, sessionHasPendingChanges: true })).contentDirective.pageRevealFreezeActive).toBe(false);
+    expect(projectViews(buildState({
+      ...savedSilentFacts,
+      pageSaveReconciliationPending: true,
+      pageSaveReconciliationReason: "editor_preparing",
+    })).contentDirective.pageRevealFreezeActive).toBe(true);
+    expect(projectViews(buildState({
+      ...savedSilentFacts,
+      pageSaveReconciliationPending: true,
+      pageSaveReconciliationReason: "saving",
+    })).contentDirective.pageRevealFreezeActive).toBe(false);
   });
 
   it("projects tabState, siteId, and pageDataLoadStatus", () => {

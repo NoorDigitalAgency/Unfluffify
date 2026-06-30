@@ -100,15 +100,22 @@ not wipe needed data.
   already locked by preview-tooltip.test.ts / popup-marking-refresh.test.ts. Docs:
   knowledge.md + MARKING_AND_HIGHLIGHTING_LOGIC.md. Gate green (check/lint/test
   1019). Code-review clean.
-- #13 Reveal/freeze immediacy: a candidate page must run reveal/freeze IMMEDIATELY
-  on nav/reload when render mode is confirmed — NOT gated on marking-enable; NOT
-  during render-mode detection; run after the FIRST render-mode set; NO
-  reveal/freeze when updating an already-set render mode. Currently
-  `shouldRunSilentHighlightEditorActivation` (src/content-main.ts:2067-2078)
-  blocks when `state.enabled===true` and requires stored selectors, so fresh
-  candidates wait for marking-enable. `refreshSilentHighlightings`
-  (content-main.ts:5318-5366) gates the same way. Decouple reveal/freeze from
-  marking-enable + stored-selectors; trigger on render-mode-confirmed.
+- #13 Reveal/freeze immediacy — DONE (uncommitted; live-validated). Implemented
+  via a brain-authority approach (NOT a content-local gate, per the non-drift
+  rule): new brain directive `pageRevealFreezeActive` (view-projector
+  `shouldRevealFreezePage` — a superset of `shouldActivateSilentHighlighting`
+  minus `silentModeActive` + `hasStoredSelectors`), reflected in content
+  (`layer-host.isPageRevealFreezeActiveByDirective`). Content gates now key on it:
+  `shouldRunSilentHighlightEditorActivation`, the directive watcher, the
+  `isStillCurrent` check, and `refreshSilentHighlightings` holds the freeze when
+  `holdSilentMotionPause` (instead of deactivating) so a fresh candidate's
+  reveal/freeze is not immediately undone. The silent OVERLAY still requires
+  stored selectors (`silentHighlightActive` unchanged). Live-validated on a fresh
+  bonliva.se candidate (hasStoredSelectors=false): page frozen, motion-pause
+  indicator, 372 consent elements hidden, no overlays. Resolves backlog blockers
+  #2 + #3. Gate green (check/lint/1021 tests/build), code-review clean.
+  NOTE: live deploy required clearing the stale SW ScriptCache — re-running
+  `pnpm browser:live` does NOT clear it (known launcher gap).
 - #1/#3/#4 Visual remainder: (1) "Preparing page content" curtain lingers on
   initial load + post-reveal-freeze; (3) missing main-word spinner label beside
   reveal/freeze; (4) green include-borders not rendered in preview/marking (yellow

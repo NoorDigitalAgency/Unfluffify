@@ -7,6 +7,7 @@ export type ContentDirectiveLike = {
   markingEditsBlocked?: unknown;
   markingEditsBlockedReason?: unknown;
   silentHighlightActive?: unknown;
+  pageRevealFreezeActive?: unknown;
 };
 
 let contentLayerHostStarted = false;
@@ -79,6 +80,10 @@ export function getMarkingEditsBlockedReasonByDirective(): string {
 
 export function isSilentHighlightActiveByDirective(): boolean {
   return latestContentDirective?.silentHighlightActive === true;
+}
+
+export function isPageRevealFreezeActiveByDirective(): boolean {
+  return latestContentDirective?.pageRevealFreezeActive === true;
 }
 
 export function addContentDirectiveListener(

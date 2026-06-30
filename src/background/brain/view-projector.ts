@@ -18,6 +18,7 @@ export type ContentDirective = Readonly<{
   markingEditsBlocked: boolean;
   markingEditsBlockedReason: string;
   silentHighlightActive: boolean;
+  pageRevealFreezeActive: boolean;
 }>;
 
 function cloneActivationSnapshot(value: TabLayerState["activation"]): ActivationSnapshot {
@@ -187,6 +188,43 @@ function shouldActivateSilentHighlighting(state: TabLayerState): boolean {
   );
 }
 
+// Page-prep reveal/freeze should run for any render-mode-confirmed candidate page
+// the editor is viewing (marking off), EVEN when there are no stored selectors yet
+// (a fresh candidate). This is the brain-dictated activation gate for the content
+// reveal/freeze mechanics; it is a superset of shouldActivateSilentHighlighting,
+// which additionally requires silent mode + stored selectors to render the overlay.
+// Content still gates the actual reveal on the resolved candidate page type, so a
+// broad directive here is safe (non-candidate pages bail before freezing).
+function shouldRevealFreezePage(state: TabLayerState): boolean {
+  if (!state.sessionFactsReported) {
+    return false;
+  }
+  const facts = state.sessionFacts;
+  const blockingReconciliationPending =
+    facts.pageSaveReconciliationPending &&
+    facts.pageSaveReconciliationReason !== PAGE_SAVE_RECONCILIATION_REASONS.EDITOR_PREPARING;
+  return Boolean(
+    !facts.isEnabled &&
+      !facts.pageScopedUiDisabled &&
+      facts.baseUrlReady &&
+      facts.siteIdReady &&
+      facts.renderModeReady &&
+      !facts.pageTypeUiBlocked &&
+      !facts.sessionHasPendingChanges &&
+      !facts.currentPageHasPendingChanges &&
+      !facts.currentDraftDirty &&
+      !blockingReconciliationPending &&
+      !facts.sessionRequiresAiRun &&
+      !facts.aiBusy &&
+      !facts.aiComputing &&
+      !facts.saving &&
+      !facts.discarding &&
+      !facts.previewActive &&
+      !facts.previewBlocked &&
+      !facts.previewRestorePending
+  );
+}
+
 export function projectViews(state: TabLayerState): {
   popupView: PopupView;
   contentDirective: ContentDirective;
@@ -249,6 +287,7 @@ export function projectViews(state: TabLayerState): {
       markingEditsBlocked,
       markingEditsBlockedReason,
       silentHighlightActive: shouldActivateSilentHighlighting(state),
+      pageRevealFreezeActive: shouldRevealFreezePage(state),
     },
   };
 }

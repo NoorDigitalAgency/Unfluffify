@@ -127,6 +127,7 @@ import { handleContentBusMessage, publishContentSessionFacts, startContentBusCli
 import { normalizePageSaveReconciliationReason } from "./common/bus/contracts/session-state";
 import {
   addContentDirectiveListener,
+  isPageRevealFreezeActiveByDirective,
   isSilentHighlightActiveByDirective
 } from "./content/layers/layer-host";
 import { createRenderModeInspectionClient } from "./content/render-mode-inspection-client";
@@ -2068,7 +2069,10 @@ function shouldRunSilentHighlightEditorActivation() {
   if (state.enabled) {
     return false;
   }
-  if (!isSilentHighlightActiveByDirective()) {
+  // Brain-dictated page-prep gate: reveal/freeze runs for any render-mode-confirmed
+  // candidate page (marking off), even with no stored selectors yet. The silent
+  // overlay still requires isSilentHighlightActiveByDirective() (stored selectors).
+  if (!isPageRevealFreezeActiveByDirective()) {
     return false;
   }
   if (!isPropertyLockCollaborationEnabled()) {
@@ -2169,7 +2173,9 @@ async function runEditorSilentHighlightingActivationOnce() {
     const previousReconciliation = core.getPageSaveReconciliationState(pageUrl);
     const isStillCurrent = () =>
       silentHighlightEditorRevealInFlight === activationId &&
-      (isSilentHighlightActiveByDirective() || core.isPageSaveReconciliationPending(pageUrl)) &&
+      (isSilentHighlightActiveByDirective() ||
+        isPageRevealFreezeActiveByDirective() ||
+        core.isPageSaveReconciliationPending(pageUrl)) &&
       location.href === pageUrl &&
       utils.isPageWithinBaseUrl(location.href, baseUrl);
     lifecycleStarted = true;
@@ -5348,7 +5354,11 @@ async function refreshSilentHighlightings() {
     deactivateSilentHighlightings();
     return;
   }
-  if (!isSilentHighlightActiveByDirective()) {
+  // No stored-selector overlays for this page. If the page-prep reveal/freeze was
+  // prepared for a render-mode-confirmed candidate (holdSilentMotionPause), keep
+  // going so the motion pause is HELD (the !shouldObserve branch below renders no
+  // overlays but holds the freeze); otherwise deactivate and resume page motion.
+  if (!isSilentHighlightActiveByDirective() && !snapshot.holdSilentMotionPause) {
     deactivateSilentHighlightings();
     return;
   }
@@ -7026,14 +7036,23 @@ export function main() {
     },
   });
   let lastSilentHighlightDirectiveActive = isSilentHighlightActiveByDirective();
+  let lastPageRevealFreezeActive = isPageRevealFreezeActiveByDirective();
   addContentDirectiveListener((directive) => {
     const nextSilentHighlightDirectiveActive = Boolean(directive && directive.silentHighlightActive === true);
-    if (nextSilentHighlightDirectiveActive === lastSilentHighlightDirectiveActive) {
+    const nextPageRevealFreezeActive = Boolean(directive && directive.pageRevealFreezeActive === true);
+    if (
+      nextSilentHighlightDirectiveActive === lastSilentHighlightDirectiveActive &&
+      nextPageRevealFreezeActive === lastPageRevealFreezeActive
+    ) {
       return;
     }
     lastSilentHighlightDirectiveActive = nextSilentHighlightDirectiveActive;
+    lastPageRevealFreezeActive = nextPageRevealFreezeActive;
     refreshSilentHighlightings().then(() => {});
-    if (nextSilentHighlightDirectiveActive) {
+    // Run the editor reveal/freeze when the page-prep directive is active (covers
+    // fresh candidates with no stored selectors) or when silent highlighting is
+    // active (saved pages). The activation itself dedupes per page visit.
+    if (nextPageRevealFreezeActive || nextSilentHighlightDirectiveActive) {
       runEditorSilentHighlightingActivation().catch(() => {
         refreshSilentHighlightings().then(() => {});
       });
