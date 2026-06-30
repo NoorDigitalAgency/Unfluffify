@@ -24,7 +24,7 @@ import {
   type SessionFactsReportedPayload
 } from "../../common/bus/contracts/session-state";
 import { SPINNER_EVENT_TYPES, type SpinnerSurface } from "../../common/bus/contracts/spinner";
-import { REALMS } from "../../common/bus/realms";
+import { REALMS, type Realm } from "../../common/bus/realms";
 import { createBackgroundTransport } from "../../common/bus/transport/background-transport";
 import type { PopupSpinnerEntry } from "../../common/bus/contracts/popup-state";
 import type { PopupBrokerState } from "../popup-state-broker";
@@ -422,17 +422,45 @@ function publishSpinnerSurface(
   tabId: number,
   surface: SpinnerSurface,
   state: SpinnerState | null,
+  realmsOverride?: readonly Realm[],
 ): void {
   const eventType = state ? SPINNER_EVENT_TYPES.SET : SPINNER_EVENT_TYPES.CLEAR;
   const payload = state
     ? { surface, state }
     : { surface };
-  const targets = surface === "popup"
-    ? [REALMS.POPUP]
-    : [REALMS.CONTENT, REALMS.POPUP];
+  const targets = realmsOverride
+    ? realmsOverride
+    : surface === "popup"
+      ? [REALMS.POPUP]
+      : [REALMS.CONTENT, REALMS.POPUP];
   for (const target of targets) {
     void bus.publish(eventType, payload, { target, tab: tabId });
   }
+}
+
+// Per-tab cache of the last BROADCAST projection content. The store bumps
+// `version` and schedules a projection on every mutate (including no-op folds of
+// identical facts). Both the popup VIEW_UPDATED apply and the popup spinner
+// SET/CLEAR handlers re-run `refreshUi`, which republishes the popup facts, so
+// without deduping those POPUP-realm broadcasts the brain and popup spin in an
+// unbounded loop (popup publish -> brain fold -> project -> popup apply ->
+// refreshUi -> publish -> ...). We therefore dedupe the popup-realm deliveries:
+// VIEW_UPDATED and the popup-realm SET/CLEAR of the three spinner surfaces.
+// `popupView.version` is excluded from the comparison because the popup never
+// consumes it (applyPopupViewSnapshot ignores `version`). The content-realm
+// broadcasts (directive.content and the content-realm pageCurtain/banner) are
+// deliberately NOT deduped (see publishProjectedState) because the content has a
+// push-only subscription with no resync hook.
+type ProjectionBroadcastCache = {
+  view: string;
+  popup: string;
+  pageCurtain: string;
+  banner: string;
+};
+const lastProjectionBroadcastByTab = new Map<number, ProjectionBroadcastCache>();
+
+function resetProjectionBroadcastCache(tabId: number): void {
+  lastProjectionBroadcastByTab.delete(tabId);
 }
 
 function publishProjectedState(
@@ -443,11 +471,49 @@ function publishProjectedState(
   const { popupView, contentDirective } = projectViews(state);
   const spinners = projectSpinners(state);
 
-  void bus.publish(POPUP_STATE_EVENT_TYPES.VIEW_UPDATED, popupView, { target: REALMS.POPUP, tab: tabId });
+  const viewKey = JSON.stringify({ ...popupView, version: 0 });
+  const popupSpinnerKey = JSON.stringify(spinners.popup ?? null);
+  const pageCurtainKey = JSON.stringify(spinners.pageCurtain ?? null);
+  const bannerKey = JSON.stringify(spinners.banner ?? null);
+  const last = lastProjectionBroadcastByTab.get(tabId);
+
+  if (!last || viewKey !== last.view) {
+    void bus.publish(POPUP_STATE_EVENT_TYPES.VIEW_UPDATED, popupView, { target: REALMS.POPUP, tab: tabId });
+  }
+
+  // Content-realm broadcasts are NOT deduped. The content realm receives them via
+  // a push subscription with no pull and best-effort delivery (transient
+  // tabs.sendMessage failures are swallowed), and there is no content-side
+  // resync hook like registerPopupPort. A freshly (re)injected content script
+  // that reports byte-identical facts must therefore still receive the current
+  // directive AND the current page curtain/banner, otherwise a dropped or missed
+  // delivery would leave the page stuck under (or missing) a curtain forever.
+  // Content does not re-report facts in response to these, so they do not drive
+  // the popup republish loop and re-broadcasting is harmless.
   void bus.publish("directive.content", contentDirective, { target: REALMS.CONTENT, tab: tabId });
-  publishSpinnerSurface(bus, tabId, "popup", spinners.popup);
-  publishSpinnerSurface(bus, tabId, "pageCurtain", spinners.pageCurtain);
-  publishSpinnerSurface(bus, tabId, "banner", spinners.banner);
+  publishSpinnerSurface(bus, tabId, "pageCurtain", spinners.pageCurtain, [REALMS.CONTENT]);
+  publishSpinnerSurface(bus, tabId, "banner", spinners.banner, [REALMS.CONTENT]);
+
+  // Popup-realm spinner deliveries DO drive the loop (handleSpinnerSurfaceChanged
+  // re-runs refreshUi for the popup/pageCurtain surfaces), so dedupe them. The
+  // popup always gets a fresh full projection on (re)connect via
+  // registerPopupPort, so deduping cannot starve it.
+  if (!last || popupSpinnerKey !== last.popup) {
+    publishSpinnerSurface(bus, tabId, "popup", spinners.popup, [REALMS.POPUP]);
+  }
+  if (!last || pageCurtainKey !== last.pageCurtain) {
+    publishSpinnerSurface(bus, tabId, "pageCurtain", spinners.pageCurtain, [REALMS.POPUP]);
+  }
+  if (!last || bannerKey !== last.banner) {
+    publishSpinnerSurface(bus, tabId, "banner", spinners.banner, [REALMS.POPUP]);
+  }
+
+  lastProjectionBroadcastByTab.set(tabId, {
+    view: viewKey,
+    popup: popupSpinnerKey,
+    pageCurtain: pageCurtainKey,
+    banner: bannerKey,
+  });
 }
 
 export function createBrain(options: { logger?: Pick<Console, "error" | "debug"> } = {}) {
@@ -667,6 +733,9 @@ export function createBrain(options: { logger?: Pick<Console, "error" | "debug">
       heartbeat.start(tabId);
       const state = store.get(tabId);
       if (state) {
+        // A (re)connecting popup has no prior state, so always send a fresh
+        // projection even if it is identical to the last broadcast.
+        resetProjectionBroadcastCache(tabId);
         publishProjectedState(bus, tabId, state);
       } else {
         publishSpinnerSurface(bus, tabId, "popup", null);
