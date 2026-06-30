@@ -7140,7 +7140,7 @@ function showToast(message: string): void {
 }
 
 function getMarkingTemporarilyDisabledReason() {
-  // Brain-dictated: the marking-edits-blocked overlay reason (post_ai / saving /
+  // Brain-dictated: the marking-edits-blocked overlay reason (ai_run / saving /
   // syncing) is composed entirely by the background view-projector and reflected
   // here. The silent-highlight editor-preparation reconciliation is exempt
   // brain-side, so this never raises the overlay during that preparation.
@@ -7151,7 +7151,7 @@ function getMarkingTemporarilyDisabledMessage(reason: string): string {
   if (reason === "saving") {
     return ContentText.marking.temporarilyDisabledSaving;
   }
-  if (reason === "post_ai") {
+  if (reason === "ai_run") {
     return ContentText.marking.temporarilyDisabled;
   }
   if (reason) {
@@ -8449,7 +8449,7 @@ function handleToggleEvent(event: MouseEvent): void {
   if (temporarilyDisabledReason) {
     updateMarkingTemporarilyDisabledUi();
     // Brain-dictated: the reconciliation block reasons (saving/syncing) get the
-    // reconciliation copy; post_ai gets the generic temporarily-disabled copy.
+    // reconciliation copy; ai_run gets the generic temporarily-disabled copy.
     // Reflect the directive reason rather than re-reading local reconciliation.
     showToast(
       temporarilyDisabledReason === "saving" || temporarilyDisabledReason === "syncing"

@@ -342,7 +342,7 @@ test("marking-mode preview remains a dedicated marking control", () => {
     siteIdReady: true,
     renderModeReady: true,
     pageTypeUiBlocked: false,
-    currentPageHasPendingChanges: true,
+    currentPageHasPendingChanges: false,
     pageInspectionBusy: false,
     desktopPreviewVisible: false,
     desktopPreviewActive: false,

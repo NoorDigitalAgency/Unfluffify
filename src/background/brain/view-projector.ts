@@ -6,7 +6,7 @@ import type {
 import type { SecondaryGatesViewState } from "../../common/bus/contracts/secondary-gates-state";
 import { LIFECYCLE_KINDS } from "../../common/world-messaging-contract";
 import type { PopupViewEnvelope } from "../../common/bus/contracts/popup-state";
-import { AI_RUN_PHASES, PAGE_SAVE_RECONCILIATION_REASONS } from "../../common/bus/contracts/session-state";
+import { PAGE_SAVE_RECONCILIATION_REASONS } from "../../common/bus/contracts/session-state";
 import type { TabLayerState } from "./state-store";
 
 export type PopupView = PopupViewEnvelope;
@@ -194,13 +194,17 @@ export function projectViews(state: TabLayerState): {
   const activation = cloneActivationSnapshot(state.activation);
   const renderMode = cloneRenderModeViewState(state.renderMode);
   // The brain is the sole authority for the marking-edits-blocked overlay: it
-  // composes both causes (post-AI lock and save reconciliation) into one
+  // composes both causes (active AI run and save reconciliation) into one
   // directive reason so content only reflects it. The silent-highlight editor
   // preparation reconciliation is exempt and must never raise the overlay.
+  // The marking page is locked ONLY while an AI run is in flight (computing) or
+  // its preview is open; once the run settles into POST_AI the page is editable
+  // again so the user can revise markings and re-run (or Save/Discard).
   const aiRunMarkingBlocked = Boolean(
     state.sessionFactsReported &&
-      (state.sessionFacts.aiRunPhase === AI_RUN_PHASES.POST_AI ||
-        state.sessionFacts.aiRunPhase === AI_RUN_PHASES.AI_PREVIEW)
+      (state.sessionFacts.aiComputing ||
+        state.sessionFacts.previewActive ||
+        state.sessionFacts.previewBlocked)
   );
   const reconciliationMarkingBlocked = Boolean(
     state.sessionFactsReported &&
@@ -209,7 +213,7 @@ export function projectViews(state: TabLayerState): {
   );
   const markingEditsBlocked = aiRunMarkingBlocked || reconciliationMarkingBlocked;
   const markingEditsBlockedReason = aiRunMarkingBlocked
-    ? "post_ai"
+    ? "ai_run"
     : reconciliationMarkingBlocked
       ? (state.sessionFacts.pageSaveReconciliationReason === PAGE_SAVE_RECONCILIATION_REASONS.SAVING
         ? "saving"

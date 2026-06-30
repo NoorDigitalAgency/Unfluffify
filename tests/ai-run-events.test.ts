@@ -160,8 +160,12 @@ test("popup fact reports cannot clobber typed AI-run authority except clean PRE_
   });
   await new Promise((resolve) => queueMicrotask(resolve));
 
+  // The popup cannot clobber the typed AI-run authority: the store phase stays
+  // POST_AI. But currentPageHasPendingChanges is a non-stripped page-edit signal,
+  // so reporting it true drops the SESSION phase to MARKING_DIRTY (State B) - a
+  // legitimate "edited the markings after the run" transition, not a clobber.
   assert.equal(brain.store.get(tabId)?.aiRun.phase, AI_RUN_PHASES.POST_AI);
-  assert.equal(brain.getPopupView(tabId).sessionDictation?.phase, SESSION_PHASES.READY_TO_SAVE);
+  assert.equal(brain.getPopupView(tabId).sessionDictation?.phase, SESSION_PHASES.MARKING_DIRTY);
 
   await brain.bus.publish(SESSION_REPORT_TYPES.FACTS_REPORTED, {
     source: "popup",

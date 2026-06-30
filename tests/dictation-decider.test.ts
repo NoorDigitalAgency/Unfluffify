@@ -124,8 +124,8 @@ test("dictation keeps discard reachable in POST_AI when reconciliation is stuck 
 test("dictation treats AI_PREVIEW as post-AI for the action matrix", () => {
   const facts = buildFacts({
     sessionHasPendingChanges: true,
-    currentDraftDirty: true,
-    currentPageHasPendingChanges: true,
+    currentDraftDirty: false,
+    currentPageHasPendingChanges: false,
     aiRunPhase: AI_RUN_PHASES.AI_PREVIEW,
     aiRunUpToDate: true,
   });

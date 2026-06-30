@@ -185,7 +185,15 @@ export function decideSessionPhase(facts: SessionFacts): SessionPhase {
     return SESSION_PHASES.SILENT;
   }
 
-  if (facts.sessionHasPendingChanges && facts.aiRunPhase === AI_RUN_PHASES.POST_AI) {
+  // READY_TO_SAVE (State C) only holds while the current page still matches the
+  // markings the AI run was scoped to. Any post-AI marking edit flips
+  // currentPageHasPendingChanges back on, which drops the session to
+  // MARKING_DIRTY (State B): Run AI re-enables and Save requires a fresh run.
+  if (
+    facts.sessionHasPendingChanges &&
+    facts.aiRunPhase === AI_RUN_PHASES.POST_AI &&
+    !facts.currentPageHasPendingChanges
+  ) {
     return SESSION_PHASES.READY_TO_SAVE;
   }
 

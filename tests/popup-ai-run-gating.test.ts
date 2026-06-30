@@ -19,8 +19,12 @@ function computeButtonDisabledForState({
   pageSaveReconciliationPending = false,
   saving = false,
   discarding = false,
-  aiRunPhase = AI_RUN_PHASES.PRE_AI
+  aiRunPhase = AI_RUN_PHASES.PRE_AI,
+  currentPageHasPendingChanges = false
 } = {}) {
+  const postAi =
+    aiRunPhase === AI_RUN_PHASES.POST_AI || aiRunPhase === AI_RUN_PHASES.AI_PREVIEW;
+  const postAiClean = postAi && !currentPageHasPendingChanges;
   return (
     pageScopedUiDisabled ||
     aiBusy ||
@@ -28,7 +32,7 @@ function computeButtonDisabledForState({
     pageSaveReconciliationPending ||
     saving ||
     discarding ||
-    aiRunPhase === AI_RUN_PHASES.POST_AI
+    postAiClean
   );
 }
 
@@ -38,15 +42,19 @@ function markingPreviewDisabledForState({
   pageSaveReconciliationPending = false,
   saving = false,
   discarding = false,
-  aiRunPhase = AI_RUN_PHASES.PRE_AI
+  aiRunPhase = AI_RUN_PHASES.PRE_AI,
+  currentPageHasPendingChanges = false
 } = {}) {
+  const postAi =
+    aiRunPhase === AI_RUN_PHASES.POST_AI || aiRunPhase === AI_RUN_PHASES.AI_PREVIEW;
+  const postAiClean = postAi && !currentPageHasPendingChanges;
   return (
     aiBusy ||
     previewRestorePending ||
     pageSaveReconciliationPending ||
     saving ||
     discarding ||
-    aiRunPhase !== AI_RUN_PHASES.POST_AI
+    !postAiClean
   );
 }
 
@@ -63,10 +71,10 @@ test("a successful AI run captures the markings fingerprint", () => {
   assert.doesNotMatch(fnBody, /markSessionAiRunPostAi\(\);/);
 });
 
-test("post-AI phase locks content marking edits through the brain directive", () => {
+test("an active AI run (computing/preview) locks content marking edits through the brain directive", () => {
   assert.match(
     viewProjectorSource,
-    /const aiRunMarkingBlocked = Boolean\([\s\S]*?state\.sessionFacts\.aiRunPhase === AI_RUN_PHASES\.POST_AI/
+    /const aiRunMarkingBlocked = Boolean\([\s\S]*?state\.sessionFacts\.aiComputing[\s\S]*?state\.sessionFacts\.previewActive[\s\S]*?state\.sessionFacts\.previewBlocked/
   );
   assert.match(
     contentCoreSource,
@@ -235,12 +243,16 @@ test("Run AI stays wired to the real popup view-state gating expression", () => 
   };
   const dictation = deriveDictation(decideSessionPhase(facts), facts);
 
+  // facts are POST_AI with a post-AI marking edit (currentPageHasPendingChanges),
+  // i.e. State B: Run AI re-enables so the user can re-run on the new markings.
   assert.equal(dictation.buttons[BUTTON_IDS.COMPUTE].enabled, !computeButtonDisabledForState({
-    aiRunPhase: AI_RUN_PHASES.POST_AI
+    aiRunPhase: AI_RUN_PHASES.POST_AI,
+    currentPageHasPendingChanges: true
   }));
+  assert.equal(dictation.buttons[BUTTON_IDS.COMPUTE].enabled, true);
 });
 
-test("post-AI phase enables Save/Discard even when legacy freshness facts drift", () => {
+test("clean post-AI phase enables Save/Discard even when legacy freshness facts drift", () => {
   assert.match(
     popupSource,
     /sessionRequiresAiRun,[\s\S]*?reconciliation: state\.currentPageSaveReconciliation/
@@ -252,7 +264,7 @@ test("post-AI phase enables Save/Discard even when legacy freshness facts drift"
     siteIdReady: true,
     renderModeReady: true,
     pageTypeUiBlocked: false,
-    currentPageHasPendingChanges: true,
+    currentPageHasPendingChanges: false,
     pageInspectionBusy: false,
     desktopPreviewVisible: false,
     desktopPreviewActive: false,
@@ -270,7 +282,7 @@ test("post-AI phase enables Save/Discard even when legacy freshness facts drift"
     previewRestorePending: false,
     sessionHasPendingChanges: true,
     sessionRequiresAiRun: true,
-    currentDraftDirty: true,
+    currentDraftDirty: false,
     pageSaveReconciliationPending: false,
     propertyLockBlocked: false,
     saving: false,
@@ -293,6 +305,55 @@ test("post-AI phase enables Save/Discard even when legacy freshness facts drift"
     dictation.buttons[BUTTON_IDS.PAGE_REVERT].enabled,
     true
   );
+});
+
+test("post-AI marking edit (State B) re-enables Run AI, blocks Save, keeps Discard", () => {
+  const facts = {
+    baseUrlReady: true,
+    pageScopedUiDisabled: false,
+    navigationInspectionPending: false,
+    siteIdReady: true,
+    renderModeReady: true,
+    pageTypeUiBlocked: false,
+    currentPageHasPendingChanges: true,
+    pageInspectionBusy: false,
+    desktopPreviewVisible: false,
+    desktopPreviewActive: false,
+    deviceControlsDisabled: false,
+    isEnabled: true,
+    silentModeActive: false,
+    aiReady: true,
+    aiBusy: false,
+    aiComputing: false,
+    aiRunPhase: AI_RUN_PHASES.POST_AI,
+    aiRunUpToDate: true,
+    previewActive: false,
+    previewBlocked: false,
+    previewItemsPending: false,
+    previewRestorePending: false,
+    sessionHasPendingChanges: true,
+    sessionRequiresAiRun: false,
+    currentDraftDirty: true,
+    pageSaveReconciliationPending: false,
+    propertyLockBlocked: false,
+    saving: false,
+    discarding: false,
+    hasStoredSelectors: true,
+    lynxChecklistCanSend: false,
+    lynxChecklistBlockingReason: { code: "", pageTypeKeys: [] },
+    busyVisible: false,
+    busyMessage: "",
+    busyNote: "",
+    busyTimerText: ""
+  };
+  const dictation = deriveDictation(decideSessionPhase(facts), facts);
+
+  // A post-AI marking edit drops back to State B: the AI run is stale.
+  assert.equal(decideSessionPhase(facts), "marking_dirty");
+  assert.equal(dictation.buttons[BUTTON_IDS.COMPUTE].enabled, true);
+  assert.equal(dictation.buttons[BUTTON_IDS.PAGE_SAVE].enabled, false);
+  assert.equal(dictation.buttons[BUTTON_IDS.MARKING_PREVIEW].enabled, false);
+  assert.equal(dictation.buttons[BUTTON_IDS.PAGE_REVERT].enabled, true);
 });
 
 test("navigating away from a pending marking session prompts to discard first", () => {

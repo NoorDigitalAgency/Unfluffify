@@ -515,7 +515,7 @@ describe("popup view projector", () => {
     });
   });
 
-  it("keeps markingEditsBlocked through POST_AI and AI_PREVIEW, off in PRE_AI", () => {
+  it("locks markingEditsBlocked while computing or previewing, editable in POST_AI and PRE_AI", () => {
     const buildState = (facts: typeof baseSessionFacts): TabLayerState => ({
       tabId: 91,
       version: 7,
@@ -554,12 +554,14 @@ describe("popup view projector", () => {
       pageDataLoadStatus: null,
     });
 
-    expect(projectViews(buildState({ ...baseSessionFacts, aiRunPhase: AI_RUN_PHASES.POST_AI })).contentDirective.markingEditsBlocked).toBe(true);
-    expect(projectViews(buildState({ ...baseSessionFacts, aiRunPhase: AI_RUN_PHASES.AI_PREVIEW })).contentDirective.markingEditsBlocked).toBe(true);
+    expect(projectViews(buildState({ ...baseSessionFacts, aiComputing: true })).contentDirective.markingEditsBlocked).toBe(true);
+    expect(projectViews(buildState({ ...baseSessionFacts, previewActive: true })).contentDirective.markingEditsBlocked).toBe(true);
+    expect(projectViews(buildState({ ...baseSessionFacts, previewBlocked: true })).contentDirective.markingEditsBlocked).toBe(true);
+    expect(projectViews(buildState({ ...baseSessionFacts, aiRunPhase: AI_RUN_PHASES.POST_AI })).contentDirective.markingEditsBlocked).toBe(false);
     expect(projectViews(buildState({ ...baseSessionFacts, aiRunPhase: AI_RUN_PHASES.PRE_AI })).contentDirective.markingEditsBlocked).toBe(false);
   });
 
-  it("brain-dictates the marking-edits-blocked reason for post_ai, saving, and syncing", () => {
+  it("brain-dictates the marking-edits-blocked reason for ai_run, saving, and syncing", () => {
     const buildState = (facts: typeof baseSessionFacts): TabLayerState => ({
       tabId: 91,
       version: 7,
@@ -597,14 +599,18 @@ describe("popup view projector", () => {
     const directiveFor = (facts: typeof baseSessionFacts) =>
       projectViews(buildState(facts)).contentDirective;
 
-    // POST_AI / AI_PREVIEW lock => reason "post_ai", and it wins over reconciliation.
-    expect(directiveFor({ ...baseSessionFacts, aiRunPhase: AI_RUN_PHASES.POST_AI }).markingEditsBlockedReason).toBe("post_ai");
+    // Active run (computing) / preview lock => reason "ai_run", and it wins over reconciliation.
+    expect(directiveFor({ ...baseSessionFacts, aiComputing: true }).markingEditsBlockedReason).toBe("ai_run");
+    expect(directiveFor({ ...baseSessionFacts, previewActive: true }).markingEditsBlockedReason).toBe("ai_run");
     expect(directiveFor({
       ...baseSessionFacts,
-      aiRunPhase: AI_RUN_PHASES.POST_AI,
+      aiComputing: true,
       pageSaveReconciliationPending: true,
       pageSaveReconciliationReason: "saving",
-    }).markingEditsBlockedReason).toBe("post_ai");
+    }).markingEditsBlockedReason).toBe("ai_run");
+
+    // POST_AI with no active run/preview => editable, no overlay.
+    expect(directiveFor({ ...baseSessionFacts, aiRunPhase: AI_RUN_PHASES.POST_AI }).markingEditsBlockedReason).toBe("");
 
     // Reconciliation overlay reasons while PRE_AI.
     const savingDirective = directiveFor({

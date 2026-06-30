@@ -90,6 +90,11 @@ export function deriveDictation(phase: SessionPhase, facts: SessionFacts): Sessi
   const mainUiHidden = deriveMainUiHidden(facts);
   const pageControlsVisible = derivePageControlsVisible(facts, mainUiHidden);
   const postAi = facts.aiRunPhase === AI_RUN_PHASES.POST_AI || facts.aiRunPhase === AI_RUN_PHASES.AI_PREVIEW;
+  // A post-AI run is "clean" only while the current page still matches the
+  // markings it was scoped to. The moment the user edits a marking,
+  // currentPageHasPendingChanges flips on and the session behaves like PRE_AI
+  // dirty (State B): Run AI re-enables, Save/Show List block until a fresh run.
+  const postAiClean = postAi && !facts.currentPageHasPendingChanges;
   const actionMatrixDisabled = Boolean(
     facts.pageScopedUiDisabled ||
       facts.aiBusy ||
@@ -110,8 +115,11 @@ export function deriveDictation(phase: SessionPhase, facts: SessionFacts): Sessi
   );
 
   // Discard must always be reachable in POST_AI so a stuck/pending reconciliation
-  // can be unconditionally cleared back to PRE_AI; only an active busy/save/discard
-  // run blocks it. Save/List stay gated on reconciliation pending.
+  // can be unconditionally cleared back to PRE_AI; it is also reachable in PRE_AI
+  // dirty (currentPageHasPendingChanges) so the user can revert markings to the
+  // initial state. Only an active busy/save/discard run blocks it; a pending
+  // reconciliation blocks it only in the PRE_AI dirty case. Save/List stay gated
+  // on reconciliation pending.
   const revertMatrixDisabled = Boolean(
     facts.pageScopedUiDisabled ||
       facts.aiBusy ||
@@ -120,7 +128,7 @@ export function deriveDictation(phase: SessionPhase, facts: SessionFacts): Sessi
       facts.discarding
   );
 
-  const computeButtonDisabled = actionMatrixDisabled || postAi;
+  const computeButtonDisabled = actionMatrixDisabled || postAiClean;
 
   const buttons = {
     [BUTTON_IDS.TOGGLE_ENABLED]: buildButtonDictation(
@@ -137,17 +145,18 @@ export function deriveDictation(phase: SessionPhase, facts: SessionFacts): Sessi
     [BUTTON_IDS.MARKING_PREVIEW]: buildButtonDictation(
       BUTTON_IDS.MARKING_PREVIEW,
       pageControlsVisible && facts.isEnabled,
-      postAi && !actionMatrixDisabled,
+      postAiClean && !actionMatrixDisabled,
     ),
     [BUTTON_IDS.PAGE_SAVE]: buildButtonDictation(
       BUTTON_IDS.PAGE_SAVE,
       pageControlsVisible,
-      postAi && !actionMatrixDisabled,
+      postAiClean && !actionMatrixDisabled,
     ),
     [BUTTON_IDS.PAGE_REVERT]: buildButtonDictation(
       BUTTON_IDS.PAGE_REVERT,
       pageControlsVisible,
-      postAi && !revertMatrixDisabled,
+      (postAi || (facts.currentPageHasPendingChanges && !facts.pageSaveReconciliationPending)) &&
+        !revertMatrixDisabled,
     ),
   };
 

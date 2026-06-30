@@ -34,13 +34,17 @@ export function deriveSecondaryGatesViewState(facts: SessionFacts): SecondaryGat
   // typically false right after a run — that must NOT block Discard.
   const postAi =
     facts.aiRunPhase === AI_RUN_PHASES.POST_AI || facts.aiRunPhase === AI_RUN_PHASES.AI_PREVIEW;
+  // Save / Show List are live only in a CLEAN post-AI run. A post-AI marking
+  // edit (currentPageHasPendingChanges) drops back to PRE_AI dirty (State B),
+  // so both block with REQUIRES_AI_RUN until the user re-runs.
+  const postAiClean = postAi && !facts.currentPageHasPendingChanges;
   const pageSaveBlockedReason = busy
     ? SECONDARY_GATES_BLOCK_REASONS.BUSY
     : facts.pageSaveReconciliationPending
       ? SECONDARY_GATES_BLOCK_REASONS.SERVER_SYNC_PENDING
     : !facts.sessionHasPendingChanges
       ? SECONDARY_GATES_BLOCK_REASONS.NO_SESSION_CHANGES
-    : facts.sessionRequiresAiRun
+    : !postAiClean
       ? SECONDARY_GATES_BLOCK_REASONS.REQUIRES_AI_RUN
       : SECONDARY_GATES_BLOCK_REASONS.NONE;
   const pageRevertBlockedReason = busy
@@ -56,7 +60,7 @@ export function deriveSecondaryGatesViewState(facts: SessionFacts): SecondaryGat
     ? SECONDARY_GATES_BLOCK_REASONS.BUSY
     : facts.pageSaveReconciliationPending
       ? SECONDARY_GATES_BLOCK_REASONS.SERVER_SYNC_PENDING
-    : !facts.aiRunUpToDate || facts.sessionRequiresAiRun
+    : !postAiClean
       ? SECONDARY_GATES_BLOCK_REASONS.REQUIRES_AI_RUN
       : SECONDARY_GATES_BLOCK_REASONS.NONE;
   const saveExcludesBlockedReason = busy

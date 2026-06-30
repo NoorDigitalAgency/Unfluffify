@@ -288,23 +288,42 @@
 ## Popup Preview Exit Contract
 
 - Approved popup button-state contract for the AI run -> Show Content List ->
-  Exit Preview -> marking mode flow:
-  - fresh marking entry: Run AI enabled, Show Content List disabled, Save
-    disabled, Discard disabled, marking toggle checked/enabled
-  - clean post-AI-run state: Run AI disabled, Show Content List enabled, Save
-    enabled, Discard enabled, marking toggle checked/enabled
-  - In POST_AI/AI_PREVIEW the dictation-decider unconditionally ENABLES Discard
-    (so a run can always be cleared back to PRE_AI). The
-    `secondary-gates-decider` `pageRevertBlockedReason` MUST stay consistent with
-    that: it returns `NONE` in POST_AI/AI_PREVIEW regardless of
-    `currentPageHasPendingChanges` or a pending save reconciliation. The AI
-    selectors are session-level, so `currentPageHasPendingChanges` is typically
-    false right after a run; gating the reason on it made the enabled Discard
-    button no-op (the `handlePageRevert` handler refused with
-    `no_page_changes`/"no changes to save"). An enabled button must carry an
-    empty blocked-reason.
-  - stale post-edit state: Run AI enabled, Show Content List disabled, Save
-    disabled, Discard enabled, marking toggle checked/enabled
+  Exit Preview -> marking mode flow. The page is LOCKED (marking-edits overlay,
+  `cursor-disabled`) only while the AI run is in flight (computing) or its preview
+  is open; in every editable stage the page cursor stays markable:
+  - State A — fresh marking entry (`MARKING_FRESH`): Run AI enabled, Show Content
+    List disabled, Save disabled, Discard disabled, marking toggle checked/enabled,
+    page editable.
+  - State B — pre-AI dirty (`MARKING_DIRTY`, `currentPageHasPendingChanges` true,
+    not POST_AI): Run AI enabled, Show Content List disabled, Save disabled,
+    **Discard enabled** (revert markings to the initial state), page editable.
+  - computing/preview: page LOCKED; Run AI disabled. Save/Discard/List follow the
+    preview matrix.
+  - State C — clean post-AI run (`READY_TO_SAVE`, POST_AI &&
+    `!currentPageHasPendingChanges`): Run AI disabled, Show Content List enabled,
+    Save enabled, Discard enabled, marking toggle checked/enabled, page editable.
+  - State B again — post-AI marking edit: the moment the user edits a marking
+    post-AI, the popup reports `currentPageHasPendingChanges` true, which drops the
+    SESSION phase from `READY_TO_SAVE` back to `MARKING_DIRTY` (the underlying
+    typed `store.aiRun.phase` stays POST_AI; only the projected phase changes). Run
+    AI re-enables, Save/List block (REQUIRES_AI_RUN), Discard stays enabled.
+  - `currentPageHasPendingChanges` is the dirty axis (NOT fingerprints): it is the
+    popup-owned signal (`currentDraftDirty || reconciliationPending ||
+    hasCurrentPageMarkingChanges`) and is NOT stripped by the brain-authority
+    layer, so the brain always sees post-AI edits. The post-run AI-run event
+    patches (PREVIEW_READY / RESULTS_APPLIED / EXITED) set
+    `currentPageHasPendingChanges: false` to establish the clean post-AI baseline
+    with no flicker gap; a real popup edit overrides it true.
+  - dictation-decider: `postAiClean = postAi && !currentPageHasPendingChanges`.
+    Run AI (`computeButtonDisabled`) is disabled only when `actionMatrixDisabled ||
+    postAiClean`. Save / Show List enable only when `postAiClean`. Discard enables
+    when `postAi || (currentPageHasPendingChanges && !pageSaveReconciliationPending)`.
+  - secondary-gates-decider MUST stay consistent: `pageSaveBlockedReason` and
+    `markingPreviewBlockedReason` return `REQUIRES_AI_RUN` when `!postAiClean`;
+    `pageRevertBlockedReason` returns `NONE` in POST_AI/AI_PREVIEW and in pre-AI
+    dirty (`currentPageHasPendingChanges && !reconciliation`). An enabled button
+    must carry an empty blocked-reason (the `handlePageRevert` handler refuses on a
+    non-empty reason).
   - Show Content List preview is read-only, and exiting it must be
     state-neutral: restore the exact pre-preview marking state after at most a
     brief restore-pending bridge
@@ -450,7 +469,7 @@
 - Tab removal is different from navigation disconnects: the background immediately sends `release_lock` and disposes the property-lock runtime for that tab instead of waiting for the ordinary 70 second disconnect grace used for reconnectable page transitions.
 - Popup-side property-lock warning rendering must treat mirrored initial-tab-state countdowns as authoritative UI state. Cross-property and off-candidate warnings must still render even when the freshly fetched live lock snapshot on the current page is inactive, unavailable, or no longer reports `isEditor`.
 - If marking remains enabled while page editing is blocked by save reconciliation, the page overlay must visibly enter the temporary disabled state: dim markings, clear hover, show the paused status notice, and strip that UI from snapshots.
-- The marking-edits-blocked overlay reason is brain-dictated: the background view-projector composes both causes — the post-AI/preview lock (`aiRunPhase` POST_AI/AI_PREVIEW → reason `post_ai`) and a pending page-save reconciliation (reason `saving`/`syncing`) — into the `contentDirective.markingEditsBlocked` + `markingEditsBlockedReason` directive. Content reflects it via `getMarkingEditsBlockedReasonByDirective()` and never re-derives the block locally, including the blocked-interaction toast wording (saving/syncing → reconciliation copy, post_ai → generic copy). The silent-highlight editor-preparation reconciliation (`pageSaveReconciliationReason === "editor_preparing"`) is exempt brain-side and must never raise the overlay. Content reports `pageSaveReconciliationReason` up alongside the pending flag (normalized to `"" | saving | syncing | editor_preparing`).
+- The marking-edits-blocked overlay reason is brain-dictated: the background view-projector composes both causes — the **active AI run lock** (`aiComputing || previewActive || previewBlocked` → reason `ai_run`) and a pending page-save reconciliation (reason `saving`/`syncing`) — into the `contentDirective.markingEditsBlocked` + `markingEditsBlockedReason` directive. The page is locked ONLY while the AI run is in flight (computing) or its preview is open; once the run settles into POST_AI the page is editable again (so the user can revise markings and re-run, or Save/Discard). Content reflects it via `getMarkingEditsBlockedReasonByDirective()` and never re-derives the block locally, including the blocked-interaction toast wording (saving/syncing → reconciliation copy, ai_run → generic copy). The silent-highlight editor-preparation reconciliation (`pageSaveReconciliationReason === "editor_preparing"`) is exempt brain-side and must never raise the overlay. Content reports `pageSaveReconciliationReason` up alongside the pending flag (normalized to `"" | saving | syncing | editor_preparing`).
 - The popup page-save informational notices (`pageDraftStatusText`/`Tone`, `pageSessionNoticeVisible`/`Text`, `aiDirtyNoticeVisible`/`Text`) are a SANCTIONED local shared-derivation reflection, not authority drift. They are computed by the shared pure function `buildPageSaveUiState` (`src/common/page-save-state.ts`) from facts the brain already owns (`sessionHasPendingChanges`, `sessionRequiresAiRun`, `currentDraftDirty`, reconciliation) plus the brain-reflected `mainUiHidden`. Because the popup runs the same canonical function with those inputs, its output is byte-identical to what a brain projection would produce — there is no possible divergence. The gating these notices sit on (page-save/revert button disabled) is already brain-dictated via the matrix. Do NOT re-flag these for brain projection: doing so adds a brain-contract surface (new reconciliation facts + decider + projection + reflection) and puts a frequently-updating notice behind report-up→project→reflect latency (flicker risk on locked page-save UX) for zero functional gain (Audit 3 decision, 2026-06-30).
 - Repo-local Phase 2 live validation currently uses `scripts/smoke-property-lock-phase2.mjs` with `xvfb-run -a node ...`. The most reliable setup is the persistent repo profile plus an explicit `chrome.runtime.reload()` of the unpacked extension worker before each run. Fresh profiles are not meaningful product validation until the required extension config/auth state is present.
 - The current property-lock smoke harness is good for cross-property countdown diagnostics, but it is still operationally flaky around popup reopen/auth bootstrap after extension reload. Treat smoke failures that land on the unauthenticated popup as harness/profile issues unless they reproduce while the page banner and `tabState:initial:*` storage also show bad state.
