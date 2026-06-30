@@ -164,6 +164,7 @@ export function requestPopupSpinnerClear(
 export function publishPopupSessionFacts(
   tabId: number,
   facts: SessionFactsPatch,
+  seq?: number,
 ): Promise<void> {
   if (!tabId || !popupBus) {
     return Promise.resolve();
@@ -172,6 +173,7 @@ export function publishPopupSessionFacts(
   const payload: SessionFactsReportedPayload = {
     source: "popup",
     facts,
+    ...(typeof seq === "number" ? { seq } : {}),
   };
   return popupBus.publish(SESSION_REPORT_TYPES.FACTS_REPORTED, payload, {
     target: REALMS.BACKGROUND,

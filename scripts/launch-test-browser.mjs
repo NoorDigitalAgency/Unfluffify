@@ -31,7 +31,6 @@ import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
-import { chromium } from "playwright";
 
 const selfPath = fileURLToPath(import.meta.url);
 const repoRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -505,117 +504,6 @@ function makeControlChannel(client) {
     const next = queue.then(task, task);
     queue = next.then(() => undefined, () => undefined);
     return next;
-  }
-
-  async function runStateActionViaCdp(action) {
-    const browser = await chromium.connectOverCDP(`http://127.0.0.1:${CDP_PORT}`);
-    try {
-      const ctx = browser.contexts()[0];
-      const pages = ctx ? ctx.pages() : [];
-      const popup = pages.find(
-        (candidate) => String(candidate.url()).startsWith("chrome-extension://") && String(candidate.url()).includes("/popup.html")
-      );
-      const target = pages.find(
-        (candidate) => !String(candidate.url()).startsWith("chrome-extension://") && !String(candidate.url()).startsWith("chrome://")
-      );
-      if (!popup) {
-        throw new Error("Could not find the bound Unfluffify popup tab");
-      }
-
-      const collectPopupState = async () => {
-        const popupState = await popup.evaluate(() => {
-          const popupDebug = window.__UNFLUFFIFY_POPUP_DEBUG__;
-          if (!popupDebug || typeof popupDebug.getViewState !== "function") {
-            throw new Error("Popup debug hook is unavailable");
-          }
-          const view = popupDebug.getViewState();
-          const viewKeys = [
-            "previewActive",
-            "previewBlocked",
-            "previewItemsPending",
-            "previewWillRestoreMarking",
-            "toggleEnabled",
-            "toggleEnabledDisabled",
-            "computeButtonDisabled",
-            "markingPreviewVisible",
-            "markingPreviewDisabled",
-            "pageSaveDisabled",
-            "pageRevertDisabled",
-            "sessionHasPendingChanges",
-            "currentPageHasPendingChanges",
-            "sessionRequiresAiRun",
-            "currentDraftDirty",
-            "pageDraftStatusText",
-            "aiDirtyNoticeText",
-            "isBusy",
-            "busyMessage"
-          ];
-          const pickedView = {};
-          for (const key of viewKeys) {
-            pickedView[key] = view[key];
-          }
-          const domIds = ["compute", "marking-preview", "page-save", "page-revert", "toggle-enabled"];
-          const dom = {};
-          for (const id of domIds) {
-            const element = document.getElementById(id);
-            dom[id] = element
-              ? {
-                  disabled: Boolean(element.disabled),
-                  checked: "checked" in element ? Boolean(element.checked) : null,
-                  text: String(element.textContent || "").trim(),
-                  title: element.getAttribute("title") || "",
-                  ariaLabel: element.getAttribute("aria-label") || "",
-                  visible: Boolean(element.offsetWidth || element.offsetHeight || element.getClientRects().length)
-                }
-              : null;
-          }
-          return {
-            url: location.href,
-            title: document.title,
-            view: pickedView,
-            dom
-          };
-        });
-        const targetState = target
-          ? await target
-            .evaluate(() => ({
-              url: location.href,
-              title: document.title,
-              activeElement: document.activeElement ? document.activeElement.tagName : ""
-            }))
-            .catch((error) => ({ error: String(error && error.message ? error.message : error) }))
-          : null;
-        return { popup: popupState, target: targetState };
-      };
-
-      if (action === "exit-preview") {
-        const before = await collectPopupState();
-        await popup.evaluate(() => {
-          const button = document.querySelector(".preview-sidebar__dismiss");
-          if (!button) {
-            throw new Error("Exit Preview button not found");
-          }
-          button.click();
-        });
-        await popup.waitForTimeout(1500);
-        const after = await collectPopupState();
-        return {
-          action,
-          before,
-          after,
-          pages: pages.map((candidate) => candidate.url())
-        };
-      }
-
-      const state = await collectPopupState();
-      return {
-        action,
-        state,
-        pages: pages.map((candidate) => candidate.url())
-      };
-    } finally {
-      await browser.close();
-    }
   }
 
   async function runStateAction(action, timeoutMs = CONTROL_STATE_TIMEOUT_MS, options = {}) {

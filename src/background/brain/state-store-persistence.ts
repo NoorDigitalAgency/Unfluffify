@@ -22,7 +22,7 @@ export function serializeTabStates(states: Map<number, TabLayerState>): string {
   return JSON.stringify(obj);
 }
 
-export function deserializeTabStates(serialized: string | null | undefined): Map<number, TabLayerState> {
+export function deserializeTabStates(serialized: unknown): Map<number, TabLayerState> {
   if (!serialized || typeof serialized !== "string") {
     return new Map();
   }

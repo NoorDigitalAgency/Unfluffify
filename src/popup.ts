@@ -790,7 +790,16 @@ let viewPushedRefreshInFlight = false;
 let clearedReloadRestoreForTabId: number | null = null;
 let projectedTabState: { enabled: boolean; baseUrl: string; pageType: string } | null = null;
 let projectedSiteId: number | null = null;
-let projectedPageDataLoadStatus: string | null = null;
+// Monotonic per-popup-session sequence stamped on each full refreshUiInner facts
+// report. refreshUi does not serialize, so overlapping runs can publish
+// SessionFacts out of order; the brain uses this to drop stale/duplicate popup
+// reports so a stale run cannot be the last writer. Resets to 0 each popup load,
+// so the brain resets its per-tab high-water mark when the popup (re)connects.
+let popupSessionFactsSeq = 0;
+function nextPopupSessionFactsSeq(): number {
+  popupSessionFactsSeq += 1;
+  return popupSessionFactsSeq;
+}
 
 
 function isEditableTarget(el: EventTarget | null | undefined): boolean {
@@ -1195,7 +1204,6 @@ function applyPopupViewSnapshot(snapshot: PopupStateGetReply | null) {
   });
   projectedTabState = snapshot.tabState || null;
   projectedSiteId = typeof snapshot.siteId === "number" ? snapshot.siteId : null;
-  projectedPageDataLoadStatus = snapshot.pageDataLoadStatus || null;
   tracePopupApplyView(snapshot.tabId, Boolean(projectedTabState), Boolean(projectedSiteId));
   const nextCentralSessionDictationEffect = deriveCentralSessionDictationSnapshotEffect({
     currentTabId,
@@ -1253,9 +1261,9 @@ function applyPopupViewSnapshot(snapshot: PopupStateGetReply | null) {
   }
 }
 
-function publishCurrentSessionFacts(tabId: number, facts: SessionFactsPatch): void {
+function publishCurrentSessionFacts(tabId: number, facts: SessionFactsPatch, seq?: number): void {
   latestSessionFactsPatch = { ...latestSessionFactsPatch, ...facts };
-  publishPopupSessionFacts(tabId, facts).catch(() => null);
+  publishPopupSessionFacts(tabId, facts, seq).catch(() => null);
 }
 
 function buildCurrentPropertyLockSnapshot(): PropertyLockSnapshot {
@@ -3830,6 +3838,7 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
   if (!state.currentTab) {
     return;
   }
+  const refreshSessionFactsSeq = nextPopupSessionFactsSeq();
   const previousBaseUrl = state.currentBaseUrl;
   await validateStoredToken({ force: false, showToastOnInvalid: true });
   const currentTabId = state.currentTab.id || null;
@@ -5505,7 +5514,7 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
       busyMessage: busyMessageForSessionFacts,
       busyNote: busyNoteForSessionFacts,
       busyTimerText: ""
-    });
+    }, refreshSessionFactsSeq);
   }
 }
 

@@ -43,9 +43,6 @@ import {
 } from "./common/feature-flags";
 import {
   traceRuntimeReceive,
-  traceBrainProject,
-  tracePageDataResolve,
-  tracePageDataLoad,
   traceTabSend
 } from "./common/layer-trace";
 import {

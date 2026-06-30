@@ -463,6 +463,17 @@ function resetProjectionBroadcastCache(tabId: number): void {
   lastProjectionBroadcastByTab.delete(tabId);
 }
 
+// Per-tab high-water mark of the latest applied popup SessionFacts sequence.
+// Lets the brain drop stale/duplicate out-of-order popup reports (overlapping
+// refreshUiInner runs publish facts out of order). NOT persisted: the popup's
+// counter restarts at 1 on every popup load, so this is reset when the popup
+// (re)connects (registerPopupPort).
+const lastPopupSessionFactsSeqByTab = new Map<number, number>();
+
+function resetPopupSessionFactsSeq(tabId: number): void {
+  lastPopupSessionFactsSeqByTab.delete(tabId);
+}
+
 function publishProjectedState(
   bus: ReturnType<typeof createBus>,
   tabId: number,
@@ -602,6 +613,20 @@ export function createBrain(options: { logger?: Pick<Console, "error" | "debug">
     }
     const typedPayload = payload as SessionFactsReportedPayload;
     const source = typedPayload.source === "content" ? "content" : "popup";
+    // Drop stale/duplicate out-of-order popup reports. refreshUi does not
+    // serialize, so overlapping refreshUiInner runs publish full SessionFacts out
+    // of order; without this a stale run (isEnabled/siteIdReady=false during the
+    // enable/load window) could be the last writer and the brain would dictate
+    // mainUiHidden=true (main UI stuck hidden). The seq is the popup's
+    // refresh-start sequence; untagged reports (content facts, partial popup
+    // publishes) carry no seq and always apply.
+    if (source === "popup" && typeof typedPayload.seq === "number") {
+      const lastSeq = lastPopupSessionFactsSeqByTab.get(meta.tab) ?? 0;
+      if (typedPayload.seq <= lastSeq) {
+        return;
+      }
+      lastPopupSessionFactsSeqByTab.set(meta.tab, typedPayload.seq);
+    }
     const facts = typedPayload.facts && typeof typedPayload.facts === "object"
       ? typedPayload.facts
       : {};
@@ -730,6 +755,9 @@ export function createBrain(options: { logger?: Pick<Console, "error" | "debug">
     registerPopupPort(tabId: number, port: Browser.runtime.Port): void {
       transport.registerPopupPort(tabId, port);
       popupPortCounts.set(tabId, (popupPortCounts.get(tabId) ?? 0) + 1);
+      // A (re)connecting popup restarts its facts sequence at 1, so clear the
+      // brain's high-water mark or the reloaded popup's reports would be dropped.
+      resetPopupSessionFactsSeq(tabId);
       heartbeat.start(tabId);
       const state = store.get(tabId);
       if (state) {

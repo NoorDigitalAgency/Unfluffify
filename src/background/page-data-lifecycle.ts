@@ -100,7 +100,7 @@ type PageDataLifecycleDeps = {
   onSiteContextResolved?: (context: {
     tabId: number;
     baseUrl: string;
-    siteId: number;
+    siteId: number | null;
     pageDataLoadStatus: string;
   }) => void;
 };

@@ -166,6 +166,12 @@ export const SESSION_EVENT_TYPES = Object.freeze({
 export type SessionFactsReportedPayload = Readonly<{
   source: "popup" | "content";
   facts: SessionFactsPatch;
+  // Monotonic per-popup-session sequence captured when the popup COMPUTES the
+  // facts (refreshUiInner start), not when it sends them. Lets the brain drop
+  // stale/out-of-order reports from overlapping refreshUiInner runs so a stale
+  // run cannot be the last writer. Optional and back-compatible: untagged
+  // reports (content facts, partial popup publishes) always apply.
+  seq?: number;
 }>;
 
 export type SessionFactsApplyPayload = SessionFactsReportedPayload;

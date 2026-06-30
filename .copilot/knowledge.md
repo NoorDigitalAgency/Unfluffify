@@ -319,6 +319,20 @@
   `deriveDictation(...)` in `src/background/brain/deciders/` decide the 5-button
   matrix and blocking curtain; popup-local overrides must stay limited to
   short-lived fallback bridges until projected dictation arrives.
+- Popup `SessionFacts` reports carry a monotonic per-popup-session `seq` stamped
+  at `refreshUiInner` START (not send time), threaded popup
+  `publishCurrentSessionFacts(...,seq)` → `publishPopupSessionFacts(...,seq)` →
+  `SessionFactsReportedPayload.seq`. `refreshUi` does NOT serialize, so overlapping
+  `refreshUiInner` runs publish the full facts set OUT OF ORDER; the brain
+  `FACTS_REPORTED` handler drops popup reports with `seq <=`
+  `lastPopupSessionFactsSeqByTab` (per tab; reset on `registerPopupPort` because the
+  popup counter restarts at 1 each load) so a stale run can't be the last writer and
+  dictate a stale `mainUiHidden` (regression: main UI stuck hidden after marking
+  enable on first-visit/slow-load). Untagged reports (content facts, partial popup
+  publishes) carry no seq and ALWAYS apply (back-compat). Two non-negotiable traps:
+  stamp at COMPUTE time (a send-time stamp marks the stale-published-later report
+  newest) and use a COUNTER not a wall-clock timestamp (ms-resolution collides
+  across rapid refreshes).
 - The brain broadcasts curtain/spinner via `SPINNER_EVENT_TYPES` to BOTH popup
   and content (`pageCurtain`/`banner` → CONTENT+POPUP) and clears `navInspect`
   on terminal curtain-bearing lifecycle. The popup curtain is driven by the
