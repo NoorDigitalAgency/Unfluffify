@@ -173,7 +173,12 @@ function createInitialTabState(tabId: number): TabLayerState {
   };
 }
 
-export function createStateStore() {
+type StateStoreOptions = {
+  persist?: (states: Map<number, TabLayerState>) => void;
+};
+
+export function createStateStore(options: StateStoreOptions = {}) {
+  const persist = typeof options.persist === "function" ? options.persist : null;
   const tabStates = new Map<number, TabLayerState>();
   const projectionCallbacks = new Set<ProjectionCallback>();
   const pendingReasons = new Map<number, string>();
@@ -205,6 +210,9 @@ export function createStateStore() {
       }
       for (const callback of projectionCallbacks) {
         callback(tabId, state, reason);
+      }
+      if (persist) {
+        persist(tabStates);
       }
     });
   }

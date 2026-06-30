@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { createStateStore } from "../src/background/brain/state-store.js";
+import type { TabLayerState } from "../src/background/brain/state-store.js";
 
 describe("brain state store", () => {
   it("mutates state and bumps the version", () => {
@@ -68,5 +69,23 @@ describe("brain state store", () => {
     store.dispose(3);
 
     expect(store.get(3)).toBeNull();
+  });
+
+  it("calls persist hook after mutate when projection fires", async () => {
+    const persistedStates: Array<Map<number, TabLayerState>> = [];
+    const store = createStateStore({
+      persist: (states) => { persistedStates.push(states); },
+    });
+
+    store.getOrInit(789);
+    store.mutate(789, "test", (s) => {
+      s.popupView.traceEnabled = true;
+    });
+
+    await new Promise(r => queueMicrotask(r));
+    await new Promise(r => setTimeout(r, 0));
+
+    expect(persistedStates.length).toBe(1);
+    expect(persistedStates[0].has(789)).toBe(true);
   });
 });
