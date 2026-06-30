@@ -5011,6 +5011,19 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
     resolvedView === uiModule.View.Marking &&
     renderModeReady &&
     !isEnabled;
+  // The brain-published silent-mode fact must reflect the actual PAGE state, not
+  // which popup view is open. Gating it on the Marking view made the popup report
+  // silentModeActive=false while the config view was open, conflicting with the
+  // content script (which still reports silentModeActive=true for the same page).
+  // The brain merges both sources into one fact, so the conflict made it oscillate
+  // -> the silent-highlight directive flickered -> the page-inspection curtain
+  // flickered and the config inputs were overwritten on every re-render. Keep the
+  // popup-local view gate for the Marking-only UI sections, but publish the
+  // view-independent page state.
+  const silentModeActivePageState =
+    !pageScopedUiDisabled &&
+    renderModeReady &&
+    !isEnabled;
   const desktopPreviewVisible = Boolean(
     desktopPreviewFeatureEnabled &&
     silentModeActive &&
@@ -5454,7 +5467,7 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
       desktopPreviewActive,
       deviceControlsDisabled: Boolean(state.deviceControlsDisabled || isEnabled),
       isEnabled,
-      silentModeActive,
+      silentModeActive: silentModeActivePageState,
       aiReady,
       ...(popupOwnsAiRunFacts
         ? { aiBusy: aiBusyForSessionFacts, aiComputing: aiComputingForSessionFacts }
