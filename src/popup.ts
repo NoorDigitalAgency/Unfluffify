@@ -4054,34 +4054,14 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
         await config.saveConfigs(configs);
       }
     } else {
-      const siteIdResult = await ensureBaseUrlSiteId({
-        baseUrl: state.currentBaseUrl,
-        pageUrl,
-        stageBase: normalizedStageBaseValue,
-        tokenValue,
-        configs,
-        persist: false
-      });
-      if (siteIdResult.ok && siteIdResult.siteId) {
-        const resolvedBaseUrl = siteIdResult.baseUrl || state.currentBaseUrl;
-        configs = siteIdResult.configs || configs;
-        if (resolvedBaseUrl && resolvedBaseUrl !== state.currentBaseUrl) {
-          state.currentBaseUrl = resolvedBaseUrl;
-          if (currentTabId) {
-            effectiveTabState = { ...effectiveTabState, baseUrl: resolvedBaseUrl };
-            await messages.setTabState(currentTabId, effectiveTabState);
-            if (effectiveTabState.enabled) {
-              await messages.sendTabMessageWithRetry({
-                type: "setEnabled",
-              enabled: true,
-              baseUrl: resolvedBaseUrl
-            });
-          }
-        }
-      }
-      currentSiteId = siteIdResult.siteId;
-      state.currentConfig = siteIdResult.config || state.currentConfig;
-    }
+      // Brain hasn't pushed a siteId yet. Read from config (which the brain
+      // may have already persisted via page-data-lifecycle). Do NOT send a
+      // resolveLivePageSiteId message — that creates a feedback loop when the
+      // brain hasn't resolved yet (e.g., onCommitted hasn't fired).
+      const configSiteId = normalizeSiteIdValue(
+        configs[state.currentBaseUrl] && configs[state.currentBaseUrl].siteId
+      );
+      currentSiteId = configSiteId;
     }
     if (
       tabInScope &&
