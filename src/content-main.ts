@@ -307,9 +307,6 @@ type PageBlockerEvent = {
   source?: unknown;
   [key: string]: unknown;
 };
-type SiteIdPathCheckState = {
-  baseUrl?: string;
-};
 type EnableHotkeyGateResult = Awaited<ReturnType<typeof isEnableHotkeyAllowedOnPage>>;
 type ToggleEnabledFromPageOptions = {
   gate?: EnableHotkeyGateResult | null;
@@ -566,8 +563,6 @@ let silentHighlightSettleStartedAt = 0;
 let silentHighlightSettleStableSamples = 0;
 let silentHighlightLastPositionSignature = "";
 let silentHighlightRevealRaf = 0;
-let lastTrackedUrlPath = "";
-let lastTrackedUrlHostname = "";
 let silentHighlightLegacyAttrsCleaned = false;
 let silentHighlightEditorRevealInFlight = 0;
 let silentHighlightEditorRevealKey = "";
@@ -1028,35 +1023,6 @@ async function loadGlobalAiSettingsForContent() {
     tokenValue: settings.tokenValue,
     configEndpointValue: settings.configEndpointValue
   };
-}
-
-function extractUrlPathAndHostname(url = location.href) {
-  try {
-    const parsed = new URL(url);
-    return {
-      hostname: (parsed.hostname || "").toLowerCase(),
-      path: (parsed.pathname || "/").replace(/\/+$/, "") || "/"
-    };
-  } catch {
-    return { hostname: "", path: "" };
-  }
-}
-
-function isSignificantUrlPathChange(currentUrl: string, lastPath: string, lastHostname: string) {
-  const current = extractUrlPathAndHostname(currentUrl);
-  if (!current.hostname) {
-    return false;
-  }
-  // Different hostname = not just a path change
-  if (current.hostname !== lastHostname) {
-    return false;
-  }
-  // Same path = no change
-  if (current.path === lastPath) {
-    return false;
-  }
-  // Path changed on same domain
-  return true;
 }
 
 async function fetchPropertyPageTypesForSiteId(
@@ -7094,12 +7060,6 @@ export function main() {
   }
 
   core.refreshFromTabState().then(async () => {
-    if (state.enabled && state.baseUrl) {
-      const urlInfo = extractUrlPathAndHostname(location.href);
-      lastTrackedUrlPath = urlInfo.path;
-      lastTrackedUrlHostname = urlInfo.hostname;
-    }
-    
     if (isPropertyLockCollaborationEnabled()) {
       runPropertyLockSync({
         forceSiteIdRefresh: !state.enabled || !state.baseUrl
