@@ -332,21 +332,26 @@ function extractJsonObject(text) {
 function buildLiveStateScript(action, options = {}) {
   const clickSelector = options.clickSelector ? JSON.stringify(options.clickSelector) : "null";
   const inputValues = options.inputValues ? JSON.stringify(options.inputValues) : "null";
+  const evalExpr = options.expr ? JSON.stringify(options.expr) : "null";
   return `async (page) => {
+  try {
   const action = ${JSON.stringify(action)};
   const clickSelector = ${clickSelector};
   const inputValues = ${inputValues};
+  const evalExpr = ${evalExpr};
   const ctx = page.context();
   const pages = ctx.pages();
   const popup = pages.find((candidate) => String(candidate.url()).startsWith('chrome-extension://') && String(candidate.url()).includes('/popup.html'));
   const target = pages.find((candidate) => !String(candidate.url()).startsWith('chrome-extension://') && !String(candidate.url()).startsWith('chrome://'));
-  if (!popup) throw new Error('Could not find the bound Unfluffify popup tab');
+  if (!popup) {
+    return JSON.stringify({ error: 'Could not find the bound Unfluffify popup tab', pages: pages.map(c => c.url()) });
+  }
 
   async function collectPopupState() {
     const popupState = await popup.evaluate(async () => {
       const popupDebug = window.__UNFLUFFIFY_POPUP_DEBUG__;
       if (!popupDebug || typeof popupDebug.getViewState !== 'function') {
-        throw new Error('Popup debug hook is unavailable');
+        return { error: 'Popup debug hook is unavailable', url: location.href, title: document.title };
       }
       const view = popupDebug.getViewState();
       const viewKeys = [
@@ -439,13 +444,16 @@ function buildLiveStateScript(action, options = {}) {
     return JSON.stringify({ action, before, after, pages: pages.map(c => c.url()) });
   }
 
-  if (action === 'eval' && options.expr) {
-    const result = await popup.evaluate(${JSON.stringify(options.expr)});
+  if (action === 'eval' && evalExpr) {
+    const result = await popup.evaluate(evalExpr);
     return JSON.stringify({ action, result, pages: pages.map(c => c.url()) });
   }
 
   const state = await collectPopupState();
   return JSON.stringify({ action, state, pages: pages.map(c => c.url()) });
+  } catch (e) {
+    return JSON.stringify({ error: String(e && e.message ? e.message : e), action: ${JSON.stringify(action)} });
+  }
 }`;
 }
 
