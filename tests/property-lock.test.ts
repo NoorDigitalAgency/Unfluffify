@@ -361,15 +361,16 @@ test("content-main connects property lock with a stable client identity and auto
   );
 });
 
-test("content-main treats property lock site-id fetch failures as a null lookup", () => {
+test("content-main reads siteId from config for property lock — brain owns resolution", () => {
   const source = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
-  const resolverStart = source.indexOf("async function resolveSiteIdFromGraphql");
-  const resolverEnd = source.indexOf("function extractUrlPathAndHostname", resolverStart);
+  // resolveSiteIdFromGraphql no longer exists in content — brain owns resolution
+  assert.ok(source.indexOf("async function resolveSiteIdFromGraphql") === -1);
+  // Content still reads siteId from config
+  const resolverStart = source.indexOf("async function resolveCurrentPropertyLockConnectionTarget");
+  const resolverEnd = source.indexOf("async function resolveCurrentPageTypeForMarking", resolverStart);
   const resolverSource = source.slice(resolverStart, resolverEnd);
-
-  assert.ok(resolverStart >= 0);
-  assert.match(resolverSource, /try \{[\s\S]*?response = await utils\.sendRuntimeMessage\(\{/);
-  assert.match(resolverSource, /\} catch \(error\) \{\s*return null;\s*\}/);
+  assert.match(resolverSource, /normalizeSiteIdValue\(normalizedConfig && normalizedConfig\.siteId\)/);
+  assert.doesNotMatch(resolverSource, /resolveSiteIdFromGraphql/);
 });
 
 test("content-main starts property lock sync immediately during content-script initialization", () => {
@@ -384,7 +385,7 @@ test("content-main starts property lock sync immediately during content-script i
   assert.ok(refreshIndex > immediateSyncIndex);
 });
 
-test("content-main resolves property lock targets from matching config and GraphQL site ids", () => {
+test("content-main resolves property lock targets from config siteId", () => {
   const source = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
   const resolverStart = source.indexOf("async function resolveCurrentPropertyLockConnectionTarget");
   const resolverEnd = source.indexOf("async function resolveCurrentPageTypeForMarking", resolverStart);
@@ -393,12 +394,9 @@ test("content-main resolves property lock targets from matching config and Graph
   assert.ok(resolverStart >= 0);
   assert.match(resolverSource, /const matchingBaseUrl = utils\.findMatchingBaseUrl\(pageUrl, currentConfigs\);/);
   assert.match(resolverSource, /const normalizedBaseUrl = utils\.normalizeBaseUrl\(matchingBaseUrl\) \|\| matchingBaseUrl \|\| "";/);
-  assert.match(resolverSource, /const storedSiteId = normalizeSiteIdValue\(normalizedConfig && normalizedConfig\.siteId\);/);
-  assert.match(resolverSource, /if \(normalizedBaseUrl && siteId !== storedSiteId\) \{/);
-  assert.doesNotMatch(
-    resolverSource,
-    /!normalizedBaseUrl \|\| !pageUrl \|\| !utils\.isPageWithinBaseUrl\(pageUrl, normalizedBaseUrl\)/
-  );
+  assert.match(resolverSource, /const siteId = normalizeSiteIdValue\(normalizedConfig && normalizedConfig\.siteId\);/);
+  assert.match(resolverSource, /if \(!siteId\) \{/);
+  assert.doesNotMatch(resolverSource, /resolveSiteIdFromGraphql/);
 });
 
 test("content-main coalesces concurrent property lock sync requests", () => {
