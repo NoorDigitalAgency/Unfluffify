@@ -354,6 +354,25 @@ function omitPopupAiRunAuthorityFacts(
   return rest;
 }
 
+// The popup is the integrated authority for marking session state: it folds the
+// toggle, content marking mode, candidacy, and the post-AI lock into isEnabled /
+// silentModeActive. Content reports the same two facts from its lower-level page
+// edit-state, which legitimately diverges post-AI (marking edits are locked, so
+// content reports isEnabled:false / silentModeActive:true) while the popup reports
+// the ready_to_save session (isEnabled:true). Re-folded every heartbeat, the two
+// disagreeing reports flip-flop mainUiHidden -> the marking UI (incl. Save/Discard)
+// flickers and is intermittently unclickable. While a popup is connected the popup
+// owns these two facts; with no popup connected content keeps them so silent
+// highlighting still activates with the popup closed.
+function omitContentMarkingSessionFacts(facts: SessionFactsPatch): SessionFactsPatch {
+  const {
+    isEnabled: _isEnabled,
+    silentModeActive: _silentModeActive,
+    ...rest
+  } = facts;
+  return rest;
+}
+
 function normalizePropertyLockSnapshotLockState(
   value: PropertyLockSnapshot["lockState"]
 ) {
@@ -541,6 +560,7 @@ export function createBrain(options: { logger?: Pick<Console, "error" | "debug">
   });
 
   transport.start();
+  const popupPortCounts = new Map<number, number>();
   store.onProjection((tabId, state) => {
     traceBrainProject(tabId, state.version, "projection");
     publishProjectedState(bus, tabId, state);
@@ -563,9 +583,15 @@ export function createBrain(options: { logger?: Pick<Console, "error" | "debug">
     reason: string,
   ) {
     return store.mutate(tabId, reason, (draft) => {
-      const nextFacts = shouldKeepBrainAiRunAuthority(draft, source, facts)
+      let nextFacts: SessionFactsPatch = shouldKeepBrainAiRunAuthority(draft, source, facts)
         ? omitPopupAiRunAuthorityFacts(facts)
         : facts;
+      // While a popup is connected it is the authority for marking session state;
+      // drop content's isEnabled/silentModeActive so the two sources cannot
+      // flip-flop mainUiHidden across heartbeats (see omitContentMarkingSessionFacts).
+      if (source === "content" && popupPortCounts.has(tabId)) {
+        nextFacts = omitContentMarkingSessionFacts(nextFacts);
+      }
       const wasNavigationInspectionPending = draft.sessionFacts.navigationInspectionPending;
       const wasPageInspectionBusy = draft.sessionFacts.pageInspectionBusy;
       const next = applySessionFactsPatch(draft.sessionFacts, nextFacts);
@@ -663,7 +689,6 @@ export function createBrain(options: { logger?: Pick<Console, "error" | "debug">
     request: (type, payload, opts) => bus.request(type, payload, opts),
     foldFacts: (tabId, source, facts, reason) => foldSessionFacts(tabId, source, facts, reason),
   });
-  const popupPortCounts = new Map<number, number>();
   bus.subscribe(PROPERTY_LOCK_REPORT_TYPES.SNAPSHOT_REPORTED, (payload, meta) => {
     if (!meta.tab || !payload || typeof payload !== "object") {
       return;
