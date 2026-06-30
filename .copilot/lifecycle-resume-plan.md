@@ -121,55 +121,36 @@ not wipe needed data.
   reveal/freeze; (4) green include-borders not rendered in preview/marking (yellow
   focus + list<->page sync work). Re-observe after #13/#14 since some may resolve.
 
-## Backlog bug — render-mode inspection stuck spinner (DIAGNOSED 2026-06-30, fix pending)
-Repro: navigate to a property page whose render mode gets re-inspected (e.g.
-www.bonliva.se after the render-mode With/Without-JavaScript buttons) → popup
-shows the render-mode DETECTION view + a STUCK "Inspecting page… / Working…
-controls are temporarily blocked" curtain; page only hid cookie consent, no
-reveal/freeze. Live CDP findings: brain facts navPending=false, pageInspBusy=
-false, but busyVisible=TRUE busyMsg="Inspecting page…" (ORPHANED); renderModeReady
-=FALSE because config bonliva.se renderModeUpdatedAt was wiped to the 1970-01-01
-epoch fallback (isRenderModeConfirmed checks renderModeUpdatedAt !== fallback,
-src/common/config.ts:1161); brain snapshot renderMode.inspecting=TRUE; page-data
-load not_found. Root cause: the render-mode inspection un-confirms render mode
-(resets renderModeUpdatedAt to re-detect) and emits the busyVisible curtain but
-never completes (likely the known renderModeInspectionEnd-not-reaching-content
-after the inspection reload — content-main.ts:431,1721; the
-armRenderModeInspectionWatchdog fail-open isn't clearing busyVisible). The brain
-curtain-clear (src/background/brain/index.ts:604-616) only fires when
-navPending/pageInspBusy SETTLE, so an orphaned busyVisible (both already false)
-never clears. Fix direction (brain-side per user): brain must clear/own the busy
-curtain when the inspection is no longer active even if busyVisible is orphaned
-(fold renderMode.inspecting=false / a terminal lifecycle into a busyVisible
-clear), AND/OR the inspection must always emit a terminal busyVisible=false
-(fail-open), AND an interrupted inspection must not leave renderModeUpdatedAt
-wiped (preserve the prior confirmation). Trace: background.ts renderModeInspector
-+ sendRenderModeInspectionEndWithRetry + the watchdog; where renderModeUpdatedAt
-is reset; brain busyVisible ownership. Live-validate through the inspection
-reload (clear the SW ScriptCache before trusting results).
+## Backlog bug — render-mode inspection stuck spinner (FIXED 2026-07-01, commit pending)
+Repro: on a property re-inspecting render mode (www.bonliva.se via the render-mode
+With/Without-JavaScript buttons), the popup curtain "Starting render-mode
+inspection / Working… controls are temporarily blocked" stayed STUCK visible even
+though the page reloaded fine and the brain correctly cleared the curtain.
 
-### Refined trace (2026-07-01 run_plan follow-up)
-The stuck curtain is a popup<->brain busyVisible LOOP, not a simple hang:
-- busyVisible is POPUP-reported: popup.ts:5447
-  `busyVisibleForSessionFacts = projectedComputingAiActive || isBusy ||
-  aiControlsBusy`; `isBusy` reflects the stuck navInspect spinner. So the popup
-  keeps reporting busyVisible=true -> brain folds it -> busy curtain stays.
-- The render-mode inspection request DOES have timeouts
-  (RENDER_MODE_INSPECTION_START/LOAD_TIMEOUT_MS, src/popup/render-mode-inspection.ts)
-  and there is a popup fail-open scheduleStaleInspectionBusyClear (popup.ts:1676,
-  75 attempts) whose last-resort failOpenClear reports settled to the brain — but
-  none of these RELEASE the stuck brain navInspect spinner, so the loop persists.
-- Root gap (brain-side): the navInspect spinner has a deadlineAt
-  (buildNavigationInspectionSelection, brain/index.ts:149, ~120s) but the brain
-  has NO deadline enforcement — the heartbeat (brain/heartbeat.ts) only pulls
-  facts, it never releases expired spinners. So an orphaned navInspect spinner
-  lives forever, sustaining busyVisible.
-- Brain-side fix candidate: in the heartbeat tick (or projection), release a
-  navInspect spinner past its deadlineAt and clearNavigationInspectionCurtainDraft
-  (which sets busyVisible=false) so the loop breaks; PLUS ensure renderMode.
-  inspecting is cleared and renderModeUpdatedAt is preserved on an interrupted
-  inspection. REQUIRES live repro (homepage navigation that re-inspects render
-  mode) to verify the loop breaks and the curtain clears.
+ACTUAL root cause (confirmed via live CDP curtain-write tracing) — NOT the brain
+busyVisible loop hypothesized earlier: the popup session curtain
+(`view.sessionCurtainVisible`) is brain-authoritative, reflected from the projected
+`sessionDictation` via `applyCentralSessionDictation(nextViewState, currentTabId)`
+inside the big async `refreshUiInner` (src/popup.ts). The original code called
+`applyCentralSessionDictation` EARLY (computing `sessionCurtainVisible` from the
+dictation at that instant), then ran a long async tail (token validation,
+config/tab fetches, `await syncRenderModeDebuggerLifecycle`), then finally wrote
+the whole `nextViewState` via `uiModule.setViewState(nextViewState)`. During an
+inspection MANY `refreshUiInner` runs overlap; one that read the dictation while
+the curtain was VISIBLE would finish AFTER the brain cleared it (and after a
+snapshot set `sessionCurtainVisible=false`) and its final `setViewState` OVERWROTE
+the cleared curtain with the stale `true`. Nothing updated afterward → stuck.
+Live trace smoking gun: `refreshFinal-setView {vis:true, dictVis:false}` (wrote
+visible=true while the current dictation was already invisible).
+
+FIX (popup-side, brain authority preserved): move
+`applyCentralSessionDictation(nextViewState, currentTabId)` to be the LAST mutation
+immediately before the synchronous `uiModule.setViewState(nextViewState)` (no await
+between), so every late/overlapping refresh re-derives the dictation-owned fields
+from the CURRENT dictation at write time. Regression guard:
+tests/popup-central-state-dictation.test.ts asserts the adjacency + no-await-between
+invariant (fails on the old ordering). Live-validated over two inspection rounds:
+the curtain now appears during the inspection and CLEARS when it completes.
 
 ## Live-test infra notes
 

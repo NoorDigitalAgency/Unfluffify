@@ -239,3 +239,37 @@ test("popup wiring repaints live brain snapshots and keeps imperative writers be
     /if \([\s\S]*?nextCentralSessionDictationEffect\.patch[\s\S]*?nextProjectedPropertyLockEffect\.patch[\s\S]*?nextProjectedSecondaryGatesEffect\.patch[\s\S]*?\) \{[\s\S]*?uiModule\.setViewState\(\{[\s\S]*?\}\);[\s\S]*?\}[\s\S]*?if \([\s\S]*?nextCentralSessionDictationEffect\.refreshRequired[\s\S]*?nextProjectedPropertyLockEffect\.refreshRequired[\s\S]*?nextProjectedSecondaryGatesEffect\.refreshRequired[\s\S]*?\) \{[\s\S]*?void refreshUi\(/
   );
 });
+
+function extractRefreshUiInnerBlock() {
+  const start = popupSource.indexOf("async function refreshUiInner(");
+  assert.ok(start >= 0, "Missing refreshUiInner");
+  const end = popupSource.indexOf("async function maybeResumePersistedAiRun", start);
+  assert.ok(end > start, "Missing refreshUiInner end boundary");
+  return popupSource.slice(start, end);
+}
+
+test("refreshUiInner reflects session dictation as the final synchronous write so a late-completing refresh cannot restore a cleared curtain", () => {
+  const refreshBlock = extractRefreshUiInnerBlock();
+  // Regression guard for the stuck render-mode curtain: refreshUiInner has
+  // multiple awaits, so a run that read the dictation while the curtain was
+  // visible can finish AFTER the brain cleared it. The dictation reflection must
+  // therefore be the LAST mutation before the synchronous setViewState - never
+  // computed early - so an overlapping/late refresh always writes the current
+  // dictation instead of a stale visible curtain over an already-cleared one.
+  assert.match(
+    refreshBlock,
+    /applyCentralSessionDictation\(nextViewState, currentTabId\);\s*uiModule\.setViewState\(nextViewState\);/
+  );
+
+  // There must be no await between the dictation reflection and the write, or
+  // the dictation could change again in that gap and reintroduce the race.
+  const reflectIdx = refreshBlock.lastIndexOf(
+    "applyCentralSessionDictation(nextViewState, currentTabId);"
+  );
+  const writeIdx = refreshBlock.indexOf(
+    "uiModule.setViewState(nextViewState);",
+    reflectIdx
+  );
+  assert.ok(reflectIdx > -1 && writeIdx > reflectIdx);
+  assert.doesNotMatch(refreshBlock.slice(reflectIdx, writeIdx), /\bawait\b/);
+});

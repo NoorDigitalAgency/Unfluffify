@@ -5325,7 +5325,6 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
     : backgroundLifecycleBusy
       ? (popupBackgroundLifecycle?.timerMode || "")
       : "";
-  applyCentralSessionDictation(nextViewState, currentTabId);
   nextViewState.pageDataNewNoticeHidden = pageSaveUiState.pageDataNewNoticeHidden;
   nextViewState.deviceEmulationEnabled = normalizedDeviceState.enabled;
   nextViewState.deviceMode = normalizedDeviceState.mode;
@@ -5435,6 +5434,14 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
     currentTabId
   });
 
+  // Reflect the brain's session dictation as the LAST mutation before the
+  // synchronous setViewState. refreshUiInner has multiple awaits above (token
+  // validation, config/tab fetches, syncRenderModeDebuggerLifecycle), so a run
+  // that started while the dictation curtain was visible can finish after the
+  // brain cleared it. Deriving the dictation-owned fields here (not earlier)
+  // keeps overlapping/late-completing refreshes from writing a stale visible
+  // curtain over an already-cleared one (e.g. after a render-mode inspection).
+  applyCentralSessionDictation(nextViewState, currentTabId);
   uiModule.setViewState(nextViewState);
   if (currentTabId) {
     const projectedComputingAiActive =
