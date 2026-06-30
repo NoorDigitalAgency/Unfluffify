@@ -121,6 +121,33 @@ not wipe needed data.
   reveal/freeze; (4) green include-borders not rendered in preview/marking (yellow
   focus + list<->page sync work). Re-observe after #13/#14 since some may resolve.
 
+## Backlog bug — render-mode inspection stuck spinner (DIAGNOSED 2026-06-30, fix pending)
+Repro: navigate to a property page whose render mode gets re-inspected (e.g.
+www.bonliva.se after the render-mode With/Without-JavaScript buttons) → popup
+shows the render-mode DETECTION view + a STUCK "Inspecting page… / Working…
+controls are temporarily blocked" curtain; page only hid cookie consent, no
+reveal/freeze. Live CDP findings: brain facts navPending=false, pageInspBusy=
+false, but busyVisible=TRUE busyMsg="Inspecting page…" (ORPHANED); renderModeReady
+=FALSE because config bonliva.se renderModeUpdatedAt was wiped to the 1970-01-01
+epoch fallback (isRenderModeConfirmed checks renderModeUpdatedAt !== fallback,
+src/common/config.ts:1161); brain snapshot renderMode.inspecting=TRUE; page-data
+load not_found. Root cause: the render-mode inspection un-confirms render mode
+(resets renderModeUpdatedAt to re-detect) and emits the busyVisible curtain but
+never completes (likely the known renderModeInspectionEnd-not-reaching-content
+after the inspection reload — content-main.ts:431,1721; the
+armRenderModeInspectionWatchdog fail-open isn't clearing busyVisible). The brain
+curtain-clear (src/background/brain/index.ts:604-616) only fires when
+navPending/pageInspBusy SETTLE, so an orphaned busyVisible (both already false)
+never clears. Fix direction (brain-side per user): brain must clear/own the busy
+curtain when the inspection is no longer active even if busyVisible is orphaned
+(fold renderMode.inspecting=false / a terminal lifecycle into a busyVisible
+clear), AND/OR the inspection must always emit a terminal busyVisible=false
+(fail-open), AND an interrupted inspection must not leave renderModeUpdatedAt
+wiped (preserve the prior confirmation). Trace: background.ts renderModeInspector
++ sendRenderModeInspectionEndWithRetry + the watchdog; where renderModeUpdatedAt
+is reset; brain busyVisible ownership. Live-validate through the inspection
+reload (clear the SW ScriptCache before trusting results).
+
 ## Live-test infra notes
 
 - Launch: `pnpm browser:live <url>` (committed launcher) — real :0/Wayland
