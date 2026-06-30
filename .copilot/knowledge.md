@@ -325,6 +325,49 @@
   position dwell stay (re-scan `getAnimations()`/dwell have no DOM event); 1s
   countdown timers are display clocks. Visible countdown clocks must be exempted
   in any "no setInterval" source-contract guard.
+- Brain projection broadcasts MUST be deduped by content. The store
+  (`state-store.ts mutate`) bumps `version` and schedules a projection on EVERY
+  fold, including no-op folds of byte-identical facts. The popup re-runs
+  `refreshUi` (which republishes its facts) both when it applies a
+  `POPUP_STATE_EVENT_TYPES.VIEW_UPDATED` projection (`applyPopupViewSnapshot`) and
+  when a popup/pageCurtain spinner SET/CLEAR arrives
+  (`handleSpinnerSurfaceChangedFromBrain`). Without deduping, that is an unbounded
+  publish->fold->project->apply->publish loop (~200 projections/sec) that
+  remounts popup inputs (config fields lose typed characters) and spams the
+  content directive. `publishProjectedState` in `src/background/brain/index.ts`
+  caches the last broadcast per tab and only re-publishes `VIEW_UPDATED` and the
+  three spinner surfaces when their content changed (`popupView.version` is
+  excluded because the popup never reads it; the cache is reset on popup port
+  (re)connect so a fresh popup always gets a full projection). `directive.content`
+  is intentionally NOT deduped — the content realm receives it via a push
+  subscription with no pull, so a freshly (re)loaded content script that reports
+  identical facts must still get the current directive; its listeners already
+  no-op on unchanged values.
+- The brain `silentHighlightActive` directive
+  (`view-projector.ts shouldActivateSilentHighlighting`) is the STABLE intent
+  ("silent highlighting should be active for this page") and must not be gated on
+  the activation's own transient signals. The silent-highlight editor reveal sets
+  `navigationInspectionPending`, `pageInspectionBusy`, and an `editor_preparing`
+  page-save reconciliation while it runs; gating the directive on those makes it
+  flip off while preparing and on once settled, re-triggering the content
+  activation forever (a perpetual "Preparing page content…/Working…" curtain that
+  blocks all controls). Only a NON-`editor_preparing` reconciliation
+  (saving/syncing) suppresses it.
+- The popup-published `silentModeActive` session fact must reflect the actual
+  PAGE state (`!pageScopedUiDisabled && renderModeReady && !isEnabled`), NOT the
+  popup `currentView`. The popup keeps a separate view-gated `silentModeActive`
+  for Marking-only local UI (`cssSelectorsVisible`, `desktopPreviewVisible`) but
+  publishes `silentModeActivePageState`. Gating the published fact on
+  `currentView === Marking` made it report `false` on the config view while the
+  content reported `true`, and the brain merges both sources into one fact, so the
+  conflict oscillated.
+- Testing brain/content changes in the live browser: the persistent
+  `.wxt/browser-profile` caches the MV3 service worker across relaunches, so a
+  fresh `pnpm browser:live` can keep running STALE background code (verify a known
+  symbol like a debug hook is actually present). Clear
+  `.wxt/browser-profile/Default/Service Worker/{ScriptCache,Database}` while the
+  browser is stopped (IndexedDB config is preserved) or force
+  `chrome.runtime.reload()` and wait for the new worker before trusting a result.
 
 ## AI Submission Rules
 
