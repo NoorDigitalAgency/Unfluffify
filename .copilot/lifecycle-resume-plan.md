@@ -148,6 +148,29 @@ wiped (preserve the prior confirmation). Trace: background.ts renderModeInspecto
 is reset; brain busyVisible ownership. Live-validate through the inspection
 reload (clear the SW ScriptCache before trusting results).
 
+### Refined trace (2026-07-01 run_plan follow-up)
+The stuck curtain is a popup<->brain busyVisible LOOP, not a simple hang:
+- busyVisible is POPUP-reported: popup.ts:5447
+  `busyVisibleForSessionFacts = projectedComputingAiActive || isBusy ||
+  aiControlsBusy`; `isBusy` reflects the stuck navInspect spinner. So the popup
+  keeps reporting busyVisible=true -> brain folds it -> busy curtain stays.
+- The render-mode inspection request DOES have timeouts
+  (RENDER_MODE_INSPECTION_START/LOAD_TIMEOUT_MS, src/popup/render-mode-inspection.ts)
+  and there is a popup fail-open scheduleStaleInspectionBusyClear (popup.ts:1676,
+  75 attempts) whose last-resort failOpenClear reports settled to the brain — but
+  none of these RELEASE the stuck brain navInspect spinner, so the loop persists.
+- Root gap (brain-side): the navInspect spinner has a deadlineAt
+  (buildNavigationInspectionSelection, brain/index.ts:149, ~120s) but the brain
+  has NO deadline enforcement — the heartbeat (brain/heartbeat.ts) only pulls
+  facts, it never releases expired spinners. So an orphaned navInspect spinner
+  lives forever, sustaining busyVisible.
+- Brain-side fix candidate: in the heartbeat tick (or projection), release a
+  navInspect spinner past its deadlineAt and clearNavigationInspectionCurtainDraft
+  (which sets busyVisible=false) so the loop breaks; PLUS ensure renderMode.
+  inspecting is cleared and renderModeUpdatedAt is preserved on an interrupted
+  inspection. REQUIRES live repro (homepage navigation that re-inspects render
+  mode) to verify the loop breaks and the curtain clears.
+
 ## Live-test infra notes
 
 - Launch: `pnpm browser:live <url>` (committed launcher) — real :0/Wayland
