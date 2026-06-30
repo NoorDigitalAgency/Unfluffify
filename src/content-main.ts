@@ -1030,34 +1030,6 @@ async function loadGlobalAiSettingsForContent() {
   };
 }
 
-/* eslint-disable @typescript-eslint/no-unused-vars */
-async function resolveSiteIdFromGraphql(
-  options: { stageBase?: string; pageUrl?: string; tokenValue?: string } = {}
-) {
-  const {
-    stageBase = "",
-    pageUrl = ""
-  } = options;
-  if (!stageBase || !pageUrl) {
-    return null;
-  }
-  let response: Awaited<ReturnType<typeof utils.sendRuntimeMessage>>;
-  try {
-    response = await utils.sendRuntimeMessage({
-      type: "resolveLivePageSiteId",
-      stageBase,
-      pageUrl
-    });
-  } catch (error) {
-    return null;
-  }
-  if (!response || !response.ok) {
-    return null;
-  }
-  return normalizeSiteIdValue(response.siteId);
-}
-/* eslint-enable @typescript-eslint/no-unused-vars */
-
 function extractUrlPathAndHostname(url = location.href) {
   try {
     const parsed = new URL(url);
@@ -1085,38 +1057,6 @@ function isSignificantUrlPathChange(currentUrl: string, lastPath: string, lastHo
   }
   // Path changed on same domain
   return true;
-}
-
-async function recheckSiteIdForCurrentUrlPath(tabState: SiteIdPathCheckState | null | undefined) {
-  if (!tabState || !tabState.baseUrl) {
-    return null;
-  }
-  const currentUrl = location.href;
-  const { stageBaseValue, tokenValue } = await loadGlobalAiSettingsForContent();
-  if (!normalizeStageBaseValue(stageBaseValue) || !tokenValue) {
-    return null;
-  }
-  const newSiteId = await resolveSiteIdFromGraphql({
-    stageBase: stageBaseValue,
-    pageUrl: currentUrl,
-    tokenValue
-  });
-  if (!newSiteId) {
-    return null;
-  }
-  const currentConfigs = await config.getConfigs();
-  const normalizedBaseUrl = utils.normalizeBaseUrl(tabState.baseUrl) || tabState.baseUrl;
-  const currentConfig = config.normalizeConfig(normalizedBaseUrl, currentConfigs[normalizedBaseUrl]).config;
-  const oldSiteId = normalizeSiteIdValue(currentConfig.siteId);
-  if (oldSiteId && oldSiteId !== newSiteId) {
-    // Site ID changed for this URL path, need to update
-    return { newSiteId, currentUrl, oldSiteId };
-  }
-  if (!oldSiteId && newSiteId) {
-    // No previous site ID, now we have one
-    return { newSiteId, currentUrl, oldSiteId: null };
-  }
-  return null;
 }
 
 async function fetchPropertyPageTypesForSiteId(
@@ -1168,23 +1108,7 @@ async function resolveCurrentLivePageTarget(
     normalizedBaseUrl,
     currentConfigs[normalizedBaseUrl]
   ).config;
-  const storedSiteId = normalizeSiteIdValue(normalizedConfig.siteId);
-  let siteId = storedSiteId;
-  if (Boolean(options.forceSiteIdRefresh) || !siteId) {
-    const resolvedSiteId = await resolveSiteIdFromGraphql({
-      stageBase: stageBaseValue,
-      pageUrl,
-      tokenValue
-    });
-    if (resolvedSiteId) {
-      siteId = resolvedSiteId;
-      if (siteId !== storedSiteId) {
-        await config.updateConfig(normalizedBaseUrl, (targetConfig) => {
-          targetConfig.siteId = siteId;
-        });
-      }
-    }
-  }
+  const siteId = normalizeSiteIdValue(normalizedConfig.siteId);
   if (!siteId) {
     return { ok: false, reason: "Open the Unfluffify popup first." };
   }
@@ -1245,23 +1169,7 @@ async function resolveCurrentPropertyLockConnectionTarget(
       currentConfigs[normalizedBaseUrl]
     ).config
     : null;
-  const storedSiteId = normalizeSiteIdValue(normalizedConfig && normalizedConfig.siteId);
-  let siteId = storedSiteId;
-  if (Boolean(options.forceSiteIdRefresh) || !siteId) {
-    const resolvedSiteId = await resolveSiteIdFromGraphql({
-      stageBase: stageBaseValue,
-      pageUrl,
-      tokenValue
-    });
-    if (resolvedSiteId) {
-      siteId = resolvedSiteId;
-      if (normalizedBaseUrl && siteId !== storedSiteId) {
-        await config.updateConfig(normalizedBaseUrl, (targetConfig) => {
-          targetConfig.siteId = siteId;
-        });
-      }
-    }
-  }
+  const siteId = normalizeSiteIdValue(normalizedConfig && normalizedConfig.siteId);
   if (!siteId) {
     return { ok: false, reason: "missing_site_id" };
   }
@@ -7186,27 +7094,8 @@ export function main() {
   }
 
   core.refreshFromTabState().then(async () => {
-    // Check if URL path changed (e.g., language change on same domain)
-    // and if so, re-verify the site ID is still correct
     if (state.enabled && state.baseUrl) {
       const urlInfo = extractUrlPathAndHostname(location.href);
-      if (lastTrackedUrlHostname && isSignificantUrlPathChange(location.href, lastTrackedUrlPath, lastTrackedUrlHostname)) {
-        const siteIdCheckResult = await recheckSiteIdForCurrentUrlPath({
-          baseUrl: state.baseUrl
-        });
-        if (siteIdCheckResult && siteIdCheckResult.newSiteId) {
-          // Site ID changed or was missing, update config
-          const normBaseUrl = utils.normalizeCanonicalBaseUrl(siteIdCheckResult.currentUrl) ||
-                              utils.normalizeBaseUrl(siteIdCheckResult.currentUrl) ||
-                              state.baseUrl;
-          const configs = await config.getConfigs();
-          configs[normBaseUrl] = configs[normBaseUrl] || {};
-          await config.updateConfig(normBaseUrl, (targetConfig) => {
-            targetConfig.siteId = siteIdCheckResult.newSiteId;
-          });
-          state.baseUrl = normBaseUrl;
-        }
-      }
       lastTrackedUrlPath = urlInfo.path;
       lastTrackedUrlHostname = urlInfo.hostname;
     }
