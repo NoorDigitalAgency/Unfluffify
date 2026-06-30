@@ -22,6 +22,7 @@ import * as chromeHelpers from "./popup/chrome-helpers";
 import { browser } from "./common/browser";
 import * as config from "./common/config";
 import * as constants from "./common/constants";
+import { tracePopupApplyView } from "./common/layer-trace";
 import {
   FEATURE_DISABLED_REASON,
   getFeatureFlags,
@@ -1195,6 +1196,7 @@ function applyPopupViewSnapshot(snapshot: PopupStateGetReply | null) {
   projectedTabState = snapshot.tabState || null;
   projectedSiteId = typeof snapshot.siteId === "number" ? snapshot.siteId : null;
   projectedPageDataLoadStatus = snapshot.pageDataLoadStatus || null;
+  tracePopupApplyView(snapshot.tabId, Boolean(projectedTabState), Boolean(projectedSiteId));
   const nextCentralSessionDictationEffect = deriveCentralSessionDictationSnapshotEffect({
     currentTabId,
     projectedTabId: popupBackgroundStateTabId,

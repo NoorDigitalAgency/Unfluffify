@@ -42,6 +42,13 @@ import {
   isFeatureEnabled
 } from "./common/feature-flags";
 import {
+  traceRuntimeReceive,
+  traceBrainProject,
+  tracePageDataResolve,
+  tracePageDataLoad,
+  traceTabSend
+} from "./common/layer-trace";
+import {
   AI_RUN_EVENT_REASONS,
   AI_RUN_EVENT_TYPES,
   type AiRunEventPayload,
@@ -598,6 +605,7 @@ function sendContentMessageToTab(
       resolve({ ok: false, error: "Missing tab" });
       return;
     }
+    traceTabSend(normalizedTabId, String(message?.type || "unknown"));
     let settled = false;
     const finish = (result: ContentMessageResponse) => {
       if (settled) {
@@ -2949,6 +2957,11 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return;
   }
 
+  traceRuntimeReceive(message.type, {
+    url: sender?.url || "",
+    tabUrl: sender?.tab?.url || "",
+    tabId: typeof sender?.tab?.id === "number" ? sender.tab.id : null,
+  });
   if (isDebugFlagEnabled("fullWorldMessagingLogging")) {
     try {
       console.debug("[world-trace][background] runtime:inbound", {

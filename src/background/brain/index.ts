@@ -66,6 +66,7 @@ import { updateSpinnerSelectionsFromQueue } from "./deciders/spinner-state-decid
 import { applySessionFactsPatch, buildSessionDictation } from "./deciders/session-phase-decider";
 import { createStateStore, type SpinnerSelection, type TabLayerState } from "./state-store";
 import { persistTabStates, loadPersistedTabStates } from "./state-store-persistence";
+import { traceBrainProject } from "../../common/layer-trace";
 import { createBrainHeartbeat } from "./heartbeat";
 import { projectSpinners, type SpinnerState } from "./spinner-authority";
 import { projectViews } from "./view-projector";
@@ -464,6 +465,7 @@ export function createBrain(options: { logger?: Pick<Console, "error" | "debug">
 
   transport.start();
   store.onProjection((tabId, state) => {
+    traceBrainProject(tabId, state.version, "projection");
     publishProjectedState(bus, tabId, state);
   });
 

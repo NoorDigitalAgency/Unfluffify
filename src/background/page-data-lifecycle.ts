@@ -1,6 +1,7 @@
 import * as configStore from "../common/config";
 import { normalizeSiteIdValue } from "../common/lynx-live-pages";
 import * as utils from "../common/utilities";
+import { tracePageDataResolve, tracePageDataLoad } from "../common/layer-trace";
 import type { Config } from "../types/config";
 
 type StoredConfigs = Record<string, Config>;
@@ -237,6 +238,7 @@ export function createPageDataLifecycleLoader(deps: PageDataLifecycleDeps) {
       }
       await persistResolvedSiteContext(configs, baseUrl, siteId);
       deps.onSiteContextResolved?.({ tabId, baseUrl, siteId, pageDataLoadStatus: "pending" });
+      tracePageDataResolve(tabId, pageUrl, "resolved");
     }
     const endpointValue = typeof input.endpointValue === "string" ? input.endpointValue.trim() : "";
     const tokenValue = typeof input.tokenValue === "string" ? input.tokenValue : "";
@@ -332,6 +334,7 @@ export function createPageDataLifecycleLoader(deps: PageDataLifecycleDeps) {
         siteId: context.siteId,
         pageDataLoadStatus: result.status,
       });
+      tracePageDataLoad(context.tabId, context.navigationKey, result.status);
       return result;
     }
     if (!response || response.ok !== true || response.status !== "ok") {
@@ -373,6 +376,7 @@ export function createPageDataLifecycleLoader(deps: PageDataLifecycleDeps) {
       siteId: context.siteId,
       pageDataLoadStatus: result.status,
     });
+    tracePageDataLoad(context.tabId, context.navigationKey, result.status);
     return result;
   }
 

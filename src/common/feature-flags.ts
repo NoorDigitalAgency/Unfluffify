@@ -15,7 +15,8 @@ export const DEBUG_FLAGS: Readonly<Record<string, boolean>> = Object.freeze({
   ufDebugSpinnerQueue: true,
   fullWorldMessagingLogging: false,
   worldTraceEnabled: false,
-  swLifecycleDiagnostics: false
+  swLifecycleDiagnostics: false,
+  layerMessageTrace: false
 });
 
 export function isFeatureEnabled(flagName: string): boolean {

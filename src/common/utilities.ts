@@ -1,4 +1,5 @@
 import { isDebugFlagEnabled } from "./feature-flags";
+import { traceRuntimeSend } from "./layer-trace";
 import { browser, callBrowserApi, callBrowserApiVoid, type Browser } from "./browser";
 import {
   addStorageChangeListener,
@@ -182,6 +183,7 @@ function logRuntimeMessage(direction: string, message: unknown, details: Record<
 
 export function sendRuntimeMessage(message: unknown) {
   logRuntimeMessage("send", message);
+  traceRuntimeSend(getMessageTypeForLog(message));
   const runtime = getRuntimeApi();
   if (!runtime || typeof runtime.sendMessage !== "function") {
     return Promise.reject(new Error("Runtime messaging unavailable"));
