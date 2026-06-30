@@ -785,6 +785,11 @@ let latestSessionFactsPatch: SessionFactsPatch = {};
 let pendingAiPreviewConfigSync: { tabId: number; baseUrl: string } | null = null;
 let propertyPageTypesRequest: PendingPropertyPageTypesRequest = null;
 let pageTypesRefreshRunner: (() => void) | null = null;
+let viewPushedRefreshInFlight = false;
+let clearedReloadRestoreForTabId: number | null = null;
+let projectedTabState: { enabled: boolean; baseUrl: string; pageType: string } | null = null;
+let projectedSiteId: number | null = null;
+let projectedPageDataLoadStatus: string | null = null;
 
 
 function isEditableTarget(el: EventTarget | null | undefined): boolean {
@@ -1187,6 +1192,9 @@ function applyPopupViewSnapshot(snapshot: PopupStateGetReply | null) {
     traceEnabled: Boolean(snapshot.traceEnabled),
     traceEvents: Array.isArray(snapshot.traceEvents) ? snapshot.traceEvents : []
   });
+  projectedTabState = snapshot.tabState || null;
+  projectedSiteId = typeof snapshot.siteId === "number" ? snapshot.siteId : null;
+  projectedPageDataLoadStatus = snapshot.pageDataLoadStatus || null;
   const nextCentralSessionDictationEffect = deriveCentralSessionDictationSnapshotEffect({
     currentTabId,
     projectedTabId: popupBackgroundStateTabId,
@@ -1223,11 +1231,22 @@ function applyPopupViewSnapshot(snapshot: PopupStateGetReply | null) {
     nextProjectedPropertyLockEffect.refreshRequired ||
     nextProjectedSecondaryGatesEffect.refreshRequired
   ) {
+    // Re-entry guard only: prevent concurrent view-pushed refreshes.
+    // The cooldown was removed because refreshUi now reads tabState/siteId
+    // from the brain projection instead of querying the background, so the
+    // feedback loop (VIEW_UPDATED → refreshUi → messages → VIEW_UPDATED)
+    // no longer exists.
+    if (viewPushedRefreshInFlight) {
+      return;
+    }
+    viewPushedRefreshInFlight = true;
     void refreshUi({
       useBusyOverlay: false,
       skipPropertyLockFetch: true,
       preserveCurrentDraftStatus: true
-    }).catch(() => null);
+    }).catch(() => null).finally(() => {
+      viewPushedRefreshInFlight = false;
+    });
     return;
   }
 }
@@ -3822,6 +3841,7 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
     state.remoteConfigLoadKey = "";
     state.remoteConfigLoadResult = null;
     clearLastPopupEnabled();
+    clearedReloadRestoreForTabId = null;
   }
   const pageUrl = state.currentTab.url || "";
   if (!tabChanged && pageUrl !== state.lastPopupPageUrl) {
@@ -3857,8 +3877,11 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
   } = await helpers.loadGlobalAiSettings();
   const normalizedStageBaseValue = normalizeStageBase(stageBaseValue);
   let configs = await config.getConfigs();
-  const persistedTabState = await messages.getTabState(state.currentTab.id);
-  if (currentTabId) {
+  const persistedTabState = projectedTabState
+    ? { enabled: projectedTabState.enabled, baseUrl: projectedTabState.baseUrl }
+    : await messages.getTabState(state.currentTab.id);
+  if (currentTabId && clearedReloadRestoreForTabId !== currentTabId) {
+    clearedReloadRestoreForTabId = currentTabId;
     await messages.sendRuntimeMessage({
       type: "clearReloadRestoreTabState",
       tabId: currentTabId
@@ -4021,25 +4044,35 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
       await config.saveConfigs(configs);
     }
     state.currentConfig = configs[state.currentBaseUrl] || normalized.config;
-    const siteIdResult = await ensureBaseUrlSiteId({
-      baseUrl: state.currentBaseUrl,
-      pageUrl,
-      stageBase: normalizedStageBaseValue,
-      tokenValue,
-      configs,
-      persist: false
-    });
-    if (siteIdResult.ok && siteIdResult.siteId) {
-      const resolvedBaseUrl = siteIdResult.baseUrl || state.currentBaseUrl;
-      configs = siteIdResult.configs || configs;
-      if (resolvedBaseUrl && resolvedBaseUrl !== state.currentBaseUrl) {
-        state.currentBaseUrl = resolvedBaseUrl;
-        if (currentTabId) {
-          effectiveTabState = { ...effectiveTabState, baseUrl: resolvedBaseUrl };
-          await messages.setTabState(currentTabId, effectiveTabState);
-          if (effectiveTabState.enabled) {
-            await messages.sendTabMessageWithRetry({
-              type: "setEnabled",
+    if (projectedSiteId) {
+      // Brain already resolved the site ID — use it directly instead of
+      // sending a resolveLivePageSiteId message to the background.
+      currentSiteId = projectedSiteId;
+      const configEntry = configs[state.currentBaseUrl];
+      if (configEntry && normalizeSiteIdValue(configEntry.siteId) !== projectedSiteId) {
+        configEntry.siteId = projectedSiteId;
+        await config.saveConfigs(configs);
+      }
+    } else {
+      const siteIdResult = await ensureBaseUrlSiteId({
+        baseUrl: state.currentBaseUrl,
+        pageUrl,
+        stageBase: normalizedStageBaseValue,
+        tokenValue,
+        configs,
+        persist: false
+      });
+      if (siteIdResult.ok && siteIdResult.siteId) {
+        const resolvedBaseUrl = siteIdResult.baseUrl || state.currentBaseUrl;
+        configs = siteIdResult.configs || configs;
+        if (resolvedBaseUrl && resolvedBaseUrl !== state.currentBaseUrl) {
+          state.currentBaseUrl = resolvedBaseUrl;
+          if (currentTabId) {
+            effectiveTabState = { ...effectiveTabState, baseUrl: resolvedBaseUrl };
+            await messages.setTabState(currentTabId, effectiveTabState);
+            if (effectiveTabState.enabled) {
+              await messages.sendTabMessageWithRetry({
+                type: "setEnabled",
               enabled: true,
               baseUrl: resolvedBaseUrl
             });
@@ -4048,86 +4081,88 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
       }
       currentSiteId = siteIdResult.siteId;
       state.currentConfig = siteIdResult.config || state.currentConfig;
-      if (
-        tabInScope &&
-        state.currentBaseUrl &&
-        currentSiteId &&
-        normalizedStageBaseValue &&
-        tokenValue
-      ) {
-        const propertyPageTypesResult = await ensurePropertyPageTypes({
-          siteId: currentSiteId,
-          stageBase: normalizedStageBaseValue,
-          tokenValue,
-          force: false,
-          notifyOnChange: false
-        });
-        if (propertyPageTypesResult && propertyPageTypesResult.ok) {
-          propertyPageTypes = propertyPageTypesResult.pageTypes || [];
-          propertyPageTypesFetchError = propertyPageTypesResult.error || "";
-        } else if (propertyPageTypesResult) {
-          propertyPageTypesFetchError = propertyPageTypesResult.error || "";
-        }
+    }
+    }
+    if (
+      tabInScope &&
+      state.currentBaseUrl &&
+      currentSiteId &&
+      normalizedStageBaseValue &&
+      tokenValue
+    ) {
+      const propertyPageTypesResult = await ensurePropertyPageTypes({
+        siteId: currentSiteId,
+        stageBase: normalizedStageBaseValue,
+        tokenValue,
+        force: false,
+        notifyOnChange: false
+      });
+      if (propertyPageTypesResult && propertyPageTypesResult.ok) {
+        propertyPageTypes = propertyPageTypesResult.pageTypes || [];
+        propertyPageTypesFetchError = propertyPageTypesResult.error || "";
+      } else if (propertyPageTypesResult) {
+        propertyPageTypesFetchError = propertyPageTypesResult.error || "";
       }
-      const bootstrapCandidateSiteId = getCurrentPageCandidateState(pageUrl, propertyPageTypes).status === "candidate"
-        ? currentSiteId
-        : null;
-      if (bootstrapCandidateSiteId && isPropertyLockCollaborationEnabled()) {
-        await refreshPropertyLockSnapshot(bootstrapCandidateSiteId, {
-          skipFetch: skipPropertyLockFetch
-        });
-      } else {
-        resetDisabledPropertyLockState();
-      }
-      const editorOwnsCurrentProperty = Boolean(
-        bootstrapCandidateSiteId &&
-          shouldSkipRemoteConfigLoadForPropertyEditor(bootstrapCandidateSiteId)
-      );
-      const shouldBootstrapEditorConfig = Boolean(
-        editorOwnsCurrentProperty &&
-          state.propertyLockEditorBootstrapPending
-      );
-      if (configEndpointValue && tokenValue && (!editorOwnsCurrentProperty || shouldBootstrapEditorConfig)) {
-        remoteLoadResult = await loadRemoteConfigForCurrentPage({
-          tabId: currentTabId,
-          pageUrl,
-          baseUrl: state.currentBaseUrl,
-          siteId: currentSiteId,
-          endpointValue: configEndpointValue,
-          tokenValue,
-          force: shouldBootstrapEditorConfig
-        });
-        if (shouldBootstrapEditorConfig) {
-          state.propertyLockEditorBootstrapPending = false;
-        }
-      } else if (editorOwnsCurrentProperty) {
-        remoteLoadResult = { status: "skipped_editor", baseUrl: state.currentBaseUrl };
-        state.propertyLockEditorBootstrapPending = false;
-      } else {
-        remoteLoadResult = { status: "skipped_missing_config", baseUrl: state.currentBaseUrl };
-      }
-      if (
-        remoteLoadResult &&
-        (
-          remoteLoadResult.status === "ok" ||
-          remoteLoadResult.status === "not_found"
-        )
-      ) {
-        configs = await config.getConfigs();
-        if (state.currentBaseUrl && configs[state.currentBaseUrl]) {
-          const normalizedCurrent = config.normalizeConfig(
-            state.currentBaseUrl,
-            configs[state.currentBaseUrl]
-          );
-          if (normalizedCurrent.changed) {
-            configs[state.currentBaseUrl] = normalizedCurrent.config;
-            await config.saveConfigs(configs);
-          }
-          state.currentConfig = configs[state.currentBaseUrl];
-        }
-      }
+    }
+    const bootstrapCandidateSiteId = getCurrentPageCandidateState(pageUrl, propertyPageTypes).status === "candidate"
+      ? currentSiteId
+      : null;
+    if (bootstrapCandidateSiteId && isPropertyLockCollaborationEnabled()) {
+      await refreshPropertyLockSnapshot(bootstrapCandidateSiteId, {
+        skipFetch: skipPropertyLockFetch
+      });
     } else {
-      siteIdBlockedReason = siteIdResult.reason || "";
+      resetDisabledPropertyLockState();
+    }
+    const editorOwnsCurrentProperty = Boolean(
+      bootstrapCandidateSiteId &&
+        shouldSkipRemoteConfigLoadForPropertyEditor(bootstrapCandidateSiteId)
+    );
+    const shouldBootstrapEditorConfig = Boolean(
+      editorOwnsCurrentProperty &&
+        state.propertyLockEditorBootstrapPending
+    );
+    if (configEndpointValue && tokenValue && (!editorOwnsCurrentProperty || shouldBootstrapEditorConfig)) {
+      remoteLoadResult = await loadRemoteConfigForCurrentPage({
+        tabId: currentTabId,
+        pageUrl,
+        baseUrl: state.currentBaseUrl,
+        siteId: currentSiteId,
+        endpointValue: configEndpointValue,
+        tokenValue,
+        force: shouldBootstrapEditorConfig
+      });
+      if (shouldBootstrapEditorConfig) {
+        state.propertyLockEditorBootstrapPending = false;
+      }
+    } else if (editorOwnsCurrentProperty) {
+      remoteLoadResult = { status: "skipped_editor", baseUrl: state.currentBaseUrl };
+      state.propertyLockEditorBootstrapPending = false;
+    } else {
+      remoteLoadResult = { status: "skipped_missing_config", baseUrl: state.currentBaseUrl };
+    }
+    if (
+      remoteLoadResult &&
+      (
+        remoteLoadResult.status === "ok" ||
+        remoteLoadResult.status === "not_found"
+      )
+    ) {
+      configs = await config.getConfigs();
+      if (state.currentBaseUrl && configs[state.currentBaseUrl]) {
+        const normalizedCurrent = config.normalizeConfig(
+          state.currentBaseUrl,
+          configs[state.currentBaseUrl]
+        );
+        if (normalizedCurrent.changed) {
+          configs[state.currentBaseUrl] = normalizedCurrent.config;
+          await config.saveConfigs(configs);
+        }
+        state.currentConfig = configs[state.currentBaseUrl];
+      }
+    }
+    if (!currentSiteId) {
+      siteIdBlockedReason = PopupText.status.unableToResolveDomainId;
       remoteLoadResult = { status: "skipped", baseUrl: "" };
       updateLastConfigLoadStatus(remoteLoadResult);
     }

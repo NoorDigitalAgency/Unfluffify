@@ -614,7 +614,8 @@ test("tab reload keeps the inspection curtain active while enabled pages re-insp
   const refreshBody = source.match(
     /async function refreshUiInner\(options(?:\s*:\s*[^)]*)? = \{\}\) \{([\s\S]*?)\n\}\n\nasync function maybeResumePersistedAiRun/
   )[1];
-  assert.match(refreshBody, /const persistedTabState = await messages\.getTabState\(state\.currentTab\.id\);/);
+  assert.match(refreshBody, /const persistedTabState = projectedTabState/);
+  assert.match(refreshBody, /messages\.getTabState\(state\.currentTab\.id\)/);
   assert.match(refreshBody, /type: "clearReloadRestoreTabState"/);
   assert.doesNotMatch(refreshBody, /messages\.getTabState\(state\.currentTab\.id, "restore"\)/);
   assert.match(refreshBody, /await messages\.sendTabMessageToTab\(currentTabId, \{ type: "getInspectionStatus" \}\)/);
