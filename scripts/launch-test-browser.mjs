@@ -347,10 +347,22 @@ function buildLiveStateScript(action, options = {}) {
     return JSON.stringify({ error: 'Could not find the bound Unfluffify popup tab', pages: pages.map(c => c.url()) });
   }
 
+  // Timeout-wrapped evaluate to prevent hanging the MCP server
+  const evalWithTimeout = async (fn, ms = 8000) => {
+    return Promise.race([
+      popup.evaluate(fn),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("popup evaluate timeout")), ms))
+    ]);
+  };
+
   async function collectPopupState() {
-    const popupState = await popup.evaluate(async () => {
+    // Wait for popup to be ready (debug hook available) with a short timeout
+    await popup.waitForFunction(() => {
+      return !!(window.__UNFLUFFIFY_POPUP_DEBUG__ && typeof window.__UNFLUFFIFY_POPUP_DEBUG__.getViewState === "function");
+    }, { timeout: 5000 }).catch(() => {});
+    const popupState = await evalWithTimeout(async () => {
       const popupDebug = window.__UNFLUFFIFY_POPUP_DEBUG__;
-      if (!popupDebug || typeof popupDebug.getViewState !== 'function') {
+      if (!popupDebug || typeof popupDebug.getViewState !== "function") {
         return { error: 'Popup debug hook is unavailable', url: location.href, title: document.title };
       }
       const view = popupDebug.getViewState();
@@ -406,7 +418,7 @@ function buildLiveStateScript(action, options = {}) {
 
   if (action === 'click' && clickSelector) {
     const before = await collectPopupState();
-    await popup.evaluate((sel) => {
+    await evalWithTimeout((sel) => {
       const el = document.querySelector(sel) || document.getElementById(sel);
       if (!el) throw new Error('Element not found: ' + sel);
       el.click();
@@ -417,7 +429,7 @@ function buildLiveStateScript(action, options = {}) {
   }
 
   if (action === 'set-inputs' && inputValues) {
-    await popup.evaluate((vals) => {
+    await evalWithTimeout((vals) => {
       for (const [id, value] of Object.entries(vals)) {
         const el = document.getElementById(id) || document.querySelector('[name="' + id + '"]');
         if (el) {
@@ -434,7 +446,7 @@ function buildLiveStateScript(action, options = {}) {
 
   if (action === 'exit-preview') {
     const before = await collectPopupState();
-    await popup.evaluate(() => {
+    await evalWithTimeout(() => {
       const button = document.querySelector('.preview-sidebar__dismiss');
       if (!button) throw new Error('Exit Preview button not found');
       button.click();
@@ -445,7 +457,7 @@ function buildLiveStateScript(action, options = {}) {
   }
 
   if (action === 'eval' && evalExpr) {
-    const result = await popup.evaluate(evalExpr);
+    const result = await evalWithTimeout(evalExpr);
     return JSON.stringify({ action, result, pages: pages.map(c => c.url()) });
   }
 
