@@ -91,6 +91,13 @@ export type PopupViewEnvelope = Readonly<{
   secondaryGates?: SecondaryGatesViewState | null;
   spinnerQueue: PopupSpinnerEntry[];
   activeSpinnerLease: PopupSpinnerEntry | null;
+  tabState?: {
+    enabled: boolean;
+    baseUrl: string;
+    pageType: string;
+  } | null;
+  siteId?: number | null;
+  pageDataLoadStatus?: "ok" | "not_found" | "skipped" | "error" | "auth_error" | null;
 }>;
 
 export type PopupStateGetReply = PopupViewEnvelope;

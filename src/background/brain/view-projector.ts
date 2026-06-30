@@ -224,6 +224,9 @@ export function projectViews(state: TabLayerState): {
       secondaryGates: state.sessionFactsReported ? cloneSecondaryGates(state.secondaryGates) : null,
       spinnerQueue: [],
       activeSpinnerLease: null,
+      tabState: { ...state.tabState },
+      siteId: state.siteId,
+      pageDataLoadStatus: state.pageDataLoadStatus,
     },
     contentDirective: {
       version: state.version,

@@ -141,6 +141,13 @@ export type TabLayerState = {
     pageCurtain: SpinnerSelection | null;
     banner: SpinnerSelection | null;
   };
+  tabState: {
+    enabled: boolean;
+    baseUrl: string;
+    pageType: string;
+  };
+  siteId: number | null;
+  pageDataLoadStatus: "ok" | "not_found" | "skipped" | "error" | "auth_error" | null;
 };
 
 type ProjectionCallback = (tabId: number, state: TabLayerState, reason: string) => void;
@@ -170,6 +177,9 @@ function createInitialTabState(tabId: number): TabLayerState {
       pageCurtain: null,
       banner: null,
     },
+    tabState: { enabled: false, baseUrl: "", pageType: "" },
+    siteId: null,
+    pageDataLoadStatus: null,
   };
 }
 

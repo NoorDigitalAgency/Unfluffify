@@ -152,6 +152,9 @@ describe("popup view projector", () => {
         pageCurtain: null,
         banner: null,
       },
+      tabState: { enabled: false, baseUrl: "", pageType: "" },
+      siteId: null,
+      pageDataLoadStatus: null,
     };
 
     const { popupView, contentDirective } = projectViews(state);
@@ -287,6 +290,9 @@ describe("popup view projector", () => {
       },
       spinnerQueue: [],
       activeSpinnerLease: null,
+      tabState: { enabled: false, baseUrl: "", pageType: "" },
+      siteId: null,
+      pageDataLoadStatus: null,
     });
   });
 
@@ -364,6 +370,9 @@ describe("popup view projector", () => {
         pageCurtain: null,
         banner: null,
       },
+      tabState: { enabled: false, baseUrl: "", pageType: "" },
+      siteId: null,
+      pageDataLoadStatus: null,
     };
 
     const projected = projectViews(state).popupView;
@@ -487,6 +496,9 @@ describe("popup view projector", () => {
         pageCurtain: null,
         banner: null,
       },
+      tabState: { enabled: false, baseUrl: "", pageType: "" },
+      siteId: null,
+      pageDataLoadStatus: null,
     };
 
     expect(projectViews(state).popupView.lifecycle).toEqual({
@@ -537,6 +549,9 @@ describe("popup view projector", () => {
       propertyLockTimer: null,
       secondaryGates: null,
       spinners: { popup: null, pageCurtain: null, banner: null },
+      tabState: { enabled: false, baseUrl: "", pageType: "" },
+      siteId: null,
+      pageDataLoadStatus: null,
     });
 
     expect(projectViews(buildState({ ...baseSessionFacts, aiRunPhase: AI_RUN_PHASES.POST_AI })).contentDirective.markingEditsBlocked).toBe(true);
@@ -574,6 +589,9 @@ describe("popup view projector", () => {
       propertyLockTimer: null,
       secondaryGates: null,
       spinners: { popup: null, pageCurtain: null, banner: null },
+      tabState: { enabled: false, baseUrl: "", pageType: "" },
+      siteId: null,
+      pageDataLoadStatus: null,
     });
 
     const directiveFor = (facts: typeof baseSessionFacts) =>
@@ -652,6 +670,9 @@ describe("popup view projector", () => {
       propertyLockTimer: null,
       secondaryGates: null,
       spinners: { popup: null, pageCurtain: null, banner: null },
+      tabState: { enabled: false, baseUrl: "", pageType: "" },
+      siteId: null,
+      pageDataLoadStatus: null,
     });
     const savedSilentFacts = {
       ...baseSessionFacts,
@@ -665,5 +686,32 @@ describe("popup view projector", () => {
     expect(projectViews(buildState({ ...savedSilentFacts, isEnabled: true, silentModeActive: false })).contentDirective.silentHighlightActive).toBe(false);
     expect(projectViews(buildState({ ...savedSilentFacts, sessionHasPendingChanges: true })).contentDirective.silentHighlightActive).toBe(false);
     expect(projectViews(buildState({ ...savedSilentFacts, pageSaveReconciliationPending: true })).contentDirective.silentHighlightActive).toBe(false);
+  });
+
+  it("projects tabState, siteId, and pageDataLoadStatus", () => {
+    const state: TabLayerState = {
+      tabId: 100,
+      version: 1,
+      popupView: { traceEnabled: false, traceEvents: [], lifecycle: null },
+      activation: { contentReady: false, bootstrapStatus: "idle", restorePending: false, lastError: "", lastLifecycle: null, lastContentPageUrl: "" },
+      renderMode: { inspecting: false, javaScriptDisabled: false, noJsHeld: false, operationId: "", baseUrl: "", lastSnapshotPageUrl: "", followUpCompleted: false, lastError: "" },
+      sessionFactsReported: false,
+      sessionFacts: { ...baseSessionFacts },
+      sessionDictation: null,
+      aiRun: { active: false, phase: AI_RUN_PHASES.PRE_AI, deadlineAt: 0, leaseStartedAt: 0, lastEvent: "", sessionId: "", reason: "" },
+      aiRunLeaseOwned: false,
+      navigationInspectionCurtainClearBefore: 0,
+      propertyLockView: null,
+      propertyLockTimer: null,
+      secondaryGates: null,
+      spinners: { popup: null, pageCurtain: null, banner: null },
+      tabState: { enabled: true, baseUrl: "https://example.com", pageType: "homepage" },
+      siteId: 42,
+      pageDataLoadStatus: "ok",
+    };
+    const { popupView } = projectViews(state);
+    expect(popupView.tabState).toEqual({ enabled: true, baseUrl: "https://example.com", pageType: "homepage" });
+    expect(popupView.siteId).toBe(42);
+    expect(popupView.pageDataLoadStatus).toBe("ok");
   });
 });

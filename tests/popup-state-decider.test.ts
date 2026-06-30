@@ -118,6 +118,9 @@ describe("popup state decider", () => {
       secondaryGates: null,
       spinnerQueue: [],
       activeSpinnerLease: null,
+      tabState: { enabled: false, baseUrl: "", pageType: "" },
+      siteId: null,
+      pageDataLoadStatus: null,
     });
   });
 });
