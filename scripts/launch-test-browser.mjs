@@ -42,8 +42,8 @@ const TEMP_CONFIG = join(TEMP_DIR, "browser-mcp.config.json");
 const TEMP_OUT = join(TEMP_DIR, "out");
 const COMMITTED_CONFIG = join(repoRoot, ".vscode", "browser-mcp.config.json");
 const CDP_PORT = 9222;
-const CONTROL_STATE_TIMEOUT_MS = 20_000;
-const CONTROL_OBSERVE_TIMEOUT_MS = 4_000;
+const CONTROL_STATE_TIMEOUT_MS = 30_000;
+const CONTROL_OBSERVE_TIMEOUT_MS = 10_000;
 const XVFB_WRAP_ENV = "UNFLUFFIFY_BROWSER_LIVE_XVFB_WRAPPED";
 const XVFB_RUN_ARGS = ["-a", "--server-args=-screen 0 1280x900x24"];
 const MANUAL_XVFB_COMMAND =
@@ -329,9 +329,13 @@ function extractJsonObject(text) {
   return { raw: text };
 }
 
-function buildLiveStateScript(action) {
+function buildLiveStateScript(action, options = {}) {
+  const clickSelector = options.clickSelector ? JSON.stringify(options.clickSelector) : "null";
+  const inputValues = options.inputValues ? JSON.stringify(options.inputValues) : "null";
   return `async (page) => {
   const action = ${JSON.stringify(action)};
+  const clickSelector = ${clickSelector};
+  const inputValues = ${inputValues};
   const ctx = page.context();
   const pages = ctx.pages();
   const popup = pages.find((candidate) => String(candidate.url()).startsWith('chrome-extension://') && String(candidate.url()).includes('/popup.html'));
@@ -346,25 +350,16 @@ function buildLiveStateScript(action) {
       }
       const view = popupDebug.getViewState();
       const viewKeys = [
-        'previewActive',
-        'previewBlocked',
-        'previewItemsPending',
-        'previewWillRestoreMarking',
-        'toggleEnabled',
-        'toggleEnabledDisabled',
-        'computeButtonDisabled',
-        'markingPreviewVisible',
-        'markingPreviewDisabled',
-        'pageSaveDisabled',
-        'pageRevertDisabled',
-        'sessionHasPendingChanges',
-        'currentPageHasPendingChanges',
-        'sessionRequiresAiRun',
-        'currentDraftDirty',
-        'pageDraftStatusText',
-        'aiDirtyNoticeText',
-        'isBusy',
-        'busyMessage'
+        'previewActive', 'previewBlocked', 'previewItemsPending', 'previewWillRestoreMarking',
+        'toggleEnabled', 'toggleEnabledDisabled', 'computeButtonDisabled',
+        'markingPreviewVisible', 'markingPreviewDisabled',
+        'pageSaveDisabled', 'pageRevertDisabled',
+        'sessionHasPendingChanges', 'currentPageHasPendingChanges',
+        'sessionRequiresAiRun', 'currentDraftDirty',
+        'pageDraftStatusText', 'aiDirtyNoticeText',
+        'isBusy', 'busyMessage',
+        'previewBlockedReason', 'currentBaseUrl',
+        'markingPreviewVisible', 'pageDraftStatusText'
       ];
       const pickedView = {};
       for (const key of viewKeys) pickedView[key] = view[key];
@@ -383,11 +378,15 @@ function buildLiveStateScript(action) {
           }
           : null;
       }
+      // Also collect input fields
+      const inputs = Array.from(document.querySelectorAll('input[type=text], input[type=url], input[type=password], textarea'));
+      const inputState = inputs.map(i => ({ id: i.id || i.name || '?', value: (i.value||'').slice(0,80), placeholder: i.placeholder || '', visible: !!(i.offsetWidth || i.offsetHeight) }));
       return {
         url: location.href,
         title: document.title,
         view: pickedView,
-        dom
+        dom,
+        inputs: inputState
       };
     });
     const targetState = target
@@ -400,6 +399,34 @@ function buildLiveStateScript(action) {
     return { popup: popupState, target: targetState };
   }
 
+  if (action === 'click' && clickSelector) {
+    const before = await collectPopupState();
+    await popup.evaluate((sel) => {
+      const el = document.querySelector(sel) || document.getElementById(sel);
+      if (!el) throw new Error('Element not found: ' + sel);
+      el.click();
+    }, clickSelector);
+    await popup.waitForTimeout(2000);
+    const after = await collectPopupState();
+    return JSON.stringify({ action, selector: clickSelector, before, after, pages: pages.map(c => c.url()) });
+  }
+
+  if (action === 'set-inputs' && inputValues) {
+    await popup.evaluate((vals) => {
+      for (const [id, value] of Object.entries(vals)) {
+        const el = document.getElementById(id) || document.querySelector('[name="' + id + '"]');
+        if (el) {
+          el.value = value;
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      }
+    }, inputValues);
+    await popup.waitForTimeout(500);
+    const state = await collectPopupState();
+    return JSON.stringify({ action, inputValues, state, pages: pages.map(c => c.url()) });
+  }
+
   if (action === 'exit-preview') {
     const before = await collectPopupState();
     await popup.evaluate(() => {
@@ -409,20 +436,16 @@ function buildLiveStateScript(action) {
     });
     await popup.waitForTimeout(1500);
     const after = await collectPopupState();
-    return JSON.stringify({
-      action,
-      before,
-      after,
-      pages: pages.map((candidate) => candidate.url())
-    });
+    return JSON.stringify({ action, before, after, pages: pages.map(c => c.url()) });
+  }
+
+  if (action === 'eval' && options.expr) {
+    const result = await popup.evaluate(${JSON.stringify(options.expr)});
+    return JSON.stringify({ action, result, pages: pages.map(c => c.url()) });
   }
 
   const state = await collectPopupState();
-  return JSON.stringify({
-    action,
-    state,
-    pages: pages.map((candidate) => candidate.url())
-  });
+  return JSON.stringify({ action, state, pages: pages.map(c => c.url()) });
 }`;
 }
 
@@ -575,20 +598,12 @@ function makeControlChannel(client) {
     }
   }
 
-  async function runStateAction(action, timeoutMs = CONTROL_STATE_TIMEOUT_MS) {
-    try {
-      const response = await client.request("tools/call", {
-        name: "browser_run_code_unsafe",
-        arguments: { code: buildLiveStateScript(action) },
-      }, timeoutMs);
-      return extractJsonObject(toolText(response));
-    } catch (error) {
-      const message = String(error && error.message ? error.message : error);
-      if (message.includes("timeout waiting for tools/call")) {
-        return runStateActionViaCdp(action);
-      }
-      throw error;
-    }
+  async function runStateAction(action, timeoutMs = CONTROL_STATE_TIMEOUT_MS, options = {}) {
+    const response = await client.request("tools/call", {
+      name: "browser_run_code_unsafe",
+      arguments: { code: buildLiveStateScript(action, options) },
+    }, timeoutMs);
+    return extractJsonObject(toolText(response));
   }
 
   function printJson(prefix, value) {
@@ -618,7 +633,7 @@ function makeControlChannel(client) {
       return;
     }
     if (line === "help") {
-      console.log("[control] commands: help, state, exit-preview, observe, stop-observe");
+      console.log("[control] commands: help, state, exit-preview, observe, stop-observe, click <selector>, set-inputs <json>, eval <expr>");
       return;
     }
     if (line === "observe") {
@@ -637,8 +652,12 @@ function makeControlChannel(client) {
     if (line === "state") {
       const resumeObserve = observing;
       observing = false;
-      const result = await runStateActionViaCdp("state");
-      printJson("[control:state]", result);
+      try {
+        const result = await enqueue(() => runStateAction("state", CONTROL_STATE_TIMEOUT_MS));
+        printJson("[control:state]", result);
+      } catch (error) {
+        console.log(`[control:error] ${String(error && error.message ? error.message : error)}`);
+      }
       if (resumeObserve) {
         observing = true;
         void observeLoop();
@@ -648,8 +667,62 @@ function makeControlChannel(client) {
     if (line === "exit-preview") {
       const resumeObserve = observing;
       observing = false;
-      const result = await runStateActionViaCdp("exit-preview");
-      printJson("[control:exit-preview]", result);
+      try {
+        const result = await enqueue(() => runStateAction("exit-preview", CONTROL_STATE_TIMEOUT_MS));
+        printJson("[control:exit-preview]", result);
+      } catch (error) {
+        console.log(`[control:error] ${String(error && error.message ? error.message : error)}`);
+      }
+      if (resumeObserve) {
+        observing = true;
+        void observeLoop();
+      }
+      return;
+    }
+    if (line.startsWith("click ")) {
+      const selector = line.slice(6).trim();
+      const resumeObserve = observing;
+      observing = false;
+      try {
+        const result = await enqueue(() => runStateAction("click", CONTROL_STATE_TIMEOUT_MS, { clickSelector: selector }));
+        printJson("[control:click]", result);
+      } catch (error) {
+        console.log(`[control:error] ${String(error && error.message ? error.message : error)}`);
+      }
+      if (resumeObserve) {
+        observing = true;
+        void observeLoop();
+      }
+      return;
+    }
+    if (line.startsWith("set-inputs ")) {
+      const jsonStr = line.slice(11).trim();
+      let inputValues;
+      try { inputValues = JSON.parse(jsonStr); } catch { console.log("[control:error] invalid JSON for set-inputs"); return; }
+      const resumeObserve = observing;
+      observing = false;
+      try {
+        const result = await enqueue(() => runStateAction("set-inputs", CONTROL_STATE_TIMEOUT_MS, { inputValues }));
+        printJson("[control:set-inputs]", result);
+      } catch (error) {
+        console.log(`[control:error] ${String(error && error.message ? error.message : error)}`);
+      }
+      if (resumeObserve) {
+        observing = true;
+        void observeLoop();
+      }
+      return;
+    }
+    if (line.startsWith("eval ")) {
+      const expr = line.slice(5).trim();
+      const resumeObserve = observing;
+      observing = false;
+      try {
+        const result = await enqueue(() => runStateAction("eval", CONTROL_STATE_TIMEOUT_MS, { expr }));
+        printJson("[control:eval]", result);
+      } catch (error) {
+        console.log(`[control:error] ${String(error && error.message ? error.message : error)}`);
+      }
       if (resumeObserve) {
         observing = true;
         void observeLoop();
@@ -673,7 +746,7 @@ function makeControlChannel(client) {
 
   return {
     start() {
-      console.log("[control] commands: help, state, exit-preview, observe, stop-observe");
+      console.log("[control] commands: help, state, exit-preview, observe, stop-observe, click <selector>, set-inputs <json>, eval <expr>");
       console.log("[control] automatic button-state observation is enabled");
       void observeLoop();
       void readCommands();
