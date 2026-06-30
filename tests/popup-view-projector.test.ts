@@ -686,6 +686,25 @@ describe("popup view projector", () => {
     expect(projectViews(buildState({ ...savedSilentFacts, isEnabled: true, silentModeActive: false })).contentDirective.silentHighlightActive).toBe(false);
     expect(projectViews(buildState({ ...savedSilentFacts, sessionHasPendingChanges: true })).contentDirective.silentHighlightActive).toBe(false);
     expect(projectViews(buildState({ ...savedSilentFacts, pageSaveReconciliationPending: true })).contentDirective.silentHighlightActive).toBe(false);
+
+    // Regression: the silent-highlight activation itself sets navigationInspectionPending,
+    // pageInspectionBusy, and an editor_preparing reconciliation while it reveals/freezes the
+    // page. The directive must stay TRUE through that transient state, otherwise it flips off
+    // while preparing and back on when settled, re-triggering activation forever (a perpetual
+    // "Preparing page content…/Working…" curtain that blocks all controls).
+    expect(projectViews(buildState({ ...savedSilentFacts, navigationInspectionPending: true })).contentDirective.silentHighlightActive).toBe(true);
+    expect(projectViews(buildState({ ...savedSilentFacts, pageInspectionBusy: true })).contentDirective.silentHighlightActive).toBe(true);
+    expect(projectViews(buildState({
+      ...savedSilentFacts,
+      pageSaveReconciliationPending: true,
+      pageSaveReconciliationReason: "editor_preparing",
+    })).contentDirective.silentHighlightActive).toBe(true);
+    // A non-editor_preparing reconciliation (saving/syncing) still suppresses silent highlighting.
+    expect(projectViews(buildState({
+      ...savedSilentFacts,
+      pageSaveReconciliationPending: true,
+      pageSaveReconciliationReason: "saving",
+    })).contentDirective.silentHighlightActive).toBe(false);
   });
 
   it("projects tabState, siteId, and pageDataLoadStatus", () => {

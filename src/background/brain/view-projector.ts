@@ -151,21 +151,31 @@ function shouldActivateSilentHighlighting(state: TabLayerState): boolean {
     return false;
   }
   const facts = state.sessionFacts;
+  // The silent-highlight editor preparation IS a page inspection: while it runs
+  // it sets navigationInspectionPending, pageInspectionBusy, and an
+  // editor_preparing page-save reconciliation. This directive is the stable
+  // intent ("silent highlighting should be active for this page"), so it must
+  // NOT be gated off by the activation's own transient signals — doing so makes
+  // the directive flip false while preparing and true again once it settles,
+  // which re-triggers the activation forever (a perpetual "Preparing page
+  // content…/Working…" curtain). Only a NON-editor_preparing reconciliation
+  // (saving/syncing) should suppress silent highlighting.
+  const blockingReconciliationPending =
+    facts.pageSaveReconciliationPending &&
+    facts.pageSaveReconciliationReason !== PAGE_SAVE_RECONCILIATION_REASONS.EDITOR_PREPARING;
   return Boolean(
     facts.silentModeActive &&
       facts.hasStoredSelectors &&
       !facts.isEnabled &&
       !facts.pageScopedUiDisabled &&
-      !facts.navigationInspectionPending &&
       facts.baseUrlReady &&
       facts.siteIdReady &&
       facts.renderModeReady &&
       !facts.pageTypeUiBlocked &&
-      !facts.pageInspectionBusy &&
       !facts.sessionHasPendingChanges &&
       !facts.currentPageHasPendingChanges &&
       !facts.currentDraftDirty &&
-      !facts.pageSaveReconciliationPending &&
+      !blockingReconciliationPending &&
       !facts.sessionRequiresAiRun &&
       !facts.aiBusy &&
       !facts.aiComputing &&
