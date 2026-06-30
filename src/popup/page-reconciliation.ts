@@ -153,6 +153,7 @@ export async function handlePageSave(deps: PageReconciliationDeps) {
         stageBase: stageBaseValue,
         alertOnCurrentReplacement: false,
         includeAllLocalPageMarkings: true,
+        replaceLocalFromServerResponse: true,
         maxAttempts: 1
       });
       if (syncResult && syncResult.ok) {

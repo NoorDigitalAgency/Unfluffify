@@ -167,6 +167,23 @@ test("popup page reconciliation save retries retryable failures then succeeds", 
   assert.equal(calls.toast.at(-1), PopupText.page.sessionSaved);
 });
 
+test("popup page reconciliation save requests server-response replacement of local snapshot", async () => {
+  resetState();
+  let capturedOptions = null;
+  const { deps } = createDeps({
+    syncBaseConfigToServer: async (options) => {
+      capturedOptions = options;
+      return { ok: true };
+    }
+  });
+
+  await handlePageSave(deps);
+
+  assert.ok(capturedOptions, "syncBaseConfigToServer should be called");
+  assert.equal(capturedOptions.replaceLocalFromServerResponse, true);
+  assert.equal(capturedOptions.includeAllLocalPageMarkings, true);
+});
+
 test("popup page reconciliation save proceeds for session-level pending changes without page-marking diffs", async () => {
   resetState();
   const { deps, calls } = createDeps({
