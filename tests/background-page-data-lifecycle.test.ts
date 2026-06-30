@@ -81,6 +81,60 @@ test("background page-data lifecycle loads once per committed navigation and reu
   assert.deepEqual(calls.map((call) => call.type), ["load", "replace", "content"]);
 });
 
+test("background page-data lifecycle re-validates a stale cached siteId against the backend", async () => {
+  const { deps, calls, configs } = createDeps();
+  let loadedSiteId: number | string | null | undefined = null;
+  deps.resolveLivePageSiteId = async ({ pageUrl }: { pageUrl?: string }) => {
+    calls.push({ type: "resolve", payload: { pageUrl } });
+    return { ok: true, siteId: 60, baseUrl: "https://example.com" };
+  };
+  deps.loadRemoteConfigSnapshot = async ({ siteId }: { siteId?: number | string | null }) => {
+    loadedSiteId = siteId;
+    calls.push({ type: "load" });
+    return { ok: true, status: "ok", payloadKey: "payload-1" };
+  };
+  const loader = createPageDataLifecycleLoader(deps);
+
+  const result = await loader.handleTopLevelNavigationCommitted({
+    frameId: 0,
+    tabId: 7,
+    url: "https://example.com/page",
+    documentId: "doc-1"
+  });
+
+  // The cached siteId (5) is stale; the backend says 60. The resolver must
+  // re-validate, load with the corrected siteId, and refresh the local cache.
+  assert.equal(result.status, "ok");
+  assert.equal(loadedSiteId, 60);
+  assert.equal(configs["https://example.com"].siteId, 60);
+  assert.deepEqual(calls.map((call) => call.type), ["resolve", "load", "replace", "content"]);
+});
+
+test("background page-data lifecycle keeps the cached siteId when backend re-validation is unavailable", async () => {
+  const { deps, calls, configs } = createDeps();
+  let loadedSiteId: number | string | null | undefined = null;
+  deps.resolveLivePageSiteId = async () => ({ ok: false, siteId: null, baseUrl: "" });
+  deps.loadRemoteConfigSnapshot = async ({ siteId }: { siteId?: number | string | null }) => {
+    loadedSiteId = siteId;
+    calls.push({ type: "load" });
+    return { ok: true, status: "ok", payloadKey: "payload-1" };
+  };
+  const loader = createPageDataLifecycleLoader(deps);
+
+  const result = await loader.handleTopLevelNavigationCommitted({
+    frameId: 0,
+    tabId: 7,
+    url: "https://example.com/page",
+    documentId: "doc-1"
+  });
+
+  // Backend resolution failed; the cached siteId (5) must remain in use so an
+  // offline/transient backend error does not break navigation loads.
+  assert.equal(result.status, "ok");
+  assert.equal(loadedSiteId, 5);
+  assert.equal(configs["https://example.com"].siteId, 5);
+});
+
 test("background page-data lifecycle applies backend 404 as wipe-plus-notify while preserving popup status", async () => {
   const { deps, calls } = createDeps();
   deps.loadRemoteConfigSnapshot = async () => {

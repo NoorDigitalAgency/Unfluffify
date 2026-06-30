@@ -222,9 +222,35 @@ export function createPageDataLifecycleLoader(deps: PageDataLifecycleDeps) {
         ? tabStateBaseUrl
         : matchingBaseUrl;
     let siteId = normalizeSiteIdValue(input.siteId);
+    let siteIdFromCache = false;
     if (baseUrl && !siteId) {
       const normalized = normalizeConfig(baseUrl, configs[baseUrl]).config;
       siteId = normalizeSiteIdValue(normalized.siteId);
+      siteIdFromCache = Boolean(siteId);
+    }
+    // The backend is the source of truth for which property (siteId) a page URL
+    // belongs to. A siteId read from local config can go stale (e.g. a page whose
+    // cached config still points at a previous property's siteId), which would
+    // silently load the wrong property's data. Re-validate a cached siteId against
+    // the backend so a stale value self-corrects; fall back to the cached value
+    // when the backend cannot be reached (offline/error) or reports not-found.
+    if (siteIdFromCache) {
+      const revalidated = await deps.resolveLivePageSiteId({ pageUrl });
+      const revalidatedBaseUrl = normalizeBaseUrl(revalidated?.baseUrl);
+      const revalidatedSiteId = normalizeSiteIdValue(revalidated?.siteId);
+      if (
+        revalidated?.ok &&
+        revalidatedSiteId &&
+        revalidatedBaseUrl &&
+        utils.isPageWithinBaseUrl(pageUrl, revalidatedBaseUrl) &&
+        (revalidatedSiteId !== siteId || revalidatedBaseUrl !== baseUrl)
+      ) {
+        baseUrl = revalidatedBaseUrl;
+        siteId = revalidatedSiteId;
+        await persistResolvedSiteContext(configs, baseUrl, siteId);
+        deps.onSiteContextResolved?.({ tabId, baseUrl, siteId, pageDataLoadStatus: "pending" });
+        tracePageDataResolve(tabId, pageUrl, "revalidated");
+      }
     }
     if (!baseUrl || !siteId) {
       const resolved = await deps.resolveLivePageSiteId({ pageUrl });
