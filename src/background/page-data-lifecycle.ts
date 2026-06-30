@@ -399,8 +399,24 @@ export function createPageDataLifecycleLoader(deps: PageDataLifecycleDeps) {
     });
   }
 
+  async function handleSpaNavigation(input: PageDataLoadInput = {}): Promise<PageDataLoadResult> {
+    const tabId = normalizeTabId(input.tabId);
+    if (!tabId) {
+      return { status: "skipped", baseUrl: "" };
+    }
+    const pageUrl = normalizePageUrl(input.pageUrl) || normalizePageUrl((await deps.getTab(tabId).catch(() => null))?.url);
+    if (!pageUrl) {
+      return { status: "skipped", baseUrl: "" };
+    }
+    const navigationKey = buildNavigationKey(tabId, pageUrl, "spa");
+    latestNavigationKeyByTabId.set(tabId, navigationKey);
+    latestNavigationUrlByTabId.set(tabId, pageUrl);
+    return loadPageDataForNavigation({ tabId, pageUrl, navigationKey });
+  }
+
   return {
     handleTopLevelNavigationCommitted,
+    handleSpaNavigation,
     loadPageDataForNavigation
   };
 }

@@ -3844,7 +3844,17 @@ browser.webNavigation.onCompleted.addListener(async (details) => {
     // Ignore — the tab may have already navigated away or been closed.
   }
 });
-browser.webNavigation.onHistoryStateUpdated.addListener(disableExtensionOnTopLevelNavigation);
+browser.webNavigation.onHistoryStateUpdated.addListener((details: TopLevelNavigationDetails) => {
+  const tabId = normalizeBrokerTabId(details.tabId);
+  if (tabId && details.frameId === 0) {
+    runBackgroundTask(
+      "page-data-spa-navigation-load",
+      () => pageDataLifecycle.handleSpaNavigation({ tabId, pageUrl: details.url }),
+      { tabId, appendTrace: appendWorldTraceEvent }
+    );
+  }
+  disableExtensionOnTopLevelNavigation(details);
+});
 browser.webNavigation.onReferenceFragmentUpdated.addListener(disableExtensionOnTopLevelNavigation);
 
 browser.debugger.onDetach.addListener(async (source) => {
