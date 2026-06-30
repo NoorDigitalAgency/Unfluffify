@@ -65,6 +65,7 @@ import { deriveSecondaryGatesViewState } from "./deciders/secondary-gates-decide
 import { updateSpinnerSelectionsFromQueue } from "./deciders/spinner-state-decider";
 import { applySessionFactsPatch, buildSessionDictation } from "./deciders/session-phase-decider";
 import { createStateStore, type SpinnerSelection, type TabLayerState } from "./state-store";
+import { persistTabStates, loadPersistedTabStates } from "./state-store-persistence";
 import { createBrainHeartbeat } from "./heartbeat";
 import { projectSpinners, type SpinnerState } from "./spinner-authority";
 import { projectViews } from "./view-projector";
@@ -455,7 +456,11 @@ export function createBrain(options: { logger?: Pick<Console, "error" | "debug">
     transport,
     logger: options.logger || console,
   });
-  const store = createStateStore();
+  const store = createStateStore({
+    persist: (states) => {
+      void persistTabStates(states);
+    },
+  });
 
   transport.start();
   store.onProjection((tabId, state) => {
@@ -677,5 +682,13 @@ export function createBrain(options: { logger?: Pick<Console, "error" | "debug">
       });
     },
     heartbeat,
+    async rehydrate() {
+      const persisted = await loadPersistedTabStates();
+      for (const [tabId, state] of persisted) {
+        store.mutate(tabId, "brain:rehydrate", (draft) => {
+          Object.assign(draft, state);
+        });
+      }
+    },
   };
 }

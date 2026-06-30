@@ -1,6 +1,18 @@
+import { browser } from "../../common/browser";
+import { storageGet, storageSet } from "../../common/storage-core";
 import type { TabLayerState } from "./state-store";
 
 const STORAGE_KEY = "brain:state-store";
+
+type StorageHost = typeof globalThis & {
+  browser?: { storage?: { session?: unknown } };
+  chrome?: { storage?: { session?: unknown } };
+};
+
+function getSessionStorageArea(): unknown {
+  const host = globalThis as StorageHost;
+  return host.browser?.storage?.session || host.chrome?.storage?.session || browser.storage.session;
+}
 
 export function serializeTabStates(states: Map<number, TabLayerState>): string {
   const obj: Record<string, TabLayerState> = {};
@@ -35,7 +47,7 @@ export function deserializeTabStates(serialized: string | null | undefined): Map
 export async function persistTabStates(states: Map<number, TabLayerState>): Promise<void> {
   try {
     const serialized = serializeTabStates(states);
-    await chrome.storage.session.set({ [STORAGE_KEY]: serialized });
+    await storageSet(getSessionStorageArea(), { [STORAGE_KEY]: serialized });
   } catch {
     // Persistence failures must never break the brain.
   }
@@ -43,8 +55,8 @@ export async function persistTabStates(states: Map<number, TabLayerState>): Prom
 
 export async function loadPersistedTabStates(): Promise<Map<number, TabLayerState>> {
   try {
-    const result = await chrome.storage.session.get(STORAGE_KEY);
-    return deserializeTabStates(result[STORAGE_KEY]);
+    const result = await storageGet(getSessionStorageArea(), STORAGE_KEY);
+    return deserializeTabStates(result && result[STORAGE_KEY]);
   } catch {
     return new Map();
   }

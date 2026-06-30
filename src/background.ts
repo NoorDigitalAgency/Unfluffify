@@ -372,6 +372,7 @@ const isWorldTraceEnabled = worldTrace.isWorldTraceEnabled;
 const appendWorldTraceEvent = worldTrace.appendWorldTraceEvent;
 const busProtocolBridge = createBusProtocolBridge();
 const brain = createBrain({ logger: console });
+brain.rehydrate().catch(() => {});
 const BACKGROUND_COMMANDS = Object.freeze({
   TAB_BOOTSTRAP_CONTENT: "TAB_BOOTSTRAP_CONTENT",
   TAB_CONTENT_REQUEST: "TAB_CONTENT_REQUEST",
