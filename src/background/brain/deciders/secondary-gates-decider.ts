@@ -72,6 +72,10 @@ export function deriveSecondaryGatesViewState(facts: SessionFacts): SecondaryGat
     : !facts.baseUrlReady || !facts.siteIdReady
       ? SECONDARY_GATES_BLOCK_REASONS.NOT_READY
       : SECONDARY_GATES_BLOCK_REASONS.NONE;
+  // Silent Preview reads the latest STORED selector set, so in silent mode it is
+  // enabled whenever stored selectors exist — it does NOT require a fresh
+  // in-session AI run (#14). The marking-mode Preview Contents stays gated on a
+  // clean post-AI run via markingPreviewBlockedReason.
   const previewLatestBlockedReason = busy
     ? SECONDARY_GATES_BLOCK_REASONS.BUSY
     : facts.pageSaveReconciliationPending
@@ -82,8 +86,6 @@ export function deriveSecondaryGatesViewState(facts: SessionFacts): SecondaryGat
       ? SECONDARY_GATES_BLOCK_REASONS.NOT_READY
     : !facts.hasStoredSelectors
       ? SECONDARY_GATES_BLOCK_REASONS.NO_STORED_SELECTORS
-    : !facts.aiRunUpToDate || facts.sessionRequiresAiRun
-      ? SECONDARY_GATES_BLOCK_REASONS.REQUIRES_AI_RUN
     : facts.previewBlocked
       ? SECONDARY_GATES_BLOCK_REASONS.PREVIEW_BLOCKED
       : SECONDARY_GATES_BLOCK_REASONS.NONE;

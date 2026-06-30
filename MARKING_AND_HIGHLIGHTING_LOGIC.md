@@ -92,7 +92,10 @@ candidate `Marked` badges, marked-pages list, and Lynx checklist coverage while
 that editor remains on an eligible Live Page.
 Preview Contents has two accepted entry points. The silent-highlighting Preview
 button reads from the latest stored selector set in config storage and stays on
-the silent-highlighting surface. Marking mode also exposes Preview Contents as a
+the silent-highlighting surface; it is enabled whenever stored selectors exist in
+silent mode and does not require a fresh in-session AI run, and exiting the
+preview returns to the origin mode (silent stays silent). Marking mode also
+exposes Preview Contents as a
 current-page verification action after a successful AI run matches the live
 markings; opening or closing that preview must not create, mutate, or dirty page
 marking drafts. Send to Lynx remains silent-highlighting-only and must stay

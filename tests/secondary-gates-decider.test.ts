@@ -46,14 +46,23 @@ function buildFacts(overrides = {}) {
 }
 
 describe("secondary gates decider", () => {
-  it("keeps preview-latest disabled until the session has a fresh AI run", () => {
+  it("enables silent preview-latest from stored selectors without a fresh AI run", () => {
     const result = deriveSecondaryGatesViewState(buildFacts({
       aiRunUpToDate: false,
       sessionRequiresAiRun: true,
     }));
 
+    expect(result.previewLatestButtonDisabled).toBe(false);
+    expect(result.previewLatestBlockedReason).toBe("");
+  });
+
+  it("blocks silent preview-latest when no stored selectors exist", () => {
+    const result = deriveSecondaryGatesViewState(buildFacts({
+      hasStoredSelectors: false,
+    }));
+
     expect(result.previewLatestButtonDisabled).toBe(true);
-    expect(result.previewLatestBlockedReason).toBe("requires_ai_run");
+    expect(result.previewLatestBlockedReason).toBe("no_stored_selectors");
   });
 
   it("projects desktop preview gating and Lynx checklist blocking details", () => {

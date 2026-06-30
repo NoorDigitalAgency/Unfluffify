@@ -84,14 +84,22 @@ not wipe needed data.
 
 ## REMAINING steps (in order, same workflow: implement -> tests -> live-verify -> review -> commit/push -> graph refresh)
 
-- #14 Silent preview + exit-to-origin: in SILENT mode with stored selectors, the
-  "Show Content List" button must be enabled -> opens preview list -> exiting
-  returns to SILENT (exit-preview returns to ORIGIN mode: silent->silent,
-  post-AI-marking->marking). Currently Show List is marking-mode only. Touch:
-  dictation-decider MARKING_PREVIEW visibility/enabled + secondary-gates
-  markingPreview/previewLatest reasons (gate on hasStoredSelectors + silentModeActive
-  for the silent case) and the content exit-preview origin restore
-  (src/content-main.ts:3478 exitAiPreviewMode).
+- #14 Silent preview + exit-to-origin — DONE (uncommitted; live-verify deferred).
+  Scope confirmed by @Sojaner: enable the silent-mode "Show Content List"
+  (`preview-latest`) on `silentModeActive + hasStoredSelectors` only by dropping
+  the AI-run-freshness gate (`!aiRunUpToDate || sessionRequiresAiRun ->
+  REQUIRES_AI_RUN`) from `previewLatestBlockedReason`
+  (src/background/brain/deciders/secondary-gates-decider.ts). Marking-mode
+  `MARKING_PREVIEW` (gated on `postAiClean`) left unchanged. Exit-to-origin needed
+  NO content change: `beginAiPreviewMode` captures `previousEnabled =
+  Boolean(state.enabled)` (false in silent) and `restoreMarkingOnExit` only for
+  `compute_lock`, so `exitAiPreviewMode` falls through to
+  `refreshSilentHighlightings()` (silent->silent); marking->marking restore is the
+  existing `previousEnabled` branch. Tests: secondary-gates-decider.test.ts
+  updated (enable without fresh run + no_stored_selectors block); exit-to-origin
+  already locked by preview-tooltip.test.ts / popup-marking-refresh.test.ts. Docs:
+  knowledge.md + MARKING_AND_HIGHLIGHTING_LOGIC.md. Gate green (check/lint/test
+  1019). Code-review clean.
 - #13 Reveal/freeze immediacy: a candidate page must run reveal/freeze IMMEDIATELY
   on nav/reload when render mode is confirmed — NOT gated on marking-enable; NOT
   during render-mode detection; run after the FIRST render-mode set; NO
