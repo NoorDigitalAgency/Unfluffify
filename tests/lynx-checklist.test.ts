@@ -101,8 +101,8 @@ test("filters out unsupported page types and uses the fixed friendly labels for 
     "landing_page"
   ]);
   assert.deepEqual(normalized.pageTypes.map((item) => item.title), [
-    "Service Page",
-    "Landing Page"
+    "Service",
+    "Landing Page (Lead)"
   ]);
 });
 
@@ -128,7 +128,7 @@ test("merges repeated GraphQL page type groups and dedupes their candidate URLs"
 
   assert.equal(normalized.pageTypes.length, 1);
   assert.equal(normalized.pageTypes[0].key, "service_page");
-  assert.equal(normalized.pageTypes[0].title, "Service Page");
+  assert.equal(normalized.pageTypes[0].title, "Service");
   assert.deepEqual(normalized.pageTypes[0].candidates, [
     {
       url: "https://example.com/services/consulting",

@@ -105,6 +105,7 @@ const APPROVED_WRAPPER_FILES = new Set([
   "src/background/transfer-payload-store.ts",
   "src/background/ai-run-record-store.ts",
   "src/common/settings-store.ts",
+  "src/common/page-type-taxonomy.ts",
   "src/background/tab-session-store.ts",
   "src/common/emulation.ts",
   "src/common/render-mode-js-state.ts",

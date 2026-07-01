@@ -6,6 +6,7 @@ import {
   normalizeCanonicalBaseUrl
 } from "./utilities";
 import { normalizeSiteIdValue } from "./lynx-live-pages";
+import { getPageTypeSlugSet } from "./page-type-taxonomy";
 import type {
   Config,
   PageMarkingEntry,
@@ -23,17 +24,9 @@ export const RENDER_MODE_STATIC = "static";
 export const RENDER_MODE_RENDERED = "rendered";
 /** Default render mode is static */
 export const DEFAULT_RENDER_MODE = RENDER_MODE_STATIC;
-const SUPPORTED_PAGE_TYPE_KEYS = Object.freeze(new Set([
-  "homepage",
-  "article",
-  "listing",
-  "category",
-  "product",
-  "service_page",
-  "company",
-  "landing_page",
-  "utility"
-]));
+const SUPPORTED_PAGE_TYPE_KEYS = {
+  has: (value: string): boolean => getPageTypeSlugSet().has(value)
+};
 const SELECTOR_SET_FIELD = "selectors";
 const SELECTOR_SET_UPDATED_AT_FIELD = "selectorsUpdatedAt";
 const SUBMITTED_SELECTORS_FINGERPRINT_FIELD = "submittedSelectorsFingerprint";

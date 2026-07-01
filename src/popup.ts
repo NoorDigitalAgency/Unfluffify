@@ -21,6 +21,7 @@
 import * as chromeHelpers from "./popup/chrome-helpers";
 import { browser } from "./common/browser";
 import * as config from "./common/config";
+import { initPageTypeTaxonomy } from "./common/page-type-taxonomy";
 import * as constants from "./common/constants";
 import { tracePopupApplyView } from "./common/layer-trace";
 import {
@@ -8144,6 +8145,8 @@ function handleSpinnerSurfaceChangedFromBrain(surface: "popup" | "pageCurtain" |
 
 async function init() {
   state.traceEvents = [];
+  void initPageTypeTaxonomy();
+  void messages.sendRuntimeMessage({ type: "loadPageTypeTaxonomy" }).catch(() => {});
   state.traceModeEnabled = await loadTraceModeSetting().catch(() => false);
   await helpers.ensureActiveTab();
   const initTabId = state.currentTab && state.currentTab.id;

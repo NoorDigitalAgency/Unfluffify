@@ -137,8 +137,10 @@ import {
   resolveBackgroundNetworkCredentials,
   validateAuthToken
 } from "./background/network-core";
+import { initPageTypeTaxonomy } from "./common/page-type-taxonomy";
 import {
   fetchStaticPageHtmlForBackground,
+  loadPageTypeTaxonomy,
   loadRemoteConfigSnapshot,
   removeRemotePageMarking,
   requestAiRunResultSnapshot,
@@ -902,6 +904,7 @@ if (browser.alarms && browser.alarms.onAlarm && typeof browser.alarms.onAlarm.ad
 
 void authTokenMonitor.start();
 void pageTypesMonitor.start();
+void initPageTypeTaxonomy();
 
 async function captureRenderModeHtmlWithDebugger(tabId: unknown): Promise<RenderModeHtmlCaptureResult> {
   const normalizedTabId = normalizeBrokerTabId(tabId);
@@ -3162,6 +3165,14 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
       endpointValue: message.endpointValue,
       tokenValue: message.tokenValue,
       siteId: message.siteId
+    }), sendResponse, { ok: false });
+    return true;
+  }
+
+  if (message.type === "loadPageTypeTaxonomy") {
+    replyWithKeepAlive(() => loadPageTypeTaxonomy({
+      endpointValue: message.endpointValue,
+      tokenValue: message.tokenValue
     }), sendResponse, { ok: false });
     return true;
   }

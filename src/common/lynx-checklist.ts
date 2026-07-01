@@ -1,3 +1,5 @@
+import { getPageTypeLabel, getPageTypeSlugs } from "./page-type-taxonomy";
+
 type AiAnswer = "" | "yes" | "no";
 
 type RawCandidate = {
@@ -50,21 +52,6 @@ function normalizeAiAnswer(value: unknown): AiAnswer {
   return value === "yes" || value === "no" ? value : "";
 }
 
-const ALLOWED_PAGE_TYPE_LABELS = Object.freeze({
-  homepage: "Homepage",
-  article: "Article",
-  listing: "Listing",
-  category: "Category",
-  product: "Product",
-  service_page: "Service Page",
-  company: "Company",
-  landing_page: "Landing Page",
-  utility: "Utility"
-});
-const PAGE_TYPE_LABELS: Readonly<Record<string, string>> = ALLOWED_PAGE_TYPE_LABELS;
-
-const ALLOWED_PAGE_TYPE_ORDER = Object.freeze(Object.keys(ALLOWED_PAGE_TYPE_LABELS));
-
 export function normalizePageTypeKey(value: unknown): string {
   if (typeof value !== "string") {
     return "";
@@ -108,8 +95,9 @@ function formatPageTypeTitleFromKey(value: unknown): string {
   if (!key) {
     return "";
   }
-  if (PAGE_TYPE_LABELS[key]) {
-    return PAGE_TYPE_LABELS[key];
+  const taxonomyLabel = getPageTypeLabel(key);
+  if (taxonomyLabel) {
+    return taxonomyLabel;
   }
   return key
     .split("_")
@@ -125,8 +113,9 @@ function formatPageTypeTitleFromKey(value: unknown): string {
 
 function normalizePageTypeTitle(value: unknown, fallbackKey: unknown): string {
   const key = normalizePageTypeKey(fallbackKey);
-  if (PAGE_TYPE_LABELS[key]) {
-    return PAGE_TYPE_LABELS[key];
+  const taxonomyLabel = getPageTypeLabel(key);
+  if (taxonomyLabel) {
+    return taxonomyLabel;
   }
   if (typeof value === "string" && value.trim()) {
     return value.trim();
@@ -202,7 +191,7 @@ export function normalizePropertyPageTypes(value: unknown = []): {
     }
     const pageType = rawPageType as RawPageType;
     const key = normalizePageTypeKey(pageType.pageType || pageType.key);
-    if (!key || !PAGE_TYPE_LABELS[key]) {
+    if (!key || !getPageTypeLabel(key)) {
       return;
     }
     const existing = pageTypesByKey.get(key);
@@ -220,8 +209,9 @@ export function normalizePropertyPageTypes(value: unknown = []): {
   });
 
   const pageTypes = Array.from(pageTypesByKey.values());
+  const pageTypeOrder = getPageTypeSlugs();
   pageTypes.sort((left, right) => {
-    return ALLOWED_PAGE_TYPE_ORDER.indexOf(left.key) - ALLOWED_PAGE_TYPE_ORDER.indexOf(right.key);
+    return pageTypeOrder.indexOf(left.key) - pageTypeOrder.indexOf(right.key);
   });
 
   const duplicateUrlToKeys = new Map<string, string[]>();

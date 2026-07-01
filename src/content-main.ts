@@ -6,6 +6,7 @@ import {
   addRequestEnvelopeListener
 } from "./common/extension-messaging";
 import * as config from "./common/config";
+import { initPageTypeTaxonomy } from "./common/page-type-taxonomy";
 import {
   FEATURE_DISABLED_REASON,
   isDebugFlagEnabled,
@@ -7017,6 +7018,7 @@ export function main() {
     return;
   }
   state.initialized = true;
+  void initPageTypeTaxonomy();
   registerContentCommandHandlersOnce();
   subscribePageActivity(sendPropertyLockActivity);
   core.setPageInspectionUiSettledListener(notifyInspectionSettled);

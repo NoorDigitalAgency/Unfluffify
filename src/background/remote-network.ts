@@ -17,6 +17,7 @@ import {
   putTransferPayload,
   removeTransferPayload
 } from "./transfer-payload-store";
+import { writeStoredPageTypeTaxonomy } from "../common/page-type-taxonomy";
 
 export const UPDATE_SCRAPING_CONDITIONS_MUTATION = `
 mutation updateScrapingConditions($domainId: Int!, $includeCss: String!, $excludeCss: String!, $renderingMode: String) {
@@ -195,6 +196,44 @@ export async function loadRemoteConfigSnapshot(options = {}) {
       return { ok: false };
     }
     return { ok: true, status: "ok", payloadKey: stored.payloadKey };
+  } catch {
+    return { ok: false };
+  }
+}
+
+export async function loadPageTypeTaxonomy(options: RemoteNetworkOptions = {}) {
+  const opts = options;
+  const credentials = await resolveBackgroundNetworkCredentials({
+    endpointValue: opts.endpointValue,
+    tokenValue: opts.tokenValue,
+    endpointPreference: "config"
+  });
+  const endpointValue = credentials.endpointValue;
+  const tokenValue = credentials.tokenValue;
+  const taxonomyUrl = resolveBackgroundEndpoint(endpointValue, "/page-types");
+  if (!taxonomyUrl) {
+    return { ok: false, skipped: true };
+  }
+  try {
+    const response = await fetch(taxonomyUrl, {
+      method: "GET",
+      headers: createBackgroundJsonHeaders(tokenValue)
+    });
+    await maybeUpdateStoredTokenFromResponse(response, tokenValue);
+    if (response.status === 401 || response.status === 403) {
+      return { ok: true, status: "auth_error" };
+    }
+    if (!response.ok) {
+      return { ok: true, status: "error" };
+    }
+    let payload: unknown = null;
+    try {
+      payload = await response.json();
+    } catch {
+      payload = null;
+    }
+    const applied = await writeStoredPageTypeTaxonomy(payload);
+    return { ok: applied, status: applied ? "ok" : "error" };
   } catch {
     return { ok: false };
   }
