@@ -139,6 +139,14 @@ export interface PopupState {
   renderModeDebuggerTabId: number | null;
   currentBaseUrlHasConfirmedRenderMode: boolean;
   remoteConfigLoadKey: string;
+  // #load-once: identity of the page session (tab|page|site|endpoint) for which the
+  // config /load has already fired. The load runs ONCE per page session and is never
+  // re-triggered by the recurring popup refresh.
+  pageDataLoadSessionKey: string;
+  // Exponential-backoff attempt counter for the remote-config /load retry: bumped
+  // on each errored retry, reset to 0 on a clean (ok/not_found) load. Stops the
+  // 2.5s retry-on-error storm when the backend is failing.
+  remoteConfigRetryAttempt: number;
   remoteConfigLoadResult: RemoteConfigLoadResult | null;
   remoteConfigLoadResultByKey: Map<string, RemoteConfigLoadResult>;
   remoteConfigLoadRequestCounter: number;

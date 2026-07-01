@@ -715,6 +715,28 @@ export async function idbRemove(keys: unknown) {
   });
 }
 
+export async function idbGetAllKeys(): Promise<string[]> {
+  if (!isExtensionContext()) {
+    const response = await sendRuntimeMessage({ type: "idbGetAllKeys" });
+    if (response && response.ok) {
+      return Array.isArray(response.result) ? response.result.map((key: unknown) => String(key)) : [];
+    }
+    throw new Error(response && response.error ? response.error : "IndexedDB getAllKeys failed");
+  }
+  const db = await openIdb();
+  return new Promise<string[]>((resolve) => {
+    const tx = db.transaction(IDB_STORE, "readonly");
+    const store = tx.objectStore(IDB_STORE);
+    const request = store.getAllKeys();
+    request.onsuccess = () => {
+      const keys = Array.isArray(request.result) ? request.result : [];
+      resolve(keys.map((key) => String(key)));
+    };
+    request.onerror = () => resolve([]);
+    tx.onabort = () => resolve([]);
+  });
+}
+
 // Tab state utilities
 export async function getTabState(tabId: number, scope: string | null = null) {
   return getStoredTabState(tabId, scope);

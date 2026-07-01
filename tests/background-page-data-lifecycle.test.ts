@@ -59,6 +59,45 @@ function createDeps(overrides = {}) {
   return { deps, calls, configs };
 }
 
+test("background page-data lifecycle collapses concurrent loads for one navigation into a single /load", async () => {
+  const { deps, calls } = createDeps();
+  let releaseLoad: (() => void) | null = null;
+  const loadGate = new Promise<void>((resolve) => {
+    releaseLoad = resolve;
+  });
+  let loadCount = 0;
+  deps.loadRemoteConfigSnapshot = async () => {
+    loadCount += 1;
+    calls.push({ type: "load" });
+    await loadGate;
+    return { ok: true, status: "ok", payloadKey: `payload-${loadCount}` };
+  };
+  const loader = createPageDataLifecycleLoader(deps);
+
+  const input = {
+    tabId: 7,
+    pageUrl: "https://example.com/page",
+    baseUrl: "https://example.com",
+    siteId: 5,
+    navigationKey: "nav-key-1"
+  };
+  // Fire three concurrent loads for the same navigation while the first /load is
+  // still in flight, then let all of them reach the in-flight dedupe.
+  const pending = [
+    loader.loadPageDataForNavigation(input),
+    loader.loadPageDataForNavigation(input),
+    loader.loadPageDataForNavigation(input)
+  ];
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  releaseLoad?.();
+  const results = await Promise.all(pending);
+
+  results.forEach((result) => assert.equal(result.status, "ok"));
+  // Exactly one /load fetch happened despite three concurrent navigation loads.
+  assert.equal(loadCount, 1);
+  assert.equal(calls.filter((call) => call.type === "load").length, 1);
+});
+
 test("background page-data lifecycle loads once per committed navigation and reuses it for popup refresh", async () => {
   const { deps, calls } = createDeps();
   const loader = createPageDataLifecycleLoader(deps);

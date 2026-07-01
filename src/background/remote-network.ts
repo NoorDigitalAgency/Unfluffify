@@ -15,7 +15,8 @@ import {
 import {
   getTransferPayload,
   putTransferPayload,
-  removeTransferPayload
+  removeTransferPayload,
+  sanitizeTransferPayloads
 } from "./transfer-payload-store";
 import { writeStoredPageTypeTaxonomy } from "../common/page-type-taxonomy";
 
@@ -169,6 +170,7 @@ export async function loadRemoteConfigSnapshot(options = {}) {
   if (!loadUrl || !normalizedSiteId) {
     return { ok: false, skipped: true };
   }
+  await sanitizeTransferPayloads();
   try {
     const response = await fetch(loadUrl, {
       method: "POST",

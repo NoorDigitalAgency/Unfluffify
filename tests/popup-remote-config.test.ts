@@ -19,6 +19,7 @@ function resetRemoteConfigState() {
   state.remoteConfigTabFenceByTabId.clear();
   state.remoteConfigSiteFenceByKey.clear();
   state.remoteConfigConnectionRetryTimer = 0;
+  state.remoteConfigRetryAttempt = 0;
 }
 
 function createDeps(overrides = {}) {
@@ -137,6 +138,39 @@ test("popup remote config retry schedules refresh only once", async () => {
 
   assert.equal(refreshCount, 1);
   assert.equal(state.remoteConfigConnectionRetryTimer, 0);
+});
+
+test("popup remote config retry backs off exponentially, caps at 30s, and recovers to base at attempt 0", async () => {
+  resetRemoteConfigState();
+  const delays = [];
+  const { deps } = createDeps({
+    windowRef: {
+      setTimeout: (_fn, ms) => {
+        delays.push(ms);
+        return 1;
+      },
+      alert: () => {}
+    }
+  });
+
+  const scheduleOnce = () => {
+    // Clear the dedupe timer so each schedule is admitted.
+    state.remoteConfigConnectionRetryTimer = 0;
+    scheduleRemoteConfigRetry(deps);
+  };
+
+  // base delay (deps.remoteConfigRetryDelayMs) is 100 in createDeps.
+  state.remoteConfigRetryAttempt = 0;
+  scheduleOnce(); // attempt 0 -> 100
+  scheduleOnce(); // attempt 1 -> 200
+  state.remoteConfigRetryAttempt = 12;
+  scheduleOnce(); // attempt 12 -> capped at 30000
+  // A clean (ok/not_found) load resets remoteConfigRetryAttempt to 0 via
+  // setRemoteConfigConnectionIssue(false); the next retry must return to base.
+  state.remoteConfigRetryAttempt = 0;
+  scheduleOnce(); // attempt 0 -> 100 again
+
+  assert.deepEqual(delays, [100, 200, 30000, 100]);
 });
 
 test("popup remote config load short-circuits when args are missing", async () => {

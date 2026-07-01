@@ -94,6 +94,8 @@ export const state: PopupState = {
   renderModeDebuggerTabId: null,
   currentBaseUrlHasConfirmedRenderMode: false,
   remoteConfigLoadKey: "",
+  pageDataLoadSessionKey: "",
+  remoteConfigRetryAttempt: 0,
   remoteConfigLoadResult: null,
   remoteConfigLoadResultByKey: new Map(),
   remoteConfigLoadRequestCounter: 0,

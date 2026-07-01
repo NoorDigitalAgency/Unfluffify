@@ -315,11 +315,16 @@ export async function replaceServerConfigIntoLocalSnapshot(options = {}) {
   const existingConfig = normalizeConfigResult(baseUrl, existingRaw).config;
   const normalizedIncomingSiteId = normalizeSiteIdValue(normalizedPayload.siteId);
   const fallbackSiteId = normalizeSiteIdValue(optionsAny.siteId);
+  // #load-once step 3: a 200 load COMPLETELY replaces the property config with the
+  // server payload — existingConfig is NOT spread in, so no stale local field
+  // (siteId, render mode, markings) survives. Render mode comes from the payload
+  // (it round-trips via normalizeConfigSyncPayload). This is what kills stale
+  // cross-property siteId contamination: the config is session-scoped and fully
+  // re-sourced from the backend on each page-session load.
   const nextConfig = normalizeConfigResult(baseUrl, {
-    ...existingConfig,
     ...normalizedPayload,
     baseUrl,
-    siteId: normalizedIncomingSiteId || normalizeSiteIdValue(existingConfig.siteId) || fallbackSiteId || null,
+    siteId: normalizedIncomingSiteId || fallbackSiteId || null,
     pageMarkings: configStore.normalizePageMarkings(normalizedPayload.pageMarkings).normalized,
     selectors: normalizeAiSelectorSet(normalizedPayload.selectors),
     selectorsUpdatedAt: configStore.normalizeEntryTimestamp(normalizedPayload.selectorsUpdatedAt),

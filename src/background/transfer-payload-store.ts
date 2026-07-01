@@ -1,18 +1,12 @@
-import { browser } from "../common/browser";
 import * as utils from "../common/utilities";
+import { AI_RUN_DEFAULT_TIMEOUT_MS } from "../common/bus/contracts/ai-run";
 
 export const TRANSFER_PAYLOAD_KEY_PREFIX = "remote-config-";
 const DEFAULT_TRANSFER_PAYLOAD_MAX_AGE_MS = 5 * 60_000;
-
-type StorageHost = typeof globalThis & {
-  browser?: { storage?: { session?: unknown } };
-  chrome?: { storage?: { session?: unknown } };
-};
-
-function getSessionStorageArea(): unknown {
-  const host = globalThis as StorageHost;
-  return host.browser?.storage?.session || host.chrome?.storage?.session || browser.storage.session;
-}
+// Margin added on top of the AI run timeout when deciding whether a transfer
+// payload is stale enough to sanitize. Keeps the safe window comfortably longer
+// than any real in-flight transfer.
+export const TRANSFER_PAYLOAD_SANITIZE_MARGIN_MS = 2 * 60_000;
 
 function normalizePayloadKey(payloadKey: unknown): string {
   return typeof payloadKey === "string" ? payloadKey.trim() : "";
@@ -85,7 +79,7 @@ export async function putTransferPayload(
   const scopeForKey = typeof scope === "string" ? scope : "payload";
   const payloadKey = normalizePayloadKey(options.payloadKey) || buildTransferPayloadKey(scopeForKey);
   try {
-    await utils.storageSet(getSessionStorageArea(), { [payloadKey]: payload });
+    await utils.idbSet({ [payloadKey]: payload });
     return { ok: true, payloadKey };
   } catch {
     return { ok: false, reason: "storage_failed", payloadKey: "" };
@@ -101,9 +95,9 @@ export async function getTransferPayload(
     return { ok: false, reason: "missing_key", payloadKey: "" };
   }
 
-  let payloadStore: Awaited<ReturnType<typeof utils.storageGet>>;
+  let payloadStore: Record<string, unknown>;
   try {
-    payloadStore = await utils.storageGet(getSessionStorageArea(), normalizedPayloadKey);
+    payloadStore = (await utils.idbGet(normalizedPayloadKey)) as Record<string, unknown>;
   } catch {
     return { ok: false, reason: "storage_failed", payloadKey: normalizedPayloadKey };
   }
@@ -153,7 +147,7 @@ export async function removeTransferPayload(payloadKey: unknown): Promise<{ ok: 
     return { ok: false, reason: "missing_key", payloadKey: "" };
   }
   try {
-    await utils.storageRemove(getSessionStorageArea(), normalizedPayloadKey);
+    await utils.idbRemove(normalizedPayloadKey);
     return { ok: true, payloadKey: normalizedPayloadKey };
   } catch {
     return { ok: false, reason: "storage_failed", payloadKey: normalizedPayloadKey };
@@ -169,18 +163,14 @@ export async function sweepStaleTransferPayloads(options = {}) {
   const nowValue = Number(resolvedOptions.now);
   const now = Number.isFinite(nowValue) ? nowValue : Date.now();
 
-  let allSession: Awaited<ReturnType<typeof utils.storageGet>>;
+  let allKeys: string[];
   try {
-    allSession = await utils.storageGet(getSessionStorageArea(), null);
+    allKeys = await utils.idbGetAllKeys();
   } catch {
     return { ok: false, reason: "storage_failed", removedKeys: [] };
   }
 
-  if (!allSession || typeof allSession !== "object") {
-    return { ok: true, removedKeys: [], scanned: 0 };
-  }
-
-  const staleKeys = Object.keys(allSession).filter((key) => {
+  const staleKeys = allKeys.filter((key) => {
     const parsed = parseTransferPayloadKey(key);
     if (!parsed) {
       return false;
@@ -189,18 +179,74 @@ export async function sweepStaleTransferPayloads(options = {}) {
   });
 
   if (!staleKeys.length) {
-    return { ok: true, removedKeys: [], scanned: Object.keys(allSession).length };
+    return { ok: true, removedKeys: [], scanned: allKeys.length };
   }
 
   try {
-    await utils.storageRemove(getSessionStorageArea(), staleKeys);
+    await utils.idbRemove(staleKeys);
     return {
       ok: true,
       removedKeys: staleKeys,
-      scanned: Object.keys(allSession).length
+      scanned: allKeys.length
     };
   } catch {
     return { ok: false, reason: "storage_failed", removedKeys: [] };
+  }
+}
+
+export async function sanitizeTransferPayloads(
+  options: { now?: unknown } = {}
+): Promise<{ ok: boolean; removedKeys: string[] }> {
+  const nowValue = Number(options.now);
+  const now = Number.isFinite(nowValue) ? nowValue : Date.now();
+  // A payload can legitimately be "in flight" for at most one AI run timeout
+  // (the longest-lived operation). Anything older than that plus a margin is
+  // stale from a previous session and safe to evict. Fresh in-flight payloads
+  // (ai-run-*, save-*, load, ...) stay untouched because their age is far below
+  // this window, and the newest payload of every scope is always kept as an
+  // extra safeguard.
+  const maxAgeMs = AI_RUN_DEFAULT_TIMEOUT_MS + TRANSFER_PAYLOAD_SANITIZE_MARGIN_MS;
+
+  let allKeys: string[];
+  try {
+    allKeys = await utils.idbGetAllKeys();
+  } catch {
+    return { ok: false, removedKeys: [] };
+  }
+
+  const parsedTransfers = allKeys
+    .map((key) => parseTransferPayloadKey(key))
+    .filter((entry): entry is NonNullable<ReturnType<typeof parseTransferPayloadKey>> => entry !== null);
+
+  const latestKeyByScope = new Map<string, { key: string; timestamp: number }>();
+  for (const entry of parsedTransfers) {
+    const current = latestKeyByScope.get(entry.scope);
+    if (!current || entry.timestamp > current.timestamp) {
+      latestKeyByScope.set(entry.scope, { key: entry.key, timestamp: entry.timestamp });
+    }
+  }
+
+  const staleKeys = parsedTransfers
+    .filter((entry) => {
+      if (now - entry.timestamp <= maxAgeMs) {
+        return false;
+      }
+      if (latestKeyByScope.get(entry.scope)?.key === entry.key) {
+        return false;
+      }
+      return true;
+    })
+    .map((entry) => entry.key);
+
+  if (!staleKeys.length) {
+    return { ok: true, removedKeys: [] };
+  }
+
+  try {
+    await utils.idbRemove(staleKeys);
+    return { ok: true, removedKeys: staleKeys };
+  } catch {
+    return { ok: false, removedKeys: [] };
   }
 }
 

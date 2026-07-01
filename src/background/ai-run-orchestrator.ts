@@ -1,5 +1,12 @@
 import type { Config } from "../types/config.ts";
 
+// The page-snapshot capture runs on the content main thread and can take many
+// seconds on heavy pages (large DOM + third-party scripts). The default 15s
+// content-message timeout used to lose the race and fail the whole AI run with
+// "Content message timed out"; give the snapshot a generous budget that still
+// sits well inside the overall AI run timeout.
+const AI_RUN_SNAPSHOT_CONTENT_TIMEOUT_MS = 120_000;
+
 type TabLike = number | string | null | undefined;
 type SiteIdLike = number | string | null | undefined;
 type DeadlineLike = number | string | null | undefined;
@@ -133,7 +140,8 @@ interface AiRunOrchestratorOptions {
   savePersistedAiRunRecord?(record: PersistedAiRunRecord): Promise<unknown>;
   sendContentMessageToTab?(
     tabId: number,
-    message: ContentMessage
+    message: ContentMessage,
+    timeoutMs?: number
   ): Promise<{ ok: boolean; error?: string; reconciliationPending?: boolean; locked?: boolean }>;
   ensureContentMainForTab?(tabId: number): Promise<{ ok: boolean; error?: string }>;
   getTabState?(tabId: number): Promise<Record<string, unknown> | null>;
@@ -764,7 +772,7 @@ export function createAiRunOrchestrator(options: AiRunOrchestratorOptions = {}) 
           baseUrl,
           pageType,
           persist: true
-        });
+        }, AI_RUN_SNAPSHOT_CONTENT_TIMEOUT_MS);
         if (!snapshotResponse || !snapshotResponse.ok) {
           return {
             ok: false,

@@ -3484,6 +3484,10 @@ function setRemoteConfigConnectionIssue(active: boolean): void {
   state.remoteConfigConnectionIssue = nextActive;
   if (!nextActive) {
     clearRemoteConfigRetryTimer();
+    // A clean (ok/not_found) load recovered the connection, so restart the
+    // exponential backoff ladder — otherwise a later re-failure would wait at
+    // the 30s cap instead of the 2.5s base delay.
+    state.remoteConfigRetryAttempt = 0;
   }
 }
 
@@ -4066,14 +4070,13 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
     }
     state.currentConfig = configs[state.currentBaseUrl] || normalized.config;
     if (projectedSiteId) {
-      // Brain already resolved the site ID — use it directly instead of
-      // sending a resolveLivePageSiteId message to the background.
+      // #sw-sole-authority: the popup uses the brain's resolved siteId directly but
+      // must NEVER persist it. The SW page-data-lifecycle (complete-replace on 200)
+      // is the sole config/siteId authority. Persisting projectedSiteId here fought
+      // the SW's complete-replace and churned the once-per-session load guard
+      // (re-load every refresh), and previously leaked a stale/other-property siteId
+      // into the current property's config (cross-property contamination).
       currentSiteId = projectedSiteId;
-      const configEntry = configs[state.currentBaseUrl];
-      if (configEntry && normalizeSiteIdValue(configEntry.siteId) !== projectedSiteId) {
-        configEntry.siteId = projectedSiteId;
-        await config.saveConfigs(configs);
-      }
     } else {
       // Brain hasn't pushed a siteId yet. Read from config (which the brain
       // may have already persisted via page-data-lifecycle). Do NOT send a
@@ -4124,17 +4127,43 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
         state.propertyLockEditorBootstrapPending
     );
     if (configEndpointValue && tokenValue && (!editorOwnsCurrentProperty || shouldBootstrapEditorConfig)) {
-      remoteLoadResult = await loadRemoteConfigForCurrentPage({
-        tabId: currentTabId,
-        pageUrl,
-        baseUrl: state.currentBaseUrl,
-        siteId: currentSiteId,
-        endpointValue: configEndpointValue,
-        tokenValue,
-        force: shouldBootstrapEditorConfig
-      });
-      if (shouldBootstrapEditorConfig) {
-        state.propertyLockEditorBootstrapPending = false;
+      // #load-once: the config /load fires ONCE per page session (tab|page|site|endpoint),
+      // at page load, and is never re-triggered by the recurring popup refresh. On later
+      // refreshes we reuse the settled result instead of re-loading. Re-triggering the
+      // load on every refresh caused a self-sustaining /load loop (each "changed" load
+      // fired configUpdated -> content re-processed -> facts -> re-projection -> refresh
+      // -> load ...). Errors are not recorded so the load retries until it settles.
+      const pageDataLoadSessionKey = currentSiteId
+        ? `${currentTabId}|${pageUrl}|${currentSiteId}|${configEndpointValue}`
+        : "";
+      const reusableLoadResult =
+        !shouldBootstrapEditorConfig &&
+        pageDataLoadSessionKey &&
+        state.pageDataLoadSessionKey === pageDataLoadSessionKey
+          ? state.remoteConfigLoadResult
+          : null;
+      if (reusableLoadResult) {
+        remoteLoadResult = reusableLoadResult;
+      } else {
+        remoteLoadResult = await loadRemoteConfigForCurrentPage({
+          tabId: currentTabId,
+          pageUrl,
+          baseUrl: state.currentBaseUrl,
+          siteId: currentSiteId,
+          endpointValue: configEndpointValue,
+          tokenValue,
+          force: shouldBootstrapEditorConfig
+        });
+        if (
+          pageDataLoadSessionKey &&
+          remoteLoadResult &&
+          (remoteLoadResult.status === "ok" || remoteLoadResult.status === "not_found")
+        ) {
+          state.pageDataLoadSessionKey = pageDataLoadSessionKey;
+        }
+        if (shouldBootstrapEditorConfig) {
+          state.propertyLockEditorBootstrapPending = false;
+        }
       }
     } else if (editorOwnsCurrentProperty) {
       remoteLoadResult = { status: "skipped_editor", baseUrl: state.currentBaseUrl };

@@ -3673,6 +3673,16 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === "idbGetAllKeys") {
+    replyWithKeepAlive(() => utils.idbGetAllKeys()
+      .then((result) => ({ ok: true, result }))
+      .catch((error) => ({
+        ok: false,
+        error: error && error.message ? error.message : "IndexedDB getAllKeys failed"
+      })), sendResponse, { ok: false, error: "IndexedDB getAllKeys failed" });
+    return true;
+  }
+
   if (message.type === "resolveLivePageSiteId") {
     resolveLivePageSiteId({
       stageBase: message.stageBase,

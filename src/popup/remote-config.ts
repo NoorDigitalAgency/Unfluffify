@@ -177,9 +177,17 @@ export function scheduleRemoteConfigRetry(deps: RemoteConfigDeps) {
   if (state.remoteConfigConnectionRetryTimer) {
     return;
   }
-  const retryDelayMs = Number.isFinite(deps.remoteConfigRetryDelayMs)
+  const baseDelayMs = Number.isFinite(deps.remoteConfigRetryDelayMs)
     ? Math.trunc(deps.remoteConfigRetryDelayMs)
     : DEFAULT_REMOTE_CONFIG_RETRY_DELAY_MS;
+  // Exponential backoff (capped at 30s) so a failing backend does NOT trigger a tight
+  // 2.5s retry-on-error /load storm. state.remoteConfigRetryAttempt resets to 0 on a
+  // clean (ok/not_found) load (setRemoteConfigConnectionIssue(false)).
+  const attempt = Number.isFinite(state.remoteConfigRetryAttempt)
+    ? Math.max(0, Math.trunc(state.remoteConfigRetryAttempt))
+    : 0;
+  const retryDelayMs = Math.min(baseDelayMs * Math.pow(2, attempt), 30000);
+  state.remoteConfigRetryAttempt = attempt + 1;
   state.remoteConfigConnectionRetryTimer = deps.windowRef.setTimeout(async () => {
     state.remoteConfigConnectionRetryTimer = 0;
     await deps.ensureActiveTab();

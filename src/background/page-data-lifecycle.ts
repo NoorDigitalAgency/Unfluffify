@@ -168,6 +168,7 @@ export function createPageDataLifecycleLoader(deps: PageDataLifecycleDeps) {
   const latestNavigationUrlByTabId = new Map<number, string>();
   const loadResultByNavigationKey = new Map<string, PageDataLoadResult>();
   const latestRequestIdByNavigationKey = new Map<string, number>();
+  const inflightLoadByNavigationKey = new Map<string, Promise<PageDataLoadResult>>();
   const siteFenceRequestIdByKey = new Map<string, number>();
   let requestCounter = 0;
 
@@ -297,6 +298,30 @@ export function createPageDataLifecycleLoader(deps: PageDataLifecycleDeps) {
     if (canUseCachedResult(cachedResult, force)) {
       return cachedResult;
     }
+    // #load-dedupe: collapse concurrent loads for the same navigation into a
+    // single in-flight /load. A burst of popup refreshes / navigation events for
+    // the same page otherwise each fired their own /load (observed 8 at startup
+    // and 3 around an AI run), orphaning transfer payloads and re-emitting
+    // configUpdated. A forced load always runs fresh and standalone.
+    if (force) {
+      return runPageDataLoad(context);
+    }
+    const inflight = inflightLoadByNavigationKey.get(context.navigationKey);
+    if (inflight) {
+      return inflight;
+    }
+    const runPromise = runPageDataLoad(context);
+    inflightLoadByNavigationKey.set(context.navigationKey, runPromise);
+    try {
+      return await runPromise;
+    } finally {
+      if (inflightLoadByNavigationKey.get(context.navigationKey) === runPromise) {
+        inflightLoadByNavigationKey.delete(context.navigationKey);
+      }
+    }
+  }
+
+  async function runPageDataLoad(context: PageDataLoadContext): Promise<PageDataLoadResult> {
     deps.recordPageDataLoadNeeded?.(
       context.tabId,
       {

@@ -10,59 +10,71 @@ import {
   consumeTransferPayload,
   removeTransferPayload,
   sweepStaleTransferPayloads,
+  sanitizeTransferPayloads,
   summarizeTransferPayloadForLog
 } from "../src/background/transfer-payload-store.js";
+import { AI_RUN_DEFAULT_TIMEOUT_MS } from "../src/common/bus/contracts/ai-run.js";
 
-function withChromeSession(initialStore, callback) {
-  const store = { ...(initialStore || {}) };
+function withIdbStore(initialStore, callback) {
+  const idbData = { ...(initialStore || {}) };
   const originalChrome = globalThis.chrome;
+  const originalLocation = globalThis.location;
   globalThis.chrome = {
-    runtime: { lastError: null },
-    storage: {
-      session: {
-        get(keys, done) {
-          if (keys === null || typeof keys === "undefined") {
-            done({ ...store });
-            return;
-          }
-          if (typeof keys === "string") {
-            done(Object.prototype.hasOwnProperty.call(store, keys) ? { [keys]: store[keys] } : {});
-            return;
-          }
-          if (Array.isArray(keys)) {
-            const result = {};
-            keys.forEach((key) => {
-              if (Object.prototype.hasOwnProperty.call(store, key)) {
-                result[key] = store[key];
-              }
-            });
-            done(result);
-            return;
-          }
-          done({});
-        },
-        set(items, done) {
-          Object.assign(store, items || {});
-          done();
-        },
-        remove(keys, done) {
-          const list = Array.isArray(keys) ? keys : [keys];
-          list.forEach((key) => {
-            delete store[key];
-          });
-          done();
+    runtime: {
+      lastError: null,
+      getURL(path = "") {
+        return `chrome-extension://unfluffify-test/${path}`;
+      },
+      async sendMessage(message) {
+        if (!message || typeof message.type !== "string") {
+          return { ok: false, error: "Invalid runtime message" };
         }
+        if (message.type === "idbGet") {
+          const keys = message.keys;
+          if (keys === null || typeof keys === "undefined") {
+            return { ok: true, result: { ...idbData } };
+          }
+          const list = Array.isArray(keys) ? keys : [keys];
+          const result = {};
+          list.forEach((key) => {
+            if (Object.prototype.hasOwnProperty.call(idbData, key)) {
+              result[key] = idbData[key];
+            }
+          });
+          return { ok: true, result };
+        }
+        if (message.type === "idbSet") {
+          Object.assign(idbData, message.items || {});
+          return { ok: true };
+        }
+        if (message.type === "idbRemove") {
+          const list = Array.isArray(message.keys) ? message.keys : [message.keys];
+          list.forEach((key) => {
+            delete idbData[key];
+          });
+          return { ok: true };
+        }
+        if (message.type === "idbGetAllKeys") {
+          return { ok: true, result: Object.keys(idbData) };
+        }
+        return { ok: false, error: `Unsupported message type: ${message.type}` };
       }
     }
   };
+  globalThis.location = { origin: "https://runtime-test.example" };
 
   return Promise.resolve()
-    .then(() => callback(store))
+    .then(() => callback(idbData))
     .finally(() => {
       if (typeof originalChrome === "undefined") {
         delete globalThis.chrome;
       } else {
         globalThis.chrome = originalChrome;
+      }
+      if (typeof originalLocation === "undefined") {
+        delete globalThis.location;
+      } else {
+        globalThis.location = originalLocation;
       }
     });
 }
@@ -82,7 +94,7 @@ test("transfer payload keys include shared prefix and parse metadata", () => {
 });
 
 test("put/get/consume/remove transfer payloads preserve and clean session data", async () => {
-  await withChromeSession({}, async (store) => {
+  await withIdbStore({}, async (store) => {
     const stored = await putTransferPayload("save-response", { status: "ok" });
     assert.equal(stored.ok, true);
     assert.ok(stored.payloadKey.startsWith(`${TRANSFER_PAYLOAD_KEY_PREFIX}save-response:`));
@@ -103,7 +115,7 @@ test("put/get/consume/remove transfer payloads preserve and clean session data",
 });
 
 test("typed reads reject invalid payloads and optionally remove invalid entries", async () => {
-  await withChromeSession({}, async (store) => {
+  await withIdbStore({}, async (store) => {
     const stored = await putTransferPayload("assign-page-types", { not: "an-array" });
     assert.equal(stored.ok, true);
 
@@ -123,7 +135,7 @@ test("stale sweep removes only expired transfer payload keys", async () => {
   const freshKey = `${TRANSFER_PAYLOAD_KEY_PREFIX}load:${now - 10_000}:fresh`;
   const otherKey = "unrelated:data";
 
-  await withChromeSession({
+  await withIdbStore({
     [staleKey]: { a: 1 },
     [freshKey]: { b: 2 },
     [otherKey]: true
@@ -135,6 +147,56 @@ test("stale sweep removes only expired transfer payload keys", async () => {
     assert.equal(Object.prototype.hasOwnProperty.call(store, staleKey), false);
     assert.equal(Object.prototype.hasOwnProperty.call(store, freshKey), true);
     assert.equal(Object.prototype.hasOwnProperty.call(store, otherKey), true);
+  });
+});
+
+test("sanitize evicts session-stale non-latest payloads, keeps latest-per-scope, fresh, and unrelated data", async () => {
+  const now = 1_000_000_000;
+  // Far beyond AI_RUN_DEFAULT_TIMEOUT_MS + margin, so age alone marks these stale.
+  const staleOldLoad = `${TRANSFER_PAYLOAD_KEY_PREFIX}load:${now - AI_RUN_DEFAULT_TIMEOUT_MS - 3_600_000}:staleold`;
+  const staleLatestLoad = `${TRANSFER_PAYLOAD_KEY_PREFIX}load:${now - AI_RUN_DEFAULT_TIMEOUT_MS - 3_599_000}:stalelatest`;
+  const freshAiRun = `${TRANSFER_PAYLOAD_KEY_PREFIX}ai-run-result:${now - 5_000}:fresh`;
+  const configKey = "configs";
+
+  await withIdbStore({
+    [staleOldLoad]: { a: 1 },
+    [staleLatestLoad]: { b: 2 },
+    [freshAiRun]: { c: 3 },
+    [configKey]: { keep: true }
+  }, async (store) => {
+    const result = await sanitizeTransferPayloads({ now });
+    assert.equal(result.ok, true);
+    // Only the stale, non-latest load payload is evicted.
+    assert.deepEqual(result.removedKeys, [staleOldLoad]);
+
+    assert.equal(Object.prototype.hasOwnProperty.call(store, staleOldLoad), false);
+    // Latest of the load scope is kept as a safeguard even though it is old.
+    assert.equal(Object.prototype.hasOwnProperty.call(store, staleLatestLoad), true);
+    // Fresh in-flight AI-run payload is never touched.
+    assert.equal(Object.prototype.hasOwnProperty.call(store, freshAiRun), true);
+    // Unrelated persisted data (config store) is preserved.
+    assert.equal(Object.prototype.hasOwnProperty.call(store, configKey), true);
+    assert.deepEqual(store[configKey], { keep: true });
+  });
+});
+
+test("sanitize keeps every fresh in-flight payload regardless of scope", async () => {
+  const now = 2_000_000_000;
+  const freshLoad = `${TRANSFER_PAYLOAD_KEY_PREFIX}load:${now - 1_000}:l`;
+  const freshStartRequest = `${TRANSFER_PAYLOAD_KEY_PREFIX}ai-run-start-request:${now - 2_000}:s`;
+  const freshResult = `${TRANSFER_PAYLOAD_KEY_PREFIX}ai-run-result:${now - 3_000}:r`;
+
+  await withIdbStore({
+    [freshLoad]: { a: 1 },
+    [freshStartRequest]: { b: 2 },
+    [freshResult]: { c: 3 }
+  }, async (store) => {
+    const result = await sanitizeTransferPayloads({ now });
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.removedKeys, []);
+    assert.equal(Object.prototype.hasOwnProperty.call(store, freshLoad), true);
+    assert.equal(Object.prototype.hasOwnProperty.call(store, freshStartRequest), true);
+    assert.equal(Object.prototype.hasOwnProperty.call(store, freshResult), true);
   });
 });
 
