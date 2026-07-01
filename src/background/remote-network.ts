@@ -21,15 +21,13 @@ import {
 import { writeStoredPageTypeTaxonomy } from "../common/page-type-taxonomy";
 
 export const UPDATE_SCRAPING_CONDITIONS_MUTATION = `
-mutation updateScrapingConditions($domainId: Int!, $includeCss: String!, $excludeCss: String!, $renderingMode: String) {
+mutation updateScrapingConditions($domainId: Int!, $includeCss: String!, $excludeCss: String!, $renderingMode: DomainRenderMode) {
   updateScrapingConditions(
     domainId: $domainId
     includeCss: $includeCss
     excludeCss: $excludeCss
     renderingMode: $renderingMode
-  ) {
-    renderingMode
-  }
+  )
 }
 `;
 
@@ -121,6 +119,15 @@ export async function submitSelectorSetGraphqlUpdate(options = {}) {
   const includeCss = typeof opts.includeCss === "string" ? opts.includeCss : "";
   const excludeCss = typeof opts.excludeCss === "string" ? opts.excludeCss : "";
   const renderMode = typeof opts.renderMode === "string" ? opts.renderMode : "";
+  // renderingMode is a DomainRenderMode enum (STATIC | RENDERED); the local
+  // config stores it lowercase, so map it to the exact enum value or omit it.
+  const normalizedRenderMode = renderMode.trim().toLowerCase();
+  const renderingModeEnum =
+    normalizedRenderMode === "static"
+      ? "STATIC"
+      : normalizedRenderMode === "rendered"
+        ? "RENDERED"
+        : null;
   const graphqlEndpoint = buildGraphqlEndpointFromStageBase(stageBase);
   if (!graphqlEndpoint || !normalizedSiteId) {
     return { ok: false, skipped: true };
@@ -135,7 +142,7 @@ export async function submitSelectorSetGraphqlUpdate(options = {}) {
           domainId: normalizedSiteId,
           includeCss,
           excludeCss,
-          renderingMode: renderMode || null
+          renderingMode: renderingModeEnum
         }
       })
     });

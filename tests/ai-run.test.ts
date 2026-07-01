@@ -432,6 +432,14 @@ test("selector submit GraphQL mutation and page-type assignment both use backgro
   assert.match(backgroundSource, /if \(message\.type === "submitPageTypeAssignments"\) \{/);
   assert.match(backgroundSource, /if \(message\.type === "preparePageTypeAssignmentsSnapshot"\) \{/);
   assert.match(remoteNetworkSource, /query: UPDATE_SCRAPING_CONDITIONS_MUTATION/);
+  // updateScrapingConditions returns Int! (a scalar): the mutation must not
+  // select subfields, and renderingMode must be the DomainRenderMode enum
+  // (mapped to STATIC | RENDERED) — not a String — or GraphQL rejects the submit.
+  assert.match(remoteNetworkSource, /\$renderingMode: DomainRenderMode/);
+  assert.doesNotMatch(remoteNetworkSource, /\$renderingMode: String/);
+  assert.doesNotMatch(remoteNetworkSource, /\)\s*\{\s*renderingMode\s*\}/);
+  assert.match(remoteNetworkSource, /"STATIC"/);
+  assert.match(remoteNetworkSource, /"RENDERED"/);
   assert.match(submitBlock, /type: "submitSelectorSetGraphqlUpdate"/);
   assert.match(submitBlock, /messages\.sendRuntimeMessage/);
   assert.doesNotMatch(submitBlock, /fetch\(graphqlEndpoint|UPDATE_SCRAPING_CONDITIONS_MUTATION|maybeUpdateStoredTokenFromResponse/);
