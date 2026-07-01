@@ -152,6 +152,36 @@ tests/popup-central-state-dictation.test.ts asserts the adjacency + no-await-bet
 invariant (fails on the old ordering). Live-validated over two inspection rounds:
 the curtain now appears during the inspection and CLEARS when it completes.
 
+## Backlog bug — reveal/freeze "Preparing page content…" stuck spinner (FIXED 2026-07-01, commit pending)
+Repro: fresh candidate (clear the `unfluffify` IndexedDB) → render-mode detection
+view → pick a render mode → Set → the reveal/freeze runs and the popup busy curtain
+"Preparing page content… / Working… controls are temporarily blocked"
+INTERMITTENTLY sticks forever (~1 in 1-3 attempts live). The spinner text changes
+twice (navInspect → silent-highlighting lifecycle → page-inspection-pending) before
+sticking on the third.
+
+Root cause (confirmed via live CDP event-log tracing): the popup page-inspection
+busy curtain is driven by `contentInspectionPending` polled from content's
+`getInspectionStatus`. In `src/content/inspection-status.ts`,
+`pending = inspectionActive || editorPreparationPending || reconciliationPending`.
+The popup's deterministic clear relies on content's `inspectionSettled` event, but
+that fires ONLY from `core.finishPageInspectionUi()` when `inspectionActive` clears.
+`editorPreparationPending` (the silent-highlight editor reveal/freeze, tracked by
+`silentHighlightEditorActivationPromise` in content-main.ts) clears LATER in the
+activation's `.finally()` with NO event, so the popup's post-settle refresh polls
+`pending=true` and nothing re-triggers a refresh once editorPreparation clears.
+Live proof: one `inspectionSettled` fires, the triggered refresh reads
+`active=false pending=true`, and it sticks.
+
+FIX (content-side, minimal): fire `notifyInspectionSettled()` in
+`runEditorSilentHighlightingActivation()`'s `.finally()` (after nulling the
+promise) so the popup re-polls the now-settled status. Regression guard:
+tests/inspection-settled-event.test.ts asserts the activation fires the second
+settle after the promise clears. Live-validated 8/8 fresh-candidate render-mode-set
+rounds cleared (0 stuck); event log confirms the SECOND `inspectionSettled` drives
+a re-poll that reads `pending=false` and clears. A popup-side view-write seq guard
+was prototyped but proved unnecessary (content fix alone is robust) and dropped.
+
 ## Live-test infra notes
 
 - Launch: `pnpm browser:live <url>` (committed launcher) — real :0/Wayland

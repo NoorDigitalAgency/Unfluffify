@@ -30,6 +30,28 @@ test("content-main emits inspectionSettled and registers it as the settle listen
   assert.match(source, /core\.setPageInspectionUiSettledListener\(notifyInspectionSettled\);/);
 });
 
+test("silent-highlight editor activation fires a second inspectionSettled after editorPreparation clears", () => {
+  // The silent-highlight editor reveal/freeze (silentHighlightEditorActivationPromise)
+  // is a component of the content inspection `pending` fact, but it clears AFTER
+  // the page-inspection UI already fired its single inspectionSettled event. Without
+  // a second settle signal here, the popup's last poll sees pending=true and nothing
+  // re-triggers a refresh, so the "Preparing page content..." curtain sticks. The
+  // activation completion must fire notifyInspectionSettled() so the popup re-polls.
+  const source = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
+  const fnStart = source.indexOf("async function runEditorSilentHighlightingActivation(");
+  assert.ok(fnStart > -1, "runEditorSilentHighlightingActivation must exist");
+  const fnEnd = source.indexOf("async function runEditorSilentHighlightingActivationOnce(", fnStart);
+  assert.ok(fnEnd > fnStart, "activation function boundary must resolve");
+  const body = source.slice(fnStart, fnEnd);
+  const nullIdx = body.indexOf("silentHighlightEditorActivationPromise = null;");
+  const notifyIdx = body.indexOf("notifyInspectionSettled();");
+  assert.ok(nullIdx > -1, "activation must clear its in-flight promise");
+  assert.ok(
+    notifyIdx > nullIdx,
+    "notifyInspectionSettled() must fire after the activation promise clears"
+  );
+});
+
 test("content warmups leave inspection UI toggling to the brain pageCurtain", () => {
   const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
   const warmupStart = source.indexOf("async function inspectPageBeforeMotionPause(");

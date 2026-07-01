@@ -2099,6 +2099,14 @@ async function runEditorSilentHighlightingActivation() {
 
   silentHighlightEditorActivationPromise = runActivationLoop().finally(() => {
     silentHighlightEditorActivationPromise = null;
+    // The silent-highlight editor reveal/freeze is a component of the content
+    // inspection `pending` fact (see createInspectionStatusResolver:
+    // editorPreparationPending). It clears here, AFTER the page-inspection UI
+    // already settled and fired its one inspectionSettled event, so without this
+    // second signal the popup keeps a stale "Preparing page content..." curtain
+    // (its last poll saw pending=true and nothing re-triggers a refresh). Notify
+    // so the popup re-polls the now-settled status.
+    notifyInspectionSettled();
   });
 
   return silentHighlightEditorActivationPromise;
