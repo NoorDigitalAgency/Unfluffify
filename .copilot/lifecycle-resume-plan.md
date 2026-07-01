@@ -209,3 +209,121 @@ was prototyped but proved unnecessary (content fix alone is robust) and dropped.
 tests). After each commit AND after each push, refresh codebase-memory graph
 (`index_repository`). Follow safe-change for edits and review-push for the
 commit/push loop (fast-forward only, no force-push).
+
+## Live QA round #2 — full findings + fix specs (2026-07-01, NOT yet implemented, needs live validation)
+
+User ran a full mark->AI->save->navigate round and reported 8 findings, then gave the
+definitive reveal/freeze / consent / silent-highlight contract. This section is the
+handoff: root causes + precise fix specs. NONE are implemented yet — scripted CDP
+marking reproduction proved unreliable (the "Inspecting page..." page-inspection
+overlay sticks over content and Alt+click marks do not register), so each fix needs
+live validation (user drives mark->AI->save->navigate) before shipping. User chose:
+"implement fixes from confirmed root causes with regression tests, I validate after."
+
+### Confirmed HARNESS ARTIFACTS (not bugs) — do not fix
+#1 discard does nothing / #2 cannot disable marking / #3 navigation silently stopped in
+dirty marking. All three gate on window.confirm (page-reconciliation.ts:236 revertConfirm,
+popup.ts:6680 disableDiscardConfirm, popup.ts:6553 navigateDiscardConfirm). A persistent
+Playwright observer (connectOverCDP) auto-dismisses window.confirm (returns false =>
+silent no-op). Proven via raw CDP that the launcher MCP does NOT dismiss (dialog stays
+open). User confirmed #1/#2/#3 are fine. LESSON: never run a persistent Playwright
+connectOverCDP while the user tests dialogs; use raw CDP (fetch /json + WebSocket) for
+non-interfering reads. Helper pattern used this session works.
+
+### DURABLE CONTRACT (user-specified target behavior; also stored as repo memories)
+1. CONSENT REMOVAL: runs on ALL property pages (candidate or not), always/end-to-end,
+   decoupled from reveal/freeze and candidacy. Reason: stop users clicking consent
+   buttons that mutate the DOM.
+2. REVEAL/FREEZE/lazy-load-lock: runs ONLY on a candidate page, in two cases:
+   (a) full page load when the render mode is ALREADY set, or
+   (b) immediately after FIRST-TIME render-mode set (exiting the render-mode view).
+   NEVER: in marking mode, during render-mode decision/EDITING (re-inspect of an
+   existing mode), or any later in-session point. Runs right before silent highlighting.
+3. SILENT HIGHLIGHTING: renders whenever (stored selectors present + marking off),
+   independent of reveal/freeze — immediately post-save / in-session (no reveal/freeze),
+   or after reveal/freeze on page load.
+
+### #6 reveal/freeze runs on render re-inspect (REAL) — must not
+Root cause: reveal/freeze = runEditorSilentHighlightingActivation, gated by
+shouldRunSilentHighlightEditorActivation() (content-main.ts:2068) on !state.enabled &&
+isPageRevealFreezeActiveByDirective(). It runs from the content directive watcher
+(content-main.ts:7063) on any pageRevealFreezeActive/silentHighlightActive directive
+change, and from content-main init (7098). After a render re-inspect (editing an
+existing mode) the page reloads for inspection (isRenderModeInspectionActive suppresses
+the init run, 2111), the inspection settles, then pageRevealFreezeActive turns true and
+the directive watcher runs the activation -> unwanted reveal/freeze.
+Brain gate: shouldRevealFreezePage (view-projector.ts:198) is LEVEL-triggered (true
+whenever ready candidate + marking off + not dirty...). It cannot distinguish page-load
+vs first-time-set vs edit vs post-save.
+Fix direction: make reveal/freeze EDGE-triggered per the contract. Distinguish
+first-time render-mode set (undetermined->set) from EDIT (set->set) and from
+post-save (selectors changed, mode unchanged). Likely need a transient signal recorded
+by the render-mode set/inspection flow ("mode was already set before this op") that the
+activation checks. Then: run the activation only on (a) page-load-with-mode-set (init,
+7098, already gated by isRenderModeInspectionActive) and (b) first-time-set; do NOT run
+it from the directive watcher for edit/post-save/in-session directive changes.
+REGRESSION RISK: #13 (blocker #2/#3) wants first-time-set to reveal/freeze via the
+directive path — verify first-time-set still runs it. Add a decider/source test.
+
+### #4/#8 silent highlights wait for reveal/freeze (REAL) — must render immediately
+Root cause: silent overlay render = refreshSilentHighlightings (content-main.ts:5332),
+shouldObserve = snapshot.hasSelectorHighlights || hasHiddenConsent (5175) — i.e. it
+renders directly from stored selectors, NOT gated on the activation. The directive
+watcher (7063) DOES call refreshSilentHighlightings first, then the activation. But
+user sees highlights only appear at the END of the reveal/freeze activation
+(shouldRefreshAfterActivation, 2207) or after a reload. Suspected: the activation, once
+running, deactivates/holds the overlays during reveal/freeze then re-renders at the end;
+and/or the immediate refreshSilentHighlightings runs before selectors are loaded into
+the snapshot (loadAndNormalizeConfigs timing) so hasSelectorHighlights is briefly false.
+Fix direction: silent highlight render must be a pure function of (stored selectors +
+marking off), never held by the reveal/freeze activation. Ensure refreshSilentHighlightings
+renders as soon as the silentHighlightActive directive is true with selectors loaded, and
+that the activation does not clear/hold already-rendered silent overlays. Post-save
+(applyPostSaveSilentTransition) must trigger a silent-highlight render with NO reveal/freeze
+(ties to #6: directive watcher should render highlights but not run the activation
+in-session). NEEDS LIVE VALIDATION with a page that HAS saved selectors (mark->AI->save).
+
+### #5 todo/coverage not updated after saving a page for a page type (REAL)
+Root cause candidates (needs live save to confirm): coverage = buildLynxChecklistViewModel(
+propertyPageTypes, coverageMarkedPageItems) at popup.ts:4680, and coverageMarkedPageItems
+= backendSavedPageMarkingItems (popup.ts:4514-4524, from config.getBackendSavedPageMarkings).
+The save (handlePageSave, page-reconciliation.ts:86) awaits syncBaseConfigToServer which
+awaits the background replaceServerConfigIntoLocalSnapshot (remote-config.ts:494) that
+writes backendSavedPageMarkings (background/remote-config-sync.ts:383), THEN refreshUi.
+So the source IS refreshed. Remaining suspects: (1) the saved page's pageType key does
+not match a propertyPageType key in buildLynxChecklistViewModel (common/lynx-checklist.ts:362);
+(2) propertyPageTypes is served from cache (site-resolution.ts:163 freshness interval) so
+the page-type list/coverage counts are stale post-save; (3) buildLynxChecklistViewModel
+markedCount uses markedPages length per type and a mismatch drops it. FIX: after a
+successful save, force a propertyPageTypes refresh (bypass cache) and rebuild coverage,
+OR confirm+fix the pageType-key match. NEEDS LIVE SAVE to see which. Live check: compare
+backendSavedPageMarkings[baseUrl] entries (pageType) vs coverage pageTypeGroups after save.
+
+### #7 page not fully blocked while popup curtain up / during AI run (REAL)
+CORRECTION to earlier note: the background DOES report aiComputing:true on AI-run STARTED
+(buildAiRunFactsPatch, brain/index.ts:249) via the AI-run lease, so a fresh run IS
+marking-disabled (markingEditsBlocked = aiComputing||previewActive||previewBlocked,
+view-projector.ts:241). The gap: markingEditsBlocked only disables MARKING (cursor +
+uf-marking-disabled notice, core.ts:6553-6700), NOT full page interaction. Full page
+block = pageCurtain (setPageInspectionUiActive -> uf-page-inspection-active overlay,
+core.ts:6837), driven by brain spinner surfaces (PAGE_AND_POPUP). Some AI-run phases are
+POPUP_ONLY (REFINING_STATIC_XPATHS, OPENING_PREVIEW) and SYNCING_MARKINGS is UNBLOCKED
+(spinner-contract.ts:164-235), so the page is interactive during those while the popup
+shows a curtain. Contract: whenever the popup shows a blocking curtain, the page must be
+blocked too. FIX direction: sync the page block to the popup curtain — either promote the
+relevant AI-run/operation spinner phases to PAGE_AND_POPUP, or project a pageCurtain
+whenever sessionDictation.curtain.visible is true. Decide with the user whether preview
+phases should also block the page (preview shows on-page yellow AI highlights, so a full
+page block there may conflict — confirm intended).
+
+### #8 preview-list: silent highlights gone, yellow AI highlight present
+Per user, this is the SAME as #4 (silent highlights must show whenever selectors + not
+marking). In preview mode previewActive=true so silentHighlightActive is false by design
+(view-projector.ts:185) — clarify with user whether silent highlights should ALSO show in
+preview-list mode, or if #8 is fully covered by fixing #4/#8 for the non-preview silent case.
+
+### Extra finding logged: stuck "Inspecting page..." page overlay
+While scripting, enabling marking sometimes left the page-inspection overlay
+("Inspecting page... it will be ready soon", text.ts:162) stuck over content (clears in
+~10s on a plain reload). Likely rapid-automation overlap of two reveal/freezes, but worth
+a live check that the marking reveal/freeze overlay always clears.
