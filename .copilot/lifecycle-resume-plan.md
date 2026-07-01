@@ -393,3 +393,58 @@ Phase 2 = #7 + #6 + blocker #1 -> review-push.
   are POPUP_ONLY today; flipping the data-protecting ones to PAGE_AND_POPUP makes
   the brain pageCurtain fire for them (blockSurfaces flows from the contract via
   createSpinnerOperationLease -> normalizeBlockSurfaces). All are FAIL_OPEN.
+
+## LIVE-VALIDATION CHECKPOINT (2026-07-01, bonliva.no, backend up) — #5 NOT fixed
+
+### Definitive finding (captured the /save request body via a SW fetch hook)
+- The `/save` POST uploads **`pageMarkings: {}` (EMPTY)**. The backend correctly
+  upserts the Site row and leaves the `PageMarkings` table empty. The save UI
+  truthfully reports "Saved and synced" (empty input, not a false success).
+- `config.pageMarkings` (extension IndexedDB "unfluffify"/"kv"/"configs", read via
+  the service worker) is **EMPTY at the AI preview** (after a SUCCESSFUL AI run +
+  preview) and only gets the current-page entry **post-save**, where the committed
+  `refreshUi` pageType-repair stamps `pageType:"homepage"` — TOO LATE for the
+  upload. So the marked page is never in the shared config when
+  `syncBaseConfigToServer` reads+uploads it.
+- Therefore the COMMITTED #5 fix (0ad13b1, `repairLocalPageMarkingPageTypes` on
+  local markings in `refreshUi`) is **INSUFFICIENT** — it operates on config
+  entries that are not present at upload time. It still helps coverage/dirty
+  tracking + is harmless, but does not fix #5. Decide next session whether to keep
+  or rework it.
+- NOT the cause: the save-payload pageType filter (`remote-config.ts:432-433`),
+  and `isPageWithinBaseUrl` (user confirmed leave it — it strips `www.` so
+  `www.bonliva.no` correctly matches `bonliva.no`; verified
+  `hostnamesEquivalentForBaseMatch`).
+
+### Root-cause hypotheses to confirm IN CODE next session (not more live rounds)
+1. A config `/load` (status showed "Synced (https://bonliva.no)") returns empty
+   `pageMarkings` for siteId 5542 and OVERWRITES the unsaved local marking draft
+   (the "empty /load must not replace local" guard may not cover unsaved drafts).
+   Check `mergeServerConfigIntoLocalSnapshot` / `replaceServerConfigIntoLocalSnapshot`
+   in `remote-config-sync.ts` and the load path in `popup/remote-config.ts`.
+2. `capturePageSnapshot` (content/capture-page-snapshot-handler.ts:88-92,
+   persist:true) reports ok and the AI preview renders, yet the entry is not in the
+   shared config at preview — trace whether its `saveConfig` (content idbSet ->
+   background proxy, utilities.ts:666) actually lands, or is overwritten right after.
+3. Marking-enable "discard stale draft" (knowledge.md) may wipe the entry when the
+   user re-enables/re-runs; confirm the enable/AI-run ordering vs persistence.
+
+### Reproduce / diagnostic method for next session
+- Fresh instance: kill launcher tree + `rm -rf .wxt/browser-profile/Default/"Service
+  Worker"/{ScriptCache,Database,CacheStorage}` + `pnpm browser:live https://bonliva.no`.
+- Auth persists (chrome.storage.sync). Property: siteId 5542, 4 page types
+  (homepage/article/service_page/company, candidates are www URLs), render mode
+  static. Backend `unfluffify.lynxdev.se` up; `GET /page-types` returns 404 (the
+  taxonomy commit c29be50 is NOT deployed there — taxonomy live-validation deferred).
+- Read config via SW raw CDP: open "unfluffify", store "kv", get "configs". Capture
+  the `/save` body by overriding `globalThis.fetch` in the SW (logs pageMarkings).
+- NEVER use a persistent Playwright connectOverCDP while the user tests dialogs.
+
+### Key code locations
+- handlePageSave: `popup/page-reconciliation.ts:86-195` (no explicit persist-current-
+  page-markings-to-config step before syncBaseConfigToServer).
+- syncBaseConfigToServer: `popup/remote-config.ts:320` (reads getConfigs(); filter
+  at 412-437; handlePageSave uses includeAllLocalPageMarkings:true).
+- createConfigSyncPayload: `common/config.ts:1241` (writes entry.pageType||undefined).
+- capturePageSnapshot: `content/capture-page-snapshot-handler.ts:46-104`.
+- isAiRunCurrentPageSnapshotMissing: `background/ai-run-orchestrator.ts:334-346`.
