@@ -694,6 +694,41 @@ describe("popup view projector", () => {
     expect(projectViews(buildState({ ...savedSilentFacts, sessionHasPendingChanges: true })).contentDirective.silentHighlightActive).toBe(false);
     expect(projectViews(buildState({ ...savedSilentFacts, pageSaveReconciliationPending: true })).contentDirective.silentHighlightActive).toBe(false);
 
+    // #8: during an active AI preview the stored-selector silent highlightings
+    // render alongside the yellow AI-detected content, even though the session is
+    // dirty (unsaved AI results). previewBlocked is coupled to previewActive in the
+    // real reporters (both true together), so a genuine displaying preview reports
+    // previewActive+previewBlocked — silent must still render there.
+    expect(projectViews(buildState({
+      ...savedSilentFacts,
+      previewActive: true,
+      previewBlocked: true,
+      sessionHasPendingChanges: true,
+      currentPageHasPendingChanges: true,
+      currentDraftDirty: true,
+    })).contentDirective.silentHighlightActive).toBe(true);
+    // ...but while the preview is being restored/exited it stays suppressed.
+    expect(projectViews(buildState({
+      ...savedSilentFacts,
+      previewActive: true,
+      previewBlocked: true,
+      previewRestorePending: true,
+    })).contentDirective.silentHighlightActive).toBe(false);
+    // An in-flight AI compute still suppresses silent highlighting even with a
+    // preview flag set.
+    expect(projectViews(buildState({
+      ...savedSilentFacts,
+      previewActive: true,
+      previewBlocked: true,
+      aiComputing: true,
+    })).contentDirective.silentHighlightActive).toBe(false);
+    // Preview must never trigger reveal/freeze — only a settled/clean page load does.
+    expect(projectViews(buildState({
+      ...savedSilentFacts,
+      previewActive: true,
+      previewBlocked: true,
+    })).contentDirective.pageRevealFreezeActive).toBe(false);
+
     // Regression: the silent-highlight activation itself sets navigationInspectionPending,
     // pageInspectionBusy, and an editor_preparing reconciliation while it reveals/freezes the
     // page. The directive must stay TRUE through that transient state, otherwise it flips off

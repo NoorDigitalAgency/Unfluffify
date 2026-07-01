@@ -327,3 +327,69 @@ While scripting, enabling marking sometimes left the page-inspection overlay
 ("Inspecting page... it will be ready soon", text.ts:162) stuck over content (clears in
 ~10s on a plain reload). Likely rapid-automation overlap of two reveal/freezes, but worth
 a live check that the marking reveal/freeze overlay always clears.
+
+## Paused for backend-aware environment (targeting #4/#8 + #5) — session handoff
+
+Priority order agreed with user: Phase 1 = #4/#8 + #5 -> review-push;
+Phase 2 = #7 + #6 + blocker #1 -> review-push.
+
+### #5 (todo/coverage not updated after save) — EXTENSION-SIDE ROOT CAUSE FOUND
+- handlePageSave (popup/page-reconciliation.ts:148-158) saves with
+  includeAllLocalPageMarkings:true + replaceLocalFromServerResponse:true, so
+  backendSavedPageMarkings is taken from the SERVER's post-save response
+  (remote-config-sync.ts:383 setBackendSavedPageMarkings(baseUrl,
+  nextConfig.pageMarkings), where pageMarkings = normalized SERVER payload).
+- BUG: the save-payload filter (popup/remote-config.ts:416-434) rebuilds the key
+  from the entry's RAW pageType: filterPageMarking(url, entry) =>
+  activePageMarkingKeys.has(buildPageMarkingKey(url, entry.pageType)).
+  buildPageMarkingKey (popup.ts:1904-1911) returns "" when pageType is blank.
+  activeMarkedPages (lynx-checklist.ts:328-331) store the RESOLVED pageType (via
+  candidates), so activePageMarkingKeys hold "homepage|url" but the draft entry's
+  pageType is blank -> key "" -> the page is DROPPED from the save payload -> the
+  server never stores it -> backend-saved echoes empty -> coverage shows 0.
+- Draft homepage entry had NO pageType (content writes draftEntry.pageType =
+  state.currentPageType at content/core.ts:11552; it was blank here). So either
+  the marking didn't get a pageType, OR (more robust) the filter must resolve the
+  pageType the same way coverage does.
+- FIX (extension side): in syncBaseConfigToServer, match filterPageMarking by the
+  RESOLVED pageType (build a url->resolvedPageType map from
+  coverageModel.activeMarkedPages) OR match by normalized URL, so blank-pageType
+  pages are not dropped. Needs backend verification that /save echoes the saved
+  pageMarkings back (bonliva.se test backend flaps 404/synced and may not persist).
+
+### #4 (silent highlights absent post-save) — LIKELY THE SAME ROOT CAUSE AS #5
+- Silent overlay renders only when isSilentHighlightActiveByDirective() is true
+  (content-main.ts:5369). That brain directive shouldActivateSilentHighlighting
+  (view-projector.ts:150-189) requires !currentPageHasPendingChanges (line 177).
+- currentPageHasPendingChanges (popup) = currentDraftDirty || reconciliationPending
+  || (current markings != backend-saved). With backend-saved EMPTY after save (#5),
+  (current != empty) = TRUE -> currentPageHasPendingChanges stays TRUE post-save ->
+  silent highlighting suppressed. So fixing #5's filter should also unblock #4
+  post-save (verify live once backend persists).
+- #8 (silent highlights absent in PREVIEW, only yellow): during preview
+  previewActive=true forces silentHighlightActive=false by design
+  (view-projector.ts:185). NEEDS USER DECISION: should stored-selector silent
+  highlights render alongside the AI yellow during preview, or is preview
+  yellow-only intended?
+
+### #7 (page not blocked during popup curtain) — ROOT CAUSE FOUND (for Phase 2)
+- The brain pageCurtain broadcast -> setPageCurtainRenderer((visible) =>
+  setPageInspectionUiActive(visible)) (content/layers/content-bus-client.ts:66).
+  setPageInspectionUiActive (content/core.ts:6837) only sets cursor:progress + a
+  tint class + notice; it does NOT engage an input blocker, so the page stays
+  interactive during the AI run/save curtains.
+- A COMPLETE page-block mechanism already exists but is DORMANT:
+  setPopupBusyOnPage (content/core.ts:4993) = overlay + notice + input blocker
+  (startPopupBusyInputBlocker) + fail-open watchdog (POPUP_BUSY_PAGE_WATCHDOG_MS)
+  + operationId lease. NOTHING sends the "setPopupBusyOnPage" content command with
+  active=true in production (only self-release false). Fix: route data-protecting
+  brain pageCurtains (AI_RUN, PAGE_SAVE, plus reveal/freeze already blocks via its
+  own inspectionBlocker) through setPopupBusyOnPage so the input blocker + fail-
+  open engage. User relaxed the contract: block the page only when the popup is
+  busy AND page interaction can affect results (reveal/freeze, AI run, save), not
+  every popup curtain.
+- Per-phase surfaces (common/spinner-contract.ts): AI_RUN.REFINING_STATIC_XPATHS
+  (line 200) + OPENING_PREVIEW (220) + PAGE_SAVE.SAVING (453) + DISCARDING (463)
+  are POPUP_ONLY today; flipping the data-protecting ones to PAGE_AND_POPUP makes
+  the brain pageCurtain fire for them (blockSurfaces flows from the contract via
+  createSpinnerOperationLease -> normalizeBlockSurfaces). All are FAIL_OPEN.

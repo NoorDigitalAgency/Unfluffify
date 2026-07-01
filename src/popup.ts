@@ -4608,15 +4608,52 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
     }
   }
   if (propertyPageTypes.length && state.currentBaseUrl) {
+    // A freshly-marked page is not in backendSavedPageMarkings yet, so the
+    // backend-saved repair below never resolves its pageType. Stamp the
+    // candidate-resolved pageType onto LOCAL draft markings first: the backend
+    // requires a valid pageType per page marking, so a blank-pageType page would
+    // be filtered out of the save payload (or rejected) and never persist. That
+    // leaves coverage empty and keeps the page dirty (current markings never
+    // match the empty backend-saved snapshot), which suppresses silent
+    // highlighting even after a "successful" save.
+    const localPageMarkingRepairItems = collectStoredPageMarkingItems(
+      pageMarkings,
+      state.currentBaseUrl
+    );
+    const localPageTypeRepairModel = buildLynxChecklistViewModel({
+      pageTypes: propertyPageTypes,
+      markedPages: localPageMarkingRepairItems
+    });
+    if (localPageTypeRepairModel.repairedMarkedPages.length) {
+      const localRepairedStoredPageUrls = await repairLocalPageMarkingPageTypes({
+        baseUrl: state.currentBaseUrl,
+        repairedMarkedPages: localPageTypeRepairModel.repairedMarkedPages
+      });
+      if (localRepairedStoredPageUrls.length) {
+        repairedStoredPageUrls = Array.from(
+          new Set([...repairedStoredPageUrls, ...localRepairedStoredPageUrls])
+        );
+        didReconcileStoredPageMarkings = true;
+        configs = await config.getConfigs();
+        state.currentConfig = config.normalizeConfig(
+          state.currentBaseUrl,
+          configs[state.currentBaseUrl]
+        ).config;
+        pageMarkings = (state.currentConfig && state.currentConfig.pageMarkings) || {};
+      }
+    }
     let coverageModel = buildLynxChecklistViewModel({
       pageTypes: propertyPageTypes,
       markedPages: backendSavedPageMarkingItems
     });
     if (coverageModel.repairedMarkedPages.length) {
-      repairedStoredPageUrls = await repairLocalPageMarkingPageTypes({
-        baseUrl: state.currentBaseUrl,
-        repairedMarkedPages: coverageModel.repairedMarkedPages
-      });
+      repairedStoredPageUrls = Array.from(new Set([
+        ...repairedStoredPageUrls,
+        ...await repairLocalPageMarkingPageTypes({
+          baseUrl: state.currentBaseUrl,
+          repairedMarkedPages: coverageModel.repairedMarkedPages
+        })
+      ]));
       if (repairedStoredPageUrls.length) {
         didReconcileStoredPageMarkings = true;
         configs = await config.getConfigs();

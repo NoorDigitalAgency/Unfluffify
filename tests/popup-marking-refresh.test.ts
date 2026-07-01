@@ -146,6 +146,29 @@ test("Todo List completion is sourced from backend-saved markings only", () => {
   assert.doesNotMatch(source, /useLocalMarkedPagesForCoverage/);
 });
 
+test("refreshUi repairs candidate pageTypes on LOCAL draft markings, not only backend-saved", () => {
+  // A freshly-marked page is not in backendSavedPageMarkings yet, so the
+  // backend-saved repair alone never resolves its pageType. The backend requires
+  // a valid pageType per page marking, so a blank-pageType local draft must be
+  // stamped with its candidate-resolved pageType before it can be saved (else the
+  // save silently drops it, coverage stays empty, and the page stays dirty which
+  // suppresses silent highlighting).
+  const source = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
+
+  assert.match(
+    source,
+    /const localPageMarkingRepairItems = collectStoredPageMarkingItems\(\s*pageMarkings,\s*state\.currentBaseUrl\s*\);/
+  );
+  assert.match(
+    source,
+    /const localPageTypeRepairModel = buildLynxChecklistViewModel\(\{[\s\S]*?markedPages: localPageMarkingRepairItems[\s\S]*?\}\);/
+  );
+  assert.match(
+    source,
+    /if \(localPageTypeRepairModel\.repairedMarkedPages\.length\) \{[\s\S]*?repairLocalPageMarkingPageTypes\(\{[\s\S]*?repairedMarkedPages: localPageTypeRepairModel\.repairedMarkedPages[\s\S]*?\}\)/
+  );
+});
+
 test("popup auth transport stays in the background layer", () => {
   const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
   const validateBody = popupSource.match(

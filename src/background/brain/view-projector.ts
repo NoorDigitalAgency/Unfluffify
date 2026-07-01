@@ -164,6 +164,23 @@ function shouldActivateSilentHighlighting(state: TabLayerState): boolean {
   const blockingReconciliationPending =
     facts.pageSaveReconciliationPending &&
     facts.pageSaveReconciliationReason !== PAGE_SAVE_RECONCILIATION_REASONS.EDITOR_PREPARING;
+  // An active AI preview inherently means the session has unsaved AI results, but
+  // the user still wants the stored-selector silent highlightings rendered next to
+  // the yellow AI-detected content for comparison. So while a preview is displaying
+  // the "clean session" gates are waived; otherwise silent highlighting only runs
+  // for a settled, clean session. NOTE: previewBlocked stays coupled to
+  // previewActive in the real reporters (both flip together), so it is NOT a
+  // transient sub-state — previewRestorePending is what marks the exit/restore
+  // transition during which silent highlighting must stay suppressed.
+  const previewComparisonActive =
+    facts.previewActive && !facts.previewRestorePending;
+  const sessionSettledClean =
+    !facts.previewActive &&
+    !facts.previewRestorePending &&
+    !facts.sessionHasPendingChanges &&
+    !facts.currentPageHasPendingChanges &&
+    !facts.currentDraftDirty &&
+    !facts.sessionRequiresAiRun;
   return Boolean(
     facts.silentModeActive &&
       facts.hasStoredSelectors &&
@@ -173,18 +190,12 @@ function shouldActivateSilentHighlighting(state: TabLayerState): boolean {
       facts.siteIdReady &&
       facts.renderModeReady &&
       !facts.pageTypeUiBlocked &&
-      !facts.sessionHasPendingChanges &&
-      !facts.currentPageHasPendingChanges &&
-      !facts.currentDraftDirty &&
       !blockingReconciliationPending &&
-      !facts.sessionRequiresAiRun &&
       !facts.aiBusy &&
       !facts.aiComputing &&
       !facts.saving &&
       !facts.discarding &&
-      !facts.previewActive &&
-      !facts.previewBlocked &&
-      !facts.previewRestorePending
+      (previewComparisonActive || sessionSettledClean)
   );
 }
 
