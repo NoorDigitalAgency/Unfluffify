@@ -307,13 +307,28 @@
     SESSION phase from `READY_TO_SAVE` back to `MARKING_DIRTY` (the underlying
     typed `store.aiRun.phase` stays POST_AI; only the projected phase changes). Run
     AI re-enables, Save/List block (REQUIRES_AI_RUN), Discard stays enabled.
-  - `currentPageHasPendingChanges` is the dirty axis (NOT fingerprints): it is the
-    popup-owned signal (`currentDraftDirty || reconciliationPending ||
-    hasCurrentPageMarkingChanges`) and is NOT stripped by the brain-authority
-    layer, so the brain always sees post-AI edits. The post-run AI-run event
-    patches (PREVIEW_READY / RESULTS_APPLIED / EXITED) set
-    `currentPageHasPendingChanges: false` to establish the clean post-AI baseline
-    with no flicker gap; a real popup edit overrides it true.
+  - `currentPageHasPendingChanges` is the dirty axis (DETERMINISTIC, NOT
+    fingerprints): it is the popup-owned signal `currentDraftDirty ||
+    reconciliationPending` (the "local != backend / has unsaved work" term was
+    REMOVED — that stays in `sessionHasPendingChanges` only, since it is always
+    true right after an AI run and would otherwise pin the page dirty forever).
+    `currentDraftDirty` comes from content `isPageDraftDirty`, which is now
+    deterministic: dirty ONLY after a real user marking-toggle click (page
+    click/drag → `completeExplicitToggle` → `markUserMarkingEdit`, tracked in
+    `state.userMarkingEditsByPageUrl`), plus the `autoSeededPendingSavePageUrl` /
+    reconciliation short-circuits. There is NO fingerprint-vs-baseline compare, so
+    scroll / cursor / reflow / background re-sync NEVER flip a page dirty. The flag
+    is cleared at clean baselines: `enableForBaseUrl` (fresh enable), the AI-run
+    snapshot (`capturePageSnapshot` persist), `disable()` (post-save silent
+    transition clears the whole Set), and discard (`page-draft-revert-handler`).
+    `currentPageHasPendingChanges` is NOT stripped by the brain-authority layer, so
+    the brain always sees post-AI edits. The post-run AI-run event patches
+    (PREVIEW_READY / RESULTS_APPLIED / EXITED) set `currentPageHasPendingChanges:
+    false` to establish the clean post-AI baseline with no flicker gap; a real
+    popup/page edit overrides it true. The popup's own
+    `isAiRunUpToDateForCurrentMarkings()` also defers to the brain: true when
+    `sessionAiRunPhase === POST_AI` OR `popupBackgroundSessionPhase ===
+    READY_TO_SAVE`, so the popup's Save/status copy stays consistent with the brain.
   - dictation-decider: `postAiClean = postAi && !currentPageHasPendingChanges`.
     Run AI (`computeButtonDisabled`) is disabled only when `actionMatrixDisabled ||
     postAiClean`. Save / Show List enable only when `postAiClean`. Discard enables
@@ -451,7 +466,7 @@
 - Default-layer collection remains structural and is not globally filtered by visible explicit marks; broad filtering can make implicit descendants flicker on alternating toggles.
 - Fast explicit-toggle overlay refreshes must run `syncPageMarkings` before drawing explicit layers, but must not recompute the default layer. Structural toggles run the invalidating full render immediately after that refresh; leaf explicit-exclude toggles may patch cached lower-priority collections and debounce the invalidating full render to keep mark/unmark acknowledgement responsive.
 - Marking enable uses `setEnabled` as the single activation path; do not add a second immediate popup `forceRefresh` after successful enable.
-- Marking data is session-scoped: every marking enable recomputes the page entry fresh from defaults + CSS/AI-selector influence (selector influence only when a selector set is present), discards any stale `config.pageMarkings[pageUrl]` draft, and adopts the freshly synced entry as the clean baseline on the first render so a freshly enabled page never starts dirty. Backend-saved explicit markings do not pre-populate the fresh session entry or seed the clean baseline, no unsaved-draft cache survives a disable (`enableForBaseUrl` deletes the stale entry and sets `pendingFreshBaselinePageUrl`; `renderHighlightsInner` reseeds `setSavedPageEntry`), and marking is disabled on any navigation/reload regardless of same page or property.
+- Marking data is session-scoped: every marking enable recomputes the page entry fresh from defaults + CSS/AI-selector influence (selector influence only when a selector set is present), discards any stale `config.pageMarkings[pageUrl]` draft, and a freshly enabled page never starts dirty because `enableForBaseUrl` clears its deterministic `userMarkingEditsByPageUrl` entry (dirty is now the deterministic real-toggle flag, NOT a fingerprint-vs-baseline compare — see the Popup Preview Exit Contract dirty-axis note). Backend-saved explicit markings do not pre-populate the fresh session entry, no unsaved-draft cache survives a disable (`enableForBaseUrl` deletes the stale entry and sets `pendingFreshBaselinePageUrl`; `renderHighlightsInner` reseeds `setSavedPageEntry`), and marking is disabled on any navigation/reload regardless of same page or property.
 - Full marking passes may use per-pass caches for visibility, text, immutable/default selector, ancestor, and textual-descendant decisions. These caches are derived from the current DOM/config and must not become persistent marking truth.
 - Explicit include boundaries block descendant hover targeting and marking until the exact include boundary is removed.
 - Hidden explicit include/exclude markings persist while their DOM element exists and render as non-toggleable ghost markings when measurable.

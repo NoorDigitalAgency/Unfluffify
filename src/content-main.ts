@@ -3348,7 +3348,28 @@ function clearAiPreviewState() {
   return true;
 }
 
-function restoreAiPreviewDraftState(restoreState: AiPreviewState): void {
+function pageDraftEntryHasSaveableMarkings(entry: ContentPageEntry | null | undefined): boolean {
+  if (!entry || typeof entry !== "object") {
+    return false;
+  }
+  const candidate = entry as {
+    xpaths?: unknown;
+    includeXpaths?: unknown;
+    submissionXpaths?: unknown;
+    renderedHtml?: unknown;
+  };
+  return (
+    (Array.isArray(candidate.xpaths) && candidate.xpaths.length > 0) ||
+    (Array.isArray(candidate.includeXpaths) && candidate.includeXpaths.length > 0) ||
+    (Array.isArray(candidate.submissionXpaths) && candidate.submissionXpaths.length > 0) ||
+    (typeof candidate.renderedHtml === "string" && candidate.renderedHtml.length > 0)
+  );
+}
+
+function restoreAiPreviewDraftState(
+  restoreState: AiPreviewState,
+  freshAiSnapshotEntry: ContentPageEntry | null = null
+): void {
   if (
     !restoreState ||
     !(restoreState.previousEnabled || restoreState.restoreMarkingOnExit) ||
@@ -3364,13 +3385,20 @@ function restoreAiPreviewDraftState(restoreState: AiPreviewState): void {
     state.config.pageMarkings = {};
   }
   const previousDraftEntry = core.clonePageEntry(restoreState.previousDraftEntry);
-  if (previousDraftEntry) {
-    state.config.pageMarkings[pageUrl] = previousDraftEntry;
+  // Prefer the AI run's freshly captured snapshot (complete, with rendered HTML)
+  // when it carries saveable markings; otherwise restore the pre-AI draft. A
+  // fresh candidate has no pre-AI draft, so without the snapshot the just-computed
+  // markings the pending Save must upload would be discarded.
+  const restoredEntry = pageDraftEntryHasSaveableMarkings(freshAiSnapshotEntry)
+    ? core.clonePageEntry(freshAiSnapshotEntry)
+    : previousDraftEntry;
+  if (restoredEntry) {
+    state.config.pageMarkings[pageUrl] = restoredEntry;
   } else {
     delete state.config.pageMarkings[pageUrl];
   }
   core.setSavedPageEntry(pageUrl, restoreState.previousSavedEntry || null);
-  core.state.autoSeedSuppressedPageUrl = previousDraftEntry ? "" : pageUrl;
+  core.state.autoSeedSuppressedPageUrl = restoredEntry ? "" : pageUrl;
   state.autoSeededPendingSavePageUrl =
     restoreState.previousAutoSeededPendingSavePageUrl || "";
 }
@@ -3515,6 +3543,21 @@ async function exitAiPreviewMode() {
   }
 
   if (shouldRestoreMarking && restoredBaseUrl) {
+    // Read the AI run's freshly persisted snapshot before re-enabling marking
+    // discards the current page draft. enableForBaseUrl wipes the entry and the
+    // restore below only updates in-memory state, so without re-persisting the
+    // snapshot the Save (which reads the stored config) uploads an empty page.
+    let persistedAiSnapshotEntry: ContentPageEntry | null = null;
+    if (location.href === (restoreState.previousPageUrl || location.href)) {
+      try {
+        const persistedConfig = await core.loadConfig(restoredBaseUrl);
+        persistedAiSnapshotEntry = core.clonePageEntry(
+          core.findPageMarkingEntry(persistedConfig, location.href, restoredBaseUrl)
+        );
+      } catch {
+        persistedAiSnapshotEntry = null;
+      }
+    }
     stopSilentHighlightingObserver();
     clearSilentHighlightingMarks();
     setSilentHighlightingsActive(false);
@@ -3538,7 +3581,24 @@ async function exitAiPreviewMode() {
         state.enabled = true;
       }
     }
-    restoreAiPreviewDraftState(restoreState);
+    restoreAiPreviewDraftState(restoreState, persistedAiSnapshotEntry);
+    if (
+      restoredMarking &&
+      state.config &&
+      pageDraftEntryHasSaveableMarkings(core.getDraftPageEntry(location.href))
+    ) {
+      // Persist the restored/preserved draft so the pending Save uploads the
+      // AI-computed markings instead of an empty page. Persistence is best-effort:
+      // a rejected idbSet (transaction abort, or invalidated content context)
+      // must NOT skip resetAiPreviewState()/setTabState below, or the content
+      // stays wedged in "preview active" after marking was already re-enabled.
+      try {
+        await core.saveConfig(restoredBaseUrl, state.config);
+      } catch {
+        // Keep the exit flow going; the draft still lives in memory and the
+        // next capture/persist re-writes it.
+      }
+    }
     if (restoredMarking) {
       refreshEnabledAiHighlights();
     }
@@ -6351,6 +6411,7 @@ function createCapturePageSnapshotHandlerDeps(): CapturePageSnapshotDeps {
     refreshSavedPageEntryFromBackendCache: async (baseUrl: unknown, pageUrl: string) => {
       await core.refreshSavedPageEntryFromBackendCache(baseUrl as string | undefined, pageUrl);
     },
+    clearUserMarkingEdit: (pageUrl: string) => core.clearUserMarkingEdit(pageUrl),
     saveConfig: (
       baseUrl: unknown,
       configValue: Parameters<CapturePageSnapshotDeps["saveConfig"]>[1]
@@ -6572,6 +6633,7 @@ function createPageDraftRevertHandlerDeps(): PageDraftRevertDeps {
     setConfig: (configValue: Parameters<PageDraftRevertDeps["setConfig"]>[0]) => {
       state.config = configValue as Config;
     },
+    clearUserMarkingEdit: (pageUrl: string) => core.clearUserMarkingEdit(pageUrl),
     setSavedPageEntry: (pageUrl: string, entry: unknown) =>
       core.setSavedPageEntry(pageUrl, (entry as ContentPageEntry | null | undefined) ?? null),
     syncPageMarkings: (

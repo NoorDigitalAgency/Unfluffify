@@ -669,6 +669,12 @@ export const state = {
   // first dirty check after sync populates the draft, and refreshed when a
   // backend-confirmed entry lands via setSavedPageEntry. Cleared in disable().
   cleanBaselineFingerprintByPageUrl: new Map<string, string>(),
+  // Deterministic dirty tracking: page URLs the user actually edited (a real
+  // marking-toggle click) since the last clean baseline. This is the ONLY thing
+  // that makes a page draft dirty — scroll/cursor/re-sync/reflow never touch it.
+  // Cleared when a clean baseline is (re)established: enable, AI-run snapshot,
+  // backend save, discard, disable.
+  userMarkingEditsByPageUrl: new Set<string>(),
   pageSaveReconciliation: null as PageSaveReconciliation | null,
   // Page URL whose clean baseline must be (re)established from the freshly
   // synced defaults + selector entry on the next render after a marking enable.
@@ -9527,6 +9533,11 @@ function completeExplicitToggle(
     });
   }
   scheduleSnapshotSave(EXPLICIT_TOGGLE_SNAPSHOT_DELAY_MS);
+  // Deterministic dirty: a real user marking-toggle click is the ONLY thing that
+  // marks the current page draft dirty. Recorded here (the sole completion path
+  // for handleToggleEvent's exclude/include toggles) so scroll/cursor/re-sync
+  // never invalidate a clean AI run.
+  markUserMarkingEdit(location.href);
   notifyDraftStatus(location.href);
   scheduleDraftPersist(state.baseUrl, EXPLICIT_TOGGLE_DRAFT_PERSIST_DELAY_MS);
 }
@@ -10295,6 +10306,22 @@ export function isImmutableExcludedElement(el: Element | null): boolean {
   return matchesImmutableExcluded(el);
 }
 
+export function markUserMarkingEdit(pageUrl: string | null | undefined): void {
+  if (pageUrl) {
+    state.userMarkingEditsByPageUrl.add(pageUrl);
+  }
+}
+
+export function clearUserMarkingEdit(pageUrl: string | null | undefined): void {
+  if (pageUrl) {
+    state.userMarkingEditsByPageUrl.delete(pageUrl);
+  }
+}
+
+export function hasUserMarkingEdit(pageUrl: string | null | undefined): boolean {
+  return Boolean(pageUrl && state.userMarkingEditsByPageUrl.has(pageUrl));
+}
+
 export function isPageDraftDirty(pageUrl: string): boolean {
   if (pageUrl && state.autoSeededPendingSavePageUrl === pageUrl) {
     return true;
@@ -10302,22 +10329,12 @@ export function isPageDraftDirty(pageUrl: string): boolean {
   if (isPageSaveReconciliationPending(pageUrl)) {
     return true;
   }
-  const draft = getDraftPageEntry(pageUrl);
-  const draftFingerprint = getEntryFingerprint(draft).join("\n");
-  const baseline = pageUrl
-    ? state.cleanBaselineFingerprintByPageUrl.get(pageUrl)
-    : undefined;
-  if (baseline === undefined) {
-    // No baseline yet. If the draft has been populated by the initial sync
-    // (defaults + AI CSS selectors), snapshot it as the implicit clean
-    // baseline so subsequent user/AI changes are detected. If the draft is
-    // still empty (sync hasn't run), there is nothing to lose yet.
-    if (pageUrl && draft && Array.isArray(draft.xpaths) && draft.xpaths.length > 0) {
-      state.cleanBaselineFingerprintByPageUrl.set(pageUrl, draftFingerprint);
-    }
-    return false;
-  }
-  return draftFingerprint !== baseline;
+  // Deterministic: a page draft is dirty ONLY after a real user marking-toggle
+  // edit since the last clean baseline. No fingerprinting — page shifts
+  // (scroll, cursor, reflow) and background re-syncs re-capture the entry but do
+  // NOT count as edits, so they can never wrongly flip the session to dirty /
+  // requires_ai_run after a clean AI run.
+  return hasUserMarkingEdit(pageUrl);
 }
 
 export function getPageSaveReconciliationState(pageUrl = location.href) {
@@ -10457,6 +10474,7 @@ export function clearPageDraftBaseline(pageUrl: string) {
     return;
   }
   state.cleanBaselineFingerprintByPageUrl.delete(pageUrl);
+  clearUserMarkingEdit(pageUrl);
   if (state.pendingFreshBaselinePageUrl === pageUrl) {
     state.pendingFreshBaselinePageUrl = "";
   }
@@ -11190,6 +11208,7 @@ export function disable(options = {}) {
   state.savedPageEntry = null;
   state.savedPageUrl = "";
   state.cleanBaselineFingerprintByPageUrl.clear();
+  state.userMarkingEditsByPageUrl.clear();
   removeOverlay();
   closeAiPopover();
   removeConsentBypassStyle();
@@ -11237,6 +11256,7 @@ export async function enableForBaseUrl(baseUrl: string, options = {}) {
   // the freshly synced defaults + selector entry.
   setSavedPageEntry(pageUrl, null);
   state.cleanBaselineFingerprintByPageUrl.delete(pageUrl);
+  clearUserMarkingEdit(pageUrl);
   state.pendingFreshBaselinePageUrl = pageUrl;
   await refreshPageSaveReconciliation(normalizedBaseUrl, pageUrl);
   state.enabled = true;

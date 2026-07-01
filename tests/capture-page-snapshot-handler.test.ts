@@ -45,6 +45,9 @@ function createDeps(overrides = {}) {
     refreshSavedPageEntryFromBackendCache: async (baseUrl, pageUrl) => {
       calls.push(["refreshSavedPageEntryFromBackendCache", baseUrl, pageUrl]);
     },
+    clearUserMarkingEdit: (pageUrl) => {
+      calls.push(["clearUserMarkingEdit", pageUrl]);
+    },
     saveConfig: async (baseUrl, config) => {
       calls.push(["saveConfig", baseUrl, config]);
     },

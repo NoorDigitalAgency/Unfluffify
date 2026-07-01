@@ -71,16 +71,18 @@ export function hasCurrentPagePendingChanges(
   backendSavedPageMarkings: unknown,
   options: PageReconciliationOptions = {}
 ) {
+  // Deterministic "is the current page edited / not ready to save": only a real
+  // marking edit (currentDraftDirty) or an in-flight save reconciliation counts.
+  // Whether local markings differ from the backend-saved set is "has unsaved
+  // work" (sessionHasPendingChanges) — it is ALWAYS true right after an AI run,
+  // so gating READY_TO_SAVE on it wrongly keeps every freshly-computed page dirty
+  // forever. Kept out of this signal so scroll/re-sync/unsaved-state never flips
+  // it; only a deterministic user action does.
+  void deps;
+  void localPageMarkings;
+  void backendSavedPageMarkings;
   const opts = options;
-  const hasCurrentPageMarkingChanges =
-    typeof deps.hasCurrentPageMarkingChanges === "function"
-      ? deps.hasCurrentPageMarkingChanges
-      : () => false;
-  return Boolean(
-    opts.currentDraftDirty ||
-      opts.reconciliationPending ||
-      hasCurrentPageMarkingChanges(localPageMarkings, backendSavedPageMarkings, opts.pageUrl)
-  );
+  return Boolean(opts.currentDraftDirty || opts.reconciliationPending);
 }
 
 export async function handlePageSave(deps: PageReconciliationDeps) {

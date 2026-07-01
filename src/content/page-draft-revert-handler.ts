@@ -13,6 +13,7 @@ type PageDraftRevertDeps = {
   setConfig: (config: unknown) => void;
   scheduleRender: () => void;
   notifyDraftStatus: (pageUrl: string) => void;
+  clearUserMarkingEdit: (pageUrl: string) => void;
   isPageDraftDirty: (pageUrl: string) => boolean;
   getSavedPageEntry: (pageUrl: string) => unknown;
 };
@@ -39,6 +40,9 @@ export function createPageDraftRevertHandler(deps: PageDraftRevertDeps) {
     }
     deps.setBaseUrl(targetBaseUrl);
     deps.setConfig(config);
+    // Discard reverts markings to the stored/pre-AI baseline, so the deterministic
+    // dirty flag must clear — the page is clean again.
+    deps.clearUserMarkingEdit(pageUrl);
     deps.scheduleRender();
     deps.notifyDraftStatus(pageUrl);
     return {

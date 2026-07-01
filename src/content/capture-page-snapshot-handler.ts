@@ -34,6 +34,7 @@ type CapturePageSnapshotDeps = {
   saveConfig: (targetBaseUrl: unknown, config: CapturePageConfig) => Promise<void>;
   setConfig: (config: CapturePageConfig) => void;
   refreshSavedPageEntryFromBackendCache: (targetBaseUrl: unknown, pageUrl: string) => Promise<void>;
+  clearUserMarkingEdit: (pageUrl: string) => void;
   sendPropertyLockActivity: () => void;
 };
 
@@ -89,6 +90,10 @@ export function createCapturePageSnapshotHandler(deps: CapturePageSnapshotDeps) 
 
     if (shouldPersist) {
       await deps.saveConfig(targetBaseUrl, config);
+      // The AI run captured the current markings as its baseline, so any prior
+      // user edit for this page is now "up to date" — clear the deterministic
+      // dirty flag so the post-run session is READY_TO_SAVE (not requires_ai_run).
+      deps.clearUserMarkingEdit(pageUrl);
     }
 
     if (deps.matchesActiveBaseUrl(targetBaseUrl)) {

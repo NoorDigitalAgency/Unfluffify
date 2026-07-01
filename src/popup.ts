@@ -2239,7 +2239,16 @@ function setSessionAiRunPhase(phase: SessionAiRunPhase) {
 }
 
 function isAiRunUpToDateForCurrentMarkings() {
-  return state.sessionAiRunPhase === AI_RUN_PHASES.POST_AI;
+  // Deterministic + brain-deferring: the AI run is up to date when the popup's
+  // own POST_AI phase says so, OR when the brain (the session-phase authority)
+  // has reached READY_TO_SAVE. READY_TO_SAVE only holds when the brain sees a
+  // completed run with no deterministic marking edit since, so trusting it keeps
+  // the popup's Save/status copy consistent with the brain and robust to page
+  // shifts (scroll/cursor/re-sync never move the brain out of READY_TO_SAVE).
+  return (
+    state.sessionAiRunPhase === AI_RUN_PHASES.POST_AI ||
+    popupBackgroundSessionPhase === SESSION_PHASES.READY_TO_SAVE
+  );
 }
 
 function captureAiRunMarkingsFingerprint() {

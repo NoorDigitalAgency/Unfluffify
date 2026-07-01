@@ -93,18 +93,21 @@ function createDeps(overrides = {}) {
   return { deps, calls };
 }
 
-test("popup page reconciliation current-page pending detection checks dirty and reconciliation flags", () => {
+test("popup page reconciliation current-page pending detection is deterministic (edit + reconciliation only)", () => {
   const { deps } = createDeps({
     hasCurrentPageMarkingChanges: () => true
   });
 
+  // local!=backend ("has unsaved work") must NOT make the current page pending:
+  // that would keep every freshly AI-computed page dirty forever. Only a real
+  // edit (currentDraftDirty) or an in-flight reconciliation counts.
   assert.equal(
     hasCurrentPagePendingChanges(deps, {}, {}, {
       currentDraftDirty: false,
       reconciliationPending: false,
       pageUrl: "https://example.com/page"
     }),
-    true
+    false
   );
   assert.equal(
     hasCurrentPagePendingChanges(deps, {}, {}, {
