@@ -696,11 +696,30 @@ describe("popup view projector", () => {
 
     // #8: during an active AI preview the stored-selector silent highlightings
     // render alongside the yellow AI-detected content, even though the session is
-    // dirty (unsaved AI results). previewBlocked is coupled to previewActive in the
-    // real reporters (both true together), so a genuine displaying preview reports
-    // previewActive+previewBlocked — silent must still render there.
+    // dirty (unsaved AI results). CRITICAL: a real displaying preview reports
+    // silentModeActive=FALSE (the preview replaces silent mode), so the marking-off
+    // base condition (silentModeActive + !isEnabled) MUST be waived while a preview
+    // is displaying — otherwise silent highlighting drops the moment the preview
+    // opens. previewBlocked is coupled to previewActive in the real reporters (both
+    // true together), so a genuine displaying preview reports previewActive+previewBlocked.
+    // Silent-mode preview ("Show Content List"): marking off, silentModeActive flips false.
     expect(projectViews(buildState({
       ...savedSilentFacts,
+      silentModeActive: false,
+      isEnabled: false,
+      previewActive: true,
+      previewBlocked: true,
+      sessionHasPendingChanges: true,
+      currentPageHasPendingChanges: true,
+      currentDraftDirty: true,
+    })).contentDirective.silentHighlightActive).toBe(true);
+    // Marking-mode AI preview (Run AI): marking stays ENABLED underneath the preview,
+    // silentModeActive=false, isEnabled=true — silent highlighting must STILL render
+    // for saved-vs-detected comparison.
+    expect(projectViews(buildState({
+      ...savedSilentFacts,
+      silentModeActive: false,
+      isEnabled: true,
       previewActive: true,
       previewBlocked: true,
       sessionHasPendingChanges: true,
@@ -710,6 +729,8 @@ describe("popup view projector", () => {
     // ...but while the preview is being restored/exited it stays suppressed.
     expect(projectViews(buildState({
       ...savedSilentFacts,
+      silentModeActive: false,
+      isEnabled: false,
       previewActive: true,
       previewBlocked: true,
       previewRestorePending: true,
@@ -718,6 +739,8 @@ describe("popup view projector", () => {
     // preview flag set.
     expect(projectViews(buildState({
       ...savedSilentFacts,
+      silentModeActive: false,
+      isEnabled: true,
       previewActive: true,
       previewBlocked: true,
       aiComputing: true,

@@ -181,10 +181,15 @@ function shouldActivateSilentHighlighting(state: TabLayerState): boolean {
     !facts.currentPageHasPendingChanges &&
     !facts.currentDraftDirty &&
     !facts.sessionRequiresAiRun;
+  // While a preview is displaying, silent highlighting must render alongside the
+  // yellow AI-detected content REGARDLESS of the marking-off base condition
+  // (silentModeActive + !isEnabled): a marking-mode AI preview keeps the session
+  // enabled (silentModeActive=false, isEnabled=true) but the contract still wants
+  // the stored-selector highlights shown for saved-vs-detected comparison (#8). So
+  // silentModeActive + !isEnabled only gate the non-preview settled-clean path;
+  // during previewComparisonActive they are waived.
   return Boolean(
-    facts.silentModeActive &&
-      facts.hasStoredSelectors &&
-      !facts.isEnabled &&
+    facts.hasStoredSelectors &&
       !facts.pageScopedUiDisabled &&
       facts.baseUrlReady &&
       facts.siteIdReady &&
@@ -195,7 +200,8 @@ function shouldActivateSilentHighlighting(state: TabLayerState): boolean {
       !facts.aiComputing &&
       !facts.saving &&
       !facts.discarding &&
-      (previewComparisonActive || sessionSettledClean)
+      (previewComparisonActive ||
+        (facts.silentModeActive && !facts.isEnabled && sessionSettledClean))
   );
 }
 

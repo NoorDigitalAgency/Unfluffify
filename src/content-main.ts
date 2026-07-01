@@ -5401,7 +5401,15 @@ async function refreshSilentHighlightings() {
   // async step can detect it has been superseded and bail out before mutating
   // observers, overlays, or render-key state with stale data.
   const refreshGeneration = ++silentHighlightingRefreshGeneration;
-  if (state.enabled) {
+  // Content reflects the brain silent-highlight directive rather than re-deriving
+  // the block from local marking state. In practice a displaying preview already
+  // sets content state.enabled=false (beginAiPreviewMode calls core.disable()), so
+  // this path is reached with marking off during a preview; gating the enabled
+  // early-bail on !isSilentHighlightActiveByDirective() is a defensive
+  // brain-authority alignment (#8) so silent overlays are never torn down while the
+  // directive is active, independent of the disable/broadcast ordering. It does not
+  // change normal marking-mode rendering (there the directive is false).
+  if (state.enabled && !isSilentHighlightActiveByDirective()) {
     publishSilentHighlightSessionFacts({
       isEnabled: true,
       silentModeActive: false,

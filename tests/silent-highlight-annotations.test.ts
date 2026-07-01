@@ -99,6 +99,15 @@ test("silent highlighting owns page motion pause for matching pages even without
     source,
     /async function refreshSilentHighlightings\(\) \{[\s\S]*?if \(!isSilentHighlightActiveByDirective\(\) && !snapshot\.holdSilentMotionPause\) \{[\s\S]*?deactivateSilentHighlightings\(\);[\s\S]*?return;[\s\S]*?\}[\s\S]*?setSilentHighlightingPageMotionPaused\(snapshot\.holdSilentMotionPause\);/
   );
+  // #8: the marking-enabled early-bail must be gated on the directive being INACTIVE,
+  // so a displaying preview (directive active while marking enabled) still renders the
+  // stored-selector silent highlightings alongside the yellow AI-detected content
+  // instead of tearing them down. Content reflects the directive; it must not re-derive
+  // the block from state.enabled alone.
+  assert.match(
+    source,
+    /async function refreshSilentHighlightings\(\) \{[\s\S]*?if \(state\.enabled && !isSilentHighlightActiveByDirective\(\)\) \{[\s\S]*?deactivateSilentHighlightings\(\);[\s\S]*?refreshEnabledAiHighlights\(\);[\s\S]*?return;[\s\S]*?\}/
+  );
   assert.match(
     source,
     /const loadResult = await loadAndNormalizeConfigs\(pageUrl\);[\s\S]*?if \(refreshGeneration !== silentHighlightingRefreshGeneration \|\| location\.href !== pageUrl\) \{[\s\S]*?return;[\s\S]*?\}[\s\S]*?publishSilentHighlightSessionFacts\(loadResult\.facts\);/
