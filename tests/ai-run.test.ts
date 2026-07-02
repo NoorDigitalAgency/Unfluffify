@@ -106,6 +106,38 @@ test("AI compute shows busy feedback and locks marking before payload work", () 
   assert.match(aiRunOrchestratorSource, /await update\(\{[\s\S]*?reason: "tab-run-ai-running"/);
 });
 
+test("selector submit paints busy feedback before save-side runtime work", () => {
+  const source = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
+  const match = source.match(
+    /async function submitSelectorSetToServer\(options(?:\s*:\s*[^=]+)? = \{\}\) \{([\s\S]*?)\n\}\n\nasync function handleLynxChecklistSend/
+  );
+
+  assert.ok(match, "submitSelectorSetToServer body should be found");
+  const body = match[1];
+  const activeIndex = body.indexOf('state.aiRequestInFlight = "save";');
+  const busyPatchIndex = body.indexOf("saveExcludesButtonLoading: true", activeIndex);
+  const savingStartIndex = body.indexOf("saving: true", busyPatchIndex);
+  const firstPaintIndex = body.indexOf("await waitForPopupUiPaint();", savingStartIndex);
+  const statusRefreshIndex = body.indexOf("await refreshCurrentPageRuntimeStatus({ baseUrl });", firstPaintIndex);
+  const submitIndex = body.indexOf('type: "submitSelectorSetGraphqlUpdate"', statusRefreshIndex);
+
+  assert.match(
+    body,
+    /uiModule\.setViewState\(\{\s*saveExcludesButtonText: ViewText\.saveExcludesBusy,\s*saveExcludesButtonLoading: true,\s*saveExcludesButtonDisabled: true,[\s\S]*?stageBaseInputDisabled: true,[\s\S]*?stageBaseSetDisabled: true,[\s\S]*?stageBaseEditDisabled: true,[\s\S]*?themeControlsDisabled: true,[\s\S]*?loginCredentialsDisabled: true,[\s\S]*?loginActionDisabled: true,[\s\S]*?configEndpointInputDisabled: true,[\s\S]*?configEndpointSetDisabled: true,[\s\S]*?configEndpointEditDisabled: true,[\s\S]*?endpointInputDisabled: true,[\s\S]*?endpointSetDisabled: true,[\s\S]*?endpointEditDisabled: true,[\s\S]*?renderModeInputDisabled: true,[\s\S]*?renderModeInspectButtonsDisabled: true,[\s\S]*?renderModeInspectWithoutJavaScriptDisabled: true,[\s\S]*?renderModeInspectWithJavaScriptDisabled: true,[\s\S]*?renderModeSetDisabled: true,[\s\S]*?renderModeEditDisabled: true[\s\S]*?\}\);/
+  );
+  assert.match(body, /publishCurrentTabSessionFacts\(\{\s*saving: true\s*\}\);/);
+  assert.match(
+    body,
+    /state\.aiRequestInFlight = null;[\s\S]*?publishCurrentTabSessionFacts\(\{\s*saving: false\s*\}\);[\s\S]*?await refreshUi\(\);/
+  );
+  assert.ok(activeIndex >= 0, "selector submit should enter save-flight state");
+  assert.ok(busyPatchIndex > activeIndex, "selector submit should synchronously patch the save button loading state after entering save-flight state");
+  assert.ok(savingStartIndex > busyPatchIndex, "selector submit should publish saving facts after the local busy patch");
+  assert.ok(firstPaintIndex > savingStartIndex, "selector submit should yield for the busy paint before runtime status refresh");
+  assert.ok(statusRefreshIndex > firstPaintIndex, "runtime status refresh should wait until busy feedback is visible");
+  assert.ok(submitIndex > statusRefreshIndex, "GraphQL submit should happen after the busy feedback and status refresh");
+});
+
 test("AI compute builds the request from stored local page snapshots only", () => {
   const source = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
   const backgroundSource = readFileSync(new URL("../src/background.ts", import.meta.url), "utf8");

@@ -146,6 +146,12 @@ Risk: LOW. Mechanical.
   network/DOM work; no behavior change to the actual save result.
 - Rollback: revert the reorder if any save flow regresses (watch for double-submit
   / flight-flag stuck).
+- DECISION (2026-07-02): `refreshUi()` was too expensive for first paint, so the
+  fix applies a direct `uiModule.setViewState(...)` patch for the save-loading
+  UI, the normal `aiBusy`-disabled config + render-mode controls, and an
+  immediate `publishCurrentTabSessionFacts({ saving: true/false })` pair, then
+  uses `waitForPopupUiPaint()`; `handlePageSave()` stayed unchanged because it
+  already enters `runWithSpinner(...)` before its expensive sync loop.
 
 ## PHASE B — #6 Reveal/freeze wrongly runs on pure render re-inspect
 Risk: LOW (narrow predicate). LOCKED area — minimal change only.

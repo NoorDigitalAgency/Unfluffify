@@ -7705,136 +7705,168 @@ async function submitSelectorSetToServer(options: SelectorSetSubmitOptions = {})
     tokenValue = ""
   } = options;
 
-  await refreshCurrentPageRuntimeStatus({ baseUrl });
-  if (state.currentPageSaveReconciliationPending) {
-    return { ok: false, skipped: true, reason: PopupText.page.statusServerSyncPending };
-  }
-  if (state.currentDraftDirty) {
-    return { ok: false, skipped: true, reason: PopupText.ai.dirtyNotice };
-  }
-
-  const normalizedSelectorSet = normalizeAiSelectorSet(selectorSet);
-  if (!combineAiSelectorSet(normalizedSelectorSet).length) {
-    return { ok: false, skipped: true, reason: PopupText.ai.noSelectorsToSubmit };
-  }
-
-  const { stageBaseValue, configEndpointValue, endpointValue: _endpointValue } = await helpers.loadGlobalAiSettings();
-  const graphqlEndpoint = buildGraphqlEndpointFromStageBase(stageBaseValue);
-  if (!graphqlEndpoint) {
-    return { ok: false, skipped: true, reason: PopupText.authentication.toastSetStageBaseFirst };
-  }
-
-  const siteIdResult = await ensureBaseUrlSiteId({
-    baseUrl,
-    stageBase: stageBaseValue,
-    tokenValue
-  });
-  if (!siteIdResult.ok || !siteIdResult.siteId) {
-    return {
-      ok: false,
-      skipped: true,
-      reason: siteIdResult.reason || ViewText.noDomainIdForBaseUrl
-    };
-  }
-
-  const effectiveBaseUrl = siteIdResult.baseUrl || baseUrl;
-  state.currentBaseUrl = effectiveBaseUrl;
-  state.currentConfig = siteIdResult.config || state.currentConfig;
-
-  if (aiSelectorSetsEqual(normalizedSelectorSet, getLastSubmittedSelectorsFromConfig())) {
-    return { ok: false, skipped: true, reason: PopupText.ai.noNewSelectorsToSubmit };
-  }
-
-  const includeCss = normalizedSelectorSet.inclusionSelectors.join(", ");
-  const selectorSetForSubmit = buildSelectorSetForGraphqlSubmit(normalizedSelectorSet);
-  const excludeCss = selectorSetForSubmit.exclusionSelectors.join(", ");
-  const renderMode = buildGraphqlRenderModeValue(
-    config.getConfigRenderMode(state.currentConfig)
-  );
-  let submitTokenValue = (await getStoredGlobalToken()) || tokenValue;
-
   state.aiRequestInFlight = "save";
-  await refreshUi();
+  uiModule.setViewState({
+    saveExcludesButtonText: ViewText.saveExcludesBusy,
+    saveExcludesButtonLoading: true,
+    saveExcludesButtonDisabled: true,
+    stageBaseInputDisabled: true,
+    stageBaseSetDisabled: true,
+    stageBaseEditDisabled: true,
+    themeControlsDisabled: true,
+    loginCredentialsDisabled: true,
+    loginActionDisabled: true,
+    configEndpointInputDisabled: true,
+    configEndpointSetDisabled: true,
+    configEndpointEditDisabled: true,
+    endpointInputDisabled: true,
+    endpointSetDisabled: true,
+    endpointEditDisabled: true,
+    renderModeInputDisabled: true,
+    renderModeInspectButtonsDisabled: true,
+    renderModeInspectWithoutJavaScriptDisabled: true,
+    renderModeInspectWithJavaScriptDisabled: true,
+    renderModeSetDisabled: true,
+    renderModeEditDisabled: true
+  });
+  publishCurrentTabSessionFacts({
+    saving: true
+  });
   try {
-    await postPageTypeAssignmentsToAiServer({
-      baseUrl: effectiveBaseUrl,
-      pageMarkings: (state.currentConfig && state.currentConfig.pageMarkings) || {},
-      checklistPageTypes: state.lynxChecklistPageTypes
-    });
-    submitTokenValue = (await getStoredGlobalToken()) || submitTokenValue;
-    const response = await messages.sendRuntimeMessage({
-      type: "submitSelectorSetGraphqlUpdate",
+    await waitForPopupUiPaint();
+
+    await refreshCurrentPageRuntimeStatus({ baseUrl });
+    if (state.currentPageSaveReconciliationPending) {
+      return { ok: false, skipped: true, reason: PopupText.page.statusServerSyncPending };
+    }
+    if (state.currentDraftDirty) {
+      return { ok: false, skipped: true, reason: PopupText.ai.dirtyNotice };
+    }
+
+    const normalizedSelectorSet = normalizeAiSelectorSet(selectorSet);
+    if (!combineAiSelectorSet(normalizedSelectorSet).length) {
+      return { ok: false, skipped: true, reason: PopupText.ai.noSelectorsToSubmit };
+    }
+
+    const { stageBaseValue, configEndpointValue, endpointValue: _endpointValue } = await helpers.loadGlobalAiSettings();
+    const graphqlEndpoint = buildGraphqlEndpointFromStageBase(stageBaseValue);
+    if (!graphqlEndpoint) {
+      return { ok: false, skipped: true, reason: PopupText.authentication.toastSetStageBaseFirst };
+    }
+
+    const siteIdResult = await ensureBaseUrlSiteId({
+      baseUrl,
       stageBase: stageBaseValue,
-      siteId: siteIdResult.siteId,
-      includeCss,
-      excludeCss,
-      renderMode
+      tokenValue
     });
-    let payload = null;
-    if (response && response.payload && typeof response.payload === "object") {
-      payload = response.payload;
-    }
-    if (!response || response.ok !== true) {
-      return { ok: false, reason: PopupText.ai.submitResponseError };
-    }
-    if (!payload || typeof payload !== "object") {
-      return { ok: false, reason: PopupText.ai.submitResponseFormatError };
-    }
-    if (Array.isArray(payload.errors) && payload.errors.length > 0) {
+    if (!siteIdResult.ok || !siteIdResult.siteId) {
       return {
         ok: false,
-        reason:
-          payload.errors[0] && typeof payload.errors[0].message === "string"
-            ? payload.errors[0].message
-            : PopupText.ai.submitResponseError
+        skipped: true,
+        reason: siteIdResult.reason || ViewText.noDomainIdForBaseUrl
       };
     }
-    const mutationResult =
-      payload.data && Object.prototype.hasOwnProperty.call(payload.data, "updateScrapingConditions")
-        ? payload.data.updateScrapingConditions
-        : undefined;
-    if (
-      mutationResult === undefined ||
-      mutationResult === null ||
-      mutationResult === false
-    ) {
-      return { ok: false, reason: PopupText.ai.submitResponseError };
+
+    const effectiveBaseUrl = siteIdResult.baseUrl || baseUrl;
+    state.currentBaseUrl = effectiveBaseUrl;
+    state.currentConfig = siteIdResult.config || state.currentConfig;
+
+    if (aiSelectorSetsEqual(normalizedSelectorSet, getLastSubmittedSelectorsFromConfig())) {
+      return { ok: false, skipped: true, reason: PopupText.ai.noNewSelectorsToSubmit };
     }
 
-    const selectorsNeedRefresh =
-      !config.isSelectorSetCurrentForRenderMode(state.currentConfig, "selectors") ||
-      !aiSelectorSetsEqual(
-        normalizedSelectorSet,
-        state.currentConfig && state.currentConfig.selectors
-      );
-    const selectorSetUpdatedAt = selectorsNeedRefresh
-      ? config.createTimestampNow()
-      : config.normalizeEntryTimestamp(
-          state.currentConfig && state.currentConfig.selectorsUpdatedAt
+    const includeCss = normalizedSelectorSet.inclusionSelectors.join(", ");
+    const selectorSetForSubmit = buildSelectorSetForGraphqlSubmit(normalizedSelectorSet);
+    const excludeCss = selectorSetForSubmit.exclusionSelectors.join(", ");
+    const renderMode = buildGraphqlRenderModeValue(
+      config.getConfigRenderMode(state.currentConfig)
+    );
+    let submitTokenValue = (await getStoredGlobalToken()) || tokenValue;
+
+    try {
+      await postPageTypeAssignmentsToAiServer({
+        baseUrl: effectiveBaseUrl,
+        pageMarkings: (state.currentConfig && state.currentConfig.pageMarkings) || {},
+        checklistPageTypes: state.lynxChecklistPageTypes
+      });
+      submitTokenValue = (await getStoredGlobalToken()) || submitTokenValue;
+      const response = await messages.sendRuntimeMessage({
+        type: "submitSelectorSetGraphqlUpdate",
+        stageBase: stageBaseValue,
+        siteId: siteIdResult.siteId,
+        includeCss,
+        excludeCss,
+        renderMode
+      });
+      let payload = null;
+      if (response && response.payload && typeof response.payload === "object") {
+        payload = response.payload;
+      }
+      if (!response || response.ok !== true) {
+        return { ok: false, reason: PopupText.ai.submitResponseError };
+      }
+      if (!payload || typeof payload !== "object") {
+        return { ok: false, reason: PopupText.ai.submitResponseFormatError };
+      }
+      if (Array.isArray(payload.errors) && payload.errors.length > 0) {
+        return {
+          ok: false,
+          reason:
+            payload.errors[0] && typeof payload.errors[0].message === "string"
+              ? payload.errors[0].message
+              : PopupText.ai.submitResponseError
+        };
+      }
+      const mutationResult =
+        payload.data && Object.prototype.hasOwnProperty.call(payload.data, "updateScrapingConditions")
+          ? payload.data.updateScrapingConditions
+          : undefined;
+      if (
+        mutationResult === undefined ||
+        mutationResult === null ||
+        mutationResult === false
+      ) {
+        return { ok: false, reason: PopupText.ai.submitResponseError };
+      }
+
+      const selectorsNeedRefresh =
+        !config.isSelectorSetCurrentForRenderMode(state.currentConfig, "selectors") ||
+        !aiSelectorSetsEqual(
+          normalizedSelectorSet,
+          state.currentConfig && state.currentConfig.selectors
         );
-    const submittedSelectorsFingerprint = getSelectorSetFingerprint(normalizedSelectorSet);
-    state.currentConfig = await config.updateConfig(effectiveBaseUrl, (targetConfig) => {
-      targetConfig.selectors = normalizeAiSelectorSet(normalizedSelectorSet);
-      targetConfig.selectorsUpdatedAt = selectorSetUpdatedAt;
-      targetConfig.submittedSelectorsFingerprint = submittedSelectorsFingerprint;
-    });
-    state.aiSelectorsComputedSinceLastSubmit = false;
-    state.aiSelectorsComputedBaseUrl = "";
-    clearSelectorsPendingConfigSync();
-    const currentPageUrl = (state.currentTab && state.currentTab.url) || "";
-    const configSyncResult = await syncBaseConfigToServer({
-      baseUrl: effectiveBaseUrl,
-      pageUrl: currentPageUrl,
-      endpointValue: configEndpointValue,
-      tokenValue: submitTokenValue,
-      stageBase: stageBaseValue,
-      alertOnCurrentReplacement: false
-    });
-    return { ok: true, baseUrl: effectiveBaseUrl, configSyncResult };
-  } catch (_error) {
-    return { ok: false, reason: PopupText.ai.submitRequestFailed };
+      const selectorSetUpdatedAt = selectorsNeedRefresh
+        ? config.createTimestampNow()
+        : config.normalizeEntryTimestamp(
+            state.currentConfig && state.currentConfig.selectorsUpdatedAt
+          );
+      const submittedSelectorsFingerprint = getSelectorSetFingerprint(normalizedSelectorSet);
+      state.currentConfig = await config.updateConfig(effectiveBaseUrl, (targetConfig) => {
+        targetConfig.selectors = normalizeAiSelectorSet(normalizedSelectorSet);
+        targetConfig.selectorsUpdatedAt = selectorSetUpdatedAt;
+        targetConfig.submittedSelectorsFingerprint = submittedSelectorsFingerprint;
+      });
+      state.aiSelectorsComputedSinceLastSubmit = false;
+      state.aiSelectorsComputedBaseUrl = "";
+      clearSelectorsPendingConfigSync();
+      const currentPageUrl = (state.currentTab && state.currentTab.url) || "";
+      const configSyncResult = await syncBaseConfigToServer({
+        baseUrl: effectiveBaseUrl,
+        pageUrl: currentPageUrl,
+        endpointValue: configEndpointValue,
+        tokenValue: submitTokenValue,
+        stageBase: stageBaseValue,
+        alertOnCurrentReplacement: false
+      });
+      return { ok: true, baseUrl: effectiveBaseUrl, configSyncResult };
+    } catch (_error) {
+      return { ok: false, reason: PopupText.ai.submitRequestFailed };
+    }
   } finally {
     state.aiRequestInFlight = null;
+    publishCurrentTabSessionFacts({
+      saving: false
+    });
     await refreshUi();
   }
 }
