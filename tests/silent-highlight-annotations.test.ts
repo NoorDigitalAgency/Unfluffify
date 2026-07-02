@@ -93,7 +93,7 @@ test("silent highlighting owns page motion pause for matching pages even without
   );
   assert.match(
     source,
-    /async function loadAndNormalizeConfigs\([\s\S]*?const baseUrl = utils\.findMatchingBaseUrl\(pageUrl, configs\);[\s\S]*?if \(!baseUrl\) \{[\s\S]*?snapshot: null[\s\S]*?silentModeActive: false[\s\S]*?\}[\s\S]*?const normalized = config\.normalizeConfig\(baseUrl, configs\[baseUrl\]\);[\s\S]*?const currentSilentRevealKey = getSilentHighlightEditorRevealKey\(baseUrl, pageUrl\);[\s\S]*?const holdSilentMotionPause = Boolean\([\s\S]*?shouldRunSilentHighlightEditorActivation\(\)[\s\S]*?!silentHighlightEditorRevealInFlight[\s\S]*?currentSilentRevealKey === silentHighlightEditorRevealKey[\s\S]*?\);/
+    /async function loadAndNormalizeConfigs\([\s\S]*?const baseUrl = utils\.findMatchingBaseUrl\(pageUrl, configs\);[\s\S]*?if \(!baseUrl\) \{[\s\S]*?snapshot: null[\s\S]*?silentModeActive: false[\s\S]*?\}[\s\S]*?const normalized = config\.normalizeConfig\(baseUrl, configs\[baseUrl\]\);[\s\S]*?const currentSilentRevealKey = getSilentHighlightEditorRevealKey\(baseUrl, pageUrl\);[\s\S]*?const previewPreservesMotionPause = Boolean\([\s\S]*?aiPreviewState\.active[\s\S]*?aiPreviewState\.mode === "preview"[\s\S]*?core\.hasPageMotionPauseReason\(SILENT_HIGHLIGHTING_MOTION_PAUSE_REASON\)[\s\S]*?\);[\s\S]*?const holdSilentMotionPause = Boolean\([\s\S]*?previewPreservesMotionPause[\s\S]*?\|\|[\s\S]*?shouldRunSilentHighlightEditorActivation\(\)[\s\S]*?!silentHighlightEditorRevealInFlight[\s\S]*?currentSilentRevealKey === silentHighlightEditorRevealKey[\s\S]*?\);/
   );
   assert.match(
     source,

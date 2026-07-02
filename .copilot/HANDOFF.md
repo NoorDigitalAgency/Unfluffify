@@ -198,6 +198,15 @@ Risk: MEDIUM (shared popover teardown). Opt-in for preview ONLY.
   revealed (page does not revert); closing the preview / normal popover close is
   unchanged (still resumes motion).
 - Rollback: remove the flag + its call site; default path already unchanged.
+- DECISION (2026-07-02): the current code actually releases the reveal/freeze on
+  preview OPEN because `enterAiPreviewMode()` immediately runs
+  `refreshSilentHighlightings()`, whose `holdSilentMotionPause` calculation drops
+  to false during preview mode and calls `setSilentHighlightingPageMotionPaused(false)`.
+  The fix therefore preserves an ALREADY-held silent motion pause while
+  `aiPreviewState.mode === "preview"` instead of changing popover teardown. On
+  preview EXIT, keep the non-marking refresh BEFORE `resetAiPreviewState()` so
+  the local pause bridge survives until the brain re-projects the post-exit
+  directive flip (`previewActive=false`).
 
 ## PHASE D — PERF P1: memoize the AI-run snapshot DOM scan (BIGGEST WIN)
 Risk: MEDIUM. MUST NOT change output. Target: collectAiSubmissionXpaths 16s→seconds.

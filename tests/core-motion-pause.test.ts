@@ -1291,6 +1291,32 @@ test("page motion locks are restored in sanitized snapshots", () => {
   }
 });
 
+test("AI preview open preserves the silent motion pause through silent-highlight refresh", () => {
+  const source = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
+
+  assert.match(
+    source,
+    /const previewPreservesMotionPause = Boolean\([\s\S]*?aiPreviewState\.active[\s\S]*?aiPreviewState\.mode === "preview"[\s\S]*?core\.hasPageMotionPauseReason\(SILENT_HIGHLIGHTING_MOTION_PAUSE_REASON\)[\s\S]*?\);/
+  );
+  assert.match(
+    source,
+    /const holdSilentMotionPause = Boolean\([\s\S]*?previewPreservesMotionPause[\s\S]*?\|\|[\s\S]*?shouldRunSilentHighlightEditorActivation\(\)[\s\S]*?currentSilentRevealKey === silentHighlightEditorRevealKey[\s\S]*?\);/
+  );
+  assert.match(
+    source,
+    /async function refreshSilentHighlightings\(\) \{[\s\S]*?setSilentHighlightingPageMotionPaused\(snapshot\.holdSilentMotionPause\);/
+  );
+});
+
+test("AI preview exit keeps the motion-pause bridge until post-exit directives land", () => {
+  const source = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
+
+  assert.match(
+    source,
+    /if \(shouldRestoreMarking && restoredBaseUrl\) \{[\s\S]*?return \{[\s\S]*?\};[\s\S]*?\}[\s\S]*?Keep the preview-open motion-pause bridge through this refresh\.[\s\S]*?await refreshSilentHighlightings\(\);[\s\S]*?resetAiPreviewState\(\);[\s\S]*?publishAiPreviewSessionFacts\(\);/
+  );
+});
+
 test("silent warmup temporarily releases timer pausing during reveal and restores pause state", () => {
   const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
   const warmupStart = source.indexOf("export async function warmupSilentHighlightingBeforeMotionPause(");

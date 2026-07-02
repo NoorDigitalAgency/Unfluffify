@@ -6912,7 +6912,7 @@ async function warmupPageRevealBeforeMotionPause(
   return true;
 }
 
-function hasPageMotionPauseReason(reason: unknown): boolean {
+export function hasPageMotionPauseReason(reason: unknown): boolean {
   const pauseState = state.pageMotionPause;
   if (!pauseState || !pauseState.reasons || pauseState.reasons.size === 0) {
     return false;

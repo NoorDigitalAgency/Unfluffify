@@ -3623,6 +3623,9 @@ async function exitAiPreviewMode() {
     };
   }
 
+  // Keep the preview-open motion-pause bridge through this refresh. Clearing the
+  // preview state first would drop the only local hold before the brain publishes
+  // previewActive=false and re-projects the settled silent/reveal directive.
   await refreshSilentHighlightings();
   resetAiPreviewState();
   publishAiPreviewSessionFacts();
@@ -5203,11 +5206,19 @@ async function loadAndNormalizeConfigs(pageUrl: string): Promise<SilentHighlight
     await config.saveConfigs(configs);
   }
   const currentSilentRevealKey = getSilentHighlightEditorRevealKey(baseUrl, pageUrl);
+  const previewPreservesMotionPause = Boolean(
+    aiPreviewState.active &&
+      aiPreviewState.mode === "preview" &&
+      core.hasPageMotionPauseReason(SILENT_HIGHLIGHTING_MOTION_PAUSE_REASON)
+  );
   const holdSilentMotionPause = Boolean(
-    shouldRunSilentHighlightEditorActivation() &&
-      !silentHighlightEditorRevealInFlight &&
-      currentSilentRevealKey &&
-      currentSilentRevealKey === silentHighlightEditorRevealKey
+    previewPreservesMotionPause ||
+      (
+        shouldRunSilentHighlightEditorActivation() &&
+        !silentHighlightEditorRevealInFlight &&
+        currentSilentRevealKey &&
+        currentSilentRevealKey === silentHighlightEditorRevealKey
+      )
   );
   const storedSelectors = getStoredAiSelectorSet(baseConfig);
   const hasSelectorHighlights = combineAiSelectorSet(storedSelectors).length > 0;
