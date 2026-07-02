@@ -38,6 +38,18 @@ function projectSurface(selection: SpinnerSelection | null): SpinnerState | null
   });
 }
 
+function selectionBlocksPage(selection: SpinnerSelection | null | undefined): boolean {
+  if (!selection) {
+    return false;
+  }
+  const definition = getSpinnerPhaseDefinition(selection.kind, selection.phase);
+  return Boolean(definition && definition.blockSurfaces.page);
+}
+
+function isAiRunSelection(selection: SpinnerSelection | null | undefined): selection is SpinnerSelection {
+  return Boolean(selection && selection.kind === SPINNER_OPERATION_KINDS.AI_RUN);
+}
+
 function projectAiRunSelection(state: TabLayerState): SpinnerSelection | null {
   if (!state.aiRun.active) {
     return null;
@@ -95,9 +107,40 @@ export function projectSpinners(state: TabLayerState): {
   banner: SpinnerState | null;
 } {
   const aiRunSelection = projectAiRunSelection(state);
+  const popupAiRunSelection = isAiRunSelection(state.spinners.popup)
+    ? state.spinners.popup
+    : null;
+  const pageCurtainAiRunSelection = isAiRunSelection(state.spinners.pageCurtain)
+    ? state.spinners.pageCurtain
+    : null;
+  const staleAiRunPopupSelection = Boolean(
+    aiRunSelection &&
+      popupAiRunSelection &&
+      popupAiRunSelection.startedAt < aiRunSelection.startedAt
+  );
+  const effectivePopupAiRunSelection = staleAiRunPopupSelection
+    ? null
+    : popupAiRunSelection;
+  const popupSelection = effectivePopupAiRunSelection || aiRunSelection || state.spinners.popup;
+  const popupOnlyAiRunSelection = Boolean(
+    effectivePopupAiRunSelection &&
+      !selectionBlocksPage(effectivePopupAiRunSelection)
+  );
+  const staleAiRunPageCurtain = Boolean(
+    aiRunSelection &&
+      pageCurtainAiRunSelection &&
+      pageCurtainAiRunSelection.startedAt < aiRunSelection.startedAt
+  );
+  const pageCurtainSelection = popupOnlyAiRunSelection
+    ? pageCurtainAiRunSelection
+      ? null
+      : state.spinners.pageCurtain
+    : staleAiRunPageCurtain
+      ? aiRunSelection
+      : pageCurtainAiRunSelection || aiRunSelection || state.spinners.pageCurtain;
   return {
-    popup: projectSurface(aiRunSelection || state.spinners.popup),
-    pageCurtain: projectSurface(aiRunSelection || state.spinners.pageCurtain),
+    popup: projectSurface(popupSelection),
+    pageCurtain: projectSurface(pageCurtainSelection),
     banner: projectSurface(state.spinners.banner),
   };
 }

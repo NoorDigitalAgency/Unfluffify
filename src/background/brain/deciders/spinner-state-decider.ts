@@ -133,7 +133,15 @@ function isActiveSpinnerCandidate(entry: PopupSpinnerEntry): boolean {
   return entry.blockSurfaces.popup === true || entry.blockSurfaces.page === true;
 }
 
+function isAiRunActiveSpinnerCandidate(entry: PopupSpinnerEntry): boolean {
+  return isActiveSpinnerCandidate(entry) && entry.operationKind === SPINNER_OPERATION_KINDS.AI_RUN;
+}
+
 function selectActiveSpinner(queue: readonly PopupSpinnerEntry[]): SpinnerSelection | null {
+  const aiRunSelection = selectLatestSpinner(queue, isAiRunActiveSpinnerCandidate);
+  if (aiRunSelection) {
+    return aiRunSelection;
+  }
   const activeSelection = selectLatestSpinner(queue, isActiveSpinnerCandidate);
   if (activeSelection) {
     return activeSelection;

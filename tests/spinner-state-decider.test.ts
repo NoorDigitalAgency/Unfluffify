@@ -182,6 +182,38 @@ describe("spinner state decider", () => {
     }));
   });
 
+  it("keeps the latest active AI-run popup spinner ahead of newer unrelated popup spinners", () => {
+    const selections = deriveSpinnerSelectionsFromQueue([
+      buildEntry({
+        key: "opening-preview",
+        startedAt: 200,
+        updatedAt: 200,
+        operationId: "ai-open-preview",
+        operationKind: "ai-run",
+        operationPhase: "opening-preview",
+        blockSurfaces: { page: false, popup: true },
+      }),
+      buildEntry({
+        key: "popup-refresh",
+        startedAt: 300,
+        updatedAt: 300,
+        operationId: "popup-refresh-op",
+        operationKind: "config-sync",
+        operationPhase: "saving",
+        blockSurfaces: { page: false, popup: true },
+      }),
+    ]);
+
+    expect(selections.popup).toEqual(buildExpectedSelection({
+      kind: "ai-run",
+      phase: "opening-preview",
+      operationId: "ai-open-preview",
+      spinnerKey: "opening-preview",
+      startedAt: 200,
+    }));
+    expect(selections.pageCurtain).toBeNull();
+  });
+
   it("does not let delayed requests overtake newer leases when startedAt ties", () => {
     const selections = deriveSpinnerSelectionsFromQueue([
       buildEntry({
