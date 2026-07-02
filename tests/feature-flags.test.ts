@@ -25,7 +25,8 @@ const EXPECTED_FLAGS = [
   "appearanceCustomization",
   "cacheAndUnregisterTools",
   "propertyLockCollaboration",
-  "previewExpandedStates"
+  "previewExpandedStates",
+  "pageTypesChangeDetection"
 ];
 
 const EXPECTED_DISABLED_FLAGS = EXPECTED_FLAGS;

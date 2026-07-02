@@ -1966,6 +1966,17 @@ function schedulePropertyPageTypesRefresh(options: PropertyPageTypesRefreshOptio
       if (!result || !result.changed) {
         return;
       }
+      // The 2-minute candidate poll keeps propertyPageTypes fresh (quiet data
+      // refresh), but its change-detection side effects — the "candidates
+      // changed" notice, the "marking has been stopped" invalidation alert, the
+      // forced Todo-list expansion, and the refreshUi churn — fired
+      // UNCONDITIONALLY, including mid AI-run/preview/exit, which corrupted
+      // in-flight sessions. Gate that disruptive path behind an off-by-default
+      // feature flag so the periodic poll can never interrupt an active session
+      // unless the detection is explicitly enabled.
+      if (!isFeatureEnabled("pageTypesChangeDetection")) {
+        return;
+      }
       state.propertyPageTypesChangeNoticeVisible = true;
       state.propertyPageTypesInvalidAlertPending = true;
       state.propertyPageTypesChangeForceTodoOpen = true;

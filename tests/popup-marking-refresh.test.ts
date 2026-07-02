@@ -451,6 +451,13 @@ test("periodic page-type refresh stays quiet unless candidates change", () => {
   assert.match(refreshBody, /force: true,[\s\S]*?notifyOnChange: false/);
   assert.doesNotMatch(refreshBody, /showToast\(PopupText\.pageTypes\.refreshFailed\)/);
   assert.match(refreshBody, /if \(!result \|\| !result\.changed\) \{[\s\S]*?return;/);
+  // The disruptive change-detection side effects must stay gated behind the
+  // off-by-default feature flag so the periodic poll cannot interrupt an active
+  // session; the quiet data refresh (force: true fetch above) still runs.
+  assert.match(
+    refreshBody,
+    /if \(!isFeatureEnabled\("pageTypesChangeDetection"\)\) \{[\s\S]*?return;[\s\S]*?\}[\s\S]*?propertyPageTypesChangeNoticeVisible = true/
+  );
   assert.match(refreshBody, /propertyPageTypesChangeNoticeVisible = true/);
   assert.match(refreshBody, /propertyPageTypesInvalidAlertPending = true/);
   assert.match(refreshBody, /propertyPageTypesChangeForceTodoOpen = true/);
