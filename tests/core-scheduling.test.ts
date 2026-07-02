@@ -606,6 +606,26 @@ test("marking UI scheduling uses extension-owned timers during page motion pause
   assert.match(coreSource, /state\.draftPersistTimer = extensionSetTimeout/);
 });
 
+test("hover highlighting reuses the last probe result before re-running the expensive hover path", () => {
+  const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
+  const updateHoverBody = source.match(
+    /function updateHoverHighlight\(\s*x(?:\s*:\s*[^,]+)?,\s*y(?:\s*:\s*[^,]+)?,\s*allowParent(?:\s*:\s*[^,]+)?,\s*allowExcludedParentChildren(?:\s*:\s*[^,]+)?,\s*allowImmutableChildren(?:\s*:\s*[^)]+)?\s*\)(?:: [^{]+)? \{([\s\S]*?)\n\}/
+  )[1];
+
+  assert.match(source, /function buildHoverHighlightOptionsKey\(/);
+  assert.match(source, /function getHoverProbeElements\(/);
+  assert.match(source, /function getHoverTargetBoundsKey\(/);
+  assert.match(source, /function canReuseHoverHighlight\(/);
+  assert.match(source, /function rememberHoverHighlight\(/);
+  assert.match(source, /function clearHoverHighlight\(\)(?:: [^{]+)? \{[\s\S]*?invalidateHoverHighlightCache\(\);[\s\S]*?clearLayer\(state\.layers\["hover"\]\);/);
+  assert.match(source, /function completeExplicitToggle\([\s\S]*?invalidateHoverHighlightCache\(\);[\s\S]*?(?:scheduleAsyncExplicitToggleReconcile|scheduleExplicitOverlayRefresh)\(/);
+  assert.match(source, /function startObservers\(\) \{[\s\S]*?const renderMode = getMutationRenderMode\(mutations\);[\s\S]*?if \(renderMode === "none"\) \{[\s\S]*?return;[\s\S]*?\}[\s\S]*?invalidateHoverHighlightCache\(\);[\s\S]*?scheduleRender\(\{[\s\S]*?delay: 120,[\s\S]*?minInterval: 250/);
+  assert.match(
+    updateHoverBody,
+    /const hoverOptionsKey = buildHoverHighlightOptionsKey\([\s\S]*?const probeElements = getHoverProbeElements\(x, y\);[\s\S]*?if \(canReuseHoverHighlight\(probeElements, hoverOptionsKey\)\) \{\s*return;\s*\}[\s\S]*?const hoverResult = withElementComputationCache\(\(\) => \{[\s\S]*?const target = getMarkableTarget\(x, y, \{[\s\S]*?rememberHoverHighlight\(probeElements, hoverResult\.target, hoverOptionsKey\);/
+  );
+});
+
 test("page inspection completion waits for a real render before lifting the curtain", () => {
   const coreSource = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
 
@@ -724,7 +744,7 @@ test("marking mode surfaces temporary disabled state while save sync blocks edit
     source,
     /function getMarkingTemporarilyDisabledReason\(\) \{[\s\S]*?return getMarkingEditsBlockedReasonByDirective\(\);[\s\S]*?\}/
   );
-  assert.match(source, /function updateMarkingTemporarilyDisabledUi\(\) \{[\s\S]*?classList\.toggle\(MARKING_DISABLED_OVERLAY_CLASS, disabled\)[\s\S]*?setAttribute\("aria-disabled", "true"\)[\s\S]*?clearLayer\(state\.layers\["hover"\]\)[\s\S]*?getMarkingTemporarilyDisabledMessage\(reason\)/);
+  assert.match(source, /function updateMarkingTemporarilyDisabledUi\(\) \{[\s\S]*?classList\.toggle\(MARKING_DISABLED_OVERLAY_CLASS, disabled\)[\s\S]*?setAttribute\("aria-disabled", "true"\)[\s\S]*?clearHoverHighlight\(\)[\s\S]*?getMarkingTemporarilyDisabledMessage\(reason\)/);
   assert.match(source, /function getMarkMode\(\s*\)(?:: [^{]+)? \{[\s\S]*?isMarkingTemporarilyDisabled\(\)[\s\S]*?return "disabled";[\s\S]*?state\.altPassThrough/);
   assert.match(source, /export async function setPageSaveReconciliationPending[\s\S]*?state\.pageSaveReconciliation = reconciliation;[\s\S]*?updateMarkingTemporarilyDisabledUi\(\);[\s\S]*?notifyDraftStatus\(pageUrl\);/);
   assert.match(source, /export async function clearPageSaveReconciliation[\s\S]*?state\.pageSaveReconciliation = null;[\s\S]*?updateMarkingTemporarilyDisabledUi\(\);[\s\S]*?notifyDraftStatus\(pageUrl\);/);

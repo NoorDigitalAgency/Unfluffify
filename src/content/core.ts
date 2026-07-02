@@ -649,6 +649,12 @@ export const state = {
   altHeld: false,
   shiftHeld: false,
   lastPointer: null as PointerState | null,
+  lastHoverProbeElements: [] as Element[],
+  lastHoverTarget: null as Element | null,
+  lastHoverOptionsKey: "",
+  lastHoverTargetBoundsKey: "",
+  lastHoverRenderAt: 0,
+  lastHoverCacheValid: false,
   markIdCounter: 1,
   markIds: new WeakMap<Element, string>(),
   markedElements: new Set<Element>(),
@@ -7098,6 +7104,7 @@ function removeOverlay() {
     state.popupBusyNotice = null;
   }
   state.lastPointer = null;
+  invalidateHoverHighlightCache();
   if (state.toggleAckTimer) {
     extensionClearTimeout(state.toggleAckTimer);
     state.toggleAckTimer = 0;
@@ -7183,7 +7190,7 @@ function updateMarkingTemporarilyDisabledUi() {
   state.overlay.classList.toggle(MARKING_DISABLED_OVERLAY_CLASS, disabled);
   if (disabled) {
     state.overlay.setAttribute("aria-disabled", "true");
-    clearLayer(state.layers["hover"]);
+    clearHoverHighlight();
   } else {
     state.overlay.removeAttribute("aria-disabled");
   }
@@ -7586,8 +7593,9 @@ function updateMarkedElements(currentMarked: Set<Element> | null | undefined): v
   state.markedElements = currentMarked;
 }
 
-function getTargetElement(x: number, y: number): Element | null {
+function getHoverProbeElements(x: number, y: number): Element[] {
   const elements = document.elementsFromPoint(x, y);
+  const probeElements: Element[] = [];
   for (const el of elements) {
     if (!el || el.nodeType !== 1) {
       continue;
@@ -7598,9 +7606,79 @@ function getTargetElement(x: number, y: number): Element | null {
     if (el === document.documentElement || el === document.body) {
       continue;
     }
-    return el;
+    probeElements.push(el);
   }
-  return null;
+  return probeElements;
+}
+
+function getTargetElement(x: number, y: number): Element | null {
+  const probeElements = getHoverProbeElements(x, y);
+  return probeElements[0] || null;
+}
+
+function buildHoverHighlightOptionsKey(
+  allowParent: boolean,
+  allowExcludedParentChildren: boolean,
+  allowImmutableChildren: boolean
+): string {
+  return `${allowParent ? "1" : "0"}:${allowExcludedParentChildren ? "1" : "0"}:${allowImmutableChildren ? "1" : "0"}`;
+}
+
+function invalidateHoverHighlightCache(): void {
+  state.lastHoverProbeElements = [];
+  state.lastHoverTarget = null;
+  state.lastHoverOptionsKey = "";
+  state.lastHoverTargetBoundsKey = "";
+  state.lastHoverRenderAt = 0;
+  state.lastHoverCacheValid = false;
+}
+
+function getHoverTargetBoundsKey(target: Element | null): string {
+  if (!target) {
+    return "";
+  }
+  const rect = target.getBoundingClientRect();
+  return `${rect.top}:${rect.left}:${rect.width}:${rect.height}`;
+}
+
+function rememberHoverHighlight(
+  probeElements: Element[],
+  target: Element | null,
+  optionsKey: string
+): void {
+  state.lastHoverProbeElements = probeElements.slice();
+  state.lastHoverTarget = target;
+  state.lastHoverOptionsKey = optionsKey;
+  state.lastHoverTargetBoundsKey = getHoverTargetBoundsKey(target);
+  state.lastHoverRenderAt = state.lastRenderAt;
+  state.lastHoverCacheValid = true;
+}
+
+function canReuseHoverHighlight(probeElements: Element[], optionsKey: string): boolean {
+  if (!state.lastHoverCacheValid) {
+    return false;
+  }
+  if (state.lastHoverOptionsKey !== optionsKey) {
+    return false;
+  }
+  if (state.lastHoverProbeElements.length !== probeElements.length) {
+    return false;
+  }
+  for (let index = 0; index < probeElements.length; index += 1) {
+    if (state.lastHoverProbeElements[index] !== probeElements[index]) {
+      return false;
+    }
+  }
+  if (state.lastHoverRenderAt !== state.lastRenderAt) {
+    return false;
+  }
+  if (!state.lastHoverTarget) {
+    return true;
+  }
+  if (state.lastHoverTarget.isConnected !== true) {
+    return false;
+  }
+  return state.lastHoverTargetBoundsKey === getHoverTargetBoundsKey(state.lastHoverTarget);
 }
 
 
@@ -8021,47 +8099,62 @@ function updateHoverHighlight(
   if (!layerHover) {
     return;
   }
-  const savedVisibilityCache = state.visibilityCache;
-  if (!savedVisibilityCache) {
-    state.visibilityCache = new Map();
+  const hoverOptionsKey = buildHoverHighlightOptionsKey(
+    allowParent,
+    allowExcludedParentChildren,
+    allowImmutableChildren
+  );
+  const probeElements = getHoverProbeElements(x, y);
+  if (canReuseHoverHighlight(probeElements, hoverOptionsKey)) {
+    return;
   }
   const layerState = beginLayerRender(layerHover);
-  try {
-    const explicitParentSet = getExcludedXPathSet(state.config, location.href);
-    const excludedSet =
-      allowParent || allowExcludedParentChildren ? null : explicitParentSet;
-    const includeSet = getIncludeXPathSet(state.config, location.href);
-    const silentWhitespaceExcludedSet = getSilentWhitespaceExcludedXPathSet(state.config, location.href);
+  const explicitParentSet = getExcludedXPathSet(state.config, location.href);
+  const excludedSet =
+    allowParent || allowExcludedParentChildren ? null : explicitParentSet;
+  const includeSet = getIncludeXPathSet(state.config, location.href);
+  const silentWhitespaceExcludedSet = getSilentWhitespaceExcludedXPathSet(state.config, location.href);
+  const hoverResult = withElementComputationCache(() => {
     const target = getMarkableTarget(x, y, {
-      allowParent,
-      allowExplicitTarget: true,
-      preferExplicitTarget: allowExcludedParentChildren,
-      preferMixedTextAncestor: allowExcludedParentChildren && !allowParent,
-      excludedSet,
-      includeSet,
-      silentWhitespaceExcludedSet,
-      explicitParentSet,
-      allowExcludedParentChildren,
-      allowImmutableChildren,
-      requireExcludedAncestor: false
+    allowParent,
+    allowExplicitTarget: true,
+    preferExplicitTarget: allowExcludedParentChildren,
+    preferMixedTextAncestor: allowExcludedParentChildren && !allowParent,
+    excludedSet,
+    includeSet,
+    silentWhitespaceExcludedSet,
+    explicitParentSet,
+    allowExcludedParentChildren,
+    allowImmutableChildren,
+    requireExcludedAncestor: false
     });
-    if (!target) {
-      finalizeLayerRender(layerState);
-      return;
-    }
-    const rects = getVisibleRects(target);
-    if (rects.length === 0) {
-      finalizeLayerRender(layerState);
-      return;
-    }
-    drawMultiRectReuse(layerState, rects, "uf-hover", target, null, null);
+    return {
+    target,
+    rects: target ? getVisibleRects(target) : []
+    };
+  });
+  rememberHoverHighlight(probeElements, hoverResult.target, hoverOptionsKey);
+  if (!hoverResult.target) {
     finalizeLayerRender(layerState);
-  } finally {
-    state.visibilityCache = savedVisibilityCache;
+    return;
   }
+  if (hoverResult.rects.length === 0) {
+    finalizeLayerRender(layerState);
+    return;
+  }
+  drawMultiRectReuse(
+    layerState,
+    hoverResult.rects,
+    "uf-hover",
+    hoverResult.target,
+    null,
+    null
+  );
+  finalizeLayerRender(layerState);
 }
 
 function refreshHoverHighlight() {
+  invalidateHoverHighlightCache();
   if (!state.enabled || state.altPassThrough) {
     return;
   }
@@ -8071,11 +8164,11 @@ function refreshHoverHighlight() {
     return;
   }
   if (isPageSaveReconciliationPending(location.href)) {
-    clearLayer(layerHover);
+    clearHoverHighlight();
     return;
   }
   if (!state.lastPointer) {
-    clearLayer(layerHover);
+    clearHoverHighlight();
     return;
   }
   const mode = getMarkMode();
@@ -8097,7 +8190,7 @@ function handleMouseMove(event: MouseEvent): void {
   }
   if (isPageSaveReconciliationPending(location.href)) {
     updateMarkingTemporarilyDisabledUi();
-    clearLayer(state.layers["hover"]);
+    clearHoverHighlight();
     return;
   }
   event.stopPropagation();
@@ -8462,7 +8555,7 @@ function handleToggleEvent(event: MouseEvent): void {
         ? ContentText.marking.saveReconciliationBlocked
         : ContentText.marking.temporarilyDisabled
     );
-    clearLayer(state.layers["hover"]);
+    clearHoverHighlight();
     return;
   }
   if (state.focusElement) {
@@ -8628,6 +8721,11 @@ function clearLayer(layer: HTMLElement | null | undefined): void {
       boxMap.clear();
     }
   }
+}
+
+function clearHoverHighlight(): void {
+  invalidateHoverHighlightCache();
+  clearLayer(state.layers["hover"]);
 }
 
 function getLayerBoxMap(layer: HTMLElement): Map<string, HTMLDivElement> {
@@ -9515,6 +9613,7 @@ function completeExplicitToggle(
   const immediateFullRender = Object.prototype.hasOwnProperty.call(options, "immediateFullRender")
     ? Boolean(options.immediateFullRender)
     : shouldUseImmediateFullRenderForExplicitToggle({ target, type });
+  invalidateHoverHighlightCache();
   if (options.deferMarkingRefresh && !immediateFullRender) {
     scheduleAsyncExplicitToggleReconcile(entry, {
       target,
@@ -10087,6 +10186,7 @@ function startObservers() {
       if (renderMode === "rebuild") {
         invalidateSharedSelectorCache({ domStructure: true });
       }
+      invalidateHoverHighlightCache();
       scheduleRender({
         delay: 120,
         minInterval: 250,
@@ -10606,7 +10706,7 @@ function setAltPassThrough(enabled: boolean): void {
   state.overlay.style.pointerEvents = enabled ? "none" : "auto";
   state.overlay.style.opacity = enabled ? "0.5" : "1";
   if (enabled && state.layers["hover"]) {
-    clearLayer(state.layers["hover"]);
+    clearHoverHighlight();
   }
   if (!enabled) {
     scheduleRender();
