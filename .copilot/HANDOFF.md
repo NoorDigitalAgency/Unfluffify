@@ -1,4 +1,87 @@
-# LIVE QA STATUS — 2026-07-02 (handoff to a more capable agent)
+# LIVE QA STATUS — 2026-07-02 EVENING (WIP checkpoint; handoff continues)
+
+Environment-switch checkpoint by @Sojaner. This section supersedes the
+"#5/#14 POST-EXIT — FIXED" section below, which was based on round-1 (`3dcc078`)
+and was LIVE-DISPROVEN. Two things to know: (A) #5 round-2 (popup-owned preview)
+is committed here but NOT yet live-confirmed; (B) a NEW, separate reveal/freeze
+race was found and root-caused (LOCKED behavior, awaiting @Sojaner direction).
+
+## #5/#14 — ROUND-1 (`3dcc078`) LIVE-DISPROVEN → ROUND-2 SHIPPED (unconfirmed)
+- `3dcc078` (popup POST_AI mirror + content `publishAiPreviewSessionFacts`) did
+  NOT stop the live symptom. On fresh code the popup viewstate still OSCILLATED
+  post-run: `previewActive` flapped true↔false with `previewBlocked` wedged true,
+  `silentModeActive` flapped, Save reached enabled <1s then flipped back to
+  preview-active, page `uf-marking-temporarily-disabled` reappeared during flips.
+- ROUND-2 (Claude Fable 5, committed in this checkpoint) reworks the POPUP to own
+  preview open/closed instead of trusting the racy content probe:
+  * `state.previewOpenIntent` / `previewSuppressReopen` (src/popup/state.ts):
+    popup-owned "a preview sidebar is open". `getAiPreviewState` is item-only,
+    never open/closed authority. Set on all 3 open paths (applyComputedSelectorSet,
+    handleMarkingPreview, handlePreviewLatest) + adopted on reconnect; cleared on
+    authoritative close (settlePreviewRestoreClosed) + fresh run (setAiRunActiveState).
+  * session item latch `resolveOpenPreviewItems` + `previewSessionHadItems` /
+    `previewItemsLatched`: first non-empty hydration latches; a later empty
+    probe/push never blinks the list back to empty. Routed through refreshUi AND
+    applyAiPreviewStateUpdate.
+  * `overrideDictatedPreviewVisibility`: popup overrides the BRAIN-projected
+    previewActive/previewBlocked with its standing intent (restore-pending→false,
+    open-intent→true; otherwise defers to brain). ARCHITECTURAL NOTE: this crosses
+    the "don't override brain-projected fields in the popup" guardrail — scoped to
+    a popup-initiated action, but @Sojaner should confirm this is the intended
+    direction (vs stabilizing the brain projection instead).
+  * tests: new tests/popup-preview-transient-guard.test.ts (behavioral latch +
+    source contracts); 3 existing preview tests updated for the latch.
+- HANG BUG (Copilot) FOUND + FIXED: round-2 refactored `applyPopupViewSnapshot`
+  `setViewState({...})` → `setViewState(snapshotPatch)` (needed so the override can
+  mutate the patch). That broke the LOCKED source-contract regex at
+  tests/popup-central-state-dictation.test.ts:239 → CATASTROPHIC REGEX
+  BACKTRACKING → `pnpm test` HUNG FOREVER (worker pegged 99.7% CPU). Fabel missed
+  it by running only the modified files individually, never the full suite. Fix:
+  regex now matches `setViewState(snapshotPatch)` (also removes the nested lazy
+  quantifier that caused the spin). FULL GATE GREEN: lint / check / 1064 tests /
+  build. LESSON: after any popup.ts refactor, run the FULL `pnpm test`, not just
+  the touched files — many locked source-contract regexes can catastrophically
+  backtrack on a shape change.
+- LIVE CONFIRMATION OF ROUND-2: INCONCLUSIVE (user switched environments mid-flow).
+  Round done on bonliva.se/lediga-jobb, guaranteed-fresh cold build. GOOD signs:
+  freeze HELD through the whole AI run (frozen:true), page blocked (computing_ai
+  curtain, save:busy), brain reached `ready_to_save` with Save ENABLED (save:""),
+  and the preview opened STABLE — previewActive:true/previewBlocked:true across
+  samples, NO flap (the round-1 oscillation was NOT seen). OPEN: the preview list
+  read EMPTY (previewItems:[], previewItemsPending:false = settled) — but only 1–2
+  elements were marked, so this is plausibly a genuine settled no-detections
+  result, not the empty-list flap. NOTE: Fabel's knowledge.md bullet claims a
+  separate live verification "1790 items stable, 0 flaps, clean exit" on a
+  content-rich mark — NOT reproduced/observed in this round. NOT TESTED here:
+  Exit Preview + Save-after-exit (the core #5 assertion). NEXT AGENT MUST: re-run
+  the full flow marking a CONTENT-RICH region, confirm the list populates and
+  stays populated, then Exit → verify no flap + Save reachable + no page overlay
+  reappearance.
+
+## NEW BUG — REVEAL/FREEZE WARMUP ABORT RACE (separate from #5; LOCKED; NOT fixed)
+Symptom (@Sojaner): "the lazyloader freezer is broken — the page keeps scrolling
+and the curtain disappears." Intermittent; @Sojaner believes it needs a FRESH page
++ FRESH extension (cold brain) load to reliably trigger.
+Root cause (code-confirmed, NOT fixed): `warmupSilentHighlightingBeforeMotionPause`
+(src/content/core.ts:6981) deliberately SCROLLS to reveal/lazy-load content
+(`revealPageContentBeforeMotionPause`) and only calls `pausePageMotion()` at the
+END (core.ts:7027), under the "Preparing page content" inspection curtain. Every
+abort path — `isRevealWarmupCurrent()` false (generation bump / URL micro-change /
+re-entrancy) — returns BEFORE `pausePageMotion()`, while the `finally` tears down
+the inspection curtain/input-blocker → curtain gone, page left scrolling, NO
+freeze. A cold brain has more load churn (/load, siteId resolve, render-mode
+detect, extra refresh generations), so a mid-reveal abort is far more likely.
+Live evidence: after a warm reload, frozen:false the entire reconciliation window
+while scrollY ran 73→8657→711 under the curtain, re-freezing only after
+reconciliation settled (so it "recovered" that time). This is LOCKED reveal/freeze
++ design-level; @Sojaner chose to finish #5 first. DO NOT patch unprompted — needs
+a direction decision (e.g. hold a provisional freeze BEFORE the reveal scroll and
+release only on genuine abort, vs. keep the input-blocker/curtain up until the
+warmup either freezes or fully aborts).
+
+---
+
+
 
 Fresh-runtime live round with @Sojaner on bonliva.se. The prior autonomous handoff's
 fixes were confirmed INEFFECTIVE on fresh code (mis-scoped); re-root-caused live and
