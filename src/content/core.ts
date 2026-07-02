@@ -800,6 +800,14 @@ const MATERIAL_DESIGN_ICONS_FONT_PATH = "assets/materialdesignicons-webfont.woff
 const MATERIAL_DESIGN_ICON_CODE_TAGS = "\\F1C86";
 const MATERIAL_DESIGN_ICON_SNOWFLAKE = "\\F0717";
 const PAGE_MOTION_PAUSE_DEFAULT_REASON = "marking";
+// The page freeze is a single page-visit-scoped lock: once the page is frozen it
+// stays frozen for the whole visit and is released ONLY on navigation. Every
+// pausePageMotion() also holds this reason, so per-subsystem resumePageMotion()
+// calls (marking disable, silent-highlighting teardown, AI run/preview/exit) drop
+// only their own reason and leave the page frozen. resumeAllPageMotion() (wired to
+// the navigation notifier) is the single release. This decouples "is the page
+// frozen" from "which overlay layer is showing".
+const PAGE_VISIT_MOTION_PAUSE_REASON = "page-visit";
 const PAGE_MOTION_PAUSE_REFRESH_MS = 250;
 const PAGE_MOTION_PAUSE_MAX_LOCKED_ELEMENTS = 800;
 const PAGE_MOTION_PAUSE_MAX_HOVER_TARGETS = 500;
@@ -6308,6 +6316,10 @@ function stopPageMotionPauseObserver(pauseState: PageMotionPauseState): void {
 export function pausePageMotion(reason: unknown = PAGE_MOTION_PAUSE_DEFAULT_REASON): void {
   const pauseState = state.pageMotionPause || createPageMotionPauseState();
   pauseState.reasons.add(normalizePageMotionPauseReason(reason));
+  // Hold the page-visit lock so the freeze survives every phase-transition resume
+  // (marking disable, silent teardown, AI run/preview/exit); only
+  // resumeAllPageMotion() on navigation lifts it.
+  pauseState.reasons.add(PAGE_VISIT_MOTION_PAUSE_REASON);
   state.pageMotionPause = pauseState;
   refreshPageMotionPause();
 }
@@ -6332,23 +6344,7 @@ export function refreshPageMotionPause(): void {
   startPageMotionPauseObserver(pauseState);
 }
 
-export function resumePageMotion(reason: unknown = PAGE_MOTION_PAUSE_DEFAULT_REASON): void {
-  const pauseState = state.pageMotionPause;
-  if (!pauseState) {
-    setPageMotionFreezeTimersPaused(false);
-    restorePageInspectionLazyLoadingSuppression();
-    removePageMotionPauseStyle();
-    removePageMotionPauseIndicator();
-    setPageMotionPauseClass(false);
-    return;
-  }
-  if (pauseState.reasons) {
-    pauseState.reasons.delete(normalizePageMotionPauseReason(reason));
-    if (pauseState.reasons.size > 0) {
-      refreshPageMotionPause();
-      return;
-    }
-  }
+function tearDownPageMotionPause(pauseState: PageMotionPauseState): void {
   state.pageMotionPause = null;
   stopPageMotionPauseRefreshTimer(pauseState);
   stopPageMotionPauseObserver(pauseState);
@@ -6362,6 +6358,55 @@ export function resumePageMotion(reason: unknown = PAGE_MOTION_PAUSE_DEFAULT_REA
   resumeSvgAnimations(pauseState);
   resumeMediaElements(pauseState);
   resumeDocumentAnimations(pauseState);
+}
+
+export function resumePageMotion(reason: unknown = PAGE_MOTION_PAUSE_DEFAULT_REASON): void {
+  const pauseState = state.pageMotionPause;
+  if (!pauseState) {
+    setPageMotionFreezeTimersPaused(false);
+    restorePageInspectionLazyLoadingSuppression();
+    removePageMotionPauseStyle();
+    removePageMotionPauseIndicator();
+    setPageMotionPauseClass(false);
+    return;
+  }
+  if (pauseState.reasons) {
+    pauseState.reasons.delete(normalizePageMotionPauseReason(reason));
+    // The page-visit lock keeps the freeze alive until navigation, so a
+    // per-subsystem resume never fully unfreezes the page while it is held.
+    if (pauseState.reasons.size > 0) {
+      refreshPageMotionPause();
+      return;
+    }
+  }
+  tearDownPageMotionPause(pauseState);
+}
+
+// Single navigation-scoped release: lifts the page-visit freeze lock regardless of
+// which subsystem reasons are still held. Wired to the navigation notifier so the
+// freeze survives the whole page visit and clears only when the URL changes.
+export function resumeAllPageMotion(): void {
+  const pauseState = state.pageMotionPause;
+  if (!pauseState) {
+    setPageMotionFreezeTimersPaused(false);
+    restorePageInspectionLazyLoadingSuppression();
+    removePageMotionPauseStyle();
+    removePageMotionPauseIndicator();
+    setPageMotionPauseClass(false);
+    return;
+  }
+  if (pauseState.reasons) {
+    pauseState.reasons.clear();
+  }
+  tearDownPageMotionPause(pauseState);
+}
+
+export function isPageMotionPaused(): boolean {
+  return Boolean(
+    state.pageMotionPause &&
+      state.pageMotionPause.reasons &&
+      state.pageMotionPause.reasons.size > 0
+  );
 }
 
 export function touchPageEntryTimestamp(
@@ -10250,6 +10295,10 @@ function emitNavigationChangeIfUrlChanged(): void {
   }
   const previousUrl = navigationNotifierLastUrl;
   navigationNotifierLastUrl = nextUrl;
+  // The page freeze is a single page-visit-scoped lock: release it on every URL
+  // change so the outgoing page unfreezes before the new page is (re)evaluated and
+  // re-freezes itself if still eligible. This is the ONLY freeze release point.
+  resumeAllPageMotion();
   for (const handler of Array.from(navigationChangeHandlers)) {
     try {
       handler(previousUrl, nextUrl);
@@ -11369,7 +11418,9 @@ export async function enableForBaseUrl(baseUrl: string, options = {}) {
   state.enabled = true;
 
   hideConsentOnEnable(pageUrl);
-  if (hasPageMotionPauseReason("silent-highlighting")) {
+  if (isPageMotionPaused()) {
+    // Already frozen for this page visit (sticky page-visit lock): keep the
+    // freeze and just hold the marking reason; do not re-run the reveal warmup.
     pausePageMotion();
   } else if (!skipInitialReveal) {
     const revealReady = await warmupPageRevealBeforeMotionPause(normalizedBaseUrl, pageUrl, {

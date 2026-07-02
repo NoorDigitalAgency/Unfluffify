@@ -34,3 +34,25 @@ test("content-main silent URL watcher no longer polls on an 800ms interval", () 
   // The dedicated 800ms URL polling timer field is gone.
   assert.doesNotMatch(source, /silentHighlightingUrlTimer/);
 });
+
+test("the page freeze is a single page-visit lock released only on navigation", () => {
+  const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
+  // pausePageMotion holds the page-visit lock so per-subsystem resumes (marking
+  // disable, silent teardown, AI run/preview/exit) drop only their own reason.
+  assert.match(source, /const PAGE_VISIT_MOTION_PAUSE_REASON = "page-visit";/);
+  assert.match(
+    source,
+    /export function pausePageMotion\([\s\S]*?pauseState\.reasons\.add\(PAGE_VISIT_MOTION_PAUSE_REASON\);[\s\S]*?refreshPageMotionPause\(\);/
+  );
+  // The ONLY release is on URL change, wired into the navigation notifier.
+  const emitStart = source.indexOf("function emitNavigationChangeIfUrlChanged()");
+  assert.ok(emitStart > -1);
+  const emitEnd = source.indexOf("\n}", emitStart);
+  const emitBody = source.slice(emitStart, emitEnd);
+  assert.match(emitBody, /resumeAllPageMotion\(\);/);
+  // enableForBaseUrl keeps an existing freeze instead of re-running the reveal warmup.
+  assert.match(
+    source,
+    /if \(isPageMotionPaused\(\)\) \{[\s\S]*?pausePageMotion\(\);[\s\S]*?\} else if \(!skipInitialReveal\)/
+  );
+});

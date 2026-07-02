@@ -7,6 +7,7 @@ import {
   pausePageMotion,
   refreshPageMotionPause,
   revealPageContentBeforeMotionPause,
+  resumeAllPageMotion,
   resumePageMotion,
   state
 } from "../src/content/core.js";
@@ -463,8 +464,7 @@ function installMotionDom() {
         state.lazyLoadSuppressRestorer = null;
         restoreLazyLoadSuppression();
       }
-      resumePageMotion("marking");
-      resumePageMotion("silent-highlighting");
+      resumeAllPageMotion();
       state.pageMotionPause = null;
       globalThis.document = originalDocument;
       globalThis.window = originalWindow;
@@ -552,7 +552,7 @@ test("page motion pause freezes broad motion sources and shows an indicator", ()
     refreshPageMotionPause();
     assert.equal(lateAnimation.pauseCount, 1);
 
-    resumePageMotion("marking");
+    resumeAllPageMotion();
 
     assert.equal(dom.html.classList.contains(PAGE_MOTION_PAUSE_ROOT_CLASS), false);
     assert.equal(dom.document.getElementById(PAGE_MOTION_PAUSE_STYLE_ID), null);
@@ -886,7 +886,7 @@ test("page inspection reveal can retain lazy-load suppression until motion resum
     assert.equal(typeof state.lazyLoadSuppressRestorer, "function");
 
     pausePageMotion();
-    resumePageMotion();
+    resumeAllPageMotion();
     suppressionCommands = runtimeMessages.filter((message) => message.command === "setLazyLoadingSuppressed");
     assert.deepEqual(suppressionCommands.at(-1).details, { suppressed: false });
     assert.equal(state.lazyLoadSuppressRestorer, null);
@@ -895,7 +895,7 @@ test("page inspection reveal can retain lazy-load suppression until motion resum
       state.lazyLoadSuppressRestorer();
     }
     state.lazyLoadSuppressRestorer = previousLazyLoadSuppressRestorer;
-    resumePageMotion();
+    resumeAllPageMotion();
     if (typeof originalChrome === "undefined") {
       delete globalThis.chrome;
     } else {
@@ -1094,7 +1094,7 @@ test("page motion pause normalizes scroll reveal candidates to their visible pos
     assert.doesNotMatch(snapshot.renderedHtml, /opacity: 1 !important/);
     assert.doesNotMatch(snapshot.renderedHtml, /transform: none !important/);
 
-    resumePageMotion("marking");
+    resumeAllPageMotion();
 
     assert.equal(reveal.hasAttribute(PAGE_MOTION_LOCK_ATTR), false);
     assert.equal(reveal.style.getPropertyValue("opacity"), "0");
@@ -1171,7 +1171,7 @@ test("page motion pause keeps hidden carousel and semantic UI states hidden", ()
   }
 });
 
-test("page motion pause is held until every lifecycle reason is released", () => {
+test("page freeze is a page-visit lock held through phase transitions until navigation releases it", () => {
   const dom = installMotionDom();
   const movingElement = new FakeElement("div", { class: "motion-strip" });
   movingElement.computedStyle = createComputedStyle({ transform: "matrix(1, 0, 0, 1, 3, 0)" });
@@ -1182,6 +1182,8 @@ test("page motion pause is held until every lifecycle reason is released", () =>
   try {
     pausePageMotion("marking");
     pausePageMotion("silent-highlighting");
+    // Per-subsystem resumes (marking disable, silent teardown, AI run/preview/exit)
+    // drop only their own reason; the page-visit lock keeps the page frozen.
     resumePageMotion("marking");
 
     assert.equal(dom.html.classList.contains(PAGE_MOTION_PAUSE_ROOT_CLASS), true);
@@ -1190,6 +1192,15 @@ test("page motion pause is held until every lifecycle reason is released", () =>
     assert.equal(state.pageMotionPause.reasons.has("silent-highlighting"), true);
 
     resumePageMotion("silent-highlighting");
+
+    // Even with every subsystem reason gone, the page-visit lock still holds.
+    assert.equal(dom.html.classList.contains(PAGE_MOTION_PAUSE_ROOT_CLASS), true);
+    assert.ok(dom.document.getElementById(PAGE_MOTION_PAUSE_INDICATOR_ID));
+    assert.equal(animation.playCount, 0);
+    assert.equal(state.pageMotionPause.reasons.has("page-visit"), true);
+
+    // Only navigation lifts the lock and restores motion.
+    resumeAllPageMotion();
 
     assert.equal(dom.html.classList.contains(PAGE_MOTION_PAUSE_ROOT_CLASS), false);
     assert.equal(dom.document.getElementById(PAGE_MOTION_PAUSE_INDICATOR_ID), null);
@@ -1249,7 +1260,7 @@ test("page motion pause controls the page-world timer freeze bridge", () => {
     assert.doesNotMatch(snapshot.renderedHtml, /unfluffify-page-motion-freeze-script/);
     staleScript.remove();
 
-    resumePageMotion("marking");
+    resumeAllPageMotion();
 
     const bridgeMessagesAfterResume = runtimeMessages.filter((message) => message.type === "pageMotionFreezeControl");
     assert.equal(bridgeMessagesAfterResume.at(-2).command, "setPaused");
