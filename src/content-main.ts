@@ -4916,196 +4916,230 @@ function collectAiSubmissionXpathsForCurrentPage(sourceConfig: Config | null = s
   if (!configValue) {
     return [];
   }
-  const pageUrl = location.href;
-  const entry = core.getPageMarkingEntry(configValue, pageUrl, {
-    create: false,
-    persist: false
-  });
-  const explicitExcludedXpaths = new Set<string>();
-  const explicitIncludedXpaths = new Set<string>();
-  const rowIndexByXpath = new Map<string, number>();
-  const excludedRowXpaths: string[] = [];
-  const excludedRowXpathSet = new Set();
-  const rows: XpathEntry[] = [];
-  const pushRow = (xpath: string, excluded: boolean): void => {
-    if (typeof xpath !== "string" || !xpath) {
-      return;
-    }
-    if (isAiSubmissionDocumentRootXpath(xpath)) {
-      return;
-    }
-    const existingIndex = rowIndexByXpath.get(xpath) ?? -1;
-    if (existingIndex >= 0) {
-      // `excluded: true` wins for duplicate xpaths so a later hidden/excluded
-      // determination cannot be accidentally downgraded by an earlier include row.
-      if (excluded) {
-        rows[existingIndex] = { xpath, excluded: true };
-        if (!excludedRowXpathSet.has(xpath)) {
-          excludedRowXpathSet.add(xpath);
-          excludedRowXpaths.push(xpath);
+  return core.withElementComputationCache(() => {
+    const submissionMarkOptions = {
+      allowParent: false,
+      allowImmutableChildren: false,
+      allowConsentElements: true,
+      ignoreVisibilityForInclusionDetection: true
+    };
+    const visMemo = new WeakMap<Element, boolean>();
+    const xpathMemo = new WeakMap<Node, string>();
+    const markMemo = new WeakMap<Element, boolean>();
+    const memoVisible = (element: Element): boolean => {
+      if (visMemo.has(element)) {
+        return visMemo.get(element) ?? false;
+      }
+      const visible = core.isVisibleForSubmission(element);
+      visMemo.set(element, visible);
+      return visible;
+    };
+    const memoXPath = (node: Node | null | undefined): string => {
+      if (!node) {
+        return "";
+      }
+      if (xpathMemo.has(node)) {
+        return xpathMemo.get(node) || "";
+      }
+      const xpath = getCurrentPageSnapshotXPath(node);
+      xpathMemo.set(node, xpath);
+      return xpath;
+    };
+    const memoMarkable = (element: Element): boolean => {
+      if (markMemo.has(element)) {
+        return markMemo.get(element) ?? false;
+      }
+      const markable = core.isMarkableElement(element, configValue, submissionMarkOptions);
+      markMemo.set(element, markable);
+      return markable;
+    };
+    const pageUrl = location.href;
+    const entry = core.getPageMarkingEntry(configValue, pageUrl, {
+      create: false,
+      persist: false
+    });
+    const explicitExcludedXpaths = new Set<string>();
+    const explicitIncludedXpaths = new Set<string>();
+    const rowIndexByXpath = new Map<string, number>();
+    const excludedRowXpaths: string[] = [];
+    const excludedRowXpathSet = new Set();
+    const rows: XpathEntry[] = [];
+    const pushRow = (xpath: string, excluded: boolean): void => {
+      if (typeof xpath !== "string" || !xpath) {
+        return;
+      }
+      if (isAiSubmissionDocumentRootXpath(xpath)) {
+        return;
+      }
+      const existingIndex = rowIndexByXpath.get(xpath) ?? -1;
+      if (existingIndex >= 0) {
+        // `excluded: true` wins for duplicate xpaths so a later hidden/excluded
+        // determination cannot be accidentally downgraded by an earlier include row.
+        if (excluded) {
+          rows[existingIndex] = { xpath, excluded: true };
+          if (!excludedRowXpathSet.has(xpath)) {
+            excludedRowXpathSet.add(xpath);
+            excludedRowXpaths.push(xpath);
+          }
+        }
+        return;
+      }
+      rowIndexByXpath.set(xpath, rows.length);
+      rows.push({ xpath, excluded: Boolean(excluded) });
+      if (excluded && !excludedRowXpathSet.has(xpath)) {
+        excludedRowXpathSet.add(xpath);
+        excludedRowXpaths.push(xpath);
+      }
+    };
+    const normalizeXPath = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
+    const isWithinImmutableExcludedBoundary = (element: Element | null | undefined): boolean => {
+      let current = element;
+      while (current && current.nodeType === 1) {
+        if (core.isImmutableExcludedElement(current)) {
+          return true;
+        }
+        current = current.parentElement;
+      }
+      return false;
+    };
+    const toSnapshotXPath = (value: unknown): string => {
+      const xpath = normalizeXPath(value);
+      if (!xpath) {
+        return "";
+      }
+      const element = core.getElementFromXPath(xpath);
+      if (!isElementNode(element)) {
+        return "";
+      }
+      if (isWithinImmutableExcludedBoundary(element)) {
+        return "";
+      }
+      return memoXPath(element);
+    };
+    const explicitRows = Array.isArray(entry && entry.xpaths) ? entry.xpaths as XpathEntry[] : [];
+    explicitRows.forEach((item: XpathEntry) => {
+      if (!item || typeof item.xpath !== "string" || !item.excluded) {
+        return;
+      }
+      const element = core.getElementFromXPath(item.xpath);
+      if (!isElementNode(element) || isWithinImmutableExcludedBoundary(element)) {
+        return;
+      }
+      const xpath = memoXPath(element);
+      if (!xpath) {
+        return;
+      }
+      if (item.excluded) {
+        explicitExcludedXpaths.add(xpath);
+      }
+    });
+    (Array.isArray(entry && entry.includeXpaths) ? entry.includeXpaths as string[] : []).forEach((xpath: string) => {
+      const normalized = toSnapshotXPath(xpath);
+      if (normalized) {
+        explicitIncludedXpaths.add(normalized);
+      }
+    });
+
+    explicitExcludedXpaths.forEach((xpath) => pushRow(xpath, true));
+
+    const hasExcludedAncestorRow = (xpath: string): boolean => {
+      if (!xpath || excludedRowXpaths.length === 0) {
+        return false;
+      }
+      for (const excludedXpath of excludedRowXpaths) {
+        if (
+          excludedXpath &&
+          excludedXpath !== xpath &&
+          core.isXPathDescendant(excludedXpath, xpath)
+        ) {
+          return true;
         }
       }
-      return;
-    }
-    rowIndexByXpath.set(xpath, rows.length);
-    rows.push({ xpath, excluded: Boolean(excluded) });
-    if (excluded && !excludedRowXpathSet.has(xpath)) {
-      excludedRowXpathSet.add(xpath);
-      excludedRowXpaths.push(xpath);
-    }
-  };
-  const normalizeXPath = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
-  const isWithinImmutableExcludedBoundary = (element: Element | null | undefined): boolean => {
-    let current = element;
-    while (current && current.nodeType === 1) {
-      if (core.isImmutableExcludedElement(current)) {
-        return true;
-      }
-      current = current.parentElement;
-    }
-    return false;
-  };
-  const toSnapshotXPath = (value: unknown): string => {
-    const xpath = normalizeXPath(value);
-    if (!xpath) {
-      return "";
-    }
-    const element = core.getElementFromXPath(xpath);
-    if (!isElementNode(element)) {
-      return "";
-    }
-    if (isWithinImmutableExcludedBoundary(element)) {
-      return "";
-    }
-    return getCurrentPageSnapshotXPath(element);
-  };
-  const explicitRows = Array.isArray(entry && entry.xpaths) ? entry.xpaths as XpathEntry[] : [];
-  explicitRows.forEach((item: XpathEntry) => {
-    if (!item || typeof item.xpath !== "string" || !item.excluded) {
-      return;
-    }
-    const element = core.getElementFromXPath(item.xpath);
-    if (!isElementNode(element) || isWithinImmutableExcludedBoundary(element)) {
-      return;
-    }
-    const xpath = getCurrentPageSnapshotXPath(element);
-    if (!xpath) {
-      return;
-    }
-    if (item.excluded) {
-      explicitExcludedXpaths.add(xpath);
-    }
-  });
-  (Array.isArray(entry && entry.includeXpaths) ? entry.includeXpaths as string[] : []).forEach((xpath: string) => {
-    const normalized = toSnapshotXPath(xpath);
-    if (normalized) {
-      explicitIncludedXpaths.add(normalized);
-    }
-  });
-
-  explicitExcludedXpaths.forEach((xpath) => pushRow(xpath, true));
-
-  const hasExcludedAncestorRow = (xpath: string): boolean => {
-    if (!xpath || excludedRowXpaths.length === 0) {
       return false;
+    };
+    if (!document.body) {
+      return rows;
     }
-    for (const excludedXpath of excludedRowXpaths) {
-      if (
-        excludedXpath &&
-        excludedXpath !== xpath &&
-        core.isXPathDescendant(excludedXpath, xpath)
-      ) {
-        return true;
-      }
-    }
-    return false;
-  };
-  if (!document.body) {
-    return rows;
-  }
-  const stack: SnapshotTraversalItem[] = [{ node: document.body, insideImmutableExcluded: false }];
-  while (stack.length) {
-    const stackItem = stack.pop();
-    const node = stackItem?.node;
-    const insideImmutableExcluded = Boolean(stackItem?.insideImmutableExcluded);
-    if (!node) {
-      continue;
-    }
-    const xpath = getCurrentPageSnapshotXPath(node);
-    if (!xpath) {
-      continue;
-    }
-    const immutableExcludedRoot = core.isImmutableExcludedElement(node) === true;
-    if (insideImmutableExcluded || immutableExcludedRoot) {
-      continue;
-    }
-    for (let i = node.children.length - 1; i >= 0; i -= 1) {
-      const child = node.children.item(i);
-      if (!child) {
+    const stack: SnapshotTraversalItem[] = [{ node: document.body, insideImmutableExcluded: false }];
+    while (stack.length) {
+      const stackItem = stack.pop();
+      const node = stackItem?.node;
+      const insideImmutableExcluded = Boolean(stackItem?.insideImmutableExcluded);
+      if (!node) {
         continue;
       }
-      stack.push({
-        node: child,
-        insideImmutableExcluded: immutableExcludedRoot
-      });
-    }
-    if (isAiSubmissionDocumentRootXpath(xpath)) {
-      continue;
-    }
-    const explicitlyExcluded = explicitExcludedXpaths.has(xpath);
-    const explicitlyIncluded = explicitIncludedXpaths.has(xpath);
-    const insideExcludedAncestorRow = hasExcludedAncestorRow(xpath);
-    let visibleToUser = false;
-    let isMarkableTextual = false;
-    if (!explicitlyExcluded) {
-      visibleToUser = core.isVisibleForSubmission(node);
-      if (
-        !explicitlyIncluded &&
-        !insideExcludedAncestorRow
-      ) {
-        isMarkableTextual = core.isMarkableElement(node, configValue, {
-          allowParent: false,
-          allowImmutableChildren: false,
-          allowConsentElements: true,
-          ignoreVisibilityForInclusionDetection: true
+      const xpath = memoXPath(node);
+      if (!xpath) {
+        continue;
+      }
+      const immutableExcludedRoot = core.isImmutableExcludedElement(node) === true;
+      if (insideImmutableExcluded || immutableExcludedRoot) {
+        continue;
+      }
+      for (let i = node.children.length - 1; i >= 0; i -= 1) {
+        const child = node.children.item(i);
+        if (!child) {
+          continue;
+        }
+        stack.push({
+          node: child,
+          insideImmutableExcluded: immutableExcludedRoot
         });
       }
+      if (isAiSubmissionDocumentRootXpath(xpath)) {
+        continue;
+      }
+      const explicitlyExcluded = explicitExcludedXpaths.has(xpath);
+      const explicitlyIncluded = explicitIncludedXpaths.has(xpath);
+      const insideExcludedAncestorRow = hasExcludedAncestorRow(xpath);
+      let visibleToUser = false;
+      let isMarkableTextual = false;
+      if (!explicitlyExcluded) {
+        visibleToUser = memoVisible(node);
+        if (
+          !explicitlyIncluded &&
+          !insideExcludedAncestorRow
+        ) {
+          isMarkableTextual = memoMarkable(node);
+        }
+      }
+      const submissionRow = resolveAiSubmissionRowState({
+        explicitlyExcluded,
+        explicitlyIncluded,
+        insideExcludedAncestor: insideExcludedAncestorRow,
+        visibleToUser,
+        immutableExcludedRoot: false,
+        markableTextual: isMarkableTextual
+      });
+      if (!submissionRow.shouldSubmit) {
+        continue;
+      }
+      // Phase B ancestor guard: an implicit `markableTextual && !visibleToUser`
+      // ancestor row must not over-promote a broad wrapper to excluded when a
+      // visible descendant inside the same branch is already the canonical
+      // content carrier. Without this guard, structural shells (article wrappers,
+      // sticky columns, multi-line inlines whose primary bounding rect anchors
+      // off-bounds) would be sent as `excluded: true` while their visible
+      // descendant rows remain included, which is the failure shape observed in
+      // field reproduction on long-form article layouts.
+      if (
+        submissionRow.excluded &&
+        !explicitlyExcluded &&
+        !insideExcludedAncestorRow &&
+        hasVisibleMarkableTextualSubmissionDescendant(node, memoVisible, memoMarkable)
+      ) {
+        continue;
+      }
+      pushRow(xpath, submissionRow.excluded);
     }
-    const submissionRow = resolveAiSubmissionRowState({
-      explicitlyExcluded,
-      explicitlyIncluded,
-      insideExcludedAncestor: insideExcludedAncestorRow,
-      visibleToUser,
-      immutableExcludedRoot: false,
-      markableTextual: isMarkableTextual
-    });
-    if (!submissionRow.shouldSubmit) {
-      continue;
-    }
-    // Phase B ancestor guard: an implicit `markableTextual && !visibleToUser`
-    // ancestor row must not over-promote a broad wrapper to excluded when a
-    // visible descendant inside the same branch is already the canonical
-    // content carrier. Without this guard, structural shells (article wrappers,
-    // sticky columns, multi-line inlines whose primary bounding rect anchors
-    // off-bounds) would be sent as `excluded: true` while their visible
-    // descendant rows remain included, which is the failure shape observed in
-    // field reproduction on long-form article layouts.
-    if (
-      submissionRow.excluded &&
-      !explicitlyExcluded &&
-      !insideExcludedAncestorRow &&
-      hasVisibleMarkableTextualSubmissionDescendant(node, configValue)
-    ) {
-      continue;
-    }
-    pushRow(xpath, submissionRow.excluded);
-  }
-  return rows;
+    return rows;
+  });
 }
 
 function hasVisibleMarkableTextualSubmissionDescendant(
   root: Element | null | undefined,
-  configValue: Config
+  memoVisible: (element: Element) => boolean,
+  memoMarkable: (element: Element) => boolean
 ): boolean {
   if (!root) {
     return false;
@@ -5124,16 +5158,8 @@ function hasVisibleMarkableTextualSubmissionDescendant(
     if (core.isImmutableExcludedElement(node)) {
       continue;
     }
-    if (core.isVisibleForSubmission(node)) {
-      const markable = core.isMarkableElement(node, configValue, {
-        allowParent: false,
-        allowImmutableChildren: false,
-        allowConsentElements: true,
-        ignoreVisibilityForInclusionDetection: true
-      });
-      if (markable) {
-        return true;
-      }
+    if (memoVisible(node) && memoMarkable(node)) {
+      return true;
     }
     const childList = node.children;
     if (!childList || childList.length === 0) {

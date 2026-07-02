@@ -175,7 +175,31 @@ test("AI submission collector guards implicit excluded ancestors with a visible 
   const collectorSource = source.slice(collectorStart, collectorEnd);
   assert.match(
     collectorSource,
-    /hasVisibleMarkableTextualSubmissionDescendant\(node, configValue\)/
+    /return core\.withElementComputationCache\(\(\) => \{/
+  );
+  assert.match(
+    collectorSource,
+    /const visMemo = new WeakMap<Element, boolean>\(\);[\s\S]*?const xpathMemo = new WeakMap<Node, string>\(\);[\s\S]*?const markMemo = new WeakMap<Element, boolean>\(\);/
+  );
+  assert.match(
+    collectorSource,
+    /const submissionMarkOptions = \{[\s\S]*?allowParent: false,[\s\S]*?allowImmutableChildren: false,[\s\S]*?allowConsentElements: true,[\s\S]*?ignoreVisibilityForInclusionDetection: true[\s\S]*?\};/
+  );
+  assert.match(
+    collectorSource,
+    /const memoVisible = \(element: Element\): boolean => \{[\s\S]*?core\.isVisibleForSubmission\(element\);/
+  );
+  assert.match(
+    collectorSource,
+    /const memoXPath = \(node: Node \| null \| undefined\): string => \{[\s\S]*?getCurrentPageSnapshotXPath\(node\);/
+  );
+  assert.match(
+    collectorSource,
+    /const memoMarkable = \(element: Element\): boolean => \{[\s\S]*?core\.isMarkableElement\(element, configValue, submissionMarkOptions\);/
+  );
+  assert.match(
+    collectorSource,
+    /hasVisibleMarkableTextualSubmissionDescendant\(node, memoVisible, memoMarkable\)/
   );
   assert.match(
     collectorSource,
@@ -186,8 +210,7 @@ test("AI submission collector guards implicit excluded ancestors with a visible 
   const helperEnd = source.indexOf("\n}\n", helperStart);
   assert.ok(helperEnd > helperStart);
   const helperSource = source.slice(helperStart, helperEnd);
-  assert.match(helperSource, /core\.isVisibleForSubmission\(node\)/);
-  assert.match(helperSource, /core\.isMarkableElement\(node, configValue, \{/);
+  assert.match(helperSource, /memoVisible\(node\) && memoMarkable\(node\)/);
   assert.match(helperSource, /core\.isImmutableExcludedElement\(node\)/);
 });
 
