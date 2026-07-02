@@ -19,7 +19,7 @@ import { createContentTransport } from "../../common/bus/transport/content-trans
 import type { Browser } from "../../common/browser";
 import { startContentLayerHost } from "./layer-host";
 import { setPageCurtainRenderer } from "./spinner-layer";
-import { setPageInspectionUiActive } from "../core";
+import { setPageInspectionUiActive, setPopupBusyOnPage } from "../core";
 import { registerRenderModeInspectionExecutor } from "./modes/render-mode-inspection-executor";
 
 let contentBus: Bus | null = null;
@@ -61,10 +61,32 @@ export function startContentBusClient(options: ContentBusClientOptions = {}): Bu
       handlers: options.renderModeHandlers,
     });
   }
-  // The page-world inspection curtain renders solely from the brain pageCurtain
-  // broadcast: brain hide -> both popup and page clear together.
-  setPageCurtainRenderer((visible) => {
+  // The page-world inspection curtain renders from the brain pageCurtain
+  // broadcast: brain hide -> both popup and page clear together. Curtains that
+  // declare page-blocking in their spinner contract (blockSurfaces.page — AI
+  // run, save, reveal/freeze) must also raise the REAL page input block, not
+  // just the inspection tint, so the user cannot interact with the page while
+  // the data-affecting operation runs. The brain re-broadcasts the active
+  // curtain roughly every heartbeat second (content deliveries are NOT deduped),
+  // which re-arms the block's fail-open watchdog; if the brain goes silent the
+  // block releases on its own.
+  setPageCurtainRenderer((visible, state) => {
     setPageInspectionUiActive(visible);
+    const blockSurfaces = state && typeof state === "object"
+      ? (state.blockSurfaces as { page?: unknown } | null | undefined)
+      : null;
+    const pageBlocking = Boolean(visible && blockSurfaces && blockSurfaces.page === true);
+    if (pageBlocking) {
+      const operationId = typeof state?.operationId === "string" ? state.operationId : "";
+      const rawDeadline = state?.deadlineAt;
+      const releaseBy = typeof rawDeadline === "number" && Number.isFinite(rawDeadline)
+        ? rawDeadline
+        : undefined;
+      const message = typeof state?.message === "string" ? state.message : "";
+      setPopupBusyOnPage(true, message, { operationId, releaseBy });
+    } else {
+      setPopupBusyOnPage(false);
+    }
   });
   contentLayerHostStop = startContentLayerHost(contentBus);
   return contentBus;

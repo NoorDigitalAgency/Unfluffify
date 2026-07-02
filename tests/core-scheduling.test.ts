@@ -803,6 +803,12 @@ test("page popup-busy overlay is independent from reveal inspection and freeze U
   assert.match(source, /popupBusyOperationId: ""/);
   assert.match(busySource, /leaseOptions\.operationId[\s\S]*?ignored: true[\s\S]*?return[\s\S]*?clearPopupBusyFailOpenTimer\(\);/);
   assert.match(source, /state\.popupBusyFailOpenTimer = extensionSetTimeout\(\(\) => \{[\s\S]*?setPopupBusyOnPage\(false, "", \{ operationId \}\);/);
+  // Long data-affecting operations pass their real deadline as releaseBy; the
+  // fail-open watchdog honors it up to a hard ceiling so the block survives a
+  // popup disconnect (which stops the curtain re-broadcast re-arm) instead of
+  // failing open at the short default after 65s.
+  assert.match(source, /const POPUP_BUSY_PAGE_MAX_WATCHDOG_MS = 10 \* 60 \* 1000;/);
+  assert.match(busySource, /Math\.min\(POPUP_BUSY_PAGE_MAX_WATCHDOG_MS, Math\.ceil\(leaseOptions\.releaseBy - Date\.now\(\)\)\)/);
   assert.match(source, /setPopupBusyOnPage\(false, "", \{ operationId \}\);[\s\S]*?stopPageInspectionInputBlocker\(\);/);
   assert.doesNotMatch(busySource, /setPageInspectionUiActive|PAGE_INSPECTION_OVERLAY_CLASS|pausePageMotion|PAGE_MOTION_PAUSE/);
 });

@@ -808,6 +808,13 @@ const PAGE_INSPECTION_OVERLAY_CLASS = "uf-page-inspection-active";
 const POPUP_BUSY_STYLE_ID = "unfluffify-popup-busy-style";
 const POPUP_BUSY_OVERLAY_ID = "unfluffify-popup-busy-overlay";
 const POPUP_BUSY_PAGE_WATCHDOG_MS = 65000;
+// Hard ceiling for a caller-supplied releaseBy lease. The default watchdog is
+// short (65s) so a crashed caller fails open quickly, but long data-affecting
+// operations (an AI run can take minutes) pass their real deadline as releaseBy
+// and must stay blocked for the whole operation even if the popup/side panel
+// disconnects and stops re-arming the lease via curtain re-broadcasts. The block
+// still fails open at this ceiling if the brain never sends a clear.
+const POPUP_BUSY_PAGE_MAX_WATCHDOG_MS = 10 * 60 * 1000;
 const PAGE_INSPECTION_DEFAULT_MAX_SCROLLS = 10;
 const PAGE_INSPECTION_DEFAULT_PAUSE_MS = 1000;
 const PAGE_INSPECTION_LAZY_LOAD_SUPPRESSION_SCROLL_RATIO = 0.5;
@@ -5051,7 +5058,7 @@ export function setPopupBusyOnPage(
   state.popupBusyReleaseBy = leaseOptions.releaseBy;
   const watchdogDelayMs = Math.max(
     1000,
-    Math.min(POPUP_BUSY_PAGE_WATCHDOG_MS, Math.ceil(leaseOptions.releaseBy - Date.now()))
+    Math.min(POPUP_BUSY_PAGE_MAX_WATCHDOG_MS, Math.ceil(leaseOptions.releaseBy - Date.now()))
   );
   state.popupBusyFailOpenTimer = extensionSetTimeout(() => {
     setPopupBusyOnPage(false, "", { operationId });

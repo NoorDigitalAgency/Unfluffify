@@ -1,6 +1,9 @@
 type SpinnerStateLike = {
   title?: unknown;
   message?: unknown;
+  blockSurfaces?: { page?: unknown; popup?: unknown } | null;
+  operationId?: unknown;
+  deadlineAt?: unknown;
 };
 
 type ContentSpinnerSurface = "pageCurtain" | "banner";

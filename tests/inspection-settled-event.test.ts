@@ -61,7 +61,11 @@ test("content warmups leave inspection UI toggling to the brain pageCurtain", ()
   const warmupSource = source.slice(warmupStart, warmupEnd);
   assert.doesNotMatch(warmupSource, /setPageInspectionUiActive\(/);
   const busSource = readFileSync(new URL("../src/content/layers/content-bus-client.ts", import.meta.url), "utf8");
-  assert.match(busSource, /setPageCurtainRenderer\(\(visible\) => \{[\s\S]*?setPageInspectionUiActive\(visible\);/);
+  assert.match(busSource, /setPageCurtainRenderer\(\(visible, state\) => \{[\s\S]*?setPageInspectionUiActive\(visible\);/);
+  // Data-affecting curtains (blockSurfaces.page) must raise the REAL page input
+  // block, not just the inspection tint; non-blocking curtains and clears release it.
+  assert.match(busSource, /const pageBlocking = Boolean\(visible && blockSurfaces && blockSurfaces\.page === true\);/);
+  assert.match(busSource, /if \(pageBlocking\) \{[\s\S]*?setPopupBusyOnPage\(true, message, \{ operationId, releaseBy \}\);[\s\S]*?\} else \{[\s\S]*?setPopupBusyOnPage\(false\);/);
 });
 
 test("popup reports navigation-inspection settle facts on inspectionSettled", () => {
