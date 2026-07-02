@@ -3348,6 +3348,12 @@ function clearAiPreviewState() {
     return false;
   }
   resetAiPreviewState();
+  // Every preview-state teardown must republish the preview session facts.
+  // The brain heartbeat re-serves the content STATE_GET snapshot every second,
+  // so a silent reset (force-disable / out-of-scope configUpdated) leaves a
+  // sticky previewActive:true that the heartbeat re-folds forever, flapping
+  // markingEditsBlocked against the popup's previewActive:false reports.
+  publishAiPreviewSessionFacts();
   return true;
 }
 

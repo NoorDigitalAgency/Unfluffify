@@ -2264,6 +2264,14 @@ function isAiRunUpToDateForCurrentMarkings() {
 
 function captureAiRunMarkingsFingerprint() {
   state.aiRunMarkingsFingerprint = getCurrentPageMarkingsFingerprint();
+  // A captured fingerprint means an AI run just completed for the current
+  // markings, so the popup session is POST_AI until an explicit reset
+  // (resetAiRunMarkingsFingerprint). Without this the popup keeps publishing
+  // aiRunPhase:PRE_AI, and any post-exit report that looks like a clean reset
+  // hands AI-run authority back to the popup and wedges the brain at PRE_AI
+  // (Save stuck on requires_ai_run). It also drives the POST_AI leg of
+  // shouldReportManualAiPreviewEvent so preview exit reliably emits EXITED.
+  setSessionAiRunPhase(AI_RUN_PHASES.POST_AI);
 }
 
 function resetAiRunMarkingsFingerprint() {

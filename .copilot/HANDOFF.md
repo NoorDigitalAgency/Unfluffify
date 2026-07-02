@@ -23,7 +23,41 @@ shipped REAL fixes. Do NOT trust the per-phase root-cause scopes further down th
 
 KEY LEARNING: the three symptoms were INDEPENDENT, not one common cause.
 
-## #5/#14 POST-EXIT — PRECISE CURRENT STATUS (live, commit d969019)
+## #5/#14 POST-EXIT — FIXED (2026-07-02, architect-approved direction)
+Both remaining symptoms root-caused and fixed on `main` (gate green, 5 new
+regression tests in `tests/post-exit-ai-run-state.test.ts`):
+1. FLAP root cause was NEITHER aiComputing NOR reconciliationBlocked: content
+   `clearAiPreviewState()` reset `aiPreviewState` WITHOUT republishing the
+   preview session facts, so the content STATE_GET sticky snapshot kept
+   `previewActive/previewBlocked:true`; the 1s brain heartbeat re-folded that
+   stale TRUE forever, alternating with the popup's FALSE →
+   `markingEditsBlocked` directive flap (invisible in the polled popup
+   viewstate keys, which do not mirror the brain preview facts). FIX:
+   `clearAiPreviewState()` now calls `publishAiPreviewSessionFacts()` after the
+   reset (covers the force-disable path content-main `handleSetEnabledCommand`
+   and the out-of-scope `configUpdated` path).
+2. SAVE STUCK `requires_ai_run` root cause: commit `4592f46` (brain owns
+   ai-run lifecycle) removed `markSessionAiRunPostAi()`, so popup
+   `state.sessionAiRunPhase` could never reach POST_AI again. The popup then
+   (a) published `aiRunPhase:pre_ai` in every full report — one post-exit
+   report shaped like a clean reset (`shouldKeepBrainAiRunAuthority`) folded
+   PRE_AI into the brain and wedged it (deriveAiRunPhase keeps PRE_AI) — and
+   (b) lost the POST_AI leg of `shouldReportManualAiPreviewEvent`, so the
+   `EXITED` emit at popup.ts:8117 depended solely on the (corrupted) brain
+   projection. FIX (= handoff option (c), approved by @Sojaner):
+   `captureAiRunMarkingsFingerprint()` now sets
+   `setSessionAiRunPhase(AI_RUN_PHASES.POST_AI)` (restores the pre-4592f46
+   popup mirror at the exact former `markSessionAiRunPostAi` sites), so the
+   popup reports a truthful phase, cannot trigger the spurious clean-reset
+   handover post-run, and reliably emits EXITED on preview exit.
+DECISION (2026-07-02): @Sojaner approved "popup POST_AI mirror + content fact
+fix" over brain-side EXITED composition; no brain fold/contract changes made.
+LIVE QA (for @Sojaner, non-blocking): heavy page → mark, Run AI, open preview,
+Exit once → no marking↔"temporarily unavailable" flap (watch
+`uf-marking-temporarily-disabled` stays off), Save enabled without Discard;
+also force-disable marking while a preview is open → no post-teardown flap.
+
+## #5/#14 POST-EXIT — PRIOR STATUS (superseded; kept for context)
 The SEVERE corruption (popup collapsing to silent + contradictory button matrix) is
 LARGELY RESOLVED (by #1 + #3). Post-exit popup viewstate is now STABLE + coherent:
 `silentModeActive=false, mainUiHidden=false, toggleEnabled=true, previewActive=false`;
