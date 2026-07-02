@@ -2070,6 +2070,9 @@ function shouldRunSilentHighlightEditorActivation() {
   if (state.enabled) {
     return false;
   }
+  if (isRenderModeInspectionActive()) {
+    return false;
+  }
   // Brain-dictated page-prep gate: reveal/freeze runs for any render-mode-confirmed
   // candidate page (marking off), even with no stored selectors yet. The silent
   // overlay still requires isSilentHighlightActiveByDirective() (stored selectors).

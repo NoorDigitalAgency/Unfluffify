@@ -126,6 +126,14 @@ test("silent highlighting owns page motion pause for matching pages even without
   );
   assert.match(
     source,
+    /function shouldRunSilentHighlightEditorActivation\(\) \{[\s\S]*?if \(state\.enabled\) \{[\s\S]*?return false;[\s\S]*?\}[\s\S]*?if \(isRenderModeInspectionActive\(\)\) \{[\s\S]*?return false;[\s\S]*?\}[\s\S]*?if \(!isPageRevealFreezeActiveByDirective\(\)\) \{[\s\S]*?return false;[\s\S]*?\}/
+  );
+  assert.match(
+    source,
+    /function shouldRunSilentHighlightEditorActivation\(\) \{[\s\S]*?if \(!isPropertyLockCollaborationEnabled\(\)\) \{[\s\S]*?return true;[\s\S]*?\}[\s\S]*?return Boolean\(propertyLockState && propertyLockState\.isEditor\);[\s\S]*?\}/
+  );
+  assert.match(
+    source,
     /function shouldRunSilentHighlightEditorActivation\(\) \{[\s\S]*?!isPageRevealFreezeActiveByDirective\(\)[\s\S]*?!isPropertyLockCollaborationEnabled\(\)[\s\S]*?propertyLockState && propertyLockState\.isEditor[\s\S]*?\}[\s\S]*?async function runEditorSilentHighlightingActivation\(\) \{[\s\S]*?const pageTypeResult = await resolveCurrentPageTypeForMarking\(baseUrl, pageUrl\);[\s\S]*?if \(!pageTypeResult\.ok \|\| !pageTypeResult\.pageType\) \{[\s\S]*?resetPageVisitRevealFreezeKeys\(\);[\s\S]*?shouldRefreshAfterActivation = true;[\s\S]*?return;[\s\S]*?\}[\s\S]*?if \(!consumePageVisitRevealFreezeAttempt\(baseUrl, pageUrl\)\) \{[\s\S]*?shouldRefreshAfterActivation = true;[\s\S]*?return;[\s\S]*?\}[\s\S]*?core\.setPageSaveReconciliationPending\(baseUrl, pageUrl, \{[\s\S]*?reason: SILENT_HIGHLIGHTING_PREPARATION_REASON[\s\S]*?\}\);[\s\S]*?core\.warmupSilentHighlightingBeforeMotionPause\([\s\S]*?SILENT_HIGHLIGHTING_MOTION_PAUSE_REASON[\s\S]*?\);[\s\S]*?markSilentHighlightEditorRevealPrepared\(baseUrl, pageUrl\);[\s\S]*?await refreshSilentHighlightings\(\);[\s\S]*?\}/
   );
   assert.match(
