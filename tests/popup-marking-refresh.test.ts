@@ -15,11 +15,23 @@ test("preview exit restores a captured marking-session snapshot before payload f
   );
   assert.match(
     popupSource,
-    /async function handleExitPreviewMode\(\) \{[\s\S]*?const currentView = uiModule\.getViewState\(\);[\s\S]*?const shouldRestoreMarking = Boolean\(currentView\.previewWillRestoreMarking\);[\s\S]*?const previewRestoreToken = shouldRestoreMarking[\s\S]*?\? beginPreviewRestorePending\(\)[\s\S]*?: null;[\s\S]*?messages\.requestTabCloseAiPreview\(tabId, \{\s*previewRestoreToken\s*\}\)/
+    /async function handleExitPreviewMode\(\) \{[\s\S]*?if \(state\.previewRestorePending\) \{[\s\S]*?schedulePreviewRestoreFallback\(state\.previewRestoreToken\);[\s\S]*?return;[\s\S]*?\}[\s\S]*?const currentView = uiModule\.getViewState\(\);[\s\S]*?const shouldRestoreMarking = Boolean\(currentView\.previewWillRestoreMarking\);[\s\S]*?const previewRestoreToken = shouldRestoreMarking[\s\S]*?\? beginPreviewRestorePending\(\)[\s\S]*?: null;[\s\S]*?messages\.requestTabCloseAiPreview\(tabId, \{\s*previewRestoreToken\s*\}\)/
   );
   assert.match(
     popupSource,
-    /async function handleExitPreviewMode\(\) \{[\s\S]*?if \(!previewCloseIndicatesNavigation\(closeResult\) && restoreMarkingSessionSnapshot\(\)\) \{[\s\S]*?const closeDraftStatus = closeResult && closeResult\.draftStatus[\s\S]*?if \(closeResult && closeResult\.markingEnabled\) \{[\s\S]*?applyDraftStatusToPopupState\(closeDraftStatus\);[\s\S]*?\}[\s\S]*?if \(previewRestoreToken !== null\) \{[\s\S]*?clearPreviewRestorePending\(\);[\s\S]*?state\.previewRestoreAppliedToken = Math\.max\(\s*state\.previewRestoreAppliedToken,\s*previewRestoreToken\s*\);[\s\S]*?\}[\s\S]*?await refreshUi\(\{[\s\S]*?preserveCurrentDraftStatus: true[\s\S]*?\}\)(?:\.catch\(\(\) => null\))?;[\s\S]*?clearMarkingSessionSnapshot\(\);[\s\S]*?return;[\s\S]*?\}[\s\S]*?if \(closeResult && \(typeof closeResult\.markingEnabled === "boolean" \|\| closeResult\.draftStatus\)\) \{[\s\S]*?await applyPreviewClosedState\(closeResult\);/
+    /async function handleExitPreviewMode\(\) \{[\s\S]*?if \(!previewCloseIndicatesNavigation\(closeResult\) && restoreMarkingSessionSnapshot\(\)\) \{[\s\S]*?const closeDraftStatus = closeResult && closeResult\.draftStatus[\s\S]*?if \(closeResult && closeResult\.markingEnabled\) \{[\s\S]*?applyDraftStatusToPopupState\(closeDraftStatus\);[\s\S]*?\}[\s\S]*?settlePreviewRestoreClosed\(previewRestoreToken\);[\s\S]*?await refreshUi\(\{[\s\S]*?preserveCurrentDraftStatus: true[\s\S]*?\}\)(?:\.catch\(\(\) => null\))?;[\s\S]*?return;/
+  );
+  assert.match(
+    popupSource,
+    /previewRestoreToken !== null[\s\S]*?!previewCloseIndicatesNavigation\(closeResult\)[\s\S]*?closeResult\.markingEnabled === "boolean" \|\| closeResult\.draftStatus/
+  );
+  assert.match(
+    popupSource,
+    /void finalizePreviewRestoreFromRuntime\(\{ token: previewRestoreToken \}\)\.catch\(\(\) => null\);/
+  );
+  assert.match(
+    popupSource,
+    /async function handleExitPreviewMode\(\) \{[\s\S]*?if \(closeResult && \(typeof closeResult\.markingEnabled === "boolean" \|\| closeResult\.draftStatus\)\) \{[\s\S]*?await applyPreviewClosedState\(closeResult\);/
   );
   assert.match(
     popupSource,
@@ -61,15 +73,23 @@ test("preview exit restores a captured marking-session snapshot before payload f
   );
   assert.match(
     popupSource,
-    /async function finalizePreviewRestoreFromRuntime\(options(?:\s*:\s*[^)]*)? = \{\}\)(?:\s*:\s*[^{]+)? \{[\s\S]*?if \(restoreMarkingSessionSnapshot\(\)\) \{[\s\S]*?clearPreviewRestorePending\(\);[\s\S]*?state\.previewRestoreAppliedToken = Math\.max\(state\.previewRestoreAppliedToken, token\);[\s\S]*?refreshUi\(\{[\s\S]*?preserveCurrentDraftStatus: true/
+    /function settlePreviewRestoreClosed\(token(?:\s*:\s*[^=]+)? = null, markApplied = true\) \{[\s\S]*?clearPreviewRestorePending\(\);[\s\S]*?if \(markApplied && token !== null\) \{[\s\S]*?state\.previewRestoreAppliedToken = Math\.max\(state\.previewRestoreAppliedToken, token\);[\s\S]*?\}[\s\S]*?clearMarkingSessionSnapshot\(\);[\s\S]*?uiModule\.setViewState\(buildPreviewViewState\(null\)\);[\s\S]*?publishCurrentTabSessionFacts\(\{[\s\S]*?previewActive: false,[\s\S]*?previewBlocked: false,[\s\S]*?previewItemsPending: false,[\s\S]*?previewRestorePending: false[\s\S]*?\}\);/
   );
   assert.match(
     popupSource,
-    /async function applyPreviewClosedState\(closeState = \{\}\) \{[\s\S]*?const draftStatus = normalizedCloseState\.draftStatus[\s\S]*?clearPreviewRestorePending\(\);[\s\S]*?clearMarkingSessionSnapshot\(\);[\s\S]*?refreshUi\(\{[\s\S]*?preserveCurrentDraftStatus: Boolean\(hasDraftStatus\)/
+    /async function finalizePreviewRestoreFromRuntime\(options(?:\s*:\s*[^)]*)? = \{\}\)(?:\s*:\s*[^{]+)? \{[\s\S]*?if \(restoreMarkingSessionSnapshot\(\)\) \{[\s\S]*?settlePreviewRestoreClosed\(token\);[\s\S]*?refreshUi\(\{[\s\S]*?preserveCurrentDraftStatus: true/
   );
   assert.match(
     popupSource,
-    /if \(messageToken !== null\) \{\s*state\.previewRestoreAppliedToken = Math\.max\(state\.previewRestoreAppliedToken, messageToken\);\s*\}/
+    /async function finalizePreviewRestoreHard\(options(?:\s*:\s*[^)]*)? = \{\}\)(?:\s*:\s*[^{]+)? \{[\s\S]*?if \(!state\.previewRestorePending \|\| token !== state\.previewRestoreToken\) \{[\s\S]*?return;[\s\S]*?\}[\s\S]*?settlePreviewRestoreClosed\(token, false\);[\s\S]*?refreshUi\(\{ useBusyOverlay: false, skipPropertyLockFetch: true \}\)(?:\.catch\(\(\) => null\))?;[\s\S]*?\}/
+  );
+  assert.match(
+    popupSource,
+    /function schedulePreviewRestoreFallback\(token: number, delayMs = AI_PREVIEW_RESTORE_FALLBACK_MS\) \{[\s\S]*?finalizePreviewRestoreHard\(\{ token \}\)\.then\(\)\.catch\(\(\) => null\);/
+  );
+  assert.match(
+    popupSource,
+    /async function applyPreviewClosedState\(closeState = \{\}\) \{[\s\S]*?const draftStatus = normalizedCloseState\.draftStatus[\s\S]*?const hasDraftStatus = markingEnabled && applyDraftStatusToPopupState\(draftStatus\);[\s\S]*?settlePreviewRestoreClosed\(messageToken\);[\s\S]*?refreshUi\(\{[\s\S]*?preserveCurrentDraftStatus: Boolean\(hasDraftStatus\)/
   );
 });
 

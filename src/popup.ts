@@ -2925,6 +2925,21 @@ function clearPreviewRestorePending() {
   clearPreviewRestoreFallbackTimer();
 }
 
+function settlePreviewRestoreClosed(token: number | null = null, markApplied = true) {
+  clearPreviewRestorePending();
+  if (markApplied && token !== null) {
+    state.previewRestoreAppliedToken = Math.max(state.previewRestoreAppliedToken, token);
+  }
+  clearMarkingSessionSnapshot();
+  uiModule.setViewState(buildPreviewViewState(null));
+  publishCurrentTabSessionFacts({
+    previewActive: false,
+    previewBlocked: false,
+    previewItemsPending: false,
+    previewRestorePending: false
+  });
+}
+
 function getPreviewRestoreToken(message?: PreviewRestoreMessage): number | null;
 function getPreviewRestoreToken(message = {}) {
   const previewMessage = (message && typeof message === "object" ? message : {}) as PreviewRestoreMessage;
@@ -2965,14 +2980,12 @@ async function finalizePreviewRestoreFromRuntime(options: PreviewRestoreRuntimeO
     return;
   }
   if (restoreMarkingSessionSnapshot()) {
-    clearPreviewRestorePending();
-    state.previewRestoreAppliedToken = Math.max(state.previewRestoreAppliedToken, token);
+    settlePreviewRestoreClosed(token);
     await refreshUi({
       useBusyOverlay: false,
       skipPropertyLockFetch: true,
       preserveCurrentDraftStatus: true
     }).catch(() => null);
-    clearMarkingSessionSnapshot();
     return;
   }
   await helpers.ensureActiveTab({ requireId: true }).catch(() => null);
@@ -2982,8 +2995,7 @@ async function finalizePreviewRestoreFromRuntime(options: PreviewRestoreRuntimeO
     : null;
   const baseUrl = state.currentBaseUrl || "";
   if (!tabId || !baseUrl) {
-    clearPreviewRestorePending();
-    clearMarkingSessionSnapshot();
+    settlePreviewRestoreClosed(token);
     await refreshUi({ useBusyOverlay: false, skipPropertyLockFetch: true }).catch(() => null);
     return;
   }
@@ -2995,13 +3007,12 @@ async function finalizePreviewRestoreFromRuntime(options: PreviewRestoreRuntimeO
     return;
   }
   const hasDraftStatus = applyDraftStatusToPopupState(draftStatus);
-  clearPreviewRestorePending();
-  clearMarkingSessionSnapshot();
   const markingEnabled = Boolean(
     inspectionStatus &&
       inspectionStatus.ok &&
       inspectionStatus.markingEnabled
   );
+  settlePreviewRestoreClosed(token);
   await refreshUi({
     useBusyOverlay: false,
     skipPropertyLockFetch: true,
@@ -3009,11 +3020,24 @@ async function finalizePreviewRestoreFromRuntime(options: PreviewRestoreRuntimeO
   }).catch(() => null);
 }
 
+async function finalizePreviewRestoreHard(options: PreviewRestoreRuntimeOptions = {}): Promise<void> {
+  const token = Number.isFinite(options.token)
+    ? Math.trunc(Number(options.token))
+    : state.previewRestoreToken;
+  if (!state.previewRestorePending || token !== state.previewRestoreToken) {
+    return;
+  }
+  // Force-clear the wedge locally, but keep the token reappliable so a slow
+  // authoritative close payload for the same restore can still land afterward.
+  settlePreviewRestoreClosed(token, false);
+  await refreshUi({ useBusyOverlay: false, skipPropertyLockFetch: true }).catch(() => null);
+}
+
 function schedulePreviewRestoreFallback(token: number, delayMs = AI_PREVIEW_RESTORE_FALLBACK_MS) {
   clearPreviewRestoreFallbackTimer();
   state.previewRestoreFallbackTimer = window.setTimeout(() => {
     state.previewRestoreFallbackTimer = 0;
-    finalizePreviewRestoreFromRuntime({ token }).then().catch(() => null);
+    finalizePreviewRestoreHard({ token }).then().catch(() => null);
   }, Math.max(50, delayMs));
 }
 
@@ -3054,16 +3078,12 @@ async function applyPreviewClosedState(closeState = {}) {
     state.currentBaseUrl = nextBaseUrl;
   }
   const hasDraftStatus = markingEnabled && applyDraftStatusToPopupState(draftStatus);
-  clearPreviewRestorePending();
-  clearMarkingSessionSnapshot();
+  settlePreviewRestoreClosed(messageToken);
   await refreshUi({
     useBusyOverlay: false,
     skipPropertyLockFetch: true,
     preserveCurrentDraftStatus: Boolean(hasDraftStatus)
   }).catch(() => null);
-  if (messageToken !== null) {
-    state.previewRestoreAppliedToken = Math.max(state.previewRestoreAppliedToken, messageToken);
-  }
 }
 
 function previewCloseIndicatesNavigation(closeState?: PreviewCloseState | null): boolean;
@@ -8042,6 +8062,10 @@ async function handleMarkingPreview() {
 }
 
 async function handleExitPreviewMode() {
+  if (state.previewRestorePending) {
+    schedulePreviewRestoreFallback(state.previewRestoreToken);
+    return;
+  }
   if (!await helpers.ensureActiveTab({ requireId: true })) {
     return;
   }
@@ -8074,20 +8098,20 @@ async function handleExitPreviewMode() {
     if (closeResult && closeResult.markingEnabled) {
       applyDraftStatusToPopupState(closeDraftStatus);
     }
-    if (previewRestoreToken !== null) {
-      clearPreviewRestorePending();
-      state.previewRestoreAppliedToken = Math.max(
-        state.previewRestoreAppliedToken,
-        previewRestoreToken
-      );
-    }
+    settlePreviewRestoreClosed(previewRestoreToken);
     await refreshUi({
       useBusyOverlay: false,
       skipPropertyLockFetch: true,
       preserveCurrentDraftStatus: true
     }).catch(() => null);
-    clearMarkingSessionSnapshot();
     return;
+  }
+  if (
+    previewRestoreToken !== null &&
+    !previewCloseIndicatesNavigation(closeResult) &&
+    !(closeResult && (typeof closeResult.markingEnabled === "boolean" || closeResult.draftStatus))
+  ) {
+    void finalizePreviewRestoreFromRuntime({ token: previewRestoreToken }).catch(() => null);
   }
   if (closeResult && (typeof closeResult.markingEnabled === "boolean" || closeResult.draftStatus)) {
     await applyPreviewClosedState(closeResult);

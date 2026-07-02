@@ -558,6 +558,7 @@ describe("popup view projector", () => {
     expect(projectViews(buildState({ ...baseSessionFacts, aiComputing: true })).contentDirective.markingEditsBlocked).toBe(true);
     expect(projectViews(buildState({ ...baseSessionFacts, previewActive: true })).contentDirective.markingEditsBlocked).toBe(true);
     expect(projectViews(buildState({ ...baseSessionFacts, previewBlocked: true })).contentDirective.markingEditsBlocked).toBe(true);
+    expect(projectViews(buildState({ ...baseSessionFacts, previewRestorePending: true })).contentDirective.markingEditsBlocked).toBe(false);
     expect(projectViews(buildState({ ...baseSessionFacts, aiRunPhase: AI_RUN_PHASES.POST_AI })).contentDirective.markingEditsBlocked).toBe(false);
     expect(projectViews(buildState({ ...baseSessionFacts, aiRunPhase: AI_RUN_PHASES.PRE_AI })).contentDirective.markingEditsBlocked).toBe(false);
   });
