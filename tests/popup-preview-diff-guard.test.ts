@@ -67,6 +67,7 @@ test("applyAiPreviewStateUpdate skips previewItems rebuild for identical snapsho
     "getPreviewItemsSignature",
     "stabilizePreviewViewState",
     "buildPreviewViewState",
+    "resolveOpenPreviewItems",
     "applyAiPreviewStateUpdate"
   ]);
   const setViewStateCalls: Array<Record<string, unknown>> = [];
@@ -88,7 +89,11 @@ test("applyAiPreviewStateUpdate skips previewItems rebuild for identical snapsho
     exports: {},
     state: {
       currentBaseUrl: "https://example.com",
-      lastPreviewItemsSignature: ""
+      lastPreviewItemsSignature: "",
+      // An open preview session being updated: items route through the latch.
+      previewOpenIntent: true,
+      previewSessionHadItems: true,
+      previewItemsLatched: [...existingPreviewItems]
     },
     uiModule: {
       getViewState: () => currentView,

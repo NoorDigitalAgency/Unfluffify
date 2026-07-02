@@ -236,7 +236,7 @@ test("popup wiring repaints live brain snapshots and keeps imperative writers be
   );
   assert.match(
     popupSource,
-    /if \([\s\S]*?nextCentralSessionDictationEffect\.patch[\s\S]*?nextProjectedPropertyLockEffect\.patch[\s\S]*?nextProjectedSecondaryGatesEffect\.patch[\s\S]*?\) \{[\s\S]*?uiModule\.setViewState\(\{[\s\S]*?\}\);[\s\S]*?\}[\s\S]*?if \([\s\S]*?nextCentralSessionDictationEffect\.refreshRequired[\s\S]*?nextProjectedPropertyLockEffect\.refreshRequired[\s\S]*?nextProjectedSecondaryGatesEffect\.refreshRequired[\s\S]*?\) \{[\s\S]*?void refreshUi\(/
+    /if \([\s\S]*?nextCentralSessionDictationEffect\.patch[\s\S]*?nextProjectedPropertyLockEffect\.patch[\s\S]*?nextProjectedSecondaryGatesEffect\.patch[\s\S]*?\) \{[\s\S]*?uiModule\.setViewState\(snapshotPatch\);[\s\S]*?\}[\s\S]*?if \([\s\S]*?nextCentralSessionDictationEffect\.refreshRequired[\s\S]*?nextProjectedPropertyLockEffect\.refreshRequired[\s\S]*?nextProjectedSecondaryGatesEffect\.refreshRequired[\s\S]*?\) \{[\s\S]*?void refreshUi\(/
   );
 });
 

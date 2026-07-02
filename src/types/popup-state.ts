@@ -119,6 +119,10 @@ export interface PopupState {
   previewRestoreAppliedToken: number;
   previewRestoreFallbackTimer: number;
   lastPreviewItemsSignature: string;
+  previewOpenIntent: boolean;
+  previewSuppressReopen: boolean;
+  previewSessionHadItems: boolean;
+  previewItemsLatched: Array<{ xpath: string; text: string; title: string; kind: string }>;
   previewMarkingSessionSnapshot: PopupPreviewMarkingSessionSnapshot | null;
   configViewLocked: boolean;
   tokenValidationInFlight: boolean;

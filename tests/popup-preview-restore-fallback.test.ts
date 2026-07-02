@@ -127,6 +127,7 @@ test("hard preview-restore fallback force-clears preview facts and local preview
       previewRestoreAppliedToken: 0,
       previewRestoreFallbackTimer: 0
     },
+    resetPreviewItemsLatch: () => undefined,
     clearMarkingSessionSnapshot: () => {
       callOrder.push("clear-marking-snapshot");
     },
@@ -242,6 +243,7 @@ test("a late same-token close payload still applies after the hard fallback clea
       currentTab: null,
       lastPopupPageUrl: ""
     },
+    resetPreviewItemsLatch: () => undefined,
     clearMarkingSessionSnapshot: () => undefined,
     publishCurrentTabSessionFacts: (facts: PreviewFacts) => {
       publishedFacts.push({ ...facts });

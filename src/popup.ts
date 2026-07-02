@@ -273,6 +273,7 @@ type PreviewViewState = Pick<
   | "previewShowAllCategories"
 >;
 type PreviewItemInput = Partial<PreviewViewState["previewItems"][number]> & Record<string, unknown>;
+type ResolvedPreviewItems = { items: PreviewViewState["previewItems"]; pending: boolean };
 type PreviewRestoreMessage = {
   previewRestoreToken?: unknown;
   pageUrl?: unknown;
@@ -1231,11 +1232,13 @@ function applyPopupViewSnapshot(snapshot: PopupStateGetReply | null) {
     nextProjectedPropertyLockEffect.patch ||
     nextProjectedSecondaryGatesEffect.patch
   ) {
-    uiModule.setViewState({
+    const snapshotPatch: PopupViewStatePatch = {
       ...(nextCentralSessionDictationEffect.patch || {}),
       ...(nextProjectedPropertyLockEffect.patch || {}),
       ...(nextProjectedSecondaryGatesEffect.patch || {})
-    });
+    };
+    overrideDictatedPreviewVisibility(snapshotPatch);
+    uiModule.setViewState(snapshotPatch);
   }
   if (
     nextCentralSessionDictationEffect.refreshRequired ||
@@ -1446,6 +1449,30 @@ async function clearStaleProjectedComputingAiState(): Promise<void> {
   }).catch(() => null);
 }
 
+// The popup owns its own preview-sidebar visibility via previewOpenIntent (see
+// src/popup/state.ts). The brain also projects previewActive/previewBlocked into
+// the central-session dictation, folded from popup+content reports that race
+// during hydration — applying it verbatim flaps the sidebar open/closed. When
+// the popup has a standing opinion (intent set, or an exit in flight) its value
+// wins; otherwise (closed / reconnect) the brain-projected value is kept.
+function overrideDictatedPreviewVisibility(patch: PopupViewStatePatch): void {
+  if (!Object.prototype.hasOwnProperty.call(patch, "previewActive")) {
+    return;
+  }
+  let active: boolean | null = null;
+  if (state.previewRestorePending) {
+    active = false;
+  } else if (state.previewOpenIntent) {
+    active = true;
+  }
+  if (active === null) {
+    return;
+  }
+  patch.previewActive = active;
+  patch.previewBlocked = active;
+  patch.previewBlockedMessage = active ? PopupText.preview.blockedActive : ViewText.previewBlockedDefault;
+}
+
 function applyCentralSessionDictation(nextViewState: PopupViewStatePatch, currentTabId: number | null): void {
   const nextCentralSessionDictationViewState = buildCentralSessionDictationViewStatePatch({
     currentTabId,
@@ -1468,6 +1495,7 @@ function applyCentralSessionDictation(nextViewState: PopupViewStatePatch, curren
       ? PopupText.preview.blockedActive
       : ViewText.previewBlockedDefault;
   }
+  overrideDictatedPreviewVisibility(nextViewState);
 }
 
 function sendSpinnerBrokerMessage(
@@ -2547,6 +2575,10 @@ function setAiRunActiveState({
   state.aiRunDeadlineAt = deadlineAt;
   state.aiRunRemainingMs = getAiRunRemainingMs(deadlineAt);
   state.aiRunResumed = Boolean(resumed);
+  // A starting/resuming run has no preview sidebar; clear the popup-owned preview
+  // latches so a missed prior close cannot keep a stale sidebar shown.
+  state.previewOpenIntent = false;
+  state.previewSuppressReopen = false;
   startAiRunCountdownTimer();
 }
 
@@ -2949,6 +2981,14 @@ function settlePreviewRestoreClosed(token: number | null = null, markApplied = t
   if (markApplied && token !== null) {
     state.previewRestoreAppliedToken = Math.max(state.previewRestoreAppliedToken, token);
   }
+  // The preview is closed from the popup's perspective. Drop the open-intent and
+  // raise the reopen guard so a lagging getAiPreviewState probe (content's async
+  // exit can still report the preview active for seconds on a heavy page) cannot
+  // resurrect the sidebar in the next refreshUi; the guard clears once a probe
+  // confirms inactive or a new preview is opened.
+  state.previewOpenIntent = false;
+  state.previewSuppressReopen = true;
+  resetPreviewItemsLatch();
   clearMarkingSessionSnapshot();
   uiModule.setViewState(stabilizePreviewViewState(buildPreviewViewState(null)));
   publishCurrentTabSessionFacts({
@@ -4010,26 +4050,74 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
     ? await messages.sendTabMessage({ type: "getAiPreviewState" })
     : null;
   let previewViewState = buildPreviewViewState(previewState);
-  if (!previewState && tabInScope) {
-    // A null response means the getAiPreviewState content probe failed/timed out
-    // (its TAB_CONTENT_REQUEST has a short 3s timeout and loses the race while
-    // the content script is busy re-running silent-highlight passes). Do not tear
-    // down a preview the popup is already showing on a transient probe miss; an
-    // explicit exit goes through the aiPreviewClosed message / Exit Preview path.
+  if (tabInScope) {
+    // The getAiPreviewState probe is only a refresh source for the item LIST, not
+    // the authority for whether the sidebar is open. On heavy pages the probe has
+    // long transient states — request timeout (null), mid-hydration (active but
+    // items:[] + itemsPending while collectPreviewItems walks the DOM for seconds),
+    // and the still-closing-async window after Exit — and trusting any single
+    // snapshot for open/closed flapped the sidebar (empty "no content detected",
+    // preview reopening itself after Exit). Visibility is popup-owned
+    // (previewOpenIntent / previewSuppressReopen); the authoritative close is the
+    // aiPreviewClosed push / Exit Preview settle. See src/popup/state.ts.
     const currentView = uiModule.getViewState();
-    if (currentView.previewActive || currentView.previewBlocked) {
+    const probeOk = Boolean(previewState);
+    const probeActive = Boolean(previewViewState.previewActive);
+    const probeItems = Array.isArray(previewViewState.previewItems) ? previewViewState.previewItems : [];
+
+    // A confirmed-closed probe (reachable and reporting inactive) clears the
+    // post-close reopen guard: from here a genuine active probe may open again.
+    if (state.previewSuppressReopen && probeOk && !probeActive) {
+      state.previewSuppressReopen = false;
+    }
+
+    let showPreview: boolean;
+    if (state.previewRestorePending) {
+      // Exit is in flight (popup-initiated). Its settle/fallback path owns the
+      // teardown; a probe still reporting the preview active must not reopen it.
+      showPreview = false;
+    } else if (state.previewOpenIntent) {
+      // The popup opened this preview and has not closed it. Keep it shown and
+      // only refresh items from the probe; never let a transient close it.
+      showPreview = true;
+    } else if (state.previewSuppressReopen) {
+      // Just closed; ignore a lagging active probe until it confirms inactive.
+      showPreview = false;
+    } else {
+      // No standing intent (e.g. popup reconnected while a preview is live):
+      // adopt the probe's open state as the fresh observation.
+      showPreview = probeActive;
+      state.previewOpenIntent = showPreview;
+    }
+
+    if (showPreview) {
+      // Items go through the session latch: a settled probe (reachable + not
+      // pending) can update or genuinely-empty the list; a probe miss or a
+      // pending snapshot never blinks an established list to empty.
+      const settled = probeOk && !previewViewState.previewItemsPending;
+      const resolved = resolveOpenPreviewItems(settled ? probeItems : [], settled);
       previewViewState = {
-        previewActive: Boolean(currentView.previewActive),
-        previewItems: Array.isArray(currentView.previewItems) ? currentView.previewItems : [],
-        previewItemsPending: Boolean(currentView.previewItemsPending),
-        previewFocusedXpath: typeof currentView.previewFocusedXpath === "string"
-          ? currentView.previewFocusedXpath
-          : "",
-        previewShowAllCategories: Boolean(currentView.previewShowAllCategories),
-        previewWillRestoreMarking: Boolean(currentView.previewWillRestoreMarking)
+        previewActive: true,
+        previewItems: resolved.items,
+        previewItemsPending: resolved.pending,
+        previewFocusedXpath: (probeOk && previewViewState.previewFocusedXpath)
+          || (typeof currentView.previewFocusedXpath === "string" ? currentView.previewFocusedXpath : ""),
+        previewShowAllCategories: probeOk
+          ? previewViewState.previewShowAllCategories
+          : Boolean(currentView.previewShowAllCategories),
+        previewWillRestoreMarking: probeOk
+          ? previewViewState.previewWillRestoreMarking
+          : Boolean(currentView.previewWillRestoreMarking)
       };
+    } else {
+      previewViewState = buildPreviewViewState(null);
     }
   }
+  // NOTE: intent is intentionally NOT cleared here on a transient tabInScope=false.
+  // refreshUi's tabInScope can flicker false during a heavy-page preview (content
+  // churn), and clearing the intent there collapsed the open sidebar. The intent
+  // latch is cleared only by the authoritative close paths (settlePreviewRestoreClosed
+  // via Exit / aiPreviewClosed) and on a fresh AI run start.
   previewViewState = stabilizePreviewViewState(previewViewState);
   const {
     previewActive,
@@ -7524,6 +7612,15 @@ async function applyComputedSelectorSet(
     // of masking it for the duration of the slow post-run refresh.
     resetAiRunState();
     captureMarkingSessionSnapshot();
+    state.previewOpenIntent = true;
+    state.previewSuppressReopen = false;
+    // Fresh preview session: seed the item latch with the immediately-rendered
+    // items so a later empty probe/push cannot blink the sidebar to empty.
+    resetPreviewItemsLatch();
+    if (immediatePreviewItems.length > 0) {
+      state.previewSessionHadItems = true;
+      state.previewItemsLatched = immediatePreviewItems;
+    }
     state.lastPreviewItemsSignature = getPreviewItemsSignature(immediatePreviewItems);
     publishCurrentTabSessionFacts({
       aiBusy: false,
@@ -7566,9 +7663,24 @@ function applyAiPreviewStateUpdate(message: PreviewStateLike) {
   }
   const currentView = uiModule.getViewState();
   const nextPreviewState = stabilizePreviewViewState(buildPreviewViewState(message), currentView);
+  // The aiPreviewStateChanged push is a best-effort, latency-reducing item feed —
+  // content emits it at preview OPEN (items:[] + pending) and again after
+  // hydration (full items). On a heavy/busy page the open-time push can be
+  // delivered seconds late, arriving AFTER the list already hydrated and would
+  // clobber it back to empty ("No content detected"). Route it through the same
+  // session item latch as the probe: a non-empty push updates the list; an empty
+  // push while the session already produced items keeps the latched list. The
+  // stabilize signature is aligned to what is actually shown so the next refresh
+  // does not treat the kept list as a change.
+  const incomingItems = Array.isArray(nextPreviewState.previewItems) ? nextPreviewState.previewItems : [];
+  const settled = !nextPreviewState.previewItemsPending;
+  const previewItems = state.previewOpenIntent
+    ? resolveOpenPreviewItems(settled ? incomingItems : [], settled).items
+    : (Array.isArray(currentView.previewItems) ? currentView.previewItems : []);
+  state.lastPreviewItemsSignature = getPreviewItemsSignature(previewItems);
   if (
     nextPreviewState.previewWillRestoreMarking === Boolean(currentView.previewWillRestoreMarking) &&
-    nextPreviewState.previewItems === currentView.previewItems &&
+    previewItems === currentView.previewItems &&
     nextPreviewState.previewFocusedXpath === currentView.previewFocusedXpath &&
     nextPreviewState.previewShowAllCategories === Boolean(currentView.previewShowAllCategories)
   ) {
@@ -7579,7 +7691,7 @@ function applyAiPreviewStateUpdate(message: PreviewStateLike) {
   }
   uiModule.setViewState({
     previewWillRestoreMarking: nextPreviewState.previewWillRestoreMarking,
-    previewItems: nextPreviewState.previewItems,
+    previewItems,
     previewFocusedXpath: nextPreviewState.previewFocusedXpath,
     previewShowAllCategories: nextPreviewState.previewShowAllCategories
   });
@@ -8033,6 +8145,12 @@ async function handlePreviewLatest() {
     if (!isPopupCommandSuccess(response)) {
       throw new Error(PopupText.preview.openFailed);
     }
+    // Silent Preview opens a preview session from stored selectors; mark it
+    // popup-owned so the item latch + visibility override engage (this path
+    // hydrates items asynchronously like the other open paths).
+    state.previewOpenIntent = true;
+    state.previewSuppressReopen = false;
+    resetPreviewItemsLatch();
     publishManualAiPreviewEvent(AI_RUN_EVENT_TYPES.PREVIEW_READY);
     await refreshUi();
   } catch (error) {
@@ -8085,6 +8203,10 @@ async function handleMarkingPreview() {
     if (!isPopupCommandSuccess(response)) {
       throw new Error(PopupText.preview.openFailed);
     }
+    state.previewOpenIntent = true;
+    state.previewSuppressReopen = false;
+    // Fresh preview session opening empty; it hydrates asynchronously.
+    resetPreviewItemsLatch();
     publishCurrentTabAiRunEvent(AI_RUN_EVENT_TYPES.PREVIEW_READY);
     await refreshUi();
   } catch (error) {
@@ -8194,6 +8316,37 @@ function stabilizePreviewViewState(
     ...previewViewState,
     previewItems: previewItemsChanged ? previewViewState.previewItems : currentPreviewItems
   };
+}
+
+function resetPreviewItemsLatch(): void {
+  state.previewSessionHadItems = false;
+  state.previewItemsLatched = [];
+}
+
+// Single source of truth for the preview item list while a preview session is
+// open. Content owns the items; the popup only mirrors them. Both the
+// getAiPreviewState probe (refreshUi) and the aiPreviewStateChanged push feed
+// this — each has transient/stale empty snapshots (mid-hydration, late-delivered
+// open-time push) that must never blink an established list back to empty
+// ("No content detected"). Rule: the first hydrated non-empty result latches;
+// after that, an empty snapshot keeps the latched list. Empty is shown only when
+// the session has genuinely never produced items (still loading -> pending, or a
+// settled no-detections result -> not pending).
+function resolveOpenPreviewItems(
+  incomingItems: PreviewViewState["previewItems"],
+  settled: boolean
+): ResolvedPreviewItems {
+  const items = Array.isArray(incomingItems) ? incomingItems : [];
+  if (items.length > 0) {
+    state.previewSessionHadItems = true;
+    state.previewItemsLatched = items;
+    return { items, pending: false };
+  }
+  if (state.previewSessionHadItems) {
+    const latched = Array.isArray(state.previewItemsLatched) ? state.previewItemsLatched : [];
+    return { items: latched, pending: false };
+  }
+  return { items: [], pending: !settled };
 }
 
 function buildPreviewViewState(previewState: PreviewStateLike | null | undefined): PreviewViewState {

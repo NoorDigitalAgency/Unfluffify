@@ -1,0 +1,210 @@
+import { runInNewContext } from "node:vm";
+import * as ts from "typescript";
+
+import { test } from "./test-kit.ts";
+import { assert } from "./test-kit.ts";
+import { readFileSync } from "./file-kit.ts";
+
+const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
+
+function extractFunctionSource(source: string, name: string): string {
+  const functionStart = source.lastIndexOf(`function ${name}(`);
+  assert.ok(functionStart > -1, `missing function ${name}`);
+  const start = source.slice(Math.max(0, functionStart - 6), functionStart) === "async "
+    ? functionStart - 6
+    : functionStart;
+  const signatureStart = source.indexOf("(", functionStart);
+  let parenDepth = 0;
+  let signatureEnd = -1;
+  for (let index = signatureStart; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === "(") { parenDepth += 1; continue; }
+    if (char === ")") { parenDepth -= 1; if (parenDepth === 0) { signatureEnd = index; break; } }
+  }
+  const blockStart = source.indexOf("{", signatureEnd);
+  let depth = 0;
+  for (let index = blockStart; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === "{") { depth += 1; continue; }
+    if (char === "}") { depth -= 1; if (depth === 0) return source.slice(start, index + 1); }
+  }
+  throw new Error(`unterminated function ${name}`);
+}
+
+function compilePreviewFns(names: string[]): string {
+  const moduleSource = `${names.map((n) => extractFunctionSource(popupSource, n)).join("\n\n")}
+module.exports = { ${names.join(", ")} };
+`;
+  return ts.transpileModule(moduleSource, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 }
+  }).outputText;
+}
+
+function makeContext(currentView: Record<string, unknown>) {
+  const setViewStateCalls: Array<Record<string, unknown>> = [];
+  let flushCalls = 0;
+  let view = currentView;
+  const context = {
+    module: { exports: {} as { applyAiPreviewStateUpdate?: (m: Record<string, unknown>) => void } },
+    exports: {},
+    state: {
+      currentBaseUrl: "https://example.com",
+      lastPreviewItemsSignature: "",
+      // A preview session is open, so the push routes through the item latch.
+      previewOpenIntent: true,
+      previewSessionHadItems: (currentView.previewItems as unknown[]).length > 0,
+      previewItemsLatched: [...(currentView.previewItems as unknown[])]
+    },
+    uiModule: {
+      getViewState: () => view,
+      setViewState: (patch: Record<string, unknown>) => { setViewStateCalls.push({ ...patch }); view = { ...view, ...patch }; }
+    },
+    utils: { sameBaseUrl: (a: string, b: string) => a === b },
+    isFeatureEnabled: () => false,
+    flushPendingAiPreviewConfigSync: () => { flushCalls += 1; },
+    JSON, Array, Boolean
+  };
+  runInNewContext(
+    compilePreviewFns(["normalizePreviewItems", "getPreviewItemsSignature", "stabilizePreviewViewState", "buildPreviewViewState", "resolveOpenPreviewItems", "applyAiPreviewStateUpdate"]),
+    context
+  );
+  return {
+    apply: context.module.exports.applyAiPreviewStateUpdate!,
+    getView: () => view,
+    setViewStateCalls,
+    flushCalls: () => flushCalls,
+    state: context.state
+  };
+}
+
+const ITEMS = Array.from({ length: 5 }, (_, i) => ({
+  xpath: `/html[1]/body[1]/main[1]/article[${i + 1}]`, title: `A${i}`, text: `A${i}`, kind: "content"
+}));
+
+// #5/#14 preview flap: a stale open-time aiPreviewStateChanged push (items:[]),
+// delivered late on a heavy page AFTER the list hydrated, must NOT clear the
+// already-shown non-empty list ("no content detected" flash). The push is an
+// add-only item feed; a genuine empty result is applied by refreshUi's probe.
+test("applyAiPreviewStateUpdate: a stale empty push does not clear a shown non-empty list", () => {
+  const ctx = makeContext({
+    previewItems: ITEMS,
+    previewWillRestoreMarking: false,
+    previewFocusedXpath: "",
+    previewShowAllCategories: false
+  });
+  ctx.apply({ baseUrl: "https://example.com", active: true, mode: "preview", itemsPending: false, items: [] });
+  // The shown 5-item list is preserved (no setViewState that empties it).
+  const shown = ctx.getView().previewItems as unknown[];
+  assert.equal(Array.isArray(shown) ? shown.length : -1, 5, "shown list must stay populated");
+});
+
+// A stale empty push arriving while the list is still empty (open, pre-hydration)
+// legitimately stays empty and must not crash / must not fabricate items.
+test("applyAiPreviewStateUpdate: an empty push while empty stays empty", () => {
+  const ctx = makeContext({
+    previewItems: [],
+    previewWillRestoreMarking: false,
+    previewFocusedXpath: "",
+    previewShowAllCategories: false
+  });
+  ctx.apply({ baseUrl: "https://example.com", active: true, mode: "preview", itemsPending: true, items: [] });
+  const shown = ctx.getView().previewItems as unknown[];
+  assert.equal(Array.isArray(shown) ? shown.length : -1, 0);
+});
+
+// A real hydrated push (non-empty) is applied — the guard only blocks emptying.
+test("applyAiPreviewStateUpdate: a non-empty push replaces the shown list", () => {
+  const ctx = makeContext({
+    previewItems: [ITEMS[0]],
+    previewWillRestoreMarking: false,
+    previewFocusedXpath: "",
+    previewShowAllCategories: false
+  });
+  ctx.apply({ baseUrl: "https://example.com", active: true, mode: "preview", itemsPending: false, items: ITEMS });
+  const shown = ctx.getView().previewItems as unknown[];
+  assert.equal(Array.isArray(shown) ? shown.length : -1, 5);
+});
+
+// The session item latch is the single source of truth for the preview list.
+// Content owns the items; the popup mirrors them and must never blink an
+// established list back to empty mid-session, regardless of which racy source
+// (probe or push) delivers a transient/stale empty snapshot.
+function makeLatchContext() {
+  const context = {
+    module: { exports: {} as { resolveOpenPreviewItems?: (items: unknown[], settled: boolean) => { items: unknown[]; pending: boolean } } },
+    exports: {},
+    state: { previewSessionHadItems: false, previewItemsLatched: [] as unknown[] },
+    Array
+  };
+  runInNewContext(compilePreviewFns(["resolveOpenPreviewItems"]), context);
+  return { resolve: context.module.exports.resolveOpenPreviewItems!, state: context.state };
+}
+
+test("resolveOpenPreviewItems: first non-empty hydration latches the list", () => {
+  const { resolve, state } = makeLatchContext();
+  const r = resolve(ITEMS, true);
+  assert.equal(r.items.length, 5);
+  assert.equal(r.pending, false);
+  assert.equal(state.previewSessionHadItems, true);
+  assert.equal(state.previewItemsLatched.length, 5);
+});
+
+test("resolveOpenPreviewItems: an empty snapshot after items keeps the latched list", () => {
+  const { resolve } = makeLatchContext();
+  resolve(ITEMS, true); // latch 5
+  const settledEmpty = resolve([], true);
+  assert.equal(settledEmpty.items.length, 5, "settled empty must keep latched list");
+  assert.equal(settledEmpty.pending, false);
+  const pendingEmpty = resolve([], false);
+  assert.equal(pendingEmpty.items.length, 5, "pending empty must keep latched list");
+  assert.equal(pendingEmpty.pending, false);
+});
+
+test("resolveOpenPreviewItems: empty while never-had-items shows loading vs genuine no-content", () => {
+  const loading = makeLatchContext();
+  const r1 = loading.resolve([], false); // still hydrating
+  assert.equal(r1.items.length, 0);
+  assert.equal(r1.pending, true, "pending: loading state, not 'no content detected'");
+
+  const genuine = makeLatchContext();
+  const r2 = genuine.resolve([], true); // settled with no detections
+  assert.equal(r2.items.length, 0);
+  assert.equal(r2.pending, false, "settled empty: genuine no-content");
+});
+
+// Source contract for the refreshUi transient guard: the probe is item-only, the
+// popup owns visibility via the two latches, and every open/close site maintains
+// them. This is the fundamental fix — locking it against reintroducing a
+// probe-authoritative teardown that flaps the sidebar.
+test("refreshUi treats getAiPreviewState as item-only and owns preview visibility via latches", () => {
+  // The two latch fields exist on popup state.
+  const stateSource = readFileSync(new URL("../src/popup/state.ts", import.meta.url), "utf8");
+  assert.match(stateSource, /previewOpenIntent:\s*false/);
+  assert.match(stateSource, /previewSuppressReopen:\s*false/);
+
+  // Exit-in-flight suppresses probe-driven reopen; standing intent keeps it open;
+  // post-close suppression blocks a lagging active probe until it confirms closed.
+  assert.match(popupSource, /if \(state\.previewRestorePending\) \{[\s\S]{0,200}showPreview = false;/);
+  assert.match(popupSource, /else if \(state\.previewOpenIntent\) \{[\s\S]{0,200}showPreview = true;/);
+  assert.match(popupSource, /else if \(state\.previewSuppressReopen\) \{[\s\S]{0,200}showPreview = false;/);
+
+  // Items flow through the session latch: a settled probe updates it; a pending
+  // or missing probe keeps the latched list (never a mid-hydration empty list).
+  assert.match(popupSource, /const settled = probeOk && !previewViewState\.previewItemsPending;/);
+  assert.match(popupSource, /resolveOpenPreviewItems\(settled \? probeItems : \[\], settled\)/);
+
+  // The push (applyAiPreviewStateUpdate) routes items through the same latch.
+  assert.match(popupSource, /resolveOpenPreviewItems\(settled \? incomingItems : \[\], settled\)/);
+
+  // The close choke point drops intent, raises the reopen guard, resets the latch.
+  assert.match(popupSource, /function settlePreviewRestoreClosed[\s\S]{0,600}state\.previewOpenIntent = false;[\s\S]{0,160}state\.previewSuppressReopen = true;[\s\S]{0,120}resetPreviewItemsLatch\(\);/);
+
+  // All three preview-open paths (AI run, marking-mode preview, Silent Preview)
+  // set the intent so the latch + visibility override engage.
+  const opens = popupSource.match(/state\.previewOpenIntent = true;/g) || [];
+  assert.ok(opens.length >= 3, `expected >=3 preview-open intent sets, found ${opens.length}`);
+
+  // The brain-projected preview visibility is overridden by the popup-owned intent.
+  assert.match(popupSource, /function overrideDictatedPreviewVisibility/);
+  assert.match(popupSource, /overrideDictatedPreviewVisibility\(nextViewState\);/);
+});

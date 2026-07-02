@@ -72,6 +72,24 @@ export const state: PopupState = {
   previewRestoreAppliedToken: 0,
   previewRestoreFallbackTimer: 0,
   lastPreviewItemsSignature: "",
+  // Popup-owned authority for "a preview sidebar is open". The getAiPreviewState
+  // content probe is only a refresh source for the item list, never the source
+  // of truth for open/closed: on heavy pages it has long transient states
+  // (mid-hydration empty+pending, still-closing-async after Exit, request
+  // timeouts) that otherwise flap the sidebar. previewOpenIntent is set when the
+  // popup opens a preview and cleared when it closes; previewSuppressReopen is
+  // raised on close so a lagging probe that still reports the preview active
+  // cannot resurrect it until the probe confirms it is gone (or a new open).
+  previewOpenIntent: false,
+  previewSuppressReopen: false,
+  // Session-scoped item latch: once content reports a hydrated non-empty preview
+  // list, the popup must never blink it back to empty mid-session, no matter
+  // which racy source (getAiPreviewState probe or aiPreviewStateChanged push)
+  // delivers a transient/stale empty snapshot. previewSessionHadItems flips true
+  // on the first non-empty hydration; previewItemsLatched holds the last
+  // non-empty list. Both reset on open and on close.
+  previewSessionHadItems: false,
+  previewItemsLatched: [],
   // Snapshot of marking-session state captured before opening Preview Content.
   // Exit Preview restores this snapshot to keep button gating state-neutral.
   previewMarkingSessionSnapshot: null,
