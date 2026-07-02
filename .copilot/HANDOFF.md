@@ -1,3 +1,77 @@
+# LIVE QA STATUS — 2026-07-02 (handoff to a more capable agent)
+
+Fresh-runtime live round with @Sojaner on bonliva.se. The prior autonomous handoff's
+fixes were confirmed INEFFECTIVE on fresh code (mis-scoped); re-root-caused live and
+shipped REAL fixes. Do NOT trust the per-phase root-cause scopes further down this file.
+
+## SHIPPED THIS SESSION (all on `main`, live-confirmed, gate green + review clean)
+- `8e53a71` fix(popup): gate periodic candidate-change detection behind flag — #1
+  recurring "Live Page candidates changed" detection (2-min `page-types-monitor` alarm →
+  `pageTypesRefreshDue` → popup `pageTypesRefreshRunner` disruptive block). Gated behind
+  off-by-default `pageTypesChangeDetection` flag; quiet data refresh kept.
+- `976a753` fix(content): block the page during data-affecting AI-run curtains — #2/#7.
+  Phase G only fixed brain curtain PROJECTION; the real gap was the content pageCurtain
+  renderer never calling the input blocker. Now `content-bus-client.ts` renderer calls
+  `core.setPopupBusyOnPage(true,…,{operationId,releaseBy})` for `blockSurfaces.page`
+  curtains; deadline-lease (raised watchdog ceiling) survives popup disconnect.
+- `d969019` fix(content): single page-visit freeze lock — #3/#11 (ARCHITECT-DIRECTED).
+  Replaced the multi-reason per-phase freeze with ONE page-visit lock: `pausePageMotion`
+  holds sticky `PAGE_VISIT_MOTION_PAUSE_REASON`; `resumeAllPageMotion` wired into
+  `emitNavigationChangeIfUrlChanged` is the SOLE release. Freeze persists through
+  marking/AI-run/preview/exit and lifts only on navigation. See knowledge.md
+  "single page-visit freeze lock" bullet. DO NOT reintroduce per-phase freeze teardown.
+
+KEY LEARNING: the three symptoms were INDEPENDENT, not one common cause.
+
+## #5/#14 POST-EXIT — PRECISE CURRENT STATUS (live, commit d969019)
+The SEVERE corruption (popup collapsing to silent + contradictory button matrix) is
+LARGELY RESOLVED (by #1 + #3). Post-exit popup viewstate is now STABLE + coherent:
+`silentModeActive=false, mainUiHidden=false, toggleEnabled=true, previewActive=false`;
+page and popup AGREE on marking-active. TWO REMAINING symptoms, BOTH live-confirmed:
+
+1. PAGE-SIDE OSCILLATION ("marking ↔ marking temporarily unavailable" flap the user sees).
+   High-freq CDP poll (150ms) shows the TARGET PAGE overlay's
+   `uf-marking-temporarily-disabled` class FLAPPING true↔false ~every 3s (true window
+   ~200ms). The POPUP viewstate stays STABLE throughout — the flap is CONTENT-SIDE only.
+   Mechanism: content `updateMarkingTemporarilyDisabledUi()` toggles that class from the
+   brain directive `markingEditsBlocked` (view-projector.ts ~258-276:
+   `markingEditsBlocked = aiComputing || previewActive || previewBlocked ||
+   reconciliationBlocked`). Post-exit previewActive/previewBlocked=false, so the periodic
+   assertion comes from `aiComputing` OR `reconciliationBlocked`
+   (`pageSaveReconciliationPending`) flipping ~every 3s. NEXT: instrument which brain
+   fact flips every ~3s post-exit; stop the periodic re-assertion.
+2. SAVE STUCK `requires_ai_run` ("cannot Save after exit" — LAYER 2). Stable post-exit
+   `pageSaveDisabled=true, pageSaveBlockedReason="requires_ai_run"` even though AI was run.
+   Brain never reaches POST_AI + aiRunUpToDate because the `EXITED` ai-run event isn't
+   emitted: the AUTOMATIC compute-lock release (content-main.ts `scheduleAiComputeLockRelease`
+   → `exitAiPreviewMode`) resets content `aiPreviewState` BEFORE the popup dismiss;
+   popup.ts:8117 emits `EXITED` only if `shouldRestoreMarking || shouldReportManualAiPreviewEvent`;
+   brain/index.ts:239-241/293-309 folds `EXITED`→POST_AI + clears preview facts. TOUCHES
+   LOCKED brain/AI-run-event authority → GET ARCHITECT APPROVAL. Options: (a) content
+   compute-lock exit signals brain EXITED/POST_AI; (b) don't auto-exit compute-lock while
+   the preview is shown; (c) popup always emits EXITED after an AI run when preview closes.
+
+Exit reconciliation map (this session's explore agent): content `exitAiPreviewMode`
+(content-main.ts:3539 restore branch) re-enables marking + `setTabState{enabled:true}`;
+popup `applyPreviewClosedState`/`settlePreviewRestoreClosed` (popup.ts ~3072-3098, 2939-2952)
++ force-disable path (popup.ts:4937-4956); brain reprojects POST_AI. NO single authority
+reconciles post-exit marking → recommend brain-authoritative reconciliation.
+
+## #16 (LOW priority per user)
+Reveal/freeze shows 2 stacked spinner cards (top: "Preparing pages…"). Likely a side
+effect of #2: the content pageCurtain renderer now shows the `setPopupBusyOnPage` busy
+overlay ON TOP OF the `setPageInspectionUiActive` inspection tint for page-blocking
+curtains. Fix: for AI-run/data-affecting curtains render only the busy overlay (or suppress
+the inspection tint when the busy overlay is up).
+
+## Session tracker
+reported_issues + validation_phases SQL tables in this session hold per-issue status.
+Live browser was `pnpm browser:live https://bonliva.se/lediga-jobb`; CDP observer at
+`scripts/observe-live-console.mjs` (log `.temp/cdp-observer.log`, throwaway). Production
+build strips most content debug logs — rely on CDP popup viewstate + page DOM probes.
+
+---
+
 # UNFLUFFIFY — AUTONOMOUS HANDOFF PLAN (executor: gpt-5.4, xhigh reasoning)
 
 Author: prior session (deep investigation done). Executor: an autonomous, CAPABLE
