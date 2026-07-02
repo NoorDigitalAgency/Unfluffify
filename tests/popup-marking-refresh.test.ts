@@ -73,7 +73,7 @@ test("preview exit restores a captured marking-session snapshot before payload f
   );
   assert.match(
     popupSource,
-    /function settlePreviewRestoreClosed\(token(?:\s*:\s*[^=]+)? = null, markApplied = true\) \{[\s\S]*?clearPreviewRestorePending\(\);[\s\S]*?if \(markApplied && token !== null\) \{[\s\S]*?state\.previewRestoreAppliedToken = Math\.max\(state\.previewRestoreAppliedToken, token\);[\s\S]*?\}[\s\S]*?clearMarkingSessionSnapshot\(\);[\s\S]*?uiModule\.setViewState\(buildPreviewViewState\(null\)\);[\s\S]*?publishCurrentTabSessionFacts\(\{[\s\S]*?previewActive: false,[\s\S]*?previewBlocked: false,[\s\S]*?previewItemsPending: false,[\s\S]*?previewRestorePending: false[\s\S]*?\}\);/
+    /function settlePreviewRestoreClosed\(token(?:\s*:\s*[^=]+)? = null, markApplied = true\) \{[\s\S]*?clearPreviewRestorePending\(\);[\s\S]*?if \(markApplied && token !== null\) \{[\s\S]*?state\.previewRestoreAppliedToken = Math\.max\(state\.previewRestoreAppliedToken, token\);[\s\S]*?\}[\s\S]*?clearMarkingSessionSnapshot\(\);[\s\S]*?uiModule\.setViewState\(stabilizePreviewViewState\(buildPreviewViewState\(null\)\)\);[\s\S]*?publishCurrentTabSessionFacts\(\{[\s\S]*?previewActive: false,[\s\S]*?previewBlocked: false,[\s\S]*?previewItemsPending: false,[\s\S]*?previewRestorePending: false[\s\S]*?\}\);/
   );
   assert.match(
     popupSource,

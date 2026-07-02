@@ -118,6 +118,7 @@ export interface PopupState {
   previewRestoreToken: number;
   previewRestoreAppliedToken: number;
   previewRestoreFallbackTimer: number;
+  lastPreviewItemsSignature: string;
   previewMarkingSessionSnapshot: PopupPreviewMarkingSessionSnapshot | null;
   configViewLocked: boolean;
   tokenValidationInFlight: boolean;

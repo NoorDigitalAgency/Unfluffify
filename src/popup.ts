@@ -2931,7 +2931,7 @@ function settlePreviewRestoreClosed(token: number | null = null, markApplied = t
     state.previewRestoreAppliedToken = Math.max(state.previewRestoreAppliedToken, token);
   }
   clearMarkingSessionSnapshot();
-  uiModule.setViewState(buildPreviewViewState(null));
+  uiModule.setViewState(stabilizePreviewViewState(buildPreviewViewState(null)));
   publishCurrentTabSessionFacts({
     previewActive: false,
     previewBlocked: false,
@@ -4011,6 +4011,7 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
       };
     }
   }
+  previewViewState = stabilizePreviewViewState(previewViewState);
   const {
     previewActive,
     previewItems,
@@ -7504,6 +7505,7 @@ async function applyComputedSelectorSet(
     // of masking it for the duration of the slow post-run refresh.
     resetAiRunState();
     captureMarkingSessionSnapshot();
+    state.lastPreviewItemsSignature = getPreviewItemsSignature(immediatePreviewItems);
     publishCurrentTabSessionFacts({
       aiBusy: false,
       aiComputing: false,
@@ -7543,7 +7545,19 @@ function applyAiPreviewStateUpdate(message: PreviewStateLike) {
   if (state.currentBaseUrl && messageBaseUrl && !utils.sameBaseUrl(messageBaseUrl, state.currentBaseUrl)) {
     return;
   }
-  const nextPreviewState = buildPreviewViewState(message);
+  const currentView = uiModule.getViewState();
+  const nextPreviewState = stabilizePreviewViewState(buildPreviewViewState(message), currentView);
+  if (
+    nextPreviewState.previewWillRestoreMarking === Boolean(currentView.previewWillRestoreMarking) &&
+    nextPreviewState.previewItems === currentView.previewItems &&
+    nextPreviewState.previewFocusedXpath === currentView.previewFocusedXpath &&
+    nextPreviewState.previewShowAllCategories === Boolean(currentView.previewShowAllCategories)
+  ) {
+    if (!nextPreviewState.previewItemsPending) {
+      flushPendingAiPreviewConfigSync();
+    }
+    return;
+  }
   uiModule.setViewState({
     previewWillRestoreMarking: nextPreviewState.previewWillRestoreMarking,
     previewItems: nextPreviewState.previewItems,
@@ -8135,6 +8149,34 @@ function normalizePreviewItems(items: PreviewStateLike["items"] | null | undefin
     });
 }
 
+function getPreviewItemsSignature(items: PreviewViewState["previewItems"] | null | undefined): string {
+  return JSON.stringify(
+    Array.isArray(items)
+      ? items.map((item) => [
+          typeof item?.xpath === "string" ? item.xpath : "",
+          typeof item?.kind === "string" ? item.kind : "",
+          typeof item?.title === "string" ? item.title : "",
+          typeof item?.text === "string" ? item.text : ""
+        ])
+      : []
+  );
+}
+
+function stabilizePreviewViewState(
+  previewViewState: PreviewViewState,
+  currentView: PopupViewState = uiModule.getViewState()
+): PreviewViewState {
+  const currentPreviewItems = Array.isArray(currentView.previewItems) ? currentView.previewItems : [];
+  const currentSignature = state.lastPreviewItemsSignature || getPreviewItemsSignature(currentPreviewItems);
+  const nextSignature = getPreviewItemsSignature(previewViewState.previewItems);
+  const previewItemsChanged = nextSignature !== currentSignature;
+  state.lastPreviewItemsSignature = nextSignature;
+  return {
+    ...previewViewState,
+    previewItems: previewItemsChanged ? previewViewState.previewItems : currentPreviewItems
+  };
+}
+
 function buildPreviewViewState(previewState: PreviewStateLike | null | undefined): PreviewViewState {
   const previewStateMode = previewState?.mode;
   const previewMode = typeof previewStateMode === "string" ? previewStateMode : "";
@@ -8190,7 +8232,7 @@ async function handlePreviewShowAllCategoriesChange(event: PopupCheckedEvent) {
     if (!isPopupCommandSuccess<PreviewCommandResult>(response)) {
       throw new Error(PopupText.preview.updateFailed);
     }
-    uiModule.setViewState(buildPreviewViewState(response.result.previewState || null));
+    uiModule.setViewState(stabilizePreviewViewState(buildPreviewViewState(response.result.previewState || null)));
   } catch (error) {
     uiModule.setViewState({ previewShowAllCategories: previousChecked });
     uiModule.showToast(getErrorMessage(error) || PopupText.preview.updateFailed);

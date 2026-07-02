@@ -464,7 +464,7 @@ test("#21 a clean AI run opens preview before config sync can hydrate content st
 test("#21 config sync flushes after async preview item hydration", () => {
   assert.match(
     popupSource,
-    /function applyAiPreviewStateUpdate\(message(?:\s*:\s*[^)]*)?\) \{[\s\S]*?const nextPreviewState = buildPreviewViewState\(message\);[\s\S]*?uiModule\.setViewState\(\{[\s\S]*?\}\);[\s\S]*?if \(!nextPreviewState\.previewItemsPending\) \{[\s\S]*?flushPendingAiPreviewConfigSync\(\);/
+    /function applyAiPreviewStateUpdate\(message(?:\s*:\s*[^)]*)?\) \{[\s\S]*?const currentView = uiModule\.getViewState\(\);[\s\S]*?const nextPreviewState = stabilizePreviewViewState\(buildPreviewViewState\(message\), currentView\);[\s\S]*?if \([\s\S]*?nextPreviewState\.previewItems === currentView\.previewItems[\s\S]*?\) \{[\s\S]*?if \(!nextPreviewState\.previewItemsPending\) \{[\s\S]*?flushPendingAiPreviewConfigSync\(\);[\s\S]*?\}[\s\S]*?return;[\s\S]*?\}[\s\S]*?uiModule\.setViewState\(\{[\s\S]*?\}\);[\s\S]*?if \(!nextPreviewState\.previewItemsPending\) \{[\s\S]*?flushPendingAiPreviewConfigSync\(\);/
   );
   assert.match(
     popupSource,
