@@ -19,6 +19,10 @@
   `live-round` for stable pnpm dev + pnpm browser:live rounds with
   launcher/popup control verification and stuck-state recovery,
   `repo-knowledge` when updating durable architecture knowledge, and
+  `consult-architect` before architecture, design, state-machine ownership, or
+  advanced problem-solving work that introduces a new direction unless an
+  explicitly approved handoff, plan, or direct user instruction already carries
+  the approved direction,
   `live-browser` to open the live/dev Chromium with the unpacked
   extension loaded for observation or manual testing.
 - Repository discovery is `codebase-memory-mcp`-first: refresh the graph with
@@ -65,9 +69,17 @@
   `.github/instructions/agent-workflow-guardrails.instructions.md`. Future
   agents should read the knowledge base, relevant instructions/skills, active
   plan, source files, and tests before changing behavior.
-- If a behavior decision is unclear, future agents should ask a deterministic
-  multiple-choice question instead of guessing and encoding drift into code or
-  docs.
+- If a behavior decision is unclear and an explicitly approved handoff, plan,
+  or direct user instruction does not already answer it, future agents should ask a
+  deterministic multiple-choice question instead of guessing and encoding drift
+  into code or docs. In no-user-available runs, only stop on a true blocker or
+  a no-safe-default fork.
+- For architecture or design-heavy work that introduces a new direction, future
+  agents should consult @Sojaner early with the root cause, proposed direction,
+  and one deterministic multiple-choice question unless that decision is already
+  explicitly approved in a handoff, plan, or direct user instruction.
+  If a new architecture decision appears while the user is unavailable, stop and
+  document the blocker instead of guessing.
 
 ## Testing
 

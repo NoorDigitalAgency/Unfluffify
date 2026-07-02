@@ -19,6 +19,10 @@ Use the repository skills before improvising repeatable workflows:
 - `make-plan` for detailed implementation handoffs.
 - `safe-change` before non-trivial source changes.
 - `repo-knowledge` for durable knowledge-base and skill updates.
+- `consult-architect` before architecture, design, cross-domain ownership, or
+  advanced problem-solving work that introduces a new behavior/architecture
+  direction when that direction is not already approved in an explicitly
+  approved handoff, plan, or direct user instruction.
 - `live-browser` to open the live/dev Chromium with the unpacked
   extension loaded for observation or manual testing.
 
@@ -52,9 +56,20 @@ Pure read-only review or inspection may proceed without this sync step.
 Entering `review-push` on an already-dirty worktree is also exempt;
 that workflow handles upstream movement at the publish step.
 
-If a behavior decision is unclear, ask the user a deterministic multiple-choice
-question before implementing. Do not invent product behavior, contracts, UI copy,
-timeouts, persistence semantics, or fallback behavior.
+If a behavior decision is unclear and an explicitly approved handoff, plan, or
+direct user instruction does not already answer it, ask the user a deterministic
+multiple-choice question before implementing. In no-user-available runs, only
+stop on a true blocker or a no-safe-default fork; do not invent product
+behavior, contracts, UI copy, timeouts, persistence semantics, or fallback
+behavior.
+
+For architectural reasoning, design, or advanced problem-solving work that
+creates a new direction choice, consult @Sojaner early unless the current task
+already carries an approved direction in an explicitly approved handoff, plan,
+or direct user instruction. Present the root cause, the proposed solution, and
+one deterministic multiple-choice question before deep implementation instead of
+spiraling. If a new architecture decision appears and the user is unavailable,
+stop and document the blocker instead of guessing.
 
 ## Non-drift rules
 
