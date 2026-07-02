@@ -450,25 +450,34 @@ Risk: MEDIUM. Only after A–G. User said less urgent.
 - STOP-AND-ASK if: touching hover changes which element highlights.
 
 ## PHASE I — Verify/close-out (no or minimal code)
-- #5 (Todo not updated after saving a page for a page type): FIXED — user confirmed
-  the Todo list updates on save. Close the todo/reported_issue; NO code change
-  needed. (Reference only, if a regression ever appears: after a successful save in
-  `handlePageSave()` src/popup/page-reconciliation.ts:144-169, force a fresh
-  page-type coverage refresh by invalidating the `propertyPageTypes` cache in
-  src/popup/site-resolution.ts:178-195 then `refreshUi()`; Todo completion =
-  `markedCount>0` in src/common/lynx-checklist.ts:352-406.)
-- Config-lifecycle step 5 (render-mode + reveal/freeze AFTER load settles): the
-  `/load` loop fix already made reveal/freeze run after load (user observed it
-  working). VERIFY live on a candidate-page navigation; if it works, close. The
-  Phase B fix handles the over-run (render re-inspect) case.
-- Close as RESOLVED (update reported_issues/todos, retest lightly if cheap):
-  #13 (AI run broke extension → loop + snapshot timeout fixed),
-  #10 (Content timed out → snapshot timeout fix),
-  #8 (preview silent highlights → 1ad3150), #4 (silent highlights → resolved).
-- Retest harness-artifacts on a LIGHT page (likely NOT real): #1/#2/#3 (observer
-  auto-dismissed discard/disable/navigate confirms — reproduce WITHOUT an
-  auto-dismissing observer), #9 (inspection overlay stuck — likely automation
-  artifact; confirm on a plain reload).
+Status: DONE (docs/backlog close-out only; no browser launched in the autonomous run).
+- CLOSED from shipped/user-confirmed evidence:
+  - #5 (Todo not updated after saving a page for a page type): FIXED — user
+    confirmed the Todo list updates on save. Close the todo/reported_issue; NO
+    code change needed. (Reference only, if a regression ever appears: after a
+    successful save in `handlePageSave()` src/popup/page-reconciliation.ts:144-169,
+    force a fresh page-type coverage refresh by invalidating the
+    `propertyPageTypes` cache in src/popup/site-resolution.ts:178-195 then
+    `refreshUi()`; Todo completion = `markedCount>0` in
+    src/common/lynx-checklist.ts:352-406.)
+  - #13 (AI run broke extension) and #10 (Content timed out): CLOSED by `fcf3aba`
+    (/load loop fix + snapshot-timeout fix).
+  - #8 (preview silent highlights): CLOSED by `1ad3150`.
+  - #4 (silent highlights): CLOSED by the shipped silent-highlighting +
+    reveal/freeze/load fixes; retain only the manual live checklist below as a
+    confidence re-check.
+- CLOSED under the no-browser rule:
+  - Config-lifecycle step 5 (render-mode + reveal/freeze AFTER load settles): the
+    `/load` loop fix already made reveal/freeze run after load, and the user
+    already observed it working. Phase B covers the render re-inspect over-run.
+    Keep the checklist item below as a human smoke-test only; it is not a blocker
+    for the autonomous/tests-only run.
+- MANUAL LIVE RETEST ONLY (non-blocking; deferred to @Sojaner because this run
+  must not launch the browser):
+  - #1/#2/#3: observer auto-dismissed discard/disable/navigate confirms —
+    reproduce WITHOUT an auto-dismissing observer.
+  - #9: inspection overlay stuck — likely automation artifact; confirm on a plain
+    reload.
 
 ## PHASE J — DEFERRED / FUTURE (do not implement unless asked)
 - `ll-remove-detections`: a standalone, feature-flagged 120s page-type poll in the
