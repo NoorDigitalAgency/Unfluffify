@@ -124,6 +124,7 @@ export interface PopupState {
   markingSessionEpoch: number;
   previewCloseMarkingRestoreUnconfirmed: boolean;
   markingSessionMachineState: string;
+  markingSessionPriorState: string;
   lastConsumedSignalSeq: number;
   previewSessionHadItems: boolean;
   previewSessionSettledEmpty: boolean;

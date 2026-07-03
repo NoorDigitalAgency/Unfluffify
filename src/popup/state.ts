@@ -117,6 +117,9 @@ export const state: PopupState = {
   // memory; fact/dictation churn cannot move it. "boot" adopts once from the
   // brain snapshot. See src/popup/marking-session-machine.ts.
   markingSessionMachineState: "boot",
+  // Remembered session state under an overlay (inspecting/reconciling);
+  // empty = no overlay. See stepMarkingSession.
+  markingSessionPriorState: "",
   // REFLEX-ARC Phase 1: per-popup signal-frame consumption cursor. Frames at
   // or below this seq are already applied; pulls resume after it.
   lastConsumedSignalSeq: 0,

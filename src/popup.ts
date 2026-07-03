@@ -33,8 +33,8 @@ import {
 import * as emulation from "./popup/emulation";
 import {
   adoptMarkingSessionState,
-  resolveMarkingSessionButtonsMemory,
-  transitionMarkingSessionState,
+  resolveMarkingSessionSurfaceMemory,
+  stepMarkingSession,
   type MarkingSessionMachineState,
   type MarkingSessionSignal
 } from "./popup/marking-session-machine";
@@ -1514,13 +1514,22 @@ function overrideDictatedPreviewVisibility(patch: PopupViewStatePatch): void {
 // never move the machine, so they can never flicker the surface or strand it
 // in a wrong end state.
 function signalMarkingSession(signal: MarkingSessionSignal): void {
-  const from = state.markingSessionMachineState as MarkingSessionMachineState;
-  const transition = transitionMarkingSessionState(from, signal);
-  if (transition.moved) {
-    state.markingSessionMachineState = transition.to;
-    logWorldTrace("marking-session:transition", { from, signal, to: transition.to });
+  const from: { state: MarkingSessionMachineState; priorState: MarkingSessionMachineState | null } = {
+    state: state.markingSessionMachineState as MarkingSessionMachineState,
+    priorState: (state.markingSessionPriorState || null) as MarkingSessionMachineState | null
+  };
+  const step = stepMarkingSession(from, signal);
+  if (step.moved) {
+    state.markingSessionMachineState = step.machine.state;
+    state.markingSessionPriorState = step.machine.priorState ?? "";
+    logWorldTrace("marking-session:transition", {
+      from: from.state,
+      signal,
+      to: step.machine.state,
+      prior: step.machine.priorState ?? ""
+    });
   } else {
-    logWorldTrace("marking-session:signal-held", { state: from, signal });
+    logWorldTrace("marking-session:signal-held", { state: from.state, signal });
   }
 }
 
@@ -1543,11 +1552,10 @@ const SIGNAL_FRAME_TO_MACHINE_SIGNAL: Readonly<Record<string, MarkingSessionSign
   [SIGNAL_NAMES.SESSION_SAVED]: "saved",
   [SIGNAL_NAMES.SESSION_DISCARDED]: "discarded",
   [SIGNAL_NAMES.SESSION_NAVIGATED]: "navigated",
-  // Overlay states arrive in Phase 2.
-  [SIGNAL_NAMES.INSPECTION_STARTED]: null,
-  [SIGNAL_NAMES.INSPECTION_ENDED]: null,
-  [SIGNAL_NAMES.RECONCILIATION_STARTED]: null,
-  [SIGNAL_NAMES.RECONCILIATION_ENDED]: null
+  [SIGNAL_NAMES.INSPECTION_STARTED]: "inspection-started",
+  [SIGNAL_NAMES.INSPECTION_ENDED]: "inspection-ended",
+  [SIGNAL_NAMES.RECONCILIATION_STARTED]: "reconciliation-started",
+  [SIGNAL_NAMES.RECONCILIATION_ENDED]: "reconciliation-ended"
 });
 
 function consumeSignalFrame(frame: SignalFrame): void {
@@ -1613,7 +1621,7 @@ function overrideDictatedMarkingButtons(patch: PopupViewStatePatch): void {
       (Object.prototype.hasOwnProperty.call(patch, "silentModeActive")
         ? !patch.silentModeActive
         : !currentView.silentModeActive);
-    state.markingSessionMachineState = adoptMarkingSessionState({
+    const adopted = adoptMarkingSessionState({
       markingActive,
       previewOpen: Boolean(state.previewOpenIntent),
       restorePending: Boolean(state.previewRestorePending),
@@ -1622,15 +1630,71 @@ function overrideDictatedMarkingButtons(patch: PopupViewStatePatch): void {
         state.sessionAiRunPhase === AI_RUN_PHASES.AI_PREVIEW,
       dirty: Boolean(state.currentDraftDirty)
     });
-    logWorldTrace("marking-session:adopted", { state: state.markingSessionMachineState });
+    const dictatedPhase = typeof patch.sessionCurtainPhase === "string"
+      ? patch.sessionCurtainPhase
+      : "";
+    if (dictatedPhase === SESSION_PHASES.RENDER_MODE_INSPECTION) {
+      // Adopt into the overlay with the derived session state as the prior.
+      state.markingSessionMachineState = "inspecting";
+      state.markingSessionPriorState = adopted;
+    } else {
+      state.markingSessionMachineState = adopted;
+      state.markingSessionPriorState = "";
+    }
+    logWorldTrace("marking-session:adopted", {
+      state: state.markingSessionMachineState,
+      prior: state.markingSessionPriorState
+    });
   }
-  const memory = resolveMarkingSessionButtonsMemory(
+  // REFLEX-ARC Phase 2: the machine state renders its COMPLETE memorized
+  // surface — buttons (incl. toggle lock + visibility), mode, save reason,
+  // and session-curtain content. The brain-dictated values for these fields
+  // are superseded; null memory fields (boot, overlay mode) pass through.
+  const memory = resolveMarkingSessionSurfaceMemory(
     state.markingSessionMachineState as MarkingSessionMachineState
   );
-  if (!memory) {
-    return;
+  if (memory.buttons) {
+    Object.assign(patch, memory.buttons);
   }
-  Object.assign(patch, memory);
+  if (memory.mode) {
+    patch.mainUiHidden = memory.mode.mainUiHidden;
+    patch.silentModeActive = memory.mode.silentModeActive;
+  }
+  if (memory.pageSaveBlockedReason !== null) {
+    (patch as Record<string, unknown>).pageSaveBlockedReason = memory.pageSaveBlockedReason;
+  }
+  if (memory.curtain) {
+    if (!memory.curtain.visible) {
+      patch.sessionCurtainVisible = false;
+      patch.sessionCurtainMessage = "";
+      patch.sessionCurtainNote = "";
+      patch.sessionCurtainTimerText = "";
+      patch.sessionCurtainOperation = "";
+    } else {
+      patch.sessionCurtainVisible = true;
+      patch.sessionCurtainMessage = memory.curtain.message;
+      patch.sessionCurtainNote = memory.curtain.note;
+      patch.sessionCurtainOperation = memory.curtain.operation;
+      patch.sessionCurtainPhase = memory.curtain.phase;
+      patch.sessionCurtainTimerText = memory.curtain.timer === "run-countdown"
+        ? formatRunCountdownForCurtain()
+        : "";
+    }
+  }
+}
+
+// The running-curtain countdown is machine memory fed by the run deadline the
+// run.started signal carried (mirrored in state.aiRunDeadlineAt): re-derived
+// at every patch application (~1s cadence from brain projections).
+function formatRunCountdownForCurtain(): string {
+  const remainingMs = Math.max(0, (state.aiRunDeadlineAt || 0) - Date.now());
+  if (!remainingMs) {
+    return "";
+  }
+  const totalSeconds = Math.ceil(remainingMs / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
 function applyCentralSessionDictation(nextViewState: PopupViewStatePatch, currentTabId: number | null): void {
@@ -5571,6 +5635,15 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
   nextViewState.lynxChecklistAiQuestionDisabled = Boolean(state.lynxChecklistAiQuestionDisabled);
   nextViewState.lynxChecklistAiQuestionHidden = Boolean(state.lynxChecklistAiQuestionHidden);
   nextViewState.lynxChecklistNoticeText = state.lynxChecklistNoticeText || "";
+  // 'markings-changed' edge (P2 interim source, replaced by content
+  // provenance in P3): the session's pending-changes truth flipping on IS the
+  // user's marking edit as the popup can currently observe it. The draft
+  // dirty flag alone is narrower (it missed plain mark clicks — live P2
+  // acceptance: session dirty, machine stuck pre_ai_clean). The machine table
+  // is idempotent, so interleaved-pass double edges cannot double-move it.
+  if (sessionHasPendingChanges && !view.sessionHasPendingChanges) {
+    signalMarkingSession("markings-changed");
+  }
   nextViewState.sessionHasPendingChanges = sessionHasPendingChanges;
   nextViewState.currentPageHasPendingChanges = currentPageHasPendingChanges;
   nextViewState.sessionRequiresAiRun = sessionRequiresAiRun;

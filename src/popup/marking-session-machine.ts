@@ -23,7 +23,9 @@ export type MarkingSessionMachineState =
   | "running"
   | "post_ai_clean"
   | "preview_open"
-  | "exit_restoring";
+  | "exit_restoring"
+  | "inspecting"
+  | "reconciling";
 
 export type MarkingSessionSignal =
   | "marking-enabled"
@@ -37,7 +39,28 @@ export type MarkingSessionSignal =
   | "exit-settled"
   | "saved"
   | "discarded"
-  | "navigated";
+  | "navigated"
+  | "inspection-started"
+  | "inspection-ended"
+  | "reconciliation-started"
+  | "reconciliation-ended";
+
+// inspecting/reconciling are OVERLAY states: they render on top of a
+// remembered prior session state and return to it on their -ended signal.
+export const MARKING_SESSION_OVERLAY_STATES: readonly MarkingSessionMachineState[] =
+  Object.freeze(["inspecting", "reconciling"]);
+
+const OVERLAY_ENTRY: Readonly<Partial<Record<MarkingSessionSignal, MarkingSessionMachineState>>> =
+  Object.freeze({
+    "inspection-started": "inspecting",
+    "reconciliation-started": "reconciling",
+  });
+
+const OVERLAY_EXIT: Readonly<Partial<Record<MarkingSessionSignal, MarkingSessionMachineState>>> =
+  Object.freeze({
+    "inspection-ended": "inspecting",
+    "reconciliation-ended": "reconciling",
+  });
 
 // The four marking action buttons; every state has a COMPLETE, frozen matrix.
 export type MarkingSessionButtonsMemory = {
@@ -86,7 +109,12 @@ export const MARKING_SESSION_STATE_MEMORY: Readonly<
   // Preview sidebar open: the sidebar is the surface; actions are locked.
   preview_open: Object.freeze({ buttons: frozenButtons(true, true, true, true) }),
   // Exit clicked, restore in flight: locked until the settle signal lands.
-  exit_restoring: Object.freeze({ buttons: frozenButtons(true, true, true, true) })
+  exit_restoring: Object.freeze({ buttons: frozenButtons(true, true, true, true) }),
+  // Overlay states use the Phase-2 full-surface memory
+  // (MARKING_SESSION_SURFACE_MEMORY below); the P0 four-button table has no
+  // opinion for them.
+  inspecting: Object.freeze({ buttons: null }),
+  reconciling: Object.freeze({ buttons: null })
 });
 
 // The predefined transition table. Anything not listed is NOT a transition:
@@ -201,5 +229,219 @@ export function adoptMarkingSessionState(snapshot: {
 export function resolveMarkingSessionButtonsMemory(
   state: MarkingSessionMachineState
 ): MarkingSessionButtonsMemory | null {
-  return MARKING_SESSION_STATE_MEMORY[state].buttons;
+  return MARKING_SESSION_STATE_MEMORY[state]?.buttons ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// REFLEX-ARC Phase 2: the machine with overlay support, and the FULL surface
+// memories (buttons incl. toggle lock + visibility, mode, save reason, and
+// session-curtain content — spinner narration is memory, the brain decides
+// only entry/exit via signals).
+// ---------------------------------------------------------------------------
+
+export type MarkingSessionMachineShape = Readonly<{
+  state: MarkingSessionMachineState;
+  priorState: MarkingSessionMachineState | null;
+}>;
+
+export type MarkingSessionStep = Readonly<{
+  machine: MarkingSessionMachineShape;
+  moved: boolean;
+}>;
+
+// One deterministic rule set:
+// - overlay-started from a session state: enter the overlay, remember prior.
+// - overlay-started while ALREADY overlaid: switch the overlay, keep the
+//   ORIGINAL prior (the underlying session state).
+// - matching overlay-ended: return to prior. Non-matching -ended: held.
+// - session signals during an overlay: transition the PRIOR state (the
+//   overlay is presentation; the session continues underneath).
+export function stepMarkingSession(
+  machine: MarkingSessionMachineShape,
+  signal: MarkingSessionSignal
+): MarkingSessionStep {
+  const isOverlaid = MARKING_SESSION_OVERLAY_STATES.includes(machine.state);
+  const overlayEntry = OVERLAY_ENTRY[signal];
+  if (overlayEntry) {
+    if (machine.state === overlayEntry) {
+      return { machine, moved: false };
+    }
+    return {
+      machine: {
+        state: overlayEntry,
+        priorState: isOverlaid ? machine.priorState : machine.state,
+      },
+      moved: true,
+    };
+  }
+  const overlayExit = OVERLAY_EXIT[signal];
+  if (overlayExit) {
+    if (machine.state !== overlayExit) {
+      return { machine, moved: false };
+    }
+    return {
+      machine: { state: machine.priorState ?? "silent", priorState: null },
+      moved: true,
+    };
+  }
+  if (isOverlaid) {
+    const prior = machine.priorState ?? "silent";
+    const transition = transitionMarkingSessionState(prior, signal);
+    if (!transition.moved) {
+      return { machine, moved: false };
+    }
+    return {
+      machine: { state: machine.state, priorState: transition.to },
+      moved: true,
+    };
+  }
+  const transition = transitionMarkingSessionState(machine.state, signal);
+  if (!transition.moved) {
+    return { machine, moved: false };
+  }
+  return { machine: { state: transition.to, priorState: null }, moved: true };
+}
+
+export type MarkingSessionButtonsSurface = Readonly<{
+  computeButtonDisabled: boolean;
+  computeButtonLoading: boolean;
+  markingPreviewVisible: boolean;
+  markingPreviewDisabled: boolean;
+  pageSaveDisabled: boolean;
+  pageRevertDisabled: boolean;
+  toggleEnabledDisabled: boolean;
+}>;
+
+export type MarkingSessionCurtainMemory =
+  | Readonly<{ visible: false }>
+  | Readonly<{
+      visible: true;
+      message: string;
+      note: string;
+      operation: string;
+      phase: string;
+      // "run-countdown": the popup renderer fills timerText from the machine's
+      // own run countdown (started by run.started's deadlineAt payload).
+      timer: "run-countdown" | null;
+    }>;
+
+export type MarkingSessionSurfaceMemory = Readonly<{
+  // null on any field = not owned in this state (boot passthrough / overlay
+  // keeps the underlying mode).
+  buttons: MarkingSessionButtonsSurface | null;
+  mode: Readonly<{ mainUiHidden: boolean; silentModeActive: boolean }> | null;
+  pageSaveBlockedReason: string | null;
+  curtain: MarkingSessionCurtainMemory | null;
+}>;
+
+const surfaceButtons = (
+  computeButtonDisabled: boolean,
+  computeButtonLoading: boolean,
+  markingPreviewVisible: boolean,
+  markingPreviewDisabled: boolean,
+  pageSaveDisabled: boolean,
+  pageRevertDisabled: boolean,
+  toggleEnabledDisabled: boolean
+): MarkingSessionButtonsSurface =>
+  Object.freeze({
+    computeButtonDisabled,
+    computeButtonLoading,
+    markingPreviewVisible,
+    markingPreviewDisabled,
+    pageSaveDisabled,
+    pageRevertDisabled,
+    toggleEnabledDisabled
+  });
+
+const HIDDEN_CURTAIN: MarkingSessionCurtainMemory = Object.freeze({ visible: false });
+const MARKING_MODE = Object.freeze({ mainUiHidden: false, silentModeActive: false });
+const SILENT_MODE = Object.freeze({ mainUiHidden: true, silentModeActive: true });
+const ALL_ACTIONS_LOCKED = surfaceButtons(true, false, true, true, true, true, true);
+
+export const MARKING_SESSION_SURFACE_MEMORY: Readonly<
+  Record<MarkingSessionMachineState, MarkingSessionSurfaceMemory>
+> = Object.freeze({
+  boot: Object.freeze({ buttons: null, mode: null, pageSaveBlockedReason: null, curtain: null }),
+  silent: Object.freeze({
+    buttons: surfaceButtons(true, false, false, true, true, true, false),
+    mode: SILENT_MODE,
+    pageSaveBlockedReason: "",
+    curtain: HIDDEN_CURTAIN
+  }),
+  silent_preview: Object.freeze({
+    buttons: surfaceButtons(true, false, false, true, true, true, false),
+    mode: SILENT_MODE,
+    pageSaveBlockedReason: "",
+    curtain: HIDDEN_CURTAIN
+  }),
+  pre_ai_clean: Object.freeze({
+    buttons: surfaceButtons(false, false, true, true, true, true, false),
+    mode: MARKING_MODE,
+    pageSaveBlockedReason: "no_session_changes",
+    curtain: HIDDEN_CURTAIN
+  }),
+  pre_ai_dirty: Object.freeze({
+    buttons: surfaceButtons(false, false, true, true, true, false, false),
+    mode: MARKING_MODE,
+    pageSaveBlockedReason: "requires_ai_run",
+    curtain: HIDDEN_CURTAIN
+  }),
+  running: Object.freeze({
+    buttons: surfaceButtons(true, true, true, true, true, true, true),
+    mode: MARKING_MODE,
+    pageSaveBlockedReason: "busy",
+    curtain: Object.freeze({
+      visible: true,
+      message: "Computing selectors",
+      note: "Waiting for AI results",
+      operation: "computing_ai",
+      phase: "computing_ai",
+      timer: "run-countdown"
+    } as const)
+  }),
+  post_ai_clean: Object.freeze({
+    buttons: surfaceButtons(true, false, true, false, false, false, true),
+    mode: MARKING_MODE,
+    pageSaveBlockedReason: "",
+    curtain: HIDDEN_CURTAIN
+  }),
+  preview_open: Object.freeze({
+    buttons: ALL_ACTIONS_LOCKED,
+    mode: MARKING_MODE,
+    pageSaveBlockedReason: "busy",
+    curtain: HIDDEN_CURTAIN
+  }),
+  exit_restoring: Object.freeze({
+    buttons: ALL_ACTIONS_LOCKED,
+    mode: MARKING_MODE,
+    pageSaveBlockedReason: "busy",
+    curtain: HIDDEN_CURTAIN
+  }),
+  // Overlays: lock the actions and narrate; the underlying MODE stays the
+  // prior state's (mode: null keeps the current view).
+  inspecting: Object.freeze({
+    buttons: ALL_ACTIONS_LOCKED,
+    mode: null,
+    pageSaveBlockedReason: "busy",
+    curtain: Object.freeze({
+      visible: true,
+      message: "Inspecting the page",
+      note: "Working… controls are temporarily blocked.",
+      operation: "busy",
+      phase: "render_mode_inspection",
+      timer: null
+    } as const)
+  }),
+  reconciling: Object.freeze({
+    buttons: ALL_ACTIONS_LOCKED,
+    mode: null,
+    pageSaveBlockedReason: "server_sync_pending",
+    curtain: HIDDEN_CURTAIN
+  })
+});
+
+export function resolveMarkingSessionSurfaceMemory(
+  state: MarkingSessionMachineState
+): MarkingSessionSurfaceMemory {
+  return MARKING_SESSION_SURFACE_MEMORY[state] ?? MARKING_SESSION_SURFACE_MEMORY.boot;
 }

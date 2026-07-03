@@ -442,7 +442,27 @@ properties, 7-minute windows, frames reviewed.
   DECISION: run started/completed/failed dedupe on `session:<id>` — the live
   trace caught RESULTS_APPLIED published twice >250ms apart (two layers
   republish the same run event); run signals are once-per-session.
-- P2 popup full-surface memory: NOT STARTED
+- P2 popup full-surface memory: SHIPPED (2026-07-03). Machine extended with
+  inspecting/reconciling OVERLAY states (priorState memory; session signals
+  transition the prior underneath; brain-edge emitters from P2a). FULL
+  surface memories per state: 7 button bits incl. toggle lock + visibility,
+  mode (mainUiHidden/silentModeActive), pageSaveBlockedReason, and
+  session-curtain content — the running curtain narrates from memory
+  ("Computing selectors"/"Waiting for AI results" + machine-owned countdown
+  from run.started deadlineAt). applyMarkingSessionMemory supersedes the
+  dictated values at both patch entry points; boot adoption can land inside
+  the inspecting overlay. LIVE ACCEPTANCE (.no): memory curtain observed
+  rendering during the run; C1/C2 + two-sided PASS; owned fields stable
+  between transitions; the +44s flag is the documented P3 residual (now via
+  the interim markings-changed source).
+  DECISION: run-curtain sub-phase message variance (spinner-authority texts)
+  collapses into the stable memory narration per D-SCOPE.
+  DECISION: 'markings-changed' interim source = the sessionHasPendingChanges
+  false->true edge in the refresh pass (the draft-dirty edge alone missed
+  plain mark clicks — live-caught); replaced by content provenance in P3.
+  DEFERRED to P4 cleanup: deleting the popup-side spinner-lifecycle
+  pushSpinner call sites and the now-superseded dictation field derivations
+  (they are overridden, not yet removed).
 - P3 content provenance + machines + overlays: NOT STARTED
 - P4 brain slimming: NOT STARTED
 - P5 refresh reduction: NOT STARTED
