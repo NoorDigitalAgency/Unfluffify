@@ -1,12 +1,342 @@
-# LIVE QA STATUS — 2026-07-02 EVENING (WIP checkpoint; handoff continues)
+# LIVE QA STATUS — 2026-07-03 OVERNIGHT (#5/#14 FIX ROUND C, live-iterated per-frame; round-8 + final .se PENDING)
 
-Environment-switch checkpoint by @Sojaner. This section supersedes the
-"#5/#14 POST-EXIT — FIXED" section below, which was based on round-1 (`3dcc078`)
-and was LIVE-DISPROVEN. Two things to know: (A) #5 round-2 (popup-owned preview)
-is committed here but NOT yet live-confirmed; (B) a NEW, separate reveal/freeze
-race was found and root-caused (LOCKED behavior, awaiting @Sojaner direction).
+Session: Claude Fable 5 (continuation of the LATE NIGHT round-3 handoff below,
+whose NEXT STEPS this session executed and CORRECTED). Read this first.
+
+## USER ACCEPTANCE (verbatim intent, 2026-07-03)
+1. C1: post-AI-run the preview opens showing "Content loading..."
+2. C2: the list hydrates, STAYS hydrated, two-sided clicking works both ways
+3. C3: Exit -> Save/Discard state and STAYS, no matter how long you wait
+4. C4: never an unrecoverable state (silent highlighting + disabled toggle)
+Observation must be per-frame: `.temp/run-flow2.mjs` (also tracked in
+`.copilot/qa-scripts/`) drives the full flow with a popup SCREENCAST (PNG per
+repaint), 100ms change-only state sampling, a two-sided click test, and a
+6-minute post-exit hands-off window; prints a per-criterion VERDICT.
+
+## STATUS (final for this session; committed as the FOUNDATION)
+- C1 (loading shown): PASS in every per-frame round.
+- C2 (list hydrates + STAYS + two-sided clicking): PASS rounds 9/10/11 after
+  the reflex-arc single-writer fix (zero blinks; two-sided both directions).
+- C3 (exit -> Save/Discard and STAYS): exit + settle themselves are FIXED and
+  held 6-minute windows; the residual failure is a FALSE 'markings-changed'
+  SIGNAL ~+45s post-exit (see FALSE-SIGNAL ROOT CAUSE) — content's post-exit
+  config-sync merge rewrites the draft entry and reports dirty with no user
+  edit. The popup machine transitions correctly on the signal it was given.
+- C4 (never silent+locked-toggle): PASS every round since the decider+mirror
+  fixes.
+- BUTTON SURFACE: partially machine-owned (four disable bits); reason texts,
+  visibility, and curtains still per-pass/dictation-derived -> residual
+  oscillation @Sojaner observed. Fixing this properly = the agreed REFLEX-ARC
+  PROGRAM below; do NOT keep patching it field-by-field.
+- TEMP probes reverted; FULL GATE GREEN: lint / check / 1082 tests / build.
+- The final bonliva.se/lediga-jobb 100%-healthy run + /review-push GATE moves
+  to the end of the program's stage 1 (the button surface is known-imperfect
+  until then, by explicit architect decision).
+
+## FALSE-SIGNAL ROOT CAUSE (round-11 trace, the program's motivating evidence)
+The popup session machine executed its table flawlessly (running ->
+preview_open -> exit_restoring -> post_ai_clean, spurious signals held), then
+moved post_ai_clean -> pre_ai_dirty on a 'markings-changed' signal at ~+45s
+with NO user action: content's post-exit config-sync merge
+(handleEnabledSameBaseUpdate mergeDraftEntry) rewrites the draft entry and the
+draft-status report flips clean->dirty. Downstream edge-detection cannot tell
+a user marking edit from content's internal reshape — signals must be BORN at
+the source with provenance (content knows the cause), carry sequence numbers,
+and be consumed once — never reconstructed from re-served level snapshots.
+(Related: the fingerprint normalization comment at popup.ts
+fingerprintPageMarkingEntry describes this exact spurious-invalidation class.)
+
+## THE AGREED PROGRAM (architect-approved direction; NEXT SESSION START HERE)
+D1 — AS-IS extraction: full-code review producing the implicit state machine /
+     routine per layer (popup, content, brain, SW orchestrators): every
+     state-ish variable, every surface writer, every pseudo-signal and its
+     real provenance. Seed material: this handoff + the round traces + the
+     scaffold at .copilot/architecture/muscle-memory-inventory.md.
+D2 — TO-BE design: THE MUSCLE-MEMORY INVENTORY PER LAYER (the matrices):
+     signal vocabulary (namespaced, seq'd, once-only, provenance-tagged),
+     each layer's state x signal x memory table INCLUDING spinner/curtain
+     content as layer memory, adoption/recovery rules, authority map (brain =
+     decisions + observation; layers = mechanical routines).
+D3 — staged migration: (1) popup machine owns its FULL surface in bridge mode,
+     (2) brain emits real signals for the popup, (3) content routines,
+     (4) delete field-level dictation. Per-frame harness (run-flow2) is the
+     acceptance rig per stage; @Sojaner reviews D1-D3 before rewiring.
+
+## THE FIX SET (working tree; supersedes the round-3 "epoch only" plan)
+The round-3 NEXT STEPS said "EPOCH-based, not time-based" — CORRECT but
+INSUFFICIENT alone: round-4a failed on the fixed build because a pass can start
+AFTER the settle (same epoch) and still read content mid-restore. Live traces
+(rounds 4-7) drove these six mechanisms, all exact, no time windows:
+1. markingSessionEpoch (popup/state.ts): monotonic counter of popup-initiated
+   marking transitions (exit settle, toggle both ways, run start, force
+   disables, discard, silent-align, restore confirmation). refreshUiInner
+   captures it at pass start; at every effect site (marking-fact publish,
+   content-wins sync, 4 force-disable branches) a stale pass SKIPS; a pass that
+   performs a transition re-adopts the bumped epoch. Live-proven twice
+   (skipMarkingFactsFromStalePass:true suppressing stale publishes).
+2. previewCloseMarkingRestoreUnconfirmed (latch): armed at a marking-restored
+   settle, holds the popup's enabled authority (content-wins ignores content's
+   transient false, publish clamps to restore target, readiness gate holds)
+   until content is FIRST OBSERVED re-enabled — the observation bumps the epoch
+   so older in-flight passes die. RAISE-ONLY at settle: content's token-less
+   aiPreviewClosed push settles the same close AGAIN seconds later (snapshot
+   already cleared) and disarming there re-exposed the collapse (round-4a; the
+   trace showed epoch bump 11 with no logged writer).
+3. previewSuppressReopen is a DURABLE latch (probe responses reorder across
+   passes; one confirmed-closed probe must not re-enable adoption). Cleared
+   only by the three open paths; reconnect adoption unaffected.
+4. aiPreviewMarkingSessionActive = previewActive && previewMarkingSessionSnapshot:
+   the toggle force-true + enabled-preserve apply ONLY to marking-backed
+   previews. A SILENT preview forced isEnabled:true over a silent session and
+   blocked the content-wins sync from ever converging (live 00:03 trace).
+5. Criterion-4 trap fixes: brain dictation-decider locks the toggle for POST_AI
+   only while facts.isEnabled (silent + stale post_ai left NO resolution
+   affordance); popup resets its POST_AI mirror on real navigation (beyond-hash
+   URL change) so sticky aiRunPhase:post_ai can't follow you to other pages.
+6. C2 item stomp: a transient tabInScope=false pass (tab-context re-resolution)
+   skipped the whole preview block and wrote the empty no-probe default PAST
+   the session latch (stabilize keeps items only on unchanged signature). Now
+   an out-of-scope pass with standing previewOpenIntent keeps the popup-owned
+   open state + latched items. Frames round-7: the open list oscillated 130<->0
+   at ~500ms and PAINTED as permanent "No content detected".
+7. previewBlocked ECHO LOOP (found 04:12 on a live wedge): the popup published
+   `previewBlocked: nextViewState.previewBlocked` — but that view field is
+   brain-DICTATED, so the popup echoed the brain's own projection back as a
+   popup fact. A stale blocked:true from a torn-down session self-sustained
+   across popup restarts AND full navigations (brain held the incoherent
+   {previewActive:false, previewBlocked:true}; the popup rendered the preview
+   sidebar shell "Preview mode is active…"/"Loading preview…" with NO toggle,
+   because previewBlocked switches the whole popup view). Now the popup
+   publishes blocked only while it actually has a standing preview session
+   (previewOpenIntent || previewRestorePending); verified live: the fresh
+   popup converged the brain to blocked:false immediately after the fix.
+Tests: tests/popup-marking-session-epoch.test.ts (epoch/latch behavioral via VM
+extraction + full source contracts + decider units + the echo-loop contract)
+and updates in popup-preview-transient-guard / popup-mode-sync /
+popup-preview-restore-fallback.
+
+## ROUND LOG
+- 4a (.se, epoch+latch, no probes): sidebar-reopen FIXED; collapse still hit
+  via the duplicate-settle latch disarm (+30.6s). 4b: INVALID (my reset used
+  runtime.reload+tabs.reload -> orphaned content; ALWAYS full-navigate).
+- 4c (.se, probes): PASS; trace yielded the duplicate-settle + confirmation
+  mechanics and the silent-preview/silent-drop bugs (user session 00:03).
+- 5 (.no): PASS 3-verdict harness. 6b (.no): PASS. 7 (.no, per-frame, 6-min):
+  C1/C3/C4 PASS, C2 FAIL -> fix (6) above. 8 + final .se: PENDING.
+- The round-6 baseline wedge (silent + toggle locked + sessionHasPendingChanges
+  on a navigated-away dirty session) = criterion-4 trap, fixed by (5).
+
+## BLOCKER (03:45): live browser environment
+Since ~02:45 Chrome starts but never completes the Playwright/DevTools
+handshake when launched from the agent harness shell (both cached chromium
+builds, pristine profile too; disk/RAM fine; no managed Chrome policies;
+harness shell runs with no_new_privileges; Bitdefender EDR present — suspected
+interference after the automation storm). RESOLUTION: the user launches
+`pnpm browser:live https://www.bonliva.no/ --no-build` from their own shell;
+CDP 9222 is watched by a persistent monitor and the run auto-resumes.
+Environment lessons: never tabs.reload after runtime.reload (orphans); recreate
+the popup tab after runtime reload; pkill patterns must not self-match; the
+extension auth lives in profile Default/Local Extension Settings/<ext-id> —
+never delete that dir; a hard-wedged renderer poisons probes until a FULL
+navigation replaces the document.
+
+## ARCHITECT DIRECTION (2026-07-03, @Sojaner — the REFLEX-ARC model)
+The brain's authority is too aggressive: it currently orchestrates every muscle
+movement. Target model: the BRAIN keeps decision authority and OBSERVES — it
+signals intents ("selectors ready -> OPEN PREVIEW") and consumes reported
+sensations; each LAYER owns mechanical, deterministic, locally-orchestrated
+routines (muscle memory) with minimal persistent local state, reporting state
+changes back as signals. The brain never orchestrates mid-routine.
+- Tonight's increment (8): the preview view became a single-writer local
+  routine (resolvePreviewRoutineViewState — all writers re-derive the preview
+  view from the routine's CURRENT latch/intent at the moment of the write;
+  probe/push/open are feeds; pass-end full-view writes can no longer stomp).
+  New latch bit previewSessionSettledEmpty remembers a genuine no-detections
+  result. Tests: routine-renderer behavioral tests + write-site contract in
+  popup-preview-transient-guard.test.ts.
+- FOLLOW-UP (not tonight): apply the same model to the other routines
+  (marking enable/disable, save, run lifecycle) — brain sends one signal, the
+  layer's routine runs mechanically and reports back; refreshUi stops
+  re-deriving the world every second.
+
+## STILL OPEN (tracked, not in this slice)
+- FINDING-3 (content-side): hydratePreviewItems can genuinely produce 0 items
+  on a leftover session (4c), and the round-3d lost-push variant. Content-side.
+- Reveal/freeze warmup abort race (LOCKED, root-caused, awaiting direction).
+- "Waiting for AI results" curtain re-asserts ~200ms mid-open-preview (frames
+  round-7; pre-exit only, self-clears; sampler now records curtain fields).
+- #16 stacked spinner cards (low).
+
+---
+
+# SUPERSEDED — LIVE QA STATUS — 2026-07-03 LATE NIGHT (#5/#14 ROOT-CAUSED, fix rounds 1-2 partial; handoff)
+
+Environment-switch checkpoint by @Sojaner (session: Claude Fable 5, scripted-
+orchestration round-3). This section supersedes the "2026-07-02 EVENING"
+section below. Read this first; the evening section's open questions are now
+ANSWERED with trace evidence.
+
+## HEADLINE
+- #5/#14 post-exit collapse is fully ROOT-CAUSED with per-event trace evidence.
+- A deterministic scripted repro harness exists (.temp/run-flow.mjs /
+  .temp/exit-flow.mjs) — reproduces 5/5, no manual pairing needed.
+- Fix round A (sidebar reopen): CONFIRMED FIXED live (sidebarReopened:false).
+- Fix round B (silent collapse): NOT yet fixed — two grace-window attempts
+  narrowed it but a stale interleaved refreshUi pass still leaks isEnabled:false
+  after grace expiry. The durable fix must be EPOCH-based, not time-based (see
+  NEXT STEPS). Working tree has WIP + TEMP diagnostics — see WORKING TREE STATE.
+
+## THE BUG, PRECISELY (all trace-proven on bonliva.se/lediga-jobb)
+Flow: enable marking -> mark -> Run AI -> preview opens -> single Exit click.
+1. Exit settles correctly: brain reaches ready_to_save, Save enabled (~+1-3s).
+2. Content's exit/restore is ASYNC and slow on heavy pages: for seconds it
+   still answers getAiPreviewState=active and getInspectionStatus
+   markingEnabled:false, and its heartbeats report isEnabled:false.
+3. Brain-projected previewActive:true (stale refolds) re-opened the popup
+   sidebar via DICTATION (not the probe-adoption path). [FIXED — see A]
+4. The killer: popup refreshUi is a long (4-8s on this page) async pipeline and
+   PASSES INTERLEAVE. A pass whose tab-probe READS predate the exit settle
+   publishes AFTER it: isEnabled formula (popup.ts ~5100, toggleEnabled &&
+   (contentMarkingModeActive || ...)) computes FALSE from the stale reads.
+   One publish of isEnabled:false -> brain foldSessionFacts (source=popup,
+   reason=session-facts:popup) -> decideSessionPhase returns SILENT
+   (session-phase-decider.ts:184) -> dictation collapses popup UI AND directs
+   content out of marking -> content ACTUALLY disables (page uf-rect -> 0 or
+   marks torn down) -> content now genuinely reports disabled -> popup syncs
+   enabled:false -> PERMANENT wedge (Save unreachable, session lost).
+   KEY INSIGHT: content had ALREADY restored marking successfully (its
+   heartbeats reported isEnabled:TRUE, page had rects) before the stale popup
+   publish killed it. The false is 100% popup-manufactured.
+5. Secondary trigger found on the same path: the "content wins" toggle sync
+   (popup.ts ~4560, contentMarkingEnabled !== effectiveTabState.enabled ->
+   setTabState enabled:false + setEnabled false) fires from the same stale
+   reads when its preserve-guards are all off post-settle.
+
+## EVIDENCE (files in .temp/, logs preserved per round)
+NOTE: `.temp/` is GITIGNORED — for environment portability the harness scripts
+are ALSO copied to `.copilot/qa-scripts/` (tracked): run-flow.mjs,
+exit-flow.mjs, observe-trace.mjs, poll-viewstate.mjs, cdp.mjs. In a fresh
+clone, copy them back to `.temp/` (or run in place) — they only assume CDP on
+127.0.0.1:9222. Round logs exist only in the old environment's `.temp/`.
+- .temp/trace-observer.log(.roundNN.log) — CDP console tap of ALL extension
+  worlds w/ [obs] timestamps. Attribution probes (TEMP, in working tree):
+  * [world-trace][brain] fold-marking-facts {source, reason, isEnabled,
+    droppedByPopupAuthority} on every fold touching isEnabled/silentModeActive
+  * [world-trace][popup] publish-session-facts:marking {formula inputs +
+    publishedIsEnabled + clampMarkingFactsToRestoreTarget}
+  * [world-trace][popup:messages] setTabState:payload {full payload+scope}
+- .temp/run-flow.mjs — FULL scripted flow: waits toggle clickable, enables
+  marking, marks content-rich targets via TRUSTED CDP Input.dispatchMouseEvent
+  (hover 120ms then click; content handleClick needs real events), waits
+  save reason leaves no_session_changes, clicks Run AI, waits preview
+  (up to 6 min), waits item hydration, holds, single Exit, 250ms change-only
+  sampling for N s, prints machine VERDICT {sidebarReopened, silentCollapse,
+  saveReachable} + page rect count. ISO timestamp on every line.
+- .temp/exit-flow.mjs — resume-mode variant: picks up an in-flight run at any
+  point (preview wait up to 10 min), same Exit+verdict tail. Items-hydration
+  wait is non-fatal (see FINDING-3).
+- .temp/poll-viewstate.mjs — 300ms popup viewstate + page-overlay poller.
+- .temp/observe-trace.mjs — the CDP console tap.
+- Round logs: round3a (pre-probe repro), round3b-fail (toggle no-op),
+  round3c (probes live, publisher pinned), round3d (fix round 1 fail —
+  reopen via dictation + collapse), current run-flow.log (fix round 2:
+  reopen FIXED, collapse at +23s after grace expiry).
+- Timeline of the pinned run (exit 22:49:12.65): +2.8s correct ready state;
+  popup publish isEnabled:false at 22:49:15.94 (inputs logged: toggleEnabled
+  false, contentMarkingModeActive false — stale); brain folds -> SILENT;
+  content folds isEnabled:TRUE at +8s (restore HAD landed, 30 rects) then gets
+  torn down by the silent dictation; permanent by +15s.
+- Fix-round-2 failure (exit ~23:00:39.5): grace clamp held collapse off during
+  0-15s; at +22.9s a pass published isEnabled:false with
+  clampMarkingFactsToRestoreTarget:false (grace expired) while content
+  heartbeats at +17s said isEnabled:true -> collapse. Time-based windows lose.
+
+## WHAT'S IMPLEMENTED (working tree, NOT committed)
+Keep (fix candidates, behavior-scoped, popup-only):
+- state.previewClosedAtMs + previewClosedMarkingRestore (popup/state.ts,
+  types/popup-state.ts): stamped in settlePreviewRestoreClosed (snapshot
+  presence read BEFORE clearMarkingSessionSnapshot), cleared on all 3 preview
+  open paths + fresh run start.
+- AI_PREVIEW_POST_CLOSE_GRACE_MS=15000 + isWithinPreviewCloseGrace() (popup.ts).
+- FIX A (CONFIRMED): overrideDictatedPreviewVisibility now forces
+  previewActive=false during grace when no open intent — stale brain projection
+  can't reopen the sidebar. VERIFIED live: sidebarReopened:false in round-3e.
+- FIX B attempt 1: probe-adoption grace guard (refreshUi preview adoption) +
+  preserveEnabledDuringPostCloseGrace in the "content wins" toggle sync.
+  Necessary but insufficient (defense in depth; keep).
+- FIX B attempt 2: publish clamp at publishCurrentSessionFacts callsite
+  (clampMarkingFactsToRestoreTarget -> publishedIsEnabled/SilentModeActive).
+  Held during grace, leaked after expiry. Keep the mechanism; replace the
+  TIME condition with an EPOCH condition (below).
+Revert before commit (TEMP-LIVE-QA tagged, grep "TEMP-LIVE-QA"):
+- feature-flags.ts: traceDiagnostics:true + worldTraceEnabled:true -> false.
+  (tests/feature-flags.test.ts fails on these — by design; rest of suite
+  green: 1063/1064 with flags on.)
+- brain/index.ts fold-marking-facts console.debug probe.
+- popup.ts publish-session-facts:marking logWorldTrace probe (keep the clamp,
+  drop the log) + 2 force-disable attribution logWorldTrace probes.
+- popup/messages.ts setTabState:payload trace.
+
+## NEXT STEPS (recommended: epoch-based publish gating)
+Time-based grace fails because a refreshUi pass's lifetime straddles any
+boundary. Replace with pass-epoch validation:
+1. Add state.markingSessionEpoch (number). Bump it in
+   settlePreviewRestoreClosed (and any popup-initiated marking-state
+   transition: enable/disable toggle, run start).
+2. refreshUiInner captures epochAtStart. At the publish callsite (and at the
+   "content wins" toggle sync + force-disable branches): if
+   epochAtStart !== state.markingSessionEpoch, the pass is STALE -> skip
+   publishing marking facts (isEnabled/silentModeActive) and skip
+   enabled:false syncs entirely; a fresh pass (scheduled at settle via
+   refreshUi already) republishes from fresh reads.
+3. This makes the clamp exact (no window to tune), lets genuine disables
+   through immediately (they bump the epoch first), and removes both
+   TIME constants. Keep FIX A as-is (visibility is popup-owned by intent).
+4. Alternative considered (brain-side: ignore popup isEnabled:false while
+   content reports markingEnabled:true) — rejected for now: inverts the
+   popup-authority contract (brain/index.ts omitContentMarkingSessionFacts)
+   and the popup-only fix is sufficient once publishes are epoch-gated.
+5. After fix: full flow via .temp/run-flow.mjs -> VERDICT must read
+   {sidebarReopened:false, silentCollapse:false, saveReachable:true} and page
+   rects preserved. Then revert TEMP flags/probes, pnpm test (expect
+   1064/1064), lint/check/build, add regression tests (epoch gating unit +
+   source-contract), update this handoff, commit.
+
+## FINDING-3 (separate bug, NOT yet fixed or filed): preview item hydration
+- Round-3d: preview opened, content had 620 items (direct getAiPreviewState
+  probe from SW), but popup previewItems stayed 0 with previewItemsPending
+  false for >120s. The aiPreviewStateChanged push got runtime:response
+  ok:false; the item latch never engaged. Suspect: push lands while popup is
+  mid-refresh and the ok:false response means no listener consumed it; no
+  retry. The item latch only guards non-empty->empty, not never-hydrated.
+- Repro odds ~2/5 runs on this page. Track separately from #5; the Exit/
+  collapse work is independent of it (exit-flow.mjs treats it non-fatal).
+
+## FINDING-4 (minor): round-3b flow failure mode
+- Clicking #toggle-enabled while it renders disabled (server_sync_pending) is
+  a silent no-op. run-flow.mjs now waits for dom toggle-enabled=on first.
+
+## ENVIRONMENT / HOW TO RESUME LIVE QA
+- Live browser: pnpm browser:live (CDP 127.0.0.1:9222). Page tab:
+  bonliva.se/lediga-jobb (tabId 243125681 this session — RE-RESOLVE after
+  restart). Popup tab: popup.html?debugTabId=<pageTabId> (create via SW:
+  chrome.tabs.create). After every rebuild: chrome.runtime.reload() from SW
+  target, reload page tab, RECREATE the popup tab (old one dies with the
+  reload), restart observers (they hold dead WS otherwise).
+- /tmp/cdp.mjs (OUTSIDE repo — recreate if gone): tiny CDP eval helper,
+  usage: node /tmp/cdp.mjs <service_worker|popup|page> <awaitPromise> '<expr>'.
+  Popup viewstate via window.__UNFLUFFIFY_POPUP_DEBUG__.getViewState().
+- Storage sanity: chrome.storage.session 'tabState:<tabId>' held
+  {enabled:true, baseUrl:"https://bonliva.se"} throughout — the wedge is
+  facts/dictation-level, not storage-level.
+- pnpm test full suite ~20s; typecheck npx tsc --noEmit -p tsconfig.json.
+
+
 
 ## #5/#14 — ROUND-1 (`3dcc078`) LIVE-DISPROVEN → ROUND-2 SHIPPED (unconfirmed)
+[SUPERSEDED by the 2026-07-03 LATE NIGHT section above: round-2 preview
+stability CONFIRMED live (open+hold stable), but Exit revealed the deeper
+post-exit collapse which is now root-caused. Kept for context.]
 - `3dcc078` (popup POST_AI mirror + content `publishAiPreviewSessionFacts`) did
   NOT stop the live symptom. On fresh code the popup viewstate still OSCILLATED
   post-run: `previewActive` flapped true↔false with `previewBlocked` wedged true,

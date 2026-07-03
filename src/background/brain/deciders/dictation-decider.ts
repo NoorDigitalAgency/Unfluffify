@@ -106,7 +106,14 @@ export function deriveDictation(phase: SessionPhase, facts: SessionFacts): Sessi
 
   const toggleEnabledDisabled = Boolean(
     facts.pageScopedUiDisabled ||
-      postAi ||
+      // POST_AI locks the toggle so the run gets resolved via Save/Discard
+      // first — but only while the marking session is actually ACTIVE. In a
+      // silent session (isEnabled false) Save/Discard are hidden, so a stale
+      // post-AI phase (abandoned or collapsed session, sticky popup facts)
+      // would lock the toggle with no resolution affordance = unrecoverable.
+      // Silent + post-AI keeps the toggle usable; re-enabling marking starts
+      // a fresh PRE_AI session.
+      (postAi && facts.isEnabled) ||
       facts.previewRestorePending ||
       facts.pageSaveReconciliationPending ||
       !facts.baseUrlReady ||

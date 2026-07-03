@@ -9,6 +9,11 @@ export default tseslint.config(
       "dist/**",
       "node_modules/**",
       ".tmp/**",
+      // Gitignored live-QA scratch area (CDP harness scripts + logs).
+      ".temp/**",
+      // Tracked live-QA CDP harness scripts (throwaway-style ops tooling, not
+      // extension source; empty catches there are intentional).
+      ".copilot/qa-scripts/**",
       ".output/**",
       ".wxt/**",
     ],

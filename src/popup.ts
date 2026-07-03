@@ -31,6 +31,13 @@ import {
   isFeatureEnabled
 } from "./common/feature-flags";
 import * as emulation from "./popup/emulation";
+import {
+  adoptMarkingSessionState,
+  resolveMarkingSessionButtonsMemory,
+  transitionMarkingSessionState,
+  type MarkingSessionMachineState,
+  type MarkingSessionSignal
+} from "./popup/marking-session-machine";
 import * as uiModule from "./popup/ui";
 import {
   buildLynxChecklistPromptState,
@@ -572,6 +579,17 @@ const PAGE_SAVE_SYNC_MAX_ATTEMPTS = 5;
 const PAGE_SAVE_SYNC_INITIAL_RETRY_DELAY_MS = 1500;
 const PAGE_SAVE_SYNC_MAX_RETRY_DELAY_MS = 10000;
 const AI_PREVIEW_RESTORE_FALLBACK_MS = 1000;
+
+// Marks a popup-initiated marking-session transition (preview exit settle,
+// enable/disable toggle, AI-run start, popup force-disable, first post-exit
+// observation of content marking re-enabled). Interleaved refreshUi passes
+// whose reads predate the bump must not publish marking facts or sync an
+// enabled flip from those reads (#5/#14 post-exit collapse); see
+// state.markingSessionEpoch in src/popup/state.ts.
+function bumpMarkingSessionEpoch(): number {
+  state.markingSessionEpoch += 1;
+  return state.markingSessionEpoch;
+}
 
 function getPropertyLockUiDeps(): PropertyLockUiDeps {
   return {
@@ -1238,6 +1256,7 @@ function applyPopupViewSnapshot(snapshot: PopupStateGetReply | null) {
       ...(nextProjectedSecondaryGatesEffect.patch || {})
     };
     overrideDictatedPreviewVisibility(snapshotPatch);
+    overrideDictatedMarkingButtons(snapshotPatch);
     uiModule.setViewState(snapshotPatch);
   }
   if (
@@ -1464,6 +1483,13 @@ function overrideDictatedPreviewVisibility(patch: PopupViewStatePatch): void {
     active = false;
   } else if (state.previewOpenIntent) {
     active = true;
+  } else if (state.previewSuppressReopen) {
+    // Closed by the popup with no new open intent: the brain's folded
+    // projection can still carry stale previewActive:true (content's async
+    // exit + heartbeat refolds lag for seconds on heavy pages). Applying it
+    // verbatim reopened the sidebar after Exit (#5/#14). Hold closed until the
+    // popup itself opens the next preview.
+    active = false;
   }
   if (active === null) {
     return;
@@ -1471,6 +1497,60 @@ function overrideDictatedPreviewVisibility(patch: PopupViewStatePatch): void {
   patch.previewActive = active;
   patch.previewBlocked = active;
   patch.previewBlockedMessage = active ? PopupText.preview.blockedActive : ViewText.previewBlockedDefault;
+}
+
+// REFLEX-ARC session machine (see src/popup/marking-session-machine.ts): the
+// popup holds ONE current marking-session state; DISCRETE signals (run
+// started, post-AI preview opened, exit clicked/settled, markings changed,
+// saved, discarded, toggle, navigation) move it through a predefined
+// transition table, and each state's complete button matrix is applied FROM
+// MEMORY. Facts, heartbeats, and dictation churn are not signals — they can
+// never move the machine, so they can never flicker the surface or strand it
+// in a wrong end state.
+function signalMarkingSession(signal: MarkingSessionSignal): void {
+  const from = state.markingSessionMachineState as MarkingSessionMachineState;
+  const transition = transitionMarkingSessionState(from, signal);
+  if (transition.moved) {
+    state.markingSessionMachineState = transition.to;
+    logWorldTrace("marking-session:transition", { from, signal, to: transition.to });
+  } else {
+    logWorldTrace("marking-session:signal-held", { state: from, signal });
+  }
+}
+
+function overrideDictatedMarkingButtons(patch: PopupViewStatePatch): void {
+  if (!Object.prototype.hasOwnProperty.call(patch, "pageSaveDisabled")) {
+    return;
+  }
+  if (state.markingSessionMachineState === "boot") {
+    // One-time adoption for a fresh popup: derive the starting state from the
+    // projected snapshot being applied, then move only on signals.
+    const currentView = uiModule.getViewState();
+    const markingActive =
+      (Object.prototype.hasOwnProperty.call(patch, "mainUiHidden")
+        ? !patch.mainUiHidden
+        : !currentView.mainUiHidden) &&
+      (Object.prototype.hasOwnProperty.call(patch, "silentModeActive")
+        ? !patch.silentModeActive
+        : !currentView.silentModeActive);
+    state.markingSessionMachineState = adoptMarkingSessionState({
+      markingActive,
+      previewOpen: Boolean(state.previewOpenIntent),
+      restorePending: Boolean(state.previewRestorePending),
+      runInFlight: Boolean(state.aiRequestInFlight || state.aiComputeStartPending),
+      postAi: state.sessionAiRunPhase === AI_RUN_PHASES.POST_AI ||
+        state.sessionAiRunPhase === AI_RUN_PHASES.AI_PREVIEW,
+      dirty: Boolean(state.currentDraftDirty)
+    });
+    logWorldTrace("marking-session:adopted", { state: state.markingSessionMachineState });
+  }
+  const memory = resolveMarkingSessionButtonsMemory(
+    state.markingSessionMachineState as MarkingSessionMachineState
+  );
+  if (!memory) {
+    return;
+  }
+  Object.assign(patch, memory);
 }
 
 function applyCentralSessionDictation(nextViewState: PopupViewStatePatch, currentTabId: number | null): void {
@@ -1496,6 +1576,7 @@ function applyCentralSessionDictation(nextViewState: PopupViewStatePatch, curren
       : ViewText.previewBlockedDefault;
   }
   overrideDictatedPreviewVisibility(nextViewState);
+  overrideDictatedMarkingButtons(nextViewState);
 }
 
 function sendSpinnerBrokerMessage(
@@ -2579,6 +2660,11 @@ function setAiRunActiveState({
   // latches so a missed prior close cannot keep a stale sidebar shown.
   state.previewOpenIntent = false;
   state.previewSuppressReopen = false;
+  state.previewCloseMarkingRestoreUnconfirmed = false;
+  // A fresh run is a marking-session transition: in-flight refreshUi passes
+  // still holding pre-run reads must not publish/sync marking facts over it.
+  bumpMarkingSessionEpoch();
+  signalMarkingSession("run-started");
   startAiRunCountdownTimer();
 }
 
@@ -2954,12 +3040,19 @@ function applyDraftStatusToPopupState(draftStatus: TabDraftStatusResponse | null
   if (!draftStatus || !draftStatus.ok) {
     return false;
   }
+  const dirtyEdge = !state.currentDraftDirty && Boolean(draftStatus.dirty);
   state.currentDraftEntry = draftStatus.entry || null;
   state.currentSavedEntry = draftStatus.savedEntry || null;
   state.currentDraftDirty = Boolean(draftStatus.dirty);
   state.currentDraftAvailable = true;
   state.currentPageSaveReconciliation = draftStatus.reconciliation || null;
   state.currentPageSaveReconciliationPending = Boolean(draftStatus.reconciliationPending);
+  if (dirtyEdge) {
+    // 'markings-changed' signal: the draft flipped clean -> dirty (a user
+    // marking edit reported by content). Level noise (reshapes that keep the
+    // dirty flag) is NOT a signal and cannot move the machine.
+    signalMarkingSession("markings-changed");
+  }
   return true;
 }
 
@@ -2984,10 +3077,24 @@ function settlePreviewRestoreClosed(token: number | null = null, markApplied = t
   // The preview is closed from the popup's perspective. Drop the open-intent and
   // raise the reopen guard so a lagging getAiPreviewState probe (content's async
   // exit can still report the preview active for seconds on a heavy page) cannot
-  // resurrect the sidebar in the next refreshUi; the guard clears once a probe
-  // confirms inactive or a new preview is opened.
+  // resurrect the sidebar in any later refreshUi; the guard stays up until the
+  // popup opens the next preview.
   state.previewOpenIntent = false;
   state.previewSuppressReopen = true;
+  // Read BEFORE clearMarkingSessionSnapshot below: a present snapshot marks this
+  // close as a marking-restored exit whose content-side re-enable is still
+  // unobserved (see previewCloseMarkingRestoreUnconfirmed in src/popup/state.ts).
+  // Only ever RAISE the latch here: the same close settles twice (the popup's
+  // runtime settle first, then content's token-less aiPreviewClosed push a few
+  // seconds later, after the snapshot is already cleared) and the duplicate
+  // must not disarm a latch still awaiting content's re-enable confirmation —
+  // that disarm re-exposed the #5/#14 collapse (round-4 trace, epoch bump 11).
+  state.previewCloseMarkingRestoreUnconfirmed =
+    state.previewCloseMarkingRestoreUnconfirmed || Boolean(state.previewMarkingSessionSnapshot);
+  // The settle is a marking-session transition: passes reading pre-exit state
+  // must not publish/sync marking facts over the restored session.
+  bumpMarkingSessionEpoch();
+  signalMarkingSession("exit-settled");
   resetPreviewItemsLatch();
   clearMarkingSessionSnapshot();
   uiModule.setViewState(stabilizePreviewViewState(buildPreviewViewState(null)));
@@ -3931,6 +4038,16 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
   if (!state.currentTab) {
     return;
   }
+  // Marking-session pass epoch (#5/#14): this pass's tab reads are only
+  // trustworthy for marking-state EFFECTS (publishing isEnabled/
+  // silentModeActive, syncing/forcing an enabled flip) while no popup-initiated
+  // marking transition supersedes them. Sites below that perform such a
+  // transition themselves re-adopt the bumped epoch (their writes ARE the
+  // freshest state); every other pass checks markingPassIsStale() at the
+  // moment of effect and skips — the transition site always runs a fresh pass
+  // that redoes the effect from fresh reads.
+  let markingEpochAtPassStart = state.markingSessionEpoch;
+  const markingPassIsStale = () => state.markingSessionEpoch !== markingEpochAtPassStart;
   const refreshSessionFactsSeq = nextPopupSessionFactsSeq();
   const previousBaseUrl = state.currentBaseUrl;
   await validateStoredToken({ force: false, showToastOnInvalid: true });
@@ -3951,6 +4068,18 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
   if (!tabChanged && pageUrl !== state.lastPopupPageUrl) {
     clearPreviewRestorePending();
     clearLastPopupEnabled();
+    // A real navigation abandons the page-scoped marking session: drop the
+    // popup's AI-run mirror back to PRE_AI, or its sticky published
+    // aiRunPhase keeps the brain in POST_AI for a page the run never belonged
+    // to (POST_AI locks the enable toggle -> combined with silent mode that
+    // state was unrecoverable). Hash-only changes keep the session.
+    if (
+      state.lastPopupPageUrl &&
+      pageUrl.split("#")[0] !== state.lastPopupPageUrl.split("#")[0]
+    ) {
+      resetAiRunMarkingsFingerprint();
+      signalMarkingSession("navigated");
+    }
     if (currentTabId) {
       clearRemoteConfigLoadCacheForTab(currentTabId);
     }
@@ -4065,12 +4194,6 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
     const probeActive = Boolean(previewViewState.previewActive);
     const probeItems = Array.isArray(previewViewState.previewItems) ? previewViewState.previewItems : [];
 
-    // A confirmed-closed probe (reachable and reporting inactive) clears the
-    // post-close reopen guard: from here a genuine active probe may open again.
-    if (state.previewSuppressReopen && probeOk && !probeActive) {
-      state.previewSuppressReopen = false;
-    }
-
     let showPreview: boolean;
     if (state.previewRestorePending) {
       // Exit is in flight (popup-initiated). Its settle/fallback path owns the
@@ -4081,7 +4204,13 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
       // only refresh items from the probe; never let a transient close it.
       showPreview = true;
     } else if (state.previewSuppressReopen) {
-      // Just closed; ignore a lagging active probe until it confirms inactive.
+      // Closed by the popup. Content's exit is async on heavy pages and probe
+      // responses arrive out of order across interleaved passes, so an ACTIVE
+      // read after the close is stale no matter how late it lands (clearing
+      // this guard on one confirmed-closed probe let the next stale-active
+      // probe reopen the sidebar after Exit — #5/#14). Every in-popup open
+      // path sets a fresh intent, so the guard stays up until the next open;
+      // a reconnecting popup starts with it down and adopts below.
       showPreview = false;
     } else {
       // No standing intent (e.g. popup reconnected while a preview is live):
@@ -4118,6 +4247,27 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
   // churn), and clearing the intent there collapsed the open sidebar. The intent
   // latch is cleared only by the authoritative close paths (settlePreviewRestoreClosed
   // via Exit / aiPreviewClosed) and on a fresh AI run start.
+  if (!tabInScope && state.previewOpenIntent) {
+    // The same transient out-of-scope flicker skips the whole preview block
+    // above, leaving previewViewState at the empty no-probe default — writing
+    // that stomps the latched item list straight past the session latch (the
+    // round-7 per-frame capture showed the open list oscillating 130<->0,
+    // rendering as a permanent "No content detected"). Keep the popup-owned
+    // open state + latched items; the next in-scope pass refreshes from the
+    // probe as usual.
+    const outOfScopeView = uiModule.getViewState();
+    const resolved = resolveOpenPreviewItems([], false);
+    previewViewState = {
+      previewActive: true,
+      previewItems: resolved.items,
+      previewItemsPending: resolved.pending,
+      previewFocusedXpath: typeof outOfScopeView.previewFocusedXpath === "string"
+        ? outOfScopeView.previewFocusedXpath
+        : "",
+      previewShowAllCategories: Boolean(outOfScopeView.previewShowAllCategories),
+      previewWillRestoreMarking: Boolean(outOfScopeView.previewWillRestoreMarking)
+    };
+  }
   previewViewState = stabilizePreviewViewState(previewViewState);
   const {
     previewActive,
@@ -4127,6 +4277,15 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
     previewShowAllCategories
   } = previewViewState;
   const aiPreviewSessionActive = Boolean(previewActive);
+  // A preview is marking-backed only when it snapshotted a marking session to
+  // restore on exit (AI-run/marking previews). The Silent Preview keeps the
+  // session in silent mode: forcing toggleEnabled true for it published
+  // isEnabled:true over a silent session and wedged a popup/page split (the
+  // preserve guard also blocked the content-wins sync from ever adopting
+  // content's silent truth back) — live-traced 2026-07-03 00:03.
+  const aiPreviewMarkingSessionActive = Boolean(
+    previewActive && state.previewMarkingSessionSnapshot
+  );
   let localMatchingBaseUrl = utils.findMatchingBaseUrl(pageUrl, configs);
   let hasLocalConfigForWebsite = Boolean(localMatchingBaseUrl);
   let currentSiteId = null;
@@ -4150,10 +4309,13 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
     tabInScope &&
     tabState.baseUrl &&
     pageUrl &&
-    !utils.isPageWithinBaseUrl(pageUrl, tabState.baseUrl)
+    !utils.isPageWithinBaseUrl(pageUrl, tabState.baseUrl) &&
+    !markingPassIsStale()
   ) {
     effectiveTabState = { enabled: false, baseUrl: "" };
     await messages.setTabState(state.currentTab.id, effectiveTabState);
+    state.previewCloseMarkingRestoreUnconfirmed = false;
+    markingEpochAtPassStart = bumpMarkingSessionEpoch();
   }
   if (
     tabInScope &&
@@ -4341,7 +4503,8 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
     !aiPreviewSessionActive &&
     effectiveTabState.baseUrl &&
     !hasLocalConfigForWebsite &&
-    !currentSiteId
+    !currentSiteId &&
+    !markingPassIsStale()
   ) {
     const wasEnabled = Boolean(effectiveTabState.enabled);
     effectiveTabState = { ...effectiveTabState, enabled: false, baseUrl: "" };
@@ -4353,12 +4516,16 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
     state.currentConfig = null;
     currentSiteId = null;
     siteIdBlockedReason = "";
+    state.previewCloseMarkingRestoreUnconfirmed = false;
+    markingEpochAtPassStart = bumpMarkingSessionEpoch();
   }
   if (unsupportedByGraphql && !aiComputeRunActive && !aiPreviewSessionActive) {
-    if (effectiveTabState.enabled) {
+    if (effectiveTabState.enabled && !markingPassIsStale()) {
       effectiveTabState = { ...effectiveTabState, enabled: false, baseUrl: "" };
       await messages.setTabState(state.currentTab.id, effectiveTabState);
       await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
+      state.previewCloseMarkingRestoreUnconfirmed = false;
+      markingEpochAtPassStart = bumpMarkingSessionEpoch();
     }
     state.currentBaseUrl = "";
     state.currentConfig = null;
@@ -4503,13 +4670,37 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
   );
   if (contentModeKnown && contentModeStatus) {
     const contentMarkingEnabled = Boolean(contentModeStatus.markingEnabled);
+    if (state.previewCloseMarkingRestoreUnconfirmed && contentMarkingEnabled) {
+      // Content's post-exit marking re-enable is now observed: the restore is
+      // confirmed, and a later markingEnabled:false is a genuine disable
+      // again. Bump the epoch so in-flight passes still holding pre-restore
+      // reads cannot publish/sync their stale marking facts over this
+      // observation; this pass IS the observation, so it adopts the new epoch.
+      state.previewCloseMarkingRestoreUnconfirmed = false;
+      markingEpochAtPassStart = bumpMarkingSessionEpoch();
+    }
     const preserveEnabledDuringPreviewCloseRestore = Boolean(
       previewRestorePending &&
       tabInScope &&
       !contentMarkingEnabled
     );
+    // Post-exit restore hold (#5/#14): the popup settled the exit and restored
+    // the marking session, but content's own marking re-enable is async and
+    // slow on heavy pages, so it keeps reporting markingEnabled:false for a
+    // while — longer than any fixed grace window. Folding that transient false
+    // into toggleEnabled and tabState published isEnabled:false -> the brain
+    // dictated SILENT and the whole session collapsed (marks lost, Save
+    // unreachable). Keep the popup's enabled authority until content is first
+    // observed re-enabled (cleared above); a false read after that is a
+    // genuine disable and syncs normally.
+    const preserveEnabledDuringUnconfirmedRestore = Boolean(
+      tabInScope &&
+      effectiveTabState.enabled &&
+      !contentMarkingEnabled &&
+      state.previewCloseMarkingRestoreUnconfirmed
+    );
     const preserveEnabledDuringAiComputeRun = Boolean(
-      (aiComputeRunActive || aiPreviewSessionActive) &&
+      (aiComputeRunActive || aiPreviewMarkingSessionActive) &&
       tabInScope &&
       Boolean(state.currentBaseUrl || effectiveTabState.baseUrl) &&
       !contentMarkingEnabled
@@ -4525,7 +4716,9 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
       if (
         !shouldPreserveEnabledDuringReactivation &&
         !preserveEnabledDuringPreviewCloseRestore &&
-        !preserveEnabledDuringAiComputeRun
+        !preserveEnabledDuringAiComputeRun &&
+        !preserveEnabledDuringUnconfirmedRestore &&
+        !markingPassIsStale()
       ) {
         effectiveTabState = {
           ...effectiveTabState,
@@ -4536,9 +4729,16 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
         };
         await messages.setTabState(currentTabId, effectiveTabState);
         clearLastPopupEnabled();
+        // This pass performed the enabled sync; it adopts the bumped epoch and
+        // invalidates other in-flight passes' marking effects.
+        markingEpochAtPassStart = bumpMarkingSessionEpoch();
       }
     }
-    if (preserveEnabledDuringPreviewCloseRestore || preserveEnabledDuringAiComputeRun) {
+    if (
+      preserveEnabledDuringPreviewCloseRestore ||
+      preserveEnabledDuringAiComputeRun ||
+      preserveEnabledDuringUnconfirmedRestore
+    ) {
       toggleEnabled = true;
     } else {
       toggleEnabled = shouldPreserveEnabledDuringReactivation
@@ -4548,7 +4748,7 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
   }
   if (
     tabInScope &&
-    (previewRestorePending || aiComputeRunActive || aiPreviewSessionActive) &&
+    (previewRestorePending || aiComputeRunActive || aiPreviewMarkingSessionActive) &&
     (!contentModeKnown || !toggleEnabled)
   ) {
     toggleEnabled = true;
@@ -5047,9 +5247,14 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
     !aiComputeRunActive &&
     !aiPreviewSessionActive &&
     !previewRestorePending &&
+    // An unconfirmed post-exit restore behaves like the pending window above:
+    // readiness states can still be reloading right after the exit settle, and
+    // hard-disabling here would tear down the just-restored session (#5/#14).
+    !state.previewCloseMarkingRestoreUnconfirmed &&
     !navigationInspectionPending &&
     (!siteIdReady || !renderModeReady || pageTypeUiBlocked) &&
-    currentTabId
+    currentTabId &&
+    !markingPassIsStale()
   ) {
     toggleEnabled = false;
     isEnabled = false;
@@ -5060,6 +5265,7 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
       baseUrl: state.currentBaseUrl || effectiveTabState.baseUrl || ""
     });
     await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
+    markingEpochAtPassStart = bumpMarkingSessionEpoch();
   }
   if (state.propertyPageTypesInvalidAlertPending) {
     state.propertyPageTypesInvalidAlertPending = false;
@@ -5645,6 +5851,12 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
   // brain cleared it. Deriving the dictation-owned fields here (not earlier)
   // keeps overlapping/late-completing refreshes from writing a stale visible
   // curtain over an already-cleared one (e.g. after a render-mode inspection).
+  //
+  // Preview fields are re-resolved the same way, from the routine's CURRENT
+  // state: this pass captured its preview snapshot seconds ago and passes
+  // interleave — carrying the pass-start snapshot here let a pre-hydration
+  // pass finishing late stomp the hydrated list (reflex-arc single-writer).
+  Object.assign(nextViewState, resolvePreviewRoutineViewState());
   applyCentralSessionDictation(nextViewState, currentTabId);
   uiModule.setViewState(nextViewState);
   if (currentTabId) {
@@ -5674,6 +5886,31 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
           ? nextViewState.aiRunSpinnerNote
           : "";
     const popupOwnsAiRunFacts = state.aiRunResumed;
+    // Post-exit publish protection (#5/#14): refreshUi passes interleave, so a
+    // pass whose reads predate the latest marking transition can compute
+    // isEnabled:false (stale contentMarkingModeActive/toggleEnabled) AFTER the
+    // exit restore already landed. One such publish makes the brain dictate
+    // SILENT, which directs content out of marking and collapses the session
+    // for real. Two exact guards, no time windows:
+    // - a STALE pass (epoch moved since this pass started) publishes no
+    //   marking facts at all; the transition site always runs a fresh pass
+    //   that republishes them, and the sticky popup session facts keep serving
+    //   the last good values to the brain heartbeat meanwhile;
+    // - a CURRENT pass inside an unconfirmed post-exit restore clamps the
+    //   published marking facts to the restore target (enabled) — content's
+    //   async re-enable can outlive any fixed window, so the hold ends only
+    //   when content is first observed re-enabled (or a popup-initiated
+    //   marking transition supersedes the restore).
+    const skipMarkingFactsFromStalePass = markingPassIsStale();
+    const clampMarkingFactsToRestoreTarget = Boolean(
+      !isEnabled &&
+        state.previewCloseMarkingRestoreUnconfirmed &&
+        !state.previewRestorePending
+    );
+    const publishedIsEnabled = clampMarkingFactsToRestoreTarget ? true : isEnabled;
+    const publishedSilentModeActive = clampMarkingFactsToRestoreTarget
+      ? false
+      : silentModeActivePageState;
     publishCurrentSessionFacts(currentTabId, {
       baseUrlReady,
       pageScopedUiDisabled,
@@ -5686,8 +5923,9 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
       desktopPreviewVisible,
       desktopPreviewActive,
       deviceControlsDisabled: Boolean(state.deviceControlsDisabled || isEnabled),
-      isEnabled,
-      silentModeActive: silentModeActivePageState,
+      ...(skipMarkingFactsFromStalePass
+        ? {}
+        : { isEnabled: publishedIsEnabled, silentModeActive: publishedSilentModeActive }),
       aiReady,
       ...(popupOwnsAiRunFacts
         ? { aiBusy: aiBusyForSessionFacts, aiComputing: aiComputingForSessionFacts }
@@ -5695,7 +5933,19 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
       aiRunPhase: state.sessionAiRunPhase,
       aiRunUpToDate,
       previewActive,
-      previewBlocked: nextViewState.previewBlocked,
+      // The popup owns whether IT has a preview session. nextViewState's
+      // previewBlocked is brain-DICTATED; republishing it verbatim echoes the
+      // brain's projection back as a popup fact, so a stale blocked:true from
+      // a torn-down session self-sustains forever (fact<->dictation loop that
+      // survives popup restarts and full navigations — live-traced 2026-07-03
+      // 04:12, view stuck on "Preview mode is active" with previewActive
+      // false). Publish blocked only while the popup actually has a standing
+      // preview session; the dictated nuance (e.g. popover minimized) still
+      // flows through while the session exists.
+      previewBlocked: Boolean(
+        (state.previewOpenIntent || state.previewRestorePending) &&
+          nextViewState.previewBlocked
+      ),
       previewItemsPending,
       previewRestorePending,
       sessionHasPendingChanges,
@@ -6975,6 +7225,11 @@ async function handleEnableToggle(event: PopupCheckedEvent) {
           // run yet for the current markings), Save/Preview start disabled.
           resetAiRunMarkingsFingerprint();
           setLastPopupEnabled(true, buildPopupEnabledContext(tab, state.currentBaseUrl));
+          // Marking was (re)enabled on the page — a popup-initiated marking
+          // transition: stale in-flight passes must not publish/sync over it.
+          state.previewCloseMarkingRestoreUnconfirmed = false;
+          bumpMarkingSessionEpoch();
+          signalMarkingSession("marking-enabled");
         } else {
           const disableResponse = await messages.requestTabDeactivateMarking(tab.id, {
             baseUrl: baseUrlValue,
@@ -6990,6 +7245,13 @@ async function handleEnableToggle(event: PopupCheckedEvent) {
             await refreshUi();
             return;
           }
+          // Marking was disabled on the page — a popup-initiated marking
+          // transition. Clearing the restore latch here also makes a genuine
+          // user disable during an unconfirmed post-exit restore publish
+          // immediately (the latch must never clamp a user-chosen disable).
+          state.previewCloseMarkingRestoreUnconfirmed = false;
+          bumpMarkingSessionEpoch();
+          signalMarkingSession("marking-disabled");
         }
         await refreshUi();
       },
@@ -7404,6 +7666,12 @@ async function alignPopupToSilentMode() {
   }
   clearLastPopupEnabled();
   uiModule.setViewState({ toggleEnabled: false });
+  // Dropping to silent is a popup-initiated marking transition: in-flight
+  // refreshUi passes still holding pre-drop reads must not republish the
+  // marking-enabled facts over it (#5/#14 family — live-traced 2026-07-03).
+  state.previewCloseMarkingRestoreUnconfirmed = false;
+  bumpMarkingSessionEpoch();
+  signalMarkingSession("marking-disabled");
 }
 
 async function applyPostSaveSilentTransition() {
@@ -7429,6 +7697,7 @@ async function applyPostSaveSilentTransition() {
   if (tabId !== null) {
     void messages.requestTabApplyPostSaveTransition(tabId, { baseUrl });
   }
+  signalMarkingSession("saved");
   await alignPopupToSilentMode();
 }
 
@@ -7494,6 +7763,13 @@ async function applyLocalPageDiscard() {
     // discard without blocking the spinner on a slow/locked tab roundtrip.
     void messages.requestTabApplyLocalDiscard(tabId, { baseUrl });
   }
+  // A discard is a popup-initiated marking-session transition: passes reading
+  // the pre-discard session must not republish its marking facts over the
+  // reset (#5/#14 family — a same-epoch pass republished isEnabled:true 30s
+  // after a user silent-drop in the 2026-07-03 00:03 live trace).
+  state.previewCloseMarkingRestoreUnconfirmed = false;
+  bumpMarkingSessionEpoch();
+  signalMarkingSession("discarded");
 }
 
 async function requestAiRunStart({
@@ -7614,6 +7890,8 @@ async function applyComputedSelectorSet(
     captureMarkingSessionSnapshot();
     state.previewOpenIntent = true;
     state.previewSuppressReopen = false;
+    state.previewCloseMarkingRestoreUnconfirmed = false;
+    signalMarkingSession("post-ai-preview-opened");
     // Fresh preview session: seed the item latch with the immediately-rendered
     // items so a later empty probe/push cannot blink the sidebar to empty.
     resetPreviewItemsLatch();
@@ -7634,11 +7912,13 @@ async function applyComputedSelectorSet(
       previewRestorePending: false
     });
     uiModule.setViewState({
+      // Preview fields come from the routine resolver (single writer): the
+      // latch was seeded above, so this renders the seed or the loading state.
+      ...resolvePreviewRoutineViewState(),
       previewWillRestoreMarking: Boolean(
         previewStatePayload &&
           (previewStatePayload.previousEnabled || previewStatePayload.restoreMarkingOnExit)
       ),
-      previewItems: immediatePreviewItems,
       previewFocusedXpath: "",
       previewShowAllCategories: false,
       computeButtonText: ViewText.computeButtonIdle,
@@ -7702,6 +7982,7 @@ function applyAiPreviewStateUpdate(message: PreviewStateLike) {
 
 async function failAiRun(message: string = PopupText.ai.runFailed) {
   resetAiRunMarkingsFingerprint();
+  signalMarkingSession("run-failed");
   publishCurrentTabAiRunEvent(AI_RUN_EVENT_TYPES.FAILED);
   await stopAiRun({ unlockPage: true });
   uiModule.showToast(message);
@@ -8150,6 +8431,8 @@ async function handlePreviewLatest() {
     // hydrates items asynchronously like the other open paths).
     state.previewOpenIntent = true;
     state.previewSuppressReopen = false;
+    state.previewCloseMarkingRestoreUnconfirmed = false;
+    signalMarkingSession("preview-opened");
     resetPreviewItemsLatch();
     publishManualAiPreviewEvent(AI_RUN_EVENT_TYPES.PREVIEW_READY);
     await refreshUi();
@@ -8205,6 +8488,8 @@ async function handleMarkingPreview() {
     }
     state.previewOpenIntent = true;
     state.previewSuppressReopen = false;
+    state.previewCloseMarkingRestoreUnconfirmed = false;
+    signalMarkingSession("preview-opened");
     // Fresh preview session opening empty; it hydrates asynchronously.
     resetPreviewItemsLatch();
     publishCurrentTabAiRunEvent(AI_RUN_EVENT_TYPES.PREVIEW_READY);
@@ -8224,6 +8509,7 @@ async function handleExitPreviewMode() {
   if (!await helpers.ensureActiveTab({ requireId: true })) {
     return;
   }
+  signalMarkingSession("exit-clicked");
   const currentView = uiModule.getViewState();
   const shouldRestoreMarking = Boolean(currentView.previewWillRestoreMarking);
   const previewRestoreToken = shouldRestoreMarking
@@ -8321,6 +8607,7 @@ function stabilizePreviewViewState(
 function resetPreviewItemsLatch(): void {
   state.previewSessionHadItems = false;
   state.previewItemsLatched = [];
+  state.previewSessionSettledEmpty = false;
 }
 
 // Single source of truth for the preview item list while a preview session is
@@ -8332,6 +8619,56 @@ function resetPreviewItemsLatch(): void {
 // after that, an empty snapshot keeps the latched list. Empty is shown only when
 // the session has genuinely never produced items (still loading -> pending, or a
 // settled no-detections result -> not pending).
+// REFLEX-ARC RENDERER (architect direction, 2026-07-03): the preview is a
+// popup-local mechanical routine — the brain signals open/close and observes
+// reported facts, but the routine's view is orchestrated locally. This is the
+// SINGLE authority for the preview view fields, and it derives them from the
+// routine's CURRENT state (open intent + restore pending + item latch) at the
+// moment of the write. Interleaved refreshUi passes previously carried their
+// pass-start preview snapshots to their pass-end full-view writes, so a
+// pre-hydration pass finishing late stomped the hydrated list (the open list
+// oscillated hydrated<->empty; per-frame round-7/8 captures). Every writer now
+// re-resolves here at write time, so a stale pass re-renders the fresh truth.
+type PreviewRoutineViewState = PreviewViewState & {
+  previewBlocked: boolean;
+  previewBlockedMessage: string;
+};
+
+function resolvePreviewRoutineViewState(): PreviewRoutineViewState {
+  const currentView = uiModule.getViewState();
+  const open = Boolean(!state.previewRestorePending && state.previewOpenIntent);
+  if (!open) {
+    return {
+      previewActive: false,
+      previewItems: [],
+      previewItemsPending: false,
+      previewFocusedXpath: "",
+      previewShowAllCategories: false,
+      previewWillRestoreMarking: Boolean(currentView.previewWillRestoreMarking),
+      previewBlocked: false,
+      previewBlockedMessage: ViewText.previewBlockedDefault
+    };
+  }
+  // No new data here: read the standing latch (a feed with fresh probe/push
+  // data updates the latch first, then renders through this same resolver).
+  // previewSessionSettledEmpty remembers a genuine settled no-detections feed
+  // so the re-render shows "No content detected" instead of re-entering the
+  // loading state.
+  const resolved = resolveOpenPreviewItems([], state.previewSessionSettledEmpty);
+  return {
+    previewActive: true,
+    previewItems: resolved.items,
+    previewItemsPending: resolved.pending,
+    previewFocusedXpath: typeof currentView.previewFocusedXpath === "string"
+      ? currentView.previewFocusedXpath
+      : "",
+    previewShowAllCategories: Boolean(currentView.previewShowAllCategories),
+    previewWillRestoreMarking: Boolean(currentView.previewWillRestoreMarking),
+    previewBlocked: true,
+    previewBlockedMessage: PopupText.preview.blockedActive
+  };
+}
+
 function resolveOpenPreviewItems(
   incomingItems: PreviewViewState["previewItems"],
   settled: boolean
@@ -8340,11 +8677,17 @@ function resolveOpenPreviewItems(
   if (items.length > 0) {
     state.previewSessionHadItems = true;
     state.previewItemsLatched = items;
+    state.previewSessionSettledEmpty = false;
     return { items, pending: false };
   }
   if (state.previewSessionHadItems) {
     const latched = Array.isArray(state.previewItemsLatched) ? state.previewItemsLatched : [];
     return { items: latched, pending: false };
+  }
+  if (settled) {
+    // Genuine settled no-detections: remember it so re-renders keep showing
+    // "No content detected" instead of flapping back to the loading state.
+    state.previewSessionSettledEmpty = true;
   }
   return { items: [], pending: !settled };
 }

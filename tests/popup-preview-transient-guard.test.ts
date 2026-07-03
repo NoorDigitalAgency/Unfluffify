@@ -183,21 +183,52 @@ test("refreshUi treats getAiPreviewState as item-only and owns preview visibilit
   assert.match(stateSource, /previewSuppressReopen:\s*false/);
 
   // Exit-in-flight suppresses probe-driven reopen; standing intent keeps it open;
-  // post-close suppression blocks a lagging active probe until it confirms closed.
+  // post-close suppression durably blocks a lagging active probe.
   assert.match(popupSource, /if \(state\.previewRestorePending\) \{[\s\S]{0,200}showPreview = false;/);
   assert.match(popupSource, /else if \(state\.previewOpenIntent\) \{[\s\S]{0,200}showPreview = true;/);
-  assert.match(popupSource, /else if \(state\.previewSuppressReopen\) \{[\s\S]{0,200}showPreview = false;/);
+  assert.match(popupSource, /else if \(state\.previewSuppressReopen\) \{[\s\S]{0,700}showPreview = false;/);
+
+  // The reopen guard is a durable latch: probe responses arrive out of order
+  // across interleaved refreshUi passes, so a confirmed-closed probe must NOT
+  // drop it (the next stale-active probe would re-adopt and reopen the sidebar
+  // after Exit — #5/#14). Only an in-popup preview open clears it.
+  assert.doesNotMatch(popupSource, /previewSuppressReopen && probeOk && !probeActive/);
+  const refreshUiInnerSource = extractFunctionSource(popupSource, "refreshUiInner");
+  assert.doesNotMatch(
+    refreshUiInnerSource,
+    /state\.previewSuppressReopen = false/,
+    "refreshUi must never clear the post-close reopen guard"
+  );
+
+  // The brain-projected visibility override holds the sidebar closed while the
+  // reopen guard stands (stale folded previewActive:true cannot reopen it).
+  assert.match(
+    popupSource,
+    /function overrideDictatedPreviewVisibility[\s\S]{0,900}else if \(state\.previewSuppressReopen\) \{[\s\S]{0,700}active = false;/
+  );
 
   // Items flow through the session latch: a settled probe updates it; a pending
   // or missing probe keeps the latched list (never a mid-hydration empty list).
   assert.match(popupSource, /const settled = probeOk && !previewViewState\.previewItemsPending;/);
   assert.match(popupSource, /resolveOpenPreviewItems\(settled \? probeItems : \[\], settled\)/);
 
+  // A transient out-of-scope pass (tab-context flicker while a preview is open)
+  // skips the whole preview block; it must keep the popup-owned open state and
+  // the latched items instead of writing the empty no-probe default past the
+  // latch (round-7 per-frame capture: the open list oscillated 130<->0 and
+  // rendered as a permanent "No content detected").
+  assert.match(
+    popupSource,
+    /if \(!tabInScope && state\.previewOpenIntent\) \{[\s\S]{0,1200}resolveOpenPreviewItems\(\[\], false\);[\s\S]{0,600}previewActive: true,/
+  );
+
   // The push (applyAiPreviewStateUpdate) routes items through the same latch.
   assert.match(popupSource, /resolveOpenPreviewItems\(settled \? incomingItems : \[\], settled\)/);
 
-  // The close choke point drops intent, raises the reopen guard, resets the latch.
-  assert.match(popupSource, /function settlePreviewRestoreClosed[\s\S]{0,600}state\.previewOpenIntent = false;[\s\S]{0,160}state\.previewSuppressReopen = true;[\s\S]{0,120}resetPreviewItemsLatch\(\);/);
+  // The close choke point drops intent, raises the reopen guard, arms the
+  // marking-restore confirmation latch from the snapshot (BEFORE clearing it),
+  // bumps the marking-session epoch, and resets the item latch.
+  assert.match(popupSource, /function settlePreviewRestoreClosed[\s\S]{0,600}state\.previewOpenIntent = false;[\s\S]{0,160}state\.previewSuppressReopen = true;[\s\S]{0,900}state\.previewCloseMarkingRestoreUnconfirmed =\s*state\.previewCloseMarkingRestoreUnconfirmed \|\| Boolean\(state\.previewMarkingSessionSnapshot\);[\s\S]{0,300}bumpMarkingSessionEpoch\(\);[\s\S]{0,80}resetPreviewItemsLatch\(\);[\s\S]{0,80}clearMarkingSessionSnapshot\(\);/);
 
   // All three preview-open paths (AI run, marking-mode preview, Silent Preview)
   // set the intent so the latch + visibility override engage.
@@ -207,4 +238,82 @@ test("refreshUi treats getAiPreviewState as item-only and owns preview visibilit
   // The brain-projected preview visibility is overridden by the popup-owned intent.
   assert.match(popupSource, /function overrideDictatedPreviewVisibility/);
   assert.match(popupSource, /overrideDictatedPreviewVisibility\(nextViewState\);/);
+
+  // REFLEX-ARC single writer: the pass-end full-view write re-resolves the
+  // preview fields from the routine's CURRENT state instead of carrying the
+  // pass-start snapshot (interleaved pre-hydration passes finishing late
+  // stomped the hydrated list — the open list oscillated hydrated<->empty).
+  assert.match(
+    popupSource,
+    /Object\.assign\(nextViewState, resolvePreviewRoutineViewState\(\)\);\s*applyCentralSessionDictation\(nextViewState, currentTabId\);\s*uiModule\.setViewState\(nextViewState\);/
+  );
+});
+
+// The routine renderer derives the preview view from the CURRENT latch/intent
+// at the moment of the write — the muscle-memory single writer.
+function makeRoutineContext(stateFields: Record<string, unknown>, currentView: Record<string, unknown>) {
+  const context = {
+    module: { exports: {} as { resolvePreviewRoutineViewState?: () => Record<string, unknown> } },
+    exports: {},
+    state: {
+      previewRestorePending: false,
+      previewOpenIntent: false,
+      previewSessionHadItems: false,
+      previewSessionSettledEmpty: false,
+      previewItemsLatched: [] as unknown[],
+      ...stateFields
+    },
+    uiModule: { getViewState: () => currentView },
+    PopupText: { preview: { blockedActive: "blocked-active" } },
+    ViewText: { previewBlockedDefault: "blocked-default" },
+    Array, Boolean
+  };
+  runInNewContext(
+    compilePreviewFns(["resolveOpenPreviewItems", "resolvePreviewRoutineViewState"]),
+    context
+  );
+  return context.module.exports.resolvePreviewRoutineViewState!;
+}
+
+test("routine renderer: an open session always re-renders the latched list", () => {
+  const render = makeRoutineContext(
+    { previewOpenIntent: true, previewSessionHadItems: true, previewItemsLatched: ITEMS },
+    { previewFocusedXpath: "/html[1]", previewShowAllCategories: false, previewWillRestoreMarking: true }
+  );
+  const view = render();
+  assert.equal(view.previewActive, true);
+  assert.equal((view.previewItems as unknown[]).length, 5, "write-time render must use the latch");
+  assert.equal(view.previewItemsPending, false);
+  assert.equal(view.previewBlocked, true);
+});
+
+test("routine renderer: never-hydrated shows loading; settled-empty memory shows genuine empty", () => {
+  const loading = makeRoutineContext(
+    { previewOpenIntent: true },
+    { previewFocusedXpath: "", previewShowAllCategories: false, previewWillRestoreMarking: false }
+  )();
+  assert.equal(loading.previewItemsPending, true, "no feed settled yet -> loading");
+
+  const settledEmpty = makeRoutineContext(
+    { previewOpenIntent: true, previewSessionSettledEmpty: true },
+    { previewFocusedXpath: "", previewShowAllCategories: false, previewWillRestoreMarking: false }
+  )();
+  assert.equal(settledEmpty.previewItemsPending, false, "genuine no-detections stays settled");
+  assert.equal((settledEmpty.previewItems as unknown[]).length, 0);
+});
+
+test("routine renderer: closed or restore-pending renders the closed preview", () => {
+  const closed = makeRoutineContext(
+    { previewOpenIntent: false, previewSessionHadItems: true, previewItemsLatched: ITEMS },
+    { previewFocusedXpath: "", previewShowAllCategories: false, previewWillRestoreMarking: false }
+  )();
+  assert.equal(closed.previewActive, false);
+  assert.equal((closed.previewItems as unknown[]).length, 0);
+  assert.equal(closed.previewBlocked, false);
+
+  const restoring = makeRoutineContext(
+    { previewOpenIntent: true, previewRestorePending: true, previewSessionHadItems: true, previewItemsLatched: ITEMS },
+    { previewFocusedXpath: "", previewShowAllCategories: false, previewWillRestoreMarking: false }
+  )();
+  assert.equal(restoring.previewActive, false, "exit in flight renders closed");
 });

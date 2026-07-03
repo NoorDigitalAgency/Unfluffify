@@ -100,6 +100,7 @@ test("repeat exit clicks during preview restore only re-arm the fallback timer",
 
 test("hard preview-restore fallback force-clears preview facts and local preview UI before refresh", async () => {
   const compiled = transpileFunctions([
+    "bumpMarkingSessionEpoch",
     "clearPreviewRestoreFallbackTimer",
     "clearPreviewRestorePending",
     "settlePreviewRestoreClosed",
@@ -125,9 +126,11 @@ test("hard preview-restore fallback force-clears preview facts and local preview
       previewRestorePending: true,
       previewRestoreToken: 7,
       previewRestoreAppliedToken: 0,
-      previewRestoreFallbackTimer: 0
+      previewRestoreFallbackTimer: 0,
+      markingSessionEpoch: 0
     },
     resetPreviewItemsLatch: () => undefined,
+    signalMarkingSession: () => undefined,
     clearMarkingSessionSnapshot: () => {
       callOrder.push("clear-marking-snapshot");
     },
@@ -214,6 +217,7 @@ test("hard preview-restore fallback force-clears preview facts and local preview
 
 test("a late same-token close payload still applies after the hard fallback clear", async () => {
   const compiled = transpileFunctions([
+    "bumpMarkingSessionEpoch",
     "clearPreviewRestoreFallbackTimer",
     "clearPreviewRestorePending",
     "settlePreviewRestoreClosed",
@@ -239,11 +243,13 @@ test("a late same-token close payload still applies after the hard fallback clea
       previewRestoreToken: 7,
       previewRestoreAppliedToken: 0,
       previewRestoreFallbackTimer: 0,
+      markingSessionEpoch: 0,
       currentBaseUrl: "",
       currentTab: null,
       lastPopupPageUrl: ""
     },
     resetPreviewItemsLatch: () => undefined,
+    signalMarkingSession: () => undefined,
     clearMarkingSessionSnapshot: () => undefined,
     publishCurrentTabSessionFacts: (facts: PreviewFacts) => {
       publishedFacts.push({ ...facts });

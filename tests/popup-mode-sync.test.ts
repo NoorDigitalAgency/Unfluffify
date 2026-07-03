@@ -66,9 +66,16 @@ test("popup keeps marking mode active across preview restore, AI compute, and au
   assert.match(refreshBlock, /const aiPreviewSessionActive = Boolean\(previewActive\);/);
   assert.match(refreshBlock, /const preserveEnabledDuringPreviewCloseRestore = Boolean\(/);
   assert.match(refreshBlock, /const preserveEnabledDuringAiComputeRun = Boolean\(/);
+  // The toggle force-true covers only MARKING-BACKED previews (snapshot to
+  // restore). A Silent Preview must not force the toggle on: that published
+  // isEnabled:true over a silent session and wedged a popup/page split.
   assert.match(
     refreshBlock,
-    /if \([\s\S]*?tabInScope[\s\S]*?\(previewRestorePending \|\| aiComputeRunActive \|\| aiPreviewSessionActive\)[\s\S]*?\(!contentModeKnown \|\| !toggleEnabled\)[\s\S]*?\) \{/
+    /const aiPreviewMarkingSessionActive = Boolean\(\s*previewActive && state\.previewMarkingSessionSnapshot\s*\);/
+  );
+  assert.match(
+    refreshBlock,
+    /if \([\s\S]*?tabInScope[\s\S]*?\(previewRestorePending \|\| aiComputeRunActive \|\| aiPreviewMarkingSessionActive\)[\s\S]*?\(!contentModeKnown \|\| !toggleEnabled\)[\s\S]*?\) \{/
   );
   assert.match(
     refreshBlock,
