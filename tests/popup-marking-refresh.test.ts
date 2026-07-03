@@ -58,7 +58,7 @@ test("preview exit restores a captured marking-session snapshot before payload f
   );
   assert.match(
     popupSource,
-    /async function handleMarkingPreview\(\) \{[\s\S]*?const latestView = await refreshUiForActionGates\(\);[\s\S]*?captureMarkingSessionSnapshot\(\);[\s\S]*?messages\.requestTabShowAiPreview\(tabId, \{[\s\S]*?publishCurrentTabAiRunEvent\(AI_RUN_EVENT_TYPES\.PREVIEW_READY\);/
+    /async function handleMarkingPreview\(\) \{[\s\S]*?const latestView = await refreshUiForActionGates\(\);[\s\S]*?captureMarkingSessionSnapshot\(\);[\s\S]*?messages\.requestTabShowAiPreview\(tabId, \{[\s\S]*?publishCurrentTabAiRunEvent\(AI_RUN_EVENT_TYPES\.PREVIEW_READY, \{ origin: "marking" \}\);/
   );
   assert.match(
     popupSource,

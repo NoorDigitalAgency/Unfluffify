@@ -13,6 +13,7 @@ import type {
   RenderModeContentEndReply,
   RenderModeContentHideConsentReply,
 } from "../../common/bus/contracts/render-mode";
+import { SIGNAL_EVENT_TYPES, type SignalFrame } from "../../common/bus/contracts/signals";
 import { isBusEnvelope, type BusEnvelope } from "../../common/bus/envelope";
 import { REALMS } from "../../common/bus/realms";
 import { createContentTransport } from "../../common/bus/transport/content-transport";
@@ -34,6 +35,9 @@ export type ContentBusClientOptions = {
     captureHtml: (payload?: Record<string, unknown>) => Promise<RenderModeContentCaptureHtmlReply>;
     endInspection: (payload?: Record<string, unknown>) => RenderModeContentEndReply;
   };
+  // REFLEX-ARC Phase 1: pushed signal frames (consumer plumbing only in P1;
+  // the content machines consume in Phase 3).
+  onSignal?: (frame: SignalFrame) => void;
 };
 
 export function startContentBusClient(options: ContentBusClientOptions = {}): Bus {
@@ -59,6 +63,14 @@ export function startContentBusClient(options: ContentBusClientOptions = {}): Bu
   if (options.renderModeHandlers) {
     registerRenderModeInspectionExecutor(contentBus, {
       handlers: options.renderModeHandlers,
+    });
+  }
+  if (options.onSignal) {
+    const onSignal = options.onSignal;
+    contentBus.subscribe(SIGNAL_EVENT_TYPES.EMITTED, (payload) => {
+      if (payload && typeof payload === "object") {
+        onSignal(payload as SignalFrame);
+      }
     });
   }
   // The page-world inspection curtain renders from the brain pageCurtain

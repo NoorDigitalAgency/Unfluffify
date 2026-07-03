@@ -24,6 +24,18 @@ import {
   type SessionFactsReportedPayload
 } from "../../common/bus/contracts/session-state";
 import { SPINNER_EVENT_TYPES, type SpinnerSurface } from "../../common/bus/contracts/spinner";
+import {
+  SIGNAL_EVENT_TYPES,
+  SIGNAL_NAMES,
+  SIGNAL_REQUEST_TYPES,
+  type SignalEmitPayload,
+  type SignalEmitReply,
+  type SignalFrame,
+  type SignalPullPayload,
+  type SignalPullReply,
+} from "../../common/bus/contracts/signals";
+import { createSignalLog } from "./signal-log";
+import { loadPersistedSignalLog, persistSignalLog } from "./signal-log-persistence";
 import { REALMS, type Realm } from "../../common/bus/realms";
 import { createBackgroundTransport } from "../../common/bus/transport/background-transport";
 import type { PopupSpinnerEntry } from "../../common/bus/contracts/popup-state";
@@ -201,7 +213,67 @@ function normalizeAiRunEventPayload(value: unknown): AiRunEventPayload {
     sessionId: typeof payload.sessionId === "string" ? payload.sessionId : undefined,
     deadlineAt: Number.isFinite(payload.deadlineAt) ? Math.max(0, Math.trunc(Number(payload.deadlineAt))) : undefined,
     reason: typeof payload.reason === "string" ? payload.reason : undefined,
+    origin: typeof payload.origin === "string" ? payload.origin : undefined,
   };
+}
+
+// REFLEX-ARC Phase 1: every discrete ai-run lifecycle event doubles as a
+// signal-frame emission (the run/preview signals of the plan vocabulary are
+// born here — the ONE choke point all run events already flow through).
+function mapAiRunEventToSignalEmit(
+  eventType: AiRunEventType,
+  payload: AiRunEventPayload,
+): SignalEmitPayload | null {
+  // Run lifecycle signals are once-per-session: multiple layers republish the
+  // same ai-run event (live P1 trace: RESULTS_APPLIED admitted twice, >250ms
+  // apart), so the session id is the dedupe key.
+  if (eventType === AI_RUN_EVENT_TYPES.STARTED) {
+    return {
+      name: SIGNAL_NAMES.RUN_STARTED,
+      source: "brain",
+      cause: "ai-run.started",
+      payload: {
+        sessionId: payload.sessionId ?? "",
+        deadlineAt: payload.deadlineAt ?? 0,
+      },
+      dedupeKey: payload.sessionId ? `session:${payload.sessionId}` : "",
+    };
+  }
+  if (eventType === AI_RUN_EVENT_TYPES.RESULTS_APPLIED) {
+    return {
+      name: SIGNAL_NAMES.RUN_COMPLETED,
+      source: "brain",
+      cause: "ai-run.resultsApplied",
+      payload: { sessionId: payload.sessionId ?? "" },
+      dedupeKey: payload.sessionId ? `session:${payload.sessionId}` : "",
+    };
+  }
+  if (eventType === AI_RUN_EVENT_TYPES.FAILED || eventType === AI_RUN_EVENT_TYPES.TIMED_OUT) {
+    return {
+      name: SIGNAL_NAMES.RUN_FAILED,
+      source: "brain",
+      cause: eventType === AI_RUN_EVENT_TYPES.TIMED_OUT ? "run-timeout" : "run-failed",
+      payload: { sessionId: payload.sessionId ?? "", reason: payload.reason ?? "" },
+      dedupeKey: payload.sessionId ? `session:${payload.sessionId}` : "",
+    };
+  }
+  if (eventType === AI_RUN_EVENT_TYPES.PREVIEW_READY) {
+    return {
+      name: SIGNAL_NAMES.PREVIEW_OPENED,
+      source: "brain",
+      cause: "ai-run.previewReady",
+      payload: { origin: payload.origin ?? "post_ai" },
+    };
+  }
+  if (eventType === AI_RUN_EVENT_TYPES.EXITED) {
+    return {
+      name: SIGNAL_NAMES.PREVIEW_EXITED,
+      source: "brain",
+      cause: "ai-run.exited",
+      payload: { restored: true },
+    };
+  }
+  return null;
 }
 
 function updateAiRunStateFromEvent(
@@ -677,6 +749,70 @@ export function createBrain(options: { logger?: Pick<Console, "error" | "debug">
       secondaryGates: state.secondaryGates,
     };
   });
+  // REFLEX-ARC Phase 1: the brain-owned per-tab signal log. Admission assigns
+  // the monotonic seq, pushes best-effort, and serves cursor pulls (the
+  // correctness path). See .copilot/architecture/reflex-arc-plan.md §1.
+  const signalLog = createSignalLog();
+  let signalLogHydrated = false;
+  let signalPersistTimer: ReturnType<typeof setTimeout> | null = null;
+  async function ensureSignalLogHydrated(): Promise<void> {
+    if (signalLogHydrated) {
+      return;
+    }
+    signalLogHydrated = true;
+    signalLog.hydrate(await loadPersistedSignalLog());
+  }
+  function persistSignalLogSoon(): void {
+    if (signalPersistTimer) {
+      return;
+    }
+    signalPersistTimer = setTimeout(() => {
+      signalPersistTimer = null;
+      void persistSignalLog(signalLog.serialize());
+    }, 100);
+  }
+  function emitSignal(
+    tabId: number,
+    emit: SignalEmitPayload,
+    sourceOverride?: SignalFrame["source"],
+  ): SignalFrame | null {
+    const admission = signalLog.admit(tabId, emit, sourceOverride);
+    if (!admission.frame) {
+      return null;
+    }
+    for (const target of [REALMS.POPUP, REALMS.CONTENT]) {
+      void bus.publish(SIGNAL_EVENT_TYPES.EMITTED, admission.frame, { target, tab: tabId });
+    }
+    persistSignalLogSoon();
+    options.logger?.debug?.("brain signal emitted", {
+      tabId,
+      seq: admission.frame.seq,
+      name: admission.frame.name,
+      cause: admission.frame.cause,
+    });
+    return admission.frame;
+  }
+  bus.registerHandler(SIGNAL_REQUEST_TYPES.EMIT, async (payload: SignalEmitPayload, meta): Promise<SignalEmitReply> => {
+    if (!meta.tab) {
+      throw new Error("signal.emit requires a tab id");
+    }
+    await ensureSignalLogHydrated();
+    const source = meta.src === REALMS.CONTENT ? "content" : meta.src === REALMS.POPUP ? "popup" : "brain";
+    const frame = emitSignal(meta.tab, payload, source);
+    return { ok: true, frame };
+  });
+  bus.registerHandler(SIGNAL_REQUEST_TYPES.PULL, async (payload: SignalPullPayload, meta): Promise<SignalPullReply> => {
+    if (!meta.tab) {
+      throw new Error("signal.pull requires a tab id");
+    }
+    await ensureSignalLogHydrated();
+    const afterSeq = payload && Number.isFinite(payload.afterSeq) ? Math.trunc(payload.afterSeq) : 0;
+    return {
+      ok: true,
+      headSeq: signalLog.headSeq(meta.tab),
+      frames: signalLog.listAfter(meta.tab, afterSeq),
+    };
+  });
   for (const eventType of Object.values(AI_RUN_EVENT_TYPES)) {
     bus.subscribe(eventType, (payload, meta) => {
       const eventPayload = normalizeAiRunEventPayload(payload);
@@ -685,6 +821,10 @@ export function createBrain(options: { logger?: Pick<Console, "error" | "debug">
         return;
       }
       foldAiRunEvent(tabId, eventType, eventPayload, `ai-run:${eventType}`);
+      const signalEmit = mapAiRunEventToSignalEmit(eventType, eventPayload);
+      if (signalEmit) {
+        emitSignal(tabId, signalEmit);
+      }
     });
   }
   const heartbeat = createBrainHeartbeat({
@@ -808,6 +948,12 @@ export function createBrain(options: { logger?: Pick<Console, "error" | "debug">
       });
     },
     heartbeat,
+    // REFLEX-ARC Phase 1: brain-side signal emission for background command
+    // choke points (marking activate/deactivate acks etc.). Assigns seq,
+    // pushes, persists; dedupe rules live in the signal log.
+    emitSignal(tabId: number, emit: SignalEmitPayload): SignalFrame | null {
+      return emitSignal(tabId, emit, "brain");
+    },
     async rehydrate() {
       const persisted = await loadPersistedTabStates();
       for (const [tabId, state] of persisted) {
@@ -815,6 +961,7 @@ export function createBrain(options: { logger?: Pick<Console, "error" | "debug">
           Object.assign(draft, state);
         });
       }
+      await ensureSignalLogHydrated();
     },
   };
 }

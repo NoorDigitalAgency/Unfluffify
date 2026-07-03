@@ -135,6 +135,8 @@ import {
   publishPopupSessionFacts,
   requestPopupSessionFactsApply,
   requestPopupRenderModeCaptureHtml,
+  emitPopupSignal,
+  pullPopupSignals,
   requestPopupRenderModeHideConsent,
   requestPopupSpinnerClear,
   requestPopupSpinnerRemove,
@@ -143,6 +145,7 @@ import {
   runPopupBusSelfTest,
   startPopupBusClient
 } from "./popup/layers/popup-bus-client";
+import { SIGNAL_NAMES, type SignalFrame } from "./common/bus/contracts/signals";
 import {
   requestPopupRenderModeInspection,
   requestPopupRenderModeInspectionEnd,
@@ -1202,6 +1205,9 @@ function applyPopupViewSnapshot(snapshot: PopupStateGetReply | null) {
     return;
   }
   const currentTabId = getCurrentPopupTabId();
+  // REFLEX-ARC Phase 1: piggyback the throttled signal-cursor pull on brain
+  // projections (the correctness path behind the best-effort push).
+  maybePullSignals(currentTabId);
   const hadProjectedSessionDictation = hasProjectedCentralSessionDictationForTab(currentTabId);
   const hadProjectedPropertyLockView = hasProjectedPropertyLockViewForTab(currentTabId);
   const hadProjectedSecondaryGates = Boolean(
@@ -1373,11 +1379,11 @@ function shouldReportManualAiPreviewEvent(): boolean {
   );
 }
 
-function publishManualAiPreviewEvent(eventType: AiRunEventType): void {
+function publishManualAiPreviewEvent(eventType: AiRunEventType, payload: AiRunEventPayload = {}): void {
   if (!shouldReportManualAiPreviewEvent()) {
     return;
   }
-  publishCurrentTabAiRunEvent(eventType);
+  publishCurrentTabAiRunEvent(eventType, payload);
 }
 
 function hasProjectedCentralSessionDictationForTab(tabId: number | null): boolean {
@@ -1516,6 +1522,80 @@ function signalMarkingSession(signal: MarkingSessionSignal): void {
   } else {
     logWorldTrace("marking-session:signal-held", { state: from, signal });
   }
+}
+
+// REFLEX-ARC Phase 1: consumed signal frames map to machine signals. The
+// popup-local call sites remain during P1 (the transition table is idempotent
+// for duplicates) and the per-tab seq cursor makes each frame apply at most
+// once, in order.
+const SIGNAL_FRAME_TO_MACHINE_SIGNAL: Readonly<Record<string, MarkingSessionSignal | null>> = Object.freeze({
+  [SIGNAL_NAMES.MARKING_ENABLED]: "marking-enabled",
+  [SIGNAL_NAMES.MARKING_DISABLED]: "marking-disabled",
+  [SIGNAL_NAMES.MARKINGS_CHANGED]: "markings-changed",
+  [SIGNAL_NAMES.RUN_STARTED]: "run-started",
+  // run.completed carries no transition of its own: preview.opened{post_ai}
+  // is the movement (the preview IS the completion surface).
+  [SIGNAL_NAMES.RUN_COMPLETED]: null,
+  [SIGNAL_NAMES.RUN_FAILED]: "run-failed",
+  [SIGNAL_NAMES.PREVIEW_OPENED]: "preview-opened",
+  [SIGNAL_NAMES.PREVIEW_EXIT_REQUESTED]: "exit-clicked",
+  [SIGNAL_NAMES.PREVIEW_EXITED]: "exit-settled",
+  [SIGNAL_NAMES.SESSION_SAVED]: "saved",
+  [SIGNAL_NAMES.SESSION_DISCARDED]: "discarded",
+  [SIGNAL_NAMES.SESSION_NAVIGATED]: "navigated",
+  // Overlay states arrive in Phase 2.
+  [SIGNAL_NAMES.INSPECTION_STARTED]: null,
+  [SIGNAL_NAMES.INSPECTION_ENDED]: null,
+  [SIGNAL_NAMES.RECONCILIATION_STARTED]: null,
+  [SIGNAL_NAMES.RECONCILIATION_ENDED]: null
+});
+
+function consumeSignalFrame(frame: SignalFrame): void {
+  if (!frame || !Number.isFinite(frame.seq) || frame.seq <= state.lastConsumedSignalSeq) {
+    return;
+  }
+  state.lastConsumedSignalSeq = frame.seq;
+  logWorldTrace("signal:consume", { seq: frame.seq, name: frame.name, cause: frame.cause });
+  const mapped = frame.name === SIGNAL_NAMES.PREVIEW_OPENED && frame.payload.origin === "post_ai"
+    ? "post-ai-preview-opened"
+    : SIGNAL_FRAME_TO_MACHINE_SIGNAL[frame.name] ?? null;
+  if (mapped) {
+    signalMarkingSession(mapped as MarkingSessionSignal);
+  }
+}
+
+let lastSignalPullAt = 0;
+function maybePullSignals(tabId: number | null): void {
+  if (!tabId) {
+    return;
+  }
+  const now = Date.now();
+  if (now - lastSignalPullAt < 1000) {
+    return;
+  }
+  lastSignalPullAt = now;
+  void pullPopupSignals(tabId, state.lastConsumedSignalSeq).then((reply) => {
+    if (!reply || !reply.ok) {
+      return;
+    }
+    for (const frame of reply.frames) {
+      consumeSignalFrame(frame);
+    }
+  });
+}
+
+function onPushedSignalFrame(frame: SignalFrame): void {
+  if (!frame || !Number.isFinite(frame.seq) || frame.seq <= state.lastConsumedSignalSeq) {
+    return;
+  }
+  if (frame.seq === state.lastConsumedSignalSeq + 1) {
+    consumeSignalFrame(frame);
+    return;
+  }
+  // Gap ahead of the cursor: recover through the ordered pull path so no
+  // frame is skipped (push delivery is best-effort latency only).
+  lastSignalPullAt = 0;
+  maybePullSignals(getCurrentPopupTabId());
 }
 
 function overrideDictatedMarkingButtons(patch: PopupViewStatePatch): void {
@@ -7705,6 +7785,16 @@ async function applyPostSaveSilentTransition() {
     void messages.requestTabApplyPostSaveTransition(tabId, { baseUrl });
   }
   signalMarkingSession("saved");
+  if (typeof tabId === "number") {
+    // P1: popup-borne (the popup owns the confirmed-save transition today);
+    // moves brain-side with the save lifecycle in Phase 4.
+    void emitPopupSignal(tabId, {
+      name: SIGNAL_NAMES.SESSION_SAVED,
+      source: "popup",
+      cause: "post-save-transition",
+      payload: {}
+    });
+  }
   await alignPopupToSilentMode();
 }
 
@@ -7777,6 +7867,14 @@ async function applyLocalPageDiscard() {
   state.previewCloseMarkingRestoreUnconfirmed = false;
   bumpMarkingSessionEpoch();
   signalMarkingSession("discarded");
+  if (typeof tabId === "number") {
+    void emitPopupSignal(tabId, {
+      name: SIGNAL_NAMES.SESSION_DISCARDED,
+      source: "popup",
+      cause: "user-discard",
+      payload: {}
+    });
+  }
 }
 
 async function requestAiRunStart({
@@ -7876,7 +7974,7 @@ async function applyComputedSelectorSet(
   }
   const previewOpened = Boolean(previewResult);
   if (previewOpened) {
-    publishManualAiPreviewEvent(AI_RUN_EVENT_TYPES.PREVIEW_READY);
+    publishManualAiPreviewEvent(AI_RUN_EVENT_TYPES.PREVIEW_READY, { origin: "post_ai" });
     // Show the Detected Content sidebar immediately from the items the content
     // script just rendered. Waiting for the next full refreshUi() to rediscover
     // the preview via the timeout-prone getAiPreviewState probe is what made the
@@ -8444,7 +8542,7 @@ async function handlePreviewLatest() {
     state.previewCloseMarkingRestoreUnconfirmed = false;
     signalMarkingSession("preview-opened");
     resetPreviewItemsLatch();
-    publishManualAiPreviewEvent(AI_RUN_EVENT_TYPES.PREVIEW_READY);
+    publishManualAiPreviewEvent(AI_RUN_EVENT_TYPES.PREVIEW_READY, { origin: "silent" });
     await refreshUi();
   } catch (error) {
     clearMarkingSessionSnapshot();
@@ -8502,7 +8600,7 @@ async function handleMarkingPreview() {
     signalMarkingSession("preview-opened");
     // Fresh preview session opening empty; it hydrates asynchronously.
     resetPreviewItemsLatch();
-    publishCurrentTabAiRunEvent(AI_RUN_EVENT_TYPES.PREVIEW_READY);
+    publishCurrentTabAiRunEvent(AI_RUN_EVENT_TYPES.PREVIEW_READY, { origin: "marking" });
     await refreshUi();
   } catch (error) {
     clearMarkingSessionSnapshot();
@@ -8522,6 +8620,19 @@ async function handleExitPreviewMode() {
   signalMarkingSession("exit-clicked");
   const currentView = uiModule.getViewState();
   const shouldRestoreMarking = Boolean(currentView.previewWillRestoreMarking);
+  {
+    // REFLEX-ARC Phase 1: popup-borne signal (user intent), admitted by the
+    // brain for provenance + sequencing.
+    const signalTabId = getCurrentPopupTabId();
+    if (signalTabId) {
+      void emitPopupSignal(signalTabId, {
+        name: SIGNAL_NAMES.PREVIEW_EXIT_REQUESTED,
+        source: "popup",
+        cause: "user-exit-click",
+        payload: { restore: shouldRestoreMarking }
+      });
+    }
+  }
   const previewRestoreToken = shouldRestoreMarking
     ? beginPreviewRestorePending()
     : null;
@@ -8814,9 +8925,11 @@ async function init() {
   if (initTabId) {
     const popupBus = startPopupBusClient(initTabId, {
       applyPopupView: applyPopupViewSnapshot,
-      onSpinnerSurfaceChanged: handleSpinnerSurfaceChangedFromBrain
+      onSpinnerSurfaceChanged: handleSpinnerSurfaceChangedFromBrain,
+      onSignal: onPushedSignalFrame
     });
     activePopupBusClient = popupBus;
+    maybePullSignals(initTabId);
     await restoreSpinnerQueueFromBackground(initTabId, popupBus);
     await applyTraceModePreferenceToTab(initTabId, state.traceModeEnabled, popupBus).catch(() => null);
     maybeRunPopupBusSelfTest(initTabId, popupBus);
@@ -8996,8 +9109,10 @@ async function init() {
       try {
         const popupBus = startPopupBusClient(newTabId, {
           applyPopupView: applyPopupViewSnapshot,
-          onSpinnerSurfaceChanged: handleSpinnerSurfaceChangedFromBrain
+          onSpinnerSurfaceChanged: handleSpinnerSurfaceChangedFromBrain,
+          onSignal: onPushedSignalFrame
         });
+        maybePullSignals(newTabId);
         activePopupBusClient = popupBus;
         await restoreSpinnerQueueFromBackground(newTabId, popupBus);
         maybeRunPopupBusSelfTest(newTabId, popupBus);

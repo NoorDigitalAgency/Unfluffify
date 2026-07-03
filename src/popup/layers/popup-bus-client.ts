@@ -45,6 +45,15 @@ import {
   type SpinnerRemoveRequestPayload,
   type SpinnerSetRequestPayload,
 } from "../../common/bus/contracts/spinner";
+import {
+  SIGNAL_EVENT_TYPES,
+  SIGNAL_REQUEST_TYPES,
+  type SignalEmitPayload,
+  type SignalEmitReply,
+  type SignalFrame,
+  type SignalPullPayload,
+  type SignalPullReply,
+} from "../../common/bus/contracts/signals";
 import { REALMS, type BusTarget } from "../../common/bus/realms";
 import { createPopupTransport } from "../../common/bus/transport/popup-transport";
 import { startPopupLayerHostWithOptions } from "./layer-host";
@@ -60,6 +69,9 @@ export type PopupBusSelfTestLogger = (eventName: string, details?: Record<string
 export type PopupBusClientOptions = {
   applyPopupView?: (view: PopupStateGetReply) => void;
   onSpinnerSurfaceChanged?: (surface: PopupSpinnerSurface) => void;
+  // REFLEX-ARC Phase 1: pushed signal frames (best-effort latency path; the
+  // pull cursor is the correctness path — see pullPopupSignals).
+  onSignal?: (frame: SignalFrame) => void;
 };
 
 function buildDiagnosticNonce(tabId: number, target: string): string {
@@ -205,6 +217,42 @@ export async function requestPopupSessionFactsApply(
   }
 }
 
+export async function pullPopupSignals(
+  tabId: number,
+  afterSeq: number,
+): Promise<SignalPullReply | null> {
+  if (!tabId || !popupBus) {
+    return null;
+  }
+  try {
+    return await popupBus.request<SignalPullPayload, SignalPullReply>(
+      SIGNAL_REQUEST_TYPES.PULL,
+      { afterSeq },
+      { target: REALMS.BACKGROUND, tab: tabId, timeoutMs: 3000 },
+    );
+  } catch {
+    return null;
+  }
+}
+
+export async function emitPopupSignal(
+  tabId: number,
+  emit: SignalEmitPayload,
+): Promise<SignalEmitReply | null> {
+  if (!tabId || !popupBus) {
+    return null;
+  }
+  try {
+    return await popupBus.request<SignalEmitPayload, SignalEmitReply>(
+      SIGNAL_REQUEST_TYPES.EMIT,
+      emit,
+      { target: REALMS.BACKGROUND, tab: tabId, timeoutMs: 3000 },
+    );
+  } catch {
+    return null;
+  }
+}
+
 export function publishPopupAiRunEvent(
   tabId: number,
   eventType: AiRunEventType,
@@ -327,6 +375,14 @@ export function startPopupBusClient(tabId: number, options: PopupBusClientOption
     source: "popup",
     facts: lastPopupSessionFacts,
   }));
+  if (options.onSignal) {
+    const onSignal = options.onSignal;
+    popupBus.subscribe(SIGNAL_EVENT_TYPES.EMITTED, (payload) => {
+      if (payload && typeof payload === "object") {
+        onSignal(payload as SignalFrame);
+      }
+    });
+  }
   popupLayerHostStop = startPopupLayerHostWithOptions(popupBus, options);
   popupBusTabId = tabId;
   return popupBus;

@@ -236,7 +236,7 @@ test("refreshUi passes are epoch-gated at every marking-state effect site", () =
   );
   assert.match(
     popupSource,
-    /async function applyLocalPageDiscard[\s\S]{0,4000}bumpMarkingSessionEpoch\(\);\s*signalMarkingSession\("discarded"\);\s*\}/
+    /async function applyLocalPageDiscard[\s\S]{0,4000}bumpMarkingSessionEpoch\(\);\s*signalMarkingSession\("discarded"\);/
   );
 
   // The toggle force-true and the enabled-preserve guard apply only to

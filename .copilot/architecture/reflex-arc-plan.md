@@ -425,7 +425,23 @@ properties, 7-minute windows, frames reviewed.
   12 signals / button memories), per-frame harness. Live: C1/C2/C4 PASS on
   both properties incl. heavy-page pressure; C3 core fixed (exit collapse
   gone over 6-7 min windows); residual button-surface noise = P1-P4 scope.
-- P1 signal system: NOT STARTED
+- P1 signal system: SHIPPED (2026-07-03). contracts/signals.ts, brain
+  signal-log (ring/seq/dedupe/persist via signal-log-persistence), EMIT/PULL
+  handlers + EMITTED push to both realms, ai-run-event emitter hook,
+  activate/deactivate command emitters, popup consumption (vocabulary->machine
+  mapping, gap-safe push handler, throttled cursor pull) + popup-borne
+  exit-requested/saved/discarded emissions, content consumer plumbing.
+  LIVE ACCEPTANCE (bonliva.no): full lifecycle admitted in order
+  (marking.enabled seq1 -> run.started -> run.completed -> preview.opened ->
+  preview.exit.requested -> preview.exited seq7); C1/C2/C4 PASS; the C3 flag
+  at +43s is the DOCUMENTED P3 residual (false markings-changed from the
+  content config-merge reshape — the machine consumed the signal it was
+  given). Tests: signal-log + popup-signal-consume (1094/1094 gate).
+  DECISION: preview.exited derives from the single ai-run EXITED event (one
+  emitter; no ack+push pair needed — dedupeKey machinery stands ready).
+  DECISION: run started/completed/failed dedupe on `session:<id>` — the live
+  trace caught RESULTS_APPLIED published twice >250ms apart (two layers
+  republish the same run event); run signals are once-per-session.
 - P2 popup full-surface memory: NOT STARTED
 - P3 content provenance + machines + overlays: NOT STARTED
 - P4 brain slimming: NOT STARTED

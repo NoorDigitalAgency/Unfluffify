@@ -124,6 +124,7 @@ export interface PopupState {
   markingSessionEpoch: number;
   previewCloseMarkingRestoreUnconfirmed: boolean;
   markingSessionMachineState: string;
+  lastConsumedSignalSeq: number;
   previewSessionHadItems: boolean;
   previewSessionSettledEmpty: boolean;
   previewItemsLatched: Array<{ xpath: string; text: string; title: string; kind: string }>;

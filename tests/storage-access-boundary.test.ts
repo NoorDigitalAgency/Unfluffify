@@ -109,7 +109,8 @@ const APPROVED_WRAPPER_FILES = new Set([
   "src/background/tab-session-store.ts",
   "src/common/emulation.ts",
   "src/common/render-mode-js-state.ts",
-  "src/background/brain/state-store-persistence.ts"
+  "src/background/brain/state-store-persistence.ts",
+  "src/background/brain/signal-log-persistence.ts"
 ]);
 
 // Bucket: current migration debt. Phase 12 keeps this empty so any new raw

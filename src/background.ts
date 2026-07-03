@@ -51,6 +51,7 @@ import {
   type AiRunEventPayload,
   type AiRunEventType
 } from "./common/bus/contracts/ai-run";
+import { SIGNAL_NAMES } from "./common/bus/contracts/signals";
 import {
   SPINNER_REQUEST_TYPES,
   type SpinnerClearRequestPayload,
@@ -1383,6 +1384,12 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_ACTIVATE_MARKING, async (conte
         busy: false,
         message: ""
       }, "background:tab-activate-marking:lifecycle-finished");
+      brain.emitSignal(normalizedTabId, {
+        name: SIGNAL_NAMES.MARKING_ENABLED,
+        source: "brain",
+        cause: "activate-command-ok",
+        payload: { baseUrl }
+      });
 
       return {
         ok: true,
@@ -1474,6 +1481,12 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_DEACTIVATE_MARKING, async (con
         message: ""
       });
 
+      brain.emitSignal(normalizedTabId, {
+        name: SIGNAL_NAMES.MARKING_DISABLED,
+        source: "brain",
+        cause: "deactivate-command-ok",
+        payload: { baseUrl }
+      });
       return {
         ok: true,
         tabId: normalizedTabId,

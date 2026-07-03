@@ -20,4 +20,8 @@ export type AiRunEventPayload = Readonly<{
   sessionId?: string;
   deadlineAt?: number;
   reason?: string;
+  // Preview provenance for PREVIEW_READY: which open path raised it
+  // ("post_ai" run completion, "marking" Show Content, "silent" Silent
+  // Preview). Feeds the brain's `preview.opened` signal emission.
+  origin?: string;
 }>;

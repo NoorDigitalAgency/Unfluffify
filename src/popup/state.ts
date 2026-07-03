@@ -117,6 +117,9 @@ export const state: PopupState = {
   // memory; fact/dictation churn cannot move it. "boot" adopts once from the
   // brain snapshot. See src/popup/marking-session-machine.ts.
   markingSessionMachineState: "boot",
+  // REFLEX-ARC Phase 1: per-popup signal-frame consumption cursor. Frames at
+  // or below this seq are already applied; pulls resume after it.
+  lastConsumedSignalSeq: 0,
   // Session-scoped item latch: once content reports a hydrated non-empty preview
   // list, the popup must never blink it back to empty mid-session, no matter
   // which racy source (getAiPreviewState probe or aiPreviewStateChanged push)
