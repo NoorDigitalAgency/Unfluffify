@@ -259,6 +259,14 @@ test("signals are wired at the discrete call sites and memory applies at both pa
   assert.match(popupSource, /syncMarkingSessionOverlayFailOpen\(\);\s*\} else \{\s*logWorldTrace\("marking-session:signal-held"/);
   assert.match(popupSource, /signalMarkingSession\("overlay-timeout"\);\s*void refreshUi\(\);/);
   assert.match(popupSource, /MARKING_SESSION_OVERLAY_FAIL_OPEN_MS\)/);
+  // The mode memory owns its DERIVED surfaces too: the silent-highlighting
+  // section (Preview list + Send to Lynx) is recomputed from the OWNED mode,
+  // never left at a pass's pre-override silentModeActive (the post-exit
+  // silent-section leak, architect report 2026-07-03).
+  assert.match(
+    popupSource,
+    /patch\.silentModeActive = memory\.mode\.silentModeActive;[\s\S]{0,600}patch\.cssSelectorsVisible = memory\.mode\.silentModeActive;/
+  );
   const contentCore = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
   assert.match(
     contentCore,

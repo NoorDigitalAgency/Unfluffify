@@ -15,7 +15,7 @@ test("preview exit restores a captured marking-session snapshot before payload f
   );
   assert.match(
     popupSource,
-    /async function handleExitPreviewMode\(\) \{[\s\S]*?if \(state\.previewRestorePending\) \{[\s\S]*?schedulePreviewRestoreFallback\(state\.previewRestoreToken\);[\s\S]*?return;[\s\S]*?\}[\s\S]*?const currentView = uiModule\.getViewState\(\);[\s\S]*?const shouldRestoreMarking = Boolean\(currentView\.previewWillRestoreMarking\);[\s\S]*?const previewRestoreToken = shouldRestoreMarking[\s\S]*?\? beginPreviewRestorePending\(\)[\s\S]*?: null;[\s\S]*?messages\.requestTabCloseAiPreview\(tabId, \{\s*previewRestoreToken\s*\}\)/
+    /async function handleExitPreviewMode\(\) \{[\s\S]*?if \(state\.previewRestorePending\) \{[\s\S]*?schedulePreviewRestoreFallback\(state\.previewRestoreToken\);[\s\S]*?return;[\s\S]*?\}[\s\S]*?const currentView = uiModule\.getViewState\(\);[\s\S]*?const shouldRestoreMarking = Boolean\(currentView\.previewWillRestoreMarking\);[\s\S]*?const previewRestoreToken = shouldRestoreMarking[\s\S]*?\? beginPreviewRestorePending\(\)[\s\S]*?: null;[\s\S]*?messages\.requestTabCloseAiPreview\(tabId, \{\s*previewRestoreToken\s*\}, \{ timeoutMs: 20000 \}\)/
   );
   assert.match(
     popupSource,

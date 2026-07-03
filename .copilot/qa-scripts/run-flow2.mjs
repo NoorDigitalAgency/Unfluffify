@@ -73,10 +73,12 @@ async function evalIn(conn, expression, awaitPromise = false) {
 const VIEWSTATE_EXPR = `(() => { try {
   const v = window.__UNFLUFFIFY_POPUP_DEBUG__.getViewState();
   const dom = {};
-  for (const id of ["compute","marking-preview","page-save","page-revert","toggle-enabled"]) {
+  for (const id of ["compute","marking-preview","page-save","page-revert","toggle-enabled","preview-latest","save-excludes"]) {
     const el = document.getElementById(id);
     dom[id] = el ? (el.disabled ? "off" : "on") : "-";
   }
+  const toastEl = document.querySelector(".toast.visible, .toast.show, [class*=toast]:not(:empty)");
+  const toastText = toastEl && toastEl.textContent ? toastEl.textContent.trim().slice(0, 60) : "";
   return JSON.stringify({
     previewActive: v.previewActive, previewBlocked: v.previewBlocked,
     previewItems: Array.isArray(v.previewItems) ? v.previewItems.length : null,
@@ -86,6 +88,7 @@ const VIEWSTATE_EXPR = `(() => { try {
     toggleEnabled: v.toggleEnabled, aiRequestInFlight: v.aiRequestInFlight || "",
     saveDisabled: v.pageSaveDisabled, saveReason: v.pageSaveBlockedReason || "",
     curtain: v.sessionCurtainVisible ? (v.sessionCurtainMessage || "on") : "",
+    toast: toastText,
     dom,
   });
 } catch (e) { return "ERR:" + e.message; } })()`;

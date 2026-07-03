@@ -1707,6 +1707,13 @@ function overrideDictatedMarkingButtons(patch: PopupViewStatePatch): void {
   if (memory.mode) {
     patch.mainUiHidden = memory.mode.mainUiHidden;
     patch.silentModeActive = memory.mode.silentModeActive;
+    // The silent-highlighting section (Preview list + Send to Lynx) is a
+    // DERIVED surface of the mode. Passes compute cssSelectorsVisible from
+    // their own pre-override silentModeActive, so a transient silent flap
+    // post-exit leaked the silent section into the marking surface with
+    // unstable enablement (architect report, 2026-07-03). When the machine
+    // owns the mode, it owns the section too.
+    patch.cssSelectorsVisible = memory.mode.silentModeActive;
   }
   if (memory.toggleChecked !== null) {
     patch.toggleEnabled = memory.toggleChecked;
@@ -8750,10 +8757,23 @@ async function handleExitPreviewMode() {
   const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
     ? state.currentTab.id
     : null;
+  // Heavy-page exits legitimately run long (full marking restore + config
+  // persistence on the frozen page): give the command a generous budget.
   const response = await messages.requestTabCloseAiPreview(tabId, {
     previewRestoreToken
-  });
+  }, { timeoutMs: 20000 });
   if (!isPopupCommandSuccess<PreviewCloseCommandResult>(response)) {
+    const timedOut = Boolean(response && (response as { code?: string }).code === "timeout");
+    if (timedOut && previewRestoreToken !== null) {
+      // A timed-out response is NOT a failure verdict: content keeps exiting
+      // and the settle (aiPreviewClosed) or the hard finalize recovers the
+      // surface — se7's film showed "Unable to exit preview" toasting over a
+      // perfectly settled post-exit surface. The restore-latch machinery owns
+      // the outcome from here; a genuinely stuck exit surfaces through the
+      // fallback finalize instead of a premature toast.
+      schedulePreviewRestoreFallback(previewRestoreToken);
+      return;
+    }
     clearPreviewRestorePending();
     clearMarkingSessionSnapshot();
     await refreshUi({ useBusyOverlay: false, skipPropertyLockFetch: true });
@@ -8938,13 +8958,20 @@ function resolveOpenPreviewItems(
       if (!state.previewSettledEmptyCandidateAt) {
         // First sighting arms the candidate only; the surface keeps loading.
         state.previewSettledEmptyCandidateAt = now;
+        console.debug("[preview] settled-empty candidate armed");
       } else if (now - state.previewSettledEmptyCandidateAt >= PREVIEW_SETTLED_EMPTY_CONFIRM_MS) {
         // Confirmed settled no-detections: remember it so re-renders keep
         // showing "No content detected" instead of flapping back to loading.
         state.previewSessionSettledEmpty = true;
+        console.debug("[preview] settled-empty CONFIRMED", {
+          candidateAgeMs: now - state.previewSettledEmptyCandidateAt
+        });
       }
     } else if (!settled) {
       // Pending / uncertain observation contradicts the candidate.
+      if (state.previewSettledEmptyCandidateAt) {
+        console.debug("[preview] settled-empty candidate cleared");
+      }
       state.previewSettledEmptyCandidateAt = 0;
     }
   }
