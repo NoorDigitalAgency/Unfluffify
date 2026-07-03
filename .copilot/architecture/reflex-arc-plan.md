@@ -463,7 +463,38 @@ properties, 7-minute windows, frames reviewed.
   DEFERRED to P4 cleanup: deleting the popup-side spinner-lifecycle
   pushSpinner call sites and the now-superseded dictation field derivations
   (they are overridden, not yet removed).
-- P3 content provenance + machines + overlays: NOT STARTED
+- P3 content provenance + machines + overlays: IN PROGRESS (2026-07-03).
+  §3.1 provenance SHIPPED: 'markings.changed' is born at content's sole
+  user-edit commit path (core markUserMarkingEdit -> bus-client reporter ->
+  signal.emit; the background transport stamps the tab from the sender), and
+  BOTH popup level-edge detectors are deleted — no internal draft reshape can
+  manufacture the signal. LIVE: full chain proven in 73ms (toggle.mutation ->
+  reporter -> emit -> brain admit seq10 cause "user-marking-edit" -> machine
+  pre_ai_clean->pre_ai_dirty with memory saveReason flip).
+  HARDENING SHIPPED alongside (live wedge, twice observed): phase-edge
+  signals (inspection.*/reconciliation.*) moved from the foldSessionFacts
+  inline emitters to the store's WRAPPED MUTATE (session-signal-edges.ts) —
+  the one choke point every dictation rewrite funnels through; a rewrite
+  outside the fold (clearNavigationInspectionCurtainDraft via the lifecycle
+  mirror) had dropped the phase silently, inspection.ended was never born,
+  and the popup sat behind the "Inspecting the page" overlay memory until
+  navigation. Pair members carry per-cycle payload+dedupeKey so the 250ms
+  admission window can only drop a true double-fire, never a closing edge.
+  Popup overlays gained the fail-open parachute (30s deadline ->
+  "overlay-timeout" -> return to prior + repaint), mirroring the page-blocker
+  watchdog idiom.
+  FINDING (explains every earlier "marks registered" pass): harness mark
+  clicks landed on already-saved-excluded job cards — exclude-mode resolution
+  on an excluded element is a designed no-op, so NO user edit ever happened;
+  pre-P3 passes rode the auto-seeded draft's dirty level. The harness planner
+  now skips elements covered by existing mark rects (run-flow2 planner).
+  SURFACE EXTENSION from acceptance r2 (PASS except one 2.2s flap): the
+  toggle CHECKBOX VALUE joined the per-state memory (toggleChecked —
+  marking-session states true, silent false, boot/overlays null): a
+  transient isEnabled fact flap at +40s post-exit blinked the checkbox while
+  every machine-owned field held; value flaps now render from memory.
+  §3.2 content machines + overlay memories + configUpdated emission: NOT
+  STARTED. §3.4 acceptance: in flight (r3, per-frame, full flow on .no).
 - P4 brain slimming: NOT STARTED
 - P5 refresh reduction: NOT STARTED
 - P6 finalization (#5/#14 closure + review-push): NOT STARTED

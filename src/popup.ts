@@ -32,6 +32,7 @@ import {
 } from "./common/feature-flags";
 import * as emulation from "./popup/emulation";
 import {
+  MARKING_SESSION_OVERLAY_FAIL_OPEN_MS,
   adoptMarkingSessionState,
   resolveMarkingSessionSurfaceMemory,
   stepMarkingSession,
@@ -1528,9 +1529,53 @@ function signalMarkingSession(signal: MarkingSessionSignal): void {
       to: step.machine.state,
       prior: step.machine.priorState ?? ""
     });
+    syncMarkingSessionOverlayFailOpen();
   } else {
     logWorldTrace("marking-session:signal-held", { state: from.state, signal });
   }
+}
+
+// Overlay fail-open (see MARKING_SESSION_OVERLAY_FAIL_OPEN_MS): the timer arms
+// when the machine ENTERS an overlay (inspecting/reconciling) and disarms when
+// it leaves. If the deadline fires while still overlaid, the machine steps
+// itself with "overlay-timeout" (return to prior) and repaints — an upstream
+// wedge that never delivers the matching -ended cannot strand the popup
+// behind the overlay curtain. Switching overlays does NOT re-arm: the
+// deadline bounds total continuous curtain time.
+let markingSessionOverlayFailOpenTimer: ReturnType<typeof setTimeout> | null = null;
+let markingSessionOverlayFailOpenToken = 0;
+
+function isMarkingSessionOverlaid(): boolean {
+  return (
+    state.markingSessionMachineState === "inspecting" ||
+    state.markingSessionMachineState === "reconciling"
+  );
+}
+
+function syncMarkingSessionOverlayFailOpen(): void {
+  if (!isMarkingSessionOverlaid()) {
+    markingSessionOverlayFailOpenToken += 1;
+    if (markingSessionOverlayFailOpenTimer) {
+      clearTimeout(markingSessionOverlayFailOpenTimer);
+      markingSessionOverlayFailOpenTimer = null;
+    }
+    return;
+  }
+  if (markingSessionOverlayFailOpenTimer) {
+    return;
+  }
+  const token = ++markingSessionOverlayFailOpenToken;
+  markingSessionOverlayFailOpenTimer = setTimeout(() => {
+    markingSessionOverlayFailOpenTimer = null;
+    if (token !== markingSessionOverlayFailOpenToken || !isMarkingSessionOverlaid()) {
+      return;
+    }
+    logWorldTrace("marking-session:overlay-fail-open", {
+      state: state.markingSessionMachineState
+    });
+    signalMarkingSession("overlay-timeout");
+    void refreshUi();
+  }, MARKING_SESSION_OVERLAY_FAIL_OPEN_MS);
 }
 
 // REFLEX-ARC Phase 1: consumed signal frames map to machine signals. The
@@ -1645,6 +1690,9 @@ function overrideDictatedMarkingButtons(patch: PopupViewStatePatch): void {
       state: state.markingSessionMachineState,
       prior: state.markingSessionPriorState
     });
+    // Adoption can land directly in the inspecting overlay — arm the
+    // fail-open deadline exactly as a signal-driven entry would.
+    syncMarkingSessionOverlayFailOpen();
   }
   // REFLEX-ARC Phase 2: the machine state renders its COMPLETE memorized
   // surface — buttons (incl. toggle lock + visibility), mode, save reason,
@@ -1659,6 +1707,9 @@ function overrideDictatedMarkingButtons(patch: PopupViewStatePatch): void {
   if (memory.mode) {
     patch.mainUiHidden = memory.mode.mainUiHidden;
     patch.silentModeActive = memory.mode.silentModeActive;
+  }
+  if (memory.toggleChecked !== null) {
+    patch.toggleEnabled = memory.toggleChecked;
   }
   if (memory.pageSaveBlockedReason !== null) {
     (patch as Record<string, unknown>).pageSaveBlockedReason = memory.pageSaveBlockedReason;
@@ -3184,19 +3235,12 @@ function applyDraftStatusToPopupState(draftStatus: TabDraftStatusResponse | null
   if (!draftStatus || !draftStatus.ok) {
     return false;
   }
-  const dirtyEdge = !state.currentDraftDirty && Boolean(draftStatus.dirty);
   state.currentDraftEntry = draftStatus.entry || null;
   state.currentSavedEntry = draftStatus.savedEntry || null;
   state.currentDraftDirty = Boolean(draftStatus.dirty);
   state.currentDraftAvailable = true;
   state.currentPageSaveReconciliation = draftStatus.reconciliation || null;
   state.currentPageSaveReconciliationPending = Boolean(draftStatus.reconciliationPending);
-  if (dirtyEdge) {
-    // 'markings-changed' signal: the draft flipped clean -> dirty (a user
-    // marking edit reported by content). Level noise (reshapes that keep the
-    // dirty flag) is NOT a signal and cannot move the machine.
-    signalMarkingSession("markings-changed");
-  }
   return true;
 }
 
@@ -5635,15 +5679,9 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
   nextViewState.lynxChecklistAiQuestionDisabled = Boolean(state.lynxChecklistAiQuestionDisabled);
   nextViewState.lynxChecklistAiQuestionHidden = Boolean(state.lynxChecklistAiQuestionHidden);
   nextViewState.lynxChecklistNoticeText = state.lynxChecklistNoticeText || "";
-  // 'markings-changed' edge (P2 interim source, replaced by content
-  // provenance in P3): the session's pending-changes truth flipping on IS the
-  // user's marking edit as the popup can currently observe it. The draft
-  // dirty flag alone is narrower (it missed plain mark clicks — live P2
-  // acceptance: session dirty, machine stuck pre_ai_clean). The machine table
-  // is idempotent, so interleaved-pass double edges cannot double-move it.
-  if (sessionHasPendingChanges && !view.sessionHasPendingChanges) {
-    signalMarkingSession("markings-changed");
-  }
+  // 'markings-changed' is CONTENT-BORN with provenance since P3 (core's sole
+  // user marking-edit commit path emits it); the popup no longer synthesizes
+  // it from level edges — internal draft reshapes can never move the machine.
   nextViewState.sessionHasPendingChanges = sessionHasPendingChanges;
   nextViewState.currentPageHasPendingChanges = currentPageHasPendingChanges;
   nextViewState.sessionRequiresAiRun = sessionRequiresAiRun;

@@ -10462,9 +10462,27 @@ export function isImmutableExcludedElement(el: Element | null): boolean {
   return matchesImmutableExcluded(el);
 }
 
+// REFLEX-ARC Phase 3: 'markings.changed' is born HERE — the sole user
+// marking-edit commit path — with content provenance. Internal draft
+// reshapes (config merges, restore reseeds, renders) never call this, so
+// they can never manufacture the signal. The reporter is injected by the
+// bus client (core cannot import it without a cycle).
+let userMarkingEditSignalReporter: ((pageUrl: string) => void) | null = null;
+
+export function setUserMarkingEditSignalReporter(
+  reporter: ((pageUrl: string) => void) | null
+): void {
+  userMarkingEditSignalReporter = reporter;
+}
+
 export function markUserMarkingEdit(pageUrl: string | null | undefined): void {
   if (pageUrl) {
     state.userMarkingEditsByPageUrl.add(pageUrl);
+    try {
+      userMarkingEditSignalReporter?.(pageUrl);
+    } catch {
+      // Signal reporting must never break the marking edit itself.
+    }
   }
 }
 

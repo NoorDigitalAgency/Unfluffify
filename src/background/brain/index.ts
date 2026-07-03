@@ -17,7 +17,6 @@ import {
 } from "../../common/bus/contracts/ai-run";
 import {
   AI_RUN_PHASES,
-  SESSION_PHASES,
   SESSION_REPORT_TYPES,
   SESSION_REQUEST_TYPES,
   type SessionFactsPatch,
@@ -78,6 +77,7 @@ import { deriveSecondaryGatesViewState } from "./deciders/secondary-gates-decide
 import { updateSpinnerSelectionsFromQueue } from "./deciders/spinner-state-decider";
 import { applySessionFactsPatch, buildSessionDictation } from "./deciders/session-phase-decider";
 import { createStateStore, type SpinnerSelection, type TabLayerState } from "./state-store";
+import { wrapMutateWithSessionSignalEdges } from "./session-signal-edges";
 import { persistTabStates, loadPersistedTabStates } from "./state-store-persistence";
 import { traceBrainProject } from "../../common/layer-trace";
 import { createBrainHeartbeat } from "./heartbeat";
@@ -633,6 +633,15 @@ export function createBrain(options: { logger?: Pick<Console, "error" | "debug">
       void persistTabStates(states);
     },
   });
+  // REFLEX-ARC pairing guarantee: phase/reconciliation signal edges are
+  // observed at the store's mutate — the one choke point EVERY dictation
+  // rewrite funnels through (folds, curtain clears, lifecycle mirrors) — so a
+  // path that drops the phase without a fold pass can never strand a consumer
+  // waiting for the matching -ended. See session-signal-edges.ts.
+  store.mutate = wrapMutateWithSessionSignalEdges(
+    store.mutate,
+    (tabId, emit) => emitSignal(tabId, emit),
+  );
 
   transport.start();
   const popupPortCounts = new Map<number, number>();
@@ -669,38 +678,14 @@ export function createBrain(options: { logger?: Pick<Console, "error" | "debug">
       }
       const wasNavigationInspectionPending = draft.sessionFacts.navigationInspectionPending;
       const wasPageInspectionBusy = draft.sessionFacts.pageInspectionBusy;
-      const wasReconciliationPending = draft.sessionFacts.pageSaveReconciliationPending;
-      const wasPhase = draft.sessionDictation?.phase ?? null;
       const next = applySessionFactsPatch(draft.sessionFacts, nextFacts);
       draft.sessionFactsReported = true;
       draft.sessionFacts = next.facts;
       draft.sessionDictation = next.dictation;
       draft.secondaryGates = deriveSecondaryGatesViewState(next.facts);
-      // REFLEX-ARC P2 emitters: these signals are born at the brain's OWN
-      // decision edges (its fold is where "reconciliation pending" and the
-      // inspection phase become true/false), so this is source-of-truth
-      // emission, not downstream reconstruction.
-      if (next.facts.pageSaveReconciliationPending !== wasReconciliationPending) {
-        emitSignal(tabId, {
-          name: next.facts.pageSaveReconciliationPending
-            ? SIGNAL_NAMES.RECONCILIATION_STARTED
-            : SIGNAL_NAMES.RECONCILIATION_ENDED,
-          source: "brain",
-          cause: "save-lifecycle",
-          payload: { reason: next.facts.pageSaveReconciliationReason ?? "" },
-        });
-      }
-      const nextPhase = next.dictation?.phase ?? null;
-      const wasInspecting = wasPhase === SESSION_PHASES.RENDER_MODE_INSPECTION;
-      const isInspecting = nextPhase === SESSION_PHASES.RENDER_MODE_INSPECTION;
-      if (isInspecting !== wasInspecting) {
-        emitSignal(tabId, {
-          name: isInspecting ? SIGNAL_NAMES.INSPECTION_STARTED : SIGNAL_NAMES.INSPECTION_ENDED,
-          source: "brain",
-          cause: "render-mode-inspection-phase",
-          payload: { kind: "render_mode" },
-        });
-      }
+      // The reconciliation/inspection signal edges are emitted by the store's
+      // wrapped mutate (session-signal-edges.ts), which sees this fold AND every
+      // other dictation rewrite — do not emit them here.
       const navigationInspectionSettled =
         nextFacts.navigationInspectionPending === false &&
         wasNavigationInspectionPending;

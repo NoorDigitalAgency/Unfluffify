@@ -3,11 +3,44 @@
 The reflex-arc plan is THE plan of record (architect-approved 2026-07-03,
 QA-round decisions recorded inside): native signal frames, per-layer state
 machines with complete memorized presentations incl. curtains/spinners,
-direct replacement per phase, saved->silent. Phase status lives in the plan
-(P0 foundation SHIPPED: 171b05c + 2b780d9; P1 signal system SHIPPED: 1bd39c1,
-live-validated — full lifecycle seq 1..7 exactly once with provenance;
-NEXT = P2 popup full-surface memory. The +43s C3 residual in acceptance runs
-is the DOCUMENTED false markings-changed, fixed by P3 provenance.)
+direct replacement per phase, saved->silent. Phase status lives in the plan:
+P0 SHIPPED (171b05c + 2b780d9), P1 SHIPPED (1bd39c1), P2 SHIPPED (010d580 +
+7949ef7), P3 IN PROGRESS — §3.1 provenance SHIPPED and live-proven (the
+round-11 +44s false 'markings.changed' is DEAD: zero admissions across a full
+post-exit window; the signal is born ONLY at content's user-edit commit path).
+NEXT = P3 §3.2 (content machines + overlay memories + configUpdated
+emission), then §3.4 remaining acceptance repeats (3x .no / 1x .se).
+
+## 2026-07-03 MORNING SESSION — three live-caught fixes (read before P3 §3.2)
+
+1. SIGNAL-PAIRING WEDGE (user hit it twice: "The spinner is stuck").
+   inspection./reconciliation. edges were emitted inside foldSessionFacts
+   only, but sessionDictation is rewritten by OTHER mutate paths too
+   (clearNavigationInspectionCurtainDraft via the lifecycle mirror ran with
+   no fold pass) -> phase left render_mode_inspection silently ->
+   inspection.ended never born -> popup stranded in the 'inspecting' overlay
+   memory ("Inspecting the page", all locked) until navigation. FIX: the
+   store's mutate is WRAPPED at creation (session-signal-edges.ts) — the one
+   choke point every rewrite funnels through; pair members carry per-cycle
+   payload+dedupeKey so the 250ms admission window can only drop a true
+   double-fire, never a closing edge. Live-verified: the exact killer
+   sequence (reconciliation.ended + inspection.started same-ms) now closes
+   with inspection.ended ~700ms later. PLUS popup overlay fail-open
+   parachute: 30s deadline -> "overlay-timeout" -> return to prior + repaint.
+2. HARNESS CLICKS WERE NO-OPS (explains every earlier "marks registered"
+   pass): exclude-mode clicks on already-saved-excluded job cards resolve to
+   NO target by design; pre-P3 passes rode the auto-seeded draft's dirty
+   level. run-flow2's planner now skips elements covered by existing
+   .uf-rect marks. P3 provenance itself was NEVER broken — full chain proven
+   live in 73ms (toggle.mutation -> reporter -> signal.emit -> brain admit
+   cause "user-marking-edit" -> machine pre_ai_dirty).
+3. TOGGLE CHECKBOX VALUE now machine memory (toggleChecked per state):
+   acceptance r2 was PASS on every criterion except a 2.2s isEnabled fact
+   flap at +40s post-exit blinking the checkbox VALUE (the lock bit was
+   already memory). Marking-session states pin checked=true, silent
+   states false, boot/overlays pass through.
+   Live-QA pitfalls (wedged popup tabs, beforeunload-blocked CDP, isolated
+   world listener enumeration) are recorded in knowledge.md §Testing.
 
 P0 closing live results (pressure runs on bonliva.se/lediga-jobb, per-frame):
 - Pressure-1 exposed the last list bug: a stale pre-open/compute_lock probe

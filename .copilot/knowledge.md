@@ -85,6 +85,33 @@
 
 - Use pnpm/WXT as the primary release/CI toolchain: `pnpm lint`, `pnpm check`,
   `pnpm test`, `pnpm build`, `pnpm zip`, and `pnpm verify`.
+
+### Live-QA pitfalls (2026-07-03, learned the hard way)
+
+- Exclude-mode clicks on an ALREADY-excluded element resolve to no target — a
+  designed no-op (`getMarkableTarget` filters by the excluded set). A scripted
+  mark click must land on content NOT covered by an existing `.uf-rect`, or it
+  registers no user edit at all. The run-flow2 planner enforces this; any new
+  click harness must too. Symptom otherwise: `toggle.target-resolution
+  {hasTarget:false}` with zero draft/machine movement while auto-seeded drafts
+  still flip `sessionHasPendingChanges` (which is NOT proof a click landed).
+- CDP `DOMDebugger.getEventListeners` does NOT see listeners registered from
+  the extension's isolated world (it enumerates only the caller's JS world).
+  An empty listener list on a content-script element proves nothing; probe
+  liveness with a dispatched untrusted event and watch for handler effects
+  (e.g. `[Unfluffify][toggle-perf]` lines with
+  `localStorage["unfluffify:toggle-perf"]="1"`).
+- Background popup TABS get throttled/frozen by Chrome and wedge their CDP
+  socket (evals time out). Keep the QA popup in its OWN focused window
+  (`chrome.windows.create({url: popup.html?debugTabId=...})`), and recreate
+  it rather than poking a wedged one.
+- A tab stuck on an unhandled beforeunload dialog blocks its whole CDP target
+  (`Page.enable` times out) and can hang `chrome.tabs.remove` awaits. Replace
+  the tab (`tabs.create` + fire-and-forget remove) and re-pin the popup's
+  `debugTabId` to the new tab id.
+- `.temp/nav-reset.mjs` navigates with an auto-accepting beforeunload handler;
+  ALWAYS navigate through it (never `tabs.reload` after `runtime.reload` —
+  orphaned content instances).
 - The shipped extension build, packaging flow, live-browser launcher, and
   orchestration CLIs are now pnpm/Node-based and WXT-native. The repository no
   longer depends on Deno for CI, packaging, browser launch, or orchestration.

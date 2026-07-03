@@ -43,12 +43,22 @@ export type MarkingSessionSignal =
   | "inspection-started"
   | "inspection-ended"
   | "reconciliation-started"
-  | "reconciliation-ended";
+  | "reconciliation-ended"
+  | "overlay-timeout";
 
 // inspecting/reconciling are OVERLAY states: they render on top of a
 // remembered prior session state and return to it on their -ended signal.
 export const MARKING_SESSION_OVERLAY_STATES: readonly MarkingSessionMachineState[] =
   Object.freeze(["inspecting", "reconciling"]);
+
+// Overlay fail-open deadline: the brain guarantees started->ended pairing at
+// its store choke point, but a lost delivery or a wedged upstream phase must
+// never strand the popup behind a curtain (the content page-blocker has the
+// same fail-open rule). Entering an overlay arms this deadline; if the
+// matching -ended has not arrived, the popup steps itself with
+// "overlay-timeout", which returns any overlay to its remembered prior and is
+// held (no-op) everywhere else.
+export const MARKING_SESSION_OVERLAY_FAIL_OPEN_MS = 30_000;
 
 const OVERLAY_ENTRY: Readonly<Partial<Record<MarkingSessionSignal, MarkingSessionMachineState>>> =
   Object.freeze({
@@ -284,6 +294,15 @@ export function stepMarkingSession(
       moved: true,
     };
   }
+  if (signal === "overlay-timeout") {
+    if (!isOverlaid) {
+      return { machine, moved: false };
+    }
+    return {
+      machine: { state: machine.priorState ?? "silent", priorState: null },
+      moved: true,
+    };
+  }
   if (isOverlaid) {
     const prior = machine.priorState ?? "silent";
     const transition = transitionMarkingSessionState(prior, signal);
@@ -332,6 +351,12 @@ export type MarkingSessionSurfaceMemory = Readonly<{
   mode: Readonly<{ mainUiHidden: boolean; silentModeActive: boolean }> | null;
   pageSaveBlockedReason: string | null;
   curtain: MarkingSessionCurtainMemory | null;
+  // The marking toggle's CHECKED VALUE (the lock bit lives in buttons).
+  // Marking-session states are definitionally enabled and silent states
+  // definitionally not — a transient isEnabled fact flap during post-exit
+  // reconcile must not blink the checkbox (live-caught: a 2.2s false dip at
+  // +40s post-exit was the only C3 degrade of an otherwise stone-still run).
+  toggleChecked: boolean | null;
 }>;
 
 const surfaceButtons = (
@@ -361,30 +386,34 @@ const ALL_ACTIONS_LOCKED = surfaceButtons(true, false, true, true, true, true, t
 export const MARKING_SESSION_SURFACE_MEMORY: Readonly<
   Record<MarkingSessionMachineState, MarkingSessionSurfaceMemory>
 > = Object.freeze({
-  boot: Object.freeze({ buttons: null, mode: null, pageSaveBlockedReason: null, curtain: null }),
+  boot: Object.freeze({ buttons: null, mode: null, pageSaveBlockedReason: null, curtain: null, toggleChecked: null }),
   silent: Object.freeze({
     buttons: surfaceButtons(true, false, false, true, true, true, false),
     mode: SILENT_MODE,
     pageSaveBlockedReason: "",
-    curtain: HIDDEN_CURTAIN
+    curtain: HIDDEN_CURTAIN,
+    toggleChecked: false
   }),
   silent_preview: Object.freeze({
     buttons: surfaceButtons(true, false, false, true, true, true, false),
     mode: SILENT_MODE,
     pageSaveBlockedReason: "",
-    curtain: HIDDEN_CURTAIN
+    curtain: HIDDEN_CURTAIN,
+    toggleChecked: false
   }),
   pre_ai_clean: Object.freeze({
     buttons: surfaceButtons(false, false, true, true, true, true, false),
     mode: MARKING_MODE,
     pageSaveBlockedReason: "no_session_changes",
-    curtain: HIDDEN_CURTAIN
+    curtain: HIDDEN_CURTAIN,
+    toggleChecked: true
   }),
   pre_ai_dirty: Object.freeze({
     buttons: surfaceButtons(false, false, true, true, true, false, false),
     mode: MARKING_MODE,
     pageSaveBlockedReason: "requires_ai_run",
-    curtain: HIDDEN_CURTAIN
+    curtain: HIDDEN_CURTAIN,
+    toggleChecked: true
   }),
   running: Object.freeze({
     buttons: surfaceButtons(true, true, true, true, true, true, true),
@@ -397,25 +426,29 @@ export const MARKING_SESSION_SURFACE_MEMORY: Readonly<
       operation: "computing_ai",
       phase: "computing_ai",
       timer: "run-countdown"
-    } as const)
+    } as const),
+    toggleChecked: true
   }),
   post_ai_clean: Object.freeze({
     buttons: surfaceButtons(true, false, true, false, false, false, true),
     mode: MARKING_MODE,
     pageSaveBlockedReason: "",
-    curtain: HIDDEN_CURTAIN
+    curtain: HIDDEN_CURTAIN,
+    toggleChecked: true
   }),
   preview_open: Object.freeze({
     buttons: ALL_ACTIONS_LOCKED,
     mode: MARKING_MODE,
     pageSaveBlockedReason: "busy",
-    curtain: HIDDEN_CURTAIN
+    curtain: HIDDEN_CURTAIN,
+    toggleChecked: true
   }),
   exit_restoring: Object.freeze({
     buttons: ALL_ACTIONS_LOCKED,
     mode: MARKING_MODE,
     pageSaveBlockedReason: "busy",
-    curtain: HIDDEN_CURTAIN
+    curtain: HIDDEN_CURTAIN,
+    toggleChecked: true
   }),
   // Overlays: lock the actions and narrate; the underlying MODE stays the
   // prior state's (mode: null keeps the current view).
@@ -430,13 +463,15 @@ export const MARKING_SESSION_SURFACE_MEMORY: Readonly<
       operation: "busy",
       phase: "render_mode_inspection",
       timer: null
-    } as const)
+    } as const),
+    toggleChecked: null
   }),
   reconciling: Object.freeze({
     buttons: ALL_ACTIONS_LOCKED,
     mode: null,
     pageSaveBlockedReason: "server_sync_pending",
-    curtain: HIDDEN_CURTAIN
+    curtain: HIDDEN_CURTAIN,
+    toggleChecked: null
   })
 });
 

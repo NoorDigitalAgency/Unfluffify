@@ -239,9 +239,17 @@ async function main() {
   samplerPhase = "marking";
   const planned = await evalIn(page, `(() => {
     document.querySelectorAll("[data-uf-flow-target]").forEach((el) => el.removeAttribute("data-uf-flow-target"));
+    // NEVER pick an element already covered by a mark rect: clicking an
+    // already-excluded element in exclude mode resolves to no target (a
+    // designed no-op), so such clicks register no user marking edit at all.
+    const marks = Array.from(document.querySelectorAll(".uf-rect")).map((n) => n.getBoundingClientRect());
+    const covered = (r) => {
+      const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+      return marks.some((m) => cx >= m.left && cx <= m.right && cy >= m.top && cy <= m.bottom);
+    };
     const seen = new Set();
     const out = [];
-    const els = document.querySelectorAll("main a, main li, main article, a, li, article");
+    const els = document.querySelectorAll("main p, main h2, main h3, p, h2, h3, main a, main li, main article, a, li, article");
     for (const el of els) {
       if (out.length >= ${MARK_TARGET_COUNT}) break;
       if (el.closest("[data-uf-extension-ui]")) continue;
@@ -249,6 +257,7 @@ async function main() {
       if (text.length < 30) continue;
       const r = el.getBoundingClientRect();
       if (r.width < 80 || r.height < 24 || r.width * r.height < 4000) continue;
+      if (covered(r)) continue;
       const key = el.parentElement ? Array.from(el.parentElement.children).indexOf(el) + ":" + (el.parentElement.className || "") : String(out.length);
       if (seen.has(key)) continue;
       seen.add(key);

@@ -13,14 +13,25 @@ import type {
   RenderModeContentEndReply,
   RenderModeContentHideConsentReply,
 } from "../../common/bus/contracts/render-mode";
-import { SIGNAL_EVENT_TYPES, type SignalFrame } from "../../common/bus/contracts/signals";
+import {
+  SIGNAL_EVENT_TYPES,
+  SIGNAL_NAMES,
+  SIGNAL_REQUEST_TYPES,
+  type SignalEmitPayload,
+  type SignalEmitReply,
+  type SignalFrame,
+} from "../../common/bus/contracts/signals";
 import { isBusEnvelope, type BusEnvelope } from "../../common/bus/envelope";
 import { REALMS } from "../../common/bus/realms";
 import { createContentTransport } from "../../common/bus/transport/content-transport";
 import type { Browser } from "../../common/browser";
 import { startContentLayerHost } from "./layer-host";
 import { setPageCurtainRenderer } from "./spinner-layer";
-import { setPageInspectionUiActive, setPopupBusyOnPage } from "../core";
+import {
+  setPageInspectionUiActive,
+  setPopupBusyOnPage,
+  setUserMarkingEditSignalReporter,
+} from "../core";
 import { registerRenderModeInspectionExecutor } from "./modes/render-mode-inspection-executor";
 
 let contentBus: Bus | null = null;
@@ -73,6 +84,17 @@ export function startContentBusClient(options: ContentBusClientOptions = {}): Bu
       }
     });
   }
+  // REFLEX-ARC Phase 3: content-born 'markings.changed' with provenance. The
+  // reporter fires only from core's sole user marking-edit commit path, so
+  // internal draft reshapes can never manufacture the signal.
+  setUserMarkingEditSignalReporter((pageUrl) => {
+    void emitContentSignal({
+      name: SIGNAL_NAMES.MARKINGS_CHANGED,
+      source: "content",
+      cause: "user-marking-edit",
+      payload: { pageUrl },
+    });
+  });
   // The page-world inspection curtain renders from the brain pageCurtain
   // broadcast: brain hide -> both popup and page clear together. Curtains that
   // declare page-blocking in their spinner contract (blockSurfaces.page — AI
@@ -102,6 +124,24 @@ export function startContentBusClient(options: ContentBusClientOptions = {}): Bu
   });
   contentLayerHostStop = startContentLayerHost(contentBus);
   return contentBus;
+}
+
+export async function emitContentSignal(
+  emit: SignalEmitPayload,
+): Promise<SignalEmitReply | null> {
+  if (!contentBus) {
+    return null;
+  }
+  try {
+    // The background stamps the tab id from the sender; content need not know it.
+    return await contentBus.request<SignalEmitPayload, SignalEmitReply>(
+      SIGNAL_REQUEST_TYPES.EMIT,
+      emit,
+      { target: REALMS.BACKGROUND, timeoutMs: 3000 },
+    );
+  } catch {
+    return null;
+  }
 }
 
 export async function handleContentBusMessage(

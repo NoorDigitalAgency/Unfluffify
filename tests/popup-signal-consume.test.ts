@@ -120,15 +120,28 @@ test("P1 wiring source contracts", () => {
   assert.match(brainSource, /bus\.publish\(SIGNAL_EVENT_TYPES\.EMITTED, admission\.frame, \{ target, tab: tabId \}\)/);
   assert.match(brainSource, /persistSignalLogSoon\(\);/);
 
-  // Brain: reconciliation + inspection signals are born at the brain's OWN
-  // fold edges (its decision is the source of truth for these).
+  // Brain: reconciliation + inspection are PAIRED phase-edge signals; they are
+  // born at the store's wrapped mutate — the single choke point every
+  // dictation rewrite funnels through — never inside an individual fold (a
+  // rewrite outside the fold would otherwise skip the closing -ended and
+  // strand overlay consumers; live wedge 2026-07-03).
   assert.match(
     brainSource,
-    /next\.facts\.pageSaveReconciliationPending !== wasReconciliationPending[\s\S]{0,400}SIGNAL_NAMES\.RECONCILIATION_STARTED[\s\S]{0,120}SIGNAL_NAMES\.RECONCILIATION_ENDED[\s\S]{0,200}cause: "save-lifecycle"/
+    /store\.mutate = wrapMutateWithSessionSignalEdges\(\s*store\.mutate,\s*\(tabId, emit\) => emitSignal\(tabId, emit\),?\s*\)/
+  );
+  assert.doesNotMatch(brainSource, /SIGNAL_NAMES\.RECONCILIATION_STARTED/);
+  assert.doesNotMatch(brainSource, /SIGNAL_NAMES\.INSPECTION_STARTED/);
+  const edgesSource = readFileSync(
+    new URL("../src/background/brain/session-signal-edges.ts", import.meta.url),
+    "utf8"
   );
   assert.match(
-    brainSource,
-    /isInspecting !== wasInspecting[\s\S]{0,300}SIGNAL_NAMES\.INSPECTION_STARTED : SIGNAL_NAMES\.INSPECTION_ENDED[\s\S]{0,200}cause: "render-mode-inspection-phase"/
+    edgesSource,
+    /isReconciling !== wasReconciling[\s\S]{0,500}SIGNAL_NAMES\.RECONCILIATION_STARTED[\s\S]{0,120}SIGNAL_NAMES\.RECONCILIATION_ENDED[\s\S]{0,300}cause: "save-lifecycle"/
+  );
+  assert.match(
+    edgesSource,
+    /isInspecting !== wasInspecting[\s\S]{0,500}SIGNAL_NAMES\.INSPECTION_STARTED : SIGNAL_NAMES\.INSPECTION_ENDED[\s\S]{0,300}cause: "render-mode-inspection-phase"/
   );
 
   // Background: marking activate/deactivate acks emit.

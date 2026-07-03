@@ -131,6 +131,21 @@ test("overlays remember the prior state and return to it", () => {
   assert.deepEqual(s.machine, { state: "post_ai_clean", priorState: null });
 });
 
+test("overlay-timeout fails open to the prior state and is held everywhere else", () => {
+  // Fail-open parachute: if the matching -ended never arrives (lost delivery,
+  // upstream wedge), the popup's own deadline steps the machine home instead
+  // of stranding the user behind the overlay curtain.
+  let s = stepMarkingSession({ state: "inspecting", priorState: "post_ai_clean" }, "overlay-timeout");
+  assert.deepEqual(s.machine, { state: "post_ai_clean", priorState: null });
+  s = stepMarkingSession({ state: "reconciling", priorState: "pre_ai_dirty" }, "overlay-timeout");
+  assert.deepEqual(s.machine, { state: "pre_ai_dirty", priorState: null });
+  // Not overlaid: held. The timeout can never move a session state.
+  const held = stepMarkingSession({ state: "post_ai_clean", priorState: null }, "overlay-timeout");
+  assert.equal(held.moved, false);
+  const heldSilent = stepMarkingSession({ state: "silent", priorState: null }, "overlay-timeout");
+  assert.equal(heldSilent.moved, false);
+});
+
 test("session signals during an overlay transition the prior state", () => {
   let s = stepMarkingSession({ state: "post_ai_clean", priorState: null }, "reconciliation-started");
   s = stepMarkingSession(s.machine, "markings-changed");
@@ -188,6 +203,16 @@ test("full-surface memories are complete, frozen, and faithful to the steady mat
   assert.equal(postAi.buttons?.toggleEnabledDisabled, true, "post-AI locks the toggle while active");
   assert.equal(resolveMarkingSessionSurfaceMemory("silent").buttons?.toggleEnabledDisabled, false);
   assert.equal(resolveMarkingSessionSurfaceMemory("pre_ai_dirty").pageSaveBlockedReason, "requires_ai_run");
+  // The toggle's CHECKED VALUE is memory too: marking-session states are
+  // definitionally enabled, silent states definitionally not, boot/overlays
+  // pass through. A transient isEnabled fact flap post-exit cannot blink the
+  // checkbox (live-caught 2.2s dip at +40s — the only degrade of round r2).
+  assert.equal(postAi.toggleChecked, true);
+  assert.equal(resolveMarkingSessionSurfaceMemory("exit_restoring").toggleChecked, true);
+  assert.equal(resolveMarkingSessionSurfaceMemory("silent").toggleChecked, false);
+  assert.equal(resolveMarkingSessionSurfaceMemory("silent_preview").toggleChecked, false);
+  assert.equal(resolveMarkingSessionSurfaceMemory("boot").toggleChecked, null);
+  assert.equal(resolveMarkingSessionSurfaceMemory("inspecting").toggleChecked, null);
 });
 
 // Source contracts: the machine is fed by discrete signals at the popup's own
@@ -205,8 +230,7 @@ test("signals are wired at the discrete call sites and memory applies at both pa
     /signalMarkingSession\("saved"\);/,
     /signalMarkingSession\("discarded"\);/,
     /signalMarkingSession\("navigated"\);/,
-    /signalMarkingSession\("run-failed"\);/,
-    /signalMarkingSession\("markings-changed"\);/
+    /signalMarkingSession\("run-failed"\);/
   ]) {
     assert.match(popupSource, wiring);
   }
@@ -218,9 +242,22 @@ test("signals are wired at the discrete call sites and memory applies at both pa
     popupSource,
     /overrideDictatedPreviewVisibility\(snapshotPatch\);\s*overrideDictatedMarkingButtons\(snapshotPatch\);/
   );
-  // The 'markings-changed' signal is an EDGE (clean -> dirty), never a level.
+  // 'markings-changed' is content-born with provenance (P3): the popup never
+  // synthesizes it from level edges.
+  assert.doesNotMatch(popupSource, /dirtyEdge/);
+  // Overlay fail-open wiring: every machine move syncs the deadline, adoption
+  // into the overlay arms it too, and the timeout steps + repaints.
+  assert.match(popupSource, /syncMarkingSessionOverlayFailOpen\(\);\s*\} else \{\s*logWorldTrace\("marking-session:signal-held"/);
+  assert.match(popupSource, /signalMarkingSession\("overlay-timeout"\);\s*void refreshUi\(\);/);
+  assert.match(popupSource, /MARKING_SESSION_OVERLAY_FAIL_OPEN_MS\)/);
+  const contentCore = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
   assert.match(
-    popupSource,
-    /const dirtyEdge = !state\.currentDraftDirty && Boolean\(draftStatus\.dirty\);[\s\S]{0,700}if \(dirtyEdge\) \{[\s\S]{0,400}signalMarkingSession\("markings-changed"\);/
+    contentCore,
+    /function markUserMarkingEdit\(pageUrl[\s\S]{0,400}userMarkingEditSignalReporter\?\.\(pageUrl\);/
+  );
+  const contentBusClient = readFileSync(new URL("../src/content/layers/content-bus-client.ts", import.meta.url), "utf8");
+  assert.match(
+    contentBusClient,
+    /setUserMarkingEditSignalReporter\(\(pageUrl\) => \{[\s\S]{0,300}SIGNAL_NAMES\.MARKINGS_CHANGED,\s*source: "content",\s*cause: "user-marking-edit"/
   );
 });
