@@ -47,10 +47,30 @@ recipe is a persistent playwright (scratchpad pw@1.61.1) driver with
 headless:true + channel:"chromium" + --load-extension (extensions work in
 new headless; same deterministic id), commands appended to a driver.cmd
 file. See scratchpad/accept-driver.mjs pattern.
-NEXT = Send to Lynx staleness redesign (REPLACES the TEMP short-circuit
-099fe12; blocked on the backend endpoint story settling), then P5
-(refresh reduction — also retires the exit-settle phase-pointer churn),
-then P6 closure (full matrix + sove.se + #5/#14 review-push gate).
+SEND-TO-LYNX STALENESS GUARD: SHIPPED + LIVE-VERIFIED (10be076 +
+5010547, 2026-07-03 evening, architect watching headed). Design: the
+backend cssInfo(url) GraphQL query is the source of truth; on popover
+open — only once page-type coverage is complete (the query is redundant
+before) — the popup requests it through the background (bearer token,
+same stage-base endpoint as the submit), shows a spinner row while
+checking, and compares SANITIZED selector sets (split commas, trim,
+collapse whitespace, order-insensitive set equality per field, no case
+folding) against the EXACT submit payload. FAIL-CLOSED (architect
+call): send disabled while pending / on match ("Lynx already has
+selectors that match the ones awaiting in the extension.") / on check
+failure (reopen retries). usesUnfluffify:false or empty backend never
+blocks — and the flag flips true on our submit (live-confirmed). The
+TEMP every-click short-circuit is deleted. Live loop on sove.se:
+clear -> submit -> reopen -> MATCH. QUEUED (architect, "later"): audit
+ALL fail-open API calls so he can flip some to fail-closed (task #18).
+HARNESS GOTCHA (cost an hour): the persistent profile CACHES the MV3
+service worker — after a rebuild the running SW can be STALE (handler
+in the bundle but not in the running code; messages return undefined).
+Fix: chrome.runtime.reload() via the driver's extreload command after
+every rebuild, then rebind sw/popup handles.
+NEXT = P5 (refresh reduction — also retires the exit-settle
+phase-pointer churn), then P6 closure (full matrix + sove.se +
+#5/#14 review-push gate).
 RELEASES: 1.9.0 / 1.9.1 / 1.9.2 (3ac124d — icons incl. active set,
 pageTypeAssignments flag, detection->reveal/freeze handoff fixed
 (unconditional inspection-end at Set + candidacy protocol collapse),
