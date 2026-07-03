@@ -376,7 +376,10 @@ export const PopupText = Object.freeze({
     noticeMissingPageTypesPrefix: "Mark at least one page for: ", // Prefix for the missing-coverage notice.
     noticeMissingPageTypesSuffix: ".", // Suffix for the missing-coverage notice.
     missingCandidatesLabel: "Candidates", // Label shown before candidate hints for missing page types.
-    invalidStoredNotice: "Some stored pages are no longer valid candidates and will be ignored." // Notice shown when legacy or invalid stored pages exist.
+    invalidStoredNotice: "Some stored pages are no longer valid candidates and will be ignored.", // Notice shown when legacy or invalid stored pages exist.
+    cssInfoChecking: "Checking Lynx selector status...", // Notice while the cssInfo staleness check runs on popover open (send disabled).
+    cssInfoMatch: "Lynx already has selectors that match the ones awaiting in the extension.", // Notice when the backend cssInfo equals the pending selector set (send disabled).
+    cssInfoUnavailable: "Could not verify the Lynx selector status. Close and reopen this checklist to retry." // Fail-closed notice when the cssInfo check fails (send disabled).
   }),
 
   device: Object.freeze({

@@ -217,6 +217,7 @@ export interface PopupState {
   lynxChecklistAiQuestionDisabled: boolean;
   lynxChecklistAiQuestionHidden: boolean;
   lynxChecklistNoticeText: string;
+  lynxChecklistCssInfoStatus: string;
   todoSubsectionsExpanded?: Record<string, boolean>;
   [key: string]: unknown;
 }

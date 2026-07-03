@@ -1,5 +1,6 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
+import { readFileSync } from "./file-kit.ts";
 
 import {
   buildLynxChecklistAssignments,
@@ -7,6 +8,10 @@ import {
   buildLynxChecklistViewModel,
   createInitialLynxChecklistState,
   normalizePropertyPageTypes
+,
+  cssSelectorSetsMatch,
+  lynxAlreadyHasSelectorSet,
+  sanitizeCssSelectorList
 } from "../src/common/lynx-checklist.js";
 
 const propertyPageTypes = [
@@ -302,4 +307,94 @@ test("getCurrentPageCandidateState matches the root page against an unnormalized
   // A genuinely different page still misses.
   const miss = getCurrentPageCandidateState("https://www.example.com/other", pageTypes);
   assert.equal(miss.status, "missing");
+});
+
+// --- Send-to-Lynx cssInfo staleness guard (sanitize both sides, set equality) ---
+
+test("sanitizeCssSelectorList trims, collapses whitespace, dedupes, drops empties, sorts", () => {
+  assert.deepEqual(
+    sanitizeCssSelectorList("  .b ,  div   p , .a,, .b ,"),
+    [".a", ".b", "div p"]
+  );
+  assert.deepEqual(sanitizeCssSelectorList(null), []);
+  assert.deepEqual(sanitizeCssSelectorList(""), []);
+});
+
+test("cssSelectorSetsMatch is order-insensitive and whitespace-robust, but case-sensitive", () => {
+  assert.equal(cssSelectorSetsMatch(".a, .b, div  p", "div p , .b,.a"), true);
+  assert.equal(cssSelectorSetsMatch(".a, .b", ".a"), false);
+  assert.equal(cssSelectorSetsMatch(".Alpha", ".alpha"), false);
+  assert.equal(cssSelectorSetsMatch("", ""), true);
+});
+
+test("lynxAlreadyHasSelectorSet blocks only a full both-field match from a selector-bearing backend", () => {
+  const pending = { includeCss: ".inc-a, .inc-b", excludeCss: ".exc-a" };
+  const backend = {
+    usesUnfluffify: true,
+    inclusionCssSelectors: ".inc-b , .inc-a",
+    exclusionCssSelectors: " .exc-a"
+  };
+  assert.equal(lynxAlreadyHasSelectorSet(backend, pending), true);
+  // One field differing means the submit is an UPDATE and stays allowed.
+  assert.equal(
+    lynxAlreadyHasSelectorSet({ ...backend, exclusionCssSelectors: ".exc-a, .exc-b" }, pending),
+    false
+  );
+  assert.equal(
+    lynxAlreadyHasSelectorSet({ ...backend, inclusionCssSelectors: "" }, pending),
+    false
+  );
+  // A backend without selectors (or not using Unfluffify) never blocks.
+  assert.equal(
+    lynxAlreadyHasSelectorSet(
+      { usesUnfluffify: true, inclusionCssSelectors: "", exclusionCssSelectors: null },
+      pending
+    ),
+    false
+  );
+  assert.equal(
+    lynxAlreadyHasSelectorSet({ ...backend, usesUnfluffify: false }, pending),
+    false
+  );
+  assert.equal(lynxAlreadyHasSelectorSet(null, pending), false);
+  assert.equal(lynxAlreadyHasSelectorSet(backend, null), false);
+});
+
+test("the popup wires the cssInfo gate fail-closed around the Lynx send", () => {
+  const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
+  // Popover open kicks a fresh check; state defaults/resets to pending.
+  assert.match(
+    popupSource,
+    /state\.lynxChecklistVisible = true;\s*setLynxChecklistViewState\(\);\s*void refreshLynxCssInfoGate\(\);/
+  );
+  assert.match(popupSource, /state\.lynxChecklistCssInfoStatus = "pending";/);
+  // The comparison uses the SAME composition the submit sends.
+  assert.match(
+    popupSource,
+    /function buildPendingLynxSelectorCss\(\)[\s\S]*?inclusionSelectors\.join\(", "\)[\s\S]*?buildSelectorSetForGraphqlSubmit\(normalizedSelectorSet\)\.exclusionSelectors\.join\(", "\)/
+  );
+  // Fetch failure lands in "error" (fail-closed), never "clear".
+  assert.match(
+    popupSource,
+    /if \(!response \|\| response\.ok !== true \|\| !response\.cssInfo[\s\S]*?state\.lynxChecklistCssInfoStatus = "error";/
+  );
+  // The click-time belt: only a confirmed non-match sends.
+  assert.match(
+    popupSource,
+    /if \(state\.lynxChecklistCssInfoStatus !== "clear"\) \{\s*setLynxChecklistViewState\(\);\s*return;\s*\}/
+  );
+  // The TEMP every-click short-circuit is gone.
+  assert.doesNotMatch(popupSource, /TEMP SHORT-CIRCUIT/);
+  // The send button renders fail-closed off the gate status.
+  const uiSource = readFileSync(new URL("../src/popup/ui.tsx", import.meta.url), "utf8");
+  assert.match(
+    uiSource,
+    /disabled=\{!checklist\.canSend \|\| \(view\.lynxChecklistCssInfoStatus \|\| "pending"\) !== "clear"\}/
+  );
+  // Background transport exists and requests the full CssInfo shape.
+  const remoteSource = readFileSync(new URL("../src/background/remote-network.ts", import.meta.url), "utf8");
+  assert.match(remoteSource, /query cssInfo\(\$url: String!\) \{[\s\S]*?inclusionCssSelectors[\s\S]*?usesUnfluffify/);
+  assert.match(remoteSource, /export async function fetchLynxCssInfo\(/);
+  const backgroundSource = readFileSync(new URL("../src/background.ts", import.meta.url), "utf8");
+  assert.match(backgroundSource, /message\.type === "fetchLynxCssInfo"/);
 });

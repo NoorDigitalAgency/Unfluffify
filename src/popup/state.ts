@@ -221,5 +221,8 @@ export const state: PopupState = {
   lynxChecklistPageTypes: initialLynxChecklistState.pageTypes,
   lynxChecklistAiQuestionDisabled: true,
   lynxChecklistAiQuestionHidden: true,
-  lynxChecklistNoticeText: ""
+  lynxChecklistNoticeText: "",
+  // cssInfo staleness gate: pending | match | clear | error. Defaults to
+  // pending — the send is FAIL-CLOSED until a fresh check confirms "clear".
+  lynxChecklistCssInfoStatus: "pending"
 };

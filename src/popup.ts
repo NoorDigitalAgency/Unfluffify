@@ -44,6 +44,7 @@ import {
   buildLynxChecklistPromptState,
   buildLynxChecklistViewModel,
   createInitialLynxChecklistState,
+  lynxAlreadyHasSelectorSet,
   normalizeCandidatePageUrl,
   normalizePageTypeKey
 } from "./common/lynx-checklist";
@@ -6665,7 +6666,8 @@ function setLynxChecklistViewState() {
       : [],
     lynxChecklistAiQuestionDisabled: Boolean(state.lynxChecklistAiQuestionDisabled),
     lynxChecklistAiQuestionHidden: Boolean(state.lynxChecklistAiQuestionHidden),
-    lynxChecklistNoticeText: state.lynxChecklistNoticeText || ""
+    lynxChecklistNoticeText: state.lynxChecklistNoticeText || "",
+    lynxChecklistCssInfoStatus: state.lynxChecklistCssInfoStatus || "pending"
   });
 }
 
@@ -6679,11 +6681,60 @@ function resetLynxChecklistState() {
   state.lynxChecklistAiQuestionDisabled = promptState.aiQuestionDisabled;
   state.lynxChecklistAiQuestionHidden = Boolean(promptState.aiQuestionHidden);
   state.lynxChecklistNoticeText = "";
+  // Fail-closed: every fresh popover open re-runs the cssInfo check before
+  // the send can enable.
+  state.lynxChecklistCssInfoStatus = "pending";
 }
 
 function openLynxChecklistPopover() {
   resetLynxChecklistState();
   state.lynxChecklistVisible = true;
+  setLynxChecklistViewState();
+  void refreshLynxCssInfoGate();
+}
+
+// The pending payload EXACTLY as the submit would send it (same composition
+// as submitSelectorSetToServer), so the backend comparison is same-vocabulary.
+function buildPendingLynxSelectorCss(): { includeCss: string; excludeCss: string } | null {
+  const normalizedSelectorSet = normalizeAiSelectorSet(getCurrentSelectorsFromConfig());
+  if (!combineAiSelectorSet(normalizedSelectorSet).length) {
+    return null;
+  }
+  return {
+    includeCss: normalizedSelectorSet.inclusionSelectors.join(", "),
+    excludeCss: buildSelectorSetForGraphqlSubmit(normalizedSelectorSet).exclusionSelectors.join(", ")
+  };
+}
+
+// Send-to-Lynx staleness guard (architect design, 2026-07-03): on every
+// popover open, ask the backend what it already holds (cssInfo) and compare
+// SANITIZED selector sets. The send is FAIL-CLOSED: disabled while the check
+// is pending, when the backend already has a matching set, and when the
+// check cannot be completed (reopen retries).
+let lynxCssInfoCheckSeq = 0;
+
+async function refreshLynxCssInfoGate(): Promise<void> {
+  const seq = ++lynxCssInfoCheckSeq;
+  state.lynxChecklistCssInfoStatus = "pending";
+  setLynxChecklistViewState();
+  const pageUrl = (state.currentTab && state.currentTab.url) || "";
+  const response = pageUrl
+    ? await messages.sendRuntimeMessage({
+      type: "fetchLynxCssInfo",
+      url: pageUrl
+    }).catch(() => null)
+    : null;
+  if (seq !== lynxCssInfoCheckSeq || !state.lynxChecklistVisible) {
+    return;
+  }
+  if (!response || response.ok !== true || !response.cssInfo || typeof response.cssInfo !== "object") {
+    state.lynxChecklistCssInfoStatus = "error";
+  } else {
+    const pending = buildPendingLynxSelectorCss();
+    state.lynxChecklistCssInfoStatus = lynxAlreadyHasSelectorSet(response.cssInfo, pending)
+      ? "match"
+      : "clear";
+  }
   setLynxChecklistViewState();
 }
 
@@ -8491,15 +8542,9 @@ async function submitSelectorSetToServer(options: SelectorSetSubmitOptions = {})
     state.currentBaseUrl = effectiveBaseUrl;
     state.currentConfig = siteIdResult.config || state.currentConfig;
 
-    // TEMP SHORT-CIRCUIT (architect-directed, 2026-07-03): the last-submitted
-    // equality guard wrongly refuses valid submissions ("No new selectors to
-    // submit"), blocking Send to Lynx entirely. Submit on EVERY click until
-    // the staleness conditions are redesigned; the original guard is kept
-    // here for that redesign:
-    // if (aiSelectorSetsEqual(normalizedSelectorSet, getLastSubmittedSelectorsFromConfig())) {
-    //   return { ok: false, skipped: true, reason: PopupText.ai.noNewSelectorsToSubmit };
-    // }
-
+    // Staleness is guarded at the CHECKLIST POPOVER (the cssInfo gate:
+    // backend-equality on sanitized selector sets, fail-closed) — the old
+    // local last-submitted-fingerprint guard is gone.
     const includeCss = normalizedSelectorSet.inclusionSelectors.join(", ");
     const selectorSetForSubmit = buildSelectorSetForGraphqlSubmit(normalizedSelectorSet);
     const excludeCss = selectorSetForSubmit.exclusionSelectors.join(", ");
@@ -8599,6 +8644,11 @@ async function submitSelectorSetToServer(options: SelectorSetSubmitOptions = {})
 async function handleLynxChecklistSend() {
   const view = await refreshUiForActionGates();
   if (view.lynxChecklistSendBlockedReason) {
+    setLynxChecklistViewState();
+    return;
+  }
+  // cssInfo staleness gate (fail-closed): only a confirmed non-match sends.
+  if (state.lynxChecklistCssInfoStatus !== "clear") {
     setLynxChecklistViewState();
     return;
   }

@@ -31,6 +31,23 @@ mutation updateScrapingConditions($domainId: Int!, $includeCss: String!, $exclud
 }
 `;
 
+// Send-to-Lynx staleness guard: what the backend already holds for the domain
+// (the counterpart of updateScrapingConditions above). Fetched when the Lynx
+// checklist popover opens; the popup compares SANITIZED selector sets and
+// fail-closes the send while this is pending or unavailable.
+export const CSS_INFO_QUERY = `
+query cssInfo($url: String!) {
+  cssInfo(url: $url) {
+    domainId
+    domainName
+    exclusionCssSelectors
+    inclusionCssSelectors
+    isJavascriptRenderingEnabled
+    usesUnfluffify
+  }
+}
+`;
+
 export interface RemoteNetworkOptions {
   endpointValue?: string;
   tokenValue?: string;
@@ -158,6 +175,53 @@ export async function submitSelectorSetGraphqlUpdate(options = {}) {
       status: response.status || 0,
       payload: payload && typeof payload === "object" ? payload : null
     };
+  } catch {
+    return { ok: false };
+  }
+}
+
+export async function fetchLynxCssInfo(options = {}) {
+  const opts = options as RemoteNetworkOptions;
+  const credentials = await resolveBackgroundNetworkCredentials({
+    stageBase: opts.stageBase,
+    tokenValue: opts.tokenValue,
+    endpointPreference: "ai"
+  });
+  const stageBase = credentials.stageBaseValue;
+  const tokenValue = credentials.tokenValue;
+  const pageUrl = typeof opts.url === "string" ? opts.url.trim() : "";
+  const graphqlEndpoint = buildGraphqlEndpointFromStageBase(stageBase);
+  if (!graphqlEndpoint || !pageUrl) {
+    return { ok: false, skipped: true };
+  }
+  try {
+    const response = await fetch(graphqlEndpoint, {
+      method: "POST",
+      headers: createBackgroundJsonHeaders(tokenValue),
+      body: JSON.stringify({
+        query: CSS_INFO_QUERY,
+        variables: { url: pageUrl }
+      })
+    });
+    await maybeUpdateStoredTokenFromResponse(response, tokenValue);
+    if (!response.ok) {
+      return { ok: false, status: response.status || 0 };
+    }
+    let payload = null;
+    try {
+      payload = await response.json();
+    } catch {
+      payload = null;
+    }
+    const body = payload as { errors?: unknown[]; data?: { cssInfo?: unknown } } | null;
+    if (!body || (Array.isArray(body.errors) && body.errors.length > 0)) {
+      return { ok: false, status: response.status || 0 };
+    }
+    const cssInfo = body.data && typeof body.data === "object" ? body.data.cssInfo : null;
+    if (!cssInfo || typeof cssInfo !== "object") {
+      return { ok: false, status: response.status || 0 };
+    }
+    return { ok: true, status: response.status || 0, cssInfo };
   } catch {
     return { ok: false };
   }

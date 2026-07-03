@@ -145,6 +145,7 @@ import {
   loadRemoteConfigSnapshot,
   removeRemotePageMarking,
   requestAiRunResultSnapshot,
+  fetchLynxCssInfo,
   requestAiRunStartSnapshot,
   requestAiRunStatus,
   requestRenderModeDetection,
@@ -3167,6 +3168,17 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
       includeCss: message.includeCss,
       excludeCss: message.excludeCss,
       renderMode: message.renderMode
+    })
+      .then((result) => sendResponse(result || { ok: false }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+
+  if (message.type === "fetchLynxCssInfo") {
+    fetchLynxCssInfo({
+      stageBase: message.stageBase,
+      tokenValue: message.tokenValue,
+      url: message.url
     })
       .then((result) => sendResponse(result || { ok: false }))
       .catch(() => sendResponse({ ok: false }));

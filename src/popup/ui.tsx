@@ -308,6 +308,7 @@ const initialViewState = {
   lynxChecklistAiQuestionDisabled: true,
   lynxChecklistAiQuestionHidden: true,
   lynxChecklistNoticeText: "",
+  lynxChecklistCssInfoStatus: "pending",
   renderModeReady: false,
   renderModeInputDisabled: false,
   renderModeInspectButtonsDisabled: false,
@@ -1827,6 +1828,20 @@ function getLynxChecklistNoticeText(checklist: LynxChecklistViewModel, view: Vie
   if (view && typeof view.lynxChecklistNoticeText === "string" && view.lynxChecklistNoticeText) {
     return view.lynxChecklistNoticeText;
   }
+  // cssInfo staleness gate (fail-closed): narrate why the send is disabled
+  // once the todo-list guard itself is satisfied.
+  if (checklist.canSend) {
+    const cssInfoStatus = view.lynxChecklistCssInfoStatus || "pending";
+    if (cssInfoStatus === "match") {
+      return PopupText.lynxChecklist.cssInfoMatch;
+    }
+    if (cssInfoStatus === "error") {
+      return PopupText.lynxChecklist.cssInfoUnavailable;
+    }
+    if (cssInfoStatus === "pending") {
+      return PopupText.lynxChecklist.cssInfoChecking;
+    }
+  }
   const { blockingReason } = checklist;
   const missingTitles = Array.isArray(blockingReason.pageTypeKeys)
     ? blockingReason.pageTypeKeys
@@ -1932,7 +1947,7 @@ function renderLynxChecklistPopover(view: ViewState, handlers: PopupActions): Re
           <button
             id="lynx-checklist-send"
             type="button"
-            disabled={!checklist.canSend}
+            disabled={!checklist.canSend || (view.lynxChecklistCssInfoStatus || "pending") !== "clear"}
             onClick={handlers.onLynxChecklistSend}
           >
             {icon("send")}

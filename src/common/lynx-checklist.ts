@@ -428,3 +428,57 @@ export function buildLynxChecklistAssignments(value: { aiAnswer?: unknown; pageT
       pageType: item.pageType
     }));
 }
+
+// --- Send-to-Lynx cssInfo staleness guard (architect design, 2026-07-03) ---
+// The backend's cssInfo(url) is the source of truth for "what Lynx already
+// has". Both sides are SANITIZED before comparison: split on commas, trim,
+// collapse internal whitespace runs, drop empties, order-insensitive set
+// equality — no case folding (CSS selectors are case-sensitive where it
+// matters). A match on BOTH fields disables the send (resubmitting an
+// identical set is the abuse this guard exists to stop); an empty backend
+// (or usesUnfluffify false) never blocks.
+
+export type LynxCssInfo = Readonly<{
+  domainId?: number;
+  domainName?: string;
+  exclusionCssSelectors?: string | null;
+  inclusionCssSelectors?: string | null;
+  isJavascriptRenderingEnabled?: boolean;
+  usesUnfluffify?: boolean;
+}>;
+
+export function sanitizeCssSelectorList(value: unknown): string[] {
+  if (typeof value !== "string") {
+    return [];
+  }
+  return [...new Set(
+    value
+      .split(",")
+      .map((selector) => selector.trim().replace(/\s+/g, " "))
+      .filter(Boolean)
+  )].sort();
+}
+
+export function cssSelectorSetsMatch(left: unknown, right: unknown): boolean {
+  const a = sanitizeCssSelectorList(left);
+  const b = sanitizeCssSelectorList(right);
+  return a.length === b.length && a.every((selector, index) => selector === b[index]);
+}
+
+export function lynxAlreadyHasSelectorSet(
+  cssInfo: LynxCssInfo | null | undefined,
+  pending: Readonly<{ includeCss: string; excludeCss: string }> | null | undefined
+): boolean {
+  if (!cssInfo || !pending || cssInfo.usesUnfluffify !== true) {
+    return false;
+  }
+  const backendInclusion = sanitizeCssSelectorList(cssInfo.inclusionCssSelectors);
+  const backendExclusion = sanitizeCssSelectorList(cssInfo.exclusionCssSelectors);
+  if (!backendInclusion.length && !backendExclusion.length) {
+    return false;
+  }
+  return (
+    cssSelectorSetsMatch(cssInfo.inclusionCssSelectors, pending.includeCss) &&
+    cssSelectorSetsMatch(cssInfo.exclusionCssSelectors, pending.excludeCss)
+  );
+}
