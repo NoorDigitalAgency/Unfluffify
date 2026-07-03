@@ -1838,9 +1838,6 @@ function getLynxChecklistNoticeText(checklist: LynxChecklistViewModel, view: Vie
     if (cssInfoStatus === "error") {
       return PopupText.lynxChecklist.cssInfoUnavailable;
     }
-    if (cssInfoStatus === "pending") {
-      return PopupText.lynxChecklist.cssInfoChecking;
-    }
   }
   const { blockingReason } = checklist;
   const missingTitles = Array.isArray(blockingReason.pageTypeKeys)
@@ -1921,7 +1918,14 @@ function renderLynxChecklistPopover(view: ViewState, handlers: PopupActions): Re
             )
             : <div className="hint">{PopupText.lynxChecklist.noticeNoCandidates}</div>}
         </section>
-        {noticeText &&
+        {checklist.canSend && (view.lynxChecklistCssInfoStatus || "pending") === "pending"
+          ? (
+            <div className="lynx-checklist-popover__checking" role="status" aria-live="polite">
+              <span className="lynx-checklist-popover__spinner" aria-hidden="true" />
+              {PopupText.lynxChecklist.cssInfoChecking}
+            </div>
+          )
+          : noticeText &&
           (
             <div className={warningNoticeClass()} role="status" aria-live="polite">
               {noticeText}

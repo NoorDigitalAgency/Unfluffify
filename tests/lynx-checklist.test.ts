@@ -362,10 +362,12 @@ test("lynxAlreadyHasSelectorSet blocks only a full both-field match from a selec
 
 test("the popup wires the cssInfo gate fail-closed around the Lynx send", () => {
   const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
-  // Popover open kicks a fresh check; state defaults/resets to pending.
+  // Popover open kicks a fresh check ONLY once page-type coverage is
+  // complete (the query is redundant while the todo guard blocks the send);
+  // state defaults/resets to pending.
   assert.match(
     popupSource,
-    /state\.lynxChecklistVisible = true;\s*setLynxChecklistViewState\(\);\s*void refreshLynxCssInfoGate\(\);/
+    /const coverage = buildLynxChecklistViewModel\(\{\s*pageTypes: view\.lynxChecklistPageTypes,\s*markedPages: view\.markedPages\s*\}\);\s*if \(coverage\.canSend\) \{\s*void refreshLynxCssInfoGate\(\);\s*\}/
   );
   assert.match(popupSource, /state\.lynxChecklistCssInfoStatus = "pending";/);
   // The comparison uses the SAME composition the submit sends.
@@ -385,8 +387,13 @@ test("the popup wires the cssInfo gate fail-closed around the Lynx send", () => 
   );
   // The TEMP every-click short-circuit is gone.
   assert.doesNotMatch(popupSource, /TEMP SHORT-CIRCUIT/);
-  // The send button renders fail-closed off the gate status.
+  // The send button renders fail-closed off the gate status, and a spinner
+  // narrates the in-flight check once coverage is complete.
   const uiSource = readFileSync(new URL("../src/popup/ui.tsx", import.meta.url), "utf8");
+  assert.match(
+    uiSource,
+    /checklist\.canSend && \(view\.lynxChecklistCssInfoStatus \|\| "pending"\) === "pending"[\s\S]*?lynx-checklist-popover__spinner/
+  );
   assert.match(
     uiSource,
     /disabled=\{!checklist\.canSend \|\| \(view\.lynxChecklistCssInfoStatus \|\| "pending"\) !== "clear"\}/

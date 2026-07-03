@@ -6690,7 +6690,17 @@ function openLynxChecklistPopover() {
   resetLynxChecklistState();
   state.lynxChecklistVisible = true;
   setLynxChecklistViewState();
-  void refreshLynxCssInfoGate();
+  // The cssInfo check is REDUNDANT while page-type coverage is incomplete
+  // (the todo guard blocks the send anyway) — trigger it only once every
+  // page type is covered; the popover spinner narrates the in-flight check.
+  const view = uiModule.getViewState();
+  const coverage = buildLynxChecklistViewModel({
+    pageTypes: view.lynxChecklistPageTypes,
+    markedPages: view.markedPages
+  });
+  if (coverage.canSend) {
+    void refreshLynxCssInfoGate();
+  }
 }
 
 // The pending payload EXACTLY as the submit would send it (same composition
