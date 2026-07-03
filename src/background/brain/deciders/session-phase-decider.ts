@@ -9,7 +9,6 @@ import {
   type SessionFactsPatch,
   type SessionPhase,
 } from "../../../common/bus/contracts/session-state";
-import { deriveDictation } from "./dictation-decider";
 
 type MutableSessionFacts = { -readonly [K in keyof SessionFacts]: SessionFacts[K] };
 export type AiRunPhaseSource = Readonly<{
@@ -212,9 +211,11 @@ export function createDefaultSessionFacts(): SessionFacts {
   return { ...DEFAULT_SESSION_FACTS };
 }
 
+// P4 step 4.2: dictation is a phase pointer only — presentation lives in the
+// layers' machine surface memories (deriveDictation and its button/curtain
+// composition are deleted).
 export function buildSessionDictation(facts: SessionFacts): SessionDictation {
-  const phase = decideSessionPhase(facts);
-  return deriveDictation(phase, facts);
+  return { phase: decideSessionPhase(facts) };
 }
 
 export function applySessionFactsPatch(

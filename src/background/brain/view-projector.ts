@@ -97,21 +97,8 @@ function cloneRenderModeDirectiveState(value: TabLayerState["renderMode"]): Rend
 }
 
 function cloneSessionDictation(value: TabLayerState["sessionDictation"]): PopupViewEnvelope["sessionDictation"] {
-  if (!value) {
-    return null;
-  }
-  return {
-    ...value,
-    buttons: {
-      "toggle-enabled": { ...value.buttons["toggle-enabled"] },
-      compute: { ...value.buttons.compute },
-      "marking-preview": { ...value.buttons["marking-preview"] },
-      "page-save": { ...value.buttons["page-save"] },
-      "page-revert": { ...value.buttons["page-revert"] },
-    },
-    curtain: { ...value.curtain },
-    preview: { ...value.preview },
-  };
+  // P4 step 4.2: dictation is a phase pointer only.
+  return value ? { phase: value.phase } : null;
 }
 
 function clonePropertyLockView(

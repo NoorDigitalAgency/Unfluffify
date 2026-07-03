@@ -1,9 +1,9 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 import { readFileSync } from "./file-kit.ts";
-import { deriveDictation } from "../src/background/brain/deciders/dictation-decider.js";
 import { decideSessionPhase } from "../src/background/brain/deciders/session-phase-decider.js";
-import { AI_RUN_PHASES, BUTTON_IDS } from "../src/common/bus/contracts/session-state.js";
+import { AI_RUN_PHASES } from "../src/common/bus/contracts/session-state.js";
+import { resolveMarkingSessionSurfaceMemory } from "../src/popup/marking-session-machine.js";
 
 test("preview exit restores a captured marking-session snapshot before payload fallback", () => {
   const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
@@ -286,82 +286,9 @@ test("desktop preview stays behind its own popup toggle and disables marking ent
   assert.match(uiSource, /isPopupFeatureEnabled\(view, "desktopPreview"\) && view\.desktopPreviewVisible/);
   assert.match(uiSource, /id="desktop-preview-enabled"/);
 
-  const dictation = deriveDictation(decideSessionPhase({
-    baseUrlReady: true,
-    pageScopedUiDisabled: false,
-    navigationInspectionPending: false,
-    siteIdReady: true,
-    renderModeReady: true,
-    pageTypeUiBlocked: false,
-    currentPageHasPendingChanges: false,
-    pageInspectionBusy: false,
-    desktopPreviewVisible: true,
-    desktopPreviewActive: true,
-    deviceControlsDisabled: false,
-    isEnabled: true,
-    silentModeActive: false,
-    aiReady: true,
-    aiBusy: false,
-    aiComputing: false,
-    aiRunPhase: AI_RUN_PHASES.PRE_AI,
-    aiRunUpToDate: false,
-    previewActive: false,
-    previewBlocked: false,
-    previewItemsPending: false,
-    previewRestorePending: false,
-    sessionHasPendingChanges: false,
-    sessionRequiresAiRun: false,
-    currentDraftDirty: false,
-    pageSaveReconciliationPending: false,
-    propertyLockBlocked: false,
-    saving: false,
-    discarding: false,
-    hasStoredSelectors: true,
-    lynxChecklistCanSend: false,
-    lynxChecklistBlockingReason: { code: "", pageTypeKeys: [] },
-    busyVisible: false,
-    busyMessage: "",
-    busyNote: "",
-    busyTimerText: ""
-  }), {
-    baseUrlReady: true,
-    pageScopedUiDisabled: false,
-    navigationInspectionPending: false,
-    siteIdReady: true,
-    renderModeReady: true,
-    pageTypeUiBlocked: false,
-    currentPageHasPendingChanges: false,
-    pageInspectionBusy: false,
-    desktopPreviewVisible: true,
-    desktopPreviewActive: true,
-    deviceControlsDisabled: false,
-    isEnabled: true,
-    silentModeActive: false,
-    aiReady: true,
-    aiBusy: false,
-    aiComputing: false,
-    aiRunPhase: AI_RUN_PHASES.PRE_AI,
-    aiRunUpToDate: false,
-    previewActive: false,
-    previewBlocked: false,
-    previewItemsPending: false,
-    previewRestorePending: false,
-    sessionHasPendingChanges: false,
-    sessionRequiresAiRun: false,
-    currentDraftDirty: false,
-    pageSaveReconciliationPending: false,
-    propertyLockBlocked: false,
-    saving: false,
-    discarding: false,
-    hasStoredSelectors: true,
-    lynxChecklistCanSend: false,
-    lynxChecklistBlockingReason: { code: "", pageTypeKeys: [] },
-    busyVisible: false,
-    busyMessage: "",
-    busyNote: "",
-    busyTimerText: ""
-  });
-  assert.equal(dictation.buttons[BUTTON_IDS.TOGGLE_ENABLED].enabled, false);
+  // P4 4.2: the dictated button matrix is deleted. Marking entry during an
+  // active desktop preview is prevented by the handler guards pinned above
+  // (the desktop toggle forces the marking toggle off before enabling).
 });
 
 test("marking-mode preview remains a dedicated marking control", () => {
@@ -416,9 +343,11 @@ test("marking-mode preview remains a dedicated marking control", () => {
     busyNote: "",
     busyTimerText: ""
   };
-  const dictation = deriveDictation(decideSessionPhase(readyToSaveFacts), readyToSaveFacts);
-  assert.equal(dictation.buttons[BUTTON_IDS.MARKING_PREVIEW].visible, true);
-  assert.equal(dictation.buttons[BUTTON_IDS.MARKING_PREVIEW].enabled, true);
+  assert.equal(decideSessionPhase(readyToSaveFacts), "ready_to_save");
+  const memory = resolveMarkingSessionSurfaceMemory("post_ai_clean");
+  assert.ok(memory.buttons);
+  assert.equal(memory.buttons.markingPreviewVisible, true);
+  assert.equal(memory.buttons.markingPreviewDisabled, false);
 });
 
 test("popup preview sidebar keeps the active-item scroll path on a synchronous React commit", () => {

@@ -67,6 +67,12 @@ const NEUTRAL_SESSION_DICTATION_PATCH: CentralSessionDictationViewStatePatch = {
   sessionCurtainPhase: "",
 };
 
+// P4 step 4.2: the projected dictation is a phase pointer only. The patch
+// carries the effective phase (adoption/gating vocabulary — every projected
+// AND neutral patch has it); buttons/mode/curtain/preview content come from
+// the machine surface memories applied on top (overrideDictatedMarkingButtons
+// / overrideDictatedPreviewVisibility), with the local derivation underneath
+// covering pass-through states until P5 retires it.
 export function buildCentralSessionDictationViewStatePatch(
   state: CentralSessionDictationProjectionState,
 ): CentralSessionDictationViewStatePatch | null {
@@ -74,29 +80,8 @@ export function buildCentralSessionDictationViewStatePatch(
     return { ...NEUTRAL_SESSION_DICTATION_PATCH };
   }
 
-  const dictation = state.sessionDictation;
-  const effectivePhase = state.sessionPhase || dictation.phase;
-  const showCurtain = dictation.curtain.visible && effectivePhase !== "silent";
-  const preview = dictation.preview || { active: false, blocked: false, itemsPending: false };
   return {
-    mainUiHidden: dictation.mainUiHidden,
-    silentModeActive: dictation.silentModeActive,
-    toggleEnabledDisabled: !dictation.buttons["toggle-enabled"].enabled,
-    computeButtonDisabled: !dictation.buttons.compute.enabled,
-    computeButtonLoading: dictation.buttons.compute.loading,
-    markingPreviewVisible: dictation.buttons["marking-preview"].visible,
-    markingPreviewDisabled: !dictation.buttons["marking-preview"].enabled,
-    pageSaveDisabled: !dictation.buttons["page-save"].enabled,
-    pageRevertDisabled: !dictation.buttons["page-revert"].enabled,
-    previewActive: preview.active === true,
-    previewBlocked: preview.blocked === true,
-    previewItemsPending: preview.itemsPending === true,
-    sessionCurtainVisible: showCurtain,
-    sessionCurtainMessage: showCurtain ? dictation.curtain.message : "",
-    sessionCurtainNote: showCurtain ? dictation.curtain.note : "",
-    sessionCurtainTimerText: showCurtain ? dictation.curtain.timerText : "",
-    sessionCurtainOperation: showCurtain ? dictation.curtain.operation : "",
-    sessionCurtainPhase: effectivePhase,
+    sessionCurtainPhase: state.sessionPhase || state.sessionDictation.phase,
   };
 }
 

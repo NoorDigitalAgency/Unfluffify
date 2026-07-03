@@ -1653,7 +1653,11 @@ function onPushedSignalFrame(frame: SignalFrame): void {
 }
 
 function overrideDictatedMarkingButtons(patch: PopupViewStatePatch): void {
-  if (!Object.prototype.hasOwnProperty.call(patch, "pageSaveDisabled")) {
+  // Every central-dictation patch (projected AND neutral) carries the phase
+  // field — it is the marker that a brain projection is being applied, so the
+  // machine's surface memory must render on top (P4 4.2: the dictated
+  // buttons/curtain content itself no longer exists).
+  if (!Object.prototype.hasOwnProperty.call(patch, "sessionCurtainPhase")) {
     return;
   }
   if (state.markingSessionMachineState === "boot") {
@@ -1804,11 +1808,6 @@ function applyCentralSessionDictation(nextViewState: PopupViewStatePatch, curren
     return;
   }
   Object.assign(nextViewState, nextCentralSessionDictationViewState);
-  if (Object.prototype.hasOwnProperty.call(nextCentralSessionDictationViewState, "previewBlocked")) {
-    nextViewState.previewBlockedMessage = nextCentralSessionDictationViewState.previewBlocked
-      ? PopupText.preview.blockedActive
-      : ViewText.previewBlockedDefault;
-  }
   overrideDictatedPreviewVisibility(nextViewState);
   overrideDictatedMarkingButtons(nextViewState);
 }

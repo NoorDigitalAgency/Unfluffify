@@ -2,7 +2,6 @@ import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 import { readFileSync } from "./file-kit.ts";
 import { vi } from "vitest";
-import { deriveDictation } from "../src/background/brain/deciders/dictation-decider.js";
 import { decideSessionPhase } from "../src/background/brain/deciders/session-phase-decider.js";
 import {
   buildCentralSessionDictationViewStatePatch,
@@ -56,57 +55,50 @@ function buildFacts(overrides = {}) {
   };
 }
 
-test("central-state dictation helper maps projected brain state into popup authority fields", () => {
+test("central-state dictation reduces to the phase pointer (P4 4.2)", () => {
   const facts = buildFacts({
-    sessionHasPendingChanges: true,
-    currentDraftDirty: true,
     aiRunPhase: AI_RUN_PHASES.POST_AI,
     aiRunUpToDate: true,
     hasStoredSelectors: true
   });
-  const dictation = deriveDictation(decideSessionPhase(facts), facts);
+  const phase = decideSessionPhase(facts);
   const patch = buildCentralSessionDictationViewStatePatch({
     currentTabId: 12,
     projectedTabId: 12,
-    sessionPhase: dictation.phase,
-    sessionDictation: dictation
+    sessionPhase: phase,
+    sessionDictation: { phase }
   });
 
   assert.ok(patch);
-  assert.equal(patch.mainUiHidden, dictation.mainUiHidden);
-  assert.equal(patch.toggleEnabledDisabled, !dictation.buttons["toggle-enabled"].enabled);
-  assert.equal(patch.computeButtonDisabled, !dictation.buttons.compute.enabled);
-  assert.equal(patch.computeButtonLoading, dictation.buttons.compute.loading);
-  assert.equal(patch.markingPreviewVisible, dictation.buttons["marking-preview"].visible);
-  assert.equal(patch.pageSaveDisabled, !dictation.buttons["page-save"].enabled);
-  assert.equal(patch.previewActive, dictation.preview.active);
-  assert.equal(patch.previewBlocked, dictation.preview.blocked);
-  assert.equal(patch.previewItemsPending, dictation.preview.itemsPending);
-  assert.equal(patch.sessionCurtainVisible, dictation.curtain.visible);
-  assert.equal(patch.sessionCurtainPhase, dictation.phase);
+  // The projected patch carries ONLY the phase: buttons/mode/curtain/preview
+  // content are the machine's surface memory applied on top
+  // (overrideDictatedMarkingButtons / overrideDictatedPreviewVisibility).
+  assert.equal(patch, { sessionCurtainPhase: phase });
+});
+
+test("the projected sessionPhase leads the dictation phase", () => {
+  const patch = buildCentralSessionDictationViewStatePatch({
+    currentTabId: 7,
+    projectedTabId: 7,
+    sessionPhase: "silent",
+    sessionDictation: { phase: "ready_to_save" }
+  });
+
+  assert.ok(patch);
+  assert.equal(patch.sessionCurtainPhase, "silent");
 });
 
 test("central-state snapshot effect repaints on same-tab dictation updates and neutralizes when dictation is removed", () => {
-  const computingFacts = buildFacts({
-    aiBusy: true,
-    aiComputing: true,
-    busyVisible: true,
-    busyMessage: "Computing selectors",
-    busyNote: "Preparing page content for AI...",
-    busyTimerText: "Up to 8:00"
-  });
-  const computingDictation = deriveDictation(decideSessionPhase(computingFacts), computingFacts);
   const repaintEffect = deriveCentralSessionDictationSnapshotEffect({
     currentTabId: 7,
     projectedTabId: 7,
-    sessionPhase: computingDictation.phase,
-    sessionDictation: computingDictation,
+    sessionPhase: "computing_ai",
+    sessionDictation: { phase: "computing_ai" },
     hadProjectedSessionDictation: false
   });
 
   assert.ok(repaintEffect.patch);
-  assert.equal(repaintEffect.patch.sessionCurtainVisible, true);
-  assert.equal(repaintEffect.patch.computeButtonLoading, true);
+  assert.equal(repaintEffect.patch.sessionCurtainPhase, "computing_ai");
   assert.equal(repaintEffect.refreshRequired, false);
 
   const clearEffect = deriveCentralSessionDictationSnapshotEffect({
@@ -123,53 +115,6 @@ test("central-state snapshot effect repaints on same-tab dictation updates and n
   assert.equal(clearEffect.patch.previewActive, false);
   assert.equal(clearEffect.patch.previewBlocked, false);
   assert.equal(clearEffect.refreshRequired, false);
-});
-
-test("central-state dictation safely neutralizes legacy projections without preview", () => {
-  const facts = buildFacts({
-    sessionHasPendingChanges: true,
-    aiRunPhase: AI_RUN_PHASES.POST_AI
-  });
-  const dictation = deriveDictation(decideSessionPhase(facts), facts);
-  const legacyDictation = { ...dictation };
-  delete legacyDictation.preview;
-
-  const patch = buildCentralSessionDictationViewStatePatch({
-    currentTabId: 12,
-    projectedTabId: 12,
-    sessionPhase: dictation.phase,
-    sessionDictation: legacyDictation
-  });
-
-  assert.ok(patch);
-  assert.equal(patch.previewActive, false);
-  assert.equal(patch.previewBlocked, false);
-  assert.equal(patch.previewItemsPending, false);
-});
-
-test("central-state dictation suppresses stale busy curtain when projected phase is silent", () => {
-  const computingFacts = buildFacts({
-    aiBusy: true,
-    aiComputing: true,
-    busyVisible: true,
-    busyMessage: "Refreshing popup data...",
-    busyNote: "Working... controls are temporarily blocked.",
-    busyTimerText: ""
-  });
-  const computingDictation = deriveDictation(decideSessionPhase(computingFacts), computingFacts);
-
-  const patch = buildCentralSessionDictationViewStatePatch({
-    currentTabId: 7,
-    projectedTabId: 7,
-    sessionPhase: "silent",
-    sessionDictation: computingDictation
-  });
-
-  assert.ok(patch);
-  assert.equal(patch.sessionCurtainVisible, false);
-  assert.equal(patch.sessionCurtainMessage, "");
-  assert.equal(patch.sessionCurtainOperation, "");
-  assert.equal(patch.sessionCurtainPhase, "silent");
 });
 
 test("popup curtain rendering prioritizes session dictation when present", () => {

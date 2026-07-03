@@ -56,19 +56,18 @@ test("while a popup is connected the popup owns isEnabled/silentModeActive; conf
   brain.registerPopupPort(tabId, createFakePopupPort(tabId));
 
   await reportPopup(brain, tabId, READY_FACTS);
-  assert.equal(brain.getPopupView(tabId).sessionDictation?.mainUiHidden, false);
+  assert.notEqual(brain.getPopupView(tabId).sessionDictation?.phase, "silent");
 
   // Post-AI, content legitimately reports its page edit-state as silent
   // (marking edits locked). With a popup connected this must NOT flip the
   // brain-dictated marking UI off, or Save/Discard would vanish (the heartbeat
   // flicker / unclickable-blocker regression).
   await reportContent(brain, tabId, { isEnabled: false, silentModeActive: true });
-  assert.equal(brain.getPopupView(tabId).sessionDictation?.mainUiHidden, false);
-  assert.equal(brain.getPopupView(tabId).sessionDictation?.silentModeActive, false);
+  assert.notEqual(brain.getPopupView(tabId).sessionDictation?.phase, "silent");
 
   // A repeated content report (as the heartbeat would re-fold every tick) stays inert.
   await reportContent(brain, tabId, { isEnabled: false, silentModeActive: true });
-  assert.equal(brain.getPopupView(tabId).sessionDictation?.mainUiHidden, false);
+  assert.notEqual(brain.getPopupView(tabId).sessionDictation?.phase, "silent");
 
   brain.heartbeat.stop(tabId);
 });
@@ -79,13 +78,12 @@ test("content still owns isEnabled/silentModeActive when no popup is connected (
   // No registerPopupPort -> no popup connected for this tab.
 
   await reportPopup(brain, tabId, READY_FACTS);
-  assert.equal(brain.getPopupView(tabId).sessionDictation?.mainUiHidden, false);
+  assert.notEqual(brain.getPopupView(tabId).sessionDictation?.phase, "silent");
 
   // With the popup closed, content keeps authority over marking state so silent
   // highlighting still activates; its isEnabled:false now applies.
   await reportContent(brain, tabId, { isEnabled: false, silentModeActive: true });
-  assert.equal(brain.getPopupView(tabId).sessionDictation?.mainUiHidden, true);
-  assert.equal(brain.getPopupView(tabId).sessionDictation?.silentModeActive, true);
+  assert.equal(brain.getPopupView(tabId).sessionDictation?.phase, "silent");
 });
 
 test("content marking-fact reconciliation is per-tab (drop only for the tab with a connected popup)", async () => {
@@ -101,8 +99,8 @@ test("content marking-fact reconciliation is per-tab (drop only for the tab with
   await reportContent(brain, withoutPopup, { isEnabled: false, silentModeActive: true });
 
   // Tab with a popup keeps the popup's value; tab without a popup takes content's.
-  assert.equal(brain.getPopupView(withPopup).sessionDictation?.mainUiHidden, false);
-  assert.equal(brain.getPopupView(withoutPopup).sessionDictation?.mainUiHidden, true);
+  assert.notEqual(brain.getPopupView(withPopup).sessionDictation?.phase, "silent");
+  assert.equal(brain.getPopupView(withoutPopup).sessionDictation?.phase, "silent");
 
   brain.heartbeat.stop(withPopup);
 });

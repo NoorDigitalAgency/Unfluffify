@@ -55,49 +55,6 @@ export function normalizePageSaveReconciliationReason(value: unknown): PageSaveR
   return PAGE_SAVE_RECONCILIATION_REASONS.NONE;
 }
 
-export const BUTTON_IDS = Object.freeze({
-  TOGGLE_ENABLED: "toggle-enabled",
-  COMPUTE: "compute",
-  MARKING_PREVIEW: "marking-preview",
-  PAGE_SAVE: "page-save",
-  PAGE_REVERT: "page-revert",
-} as const);
-
-export type ButtonId = (typeof BUTTON_IDS)[keyof typeof BUTTON_IDS];
-
-export type ButtonDictation = Readonly<{
-  id: ButtonId;
-  visible: boolean;
-  enabled: boolean;
-  loading: boolean;
-}>;
-
-export type ButtonDictationMap = Readonly<Record<ButtonId, ButtonDictation>>;
-
-export const CURTAIN_OPERATIONS = Object.freeze({
-  IDLE: "idle",
-  BUSY: "busy",
-  COMPUTING_AI: "computing_ai",
-  SAVING: "saving",
-  DISCARDING: "discarding",
-} as const);
-
-export type CurtainOperation = (typeof CURTAIN_OPERATIONS)[keyof typeof CURTAIN_OPERATIONS];
-
-export type CurtainDictation = Readonly<{
-  visible: boolean;
-  operation: CurtainOperation;
-  message: string;
-  note: string;
-  timerText: string;
-}>;
-
-export type PreviewDictation = Readonly<{
-  active: boolean;
-  blocked: boolean;
-  itemsPending: boolean;
-}>;
-
 export type SessionFacts = Readonly<{
   baseUrlReady: boolean;
   pageScopedUiDisabled: boolean;
@@ -140,14 +97,12 @@ export type SessionFacts = Readonly<{
 
 export type SessionFactsPatch = Readonly<Partial<SessionFacts>>;
 
+// P4 step 4.2: dictation is a PHASE POINTER, not composed presentation. The
+// popup machine's surface memories own buttons/mode/curtain content; the
+// remaining local derivations cover pass-through states until P5 retires
+// them. (A signalHead seq may join once a consumer exists.)
 export type SessionDictation = Readonly<{
   phase: SessionPhase;
-  mainUiHidden: boolean;
-  pageControlsVisible: boolean;
-  silentModeActive: boolean;
-  buttons: ButtonDictationMap;
-  curtain: CurtainDictation;
-  preview: PreviewDictation;
 }>;
 
 export const SESSION_REPORT_TYPES = Object.freeze({

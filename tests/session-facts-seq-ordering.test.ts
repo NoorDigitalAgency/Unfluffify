@@ -55,8 +55,10 @@ describe("brain session-facts seq ordering", () => {
       { target: REALMS.BACKGROUND, tab } as never,
     );
 
-  const mainUiHidden = (brain: ReturnType<typeof createBrain>, tab: number) =>
-    brain.getPopupView(tab).sessionDictation?.mainUiHidden;
+  // P4 4.2: dictation is a phase pointer — the silent phase is the observable
+  // for "the isEnabled:false report won the fold".
+  const silentPhaseDecided = (brain: ReturnType<typeof createBrain>, tab: number) =>
+    brain.getPopupView(tab).sessionDictation?.phase === "silent";
 
   it("drops a stale lower-seq popup report that lands after a fresher one", async () => {
     const brain = createBrain({ logger: { error() {} } });
@@ -64,13 +66,13 @@ describe("brain session-facts seq ordering", () => {
     // Fresh refresh (seq 5): marking enabled -> main UI revealed.
     await reportPopup(brain, 70, { ...READY_MARKING_FACTS, isEnabled: true }, 5);
     await flush();
-    expect(mainUiHidden(brain, 70)).toBe(false);
+    expect(silentPhaseDecided(brain, 70)).toBe(false);
 
     // A stale earlier-started refresh (seq 3) finishing late with isEnabled:false
     // would hide the main UI. It must be dropped as out-of-order.
     await reportPopup(brain, 70, { ...READY_MARKING_FACTS, isEnabled: false }, 3);
     await flush();
-    expect(mainUiHidden(brain, 70)).toBe(false);
+    expect(silentPhaseDecided(brain, 70)).toBe(false);
   });
 
   it("drops a duplicate (equal-seq) popup report", async () => {
@@ -78,12 +80,12 @@ describe("brain session-facts seq ordering", () => {
 
     await reportPopup(brain, 71, { ...READY_MARKING_FACTS, isEnabled: true }, 5);
     await flush();
-    expect(mainUiHidden(brain, 71)).toBe(false);
+    expect(silentPhaseDecided(brain, 71)).toBe(false);
 
     // Same seq replayed with different facts is a duplicate and must be dropped.
     await reportPopup(brain, 71, { ...READY_MARKING_FACTS, isEnabled: false }, 5);
     await flush();
-    expect(mainUiHidden(brain, 71)).toBe(false);
+    expect(silentPhaseDecided(brain, 71)).toBe(false);
   });
 
   it("applies a newer higher-seq popup report", async () => {
@@ -91,12 +93,12 @@ describe("brain session-facts seq ordering", () => {
 
     await reportPopup(brain, 72, { ...READY_MARKING_FACTS, isEnabled: true }, 5);
     await flush();
-    expect(mainUiHidden(brain, 72)).toBe(false);
+    expect(silentPhaseDecided(brain, 72)).toBe(false);
 
     // A genuinely newer refresh (seq 6) is authoritative and applies.
     await reportPopup(brain, 72, { ...READY_MARKING_FACTS, isEnabled: false }, 6);
     await flush();
-    expect(mainUiHidden(brain, 72)).toBe(true);
+    expect(silentPhaseDecided(brain, 72)).toBe(true);
   });
 
   it("always applies untagged popup reports (back-compat, no seq)", async () => {
@@ -104,13 +106,13 @@ describe("brain session-facts seq ordering", () => {
 
     await reportPopup(brain, 73, { ...READY_MARKING_FACTS, isEnabled: true }, 5);
     await flush();
-    expect(mainUiHidden(brain, 73)).toBe(false);
+    expect(silentPhaseDecided(brain, 73)).toBe(false);
 
     // Reports without a seq carry no ordering and always apply (legacy behavior;
     // partial popup publishes and content facts are untagged).
     await reportPopup(brain, 73, { ...READY_MARKING_FACTS, isEnabled: false });
     await flush();
-    expect(mainUiHidden(brain, 73)).toBe(true);
+    expect(silentPhaseDecided(brain, 73)).toBe(true);
   });
 
   it("keeps per-tab high-water marks independent", async () => {
@@ -118,12 +120,12 @@ describe("brain session-facts seq ordering", () => {
 
     await reportPopup(brain, 81, { ...READY_MARKING_FACTS, isEnabled: true }, 9);
     await flush();
-    expect(mainUiHidden(brain, 81)).toBe(false);
+    expect(silentPhaseDecided(brain, 81)).toBe(false);
 
     // A different tab starting its own sequence at 1 must not be gated by tab 81's
     // high-water mark.
     await reportPopup(brain, 82, { ...READY_MARKING_FACTS, isEnabled: true }, 1);
     await flush();
-    expect(mainUiHidden(brain, 82)).toBe(false);
+    expect(silentPhaseDecided(brain, 82)).toBe(false);
   });
 });

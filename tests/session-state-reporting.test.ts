@@ -46,8 +46,6 @@ test("brain ingests reported session facts and projects optional dictation into 
   assert.equal(popupView.sessionPhase, SESSION_PHASES.READY_TO_SAVE);
   assert.ok(popupView.sessionDictation);
   assert.equal(popupView.sessionDictation?.phase, SESSION_PHASES.READY_TO_SAVE);
-  assert.equal(popupView.sessionDictation?.buttons["page-save"].enabled, true);
-  assert.equal(popupView.sessionDictation?.buttons["marking-preview"].enabled, true);
   assert.equal(popupView.secondaryGates?.previewLatestBlockedReason, "not_available");
   assert.deepEqual(popupView.secondaryGates?.lynxChecklistSendBlockedReason, {
     code: "not_available",
@@ -120,9 +118,9 @@ test("brain derives the COMPUTING_AI phase from typed AI-run STARTED events", as
 
   const computingView = brain.getPopupView(77);
   assert.equal(computingView.sessionPhase, SESSION_PHASES.COMPUTING_AI);
-  assert.equal(computingView.sessionDictation?.curtain.visible, true);
-  assert.equal(computingView.sessionDictation?.curtain.operation, "computing_ai");
-  assert.equal(computingView.sessionDictation?.curtain.timerText, "");
+  // P4 4.2: the dictation is a phase pointer; the popup machine's `running`
+  // memory owns the computing curtain content.
+  assert.equal(computingView.sessionDictation?.phase, SESSION_PHASES.COMPUTING_AI);
   assert.equal(brain.store.get(77)?.aiRun.active, true);
   assert.ok((brain.store.get(77)?.aiRun.deadlineAt || 0) > Date.now());
 

@@ -4,9 +4,9 @@ import * as ts from "typescript";
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 import { readFileSync } from "./file-kit.ts";
-import { deriveDictation } from "../src/background/brain/deciders/dictation-decider.js";
 import { decideSessionPhase } from "../src/background/brain/deciders/session-phase-decider.js";
-import { AI_RUN_PHASES, BUTTON_IDS } from "../src/common/bus/contracts/session-state.js";
+import { AI_RUN_PHASES } from "../src/common/bus/contracts/session-state.js";
+import { resolveMarkingSessionSurfaceMemory } from "../src/popup/marking-session-machine.js";
 
 const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
 const popupStateSource = readFileSync(new URL("../src/popup/state.ts", import.meta.url), "utf8");
@@ -332,10 +332,15 @@ test("a silent session with a stale post-AI phase keeps the enable toggle usable
     isEnabled: false,
     silentModeActive: true
   });
-  const dictation = deriveDictation(decideSessionPhase(staleSilent), staleSilent);
+  // The phase decides silent (isEnabled false precedes the post-AI check)
+  // and the machine's silent memory keeps the toggle usable (P4 4.2:
+  // machine memory is the button authority).
+  assert.equal(decideSessionPhase(staleSilent), "silent");
+  const memory = resolveMarkingSessionSurfaceMemory("silent");
+  assert.ok(memory.buttons);
   assert.equal(
-    dictation.buttons[BUTTON_IDS.TOGGLE_ENABLED].enabled,
-    true,
+    memory.buttons.toggleEnabledDisabled,
+    false,
     "silent + post-AI must keep the toggle usable (re-enabling starts PRE_AI)"
   );
 });
@@ -345,10 +350,14 @@ test("an active post-AI marking session still locks the toggle until Save/Discar
     aiRunPhase: AI_RUN_PHASES.POST_AI,
     isEnabled: true
   });
-  const dictation = deriveDictation(decideSessionPhase(activePostAi), activePostAi);
+  // The session is ACTIVE: the phase decides a post-AI-family state (never
+  // silent), and the machine's post_ai_clean memory locks the toggle.
+  assert.notEqual(decideSessionPhase(activePostAi), "silent");
+  const memory = resolveMarkingSessionSurfaceMemory("post_ai_clean");
+  assert.ok(memory.buttons);
   assert.equal(
-    dictation.buttons[BUTTON_IDS.TOGGLE_ENABLED].enabled,
-    false,
+    memory.buttons.toggleEnabledDisabled,
+    true,
     "post-AI with the session active resolves via Save/Discard first"
   );
 });

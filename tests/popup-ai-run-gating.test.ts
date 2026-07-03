@@ -1,9 +1,9 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 import { readFileSync } from "./file-kit.ts";
-import { deriveDictation } from "../src/background/brain/deciders/dictation-decider.js";
 import { decideSessionPhase } from "../src/background/brain/deciders/session-phase-decider.js";
-import { AI_RUN_PHASES, BUTTON_IDS } from "../src/common/bus/contracts/session-state.js";
+import { AI_RUN_PHASES } from "../src/common/bus/contracts/session-state.js";
+import { resolveMarkingSessionSurfaceMemory } from "../src/popup/marking-session-machine.js";
 
 const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
 const pageReconciliationSource = readFileSync(new URL("../src/popup/page-reconciliation.ts", import.meta.url), "utf8");
@@ -241,15 +241,18 @@ test("Run AI stays wired to the real popup view-state gating expression", () => 
     busyNote: "",
     busyTimerText: ""
   };
-  const dictation = deriveDictation(decideSessionPhase(facts), facts);
-
   // facts are POST_AI with a post-AI marking edit (currentPageHasPendingChanges),
-  // i.e. State B: Run AI re-enables so the user can re-run on the new markings.
-  assert.equal(dictation.buttons[BUTTON_IDS.COMPUTE].enabled, !computeButtonDisabledForState({
+  // i.e. State B: the phase decides marking_dirty and the machine's
+  // pre_ai_dirty surface memory re-enables Run AI (P4 4.2: the machine
+  // memory IS the button authority; the dictated matrix is deleted).
+  assert.equal(decideSessionPhase(facts), "marking_dirty");
+  const memory = resolveMarkingSessionSurfaceMemory("pre_ai_dirty");
+  assert.ok(memory.buttons);
+  assert.equal(memory.buttons.computeButtonDisabled, computeButtonDisabledForState({
     aiRunPhase: AI_RUN_PHASES.POST_AI,
     currentPageHasPendingChanges: true
   }));
-  assert.equal(dictation.buttons[BUTTON_IDS.COMPUTE].enabled, true);
+  assert.equal(memory.buttons.computeButtonDisabled, false);
 });
 
 test("clean post-AI phase enables Save/Discard even when legacy freshness facts drift", () => {
@@ -295,16 +298,13 @@ test("clean post-AI phase enables Save/Discard even when legacy freshness facts 
     busyNote: "",
     busyTimerText: ""
   };
-  const dictation = deriveDictation(decideSessionPhase(facts), facts);
-
-  assert.equal(
-    dictation.buttons[BUTTON_IDS.PAGE_SAVE].enabled,
-    true
-  );
-  assert.equal(
-    dictation.buttons[BUTTON_IDS.PAGE_REVERT].enabled,
-    true
-  );
+  // Drifted legacy freshness facts still decide the clean post-AI phase; the
+  // machine's post_ai_clean memory keeps Save/Discard enabled.
+  assert.equal(decideSessionPhase(facts), "ready_to_save");
+  const memory = resolveMarkingSessionSurfaceMemory("post_ai_clean");
+  assert.ok(memory.buttons);
+  assert.equal(memory.buttons.pageSaveDisabled, false);
+  assert.equal(memory.buttons.pageRevertDisabled, false);
 });
 
 test("post-AI marking edit (State B) re-enables Run AI, blocks Save, keeps Discard", () => {
@@ -346,14 +346,15 @@ test("post-AI marking edit (State B) re-enables Run AI, blocks Save, keeps Disca
     busyNote: "",
     busyTimerText: ""
   };
-  const dictation = deriveDictation(decideSessionPhase(facts), facts);
-
-  // A post-AI marking edit drops back to State B: the AI run is stale.
+  // A post-AI marking edit drops back to State B: the AI run is stale. The
+  // machine's pre_ai_dirty memory is the surviving button authority.
   assert.equal(decideSessionPhase(facts), "marking_dirty");
-  assert.equal(dictation.buttons[BUTTON_IDS.COMPUTE].enabled, true);
-  assert.equal(dictation.buttons[BUTTON_IDS.PAGE_SAVE].enabled, false);
-  assert.equal(dictation.buttons[BUTTON_IDS.MARKING_PREVIEW].enabled, false);
-  assert.equal(dictation.buttons[BUTTON_IDS.PAGE_REVERT].enabled, true);
+  const memory = resolveMarkingSessionSurfaceMemory("pre_ai_dirty");
+  assert.ok(memory.buttons);
+  assert.equal(memory.buttons.computeButtonDisabled, false);
+  assert.equal(memory.buttons.pageSaveDisabled, true);
+  assert.equal(memory.buttons.markingPreviewDisabled, true);
+  assert.equal(memory.buttons.pageRevertDisabled, false);
 });
 
 test("navigating away from a pending marking session prompts to discard first", () => {

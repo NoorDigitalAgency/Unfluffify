@@ -2,15 +2,13 @@ import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
 
 import {
-  BUTTON_IDS,
-  CURTAIN_OPERATIONS,
   SESSION_EVENT_TYPES,
   SESSION_PHASES,
   SESSION_REPORT_TYPES,
   SESSION_REQUEST_TYPES,
 } from "../src/common/bus/contracts/session-state.js";
 
-test("session-state contract exposes the approved phase list and button ids", () => {
+test("session-state contract exposes the approved phase list", () => {
   assert.deepEqual(Object.keys(SESSION_PHASES), [
     "LOADING",
     "OUT_OF_SCOPE",
@@ -27,20 +25,6 @@ test("session-state contract exposes the approved phase list and button ids", ()
     "DISCARDING",
     "RECONCILIATION_PENDING",
     "PROPERTY_LOCK_BLOCKED",
-  ]);
-  assert.deepEqual(Object.values(BUTTON_IDS), [
-    "toggle-enabled",
-    "compute",
-    "marking-preview",
-    "page-save",
-    "page-revert",
-  ]);
-  assert.deepEqual(Object.values(CURTAIN_OPERATIONS), [
-    "idle",
-    "busy",
-    "computing_ai",
-    "saving",
-    "discarding",
   ]);
   assert.deepEqual(SESSION_REPORT_TYPES, {
     FACTS_REPORTED: "session.factsReported",
