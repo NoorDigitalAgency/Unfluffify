@@ -13,6 +13,9 @@ import { mkdirSync, writeFileSync, appendFileSync } from "node:fs";
 const CDP = "http://127.0.0.1:9222";
 const OBSERVE_MS = Number(process.argv[2] || 360000);
 const HOLD_PREVIEW_MS = Number(process.argv[3] || 8000);
+// "resume": attach to an already in-flight run/preview (skip enable/mark/
+// compute), wait up to 10 min for the preview, then continue identically.
+const RESUME = process.argv[4] === "resume";
 const MARK_TARGET_COUNT = 5;
 const RUN_ID = new Date().toISOString().replace(/[:.]/g, "-");
 const FRAMES_DIR = `.temp/frames-${RUN_ID}`;
@@ -204,21 +207,24 @@ async function main() {
   // ---- STEP 0/1: baseline + enable marking ----
   samplerPhase = "baseline";
   const base = await waitFor("popup viewstate readable", () => viewstate(popup), 20000);
-  if (base.previewActive) throw new Error("baseline has previewActive=true; reset the session first");
-  // C4 pre-check: silent with a DISABLED toggle is the unrecoverable state.
-  if (base.silentModeActive && base.dom["toggle-enabled"] === "off") {
-    log("C4-CHECK", "baseline IS the unrecoverable state (silent + toggle disabled) — waiting 20s for recovery");
+  if (!RESUME && base.previewActive) throw new Error("baseline has previewActive=true; reset the session first");
+  // C4 pre-check: silent with a DISABLED toggle and NO narrating curtain is
+  // the unrecoverable state. A visible session curtain (e.g. the heavy-page
+  // render_mode_inspection at load) is a legitimate transient — wait it out.
+  if (!RESUME && base.silentModeActive && base.dom["toggle-enabled"] === "off" && !base.curtain) {
+    log("C4-CHECK", "baseline looks unrecoverable (silent + toggle disabled, no curtain) — waiting 30s");
     await waitFor("toggle recovers from silent-disabled", async () => {
       const v = await viewstate(popup);
-      return v && v.dom["toggle-enabled"] === "on" ? v : null;
-    }, 20000).catch(() => { throw new Error("C4 FAIL: unrecoverable silent+disabled-toggle at baseline"); });
+      return v && (v.dom["toggle-enabled"] === "on" || v.curtain) ? v : null;
+    }, 30000).catch(() => { throw new Error("C4 FAIL: unrecoverable silent+disabled-toggle at baseline"); });
   }
   samplerPhase = "enable";
+  if (!RESUME) {
   if (!base.toggleEnabled) {
     await waitFor("toggle clickable (dom on)", async () => {
       const v = await viewstate(popup);
       return v && v.dom["toggle-enabled"] === "on" ? v : null;
-    }, 60000);
+    }, 180000);
     log("ACTION", "click #toggle-enabled (enable marking)");
     await evalIn(popup, `document.getElementById("toggle-enabled").click(); "clicked"`);
   } else {
@@ -278,11 +284,15 @@ async function main() {
   samplerPhase = "ai-run";
   log("ACTION", "click #compute (Run AI)");
   await evalIn(popup, `document.getElementById("compute").click(); "clicked"`);
+  } else {
+    samplerPhase = "ai-run";
+    log("RESUME", "attaching to the in-flight run/preview");
+  }
   const previewOpenAt = await (async () => {
     await waitFor("preview open (previewActive=true)", async () => {
       const v = await viewstate(popup);
       return v && v.previewActive ? v : null;
-    }, 360000, 500);
+    }, RESUME ? 600000 : 360000, 500);
     return Date.now();
   })();
   samplerPhase = "hydration";
@@ -352,9 +362,14 @@ async function main() {
     log("C2", "popup->page SKIPPED (fewer than 2 rows)");
     c2_popupToPage = true;
   }
-  // page marked element -> popup focus
+  // page marked element -> popup focus. Prefer a NON-ANCHOR marked element:
+  // a trusted click that lands on a link can genuinely navigate the page away
+  // mid-flow (round-9), which aborts the session by design and invalidates the
+  // rest of the observation.
+  const pageUrlBeforeClick = await evalIn(page, `location.href`);
   const pageTargetRaw = await evalIn(page, `(() => {
-    const el = document.querySelector(".uf-rect");
+    const rects = Array.from(document.querySelectorAll(".uf-rect"));
+    const el = rects.find((c) => !c.closest("a")) || null;
     if (!el) return "null";
     el.scrollIntoView({ block: "center", behavior: "instant" });
     const r = el.getBoundingClientRect();
@@ -370,8 +385,13 @@ async function main() {
     const afterFocus = (await viewstate(popup))?.previewFocusedXpath || "";
     c2_pageToPopup = afterFocus !== beforeFocus && afterFocus !== "";
     log("C2", `page->popup focus "${beforeFocus.slice(-30)}" -> "${afterFocus.slice(-30)}" => ${c2_pageToPopup}`);
+    const pageUrlAfterClick = await evalIn(page, `location.href`).catch(() => "");
+    if (pageUrlAfterClick && pageUrlAfterClick !== pageUrlBeforeClick) {
+      log("FATAL-HARNESS", `two-sided page click NAVIGATED (${pageUrlBeforeClick} -> ${pageUrlAfterClick}); round invalid`);
+      process.exit(3);
+    }
   } else {
-    log("C2", "page->popup SKIPPED (no .uf-rect)");
+    log("C2", "page->popup SKIPPED (no non-anchor .uf-rect)");
     c2_pageToPopup = true;
   }
 
@@ -415,7 +435,7 @@ async function main() {
   let c4_unrecoverable = null;
   let c4Start = 0;
   for (const s of samples) {
-    const bad = s.silentModeActive && s.dom["toggle-enabled"] === "off";
+    const bad = s.silentModeActive && s.dom["toggle-enabled"] === "off" && !s.curtain;
     if (bad && !c4Start) c4Start = s.dt;
     if (!bad) c4Start = 0;
     if (bad && c4Start && s.dt - c4Start > 3000) { c4_unrecoverable = s; break; }

@@ -112,6 +112,26 @@ test("applyAiPreviewStateUpdate: an empty push while empty stays empty", () => {
   assert.equal(Array.isArray(shown) ? shown.length : -1, 0);
 });
 
+// A stale INACTIVE push (pre-open/compute_lock era, delivered late) has
+// previewActive:false and mode-zeroed itemsPending; it must neither clear the
+// shown list nor arm the settled-empty memory (the false "No content detected").
+test("applyAiPreviewStateUpdate: an inactive stale push cannot claim settled", () => {
+  const ctx = makeContext({
+    previewItems: ITEMS,
+    previewWillRestoreMarking: false,
+    previewFocusedXpath: "",
+    previewShowAllCategories: false
+  });
+  ctx.apply({ baseUrl: "https://example.com", active: true, mode: "compute_lock", itemsPending: false, items: [] });
+  const shown = ctx.getView().previewItems as unknown[];
+  assert.equal(Array.isArray(shown) ? shown.length : -1, 5, "stale inactive push keeps the list");
+  assert.equal(
+    Boolean((ctx.state as Record<string, unknown>).previewSessionSettledEmpty),
+    false,
+    "settled-empty memory must not arm from a non-open snapshot"
+  );
+});
+
 // A real hydrated push (non-empty) is applied — the guard only blocks emptying.
 test("applyAiPreviewStateUpdate: a non-empty push replaces the shown list", () => {
   const ctx = makeContext({
@@ -209,7 +229,12 @@ test("refreshUi treats getAiPreviewState as item-only and owns preview visibilit
 
   // Items flow through the session latch: a settled probe updates it; a pending
   // or missing probe keeps the latched list (never a mid-hydration empty list).
-  assert.match(popupSource, /const settled = probeOk && !previewViewState\.previewItemsPending;/);
+  // "Settled" requires the snapshot to SHOW the open preview — a stale
+  // pre-open/compute_lock probe (previewActive:false, mode-zeroed pending)
+  // must not arm the settled-empty memory (pressure-run false "No content
+  // detected" while content held 776 items).
+  assert.match(popupSource, /const settled = probeOk && previewViewState\.previewActive && !previewViewState\.previewItemsPending;/);
+  assert.match(popupSource, /const settled = Boolean\(nextPreviewState\.previewActive\) && !nextPreviewState\.previewItemsPending;/);
   assert.match(popupSource, /resolveOpenPreviewItems\(settled \? probeItems : \[\], settled\)/);
 
   // A transient out-of-scope pass (tab-context flicker while a preview is open)

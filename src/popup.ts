@@ -4220,10 +4220,17 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
     }
 
     if (showPreview) {
-      // Items go through the session latch: a settled probe (reachable + not
-      // pending) can update or genuinely-empty the list; a probe miss or a
-      // pending snapshot never blinks an established list to empty.
-      const settled = probeOk && !previewViewState.previewItemsPending;
+      // Items go through the session latch: a settled probe can update or
+      // genuinely-empty the list; a probe miss or a pending snapshot never
+      // blinks an established list to empty. "Settled" additionally requires
+      // the snapshot to actually SHOW the open preview: a stale response from
+      // a pre-open/compute_lock-era probe consumed after the open intent
+      // latched has previewActive:false and mode-zeroed itemsPending, and
+      // treating it as settled armed the settled-empty memory — the popup
+      // rendered "No content detected" for seconds while content was still
+      // collecting (pressure run on bonliva.se/lediga-jobb: content had 776
+      // items; the view flipped settled-empty 100ms after open).
+      const settled = probeOk && previewViewState.previewActive && !previewViewState.previewItemsPending;
       const resolved = resolveOpenPreviewItems(settled ? probeItems : [], settled);
       previewViewState = {
         previewActive: true,
@@ -7953,7 +7960,10 @@ function applyAiPreviewStateUpdate(message: PreviewStateLike) {
   // stabilize signature is aligned to what is actually shown so the next refresh
   // does not treat the kept list as a change.
   const incomingItems = Array.isArray(nextPreviewState.previewItems) ? nextPreviewState.previewItems : [];
-  const settled = !nextPreviewState.previewItemsPending;
+  // Same open-snapshot rule as the probe feed: only a push that shows the OPEN
+  // preview may claim "settled" (an inactive/stale push must not arm the
+  // settled-empty memory or genuinely-empty a list).
+  const settled = Boolean(nextPreviewState.previewActive) && !nextPreviewState.previewItemsPending;
   const previewItems = state.previewOpenIntent
     ? resolveOpenPreviewItems(settled ? incomingItems : [], settled).items
     : (Array.isArray(currentView.previewItems) ? currentView.previewItems : []);
