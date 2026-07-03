@@ -346,8 +346,21 @@ dictation = {phase} — signalHead deferred until a consumer exists),
 LEASES; navInspect single-writer = brain lifecycle selection),
 4.4=b905ff0 (machineOwnsPreviewRoutine()/resolveContentExitDestination are
 the routine readers; aiPreviewState = presentation data only).
-REMAINING FOR PHASE CLOSE: the live full-flow acceptance round on both
-properties (below).
+LIVE ACCEPTANCE PASSED 2026-07-03 evening (scripted headless-new harness,
+both properties, P4 build): (1) ritual — bottom-exact walk (maxY+viewport
+== scrollHeight), ZERO uncontrolled expansions, return-to-top; (2) toggle
+silent<->marking = single atomic machine-row delta, no oscillation; (3) AI
+run — running row locks everything, curtain "Computing selectors"/"Waiting
+for AI results" from machine memory, COUNTDOWN 8:00 == the actual timeout
+constant, live ticks; (4) preview 129/82 items latched stable; (5) exit —
+post-AI row atomic (Save/Discard/Show enabled), page marking restored,
+machine pause released, no clear-post-ai regression, no failed-exit toast;
+(6) save — marking->silent atomic, post-save inspection narrated itself
+and cleared; (7) silent preview opens/exits fully in SILENT posture.
+OBSERVATION (non-blocking): the phase POINTER (sessionCurtainPhase) can
+flap for ~2s during exit settles (preview_open<->ready_to_save fold churn)
+— no surface renders from it (machine memories held stable throughout);
+P5's refresh reduction shrinks the churn at its source. PHASE 4 = CLOSED.
 
 - 4.0 AI-RUN TIMEOUT SYNC (architect step): ONE source of truth for the AI
   run timeout minutes shared by (a) the ACTUAL run timeout/abort deadline

@@ -34,11 +34,23 @@ broker LEASES via runWithBrainSpinnerLease; navInspect single-writer =
 the brain's lifecycle selection, gates observe the broadcast), 4.4
 (b905ff0: machineOwnsPreviewRoutine() + resolveContentExitDestination()
 are the routine readers; re-entrant exit during restore no-ops).
-NEXT = P4 LIVE ACCEPTANCE (full-flow on both properties — every overlay
-changed authority, so run: fresh-page ritual, marking, AI run incl.
-curtain copy + countdown vs actual timeout, preview open/exit both
-origins, save flows), then Send to Lynx staleness redesign (once the
-backend endpoint story settles), then P5, then P6 closure.
+P4 LIVE ACCEPTANCE PASSED (2026-07-03 evening; evidence in the plan §4):
+full-flow on BOTH properties via a scripted headless-new harness — ritual
+bottom-exact with zero uncontrolled expansions, atomic machine-row
+transitions everywhere, run countdown == actual timeout, both preview
+origins exit clean (silent stays silent), saves settle marking->silent.
+PHASE 4 CLOSED. Non-blocking observation: the sessionCurtainPhase pointer
+can flap ~2s during exit settles (fold churn; no surface renders from it).
+HARNESS NOTE for the next live round: the MCP/headed launch path wedges on
+this Wayland session (remote-debugging-pipe handshake) — the working
+recipe is a persistent playwright (scratchpad pw@1.61.1) driver with
+headless:true + channel:"chromium" + --load-extension (extensions work in
+new headless; same deterministic id), commands appended to a driver.cmd
+file. See scratchpad/accept-driver.mjs pattern.
+NEXT = Send to Lynx staleness redesign (REPLACES the TEMP short-circuit
+099fe12; blocked on the backend endpoint story settling), then P5
+(refresh reduction — also retires the exit-settle phase-pointer churn),
+then P6 closure (full matrix + sove.se + #5/#14 review-push gate).
 RELEASES: 1.9.0 / 1.9.1 / 1.9.2 (3ac124d — icons incl. active set,
 pageTypeAssignments flag, detection->reveal/freeze handoff fixed
 (unconditional inspection-end at Set + candidacy protocol collapse),
