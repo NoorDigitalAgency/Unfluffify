@@ -356,6 +356,18 @@ matrix. Ordered steps (architect-approved order, 2026-07-03):
   surface vocabulary (which surfaces are engaged per state); ALL text/timer
   content is layer memory. deriveDictation is DELETED;
   `session.dictationUpdated` carries {phase, signalHead:seq} only.
+  IMPLEMENTATION MAP (recon 2026-07-03): the per-(kind,phase) spinner
+  DEFINITIONS (title/note/timerMode/blockSurfaces/maxDurationMs) already
+  live in the SHARED contract common/spinner-contract.ts —
+  brain/spinner-authority.phaseToSpinnerState composes display strings from
+  it at projection time (plus one inline "Computing selectors" in
+  projectAiRunSelection). The reduction: publishSpinnerSurface ships only
+  {kind, phase, startedAt, deadlineAt, operationId, reason?, spinnerKey?};
+  each layer resolves the CONTENT locally — popup via its machine surface
+  memory first, then getSpinnerPhaseDefinition; content via
+  resolveContentOverlayMemory(machine state) first, then the definition
+  table. Keep the pageCurtain re-broadcast cadence + the page-block
+  fail-open watchdog contract unchanged (content-bus-client renderer).
 - 4.3 POPUP OLD-PLUMBING DELETION (deferred P2 cleanup): pushSpinner call
   sites + superseded dictation derivations are REMOVED (not overridden);
   the machine matrix is the popup's sole spinner authority.
