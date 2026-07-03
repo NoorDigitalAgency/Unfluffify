@@ -1,4 +1,24 @@
-# LIVE QA STATUS — 2026-07-03 OVERNIGHT (#5/#14 FIX ROUND C, live-iterated per-frame; round-8 + final .se PENDING)
+# MAIN PLAN: `.copilot/architecture/reflex-arc-plan.md` (START THERE)
+
+The reflex-arc plan is THE plan of record (architect-approved 2026-07-03,
+QA-round decisions recorded inside): native signal frames, per-layer state
+machines with complete memorized presentations incl. curtains/spinners,
+direct replacement per phase, saved->silent. Phase status lives in the plan
+(P0 foundation SHIPPED: 171b05c + 2b780d9; next = P1 signal system).
+
+P0 closing live results (pressure runs on bonliva.se/lediga-jobb, per-frame):
+- Pressure-1 exposed the last list bug: a stale pre-open/compute_lock probe
+  response armed the settled-empty memory 100ms after preview open while
+  content held 776 items -> fixed (feeds may claim "settled" only from
+  open-preview snapshots, 2b780d9); pressure re-run: loading held, hydration
+  landed, no flash (C1/C2 PASS on the heavy page — architect-confirmed
+  "this proved to be the solution").
+- Harness gained resume mode + curtain-aware C4 checks (a narrated
+  render_mode_inspection at load is a legitimate transient).
+
+---
+
+# SUPERSEDED SESSION LOG — 2026-07-03 OVERNIGHT (#5/#14 FIX ROUND C, live-iterated per-frame)
 
 Session: Claude Fable 5 (continuation of the LATE NIGHT round-3 handoff below,
 whose NEXT STEPS this session executed and CORRECTED). Read this first.
