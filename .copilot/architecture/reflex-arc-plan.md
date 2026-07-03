@@ -418,6 +418,26 @@ surfaces; the displayed run countdown always equals the actual timeout.
 
 ## 5. PHASE 5 — POPUP REFRESH REDUCTION
 
+STATUS 2026-07-03 evening: SHIPPED (5fa4486) + LIVE-MEASURED on
+bonliva.se/lediga-jobb (heavy, headed session). The spinner SET/CLEAR
+handler applies buildProjectedBusyViewState() as a TARGETED patch (the
+single busy-view builder; refreshUiInner assigns the same builder and
+records the aux flags the repaint reuses); stabilizePreviewViewState +
+getPreviewItemsSignature/lastPreviewItemsSignature DELETED — the item
+latch is the only continuity mechanism, with the identical-push skip now
+an explicit canonical content-equality check. MEASUREMENTS (SW message
+spy, popup-origin traffic): idle-marking window — ZERO refresh passes
+after the enable transition settled; full run + preview open + 248-item
+hydration — ~21 popup messages total over 95s; preview-open idle 122s —
+ONE message (the designed periodic candidate poll). Old world: ~60
+passes/min. Target <10/min: passed by an order of magnitude. BONUS FIX:
+the "Saving page changes" PAGE_SAVE spinner now actually renders — the
+targeted repaint catches broadcasts the full-refresh race used to
+swallow. Flows verified post-change: run posture + countdown ticking,
+248 items latched (no oscillation), exit -> post-AI row, save ->
+atomic marking->silent. The formal run-flow2 four-criteria matrix rides
+with P6 (it is P6's closure protocol).
+
 - refreshUiInner shrinks to: data fetches (configs, site resolution, todo
   lists, draft status probe as a FEED, preview probe as a FEED), fact
   publishing (with the epoch guards), and non-session UI (config forms,

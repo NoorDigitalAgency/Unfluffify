@@ -68,9 +68,18 @@ service worker — after a rebuild the running SW can be STALE (handler
 in the bundle but not in the running code; messages return undefined).
 Fix: chrome.runtime.reload() via the driver's extreload command after
 every rebuild, then rebind sw/popup handles.
-NEXT = P5 (refresh reduction — also retires the exit-settle
-phase-pointer churn), then P6 closure (full matrix + sove.se +
-#5/#14 review-push gate).
+P5 REFRESH REDUCTION: SHIPPED + LIVE-MEASURED (5fa4486; details in the
+plan §5). Heavy-page pass rate: ~60/min -> ~0/min idle (one periodic
+candidate poll per 2min), a handful of passes per full operation. The
+PAGE_SAVE spinner renders again (targeted busy repaint). Exit-settle
+phase-pointer churn shrinks with the cadence (pointer blips remain
+during brain-side folds only; surfaces stable).
+NEXT = P6 closure (the full run-flow2 matrix: bonliva.no light +
+bonliva.se/lediga-jobb heavy + sove.se small x six flows each, the
+verbatim C1-C4 user acceptance at 100% on the heavy page, then the
+review-push round closing #5/#14, knowledge doctrine update, plan
+archive). The fail-open API audit (task #18) remains queued for the
+architect's decision table.
 RELEASES: 1.9.0 / 1.9.1 / 1.9.2 (3ac124d — icons incl. active set,
 pageTypeAssignments flag, detection->reveal/freeze handoff fixed
 (unconditional inspection-end at Set + candidacy protocol collapse),
