@@ -654,18 +654,21 @@ test("session pending is no longer tied to Lynx selector submission state", () =
 
 test("marking enable upgrades the popup spinner to page inspection during reveal warmup", () => {
   const source = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
-  const spinnerSource = readFileSync(new URL("../src/popup/spinner.ts", import.meta.url), "utf8");
-  const runWithSpinnerBody = spinnerSource.match(
-    /export async function runWithSpinner(?:<[^>]+>)?\(\s*deps(?:\s*:\s*[^,]+)?,\s*key(?:\s*:\s*[^,]+)?,\s*message(?:\s*:\s*[^,]+)?,\s*task(?:\s*:\s*[^,]+)?,\s*options(?:\s*:\s*[^=]+)? = \{\}\s*\)(?::\s*[^{]+)? \{([\s\S]*?)\n\}/
+  // P4 4.3: the popup holds no local spinner state — operations run under a
+  // brain broker LEASE (SET on start, REMOVE when the task settles).
+  const runWithLeaseBody = source.match(
+    /async function runWithBrainSpinnerLease<T>\(([\s\S]*?)\n\}/
   )[1];
   const enableBody = source.match(
     /async function handleEnableToggle\(event(?:\s*:\s*[^)]*)?\) \{([\s\S]*?)\n\}(?:\n|\r\n)+(?:\/\/ @ts-(?:ignore|expect-error)[^\n]*\n)?(?:\n|\r\n)*async function handleDeviceEmulationEnabledToggle/
   )[1];
 
-  assert.match(runWithSpinnerBody, /return await task\(pushed\);/);
+  assert.match(runWithLeaseBody, /return await task\(leaseKey\);/);
+  assert.match(runWithLeaseBody, /type: SPINNER_REQUEST_TYPES\.SET/);
+  assert.match(runWithLeaseBody, /finally \{[\s\S]*?removeSpinnerEntryFromBackground\(leaseKey, tabId\);/);
   assert.match(
     enableBody,
-    /setSpinnerMessage\(spinnerKey, PopupText\.overlay\.pageInspection\);[\s\S]*?const enableResponse = await messages\.requestTabActivateMarking\(tab\.id, \{[\s\S]*?baseUrl: effectiveBaseUrl/
+    /const enableResponse = await messages\.requestTabActivateMarking\(tab\.id, \{[\s\S]*?baseUrl: effectiveBaseUrl/
   );
   assert.match(enableBody, /desktopPreviewEnabled: Boolean\(uiModule\.getViewState\(\)\.desktopPreviewEnabled\)/);
   assert.doesNotMatch(enableBody, /await waitForEnableMarkingInspectionToSettle\(tab\.id, effectiveBaseUrl\);/);
@@ -682,7 +685,7 @@ test("disabling marking with a pending session prompts to discard before exiting
   )[1];
 
   assert.match(enableBody, /const pendingKnownFromCurrentView = Boolean\([\s\S]*?!desiredEnabled && currentViewState\.sessionHasPendingChanges[\s\S]*?\);/);
-  assert.match(enableBody, /const showImmediateDisableSpinner = \(\) => \{[\s\S]*?pushSpinner\(null, PopupText\.overlay\.disablingMarking, \{[\s\S]*?delayMs: 0,[\s\S]*?reason: "marking-disable"/);
+  assert.match(enableBody, /const showImmediateDisableSpinner = \(\) => \{[\s\S]*?type: SPINNER_REQUEST_TYPES\.SET,[\s\S]*?message: PopupText\.overlay\.disablingMarking,[\s\S]*?reason: "marking-disable"/);
   assert.match(enableBody, /if \(!desiredEnabled\) \{\s*showImmediateDisableSpinner\(\);\s*\}[\s\S]*?tab = await helpers\.ensureActiveTab\(\{ requireId: true, requireUrl: true \}\);/);
   assert.match(enableBody, /if \(!desiredEnabled && !pendingKnownFromCurrentView\) \{[\s\S]*?showImmediateDisableSpinner\(\);[\s\S]*?await refreshCurrentPageRuntimeStatus\(\{[\s\S]*?tabId: tab\.id,[\s\S]*?baseUrl: state\.currentBaseUrl[\s\S]*?await refreshUi\(\{ useBusyOverlay: false, skipPropertyLockFetch: true \}\);[\s\S]*?latestViewState = uiModule\.getViewState\(\);/);
   assert.match(enableBody, /if \(!desiredEnabled && latestViewState\.sessionHasPendingChanges\)/);

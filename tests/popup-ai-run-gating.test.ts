@@ -406,7 +406,7 @@ test("silent-mode reveal/freeze surfaces the inspecting curtain", () => {
   // including a popup-origin navigation-inspection lease.
   assert.match(
     popupSource,
-    /const silentNavSpinnerStuck = Boolean\(\s*silentInspectionInScope &&\s*currentTabId &&\s*popupSpinnerEntriesByKey\.has\("navInspect"\)\s*\);/
+    /const silentNavSpinnerStuck = Boolean\(\s*silentInspectionInScope &&\s*currentTabId &&\s*hasProjectedNavigationInspectionSpinner\(\)\s*\);/
   );
   assert.match(
     popupSource,

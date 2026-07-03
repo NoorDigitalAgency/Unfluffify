@@ -171,15 +171,6 @@ import {
   resolveSecondaryGatesViewStatePatch
 } from "./popup/secondary-gates-state-dictation";
 import {
-  currentSpinnerSnapshot as currentSpinnerSnapshotOperation,
-  normalizeSpinnerReason as normalizeSpinnerReasonOperation,
-  popSpinner as popSpinnerOperation,
-  type PopupSpinnerEntry,
-  pushSpinner as pushSpinnerOperation,
-  runWithSpinner as runWithSpinnerOperation,
-  setSpinnerMessage as setSpinnerMessageOperation
-} from "./popup/spinner";
-import {
   ensureBaseUrlSiteId as ensureBaseUrlSiteIdOperation,
   ensurePropertyPageTypes as ensurePropertyPageTypesOperation,
   resolveSiteIdFromGraphql as resolveSiteIdFromGraphqlOperation
@@ -305,8 +296,22 @@ type PreviewCommandResult = PreviewStateLike & {
   previewState?: PreviewStateLike | null;
 };
 type PropertyLockUiDeps = Parameters<typeof isPropertyLockCollaborationEnabledOperation>[0];
-type PopupSpinnerDeps = Parameters<typeof normalizeSpinnerReasonOperation>[0];
-type PopupSpinnerSnapshot = ReturnType<typeof currentSpinnerSnapshotOperation>;
+type PopupSpinnerSnapshot = {
+  key: string;
+  entry: {
+    blockSurfaces?: { page?: boolean; popup?: boolean };
+    deadlineAt?: number;
+    maxDurationMs?: number;
+    message?: string;
+    operationId?: string;
+    operationKind?: string;
+    operationPhase?: string;
+    reason?: string;
+    source?: string;
+    startedAt?: number;
+    timerMode?: string;
+  };
+} | null;
 type PopupSpinnerState = NonNullable<ReturnType<typeof getLatestPopupSpinnerState>>;
 type PendingPropertyPageTypesRequest =
   ReturnType<Parameters<typeof ensurePropertyPageTypesOperation>[0]["getPropertyPageTypesRequest"]>;
@@ -330,7 +335,7 @@ type SpinnerBrokerMessage = {
   operationPhase?: string;
   deadlineAt?: number;
   maxDurationMs?: number;
-  blockSurfaces?: PopupSpinnerEntry["blockSurfaces"];
+  blockSurfaces?: { page?: boolean; popup?: boolean };
   timerMode?: string;
 };
 type SpinnerBrokerMessageOptions = {
@@ -786,13 +791,6 @@ const THEME_OPTIONS = Object.freeze(
     })
     .map((theme) => ({ value: theme.value, label: theme.label }))
 );
-const popupSpinnerEntriesByKey: PopupSpinnerDeps["popupSpinnerEntriesByKey"] = new Map();
-const popupSpinnerDelayTimersByKey: PopupSpinnerDeps["popupSpinnerDelayTimersByKey"] = new Map();
-const popupSpinnerKeyTabIds: PopupSpinnerDeps["popupSpinnerKeyTabIds"] = new Map();
-// Fail-open watchdog: every popup-requested background spinner lease is
-// force-cleared if it makes no progress for this long.
-const SPINNER_WATCHDOG_MS = 60000;
-const popupSpinnerWatchdogByKey: PopupSpinnerDeps["popupSpinnerWatchdogByKey"] = new Map();
 let popupNavigationInspectionOverlayStarted = false;
 let popupNavigationInspectionOverlayTabId: number | null = null;
 const popupNavigationInspectionSettlePollByTabId = new Map<number, ReturnType<Window["setTimeout"]>>();
@@ -838,52 +836,92 @@ function isEditableTarget(el: EventTarget | null | undefined): boolean {
   );
 }
 
-function getSpinnerDeps(): PopupSpinnerDeps {
-  return {
-    popupSpinnerEntriesByKey,
-    popupSpinnerDelayTimersByKey,
-    popupSpinnerKeyTabIds,
-    popupSpinnerWatchdogByKey,
-    spinnerWatchdogMs: SPINNER_WATCHDOG_MS,
-    windowRef: window,
-    cryptoRef: crypto,
-    getCurrentPopupTabId,
-    popSpinner: (key) => {
-      popSpinner(key);
-    },
-    logPopupSpinnerDebug,
-    syncSpinnerEntryToBackground,
-    removeSpinnerEntryFromBackground,
-    scheduleStaleInspectionBusyClear
-  };
+function normalizeSpinnerReason(reason?: string, key?: string | null, message?: string): string {
+  if (typeof reason === "string" && reason.trim()) {
+    return reason.trim();
+  }
+  if (typeof key === "string" && key.trim()) {
+    return `spinner:${key.trim()}`;
+  }
+  if (typeof message === "string" && message.trim()) {
+    return `message:${message.trim()}`;
+  }
+  return "popup-spinner";
 }
 
-const normalizeSpinnerReason = (
-  reason: Parameters<typeof normalizeSpinnerReasonOperation>[1],
-  key: Parameters<typeof normalizeSpinnerReasonOperation>[2],
-  message: Parameters<typeof normalizeSpinnerReasonOperation>[3]
-) =>
-  normalizeSpinnerReasonOperation(getSpinnerDeps(), reason, key, message);
-const pushSpinner = (
-  key: Parameters<typeof pushSpinnerOperation>[1],
-  message: Parameters<typeof pushSpinnerOperation>[2],
-  options: Parameters<typeof pushSpinnerOperation>[3] = {}
-) =>
-  pushSpinnerOperation(getSpinnerDeps(), key, message, options);
-const setSpinnerMessage = (
-  key: Parameters<typeof setSpinnerMessageOperation>[1],
-  message: Parameters<typeof setSpinnerMessageOperation>[2]
-) =>
-  setSpinnerMessageOperation(getSpinnerDeps(), key, message);
-const popSpinner = (key: Parameters<typeof popSpinnerOperation>[1]) =>
-  popSpinnerOperation(getSpinnerDeps(), key);
-const runWithSpinner = <T,>(
+// P4 step 4.3: the popup holds NO local spinner state. The brain's broadcast
+// (rendered via the projected snapshot + machine memories) is the popup's
+// sole spinner surface; the navigation-inspection engagement is observed from
+// it with the same vocabulary the brain uses to select it.
+function hasProjectedNavigationInspectionSpinner(): boolean {
+  const spinnerState = getLatestPopupSpinnerState("popup");
+  return Boolean(
+    spinnerState &&
+      (spinnerState.spinnerKey === SPINNER_KEYS.NAV_INSPECT ||
+        (spinnerState.kind === SPINNER_OPERATION_KINDS.CONTENT_BOOTSTRAP &&
+          spinnerState.phase === SPINNER_OPERATION_PHASES.CONTENT_BOOTSTRAP.PAGE_INSPECTION))
+  );
+}
+
+type PopupSpinnerLeaseOptions = {
+  delayMs?: number;
+  persistent?: boolean;
+  source?: string;
+  reason?: string;
+  suppressIfActive?: boolean;
+};
+
+// P4 step 4.3: popup operations request a spinner LEASE from the background
+// broker (brain store -> broadcast) and release it when the task settles; the
+// old popup-local entry map, watchdogs, and direct-render plumbing are gone.
+// A lease whose reason resolves no phase definition in the shared contract
+// never renders (the projection admission drops it) but still traces through
+// the broker.
+async function runWithBrainSpinnerLease<T>(
   key: string | null,
   message: string,
   task: (spinnerKey: string | null) => Promise<T>,
-  options: { delayMs?: number; persistent?: boolean; source?: string; reason?: string; suppressIfActive?: boolean } = {}
-) =>
-  runWithSpinnerOperation(getSpinnerDeps(), key, message, task, options);
+  options: PopupSpinnerLeaseOptions = {}
+): Promise<T> {
+  const tabId = getCurrentPopupTabId();
+  const suppressed = Boolean(options.suppressIfActive && getLatestPopupSpinnerState("popup"));
+  if (!tabId || suppressed) {
+    return await task(null);
+  }
+  const leaseKey = key || `${options.reason || "popup-operation"}:${Date.now()}`;
+  let leaseRequested = false;
+  let delayTimer = 0;
+  const requestLease = () => {
+    leaseRequested = true;
+    void sendSpinnerBrokerMessage({
+      type: SPINNER_REQUEST_TYPES.SET,
+      key: leaseKey,
+      message,
+      persistent: Boolean(options.persistent),
+      reason: normalizeSpinnerReason(options.reason, leaseKey, message),
+      source: typeof options.source === "string" && options.source.trim()
+        ? options.source.trim()
+        : "popup-spinner",
+      startedAt: Date.now()
+    });
+  };
+  const delayMs = Math.max(0, Math.trunc(Number(options.delayMs) || 0));
+  if (delayMs > 0) {
+    delayTimer = window.setTimeout(requestLease, delayMs);
+  } else {
+    requestLease();
+  }
+  try {
+    return await task(leaseKey);
+  } finally {
+    if (delayTimer) {
+      window.clearTimeout(delayTimer);
+    }
+    if (leaseRequested) {
+      void removeSpinnerEntryFromBackground(leaseKey, tabId);
+    }
+  }
+}
 
 function getSiteResolutionDeps(): SiteResolutionDeps {
   return {
@@ -963,7 +1001,7 @@ function getRenderModeInspectionDeps(): RenderModeInspectionDeps {
     getSuggestedRenderModeForPage,
     markRenderModeUndetermined,
     loadGlobalAiSettings: () => helpers.loadGlobalAiSettings(),
-    runWithSpinner,
+    runWithSpinner: runWithBrainSpinnerLease,
     buildTransferPayloadKey,
     putTransferPayload,
     waitForRetryDelay,
@@ -1001,7 +1039,7 @@ function getPageReconciliationDeps(): PageReconciliationDeps {
     getViewState: () => uiModule.getViewState(),
     updateLastConfigSaveStatus,
     validateStoredToken,
-    runWithSpinner,
+    runWithSpinner: runWithBrainSpinnerLease,
     getCurrentPageUrl,
     loadGlobalAiSettings: () => helpers.loadGlobalAiSettings(),
     syncBaseConfigToServer: (options) => syncBaseConfigToServer(options),
@@ -1122,8 +1160,6 @@ function logPopupSpinnerDebug(eventName: string, details: Record<string, unknown
   }
   try {
     console.debug("[popup-spinner]", eventName, {
-      requestKeys: [...popupSpinnerEntriesByKey.keys()],
-      requestCount: popupSpinnerEntriesByKey.size,
       navOverlayStarted: popupNavigationInspectionOverlayStarted,
       navOverlayTabId: popupNavigationInspectionOverlayTabId,
       ...details
@@ -1188,7 +1224,7 @@ function applyBackgroundStateSnapshot(snapshot: PopupBackgroundStateSnapshot | n
       snapshot.activation.bootstrapStatus === "bootstrapping"
   );
   popupNavigationInspectionOverlayStarted =
-    popupSpinnerEntriesByKey.has("navInspect") || activationBootstrapPending;
+    hasProjectedNavigationInspectionSpinner() || activationBootstrapPending;
   popupNavigationInspectionOverlayTabId = popupNavigationInspectionOverlayStarted ? tabId : null;
   logWorldTrace("background-state", {
     tabId,
@@ -1197,7 +1233,6 @@ function applyBackgroundStateSnapshot(snapshot: PopupBackgroundStateSnapshot | n
     lifecyclePhase: popupBackgroundLifecycle && popupBackgroundLifecycle.phase,
     activationBootstrapStatus: popupBackgroundActivation && popupBackgroundActivation.bootstrapStatus,
     sessionPhase: popupBackgroundSessionPhase,
-    spinnerRequestCount: popupSpinnerEntriesByKey.size,
     traceEvents: Array.isArray(snapshot.traceEvents) ? snapshot.traceEvents.length : 0
   });
 }
@@ -1861,41 +1896,6 @@ function sendSpinnerBrokerMessage(
     .catch(() => null);
 }
 
-function syncSpinnerEntryToBackground(key: string): Promise<PopupSpinnerBrokerResponse> {
-  const entry = popupSpinnerEntriesByKey.get(key);
-  if (!entry) {
-    return Promise.resolve(null);
-  }
-  const expectedMessage = entry.message;
-  const expectedPersistent = entry.persistent;
-  const shouldApplySnapshot = () => {
-    const currentEntry = popupSpinnerEntriesByKey.get(key);
-    if (!currentEntry) {
-      return false;
-    }
-    return currentEntry.message === expectedMessage &&
-      Boolean(currentEntry.persistent) === Boolean(expectedPersistent);
-  };
-  return sendSpinnerBrokerMessage({
-    type: SPINNER_REQUEST_TYPES.SET,
-    key,
-    message: expectedMessage,
-    persistent: expectedPersistent,
-    reason: normalizeSpinnerReason(entry.reason, key, expectedMessage),
-    source: typeof entry.source === "string" && entry.source ? entry.source : "popup-spinner",
-    startedAt: Number.isFinite(entry.startedAt) ? entry.startedAt : Date.now(),
-    operationId: typeof entry.operationId === "string" ? entry.operationId : "",
-    operationKind: typeof entry.operationKind === "string" ? entry.operationKind : "",
-    operationPhase: typeof entry.operationPhase === "string" ? entry.operationPhase : "",
-    deadlineAt: Number.isFinite(entry.deadlineAt) ? entry.deadlineAt : undefined,
-    maxDurationMs: Number.isFinite(entry.maxDurationMs) ? entry.maxDurationMs : undefined,
-    blockSurfaces: entry.blockSurfaces && typeof entry.blockSurfaces === "object" ? entry.blockSurfaces : undefined,
-    timerMode: typeof entry.timerMode === "string" ? entry.timerMode : ""
-  }, {
-    shouldApplySnapshot
-  });
-}
-
 function removeSpinnerEntryFromBackground(
   key: string,
   tabId: number | null = getCurrentPopupTabId()
@@ -1955,21 +1955,6 @@ function clearStaleInspectionBusyClearTimer() {
   popupStaleInspectionBusyClearTimer = 0;
 }
 
-function forgetLocalSpinnerRequest(key: string): void {
-  const delayTimer = popupSpinnerDelayTimersByKey.get(key);
-  if (delayTimer) {
-    window.clearTimeout(delayTimer);
-    popupSpinnerDelayTimersByKey.delete(key);
-  }
-  const watchdogTimer = popupSpinnerWatchdogByKey.get(key);
-  if (watchdogTimer) {
-    window.clearTimeout(watchdogTimer);
-    popupSpinnerWatchdogByKey.delete(key);
-  }
-  popupSpinnerKeyTabIds.delete(key);
-  popupSpinnerEntriesByKey.delete(key);
-}
-
 function reportNavigationInspectionSettledToBrain(
   tabId: number | null = popupNavigationInspectionOverlayTabId,
   reason = "navigation-inspection-settled"
@@ -1986,7 +1971,6 @@ function reportNavigationInspectionSettledToBrain(
       busyTimerText: ""
     });
   }
-  forgetLocalSpinnerRequest("navInspect");
   logPopupSpinnerDebug(reason, { tabId });
   popupNavigationInspectionOverlayStarted = false;
   popupNavigationInspectionOverlayTabId = null;
@@ -2055,14 +2039,12 @@ function scheduleStaleInspectionBusyClear(
     const silentNavSpinnerStuck =
       reconcileSilentNavSpinner &&
       !view.toggleEnabled &&
-      popupSpinnerEntriesByKey.has("navInspect");
+      hasProjectedNavigationInspectionSpinner();
     const renderModeNavSpinnerStuck = Boolean(
       reconcileRenderModeNavSpinner &&
-      popupSpinnerEntriesByKey.has("navInspect")
+      hasProjectedNavigationInspectionSpinner()
     );
-    const queueClearGate =
-      popupSpinnerEntriesByKey.size === 0 &&
-      !getActiveSpinnerSnapshotForSurface("popup");
+    const queueClearGate = !getActiveSpinnerSnapshotForSurface("popup");
     if (curtainShowing && (silentNavSpinnerStuck || renderModeNavSpinnerStuck || queueClearGate)) {
       const runtimeStatus = await refreshCurrentPageRuntimeStatus({
         tabId,
@@ -3796,17 +3778,11 @@ function beginNavigationInspectionOverlay(tabId: number | null): boolean {
   clearNavigationInspectionSettlePollsExcept(tabId);
   popupNavigationInspectionOverlayTabId = tabId;
   clearNavigationInspectionSettlePoll(tabId);
-  if (popupSpinnerEntriesByKey.has("navInspect")) {
-    setSpinnerMessage("navInspect", PopupText.overlay.pageInspection);
-    popupNavigationInspectionOverlayStarted = true;
-    return true;
-  }
-  const pushed = pushSpinner("navInspect", PopupText.overlay.pageInspection, {
-    persistent: true,
-    delayMs: 0
-  });
-  popupNavigationInspectionOverlayStarted = pushed !== null;
-  return popupNavigationInspectionOverlayStarted;
+  // P4 step 4.3: the BRAIN engages the navigation-inspection spinner from the
+  // operation lifecycle (both surfaces); the popup only tracks that it
+  // initiated the overlay so its settle reporting stays scoped to this tab.
+  popupNavigationInspectionOverlayStarted = true;
+  return true;
 }
 
 function endNavigationInspectionOverlay(tabId = popupNavigationInspectionOverlayTabId) {
@@ -5467,13 +5443,6 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
       effectiveTabState.baseUrl) ||
     contentInspectionPending
   );
-  if (
-    popupSpinnerEntriesByKey.has("navInspect") &&
-    popupNavigationInspectionOverlayStarted &&
-    popupNavigationInspectionOverlayTabId === currentTabId
-  ) {
-    setSpinnerMessage("navInspect", PopupText.overlay.pageInspection);
-  }
   isEnabled = toggleEnabled && (
     contentMarkingModeActive ||
     previewRestorePending ||
@@ -5576,7 +5545,7 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
   const silentNavSpinnerStuck = Boolean(
     silentInspectionInScope &&
     currentTabId &&
-    popupSpinnerEntriesByKey.has("navInspect")
+    hasProjectedNavigationInspectionSpinner()
   );
   if (((pageInspectionBusy && silentInspectionInScope) || silentNavSpinnerStuck) && currentTabId) {
     scheduleStaleInspectionBusyClear(currentTabId, runtimeStatusBaseUrl, {
@@ -6338,7 +6307,7 @@ async function refreshUi(options: PopupRefreshOptions = {}) {
     preserveCurrentDraftStatus: Boolean(options.preserveCurrentDraftStatus)
   };
   const response = useBusyOverlay
-    ? await runWithSpinner(
+    ? await runWithBrainSpinnerLease(
       null,
       PopupText.overlay.loadingPopupAndPreparing,
       () => refreshUiInner(refreshOptions),
@@ -6536,7 +6505,7 @@ async function runRenderModeInspectionReload(javaScriptDisabled: boolean) {
   const operationId = `render-mode-inspection:${tabId}:${Date.now()}`;
 
   try {
-    await runWithSpinner(null, PopupText.overlay.preparingRenderModeInspection, async () => {
+    await runWithBrainSpinnerLease(null, PopupText.overlay.preparingRenderModeInspection, async () => {
       state.renderModeInspectionActive = true;
       try {
         const inspectionResponse = await requestPopupRenderModeInspection(tabId, {
@@ -6739,7 +6708,7 @@ function handleLynxChecklistCancel() {
 }
 
 async function handleRenderModeSet() {
-  await runWithSpinner(null, PopupText.overlay.savingRenderMode, async () => {
+  await runWithBrainSpinnerLease(null, PopupText.overlay.savingRenderMode, async () => {
     const tabId = state.currentTab && state.currentTab.id;
     const wasNoJsHeld = tabId ? await isRenderModeNoJsHeld(tabId) : false;
     const nextRenderMode = normalizeUiRenderModeValue(uiModule.getViewState().renderModeValue);
@@ -7141,7 +7110,7 @@ async function handleConfigurationContinue() {
 }
 
 async function handleExplicitExcludeView(xpath: string) {
-  await runWithSpinner(null, PopupText.overlay.locatingElement, async () => {
+  await runWithBrainSpinnerLease(null, PopupText.overlay.locatingElement, async () => {
     const response = await messages.sendTabMessage({
       type: "focusElement",
       xpath
@@ -7180,7 +7149,7 @@ async function handleExplicitExcludeRemove(xpath: string) {
 }
 
 async function handleExplicitIncludeView(xpath: string) {
-  await runWithSpinner(null, PopupText.overlay.locatingElement, async () => {
+  await runWithBrainSpinnerLease(null, PopupText.overlay.locatingElement, async () => {
     const response = await messages.sendTabMessage({
       type: "focusElement",
       xpath
@@ -7312,9 +7281,15 @@ async function handleEnableToggle(event: PopupCheckedEvent) {
     if (desiredEnabled || immediateDisableSpinnerKey) {
       return immediateDisableSpinnerKey;
     }
-    immediateDisableSpinnerKey = pushSpinner(null, PopupText.overlay.disablingMarking, {
-      delayMs: 0,
-      reason: "marking-disable"
+    immediateDisableSpinnerKey = `marking-disable:${Date.now()}`;
+    void sendSpinnerBrokerMessage({
+      type: SPINNER_REQUEST_TYPES.SET,
+      key: immediateDisableSpinnerKey,
+      message: PopupText.overlay.disablingMarking,
+      persistent: false,
+      reason: "marking-disable",
+      source: "popup-marking-toggle",
+      startedAt: Date.now()
     });
     return immediateDisableSpinnerKey;
   };
@@ -7322,7 +7297,7 @@ async function handleEnableToggle(event: PopupCheckedEvent) {
     if (!immediateDisableSpinnerKey) {
       return;
     }
-    popSpinner(immediateDisableSpinnerKey);
+    void removeSpinnerEntryFromBackground(immediateDisableSpinnerKey);
     immediateDisableSpinnerKey = null;
   };
 
@@ -7406,10 +7381,10 @@ async function handleEnableToggle(event: PopupCheckedEvent) {
     }
     const baseUrlValue = state.currentBaseUrl;
     const currentPageTypeKey = desiredEnabled ? state.currentPageTypeKey || "" : "";
-    await runWithSpinner(
+    await runWithBrainSpinnerLease(
       desiredEnabled ? null : immediateDisableSpinnerKey,
       desiredEnabled ? PopupText.overlay.enablingMarking : PopupText.overlay.disablingMarking,
-      async (spinnerKey) => {
+      async () => {
         if (desiredEnabled) {
           const parsed = utils.parseBaseUrl(baseUrlValue);
           if (!parsed) {
@@ -7456,7 +7431,6 @@ async function handleEnableToggle(event: PopupCheckedEvent) {
             await refreshUi();
             return;
           }
-          setSpinnerMessage(spinnerKey, PopupText.overlay.pageInspection);
           const enableResponse = await messages.requestTabActivateMarking(tab.id, {
             baseUrl: effectiveBaseUrl,
             pageType: currentPageTypeKey,
@@ -7586,7 +7560,7 @@ async function handleDesktopPreviewEnabledToggle(event: PopupCheckedEvent) {
       return;
     }
   }
-  await runWithSpinner(
+  await runWithBrainSpinnerLease(
     null,
     PopupText.overlay.applyingDeviceEmulation,
     async () => {
@@ -7692,9 +7666,15 @@ async function handleClearDomainCache() {
   if (!confirmed) {
     return;
   }
-  const clearCacheSpinnerKey = pushSpinner(null, PopupText.overlay.clearingCacheAndReloading, {
+  const clearCacheSpinnerKey = `clear-cache:${Date.now()}`;
+  void sendSpinnerBrokerMessage({
+    type: SPINNER_REQUEST_TYPES.SET,
+    key: clearCacheSpinnerKey,
+    message: PopupText.overlay.clearingCacheAndReloading,
+    persistent: false,
     reason: "clear-cache",
-    source: "popup-cache-tools"
+    source: "popup-cache-tools",
+    startedAt: Date.now()
   });
   state.clearDomainCacheDisabled = true;
   uiModule.setViewState({ clearDomainCacheDisabled: true });
@@ -7716,7 +7696,7 @@ async function handleClearDomainCache() {
   } finally {
     state.clearDomainCacheDisabled = false;
     uiModule.setViewState({ clearDomainCacheDisabled: false });
-    popSpinner(clearCacheSpinnerKey);
+    void removeSpinnerEntryFromBackground(clearCacheSpinnerKey);
   }
 }
 
@@ -7736,9 +7716,15 @@ async function handleUnregisterCurrentTab() {
   if (!confirmed) {
     return;
   }
-  const unregisterSpinnerKey = pushSpinner(null, PopupText.overlay.unregisteringTabAndReloading, {
+  const unregisterSpinnerKey = `unregister-tab:${Date.now()}`;
+  void sendSpinnerBrokerMessage({
+    type: SPINNER_REQUEST_TYPES.SET,
+    key: unregisterSpinnerKey,
+    message: PopupText.overlay.unregisteringTabAndReloading,
+    persistent: false,
     reason: "unregister-tab",
-    source: "popup-cache-tools"
+    source: "popup-cache-tools",
+    startedAt: Date.now()
   });
   state.unregisterCurrentTabDisabled = true;
   uiModule.setViewState({ unregisterCurrentTabDisabled: true });
@@ -7757,7 +7743,7 @@ async function handleUnregisterCurrentTab() {
   } finally {
     state.unregisterCurrentTabDisabled = false;
     uiModule.setViewState({ unregisterCurrentTabDisabled: false });
-    popSpinner(unregisterSpinnerKey);
+    void removeSpinnerEntryFromBackground(unregisterSpinnerKey);
   }
 }
 
@@ -9165,7 +9151,7 @@ async function init() {
     await restoreSpinnerQueueFromBackground(initTabId, popupBus);
     await applyTraceModePreferenceToTab(initTabId, state.traceModeEnabled, popupBus).catch(() => null);
     maybeRunPopupBusSelfTest(initTabId, popupBus);
-    if (popupSpinnerEntriesByKey.has("navInspect")) {
+    if (hasProjectedNavigationInspectionSpinner()) {
       popupNavigationInspectionOverlayStarted = true;
       popupNavigationInspectionOverlayTabId = initTabId;
     }
@@ -9316,11 +9302,6 @@ async function init() {
       clearSpinnerQueueInBackground(oldTabId, { transientOnly: true }).catch(() => {});
     }
     clearNavigationInspectionSettlePollsExcept();
-    for (const timer of popupSpinnerDelayTimersByKey.values()) {
-      window.clearTimeout(timer);
-    }
-    popupSpinnerDelayTimersByKey.clear();
-    popupSpinnerEntriesByKey.clear();
     clearProjectedPopupSpinnerSurfaces();
     uiModule.setUiBusy(false);
     popupNavigationInspectionOverlayStarted = false;
@@ -9351,7 +9332,7 @@ async function init() {
       } catch {
         // Restoration failure is non-fatal; projected state will arrive on the next event.
       }
-      if (popupSpinnerEntriesByKey.has("navInspect")) {
+      if (hasProjectedNavigationInspectionSpinner()) {
         popupNavigationInspectionOverlayStarted = true;
         popupNavigationInspectionOverlayTabId = newTabId;
       }
@@ -9448,10 +9429,6 @@ async function init() {
       clearSpinnerQueueInBackground(tabId, { transientOnly: true }).catch(() => {});
     }
     clearNavigationInspectionSettlePollsExcept();
-    for (const timer of popupSpinnerDelayTimersByKey.values()) {
-      window.clearTimeout(timer);
-    }
-    popupSpinnerDelayTimersByKey.clear();
   });
 
   utils.addStorageChangeListener((changes, areaName) => {

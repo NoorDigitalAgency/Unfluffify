@@ -88,7 +88,10 @@ test("popup reports navigation-inspection settle facts on inspectionSettled", ()
   assert.match(reporterBody, /publishCurrentSessionFacts\(tabId, \{[\s\S]*?navigationInspectionPending: false/);
   assert.match(reporterBody, /pageInspectionBusy: false/);
   assert.match(reporterBody, /busyVisible: false/);
-  assert.match(reporterBody, /forgetLocalSpinnerRequest\("navInspect"\)/);
+  // P4 4.3: there is no popup-local spinner state to forget — the facts
+  // publish above is what makes the brain clear its navigation-inspection
+  // selection on both surfaces.
+  assert.doesNotMatch(reporterBody, /forgetLocalSpinnerRequest/);
 });
 
 test("popup inspection settle timers are bounded fail-opens, not self-rescheduling polls", () => {
