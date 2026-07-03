@@ -82,25 +82,24 @@ the bottom (+8.0s), frozen return to origin; ritual ~7.4s total. WARM
 broken 12.5k-29k. Measurement pitfalls in knowledge.md (attach the sampler
 BEFORE navigation; keep a popup in both arms).
 
-## §3.4 STATUS + THE ONE OPEN BLOCKER (FINDING-3, popup-side variant)
+## §3.4 CLOSED + FINDING-3 RESOLVED (2026-07-03, se7)
 
-bonliva.no acceptance: 3x PASS (r3/r4/r5 — per-frame, 6-min windows, zero
-degrades, zero post-exit markings.changed). The reconciling overlay now
-NARRATES ("Server sync pending") after a 45s heavy-page reconciliation with
-the old hidden-curtain memory read as the criterion-4 dead state at baseline.
-The .se/lediga-jobb leg is BLOCKED by FINDING-3 with a precise trace (see the
-plan §8 P3 entry): preview opened pending:true, +911ms later the popup
-rendered settled-empty and HELD it while content was still hydrating 1709
-items (they landed and stayed ~10s later; showAllCategories:false). Content
-is PROVEN airtight (atomic snapshot; main thread blocks during collect;
-probe timeout returns null and cannot settle) — the false settle enters
-through a popup-side feed: start at resolveOpenPreviewItems' three feeds
-(probe ~4421, push ~8175, re-render ~8889) and the previewSessionSettledEmpty
-reset discipline at preview open. Also: one RESULTS_APPLIED publisher omits
-sessionId (dedupeKey "" -> run.completed admitted twice, harmless but fix at
-the subscription); the product 14-min .se run timeout exercised run-failed
-live and the machine recovered exactly per table (pre_ai_dirty +
-requires_ai_run + Run AI re-enabled).
+Full acceptance matrix PASS: bonliva.no 3x (r3/r4/r5) + bonliva.se/
+lediga-jobb (se7: all criteria, 3961 frames, preview open in 71s thanks to
+the reveal contract's lighter page, Save/Discard in 1.17s and held the 6-min
+window, zero degrades). FINDING-3's fix: "No content detected" is now a
+CONFIRMED verdict (resolveOpenPreviewItems: a settled-empty feed only ARMS a
+candidate while the surface keeps loading; confirmation requires qualifying
+observations sustained 3s; any items/pending/uncertain feed clears the
+candidate; latch READS never step the window; candidate resets with the
+session latch). se7 hit the same transient empty observation right after
+preview open and the surface held loading until the 28-rect list hydrated
+and STAYED. The reconciling overlay narrates ("Server sync pending") — a
+45s heavy-page reconciliation with the old hidden-curtain memory used to
+read as the criterion-4 dead state at baseline.
+Deferred to P4 cleanup: one RESULTS_APPLIED publisher omits sessionId
+(dedupeKey "" -> run.completed admitted twice; harmless — maps to no
+transition); enrich or drop the bare publisher at the subscription.
 
 P0 closing live results (pressure runs on bonliva.se/lediga-jobb, per-frame):
 - Pressure-1 exposed the last list bug: a stale pre-open/compute_lock probe

@@ -499,32 +499,27 @@ properties, 7-minute windows, frames reviewed.
   memory now NARRATES ("Server sync pending" curtain) — a 45s heavy-page
   reconciliation with the old hidden-curtain memory read as the criterion-4
   dead state.
-  §3.4 acceptance: bonliva.no 3x PASS (r3/r4/r5, per-frame, ~1500-1900
-  frames each, full 6-min windows, zero degrades, zero post-exit
-  markings.changed). bonliva.se/lediga-jobb leg BLOCKED by FINDING-3
-  (its popup-side variant, now precisely traced): preview opened
-  pending:true, then ONE render later (+911ms) the popup showed
-  settled-empty (items:0, pending:false) and held it 8+s while content was
-  still hydrating 1709 items; items landed and STAYED afterwards
-  (showAllCategories:false — the default set itself is 1709). Content-side
-  is PROVEN airtight: the getAiPreviewState snapshot builds atomically
-  (items+itemsPending in one sync block), and instrumented polling showed
-  content's main thread BLOCKS for seconds during the collect (probes stall
-  and answer post-hydration with full items; the popup probe's 3s timeout
-  returns null -> probeOk:false -> cannot settle). The false settle
-  therefore enters through a popup-side feed treating a pre-hydration/stale
-  state as settled — start at resolveOpenPreviewItems' feeds
-  (probe path popup.ts~4421, push path ~8175, snapshot re-render ~8889) and
-  the previewSessionSettledEmpty reset discipline at preview open.
-  ALSO NOTED: run.completed admitted twice (seq 15/16, .se run 09:56:08) —
-  one RESULTS_APPLIED publisher omits sessionId so its dedupeKey is "";
-  harmless downstream (run.completed maps to no transition) but the bare
-  publisher should be enriched or dropped at the subscription.
-  ALSO: the product AI-run timeout on the heavy page (~14min deadline)
-  exercised run-failed live: machine running->pre_ai_dirty, curtain cleared,
-  requires_ai_run narration, Run AI re-enabled — correct recoverable state.
-  Harness preview-open budget raised to 10min for ALL runs (a healthy .se
-  run took 7.8min; the old 6min budget produced a false FATAL).
+  §3.4 acceptance: CLOSED (2026-07-03). bonliva.no 3x PASS (r3/r4/r5,
+  per-frame, ~1500-1900 frames each, full 6-min windows, zero degrades,
+  zero post-exit markings.changed) + bonliva.se/lediga-jobb PASS (se7,
+  3961 frames, all criteria, Save/Discard in 1.17s and held). FINDING-3
+  RESOLVED: content proven airtight (atomic snapshot; blocked main thread
+  stalls probes; probe timeout cannot settle), so "No content detected"
+  became a CONFIRMED verdict (popup resolveOpenPreviewItems: a settled-empty
+  feed only arms a candidate — the surface keeps loading; confirmation
+  requires qualifying observations sustained 3s; any items/pending/uncertain
+  feed clears the candidate; latch READS never step the window). se7 hit
+  the same transient empty observation post-open and the surface held
+  loading until the list hydrated and stayed. Shipped in 0e4797f together
+  with THE REVEAL/FREEZE CONTRACT (see HANDOFF + knowledge.md): the heavy
+  page now freezes at ~7.4k px (was 12.5k-29k), which also cut the .se AI
+  run from ~8min to ~71s.
+  STILL NOTED for P4 cleanup: one RESULTS_APPLIED publisher omits sessionId
+  (dedupeKey "" -> run.completed admitted twice; harmless downstream — maps
+  to no transition) — enrich or drop the bare publisher at the subscription.
+  Bonus validation: the product AI-run timeout exercised run-failed live
+  (machine running->pre_ai_dirty, curtain cleared, requires_ai_run, Run AI
+  re-enabled). Harness preview-open budget is 10min for all runs.
 - P4 brain slimming: NOT STARTED
 - P5 refresh reduction: NOT STARTED
 - P6 finalization (#5/#14 closure + review-push): NOT STARTED
