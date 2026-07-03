@@ -118,7 +118,6 @@ export interface PopupState {
   previewRestoreToken: number;
   previewRestoreAppliedToken: number;
   previewRestoreFallbackTimer: number;
-  lastPreviewItemsSignature: string;
   previewOpenIntent: boolean;
   previewSuppressReopen: boolean;
   markingSessionEpoch: number;

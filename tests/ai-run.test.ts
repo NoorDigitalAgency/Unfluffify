@@ -285,8 +285,10 @@ test("AI run countdown timing prefers projected deadlines instead of a popup-own
   const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
   const timerStart = popupSource.indexOf("function startAiRunCountdownTimer() {");
   const timerEnd = popupSource.indexOf("function resetAiRunState()", timerStart);
-  const refreshStart = popupSource.indexOf("nextViewState.computeButtonText =");
-  const refreshEnd = popupSource.indexOf("nextViewState.aiDirtyNoticeVisible =", refreshStart);
+  // P5: the projected countdown derivation lives in the single busy-view
+  // builder (applied by refreshUiInner AND the targeted spinner repaint).
+  const refreshStart = popupSource.indexOf("function buildProjectedBusyViewState()");
+  const refreshEnd = popupSource.indexOf("function getProjectedPopupBlockingSpinnerState()", refreshStart);
   assert.ok(timerStart > -1);
   assert.ok(timerEnd > timerStart);
   assert.ok(refreshStart > -1);

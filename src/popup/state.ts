@@ -71,7 +71,6 @@ export const state: PopupState = {
   previewRestoreToken: 0,
   previewRestoreAppliedToken: 0,
   previewRestoreFallbackTimer: 0,
-  lastPreviewItemsSignature: "",
   // Popup-owned authority for "a preview sidebar is open". The getAiPreviewState
   // content probe is only a refresh source for the item list, never the source
   // of truth for open/closed: on heavy pages it has long transient states

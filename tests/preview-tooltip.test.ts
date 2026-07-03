@@ -28,7 +28,7 @@ test("preview expanded-mode change still short-circuits while disabled and round
   );
   assert.match(
     popupSource,
-    /async function handlePreviewShowAllCategoriesChange\(event(?:\s*:\s*[^)]*)?\)(?:\s*:\s*[^{]+)? \{[\s\S]*?messages\.requestTabSetAiPreviewExpandedMode\(tabId, \{[\s\S]*?active: nextChecked[\s\S]*?uiModule\.setViewState\(stabilizePreviewViewState\(buildPreviewViewState\(response\.result\.previewState \|\| null\)\)\);/
+    /async function handlePreviewShowAllCategoriesChange\(event(?:\s*:\s*[^)]*)?\)(?:\s*:\s*[^{]+)? \{[\s\S]*?messages\.requestTabSetAiPreviewExpandedMode\(tabId, \{[\s\S]*?active: nextChecked[\s\S]*?uiModule\.setViewState\(buildPreviewViewState\(response\.result\.previewState \|\| null\)\);/
   );
 });
 

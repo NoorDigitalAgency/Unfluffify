@@ -65,7 +65,7 @@ function makeContext(currentView: Record<string, unknown>) {
     JSON, Array, Boolean
   };
   runInNewContext(
-    compilePreviewFns(["normalizePreviewItems", "getPreviewItemsSignature", "stabilizePreviewViewState", "buildPreviewViewState", "resolveOpenPreviewItems", "applyAiPreviewStateUpdate"]),
+    compilePreviewFns(["normalizePreviewItems", "buildPreviewViewState", "resolveOpenPreviewItems", "applyAiPreviewStateUpdate"]),
     context
   );
   return {

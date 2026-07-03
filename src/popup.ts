@@ -1120,6 +1120,114 @@ function projectedSpinnerStateToSnapshot(spinnerState: PopupSpinnerState | null)
   };
 }
 
+// P5 (refresh reduction): the SINGLE builder for the busy-overlay view
+// fields (spinner broadcast + background lifecycle + retry/inspection aux
+// flags + the popup-local run countdown). refreshUiInner assigns it during a
+// full pass; the spinner SET/CLEAR handler applies it as a TARGETED patch —
+// spinner churn no longer re-runs the whole refresh.
+type ProjectedBusyAuxFlags = {
+  pageInspectionBusy: boolean;
+  remoteConfigRetryBlocked: boolean;
+};
+let lastProjectedBusyAuxFlags: ProjectedBusyAuxFlags = {
+  pageInspectionBusy: false,
+  remoteConfigRetryBlocked: false
+};
+
+function buildProjectedBusyViewState(): PopupViewStatePatch {
+  const { pageInspectionBusy, remoteConfigRetryBlocked } = lastProjectedBusyAuxFlags;
+  const popupSpinnerSnapshot = getActiveSpinnerSnapshotForSurface("popup");
+  const popupBusyActive = Boolean(popupSpinnerSnapshot);
+  const backgroundLifecycleBusy = Boolean(popupBackgroundLifecycle && popupBackgroundLifecycle.busy);
+  const projectedAiRunCountdownVisible = Boolean(
+    popupBusyActive &&
+      popupSpinnerSnapshot?.entry?.operationKind === "ai-run" &&
+      popupSpinnerSnapshot?.entry?.timerMode === "countdown"
+  );
+  const projectedAiRunDeadlineAt = projectedAiRunCountdownVisible &&
+      Number.isFinite(popupSpinnerSnapshot?.entry?.deadlineAt)
+    ? Number(popupSpinnerSnapshot?.entry?.deadlineAt)
+    : 0;
+  const aiRunCountdownDeadlineAt = projectedAiRunDeadlineAt > 0
+    ? projectedAiRunDeadlineAt
+    : state.aiRequestInFlight === "compute"
+      ? state.aiRunDeadlineAt
+      : 0;
+  const aiRunCountdownVisible =
+    projectedAiRunCountdownVisible ||
+    (state.aiRequestInFlight === "compute" && state.aiRunDeadlineAt > 0);
+  return {
+    saveExcludesButtonLoading: state.aiRequestInFlight === "save",
+    aiRunSpinnerNote: state.aiRequestInFlight === "compute"
+      ? PopupText.overlay.computingSelectorsNote
+      : "",
+    aiRunCountdownVisible,
+    aiRunCountdownText: aiRunCountdownVisible
+      ? formatAiRunCountdown(getAiRunRemainingMs(aiRunCountdownDeadlineAt))
+      : "0:00",
+    aiRunDeadlineAt: aiRunCountdownDeadlineAt,
+    aiRunPhase: state.aiRequestInFlight === "compute" ? state.aiRunPhase : "",
+    isBusy: popupBusyActive || backgroundLifecycleBusy || remoteConfigRetryBlocked || pageInspectionBusy,
+    busyMessage: popupBusyActive
+      ? (popupSpinnerSnapshot?.entry?.message || "")
+      : backgroundLifecycleBusy
+        ? (popupBackgroundLifecycle?.message || PopupText.overlay.pleaseWait)
+        : remoteConfigRetryBlocked
+          ? PopupText.status.remoteServerRetryNotice
+          : pageInspectionBusy
+            ? PopupText.overlay.pageInspection
+            : "",
+    busyReason: popupBusyActive
+      ? normalizeSpinnerReason(popupSpinnerSnapshot?.entry?.reason, popupSpinnerSnapshot?.key, popupSpinnerSnapshot?.entry?.message)
+      : backgroundLifecycleBusy
+        ? normalizeSpinnerReason(
+            popupBackgroundLifecycle?.reason,
+            popupBackgroundLifecycle?.kind || "lifecycle",
+            popupBackgroundLifecycle?.message
+          )
+        : remoteConfigRetryBlocked
+          ? "page-save-remote-config-retry"
+          : pageInspectionBusy
+            ? "page-inspection-pending"
+            : "",
+    busySource: popupBusyActive
+      ? (popupSpinnerSnapshot?.entry?.source || "popup-spinner")
+      : backgroundLifecycleBusy
+        ? "background-lifecycle"
+        : remoteConfigRetryBlocked
+          ? "popup-page-save"
+          : pageInspectionBusy
+            ? "popup-runtime-status"
+            : "",
+    busySpinnerKey: popupBusyActive ? (popupSpinnerSnapshot?.key || "") : "",
+    busyOperationKind: popupBusyActive
+      ? (popupSpinnerSnapshot?.entry?.operationKind || "")
+      : backgroundLifecycleBusy
+        ? (popupBackgroundLifecycle?.operationKind || popupBackgroundLifecycle?.kind || "")
+        : "",
+    busyOperationPhase: popupBusyActive
+      ? (popupSpinnerSnapshot?.entry?.operationPhase || "")
+      : backgroundLifecycleBusy
+        ? (popupBackgroundLifecycle?.operationPhase || popupBackgroundLifecycle?.phase || "")
+        : "",
+    busyStartedAt: popupBusyActive
+      ? (Number.isFinite(popupSpinnerSnapshot?.entry?.startedAt) ? Number(popupSpinnerSnapshot?.entry?.startedAt) : 0)
+      : backgroundLifecycleBusy
+        ? (Number.isFinite(popupBackgroundLifecycle?.startedAt) ? Number(popupBackgroundLifecycle?.startedAt) : 0)
+        : 0,
+    busyDeadlineAt: popupBusyActive
+      ? (Number.isFinite(popupSpinnerSnapshot?.entry?.deadlineAt) ? Number(popupSpinnerSnapshot?.entry?.deadlineAt) : 0)
+      : backgroundLifecycleBusy
+        ? (Number.isFinite(popupBackgroundLifecycle?.deadlineAt) ? Number(popupBackgroundLifecycle?.deadlineAt) : 0)
+        : 0,
+    busyTimerMode: popupBusyActive
+      ? (popupSpinnerSnapshot?.entry?.timerMode || "")
+      : backgroundLifecycleBusy
+        ? (popupBackgroundLifecycle?.timerMode || "")
+        : ""
+  };
+}
+
 function getProjectedPopupBlockingSpinnerState() {
   const popupSpinnerState = getLatestPopupSpinnerState("popup");
   return projectedSpinnerStateBlocksSurface(popupSpinnerState, "popup")
@@ -3306,7 +3414,7 @@ function settlePreviewRestoreClosed(token: number | null = null, markApplied = t
   signalMarkingSession("exit-settled");
   resetPreviewItemsLatch();
   clearMarkingSessionSnapshot();
-  uiModule.setViewState(stabilizePreviewViewState(buildPreviewViewState(null)));
+  uiModule.setViewState(buildPreviewViewState(null));
   publishCurrentTabSessionFacts({
     previewActive: false,
     previewBlocked: false,
@@ -4478,7 +4586,6 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
       previewWillRestoreMarking: Boolean(outOfScopeView.previewWillRestoreMarking)
     };
   }
-  previewViewState = stabilizePreviewViewState(previewViewState);
   const {
     previewActive,
     previewItems,
@@ -5604,6 +5711,10 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
   } else {
     clearRemoteConfigRetryTimer();
   }
+  // P5: remember the pass-computed busy aux flags so the TARGETED spinner
+  // repaint (buildProjectedBusyViewState outside a full pass) reuses them —
+  // they only change with data refreshes, never with spinner broadcasts.
+  lastProjectedBusyAuxFlags = { pageInspectionBusy, remoteConfigRetryBlocked };
 
   nextViewState.currentView = resolvedView;
   nextViewState.configurationContinueDisabled = !configurationComplete;
@@ -5817,43 +5928,7 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
     state.aiRequestInFlight === "save"
       ? ViewText.saveExcludesBusy
       : ViewText.saveExcludesIdle;
-  const popupSpinnerSnapshot = getActiveSpinnerSnapshotForSurface("popup");
-  const popupBusyActive = Boolean(popupSpinnerSnapshot);
-  const backgroundLifecycleBusy = Boolean(popupBackgroundLifecycle && popupBackgroundLifecycle.busy);
-  const projectedAiRunCountdownVisible = Boolean(
-    popupBusyActive &&
-      popupSpinnerSnapshot?.entry?.operationKind === "ai-run" &&
-      popupSpinnerSnapshot?.entry?.timerMode === "countdown"
-  );
-  const projectedAiRunDeadlineAt = projectedAiRunCountdownVisible &&
-      Number.isFinite(popupSpinnerSnapshot?.entry?.deadlineAt)
-    ? Number(popupSpinnerSnapshot?.entry?.deadlineAt)
-    : 0;
-  const aiRunCountdownDeadlineAt = projectedAiRunDeadlineAt > 0
-    ? projectedAiRunDeadlineAt
-    : state.aiRequestInFlight === "compute"
-      ? state.aiRunDeadlineAt
-      : 0;
-  nextViewState.saveExcludesButtonLoading = state.aiRequestInFlight === "save";
-  nextViewState.aiRunSpinnerNote =
-    state.aiRequestInFlight === "compute"
-      ? PopupText.overlay.computingSelectorsNote
-      : "";
-  nextViewState.aiRunCountdownVisible =
-    projectedAiRunCountdownVisible ||
-    (state.aiRequestInFlight === "compute" && state.aiRunDeadlineAt > 0);
-  nextViewState.aiRunCountdownText =
-    nextViewState.aiRunCountdownVisible
-      ? formatAiRunCountdown(
-          getAiRunRemainingMs(aiRunCountdownDeadlineAt)
-        )
-      : "0:00";
-  nextViewState.aiRunDeadlineAt =
-    aiRunCountdownDeadlineAt;
-  nextViewState.aiRunPhase =
-    state.aiRequestInFlight === "compute"
-      ? state.aiRunPhase
-      : "";
+  Object.assign(nextViewState, buildProjectedBusyViewState());
   nextViewState.aiDirtyNoticeVisible = pageSaveReconciliationPending;
   nextViewState.aiDirtyNoticeText = pageSaveReconciliationPending
     ? PopupText.page.statusServerSyncPending
@@ -5895,66 +5970,6 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
   nextViewState.syncLoadStatusTone = state.lastConfigLoadStatusTone || "muted";
   nextViewState.syncSaveStatusText = state.lastConfigSaveStatusText || ViewText.syncSaveIdle;
   nextViewState.syncSaveStatusTone = state.lastConfigSaveStatusTone || "muted";
-  nextViewState.isBusy = popupBusyActive || backgroundLifecycleBusy || remoteConfigRetryBlocked || pageInspectionBusy;
-  nextViewState.busyMessage = popupBusyActive
-    ? (popupSpinnerSnapshot?.entry?.message || "")
-    : backgroundLifecycleBusy
-      ? (popupBackgroundLifecycle?.message || PopupText.overlay.pleaseWait)
-    : remoteConfigRetryBlocked
-      ? PopupText.status.remoteServerRetryNotice
-      : pageInspectionBusy
-        ? PopupText.overlay.pageInspection
-        : "";
-  nextViewState.busyReason = popupBusyActive
-    ? normalizeSpinnerReason(popupSpinnerSnapshot?.entry?.reason, popupSpinnerSnapshot?.key, popupSpinnerSnapshot?.entry?.message)
-    : backgroundLifecycleBusy
-      ? normalizeSpinnerReason(
-          popupBackgroundLifecycle?.reason,
-          popupBackgroundLifecycle?.kind || "lifecycle",
-          popupBackgroundLifecycle?.message
-        )
-      : remoteConfigRetryBlocked
-        ? "page-save-remote-config-retry"
-        : pageInspectionBusy
-          ? "page-inspection-pending"
-          : "";
-  nextViewState.busySource = popupBusyActive
-    ? (popupSpinnerSnapshot?.entry?.source || "popup-spinner")
-    : backgroundLifecycleBusy
-      ? "background-lifecycle"
-      : remoteConfigRetryBlocked
-        ? "popup-page-save"
-        : pageInspectionBusy
-          ? "popup-runtime-status"
-          : "";
-  nextViewState.busySpinnerKey = popupBusyActive
-    ? (popupSpinnerSnapshot?.key || "")
-    : "";
-  nextViewState.busyOperationKind = popupBusyActive
-    ? (popupSpinnerSnapshot?.entry?.operationKind || "")
-    : backgroundLifecycleBusy
-      ? (popupBackgroundLifecycle?.operationKind || popupBackgroundLifecycle?.kind || "")
-      : "";
-  nextViewState.busyOperationPhase = popupBusyActive
-    ? (popupSpinnerSnapshot?.entry?.operationPhase || "")
-    : backgroundLifecycleBusy
-      ? (popupBackgroundLifecycle?.operationPhase || popupBackgroundLifecycle?.phase || "")
-      : "";
-  nextViewState.busyStartedAt = popupBusyActive
-    ? (Number.isFinite(popupSpinnerSnapshot?.entry?.startedAt) ? Number(popupSpinnerSnapshot?.entry?.startedAt) : 0)
-    : backgroundLifecycleBusy
-      ? (Number.isFinite(popupBackgroundLifecycle?.startedAt) ? Number(popupBackgroundLifecycle?.startedAt) : 0)
-      : 0;
-  nextViewState.busyDeadlineAt = popupBusyActive
-    ? (Number.isFinite(popupSpinnerSnapshot?.entry?.deadlineAt) ? Number(popupSpinnerSnapshot?.entry?.deadlineAt) : 0)
-    : backgroundLifecycleBusy
-      ? (Number.isFinite(popupBackgroundLifecycle?.deadlineAt) ? Number(popupBackgroundLifecycle?.deadlineAt) : 0)
-      : 0;
-  nextViewState.busyTimerMode = popupBusyActive
-    ? (popupSpinnerSnapshot?.entry?.timerMode || "")
-    : backgroundLifecycleBusy
-      ? (popupBackgroundLifecycle?.timerMode || "")
-      : "";
   nextViewState.pageDataNewNoticeHidden = pageSaveUiState.pageDataNewNoticeHidden;
   nextViewState.deviceEmulationEnabled = normalizedDeviceState.enabled;
   nextViewState.deviceMode = normalizedDeviceState.mode;
@@ -8226,7 +8241,6 @@ async function applyComputedSelectorSet(
       state.previewSessionHadItems = true;
       state.previewItemsLatched = immediatePreviewItems;
     }
-    state.lastPreviewItemsSignature = getPreviewItemsSignature(immediatePreviewItems);
     publishCurrentTabSessionFacts({
       aiBusy: false,
       aiComputing: false,
@@ -8269,16 +8283,14 @@ function applyAiPreviewStateUpdate(message: PreviewStateLike) {
     return;
   }
   const currentView = uiModule.getViewState();
-  const nextPreviewState = stabilizePreviewViewState(buildPreviewViewState(message), currentView);
+  const nextPreviewState = buildPreviewViewState(message);
   // The aiPreviewStateChanged push is a best-effort, latency-reducing item feed —
   // content emits it at preview OPEN (items:[] + pending) and again after
   // hydration (full items). On a heavy/busy page the open-time push can be
   // delivered seconds late, arriving AFTER the list already hydrated and would
   // clobber it back to empty ("No content detected"). Route it through the same
   // session item latch as the probe: a non-empty push updates the list; an empty
-  // push while the session already produced items keeps the latched list. The
-  // stabilize signature is aligned to what is actually shown so the next refresh
-  // does not treat the kept list as a change.
+  // push while the session already produced items keeps the latched list.
   const incomingItems = Array.isArray(nextPreviewState.previewItems) ? nextPreviewState.previewItems : [];
   // Same open-snapshot rule as the probe feed: only a push that shows the OPEN
   // preview may claim "settled" (an inactive/stale push must not arm the
@@ -8287,10 +8299,18 @@ function applyAiPreviewStateUpdate(message: PreviewStateLike) {
   const previewItems = state.previewOpenIntent
     ? resolveOpenPreviewItems(settled ? incomingItems : [], settled).items
     : (Array.isArray(currentView.previewItems) ? currentView.previewItems : []);
-  state.lastPreviewItemsSignature = getPreviewItemsSignature(previewItems);
+  // P5: the latch re-resolves to fresh arrays, so identical pushes are skipped
+  // by CONTENT equality (the deleted stabilize-signature bookkeeping used to
+  // fake this via reference reuse); an unchanged list also keeps its current
+  // array reference so the sidebar list does not re-render. Field order is
+  // canonicalized — normalized items and view items serialize differently.
+  const currentPreviewItems = Array.isArray(currentView.previewItems) ? currentView.previewItems : [];
+  const serializePreviewItems = (items: typeof previewItems) =>
+    JSON.stringify(items.map((item) => [item.xpath, item.text, item.title, item.kind]));
+  const previewItemsChanged = serializePreviewItems(previewItems) !== serializePreviewItems(currentPreviewItems);
   if (
     nextPreviewState.previewWillRestoreMarking === Boolean(currentView.previewWillRestoreMarking) &&
-    previewItems === currentView.previewItems &&
+    !previewItemsChanged &&
     nextPreviewState.previewFocusedXpath === currentView.previewFocusedXpath &&
     nextPreviewState.previewShowAllCategories === Boolean(currentView.previewShowAllCategories)
   ) {
@@ -8301,7 +8321,7 @@ function applyAiPreviewStateUpdate(message: PreviewStateLike) {
   }
   uiModule.setViewState({
     previewWillRestoreMarking: nextPreviewState.previewWillRestoreMarking,
-    previewItems,
+    previewItems: previewItemsChanged ? previewItems : currentPreviewItems,
     previewFocusedXpath: nextPreviewState.previewFocusedXpath,
     previewShowAllCategories: nextPreviewState.previewShowAllCategories
   });
@@ -8941,34 +8961,6 @@ function normalizePreviewItems(items: PreviewStateLike["items"] | null | undefin
     });
 }
 
-function getPreviewItemsSignature(items: PreviewViewState["previewItems"] | null | undefined): string {
-  return JSON.stringify(
-    Array.isArray(items)
-      ? items.map((item) => [
-          typeof item?.xpath === "string" ? item.xpath : "",
-          typeof item?.kind === "string" ? item.kind : "",
-          typeof item?.title === "string" ? item.title : "",
-          typeof item?.text === "string" ? item.text : ""
-        ])
-      : []
-  );
-}
-
-function stabilizePreviewViewState(
-  previewViewState: PreviewViewState,
-  currentView: PopupViewState = uiModule.getViewState()
-): PreviewViewState {
-  const currentPreviewItems = Array.isArray(currentView.previewItems) ? currentView.previewItems : [];
-  const currentSignature = state.lastPreviewItemsSignature || getPreviewItemsSignature(currentPreviewItems);
-  const nextSignature = getPreviewItemsSignature(previewViewState.previewItems);
-  const previewItemsChanged = nextSignature !== currentSignature;
-  state.lastPreviewItemsSignature = nextSignature;
-  return {
-    ...previewViewState,
-    previewItems: previewItemsChanged ? previewViewState.previewItems : currentPreviewItems
-  };
-}
-
 function resetPreviewItemsLatch(): void {
   state.previewSessionHadItems = false;
   state.previewItemsLatched = [];
@@ -9146,7 +9138,7 @@ async function handlePreviewShowAllCategoriesChange(event: PopupCheckedEvent) {
     if (!isPopupCommandSuccess<PreviewCommandResult>(response)) {
       throw new Error(PopupText.preview.updateFailed);
     }
-    uiModule.setViewState(stabilizePreviewViewState(buildPreviewViewState(response.result.previewState || null)));
+    uiModule.setViewState(buildPreviewViewState(response.result.previewState || null));
   } catch (error) {
     uiModule.setViewState({ previewShowAllCategories: previousChecked });
     uiModule.showToast(getErrorMessage(error) || PopupText.preview.updateFailed);
@@ -9186,11 +9178,11 @@ function handleSpinnerSurfaceChangedFromBrain(surface: "popup" | "pageCurtain" |
   if (surface !== "popup" && surface !== "pageCurtain") {
     return;
   }
-  void refreshUi({
-    useBusyOverlay: false,
-    skipPropertyLockFetch: true,
-    preserveCurrentDraftStatus: true
-  }).catch(() => null);
+  // P5 (refresh reduction): a spinner broadcast repaints ONLY the busy
+  // surface. Machine memories own the session surfaces and data fields have
+  // no spinner dependency, so the old full refreshUi here — the popup's main
+  // re-derivation cadence during operations — is gone.
+  uiModule.setViewState(buildProjectedBusyViewState());
 }
 
 async function init() {

@@ -64,8 +64,6 @@ module.exports = { ${names.join(", ")} };
 test("applyAiPreviewStateUpdate skips previewItems rebuild for identical snapshots and updates on real changes", () => {
   const compiled = transpilePreviewFunctions([
     "normalizePreviewItems",
-    "getPreviewItemsSignature",
-    "stabilizePreviewViewState",
     "buildPreviewViewState",
     "resolveOpenPreviewItems",
     "applyAiPreviewStateUpdate"
