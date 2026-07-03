@@ -8443,9 +8443,14 @@ async function submitSelectorSetToServer(options: SelectorSetSubmitOptions = {})
     state.currentBaseUrl = effectiveBaseUrl;
     state.currentConfig = siteIdResult.config || state.currentConfig;
 
-    if (aiSelectorSetsEqual(normalizedSelectorSet, getLastSubmittedSelectorsFromConfig())) {
-      return { ok: false, skipped: true, reason: PopupText.ai.noNewSelectorsToSubmit };
-    }
+    // TEMP SHORT-CIRCUIT (architect-directed, 2026-07-03): the last-submitted
+    // equality guard wrongly refuses valid submissions ("No new selectors to
+    // submit"), blocking Send to Lynx entirely. Submit on EVERY click until
+    // the staleness conditions are redesigned; the original guard is kept
+    // here for that redesign:
+    // if (aiSelectorSetsEqual(normalizedSelectorSet, getLastSubmittedSelectorsFromConfig())) {
+    //   return { ok: false, skipped: true, reason: PopupText.ai.noNewSelectorsToSubmit };
+    // }
 
     const includeCss = normalizedSelectorSet.inclusionSelectors.join(", ");
     const selectorSetForSubmit = buildSelectorSetForGraphqlSubmit(normalizedSelectorSet);
