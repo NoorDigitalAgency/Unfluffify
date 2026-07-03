@@ -4,7 +4,10 @@ The reflex-arc plan is THE plan of record (architect-approved 2026-07-03,
 QA-round decisions recorded inside): native signal frames, per-layer state
 machines with complete memorized presentations incl. curtains/spinners,
 direct replacement per phase, saved->silent. Phase status lives in the plan
-(P0 foundation SHIPPED: 171b05c + 2b780d9; next = P1 signal system).
+(P0 foundation SHIPPED: 171b05c + 2b780d9; P1 signal system SHIPPED: 1bd39c1,
+live-validated — full lifecycle seq 1..7 exactly once with provenance;
+NEXT = P2 popup full-surface memory. The +43s C3 residual in acceptance runs
+is the DOCUMENTED false markings-changed, fixed by P3 provenance.)
 
 P0 closing live results (pressure runs on bonliva.se/lediga-jobb, per-frame):
 - Pressure-1 exposed the last list bug: a stale pre-open/compute_lock probe
