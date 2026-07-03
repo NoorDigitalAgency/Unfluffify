@@ -42,6 +42,27 @@ emission), then §3.4 remaining acceptance repeats (3x .no / 1x .se).
    Live-QA pitfalls (wedged popup tabs, beforeunload-blocked CDP, isolated
    world listener enumeration) are recorded in knowledge.md §Testing.
 
+## TARGETED COLD REVEAL (architect-directed, shipped 2026-07-03 late morning)
+
+The cold silent/editor reveal no longer walks the whole page: it stops as soon
+as every SAVED mark xpath resolves (buildSilentRevealXpathStopCheck ->
+RevealPageContentOptions.shouldStopEarly), and a page with no saved marks
+skips the walk outright (freeze still engages and holds exactly as before;
+the early stop hands off into the same lazy-load suppression). The
+render-mode inspection's own warmup intentionally keeps the FULL reveal (its
+HTML capture needs the complete page) — pinned by test. Live cold/warm
+protocol on bonliva.se/lediga-jobb (per the architect: observe fresh page on
+newly loaded extension = COLD, then refresh same page = WARM):
+- COLD (no synced page entry yet): NO walk at all — frozen from load at the
+  page's native size; editor sync + 2 render-mode inspections completed in
+  ~19s, zero DOM growth over a 120s watch, all signal pairs closed.
+- WARM (entry synced by the cold pass): targeted walk stopped at the deepest
+  saved mark (~8.3k of a 9.5k+ page, 4-5 passes), nodes 4039->5486,
+  docH 5178->10506, frozen at +16s. OLD behavior: full walk to the bottom
+  with docH growing to 24k-35k and nodes ->8966.
+Measurement pitfalls recorded in knowledge.md (attach the DOM sampler BEFORE
+navigation; a popup must exist for the brain to drive the tab's directives).
+
 ## §3.4 STATUS + THE ONE OPEN BLOCKER (FINDING-3, popup-side variant)
 
 bonliva.no acceptance: 3x PASS (r3/r4/r5 — per-frame, 6-min windows, zero

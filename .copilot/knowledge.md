@@ -112,6 +112,14 @@
 - `.temp/nav-reset.mjs` navigates with an auto-accepting beforeunload handler;
   ALWAYS navigate through it (never `tabs.reload` after `runtime.reload` —
   orphaned content instances).
+- Reveal/freeze DOM measurements: attach the CDP sampler to the page target
+  BEFORE navigating (targets persist across same-tab navigation) or the walk
+  finishes before you look; sample nodes + scrollY + docH + the
+  `uf-page-motion-paused` class. The brain only drives a tab's directives
+  when a popup exists for it — cold/warm comparisons must keep a popup
+  present in BOTH arms. COLD = fresh extension + fresh page; WARM = refresh
+  of the same page (the editor sync on the cold pass changes what the warm
+  pass has to reveal: synced entries appear only after the first visit).
 - The shipped extension build, packaging flow, live-browser launcher, and
   orchestration CLIs are now pnpm/Node-based and WXT-native. The repository no
   longer depends on Deno for CI, packaging, browser launch, or orchestration.

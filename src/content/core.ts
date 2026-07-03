@@ -316,6 +316,12 @@ interface PageInspectionScrollEndOptions extends PageInspectionProgressOptions {
 
 interface RevealPageContentOptions extends PageInspectionScrollEndOptions {
   retainLazyLoadSuppression?: boolean;
+  // Targeted reveal (architect-directed, 2026-07-03): when provided, the walk
+  // stops as soon as this returns true — the cold silent/editor reveal only
+  // needs the saved marks' elements rendered, and walking an entire heavy
+  // page forces its deferred content into the DOM (extensive DOM growth on
+  // already-heavy pages) for nothing.
+  shouldStopEarly?: () => boolean;
 }
 
 interface LazyLoadingSuppressionRestorer {
@@ -327,6 +333,7 @@ interface PageInspectionWarmupOptions {
   keepUiActive?: boolean;
   retainLazyLoadSuppression?: boolean;
   onRevealProgress?: () => void;
+  shouldStopEarly?: () => boolean;
 }
 
 interface PageMotionLockState {
@@ -4705,6 +4712,23 @@ export async function revealPageContentBeforeMotionPause(
   const reservedScrollY = Math.max(0, Math.round(getWindowScrollOffset().y));
   const lazyLoadSuppressionTargetY = getPageInspectionLazyLoadSuppressionTarget();
   const retainLazyLoadSuppression = Boolean(options.retainLazyLoadSuppression);
+  const shouldStopEarly = typeof options.shouldStopEarly === "function"
+    ? options.shouldStopEarly
+    : null;
+  const isRevealAlreadySatisfied = () => {
+    try {
+      return Boolean(shouldStopEarly && shouldStopEarly());
+    } catch {
+      // A failing stop-check must never abort the reveal itself.
+      return false;
+    }
+  };
+  // Everything the reveal exists for is already rendered: skip the whole walk
+  // (no scrolling, no lazy-load churn, zero DOM growth). The caller's freeze
+  // still engages afterwards and pauses all page motion on its own.
+  if (isRevealAlreadySatisfied()) {
+    return false;
+  }
   let visited = false;
   let lazyLoadRestorer = null;
   let completedReveal = false;
@@ -4724,6 +4748,16 @@ export async function revealPageContentBeforeMotionPause(
       }
       let scrollCount = 0;
       while (scrollCount < maxScrolls && isStillCurrent()) {
+        if (isRevealAlreadySatisfied()) {
+          // Targeted reveal complete: every element the caller needs is
+          // rendered. Engage the lazy-load suppression before finishing so
+          // the remainder of the page cannot keep growing between here and
+          // the caller's motion pause (the same handoff a full walk makes).
+          if (retainLazyLoadSuppression && !lazyLoadRestorer && !state.lazyLoadSuppressRestorer) {
+            lazyLoadRestorer = await ensurePageInspectionLazyLoadingSuppressed(lazyLoadRestorer);
+          }
+          break;
+        }
         if (!suppressionScrollVisited && !lazyLoadRestorer && !state.lazyLoadSuppressRestorer) {
           suppressionScrollVisited = true;
           if (lazyLoadSuppressionTargetY > Math.max(0, Math.round(getWindowScrollOffset().y))) {
@@ -6978,6 +7012,40 @@ export function hasPageMotionPauseReason(reason: unknown): boolean {
   return pauseState.reasons.has(normalizePageMotionPauseReason(reason));
 }
 
+// Targeted-reveal stop check: the cold silent/editor reveal only needs the
+// page's SAVED marks rendered (explicit xpaths from the page entry). Resolved
+// xpaths are remembered so each pass only re-queries what is still missing;
+// a page with no saved marks is satisfied immediately (no walk at all).
+// Selector-driven silent highlights attach to whatever content exists — they
+// are best-effort by design and never justify forcing a heavy page's deferred
+// content into the DOM.
+export function buildSilentRevealXpathStopCheck(
+  xpaths: readonly (string | null | undefined)[] | null | undefined,
+  resolveXpath: (xpath: string) => Element | null = (xpath) => getElementFromXPath(xpath)
+): () => boolean {
+  const unresolved = new Set(
+    (Array.isArray(xpaths) ? xpaths : []).filter(
+      (xpath): xpath is string => typeof xpath === "string" && xpath.length > 0
+    )
+  );
+  return () => {
+    if (unresolved.size === 0) {
+      return true;
+    }
+    for (const xpath of [...unresolved]) {
+      try {
+        if (resolveXpath(xpath)) {
+          unresolved.delete(xpath);
+        }
+      } catch {
+        // Unresolvable expressions stay pending; they can never satisfy the
+        // check but must not break the walk either.
+      }
+    }
+    return unresolved.size === 0;
+  };
+}
+
 export async function warmupSilentHighlightingBeforeMotionPause(
   baseUrl: string | null | undefined,
   pageUrl: string,
@@ -7011,6 +7079,9 @@ export async function warmupSilentHighlightingBeforeMotionPause(
       isRevealWarmupCurrent,
       {
         ...(onRevealProgress ? { onProgress: onRevealProgress } : {}),
+        ...(typeof options.shouldStopEarly === "function"
+          ? { shouldStopEarly: options.shouldStopEarly }
+          : {}),
         retainLazyLoadSuppression: true
       }
     );
