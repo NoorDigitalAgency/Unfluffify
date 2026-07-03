@@ -9185,10 +9185,63 @@ function handleSpinnerSurfaceChangedFromBrain(surface: "popup" | "pageCurtain" |
   uiModule.setViewState(buildProjectedBusyViewState());
 }
 
+// P6 follow-up (fail-open + retry): the page-type taxonomy is the ALLOWLIST
+// the todo list filters property page types against — normalizePropertyPageTypes
+// drops any slug not present in it (`!getPageTypeLabel(key)`). It is now served
+// dynamically from the config backend (names + types), so a fresh install whose
+// FIRST taxonomy fetch fails would silently drop backend-only page types (the
+// stale bundled default lacks them) until the next popup open. The fetch stays
+// FAIL-OPEN — the cache/default render meanwhile and nothing blocks — but this
+// adds a bounded backoff retry so a transient failure self-heals and populates
+// the persisted cache, after which every future session is covered. Only a
+// network/HTTP failure retries; applied-ok, no-endpoint (skipped), and
+// auth_error (re-login is the recovery) are terminal.
+let pageTypeTaxonomyRetryTimer = 0;
+let pageTypeTaxonomyRetryCount = 0;
+const PAGE_TYPE_TAXONOMY_MAX_RETRIES = 5;
+
+function loadPageTypeTaxonomyWithRetry(): void {
+  void messages.sendRuntimeMessage({ type: "loadPageTypeTaxonomy" })
+    .then((response) => {
+      const result = response && typeof response === "object"
+        ? (response as { ok?: unknown; status?: unknown; skipped?: unknown })
+        : null;
+      const terminal =
+        Boolean(result && result.ok === true && result.status === "ok") ||
+        Boolean(result && result.skipped === true) ||
+        Boolean(result && result.status === "auth_error");
+      if (terminal) {
+        pageTypeTaxonomyRetryCount = 0;
+        return;
+      }
+      schedulePageTypeTaxonomyRetry();
+    })
+    .catch(() => {
+      schedulePageTypeTaxonomyRetry();
+    });
+}
+
+function schedulePageTypeTaxonomyRetry(): void {
+  if (pageTypeTaxonomyRetryTimer || pageTypeTaxonomyRetryCount >= PAGE_TYPE_TAXONOMY_MAX_RETRIES) {
+    return;
+  }
+  const delayMs = Math.min(30000, 2000 * Math.pow(2, pageTypeTaxonomyRetryCount));
+  pageTypeTaxonomyRetryCount += 1;
+  pageTypeTaxonomyRetryTimer = window.setTimeout(() => {
+    pageTypeTaxonomyRetryTimer = 0;
+    loadPageTypeTaxonomyWithRetry();
+  }, delayMs);
+}
+
 async function init() {
   state.traceEvents = [];
   void initPageTypeTaxonomy();
-  void messages.sendRuntimeMessage({ type: "loadPageTypeTaxonomy" }).catch(() => {});
+  if (pageTypeTaxonomyRetryTimer) {
+    window.clearTimeout(pageTypeTaxonomyRetryTimer);
+    pageTypeTaxonomyRetryTimer = 0;
+  }
+  pageTypeTaxonomyRetryCount = 0;
+  loadPageTypeTaxonomyWithRetry();
   state.traceModeEnabled = await loadTraceModeSetting().catch(() => false);
   await helpers.ensureActiveTab();
   const initTabId = state.currentTab && state.currentTab.id;
