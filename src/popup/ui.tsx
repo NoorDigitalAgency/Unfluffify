@@ -12,6 +12,7 @@ import {
 import {
   SPINNER_TIMER_MODES
 } from "../common/spinner-contract";
+import { formatAiRunTimeoutFallbackCountdown } from "../common/bus/contracts/ai-run";
 import type { PopupTraceEvent } from "../common/bus/contracts/popup-state";
 import type { PopupView } from "../types/popup-state.ts";
 import {
@@ -713,7 +714,7 @@ function getBlockingUiCurtainState(view: ViewState): BlockingUiCurtainState {
       reason: "ai-run-compute",
       source: "popup-view-state",
       spinnerKey: "",
-      timerText: view.aiRunCountdownVisible ? (liveCountdownText || aiRunCountdownText) : "Up to 8:00"
+      timerText: view.aiRunCountdownVisible ? (liveCountdownText || aiRunCountdownText) : formatAiRunTimeoutFallbackCountdown()
     };
   }
   if (view.isBusy && !(suppressPrepCurtains && view.busySpinnerKey === "navInspect")) {
