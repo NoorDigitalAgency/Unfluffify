@@ -129,6 +129,7 @@ import { normalizePageSaveReconciliationReason } from "./common/bus/contracts/se
 import { SIGNAL_NAMES } from "./common/bus/contracts/signals";
 import {
   CONTENT_MARKING_MACHINE_INITIAL,
+  resolveContentExitDestination,
   stepContentMarkingMachine,
   type ContentMarkingStep
 } from "./content/marking-machine";
@@ -712,6 +713,13 @@ function stepContentMachine(
 // marking-paused class) resolve presentation from the machine's overlay
 // memory — hand them the live machine state.
 core.setContentOverlayMachineStateResolver(() => contentMarkingMachine.state);
+
+// P4 step 4.4: the machine is the record of the preview ROUTINE — facts and
+// response builders (and the routine's own guards) read it, never the loose
+// aiPreviewState flags; aiPreviewState keeps only presentation data.
+function machineOwnsPreviewRoutine(): boolean {
+  return contentMarkingMachine.state === "preview" || contentMarkingMachine.state === "compute_lock";
+}
 
 const contentMainServiceRegistry = createContentMainServiceRegistry({
   createPageToastClient: () => createPageToast(createPageToastDeps()),
@@ -1326,7 +1334,7 @@ function setAiPreviewItemsPending(pending: boolean) {
 }
 
 function publishAiPreviewSessionFacts() {
-  const previewOpen = Boolean(aiPreviewState.active && aiPreviewState.mode === "preview");
+  const previewOpen = contentMarkingMachine.state === "preview";
   void publishContentSessionFacts({
     previewActive: previewOpen,
     previewBlocked: previewOpen,
@@ -1340,7 +1348,7 @@ function setAiPreviewExpandedMode(active: unknown): boolean {
     setAiPreviewItems(aiPreviewState.defaultItems, { preserveFocusedXpath: true });
     return false;
   }
-  if (!aiPreviewState.active || aiPreviewState.mode !== "preview") {
+  if (contentMarkingMachine.state !== "preview") {
     return false;
   }
   aiPreviewState.showAllCategories = Boolean(active);
@@ -1427,7 +1435,7 @@ function notifyAiPreviewFocusChanged(xpath: string): void {
 }
 
 function setAiPreviewFocusedXpath(xpath: unknown, options: AiPreviewStateUpdateOptions = {}): boolean {
-  if (!aiPreviewState.active) {
+  if (!machineOwnsPreviewRoutine()) {
     return false;
   }
   const nextXpath = typeof xpath === "string" ? xpath : "";
@@ -1462,7 +1470,7 @@ function getAiPreviewClickTarget(eventTarget: EventTarget | null | undefined) {
 }
 
 function handleAiPreviewClick(event: MouseEvent | null | undefined): boolean {
-  if (!aiPreviewState.active || !event || event.button !== 0) {
+  if (!machineOwnsPreviewRoutine() || !event || event.button !== 0) {
     return false;
   }
   const target = getAiPreviewClickTarget(event.target);
@@ -3461,7 +3469,7 @@ function scheduleAiComputeLockRelease(expiresAt: number) {
   }
   aiComputeLockReleaseTimer = window.setTimeout(() => {
     aiComputeLockReleaseTimer = 0;
-    if (aiPreviewState.active && aiPreviewState.mode === "compute_lock") {
+    if (contentMarkingMachine.state === "compute_lock") {
       exitAiPreviewMode().then();
     }
   }, Math.max(0, Math.ceil(expiresAt - Date.now())));
@@ -3510,10 +3518,10 @@ function beginAiPreviewMode(options = {}) {
     aiComputeLockReleaseTimer = 0;
   }
 
-  if (aiPreviewState.previousEnabled && state.enabled) {
+  if (contentMarkingMachine.previousEnabled && state.enabled) {
     core.disable();
   }
-  if (aiPreviewState.restoreMarkingOnExit) {
+  if (contentMarkingMachine.restoreMarkingOnExit) {
     const lockedBaseUrl = aiPreviewState.previousBaseUrl || state.baseUrl || "";
     if (lockedBaseUrl) {
       void utils.sendRuntimeMessage({
@@ -3572,7 +3580,10 @@ function notifyInspectionSettled() {
 }
 
 async function exitAiPreviewMode() {
-  if (!aiPreviewState.active) {
+  // P4 step 4.4: the machine owns the routine record — a re-entrant exit
+  // during the restore (machine already in `restoring`) must no-op instead
+  // of running the restore twice.
+  if (!machineOwnsPreviewRoutine()) {
     return {
       active: false,
       markingEnabled: Boolean(state.enabled),
@@ -3584,9 +3595,9 @@ async function exitAiPreviewMode() {
   }
 
   const restoreState = aiPreviewState;
-  const shouldRestoreMarking = Boolean(
-    restoreState.previousEnabled || restoreState.restoreMarkingOnExit
-  );
+  // The machine memorized the exit destination at routine entry (compute_lock
+  // always restores; preview inherits the lock's memory).
+  const shouldRestoreMarking = resolveContentExitDestination(contentMarkingMachine) === "marking";
   stepContentMachine("exit-begun");
   // REFLEX-ARC P3 §3.2: 'preview.exited' is born HERE — the restoring
   // routine's return points are the only place that knows the exit actually
@@ -5299,8 +5310,7 @@ async function loadAndNormalizeConfigs(pageUrl: string): Promise<SilentHighlight
   }
   const currentSilentRevealKey = getSilentHighlightEditorRevealKey(baseUrl, pageUrl);
   const previewPreservesMotionPause = Boolean(
-    aiPreviewState.active &&
-      aiPreviewState.mode === "preview" &&
+    contentMarkingMachine.state === "preview" &&
       core.hasPageMotionPauseReason(SILENT_HIGHLIGHTING_MOTION_PAUSE_REASON)
   );
   const holdSilentMotionPause = Boolean(
@@ -6429,7 +6439,7 @@ function createAiPreviewCloseHandlerDeps() {
   return {
     exitAiPreviewMode,
     hasAiPopover: () => core.hasAiPopover(),
-    isAiPreviewActive: () => aiPreviewState.active,
+    isAiPreviewActive: () => machineOwnsPreviewRoutine(),
     requestAiPopoverClose: (options = {}) => core.requestAiPopoverClose(options)
   };
 }
@@ -6445,7 +6455,7 @@ function createAiPreviewComputeLockHandlerDeps() {
     },
     exitAiPreviewMode,
     hasComputeLockReleaseTimer: () => Boolean(aiComputeLockReleaseTimer),
-    isComputeLockPreviewActive: () => aiPreviewState.active && aiPreviewState.mode === "compute_lock",
+    isComputeLockPreviewActive: () => contentMarkingMachine.state === "compute_lock",
     refreshSilentHighlightings,
     scheduleAiComputeLockRelease,
     setAiPreviewItems
@@ -6479,7 +6489,7 @@ function createAiPreviewShowHandlerDeps(): AiPreviewShowHandlerDeps {
       ),
     collectPreviewItems: (selectorSet: unknown) => core.collectPreviewItems(selectorSet),
     exitAiPreviewMode,
-    isAiPreviewActive: () => Boolean(aiPreviewState.active),
+    isAiPreviewActive: () => machineOwnsPreviewRoutine(),
     buildPreviewState: () => buildAiPreviewStateSnapshot(),
     normalizeAiSelectorSet: (value: unknown) =>
       normalizeAiSelectorSet(value as Parameters<typeof normalizeAiSelectorSet>[0]),
@@ -6572,7 +6582,7 @@ function createConfigUpdatedHandlerDeps(): ConfigUpdatedHandlerDeps {
     getDraftPageEntry: (pageUrl: string) => core.getDraftPageEntry(pageUrl),
     getPageUrl: () => location.href,
     getSavedPageEntry: (pageUrl: string) => core.getSavedPageEntry(pageUrl),
-    isAiPreviewActive: () => aiPreviewState.active,
+    isAiPreviewActive: () => machineOwnsPreviewRoutine(),
     isEnabled: () => state.enabled,
     loadConfig: (baseUrl: string) => core.loadConfig(baseUrl),
     mergeDraftEntry: (
@@ -6658,7 +6668,7 @@ function createFocusHandlerDeps(): FocusHandlerDeps {
       core.focusPreviewElement(element);
     },
     getElementFromXPath: getXPathElement,
-    isAiPreviewActive: () => aiPreviewState.active,
+    isAiPreviewActive: () => machineOwnsPreviewRoutine(),
     setAiPreviewFocusedXpath
   };
 }

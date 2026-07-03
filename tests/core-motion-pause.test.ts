@@ -1409,7 +1409,7 @@ test("AI preview open preserves the silent motion pause through silent-highlight
 
   assert.match(
     source,
-    /const previewPreservesMotionPause = Boolean\([\s\S]*?aiPreviewState\.active[\s\S]*?aiPreviewState\.mode === "preview"[\s\S]*?core\.hasPageMotionPauseReason\(SILENT_HIGHLIGHTING_MOTION_PAUSE_REASON\)[\s\S]*?\);/
+    /const previewPreservesMotionPause = Boolean\([\s\S]*?contentMarkingMachine\.state === "preview"[\s\S]*?core\.hasPageMotionPauseReason\(SILENT_HIGHLIGHTING_MOTION_PAUSE_REASON\)[\s\S]*?\);/
   );
   assert.match(
     source,

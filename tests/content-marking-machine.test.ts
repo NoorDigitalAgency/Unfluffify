@@ -99,6 +99,27 @@ test("§3.2 wiring: the machine steps at content's routine boundaries and previe
   assert.doesNotMatch(brainSource, /SIGNAL_NAMES\.PREVIEW_EXITED/);
 });
 
+test("P4 4.4 wiring: facts/response builders and routine guards read the machine record", () => {
+  const contentMain = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
+  // The routine predicate is the single reader vocabulary.
+  assert.match(
+    contentMain,
+    /function machineOwnsPreviewRoutine\(\): boolean \{\s*return contentMarkingMachine\.state === "preview" \|\| contentMarkingMachine\.state === "compute_lock";/
+  );
+  assert.match(contentMain, /isAiPreviewActive: \(\) => machineOwnsPreviewRoutine\(\),/);
+  assert.match(contentMain, /isComputeLockPreviewActive: \(\) => contentMarkingMachine\.state === "compute_lock",/);
+  // The exit restores what the machine memorized at routine entry, and a
+  // re-entrant exit during the restore no-ops.
+  assert.match(
+    contentMain,
+    /const shouldRestoreMarking = resolveContentExitDestination\(contentMarkingMachine\) === "marking";/
+  );
+  // No facts/response reader is left on the loose routine flags (the
+  // presentation-record lifecycle keeps its own active checks).
+  assert.doesNotMatch(contentMain, /isAiPreviewActive: \(\) => (?:Boolean\()?aiPreviewState\.active/);
+  assert.doesNotMatch(contentMain, /aiPreviewState\.active && aiPreviewState\.mode ===/);
+});
+
 test("P4 4.1 wiring: core resolves page-overlay presentation from the machine's memory", () => {
   const contentMain = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
   // The machine hands core its live state, and every machine move re-renders

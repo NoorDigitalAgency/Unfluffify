@@ -17,7 +17,7 @@ test("compute-lock preview keeps restore-marking intent and preserves enabled ta
   );
   assert.match(
     contentMainSource,
-    /if \(aiPreviewState\.restoreMarkingOnExit\) \{[\s\S]*?type: "setTabState",[\s\S]*?enabled: true,[\s\S]*?baseUrl: lockedBaseUrl/
+    /if \(contentMarkingMachine\.restoreMarkingOnExit\) \{[\s\S]*?type: "setTabState",[\s\S]*?enabled: true,[\s\S]*?baseUrl: lockedBaseUrl/
   );
 });
 
@@ -57,7 +57,7 @@ test("preview hydration keeps using the captured marking config even after marki
 test("preview exit re-resolves the base URL when the captured restore scope is empty or stale", () => {
   assert.match(
     contentMainSource,
-    /const shouldRestoreMarking = Boolean\([\s\S]*?restoreState\.previousEnabled \|\| restoreState\.restoreMarkingOnExit[\s\S]*?\);/
+    /const shouldRestoreMarking = resolveContentExitDestination\(contentMarkingMachine\) === "marking";/
   );
   assert.match(
     contentMainSource,
