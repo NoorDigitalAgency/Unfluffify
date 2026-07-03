@@ -5,11 +5,28 @@ QA-round decisions recorded inside): native signal frames, per-layer state
 machines with complete memorized presentations incl. curtains/spinners,
 direct replacement per phase, saved->silent. Phase status lives in the plan:
 P0 SHIPPED (171b05c + 2b780d9), P1 SHIPPED (1bd39c1), P2 SHIPPED (010d580 +
-7949ef7), P3 IN PROGRESS — §3.1 provenance SHIPPED and live-proven (the
-round-11 +44s false 'markings.changed' is DEAD: zero admissions across a full
-post-exit window; the signal is born ONLY at content's user-edit commit path).
-NEXT = P3 §3.2 (content machines + overlay memories + configUpdated
-emission), then §3.4 remaining acceptance repeats (3x .no / 1x .se).
+7949ef7), P3 §3.1 SHIPPED (9ce7e64) + §3.4 CLOSED (full matrix: 3x .no +
+2x .se, all PASS) + §3.2 MOSTLY SHIPPED (26a9c99: content machine stepping
+at routine boundaries; preview.exited single birthplace at the exit
+routine, live-proven; overlay-memory inventory; configUpdated emission).
+SHIPPED RELEASES: 1.9.0 (978b00a) and 1.9.1 (bc58248 — fresh-install
+fixes: ghost-tab disposal + startup prune, detection-view prep-curtain
+suppression, domainId retry backoff; plus the Send to Lynx staleness-guard
+TEMP short-circuit 099fe12, live-verified submit).
+REMAINING §3.2 -> FOLD INTO P4: the overlay RENDERER swap. Analysis: the
+marking-paused class is BRAIN-DICTATED (getMarkingTemporarilyDisabledReason
+-> getMarkingEditsBlockedReasonByDirective; reasons ai_run/saving/syncing
+composed by the view-projector), so swapping the renderer to
+content/overlay-memory.ts interlocks with P4's "brain broadcasts reduce to
+surface vocabulary" — do them together: brain sends surface names; content
+composes content from resolveContentOverlayMemory(machine state) +
+the reconciliation reasons (which stay separate: saving/syncing pauses are
+NOT the preview/restoring class policy). Then the aiPreviewState READER
+swap (facts/response builders read the machine record instead of the loose
+active/mode/previousEnabled/restoreMarkingOnExit flags).
+ALSO IN P4 (recorded): the bare RESULTS_APPLIED publisher (missing
+sessionId -> dedupeKey "" -> run.completed admitted twice, harmless);
+delete deriveDictation field truth + popup pushSpinner sites (P2 deferred).
 
 ## 2026-07-03 MORNING SESSION — three live-caught fixes (read before P3 §3.2)
 
