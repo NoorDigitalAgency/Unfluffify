@@ -1,5 +1,6 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
+import { readFileSync } from "./file-kit.ts";
 import {
   CONTENT_MARKING_MACHINE_INITIAL,
   resolveContentExitDestination,
@@ -69,6 +70,33 @@ test("undefined steps are held: the executor cannot be moved by noise", () => {
   assert.equal(stepContentMarkingMachine(restoring, "exit-begun").moved, false);
   assert.equal(stepContentMarkingMachine(CONTENT_MARKING_MACHINE_INITIAL, "exit-settled").moved, false);
   assert.equal(stepContentMarkingMachine(CONTENT_MARKING_MACHINE_INITIAL, "navigated").moved, false);
+});
+
+test("§3.2 wiring: the machine steps at content's routine boundaries and preview.exited is born at the exit routine", () => {
+  const contentMain = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
+  // Entry boundary captures the pre-disable enabled flag.
+  assert.match(
+    contentMain,
+    /stepContentMachine\(\s*nextMode === "compute_lock" \? "compute-lock-begun" : "preview-opened",\s*\{ enabledAtEntry: Boolean\(state\.enabled\) \}\s*\);/
+  );
+  // Exit routine: begin step + settled emissions at BOTH return points.
+  assert.match(contentMain, /stepContentMachine\("exit-begun"\);/);
+  assert.match(
+    contentMain,
+    /const emitPreviewExited = \(restored: boolean\) => \{\s*stepContentMachine\("exit-settled"\);[\s\S]{0,300}SIGNAL_NAMES\.PREVIEW_EXITED,\s*source: "content",\s*cause: "exit-routine"/
+  );
+  assert.match(contentMain, /emitPreviewExited\(true\);/);
+  assert.match(contentMain, /emitPreviewExited\(false\);/);
+  // Navigation + core lifecycle steps.
+  assert.match(contentMain, /stepContentMachine\("navigated"\);/);
+  assert.match(
+    contentMain,
+    /core\.setMarkingLifecycleReporter\(\(event\) => \{\s*stepContentMachine\(event === "enabled" \? "marking-enabled" : "marking-disabled"\);/
+  );
+  // The brain's EXITED ai-run event no longer doubles as the signal's
+  // birthplace — single birthplace at content's exit routine.
+  const brainSource = readFileSync(new URL("../src/background/brain/index.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(brainSource, /SIGNAL_NAMES\.PREVIEW_EXITED/);
 });
 
 test("navigation tears every routine down to silent", () => {

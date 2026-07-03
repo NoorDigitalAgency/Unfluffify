@@ -10579,6 +10579,26 @@ export function setUserMarkingEditSignalReporter(
   userMarkingEditSignalReporter = reporter;
 }
 
+// REFLEX-ARC P3 §3.2: the content marking machine (content-main) steps at
+// core's enable/disable completion points through this injected reporter —
+// the same provenance pattern as the marking-edit reporter above (core
+// cannot import content-main without a cycle).
+let markingLifecycleReporter: ((event: "enabled" | "disabled") => void) | null = null;
+
+export function setMarkingLifecycleReporter(
+  reporter: ((event: "enabled" | "disabled") => void) | null
+): void {
+  markingLifecycleReporter = reporter;
+}
+
+export function reportMarkingLifecycle(event: "enabled" | "disabled"): void {
+  try {
+    markingLifecycleReporter?.(event);
+  } catch {
+    // Machine stepping must never break enable/disable themselves.
+  }
+}
+
 export function markUserMarkingEdit(pageUrl: string | null | undefined): void {
   if (pageUrl) {
     state.userMarkingEditsByPageUrl.add(pageUrl);
@@ -11431,7 +11451,11 @@ export function disable(options = {}) {
       ? location.href
       : state.currentPageUrl);
   flushPendingTeardownPersistence(teardownBaseUrl, teardownConfig, teardownPageUrl);
+  const wasEnabled = state.enabled;
   state.enabled = false;
+  if (wasEnabled) {
+    reportMarkingLifecycle("disabled");
+  }
   state.baseUrl = "";
   state.currentPageType = "";
   state.config = null;
@@ -11538,6 +11562,7 @@ export async function enableForBaseUrl(baseUrl: string, options = {}) {
   state.pendingFreshBaselinePageUrl = pageUrl;
   await refreshPageSaveReconciliation(normalizedBaseUrl, pageUrl);
   state.enabled = true;
+  reportMarkingLifecycle("enabled");
 
   hideConsentOnEnable(pageUrl);
   if (isPageMotionPaused()) {

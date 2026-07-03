@@ -266,14 +266,10 @@ function mapAiRunEventToSignalEmit(
       payload: { origin: payload.origin ?? "post_ai" },
     };
   }
-  if (eventType === AI_RUN_EVENT_TYPES.EXITED) {
-    return {
-      name: SIGNAL_NAMES.PREVIEW_EXITED,
-      source: "brain",
-      cause: "ai-run.exited",
-      payload: { restored: true },
-    };
-  }
+  // REFLEX-ARC P3 §3.2: 'preview.exited' is born at CONTENT's exit routine
+  // return points (the restoring routine knows whether marking was actually
+  // restored) — the EXITED ai-run event still folds run state but no longer
+  // doubles as the signal's birthplace.
   return null;
 }
 

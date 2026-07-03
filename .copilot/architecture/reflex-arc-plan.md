@@ -494,11 +494,29 @@ properties, 7-minute windows, frames reviewed.
   transient isEnabled fact flap at +40s post-exit blinked the checkbox while
   every machine-owned field held; value flaps now render from memory.
   §3.2: configUpdated out-of-scope emission SHIPPED (handler dep
-  reportMarkingDisabled -> marking.disabled{cause:"config-out-of-scope"});
-  content machines + overlay memories NOT STARTED. The reconciling overlay
-  memory now NARRATES ("Server sync pending" curtain) — a 45s heavy-page
-  reconciliation with the old hidden-curtain memory read as the criterion-4
-  dead state.
+  reportMarkingDisabled -> marking.disabled{cause:"config-out-of-scope"}).
+  CONTENT MACHINE INTEGRATION SHIPPED (2026-07-03 afternoon): the machine
+  (content/marking-machine.ts — silent|marking|preview|compute_lock|
+  restoring with exit destinations memorized at entry) steps at content's
+  routine boundaries: beginAiPreviewMode (compute-lock/preview entry with
+  pre-disable enabledAtEntry capture), exitAiPreviewMode (exit-begun +
+  exit-settled at BOTH return points), URL-change teardown (navigated), and
+  core enable/disable completions via setMarkingLifecycleReporter (the
+  marking-edit provenance pattern). 'preview.exited' has its SINGLE
+  BIRTHPLACE at the exit routine's return points (payload
+  {restored, pageUrl}, cause "exit-routine"); the brain's EXITED ai-run
+  mapping is DELETED (the event still folds run state). LIVE: admitted 3.4s
+  after the exit click — after the restore actually settled — and the full
+  .no acceptance PASSED on the relocated signal (C3 Save/Discard 1.03s,
+  held, 2 post-exit transitions). content/overlay-memory.ts SHIPPED (frozen
+  per-state page-overlay inventory: curtain contents from established copy,
+  marking-paused class policy = previewing/restoring only). REMAINING §3.2:
+  the renderer swap (spinner-layer/pageCurtain path consuming the overlay
+  memory; brain broadcasts reduce to surface names) and the reader swap
+  (facts/response builders reading the machine instead of aiPreviewState's
+  loose flags). The reconciling POPUP overlay memory narrates ("Server sync
+  pending" curtain) — a 45s heavy-page reconciliation with the old
+  hidden-curtain memory read as the criterion-4 dead state.
   §3.4 acceptance: CLOSED (2026-07-03). bonliva.no 3x PASS (r3/r4/r5,
   per-frame, ~1500-1900 frames each, full 6-min windows, zero degrades,
   zero post-exit markings.changed) + bonliva.se/lediga-jobb PASS (se7,

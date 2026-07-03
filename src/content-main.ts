@@ -128,6 +128,11 @@ import { emitContentSignal, handleContentBusMessage, publishContentSessionFacts,
 import { normalizePageSaveReconciliationReason } from "./common/bus/contracts/session-state";
 import { SIGNAL_NAMES } from "./common/bus/contracts/signals";
 import {
+  CONTENT_MARKING_MACHINE_INITIAL,
+  stepContentMarkingMachine,
+  type ContentMarkingStep
+} from "./content/marking-machine";
+import {
   addContentDirectiveListener,
   isPageRevealFreezeActiveByDirective,
   isSilentHighlightActiveByDirective
@@ -680,6 +685,25 @@ function createAiPreviewState(): AiPreviewState {
 }
 
 let aiPreviewState = createAiPreviewState();
+
+// REFLEX-ARC P3 §3.2: the content marking machine — the executor-side record
+// of which routine owns the page (silent|marking|preview|compute_lock|
+// restoring) with the exit destination memorized at routine entry. It steps
+// at content's own routine boundaries; aiPreviewState keeps the presentation
+// data (items/xpaths) while the machine is the record of the ROUTINE. The
+// reader swap (facts/response builders reading the machine instead of the
+// loose flags) is the next §3.2 slice.
+let contentMarkingMachine = CONTENT_MARKING_MACHINE_INITIAL;
+
+function stepContentMachine(
+  step: ContentMarkingStep,
+  detail: { enabledAtEntry?: boolean } = {}
+): void {
+  const transition = stepContentMarkingMachine(contentMarkingMachine, step, detail);
+  if (transition.moved) {
+    contentMarkingMachine = transition.machine;
+  }
+}
 
 const contentMainServiceRegistry = createContentMainServiceRegistry({
   createPageToastClient: () => createPageToast(createPageToastDeps()),
@@ -3439,6 +3463,12 @@ function beginAiPreviewMode(options = {}) {
   const previewOptions = options as { mode?: unknown };
   const nextMode = typeof previewOptions.mode === "string" ? previewOptions.mode : "preview";
   const restoreMarkingOnExit = nextMode === "compute_lock";
+  // Machine step at the routine boundary — BEFORE core.disable() below so the
+  // entry memory captures whether marking was enabled at entry.
+  stepContentMachine(
+    nextMode === "compute_lock" ? "compute-lock-begun" : "preview-opened",
+    { enabledAtEntry: Boolean(state.enabled) }
+  );
   if (!aiPreviewState.active) {
     const previousPageUrl = location.href;
     aiPreviewState = {
@@ -3549,6 +3579,20 @@ async function exitAiPreviewMode() {
   const shouldRestoreMarking = Boolean(
     restoreState.previousEnabled || restoreState.restoreMarkingOnExit
   );
+  stepContentMachine("exit-begun");
+  // REFLEX-ARC P3 §3.2: 'preview.exited' is born HERE — the restoring
+  // routine's return points are the only place that knows the exit actually
+  // settled and whether marking was restored. (The brain's EXITED ai-run
+  // event no longer doubles as this signal's birthplace.)
+  const emitPreviewExited = (restored: boolean) => {
+    stepContentMachine("exit-settled");
+    void emitContentSignal({
+      name: SIGNAL_NAMES.PREVIEW_EXITED,
+      source: "content",
+      cause: "exit-routine",
+      payload: { restored, pageUrl: location.href }
+    });
+  };
   let restoredBaseUrl = restoreState.previousBaseUrl || state.baseUrl || "";
   if (
     shouldRestoreMarking &&
@@ -3625,6 +3669,7 @@ async function exitAiPreviewMode() {
       baseUrl: restoredBaseUrl,
       pageType: state.currentPageType || ""
     }).catch(() => null);
+    emitPreviewExited(true);
     return {
       active: false,
       markingEnabled: Boolean(state.enabled),
@@ -3641,6 +3686,7 @@ async function exitAiPreviewMode() {
   await refreshSilentHighlightings();
   resetAiPreviewState();
   publishAiPreviewSessionFacts();
+  emitPreviewExited(false);
   return {
     active: false,
     markingEnabled: Boolean(state.enabled),
@@ -7341,6 +7387,16 @@ export function main() {
   window.addEventListener(URL_CHANGED_EVENT, () => {
     resetPageVisitRevealFreezeKeys();
     runPropertyLockSync({ forceSiteIdRefresh: true });
+    // A navigation tears every routine down; the machine returns to silent
+    // (the activation flow re-enters marking on its own).
+    stepContentMachine("navigated");
+  });
+
+  // REFLEX-ARC P3 §3.2: the machine steps at core's enable/disable
+  // completion points (same injected-reporter pattern as the marking-edit
+  // provenance hook).
+  core.setMarkingLifecycleReporter((event) => {
+    stepContentMachine(event === "enabled" ? "marking-enabled" : "marking-disabled");
   });
 
   refreshSilentHighlightings().then();
