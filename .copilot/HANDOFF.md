@@ -13,20 +13,25 @@ SHIPPED RELEASES: 1.9.0 (978b00a) and 1.9.1 (bc58248 — fresh-install
 fixes: ghost-tab disposal + startup prune, detection-view prep-curtain
 suppression, domainId retry backoff; plus the Send to Lynx staleness-guard
 TEMP short-circuit 099fe12, live-verified submit).
-REMAINING §3.2 -> FOLD INTO P4: the overlay RENDERER swap. Analysis: the
-marking-paused class is BRAIN-DICTATED (getMarkingTemporarilyDisabledReason
--> getMarkingEditsBlockedReasonByDirective; reasons ai_run/saving/syncing
-composed by the view-projector), so swapping the renderer to
-content/overlay-memory.ts interlocks with P4's "brain broadcasts reduce to
-surface vocabulary" — do them together: brain sends surface names; content
-composes content from resolveContentOverlayMemory(machine state) +
-the reconciliation reasons (which stay separate: saving/syncing pauses are
-NOT the preview/restoring class policy). Then the aiPreviewState READER
-swap (facts/response builders read the machine record instead of the loose
-active/mode/previousEnabled/restoreMarkingOnExit flags).
-ALSO IN P4 (recorded): the bare RESULTS_APPLIED publisher (missing
-sessionId -> dedupeKey "" -> run.completed admitted twice, harmless);
-delete deriveDictation field truth + popup pushSpinner sites (P2 deferred).
+NEXT = P4 (the plan's §4, rewritten 2026-07-03 with the architect-approved
+ordered steps 4.0-4.5): the SPINNER MATRIX ORCHESTRATION COMPLETION — the
+final leg of "brain = signal authority + surface names; every layer renders
+spinners/curtains from its memorized matrix". Starts with 4.0 AI-RUN
+TIMEOUT SYNC (architect step): one source of truth for the run timeout
+shared by the actual abort deadline and every displayed countdown/copy
+(today: real deadlineAt ~14min vs hardcoded "Up to 8:00" fallback + "up to
+8 minutes" note). Then 4.1 content renderer swap (+4.2 broadcast reduction
+TOGETHER — the marking-paused class is brain-composed; reconciliation
+pauses stay separate from the previewing/restoring class policy), 4.3 popup
+old-plumbing deletion, 4.4 aiPreviewState reader swap, 4.5 the bare
+RESULTS_APPLIED publisher. Then the Send to Lynx staleness redesign (once
+the backend endpoint story settles), then P5, then P6 closure.
+RELEASES: 1.9.0 / 1.9.1 / 1.9.2 (3ac124d — icons incl. active set,
+pageTypeAssignments flag, detection->reveal/freeze handoff fixed
+(unconditional inspection-end at Set + candidacy protocol collapse),
+silent_exit_restoring). The reveal/freeze contract verified end-to-end on
+sverigesskonhetscenter.se after the candidacy fix (the http:// root
+candidate vetoed pageTypeUiBlocked -> no directive -> no ritual).
 
 ## 2026-07-03 MORNING SESSION — three live-caught fixes (read before P3 §3.2)
 

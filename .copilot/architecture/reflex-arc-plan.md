@@ -331,26 +331,51 @@ overlays render only their state memories (frame review).
 
 ---
 
-## 4. PHASE 4 — BRAIN SLIMMING (decision core + observation)
+## 4. PHASE 4 — BRAIN SLIMMING + SPINNER MATRIX ORCHESTRATION COMPLETION
 
-- decideSessionPhase stays (observation -> decision). deriveDictation is
-  DELETED; `session.dictationUpdated` carries {phase, signalHead:seq} only.
-- spinner-authority projection reduces to surface vocabulary (which surfaces
-  are engaged per phase); ALL text/timer content is layer memory by now.
+The final leg of the program's core concept: brain = pure signal authority +
+surface names; every layer renders spinners/curtains from its memorized
+matrix. Ordered steps (architect-approved order, 2026-07-03):
+
+- 4.0 AI-RUN TIMEOUT SYNC (architect step): ONE source of truth for the AI
+  run timeout minutes shared by (a) the ACTUAL run timeout/abort deadline
+  and (b) every spinner countdown/narration that displays it. Today they
+  diverge: the run's real deadline (deadlineAt, ~14min observed on .se)
+  drives the machine countdown, while the compute-preparing fallback shows a
+  hardcoded "Up to 8:00" and PopupText.overlay.computingSelectorsNote says
+  "up to 8 minutes". Define the timeout constant once (shared contract),
+  derive deadlineAt AND all displayed copy/countdown fallbacks from it.
+- 4.1 CONTENT RENDERER SWAP: the page overlay renderer (spinner-layer /
+  content-bus-client pageCurtain path / marking-paused class) consumes
+  resolveContentOverlayMemory(machine state) — content/overlay-memory.ts is
+  already written and tested. MUST land together with 4.2 (the
+  marking-paused class is currently brain-composed; the reconciliation
+  saving/syncing pauses stay separate from the previewing/restoring class
+  policy).
+- 4.2 BRAIN BROADCAST REDUCTION: spinner-authority projection reduces to
+  surface vocabulary (which surfaces are engaged per state); ALL text/timer
+  content is layer memory. deriveDictation is DELETED;
+  `session.dictationUpdated` carries {phase, signalHead:seq} only.
+- 4.3 POPUP OLD-PLUMBING DELETION (deferred P2 cleanup): pushSpinner call
+  sites + superseded dictation derivations are REMOVED (not overridden);
+  the machine matrix is the popup's sole spinner authority.
+- 4.4 aiPreviewState READER SWAP: facts/response builders read the content
+  machine record instead of the loose active/mode/previousEnabled/
+  restoreMarkingOnExit flags.
+- 4.5 SIGNAL HYGIENE: the bare RESULTS_APPLIED publisher (missing sessionId
+  -> dedupeKey "" -> run.completed admitted twice) is enriched or dropped at
+  the subscription.
 - The fold pipeline keeps: sticky facts, popup-authority
   (omitContentMarkingSessionFacts), the seq stale-report guard — these protect
   OBSERVATION and stay permanently (as do the popup's epoch/latch publish
   guards from 2026-07-03).
-- Brain emits remaining decision signals from its deciders where phase
-  changes imply them (e.g. reconciliation.started/ended from the save
-  lifecycle events it already folds).
 - Deletions: dictation-decider button/curtain code + tests (replaced in P2),
   view-projector fields consumed by no one, VIEW_UPDATED storm triggers that
   existed only to re-derive presentation.
 
 Acceptance: gate + live full-flow on both properties; trace shows dictation
 payloads reduced to phase+seq; no VIEW_UPDATED-driven re-renders of machine
-surfaces.
+surfaces; the displayed run countdown always equals the actual timeout.
 
 ---
 
