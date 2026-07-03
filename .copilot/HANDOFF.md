@@ -13,19 +13,32 @@ SHIPPED RELEASES: 1.9.0 (978b00a) and 1.9.1 (bc58248 — fresh-install
 fixes: ghost-tab disposal + startup prune, detection-view prep-curtain
 suppression, domainId retry backoff; plus the Send to Lynx staleness-guard
 TEMP short-circuit 099fe12, live-verified submit).
-NEXT = P4 (the plan's §4, rewritten 2026-07-03 with the architect-approved
-ordered steps 4.0-4.5): the SPINNER MATRIX ORCHESTRATION COMPLETION — the
-final leg of "brain = signal authority + surface names; every layer renders
-spinners/curtains from its memorized matrix". Starts with 4.0 AI-RUN
-TIMEOUT SYNC (architect step): one source of truth for the run timeout
-shared by the actual abort deadline and every displayed countdown/copy
-(today: real deadlineAt ~14min vs hardcoded "Up to 8:00" fallback + "up to
-8 minutes" note). Then 4.1 content renderer swap (+4.2 broadcast reduction
-TOGETHER — the marking-paused class is brain-composed; reconciliation
-pauses stay separate from the previewing/restoring class policy), 4.3 popup
-old-plumbing deletion, 4.4 aiPreviewState reader swap, 4.5 the bare
-RESULTS_APPLIED publisher. Then the Send to Lynx staleness redesign (once
-the backend endpoint story settles), then P5, then P6 closure.
+P4 (SPINNER MATRIX ORCHESTRATION COMPLETION): ALL SIX CODE STEPS SHIPPED
+2026-07-03 evening, each gate-green + review-pushed — 4.0 timeout sync
+(2573d66: AI_RUN_DEFAULT_TIMEOUT_MS/_MINUTES + countdown fallback derive
+from one contract; REMOTE_WAIT definition tied to it), 4.5 signal hygiene
+(74b4c6c+0eafd74: popup RESULTS_APPLIED carries sessionId), 4.1+4.2a
+(52ca991: the spinner wire is surface vocabulary only {kind, phase,
+startedAt, deadlineAt, operationId, reason?, spinnerKey?}; popup resolves
+via the shared phase-definition table with machine memories overriding
+downstream; content resolves machine overlay memory FIRST then the table;
+marking-paused class = machine memory first, directive reconciliation
+reasons fallback; page-block fail-open + re-broadcast cadence unchanged;
+LIVE COPY NOTE: the page-block notice during remote wait now reads
+"Waiting for AI results" unless the machine owns the curtain), 4.2b
+(ca7075f: deriveDictation DELETED, dictation = {phase} pointer — the
+machine memories were already the live button/curtain authority via the
+P2 override; local derivations remain UNDER them until P5), 4.3 (1d54697:
+src/popup/spinner.ts DELETED — no popup-local spinner state; ops hold
+broker LEASES via runWithBrainSpinnerLease; navInspect single-writer =
+the brain's lifecycle selection, gates observe the broadcast), 4.4
+(b905ff0: machineOwnsPreviewRoutine() + resolveContentExitDestination()
+are the routine readers; re-entrant exit during restore no-ops).
+NEXT = P4 LIVE ACCEPTANCE (full-flow on both properties — every overlay
+changed authority, so run: fresh-page ritual, marking, AI run incl.
+curtain copy + countdown vs actual timeout, preview open/exit both
+origins, save flows), then Send to Lynx staleness redesign (once the
+backend endpoint story settles), then P5, then P6 closure.
 RELEASES: 1.9.0 / 1.9.1 / 1.9.2 (3ac124d — icons incl. active set,
 pageTypeAssignments flag, detection->reveal/freeze handoff fixed
 (unconditional inspection-end at Set + candidacy protocol collapse),

@@ -337,6 +337,18 @@ The final leg of the program's core concept: brain = pure signal authority +
 surface names; every layer renders spinners/curtains from its memorized
 matrix. Ordered steps (architect-approved order, 2026-07-03):
 
+STATUS 2026-07-03: ALL SIX STEPS SHIPPED (each gate-green + review-pushed):
+4.0=2573d66, 4.5=74b4c6c+0eafd74, 4.1+4.2a=52ca991 (spinner wire reduced to
+{kind, phase, startedAt, deadlineAt, operationId, reason?, spinnerKey?};
+layers resolve presentation locally), 4.2b=ca7075f (deriveDictation DELETED;
+dictation = {phase} — signalHead deferred until a consumer exists),
+4.3=1d54697 (src/popup/spinner.ts deleted; popup ops hold brain broker
+LEASES; navInspect single-writer = brain lifecycle selection),
+4.4=b905ff0 (machineOwnsPreviewRoutine()/resolveContentExitDestination are
+the routine readers; aiPreviewState = presentation data only).
+REMAINING FOR PHASE CLOSE: the live full-flow acceptance round on both
+properties (below).
+
 - 4.0 AI-RUN TIMEOUT SYNC (architect step): ONE source of truth for the AI
   run timeout minutes shared by (a) the ACTUAL run timeout/abort deadline
   and (b) every spinner countdown/narration that displays it. Today they
