@@ -124,8 +124,9 @@ import { createPageSaveReconciliationClearHandler } from "./content/page-save-re
 import { createPageSaveReconciliationPendingHandler } from "./content/page-save-reconciliation-pending-handler";
 import { initializePageWorldRelay } from "./content/page-world-relay";
 import { createPageToast } from "./content/page-toast";
-import { handleContentBusMessage, publishContentSessionFacts, startContentBusClient } from "./content/layers/content-bus-client";
+import { emitContentSignal, handleContentBusMessage, publishContentSessionFacts, startContentBusClient } from "./content/layers/content-bus-client";
 import { normalizePageSaveReconciliationReason } from "./common/bus/contracts/session-state";
+import { SIGNAL_NAMES } from "./common/bus/contracts/signals";
 import {
   addContentDirectiveListener,
   isPageRevealFreezeActiveByDirective,
@@ -6490,6 +6491,14 @@ function createConfigUpdatedHandlerDeps(): ConfigUpdatedHandlerDeps {
   return {
     clearAiPreviewState,
     disable: () => core.disable(),
+    reportMarkingDisabled: (cause: string) => {
+      void emitContentSignal({
+        name: SIGNAL_NAMES.MARKING_DISABLED,
+        source: "content",
+        cause,
+        payload: { pageUrl: location.href }
+      });
+    },
     findPageMarkingEntry: (
       configValue: Parameters<ConfigUpdatedHandlerDeps["findPageMarkingEntry"]>[0],
       pageUrl: string,

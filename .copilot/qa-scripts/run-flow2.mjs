@@ -301,7 +301,9 @@ async function main() {
     await waitFor("preview open (previewActive=true)", async () => {
       const v = await viewstate(popup);
       return v && v.previewActive ? v : null;
-    }, RESUME ? 600000 : 360000, 500);
+    // Heavy pages (bonliva.se/lediga-jobb) run ~14min AI deadlines; 6min
+    // here produced a false FATAL on a healthy in-flight run.
+    }, 600000, 500);
     return Date.now();
   })();
   samplerPhase = "hydration";

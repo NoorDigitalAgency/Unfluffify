@@ -185,6 +185,15 @@ test("full-surface memories are complete, frozen, and faithful to the steady mat
     );
     assert.ok(memory.curtain, `${name} owns its curtain`);
   }
+  // Overlay states NARRATE: a blocking overlay with a hidden curtain reads as
+  // the criterion-4 dead state (all locked, no explanation). Live-caught: a
+  // 45s save reconciliation on the heavy page with the old hidden-curtain
+  // reconciling memory.
+  const reconciling = resolveMarkingSessionSurfaceMemory("reconciling");
+  assert.equal(reconciling.curtain?.visible, true);
+  assert.equal(reconciling.curtain && "message" in reconciling.curtain ? reconciling.curtain.message : "", "Server sync pending");
+  const inspecting = resolveMarkingSessionSurfaceMemory("inspecting");
+  assert.equal(inspecting.curtain?.visible, true);
   // The running curtain narrates from memory with the machine countdown.
   const running = resolveMarkingSessionSurfaceMemory("running");
   assert.deepEqual(running.curtain, {

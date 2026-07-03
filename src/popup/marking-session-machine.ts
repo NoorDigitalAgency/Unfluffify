@@ -466,11 +466,23 @@ export const MARKING_SESSION_SURFACE_MEMORY: Readonly<
     } as const),
     toggleChecked: null
   }),
+  // Reconciling NARRATES: a save reconciliation can run 45s+ on heavy pages
+  // (live-caught on bonliva.se/lediga-jobb) and an all-locked surface with a
+  // hidden curtain reads as the criterion-4 dead state (silent + disabled
+  // toggle, no explanation). Every blocking state explains itself from
+  // memory; the copy is the established server-sync product language.
   reconciling: Object.freeze({
     buttons: ALL_ACTIONS_LOCKED,
     mode: null,
     pageSaveBlockedReason: "server_sync_pending",
-    curtain: HIDDEN_CURTAIN,
+    curtain: Object.freeze({
+      visible: true,
+      message: "Server sync pending",
+      note: "Finish server sync before editing",
+      operation: "busy",
+      phase: "loading",
+      timer: null
+    } as const),
     toggleChecked: null
   })
 });

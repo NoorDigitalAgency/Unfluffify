@@ -493,8 +493,38 @@ properties, 7-minute windows, frames reviewed.
   marking-session states true, silent false, boot/overlays null): a
   transient isEnabled fact flap at +40s post-exit blinked the checkbox while
   every machine-owned field held; value flaps now render from memory.
-  §3.2 content machines + overlay memories + configUpdated emission: NOT
-  STARTED. §3.4 acceptance: in flight (r3, per-frame, full flow on .no).
+  §3.2: configUpdated out-of-scope emission SHIPPED (handler dep
+  reportMarkingDisabled -> marking.disabled{cause:"config-out-of-scope"});
+  content machines + overlay memories NOT STARTED. The reconciling overlay
+  memory now NARRATES ("Server sync pending" curtain) — a 45s heavy-page
+  reconciliation with the old hidden-curtain memory read as the criterion-4
+  dead state.
+  §3.4 acceptance: bonliva.no 3x PASS (r3/r4/r5, per-frame, ~1500-1900
+  frames each, full 6-min windows, zero degrades, zero post-exit
+  markings.changed). bonliva.se/lediga-jobb leg BLOCKED by FINDING-3
+  (its popup-side variant, now precisely traced): preview opened
+  pending:true, then ONE render later (+911ms) the popup showed
+  settled-empty (items:0, pending:false) and held it 8+s while content was
+  still hydrating 1709 items; items landed and STAYED afterwards
+  (showAllCategories:false — the default set itself is 1709). Content-side
+  is PROVEN airtight: the getAiPreviewState snapshot builds atomically
+  (items+itemsPending in one sync block), and instrumented polling showed
+  content's main thread BLOCKS for seconds during the collect (probes stall
+  and answer post-hydration with full items; the popup probe's 3s timeout
+  returns null -> probeOk:false -> cannot settle). The false settle
+  therefore enters through a popup-side feed treating a pre-hydration/stale
+  state as settled — start at resolveOpenPreviewItems' feeds
+  (probe path popup.ts~4421, push path ~8175, snapshot re-render ~8889) and
+  the previewSessionSettledEmpty reset discipline at preview open.
+  ALSO NOTED: run.completed admitted twice (seq 15/16, .se run 09:56:08) —
+  one RESULTS_APPLIED publisher omits sessionId so its dedupeKey is "";
+  harmless downstream (run.completed maps to no transition) but the bare
+  publisher should be enriched or dropped at the subscription.
+  ALSO: the product AI-run timeout on the heavy page (~14min deadline)
+  exercised run-failed live: machine running->pre_ai_dirty, curtain cleared,
+  requires_ai_run narration, Run AI re-enabled — correct recoverable state.
+  Harness preview-open budget raised to 10min for ALL runs (a healthy .se
+  run took 7.8min; the old 6min budget produced a false FATAL).
 - P4 brain slimming: NOT STARTED
 - P5 refresh reduction: NOT STARTED
 - P6 finalization (#5/#14 closure + review-push): NOT STARTED

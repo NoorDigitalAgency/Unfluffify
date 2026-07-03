@@ -36,6 +36,7 @@ function createDeps(overrides = {}) {
     refreshPageSaveReconciliation: async (baseUrl, pageUrl) =>
       calls.push(["refreshPageSaveReconciliation", baseUrl, pageUrl]),
     refreshEnabledAiHighlights: () => calls.push(["refreshEnabledAiHighlights"]),
+    reportMarkingDisabled: (cause) => calls.push(["reportMarkingDisabled", cause]),
     refreshSilentHighlightings: () => {
       calls.push(["refreshSilentHighlightings"]);
       return Promise.resolve();
@@ -233,6 +234,9 @@ test("configUpdated out-of-scope update clears preview, disables marking, and sy
   assert.deepEqual(deps.calls, [
     ["clearAiPreviewState"],
     ["disable"],
+    // REFLEX-ARC P3 §3.2: the hard-disable decision is BORN as a signal with
+    // provenance — never applied silently outside the machines.
+    ["reportMarkingDisabled", "config-out-of-scope"],
     ["refreshSilentHighlightings"],
     ["runPropertyLockSync", { forceSiteIdRefresh: true }]
   ]);

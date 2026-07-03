@@ -25,6 +25,10 @@ type ConfigUpdatedHandlerDeps = {
   notifyDraftStatus: (pageUrl: string) => void;
   clearAiPreviewState: () => void;
   disable: () => void;
+  // REFLEX-ARC P3 §3.2: an out-of-scope configUpdated hard-disables marking;
+  // that decision must be BORN as a signal (marking.disabled with
+  // provenance), never applied silently outside the machines.
+  reportMarkingDisabled: (cause: string) => void;
   refreshSilentHighlightings: () => Promise<unknown>;
   isAiPreviewActive: () => boolean;
   isEnabled: () => boolean;
@@ -110,6 +114,7 @@ export function createConfigUpdatedHandler(deps: ConfigUpdatedHandlerDeps) {
     deps.clearAiPreviewState();
     if (deps.isEnabled()) {
       deps.disable();
+      deps.reportMarkingDisabled("config-out-of-scope");
     }
     deps.refreshSilentHighlightings().then();
     deps.runPropertyLockSync({ forceSiteIdRefresh: true });

@@ -42,6 +42,26 @@ emission), then §3.4 remaining acceptance repeats (3x .no / 1x .se).
    Live-QA pitfalls (wedged popup tabs, beforeunload-blocked CDP, isolated
    world listener enumeration) are recorded in knowledge.md §Testing.
 
+## §3.4 STATUS + THE ONE OPEN BLOCKER (FINDING-3, popup-side variant)
+
+bonliva.no acceptance: 3x PASS (r3/r4/r5 — per-frame, 6-min windows, zero
+degrades, zero post-exit markings.changed). The reconciling overlay now
+NARRATES ("Server sync pending") after a 45s heavy-page reconciliation with
+the old hidden-curtain memory read as the criterion-4 dead state at baseline.
+The .se/lediga-jobb leg is BLOCKED by FINDING-3 with a precise trace (see the
+plan §8 P3 entry): preview opened pending:true, +911ms later the popup
+rendered settled-empty and HELD it while content was still hydrating 1709
+items (they landed and stayed ~10s later; showAllCategories:false). Content
+is PROVEN airtight (atomic snapshot; main thread blocks during collect;
+probe timeout returns null and cannot settle) — the false settle enters
+through a popup-side feed: start at resolveOpenPreviewItems' three feeds
+(probe ~4421, push ~8175, re-render ~8889) and the previewSessionSettledEmpty
+reset discipline at preview open. Also: one RESULTS_APPLIED publisher omits
+sessionId (dedupeKey "" -> run.completed admitted twice, harmless but fix at
+the subscription); the product 14-min .se run timeout exercised run-failed
+live and the machine recovered exactly per table (pre_ai_dirty +
+requires_ai_run + Run AI re-enabled).
+
 P0 closing live results (pressure runs on bonliva.se/lediga-jobb, per-frame):
 - Pressure-1 exposed the last list bug: a stale pre-open/compute_lock probe
   response armed the settled-empty memory 100ms after preview open while
