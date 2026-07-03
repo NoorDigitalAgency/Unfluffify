@@ -120,6 +120,17 @@ test("P1 wiring source contracts", () => {
   assert.match(brainSource, /bus\.publish\(SIGNAL_EVENT_TYPES\.EMITTED, admission\.frame, \{ target, tab: tabId \}\)/);
   assert.match(brainSource, /persistSignalLogSoon\(\);/);
 
+  // Brain: reconciliation + inspection signals are born at the brain's OWN
+  // fold edges (its decision is the source of truth for these).
+  assert.match(
+    brainSource,
+    /next\.facts\.pageSaveReconciliationPending !== wasReconciliationPending[\s\S]{0,400}SIGNAL_NAMES\.RECONCILIATION_STARTED[\s\S]{0,120}SIGNAL_NAMES\.RECONCILIATION_ENDED[\s\S]{0,200}cause: "save-lifecycle"/
+  );
+  assert.match(
+    brainSource,
+    /isInspecting !== wasInspecting[\s\S]{0,300}SIGNAL_NAMES\.INSPECTION_STARTED : SIGNAL_NAMES\.INSPECTION_ENDED[\s\S]{0,200}cause: "render-mode-inspection-phase"/
+  );
+
   // Background: marking activate/deactivate acks emit.
   assert.match(backgroundSource, /SIGNAL_NAMES\.MARKING_ENABLED,\s*source: "brain",\s*cause: "activate-command-ok"/);
   assert.match(backgroundSource, /SIGNAL_NAMES\.MARKING_DISABLED,\s*source: "brain",\s*cause: "deactivate-command-ok"/);
