@@ -67,7 +67,7 @@ test("a successful AI run captures the markings fingerprint", () => {
     /function applyComputedSelectorSet\([\s\S]*?\n\}\n\n/
   )[0];
   assert.match(fnBody, /captureAiRunMarkingsFingerprint\(\);/);
-  assert.match(fnBody, /publishCurrentTabAiRunEvent\(AI_RUN_EVENT_TYPES\.RESULTS_APPLIED\);/);
+  assert.match(fnBody, /publishCurrentTabAiRunEvent\(AI_RUN_EVENT_TYPES\.RESULTS_APPLIED, \{\s*sessionId: state\.aiRunSessionId \|\| ""\s*\}\);/);
   assert.doesNotMatch(fnBody, /markSessionAiRunPostAi\(\);/);
 });
 
