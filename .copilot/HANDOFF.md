@@ -42,26 +42,45 @@ emission), then §3.4 remaining acceptance repeats (3x .no / 1x .se).
    Live-QA pitfalls (wedged popup tabs, beforeunload-blocked CDP, isolated
    world listener enumeration) are recorded in knowledge.md §Testing.
 
-## TARGETED COLD REVEAL (architect-directed, shipped 2026-07-03 late morning)
+## THE REVEAL/FREEZE CONTRACT (architect-clarified + shipped 2026-07-03)
 
-The cold silent/editor reveal no longer walks the whole page: it stops as soon
-as every SAVED mark xpath resolves (buildSilentRevealXpathStopCheck ->
-RevealPageContentOptions.shouldStopEarly), and a page with no saved marks
-skips the walk outright (freeze still engages and holds exactly as before;
-the early stop hands off into the same lazy-load suppression). The
-render-mode inspection's own warmup intentionally keeps the FULL reveal (its
-HTML capture needs the complete page) — pinned by test. Live cold/warm
-protocol on bonliva.se/lediga-jobb (per the architect: observe fresh page on
-newly loaded extension = COLD, then refresh same page = WARM):
-- COLD (no synced page entry yet): NO walk at all — frozen from load at the
-  page's native size; editor sync + 2 render-mode inspections completed in
-  ~19s, zero DOM growth over a 120s watch, all signal pairs closed.
-- WARM (entry synced by the cold pass): targeted walk stopped at the deepest
-  saved mark (~8.3k of a 9.5k+ page, 4-5 passes), nodes 4039->5486,
-  docH 5178->10506, frozen at +16s. OLD behavior: full walk to the bottom
-  with docH growing to 24k-35k and nodes ->8966.
-Measurement pitfalls recorded in knowledge.md (attach the DOM sampler BEFORE
-navigation; a popup must exist for the brain to drive the tab's directives).
+One reveal/freeze ritual per page visit — immediately at page-load complete,
+or immediately after render-mode detection exits. The ritual: (0) smooth
+scroll to top; (1) walk down; (2) at 50% of the INITIAL scroll height the
+LAZYLOADING freeze (suppression) engages — max ONE lazy expansion for the
+whole ritual, and if the page expands during the 0->50% sweep, that was the
+one; (3) arrive at the bottom, wait for the expansion; (4) scroll to the new
+bottom, wait — no further expansions may occur; (5) the PAGE FREEZE (full
+motion pause) engages AT THE ABSOLUTE BOTTOM, never earlier; (6) the return
+scroll to origin happens under the freeze. The full scroll to the true
+bottom is never neglected (a saved-marks early-stop and an initial-extent
+clamp were both tried and rejected — reverted).
+
+WHY IT WAS BROKEN (cold only, worked hot): three revocation paths released
+the page-world lazy-load lock mid-walk (100ms traces caught sup:false at
++10.9s with six extra expansions, 3.8k->12.5k..29k px):
+1. Overlapping rituals: the warmup id-bump abort made the dying walk's
+   cleanup release the lock under the survivor -> warmups now JOIN the one
+   in-flight ritual (pageRevealWarmupInFlight; runJoinedPageRevealWarmup).
+2. Release ownership: a walk that skipped engagement (lock already held)
+   released it on abort -> only the walk that ENGAGED the lock may release
+   (reveal finally gated on its own restorer).
+3. Unpaused subsystem resume: resumePageMotion/resumeAllPageMotion with no
+   active pauseState unconditionally restored suppression -> gated on
+   pageRevealWarmupInFlight.
+Plus the freeze ordering fix: pauseAtBottom hook fires at the walk's
+absolute bottom (before the return scroll); warmups pass their
+pausePageMotion(reason) through it (fallback pause if the walk never ran).
+
+VERIFIED LIVE (bonliva.se/lediga-jobb, 100ms page-world traces, both arms):
+COLD: sweep to exactly 50% (y=2073), ONE expansion (5105->7410), sup:true
+at +3.9s and never revoked, suppressed walk to the exact bottom (y=6482 =
+h-viewport), h frozen (7442; zero post-suppression expansions), p:true AT
+the bottom (+8.0s), frozen return to origin; ritual ~7.4s total. WARM
+(refresh): identical shape (50%=2099, one expansion 5158->7442, bottom
+6482, freeze at bottom, return frozen). Both arms converge on h=7442 vs the
+broken 12.5k-29k. Measurement pitfalls in knowledge.md (attach the sampler
+BEFORE navigation; keep a popup in both arms).
 
 ## §3.4 STATUS + THE ONE OPEN BLOCKER (FINDING-3, popup-side variant)
 

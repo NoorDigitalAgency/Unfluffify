@@ -130,9 +130,14 @@ export const state: PopupState = {
   // on the first non-empty hydration; previewItemsLatched holds the last
   // non-empty list. Both reset on open and on close.
   previewSessionHadItems: false,
-  // A settled no-detections feed arrived for this session (never-hydrated):
-  // re-renders keep showing the genuine empty state instead of "loading".
+  // A CONFIRMED settled no-detections verdict for this session (never
+  // hydrated): re-renders keep showing the genuine empty state instead of
+  // "loading". Arming requires qualifying feed observations sustained across
+  // the confirmation window (previewSettledEmptyCandidateAt tracks the first
+  // sighting) — a single transient settled-empty snapshot mid-hydration must
+  // never flip the surface to "No content detected" (FINDING-3).
   previewSessionSettledEmpty: false,
+  previewSettledEmptyCandidateAt: 0,
   previewItemsLatched: [],
   // Snapshot of marking-session state captured before opening Preview Content.
   // Exit Preview restores this snapshot to keep button gating state-neutral.

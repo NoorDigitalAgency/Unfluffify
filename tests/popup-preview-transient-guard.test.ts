@@ -150,14 +150,34 @@ test("applyAiPreviewStateUpdate: a non-empty push replaces the shown list", () =
 // established list back to empty mid-session, regardless of which racy source
 // (probe or push) delivers a transient/stale empty snapshot.
 function makeLatchContext() {
+  let nowMs = 100_000;
   const context = {
-    module: { exports: {} as { resolveOpenPreviewItems?: (items: unknown[], settled: boolean) => { items: unknown[]; pending: boolean } } },
+    module: {
+      exports: {} as {
+        resolveOpenPreviewItems?: (
+          items: unknown[],
+          settled: boolean,
+          isFeedObservation?: boolean
+        ) => { items: unknown[]; pending: boolean };
+      }
+    },
     exports: {},
-    state: { previewSessionHadItems: false, previewItemsLatched: [] as unknown[] },
-    Array
+    state: {
+      previewSessionHadItems: false,
+      previewItemsLatched: [] as unknown[],
+      previewSessionSettledEmpty: false,
+      previewSettledEmptyCandidateAt: 0
+    },
+    Array,
+    Date: { now: () => nowMs },
+    PREVIEW_SETTLED_EMPTY_CONFIRM_MS: 3000
   };
   runInNewContext(compilePreviewFns(["resolveOpenPreviewItems"]), context);
-  return { resolve: context.module.exports.resolveOpenPreviewItems!, state: context.state };
+  return {
+    resolve: context.module.exports.resolveOpenPreviewItems!,
+    state: context.state,
+    advance: (ms: number) => { nowMs += ms; }
+  };
 }
 
 test("resolveOpenPreviewItems: first non-empty hydration latches the list", () => {
@@ -180,16 +200,58 @@ test("resolveOpenPreviewItems: an empty snapshot after items keeps the latched l
   assert.equal(pendingEmpty.pending, false);
 });
 
-test("resolveOpenPreviewItems: empty while never-had-items shows loading vs genuine no-content", () => {
+test("resolveOpenPreviewItems: empty while never-had-items shows loading vs CONFIRMED no-content", () => {
   const loading = makeLatchContext();
   const r1 = loading.resolve([], false); // still hydrating
   assert.equal(r1.items.length, 0);
   assert.equal(r1.pending, true, "pending: loading state, not 'no content detected'");
 
+  // "No content detected" is a destructive verdict: a single settled-empty
+  // observation only ARMS a candidate (the surface keeps loading); it is
+  // confirmed only when qualifying observations still hold after the window.
   const genuine = makeLatchContext();
-  const r2 = genuine.resolve([], true); // settled with no detections
-  assert.equal(r2.items.length, 0);
-  assert.equal(r2.pending, false, "settled empty: genuine no-content");
+  const first = genuine.resolve([], true);
+  assert.equal(first.pending, true, "first settled-empty sighting keeps loading");
+  genuine.advance(3000);
+  const confirmed = genuine.resolve([], true);
+  assert.equal(confirmed.items.length, 0);
+  assert.equal(confirmed.pending, false, "sustained settled empty: genuine no-content");
+  assert.equal(genuine.state.previewSessionSettledEmpty, true);
+});
+
+test("resolveOpenPreviewItems: a transient settled-empty mid-hydration cannot flip the surface (FINDING-3)", () => {
+  // The .se acceptance trace: preview opened pending, +911ms later ONE feed
+  // claimed settled-empty while content was still hydrating 1709 items, and
+  // the old latch showed "No content detected" until the items landed.
+  const ctx = makeLatchContext();
+  assert.equal(ctx.resolve([], false).pending, true, "open: loading");
+  ctx.advance(911);
+  const poison = ctx.resolve([], true); // the lying feed
+  assert.equal(poison.pending, true, "single settled-empty: still loading");
+  ctx.advance(1000);
+  // A pending/uncertain observation (probe timeout, mid-hydration snapshot)
+  // contradicts and clears the candidate.
+  assert.equal(ctx.resolve([], false).pending, true);
+  assert.equal(ctx.state.previewSettledEmptyCandidateAt, 0, "candidate cleared");
+  ctx.advance(8000);
+  const hydrated = ctx.resolve(ITEMS, true);
+  assert.equal(hydrated.items.length, 5, "items land and latch normally");
+  assert.equal(hydrated.pending, false);
+  assert.equal(ctx.state.previewSessionSettledEmpty, false, "never falsely settled");
+});
+
+test("resolveOpenPreviewItems: latch READS do not step the confirmation window", () => {
+  const ctx = makeLatchContext();
+  ctx.resolve([], true); // arm candidate via a feed
+  ctx.advance(4000);
+  // Snapshot re-renders read the (unarmed) latch with settled=false — they
+  // must neither clear the candidate nor confirm it.
+  const read = ctx.resolve([], false, false);
+  assert.equal(read.pending, true);
+  assert.ok(ctx.state.previewSettledEmptyCandidateAt > 0, "candidate survives latch reads");
+  const confirmed = ctx.resolve([], true); // next real feed confirms (window elapsed)
+  assert.equal(confirmed.pending, false);
+  assert.equal(ctx.state.previewSessionSettledEmpty, true);
 });
 
 // Source contract for the refreshUi transient guard: the probe is item-only, the

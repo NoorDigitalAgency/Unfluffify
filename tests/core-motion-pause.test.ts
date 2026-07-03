@@ -735,6 +735,11 @@ test("page inspection reveal still scrolls on pages without vertical scroll room
 });
 
 test("page inspection reveal repeats bottom scrolls while lazy layout growth increases scroll range", async () => {
+  // THE REVEAL/FREEZE CONTRACT (architect, 2026-07-03): the walk arrives at
+  // the bottom, waits for the ONE allowed expansion, then scrolls to the NEW
+  // bottom — the full scroll to the true bottom is never neglected. (The
+  // "no more expansions" half of the contract is the lazy-load suppression's
+  // job; here the fake page expands once.)
   const dom = installMotionDom();
   dom.html.clientHeight = 500;
   dom.html.scrollHeight = 1000;
@@ -771,6 +776,103 @@ test("page inspection reveal repeats bottom scrolls while lazy layout growth inc
   } finally {
     dom.restore();
   }
+});
+
+test("the page freeze engages at the ABSOLUTE BOTTOM of the walk, before the return scroll", async () => {
+  // Contract addition (architect, 2026-07-03): the full motion pause — not
+  // the lazy-load suppression — must happen while the page rests at its
+  // fully revealed bottom, never after scrolling back.
+  const dom = installMotionDom();
+  dom.html.clientHeight = 500;
+  dom.html.scrollHeight = 2000;
+  dom.body.clientHeight = 500;
+  dom.body.scrollHeight = 2000;
+  dom.window.innerHeight = 500;
+  const bottomY = 2000 - dom.window.innerHeight;
+  let pausedAtY = -1;
+  let scrollsAtPause = -1;
+  try {
+    const inspected = await revealPageContentBeforeMotionPause(
+      "both",
+      10,
+      0,
+      () => true,
+      {
+        scrollEndTimeoutMs: 0,
+        pauseAtBottom: () => {
+          pausedAtY = dom.window.scrollY;
+          scrollsAtPause = dom.scrollCalls.length;
+        }
+      }
+    );
+    assert.equal(inspected, true);
+    assert.equal(pausedAtY, bottomY, "freeze hook fired at the absolute bottom");
+    assert.equal(dom.scrollCalls.at(-1).y, 0, "return scroll still happens (after the freeze)");
+    assert.ok(
+      scrollsAtPause < dom.scrollCalls.length,
+      "the return scroll came after the freeze hook"
+    );
+  } finally {
+    dom.restore();
+  }
+});
+
+test("an aborted reveal never releases a lazy-load lock it did not engage (ownership)", async () => {
+  // Cold-phase trace (2026-07-03, bonliva.se/lediga-jobb): a superseded walk's
+  // cleanup released the page-world lazy-load lock while the surviving walk
+  // kept scrolling — sup flipped false mid-walk and the page expanded six
+  // more times. Only the walk that ENGAGED the lock may release it.
+  const dom = installMotionDom();
+  dom.html.clientHeight = 500;
+  dom.html.scrollHeight = 2000;
+  dom.body.clientHeight = 500;
+  dom.body.scrollHeight = 2000;
+  dom.window.innerHeight = 500;
+  let released = 0;
+  const foreignRestorer = () => { released += 1; };
+  const previousRestorer = state.lazyLoadSuppressRestorer;
+  state.lazyLoadSuppressRestorer = foreignRestorer;
+  let calls = 0;
+  // Abort mid-walk: current for the first few checks, then superseded.
+  const isStillCurrent = () => (calls += 1) < 4;
+  try {
+    await revealPageContentBeforeMotionPause(
+      "both",
+      10,
+      0,
+      isStillCurrent,
+      { scrollEndTimeoutMs: 0, retainLazyLoadSuppression: true }
+    );
+    assert.equal(released, 0, "the foreign lock was not released");
+    assert.equal(state.lazyLoadSuppressRestorer, foreignRestorer, "the lock stays registered");
+  } finally {
+    state.lazyLoadSuppressRestorer = previousRestorer;
+    dom.restore();
+  }
+});
+
+test("concurrent reveal warmups JOIN the one in-flight ritual instead of superseding it", () => {
+  // One reveal/freeze per page visit: a second warmup must await the running
+  // one (and only add its own pause reason) — never bump the warmup id and
+  // strand the first walk mid-flight.
+  const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
+  assert.match(source, /let pageRevealWarmupInFlight: Promise<boolean> \| null = null;/);
+  const silentStart = source.indexOf("export async function warmupSilentHighlightingBeforeMotionPause(");
+  const silentSource = source.slice(silentStart, silentStart + 1600);
+  assert.match(
+    silentSource,
+    /if \(pageRevealWarmupInFlight\) \{[\s\S]{0,500}await pageRevealWarmupInFlight;[\s\S]{0,300}pausePageMotion\(reason\);/
+  );
+  const markingStart = source.indexOf("async function warmupPageRevealBeforeMotionPause(");
+  const markingSource = source.slice(markingStart, markingStart + 1200);
+  assert.match(
+    markingSource,
+    /if \(pageRevealWarmupInFlight\) \{[\s\S]{0,400}await pageRevealWarmupInFlight;[\s\S]{0,300}pausePageMotion\(\);/
+  );
+  assert.match(
+    source,
+    /async function runJoinedPageRevealWarmup\(run: \(\) => Promise<boolean>\): Promise<boolean> \{[\s\S]{0,400}if \(pageRevealWarmupInFlight === promise\) \{\s*pageRevealWarmupInFlight = null;/
+  );
 });
 
 test("page inspection reveal restores page-world lazy-load suppression in finally on success", async () => {

@@ -249,6 +249,24 @@
   pure structural source-shape tests were removed in favor of behavior,
   contract/guard, and sentiment tests.
 
+## The Reveal/Freeze Contract (architect, 2026-07-03)
+
+Exactly ONE reveal/freeze ritual per page visit, run either immediately at
+page-load complete or immediately after render-mode detection exits — this
+applies regardless of mode or phase. The ritual: smooth scroll to top; walk
+down; at 50% of the INITIAL scroll height the LAZYLOADING freeze engages
+(maximum ONE lazy expansion for the whole ritual — an expansion during the
+0->50% sweep counts as the one); arrive at the bottom and wait for the
+expansion; scroll to the new bottom and wait — no further expansions may
+occur; the PAGE FREEZE (full motion pause) engages AT THE ABSOLUTE BOTTOM,
+never earlier; the return scroll happens under the freeze. The full scroll
+to the true bottom is never neglected. Enforcement mechanics: concurrent
+warmups JOIN the in-flight ritual (never supersede — the id-bump abort used
+to release the page-world lazy-load lock under the surviving walk); only the
+walk that ENGAGED the lock may release it; unpaused subsystem resumes
+(resumePageMotion with no pauseState) do not restore suppression while a
+ritual is in flight; the freeze rides the reveal's pauseAtBottom hook.
+
 ## Content script lifecycle
 
 - In content scripts, `Extension context invalidated` means the old extension instance was reloaded/disabled/replaced. Treat it as a terminal lifecycle signal for that script: stop property-lock reconnect loops and wait for the new content script instead of retrying Chrome extension APIs.

@@ -128,6 +128,7 @@ export interface PopupState {
   lastConsumedSignalSeq: number;
   previewSessionHadItems: boolean;
   previewSessionSettledEmpty: boolean;
+  previewSettledEmptyCandidateAt: number;
   previewItemsLatched: Array<{ xpath: string; text: string; title: string; kind: string }>;
   previewMarkingSessionSnapshot: PopupPreviewMarkingSessionSnapshot | null;
   configViewLocked: boolean;

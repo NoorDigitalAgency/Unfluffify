@@ -2200,22 +2200,16 @@ async function runEditorSilentHighlightingActivationOnce() {
     await core.setPageSaveReconciliationPending(baseUrl, pageUrl, {
       reason: SILENT_HIGHLIGHTING_PREPARATION_REASON
     });
-    // Targeted cold reveal (architect-directed, 2026-07-03): walk only until
-    // the page's SAVED marks are rendered instead of forcing the entire heavy
-    // page's deferred content into the DOM. A page with no saved marks skips
-    // the walk outright; the freeze still engages and holds as before.
-    const savedEntry = core.findPageMarkingEntry(configs[baseUrl], pageUrl, baseUrl);
-    const savedEntryXpaths = Array.isArray(savedEntry?.xpaths)
-      ? savedEntry.xpaths.map((entry) => entry?.xpath)
-      : [];
+    // THE REVEAL/FREEZE CONTRACT (architect, 2026-07-03): one full ritual per
+    // page visit — smooth-scroll to top, walk to the true bottom with the
+    // lazyloader frozen at 50% of the initial height (max ONE lazy expansion
+    // for the whole ritual), then freeze. Concurrent warmups JOIN the ritual
+    // (see core.warmupSilentHighlightingBeforeMotionPause).
     const prepared = await core.warmupSilentHighlightingBeforeMotionPause(
       baseUrl,
       pageUrl,
       SILENT_HIGHLIGHTING_MOTION_PAUSE_REASON,
-      {
-        keepUiActive: true,
-        shouldStopEarly: core.buildSilentRevealXpathStopCheck(savedEntryXpaths)
-      }
+      { keepUiActive: true }
     );
     if (isStillCurrent() && prepared && revealKey) {
       markSilentHighlightEditorRevealPrepared(baseUrl, pageUrl);

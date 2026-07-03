@@ -8840,7 +8840,18 @@ function resetPreviewItemsLatch(): void {
   state.previewSessionHadItems = false;
   state.previewItemsLatched = [];
   state.previewSessionSettledEmpty = false;
+  state.previewSettledEmptyCandidateAt = 0;
 }
+
+// "No content detected" is a destructive presentation verdict from a single
+// observation — and the .se acceptance caught a feed claiming settled-empty
+// +911ms after open while content was still hydrating 1709 items (the list
+// then held the false verdict; FINDING-3's popup-side variant). Like every
+// destructive latch in this file, the verdict now needs CONFIRMATION: the
+// first qualifying observation only arms a candidate (the surface keeps
+// loading); the latch arms when qualifying observations still hold after
+// this window; any items / pending / uncertain feed clears the candidate.
+const PREVIEW_SETTLED_EMPTY_CONFIRM_MS = 3000;
 
 // Single source of truth for the preview item list while a preview session is
 // open. Content owns the items; the popup only mirrors them. Both the
@@ -8883,10 +8894,11 @@ function resolvePreviewRoutineViewState(): PreviewRoutineViewState {
   }
   // No new data here: read the standing latch (a feed with fresh probe/push
   // data updates the latch first, then renders through this same resolver).
-  // previewSessionSettledEmpty remembers a genuine settled no-detections feed
-  // so the re-render shows "No content detected" instead of re-entering the
-  // loading state.
-  const resolved = resolveOpenPreviewItems([], state.previewSessionSettledEmpty);
+  // previewSessionSettledEmpty remembers a CONFIRMED settled no-detections
+  // verdict so the re-render shows "No content detected" instead of
+  // re-entering the loading state. This is a latch READ, not an observation:
+  // it must not step the confirmation window.
+  const resolved = resolveOpenPreviewItems([], state.previewSessionSettledEmpty, false);
   return {
     previewActive: true,
     previewItems: resolved.items,
@@ -8903,25 +8915,40 @@ function resolvePreviewRoutineViewState(): PreviewRoutineViewState {
 
 function resolveOpenPreviewItems(
   incomingItems: PreviewViewState["previewItems"],
-  settled: boolean
+  settled: boolean,
+  // false = latch READ (snapshot re-render): renders the current memory
+  // without stepping the settled-empty confirmation.
+  isFeedObservation = true
 ): ResolvedPreviewItems {
   const items = Array.isArray(incomingItems) ? incomingItems : [];
   if (items.length > 0) {
     state.previewSessionHadItems = true;
     state.previewItemsLatched = items;
     state.previewSessionSettledEmpty = false;
+    state.previewSettledEmptyCandidateAt = 0;
     return { items, pending: false };
   }
   if (state.previewSessionHadItems) {
     const latched = Array.isArray(state.previewItemsLatched) ? state.previewItemsLatched : [];
     return { items: latched, pending: false };
   }
-  if (settled) {
-    // Genuine settled no-detections: remember it so re-renders keep showing
-    // "No content detected" instead of flapping back to the loading state.
-    state.previewSessionSettledEmpty = true;
+  if (isFeedObservation) {
+    if (settled && !state.previewSessionSettledEmpty) {
+      const now = Date.now();
+      if (!state.previewSettledEmptyCandidateAt) {
+        // First sighting arms the candidate only; the surface keeps loading.
+        state.previewSettledEmptyCandidateAt = now;
+      } else if (now - state.previewSettledEmptyCandidateAt >= PREVIEW_SETTLED_EMPTY_CONFIRM_MS) {
+        // Confirmed settled no-detections: remember it so re-renders keep
+        // showing "No content detected" instead of flapping back to loading.
+        state.previewSessionSettledEmpty = true;
+      }
+    } else if (!settled) {
+      // Pending / uncertain observation contradicts the candidate.
+      state.previewSettledEmptyCandidateAt = 0;
+    }
   }
-  return { items: [], pending: !settled };
+  return { items: [], pending: !state.previewSessionSettledEmpty };
 }
 
 function buildPreviewViewState(previewState: PreviewStateLike | null | undefined): PreviewViewState {

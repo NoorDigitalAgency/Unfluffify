@@ -316,12 +316,11 @@ interface PageInspectionScrollEndOptions extends PageInspectionProgressOptions {
 
 interface RevealPageContentOptions extends PageInspectionScrollEndOptions {
   retainLazyLoadSuppression?: boolean;
-  // Targeted reveal (architect-directed, 2026-07-03): when provided, the walk
-  // stops as soon as this returns true — the cold silent/editor reveal only
-  // needs the saved marks' elements rendered, and walking an entire heavy
-  // page forces its deferred content into the DOM (extensive DOM growth on
-  // already-heavy pages) for nothing.
-  shouldStopEarly?: () => boolean;
+  // THE REVEAL/FREEZE CONTRACT (architect, 2026-07-03): the page FREEZE (the
+  // full motion pause — not the lazy-load suppression, which engages at 50%)
+  // MUST happen at the ABSOLUTE BOTTOM of the walk, while the page rests in
+  // its fully revealed state — never after scrolling back.
+  pauseAtBottom?: () => void;
 }
 
 interface LazyLoadingSuppressionRestorer {
@@ -333,7 +332,7 @@ interface PageInspectionWarmupOptions {
   keepUiActive?: boolean;
   retainLazyLoadSuppression?: boolean;
   onRevealProgress?: () => void;
-  shouldStopEarly?: () => boolean;
+  pauseAtBottom?: () => void;
 }
 
 interface PageMotionLockState {
@@ -4712,23 +4711,6 @@ export async function revealPageContentBeforeMotionPause(
   const reservedScrollY = Math.max(0, Math.round(getWindowScrollOffset().y));
   const lazyLoadSuppressionTargetY = getPageInspectionLazyLoadSuppressionTarget();
   const retainLazyLoadSuppression = Boolean(options.retainLazyLoadSuppression);
-  const shouldStopEarly = typeof options.shouldStopEarly === "function"
-    ? options.shouldStopEarly
-    : null;
-  const isRevealAlreadySatisfied = () => {
-    try {
-      return Boolean(shouldStopEarly && shouldStopEarly());
-    } catch {
-      // A failing stop-check must never abort the reveal itself.
-      return false;
-    }
-  };
-  // Everything the reveal exists for is already rendered: skip the whole walk
-  // (no scrolling, no lazy-load churn, zero DOM growth). The caller's freeze
-  // still engages afterwards and pauses all page motion on its own.
-  if (isRevealAlreadySatisfied()) {
-    return false;
-  }
   let visited = false;
   let lazyLoadRestorer = null;
   let completedReveal = false;
@@ -4748,16 +4730,6 @@ export async function revealPageContentBeforeMotionPause(
       }
       let scrollCount = 0;
       while (scrollCount < maxScrolls && isStillCurrent()) {
-        if (isRevealAlreadySatisfied()) {
-          // Targeted reveal complete: every element the caller needs is
-          // rendered. Engage the lazy-load suppression before finishing so
-          // the remainder of the page cannot keep growing between here and
-          // the caller's motion pause (the same handoff a full walk makes).
-          if (retainLazyLoadSuppression && !lazyLoadRestorer && !state.lazyLoadSuppressRestorer) {
-            lazyLoadRestorer = await ensurePageInspectionLazyLoadingSuppressed(lazyLoadRestorer);
-          }
-          break;
-        }
         if (!suppressionScrollVisited && !lazyLoadRestorer && !state.lazyLoadSuppressRestorer) {
           suppressionScrollVisited = true;
           if (lazyLoadSuppressionTargetY > Math.max(0, Math.round(getWindowScrollOffset().y))) {
@@ -4779,6 +4751,17 @@ export async function revealPageContentBeforeMotionPause(
         }
         scrollCount++;
       }
+      // The page freeze engages HERE — at the walk's absolute bottom, after
+      // the final expansion wait — so the page is captured in its fully
+      // revealed, settled state before the return scroll happens under the
+      // freeze.
+      if (typeof options.pauseAtBottom === "function" && isStillCurrent()) {
+        try {
+          options.pauseAtBottom();
+        } catch {
+          // The freeze hook must never break the walk's return leg.
+        }
+      }
       if (direction === "both" && isStillCurrent()) {
         visited = await scrollPageInspectionTo(reservedScrollY, isStillCurrent, options) || visited;
         await waitForPageInspectionDelay(pauseDelay, isStillCurrent);
@@ -4788,7 +4771,12 @@ export async function revealPageContentBeforeMotionPause(
   } finally {
     // Standalone/aborted reveal walks restore suppression. Successful reveal
     // handoffs into page-motion pause keep suppression until resumePageMotion.
-    if (!retainLazyLoadSuppression || !completedReveal || !isStillCurrent()) {
+    // OWNERSHIP: only the walk that ENGAGED the lazy-load lock may release
+    // it. A walk that skipped engagement (another ritual already holds the
+    // lock) releasing on abort revoked the lock UNDER the surviving walk —
+    // the cold-phase mid-walk `sup:false` flip that let a heavy page expand
+    // 6 more times (2026-07-03 trace).
+    if (lazyLoadRestorer && (!retainLazyLoadSuppression || !completedReveal || !isStillCurrent())) {
       restorePageInspectionLazyLoadingSuppression();
     }
     removePageInspectionStyle();
@@ -6398,7 +6386,15 @@ export function resumePageMotion(reason: unknown = PAGE_MOTION_PAUSE_DEFAULT_REA
   const pauseState = state.pageMotionPause;
   if (!pauseState) {
     setPageMotionFreezeTimersPaused(false);
-    restorePageInspectionLazyLoadingSuppression();
+    // The reveal ritual owns the lazy-load lock until its own handoff (walk
+    // finally / freeze teardown). Before the freeze engages — it engages only
+    // at the walk's absolute bottom — the page is not paused, so a subsystem
+    // resume landing here mid-walk revoked the lock and let the page expand
+    // again (cold-phase trace 2026-07-03: sup false at +11.9s, expansions
+    // resumed while the walk kept scrolling).
+    if (!pageRevealWarmupInFlight) {
+      restorePageInspectionLazyLoadingSuppression();
+    }
     removePageMotionPauseStyle();
     removePageMotionPauseIndicator();
     setPageMotionPauseClass(false);
@@ -6423,7 +6419,12 @@ export function resumeAllPageMotion(): void {
   const pauseState = state.pageMotionPause;
   if (!pauseState) {
     setPageMotionFreezeTimersPaused(false);
-    restorePageInspectionLazyLoadingSuppression();
+    // Same ownership rule as resumePageMotion: an in-flight reveal ritual
+    // keeps its lazy-load lock (its currency check aborts on navigation and
+    // the walk's own cleanup releases the lock it engaged).
+    if (!pageRevealWarmupInFlight) {
+      restorePageInspectionLazyLoadingSuppression();
+    }
     removePageMotionPauseStyle();
     removePageMotionPauseIndicator();
     setPageMotionPauseClass(false);
@@ -6968,11 +6969,38 @@ async function inspectPageBeforeMotionPause(
       PAGE_INSPECTION_DEFAULT_MAX_SCROLLS,
       PAGE_INSPECTION_DEFAULT_PAUSE_MS,
       isStillCurrent,
-      { retainLazyLoadSuppression }
+      {
+        retainLazyLoadSuppression,
+        ...(typeof options.pauseAtBottom === "function"
+          ? { pauseAtBottom: options.pauseAtBottom }
+          : {})
+      }
     );
   } finally {
     if (!keepUiActive) {
       stopPageInspectionInputBlocker();
+    }
+  }
+}
+
+// THE REVEAL/FREEZE CONTRACT (architect, 2026-07-03): exactly ONE reveal/
+// freeze ritual per page visit — run either immediately at page-load complete
+// or immediately after render-mode detection exits. A concurrent warmup
+// request JOINS the in-flight ritual instead of superseding it: the old
+// id-bump abort made the dying walk release the page-world lazy-load lock
+// while the surviving walk kept scrolling unsuppressed (cold-phase trace,
+// bonliva.se/lediga-jobb: mid-walk sup:false at +10.9s, six extra lazy-load
+// expansions, 3.8k -> 12.5k px).
+let pageRevealWarmupInFlight: Promise<boolean> | null = null;
+
+async function runJoinedPageRevealWarmup(run: () => Promise<boolean>): Promise<boolean> {
+  const promise = run();
+  pageRevealWarmupInFlight = promise;
+  try {
+    return await promise;
+  } finally {
+    if (pageRevealWarmupInFlight === promise) {
+      pageRevealWarmupInFlight = null;
     }
   }
 }
@@ -6982,26 +7010,46 @@ async function warmupPageRevealBeforeMotionPause(
   pageUrl: string,
   options: PageInspectionWarmupOptions = {}
 ): Promise<boolean> {
-  const keepUiActive = Boolean(options.keepUiActive);
-  const revealWarmupId = state.pageRevealWarmupId + 1;
-  state.pageRevealWarmupId = revealWarmupId;
-  const isRevealWarmupCurrent = () =>
-    state.pageRevealWarmupId === revealWarmupId &&
+  const isWarmupCurrent = () =>
     state.enabled &&
     state.baseUrl === baseUrl &&
     location.href === pageUrl;
-  await inspectPageBeforeMotionPause(isRevealWarmupCurrent, {
-    keepUiActive,
-    retainLazyLoadSuppression: true
-  });
-  if (!isRevealWarmupCurrent()) {
-    if (keepUiActive) {
-      finishPageInspectionUi();
+  if (pageRevealWarmupInFlight) {
+    const prepared = await pageRevealWarmupInFlight;
+    if (!prepared || !isWarmupCurrent()) {
+      return false;
     }
-    return false;
+    pausePageMotion();
+    return true;
   }
-  pausePageMotion();
-  return true;
+  return runJoinedPageRevealWarmup(async () => {
+    const keepUiActive = Boolean(options.keepUiActive);
+    const revealWarmupId = state.pageRevealWarmupId + 1;
+    state.pageRevealWarmupId = revealWarmupId;
+    const isRevealWarmupCurrent = () =>
+      state.pageRevealWarmupId === revealWarmupId && isWarmupCurrent();
+    let pausedAtBottom = false;
+    await inspectPageBeforeMotionPause(isRevealWarmupCurrent, {
+      keepUiActive,
+      retainLazyLoadSuppression: true,
+      pauseAtBottom: () => {
+        pausedAtBottom = true;
+        pausePageMotion();
+      }
+    });
+    if (!isRevealWarmupCurrent()) {
+      if (keepUiActive) {
+        finishPageInspectionUi();
+      }
+      return false;
+    }
+    if (!pausedAtBottom) {
+      // The walk never reached its bottom hook (hidden tab, skipped reveal):
+      // the ritual still concludes with the freeze.
+      pausePageMotion();
+    }
+    return true;
+  });
 }
 
 export function hasPageMotionPauseReason(reason: unknown): boolean {
@@ -7012,106 +7060,91 @@ export function hasPageMotionPauseReason(reason: unknown): boolean {
   return pauseState.reasons.has(normalizePageMotionPauseReason(reason));
 }
 
-// Targeted-reveal stop check: the cold silent/editor reveal only needs the
-// page's SAVED marks rendered (explicit xpaths from the page entry). Resolved
-// xpaths are remembered so each pass only re-queries what is still missing;
-// a page with no saved marks is satisfied immediately (no walk at all).
-// Selector-driven silent highlights attach to whatever content exists — they
-// are best-effort by design and never justify forcing a heavy page's deferred
-// content into the DOM.
-export function buildSilentRevealXpathStopCheck(
-  xpaths: readonly (string | null | undefined)[] | null | undefined,
-  resolveXpath: (xpath: string) => Element | null = (xpath) => getElementFromXPath(xpath)
-): () => boolean {
-  const unresolved = new Set(
-    (Array.isArray(xpaths) ? xpaths : []).filter(
-      (xpath): xpath is string => typeof xpath === "string" && xpath.length > 0
-    )
-  );
-  return () => {
-    if (unresolved.size === 0) {
-      return true;
-    }
-    for (const xpath of [...unresolved]) {
-      try {
-        if (resolveXpath(xpath)) {
-          unresolved.delete(xpath);
-        }
-      } catch {
-        // Unresolvable expressions stay pending; they can never satisfy the
-        // check but must not break the walk either.
-      }
-    }
-    return unresolved.size === 0;
-  };
-}
-
 export async function warmupSilentHighlightingBeforeMotionPause(
   baseUrl: string | null | undefined,
   pageUrl: string,
   reason = PAGE_MOTION_PAUSE_DEFAULT_REASON,
   options: PageInspectionWarmupOptions = {}
 ): Promise<boolean> {
-  const keepUiActive = Boolean(options.keepUiActive);
-  const onRevealProgress = typeof options.onRevealProgress === "function"
-    ? options.onRevealProgress
-    : null;
-  const revealWarmupId = state.pageRevealWarmupId + 1;
-  state.pageRevealWarmupId = revealWarmupId;
-  const isRevealWarmupCurrent = () =>
-    state.pageRevealWarmupId === revealWarmupId &&
+  const isWarmupCurrent = () =>
     location.href === pageUrl &&
     (!baseUrl || utils.isPageWithinBaseUrl(location.href, baseUrl));
-  const hadPauseReason = hasPageMotionPauseReason(reason);
-  // Reveal scrolling can stall when deferred main-world timers stay paused from
-  // a previous silent-highlight pass. Temporarily release only timer pausing
-  // while keeping existing page-motion locks intact.
-  if (hadPauseReason) {
-    setPageMotionFreezeTimersPaused(false);
-  }
-  try {
-    startPageInspectionInputBlocker();
-    createOverlay();
-    await revealPageContentBeforeMotionPause(
-      "both",
-      PAGE_INSPECTION_DEFAULT_MAX_SCROLLS,
-      PAGE_INSPECTION_DEFAULT_PAUSE_MS,
-      isRevealWarmupCurrent,
-      {
-        ...(onRevealProgress ? { onProgress: onRevealProgress } : {}),
-        ...(typeof options.shouldStopEarly === "function"
-          ? { shouldStopEarly: options.shouldStopEarly }
-          : {}),
-        retainLazyLoadSuppression: true
-      }
-    );
-    if (!isRevealWarmupCurrent()) {
-      return false;
-    }
-    await waitForPageInspectionDelay(
-      SILENT_HIGHLIGHT_WARMUP_SETTLE_DELAY_MS,
-      isRevealWarmupCurrent
-    );
-    if (!isRevealWarmupCurrent()) {
+  if (pageRevealWarmupInFlight) {
+    // Join the one ritual (see the contract above): the page is being
+    // revealed/frozen already; just hold this caller's pause reason on top.
+    const prepared = await pageRevealWarmupInFlight;
+    if (!prepared || !isWarmupCurrent()) {
       return false;
     }
     pausePageMotion(reason);
     return true;
-  } finally {
-    if (hadPauseReason && hasPageMotionPauseReason(reason)) {
-      refreshPageMotionPause();
-    }
-    if (!keepUiActive) {
-      stopPageInspectionInputBlocker();
-      // Silent highlighting reveal uses the inspection UI only as a temporary
-      // blocker while preparing the frozen page posture.
-      if (!state.enabled) {
-        removeOverlay();
-      }
-    } else if (!state.enabled && !isRevealWarmupCurrent()) {
-      finishPageInspectionUi();
-    }
   }
+  return runJoinedPageRevealWarmup(async () => {
+    const keepUiActive = Boolean(options.keepUiActive);
+    const onRevealProgress = typeof options.onRevealProgress === "function"
+      ? options.onRevealProgress
+      : null;
+    const revealWarmupId = state.pageRevealWarmupId + 1;
+    state.pageRevealWarmupId = revealWarmupId;
+    const isRevealWarmupCurrent = () =>
+      state.pageRevealWarmupId === revealWarmupId && isWarmupCurrent();
+    const hadPauseReason = hasPageMotionPauseReason(reason);
+    // Reveal scrolling can stall when deferred main-world timers stay paused from
+    // a previous silent-highlight pass. Temporarily release only timer pausing
+    // while keeping existing page-motion locks intact.
+    if (hadPauseReason) {
+      setPageMotionFreezeTimersPaused(false);
+    }
+    try {
+      startPageInspectionInputBlocker();
+      createOverlay();
+      let pausedAtBottom = false;
+      await revealPageContentBeforeMotionPause(
+        "both",
+        PAGE_INSPECTION_DEFAULT_MAX_SCROLLS,
+        PAGE_INSPECTION_DEFAULT_PAUSE_MS,
+        isRevealWarmupCurrent,
+        {
+          ...(onRevealProgress ? { onProgress: onRevealProgress } : {}),
+          retainLazyLoadSuppression: true,
+          pauseAtBottom: () => {
+            pausedAtBottom = true;
+            pausePageMotion(reason);
+          }
+        }
+      );
+      if (!isRevealWarmupCurrent()) {
+        return false;
+      }
+      await waitForPageInspectionDelay(
+        SILENT_HIGHLIGHT_WARMUP_SETTLE_DELAY_MS,
+        isRevealWarmupCurrent
+      );
+      if (!isRevealWarmupCurrent()) {
+        return false;
+      }
+      if (!pausedAtBottom) {
+        // The walk never reached its bottom hook (hidden tab, skipped
+        // reveal): the ritual still concludes with the freeze.
+        pausePageMotion(reason);
+      }
+      return true;
+    } finally {
+      if (hadPauseReason && hasPageMotionPauseReason(reason)) {
+        refreshPageMotionPause();
+      }
+      if (!keepUiActive) {
+        stopPageInspectionInputBlocker();
+        // Silent highlighting reveal uses the inspection UI only as a temporary
+        // blocker while preparing the frozen page posture.
+        if (!state.enabled) {
+          removeOverlay();
+        }
+      } else if (!state.enabled && !isRevealWarmupCurrent()) {
+        finishPageInspectionUi();
+      }
+    }
+  });
 }
 
 let pageInspectionUiSettledListener: (() => void) | null = null;
