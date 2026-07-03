@@ -10,6 +10,7 @@
     "dev:no-browser": "UNFLUFFIFY_NO_BROWSER=1 wxt",
     "build": "wxt build",
     "zip": "pnpm build && node ./scripts/create-output-zip.mjs ./.output/chrome-mv3 ./.output/unfluffify-bootstrap.zip",
+    "deploy:zip": "pnpm build && node ./scripts/deploy-versioned-zip.mjs",
     "check": "wxt prepare && tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.wxt.json && tsc --noEmit -p tsconfig.wxt-node.json",
     "lint": "eslint .",
     "test": "vitest run",
