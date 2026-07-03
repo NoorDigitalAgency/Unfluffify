@@ -8115,7 +8115,12 @@ async function applyComputedSelectorSet(
   // The AI run is scoped to the current element markings. Capture that stable
   // state before the preview starts slower content-side reconciliation.
   captureAiRunMarkingsFingerprint();
-  publishCurrentTabAiRunEvent(AI_RUN_EVENT_TYPES.RESULTS_APPLIED);
+  // P4 step 4.5: carry the session id — the bare publish had dedupeKey ""
+  // and the brain admitted run.completed twice (the background publisher
+  // and this one race >250ms apart; the session-keyed dedupe needs the id).
+  publishCurrentTabAiRunEvent(AI_RUN_EVENT_TYPES.RESULTS_APPLIED, {
+    sessionId: state.aiRunSessionId || ""
+  });
 
   const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
     ? state.currentTab.id
