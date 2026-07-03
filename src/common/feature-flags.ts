@@ -9,7 +9,11 @@ export const FEATURE_FLAGS: Readonly<Record<string, boolean>> = Object.freeze({
   cacheAndUnregisterTools: false,
   propertyLockCollaboration: false,
   previewExpandedStates: false,
-  pageTypesChangeDetection: false
+  pageTypesChangeDetection: false,
+  // Page-type assignment submission to the AI server: the backend endpoint
+  // is not live yet, so every submit raised a 404 alongside the selector
+  // submission. Enable once the backend ships.
+  pageTypeAssignments: false
 });
 
 export const DEBUG_FLAGS: Readonly<Record<string, boolean>> = Object.freeze({

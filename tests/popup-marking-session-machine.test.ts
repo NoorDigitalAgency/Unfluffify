@@ -44,9 +44,18 @@ test("the machine remembers where a preview came from", () => {
   // Marking-backed preview exit lands in post_ai_clean...
   assert.equal(transitionMarkingSessionState("preview_open", "exit-settled").to, "post_ai_clean");
   assert.equal(transitionMarkingSessionState("exit_restoring", "exit-settled").to, "post_ai_clean");
-  // ...a Silent Preview exit lands back in silent.
+  // ...a Silent Preview exit lands back in silent — INCLUDING through the
+  // restore leg: exit-clicked from silent_preview must not funnel into the
+  // marking exit_restoring (whose memorized answer is post_ai_clean — the
+  // save->silent->preview->exit Save/Discard stranding, architect backlog
+  // 2026-07-03).
   assert.equal(transitionMarkingSessionState("silent", "preview-opened").to, "silent_preview");
   assert.equal(transitionMarkingSessionState("silent_preview", "exit-settled").to, "silent");
+  assert.equal(transitionMarkingSessionState("silent_preview", "exit-clicked").to, "silent_exit_restoring");
+  assert.equal(transitionMarkingSessionState("silent_exit_restoring", "exit-settled").to, "silent");
+  const surface = resolveMarkingSessionSurfaceMemory("silent_exit_restoring");
+  assert.deepEqual(surface.mode, { mainUiHidden: true, silentModeActive: true }, "the silent posture holds through the restore");
+  assert.equal(surface.toggleChecked, false);
 });
 
 test("non-signals cannot move the machine (noise immunity)", () => {

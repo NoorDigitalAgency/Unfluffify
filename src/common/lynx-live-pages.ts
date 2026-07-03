@@ -85,6 +85,17 @@ export function normalizeSiteIdValue(value: unknown): number | null {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
+// Candidacy comparison key: normalized URL with the protocol collapsed to
+// https. Live-pages data carries http:// roots (e.g. the stored homepage
+// candidate "http://host/") while the live page canonicalizes to https —
+// protocol variance must not report the page as "not a candidate"
+// (architect report, 2026-07-03; the earlier slash normalization alone did
+// not cure it).
+function toCandidateComparisonKey(value: unknown): string {
+  const normalized = normalizeCandidatePageUrl(value);
+  return normalized.replace(/^http:\/\//i, "https://");
+}
+
 export function getCurrentPageCandidateState(
   pageUrl: string,
   pageTypes: PropertyPageType[] | null | undefined
@@ -98,11 +109,16 @@ export function getCurrentPageCandidateState(
       url: normalizedUrl
     };
   }
+  const comparableUrl = toCandidateComparisonKey(pageUrl);
   const matches: Array<{ pageType: PropertyPageType; candidate: CandidatePage }> = [];
   pageTypes.forEach((pageType) => {
     const candidates = Array.isArray(pageType.candidates) ? pageType.candidates : [];
     candidates.forEach((candidate) => {
-      if (candidate && candidate.url === normalizedUrl) {
+      // Compare through the candidacy key (normalized + protocol-collapsed):
+      // raw backend candidates arrive without trailing slashes and with
+      // http:// roots, and strict equality wrongly reported the live page as
+      // "not a candidate" (architect report, 2026-07-03).
+      if (candidate && toCandidateComparisonKey(candidate.url) === comparableUrl) {
         matches.push({ pageType, candidate });
       }
     });

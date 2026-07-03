@@ -68,6 +68,10 @@ test("package script stages runtime files and excludes repo-only files", async (
     assert.equal(metadata.stagedFiles.includes("cursors/exclude.svg"), true);
     assert.equal(metadata.stagedFiles.includes("cursors/include.svg"), true);
     assert.equal(metadata.stagedFiles.includes("icons/default/icon16.png"), true);
+    // Runtime-set action icons (chrome.action.setIcon) are not in the
+    // manifest; the 1.9.0/1.9.1 zips shipped without them.
+    assert.equal(metadata.stagedFiles.includes("icons/active/icon16.png"), true);
+    assert.equal(metadata.stagedFiles.includes("icons/active/icon128.png"), true);
     assert.equal(metadata.stagedFiles.includes("logo.png"), true);
 
     assert.equal(metadata.stagedFiles.includes("README.md"), false);

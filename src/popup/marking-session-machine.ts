@@ -24,6 +24,7 @@ export type MarkingSessionMachineState =
   | "post_ai_clean"
   | "preview_open"
   | "exit_restoring"
+  | "silent_exit_restoring"
   | "inspecting"
   | "reconciling";
 
@@ -120,6 +121,9 @@ export const MARKING_SESSION_STATE_MEMORY: Readonly<
   preview_open: Object.freeze({ buttons: frozenButtons(true, true, true, true) }),
   // Exit clicked, restore in flight: locked until the settle signal lands.
   exit_restoring: Object.freeze({ buttons: frozenButtons(true, true, true, true) }),
+  // Silent-origin preview exit in flight: the silent projection owns the
+  // surface (like silent) until the settle signal lands.
+  silent_exit_restoring: Object.freeze({ buttons: null }),
   // Overlay states use the Phase-2 full-surface memory
   // (MARKING_SESSION_SURFACE_MEMORY below); the P0 four-button table has no
   // opinion for them.
@@ -138,7 +142,16 @@ const TRANSITIONS: Readonly<
     navigated: "silent"
   },
   silent_preview: {
-    "exit-clicked": "exit_restoring",
+    // A SILENT-origin preview must return to silent even through the
+    // restore leg: funneling into the marking exit_restoring memorized the
+    // answer as post_ai_clean and stranded the popup in Save/Discard after
+    // a silent-preview exit (architect backlog item, 2026-07-03).
+    "exit-clicked": "silent_exit_restoring",
+    "exit-settled": "silent",
+    "marking-enabled": "pre_ai_clean",
+    navigated: "silent"
+  },
+  silent_exit_restoring: {
     "exit-settled": "silent",
     "marking-enabled": "pre_ai_clean",
     navigated: "silent"
@@ -449,6 +462,15 @@ export const MARKING_SESSION_SURFACE_MEMORY: Readonly<
     pageSaveBlockedReason: "busy",
     curtain: HIDDEN_CURTAIN,
     toggleChecked: true
+  }),
+  // Silent-origin exit restore: the surface stays the SILENT posture (no
+  // marking buttons on screen) with the toggle locked until the settle.
+  silent_exit_restoring: Object.freeze({
+    buttons: surfaceButtons(true, false, false, true, true, true, true),
+    mode: SILENT_MODE,
+    pageSaveBlockedReason: "",
+    curtain: HIDDEN_CURTAIN,
+    toggleChecked: false
   }),
   // Overlays: lock the actions and narrate; the underlying MODE stays the
   // prior state's (mode: null keeps the current view).

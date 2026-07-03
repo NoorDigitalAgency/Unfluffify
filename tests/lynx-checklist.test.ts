@@ -269,3 +269,37 @@ test("builds assignments from marked candidate pages only and drops duplicate or
     }
   ]);
 });
+
+// The candidate matcher normalizes BOTH sides: raw backend page types carry
+// the root candidate as "https://host" (no trailing slash), and strict
+// equality against the normalized current URL wrongly reported the root page
+// as "not a candidate" (architect report, 2026-07-03).
+test("getCurrentPageCandidateState matches the root page against an unnormalized root candidate", async () => {
+  const { getCurrentPageCandidateState } = await import("../src/common/lynx-live-pages.js");
+  const pageTypes = [
+    {
+      key: "homepage",
+      title: "Homepage",
+      candidates: [{ url: "https://www.example.com", duplicate: false }]
+    }
+  ];
+  const atRoot = getCurrentPageCandidateState("https://www.example.com/", pageTypes);
+  assert.equal(atRoot.status, "candidate");
+  assert.equal(atRoot.pageTypeKey, "homepage");
+  // Protocol variance: live-pages data carries http:// roots while the live
+  // page canonicalizes to https — the live report that survived the slash
+  // normalization alone.
+  const httpCandidate = getCurrentPageCandidateState("https://www.example.com/", [
+    { key: "homepage", title: "Homepage", candidates: [{ url: "http://www.example.com/", duplicate: false }] }
+  ]);
+  assert.equal(httpCandidate.status, "candidate");
+  assert.equal(httpCandidate.pageTypeKey, "homepage");
+  // Trailing-slash variance on non-root paths matches too.
+  const withSlash = getCurrentPageCandidateState("https://www.example.com/news/", [
+    { key: "news", title: "News", candidates: [{ url: "https://www.example.com/news", duplicate: false }] }
+  ]);
+  assert.equal(withSlash.status, "candidate");
+  // A genuinely different page still misses.
+  const miss = getCurrentPageCandidateState("https://www.example.com/other", pageTypes);
+  assert.equal(miss.status, "missing");
+});

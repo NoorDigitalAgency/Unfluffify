@@ -26,7 +26,9 @@ const EXPECTED_FLAGS = [
   "cacheAndUnregisterTools",
   "propertyLockCollaboration",
   "previewExpandedStates",
-  "pageTypesChangeDetection"
+  "pageTypesChangeDetection",
+  // Page-type assignment submission: backend endpoint not live yet (404s).
+  "pageTypeAssignments"
 ];
 
 const EXPECTED_DISABLED_FLAGS = EXPECTED_FLAGS;

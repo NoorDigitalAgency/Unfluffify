@@ -249,6 +249,22 @@ async function collectManifestEntryPoints(manifest) {
       entryPoints.add(normalizeRelativePath(iconPath));
     }
   }
+  // Runtime-set action icons (chrome.action.setIcon with the icons/active/*
+  // variants — see common/utilities.ts) never appear in the manifest, so the
+  // manifest-driven staging above missed them and the shipped zip had no
+  // active icons. Stage every icon set under icons/ from the build output.
+  try {
+    for (const iconSet of await readdir(join(SOURCE_ROOT, "icons"), { withFileTypes: true })) {
+      if (!iconSet.isDirectory()) {
+        continue;
+      }
+      for (const iconFile of await expandManifestResource(`icons/${iconSet.name}/*`)) {
+        entryPoints.add(iconFile);
+      }
+    }
+  } catch {
+    // No icons directory in the build output; nothing to stage.
+  }
 
   for (const resourceGroup of Array.isArray(manifest.web_accessible_resources) ? manifest.web_accessible_resources : []) {
     for (const resourcePath of Array.isArray(resourceGroup && resourceGroup.resources) ? resourceGroup.resources : []) {

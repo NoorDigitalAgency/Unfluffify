@@ -6790,29 +6790,36 @@ async function handleRenderModeSet() {
         beginNavigationInspectionOverlay(tabId);
       }
       // If the page is currently held in "Without JavaScript", normalize the
-      // page execution state before exiting render-mode edit so the upcoming
-      // silent-mode reveal/freeze can trigger immediately after Set.
+      // page execution state before exiting render-mode edit.
       if (wasNoJsHeld) {
         await normalizeRenderModeDebuggerPage(tabId);
-        const endInspectionResult = await requestPopupRenderModeInspectionEnd(tabId, {
-          operationId: `render-mode-set-exit:${tabId}:${Date.now()}`
-        });
-        if (!endInspectionResult || !endInspectionResult.ok) {
-          const endInspectionError =
-            endInspectionResult &&
-            typeof endInspectionResult === "object" &&
-            "error" in endInspectionResult &&
-            typeof endInspectionResult.error === "string"
-              ? endInspectionResult.error
-              : "Unknown error";
-          console.warn(
-            "Unable to end render mode inspection after render mode set:",
-            endInspectionError
-          );
-        }
-        if (state.renderModeDebuggerTabId === tabId) {
-          state.renderModeDebuggerTabId = null;
-        }
+      }
+      // Set EXITS the render-mode detection: end the content-side inspection
+      // UNCONDITIONALLY (content no-ops when none is active). Ending it only
+      // on the NoJs path left the sessionStorage inspection flag set after a
+      // "With JavaScript" inspect + Set — and the silent/editor activation is
+      // gated on that flag, so the reveal/freeze never started until a manual
+      // refresh let the boot watchdog heal it (architect backlog item,
+      // 2026-07-03). The contract: the reveal/freeze runs immediately after
+      // exiting the render-mode detection.
+      const endInspectionResult = await requestPopupRenderModeInspectionEnd(tabId, {
+        operationId: `render-mode-set-exit:${tabId}:${Date.now()}`
+      });
+      if (!endInspectionResult || !endInspectionResult.ok) {
+        const endInspectionError =
+          endInspectionResult &&
+          typeof endInspectionResult === "object" &&
+          "error" in endInspectionResult &&
+          typeof endInspectionResult.error === "string"
+            ? endInspectionResult.error
+            : "Unknown error";
+        console.warn(
+          "Unable to end render mode inspection after render mode set:",
+          endInspectionError
+        );
+      }
+      if (state.renderModeDebuggerTabId === tabId) {
+        state.renderModeDebuggerTabId = null;
       }
     }
     state.currentBaseUrlHasConfirmedRenderMode = true;
@@ -8384,6 +8391,11 @@ async function handleComputeSelectors() {
 }
 
 async function postPageTypeAssignmentsToAiServer(options: PageTypeAssignmentsSubmitOptions = {}) {
+  if (!isFeatureEnabled("pageTypeAssignments")) {
+    // The backend endpoint is not live yet — submitting raised a 404 on
+    // every Send to Lynx. Behind the flag until the backend ships.
+    return;
+  }
   const {
     baseUrl = state.currentBaseUrl,
     checklistPageTypes = state.lynxChecklistPageTypes
