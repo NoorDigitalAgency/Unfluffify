@@ -379,7 +379,7 @@ const isWorldTraceEnabled = worldTrace.isWorldTraceEnabled;
 const appendWorldTraceEvent = worldTrace.appendWorldTraceEvent;
 const busProtocolBridge = createBusProtocolBridge();
 const brain = createBrain({ logger: console });
-brain.rehydrate().catch(() => {});
+const brainRehydrated = brain.rehydrate().catch(() => {});
 const BACKGROUND_COMMANDS = Object.freeze({
   TAB_BOOTSTRAP_CONTENT: "TAB_BOOTSTRAP_CONTENT",
   TAB_CONTENT_REQUEST: "TAB_CONTENT_REQUEST",
@@ -3798,7 +3798,23 @@ browser.tabs.onRemoved.addListener((tabId) => {
   }
   disposeTabState(tabId);
   deleteTabRuntime(tabId);
+  // LAST — recordRenderModeNoJsHold above re-creates the brain entry via
+  // getOrInit, so the brain disposal must come after it or the removed tab
+  // is reborn as a ghost that projects (and gets rejected) every heartbeat.
+  brain.disposeTab(tabId);
 });
+
+// Persisted brain state can carry ghost tabs from before a service-worker
+// restart; prune once the real tab set is known.
+void (async () => {
+  try {
+    await brainRehydrated;
+    const tabs = await browser.tabs.query({});
+    brain.pruneTabs(tabs.map((tab) => tab.id).filter((id): id is number => Number.isFinite(id)));
+  } catch {
+    // Prune is hygiene; never block startup on it.
+  }
+})();
 
 async function disableExtensionOnTopLevelNavigation(details: TopLevelNavigationDetails): Promise<void> {
   if (details.frameId !== 0) {

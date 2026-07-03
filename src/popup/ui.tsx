@@ -316,6 +316,7 @@ const initialViewState = {
   renderModeEditDisabled: false,
   renderModeSummaryOpen: false,
   renderModeSectionVisible: false,
+  renderModeDetectionViewActive: false,
   renderModeChangeMenuVisible: false,
   renderModeSummaryTitle: PopupText.renderMode.title,
   loginEmailValue: "",
@@ -652,7 +653,15 @@ function formatCandidateWordsCount(wordsCount: unknown): string {
 }
 
 function getBlockingUiCurtainState(view: ViewState): BlockingUiCurtainState {
-  if (view.sessionCurtainVisible) {
+  // No initial spinner on the render-mode DETECTION view (architect,
+  // 2026-07-03): auto-content-detection is disabled, so the page-prep
+  // lifecycles (session-dictation curtains, nav-inspect "Preparing page
+  // content") say nothing the user can act on here — the view's own manual
+  // Inspect actions drive everything, and a prep curtain that never resolved
+  // on fresh sites read as a permanently stuck spinner. User-initiated
+  // spinners (the Inspect flows, compute, submit) still render.
+  const suppressPrepCurtains = Boolean(view.renderModeDetectionViewActive);
+  if (view.sessionCurtainVisible && !suppressPrepCurtains) {
     const liveSessionCurtainTimerText =
       typeof view.busyTimerMode === "string" && view.busyTimerMode === SPINNER_TIMER_MODES.COUNTDOWN
         ? formatCountdownFromDeadline(
@@ -707,7 +716,7 @@ function getBlockingUiCurtainState(view: ViewState): BlockingUiCurtainState {
       timerText: view.aiRunCountdownVisible ? (liveCountdownText || aiRunCountdownText) : "Up to 8:00"
     };
   }
-  if (view.isBusy) {
+  if (view.isBusy && !(suppressPrepCurtains && view.busySpinnerKey === "navInspect")) {
     return {
       visible: true,
       mode: "busy",

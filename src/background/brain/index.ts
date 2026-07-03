@@ -976,5 +976,36 @@ export function createBrain(options: { logger?: Pick<Console, "error" | "debug">
       }
       await ensureSignalLogHydrated();
     },
+    // Tab lifecycle: without disposal the brain kept projecting for every tab
+    // it ever folded — each closed tab left a GHOST whose per-second
+    // directive/spinner publishes rejected forever (observed live: three
+    // ghosts rejecting every heartbeat, indefinitely). Dispose on
+    // tabs.onRemoved and prune once after rehydrate (persisted state can
+    // carry ghosts from before a service-worker restart).
+    disposeTab(tabId: number) {
+      if (!Number.isFinite(tabId) || tabId <= 0) {
+        return;
+      }
+      store.dispose(tabId);
+      signalLog.resetTab(tabId);
+      persistSignalLogSoon();
+      lastProjectionBroadcastByTab.delete(tabId);
+      lastPopupSessionFactsSeqByTab.delete(tabId);
+      popupPortCounts.delete(tabId);
+    },
+    pruneTabs(liveTabIds: readonly number[]) {
+      const live = new Set(liveTabIds.filter((id) => Number.isFinite(id) && id > 0));
+      const known: number[] = [];
+      store.forEachTab((state) => {
+        if (Number.isFinite(state.tabId) && state.tabId > 0) {
+          known.push(state.tabId);
+        }
+      });
+      for (const tabId of known) {
+        if (!live.has(tabId)) {
+          this.disposeTab(tabId);
+        }
+      }
+    },
   };
 }

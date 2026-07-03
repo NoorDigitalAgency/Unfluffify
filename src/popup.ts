@@ -1755,6 +1755,37 @@ function formatRunCountdownForCurtain(): string {
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
+// Bounded retry for the initial siteId (domainId) resolution: 3 attempts at
+// 2s/4s/8s per base URL, reset when the base changes (and naturally on every
+// popup open — this is popup-instance state). refreshUi re-runs the whole
+// resolution; a success simply stops scheduling.
+let siteIdRetryTimer = 0;
+let siteIdRetryKey = "";
+let siteIdRetryCount = 0;
+
+function scheduleSiteIdResolutionRetry(): void {
+  const key = state.currentBaseUrl || "";
+  if (!key) {
+    return;
+  }
+  if (siteIdRetryKey !== key) {
+    siteIdRetryKey = key;
+    siteIdRetryCount = 0;
+  }
+  if (siteIdRetryTimer || siteIdRetryCount >= 3) {
+    return;
+  }
+  const delayMs = 2000 * Math.pow(2, siteIdRetryCount);
+  siteIdRetryCount += 1;
+  siteIdRetryTimer = window.setTimeout(() => {
+    siteIdRetryTimer = 0;
+    if ((state.currentBaseUrl || "") !== key) {
+      return;
+    }
+    void refreshUi({ useBusyOverlay: false });
+  }, delayMs);
+}
+
 function applyCentralSessionDictation(nextViewState: PopupViewStatePatch, currentTabId: number | null): void {
   const nextCentralSessionDictationViewState = buildCentralSessionDictationViewStatePatch({
     currentTabId,
@@ -4687,6 +4718,12 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
       siteIdBlockedReason = PopupText.status.unableToResolveDomainId;
       remoteLoadResult = { status: "skipped", baseUrl: "" };
       updateLastConfigLoadStatus(remoteLoadResult);
+      // The lookup failing right after the user lands the configuration
+      // used to LATCH: nothing re-attempted the resolution and the popup sat
+      // on "Unable to resolve domainId right now" until a manual reload
+      // (fresh-install ship-blocker, architect 2026-07-03). Retry with
+      // bounded backoff; success or a base-URL change resets the budget.
+      scheduleSiteIdResolutionRetry();
     }
   } else {
     state.currentConfig = null;
@@ -5728,6 +5765,14 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
   const renderModeSectionVisible =
     renderModeRequired && (!renderModeSet || state.renderModeEditMode);
   nextViewState.renderModeSectionVisible = renderModeSectionVisible;
+  // Suppress page-prep curtains until the render mode is KNOWN-SET —
+  // auto-content-detection is disabled, so no initial spinner belongs over
+  // the manual detection posture (architect, 2026-07-03), and gating on
+  // "required" alone still flashed the curtain for the first ~2s while the
+  // base/site resolution was in flight. Confirmed sites simply get their
+  // prep curtain once the config resolves; edit mode over a set value keeps
+  // normal curtains.
+  nextViewState.renderModeDetectionViewActive = !renderModeSet;
   nextViewState.renderModeChangeMenuVisible =
     resolvedView === uiModule.View.Marking &&
     renderModeRequired &&

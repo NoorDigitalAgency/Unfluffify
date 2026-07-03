@@ -175,7 +175,10 @@ test("central-state dictation suppresses stale busy curtain when projected phase
 test("popup curtain rendering prioritizes session dictation when present", () => {
   assert.match(uiSource, /sessionCurtainVisible: false,/);
   assert.match(uiSource, /sessionCurtainMessage: "",/);
-  assert.match(uiSource, /function getBlockingUiCurtainState\(view: ViewState\): BlockingUiCurtainState \{\s*if \(view\.sessionCurtainVisible\)/);
+  // Session dictation still leads the curtain priority order — behind the
+  // render-mode DETECTION-view suppression (no initial spinner belongs over
+  // the manual detection posture; architect, 2026-07-03).
+  assert.match(uiSource, /function getBlockingUiCurtainState\(view: ViewState\): BlockingUiCurtainState \{[\s\S]{0,800}const suppressPrepCurtains = Boolean\(view\.renderModeDetectionViewActive\);\s*if \(view\.sessionCurtainVisible && !suppressPrepCurtains\)/);
   assert.match(uiSource, /message: view\.sessionCurtainMessage \|\| PopupText\.overlay\.pleaseWait/);
   assert.match(uiSource, /const liveSessionCurtainTimerText =[\s\S]*?view\.busyTimerMode === SPINNER_TIMER_MODES\.COUNTDOWN[\s\S]*?formatCountdownFromDeadline\([\s\S]*?view\.busyDeadlineAt[\s\S]*?view\.aiRunDeadlineAt/);
   assert.match(uiSource, /timerText: liveSessionCurtainTimerText \|\| view\.sessionCurtainTimerText \|\| ""/);
