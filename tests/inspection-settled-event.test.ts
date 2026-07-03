@@ -62,9 +62,16 @@ test("content warmups leave inspection UI toggling to the brain pageCurtain", ()
   assert.doesNotMatch(warmupSource, /setPageInspectionUiActive\(/);
   const busSource = readFileSync(new URL("../src/content/layers/content-bus-client.ts", import.meta.url), "utf8");
   assert.match(busSource, /setPageCurtainRenderer\(\(visible, state\) => \{[\s\S]*?setPageInspectionUiActive\(visible\);/);
-  // Data-affecting curtains (blockSurfaces.page) must raise the REAL page input
-  // block, not just the inspection tint; non-blocking curtains and clears release it.
-  assert.match(busSource, /const pageBlocking = Boolean\(visible && blockSurfaces && blockSurfaces\.page === true\);/);
+  // Data-affecting curtains must raise the REAL page input block, not just the
+  // inspection tint; non-blocking curtains and clears release it. P4 step 4.2:
+  // the broadcast carries {kind, phase} only, so blocking resolves locally —
+  // machine overlay memory first, the shared phase-definition table second.
+  assert.match(busSource, /const memoryCurtain = resolveActiveContentOverlayMemory\(\)\.pageCurtain;/);
+  assert.match(busSource, /getSpinnerPhaseDefinition\(state\.kind, state\.phase\)/);
+  assert.match(
+    busSource,
+    /const pageBlocking = Boolean\(\s*visible &&\s*\(memoryCurtain\.visible\s*\? memoryCurtain\.blocksPageInput\s*: definition\?\.blockSurfaces\.page === true\)\s*\);/
+  );
   assert.match(busSource, /if \(pageBlocking\) \{[\s\S]*?setPopupBusyOnPage\(true, message, \{ operationId, releaseBy \}\);[\s\S]*?\} else \{[\s\S]*?setPopupBusyOnPage\(false\);/);
 });
 

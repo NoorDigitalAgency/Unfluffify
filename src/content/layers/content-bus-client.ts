@@ -27,7 +27,9 @@ import { createContentTransport } from "../../common/bus/transport/content-trans
 import type { Browser } from "../../common/browser";
 import { startContentLayerHost } from "./layer-host";
 import { setPageCurtainRenderer } from "./spinner-layer";
+import { getSpinnerPhaseDefinition } from "../../common/spinner-contract";
 import {
+  resolveActiveContentOverlayMemory,
   setPageInspectionUiActive,
   setPopupBusyOnPage,
   setUserMarkingEditSignalReporter,
@@ -96,27 +98,40 @@ export function startContentBusClient(options: ContentBusClientOptions = {}): Bu
     });
   });
   // The page-world inspection curtain renders from the brain pageCurtain
-  // broadcast: brain hide -> both popup and page clear together. Curtains that
-  // declare page-blocking in their spinner contract (blockSurfaces.page — AI
-  // run, save, reveal/freeze) must also raise the REAL page input block, not
-  // just the inspection tint, so the user cannot interact with the page while
-  // the data-affecting operation runs. The brain re-broadcasts the active
-  // curtain roughly every heartbeat second (content deliveries are NOT deduped),
-  // which re-arms the block's fail-open watchdog; if the brain goes silent the
-  // block releases on its own.
+  // broadcast: brain hide -> both popup and page clear together. The broadcast
+  // is engagement vocabulary only ({kind, phase} + timing — P4 step 4.2); the
+  // CONTENT resolves presentation locally: the marking machine's overlay
+  // memory first (its visible-curtain states own message and input-block
+  // policy), the shared phase-definition table second. Curtains that resolve
+  // page-blocking must raise the REAL page input block, not just the
+  // inspection tint, so the user cannot interact with the page while the
+  // data-affecting operation runs. The brain re-broadcasts the active curtain
+  // roughly every heartbeat second (content deliveries are NOT deduped),
+  // which re-arms the block's fail-open watchdog; if the brain goes silent
+  // the block releases on its own.
   setPageCurtainRenderer((visible, state) => {
     setPageInspectionUiActive(visible);
-    const blockSurfaces = state && typeof state === "object"
-      ? (state.blockSurfaces as { page?: unknown } | null | undefined)
+    const memoryCurtain = resolveActiveContentOverlayMemory().pageCurtain;
+    const definition = state && typeof state === "object"
+      ? getSpinnerPhaseDefinition(state.kind, state.phase)
       : null;
-    const pageBlocking = Boolean(visible && blockSurfaces && blockSurfaces.page === true);
+    const message = memoryCurtain.visible
+      ? memoryCurtain.message
+      : definition
+        ? definition.title
+        : "";
+    const pageBlocking = Boolean(
+      visible &&
+        (memoryCurtain.visible
+          ? memoryCurtain.blocksPageInput
+          : definition?.blockSurfaces.page === true)
+    );
     if (pageBlocking) {
       const operationId = typeof state?.operationId === "string" ? state.operationId : "";
       const rawDeadline = state?.deadlineAt;
       const releaseBy = typeof rawDeadline === "number" && Number.isFinite(rawDeadline)
         ? rawDeadline
         : undefined;
-      const message = typeof state?.message === "string" ? state.message : "";
       setPopupBusyOnPage(true, message, { operationId, releaseBy });
     } else {
       setPopupBusyOnPage(false);

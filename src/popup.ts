@@ -127,6 +127,7 @@ import {
 import { SPINNER_REQUEST_TYPES } from "./common/bus/contracts/spinner";
 import { SPINNER_KEYS } from "./common/world-messaging-contract";
 import {
+  getSpinnerPhaseDefinition,
   SPINNER_OPERATION_KINDS,
   SPINNER_OPERATION_PHASES,
 } from "./common/spinner-contract";
@@ -1032,50 +1033,50 @@ const hasCurrentPagePendingChanges = (
 const handlePageSave = () => handlePageSaveOperation(getPageReconciliationDeps());
 const handlePageRevert = () => handlePageRevertOperation(getPageReconciliationDeps());
 
+// P4 step 4.2: the brain broadcast carries {kind, phase} + timing only; the
+// popup resolves presentation from the shared phase-definition table here.
+// Machine-owned states keep overriding the resolved content downstream (the
+// P2 curtain/surface memory apply), so the definition is the fallback layer.
+function resolveProjectedSpinnerDefinition(spinnerState: PopupSpinnerState | null) {
+  if (!spinnerState || typeof spinnerState !== "object") {
+    return null;
+  }
+  return getSpinnerPhaseDefinition(spinnerState.kind, spinnerState.phase);
+}
+
 function projectedSpinnerStateBlocksSurface(
   spinnerState: PopupSpinnerState | null,
   surface: PopupSpinnerSurface
 ) {
-  if (!spinnerState || typeof spinnerState !== "object") {
-    return false;
-  }
-  const blockSurfaces = spinnerState.blockSurfaces && typeof spinnerState.blockSurfaces === "object"
-    ? spinnerState.blockSurfaces as { page?: unknown; popup?: unknown }
-    : null;
-  if (!blockSurfaces) {
-    return false;
-  }
-  return blockSurfaces[surface] === true;
+  const definition = resolveProjectedSpinnerDefinition(spinnerState);
+  return Boolean(definition && definition.blockSurfaces[surface] === true);
 }
 
 function projectedSpinnerStateToSnapshot(spinnerState: PopupSpinnerState | null): PopupSpinnerSnapshot {
   if (!spinnerState || typeof spinnerState !== "object") {
     return null;
   }
-  const blockSurfaces = spinnerState.blockSurfaces && typeof spinnerState.blockSurfaces === "object"
-    ? spinnerState.blockSurfaces as { page?: unknown; popup?: unknown }
-    : null;
+  const definition = resolveProjectedSpinnerDefinition(spinnerState);
+  if (!definition) {
+    return null;
+  }
   return {
     key: typeof spinnerState.spinnerKey === "string" ? spinnerState.spinnerKey : "",
     entry: {
-      blockSurfaces: blockSurfaces
-        ? {
-          page: blockSurfaces.page === true,
-          popup: blockSurfaces.popup === true
-        }
-        : undefined,
+      blockSurfaces: {
+        page: definition.blockSurfaces.page === true,
+        popup: definition.blockSurfaces.popup === true
+      },
       deadlineAt: Number.isFinite(spinnerState.deadlineAt) ? Number(spinnerState.deadlineAt) : 0,
-      message: typeof spinnerState.title === "string" && spinnerState.title
-        ? spinnerState.title
-        : typeof spinnerState.message === "string" ? spinnerState.message : "",
-      maxDurationMs: Number.isFinite(spinnerState.maxDurationMs) ? Number(spinnerState.maxDurationMs) : 0,
+      message: definition.title,
+      maxDurationMs: definition.maxDurationMs,
       operationId: typeof spinnerState.operationId === "string" ? spinnerState.operationId : "",
-      operationKind: typeof spinnerState.operationKind === "string" ? spinnerState.operationKind : "",
-      operationPhase: typeof spinnerState.operationPhase === "string" ? spinnerState.operationPhase : "",
+      operationKind: definition.kind,
+      operationPhase: definition.phase,
       reason: typeof spinnerState.reason === "string" ? spinnerState.reason : "",
-      source: typeof spinnerState.source === "string" ? spinnerState.source : "",
+      source: "brain-broadcast",
       startedAt: Number.isFinite(spinnerState.startedAt) ? Number(spinnerState.startedAt) : 0,
-      timerMode: typeof spinnerState.timerMode === "string" ? spinnerState.timerMode : ""
+      timerMode: definition.timerMode
     }
   };
 }

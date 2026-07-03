@@ -1,3 +1,5 @@
+import { AI_RUN_DEFAULT_TIMEOUT_MS } from "./bus/contracts/ai-run";
+
 export const SPINNER_OPERATION_KINDS = Object.freeze({
   AI_RUN: "ai-run",
   CONTENT_BOOTSTRAP: "content-bootstrap",
@@ -209,7 +211,7 @@ const phaseDefinitions: SpinnerPhaseDefinition[] = [
     "Sending marked content to AI and waiting for selector suggestions.",
     PAGE_AND_POPUP,
     SPINNER_TIMER_MODES.COUNTDOWN,
-    480_000,
+    AI_RUN_DEFAULT_TIMEOUT_MS,
     SPINNER_RECOVERY_POLICIES.RELEASE_ON_EXPIRE
   ),
   definePhase(

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { SPINNER_OPERATION_KINDS, SPINNER_OPERATION_PHASES, SPINNER_TIMER_MODES } from "../src/common/spinner-contract.js";
-import { phaseToSpinnerState, projectSpinners } from "../src/background/brain/spinner-authority.js";
+import { SPINNER_OPERATION_KINDS, SPINNER_OPERATION_PHASES } from "../src/common/spinner-contract.js";
+import { projectSpinners } from "../src/background/brain/spinner-authority.js";
 import type { TabLayerState } from "../src/background/brain/state-store.js";
 
 function createState(overrides: Partial<TabLayerState> = {}): TabLayerState {
@@ -103,71 +103,56 @@ function createState(overrides: Partial<TabLayerState> = {}): TabLayerState {
 }
 
 describe("spinner authority", () => {
-  it("maps countdown phases", () => {
-    const state = phaseToSpinnerState(
-      SPINNER_OPERATION_KINDS.AI_RUN,
-      SPINNER_OPERATION_PHASES.AI_RUN.REMOTE_WAIT,
-      { startedAt: 10, deadlineAt: 20 },
-    );
-
-    expect(state).toMatchObject({
-      timerMode: SPINNER_TIMER_MODES.COUNTDOWN,
-      title: "Waiting for AI results",
-      deadlineAt: 20,
-      startedAt: 10,
-      maxDurationMs: 480_000,
-    });
-  });
-
-  it("maps elapsed phases", () => {
-    const state = phaseToSpinnerState(
-      SPINNER_OPERATION_KINDS.REVEAL_FREEZE,
-      SPINNER_OPERATION_PHASES.REVEAL_FREEZE.REVEALING_CONTENT,
-      { startedAt: 30, deadlineAt: 0 },
-    );
-
-    expect(state).toMatchObject({
-      timerMode: SPINNER_TIMER_MODES.ELAPSED,
-      title: "Revealing lazy-loaded content",
-      maxDurationMs: 120_000,
-    });
-  });
-
-  it("maps none-timer phases", () => {
-    const state = phaseToSpinnerState(
-      SPINNER_OPERATION_KINDS.AI_RUN,
-      SPINNER_OPERATION_PHASES.AI_RUN.PREPARING_PAGE,
-      { startedAt: 40, deadlineAt: 0 },
-    );
-
-    expect(state).toMatchObject({
-      timerMode: SPINNER_TIMER_MODES.NONE,
-      title: "Preparing page content for AI",
-    });
-  });
-
-  it("prefers the live spinner message and carries popup metadata", () => {
-    const state = phaseToSpinnerState(
-      SPINNER_OPERATION_KINDS.AI_RUN,
-      SPINNER_OPERATION_PHASES.AI_RUN.REMOTE_WAIT,
-      {
-        startedAt: 50,
-        deadlineAt: 70,
-        operationId: "op-2",
-        message: "Waiting on AI run",
-        reason: "tab-run-ai-running",
-        source: "background-spinner-broker",
-        spinnerKey: "ai",
+  it("projects surface vocabulary only - no composed presentation on the wire", () => {
+    const projected = projectSpinners(createState({
+      spinners: {
+        popup: {
+          kind: SPINNER_OPERATION_KINDS.AI_RUN,
+          phase: SPINNER_OPERATION_PHASES.AI_RUN.REMOTE_WAIT,
+          startedAt: 10,
+          deadlineAt: 20,
+          operationId: "op-1",
+          message: "legacy message ignored",
+          reason: "tab-run-ai-running",
+          source: "spinner-broker",
+          spinnerKey: "ai",
+        },
+        pageCurtain: null,
+        banner: null,
       },
-    );
+    }));
 
-    expect(state).toMatchObject({
-      message: "Waiting on AI run",
-      operationId: "op-2",
+    expect(projected.popup).toEqual({
+      kind: SPINNER_OPERATION_KINDS.AI_RUN,
+      phase: SPINNER_OPERATION_PHASES.AI_RUN.REMOTE_WAIT,
+      startedAt: 10,
+      deadlineAt: 20,
+      operationId: "op-1",
       reason: "tab-run-ai-running",
-      source: "background-spinner-broker",
       spinnerKey: "ai",
     });
+  });
+
+  it("drops selections the shared phase contract does not know", () => {
+    const projected = projectSpinners(createState({
+      spinners: {
+        popup: {
+          kind: SPINNER_OPERATION_KINDS.AI_RUN,
+          phase: "not-a-real-phase",
+          startedAt: 10,
+          deadlineAt: 20,
+          operationId: "op-x",
+          message: "",
+          reason: "",
+          source: "",
+          spinnerKey: "",
+        },
+        pageCurtain: null,
+        banner: null,
+      },
+    }));
+
+    expect(projected.popup).toBeNull();
   });
 
   it("falls back to a brain-owned page curtain for fresh active AI runs", () => {
@@ -184,14 +169,14 @@ describe("spinner authority", () => {
     }));
 
     expect(projected.popup).toMatchObject({
-      operationKind: SPINNER_OPERATION_KINDS.AI_RUN,
-      operationPhase: SPINNER_OPERATION_PHASES.AI_RUN.REMOTE_WAIT,
+      kind: SPINNER_OPERATION_KINDS.AI_RUN,
+      phase: SPINNER_OPERATION_PHASES.AI_RUN.REMOTE_WAIT,
       deadlineAt: 480_000,
       startedAt: 1_000,
     });
     expect(projected.pageCurtain).toMatchObject({
-      operationKind: SPINNER_OPERATION_KINDS.AI_RUN,
-      operationPhase: SPINNER_OPERATION_PHASES.AI_RUN.REMOTE_WAIT,
+      kind: SPINNER_OPERATION_KINDS.AI_RUN,
+      phase: SPINNER_OPERATION_PHASES.AI_RUN.REMOTE_WAIT,
       deadlineAt: 480_000,
       startedAt: 1_000,
     });
@@ -226,9 +211,8 @@ describe("spinner authority", () => {
     }));
 
     expect(projected.popup).toMatchObject({
-      operationKind: SPINNER_OPERATION_KINDS.AI_RUN,
-      operationPhase: SPINNER_OPERATION_PHASES.AI_RUN.OPENING_PREVIEW,
-      message: "Opening preview",
+      kind: SPINNER_OPERATION_KINDS.AI_RUN,
+      phase: SPINNER_OPERATION_PHASES.AI_RUN.OPENING_PREVIEW,
     });
     expect(projected.pageCurtain).toBeNull();
   });
@@ -272,8 +256,8 @@ describe("spinner authority", () => {
     }));
 
     expect(projected.popup).toMatchObject({
-      operationKind: SPINNER_OPERATION_KINDS.AI_RUN,
-      operationPhase: SPINNER_OPERATION_PHASES.AI_RUN.OPENING_PREVIEW,
+      kind: SPINNER_OPERATION_KINDS.AI_RUN,
+      phase: SPINNER_OPERATION_PHASES.AI_RUN.OPENING_PREVIEW,
     });
     expect(projected.pageCurtain).toBeNull();
   });
@@ -291,8 +275,8 @@ describe("spinner authority", () => {
       },
       spinners: {
         popup: {
-          kind: SPINNER_OPERATION_KINDS.CONTENT_BOOTSTRAP,
-          phase: SPINNER_OPERATION_PHASES.CONTENT_BOOTSTRAP.POPUP_REFRESH,
+          kind: SPINNER_OPERATION_KINDS.POPUP_BOOTSTRAP,
+          phase: SPINNER_OPERATION_PHASES.POPUP_BOOTSTRAP.REFRESHING_STATE,
           startedAt: 2_600,
           deadlineAt: 2_900,
           operationId: "popup-refresh",
@@ -307,8 +291,8 @@ describe("spinner authority", () => {
     }));
 
     expect(projected.popup).toMatchObject({
-      operationKind: SPINNER_OPERATION_KINDS.AI_RUN,
-      operationPhase: SPINNER_OPERATION_PHASES.AI_RUN.REMOTE_WAIT,
+      kind: SPINNER_OPERATION_KINDS.AI_RUN,
+      phase: SPINNER_OPERATION_PHASES.AI_RUN.REMOTE_WAIT,
       deadlineAt: 485_000,
       startedAt: 2_500,
     });
@@ -343,14 +327,14 @@ describe("spinner authority", () => {
     }));
 
     expect(projected.popup).toMatchObject({
-      operationKind: SPINNER_OPERATION_KINDS.AI_RUN,
-      operationPhase: SPINNER_OPERATION_PHASES.AI_RUN.REMOTE_WAIT,
+      kind: SPINNER_OPERATION_KINDS.AI_RUN,
+      phase: SPINNER_OPERATION_PHASES.AI_RUN.REMOTE_WAIT,
       deadlineAt: 486_000,
       startedAt: 6_000,
     });
     expect(projected.pageCurtain).toMatchObject({
-      operationKind: SPINNER_OPERATION_KINDS.AI_RUN,
-      operationPhase: SPINNER_OPERATION_PHASES.AI_RUN.REMOTE_WAIT,
+      kind: SPINNER_OPERATION_KINDS.AI_RUN,
+      phase: SPINNER_OPERATION_PHASES.AI_RUN.REMOTE_WAIT,
       deadlineAt: 486_000,
       startedAt: 6_000,
     });
@@ -385,12 +369,12 @@ describe("spinner authority", () => {
     }));
 
     expect(projected.popup).toMatchObject({
-      operationKind: SPINNER_OPERATION_KINDS.AI_RUN,
-      operationPhase: SPINNER_OPERATION_PHASES.AI_RUN.PREPARING_PAGE,
+      kind: SPINNER_OPERATION_KINDS.AI_RUN,
+      phase: SPINNER_OPERATION_PHASES.AI_RUN.PREPARING_PAGE,
     });
     expect(projected.pageCurtain).toMatchObject({
-      operationKind: SPINNER_OPERATION_KINDS.AI_RUN,
-      operationPhase: SPINNER_OPERATION_PHASES.AI_RUN.REMOTE_WAIT,
+      kind: SPINNER_OPERATION_KINDS.AI_RUN,
+      phase: SPINNER_OPERATION_PHASES.AI_RUN.REMOTE_WAIT,
       deadlineAt: 490_000,
       startedAt: 3_000,
     });
@@ -425,8 +409,8 @@ describe("spinner authority", () => {
     }));
 
     expect(projected.pageCurtain).toMatchObject({
-      operationKind: SPINNER_OPERATION_KINDS.AI_RUN,
-      operationPhase: SPINNER_OPERATION_PHASES.AI_RUN.REMOTE_WAIT,
+      kind: SPINNER_OPERATION_KINDS.AI_RUN,
+      phase: SPINNER_OPERATION_PHASES.AI_RUN.REMOTE_WAIT,
       deadlineAt: 495_000,
       startedAt: 5_000,
     });

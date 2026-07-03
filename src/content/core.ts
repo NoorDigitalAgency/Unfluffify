@@ -43,6 +43,8 @@ import {
   addContentDirectiveListener,
   getMarkingEditsBlockedReasonByDirective
 } from "./layers/layer-host";
+import { resolveContentOverlayMemory, type ContentOverlayMemory } from "./overlay-memory";
+import type { ContentMarkingMachineState } from "./marking-machine";
 
 type TimerHandle = number;
 type AnimationFrameHandle = number;
@@ -7308,11 +7310,41 @@ function showToast(message: string): void {
   }, 1800);
 }
 
+// P4 step 4.1: the content marking machine's overlay memory is the first
+// authority for page-overlay presentation. The machine registers its state
+// resolver at wiring time; before that (or in tests without the machine) the
+// memory resolves as `silent` — every surface hidden, nothing paused.
+let contentOverlayMachineStateResolver: (() => ContentMarkingMachineState) | null = null;
+
+export function setContentOverlayMachineStateResolver(
+  resolver: (() => ContentMarkingMachineState) | null
+): void {
+  contentOverlayMachineStateResolver = resolver;
+}
+
+export function resolveActiveContentOverlayMemory(): ContentOverlayMemory {
+  return resolveContentOverlayMemory(
+    contentOverlayMachineStateResolver ? contentOverlayMachineStateResolver() : "silent"
+  );
+}
+
+// The machine steps outside any directive delivery, so state changes must
+// re-render the marking-paused surface themselves.
+export function refreshMarkingTemporarilyDisabledUi(): void {
+  updateMarkingTemporarilyDisabledUi();
+}
+
+const MACHINE_MARKING_PAUSE_REASON = "preview_restore";
+
 function getMarkingTemporarilyDisabledReason() {
-  // Brain-dictated: the marking-edits-blocked overlay reason (ai_run / saving /
-  // syncing) is composed entirely by the background view-projector and reflected
-  // here. The silent-highlight editor-preparation reconciliation is exempt
-  // brain-side, so this never raises the overlay during that preparation.
+  // Machine memory first (previewing/restoring pause marking by state
+  // policy); the brain-dictated reconciliation reasons (ai_run / saving /
+  // syncing) stay as the reflected fallback. The silent-highlight
+  // editor-preparation reconciliation is exempt brain-side, so this never
+  // raises the overlay during that preparation.
+  if (resolveActiveContentOverlayMemory().markingTemporarilyDisabled) {
+    return MACHINE_MARKING_PAUSE_REASON;
+  }
   return getMarkingEditsBlockedReasonByDirective();
 }
 
@@ -7320,7 +7352,7 @@ function getMarkingTemporarilyDisabledMessage(reason: string): string {
   if (reason === "saving") {
     return ContentText.marking.temporarilyDisabledSaving;
   }
-  if (reason === "ai_run") {
+  if (reason === "ai_run" || reason === MACHINE_MARKING_PAUSE_REASON) {
     return ContentText.marking.temporarilyDisabled;
   }
   if (reason) {

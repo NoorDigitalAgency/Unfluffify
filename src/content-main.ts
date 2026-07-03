@@ -702,8 +702,16 @@ function stepContentMachine(
   const transition = stepContentMarkingMachine(contentMarkingMachine, step, detail);
   if (transition.moved) {
     contentMarkingMachine = transition.machine;
+    // P4 step 4.1: machine states own the marking-paused overlay policy, and
+    // steps happen outside any directive delivery — re-render on every move.
+    core.refreshMarkingTemporarilyDisabledUi();
   }
 }
+
+// P4 step 4.1: core's page-overlay renderers (pageCurtain content, the
+// marking-paused class) resolve presentation from the machine's overlay
+// memory — hand them the live machine state.
+core.setContentOverlayMachineStateResolver(() => contentMarkingMachine.state);
 
 const contentMainServiceRegistry = createContentMainServiceRegistry({
   createPageToastClient: () => createPageToast(createPageToastDeps()),

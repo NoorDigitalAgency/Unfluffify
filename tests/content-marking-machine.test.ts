@@ -99,6 +99,28 @@ test("§3.2 wiring: the machine steps at content's routine boundaries and previe
   assert.doesNotMatch(brainSource, /SIGNAL_NAMES\.PREVIEW_EXITED/);
 });
 
+test("P4 4.1 wiring: core resolves page-overlay presentation from the machine's memory", () => {
+  const contentMain = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
+  // The machine hands core its live state, and every machine move re-renders
+  // the marking-paused surface (steps happen outside directive deliveries).
+  assert.match(
+    contentMain,
+    /core\.setContentOverlayMachineStateResolver\(\(\) => contentMarkingMachine\.state\);/
+  );
+  assert.match(
+    contentMain,
+    /contentMarkingMachine = transition\.machine;[\s\S]{0,300}core\.refreshMarkingTemporarilyDisabledUi\(\);/
+  );
+  // Core: machine overlay memory is the FIRST authority for the
+  // marking-paused reason; the brain-dictated reconciliation reasons remain
+  // the fallback.
+  const coreSource = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
+  assert.match(
+    coreSource,
+    /if \(resolveActiveContentOverlayMemory\(\)\.markingTemporarilyDisabled\) \{\s*return MACHINE_MARKING_PAUSE_REASON;\s*\}\s*return getMarkingEditsBlockedReasonByDirective\(\);/
+  );
+});
+
 test("navigation tears every routine down to silent", () => {
   for (const build of [
     () => stepContentMarkingMachine(CONTENT_MARKING_MACHINE_INITIAL, "marking-enabled").machine,

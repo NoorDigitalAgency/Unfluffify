@@ -1,9 +1,14 @@
+// P4 step 4.2: the brain ships surface vocabulary only ({kind, phase} +
+// timing); the pageCurtain renderer resolves presentation locally (machine
+// overlay memory first, the shared phase-definition table second).
 type SpinnerStateLike = {
-  title?: unknown;
-  message?: unknown;
-  blockSurfaces?: { page?: unknown; popup?: unknown } | null;
-  operationId?: unknown;
+  kind?: unknown;
+  phase?: unknown;
   deadlineAt?: unknown;
+  startedAt?: unknown;
+  operationId?: unknown;
+  reason?: unknown;
+  spinnerKey?: unknown;
 };
 
 type ContentSpinnerSurface = "pageCurtain" | "banner";

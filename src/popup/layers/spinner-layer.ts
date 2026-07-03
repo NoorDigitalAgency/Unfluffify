@@ -1,16 +1,13 @@
+// P4 step 4.2: the brain ships surface vocabulary only ({kind, phase} +
+// timing); presentation resolves locally from machine memory / the shared
+// phase-definition table at the consumption sites.
 type SpinnerStateLike = {
-  title?: unknown;
-  message?: unknown;
-  timerMode?: unknown;
+  kind?: unknown;
+  phase?: unknown;
   deadlineAt?: unknown;
   startedAt?: unknown;
-  blockSurfaces?: unknown;
-  maxDurationMs?: unknown;
-  operationKind?: unknown;
-  operationPhase?: unknown;
   operationId?: unknown;
   reason?: unknown;
-  source?: unknown;
   spinnerKey?: unknown;
 };
 

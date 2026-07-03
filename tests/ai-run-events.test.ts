@@ -204,14 +204,14 @@ test("brain replays active spinner surfaces when the popup port registers", asyn
   await new Promise((resolve) => setTimeout(resolve, 0));
 
   const popupSpinnerEvent = popupPort.postedMessages.find((message) => {
-    const envelope = message as { t?: unknown; payload?: { surface?: unknown; state?: { operationKind?: unknown } } };
+    const envelope = message as { t?: unknown; payload?: { surface?: unknown; state?: { kind?: unknown } } };
     return envelope.t === SPINNER_EVENT_TYPES.SET &&
       envelope.payload?.surface === "popup" &&
-      envelope.payload.state?.operationKind === "ai-run";
-  }) as { payload: { state: { deadlineAt?: unknown; operationPhase?: unknown } } } | undefined;
+      envelope.payload.state?.kind === "ai-run";
+  }) as { payload: { state: { deadlineAt?: unknown; phase?: unknown } } } | undefined;
 
   assert.ok(popupSpinnerEvent);
-  assert.equal(popupSpinnerEvent.payload.state.operationPhase, "remote-wait");
+  assert.equal(popupSpinnerEvent.payload.state.phase, "remote-wait");
   assert.equal(popupSpinnerEvent.payload.state.deadlineAt, deadlineAt);
 });
 
