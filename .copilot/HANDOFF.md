@@ -1,5 +1,25 @@
 # MAIN PLAN: `.copilot/architecture/reflex-arc-plan.md` (START THERE)
 
+## PROGRAM COMPLETE 2026-07-03 — P0 through P6 all shipped + live-accepted; #5/#14 CLOSED
+
+The reflex-arc program is done. All phases shipped, full-gate green
+(1106/1106), and P6 acceptance passed the full matrix from a FRESH INSTALL
+(cleared /load DB + browser config; endpoints reconfigured live) across three
+properties x six flows, with C1-C4 at 100% on the heavy page and two
+independent 6+ minute post-exit holds showing ZERO drift. #5/#14 is dead at
+its source (P5 removed the interleaved-stale-pass cadence). Phase evidence in
+the plan §§4-6; durable doctrine in knowledge.md (the "REFLEX-ARC PROGRAM
+COMPLETE" bullet block). Post-P3 phase commits: P4 = 2573d66/74b4c6c/0eafd74/
+52ca991/ca7075f/1d54697/b905ff0; Lynx cssInfo guard = 10be076/5010547; P5 =
+5fa4486; P6 closure docs = this commit.
+OPEN ITEMS (non-blocking): (1) task #18 fail-open API audit — deferred for
+the architect's fail-closed decision table; (2) a release cut — everything
+since 1.9.2 is committed but unshipped (suggest 1.10.0); (3) pageTypeAssignments
+feature flag stays false until the backend endpoint lands; (4) signalHead on
+the dictation pointer, deferred until a consumer exists.
+
+---
+
 The reflex-arc plan is THE plan of record (architect-approved 2026-07-03,
 QA-round decisions recorded inside): native signal frames, per-layer state
 machines with complete memorized presentations incl. curtains/spinners,

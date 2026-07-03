@@ -455,7 +455,41 @@ properties, 7-minute windows, frames reviewed.
 
 ---
 
-## 6. PHASE 6 — FINALIZATION OF #5/#14
+## 6. PHASE 6 — FINALIZATION OF #5/#14 — CLOSED 2026-07-03
+
+STATUS: CLOSED. Full matrix run from a FRESH INSTALL (architect cleared the
+/load config DB + browser storage; GraphQL Live Pages are permanent and were
+retained). Endpoints reconfigured live via the popup UI:
+configEndpoint=unfluffify.lynxdev.se, aiEndpoint=unfluffify.dnscdn.se:8443
+(the AI endpoint REQUIRES the :8443 port — bare host returns Cloudflare 525;
+:8443 returns 401 then authorizes with the bearer token), stageBase=
+a.lynxdev.se, login rojan.gh@noordigital.com. Results (headed pw@1.62-alpha
+under the accept-driver harness, per-state change-only sampling + long holds):
+
+- LIGHT (bonliva.no): fresh-install (nuke -> configure -> domainId retry ->
+  Without-JS inspect -> static -> reveal/freeze -> silent), fresh-session,
+  silent-preview, discard (confirm dialog), save, navigation-away (-> correct
+  non-candidate notice, no stale-session wedge). C1-C4 PASS incl. a 380s
+  post-exit hold with ZERO drift (ready_to_save held; Save/Discard stayed
+  reachable).
+- HEAVY (bonliva.se/lediga-jobb — the #5/#14 origin page): reveal/freeze froze
+  at h=7491 (healthy baseline; the cold 12.5k-29k DOM explosion is dead), AI
+  run -> 247 items hydrated STABLE (the exact FINDING-3 oscillation page, no
+  blink to empty), C3 exit -> ready_to_save with a 400s hold, ZERO drift; save
+  -> silent; the Lynx checklist showed the todo-coverage guard blocking send
+  with the cssInfo gate correctly PENDING (coverage incomplete = query not
+  fired, by the coverage-gated trigger).
+- SMALL (sove.se product candidate): root correctly reported non-candidate;
+  the candidate page ran the full flow (68 items) -> save -> silent, and with
+  coverage complete (1/1) the cssInfo query FIRED (200) and resolved MATCH ->
+  send disabled (the backend retained the earlier submit; the guard correctly
+  blocks a redundant resubmit against live data).
+
+FINDING-3 closure: CONFIRMED — the 247-item heavy page hydrated stable with
+no oscillation; the item latch + machine memory make a lost push cosmetic.
+C1-C4: 100% on the heavy page. #5/#14: the post-exit collapse is dead — two
+independent 6+ minute post-exit holds on both the light and the heavy page
+showed zero drift (the interleaved-stale-pass class P5 removed at its source).
 
 - Full QA matrix: bonliva.no (light) + bonliva.se/lediga-jobb (heavy) + one
   sove.se product page (small): fresh-session flow, leftover-session flow,
