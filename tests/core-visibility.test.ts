@@ -1230,6 +1230,39 @@ test("W1/F2: deep NARROW containers with markable descendants stay widen-eligibl
   });
 });
 
+test("W4/F3: a wrapper with a SINGLE markable descendant is not a widen target", () => {
+  // Deliberate 052c deviation (marking-widening-review.md F3): widening must
+  // group several content pieces; a single-child wrapper adds nothing over
+  // excluding the child directly.
+  withVisibilityDom(({ body }) => {
+    const onlyText = createElement({
+      tagName: "p",
+      text: "The only markable descendant",
+      rect: { top: 40, right: 300, bottom: 80, left: 40, width: 260, height: 40 }
+    });
+    const wrapper = createElement({
+      children: [onlyText],
+      rect: { top: 20, right: 320, bottom: 100, left: 20, width: 300, height: 80 }
+    });
+    const level2 = createElement({
+      children: [wrapper],
+      rect: { top: 0, right: 400, bottom: 200, left: 0, width: 400, height: 200 }
+    });
+    const level1 = createElement({
+      parentElement: body,
+      children: [level2],
+      rect: { top: 0, right: 1200, bottom: 800, left: 0, width: 1200, height: 800 }
+    });
+    body.children.push(level1);
+    body.childNodes.push(level1);
+
+    assert.equal(
+      isMarkableElement(wrapper, {}, { allowParent: true, hitPoint: { x: 100, y: 60 } }),
+      false
+    );
+  });
+});
+
 test("W1/F2: deep full-width SEMANTIC boundaries (section) keep their exemption", () => {
   withVisibilityDom(({ body }) => {
     const textA = createElement({
@@ -2366,7 +2399,10 @@ test("default layer suppresses descendants inside synced default exclusion rows"
   });
 });
 
-test("parent marking accepts a wrapper with one markable child", () => {
+test("F3: parent marking rejects a wrapper with only ONE markable child", () => {
+  // Deliberate 052c deviation (marking-widening-review.md F3): widening must
+  // group several content pieces; the single-child wrapper adds nothing over
+  // excluding the child directly.
   withVisibilityDom(({ documentElement, body }) => {
     const textBlock = createElement({
       tagName: "p",
@@ -2389,7 +2425,7 @@ test("parent marking accepts a wrapper with one markable child", () => {
 
     assert.equal(
       isMarkableElement(shell, {}, { allowParent: true, hitPoint: { x: 40, y: 60 } }),
-      true
+      false
     );
   });
 });
@@ -2460,7 +2496,13 @@ test("parent marking inherits a cohesive section boundary through wrapper chains
     });
     body.children.push(section, sibling);
     body.childNodes.push(section, sibling);
-    globalThis.document.elementsFromPoint = () => [heading, headerBlock, sectionContent, container, padding, section, body, documentElement];
+    // Per-coordinate hit stacks so BOTH the heading and the intro are
+    // paint-reachable — the real page has many reachable text blocks, and the
+    // F3 ≥2-descendants rule needs the mock to reflect that.
+    globalThis.document.elementsFromPoint = (_x, y) =>
+      y >= 90
+        ? [intro, headerBlock, sectionContent, container, padding, section, body, documentElement]
+        : [heading, headerBlock, sectionContent, container, padding, section, body, documentElement];
 
     assert.equal(
       isMarkableElement(section, {}, { allowParent: true, hitPoint: { x: 40, y: 60 } }),
@@ -2522,7 +2564,12 @@ test("parent marking allows inherited wrapper chains with one content branch and
     });
     body.children.push(section, sibling);
     body.childNodes.push(section, sibling);
-    globalThis.document.elementsFromPoint = () => [heading, contentBlock, grid, paddingLarge, container, padding, section, body, documentElement];
+    // Per-coordinate hit stacks (heading + body text both paint-reachable) so
+    // the mock reflects the real multi-piece section under the F3 ≥2 rule.
+    globalThis.document.elementsFromPoint = (_x, y) =>
+      y >= 90
+        ? [bodyText, contentBlock, grid, paddingLarge, container, padding, section, body, documentElement]
+        : [heading, contentBlock, grid, paddingLarge, container, padding, section, body, documentElement];
 
     assert.equal(
       isMarkableElement(section, {}, { allowParent: true, hitPoint: { x: 40, y: 60 } }),

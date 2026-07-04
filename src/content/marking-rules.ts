@@ -74,9 +74,13 @@ export function shouldAllowParentMarkingBoundary(options: { hasDirectText?: bool
   const markableDescendantCount = Number.isFinite(options.markableDescendantCount ?? Number.NaN)
     ? Number(options.markableDescendantCount)
     : 0;
+  // F3 LOCKED (deliberate 052c deviation, see marking-widening-review.md):
+  // a descendants-only widen target must GROUP several content pieces — at
+  // least two markable descendants. Single-child wrappers stop being widen
+  // targets (the user excludes the child directly instead).
   return Boolean(
     options.hasDirectText ||
-    markableDescendantCount >= 1
+    markableDescendantCount >= 2
   );
 }
 

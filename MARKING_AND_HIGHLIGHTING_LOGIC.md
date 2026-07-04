@@ -536,6 +536,11 @@ Two restraints bound how wide a parent selection can reach:
   lists, tables, toggleable defaults, …) and direct-text elements keep their
   exemption, so meaningful wide containers remain selectable. The depth-limited
   shallow guard is unchanged where it feeds the structured-group definition.
+- **Descendants-only targets must group MULTIPLE content pieces.** A widen
+  target that is not self-markable requires at least TWO markable descendants —
+  a wrapper around a single content piece is not a widening target (excluding
+  the piece directly is equivalent and tighter). Deliberate 052c deviation
+  (decision record: marking-widening-review.md F3).
 
 ### Include Mode
 

@@ -170,7 +170,10 @@ test("stored default-exclude state is user-modified only when it differs from th
   );
 });
 
-test("parent marking accepts a wrapper with one markable descendant", () => {
+test("F3: parent marking requires MULTIPLE markable descendants (or direct text)", () => {
+  // Deliberate 052c deviation (marking-widening-review.md F3): widening always
+  // means grouping several content pieces — single-child wrappers are no longer
+  // widen targets.
   assert.equal(
     shouldAllowParentMarkingBoundary({
       hasDirectText: false,
@@ -182,6 +185,13 @@ test("parent marking accepts a wrapper with one markable descendant", () => {
     shouldAllowParentMarkingBoundary({
       hasDirectText: false,
       markableDescendantCount: 1
+    }),
+    false
+  );
+  assert.equal(
+    shouldAllowParentMarkingBoundary({
+      hasDirectText: false,
+      markableDescendantCount: 2
     }),
     true
   );
