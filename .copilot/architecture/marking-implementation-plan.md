@@ -140,14 +140,19 @@ together with target resolution + render (they must be coherent).
 - Residual (flagged, wants cramo live validation): `getCollapsedTextualFallbackRects`
   geometry fallback left light-only; on-page acceptance for broad shadow marking.
 
-### CP7 — Branch-scoped incremental rebuild (MA-3 target)
-- FIRST verify the prerequisite: a marking toggle never changes selector matches
-  (so selector/AI/immutable layers can be frozen across marks). If confirmed,
-  implement scoped rebuild of `subtree(E) ∪ ancestor-chain(E)` spliced into cached
-  collections; add `incremental == full-rebuild` equivalence test + settle-time
-  full reconcile safety net. If the refactor proves too risky in one pass, keep
-  the documented interim and land CP7 as a follow-up (do NOT block CP1–CP6/CP8).
-- Update contract §Marking Performance Contract (target + interim).
+### CP7 — Branch-scoped incremental rebuild (MA-3 target) — PREREQUISITE VERIFIED; INTERIM STANDS
+- Prerequisite VERIFIED (by construction + source-pin test): a marking toggle
+  never changes selector matches. The cache key's selector fingerprint comes from
+  the config-owned selector set (`getNewestConfigSelectorSet`); a toggle mutates
+  only the entry (`xpaths`/`includeXpaths`) → separate entry fingerprint. Pinned
+  in `core-scheduling.test.ts` ("CP7: selector matches are invariant…").
+- Per the MA-3 decision + this plan, the incremental-rebuild refactor is the
+  TARGET and is explicitly deferrable: the shipped immediate-ack + debounced
+  (~180ms) full reconcile interim is correct and STANDS (P5 already cut refresh
+  churn ~60/min→~0). The refactor is recorded as the sanctioned follow-up rather
+  than risking the core render path in an autonomous pass without live validation.
+- Contract §Marking Performance Contract updated with the target model, the
+  verified prerequisite, and the accurate interim.
 
 ### CP8 — D1 expand-then-mark harden + MA-4 collapse verify
 - Verify Space-passthrough expand → revealed element markable → explicit-include

@@ -319,6 +319,30 @@ Marking mode must avoid duplicate full-page passes:
   boxes; they must not trigger a full default-layer collection unless the DOM,
   config, or explicit marking state changed.
 
+### Rebuild model: target and interim (MA-3)
+
+A mark's blast radius is branch-local: an element's fate depends only on its own
+ancestry, never a sibling's mark. The **target** model is therefore a
+branch-scoped incremental rebuild — on a mark of element E, recompute only the
+affected surface (`subtree(E) ∪ ancestor-chain(E)` to the nearest marked or
+structural ancestor), splice it into the cached collections, and keep the
+selector-influence, AI-content, and immutable layers cached untouched. Because
+the incremental result is provably identical to a full rebuild, it must be
+guarded by an `incremental == full-rebuild` equivalence check over a corpus plus
+a settle-time full reconcile as a safety net.
+
+**Verified prerequisite:** a marking toggle never changes which elements the AI
+selectors match. The marking cache key derives its selector fingerprint from the
+config-owned selector set (`getNewestConfigSelectorSet`), while a toggle mutates
+only the page-marking entry (`xpaths` / `includeXpaths`), which feeds the
+separate entry fingerprint. So the selector / AI / immutable layers are safe to
+freeze across a mark.
+
+**Interim (current, correct):** the shipped behavior is the immediate
+explicit-overlay acknowledgement plus a debounced (~180ms) invalidating full
+reconcile described in the bullets above. It is correct — just not yet optimal —
+and stands until the incremental rebuild lands as its own checkpoint.
+
 ## Motion Stability Contract
 
 Any page where Unfluffify currently owns the editor role holds a page motion

@@ -780,6 +780,31 @@ test("marking render cache keys include selector and entry fingerprints before r
   assert.match(source, /function invalidateCachedCollections\(\) \{[\s\S]*?state\.cachedCollectionsKey = "";/);
 });
 
+test("CP7: selector matches are invariant under marking toggles (incremental-rebuild prerequisite)", () => {
+  const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
+
+  // The MA-3 branch-scoped incremental rebuild is only sound if a marking toggle
+  // cannot change which elements the AI selectors match — so the selector /
+  // AI / immutable layers can stay cached across a mark. Structurally: the cache
+  // key derives its selector fingerprint from the config-owned selector set
+  // (getNewestConfigSelectorSet), NOT from the page-marking entry; a toggle only
+  // mutates the entry (xpaths / includeXpaths), which feeds the SEPARATE entry
+  // fingerprint. Pin that separation so the invariant cannot silently regress.
+  assert.match(
+    source,
+    /const entryFingerprint = getEntryFingerprint\(entry\);[\s\S]*?getSelectorSetFingerprint\(selectorSet\),[\s\S]*?\.\.\.entryFingerprint/
+  );
+  assert.match(
+    source,
+    /const selectorSet = config\.getNewestConfigSelectorSet\(configValue\)\.selectorSet;/
+  );
+  // getEntryFingerprint reads the marking entry's rows only (never the selector set).
+  assert.match(
+    source,
+    /function getEntryFingerprint\(entry(?:\s*:\s*[^)]+)?\)(?:: [^{]+)? \{[\s\S]*?entry\.xpaths[\s\S]*?entry\.includeXpaths/
+  );
+});
+
 test("marking enable schedules settle renders that force invalidating rebuilds", () => {
   const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
 
