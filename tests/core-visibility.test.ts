@@ -551,6 +551,115 @@ test("MA-1b: a fully collapsed zero-height accordion body stays hidden", () => {
   });
 });
 
+// createElement has no shadow API, so attach an open shadow root by hand:
+// the shadow children live off the light tree (parentElement null) and report
+// the shadow root from getRootNode, matching a real top-level shadow child.
+function attachShadowRoot(host, shadowChildren) {
+  const shadowRoot = { host, children: shadowChildren, childNodes: shadowChildren };
+  host.shadowRoot = shadowRoot;
+  for (const child of shadowChildren) {
+    child.parentElement = null;
+    child.getRootNode = () => shadowRoot;
+  }
+  return shadowRoot;
+}
+
+test("CP6: enumeration descends into open shadow roots (shadow content is a default candidate)", () => {
+  withVisibilityDom(({ documentElement, body }) => {
+    const shadowP = createElement({
+      tagName: "p",
+      text: "Hos Cramo kan du hyra spikpistol",
+      rect: { top: 40, right: 320, bottom: 80, left: 20, width: 300, height: 40 }
+    });
+    const host = createElement({
+      tagName: "cramo-read-more",
+      parentElement: body,
+      rect: { top: 40, right: 320, bottom: 120, left: 20, width: 300, height: 80 }
+    });
+    attachShadowRoot(host, [shadowP]);
+    body.children.push(host);
+    body.childNodes.push(host);
+    // Browser pierces the open shadow root at the point.
+    globalThis.document.elementsFromPoint = () => [shadowP, host, body, documentElement];
+    globalThis.document.elementFromPoint = () => shadowP;
+
+    const targets = collectDefaultLayerElements(body);
+    assert.equal(targets.includes(shadowP), true, "shadow <p> must be enumerated as a default candidate");
+    assert.equal(targets.includes(host), false, "the text-less shadow host is not itself a candidate");
+  });
+});
+
+test("CP6: shadow content stays paint-reachable when the hit test only reports the host", () => {
+  withVisibilityDom(({ documentElement, body }) => {
+    const shadowP = createElement({
+      tagName: "p",
+      text: "Shadow paragraph reported behind its host",
+      rect: { top: 40, right: 320, bottom: 80, left: 20, width: 300, height: 40 }
+    });
+    const host = createElement({
+      tagName: "cramo-read-more",
+      parentElement: body,
+      rect: { top: 40, right: 320, bottom: 120, left: 20, width: 300, height: 80 }
+    });
+    attachShadowRoot(host, [shadowP]);
+    body.children.push(host);
+    body.childNodes.push(host);
+    // elementsFromPoint does NOT pierce: only the host is reported at the point.
+    globalThis.document.elementsFromPoint = () => [host, body, documentElement];
+    globalThis.document.elementFromPoint = () => host;
+
+    const targets = collectDefaultLayerElements(body);
+    assert.equal(
+      targets.includes(shadowP),
+      true,
+      "shadow <p> must stay reachable through a hit reported on its host"
+    );
+  });
+});
+
+test("CP6: getMarkableTarget pierces an open shadow root so inner nodes are click-markable", () => {
+  withVisibilityDom(({ documentElement, body }) => {
+    state.documentShadowPresence = null;
+    const shadowP = createElement({
+      tagName: "p",
+      text: "Includable shadow paragraph",
+      rect: { top: 40, right: 320, bottom: 80, left: 20, width: 300, height: 40 }
+    });
+    const host = createElement({
+      tagName: "cramo-read-more",
+      parentElement: body,
+      rect: { top: 40, right: 320, bottom: 120, left: 20, width: 300, height: 80 }
+    });
+    const shadowRoot = attachShadowRoot(host, [shadowP]);
+    // The shadow root exposes its own hit test (elementsFromPoint does not pierce).
+    shadowRoot.elementsFromPoint = () => [shadowP];
+    body.children.push(host);
+    body.childNodes.push(host);
+    globalThis.document.elementsFromPoint = () => [host, body, documentElement];
+    globalThis.document.querySelectorAll = (selector) => (selector === "*" ? [host, shadowP] : []);
+
+    const shadowXpath = getXPath(shadowP);
+    assert.equal(shadowXpath, "/html[1]/body[1]/cramo-read-more[1]/p[1]");
+
+    try {
+      const target = getMarkableTarget(40, 60, {
+        allowParent: false,
+        allowExplicitTarget: true,
+        preferExplicitTarget: true,
+        excludedSet: new Set(),
+        includeSet: new Set([shadowXpath]),
+        explicitParentSet: new Set(),
+        allowExcludedParentChildren: true,
+        allowImmutableChildren: false,
+        requireExcludedAncestor: false
+      });
+      assert.equal(target, shadowP, "the pierced shadow <p> is the click target");
+    } finally {
+      state.documentShadowPresence = null;
+    }
+  });
+});
+
 test("submission visibility rejects aria-hidden text the user cannot reach", () => {
   // Shared user-visible contract: aria-hidden / sr-only ancestors must not
   // upgrade off-viewport content into the AI inclusion set, because the

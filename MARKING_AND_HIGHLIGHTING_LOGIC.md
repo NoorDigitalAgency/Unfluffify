@@ -648,9 +648,18 @@ sanitizing passes, those passes also clean the inlined shadow nodes.
   submission XPaths align with the captured HTML. `getElementFromXPath` resolves
   such flattened paths through the composed tree (shadow children first) when the
   document has a capturable shadow root; shadow-free pages resolve via the native
-  light-DOM path unchanged. The live-engine consequences — enumerating and
-  marking inside shadow, and rendering overlays over composed geometry — are the
-  next step (target resolution / default-layer descent / overlay positioning).
+  light-DOM path unchanged.
+- The live engine treats shadow content as real DOM: the default-content
+  enumeration and the reconcile scan descend into capturable shadow roots
+  (composed order, shadow first), so shadow text is enumerated as implicit
+  content and shadow noise is default-classified by the taxonomy (a shadow
+  read-more `<button>` is auto-excluded, the shadow `<p>` auto-included).
+  Hit-testing is composed-aware: a hit reported on a shadow host still counts as
+  a hit on the shadow content it paints (paint-reachability), and target
+  resolution / hover pierce open shadow roots so inner shadow nodes are
+  click-markable. Overlays position over composed geometry via each element's
+  real client rects. All shadow descent is gated on the presence of a capturable
+  shadow root, so shadow-free pages behave exactly as before.
 
 ## AI Submission Rows
 

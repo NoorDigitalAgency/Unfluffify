@@ -120,15 +120,25 @@ together with target resolution + render (they must be coherent).
 - Tests (`shadow-xpath.test.ts`): continuous shadow path, light-child index
   shift, composed round-trip, extension-shadow exclusion.
 
-### CP6 — Shadow-aware live engine: enumeration + target resolution + marking + render (MA-1 pt 2)
-- Make the enumeration walk (`collectDefaultHighlightTargets` + the eligibility
-  `.children` sub-walks) descend into open shadow roots (composed children) so
-  shadow text is enumerated + shadow noise default-classified.
-- `getMarkableTarget` composed-path hit-testing (`elementsFromPoint` +
-  `getRootNode()`/shadow descent) so inner shadow nodes are click-markable;
-  render overlays over composed geometry.
-- Tests: read-more case — include shadow `<p>`, exclude a shadow sibling
-  independently.
+### CP6 — Shadow-aware live engine: enumeration + target resolution + marking + render (MA-1 pt 2) — SHIPPED
+- Enumeration + reconcile scan (`collectDefaultHighlightTargets`,
+  `scanReconcileDocumentCandidates`) descend into capturable shadow roots via
+  `getComposedChildrenForWalk` (shadow-first, cached on the frame); the DFS
+  classification walks descend via `pushCapturableShadowChildren`. Both collapse
+  to the live light `.children` (perf-neutral, one `.shadowRoot` probe) with no
+  capturable shadow root → shadow-free pages behavior-identical.
+- Paint-reachability: `composedContainsAcrossShadow` in `isElementInHitPath`
+  counts a hit on a shadow host as a hit on its shadow content.
+- Target resolution / hover: `getComposedHitElements` (gated on
+  `documentHasCapturableShadow()`) pierces open shadow via
+  `shadowRoot.elementsFromPoint`, used by `getHoverProbeElements` +
+  `getMarkableTarget`. Render uses each element's real client rects.
+- Net cramo behavior largely automatic: shadow read-more `<button>` auto-excluded
+  by taxonomy, shadow `<p>` auto-included; both independently click-markable.
+- Tests (`core-visibility.test.ts` CP6): shadow enumeration, host-only-hit
+  reachability, getMarkableTarget piercing.
+- Residual (flagged, wants cramo live validation): `getCollapsedTextualFallbackRects`
+  geometry fallback left light-only; on-page acceptance for broad shadow marking.
 
 ### CP7 — Branch-scoped incremental rebuild (MA-3 target)
 - FIRST verify the prerequisite: a marking toggle never changes selector matches

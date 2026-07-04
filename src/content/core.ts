@@ -410,6 +410,7 @@ interface DefaultHighlightFrame {
   index: number;
   ancestorHardExcluded: boolean;
   ancestorExcluded: boolean;
+  children?: ArrayLike<Element>;
 }
 
 interface DefaultLayerOptions {
@@ -1572,6 +1573,33 @@ function isTheoreticallyInvisibleNode(node: Element | null, style: CSSStyleDecla
   return isVisuallyHiddenByStyle(style);
 }
 
+/**
+ * CP6 / MA-1: whether `descendant` is a composed descendant of `ancestor` by a
+ * path that crosses at least one shadow boundary — and is NOT a plain light-DOM
+ * descendant. Used so a hit reported on a shadow host (elementsFromPoint may not
+ * pierce open shadow) still counts as a hit on the shadow content it paints.
+ * Returns false for pure light-DOM relationships, so light-DOM pages are
+ * unaffected.
+ */
+function composedContainsAcrossShadow(ancestor: Element, descendant: Element): boolean {
+  if (typeof ancestor.contains === "function" && ancestor.contains(descendant)) {
+    return false;
+  }
+  let current: Element | null = getFlattenedParentElement(descendant);
+  let guard = 0;
+  while (current && guard < 2000) {
+    if (current === ancestor) {
+      return true;
+    }
+    if (typeof ancestor.contains === "function" && ancestor.contains(current)) {
+      return true;
+    }
+    current = getFlattenedParentElement(current);
+    guard += 1;
+  }
+  return false;
+}
+
 function isElementInHitPath(target: Element | null, element: Element | null): boolean {
   if (!target || !element) {
     return false;
@@ -1580,6 +1608,11 @@ function isElementInHitPath(target: Element | null, element: Element | null): bo
     return true;
   }
   if (typeof element.contains === "function" && element.contains(target)) {
+    return true;
+  }
+  // `element` lives inside a shadow tree and `target` (the reported hit) is the
+  // shadow host, or a light ancestor of it — the shadow content paints inside.
+  if (composedContainsAcrossShadow(target, element)) {
     return true;
   }
   return false;
@@ -1910,6 +1943,7 @@ function hasNestedToggleableDefaultExcludedDescendant(el: Element | null): boole
     return false;
   }
   const stack = Array.from(el.children || []) as Element[];
+  pushCapturableShadowChildren(stack, el);
   while (stack.length) {
     const node = stack.pop();
     if (!node) {
@@ -1924,6 +1958,7 @@ function hasNestedToggleableDefaultExcludedDescendant(el: Element | null): boole
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
       stack.push(node.children[i]);
     }
+    pushCapturableShadowChildren(stack, node);
   }
   return false;
 }
@@ -1973,6 +2008,7 @@ function hasTextualDescendant(el: Element | null, options: TextualDetectionOptio
   }
   let result = false;
   const stack = Array.from(el.children || []) as Element[];
+  pushCapturableShadowChildren(stack, el);
   while (stack.length) {
     const node = stack.pop();
     if (!node) {
@@ -1994,6 +2030,7 @@ function hasTextualDescendant(el: Element | null, options: TextualDetectionOptio
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
       stack.push(node.children[i]);
     }
+    pushCapturableShadowChildren(stack, node);
   }
   if (cache) {
     cache.set(el, result);
@@ -2011,6 +2048,7 @@ function hasTextualImmutableDescendant(el: Element | null, options: TextualDetec
   }
   let result = false;
   const stack = Array.from(el.children || []) as Element[];
+  pushCapturableShadowChildren(stack, el);
   while (stack.length) {
     const node = stack.pop();
     if (!node) {
@@ -2029,6 +2067,7 @@ function hasTextualImmutableDescendant(el: Element | null, options: TextualDetec
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
       stack.push(node.children[i]);
     }
+    pushCapturableShadowChildren(stack, node);
   }
   if (cache) {
     cache.set(el, result);
@@ -2041,6 +2080,7 @@ function hasVisibleImmutableDescendant(el: Element | null): boolean {
     return false;
   }
   const stack = Array.from(el.children || []) as Element[];
+  pushCapturableShadowChildren(stack, el);
   while (stack.length) {
     const node = stack.pop();
     if (!node) {
@@ -2055,6 +2095,7 @@ function hasVisibleImmutableDescendant(el: Element | null): boolean {
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
       stack.push(node.children[i]);
     }
+    pushCapturableShadowChildren(stack, node);
   }
   return false;
 }
@@ -2085,6 +2126,7 @@ function hasExplicitlyMarkedDescendant(el: Element | null): boolean {
     return false;
   }
   const stack = Array.from(el.children || []) as Element[];
+  pushCapturableShadowChildren(stack, el);
   while (stack.length) {
     const node = stack.pop();
     if (!node) {
@@ -2109,6 +2151,7 @@ function hasExplicitlyMarkedDescendant(el: Element | null): boolean {
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
       stack.push(node.children[i]);
     }
+    pushCapturableShadowChildren(stack, node);
   }
   return false;
 }
@@ -2514,6 +2557,40 @@ function getComposedChildElements(el: Element): Element[] {
 }
 
 /**
+ * CP6 / MA-1: perf-neutral composed child list for the hot enumeration walks.
+ * Returns the live `HTMLCollection` (no allocation) for any element without a
+ * capturable shadow root — so shadow-free pages allocate exactly as before —
+ * and a shadow-first composed array only for a shadow host.
+ */
+function getComposedChildrenForWalk(node: Element): ArrayLike<Element> {
+  const shadowRoot = getCapturableShadowRoot(node);
+  if (!shadowRoot) {
+    return node.children;
+  }
+  const shadowChildren = Array.from((shadowRoot.children || []) as ArrayLike<Element>);
+  return shadowChildren.concat(Array.from((node.children || []) as ArrayLike<Element>));
+}
+
+/**
+ * CP6 / MA-1: push a node's capturable shadow-root children onto a DFS stack so
+ * the order-insensitive descendant-classification walks descend into shadow.
+ * A single `shadowRoot` property read for shadow-free nodes (no allocation).
+ */
+function pushCapturableShadowChildren(stack: Element[], node: Element): void {
+  const shadowRoot = getCapturableShadowRoot(node);
+  if (!shadowRoot) {
+    return;
+  }
+  const shadowChildren = shadowRoot.children;
+  for (let i = shadowChildren.length - 1; i >= 0; i -= 1) {
+    const child = shadowChildren[i] as Element;
+    if (child) {
+      stack.push(child);
+    }
+  }
+}
+
+/**
  * The parent of `node` in the flattened view: its normal element parent, or —
  * when `node` is a top-level child of a capturable shadow root — the shadow
  * host (the shadow tree is inlined into the host by the deep capture). Returns
@@ -2824,6 +2901,22 @@ function scanReconcileDocumentCandidates(
         withinExcludedParent: current.withinExcludedParent || isExcludedParentBoundary
       });
     }
+    // Descend into a capturable shadow root so its content participates in the
+    // reconcile scan (toggleable/self-markable/silent candidates) the same way
+    // it is captured and enumerated. No-op for shadow-free nodes.
+    const reconcileShadowRoot = getCapturableShadowRoot(node);
+    if (reconcileShadowRoot) {
+      const shadowChildren = reconcileShadowRoot.children;
+      for (let i = shadowChildren.length - 1; i >= 0; i -= 1) {
+        const child = shadowChildren[i] as Element;
+        if (child) {
+          stack.push({
+            node: child,
+            withinExcludedParent: current.withinExcludedParent || isExcludedParentBoundary
+          });
+        }
+      }
+    }
   }
   return {
     toggleableCandidates,
@@ -2977,7 +3070,14 @@ function collectDefaultHighlightTargets(
 
   while (stack.length) {
     const frame = stack[stack.length - 1];
-    const children = frame.node.children;
+    // Composed order: a shadow host's shadow-root children are enumerated first
+    // (they are inlined at the front of the host by the deep capture), then its
+    // light children. Identical to `frame.node.children` for shadow-free nodes.
+    // Computed once per frame (one shadow-root probe per element, not per index).
+    if (!frame.children) {
+      frame.children = getComposedChildrenForWalk(frame.node);
+    }
+    const children = frame.children;
     if (frame.index < children.length) {
       const child = children[frame.index];
       frame.index += 1;
@@ -3388,6 +3488,7 @@ function hasRenderableTextOutsideExcludedNature(
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
       stack.push(node.children[i]);
     }
+    pushCapturableShadowChildren(stack, node);
   }
   return false;
 }
@@ -3453,6 +3554,7 @@ function hasRenderableTextForExcludedHighlight(
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
       stack.push(node.children[i]);
     }
+    pushCapturableShadowChildren(stack, node);
   }
   return false;
 }
@@ -4096,6 +4198,7 @@ function hasVisibleNonTextualContent(el: Element | null | undefined): boolean {
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
       stack.push(node.children[i]);
     }
+    pushCapturableShadowChildren(stack, node);
   }
   return false;
 }
@@ -8030,8 +8133,70 @@ function updateMarkedElements(currentMarked: Set<Element> | null | undefined): v
   state.markedElements = currentMarked;
 }
 
+function collectShadowPointHits(
+  host: Element,
+  x: number,
+  y: number,
+  add: (el: Element | null) => void
+): void {
+  const shadowRoot = getCapturableShadowRoot(host);
+  if (!shadowRoot || typeof (shadowRoot as ShadowRoot).elementsFromPoint !== "function") {
+    return;
+  }
+  let innerHits: Element[];
+  try {
+    const raw = (shadowRoot as ShadowRoot).elementsFromPoint(x, y);
+    innerHits = raw ? Array.from(raw as ArrayLike<Element>) : [];
+  } catch (_error) {
+    return;
+  }
+  for (const inner of innerHits) {
+    if (!inner || inner.nodeType !== 1 || inner === host) {
+      continue;
+    }
+    // Deepest-first: recurse into nested shadow before adding this node.
+    collectShadowPointHits(inner, x, y, add);
+    add(inner);
+  }
+}
+
+/**
+ * CP6 / MA-1: the composed hit path at a point — `document.elementsFromPoint`
+ * plus the inner nodes of any open shadow root at the point (elementsFromPoint
+ * may report only the shadow host), deepest-first and de-duplicated. Gated on
+ * `documentHasCapturableShadow()`, so shadow-free pages (and the test mocks)
+ * return the native list unchanged.
+ */
+function getComposedHitElements(x: number, y: number): Element[] {
+  let base: Element[];
+  try {
+    const raw = typeof document.elementsFromPoint === "function" ? document.elementsFromPoint(x, y) : null;
+    base = raw ? Array.from(raw as ArrayLike<Element>) : [];
+  } catch (_error) {
+    base = [];
+  }
+  if (!documentHasCapturableShadow()) {
+    return base;
+  }
+  const seen = new Set<Element>();
+  const result: Element[] = [];
+  const add = (el: Element | null) => {
+    if (el && el.nodeType === 1 && !seen.has(el)) {
+      seen.add(el);
+      result.push(el);
+    }
+  };
+  for (const el of base) {
+    if (el && el.nodeType === 1) {
+      collectShadowPointHits(el, x, y, add);
+    }
+    add(el);
+  }
+  return result;
+}
+
 function getHoverProbeElements(x: number, y: number): Element[] {
-  const elements = document.elementsFromPoint(x, y);
+  const elements = getComposedHitElements(x, y);
   const probeElements: Element[] = [];
   for (const el of elements) {
     if (!el || el.nodeType !== 1) {
@@ -8154,6 +8319,7 @@ function hasMultipleMarkableDescendants(
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
       stack.push(node.children[i]);
     }
+    pushCapturableShadowChildren(stack, node);
   }
   return false;
 }
@@ -8201,6 +8367,7 @@ function containsPageShellLandmark(el: Element | null | undefined): boolean {
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
       stack.push(node.children[i]);
     }
+    pushCapturableShadowChildren(stack, node);
   }
   return landmarkKinds.size >= 2;
 }
@@ -8421,7 +8588,7 @@ export function getMarkableTarget(
   const hasExcludedAncestor = requireExcludedAncestor
     ? createExcludedAncestorChecker({ config: state.config, pageUrl: location.href })
     : null;
-  const elements = document.elementsFromPoint(x, y);
+  const elements = getComposedHitElements(x, y);
   if (
     allowExplicitTarget &&
     preferExplicitTarget &&
