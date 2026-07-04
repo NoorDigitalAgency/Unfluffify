@@ -639,9 +639,18 @@ sanitizing passes, those passes also clean the inlined shadow nodes.
 - The extension's own shadow root (WXT content-UI host, `data-wxt-shadow-root` /
   `data-uf-extension-ui`) is never captured — it is extension chrome, not page
   content.
-- Positional XPath is continuous through former shadow boundaries: a shadow
-  element is addressed like any light-DOM element in the flattened view, so
-  submission XPaths align with the captured HTML.
+- Positional XPath is continuous through former shadow boundaries and aligned to
+  the flattened capture. `getXPath` / `getSnapshotXPath` walk the composed tree:
+  they cross from a top-level shadow child up to its host, and — because shadow
+  children are inlined at the front of the host — a light child of a shadow host
+  is index-shifted past the host's preceding same-tag shadow children. So a
+  shadow element is addressed like any other element in the flattened view and
+  submission XPaths align with the captured HTML. `getElementFromXPath` resolves
+  such flattened paths through the composed tree (shadow children first) when the
+  document has a capturable shadow root; shadow-free pages resolve via the native
+  light-DOM path unchanged. The live-engine consequences — enumerating and
+  marking inside shadow, and rendering overlays over composed geometry — are the
+  next step (target resolution / default-layer descent / overlay positioning).
 
 ## AI Submission Rows
 

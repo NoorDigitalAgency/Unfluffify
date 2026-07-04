@@ -104,17 +104,27 @@ shipped = interim.
 - Tests: snapshot test with an open shadow root → flattened inline in
   `renderedHtml`, no `<template shadowrootmode>`.
 
-### CP5 — Shadow-aware enumeration + XPath (MA-1 pt 1)
-- Make the content/visibility/text walk (`collectDefaultLayerElements` +
-  eligibility predicates) descend into shadow roots (composed tree) so shadow
-  text is enumerated + shadow noise default-classified.
-- Make `getXPath`/`getSnapshotXPath` produce continuous positional paths through
-  former shadow boundaries, aligned to the flattened captured HTML.
-- Tests: enumeration includes shadow `<p>`; xpath of a shadow node resolves in
-  the flattened HTML; alignment test.
+### CP5 — Flattened XPath scheme (MA-1 pt 1) — SHIPPED
+Regrouped: CP5 is the pure, testable XPath scheme; the invasive live-engine
+composed traversal (enumeration `.children` walks) moved to CP6 so it lands
+together with target resolution + render (they must be coherent).
+- `getXPath`/`getSnapshotXPath` walk the composed tree: `getFlattenedParentElement`
+  crosses a top-level shadow child up to its host; `countFlattenedPrecedingSameTag`
+  shifts a light child of a shadow host past the host's preceding same-tag shadow
+  children (shadow inlined first). No-op when no ancestor has a capturable shadow
+  root → byte-identical for shadow-free pages + the evaluate test mocks.
+- `getElementFromXPath`: native-first, composed-tree fallback
+  (`resolveXPathThroughComposedTree`) gated on `documentHasCapturableShadow()`
+  (memoized on `state.documentShadowPresence`, reset per pass) + a `getXPath`
+  round-trip check, so shadow-free/native resolution is unchanged.
+- Tests (`shadow-xpath.test.ts`): continuous shadow path, light-child index
+  shift, composed round-trip, extension-shadow exclusion.
 
-### CP6 — Shadow-aware target resolution / marking / render (MA-1 pt 2)
-- `getMarkableTarget` (`8156`) composed-path hit-testing (`elementsFromPoint` +
+### CP6 — Shadow-aware live engine: enumeration + target resolution + marking + render (MA-1 pt 2)
+- Make the enumeration walk (`collectDefaultHighlightTargets` + the eligibility
+  `.children` sub-walks) descend into open shadow roots (composed children) so
+  shadow text is enumerated + shadow noise default-classified.
+- `getMarkableTarget` composed-path hit-testing (`elementsFromPoint` +
   `getRootNode()`/shadow descent) so inner shadow nodes are click-markable;
   render overlays over composed geometry.
 - Tests: read-more case — include shadow `<p>`, exclude a shadow sibling

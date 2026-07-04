@@ -714,6 +714,10 @@ export const state = {
   textualContainerCache: null as TextualOptionCache | null,
   textualDescendantCache: null as TextualOptionCache | null,
   textualImmutableDescendantCache: null as TextualOptionCache | null,
+  // Memoized "does the live document contain a capturable (open, non-extension)
+  // shadow root?" — null means recompute. Gates the composed-tree XPath resolver
+  // so shadow-free pages (and the light-DOM evaluate test mocks) stay unchanged.
+  documentShadowPresence: null as boolean | null,
   hoverRaf: 0,
   currentPageUrl: "",
   currentPageEntry: null as PageMarkingEntry | null,
@@ -1123,6 +1127,7 @@ function resetElementComputationCaches(): void {
   state.textualContainerCache = createTextualOptionCache();
   state.textualDescendantCache = createTextualOptionCache();
   state.textualImmutableDescendantCache = createTextualOptionCache();
+  state.documentShadowPresence = null;
 }
 
 function restoreElementComputationCaches(snapshot: ElementComputationCacheSnapshot): void {
@@ -2491,6 +2496,81 @@ export function collectConsentExcludedElements() {
   return elements;
 }
 
+/**
+ * CP5 / MA-1: the element children of `el` in composed/flattened order — the
+ * capturable shadow root's children first (they are inlined at the front of the
+ * host by CP4's deep capture), then the light-DOM children. Identical to
+ * `el.children` for any element without a capturable shadow root, so shadow-free
+ * pages are unaffected.
+ */
+function getComposedChildElements(el: Element): Element[] {
+  const lightChildren = Array.from((el.children || []) as ArrayLike<Element>);
+  const shadowRoot = getCapturableShadowRoot(el);
+  if (!shadowRoot) {
+    return lightChildren;
+  }
+  const shadowChildren = Array.from((shadowRoot.children || []) as ArrayLike<Element>);
+  return shadowChildren.concat(lightChildren);
+}
+
+/**
+ * The parent of `node` in the flattened view: its normal element parent, or —
+ * when `node` is a top-level child of a capturable shadow root — the shadow
+ * host (the shadow tree is inlined into the host by the deep capture). Returns
+ * null at the document root, a closed/extension shadow boundary, or a detached
+ * node.
+ */
+function getFlattenedParentElement(node: Element): Element | null {
+  const parent = node.parentElement;
+  if (parent) {
+    return parent;
+  }
+  let root: Node | null;
+  try {
+    root = typeof node.getRootNode === "function" ? node.getRootNode() : null;
+  } catch (_error) {
+    return null;
+  }
+  const host = root && (root as ShadowRoot).host ? (root as ShadowRoot).host : null;
+  if (host && getCapturableShadowRoot(host) === root) {
+    return host;
+  }
+  return null;
+}
+
+/**
+ * The 1-based positional index of `node` among its same-tag siblings in the
+ * flattened view. A light child of a shadow host is preceded by that host's
+ * shadow-root children (inlined first by the capture), so their same-tag count
+ * is added. `skip` excludes nodes that are not present in the captured HTML
+ * (snapshot strip selectors).
+ */
+function countFlattenedPrecedingSameTag(
+  node: Element,
+  skip: ((el: Element) => boolean) | null
+): number {
+  let index = 1;
+  let sibling = node.previousElementSibling;
+  while (sibling) {
+    if (sibling.tagName === node.tagName && !(skip && skip(sibling))) {
+      index += 1;
+    }
+    sibling = sibling.previousElementSibling;
+  }
+  const parent = node.parentElement;
+  if (parent) {
+    const shadowRoot = getCapturableShadowRoot(parent);
+    if (shadowRoot) {
+      for (const shadowChild of Array.from((shadowRoot.children || []) as ArrayLike<Element>)) {
+        if (shadowChild.tagName === node.tagName && !(skip && skip(shadowChild))) {
+          index += 1;
+        }
+      }
+    }
+  }
+  return index;
+}
+
 export function getXPath(el: Element | null | undefined): string {
   if (!isElementNode(el)) {
     return "";
@@ -2499,19 +2579,11 @@ export function getXPath(el: Element | null | undefined): string {
   let node: Element | null = el;
   while (node && node.nodeType === 1) {
     const tag = node.tagName.toLowerCase();
-    let index = 1;
-    let sibling = node.previousElementSibling;
-    while (sibling) {
-      if (sibling.tagName === node.tagName) {
-        index += 1;
-      }
-      sibling = sibling.previousElementSibling;
-    }
-    parts.unshift(`${tag}[${index}]`);
+    parts.unshift(`${tag}[${countFlattenedPrecedingSameTag(node, null)}]`);
     if (node === document.documentElement) {
       break;
     }
-    node = node.parentElement;
+    node = getFlattenedParentElement(node);
   }
   return `/${parts.join("/")}`;
 }
@@ -2564,6 +2636,7 @@ export function getSnapshotXPath(
   if (!isElementNode(el) || isStrippedFromSnapshot(el, options)) {
     return "";
   }
+  const skip = (candidate: Element) => isStrippedFromSnapshot(candidate, options);
   const parts = [];
   let node: Element | null = el;
   while (node && node.nodeType === 1) {
@@ -2571,22 +2644,11 @@ export function getSnapshotXPath(
       return "";
     }
     const tag = node.tagName.toLowerCase();
-    let index = 1;
-    let sibling = node.previousElementSibling;
-    while (sibling) {
-      if (
-        sibling.tagName === node.tagName &&
-        !isStrippedFromSnapshot(sibling, options)
-      ) {
-        index += 1;
-      }
-      sibling = sibling.previousElementSibling;
-    }
-    parts.unshift(`${tag}[${index}]`);
+    parts.unshift(`${tag}[${countFlattenedPrecedingSameTag(node, skip)}]`);
     if (node === document.documentElement) {
       break;
     }
-    node = node.parentElement;
+    node = getFlattenedParentElement(node);
   }
   return `/${parts.join("/")}`;
 }
@@ -11351,10 +11413,99 @@ export function isVisibleForSubmission(el: Element | null | undefined): boolean 
   return anyClientRectIntersectsSubmissionArea(el);
 }
 
+/**
+ * Whether the live document contains a capturable (open, non-extension) shadow
+ * root. Memoized per marking pass (reset in resetElementComputationCaches). Used
+ * to gate the composed-tree XPath resolver so shadow-free pages — and the
+ * light-DOM `document.evaluate` test mocks — behave exactly as before.
+ */
+function documentHasCapturableShadow(): boolean {
+  if (state.documentShadowPresence !== null) {
+    return state.documentShadowPresence;
+  }
+  let present = false;
+  try {
+    if (typeof document !== "undefined" && typeof document.querySelectorAll === "function") {
+      const all = document.querySelectorAll("*");
+      for (const el of Array.from(all as ArrayLike<Element>)) {
+        if (getCapturableShadowRoot(el)) {
+          present = true;
+          break;
+        }
+      }
+    }
+  } catch (_error) {
+    present = false;
+  }
+  state.documentShadowPresence = present;
+  return present;
+}
+
+function parsePositionalXPathSteps(xpath: string): Array<{ tag: string; index: number }> | null {
+  const trimmed = xpath.trim();
+  if (!trimmed.startsWith("/")) {
+    return null;
+  }
+  const segments = trimmed.replace(/^\/+/, "").split("/");
+  const steps: Array<{ tag: string; index: number }> = [];
+  for (const segment of segments) {
+    const match = /^([a-z][a-z0-9-]*)\[(\d+)\]$/i.exec(segment);
+    if (!match) {
+      return null;
+    }
+    const index = Number(match[2]);
+    if (!Number.isInteger(index) || index < 1) {
+      return null;
+    }
+    steps.push({ tag: match[1].toLowerCase(), index });
+  }
+  return steps.length ? steps : null;
+}
+
+/**
+ * Resolve a positional XPath over the composed/flattened tree (shadow-root
+ * children first, then light children — matching the deep capture and the
+ * flattened `getXPath` scheme), so a shadow node's flattened XPath round-trips
+ * to its live element. Only handles the strictly positional `/tag[n]/...` form
+ * this codebase generates; returns null for anything else.
+ */
+function resolveXPathThroughComposedTree(xpath: string): Element | null {
+  const steps = parsePositionalXPathSteps(xpath);
+  if (!steps || typeof document === "undefined") {
+    return null;
+  }
+  const rootEl = document.documentElement;
+  if (!rootEl) {
+    return null;
+  }
+  const first = steps[0];
+  if (rootEl.tagName.toLowerCase() !== first.tag || first.index !== 1) {
+    return null;
+  }
+  let current: Element | null = rootEl;
+  for (let i = 1; i < steps.length && current; i += 1) {
+    const step = steps[i];
+    let count = 0;
+    let match: Element | null = null;
+    for (const child of getComposedChildElements(current)) {
+      if (child.tagName.toLowerCase() === step.tag) {
+        count += 1;
+        if (count === step.index) {
+          match = child;
+          break;
+        }
+      }
+    }
+    current = match;
+  }
+  return current;
+}
+
 export function getElementFromXPath(xpath: string | null | undefined): Element | null {
   if (typeof xpath !== "string" || !xpath) {
     return null;
   }
+  let nativeNode: Element | null = null;
   try {
     const result = document.evaluate(
         xpath,
@@ -11365,12 +11516,24 @@ export function getElementFromXPath(xpath: string | null | undefined): Element |
     );
     const node = result.singleNodeValue;
     if (isElementNode(node)) {
-      return node;
+      nativeNode = node;
     }
-    return null;
   } catch (_error) {
-    return null;
+    nativeNode = null;
   }
+  // Shadow-free documents (and the light-DOM evaluate test mocks): native
+  // evaluate is authoritative — unchanged behavior.
+  if (!documentHasCapturableShadow()) {
+    return nativeNode;
+  }
+  // With shadow present a flattened XPath may address inlined shadow content
+  // that light-DOM evaluate cannot see, or resolve to the wrong (shifted) light
+  // element. Trust native only when the resolved element's own flattened XPath
+  // round-trips; otherwise walk the composed tree.
+  if (nativeNode && getXPath(nativeNode) === xpath) {
+    return nativeNode;
+  }
+  return resolveXPathThroughComposedTree(xpath) || nativeNode;
 }
 
 export function hasPageMarkingEntry(config: unknown, pageUrl: string): boolean {
