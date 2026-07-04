@@ -33,6 +33,13 @@ export default defineConfig({
   publicDir: "src/public",
   srcDir: "src",
   vite: () => ({
+    define: {
+      // Debug-only build gate. Plain `pnpm build` => false (production safe);
+      // `UNFLUFFIFY_DEBUG=1 pnpm build` (or `pnpm build:debug`) => true, which
+      // is what lets test scenarios honor the `?directMode=1` popup query param.
+      // Replaced literally at build time, so it never ships as a live toggle.
+      __UF_DEBUG_BUILD__: JSON.stringify(process.env.UNFLUFFIFY_DEBUG === "1"),
+    },
     build: {
       sourcemap: resolveSourcemap(),
     },

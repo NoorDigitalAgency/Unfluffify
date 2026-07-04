@@ -8,6 +8,7 @@ import {
   FEATURE_FLAGS,
   getDebugFlags,
   getFeatureFlags,
+  isDebugBuild,
   isDebugFlagEnabled,
   isFeatureEnabled
 } from "../src/common/feature-flags.js";
@@ -60,6 +61,14 @@ test("feature flags expose the confirmed disabled stabilization set", () => {
   assert.equal(isDebugFlagEnabled("worldTraceEnabled"), false);
   assert.equal(isDebugFlagEnabled("swLifecycleDiagnostics"), false);
   assert.equal(isDebugFlagEnabled("layerMessageTrace"), false);
+});
+
+test("isDebugBuild resolves to a boolean and never throws when the build constant is undefined", () => {
+  // In the vitest runtime Vite has NOT defined __UF_DEBUG_BUILD__; the typeof
+  // guard must keep this safe (no ReferenceError) and always return a boolean.
+  const result = isDebugBuild();
+  assert.equal(typeof result, "boolean");
+  assert.equal(isDebugBuild(), result);
 });
 
 test("unknown debug flags are disabled", () => {

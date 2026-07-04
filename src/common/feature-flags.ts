@@ -41,3 +41,24 @@ export function isDebugFlagEnabled(flagName: string): boolean {
 export function getDebugFlags(): Readonly<Record<string, boolean>> {
   return Object.freeze({ ...DEBUG_FLAGS });
 }
+
+/**
+ * Whether this is a debug build in which debug-only affordances (e.g. the
+ * `?directMode=1` popup query param) may be honored. True in the dev server
+ * (`import.meta.env.DEV`) or when built with `UNFLUFFIFY_DEBUG=1` (which defines
+ * the compile-time `__UF_DEBUG_BUILD__` constant). A plain `pnpm build` yields
+ * false, so nothing debug-only is honored in a production build.
+ */
+export function isDebugBuild(): boolean {
+  try {
+    const meta = import.meta as unknown as { env?: { DEV?: boolean } };
+    if (meta && meta.env && meta.env.DEV === true) {
+      return true;
+    }
+  } catch {
+    // import.meta.env not available in this context; fall through.
+  }
+  // `typeof` guard keeps this safe where Vite has not defined the constant
+  // (e.g. the vitest runtime), avoiding a ReferenceError.
+  return typeof __UF_DEBUG_BUILD__ !== "undefined" && __UF_DEBUG_BUILD__ === true;
+}

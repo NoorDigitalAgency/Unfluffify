@@ -21,8 +21,10 @@ describe("C3 popup contract", () => {
     const popupSource = readFileSync(resolve(REPO_ROOT, "src", "popup.ts"), "utf8");
 
     expect(popupSource).toContain("__UNFLUFFIFY_POPUP_DEBUG__");
+    // getViewState remains the primary live hook; the debug-only direct-mode
+    // affordances are additive (directModeActive / activateDirectMode).
     expect(popupSource).toMatch(
-      /popupDebugTarget\.__UNFLUFFIFY_POPUP_DEBUG__\s*=\s*\{\s*getViewState:\s*uiModule\.getViewState,\s*\}/,
+      /popupDebugTarget\.__UNFLUFFIFY_POPUP_DEBUG__\s*=\s*\{\s*getViewState:\s*uiModule\.getViewState,[\s\S]*?directModeActive:\s*DIRECT_MODE_ACTIVE,[\s\S]*?activateDirectMode:/,
     );
   });
 });

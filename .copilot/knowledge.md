@@ -57,6 +57,23 @@
   absolute load path, first 16 bytes, each nibble mapped `0..15 -> 'a'..'p'`.
   Inside `browser_run_code_unsafe`, `setTimeout` and `URL` are undefined — use
   `page.waitForTimeout` and string ops.
+- Debug-gated DIRECT MODE (test-only marking activation on UNCONFIGURED pages,
+  e.g. a shadow-DOM page like cramo that has no configured property/siteId/render
+  mode). Gated on BOTH a debug build AND the popup query param: build with
+  `pnpm build:debug` (`UNFLUFFIFY_DEBUG=1 wxt build` → defines the compile-time
+  `__UF_DEBUG_BUILD__=true`; `isDebugBuild()` in `feature-flags.ts` also honors
+  the dev server), then open the popup as
+  `popup.html?debugTabId=<id>&directMode=1`. A plain `pnpm build` sets the
+  constant false, so production NEVER honors the param. When active,
+  `DIRECT_MODE_ACTIVE` in `popup.ts` synthesizes an in-scope `currentBaseUrl`
+  from the page origin, forces `currentBaseUrlHasConfirmedRenderMode`/`siteIdReady`,
+  and bypasses the render-mode / page-type / `ensureBaseUrlSiteId` enable gates —
+  so the toggle activates marking on any page. Content-side `enableForBaseUrl`
+  already has no config gate. Scope is marking/enumeration/overlay ONLY (save +
+  AI-run stay gated). Programmatic activation for automation:
+  `__UNFLUFFIFY_POPUP_DEBUG__.activateDirectMode()`. VERIFIED on cramo: shadow
+  read-more `<p>` enumerated + overlay-marked (`shadowMarked>0`, box over the
+  shadow `<p>`).
 - Dev browser startup mode is explicit: `pnpm dev` auto-opens browser by default,
   while `pnpm dev:no-browser` sets `UNFLUFFIFY_NO_BROWSER=1` and runs WXT with
   browser auto-open disabled (preferred when paired with `pnpm browser:live`).
