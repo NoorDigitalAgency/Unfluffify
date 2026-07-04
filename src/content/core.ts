@@ -1274,6 +1274,16 @@ function resolveMarkingSelectorContext(configValue: Config | null, entry: PageMa
   };
 }
 
+function hasNonWhitespaceText(el: Element | null): boolean {
+  return Boolean(el && typeof el.textContent === "string" && el.textContent.trim().length > 0);
+}
+
+function contentOverflowsVertically(el: Element): boolean {
+  const scrollHeight = Number((el as HTMLElement).scrollHeight) || 0;
+  const clientHeight = Number((el as HTMLElement).clientHeight) || 0;
+  return scrollHeight > clientHeight + 1;
+}
+
 function isClippedByOverflow(el: Element | null): boolean {
   if (!el) {
     return false;
@@ -1311,14 +1321,39 @@ function isClippedByOverflow(el: Element | null): boolean {
         overflowY === "clip"
     ) {
       const parentRect = parent.getBoundingClientRect();
+      const entirelyAbove = rect.bottom <= parentRect.top;
+      const entirelyBelow = rect.top >= parentRect.bottom;
+      const entirelyLeft = rect.right <= parentRect.left;
+      const entirelyRight = rect.left >= parentRect.right;
       // Check if element is completely outside parent's visible area
-      if (
-          rect.bottom <= parentRect.top ||
-          rect.top >= parentRect.bottom ||
-          rect.right <= parentRect.left ||
-          rect.left >= parentRect.right
-      ) {
-        return true;
+      if (entirelyAbove || entirelyBelow || entirelyLeft || entirelyRight) {
+        // MA-1b (CSS-clamped-but-present text): when the element is truncated
+        // straight down by a vertical text clamp — overflow-y hidden/clip on a
+        // box whose content is taller than its visible height (an explicit
+        // `height`/`max-height` cap or `-webkit-line-clamp`) that still shows a
+        // non-empty preview — the clipped tail is copy that is fully present in
+        // the DOM and that Google indexes. Treat it as visible (do NOT report
+        // it clipped), but keep walking up so a genuine clip-away by a higher
+        // ancestor still wins. Horizontal displacement (carousels, off-canvas)
+        // and upward clipping are never spared; a fully collapsed zero-height
+        // box is excluded earlier by the zero-area visibility guard.
+        const clipsVertically =
+          overflow === "hidden" || overflow === "clip" ||
+          overflowY === "hidden" || overflowY === "clip";
+        const horizontallyOverlaps =
+          rect.left < parentRect.right && rect.right > parentRect.left;
+        const spareAsVerticalTextClamp =
+          entirelyBelow &&
+          !entirelyLeft &&
+          !entirelyRight &&
+          horizontallyOverlaps &&
+          clipsVertically &&
+          parentRect.height > 1 &&
+          hasNonWhitespaceText(el) &&
+          contentOverflowsVertically(parent);
+        if (!spareAsVerticalTextClamp) {
+          return true;
+        }
       }
     }
     parent = parent.parentElement;

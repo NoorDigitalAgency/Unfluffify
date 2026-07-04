@@ -501,6 +501,25 @@ textual descendant qualify, boundaries with nested toggleable defaults qualify,
 and boundaries with visible immutable descendants are suppressed unless the
 other structural cases apply.
 
+### Visibility and CSS Clamps
+
+Genuine hiding — `display:none`, `visibility:hidden`/`collapse`, `opacity:0`,
+`hidden`, sr-only/`clip`-rect off-canvas, or a zero-area box — is not visible and
+is not markable or submitted (interaction-gated panels such as collapsed
+accordions and inactive tab panels fall here until the user expands them via the
+page-interaction mode).
+
+A **CSS text clamp is not hiding.** When an element's text is fully present in
+the DOM but visually truncated downward by a vertical clamp — `overflow-y`
+`hidden`/`clip` on a box whose content is taller than its visible height
+(a fixed `height`/`max-height` cap or `-webkit-line-clamp`) that still shows a
+non-empty preview — the clipped tail is treated as visible and included, because
+it is exactly the copy Google indexes (e.g. a read-more paragraph clamped to a
+preview height). This sparing applies only to downward text truncation with a
+visible preview: content displaced horizontally (carousels, off-canvas) or
+upward is still clipped-away and excluded, and a fully collapsed zero-height box
+shows no preview and stays excluded.
+
 ## Explicit Exclude Rules
 
 When an element is explicitly excluded:
@@ -594,7 +613,9 @@ Rules:
 - visually invisible textual markable content submits as excluded rows using the
   mobile simulation geometry at save time; below-fold content is still considered
   visible because the submission viewport is treated as page-height, while
-  content outside the mobile viewport width or document height is invisible,
+  content outside the mobile viewport width or document height is invisible;
+  text merely clipped by a vertical CSS clamp (see Visibility and CSS Clamps) is
+  not invisible-textual — it submits as included,
 - opening Unfluffify enables mobile simulation by default for each fresh tab
   session, including when an already-open side panel moves to a new tab; a
   user-disabled simulation state is preserved for that session while marking is

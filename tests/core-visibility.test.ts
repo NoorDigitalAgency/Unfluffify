@@ -445,6 +445,112 @@ test("theoretical hidden nodes are accepted when they are visibly rendered", () 
   });
 });
 
+test("MA-1b: text truncated by a vertical height clamp stays visible (cramo read-more)", () => {
+  // A <p> whose full text lives in the DOM but overflows a fixed-height,
+  // overflow:hidden clamp (Google indexes it) must be treated as visible, not
+  // clipped away. The clamp box still shows a non-empty preview and its content
+  // is taller than its visible height, so the clipped tail is included.
+  withVisibilityDom(({ body }) => {
+    const clamp = createElement({
+      parentElement: body,
+      style: { overflow: "hidden", height: "100px" },
+      rect: { top: 0, right: 300, bottom: 100, left: 0, width: 300, height: 100 }
+    });
+    clamp.clientHeight = 100;
+    clamp.scrollHeight = 300;
+    const tail = createElement({
+      tagName: "p",
+      parentElement: clamp,
+      text: "Hos Cramo kan du hyra spikpistol och annan utrustning...",
+      rect: { top: 120, right: 300, bottom: 300, left: 0, width: 300, height: 180 }
+    });
+    clamp.children.push(tail);
+    clamp.childNodes.push(tail);
+    body.children.push(clamp);
+    body.childNodes.push(clamp);
+
+    assert.equal(isVisible(tail), true);
+  });
+});
+
+test("MA-1b: text below a -webkit-line-clamp box stays visible", () => {
+  withVisibilityDom(({ body }) => {
+    const clamp = createElement({
+      tagName: "p",
+      parentElement: body,
+      style: { overflow: "hidden", display: "-webkit-box", webkitLineClamp: "3" },
+      rect: { top: 0, right: 300, bottom: 60, left: 0, width: 300, height: 60 }
+    });
+    clamp.clientHeight = 60;
+    clamp.scrollHeight = 140;
+    const tailLine = createElement({
+      tagName: "span",
+      parentElement: clamp,
+      text: "fourth and fifth line of the clamped paragraph",
+      rect: { top: 80, right: 300, bottom: 120, left: 0, width: 300, height: 40 }
+    });
+    clamp.children.push(tailLine);
+    clamp.childNodes.push(tailLine);
+    body.children.push(clamp);
+    body.childNodes.push(clamp);
+
+    assert.equal(isVisible(tailLine), true);
+  });
+});
+
+test("MA-1b: horizontally clipped carousel content is still hidden (not spared)", () => {
+  // The clamp only spares vertical text truncation. Content pushed entirely to
+  // the side of an overflow:hidden box (carousels, off-canvas) is genuinely not
+  // shown and must stay excluded even though it carries text.
+  withVisibilityDom(({ body }) => {
+    const carousel = createElement({
+      parentElement: body,
+      style: { overflow: "hidden", width: "300px" },
+      rect: { top: 0, right: 300, bottom: 200, left: 0, width: 300, height: 200 }
+    });
+    carousel.clientHeight = 200;
+    carousel.scrollHeight = 200;
+    const offSlide = createElement({
+      tagName: "p",
+      parentElement: carousel,
+      text: "Off-screen carousel slide copy",
+      rect: { top: 0, right: 700, bottom: 200, left: 400, width: 300, height: 200 }
+    });
+    carousel.children.push(offSlide);
+    carousel.childNodes.push(offSlide);
+    body.children.push(carousel);
+    body.childNodes.push(carousel);
+
+    assert.equal(isVisible(offSlide), false);
+  });
+});
+
+test("MA-1b: a fully collapsed zero-height accordion body stays hidden", () => {
+  // max-height:0 / height:0 collapse shows no preview — it is an interaction-
+  // gated panel (excluded until the user expands it), not a truncation clamp.
+  withVisibilityDom(({ body }) => {
+    const collapsed = createElement({
+      parentElement: body,
+      style: { overflow: "hidden", height: "0px" },
+      rect: { top: 0, right: 300, bottom: 0, left: 0, width: 300, height: 0 }
+    });
+    collapsed.clientHeight = 0;
+    collapsed.scrollHeight = 200;
+    const hiddenBody = createElement({
+      tagName: "p",
+      parentElement: collapsed,
+      text: "Accordion body that only shows after a click",
+      rect: { top: 0, right: 300, bottom: 200, left: 0, width: 300, height: 200 }
+    });
+    collapsed.children.push(hiddenBody);
+    collapsed.childNodes.push(hiddenBody);
+    body.children.push(collapsed);
+    body.childNodes.push(collapsed);
+
+    assert.equal(isVisible(hiddenBody), false);
+  });
+});
+
 test("submission visibility rejects aria-hidden text the user cannot reach", () => {
   // Shared user-visible contract: aria-hidden / sr-only ancestors must not
   // upgrade off-viewport content into the AI inclusion set, because the
