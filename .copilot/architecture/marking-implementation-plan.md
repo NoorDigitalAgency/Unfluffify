@@ -242,7 +242,27 @@ baseline` build.
 - CP7 incremental rebuild must equal full rebuild (equivalence test) — highest
   drift risk; interim fallback available.
 
-## 8. Acceptance criteria
+## 7b. Semantic-alignment verification (pre-CP1 vs post-CP7b, same page)
+
+Full submission-payload comparison on `bonliva.se/` (home; unpolluted by
+benchmark drafts), same credentialed profile/extension id, both builds driven
+identically via direct mode; per-row xpath+state (`excluded`) with tag/text
+annotations; stability re-runs on both builds:
+
+- **538/540 rows identical in xpath AND state.** The xpath scheme string-matches
+  exactly (CP5 is a proven no-op without shadow).
+- **1 baseline-only row** (`…/svg[1]/title[1]`, excluded:true): intended CP1
+  semantics — the svg subtree is now covered by the payload's immutable tag list
+  (`immutableSelectors` gains `SVG`), not a per-page row. That old row's xpath
+  was ALSO unresolvable by standard XPath (SVG namespace), i.e. the baseline
+  shipped a dead row to the AI; CP1 eliminates the class. +1 `uf-hard-locked`
+  box = the svg on the immutable layer.
+- **1 state flip** on a carousel card (`…/a[7]/…`, excluded false→true): proven
+  page/timing dynamics, NOT a build difference — the BASELINE flips it between
+  its own runs and its second run agrees with CP7b. CP7b itself was
+  deterministic across runs (0 diffs, 539 identical rows), the baseline was not.
+
+Verdict: semantically aligned; every real difference is an agreed CP1 change.
 - svg never markable; CSS-clamped full text included; shadow `<p>` (cramo)
   enumerated + XPath-addressable + captured in `renderedHtml`; a shadow inner
   node independently markable; FSM test green; full gate green each CP.
