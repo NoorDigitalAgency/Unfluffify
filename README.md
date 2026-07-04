@@ -167,6 +167,7 @@ pnpm exec vitest run tests/core-visibility.test.ts tests/core-motion-pause.test.
 - **`submission-rules.test.ts`** - Regression coverage for AI submission roots and content rows: stored excluded rows, hidden textual exclusions, immutable-tag omission, included textual boundaries, and explicit includes
 - **`core-visibility.test.ts`** - Regression coverage for content-side visibility guards (including the MA-1b CSS text-clamp visibility rule), restored Shift/Alt target promotion, sanitized snapshot XPath alignment, and dynamic style-mutation redraw decisions used by marking and submission
 - **`mark-mode-fsm.test.ts`** - Regression coverage for the `deriveMarkMode` marking-interaction FSM authority and its fixed `disabled > passthrough > include > exclude` precedence
+- **`shadow-deep-capture.test.ts`** - Regression coverage for flattening open shadow DOM into the captured HTML as real elements (Googlebot parity): composed order, extension-shadow exclusion, nested shadow recursion, and no `<template shadowrootmode>` wrapper
 - **`core-motion-pause.test.ts`** - Regression coverage for pre-freeze page inspection, input blocking, full-scroll lazy-content reveal, and motion-freeze normalization
 - **`theme-colors.test.ts`** - Regression coverage for AA contrast on semantic theme colors
 - **`silent-highlight-rules.test.ts`** - Regression coverage for settle-before-redraw silent highlight behavior

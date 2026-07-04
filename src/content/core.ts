@@ -4312,6 +4312,103 @@ function normalizePageEntryPageType(value: unknown): string {
     .toLowerCase();
 }
 
+function isExtensionSnapshotHost(el: Element): boolean {
+  try {
+    if (isWithinExtensionUi(el)) {
+      return true;
+    }
+    for (const selector of EXTENSION_SNAPSHOT_STRIP_SELECTORS) {
+      if (typeof el.matches === "function" && el.matches(selector)) {
+        return true;
+      }
+    }
+  } catch (_error) {
+    // Treat matcher failures as non-extension; the strip pass is the backstop.
+  }
+  return false;
+}
+
+/**
+ * The open shadow root that should be flattened into the captured HTML, or null
+ * when the element has no shadow root, uses a CLOSED root (inaccessible — the
+ * browser exposes `shadowRoot` as null), or is an extension-owned host (its
+ * shadow is the extension UI, stripped from snapshots).
+ */
+function getCapturableShadowRoot(el: Element): ShadowRoot | null {
+  let shadowRoot: ShadowRoot | null;
+  try {
+    shadowRoot = (el as { shadowRoot?: ShadowRoot | null }).shadowRoot || null;
+  } catch (_error) {
+    return null;
+  }
+  if (!shadowRoot) {
+    return null;
+  }
+  if (isExtensionSnapshotHost(el)) {
+    return null;
+  }
+  return shadowRoot;
+}
+
+/**
+ * Build a fragment of the shadow root's children flattened into real DOM
+ * (Googlebot parity — no `<template shadowrootmode>` wrapper), recursing so
+ * nested shadow roots are inlined too. Returns null in environments without
+ * `createDocumentFragment`.
+ */
+function buildFlattenedShadowFragment(shadowRoot: ShadowRoot): DocumentFragment | null {
+  if (typeof document === "undefined" || typeof document.createDocumentFragment !== "function") {
+    return null;
+  }
+  const fragment = document.createDocumentFragment();
+  const liveChildNodes = Array.from(shadowRoot.childNodes || []);
+  for (const liveChild of liveChildNodes) {
+    let clonedChild: Node;
+    try {
+      clonedChild = liveChild.cloneNode(true);
+    } catch (_error) {
+      continue;
+    }
+    fragment.appendChild(clonedChild);
+    if (liveChild.nodeType === 1 && clonedChild.nodeType === 1) {
+      inlineFlattenedShadowContent(liveChild as Element, clonedChild as Element);
+    }
+  }
+  return fragment;
+}
+
+/**
+ * D5a / MA-1: walk a live element subtree in lockstep with its (structurally
+ * identical) clone and inline every open, non-extension shadow root into the
+ * clone as real elements at the front of the host (composed-tree order), so the
+ * captured HTML matches what Googlebot indexes. `cloneNode` does not cross
+ * shadow boundaries, which is why this pass is required.
+ */
+export function inlineFlattenedShadowContent(liveRoot: Element, cloneRoot: Element): void {
+  const liveStack: Element[] = [liveRoot];
+  const cloneStack: Element[] = [cloneRoot];
+  while (liveStack.length) {
+    const live = liveStack.pop() as Element;
+    const clone = cloneStack.pop() as Element;
+    // Pair the light-DOM element children BEFORE mutating the clone, so the
+    // inserted shadow nodes never shift the live<->clone index correspondence.
+    const liveChildren = Array.from((live.children || []) as ArrayLike<Element>);
+    const cloneChildren = Array.from((clone.children || []) as ArrayLike<Element>);
+    const shadowRoot = getCapturableShadowRoot(live);
+    if (shadowRoot) {
+      const fragment = buildFlattenedShadowFragment(shadowRoot);
+      if (fragment && typeof clone.insertBefore === "function") {
+        clone.insertBefore(fragment, clone.firstChild || null);
+      }
+    }
+    const pairCount = Math.min(liveChildren.length, cloneChildren.length);
+    for (let i = 0; i < pairCount; i += 1) {
+      liveStack.push(liveChildren[i]);
+      cloneStack.push(cloneChildren[i]);
+    }
+  }
+}
+
 export function createSanitizedPageSnapshot(options: SnapshotOptions = {}): SnapshotResult {
   const normalizedRenderMode = config.normalizeRenderMode(options.renderMode);
   const root = document.documentElement;
@@ -4323,6 +4420,17 @@ export function createSanitizedPageSnapshot(options: SnapshotOptions = {}): Snap
   }
 
   const clone = root.cloneNode(true) as Element;
+
+  // D5a/MA-1: flatten open shadow DOM into the captured HTML (Googlebot parity)
+  // so shadow content reaches the AI as real elements. Done first — before the
+  // strip / class / data-uf passes below — so those passes also sanitize the
+  // inlined shadow nodes. cloneNode does not cross shadow boundaries.
+  try {
+    inlineFlattenedShadowContent(root, clone);
+  } catch (_error) {
+    // Never let shadow flattening break capture; fall back to light-DOM HTML.
+  }
+
   const stripSelectors = getSnapshotStripSelectors(options);
   if (stripSelectors.length) {
     clone.querySelectorAll(stripSelectors.join(",")).forEach((node) => {

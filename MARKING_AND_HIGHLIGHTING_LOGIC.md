@@ -620,6 +620,29 @@ unsaved current-page changes, the run may refresh that page's stored snapshot
 immediately before building the request, but every other page in the corpus
 must still come from existing stored local data.
 
+## Shadow DOM
+
+Shadow DOM content is handled exactly as Googlebot handles it: **flattened into
+real DOM**. If something Google cares about happens inside a shadow tree, the
+extension must handle it too.
+
+The sanitized page snapshot (`createSanitizedPageSnapshot`) clones the light DOM
+and then inlines every open shadow root into the clone as real elements at the
+front of the host (composed-tree order), recursing through nested shadow roots.
+There is no `<template shadowrootmode>` wrapper in the captured HTML — the shadow
+tree appears as ordinary inline elements, matching the deep-capture the consumer
+performs. Because inlining happens before the strip / class / `data-uf-*`
+sanitizing passes, those passes also clean the inlined shadow nodes.
+
+- **Open** shadow roots are captured. **Closed** shadow roots are inaccessible
+  (the browser exposes no `shadowRoot`) and are silently skipped.
+- The extension's own shadow root (WXT content-UI host, `data-wxt-shadow-root` /
+  `data-uf-extension-ui`) is never captured — it is extension chrome, not page
+  content.
+- Positional XPath is continuous through former shadow boundaries: a shadow
+  element is addressed like any light-DOM element in the flattened view, so
+  submission XPaths align with the captured HTML.
+
 ## AI Submission Rows
 
 `submissionXpaths` is the shallow boundary list sent for CSS selector
