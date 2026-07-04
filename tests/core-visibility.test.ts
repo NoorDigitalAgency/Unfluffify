@@ -660,6 +660,41 @@ test("CP6: getMarkableTarget pierces an open shadow root so inner nodes are clic
   });
 });
 
+test("CP8/D1: a revealed (now-visible, markable) element can be explicit-included", () => {
+  withVisibilityDom(({ documentElement, body }) => {
+    const revealed = createElement({
+      tagName: "p",
+      parentElement: body,
+      text: "Content revealed after a Space-passthrough expand",
+      rect: { top: 40, right: 320, bottom: 80, left: 20, width: 300, height: 40 }
+    });
+    body.children.push(revealed);
+    body.childNodes.push(revealed);
+    globalThis.document.elementsFromPoint = () => [revealed, body, documentElement];
+    globalThis.document.elementFromPoint = () => revealed;
+
+    assert.equal(canApplyExplicitInclude(revealed, null, "https://example.test/"), true);
+  });
+});
+
+test("CP8/D1: a still-collapsed hidden non-default element is not includable until expanded", () => {
+  withVisibilityDom(({ body }) => {
+    const collapsed = createElement({
+      tagName: "div",
+      parentElement: body,
+      text: "Accordion body still collapsed",
+      style: { display: "none" },
+      rect: { top: 40, right: 320, bottom: 80, left: 20, width: 300, height: 40 }
+    });
+    body.children.push(collapsed);
+    body.childNodes.push(collapsed);
+
+    // display:none, not a toggleable default, not a saved include → the user must
+    // expand it via page-interaction mode before it can be marked.
+    assert.equal(canApplyExplicitInclude(collapsed, null, "https://example.test/"), false);
+  });
+});
+
 test("submission visibility rejects aria-hidden text the user cannot reach", () => {
   // Shared user-visible contract: aria-hidden / sr-only ancestors must not
   // upgrade off-viewport content into the AI inclusion set, because the

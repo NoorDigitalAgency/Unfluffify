@@ -154,10 +154,20 @@ together with target resolution + render (they must be coherent).
 - Contract §Marking Performance Contract updated with the target model, the
   verified prerequisite, and the accurate interim.
 
-### CP8 — D1 expand-then-mark harden + MA-4 collapse verify
-- Verify Space-passthrough expand → revealed element markable → explicit-include
-  persists + present in saved `renderedHtml`; motion pause doesn't re-collapse.
-- Verify `collapseElementsByNesting` cost O(rows×depth); harden if O(n²).
+### CP8 — D1 expand-then-mark harden + MA-4 collapse verify — SHIPPED
+- MA-4 VERIFIED: `collapseElementsByNesting` uses a `keptSet` parent-walk
+  (shallowest) / ancestor-set (deepest) — O(rows×depth), NO pairwise `contains()`
+  scan, so no O(n²) path. Hardened the sort: depth is now memoized within the
+  call so the O(n log n) sort does not re-walk each element's depth per
+  comparison (helps heavy pages). Behavior-preserving (full collapse test suite
+  green).
+- D1 VERIFIED: after a Space-passthrough expand the revealed element is
+  visible+markable, so `canApplyExplicitInclude` returns true (via
+  `isMarkableElement`) and the include persists in `includeXpaths` + is present
+  in the save-time `renderedHtml`; a still-collapsed `display:none` non-default
+  element is NOT includable until expanded. Motion pause reveals (never
+  re-collapses) per the Motion Stability Contract. Codified in
+  `core-visibility.test.ts` (CP8/D1 cases).
 
 ## 6. Test matrix
 Per checkpoint: focused unit/source-contract tests named above, then the full

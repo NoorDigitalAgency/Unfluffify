@@ -4011,8 +4011,22 @@ export function collapseElementsByNesting(
     }
     return true;
   });
+  // MA-4: memoize depth for the duration of this collapse so the O(n log n) sort
+  // does not recompute each element's root-walk per comparison. With the
+  // keptSet/ancestor-set parent-walk below, the whole pass stays proportional to
+  // rows x depth (no pairwise contains() scans).
+  const depthCache = new Map<Element, number>();
+  const depthOf = (el: Element): number => {
+    const cached = depthCache.get(el);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const depth = getElementDepth(el);
+    depthCache.set(el, depth);
+    return depth;
+  };
   list.sort((left, right) => {
-    const depthDiff = getElementDepth(left) - getElementDepth(right);
+    const depthDiff = depthOf(left) - depthOf(right);
     if (depthDiff !== 0) {
       return depthDiff;
     }
@@ -4020,7 +4034,7 @@ export function collapseElementsByNesting(
   });
   if (prefer === "deepest") {
     const reverseSorted = list.slice().sort((left, right) => {
-      const depthDiff = getElementDepth(right) - getElementDepth(left);
+      const depthDiff = depthOf(right) - depthOf(left);
       if (depthDiff !== 0) {
         return depthDiff;
       }
