@@ -2010,31 +2010,6 @@ function matchesToggleableDefaultExcluded(el: Element | null): boolean {
   return result;
 }
 
-function hasNestedToggleableDefaultExcludedDescendant(el: Element | null): boolean {
-  if (!el) {
-    return false;
-  }
-  const stack = Array.from(el.children || []) as Element[];
-  pushCapturableShadowChildren(stack, el);
-  while (stack.length) {
-    const node = stack.pop();
-    if (!node) {
-      continue;
-    }
-    if (isWithinAiPopover(node) || isWithinConsentElement(node)) {
-      continue;
-    }
-    if (matchesToggleableDefaultExcluded(node)) {
-      return true;
-    }
-    for (let i = node.children.length - 1; i >= 0; i -= 1) {
-      stack.push(node.children[i]);
-    }
-    pushCapturableShadowChildren(stack, node);
-  }
-  return false;
-}
-
 function isTextualContainer(el: Element, options: TextualDetectionOptions = {}): boolean {
   const cache = getTextualOptionCache(state.textualContainerCache, options);
   if (cache && cache.has(el)) {
@@ -2147,45 +2122,16 @@ function hasTextualImmutableDescendant(el: Element | null, options: TextualDetec
   return result;
 }
 
-function hasVisibleImmutableDescendant(el: Element | null): boolean {
-  if (!el) {
-    return false;
-  }
-  const stack = Array.from(el.children || []) as Element[];
-  pushCapturableShadowChildren(stack, el);
-  while (stack.length) {
-    const node = stack.pop();
-    if (!node) {
-      continue;
-    }
-    if (isWithinAiPopover(node) || isWithinConsentElement(node)) {
-      continue;
-    }
-    if (matchesImmutableExcluded(node) && isVisible(node)) {
-      return true;
-    }
-    for (let i = node.children.length - 1; i >= 0; i -= 1) {
-      stack.push(node.children[i]);
-    }
-    pushCapturableShadowChildren(stack, node);
-  }
-  return false;
-}
-
 function matchesAutoToggleableDefaultExcluded(el: Element | null): boolean {
-  if (!matchesToggleableDefaultExcluded(el)) {
-    return false;
-  }
-  if (!el) {
-    return false;
-  }
-  if (!hasTextualDescendant(el)) {
-    return true;
-  }
-  if (hasNestedToggleableDefaultExcludedDescendant(el)) {
-    return true;
-  }
-  return !hasVisibleImmutableDescendant(el);
+  // F1 LOCKED (deliberate 052c deviation, see marking-widening-review.md):
+  // auto-exclusion follows the taxonomy tag UNCONDITIONALLY. The former rule 3
+  // ("a visible immutable descendant suppresses the boundary's auto-exclusion")
+  // leaked boundary boilerplate into AI-included content — the boundary's text
+  // fell through to the default content layer while the media was excluded via
+  // the immutable tag list anyway. Rules 1/2 (no textual descendant / nested
+  // toggleable) existed only as bypasses of rule 3, so the predicate collapses
+  // to the tag match. Manual toggling is unaffected.
+  return matchesToggleableDefaultExcluded(el);
 }
 
 function hasExplicitlyMarkedDescendant(el: Element | null): boolean {
@@ -2358,14 +2304,27 @@ function isStructuredGroupExclusionCandidate(
   if (!isTextualContainer(el, options)) {
     return false;
   }
-  if (isUnsafeShallowParentMarkingTarget(el, options || {})) {
-    return false;
-  }
+  // NOTE: no page-shell check here — it was dead code. Every caller evaluates
+  // this predicate with parent mode OFF (resolveMarkableElement passes
+  // ancestorOptions with allowParent:false; isScopedFlipCapableAncestor passes
+  // no options), and isUnsafeShallowParentMarkingTarget no-ops without
+  // allowParent, so the call could never reject anything. Actual shell
+  // protection lives where it is effective: the shallow guard on the clicked
+  // element and the any-depth guard for descendants-only widen targets (W1).
   const children = (Array.from(el.children || []) as Element[]).filter((child) => {
     if (isWithinAiPopover(child)) {
       return false;
     }
     if (isWithinConsentElement(child) || isWithinImmutableExcluded(child)) {
+      return false;
+    }
+    // F4 LOCKED (052c refinement of the Q-β cohesion definition, see
+    // marking-widening-review.md): children that are not textual containers at
+    // all (spacers, decorations) are structural noise — filtered like the
+    // immutable/consent children above, instead of vetoing the whole group via
+    // every(). Monotone: previously-passing groups had all-textual children,
+    // so this filter removes nothing from them.
+    if (!isTextualContainer(child, options)) {
       return false;
     }
     return true;
@@ -8456,9 +8415,14 @@ function getDepthBelowBody(el: Element | null | undefined): number {
   }
   let depth = 0;
   let node: Element | null = el;
-  while (node && node.nodeType === 1 && node !== document.body && node !== document.documentElement) {
+  let guard = 0;
+  // W2/F5 harden: walk the FLATTENED parent chain so open-shadow content gets a
+  // real depth (crossing shadow boundaries to the host) instead of ∞ — the ∞
+  // silently disabled the shallow page-shell guard inside shadow trees.
+  while (node && node.nodeType === 1 && node !== document.body && node !== document.documentElement && guard < 500) {
     depth += 1;
-    node = node.parentElement;
+    node = getFlattenedParentElement(node);
+    guard += 1;
   }
   return node === document.body ? depth : Number.POSITIVE_INFINITY;
 }
@@ -8537,6 +8501,27 @@ function isUnsafeShallowParentMarkingTarget(
   }
   const depth = getDepthBelowBody(el);
   if (depth > 2) {
+    return false;
+  }
+  return containsPageShellLandmark(el) || hasBroadParentMarkingFootprint(el);
+}
+
+/**
+ * F2 harden (widening restraint): a parent-mode target that is markable ONLY
+ * via its descendants (not self-markable) must pass the page-shell rejection at
+ * ANY depth — not just the first two levels under body. Without this,
+ * Shift-clicking the whitespace of a deep full-width wrapper (div-soup SPAs put
+ * the whole content column at depth 3+) selected the entire content area with
+ * no footprint/landmark check. Semantic content boundaries and direct-text
+ * elements keep their exemption, so sections/articles/lists, toggleable
+ * boundaries, and mixed-text ancestors are unaffected, and narrow card
+ * containers stay widen-eligible.
+ */
+function isUnsafeWideDescendantOnlyTarget(el: Element): boolean {
+  if (isParentMarkingContentBoundary(el)) {
+    return false;
+  }
+  if (hasDirectText(el)) {
     return false;
   }
   return containsPageShellLandmark(el) || hasBroadParentMarkingFootprint(el);
@@ -11914,7 +11899,13 @@ export function isMarkableElement(
   if (isUnsafeShallowParentMarkingTarget(el, currentOptions)) {
     return false;
   }
-  return hasMultipleMarkableDescendants(el, currentOptions);
+  if (!hasMultipleMarkableDescendants(el, currentOptions)) {
+    return false;
+  }
+  // F2: this element is markable only via its descendants — reject page-shell
+  // shapes at ANY depth so a deep full-width wrapper cannot become a
+  // whole-content exclusion target.
+  return !isUnsafeWideDescendantOnlyTarget(el);
 }
 
 export function canApplyExplicitInclude(

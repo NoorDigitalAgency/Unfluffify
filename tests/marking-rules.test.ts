@@ -170,7 +170,10 @@ test("stored default-exclude state is user-modified only when it differs from th
   );
 });
 
-test("parent marking accepts a wrapper with one markable descendant", () => {
+test("F3: parent marking requires MULTIPLE markable descendants (or direct text)", () => {
+  // Deliberate 052c deviation (marking-widening-review.md F3): widening always
+  // means grouping several content pieces — single-child wrappers are no longer
+  // widen targets.
   assert.equal(
     shouldAllowParentMarkingBoundary({
       hasDirectText: false,
@@ -182,6 +185,13 @@ test("parent marking accepts a wrapper with one markable descendant", () => {
     shouldAllowParentMarkingBoundary({
       hasDirectText: false,
       markableDescendantCount: 1
+    }),
+    false
+  );
+  assert.equal(
+    shouldAllowParentMarkingBoundary({
+      hasDirectText: false,
+      markableDescendantCount: 2
     }),
     true
   );
@@ -245,6 +255,27 @@ test("locked default-exclusion taxonomy keeps buttons toggleable and links omitt
   }
 });
 
+test("W2/F5: the page-shell depth walk crosses open shadow boundaries", () => {
+  // getDepthBelowBody previously walked parentElement, returning Infinity for
+  // shadow content (parentElement is null at a shadow root) — which silently
+  // disabled the shallow page-shell guard inside open shadow trees. Pin the
+  // flattened-parent walk so shadow wrappers get a real depth.
+  const depthWalk = coreSource.slice(
+    coreSource.indexOf("function getDepthBelowBody("),
+    coreSource.indexOf("function isParentMarkingContentBoundary(")
+  );
+  assert.match(
+    depthWalk,
+    /node = getFlattenedParentElement\(node\);/,
+    "getDepthBelowBody must walk the flattened (shadow-crossing) parent chain"
+  );
+  assert.doesNotMatch(
+    depthWalk,
+    /node = node\.parentElement;/,
+    "the light-only parentElement walk must not remain"
+  );
+});
+
 test("immutable/toggleable tag matching is case-insensitive so foreign-namespace <svg> matches", () => {
   // SVG (and other foreign-namespace) elements report a lowercase tagName
   // ("svg"), unlike uppercased HTML tags. The tag-selector comparison must
@@ -261,7 +292,7 @@ test("immutable/toggleable tag matching is case-insensitive so foreign-namespace
   );
   const toggleableMatcher = coreSource.slice(
     coreSource.indexOf("function matchesToggleableDefaultExcluded("),
-    coreSource.indexOf("function hasNestedToggleableDefaultExcludedDescendant(")
+    coreSource.indexOf("function isTextualContainer(")
   );
   assert.match(
     toggleableMatcher,

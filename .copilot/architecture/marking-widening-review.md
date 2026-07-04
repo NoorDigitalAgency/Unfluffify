@@ -34,6 +34,7 @@ repeat runs vs. a flapping baseline).
 | F5 | `getDepthBelowBody` walked `parentElement`, returning ∞ inside shadow roots → the shell guard was silently OFF for shadow-internal wrappers (CP6 residual). | Low | **HARDENED** — flattened-parent walk |
 | F6 | Initial assessment depends on freeze-moment paint-reachability (carousel card flip observed on the PRE-fix build; bounded by settle sampling; improved by CP7a reuse). Inherent to user-visibility semantics. | Low | Accept, documented |
 | F7 | `containsPageShellLandmark` counts tag-kinds and role-kinds independently (one `<header role="banner">` child = 2 kinds). Conservative direction (blocks more); harmless. | Info | Accept |
+| F8 | The shell-rejection call INSIDE `isStructuredGroupExclusionCandidate` was dead code: every caller evaluates the predicate with parent mode off (`resolveMarkableElement` passes `ancestorOptions` with `allowParent:false`; `isScopedFlipCapableAncestor` passes no options), and `isUnsafeShallowParentMarkingTarget` no-ops without `allowParent` — so it could never reject anything. The documented Q-β "rejecting shallow page shells" clause was therefore never active in the structured-group definition; effective shell protection lives on the clicked element (shallow guard + W1 any-depth guard). | Info (latent inconsistency) | **RESOLVED** — dead call removed (behavioral no-op, architect-approved) |
 
 ## Hardening shipped with this review (F2 + F5)
 
@@ -52,21 +53,38 @@ repeat runs vs. a flapping baseline).
 
 ## Q&A agenda (decisions queued for the architect)
 
-- **F1 — svg vs the immutable-descendant suppression rule.** Options:
-  (a) exempt `SVG` from `hasVisibleImmutableDescendant` (treat icons as
-  decoration; restores pre-CP1 auto-exclusion; IMG/VIDEO/IFRAME keep the 052c
-  meaning); (b) keep as-is (any visible immutable media protects its boundary
-  from auto-exclusion); (c) exempt svg below a size threshold only (icon vs
-  illustration). Recommendation: (a) — the 052c rule was about meaningful
-  media, and (c) adds a heuristic the program has deliberately avoided (D2).
-- **F3 — widen-eligibility threshold.** Options: (a) keep ≥1 (052c-compatible);
-  (b) require ≥2 markable descendants (matches the intent/name; single-child
-  wrappers stop being widen targets). Recommendation: (b), flagged as a
-  deliberate 052c deviation.
-- **F4 — structured-group tolerance.** Options: (a) keep strict `every()`;
-  (b) also filter textless (non-textual-container) children before the
-  every()/min-2 checks — spacers stop vetoing groups and img+caption cards can
-  group via their textual child + immutable sibling; (c) fraction threshold
-  (e.g. ≥80% conforming children) — more heuristic. Recommendation: (b) — it
-  extends the existing "filter structural noise" pattern (immutable children
-  are already filtered) without introducing scoring.
+- **F1 — LOCKED (architect, 2026-07-04): REMOVE the visible-immutable-descendant
+  suppression entirely (rule 3), superseding the svg-only exemption.**
+  Rationale (architect): the rule is confined to the AUTOMATIC default
+  assessment (generated rows, default-exclusion overlay, drill-ancestor
+  semantics — manual toggling unaffected), and within its real blast radius
+  (simple boundaries: text element + visible immutable media + no nested
+  toggleable, e.g. `<footer><p>©…</p><img logo></footer>`) it actively LEAKS
+  boilerplate text into AI-included content: "not auto-excluded" makes the
+  boundary's text fall through to the default content layer and submit as
+  included, while the media was excluded by the immutable tag list anyway.
+  FORM/NAV/BUTTON descendants never suppressed (they are toggleable → rule 2
+  fires), so most real footers were unaffected — the rule protected nothing.
+  Consequences: rules 1/2 existed only as bypasses of rule 3, so
+  `matchesAutoToggleableDefaultExcluded` collapses to the plain taxonomy tag
+  match ("a toggleable-default tag is auto-excluded, period"). This is a
+  DELIBERATE 052c DEVIATION: the contract line "boundaries with visible
+  immutable descendants are suppressed…" is removed and the 052c-restoration
+  test (footer with visible logo img NOT collected) flips to its opposite.
+  Counter-case accepted: media+meaningful-text asides/headers become excluded
+  by default — which the taxonomy already declares, with toggle/Alt-include as
+  the rescue paths.
+- **F3 — LOCKED (architect, 2026-07-04): require ≥2 markable descendants** for
+  a descendants-only widen target (`shouldAllowParentMarkingBoundary` threshold
+  1 → 2). Widening always means "group several content pieces"; single-child
+  wrappers stop being widen targets (the user excludes the child directly).
+  Deliberate, documented 052c deviation.
+- **F4 — LOCKED (architect, 2026-07-04): filter textless children** (children
+  that are not textual containers at all — spacers/decorations) before the
+  structured-group `every()`/min-2 checks, extending the existing noise filter
+  (immutable/consent/popover children are already ignored). Spacers stop
+  vetoing groups; cards can group when ≥2 textual children remain.
+  Deterministic, no scoring. Documented 052c refinement of the Q-β cohesion
+  definition. Monotone: every group that qualified before still qualifies
+  (previously all children had to be textual grouped-candidates, so the new
+  filter removes nothing from passing groups).

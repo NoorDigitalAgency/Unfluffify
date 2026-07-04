@@ -3924,62 +3924,13 @@ function matchesToggleableDefaultSelector(node: Element | null | undefined): boo
   return false;
 }
 
-function hasNestedToggleableDefaultExcludedDescendant(node: Element | null | undefined): boolean {
-  if (!node) {
-    return false;
-  }
-  const stack = Array.from(node.children);
-  while (stack.length) {
-    const current = stack.pop();
-    if (!current) {
-      continue;
-    }
-    if (isExtensionUiNode(current) || isWithinConsentBoundary(current)) {
-      continue;
-    }
-    if (matchesToggleableDefaultSelector(current)) {
-      return true;
-    }
-    pushChildElementsReverse(stack, current);
-  }
-  return false;
-}
-
-function hasVisibleImmutableDescendant(node: Element | null | undefined): boolean {
-  if (!node) {
-    return false;
-  }
-  const stack = Array.from(node.children);
-  while (stack.length) {
-    const current = stack.pop();
-    if (!current) {
-      continue;
-    }
-    if (isExtensionUiNode(current) || isWithinConsentBoundary(current)) {
-      continue;
-    }
-    if (matchesImmutableDefaultSelector(current) && core.isVisible(current)) {
-      return true;
-    }
-    pushChildElementsReverse(stack, current);
-  }
-  return false;
-}
-
 function matchesAutoToggleableDefaultSelector(node: Element | null | undefined): boolean {
-  if (!matchesToggleableDefaultSelector(node)) {
-    return false;
-  }
-  if (!node) {
-    return false;
-  }
-  if (!hasTextualDescendantForInclusion(node)) {
-    return true;
-  }
-  if (hasNestedToggleableDefaultExcludedDescendant(node)) {
-    return true;
-  }
-  return !hasVisibleImmutableDescendant(node);
+  // F1 LOCKED (deliberate 052c deviation, see marking-widening-review.md):
+  // auto-exclusion follows the taxonomy tag unconditionally — kept in lockstep
+  // with core's matchesAutoToggleableDefaultExcluded, whose former
+  // visible-immutable-descendant suppression (and its rule-1/2 bypasses)
+  // collapsed to the plain tag match.
+  return matchesToggleableDefaultSelector(node);
 }
 
 function isWithinImmutableDefaultNode(node: Element | null | undefined): boolean {

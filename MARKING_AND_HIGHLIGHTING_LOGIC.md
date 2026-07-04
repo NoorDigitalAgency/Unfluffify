@@ -520,6 +520,36 @@ toggleable ancestor, then the broadest markable ancestor. The current shallow
 page-shell guard still rejects generic body-level wrappers with broad viewport
 footprints or multiple page landmarks.
 
+Two restraints bound how wide a parent selection can reach:
+
+- **Ancestor ladder candidates must be self-markable.** Ancestors on the
+  structured-group/toggleable/broadest rungs are evaluated without parent mode,
+  so the broadest-markable rung can only select an ancestor with direct own
+  text (a mixed-text ancestor). Generic wide wrapper divs have no direct text
+  and are never ladder candidates; the ancestor walk additionally hard-stops at
+  `body`/`documentElement`, so root exclusions are impossible.
+- **Descendants-only targets face the page-shell rejection at ANY depth.** When
+  the clicked element itself is markable only through its descendants (it is
+  not self-markable), the landmark/footprint page-shell rejection applies
+  regardless of depth below body — a deep full-width content-column wrapper is
+  not a valid widening target. Semantic content boundaries (section, article,
+  lists, tables, toggleable defaults, …) and direct-text elements keep their
+  exemption, so meaningful wide containers remain selectable. The depth-limited
+  shallow guard is unchanged where it feeds the structured-group definition.
+- **Descendants-only targets must group MULTIPLE content pieces.** A widen
+  target that is not self-markable requires at least TWO markable descendants —
+  a wrapper around a single content piece is not a widening target (excluding
+  the piece directly is equivalent and tighter). Deliberate 052c deviation
+  (decision record: marking-widening-review.md F3).
+- **Structured-group cohesion ignores structural noise children.** The
+  every-child cohesion check filters out children that are not textual
+  containers at all (spacers, decorations) — the same treatment immutable and
+  consent children already receive — before the two-child minimum and the
+  grouped-child test. A group qualifies when at least two textual children
+  remain and all of them conform; previously-qualifying groups are unaffected.
+  052c refinement of the Q-β cohesion definition (decision record:
+  marking-widening-review.md F4).
+
 ### Include Mode
 
 `Alt` switches to include mode. Include mode can inspect descendants inside
@@ -581,11 +611,19 @@ Direct text means text-node content owned by the element itself. Containers with
 only descendant text normally yield to the descendant. Toggleable default
 boundaries follow the restored 052c shape rule: direct own text makes the
 boundary self-markable, otherwise the boundary is self-markable only when it has
-no visible textual descendant and no explicitly marked descendant. Automatic
-toggleable-default collection also follows 052c structure: boundaries with no
-textual descendant qualify, boundaries with nested toggleable defaults qualify,
-and boundaries with visible immutable descendants are suppressed unless the
-other structural cases apply.
+no visible textual descendant and no explicitly marked descendant.
+
+Automatic toggleable-default collection follows the taxonomy tag
+UNCONDITIONALLY: every toggleable-default boundary is auto-excluded (subject to
+the existing hidden-subtree/immutable-ancestor/consent/extension-UI skips).
+This is a deliberate deviation from the 052c structure rule that suppressed
+boundaries with visible immutable descendants — that suppression leaked the
+boundary's boilerplate text into the default content layer (and the AI
+inclusion set) whenever the boundary carried a visible image/video/svg with no
+nested toggleable default, while the media itself was already excluded via the
+immutable tag list. Manual toggling is unaffected; the toggle and explicit
+include remain the rescue paths for meaningful content inside such boundaries.
+(Decision record: marking-widening-review.md F1.)
 
 ### Visibility and CSS Clamps
 
@@ -697,6 +735,9 @@ sanitizing passes, those passes also clean the inlined shadow nodes.
   such flattened paths through the composed tree (shadow children first) when the
   document has a capturable shadow root; shadow-free pages resolve via the native
   light-DOM path unchanged.
+- The page-shell guard's depth computation walks the flattened (shadow-crossing)
+  parent chain, so shell protection applies inside open shadow trees the same as
+  in light DOM.
 - The live engine treats shadow content as real DOM: the default-content
   enumeration and the reconcile scan descend into capturable shadow roots
   (composed order, shadow first), so shadow text is enumerated as implicit
