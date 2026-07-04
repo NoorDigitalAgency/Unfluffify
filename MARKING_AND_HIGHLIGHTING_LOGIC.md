@@ -520,6 +520,23 @@ toggleable ancestor, then the broadest markable ancestor. The current shallow
 page-shell guard still rejects generic body-level wrappers with broad viewport
 footprints or multiple page landmarks.
 
+Two restraints bound how wide a parent selection can reach:
+
+- **Ancestor ladder candidates must be self-markable.** Ancestors on the
+  structured-group/toggleable/broadest rungs are evaluated without parent mode,
+  so the broadest-markable rung can only select an ancestor with direct own
+  text (a mixed-text ancestor). Generic wide wrapper divs have no direct text
+  and are never ladder candidates; the ancestor walk additionally hard-stops at
+  `body`/`documentElement`, so root exclusions are impossible.
+- **Descendants-only targets face the page-shell rejection at ANY depth.** When
+  the clicked element itself is markable only through its descendants (it is
+  not self-markable), the landmark/footprint page-shell rejection applies
+  regardless of depth below body — a deep full-width content-column wrapper is
+  not a valid widening target. Semantic content boundaries (section, article,
+  lists, tables, toggleable defaults, …) and direct-text elements keep their
+  exemption, so meaningful wide containers remain selectable. The depth-limited
+  shallow guard is unchanged where it feeds the structured-group definition.
+
 ### Include Mode
 
 `Alt` switches to include mode. Include mode can inspect descendants inside

@@ -8542,6 +8542,27 @@ function isUnsafeShallowParentMarkingTarget(
   return containsPageShellLandmark(el) || hasBroadParentMarkingFootprint(el);
 }
 
+/**
+ * F2 harden (widening restraint): a parent-mode target that is markable ONLY
+ * via its descendants (not self-markable) must pass the page-shell rejection at
+ * ANY depth — not just the first two levels under body. Without this,
+ * Shift-clicking the whitespace of a deep full-width wrapper (div-soup SPAs put
+ * the whole content column at depth 3+) selected the entire content area with
+ * no footprint/landmark check. Semantic content boundaries and direct-text
+ * elements keep their exemption, so sections/articles/lists, toggleable
+ * boundaries, and mixed-text ancestors are unaffected, and narrow card
+ * containers stay widen-eligible.
+ */
+function isUnsafeWideDescendantOnlyTarget(el: Element): boolean {
+  if (isParentMarkingContentBoundary(el)) {
+    return false;
+  }
+  if (hasDirectText(el)) {
+    return false;
+  }
+  return containsPageShellLandmark(el) || hasBroadParentMarkingFootprint(el);
+}
+
 function createExcludedAncestorChecker(
   options: ExcludedAncestorCheckerOptions = {}
 ): (element: Element) => boolean {
@@ -11914,7 +11935,13 @@ export function isMarkableElement(
   if (isUnsafeShallowParentMarkingTarget(el, currentOptions)) {
     return false;
   }
-  return hasMultipleMarkableDescendants(el, currentOptions);
+  if (!hasMultipleMarkableDescendants(el, currentOptions)) {
+    return false;
+  }
+  // F2: this element is markable only via its descendants — reject page-shell
+  // shapes at ANY depth so a deep full-width wrapper cannot become a
+  // whole-content exclusion target.
+  return !isUnsafeWideDescendantOnlyTarget(el);
 }
 
 export function canApplyExplicitInclude(

@@ -1152,6 +1152,122 @@ test("parent marking rejects shallow generic page shells with site landmarks", (
   });
 });
 
+test("W1/F2: parent marking rejects DEEP full-width wrappers markable only via descendants", () => {
+  // Depth-3+ content-column wrappers (div-soup SPAs) were previously exempt
+  // from the page-shell guard (`depth > 2` disabled it); the widening harden
+  // applies the footprint/landmark rejection at ANY depth when the target is
+  // not self-markable.
+  withVisibilityDom(({ documentElement, body }) => {
+    const textA = createElement({
+      tagName: "p",
+      text: "First markable block",
+      rect: { top: 40, right: 320, bottom: 100, left: 20, width: 300, height: 60 }
+    });
+    const textB = createElement({
+      tagName: "p",
+      text: "Second markable block",
+      rect: { top: 140, right: 320, bottom: 200, left: 20, width: 300, height: 60 }
+    });
+    const wideWrapper = createElement({
+      children: [textA, textB],
+      rect: { top: 0, right: 1200, bottom: 780, left: 0, width: 1200, height: 780 }
+    });
+    const level2 = createElement({
+      children: [wideWrapper],
+      rect: { top: 0, right: 1200, bottom: 800, left: 0, width: 1200, height: 800 }
+    });
+    const level1 = createElement({
+      parentElement: body,
+      children: [level2],
+      rect: { top: 0, right: 1200, bottom: 800, left: 0, width: 1200, height: 800 }
+    });
+    body.children.push(level1);
+    body.childNodes.push(level1);
+    globalThis.document.elementsFromPoint = () => [wideWrapper, level2, level1, body, documentElement];
+
+    // wideWrapper sits at depth 3 below body, spans the viewport, has no direct
+    // text and is markable only via its two <p> descendants — rejected.
+    assert.equal(
+      isMarkableElement(wideWrapper, {}, { allowParent: true, hitPoint: { x: 600, y: 400 } }),
+      false
+    );
+  });
+});
+
+test("W1/F2: deep NARROW containers with markable descendants stay widen-eligible", () => {
+  withVisibilityDom(({ body }) => {
+    const textA = createElement({
+      tagName: "p",
+      text: "Card line one",
+      rect: { top: 40, right: 300, bottom: 80, left: 40, width: 260, height: 40 }
+    });
+    const textB = createElement({
+      tagName: "p",
+      text: "Card line two",
+      rect: { top: 90, right: 300, bottom: 130, left: 40, width: 260, height: 40 }
+    });
+    const card = createElement({
+      children: [textA, textB],
+      rect: { top: 20, right: 320, bottom: 150, left: 20, width: 300, height: 130 }
+    });
+    const level2 = createElement({
+      children: [card],
+      rect: { top: 0, right: 400, bottom: 200, left: 0, width: 400, height: 200 }
+    });
+    const level1 = createElement({
+      parentElement: body,
+      children: [level2],
+      rect: { top: 0, right: 1200, bottom: 800, left: 0, width: 1200, height: 800 }
+    });
+    body.children.push(level1);
+    body.childNodes.push(level1);
+
+    // Narrow footprint (0.25/0.16 of viewport), no landmarks: still eligible.
+    assert.equal(
+      isMarkableElement(card, {}, { allowParent: true, hitPoint: { x: 100, y: 60 } }),
+      true
+    );
+  });
+});
+
+test("W1/F2: deep full-width SEMANTIC boundaries (section) keep their exemption", () => {
+  withVisibilityDom(({ body }) => {
+    const textA = createElement({
+      tagName: "p",
+      text: "Section paragraph one",
+      rect: { top: 40, right: 320, bottom: 100, left: 20, width: 300, height: 60 }
+    });
+    const textB = createElement({
+      tagName: "p",
+      text: "Section paragraph two",
+      rect: { top: 140, right: 320, bottom: 200, left: 20, width: 300, height: 60 }
+    });
+    const wideSection = createElement({
+      tagName: "section",
+      children: [textA, textB],
+      rect: { top: 0, right: 1200, bottom: 780, left: 0, width: 1200, height: 780 }
+    });
+    const level2 = createElement({
+      children: [wideSection],
+      rect: { top: 0, right: 1200, bottom: 800, left: 0, width: 1200, height: 800 }
+    });
+    const level1 = createElement({
+      parentElement: body,
+      children: [level2],
+      rect: { top: 0, right: 1200, bottom: 800, left: 0, width: 1200, height: 800 }
+    });
+    body.children.push(level1);
+    body.childNodes.push(level1);
+
+    // A semantic content boundary is a meaningful exclusion target even when
+    // wide and deep — the exemption is intentional.
+    assert.equal(
+      isMarkableElement(wideSection, {}, { allowParent: true, hitPoint: { x: 600, y: 400 } }),
+      true
+    );
+  });
+});
+
 test("exclude clicks drill into descendants inside active toggleable default boundaries", () => {
   withVisibilityDom(({ documentElement, body }) => {
     const originalConfig = state.config;
