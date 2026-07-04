@@ -105,6 +105,7 @@ interface ElementComputationCacheSnapshot {
   textualContainerCache: TextualOptionCache | null;
   textualDescendantCache: TextualOptionCache | null;
   textualImmutableDescendantCache: TextualOptionCache | null;
+  paintReachabilityCache: WeakMap<Element, boolean> | null;
 }
 
 interface TextualDetectionOptions {
@@ -704,6 +705,15 @@ export const state = {
   paintReachabilityFallbackCount: 0,
   paintReachabilityFallbackLastLoggedAt: 0,
   elementComputationCacheDepth: 0,
+  // CP7a: the per-element computation caches (visibility/text/paint/etc.) are pure
+  // functions of the current DOM + viewport, so they can be REUSED across renders
+  // instead of rebuilt every pass — a pure marking toggle changes neither. A
+  // monotonic DOM/viewport version is bumped on every signal that could change
+  // those inputs (DOM mutation, scroll, resize, motion pause/resume, marking
+  // enable/disable, config invalidation). Caches carry the version they were
+  // built at and are reused only while it matches; a mismatch forces a rebuild.
+  elementCacheDomVersion: 0,
+  elementCacheBuiltVersion: -1,
   visibilityCache: null as Map<Element, boolean> | null,
   ancestorVisStateCache: null as Map<Element, TheoreticalVisibilityState> | null,
   ancestorOverflowCache: null as Map<Element, OverflowVisibilityState> | null,
@@ -715,6 +725,7 @@ export const state = {
   textualContainerCache: null as TextualOptionCache | null,
   textualDescendantCache: null as TextualOptionCache | null,
   textualImmutableDescendantCache: null as TextualOptionCache | null,
+  paintReachabilityCache: null as WeakMap<Element, boolean> | null,
   // Memoized "does the live document contain a capturable (open, non-extension)
   // shadow root?" — null means recompute. Gates the composed-tree XPath resolver
   // so shadow-free pages (and the light-DOM evaluate test mocks) stay unchanged.
@@ -1112,7 +1123,8 @@ function captureElementComputationCaches(): ElementComputationCacheSnapshot {
     immutableAncestorCache: state.immutableAncestorCache,
     textualContainerCache: state.textualContainerCache,
     textualDescendantCache: state.textualDescendantCache,
-    textualImmutableDescendantCache: state.textualImmutableDescendantCache
+    textualImmutableDescendantCache: state.textualImmutableDescendantCache,
+    paintReachabilityCache: state.paintReachabilityCache
   };
 }
 
@@ -1128,6 +1140,7 @@ function resetElementComputationCaches(): void {
   state.textualContainerCache = createTextualOptionCache();
   state.textualDescendantCache = createTextualOptionCache();
   state.textualImmutableDescendantCache = createTextualOptionCache();
+  state.paintReachabilityCache = new WeakMap<Element, boolean>();
   state.documentShadowPresence = null;
 }
 
@@ -1143,22 +1156,40 @@ function restoreElementComputationCaches(snapshot: ElementComputationCacheSnapsh
   state.textualContainerCache = snapshot.textualContainerCache;
   state.textualDescendantCache = snapshot.textualDescendantCache;
   state.textualImmutableDescendantCache = snapshot.textualImmutableDescendantCache;
+  state.paintReachabilityCache = snapshot.paintReachabilityCache;
+}
+
+/**
+ * CP7a: bump the DOM/viewport version so the next synchronous marking pass
+ * rebuilds its per-element computation caches instead of reusing stale ones.
+ * Must be called on every signal that can change element visibility/text/paint:
+ * DOM mutation, scroll, resize, motion pause/resume, enable/disable, and
+ * collection invalidation.
+ */
+function bumpElementCacheDomVersion(): void {
+  state.elementCacheDomVersion += 1;
 }
 
 export function withElementComputationCache<T>(callback: () => T): T {
   const outermost = state.elementComputationCacheDepth === 0;
-  const previous = outermost ? captureElementComputationCaches() : null;
   if (outermost) {
-    resetElementComputationCaches();
+    // Reuse the persisted caches when the DOM/viewport is unchanged since they
+    // were built (a pure marking toggle changes neither). The synchronous render
+    // pass never yields, so the DOM is stable for the whole pass. Any DOM /
+    // viewport / layout change bumps elementCacheDomVersion, forcing a rebuild.
+    const canReuse =
+      state.elementCacheBuiltVersion === state.elementCacheDomVersion &&
+      state.visibilityCache !== null;
+    if (!canReuse) {
+      resetElementComputationCaches();
+      state.elementCacheBuiltVersion = state.elementCacheDomVersion;
+    }
   }
   state.elementComputationCacheDepth += 1;
   try {
     return callback();
   } finally {
     state.elementComputationCacheDepth -= 1;
-    if (outermost && previous) {
-      restoreElementComputationCaches(previous);
-    }
   }
 }
 
@@ -1713,6 +1744,23 @@ function isPaintReachableInCurrentViewport(el: Element | null): boolean {
   if (!el) {
     return false;
   }
+  // CP7a: paint-reachability (getClientRects + elementsFromPoint hit-tests) is
+  // the dominant per-element cost of the reconcile scan and default enumeration.
+  // It is a pure function of the current DOM + viewport, so it lives in the
+  // version-gated persisted cache (invalidated on scroll / mutation / motion),
+  // letting a marking toggle reuse it instead of re-hit-testing every element.
+  const cache = state.paintReachabilityCache;
+  if (cache && cache.has(el)) {
+    return cache.get(el)!;
+  }
+  const result = computePaintReachableInCurrentViewport(el);
+  if (cache) {
+    cache.set(el, result);
+  }
+  return result;
+}
+
+function computePaintReachableInCurrentViewport(el: Element): boolean {
   const rects = collectRectsFromClientRects(el.getClientRects());
   if (rects.length === 0) {
     return true;
@@ -6665,6 +6713,12 @@ function stopPageMotionPauseObserver(pauseState: PageMotionPauseState): void {
 }
 
 export function pausePageMotion(reason: unknown = PAGE_MOTION_PAUSE_DEFAULT_REASON): void {
+  // Entering the motion freeze normalizes opacity/transform/visibility on
+  // revealed elements — a lifecycle event (activation/phase change), not a
+  // per-toggle one — so the element caches must rebuild next pass. (The periodic
+  // re-apply via refreshPageMotionPause does NOT bump; dynamically revealed
+  // elements are caught by the MutationObserver invalidation instead.)
+  bumpElementCacheDomVersion();
   const pauseState = state.pageMotionPause || createPageMotionPauseState();
   pauseState.reasons.add(normalizePageMotionPauseReason(reason));
   // Hold the page-visit lock so the freeze survives every phase-transition resume
@@ -6745,6 +6799,7 @@ export function resumePageMotion(reason: unknown = PAGE_MOTION_PAUSE_DEFAULT_REA
 // which subsystem reasons are still held. Wired to the navigation notifier so the
 // freeze survives the whole page visit and clears only when the URL changes.
 export function resumeAllPageMotion(): void {
+  bumpElementCacheDomVersion();
   const pauseState = state.pageMotionPause;
   if (!pauseState) {
     setPageMotionFreezeTimersPaused(false);
@@ -10346,6 +10401,13 @@ function cancelQueuedToggleMutations() {
 }
 
 function invalidateCachedCollections() {
+  // NOTE: this does NOT bump the element-cache version. Collections are
+  // invalidated for many reasons that do NOT change element visibility/text/
+  // paint — notably the settle-time precautionary rebuilds and config/selector
+  // changes — and bumping here would reset the per-element caches on every
+  // settle, defeating cross-toggle reuse. The element caches are pure functions
+  // of DOM + viewport, so they are bumped only by actual DOM/viewport changes
+  // (MutationObserver rebuild, scroll, motion pause/resume).
   state.cachedCollections = null;
   state.cachedCollectionsKey = "";
 }
@@ -10803,6 +10865,11 @@ function startObservers() {
       }
       if (renderMode === "rebuild") {
         invalidateSharedSelectorCache({ domStructure: true });
+        // A real DOM structure/attribute change (class/style/id/hidden/childList)
+        // can change element visibility/text/paint, so the persisted per-element
+        // caches must rebuild next pass. (A marking toggle never reaches here —
+        // its data-uf-* attribute changes are classified "none".)
+        bumpElementCacheDomVersion();
       }
       invalidateHoverHighlightCache();
       scheduleRender({
@@ -12182,6 +12249,9 @@ export function handleScroll(event: ScrollEventLike | Event, options = {}) {
   if (!state.enabled || state.aiPopover || !state.overlay) {
     return;
   }
+  // Scrolling changes element visibility and paint-reachability, so the reused
+  // per-element caches must be rebuilt on the next pass.
+  bumpElementCacheDomVersion();
   const isViewportScroll = isViewportScrollEvent(event);
   // Nested scroll containers still need a debounced redraw so partially visible
   // marked content tracks carousels and internal panes. Only viewport scrolls

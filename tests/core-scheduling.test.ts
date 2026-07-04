@@ -805,6 +805,41 @@ test("CP7: selector matches are invariant under marking toggles (incremental-reb
   );
 });
 
+test("CP7a: per-element computation caches persist across renders, version-gated by DOM/viewport changes", () => {
+  const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
+
+  // The sync render path reuses the caches only while the DOM/viewport version
+  // it built at still matches; a mismatch forces a rebuild. (No capture/restore
+  // — the caches persist across passes.)
+  assert.match(
+    source,
+    /export function withElementComputationCache<T>[\s\S]*?state\.elementCacheBuiltVersion === state\.elementCacheDomVersion[\s\S]*?state\.visibilityCache !== null[\s\S]*?resetElementComputationCaches\(\);[\s\S]*?state\.elementCacheBuiltVersion = state\.elementCacheDomVersion;/
+  );
+  // The version bumps ONLY on real DOM/viewport/layout changes so a stale cache
+  // can never be reused: a rebuild-class DOM mutation, scroll, and motion
+  // pause/resume. The paint-reachability cache is part of the persisted set.
+  assert.match(source, /if \(renderMode === "rebuild"\) \{[\s\S]*?bumpElementCacheDomVersion\(\);/);
+  assert.match(source, /export function handleScroll\([\s\S]*?bumpElementCacheDomVersion\(\);/);
+  assert.match(source, /export function pausePageMotion\([\s\S]*?bumpElementCacheDomVersion\(\);/);
+  assert.match(source, /export function resumeAllPageMotion\(\)[\s\S]*?bumpElementCacheDomVersion\(\);/);
+  assert.match(source, /state\.paintReachabilityCache = new WeakMap<Element, boolean>\(\);/);
+  // CRITICAL: collection invalidation must NOT bump the element-cache version —
+  // the settle-time precautionary rebuilds and config/selector changes invalidate
+  // collections without changing element visibility/text/paint, so bumping there
+  // would reset the caches every settle and defeat cross-toggle reuse.
+  const invalidateBody = source.slice(
+    source.indexOf("function invalidateCachedCollections("),
+    source.indexOf("function invalidateCachedCollections(") + 600
+  );
+  assert.doesNotMatch(invalidateBody, /bumpElementCacheDomVersion\(\)/);
+  // The async chunked reconcile stays ephemeral (it yields, so persistence would
+  // be unsafe) — it keeps capturing/restoring caches per run.
+  assert.match(
+    source,
+    /async function withElementComputationCacheAsync<T>[\s\S]*?captureElementComputationCaches\(\)[\s\S]*?restoreElementComputationCaches\(previous\)/
+  );
+});
+
 test("marking enable schedules settle renders that force invalidating rebuilds", () => {
   const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
 

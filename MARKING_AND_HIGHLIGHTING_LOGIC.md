@@ -302,9 +302,16 @@ Marking mode must avoid duplicate full-page passes:
   collections, but it must not recompute the default layer or redraw every
   layer; the following full rebuild owns default, selector, AI, and ancestor
   correctness.
-- A full marking pass may cache per-element visibility, text, immutable/default
-  selector, ancestor, and textual-descendant decisions for the duration of that
-  pass. These caches are derived from the current DOM/config and are not a
+- A marking pass may cache per-element visibility, text, immutable/default
+  selector, ancestor, textual-descendant, and paint-reachability decisions.
+  These are pure functions of the current DOM + viewport, so the synchronous
+  render path REUSES them across passes (a marking toggle changes neither DOM
+  nor viewport), gated by a DOM/viewport version that is bumped only on real
+  DOM/viewport changes — a rebuild-class DOM mutation, scroll, or motion
+  pause/resume — never on collection invalidation (settle-time precautionary
+  rebuilds and config/selector changes do not affect visibility/text/paint).
+  The async chunked reconcile keeps rebuilding them per run (it yields, so
+  persistence would be unsafe). These caches are still derived state, not a
   persistent source of truth.
 - A manual explicit include/exclude operation may cache XPath-to-element
   resolution only for that operation. Expanded exclusions must prune descendant

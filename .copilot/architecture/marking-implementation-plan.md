@@ -153,6 +153,19 @@ together with target resolution + render (they must be coherent).
   than risking the core render path in an autonomous pass without live validation.
 - Contract §Marking Performance Contract updated with the target model, the
   verified prerequisite, and the accurate interim.
+- CP7a (SHIPPED, staged first): the per-element computation caches (visibility /
+  text / overflow / paint-reachability) are pure functions of DOM+viewport, so
+  the sync render path reuses them across renders — version-gated by
+  `state.elementCacheDomVersion`, bumped ONLY on real DOM/viewport changes
+  (rebuild-class mutation, scroll, motion pause/resume), NOT on
+  `invalidateCachedCollections` (settle/config invalidations don't change
+  visibility/text/paint). Paint-reachability newly cached. A pure marking toggle
+  changes neither DOM nor viewport → caches persist → the per-toggle full rebuild
+  reuses the expensive per-element work. Measured on bonliva: per-toggle
+  `render.rebuild` 195ms → 86ms (−56%), `sync` 122ms → 45ms (−63%); marked set
+  identical. Async reconcile stays ephemeral. Pinned in core-scheduling.test.ts.
+- CP7b (next): branch-scoped walk — recompute only subtree(E) ∪ ancestor-chain(E)
+  to cut the residual O(document) traversal that CP7a's caching cannot remove.
 
 ### CP8 — D1 expand-then-mark harden + MA-4 collapse verify — SHIPPED
 - MA-4 VERIFIED: `collapseElementsByNesting` uses a `keptSet` parent-walk
