@@ -672,9 +672,17 @@ test("marking mode uses Space-held page interaction without changing Alt include
     source,
     /function updateCursorMode\(\) \{[\s\S]*?mode === "passthrough"[\s\S]*?root\.classList\.add\("uf-cursor-passthrough"\);[\s\S]*?mode === "exclude"[\s\S]*?mode === "include"/
   );
+  // The commit path derives the mode from the event's real altKey (race-proof)
+  // by delegating to the single deriveMarkMode FSM authority.
   assert.match(
     source,
-    /function getMarkModeFromEvent\(\s*event(?:\s*:\s*[^)]+)?\s*\)(?:: [^{]+)? \{[\s\S]*?if \(event\.altKey\) \{[\s\S]*?return "include";[\s\S]*?return "exclude";/
+    /function getMarkModeFromEvent\(\s*event(?:\s*:\s*[^)]+)?\s*\)(?:: [^{]+)? \{[\s\S]*?deriveMarkMode\(\{[\s\S]*?altActive: Boolean\(event\.altKey\)/
+  );
+  // The FSM authority encodes the fixed precedence disabled > passthrough >
+  // include > exclude.
+  assert.match(
+    source,
+    /export function deriveMarkMode\(inputs(?:\s*:\s*[^)]+)?\)(?:: [^{]+)? \{[\s\S]*?return "disabled";[\s\S]*?inputs\.passThrough[\s\S]*?return "passthrough";[\s\S]*?inputs\.altActive[\s\S]*?return "include";[\s\S]*?return "exclude";/
   );
   assert.match(
     source,
@@ -745,7 +753,9 @@ test("marking mode surfaces temporary disabled state while save sync blocks edit
     /function getMarkingTemporarilyDisabledReason\(\) \{[\s\S]*?return getMarkingEditsBlockedReasonByDirective\(\);[\s\S]*?\}/
   );
   assert.match(source, /function updateMarkingTemporarilyDisabledUi\(\) \{[\s\S]*?classList\.toggle\(MARKING_DISABLED_OVERLAY_CLASS, disabled\)[\s\S]*?setAttribute\("aria-disabled", "true"\)[\s\S]*?clearHoverHighlight\(\)[\s\S]*?getMarkingTemporarilyDisabledMessage\(reason\)/);
-  assert.match(source, /function getMarkMode\(\s*\)(?:: [^{]+)? \{[\s\S]*?isMarkingTemporarilyDisabled\(\)[\s\S]*?return "disabled";[\s\S]*?state\.altPassThrough/);
+  // getMarkMode sources the busy-lock and passthrough latch into the FSM
+  // authority; the temporarilyDisabled input maps to the disabled mode.
+  assert.match(source, /function getMarkMode\(\s*\)(?:: [^{]+)? \{[\s\S]*?deriveMarkMode\(\{[\s\S]*?temporarilyDisabled: isMarkingTemporarilyDisabled\(\)[\s\S]*?passThrough: state\.altPassThrough/);
   assert.match(source, /export async function setPageSaveReconciliationPending[\s\S]*?state\.pageSaveReconciliation = reconciliation;[\s\S]*?updateMarkingTemporarilyDisabledUi\(\);[\s\S]*?notifyDraftStatus\(pageUrl\);/);
   assert.match(source, /export async function clearPageSaveReconciliation[\s\S]*?state\.pageSaveReconciliation = null;[\s\S]*?updateMarkingTemporarilyDisabledUi\(\);[\s\S]*?notifyDraftStatus\(pageUrl\);/);
   assert.match(textSource, /temporarilyDisabledSaving: "Saving page\.\.\. marking paused"/);
@@ -768,6 +778,128 @@ test("marking render cache keys include selector and entry fingerprints before r
   assert.match(source, /if \(cached && state\.cachedCollectionsKey === nextCollectionsCacheKey\)/);
   assert.match(source, /state\.cachedCollectionsKey = buildMarkingCollectionsCacheKey\(\{/);
   assert.match(source, /function invalidateCachedCollections\(\) \{[\s\S]*?state\.cachedCollectionsKey = "";/);
+});
+
+test("CP7: selector matches are invariant under marking toggles (incremental-rebuild prerequisite)", () => {
+  const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
+
+  // The MA-3 branch-scoped incremental rebuild is only sound if a marking toggle
+  // cannot change which elements the AI selectors match — so the selector /
+  // AI / immutable layers can stay cached across a mark. Structurally: the cache
+  // key derives its selector fingerprint from the config-owned selector set
+  // (getNewestConfigSelectorSet), NOT from the page-marking entry; a toggle only
+  // mutates the entry (xpaths / includeXpaths), which feeds the SEPARATE entry
+  // fingerprint. Pin that separation so the invariant cannot silently regress.
+  assert.match(
+    source,
+    /const entryFingerprint = getEntryFingerprint\(entry\);[\s\S]*?getSelectorSetFingerprint\(selectorSet\),[\s\S]*?\.\.\.entryFingerprint/
+  );
+  assert.match(
+    source,
+    /const selectorSet = config\.getNewestConfigSelectorSet\(configValue\)\.selectorSet;/
+  );
+  // getEntryFingerprint reads the marking entry's rows only (never the selector set).
+  assert.match(
+    source,
+    /function getEntryFingerprint\(entry(?:\s*:\s*[^)]+)?\)(?:: [^{]+)? \{[\s\S]*?entry\.xpaths[\s\S]*?entry\.includeXpaths/
+  );
+});
+
+test("CP7a: per-element computation caches persist across renders, version-gated by DOM/viewport changes", () => {
+  const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
+
+  // The sync render path reuses the caches only while the DOM/viewport version
+  // it built at still matches; a mismatch forces a rebuild. (No capture/restore
+  // — the caches persist across passes.)
+  assert.match(
+    source,
+    /export function withElementComputationCache<T>[\s\S]*?state\.elementCacheBuiltVersion === state\.elementCacheDomVersion[\s\S]*?state\.visibilityCache !== null[\s\S]*?resetElementComputationCaches\(\);[\s\S]*?state\.elementCacheBuiltVersion = state\.elementCacheDomVersion;/
+  );
+  // The version bumps ONLY on real DOM/viewport/layout changes so a stale cache
+  // can never be reused: a rebuild-class DOM mutation, scroll, and motion
+  // pause/resume. The paint-reachability cache is part of the persisted set.
+  assert.match(source, /if \(renderMode === "rebuild"\) \{[\s\S]*?bumpElementCacheDomVersion\(\);/);
+  assert.match(source, /export function handleScroll\([\s\S]*?bumpElementCacheDomVersion\(\);/);
+  assert.match(source, /export function pausePageMotion\([\s\S]*?bumpElementCacheDomVersion\(\);/);
+  assert.match(source, /export function resumeAllPageMotion\(\)[\s\S]*?bumpElementCacheDomVersion\(\);/);
+  assert.match(source, /state\.paintReachabilityCache = new WeakMap<Element, boolean>\(\);/);
+  // CRITICAL: collection invalidation must NOT bump the element-cache version —
+  // the settle-time precautionary rebuilds and config/selector changes invalidate
+  // collections without changing element visibility/text/paint, so bumping there
+  // would reset the caches every settle and defeat cross-toggle reuse.
+  const invalidateBody = source.slice(
+    source.indexOf("function invalidateCachedCollections("),
+    source.indexOf("function invalidateCachedCollections(") + 600
+  );
+  assert.doesNotMatch(invalidateBody, /bumpElementCacheDomVersion\(\)/);
+  // The async chunked reconcile stays ephemeral (it yields, so persistence would
+  // be unsafe) — it keeps capturing/restoring caches per run.
+  assert.match(
+    source,
+    /async function withElementComputationCacheAsync<T>[\s\S]*?captureElementComputationCaches\(\)[\s\S]*?restoreElementComputationCaches\(previous\)/
+  );
+});
+
+test("CP7b: branch-scoped rebuild is single-toggle gated, guarded, and backstopped", () => {
+  const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
+
+  // Exactly ONE toggle since the last rebuild qualifies; more (or zero) => full.
+  assert.match(
+    source,
+    /function recordScopedRebuildCandidate\([\s\S]*?state\.scopedRebuildToggleCount \+= 1;[\s\S]*?state\.scopedRebuildToggleCount === 1/
+  );
+  assert.match(
+    source,
+    /function consumeScopedRebuildCandidate\(\)[\s\S]*?state\.scopedRebuildToggleCount === 1 \? state\.scopedRebuildTarget : null/
+  );
+  // The toggle completion records the candidate.
+  assert.match(
+    source,
+    /function completeExplicitToggle\([\s\S]*?recordScopedRebuildCandidate\(target\);/
+  );
+  // Eligibility: only the entry fingerprint may differ (pageUrl + selector
+  // fingerprint segments must match), a pending fresh baseline or missing
+  // explicit markings falls back to full.
+  assert.match(
+    source,
+    /function resolveScopedRenderContext\([\s\S]*?state\.pendingFreshBaselinePageUrl === pageUrl[\s\S]*?hasExplicitUserMarkings\(latestEntry\)[\s\S]*?cachedParts\[0\] !== nextParts\[0\] \|\| cachedParts\[1\] !== nextParts\[1\]/
+  );
+  // The affected root is the outermost flip-capable ancestor (toggleable-default
+  // or structured-group), else the target; unbounded roots are ineligible.
+  assert.match(
+    source,
+    /function isScopedFlipCapableAncestor\(node(?:\s*:\s*[^)]+)?\)(?:: [^{]+)? \{\s*return matchesToggleableDefaultExcluded\(node\) \|\| isStructuredGroupExclusionCandidate\(node\);/
+  );
+  // The scoped path skips the sync scan and splices the cached outside-subtree
+  // defaults with a fresh seeded walk of the affected subtree.
+  assert.match(
+    source,
+    /const defaultTargets = \(useScopedRebuild && scopedContext && preRebuildCachedCollections\s*\?\s*spliceScopedDefaultTargets\(/
+  );
+  assert.match(
+    source,
+    /function spliceScopedDefaultTargets\([\s\S]*?el\.isConnected === true && !isWithinComposedSubtree\(affectedRoot, el\)[\s\S]*?scopeRootSeedFromAncestors: true/
+  );
+  // Debug parity audit keeps the FULL rebuild authoritative and compares the
+  // scoped shadow; it is debug-build gated.
+  assert.match(
+    source,
+    /function isCp7bParityAuditEnabled\(\)[\s\S]*?if \(!isDebugBuild\(\)\) \{\s*return false;/
+  );
+  assert.match(
+    source,
+    /const useScopedRebuild = Boolean\(scopedContext\) && !parityAuditEnabled;/
+  );
+  // Backstop: an authoritative scoped rebuild schedules one coalesced trailing
+  // FULL reconcile.
+  assert.match(
+    source,
+    /if \(useScopedRebuild\) \{[\s\S]*?logTogglePerf\("render\.scoped-rebuild"[\s\S]*?scheduleScopedRebuildTrailingReconcile\(\);/
+  );
+  assert.match(
+    source,
+    /function scheduleScopedRebuildTrailingReconcile\(\)[\s\S]*?scheduleRender\(\{ invalidate: true, reason: "cp7b-trailing-reconcile" \}\);/
+  );
 });
 
 test("marking enable schedules settle renders that force invalidating rebuilds", () => {

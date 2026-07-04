@@ -35,6 +35,9 @@ type ExplicitMarkingDeps = {
   scheduleRender: () => void;
   scheduleSnapshotSave: () => void;
   touchPageEntryTimestamp: (entry: ExplicitMarkingEntry) => void;
+  // CP7b: report the toggled element so the next rebuild can take the
+  // branch-scoped path (message toggles are single-element marks too).
+  recordScopedRebuildCandidate?: (target: Element | null) => void;
 };
 
 type ExplicitExcludeOptions = {
@@ -242,6 +245,7 @@ export function createExplicitMarkingHandler(deps: ExplicitMarkingDeps) {
     }
     entry.includeXpaths = includeXpaths;
     entry.xpaths = items;
+    deps.recordScopedRebuildCandidate?.(target);
     return finishUpdate(targetBaseUrl || "", pageUrl, config, entry);
   }
 
@@ -305,6 +309,7 @@ export function createExplicitMarkingHandler(deps: ExplicitMarkingDeps) {
       addSelectorSuppressedXpath(deps, entry, effectiveXpath);
     }
     entry.includeXpaths = includeXpaths;
+    deps.recordScopedRebuildCandidate?.(getElement(effectiveXpath));
     return finishUpdate(targetBaseUrl || "", pageUrl, config, entry);
   }
 

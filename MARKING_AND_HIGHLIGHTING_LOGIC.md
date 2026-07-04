@@ -156,7 +156,14 @@ primary source of spinner truth.
 
 Immutable defaults are always excluded and cannot be overridden from marking
 mode. They include `IMG`, `INPUT`, `NOSCRIPT`, `SELECT`, `TITLE`, `STYLE`,
-`SCRIPT`, `TEMPLATE`, `IFRAME`, and `VIDEO`.
+`SCRIPT`, `TEMPLATE`, `IFRAME`, `VIDEO`, and `SVG`.
+
+`SVG` is immutable because an `<svg>` is a self-contained graphic (icon,
+illustration, chart) whose internal `<text>`/`<title>` is not page copy Google
+indexes as prose. Tag matching for the taxonomy is case-insensitive on both
+sides: foreign-namespace elements such as `<svg>` report a lowercase `tagName`
+(`"svg"`), unlike uppercased HTML tags, so the `SVG` selector is compared with
+`.toUpperCase()` on the element side to match the `<svg>` root reliably.
 
 An element inside an immutable default subtree is not markable. Immutable nodes
 render as hard exclusions in marking mode and on the dedicated immutable layer
@@ -295,9 +302,16 @@ Marking mode must avoid duplicate full-page passes:
   collections, but it must not recompute the default layer or redraw every
   layer; the following full rebuild owns default, selector, AI, and ancestor
   correctness.
-- A full marking pass may cache per-element visibility, text, immutable/default
-  selector, ancestor, and textual-descendant decisions for the duration of that
-  pass. These caches are derived from the current DOM/config and are not a
+- A marking pass may cache per-element visibility, text, immutable/default
+  selector, ancestor, textual-descendant, and paint-reachability decisions.
+  These are pure functions of the current DOM + viewport, so the synchronous
+  render path REUSES them across passes (a marking toggle changes neither DOM
+  nor viewport), gated by a DOM/viewport version that is bumped only on real
+  DOM/viewport changes — a rebuild-class DOM mutation, scroll, or motion
+  pause/resume — never on collection invalidation (settle-time precautionary
+  rebuilds and config/selector changes do not affect visibility/text/paint).
+  The async chunked reconcile keeps rebuilding them per run (it yields, so
+  persistence would be unsafe). These caches are still derived state, not a
   persistent source of truth.
 - A manual explicit include/exclude operation may cache XPath-to-element
   resolution only for that operation. Expanded exclusions must prune descendant
@@ -311,6 +325,47 @@ Marking mode must avoid duplicate full-page passes:
 - Scroll and pointer repaint paths reuse the current collections and reposition
   boxes; they must not trigger a full default-layer collection unless the DOM,
   config, or explicit marking state changed.
+
+### Rebuild model: target and interim (MA-3)
+
+A mark's blast radius is branch-local: an element's fate depends only on its own
+ancestry, never a sibling's mark. The **target** model is therefore a
+branch-scoped incremental rebuild — on a mark of element E, recompute only the
+affected surface (`subtree(E) ∪ ancestor-chain(E)` to the nearest marked or
+structural ancestor), splice it into the cached collections, and keep the
+selector-influence, AI-content, and immutable layers cached untouched. Because
+the incremental result is provably identical to a full rebuild, it must be
+guarded by an `incremental == full-rebuild` equivalence check over a corpus plus
+a settle-time full reconcile as a safety net.
+
+**Verified prerequisite:** a marking toggle never changes which elements the AI
+selectors match. The marking cache key derives its selector fingerprint from the
+config-owned selector set (`getNewestConfigSelectorSet`), while a toggle mutates
+only the page-marking entry (`xpaths` / `includeXpaths`), which feeds the
+separate entry fingerprint. So the selector / AI / immutable layers are safe to
+freeze across a mark.
+
+**Shipped (branch-scoped rebuild):** a single explicit toggle takes the
+branch-scoped path. The affected surface is rooted at the OUTERMOST
+flip-capable ancestor of the toggled element — a toggleable-default boundary or
+structured-group candidate, the only ancestors whose candidacy can flip on an
+explicitly-marked-descendant change — else the element itself; everything
+outside that subtree is provably unchanged and reused from the pre-toggle
+collections (stashed at invalidation, DOM/viewport-version-tagged). The scoped
+render skips the (redundant) sync scan and re-walks only the affected subtree
+with the root frame seeded from its real ancestor state.
+
+Guards, all falling back to the full rebuild: more than one pending toggle; any
+page/selector-fingerprint change; any entry-row difference between the stash and
+the next key that does not resolve INSIDE the affected subtree (this catches
+generated-row churn discovered by a sync elsewhere on the page); a pending
+fresh-baseline adoption; a stale (version-mismatched) stash; an unbounded
+affected root. After every authoritative scoped rebuild one coalesced trailing
+FULL reconcile runs (~1.5s after the toggles settle) as the self-healing
+correctness backstop, and settle/invalidating renders remain full. Debug builds
+expose a live `incremental == full` parity audit
+(`localStorage["unfluffify:cp7b-parity"]="1"`) that keeps the full rebuild
+authoritative and logs any scoped divergence.
 
 ## Motion Stability Contract
 
@@ -389,6 +444,44 @@ without injecting the global `.mdi` stylesheet into the target page.
 When the last lifecycle source releases the pause, Unfluffify restores the
 synthetic hover state, inline locks, media playback that it paused, SVG clocks,
 and Web Animations that it paused.
+
+## Marking Interaction FSM
+
+The marking interaction is a finite state machine whose mode is a pure function
+of a small set of inputs. There is a single derivation authority,
+`deriveMarkMode(inputs)` in `src/content/core.ts`; `getMarkMode()` sources the
+inputs from live state and `getMarkModeFromEvent(event)` sources `altActive`
+from the committing event's `altKey` (race-proof at click time).
+
+**Modes (states):**
+
+- `disabled` — marking is off (`enabled` false or no overlay) or busy-locked
+  (temporarily disabled: run in flight, save/sync reconciliation pending). No
+  target resolution or commits.
+- `passthrough` — the Space page-interaction latch is held; clicks pass to the
+  page (open accordions/tabs) and the overlay yields.
+- `include` — Alt is active; clicks reach into excluded/hidden content to rescue
+  it as an explicit include (closed boundary).
+- `exclude` — the default active mode; clicks exclude the nearest self-markable
+  target.
+
+**Mode inputs and precedence.** The mode is derived by fixed precedence:
+
+1. `disabled` if not `enabled`, no overlay, or `temporarilyDisabled`;
+2. else `passthrough` if the Space latch is held;
+3. else `include` if Alt is active;
+4. else `exclude`.
+
+So `disabled > passthrough > include > exclude`. `Shift` is **not** a mode: it is
+an orthogonal breadth modifier resolved separately (`shouldAllowParentMarking`),
+active only outside include mode.
+
+**Events (transitions):** enable/disable (popup) and busy/unbusy (brain
+directive) move in and out of `disabled`; Space keydown/keyup toggles the
+passthrough latch; Alt keydown/keyup drives `altActive`; a click commits the
+current mode's action; window blur, tab visibility change, and navigation reset
+the held-modifier latch (releasing Alt/Shift/Space). The machine holds no mode
+state of its own beyond these latches — every event re-derives the mode.
 
 ## Target Resolution
 
@@ -494,6 +587,25 @@ textual descendant qualify, boundaries with nested toggleable defaults qualify,
 and boundaries with visible immutable descendants are suppressed unless the
 other structural cases apply.
 
+### Visibility and CSS Clamps
+
+Genuine hiding — `display:none`, `visibility:hidden`/`collapse`, `opacity:0`,
+`hidden`, sr-only/`clip`-rect off-canvas, or a zero-area box — is not visible and
+is not markable or submitted (interaction-gated panels such as collapsed
+accordions and inactive tab panels fall here until the user expands them via the
+page-interaction mode).
+
+A **CSS text clamp is not hiding.** When an element's text is fully present in
+the DOM but visually truncated downward by a vertical clamp — `overflow-y`
+`hidden`/`clip` on a box whose content is taller than its visible height
+(a fixed `height`/`max-height` cap or `-webkit-line-clamp`) that still shows a
+non-empty preview — the clipped tail is treated as visible and included, because
+it is exactly the copy Google indexes (e.g. a read-more paragraph clamped to a
+preview height). This sparing applies only to downward text truncation with a
+visible preview: content displaced horizontally (carousels, off-canvas) or
+upward is still clipped-away and excluded, and a fully collapsed zero-height box
+shows no preview and stays excluded.
+
 ## Explicit Exclude Rules
 
 When an element is explicitly excluded:
@@ -556,6 +668,47 @@ unsaved current-page changes, the run may refresh that page's stored snapshot
 immediately before building the request, but every other page in the corpus
 must still come from existing stored local data.
 
+## Shadow DOM
+
+Shadow DOM content is handled exactly as Googlebot handles it: **flattened into
+real DOM**. If something Google cares about happens inside a shadow tree, the
+extension must handle it too.
+
+The sanitized page snapshot (`createSanitizedPageSnapshot`) clones the light DOM
+and then inlines every open shadow root into the clone as real elements at the
+front of the host (composed-tree order), recursing through nested shadow roots.
+There is no `<template shadowrootmode>` wrapper in the captured HTML — the shadow
+tree appears as ordinary inline elements, matching the deep-capture the consumer
+performs. Because inlining happens before the strip / class / `data-uf-*`
+sanitizing passes, those passes also clean the inlined shadow nodes.
+
+- **Open** shadow roots are captured. **Closed** shadow roots are inaccessible
+  (the browser exposes no `shadowRoot`) and are silently skipped.
+- The extension's own shadow root (WXT content-UI host, `data-wxt-shadow-root` /
+  `data-uf-extension-ui`) is never captured — it is extension chrome, not page
+  content.
+- Positional XPath is continuous through former shadow boundaries and aligned to
+  the flattened capture. `getXPath` / `getSnapshotXPath` walk the composed tree:
+  they cross from a top-level shadow child up to its host, and — because shadow
+  children are inlined at the front of the host — a light child of a shadow host
+  is index-shifted past the host's preceding same-tag shadow children. So a
+  shadow element is addressed like any other element in the flattened view and
+  submission XPaths align with the captured HTML. `getElementFromXPath` resolves
+  such flattened paths through the composed tree (shadow children first) when the
+  document has a capturable shadow root; shadow-free pages resolve via the native
+  light-DOM path unchanged.
+- The live engine treats shadow content as real DOM: the default-content
+  enumeration and the reconcile scan descend into capturable shadow roots
+  (composed order, shadow first), so shadow text is enumerated as implicit
+  content and shadow noise is default-classified by the taxonomy (a shadow
+  read-more `<button>` is auto-excluded, the shadow `<p>` auto-included).
+  Hit-testing is composed-aware: a hit reported on a shadow host still counts as
+  a hit on the shadow content it paints (paint-reachability), and target
+  resolution / hover pierce open shadow roots so inner shadow nodes are
+  click-markable. Overlays position over composed geometry via each element's
+  real client rects. All shadow descent is gated on the presence of a capturable
+  shadow root, so shadow-free pages behave exactly as before.
+
 ## AI Submission Rows
 
 `submissionXpaths` is the shallow boundary list sent for CSS selector
@@ -587,7 +740,9 @@ Rules:
 - visually invisible textual markable content submits as excluded rows using the
   mobile simulation geometry at save time; below-fold content is still considered
   visible because the submission viewport is treated as page-height, while
-  content outside the mobile viewport width or document height is invisible,
+  content outside the mobile viewport width or document height is invisible;
+  text merely clipped by a vertical CSS clamp (see Visibility and CSS Clamps) is
+  not invisible-textual — it submits as included,
 - opening Unfluffify enables mobile simulation by default for each fresh tab
   session, including when an already-open side panel moves to a new tab; a
   user-disabled simulation state is preserved for that session while marking is

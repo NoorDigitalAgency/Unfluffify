@@ -8,6 +8,7 @@ import {
   EXTENSION_UI_FONT_STACK
 } from "../common/constants";
 import { ContentText } from "../common/text";
+import { isDebugBuild } from "../common/feature-flags";
 import { REMOVABLE_ELEMENT_SELECTORS } from "./constants";
 import {
   normalizeAiSelectorSet,
@@ -105,6 +106,7 @@ interface ElementComputationCacheSnapshot {
   textualContainerCache: TextualOptionCache | null;
   textualDescendantCache: TextualOptionCache | null;
   textualImmutableDescendantCache: TextualOptionCache | null;
+  paintReachabilityCache: WeakMap<Element, boolean> | null;
 }
 
 interface TextualDetectionOptions {
@@ -212,6 +214,11 @@ interface DefaultHighlightOptions {
   hardExcludedSet?: Set<Element>;
   hasHigherPrecedence?: (element: Element) => boolean;
   excludedAncestorSet?: Set<Element>;
+  // CP7b: when walking a scoped subtree (root !== body), seed the root frame's
+  // ancestor-exclusion flags from the scope root's real ancestor state so the
+  // scoped walk matches what the full walk would have propagated down to it.
+  rootAncestorExcluded?: boolean;
+  rootAncestorHardExcluded?: boolean;
 }
 
 interface CollapseElementsOptions {
@@ -410,6 +417,7 @@ interface DefaultHighlightFrame {
   index: number;
   ancestorHardExcluded: boolean;
   ancestorExcluded: boolean;
+  children?: ArrayLike<Element>;
 }
 
 interface DefaultLayerOptions {
@@ -423,6 +431,10 @@ interface DefaultLayerOptions {
   selectorExcludedSet?: ElementCollection;
   hiddenStoredExplicitExclude?: ElementCollection;
   unexcludedToggleableDefault?: ElementCollection;
+  // CP7b: when true and `root` is a scoped subtree root (not body), derive the
+  // root frame's ancestor-exclusion seeds from the root's REAL ancestors so the
+  // scoped walk classifies exactly as the full walk would have at that node.
+  scopeRootSeedFromAncestors?: boolean;
 }
 
 interface InclusionDetectionOptions extends TextualDetectionOptions {
@@ -699,10 +711,33 @@ export const state = {
   layerBoxes: new WeakMap<HTMLElement, Map<string, HTMLDivElement>>(),
   cachedCollections: null as MarkingCollections | null,
   cachedCollectionsKey: "",
+  // CP7b: the single explicit-toggle target since the last rebuild. Exactly one
+  // toggle => eligible for the branch-scoped rebuild; more (or zero) => full.
+  scopedRebuildTarget: null as Element | null,
+  scopedRebuildToggleCount: 0,
+  scopedRebuildTrailingTimer: 0,
+  // CP7b: toggle renders schedule with invalidate:true, which nulls the cached
+  // collections BEFORE the rebuild runs — so the pre-toggle collections are
+  // stashed here (only while exactly one toggle is pending) as the scoped
+  // splice base, tagged with the DOM/viewport version for staleness rejection.
+  scopedSpliceBase: null as {
+    collections: MarkingCollections;
+    key: string;
+    domVersion: number;
+  } | null,
   markingSettleTimers: [] as number[],
   paintReachabilityFallbackCount: 0,
   paintReachabilityFallbackLastLoggedAt: 0,
   elementComputationCacheDepth: 0,
+  // CP7a: the per-element computation caches (visibility/text/paint/etc.) are pure
+  // functions of the current DOM + viewport, so they can be REUSED across renders
+  // instead of rebuilt every pass — a pure marking toggle changes neither. A
+  // monotonic DOM/viewport version is bumped on every signal that could change
+  // those inputs (DOM mutation, scroll, resize, motion pause/resume, marking
+  // enable/disable, config invalidation). Caches carry the version they were
+  // built at and are reused only while it matches; a mismatch forces a rebuild.
+  elementCacheDomVersion: 0,
+  elementCacheBuiltVersion: -1,
   visibilityCache: null as Map<Element, boolean> | null,
   ancestorVisStateCache: null as Map<Element, TheoreticalVisibilityState> | null,
   ancestorOverflowCache: null as Map<Element, OverflowVisibilityState> | null,
@@ -714,6 +749,11 @@ export const state = {
   textualContainerCache: null as TextualOptionCache | null,
   textualDescendantCache: null as TextualOptionCache | null,
   textualImmutableDescendantCache: null as TextualOptionCache | null,
+  paintReachabilityCache: null as WeakMap<Element, boolean> | null,
+  // Memoized "does the live document contain a capturable (open, non-extension)
+  // shadow root?" — null means recompute. Gates the composed-tree XPath resolver
+  // so shadow-free pages (and the light-DOM evaluate test mocks) stay unchanged.
+  documentShadowPresence: null as boolean | null,
   hoverRaf: 0,
   currentPageUrl: "",
   currentPageEntry: null as PageMarkingEntry | null,
@@ -1107,7 +1147,8 @@ function captureElementComputationCaches(): ElementComputationCacheSnapshot {
     immutableAncestorCache: state.immutableAncestorCache,
     textualContainerCache: state.textualContainerCache,
     textualDescendantCache: state.textualDescendantCache,
-    textualImmutableDescendantCache: state.textualImmutableDescendantCache
+    textualImmutableDescendantCache: state.textualImmutableDescendantCache,
+    paintReachabilityCache: state.paintReachabilityCache
   };
 }
 
@@ -1123,6 +1164,8 @@ function resetElementComputationCaches(): void {
   state.textualContainerCache = createTextualOptionCache();
   state.textualDescendantCache = createTextualOptionCache();
   state.textualImmutableDescendantCache = createTextualOptionCache();
+  state.paintReachabilityCache = new WeakMap<Element, boolean>();
+  state.documentShadowPresence = null;
 }
 
 function restoreElementComputationCaches(snapshot: ElementComputationCacheSnapshot): void {
@@ -1137,22 +1180,40 @@ function restoreElementComputationCaches(snapshot: ElementComputationCacheSnapsh
   state.textualContainerCache = snapshot.textualContainerCache;
   state.textualDescendantCache = snapshot.textualDescendantCache;
   state.textualImmutableDescendantCache = snapshot.textualImmutableDescendantCache;
+  state.paintReachabilityCache = snapshot.paintReachabilityCache;
+}
+
+/**
+ * CP7a: bump the DOM/viewport version so the next synchronous marking pass
+ * rebuilds its per-element computation caches instead of reusing stale ones.
+ * Must be called on every signal that can change element visibility/text/paint:
+ * DOM mutation, scroll, resize, motion pause/resume, enable/disable, and
+ * collection invalidation.
+ */
+function bumpElementCacheDomVersion(): void {
+  state.elementCacheDomVersion += 1;
 }
 
 export function withElementComputationCache<T>(callback: () => T): T {
   const outermost = state.elementComputationCacheDepth === 0;
-  const previous = outermost ? captureElementComputationCaches() : null;
   if (outermost) {
-    resetElementComputationCaches();
+    // Reuse the persisted caches when the DOM/viewport is unchanged since they
+    // were built (a pure marking toggle changes neither). The synchronous render
+    // pass never yields, so the DOM is stable for the whole pass. Any DOM /
+    // viewport / layout change bumps elementCacheDomVersion, forcing a rebuild.
+    const canReuse =
+      state.elementCacheBuiltVersion === state.elementCacheDomVersion &&
+      state.visibilityCache !== null;
+    if (!canReuse) {
+      resetElementComputationCaches();
+      state.elementCacheBuiltVersion = state.elementCacheDomVersion;
+    }
   }
   state.elementComputationCacheDepth += 1;
   try {
     return callback();
   } finally {
     state.elementComputationCacheDepth -= 1;
-    if (outermost && previous) {
-      restoreElementComputationCaches(previous);
-    }
   }
 }
 
@@ -1274,6 +1335,16 @@ function resolveMarkingSelectorContext(configValue: Config | null, entry: PageMa
   };
 }
 
+function hasNonWhitespaceText(el: Element | null): boolean {
+  return Boolean(el && typeof el.textContent === "string" && el.textContent.trim().length > 0);
+}
+
+function contentOverflowsVertically(el: Element): boolean {
+  const scrollHeight = Number((el as HTMLElement).scrollHeight) || 0;
+  const clientHeight = Number((el as HTMLElement).clientHeight) || 0;
+  return scrollHeight > clientHeight + 1;
+}
+
 function isClippedByOverflow(el: Element | null): boolean {
   if (!el) {
     return false;
@@ -1311,14 +1382,39 @@ function isClippedByOverflow(el: Element | null): boolean {
         overflowY === "clip"
     ) {
       const parentRect = parent.getBoundingClientRect();
+      const entirelyAbove = rect.bottom <= parentRect.top;
+      const entirelyBelow = rect.top >= parentRect.bottom;
+      const entirelyLeft = rect.right <= parentRect.left;
+      const entirelyRight = rect.left >= parentRect.right;
       // Check if element is completely outside parent's visible area
-      if (
-          rect.bottom <= parentRect.top ||
-          rect.top >= parentRect.bottom ||
-          rect.right <= parentRect.left ||
-          rect.left >= parentRect.right
-      ) {
-        return true;
+      if (entirelyAbove || entirelyBelow || entirelyLeft || entirelyRight) {
+        // MA-1b (CSS-clamped-but-present text): when the element is truncated
+        // straight down by a vertical text clamp — overflow-y hidden/clip on a
+        // box whose content is taller than its visible height (an explicit
+        // `height`/`max-height` cap or `-webkit-line-clamp`) that still shows a
+        // non-empty preview — the clipped tail is copy that is fully present in
+        // the DOM and that Google indexes. Treat it as visible (do NOT report
+        // it clipped), but keep walking up so a genuine clip-away by a higher
+        // ancestor still wins. Horizontal displacement (carousels, off-canvas)
+        // and upward clipping are never spared; a fully collapsed zero-height
+        // box is excluded earlier by the zero-area visibility guard.
+        const clipsVertically =
+          overflow === "hidden" || overflow === "clip" ||
+          overflowY === "hidden" || overflowY === "clip";
+        const horizontallyOverlaps =
+          rect.left < parentRect.right && rect.right > parentRect.left;
+        const spareAsVerticalTextClamp =
+          entirelyBelow &&
+          !entirelyLeft &&
+          !entirelyRight &&
+          horizontallyOverlaps &&
+          clipsVertically &&
+          parentRect.height > 1 &&
+          hasNonWhitespaceText(el) &&
+          contentOverflowsVertically(parent);
+        if (!spareAsVerticalTextClamp) {
+          return true;
+        }
       }
     }
     parent = parent.parentElement;
@@ -1532,6 +1628,33 @@ function isTheoreticallyInvisibleNode(node: Element | null, style: CSSStyleDecla
   return isVisuallyHiddenByStyle(style);
 }
 
+/**
+ * CP6 / MA-1: whether `descendant` is a composed descendant of `ancestor` by a
+ * path that crosses at least one shadow boundary — and is NOT a plain light-DOM
+ * descendant. Used so a hit reported on a shadow host (elementsFromPoint may not
+ * pierce open shadow) still counts as a hit on the shadow content it paints.
+ * Returns false for pure light-DOM relationships, so light-DOM pages are
+ * unaffected.
+ */
+function composedContainsAcrossShadow(ancestor: Element, descendant: Element): boolean {
+  if (typeof ancestor.contains === "function" && ancestor.contains(descendant)) {
+    return false;
+  }
+  let current: Element | null = getFlattenedParentElement(descendant);
+  let guard = 0;
+  while (current && guard < 2000) {
+    if (current === ancestor) {
+      return true;
+    }
+    if (typeof ancestor.contains === "function" && ancestor.contains(current)) {
+      return true;
+    }
+    current = getFlattenedParentElement(current);
+    guard += 1;
+  }
+  return false;
+}
+
 function isElementInHitPath(target: Element | null, element: Element | null): boolean {
   if (!target || !element) {
     return false;
@@ -1540,6 +1663,11 @@ function isElementInHitPath(target: Element | null, element: Element | null): bo
     return true;
   }
   if (typeof element.contains === "function" && element.contains(target)) {
+    return true;
+  }
+  // `element` lives inside a shadow tree and `target` (the reported hit) is the
+  // shadow host, or a light ancestor of it — the shadow content paints inside.
+  if (composedContainsAcrossShadow(target, element)) {
     return true;
   }
   return false;
@@ -1640,6 +1768,23 @@ function isPaintReachableInCurrentViewport(el: Element | null): boolean {
   if (!el) {
     return false;
   }
+  // CP7a: paint-reachability (getClientRects + elementsFromPoint hit-tests) is
+  // the dominant per-element cost of the reconcile scan and default enumeration.
+  // It is a pure function of the current DOM + viewport, so it lives in the
+  // version-gated persisted cache (invalidated on scroll / mutation / motion),
+  // letting a marking toggle reuse it instead of re-hit-testing every element.
+  const cache = state.paintReachabilityCache;
+  if (cache && cache.has(el)) {
+    return cache.get(el)!;
+  }
+  const result = computePaintReachableInCurrentViewport(el);
+  if (cache) {
+    cache.set(el, result);
+  }
+  return result;
+}
+
+function computePaintReachableInCurrentViewport(el: Element): boolean {
   const rects = collectRectsFromClientRects(el.getClientRects());
   if (rects.length === 0) {
     return true;
@@ -1845,7 +1990,9 @@ function matchesToggleableDefaultExcluded(el: Element | null): boolean {
   for (const selector of DEFAULT_EXCLUDED_TOGGLEABLE_SELECTORS) {
     try {
       if (isTagSelector(selector)) {
-        if (el.tagName === selector.toUpperCase()) {
+        // Case-insensitive on both sides (see matchesImmutableExcluded): keeps
+        // tag matching correct for any foreign-namespace toggleable tag.
+        if (el.tagName.toUpperCase() === selector.toUpperCase()) {
           result = true;
           break;
         }
@@ -1868,6 +2015,7 @@ function hasNestedToggleableDefaultExcludedDescendant(el: Element | null): boole
     return false;
   }
   const stack = Array.from(el.children || []) as Element[];
+  pushCapturableShadowChildren(stack, el);
   while (stack.length) {
     const node = stack.pop();
     if (!node) {
@@ -1882,6 +2030,7 @@ function hasNestedToggleableDefaultExcludedDescendant(el: Element | null): boole
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
       stack.push(node.children[i]);
     }
+    pushCapturableShadowChildren(stack, node);
   }
   return false;
 }
@@ -1931,6 +2080,7 @@ function hasTextualDescendant(el: Element | null, options: TextualDetectionOptio
   }
   let result = false;
   const stack = Array.from(el.children || []) as Element[];
+  pushCapturableShadowChildren(stack, el);
   while (stack.length) {
     const node = stack.pop();
     if (!node) {
@@ -1952,6 +2102,7 @@ function hasTextualDescendant(el: Element | null, options: TextualDetectionOptio
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
       stack.push(node.children[i]);
     }
+    pushCapturableShadowChildren(stack, node);
   }
   if (cache) {
     cache.set(el, result);
@@ -1969,6 +2120,7 @@ function hasTextualImmutableDescendant(el: Element | null, options: TextualDetec
   }
   let result = false;
   const stack = Array.from(el.children || []) as Element[];
+  pushCapturableShadowChildren(stack, el);
   while (stack.length) {
     const node = stack.pop();
     if (!node) {
@@ -1987,6 +2139,7 @@ function hasTextualImmutableDescendant(el: Element | null, options: TextualDetec
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
       stack.push(node.children[i]);
     }
+    pushCapturableShadowChildren(stack, node);
   }
   if (cache) {
     cache.set(el, result);
@@ -1999,6 +2152,7 @@ function hasVisibleImmutableDescendant(el: Element | null): boolean {
     return false;
   }
   const stack = Array.from(el.children || []) as Element[];
+  pushCapturableShadowChildren(stack, el);
   while (stack.length) {
     const node = stack.pop();
     if (!node) {
@@ -2013,6 +2167,7 @@ function hasVisibleImmutableDescendant(el: Element | null): boolean {
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
       stack.push(node.children[i]);
     }
+    pushCapturableShadowChildren(stack, node);
   }
   return false;
 }
@@ -2043,6 +2198,7 @@ function hasExplicitlyMarkedDescendant(el: Element | null): boolean {
     return false;
   }
   const stack = Array.from(el.children || []) as Element[];
+  pushCapturableShadowChildren(stack, el);
   while (stack.length) {
     const node = stack.pop();
     if (!node) {
@@ -2067,6 +2223,7 @@ function hasExplicitlyMarkedDescendant(el: Element | null): boolean {
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
       stack.push(node.children[i]);
     }
+    pushCapturableShadowChildren(stack, node);
   }
   return false;
 }
@@ -2231,7 +2388,10 @@ function matchesImmutableExcluded(el: Element | null): boolean {
   for (const selector of DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS) {
     try {
       if (isTagSelector(selector)) {
-        if (el.tagName === selector.toUpperCase()) {
+        // Case-insensitive on both sides: HTML tagNames are uppercased, but
+        // foreign-namespace elements (svg, math) report a lowercase tagName,
+        // so a plain "SVG" tag selector must still match a <svg> root.
+        if (el.tagName.toUpperCase() === selector.toUpperCase()) {
           result = true;
           break;
         }
@@ -2451,6 +2611,115 @@ export function collectConsentExcludedElements() {
   return elements;
 }
 
+/**
+ * CP5 / MA-1: the element children of `el` in composed/flattened order — the
+ * capturable shadow root's children first (they are inlined at the front of the
+ * host by CP4's deep capture), then the light-DOM children. Identical to
+ * `el.children` for any element without a capturable shadow root, so shadow-free
+ * pages are unaffected.
+ */
+function getComposedChildElements(el: Element): Element[] {
+  const lightChildren = Array.from((el.children || []) as ArrayLike<Element>);
+  const shadowRoot = getCapturableShadowRoot(el);
+  if (!shadowRoot) {
+    return lightChildren;
+  }
+  const shadowChildren = Array.from((shadowRoot.children || []) as ArrayLike<Element>);
+  return shadowChildren.concat(lightChildren);
+}
+
+/**
+ * CP6 / MA-1: perf-neutral composed child list for the hot enumeration walks.
+ * Returns the live `HTMLCollection` (no allocation) for any element without a
+ * capturable shadow root — so shadow-free pages allocate exactly as before —
+ * and a shadow-first composed array only for a shadow host.
+ */
+function getComposedChildrenForWalk(node: Element): ArrayLike<Element> {
+  const shadowRoot = getCapturableShadowRoot(node);
+  if (!shadowRoot) {
+    return node.children;
+  }
+  const shadowChildren = Array.from((shadowRoot.children || []) as ArrayLike<Element>);
+  return shadowChildren.concat(Array.from((node.children || []) as ArrayLike<Element>));
+}
+
+/**
+ * CP6 / MA-1: push a node's capturable shadow-root children onto a DFS stack so
+ * the order-insensitive descendant-classification walks descend into shadow.
+ * A single `shadowRoot` property read for shadow-free nodes (no allocation).
+ */
+function pushCapturableShadowChildren(stack: Element[], node: Element): void {
+  const shadowRoot = getCapturableShadowRoot(node);
+  if (!shadowRoot) {
+    return;
+  }
+  const shadowChildren = shadowRoot.children;
+  for (let i = shadowChildren.length - 1; i >= 0; i -= 1) {
+    const child = shadowChildren[i] as Element;
+    if (child) {
+      stack.push(child);
+    }
+  }
+}
+
+/**
+ * The parent of `node` in the flattened view: its normal element parent, or —
+ * when `node` is a top-level child of a capturable shadow root — the shadow
+ * host (the shadow tree is inlined into the host by the deep capture). Returns
+ * null at the document root, a closed/extension shadow boundary, or a detached
+ * node.
+ */
+function getFlattenedParentElement(node: Element): Element | null {
+  const parent = node.parentElement;
+  if (parent) {
+    return parent;
+  }
+  let root: Node | null;
+  try {
+    root = typeof node.getRootNode === "function" ? node.getRootNode() : null;
+  } catch (_error) {
+    return null;
+  }
+  const host = root && (root as ShadowRoot).host ? (root as ShadowRoot).host : null;
+  if (host && getCapturableShadowRoot(host) === root) {
+    return host;
+  }
+  return null;
+}
+
+/**
+ * The 1-based positional index of `node` among its same-tag siblings in the
+ * flattened view. A light child of a shadow host is preceded by that host's
+ * shadow-root children (inlined first by the capture), so their same-tag count
+ * is added. `skip` excludes nodes that are not present in the captured HTML
+ * (snapshot strip selectors).
+ */
+function countFlattenedPrecedingSameTag(
+  node: Element,
+  skip: ((el: Element) => boolean) | null
+): number {
+  let index = 1;
+  let sibling = node.previousElementSibling;
+  while (sibling) {
+    if (sibling.tagName === node.tagName && !(skip && skip(sibling))) {
+      index += 1;
+    }
+    sibling = sibling.previousElementSibling;
+  }
+  const parent = node.parentElement;
+  if (parent) {
+    const shadowRoot = getCapturableShadowRoot(parent);
+    if (shadowRoot) {
+      for (const shadowChild of Array.from((shadowRoot.children || []) as ArrayLike<Element>)) {
+        if (shadowChild.tagName === node.tagName && !(skip && skip(shadowChild))) {
+          index += 1;
+        }
+      }
+    }
+  }
+  return index;
+}
+
 export function getXPath(el: Element | null | undefined): string {
   if (!isElementNode(el)) {
     return "";
@@ -2459,19 +2728,11 @@ export function getXPath(el: Element | null | undefined): string {
   let node: Element | null = el;
   while (node && node.nodeType === 1) {
     const tag = node.tagName.toLowerCase();
-    let index = 1;
-    let sibling = node.previousElementSibling;
-    while (sibling) {
-      if (sibling.tagName === node.tagName) {
-        index += 1;
-      }
-      sibling = sibling.previousElementSibling;
-    }
-    parts.unshift(`${tag}[${index}]`);
+    parts.unshift(`${tag}[${countFlattenedPrecedingSameTag(node, null)}]`);
     if (node === document.documentElement) {
       break;
     }
-    node = node.parentElement;
+    node = getFlattenedParentElement(node);
   }
   return `/${parts.join("/")}`;
 }
@@ -2524,6 +2785,7 @@ export function getSnapshotXPath(
   if (!isElementNode(el) || isStrippedFromSnapshot(el, options)) {
     return "";
   }
+  const skip = (candidate: Element) => isStrippedFromSnapshot(candidate, options);
   const parts = [];
   let node: Element | null = el;
   while (node && node.nodeType === 1) {
@@ -2531,22 +2793,11 @@ export function getSnapshotXPath(
       return "";
     }
     const tag = node.tagName.toLowerCase();
-    let index = 1;
-    let sibling = node.previousElementSibling;
-    while (sibling) {
-      if (
-        sibling.tagName === node.tagName &&
-        !isStrippedFromSnapshot(sibling, options)
-      ) {
-        index += 1;
-      }
-      sibling = sibling.previousElementSibling;
-    }
-    parts.unshift(`${tag}[${index}]`);
+    parts.unshift(`${tag}[${countFlattenedPrecedingSameTag(node, skip)}]`);
     if (node === document.documentElement) {
       break;
     }
-    node = node.parentElement;
+    node = getFlattenedParentElement(node);
   }
   return `/${parts.join("/")}`;
 }
@@ -2722,6 +2973,22 @@ function scanReconcileDocumentCandidates(
         withinExcludedParent: current.withinExcludedParent || isExcludedParentBoundary
       });
     }
+    // Descend into a capturable shadow root so its content participates in the
+    // reconcile scan (toggleable/self-markable/silent candidates) the same way
+    // it is captured and enumerated. No-op for shadow-free nodes.
+    const reconcileShadowRoot = getCapturableShadowRoot(node);
+    if (reconcileShadowRoot) {
+      const shadowChildren = reconcileShadowRoot.children;
+      for (let i = shadowChildren.length - 1; i >= 0; i -= 1) {
+        const child = shadowChildren[i] as Element;
+        if (child) {
+          stack.push({
+            node: child,
+            withinExcludedParent: current.withinExcludedParent || isExcludedParentBoundary
+          });
+        }
+      }
+    }
   }
   return {
     toggleableCandidates,
@@ -2861,21 +3128,30 @@ function collectDefaultHighlightTargets(
     excludedSet = new Set(),
     hardExcludedSet = new Set(),
     hasHigherPrecedence = () => false,
-    excludedAncestorSet = new Set()
+    excludedAncestorSet = new Set(),
+    rootAncestorExcluded = false,
+    rootAncestorHardExcluded = false
   } = options || {};
   const results: Element[] = [];
   const stack: DefaultHighlightFrame[] = [
     {
       node: root,
       index: 0,
-      ancestorHardExcluded: false,
-      ancestorExcluded: false
+      ancestorHardExcluded: rootAncestorHardExcluded,
+      ancestorExcluded: rootAncestorExcluded
     }
   ];
 
   while (stack.length) {
     const frame = stack[stack.length - 1];
-    const children = frame.node.children;
+    // Composed order: a shadow host's shadow-root children are enumerated first
+    // (they are inlined at the front of the host by the deep capture), then its
+    // light children. Identical to `frame.node.children` for shadow-free nodes.
+    // Computed once per frame (one shadow-root probe per element, not per index).
+    if (!frame.children) {
+      frame.children = getComposedChildrenForWalk(frame.node);
+    }
+    const children = frame.children;
     if (frame.index < children.length) {
       const child = children[frame.index];
       frame.index += 1;
@@ -2946,6 +3222,42 @@ export function collectDefaultLayerElements(root: Element | null | undefined, op
     ...hiddenStoredExplicitExclude
   ]);
 
+  const excludedAncestorSet = new Set([
+    ...hardExcludedSet,
+    ...consentExcluded,
+    ...excludedByStateAncestors,
+    ...explicitExclude,
+    ...explicitInclude,
+    ...aiContent
+  ]);
+  // CP7b: replicate the flag propagation the full body-rooted walk would have
+  // performed down to this scoped root. In the full walk, a frame's
+  // ancestorHardExcluded includes the node ITSELF being hard-excluded
+  // (`hardExcludedSet.has(child)` at push time) while ancestorExcluded is
+  // strict-ancestor only (`excludedAncestorSet.has(parent)`), with body itself
+  // checked as a parent. Ancestry uses the flattened parent so shadow content
+  // seeds identically to the composed full walk.
+  let rootAncestorExcluded = false;
+  let rootAncestorHardExcluded = false;
+  if (options.scopeRootSeedFromAncestors && root && root.nodeType === 1) {
+    rootAncestorHardExcluded = hardExcludedSet.has(root);
+    let ancestor = getFlattenedParentElement(root);
+    let guard = 0;
+    while (ancestor && guard < 500) {
+      if (hardExcludedSet.has(ancestor)) {
+        rootAncestorHardExcluded = true;
+      }
+      if (excludedAncestorSet.has(ancestor)) {
+        rootAncestorExcluded = true;
+      }
+      if (ancestor === document.body || ancestor === document.documentElement) {
+        break;
+      }
+      ancestor = getFlattenedParentElement(ancestor);
+      guard += 1;
+    }
+  }
+
   return collectDefaultHighlightTargets(root, {
     excludedSet: precedenceSet,
     hardExcludedSet,
@@ -2953,14 +3265,9 @@ export function collectDefaultLayerElements(root: Element | null | undefined, op
     // Selector-excluded elements do not render their own marking-mode layer, so
     // only the matched element should suppress the default layer, not its whole subtree.
     // Stored unexcluded default boundaries follow the same self-only rule.
-    excludedAncestorSet: new Set([
-      ...hardExcludedSet,
-      ...consentExcluded,
-      ...excludedByStateAncestors,
-      ...explicitExclude,
-      ...explicitInclude,
-      ...aiContent
-    ])
+    excludedAncestorSet,
+    rootAncestorExcluded,
+    rootAncestorHardExcluded
   });
 }
 
@@ -3286,6 +3593,7 @@ function hasRenderableTextOutsideExcludedNature(
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
       stack.push(node.children[i]);
     }
+    pushCapturableShadowChildren(stack, node);
   }
   return false;
 }
@@ -3351,6 +3659,7 @@ function hasRenderableTextForExcludedHighlight(
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
       stack.push(node.children[i]);
     }
+    pushCapturableShadowChildren(stack, node);
   }
   return false;
 }
@@ -3807,8 +4116,22 @@ export function collapseElementsByNesting(
     }
     return true;
   });
+  // MA-4: memoize depth for the duration of this collapse so the O(n log n) sort
+  // does not recompute each element's root-walk per comparison. With the
+  // keptSet/ancestor-set parent-walk below, the whole pass stays proportional to
+  // rows x depth (no pairwise contains() scans).
+  const depthCache = new Map<Element, number>();
+  const depthOf = (el: Element): number => {
+    const cached = depthCache.get(el);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const depth = getElementDepth(el);
+    depthCache.set(el, depth);
+    return depth;
+  };
   list.sort((left, right) => {
-    const depthDiff = getElementDepth(left) - getElementDepth(right);
+    const depthDiff = depthOf(left) - depthOf(right);
     if (depthDiff !== 0) {
       return depthDiff;
     }
@@ -3816,7 +4139,7 @@ export function collapseElementsByNesting(
   });
   if (prefer === "deepest") {
     const reverseSorted = list.slice().sort((left, right) => {
-      const depthDiff = getElementDepth(right) - getElementDepth(left);
+      const depthDiff = depthOf(right) - depthOf(left);
       if (depthDiff !== 0) {
         return depthDiff;
       }
@@ -3994,6 +4317,7 @@ function hasVisibleNonTextualContent(el: Element | null | undefined): boolean {
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
       stack.push(node.children[i]);
     }
+    pushCapturableShadowChildren(stack, node);
   }
   return false;
 }
@@ -4272,6 +4596,103 @@ function normalizePageEntryPageType(value: unknown): string {
     .toLowerCase();
 }
 
+function isExtensionSnapshotHost(el: Element): boolean {
+  try {
+    if (isWithinExtensionUi(el)) {
+      return true;
+    }
+    for (const selector of EXTENSION_SNAPSHOT_STRIP_SELECTORS) {
+      if (typeof el.matches === "function" && el.matches(selector)) {
+        return true;
+      }
+    }
+  } catch (_error) {
+    // Treat matcher failures as non-extension; the strip pass is the backstop.
+  }
+  return false;
+}
+
+/**
+ * The open shadow root that should be flattened into the captured HTML, or null
+ * when the element has no shadow root, uses a CLOSED root (inaccessible — the
+ * browser exposes `shadowRoot` as null), or is an extension-owned host (its
+ * shadow is the extension UI, stripped from snapshots).
+ */
+function getCapturableShadowRoot(el: Element): ShadowRoot | null {
+  let shadowRoot: ShadowRoot | null;
+  try {
+    shadowRoot = (el as { shadowRoot?: ShadowRoot | null }).shadowRoot || null;
+  } catch (_error) {
+    return null;
+  }
+  if (!shadowRoot) {
+    return null;
+  }
+  if (isExtensionSnapshotHost(el)) {
+    return null;
+  }
+  return shadowRoot;
+}
+
+/**
+ * Build a fragment of the shadow root's children flattened into real DOM
+ * (Googlebot parity — no `<template shadowrootmode>` wrapper), recursing so
+ * nested shadow roots are inlined too. Returns null in environments without
+ * `createDocumentFragment`.
+ */
+function buildFlattenedShadowFragment(shadowRoot: ShadowRoot): DocumentFragment | null {
+  if (typeof document === "undefined" || typeof document.createDocumentFragment !== "function") {
+    return null;
+  }
+  const fragment = document.createDocumentFragment();
+  const liveChildNodes = Array.from(shadowRoot.childNodes || []);
+  for (const liveChild of liveChildNodes) {
+    let clonedChild: Node;
+    try {
+      clonedChild = liveChild.cloneNode(true);
+    } catch (_error) {
+      continue;
+    }
+    fragment.appendChild(clonedChild);
+    if (liveChild.nodeType === 1 && clonedChild.nodeType === 1) {
+      inlineFlattenedShadowContent(liveChild as Element, clonedChild as Element);
+    }
+  }
+  return fragment;
+}
+
+/**
+ * D5a / MA-1: walk a live element subtree in lockstep with its (structurally
+ * identical) clone and inline every open, non-extension shadow root into the
+ * clone as real elements at the front of the host (composed-tree order), so the
+ * captured HTML matches what Googlebot indexes. `cloneNode` does not cross
+ * shadow boundaries, which is why this pass is required.
+ */
+export function inlineFlattenedShadowContent(liveRoot: Element, cloneRoot: Element): void {
+  const liveStack: Element[] = [liveRoot];
+  const cloneStack: Element[] = [cloneRoot];
+  while (liveStack.length) {
+    const live = liveStack.pop() as Element;
+    const clone = cloneStack.pop() as Element;
+    // Pair the light-DOM element children BEFORE mutating the clone, so the
+    // inserted shadow nodes never shift the live<->clone index correspondence.
+    const liveChildren = Array.from((live.children || []) as ArrayLike<Element>);
+    const cloneChildren = Array.from((clone.children || []) as ArrayLike<Element>);
+    const shadowRoot = getCapturableShadowRoot(live);
+    if (shadowRoot) {
+      const fragment = buildFlattenedShadowFragment(shadowRoot);
+      if (fragment && typeof clone.insertBefore === "function") {
+        clone.insertBefore(fragment, clone.firstChild || null);
+      }
+    }
+    const pairCount = Math.min(liveChildren.length, cloneChildren.length);
+    for (let i = 0; i < pairCount; i += 1) {
+      liveStack.push(liveChildren[i]);
+      cloneStack.push(cloneChildren[i]);
+    }
+  }
+}
+
 export function createSanitizedPageSnapshot(options: SnapshotOptions = {}): SnapshotResult {
   const normalizedRenderMode = config.normalizeRenderMode(options.renderMode);
   const root = document.documentElement;
@@ -4283,6 +4704,17 @@ export function createSanitizedPageSnapshot(options: SnapshotOptions = {}): Snap
   }
 
   const clone = root.cloneNode(true) as Element;
+
+  // D5a/MA-1: flatten open shadow DOM into the captured HTML (Googlebot parity)
+  // so shadow content reaches the AI as real elements. Done first — before the
+  // strip / class / data-uf passes below — so those passes also sanitize the
+  // inlined shadow nodes. cloneNode does not cross shadow boundaries.
+  try {
+    inlineFlattenedShadowContent(root, clone);
+  } catch (_error) {
+    // Never let shadow flattening break capture; fall back to light-DOM HTML.
+  }
+
   const stripSelectors = getSnapshotStripSelectors(options);
   if (stripSelectors.length) {
     clone.querySelectorAll(stripSelectors.join(",")).forEach((node) => {
@@ -6338,6 +6770,12 @@ function stopPageMotionPauseObserver(pauseState: PageMotionPauseState): void {
 }
 
 export function pausePageMotion(reason: unknown = PAGE_MOTION_PAUSE_DEFAULT_REASON): void {
+  // Entering the motion freeze normalizes opacity/transform/visibility on
+  // revealed elements — a lifecycle event (activation/phase change), not a
+  // per-toggle one — so the element caches must rebuild next pass. (The periodic
+  // re-apply via refreshPageMotionPause does NOT bump; dynamically revealed
+  // elements are caught by the MutationObserver invalidation instead.)
+  bumpElementCacheDomVersion();
   const pauseState = state.pageMotionPause || createPageMotionPauseState();
   pauseState.reasons.add(normalizePageMotionPauseReason(reason));
   // Hold the page-visit lock so the freeze survives every phase-transition resume
@@ -6418,6 +6856,7 @@ export function resumePageMotion(reason: unknown = PAGE_MOTION_PAUSE_DEFAULT_REA
 // which subsystem reasons are still held. Wired to the navigation notifier so the
 // freeze survives the whole page visit and clears only when the URL changes.
 export function resumeAllPageMotion(): void {
+  bumpElementCacheDomVersion();
   const pauseState = state.pageMotionPause;
   if (!pauseState) {
     setPageMotionFreezeTimersPaused(false);
@@ -7394,20 +7833,53 @@ addContentDirectiveListener(() => {
   updateMarkingTemporarilyDisabledUi();
 });
 
-function getMarkMode(): MarkMode {
-  if (!state.enabled || !state.overlay) {
+/**
+ * Inputs to the marking-interaction FSM. The machine is a pure function of
+ * these signals — see `deriveMarkMode`. `MARKING_AND_HIGHLIGHTING_LOGIC.md`
+ * §Marking Interaction FSM is the canonical spec.
+ */
+export interface MarkModeInputs {
+  /** Marking is enabled by the popup. */
+  enabled: boolean;
+  /** The marking overlay is mounted. */
+  hasOverlay: boolean;
+  /** Marking is temporarily locked (busy: run in flight, reconcile pending, …). */
+  temporarilyDisabled: boolean;
+  /** Space page-interaction passthrough latch is held. */
+  passThrough: boolean;
+  /** Alt is active (held modifier, or the committing event's altKey). */
+  altActive: boolean;
+}
+
+/**
+ * The single authority that maps FSM inputs to a marking mode. States:
+ * `disabled` (OFF/BUSY_LOCKED) → `passthrough` (Space) → `include` (Alt) →
+ * `exclude` (default). Shift is an orthogonal breadth modifier resolved
+ * separately by `shouldAllowParentMarking`, not a mode. Behaviour-preserving
+ * consolidation of the former inline derivations in `getMarkMode` /
+ * `getMarkModeFromEvent`.
+ */
+export function deriveMarkMode(inputs: MarkModeInputs): MarkMode {
+  if (!inputs.enabled || !inputs.hasOverlay || inputs.temporarilyDisabled) {
     return "disabled";
   }
-  if (isMarkingTemporarilyDisabled()) {
-    return "disabled";
-  }
-  if (state.altPassThrough) {
+  if (inputs.passThrough) {
     return "passthrough";
   }
-  if (state.altHeld) {
+  if (inputs.altActive) {
     return "include";
   }
   return "exclude";
+}
+
+function getMarkMode(): MarkMode {
+  return deriveMarkMode({
+    enabled: state.enabled,
+    hasOverlay: Boolean(state.overlay),
+    temporarilyDisabled: isMarkingTemporarilyDisabled(),
+    passThrough: state.altPassThrough,
+    altActive: state.altHeld
+  });
 }
 
 function getMarkModeFromEvent(
@@ -7416,10 +7888,16 @@ function getMarkModeFromEvent(
   if (!event) {
     return getMarkMode();
   }
-  if (event.altKey) {
-    return "include";
-  }
-  return "exclude";
+  // At commit time the click path has already released the disabled/passthrough
+  // guards (see handleToggleEvent), so the mode is decided solely by the event's
+  // real altKey — race-proof if Alt was released between hover and click.
+  return deriveMarkMode({
+    enabled: true,
+    hasOverlay: true,
+    temporarilyDisabled: false,
+    passThrough: false,
+    altActive: Boolean(event.altKey)
+  });
 }
 
 function shouldAllowParentMarking(mode: MarkMode, shiftHeld: unknown): boolean {
@@ -7781,8 +8259,70 @@ function updateMarkedElements(currentMarked: Set<Element> | null | undefined): v
   state.markedElements = currentMarked;
 }
 
+function collectShadowPointHits(
+  host: Element,
+  x: number,
+  y: number,
+  add: (el: Element | null) => void
+): void {
+  const shadowRoot = getCapturableShadowRoot(host);
+  if (!shadowRoot || typeof (shadowRoot as ShadowRoot).elementsFromPoint !== "function") {
+    return;
+  }
+  let innerHits: Element[];
+  try {
+    const raw = (shadowRoot as ShadowRoot).elementsFromPoint(x, y);
+    innerHits = raw ? Array.from(raw as ArrayLike<Element>) : [];
+  } catch (_error) {
+    return;
+  }
+  for (const inner of innerHits) {
+    if (!inner || inner.nodeType !== 1 || inner === host) {
+      continue;
+    }
+    // Deepest-first: recurse into nested shadow before adding this node.
+    collectShadowPointHits(inner, x, y, add);
+    add(inner);
+  }
+}
+
+/**
+ * CP6 / MA-1: the composed hit path at a point — `document.elementsFromPoint`
+ * plus the inner nodes of any open shadow root at the point (elementsFromPoint
+ * may report only the shadow host), deepest-first and de-duplicated. Gated on
+ * `documentHasCapturableShadow()`, so shadow-free pages (and the test mocks)
+ * return the native list unchanged.
+ */
+function getComposedHitElements(x: number, y: number): Element[] {
+  let base: Element[];
+  try {
+    const raw = typeof document.elementsFromPoint === "function" ? document.elementsFromPoint(x, y) : null;
+    base = raw ? Array.from(raw as ArrayLike<Element>) : [];
+  } catch (_error) {
+    base = [];
+  }
+  if (!documentHasCapturableShadow()) {
+    return base;
+  }
+  const seen = new Set<Element>();
+  const result: Element[] = [];
+  const add = (el: Element | null) => {
+    if (el && el.nodeType === 1 && !seen.has(el)) {
+      seen.add(el);
+      result.push(el);
+    }
+  };
+  for (const el of base) {
+    if (el && el.nodeType === 1) {
+      collectShadowPointHits(el, x, y, add);
+    }
+    add(el);
+  }
+  return result;
+}
+
 function getHoverProbeElements(x: number, y: number): Element[] {
-  const elements = document.elementsFromPoint(x, y);
+  const elements = getComposedHitElements(x, y);
   const probeElements: Element[] = [];
   for (const el of elements) {
     if (!el || el.nodeType !== 1) {
@@ -7905,6 +8445,7 @@ function hasMultipleMarkableDescendants(
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
       stack.push(node.children[i]);
     }
+    pushCapturableShadowChildren(stack, node);
   }
   return false;
 }
@@ -7952,6 +8493,7 @@ function containsPageShellLandmark(el: Element | null | undefined): boolean {
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
       stack.push(node.children[i]);
     }
+    pushCapturableShadowChildren(stack, node);
   }
   return landmarkKinds.size >= 2;
 }
@@ -8172,7 +8714,7 @@ export function getMarkableTarget(
   const hasExcludedAncestor = requireExcludedAncestor
     ? createExcludedAncestorChecker({ config: state.config, pageUrl: location.href })
     : null;
-  const elements = document.elementsFromPoint(x, y);
+  const elements = getComposedHitElements(x, y);
   if (
     allowExplicitTarget &&
     preferExplicitTarget &&
@@ -9801,6 +10343,9 @@ function completeExplicitToggle(
   const immediateFullRender = Object.prototype.hasOwnProperty.call(options, "immediateFullRender")
     ? Boolean(options.immediateFullRender)
     : shouldUseImmediateFullRenderForExplicitToggle({ target, type });
+  // CP7b: remember the toggled element so the next rebuild can take the
+  // branch-scoped path (only when this stays the SINGLE toggle before it runs).
+  recordScopedRebuildCandidate(target);
   invalidateHoverHighlightCache();
   if (options.deferMarkingRefresh && !immediateFullRender) {
     scheduleAsyncExplicitToggleReconcile(entry, {
@@ -9915,7 +10460,324 @@ function cancelQueuedToggleMutations() {
   state.toggleQueuedActionKey = "";
 }
 
+// CP7b — branch-scoped rebuild (MA-3 target).
+// A mark on element E changes default-layer candidacy only for (a) E's own
+// subtree and (b) ancestors whose candidacy depends on having an explicitly
+// marked descendant — toggleable-default boundaries and structured-group
+// candidates ("flip-capable"). Plain content ancestors cannot flip. So the
+// affected surface is rooted at the OUTERMOST flip-capable ancestor of E (or E
+// itself), and everything outside that subtree is provably unchanged and can be
+// reused from the cached collections.
+const SCOPED_REBUILD_TRAILING_RECONCILE_DELAY_MS = 1500;
+
+export function recordScopedRebuildCandidate(target: Element | null | undefined): void {
+  state.scopedRebuildToggleCount += 1;
+  state.scopedRebuildTarget =
+    state.scopedRebuildToggleCount === 1 && isElementNode(target) ? target : null;
+}
+
+function consumeScopedRebuildCandidate(): Element | null {
+  const target = state.scopedRebuildToggleCount === 1 ? state.scopedRebuildTarget : null;
+  state.scopedRebuildTarget = null;
+  state.scopedRebuildToggleCount = 0;
+  return target;
+}
+
+/**
+ * Debug-build parity audit: when enabled, the FULL rebuild stays authoritative
+ * and the scoped result is computed as a shadow and compared against it, logging
+ * any divergence — the live `incremental == full` equivalence check that gates
+ * trusting the scoped path. Enable with
+ * `localStorage.setItem("unfluffify:cp7b-parity", "1")` in a debug build.
+ */
+function isCp7bParityAuditEnabled(): boolean {
+  if (!isDebugBuild()) {
+    return false;
+  }
+  try {
+    return Boolean(
+      typeof window !== "undefined" &&
+      window.localStorage &&
+      window.localStorage.getItem("unfluffify:cp7b-parity") === "1"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isScopedFlipCapableAncestor(node: Element): boolean {
+  return matchesToggleableDefaultExcluded(node) || isStructuredGroupExclusionCandidate(node);
+}
+
+/**
+ * The root of the affected surface for a toggle on `target`: the outermost
+ * flip-capable ancestor (toggleable-default / structured-group), else the target
+ * itself. Returns null when ineligible: detached target, ancestry that never
+ * reaches body (closed shadow / foreign root), or a root that IS body/html
+ * (scoping would not bound the walk).
+ */
+export function resolveScopedAffectedRoot(target: Element | null | undefined): Element | null {
+  if (!isElementNode(target) || target.isConnected !== true) {
+    return null;
+  }
+  const body = document.body;
+  const docEl = document.documentElement;
+  if (!body || target === body || target === docEl) {
+    return null;
+  }
+  let outermostFlip: Element | null = null;
+  let node: Element | null = getFlattenedParentElement(target);
+  let reachedBody = false;
+  let guard = 0;
+  while (node && guard < 500) {
+    if (node === body || node === docEl) {
+      reachedBody = true;
+      break;
+    }
+    if (isScopedFlipCapableAncestor(node)) {
+      outermostFlip = node;
+    }
+    node = getFlattenedParentElement(node);
+    guard += 1;
+  }
+  if (!reachedBody) {
+    return null;
+  }
+  return outermostFlip || target;
+}
+
+function isWithinComposedSubtree(root: Element, el: Element): boolean {
+  if (root === el) {
+    return true;
+  }
+  if (typeof root.contains === "function" && root.contains(el)) {
+    return true;
+  }
+  return composedContainsAcrossShadow(root, el);
+}
+
+/**
+ * The branch-scoped default layer: everything OUTSIDE the affected subtree is
+ * reused from the cached collections (provably unchanged by the toggle — and
+ * untouched by the immediate fast-patch, which only removes elements inside the
+ * toggled subtree), while the affected subtree is re-walked fresh with the root
+ * frame seeded from its real ancestor state.
+ */
+function spliceScopedDefaultTargets(
+  affectedRoot: Element,
+  cachedCollections: MarkingCollections,
+  options: DefaultLayerOptions
+): Element[] {
+  const scopedStartedAt = nowMs();
+  const cachedDefaults = Array.isArray(cachedCollections.defaultElements)
+    ? cachedCollections.defaultElements
+    : [];
+  const outside = cachedDefaults.filter((el) =>
+    isElementNode(el) && el.isConnected === true && !isWithinComposedSubtree(affectedRoot, el)
+  );
+  const inside =
+    isWithinAiPopover(affectedRoot) || isWithinConsentElement(affectedRoot)
+      ? []
+      : collectDefaultLayerElements(affectedRoot, {
+          ...options,
+          scopeRootSeedFromAncestors: true
+        });
+  logTogglePerf("render.scoped-splice", scopedStartedAt, {
+    outsideCount: outside.length,
+    insideCount: inside.length,
+    rootTag: affectedRoot.tagName
+  });
+  // Disjoint by construction: inside ⊆ subtree(affectedRoot), outside excludes it.
+  return outside.concat(inside);
+}
+
+interface ScopedRenderContext {
+  target: Element;
+  affectedRoot: Element;
+}
+
+/**
+ * The precise eligibility core: every entry-fingerprint row that DIFFERS
+ * between the splice-base key and the next key must resolve to an element
+ * inside the affected subtree. Entry churn elsewhere (generated default rows
+ * discovered by a sync, silent-whitespace rows, pageType changes, unresolvable
+ * xpaths) means the cached outside-subtree defaults may be stale — full rebuild.
+ */
+function entryKeyDiffConfinedToSubtree(
+  cachedKey: string,
+  nextKey: string,
+  affectedRoot: Element
+): boolean {
+  const cachedRows = String(cachedKey).split("\u001f").slice(2);
+  const nextRows = String(nextKey).split("\u001f").slice(2);
+  const counts = new Map<string, number>();
+  for (const row of cachedRows) {
+    counts.set(row, (counts.get(row) || 0) + 1);
+  }
+  for (const row of nextRows) {
+    counts.set(row, (counts.get(row) || 0) - 1);
+  }
+  for (const [row, count] of counts) {
+    if (count === 0) {
+      continue;
+    }
+    if (row.startsWith("pageType:")) {
+      return false;
+    }
+    let xpath = row;
+    for (const prefix of ["include:", "selectorSuppressed:", "silentWhitespace:"]) {
+      if (xpath.startsWith(prefix)) {
+        xpath = xpath.slice(prefix.length);
+        break;
+      }
+    }
+    const pipeIndex = xpath.indexOf("|");
+    if (pipeIndex >= 0) {
+      xpath = xpath.slice(0, pipeIndex);
+    }
+    if (!xpath.startsWith("/")) {
+      return false;
+    }
+    const el = getElementFromXPath(xpath);
+    if (!el || !isWithinComposedSubtree(affectedRoot, el)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Eligibility for the branch-scoped rebuild. Falls back to full (null) whenever
+ * any assumption could not hold: no/cleared cached collections, page or selector
+ * fingerprint changed (only the entry fingerprint may differ), a fresh-baseline
+ * adoption is pending, the entry has no explicit markings (the auto-seed path
+ * could run), or the affected root is unbounded.
+ */
+function resolveScopedRenderContext(input: {
+  target: Element | null;
+  cachedCollections: MarkingCollections | null;
+  cachedKey: string;
+  nextKey: string;
+  pageUrl: string;
+  latestEntry: PageMarkingEntry | null;
+}): ScopedRenderContext | null {
+  const { target, cachedCollections, cachedKey, nextKey, pageUrl, latestEntry } = input;
+  if (!target || !cachedCollections || !cachedKey || cachedKey === nextKey) {
+    return null;
+  }
+  if (state.pendingFreshBaselinePageUrl === pageUrl) {
+    return null;
+  }
+  if (!latestEntry || !hasExplicitUserMarkings(latestEntry)) {
+    return null;
+  }
+  const cachedParts = String(cachedKey).split("\u001f");
+  const nextParts = String(nextKey).split("\u001f");
+  if (cachedParts[0] !== nextParts[0] || cachedParts[1] !== nextParts[1]) {
+    return null;
+  }
+  const affectedRoot = resolveScopedAffectedRoot(target);
+  if (!affectedRoot) {
+    return null;
+  }
+  if (!entryKeyDiffConfinedToSubtree(cachedKey, nextKey, affectedRoot)) {
+    return null;
+  }
+  return { target, affectedRoot };
+}
+
+/**
+ * Live `incremental == full` equivalence audit (debug builds). Runs the scoped
+ * computation as a SHADOW next to the authoritative full rebuild and logs the
+ * verdict: entry-fingerprint stability (validates skipping the sync scan) and
+ * default-target set equality (validates the scoped walk + splice).
+ */
+function runCp7bParityAudit(input: {
+  scopedContext: ScopedRenderContext;
+  preRebuildCachedCollections: MarkingCollections;
+  latestEntry: PageMarkingEntry | null;
+  syncedEntry: PageMarkingEntry | null;
+  defaultLayerOptions: DefaultLayerOptions;
+  fullDefaultTargets: Element[];
+}): void {
+  try {
+    const preFingerprint = getEntryFingerprint(input.latestEntry).join("\u001f");
+    const postFingerprint = getEntryFingerprint(input.syncedEntry).join("\u001f");
+    const entryFingerprintMatches = preFingerprint === postFingerprint;
+    const scopedTargets = spliceScopedDefaultTargets(
+      input.scopedContext.affectedRoot,
+      input.preRebuildCachedCollections,
+      input.defaultLayerOptions
+    );
+    const fullSet = new Set(input.fullDefaultTargets);
+    const scopedSet = new Set(scopedTargets);
+    const missing = input.fullDefaultTargets.filter((el) => !scopedSet.has(el));
+    const extra = scopedTargets.filter((el) => !fullSet.has(el));
+    const describe = (el: Element) => `${el.tagName.toLowerCase()}:${getXPath(el)}`;
+    console.warn("[Unfluffify][cp7b-parity]", {
+      ok: entryFingerprintMatches && missing.length === 0 && extra.length === 0,
+      entryFingerprintMatches,
+      fullCount: input.fullDefaultTargets.length,
+      scopedCount: scopedTargets.length,
+      affectedRoot: describe(input.scopedContext.affectedRoot),
+      missing: missing.slice(0, 5).map(describe),
+      extra: extra.slice(0, 5).map(describe)
+    });
+  } catch (error) {
+    console.warn("[Unfluffify][cp7b-parity]", {
+      ok: false,
+      error: String(error).slice(0, 160)
+    });
+  }
+}
+
+/**
+ * Correctness backstop after an authoritative scoped rebuild: one coalesced,
+ * low-priority FULL reconcile after the toggles settle, so any scoped
+ * divergence self-heals within ~SCOPED_REBUILD_TRAILING_RECONCILE_DELAY_MS.
+ */
+function scheduleScopedRebuildTrailingReconcile(): void {
+  if (state.scopedRebuildTrailingTimer) {
+    extensionClearTimeout(state.scopedRebuildTrailingTimer);
+    state.scopedRebuildTrailingTimer = 0;
+  }
+  if (!getExtensionTimer("setTimeout")) {
+    return;
+  }
+  state.scopedRebuildTrailingTimer = extensionSetTimeout(() => {
+    state.scopedRebuildTrailingTimer = 0;
+    if (!state.enabled) {
+      return;
+    }
+    scheduleRender({ invalidate: true, reason: "cp7b-trailing-reconcile" });
+  }, SCOPED_REBUILD_TRAILING_RECONCILE_DELAY_MS);
+}
+
 function invalidateCachedCollections() {
+  // NOTE: this does NOT bump the element-cache version. Collections are
+  // invalidated for many reasons that do NOT change element visibility/text/
+  // paint — notably the settle-time precautionary rebuilds and config/selector
+  // changes — and bumping here would reset the per-element caches on every
+  // settle, defeating cross-toggle reuse. The element caches are pure functions
+  // of DOM + viewport, so they are bumped only by actual DOM/viewport changes
+  // (MutationObserver rebuild, scroll, motion pause/resume).
+  //
+  // CP7b: toggle renders invalidate before rebuilding, so while exactly ONE
+  // toggle is pending the outgoing collections are stashed as the scoped splice
+  // base (version-tagged; a later DOM/viewport bump rejects it at consume).
+  if (
+    state.scopedRebuildToggleCount === 1 &&
+    state.cachedCollections &&
+    state.cachedCollectionsKey
+  ) {
+    state.scopedSpliceBase = {
+      collections: state.cachedCollections,
+      key: state.cachedCollectionsKey,
+      domVersion: state.elementCacheDomVersion
+    };
+  } else if (state.scopedRebuildToggleCount !== 1) {
+    state.scopedSpliceBase = null;
+  }
   state.cachedCollections = null;
   state.cachedCollectionsKey = "";
 }
@@ -9955,6 +10817,37 @@ function renderHighlightsInner() {
     return;
   }
 
+  // CP7b: a single explicit toggle since the last rebuild may take the
+  // branch-scoped path — reuse everything outside the affected subtree, skip
+  // the (redundant) sync scan, and re-walk only the affected branch. Under the
+  // debug parity audit the FULL rebuild stays authoritative and the scoped
+  // result is compared as a shadow.
+  const scopedToggleTarget = consumeScopedRebuildCandidate();
+  // The splice base is the pre-toggle collections: still live when nothing
+  // invalidated, else the version-tagged stash captured at invalidation time.
+  const spliceBase = cached && state.cachedCollectionsKey
+    ? {
+        collections: cached,
+        key: state.cachedCollectionsKey,
+        domVersion: state.elementCacheDomVersion
+      }
+    : state.scopedSpliceBase;
+  state.scopedSpliceBase = null;
+  const preRebuildCachedCollections =
+    spliceBase && spliceBase.domVersion === state.elementCacheDomVersion
+      ? spliceBase.collections
+      : null;
+  const scopedContext = resolveScopedRenderContext({
+    target: scopedToggleTarget,
+    cachedCollections: preRebuildCachedCollections,
+    cachedKey: spliceBase ? spliceBase.key : "",
+    nextKey: nextCollectionsCacheKey,
+    pageUrl,
+    latestEntry
+  });
+  const parityAuditEnabled = scopedContext ? isCp7bParityAuditEnabled() : false;
+  const useScopedRebuild = Boolean(scopedContext) && !parityAuditEnabled;
+
   const rebuildStartedAt = nowMs();
   const immutableExcluded = collectImmutableElements() as Set<Element>;
   const selectorSetForSeed = latestSelectorContext.selectorSet;
@@ -9967,7 +10860,7 @@ function renderHighlightsInner() {
   }
   let hasEntry = hasPageMarkingEntry(state.config, pageUrl);
   let autoSeededFromAiSelectors = false;
-  if (shouldAutoSeedMarkingsFromAiSelectors({
+  if (!useScopedRebuild && shouldAutoSeedMarkingsFromAiSelectors({
     hasAiSelectors,
     hasSavedMarkingsForPage,
     suppressAutoSeed
@@ -9983,14 +10876,23 @@ function renderHighlightsInner() {
       autoSeededFromAiSelectors = true;
     }
   }
-  const syncStartedAt = nowMs();
-  const syncResult = syncPageMarkings(state.config, pageUrl, immutableExcluded, {
-    allowCreate: hasEntry,
-    persist: hasEntry
-  });
-  logTogglePerf("render.sync", syncStartedAt, { pageUrl });
-  const entry =
-      syncResult.entry || getPageMarkingEntry(state.config, pageUrl, { create: false });
+  let entry: PageMarkingEntry;
+  if (useScopedRebuild) {
+    // Scoped: the toggle mutation already normalized and persisted the entry,
+    // and the DOM-candidate rows are DOM-invariant across a pure toggle — the
+    // full-document sync scan is redundant here. The trailing full reconcile
+    // (and any settle/invalidating render) still runs the real sync.
+    // (Eligibility guarantees latestEntry is non-null; the fallback is typing.)
+    entry = latestEntry || getPageMarkingEntry(state.config, pageUrl, { create: false });
+  } else {
+    const syncStartedAt = nowMs();
+    const syncResult = syncPageMarkings(state.config, pageUrl, immutableExcluded, {
+      allowCreate: hasEntry,
+      persist: hasEntry
+    });
+    logTogglePerf("render.sync", syncStartedAt, { pageUrl });
+    entry = syncResult.entry || getPageMarkingEntry(state.config, pageUrl, { create: false });
+  }
   state.currentPageEntry = entry || null;
   if (state.pendingFreshBaselinePageUrl === pageUrl) {
     // First render after a marking enable: the page-marking entry has now been
@@ -10076,7 +10978,7 @@ function renderHighlightsInner() {
     ...hiddenStoredExplicitExclude
   ]);
 
-  const defaultTargets = collectDefaultLayerElements(document.body, {
+  const defaultLayerOptions: DefaultLayerOptions = {
     immutableExcluded,
     consentExcluded,
     explicitExclude,
@@ -10086,7 +10988,24 @@ function renderHighlightsInner() {
     selectorExcluded: selectorExcludedSet,
     hiddenStoredExplicitExclude,
     unexcludedToggleableDefault: new Set(storedUnexcludedToggleableDefaultElements)
-  }) as Element[];
+  };
+  const defaultTargets = (useScopedRebuild && scopedContext && preRebuildCachedCollections
+    ? spliceScopedDefaultTargets(
+        scopedContext.affectedRoot,
+        preRebuildCachedCollections,
+        defaultLayerOptions
+      )
+    : collectDefaultLayerElements(document.body, defaultLayerOptions)) as Element[];
+  if (parityAuditEnabled && scopedContext && preRebuildCachedCollections) {
+    runCp7bParityAudit({
+      scopedContext,
+      preRebuildCachedCollections,
+      latestEntry,
+      syncedEntry: entry,
+      defaultLayerOptions,
+      fullDefaultTargets: defaultTargets
+    });
+  }
 
   const collections = {
     hardElements: Array.from(hardExcludedSet).filter((el) =>
@@ -10114,7 +11033,14 @@ function renderHighlightsInner() {
     selectorSet: selectorSetForMarking,
     entry
   });
-  logTogglePerf("render.rebuild", rebuildStartedAt, { pageUrl });
+  if (useScopedRebuild) {
+    logTogglePerf("render.scoped-rebuild", rebuildStartedAt, { pageUrl });
+    // Backstop: one coalesced full reconcile after the toggles settle so any
+    // scoped divergence self-heals shortly after.
+    scheduleScopedRebuildTrailingReconcile();
+  } else {
+    logTogglePerf("render.rebuild", rebuildStartedAt, { pageUrl });
+  }
 
   if (autoSeededFromAiSelectors) {
     state.autoSeededPendingSavePageUrl = pageUrl;
@@ -10373,6 +11299,11 @@ function startObservers() {
       }
       if (renderMode === "rebuild") {
         invalidateSharedSelectorCache({ domStructure: true });
+        // A real DOM structure/attribute change (class/style/id/hidden/childList)
+        // can change element visibility/text/paint, so the persisted per-element
+        // caches must rebuild next pass. (A marking toggle never reaches here —
+        // its data-uf-* attribute changes are classified "none".)
+        bumpElementCacheDomVersion();
       }
       invalidateHoverHighlightCache();
       scheduleRender({
@@ -11164,10 +12095,99 @@ export function isVisibleForSubmission(el: Element | null | undefined): boolean 
   return anyClientRectIntersectsSubmissionArea(el);
 }
 
+/**
+ * Whether the live document contains a capturable (open, non-extension) shadow
+ * root. Memoized per marking pass (reset in resetElementComputationCaches). Used
+ * to gate the composed-tree XPath resolver so shadow-free pages — and the
+ * light-DOM `document.evaluate` test mocks — behave exactly as before.
+ */
+function documentHasCapturableShadow(): boolean {
+  if (state.documentShadowPresence !== null) {
+    return state.documentShadowPresence;
+  }
+  let present = false;
+  try {
+    if (typeof document !== "undefined" && typeof document.querySelectorAll === "function") {
+      const all = document.querySelectorAll("*");
+      for (const el of Array.from(all as ArrayLike<Element>)) {
+        if (getCapturableShadowRoot(el)) {
+          present = true;
+          break;
+        }
+      }
+    }
+  } catch (_error) {
+    present = false;
+  }
+  state.documentShadowPresence = present;
+  return present;
+}
+
+function parsePositionalXPathSteps(xpath: string): Array<{ tag: string; index: number }> | null {
+  const trimmed = xpath.trim();
+  if (!trimmed.startsWith("/")) {
+    return null;
+  }
+  const segments = trimmed.replace(/^\/+/, "").split("/");
+  const steps: Array<{ tag: string; index: number }> = [];
+  for (const segment of segments) {
+    const match = /^([a-z][a-z0-9-]*)\[(\d+)\]$/i.exec(segment);
+    if (!match) {
+      return null;
+    }
+    const index = Number(match[2]);
+    if (!Number.isInteger(index) || index < 1) {
+      return null;
+    }
+    steps.push({ tag: match[1].toLowerCase(), index });
+  }
+  return steps.length ? steps : null;
+}
+
+/**
+ * Resolve a positional XPath over the composed/flattened tree (shadow-root
+ * children first, then light children — matching the deep capture and the
+ * flattened `getXPath` scheme), so a shadow node's flattened XPath round-trips
+ * to its live element. Only handles the strictly positional `/tag[n]/...` form
+ * this codebase generates; returns null for anything else.
+ */
+function resolveXPathThroughComposedTree(xpath: string): Element | null {
+  const steps = parsePositionalXPathSteps(xpath);
+  if (!steps || typeof document === "undefined") {
+    return null;
+  }
+  const rootEl = document.documentElement;
+  if (!rootEl) {
+    return null;
+  }
+  const first = steps[0];
+  if (rootEl.tagName.toLowerCase() !== first.tag || first.index !== 1) {
+    return null;
+  }
+  let current: Element | null = rootEl;
+  for (let i = 1; i < steps.length && current; i += 1) {
+    const step = steps[i];
+    let count = 0;
+    let match: Element | null = null;
+    for (const child of getComposedChildElements(current)) {
+      if (child.tagName.toLowerCase() === step.tag) {
+        count += 1;
+        if (count === step.index) {
+          match = child;
+          break;
+        }
+      }
+    }
+    current = match;
+  }
+  return current;
+}
+
 export function getElementFromXPath(xpath: string | null | undefined): Element | null {
   if (typeof xpath !== "string" || !xpath) {
     return null;
   }
+  let nativeNode: Element | null = null;
   try {
     const result = document.evaluate(
         xpath,
@@ -11178,12 +12198,24 @@ export function getElementFromXPath(xpath: string | null | undefined): Element |
     );
     const node = result.singleNodeValue;
     if (isElementNode(node)) {
-      return node;
+      nativeNode = node;
     }
-    return null;
   } catch (_error) {
-    return null;
+    nativeNode = null;
   }
+  // Shadow-free documents (and the light-DOM evaluate test mocks): native
+  // evaluate is authoritative — unchanged behavior.
+  if (!documentHasCapturableShadow()) {
+    return nativeNode;
+  }
+  // With shadow present a flattened XPath may address inlined shadow content
+  // that light-DOM evaluate cannot see, or resolve to the wrong (shifted) light
+  // element. Trust native only when the resolved element's own flattened XPath
+  // round-trips; otherwise walk the composed tree.
+  if (nativeNode && getXPath(nativeNode) === xpath) {
+    return nativeNode;
+  }
+  return resolveXPathThroughComposedTree(xpath) || nativeNode;
 }
 
 export function hasPageMarkingEntry(config: unknown, pageUrl: string): boolean {
@@ -11536,6 +12568,13 @@ export function disable(options = {}) {
   state.isScrolling = false;
   state.cachedCollections = null;
   state.cachedCollectionsKey = "";
+  state.scopedSpliceBase = null;
+  state.scopedRebuildTarget = null;
+  state.scopedRebuildToggleCount = 0;
+  if (state.scopedRebuildTrailingTimer) {
+    extensionClearTimeout(state.scopedRebuildTrailingTimer);
+    state.scopedRebuildTrailingTimer = 0;
+  }
   state.paintReachabilityFallbackCount = 0;
   state.paintReachabilityFallbackLastLoggedAt = 0;
   clearMarkingSettleRenders();
@@ -11651,6 +12690,9 @@ export function handleScroll(event: ScrollEventLike | Event, options = {}) {
   if (!state.enabled || state.aiPopover || !state.overlay) {
     return;
   }
+  // Scrolling changes element visibility and paint-reachability, so the reused
+  // per-element caches must be rebuilt on the next pass.
+  bumpElementCacheDomVersion();
   const isViewportScroll = isViewportScrollEvent(event);
   // Nested scroll containers still need a debounced redraw so partially visible
   // marked content tracks carousels and internal panes. Only viewport scrolls

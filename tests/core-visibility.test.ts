@@ -16,6 +16,7 @@ import {
   isMarkableElement,
   isVisible,
   isVisibleForSubmission,
+  resolveScopedAffectedRoot,
   state,
   syncPageMarkings,
   syncPageMarkingsAsync
@@ -442,6 +443,405 @@ test("theoretical hidden nodes are accepted when they are visibly rendered", () 
     globalThis.document.elementFromPoint = () => element;
     globalThis.document.elementsFromPoint = () => [element];
     assert.equal(isVisible(element), true);
+  });
+});
+
+test("MA-1b: text truncated by a vertical height clamp stays visible (cramo read-more)", () => {
+  // A <p> whose full text lives in the DOM but overflows a fixed-height,
+  // overflow:hidden clamp (Google indexes it) must be treated as visible, not
+  // clipped away. The clamp box still shows a non-empty preview and its content
+  // is taller than its visible height, so the clipped tail is included.
+  withVisibilityDom(({ body }) => {
+    const clamp = createElement({
+      parentElement: body,
+      style: { overflow: "hidden", height: "100px" },
+      rect: { top: 0, right: 300, bottom: 100, left: 0, width: 300, height: 100 }
+    });
+    clamp.clientHeight = 100;
+    clamp.scrollHeight = 300;
+    const tail = createElement({
+      tagName: "p",
+      parentElement: clamp,
+      text: "Hos Cramo kan du hyra spikpistol och annan utrustning...",
+      rect: { top: 120, right: 300, bottom: 300, left: 0, width: 300, height: 180 }
+    });
+    clamp.children.push(tail);
+    clamp.childNodes.push(tail);
+    body.children.push(clamp);
+    body.childNodes.push(clamp);
+
+    assert.equal(isVisible(tail), true);
+  });
+});
+
+test("MA-1b: text below a -webkit-line-clamp box stays visible", () => {
+  withVisibilityDom(({ body }) => {
+    const clamp = createElement({
+      tagName: "p",
+      parentElement: body,
+      style: { overflow: "hidden", display: "-webkit-box", webkitLineClamp: "3" },
+      rect: { top: 0, right: 300, bottom: 60, left: 0, width: 300, height: 60 }
+    });
+    clamp.clientHeight = 60;
+    clamp.scrollHeight = 140;
+    const tailLine = createElement({
+      tagName: "span",
+      parentElement: clamp,
+      text: "fourth and fifth line of the clamped paragraph",
+      rect: { top: 80, right: 300, bottom: 120, left: 0, width: 300, height: 40 }
+    });
+    clamp.children.push(tailLine);
+    clamp.childNodes.push(tailLine);
+    body.children.push(clamp);
+    body.childNodes.push(clamp);
+
+    assert.equal(isVisible(tailLine), true);
+  });
+});
+
+test("MA-1b: horizontally clipped carousel content is still hidden (not spared)", () => {
+  // The clamp only spares vertical text truncation. Content pushed entirely to
+  // the side of an overflow:hidden box (carousels, off-canvas) is genuinely not
+  // shown and must stay excluded even though it carries text.
+  withVisibilityDom(({ body }) => {
+    const carousel = createElement({
+      parentElement: body,
+      style: { overflow: "hidden", width: "300px" },
+      rect: { top: 0, right: 300, bottom: 200, left: 0, width: 300, height: 200 }
+    });
+    carousel.clientHeight = 200;
+    carousel.scrollHeight = 200;
+    const offSlide = createElement({
+      tagName: "p",
+      parentElement: carousel,
+      text: "Off-screen carousel slide copy",
+      rect: { top: 0, right: 700, bottom: 200, left: 400, width: 300, height: 200 }
+    });
+    carousel.children.push(offSlide);
+    carousel.childNodes.push(offSlide);
+    body.children.push(carousel);
+    body.childNodes.push(carousel);
+
+    assert.equal(isVisible(offSlide), false);
+  });
+});
+
+test("MA-1b: a fully collapsed zero-height accordion body stays hidden", () => {
+  // max-height:0 / height:0 collapse shows no preview — it is an interaction-
+  // gated panel (excluded until the user expands it), not a truncation clamp.
+  withVisibilityDom(({ body }) => {
+    const collapsed = createElement({
+      parentElement: body,
+      style: { overflow: "hidden", height: "0px" },
+      rect: { top: 0, right: 300, bottom: 0, left: 0, width: 300, height: 0 }
+    });
+    collapsed.clientHeight = 0;
+    collapsed.scrollHeight = 200;
+    const hiddenBody = createElement({
+      tagName: "p",
+      parentElement: collapsed,
+      text: "Accordion body that only shows after a click",
+      rect: { top: 0, right: 300, bottom: 200, left: 0, width: 300, height: 200 }
+    });
+    collapsed.children.push(hiddenBody);
+    collapsed.childNodes.push(hiddenBody);
+    body.children.push(collapsed);
+    body.childNodes.push(collapsed);
+
+    assert.equal(isVisible(hiddenBody), false);
+  });
+});
+
+// createElement has no shadow API, so attach an open shadow root by hand:
+// the shadow children live off the light tree (parentElement null) and report
+// the shadow root from getRootNode, matching a real top-level shadow child.
+function attachShadowRoot(host, shadowChildren) {
+  const shadowRoot = { host, children: shadowChildren, childNodes: shadowChildren };
+  host.shadowRoot = shadowRoot;
+  for (const child of shadowChildren) {
+    child.parentElement = null;
+    child.getRootNode = () => shadowRoot;
+  }
+  return shadowRoot;
+}
+
+test("CP6: enumeration descends into open shadow roots (shadow content is a default candidate)", () => {
+  withVisibilityDom(({ documentElement, body }) => {
+    const shadowP = createElement({
+      tagName: "p",
+      text: "Hos Cramo kan du hyra spikpistol",
+      rect: { top: 40, right: 320, bottom: 80, left: 20, width: 300, height: 40 }
+    });
+    const host = createElement({
+      tagName: "cramo-read-more",
+      parentElement: body,
+      rect: { top: 40, right: 320, bottom: 120, left: 20, width: 300, height: 80 }
+    });
+    attachShadowRoot(host, [shadowP]);
+    body.children.push(host);
+    body.childNodes.push(host);
+    // Browser pierces the open shadow root at the point.
+    globalThis.document.elementsFromPoint = () => [shadowP, host, body, documentElement];
+    globalThis.document.elementFromPoint = () => shadowP;
+
+    const targets = collectDefaultLayerElements(body);
+    assert.equal(targets.includes(shadowP), true, "shadow <p> must be enumerated as a default candidate");
+    assert.equal(targets.includes(host), false, "the text-less shadow host is not itself a candidate");
+  });
+});
+
+test("CP6: shadow content stays paint-reachable when the hit test only reports the host", () => {
+  withVisibilityDom(({ documentElement, body }) => {
+    const shadowP = createElement({
+      tagName: "p",
+      text: "Shadow paragraph reported behind its host",
+      rect: { top: 40, right: 320, bottom: 80, left: 20, width: 300, height: 40 }
+    });
+    const host = createElement({
+      tagName: "cramo-read-more",
+      parentElement: body,
+      rect: { top: 40, right: 320, bottom: 120, left: 20, width: 300, height: 80 }
+    });
+    attachShadowRoot(host, [shadowP]);
+    body.children.push(host);
+    body.childNodes.push(host);
+    // elementsFromPoint does NOT pierce: only the host is reported at the point.
+    globalThis.document.elementsFromPoint = () => [host, body, documentElement];
+    globalThis.document.elementFromPoint = () => host;
+
+    const targets = collectDefaultLayerElements(body);
+    assert.equal(
+      targets.includes(shadowP),
+      true,
+      "shadow <p> must stay reachable through a hit reported on its host"
+    );
+  });
+});
+
+test("CP6: getMarkableTarget pierces an open shadow root so inner nodes are click-markable", () => {
+  withVisibilityDom(({ documentElement, body }) => {
+    state.documentShadowPresence = null;
+    const shadowP = createElement({
+      tagName: "p",
+      text: "Includable shadow paragraph",
+      rect: { top: 40, right: 320, bottom: 80, left: 20, width: 300, height: 40 }
+    });
+    const host = createElement({
+      tagName: "cramo-read-more",
+      parentElement: body,
+      rect: { top: 40, right: 320, bottom: 120, left: 20, width: 300, height: 80 }
+    });
+    const shadowRoot = attachShadowRoot(host, [shadowP]);
+    // The shadow root exposes its own hit test (elementsFromPoint does not pierce).
+    shadowRoot.elementsFromPoint = () => [shadowP];
+    body.children.push(host);
+    body.childNodes.push(host);
+    globalThis.document.elementsFromPoint = () => [host, body, documentElement];
+    globalThis.document.querySelectorAll = (selector) => (selector === "*" ? [host, shadowP] : []);
+
+    const shadowXpath = getXPath(shadowP);
+    assert.equal(shadowXpath, "/html[1]/body[1]/cramo-read-more[1]/p[1]");
+
+    try {
+      const target = getMarkableTarget(40, 60, {
+        allowParent: false,
+        allowExplicitTarget: true,
+        preferExplicitTarget: true,
+        excludedSet: new Set(),
+        includeSet: new Set([shadowXpath]),
+        explicitParentSet: new Set(),
+        allowExcludedParentChildren: true,
+        allowImmutableChildren: false,
+        requireExcludedAncestor: false
+      });
+      assert.equal(target, shadowP, "the pierced shadow <p> is the click target");
+    } finally {
+      state.documentShadowPresence = null;
+    }
+  });
+});
+
+// CP7b equivalence corpus: the branch-scoped default walk (root seeded from its
+// real ancestor state) must equal the full body-rooted walk restricted to the
+// scoped subtree — the soundness core of the incremental rebuild.
+function subtreeOf(root, elements) {
+  return elements.filter((el) => el === root || root.contains(el));
+}
+
+test("CP7b: scoped walk from a mid-tree root equals the full walk restricted to its subtree", () => {
+  withVisibilityDom(({ body }) => {
+    const p1 = createElement({
+      tagName: "p",
+      text: "Section paragraph",
+      rect: { top: 40, right: 320, bottom: 80, left: 20, width: 300, height: 40 }
+    });
+    const footerP = createElement({
+      tagName: "p",
+      text: "Footer text inside the boundary",
+      rect: { top: 120, right: 320, bottom: 160, left: 20, width: 300, height: 40 }
+    });
+    const footer = createElement({
+      tagName: "footer",
+      children: [footerP],
+      rect: { top: 100, right: 420, bottom: 180, left: 10, width: 410, height: 80 }
+    });
+    const section = createElement({
+      tagName: "section",
+      parentElement: body,
+      children: [p1, footer],
+      rect: { top: 20, right: 420, bottom: 200, left: 10, width: 410, height: 180 }
+    });
+    const outsideP = createElement({
+      tagName: "p",
+      parentElement: body,
+      text: "Sibling outside the scoped subtree",
+      rect: { top: 220, right: 320, bottom: 260, left: 20, width: 300, height: 40 }
+    });
+    body.children.push(section, outsideP);
+    body.childNodes.push(section, outsideP);
+
+    const full = collectDefaultLayerElements(body, {});
+    const scoped = collectDefaultLayerElements(section, { scopeRootSeedFromAncestors: true });
+
+    assert.deepEqual(scoped, subtreeOf(section, full));
+    assert.equal(full.includes(outsideP), true, "sanity: the outside sibling is a full-walk candidate");
+  });
+});
+
+test("CP7b: a hard-excluded ancestor above the scoped root seeds the walk to empty", () => {
+  withVisibilityDom(({ body }) => {
+    const innerText = createElement({
+      tagName: "p",
+      text: "Text under a hard-excluded wrapper",
+      rect: { top: 60, right: 320, bottom: 100, left: 20, width: 300, height: 40 }
+    });
+    const scopedRoot = createElement({
+      tagName: "div",
+      children: [innerText],
+      rect: { top: 40, right: 420, bottom: 120, left: 10, width: 410, height: 80 }
+    });
+    const hardWrapper = createElement({
+      tagName: "div",
+      parentElement: body,
+      children: [scopedRoot],
+      rect: { top: 20, right: 420, bottom: 140, left: 10, width: 410, height: 120 }
+    });
+    body.children.push(hardWrapper);
+    body.childNodes.push(hardWrapper);
+    const options = { immutableExcluded: new Set([hardWrapper]) };
+
+    const full = collectDefaultLayerElements(body, options);
+    const scoped = collectDefaultLayerElements(scopedRoot, {
+      ...options,
+      scopeRootSeedFromAncestors: true
+    });
+
+    assert.deepEqual(scoped, subtreeOf(scopedRoot, full));
+    assert.deepEqual(scoped, [], "hard ancestor seed suppresses the whole scoped subtree");
+  });
+});
+
+test("CP7b: an explicitly excluded ancestor above the scoped root seeds ancestor-exclusion", () => {
+  withVisibilityDom(({ body }) => {
+    const innerText = createElement({
+      tagName: "p",
+      text: "Text under an explicitly excluded wrapper",
+      rect: { top: 60, right: 320, bottom: 100, left: 20, width: 300, height: 40 }
+    });
+    const scopedRoot = createElement({
+      tagName: "div",
+      children: [innerText],
+      rect: { top: 40, right: 420, bottom: 120, left: 10, width: 410, height: 80 }
+    });
+    const excludedWrapper = createElement({
+      tagName: "div",
+      parentElement: body,
+      children: [scopedRoot],
+      rect: { top: 20, right: 420, bottom: 140, left: 10, width: 410, height: 120 }
+    });
+    body.children.push(excludedWrapper);
+    body.childNodes.push(excludedWrapper);
+    const options = { explicitExclude: new Set([excludedWrapper]) };
+
+    const full = collectDefaultLayerElements(body, options);
+    const scoped = collectDefaultLayerElements(scopedRoot, {
+      ...options,
+      scopeRootSeedFromAncestors: true
+    });
+
+    assert.deepEqual(scoped, subtreeOf(scopedRoot, full));
+    assert.deepEqual(scoped, [], "excluded-ancestor seed suppresses the scoped subtree");
+  });
+});
+
+test("CP7b: the affected root is the outermost flip-capable ancestor, else the target", () => {
+  withVisibilityDom(({ body }) => {
+    const insideFooterP = createElement({
+      tagName: "p",
+      text: "Paragraph inside the toggleable boundary",
+      rect: { top: 120, right: 320, bottom: 160, left: 20, width: 300, height: 40 }
+    });
+    insideFooterP.isConnected = true;
+    const footer = createElement({
+      tagName: "footer",
+      parentElement: body,
+      children: [insideFooterP],
+      rect: { top: 100, right: 420, bottom: 180, left: 10, width: 410, height: 80 }
+    });
+    const plainP = createElement({
+      tagName: "p",
+      parentElement: body,
+      text: "Plain paragraph directly under body",
+      rect: { top: 220, right: 320, bottom: 260, left: 20, width: 300, height: 40 }
+    });
+    plainP.isConnected = true;
+    body.children.push(footer, plainP);
+    body.childNodes.push(footer, plainP);
+
+    // Inside a toggleable-default boundary: the boundary is the affected root
+    // (its self-markability flips on an explicitly marked descendant).
+    assert.equal(resolveScopedAffectedRoot(insideFooterP), footer);
+    // A plain content ancestor chain: the target itself bounds the surface.
+    assert.equal(resolveScopedAffectedRoot(plainP), plainP);
+    // A disconnected target is ineligible.
+    const detached = createElement({ tagName: "p", text: "detached" });
+    detached.isConnected = false;
+    assert.equal(resolveScopedAffectedRoot(detached), null);
+  });
+});
+
+test("CP8/D1: a revealed (now-visible, markable) element can be explicit-included", () => {
+  withVisibilityDom(({ documentElement, body }) => {
+    const revealed = createElement({
+      tagName: "p",
+      parentElement: body,
+      text: "Content revealed after a Space-passthrough expand",
+      rect: { top: 40, right: 320, bottom: 80, left: 20, width: 300, height: 40 }
+    });
+    body.children.push(revealed);
+    body.childNodes.push(revealed);
+    globalThis.document.elementsFromPoint = () => [revealed, body, documentElement];
+    globalThis.document.elementFromPoint = () => revealed;
+
+    assert.equal(canApplyExplicitInclude(revealed, null, "https://example.test/"), true);
+  });
+});
+
+test("CP8/D1: a still-collapsed hidden non-default element is not includable until expanded", () => {
+  withVisibilityDom(({ body }) => {
+    const collapsed = createElement({
+      tagName: "div",
+      parentElement: body,
+      text: "Accordion body still collapsed",
+      style: { display: "none" },
+      rect: { top: 40, right: 320, bottom: 80, left: 20, width: 300, height: 40 }
+    });
+    body.children.push(collapsed);
+    body.childNodes.push(collapsed);
+
+    // display:none, not a toggleable default, not a saved include → the user must
+    // expand it via page-interaction mode before it can be marked.
+    assert.equal(canApplyExplicitInclude(collapsed, null, "https://example.test/"), false);
   });
 });
 

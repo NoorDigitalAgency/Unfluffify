@@ -27,6 +27,7 @@ import { tracePopupApplyView } from "./common/layer-trace";
 import {
   FEATURE_DISABLED_REASON,
   getFeatureFlags,
+  isDebugBuild,
   isDebugFlagEnabled,
   isFeatureEnabled
 } from "./common/feature-flags";
@@ -509,14 +510,42 @@ type StorageChangeLike = {
 type StorageChangeMap = Record<string, StorageChangeLike | undefined>;
 
 const { state } = stateModule;
+
+// Debug-only "direct mode": lets marking activate on ANY page (bypassing the
+// configured-property / confirmed-render-mode / page-type gates) for test
+// scenarios such as an unconfigured shadow-DOM page (cramo). Gated on BOTH a
+// debug build (`isDebugBuild()`) AND the explicit `?directMode=1` popup query
+// param, so a plain production build never honors it. Scope: marking +
+// enumeration + overlay only — save / AI-run stay gated as usual.
+const DIRECT_MODE_ACTIVE = (() => {
+  try {
+    if (!isDebugBuild() || typeof location === "undefined") {
+      return false;
+    }
+    return new URLSearchParams(location.search || "").get("directMode") === "1";
+  } catch {
+    return false;
+  }
+})();
+
 const popupDebugTarget = globalThis as typeof globalThis & {
   __UNFLUFFIFY_POPUP_DEBUG__?: {
     getViewState: typeof uiModule.getViewState;
+    directModeActive?: boolean;
+    activateDirectMode?: () => void;
   };
 };
 
 popupDebugTarget.__UNFLUFFIFY_POPUP_DEBUG__ = {
   getViewState: uiModule.getViewState,
+  directModeActive: DIRECT_MODE_ACTIVE,
+  // Programmatic activation for automated tests (more reliable than a synthetic
+  // click). No-op unless direct mode is active.
+  activateDirectMode: DIRECT_MODE_ACTIVE
+    ? () => {
+        void handleEnableToggle({ target: { checked: true } } as PopupCheckedEvent);
+      }
+    : undefined,
 };
 
 function getPopupEventSource<TTarget extends object>(
@@ -4669,6 +4698,19 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
   state.currentBaseUrl = tabInScope
     ? (effectiveTabState.baseUrl || fallbackBaseUrl || "")
     : "";
+  if (DIRECT_MODE_ACTIVE && tabInScope && !state.currentBaseUrl) {
+    // Direct mode: synthesize an ad-hoc property from the page origin so the
+    // unconfigured page is treated as in-scope. Not persisted; save/AI stay
+    // gated. The content side (enableForBaseUrl) only requires the page to be
+    // within this baseUrl, which the page origin satisfies.
+    const origin = utils.getOriginFromUrl(pageUrl) || "";
+    const synthesizedBaseUrl = origin ? (utils.normalizeBaseUrl(origin) || origin) : "";
+    if (synthesizedBaseUrl) {
+      state.currentBaseUrl = synthesizedBaseUrl;
+      unsupportedByGraphql = false;
+      siteIdBlockedReason = "";
+    }
+  }
   if (state.currentBaseUrl) {
     const normalized = config.normalizeConfig(state.currentBaseUrl, configs[state.currentBaseUrl]);
     if (configs[state.currentBaseUrl] && normalized.changed) {
@@ -4929,6 +4971,11 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
     state.renderModeUndeterminedNoticeKey = "";
     state.renderModeWarningDismissedKey = "";
   }
+  if (DIRECT_MODE_ACTIVE && state.currentBaseUrl) {
+    // Direct mode skips the render-mode inspection/confirmation step so the
+    // marking editor (and the enable toggle) are reachable on any page.
+    state.currentBaseUrlHasConfirmedRenderMode = true;
+  }
 
   const view = uiModule.getViewState();
   const refs = uiModule.getRefs();
@@ -5148,7 +5195,7 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
   }
   const siteIdReady = Boolean(
     currentSiteId || normalizeSiteIdValue(state.currentConfig && state.currentConfig.siteId)
-  );
+  ) || DIRECT_MODE_ACTIVE;
   const effectiveSiteIdBlockedReason = unsupportedByGraphql
     ? siteIdBlockedReason || PopupText.status.noMappedBaseUrlFound
     : !tabInScope
@@ -7401,14 +7448,14 @@ async function handleEnableToggle(event: PopupCheckedEvent) {
     clearImmediateDisableSpinner();
     return;
   }
-  if (desiredEnabled && !isCurrentRenderModeReady()) {
+  if (desiredEnabled && !isCurrentRenderModeReady() && !DIRECT_MODE_ACTIVE) {
     uiModule.showToast(PopupText.renderMode.toastConfirmBeforeEnabling);
     uiModule.setViewState({ toggleEnabled: false });
     clearLastPopupEnabled();
     await refreshUi();
     return;
   }
-  if (desiredEnabled && !state.currentPageTypeKey) {
+  if (desiredEnabled && !state.currentPageTypeKey && !DIRECT_MODE_ACTIVE) {
     uiModule.showToast(
       uiModule.getViewState().pageTypeNoticeText || PopupText.pageTypes.blockedCurrentPage
     );
@@ -7482,24 +7529,32 @@ async function handleEnableToggle(event: PopupCheckedEvent) {
             const normalizedCurrent = config.normalizeConfig(baseUrlValue, currentConfigs[baseUrlValue]);
             state.currentConfig = normalizedCurrent.config;
           }
-          const { stageBaseValue, tokenValue } = await helpers.loadGlobalAiSettings();
-          const siteIdResult = await ensureBaseUrlSiteId({
-            baseUrl: baseUrlValue,
-            pageUrl: tab.url,
-            stageBase: stageBaseValue,
-            tokenValue,
-            persist: false
-          });
-          if (!siteIdResult.ok || !siteIdResult.siteId) {
-            uiModule.showToast(siteIdResult.reason || ViewText.noDomainIdForBaseUrl);
-            uiModule.setViewState({ toggleEnabled: false });
-            clearLastPopupEnabled();
-            await refreshUi();
-            return;
+          let effectiveBaseUrl = baseUrlValue;
+          if (DIRECT_MODE_ACTIVE) {
+            // Direct mode: skip the backend siteId resolution — the page is not a
+            // configured property. Marking / enumeration / overlay do not need a
+            // siteId; save and AI-run remain gated and unavailable here.
+            state.currentBaseUrl = effectiveBaseUrl;
+          } else {
+            const { stageBaseValue, tokenValue } = await helpers.loadGlobalAiSettings();
+            const siteIdResult = await ensureBaseUrlSiteId({
+              baseUrl: baseUrlValue,
+              pageUrl: tab.url,
+              stageBase: stageBaseValue,
+              tokenValue,
+              persist: false
+            });
+            if (!siteIdResult.ok || !siteIdResult.siteId) {
+              uiModule.showToast(siteIdResult.reason || ViewText.noDomainIdForBaseUrl);
+              uiModule.setViewState({ toggleEnabled: false });
+              clearLastPopupEnabled();
+              await refreshUi();
+              return;
+            }
+            effectiveBaseUrl = siteIdResult.baseUrl || baseUrlValue;
+            state.currentBaseUrl = effectiveBaseUrl;
+            state.currentConfig = siteIdResult.config || state.currentConfig;
           }
-          const effectiveBaseUrl = siteIdResult.baseUrl || baseUrlValue;
-          state.currentBaseUrl = effectiveBaseUrl;
-          state.currentConfig = siteIdResult.config || state.currentConfig;
           if (uiModule.getViewState().desktopPreviewEnabled) {
             uiModule.showToast(PopupText.device.desktopPreviewDisableMarkingToast);
             uiModule.setViewState({ toggleEnabled: false });
