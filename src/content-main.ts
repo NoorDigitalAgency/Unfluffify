@@ -6713,7 +6713,9 @@ function createExplicitMarkingHandlerDeps(): ExplicitMarkingDeps {
     scheduleRender: () => core.scheduleRender(undefined),
     scheduleSnapshotSave: () => core.scheduleSnapshotSave(),
     touchPageEntryTimestamp: (entry: Parameters<ExplicitMarkingDeps["touchPageEntryTimestamp"]>[0]) =>
-      core.touchPageEntryTimestamp(entry as ContentPageEntry)
+      core.touchPageEntryTimestamp(entry as ContentPageEntry),
+    recordScopedRebuildCandidate: (target: Element | null) =>
+      core.recordScopedRebuildCandidate(target)
   };
 }
 

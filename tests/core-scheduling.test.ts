@@ -840,6 +840,68 @@ test("CP7a: per-element computation caches persist across renders, version-gated
   );
 });
 
+test("CP7b: branch-scoped rebuild is single-toggle gated, guarded, and backstopped", () => {
+  const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
+
+  // Exactly ONE toggle since the last rebuild qualifies; more (or zero) => full.
+  assert.match(
+    source,
+    /function recordScopedRebuildCandidate\([\s\S]*?state\.scopedRebuildToggleCount \+= 1;[\s\S]*?state\.scopedRebuildToggleCount === 1/
+  );
+  assert.match(
+    source,
+    /function consumeScopedRebuildCandidate\(\)[\s\S]*?state\.scopedRebuildToggleCount === 1 \? state\.scopedRebuildTarget : null/
+  );
+  // The toggle completion records the candidate.
+  assert.match(
+    source,
+    /function completeExplicitToggle\([\s\S]*?recordScopedRebuildCandidate\(target\);/
+  );
+  // Eligibility: only the entry fingerprint may differ (pageUrl + selector
+  // fingerprint segments must match), a pending fresh baseline or missing
+  // explicit markings falls back to full.
+  assert.match(
+    source,
+    /function resolveScopedRenderContext\([\s\S]*?state\.pendingFreshBaselinePageUrl === pageUrl[\s\S]*?hasExplicitUserMarkings\(latestEntry\)[\s\S]*?cachedParts\[0\] !== nextParts\[0\] \|\| cachedParts\[1\] !== nextParts\[1\]/
+  );
+  // The affected root is the outermost flip-capable ancestor (toggleable-default
+  // or structured-group), else the target; unbounded roots are ineligible.
+  assert.match(
+    source,
+    /function isScopedFlipCapableAncestor\(node(?:\s*:\s*[^)]+)?\)(?:: [^{]+)? \{\s*return matchesToggleableDefaultExcluded\(node\) \|\| isStructuredGroupExclusionCandidate\(node\);/
+  );
+  // The scoped path skips the sync scan and splices the cached outside-subtree
+  // defaults with a fresh seeded walk of the affected subtree.
+  assert.match(
+    source,
+    /const defaultTargets = \(useScopedRebuild && scopedContext && preRebuildCachedCollections\s*\?\s*spliceScopedDefaultTargets\(/
+  );
+  assert.match(
+    source,
+    /function spliceScopedDefaultTargets\([\s\S]*?el\.isConnected === true && !isWithinComposedSubtree\(affectedRoot, el\)[\s\S]*?scopeRootSeedFromAncestors: true/
+  );
+  // Debug parity audit keeps the FULL rebuild authoritative and compares the
+  // scoped shadow; it is debug-build gated.
+  assert.match(
+    source,
+    /function isCp7bParityAuditEnabled\(\)[\s\S]*?if \(!isDebugBuild\(\)\) \{\s*return false;/
+  );
+  assert.match(
+    source,
+    /const useScopedRebuild = Boolean\(scopedContext\) && !parityAuditEnabled;/
+  );
+  // Backstop: an authoritative scoped rebuild schedules one coalesced trailing
+  // FULL reconcile.
+  assert.match(
+    source,
+    /if \(useScopedRebuild\) \{[\s\S]*?logTogglePerf\("render\.scoped-rebuild"[\s\S]*?scheduleScopedRebuildTrailingReconcile\(\);/
+  );
+  assert.match(
+    source,
+    /function scheduleScopedRebuildTrailingReconcile\(\)[\s\S]*?scheduleRender\(\{ invalidate: true, reason: "cp7b-trailing-reconcile" \}\);/
+  );
+});
+
 test("marking enable schedules settle renders that force invalidating rebuilds", () => {
   const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
 

@@ -345,10 +345,27 @@ only the page-marking entry (`xpaths` / `includeXpaths`), which feeds the
 separate entry fingerprint. So the selector / AI / immutable layers are safe to
 freeze across a mark.
 
-**Interim (current, correct):** the shipped behavior is the immediate
-explicit-overlay acknowledgement plus a debounced (~180ms) invalidating full
-reconcile described in the bullets above. It is correct — just not yet optimal —
-and stands until the incremental rebuild lands as its own checkpoint.
+**Shipped (branch-scoped rebuild):** a single explicit toggle takes the
+branch-scoped path. The affected surface is rooted at the OUTERMOST
+flip-capable ancestor of the toggled element — a toggleable-default boundary or
+structured-group candidate, the only ancestors whose candidacy can flip on an
+explicitly-marked-descendant change — else the element itself; everything
+outside that subtree is provably unchanged and reused from the pre-toggle
+collections (stashed at invalidation, DOM/viewport-version-tagged). The scoped
+render skips the (redundant) sync scan and re-walks only the affected subtree
+with the root frame seeded from its real ancestor state.
+
+Guards, all falling back to the full rebuild: more than one pending toggle; any
+page/selector-fingerprint change; any entry-row difference between the stash and
+the next key that does not resolve INSIDE the affected subtree (this catches
+generated-row churn discovered by a sync elsewhere on the page); a pending
+fresh-baseline adoption; a stale (version-mismatched) stash; an unbounded
+affected root. After every authoritative scoped rebuild one coalesced trailing
+FULL reconcile runs (~1.5s after the toggles settle) as the self-healing
+correctness backstop, and settle/invalidating renders remain full. Debug builds
+expose a live `incremental == full` parity audit
+(`localStorage["unfluffify:cp7b-parity"]="1"`) that keeps the full rebuild
+authoritative and logs any scoped divergence.
 
 ## Motion Stability Contract
 

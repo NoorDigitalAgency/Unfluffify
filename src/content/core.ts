@@ -8,6 +8,7 @@ import {
   EXTENSION_UI_FONT_STACK
 } from "../common/constants";
 import { ContentText } from "../common/text";
+import { isDebugBuild } from "../common/feature-flags";
 import { REMOVABLE_ELEMENT_SELECTORS } from "./constants";
 import {
   normalizeAiSelectorSet,
@@ -213,6 +214,11 @@ interface DefaultHighlightOptions {
   hardExcludedSet?: Set<Element>;
   hasHigherPrecedence?: (element: Element) => boolean;
   excludedAncestorSet?: Set<Element>;
+  // CP7b: when walking a scoped subtree (root !== body), seed the root frame's
+  // ancestor-exclusion flags from the scope root's real ancestor state so the
+  // scoped walk matches what the full walk would have propagated down to it.
+  rootAncestorExcluded?: boolean;
+  rootAncestorHardExcluded?: boolean;
 }
 
 interface CollapseElementsOptions {
@@ -425,6 +431,10 @@ interface DefaultLayerOptions {
   selectorExcludedSet?: ElementCollection;
   hiddenStoredExplicitExclude?: ElementCollection;
   unexcludedToggleableDefault?: ElementCollection;
+  // CP7b: when true and `root` is a scoped subtree root (not body), derive the
+  // root frame's ancestor-exclusion seeds from the root's REAL ancestors so the
+  // scoped walk classifies exactly as the full walk would have at that node.
+  scopeRootSeedFromAncestors?: boolean;
 }
 
 interface InclusionDetectionOptions extends TextualDetectionOptions {
@@ -701,6 +711,20 @@ export const state = {
   layerBoxes: new WeakMap<HTMLElement, Map<string, HTMLDivElement>>(),
   cachedCollections: null as MarkingCollections | null,
   cachedCollectionsKey: "",
+  // CP7b: the single explicit-toggle target since the last rebuild. Exactly one
+  // toggle => eligible for the branch-scoped rebuild; more (or zero) => full.
+  scopedRebuildTarget: null as Element | null,
+  scopedRebuildToggleCount: 0,
+  scopedRebuildTrailingTimer: 0,
+  // CP7b: toggle renders schedule with invalidate:true, which nulls the cached
+  // collections BEFORE the rebuild runs — so the pre-toggle collections are
+  // stashed here (only while exactly one toggle is pending) as the scoped
+  // splice base, tagged with the DOM/viewport version for staleness rejection.
+  scopedSpliceBase: null as {
+    collections: MarkingCollections;
+    key: string;
+    domVersion: number;
+  } | null,
   markingSettleTimers: [] as number[],
   paintReachabilityFallbackCount: 0,
   paintReachabilityFallbackLastLoggedAt: 0,
@@ -3104,15 +3128,17 @@ function collectDefaultHighlightTargets(
     excludedSet = new Set(),
     hardExcludedSet = new Set(),
     hasHigherPrecedence = () => false,
-    excludedAncestorSet = new Set()
+    excludedAncestorSet = new Set(),
+    rootAncestorExcluded = false,
+    rootAncestorHardExcluded = false
   } = options || {};
   const results: Element[] = [];
   const stack: DefaultHighlightFrame[] = [
     {
       node: root,
       index: 0,
-      ancestorHardExcluded: false,
-      ancestorExcluded: false
+      ancestorHardExcluded: rootAncestorHardExcluded,
+      ancestorExcluded: rootAncestorExcluded
     }
   ];
 
@@ -3196,6 +3222,42 @@ export function collectDefaultLayerElements(root: Element | null | undefined, op
     ...hiddenStoredExplicitExclude
   ]);
 
+  const excludedAncestorSet = new Set([
+    ...hardExcludedSet,
+    ...consentExcluded,
+    ...excludedByStateAncestors,
+    ...explicitExclude,
+    ...explicitInclude,
+    ...aiContent
+  ]);
+  // CP7b: replicate the flag propagation the full body-rooted walk would have
+  // performed down to this scoped root. In the full walk, a frame's
+  // ancestorHardExcluded includes the node ITSELF being hard-excluded
+  // (`hardExcludedSet.has(child)` at push time) while ancestorExcluded is
+  // strict-ancestor only (`excludedAncestorSet.has(parent)`), with body itself
+  // checked as a parent. Ancestry uses the flattened parent so shadow content
+  // seeds identically to the composed full walk.
+  let rootAncestorExcluded = false;
+  let rootAncestorHardExcluded = false;
+  if (options.scopeRootSeedFromAncestors && root && root.nodeType === 1) {
+    rootAncestorHardExcluded = hardExcludedSet.has(root);
+    let ancestor = getFlattenedParentElement(root);
+    let guard = 0;
+    while (ancestor && guard < 500) {
+      if (hardExcludedSet.has(ancestor)) {
+        rootAncestorHardExcluded = true;
+      }
+      if (excludedAncestorSet.has(ancestor)) {
+        rootAncestorExcluded = true;
+      }
+      if (ancestor === document.body || ancestor === document.documentElement) {
+        break;
+      }
+      ancestor = getFlattenedParentElement(ancestor);
+      guard += 1;
+    }
+  }
+
   return collectDefaultHighlightTargets(root, {
     excludedSet: precedenceSet,
     hardExcludedSet,
@@ -3203,14 +3265,9 @@ export function collectDefaultLayerElements(root: Element | null | undefined, op
     // Selector-excluded elements do not render their own marking-mode layer, so
     // only the matched element should suppress the default layer, not its whole subtree.
     // Stored unexcluded default boundaries follow the same self-only rule.
-    excludedAncestorSet: new Set([
-      ...hardExcludedSet,
-      ...consentExcluded,
-      ...excludedByStateAncestors,
-      ...explicitExclude,
-      ...explicitInclude,
-      ...aiContent
-    ])
+    excludedAncestorSet,
+    rootAncestorExcluded,
+    rootAncestorHardExcluded
   });
 }
 
@@ -10286,6 +10343,9 @@ function completeExplicitToggle(
   const immediateFullRender = Object.prototype.hasOwnProperty.call(options, "immediateFullRender")
     ? Boolean(options.immediateFullRender)
     : shouldUseImmediateFullRenderForExplicitToggle({ target, type });
+  // CP7b: remember the toggled element so the next rebuild can take the
+  // branch-scoped path (only when this stays the SINGLE toggle before it runs).
+  recordScopedRebuildCandidate(target);
   invalidateHoverHighlightCache();
   if (options.deferMarkingRefresh && !immediateFullRender) {
     scheduleAsyncExplicitToggleReconcile(entry, {
@@ -10400,6 +10460,299 @@ function cancelQueuedToggleMutations() {
   state.toggleQueuedActionKey = "";
 }
 
+// CP7b — branch-scoped rebuild (MA-3 target).
+// A mark on element E changes default-layer candidacy only for (a) E's own
+// subtree and (b) ancestors whose candidacy depends on having an explicitly
+// marked descendant — toggleable-default boundaries and structured-group
+// candidates ("flip-capable"). Plain content ancestors cannot flip. So the
+// affected surface is rooted at the OUTERMOST flip-capable ancestor of E (or E
+// itself), and everything outside that subtree is provably unchanged and can be
+// reused from the cached collections.
+const SCOPED_REBUILD_TRAILING_RECONCILE_DELAY_MS = 1500;
+
+export function recordScopedRebuildCandidate(target: Element | null | undefined): void {
+  state.scopedRebuildToggleCount += 1;
+  state.scopedRebuildTarget =
+    state.scopedRebuildToggleCount === 1 && isElementNode(target) ? target : null;
+}
+
+function consumeScopedRebuildCandidate(): Element | null {
+  const target = state.scopedRebuildToggleCount === 1 ? state.scopedRebuildTarget : null;
+  state.scopedRebuildTarget = null;
+  state.scopedRebuildToggleCount = 0;
+  return target;
+}
+
+/**
+ * Debug-build parity audit: when enabled, the FULL rebuild stays authoritative
+ * and the scoped result is computed as a shadow and compared against it, logging
+ * any divergence — the live `incremental == full` equivalence check that gates
+ * trusting the scoped path. Enable with
+ * `localStorage.setItem("unfluffify:cp7b-parity", "1")` in a debug build.
+ */
+function isCp7bParityAuditEnabled(): boolean {
+  if (!isDebugBuild()) {
+    return false;
+  }
+  try {
+    return Boolean(
+      typeof window !== "undefined" &&
+      window.localStorage &&
+      window.localStorage.getItem("unfluffify:cp7b-parity") === "1"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isScopedFlipCapableAncestor(node: Element): boolean {
+  return matchesToggleableDefaultExcluded(node) || isStructuredGroupExclusionCandidate(node);
+}
+
+/**
+ * The root of the affected surface for a toggle on `target`: the outermost
+ * flip-capable ancestor (toggleable-default / structured-group), else the target
+ * itself. Returns null when ineligible: detached target, ancestry that never
+ * reaches body (closed shadow / foreign root), or a root that IS body/html
+ * (scoping would not bound the walk).
+ */
+export function resolveScopedAffectedRoot(target: Element | null | undefined): Element | null {
+  if (!isElementNode(target) || target.isConnected !== true) {
+    return null;
+  }
+  const body = document.body;
+  const docEl = document.documentElement;
+  if (!body || target === body || target === docEl) {
+    return null;
+  }
+  let outermostFlip: Element | null = null;
+  let node: Element | null = getFlattenedParentElement(target);
+  let reachedBody = false;
+  let guard = 0;
+  while (node && guard < 500) {
+    if (node === body || node === docEl) {
+      reachedBody = true;
+      break;
+    }
+    if (isScopedFlipCapableAncestor(node)) {
+      outermostFlip = node;
+    }
+    node = getFlattenedParentElement(node);
+    guard += 1;
+  }
+  if (!reachedBody) {
+    return null;
+  }
+  return outermostFlip || target;
+}
+
+function isWithinComposedSubtree(root: Element, el: Element): boolean {
+  if (root === el) {
+    return true;
+  }
+  if (typeof root.contains === "function" && root.contains(el)) {
+    return true;
+  }
+  return composedContainsAcrossShadow(root, el);
+}
+
+/**
+ * The branch-scoped default layer: everything OUTSIDE the affected subtree is
+ * reused from the cached collections (provably unchanged by the toggle — and
+ * untouched by the immediate fast-patch, which only removes elements inside the
+ * toggled subtree), while the affected subtree is re-walked fresh with the root
+ * frame seeded from its real ancestor state.
+ */
+function spliceScopedDefaultTargets(
+  affectedRoot: Element,
+  cachedCollections: MarkingCollections,
+  options: DefaultLayerOptions
+): Element[] {
+  const scopedStartedAt = nowMs();
+  const cachedDefaults = Array.isArray(cachedCollections.defaultElements)
+    ? cachedCollections.defaultElements
+    : [];
+  const outside = cachedDefaults.filter((el) =>
+    isElementNode(el) && el.isConnected === true && !isWithinComposedSubtree(affectedRoot, el)
+  );
+  const inside =
+    isWithinAiPopover(affectedRoot) || isWithinConsentElement(affectedRoot)
+      ? []
+      : collectDefaultLayerElements(affectedRoot, {
+          ...options,
+          scopeRootSeedFromAncestors: true
+        });
+  logTogglePerf("render.scoped-splice", scopedStartedAt, {
+    outsideCount: outside.length,
+    insideCount: inside.length,
+    rootTag: affectedRoot.tagName
+  });
+  // Disjoint by construction: inside ⊆ subtree(affectedRoot), outside excludes it.
+  return outside.concat(inside);
+}
+
+interface ScopedRenderContext {
+  target: Element;
+  affectedRoot: Element;
+}
+
+/**
+ * The precise eligibility core: every entry-fingerprint row that DIFFERS
+ * between the splice-base key and the next key must resolve to an element
+ * inside the affected subtree. Entry churn elsewhere (generated default rows
+ * discovered by a sync, silent-whitespace rows, pageType changes, unresolvable
+ * xpaths) means the cached outside-subtree defaults may be stale — full rebuild.
+ */
+function entryKeyDiffConfinedToSubtree(
+  cachedKey: string,
+  nextKey: string,
+  affectedRoot: Element
+): boolean {
+  const cachedRows = String(cachedKey).split("\u001f").slice(2);
+  const nextRows = String(nextKey).split("\u001f").slice(2);
+  const counts = new Map<string, number>();
+  for (const row of cachedRows) {
+    counts.set(row, (counts.get(row) || 0) + 1);
+  }
+  for (const row of nextRows) {
+    counts.set(row, (counts.get(row) || 0) - 1);
+  }
+  for (const [row, count] of counts) {
+    if (count === 0) {
+      continue;
+    }
+    if (row.startsWith("pageType:")) {
+      return false;
+    }
+    let xpath = row;
+    for (const prefix of ["include:", "selectorSuppressed:", "silentWhitespace:"]) {
+      if (xpath.startsWith(prefix)) {
+        xpath = xpath.slice(prefix.length);
+        break;
+      }
+    }
+    const pipeIndex = xpath.indexOf("|");
+    if (pipeIndex >= 0) {
+      xpath = xpath.slice(0, pipeIndex);
+    }
+    if (!xpath.startsWith("/")) {
+      return false;
+    }
+    const el = getElementFromXPath(xpath);
+    if (!el || !isWithinComposedSubtree(affectedRoot, el)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Eligibility for the branch-scoped rebuild. Falls back to full (null) whenever
+ * any assumption could not hold: no/cleared cached collections, page or selector
+ * fingerprint changed (only the entry fingerprint may differ), a fresh-baseline
+ * adoption is pending, the entry has no explicit markings (the auto-seed path
+ * could run), or the affected root is unbounded.
+ */
+function resolveScopedRenderContext(input: {
+  target: Element | null;
+  cachedCollections: MarkingCollections | null;
+  cachedKey: string;
+  nextKey: string;
+  pageUrl: string;
+  latestEntry: PageMarkingEntry | null;
+}): ScopedRenderContext | null {
+  const { target, cachedCollections, cachedKey, nextKey, pageUrl, latestEntry } = input;
+  if (!target || !cachedCollections || !cachedKey || cachedKey === nextKey) {
+    return null;
+  }
+  if (state.pendingFreshBaselinePageUrl === pageUrl) {
+    return null;
+  }
+  if (!latestEntry || !hasExplicitUserMarkings(latestEntry)) {
+    return null;
+  }
+  const cachedParts = String(cachedKey).split("\u001f");
+  const nextParts = String(nextKey).split("\u001f");
+  if (cachedParts[0] !== nextParts[0] || cachedParts[1] !== nextParts[1]) {
+    return null;
+  }
+  const affectedRoot = resolveScopedAffectedRoot(target);
+  if (!affectedRoot) {
+    return null;
+  }
+  if (!entryKeyDiffConfinedToSubtree(cachedKey, nextKey, affectedRoot)) {
+    return null;
+  }
+  return { target, affectedRoot };
+}
+
+/**
+ * Live `incremental == full` equivalence audit (debug builds). Runs the scoped
+ * computation as a SHADOW next to the authoritative full rebuild and logs the
+ * verdict: entry-fingerprint stability (validates skipping the sync scan) and
+ * default-target set equality (validates the scoped walk + splice).
+ */
+function runCp7bParityAudit(input: {
+  scopedContext: ScopedRenderContext;
+  preRebuildCachedCollections: MarkingCollections;
+  latestEntry: PageMarkingEntry | null;
+  syncedEntry: PageMarkingEntry | null;
+  defaultLayerOptions: DefaultLayerOptions;
+  fullDefaultTargets: Element[];
+}): void {
+  try {
+    const preFingerprint = getEntryFingerprint(input.latestEntry).join("\u001f");
+    const postFingerprint = getEntryFingerprint(input.syncedEntry).join("\u001f");
+    const entryFingerprintMatches = preFingerprint === postFingerprint;
+    const scopedTargets = spliceScopedDefaultTargets(
+      input.scopedContext.affectedRoot,
+      input.preRebuildCachedCollections,
+      input.defaultLayerOptions
+    );
+    const fullSet = new Set(input.fullDefaultTargets);
+    const scopedSet = new Set(scopedTargets);
+    const missing = input.fullDefaultTargets.filter((el) => !scopedSet.has(el));
+    const extra = scopedTargets.filter((el) => !fullSet.has(el));
+    const describe = (el: Element) => `${el.tagName.toLowerCase()}:${getXPath(el)}`;
+    console.warn("[Unfluffify][cp7b-parity]", {
+      ok: entryFingerprintMatches && missing.length === 0 && extra.length === 0,
+      entryFingerprintMatches,
+      fullCount: input.fullDefaultTargets.length,
+      scopedCount: scopedTargets.length,
+      affectedRoot: describe(input.scopedContext.affectedRoot),
+      missing: missing.slice(0, 5).map(describe),
+      extra: extra.slice(0, 5).map(describe)
+    });
+  } catch (error) {
+    console.warn("[Unfluffify][cp7b-parity]", {
+      ok: false,
+      error: String(error).slice(0, 160)
+    });
+  }
+}
+
+/**
+ * Correctness backstop after an authoritative scoped rebuild: one coalesced,
+ * low-priority FULL reconcile after the toggles settle, so any scoped
+ * divergence self-heals within ~SCOPED_REBUILD_TRAILING_RECONCILE_DELAY_MS.
+ */
+function scheduleScopedRebuildTrailingReconcile(): void {
+  if (state.scopedRebuildTrailingTimer) {
+    extensionClearTimeout(state.scopedRebuildTrailingTimer);
+    state.scopedRebuildTrailingTimer = 0;
+  }
+  if (!getExtensionTimer("setTimeout")) {
+    return;
+  }
+  state.scopedRebuildTrailingTimer = extensionSetTimeout(() => {
+    state.scopedRebuildTrailingTimer = 0;
+    if (!state.enabled) {
+      return;
+    }
+    scheduleRender({ invalidate: true, reason: "cp7b-trailing-reconcile" });
+  }, SCOPED_REBUILD_TRAILING_RECONCILE_DELAY_MS);
+}
+
 function invalidateCachedCollections() {
   // NOTE: this does NOT bump the element-cache version. Collections are
   // invalidated for many reasons that do NOT change element visibility/text/
@@ -10408,6 +10761,23 @@ function invalidateCachedCollections() {
   // settle, defeating cross-toggle reuse. The element caches are pure functions
   // of DOM + viewport, so they are bumped only by actual DOM/viewport changes
   // (MutationObserver rebuild, scroll, motion pause/resume).
+  //
+  // CP7b: toggle renders invalidate before rebuilding, so while exactly ONE
+  // toggle is pending the outgoing collections are stashed as the scoped splice
+  // base (version-tagged; a later DOM/viewport bump rejects it at consume).
+  if (
+    state.scopedRebuildToggleCount === 1 &&
+    state.cachedCollections &&
+    state.cachedCollectionsKey
+  ) {
+    state.scopedSpliceBase = {
+      collections: state.cachedCollections,
+      key: state.cachedCollectionsKey,
+      domVersion: state.elementCacheDomVersion
+    };
+  } else if (state.scopedRebuildToggleCount !== 1) {
+    state.scopedSpliceBase = null;
+  }
   state.cachedCollections = null;
   state.cachedCollectionsKey = "";
 }
@@ -10447,6 +10817,37 @@ function renderHighlightsInner() {
     return;
   }
 
+  // CP7b: a single explicit toggle since the last rebuild may take the
+  // branch-scoped path — reuse everything outside the affected subtree, skip
+  // the (redundant) sync scan, and re-walk only the affected branch. Under the
+  // debug parity audit the FULL rebuild stays authoritative and the scoped
+  // result is compared as a shadow.
+  const scopedToggleTarget = consumeScopedRebuildCandidate();
+  // The splice base is the pre-toggle collections: still live when nothing
+  // invalidated, else the version-tagged stash captured at invalidation time.
+  const spliceBase = cached && state.cachedCollectionsKey
+    ? {
+        collections: cached,
+        key: state.cachedCollectionsKey,
+        domVersion: state.elementCacheDomVersion
+      }
+    : state.scopedSpliceBase;
+  state.scopedSpliceBase = null;
+  const preRebuildCachedCollections =
+    spliceBase && spliceBase.domVersion === state.elementCacheDomVersion
+      ? spliceBase.collections
+      : null;
+  const scopedContext = resolveScopedRenderContext({
+    target: scopedToggleTarget,
+    cachedCollections: preRebuildCachedCollections,
+    cachedKey: spliceBase ? spliceBase.key : "",
+    nextKey: nextCollectionsCacheKey,
+    pageUrl,
+    latestEntry
+  });
+  const parityAuditEnabled = scopedContext ? isCp7bParityAuditEnabled() : false;
+  const useScopedRebuild = Boolean(scopedContext) && !parityAuditEnabled;
+
   const rebuildStartedAt = nowMs();
   const immutableExcluded = collectImmutableElements() as Set<Element>;
   const selectorSetForSeed = latestSelectorContext.selectorSet;
@@ -10459,7 +10860,7 @@ function renderHighlightsInner() {
   }
   let hasEntry = hasPageMarkingEntry(state.config, pageUrl);
   let autoSeededFromAiSelectors = false;
-  if (shouldAutoSeedMarkingsFromAiSelectors({
+  if (!useScopedRebuild && shouldAutoSeedMarkingsFromAiSelectors({
     hasAiSelectors,
     hasSavedMarkingsForPage,
     suppressAutoSeed
@@ -10475,14 +10876,23 @@ function renderHighlightsInner() {
       autoSeededFromAiSelectors = true;
     }
   }
-  const syncStartedAt = nowMs();
-  const syncResult = syncPageMarkings(state.config, pageUrl, immutableExcluded, {
-    allowCreate: hasEntry,
-    persist: hasEntry
-  });
-  logTogglePerf("render.sync", syncStartedAt, { pageUrl });
-  const entry =
-      syncResult.entry || getPageMarkingEntry(state.config, pageUrl, { create: false });
+  let entry: PageMarkingEntry;
+  if (useScopedRebuild) {
+    // Scoped: the toggle mutation already normalized and persisted the entry,
+    // and the DOM-candidate rows are DOM-invariant across a pure toggle — the
+    // full-document sync scan is redundant here. The trailing full reconcile
+    // (and any settle/invalidating render) still runs the real sync.
+    // (Eligibility guarantees latestEntry is non-null; the fallback is typing.)
+    entry = latestEntry || getPageMarkingEntry(state.config, pageUrl, { create: false });
+  } else {
+    const syncStartedAt = nowMs();
+    const syncResult = syncPageMarkings(state.config, pageUrl, immutableExcluded, {
+      allowCreate: hasEntry,
+      persist: hasEntry
+    });
+    logTogglePerf("render.sync", syncStartedAt, { pageUrl });
+    entry = syncResult.entry || getPageMarkingEntry(state.config, pageUrl, { create: false });
+  }
   state.currentPageEntry = entry || null;
   if (state.pendingFreshBaselinePageUrl === pageUrl) {
     // First render after a marking enable: the page-marking entry has now been
@@ -10568,7 +10978,7 @@ function renderHighlightsInner() {
     ...hiddenStoredExplicitExclude
   ]);
 
-  const defaultTargets = collectDefaultLayerElements(document.body, {
+  const defaultLayerOptions: DefaultLayerOptions = {
     immutableExcluded,
     consentExcluded,
     explicitExclude,
@@ -10578,7 +10988,24 @@ function renderHighlightsInner() {
     selectorExcluded: selectorExcludedSet,
     hiddenStoredExplicitExclude,
     unexcludedToggleableDefault: new Set(storedUnexcludedToggleableDefaultElements)
-  }) as Element[];
+  };
+  const defaultTargets = (useScopedRebuild && scopedContext && preRebuildCachedCollections
+    ? spliceScopedDefaultTargets(
+        scopedContext.affectedRoot,
+        preRebuildCachedCollections,
+        defaultLayerOptions
+      )
+    : collectDefaultLayerElements(document.body, defaultLayerOptions)) as Element[];
+  if (parityAuditEnabled && scopedContext && preRebuildCachedCollections) {
+    runCp7bParityAudit({
+      scopedContext,
+      preRebuildCachedCollections,
+      latestEntry,
+      syncedEntry: entry,
+      defaultLayerOptions,
+      fullDefaultTargets: defaultTargets
+    });
+  }
 
   const collections = {
     hardElements: Array.from(hardExcludedSet).filter((el) =>
@@ -10606,7 +11033,14 @@ function renderHighlightsInner() {
     selectorSet: selectorSetForMarking,
     entry
   });
-  logTogglePerf("render.rebuild", rebuildStartedAt, { pageUrl });
+  if (useScopedRebuild) {
+    logTogglePerf("render.scoped-rebuild", rebuildStartedAt, { pageUrl });
+    // Backstop: one coalesced full reconcile after the toggles settle so any
+    // scoped divergence self-heals shortly after.
+    scheduleScopedRebuildTrailingReconcile();
+  } else {
+    logTogglePerf("render.rebuild", rebuildStartedAt, { pageUrl });
+  }
 
   if (autoSeededFromAiSelectors) {
     state.autoSeededPendingSavePageUrl = pageUrl;
@@ -12134,6 +12568,13 @@ export function disable(options = {}) {
   state.isScrolling = false;
   state.cachedCollections = null;
   state.cachedCollectionsKey = "";
+  state.scopedSpliceBase = null;
+  state.scopedRebuildTarget = null;
+  state.scopedRebuildToggleCount = 0;
+  if (state.scopedRebuildTrailingTimer) {
+    extensionClearTimeout(state.scopedRebuildTrailingTimer);
+    state.scopedRebuildTrailingTimer = 0;
+  }
   state.paintReachabilityFallbackCount = 0;
   state.paintReachabilityFallbackLastLoggedAt = 0;
   clearMarkingSettleRenders();

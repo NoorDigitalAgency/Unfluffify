@@ -164,11 +164,18 @@ together with target resolution + render (they must be coherent).
   reuses the expensive per-element work. Measured on bonliva: per-toggle
   `render.rebuild` 195ms → 86ms (−56%), `sync` 122ms → 45ms (−63%); marked set
   identical. Async reconcile stays ephemeral. Pinned in core-scheduling.test.ts.
-- CP7b (next): branch-scoped walk — recompute only the affected subtree to cut
-  the residual O(document) traversal that CP7a's caching cannot remove.
+- CP7b — SHIPPED per the spec below. Live parity on bonliva: the debug audit
+  first CAUGHT a real eligibility hole (stale outside-subtree defaults from
+  generated-row churn added by the ack sync) → fixed with the precise
+  `entryKeyDiffConfinedToSubtree` guard → 7/7 parity clean, correct fallbacks.
+  Benchmark (8 real toggles, bonliva): per-toggle render 195ms (baseline) →
+  86ms (CP7a) → ~38ms scoped (splice 0.2ms); 6/8 scoped, 2 correct full
+  fallbacks. cramo parity could not be exercised this round (profile silent-mode
+  activation latch — harness state, not scoped logic); shadow subtree handling
+  is unit-covered (composed containment) and every uncertainty falls back to
+  full + trailing reconcile.
 
-  **CP7b execution spec (designed + correctness-proven; ready to implement behind
-  a debug-gated feature flag, tag `cp7a-full` is the rollback point):**
+  **CP7b execution spec (as shipped; tag `cp7a-full` is the rollback point):**
   - **Affected root (correctness proof).** A mark on E changes candidacy only for
     (a) E's own subtree (exclusion/inclusion + drill) and (b) ancestors whose
     candidacy depends on `hasExplicitlyMarkedDescendant` — i.e. FLIP-CAPABLE

@@ -16,6 +16,7 @@ import {
   isMarkableElement,
   isVisible,
   isVisibleForSubmission,
+  resolveScopedAffectedRoot,
   state,
   syncPageMarkings,
   syncPageMarkingsAsync
@@ -657,6 +658,155 @@ test("CP6: getMarkableTarget pierces an open shadow root so inner nodes are clic
     } finally {
       state.documentShadowPresence = null;
     }
+  });
+});
+
+// CP7b equivalence corpus: the branch-scoped default walk (root seeded from its
+// real ancestor state) must equal the full body-rooted walk restricted to the
+// scoped subtree — the soundness core of the incremental rebuild.
+function subtreeOf(root, elements) {
+  return elements.filter((el) => el === root || root.contains(el));
+}
+
+test("CP7b: scoped walk from a mid-tree root equals the full walk restricted to its subtree", () => {
+  withVisibilityDom(({ body }) => {
+    const p1 = createElement({
+      tagName: "p",
+      text: "Section paragraph",
+      rect: { top: 40, right: 320, bottom: 80, left: 20, width: 300, height: 40 }
+    });
+    const footerP = createElement({
+      tagName: "p",
+      text: "Footer text inside the boundary",
+      rect: { top: 120, right: 320, bottom: 160, left: 20, width: 300, height: 40 }
+    });
+    const footer = createElement({
+      tagName: "footer",
+      children: [footerP],
+      rect: { top: 100, right: 420, bottom: 180, left: 10, width: 410, height: 80 }
+    });
+    const section = createElement({
+      tagName: "section",
+      parentElement: body,
+      children: [p1, footer],
+      rect: { top: 20, right: 420, bottom: 200, left: 10, width: 410, height: 180 }
+    });
+    const outsideP = createElement({
+      tagName: "p",
+      parentElement: body,
+      text: "Sibling outside the scoped subtree",
+      rect: { top: 220, right: 320, bottom: 260, left: 20, width: 300, height: 40 }
+    });
+    body.children.push(section, outsideP);
+    body.childNodes.push(section, outsideP);
+
+    const full = collectDefaultLayerElements(body, {});
+    const scoped = collectDefaultLayerElements(section, { scopeRootSeedFromAncestors: true });
+
+    assert.deepEqual(scoped, subtreeOf(section, full));
+    assert.equal(full.includes(outsideP), true, "sanity: the outside sibling is a full-walk candidate");
+  });
+});
+
+test("CP7b: a hard-excluded ancestor above the scoped root seeds the walk to empty", () => {
+  withVisibilityDom(({ body }) => {
+    const innerText = createElement({
+      tagName: "p",
+      text: "Text under a hard-excluded wrapper",
+      rect: { top: 60, right: 320, bottom: 100, left: 20, width: 300, height: 40 }
+    });
+    const scopedRoot = createElement({
+      tagName: "div",
+      children: [innerText],
+      rect: { top: 40, right: 420, bottom: 120, left: 10, width: 410, height: 80 }
+    });
+    const hardWrapper = createElement({
+      tagName: "div",
+      parentElement: body,
+      children: [scopedRoot],
+      rect: { top: 20, right: 420, bottom: 140, left: 10, width: 410, height: 120 }
+    });
+    body.children.push(hardWrapper);
+    body.childNodes.push(hardWrapper);
+    const options = { immutableExcluded: new Set([hardWrapper]) };
+
+    const full = collectDefaultLayerElements(body, options);
+    const scoped = collectDefaultLayerElements(scopedRoot, {
+      ...options,
+      scopeRootSeedFromAncestors: true
+    });
+
+    assert.deepEqual(scoped, subtreeOf(scopedRoot, full));
+    assert.deepEqual(scoped, [], "hard ancestor seed suppresses the whole scoped subtree");
+  });
+});
+
+test("CP7b: an explicitly excluded ancestor above the scoped root seeds ancestor-exclusion", () => {
+  withVisibilityDom(({ body }) => {
+    const innerText = createElement({
+      tagName: "p",
+      text: "Text under an explicitly excluded wrapper",
+      rect: { top: 60, right: 320, bottom: 100, left: 20, width: 300, height: 40 }
+    });
+    const scopedRoot = createElement({
+      tagName: "div",
+      children: [innerText],
+      rect: { top: 40, right: 420, bottom: 120, left: 10, width: 410, height: 80 }
+    });
+    const excludedWrapper = createElement({
+      tagName: "div",
+      parentElement: body,
+      children: [scopedRoot],
+      rect: { top: 20, right: 420, bottom: 140, left: 10, width: 410, height: 120 }
+    });
+    body.children.push(excludedWrapper);
+    body.childNodes.push(excludedWrapper);
+    const options = { explicitExclude: new Set([excludedWrapper]) };
+
+    const full = collectDefaultLayerElements(body, options);
+    const scoped = collectDefaultLayerElements(scopedRoot, {
+      ...options,
+      scopeRootSeedFromAncestors: true
+    });
+
+    assert.deepEqual(scoped, subtreeOf(scopedRoot, full));
+    assert.deepEqual(scoped, [], "excluded-ancestor seed suppresses the scoped subtree");
+  });
+});
+
+test("CP7b: the affected root is the outermost flip-capable ancestor, else the target", () => {
+  withVisibilityDom(({ body }) => {
+    const insideFooterP = createElement({
+      tagName: "p",
+      text: "Paragraph inside the toggleable boundary",
+      rect: { top: 120, right: 320, bottom: 160, left: 20, width: 300, height: 40 }
+    });
+    insideFooterP.isConnected = true;
+    const footer = createElement({
+      tagName: "footer",
+      parentElement: body,
+      children: [insideFooterP],
+      rect: { top: 100, right: 420, bottom: 180, left: 10, width: 410, height: 80 }
+    });
+    const plainP = createElement({
+      tagName: "p",
+      parentElement: body,
+      text: "Plain paragraph directly under body",
+      rect: { top: 220, right: 320, bottom: 260, left: 20, width: 300, height: 40 }
+    });
+    plainP.isConnected = true;
+    body.children.push(footer, plainP);
+    body.childNodes.push(footer, plainP);
+
+    // Inside a toggleable-default boundary: the boundary is the affected root
+    // (its self-markability flips on an explicitly marked descendant).
+    assert.equal(resolveScopedAffectedRoot(insideFooterP), footer);
+    // A plain content ancestor chain: the target itself bounds the surface.
+    assert.equal(resolveScopedAffectedRoot(plainP), plainP);
+    // A disconnected target is ineligible.
+    const detached = createElement({ tagName: "p", text: "detached" });
+    detached.isConnected = false;
+    assert.equal(resolveScopedAffectedRoot(detached), null);
   });
 });
 
