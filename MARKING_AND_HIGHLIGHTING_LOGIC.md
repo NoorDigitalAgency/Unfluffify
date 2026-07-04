@@ -714,6 +714,9 @@ sanitizing passes, those passes also clean the inlined shadow nodes.
   such flattened paths through the composed tree (shadow children first) when the
   document has a capturable shadow root; shadow-free pages resolve via the native
   light-DOM path unchanged.
+- The page-shell guard's depth computation walks the flattened (shadow-crossing)
+  parent chain, so shell protection applies inside open shadow trees the same as
+  in light DOM.
 - The live engine treats shadow content as real DOM: the default-content
   enumeration and the reconcile scan descend into capturable shadow roots
   (composed order, shadow first), so shadow text is enumerated as implicit

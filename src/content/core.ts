@@ -8456,9 +8456,14 @@ function getDepthBelowBody(el: Element | null | undefined): number {
   }
   let depth = 0;
   let node: Element | null = el;
-  while (node && node.nodeType === 1 && node !== document.body && node !== document.documentElement) {
+  let guard = 0;
+  // W2/F5 harden: walk the FLATTENED parent chain so open-shadow content gets a
+  // real depth (crossing shadow boundaries to the host) instead of ∞ — the ∞
+  // silently disabled the shallow page-shell guard inside shadow trees.
+  while (node && node.nodeType === 1 && node !== document.body && node !== document.documentElement && guard < 500) {
     depth += 1;
-    node = node.parentElement;
+    node = getFlattenedParentElement(node);
+    guard += 1;
   }
   return node === document.body ? depth : Number.POSITIVE_INFINITY;
 }

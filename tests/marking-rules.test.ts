@@ -245,6 +245,27 @@ test("locked default-exclusion taxonomy keeps buttons toggleable and links omitt
   }
 });
 
+test("W2/F5: the page-shell depth walk crosses open shadow boundaries", () => {
+  // getDepthBelowBody previously walked parentElement, returning Infinity for
+  // shadow content (parentElement is null at a shadow root) — which silently
+  // disabled the shallow page-shell guard inside open shadow trees. Pin the
+  // flattened-parent walk so shadow wrappers get a real depth.
+  const depthWalk = coreSource.slice(
+    coreSource.indexOf("function getDepthBelowBody("),
+    coreSource.indexOf("function isParentMarkingContentBoundary(")
+  );
+  assert.match(
+    depthWalk,
+    /node = getFlattenedParentElement\(node\);/,
+    "getDepthBelowBody must walk the flattened (shadow-crossing) parent chain"
+  );
+  assert.doesNotMatch(
+    depthWalk,
+    /node = node\.parentElement;/,
+    "the light-only parentElement walk must not remain"
+  );
+});
+
 test("immutable/toggleable tag matching is case-insensitive so foreign-namespace <svg> matches", () => {
   // SVG (and other foreign-namespace) elements report a lowercase tagName
   // ("svg"), unlike uppercased HTML tags. The tag-selector comparison must
