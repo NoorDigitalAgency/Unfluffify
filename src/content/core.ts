@@ -1845,7 +1845,9 @@ function matchesToggleableDefaultExcluded(el: Element | null): boolean {
   for (const selector of DEFAULT_EXCLUDED_TOGGLEABLE_SELECTORS) {
     try {
       if (isTagSelector(selector)) {
-        if (el.tagName === selector.toUpperCase()) {
+        // Case-insensitive on both sides (see matchesImmutableExcluded): keeps
+        // tag matching correct for any foreign-namespace toggleable tag.
+        if (el.tagName.toUpperCase() === selector.toUpperCase()) {
           result = true;
           break;
         }
@@ -2231,7 +2233,10 @@ function matchesImmutableExcluded(el: Element | null): boolean {
   for (const selector of DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS) {
     try {
       if (isTagSelector(selector)) {
-        if (el.tagName === selector.toUpperCase()) {
+        // Case-insensitive on both sides: HTML tagNames are uppercased, but
+        // foreign-namespace elements (svg, math) report a lowercase tagName,
+        // so a plain "SVG" tag selector must still match a <svg> root.
+        if (el.tagName.toUpperCase() === selector.toUpperCase()) {
           result = true;
           break;
         }

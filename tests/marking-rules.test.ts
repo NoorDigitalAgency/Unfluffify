@@ -215,7 +215,8 @@ test("locked default-exclusion taxonomy keeps buttons toggleable and links omitt
     "SCRIPT",
     "TEMPLATE",
     "IFRAME",
-    "VIDEO"
+    "VIDEO",
+    "SVG"
   ]);
 
   const toggleable = new Set(DEFAULT_EXCLUDED_TOGGLEABLE_SELECTORS);
@@ -236,9 +237,35 @@ test("locked default-exclusion taxonomy keeps buttons toggleable and links omitt
     "SCRIPT",
     "TEMPLATE",
     "IFRAME",
-    "VIDEO"
+    "VIDEO",
+    "SVG"
   ]) {
     assert.equal(immutable.has(tag), true, `${tag} should be immutable`);
     assert.equal(toggleable.has(tag), false, `${tag} should not be toggleable`);
   }
+});
+
+test("immutable/toggleable tag matching is case-insensitive so foreign-namespace <svg> matches", () => {
+  // SVG (and other foreign-namespace) elements report a lowercase tagName
+  // ("svg"), unlike uppercased HTML tags. The tag-selector comparison must
+  // uppercase BOTH sides or a plain "SVG" selector silently never matches the
+  // <svg> root. Pin both matchers to compare `.tagName.toUpperCase()`.
+  const immutableMatcher = coreSource.slice(
+    coreSource.indexOf("function matchesImmutableExcluded("),
+    coreSource.indexOf("function isWithinImmutableExcluded(")
+  );
+  assert.match(
+    immutableMatcher,
+    /el\.tagName\.toUpperCase\(\)\s*===\s*selector\.toUpperCase\(\)/,
+    "matchesImmutableExcluded must compare tag names case-insensitively"
+  );
+  const toggleableMatcher = coreSource.slice(
+    coreSource.indexOf("function matchesToggleableDefaultExcluded("),
+    coreSource.indexOf("function hasNestedToggleableDefaultExcludedDescendant(")
+  );
+  assert.match(
+    toggleableMatcher,
+    /el\.tagName\.toUpperCase\(\)\s*===\s*selector\.toUpperCase\(\)/,
+    "matchesToggleableDefaultExcluded must compare tag names case-insensitively"
+  );
 });

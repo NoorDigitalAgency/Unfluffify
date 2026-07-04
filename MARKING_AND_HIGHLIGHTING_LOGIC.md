@@ -156,7 +156,14 @@ primary source of spinner truth.
 
 Immutable defaults are always excluded and cannot be overridden from marking
 mode. They include `IMG`, `INPUT`, `NOSCRIPT`, `SELECT`, `TITLE`, `STYLE`,
-`SCRIPT`, `TEMPLATE`, `IFRAME`, and `VIDEO`.
+`SCRIPT`, `TEMPLATE`, `IFRAME`, `VIDEO`, and `SVG`.
+
+`SVG` is immutable because an `<svg>` is a self-contained graphic (icon,
+illustration, chart) whose internal `<text>`/`<title>` is not page copy Google
+indexes as prose. Tag matching for the taxonomy is case-insensitive on both
+sides: foreign-namespace elements such as `<svg>` report a lowercase `tagName`
+(`"svg"`), unlike uppercased HTML tags, so the `SVG` selector is compared with
+`.toUpperCase()` on the element side to match the `<svg>` root reliably.
 
 An element inside an immutable default subtree is not markable. Immutable nodes
 render as hard exclusions in marking mode and on the dedicated immutable layer
