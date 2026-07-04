@@ -7434,20 +7434,53 @@ addContentDirectiveListener(() => {
   updateMarkingTemporarilyDisabledUi();
 });
 
-function getMarkMode(): MarkMode {
-  if (!state.enabled || !state.overlay) {
+/**
+ * Inputs to the marking-interaction FSM. The machine is a pure function of
+ * these signals — see `deriveMarkMode`. `MARKING_AND_HIGHLIGHTING_LOGIC.md`
+ * §Marking Interaction FSM is the canonical spec.
+ */
+export interface MarkModeInputs {
+  /** Marking is enabled by the popup. */
+  enabled: boolean;
+  /** The marking overlay is mounted. */
+  hasOverlay: boolean;
+  /** Marking is temporarily locked (busy: run in flight, reconcile pending, …). */
+  temporarilyDisabled: boolean;
+  /** Space page-interaction passthrough latch is held. */
+  passThrough: boolean;
+  /** Alt is active (held modifier, or the committing event's altKey). */
+  altActive: boolean;
+}
+
+/**
+ * The single authority that maps FSM inputs to a marking mode. States:
+ * `disabled` (OFF/BUSY_LOCKED) → `passthrough` (Space) → `include` (Alt) →
+ * `exclude` (default). Shift is an orthogonal breadth modifier resolved
+ * separately by `shouldAllowParentMarking`, not a mode. Behaviour-preserving
+ * consolidation of the former inline derivations in `getMarkMode` /
+ * `getMarkModeFromEvent`.
+ */
+export function deriveMarkMode(inputs: MarkModeInputs): MarkMode {
+  if (!inputs.enabled || !inputs.hasOverlay || inputs.temporarilyDisabled) {
     return "disabled";
   }
-  if (isMarkingTemporarilyDisabled()) {
-    return "disabled";
-  }
-  if (state.altPassThrough) {
+  if (inputs.passThrough) {
     return "passthrough";
   }
-  if (state.altHeld) {
+  if (inputs.altActive) {
     return "include";
   }
   return "exclude";
+}
+
+function getMarkMode(): MarkMode {
+  return deriveMarkMode({
+    enabled: state.enabled,
+    hasOverlay: Boolean(state.overlay),
+    temporarilyDisabled: isMarkingTemporarilyDisabled(),
+    passThrough: state.altPassThrough,
+    altActive: state.altHeld
+  });
 }
 
 function getMarkModeFromEvent(
@@ -7456,10 +7489,16 @@ function getMarkModeFromEvent(
   if (!event) {
     return getMarkMode();
   }
-  if (event.altKey) {
-    return "include";
-  }
-  return "exclude";
+  // At commit time the click path has already released the disabled/passthrough
+  // guards (see handleToggleEvent), so the mode is decided solely by the event's
+  // real altKey — race-proof if Alt was released between hover and click.
+  return deriveMarkMode({
+    enabled: true,
+    hasOverlay: true,
+    temporarilyDisabled: false,
+    passThrough: false,
+    altActive: Boolean(event.altKey)
+  });
 }
 
 function shouldAllowParentMarking(mode: MarkMode, shiftHeld: unknown): boolean {

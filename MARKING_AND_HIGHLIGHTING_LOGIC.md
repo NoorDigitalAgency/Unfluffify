@@ -397,6 +397,44 @@ When the last lifecycle source releases the pause, Unfluffify restores the
 synthetic hover state, inline locks, media playback that it paused, SVG clocks,
 and Web Animations that it paused.
 
+## Marking Interaction FSM
+
+The marking interaction is a finite state machine whose mode is a pure function
+of a small set of inputs. There is a single derivation authority,
+`deriveMarkMode(inputs)` in `src/content/core.ts`; `getMarkMode()` sources the
+inputs from live state and `getMarkModeFromEvent(event)` sources `altActive`
+from the committing event's `altKey` (race-proof at click time).
+
+**Modes (states):**
+
+- `disabled` — marking is off (`enabled` false or no overlay) or busy-locked
+  (temporarily disabled: run in flight, save/sync reconciliation pending). No
+  target resolution or commits.
+- `passthrough` — the Space page-interaction latch is held; clicks pass to the
+  page (open accordions/tabs) and the overlay yields.
+- `include` — Alt is active; clicks reach into excluded/hidden content to rescue
+  it as an explicit include (closed boundary).
+- `exclude` — the default active mode; clicks exclude the nearest self-markable
+  target.
+
+**Mode inputs and precedence.** The mode is derived by fixed precedence:
+
+1. `disabled` if not `enabled`, no overlay, or `temporarilyDisabled`;
+2. else `passthrough` if the Space latch is held;
+3. else `include` if Alt is active;
+4. else `exclude`.
+
+So `disabled > passthrough > include > exclude`. `Shift` is **not** a mode: it is
+an orthogonal breadth modifier resolved separately (`shouldAllowParentMarking`),
+active only outside include mode.
+
+**Events (transitions):** enable/disable (popup) and busy/unbusy (brain
+directive) move in and out of `disabled`; Space keydown/keyup toggles the
+passthrough latch; Alt keydown/keyup drives `altActive`; a click commits the
+current mode's action; window blur, tab visibility change, and navigation reset
+the held-modifier latch (releasing Alt/Shift/Space). The machine holds no mode
+state of its own beyond these latches — every event re-derives the mode.
+
 ## Target Resolution
 
 Targets are resolved from `document.elementsFromPoint(...)`, skipping extension

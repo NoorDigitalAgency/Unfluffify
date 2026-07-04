@@ -672,9 +672,17 @@ test("marking mode uses Space-held page interaction without changing Alt include
     source,
     /function updateCursorMode\(\) \{[\s\S]*?mode === "passthrough"[\s\S]*?root\.classList\.add\("uf-cursor-passthrough"\);[\s\S]*?mode === "exclude"[\s\S]*?mode === "include"/
   );
+  // The commit path derives the mode from the event's real altKey (race-proof)
+  // by delegating to the single deriveMarkMode FSM authority.
   assert.match(
     source,
-    /function getMarkModeFromEvent\(\s*event(?:\s*:\s*[^)]+)?\s*\)(?:: [^{]+)? \{[\s\S]*?if \(event\.altKey\) \{[\s\S]*?return "include";[\s\S]*?return "exclude";/
+    /function getMarkModeFromEvent\(\s*event(?:\s*:\s*[^)]+)?\s*\)(?:: [^{]+)? \{[\s\S]*?deriveMarkMode\(\{[\s\S]*?altActive: Boolean\(event\.altKey\)/
+  );
+  // The FSM authority encodes the fixed precedence disabled > passthrough >
+  // include > exclude.
+  assert.match(
+    source,
+    /export function deriveMarkMode\(inputs(?:\s*:\s*[^)]+)?\)(?:: [^{]+)? \{[\s\S]*?return "disabled";[\s\S]*?inputs\.passThrough[\s\S]*?return "passthrough";[\s\S]*?inputs\.altActive[\s\S]*?return "include";[\s\S]*?return "exclude";/
   );
   assert.match(
     source,
@@ -745,7 +753,9 @@ test("marking mode surfaces temporary disabled state while save sync blocks edit
     /function getMarkingTemporarilyDisabledReason\(\) \{[\s\S]*?return getMarkingEditsBlockedReasonByDirective\(\);[\s\S]*?\}/
   );
   assert.match(source, /function updateMarkingTemporarilyDisabledUi\(\) \{[\s\S]*?classList\.toggle\(MARKING_DISABLED_OVERLAY_CLASS, disabled\)[\s\S]*?setAttribute\("aria-disabled", "true"\)[\s\S]*?clearHoverHighlight\(\)[\s\S]*?getMarkingTemporarilyDisabledMessage\(reason\)/);
-  assert.match(source, /function getMarkMode\(\s*\)(?:: [^{]+)? \{[\s\S]*?isMarkingTemporarilyDisabled\(\)[\s\S]*?return "disabled";[\s\S]*?state\.altPassThrough/);
+  // getMarkMode sources the busy-lock and passthrough latch into the FSM
+  // authority; the temporarilyDisabled input maps to the disabled mode.
+  assert.match(source, /function getMarkMode\(\s*\)(?:: [^{]+)? \{[\s\S]*?deriveMarkMode\(\{[\s\S]*?temporarilyDisabled: isMarkingTemporarilyDisabled\(\)[\s\S]*?passThrough: state\.altPassThrough/);
   assert.match(source, /export async function setPageSaveReconciliationPending[\s\S]*?state\.pageSaveReconciliation = reconciliation;[\s\S]*?updateMarkingTemporarilyDisabledUi\(\);[\s\S]*?notifyDraftStatus\(pageUrl\);/);
   assert.match(source, /export async function clearPageSaveReconciliation[\s\S]*?state\.pageSaveReconciliation = null;[\s\S]*?updateMarkingTemporarilyDisabledUi\(\);[\s\S]*?notifyDraftStatus\(pageUrl\);/);
   assert.match(textSource, /temporarilyDisabledSaving: "Saving page\.\.\. marking paused"/);
