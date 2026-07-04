@@ -2304,9 +2304,13 @@ function isStructuredGroupExclusionCandidate(
   if (!isTextualContainer(el, options)) {
     return false;
   }
-  if (isUnsafeShallowParentMarkingTarget(el, options || {})) {
-    return false;
-  }
+  // NOTE: no page-shell check here — it was dead code. Every caller evaluates
+  // this predicate with parent mode OFF (resolveMarkableElement passes
+  // ancestorOptions with allowParent:false; isScopedFlipCapableAncestor passes
+  // no options), and isUnsafeShallowParentMarkingTarget no-ops without
+  // allowParent, so the call could never reject anything. Actual shell
+  // protection lives where it is effective: the shallow guard on the clicked
+  // element and the any-depth guard for descendants-only widen targets (W1).
   const children = (Array.from(el.children || []) as Element[]).filter((child) => {
     if (isWithinAiPopover(child)) {
       return false;

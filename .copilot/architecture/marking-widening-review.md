@@ -34,6 +34,7 @@ repeat runs vs. a flapping baseline).
 | F5 | `getDepthBelowBody` walked `parentElement`, returning ∞ inside shadow roots → the shell guard was silently OFF for shadow-internal wrappers (CP6 residual). | Low | **HARDENED** — flattened-parent walk |
 | F6 | Initial assessment depends on freeze-moment paint-reachability (carousel card flip observed on the PRE-fix build; bounded by settle sampling; improved by CP7a reuse). Inherent to user-visibility semantics. | Low | Accept, documented |
 | F7 | `containsPageShellLandmark` counts tag-kinds and role-kinds independently (one `<header role="banner">` child = 2 kinds). Conservative direction (blocks more); harmless. | Info | Accept |
+| F8 | The shell-rejection call INSIDE `isStructuredGroupExclusionCandidate` was dead code: every caller evaluates the predicate with parent mode off (`resolveMarkableElement` passes `ancestorOptions` with `allowParent:false`; `isScopedFlipCapableAncestor` passes no options), and `isUnsafeShallowParentMarkingTarget` no-ops without `allowParent` — so it could never reject anything. The documented Q-β "rejecting shallow page shells" clause was therefore never active in the structured-group definition; effective shell protection lives on the clicked element (shallow guard + W1 any-depth guard). | Info (latent inconsistency) | **RESOLVED** — dead call removed (behavioral no-op, architect-approved) |
 
 ## Hardening shipped with this review (F2 + F5)
 
