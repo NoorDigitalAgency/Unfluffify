@@ -78,6 +78,38 @@ The shallow (depth≤2) guard stays unchanged for the structured-group predicate
   shadow trees). knowledge.md bullet.
 - Gate + review-push.
 
+### W3 — F1 LOCKED: remove the visible-immutable-descendant suppression
+- `matchesAutoToggleableDefaultExcluded` collapses to the plain taxonomy tag
+  match (rules 1/2 existed only as bypasses of rule 3). Remove the now-unused
+  `hasVisibleImmutableDescendant` (and `hasNestedToggleableDefaultExcludedDescendant`
+  if no other caller remains).
+- Flip the 052c-restoration test (footer with visible logo img is now
+  collected/auto-excluded); adjust any pins.
+- Contract: replace the §Self-Markability "automatic toggleable-default
+  collection follows 052c structure…" sentence with unconditional tag-based
+  auto-exclusion + the deliberate-deviation note; knowledge.md taxonomy bullet.
+- Gate + review-push.
+
+### W4 — F3 LOCKED: widen-eligibility threshold ≥2
+- `shouldAllowParentMarkingBoundary` count threshold 1 → 2 (marking-rules.ts);
+  `hasMultipleMarkableDescendants` then genuinely requires "multiple".
+- Tests: single-markable-child wrapper is no longer widen-eligible; two-child
+  wrapper stays eligible (existing W1 narrow-card test covers the latter).
+- Contract: §Exclude Mode widening restraints note the ≥2 requirement
+  (deliberate 052c deviation); knowledge.md.
+- Gate + review-push.
+
+### W5 — F4 LOCKED: filter textless children from structured-group cohesion
+- In `isStructuredGroupExclusionCandidate`, also filter children that are not
+  textual containers (spacers/decorations) before the min-2/every() checks.
+  Monotone widening of the structured-group set (passing groups unaffected).
+- Tests: spacer div no longer vetoes a group; group of two textual cards +
+  spacer resolves as the structured-group rung via `getMarkableTarget`
+  (allowParent).
+- Contract: §Exclude Mode Shift / structured-group definition notes the
+  textless-children filter (052c refinement of Q-β); knowledge.md.
+- Gate + review-push.
+
 ## 6. Test matrix
 Per checkpoint: the new focused tests + the full gate
 (`pnpm lint && pnpm check && pnpm test && pnpm build`). The existing two
