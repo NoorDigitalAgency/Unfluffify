@@ -1194,6 +1194,18 @@ function bumpElementCacheDomVersion(): void {
   state.elementCacheDomVersion += 1;
 }
 
+/**
+ * External invalidation hook for surfaces that run OUTSIDE the marking-mode
+ * lifecycle (silent highlighting): core's scroll/mutation observers are
+ * inactive while marking is disabled, so the silent reposition scheduler must
+ * signal DOM/viewport changes itself — otherwise the persisted per-element
+ * caches (visibility, paint-reachability, …) that silent classification reads
+ * through core.isVisible et al. stay permanently stale (debug round S3).
+ */
+export function notifyPageEnvironmentChanged(): void {
+  bumpElementCacheDomVersion();
+}
+
 export function withElementComputationCache<T>(callback: () => T): T {
   const outermost = state.elementComputationCacheDepth === 0;
   if (outermost) {
@@ -1747,6 +1759,14 @@ function filterPaintReachableRects(el: Element | null, rects: RectLike[]): RectL
   if (!Array.isArray(rects) || rects.length === 0) {
     return [];
   }
+  // Hit-testing during an active scroll returns transient garbage (compositor
+  // scroll vs layout race): per-rect misfilters made boxes drift/vanish
+  // mid-scroll (debug round S3). Reachability is unknowable while the viewport
+  // is in motion — keep the rects; the post-scroll render re-applies the
+  // strict filter (handleScroll bumps the cache version).
+  if (state.isScrolling) {
+    return rects;
+  }
   const reachableRects = rects.filter((rect) => getPaintReachabilityForRect(el, rect) !== false);
   if (reachableRects.length > 0) {
     return reachableRects;
@@ -1776,6 +1796,15 @@ function isPaintReachableInCurrentViewport(el: Element | null): boolean {
   const cache = state.paintReachabilityCache;
   if (cache && cache.has(el)) {
     return cache.get(el)!;
+  }
+  // While the viewport is in motion, hit tests return transient garbage
+  // (compositor scroll vs layout race). A false verdict computed mid-scroll
+  // would drop the element from the collections entirely (the scan path has no
+  // draw-side fallback) — so treat reachability as unknowable: assume
+  // reachable and do NOT persist the verdict. The post-scroll pass recomputes
+  // strictly (handleScroll bumps the cache version). Debug round S3.
+  if (state.isScrolling) {
+    return true;
   }
   const result = computePaintReachableInCurrentViewport(el);
   if (cache) {
@@ -3338,14 +3367,26 @@ function seedMarkingsFromAiSelectorsForUnmarkedPage(
     );
 
   const setExplicitExclude = (xpath: string) => {
+    // The seeded row MUST carry explicit:true (matching the function's own
+    // baseline comment above): without the flag (a) the sync reconcile drops
+    // the row in the SAME render (only candidates and explicit rows survive
+    // the rebuild) while still using it as an excluded parent that suppresses
+    // the generated default-exclusion rows beneath it, and (b)
+    // hasExplicitUserMarkings never becomes true, so the seed re-runs its
+    // wipe-and-reseed on EVERY full rebuild. Net effect before this fix: an
+    // unmarked page with stored AI exclusion selectors rendered with ZERO
+    // exclusion rows (defaults appeared included), flipped to correct the
+    // moment ONE user mark landed, flipped back on unmark, and the session
+    // was permanently dirty from enable (debug round S1/S2).
     const targetItem = items.find((item) => item && item.xpath === xpath);
     if (!targetItem) {
-      items.push({ xpath, excluded: true });
+      items.push({ xpath, excluded: true, explicit: true });
       changed = true;
       return;
     }
-    if (!targetItem.excluded) {
+    if (!targetItem.excluded || targetItem.explicit !== true) {
       targetItem.excluded = true;
+      targetItem.explicit = true;
       changed = true;
     }
   };
@@ -12559,6 +12600,10 @@ export function disable(options = {}) {
   state.isScrolling = false;
   state.cachedCollections = null;
   state.cachedCollectionsKey = "";
+  // Marking teardown changes the page environment (overlay removal, emulation
+  // exit): invalidate the persisted element caches so a following silent
+  // session cannot reuse marking-session geometry (debug round S3).
+  bumpElementCacheDomVersion();
   state.scopedSpliceBase = null;
   state.scopedRebuildTarget = null;
   state.scopedRebuildToggleCount = 0;
@@ -12678,12 +12723,15 @@ function isViewportScrollEvent(event: ScrollEventLike | Event | null | undefined
 }
 
 export function handleScroll(event: ScrollEventLike | Event, options = {}) {
+  // Scrolling changes element visibility and paint-reachability, so the reused
+  // per-element caches must be rebuilt on the next pass. This must happen
+  // REGARDLESS of marking mode: silent-highlight passes consume the same
+  // persisted caches (core.isVisible etc.), and skipping the bump while
+  // disabled left them permanently stale in silent mode (debug round S3).
+  bumpElementCacheDomVersion();
   if (!state.enabled || state.aiPopover || !state.overlay) {
     return;
   }
-  // Scrolling changes element visibility and paint-reachability, so the reused
-  // per-element caches must be rebuilt on the next pass.
-  bumpElementCacheDomVersion();
   const isViewportScroll = isViewportScrollEvent(event);
   // Nested scroll containers still need a debounced redraw so partially visible
   // marked content tracks carousels and internal panes. Only viewport scrolls

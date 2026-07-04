@@ -250,6 +250,18 @@ make an otherwise unmarked page count as manually marked for AI auto-seeding.
 Sync drops the generated row when the element gains meaningful text, disappears,
 becomes hidden/non-rendered, or falls under another exclusion.
 
+AI-selector auto-seeding on an unmarked page writes its exclusion rows as
+`{ xpath, excluded: true, explicit: true }` — the seeded CSS/AI baseline IS the
+explicit precedence baseline. The explicit flag is load-bearing twice: it lets
+the seeded rows survive the sync reconcile (which rebuilds rows from scan
+candidates plus preserved explicit rows), and it satisfies the
+`hasExplicitUserMarkings` gate so the seed runs at most once per session
+instead of wiping and reseeding the entry on every rebuild. Without it, the
+seeded rows suppressed the generated default-exclusion rows as excluded
+parents and then evaporated in the same pass — an unmarked page with stored AI
+exclusion selectors rendered with no exclusion rows at all, and the whole
+assessment flipped whenever the first user mark landed or was removed.
+
 For toggleable default exclusions, a stored row with `excluded: false` is the
 user's explicit unmark for that exact default boundary. It must suppress the
 boundary's own default-layer marking without suppressing unmarked descendants,
@@ -312,7 +324,13 @@ Marking mode must avoid duplicate full-page passes:
   rebuilds and config/selector changes do not affect visibility/text/paint).
   The async chunked reconcile keeps rebuilding them per run (it yields, so
   persistence would be unsafe). These caches are still derived state, not a
-  persistent source of truth.
+  persistent source of truth. Silent highlighting consumes the same caches, so
+  its reposition scheduler signals the same invalidation (the scroll bump runs
+  regardless of marking mode, and marking teardown invalidates too). While the
+  viewport is actively scrolling, paint-reachability is treated as unknowable:
+  the draw filter passes rects through and the scan-side check answers
+  optimistically without persisting a verdict — the post-scroll pass re-applies
+  the strict hit-tested filter.
 - A manual explicit include/exclude operation may cache XPath-to-element
   resolution only for that operation. Expanded exclusions must prune descendant
   rows, ancestor rows, and include overrides from the same row set without

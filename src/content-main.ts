@@ -2813,6 +2813,11 @@ function runSilentHighlightSettledRepositionSample() {
 }
 
 function scheduleSilentHighlightReposition(options: { waitForSettle?: boolean } = {}): void {
+  // Every reposition trigger (scroll, resize, layout shift, DOM mutation) is a
+  // page-environment change: invalidate core's persisted per-element caches so
+  // the silent redraw reclassifies against CURRENT geometry instead of values
+  // cached during an earlier marking pass or scroll moment (debug round S3).
+  core.notifyPageEnvironmentChanged();
   if (state.enabled || !lastSilentHighlightingsActive || !silentHighlightCollections) {
     return;
   }
