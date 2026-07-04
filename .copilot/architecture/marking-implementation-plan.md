@@ -164,8 +164,45 @@ together with target resolution + render (they must be coherent).
   reuses the expensive per-element work. Measured on bonliva: per-toggle
   `render.rebuild` 195ms → 86ms (−56%), `sync` 122ms → 45ms (−63%); marked set
   identical. Async reconcile stays ephemeral. Pinned in core-scheduling.test.ts.
-- CP7b (next): branch-scoped walk — recompute only subtree(E) ∪ ancestor-chain(E)
-  to cut the residual O(document) traversal that CP7a's caching cannot remove.
+- CP7b (next): branch-scoped walk — recompute only the affected subtree to cut
+  the residual O(document) traversal that CP7a's caching cannot remove.
+
+  **CP7b execution spec (designed + correctness-proven; ready to implement behind
+  a debug-gated feature flag, tag `cp7a-full` is the rollback point):**
+  - **Affected root (correctness proof).** A mark on E changes candidacy only for
+    (a) E's own subtree (exclusion/inclusion + drill) and (b) ancestors whose
+    candidacy depends on `hasExplicitlyMarkedDescendant` — i.e. FLIP-CAPABLE
+    ancestors: toggleable-default boundaries (`matchesToggleableDefaultExcluded`)
+    and structured-group candidates (`isStructuredGroupExclusionCandidate`).
+    Plain content ancestors (candidacy = `hasDirectText`) do NOT flip. So
+    `affectedRoot` = the OUTERMOST flip-capable ancestor of E, else E itself.
+    Everything above `affectedRoot` is provably unaffected → reuse cached. If
+    `affectedRoot` resolves to `body`/`documentElement`, fall back to full.
+  - **No collapse merge needed.** `collectDefaultLayerElements` does NOT collapse
+    (the per-element self-markable predicate handles nesting), so the splice is
+    just `cachedDefault.filter(el => !affectedRoot-subtree.has(el)) ∪ scoped`.
+  - **Scoped default walk.** Call `collectDefaultHighlightTargets(affectedRoot,
+    { …same precedence sets…, rootAncestorExcluded, rootAncestorHardExcluded })`
+    seeding the root frame from affectedRoot's real ancestor-exclusion state (the
+    `rootAncestor*` options were added in the CP7b groundwork). Reuse cached
+    immutable/AI/selector layers (verified invariant across a toggle).
+  - **Skip the sync scan.** On a scoped toggle, `syncPageMarkings` is redundant —
+    the toggle mutation already normalized the entry and the DOM-candidate rows
+    (generated-default / silent-whitespace) are DOM-invariant. Use the current
+    entry as-is. This removes the other O(document) wall.
+  - **Guards.** (1) Debug-build LIVE PARITY: after each scoped render also run the
+    full rebuild and assert deep-equal collections, logging any divergent element
+    — validate zero mismatches across many toggles on bonliva AND cramo before
+    trusting it. (2) The settle full-reconcile stays as the correctness backstop.
+    (3) Fall back to full whenever ineligible (no cached collections, multi-target,
+    DOM/config/selector change, affectedRoot === body). (4) Equivalence unit
+    corpus (toggleable-default ancestor flip, drill, nested, include-reach-in).
+  - **Win path.** Once parity is clean, reduce settle-full frequency (keep only
+    the final reconcile) so the per-toggle render is the scoped one.
+  - **Why deferred from the CP7a session:** shipping a large rewrite of what-gets-
+    marked without the live-parity validation pass is the silent-regression risk
+    the whole Q&A-first process guards against; the 56% CP7a win is already banked
+    and tagged, so CP7b is a clean, isolated, execution-ready follow-up.
 
 ### CP8 — D1 expand-then-mark harden + MA-4 collapse verify — SHIPPED
 - MA-4 VERIFIED: `collapseElementsByNesting` uses a `keptSet` parent-walk
