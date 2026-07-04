@@ -2618,6 +2618,53 @@ test("Shift parent targeting restores 052c structured ancestor chooser", () => {
   });
 });
 
+test("W5/F4: a textless spacer child no longer vetoes a structured group", () => {
+  // Deliberate 052c refinement (marking-widening-review.md F4): non-textual
+  // children (spacers/decorations) are structural noise, filtered like the
+  // immutable/consent children — previously one spacer disqualified an
+  // otherwise perfect group via every().
+  withVisibilityDom(({ documentElement, body }) => {
+    const first = createElement({
+      tagName: "p",
+      text: "First grouped paragraph",
+      rect: { top: 40, right: 320, bottom: 80, left: 20, width: 300, height: 40 }
+    });
+    const spacer = createElement({
+      rect: { top: 82, right: 320, bottom: 88, left: 20, width: 300, height: 6 }
+    });
+    const second = createElement({
+      tagName: "p",
+      text: "Second grouped paragraph",
+      rect: { top: 90, right: 320, bottom: 130, left: 20, width: 300, height: 40 }
+    });
+    const structuredGroup = createElement({
+      parentElement: body,
+      children: [first, spacer, second],
+      rect: { top: 20, right: 380, bottom: 150, left: 10, width: 370, height: 130 }
+    });
+    body.children.push(structuredGroup);
+    body.childNodes.push(structuredGroup);
+    globalThis.document.elementsFromPoint = (_x, y) =>
+      y >= 90
+        ? [second, structuredGroup, body, documentElement]
+        : [first, structuredGroup, body, documentElement];
+    const originalConfig = state.config;
+    state.config = { pageMarkings: {} };
+    try {
+      assert.equal(
+        getMarkableTarget(30, 50, {
+          allowParent: true,
+          allowExplicitTarget: false,
+          allowImmutableChildren: false
+        }),
+        structuredGroup
+      );
+    } finally {
+      state.config = originalConfig;
+    }
+  });
+});
+
 test("Alt include targeting restores 052c mixed direct-text ancestor promotion", () => {
   withVisibilityDom(({ documentElement, body }) => {
     const child = createElement({

@@ -541,6 +541,14 @@ Two restraints bound how wide a parent selection can reach:
   a wrapper around a single content piece is not a widening target (excluding
   the piece directly is equivalent and tighter). Deliberate 052c deviation
   (decision record: marking-widening-review.md F3).
+- **Structured-group cohesion ignores structural noise children.** The
+  every-child cohesion check filters out children that are not textual
+  containers at all (spacers, decorations) — the same treatment immutable and
+  consent children already receive — before the two-child minimum and the
+  grouped-child test. A group qualifies when at least two textual children
+  remain and all of them conform; previously-qualifying groups are unaffected.
+  052c refinement of the Q-β cohesion definition (decision record:
+  marking-widening-review.md F4).
 
 ### Include Mode
 

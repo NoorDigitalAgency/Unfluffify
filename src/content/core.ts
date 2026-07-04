@@ -2314,6 +2314,15 @@ function isStructuredGroupExclusionCandidate(
     if (isWithinConsentElement(child) || isWithinImmutableExcluded(child)) {
       return false;
     }
+    // F4 LOCKED (052c refinement of the Q-β cohesion definition, see
+    // marking-widening-review.md): children that are not textual containers at
+    // all (spacers, decorations) are structural noise — filtered like the
+    // immutable/consent children above, instead of vetoing the whole group via
+    // every(). Monotone: previously-passing groups had all-textual children,
+    // so this filter removes nothing from them.
+    if (!isTextualContainer(child, options)) {
+      return false;
+    }
     return true;
   });
   if (children.length < 2) {
