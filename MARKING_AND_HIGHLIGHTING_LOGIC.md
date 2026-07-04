@@ -598,11 +598,19 @@ Direct text means text-node content owned by the element itself. Containers with
 only descendant text normally yield to the descendant. Toggleable default
 boundaries follow the restored 052c shape rule: direct own text makes the
 boundary self-markable, otherwise the boundary is self-markable only when it has
-no visible textual descendant and no explicitly marked descendant. Automatic
-toggleable-default collection also follows 052c structure: boundaries with no
-textual descendant qualify, boundaries with nested toggleable defaults qualify,
-and boundaries with visible immutable descendants are suppressed unless the
-other structural cases apply.
+no visible textual descendant and no explicitly marked descendant.
+
+Automatic toggleable-default collection follows the taxonomy tag
+UNCONDITIONALLY: every toggleable-default boundary is auto-excluded (subject to
+the existing hidden-subtree/immutable-ancestor/consent/extension-UI skips).
+This is a deliberate deviation from the 052c structure rule that suppressed
+boundaries with visible immutable descendants — that suppression leaked the
+boundary's boilerplate text into the default content layer (and the AI
+inclusion set) whenever the boundary carried a visible image/video/svg with no
+nested toggleable default, while the media itself was already excluded via the
+immutable tag list. Manual toggling is unaffected; the toggle and explicit
+include remain the rescue paths for meaningful content inside such boundaries.
+(Decision record: marking-widening-review.md F1.)
 
 ### Visibility and CSS Clamps
 

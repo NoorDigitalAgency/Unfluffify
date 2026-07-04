@@ -282,7 +282,7 @@ test("immutable/toggleable tag matching is case-insensitive so foreign-namespace
   );
   const toggleableMatcher = coreSource.slice(
     coreSource.indexOf("function matchesToggleableDefaultExcluded("),
-    coreSource.indexOf("function hasNestedToggleableDefaultExcludedDescendant(")
+    coreSource.indexOf("function isTextualContainer(")
   );
   assert.match(
     toggleableMatcher,

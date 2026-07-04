@@ -1505,7 +1505,11 @@ test("default layer still suppresses selector-matched elements themselves", () =
   });
 });
 
-test("toggleable boundary collection restores 052c visible immutable descendant suppression", () => {
+test("F1: visible immutable descendants no longer suppress boundary auto-exclusion", () => {
+  // Deliberate 052c deviation (marking-widening-review.md F1): a footer with a
+  // visible logo <img> + text was previously NOT auto-excluded (rule 3), which
+  // leaked its boilerplate text into the default content layer as included.
+  // Auto-exclusion now follows the taxonomy tag unconditionally.
   withVisibilityDom(({ body }) => {
     const logo = createElement({
       tagName: "img",
@@ -1525,7 +1529,7 @@ test("toggleable boundary collection restores 052c visible immutable descendant 
     body.children.push(footer);
     body.childNodes.push(footer);
 
-    assert.deepEqual(collectToggleableDefaultExcludedElements(new Set()), []);
+    assert.deepEqual(collectToggleableDefaultExcludedElements(new Set()), [footer]);
   });
 });
 

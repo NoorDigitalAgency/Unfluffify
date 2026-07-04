@@ -2010,31 +2010,6 @@ function matchesToggleableDefaultExcluded(el: Element | null): boolean {
   return result;
 }
 
-function hasNestedToggleableDefaultExcludedDescendant(el: Element | null): boolean {
-  if (!el) {
-    return false;
-  }
-  const stack = Array.from(el.children || []) as Element[];
-  pushCapturableShadowChildren(stack, el);
-  while (stack.length) {
-    const node = stack.pop();
-    if (!node) {
-      continue;
-    }
-    if (isWithinAiPopover(node) || isWithinConsentElement(node)) {
-      continue;
-    }
-    if (matchesToggleableDefaultExcluded(node)) {
-      return true;
-    }
-    for (let i = node.children.length - 1; i >= 0; i -= 1) {
-      stack.push(node.children[i]);
-    }
-    pushCapturableShadowChildren(stack, node);
-  }
-  return false;
-}
-
 function isTextualContainer(el: Element, options: TextualDetectionOptions = {}): boolean {
   const cache = getTextualOptionCache(state.textualContainerCache, options);
   if (cache && cache.has(el)) {
@@ -2147,45 +2122,16 @@ function hasTextualImmutableDescendant(el: Element | null, options: TextualDetec
   return result;
 }
 
-function hasVisibleImmutableDescendant(el: Element | null): boolean {
-  if (!el) {
-    return false;
-  }
-  const stack = Array.from(el.children || []) as Element[];
-  pushCapturableShadowChildren(stack, el);
-  while (stack.length) {
-    const node = stack.pop();
-    if (!node) {
-      continue;
-    }
-    if (isWithinAiPopover(node) || isWithinConsentElement(node)) {
-      continue;
-    }
-    if (matchesImmutableExcluded(node) && isVisible(node)) {
-      return true;
-    }
-    for (let i = node.children.length - 1; i >= 0; i -= 1) {
-      stack.push(node.children[i]);
-    }
-    pushCapturableShadowChildren(stack, node);
-  }
-  return false;
-}
-
 function matchesAutoToggleableDefaultExcluded(el: Element | null): boolean {
-  if (!matchesToggleableDefaultExcluded(el)) {
-    return false;
-  }
-  if (!el) {
-    return false;
-  }
-  if (!hasTextualDescendant(el)) {
-    return true;
-  }
-  if (hasNestedToggleableDefaultExcludedDescendant(el)) {
-    return true;
-  }
-  return !hasVisibleImmutableDescendant(el);
+  // F1 LOCKED (deliberate 052c deviation, see marking-widening-review.md):
+  // auto-exclusion follows the taxonomy tag UNCONDITIONALLY. The former rule 3
+  // ("a visible immutable descendant suppresses the boundary's auto-exclusion")
+  // leaked boundary boilerplate into AI-included content — the boundary's text
+  // fell through to the default content layer while the media was excluded via
+  // the immutable tag list anyway. Rules 1/2 (no textual descendant / nested
+  // toggleable) existed only as bypasses of rule 3, so the predicate collapses
+  // to the tag match. Manual toggling is unaffected.
+  return matchesToggleableDefaultExcluded(el);
 }
 
 function hasExplicitlyMarkedDescendant(el: Element | null): boolean {
