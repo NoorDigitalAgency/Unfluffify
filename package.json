@@ -1,6 +1,6 @@
 {
   "name": "unfluffify",
-  "version": "1.9.6",
+  "version": "1.9.7",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.9.0",
