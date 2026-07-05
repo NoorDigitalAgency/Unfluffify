@@ -176,6 +176,133 @@ test("brain settles to READY_TO_SAVE with Save unblocked after a run + preview e
   brain.heartbeat.stop(tabId);
 });
 
+// Post-discard settle (debug round PART 4): applyLocalPageDiscard publishes a
+// full clean-reset patch at the new marking-session epoch. The brain hands
+// AI-run authority back only when the REPORTED PATCH ITSELF carries pre_ai +
+// clean pending/draft + previewActive:false + previewBlocked:false
+// (shouldKeepBrainAiRunAuthority reads the patch, not merged facts), and
+// aiRunUpToDate:false must ride along or the sticky true from the finished
+// run keeps the decider at SAVED. This drives the REAL brain through the
+// discard-from-POST_AI arc the user actually performs.
+test("the discard settle from POST_AI lands MARKING_FRESH and closes the run-scoped gates", async () => {
+  const brain = createBrain({ logger: { error() {} } });
+  const tabId = 503;
+  brain.registerPopupPort(tabId, createFakePopupPort(tabId));
+
+  // A full run: dirty session -> run -> preview -> exit -> READY_TO_SAVE, the
+  // state the Discard button resolves (criterion-4).
+  await reportPopup(brain, tabId, {
+    ...READY_FACTS,
+    sessionHasPendingChanges: true,
+    currentDraftDirty: true,
+  });
+  await publishAiRunEvent(brain, tabId, AI_RUN_EVENT_TYPES.STARTED);
+  await publishAiRunEvent(brain, tabId, AI_RUN_EVENT_TYPES.PREVIEW_READY);
+  await publishAiRunEvent(brain, tabId, AI_RUN_EVENT_TYPES.EXITED);
+  await reportPopup(brain, tabId, {
+    ...READY_FACTS,
+    aiRunPhase: "post_ai",
+    aiRunUpToDate: true,
+    sessionHasPendingChanges: true,
+    currentPageHasPendingChanges: false,
+    currentDraftDirty: false,
+    previewActive: false,
+    previewBlocked: false,
+  });
+  assert.equal(brain.getPopupView(tabId).sessionPhase, SESSION_PHASES.READY_TO_SAVE);
+
+  // The exact settle patch applyLocalPageDiscard publishes (no seq).
+  await reportPopup(brain, tabId, {
+    isEnabled: true,
+    silentModeActive: false,
+    aiRunPhase: "pre_ai",
+    aiRunUpToDate: false,
+    previewActive: false,
+    previewBlocked: false,
+    currentDraftDirty: false,
+    discarding: false,
+    sessionHasPendingChanges: false,
+  });
+
+  const view = brain.getPopupView(tabId);
+  assert.equal(view.sessionPhase, SESSION_PHASES.MARKING_FRESH);
+  // Preview Contents must not stay gated open against the discarded run.
+  assert.equal(
+    view.secondaryGates?.markingPreviewBlockedReason,
+    SECONDARY_GATES_BLOCK_REASONS.REQUIRES_AI_RUN,
+  );
+
+  // Heartbeat-style re-fold of the merged sticky snapshot stays MARKING_FRESH.
+  await reportPopup(brain, tabId, {
+    ...READY_FACTS,
+    aiRunPhase: "pre_ai",
+    aiRunUpToDate: false,
+    sessionHasPendingChanges: false,
+    currentPageHasPendingChanges: false,
+    currentDraftDirty: false,
+    previewActive: false,
+    previewBlocked: false,
+  });
+  assert.equal(brain.getPopupView(tabId).sessionPhase, SESSION_PHASES.MARKING_FRESH);
+
+  // The post-discard session behaves like a fresh one: a new user mark goes
+  // MARKING_DIRTY (requires a new run), never back to READY_TO_SAVE.
+  await reportPopup(brain, tabId, {
+    ...READY_FACTS,
+    aiRunPhase: "pre_ai",
+    sessionHasPendingChanges: true,
+    currentPageHasPendingChanges: true,
+    currentDraftDirty: true,
+    previewActive: false,
+    previewBlocked: false,
+  });
+  assert.equal(brain.getPopupView(tabId).sessionPhase, SESSION_PHASES.MARKING_DIRTY);
+
+  brain.heartbeat.stop(tabId);
+});
+
+// Control pinning WHY the settle carries previewActive/previewBlocked: without
+// them the patch is not a clean reset, the brain keeps AI-run authority, strips
+// the reported pre_ai, and re-derives POST_AI from its own run state — phase
+// SAVED with the marking-preview gate open against the just-discarded run. If
+// shouldKeepBrainAiRunAuthority is ever deliberately relaxed, update this and
+// the settle comment in applyLocalPageDiscard together.
+test("a discard settle missing the preview fields does not hand AI-run authority back", async () => {
+  const brain = createBrain({ logger: { error() {} } });
+  const tabId = 504;
+  brain.registerPopupPort(tabId, createFakePopupPort(tabId));
+
+  await publishAiRunEvent(brain, tabId, AI_RUN_EVENT_TYPES.STARTED);
+  await publishAiRunEvent(brain, tabId, AI_RUN_EVENT_TYPES.EXITED);
+  await reportPopup(brain, tabId, {
+    ...READY_FACTS,
+    aiRunPhase: "post_ai",
+    sessionHasPendingChanges: true,
+    currentPageHasPendingChanges: false,
+    currentDraftDirty: false,
+    previewActive: false,
+    previewBlocked: false,
+  });
+
+  await reportPopup(brain, tabId, {
+    isEnabled: true,
+    silentModeActive: false,
+    aiRunPhase: "pre_ai",
+    currentDraftDirty: false,
+    discarding: false,
+    sessionHasPendingChanges: false,
+  });
+
+  const view = brain.getPopupView(tabId);
+  assert.equal(view.sessionPhase, SESSION_PHASES.SAVED);
+  assert.equal(
+    view.secondaryGates?.markingPreviewBlockedReason,
+    SECONDARY_GATES_BLOCK_REASONS.NONE,
+  );
+
+  brain.heartbeat.stop(tabId);
+});
+
 test("a popup POST_AI report cannot hand AI-run authority back as a clean reset", async () => {
   const brain = createBrain({ logger: { error() {} } });
   const tabId = 502;
