@@ -350,3 +350,99 @@ test("#5 (debug round): page revert shows the confirm dialog before the runtime-
   assert.equal(runtimeRefreshCount, 1, "confirmed revert runs the runtime refresh post-confirm, inside the spinner");
   assert.equal(confirmed.calls.discard, 1);
 });
+
+// Click-to-conclusion spinner span: the Save/Discard lease engages the moment
+// the button handler enters — before the preflight roundtrips, the gates, and
+// (for Discard) the confirm dialog — and releases at EVERY conclusion:
+// success, failure, a gate refusal, or the user rejecting the dialog.
+function createSpinnerOrderDeps(overrides = {}) {
+  const events = [];
+  const { deps, calls } = createDeps({
+    runWithSpinner: async (_key, message, task) => {
+      events.push(`spinner-begin:${message}`);
+      try {
+        return await task();
+      } finally {
+        events.push("spinner-end");
+      }
+    },
+    ensureActiveTab: async () => {
+      events.push("ensure-active-tab");
+      return { id: 1 };
+    },
+    refreshCurrentPageRuntimeStatus: async () => {
+      events.push("runtime-refresh");
+    },
+    validateStoredToken: async () => {
+      events.push("validate-token");
+      return true;
+    },
+    showToast: (message) => {
+      events.push(`toast:${message}`);
+    },
+    ...overrides
+  });
+  return { deps, calls, events };
+}
+
+test("save engages the spinner at click: preflight, gates, and token validation run inside the lease", async () => {
+  resetState();
+  const { deps, events } = createSpinnerOrderDeps();
+
+  await handlePageSave(deps);
+
+  assert.equal(events[0], `spinner-begin:${PopupText.overlay.savingPage}`);
+  assert.ok(events.indexOf("ensure-active-tab") > 0, "tab preflight runs inside the lease");
+  assert.ok(events.indexOf("runtime-refresh") > events.indexOf("ensure-active-tab"));
+  assert.ok(events.indexOf("validate-token") > events.indexOf("runtime-refresh"));
+  assert.equal(events.at(-1), "spinner-end");
+});
+
+test("a save gate refusal still begins and concludes the spinner", async () => {
+  resetState();
+  const { deps, calls, events } = createSpinnerOrderDeps({
+    getViewState: () => ({
+      sessionHasPendingChanges: false,
+      sessionRequiresAiRun: false,
+      currentPageHasPendingChanges: false,
+      pageSaveBlockedReason: "no_session_changes",
+      pageRevertBlockedReason: "no_page_changes"
+    })
+  });
+
+  await handlePageSave(deps);
+
+  assert.equal(calls.sync, 0);
+  assert.equal(events[0], `spinner-begin:${PopupText.overlay.savingPage}`);
+  assert.equal(events.at(-1), "spinner-end");
+});
+
+test("revert engages the spinner at click, holds it through the confirm, and concludes on rejection", async () => {
+  resetState();
+  const events = [];
+  const { deps, calls } = createDeps({
+    runWithSpinner: async (_key, message, task) => {
+      events.push(`spinner-begin:${message}`);
+      try {
+        return await task();
+      } finally {
+        events.push("spinner-end");
+      }
+    },
+    windowRef: {
+      confirm: () => {
+        events.push("confirm");
+        return false;
+      }
+    }
+  });
+
+  await handlePageRevert(deps);
+
+  assert.equal(calls.discard, 0, "a rejected dialog performs no discard");
+  assert.deepEqual(events, [
+    `spinner-begin:${PopupText.overlay.revertingPage}`,
+    "confirm",
+    "spinner-end"
+  ]);
+});
