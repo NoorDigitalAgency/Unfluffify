@@ -7116,6 +7116,30 @@ export function getMutationRenderMode(mutations: MutationLike[]): "none" | "rebu
   return mode;
 }
 
+// Pre-warm the custom marking cursor images: a first-hover fetch/decode of
+// the chrome-extension:// SVG is exactly the window where Chromium shows the
+// CSS fallback cursor instead. Refs are held so GC cannot drop the images
+// before they land in the cache.
+const preloadedMarkingCursorImages: HTMLImageElement[] = [];
+
+function preloadMarkingCursorImages(urls: string[]): void {
+  if (preloadedMarkingCursorImages.length > 0) {
+    return;
+  }
+  for (const url of urls) {
+    if (!url) {
+      continue;
+    }
+    try {
+      const image = new Image();
+      image.src = url;
+      preloadedMarkingCursorImages.push(image);
+    } catch {
+      // Cursor pre-warm is best-effort; the CSS fallback stays usable.
+    }
+  }
+}
+
 function isExplicitlyIncludedElement(
   el: Element | null | undefined,
   includeSet: Set<string> | null | undefined
@@ -7136,13 +7160,20 @@ function createOverlay() {
   style.id = "unfluffify-freeze-style";
   const excludeCursorUrl = utils.getExtensionResourceUrl("cursors/exclude.svg");
   const includeCursorUrl = utils.getExtensionResourceUrl("cursors/include.svg");
+  // Chromium transiently drops custom image cursors (fetch/decode hiccups on
+  // a busy renderer) and shows the NEXT cursor in the list until the image is
+  // usable again. With `not-allowed` as the exclude fallback every such drop
+  // flashed the FORBIDDEN cursor over marking (live report: "the exclusion
+  // cursor turns into the forbidden cursor sporadically"). The fallback must
+  // stay a neutral marking-appropriate cursor; preloadMarkingCursorImages
+  // below keeps the drop window rare in the first place.
   style.textContent = `
       html {
         scroll-behavior: auto !important;
       }
       html.uf-cursor-exclude,
       html.uf-cursor-exclude * {
-        cursor: url("${excludeCursorUrl}") 4 3, not-allowed !important;
+        cursor: url("${excludeCursorUrl}") 4 3, crosshair !important;
       }
       html.uf-cursor-include,
       html.uf-cursor-include * {
@@ -7390,6 +7421,7 @@ function createOverlay() {
       }
     `;
   (document.body || document.documentElement).appendChild(style);
+  preloadMarkingCursorImages([excludeCursorUrl, includeCursorUrl]);
 
   const overlay = document.createElement("div");
   overlay.id = "unfluffify-overlay";
