@@ -8503,30 +8503,6 @@ function containsPageShellLandmark(el: Element | null | undefined): boolean {
   return landmarkKinds.size >= 2;
 }
 
-function hasBroadParentMarkingFootprint(el: Element | null | undefined): boolean {
-  if (!el || typeof el.getBoundingClientRect !== "function") {
-    return false;
-  }
-  let rect;
-  try {
-    rect = el.getBoundingClientRect();
-  } catch (_error) {
-    return false;
-  }
-  if (!rect || rect.width <= 0 || rect.height <= 0) {
-    return false;
-  }
-  const viewport = getViewportBounds();
-  const viewportWidth = viewport.width || (typeof window !== "undefined" ? window.innerWidth : 0) || 0;
-  const viewportHeight = viewport.height || (typeof window !== "undefined" ? window.innerHeight : 0) || 0;
-  if (viewportWidth <= 0 || viewportHeight <= 0) {
-    return false;
-  }
-  const widthRatio = rect.width / viewportWidth;
-  const heightRatio = rect.height / viewportHeight;
-  return widthRatio >= 0.85 && heightRatio >= 0.65;
-}
-
 function isUnsafeShallowParentMarkingTarget(
   el: Element | null | undefined,
   options: ParentMarkingOptions = {}
@@ -8544,19 +8520,20 @@ function isUnsafeShallowParentMarkingTarget(
   if (depth > 2) {
     return false;
   }
-  return containsPageShellLandmark(el) || hasBroadParentMarkingFootprint(el);
+  return containsPageShellLandmark(el);
 }
 
 /**
- * F2 harden (widening restraint): a parent-mode target that is markable ONLY
- * via its descendants (not self-markable) must pass the page-shell rejection at
- * ANY depth — not just the first two levels under body. Without this,
- * Shift-clicking the whitespace of a deep full-width wrapper (div-soup SPAs put
- * the whole content column at depth 3+) selected the entire content area with
- * no footprint/landmark check. Semantic content boundaries and direct-text
- * elements keep their exemption, so sections/articles/lists, toggleable
- * boundaries, and mixed-text ancestors are unaffected, and narrow card
- * containers stay widen-eligible.
+ * F2 harden (widening restraint), landmark-based (2026-07-05 decision): a
+ * parent-mode target markable ONLY via its descendants (not self-markable) is
+ * rejected at ANY depth only when it is a PAGE SHELL — i.e. it contains page-shell
+ * landmarks (main/nav/header/footer tags or banner/contentinfo/main/navigation
+ * roles). The earlier broad-footprint heuristic was DROPPED: a real page footer
+ * is itself full-width and tall, dimensionally indistinguishable from a content
+ * column, so admitting it means relying on landmarks alone — real content shells
+ * carry landmarks, footers do not. Semantic content boundaries and direct-text
+ * elements keep their exemption; a bare landmark-less full-width wrapper is now
+ * widen-eligible (accepted tradeoff, see marking-widening-review.md).
  */
 function isUnsafeWideDescendantOnlyTarget(el: Element): boolean {
   if (isParentMarkingContentBoundary(el)) {
@@ -8565,7 +8542,7 @@ function isUnsafeWideDescendantOnlyTarget(el: Element): boolean {
   if (hasDirectText(el)) {
     return false;
   }
-  return containsPageShellLandmark(el) || hasBroadParentMarkingFootprint(el);
+  return containsPageShellLandmark(el);
 }
 
 function createExcludedAncestorChecker(

@@ -1230,6 +1230,90 @@ test("W1/F2: deep NARROW containers with markable descendants stay widen-eligibl
   });
 });
 
+test("N1 (landmark-based): a DEEP full-width landmark-less wrapper stays widen-eligible", () => {
+  // 2026-07-05 decision (marking-widening-review.md): the broad-footprint
+  // rejection was dropped. A real page footer is itself full-width + tall, so a
+  // landmark-less full-width wrapper is a valid widen target; only a page shell
+  // (>=2 page-shell landmarks) rejects a wide descendants-only target now.
+  withVisibilityDom(({ body }) => {
+    const textA = createElement({
+      tagName: "p",
+      text: "Footer column one",
+      rect: { top: 40, right: 300, bottom: 80, left: 40, width: 260, height: 40 }
+    });
+    const textB = createElement({
+      tagName: "p",
+      text: "Footer column two",
+      rect: { top: 90, right: 300, bottom: 130, left: 40, width: 260, height: 40 }
+    });
+    const footerWrap = createElement({
+      children: [textA, textB],
+      rect: { top: 20, right: 1200, bottom: 800, left: 0, width: 1200, height: 780 }
+    });
+    const level2 = createElement({
+      children: [footerWrap],
+      rect: { top: 0, right: 1200, bottom: 800, left: 0, width: 1200, height: 800 }
+    });
+    const level1 = createElement({
+      parentElement: body,
+      children: [level2],
+      rect: { top: 0, right: 1200, bottom: 800, left: 0, width: 1200, height: 800 }
+    });
+    body.children.push(level1);
+    body.childNodes.push(level1);
+
+    // Full-width (1.0 vw) + tall, depth 3, no landmarks: eligible (was rejected
+    // by the old footprint heuristic).
+    assert.equal(
+      isMarkableElement(footerWrap, {}, { allowParent: true, hitPoint: { x: 100, y: 60 } }),
+      true
+    );
+  });
+});
+
+test("N1 (landmark-based): a DEEP full-width wrapper that IS a page shell (>=2 landmarks) is rejected", () => {
+  withVisibilityDom(({ body }) => {
+    const navText = createElement({
+      tagName: "p",
+      text: "Primary navigation",
+      rect: { top: 40, right: 300, bottom: 80, left: 40, width: 260, height: 40 }
+    });
+    const nav = createElement({
+      tagName: "nav",
+      children: [navText],
+      rect: { top: 20, right: 1200, bottom: 100, left: 0, width: 1200, height: 80 }
+    });
+    const mainText = createElement({
+      tagName: "p",
+      text: "Main page content",
+      rect: { top: 140, right: 360, bottom: 200, left: 40, width: 320, height: 60 }
+    });
+    const main = createElement({
+      tagName: "main",
+      children: [mainText],
+      rect: { top: 120, right: 1200, bottom: 760, left: 0, width: 1200, height: 640 }
+    });
+    const shell = createElement({
+      children: [nav, main],
+      rect: { top: 0, right: 1200, bottom: 800, left: 0, width: 1200, height: 800 }
+    });
+    const level1 = createElement({
+      parentElement: body,
+      children: [shell],
+      rect: { top: 0, right: 1200, bottom: 800, left: 0, width: 1200, height: 800 }
+    });
+    body.children.push(level1);
+    body.childNodes.push(level1);
+
+    // Contains nav + main (2 page-shell landmarks) at depth 2 -> page shell ->
+    // still rejected under the landmark-based rule.
+    assert.equal(
+      isMarkableElement(shell, {}, { allowParent: true, hitPoint: { x: 100, y: 60 } }),
+      false
+    );
+  });
+});
+
 test("W4/F3: a wrapper with a SINGLE markable descendant is not a widen target", () => {
   // Deliberate 052c deviation (marking-widening-review.md F3): widening must
   // group several content pieces; a single-child wrapper adds nothing over
