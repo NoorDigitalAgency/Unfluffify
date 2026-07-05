@@ -4815,7 +4815,21 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
       const configSiteId = normalizeSiteIdValue(
         configs[state.currentBaseUrl] && configs[state.currentBaseUrl].siteId
       );
-      currentSiteId = configSiteId;
+      // Fresh-install / just-configured fallback: the navigation-time brain
+      // resolution ran WITHOUT credentials (nothing persisted, no projection)
+      // and configs has no entry yet, but this pass's own GraphQL discovery
+      // above already resolved the property into the in-memory lookup. Without
+      // adopting it, currentSiteId stays null on every pass after the user
+      // completes the configuration view: page types never fetch, the /load
+      // never fires (its wrapper skips without a siteId), siteIdReady stays
+      // false, and the popup sits dead on "Unable to resolve domainId" until a
+      // manual tab reload re-runs the background lifecycle. The lookup map is
+      // popup-session memory only — nothing is persisted here, so the SW
+      // page-data-lifecycle stays the sole config/siteId authority.
+      currentSiteId =
+        configSiteId ||
+        normalizeSiteIdValue(state.siteIdLookupByBaseUrl.get(state.currentBaseUrl)) ||
+        null;
     }
     if (
       tabInScope &&

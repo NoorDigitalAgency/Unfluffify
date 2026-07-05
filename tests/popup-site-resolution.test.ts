@@ -1,5 +1,6 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
+import { readFileSync } from "./file-kit.ts";
 
 import { PopupText, ViewText } from "../src/common/text.js";
 import { state } from "../src/popup/state.js";
@@ -262,4 +263,20 @@ test("popup site resolution merge prefers normalized preferred site id", () => {
 
   assert.equal(merged.siteId, 300);
   assert.equal(merged.renderMode, "rendered");
+});
+
+test("refreshUi adopts the pass-discovered siteId for just-configured properties", () => {
+  // Regression (fresh install / re-login after JWT expiry): the navigation-time
+  // brain resolution ran without credentials, so neither a projected siteId nor
+  // a persisted config siteId exists when the user completes the configuration
+  // view. The refresh pass's own GraphQL discovery stores the property in
+  // state.siteIdLookupByBaseUrl, and refreshUiInner must adopt it as
+  // currentSiteId — otherwise page types never fetch, the /load wrapper skips,
+  // siteIdReady stays false, and the popup never reflects the property until a
+  // manual tab reload. The lookup map stays in-memory only (#sw-sole-authority).
+  const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
+  assert.match(
+    popupSource,
+    /currentSiteId =\s*configSiteId \|\|\s*normalizeSiteIdValue\(state\.siteIdLookupByBaseUrl\.get\(state\.currentBaseUrl\)\) \|\|\s*null;/
+  );
 });

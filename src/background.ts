@@ -2850,11 +2850,21 @@ async function runBackgroundTabOperation<TResult extends Record<string, unknown>
   descriptor: TabOperationDescriptor,
   work: TabOperationWork<TResult>
 ): Promise<TabOperationResult<TResult>> {
-  return tabOperationRunner.runTabOperation(
-    normalizeSpinnerTabId(tabId),
-    descriptor,
-    work
-  ) as Promise<TabOperationResult<TResult>>;
+  // Tab operations (render-mode inspection reloads, activations) can spend tens
+  // of seconds awaiting navigation events with no extension event traffic — an
+  // MV3 idle suspension mid-operation loses the spinner REMOVE and the
+  // operation's cleanup with the worker's memory. Hold the keepalive for the
+  // operation's lifetime, like the AI run does.
+  swKeepAlive.acquire();
+  try {
+    return await (tabOperationRunner.runTabOperation(
+      normalizeSpinnerTabId(tabId),
+      descriptor,
+      work
+    ) as Promise<TabOperationResult<TResult>>);
+  } finally {
+    swKeepAlive.release();
+  }
 }
 
 browser.runtime.onConnect.addListener((port) => {

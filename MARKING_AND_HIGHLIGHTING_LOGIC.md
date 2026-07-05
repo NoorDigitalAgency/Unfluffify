@@ -266,7 +266,12 @@ For toggleable default exclusions, a stored row with `excluded: false` is the
 user's explicit unmark for that exact default boundary. It must suppress the
 boundary's own default-layer marking without suppressing unmarked descendants,
 so the unmarked boundary does not render as a visual-only ghost around an
-explicit descendant marking. Nested toggleable defaults keep their own default
+explicit descendant marking. That self-suppression applies only when the
+boundary has visible textual descendants that render in its place: a LEAF
+textual boundary (an unmarked `BUTTON` whose only content is its own text) has
+no descendant surface, so it stays in the default layer — otherwise the
+unmarked control would carry no marking UI at all and could not be visually
+re-excluded. Nested toggleable defaults keep their own default
 behavior. Default-layer collection intentionally remains otherwise 052c-like:
 explicit marks should not globally filter unrelated implicit default targets,
 because that can make implicit descendant markings flicker on alternating
@@ -504,7 +509,13 @@ state of its own beyond these latches — every event re-derives the mode.
 ## Target Resolution
 
 Targets are resolved from `document.elementsFromPoint(...)`, skipping extension
-UI, consent UI, document roots, and immutable subtrees.
+UI, consent UI, document roots, and immutable subtrees. Native hit testing can
+never report a `pointer-events: none` element (a common accordion pattern marks
+the header text spans hit-transparent so clicks always land on the delegated
+header), so the composed hit path additionally surfaces pointer-events-
+suppressed descendants of the topmost page hit whose client rects contain the
+point, deepest-first — those elements are real, visible content and stay
+hover- and click-markable.
 
 Hit targets must have renderable marking geometry. A live element whose own box
 is hidden, transparent, or otherwise not visible cannot be selected just
@@ -518,7 +529,11 @@ viewport. Responsive alternates that keep measurable boxes but are fully covered
 by another card face, slide face, or click layer must not render as separate
 default targets. If hit testing is unavailable or the element is off-screen, the
 cached collection keeps the element and the viewport redraw performs the same
-paint-reachability check when it scrolls into view.
+paint-reachability check when it scrolls into view. An element missing from its
+own hit stack counts as reachable when the TOPMOST page hit is one of its
+ancestors and the chain up to that ancestor is pointer-events-suppressed: that
+miss is hit-test transparency, not coverage, while a genuine foreign overlay
+above the ancestor still reads as covered.
 
 ### Exclude Mode
 

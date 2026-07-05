@@ -19,14 +19,48 @@ export type SpinnerState = Readonly<{
   spinnerKey?: string;
 }>;
 
-function projectSurface(selection: SpinnerSelection | null): SpinnerState | null {
+// Contract enforcement for the phase recovery policies (RELEASE_ON_EXPIRE /
+// FAIL_OPEN): a projected blocking surface must never outlive its phase budget.
+// The queue's REMOVE normally clears the selection, but the selection itself is
+// persisted with the brain store (session-scoped extension storage) while the
+// spinner queue is service-worker memory — an MV3 SW suspension mid-operation
+// loses the REMOVE forever and the popup would project the stuck surface
+// indefinitely (live-reported: the "With JavaScript" render-mode inspection
+// after a "Without JavaScript" hold sporadically left its curtain stuck).
+// Projection runs on every store mutation and popup (re)connect, so expiring
+// here clears the surface within the phase budget plus this grace.
+const SPINNER_SURFACE_EXPIRY_GRACE_MS = 30_000;
+
+function isExpiredSpinnerSelection(
+  selection: SpinnerSelection,
+  definition: { maxDurationMs: number },
+  now: number,
+): boolean {
+  if (!Number.isFinite(now) || now <= 0) {
+    return false;
+  }
+  if (selection.deadlineAt > 0 && now > selection.deadlineAt + SPINNER_SURFACE_EXPIRY_GRACE_MS) {
+    return true;
+  }
+  return Boolean(
+    definition.maxDurationMs > 0 &&
+      selection.startedAt > 0 &&
+      now > selection.startedAt + definition.maxDurationMs + SPINNER_SURFACE_EXPIRY_GRACE_MS
+  );
+}
+
+function projectSurface(selection: SpinnerSelection | null, now = 0): SpinnerState | null {
   if (!selection) {
     return null;
   }
   // Admission: only phases the shared contract knows may reach a surface —
   // consumers resolve content from the same table, so an unknown phase would
   // render an empty overlay.
-  if (!getSpinnerPhaseDefinition(selection.kind, selection.phase)) {
+  const definition = getSpinnerPhaseDefinition(selection.kind, selection.phase);
+  if (!definition) {
+    return null;
+  }
+  if (isExpiredSpinnerSelection(selection, definition, now)) {
     return null;
   }
   return {
@@ -69,7 +103,7 @@ function projectAiRunSelection(state: TabLayerState): SpinnerSelection | null {
   };
 }
 
-export function projectSpinners(state: TabLayerState): {
+export function projectSpinners(state: TabLayerState, now = 0): {
   popup: SpinnerState | null;
   pageCurtain: SpinnerState | null;
   banner: SpinnerState | null;
@@ -107,8 +141,8 @@ export function projectSpinners(state: TabLayerState): {
       ? aiRunSelection
       : pageCurtainAiRunSelection || aiRunSelection || state.spinners.pageCurtain;
   return {
-    popup: projectSurface(popupSelection),
-    pageCurtain: projectSurface(pageCurtainSelection),
-    banner: projectSurface(state.spinners.banner),
+    popup: projectSurface(popupSelection, now),
+    pageCurtain: projectSurface(pageCurtainSelection, now),
+    banner: projectSurface(state.spinners.banner, now),
   };
 }

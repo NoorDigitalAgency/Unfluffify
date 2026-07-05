@@ -457,4 +457,98 @@ describe("spinner authority", () => {
       startedAt: 5_000,
     });
   });
+  it("expires blocking surfaces past their phase budget when projected with a clock", () => {
+    // Regression (live-reported): the render-mode inspection spinner selection is
+    // persisted with the brain store while the spinner queue's REMOVE lives in
+    // service-worker memory — an MV3 suspension mid-operation (the long
+    // "With JavaScript" flow after a "Without JavaScript" hold) lost the REMOVE
+    // and the popup projected the stuck curtain forever. The recovery-policy
+    // budget (maxDurationMs + grace) must expire the surface at projection time.
+    const startedAt = 1_000_000;
+    const state = createState({
+      spinners: {
+        popup: {
+          kind: SPINNER_OPERATION_KINDS.RENDER_MODE_INSPECTION,
+          phase: SPINNER_OPERATION_PHASES.RENDER_MODE_INSPECTION.RELOADING_FOR_INSPECTION,
+          startedAt,
+          deadlineAt: 0,
+          operationId: "render-mode-inspection:9",
+          message: "",
+          reason: "tab-render-mode-reload",
+          source: "background-command-router",
+          spinnerKey: "render-mode-inspection:9",
+        },
+        pageCurtain: {
+          kind: SPINNER_OPERATION_KINDS.RENDER_MODE_INSPECTION,
+          phase: SPINNER_OPERATION_PHASES.RENDER_MODE_INSPECTION.RELOADING_FOR_INSPECTION,
+          startedAt,
+          deadlineAt: 0,
+          operationId: "render-mode-inspection:9",
+          message: "",
+          reason: "tab-render-mode-reload",
+          source: "background-command-router",
+          spinnerKey: "render-mode-inspection:9",
+        },
+        banner: null,
+      },
+    });
+
+    // Within the phase budget (60s) + grace (30s): still projected.
+    const live = projectSpinners(state, startedAt + 60_000);
+    expect(live.popup).toMatchObject({
+      kind: SPINNER_OPERATION_KINDS.RENDER_MODE_INSPECTION,
+    });
+    expect(live.pageCurtain).toMatchObject({
+      kind: SPINNER_OPERATION_KINDS.RENDER_MODE_INSPECTION,
+    });
+
+    // Past budget + grace: the stuck surface fail-opens.
+    const expired = projectSpinners(state, startedAt + 91_000);
+    expect(expired.popup).toBeNull();
+    expect(expired.pageCurtain).toBeNull();
+  });
+
+  it("expires countdown selections past their deadline plus grace", () => {
+    const projected = projectSpinners(createState({
+      spinners: {
+        popup: {
+          kind: SPINNER_OPERATION_KINDS.AI_RUN,
+          phase: SPINNER_OPERATION_PHASES.AI_RUN.REMOTE_WAIT,
+          startedAt: 1_000_000,
+          deadlineAt: 1_480_000,
+          operationId: "op-run",
+          message: "",
+          reason: "tab-run-ai-running",
+          source: "spinner-broker",
+          spinnerKey: "run-ai:9",
+        },
+        pageCurtain: null,
+        banner: null,
+      },
+    }), 1_480_000 + 31_000);
+
+    expect(projected.popup).toBeNull();
+  });
+
+  it("keeps legacy clockless projection behavior when no now is provided", () => {
+    const projected = projectSpinners(createState({
+      spinners: {
+        popup: {
+          kind: SPINNER_OPERATION_KINDS.AI_RUN,
+          phase: SPINNER_OPERATION_PHASES.AI_RUN.REMOTE_WAIT,
+          startedAt: 10,
+          deadlineAt: 20,
+          operationId: "op-legacy",
+          message: "",
+          reason: "",
+          source: "",
+          spinnerKey: "legacy",
+        },
+        pageCurtain: null,
+        banner: null,
+      },
+    }));
+
+    expect(projected.popup).toMatchObject({ operationId: "op-legacy" });
+  });
 });

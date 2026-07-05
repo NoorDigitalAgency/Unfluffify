@@ -1791,6 +1791,160 @@ test("stored unexcluded default boundaries do not draw a default-layer ghost", (
   });
 });
 
+test("leaf unexcluded default BUTTON keeps a default-layer marking", () => {
+  // Regression (user-reported, acnespecialisten hudproblem cards): BUTTONs are
+  // excluded by default; unmarking one stores {xpath, excluded:false}. The
+  // unexcluded boundary used to suppress its own default-layer marking
+  // unconditionally, and a leaf button has no markable element descendants to
+  // render instead — so the unmarked control lost ALL marking UI (while silent
+  // highlighting still included it). Leaf textual boundaries must stay in the
+  // default layer.
+  withVisibilityDom(({ body, xpathMap }) => {
+    const img = createElement({
+      tagName: "img",
+      rect: { top: 20, right: 134, bottom: 160, left: 20, width: 114, height: 140 }
+    });
+    const imageWrap = createElement({
+      tagName: "div",
+      children: [img],
+      rect: { top: 20, right: 134, bottom: 160, left: 20, width: 114, height: 140 }
+    });
+    const button = createElement({
+      tagName: "button",
+      text: "Akne",
+      rect: { top: 170, right: 134, bottom: 200, left: 20, width: 114, height: 30 }
+    });
+    const bottom = createElement({
+      tagName: "div",
+      children: [button],
+      rect: { top: 165, right: 140, bottom: 205, left: 15, width: 125, height: 40 }
+    });
+    const card = createElement({
+      tagName: "div",
+      children: [imageWrap, bottom],
+      rect: { top: 15, right: 145, bottom: 210, left: 10, width: 135, height: 195 }
+    });
+    const link = createElement({
+      tagName: "a",
+      children: [card],
+      rect: { top: 15, right: 145, bottom: 210, left: 10, width: 135, height: 195 }
+    });
+    const column = createElement({
+      tagName: "div",
+      parentElement: body,
+      children: [link],
+      rect: { top: 10, right: 150, bottom: 215, left: 5, width: 145, height: 205 }
+    });
+    body.children.push(column);
+    body.childNodes.push(column);
+    const buttonXpath = getXPath(button);
+    xpathMap.set(buttonXpath, button);
+
+    const unexcludedDefaults = collectStoredUnexcludedToggleableDefaultElements({
+      xpaths: [{ xpath: buttonXpath, excluded: false }]
+    });
+    assert.deepEqual(unexcludedDefaults, [button]);
+
+    const defaultElements = collectDefaultLayerElements(body, {
+      immutableExcluded: new Set([img]),
+      unexcludedToggleableDefault: new Set(unexcludedDefaults)
+    });
+
+    assert.equal(defaultElements.includes(button), true);
+  });
+});
+
+test("unexcluded default BUTTON with a textual child still defers to the child", () => {
+  // The anti-ghost rule stays for boundaries whose descendants render instead.
+  withVisibilityDom(({ body }) => {
+    const label = createElement({
+      tagName: "span",
+      text: "Läs mer",
+      rect: { top: 175, right: 130, bottom: 195, left: 25, width: 105, height: 20 }
+    });
+    const button = createElement({
+      tagName: "button",
+      children: [label],
+      rect: { top: 170, right: 134, bottom: 200, left: 20, width: 114, height: 30 }
+    });
+    const wrap = createElement({
+      tagName: "div",
+      parentElement: body,
+      children: [button],
+      rect: { top: 165, right: 140, bottom: 205, left: 15, width: 125, height: 40 }
+    });
+    body.children.push(wrap);
+    body.childNodes.push(wrap);
+
+    const defaultElements = collectDefaultLayerElements(body, {
+      unexcludedToggleableDefault: new Set([button])
+    });
+
+    assert.equal(defaultElements.includes(button), false);
+    assert.equal(defaultElements.includes(label), true);
+  });
+});
+
+test("FAQ header text span stays a default target next to an immutable icon", () => {
+  // Regression probe (user-reported, acnespecialisten FAQ accordion): the
+  // question header span carries the question text; its sibling icon span holds
+  // only an immutable SVG. The text span must be collected as a default target
+  // and the icon wrapper must not be.
+  withVisibilityDom(({ body }) => {
+    const questionSpan = createElement({
+      tagName: "span",
+      text: "Behandlar AcneSpecialisten enbart akne?",
+      rect: { top: 20, right: 300, bottom: 44, left: 20, width: 280, height: 24 }
+    });
+    const svgPath = createElement({
+      tagName: "path",
+      rect: { top: 26, right: 330, bottom: 38, left: 318, width: 12, height: 12 }
+    });
+    const svg = createElement({
+      tagName: "svg",
+      children: [svgPath],
+      rect: { top: 24, right: 332, bottom: 40, left: 316, width: 16, height: 16 }
+    });
+    const iconSpan = createElement({
+      tagName: "span",
+      children: [svg],
+      rect: { top: 24, right: 332, bottom: 40, left: 316, width: 16, height: 16 }
+    });
+    const header = createElement({
+      tagName: "div",
+      children: [questionSpan, iconSpan],
+      rect: { top: 15, right: 340, bottom: 48, left: 15, width: 325, height: 33 }
+    });
+    const answer = createElement({
+      tagName: "p",
+      text: "Nej, vår expertis sträcker sig bortom behandling av enbart akne.",
+      rect: { top: 55, right: 340, bottom: 120, left: 15, width: 325, height: 65 }
+    });
+    const content = createElement({
+      tagName: "div",
+      children: [answer],
+      rect: { top: 50, right: 345, bottom: 125, left: 10, width: 335, height: 75 }
+    });
+    const faqQuestion = createElement({
+      tagName: "div",
+      parentElement: body,
+      children: [header, content],
+      rect: { top: 10, right: 350, bottom: 130, left: 5, width: 345, height: 120 }
+    });
+    body.children.push(faqQuestion);
+    body.childNodes.push(faqQuestion);
+
+    const defaultElements = collectDefaultLayerElements(body, {
+      immutableExcluded: new Set([svg])
+    });
+
+    assert.equal(defaultElements.includes(questionSpan), true);
+    assert.equal(defaultElements.includes(answer), true);
+    assert.equal(defaultElements.includes(iconSpan), false);
+    assert.equal(defaultElements.includes(header), false);
+  });
+});
+
 test("generated default exclusions draw through the ordinary exclude overlay", () => {
   withVisibilityDom(({ body, xpathMap }) => {
     const formText = createElement({
@@ -2777,6 +2931,110 @@ test("Alt include targeting restores 052c mixed direct-text ancestor promotion",
           preferMixedTextAncestor: true
         }),
         mixedAncestor
+      );
+    } finally {
+      state.config = originalConfig;
+    }
+  });
+});
+
+test("pointer-events-suppressed accordion text stays a default target", () => {
+  // Regression (user-reported, acnespecialisten FAQ accordion): the page sets
+  // `pointer-events: none` on the header text span (click delegation to the
+  // header), so the span never appears in any elementsFromPoint stack. The
+  // hit-test paint-reachability then dropped the visible span from the default
+  // layer entirely — no marking UI. An ancestor TOPMOST hit plus a
+  // pointer-events-suppressed chain must count as reachable.
+  withVisibilityDom(({ documentElement, body }) => {
+    const questionSpan = createElement({
+      tagName: "span",
+      text: "Vad orsakar akne?",
+      style: { pointerEvents: "none" },
+      rect: { top: 468, right: 166, bottom: 492, left: 32, width: 134, height: 24 }
+    });
+    const iconSvg = createElement({
+      tagName: "svg",
+      style: { pointerEvents: "none" },
+      rect: { top: 472, right: 380, bottom: 488, left: 364, width: 16, height: 16 }
+    });
+    const iconSpan = createElement({
+      tagName: "span",
+      children: [iconSvg],
+      style: { pointerEvents: "none" },
+      rect: { top: 472, right: 380, bottom: 488, left: 364, width: 16, height: 16 }
+    });
+    const header = createElement({
+      tagName: "div",
+      children: [questionSpan, iconSpan],
+      rect: { top: 468, right: 380, bottom: 492, left: 32, width: 348, height: 24 }
+    });
+    const item = createElement({
+      tagName: "div",
+      parentElement: body,
+      children: [header],
+      rect: { top: 452, right: 396, bottom: 508, left: 16, width: 380, height: 56 }
+    });
+    body.children.push(item);
+    body.childNodes.push(item);
+
+    const stackElements = [questionSpan, iconSvg, iconSpan, header, item, body, documentElement];
+    const rectContains = (el, x, y) => {
+      const r = el.getBoundingClientRect();
+      return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+    };
+    globalThis.document.elementsFromPoint = (x, y) =>
+      stackElements.filter((el) =>
+        rectContains(el, x, y) && (el.__style.pointerEvents || "auto") !== "none"
+      );
+
+    const defaultElements = collectDefaultLayerElements(body, {
+      immutableExcluded: new Set([iconSvg])
+    });
+
+    assert.equal(defaultElements.includes(questionSpan), true);
+    assert.equal(defaultElements.includes(header), false);
+    assert.equal(defaultElements.includes(iconSpan), false);
+  });
+});
+
+test("pointer-events-suppressed accordion text is hover/click targetable", () => {
+  // Companion to the collection fix: getMarkableTarget resolves through the
+  // composed hit stack, which natively can never contain the suppressed span.
+  // The suppressed-descendant augmentation must surface it as the target.
+  withVisibilityDom(({ documentElement, body }) => {
+    const questionSpan = createElement({
+      tagName: "span",
+      text: "Vad orsakar akne?",
+      style: { pointerEvents: "none" },
+      rect: { top: 468, right: 166, bottom: 492, left: 32, width: 134, height: 24 }
+    });
+    const header = createElement({
+      tagName: "div",
+      children: [questionSpan],
+      rect: { top: 468, right: 380, bottom: 492, left: 32, width: 348, height: 24 }
+    });
+    const item = createElement({
+      tagName: "div",
+      parentElement: body,
+      children: [header],
+      rect: { top: 452, right: 396, bottom: 508, left: 16, width: 380, height: 56 }
+    });
+    body.children.push(item);
+    body.childNodes.push(item);
+
+    globalThis.document.elementsFromPoint = () => [header, item, body, documentElement];
+
+    const originalConfig = state.config;
+    state.config = { pageMarkings: {} };
+    try {
+      assert.equal(
+        getMarkableTarget(42, 480, {
+          allowParent: false,
+          allowExplicitTarget: false,
+          allowExcludedParentChildren: true,
+          allowImmutableChildren: false
+        }),
+        questionSpan
       );
     } finally {
       state.config = originalConfig;

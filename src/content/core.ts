@@ -1695,6 +1695,36 @@ function isIgnoredHitTestElement(element: Element | null): boolean {
   return isWithinExtensionUi(element) || isWithinAiPopover(element);
 }
 
+// Hit-testing cannot see pointer-events-transparent elements: a page pattern
+// like an accordion header that sets `pointer-events: none` on its text spans
+// (so clicks always land on the delegated header) removes those spans from
+// every elementsFromPoint stack no matter how visible they are. For marking
+// purposes such an element is still real, visible content — this walks the
+// chain from the element up to (excluding) the hit ancestor and reports
+// whether hit-test suppression explains the miss.
+function hasPointerEventsSuppressedPath(el: Element | null, ancestor: Element | null): boolean {
+  if (!el || !ancestor || el === ancestor) {
+    return false;
+  }
+  let current: Element | null = el;
+  let guard = 0;
+  while (current && current !== ancestor && guard < 200) {
+    let pointerEvents: string;
+    try {
+      const style = window.getComputedStyle(current);
+      pointerEvents = style ? String(style.pointerEvents || "") : "";
+    } catch {
+      return false;
+    }
+    if (pointerEvents === "none") {
+      return true;
+    }
+    current = current.parentElement;
+    guard += 1;
+  }
+  return false;
+}
+
 function getPageHitElementsAtPoint(x: number, y: number): Element[] {
   const rawHits = typeof document.elementsFromPoint === "function"
     ? document.elementsFromPoint(x, y)
@@ -1723,6 +1753,20 @@ function getPaintReachabilityForRect(el: Element | null, rect: RectLike | null):
     }
     sawPageHit = true;
     if (elementsAtPoint.some((hit) => isElementInHitPath(hit, el))) {
+      return true;
+    }
+    // The element is absent from its own hit stack. When the TOPMOST page hit
+    // is an ancestor and the element is pointer-events-suppressed below it,
+    // the miss is hit-test transparency (the element renders at this point but
+    // elementsFromPoint can never report it) — not coverage. Topmost-only so a
+    // genuine foreign overlay above the ancestor still reads as covered.
+    const topHit = elementsAtPoint[0];
+    if (
+      topHit &&
+      typeof topHit.contains === "function" &&
+      topHit.contains(el) &&
+      hasPointerEventsSuppressedPath(el, topHit)
+    ) {
       return true;
     }
   }
@@ -3194,7 +3238,16 @@ export function collectDefaultLayerElements(root: Element | null | undefined, op
   const aiContent = new Set(options.aiContent || []);
   const selectorExcluded = new Set(options.selectorExcluded || options.selectorExcludedSet || []);
   const hiddenStoredExplicitExclude = new Set(options.hiddenStoredExplicitExclude || []);
-  const unexcludedToggleableDefault = new Set(options.unexcludedToggleableDefault || []);
+  // A stored unexcluded default boundary suppresses its OWN default-layer
+  // marking only when visible textual descendants render in its place (the
+  // anti-ghost rule for wide boundaries like an unmarked FOOTER around explicit
+  // descendant marks). A LEAF textual boundary — e.g. an unmarked BUTTON whose
+  // only content is its own text — has no descendant surface to render, so
+  // suppressing it left the unmarked control with no marking UI at all; it
+  // stays in the default layer instead.
+  const unexcludedToggleableDefault = new Set(
+    [...(options.unexcludedToggleableDefault || [])].filter((el) => hasTextualDescendant(el))
+  );
   const precedenceSet = new Set<Element>([
     ...immutableExcluded,
     ...consentExcluded,
@@ -8430,12 +8483,66 @@ function collectShadowPointHits(
   }
 }
 
+// Descendants with `pointer-events: none` never appear in an elementsFromPoint
+// stack, so hover/click targeting could not resolve visible, markable content
+// living inside hit-delegating containers (accordion headers marking their text
+// spans pointer-events:none). Walk the topmost hit's rect-containing subtree
+// and surface those suppressed descendants, deepest-first. Bounded by geometry:
+// only children whose client rects contain the point are visited.
+function collectPointerSuppressedDescendantHits(
+  host: Element,
+  x: number,
+  y: number,
+  add: (el: Element | null) => void
+): void {
+  const children = host.children;
+  if (!children || !children.length) {
+    return;
+  }
+  for (let i = 0; i < children.length; i += 1) {
+    const child = children[i];
+    if (!child || child.nodeType !== 1 || isIgnoredHitTestElement(child)) {
+      continue;
+    }
+    let rects: ArrayLike<DOMRect> | null;
+    try {
+      rects = typeof child.getClientRects === "function" ? child.getClientRects() : null;
+    } catch {
+      continue;
+    }
+    let containsPoint = false;
+    for (let r = 0; rects && r < rects.length; r += 1) {
+      const rect = rects[r];
+      if (rect && x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
+        containsPoint = true;
+        break;
+      }
+    }
+    if (!containsPoint) {
+      continue;
+    }
+    collectPointerSuppressedDescendantHits(child, x, y, add);
+    let pointerEvents: string;
+    try {
+      const style = window.getComputedStyle(child);
+      pointerEvents = style ? String(style.pointerEvents || "") : "";
+    } catch {
+      pointerEvents = "";
+    }
+    if (pointerEvents === "none") {
+      add(child);
+    }
+  }
+}
+
 /**
  * CP6 / MA-1: the composed hit path at a point — `document.elementsFromPoint`
  * plus the inner nodes of any open shadow root at the point (elementsFromPoint
  * may report only the shadow host), deepest-first and de-duplicated. Gated on
  * `documentHasCapturableShadow()`, so shadow-free pages (and the test mocks)
- * return the native list unchanged.
+ * return the native list unchanged. Pointer-events-suppressed descendants of
+ * the topmost page hit are prepended (deepest-first) because native hit
+ * testing can never report them (see collectPointerSuppressedDescendantHits).
  */
 function getComposedHitElements(x: number, y: number): Element[] {
   let base: Element[];
@@ -8445,7 +8552,23 @@ function getComposedHitElements(x: number, y: number): Element[] {
   } catch (_error) {
     base = [];
   }
-  if (!documentHasCapturableShadow()) {
+  const suppressedLead: Element[] = [];
+  const topPageHit = base.find((el) =>
+    el &&
+    el.nodeType === 1 &&
+    el !== document.documentElement &&
+    el !== document.body &&
+    !isIgnoredHitTestElement(el)
+  );
+  if (topPageHit) {
+    collectPointerSuppressedDescendantHits(topPageHit, x, y, (el) => {
+      if (el) {
+        suppressedLead.push(el);
+      }
+    });
+  }
+  const hasCapturableShadow = documentHasCapturableShadow();
+  if (!hasCapturableShadow && suppressedLead.length === 0) {
     return base;
   }
   const seen = new Set<Element>();
@@ -8456,8 +8579,11 @@ function getComposedHitElements(x: number, y: number): Element[] {
       result.push(el);
     }
   };
+  for (const el of suppressedLead) {
+    add(el);
+  }
   for (const el of base) {
-    if (el && el.nodeType === 1) {
+    if (hasCapturableShadow && el && el.nodeType === 1) {
       collectShadowPointHits(el, x, y, add);
     }
     add(el);

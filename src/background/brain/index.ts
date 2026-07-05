@@ -570,7 +570,7 @@ function publishProjectedState(
   state: TabLayerState,
 ): void {
   const { popupView, contentDirective } = projectViews(state);
-  const spinners = projectSpinners(state);
+  const spinners = projectSpinners(state, Date.now());
 
   const viewKey = JSON.stringify({ ...popupView, version: 0 });
   const popupSpinnerKey = JSON.stringify(spinners.popup ?? null);
