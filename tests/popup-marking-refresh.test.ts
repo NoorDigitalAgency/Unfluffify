@@ -789,22 +789,19 @@ test("content saved baseline is refreshed from backend cache, not local drafts",
   assert.doesNotMatch(contentSource, /confirmed local snapshot|immediate post-save remote reload omits/);
 });
 
-test("submission-xpath staleness only counts when the entry already has prior run data", () => {
+test("page draft status dirty is the local draft flag only — no submission-xpath drift comparison", () => {
   const draftStatusHandlerSource = readFileSync(
     new URL("../src/content/page-draft-status-handler.ts", import.meta.url),
     "utf8"
   );
-  const block = draftStatusHandlerSource.match(
-    /const entrySubmissionXpaths =[\s\S]*?reconciliationPending: deps\.getPageSaveReconciliationPending\(pageUrl\)/
-  )[0];
 
-  assert.match(
-    block,
-    /const entrySubmissionXpaths =\s*\n?\s*entry && Array\.isArray\(entry\.submissionXpaths\) \? entry\.submissionXpaths : \[\];/
-  );
-  assert.match(
-    block,
-    /const submissionXpathsStale = Boolean\([\s\S]*?entrySubmissionXpaths\.length > 0 &&[\s\S]*?deps\.submissionXpathsEqual\(\s*entrySubmissionXpaths,/
+  // Dirty = the user changed something. Comparing the entry's prior-run
+  // submission xpaths against the live page is a fingerprint of ambient page
+  // state: dynamic pages drift on their own and armed Discard without a click.
+  assert.match(draftStatusHandlerSource, /dirty: deps\.getPageDraftDirty\(pageUrl\),/);
+  assert.doesNotMatch(
+    draftStatusHandlerSource,
+    /submissionXpathsStale|submissionXpathsEqual|collectAiSubmissionXpathsForCurrentPage/
   );
 });
 

@@ -6806,7 +6806,6 @@ function createPageDraftStatusHandlerDeps(): PageDraftStatusDeps {
       ),
     clonePageEntry: (entry: Parameters<PageDraftStatusDeps["clonePageEntry"]>[0]) =>
       core.clonePageEntry(entry as ContentPageEntry),
-    collectAiSubmissionXpathsForCurrentPage,
     collectImmutableElements: () => core.collectImmutableElements(),
     getConfig: () => state.config,
     getDraftPageEntry: (pageUrl: string) => core.getDraftPageEntry(pageUrl),
@@ -6823,7 +6822,6 @@ function createPageDraftStatusHandlerDeps(): PageDraftStatusDeps {
       pageUrl: string,
       entry: Parameters<PageDraftStatusDeps["setSavedPageEntry"]>[1]
     ) => core.setSavedPageEntry(pageUrl, entry as ContentPageEntry),
-    submissionXpathsEqual,
     syncPageMarkings: (
       configValue: unknown,
       pageUrl: string,
