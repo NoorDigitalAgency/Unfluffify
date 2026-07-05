@@ -1954,11 +1954,15 @@ function overrideDictatedMarkingButtons(patch: PopupViewStatePatch): void {
       patch.sessionCurtainTimerText = memory.curtain.timer === "run-countdown"
         ? formatRunCountdownForCurtain()
         : "";
-      if (memory.curtain.timer === "run-countdown" && !patch.sessionCurtainTimerText) {
+      if (memory.curtain.timer === "run-countdown" && !isAiRunRemoteWaitActive()) {
         // The payload is not on the server yet — the run is in its LOCAL
         // prepare phases. Narrate the projected phase (informative, no
         // countdown); the countdown replaces this the moment the remote-wait
-        // lease stamps timerMode countdown.
+        // lease stamps timerMode countdown. Gate on the remote-wait signal
+        // itself, NOT on the formatted timer text: an elapsed/absent deadline
+        // during remote-wait also blanks the timer, and that state must keep
+        // the memory's own note (the payload IS on the server), not flip back
+        // to the prepare message.
         const busyView = uiModule.getViewState();
         patch.sessionCurtainNote =
           busyView.busyOperationKind === "ai-run" &&

@@ -1,5 +1,6 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
+import { readFileSync } from "node:fs";
 
 import { PopupText } from "../src/common/text.js";
 import { state } from "../src/popup/state.js";
@@ -445,4 +446,21 @@ test("revert engages the spinner at click, holds it through the confirm, and con
     "confirm",
     "spinner-end"
   ]);
+});
+
+test("save and revert gate on the ONE shared AI-run busy predicate", () => {
+  // The busy gate blocks Save/Discard from clobbering an in-flight AI run's
+  // markings. Two inline copies silently diverge when the next busy signal is
+  // added to one handler only — both handlers must call the shared helper.
+  const source = readFileSync(
+    new URL("../src/popup/page-reconciliation.ts", import.meta.url),
+    "utf8"
+  );
+  assert.match(
+    source,
+    /function isAiRunBusy\(viewState: PageReconciliationViewState\): boolean \{[\s\S]{0,400}sessionCurtainOperation === "computing_ai"/
+  );
+  const gateCalls = source.match(/if \(isAiRunBusy\(currentViewState\)\) \{/g) || [];
+  assert.equal(gateCalls.length, 2, "both handlePageSave and handlePageRevert use the shared gate");
+  assert.doesNotMatch(source, /const aiRunBusy = Boolean\(/);
 });

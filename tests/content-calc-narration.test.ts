@@ -108,4 +108,18 @@ test("content bus client exposes best-effort broker spinner set/remove", () => {
     busClientSource,
     /export async function requestContentSpinnerRemove\(\s*payload: SpinnerRemoveRequestPayload,\s*\): Promise<void> \{[\s\S]{0,400}SPINNER_REQUEST_TYPES\.REMOVE/
   );
+  // SET and REMOVE ride ONE transport helper so their delivery guarantees
+  // (target, timeout, best-effort swallow) can never diverge.
+  assert.match(
+    busClientSource,
+    /async function requestSpinnerBroker\(\s*type: typeof SPINNER_REQUEST_TYPES\.SET \| typeof SPINNER_REQUEST_TYPES\.REMOVE,/
+  );
+  assert.match(
+    busClientSource,
+    /requestSpinnerBroker\(SPINNER_REQUEST_TYPES\.SET, payload\)/
+  );
+  assert.match(
+    busClientSource,
+    /requestSpinnerBroker\(SPINNER_REQUEST_TYPES\.REMOVE, payload\)/
+  );
 });

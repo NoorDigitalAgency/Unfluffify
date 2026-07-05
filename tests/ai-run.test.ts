@@ -571,10 +571,17 @@ test("the run countdown renders only at remote-wait; prepare narrates without a 
     popupSource,
     /function formatRunCountdownForCurtain\(\): string \{\s*if \(!isAiRunRemoteWaitActive\(\)\) \{\s*return "";\s*\}/
   );
-  // The prepare window narrates the projected phase instead of a countdown.
+  // The prepare window narrates the projected phase instead of a countdown —
+  // gated on the remote-wait signal itself, NOT the formatted timer text (an
+  // elapsed/absent deadline during remote-wait also blanks the timer and must
+  // NOT flip the note back to the prepare message).
   assert.match(
     popupSource,
-    /if \(memory\.curtain\.timer === "run-countdown" && !patch\.sessionCurtainTimerText\) \{[\s\S]{0,700}PopupText\.overlay\.preparingPageForAi/
+    /if \(memory\.curtain\.timer === "run-countdown" && !isAiRunRemoteWaitActive\(\)\) \{[\s\S]{0,900}PopupText\.overlay\.preparingPageForAi/
+  );
+  assert.doesNotMatch(
+    popupSource,
+    /memory\.curtain\.timer === "run-countdown" && !patch\.sessionCurtainTimerText/
   );
   // The compute-path countdown visibility requires the server-accepted phase.
   assert.match(

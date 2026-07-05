@@ -85,6 +85,19 @@ export function hasCurrentPagePendingChanges(
   return Boolean(opts.currentDraftDirty || opts.reconciliationPending);
 }
 
+// Save and Discard share ONE AI-run busy gate: if the predicates diverge, one
+// button passes during a run the other refuses — exactly the clobber race the
+// gate exists to block. Any new busy signal goes here, never inline.
+function isAiRunBusy(viewState: PageReconciliationViewState): boolean {
+  return Boolean(
+    state.aiComputeStartPending ||
+      state.aiRequestInFlight === "compute" ||
+      viewState.aiRunCountdownVisible ||
+      viewState.sessionCurtainPhase === "computing_ai" ||
+      viewState.sessionCurtainOperation === "computing_ai"
+  );
+}
+
 export async function handlePageSave(deps: PageReconciliationDeps) {
   const ensureActiveTab =
     typeof deps.ensureActiveTab === "function"
@@ -103,14 +116,7 @@ export async function handlePageSave(deps: PageReconciliationDeps) {
     }
     await deps.refreshCurrentPageRuntimeStatus();
     const currentViewState = deps.getViewState();
-    const aiRunBusy = Boolean(
-      state.aiComputeStartPending ||
-        state.aiRequestInFlight === "compute" ||
-        currentViewState.aiRunCountdownVisible ||
-        currentViewState.sessionCurtainPhase === "computing_ai" ||
-        currentViewState.sessionCurtainOperation === "computing_ai"
-    );
-    if (aiRunBusy) {
+    if (isAiRunBusy(currentViewState)) {
       deps.showToast(deps.PopupText.overlay.pleaseWait);
       return;
     }
@@ -222,14 +228,7 @@ export async function handlePageRevert(deps: PageReconciliationDeps) {
     // dialog by seconds on a heavy post-AI page (obs 10). The runtime refresh
     // runs post-confirm, so state is fresh before the apply.
     const currentViewState = deps.getViewState();
-    const aiRunBusy = Boolean(
-      state.aiComputeStartPending ||
-        state.aiRequestInFlight === "compute" ||
-        currentViewState.aiRunCountdownVisible ||
-        currentViewState.sessionCurtainPhase === "computing_ai" ||
-        currentViewState.sessionCurtainOperation === "computing_ai"
-    );
-    if (aiRunBusy) {
+    if (isAiRunBusy(currentViewState)) {
       deps.showToast(deps.PopupText.overlay.pleaseWait);
       return;
     }

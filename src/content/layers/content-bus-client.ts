@@ -150,36 +150,36 @@ export function startContentBusClient(options: ContentBusClientOptions = {}): Bu
 // popup leases — the brain resolves the phase definition from the reason
 // alias, projects the engagement, and both layers render the presentation
 // from the shared table. The background stamps the tab id from the sender.
-export async function requestContentSpinnerSet(
-  payload: SpinnerSetRequestPayload,
+// One transport for SET and REMOVE so delivery guarantees (target, timeout,
+// best-effort swallow) can never diverge between the pair.
+async function requestSpinnerBroker(
+  type: typeof SPINNER_REQUEST_TYPES.SET | typeof SPINNER_REQUEST_TYPES.REMOVE,
+  payload: SpinnerSetRequestPayload | SpinnerRemoveRequestPayload,
 ): Promise<void> {
   if (!contentBus) {
     return;
   }
   try {
-    await contentBus.request(SPINNER_REQUEST_TYPES.SET, payload, {
+    await contentBus.request(type, payload, {
       target: REALMS.BACKGROUND,
       timeoutMs: 3000,
     });
   } catch {
-    // Best-effort narration: a lost lease only costs feedback, never behavior.
+    // Best-effort narration: a lost lease only costs feedback, never
+    // behavior; the contract deadline reaps a lost REMOVE.
   }
+}
+
+export async function requestContentSpinnerSet(
+  payload: SpinnerSetRequestPayload,
+): Promise<void> {
+  await requestSpinnerBroker(SPINNER_REQUEST_TYPES.SET, payload);
 }
 
 export async function requestContentSpinnerRemove(
   payload: SpinnerRemoveRequestPayload,
 ): Promise<void> {
-  if (!contentBus) {
-    return;
-  }
-  try {
-    await contentBus.request(SPINNER_REQUEST_TYPES.REMOVE, payload, {
-      target: REALMS.BACKGROUND,
-      timeoutMs: 3000,
-    });
-  } catch {
-    // Best-effort narration: the contract deadline reaps a lost REMOVE.
-  }
+  await requestSpinnerBroker(SPINNER_REQUEST_TYPES.REMOVE, payload);
 }
 
 export async function emitContentSignal(
