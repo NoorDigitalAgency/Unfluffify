@@ -217,6 +217,7 @@ export const PopupText = Object.freeze({
     busyHint: "Working... controls are temporarily blocked.", // Curtain hint shown for non-preview busy states.
     computingSelectors: "Analyzing page content with AI...", // Busy-curtain message while the AI compute request is running.
     preparingContentList: "Preparing content list...", // Busy message from AI results-applied until the detected content list is rendered (popup + page; the ai-run:opening-preview phase title is the displayed source of truth).
+    preparingPageForAi: "Preparing page content for AI...", // Run-curtain note during the LOCAL prepare phases (capture/xpath/payload) before the payload reaches the server — no countdown is shown until remote-wait.
     computingSelectorsNote: `This can take up to ${AI_RUN_DEFAULT_TIMEOUT_MINUTES} minutes. Editing stays paused until the AI run finishes.`, // Busy-curtain note shown while the async AI run is in progress; the minutes derive from the run-timeout contract (P4 step 4.0).
     submittingSelectors: "Sending to Lynx...", // Busy-curtain message while selectors are being submitted.
     workingWithAi: "Working with AI...", // Busy-curtain message for other AI-related actions.

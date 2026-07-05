@@ -1221,7 +1221,9 @@ function buildProjectedBusyViewState(): PopupViewStatePatch {
       : 0;
   const aiRunCountdownVisible =
     projectedAiRunCountdownVisible ||
-    (state.aiRequestInFlight === "compute" && state.aiRunDeadlineAt > 0);
+    (state.aiRequestInFlight === "compute" &&
+      state.aiRunDeadlineAt > 0 &&
+      state.aiRunPhase === "running");
   return {
     saveExcludesButtonLoading: state.aiRequestInFlight === "save",
     aiRunSpinnerNote: state.aiRequestInFlight === "compute"
@@ -1952,14 +1954,46 @@ function overrideDictatedMarkingButtons(patch: PopupViewStatePatch): void {
       patch.sessionCurtainTimerText = memory.curtain.timer === "run-countdown"
         ? formatRunCountdownForCurtain()
         : "";
+      if (memory.curtain.timer === "run-countdown" && !patch.sessionCurtainTimerText) {
+        // The payload is not on the server yet — the run is in its LOCAL
+        // prepare phases. Narrate the projected phase (informative, no
+        // countdown); the countdown replaces this the moment the remote-wait
+        // lease stamps timerMode countdown.
+        const busyView = uiModule.getViewState();
+        patch.sessionCurtainNote =
+          busyView.busyOperationKind === "ai-run" &&
+            typeof busyView.busyMessage === "string" &&
+            busyView.busyMessage
+            ? busyView.busyMessage
+            : PopupText.overlay.preparingPageForAi;
+      }
     }
   }
+}
+
+// The countdown renders ONLY once the payload is on the server: the
+// orchestrator stamps the remote-wait lease (projected busyTimerMode
+// "countdown"); the resume path mirrors the server status into
+// state.aiRunPhase. During the LOCAL prepare phases (capture / xpath
+// refinement / payload build — up to 30s of pegged popup thread on heavy
+// pages) a countdown cannot tick and sat frozen at the maximum; the curtain
+// narrates the phase instead (see the prepare note where the running-curtain
+// memory is applied).
+function isAiRunRemoteWaitActive(): boolean {
+  const view = uiModule.getViewState();
+  return Boolean(
+    (view.busyOperationKind === "ai-run" && view.busyTimerMode === "countdown") ||
+      state.aiRunPhase === "running"
+  );
 }
 
 // The running-curtain countdown is machine memory fed by the run deadline the
 // run.started signal carried (mirrored in state.aiRunDeadlineAt): re-derived
 // at every patch application (~1s cadence from brain projections).
 function formatRunCountdownForCurtain(): string {
+  if (!isAiRunRemoteWaitActive()) {
+    return "";
+  }
   const remainingMs = Math.max(0, (state.aiRunDeadlineAt || 0) - Date.now());
   if (!remainingMs) {
     return "";
@@ -2973,7 +3007,10 @@ function updateAiRunCountdownState() {
   uiModule.setViewState({
     computeButtonText: ViewText.computeButtonBusy,
     aiRunSpinnerNote: PopupText.overlay.computingSelectorsNote,
-    aiRunCountdownVisible: true,
+    // No countdown before the payload reaches the server ("starting" — the
+    // local capture/xpath/payload crunch): it cannot tick while the popup
+    // thread is pegged and sat frozen at the maximum for up to 30s.
+    aiRunCountdownVisible: state.aiRunPhase === "running",
     aiRunCountdownText,
     aiRunDeadlineAt: state.aiRunDeadlineAt,
     aiRunPhase: state.aiRunPhase

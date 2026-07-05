@@ -549,3 +549,45 @@ test("the content-list hold spans run-curtain teardown to list-rendered with dea
     /releasePreparingContentListSpinner\(\);\s*await messages\.sendTabMessageToTab\(tabId, \{\s*type: "configUpdated"/
   );
 });
+
+// The AI-run countdown appears only once the payload is on the server. The
+// local prepare phases (capture -> xpath refinement -> payload build) peg the
+// popup thread for up to 30s: a countdown cannot tick there and sat frozen at
+// the maximum (the reported freeze). Prepare narrates with an informative,
+// timer-less curtain (CSS spinner animates on the compositor even while JS is
+// blocked); remote-wait (projected timerMode "countdown" from the
+// orchestrator's tab-run-ai-running lease, or the resume path's mirrored
+// server status) replaces it with the live countdown.
+test("the run countdown renders only at remote-wait; prepare narrates without a timer", () => {
+  const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
+  const uiSource = readFileSync(new URL("../src/popup/ui.tsx", import.meta.url), "utf8");
+
+  // The machine running-curtain countdown is gated on the remote-wait signal.
+  assert.match(
+    popupSource,
+    /function isAiRunRemoteWaitActive\(\): boolean \{[\s\S]{0,400}busyOperationKind === "ai-run" && view\.busyTimerMode === "countdown"\)? \|\|\s*state\.aiRunPhase === "running"/
+  );
+  assert.match(
+    popupSource,
+    /function formatRunCountdownForCurtain\(\): string \{\s*if \(!isAiRunRemoteWaitActive\(\)\) \{\s*return "";\s*\}/
+  );
+  // The prepare window narrates the projected phase instead of a countdown.
+  assert.match(
+    popupSource,
+    /if \(memory\.curtain\.timer === "run-countdown" && !patch\.sessionCurtainTimerText\) \{[\s\S]{0,700}PopupText\.overlay\.preparingPageForAi/
+  );
+  // The compute-path countdown visibility requires the server-accepted phase.
+  assert.match(
+    popupSource,
+    /aiRunCountdownVisible: state\.aiRunPhase === "running",/
+  );
+  assert.match(
+    popupSource,
+    /\(state\.aiRequestInFlight === "compute" &&\s*state\.aiRunDeadlineAt > 0 &&\s*state\.aiRunPhase === "running"\)/
+  );
+  // The ui computing_ai fallback leg carries the same gate.
+  assert.match(
+    uiSource,
+    /view\.sessionCurtainOperation === "computing_ai" && view\.aiRunPhase === "running"/
+  );
+});

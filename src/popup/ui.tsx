@@ -671,7 +671,10 @@ function getBlockingUiCurtainState(view: ViewState): BlockingUiCurtainState {
           )
         : typeof view.busyTimerMode === "string" && view.busyTimerMode === SPINNER_TIMER_MODES.ELAPSED
           ? formatElapsedFromStartedAt(view.busyStartedAt)
-          : view.sessionCurtainOperation === "computing_ai"
+          // The computing_ai fallback ticks only once the payload is on the
+          // server (resume mirrors server status into aiRunPhase): during the
+          // local prepare crunch a countdown cannot tick and read frozen-at-max.
+          : view.sessionCurtainOperation === "computing_ai" && view.aiRunPhase === "running"
             ? formatCountdownFromDeadline(view.aiRunDeadlineAt)
             : "";
     return {
@@ -698,7 +701,7 @@ function getBlockingUiCurtainState(view: ViewState): BlockingUiCurtainState {
       return {
         visible: true,
         mode: "busy",
-        message: backgroundMessage || "Preparing page content for AI...",
+        message: backgroundMessage || PopupText.overlay.preparingPageForAi,
         note: PopupText.overlay.busyHint,
         reason: "ai-run-compute-preparing",
         source: "popup-view-state",
