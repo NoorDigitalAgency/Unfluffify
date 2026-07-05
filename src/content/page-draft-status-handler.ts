@@ -20,8 +20,6 @@ type PageDraftStatusDeps = {
   ) => { entry: PageDraftStatusEntry | null; changed: boolean };
   setSavedPageEntry: (pageUrl: string, entry: PageDraftStatusEntry) => void;
   getPageSaveReconciliationState: (pageUrl: string) => unknown;
-  submissionXpathsEqual: (a: unknown[], b: unknown[]) => boolean;
-  collectAiSubmissionXpathsForCurrentPage: () => unknown[];
   clonePageEntry: (entry: PageDraftStatusEntry) => PageDraftStatusEntry;
   getPageDraftDirty: (pageUrl: string) => boolean;
   getPageSaveReconciliationPending: (pageUrl: string) => boolean;
@@ -61,28 +59,17 @@ export function createPageDraftStatusHandler(deps: PageDraftStatusDeps) {
 
     const savedEntry = deps.getSavedPageEntry(pageUrl);
     const reconciliation = deps.getPageSaveReconciliationState(pageUrl);
-    // Submission-xpath staleness only signals a discardable change when the
-    // entry already carries submission data from a prior AI run/save. On a
-    // freshly enabled page the entry has no submissionXpaths yet, while the
-    // live page always reports submittable xpaths; comparing the two would
-    // otherwise mark the pristine page dirty and wrongly enable Discard.
-    const entrySubmissionXpaths =
-      entry && Array.isArray(entry.submissionXpaths) ? entry.submissionXpaths : [];
-    const submissionXpathsStale = Boolean(
-      hasEntry &&
-      entry &&
-      entrySubmissionXpaths.length > 0 &&
-      !deps.submissionXpathsEqual(
-        entrySubmissionXpaths,
-        deps.collectAiSubmissionXpathsForCurrentPage()
-      )
-    );
 
+    // Dirty means the USER changed something on this page — exactly the local
+    // draft-dirty flag. Submission-xpath drift (entry snapshot vs live page) is
+    // fingerprint-style comparison: dynamic pages drift on their own, which
+    // marked sessions dirty without a click and armed Discard/blocked disable
+    // on pristine pages. Drift never counts as a user change.
     return {
       ok: true,
       entry: entry ? deps.clonePageEntry(entry) : null,
       savedEntry,
-      dirty: deps.getPageDraftDirty(pageUrl) || submissionXpathsStale,
+      dirty: deps.getPageDraftDirty(pageUrl),
       reconciliation,
       reconciliationPending: deps.getPageSaveReconciliationPending(pageUrl)
     };

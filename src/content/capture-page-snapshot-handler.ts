@@ -44,6 +44,13 @@ type CaptureArgs = {
   pageType?: unknown;
 };
 
+// S6 harden (debug round): the raw-HTML fetch must never consume the whole
+// snapshot-capture budget (its content-message deadline upstream) — a slow or
+// hanging origin made the AI run fail with a raw "Content message timed out".
+// Past this deadline the capture proceeds with the entry's previous rawHtml
+// (the null fallback below already tolerates a missing fetch result).
+const RAW_HTML_CAPTURE_DEADLINE_MS = 30_000;
+
 export function createCapturePageSnapshotHandler(deps: CapturePageSnapshotDeps) {
   async function capture({ targetBaseUrl, shouldPersist, pageType }: CaptureArgs): Promise<{ ok: boolean }> {
     const pageUrl = deps.getPageUrl();
@@ -72,7 +79,12 @@ export function createCapturePageSnapshotHandler(deps: CapturePageSnapshotDeps) 
     // Now capture the full HTML (after consent elements are removed).
     const entry = syncResult.entry || deps.getPageMarkingEntry(config, pageUrl);
     const snapshot = deps.createCurrentPageSnapshot();
-    const rawHtml = await deps.fetchCurrentPageRawHtml(pageUrl);
+    const rawHtml = await Promise.race([
+      deps.fetchCurrentPageRawHtml(pageUrl),
+      new Promise<null>((resolve) => {
+        setTimeout(() => resolve(null), RAW_HTML_CAPTURE_DEADLINE_MS);
+      })
+    ]);
     entry.renderedHtml = snapshot.renderedHtml;
     entry.pageType =
       (typeof pageType === "string" && pageType) ||

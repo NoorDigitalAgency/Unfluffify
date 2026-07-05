@@ -216,6 +216,8 @@ export const PopupText = Object.freeze({
     previewHint: "The page is in preview mode. Exit preview to resume editing.", // Curtain hint shown while preview mode blocks the popup.
     busyHint: "Working... controls are temporarily blocked.", // Curtain hint shown for non-preview busy states.
     computingSelectors: "Analyzing page content with AI...", // Busy-curtain message while the AI compute request is running.
+    preparingContentList: "Preparing content list...", // Busy message from AI results-applied until the detected content list is rendered (popup + page; the ai-run:opening-preview phase title is the displayed source of truth).
+    preparingPageForAi: "Preparing page content for AI...", // Run-curtain note during the LOCAL prepare phases (capture/xpath/payload) before the payload reaches the server — no countdown is shown until remote-wait.
     computingSelectorsNote: `This can take up to ${AI_RUN_DEFAULT_TIMEOUT_MINUTES} minutes. Editing stays paused until the AI run finishes.`, // Busy-curtain note shown while the async AI run is in progress; the minutes derive from the run-timeout contract (P4 step 4.0).
     submittingSelectors: "Sending to Lynx...", // Busy-curtain message while selectors are being submitted.
     workingWithAi: "Working with AI...", // Busy-curtain message for other AI-related actions.
@@ -407,6 +409,9 @@ export const PopupText = Object.freeze({
     statusServerSyncSkipped: "Server sync required. Save again to retry.", // Draft-status text after remote page sync is skipped because sync is unavailable.
     statusServerRefreshFailed: "Server refresh failed. Save again to retry.", // Draft-status text after save succeeds but the remote reload does not.
     noticeRunAiBeforeSaving: "Run AI content detection before saving or exiting marking.", // Session notice shown while save/exit is blocked on a fresh AI run.
+    toastSaveBlockedNoSessionChanges: "No session changes to save", // Toast when Save is clicked while the session has nothing to save.
+    toastSaveBlockedBusy: "Finish the current operation before saving", // Toast when Save is clicked during another blocking operation.
+    toastSaveBlockedUnavailable: "Save is unavailable right now", // Toast fallback when Save is blocked for an unnamed gate reason.
     saveFailed: "Save failed", // Save-status label when page save did not complete.
     savedLocallySyncPending: "Saved locally (server sync pending)", // Save-status label while page edits are locally stored but not remotely reconciled.
     savedLocallySyncSkipped: "Saved locally (sync skipped)", // Save-status label when page save succeeded locally but config sync was skipped.

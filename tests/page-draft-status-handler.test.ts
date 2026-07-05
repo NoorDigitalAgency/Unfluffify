@@ -16,10 +16,6 @@ function createDeps(overrides = {}) {
       calls.push(["clonePageEntry", entry]);
       return { ...entry, cloned: true };
     },
-    collectAiSubmissionXpathsForCurrentPage: () => {
-      calls.push(["collectAiSubmissionXpathsForCurrentPage"]);
-      return ["/live"];
-    },
     collectImmutableElements: () => {
       calls.push(["collectImmutableElements"]);
       return ["immutable"];
@@ -59,10 +55,6 @@ function createDeps(overrides = {}) {
     setSavedPageEntry: (pageUrl, entry) => {
       calls.push(["setSavedPageEntry", pageUrl, entry]);
       savedEntry = entry;
-    },
-    submissionXpathsEqual: (left, right) => {
-      calls.push(["submissionXpathsEqual", left, right]);
-      return JSON.stringify(left) === JSON.stringify(right);
     },
     syncPageMarkings: (config, pageUrl, immutableExcluded, options) => {
       calls.push(["syncPageMarkings", config, pageUrl, immutableExcluded, options]);
@@ -154,34 +146,20 @@ test("page draft status handler refreshes saved entry when a clean entry changes
   assert.deepEqual(response.entry, { xpath: "/new", submissionXpaths: ["/live"], cloned: true });
 });
 
-test("page draft status handler does not mark dirty from submission drift when entry lacks prior submission xpaths", async () => {
+test("page draft status handler never marks dirty from submission-xpath drift — dirty is the local draft flag only", async () => {
+  // The entry carries prior-run submission xpaths that no longer match the live
+  // page (dynamic pages drift on their own); without a user edit the page is
+  // still clean. Drift used to arm Discard on pristine pages.
   const { deps } = createDeps({
     getPageDraftDirty: () => false,
     syncPageMarkings: () => ({
       changed: false,
-      entry: { xpath: "/draft", submissionXpaths: [] }
-    }),
-    submissionXpathsEqual: () => false
+      entry: { xpath: "/draft", submissionXpaths: ["/saved"] }
+    })
   });
   const handler = createPageDraftStatusHandler(deps);
 
   const response = await handler.getStatus({ targetBaseUrl: "https://example.com" });
 
   assert.equal(response.dirty, false);
-});
-
-test("page draft status handler marks dirty from submission drift when entry already has prior submission xpaths", async () => {
-  const { deps } = createDeps({
-    getPageDraftDirty: () => false,
-    syncPageMarkings: () => ({
-      changed: false,
-      entry: { xpath: "/draft", submissionXpaths: ["/saved"] }
-    }),
-    submissionXpathsEqual: () => false
-  });
-  const handler = createPageDraftStatusHandler(deps);
-
-  const response = await handler.getStatus({ targetBaseUrl: "https://example.com" });
-
-  assert.equal(response.dirty, true);
 });

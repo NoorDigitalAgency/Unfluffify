@@ -52,9 +52,16 @@ test("preview exit restores a captured marking-session snapshot before payload f
     popupSource,
     /function restoreMarkingSessionSnapshot\(\) \{[\s\S]*?state\.currentDraftEntry =[\s\S]*?state\.currentSavedEntry =[\s\S]*?state\.currentDraftDirty =[\s\S]*?state\.currentDraftAvailable =[\s\S]*?state\.currentPageSaveReconciliation =[\s\S]*?state\.currentPageSaveReconciliationPending =[\s\S]*?state\.aiRunMarkingsFingerprint =[\s\S]*?state\.aiSelectorsComputedSinceLastSubmit =[\s\S]*?state\.aiSelectorsComputedBaseUrl =[\s\S]*?state\.selectorsPendingConfigSync =[\s\S]*?state\.selectorsPendingConfigSyncBaseUrl =/
   );
+  // #4/N3 (debug round): the AI-run curtain teardown moved to results-applied,
+  // BEFORE the slow requestTabShowAiPreview roundtrip, so the previewOpened block
+  // no longer resets the run state (it snapshots + advances the FSM only).
   assert.match(
     popupSource,
-    /if \(previewOpened\) \{[\s\S]*?resetAiRunState\(\);[\s\S]*?captureMarkingSessionSnapshot\(\);[\s\S]*?uiModule\.setViewState\(\{/
+    /RESULTS_APPLIED[\s\S]*?resetAiRunState\(\);\s*signalMarkingSession\("run-completed"\);/
+  );
+  assert.match(
+    popupSource,
+    /if \(previewOpened\) \{[\s\S]*?captureMarkingSessionSnapshot\(\);[\s\S]*?uiModule\.setViewState\(\{/
   );
   assert.match(
     popupSource,
@@ -139,9 +146,29 @@ test("silent mode gates preview, save-excludes, and Lynx checklist submission", 
     /nextViewState\.cssSelectorsVisible = silentModeActive;/
   );
   assert.match(previewBody, /if \(view\.previewLatestBlockedReason !== SECONDARY_GATES_BLOCK_REASONS\.NONE\) \{\s*return;\s*\}/);
-  assert.match(saveExcludesBody, /if \(view\.saveExcludesBlockedReason !== SECONDARY_GATES_BLOCK_REASONS\.NONE\) \{\s*return;\s*\}/);
+  assert.match(saveExcludesBody, /if \(view\.saveExcludesBlockedReason !== SECONDARY_GATES_BLOCK_REASONS\.NONE\) \{[\s\S]*?uiModule\.showToast\([\s\S]*?return;\s*\}/);
   assert.match(sendBody, /const view = await refreshUiForActionGates\(\);[\s\S]*?if \(view\.lynxChecklistSendBlockedReason\) \{/);
   assert.doesNotMatch(sendBody, /aiAnswer:/);
+});
+
+test("the silent Content List preview never snapshots a marking session (N4)", () => {
+  const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
+  // handlePreviewLatest is the silent "Show Content List" opener. It must NOT
+  // captureMarkingSessionSnapshot(): doing so leaves a non-null
+  // previewMarkingSessionSnapshot that makes settlePreviewRestoreClosed raise
+  // previewCloseMarkingRestoreUnconfirmed, which (never cleared in silent mode,
+  // where content never reports marking re-enabled) clamps silentModeActive:false
+  // to the brain and disables Send-to-Lynx + Show-Content-List after exit.
+  const silentPreviewBody = popupSource.match(
+    /async function handlePreviewLatest\(\) \{([\s\S]*?)\n\}\n\nasync function handleMarkingPreview/
+  )[1];
+  assert.doesNotMatch(silentPreviewBody, /captureMarkingSessionSnapshot/);
+  // The marking-mode Preview Contents DOES snapshot — it restores the marking
+  // session on preview exit — so the distinction must be preserved.
+  const markingPreviewBody = popupSource.match(
+    /async function handleMarkingPreview\(\) \{([\s\S]*?)\n\}\n\nasync function handleExitPreviewMode/
+  )[1];
+  assert.match(markingPreviewBody, /captureMarkingSessionSnapshot\(\);/);
 });
 
 test("Todo List completion is sourced from backend-saved markings only", () => {
@@ -762,22 +789,19 @@ test("content saved baseline is refreshed from backend cache, not local drafts",
   assert.doesNotMatch(contentSource, /confirmed local snapshot|immediate post-save remote reload omits/);
 });
 
-test("submission-xpath staleness only counts when the entry already has prior run data", () => {
+test("page draft status dirty is the local draft flag only — no submission-xpath drift comparison", () => {
   const draftStatusHandlerSource = readFileSync(
     new URL("../src/content/page-draft-status-handler.ts", import.meta.url),
     "utf8"
   );
-  const block = draftStatusHandlerSource.match(
-    /const entrySubmissionXpaths =[\s\S]*?reconciliationPending: deps\.getPageSaveReconciliationPending\(pageUrl\)/
-  )[0];
 
-  assert.match(
-    block,
-    /const entrySubmissionXpaths =\s*\n?\s*entry && Array\.isArray\(entry\.submissionXpaths\) \? entry\.submissionXpaths : \[\];/
-  );
-  assert.match(
-    block,
-    /const submissionXpathsStale = Boolean\([\s\S]*?entrySubmissionXpaths\.length > 0 &&[\s\S]*?deps\.submissionXpathsEqual\(\s*entrySubmissionXpaths,/
+  // Dirty = the user changed something. Comparing the entry's prior-run
+  // submission xpaths against the live page is a fingerprint of ambient page
+  // state: dynamic pages drift on their own and armed Discard without a click.
+  assert.match(draftStatusHandlerSource, /dirty: deps\.getPageDraftDirty\(pageUrl\),/);
+  assert.doesNotMatch(
+    draftStatusHandlerSource,
+    /submissionXpathsStale|submissionXpathsEqual|collectAiSubmissionXpathsForCurrentPage/
   );
 });
 

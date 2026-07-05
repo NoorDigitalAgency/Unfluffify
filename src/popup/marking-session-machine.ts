@@ -33,6 +33,7 @@ export type MarkingSessionSignal =
   | "marking-disabled"
   | "markings-changed"
   | "run-started"
+  | "run-completed"
   | "run-failed"
   | "post-ai-preview-opened"
   | "preview-opened"
@@ -171,6 +172,7 @@ const TRANSITIONS: Readonly<
     navigated: "silent"
   },
   running: {
+    "run-completed": "post_ai_clean",
     "post-ai-preview-opened": "preview_open",
     "run-failed": "pre_ai_dirty",
     "marking-disabled": "silent",

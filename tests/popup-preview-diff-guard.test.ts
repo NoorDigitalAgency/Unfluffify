@@ -107,6 +107,7 @@ test("applyAiPreviewStateUpdate skips previewItems rebuild for identical snapsho
     flushPendingAiPreviewConfigSync: () => {
       flushCalls += 1;
     },
+    releasePreparingContentListSpinner: () => undefined,
     JSON,
     Array,
     Boolean

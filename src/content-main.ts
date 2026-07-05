@@ -124,7 +124,15 @@ import { createPageSaveReconciliationClearHandler } from "./content/page-save-re
 import { createPageSaveReconciliationPendingHandler } from "./content/page-save-reconciliation-pending-handler";
 import { initializePageWorldRelay } from "./content/page-world-relay";
 import { createPageToast } from "./content/page-toast";
-import { emitContentSignal, handleContentBusMessage, publishContentSessionFacts, startContentBusClient } from "./content/layers/content-bus-client";
+import {
+  emitContentSignal,
+  handleContentBusMessage,
+  publishContentSessionFacts,
+  requestContentSpinnerRemove,
+  requestContentSpinnerSet,
+  startContentBusClient
+} from "./content/layers/content-bus-client";
+import { SPINNER_OPERATION_KINDS, SPINNER_OPERATION_PHASES } from "./common/spinner-contract";
 import { normalizePageSaveReconciliationReason } from "./common/bus/contracts/session-state";
 import { SIGNAL_NAMES } from "./common/bus/contracts/signals";
 import {
@@ -713,6 +721,96 @@ function stepContentMachine(
 // marking-paused class) resolve presentation from the machine's overlay
 // memory — hand them the live machine state.
 core.setContentOverlayMachineStateResolver(() => contentMarkingMachine.state);
+
+// Calculation narration ("user left lingering" class): content leases the
+// highlight-render broker spinners around its slow calc routines so BOTH
+// surfaces narrate — the popup busy overlay and the page curtain resolve the
+// title from the shared phase table. Refcounted per kind (a superseded silent
+// pass ends after its successor began — the count keeps the lease alive for
+// the live pass); markings engage immediately (the pass is one sync block —
+// a threshold timer could never fire before it ends), highlights are
+// threshold-delayed so trivial pages never flash.
+type ContentCalcNarrationKind = "markings" | "highlights";
+const CONTENT_CALC_NARRATION_THRESHOLD_MS = 300;
+const contentCalcNarrationSlots: Record<
+  ContentCalcNarrationKind,
+  { count: number; timer: number; engaged: boolean }
+> = {
+  markings: { count: 0, timer: 0, engaged: false },
+  highlights: { count: 0, timer: 0, engaged: false }
+};
+
+function engageContentCalcSpinner(kind: ContentCalcNarrationKind): void {
+  const slot = contentCalcNarrationSlots[kind];
+  if (slot.engaged) {
+    return;
+  }
+  slot.engaged = true;
+  void requestContentSpinnerSet({
+    key: `content-calc:${kind}`,
+    message: kind === "markings" ? "Calculating markings..." : "Calculating highlightings...",
+    persistent: false,
+    reason: kind === "markings" ? "content-calc-markings" : "content-calc-highlights",
+    source: "content-calc",
+    startedAt: Date.now(),
+    operationId: "",
+    operationKind: SPINNER_OPERATION_KINDS.HIGHLIGHT_RENDER,
+    operationPhase: kind === "markings"
+      ? SPINNER_OPERATION_PHASES.HIGHLIGHT_RENDER.CALCULATING_MARKINGS
+      : SPINNER_OPERATION_PHASES.HIGHLIGHT_RENDER.CALCULATING_HIGHLIGHTS,
+    timerMode: ""
+  });
+}
+
+function beginContentCalcNarration(
+  kind: ContentCalcNarrationKind,
+  options: { immediate?: boolean } = {}
+): void {
+  const slot = contentCalcNarrationSlots[kind];
+  slot.count += 1;
+  if (slot.engaged) {
+    return;
+  }
+  if (options.immediate) {
+    engageContentCalcSpinner(kind);
+    return;
+  }
+  if (slot.timer) {
+    return;
+  }
+  slot.timer = window.setTimeout(() => {
+    slot.timer = 0;
+    if (slot.count > 0) {
+      engageContentCalcSpinner(kind);
+    }
+  }, CONTENT_CALC_NARRATION_THRESHOLD_MS);
+}
+
+function endContentCalcNarration(kind: ContentCalcNarrationKind): void {
+  const slot = contentCalcNarrationSlots[kind];
+  slot.count = Math.max(0, slot.count - 1);
+  if (slot.count > 0) {
+    return;
+  }
+  if (slot.timer) {
+    window.clearTimeout(slot.timer);
+    slot.timer = 0;
+  }
+  if (slot.engaged) {
+    slot.engaged = false;
+    void requestContentSpinnerRemove({ key: `content-calc:${kind}` });
+  }
+}
+
+// Core reports the initial full marking rebuild (predictor-gated: first
+// render after enable / no overlay yet); steady renders never narrate.
+core.setMarkingRenderNarrationReporter((active) => {
+  if (active) {
+    beginContentCalcNarration("markings", { immediate: true });
+  } else {
+    endContentCalcNarration("markings");
+  }
+});
 
 // P4 step 4.4: the machine is the record of the preview ROUTINE — facts and
 // response builders (and the routine's own guards) read it, never the loose
@@ -1720,7 +1818,7 @@ function getCurrentPageSnapshotOptions() {
 }
 
 function createCurrentPageSnapshot() {
-  core.refreshPageMotionPause();
+  core.refreshPageMotionPause(true);
   return core.createSanitizedPageSnapshot(getCurrentPageSnapshotOptions());
 }
 
@@ -2813,6 +2911,11 @@ function runSilentHighlightSettledRepositionSample() {
 }
 
 function scheduleSilentHighlightReposition(options: { waitForSettle?: boolean } = {}): void {
+  // Every reposition trigger (scroll, resize, layout shift, DOM mutation) is a
+  // page-environment change: invalidate core's persisted per-element caches so
+  // the silent redraw reclassifies against CURRENT geometry instead of values
+  // cached during an earlier marking pass or scroll moment (debug round S3).
+  core.notifyPageEnvironmentChanged();
   if (state.enabled || !lastSilentHighlightingsActive || !silentHighlightCollections) {
     return;
   }
@@ -4939,7 +5042,7 @@ function toRenderableNodeList(nodes: Iterable<unknown> | null | undefined): Elem
 }
 
 function collectAiSubmissionXpathsForCurrentPage(sourceConfig: Config | null = state.config): XpathEntry[] {
-  core.refreshPageMotionPause();
+  core.refreshPageMotionPause(true);
   const configValue = sourceConfig || state.config;
   if (!configValue) {
     return [];
@@ -5506,28 +5609,43 @@ async function refreshSilentHighlightings() {
     deactivateSilentHighlightings();
     return;
   }
-  setSilentHighlightingPageMotionPaused(snapshot.holdSilentMotionPause);
-  ensureSilentHighlightingStyles();
-  clearLegacySilentHighlightingAttributes();
-  const sources = await collectSilentHighlightSources(snapshot, refreshGeneration);
-  if (!sources || refreshGeneration !== silentHighlightingRefreshGeneration) {
-    return;
+  // Narrate the heavy collection+apply on both surfaces (threshold-delayed so
+  // trivial pages never flash). ONLY in the plain silent posture: during a
+  // preview/compute-lock/restore routine this refresh renders the comparison
+  // view (#8) and a page-blocking "Calculating highlightings..." curtain would
+  // fight the open preview surface.
+  const narrateSilentCalc = contentMarkingMachine.state === "silent";
+  if (narrateSilentCalc) {
+    beginContentCalcNarration("highlights");
   }
-  if (!sources.shouldObserve) {
-    stopSilentHighlightingObserver();
-    clearSilentHighlightingMarks();
-    setSilentHighlightingsActive(snapshot.holdSilentMotionPause);
-    return;
+  try {
+    setSilentHighlightingPageMotionPaused(snapshot.holdSilentMotionPause);
+    ensureSilentHighlightingStyles();
+    clearLegacySilentHighlightingAttributes();
+    const sources = await collectSilentHighlightSources(snapshot, refreshGeneration);
+    if (!sources || refreshGeneration !== silentHighlightingRefreshGeneration) {
+      return;
+    }
+    if (!sources.shouldObserve) {
+      stopSilentHighlightingObserver();
+      clearSilentHighlightingMarks();
+      setSilentHighlightingsActive(snapshot.holdSilentMotionPause);
+      return;
+    }
+    await scheduleOverlayApply(
+      refreshGeneration,
+      buildOverlayUpdate(
+        sources.renderCollections,
+        sources.immutableNodes,
+        sources.contentNodes,
+        sources.excludedNodes
+      )
+    );
+  } finally {
+    if (narrateSilentCalc) {
+      endContentCalcNarration("highlights");
+    }
   }
-  await scheduleOverlayApply(
-    refreshGeneration,
-    buildOverlayUpdate(
-      sources.renderCollections,
-      sources.immutableNodes,
-      sources.contentNodes,
-      sources.excludedNodes
-    )
-  );
 }
 
 /**
@@ -6801,7 +6919,6 @@ function createPageDraftStatusHandlerDeps(): PageDraftStatusDeps {
       ),
     clonePageEntry: (entry: Parameters<PageDraftStatusDeps["clonePageEntry"]>[0]) =>
       core.clonePageEntry(entry as ContentPageEntry),
-    collectAiSubmissionXpathsForCurrentPage,
     collectImmutableElements: () => core.collectImmutableElements(),
     getConfig: () => state.config,
     getDraftPageEntry: (pageUrl: string) => core.getDraftPageEntry(pageUrl),
@@ -6818,7 +6935,6 @@ function createPageDraftStatusHandlerDeps(): PageDraftStatusDeps {
       pageUrl: string,
       entry: Parameters<PageDraftStatusDeps["setSavedPageEntry"]>[1]
     ) => core.setSavedPageEntry(pageUrl, entry as ContentPageEntry),
-    submissionXpathsEqual,
     syncPageMarkings: (
       configValue: unknown,
       pageUrl: string,
@@ -7203,8 +7319,23 @@ export function main() {
     ) {
       return;
     }
+    const revealChanged = nextPageRevealFreezeActive !== lastPageRevealFreezeActive;
     lastSilentHighlightDirectiveActive = nextSilentHighlightDirectiveActive;
     lastPageRevealFreezeActive = nextPageRevealFreezeActive;
+    // N2 (debug round): while marking is ACTIVELY enabled (state.enabled), silent
+    // highlighting is not rendered — marking shows its own overlays — so a
+    // silentHighlightActive flap is a no-op for the visible output. A stuck
+    // previewActive oscillation (a post-exit preview ghost, #5/#14 interleaving)
+    // flapped this directive ~1/sec, and each edge re-ran refreshSilentHighlightings:
+    // a full O(document) marking render on the false edge (via refreshEnabledAiHighlights)
+    // and a full silent source collection + render on the true edge — pegging the
+    // CPU for as long as the oscillation lasted. Skip the refresh when only
+    // silentHighlightActive changed and marking is enabled; a reveal/freeze change
+    // still runs it (that governs the editor reveal/freeze, which is relevant while
+    // marking, and never flaps on the previewActive ghost).
+    if (state.enabled && !revealChanged) {
+      return;
+    }
     refreshSilentHighlightings().then(() => {});
     // Run the editor reveal/freeze when the page-prep directive is active (covers
     // fresh candidates with no stored selectors) or when silent highlighting is

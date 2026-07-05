@@ -146,6 +146,10 @@ test("session dictation curtain formats projected countdowns from live deadlines
   });
   assert.equal(projectedCountdownCurtain.timerText, "4:01");
 
+  // The computing_ai fallback (no projected timerMode) ticks only once the
+  // payload is on the server: the resume path mirrors server status into
+  // aiRunPhase. During the local prepare crunch a countdown cannot tick (the
+  // popup thread is pegged by the xpath/payload build) and read frozen-at-max.
   const fallbackCountdownCurtain = resolveBlockingUiCurtainState({
     ...baseView,
     sessionCurtainVisible: true,
@@ -154,9 +158,27 @@ test("session dictation curtain formats projected countdowns from live deadlines
     sessionCurtainTimerText: "Up to 8:00",
     busyTimerMode: "",
     busyDeadlineAt: 0,
-    aiRunDeadlineAt: 341_000
+    aiRunDeadlineAt: 341_000,
+    aiRunPhase: "running"
   });
   assert.equal(fallbackCountdownCurtain.timerText, "4:01");
+
+  const preparePhaseCurtain = resolveBlockingUiCurtainState({
+    ...baseView,
+    sessionCurtainVisible: true,
+    sessionCurtainPhase: "computing_ai",
+    sessionCurtainOperation: "computing_ai",
+    sessionCurtainTimerText: "",
+    busyTimerMode: "",
+    busyDeadlineAt: 0,
+    aiRunDeadlineAt: 341_000,
+    aiRunPhase: "starting"
+  });
+  assert.equal(
+    preparePhaseCurtain.timerText,
+    "",
+    "the local prepare phases show no countdown — it appears at remote-wait"
+  );
 });
 
 test("popup wiring repaints live brain snapshots and keeps imperative writers behind the local fallback guard", () => {

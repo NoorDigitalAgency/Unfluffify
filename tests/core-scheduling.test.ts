@@ -902,6 +902,46 @@ test("CP7b: branch-scoped rebuild is single-toggle gated, guarded, and backstopp
   );
 });
 
+test("S3: scroll/silent cache invalidation + no mid-scroll paint verdicts", () => {
+  const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
+  const contentMain = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
+
+  // The scroll bump must run BEFORE the marking-mode guards: silent-highlight
+  // passes consume the same persisted caches, and bumping only while enabled
+  // left them permanently stale in silent mode.
+  assert.match(
+    source,
+    /export function handleScroll\([^)]*\) \{[\s\S]{0,600}?bumpElementCacheDomVersion\(\);[\s\S]{0,400}?if \(!state\.enabled \|\| state\.aiPopover \|\| !state\.overlay\) \{\s*return;/,
+    "handleScroll must bump the element-cache version before the enabled guard"
+  );
+  // Silent-surface invalidation hook wired into the silent reposition scheduler.
+  assert.match(source, /export function notifyPageEnvironmentChanged\(\)/);
+  assert.match(
+    contentMain,
+    /function scheduleSilentHighlightReposition\([\s\S]{0,600}?core\.notifyPageEnvironmentChanged\(\);/,
+    "silent reposition scheduling must invalidate the persisted element caches"
+  );
+  // Marking teardown invalidates too, so a following silent session starts fresh.
+  assert.match(
+    source,
+    /state\.cachedCollectionsKey = "";[\s\S]{0,400}?bumpElementCacheDomVersion\(\);[\s\S]{0,200}?state\.scopedSpliceBase = null;/,
+    "disable() must bump the element-cache version"
+  );
+  // Paint-reachability is unknowable while the viewport is in motion: the draw
+  // filter passes rects through, and the scan-side check answers optimistically
+  // WITHOUT persisting a verdict.
+  assert.match(
+    source,
+    /function filterPaintReachableRects\([\s\S]{0,700}?if \(state\.isScrolling\) \{\s*return rects;/,
+    "draw-side paint filter must not run mid-scroll"
+  );
+  assert.match(
+    source,
+    /function isPaintReachableInCurrentViewport\([\s\S]{0,1800}?if \(state\.isScrolling\) \{\s*return true;\s*\}\s*const result = computePaintReachableInCurrentViewport\(el\);/,
+    "scan-side paint check must be optimistic and non-caching mid-scroll"
+  );
+});
+
 test("marking enable schedules settle renders that force invalidating rebuilds", () => {
   const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
 

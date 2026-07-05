@@ -85,63 +85,73 @@ export function hasCurrentPagePendingChanges(
   return Boolean(opts.currentDraftDirty || opts.reconciliationPending);
 }
 
+// Save and Discard share ONE AI-run busy gate: if the predicates diverge, one
+// button passes during a run the other refuses — exactly the clobber race the
+// gate exists to block. Any new busy signal goes here, never inline.
+function isAiRunBusy(viewState: PageReconciliationViewState): boolean {
+  return Boolean(
+    state.aiComputeStartPending ||
+      state.aiRequestInFlight === "compute" ||
+      viewState.aiRunCountdownVisible ||
+      viewState.sessionCurtainPhase === "computing_ai" ||
+      viewState.sessionCurtainOperation === "computing_ai"
+  );
+}
+
 export async function handlePageSave(deps: PageReconciliationDeps) {
   const ensureActiveTab =
     typeof deps.ensureActiveTab === "function"
       ? deps.ensureActiveTab
       : async () => null;
-  if (!await ensureActiveTab({ requireId: true })) {
-    return;
-  }
-  if (!deps.ensureBaseUrl()) {
-    return;
-  }
-  await deps.refreshCurrentPageRuntimeStatus();
-  const currentViewState = deps.getViewState();
-  const aiRunBusy = Boolean(
-    state.aiComputeStartPending ||
-      state.aiRequestInFlight === "compute" ||
-      currentViewState.aiRunCountdownVisible ||
-      currentViewState.sessionCurtainPhase === "computing_ai" ||
-      currentViewState.sessionCurtainOperation === "computing_ai"
-  );
-  if (aiRunBusy) {
-    deps.showToast(deps.PopupText.overlay.pleaseWait);
-    return;
-  }
-  if (state.currentPageSaveReconciliationPending) {
-    deps.showToast(deps.PopupText.page.statusServerSyncPending);
-    return;
-  }
-  const blockedReason = typeof currentViewState.pageSaveBlockedReason === "string"
-    ? currentViewState.pageSaveBlockedReason
-    : "";
-  if (blockedReason === "busy") {
-    deps.showToast(deps.PopupText.overlay.pleaseWait);
-    return;
-  }
-  if (blockedReason === "server_sync_pending") {
-    deps.showToast(deps.PopupText.page.statusServerSyncPending);
-    return;
-  }
-  if (blockedReason === "no_session_changes") {
-    deps.updateLastConfigSaveStatus(deps.PopupText.page.noLocalChangesToSave);
-    deps.showToast(deps.PopupText.page.noChangesToSave);
-    return;
-  }
-  if (blockedReason === "requires_ai_run") {
-    deps.showToast(deps.PopupText.page.noticeRunAiBeforeSaving);
-    return;
-  }
-  if (blockedReason) {
-    deps.showToast(deps.PopupText.overlay.pleaseWait);
-    return;
-  }
-  const tokenIsValid = await deps.validateStoredToken({ force: true });
-  if (!tokenIsValid) {
-    return;
-  }
+  // The spinner engages at CLICK: the preflight below (runtime-status content
+  // roundtrips + forced token validation) takes seconds on heavy pages and the
+  // Save button read as dead. Every conclusion — success, failure, a gate
+  // refusal, auth expiry — releases through the lease.
   await deps.runWithSpinner(null, deps.PopupText.overlay.savingPage, async () => {
+    if (!await ensureActiveTab({ requireId: true })) {
+      return;
+    }
+    if (!deps.ensureBaseUrl()) {
+      return;
+    }
+    await deps.refreshCurrentPageRuntimeStatus();
+    const currentViewState = deps.getViewState();
+    if (isAiRunBusy(currentViewState)) {
+      deps.showToast(deps.PopupText.overlay.pleaseWait);
+      return;
+    }
+    if (state.currentPageSaveReconciliationPending) {
+      deps.showToast(deps.PopupText.page.statusServerSyncPending);
+      return;
+    }
+    const blockedReason = typeof currentViewState.pageSaveBlockedReason === "string"
+      ? currentViewState.pageSaveBlockedReason
+      : "";
+    if (blockedReason === "busy") {
+      deps.showToast(deps.PopupText.overlay.pleaseWait);
+      return;
+    }
+    if (blockedReason === "server_sync_pending") {
+      deps.showToast(deps.PopupText.page.statusServerSyncPending);
+      return;
+    }
+    if (blockedReason === "no_session_changes") {
+      deps.updateLastConfigSaveStatus(deps.PopupText.page.noLocalChangesToSave);
+      deps.showToast(deps.PopupText.page.noChangesToSave);
+      return;
+    }
+    if (blockedReason === "requires_ai_run") {
+      deps.showToast(deps.PopupText.page.noticeRunAiBeforeSaving);
+      return;
+    }
+    if (blockedReason) {
+      deps.showToast(deps.PopupText.overlay.pleaseWait);
+      return;
+    }
+    const tokenIsValid = await deps.validateStoredToken({ force: true });
+    if (!tokenIsValid) {
+      return;
+    }
     const pageUrl = deps.getCurrentPageUrl();
     const { tokenValue, configEndpointValue, stageBaseValue } =
       await deps.loadGlobalAiSettings();
@@ -201,45 +211,47 @@ export async function handlePageRevert(deps: PageReconciliationDeps) {
     typeof deps.ensureActiveTab === "function"
       ? deps.ensureActiveTab
       : async () => null;
-  if (!await ensureActiveTab({ requireId: true })) {
-    return;
-  }
-  if (!deps.ensureBaseUrl()) {
-    return;
-  }
-  await deps.refreshCurrentPageRuntimeStatus();
-  const currentViewState = deps.getViewState();
-  const aiRunBusy = Boolean(
-    state.aiComputeStartPending ||
-      state.aiRequestInFlight === "compute" ||
-      currentViewState.aiRunCountdownVisible ||
-      currentViewState.sessionCurtainPhase === "computing_ai" ||
-      currentViewState.sessionCurtainOperation === "computing_ai"
-  );
-  if (aiRunBusy) {
-    deps.showToast(deps.PopupText.overlay.pleaseWait);
-    return;
-  }
-  const blockedReason = typeof currentViewState.pageRevertBlockedReason === "string"
-    ? currentViewState.pageRevertBlockedReason
-    : "";
-  if (blockedReason === "busy") {
-    deps.showToast(deps.PopupText.overlay.pleaseWait);
-    return;
-  }
-  if (blockedReason === "no_page_changes") {
-    deps.showToast(deps.PopupText.page.noChangesToSave);
-    return;
-  }
-  if (blockedReason) {
-    deps.showToast(deps.PopupText.overlay.pleaseWait);
-    return;
-  }
-  const confirmed = deps.windowRef.confirm(deps.PopupText.page.revertConfirm);
-  if (!confirmed) {
-    return;
-  }
+  // The spinner engages at CLICK and stays up behind the confirm dialog so the
+  // press has visible acknowledgement the whole way; every conclusion —
+  // discard applied, a gate refusal, or the user rejecting the dialog —
+  // releases through the lease.
   await deps.runWithSpinner(null, deps.PopupText.overlay.revertingPage, async () => {
+    if (!await ensureActiveTab({ requireId: true })) {
+      return;
+    }
+    if (!deps.ensureBaseUrl()) {
+      return;
+    }
+    // #5 (debug round): gate on the CURRENT view state and show the confirm
+    // dialog BEFORE the slow refreshCurrentPageRuntimeStatus content
+    // roundtrips (getInspectionStatus + getPageDraftStatus), which delayed the
+    // dialog by seconds on a heavy post-AI page (obs 10). The runtime refresh
+    // runs post-confirm, so state is fresh before the apply.
+    const currentViewState = deps.getViewState();
+    if (isAiRunBusy(currentViewState)) {
+      deps.showToast(deps.PopupText.overlay.pleaseWait);
+      return;
+    }
+    const blockedReason = typeof currentViewState.pageRevertBlockedReason === "string"
+      ? currentViewState.pageRevertBlockedReason
+      : "";
+    if (blockedReason === "busy") {
+      deps.showToast(deps.PopupText.overlay.pleaseWait);
+      return;
+    }
+    if (blockedReason === "no_page_changes") {
+      deps.showToast(deps.PopupText.page.noChangesToSave);
+      return;
+    }
+    if (blockedReason) {
+      deps.showToast(deps.PopupText.overlay.pleaseWait);
+      return;
+    }
+    const confirmed = deps.windowRef.confirm(deps.PopupText.page.revertConfirm);
+    if (!confirmed) {
+      return;
+    }
+    await deps.refreshCurrentPageRuntimeStatus();
     await deps.applyLocalPageDiscard();
     deps.updateLastConfigSaveStatus(deps.PopupText.page.revertedToLastSaved);
     deps.showToast(deps.PopupText.page.revertedToLastSaved);

@@ -953,6 +953,43 @@ async function runWithBrainSpinnerLease<T>(
   }
 }
 
+// "Preparing content list..." hold (ai-run:opening-preview): raised the moment
+// the AI-run curtain tears down at results-applied and released only when the
+// detected content list is actually RENDERED — the open response with settled
+// items, the hydration push settling, the preview closing early, or the run
+// failing. It cannot ride runWithBrainSpinnerLease because the settle is an
+// asynchronous push, not the awaited task's return; the contract's FAIL_OPEN
+// cap (60s) is the backstop if every release path is lost.
+let preparingContentListSpinnerKey: string | null = null;
+
+function requestPreparingContentListSpinner(): void {
+  if (preparingContentListSpinnerKey) {
+    // A stale hold from a lost release path must not starve this run's
+    // narration — replace it with a fresh lease.
+    releasePreparingContentListSpinner();
+  }
+  const key = `run-ai-preview-open:${Date.now()}`;
+  preparingContentListSpinnerKey = key;
+  void sendSpinnerBrokerMessage({
+    type: SPINNER_REQUEST_TYPES.SET,
+    key,
+    message: PopupText.overlay.preparingContentList,
+    persistent: false,
+    reason: "tab-run-ai-opening-preview",
+    source: "popup-ai-run",
+    startedAt: Date.now()
+  });
+}
+
+function releasePreparingContentListSpinner(): void {
+  if (!preparingContentListSpinnerKey) {
+    return;
+  }
+  const key = preparingContentListSpinnerKey;
+  preparingContentListSpinnerKey = null;
+  void removeSpinnerEntryFromBackground(key);
+}
+
 function getSiteResolutionDeps(): SiteResolutionDeps {
   return {
     PopupText,
@@ -1184,7 +1221,9 @@ function buildProjectedBusyViewState(): PopupViewStatePatch {
       : 0;
   const aiRunCountdownVisible =
     projectedAiRunCountdownVisible ||
-    (state.aiRequestInFlight === "compute" && state.aiRunDeadlineAt > 0);
+    (state.aiRequestInFlight === "compute" &&
+      state.aiRunDeadlineAt > 0 &&
+      state.aiRunPhase === "running");
   return {
     saveExcludesButtonLoading: state.aiRequestInFlight === "save",
     aiRunSpinnerNote: state.aiRequestInFlight === "compute"
@@ -1915,14 +1954,50 @@ function overrideDictatedMarkingButtons(patch: PopupViewStatePatch): void {
       patch.sessionCurtainTimerText = memory.curtain.timer === "run-countdown"
         ? formatRunCountdownForCurtain()
         : "";
+      if (memory.curtain.timer === "run-countdown" && !isAiRunRemoteWaitActive()) {
+        // The payload is not on the server yet — the run is in its LOCAL
+        // prepare phases. Narrate the projected phase (informative, no
+        // countdown); the countdown replaces this the moment the remote-wait
+        // lease stamps timerMode countdown. Gate on the remote-wait signal
+        // itself, NOT on the formatted timer text: an elapsed/absent deadline
+        // during remote-wait also blanks the timer, and that state must keep
+        // the memory's own note (the payload IS on the server), not flip back
+        // to the prepare message.
+        const busyView = uiModule.getViewState();
+        patch.sessionCurtainNote =
+          busyView.busyOperationKind === "ai-run" &&
+            typeof busyView.busyMessage === "string" &&
+            busyView.busyMessage
+            ? busyView.busyMessage
+            : PopupText.overlay.preparingPageForAi;
+      }
     }
   }
+}
+
+// The countdown renders ONLY once the payload is on the server: the
+// orchestrator stamps the remote-wait lease (projected busyTimerMode
+// "countdown"); the resume path mirrors the server status into
+// state.aiRunPhase. During the LOCAL prepare phases (capture / xpath
+// refinement / payload build — up to 30s of pegged popup thread on heavy
+// pages) a countdown cannot tick and sat frozen at the maximum; the curtain
+// narrates the phase instead (see the prepare note where the running-curtain
+// memory is applied).
+function isAiRunRemoteWaitActive(): boolean {
+  const view = uiModule.getViewState();
+  return Boolean(
+    (view.busyOperationKind === "ai-run" && view.busyTimerMode === "countdown") ||
+      state.aiRunPhase === "running"
+  );
 }
 
 // The running-curtain countdown is machine memory fed by the run deadline the
 // run.started signal carried (mirrored in state.aiRunDeadlineAt): re-derived
 // at every patch application (~1s cadence from brain projections).
 function formatRunCountdownForCurtain(): string {
+  if (!isAiRunRemoteWaitActive()) {
+    return "";
+  }
   const remainingMs = Math.max(0, (state.aiRunDeadlineAt || 0) - Date.now());
   if (!remainingMs) {
     return "";
@@ -2936,7 +3011,10 @@ function updateAiRunCountdownState() {
   uiModule.setViewState({
     computeButtonText: ViewText.computeButtonBusy,
     aiRunSpinnerNote: PopupText.overlay.computingSelectorsNote,
-    aiRunCountdownVisible: true,
+    // No countdown before the payload reaches the server ("starting" — the
+    // local capture/xpath/payload crunch): it cannot tick while the popup
+    // thread is pegged and sat frozen at the maximum for up to 30s.
+    aiRunCountdownVisible: state.aiRunPhase === "running",
     aiRunCountdownText,
     aiRunDeadlineAt: state.aiRunDeadlineAt,
     aiRunPhase: state.aiRunPhase
@@ -3450,6 +3528,9 @@ function settlePreviewRestoreClosed(token: number | null = null, markApplied = t
     previewItemsPending: false,
     previewRestorePending: false
   });
+  // A close before hydration settled abandons the content list — the
+  // "Preparing content list..." hold must not outlive the preview session.
+  releasePreparingContentListSpinner();
 }
 
 function getPreviewRestoreToken(message?: PreviewRestoreMessage): number | null;
@@ -6214,7 +6295,18 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
         : {}),
       aiRunPhase: state.sessionAiRunPhase,
       aiRunUpToDate,
-      previewActive,
+      // #5/#14 (2026-07-05): previewActive is popup-owned preview-sidebar
+      // visibility. A refreshUi pass whose reads predate a popup-initiated
+      // preview exit is STALE (the exit settle bumped the marking-session epoch);
+      // once the popup latches (previewOpenIntent / previewSuppressReopen /
+      // previewRestorePending) have cleared, overrideDictatedPreviewVisibility no
+      // longer overrides, so the brain-projected stale previewActive:true flows
+      // through and this publish resurrects the torn-down preview — the brain then
+      // re-folds it forever (the stuck previewActive oscillation that drove the
+      // perpetual post-AI render storm, N2). Gate it on the SAME pass-epoch guard
+      // as isEnabled/silentModeActive so a stale pass omits it and the exit's
+      // previewActive:false sticks.
+      ...(skipMarkingFactsFromStalePass ? {} : { previewActive }),
       // The popup owns whether IT has a preview session. nextViewState's
       // previewBlocked is brain-DICTATED; republishing it verbatim echoes the
       // brain's projection back as a popup fact, so a stale blocked:true from
@@ -6731,6 +6823,31 @@ function setLynxChecklistViewState() {
     lynxChecklistNoticeText: state.lynxChecklistNoticeText || "",
     lynxChecklistCssInfoStatus: state.lynxChecklistCssInfoStatus || "pending"
   });
+  ensureLynxCssInfoGateStarted();
+}
+
+// S7 harden (debug round): the cssInfo check used to fire ONLY at popover open
+// and ONLY when page-type coverage was already complete at that instant. When
+// coverage hydrated a moment later (marked pages/page types arriving async),
+// the renderer showed the "Checking Lynx selector status…" spinner for a
+// pending check that nothing had started — an eternal fail-closed wedge. Any
+// checklist re-render now starts the missing check once coverage is ready.
+function ensureLynxCssInfoGateStarted() {
+  if (!state.lynxChecklistVisible || lynxCssInfoCheckInFlight) {
+    return;
+  }
+  if (state.lynxChecklistCssInfoStatus !== "pending") {
+    return;
+  }
+  const view = uiModule.getViewState();
+  const coverage = buildLynxChecklistViewModel({
+    pageTypes: view.lynxChecklistPageTypes,
+    markedPages: view.markedPages
+  });
+  if (!coverage.canSend) {
+    return;
+  }
+  void refreshLynxCssInfoGate();
 }
 
 function resetLynxChecklistState() {
@@ -6784,9 +6901,11 @@ function buildPendingLynxSelectorCss(): { includeCss: string; excludeCss: string
 // is pending, when the backend already has a matching set, and when the
 // check cannot be completed (reopen retries).
 let lynxCssInfoCheckSeq = 0;
+let lynxCssInfoCheckInFlight = false;
 
 async function refreshLynxCssInfoGate(): Promise<void> {
   const seq = ++lynxCssInfoCheckSeq;
+  lynxCssInfoCheckInFlight = true;
   state.lynxChecklistCssInfoStatus = "pending";
   setLynxChecklistViewState();
   const pageUrl = (state.currentTab && state.currentTab.url) || "";
@@ -6796,6 +6915,9 @@ async function refreshLynxCssInfoGate(): Promise<void> {
       url: pageUrl
     }).catch(() => null)
     : null;
+  if (seq === lynxCssInfoCheckSeq) {
+    lynxCssInfoCheckInFlight = false;
+  }
   if (seq !== lynxCssInfoCheckSeq || !state.lynxChecklistVisible) {
     return;
   }
@@ -8087,52 +8209,16 @@ async function applyPostSaveSilentTransition() {
 
 async function applyLocalPageDiscard() {
   const pageUrl = getCurrentPageUrl();
-  let baseUrl = state.currentBaseUrl;
+  const baseUrl = state.currentBaseUrl;
   const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
     ? state.currentTab.id
     : null;
-  const { tokenValue, configEndpointValue, stageBaseValue } = await helpers.loadGlobalAiSettings();
-  let siteId = normalizeSiteIdValue(
-    state.currentSiteId || (state.currentConfig && state.currentConfig.siteId)
-  );
-  if (!siteId && baseUrl && pageUrl && stageBaseValue && tokenValue) {
-    const siteIdResult = await ensureBaseUrlSiteId({
-      baseUrl,
-      pageUrl,
-      stageBase: stageBaseValue,
-      tokenValue,
-      persist: false
-    });
-    if (siteIdResult.ok && siteIdResult.siteId) {
-      siteId = normalizeSiteIdValue(siteIdResult.siteId);
-      baseUrl = siteIdResult.baseUrl || baseUrl;
-      state.currentBaseUrl = baseUrl;
-      state.currentConfig = siteIdResult.config || state.currentConfig;
-    }
-  }
-  if (tabId !== null && pageUrl && baseUrl && siteId && configEndpointValue && tokenValue) {
-    const remoteLoadResult = await loadRemoteConfigForCurrentPage({
-      tabId,
-      pageUrl,
-      baseUrl,
-      siteId,
-      endpointValue: configEndpointValue,
-      tokenValue,
-      force: true
-    });
-    if (
-      remoteLoadResult &&
-      (remoteLoadResult.status === "ok" || remoteLoadResult.status === "not_found")
-    ) {
-      baseUrl = remoteLoadResult.baseUrl || baseUrl;
-      state.currentBaseUrl = baseUrl;
-      const configs = await config.getConfigs();
-      state.currentConfig = config.normalizeConfig(baseUrl, configs[baseUrl]).config;
-    }
-  }
-  // Reset the local session to PRE_AI after the fresh backend load so a failed or
-  // slow tab discard can never leave the popup wedged in POST_AI with the markings
-  // locked. Discard is unconditionally PRE_AI; the content apply is best-effort.
+  // #5 (debug round): reset the local session to PRE_AI and fire the content
+  // discard IMMEDIATELY — before any backend round-trip — so the discard is
+  // acknowledged and the spinner clears fast (obs 5). Discard is unconditionally
+  // PRE_AI (it never depended on the backend load), so a failed or slow tab
+  // discard can never leave the popup wedged in POST_AI with the markings locked.
+  // The backend config reconciliation runs best-effort + non-blocking below.
   state.currentDraftEntry = null;
   state.currentSavedEntry = null;
   state.currentDraftDirty = false;
@@ -8154,6 +8240,39 @@ async function applyLocalPageDiscard() {
   state.previewCloseMarkingRestoreUnconfirmed = false;
   bumpMarkingSessionEpoch();
   signalMarkingSession("discarded");
+  // The epoch bump above deliberately stales every in-flight refreshUi pass,
+  // and a stale pass publishes no marking facts — so without an explicit
+  // settle here NOTHING re-publishes isEnabled after a discard. The brain's
+  // sticky popup facts then keep isEnabled:false and it dictates SILENT over
+  // a still-marking popup (the post-discard silent-curtain wedge). Publish
+  // the settled facts AT the new epoch: Discard keeps marking enabled with a
+  // clean PRE_AI session. The navigate-away and disable-with-discard flows
+  // follow with alignPopupToSilentMode/disable, which settle silent on their
+  // own subsequent transition — this publish never outlives them.
+  //
+  // previewActive/previewBlocked/aiRunUpToDate are load-bearing, not padding:
+  // the brain hands AI-run authority back to the popup only when THIS patch is
+  // a full clean reset (shouldKeepBrainAiRunAuthority reads the patch, not the
+  // merged facts: pre_ai + pending/draft clean + previewActive:false +
+  // previewBlocked:false). Without them a discard from POST_AI leaves the
+  // brain re-deriving POST_AI from its own run state until the next full
+  // fresh pass (seconds on heavy pages): phase SAVED, the post-AI toggle lock
+  // held with nothing left to resolve it, and Preview Contents gated open
+  // against the just-discarded run. aiRunUpToDate:false is needed on top or
+  // the decider still lands SAVED off the sticky true from the finished run.
+  if (typeof tabId === "number") {
+    publishCurrentSessionFacts(tabId, {
+      isEnabled: true,
+      silentModeActive: false,
+      aiRunPhase: AI_RUN_PHASES.PRE_AI,
+      aiRunUpToDate: false,
+      previewActive: false,
+      previewBlocked: false,
+      currentDraftDirty: false,
+      discarding: false,
+      sessionHasPendingChanges: false
+    });
+  }
   if (typeof tabId === "number") {
     void emitPopupSignal(tabId, {
       name: SIGNAL_NAMES.SESSION_DISCARDED,
@@ -8161,6 +8280,62 @@ async function applyLocalPageDiscard() {
       cause: "user-discard",
       payload: {}
     });
+  }
+  // Best-effort, non-blocking backend reconciliation: freshen the popup's config
+  // to the last-saved backend state so a later view matches the server. It no
+  // longer holds the discard spinner (obs 5).
+  void reconcilePopupConfigAfterDiscard(pageUrl, baseUrl, tabId).catch(() => {});
+}
+
+// #5 (debug round): the popup-side backend config reconciliation that used to run
+// BEFORE the local reset inside applyLocalPageDiscard, blocking the discard
+// spinner on a forced remote config reload. It is now best-effort and non-blocking
+// (the local session is already PRE_AI-clean), and only freshens state.currentConfig
+// / currentBaseUrl to the last-saved backend state.
+async function reconcilePopupConfigAfterDiscard(
+  pageUrl: string,
+  baseUrl: string,
+  tabId: number | null | undefined
+): Promise<void> {
+  const { tokenValue, configEndpointValue, stageBaseValue } = await helpers.loadGlobalAiSettings();
+  let siteId = normalizeSiteIdValue(
+    state.currentSiteId || (state.currentConfig && state.currentConfig.siteId)
+  );
+  let resolvedBaseUrl = baseUrl;
+  if (!siteId && resolvedBaseUrl && pageUrl && stageBaseValue && tokenValue) {
+    const siteIdResult = await ensureBaseUrlSiteId({
+      baseUrl: resolvedBaseUrl,
+      pageUrl,
+      stageBase: stageBaseValue,
+      tokenValue,
+      persist: false
+    });
+    if (siteIdResult.ok && siteIdResult.siteId) {
+      siteId = normalizeSiteIdValue(siteIdResult.siteId);
+      resolvedBaseUrl = siteIdResult.baseUrl || resolvedBaseUrl;
+      state.currentBaseUrl = resolvedBaseUrl;
+      state.currentConfig = siteIdResult.config || state.currentConfig;
+    }
+  }
+  if (tabId !== null && pageUrl && resolvedBaseUrl && siteId && configEndpointValue && tokenValue) {
+    const remoteLoadResult = await loadRemoteConfigForCurrentPage({
+      tabId,
+      pageUrl,
+      baseUrl: resolvedBaseUrl,
+      siteId,
+      endpointValue: configEndpointValue,
+      tokenValue,
+      force: true
+    });
+    if (
+      remoteLoadResult &&
+      (remoteLoadResult.status === "ok" || remoteLoadResult.status === "not_found")
+    ) {
+      resolvedBaseUrl = remoteLoadResult.baseUrl || resolvedBaseUrl;
+      state.currentBaseUrl = resolvedBaseUrl;
+      const configs = await config.getConfigs();
+      state.currentConfig = config.normalizeConfig(resolvedBaseUrl, configs[resolvedBaseUrl]).config;
+    }
   }
 }
 
@@ -8239,6 +8414,28 @@ async function applyComputedSelectorSet(
     sessionId: state.aiRunSessionId || ""
   });
 
+  // #4/N3 (debug round): the AI run is DONE the instant results are applied.
+  // Tear down the run curtain + countdown HERE — before the slow
+  // requestTabShowAiPreview content roundtrip (up to 30s on heavy pages) — so
+  // the marking-session FSM leaves "running" immediately instead of holding the
+  // full-page curtain and a frozen countdown until the preview finishes
+  // rendering. The preview-open below advances the FSM the rest of the way
+  // (post_ai_clean -> preview_open). resetAiRunState() must run AFTER the
+  // RESULTS_APPLIED publish above (it clears state.aiRunSessionId).
+  resetAiRunState();
+  signalMarkingSession("run-completed");
+  uiModule.setViewState({
+    computeButtonText: ViewText.computeButtonIdle,
+    aiRunSpinnerNote: "",
+    aiRunCountdownVisible: false,
+    aiRunDeadlineAt: 0,
+    aiRunPhase: ""
+  });
+  // The run curtain is gone but the detected content list is NOT on screen yet
+  // — the preview open + item hydration can take many seconds on heavy pages.
+  // Narrate the gap on both surfaces until the list renders.
+  requestPreparingContentListSpinner();
+
   const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
     ? state.currentTab.id
     : null;
@@ -8255,6 +8452,9 @@ async function applyComputedSelectorSet(
       flushPendingAiPreviewConfigSync();
     }
   } else {
+    // The preview open failed — no content list is coming, so the narration
+    // promise is dead; drop it before the marking-view fallback re-render.
+    releasePreparingContentListSpinner();
     await messages.sendTabMessageToTab(tabId, {
       type: "configUpdated",
       baseUrl: state.currentBaseUrl
@@ -8278,17 +8478,14 @@ async function applyComputedSelectorSet(
         ? previewStatePayload.items
         : []
     );
-    // The AI run is complete once the preview is shown. Clear the AI-run state
-    // and compute view fields now so the compute curtain (gated on
-    // computeButtonLoading, which getBlockingUiCurtainState checks before the
-    // preview state) drops immediately and reveals the preview sidebar, instead
-    // of masking it for the duration of the slow post-run refresh.
-    resetAiRunState();
+    // The AI-run curtain + countdown were already torn down above (before the
+    // slow preview roundtrip). Snapshot the marking session and advance the FSM
+    // from post_ai_clean to preview_open now that the sidebar is open.
     captureMarkingSessionSnapshot();
     state.previewOpenIntent = true;
     state.previewSuppressReopen = false;
     state.previewCloseMarkingRestoreUnconfirmed = false;
-    signalMarkingSession("post-ai-preview-opened");
+    signalMarkingSession("preview-opened");
     // Fresh preview session: seed the item latch with the immediately-rendered
     // items so a later empty probe/push cannot blink the sidebar to empty.
     resetPreviewItemsLatch();
@@ -8323,6 +8520,11 @@ async function applyComputedSelectorSet(
       aiRunDeadlineAt: 0,
       aiRunPhase: ""
     });
+    if (!(previewStatePayload && previewStatePayload.itemsPending)) {
+      // The open response carried the settled items and the sidebar just
+      // rendered them — the content list is on screen.
+      releasePreparingContentListSpinner();
+    }
   }
   updateLastConfigSaveStatus(PopupText.ai.selectorsComputedLocally);
   // This state is intentionally unsynced; keep the tone non-muted until Save runs.
@@ -8351,6 +8553,13 @@ function applyAiPreviewStateUpdate(message: PreviewStateLike) {
   // preview may claim "settled" (an inactive/stale push must not arm the
   // settled-empty memory or genuinely-empty a list).
   const settled = Boolean(nextPreviewState.previewActive) && !nextPreviewState.previewItemsPending;
+  if (settled) {
+    // Hydration settled on the open preview — the detected content list is
+    // rendered on both surfaces; drop the "Preparing content list..." hold.
+    // Before the equality early-return: an unchanged-content push must still
+    // release.
+    releasePreparingContentListSpinner();
+  }
   const previewItems = state.previewOpenIntent
     ? resolveOpenPreviewItems(settled ? incomingItems : [], settled).items
     : (Array.isArray(currentView.previewItems) ? currentView.previewItems : []);
@@ -8386,6 +8595,7 @@ function applyAiPreviewStateUpdate(message: PreviewStateLike) {
 }
 
 async function failAiRun(message: string = PopupText.ai.runFailed) {
+  releasePreparingContentListSpinner();
   resetAiRunMarkingsFingerprint();
   signalMarkingSession("run-failed");
   publishCurrentTabAiRunEvent(AI_RUN_EVENT_TYPES.FAILED);
@@ -8733,7 +8943,13 @@ async function handleLynxChecklistSend() {
     return;
   }
   // cssInfo staleness gate (fail-closed): only a confirmed non-match sends.
+  // S7 harden (debug round): a pending/errored check retries on the user's
+  // click instead of returning silently — the fail-closed posture stays, but
+  // it can no longer wedge without a recovery path.
   if (state.lynxChecklistCssInfoStatus !== "clear") {
+    if (state.lynxChecklistCssInfoStatus !== "match" && !lynxCssInfoCheckInFlight) {
+      void refreshLynxCssInfoGate();
+    }
     setLynxChecklistViewState();
     return;
   }
@@ -8786,6 +9002,17 @@ async function handleSaveExcludes() {
     return;
   }
   if (view.saveExcludesBlockedReason !== SECONDARY_GATES_BLOCK_REASONS.NONE) {
+    // S7 harden (debug round): never no-op a Save click invisibly — the user
+    // read the silent return as "save failed with no request". Name the gate.
+    uiModule.showToast(
+      view.saveExcludesBlockedReason === SECONDARY_GATES_BLOCK_REASONS.REQUIRES_AI_RUN
+        ? PopupText.page.statusRunAiBeforeSaving
+        : view.saveExcludesBlockedReason === SECONDARY_GATES_BLOCK_REASONS.NO_SESSION_CHANGES
+          ? PopupText.page.toastSaveBlockedNoSessionChanges
+          : view.saveExcludesBlockedReason === SECONDARY_GATES_BLOCK_REASONS.BUSY
+            ? PopupText.page.toastSaveBlockedBusy
+            : PopupText.page.toastSaveBlockedUnavailable
+    );
     return;
   }
   openLynxChecklistPopover();
@@ -8818,7 +9045,6 @@ async function handlePreviewLatest() {
   if (view.previewLatestBlockedReason !== SECONDARY_GATES_BLOCK_REASONS.NONE) {
     return;
   }
-  captureMarkingSessionSnapshot();
   const selectorSet = getLatestAvailableSelectorsFromConfig();
   if (!combineAiSelectorSet(selectorSet).length) {
     uiModule.showToast(PopupText.preview.noStoredSelectors);

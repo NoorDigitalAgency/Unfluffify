@@ -120,6 +120,14 @@ test("silent highlighting owns page motion pause for matching pages even without
     source,
     /let lastSilentHighlightDirectiveActive = isSilentHighlightActiveByDirective\(\);[\s\S]*?let lastPageRevealFreezeActive = isPageRevealFreezeActiveByDirective\(\);[\s\S]*?addContentDirectiveListener\(\(directive\) => \{[\s\S]*?nextSilentHighlightDirectiveActive === lastSilentHighlightDirectiveActive &&[\s\S]*?nextPageRevealFreezeActive === lastPageRevealFreezeActive[\s\S]*?return;[\s\S]*?\}/
   );
+  // N2 (debug round): during ACTIVE marking, silent highlighting is not rendered,
+  // so a silentHighlightActive flap (a stuck previewActive oscillation flapped it
+  // ~1/sec, storming the CPU via refreshSilentHighlightings) is a no-op — the
+  // listener skips the refresh when marking is enabled and only that changed.
+  assert.match(
+    source,
+    /const revealChanged = nextPageRevealFreezeActive !== lastPageRevealFreezeActive;[\s\S]*?if \(state\.enabled && !revealChanged\) \{[\s\S]*?return;[\s\S]*?\}[\s\S]*?refreshSilentHighlightings\(\)/
+  );
   assert.match(
     source,
     /const SILENT_HIGHLIGHTING_PREPARATION_REASON = "editor_preparing";/

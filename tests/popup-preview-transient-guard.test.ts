@@ -43,6 +43,7 @@ module.exports = { ${names.join(", ")} };
 function makeContext(currentView: Record<string, unknown>) {
   const setViewStateCalls: Array<Record<string, unknown>> = [];
   let flushCalls = 0;
+  let releaseContentListCalls = 0;
   let view = currentView;
   const context = {
     module: { exports: {} as { applyAiPreviewStateUpdate?: (m: Record<string, unknown>) => void } },
@@ -62,6 +63,8 @@ function makeContext(currentView: Record<string, unknown>) {
     utils: { sameBaseUrl: (a: string, b: string) => a === b },
     isFeatureEnabled: () => false,
     flushPendingAiPreviewConfigSync: () => { flushCalls += 1; },
+    // The "Preparing content list..." hold releases on settled pushes.
+    releasePreparingContentListSpinner: () => { releaseContentListCalls += 1; },
     JSON, Array, Boolean
   };
   runInNewContext(
@@ -73,6 +76,7 @@ function makeContext(currentView: Record<string, unknown>) {
     getView: () => view,
     setViewStateCalls,
     flushCalls: () => flushCalls,
+    releaseContentListCalls: () => releaseContentListCalls,
     state: context.state
   };
 }
@@ -287,6 +291,16 @@ test("refreshUi treats getAiPreviewState as item-only and owns preview visibilit
   assert.match(
     popupSource,
     /function overrideDictatedPreviewVisibility[\s\S]{0,900}else if \(state\.previewSuppressReopen\) \{[\s\S]{0,700}active = false;/
+  );
+
+  // #5/#14 (2026-07-05): the session-facts publish gates previewActive on the
+  // pass-epoch guard (exactly like isEnabled/silentModeActive), so a stale
+  // refreshUi pass whose reads predate a preview exit cannot republish
+  // previewActive:true and resurrect a torn-down preview — that was the stuck
+  // previewActive oscillation which drove the perpetual post-AI render storm (N2).
+  assert.match(
+    popupSource,
+    /\.\.\.\(skipMarkingFactsFromStalePass \? \{\} : \{ previewActive \}\)/
   );
 
   // Items flow through the session latch: a settled probe updates it; a pending

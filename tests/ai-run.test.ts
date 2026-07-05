@@ -497,3 +497,104 @@ test("AI corpus rule is documented as a stored multi-page snapshot contract", ()
   assert.match(logicDoc, /An AI run always uses the stored local page snapshots for every marked page/);
   assert.match(logicDoc, /Compute-time DOM collection must not replace that corpus/);
 });
+
+// "Preparing content list..." (ai-run:opening-preview): the AI-run curtain
+// tears down at results-applied (#4/N3), but the detected content list is not
+// on screen until the preview opens AND its items hydrate — many seconds on
+// heavy pages. The hold narrates that whole window on BOTH surfaces and is
+// released only at list-rendered (or when the promise dies: open failure,
+// early close, run failure).
+test("the opening-preview phase narrates the content-list hold on both surfaces", async () => {
+  const { getSpinnerPhaseDefinition, SPINNER_OPERATION_KINDS, SPINNER_OPERATION_PHASES } =
+    await import("../src/common/spinner-contract.js");
+  const definition = getSpinnerPhaseDefinition(
+    SPINNER_OPERATION_KINDS.AI_RUN,
+    SPINNER_OPERATION_PHASES.AI_RUN.OPENING_PREVIEW
+  );
+  assert.equal(definition?.title, "Preparing content list...");
+  assert.equal(definition?.blockSurfaces.popup, true);
+  assert.equal(definition?.blockSurfaces.page, true);
+});
+
+test("the content-list hold spans run-curtain teardown to list-rendered with dead-promise releases", () => {
+  const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
+  // Raised right after the run-completed teardown, before the preview roundtrip.
+  assert.match(
+    popupSource,
+    /signalMarkingSession\("run-completed"\);[\s\S]{0,900}requestPreparingContentListSpinner\(\);[\s\S]{0,600}requestTabShowAiPreview\(tabId/
+  );
+  // Released when the open response already carries settled items.
+  assert.match(
+    popupSource,
+    /if \(!\(previewStatePayload && previewStatePayload\.itemsPending\)\) \{\s*\/\/[\s\S]{0,300}releasePreparingContentListSpinner\(\);\s*\}\s*\}/
+  );
+  // Released when the hydration push settles on the open preview — before the
+  // unchanged-content early return.
+  assert.match(
+    popupSource,
+    /const settled = Boolean\(nextPreviewState\.previewActive\) && !nextPreviewState\.previewItemsPending;\s*if \(settled\) \{[\s\S]{0,400}releasePreparingContentListSpinner\(\);/
+  );
+  // Dead-promise releases: authoritative preview close, run failure, and the
+  // open-failure fallback (before the marking-view re-render).
+  assert.match(
+    popupSource,
+    /function settlePreviewRestoreClosed\([\s\S]{0,2400}releasePreparingContentListSpinner\(\);\s*\}/
+  );
+  assert.match(
+    popupSource,
+    /async function failAiRun\([\s\S]{0,200}releasePreparingContentListSpinner\(\);/
+  );
+  assert.match(
+    popupSource,
+    /releasePreparingContentListSpinner\(\);\s*await messages\.sendTabMessageToTab\(tabId, \{\s*type: "configUpdated"/
+  );
+});
+
+// The AI-run countdown appears only once the payload is on the server. The
+// local prepare phases (capture -> xpath refinement -> payload build) peg the
+// popup thread for up to 30s: a countdown cannot tick there and sat frozen at
+// the maximum (the reported freeze). Prepare narrates with an informative,
+// timer-less curtain (CSS spinner animates on the compositor even while JS is
+// blocked); remote-wait (projected timerMode "countdown" from the
+// orchestrator's tab-run-ai-running lease, or the resume path's mirrored
+// server status) replaces it with the live countdown.
+test("the run countdown renders only at remote-wait; prepare narrates without a timer", () => {
+  const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
+  const uiSource = readFileSync(new URL("../src/popup/ui.tsx", import.meta.url), "utf8");
+
+  // The machine running-curtain countdown is gated on the remote-wait signal.
+  assert.match(
+    popupSource,
+    /function isAiRunRemoteWaitActive\(\): boolean \{[\s\S]{0,400}busyOperationKind === "ai-run" && view\.busyTimerMode === "countdown"\)? \|\|\s*state\.aiRunPhase === "running"/
+  );
+  assert.match(
+    popupSource,
+    /function formatRunCountdownForCurtain\(\): string \{\s*if \(!isAiRunRemoteWaitActive\(\)\) \{\s*return "";\s*\}/
+  );
+  // The prepare window narrates the projected phase instead of a countdown —
+  // gated on the remote-wait signal itself, NOT the formatted timer text (an
+  // elapsed/absent deadline during remote-wait also blanks the timer and must
+  // NOT flip the note back to the prepare message).
+  assert.match(
+    popupSource,
+    /if \(memory\.curtain\.timer === "run-countdown" && !isAiRunRemoteWaitActive\(\)\) \{[\s\S]{0,900}PopupText\.overlay\.preparingPageForAi/
+  );
+  assert.doesNotMatch(
+    popupSource,
+    /memory\.curtain\.timer === "run-countdown" && !patch\.sessionCurtainTimerText/
+  );
+  // The compute-path countdown visibility requires the server-accepted phase.
+  assert.match(
+    popupSource,
+    /aiRunCountdownVisible: state\.aiRunPhase === "running",/
+  );
+  assert.match(
+    popupSource,
+    /\(state\.aiRequestInFlight === "compute" &&\s*state\.aiRunDeadlineAt > 0 &&\s*state\.aiRunPhase === "running"\)/
+  );
+  // The ui computing_ai fallback leg carries the same gate.
+  assert.match(
+    uiSource,
+    /view\.sessionCurtainOperation === "computing_ai" && view\.aiRunPhase === "running"/
+  );
+});

@@ -1,5 +1,6 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
+import { readFileSync } from "node:fs";
 
 import { PopupText } from "../src/common/text.js";
 import { state } from "../src/popup/state.js";
@@ -309,4 +310,157 @@ test("popup page reconciliation treats AI startup and projected computing curtai
   assert.equal(calls.toast.at(0), PopupText.overlay.pleaseWait);
   assert.equal(calls.toast.at(1), PopupText.overlay.pleaseWait);
   state.aiComputeStartPending = false;
+});
+
+test("#5 (debug round): page revert shows the confirm dialog before the runtime-status roundtrip", async () => {
+  // The slow refreshCurrentPageRuntimeStatus (two content roundtrips) must run
+  // AFTER the confirm dialog, inside the spinner — not before it (obs 10). A
+  // cancelled confirm therefore performs no runtime refresh and no discard.
+  resetState();
+  state.aiComputeStartPending = false;
+  state.aiRequestInFlight = null;
+
+  let runtimeRefreshCount = 0;
+  const cancelled = createDeps({
+    windowRef: {
+      confirm: () => false
+    },
+    refreshCurrentPageRuntimeStatus: async () => {
+      runtimeRefreshCount += 1;
+    }
+  });
+  await handlePageRevert(cancelled.deps);
+  assert.equal(runtimeRefreshCount, 0, "cancelled revert must not run the runtime-status roundtrip");
+  assert.equal(cancelled.calls.discard, 0);
+
+  runtimeRefreshCount = 0;
+  let refreshCountAtConfirm = -1;
+  const confirmed = createDeps({
+    windowRef: {
+      confirm: () => {
+        refreshCountAtConfirm = runtimeRefreshCount;
+        return true;
+      }
+    },
+    refreshCurrentPageRuntimeStatus: async () => {
+      runtimeRefreshCount += 1;
+    }
+  });
+  await handlePageRevert(confirmed.deps);
+  assert.equal(refreshCountAtConfirm, 0, "confirm must be shown before the runtime-status roundtrip");
+  assert.equal(runtimeRefreshCount, 1, "confirmed revert runs the runtime refresh post-confirm, inside the spinner");
+  assert.equal(confirmed.calls.discard, 1);
+});
+
+// Click-to-conclusion spinner span: the Save/Discard lease engages the moment
+// the button handler enters — before the preflight roundtrips, the gates, and
+// (for Discard) the confirm dialog — and releases at EVERY conclusion:
+// success, failure, a gate refusal, or the user rejecting the dialog.
+function createSpinnerOrderDeps(overrides = {}) {
+  const events = [];
+  const { deps, calls } = createDeps({
+    runWithSpinner: async (_key, message, task) => {
+      events.push(`spinner-begin:${message}`);
+      try {
+        return await task();
+      } finally {
+        events.push("spinner-end");
+      }
+    },
+    ensureActiveTab: async () => {
+      events.push("ensure-active-tab");
+      return { id: 1 };
+    },
+    refreshCurrentPageRuntimeStatus: async () => {
+      events.push("runtime-refresh");
+    },
+    validateStoredToken: async () => {
+      events.push("validate-token");
+      return true;
+    },
+    showToast: (message) => {
+      events.push(`toast:${message}`);
+    },
+    ...overrides
+  });
+  return { deps, calls, events };
+}
+
+test("save engages the spinner at click: preflight, gates, and token validation run inside the lease", async () => {
+  resetState();
+  const { deps, events } = createSpinnerOrderDeps();
+
+  await handlePageSave(deps);
+
+  assert.equal(events[0], `spinner-begin:${PopupText.overlay.savingPage}`);
+  assert.ok(events.indexOf("ensure-active-tab") > 0, "tab preflight runs inside the lease");
+  assert.ok(events.indexOf("runtime-refresh") > events.indexOf("ensure-active-tab"));
+  assert.ok(events.indexOf("validate-token") > events.indexOf("runtime-refresh"));
+  assert.equal(events.at(-1), "spinner-end");
+});
+
+test("a save gate refusal still begins and concludes the spinner", async () => {
+  resetState();
+  const { deps, calls, events } = createSpinnerOrderDeps({
+    getViewState: () => ({
+      sessionHasPendingChanges: false,
+      sessionRequiresAiRun: false,
+      currentPageHasPendingChanges: false,
+      pageSaveBlockedReason: "no_session_changes",
+      pageRevertBlockedReason: "no_page_changes"
+    })
+  });
+
+  await handlePageSave(deps);
+
+  assert.equal(calls.sync, 0);
+  assert.equal(events[0], `spinner-begin:${PopupText.overlay.savingPage}`);
+  assert.equal(events.at(-1), "spinner-end");
+});
+
+test("revert engages the spinner at click, holds it through the confirm, and concludes on rejection", async () => {
+  resetState();
+  const events = [];
+  const { deps, calls } = createDeps({
+    runWithSpinner: async (_key, message, task) => {
+      events.push(`spinner-begin:${message}`);
+      try {
+        return await task();
+      } finally {
+        events.push("spinner-end");
+      }
+    },
+    windowRef: {
+      confirm: () => {
+        events.push("confirm");
+        return false;
+      }
+    }
+  });
+
+  await handlePageRevert(deps);
+
+  assert.equal(calls.discard, 0, "a rejected dialog performs no discard");
+  assert.deepEqual(events, [
+    `spinner-begin:${PopupText.overlay.revertingPage}`,
+    "confirm",
+    "spinner-end"
+  ]);
+});
+
+test("save and revert gate on the ONE shared AI-run busy predicate", () => {
+  // The busy gate blocks Save/Discard from clobbering an in-flight AI run's
+  // markings. Two inline copies silently diverge when the next busy signal is
+  // added to one handler only — both handlers must call the shared helper.
+  const source = readFileSync(
+    new URL("../src/popup/page-reconciliation.ts", import.meta.url),
+    "utf8"
+  );
+  assert.match(
+    source,
+    /function isAiRunBusy\(viewState: PageReconciliationViewState\): boolean \{[\s\S]{0,400}sessionCurtainOperation === "computing_ai"/
+  );
+  const gateCalls = source.match(/if \(isAiRunBusy\(currentViewState\)\) \{/g) || [];
+  assert.equal(gateCalls.length, 2, "both handlePageSave and handlePageRevert use the shared gate");
+  assert.doesNotMatch(source, /const aiRunBusy = Boolean\(/);
 });

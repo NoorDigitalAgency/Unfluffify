@@ -255,6 +255,39 @@ test("locked default-exclusion taxonomy keeps buttons toggleable and links omitt
   }
 });
 
+test("S1/S2: AI-selector seeding writes EXPLICIT baseline rows", () => {
+  // Debug-round S1/S2 root cause: the seeder pushed {xpath, excluded:true}
+  // WITHOUT explicit:true, so (a) the same-render sync reconcile dropped the
+  // seeded rows (only scan candidates and explicit rows survive the rebuild)
+  // while still using them as excluded parents that suppressed the generated
+  // default-exclusion rows beneath them, and (b) hasExplicitUserMarkings never
+  // became true, so the wipe-and-reseed re-ran on EVERY full rebuild. Live
+  // effect: unmarked pages with stored AI exclusion selectors rendered with
+  // ZERO exclusion rows (defaults appeared included), flipped when one user
+  // mark landed, flipped back on unmark, and the session was dirty from enable.
+  const seedFn = coreSource.slice(
+    coreSource.indexOf("function seedMarkingsFromAiSelectorsForUnmarkedPage("),
+    coreSource.indexOf("function isRawSelectorExcludedElement(")
+  );
+  assert.match(
+    seedFn,
+    /items\.push\(\{ xpath, excluded: true, explicit: true \}\);/,
+    "seeded exclusion rows must carry explicit:true"
+  );
+  assert.match(
+    seedFn,
+    /if \(!targetItem\.excluded \|\| targetItem\.explicit !== true\) \{/,
+    "existing seeded rows must be upgraded to explicit:true"
+  );
+  // The survival mechanism the flag relies on: the sync reconcile preserves
+  // non-candidate EXPLICIT excluded rows from the previous items.
+  assert.match(
+    coreSource,
+    /if \(!item \|\| !item\.xpath \|\| !item\.excluded \|\| item\.explicit !== true\) \{\s*continue;/,
+    "sync must keep its explicit-row preservation pass"
+  );
+});
+
 test("W2/F5: the page-shell depth walk crosses open shadow boundaries", () => {
   // getDepthBelowBody previously walked parentElement, returning Infinity for
   // shadow content (parentElement is null at a shadow root) — which silently

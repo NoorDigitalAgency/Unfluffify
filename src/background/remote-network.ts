@@ -561,7 +561,13 @@ export async function fetchStaticPageHtmlForBackground(url: unknown) {
       method: "GET",
       credentials: "include",
       redirect: "follow",
-      cache: "no-store"
+      cache: "no-store",
+      // S6 harden (debug round): an origin that accepts the connection but
+      // never finishes the body used to hang this fetch indefinitely, which
+      // consumed the AI-run snapshot budget upstream and surfaced to the user
+      // as a random "Content message timed out". Fail fast instead — the
+      // capture path falls back to the entry's previous rawHtml.
+      signal: AbortSignal.timeout(30_000)
     });
     if (!response.ok) {
       return {

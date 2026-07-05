@@ -903,11 +903,11 @@ type AiRunPollOutcome =
     timeoutGroup: ReturnType<typeof createManagedTimeoutGroup>;
   }): Promise<AiRunPollOutcome> {
     while (Date.now() < deadlineAt) {
-      const remainingMs = Math.max(0, deadlineAt - Date.now());
-      const pollDelayMs = Math.min(aiRunPollIntervalMs, remainingMs || aiRunPollIntervalMs);
-      await new Promise((resolve) => {
-        timeoutGroup.set(resolve, pollDelayMs);
-      });
+      // S4 harden (debug round): poll FIRST, sleep only while the run is still
+      // running. The previous sleep-first loop added a guaranteed 5s head lag
+      // plus up to a full interval of pure completion-detection latency after
+      // the backend finished — dead time the user watched as a stuck
+      // "Waiting for AI results" spinner.
       if (siteId) {
         await refreshAiRunHeartbeat({
           tabId: normalizedTabId,
@@ -943,6 +943,11 @@ type AiRunPollOutcome =
         };
       }
       if (statusResult.status === "running") {
+        const remainingMs = Math.max(0, deadlineAt - Date.now());
+        const pollDelayMs = Math.min(aiRunPollIntervalMs, remainingMs || aiRunPollIntervalMs);
+        await new Promise((resolve) => {
+          timeoutGroup.set(resolve, pollDelayMs);
+        });
         continue;
       }
       if (statusResult.status === "error") {

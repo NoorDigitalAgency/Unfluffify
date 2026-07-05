@@ -147,6 +147,7 @@ test("hard preview-restore fallback force-clears preview facts and local preview
       previewWillRestoreMarking: false
     }),
     stabilizePreviewViewState: (previewViewState: Record<string, unknown>) => previewViewState,
+    releasePreparingContentListSpinner: () => undefined,
     uiModule: {
       setViewState: (patch: Record<string, unknown>) => {
         callOrder.push("clear-local-preview-ui");
@@ -263,6 +264,7 @@ test("a late same-token close payload still applies after the hard fallback clea
       previewWillRestoreMarking: false
     }),
     stabilizePreviewViewState: (previewViewState: Record<string, unknown>) => previewViewState,
+    releasePreparingContentListSpinner: () => undefined,
     uiModule: {
       setViewState: () => undefined
     },

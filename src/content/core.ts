@@ -391,8 +391,8 @@ interface PageMotionPauseState {
   lockedElementsById: Map<string, PageMotionLockRecord>;
   lockIdCounter: number;
   refreshTimer: number;
-  refreshScheduled: boolean;
   observer: MutationObserver | null;
+  pendingDiscovery: Set<Element>;
 }
 
 interface DocumentWithSubtreeAnimations extends Document {
@@ -1194,6 +1194,18 @@ function bumpElementCacheDomVersion(): void {
   state.elementCacheDomVersion += 1;
 }
 
+/**
+ * External invalidation hook for surfaces that run OUTSIDE the marking-mode
+ * lifecycle (silent highlighting): core's scroll/mutation observers are
+ * inactive while marking is disabled, so the silent reposition scheduler must
+ * signal DOM/viewport changes itself — otherwise the persisted per-element
+ * caches (visibility, paint-reachability, …) that silent classification reads
+ * through core.isVisible et al. stay permanently stale (debug round S3).
+ */
+export function notifyPageEnvironmentChanged(): void {
+  bumpElementCacheDomVersion();
+}
+
 export function withElementComputationCache<T>(callback: () => T): T {
   const outermost = state.elementComputationCacheDepth === 0;
   if (outermost) {
@@ -1747,6 +1759,14 @@ function filterPaintReachableRects(el: Element | null, rects: RectLike[]): RectL
   if (!Array.isArray(rects) || rects.length === 0) {
     return [];
   }
+  // Hit-testing during an active scroll returns transient garbage (compositor
+  // scroll vs layout race): per-rect misfilters made boxes drift/vanish
+  // mid-scroll (debug round S3). Reachability is unknowable while the viewport
+  // is in motion — keep the rects; the post-scroll render re-applies the
+  // strict filter (handleScroll bumps the cache version).
+  if (state.isScrolling) {
+    return rects;
+  }
   const reachableRects = rects.filter((rect) => getPaintReachabilityForRect(el, rect) !== false);
   if (reachableRects.length > 0) {
     return reachableRects;
@@ -1776,6 +1796,15 @@ function isPaintReachableInCurrentViewport(el: Element | null): boolean {
   const cache = state.paintReachabilityCache;
   if (cache && cache.has(el)) {
     return cache.get(el)!;
+  }
+  // While the viewport is in motion, hit tests return transient garbage
+  // (compositor scroll vs layout race). A false verdict computed mid-scroll
+  // would drop the element from the collections entirely (the scan path has no
+  // draw-side fallback) — so treat reachability as unknowable: assume
+  // reachable and do NOT persist the verdict. The post-scroll pass recomputes
+  // strictly (handleScroll bumps the cache version). Debug round S3.
+  if (state.isScrolling) {
+    return true;
   }
   const result = computePaintReachableInCurrentViewport(el);
   if (cache) {
@@ -3338,14 +3367,26 @@ function seedMarkingsFromAiSelectorsForUnmarkedPage(
     );
 
   const setExplicitExclude = (xpath: string) => {
+    // The seeded row MUST carry explicit:true (matching the function's own
+    // baseline comment above): without the flag (a) the sync reconcile drops
+    // the row in the SAME render (only candidates and explicit rows survive
+    // the rebuild) while still using it as an excluded parent that suppresses
+    // the generated default-exclusion rows beneath it, and (b)
+    // hasExplicitUserMarkings never becomes true, so the seed re-runs its
+    // wipe-and-reseed on EVERY full rebuild. Net effect before this fix: an
+    // unmarked page with stored AI exclusion selectors rendered with ZERO
+    // exclusion rows (defaults appeared included), flipped to correct the
+    // moment ONE user mark landed, flipped back on unmark, and the session
+    // was permanently dirty from enable (debug round S1/S2).
     const targetItem = items.find((item) => item && item.xpath === xpath);
     if (!targetItem) {
-      items.push({ xpath, excluded: true });
+      items.push({ xpath, excluded: true, explicit: true });
       changed = true;
       return;
     }
-    if (!targetItem.excluded) {
+    if (!targetItem.excluded || targetItem.explicit !== true) {
       targetItem.excluded = true;
+      targetItem.explicit = true;
       changed = true;
     }
   };
@@ -4734,8 +4775,8 @@ function createPageMotionPauseState(): PageMotionPauseState {
     lockedElementsById: new Map<string, PageMotionLockRecord>(),
     lockIdCounter: 1,
     refreshTimer: 0,
-    refreshScheduled: false,
-    observer: null
+    observer: null,
+    pendingDiscovery: new Set<Element>()
   };
 }
 
@@ -6113,25 +6154,31 @@ function getAnimationEffectTarget(animation: Animation | null | undefined): Elem
   }
 }
 
-function collectPageMotionCandidates(): Map<Element, PageMotionCandidate> {
-  const candidates = new Map<Element, PageMotionCandidate>();
+function collectDocumentAnimationCandidates(candidates: Map<Element, PageMotionCandidate>): void {
   for (const animation of getDocumentAnimations()) {
     const target = getAnimationEffectTarget(animation);
     if (target) {
       mergePageMotionCandidate(candidates, target, { descriptorMatched: true });
     }
   }
+}
+
+function getAllPageElements(): Element[] {
   if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
-    return candidates;
+    return [];
   }
-  const elements = (() => {
-    try {
-      return Array.from(document.querySelectorAll("*") || []);
-    } catch (_error) {
-      return [] as Element[];
-    }
-  })();
-  const inspectComputedStyle = elements.length <= PAGE_MOTION_PAUSE_MAX_LOCKED_ELEMENTS * 3;
+  try {
+    return Array.from(document.querySelectorAll("*") || []);
+  } catch (_error) {
+    return [];
+  }
+}
+
+function collectElementMotionCandidates(
+  candidates: Map<Element, PageMotionCandidate>,
+  elements: Element[],
+  inspectComputedStyle: boolean
+): void {
   for (const element of elements) {
     if (isIgnoredPageMotionElement(element)) {
       continue;
@@ -6150,7 +6197,76 @@ function collectPageMotionCandidates(): Map<Element, PageMotionCandidate> {
       mergePageMotionCandidate(candidates, element, { computedStyle });
     }
   }
+}
+
+// Full-document scan (querySelectorAll("*") + per-element getComputedStyle). Run
+// ONLY at explicit freeze-engage points (pause, snapshot, post-reveal re-apply).
+// The periodic maintenance refresh and the mutation observer must never call
+// this — a full sweep on every DOM mutation is what pegged the CPU after AI
+// results. Incremental discovery uses collectMaintenancePageMotionCandidates.
+function collectPageMotionCandidates(): Map<Element, PageMotionCandidate> {
+  const candidates = new Map<Element, PageMotionCandidate>();
+  collectDocumentAnimationCandidates(candidates);
+  const elements = getAllPageElements();
+  const inspectComputedStyle = elements.length <= PAGE_MOTION_PAUSE_MAX_LOCKED_ELEMENTS * 3;
+  collectElementMotionCandidates(candidates, elements, inspectComputedStyle);
   return candidates;
+}
+
+// Cheap maintenance discovery: only running document animations plus the
+// specific elements the mutation observer flagged since the last pass. No
+// full-document sweep.
+function collectMaintenancePageMotionCandidates(
+  pauseState: PageMotionPauseState
+): Map<Element, PageMotionCandidate> {
+  const candidates = new Map<Element, PageMotionCandidate>();
+  collectDocumentAnimationCandidates(candidates);
+  if (pauseState.pendingDiscovery.size > 0) {
+    const pending = Array.from(pauseState.pendingDiscovery);
+    pauseState.pendingDiscovery.clear();
+    collectElementMotionCandidates(candidates, pending, true);
+  }
+  return candidates;
+}
+
+// Re-apply the inline-style locks we already track so a page script that
+// overwrites a frozen property gets corrected without re-scanning the document.
+// applyPageMotionLockProperty is guarded (a no-op when the value is unchanged),
+// so this stays cheap and does not spam style mutations.
+function reassertPageMotionLocks(pauseState: PageMotionPauseState): void {
+  for (const [element, record] of pauseState.lockedElements) {
+    if (!isStylableElement(element)) {
+      continue;
+    }
+    for (const [property, lock] of record.properties) {
+      applyPageMotionLockProperty(record, element, property, lock.lockValue);
+    }
+  }
+}
+
+// Queue an element and its subtree for incremental motion evaluation on the next
+// maintenance refresh. Bounded by the mutated subtree — never the whole page.
+function addPageMotionDiscoveryElement(
+  pauseState: PageMotionPauseState,
+  element: Element | null | undefined
+): void {
+  if (!isElementNode(element) || isIgnoredPageMotionElement(element)) {
+    return;
+  }
+  pauseState.pendingDiscovery.add(element);
+  if (typeof element.querySelectorAll === "function") {
+    let descendants: Element[];
+    try {
+      descendants = Array.from(element.querySelectorAll("*") || []);
+    } catch (_error) {
+      descendants = [];
+    }
+    for (const descendant of descendants) {
+      if (!isIgnoredPageMotionElement(descendant)) {
+        pauseState.pendingDiscovery.add(descendant);
+      }
+    }
+  }
 }
 
 function getDefaultLockValue(property: string, computedValue: unknown): string {
@@ -6511,6 +6627,12 @@ function pauseInteractiveMotionTargets(
   candidates: Map<Element, PageMotionCandidate>
 ): void {
   for (const target of collectPageMotionHoverTargets(candidates)) {
+    // Dispatch the synthetic hover ritual once per target. Re-firing it on every
+    // maintenance pass made the page mutate its own hover styles, which the
+    // observer then read back as a change — a feedback source for the storm.
+    if (pauseState.hoverTargets.has(target)) {
+      continue;
+    }
     pauseState.hoverTargets.add(target);
     dispatchPageMotionEvents(target, [
       ["pointerenter", false],
@@ -6627,26 +6749,6 @@ function resumeMediaElements(pauseState: PageMotionPauseState): void {
   pauseState.mediaElements.clear();
 }
 
-function schedulePageMotionPauseRefresh(pauseState: PageMotionPauseState | null = state.pageMotionPause) {
-  if (!pauseState || pauseState.refreshScheduled) {
-    return;
-  }
-  const run = () => {
-    if (state.pageMotionPause !== pauseState) {
-      return;
-    }
-    pauseState.refreshScheduled = false;
-    refreshPageMotionPause();
-  };
-  pauseState.refreshScheduled = true;
-  try {
-    extensionRequestAnimationFrame(run);
-    return;
-  } catch (_error) {
-    extensionSetTimeout(run, 0);
-  }
-}
-
 function startPageMotionPauseRefreshTimer(pauseState: PageMotionPauseState): void {
   if (pauseState.refreshTimer) {
     return;
@@ -6685,17 +6787,43 @@ function startPageMotionPauseObserver(pauseState: PageMotionPauseState): void {
       if (state.pageMotionPause !== pauseState) {
         return;
       }
-      const relevant = Array.from(mutations || []).some((mutation) => {
-        const target = mutation && mutation.target && mutation.target.nodeType === 1
-          ? mutation.target
+      for (const mutation of Array.from(mutations || [])) {
+        if (!mutation) {
+          continue;
+        }
+        if (mutation.type === "childList") {
+          for (const added of Array.from(mutation.addedNodes || [])) {
+            if (isElementNode(added) && !isIgnoredPageMotionElement(added)) {
+              addPageMotionDiscoveryElement(pauseState, added);
+            }
+          }
+          continue;
+        }
+        const target = mutation.target && mutation.target.nodeType === 1
+          ? (mutation.target as Element)
           : null;
-        return isElementNode(target)
-          && !isIgnoredPageMotionElement(target)
-          && mutation.attributeName !== PAGE_MOTION_PAUSE_LOCK_ATTR;
-      });
-      if (relevant) {
-        schedulePageMotionPauseRefresh(pauseState);
+        if (!isElementNode(target) || isIgnoredPageMotionElement(target)) {
+          continue;
+        }
+        if (mutation.attributeName === PAGE_MOTION_PAUSE_LOCK_ATTR) {
+          continue;
+        }
+        // A style mutation on an element we already lock is usually our own
+        // guarded re-assert; queuing it (element only) lets the next maintenance
+        // pass catch a NEW un-tracked motion property the page may have written,
+        // without treating it as fresh discovery.
+        if (mutation.attributeName === "style" && pauseState.lockedElements.has(target)) {
+          pauseState.pendingDiscovery.add(target);
+          continue;
+        }
+        addPageMotionDiscoveryElement(pauseState, target);
       }
+      // Flagged elements are drained by the 250ms maintenance timer. We do NOT
+      // schedule an immediate (rAF) refresh: on a page that churns its DOM every
+      // frame that fired refreshPageMotionPause ~60x/sec, and each pass' re-assert
+      // style writes thrashed the highlight render into re-drawing every mark
+      // repeatedly. The timer cadence caps refreshes at <=4x/sec and breaks that
+      // motion-refresh <-> render coupling.
     });
     pauseState.observer.observe(root, {
       childList: true,
@@ -6731,9 +6859,9 @@ function stopPageMotionPauseObserver(pauseState: PageMotionPauseState): void {
 export function pausePageMotion(reason: unknown = PAGE_MOTION_PAUSE_DEFAULT_REASON): void {
   // Entering the motion freeze normalizes opacity/transform/visibility on
   // revealed elements — a lifecycle event (activation/phase change), not a
-  // per-toggle one — so the element caches must rebuild next pass. (The periodic
-  // re-apply via refreshPageMotionPause does NOT bump; dynamically revealed
-  // elements are caught by the MutationObserver invalidation instead.)
+  // per-toggle one — so the element caches must rebuild next pass. (Maintenance
+  // refreshes do NOT bump; dynamically revealed elements are caught by the
+  // MutationObserver's incremental discovery instead.)
   bumpElementCacheDomVersion();
   const pauseState = state.pageMotionPause || createPageMotionPauseState();
   pauseState.reasons.add(normalizePageMotionPauseReason(reason));
@@ -6742,10 +6870,17 @@ export function pausePageMotion(reason: unknown = PAGE_MOTION_PAUSE_DEFAULT_REAS
   // resumeAllPageMotion() on navigation lifts it.
   pauseState.reasons.add(PAGE_VISIT_MOTION_PAUSE_REASON);
   state.pageMotionPause = pauseState;
-  refreshPageMotionPause();
+  // Explicit engage: sweep the whole document once to lock every current motion
+  // source. Ongoing changes are handled cheaply by the timer/observer.
+  refreshPageMotionPause(true);
 }
 
-export function refreshPageMotionPause(): void {
+// fullScan=true runs the expensive full-document candidate sweep (explicit
+// engage points only). The default cheap maintenance path re-pauses document
+// animations, re-asserts existing locks, and evaluates just the elements the
+// mutation observer flagged — never a full querySelectorAll("*") sweep. This is
+// the fix for the post-AI CPU storm (a full sweep on every mutation/timer tick).
+export function refreshPageMotionPause(fullScan = false): void {
   const pauseState = state.pageMotionPause;
   if (!pauseState || !pauseState.reasons || pauseState.reasons.size === 0) {
     return;
@@ -6758,8 +6893,11 @@ export function refreshPageMotionPause(): void {
   pauseDocumentAnimations(pauseState);
   pauseSvgAnimations(pauseState);
   pauseMediaElements(pauseState);
-  const candidates = collectPageMotionCandidates();
+  const candidates = fullScan
+    ? collectPageMotionCandidates()
+    : collectMaintenancePageMotionCandidates(pauseState);
   lockPageMotionCandidates(pauseState, candidates);
+  reassertPageMotionLocks(pauseState);
   pauseInteractiveMotionTargets(pauseState, candidates);
   startPageMotionPauseRefreshTimer(pauseState);
   startPageMotionPauseObserver(pauseState);
@@ -6978,6 +7116,30 @@ export function getMutationRenderMode(mutations: MutationLike[]): "none" | "rebu
   return mode;
 }
 
+// Pre-warm the custom marking cursor images: a first-hover fetch/decode of
+// the chrome-extension:// SVG is exactly the window where Chromium shows the
+// CSS fallback cursor instead. Refs are held so GC cannot drop the images
+// before they land in the cache.
+const preloadedMarkingCursorImages: HTMLImageElement[] = [];
+
+function preloadMarkingCursorImages(urls: string[]): void {
+  if (preloadedMarkingCursorImages.length > 0) {
+    return;
+  }
+  for (const url of urls) {
+    if (!url) {
+      continue;
+    }
+    try {
+      const image = new Image();
+      image.src = url;
+      preloadedMarkingCursorImages.push(image);
+    } catch {
+      // Cursor pre-warm is best-effort; the CSS fallback stays usable.
+    }
+  }
+}
+
 function isExplicitlyIncludedElement(
   el: Element | null | undefined,
   includeSet: Set<string> | null | undefined
@@ -6998,13 +7160,20 @@ function createOverlay() {
   style.id = "unfluffify-freeze-style";
   const excludeCursorUrl = utils.getExtensionResourceUrl("cursors/exclude.svg");
   const includeCursorUrl = utils.getExtensionResourceUrl("cursors/include.svg");
+  // Chromium transiently drops custom image cursors (fetch/decode hiccups on
+  // a busy renderer) and shows the NEXT cursor in the list until the image is
+  // usable again. With `not-allowed` as the exclude fallback every such drop
+  // flashed the FORBIDDEN cursor over marking (live report: "the exclusion
+  // cursor turns into the forbidden cursor sporadically"). The fallback must
+  // stay a neutral marking-appropriate cursor; preloadMarkingCursorImages
+  // below keeps the drop window rare in the first place.
   style.textContent = `
       html {
         scroll-behavior: auto !important;
       }
       html.uf-cursor-exclude,
       html.uf-cursor-exclude * {
-        cursor: url("${excludeCursorUrl}") 4 3, not-allowed !important;
+        cursor: url("${excludeCursorUrl}") 4 3, crosshair !important;
       }
       html.uf-cursor-include,
       html.uf-cursor-include * {
@@ -7252,6 +7421,7 @@ function createOverlay() {
       }
     `;
   (document.body || document.documentElement).appendChild(style);
+  preloadMarkingCursorImages([excludeCursorUrl, includeCursorUrl]);
 
   const overlay = document.createElement("div");
   overlay.id = "unfluffify-overlay";
@@ -7531,7 +7701,9 @@ export async function warmupSilentHighlightingBeforeMotionPause(
       return true;
     } finally {
       if (hadPauseReason && hasPageMotionPauseReason(reason)) {
-        refreshPageMotionPause();
+        // Post-reveal re-apply: the walk lazy-loaded new content, so sweep the
+        // whole document once to lock any freshly revealed motion sources.
+        refreshPageMotionPause(true);
       }
       if (!keepUiActive) {
         stopPageInspectionInputBlocker();
@@ -7551,6 +7723,19 @@ let pageInspectionUiSettledListener: (() => void) | null = null;
 
 export function setPageInspectionUiSettledListener(listener: (() => void) | null): void {
   pageInspectionUiSettledListener = listener;
+}
+
+// Marking-calculation narration bridge: core reports when a scheduled render
+// pass is the initial full O(document) rebuild the user actually waits on
+// (first render after an enable, or no overlay yet); content-main leases the
+// "Calculating markings..." spinner around it. Core never talks to the bus —
+// same layering as the reconciliation fact reporter below.
+let markingRenderNarrationReporter: ((active: boolean) => void) | null = null;
+
+export function setMarkingRenderNarrationReporter(
+  reporter: ((active: boolean) => void) | null
+): void {
+  markingRenderNarrationReporter = reporter;
 }
 
 // The brain owns the reconciliation-pending session fact and the marking-edits
@@ -8462,30 +8647,6 @@ function containsPageShellLandmark(el: Element | null | undefined): boolean {
   return landmarkKinds.size >= 2;
 }
 
-function hasBroadParentMarkingFootprint(el: Element | null | undefined): boolean {
-  if (!el || typeof el.getBoundingClientRect !== "function") {
-    return false;
-  }
-  let rect;
-  try {
-    rect = el.getBoundingClientRect();
-  } catch (_error) {
-    return false;
-  }
-  if (!rect || rect.width <= 0 || rect.height <= 0) {
-    return false;
-  }
-  const viewport = getViewportBounds();
-  const viewportWidth = viewport.width || (typeof window !== "undefined" ? window.innerWidth : 0) || 0;
-  const viewportHeight = viewport.height || (typeof window !== "undefined" ? window.innerHeight : 0) || 0;
-  if (viewportWidth <= 0 || viewportHeight <= 0) {
-    return false;
-  }
-  const widthRatio = rect.width / viewportWidth;
-  const heightRatio = rect.height / viewportHeight;
-  return widthRatio >= 0.85 && heightRatio >= 0.65;
-}
-
 function isUnsafeShallowParentMarkingTarget(
   el: Element | null | undefined,
   options: ParentMarkingOptions = {}
@@ -8503,19 +8664,20 @@ function isUnsafeShallowParentMarkingTarget(
   if (depth > 2) {
     return false;
   }
-  return containsPageShellLandmark(el) || hasBroadParentMarkingFootprint(el);
+  return containsPageShellLandmark(el);
 }
 
 /**
- * F2 harden (widening restraint): a parent-mode target that is markable ONLY
- * via its descendants (not self-markable) must pass the page-shell rejection at
- * ANY depth — not just the first two levels under body. Without this,
- * Shift-clicking the whitespace of a deep full-width wrapper (div-soup SPAs put
- * the whole content column at depth 3+) selected the entire content area with
- * no footprint/landmark check. Semantic content boundaries and direct-text
- * elements keep their exemption, so sections/articles/lists, toggleable
- * boundaries, and mixed-text ancestors are unaffected, and narrow card
- * containers stay widen-eligible.
+ * F2 harden (widening restraint), landmark-based (2026-07-05 decision): a
+ * parent-mode target markable ONLY via its descendants (not self-markable) is
+ * rejected at ANY depth only when it is a PAGE SHELL — i.e. it contains page-shell
+ * landmarks (main/nav/header/footer tags or banner/contentinfo/main/navigation
+ * roles). The earlier broad-footprint heuristic was DROPPED: a real page footer
+ * is itself full-width and tall, dimensionally indistinguishable from a content
+ * column, so admitting it means relying on landmarks alone — real content shells
+ * carry landmarks, footers do not. Semantic content boundaries and direct-text
+ * elements keep their exemption; a bare landmark-less full-width wrapper is now
+ * widen-eligible (accepted tradeoff, see marking-widening-review.md).
  */
 function isUnsafeWideDescendantOnlyTarget(el: Element): boolean {
   if (isParentMarkingContentBoundary(el)) {
@@ -8524,7 +8686,7 @@ function isUnsafeWideDescendantOnlyTarget(el: Element): boolean {
   if (hasDirectText(el)) {
     return false;
   }
-  return containsPageShellLandmark(el) || hasBroadParentMarkingFootprint(el);
+  return containsPageShellLandmark(el);
 }
 
 function createExcludedAncestorChecker(
@@ -12363,10 +12525,30 @@ export function scheduleRender(options?: ScheduleRenderOptions) {
     if (state.renderRaf) {
       return;
     }
+    // Initial-rebuild predictor: only the first render after an enable (fresh
+    // baseline pending) or with no overlay yet is the full calculation the
+    // user waits on; steady/toggle renders reuse caches and stay silent. The
+    // narration engages HERE (before the rAF) so the lease message flushes
+    // over IPC in the timer->frame gap — the popup can paint "Calculating
+    // markings..." even while this document's main thread runs the sync pass.
+    const narrateMarkingCalc = Boolean(
+      markingRenderNarrationReporter &&
+        state.enabled &&
+        (!state.overlay || state.pendingFreshBaselinePageUrl === location.href)
+    );
+    if (narrateMarkingCalc) {
+      markingRenderNarrationReporter?.(true);
+    }
     state.renderRaf = extensionRequestAnimationFrame(() => {
       state.renderRaf = 0;
       state.lastRenderAt = Date.now();
-      renderHighlights();
+      try {
+        renderHighlights();
+      } finally {
+        if (narrateMarkingCalc) {
+          markingRenderNarrationReporter?.(false);
+        }
+      }
       state.pendingRenderInvalidate = false;
     });
   }, effectiveDelay);
@@ -12559,6 +12741,10 @@ export function disable(options = {}) {
   state.isScrolling = false;
   state.cachedCollections = null;
   state.cachedCollectionsKey = "";
+  // Marking teardown changes the page environment (overlay removal, emulation
+  // exit): invalidate the persisted element caches so a following silent
+  // session cannot reuse marking-session geometry (debug round S3).
+  bumpElementCacheDomVersion();
   state.scopedSpliceBase = null;
   state.scopedRebuildTarget = null;
   state.scopedRebuildToggleCount = 0;
@@ -12678,12 +12864,15 @@ function isViewportScrollEvent(event: ScrollEventLike | Event | null | undefined
 }
 
 export function handleScroll(event: ScrollEventLike | Event, options = {}) {
+  // Scrolling changes element visibility and paint-reachability, so the reused
+  // per-element caches must be rebuilt on the next pass. This must happen
+  // REGARDLESS of marking mode: silent-highlight passes consume the same
+  // persisted caches (core.isVisible etc.), and skipping the bump while
+  // disabled left them permanently stale in silent mode (debug round S3).
+  bumpElementCacheDomVersion();
   if (!state.enabled || state.aiPopover || !state.overlay) {
     return;
   }
-  // Scrolling changes element visibility and paint-reachability, so the reused
-  // per-element caches must be rebuilt on the next pass.
-  bumpElementCacheDomVersion();
   const isViewportScroll = isViewportScrollEvent(event);
   // Nested scroll containers still need a debounced redraw so partially visible
   // marked content tracks carousels and internal panes. Only viewport scrolls

@@ -21,6 +21,11 @@ import {
   type SignalEmitReply,
   type SignalFrame,
 } from "../../common/bus/contracts/signals";
+import {
+  SPINNER_REQUEST_TYPES,
+  type SpinnerRemoveRequestPayload,
+  type SpinnerSetRequestPayload,
+} from "../../common/bus/contracts/spinner";
 import { isBusEnvelope, type BusEnvelope } from "../../common/bus/envelope";
 import { REALMS } from "../../common/bus/realms";
 import { createContentTransport } from "../../common/bus/transport/content-transport";
@@ -139,6 +144,42 @@ export function startContentBusClient(options: ContentBusClientOptions = {}): Bu
   });
   contentLayerHostStop = startContentLayerHost(contentBus);
   return contentBus;
+}
+
+// Content-held spinner leases (calculation narration): same broker as the
+// popup leases — the brain resolves the phase definition from the reason
+// alias, projects the engagement, and both layers render the presentation
+// from the shared table. The background stamps the tab id from the sender.
+// One transport for SET and REMOVE so delivery guarantees (target, timeout,
+// best-effort swallow) can never diverge between the pair.
+async function requestSpinnerBroker(
+  type: typeof SPINNER_REQUEST_TYPES.SET | typeof SPINNER_REQUEST_TYPES.REMOVE,
+  payload: SpinnerSetRequestPayload | SpinnerRemoveRequestPayload,
+): Promise<void> {
+  if (!contentBus) {
+    return;
+  }
+  try {
+    await contentBus.request(type, payload, {
+      target: REALMS.BACKGROUND,
+      timeoutMs: 3000,
+    });
+  } catch {
+    // Best-effort narration: a lost lease only costs feedback, never
+    // behavior; the contract deadline reaps a lost REMOVE.
+  }
+}
+
+export async function requestContentSpinnerSet(
+  payload: SpinnerSetRequestPayload,
+): Promise<void> {
+  await requestSpinnerBroker(SPINNER_REQUEST_TYPES.SET, payload);
+}
+
+export async function requestContentSpinnerRemove(
+  payload: SpinnerRemoveRequestPayload,
+): Promise<void> {
+  await requestSpinnerBroker(SPINNER_REQUEST_TYPES.REMOVE, payload);
 }
 
 export async function emitContentSignal(
