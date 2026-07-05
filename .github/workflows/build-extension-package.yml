@@ -2,25 +2,24 @@ name: Build Extension Package
 
 on:
   workflow_dispatch:
-  pull_request:
-  push:
-    branches:
-      - main
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  group: ${{ github.workflow }}-release
   cancel-in-progress: false
 
 jobs:
-  validate-extension:
+  release-extension:
+    name: Create release package
     runs-on: ubuntu-latest
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -29,236 +28,94 @@ jobs:
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: 11.6.0
 
       - name: Install Node dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Verify extension
-        run: pnpm verify
-
-  package-extension:
-    if: github.event_name == 'workflow_dispatch'
-    needs: validate-extension
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 11.6.0
-
-      - name: Install Node dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Create synced WXT archive
-        run: pnpm zip
-
-      - name: Stage release extension files
-        id: package
+      - name: Resolve release version
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
-          work_dir="$RUNNER_TEMP/unfluffify-extension"
-          metadata_path="$work_dir/metadata.json"
-          stage_dir="$work_dir/stage"
-          timestamp="$(date -u +'%y%m%d-%H%M')"
-          build_version="${timestamp/-/}"
+          version="$(node -p "require('./package.json').version")"
+          tag="v${version}"
 
-          mkdir -p "$work_dir"
-          node ./scripts/package-extension.mjs \
-            --timestamp "$timestamp" \
-            --build-version "$build_version" \
-            --stage-dir "$stage_dir" \
-            --metadata-file "$metadata_path" \
-            > /dev/null
-
-          node ./scripts/emit-package-metadata.mjs "$metadata_path" >> "$GITHUB_OUTPUT"
-
-      - name: Compare staged package with synced WXT zip
-        run: |
-          set -euo pipefail
-
-          work_dir="$RUNNER_TEMP/unfluffify-extension"
-          staged_list="$work_dir/staged-files.txt"
-          wxt_list="$work_dir/wxt-zip-files.txt"
-          missing_list="$work_dir/staged-not-in-wxt.txt"
-
-          (
-            cd "${{ steps.package.outputs.stage_dir }}"
-            find . -type f | sed 's#^\./##' | LC_ALL=C sort
-          ) > "$staged_list"
-
-          unzip -Z1 .output/unfluffify-bootstrap.zip | grep -v '/$' | LC_ALL=C sort > "$wxt_list"
-          LC_ALL=C comm -23 "$staged_list" "$wxt_list" > "$missing_list"
-
-          if [ -s "$missing_list" ]; then
-            echo "Staged package files missing from direct WXT zip:"
-            cat "$missing_list"
+          if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null 2>&1; then
+            echo "::error::Release tag ${tag} already exists. Bump package.json version before running this workflow again."
             exit 1
           fi
 
-          required_files=(
-            "manifest.json"
-            "background.js"
-            "popup.html"
-            "offscreen.html"
-            "content-scripts/content-loader.js"
-            "content-scripts/page-motion-freeze-bridge.js"
-            "icons/default/icon16.png"
-          )
+          if gh release view "${tag}" >/dev/null 2>&1; then
+            echo "::error::Release ${tag} already exists. Bump package.json version before running this workflow again."
+            exit 1
+          fi
 
-          for relative_path in "${required_files[@]}"; do
-            if [ ! -f "${{ steps.package.outputs.stage_dir }}/$relative_path" ]; then
-              echo "Missing required staged runtime file: $relative_path"
-              exit 1
-            fi
-          done
+          {
+            echo "version=${version}"
+            echo "tag=${tag}"
+          } >> "$GITHUB_OUTPUT"
 
-      - name: Create zip archives
-        id: archive
+      - name: Create deployment zip
+        run: pnpm deploy:zip
+
+      - name: Locate release artifacts
+        id: artifacts
         run: |
           set -euo pipefail
 
-          work_dir="$RUNNER_TEMP/unfluffify-extension"
-          archive_path="$work_dir/${{ steps.package.outputs.archive_name }}"
-          latest_alias_path="$work_dir/${{ steps.package.outputs.latest_alias_name }}"
-          version_latest_alias_path="$work_dir/${{ steps.package.outputs.version_latest_alias_name }}"
+          version="${{ steps.version.outputs.version }}"
+          timestamped="$(find .output -maxdepth 1 -type f -name "Unfluffify-v${version}-[0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9].zip" | LC_ALL=C sort | tail -n 1)"
+          latest=".output/Unfluffify-v${version}-latest.zip"
 
-          cd "${{ steps.package.outputs.stage_dir }}"
-          zip -qr "$archive_path" .
-          cp "$archive_path" "$latest_alias_path"
-          cp "$archive_path" "$version_latest_alias_path"
+          if [ -z "${timestamped}" ] || [ ! -f "${timestamped}" ]; then
+            echo "::error::pnpm deploy:zip did not create the timestamped Unfluffify-v${version}-<timestamp>.zip artifact."
+            exit 1
+          fi
+
+          if [ ! -f "${latest}" ]; then
+            echo "::error::pnpm deploy:zip did not create ${latest}."
+            exit 1
+          fi
 
           {
-            echo "archive_path=$archive_path"
-            echo "latest_alias_path=$latest_alias_path"
-            echo "version_latest_alias_path=$version_latest_alias_path"
+            echo "timestamped=${timestamped}"
+            echo "latest=${latest}"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Prepare latest release
-        id: release
-        uses: actions/github-script@v7
+      - name: Tag release commit
         env:
-          ARCHIVE_NAME: ${{ steps.package.outputs.archive_name }}
-          DISPLAY_VERSION: ${{ steps.package.outputs.display_version }}
-          EXT_TIMESTAMP: ${{ steps.package.outputs.timestamp }}
-          LATEST_ALIAS_NAME: ${{ steps.package.outputs.latest_alias_name }}
-          ORIGINAL_VERSION: ${{ steps.package.outputs.original_version }}
-          RELEASE_TAG: ${{ steps.package.outputs.release_tag }}
-          VERSION_LATEST_ALIAS_NAME: ${{ steps.package.outputs.version_latest_alias_name }}
-        with:
-          script: |
-            const { owner, repo } = context.repo;
-            const releaseTag = process.env.RELEASE_TAG;
-            const releaseName = "Latest Extension Package";
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
 
-            let release;
-            try {
-              const existingRelease = await github.rest.repos.getReleaseByTag({
-                owner,
-                repo,
-                tag: releaseTag
-              });
-              release = existingRelease.data;
-            } catch (error) {
-              if (error.status !== 404) {
-                throw error;
-              }
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${RELEASE_TAG}" "${GITHUB_SHA}" -m "Release ${RELEASE_TAG}"
+          git push origin "refs/tags/${RELEASE_TAG}"
 
-              const createdRelease = await github.rest.repos.createRelease({
-                owner,
-                repo,
-                tag_name: releaseTag,
-                name: releaseName,
-                draft: false,
-                prerelease: false,
-                generate_release_notes: false,
-                make_latest: "false"
-              });
-              release = createdRelease.data;
-            }
-
-            const existingAssets = await github.paginate(github.rest.repos.listReleaseAssets, {
-              owner,
-              repo,
-              release_id: release.id,
-              per_page: 100
-            });
-
-            for (const asset of existingAssets) {
-              await github.rest.repos.deleteReleaseAsset({
-                owner,
-                repo,
-                asset_id: asset.id
-              });
-            }
-
-            const releaseUrl = `https://github.com/${owner}/${repo}/releases/tag/${releaseTag}`;
-            const latestDownloadUrl = `https://github.com/${owner}/${repo}/releases/download/${releaseTag}/${process.env.LATEST_ALIAS_NAME}`;
-            const versionLatestDownloadUrl = `https://github.com/${owner}/${repo}/releases/download/${releaseTag}/${process.env.VERSION_LATEST_ALIAS_NAME}`;
-            const timestampedDownloadUrl = `https://github.com/${owner}/${repo}/releases/download/${releaseTag}/${process.env.ARCHIVE_NAME}`;
-            const body = [
-              "Latest automated extension package for Unfluffify.",
-              "",
-              `Release manifest version: ${process.env.DISPLAY_VERSION}`,
-              `Base manifest version: ${process.env.ORIGINAL_VERSION}`,
-              `Built (UTC): ${process.env.EXT_TIMESTAMP}`,
-              "",
-              `Permanent direct download: ${latestDownloadUrl}`,
-              `Version-latest download: ${versionLatestDownloadUrl}`,
-              `Release page: ${releaseUrl}`,
-              `Timestamped asset: ${timestampedDownloadUrl}`
-            ].join("\n");
-
-            await github.rest.repos.updateRelease({
-              owner,
-              repo,
-              release_id: release.id,
-              tag_name: releaseTag,
-              name: releaseName,
-              body,
-              draft: false,
-              prerelease: false,
-              make_latest: "false"
-            });
-
-            core.setOutput("latest_download_url", latestDownloadUrl);
-            core.setOutput("release_url", releaseUrl);
-            core.setOutput("timestamped_download_url", timestampedDownloadUrl);
-            core.setOutput("version_latest_download_url", versionLatestDownloadUrl);
-
-      - name: Upload release assets
+      - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.package.outputs.release_tag }}
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: Unfluffify ${{ steps.version.outputs.tag }}
+          body: |
+            Manual Unfluffify extension package release.
+
+            Built from commit `${{ github.sha }}` using `pnpm deploy:zip`.
           fail_on_unmatched_files: true
           files: |
-            ${{ steps.archive.outputs.archive_path }}
-            ${{ steps.archive.outputs.latest_alias_path }}
-            ${{ steps.archive.outputs.version_latest_alias_path }}
+            ${{ steps.artifacts.outputs.timestamped }}
+            ${{ steps.artifacts.outputs.latest }}
 
       - name: Write workflow summary
         run: |
           {
-            echo "## Extension Package"
+            echo "## Extension Package Release"
             echo
-            echo "- Release manifest version: ${{ steps.package.outputs.display_version }}"
-            echo "- Base manifest version: ${{ steps.package.outputs.original_version }}"
-            echo "- Timestamp (UTC): ${{ steps.package.outputs.timestamp }}"
-            echo "- Timestamped asset: [${{ steps.package.outputs.archive_name }}](${{ steps.release.outputs.timestamped_download_url }})"
-            echo "- Permanent download: [${{ steps.package.outputs.latest_alias_name }}](${{ steps.release.outputs.latest_download_url }})"
-            echo "- Version-latest download: [${{ steps.package.outputs.version_latest_alias_name }}](${{ steps.release.outputs.version_latest_download_url }})"
-            echo "- Release page: [${{ steps.package.outputs.release_tag }}](${{ steps.release.outputs.release_url }})"
+            echo "- Version: ${{ steps.version.outputs.version }}"
+            echo "- Tag: ${{ steps.version.outputs.tag }}"
+            echo "- Timestamped artifact: ${{ steps.artifacts.outputs.timestamped }}"
+            echo "- Latest artifact: ${{ steps.artifacts.outputs.latest }}"
           } >> "$GITHUB_STEP_SUMMARY"
