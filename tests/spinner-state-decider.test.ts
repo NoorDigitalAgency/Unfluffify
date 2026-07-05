@@ -183,14 +183,16 @@ describe("spinner state decider", () => {
   });
 
   it("keeps the latest active AI-run popup spinner ahead of newer unrelated popup spinners", () => {
+    // refining-static-xpaths is the contract's popup-only AI-run phase
+    // (opening-preview became PAGE_AND_POPUP for the content-list hold).
     const selections = deriveSpinnerSelectionsFromQueue([
       buildEntry({
-        key: "opening-preview",
+        key: "refine-xpaths",
         startedAt: 200,
         updatedAt: 200,
-        operationId: "ai-open-preview",
+        operationId: "ai-refine-xpaths",
         operationKind: "ai-run",
-        operationPhase: "opening-preview",
+        operationPhase: "refining-static-xpaths",
         blockSurfaces: { page: false, popup: true },
       }),
       buildEntry({
@@ -206,9 +208,9 @@ describe("spinner state decider", () => {
 
     expect(selections.popup).toEqual(buildExpectedSelection({
       kind: "ai-run",
-      phase: "opening-preview",
-      operationId: "ai-open-preview",
-      spinnerKey: "opening-preview",
+      phase: "refining-static-xpaths",
+      operationId: "ai-refine-xpaths",
+      spinnerKey: "refine-xpaths",
       startedAt: 200,
     }));
     expect(selections.pageCurtain).toBeNull();

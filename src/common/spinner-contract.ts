@@ -214,14 +214,19 @@ const phaseDefinitions: SpinnerPhaseDefinition[] = [
     AI_RUN_DEFAULT_TIMEOUT_MS,
     SPINNER_RECOVERY_POLICIES.RELEASE_ON_EXPIRE
   ),
+  // Holds from AI results-applied until the detected content list is actually
+  // rendered (preview open + item hydration on heavy pages) — the AI-run
+  // curtain is torn down at results (#4/N3), and without this hold the user
+  // stares at an unexplained idle popup/page for the whole preview render.
+  // PAGE_AND_POPUP: both surfaces narrate "Preparing content list...".
   definePhase(
     SPINNER_OPERATION_KINDS.AI_RUN,
     SPINNER_OPERATION_PHASES.AI_RUN.OPENING_PREVIEW,
-    "Opening detected content",
-    "Showing the detected-content preview before background sync continues.",
-    POPUP_ONLY,
+    "Preparing content list...",
+    "Rendering the detected content list from the AI results.",
+    PAGE_AND_POPUP,
     SPINNER_TIMER_MODES.NONE,
-    15_000,
+    60_000,
     SPINNER_RECOVERY_POLICIES.FAIL_OPEN
   ),
   definePhase(

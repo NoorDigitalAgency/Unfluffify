@@ -75,6 +75,7 @@ function makeSettleContext(withSnapshot: boolean) {
     buildPreviewViewState: () => ({}),
     stabilizePreviewViewState: (view: Record<string, unknown>) => view,
     uiModule: { setViewState: () => undefined },
+    releasePreparingContentListSpinner: () => undefined,
     Math, Boolean
   };
   runInNewContext(compilePopupFns(["bumpMarkingSessionEpoch", "settlePreviewRestoreClosed"]), context);

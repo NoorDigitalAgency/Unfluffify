@@ -43,6 +43,7 @@ module.exports = { ${names.join(", ")} };
 function makeContext(currentView: Record<string, unknown>) {
   const setViewStateCalls: Array<Record<string, unknown>> = [];
   let flushCalls = 0;
+  let releaseContentListCalls = 0;
   let view = currentView;
   const context = {
     module: { exports: {} as { applyAiPreviewStateUpdate?: (m: Record<string, unknown>) => void } },
@@ -62,6 +63,8 @@ function makeContext(currentView: Record<string, unknown>) {
     utils: { sameBaseUrl: (a: string, b: string) => a === b },
     isFeatureEnabled: () => false,
     flushPendingAiPreviewConfigSync: () => { flushCalls += 1; },
+    // The "Preparing content list..." hold releases on settled pushes.
+    releasePreparingContentListSpinner: () => { releaseContentListCalls += 1; },
     JSON, Array, Boolean
   };
   runInNewContext(
@@ -73,6 +76,7 @@ function makeContext(currentView: Record<string, unknown>) {
     getView: () => view,
     setViewStateCalls,
     flushCalls: () => flushCalls,
+    releaseContentListCalls: () => releaseContentListCalls,
     state: context.state
   };
 }

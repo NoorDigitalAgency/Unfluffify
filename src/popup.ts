@@ -953,6 +953,43 @@ async function runWithBrainSpinnerLease<T>(
   }
 }
 
+// "Preparing content list..." hold (ai-run:opening-preview): raised the moment
+// the AI-run curtain tears down at results-applied and released only when the
+// detected content list is actually RENDERED — the open response with settled
+// items, the hydration push settling, the preview closing early, or the run
+// failing. It cannot ride runWithBrainSpinnerLease because the settle is an
+// asynchronous push, not the awaited task's return; the contract's FAIL_OPEN
+// cap (60s) is the backstop if every release path is lost.
+let preparingContentListSpinnerKey: string | null = null;
+
+function requestPreparingContentListSpinner(): void {
+  if (preparingContentListSpinnerKey) {
+    // A stale hold from a lost release path must not starve this run's
+    // narration — replace it with a fresh lease.
+    releasePreparingContentListSpinner();
+  }
+  const key = `run-ai-preview-open:${Date.now()}`;
+  preparingContentListSpinnerKey = key;
+  void sendSpinnerBrokerMessage({
+    type: SPINNER_REQUEST_TYPES.SET,
+    key,
+    message: PopupText.overlay.preparingContentList,
+    persistent: false,
+    reason: "tab-run-ai-opening-preview",
+    source: "popup-ai-run",
+    startedAt: Date.now()
+  });
+}
+
+function releasePreparingContentListSpinner(): void {
+  if (!preparingContentListSpinnerKey) {
+    return;
+  }
+  const key = preparingContentListSpinnerKey;
+  preparingContentListSpinnerKey = null;
+  void removeSpinnerEntryFromBackground(key);
+}
+
 function getSiteResolutionDeps(): SiteResolutionDeps {
   return {
     PopupText,
@@ -3450,6 +3487,9 @@ function settlePreviewRestoreClosed(token: number | null = null, markApplied = t
     previewItemsPending: false,
     previewRestorePending: false
   });
+  // A close before hydration settled abandons the content list — the
+  // "Preparing content list..." hold must not outlive the preview session.
+  releasePreparingContentListSpinner();
 }
 
 function getPreviewRestoreToken(message?: PreviewRestoreMessage): number | null;
@@ -8350,6 +8390,10 @@ async function applyComputedSelectorSet(
     aiRunDeadlineAt: 0,
     aiRunPhase: ""
   });
+  // The run curtain is gone but the detected content list is NOT on screen yet
+  // — the preview open + item hydration can take many seconds on heavy pages.
+  // Narrate the gap on both surfaces until the list renders.
+  requestPreparingContentListSpinner();
 
   const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
     ? state.currentTab.id
@@ -8367,6 +8411,9 @@ async function applyComputedSelectorSet(
       flushPendingAiPreviewConfigSync();
     }
   } else {
+    // The preview open failed — no content list is coming, so the narration
+    // promise is dead; drop it before the marking-view fallback re-render.
+    releasePreparingContentListSpinner();
     await messages.sendTabMessageToTab(tabId, {
       type: "configUpdated",
       baseUrl: state.currentBaseUrl
@@ -8432,6 +8479,11 @@ async function applyComputedSelectorSet(
       aiRunDeadlineAt: 0,
       aiRunPhase: ""
     });
+    if (!(previewStatePayload && previewStatePayload.itemsPending)) {
+      // The open response carried the settled items and the sidebar just
+      // rendered them — the content list is on screen.
+      releasePreparingContentListSpinner();
+    }
   }
   updateLastConfigSaveStatus(PopupText.ai.selectorsComputedLocally);
   // This state is intentionally unsynced; keep the tone non-muted until Save runs.
@@ -8460,6 +8512,13 @@ function applyAiPreviewStateUpdate(message: PreviewStateLike) {
   // preview may claim "settled" (an inactive/stale push must not arm the
   // settled-empty memory or genuinely-empty a list).
   const settled = Boolean(nextPreviewState.previewActive) && !nextPreviewState.previewItemsPending;
+  if (settled) {
+    // Hydration settled on the open preview — the detected content list is
+    // rendered on both surfaces; drop the "Preparing content list..." hold.
+    // Before the equality early-return: an unchanged-content push must still
+    // release.
+    releasePreparingContentListSpinner();
+  }
   const previewItems = state.previewOpenIntent
     ? resolveOpenPreviewItems(settled ? incomingItems : [], settled).items
     : (Array.isArray(currentView.previewItems) ? currentView.previewItems : []);
@@ -8495,6 +8554,7 @@ function applyAiPreviewStateUpdate(message: PreviewStateLike) {
 }
 
 async function failAiRun(message: string = PopupText.ai.runFailed) {
+  releasePreparingContentListSpinner();
   resetAiRunMarkingsFingerprint();
   signalMarkingSession("run-failed");
   publishCurrentTabAiRunEvent(AI_RUN_EVENT_TYPES.FAILED);

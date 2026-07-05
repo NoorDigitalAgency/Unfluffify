@@ -196,12 +196,12 @@ describe("spinner authority", () => {
       spinners: {
         popup: {
           kind: SPINNER_OPERATION_KINDS.AI_RUN,
-          phase: SPINNER_OPERATION_PHASES.AI_RUN.OPENING_PREVIEW,
+          phase: SPINNER_OPERATION_PHASES.AI_RUN.REFINING_STATIC_XPATHS,
           startedAt: 2_000,
           deadlineAt: 2_500,
-          operationId: "open-preview",
-          message: "Opening preview",
-          reason: "phase-opening-preview",
+          operationId: "refine-xpaths",
+          message: "Refining XPaths",
+          reason: "tab-run-ai-refine-xpaths",
           source: "spinner-broker",
           spinnerKey: "ai-popup-only",
         },
@@ -212,7 +212,7 @@ describe("spinner authority", () => {
 
     expect(projected.popup).toMatchObject({
       kind: SPINNER_OPERATION_KINDS.AI_RUN,
-      phase: SPINNER_OPERATION_PHASES.AI_RUN.OPENING_PREVIEW,
+      phase: SPINNER_OPERATION_PHASES.AI_RUN.REFINING_STATIC_XPATHS,
     });
     expect(projected.pageCurtain).toBeNull();
   });
@@ -231,12 +231,12 @@ describe("spinner authority", () => {
       spinners: {
         popup: {
           kind: SPINNER_OPERATION_KINDS.AI_RUN,
-          phase: SPINNER_OPERATION_PHASES.AI_RUN.OPENING_PREVIEW,
+          phase: SPINNER_OPERATION_PHASES.AI_RUN.REFINING_STATIC_XPATHS,
           startedAt: 2_300,
           deadlineAt: 2_700,
-          operationId: "open-preview",
-          message: "Opening preview",
-          reason: "phase-opening-preview",
+          operationId: "refine-xpaths",
+          message: "Refining XPaths",
+          reason: "tab-run-ai-refine-xpaths",
           source: "spinner-broker",
           spinnerKey: "ai-popup-only",
         },
@@ -257,9 +257,51 @@ describe("spinner authority", () => {
 
     expect(projected.popup).toMatchObject({
       kind: SPINNER_OPERATION_KINDS.AI_RUN,
-      phase: SPINNER_OPERATION_PHASES.AI_RUN.OPENING_PREVIEW,
+      phase: SPINNER_OPERATION_PHASES.AI_RUN.REFINING_STATIC_XPATHS,
     });
     expect(projected.pageCurtain).toBeNull();
+  });
+
+  // The "Preparing content list..." hold (ai-run:opening-preview) is
+  // PAGE_AND_POPUP: after results-applied (aiRun settles inactive) it must
+  // drive BOTH surfaces until the popup releases it at list-rendered.
+  it("projects the opening-preview hold to both surfaces after the run settles", () => {
+    const holdSelection = {
+      kind: SPINNER_OPERATION_KINDS.AI_RUN,
+      phase: SPINNER_OPERATION_PHASES.AI_RUN.OPENING_PREVIEW,
+      startedAt: 3_000,
+      deadlineAt: 0,
+      operationId: "preparing-content-list",
+      message: "Preparing content list...",
+      reason: "tab-run-ai-opening-preview",
+      source: "popup-ai-run",
+      spinnerKey: "run-ai-preview-open",
+    };
+    const projected = projectSpinners(createState({
+      aiRun: {
+        active: false,
+        phase: "post_ai",
+        deadlineAt: 0,
+        leaseStartedAt: 2_000,
+        lastEvent: "ai-run.resultsApplied",
+        sessionId: "session-3",
+        reason: "results-ready",
+      },
+      spinners: {
+        popup: holdSelection,
+        pageCurtain: holdSelection,
+        banner: null,
+      },
+    }));
+
+    expect(projected.popup).toMatchObject({
+      kind: SPINNER_OPERATION_KINDS.AI_RUN,
+      phase: SPINNER_OPERATION_PHASES.AI_RUN.OPENING_PREVIEW,
+    });
+    expect(projected.pageCurtain).toMatchObject({
+      kind: SPINNER_OPERATION_KINDS.AI_RUN,
+      phase: SPINNER_OPERATION_PHASES.AI_RUN.OPENING_PREVIEW,
+    });
   });
 
   it("keeps the brain-owned AI-run popup selection ahead of unrelated popup spinners", () => {
