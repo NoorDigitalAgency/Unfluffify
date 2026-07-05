@@ -4,6 +4,7 @@ export const SPINNER_OPERATION_KINDS = Object.freeze({
   AI_RUN: "ai-run",
   CONTENT_BOOTSTRAP: "content-bootstrap",
   CONFIG_SYNC: "config-sync",
+  HIGHLIGHT_RENDER: "highlight-render",
   PAGE_SAVE: "page-save",
   POPUP_BOOTSTRAP: "popup-bootstrap",
   PREVIEW_HYDRATION: "preview-hydration",
@@ -48,6 +49,10 @@ export const SPINNER_OPERATION_PHASES = Object.freeze({
     LOADING: "loading",
     RETRYING: "retrying",
     SAVING: "saving"
+  }),
+  HIGHLIGHT_RENDER: Object.freeze({
+    CALCULATING_MARKINGS: "calculating-markings",
+    CALCULATING_HIGHLIGHTS: "calculating-highlights"
   }),
   PAGE_SAVE: Object.freeze({
     DISCARDING: "discarding",
@@ -441,6 +446,32 @@ const phaseDefinitions: SpinnerPhaseDefinition[] = [
     60_000,
     SPINNER_RECOVERY_POLICIES.FAIL_OPEN
   ),
+  // Content-held calculation narration (the "user left lingering" class): the
+  // marking overlay rebuild and the silent-highlight collection both run for
+  // seconds on heavy pages with no engaged surface once the bootstrap/reveal
+  // curtains clear. Content leases these around its calc routines; fast passes
+  // never engage (the marking lease is predictor-gated to initial rebuilds and
+  // the highlight lease is threshold-delayed).
+  definePhase(
+    SPINNER_OPERATION_KINDS.HIGHLIGHT_RENDER,
+    SPINNER_OPERATION_PHASES.HIGHLIGHT_RENDER.CALCULATING_MARKINGS,
+    "Calculating markings...",
+    "Computing the marking overlay for this page.",
+    PAGE_AND_POPUP,
+    SPINNER_TIMER_MODES.NONE,
+    60_000,
+    SPINNER_RECOVERY_POLICIES.RELEASE_ON_EXPIRE
+  ),
+  definePhase(
+    SPINNER_OPERATION_KINDS.HIGHLIGHT_RENDER,
+    SPINNER_OPERATION_PHASES.HIGHLIGHT_RENDER.CALCULATING_HIGHLIGHTS,
+    "Calculating highlightings...",
+    "Computing the silent highlight overlay for this page.",
+    PAGE_AND_POPUP,
+    SPINNER_TIMER_MODES.NONE,
+    60_000,
+    SPINNER_RECOVERY_POLICIES.RELEASE_ON_EXPIRE
+  ),
   definePhase(
     SPINNER_OPERATION_KINDS.PREVIEW_HYDRATION,
     SPINNER_OPERATION_PHASES.PREVIEW_HYDRATION.LOADING_ITEMS,
@@ -547,6 +578,14 @@ export const SPINNER_REASON_PHASE_ALIASES: Readonly<Record<string, string>> = Ob
   "tab-run-ai-running": phaseKey(SPINNER_OPERATION_KINDS.AI_RUN, SPINNER_OPERATION_PHASES.AI_RUN.REMOTE_WAIT),
   "tab-run-ai-opening-preview": phaseKey(SPINNER_OPERATION_KINDS.AI_RUN, SPINNER_OPERATION_PHASES.AI_RUN.OPENING_PREVIEW),
   "tab-run-ai-config-sync": phaseKey(SPINNER_OPERATION_KINDS.AI_RUN, SPINNER_OPERATION_PHASES.AI_RUN.SYNCING_MARKINGS),
+  "content-calc-markings": phaseKey(
+    SPINNER_OPERATION_KINDS.HIGHLIGHT_RENDER,
+    SPINNER_OPERATION_PHASES.HIGHLIGHT_RENDER.CALCULATING_MARKINGS
+  ),
+  "content-calc-highlights": phaseKey(
+    SPINNER_OPERATION_KINDS.HIGHLIGHT_RENDER,
+    SPINNER_OPERATION_PHASES.HIGHLIGHT_RENDER.CALCULATING_HIGHLIGHTS
+  ),
   "config-sync-loading": phaseKey(SPINNER_OPERATION_KINDS.CONFIG_SYNC, SPINNER_OPERATION_PHASES.CONFIG_SYNC.LOADING),
   "config-sync-saving": phaseKey(SPINNER_OPERATION_KINDS.CONFIG_SYNC, SPINNER_OPERATION_PHASES.CONFIG_SYNC.SAVING),
   "page-save-remote-config-retry": phaseKey(

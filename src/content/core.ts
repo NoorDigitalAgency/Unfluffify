@@ -7693,6 +7693,19 @@ export function setPageInspectionUiSettledListener(listener: (() => void) | null
   pageInspectionUiSettledListener = listener;
 }
 
+// Marking-calculation narration bridge: core reports when a scheduled render
+// pass is the initial full O(document) rebuild the user actually waits on
+// (first render after an enable, or no overlay yet); content-main leases the
+// "Calculating markings..." spinner around it. Core never talks to the bus —
+// same layering as the reconciliation fact reporter below.
+let markingRenderNarrationReporter: ((active: boolean) => void) | null = null;
+
+export function setMarkingRenderNarrationReporter(
+  reporter: ((active: boolean) => void) | null
+): void {
+  markingRenderNarrationReporter = reporter;
+}
+
 // The brain owns the reconciliation-pending session fact and the marking-edits
 // overlay reason; content only reports the save lifecycle (set on save, clear on
 // sync/discard) plus the raw reconciliation reason. Content never decides UI
@@ -12480,10 +12493,30 @@ export function scheduleRender(options?: ScheduleRenderOptions) {
     if (state.renderRaf) {
       return;
     }
+    // Initial-rebuild predictor: only the first render after an enable (fresh
+    // baseline pending) or with no overlay yet is the full calculation the
+    // user waits on; steady/toggle renders reuse caches and stay silent. The
+    // narration engages HERE (before the rAF) so the lease message flushes
+    // over IPC in the timer->frame gap — the popup can paint "Calculating
+    // markings..." even while this document's main thread runs the sync pass.
+    const narrateMarkingCalc = Boolean(
+      markingRenderNarrationReporter &&
+        state.enabled &&
+        (!state.overlay || state.pendingFreshBaselinePageUrl === location.href)
+    );
+    if (narrateMarkingCalc) {
+      markingRenderNarrationReporter?.(true);
+    }
     state.renderRaf = extensionRequestAnimationFrame(() => {
       state.renderRaf = 0;
       state.lastRenderAt = Date.now();
-      renderHighlights();
+      try {
+        renderHighlights();
+      } finally {
+        if (narrateMarkingCalc) {
+          markingRenderNarrationReporter?.(false);
+        }
+      }
       state.pendingRenderInvalidate = false;
     });
   }, effectiveDelay);
