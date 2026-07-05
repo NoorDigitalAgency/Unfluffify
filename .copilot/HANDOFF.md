@@ -1,3 +1,171 @@
+# ACTIVE HANDOFF (2026-07-05) — POST-DISCARD SILENT-CURTAIN FIX (RELEASE BLOCKER)
+
+THIS SECTION SUPERSEDES EVERYTHING BELOW. Companion root-cause entry:
+`.copilot/knowledge.md` line ~548 ("DEBUG ROUND PART 4"). Investigation is
+COMPLETE — do NOT re-trawl the files; every needed coordinate is in §6.
+
+## 1. Bug (symptom, live-observed)
+After Discard, content renders SILENT-style layers (10 viewport `.uf-layer`,
+NO `.uf-marking-layer`), `sessionCurtainPhase` stuck `silent`, Save/Discard/
+Show-List disabled — yet marking is still enabled (view=Marking,
+`toggleEnabled=true`, cursor `uf-cursor-exclude`). Toggling marking off/on
+recovers. Regression UNMASKED by freq cap 688a818 (the old ~60x/sec motion
+re-render constantly re-asserted the marking render and hid it). Keep the
+freq-cap win.
+
+## 2. Root cause (mapped, high confidence)
+`sessionCurtainPhase` is BRAIN-projected, not popup-local:
+- `src/background/brain/deciders/session-phase-decider.ts:183` —
+  `if (!facts.isEnabled) return SESSION_PHASES.SILENT;` (MARKING_DIRTY/
+  READY_TO_SAVE/SAVED/MARKING_FRESH only evaluated when isEnabled).
+- Projection chain: `brain/view-projector.ts:264-278` →
+  `src/popup/central-state-dictation.ts:76-85`
+  (`sessionCurtainPhase = sessionPhase || sessionDictation.phase`) →
+  `popup.ts:1967-1985` (render).
+- Discard (`applyLocalPageDiscard`, `popup.ts:8129-8174`) clears the local
+  draft, `bumpMarkingSessionEpoch()`, `signalMarkingSession("discarded")`
+  (machine `*→pre_ai_clean`), best-effort `reconcilePopupConfigAfterDiscard`,
+  and `requestTabApplyLocalDiscard` → background `TAB_APPLY_LOCAL_DISCARD`
+  (`src/background.ts:1561-1594`) → content `configUpdated
+  forceReloadPageEntry:true`. It NEVER re-asserts marking-enabled to the
+  brain, so the brain keeps projecting SILENT until a fact transition that
+  never reliably comes.
+
+## 3. Leading mechanism for HOW isEnabled goes false (verify live)
+During the post-discard window content is mid-reload (configUpdated with
+forceReloadPageEntry) and transiently reports `markingEnabled=false`. The
+popup refresh pass's enabled-sync block (`popup.ts:5085-5106`) sees
+`contentMarkingEnabled !== effectiveTabState.enabled`, none of the preserve*
+guards (`popup.ts:5070-5090`: previewCloseRestore / aiComputeRun /
+unconfirmedRestore / reactivation) covers the DISCARD window, so it adopts
+enabled=false into tab state, publishes `isEnabled:false` facts → brain
+SILENT. `toggleEnabled` is computed at 5107-5125; `isEnabled = toggleEnabled`
+at popup.ts:5131. Also note: `bumpMarkingSessionEpoch()` inside discard makes
+concurrent passes stale (`markingPassIsStale()` guard at 5091), which can
+drop the pass that would have re-published enabled=true.
+
+## 4. Authoritative constraints
+- Architect (@Sojaner) architecture direction (knowledge.md:548): curtain+
+  spinner ownership belongs to EACH LAYER's orchestrator (predicted async
+  routing state machine); brain becomes signal+observe only. NOT implemented
+  yet — brain is still authoritative. The fix must NOT reintroduce
+  popup-local curtain authority; align toward layer-orchestrator ownership.
+- Architect fix direction: post-discard predicted routing settles back to
+  marking-active; re-assert `isEnabled` when `toggleEnabled===true`.
+- User contract (2026-07-05, verbatim): "no finger printing is needed. The
+  dirty is set only when the a marking is clicked toggled. The discard only
+  reapplies the default/css influenced markings like it's a fresh load. No
+  fingerprinting is needed. Fix the contract if needed"
+- Do not break the disable-toggle flow (popup.ts:7510-7545): there discard
+  precedes an intentional disable → silent IS correct (toggleEnabled=false,
+  so the re-assert condition naturally excludes it).
+
+## 5. Fix design
+LEG A — the vanish (required):
+  In/around `applyLocalPageDiscard` (popup.ts:8129) make the post-discard
+  state settle like a FRESH LOAD with marking still on: when the current
+  toggle intent is enabled (`toggleEnabled===true` / tab state enabled and
+  not in the disable flow), re-assert facts to the brain after the discard
+  completes: publish `isEnabled:true`, `currentPageHasPendingChanges:false`,
+  `currentDraftDirty:false`, `sessionHasPendingChanges:false`,
+  `aiRunPhase:PRE_AI` via the existing `publishCurrentSessionFacts`
+  (popup.ts:1468) path — do NOT invent a popup-local curtain override.
+  Additionally/alternatively guard the enabled-sync adoption window
+  (popup.ts:5085-5106) with a discard-settling condition analogous to
+  `preserveEnabledDuringPreviewCloseRestore`, so the transient content
+  `markingEnabled=false` during the discard reload cannot flip tab state to
+  disabled. Prefer the guard + one explicit re-publish; both are small.
+  Call sites and their intent: page-reconciliation.ts:248 (Revert button —
+  must settle marking-active), popup.ts:7405 (verify toggle semantics at
+  implementation time), popup.ts:7541 (disable flow — must stay silent).
+LEG B — contract fix, dirty only on click/toggle (required by user):
+  `src/content/page-draft-status-handler.ts:85` currently returns
+  `dirty: deps.getPageDraftDirty(pageUrl) || submissionXpathsStale`.
+  The `submissionXpathsStale` term (lines 64-79) is a fingerprint-style
+  comparison (entry.submissionXpaths vs live page xpaths) that sets dirty
+  WITHOUT any marking click — contract violation and a SILENT-flip feeder
+  (popup adopts it at popup.ts:3398 `state.currentDraftDirty =
+  Boolean(draftStatus.dirty)`). Fix: dirty = getPageDraftDirty(pageUrl)
+  ONLY (event-driven; content sets it on explicit marking toggle). Delete
+  the staleness OR-term from the dirty contract.
+  NOTE: popup-side `hasCurrentPagePendingChanges`
+  (src/popup/page-reconciliation.ts:68-86) is ALREADY contract-clean
+  (returns currentDraftDirty || reconciliationPending, ignores diffs).
+OPTIONAL CLEANUP (defer unless cheap): `state.aiRunMarkingsFingerprint` is
+  captured (popup.ts:2727) but never compared anywhere — the capture/reset
+  functions only matter for their `setSessionAiRunPhase(POST_AI/PRE_AI)`
+  side effect. Removing the field touches ~6 structural tests (see §7);
+  fine to leave in place for this fix.
+
+## 6. Coordinate map (investigation DONE — trust these)
+- session-phase-decider.ts (FULL read): SILENT gate :183; discarding→
+  DISCARDING :151; facts fold applySessionFactsPatch :221-274; isEnabled +
+  discarding are BOOLEAN_FACT_KEYS.
+- popup.ts: publishCurrentSessionFacts :1468; signalMarkingSession :1691;
+  signal map SESSION_DISCARDED→"discarded" :1772; bumpMarkingSessionEpoch
+  :629; getPageReconciliationDeps :1055; enabled-sync window :5085-5106;
+  preserve* guards :5070-5090; toggleEnabled final :5107-5125; isEnabled=
+  toggleEnabled :5131; draftStatus.dirty adoption :3398; currentDraftDirty
+  writes :2658,3398,5658,8106,8143; sole `discarding: false` publish :6252
+  (no `discarding: true` exists anywhere — DISCARDING phase is dead);
+  sessionAiRunPhase writes x6; setSessionAiRunPhase :2708; capture/reset
+  fingerprint :2727/:2739; fingerprint sites :1078,2642,2663,4420,7629,
+  8110,8148,8295,8344,8465; applyLocalPageDiscard def :8129, calls :7405,
+  :7541, page-reconciliation.ts:248; disable-discard confirm flow
+  :7510-7545 (window.confirm at :7530).
+- page-reconciliation.ts: handlePageRevert :199-256 (confirm :242, discard
+  :248, refreshUi :251); hasCurrentPagePendingChanges :68-86.
+- background.ts: TAB_APPLY_LOCAL_DISCARD :1561-1594.
+- page-draft-status-handler.ts: getStatus :35-89; staleness term :64-79;
+  dirty compose :85.
+- marking-session-machine.ts (FULL read): "discarded" → pre_ai_clean
+  :137-207. central-state-dictation.ts (FULL read): :76-85. view-projector
+  .ts (FULL read): :264-278; spinner-authority.ts projectSpinners :72-113.
+- Background has ZERO discard references — discard is popup+content only.
+
+## 7. Test impact (update alongside code)
+- tests/popup-ai-run-gating.test.ts:129 pins the applyLocalPageDiscard body
+  sequence via regex — Leg A edits inside the function MUST update it.
+- tests/popup-page-reconciliation.test.ts:74 mocks
+  resetAiRunMarkingsFingerprint (deps shape — keep the dep).
+- tests/post-exit-ai-run-state.test.ts:79,83 pin capture/reset bodies.
+- tests/popup-marking-refresh.test.ts:49,53,704 +
+  popup-marking-session-epoch.test.ts:278 pin snapshot/reset structure.
+- Leg B: search tests for `submissionXpathsStale` / page-draft-status before
+  editing; add a test asserting dirty is getPageDraftDirty ONLY, and a
+  decider/flow test asserting post-discard facts settle marking-active
+  (isEnabled true ⇒ phase != SILENT).
+- 19 existing test matches for applyLocalPageDiscard overall.
+
+## 8. Verification
+1. pnpm run test; pnpm run lint; pnpm run check; pnpm run build (full gate).
+2. Scripted CDP live round (.copilot/qa-scripts/ harness: run-flow.mjs /
+   exit-flow.mjs / cdp.mjs; CDP 127.0.0.1:9222; see skill
+   browser-extension-live-qa references/unfluffify.md). Flow: enable marking
+   → toggle a marking (dirty) → Discard → confirm dialog → EXPECT
+   `.uf-marking-layer` present, sessionCurtainPhase marking-active (not
+   silent), Save/Discard/Show-List usable, no off/on toggle needed. Also
+   verify the disable-toggle discard path still lands silent.
+   DIALOG WARNING: the flow uses window.confirm (popup.ts:7530,
+   page-reconciliation.ts:242) — a lingering Playwright connectOverCDP
+   AUTO-DISMISSES confirm(); use raw-CDP (Node global WebSocket) per
+   knowledge.md:548 tooling (.temp/rawcpu.mjs, .temp/inspect.mjs,
+   .temp/inspect2.mjs, .temp/rawsnap.mjs are reusable dialog-safe examples).
+3. Confirm the freq-cap behavior (688a818) is unchanged (no full-document
+   rescans reintroduced).
+
+## 9. Step list
+[1] DONE — investigation (this handoff + knowledge.md:548).
+[2] DONE — fix design (§5).
+[3] Implement Leg A (+ Leg B contract fix).
+[4] Tests per §7; full gate green.
+[5] Scripted CDP verification per §8.2.
+[6] Update knowledge.md (DEBUG ROUND PART 4 → FIXED entry) + trim this
+    handoff section to a closure note; commit on
+    fix/marking-stability-debug-round.
+
+---
+
 # MAIN PLAN: `.copilot/architecture/reflex-arc-plan.md` (START THERE)
 
 ## PROGRAM COMPLETE 2026-07-03 — P0 through P6 all shipped + live-accepted; #5/#14 CLOSED
