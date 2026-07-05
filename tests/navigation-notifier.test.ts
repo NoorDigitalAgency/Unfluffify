@@ -42,7 +42,7 @@ test("the page freeze is a single page-visit lock released only on navigation", 
   assert.match(source, /const PAGE_VISIT_MOTION_PAUSE_REASON = "page-visit";/);
   assert.match(
     source,
-    /export function pausePageMotion\([\s\S]*?pauseState\.reasons\.add\(PAGE_VISIT_MOTION_PAUSE_REASON\);[\s\S]*?refreshPageMotionPause\(\);/
+    /export function pausePageMotion\([\s\S]*?pauseState\.reasons\.add\(PAGE_VISIT_MOTION_PAUSE_REASON\);[\s\S]*?refreshPageMotionPause\(true\);/
   );
   // The ONLY release is on URL change, wired into the navigation notifier.
   const emitStart = source.indexOf("function emitNavigationChangeIfUrlChanged()");

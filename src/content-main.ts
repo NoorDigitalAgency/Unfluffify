@@ -1720,7 +1720,7 @@ function getCurrentPageSnapshotOptions() {
 }
 
 function createCurrentPageSnapshot() {
-  core.refreshPageMotionPause();
+  core.refreshPageMotionPause(true);
   return core.createSanitizedPageSnapshot(getCurrentPageSnapshotOptions());
 }
 
@@ -4944,7 +4944,7 @@ function toRenderableNodeList(nodes: Iterable<unknown> | null | undefined): Elem
 }
 
 function collectAiSubmissionXpathsForCurrentPage(sourceConfig: Config | null = state.config): XpathEntry[] {
-  core.refreshPageMotionPause();
+  core.refreshPageMotionPause(true);
   const configValue = sourceConfig || state.config;
   if (!configValue) {
     return [];

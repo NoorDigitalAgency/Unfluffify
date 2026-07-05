@@ -393,6 +393,7 @@ interface PageMotionPauseState {
   refreshTimer: number;
   refreshScheduled: boolean;
   observer: MutationObserver | null;
+  pendingDiscovery: Set<Element>;
 }
 
 interface DocumentWithSubtreeAnimations extends Document {
@@ -4776,7 +4777,8 @@ function createPageMotionPauseState(): PageMotionPauseState {
     lockIdCounter: 1,
     refreshTimer: 0,
     refreshScheduled: false,
-    observer: null
+    observer: null,
+    pendingDiscovery: new Set<Element>()
   };
 }
 
@@ -6154,25 +6156,31 @@ function getAnimationEffectTarget(animation: Animation | null | undefined): Elem
   }
 }
 
-function collectPageMotionCandidates(): Map<Element, PageMotionCandidate> {
-  const candidates = new Map<Element, PageMotionCandidate>();
+function collectDocumentAnimationCandidates(candidates: Map<Element, PageMotionCandidate>): void {
   for (const animation of getDocumentAnimations()) {
     const target = getAnimationEffectTarget(animation);
     if (target) {
       mergePageMotionCandidate(candidates, target, { descriptorMatched: true });
     }
   }
+}
+
+function getAllPageElements(): Element[] {
   if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
-    return candidates;
+    return [];
   }
-  const elements = (() => {
-    try {
-      return Array.from(document.querySelectorAll("*") || []);
-    } catch (_error) {
-      return [] as Element[];
-    }
-  })();
-  const inspectComputedStyle = elements.length <= PAGE_MOTION_PAUSE_MAX_LOCKED_ELEMENTS * 3;
+  try {
+    return Array.from(document.querySelectorAll("*") || []);
+  } catch (_error) {
+    return [];
+  }
+}
+
+function collectElementMotionCandidates(
+  candidates: Map<Element, PageMotionCandidate>,
+  elements: Element[],
+  inspectComputedStyle: boolean
+): void {
   for (const element of elements) {
     if (isIgnoredPageMotionElement(element)) {
       continue;
@@ -6191,7 +6199,76 @@ function collectPageMotionCandidates(): Map<Element, PageMotionCandidate> {
       mergePageMotionCandidate(candidates, element, { computedStyle });
     }
   }
+}
+
+// Full-document scan (querySelectorAll("*") + per-element getComputedStyle). Run
+// ONLY at explicit freeze-engage points (pause, snapshot, post-reveal re-apply).
+// The periodic maintenance refresh and the mutation observer must never call
+// this — a full sweep on every DOM mutation is what pegged the CPU after AI
+// results. Incremental discovery uses collectMaintenancePageMotionCandidates.
+function collectPageMotionCandidates(): Map<Element, PageMotionCandidate> {
+  const candidates = new Map<Element, PageMotionCandidate>();
+  collectDocumentAnimationCandidates(candidates);
+  const elements = getAllPageElements();
+  const inspectComputedStyle = elements.length <= PAGE_MOTION_PAUSE_MAX_LOCKED_ELEMENTS * 3;
+  collectElementMotionCandidates(candidates, elements, inspectComputedStyle);
   return candidates;
+}
+
+// Cheap maintenance discovery: only running document animations plus the
+// specific elements the mutation observer flagged since the last pass. No
+// full-document sweep.
+function collectMaintenancePageMotionCandidates(
+  pauseState: PageMotionPauseState
+): Map<Element, PageMotionCandidate> {
+  const candidates = new Map<Element, PageMotionCandidate>();
+  collectDocumentAnimationCandidates(candidates);
+  if (pauseState.pendingDiscovery.size > 0) {
+    const pending = Array.from(pauseState.pendingDiscovery);
+    pauseState.pendingDiscovery.clear();
+    collectElementMotionCandidates(candidates, pending, true);
+  }
+  return candidates;
+}
+
+// Re-apply the inline-style locks we already track so a page script that
+// overwrites a frozen property gets corrected without re-scanning the document.
+// applyPageMotionLockProperty is guarded (a no-op when the value is unchanged),
+// so this stays cheap and does not spam style mutations.
+function reassertPageMotionLocks(pauseState: PageMotionPauseState): void {
+  for (const [element, record] of pauseState.lockedElements) {
+    if (!isStylableElement(element)) {
+      continue;
+    }
+    for (const [property, lock] of record.properties) {
+      applyPageMotionLockProperty(record, element, property, lock.lockValue);
+    }
+  }
+}
+
+// Queue an element and its subtree for incremental motion evaluation on the next
+// maintenance refresh. Bounded by the mutated subtree — never the whole page.
+function addPageMotionDiscoveryElement(
+  pauseState: PageMotionPauseState,
+  element: Element | null | undefined
+): void {
+  if (!isElementNode(element) || isIgnoredPageMotionElement(element)) {
+    return;
+  }
+  pauseState.pendingDiscovery.add(element);
+  if (typeof element.querySelectorAll === "function") {
+    let descendants: Element[];
+    try {
+      descendants = Array.from(element.querySelectorAll("*") || []);
+    } catch (_error) {
+      descendants = [];
+    }
+    for (const descendant of descendants) {
+      if (!isIgnoredPageMotionElement(descendant)) {
+        pauseState.pendingDiscovery.add(descendant);
+      }
+    }
+  }
 }
 
 function getDefaultLockValue(property: string, computedValue: unknown): string {
@@ -6552,6 +6629,12 @@ function pauseInteractiveMotionTargets(
   candidates: Map<Element, PageMotionCandidate>
 ): void {
   for (const target of collectPageMotionHoverTargets(candidates)) {
+    // Dispatch the synthetic hover ritual once per target. Re-firing it on every
+    // maintenance pass made the page mutate its own hover styles, which the
+    // observer then read back as a change — a feedback source for the storm.
+    if (pauseState.hoverTargets.has(target)) {
+      continue;
+    }
     pauseState.hoverTargets.add(target);
     dispatchPageMotionEvents(target, [
       ["pointerenter", false],
@@ -6726,15 +6809,46 @@ function startPageMotionPauseObserver(pauseState: PageMotionPauseState): void {
       if (state.pageMotionPause !== pauseState) {
         return;
       }
-      const relevant = Array.from(mutations || []).some((mutation) => {
-        const target = mutation && mutation.target && mutation.target.nodeType === 1
-          ? mutation.target
+      let discovered = false;
+      for (const mutation of Array.from(mutations || [])) {
+        if (!mutation) {
+          continue;
+        }
+        if (mutation.type === "childList") {
+          for (const added of Array.from(mutation.addedNodes || [])) {
+            if (isElementNode(added) && !isIgnoredPageMotionElement(added)) {
+              addPageMotionDiscoveryElement(pauseState, added);
+              discovered = true;
+            }
+          }
+          continue;
+        }
+        const target = mutation.target && mutation.target.nodeType === 1
+          ? (mutation.target as Element)
           : null;
-        return isElementNode(target)
-          && !isIgnoredPageMotionElement(target)
-          && mutation.attributeName !== PAGE_MOTION_PAUSE_LOCK_ATTR;
-      });
-      if (relevant) {
+        if (!isElementNode(target) || isIgnoredPageMotionElement(target)) {
+          continue;
+        }
+        if (mutation.attributeName === PAGE_MOTION_PAUSE_LOCK_ATTR) {
+          continue;
+        }
+        // Our own inline-style writes on locked elements must not re-trigger a
+        // refresh. That lock -> style mutation -> observer -> lock feedback loop
+        // is what sustained the post-AI CPU storm; the periodic maintenance
+        // re-assert corrects genuine page overrides instead.
+        if (mutation.attributeName === "style" && pauseState.lockedElements.has(target)) {
+          // The page may instead be writing a NEW, un-tracked motion property to
+          // an already-locked element (a raw imperative inline write reassert
+          // won't catch). Queue just this element for the next timer-driven
+          // maintenance pass to re-detect it — WITHOUT the immediate reschedule
+          // above, which would reopen the tight feedback loop.
+          pauseState.pendingDiscovery.add(target);
+          continue;
+        }
+        addPageMotionDiscoveryElement(pauseState, target);
+        discovered = true;
+      }
+      if (discovered) {
         schedulePageMotionPauseRefresh(pauseState);
       }
     });
@@ -6772,9 +6886,9 @@ function stopPageMotionPauseObserver(pauseState: PageMotionPauseState): void {
 export function pausePageMotion(reason: unknown = PAGE_MOTION_PAUSE_DEFAULT_REASON): void {
   // Entering the motion freeze normalizes opacity/transform/visibility on
   // revealed elements — a lifecycle event (activation/phase change), not a
-  // per-toggle one — so the element caches must rebuild next pass. (The periodic
-  // re-apply via refreshPageMotionPause does NOT bump; dynamically revealed
-  // elements are caught by the MutationObserver invalidation instead.)
+  // per-toggle one — so the element caches must rebuild next pass. (Maintenance
+  // refreshes do NOT bump; dynamically revealed elements are caught by the
+  // MutationObserver's incremental discovery instead.)
   bumpElementCacheDomVersion();
   const pauseState = state.pageMotionPause || createPageMotionPauseState();
   pauseState.reasons.add(normalizePageMotionPauseReason(reason));
@@ -6783,10 +6897,17 @@ export function pausePageMotion(reason: unknown = PAGE_MOTION_PAUSE_DEFAULT_REAS
   // resumeAllPageMotion() on navigation lifts it.
   pauseState.reasons.add(PAGE_VISIT_MOTION_PAUSE_REASON);
   state.pageMotionPause = pauseState;
-  refreshPageMotionPause();
+  // Explicit engage: sweep the whole document once to lock every current motion
+  // source. Ongoing changes are handled cheaply by the timer/observer.
+  refreshPageMotionPause(true);
 }
 
-export function refreshPageMotionPause(): void {
+// fullScan=true runs the expensive full-document candidate sweep (explicit
+// engage points only). The default cheap maintenance path re-pauses document
+// animations, re-asserts existing locks, and evaluates just the elements the
+// mutation observer flagged — never a full querySelectorAll("*") sweep. This is
+// the fix for the post-AI CPU storm (a full sweep on every mutation/timer tick).
+export function refreshPageMotionPause(fullScan = false): void {
   const pauseState = state.pageMotionPause;
   if (!pauseState || !pauseState.reasons || pauseState.reasons.size === 0) {
     return;
@@ -6799,8 +6920,11 @@ export function refreshPageMotionPause(): void {
   pauseDocumentAnimations(pauseState);
   pauseSvgAnimations(pauseState);
   pauseMediaElements(pauseState);
-  const candidates = collectPageMotionCandidates();
+  const candidates = fullScan
+    ? collectPageMotionCandidates()
+    : collectMaintenancePageMotionCandidates(pauseState);
   lockPageMotionCandidates(pauseState, candidates);
+  reassertPageMotionLocks(pauseState);
   pauseInteractiveMotionTargets(pauseState, candidates);
   startPageMotionPauseRefreshTimer(pauseState);
   startPageMotionPauseObserver(pauseState);
@@ -7572,7 +7696,9 @@ export async function warmupSilentHighlightingBeforeMotionPause(
       return true;
     } finally {
       if (hadPauseReason && hasPageMotionPauseReason(reason)) {
-        refreshPageMotionPause();
+        // Post-reveal re-apply: the walk lazy-loaded new content, so sweep the
+        // whole document once to lock any freshly revealed motion sources.
+        refreshPageMotionPause(true);
       }
       if (!keepUiActive) {
         stopPageInspectionInputBlocker();

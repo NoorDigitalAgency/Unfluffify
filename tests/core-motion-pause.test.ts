@@ -571,6 +571,91 @@ test("page motion pause freezes broad motion sources and shows an indicator", ()
   }
 });
 
+test("maintenance refresh skips the full-document scan and re-fires hover once (post-AI CPU-storm guard)", () => {
+  const dom = installMotionDom();
+  const sliderRoot = new FakeElement("section", { class: "hero-slider" });
+  const movingSlide = new FakeElement("div");
+  movingSlide.style.setProperty("transform", "translateX(12px)");
+  movingSlide.computedStyle = createComputedStyle({
+    transform: "matrix(1, 0, 0, 1, 12, 0)",
+    position: "absolute",
+    left: "12px"
+  });
+  sliderRoot.appendChild(movingSlide);
+  dom.body.appendChild(sliderRoot);
+  dom.animations.push(createAnimation(movingSlide));
+
+  const originalQuerySelectorAll = dom.document.querySelectorAll.bind(dom.document);
+  let fullDocumentScans = 0;
+  dom.document.querySelectorAll = (selector) => {
+    if (selector === "*") {
+      fullDocumentScans += 1;
+    }
+    return originalQuerySelectorAll(selector);
+  };
+  const hoverCount = () =>
+    sliderRoot.dispatchedEvents.filter((type) => type === "pointerenter").length;
+
+  try {
+    pausePageMotion("marking");
+    // Explicit engage sweeps the whole document once and fires the hover ritual.
+    assert.equal(fullDocumentScans, 1);
+    assert.equal(movingSlide.hasAttribute(PAGE_MOTION_LOCK_ATTR), true);
+    assert.equal(hoverCount(), 1);
+
+    // Maintenance refreshes (timer, resume, observer) must NOT re-sweep the whole
+    // document or re-fire hover — that coupling is what pegged the CPU post-AI.
+    refreshPageMotionPause();
+    refreshPageMotionPause();
+    refreshPageMotionPause();
+    assert.equal(fullDocumentScans, 1);
+    assert.equal(hoverCount(), 1);
+    // Existing locks stay asserted through the cheap path.
+    assert.equal(movingSlide.style.getPropertyValue("transform"), "matrix(1, 0, 0, 1, 12, 0)");
+    assert.equal(movingSlide.style.getPropertyPriority("transform"), "important");
+
+    // An explicit re-engage is still allowed to sweep again.
+    refreshPageMotionPause(true);
+    assert.equal(fullDocumentScans, 2);
+  } finally {
+    dom.document.querySelectorAll = originalQuerySelectorAll;
+    dom.restore();
+  }
+});
+
+test("maintenance refresh locks elements flagged for incremental discovery", () => {
+  const dom = installMotionDom();
+  const staticEl = new FakeElement("div", { class: "static-block" });
+  dom.body.appendChild(staticEl);
+
+  try {
+    pausePageMotion("marking");
+    // No motion at engage, so nothing is locked yet.
+    assert.equal(staticEl.hasAttribute(PAGE_MOTION_LOCK_ATTR), false);
+
+    // Simulate the MutationObserver flagging an element that started animating
+    // after engage (added subtree, or a new/un-tracked inline motion property on
+    // an already-frozen element). The cheap maintenance pass must lock it without
+    // a full-document sweep.
+    staticEl.computedStyle = createComputedStyle({
+      transform: "matrix(1, 0, 0, 1, 20, 0)",
+      position: "absolute",
+      left: "20px"
+    });
+    state.pageMotionPause.pendingDiscovery.add(staticEl);
+
+    refreshPageMotionPause();
+
+    assert.equal(staticEl.getAttribute(PAGE_MOTION_LOCK_ATTR).startsWith("ufm-"), true);
+    assert.equal(staticEl.style.getPropertyValue("transform"), "matrix(1, 0, 0, 1, 20, 0)");
+    assert.equal(staticEl.style.getPropertyPriority("transform"), "important");
+    // The pending queue is drained after the pass.
+    assert.equal(state.pageMotionPause.pendingDiscovery.size, 0);
+  } finally {
+    dom.restore();
+  }
+});
+
 test("page motion pause skips extension-owned marking UI", () => {
   const dom = installMotionDom();
   const previousOverlay = state.overlay;
@@ -1449,6 +1534,6 @@ test("silent warmup temporarily releases timer pausing during reveal and restore
   );
   assert.match(
     warmupSource,
-    /if \(hadPauseReason && hasPageMotionPauseReason\(reason\)\) \{[\s\S]*?refreshPageMotionPause\(\);/
+    /if \(hadPauseReason && hasPageMotionPauseReason\(reason\)\) \{[\s\S]*?refreshPageMotionPause\(true\);/
   );
 });
