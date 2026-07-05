@@ -320,13 +320,9 @@ test("#5 (debug round): page revert shows the confirm dialog before the runtime-
   state.aiRequestInFlight = null;
 
   let runtimeRefreshCount = 0;
-  let refreshCountAtConfirm = -1;
   const cancelled = createDeps({
     windowRef: {
-      confirm: () => {
-        refreshCountAtConfirm = runtimeRefreshCount;
-        return false;
-      }
+      confirm: () => false
     },
     refreshCurrentPageRuntimeStatus: async () => {
       runtimeRefreshCount += 1;
@@ -337,7 +333,7 @@ test("#5 (debug round): page revert shows the confirm dialog before the runtime-
   assert.equal(cancelled.calls.discard, 0);
 
   runtimeRefreshCount = 0;
-  refreshCountAtConfirm = -1;
+  let refreshCountAtConfirm = -1;
   const confirmed = createDeps({
     windowRef: {
       confirm: () => {

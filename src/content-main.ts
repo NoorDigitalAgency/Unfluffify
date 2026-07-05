@@ -7208,8 +7208,23 @@ export function main() {
     ) {
       return;
     }
+    const revealChanged = nextPageRevealFreezeActive !== lastPageRevealFreezeActive;
     lastSilentHighlightDirectiveActive = nextSilentHighlightDirectiveActive;
     lastPageRevealFreezeActive = nextPageRevealFreezeActive;
+    // N2 (debug round): while marking is ACTIVELY enabled (state.enabled), silent
+    // highlighting is not rendered — marking shows its own overlays — so a
+    // silentHighlightActive flap is a no-op for the visible output. A stuck
+    // previewActive oscillation (a post-exit preview ghost, #5/#14 interleaving)
+    // flapped this directive ~1/sec, and each edge re-ran refreshSilentHighlightings:
+    // a full O(document) marking render on the false edge (via refreshEnabledAiHighlights)
+    // and a full silent source collection + render on the true edge — pegging the
+    // CPU for as long as the oscillation lasted. Skip the refresh when only
+    // silentHighlightActive changed and marking is enabled; a reveal/freeze change
+    // still runs it (that governs the editor reveal/freeze, which is relevant while
+    // marking, and never flaps on the previewActive ghost).
+    if (state.enabled && !revealChanged) {
+      return;
+    }
     refreshSilentHighlightings().then(() => {});
     // Run the editor reveal/freeze when the page-prep directive is active (covers
     // fresh candidates with no stored selectors) or when silent highlighting is
