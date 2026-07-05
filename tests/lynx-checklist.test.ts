@@ -383,7 +383,13 @@ test("the popup wires the cssInfo gate fail-closed around the Lynx send", () => 
   // The click-time belt: only a confirmed non-match sends.
   assert.match(
     popupSource,
-    /if \(state\.lynxChecklistCssInfoStatus !== "clear"\) \{\s*setLynxChecklistViewState\(\);\s*return;\s*\}/
+    /if \(state\.lynxChecklistCssInfoStatus !== "clear"\) \{[\s\S]*?setLynxChecklistViewState\(\);\s*return;\s*\}/
+  );
+  // S7 (debug round): a pending/errored gate retries the check on the user's
+  // click so a fail-closed state can recover instead of wedging (bug #7).
+  assert.match(
+    popupSource,
+    /if \(state\.lynxChecklistCssInfoStatus !== "match" && !lynxCssInfoCheckInFlight\) \{\s*void refreshLynxCssInfoGate\(\);\s*\}/
   );
   // The TEMP every-click short-circuit is gone.
   assert.doesNotMatch(popupSource, /TEMP SHORT-CIRCUIT/);

@@ -139,7 +139,7 @@ test("silent mode gates preview, save-excludes, and Lynx checklist submission", 
     /nextViewState\.cssSelectorsVisible = silentModeActive;/
   );
   assert.match(previewBody, /if \(view\.previewLatestBlockedReason !== SECONDARY_GATES_BLOCK_REASONS\.NONE\) \{\s*return;\s*\}/);
-  assert.match(saveExcludesBody, /if \(view\.saveExcludesBlockedReason !== SECONDARY_GATES_BLOCK_REASONS\.NONE\) \{\s*return;\s*\}/);
+  assert.match(saveExcludesBody, /if \(view\.saveExcludesBlockedReason !== SECONDARY_GATES_BLOCK_REASONS\.NONE\) \{[\s\S]*?uiModule\.showToast\([\s\S]*?return;\s*\}/);
   assert.match(sendBody, /const view = await refreshUiForActionGates\(\);[\s\S]*?if \(view\.lynxChecklistSendBlockedReason\) \{/);
   assert.doesNotMatch(sendBody, /aiAnswer:/);
 });

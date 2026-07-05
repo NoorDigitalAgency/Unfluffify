@@ -6731,6 +6731,31 @@ function setLynxChecklistViewState() {
     lynxChecklistNoticeText: state.lynxChecklistNoticeText || "",
     lynxChecklistCssInfoStatus: state.lynxChecklistCssInfoStatus || "pending"
   });
+  ensureLynxCssInfoGateStarted();
+}
+
+// S7 harden (debug round): the cssInfo check used to fire ONLY at popover open
+// and ONLY when page-type coverage was already complete at that instant. When
+// coverage hydrated a moment later (marked pages/page types arriving async),
+// the renderer showed the "Checking Lynx selector status…" spinner for a
+// pending check that nothing had started — an eternal fail-closed wedge. Any
+// checklist re-render now starts the missing check once coverage is ready.
+function ensureLynxCssInfoGateStarted() {
+  if (!state.lynxChecklistVisible || lynxCssInfoCheckInFlight) {
+    return;
+  }
+  if (state.lynxChecklistCssInfoStatus !== "pending") {
+    return;
+  }
+  const view = uiModule.getViewState();
+  const coverage = buildLynxChecklistViewModel({
+    pageTypes: view.lynxChecklistPageTypes,
+    markedPages: view.markedPages
+  });
+  if (!coverage.canSend) {
+    return;
+  }
+  void refreshLynxCssInfoGate();
 }
 
 function resetLynxChecklistState() {
@@ -6784,9 +6809,11 @@ function buildPendingLynxSelectorCss(): { includeCss: string; excludeCss: string
 // is pending, when the backend already has a matching set, and when the
 // check cannot be completed (reopen retries).
 let lynxCssInfoCheckSeq = 0;
+let lynxCssInfoCheckInFlight = false;
 
 async function refreshLynxCssInfoGate(): Promise<void> {
   const seq = ++lynxCssInfoCheckSeq;
+  lynxCssInfoCheckInFlight = true;
   state.lynxChecklistCssInfoStatus = "pending";
   setLynxChecklistViewState();
   const pageUrl = (state.currentTab && state.currentTab.url) || "";
@@ -6796,6 +6823,9 @@ async function refreshLynxCssInfoGate(): Promise<void> {
       url: pageUrl
     }).catch(() => null)
     : null;
+  if (seq === lynxCssInfoCheckSeq) {
+    lynxCssInfoCheckInFlight = false;
+  }
   if (seq !== lynxCssInfoCheckSeq || !state.lynxChecklistVisible) {
     return;
   }
@@ -8733,7 +8763,13 @@ async function handleLynxChecklistSend() {
     return;
   }
   // cssInfo staleness gate (fail-closed): only a confirmed non-match sends.
+  // S7 harden (debug round): a pending/errored check retries on the user's
+  // click instead of returning silently — the fail-closed posture stays, but
+  // it can no longer wedge without a recovery path.
   if (state.lynxChecklistCssInfoStatus !== "clear") {
+    if (state.lynxChecklistCssInfoStatus !== "match" && !lynxCssInfoCheckInFlight) {
+      void refreshLynxCssInfoGate();
+    }
     setLynxChecklistViewState();
     return;
   }
@@ -8786,6 +8822,17 @@ async function handleSaveExcludes() {
     return;
   }
   if (view.saveExcludesBlockedReason !== SECONDARY_GATES_BLOCK_REASONS.NONE) {
+    // S7 harden (debug round): never no-op a Save click invisibly — the user
+    // read the silent return as "save failed with no request". Name the gate.
+    uiModule.showToast(
+      view.saveExcludesBlockedReason === SECONDARY_GATES_BLOCK_REASONS.REQUIRES_AI_RUN
+        ? PopupText.page.statusRunAiBeforeSaving
+        : view.saveExcludesBlockedReason === SECONDARY_GATES_BLOCK_REASONS.NO_SESSION_CHANGES
+          ? PopupText.page.toastSaveBlockedNoSessionChanges
+          : view.saveExcludesBlockedReason === SECONDARY_GATES_BLOCK_REASONS.BUSY
+            ? PopupText.page.toastSaveBlockedBusy
+            : PopupText.page.toastSaveBlockedUnavailable
+    );
     return;
   }
   openLynxChecklistPopover();
