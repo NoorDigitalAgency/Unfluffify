@@ -52,9 +52,16 @@ test("preview exit restores a captured marking-session snapshot before payload f
     popupSource,
     /function restoreMarkingSessionSnapshot\(\) \{[\s\S]*?state\.currentDraftEntry =[\s\S]*?state\.currentSavedEntry =[\s\S]*?state\.currentDraftDirty =[\s\S]*?state\.currentDraftAvailable =[\s\S]*?state\.currentPageSaveReconciliation =[\s\S]*?state\.currentPageSaveReconciliationPending =[\s\S]*?state\.aiRunMarkingsFingerprint =[\s\S]*?state\.aiSelectorsComputedSinceLastSubmit =[\s\S]*?state\.aiSelectorsComputedBaseUrl =[\s\S]*?state\.selectorsPendingConfigSync =[\s\S]*?state\.selectorsPendingConfigSyncBaseUrl =/
   );
+  // #4/N3 (debug round): the AI-run curtain teardown moved to results-applied,
+  // BEFORE the slow requestTabShowAiPreview roundtrip, so the previewOpened block
+  // no longer resets the run state (it snapshots + advances the FSM only).
   assert.match(
     popupSource,
-    /if \(previewOpened\) \{[\s\S]*?resetAiRunState\(\);[\s\S]*?captureMarkingSessionSnapshot\(\);[\s\S]*?uiModule\.setViewState\(\{/
+    /RESULTS_APPLIED[\s\S]*?resetAiRunState\(\);\s*signalMarkingSession\("run-completed"\);/
+  );
+  assert.match(
+    popupSource,
+    /if \(previewOpened\) \{[\s\S]*?captureMarkingSessionSnapshot\(\);[\s\S]*?uiModule\.setViewState\(\{/
   );
   assert.match(
     popupSource,

@@ -32,6 +32,19 @@ test("the happy path is fully memorized: enable -> mark -> run -> preview -> exi
   assert.equal(s.to, "post_ai_clean", "the memorized post-exit answer: Save/Show/Discard");
 });
 
+test("#4/N3: results-applied splits the run curtain teardown from the preview open", () => {
+  // The AI-run curtain drops at results-applied (running -> post_ai_clean) BEFORE
+  // the slow preview roundtrip; "preview-opened" then advances to preview_open
+  // once the sidebar is shown.
+  let s = transitionMarkingSessionState("running", "run-completed");
+  assert.equal(s.to, "post_ai_clean");
+  s = transitionMarkingSessionState(s.to, "preview-opened");
+  assert.equal(s.to, "preview_open");
+  // The legacy running -> preview_open transition is retained for the resumed /
+  // signal-frame PREVIEW_OPENED[origin=post_ai] path.
+  assert.equal(transitionMarkingSessionState("running", "post-ai-preview-opened").to, "preview_open");
+});
+
 test("post-exit follow-ups are memorized transitions", () => {
   assert.equal(transitionMarkingSessionState("post_ai_clean", "markings-changed").to, "pre_ai_dirty");
   assert.equal(transitionMarkingSessionState("post_ai_clean", "saved").to, "silent");
@@ -242,7 +255,7 @@ test("signals are wired at the discrete call sites and memory applies at both pa
     /bumpMarkingSessionEpoch\(\);\s*signalMarkingSession\("exit-settled"\);/,
     /signalMarkingSession\("marking-enabled"\);/,
     /signalMarkingSession\("marking-disabled"\);/,
-    /signalMarkingSession\("post-ai-preview-opened"\);/,
+    /signalMarkingSession\("run-completed"\);/,
     /signalMarkingSession\("preview-opened"\);/,
     /signalMarkingSession\("exit-clicked"\);/,
     /signalMarkingSession\("saved"\);/,
@@ -252,6 +265,15 @@ test("signals are wired at the discrete call sites and memory applies at both pa
   ]) {
     assert.match(popupSource, wiring);
   }
+  // #4/N3 (debug round): the AI-run curtain now tears down at results-applied via
+  // "run-completed" (running -> post_ai_clean) BEFORE the slow preview roundtrip,
+  // then "preview-opened" (post_ai_clean -> preview_open) once the sidebar opens.
+  // "post-ai-preview-opened" (running -> preview_open) is retained ONLY for the
+  // resumed/broker PREVIEW_OPENED[origin=post_ai] signal-frame path, not a direct call.
+  assert.match(
+    popupSource,
+    /frame\.name === SIGNAL_NAMES\.PREVIEW_OPENED && frame\.payload\.origin === "post_ai"\s*\?\s*"post-ai-preview-opened"/
+  );
   assert.match(
     popupSource,
     /overrideDictatedPreviewVisibility\(nextViewState\);\s*overrideDictatedMarkingButtons\(nextViewState\);/

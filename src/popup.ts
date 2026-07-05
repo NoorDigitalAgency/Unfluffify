@@ -8269,6 +8269,24 @@ async function applyComputedSelectorSet(
     sessionId: state.aiRunSessionId || ""
   });
 
+  // #4/N3 (debug round): the AI run is DONE the instant results are applied.
+  // Tear down the run curtain + countdown HERE — before the slow
+  // requestTabShowAiPreview content roundtrip (up to 30s on heavy pages) — so
+  // the marking-session FSM leaves "running" immediately instead of holding the
+  // full-page curtain and a frozen countdown until the preview finishes
+  // rendering. The preview-open below advances the FSM the rest of the way
+  // (post_ai_clean -> preview_open). resetAiRunState() must run AFTER the
+  // RESULTS_APPLIED publish above (it clears state.aiRunSessionId).
+  resetAiRunState();
+  signalMarkingSession("run-completed");
+  uiModule.setViewState({
+    computeButtonText: ViewText.computeButtonIdle,
+    aiRunSpinnerNote: "",
+    aiRunCountdownVisible: false,
+    aiRunDeadlineAt: 0,
+    aiRunPhase: ""
+  });
+
   const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
     ? state.currentTab.id
     : null;
@@ -8308,17 +8326,14 @@ async function applyComputedSelectorSet(
         ? previewStatePayload.items
         : []
     );
-    // The AI run is complete once the preview is shown. Clear the AI-run state
-    // and compute view fields now so the compute curtain (gated on
-    // computeButtonLoading, which getBlockingUiCurtainState checks before the
-    // preview state) drops immediately and reveals the preview sidebar, instead
-    // of masking it for the duration of the slow post-run refresh.
-    resetAiRunState();
+    // The AI-run curtain + countdown were already torn down above (before the
+    // slow preview roundtrip). Snapshot the marking session and advance the FSM
+    // from post_ai_clean to preview_open now that the sidebar is open.
     captureMarkingSessionSnapshot();
     state.previewOpenIntent = true;
     state.previewSuppressReopen = false;
     state.previewCloseMarkingRestoreUnconfirmed = false;
-    signalMarkingSession("post-ai-preview-opened");
+    signalMarkingSession("preview-opened");
     // Fresh preview session: seed the item latch with the immediately-rendered
     // items so a later empty probe/push cannot blink the sidebar to empty.
     resetPreviewItemsLatch();
