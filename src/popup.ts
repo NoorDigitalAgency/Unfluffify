@@ -8168,11 +8168,25 @@ async function applyLocalPageDiscard() {
   // clean PRE_AI session. The navigate-away and disable-with-discard flows
   // follow with alignPopupToSilentMode/disable, which settle silent on their
   // own subsequent transition — this publish never outlives them.
+  //
+  // previewActive/previewBlocked/aiRunUpToDate are load-bearing, not padding:
+  // the brain hands AI-run authority back to the popup only when THIS patch is
+  // a full clean reset (shouldKeepBrainAiRunAuthority reads the patch, not the
+  // merged facts: pre_ai + pending/draft clean + previewActive:false +
+  // previewBlocked:false). Without them a discard from POST_AI leaves the
+  // brain re-deriving POST_AI from its own run state until the next full
+  // fresh pass (seconds on heavy pages): phase SAVED, the post-AI toggle lock
+  // held with nothing left to resolve it, and Preview Contents gated open
+  // against the just-discarded run. aiRunUpToDate:false is needed on top or
+  // the decider still lands SAVED off the sticky true from the finished run.
   if (typeof tabId === "number") {
     publishCurrentSessionFacts(tabId, {
       isEnabled: true,
       silentModeActive: false,
       aiRunPhase: AI_RUN_PHASES.PRE_AI,
+      aiRunUpToDate: false,
+      previewActive: false,
+      previewBlocked: false,
       currentDraftDirty: false,
       discarding: false,
       sessionHasPendingChanges: false
