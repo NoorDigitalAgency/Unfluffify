@@ -310,3 +310,47 @@ test("popup page reconciliation treats AI startup and projected computing curtai
   assert.equal(calls.toast.at(1), PopupText.overlay.pleaseWait);
   state.aiComputeStartPending = false;
 });
+
+test("#5 (debug round): page revert shows the confirm dialog before the runtime-status roundtrip", async () => {
+  // The slow refreshCurrentPageRuntimeStatus (two content roundtrips) must run
+  // AFTER the confirm dialog, inside the spinner — not before it (obs 10). A
+  // cancelled confirm therefore performs no runtime refresh and no discard.
+  resetState();
+  state.aiComputeStartPending = false;
+  state.aiRequestInFlight = null;
+
+  let runtimeRefreshCount = 0;
+  let refreshCountAtConfirm = -1;
+  const cancelled = createDeps({
+    windowRef: {
+      confirm: () => {
+        refreshCountAtConfirm = runtimeRefreshCount;
+        return false;
+      }
+    },
+    refreshCurrentPageRuntimeStatus: async () => {
+      runtimeRefreshCount += 1;
+    }
+  });
+  await handlePageRevert(cancelled.deps);
+  assert.equal(runtimeRefreshCount, 0, "cancelled revert must not run the runtime-status roundtrip");
+  assert.equal(cancelled.calls.discard, 0);
+
+  runtimeRefreshCount = 0;
+  refreshCountAtConfirm = -1;
+  const confirmed = createDeps({
+    windowRef: {
+      confirm: () => {
+        refreshCountAtConfirm = runtimeRefreshCount;
+        return true;
+      }
+    },
+    refreshCurrentPageRuntimeStatus: async () => {
+      runtimeRefreshCount += 1;
+    }
+  });
+  await handlePageRevert(confirmed.deps);
+  assert.equal(refreshCountAtConfirm, 0, "confirm must be shown before the runtime-status roundtrip");
+  assert.equal(runtimeRefreshCount, 1, "confirmed revert runs the runtime refresh post-confirm, inside the spinner");
+  assert.equal(confirmed.calls.discard, 1);
+});

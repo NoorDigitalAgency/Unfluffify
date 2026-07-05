@@ -207,7 +207,11 @@ export async function handlePageRevert(deps: PageReconciliationDeps) {
   if (!deps.ensureBaseUrl()) {
     return;
   }
-  await deps.refreshCurrentPageRuntimeStatus();
+  // #5 (debug round): gate on the CURRENT view state and show the confirm dialog
+  // BEFORE the slow refreshCurrentPageRuntimeStatus content roundtrips
+  // (getInspectionStatus + getPageDraftStatus), which delayed the dialog by
+  // seconds on a heavy post-AI page (obs 10). The runtime refresh runs
+  // post-confirm inside the spinner (below), so state is fresh before the apply.
   const currentViewState = deps.getViewState();
   const aiRunBusy = Boolean(
     state.aiComputeStartPending ||
@@ -240,6 +244,7 @@ export async function handlePageRevert(deps: PageReconciliationDeps) {
     return;
   }
   await deps.runWithSpinner(null, deps.PopupText.overlay.revertingPage, async () => {
+    await deps.refreshCurrentPageRuntimeStatus();
     await deps.applyLocalPageDiscard();
     deps.updateLastConfigSaveStatus(deps.PopupText.page.revertedToLastSaved);
     deps.showToast(deps.PopupText.page.revertedToLastSaved);

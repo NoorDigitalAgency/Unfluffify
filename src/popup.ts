@@ -8117,52 +8117,16 @@ async function applyPostSaveSilentTransition() {
 
 async function applyLocalPageDiscard() {
   const pageUrl = getCurrentPageUrl();
-  let baseUrl = state.currentBaseUrl;
+  const baseUrl = state.currentBaseUrl;
   const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
     ? state.currentTab.id
     : null;
-  const { tokenValue, configEndpointValue, stageBaseValue } = await helpers.loadGlobalAiSettings();
-  let siteId = normalizeSiteIdValue(
-    state.currentSiteId || (state.currentConfig && state.currentConfig.siteId)
-  );
-  if (!siteId && baseUrl && pageUrl && stageBaseValue && tokenValue) {
-    const siteIdResult = await ensureBaseUrlSiteId({
-      baseUrl,
-      pageUrl,
-      stageBase: stageBaseValue,
-      tokenValue,
-      persist: false
-    });
-    if (siteIdResult.ok && siteIdResult.siteId) {
-      siteId = normalizeSiteIdValue(siteIdResult.siteId);
-      baseUrl = siteIdResult.baseUrl || baseUrl;
-      state.currentBaseUrl = baseUrl;
-      state.currentConfig = siteIdResult.config || state.currentConfig;
-    }
-  }
-  if (tabId !== null && pageUrl && baseUrl && siteId && configEndpointValue && tokenValue) {
-    const remoteLoadResult = await loadRemoteConfigForCurrentPage({
-      tabId,
-      pageUrl,
-      baseUrl,
-      siteId,
-      endpointValue: configEndpointValue,
-      tokenValue,
-      force: true
-    });
-    if (
-      remoteLoadResult &&
-      (remoteLoadResult.status === "ok" || remoteLoadResult.status === "not_found")
-    ) {
-      baseUrl = remoteLoadResult.baseUrl || baseUrl;
-      state.currentBaseUrl = baseUrl;
-      const configs = await config.getConfigs();
-      state.currentConfig = config.normalizeConfig(baseUrl, configs[baseUrl]).config;
-    }
-  }
-  // Reset the local session to PRE_AI after the fresh backend load so a failed or
-  // slow tab discard can never leave the popup wedged in POST_AI with the markings
-  // locked. Discard is unconditionally PRE_AI; the content apply is best-effort.
+  // #5 (debug round): reset the local session to PRE_AI and fire the content
+  // discard IMMEDIATELY — before any backend round-trip — so the discard is
+  // acknowledged and the spinner clears fast (obs 5). Discard is unconditionally
+  // PRE_AI (it never depended on the backend load), so a failed or slow tab
+  // discard can never leave the popup wedged in POST_AI with the markings locked.
+  // The backend config reconciliation runs best-effort + non-blocking below.
   state.currentDraftEntry = null;
   state.currentSavedEntry = null;
   state.currentDraftDirty = false;
@@ -8191,6 +8155,62 @@ async function applyLocalPageDiscard() {
       cause: "user-discard",
       payload: {}
     });
+  }
+  // Best-effort, non-blocking backend reconciliation: freshen the popup's config
+  // to the last-saved backend state so a later view matches the server. It no
+  // longer holds the discard spinner (obs 5).
+  void reconcilePopupConfigAfterDiscard(pageUrl, baseUrl, tabId).catch(() => {});
+}
+
+// #5 (debug round): the popup-side backend config reconciliation that used to run
+// BEFORE the local reset inside applyLocalPageDiscard, blocking the discard
+// spinner on a forced remote config reload. It is now best-effort and non-blocking
+// (the local session is already PRE_AI-clean), and only freshens state.currentConfig
+// / currentBaseUrl to the last-saved backend state.
+async function reconcilePopupConfigAfterDiscard(
+  pageUrl: string,
+  baseUrl: string,
+  tabId: number | null | undefined
+): Promise<void> {
+  const { tokenValue, configEndpointValue, stageBaseValue } = await helpers.loadGlobalAiSettings();
+  let siteId = normalizeSiteIdValue(
+    state.currentSiteId || (state.currentConfig && state.currentConfig.siteId)
+  );
+  let resolvedBaseUrl = baseUrl;
+  if (!siteId && resolvedBaseUrl && pageUrl && stageBaseValue && tokenValue) {
+    const siteIdResult = await ensureBaseUrlSiteId({
+      baseUrl: resolvedBaseUrl,
+      pageUrl,
+      stageBase: stageBaseValue,
+      tokenValue,
+      persist: false
+    });
+    if (siteIdResult.ok && siteIdResult.siteId) {
+      siteId = normalizeSiteIdValue(siteIdResult.siteId);
+      resolvedBaseUrl = siteIdResult.baseUrl || resolvedBaseUrl;
+      state.currentBaseUrl = resolvedBaseUrl;
+      state.currentConfig = siteIdResult.config || state.currentConfig;
+    }
+  }
+  if (tabId !== null && pageUrl && resolvedBaseUrl && siteId && configEndpointValue && tokenValue) {
+    const remoteLoadResult = await loadRemoteConfigForCurrentPage({
+      tabId,
+      pageUrl,
+      baseUrl: resolvedBaseUrl,
+      siteId,
+      endpointValue: configEndpointValue,
+      tokenValue,
+      force: true
+    });
+    if (
+      remoteLoadResult &&
+      (remoteLoadResult.status === "ok" || remoteLoadResult.status === "not_found")
+    ) {
+      resolvedBaseUrl = remoteLoadResult.baseUrl || resolvedBaseUrl;
+      state.currentBaseUrl = resolvedBaseUrl;
+      const configs = await config.getConfigs();
+      state.currentConfig = config.normalizeConfig(resolvedBaseUrl, configs[resolvedBaseUrl]).config;
+    }
   }
 }
 
