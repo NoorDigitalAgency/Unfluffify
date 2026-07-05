@@ -8865,7 +8865,6 @@ async function handlePreviewLatest() {
   if (view.previewLatestBlockedReason !== SECONDARY_GATES_BLOCK_REASONS.NONE) {
     return;
   }
-  captureMarkingSessionSnapshot();
   const selectorSet = getLatestAvailableSelectorsFromConfig();
   if (!combineAiSelectorSet(selectorSet).length) {
     uiModule.showToast(PopupText.preview.noStoredSelectors);

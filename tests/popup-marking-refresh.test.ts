@@ -144,6 +144,26 @@ test("silent mode gates preview, save-excludes, and Lynx checklist submission", 
   assert.doesNotMatch(sendBody, /aiAnswer:/);
 });
 
+test("the silent Content List preview never snapshots a marking session (N4)", () => {
+  const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
+  // handlePreviewLatest is the silent "Show Content List" opener. It must NOT
+  // captureMarkingSessionSnapshot(): doing so leaves a non-null
+  // previewMarkingSessionSnapshot that makes settlePreviewRestoreClosed raise
+  // previewCloseMarkingRestoreUnconfirmed, which (never cleared in silent mode,
+  // where content never reports marking re-enabled) clamps silentModeActive:false
+  // to the brain and disables Send-to-Lynx + Show-Content-List after exit.
+  const silentPreviewBody = popupSource.match(
+    /async function handlePreviewLatest\(\) \{([\s\S]*?)\n\}\n\nasync function handleMarkingPreview/
+  )[1];
+  assert.doesNotMatch(silentPreviewBody, /captureMarkingSessionSnapshot/);
+  // The marking-mode Preview Contents DOES snapshot — it restores the marking
+  // session on preview exit — so the distinction must be preserved.
+  const markingPreviewBody = popupSource.match(
+    /async function handleMarkingPreview\(\) \{([\s\S]*?)\n\}\n\nasync function handleExitPreviewMode/
+  )[1];
+  assert.match(markingPreviewBody, /captureMarkingSessionSnapshot\(\);/);
+});
+
 test("Todo List completion is sourced from backend-saved markings only", () => {
   const source = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
 
