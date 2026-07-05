@@ -289,6 +289,16 @@ test("refreshUi treats getAiPreviewState as item-only and owns preview visibilit
     /function overrideDictatedPreviewVisibility[\s\S]{0,900}else if \(state\.previewSuppressReopen\) \{[\s\S]{0,700}active = false;/
   );
 
+  // #5/#14 (2026-07-05): the session-facts publish gates previewActive on the
+  // pass-epoch guard (exactly like isEnabled/silentModeActive), so a stale
+  // refreshUi pass whose reads predate a preview exit cannot republish
+  // previewActive:true and resurrect a torn-down preview — that was the stuck
+  // previewActive oscillation which drove the perpetual post-AI render storm (N2).
+  assert.match(
+    popupSource,
+    /\.\.\.\(skipMarkingFactsFromStalePass \? \{\} : \{ previewActive \}\)/
+  );
+
   // Items flow through the session latch: a settled probe updates it; a pending
   // or missing probe keeps the latched list (never a mid-hydration empty list).
   // "Settled" requires the snapshot to SHOW the open preview — a stale

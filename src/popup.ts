@@ -6214,7 +6214,18 @@ async function refreshUiInner(options: PopupRefreshOptions = {}) {
         : {}),
       aiRunPhase: state.sessionAiRunPhase,
       aiRunUpToDate,
-      previewActive,
+      // #5/#14 (2026-07-05): previewActive is popup-owned preview-sidebar
+      // visibility. A refreshUi pass whose reads predate a popup-initiated
+      // preview exit is STALE (the exit settle bumped the marking-session epoch);
+      // once the popup latches (previewOpenIntent / previewSuppressReopen /
+      // previewRestorePending) have cleared, overrideDictatedPreviewVisibility no
+      // longer overrides, so the brain-projected stale previewActive:true flows
+      // through and this publish resurrects the torn-down preview — the brain then
+      // re-folds it forever (the stuck previewActive oscillation that drove the
+      // perpetual post-AI render storm, N2). Gate it on the SAME pass-epoch guard
+      // as isEnabled/silentModeActive so a stale pass omits it and the exit's
+      // previewActive:false sticks.
+      ...(skipMarkingFactsFromStalePass ? {} : { previewActive }),
       // The popup owns whether IT has a preview session. nextViewState's
       // previewBlocked is brain-DICTATED; republishing it verbatim echoes the
       // brain's projection back as a popup fact, so a stale blocked:true from
