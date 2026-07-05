@@ -239,6 +239,15 @@ test("refreshUi passes are epoch-gated at every marking-state effect site", () =
     /async function applyLocalPageDiscard[\s\S]{0,4000}bumpMarkingSessionEpoch\(\);\s*signalMarkingSession\("discarded"\);/
   );
 
+  // The discard's epoch bump stales every in-flight pass, and stale passes
+  // publish no marking facts — so the discard must settle its own facts AT the
+  // new epoch, or nothing ever re-publishes isEnabled and the brain dictates
+  // SILENT over a still-marking popup (the post-discard silent curtain).
+  assert.match(
+    popupSource,
+    /signalMarkingSession\("discarded"\);[\s\S]{0,900}publishCurrentSessionFacts\(tabId, \{\s*isEnabled: true,\s*silentModeActive: false,\s*aiRunPhase: AI_RUN_PHASES\.PRE_AI,\s*currentDraftDirty: false,\s*discarding: false,\s*sessionHasPendingChanges: false\s*\}\);/
+  );
+
   // The toggle force-true and the enabled-preserve guard apply only to
   // marking-backed previews (a snapshot to restore). The Silent Preview keeps
   // the session silent: forcing toggleEnabled true there published

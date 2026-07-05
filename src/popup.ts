@@ -8159,6 +8159,25 @@ async function applyLocalPageDiscard() {
   state.previewCloseMarkingRestoreUnconfirmed = false;
   bumpMarkingSessionEpoch();
   signalMarkingSession("discarded");
+  // The epoch bump above deliberately stales every in-flight refreshUi pass,
+  // and a stale pass publishes no marking facts — so without an explicit
+  // settle here NOTHING re-publishes isEnabled after a discard. The brain's
+  // sticky popup facts then keep isEnabled:false and it dictates SILENT over
+  // a still-marking popup (the post-discard silent-curtain wedge). Publish
+  // the settled facts AT the new epoch: Discard keeps marking enabled with a
+  // clean PRE_AI session. The navigate-away and disable-with-discard flows
+  // follow with alignPopupToSilentMode/disable, which settle silent on their
+  // own subsequent transition — this publish never outlives them.
+  if (typeof tabId === "number") {
+    publishCurrentSessionFacts(tabId, {
+      isEnabled: true,
+      silentModeActive: false,
+      aiRunPhase: AI_RUN_PHASES.PRE_AI,
+      currentDraftDirty: false,
+      discarding: false,
+      sessionHasPendingChanges: false
+    });
+  }
   if (typeof tabId === "number") {
     void emitPopupSignal(tabId, {
       name: SIGNAL_NAMES.SESSION_DISCARDED,
