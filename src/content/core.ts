@@ -391,7 +391,6 @@ interface PageMotionPauseState {
   lockedElementsById: Map<string, PageMotionLockRecord>;
   lockIdCounter: number;
   refreshTimer: number;
-  refreshScheduled: boolean;
   observer: MutationObserver | null;
   pendingDiscovery: Set<Element>;
 }
@@ -4776,7 +4775,6 @@ function createPageMotionPauseState(): PageMotionPauseState {
     lockedElementsById: new Map<string, PageMotionLockRecord>(),
     lockIdCounter: 1,
     refreshTimer: 0,
-    refreshScheduled: false,
     observer: null,
     pendingDiscovery: new Set<Element>()
   };
@@ -6751,26 +6749,6 @@ function resumeMediaElements(pauseState: PageMotionPauseState): void {
   pauseState.mediaElements.clear();
 }
 
-function schedulePageMotionPauseRefresh(pauseState: PageMotionPauseState | null = state.pageMotionPause) {
-  if (!pauseState || pauseState.refreshScheduled) {
-    return;
-  }
-  const run = () => {
-    if (state.pageMotionPause !== pauseState) {
-      return;
-    }
-    pauseState.refreshScheduled = false;
-    refreshPageMotionPause();
-  };
-  pauseState.refreshScheduled = true;
-  try {
-    extensionRequestAnimationFrame(run);
-    return;
-  } catch (_error) {
-    extensionSetTimeout(run, 0);
-  }
-}
-
 function startPageMotionPauseRefreshTimer(pauseState: PageMotionPauseState): void {
   if (pauseState.refreshTimer) {
     return;
@@ -6809,7 +6787,6 @@ function startPageMotionPauseObserver(pauseState: PageMotionPauseState): void {
       if (state.pageMotionPause !== pauseState) {
         return;
       }
-      let discovered = false;
       for (const mutation of Array.from(mutations || [])) {
         if (!mutation) {
           continue;
@@ -6818,7 +6795,6 @@ function startPageMotionPauseObserver(pauseState: PageMotionPauseState): void {
           for (const added of Array.from(mutation.addedNodes || [])) {
             if (isElementNode(added) && !isIgnoredPageMotionElement(added)) {
               addPageMotionDiscoveryElement(pauseState, added);
-              discovered = true;
             }
           }
           continue;
@@ -6832,25 +6808,22 @@ function startPageMotionPauseObserver(pauseState: PageMotionPauseState): void {
         if (mutation.attributeName === PAGE_MOTION_PAUSE_LOCK_ATTR) {
           continue;
         }
-        // Our own inline-style writes on locked elements must not re-trigger a
-        // refresh. That lock -> style mutation -> observer -> lock feedback loop
-        // is what sustained the post-AI CPU storm; the periodic maintenance
-        // re-assert corrects genuine page overrides instead.
+        // A style mutation on an element we already lock is usually our own
+        // guarded re-assert; queuing it (element only) lets the next maintenance
+        // pass catch a NEW un-tracked motion property the page may have written,
+        // without treating it as fresh discovery.
         if (mutation.attributeName === "style" && pauseState.lockedElements.has(target)) {
-          // The page may instead be writing a NEW, un-tracked motion property to
-          // an already-locked element (a raw imperative inline write reassert
-          // won't catch). Queue just this element for the next timer-driven
-          // maintenance pass to re-detect it — WITHOUT the immediate reschedule
-          // above, which would reopen the tight feedback loop.
           pauseState.pendingDiscovery.add(target);
           continue;
         }
         addPageMotionDiscoveryElement(pauseState, target);
-        discovered = true;
       }
-      if (discovered) {
-        schedulePageMotionPauseRefresh(pauseState);
-      }
+      // Flagged elements are drained by the 250ms maintenance timer. We do NOT
+      // schedule an immediate (rAF) refresh: on a page that churns its DOM every
+      // frame that fired refreshPageMotionPause ~60x/sec, and each pass' re-assert
+      // style writes thrashed the highlight render into re-drawing every mark
+      // repeatedly. The timer cadence caps refreshes at <=4x/sec and breaks that
+      // motion-refresh <-> render coupling.
     });
     pauseState.observer.observe(root, {
       childList: true,
