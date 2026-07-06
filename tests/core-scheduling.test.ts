@@ -1007,6 +1007,37 @@ test("consent hiding runs on every resolved property page, decoupled from the si
   );
 });
 
+test("un-excluded rows step the initial-state rules aside (unmark renders as implicit content, not blank)", () => {
+  const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
+
+  // Contract: default/CSS/AI markings only SEED the initial state; once an element
+  // has an { excluded: false } row the selector AND the default-tag rule must step
+  // aside so it renders as implicit content instead of blank (not excluded by the
+  // row, not content because a rule re-caught it).
+  // 1. The render suppressed-selector set is DERIVED from the un-excluded rows.
+  assert.match(
+    source,
+    /const unexcludedRowXpaths =[\s\S]*?!item\.excluded[\s\S]*?const selectorSuppressedXpaths = unexcludedRowXpaths\.length > 0[\s\S]*?\.\.\.storedSuppressed, \.\.\.unexcludedRowXpaths/
+  );
+  // 2. The default-tag rule (collectToggleableDefaultExcludedElements) also honours
+  //    that suppression — the missing piece that left an unmarked leaf BUTTON blank.
+  assert.match(
+    source,
+    /collectToggleableDefaultExcludedElements\(explicitIncludedSet\)\s*\.filter\(\(el\) => !isSuppressedSelectorElement\(el\)\)/
+  );
+  // 3. Leaf un-excluded toggleable-default boundaries are force-included into the
+  //    default layer (a toggleable-default is not self-markable content otherwise).
+  assert.match(
+    source,
+    /const unexcludedLeafBoundaries = new Set\([\s\S]*?!hasTextualDescendant\(el\)\)\s*\);/
+  );
+  assert.match(source, /forceIncludeSet: unexcludedLeafBoundaries/);
+  assert.match(
+    source,
+    /\(isSelfMarkableWithoutParentMode\(node\) \|\| forceIncludeSet\.has\(node\)\)/
+  );
+});
+
 test("S3: scroll/silent cache invalidation + no mid-scroll paint verdicts", () => {
   const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
   const contentMain = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");

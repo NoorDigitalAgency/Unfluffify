@@ -219,6 +219,11 @@ interface DefaultHighlightOptions {
   // scoped walk matches what the full walk would have propagated down to it.
   rootAncestorExcluded?: boolean;
   rootAncestorHardExcluded?: boolean;
+  // Elements to treat as default-layer candidates even when they are not
+  // self-markable content (leaf unexcluded toggleable-default boundaries that
+  // must stay visible per the marking contract). Still subject to the walk's
+  // exclusion/precedence guards.
+  forceIncludeSet?: Set<Element>;
 }
 
 interface CollapseElementsOptions {
@@ -1342,9 +1347,27 @@ function buildMarkingCollectionsCacheKey(
 function resolveMarkingSelectorContext(configValue: Config | null, entry: PageMarkingEntry | null = null): SelectorContext {
   const selectorSet = config.getNewestConfigSelectorSet(configValue).selectorSet;
   const hasAiSelectors = combineAiSelectorSet(selectorSet).length > 0;
-  const selectorSuppressedXpaths = Array.isArray(entry?.selectorSuppressedXpaths)
-    ? entry.selectorSuppressedXpaths
+  const storedSuppressed = Array.isArray(entry?.selectorSuppressedXpaths)
+    ? entry.selectorSuppressedXpaths.filter((xpath): xpath is string => typeof xpath === "string" && xpath.length > 0)
     : [];
+  // CSS/AI selectors only SEED an element's initial exclusion; after that the
+  // stored rows are the marking truth and the selector "steps aside". An element
+  // the user has un-excluded ({ excluded: false } row) must NOT be re-caught by
+  // the still-matching selector on re-render — otherwise it renders BLANK (not
+  // drawn excluded because its row says false, not drawn as content because the
+  // selector keeps it in the selector-excluded set). Derive the suppression from
+  // the un-excluded rows so those elements fall through to the ordinary
+  // implicit-content layer. Toggleable-default rows are unaffected (they are not
+  // selector matches); explicit includes are already folded into the stored set
+  // by normalizePageEntryXpaths.
+  const unexcludedRowXpaths = Array.isArray(entry?.xpaths)
+    ? entry.xpaths
+        .filter((item) => item && typeof item.xpath === "string" && item.xpath.length > 0 && !item.excluded)
+        .map((item) => item.xpath as string)
+    : [];
+  const selectorSuppressedXpaths = unexcludedRowXpaths.length > 0
+    ? Array.from(new Set<string>([...storedSuppressed, ...unexcludedRowXpaths]))
+    : storedSuppressed;
   return {
     selectorSet,
     hasAiSelectors,
@@ -3178,7 +3201,8 @@ function collectDefaultHighlightTargets(
     hasHigherPrecedence = () => false,
     excludedAncestorSet = new Set(),
     rootAncestorExcluded = false,
-    rootAncestorHardExcluded = false
+    rootAncestorHardExcluded = false,
+    forceIncludeSet = new Set()
   } = options || {};
   const results: Element[] = [];
   const stack: DefaultHighlightFrame[] = [
@@ -3228,12 +3252,18 @@ function collectDefaultHighlightTargets(
     const node = frame.node;
     const excludedSelf = excludedSet.has(node);
     const isRoot = node === document.body || node === document.documentElement;
+    // A LEAF unexcluded toggleable-default boundary (an unmarked BUTTON whose
+    // only content is its own text) is not "self-markable content" on its own,
+    // but the contract keeps it in the default layer so the unmarked control
+    // still carries marking UI and can be visually re-excluded. Force-include it
+    // as a candidate, still subject to the same exclusion guards as any other
+    // node (excludedSelf / ancestor-excluded / higher-precedence).
     const candidate =
         !excludedSelf &&
         !isRoot &&
         !frame.ancestorHardExcluded &&
         !frame.ancestorExcluded &&
-        isSelfMarkableWithoutParentMode(node) &&
+        (isSelfMarkableWithoutParentMode(node) || forceIncludeSet.has(node)) &&
         !hasHigherPrecedence(node);
 
     if (candidate) {
@@ -3261,8 +3291,19 @@ export function collectDefaultLayerElements(root: Element | null | undefined, op
   // only content is its own text — has no descendant surface to render, so
   // suppressing it left the unmarked control with no marking UI at all; it
   // stays in the default layer instead.
+  const allUnexcludedToggleableDefault = [...(options.unexcludedToggleableDefault || [])];
+  // WITH visible textual descendants → suppress this boundary's OWN default
+  // marking (its descendants render in its place; the anti-ghost rule).
   const unexcludedToggleableDefault = new Set(
-    [...(options.unexcludedToggleableDefault || [])].filter((el) => hasTextualDescendant(el))
+    allUnexcludedToggleableDefault.filter((el) => hasTextualDescendant(el))
+  );
+  // LEAF textual boundaries (own text, no descendant surface) → keep them in the
+  // default layer so the unmarked control still carries marking UI and can be
+  // re-excluded. They are force-included as default candidates below (the walk
+  // otherwise skips them because a toggleable-default is not self-markable
+  // content), while still honouring exclusion/precedence guards.
+  const unexcludedLeafBoundaries = new Set(
+    allUnexcludedToggleableDefault.filter((el) => !hasTextualDescendant(el))
   );
   const precedenceSet = new Set<Element>([
     ...immutableExcluded,
@@ -3324,7 +3365,8 @@ export function collectDefaultLayerElements(root: Element | null | undefined, op
     // Stored unexcluded default boundaries follow the same self-only rule.
     excludedAncestorSet,
     rootAncestorExcluded,
-    rootAncestorHardExcluded
+    rootAncestorHardExcluded,
+    forceIncludeSet: unexcludedLeafBoundaries
   });
 }
 
@@ -4067,7 +4109,13 @@ function collectIncludedElementsFromSelectorSet(
   );
   const explicitIncludedSet = new Set(explicitIncluded);
   const explicitIncludedContextSet = buildInclusionContextSet(explicitIncludedSet);
-  const toggleableDefaultExcluded = collectToggleableDefaultExcludedElements(explicitIncludedSet);
+  // The default-exclusion rule (matchesToggleableDefaultExcluded) only SEEDS an
+  // element's initial state; once the user has un-excluded it ({excluded:false}
+  // row, surfaced here via suppressedXpaths) the rule must step aside — otherwise
+  // an unmarked leaf BUTTON is re-caught as a default exclusion and renders blank
+  // (not excluded per its row, not content because the rule re-excluded it).
+  const toggleableDefaultExcluded = collectToggleableDefaultExcludedElements(explicitIncludedSet)
+    .filter((el) => !isSuppressedSelectorElement(el));
   const excludedBoundaryElements = new Set<Element>([
     ...Array.from(excludedElements),
     ...toggleableDefaultExcluded

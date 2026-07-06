@@ -22,6 +22,25 @@ output is not sufficient if it alters the rules below.
 
 Non-negotiable invariants:
 
+- **Default and CSS/AI-selector markings are ONLY an element's INITIAL marking
+  state. After seeding they carry no special rule, privilege, or priority — they
+  are ordinary markings, identical to a mark the user made by hand.** The CSS
+  selectors and the default-exclusion rules SEED the initial `xpaths` rows and
+  then STEP ASIDE; from that point the stored rows are the sole marking truth.
+  Rendering, target resolution, and submission MUST derive an element's state
+  from its stored row, and MUST NOT re-apply a CSS selector or a default-tag rule
+  (`matchesToggleableDefaultExcluded`, selector re-match) on top of an element
+  that already has an explicit row. Concretely: an element the user has
+  un-excluded (`{ excluded: false }` row) renders and submits as ordinary
+  implicit/included content **even if a CSS selector or a default rule would
+  otherwise match it** — never leave it blank (neither excluded by the row nor
+  content because a selector/default rule re-caught it). The ONLY time the
+  default/selector state of an element is recomputed after seeding is when an
+  ancestor/descendant marking mutation temporarily recalculates the default
+  states of the AFFECTED branch; all other elements are unaffected. Drift here
+  (re-applying selectors/defaults as if they still owned the element) is the root
+  cause of the "unmarked element goes blank instead of showing the implicit
+  inclusion" bug — see the leaf-boundary and selector-suppression notes below.
 - Toggleable defaults differ from user/CSS-selected exclusions only while the
   excluded/included state is being decided.
 - After that decision, default exclusions are ordinary generated `{ xpath,
@@ -36,6 +55,16 @@ Non-negotiable invariants:
 - A stored `{ xpath, excluded: false }` row for a toggleable default unmarks only
   that exact boundary. It suppresses that boundary's own implicit/default
   marking, but it does not suppress descendants or become a subtree include.
+  Exception (leaf boundary): a boundary with visible textual DESCENDANTS suppresses
+  its own marking so the descendants render in its place (anti-ghost); but a LEAF
+  textual boundary — an unmarked `BUTTON` whose only content is its own text and
+  which has no descendant surface — MUST stay visible in the implicit/default
+  layer so the unmarked control still carries marking UI and can be re-excluded.
+  It is therefore force-included as a default-layer candidate (a toggleable-default
+  is not "self-markable content" so the plain default walk would otherwise skip
+  it). Similarly, an un-excluded element that a CSS/AI selector still matches has
+  that selector suppressed at render (derived from the un-excluded rows) so it
+  renders as implicit content instead of being re-caught by the selector.
 - Fast refresh, caching, or performance work may only be an adaptation layer over
   the 052c-derived rules. It must sync page markings before drawing and must not
   create a second source of marking truth. Explicit-toggle refreshes must be
