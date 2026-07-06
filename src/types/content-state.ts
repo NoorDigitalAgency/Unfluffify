@@ -44,6 +44,7 @@ export interface ContentState {
   toastHideTimer: number;
   markingDisabledNotice: HTMLElement | null;
   pageInspectionNotice: HTMLElement | null;
+  pageInspectionUiEnabled: boolean;
   inspectionBlocker: HTMLElement | null;
   popupBusyOverlay: HTMLElement | null;
   popupBusyNotice: HTMLElement | null;

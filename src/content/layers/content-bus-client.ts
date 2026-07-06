@@ -115,7 +115,6 @@ export function startContentBusClient(options: ContentBusClientOptions = {}): Bu
   // which re-arms the block's fail-open watchdog; if the brain goes silent
   // the block releases on its own.
   setPageCurtainRenderer((visible, state) => {
-    setPageInspectionUiActive(visible);
     const memoryCurtain = resolveActiveContentOverlayMemory().pageCurtain;
     const definition = state && typeof state === "object"
       ? getSpinnerPhaseDefinition(state.kind, state.phase)
@@ -131,6 +130,10 @@ export function startContentBusClient(options: ContentBusClientOptions = {}): Bu
           ? memoryCurtain.blocksPageInput
           : definition?.blockSurfaces.page === true)
     );
+    // Single-spinner dedup: when this curtain also raises the full popup-busy
+    // overlay (its own spinner + message), suppress the page-inspection notice's
+    // spinner so the freeze/reveal and AI-run curtains never stack two spinners.
+    setPageInspectionUiActive(visible, { suppressNotice: pageBlocking });
     if (pageBlocking) {
       const operationId = typeof state?.operationId === "string" ? state.operationId : "";
       const rawDeadline = state?.deadlineAt;

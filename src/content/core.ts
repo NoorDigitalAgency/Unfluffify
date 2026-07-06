@@ -658,6 +658,11 @@ export const state = {
   toastHideTimer: 0,
   markingDisabledNotice: null as HTMLDivElement | null,
   pageInspectionNotice: null as HTMLDivElement | null,
+  // Semantic "page inspection curtain requested" flag, decoupled from the
+  // notice's visual `hidden` so the notice can be suppressed while the full
+  // popup-busy overlay is up (single-spinner dedup) without falsely reporting
+  // the inspection settled to the popup.
+  pageInspectionUiEnabled: false,
   inspectionBlocker: null as InputBlockerState | null,
   popupBusyOverlay: null as HTMLElement | null,
   popupBusyNotice: null as HTMLElement | null,
@@ -7567,8 +7572,12 @@ function createOverlay() {
   updateOverlayGutter();
 }
 
-export function setPageInspectionUiActive(active: unknown): void {
+export function setPageInspectionUiActive(
+  active: unknown,
+  options: { suppressNotice?: boolean } = {}
+): void {
   const enabled = Boolean(active);
+  state.pageInspectionUiEnabled = enabled;
   if (typeof document !== "undefined" && document.documentElement) {
     setElementClassPresence(document.documentElement, PAGE_INSPECTION_OVERLAY_CLASS, enabled);
   }
@@ -7577,16 +7586,19 @@ export function setPageInspectionUiActive(active: unknown): void {
     state.overlay.setAttribute("aria-busy", enabled ? "true" : "false");
   }
   if (state.pageInspectionNotice) {
-    state.pageInspectionNotice.hidden = !enabled;
+    // Single-spinner dedup: the caller suppresses this notice's spinner when a
+    // full popup-busy overlay (its own spinner + message) is up for the same
+    // curtain, so the freeze/reveal and AI-run curtains never stack two
+    // spinners. The tint/class still apply; the semantic active state is tracked
+    // separately (pageInspectionUiEnabled) so suppression never reports the
+    // inspection as settled.
+    state.pageInspectionNotice.hidden = !enabled || Boolean(options.suppressNotice);
   }
   updateCursorMode();
 }
 
 export function isPageInspectionUiActive(): boolean {
-  return Boolean(
-    (state.pageInspectionNotice && !state.pageInspectionNotice.hidden) ||
-      state.inspectionBlocker
-  );
+  return Boolean(state.pageInspectionUiEnabled || state.inspectionBlocker);
 }
 
 async function inspectPageBeforeMotionPause(
@@ -7905,6 +7917,7 @@ function removeOverlay() {
     state.toast = null;
     state.markingDisabledNotice = null;
     state.pageInspectionNotice = null;
+    state.pageInspectionUiEnabled = false;
     state.popupBusyOverlay = null;
     state.popupBusyNotice = null;
   }

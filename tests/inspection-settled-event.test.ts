@@ -61,7 +61,7 @@ test("content warmups leave inspection UI toggling to the brain pageCurtain", ()
   const warmupSource = source.slice(warmupStart, warmupEnd);
   assert.doesNotMatch(warmupSource, /setPageInspectionUiActive\(/);
   const busSource = readFileSync(new URL("../src/content/layers/content-bus-client.ts", import.meta.url), "utf8");
-  assert.match(busSource, /setPageCurtainRenderer\(\(visible, state\) => \{[\s\S]*?setPageInspectionUiActive\(visible\);/);
+  assert.match(busSource, /setPageCurtainRenderer\(\(visible, state\) => \{[\s\S]*?setPageInspectionUiActive\(visible, \{ suppressNotice: pageBlocking \}\);/);
   // Data-affecting curtains must raise the REAL page input block, not just the
   // inspection tint; non-blocking curtains and clears release it. P4 step 4.2:
   // the broadcast carries {kind, phase} only, so blocking resolves locally —

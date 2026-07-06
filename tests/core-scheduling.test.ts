@@ -964,6 +964,37 @@ test("first exclude-click on a default boundary unmarks it (no 2-click promote)"
   );
 });
 
+test("curtain shows a single spinner: page-inspection notice hides under popup-busy", () => {
+  const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
+  const busClient = readFileSync(new URL("../src/content/layers/content-bus-client.ts", import.meta.url), "utf8");
+
+  // setPageInspectionUiActive suppresses its own notice spinner when the caller
+  // asks (a full popup-busy overlay is up for the same curtain), so the
+  // freeze/reveal and AI-run curtains never stack two spinners. The suppression
+  // is a caller-supplied option, keeping setPopupBusyOnPage independent of the
+  // page-inspection UI (guarded separately).
+  assert.match(
+    source,
+    /export function setPageInspectionUiActive\(\s*active(?:\s*:\s*[^,)]+)?\s*,\s*options(?:\s*:\s*[^)=]+)?\s*=\s*\{\}\s*\)/
+  );
+  assert.match(
+    source,
+    /state\.pageInspectionNotice\.hidden = !enabled \|\| Boolean\(options\.suppressNotice\);/
+  );
+  // The orchestrator decides the dedup from the same pageBlocking flag that
+  // raises the popup-busy overlay.
+  assert.match(
+    busClient,
+    /setPageInspectionUiActive\(visible, \{ suppressNotice: pageBlocking \}\);/
+  );
+  // The semantic active state is decoupled from the notice's visual hidden flag
+  // so suppressing the notice never reports the inspection as settled.
+  assert.match(
+    source,
+    /export function isPageInspectionUiActive\(\)[\s\S]*?Boolean\(state\.pageInspectionUiEnabled \|\| state\.inspectionBlocker\)/
+  );
+});
+
 test("S3: scroll/silent cache invalidation + no mid-scroll paint verdicts", () => {
   const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
   const contentMain = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
