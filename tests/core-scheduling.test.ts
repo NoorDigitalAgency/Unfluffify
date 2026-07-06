@@ -939,7 +939,7 @@ test("explicit-include overlay falls back to ghost geometry so green never drops
   // not missing ~half the time while the hover highlight still works.
   assert.match(
     source,
-    /const computeIncludeRects = \(el(?:\s*:\s*[^)]+)?\)(?:\s*:\s*[^=]+)? =>\s*\{\s*const rects = computeRects\(el\);\s*return rects\.length > 0 \? rects : getGhostRects\(el\);/
+    /const computeIncludeRects = \(el(?:\s*:\s*[^)]+)?\)(?:\s*:\s*[^=]+)? =>\s*\{\s*const rects = computeRects\(el\);\s*if \(rects\.length > 0\) \{\s*return rects;\s*\}[\s\S]*?return isVisible\(el\) \? getGhostRects\(el\) : \[\];/
   );
   assert.match(
     source,

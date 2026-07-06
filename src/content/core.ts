@@ -10202,15 +10202,20 @@ function drawExplicitMarkingLayers(
     : [];
   const computeRects = computeElementRects as ElementRectProvider;
   // Explicit includes are the user's authoritative "keep this" mark, so their
-  // green overlay must render whenever the element has geometry — even when
-  // paint-reachability momentarily rejects the rects (element transiently
-  // covered, or mid-layout after a toggle). Without this, a just-included
-  // element's green box was dropped ~half the time while the hover highlight
-  // still worked. Mirrors the allowGhost tolerance getMarkableTarget already
-  // grants explicit-include targets (hasRenderableMarkingTargetGeometry).
+  // green overlay must render whenever the element is visible but a
+  // paint-reachability check momentarily rejects the rects (transiently covered,
+  // or mid-layout after a toggle). Without this, a just-included element's green
+  // box was dropped while the hover highlight still worked. Mirrors the allowGhost
+  // tolerance getMarkableTarget grants explicit-include targets. The isVisible
+  // gate is load-bearing: a genuinely invisible/overflow-clipped include must NOT
+  // draw a solid box at a stale geometry (the ghost/hidden bucket handles those),
+  // so the fallback only tolerates paint misses for elements that are visible.
   const computeIncludeRects = (el: Element): RectLike[] => {
     const rects = computeRects(el);
-    return rects.length > 0 ? rects : getGhostRects(el);
+    if (rects.length > 0) {
+      return rects;
+    }
+    return isVisible(el) ? getGhostRects(el) : [];
   };
   const drawStartedAt = nowMs();
   const layerSavedExplicitExcludeState = beginLayerRender(state.layers["saved-explicit-exclude"]);
