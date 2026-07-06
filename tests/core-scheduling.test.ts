@@ -929,6 +929,41 @@ test("auto-seed does not re-run once the user owns the page baseline (unmark dur
   );
 });
 
+test("explicit-include overlay falls back to ghost geometry so green never drops", () => {
+  const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
+
+  // A visible explicit include whose paint-reachable rects momentarily come back
+  // empty (transient coverage / mid-layout after a toggle) must still draw its
+  // green box from raw geometry — mirroring the allowGhost tolerance
+  // getMarkableTarget grants explicit-include targets — so the green marking is
+  // not missing ~half the time while the hover highlight still works.
+  assert.match(
+    source,
+    /const computeIncludeRects = \(el(?:\s*:\s*[^)]+)?\)(?:\s*:\s*[^=]+)? =>\s*\{\s*const rects = computeRects\(el\);\s*return rects\.length > 0 \? rects : getGhostRects\(el\);/
+  );
+  assert.match(
+    source,
+    /for \(const el of fetchedInclude\) \{\s*const rects = computeIncludeRects\(el\);/
+  );
+  assert.match(
+    source,
+    /for \(const el of sessionInclude\) \{\s*const rects = computeIncludeRects\(el\);/
+  );
+});
+
+test("first exclude-click on a default boundary unmarks it (no 2-click promote)", () => {
+  const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
+
+  // Clicking an already-default-excluded boundary must unmark it on the FIRST
+  // click by recording { excluded: false }, instead of promoting it to a
+  // redundant explicit exclude (no visible change) that then needs a second
+  // click to toggle off.
+  assert.match(
+    source,
+    /if \(!targetItem\) \{\s*if \(matchesToggleableDefaultExcluded\(target\)\) \{[\s\S]*?targetItem = \{ xpath, excluded: false \};[\s\S]*?addedExclude = false;[\s\S]*?\} else \{\s*targetItem = \{ xpath, excluded: true, explicit: true \};/
+  );
+});
+
 test("S3: scroll/silent cache invalidation + no mid-scroll paint verdicts", () => {
   const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
   const contentMain = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");

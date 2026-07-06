@@ -9403,9 +9403,23 @@ function toggleExplicitExclude(
   let addedExclude;
   let targetItem = items.find((item) => item && item.xpath === xpath);
   if (!targetItem) {
-    targetItem = { xpath, excluded: true, explicit: true };
-    items.push(targetItem);
-    addedExclude = true;
+    if (matchesToggleableDefaultExcluded(target)) {
+      // The element is already excluded by its default taxonomy, so a direct
+      // exclude-mode click on the boundary is an unmark of that boundary — not a
+      // redundant explicit exclusion. Recording { excluded: false } makes the
+      // unmark land on the FIRST click; previously the first click promoted the
+      // default to an explicit exclude (no visible change, it was already red)
+      // and only the second click toggled it off (the "needs 2 clicks to unmark"
+      // report). Contract: a stored { excluded: false } row is the user's unmark
+      // for that exact default boundary.
+      targetItem = { xpath, excluded: false };
+      items.push(targetItem);
+      addedExclude = false;
+    } else {
+      targetItem = { xpath, excluded: true, explicit: true };
+      items.push(targetItem);
+      addedExclude = true;
+    }
   } else {
     targetItem.excluded = !targetItem.excluded;
     addedExclude = targetItem.excluded;
@@ -10174,6 +10188,17 @@ function drawExplicitMarkingLayers(
     ? hiddenSessionExplicitIncludeElements as Element[]
     : [];
   const computeRects = computeElementRects as ElementRectProvider;
+  // Explicit includes are the user's authoritative "keep this" mark, so their
+  // green overlay must render whenever the element has geometry — even when
+  // paint-reachability momentarily rejects the rects (element transiently
+  // covered, or mid-layout after a toggle). Without this, a just-included
+  // element's green box was dropped ~half the time while the hover highlight
+  // still worked. Mirrors the allowGhost tolerance getMarkableTarget already
+  // grants explicit-include targets (hasRenderableMarkingTargetGeometry).
+  const computeIncludeRects = (el: Element): RectLike[] => {
+    const rects = computeRects(el);
+    return rects.length > 0 ? rects : getGhostRects(el);
+  };
   const drawStartedAt = nowMs();
   const layerSavedExplicitExcludeState = beginLayerRender(state.layers["saved-explicit-exclude"]);
   const layerSavedExplicitIncludeState = beginLayerRender(state.layers["saved-explicit-include"]);
@@ -10196,7 +10221,7 @@ function drawExplicitMarkingLayers(
   }
 
   for (const el of fetchedInclude) {
-    const rects = computeRects(el);
+    const rects = computeIncludeRects(el);
     if (rects.length > 0) {
       const presentation = getExplicitMarkingPresentation({ type: "include" });
       drawMultiRectReuse(
@@ -10241,7 +10266,7 @@ function drawExplicitMarkingLayers(
   }
 
   for (const el of sessionInclude) {
-    const rects = computeRects(el);
+    const rects = computeIncludeRects(el);
     if (rects.length > 0) {
       const presentation = getExplicitMarkingPresentation({ type: "include" });
       drawMultiRectReuse(

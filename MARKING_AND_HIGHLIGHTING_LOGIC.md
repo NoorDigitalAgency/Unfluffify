@@ -263,8 +263,13 @@ exclusion selectors rendered with no exclusion rows at all, and the whole
 assessment flipped whenever the first user mark landed or was removed.
 
 For toggleable default exclusions, a stored row with `excluded: false` is the
-user's explicit unmark for that exact default boundary. It must suppress the
-boundary's own default-layer marking without suppressing unmarked descendants,
+user's explicit unmark for that exact default boundary. A direct exclude-mode
+click on an already-default-excluded boundary that has no stored row records that
+`excluded: false` unmark on the FIRST click, rather than promoting the boundary
+to a redundant explicit exclusion (which is visually identical to the default
+exclusion and would force a second click to actually toggle it off). It must
+suppress the boundary's own default-layer marking without suppressing unmarked
+descendants,
 so the unmarked boundary does not render as a visual-only ghost around an
 explicit descendant marking. That self-suppression applies only when the
 boundary has visible textual descendants that render in its place: a LEAF
