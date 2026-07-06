@@ -202,7 +202,7 @@ test("popup wiring repaints live brain snapshots and keeps imperative writers be
   );
   assert.match(
     popupSource,
-    /await refreshCurrentPageRuntimeStatus\(\);[\s\S]*?const view = uiModule\.getViewState\(\);[\s\S]*?if \(view\.previewLatestBlockedReason === SECONDARY_GATES_BLOCK_REASONS\.SERVER_SYNC_PENDING\) \{[\s\S]*?if \(view\.previewLatestBlockedReason !== SECONDARY_GATES_BLOCK_REASONS\.NONE\) \{\s*return;\s*\}/
+    /await refreshCurrentPageRuntimeStatus\(\);[\s\S]*?const view = uiModule\.getViewState\(\);[\s\S]*?if \(view\.previewLatestBlockedReason === SECONDARY_GATES_BLOCK_REASONS\.SERVER_SYNC_PENDING\) \{[\s\S]*?if \(view\.previewLatestBlockedReason !== SECONDARY_GATES_BLOCK_REASONS\.NONE\) \{[\s\S]*?return;\s*\}/
   );
   assert.match(
     popupSource,

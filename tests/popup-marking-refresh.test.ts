@@ -145,10 +145,35 @@ test("silent mode gates preview, save-excludes, and Lynx checklist submission", 
     popupSource,
     /nextViewState\.cssSelectorsVisible = silentModeActive;/
   );
-  assert.match(previewBody, /if \(view\.previewLatestBlockedReason !== SECONDARY_GATES_BLOCK_REASONS\.NONE\) \{\s*return;\s*\}/);
+  // A defensive re-check race must never fail mute: the catch-all surfaces the
+  // openFailed toast instead of silently returning.
+  assert.match(previewBody, /if \(view\.previewLatestBlockedReason !== SECONDARY_GATES_BLOCK_REASONS\.NONE\) \{[\s\S]*?uiModule\.showToast\(PopupText\.preview\.openFailed\);\s*return;\s*\}/);
   assert.match(saveExcludesBody, /if \(view\.saveExcludesBlockedReason !== SECONDARY_GATES_BLOCK_REASONS\.NONE\) \{[\s\S]*?uiModule\.showToast\([\s\S]*?return;\s*\}/);
   assert.match(sendBody, /const view = await refreshUiForActionGates\(\);[\s\S]*?if \(view\.lynxChecklistSendBlockedReason\) \{/);
   assert.doesNotMatch(sendBody, /aiAnswer:/);
+});
+
+test("preview open never fails mute: previewBlocked + gate races surface a toast", () => {
+  const popupSource = readFileSync(new URL("../src/popup.ts", import.meta.url), "utf8");
+  const silentBody = popupSource.match(
+    /async function handlePreviewLatest\(\) \{([\s\S]*?)\n\}\n\nasync function handleMarkingPreview/
+  )[1];
+  const markingBody = popupSource.match(
+    /async function handleMarkingPreview\(\) \{([\s\S]*?)\n\}\n\nasync function handleExitPreviewMode/
+  )[1];
+
+  assert.match(
+    silentBody,
+    /if \(latestView\.previewBlocked\) \{\s*uiModule\.showToast\(PopupText\.preview\.openFailed\);\s*return;\s*\}/
+  );
+  assert.match(
+    markingBody,
+    /if \(latestView\.markingPreviewBlockedReason !== SECONDARY_GATES_BLOCK_REASONS\.NONE\) \{[\s\S]*?uiModule\.showToast\(PopupText\.preview\.openFailed\);\s*return;\s*\}/
+  );
+  assert.match(
+    markingBody,
+    /if \(uiModule\.getViewState\(\)\.previewBlocked\) \{\s*uiModule\.showToast\(PopupText\.preview\.openFailed\);\s*return;\s*\}/
+  );
 });
 
 test("the silent Content List preview never snapshots a marking session (N4)", () => {

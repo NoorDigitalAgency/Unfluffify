@@ -9057,6 +9057,10 @@ async function handlePreviewLatest() {
     return;
   }
   if (view.previewLatestBlockedReason !== SECONDARY_GATES_BLOCK_REASONS.NONE) {
+    // Defensive re-check race (BUSY / NOT_AVAILABLE / NOT_READY / PREVIEW_BLOCKED):
+    // the button was enabled at render but a gate flipped before the click. Never
+    // fail mute — tell the user the preview could not be opened.
+    uiModule.showToast(PopupText.preview.openFailed);
     return;
   }
   const selectorSet = getLatestAvailableSelectorsFromConfig();
@@ -9066,6 +9070,7 @@ async function handlePreviewLatest() {
   }
   const latestView = uiModule.getViewState();
   if (latestView.previewBlocked) {
+    uiModule.showToast(PopupText.preview.openFailed);
     return;
   }
   clearLastPopupEnabled();
@@ -9118,6 +9123,9 @@ async function handleMarkingPreview() {
     return;
   }
   if (latestView.markingPreviewBlockedReason !== SECONDARY_GATES_BLOCK_REASONS.NONE) {
+    // Defensive re-check race: a gate flipped between render and click. Never fail
+    // mute — surface that the preview could not be opened.
+    uiModule.showToast(PopupText.preview.openFailed);
     return;
   }
   captureMarkingSessionSnapshot();
@@ -9127,6 +9135,7 @@ async function handleMarkingPreview() {
     return;
   }
   if (uiModule.getViewState().previewBlocked) {
+    uiModule.showToast(PopupText.preview.openFailed);
     return;
   }
   collapseTodoListForAutoCollapse();
