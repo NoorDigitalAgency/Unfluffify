@@ -61,8 +61,33 @@ test("disableExtensionOnTopLevelNavigation never preserves marking for same-base
   );
 
   assert.doesNotMatch(block, /preserveEnabledOnNavigation/);
-  assert.doesNotMatch(block, /isPageWithinBaseUrl/);
+  // isPageWithinBaseUrl is used ONLY to decide cross-URL volatile-state disposal,
+  // never to gate/skip the marking disable — the disable stays unconditional on
+  // the enabled path. The compute-lock early-return applies to same-URL reloads
+  // (incl. render-mode inspection reloads) only.
+  assert.match(
+    block,
+    /if \(crossUrlNavigation\) \{\s*disposeTabState\(tabId\);\s*\} else if \(isAiComputeLockActiveForTab\(tabId\)\) \{\s*return;/
+  );
   assert.match(block, /await utils\.disableExtensionForTab\(tabId\);/);
+});
+
+test("disableExtensionOnTopLevelNavigation disposes volatile tab state on cross-URL navigation", () => {
+  // A navigation to a different property/base URL abandons the previous page's
+  // session: its AI compute lock, spinner queue, lifecycle, and world-trace must
+  // be disposed so a fresh Run AI / clean load is not blocked by leaked state.
+  // Same-URL reloads (including render-mode inspection reloads) are excluded.
+  const block = extractFunctionBody(
+    backgroundSource,
+    "async function disableExtensionOnTopLevelNavigation",
+    "browser.webNavigation.onCommitted"
+  );
+
+  assert.match(
+    block,
+    /const crossUrlNavigation = Boolean\(\s*previousBaseUrl && nextUrl && !utils\.isPageWithinBaseUrl\(nextUrl, previousBaseUrl\)\s*\);/
+  );
+  assert.match(block, /if \(crossUrlNavigation\) \{\s*disposeTabState\(tabId\);/);
 });
 
 test("background sweeps stale transfer-payload keys on service-worker start", () => {

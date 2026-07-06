@@ -3846,10 +3846,26 @@ async function disableExtensionOnTopLevelNavigation(details: TopLevelNavigationD
   if (!tabId) {
     return;
   }
-  if (isAiComputeLockActiveForTab(tabId)) {
+  const state = await utils.getTabState(tabId);
+  const previousBaseUrl = state && typeof state.baseUrl === "string" ? state.baseUrl : "";
+  const nextUrl = typeof details.url === "string" ? details.url : "";
+  // A navigation to a DIFFERENT property/base URL abandons the previous page's
+  // session entirely. Its per-tab volatile state — AI compute lock, spinner
+  // queue, lifecycle, world-trace — is meaningless on the new page and would
+  // otherwise leak across the navigation (a leftover compute lock skipping the
+  // disable below, a stale curtain/spinner, or a stale command ledger blocking a
+  // fresh Run AI). Reset it so the new page behaves as freshly activated. This
+  // is scoped to cross-URL navigations, which excludes same-URL reloads
+  // (including render-mode inspection reloads, which reload the same URL and
+  // must keep their in-flight state) — those keep the compute-lock guard below.
+  const crossUrlNavigation = Boolean(
+    previousBaseUrl && nextUrl && !utils.isPageWithinBaseUrl(nextUrl, previousBaseUrl)
+  );
+  if (crossUrlNavigation) {
+    disposeTabState(tabId);
+  } else if (isAiComputeLockActiveForTab(tabId)) {
     return;
   }
-  const state = await utils.getTabState(tabId);
   if (!state || !state.enabled) {
     return;
   }
