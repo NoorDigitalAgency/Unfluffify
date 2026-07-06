@@ -90,6 +90,25 @@ test("disableExtensionOnTopLevelNavigation disposes volatile tab state on cross-
   assert.match(block, /if \(crossUrlNavigation\) \{\s*disposeTabState\(tabId\);/);
 });
 
+test("content activates at page load on configured property pages, popup-independent", () => {
+  // Durable contract: consent/reveal/silent must run at page load on every
+  // configured property page even when the popup was never opened for the tab.
+  // The onUpdated(complete) handler activates content when the loaded URL resolves
+  // to a configured property, not only when initial.active is set by the popup.
+  const block = extractFunctionBody(
+    backgroundSource,
+    "browser.tabs.onUpdated.addListener",
+    "utils.addStorageChangeListener"
+  );
+
+  assert.match(block, /const initialActive = Boolean\(/);
+  assert.match(
+    block,
+    /if \(!initialActive\) \{[\s\S]*?configStore\.getConfigs\(\)[\s\S]*?utils\.findMatchingBaseUrl\(tab\.url, configs\)[\s\S]*?if \(!isConfiguredPropertyPage\) \{\s*return;/
+  );
+  assert.match(block, /requestContentActivation\(tabId\);/);
+});
+
 test("background sweeps stale transfer-payload keys on service-worker start", () => {
   // Sweep must run at module scope from background startup, while key/TTL
   // logic lives in the dedicated transfer payload store module.

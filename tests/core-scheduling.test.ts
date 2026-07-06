@@ -995,6 +995,18 @@ test("curtain shows a single spinner: page-inspection notice hides under popup-b
   );
 });
 
+test("consent hiding runs on every resolved property page, decoupled from the silent directive", () => {
+  const contentMain = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
+
+  // hideConsentElements() runs right after the property snapshot is confirmed and
+  // BEFORE the silent-highlight directive early-return, so a non-candidate property
+  // page (no stored selectors, no reveal/freeze) still hides its consent banner.
+  assert.match(
+    contentMain,
+    /const snapshot = loadResult\.snapshot;\s*if \(!snapshot\) \{[\s\S]*?return;\s*\}[\s\S]*?core\.hideConsentElements\(\);[\s\S]*?if \(!isSilentHighlightActiveByDirective\(\) && !snapshot\.holdSilentMotionPause\)/
+  );
+});
+
 test("S3: scroll/silent cache invalidation + no mid-scroll paint verdicts", () => {
   const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
   const contentMain = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");

@@ -4196,9 +4196,19 @@ browser.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (changeInfo.status !== "complete") {
     return;
   }
-  if (!((await utils.getTabState(tabId, 'initial')) || {active: false}).active)
-  {
-    return;
+  const initialActive = Boolean(((await utils.getTabState(tabId, "initial")) || { active: false }).active);
+  if (!initialActive) {
+    // Durable contract: consent hiding + reveal/freeze + silent highlighting must
+    // run at page load on EVERY configured property page, even when the popup was
+    // never opened for this tab (so the user cannot accidentally interact with the
+    // site's consent banner and a candidate page reveals/freezes at load). Activate
+    // content when the loaded URL resolves to a configured property; stay dormant
+    // on unrelated pages so the heavy content engine does not run everywhere.
+    const configs = await configStore.getConfigs().catch(() => ({} as Record<string, unknown>));
+    const isConfiguredPropertyPage = Boolean(tab.url && utils.findMatchingBaseUrl(tab.url, configs));
+    if (!isConfiguredPropertyPage) {
+      return;
+    }
   }
   // Per the editor-mobile-only contract, marking does not auto-restore on
   // page-load. The restore scope is never populated. We still read live tab

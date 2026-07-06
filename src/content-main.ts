@@ -5601,6 +5601,13 @@ async function refreshSilentHighlightings() {
     deactivateSilentHighlightings();
     return;
   }
+  // Durable contract: consent hiding runs on ALL property pages, decoupled from
+  // candidacy / marking mode / the reveal-freeze + silent-highlight directives. A
+  // non-null snapshot means this page resolved to a configured property, so hide
+  // the site's consent UI here — BEFORE the directive early-return below — so a
+  // non-candidate property page (no stored selectors, no reveal/freeze) still gets
+  // its consent banner hidden and the user cannot dismiss it by mistake.
+  core.hideConsentElements();
   // No stored-selector overlays for this page. If the page-prep reveal/freeze was
   // prepared for a render-mode-confirmed candidate (holdSilentMotionPause), keep
   // going so the motion pause is HELD (the !shouldObserve branch below renders no
