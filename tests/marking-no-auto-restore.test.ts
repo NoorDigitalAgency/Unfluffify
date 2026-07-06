@@ -67,7 +67,7 @@ test("disableExtensionOnTopLevelNavigation never preserves marking for same-base
   // (incl. render-mode inspection reloads) only.
   assert.match(
     block,
-    /if \(crossUrlNavigation\) \{\s*disposeTabState\(tabId\);\s*\} else if \(isAiComputeLockActiveForTab\(tabId\)\) \{\s*return;/
+    /if \(crossUrlNavigation\) \{\s*disposeTabState\(tabId\);[\s\S]*?\} else if \(isAiComputeLockActiveForTab\(tabId\)\) \{\s*return;/
   );
   assert.match(block, /await utils\.disableExtensionForTab\(tabId\);/);
 });
@@ -88,6 +88,12 @@ test("disableExtensionOnTopLevelNavigation disposes volatile tab state on cross-
     /const crossUrlNavigation = Boolean\(\s*previousBaseUrl && nextUrl && !utils\.isPageWithinBaseUrl\(nextUrl, previousBaseUrl\)\s*\);/
   );
   assert.match(block, /if \(crossUrlNavigation\) \{\s*disposeTabState\(tabId\);/);
+  // Cross-property navigation also ends the editor session: it clears the sticky
+  // initial.active and the brain editor-activation gate so the NEW property starts as
+  // a fresh passive load (consent hiding only) instead of inheriting the previous
+  // property's reveal/freeze + silent activation.
+  assert.match(block, /if \(crossUrlNavigation\) \{[\s\S]*?brain\.recordEditorActivation\(tabId, false\);/);
+  assert.match(block, /if \(crossUrlNavigation\) \{[\s\S]*?"initial"\s*\);/);
 });
 
 test("content activates at page load on configured property pages, popup-independent", () => {

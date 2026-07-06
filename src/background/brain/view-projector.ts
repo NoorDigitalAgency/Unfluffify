@@ -138,6 +138,14 @@ function shouldActivateSilentHighlighting(state: TabLayerState): boolean {
   if (!state.sessionFactsReported) {
     return false;
   }
+  // Editor-activation gate: silent highlighting renders only after the real
+  // activation (popup bootstrap / post-render-mode-view), never on the passive
+  // page-load content activation. At plain load a property page hides consent only;
+  // deferring silent + reveal keeps the one-per-visit reveal for the real activation
+  // so it does not render blank. See TabLayerState.editorActivated.
+  if (!state.editorActivated) {
+    return false;
+  }
   const facts = state.sessionFacts;
   // The silent-highlight editor preparation IS a page inspection: while it runs
   // it sets navigationInspectionPending, pageInspectionBusy, and an
@@ -201,6 +209,13 @@ function shouldActivateSilentHighlighting(state: TabLayerState): boolean {
 // broad directive here is safe (non-candidate pages bail before freezing).
 function shouldRevealFreezePage(state: TabLayerState): boolean {
   if (!state.sessionFactsReported) {
+    return false;
+  }
+  // Editor-activation gate (see shouldActivateSilentHighlighting): the reveal/freeze
+  // ritual runs only for the real activation (popup / post-render-mode-view), not the
+  // passive page-load activation — so it does not consume the one-per-visit reveal at
+  // load and leave the real activation blank.
+  if (!state.editorActivated) {
     return false;
   }
   const facts = state.sessionFacts;

@@ -148,6 +148,16 @@ export type TabLayerState = {
   };
   siteId: number | null;
   pageDataLoadStatus: "ok" | "not_found" | "skipped" | "error" | "auth_error" | null;
+  // True once the editor/popup has activated this tab (mirrors the tab-state
+  // "initial.active" the popup bootstrap sets). The PASSIVE page-load content
+  // activation (background requestContentActivation on a property page) leaves this
+  // false, so reveal/freeze + silent highlighting wait for the REAL activation
+  // (popup bootstrap, incl. post-render-mode-view) and do not consume the
+  // one-per-visit reveal at load — which otherwise left the real activation blank.
+  // Consent hiding is decoupled in content and still runs on every property page at
+  // load. Internal brain state only: intentionally NOT part of the projected
+  // ActivationSnapshot contract.
+  editorActivated: boolean;
 };
 
 type ProjectionCallback = (tabId: number, state: TabLayerState, reason: string) => void;
@@ -180,6 +190,7 @@ function createInitialTabState(tabId: number): TabLayerState {
     tabState: { enabled: false, baseUrl: "", pageType: "" },
     siteId: null,
     pageDataLoadStatus: null,
+    editorActivated: false,
   };
 }
 

@@ -681,6 +681,9 @@ describe("popup view projector", () => {
       tabState: { enabled: false, baseUrl: "", pageType: "" },
       siteId: null,
       pageDataLoadStatus: null,
+      // Editor-activated: silent + reveal require a REAL activation (popup bootstrap /
+      // post-render-mode-view); the passive page-load activation leaves this false.
+      editorActivated: true,
     });
     const savedSilentFacts = {
       ...baseSessionFacts,
@@ -690,6 +693,15 @@ describe("popup view projector", () => {
     };
 
     expect(projectViews(buildState(savedSilentFacts)).contentDirective.silentHighlightActive).toBe(true);
+    // Editor-activation gate: the passive page-load activation (editorActivated false)
+    // hides consent only — silent highlighting AND reveal/freeze wait for the real
+    // activation so the one-per-visit reveal is not consumed at load and left blank.
+    const passiveLoadSilentState = buildState(savedSilentFacts);
+    passiveLoadSilentState.editorActivated = false;
+    expect(projectViews(passiveLoadSilentState).contentDirective.silentHighlightActive).toBe(false);
+    expect(projectViews(passiveLoadSilentState).contentDirective.pageRevealFreezeActive).toBe(false);
+    // With the editor activated, the clean candidate also gets the reveal/freeze directive.
+    expect(projectViews(buildState(savedSilentFacts)).contentDirective.pageRevealFreezeActive).toBe(true);
     expect(projectViews(buildState({ ...savedSilentFacts, hasStoredSelectors: false })).contentDirective.silentHighlightActive).toBe(false);
     expect(projectViews(buildState({ ...savedSilentFacts, isEnabled: true, silentModeActive: false })).contentDirective.silentHighlightActive).toBe(false);
     expect(projectViews(buildState({ ...savedSilentFacts, sessionHasPendingChanges: true })).contentDirective.silentHighlightActive).toBe(false);

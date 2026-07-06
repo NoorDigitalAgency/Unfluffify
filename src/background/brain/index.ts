@@ -905,6 +905,21 @@ export function createBrain(options: { logger?: Pick<Console, "error" | "debug">
     ) {
       return updateActivationBootstrapStateValue(store, tabId, patch, reason);
     },
+    // Editor/popup activation gate for the reveal-freeze + silent-highlight
+    // directives. The passive page-load content activation records false (consent
+    // hiding only); the popup bootstrap / same-base load of an already-activated tab
+    // records true. Idempotent: only mutates (and re-projects) on an actual change,
+    // and never creates a tab entry just to store false.
+    recordEditorActivation(tabId: number, active: boolean) {
+      const next = Boolean(active);
+      const current = store.get(tabId);
+      if (current ? current.editorActivated === next : !next) {
+        return;
+      }
+      store.mutate(tabId, "background:editor-activation", (draft) => {
+        draft.editorActivated = next;
+      });
+    },
     getActivationSnapshot(tabId: number) {
       return getActivationSnapshotValue(store, tabId);
     },
@@ -931,6 +946,17 @@ export function createBrain(options: { logger?: Pick<Console, "error" | "debug">
     registerPopupPort(tabId: number, port: Browser.runtime.Port): void {
       transport.registerPopupPort(tabId, port);
       popupPortCounts.set(tabId, (popupPortCounts.get(tabId) ?? 0) + 1);
+      // A connected popup IS the real editor activation — re-assert the reveal/
+      // freeze + silent-highlight gate here so it survives a popup REOPEN that skips
+      // the bootstrap (initial.active already set) and a service-worker restart that
+      // lost/skipped the persisted flag. Without this the reopened popup could sit on
+      // a closed gate and render nothing (the very blank this whole fix prevents).
+      const activationState = store.get(tabId);
+      if (!activationState || activationState.editorActivated !== true) {
+        store.mutate(tabId, "brain:popup-connect-editor-activation", (draft) => {
+          draft.editorActivated = true;
+        });
+      }
       // A (re)connecting popup restarts its facts sequence at 1, so clear the
       // brain's high-water mark or the reloaded popup's reports would be dropped.
       resetPopupSessionFactsSeq(tabId);

@@ -1152,6 +1152,10 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_BOOTSTRAP_CONTENT, async (cont
 
   const tabUrl = typeof tab.url === "string" ? tab.url : "";
   await utils.setTabState(normalizedTabId, { active: true }, "initial");
+  // The popup bootstrap is the real editor activation: unlock the reveal/freeze +
+  // silent-highlight directives for this tab (the passive page-load activation keeps
+  // them gated so it only hides consent and never consumes the one-per-visit reveal).
+  brain.recordEditorActivation(normalizedTabId, true);
   await utils.updateActionForTab(normalizedTabId);
 
   const mobileState = await ensureDefaultMobileEmulationForTab(normalizedTabId, tabUrl);
@@ -3847,8 +3851,19 @@ async function disableExtensionOnTopLevelNavigation(details: TopLevelNavigationD
     return;
   }
   const state = await utils.getTabState(tabId);
-  const previousBaseUrl = state && typeof state.baseUrl === "string" ? state.baseUrl : "";
   const nextUrl = typeof details.url === "string" ? details.url : "";
+  let previousBaseUrl = state && typeof state.baseUrl === "string" ? state.baseUrl : "";
+  if (!previousBaseUrl && nextUrl) {
+    // A popup-activated-but-not-marking tab has no default-scope baseUrl, so fall
+    // back to the page content was last active on to still detect a cross-property
+    // navigation — needed so the editor-activation gate is reset below (otherwise a
+    // tab activated on property A would reveal/freeze property B at load).
+    const lastContentPageUrl = brain.getActivationSnapshot(tabId)?.lastContentPageUrl || "";
+    if (lastContentPageUrl) {
+      const cfgs = await configStore.getConfigs().catch(() => ({} as Record<string, unknown>));
+      previousBaseUrl = utils.findMatchingBaseUrl(lastContentPageUrl, cfgs) || "";
+    }
+  }
   // A navigation to a DIFFERENT property/base URL abandons the previous page's
   // session entirely. Its per-tab volatile state — AI compute lock, spinner
   // queue, lifecycle, world-trace — is meaningless on the new page and would
@@ -3863,6 +3878,19 @@ async function disableExtensionOnTopLevelNavigation(details: TopLevelNavigationD
   );
   if (crossUrlNavigation) {
     disposeTabState(tabId);
+    // Cross-property navigation ends this tab's editor session: clear the sticky
+    // initial.active + the brain editor-activation gate so the NEW property starts as
+    // a fresh passive load (consent hiding only) until it is activated — otherwise it
+    // inherits the previous property's activation and reveals/freezes at load without
+    // the popup ever being opened for it. (Same-base navigations keep it — that is the
+    // sanctioned candidate-page-load-during-a-session reveal.)
+    const existingInitial = await utils.getTabState(tabId, "initial");
+    await utils.setTabState(
+      tabId,
+      { ...(existingInitial && typeof existingInitial === "object" ? existingInitial : {}), active: false },
+      "initial"
+    );
+    brain.recordEditorActivation(tabId, false);
   } else if (isAiComputeLockActiveForTab(tabId)) {
     return;
   }
@@ -4225,6 +4253,12 @@ browser.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     await utils.disableExtensionForTab(tabId);
     return;
   }
+  // Mirror the tab's editor-activation onto the brain so the reveal/freeze + silent
+  // directives project only for a real activation: a fresh property page (initial
+  // .active false) activates content for CONSENT HIDING ONLY, while a same-base load
+  // of an already-activated tab (initial.active true, i.e. an active editor session)
+  // reveals/highlights on candidate-page-load. The popup bootstrap sets it true.
+  brain.recordEditorActivation(tabId, initialActive);
   requestContentActivation(tabId);
   // restoreEnabledStateForTab is a no-op when tabState is null/disabled (the
   // common case now that auto-restore is retired) but is kept to preserve the
