@@ -2863,6 +2863,17 @@ function isWithinExplicitExcludedXpath(
   return false;
 }
 
+function entryHasSelectorSuppressedXpaths(
+  entry: PageMarkingEntry | null | undefined
+): boolean {
+  if (!entry || typeof entry !== "object") {
+    return false;
+  }
+  const suppressed = entry.selectorSuppressedXpaths;
+  return Array.isArray(suppressed)
+    && suppressed.some((xpath) => typeof xpath === "string" && xpath.length > 0);
+}
+
 function collectXPathElements(xpaths: Iterable<string> | null | undefined): Set<Element> {
   const elements = new Set<Element>();
   for (const xpath of xpaths || []) {
@@ -11127,8 +11138,24 @@ function renderHighlightsInner() {
   const hasAiSelectors = latestSelectorContext.hasAiSelectors;
   const existingPageEntry = findPageMarkingEntry(state.config, pageUrl);
   const hasSavedMarkingsForPage = hasExplicitUserMarkings(existingPageEntry);
-  const suppressAutoSeed = state.autoSeedSuppressedPageUrl === pageUrl;
-  if (suppressAutoSeed) {
+  // Once the user has manually toggled marking on this page, they own the
+  // baseline and the CSS/AI auto-seed must never re-run and wipe it. Without
+  // this, unmarking a selector-seeded (non-default) exclusion leaves a
+  // { excluded: false } row that hasExplicitUserMarkings does not count as a
+  // user mark (isStoredExcludeStateUserModified is false when the element is not
+  // a toggleable default), so the next non-suppressed rebuild reseeds the
+  // exclusion — the unmark visibly reverts (~50%, racing the trailing reconcile)
+  // and the element is resubmitted as excluded. hasUserMarkingEdit covers on-page
+  // toggles (set by completeExplicitToggle, cleared at enable/disable/discard);
+  // a non-empty selectorSuppressedXpaths covers the popup Show-Content-List
+  // unmark path (which records suppression but no user-edit signal). The first
+  // seed still runs once per session before any edit.
+  const hasUserOwnedBaseline =
+    hasUserMarkingEdit(pageUrl) ||
+    entryHasSelectorSuppressedXpaths(existingPageEntry);
+  const suppressAutoSeed =
+    state.autoSeedSuppressedPageUrl === pageUrl || hasUserOwnedBaseline;
+  if (state.autoSeedSuppressedPageUrl === pageUrl) {
     state.autoSeedSuppressedPageUrl = "";
   }
   let hasEntry = hasPageMarkingEntry(state.config, pageUrl);

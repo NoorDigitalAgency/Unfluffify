@@ -902,6 +902,33 @@ test("CP7b: branch-scoped rebuild is single-toggle gated, guarded, and backstopp
   );
 });
 
+test("auto-seed does not re-run once the user owns the page baseline (unmark durability)", () => {
+  const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
+
+  // A user-owned baseline suppresses the CSS/AI auto-seed so unmarking a
+  // selector-seeded (non-default) exclusion is not wiped and reseeded on the
+  // next rebuild. Covers on-page toggles (hasUserMarkingEdit) and the popup
+  // Show-Content-List unmark path (selectorSuppressedXpaths).
+  assert.match(
+    source,
+    /const hasUserOwnedBaseline =\s*hasUserMarkingEdit\(pageUrl\) \|\|\s*entryHasSelectorSuppressedXpaths\(existingPageEntry\);/
+  );
+  assert.match(
+    source,
+    /const suppressAutoSeed =\s*state\.autoSeedSuppressedPageUrl === pageUrl \|\| hasUserOwnedBaseline;/
+  );
+  // The one-shot restore suppression is only consumed on an exact page match, so
+  // a user-owned-baseline suppression never wrongly clears another page's flag.
+  assert.match(
+    source,
+    /if \(state\.autoSeedSuppressedPageUrl === pageUrl\) \{\s*state\.autoSeedSuppressedPageUrl = "";/
+  );
+  assert.match(
+    source,
+    /function entryHasSelectorSuppressedXpaths\([\s\S]*?Array\.isArray\(suppressed\)[\s\S]*?xpath\.length > 0/
+  );
+});
+
 test("S3: scroll/silent cache invalidation + no mid-scroll paint verdicts", () => {
   const source = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
   const contentMain = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
