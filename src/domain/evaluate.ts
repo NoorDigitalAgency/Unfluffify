@@ -10,6 +10,9 @@ export type EvaluationNode = Readonly<{
   visible: boolean;
   ownsDirectText?: boolean;
   structuralBoundary?: boolean;
+  pageShell?: boolean;
+  landmarkCount?: number;
+  broadViewportFootprint?: boolean;
   chrome?: boolean;
   immutable?: boolean;
   closedShadow?: boolean;

@@ -6,6 +6,7 @@ export type MarkingCandidate = Readonly<{
   selfMarkable: boolean;
   excluded?: boolean;
   explicitInclude?: boolean;
+  closedShadow?: boolean;
   children?: readonly MarkingCandidate[];
   parent?: MarkingCandidate | null;
 }>;
@@ -19,6 +20,9 @@ export function resolveTarget(
   mode: MarkMode,
 ): MarkingCandidate | null {
   if (mode === "disabled" || mode === "passthrough") {
+    return null;
+  }
+  if (hitPath[0]?.closedShadow) {
     return null;
   }
   if (mode === "include") {

@@ -11,6 +11,7 @@ import {
   resolveTarget,
   type MarkingCandidate,
 } from "../../../../src/content/marking";
+import { stripUncapturableHtml } from "../../../../src/content/marking/submit";
 
 const leaf = (key: string, xpath: string): EvaluationNode => ({
   key,
@@ -404,5 +405,14 @@ describe("P6 content marking engine", () => {
       defaultExclusionSelectors: ["IMG", "INPUT", "NOSCRIPT", "SELECT", "TITLE", "STYLE", "SCRIPT", "TEMPLATE", "IFRAME", "VIDEO", "SVG"],
       pages: [{ renderedXPaths: [{ xpath: left.xpath, excluded: false }] }],
     });
+  });
+
+  it("strips closed-shadow hosts from submitted rendered HTML to preserve XPath alignment", () => {
+    expect(stripUncapturableHtml(
+      '<section><div data-uf-closed-shadow-host="true"><p>Closed</p></div><div>Content</div></section>',
+    )).toBe("<section><div>Content</div></section>");
+    expect(stripUncapturableHtml(
+      '<section><div data-uf-closed-shadow-host="true"><div>Closed</div></div><div>Content</div></section>',
+    )).toBe("<section><div>Content</div></section>");
   });
 });
