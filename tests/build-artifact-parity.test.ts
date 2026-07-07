@@ -55,6 +55,14 @@ test("generated extension manifest and resources resolve", async () => {
     assert.equal(existsSync(path.join(OUTPUT_ROOT, rel)), true, `missing generated file: ${rel}`);
   }
 
+  const pageWorldScript = (Array.isArray(manifest.content_scripts) ? manifest.content_scripts : [])
+    .find((contentScript) =>
+      contentScript?.world === "MAIN" &&
+      Array.isArray(contentScript?.js) &&
+      contentScript.js.some((scriptPath) => String(scriptPath).includes("page-world"))
+    );
+  assert.ok(pageWorldScript, "generated manifest should include the P5 page-world MAIN script");
+
   assert.equal(existsSync(path.join(OUTPUT_ROOT, "cursors/exclude.svg")), true, "missing generated file: cursors/exclude.svg");
   assert.equal(existsSync(path.join(OUTPUT_ROOT, "cursors/include.svg")), true, "missing generated file: cursors/include.svg");
   assert.equal(existsSync(path.join(OUTPUT_ROOT, "logo.png")), true, "missing generated file: logo.png");

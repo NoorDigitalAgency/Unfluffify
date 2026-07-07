@@ -61,14 +61,14 @@ describe("P1 page transport (INV-10.12..INV-10.14)", () => {
   it("requires response nonce and originating command to match", async () => {
     const fake = endpoint();
     const transport = createPageTransport(fake.api, { nextNonce: () => "nonce-1" });
-    const pending = transport.send(requestFrame("SET_MOTION_PAUSED"));
+    const pending = transport.send(requestFrame("ARM"));
 
     expect(fake.posted).toEqual([
       {
         kind: PAGE_BUS_PROTOCOL,
         type: "request",
         nonce: "nonce-1",
-        command: "SET_MOTION_PAUSED",
+        command: "ARM",
         payload: { paused: true },
       },
     ]);
@@ -77,14 +77,6 @@ describe("P1 page transport (INV-10.12..INV-10.14)", () => {
       kind: PAGE_BUS_PROTOCOL,
       type: "response",
       nonce: "wrong",
-      command: "SET_MOTION_PAUSED",
-      ok: true,
-      payload: { ignored: true },
-    });
-    fake.reply({
-      kind: PAGE_BUS_PROTOCOL,
-      type: "response",
-      nonce: "nonce-1",
       command: "ARM",
       ok: true,
       payload: { ignored: true },
@@ -95,6 +87,14 @@ describe("P1 page transport (INV-10.12..INV-10.14)", () => {
       nonce: "nonce-1",
       command: "SET_MOTION_PAUSED",
       ok: true,
+      payload: { ignored: true },
+    });
+    fake.reply({
+      kind: PAGE_BUS_PROTOCOL,
+      type: "response",
+      nonce: "nonce-1",
+      command: "ARM",
+      ok: true,
       payload: { applied: true },
     });
 
@@ -103,6 +103,88 @@ describe("P1 page transport (INV-10.12..INV-10.14)", () => {
       ok: true,
       payload: { applied: true },
     });
+  });
+
+  it("reuses the ARM session nonce while keeping fresh request nonces", async () => {
+    const fake = endpoint();
+    const nonces = ["arm-nonce", "request-nonce"];
+    const transport = createPageTransport(fake.api, { nextNonce: () => nonces.shift() ?? "extra" });
+    const arm = transport.send(requestFrame("ARM"));
+    expect(fake.posted[0]).toMatchObject({
+      nonce: "arm-nonce",
+      sessionNonce: undefined,
+      command: "ARM",
+    });
+    fake.reply({
+      kind: PAGE_BUS_PROTOCOL,
+      type: "response",
+      nonce: "arm-nonce",
+      command: "ARM",
+      ok: true,
+      payload: { armed: true },
+    });
+    await arm;
+
+    const setPaused = transport.send(requestFrame("SET_MOTION_PAUSED"));
+    expect(fake.posted[1]).toMatchObject({
+      nonce: "request-nonce",
+      sessionNonce: "arm-nonce",
+      command: "SET_MOTION_PAUSED",
+    });
+    fake.reply({
+      kind: PAGE_BUS_PROTOCOL,
+      type: "response",
+      nonce: "request-nonce",
+      command: "SET_MOTION_PAUSED",
+      ok: true,
+      payload: { applied: true },
+    });
+    await expect(setPaused).resolves.toMatchObject({ ok: true });
+  });
+
+  it("reuses a pending ARM nonce when retrying after a timeout", async () => {
+    const fake = endpoint();
+    const nonces = ["arm-nonce", "request-nonce"];
+    const transport = createPageTransport(fake.api, {
+      nextNonce: () => nonces.shift() ?? "extra",
+      responseTimeoutMs: 1,
+    });
+
+    await expect(transport.send(requestFrame("ARM"))).resolves.toMatchObject({
+      ok: false,
+      failure: { code: "PAGE_COMMAND_TIMEOUT" },
+    });
+
+    const retry = transport.send(requestFrame("ARM"));
+    expect(fake.posted[1]).toMatchObject({
+      nonce: "arm-nonce",
+      command: "ARM",
+    });
+    fake.reply({
+      kind: PAGE_BUS_PROTOCOL,
+      type: "response",
+      nonce: "arm-nonce",
+      command: "ARM",
+      ok: true,
+      payload: { armed: true },
+    });
+    await retry;
+
+    const setPaused = transport.send(requestFrame("SET_MOTION_PAUSED"));
+    expect(fake.posted.at(-1)).toMatchObject({
+      nonce: "request-nonce",
+      sessionNonce: "arm-nonce",
+      command: "SET_MOTION_PAUSED",
+    });
+    fake.reply({
+      kind: PAGE_BUS_PROTOCOL,
+      type: "response",
+      nonce: "request-nonce",
+      command: "SET_MOTION_PAUSED",
+      ok: true,
+      payload: { applied: true },
+    });
+    await expect(setPaused).resolves.toMatchObject({ ok: true });
   });
 
   it("returns structured failures for rejected commands", async () => {

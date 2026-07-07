@@ -15,6 +15,7 @@ export type PageRequestMessage = Readonly<{
   kind: typeof PAGE_BUS_PROTOCOL;
   type: "request";
   nonce: string;
+  sessionNonce?: string;
   command: PageCommandName;
   payload: unknown;
 }>;
@@ -84,6 +85,8 @@ export function createPageTransport(
 ): Transport {
   const nextNonce = options.nextNonce ?? (() => crypto.randomUUID());
   const responseTimeoutMs = options.responseTimeoutMs ?? 30_000;
+  let sessionNonce = "";
+  let pendingArmNonce = "";
 
   return {
     async send(frame: BusFrame): Promise<BusFrame | void> {
@@ -95,17 +98,32 @@ export function createPageTransport(
         return makeReply(frame, false, makeFailure("PAGE_COMMAND_REJECTED", `Unsupported page command ${frame.name}`));
       }
       if (frame.frameType === "event") {
+        const nonce = command === "ARM" && !sessionNonce && pendingArmNonce
+          ? pendingArmNonce
+          : nextNonce();
+        if (command === "ARM" && !sessionNonce) {
+          pendingArmNonce = nonce;
+        }
         endpoint.postMessage({
           kind: PAGE_BUS_PROTOCOL,
           type: "request",
-          nonce: nextNonce(),
+          nonce,
+          sessionNonce: command === "ARM" ? undefined : sessionNonce,
           command,
           payload: frame.payload,
         });
+        if (command === "DESTROY") {
+          sessionNonce = "";
+        }
         return undefined;
       }
 
-      const nonce = nextNonce();
+      const nonce = command === "ARM" && !sessionNonce && pendingArmNonce
+        ? pendingArmNonce
+        : nextNonce();
+      if (command === "ARM" && !sessionNonce) {
+        pendingArmNonce = nonce;
+      }
       const response = await new Promise<PageResponseMessage>((resolve) => {
         let settled = false;
         const unsubscribe = endpoint.onMessage((message) => {
@@ -139,10 +157,18 @@ export function createPageTransport(
           kind: PAGE_BUS_PROTOCOL,
           type: "request",
           nonce,
+          sessionNonce: command === "ARM" ? undefined : sessionNonce,
           command,
           payload: frame.payload,
         });
       });
+      if (command === "ARM" && response.ok) {
+        sessionNonce = nonce;
+        pendingArmNonce = "";
+      }
+      if (command === "DESTROY" && response.ok) {
+        sessionNonce = "";
+      }
 
       return response.ok
         ? makeReply(frame, true, response.payload)
