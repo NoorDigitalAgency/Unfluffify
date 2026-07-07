@@ -1,0 +1,52 @@
+import { z } from "zod";
+
+import { TabFactsSchema, type TabFacts } from "../../domain/schema/facts";
+
+export const BrainSensationSourceSchema = z.enum(["background", "content", "popup", "page"]);
+
+export const TabFactsPatchSchema = z.object({
+  tabId: z.number().int().nonnegative(),
+  siteId: z.number().int().positive().nullable().optional(),
+  baseUrl: z.string().url().nullable().optional(),
+  pageUrl: z.string().url().nullable().optional(),
+  renderMode: z.enum(["rendered", "static"]).nullable().optional(),
+  candidate: z.boolean().optional(),
+  markingEnabled: z.boolean().optional(),
+  lockRole: z.enum(["unknown", "editor", "passive"]).optional(),
+  configPresent: z.boolean().optional(),
+  reconciliationPending: z.boolean().optional(),
+});
+
+export const BrainSensationSchema = z.object({
+  tabId: z.number().int().nonnegative(),
+  source: BrainSensationSourceSchema,
+  reason: z.string().min(1),
+  facts: TabFactsPatchSchema,
+});
+
+export type BrainSensationSource = z.infer<typeof BrainSensationSourceSchema>;
+export type TabFactsPatch = z.infer<typeof TabFactsPatchSchema>;
+export type BrainSensation = z.infer<typeof BrainSensationSchema>;
+
+export function createInitialTabFacts(tabId: number): TabFacts {
+  return TabFactsSchema.parse({ tabId });
+}
+
+export function fold(prevFacts: TabFacts | null, sensation: BrainSensation): TabFacts {
+  const parsed = BrainSensationSchema.parse(sensation);
+  const prev = prevFacts ?? createInitialTabFacts(parsed.tabId);
+  const pageUrlChanged =
+    typeof parsed.facts.pageUrl === "string" &&
+    typeof prev.pageUrl === "string" &&
+    parsed.facts.pageUrl !== prev.pageUrl;
+
+  return TabFactsSchema.parse({
+    ...prev,
+    ...parsed.facts,
+    tabId: parsed.tabId,
+    markingEnabled: pageUrlChanged ? false : parsed.facts.markingEnabled ?? prev.markingEnabled,
+    reconciliationPending: pageUrlChanged
+      ? false
+      : parsed.facts.reconciliationPending ?? prev.reconciliationPending,
+  });
+}
