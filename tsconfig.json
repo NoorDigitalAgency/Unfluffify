@@ -17,6 +17,7 @@
     "src/background/**/*.ts",
     "src/common/**/*.ts",
     "src/domain/**/*.ts",
+    "src/messaging/**/*.ts",
     "src/content/**/*.ts",
     "src/popup/**/*.ts",
     "src/popup/**/*.tsx",
