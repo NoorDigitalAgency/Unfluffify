@@ -7,6 +7,7 @@ import { projectBrainState } from "../../../src/background/brain/project";
 import { createSignalLog } from "../../../src/background/brain/signals";
 import { createKeepAliveController } from "../../../src/background/keepalive";
 import { persistDurableFacts, reDeriveVolatile, rehydrateDurableFacts } from "../../../src/background/persistence";
+import { createRewriteBrainRuntime } from "../../../src/background/rewrite-brain-runtime";
 import { createMemoryStore, createTabStateRepo } from "../../../src/storage";
 
 describe("P3 background brain", () => {
@@ -222,5 +223,99 @@ describe("P3 background brain", () => {
 
     expect(emitted).toEqual([]);
     expect(brain.snapshot()).toMatchObject({ lastSignalSeq: 10, candidate: true });
+  });
+
+  it("serves consumed-once cursor requests through the mounted runtime", () => {
+    let listener: ((message: unknown) => unknown) | null = null;
+    const alarms: string[] = [];
+    const runtime = createRewriteBrainRuntime({
+      addMessageListener(next) {
+        listener = next;
+      },
+      createAlarm(name) {
+        alarms.push(`create:${name}`);
+      },
+      clearAlarm(name) {
+        alarms.push(`clear:${name}`);
+      },
+      addAlarmListener(listener) {
+        listener({ name: "uf-rewrite-brain-keepalive" });
+      },
+    });
+    runtime.start();
+
+    const call = (message: unknown): unknown => {
+      let response: unknown;
+      listener?.(message, null, (value: unknown) => {
+        response = value;
+      });
+      return response;
+    };
+
+    const observed = call({
+      type: "uf.rewriteBrain.observe",
+      sensation: {
+        tabId: 1,
+        source: "content",
+        reason: "activate",
+        facts: { tabId: 1, markingEnabled: true, baseUrl: "https://example.com" },
+      },
+    });
+    expect(observed).toMatchObject({ ok: true, signals: [{ seq: 1, name: "marking.enabled" }] });
+    expect(call({ type: "uf.rewriteBrain.pull", tabId: 1, afterSeq: 0 })).toMatchObject({
+      ok: true,
+      signals: [{ seq: 1, name: "marking.enabled" }],
+    });
+    expect(call({ type: "uf.rewriteBrain.consume", tabId: 1, organId: "popup", seq: 1 })).toEqual({ ok: true });
+    expect(call({ type: "uf.rewriteBrain.pull", tabId: 1, afterSeq: 0, organId: "popup" })).toEqual({
+      ok: true,
+      signals: [],
+    });
+    expect(call({ type: "uf.rewriteBrain.snapshot", tabId: 1 })).toMatchObject({
+      ok: true,
+      projection: { signalHead: 1 },
+    });
+    expect(alarms).toContain("create:uf-rewrite-brain-keepalive");
+    expect(alarms[0]).toBe("clear:uf-rewrite-brain-keepalive");
+  });
+
+  it("mounts runtime listeners through sendResponse", () => {
+    let mounted: ((message: unknown, sender: unknown, sendResponse: (value: unknown) => void) => unknown) | null = null;
+    const runtime = createRewriteBrainRuntime({
+      addMessageListener(listener) {
+        mounted = listener;
+      },
+    });
+    runtime.start();
+    let response: unknown = null;
+
+    const keepChannelOpen = mounted?.({
+      type: "uf.rewriteBrain.snapshot",
+      tabId: 4,
+    }, null, (value) => {
+      response = value;
+    });
+
+    expect(keepChannelOpen).toBe(true);
+    expect(response).toMatchObject({ ok: true });
+  });
+
+  it("emits born-at-source signals through the runtime", () => {
+    const runtime = createRewriteBrainRuntime({ addMessageListener() {} });
+    const result = runtime.handle({
+      type: "uf.rewriteBrain.emit",
+      tabId: 2,
+      signal: {
+        name: "markings.changed",
+        source: "content",
+        cause: "user-marking-edit",
+        payload: { pageUrl: "https://example.com", markedCount: 1 },
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      signals: [{ name: "markings.changed", source: "content", cause: "user-marking-edit" }],
+    });
   });
 });

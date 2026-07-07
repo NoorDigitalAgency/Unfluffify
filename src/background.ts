@@ -45,6 +45,7 @@ import {
   traceRuntimeReceive,
   traceTabSend
 } from "./common/layer-trace";
+import { createRewriteBrainRuntime } from "./background/rewrite-brain-runtime";
 import {
   AI_RUN_EVENT_REASONS,
   AI_RUN_EVENT_TYPES,
@@ -855,12 +856,33 @@ async function restoreRenderModeJavaScriptAfterNoJsInactivity(
 }
 
 let backgroundStarted = false;
+let rewriteBrainRuntimeStarted = false;
 
 export function startBackground(): void {
   if (backgroundStarted) {
     return;
   }
   backgroundStarted = true;
+  if (!rewriteBrainRuntimeStarted) {
+    rewriteBrainRuntimeStarted = true;
+    createRewriteBrainRuntime({
+      addMessageListener(listener) {
+        browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
+          const result = listener(message, sender, sendResponse);
+          return result === true;
+        });
+      },
+      createAlarm(name, info) {
+        void browser.alarms?.create?.(name, info);
+      },
+      clearAlarm(name) {
+        void browser.alarms?.clear?.(name);
+      },
+      addAlarmListener(listener) {
+        browser.alarms?.onAlarm?.addListener?.(listener);
+      }
+    }).start();
+  }
 
 tabInactivityObserver.subscribe(async (event) => {
   if (!event || event.type !== "inactive" || event.scope !== RENDER_MODE_NO_JS_INACTIVITY_SCOPE) {

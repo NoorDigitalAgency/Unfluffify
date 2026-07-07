@@ -51,6 +51,10 @@ export function createSignalLog(options: SignalLogOptions) {
     pullUnconsumed(organId: string): readonly BrainSignal[] {
       return entries.filter((signal) => signal.seq > (consumedByOrgan.get(organId) ?? 0));
     },
+    pullForOrgan(organId: string, afterSeq = 0): readonly BrainSignal[] {
+      const cursor = Math.max(afterSeq, consumedByOrgan.get(organId) ?? 0);
+      return entries.filter((signal) => signal.seq > cursor);
+    },
     markConsumed(organId: string, consumedSeq: number): void {
       consumedByOrgan.set(organId, Math.max(consumedByOrgan.get(organId) ?? 0, consumedSeq));
     },
