@@ -18,6 +18,7 @@
     "src/common/**/*.ts",
     "src/domain/**/*.ts",
     "src/messaging/**/*.ts",
+    "src/storage/**/*.ts",
     "src/content/**/*.ts",
     "src/popup/**/*.ts",
     "src/popup/**/*.tsx",
