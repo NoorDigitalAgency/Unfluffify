@@ -205,10 +205,11 @@ contract and design. It is the provenance for every decision in `plan.md`,
 - **Constants:** treat ALL current constant values as contract.
 - **Backend ownership:** the USER owns the config + property-lock backend (REST `/load`, `/save`; lock
   WS/HTTP) — confirmable directly. AI (`/get_selectors`) + GraphQL (`urlSearchInfo`, `propertyPageTypes`,
-  `cssInfo`, `updateScrapingConditions`) are owned by a **separate team** — external dependency to verify.
+  `cssInfo`, `updateScrapingConditions`) are owned by a **separate team**. _(Sourcing refined in Amendment A1.)_
 - **API source of truth:** pin the exact request/response schemas from the current client code; the user
-  confirms the config/lock parts directly; the AI/GraphQL parts are pinned-from-client and flagged for the
-  separate team's verification.
+  confirms the config/lock parts directly; the AI/GraphQL parts are pinned-from-client.
+  **➤ SUPERSEDED by Amendment A1 (below):** AI/GraphQL/accounts are LOCKED to current (conform exactly, no
+  verification); config/lock are a DESIGN TARGET (define the ideal schema, adapt the backend).
 
 ## T12 — Plan packaging — DECIDED
 
@@ -216,3 +217,27 @@ contract and design. It is the provenance for every decision in `plan.md`,
   `architecture.md`, `remote-api.md`, `decisions-log.md`).
 - **Branch:** `rewrite/reimplementation-plan`. **Directory:** `.reimplementation/`. **Push:** commit +
   push the branch only (no PR).
+
+---
+
+## Amendment A1 (post-sign-off) — API sourcing model per surface
+
+**Supersedes the T11 "Backend ownership" + "API source of truth" bullets.** Architect direction after the
+initial deliverable was pushed:
+
+- **AI (`/get_selectors`), GraphQL (`urlSearchInfo`, `propertyPageTypes`, `cssInfo`,
+  `updateScrapingConditions`), and accounts (`validate`/`login`) are LOCKED to the CURRENT code.** The
+  rewrite conforms to exactly what the client sends/parses today. There is **no separate-team dependency
+  and no verification gate** — these schemas are authoritative as-is.
+- **The config server (`/load`, `/save`, `/remove`, page-type/render-mode assists) and the property-lock
+  hub are OWNED by the architect; define the MOST SUITABLE (ideal) schema and ADAPT THE BACKEND to it.**
+  Concretely: `/load` returns a `baseUrl` attribute + per-page unified `rows[]` `{xpath, excluded,
+  explicit?}`; `/save` accepts/returns the same unified snapshot (no `xpaths`/`submissionXpaths`/
+  `includeXpaths`/`selectorSuppressedXpaths` split); the lock hub issues + rotates the lock `identity`
+  (backend-issued, invalidate-old/issue-fresh on lease); lease timers are backend-authoritative.
+- **Two former open items are RESOLVED by this:** (a) the base-URL data source — base URL is now a
+  config-`/load` attribute on the OWNED surface (no GraphQL schema-ADD needed); the legacy
+  `normalizeBaseUrlFromDomainName` derivation is dropped. (b) the `/save` row-shape reconciliation — the
+  OWNED backend is adapted to the single unified `rows[]` shape.
+- **Remaining external items** reduce to: the OWNED config/lock backend adaptation (the architect's own
+  work, gates cutover not design) + the MV3/CSP page-world spike + the SPA force-reload scope confirm.

@@ -1,15 +1,16 @@
-# Remote API Contract (pinned from the current client)
+# Remote API Contract
 
-**Status:** reverse-engineered from the existing client code. Shapes are pinned to what the client actually sends/parses today. This is the contract the clean rewrite must speak.
+**Status & sourcing model (architect decision, T11 amended).** This document has **two kinds of surfaces**, sourced differently:
 
-**Ownership legend:**
+- 🟢 **OWNED — DESIGN TARGET.** The **config server** (`/load`, `/save`, `/remove`, page-type/render-mode assists) and the **property-lock** hub are owned by the architect. Their schemas here are the **most-suitable target schema the rewrite defines**; the **backend will be adapted to match**. They are NOT pinned to the current client — where the current shape is legacy, the target is stated and the current shape is shown only as reference.
+- 🟠 **LOCKED — CONFORM EXACTLY.** The **AI** (`/get_selectors`), **GraphQL** (`urlSearchInfo`, `propertyPageTypes`, `cssInfo`, `updateScrapingConditions`), and **accounts** surfaces are owned by a separate team. Their schemas are **locked to the current code**: the rewrite conforms to exactly what the client sends/parses today. **No changes are requested from that team, and no verification blocks the rewrite** — these are authoritative as-is.
 
 | Marker | Meaning |
 | --- | --- |
-| 🟢 **USER-OWNED** | Config + property-lock backend. The architect can confirm these directly. |
-| 🟠 **SEPARATE TEAM** | AI (`/get_selectors`) and GraphQL (`urlSearchInfo`, `propertyPageTypes`, `cssInfo`, `updateScrapingConditions`) — owned by another team. Every shape here is **pinned-from-client** and must be **VERIFIED WITH AI/GraphQL TEAM** before it is treated as authoritative. |
+| 🟢 **OWNED — DESIGN TARGET** | Config + property-lock. Define the ideal schema; adapt the backend to it. |
+| 🟠 **LOCKED — CONFORM EXACTLY** | AI + GraphQL + accounts. Pinned from current code; the rewrite matches it verbatim; no team dependency. |
 
-**Scope note.** The register (T1, T11) is inclusion-centric and treats the backend `siteId` (from GraphQL) as the sole property identity; base URL is a backend attribute the frontend never computes. This document pins the transport contract only. Where a shape looks like a legacy behavior the register corrected away (e.g. frontend base-URL normalization, config-merge), it is called out but is **not** part of the target contract.
+**Scope note.** Property identity = the backend `siteId` from GraphQL `urlSearchInfo(rawURL)` — **locked to current** (returns `domainId`). Base URL is a **backend attribute the frontend never computes** (register T1); because GraphQL is locked and exposes no base-URL field, the base URL is **sourced from the OWNED config server** as a `baseUrl` attribute on the `/load` response (A.1/A.5) — this is where the register's "base URL is a backend attribute" requirement is satisfied, and it needs no GraphQL change. Legacy behaviors the register corrected away (frontend base-URL normalization via `normalizeBaseUrlFromDomainName`, config-merge, client-minted lock ids) are shown as reference only and are **not** part of the target.
 
 ---
 
@@ -56,9 +57,9 @@ Every response passes through `maybeUpdateStoredTokenFromResponse(response, curr
 
 ---
 
-# (A) CONFIG backend — 🟢 USER-OWNED (confirmable)
+# (A) CONFIG backend — 🟢 OWNED — DESIGN TARGET (define ideal; backend adapts)
 
-Base = `configEndpointValue` (fallback `endpointValue`). Implemented in `src/background/remote-network.ts`. All bodies are JSON; all authed with the Bearer header; all run responses through the token-rotation hook.
+Base = `configEndpointValue` (fallback `endpointValue`). All bodies are JSON; all authed with the Bearer header; all run responses through the token-rotation hook. **The shapes below are the TARGET the rewrite defines; the backend is adapted to match.** Current client function names (`src/background/remote-network.ts`) are cited only as the reference the target evolves from.
 
 ### A.1 `POST /load` — fetch the property config snapshot
 
@@ -70,7 +71,8 @@ Base = `configEndpointValue` (fallback `endpointValue`). Implemented in `src/bac
 { "siteId": 12345 }
 ```
 
-- `siteId` is the normalized backend site id (`normalizeSiteIdValue` → positive integer). This is the property identity per the register (T1) — **no base URL is sent**.
+- `siteId` is the normalized backend site id (`normalizeSiteIdValue` → positive integer). This is the property identity per the register (T1) — **no base URL is sent** in the request.
+- **TARGET:** the `/load` **response carries a `baseUrl` attribute** (the property's canonical base URL — see A.5). This is the register's source for "base URL is a backend attribute the frontend never computes" (INV-1.2); it lives on this OWNED surface, so no GraphQL change is needed.
 
 **Response:** a full config-sync payload (see A.5). Stored verbatim into IndexedDB as a transfer payload (`putTransferPayload("load", …)`); the caller returns only a `payloadKey`. Status mapping the client relies on:
 
@@ -141,24 +143,31 @@ Produced by `createConfigSyncPayload()` and parsed by `normalizeConfigSyncPayloa
       "title": "Page title",             // optional
       "pageType": "product",             // optional
       "renderedHtml": "<html>…",         // sanitized DOM saved as renderedHtml
-      "rawHtml": "<html>…",              // JS-disabled capture (static mode)
-      "xpaths": [ /* per-element exception rows, see below */ ],
-      "submissionXpaths": [ { "xpath": "/html[1]/body[1]/…", "excluded": true } ]
+      "rawHtml": "<html>…",              // JS-disabled capture (static mode only)
+      "rows": [                          // TARGET: the single unified exception-row shape
+        { "xpath": "/html[1]/body[1]/…", "excluded": true },
+        { "xpath": "/html[1]/body[1]/…", "excluded": false, "explicit": true }
+      ]
     }
   }
 }
 ```
 
-- `xpaths[]` are the exclusion/inclusion **exception rows** (register T1: one unified per-element "exception" kind; inclusion-centric model). In the current store an entry also carries `includeXpaths` (explicit Alt inclusions) and `selectorSuppressedXpaths`; `normalizePageMarkings` folds explicit includes back out of `xpaths`. **The wire row the rewrite standardizes on is `{ xpath, excluded, explicit? }`** (see the AI payload, C.1) — align `/save` to emit that same row shape.
-- `renderMode` maps lowercase local ↔ `DomainRenderMode` enum on the GraphQL side (D.4).
-
-> ⚠️ Verify with the architect: the exact `/save` body the backend accepts — specifically whether `/save` wants the legacy `xpaths` + `submissionXpaths` split shown here, or the unified `{ xpath, excluded, explicit? }` row the register mandates for the AI payload. The register wants ONE row shape everywhere; the current `/save` code still emits the split. **This is the single most important thing to confirm on the config surface.**
+- **TARGET — ONE row shape everywhere.** A page stores exactly one `rows[]` array of the unified
+  exception rows `{ xpath, excluded, explicit? }` — identical to the AI payload's `renderedXPaths` (C.1).
+  This **replaces** the current store's `xpaths` + `submissionXpaths` + `includeXpaths` +
+  `selectorSuppressedXpaths` split. Everything else (explicit includes = `{excluded:false, explicit:true}`,
+  submission rows, suppressed views) is **derived** from `rows[]` by the domain layer's single evaluation
+  pass, never stored separately (register T10 marking-derivation). **The backend `/save`/`/load` are
+  adapted to this row shape** — this is the resolution of the former "reconcile the split" open item.
+- `baseUrl` is a first-class attribute of this payload (the property's canonical base URL; INV-1.2).
+- `renderMode` maps lowercase local (`"static"`/`"rendered"`) ↔ the GraphQL `DomainRenderMode` enum (D.4).
 
 ---
 
-# (B) PROPERTY-LOCK backend — 🟢 USER-OWNED
+# (B) PROPERTY-LOCK backend — 🟢 OWNED — DESIGN TARGET (define ideal; backend adapts)
 
-WebSocket hub + independent HTTP reachability probes. Implemented in `src/common/property-lock-background.ts` (runtime) and `src/common/property-lock.ts` (protocol constants + helpers).
+WebSocket hub + independent HTTP reachability probes. The message vocabulary + timing model below are **adopted as the target** (they are a sound design); the one substantive change from the current code is that the **lock identity becomes backend-issued/rotated** (B.1). Current implementation reference: `src/common/property-lock-background.ts` (runtime), `src/common/property-lock.ts` (constants + helpers).
 
 ### B.1 Connection keying and URL
 
@@ -174,7 +183,7 @@ wss://<host>/property-lock?token=<urlencoded JWT>
 
 **Session keying:** one socket per `siteId : clientId` pair (`buildConnectionKey`). Each content script opens a long-lived `runtime.Port` named `propertyLock` and supplies its `clientId`; the background maps ports → connection runtimes. Tab ids are used only for local popup↔port lookup, **never** as lock identity.
 
-> ⚠️ **Register correction (T6) — the client-generated `clientId` is a corrected-away mechanism.** Today `createPropertyLockClientId()` mints a UUID client-side and the background rotates it on collision (`createUniqueClientIdForSite`). The register mandates that the **BACKEND issues and rotates the lock identity**: on a lease/handoff the backend invalidates the old identity and issues a fresh one to the new holder; the frontend persists the backend-issued identity per tab and does **no** UUID generation/rotation. The rewrite must move identity issuance server-side. **Confirm the backend handshake that returns the issued identity** (candidate today: the `subscribed` message's `identity` field, B.3).
+> ✅ **TARGET (T6) — backend-issued, backend-rotated lock identity.** The current client-minted `clientId` (`createPropertyLockClientId()` + `createUniqueClientIdForSite` collision rotation) is replaced. **Design:** on `subscribe`, the backend issues a lock **`identity`** (returned in the `subscribed` message, B.3); the frontend persists it in the current tab's storage and presents it on subsequent frames. On a lease/handoff, the **backend invalidates the old identity and issues a fresh one** to the new holder — so the previous holder's identity is rejected and it goes passive. The frontend does **no** UUID generation or collision rotation. The `clientId` field in the current message payloads (B.2) becomes this backend-issued identity. The backend is adapted to issue/rotate accordingly.
 
 ### B.2 Client → server messages
 
@@ -242,9 +251,9 @@ Fetched with `{ cache: "no-store", mode: "no-cors" }` under an `AbortController`
 
 ---
 
-# (C) AI backend — 🟠 SEPARATE TEAM — **VERIFY WITH AI/GraphQL TEAM**
+# (C) AI backend — 🟠 LOCKED — CONFORM EXACTLY
 
-Base = `endpointValue` (AI preference). Implemented in `src/background/remote-network.ts` + orchestrated in `src/background/ai-run-orchestrator.ts`. All shapes below are pinned from the client; **none are confirmed by the owning team.**
+Base = `endpointValue` (AI preference). Implemented in `src/background/remote-network.ts` + orchestrated in `src/background/ai-run-orchestrator.ts`. **These shapes are LOCKED to the current code — the rewrite conforms to exactly what the client sends/parses today; no changes are requested from the AI team and nothing here blocks the rewrite.** Where the current parser is lenient (accepts multiple field names), the rewrite preserves that leniency.
 
 ### C.1 `POST /get_selectors` — start an AI run
 
@@ -276,7 +285,7 @@ Base = `endpointValue` (AI preference). Implemented in `src/background/remote-ne
 - `defaultExclusionSelectors` = the immutable blanket list, sent as a **separate** top-level array (register T1: immutable tags ride as `defaultExclusionSelectors`, not as rows).
 - `rawHtml` presence is render-mode-gated (`currentRenderMode === "static"`). In static mode the client also runs a background XPath-refinement pass (`refineXPathEntries`) against `rawHtml` before submit.
 
-**Response (pinned):** `{ sessionId | id | … }` parsed by `parseAiRunStartResponse` → an opaque session id string. **⚠️ Verify the exact response field name and shape with the AI team.**
+**Response (locked):** `{ sessionId | id | … }` parsed by `parseAiRunStartResponse` → an opaque session id string. The rewrite matches this lenient parse exactly (no team confirmation needed).
 
 ### C.2 `GET /get_selectors/status/:sessionId` — poll status
 
@@ -303,15 +312,15 @@ Base = `endpointValue` (AI preference). Implemented in `src/background/remote-ne
 ```
 
 - Stored as `ai-run-result` transfer payload; normalized by `normalizeAiSelectorSet` into the config's `selectors` (A.5). HTTP 404 → `notFound`.
-- **⚠️ Verify** with the AI team: exact result field names, whether the result endpoint can 200 with a partial/empty set, and error envelope.
+- **Locked:** the rewrite matches the current parse exactly — the response must be an object carrying both selector arrays or it is rejected; empty/partial handling and 404→`notFound` follow the current client. No team confirmation needed.
 
 > Register alignment (T4): after any marking change, the AI run must re-run before Save enables; the result set seeds the fresh-page baseline and Discard's clean baseline. This is a client-side gate, not part of the AI wire contract.
 
 ---
 
-# (D) GraphQL backend — 🟠 SEPARATE TEAM — **VERIFY WITH AI/GraphQL TEAM**
+# (D) GraphQL backend — 🟠 LOCKED — CONFORM EXACTLY
 
-Endpoint: `https://api.${stageBase}/graphql` (`buildGraphqlEndpointFromStageBase`). `POST`, JSON `{ query, variables }`, Bearer auth, `x-update-token` rotation applies. All queries below are pinned verbatim from the client; **the owning team must confirm schema, arg types, and response shapes.**
+Endpoint: `https://api.${stageBase}/graphql` (`buildGraphqlEndpointFromStageBase`). `POST`, JSON `{ query, variables }`, Bearer auth, `x-update-token` rotation applies. **These queries are LOCKED to the current code — the rewrite issues them verbatim and parses exactly what they return today; no schema change is requested and nothing here blocks the rewrite.**
 
 ### D.1 `urlSearchInfo` — raw URL → siteId (the property-identity source)
 
@@ -330,7 +339,7 @@ query getUrlSearchInfo($url: String!, $includePageInfo: Boolean!) {
 - `domainId` → `siteId` (`normalizeSiteIdValue`, positive int). **This is the authoritative property identity** (register T1): the frontend sends the raw URL and takes the backend's `domainId`. No frontend base-URL normalization/longest-match.
 - Error handling: a GraphQL error with `extensions.code === "NotFound"` → `{ ok: true, siteId: null, notFound: true }`.
 
-> 🚫 **BLOCKER — Register correction (T1), INV-1.2:** the pinned `urlSearchInfo` query currently returns **only** `domainId` + `domainName` — there is **NO** backend base-URL attribute field today. The base URL is currently **DERIVED** frontend-side via `normalizeBaseUrlFromDomainName()` (`src/background/live-page-client.ts`, ~line 95), which the register (INV-1.2) corrects away. The register mandates the base URL is a **backend attribute only** — the frontend must not compute/normalize/match it. Therefore the corrected "base URL is a backend attribute" model has **NO data source** until the GraphQL team **ADDS** a base-URL field to the schema. This is a **schema-ADD request (blocker)**, not a soft confirm — see the Verification checklist. The rewrite cannot drop `normalizeBaseUrlFromDomainName` until that field exists.
+> ✅ **RESOLVED (T1/INV-1.2) — base URL comes from the OWNED config server, not GraphQL.** `urlSearchInfo` is LOCKED to current (returns only `domainId` + `domainName`), and we do **not** ask the GraphQL team to add anything. Property identity = `domainId` → `siteId`. The register's "base URL is a backend attribute the frontend never computes" (INV-1.2) is satisfied by the **`baseUrl` attribute on the config `/load` response** (A.1/A.5), which is on the OWNED surface we define. The legacy frontend derivation `normalizeBaseUrlFromDomainName()` (`src/background/live-page-client.ts`, ~line 95) is **dropped** — the rewrite reads `baseUrl` from `/load` instead. No GraphQL change, no blocker.
 
 ### D.2 `propertyPageTypes` — page-type taxonomy + candidates
 
@@ -389,26 +398,26 @@ mutation updateScrapingConditions(
 - `renderingMode` is a `DomainRenderMode` enum: local lowercase `"static"`→`STATIC`, `"rendered"`→`RENDERED`; anything else → `null` (omitted semantics). Mapping done client-side.
 - Returns `{ ok, status, payload }` (raw GraphQL body passed through).
 
-> ⚠️ **Verify with the GraphQL team** for all of D: schema names (`domainId` Int vs siteId), the `DomainRenderMode` enum values, `cssInfo` field list/types, and the `updateScrapingConditions` return shape (currently the client only checks HTTP-level ok).
+> **Locked for all of D:** the rewrite uses these exact query strings, arg types (`domainId: Int!`), the `DomainRenderMode` enum mapping, the `cssInfo` field list, and the `updateScrapingConditions` return handling (HTTP-level ok) verbatim from the current client. No GraphQL-team confirmation is required.
 
 ---
 
-## Accounts endpoints (auth) — ownership boundary note
+## Accounts endpoints (auth) — 🟠 LOCKED — CONFORM EXACTLY
 
-`validateAuthToken` (`GET https://accounts.${stage}/api/account/validate`) and `requestAuthLogin` (`POST …/api/account/login`, body `{ email, password }`) live in `network-core.ts`. Token readiness is polled by `createAuthTokenMonitor` (`src/background/auth-token-monitor.ts`) on a **10-minute browser alarm** (MV3 suspension-safe); an invalid token notifies the popup to lock config. The `accounts.${stage}` host is derived from `stageBaseValue` (shared with the GraphQL stage). **Confirm which team owns the accounts service** — it is stage-derived like the GraphQL surface but authenticates the same JWT the USER-owned config/lock backends consume.
+`validateAuthToken` (`GET https://accounts.${stage}/api/account/validate`) and `requestAuthLogin` (`POST …/api/account/login`, body `{ email, password }`) live in `network-core.ts`. Token readiness is polled by `createAuthTokenMonitor` (`src/background/auth-token-monitor.ts`) on a **10-minute browser alarm** (MV3 suspension-safe); an invalid token notifies the popup to lock config. The `accounts.${stage}` host is derived from `stageBaseValue` (shared with the GraphQL stage). **Locked to current** — accounts is stage-derived and separate-team-owned; the rewrite conforms exactly (same JWT the config/lock backends consume; same validate/login shapes). No change requested.
 
 ---
 
-## Verification checklist (hand to the owning teams)
+## Backend-adaptation worklist (🟢 OWNED — the architect's config + lock server adapts to these targets)
 
-**🟢 Architect (config + lock):**
-1. Exact `/save` body row shape — legacy `xpaths`+`submissionXpaths` split vs the unified `{ xpath, excluded, explicit? }` row the register mandates. **(highest priority)**
-2. `/load` response envelope matches A.5 (version, siteId, renderMode, selectors, pageMarkings).
-3. Whether `/page-types`, `/is_js_rendered`, `/assign_page_types`, `/remove` stay in scope.
-4. **Backend-issued lock identity handshake** (T6): does `subscribed.identity` carry a backend-issued, backend-rotated id the frontend can persist per-tab, replacing the client-minted `clientId`? Confirm invalidate-old + issue-fresh on lease.
-5. Confirm `expiresAtUtc`/`secondsRemaining` are the authoritative lease timers.
+These are **design targets to implement server-side**, not confirmations. The rewrite builds to them:
 
-**🟠 AI team:** C.1 `/get_selectors` start-response field name; C.2 status enum + 404 semantics; C.3 result field names + empty/partial + error envelope.
+1. **`/load` response** carries a `baseUrl` attribute and per-page `rows[]` of the unified `{ xpath, excluded, explicit? }` shape (A.1/A.5). `baseUrl` is the sole source for INV-1.2 (no GraphQL change).
+2. **`/save` body + response** use the same unified `rows[]` snapshot — **no** `xpaths`/`submissionXpaths`/`includeXpaths`/`selectorSuppressedXpaths` split. Submission/suppressed/include views are derived client-side, never stored.
+3. **Backend-issued lock identity:** the `subscribed` message returns a backend-generated `identity`; the backend invalidates-old + issues-fresh on lease/handoff; the frontend persists it per tab and mints nothing (B.1).
+4. **Backend-authoritative lease timers:** `expiresAtUtc` + `secondsRemaining` on `lock_state` are the source of truth for all countdown windows (B.4); the client only displays them.
+5. **Scope decision:** whether `/page-types`, `/is_js_rendered`, `/assign_page_types`, `/remove` remain (they are OWNED and can be redesigned or folded).
 
-**🟠 GraphQL team:** D.1–D.4 schema names, `DomainRenderMode` enum, `cssInfo` fields, mutation return shape.
-- 🚫 **BLOCKER (schema-ADD request, not a confirm):** `urlSearchInfo` today returns only `domainId` + `domainName`; there is **no** base-URL attribute field. INV-1.2 requires the base URL to be a **backend attribute** the frontend never derives, but the frontend currently derives it via `normalizeBaseUrlFromDomainName` (`src/background/live-page-client.ts`, ~line 95). **The GraphQL team must ADD a base-URL attribute field to the schema** — the corrected model has no data source until they do. The rewrite cannot drop `normalizeBaseUrlFromDomainName` until this field ships (T1).
+## Locked surfaces (🟠 no action required)
+
+AI (C), GraphQL (D), and accounts are **locked to the current code** — the rewrite conforms to the shapes documented above verbatim. There is **no team dependency and no blocker**: `urlSearchInfo` stays as-is (`domainId` + `domainName`; base URL is sourced from the OWNED `/load` instead), the AI start/status/result parses stay lenient-as-current, and the `DomainRenderMode`/`cssInfo`/`updateScrapingConditions` shapes are used verbatim.

@@ -20,8 +20,8 @@
 
 | ID | Rule | Tag |
 |----|------|-----|
-| INV-1.1 | **Property identity is the backend `siteId`.** The frontend obtains identity by a GraphQL lookup (`urlSearchInfo`) of the **raw** page URL; the backend returns the `siteId` (and the property's `baseUrl` as an attribute). The frontend MUST NOT compute, normalize, or longest-match a base URL to establish identity. | **CORRECTED** — old model did frontend base-URL normalization / longest-match. Removed: base URL is now purely a backend attribute. |
-| INV-1.2 | **Base URL is a backend attribute only.** Any "does this page belong to the property" gate compares against the backend-provided `baseUrl`; the frontend never derives it from the URL itself. | **CORRECTED** — see INV-1.1. |
+| INV-1.1 | **Property identity is the backend `siteId`.** The frontend obtains identity by a GraphQL lookup (`urlSearchInfo`, **locked to current** — returns `domainId`) of the **raw** page URL. The frontend MUST NOT compute, normalize, or longest-match a base URL to establish identity. | **CORRECTED** — old model did frontend base-URL normalization / longest-match. Removed: identity is purely the backend `siteId`. |
+| INV-1.2 | **Base URL is a backend attribute only.** The property's `baseUrl` is delivered on the **config `/load` response** (an OWNED, designed surface — not GraphQL, which exposes no base-URL field). Any "does this page belong to the property" gate compares against that backend-provided `baseUrl`; the frontend never derives it from the URL itself. | **CORRECTED** — sourced from `/load`, never derived. |
 | INV-1.3 | **One editor per property.** Exactly one client holds the editor role for a `siteId` at a time, enforced by a backend-coordinated lock (see §9). Everyone else is passive, even the same authenticated user in another tab. | CONFIRMED |
 | INV-1.4 | **A page is a marking candidate only when the backend says so.** Live Page candidacy comes from backend candidate lists (`propertyPageTypes` / candidate feed) keyed by `siteId`; the frontend never invents candidacy. | CONFIRMED |
 | INV-1.5 | **Vocabulary is inclusion-centric** (see §2). The domain speaks in *inclusions* (implicit/explicit) and *exceptions* (unified exclusions), plus a permanent *immutable* blanket list. The terms "implicit exclusion" and "default-exclusion layer as a source of truth" are retired. | **CORRECTED** — retired the implicit-exclusion vocabulary. |
@@ -261,7 +261,7 @@
 
 | Area | Old behavior (forbidden) | New rule |
 |------|--------------------------|----------|
-| Property identity | Frontend base-URL normalization / longest-match | Backend `siteId` from GraphQL; base URL is a backend attribute (INV-1.1/1.2) |
+| Property identity | Frontend base-URL normalization / longest-match | Backend `siteId` from GraphQL (locked); base URL is a backend attribute from config `/load` (INV-1.1/1.2) |
 | Exclusion model | "Implicit exclusion" + default/selector layer as ongoing authority | One unified exception kind; seed-then-step-aside (INV-2.6/2.7/2.8) |
 | Blank element | Global/config-merge re-derivation re-caught un-excluded elements | Branch-scoped, action-triggered only; un-excluded → implicit content (INV-2.9, INV-4.1/4.4) |
 | Parity audit | `incremental == full` corpus audit + trailing full reconcile | Removed; branch-scoped derivation is the definition of correct (INV-4.5) |
@@ -273,13 +273,14 @@
 | SPA nav | Route change without fresh capture | Force full reload while active (INV-7.9) |
 | Presentation | Dual PopupState/ViewState bags + local re-derivation | One store per organ; brain signals guarantee consistency (INV-10.4) |
 
-## Appendix B — Ownership & verification flags
+## Appendix B — Ownership & sourcing model
 
-| Surface | Owner | Verification |
-|---------|-------|--------------|
-| Config REST (`/load`, `/save`) | USER's team | Confirmable directly |
-| Property-lock (WS/HTTP) | USER's team | Confirmable directly |
-| AI (`/get_selectors`) | Separate team | Pinned-from-client; **flag for verification** |
-| GraphQL (`urlSearchInfo`, `propertyPageTypes`, `cssInfo`, `updateScrapingConditions`) | Separate team | Pinned-from-client; **flag for verification** |
+| Surface | Owner | Sourcing |
+|---------|-------|----------|
+| Config REST (`/load`, `/save`, `/remove`) | USER | 🟢 **OWNED — DESIGN TARGET**: the rewrite defines the ideal schema (unified `rows[]`, `baseUrl` attribute); the backend is adapted to match |
+| Property-lock (WS/HTTP) | USER | 🟢 **OWNED — DESIGN TARGET**: backend-issued/rotated identity + backend-authoritative timers; backend adapted |
+| AI (`/get_selectors`) | Separate team | 🟠 **LOCKED — CONFORM EXACTLY** to current code; no team dependency, no blocker |
+| GraphQL (`urlSearchInfo`, `propertyPageTypes`, `cssInfo`, `updateScrapingConditions`) | Separate team | 🟠 **LOCKED — CONFORM EXACTLY**; base URL is NOT sourced here (comes from `/load`) |
+| Accounts (`validate`, `login`) | Separate team | 🟠 **LOCKED — CONFORM EXACTLY** |
 
-See [remote-API contract](./remote-api.md) for pinned request/response schemas and the exact verification flags.
+See [remote-API contract](./remote-api.md) for the designed target schemas (owned) and the locked schemas.

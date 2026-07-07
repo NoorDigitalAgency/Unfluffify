@@ -11,7 +11,7 @@
 > |---|---|
 > | `contract-invariants.md` | The behavioral spec — every invariant the rewrite must satisfy. |
 > | `architecture.md` | The target design — realms, brain, organs, modules, signals. |
-> | `remote-api.md` | The pinned remote-API contract (request/response schemas + ownership flags). |
+> | `remote-api.md` | The remote-API contract — designed target schemas for OWNED surfaces (config/lock; backend adapts), locked schemas for AI/GraphQL/accounts (conform exactly). |
 > | `decisions-log.md` | The verified Q&A decisions register (T1–T12), the root source of truth. |
 >
 > **If this plan and the register (`decisions-log.md`) ever disagree, the register wins.**
@@ -220,11 +220,16 @@ this is the load-bearing summary.
   style** (new category). **SPA nav**: detect non-navigating URL changes (pushState/replaceState/
   hashchange) and **force a full reload** while the extension is active on the page.
 
-### 3.10 Ownership (T11)
+### 3.10 Ownership & API sourcing (T11, amended)
 
-- **USER owns** the config + property-lock backend (REST `/load`, `/save`; lock WS/HTTP) — confirmable directly.
-- **SEPARATE team owns** AI (`/get_selectors`) + GraphQL (`urlSearchInfo`, `propertyPageTypes`, `cssInfo`,
-  `updateScrapingConditions`) — external dependency; schemas pinned-from-client and **flagged for their verification**.
+- **USER owns** the config + property-lock backend (REST `/load`, `/save`, `/remove`; lock WS/HTTP). These
+  are **DESIGN TARGETS**: the rewrite defines the ideal schema — unified `rows[]` `{xpath,excluded,explicit?}`,
+  a `baseUrl` attribute on `/load`, backend-issued/rotated lock identity, backend-authoritative lease timers —
+  and the **backend is adapted to match**. (This resolves the former `/save` split and base-URL items.)
+- **AI (`/get_selectors`) + GraphQL (`urlSearchInfo`, `propertyPageTypes`, `cssInfo`,
+  `updateScrapingConditions`) + accounts are LOCKED to the current code** — the rewrite conforms to exactly
+  what the client sends/parses today. **No team dependency, no verification blocks the rewrite.** Base URL is
+  NOT sourced from GraphQL (it comes from the owned `/load`).
 
 ---
 
@@ -234,12 +239,13 @@ These are the only genuinely unresolved items. Everything else is decided.
 
 | # | Item | Owner | Resolution path | Blocks |
 |---|---|---|---|---|
-| 4.1 | **AI + GraphQL schema verification.** `/get_selectors` and the four GraphQL ops (`urlSearchInfo`, `propertyPageTypes`, `cssInfo`, `updateScrapingConditions`) are pinned from current client code but owned by a separate team. | Separate team | Send them `remote-api.md` (flagged sections) for confirmation before P4 hardens. | P4 (lynx-client AI + GraphQL paths). |
+| 4.1 | **Config + property-lock backend adaptation (OWNED work, not a blocker to design).** The rewrite builds to the designed target schema: `/load` returns a `baseUrl` attribute + unified `rows[]`; `/save` accepts/returns the same; the lock hub issues + rotates the lock `identity`; lease timers are backend-authoritative. The AI/GraphQL/accounts surfaces are **locked to current** and need no action. | USER | Implement the target schema on the config/lock server (adapt it) ahead of P10 integration; P4 builds the client against the target with mocked transport in the meantime. | P10 (integration/cutover), not the design. |
 | 4.2 | **MV3/CSP feasibility of a single plain-`.js` page-world program** serving both `executeScript` injection and the `document_start` bridge. | User / us | Quick spike: manifest a `world: "MAIN"` `document_start` content script that is *also* referenced by `chrome.scripting.executeScript({ files })`; confirm CSP + WXT bundling allow one shared `.js` source. | P5 (page-world program shape). |
 | 4.3 | **SPA force-reload scope** — the register notes it applies *while the extension is active on the page* (editor or silent-highlight active); confirm it must not fire when the extension is fully inactive. | User | Confirm during P5/P6 wiring; default to the register's "active-only" reading. | Low — default is safe. |
 
-**Do not harden P4 against unconfirmed AI/GraphQL schemas** — build the boundary, isolate the client,
-and gate the schema-locked assertions behind the verification in 4.1.
+**AI/GraphQL/accounts are locked to current** — build P4 directly against the documented shapes (no
+"unconfirmed schema" gating). The only remote work that gates *cutover* (not design) is the OWNED
+config/lock backend adaptation in 4.1.
 
 ---
 
@@ -408,15 +414,16 @@ designed safety net — verify it independently in P10 live.
 
 ---
 
-### P4 — Lynx-client (config + lock owned; AI + GraphQL flagged) + AI-job state machine
+### P4 — Lynx-client (config + lock = OWNED design target; AI + GraphQL + accounts = LOCKED) + AI-job state machine
 
 **Create:**
-- `src/lynx/rest.ts` — `/load`, `/save` (USER-owned; confirmable). `/save` uploads **all** locally-marked
-  pages as one property snapshot, returns the new baseline. **Remote-layer obligation (INV-6.5, last
-  clause):** ordinary config syncs **never** upload local draft page markings — **only `/save` does**.
-- `src/lynx/ai.ts` — `/get_selectors` (**SEPARATE-team**; schema pinned-from-client, **flagged** per 4.1).
-- `src/lynx/graphql.ts` — `urlSearchInfo` (→ siteId + baseUrl), `propertyPageTypes`, `cssInfo`,
-  `updateScrapingConditions` (**SEPARATE-team**; **flagged**).
+- `src/lynx/rest.ts` — `/load`, `/save`, `/remove` (**OWNED — design target**: `/load` returns a `baseUrl`
+  attribute + unified `rows[]`; backend adapted to match). `/save` uploads **all** locally-marked pages as
+  one property snapshot (unified `rows[]`), returns the new baseline. **Remote-layer obligation (INV-6.5,
+  last clause):** ordinary config syncs **never** upload local draft page markings — **only `/save` does**.
+- `src/lynx/ai.ts` — `/get_selectors` (**LOCKED** to current code; conform exactly).
+- `src/lynx/graphql.ts` — `urlSearchInfo` (→ siteId; **baseUrl comes from `/load`**, not here),
+  `propertyPageTypes`, `cssInfo`, `updateScrapingConditions` (**LOCKED**; conform exactly).
 - `src/lynx/ai-job.ts` — AI-job FSM: `idle → running → fresh → stale-on-edit`; enforces the **AI-fresh
   gate** (any marking change re-requires Run AI before Save enables). **Two DISTINCT Save gates (INV-6.4):**
   `sessionRequiresAiRun` is the composite **save** gate (pending changes + page-controls visibility +
@@ -432,8 +439,8 @@ all from `remote-api.md`.
 transitions; edit drops to stale; **`css-selector-only-edit-two-gates` — a CSS-selector-only edit does not
 move `aiRunUpToDate` and neither wrongly re-enables Run AI nor wrongly leaves Save enabled**, INV-6.4);
 **`ordinary-sync-never-uploads-draft-markings` — ordinary config syncs never upload local draft page
-markings; only `/save` does** (INV-6.5); GraphQL/AI tests **behind a `describe.skip` flagged for 4.1** until
-the separate team confirms.
+markings; only `/save` does** (INV-6.5); GraphQL/AI tests run against the **locked** current shapes
+(no skip — the schemas are fixed, not pending).
 
 **Expected intermediate state:** client callable with mocked transport; property identity resolved from
 `siteId` (never frontend-normalized).
@@ -655,7 +662,7 @@ the integration seam.
 | **MV3 suspension** | Lost service-worker state mid-session. | Keep-alive primary + **persist-durable / re-derive-volatile / idempotent-by-sequence** fallback; replay test after simulated wake. |
 | **Reveal/freeze edge-trigger + SPA reload** | Multiple/zero rituals; SPA route change with stale capture. | Exactly-one reveal per visit; spa-guard forces full reload while active; unit + live tests. |
 | **Closed shadow** | Host silently unmarkable with no editor cue. | Distinct closed-shadow overlay category; flatten skips closed roots; overlay-mapping test. |
-| **API schema drift (separate team)** | AI/GraphQL shape changes break submission. | Schemas pinned in `remote-api.md`, **flagged** for verification (4.1); AI/GraphQL isolated in `src/lynx/ai.ts`+`graphql.ts`; tests skipped-flagged until confirmed. |
+| **AI/GraphQL sourcing** | AI/GraphQL/accounts are separate-team-owned. | **Locked to current code** — the rewrite conforms to exactly what exists (low drift risk), isolated in `src/lynx/ai.ts`+`graphql.ts`; no verification gate. The OWNED config/lock backend is adapted to the designed target (4.1) — both ends under our control. |
 
 ---
 

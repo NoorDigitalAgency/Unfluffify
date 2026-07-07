@@ -16,8 +16,9 @@ and for isolated reusable snippets — **no logic or contracts are carried over 
    honor (what must never regress), with corrections marked.
 3. **[architecture.md](./architecture.md)** — the target architecture: the reflex-arc model, the realms,
    the module/layer layout, the signal/data/derivation models.
-4. **[remote-api.md](./remote-api.md)** — the remote API contract, pinned from the current client, with
-   ownership flags (config + property-lock = owned; AI + GraphQL = separate team, to verify).
+4. **[remote-api.md](./remote-api.md)** — the remote API contract. Two sourcing modes: the config +
+   property-lock server (owned) gets a **designed target schema** the backend adapts to; AI + GraphQL +
+   accounts (separate team) are **locked to the current code** and conformed to exactly.
 5. **[plan.md](./plan.md)** — the make-plan: goal, current facts, decisions, non-goals, greenfield build
    order, test matrix, regression risks, acceptance criteria, and the todo chain.
 
