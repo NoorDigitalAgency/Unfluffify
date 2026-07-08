@@ -81,11 +81,10 @@ describe("C4 content entrypoints", () => {
   });
 
   it("keeps the MAIN-world bridge entrypoint bound to the real bridge module", () => {
-    const bridgeEntrypointSource = readFileSync(
-      resolve(REPO_ROOT, "src", "entrypoints", "page-motion-freeze-bridge.content.ts"),
+    const pageWorldEntrypointSource = readFileSync(
+      resolve(REPO_ROOT, "src", "entrypoints", "page-world.content.ts"),
       "utf8",
     );
-
-    expect(bridgeEntrypointSource).toContain('import "../common/page-motion-freeze-bridge.js";');
+    expect(pageWorldEntrypointSource).toContain('import "../page-world/program.js";');
   });
 });

@@ -2,12 +2,16 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyEmulation,
+  applyEmulationViaCdp,
   clearEmulation,
+  clearEmulationViaCdp,
   clampDeviceScale,
   createFreezeController,
   createRevealVisitController,
   createSpaGuard,
   inspectRenderMode,
+  reloadWithoutJavascriptViaCdp,
+  restoreJavascriptViaCdp,
   runReveal,
 } from "../../../../src/content/stabilization";
 
@@ -104,7 +108,24 @@ describe("P5 page stabilization", () => {
       scale: 0.85,
       active: true,
     });
+
     expect(clearEmulation(applyEmulation("desktop", 0.7)).active).toBe(false);
+  });
+
+  it("applies and clears CDP device emulation", async () => {
+    const calls: Array<{ method: string; params?: Record<string, unknown> }> = [];
+    const client = { send: async (method: string, params?: Record<string, unknown>) => calls.push({ method, params }) };
+    const state = await applyEmulationViaCdp(client, "mobile", 2);
+    const cleared = await clearEmulationViaCdp(client, state);
+
+    expect(calls).toEqual([
+      {
+        method: "Emulation.setDeviceMetricsOverride",
+        params: { width: 412, height: 960, deviceScaleFactor: 1, mobile: true, scale: 1 },
+      },
+      { method: "Emulation.clearDeviceMetricsOverride", params: undefined },
+    ]);
+    expect(cleared.active).toBe(false);
   });
 
   it("captures rendered then static HTML while preserving device simulation and requesting lock reclaim", async () => {
@@ -171,6 +192,20 @@ describe("P5 page stabilization", () => {
       deviceSimulationEnabled: true,
     })).rejects.toThrow("reload failed");
     expect(calls).toEqual(["reload-no-js", "restore-js"]);
+  });
+
+  it("uses CDP to disable and restore JavaScript around reload", async () => {
+    const calls: Array<{ method: string; params?: Record<string, unknown> } | { reload: true }> = [];
+    const client = { send: async (method: string, params?: Record<string, unknown>) => calls.push({ method, params }) };
+
+    await reloadWithoutJavascriptViaCdp(client, () => calls.push({ reload: true }));
+    await restoreJavascriptViaCdp(client);
+
+    expect(calls).toEqual([
+      { method: "Emulation.setScriptExecutionDisabled", params: { value: true } },
+      { reload: true },
+      { method: "Emulation.setScriptExecutionDisabled", params: { value: false } },
+    ]);
   });
 
   it("forces SPA reload only while active and only on URL changes", () => {

@@ -12,7 +12,27 @@ import {
   PROPERTY_LOCK_OFF_CANDIDATE_WARNING_TIMEOUT_MS,
   PROPERTY_LOCK_PASSIVE_RELEASE_COUNTDOWN_MS,
   parseServerMessage,
+  createPropertyLockClient,
+  projectPropertyLockView,
 } from "../../../src/lock";
+
+function fakeSocket() {
+  const listeners = new Map<string, Array<(event: { data?: unknown }) => void>>();
+  const sent: string[] = [];
+  return {
+    sent,
+    socket: {
+      send(data: string) { sent.push(data); },
+      close() {},
+      addEventListener(type: "open" | "message" | "close" | "error", listener: (event: { data?: unknown }) => void) {
+        listeners.set(type, [...(listeners.get(type) ?? []), listener]);
+      },
+    },
+    emit(type: string, data?: unknown) {
+      for (const listener of listeners.get(type) ?? []) listener({ data });
+    },
+  };
+}
 
 describe("P9 property-lock client", () => {
   it("adopts backend-issued identities and invalidates old identities on rotation", () => {
@@ -82,6 +102,17 @@ describe("P9 property-lock client", () => {
     });
   });
 
+  it("projects unlocked lock state as editable without a blocking banner", () => {
+    expect(projectPropertyLockView({
+      role: "unknown",
+      identity: "",
+      editorName: "",
+      state: "unlocked",
+      timings: {},
+      terminal: false,
+    })).toEqual({ bannerVisible: false, text: "", canEdit: true });
+  });
+
   it("combines websocket and independent HTTP reachability", () => {
     expect(isNetworkReachable({ websocketOpen: true, httpProbeReachable: true })).toBe(true);
     expect(isNetworkReachable({ websocketOpen: true, httpProbeReachable: false })).toBe(false);
@@ -95,5 +126,48 @@ describe("P9 property-lock client", () => {
       name: "Editor",
     })).toMatchObject({ type: "subscribed", identity: "backend-1" });
     expect(() => parseServerMessage({ type: "unknown" })).toThrow();
+  });
+
+  it("runs a mocked PropertyLockClient lifecycle and projects its view", async () => {
+    const ws = fakeSocket();
+    const persisted: unknown[] = [];
+    const client = createPropertyLockClient({
+      socket: ws.socket,
+      tabId: 1,
+      siteId: 123,
+      pageUrl: "https://example.com",
+      identity: null,
+      persistIdentity(identity) { persisted.push(identity); },
+      hasUnsavedChanges: () => true,
+      now: () => 10,
+    });
+
+    client.claim();
+    expect(ws.sent).toHaveLength(0);
+    ws.emit("open");
+    expect(JSON.parse(ws.sent[0])).toMatchObject({ type: "subscribe", clientId: "pending", hasUnsavedChanges: true });
+    ws.emit("message", JSON.stringify({ type: "subscribed", identity: "backend-1" }));
+    ws.emit("message", JSON.stringify({
+      type: "lock_state",
+      state: "locked",
+      isEditor: false,
+      editorName: "Other",
+      secondsRemaining: 60,
+    }));
+
+    expect(persisted).toEqual([{ tabId: 1, siteId: 123, identity: "backend-1", updatedAt: 10 }]);
+    expect(JSON.parse(ws.sent.at(-1) ?? "{}")).toMatchObject({ type: "take_lock", clientId: "backend-1" });
+    expect(projectPropertyLockView(client.state())).toEqual({
+      bannerVisible: true,
+      text: "Locked by Other",
+      canEdit: false,
+      countdownSeconds: 60,
+    });
+    ws.emit("message", JSON.stringify({ type: "lock_state", state: "locked", isEditor: true, editorName: "Me" }));
+    expect(projectPropertyLockView(client.state()).canEdit).toBe(true);
+    ws.emit("close");
+    expect(projectPropertyLockView(client.state()).canEdit).toBe(false);
+    client.heartbeat();
+    expect(JSON.parse(ws.sent.at(-1) ?? "{}")).not.toMatchObject({ type: "heartbeat" });
   });
 });

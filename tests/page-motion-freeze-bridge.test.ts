@@ -1,154 +1,37 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
-import { readFileSync } from "./file-kit.ts";
+import { existsSync, readFileSync } from "./file-kit.ts";
 
-import { runPageMotionFreezeControl } from "../src/common/page-motion-freeze-control.js";
-
-const STATE_KEY = "__unfluffifyPageMotionFreezeState";
-
-const bridgeSource = readFileSync(
-  new URL("../src/common/page-motion-freeze-bridge.ts", import.meta.url),
+const pageWorldSource = readFileSync(
+  new URL("../src/page-world/program.js", import.meta.url),
   "utf8"
 );
-const bridgeEntrypointSource = readFileSync(
-  new URL("../src/entrypoints/page-motion-freeze-bridge.content.ts", import.meta.url),
-  "utf8"
-);
-const controlSource = readFileSync(
-  new URL("../src/common/page-motion-freeze-control.ts", import.meta.url),
+const pageWorldEntrypointSource = readFileSync(
+  new URL("../src/entrypoints/page-world.content.ts", import.meta.url),
   "utf8"
 );
 
-// Both files must embed an identical runPageMotionFreezeControl so the
-// document_start arming (bridge) and the executeScript toggling (control module)
-// build the same state shape/version and interoperate on the same window state.
-function extractControlBody(source) {
-  const startMarker = "const STATE_KEY = \"__unfluffifyPageMotionFreezeState\";";
-  const endMarker = "return buildResult();";
-  const start = source.indexOf(startMarker);
-  const end = source.lastIndexOf(endMarker);
-  assert.notEqual(start, -1, "Expected STATE_KEY marker in source");
-  assert.notEqual(end, -1, "Expected final return buildResult() in source");
-  return source
-    .slice(start, end + endMarker.length)
-    .replace(/\/\/\s*@ts-(?:ignore|expect-error)[^\n]*/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-test("page-motion-freeze bridge is a classic document_start script that arms on load", () => {
-  // Manifest injects the bridge as a classic MAIN-world content script at
-  // document_start, so it must not use module syntax.
-  assert.doesNotMatch(bridgeSource, /^\s*export\s/m);
-  assert.doesNotMatch(bridgeSource, /^\s*import\s/m);
-  // Self-installing IIFE that arms the lazy-loading interception immediately.
-  assert.match(bridgeSource, /\(function \(\) \{/);
-  assert.match(bridgeSource, /runPageMotionFreezeControl\("arm", null\)/);
+test("single page-world program is a classic script with the production relay protocol", () => {
+  assert.doesNotMatch(pageWorldSource, /^\s*export\s/m);
+  assert.doesNotMatch(pageWorldSource, /^\s*import\s/m);
+  assert.match(pageWorldSource, /\(function \(\) \{/);
+  assert.match(pageWorldSource, /unfluffify:page-world-relay:v1/);
+  assert.match(pageWorldSource, /PAGE_WORLD_SET_MOTION_PAUSED/);
+  assert.match(pageWorldSource, /SET_MOTION_PAUSED/);
 });
 
-test("page-motion-freeze bridge embeds a control function identical to the module", () => {
-  assert.equal(extractControlBody(bridgeSource), extractControlBody(controlSource));
+test("new page-world program is registered at document_start in the MAIN world", () => {
+  assert.match(pageWorldEntrypointSource, /defineContentScript\(\{/);
+  assert.match(pageWorldEntrypointSource, /runAt:\s*"document_start"/);
+  assert.match(pageWorldEntrypointSource, /allFrames:\s*true/);
+  assert.match(pageWorldEntrypointSource, /world:\s*"MAIN"/);
+  assert.match(pageWorldEntrypointSource, /matches:\s*\["<all_urls>"\]/);
+  assert.match(pageWorldEntrypointSource, /import "\.\.\/page-world\/program\.js";/);
 });
 
-test("page-motion-freeze bridge registered at document_start in the MAIN world", () => {
-  assert.match(bridgeEntrypointSource, /defineContentScript\(\{/);
-  assert.match(bridgeEntrypointSource, /runAt:\s*"document_start"/);
-  assert.match(bridgeEntrypointSource, /allFrames:\s*true/);
-  assert.match(bridgeEntrypointSource, /world:\s*"MAIN"/);
-  assert.match(bridgeEntrypointSource, /matches:\s*\["<all_urls>"\]/);
-});
-
-function createObserverWindow() {
-  const listeners = new Map();
-  class FakeIntersectionObserver {
-    constructor(callback) {
-      this.callback = callback;
-    }
-    observe() {}
-    unobserve() {}
-    disconnect() {}
-    takeRecords() {
-      return [];
-    }
-    __trigger(entries = []) {
-      if (typeof this.callback === "function") {
-        this.callback(entries, this);
-      }
-    }
-  }
-  const documentObject = {
-    addEventListener() {},
-    removeEventListener() {}
-  };
-  const windowObject = {
-    setTimeout: (cb) => cb,
-    clearTimeout() {},
-    setInterval: (cb) => cb,
-    clearInterval() {},
-    requestAnimationFrame: (cb) => cb,
-    cancelAnimationFrame() {},
-    addEventListener(type, listener, options) {
-      const entries = listeners.get(type) || [];
-      entries.push({ listener, capture: Boolean(options === true || (options && options.capture)) });
-      listeners.set(type, entries);
-    },
-    removeEventListener() {},
-    document: documentObject,
-    IntersectionObserver: FakeIntersectionObserver
-  };
-  return { windowObject, documentObject, originalIntersectionObserver: FakeIntersectionObserver };
-}
-
-async function withObserverWindow(callback) {
-  const originalWindow = globalThis.window;
-  const originalDocument = globalThis.document;
-  const harness = createObserverWindow();
-  globalThis.window = harness.windowObject;
-  globalThis.document = harness.documentObject;
-  try {
-    await callback(harness);
-  } finally {
-    delete harness.windowObject[STATE_KEY];
-    globalThis.window = originalWindow;
-    globalThis.document = originalDocument;
-  }
-}
-
-test("document_start arming makes a later suppression toggle stop a pre-existing observer", async () => {
-  await withObserverWindow(async ({ windowObject, originalIntersectionObserver }) => {
-    // 1. Bridge arms at document_start: the IntersectionObserver constructor is
-    //    wrapped before the page creates any observer; suppression stays off.
-
-    (0, eval)(bridgeSource);
-    const armedState = windowObject[STATE_KEY];
-    assert.ok(armedState, "Expected the bridge to create armed state");
-    assert.equal(armedState.armed, true);
-    assert.equal(armedState.lazyLoadingSuppressed, false);
-    assert.notEqual(windowObject.IntersectionObserver, originalIntersectionObserver);
-
-    // 2. The page creates its lazy-load observer AFTER arming but BEFORE the
-    //    reveal toggle (this is the real-world ordering the just-in-time
-    //    injection used to miss).
-    const calls = [];
-    const observer = new windowObject.IntersectionObserver(() => calls.push("intersection"));
-    observer.__trigger();
-    assert.deepEqual(calls, ["intersection"], "Observer should fire while not suppressed");
-
-    // 3. Reveal flips suppression via the executeScript control path. Because the
-    //    observer was wrapped at creation time, the already-created observer is
-    //    now suppressed - no extra lazy loads while scrolling.
-    const result = runPageMotionFreezeControl("setLazyLoadingSuppressed", { suppressed: true });
-    assert.equal(result.lazyLoadingSuppressed, true);
-    observer.__trigger();
-    assert.deepEqual(calls, ["intersection"], "Pre-existing observer must be suppressed after toggle");
-
-    // 4. Turning suppression back off keeps the armed bridge installed for the
-    //    next reveal instead of tearing everything down.
-    const restored = runPageMotionFreezeControl("setLazyLoadingSuppressed", { suppressed: false });
-    assert.equal(restored.lazyLoadingSuppressed, false);
-    assert.ok(windowObject[STATE_KEY], "Armed bridge should persist across reveals");
-    assert.equal(windowObject[STATE_KEY].armed, true);
-    observer.__trigger();
-    assert.deepEqual(calls, ["intersection", "intersection"], "Observer fires again once unsuppressed");
-  });
+test("old page-motion-freeze bridge entrypoint is not shipped", () => {
+  assert.equal(
+    existsSync(new URL("../src/entrypoints/page-motion-freeze-bridge.content.ts", import.meta.url)),
+    false
+  );
 });
