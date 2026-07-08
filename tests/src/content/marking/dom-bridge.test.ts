@@ -321,12 +321,34 @@ describe("P6 DOM bridge", () => {
 
     expect(engine.rows()).toEqual([{ xpath: "/main[1]/p[1]", excluded: true, explicit: true }]);
     expect(engine.overlayRoot().children.length).toBeGreaterThan(0);
+    expect(engine.overlayRoot().children[0]?.style.backgroundColor).not.toBe("");
+    expect(engine.overlayRoot().children[0]?.style.border).not.toBe("");
     expect(engine.overlayRoot().style.pointerEvents).toBe("none");
     expect(engine.overlayRoot().style.position).toBe("fixed");
 
     const renderer = createOverlayRenderer({ document: doc as unknown as Document });
     renderer.clear();
     expect(renderer.root.children.length).toBe(0);
+  });
+
+  it("seeds toggleable default exclusions before the first read-only render", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+    const footer = new FakeElement("FOOTER", rect(0, 220, 300, 60), "Footer fluff");
+    root.ownerDocument = doc;
+    footer.ownerDocument = doc;
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    root.appendChild(footer);
+
+    const engine = createMarkingEngine(root as unknown as Element);
+    engine.renderReadOnly();
+    const footerOverlay = engine.overlayRoot().children.find((child) =>
+      child.getAttribute("data-uf-overlay-xpath") === "/main[1]/footer[1]"
+    );
+
+    expect(engine.rows()).toContainEqual({ xpath: "/main[1]/footer[1]", excluded: true });
+    expect(footerOverlay?.className).toBe("uf-overlay-exception");
   });
 
   it("resolves through current mark state and composed shadow containment", () => {

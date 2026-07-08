@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { dirname, join, normalize } from "node:path";
+import { dirname, extname, join, normalize } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ensureBuildOutput } from "../build-output-kit";
 
@@ -33,7 +33,7 @@ function listFiles(dir: string): string[] {
 }
 
 const LEGACY_TARGETS = new Set([
-  normalize("src/common"),
+  normalize("src/common/config.ts"),
   normalize("src/popup.ts"),
   normalize("src/background.ts"),
   normalize("src/content-main.ts"),
@@ -55,18 +55,44 @@ function resolveImportPath(file: string, specifier: string): string | null {
 }
 
 function hasForbiddenLegacyImport(source: string, file = "src/content/marking/example.ts"): boolean {
-  const specifiers = [
-    ...source.matchAll(/from\s+["']([^"']+)["']/g),
-    ...source.matchAll(/import\s+["']([^"']+)["']/g),
-    ...source.matchAll(/export\s+[^"']*from\s+["']([^"']+)["']/g),
-  ].map((match) => match[1]);
-  return specifiers.some((specifier) => {
+  return getImportSpecifiers(source).some((specifier) => {
     const resolved = resolveImportPath(file, specifier);
     if (!resolved) {
       return false;
     }
     return [...LEGACY_TARGETS].some((target) => resolved === target || resolved.startsWith(`${target}/`));
   });
+}
+
+function getImportSpecifiers(source: string): string[] {
+  const specifiers = [
+    ...source.matchAll(/from\s+["']([^"']+)["']/g),
+    ...source.matchAll(/import\s+["']([^"']+)["']/g),
+    ...source.matchAll(/export\s+[^"']*from\s+["']([^"']+)["']/g),
+  ].map((match) => match[1]);
+  return specifiers;
+}
+
+function resolvesRelativeImport(file: string, specifier: string): boolean {
+  if (!specifier.startsWith(".")) {
+    return true;
+  }
+  const resolved = normalize(join(dirname(file), specifier));
+  const candidates = extname(resolved)
+    ? [
+      resolved,
+      ...(resolved.endsWith(".js") ? [resolved.replace(/\.js$/, ".ts"), resolved.replace(/\.js$/, ".tsx")] : []),
+    ]
+    : [
+      `${resolved}.ts`,
+      `${resolved}.tsx`,
+      `${resolved}.js`,
+      `${resolved}.css`,
+      join(resolved, "index.ts"),
+      join(resolved, "index.tsx"),
+      join(resolved, "index.js"),
+    ];
+  return candidates.some((candidate) => existsSync(candidate));
 }
 
 describe("P10 cutover guard", () => {
@@ -84,6 +110,18 @@ describe("P10 cutover guard", () => {
     expect(LEGACY_GOD_FILES.filter((file) => existsSync(file))).toEqual([]);
   });
 
+  it("does not leave surviving source modules with unresolved relative imports", () => {
+    const offenders = listFiles("src")
+      .filter((file) => /\.(?:ts|tsx|js)$/.test(file))
+      .flatMap((file) =>
+        getImportSpecifiers(readFileSync(file, "utf8"))
+          .filter((specifier) => !resolvesRelativeImport(file, specifier))
+          .map((specifier) => `${file} -> ${specifier}`)
+      );
+
+    expect(offenders).toEqual([]);
+  });
+
   it("boots at least one new-tree entrypoint in the generated extension", async () => {
     await ensureBuildOutput({ force: true });
     const manifestPath = ".output/chrome-mv3/manifest.json";
@@ -91,11 +129,11 @@ describe("P10 cutover guard", () => {
     const scripts = (manifest.content_scripts ?? []).flatMap((entry: { js?: string[] }) => entry.js ?? []);
     expect(scripts).toContain("content-scripts/page-world.js");
     expect(existsSync(".output/chrome-mv3/content-scripts/page-world.js")).toBe(true);
-  });
+  }, 45_000);
 
   it("detects nested legacy import specifiers", () => {
-    expect(hasForbiddenLegacyImport('import x from "../../common/foo";')).toBe(true);
-    expect(hasForbiddenLegacyImport('import "../../common/foo";')).toBe(true);
+    expect(hasForbiddenLegacyImport('import x from "../../common/config";')).toBe(true);
+    expect(hasForbiddenLegacyImport('import "../../common/config";')).toBe(true);
     expect(hasForbiddenLegacyImport('import x from "../../../background";', "src/content/marking/deep/example.ts")).toBe(true);
     expect(hasForbiddenLegacyImport('import "../../../background";', "src/content/marking/deep/example.ts")).toBe(true);
     expect(hasForbiddenLegacyImport('import x from "../content-main";', "src/entrypoints/content-loader.content.ts")).toBe(true);

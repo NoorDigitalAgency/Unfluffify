@@ -13,21 +13,21 @@ export function decideSignals(prev: TabFacts | null, next: TabFacts): readonly S
     decisions.push({
       name: "session.navigated",
       cause: "navigation",
-      payload: { fromUrl: prev.pageUrl, toUrl: next.pageUrl },
+      payload: { fromUrl: prev.pageUrl, toUrl: next.pageUrl, pageUrl: next.pageUrl },
     });
   }
   if (prev?.markingEnabled !== true && next.markingEnabled) {
     decisions.push({
       name: "marking.enabled",
       cause: "activate-ok",
-      payload: { baseUrl: next.baseUrl ?? "" },
+      payload: { baseUrl: next.baseUrl ?? "", pageUrl: next.pageUrl ?? "" },
     });
   }
   if (prev?.markingEnabled === true && !next.markingEnabled) {
     decisions.push({
       name: "marking.disabled",
       cause: prev.pageUrl && next.pageUrl && prev.pageUrl !== next.pageUrl ? "navigation" : "deactivate-ok",
-      payload: { baseUrl: next.baseUrl ?? "", cause: "fold" },
+      payload: { baseUrl: next.baseUrl ?? "", pageUrl: next.pageUrl ?? prev.pageUrl ?? "", cause: "fold" },
     });
   }
   if (prev?.reconciliationPending !== true && next.reconciliationPending) {

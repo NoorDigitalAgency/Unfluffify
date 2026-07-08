@@ -20,6 +20,11 @@ export function createPopupStore(initialState: PopupState = INITIAL_POPUP_STATE)
     getPresentation(): PopupPresentation {
       return memoryFor(state);
     },
+    reset(nextState: PopupState = INITIAL_POPUP_STATE): PopupState {
+      state = nextState;
+      listeners.forEach((listener) => listener(state));
+      return state;
+    },
     subscribe(listener: (state: PopupState) => void): () => void {
       listeners.add(listener);
       return () => listeners.delete(listener);

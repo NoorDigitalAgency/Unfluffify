@@ -1,6 +1,6 @@
 import { defineBackground } from "wxt/utils/define-background";
-import { startBackground } from "../background";
+import { startRewriteBackground } from "../background/index";
 
 export default defineBackground(() => {
-  startBackground();
+  startRewriteBackground();
 });

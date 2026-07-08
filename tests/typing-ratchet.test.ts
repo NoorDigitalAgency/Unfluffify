@@ -1,6 +1,6 @@
 import { test } from "./test-kit.ts";
 import { assert } from "./test-kit.ts";
-import { readdirSync, readFileSync } from "./file-kit.ts";
+import { existsSync, readdirSync, readFileSync } from "./file-kit.ts";
 import { path } from "./file-kit.ts";
 import { fileURLToPath } from "./file-kit.ts";
 
@@ -12,11 +12,8 @@ const RUNTIME_SCAN_TARGETS = [
   "src/background",
   "src/common",
   "src/content",
+  "src/entrypoints",
   "src/popup",
-  "src/background.ts",
-  "src/entrypoints/content-loader.content.ts",
-  "src/content-main.ts",
-  "src/popup.ts"
 ];
 
 function collectTsNoCheckFiles() {
@@ -54,6 +51,9 @@ function collectTsNoCheckFiles() {
 
   for (const target of RUNTIME_SCAN_TARGETS) {
     const absoluteTarget = path.join(REPO_ROOT, target);
+    if (!existsSync(absoluteTarget)) {
+      continue;
+    }
     if (!path.extname(target)) {
       walk(absoluteTarget);
       continue;

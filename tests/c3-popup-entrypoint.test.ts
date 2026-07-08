@@ -6,25 +6,23 @@ import { describe, expect, it } from "vitest";
 const REPO_ROOT = resolve(import.meta.dirname, "..");
 
 describe("C3 popup contract", () => {
-  it("keeps the popup entrypoint bound to the real popup runtime", () => {
-    const entrypointSource = readFileSync(resolve(REPO_ROOT, "src", "entrypoints", "popup", "main.ts"), "utf8");
+  it("keeps the popup entrypoint bound to the rewrite React runtime", () => {
+    const entrypointSource = readFileSync(resolve(REPO_ROOT, "src", "entrypoints", "popup", "main.tsx"), "utf8");
     const popupHtml = readFileSync(
       resolve(REPO_ROOT, "src", "entrypoints", "popup", "index.html"),
       "utf8",
     );
 
-    expect(entrypointSource).toContain('import "../../popup.js";');
-    expect(popupHtml).toContain('<script type="module" src="./main.ts"></script>');
+    expect(entrypointSource).toContain('import { App, resolvePopupActionButtons } from "../../popup/App";');
+    expect(entrypointSource).toContain("createRoot(rootElement)");
+    expect(entrypointSource).not.toContain("../../popup.js");
+    expect(popupHtml).toContain('<script type="module" src="./main.tsx"></script>');
   });
 
   it("keeps the live popup debug view-state hook", () => {
-    const popupSource = readFileSync(resolve(REPO_ROOT, "src", "popup.ts"), "utf8");
+    const popupSource = readFileSync(resolve(REPO_ROOT, "src", "entrypoints", "popup", "main.tsx"), "utf8");
 
     expect(popupSource).toContain("__UNFLUFFIFY_POPUP_DEBUG__");
-    // getViewState remains the primary live hook; the debug-only direct-mode
-    // affordances are additive (directModeActive / activateDirectMode).
-    expect(popupSource).toMatch(
-      /popupDebugTarget\.__UNFLUFFIFY_POPUP_DEBUG__\s*=\s*\{\s*getViewState:\s*uiModule\.getViewState,[\s\S]*?directModeActive:\s*DIRECT_MODE_ACTIVE,[\s\S]*?activateDirectMode:/,
-    );
+    expect(popupSource).toMatch(/__UNFLUFFIFY_POPUP_DEBUG__\s*=\s*\{\s*getViewState:\s*getDebugViewState\s*\}/);
   });
 });

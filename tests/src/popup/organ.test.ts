@@ -37,15 +37,37 @@ describe("P8 popup organ", () => {
   });
 
   it("renders a complete matrix with enabled controls carrying empty blocked reasons", () => {
-    const html = renderToStaticMarkup(React.createElement(App, { presentation: memoryFor({
-      name: "post_ai_clean",
-      lastConsumedSeq: 4,
-      reconciliationReason: "",
-    }) }));
+    const html = renderToStaticMarkup(React.createElement(App, {
+      presentation: memoryFor({
+        name: "post_ai_clean",
+        lastConsumedSeq: 4,
+        reconciliationReason: "",
+      }),
+      onSave: () => undefined,
+      onDiscard: () => undefined,
+      onPreview: () => undefined,
+    }));
 
     expect(html).toContain('id="page-save"');
     expect(html).toContain('data-blocked-reason=""');
     expect(html).toContain("Save");
+  });
+
+  it("wires the enable toggle callback", () => {
+    const html = renderToStaticMarkup(React.createElement(App, {
+      presentation: memoryFor({ name: "silent", lastConsumedSeq: 1, reconciliationReason: "" }),
+      onEnableChange: () => undefined,
+    }));
+    expect(html).toContain('id="toggle-enabled"');
+  });
+
+  it("renders not-yet-wired enabled actions disabled with a blocking reason", () => {
+    const html = renderToStaticMarkup(React.createElement(App, {
+      presentation: memoryFor({ name: "post_ai_clean", lastConsumedSeq: 1, reconciliationReason: "" }),
+    }));
+
+    expect(html).toContain('id="page-save"');
+    expect(html).toContain('data-blocked-reason="not-implemented"');
   });
 
   it("gives every disabled control a non-empty blocked reason", () => {

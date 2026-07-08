@@ -169,7 +169,7 @@ test("popup color-mix rules no longer use var(--card) as the second color", () =
 });
 
 test("popup injects the CSS layers in the requested order", () => {
-  const popupMain = readFileSync(new URL("../src/entrypoints/popup/main.ts", import.meta.url), "utf8");
+  const popupMain = readFileSync(new URL("../src/entrypoints/popup/main.tsx", import.meta.url), "utf8");
   const stylesheetImports = [...popupMain.matchAll(/import\s+"([^"]+\.css)";/g)].map((match) => match[1]);
 
   assert.deepEqual(stylesheetImports, [

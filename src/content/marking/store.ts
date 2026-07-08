@@ -75,15 +75,17 @@ export function createMarkingStore(domView: DomView, initialMarks: CanonicalMark
       const removesExcludedAncestor = mode === "exclude" && marks.rows.some((row) =>
         row.excluded && row.xpath !== branchRoot.xpath && isXPathInSubtree(branchRoot.xpath, row.xpath)
       );
-      const unexcludeAncestorXpaths = new Set(
-        marks.rows
-          .filter((row) => row.excluded && row.explicit !== true && row.xpath !== branchRoot.xpath && isXPathInSubtree(branchRoot.xpath, row.xpath))
-          .filter((row) => {
-            const ancestor = findNodeByXpath(domView.root, row.xpath);
-            return ancestor ? isToggleableDefaultTag(ancestor.tagName) : false;
-          })
-          .map((row) => row.xpath),
-      );
+      const unexcludeAncestorXpaths = mode === "exclude"
+        ? new Set(
+          marks.rows
+            .filter((row) => row.excluded && row.explicit !== true && row.xpath !== branchRoot.xpath && isXPathInSubtree(branchRoot.xpath, row.xpath))
+            .filter((row) => {
+              const ancestor = findNodeByXpath(domView.root, row.xpath);
+              return ancestor ? isToggleableDefaultTag(ancestor.tagName) : false;
+            })
+            .map((row) => row.xpath),
+        )
+        : new Set<string>();
       marks = applyToggle(marks, branchRoot.xpath, mode, { unexcludeAncestorXpaths });
       if (removesExcludedAncestor) {
         result = evaluate(marks, domView);

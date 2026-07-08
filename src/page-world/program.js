@@ -1,6 +1,7 @@
 (function () {
   const CHANNEL = "uf-page-bus/1";
   const LEGACY_CHANNEL = "unfluffify:page-world-relay:v1";
+  const URL_CHANGED_KIND = "uf-page-url-changed/1";
   const ALLOWED = new Set([
     "ARM",
     "SET_MOTION_PAUSED",
@@ -32,6 +33,40 @@
   const wrappedEventRegistrations = [];
   const timeoutTokens = new Map();
   const rafTokens = new Map();
+  let lastKnownUrl = globalThis.location && globalThis.location.href ? String(globalThis.location.href) : "";
+
+  function emitUrlChanged() {
+    const currentUrl = globalThis.location && globalThis.location.href ? String(globalThis.location.href) : "";
+    if (!currentUrl || currentUrl === lastKnownUrl) return;
+    const previousUrl = lastKnownUrl;
+    lastKnownUrl = currentUrl;
+    globalThis.postMessage?.({
+      kind: URL_CHANGED_KIND,
+      fromUrl: previousUrl,
+      toUrl: currentUrl,
+    }, "*");
+  }
+
+  function installNavigationBridge() {
+    if (!globalThis.history) return;
+    const patchHistoryMethod = (method) => {
+      const original = globalThis.history[method];
+      if (typeof original !== "function") return;
+      globalThis.history[method] = function patchedHistoryMethod(...args) {
+        const result = original.apply(this, args);
+        if (typeof globalThis.queueMicrotask === "function") {
+          globalThis.queueMicrotask(emitUrlChanged);
+        } else {
+          originals.setTimeout.call(globalThis, emitUrlChanged, 0);
+        }
+        return result;
+      };
+    };
+    patchHistoryMethod("pushState");
+    patchHistoryMethod("replaceState");
+    globalThis.addEventListener?.("popstate", emitUrlChanged);
+    globalThis.addEventListener?.("hashchange", emitUrlChanged);
+  }
 
   function listenerCapture(options) {
     return typeof options === "boolean" ? options : Boolean(options && options.capture);
@@ -269,6 +304,7 @@
   }
 
   installTimerBridge();
+  installNavigationBridge();
 
   globalThis.addEventListener("message", (event) => {
     const request = event.data;

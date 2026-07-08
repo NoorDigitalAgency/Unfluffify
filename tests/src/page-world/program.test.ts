@@ -61,6 +61,48 @@ describe("P5 page-world program", () => {
     expect(fired).toBe(true);
   });
 
+  it("relays MAIN-world pushState URL changes to the isolated content script", async () => {
+    const source = readFileSync("src/page-world/program.js", "utf8");
+    const listeners: PageWorldListener[] = [];
+    const messages: unknown[] = [];
+    const context = {
+      location: { href: "https://example.com/a" },
+      history: {
+        pushState(_state: unknown, _title: string, url?: string | URL | null) {
+          if (url) {
+            thisContext.location.href = new URL(String(url), thisContext.location.href).href;
+          }
+        },
+        replaceState() {},
+      },
+      performance: { now: () => 123 },
+      document: { documentElement: { toggleAttribute() {} } },
+      setTimeout(callback: () => void) { callback(); return 1; },
+      clearTimeout() {},
+      setInterval() { return 1; },
+      clearInterval() {},
+      requestAnimationFrame(callback: (now: number) => void) { callback(1); return 1; },
+      cancelAnimationFrame() {},
+      addEventListener(_type: string, listener: PageWorldListener) {
+        listeners.push(listener);
+      },
+      postMessage(message: unknown) {
+        messages.push(message);
+      },
+    };
+    const thisContext = context;
+    vm.runInNewContext(source, { ...context, globalThis: context, URL });
+
+    context.history.pushState({}, "", "/b");
+    await Promise.resolve();
+
+    expect(messages).toContainEqual({
+      kind: "uf-page-url-changed/1",
+      fromUrl: "https://example.com/a",
+      toUrl: "https://example.com/b",
+    });
+  });
+
   it("suppresses interval callbacks and lazy observer callbacks while paused/suppressed", () => {
     const source = readFileSync("src/page-world/program.js", "utf8");
     const listeners: Array<(event: { data: unknown; source: { postMessage: (message: unknown) => void } }) => void> = [];

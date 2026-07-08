@@ -85,6 +85,18 @@ describe("P3 background brain", () => {
       "marking.enabled",
       "reconciliation.started",
     ]);
+    expect(decideSignals(prev, next)[0]?.payload).toMatchObject({
+      pageUrl: "https://example.com/a",
+    });
+    expect(decideSignals(next, {
+      ...next,
+      pageUrl: "https://example.com/b",
+      markingEnabled: false,
+      reconciliationPending: false,
+    })).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "session.navigated", payload: expect.objectContaining({ pageUrl: "https://example.com/b" }) }),
+      expect.objectContaining({ name: "marking.disabled", payload: expect.objectContaining({ pageUrl: "https://example.com/b" }) }),
+    ]));
     expect(decideSignals(next, {
       ...next,
       pageUrl: "https://example.com/b",
@@ -316,6 +328,29 @@ describe("P3 background brain", () => {
     expect(result).toMatchObject({
       ok: true,
       signals: [{ name: "markings.changed", source: "content", cause: "user-marking-edit" }],
+    });
+  });
+
+  it("attributes content-born tab-zero signal envelopes to the sender tab", () => {
+    const runtime = createRewriteBrainRuntime({ addMessageListener() {} });
+    const result = runtime.handle({
+      type: "uf.rewriteBrain.emit",
+      tabId: 0,
+      signal: {
+        name: "markings.changed",
+        source: "content",
+        cause: "content-click",
+        payload: { pageUrl: "https://example.com", markedCount: 1 },
+      },
+    }, { tab: { id: 42 } });
+
+    expect(result).toMatchObject({
+      ok: true,
+      signals: [{ tabId: 42, name: "markings.changed" }],
+    });
+    expect(runtime.handle({ type: "uf.rewriteBrain.pull", tabId: 42, afterSeq: 0 })).toMatchObject({
+      ok: true,
+      signals: [{ tabId: 42, name: "markings.changed" }],
     });
   });
 });

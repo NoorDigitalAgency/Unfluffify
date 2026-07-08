@@ -1,7 +1,5 @@
 import { chooseWidenTarget, type WidenNode } from "../../domain/widening";
-import type { MarkMode } from "../../domain/schema/marking";
-import type { Classification } from "../../domain/schema/marking";
-import type { MarkRow } from "../../domain/schema/marking";
+import type { CanonicalMarkSet, Classification, MarkMode, MarkRow } from "../../domain/schema/marking";
 import type { EvaluationNode } from "../../domain/evaluate";
 import { captureFlattenedHtml, createDomBridgeView, type DomBridgeView } from "./dom-view";
 import { getComposedHitElements } from "./hit-testing";
@@ -11,6 +9,7 @@ import { resolveTarget, type MarkingCandidate } from "./resolve";
 import { createOverlayRenderer } from "./renderer";
 import { buildSubmissionSnapshot } from "./submit";
 import type { RenderMode } from "../../domain/schema/property";
+import { isToggleableDefaultTag } from "../../domain/taxonomy";
 
 function toCandidate(
   node: EvaluationNode,
@@ -92,14 +91,44 @@ function findWidenNode(root: WidenNode, key: string): WidenNode | null {
   return null;
 }
 
+function collectDefaultExclusionRows(node: EvaluationNode, rows: MarkRow[] = []): MarkRow[] {
+  if (
+    isToggleableDefaultTag(node.tagName) &&
+    node.visible &&
+    !node.pageShell &&
+    !node.chrome &&
+    !node.immutable &&
+    !node.closedShadow &&
+    (node.ownsDirectText || node.structuralBoundary)
+  ) {
+    rows.push({ xpath: node.xpath, excluded: true });
+  }
+  for (const child of node.children ?? []) {
+    collectDefaultExclusionRows(child, rows);
+  }
+  return rows;
+}
+
+function mergeDefaultExclusions(root: EvaluationNode, markSet: CanonicalMarkSet = { rows: [] }): CanonicalMarkSet {
+  const rows = [...markSet.rows];
+  const existing = new Set(rows.map((row) => row.xpath));
+  for (const row of collectDefaultExclusionRows(root)) {
+    if (!existing.has(row.xpath)) {
+      rows.push(row);
+      existing.add(row.xpath);
+    }
+  }
+  return { rows };
+}
+
 export function createMarkingEngine(rootElement: Element) {
   let bridge: DomBridgeView = createDomBridgeView(rootElement);
-  let store = createMarkingStore({ root: bridge.root });
+  let store = createMarkingStore({ root: bridge.root }, mergeDefaultExclusions(bridge.root));
   const renderer = createOverlayRenderer({ document: rootElement.ownerDocument });
 
   const refreshBridge = (): void => {
     bridge = createDomBridgeView(rootElement);
-    store = createMarkingStore({ root: bridge.root }, store.canonicalSet());
+    store = createMarkingStore({ root: bridge.root }, mergeDefaultExclusions(bridge.root, store.canonicalSet()));
   };
 
   return {
@@ -133,6 +162,12 @@ export function createMarkingEngine(rootElement: Element) {
     },
     renderReadOnly(): void {
       renderer.render(store.currentEvaluation(), new Map([...bridge.byXpath].map(([xpath, value]) => [xpath, value.element])));
+    },
+    clearOverlays(): void {
+      renderer.clear();
+    },
+    dispose(): void {
+      renderer.dispose();
     },
     captureRenderedHtml(): string {
       return captureFlattenedHtml(rootElement);

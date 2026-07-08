@@ -254,6 +254,39 @@ describe("P6 content marking engine", () => {
     ]);
   });
 
+  it("keeps default-excluded ancestors excluded when including a child", () => {
+    const child = leaf("child", "/html[1]/body[1]/footer[1]/p[1]");
+    const footer: EvaluationNode = {
+      key: "footer",
+      tagName: "FOOTER",
+      xpath: "/html[1]/body[1]/footer[1]",
+      visible: true,
+      structuralBoundary: true,
+      children: [child],
+    };
+    const root: EvaluationNode = {
+      key: "body",
+      tagName: "BODY",
+      xpath: "/html[1]/body[1]",
+      visible: true,
+      children: [footer],
+    };
+    const store = createMarkingStore({ root }, {
+      rows: [{ xpath: footer.xpath, excluded: true }],
+    });
+
+    store.toggle(child, "include");
+
+    expect(store.canonicalSet().rows).toEqual([
+      { xpath: footer.xpath, excluded: true },
+      { xpath: child.xpath, excluded: false, explicit: true },
+    ]);
+    expect(store.rows()).toEqual([
+      { xpath: footer.xpath, excluded: true },
+      { xpath: child.xpath, excluded: false, explicit: true },
+    ]);
+  });
+
   it("does not inherit node-local unexclude rows as subtree includes", () => {
     const hidden = { ...leaf("hidden", "/html[1]/body[1]/footer[1]/p[1]"), visible: false };
     const footer: EvaluationNode = {

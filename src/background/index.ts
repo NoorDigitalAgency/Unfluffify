@@ -1,54 +1,82 @@
-import type { BrainSignal } from "../domain/schema/signals";
-import type { TabFacts } from "../domain/schema/facts";
-import { decideSignals } from "./brain/decide";
-import { fold, type BrainSensation } from "./brain/fold";
-import { projectBrainState } from "./brain/project";
-import { createSignalLog } from "./brain/signals";
-import type { EmitSignalInput } from "./brain/signals";
+import { createRewriteBrainRuntime } from "./rewrite-brain-runtime";
+import { getInstalledBrowserApi } from "../common/browser";
 
-export function createRewriteBrain(tabId: number, initialFacts: TabFacts | null = null) {
-  let facts: TabFacts | null = initialFacts;
-  const signalLog = createSignalLog({ tabId, startSeq: initialFacts?.lastSignalSeq ?? 0 });
+export { createRewriteBrain } from "./rewrite-brain";
 
-  return {
-    observe(sensation: BrainSensation): readonly BrainSignal[] {
-      const prev = facts;
-      facts = fold(prev, sensation);
-      const emitted = decideSignals(prev, facts).map((decision) => signalLog.append(decision));
-      facts = {
-        ...facts,
-        lastSignalSeq: signalLog.head(),
-      };
-      return emitted;
+type RewriteSidePanelApi = Readonly<{
+  setOptions?: (options: { tabId?: number; path: string; enabled: boolean }) => Promise<void> | void;
+  open?: (options: { tabId: number }) => Promise<void> | void;
+}>;
+
+type InstalledBrowserApi = NonNullable<ReturnType<typeof getInstalledBrowserApi>>;
+type RewriteMessageResponder = (response: unknown) => void;
+type RewriteExtensionApi = InstalledBrowserApi & Readonly<{
+  sidePanel?: RewriteSidePanelApi;
+}>;
+
+function reportActionOpenFailure(error: unknown): void {
+  console.error("[Unfluffify][rewrite] Unable to open side panel", error);
+}
+
+async function openRewriteSidePanelForTab(tab: Readonly<{ id?: number }>, api: RewriteExtensionApi): Promise<void> {
+  if (typeof tab.id !== "number" || !api.sidePanel?.setOptions || !api.sidePanel.open) {
+    reportActionOpenFailure(new Error("Missing tab id or sidePanel API"));
+    return;
+  }
+  void Promise.resolve(api.sidePanel.setOptions({
+    tabId: tab.id,
+    path: "popup.html",
+    enabled: true,
+  })).catch(reportActionOpenFailure);
+  await api.sidePanel.open({ tabId: tab.id });
+}
+
+let rewriteBackgroundStarted = false;
+
+export function startRewriteBackground(): void {
+  const api = getInstalledBrowserApi() as RewriteExtensionApi | null;
+  if (rewriteBackgroundStarted || !api?.runtime?.onMessage) {
+    return;
+  }
+  rewriteBackgroundStarted = true;
+  const runtime = createRewriteBrainRuntime({
+    addMessageListener(listener) {
+      api.runtime.onMessage.addListener((message: unknown, sender: unknown, sendResponse: RewriteMessageResponder) => listener(message, sender, sendResponse));
     },
-    emitSourceSignal(input: EmitSignalInput): BrainSignal {
-      const emitted = signalLog.append(input);
-      facts = facts
-        ? { ...facts, lastSignalSeq: signalLog.head() }
-        : {
-          tabId,
-          markingEnabled: false,
-          lockRole: "unknown",
-          configPresent: false,
-          reconciliationPending: false,
-          lastSignalSeq: signalLog.head(),
-        };
-      return emitted;
+    createAlarm(name, info) {
+      api.alarms?.create(name, info);
     },
-    snapshot(): TabFacts | null {
-      return facts;
+    clearAlarm(name) {
+      api.alarms?.clear(name);
     },
-    project() {
-      return facts ? projectBrainState(facts, signalLog.head()) : null;
+    addAlarmListener(listener) {
+      api.alarms?.onAlarm?.addListener(listener);
     },
-    pullSignals(afterSeq: number): readonly BrainSignal[] {
-      return signalLog.pull(afterSeq);
-    },
-    pullForOrgan(organId: string, afterSeq = 0): readonly BrainSignal[] {
-      return signalLog.pullForOrgan(organId, afterSeq);
-    },
-    markConsumed(organId: string, seq: number): void {
-      signalLog.markConsumed(organId, seq);
-    },
-  };
+  });
+  runtime.start();
+  void Promise.resolve(api.sidePanel?.setOptions?.({
+    path: "popup.html",
+    enabled: true,
+  })).catch(reportActionOpenFailure);
+  api.action?.onClicked?.addListener((tab: Readonly<{ id?: number }>) => {
+    void openRewriteSidePanelForTab(tab, api).catch(reportActionOpenFailure);
+  });
+  api.runtime.onMessage.addListener((message: unknown, _sender: unknown, sendResponse: RewriteMessageResponder) => {
+    if (!message || typeof message !== "object" || Array.isArray(message)) {
+      return false;
+    }
+    const request = message as { type?: unknown; tabId?: unknown; afterSeq?: unknown };
+    if (request.type === "uf.rewrite.ping") {
+      sendResponse({ ok: true, tree: "rewrite" });
+      return true;
+    }
+    if (request.type === "uf.rewrite.signals.pull" && typeof request.tabId === "number") {
+      sendResponse({
+        ok: true,
+        signals: runtime.getBrain(request.tabId).pullSignals(typeof request.afterSeq === "number" ? request.afterSeq : 0),
+      });
+      return true;
+    }
+    return false;
+  });
 }

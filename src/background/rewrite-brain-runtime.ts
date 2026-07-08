@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { BrainSignalSchema } from "../domain/schema/signals";
 import { createKeepAliveController } from "./keepalive";
-import { createRewriteBrain } from "./index";
+import { createRewriteBrain } from "./rewrite-brain";
 import { BrainSensationSchema } from "./brain/fold";
 
 const RuntimeRequestSchema = z.discriminatedUnion("type", [
@@ -42,6 +42,14 @@ export type RuntimeHost = Readonly<{
   addAlarmListener?: (listener: (alarm: { name?: string }) => void) => void;
 }>;
 
+function senderTabId(sender: unknown): number | null {
+  if (!sender || typeof sender !== "object" || !("tab" in sender)) {
+    return null;
+  }
+  const tab = (sender as { tab?: { id?: unknown } }).tab;
+  return typeof tab?.id === "number" && tab.id >= 0 ? tab.id : null;
+}
+
 export function createRewriteBrainRuntime(host: RuntimeHost) {
   const brains = new Map<number, ReturnType<typeof createRewriteBrain>>();
   const keepAlive = createKeepAliveController({
@@ -60,7 +68,7 @@ export function createRewriteBrainRuntime(host: RuntimeHost) {
     return brain;
   };
 
-  const handle = (message: unknown): unknown => {
+  const handle = (message: unknown, sender?: unknown): unknown => {
     const parsed = RuntimeRequestSchema.safeParse(message);
     if (!parsed.success) {
       return undefined;
@@ -77,7 +85,8 @@ export function createRewriteBrainRuntime(host: RuntimeHost) {
     if (request.type === "uf.rewriteBrain.emit") {
       const release = keepAlive.acquire("emit");
       try {
-        const brain = getBrain(request.tabId);
+        const tabId = request.tabId === 0 ? senderTabId(sender) ?? request.tabId : request.tabId;
+        const brain = getBrain(tabId);
         const emitted = brain.emitSourceSignal(request.signal);
         return { ok: true, signals: [emitted] };
       } finally {
@@ -104,7 +113,7 @@ export function createRewriteBrainRuntime(host: RuntimeHost) {
       keepAlive.clearIfIdle();
       host.addAlarmListener?.((alarm) => keepAlive.handleAlarm(alarm));
       host.addMessageListener((message, _sender, sendResponse) => {
-        const result = handle(message);
+        const result = handle(message, _sender);
         if (result === undefined) {
           return undefined;
         }

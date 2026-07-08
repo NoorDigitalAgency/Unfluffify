@@ -12,31 +12,33 @@ describe("C2 background entrypoint", () => {
   });
 
   it("boots the shared background startup path", async () => {
-    const startBackground = vi.fn();
+    const startRewriteBackground = vi.fn();
     const defineBackground = vi.fn((callback: () => void) => callback);
 
     vi.doMock("wxt/utils/define-background", () => ({
       defineBackground,
     }));
-    vi.doMock("../src/background.js", () => ({ startBackground }));
+    vi.doMock("../src/background/index.ts", () => ({ startRewriteBackground }));
 
     const entrypoint = await import("../src/entrypoints/background.ts");
 
     expect(defineBackground).toHaveBeenCalledTimes(1);
-    expect(startBackground).not.toHaveBeenCalled();
+    expect(startRewriteBackground).not.toHaveBeenCalled();
     const callback = defineBackground.mock.calls[0]?.[0];
     expect(entrypoint.default).toBe(callback);
     expect(typeof callback).toBe("function");
 
     callback();
 
-    expect(startBackground).toHaveBeenCalledTimes(1);
+    expect(startRewriteBackground).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps background startup exported and callback-driven", () => {
-    const backgroundSource = readFileSync(resolve(REPO_ROOT, "src", "background.ts"), "utf8");
+  it("keeps rewrite background startup exported and callback-driven", () => {
+    const entrypointSource = readFileSync(resolve(REPO_ROOT, "src", "entrypoints", "background.ts"), "utf8");
+    const backgroundSource = readFileSync(resolve(REPO_ROOT, "src", "background", "index.ts"), "utf8");
 
-    expect(backgroundSource).toContain("export function startBackground(): void {");
-    expect(backgroundSource).not.toContain("\nstartBackground();");
+    expect(entrypointSource).toContain('import { startRewriteBackground } from "../background/index";');
+    expect(backgroundSource).toContain("export function startRewriteBackground(): void {");
+    expect(backgroundSource).not.toContain("\nstartRewriteBackground();");
   });
 });

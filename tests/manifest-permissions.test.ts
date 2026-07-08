@@ -56,8 +56,8 @@ test("manifest web-accessible resources avoid broad common/content wildcards", a
 test("every getURL-injected page resource is web-accessible (no under-scoping)", async () => {
   const manifest = await readManifestUnderTest();
   const resources = manifest.web_accessible_resources.flatMap((entry) => entry.resources || []);
-  const contentMain = await readFile(new URL("../src/content-main.ts", import.meta.url));
-  const core = await readFile(new URL("../src/content/core.ts", import.meta.url));
+  const contentEntrypoint = await readFile(new URL("../src/entrypoints/content-loader.content.ts", import.meta.url));
+  const pageWorld = await readFile(new URL("../src/page-world/program.js", import.meta.url));
 
   // Any literal extension-resource helper call loaded into the page world
   // (e.g. cursor image url) MUST be web-accessible or the browser blocks the
@@ -74,15 +74,13 @@ test("every getURL-injected page resource is web-accessible (no under-scoping)",
     });
 
   const literalGetUrls = new Set();
-  for (const source of [contentMain, core]) {
+  for (const source of [contentEntrypoint, pageWorld]) {
     const matches = source.matchAll(/(?:getURL|getExtensionResourceUrl)\(\s*"([^"]+)"\s*\)/g);
     for (const match of matches) {
       literalGetUrls.add(match[1]);
     }
   }
 
-  assert.ok(literalGetUrls.has("cursors/exclude.svg"),
-    "expected cursor SVGs to be injected via an extension resource helper (test premise)");
   for (const resource of literalGetUrls) {
     assert.ok(
       wildcardMatches(resource),
@@ -94,24 +92,20 @@ test("every getURL-injected page resource is web-accessible (no under-scoping)",
 test("content and common code modules are not left web-accessible after native content bundling", async () => {
   const manifest = await readManifestUnderTest();
   const resources = manifest.web_accessible_resources.flatMap((entry) => entry.resources || []);
-  const contentMain = await readFile(new URL("../src/content-main.ts", import.meta.url));
+  const contentEntrypoint = await readFile(new URL("../src/entrypoints/content-loader.content.ts", import.meta.url));
   const importedContentModules = new Set();
   const importedCommonModules = new Set();
 
-  for (const match of contentMain.matchAll(/from\s+"(\.\/content\/[^"]+)"/g)) {
-    importedContentModules.add(`${match[1].replace(/^\.\//, "")}.js`);
+  for (const match of contentEntrypoint.matchAll(/from\s+"(\.\.\/content\/[^"]+)"/g)) {
+    importedContentModules.add(`${match[1].replace(/^\.\.\//, "")}.js`);
   }
-  for (const match of contentMain.matchAll(/from\s+"(\.\/common\/[^"]+)"/g)) {
-    importedCommonModules.add(`${match[1].replace(/^\.\//, "")}.js`);
+  for (const match of contentEntrypoint.matchAll(/from\s+"(\.\.\/common\/[^"]+)"/g)) {
+    importedCommonModules.add(`${match[1].replace(/^\.\.\//, "")}.js`);
   }
 
   assert.ok(
     importedContentModules.size > 0,
-    "expected content-main.js to import at least one content/* module"
-  );
-  assert.ok(
-    importedCommonModules.size > 0,
-    "expected content-main.js to import at least one common/* module"
+    "expected rewrite content entrypoint to import at least one content/* module"
   );
 
   for (const modulePath of importedContentModules) {

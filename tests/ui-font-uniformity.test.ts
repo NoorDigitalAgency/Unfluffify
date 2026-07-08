@@ -3,8 +3,8 @@ import { assert } from "./test-kit.ts";
 import { readFileSync } from "./file-kit.ts";
 
 const constantsSource = readFileSync(new URL("../src/common/constants.ts", import.meta.url), "utf8");
-const coreSource = readFileSync(new URL("../src/content/core.ts", import.meta.url), "utf8");
-const contentMainSource = readFileSync(new URL("../src/content-main.ts", import.meta.url), "utf8");
+const contentEntrypointSource = readFileSync(new URL("../src/entrypoints/content-loader.content.ts", import.meta.url), "utf8");
+const markingRendererSource = readFileSync(new URL("../src/content/marking/renderer.ts", import.meta.url), "utf8");
 const popupCss = readFileSync(new URL("../src/popup.css", import.meta.url), "utf8");
 const themeColorCss = readFileSync(new URL("../src/theme-color.css", import.meta.url), "utf8");
 
@@ -21,7 +21,7 @@ test("EXTENSION_UI_FONT_STACK is exported and mirrors the popup brand sans", () 
 });
 
 test("injected page-world styles use the shared font stack, not ad-hoc families", () => {
-  for (const [label, source] of [["content/core.js", coreSource], ["content-main.js", contentMainSource]]) {
+  for (const [label, source] of [["content-loader.content.ts", contentEntrypointSource], ["content/marking/renderer.ts", markingRendererSource]]) {
     const fontLines = source
       .split("\n")
       .filter((line) => /font(-family)?\s*:/.test(line));

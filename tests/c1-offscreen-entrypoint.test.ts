@@ -1,4 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
+const REPO_ROOT = resolve(import.meta.dirname, "..");
 
 describe("C1 offscreen entrypoint", () => {
   afterEach(() => {
@@ -6,14 +10,11 @@ describe("C1 offscreen entrypoint", () => {
     vi.clearAllMocks();
   });
 
-  it("boots the shared offscreen runtime", async () => {
-    vi.resetModules();
-    const startOffscreen = vi.fn();
-    vi.doMock("../src/offscreen/bootstrap.js", () => ({ startOffscreen }));
+  it("keeps the cutover offscreen entrypoint as an inert placeholder", () => {
+    const source = readFileSync(resolve(REPO_ROOT, "src", "entrypoints", "offscreen", "main.ts"), "utf8");
 
-    await import("../src/entrypoints/offscreen/main.ts");
-
-    expect(startOffscreen).toHaveBeenCalledTimes(1);
+    expect(source.trim()).toBe("export {};");
+    expect(source).not.toContain("../../offscreen/bootstrap");
   });
 
   it("keeps the real offscreen refine-xpaths bridge wired through bootstrap", async () => {
