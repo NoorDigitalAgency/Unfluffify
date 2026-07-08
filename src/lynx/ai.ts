@@ -9,6 +9,15 @@ export const AI_RUN_TIMEOUT_MS = 8 * 60 * 1000;
 
 export const GetSelectorsRequestSchema = AiRunPayloadSnapshotSchema;
 export type GetSelectorsRequest = AiRunPayloadSnapshot;
+export type AiStartResult =
+  | Readonly<{ status: "ok"; sessionId: string }>
+  | Readonly<{ status: "auth_error" | "error"; httpStatus: number }>;
+export type AiStatusResult =
+  | Readonly<{ status: "ok"; sessionId: string; runStatus: string }>
+  | Readonly<{ status: "not_found" | "error"; httpStatus: number }>;
+export type AiResultResult =
+  | Readonly<{ status: "ok"; selectors: SelectorSet }>
+  | Readonly<{ status: "not_found" | "error"; httpStatus: number }>;
 
 export function parseAiRunStartResponse(payload: unknown): string {
   const parsed = z.object({ session_id: z.string().min(1) }).safeParse(payload);
@@ -34,50 +43,59 @@ export function parseAiRunResultResponse(payload: unknown): SelectorSet {
   return SelectorSetSchema.parse(payload);
 }
 
-export async function startAiRun(transport: JsonTransport, snapshot: GetSelectorsRequest): Promise<string> {
+export async function startAiRun(transport: JsonTransport, snapshot: GetSelectorsRequest): Promise<AiStartResult> {
   const response = await transport({
     method: "POST",
     path: "/get_selectors",
     body: GetSelectorsRequestSchema.parse(snapshot),
   });
+  if (response.status === 401 || response.status === 403) {
+    return { status: "auth_error", httpStatus: response.status };
+  }
   if (response.status !== 200) {
-    throw new Error(`AI run start failed with HTTP ${response.status}`);
+    return { status: "error", httpStatus: response.status };
   }
   const sessionId = parseAiRunStartResponse(response.body);
   if (!sessionId) {
-    throw new Error("AI run start response did not include session_id");
+    return { status: "error", httpStatus: response.status };
   }
-  return sessionId;
+  return { status: "ok", sessionId };
 }
 
 export async function getAiRunStatus(
   transport: JsonTransport,
   sessionId: string,
-): Promise<{ sessionId: string; status: string } | "notFound"> {
+): Promise<AiStatusResult> {
   const response = await transport({
     method: "GET",
     path: `/get_selectors/status/${encodeURIComponent(sessionId)}`,
   });
   if (response.status === 404) {
-    return "notFound";
+    return { status: "not_found", httpStatus: response.status };
+  }
+  if (response.status !== 200) {
+    return { status: "error", httpStatus: response.status };
   }
   const parsed = parseAiRunStatusResponse(response.body);
   if (!parsed || parsed.sessionId !== sessionId) {
-    throw new Error("AI run status response did not match requested session");
+    return { status: "error", httpStatus: response.status };
   }
-  return parsed;
+  return { status: "ok", sessionId: parsed.sessionId, runStatus: parsed.status };
 }
 
 export async function getAiRunResult(
   transport: JsonTransport,
   sessionId: string,
-): Promise<SelectorSet | "notFound"> {
+): Promise<AiResultResult> {
   const response = await transport({
     method: "GET",
     path: `/get_selectors/result/${encodeURIComponent(sessionId)}`,
   });
   if (response.status === 404) {
-    return "notFound";
+    return { status: "not_found", httpStatus: response.status };
   }
-  return parseAiRunResultResponse(response.body);
+  if (response.status !== 200) {
+    return { status: "error", httpStatus: response.status };
+  }
+  return { status: "ok", selectors: parseAiRunResultResponse(response.body) };
 }

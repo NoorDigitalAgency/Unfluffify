@@ -7,6 +7,7 @@ import {
   markCssSelectorOnlyEdit,
   markMarkingEdit,
   startAiJob,
+  pollAiJob,
 } from "../../../src/lynx/ai-job";
 
 describe("P4 AI-job gate FSM", () => {
@@ -39,5 +40,56 @@ describe("P4 AI-job gate FSM", () => {
       runAiDisabled: true,
       saveEnabled: false,
     });
+  });
+
+  it("polls first, heartbeats every iteration, and releases compute lock", async () => {
+    let now = 0;
+    const sleeps: number[] = [];
+    const heartbeats: unknown[] = [];
+    let locked = false;
+    const result = await pollAiJob("session-1", {
+      now: () => now,
+      sleep: async (ms) => {
+        sleeps.push(ms);
+        now += ms;
+      },
+      getStatus: async () => sleeps.length === 0 ? { status: "ok", runStatus: "running" } : { status: "ok", runStatus: "done" },
+      getResult: async () => ({ status: "ok", selectors: { exclusionSelectors: [], inclusionSelectors: [] } }),
+      heartbeat: (state) => heartbeats.push(state),
+      acquireComputeLock: async () => {
+        locked = true;
+        return () => { locked = false; };
+      },
+    }, { timeoutMs: 480_000, pollIntervalMs: 5_000 });
+
+    expect(result).toEqual({ status: "fresh", selectors: { exclusionSelectors: [], inclusionSelectors: [] }, polls: 2 });
+    expect(sleeps).toEqual([5_000]);
+    expect(heartbeats).toHaveLength(2);
+    expect(locked).toBe(false);
+  });
+
+  it("times out without sleeping past the deadline", async () => {
+    let now = 0;
+    const sleeps: number[] = [];
+    let locked = false;
+    const result = await pollAiJob("session-1", {
+      now: () => now,
+      sleep: async (ms) => {
+        sleeps.push(ms);
+        now += ms;
+      },
+      getStatus: async () => ({ status: "ok", runStatus: "running" }),
+      getResult: async () => ({ status: "error" }),
+      heartbeat: () => undefined,
+      acquireComputeLock: async () => {
+        locked = true;
+        return () => { locked = false; };
+      },
+    }, { timeoutMs: 12_000, pollIntervalMs: 5_000 });
+
+    expect(result).toEqual({ status: "timeout", polls: 3 });
+    expect(sleeps).toEqual([5_000, 5_000, 2_000]);
+    expect(now).toBe(12_000);
+    expect(locked).toBe(false);
   });
 });

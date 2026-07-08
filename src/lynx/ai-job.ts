@@ -83,3 +83,46 @@ export function deriveAiJobGates(state: AiJobState): AiJobGates {
     saveEnabled: state.pageControlsVisible && !state.reconciliationPending && !sessionRequiresAiRun,
   };
 }
+
+export type AiJobPollDeps = Readonly<{
+  now: () => number;
+  sleep: (ms: number) => Promise<void>;
+  getStatus: (sessionId: string) => Promise<{ status: "ok"; runStatus: string } | { status: "not_found" | "error" }>;
+  getResult: (sessionId: string) => Promise<{ status: "ok"; selectors: unknown } | { status: "not_found" | "error" }>;
+  heartbeat: (state: Readonly<{ sessionId: string; phase: AiJobPhase; deadlineAt: number; updatedAt: number }>) => Promise<void> | void;
+  acquireComputeLock: () => Promise<() => void> | (() => void);
+}>;
+
+export type AiJobPollResult =
+  | Readonly<{ status: "fresh"; selectors: unknown; polls: number }>
+  | Readonly<{ status: "timeout" | "not_found" | "error"; polls: number }>;
+
+export async function pollAiJob(
+  sessionId: string,
+  deps: AiJobPollDeps,
+  options: Readonly<{ timeoutMs?: number; pollIntervalMs?: number }> = {},
+): Promise<AiJobPollResult> {
+  const timeoutMs = options.timeoutMs ?? 480_000;
+  const pollIntervalMs = options.pollIntervalMs ?? 5_000;
+  const deadlineAt = deps.now() + timeoutMs;
+  const release = await deps.acquireComputeLock();
+  let polls = 0;
+  try {
+    while (deps.now() < deadlineAt) {
+      polls += 1;
+      await deps.heartbeat({ sessionId, phase: "running", deadlineAt, updatedAt: deps.now() });
+      const status = await deps.getStatus(sessionId);
+      if (status.status === "not_found") return { status: "not_found", polls };
+      if (status.status !== "ok" || status.runStatus === "error") return { status: "error", polls };
+      if (status.runStatus !== "running") {
+        const result = await deps.getResult(sessionId);
+        if (result.status === "ok") return { status: "fresh", selectors: result.selectors, polls };
+        return { status: result.status, polls };
+      }
+      await deps.sleep(Math.min(pollIntervalMs, Math.max(0, deadlineAt - deps.now())));
+    }
+    return { status: "timeout", polls };
+  } finally {
+    release();
+  }
+}
