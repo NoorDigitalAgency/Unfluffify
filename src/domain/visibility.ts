@@ -77,5 +77,14 @@ export function isUserVisible(_node: unknown, geometry: VisibilityGeometry): boo
     return true;
   }
 
+  const overflowClips = style?.overflowY === "hidden" || style?.overflowY === "clip";
+  const hasVerticalOverflow =
+    style?.clientHeight !== undefined &&
+    style.scrollHeight !== undefined &&
+    style.scrollHeight > style.clientHeight;
+  if (overflowClips && hasVerticalOverflow) {
+    return false;
+  }
+
   return true;
 }

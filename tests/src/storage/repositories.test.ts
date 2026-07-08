@@ -7,6 +7,11 @@ import {
   createMemoryStore,
   createRunRecordRepo,
   createTabStateRepo,
+  createSessionDraft,
+  discardSessionDraft,
+  replaceBaselineFromSave,
+  updateSessionDraft,
+  parseSettings,
   type ConfigSnapshot,
 } from "../../../src/storage";
 
@@ -177,5 +182,55 @@ describe("P2 storage repositories", () => {
         },
       }),
     ).toThrow();
+  });
+
+  it("separates backend baseline from mutable session draft", () => {
+    const baseline = configSnapshot();
+    const updated = {
+      ...baseline,
+      pageMarkings: {
+        ...baseline.pageMarkings,
+        "https://example.com/other": {
+          timestamp: "2026-07-07T00:00:00Z",
+          renderedHtml: "<html></html>",
+          rows: [{ xpath: "/html[1]/body[1]/main[2]", excluded: false }],
+        },
+      },
+    };
+    const session = createSessionDraft(baseline);
+    const dirty = updateSessionDraft(session, updated);
+
+    expect(dirty.dirty).toBe(true);
+    expect(discardSessionDraft(dirty)).toEqual(session);
+    expect(replaceBaselineFromSave(dirty, updated)).toEqual({
+      baseline: updated,
+      draft: updated,
+      dirty: false,
+    });
+  });
+
+  it("does not alias backend baseline and mutable draft objects", () => {
+    const session = createSessionDraft(configSnapshot());
+    const draft = session.draft as ConfigSnapshot;
+    draft.pageMarkings["https://example.com/page"].rows.push({
+      xpath: "/html[1]/body[1]/aside[1]",
+      excluded: true,
+    });
+
+    expect(session.baseline.pageMarkings["https://example.com/page"].rows).toEqual([
+      { xpath: "/html[1]/body[1]/main[1]", excluded: false },
+    ]);
+    expect(discardSessionDraft(session).draft).toEqual(session.baseline);
+    expect(discardSessionDraft(session).draft).not.toBe(session.baseline);
+  });
+
+  it("validates settings lifetime tier", () => {
+    expect(parseSettings({
+      configEndpoint: "https://config.example.com",
+      aiEndpoint: "https://ai.example.com",
+      stageBase: "a.lynxdev.se",
+      token: "token",
+    })).toMatchObject({ stageBase: "a.lynxdev.se" });
+    expect(() => parseSettings({ configEndpoint: "not a url" })).toThrow();
   });
 });

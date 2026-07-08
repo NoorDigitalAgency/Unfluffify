@@ -39,6 +39,32 @@ describe("P0 visibility policy (INV-5.5..INV-5.8)", () => {
     ).toBe(true);
   });
 
+  it("excludes clipped overflow without a visible text-clamp preview", () => {
+    expect(
+      isUserVisible("clipped-no-preview", {
+        ...visible,
+        rect: { left: 0, top: 0, width: 100, height: 24 },
+        style: {
+          overflowY: "hidden",
+          clientHeight: 24,
+          scrollHeight: 100,
+          textContent: "",
+        },
+      }),
+    ).toBe(false);
+    expect(
+      isUserVisible("overflow-hidden-no-clip", {
+        ...visible,
+        style: {
+          overflowY: "hidden",
+          clientHeight: 24,
+          scrollHeight: 24,
+          textContent: "fully visible",
+        },
+      }),
+    ).toBe(true);
+  });
+
   it("excludes genuine hidden modes and zero-area boxes", () => {
     expect(isUserVisible("display", { ...visible, style: { display: "none" } })).toBe(false);
     expect(isUserVisible("visibility", { ...visible, style: { visibility: "hidden" } })).toBe(
