@@ -1,4 +1,5 @@
 import { createRewriteBrainRuntime } from "./rewrite-brain-runtime";
+import { createRewriteBackgroundServices } from "./services";
 import { getInstalledBrowserApi } from "../common/browser";
 import { createRealmBus } from "../messaging/realms";
 import { createRuntimeTransport } from "../messaging/transports/runtime";
@@ -41,6 +42,7 @@ export function startRewriteBackground(): void {
     return;
   }
   rewriteBackgroundStarted = true;
+  const services = createRewriteBackgroundServices();
   const runtime = createRewriteBrainRuntime({
     addMessageListener() {},
     createAlarm(name, info) {
@@ -68,7 +70,13 @@ export function startRewriteBackground(): void {
     const release = runtime.keepAlive.acquire("emit");
     try {
       const tabId = request.tabId === 0 ? parseSenderTabId(meta.sourceInstance) ?? request.tabId : request.tabId;
-      return [runtime.getBrain(tabId).emitSourceSignal(request.signal)];
+      const brain = runtime.getBrain(tabId);
+      const emitted = brain.emitSourceSignal(request.signal);
+      const snapshot = brain.snapshot();
+      if (snapshot) {
+        void services.persistence.persistDurableFacts(snapshot);
+      }
+      return [emitted];
     } finally {
       release();
     }
@@ -84,4 +92,5 @@ export function startRewriteBackground(): void {
   api.action?.onClicked?.addListener((tab: Readonly<{ id?: number }>) => {
     void openRewriteSidePanelForTab(tab, api).catch(reportActionOpenFailure);
   });
+  services.createLockClient({ tabId: 0, siteId: 1, pageUrl: "about:blank" }).heartbeat();
 }

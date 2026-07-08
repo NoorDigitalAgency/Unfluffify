@@ -80,7 +80,7 @@ describe("C4 rewrite content entrypoints", () => {
       configurable: true,
       value: {
         body: { nodeType: 1 },
-        documentElement: { nodeType: 1, tagName: "HTML" },
+        documentElement: { nodeType: 1, tagName: "HTML", scrollHeight: 1000 },
         addEventListener: vi.fn((type: string, listener: EventListener) => {
           documentListeners.set(type, listener);
         }),
@@ -92,6 +92,10 @@ describe("C4 rewrite content entrypoints", () => {
     Object.defineProperty(globalThis, "window", {
       configurable: true,
       value: {
+        innerHeight: 500,
+        scrollY: 123,
+        scrollTo: vi.fn(),
+        postMessage: vi.fn(),
         addEventListener: vi.fn((type: string, listener: EventListener) => {
           windowListeners.set(type, listener);
         }),
@@ -134,6 +138,19 @@ describe("C4 rewrite content entrypoints", () => {
     expect(createMarkingEngine).toHaveBeenCalledWith(document.documentElement);
     expect(engine.refresh).toHaveBeenCalledTimes(2);
     expect(engine.renderReadOnly).toHaveBeenCalledTimes(2);
+    expect(window.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      command: "ARM",
+      sessionNonce: undefined,
+    }), "*");
+    expect(window.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      command: "SET_LAZY_LOADING_SUPPRESSED",
+      sessionNonce: expect.stringMatching(/^rewrite-stabilization-/),
+    }), "*");
+    expect(window.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      command: "SET_MOTION_PAUSED",
+      sessionNonce: expect.stringMatching(/^rewrite-stabilization-/),
+    }), "*");
+    expect(window.scrollTo).toHaveBeenCalledWith(0, 123);
     documentListeners.get("keydown")?.({ code: "Space" } as unknown as Event);
     documentListeners.get("keyup")?.({ code: "Space" } as unknown as Event);
     expect(engine.refresh).toHaveBeenCalledTimes(3);
@@ -181,6 +198,10 @@ describe("C4 rewrite content entrypoints", () => {
     expect(engine.toggle).toHaveBeenCalledTimes(1);
     expect(listener({ type: "deactivateContentMain" }, {}, response)).toBe(true);
     expect(engine.dispose).toHaveBeenCalledTimes(1);
+    expect(window.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      command: "DESTROY",
+      sessionNonce: expect.stringMatching(/^rewrite-stabilization-/),
+    }), "*");
     expect(documentListeners.has("click")).toBe(false);
     expect(windowListeners.has("blur")).toBe(false);
     expect(response).toHaveBeenLastCalledWith({ ok: true, initialized: false, tree: "rewrite" });

@@ -3,12 +3,20 @@ import { defineContentScript } from "wxt/utils/define-content-script";
 import { browser, getInstalledBrowserApi } from "../common/browser";
 import { createActivationGate } from "../content/activation";
 import { createMarkingEngine } from "../content/marking";
+import { createFreezeController, createRevealVisitController, createSpaGuard } from "../content/stabilization";
 import type { BrainSignal } from "../domain/schema/signals";
 import { createRealmBus } from "../messaging/realms";
 import { createRuntimeTransport } from "../messaging/transports/runtime";
 import { emitRewriteSignal, type RewriteSignalBus } from "../messaging/rewrite-signals";
 
 const activation = createActivationGate();
+const freezeController = createFreezeController();
+const revealController = createRevealVisitController();
+const spaGuard = createSpaGuard((url) => {
+  if (typeof location !== "undefined" && location.href !== url) {
+    location.assign(url);
+  }
+});
 let markingEngine: ReturnType<typeof createMarkingEngine> | null = null;
 let markingActive = false;
 let userMarkingDirty = false;
@@ -17,6 +25,7 @@ let removeMarkingListeners: (() => void) | null = null;
 let navigationWatcherInstalled = false;
 let lastKnownPageUrl = typeof location !== "undefined" ? location.href : "";
 let contentBus: RewriteSignalBus | null = null;
+let pageWorldSessionNonce = "";
 
 function getRuntimeBrowser() {
   return getInstalledBrowserApi() ?? browser;
@@ -38,6 +47,72 @@ function refreshActiveMarking(): void {
   }
   markingEngine.refresh();
   markingEngine.renderReadOnly();
+}
+
+function runActivationStabilization(pageUrl: string): void {
+  spaGuard.arm(pageUrl);
+  destroyPageWorldSession();
+  const sessionNonce = `rewrite-stabilization-${Date.now()}`;
+  pageWorldSessionNonce = sessionNonce;
+  const initialScrollY = typeof window !== "undefined" ? window.scrollY : 0;
+  const postPageCommand = (command: "ARM" | "SET_LAZY_LOADING_SUPPRESSED" | "SET_MOTION_PAUSED", payload: Record<string, unknown>): void => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.postMessage?.({
+      kind: "uf-page-bus/1",
+      type: "request",
+      nonce: sessionNonce,
+      sessionNonce: command === "ARM" ? undefined : sessionNonce,
+      command,
+      payload,
+    }, "*");
+  };
+  postPageCommand("ARM", {});
+  void revealController.run({
+    hasVerticalScrollRoom: typeof document !== "undefined" && typeof window !== "undefined"
+      ? document.documentElement.scrollHeight > window.innerHeight
+      : false,
+    activationStale: pageUrl !== (typeof location !== "undefined" ? location.href : pageUrl),
+    initialScrollHeight: typeof document !== "undefined" ? document.documentElement.scrollHeight : 0,
+    expandedScrollHeight: typeof document !== "undefined" ? document.documentElement.scrollHeight : undefined,
+    scrollTo(position) {
+      if (typeof window === "undefined") {
+        return;
+      }
+      if (position === "top") window.scrollTo(0, 0);
+      if (position === "half") window.scrollTo(0, Math.floor((document.documentElement.scrollHeight || 0) / 2));
+      if (position === "bottom") window.scrollTo(0, document.documentElement.scrollHeight || 0);
+      if (position === "restore") window.scrollTo(0, initialScrollY);
+    },
+    suppressLazyLoading() {
+      postPageCommand("SET_LAZY_LOADING_SUPPRESSED", { suppressed: true });
+    },
+    freezeAtBottom() {
+      freezeController.pause("page-visit");
+      postPageCommand("SET_MOTION_PAUSED", { paused: true });
+    },
+  }).catch((error: unknown) => {
+    console.error("[Unfluffify][rewrite] Page stabilization failed", error);
+  });
+}
+
+function destroyPageWorldSession(): void {
+  if (!pageWorldSessionNonce || typeof window === "undefined") {
+    freezeController.lift();
+    pageWorldSessionNonce = "";
+    return;
+  }
+  window.postMessage?.({
+    kind: "uf-page-bus/1",
+    type: "request",
+    nonce: pageWorldSessionNonce,
+    sessionNonce: pageWorldSessionNonce,
+    command: "DESTROY",
+    payload: {},
+  }, "*");
+  freezeController.lift();
+  pageWorldSessionNonce = "";
 }
 
 function setSpacePassthrough(event: KeyboardEvent, active: boolean): void {
@@ -129,6 +204,8 @@ function ensureMarkingListeners(): void {
 function deactivateMarking(): void {
   markingActive = false;
   userMarkingDirty = false;
+  spaGuard.disarm();
+  destroyPageWorldSession();
   removeMarkingListeners?.();
   markingEngine?.dispose();
   markingEngine = null;
@@ -141,6 +218,7 @@ function handleUrlChanged(nextUrl?: string): void {
   }
   const previousUrl = lastKnownPageUrl;
   lastKnownPageUrl = currentUrl;
+  spaGuard.onUrlChange(currentUrl);
   if (!markingActive) {
     return;
   }
@@ -177,6 +255,7 @@ function resetMarking(): boolean {
     return false;
   }
   markingEngine?.dispose();
+  destroyPageWorldSession();
   markingEngine = createMarkingEngine(document.documentElement);
   userMarkingDirty = false;
   lastKnownPageUrl = typeof location !== "undefined" ? location.href : lastKnownPageUrl;
@@ -209,6 +288,7 @@ export default defineContentScript({
           requestPageUrl || currentPageUrl,
           request.realEditorActivation !== false,
         );
+        runActivationStabilization(requestPageUrl || currentPageUrl);
         if (typeof document !== "undefined" && document.documentElement) {
           lastKnownPageUrl = requestPageUrl || currentPageUrl || lastKnownPageUrl;
           if (!markingActive) {
