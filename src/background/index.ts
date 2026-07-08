@@ -1,5 +1,8 @@
 import { createRewriteBrainRuntime } from "./rewrite-brain-runtime";
 import { getInstalledBrowserApi } from "../common/browser";
+import { createRealmBus } from "../messaging/realms";
+import { createRuntimeTransport } from "../messaging/transports/runtime";
+import { parseSenderTabId } from "../messaging/rewrite-signals";
 
 export { createRewriteBrain } from "./rewrite-brain";
 
@@ -9,7 +12,6 @@ type RewriteSidePanelApi = Readonly<{
 }>;
 
 type InstalledBrowserApi = NonNullable<ReturnType<typeof getInstalledBrowserApi>>;
-type RewriteMessageResponder = (response: unknown) => void;
 type RewriteExtensionApi = InstalledBrowserApi & Readonly<{
   sidePanel?: RewriteSidePanelApi;
 }>;
@@ -40,9 +42,7 @@ export function startRewriteBackground(): void {
   }
   rewriteBackgroundStarted = true;
   const runtime = createRewriteBrainRuntime({
-    addMessageListener(listener) {
-      api.runtime.onMessage.addListener((message: unknown, sender: unknown, sendResponse: RewriteMessageResponder) => listener(message, sender, sendResponse));
-    },
+    addMessageListener() {},
     createAlarm(name, info) {
       api.alarms?.create(name, info);
     },
@@ -53,30 +53,35 @@ export function startRewriteBackground(): void {
       api.alarms?.onAlarm?.addListener(listener);
     },
   });
-  runtime.start();
+  runtime.keepAlive.clearIfIdle();
+  api.alarms?.onAlarm?.addListener((alarm) => runtime.keepAlive.handleAlarm(alarm));
+  const bus = createRealmBus({
+    realm: "background",
+    transport: createRuntimeTransport(api.runtime),
+  });
+  bus.onCommand("signals.pull", (request) =>
+    [...(request.organId
+      ? runtime.getBrain(request.tabId).pullForOrgan(request.organId, request.afterSeq)
+      : runtime.getBrain(request.tabId).pullSignals(request.afterSeq))]
+  );
+  bus.onCommand("signals.emit", (request, meta) => {
+    const release = runtime.keepAlive.acquire("emit");
+    try {
+      const tabId = request.tabId === 0 ? parseSenderTabId(meta.sourceInstance) ?? request.tabId : request.tabId;
+      return [runtime.getBrain(tabId).emitSourceSignal(request.signal)];
+    } finally {
+      release();
+    }
+  });
+  bus.onCommand("signals.consume", (request) => {
+    runtime.getBrain(request.tabId).markConsumed(request.organId, request.seq);
+    return { ok: true as const };
+  });
   void Promise.resolve(api.sidePanel?.setOptions?.({
     path: "popup.html",
     enabled: true,
   })).catch(reportActionOpenFailure);
   api.action?.onClicked?.addListener((tab: Readonly<{ id?: number }>) => {
     void openRewriteSidePanelForTab(tab, api).catch(reportActionOpenFailure);
-  });
-  api.runtime.onMessage.addListener((message: unknown, _sender: unknown, sendResponse: RewriteMessageResponder) => {
-    if (!message || typeof message !== "object" || Array.isArray(message)) {
-      return false;
-    }
-    const request = message as { type?: unknown; tabId?: unknown; afterSeq?: unknown };
-    if (request.type === "uf.rewrite.ping") {
-      sendResponse({ ok: true, tree: "rewrite" });
-      return true;
-    }
-    if (request.type === "uf.rewrite.signals.pull" && typeof request.tabId === "number") {
-      sendResponse({
-        ok: true,
-        signals: runtime.getBrain(request.tabId).pullSignals(typeof request.afterSeq === "number" ? request.afterSeq : 0),
-      });
-      return true;
-    }
-    return false;
   });
 }

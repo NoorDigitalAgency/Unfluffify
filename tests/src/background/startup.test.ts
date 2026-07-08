@@ -39,7 +39,7 @@ describe("rewrite background startup", () => {
     const { startRewriteBackground } = await import("../../../src/background/index");
     startRewriteBackground();
     expect(addActionListener).toHaveBeenCalledTimes(1);
-    expect(addMessageListener).toHaveBeenCalledTimes(2);
+    expect(addMessageListener).toHaveBeenCalledTimes(1);
     expect(addAlarmListener).toHaveBeenCalledTimes(1);
 
     const listener = addActionListener.mock.calls[0]?.[0] as (tab: chrome.tabs.Tab) => void;
@@ -62,8 +62,10 @@ describe("rewrite background startup", () => {
 
   it("mounts the rewrite brain runtime on the shipped background path", async () => {
     const addMessageListener = vi.fn();
+    const sendMessage = vi.fn();
     globalThis.chrome = {
       runtime: {
+        sendMessage,
         onMessage: { addListener: addMessageListener },
       },
       action: {
@@ -78,35 +80,40 @@ describe("rewrite background startup", () => {
 
     const { startRewriteBackground } = await import("../../../src/background/index");
     startRewriteBackground();
-    const runtimeListener = addMessageListener.mock.calls
-      .map((call) => call[0] as (message: unknown, sender: unknown, sendResponse: (value: unknown) => void) => unknown)
-      .find((listener) => {
-        let response: unknown;
-        listener({ type: "uf.rewriteBrain.snapshot", tabId: 5 }, {}, (value) => {
-          response = value;
-        });
-        return Boolean(response && typeof response === "object" && "ok" in response);
-      });
+    const runtimeListener = addMessageListener.mock.calls[0]?.[0] as (message: unknown, sender: unknown) => unknown;
     let response: unknown;
-
-    const keepOpen = runtimeListener?.({
-      type: "uf.rewriteBrain.emit",
-      tabId: 5,
-      signal: {
+    const keepOpen = runtimeListener({
+      kind: "uf-bus/1",
+      frameType: "request",
+      id: "req-1",
+      seq: 1,
+      name: "signals.emit",
+      source: "content",
+      sourceInstance: "content:test",
+      target: "background",
+      payload: {
+        tabId: 5,
+        signal: {
         name: "markings.changed",
         source: "content",
         cause: "test",
         payload: { pageUrl: "https://example.com", markedCount: 1 },
       },
-    }, {}, (value) => {
+      },
+    }, {}, (value: unknown) => {
       response = value;
     });
+    await Promise.resolve();
+    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(runtimeListener).toBeDefined();
     expect(keepOpen).toBe(true);
     expect(response).toMatchObject({
+      kind: "uf-bus/1",
+      frameType: "reply",
       ok: true,
-      signals: [{ name: "markings.changed" }],
+      payload: [{ name: "markings.changed" }],
     });
   });
 });

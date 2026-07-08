@@ -100,6 +100,37 @@ describe("P1 defineBus (INV-10.9, INV-10.11)", () => {
     expect(calls).toBe(1);
   });
 
+  it("bounds the replay cache while preserving recent duplicate replies", async () => {
+    const transport = memoryTransport();
+    const bus = defineBus(contract, { realm: "background", transport });
+    let calls = 0;
+    bus.onCommand("diag.ping", (payload) => {
+      calls += 1;
+      return { pong: payload.nonce };
+    });
+    const makeFrame = (seq: number): BusFrame => ({
+      kind: "uf-bus/1",
+      frameType: "request",
+      id: `req-${seq}`,
+      seq,
+      name: "diag.ping",
+      source: "content",
+      sourceInstance: "tab:1:frame:0",
+      target: "background",
+      payload: { nonce: `n${seq}` },
+    });
+
+    for (let seq = 1; seq <= 129; seq += 1) {
+      await transport.inbound(makeFrame(seq));
+    }
+    const replayRecent = await transport.inbound({ ...makeFrame(129), id: "req-129-replay" });
+    const replayExpired = await transport.inbound({ ...makeFrame(1), id: "req-1-replay" });
+
+    expect(replayRecent).toMatchObject({ id: "req-129-replay", payload: { pong: "n129" } });
+    expect(replayExpired).toMatchObject({ id: "req-1-replay", payload: { pong: "n1" } });
+    expect(calls).toBe(130);
+  });
+
   it("does not collide replay caches for different sender instances with the same sequence", async () => {
     const transport = memoryTransport();
     const bus = defineBus(contract, { realm: "background", transport });

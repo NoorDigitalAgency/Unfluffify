@@ -150,16 +150,22 @@ describe("C4 rewrite content entrypoints", () => {
     expect(engine.resolveAtPoint).toHaveBeenCalledWith(10, 20, "exclude", true);
     expect(engine.toggle).toHaveBeenCalledWith({ xpath: "/html[1]/body[1]/p[1]" }, "exclude");
     expect(click.preventDefault).toHaveBeenCalledTimes(1);
-    expect(sendMessage).toHaveBeenCalledWith({
-      type: "uf.rewriteBrain.emit",
-      tabId: 0,
-      signal: {
-        name: "markings.changed",
-        source: "content",
-        cause: "content-click",
-        payload: { pageUrl: "", markedCount: 1 },
+    expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      kind: "uf-bus/1",
+      frameType: "request",
+      name: "signals.emit",
+      target: "background",
+      source: "content",
+      payload: {
+        tabId: 0,
+        signal: {
+          name: "markings.changed",
+          source: "content",
+          cause: "content-click",
+          payload: { pageUrl: "", markedCount: 1 },
+        },
       },
-    });
+    }));
     engine.resolveAtPoint.mockReturnValueOnce(null);
     const unresolvedClick = {
       clientX: 1,
@@ -293,20 +299,26 @@ describe("C4 rewrite content entrypoints", () => {
     } as unknown as Event);
 
     expect(engine.dispose).toHaveBeenCalledTimes(1);
-    expect(sendMessage).toHaveBeenCalledWith({
-      type: "uf.rewriteBrain.emit",
-      tabId: 0,
-      signal: {
-        name: "session.navigated",
-        source: "content",
-        cause: "content-url-change",
-        payload: {
-          fromUrl: "https://example.com/a",
-          toUrl: "https://example.com/b",
-          pageUrl: "https://example.com/b",
+    expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      kind: "uf-bus/1",
+      frameType: "request",
+      name: "signals.emit",
+      target: "background",
+      source: "content",
+      payload: {
+        tabId: 0,
+        signal: {
+          name: "session.navigated",
+          source: "content",
+          cause: "content-url-change",
+          payload: {
+            fromUrl: "https://example.com/a",
+            toUrl: "https://example.com/b",
+            pageUrl: "https://example.com/b",
+          },
         },
       },
-    });
+    }));
     expect(windowListeners.has("popstate")).toBe(true);
     expect(windowListeners.has("hashchange")).toBe(true);
   });

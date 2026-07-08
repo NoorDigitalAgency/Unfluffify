@@ -2,11 +2,13 @@ import { defineContentScript } from "wxt/utils/define-content-script";
 
 import { browser, getInstalledBrowserApi } from "../common/browser";
 import { createActivationGate } from "../content/activation";
-import { createContentOrgan } from "../content/runtime";
 import { createMarkingEngine } from "../content/marking";
+import type { BrainSignal } from "../domain/schema/signals";
+import { createRealmBus } from "../messaging/realms";
+import { createRuntimeTransport } from "../messaging/transports/runtime";
+import { emitRewriteSignal, type RewriteSignalBus } from "../messaging/rewrite-signals";
 
 const activation = createActivationGate();
-const organ = createContentOrgan();
 let markingEngine: ReturnType<typeof createMarkingEngine> | null = null;
 let markingActive = false;
 let userMarkingDirty = false;
@@ -14,6 +16,21 @@ let spacePassthroughActive = false;
 let removeMarkingListeners: (() => void) | null = null;
 let navigationWatcherInstalled = false;
 let lastKnownPageUrl = typeof location !== "undefined" ? location.href : "";
+let contentBus: RewriteSignalBus | null = null;
+
+function getRuntimeBrowser() {
+  return getInstalledBrowserApi() ?? browser;
+}
+
+function getContentBus(): RewriteSignalBus {
+  if (!contentBus) {
+    contentBus = createRealmBus({
+      realm: "content",
+      transport: createRuntimeTransport(getRuntimeBrowser().runtime),
+    });
+  }
+  return contentBus;
+}
 
 function refreshActiveMarking(): void {
   if (!markingActive || !markingEngine) {
@@ -47,20 +64,12 @@ function emitMarkingChanged(): void {
   });
 }
 
-function emitContentBrainSignal(name: string, cause: string, payload: Record<string, unknown>): void {
-  const runtimeBrowser = getInstalledBrowserApi() ?? browser;
-  if (typeof runtimeBrowser.runtime.sendMessage !== "function") {
-    return;
-  }
-  void runtimeBrowser.runtime.sendMessage({
-    type: "uf.rewriteBrain.emit",
-    tabId: 0,
-    signal: {
+function emitContentBrainSignal(name: BrainSignal["name"], cause: string, payload: BrainSignal["payload"]): void {
+  void emitRewriteSignal(getContentBus(), 0, {
       name,
       source: "content",
       cause,
       payload,
-    },
   }).catch((error: unknown) => {
     console.error("[Unfluffify][rewrite] Unable to emit content signal", error);
   });
@@ -183,7 +192,7 @@ export default defineContentScript({
   runAt: "document_start",
   main() {
     installNavigationWatcher();
-    const runtimeBrowser = getInstalledBrowserApi() ?? browser;
+    const runtimeBrowser = getRuntimeBrowser();
     runtimeBrowser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       if (!message || typeof message !== "object" || Array.isArray(message)) {
         return false;
@@ -232,11 +241,6 @@ export default defineContentScript({
       }
       if (request.type === "resetContentMain") {
         sendResponse({ ok: resetMarking(), initialized: true, tree: "rewrite" });
-        return true;
-      }
-      if (request.type === "uf.rewrite.content.signal" && request.signal && typeof request.signal === "object") {
-        organ.transition(request.signal as Parameters<typeof organ.transition>[0]);
-        sendResponse({ ok: true, state: organ.state(), presentation: organ.render() });
         return true;
       }
       return false;

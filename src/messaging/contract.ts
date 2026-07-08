@@ -3,7 +3,7 @@ import { z } from "zod";
 export const BUS_FRAME_KIND = "uf-bus/1" as const;
 
 export const BusFrameTypeSchema = z.enum(["request", "reply", "event"]);
-export const BusRealmSchema = z.enum(["background", "content", "popup", "page"]);
+export const BusRealmSchema = z.enum(["background", "content", "popup", "page", "offscreen"]);
 export const BusFailureSchema = z.object({
   code: z.string().min(1),
   message: z.string().min(1),

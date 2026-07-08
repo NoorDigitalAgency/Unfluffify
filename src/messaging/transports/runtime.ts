@@ -7,8 +7,8 @@ type RuntimeMessageSender = Readonly<{
 }>;
 
 type RuntimeOnMessage = Readonly<{
-  addListener(listener: (message: unknown, sender: RuntimeMessageSender) => unknown): void;
-  removeListener(listener: (message: unknown, sender: RuntimeMessageSender) => unknown): void;
+  addListener(listener: (message: unknown, sender: RuntimeMessageSender, sendResponse?: (response: unknown) => void) => unknown): void;
+  removeListener(listener: (message: unknown, sender: RuntimeMessageSender, sendResponse?: (response: unknown) => void) => unknown): void;
 }>;
 
 type RuntimeLike = Readonly<{
@@ -75,7 +75,7 @@ function withPeerInstance(frame: BusFrame, peerInstanceId: string | undefined): 
 
 export function createRuntimeTransport(runtime: RuntimeLike): Transport {
   const listeners = new Set<(frame: BusFrame) => Promise<BusFrame | void> | BusFrame | void>();
-  const runtimeListener = (message: unknown, sender: RuntimeMessageSender) => {
+  const runtimeListener = (message: unknown, sender: RuntimeMessageSender, sendResponse?: (response: unknown) => void) => {
     const parsedFrame = parseFrame(message);
     const frame = parsedFrame ? withSenderInstance(parsedFrame, sender) : null;
     if (!frame) {
@@ -86,7 +86,15 @@ export function createRuntimeTransport(runtime: RuntimeLike): Transport {
       return undefined;
     }
     const result = listener(frame);
-    return result === undefined ? undefined : Promise.resolve(result);
+    if (result === undefined) {
+      return undefined;
+    }
+    void Promise.resolve(result).then((reply) => {
+      if (reply !== undefined) {
+        sendResponse?.(reply);
+      }
+    });
+    return true;
   };
   runtime.onMessage.addListener(runtimeListener);
 

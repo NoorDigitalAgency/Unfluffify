@@ -18,6 +18,7 @@ export type BusHandlerMeta = Readonly<{
   id: string;
   seq: number;
   source: BusRealm;
+  sourceInstance?: string;
 }>;
 
 export type CommandHandler<Request, Response> = (
@@ -55,6 +56,7 @@ const INVALID_PAYLOAD = "INVALID_PAYLOAD";
 const HANDLER_FAILED = "HANDLER_FAILED";
 const INVALID_RESPONSE = "INVALID_RESPONSE";
 const TRANSPORT_FAILED = "TRANSPORT_FAILED";
+const MAX_REPLY_CACHE_ENTRIES = 128;
 
 function makeFailure(code: string, message: string, details?: Record<string, unknown>): BusFailure {
   return details ? { code, message, details } : { code, message };
@@ -117,6 +119,7 @@ export function defineBus<const Contract extends BusContractDefinition>(
   const handlers = new Map<string, CommandHandler<unknown, unknown>>();
   const eventHandlers = new Map<string, Set<EventHandler<unknown>>>();
   const replyCache = new Map<string, Promise<BusFrame>>();
+  const replyCacheOrder: string[] = [];
   const nextId = options.nextId ?? fallbackId;
   const transport = options.transport;
   const instanceId = options.instanceId ?? `${options.realm}:${nextId()}`;
@@ -169,6 +172,7 @@ export function defineBus<const Contract extends BusContractDefinition>(
           id: frame.id,
           seq: frame.seq,
           source: frame.source,
+          sourceInstance: frame.sourceInstance,
         });
         const parsedResponse = command.response.safeParse(rawResponse);
         return parsedResponse.success
@@ -187,6 +191,13 @@ export function defineBus<const Contract extends BusContractDefinition>(
       }
     })();
     replyCache.set(cacheKey, pendingReply);
+    replyCacheOrder.push(cacheKey);
+    while (replyCacheOrder.length > MAX_REPLY_CACHE_ENTRIES) {
+      const expired = replyCacheOrder.shift();
+      if (expired) {
+        replyCache.delete(expired);
+      }
+    }
     return retargetReply(await pendingReply, frame);
   }
 
@@ -209,6 +220,7 @@ export function defineBus<const Contract extends BusContractDefinition>(
           id: frame.id,
           seq: frame.seq,
           source: frame.source,
+          sourceInstance: frame.sourceInstance,
         })),
       ),
     );
@@ -379,6 +391,7 @@ export function defineBus<const Contract extends BusContractDefinition>(
       handlers.clear();
       eventHandlers.clear();
       replyCache.clear();
+      replyCacheOrder.splice(0);
     },
   };
 }

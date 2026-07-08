@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { BusFrame } from "../../../src/messaging/contract";
 
 function installEntrypointDom(href: string): void {
   Object.defineProperty(globalThis, "document", {
@@ -30,6 +31,27 @@ async function flushEntrypointWork(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+function replyFrame(frame: BusFrame, payload: unknown): BusFrame {
+  return {
+    ...frame,
+    frameType: "reply",
+    source: "background",
+    target: frame.source,
+    ok: true,
+    payload,
+  };
+}
+
+function makeRuntime(handler: (frame: BusFrame) => Promise<unknown> | unknown) {
+  return {
+    sendMessage: vi.fn((message: unknown) => handler(message as BusFrame)),
+    onMessage: {
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+    },
+  };
+}
+
 describe("rewrite popup entrypoint", () => {
   afterEach(() => {
     vi.resetModules();
@@ -50,48 +72,44 @@ describe("rewrite popup entrypoint", () => {
     const tabsSendMessage = vi.fn().mockResolvedValue({ ok: true, initialized: true, tree: "rewrite" });
     let signalSeq = 0;
     let pulledDirty = false;
-    const runtimeSendMessage = vi.fn(async (message: { type?: string; tabId?: number; afterSeq?: number; signal?: { name?: string; payload?: unknown } }) => {
-      if (message.type === "uf.rewriteBrain.emit") {
+    const runtime = makeRuntime(async (message) => {
+      if (message.name === "signals.emit") {
+        const request = message.payload as { tabId: number; signal: { name?: string; payload?: unknown } };
         signalSeq += 1;
-        return {
-          ok: true,
-          signals: [{
+        return replyFrame(message, [{
             kind: "uf-signal/1",
-            tabId: message.tabId,
+            tabId: request.tabId,
             seq: signalSeq,
-            name: message.signal?.name,
+            name: request.signal?.name,
             source: "brain",
             cause: "test",
             at: signalSeq,
-            payload: message.signal?.payload ?? {},
-          }],
-        };
+            payload: request.signal?.payload ?? {},
+          }]);
       }
-      if (message.type === "uf.rewriteBrain.pull" && message.afterSeq === 0) {
-        return { ok: true, signals: [] };
+      if (message.name === "signals.pull" && (message.payload as { afterSeq?: number }).afterSeq === 0) {
+        return replyFrame(message, []);
       }
-      if (message.type === "uf.rewriteBrain.pull" && !pulledDirty) {
+      if (message.name === "signals.pull" && !pulledDirty) {
+        const request = message.payload as { tabId: number };
         pulledDirty = true;
         signalSeq += 1;
-        return {
-          ok: true,
-          signals: [{
+        return replyFrame(message, [{
             kind: "uf-signal/1",
-            tabId: message.tabId,
+            tabId: request.tabId,
             seq: signalSeq,
             name: "markings.changed",
             source: "content",
             cause: "content-click",
             at: signalSeq,
             payload: { pageUrl: "https://example.com", markedCount: 1 },
-          }],
-        };
+          }]);
       }
-      return { ok: true, signals: [] };
+      return replyFrame(message, []);
     });
     globalThis.chrome = {
       runtime: {
-        sendMessage: runtimeSendMessage,
+        ...runtime,
       },
       tabs: {
         query,
@@ -120,22 +138,25 @@ describe("rewrite popup entrypoint", () => {
       pageUrl: "https://example.com",
       realEditorActivation: true,
     });
-    expect(runtimeSendMessage).toHaveBeenCalledWith({
-      type: "uf.rewriteBrain.pull",
-      tabId: 77,
-      afterSeq: 1,
-    });
+    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      name: "signals.pull",
+      payload: { tabId: 77, afterSeq: 1 },
+      target: "background",
+    }));
     expect(tabsSendMessage).toHaveBeenNthCalledWith(3, 77, { type: "resetContentMain" });
-    expect(runtimeSendMessage).toHaveBeenCalledWith({
-      type: "uf.rewriteBrain.emit",
-      tabId: 77,
-      signal: {
+    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      name: "signals.emit",
+      payload: {
+        tabId: 77,
+        signal: {
         name: "session.discarded",
         source: "popup",
         cause: "popup-entrypoint",
         payload: { baseUrl: "", pageUrl: "https://example.com" },
       },
-    });
+      },
+      target: "background",
+    }));
     expect(tabsSendMessage).toHaveBeenNthCalledWith(4, 77, { type: "deactivateContentMain" });
   });
 
@@ -155,28 +176,26 @@ describe("rewrite popup entrypoint", () => {
       tree: "rewrite",
     });
     let signalSeq = 0;
-    const runtimeSendMessage = vi.fn(async (message: { type?: string; tabId?: number; signal?: { name?: string; payload?: unknown } }) => {
-      if (message.type === "uf.rewriteBrain.emit") {
+    const runtime = makeRuntime(async (message) => {
+      if (message.name === "signals.emit") {
+        const request = message.payload as { tabId: number; signal: { name?: string; payload?: unknown } };
         signalSeq += 1;
-        return {
-          ok: true,
-          signals: [{
+        return replyFrame(message, [{
             kind: "uf-signal/1",
-            tabId: message.tabId,
+            tabId: request.tabId,
             seq: signalSeq,
-            name: message.signal?.name,
+            name: request.signal?.name,
             source: "brain",
             cause: "test",
             at: signalSeq,
-            payload: message.signal?.payload ?? {},
-          }],
-        };
+            payload: request.signal?.payload ?? {},
+          }]);
       }
-      return { ok: true, signals: [] };
+      return replyFrame(message, []);
     });
     globalThis.chrome = {
       runtime: {
-        sendMessage: runtimeSendMessage,
+        ...runtime,
       },
       tabs: {
         query,
@@ -188,26 +207,32 @@ describe("rewrite popup entrypoint", () => {
     await flushEntrypointWork();
 
     expect(tabsSendMessage).toHaveBeenCalledWith(77, { type: "getContentMainStatus" });
-    expect(runtimeSendMessage).toHaveBeenCalledWith({
-      type: "uf.rewriteBrain.emit",
-      tabId: 77,
-      signal: {
+    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      name: "signals.emit",
+      payload: {
+        tabId: 77,
+        signal: {
         name: "marking.enabled",
         source: "popup",
         cause: "popup-entrypoint",
         payload: { baseUrl: "", pageUrl: "https://example.com", cause: "content-reconciliation" },
       },
-    });
-    expect(runtimeSendMessage).toHaveBeenCalledWith({
-      type: "uf.rewriteBrain.emit",
-      tabId: 77,
-      signal: {
+      },
+      target: "background",
+    }));
+    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      name: "signals.emit",
+      payload: {
+        tabId: 77,
+        signal: {
         name: "markings.changed",
         source: "popup",
         cause: "popup-entrypoint",
         payload: { pageUrl: "https://example.com", markedCount: 2 },
       },
-    });
+      },
+      target: "background",
+    }));
     expect(render.mock.calls.at(-1)?.[0].props.presentation.discardDisabled).toBe(false);
   });
 
@@ -227,28 +252,26 @@ describe("rewrite popup entrypoint", () => {
       tree: "rewrite",
     });
     let signalSeq = 0;
-    const runtimeSendMessage = vi.fn(async (message: { type?: string; tabId?: number; signal?: { name?: string; payload?: unknown } }) => {
-      if (message.type === "uf.rewriteBrain.emit") {
+    const runtime = makeRuntime(async (message) => {
+      if (message.name === "signals.emit") {
+        const request = message.payload as { tabId: number; signal: { name?: string; payload?: unknown } };
         signalSeq += 1;
-        return {
-          ok: true,
-          signals: [{
+        return replyFrame(message, [{
             kind: "uf-signal/1",
-            tabId: message.tabId,
+            tabId: request.tabId,
             seq: signalSeq,
-            name: message.signal?.name,
+            name: request.signal?.name,
             source: "brain",
             cause: "test",
             at: signalSeq,
-            payload: message.signal?.payload ?? {},
-          }],
-        };
+            payload: request.signal?.payload ?? {},
+          }]);
       }
-      return { ok: true, signals: [] };
+      return replyFrame(message, []);
     });
     globalThis.chrome = {
       runtime: {
-        sendMessage: runtimeSendMessage,
+        ...runtime,
       },
       tabs: {
         query,
@@ -259,18 +282,24 @@ describe("rewrite popup entrypoint", () => {
     await import("../../../src/entrypoints/popup/main.tsx");
     await flushEntrypointWork();
 
-    expect(runtimeSendMessage).toHaveBeenCalledWith({
-      type: "uf.rewriteBrain.emit",
-      tabId: 77,
-      signal: {
+    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      name: "signals.emit",
+      payload: {
+        tabId: 77,
+        signal: {
         name: "marking.enabled",
         source: "popup",
         cause: "popup-entrypoint",
         payload: { baseUrl: "", pageUrl: "https://example.com", cause: "content-reconciliation" },
       },
-    });
-    expect(runtimeSendMessage).not.toHaveBeenCalledWith(expect.objectContaining({
-      signal: expect.objectContaining({ name: "markings.changed" }),
+      },
+      target: "background",
+    }));
+    expect(runtime.sendMessage).not.toHaveBeenCalledWith(expect.objectContaining({
+      name: "signals.emit",
+      payload: expect.objectContaining({
+        signal: expect.objectContaining({ name: "markings.changed" }),
+      }),
     }));
     expect(render.mock.calls.at(-1)?.[0].props.presentation.discardDisabled).toBe(true);
   });
@@ -291,28 +320,26 @@ describe("rewrite popup entrypoint", () => {
       tree: "rewrite",
     });
     let signalSeq = 0;
-    const runtimeSendMessage = vi.fn(async (message: { type?: string; tabId?: number; signal?: { name?: string; payload?: unknown } }) => {
-      if (message.type === "uf.rewriteBrain.emit") {
+    const runtime = makeRuntime(async (message) => {
+      if (message.name === "signals.emit") {
+        const request = message.payload as { tabId: number; signal: { name?: string; payload?: unknown } };
         signalSeq += 1;
-        return {
-          ok: true,
-          signals: [{
+        return replyFrame(message, [{
             kind: "uf-signal/1",
-            tabId: message.tabId,
+            tabId: request.tabId,
             seq: signalSeq,
-            name: message.signal?.name,
+            name: request.signal?.name,
             source: "brain",
             cause: "test",
             at: signalSeq,
-            payload: message.signal?.payload ?? {},
-          }],
-        };
+            payload: request.signal?.payload ?? {},
+          }]);
       }
-      return { ok: true, signals: [] };
+      return replyFrame(message, []);
     });
     globalThis.chrome = {
       runtime: {
-        sendMessage: runtimeSendMessage,
+        ...runtime,
       },
       tabs: {
         query,
@@ -323,16 +350,19 @@ describe("rewrite popup entrypoint", () => {
     await import("../../../src/entrypoints/popup/main.tsx");
     await flushEntrypointWork();
 
-    expect(runtimeSendMessage).toHaveBeenCalledWith({
-      type: "uf.rewriteBrain.emit",
-      tabId: 77,
-      signal: {
+    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      name: "signals.emit",
+      payload: {
+        tabId: 77,
+        signal: {
         name: "markings.changed",
         source: "popup",
         cause: "popup-entrypoint",
         payload: { pageUrl: "https://example.com", markedCount: 0 },
       },
-    });
+      },
+      target: "background",
+    }));
     expect(render.mock.calls.at(-1)?.[0].props.presentation.discardDisabled).toBe(false);
   });
 
@@ -344,27 +374,25 @@ describe("rewrite popup entrypoint", () => {
     }));
     const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/a" }]);
     const tabsSendMessage = vi.fn().mockResolvedValue({ ok: true, initialized: false, tree: "rewrite" });
-    const runtimeSendMessage = vi.fn(async (message: { type?: string; tabId?: number; signal?: { name?: string; payload?: unknown } }) => {
-      if (message.type === "uf.rewriteBrain.emit") {
-        return {
-          ok: true,
-          signals: [{
+    const runtime = makeRuntime(async (message) => {
+      if (message.name === "signals.emit") {
+        const request = message.payload as { tabId: number; signal: { name?: string; payload?: unknown } };
+        return replyFrame(message, [{
             kind: "uf-signal/1",
-            tabId: message.tabId,
+            tabId: request.tabId,
             seq: 1,
-            name: message.signal?.name,
+            name: request.signal?.name,
             source: "brain",
             cause: "test",
             at: 1,
-            payload: message.signal?.payload ?? {},
-          }],
-        };
+            payload: request.signal?.payload ?? {},
+          }]);
       }
-      return { ok: true, signals: [] };
+      return replyFrame(message, []);
     });
     globalThis.chrome = {
       runtime: {
-        sendMessage: runtimeSendMessage,
+        ...runtime,
       },
       tabs: {
         query,
@@ -380,16 +408,19 @@ describe("rewrite popup entrypoint", () => {
     await flushEntrypointWork();
 
     expect(tabsSendMessage).toHaveBeenCalledWith(77, { type: "deactivateContentMain" });
-    expect(runtimeSendMessage).toHaveBeenCalledWith({
-      type: "uf.rewriteBrain.emit",
-      tabId: 77,
-      signal: {
+    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      name: "signals.emit",
+      payload: {
+        tabId: 77,
+        signal: {
         name: "session.navigated",
         source: "popup",
         cause: "popup-entrypoint",
         payload: { pageUrl: "https://example.com/b" },
       },
-    });
+      },
+      target: "background",
+    }));
   });
 
   it("keeps debugTabId as an explicit live-browser override", async () => {
@@ -400,10 +431,10 @@ describe("rewrite popup entrypoint", () => {
     }));
     const query = vi.fn();
     const tabsSendMessage = vi.fn().mockResolvedValue({ ok: true, initialized: true, tree: "rewrite" });
-    const runtimeSendMessage = vi.fn().mockResolvedValue({ ok: true, signals: [] });
+    const runtime = makeRuntime((message) => replyFrame(message, []));
     globalThis.chrome = {
       runtime: {
-        sendMessage: runtimeSendMessage,
+        ...runtime,
       },
       tabs: {
         query,

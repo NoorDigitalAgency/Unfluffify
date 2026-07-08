@@ -1,5 +1,13 @@
 import { defineContract } from "./contract";
-import { CommandEnvelopeSchema, CommandReplySchema, FactEnvelopeSchema, SignalFrameSchema } from "./contracts";
+import {
+  CommandEnvelopeSchema,
+  CommandReplySchema,
+  FactEnvelopeSchema,
+  SignalConsumeRequestSchema,
+  SignalEmitRequestSchema,
+  SignalFrameSchema,
+  SignalPullRequestSchema,
+} from "./contracts";
 import { defineBus, type DefineBusOptions } from "./bus";
 import { z } from "zod";
 
@@ -10,12 +18,16 @@ export const applicationContract = defineContract({
       response: CommandReplySchema,
     },
     "signals.pull": {
-      request: z.object({
-        tabId: z.number().int().nonnegative(),
-        afterSeq: z.number().int().nonnegative(),
-        organId: z.string().min(1).optional(),
-      }),
+      request: SignalPullRequestSchema,
       response: SignalFrameSchema.array(),
+    },
+    "signals.emit": {
+      request: SignalEmitRequestSchema,
+      response: SignalFrameSchema.array(),
+    },
+    "signals.consume": {
+      request: SignalConsumeRequestSchema,
+      response: z.object({ ok: z.literal(true) }),
     },
   },
   events: {

@@ -10,10 +10,11 @@ describe("C1 offscreen entrypoint", () => {
     vi.clearAllMocks();
   });
 
-  it("keeps the cutover offscreen entrypoint as an inert placeholder", () => {
+  it("boots the cutover offscreen typed bus entrypoint without legacy bootstrap", () => {
     const source = readFileSync(resolve(REPO_ROOT, "src", "entrypoints", "offscreen", "main.ts"), "utf8");
 
-    expect(source.trim()).toBe("export {};");
+    expect(source).toContain('import { createRealmBus } from "../../messaging/realms";');
+    expect(source).toContain('createRealmBus({ realm: "offscreen" })');
     expect(source).not.toContain("../../offscreen/bootstrap");
   });
 

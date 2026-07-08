@@ -11,6 +11,9 @@ import { App, resolvePopupActionButtons } from "../../popup/App";
 import { createPopupStore } from "../../popup/store";
 import type { BrainSignal } from "../../domain/schema/signals";
 import { browser, getInstalledBrowserApi } from "../../common/browser";
+import { createRealmBus } from "../../messaging/realms";
+import { createRuntimeTransport } from "../../messaging/transports/runtime";
+import { emitRewriteSignal, pullRewriteSignals, type RewriteSignalBus } from "../../messaging/rewrite-signals";
 
 type PopupDebugApi = Readonly<{
   getViewState: () => Record<string, unknown>;
@@ -30,6 +33,7 @@ let boundTabId: number | null = null;
 let boundTabKey: string | null = null;
 let signalPollHandle: ReturnType<Window["setInterval"]> | null = null;
 let lastPulledBrainSeq = 0;
+let popupBus: RewriteSignalBus | null = null;
 
 type TargetTabContext = Readonly<{
   tabId: number;
@@ -38,6 +42,16 @@ type TargetTabContext = Readonly<{
 
 function getRuntimeBrowser() {
   return getInstalledBrowserApi() ?? browser;
+}
+
+function getPopupBus(): RewriteSignalBus {
+  if (!popupBus) {
+    popupBus = createRealmBus({
+      realm: "popup",
+      transport: createRuntimeTransport(getRuntimeBrowser().runtime),
+    });
+  }
+  return popupBus;
 }
 
 function nextSignal(tabId: number, name: BrainSignal["name"], payload: BrainSignal["payload"] = {}): BrainSignal {
@@ -116,22 +130,17 @@ function bindToTab(context: TargetTabContext): { changed: boolean; sameTabNaviga
 }
 
 async function pullSignals(tabId: number, requestKey = boundTabKey): Promise<void> {
-  const runtimeBrowser = getRuntimeBrowser();
-  if (typeof runtimeBrowser.runtime.sendMessage !== "function") {
-    return;
-  }
-  const response = await getRuntimeBrowser().runtime.sendMessage({
-    type: "uf.rewriteBrain.pull",
+  const response = await pullRewriteSignals(getPopupBus(), {
     tabId,
     afterSeq: lastPulledBrainSeq,
   });
+  if (!response.ok) {
+    return;
+  }
   if (boundTabId !== tabId || boundTabKey !== requestKey) {
     return;
   }
-  if (!response || typeof response !== "object" || !("signals" in response) || !Array.isArray(response.signals)) {
-    return;
-  }
-  for (const signal of response.signals) {
+  for (const signal of response.data) {
     if (signal && typeof signal === "object" && (signal as BrainSignal).kind === "uf-signal/1" && signalMatchesBinding(signal as BrainSignal, tabId, requestKey)) {
       const brainSignal = signal as BrainSignal;
       lastPulledBrainSeq = Math.max(lastPulledBrainSeq, brainSignal.seq);
@@ -141,31 +150,23 @@ async function pullSignals(tabId: number, requestKey = boundTabKey): Promise<voi
 }
 
 async function emitPopupSignal(tabId: number, name: BrainSignal["name"], payload: BrainSignal["payload"] = {}, requestKey = boundTabKey): Promise<void> {
-  const runtimeBrowser = getRuntimeBrowser();
-  if (typeof runtimeBrowser.runtime.sendMessage === "function") {
-    const response = await runtimeBrowser.runtime.sendMessage({
-      type: "uf.rewriteBrain.emit",
-      tabId,
-      signal: {
-        name,
-        source: "popup",
-        cause: "popup-entrypoint",
-        payload,
-      },
-    });
-    if (boundTabId !== tabId || boundTabKey !== requestKey) {
-      return;
-    }
-    if (response && typeof response === "object" && "signals" in response && Array.isArray(response.signals)) {
-      for (const signal of response.signals) {
-        if (signal && typeof signal === "object" && (signal as BrainSignal).kind === "uf-signal/1" && signalMatchesBinding(signal as BrainSignal, tabId, requestKey)) {
-          const brainSignal = signal as BrainSignal;
-          lastPulledBrainSeq = Math.max(lastPulledBrainSeq, brainSignal.seq);
-          dispatchSignal(brainSignal);
-        }
+  const response = await emitRewriteSignal(getPopupBus(), tabId, {
+    name,
+    source: "popup",
+    cause: "popup-entrypoint",
+    payload,
+  });
+  if (boundTabId !== tabId || boundTabKey !== requestKey) {
+    return;
+  }
+  if (response.ok) {
+    for (const signal of response.data) {
+      if (signalMatchesBinding(signal, tabId, requestKey)) {
+        lastPulledBrainSeq = Math.max(lastPulledBrainSeq, signal.seq);
+        dispatchSignal(signal);
       }
-      return;
     }
+    return;
   }
   if (boundTabId !== tabId || boundTabKey !== requestKey) {
     return;

@@ -39,8 +39,8 @@ function runtimeLike() {
         },
       },
     },
-    dispatch(message: unknown) {
-      return Array.from(listeners, (listener) => listener(message, { tab: { id: 0 }, frameId: 0 }))[0];
+    dispatch(message: unknown, sendResponse?: (response: unknown) => void) {
+      return Array.from(listeners, (listener) => listener(message, { tab: { id: 0 }, frameId: 0 }, sendResponse))[0];
     },
   };
 }
@@ -57,7 +57,12 @@ describe("P1 runtime transports", () => {
 
     await expect(transport.send(frame())).resolves.toEqual(frame());
     expect(fake.dispatch({ not: "bus" })).toBeUndefined();
-    await expect(fake.dispatch(frame())).resolves.toMatchObject({
+    let response: unknown;
+    expect(fake.dispatch(frame(), (value) => {
+      response = value;
+    })).toBe(true);
+    await Promise.resolve();
+    expect(response).toMatchObject({
       frameType: "reply",
       ok: true,
       payload: { ack: true },
