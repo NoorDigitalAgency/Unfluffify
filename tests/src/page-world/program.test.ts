@@ -129,6 +129,43 @@ describe("P5 page-world program", () => {
     expect(Object.getPrototypeOf(context.IntersectionObserver)).toBe(FakeIntersectionObserver);
   });
 
+  it("calls saved native timer APIs with the page global receiver", () => {
+    const source = readFileSync("src/page-world/program.js", "utf8");
+    const listeners: PageWorldListener[] = [];
+    const context: Record<string, unknown> = {
+      performance: { now: () => 123 },
+      document: { documentElement: { toggleAttribute() {} } },
+      clearTimeout() {},
+      clearInterval() {},
+      cancelAnimationFrame() {},
+      EventTarget: { prototype: { addEventListener() {}, removeEventListener() {} } },
+      addEventListener(_type: string, listener: PageWorldListener) {
+        listeners.push(listener);
+      },
+    };
+    context.setTimeout = function setTimeoutWithReceiverCheck(this: unknown, callback: () => void) {
+      if (this !== context) throw new TypeError("Illegal invocation");
+      callback();
+      return 1;
+    };
+    context.setInterval = function setIntervalWithReceiverCheck(this: unknown, callback: () => void) {
+      if (this !== context) throw new TypeError("Illegal invocation");
+      callback();
+      return 1;
+    };
+    context.requestAnimationFrame = function rafWithReceiverCheck(this: unknown, callback: (now: number) => void) {
+      if (this !== context) throw new TypeError("Illegal invocation");
+      callback(1);
+      return 1;
+    };
+
+    vm.runInNewContext(source, { ...context, globalThis: context });
+
+    expect(() => (context.setTimeout as (callback: () => void) => number)(() => undefined)).not.toThrow();
+    expect(() => (context.setInterval as (callback: () => void) => number)(() => undefined)).not.toThrow();
+    expect(() => (context.requestAnimationFrame as (callback: (now: number) => void) => number)(() => undefined)).not.toThrow();
+  });
+
   it("responds to the production page-world relay protocol", () => {
     const source = readFileSync("src/page-world/program.js", "utf8");
     const listeners: Array<(event: { data: unknown; source: { postMessage: (message: unknown) => void } }) => void> = [];
@@ -228,6 +265,39 @@ describe("P5 page-world program", () => {
     send({ kind: "uf-page-bus/1", type: "request", nonce: "n3", sessionNonce: "n1", command: "SET_MOTION_PAUSED", payload: { paused: false } });
     nativeTimeout?.();
     expect(fired).toBe(true);
+  });
+
+  it("allows deferred timeout cancellation while paused and preserves callback receiver", () => {
+    const source = readFileSync("src/page-world/program.js", "utf8");
+    const listeners: PageWorldListener[] = [];
+    let nativeTimeout: (() => void) | null = null;
+    const context: Record<string, unknown> = {
+      performance: { now: () => 123 },
+      document: { documentElement: { toggleAttribute() {} } },
+      setTimeout(callback: () => void) { nativeTimeout = callback; return 7; },
+      clearTimeout() {},
+      setInterval() { return 1; },
+      clearInterval() {},
+      requestAnimationFrame(callback: (now: number) => void) { nativeTimeout = () => callback(1); return 8; },
+      cancelAnimationFrame() {},
+      EventTarget: { prototype: { addEventListener() {}, removeEventListener() {} } },
+      addEventListener(_type: string, listener: PageWorldListener) {
+        listeners.push(listener);
+      },
+    };
+    vm.runInNewContext(source, { ...context, globalThis: context });
+    const send = (message: unknown) => dispatchFromPage(listeners, context, message);
+    send({ kind: "uf-page-bus/1", type: "request", nonce: "n1", command: "ARM", payload: {} });
+    send({ kind: "uf-page-bus/1", type: "request", nonce: "n2", sessionNonce: "n1", command: "SET_MOTION_PAUSED", payload: { paused: true } });
+    let fired = false;
+    const id = (context.setTimeout as (callback: () => void) => number)(function callback() {
+      fired = true;
+    });
+    nativeTimeout?.();
+    (context.clearTimeout as (id: number) => void)(id);
+    send({ kind: "uf-page-bus/1", type: "request", nonce: "n3", sessionNonce: "n1", command: "SET_MOTION_PAUSED", payload: { paused: false } });
+    nativeTimeout?.();
+    expect(fired).toBe(false);
   });
 
   it("clears lazy suppression on destroy and wraps object event listeners", () => {

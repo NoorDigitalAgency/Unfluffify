@@ -46,17 +46,17 @@
     installed = true;
     globalThis.setTimeout = function patchedSetTimeout(callback, delay, ...args) {
         if (typeof callback !== "function") {
-          return originals.setTimeout(callback, delay, ...args);
+          return originals.setTimeout.call(globalThis, callback, delay, ...args);
         }
         const token = { type: "timeout", callback, args, cancelled: false };
-        const nativeId = originals.setTimeout(() => {
-          timeoutTokens.delete(token.nativeId);
+        const nativeId = originals.setTimeout.call(globalThis, () => {
           if (token.cancelled) return;
           if (paused) {
-          queued.push(token);
-          return;
-        }
-        callback(...args);
+            queued.push(token);
+            return;
+          }
+          timeoutTokens.delete(token.nativeId);
+          callback.call(globalThis, ...args);
       }, delay);
         token.nativeId = nativeId;
         timeoutTokens.set(nativeId, token);
@@ -67,36 +67,36 @@
         if (tracked) {
           tracked.cancelled = true;
           timeoutTokens.delete(token);
-          originals.clearTimeout(token);
+          originals.clearTimeout.call(globalThis, token);
         return;
         }
-      return originals.clearTimeout(token);
+      return originals.clearTimeout.call(globalThis, token);
     };
     globalThis.setInterval = function patchedSetInterval(callback, delay, ...args) {
       if (typeof callback !== "function") {
-        return originals.setInterval(callback, delay, ...args);
+        return originals.setInterval.call(globalThis, callback, delay, ...args);
       }
-      return originals.setInterval(function intervalGate() {
-        if (!paused) callback(...args);
+      return originals.setInterval.call(globalThis, function intervalGate() {
+        if (!paused) callback.call(globalThis, ...args);
       }, delay);
     };
     globalThis.clearInterval = function patchedClearInterval(token) {
-      return originals.clearInterval(token);
+      return originals.clearInterval.call(globalThis, token);
     };
     globalThis.requestAnimationFrame = function patchedRequestAnimationFrame(callback) {
       if (typeof callback !== "function") {
-        return originals.requestAnimationFrame(callback);
+        return originals.requestAnimationFrame.call(globalThis, callback);
       }
       const token = { type: "raf", callback, args: [], cancelled: false };
       const schedule = originals.requestAnimationFrame || originals.setTimeout;
-      const nativeId = schedule((now) => {
-        rafTokens.delete(token.nativeId);
+      const nativeId = schedule.call(globalThis, (now) => {
         if (token.cancelled) return;
         if (paused) {
           queued.push(token);
           return;
         }
-        callback(now);
+        rafTokens.delete(token.nativeId);
+        callback.call(globalThis, now);
       });
       token.nativeId = nativeId;
       rafTokens.set(nativeId, token);
@@ -107,10 +107,10 @@
       if (tracked) {
         tracked.cancelled = true;
         rafTokens.delete(token);
-        originals.cancelAnimationFrame?.(token);
+        originals.cancelAnimationFrame?.call(globalThis, token);
         return;
       }
-      return originals.cancelAnimationFrame?.(token);
+      return originals.cancelAnimationFrame?.call(globalThis, token);
     };
     if (originals.IntersectionObserver) {
       globalThis.IntersectionObserver = function PatchedIntersectionObserver(callback, options) {
@@ -215,17 +215,19 @@
 
   function flushQueued() {
     const pending = queued.splice(0);
-    originals.setTimeout(() => {
+    originals.setTimeout.call(globalThis, () => {
       for (const item of pending) {
         if (item.cancelled) continue;
         try {
           if (item.type === "raf") {
-            item.callback(performance.now());
+            rafTokens.delete(item.nativeId);
+            item.callback.call(globalThis, performance.now());
           } else {
-            item.callback(...item.args);
+            timeoutTokens.delete(item.nativeId);
+            item.callback.call(globalThis, ...item.args);
           }
         } catch (error) {
-          originals.setTimeout(() => { throw error; }, 0);
+          originals.setTimeout.call(globalThis, () => { throw error; }, 0);
         }
       }
     }, 0);

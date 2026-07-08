@@ -68,6 +68,7 @@ describe("P9 property-lock client", () => {
     expect(buildPropertyLockWssUrl("http://localhost:3000", "token")).toBe(
       "ws://localhost:3000/property-lock?token=token",
     );
+    expect(buildPropertyLockWssUrl("http://[", "token")).toBe("");
     expect(buildClientFrame({
       type: "heartbeat",
       siteId: 123,

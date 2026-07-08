@@ -45,9 +45,13 @@ export function buildPropertyLockWssUrl(endpointBase: string, token: string): st
   if (!trimmed || !token.trim()) {
     return "";
   }
-  const base = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`);
-  const protocol = base.hostname === "localhost" || base.hostname === "127.0.0.1" ? "ws:" : "wss:";
-  return `${protocol}//${base.host}/property-lock?token=${encodeURIComponent(token)}`;
+  try {
+    const base = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`);
+    const protocol = base.hostname === "localhost" || base.hostname === "127.0.0.1" ? "ws:" : "wss:";
+    return `${protocol}//${base.host}/property-lock?token=${encodeURIComponent(token)}`;
+  } catch {
+    return "";
+  }
 }
 
 export function buildClientFrame(input: Readonly<{
