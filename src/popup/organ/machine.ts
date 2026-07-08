@@ -16,12 +16,34 @@ export type PopupStateName =
 
 export type ReconciliationReason = "" | "editor_preparing" | "post_ai" | "saving" | "syncing";
 
+export type PopupContentRow = Readonly<{
+  xpath: string;
+  classification: "included" | "excluded" | "immutable" | "closed-shadow";
+}>;
+
+export type PopupSelectorList = Readonly<{
+  inclusionSelectors: readonly string[];
+  exclusionSelectors: readonly string[];
+}>;
+
+export type PropertyLockBanner = Readonly<{
+  visible: boolean;
+  text: string;
+  countdownSeconds?: number;
+}>;
+
 export type PopupState = Readonly<{
   name: PopupStateName;
   lastConsumedSeq: number;
   priorState?: PopupStateName;
   reconciliationReason: ReconciliationReason;
   projectionBlockedReason?: string;
+  contentRows?: readonly PopupContentRow[];
+  selectors?: PopupSelectorList;
+  enableToggleChecked?: boolean;
+  desktopPreviewChecked?: boolean;
+  lockBanner?: PropertyLockBanner;
+  runDeadlineAt?: number;
 }>;
 
 export const INITIAL_POPUP_STATE: PopupState = {
@@ -43,12 +65,18 @@ export function transitionPopupState(state: PopupState, signal: BrainSignal): Po
         ? { ...base, name: "pre_ai_dirty" }
         : base;
     case "run.started":
-      return { ...base, name: "running", reconciliationReason: "post_ai", priorState: state.name };
+      return {
+        ...base,
+        name: "running",
+        reconciliationReason: "post_ai",
+        priorState: state.name,
+        runDeadlineAt: typeof signal.payload.deadlineAt === "number" ? signal.payload.deadlineAt : undefined,
+      };
     case "run.completed":
-      return { ...base, name: "post_ai_clean", reconciliationReason: "", priorState: undefined };
+      return { ...base, name: "post_ai_clean", reconciliationReason: "", priorState: undefined, runDeadlineAt: undefined };
     case "run.failed":
       return state.name === "running"
-        ? { ...base, name: state.priorState ?? "pre_ai_dirty", reconciliationReason: "", priorState: undefined }
+        ? { ...base, name: state.priorState ?? "pre_ai_dirty", reconciliationReason: "", priorState: undefined, runDeadlineAt: undefined }
         : base;
     case "preview.opened": {
       const origin = signal.payload.origin;
@@ -76,7 +104,7 @@ export function transitionPopupState(state: PopupState, signal: BrainSignal): Po
     case "session.saved":
     case "marking.disabled":
     case "session.navigated":
-      return { ...base, name: "silent", reconciliationReason: "", priorState: undefined };
+      return { ...base, name: "silent", reconciliationReason: "", priorState: undefined, runDeadlineAt: undefined };
     case "session.discarded":
       return state.name === "silent" ? base : { ...base, name: "pre_ai_clean", reconciliationReason: "" };
     case "inspection.started":

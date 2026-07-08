@@ -32,6 +32,7 @@ describe("P8 popup organ", () => {
     expect(state.name).toBe("running");
     state = transitionPopupState(state, signal(4, "run.completed", { sessionId: "s" }));
     expect(state.name).toBe("post_ai_clean");
+    expect(memoryFor(state, 4).countdownText).toBe("");
     expect(transitionPopupState(state, signal(4, "session.saved", { pageUrl: "x" })).name).toBe("post_ai_clean");
   });
 
@@ -118,5 +119,67 @@ describe("P8 popup organ", () => {
       name: "locked",
       projectionBlockedReason: "property-lock",
     });
+  });
+
+  it("renders cockpit rows, selectors, toggles, countdown, and lock banner", () => {
+    const html = renderToStaticMarkup(React.createElement(App, { presentation: memoryFor({
+      name: "running",
+      lastConsumedSeq: 3,
+      reconciliationReason: "post_ai",
+      runDeadlineAt: 65_000,
+      enableToggleChecked: true,
+      desktopPreviewChecked: true,
+      contentRows: [{ xpath: "/html[1]/body[1]/main[1]", classification: "included" }],
+      selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
+      lockBanner: { visible: true, text: "Locked by Other", countdownSeconds: 60 },
+    }, 5_000) }));
+
+    expect(html).toContain('id="toggle-enabled"');
+    expect(html).toContain('id="desktop-preview"');
+    expect(html).toContain('data-run-countdown="1:00"');
+    expect(html).toContain("Locked by Other");
+    expect(html).toContain('/html[1]/body[1]/main[1]');
+    expect(html).toContain('data-selector-kind="include"');
+    expect(html).toContain('data-selector-kind="exclude"');
+  });
+
+  it("keeps silent preview toggle unchecked", () => {
+    const state = transitionPopupState({ name: "silent", lastConsumedSeq: 1, reconciliationReason: "" }, signal(2, "preview.opened", { origin: "silent" }));
+
+    expect(state.name).toBe("silent_preview");
+    expect(memoryFor(state).enableToggleChecked).toBe(false);
+    const restoring = transitionPopupState(state, signal(3, "preview.exit.requested", { restore: true }));
+    expect(restoring.name).toBe("exit_restoring");
+    expect(memoryFor(restoring).enableToggleChecked).toBe(false);
+  });
+
+  it("matrix-owned silent states ignore stale checked toggle overrides", () => {
+    expect(memoryFor({
+      name: "silent",
+      lastConsumedSeq: 1,
+      reconciliationReason: "",
+      enableToggleChecked: true,
+    }).enableToggleChecked).toBe(false);
+    expect(memoryFor({
+      name: "exit_restoring",
+      priorState: "silent",
+      lastConsumedSeq: 2,
+      reconciliationReason: "",
+      enableToggleChecked: true,
+    }).enableToggleChecked).toBe(false);
+    expect(memoryFor({
+      name: "inspecting",
+      priorState: "silent",
+      lastConsumedSeq: 3,
+      reconciliationReason: "",
+      enableToggleChecked: true,
+    }).enableToggleChecked).toBe(false);
+    expect(memoryFor({
+      name: "reconciling",
+      priorState: "locked",
+      lastConsumedSeq: 4,
+      reconciliationReason: "saving",
+      enableToggleChecked: true,
+    }).enableToggleChecked).toBe(false);
   });
 });
