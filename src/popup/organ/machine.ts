@@ -169,6 +169,14 @@ export function transitionPopupState(state: PopupState, signal: BrainSignal): Po
       };
     }
     case "run.failed":
+      if (
+        state.name === "running" &&
+        state.runSessionId &&
+        typeof signal.payload.sessionId === "string" &&
+        signal.payload.sessionId !== state.runSessionId
+      ) {
+        return base;
+      }
       if (state.name === "running" && state.runDirtyDuringRun) {
         return { ...base, name: "pre_ai_dirty", reconciliationReason: "", priorState: undefined, runDeadlineAt: undefined, runDirtyDuringRun: undefined, runSessionId: undefined };
       }

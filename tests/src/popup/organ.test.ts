@@ -61,4 +61,11 @@ describe("rewrite popup FSM", () => {
 
     expect(state.name).toBe("silent");
   });
+
+  it("ignores stale run failures whose session id no longer matches the active run", () => {
+    let state = transitionPopupState({ name: "pre_ai_dirty", lastConsumedSeq: 1, reconciliationReason: "" }, signal(2, "run.started", { pageUrl: "https://example.com", sessionId: "new-run" }));
+    state = transitionPopupState(state, signal(3, "run.failed", { pageUrl: "https://example.com", sessionId: "old-run" }));
+
+    expect(state.name).toBe("running");
+  });
 });

@@ -39,6 +39,7 @@ let popupBus: RewriteSignalBus | null = null;
 let lastSubmissionSnapshot: AiRunPayloadSnapshot | null = null;
 let lastSubmissionKey: string | null = null;
 let activeRunSessionId: string | null = null;
+let nextRunId = 0;
 
 type TargetTabContext = Readonly<{
   tabId: number;
@@ -388,45 +389,64 @@ async function runAi(): Promise<void> {
     return;
   }
   const requestKey = await handleBoundContext(context);
+  if (store.getState().name === "running") {
+    return;
+  }
+  nextRunId += 1;
+  const localRunId = `local-run-${nextRunId}`;
+  activeRunSessionId = localRunId;
   const startedAt = Date.now();
   await emitPopupSignal(context.tabId, "run.started", {
     pageUrl: context.url,
-    sessionId: "pending",
+    sessionId: localRunId,
     deadlineAt: startedAt + 480_000,
   }, requestKey);
   const snapshot = await captureSubmission(context);
   if (!snapshot) {
-    await emitPopupSignalAndPullTail(context.tabId, "run.failed", { pageUrl: context.url, reason: "capture-failed" }, requestKey);
+    if (activeRunSessionId === localRunId) {
+      await emitPopupSignalAndPullTail(context.tabId, "run.failed", { pageUrl: context.url, sessionId: localRunId, reason: "capture-failed" }, requestKey);
+      if (activeRunSessionId === localRunId) {
+        activeRunSessionId = null;
+      }
+    }
     render();
+    return;
+  }
+  if (activeRunSessionId !== localRunId) {
     return;
   }
   lastSubmissionSnapshot = snapshot;
   lastSubmissionKey = requestKey;
-  activeRunSessionId = "pending";
   const response = await getPopupBus().request("ai.run", snapshot, { target: "background" });
   if (!response.ok || response.data.status !== "ok") {
-    await emitPopupSignalAndPullTail(context.tabId, "run.failed", {
-      pageUrl: context.url,
-      sessionId: "pending",
-      reason: response.ok ? response.data.status : response.failure.code,
-    }, requestKey);
-    activeRunSessionId = null;
+    if (activeRunSessionId === localRunId) {
+      await emitPopupSignalAndPullTail(context.tabId, "run.failed", {
+        pageUrl: context.url,
+        sessionId: localRunId,
+        reason: response.ok ? response.data.status : response.failure.code,
+      }, requestKey);
+      if (activeRunSessionId === localRunId) {
+        activeRunSessionId = null;
+      }
+    }
     render();
     return;
   }
-  if (store.getState().name !== "running" || activeRunSessionId !== "pending") {
+  if (store.getState().name !== "running" || activeRunSessionId !== localRunId) {
     return;
   }
   await pullSignals(context.tabId, requestKey);
   if (response.data.selectors) {
     await emitPopupSignalAndPullTail(context.tabId, "run.completed", {
       pageUrl: context.url,
-      sessionId: activeRunSessionId,
+      sessionId: localRunId,
       aiSessionId: response.data.sessionId ?? "",
       selectors: response.data.selectors,
     }, requestKey);
   }
-  activeRunSessionId = null;
+  if (activeRunSessionId === localRunId) {
+    activeRunSessionId = null;
+  }
   render();
 }
 
@@ -473,7 +493,6 @@ async function saveSession(): Promise<void> {
     reconciliationState.reconciliationDirty
   ) {
     await sendContentMessage(context.tabId, { type: "resumeContentMainInteractions" });
-    await sendContentMessage(context.tabId, { type: "resumeContentMainInteractions" });
     await emitPopupSignalAndPullTail(context.tabId, "reconciliation.ended", { pageUrl: context.url, reason: "dirty-before-save" }, requestKey);
     render();
     return;
@@ -481,6 +500,7 @@ async function saveSession(): Promise<void> {
   const response = await getPopupBus().request("config.save", configFromSubmission(snapshot, selectors), { target: "background" });
   await pullSignals(context.tabId, requestKey);
   if (store.getState().name === "reconciling" && store.getState().reconciliationDirty) {
+    await sendContentMessage(context.tabId, { type: "resumeContentMainInteractions" });
     await emitPopupSignalAndPullTail(context.tabId, "reconciliation.ended", { pageUrl: context.url, reason: "dirty-during-save" }, requestKey);
     render();
     return;
