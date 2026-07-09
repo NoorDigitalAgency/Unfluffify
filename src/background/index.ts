@@ -1,4 +1,5 @@
 import { createRewriteBrainRuntime } from "./rewrite-brain-runtime";
+import { createPropertyLockRuntime } from "./lock-runtime";
 import { createRewriteBackgroundServices } from "./services";
 import { getInstalledBrowserApi } from "../common/browser";
 import { createRealmBus } from "../messaging/realms";
@@ -61,6 +62,30 @@ export function startRewriteBackground(): void {
     realm: "background",
     transport: createRuntimeTransport(api.runtime),
   });
+  const lockRuntime = createPropertyLockRuntime({
+    services,
+    tabs: api.tabs,
+    observeLockFacts(facts) {
+      const brain = runtime.getBrain(facts.tabId);
+      brain.observe({
+        tabId: facts.tabId,
+        source: "background",
+        reason: "property-lock",
+        facts: {
+          tabId: facts.tabId,
+          siteId: facts.siteId,
+          baseUrl: facts.baseUrl,
+          pageUrl: facts.pageUrl,
+          lockRole: facts.lockRole,
+          configPresent: facts.configPresent,
+        },
+      });
+      const snapshot = brain.snapshot();
+      if (snapshot) {
+        void services.persistence.persistDurableFacts(snapshot);
+      }
+    },
+  });
   bus.onCommand("signals.pull", (request) =>
     [...(request.organId
       ? runtime.getBrain(request.tabId).pullForOrgan(request.organId, request.afterSeq)
@@ -102,7 +127,12 @@ export function startRewriteBackground(): void {
     if (snapshot) {
       void services.persistence.persistDurableFacts(snapshot);
     }
+    const siteId = typeof envelope.sensation.facts.siteId === "number" ? envelope.sensation.facts.siteId : snapshot?.siteId ?? null;
+    if (envelope.sensation.reason === "activity-ping" && siteId !== null) {
+      lockRuntime.activity(tabId, siteId);
+    }
   });
+  bus.onCommand("lock.directive", (request) => lockRuntime.directive(request));
   bus.onCommand("ai.run", async (snapshot) => {
     const result = await services.lynx.runAiJob(snapshot);
     return result.status === "ok"
@@ -122,5 +152,4 @@ export function startRewriteBackground(): void {
   api.action?.onClicked?.addListener((tab: Readonly<{ id?: number }>) => {
     void openRewriteSidePanelForTab(tab, api).catch(reportActionOpenFailure);
   });
-  services.createLockClient({ tabId: 0, siteId: 1, pageUrl: "about:blank" }).heartbeat();
 }

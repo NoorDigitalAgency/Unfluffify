@@ -116,4 +116,70 @@ describe("rewrite background startup", () => {
       payload: [{ name: "markings.changed" }],
     });
   });
+
+  it("serves property-lock directives through the shipped typed bus", async () => {
+    const addMessageListener = vi.fn();
+    const sendMessage = vi.fn();
+    const tabsSendMessage = vi.fn();
+    globalThis.chrome = {
+      runtime: {
+        sendMessage,
+        onMessage: { addListener: addMessageListener },
+      },
+      tabs: {
+        sendMessage: tabsSendMessage,
+      },
+      action: {
+        onClicked: { addListener: vi.fn() },
+      },
+      alarms: {
+        create: vi.fn(),
+        clear: vi.fn(),
+        onAlarm: { addListener: vi.fn() },
+      },
+    } as unknown as typeof chrome;
+
+    const { startRewriteBackground } = await import("../../../src/background/index");
+    startRewriteBackground();
+    const runtimeListener = addMessageListener.mock.calls[0]?.[0] as (message: unknown, sender: unknown, sendResponse: (value: unknown) => void) => unknown;
+    let response: unknown;
+    const keepOpen = runtimeListener({
+      kind: "uf-bus/1",
+      frameType: "request",
+      id: "lock-1",
+      seq: 1,
+      name: "lock.directive",
+      source: "popup",
+      sourceInstance: "popup:test",
+      target: "background",
+      payload: {
+        tabId: 5,
+        pageUrl: "https://example.com/page",
+        baseUrl: "https://example.com",
+        siteId: 5542,
+        hasUnsavedChanges: false,
+      },
+    }, {}, (value: unknown) => {
+      response = value;
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(keepOpen).toBe(true);
+    expect(response).toMatchObject({
+      kind: "uf-bus/1",
+      frameType: "reply",
+      ok: true,
+      payload: {
+        status: "ok",
+        siteId: 5542,
+        lockRole: "unknown",
+        directive: expect.objectContaining({
+          lockRole: "unknown",
+          content: expect.objectContaining({ markingEditsBlocked: true }),
+        }),
+      },
+    });
+  });
 });

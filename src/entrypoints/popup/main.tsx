@@ -41,6 +41,7 @@ let lastSubmissionSnapshot: AiRunPayloadSnapshot | null = null;
 let lastSubmissionKey: string | null = null;
 let activeRunSessionId: string | null = null;
 let nextRunId = 0;
+let preLockPopupState: ReturnType<typeof store.getState> | null = null;
 
 type TargetTabContext = Readonly<{
   tabId: number;
@@ -135,6 +136,7 @@ function bindToTab(context: TargetTabContext): { changed: boolean; sameTabNaviga
   lastSubmissionSnapshot = null;
   lastSubmissionKey = null;
   activeRunSessionId = null;
+  preLockPopupState = null;
   store.reset({ name: "silent", lastConsumedSeq: 0, reconciliationReason: "" });
   return { changed: true, sameTabNavigation, key: nextKey };
 }
@@ -239,6 +241,7 @@ async function pollCurrentTabSignals(): Promise<void> {
   }
   const requestKey = await handleBoundContext(context);
   await pullSignals(context.tabId, requestKey);
+  await refreshLockDirective(context, requestKey);
   render();
 }
 
@@ -290,30 +293,168 @@ function baseUrlFor(url: string): string {
   return url ? new URL(url).origin : "https://example.com";
 }
 
-function contentDirectiveForContext(context: TargetTabContext): Record<string, unknown> {
+type LockDirectiveResponse = Readonly<{
+  status: "ok" | "not_configured" | "not_candidate" | "unavailable";
+  siteId: number | null;
+  lockRole: "unknown" | "editor" | "passive";
+  directive: unknown;
+  lockBanner: Readonly<{ visible: boolean; text: string; countdownSeconds?: number }>;
+}>;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function composeContentDirective(context: TargetTabContext, lock: LockDirectiveResponse): Record<string, unknown> {
   const presentation = store.getPresentation();
   const bannerText = presentation.lockBanner.visible ? presentation.lockBanner.text : "";
-  const blockedReason = presentation.blockedReason || presentation.saveBlockedReason || presentation.runAiBlockedReason || "";
+  const baseDirective = isRecord(lock.directive) ? lock.directive : {};
+  const baseContent = isRecord(baseDirective.content) ? baseDirective.content : {};
+  const lockDirectiveBlocked = baseContent.markingEditsBlocked === true;
+  const lockBlocked = lock.lockRole !== "editor" || lockDirectiveBlocked;
+  const blockedReason = lockBlocked
+    ? lock.lockBanner.text || "property-lock"
+    : presentation.blockedReason || presentation.saveBlockedReason || presentation.runAiBlockedReason || "";
   return {
     type: "directive.content",
+    ...baseDirective,
     baseUrl: baseUrlFor(context.url),
-    configPresent: true,
-    lockRole: "editor",
+    configPresent: lock.status === "ok" && lock.siteId !== null,
+    lockRole: lock.lockRole,
     reconciliationPending: store.getState().name === "reconciling",
     content: {
-      markingEditsBlocked: presentation.temporarilyDisabledOverlay,
+      ...baseContent,
+      markingEditsBlocked: lockBlocked || presentation.temporarilyDisabledOverlay,
       blockedReason,
       curtain: {
-        visible: presentation.curtainVisible,
-        text: presentation.curtainText,
+        visible: lockBlocked || presentation.curtainVisible,
+        text: lockBlocked ? lock.lockBanner.text || "Property locked" : presentation.curtainText,
       },
       banner: {
-        visible: presentation.lockBanner.visible,
-        text: bannerText,
+        visible: lock.lockBanner.visible || presentation.lockBanner.visible,
+        text: lock.lockBanner.text || bannerText,
       },
+      blockOwner: lockBlocked ? "lock" : presentation.temporarilyDisabledOverlay ? "popup" : undefined,
       renderMode: presentation.desktopPreviewChecked ? "static" : "rendered",
     },
   };
+}
+
+function lockAllowsEditing(lock: LockDirectiveResponse): boolean {
+  const directive = isRecord(lock.directive) ? lock.directive : {};
+  const content = isRecord(directive.content) ? directive.content : {};
+  return lock.lockRole === "editor" && content.markingEditsBlocked !== true;
+}
+
+async function requestLockDirective(context: TargetTabContext): Promise<LockDirectiveResponse | null> {
+  const response = await getPopupBus().request("lock.directive", {
+    tabId: context.tabId,
+    pageUrl: context.url,
+    baseUrl: baseUrlFor(context.url),
+    hasUnsavedChanges: hasLocalUnsavedChanges(),
+  }, { target: "background" });
+  return response.ok ? response.data as LockDirectiveResponse : unavailableLockDirective(context);
+}
+
+function hasLocalUnsavedChanges(): boolean {
+  const state = preLockPopupState ?? store.getState();
+  return [
+    "pre_ai_dirty",
+    "running",
+    "post_ai_clean",
+    "preview_open",
+    "exit_restoring",
+    "reconciling",
+  ].includes(state.name);
+}
+
+function settlePreLockAiRun(
+  localRunId: string,
+  outcome: Readonly<{ status: "completed"; selectors?: SelectorSet } | { status: "failed" }>,
+): boolean {
+  const state = preLockPopupState;
+  if (state?.name !== "running" || state.runSessionId !== localRunId) {
+    return false;
+  }
+  preLockPopupState = state.runDirtyDuringRun || outcome.status === "failed"
+    ? {
+      ...state,
+      name: state.runDirtyDuringRun ? "pre_ai_dirty" : state.priorState ?? "pre_ai_dirty",
+      reconciliationReason: "",
+      priorState: undefined,
+      runDeadlineAt: undefined,
+      runDirtyDuringRun: undefined,
+      runSessionId: undefined,
+    }
+    : {
+      ...state,
+      name: "post_ai_clean",
+      reconciliationReason: "",
+      priorState: undefined,
+      runDeadlineAt: undefined,
+      runDirtyDuringRun: undefined,
+      runSessionId: undefined,
+      selectors: outcome.selectors ?? state.selectors,
+    };
+  if (activeRunSessionId === localRunId) {
+    activeRunSessionId = null;
+  }
+  return true;
+}
+
+function unavailableLockDirective(context: TargetTabContext): LockDirectiveResponse {
+  return {
+    status: "unavailable",
+    siteId: null,
+    lockRole: "unknown",
+    directive: {
+      baseUrl: baseUrlFor(context.url),
+      configPresent: false,
+      lockRole: "unknown",
+      reconciliationPending: false,
+      content: {
+        markingEditsBlocked: true,
+        blockedReason: "property-lock",
+        curtain: { visible: true, text: "Property lock unavailable" },
+        banner: { visible: true, text: "Property lock unavailable" },
+        blockOwner: "lock",
+      },
+    },
+    lockBanner: { visible: true, text: "Property lock unavailable" },
+  };
+}
+
+function applyLockPresentation(lock: LockDirectiveResponse, requestKey = boundTabKey): void {
+  if (lockAllowsEditing(lock)) {
+    if (store.getState().name === "locked") {
+      store.reset(preLockPopupState ?? { name: "silent", lastConsumedSeq: store.getState().lastConsumedSeq, reconciliationReason: "" });
+    }
+    preLockPopupState = null;
+    return;
+  }
+  if (store.getState().name !== "locked" && preLockPopupState === null) {
+    preLockPopupState = store.getState();
+  }
+  store.reset({
+    name: "locked",
+    lastConsumedSeq: store.getState().lastConsumedSeq,
+    reconciliationReason: "",
+    projectionBlockedReason: lock.lockBanner.text || lock.status,
+    lockBanner: lock.lockBanner,
+  });
+  if (requestKey !== boundTabKey) {
+    return;
+  }
+}
+
+async function refreshLockDirective(context: TargetTabContext, requestKey = boundTabKey): Promise<LockDirectiveResponse | null> {
+  const lock = await requestLockDirective(context);
+  if (!lock || boundTabId !== context.tabId || boundTabKey !== requestKey) {
+    return null;
+  }
+  applyLockPresentation(lock, requestKey);
+  await sendContentMessage(context.tabId, composeContentDirective(context, lock));
+  return lock;
 }
 
 async function captureSubmission(context: TargetTabContext): Promise<AiRunPayloadSnapshot | null> {
@@ -402,7 +543,11 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
   if (enabled) {
     ensureSignalPolling(context);
     await pullSignals(context.tabId, requestKey);
-    await sendContentMessage(context.tabId, contentDirectiveForContext(context));
+    const lock = await refreshLockDirective(context, requestKey);
+    if (!lock || !lockAllowsEditing(lock)) {
+      render();
+      return;
+    }
     const activated = await sendContentMessage(context.tabId, {
       type: "activateContentMain",
       pageUrl: context.url,
@@ -433,6 +578,11 @@ async function runAi(): Promise<void> {
   if (store.getState().name === "running") {
     return;
   }
+  const lock = await refreshLockDirective(context, requestKey);
+  if (!lock || !lockAllowsEditing(lock)) {
+    render();
+    return;
+  }
   nextRunId += 1;
   const localRunId = `local-run-${nextRunId}`;
   activeRunSessionId = localRunId;
@@ -446,6 +596,7 @@ async function runAi(): Promise<void> {
   if (!snapshot) {
     if (activeRunSessionId === localRunId) {
       await emitPopupSignalAndPullTail(context.tabId, "run.failed", { pageUrl: context.url, sessionId: localRunId, reason: "capture-failed" }, requestKey);
+      settlePreLockAiRun(localRunId, { status: "failed" });
       if (activeRunSessionId === localRunId) {
         activeRunSessionId = null;
       }
@@ -466,6 +617,7 @@ async function runAi(): Promise<void> {
         sessionId: localRunId,
         reason: response.ok ? response.data.status : response.failure.code,
       }, requestKey);
+      settlePreLockAiRun(localRunId, { status: "failed" });
       if (activeRunSessionId === localRunId) {
         activeRunSessionId = null;
       }
@@ -474,6 +626,7 @@ async function runAi(): Promise<void> {
     return;
   }
   if (store.getState().name !== "running" || activeRunSessionId !== localRunId) {
+    settlePreLockAiRun(localRunId, { status: "completed", selectors: response.data.selectors });
     return;
   }
   await pullSignals(context.tabId, requestKey);
@@ -498,6 +651,11 @@ async function saveSession(): Promise<void> {
   }
   const requestKey = await handleBoundContext(context);
   await pullSignals(context.tabId, requestKey);
+  const lock = await refreshLockDirective(context, requestKey);
+  if (!lock || !lockAllowsEditing(lock)) {
+    render();
+    return;
+  }
   const saveButton = resolvePopupActionButtons(store.getPresentation(), {
     runAi: true,
     save: true,
@@ -565,6 +723,11 @@ async function showPreview(): Promise<void> {
   }
   const requestKey = await handleBoundContext(context);
   await pullSignals(context.tabId, requestKey);
+  const lock = await refreshLockDirective(context, requestKey);
+  if (!lock || !lockAllowsEditing(lock)) {
+    render();
+    return;
+  }
   const previewButton = resolvePopupActionButtons(store.getPresentation(), {
     runAi: true,
     save: true,

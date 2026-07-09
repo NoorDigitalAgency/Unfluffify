@@ -83,7 +83,30 @@ function makeTabsSendMessage(
 
 function makeRuntime(handler: (frame: BusFrame) => Promise<unknown> | unknown) {
   return {
-    sendMessage: vi.fn((message: unknown) => handler(message as BusFrame)),
+    sendMessage: vi.fn((message: unknown) => {
+      const frame = message as BusFrame;
+      if (frame.name === "lock.directive") {
+        return replyFrame(frame, {
+          status: "ok",
+          siteId: 1,
+          lockRole: "editor",
+          directive: {
+            baseUrl: "https://example.com",
+            configPresent: true,
+            lockRole: "editor",
+            reconciliationPending: false,
+            content: {
+              markingEditsBlocked: false,
+              blockedReason: "",
+              curtain: { visible: false, text: "" },
+              banner: { visible: false, text: "" },
+            },
+          },
+          lockBanner: { visible: false, text: "" },
+        });
+      }
+      return handler(frame);
+    }),
     onMessage: {
       addListener: vi.fn(),
       removeListener: vi.fn(),
@@ -288,6 +311,10 @@ describe("rewrite popup entrypoint", () => {
 
     render.mock.calls.at(-1)?.[0].props.onSave();
     await flushEntrypointWork();
+    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      name: "lock.directive",
+      payload: expect.objectContaining({ hasUnsavedChanges: true }),
+    }));
     expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("deactivateContentMain", {}));
     expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
       name: "config.save",

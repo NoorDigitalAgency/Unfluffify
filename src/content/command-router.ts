@@ -14,6 +14,7 @@ const DirectiveSurfaceSchema = z.object({
     visible: z.boolean(),
     text: z.string(),
   }).optional(),
+  blockOwner: z.enum(["lock", "popup"]).optional(),
   renderMode: z.enum(["rendered", "static"]).optional(),
 }).default({});
 
@@ -36,6 +37,7 @@ export type ContentDirectiveState = Readonly<{
     blockedReason: string;
     curtain: Readonly<{ visible: boolean; text: string }>;
     banner: Readonly<{ visible: boolean; text: string }>;
+    blockOwner?: "lock" | "popup";
     renderMode: "rendered" | "static";
   }>;
 }>;
@@ -126,6 +128,7 @@ export function createDefaultContentDirective(pageUrl: string): ContentDirective
       blockedReason: "",
       curtain: { visible: false, text: "" },
       banner: { visible: false, text: "" },
+      blockOwner: undefined,
       renderMode: "rendered",
     },
   };
@@ -135,18 +138,34 @@ export function mergeContentDirective(
   current: ContentDirectiveState,
   patch: ContentDirectivePatch,
 ): ContentDirectiveState {
+  const incomingOwner = patch.content?.blockOwner;
+  const incomingBlock = patch.content?.markingEditsBlocked;
+  const canApplyBlockPatch =
+    incomingBlock === undefined ||
+    incomingBlock === true ||
+    !current.content.markingEditsBlocked ||
+    !current.content.blockOwner ||
+    !incomingOwner ||
+    incomingOwner === current.content.blockOwner;
+  const content = canApplyBlockPatch
+    ? {
+      markingEditsBlocked: incomingBlock ?? current.content.markingEditsBlocked,
+      blockedReason: patch.content?.blockedReason ?? current.content.blockedReason,
+      curtain: patch.content?.curtain ?? current.content.curtain,
+      banner: patch.content?.banner ?? current.content.banner,
+      blockOwner: incomingBlock === false ? undefined : incomingOwner ?? current.content.blockOwner,
+      renderMode: patch.content?.renderMode ?? current.content.renderMode,
+    }
+    : {
+      ...current.content,
+      renderMode: patch.content?.renderMode ?? current.content.renderMode,
+    };
   return {
     baseUrl: patch.baseUrl ?? current.baseUrl,
     configPresent: patch.configPresent ?? current.configPresent,
     lockRole: patch.lockRole ?? current.lockRole,
     reconciliationPending: patch.reconciliationPending ?? current.reconciliationPending,
-    content: {
-      markingEditsBlocked: patch.content?.markingEditsBlocked ?? current.content.markingEditsBlocked,
-      blockedReason: patch.content?.blockedReason ?? current.content.blockedReason,
-      curtain: patch.content?.curtain ?? current.content.curtain,
-      banner: patch.content?.banner ?? current.content.banner,
-      renderMode: patch.content?.renderMode ?? current.content.renderMode,
-    },
+    content,
   };
 }
 

@@ -589,5 +589,35 @@ describe("C4 rewrite content entrypoints", () => {
       failure: { code: "base-url-mismatch" },
     });
     expect(createMarkingEngine).not.toHaveBeenCalled();
+
+    await dispatchContentCommand(listener, "directive.content", {
+      baseUrl: "https://example.com",
+      content: {
+        markingEditsBlocked: true,
+        blockedReason: "saving",
+        blockOwner: "popup",
+        curtain: { visible: true, text: "Saving" },
+        banner: { visible: false, text: "" },
+      },
+    });
+    await dispatchContentCommand(listener, "directive.content", {
+      content: {
+        markingEditsBlocked: false,
+        blockedReason: "",
+        blockOwner: "lock",
+        curtain: { visible: false, text: "" },
+        banner: { visible: false, text: "" },
+      },
+    });
+    const status = await dispatchContentCommand(listener, "getContentMainStatus");
+    expect(status.data).toMatchObject({
+      directive: {
+        content: {
+          markingEditsBlocked: true,
+          blockedReason: "saving",
+          blockOwner: "popup",
+        },
+      },
+    });
   });
 });

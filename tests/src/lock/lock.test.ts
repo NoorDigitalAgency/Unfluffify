@@ -103,7 +103,7 @@ describe("P9 property-lock client", () => {
     });
   });
 
-  it("projects unlocked lock state as editable without a blocking banner", () => {
+  it("does not treat unknown initial lock state as editable", () => {
     expect(projectPropertyLockView({
       role: "unknown",
       identity: "",
@@ -111,7 +111,7 @@ describe("P9 property-lock client", () => {
       state: "unlocked",
       timings: {},
       terminal: false,
-    })).toEqual({ bannerVisible: false, text: "", canEdit: true });
+    })).toEqual({ bannerVisible: true, text: "Property lock connecting", canEdit: false });
   });
 
   it("combines websocket and independent HTTP reachability", () => {
@@ -170,5 +170,101 @@ describe("P9 property-lock client", () => {
     expect(projectPropertyLockView(client.state()).canEdit).toBe(false);
     client.heartbeat();
     expect(JSON.parse(ws.sent.at(-1) ?? "{}")).not.toMatchObject({ type: "heartbeat" });
+  });
+
+  it("mirrors lock server handoff warnings and suggestion states", () => {
+    const ws = fakeSocket();
+    const states: unknown[] = [];
+    const client = createPropertyLockClient({
+      socket: ws.socket,
+      tabId: 1,
+      siteId: 123,
+      pageUrl: "https://example.com",
+      identity: null,
+      persistIdentity() {},
+      onStateChange(state) { states.push(state); },
+    });
+
+    ws.emit("open");
+    ws.emit("message", JSON.stringify({ type: "subscribed", identity: "backend-1" }));
+    ws.emit("message", JSON.stringify({ type: "disconnect_warning", reason: "network", secondsRemaining: 70 }));
+    expect(projectPropertyLockView(client.state())).toEqual({
+      bannerVisible: true,
+      text: "Connection lost; editor role may be released",
+      canEdit: false,
+      countdownSeconds: 70,
+    });
+    ws.emit("message", JSON.stringify({ type: "takeover_suggestion", suggestionId: "s1", fromName: "Other" }));
+    expect(projectPropertyLockView(client.state()).text).toBe("Other wants to take over editing");
+    ws.emit("message", JSON.stringify({ type: "suggestion_pending", suggestionId: "s1" }));
+    expect(client.state().suggestionPending).toBe(true);
+    ws.emit("message", JSON.stringify({ type: "suggestion_response", suggestionId: "s1" }));
+    expect(client.state().suggestionPending).toBe(false);
+    expect(client.state().suggestionResponseId).toBe("s1");
+    ws.emit("message", JSON.stringify({ type: "suggestion_accepted", suggestionId: "s1" }));
+    expect(client.state().acceptedSuggestionId).toBe("s1");
+    ws.emit("message", JSON.stringify({ type: "transfer_countdown", fromName: "A", toName: "B", secondsRemaining: 12 }));
+    expect(projectPropertyLockView(client.state())).toEqual({
+      bannerVisible: true,
+      text: "Editing is being transferred from A to B",
+      canEdit: false,
+      countdownSeconds: 12,
+    });
+    expect(states.length).toBeGreaterThan(5);
+  });
+
+  it("suppresses heartbeat after the editor idle window but sends activity and status frames", () => {
+    const ws = fakeSocket();
+    let now = 0;
+    const client = createPropertyLockClient({
+      socket: ws.socket,
+      tabId: 1,
+      siteId: 123,
+      pageUrl: "https://example.com",
+      identity: { tabId: 1, siteId: 123, identity: "backend-1", updatedAt: 0 },
+      persistIdentity() {},
+      now: () => now,
+    });
+
+    ws.emit("open");
+    ws.emit("message", JSON.stringify({ type: "subscribed", identity: "backend-1" }));
+    client.clientStatus();
+    expect(JSON.parse(ws.sent.at(-1) ?? "{}")).toMatchObject({ type: "client_status" });
+    now = 31 * 60_000;
+    client.heartbeat();
+    expect(JSON.parse(ws.sent.at(-1) ?? "{}")).toMatchObject({ type: "client_status" });
+    client.activity();
+    expect(JSON.parse(ws.sent.at(-1) ?? "{}")).toMatchObject({ type: "activity" });
+    client.heartbeat();
+    expect(JSON.parse(ws.sent.at(-1) ?? "{}")).toMatchObject({ type: "heartbeat" });
+    client.heartbeat();
+    expect(ws.sent.filter((frame) => JSON.parse(frame).type === "heartbeat")).toHaveLength(1);
+  });
+
+  it("deduplicates queued pre-subscribe frames before identity arrives", () => {
+    const ws = fakeSocket();
+    const client = createPropertyLockClient({
+      socket: ws.socket,
+      tabId: 1,
+      siteId: 123,
+      pageUrl: "https://example.com",
+      identity: null,
+      persistIdentity() {},
+      now: () => 0,
+    });
+
+    client.claim();
+    client.claim();
+    client.clientStatus();
+    client.clientStatus();
+    client.heartbeat();
+    client.heartbeat();
+    ws.emit("open");
+    ws.emit("message", JSON.stringify({ type: "subscribed", identity: "backend-1" }));
+
+    const sentTypes = ws.sent.map((frame) => JSON.parse(frame).type);
+    expect(sentTypes.filter((type) => type === "take_lock")).toHaveLength(1);
+    expect(sentTypes.filter((type) => type === "client_status")).toHaveLength(1);
+    expect(sentTypes.filter((type) => type === "heartbeat")).toHaveLength(1);
   });
 });

@@ -11,7 +11,28 @@ import {
 import { defineBus, type DefineBusOptions } from "./bus";
 import { z } from "zod";
 import { AiRunPayloadSnapshotSchema } from "../domain/schema/submission";
+import { LockRoleSchema } from "../domain/schema/facts";
 import { ConfigSnapshotSchema, SelectorSetSchema } from "../storage/config";
+
+const LockDirectiveRequestSchema = z.object({
+  tabId: z.number().int().nonnegative(),
+  pageUrl: z.string(),
+  baseUrl: z.string().optional(),
+  siteId: z.number().int().positive().nullable().optional(),
+  hasUnsavedChanges: z.boolean().optional(),
+});
+
+const LockDirectiveResponseSchema = z.object({
+  status: z.enum(["ok", "not_configured", "not_candidate", "unavailable"]),
+  siteId: z.number().int().positive().nullable(),
+  lockRole: LockRoleSchema,
+  directive: z.unknown(),
+  lockBanner: z.object({
+    visible: z.boolean(),
+    text: z.string(),
+    countdownSeconds: z.number().optional(),
+  }),
+});
 
 export const applicationContract = defineContract({
   commands: {
@@ -46,6 +67,10 @@ export const applicationContract = defineContract({
         status: z.string(),
         httpStatus: z.number().optional(),
       }),
+    },
+    "lock.directive": {
+      request: LockDirectiveRequestSchema,
+      response: LockDirectiveResponseSchema,
     },
   },
   events: {

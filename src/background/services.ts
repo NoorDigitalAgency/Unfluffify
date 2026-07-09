@@ -1,4 +1,4 @@
-import { createPropertyLockClient, type WebSocketLike } from "../lock";
+import { buildPropertyLockWssUrl, createPropertyLockClient, type LockIdentity, type PropertyLockState, type WebSocketLike } from "../lock";
 import {
   createConfigRepo,
   createIndexedDbStore,
@@ -12,13 +12,14 @@ import { SelectorSetSchema } from "../storage/config";
 import type { JsonTransport } from "../lynx";
 import { getAiRunResult, getAiRunStatus, startAiRun } from "../lynx/ai";
 import { pollAiJob } from "../lynx/ai-job";
-import { buildCssInfoRequest, buildUpdateScrapingConditionsRequest, buildUrlSearchInfoRequest } from "../lynx/graphql";
+import { buildCssInfoRequest, buildUpdateScrapingConditionsRequest, buildUrlSearchInfoRequest, parseUrlSearchInfo } from "../lynx/graphql";
 import { loadConfigSnapshot, saveConfigSnapshot } from "../lynx/rest";
 import { persistDurableFacts, rehydrateDurableFacts, reDeriveVolatile } from "./persistence";
 
 type EndpointSettings = Readonly<{
   configEndpoint?: string;
   aiEndpoint?: string;
+  stageBase?: string;
   token?: string;
 }>;
 
@@ -70,9 +71,17 @@ function createNoopSocket(): WebSocketLike {
   };
 }
 
+function createWebSocketSocket(url: string): WebSocketLike {
+  if (!url || typeof globalThis.WebSocket !== "function") {
+    return createNoopSocket();
+  }
+  return new globalThis.WebSocket(url);
+}
+
 export function createRewriteBackgroundServices(input: Readonly<{
   transport?: JsonTransport;
   socket?: WebSocketLike;
+  socketFactory?: (url: string) => WebSocketLike;
 }> = {}) {
   const store = createBackgroundStore();
   const tabStateRepo = createTabStateRepo(store);
@@ -109,6 +118,25 @@ export function createRewriteBackgroundServices(input: Readonly<{
       startAiRun: (snapshot: Parameters<typeof startAiRun>[1]) => startAiRun(transport, snapshot),
       getAiRunStatus: (sessionId: string) => getAiRunStatus(transport, sessionId),
       getAiRunResult: (sessionId: string) => getAiRunResult(transport, sessionId),
+      async getSiteIdForUrl(url: string) {
+        let response;
+        try {
+          response = await transport({
+            method: "POST",
+            path: "/graphql",
+            body: buildUrlSearchInfoRequest(url),
+          });
+        } catch {
+          return { status: "network_error" as const, siteId: null };
+        }
+        if (response.status < 200 || response.status >= 300) {
+          return { status: "network_error" as const, siteId: null };
+        }
+        const parsed = parseUrlSearchInfo(response.body);
+        return parsed.notFound
+          ? { status: "not_found" as const, siteId: null }
+          : { status: "ok" as const, siteId: parsed.siteId };
+      },
       async runAiJob(snapshot: Parameters<typeof startAiRun>[1]) {
         const started = await startAiRun(transport, snapshot);
         if (started.status !== "ok") {
@@ -163,13 +191,32 @@ export function createRewriteBackgroundServices(input: Readonly<{
       buildCssInfoRequest,
       buildUpdateScrapingConditionsRequest,
     },
-    createLockClient(inputContext: Readonly<{ tabId: number; siteId: number; pageUrl: string }>) {
+    async createLockClient(inputContext: Readonly<{
+      tabId: number;
+      siteId: number;
+      pageUrl: string;
+      hasUnsavedChanges?: () => boolean;
+      onStateChange?: (state: PropertyLockState) => void;
+    }>) {
+      const loadedIdentity = await lockIdentityRepo.load(inputContext.tabId, inputContext.siteId);
+      const currentSettings = await loadSettings();
+      const wsUrl = buildPropertyLockWssUrl(currentSettings.configEndpoint ?? currentSettings.stageBase ?? "", currentSettings.token ?? "");
+      const socket = input.socket ?? (input.socketFactory ?? createWebSocketSocket)(wsUrl);
       return createPropertyLockClient({
-        socket: input.socket ?? createNoopSocket(),
+        socket,
         tabId: inputContext.tabId,
         siteId: inputContext.siteId,
         pageUrl: inputContext.pageUrl,
-        identity: null,
+        identity: loadedIdentity.ok && loadedIdentity.value
+          ? {
+            tabId: loadedIdentity.value.tabId,
+            siteId: loadedIdentity.value.siteId,
+            identity: loadedIdentity.value.identity,
+            updatedAt: loadedIdentity.value.updatedAt,
+          } satisfies LockIdentity
+          : null,
+        hasUnsavedChanges: inputContext.hasUnsavedChanges,
+        onStateChange: inputContext.onStateChange,
         persistIdentity(identity) {
           return lockIdentityRepo.save({
             ...identity,
