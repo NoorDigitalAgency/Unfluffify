@@ -132,6 +132,7 @@ describe("C4 rewrite content entrypoints", () => {
       dirty: false,
       pageUrl: "",
       markedCount: 0,
+      contentRows: [{ xpath: "/html[1]/body[1]/p[1]", classification: "excluded" }],
       tree: "rewrite",
     });
     expect(createMarkingEngine).toHaveBeenCalledTimes(1);
@@ -179,7 +180,11 @@ describe("C4 rewrite content entrypoints", () => {
           name: "markings.changed",
           source: "content",
           cause: "content-click",
-          payload: { pageUrl: "", markedCount: 1 },
+          payload: {
+            pageUrl: "",
+            markedCount: 1,
+            contentRows: [{ xpath: "/html[1]/body[1]/p[1]", classification: "excluded" }],
+          },
         },
       },
     }));
@@ -205,6 +210,52 @@ describe("C4 rewrite content entrypoints", () => {
     expect(documentListeners.has("click")).toBe(false);
     expect(windowListeners.has("blur")).toBe(false);
     expect(response).toHaveBeenLastCalledWith({ ok: true, initialized: false, tree: "rewrite" });
+  });
+
+  it("pauses and resumes marking interactions without clearing dirty state", async () => {
+    const addListener = vi.fn();
+    const documentListeners = new Map<string, EventListener>();
+    const engine = {
+      refresh: vi.fn(),
+      renderReadOnly: vi.fn(),
+      dispose: vi.fn(),
+      resolveAtPoint: vi.fn(() => ({ xpath: "/html[1]/body[1]/p[1]" })),
+      toggle: vi.fn(),
+      rows: vi.fn(() => [{ xpath: "/html[1]/body[1]/p[1]", excluded: true }]),
+    };
+    globalThis.chrome = {
+      runtime: {
+        onMessage: { addListener },
+        sendMessage: vi.fn().mockResolvedValue({ ok: true }),
+      },
+    } as unknown as typeof chrome;
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: {
+        documentElement: { nodeType: 1, tagName: "HTML", scrollHeight: 1000 },
+        addEventListener: vi.fn((type: string, listener: EventListener) => documentListeners.set(type, listener)),
+        removeEventListener: vi.fn((type: string) => documentListeners.delete(type)),
+      },
+    });
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: { innerHeight: 500, scrollY: 0, scrollTo: vi.fn(), postMessage: vi.fn(), addEventListener: vi.fn(), removeEventListener: vi.fn() },
+    });
+    vi.doMock("wxt/utils/define-content-script", () => ({ defineContentScript: (config: unknown) => config }));
+    vi.doMock("../src/content/marking", () => ({ createMarkingEngine: vi.fn(() => engine) }));
+
+    const entrypoint = await import("../src/entrypoints/content-loader.content.ts");
+    (entrypoint.default as { main: () => void }).main();
+    const listener = addListener.mock.calls[0]?.[0] as (message: { type?: string }, sender: unknown, sendResponse: (value: unknown) => void) => unknown;
+    const response = vi.fn();
+
+    listener({ type: "activateContentMain" }, {}, response);
+    documentListeners.get("click")?.({ clientX: 1, clientY: 1, altKey: false, shiftKey: false, preventDefault: vi.fn(), stopPropagation: vi.fn() } as unknown as Event);
+    expect(listener({ type: "pauseContentMainInteractions" }, {}, response)).toBe(true);
+    expect(documentListeners.has("click")).toBe(false);
+    expect(response).toHaveBeenLastCalledWith({ ok: true, active: true, dirty: true, tree: "rewrite" });
+    expect(listener({ type: "resumeContentMainInteractions" }, {}, response)).toBe(true);
+    expect(documentListeners.has("click")).toBe(true);
   });
 
   it("rejects stale activation requests whose pageUrl no longer matches the page", async () => {

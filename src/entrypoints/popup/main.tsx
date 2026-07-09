@@ -10,10 +10,12 @@ import { createRoot } from "react-dom/client";
 import { App, resolvePopupActionButtons } from "../../popup/App";
 import { createPopupStore } from "../../popup/store";
 import type { BrainSignal } from "../../domain/schema/signals";
+import type { AiRunPayloadSnapshot } from "../../domain/schema/submission";
 import { browser, getInstalledBrowserApi } from "../../common/browser";
 import { createRealmBus } from "../../messaging/realms";
 import { createRuntimeTransport } from "../../messaging/transports/runtime";
 import { emitRewriteSignal, pullRewriteSignals, type RewriteSignalBus } from "../../messaging/rewrite-signals";
+import type { ConfigSnapshot, SelectorSet } from "../../storage/config";
 
 type PopupDebugApi = Readonly<{
   getViewState: () => Record<string, unknown>;
@@ -34,6 +36,9 @@ let boundTabKey: string | null = null;
 let signalPollHandle: ReturnType<Window["setInterval"]> | null = null;
 let lastPulledBrainSeq = 0;
 let popupBus: RewriteSignalBus | null = null;
+let lastSubmissionSnapshot: AiRunPayloadSnapshot | null = null;
+let lastSubmissionKey: string | null = null;
+let activeRunSessionId: string | null = null;
 
 type TargetTabContext = Readonly<{
   tabId: number;
@@ -125,26 +130,54 @@ function bindToTab(context: TargetTabContext): { changed: boolean; sameTabNaviga
   boundTabId = context.tabId;
   boundTabKey = nextKey;
   lastPulledBrainSeq = 0;
+  lastSubmissionSnapshot = null;
+  lastSubmissionKey = null;
+  activeRunSessionId = null;
   store.reset({ name: "silent", lastConsumedSeq: 0, reconciliationReason: "" });
   return { changed: true, sameTabNavigation, key: nextKey };
 }
 
-async function pullSignals(tabId: number, requestKey = boundTabKey): Promise<void> {
+async function pullSignals(tabId: number, requestKey = boundTabKey, afterSeq = lastPulledBrainSeq): Promise<number> {
   const response = await pullRewriteSignals(getPopupBus(), {
     tabId,
-    afterSeq: lastPulledBrainSeq,
+    afterSeq,
   });
   if (!response.ok) {
-    return;
+    return 0;
   }
   if (boundTabId !== tabId || boundTabKey !== requestKey) {
-    return;
+    return 0;
   }
+  let applied = 0;
   for (const signal of response.data) {
     if (signal && typeof signal === "object" && (signal as BrainSignal).kind === "uf-signal/1" && signalMatchesBinding(signal as BrainSignal, tabId, requestKey)) {
       const brainSignal = signal as BrainSignal;
       lastPulledBrainSeq = Math.max(lastPulledBrainSeq, brainSignal.seq);
       dispatchSignal(brainSignal);
+      applied += 1;
+    }
+  }
+  return applied;
+}
+
+async function emitPopupSignalAndPullTail(tabId: number, name: BrainSignal["name"], payload: BrainSignal["payload"], requestKey = boundTabKey): Promise<void> {
+  const afterSeq = lastPulledBrainSeq;
+  const response = await emitRewriteSignal(getPopupBus(), tabId, {
+    name,
+    source: "popup",
+    cause: "popup-entrypoint",
+    payload,
+  });
+  if (!response.ok || boundTabId !== tabId || boundTabKey !== requestKey) {
+    return;
+  }
+  const applied = await pullSignals(tabId, requestKey, afterSeq);
+  if (applied === 0) {
+    for (const signal of response.data) {
+      if (signalMatchesBinding(signal, tabId, requestKey)) {
+        lastPulledBrainSeq = Math.max(lastPulledBrainSeq, signal.seq);
+        dispatchSignal(signal);
+      }
     }
   }
 }
@@ -228,6 +261,55 @@ async function sendContentMessage(tabId: number, message: Record<string, unknown
   }
 }
 
+async function requestContentMessage(tabId: number, message: Record<string, unknown>): Promise<unknown> {
+  try {
+    return await getRuntimeBrowser().tabs.sendMessage(tabId, message);
+  } catch (error) {
+    console.error("[Unfluffify][rewrite] Unable to request content data", error);
+    return null;
+  }
+}
+
+function baseUrlFor(url: string): string {
+  return url ? new URL(url).origin : "https://example.com";
+}
+
+async function captureSubmission(context: TargetTabContext): Promise<AiRunPayloadSnapshot | null> {
+  const response = await requestContentMessage(context.tabId, {
+    type: "captureSubmissionSnapshot",
+    baseUrl: baseUrlFor(context.url),
+    renderMode: "rendered",
+    pageUrl: context.url,
+  });
+  if (!response || typeof response !== "object" || !("ok" in response) || response.ok !== true || !("snapshot" in response)) {
+    return null;
+  }
+  return response.snapshot as AiRunPayloadSnapshot;
+}
+
+function configFromSubmission(snapshot: AiRunPayloadSnapshot, selectors: SelectorSet): ConfigSnapshot {
+  const now = new Date().toISOString();
+  const page = snapshot.pages[0];
+  return {
+    version: 1,
+    baseUrl: snapshot.baseUrl,
+    siteId: null,
+    renderMode: snapshot.renderMode,
+    renderModeUpdatedAt: now,
+    selectors,
+    selectorsUpdatedAt: now,
+    submittedSelectorsFingerprint: "",
+    pageMarkings: {
+      [page.url]: {
+        timestamp: now,
+        renderedHtml: page.renderedHtml,
+        rawHtml: page.rawHtml,
+        rows: page.renderedXPaths,
+      },
+    },
+  };
+}
+
 async function reconcileContentStatus(context: TargetTabContext, requestKey = boundTabKey): Promise<void> {
   const runtimeBrowser = getRuntimeBrowser();
   let response: unknown;
@@ -242,7 +324,7 @@ async function reconcileContentStatus(context: TargetTabContext, requestKey = bo
   if (!response || typeof response !== "object" || !("ok" in response) || response.ok !== true) {
     return;
   }
-  const status = response as { active?: unknown; dirty?: unknown; pageUrl?: unknown; markedCount?: unknown };
+  const status = response as { active?: unknown; dirty?: unknown; pageUrl?: unknown; markedCount?: unknown; contentRows?: unknown };
   if (status.pageUrl && status.pageUrl !== context.url) {
     return;
   }
@@ -262,6 +344,7 @@ async function reconcileContentStatus(context: TargetTabContext, requestKey = bo
     await emitPopupSignal(context.tabId, "markings.changed", {
       pageUrl: context.url,
       markedCount,
+      contentRows: Array.isArray(status.contentRows) ? status.contentRows : [],
     }, requestKey);
   }
 }
@@ -291,8 +374,148 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
     await pullSignals(context.tabId, requestKey);
   } else {
     await sendContentMessage(context.tabId, { type: "deactivateContentMain" });
+    lastSubmissionSnapshot = null;
+    lastSubmissionKey = null;
+    activeRunSessionId = null;
     await emitPopupSignal(context.tabId, "marking.disabled", { baseUrl: "", pageUrl: context.url, cause: "toggle" }, requestKey);
   }
+  render();
+}
+
+async function runAi(): Promise<void> {
+  const context = await resolveTargetTabContext();
+  if (context === null) {
+    return;
+  }
+  const requestKey = await handleBoundContext(context);
+  const startedAt = Date.now();
+  await emitPopupSignal(context.tabId, "run.started", {
+    pageUrl: context.url,
+    sessionId: "pending",
+    deadlineAt: startedAt + 480_000,
+  }, requestKey);
+  const snapshot = await captureSubmission(context);
+  if (!snapshot) {
+    await emitPopupSignalAndPullTail(context.tabId, "run.failed", { pageUrl: context.url, reason: "capture-failed" }, requestKey);
+    render();
+    return;
+  }
+  lastSubmissionSnapshot = snapshot;
+  lastSubmissionKey = requestKey;
+  activeRunSessionId = "pending";
+  const response = await getPopupBus().request("ai.run", snapshot, { target: "background" });
+  if (!response.ok || response.data.status !== "ok") {
+    await emitPopupSignalAndPullTail(context.tabId, "run.failed", {
+      pageUrl: context.url,
+      sessionId: "pending",
+      reason: response.ok ? response.data.status : response.failure.code,
+    }, requestKey);
+    activeRunSessionId = null;
+    render();
+    return;
+  }
+  if (store.getState().name !== "running" || activeRunSessionId !== "pending") {
+    return;
+  }
+  await pullSignals(context.tabId, requestKey);
+  if (response.data.selectors) {
+    await emitPopupSignalAndPullTail(context.tabId, "run.completed", {
+      pageUrl: context.url,
+      sessionId: activeRunSessionId,
+      aiSessionId: response.data.sessionId ?? "",
+      selectors: response.data.selectors,
+    }, requestKey);
+  }
+  activeRunSessionId = null;
+  render();
+}
+
+async function saveSession(): Promise<void> {
+  const context = await resolveTargetTabContext();
+  if (context === null) {
+    return;
+  }
+  const requestKey = await handleBoundContext(context);
+  await pullSignals(context.tabId, requestKey);
+  const saveButton = resolvePopupActionButtons(store.getPresentation(), {
+    runAi: true,
+    save: true,
+    discard: true,
+    preview: true,
+  }).save;
+  if (saveButton.disabled) {
+    render();
+    return;
+  }
+  const snapshot = lastSubmissionKey === requestKey && lastSubmissionSnapshot
+    ? lastSubmissionSnapshot
+    : await captureSubmission(context);
+  if (!snapshot) {
+    return;
+  }
+  const currentSelectors = store.getState().selectors ?? { inclusionSelectors: [], exclusionSelectors: [] };
+  const selectors = {
+    inclusionSelectors: [...currentSelectors.inclusionSelectors],
+    exclusionSelectors: [...currentSelectors.exclusionSelectors],
+  };
+  const paused = await sendContentMessage(context.tabId, { type: "pauseContentMainInteractions" });
+  await pullSignals(context.tabId, requestKey);
+  if (!paused || !["post_ai_clean", "preview_open"].includes(store.getState().name)) {
+    await sendContentMessage(context.tabId, { type: "resumeContentMainInteractions" });
+    render();
+    return;
+  }
+  await emitPopupSignalAndPullTail(context.tabId, "reconciliation.started", { pageUrl: context.url, reason: "saving" }, requestKey);
+  const reconciliationState = store.getState();
+  if (
+    reconciliationState.name !== "reconciling" ||
+    !["post_ai_clean", "preview_open"].includes(reconciliationState.priorState ?? "") ||
+    reconciliationState.reconciliationDirty
+  ) {
+    await sendContentMessage(context.tabId, { type: "resumeContentMainInteractions" });
+    await sendContentMessage(context.tabId, { type: "resumeContentMainInteractions" });
+    await emitPopupSignalAndPullTail(context.tabId, "reconciliation.ended", { pageUrl: context.url, reason: "dirty-before-save" }, requestKey);
+    render();
+    return;
+  }
+  const response = await getPopupBus().request("config.save", configFromSubmission(snapshot, selectors), { target: "background" });
+  await pullSignals(context.tabId, requestKey);
+  if (store.getState().name === "reconciling" && store.getState().reconciliationDirty) {
+    await emitPopupSignalAndPullTail(context.tabId, "reconciliation.ended", { pageUrl: context.url, reason: "dirty-during-save" }, requestKey);
+    render();
+    return;
+  }
+  if (response.ok && response.data.status === "ok") {
+    await sendContentMessage(context.tabId, { type: "deactivateContentMain" });
+    lastSubmissionSnapshot = null;
+    lastSubmissionKey = null;
+    await emitPopupSignalAndPullTail(context.tabId, "session.saved", { pageUrl: context.url, baseUrl: snapshot.baseUrl }, requestKey);
+  } else {
+    await sendContentMessage(context.tabId, { type: "resumeContentMainInteractions" });
+  }
+  await emitPopupSignalAndPullTail(context.tabId, "reconciliation.ended", { pageUrl: context.url, reason: response.ok ? response.data.status : response.failure.code }, requestKey);
+  render();
+}
+
+async function showPreview(): Promise<void> {
+  const context = await resolveTargetTabContext();
+  if (context === null) {
+    return;
+  }
+  const requestKey = await handleBoundContext(context);
+  await pullSignals(context.tabId, requestKey);
+  const previewButton = resolvePopupActionButtons(store.getPresentation(), {
+    runAi: true,
+    save: true,
+    discard: true,
+    preview: true,
+  }).preview;
+  if (previewButton.disabled) {
+    render();
+    return;
+  }
+  const origin = store.getState().name === "silent" ? "silent" : "post_ai";
+  await emitPopupSignalAndPullTail(context.tabId, "preview.opened", { pageUrl: context.url, origin }, requestKey);
   render();
 }
 
@@ -316,10 +539,10 @@ function getDebugViewState(): Record<string, unknown> {
   const state = store.getState();
   const presentation = store.getPresentation();
   const actionButtons = resolvePopupActionButtons(presentation, {
-    runAi: false,
-    save: false,
+    runAi: true,
+    save: true,
     discard: true,
-    preview: false,
+    preview: true,
   });
   return {
     ...presentation,
@@ -343,7 +566,10 @@ function render(): void {
     <App
       presentation={store.getPresentation()}
       onEnableChange={(enabled) => { void setMarkingEnabled(enabled); }}
+      onRunAi={() => { void runAi(); }}
+      onSave={() => { void saveSession(); }}
       onDiscard={() => { void discardMarkings(); }}
+      onPreview={() => { void showPreview(); }}
     />,
   );
 }

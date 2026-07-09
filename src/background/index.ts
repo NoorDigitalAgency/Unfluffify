@@ -85,6 +85,18 @@ export function startRewriteBackground(): void {
     runtime.getBrain(request.tabId).markConsumed(request.organId, request.seq);
     return { ok: true as const };
   });
+  bus.onCommand("ai.run", async (snapshot) => {
+    const result = await services.lynx.runAiJob(snapshot);
+    return result.status === "ok"
+      ? { status: result.status, sessionId: result.sessionId, selectors: result.selectors }
+      : { status: result.status, httpStatus: "httpStatus" in result ? result.httpStatus : undefined };
+  });
+  bus.onCommand("config.save", async (snapshot) => {
+    const result = await services.lynx.saveConfigSnapshot(snapshot);
+    return result.status === "ok"
+      ? { status: result.status }
+      : { status: result.status, httpStatus: result.httpStatus };
+  });
   void Promise.resolve(api.sidePanel?.setOptions?.({
     path: "popup.html",
     enabled: true,

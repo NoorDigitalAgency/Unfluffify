@@ -122,8 +122,8 @@ describe("rewrite popup entrypoint", () => {
     await flushEntrypointWork();
     expect(render.mock.calls.at(-1)?.[0].props.presentation.discardDisabled).toBe(false);
     expect(globalThis.window.__UNFLUFFIFY_POPUP_DEBUG__.getViewState().buttons.compute).toEqual({
-      disabled: true,
-      blockedReason: "not-implemented",
+      disabled: false,
+      blockedReason: "",
     });
     render.mock.calls.at(-1)?.[0].props.onDiscard();
     await flushEntrypointWork();
@@ -158,6 +158,680 @@ describe("rewrite popup entrypoint", () => {
       target: "background",
     }));
     expect(tabsSendMessage).toHaveBeenNthCalledWith(4, 77, { type: "deactivateContentMain" });
+  });
+
+  it("runs AI, opens preview, and saves through typed commands", async () => {
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const render = vi.fn();
+    vi.doMock("react-dom/client", () => ({
+      createRoot: vi.fn(() => ({ render })),
+    }));
+    const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/page" }]);
+    const snapshot = {
+      baseUrl: "https://example.com",
+      renderMode: "rendered",
+      defaultExclusionSelectors: ["IMG", "INPUT", "NOSCRIPT", "SELECT", "TITLE", "STYLE", "SCRIPT", "TEMPLATE", "IFRAME", "VIDEO", "SVG"],
+      pages: [{ url: "https://example.com/page", renderedHtml: "<html></html>", renderedXPaths: [{ xpath: "/html[1]/body[1]/main[1]", excluded: false }] }],
+    };
+    const tabsSendMessage = vi.fn(async (_tabId: number, message: { type?: string }) => {
+      if (message.type === "captureSubmissionSnapshot") {
+        return { ok: true, snapshot, rows: [{ xpath: "/html[1]/body[1]/main[1]", classification: "included" }] };
+      }
+      return { ok: true, initialized: true, tree: "rewrite" };
+    });
+    let signalSeq = 0;
+    const runtime = makeRuntime(async (message) => {
+      if (message.name === "signals.emit") {
+        const request = message.payload as { tabId: number; signal: { name?: string; payload?: unknown } };
+        signalSeq += 1;
+        return replyFrame(message, [{
+          kind: "uf-signal/1",
+          tabId: request.tabId,
+          seq: signalSeq,
+          name: request.signal?.name,
+          source: "brain",
+          cause: "test",
+          at: signalSeq,
+          payload: request.signal?.payload ?? {},
+        }]);
+      }
+      if (message.name === "ai.run") {
+        return replyFrame(message, {
+          status: "ok",
+          sessionId: "ai-1",
+          selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
+        });
+      }
+      if (message.name === "config.save") {
+        return replyFrame(message, { status: "ok" });
+      }
+      return replyFrame(message, []);
+    });
+    globalThis.chrome = {
+      runtime: {
+        ...runtime,
+      },
+      tabs: {
+        query,
+        sendMessage: tabsSendMessage,
+      },
+    } as unknown as typeof chrome;
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    render.mock.calls.at(-1)?.[0].props.onEnableChange(true);
+    await flushEntrypointWork();
+    render.mock.calls.at(-1)?.[0].props.onRunAi();
+    await flushEntrypointWork();
+
+    expect(tabsSendMessage).toHaveBeenCalledWith(77, expect.objectContaining({
+      type: "captureSubmissionSnapshot",
+      baseUrl: "https://example.com",
+      renderMode: "rendered",
+      pageUrl: "https://example.com/page",
+    }));
+    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      name: "ai.run",
+      payload: snapshot,
+      target: "background",
+    }));
+    expect(render.mock.calls.at(-1)?.[0].props.presentation.saveDisabled).toBe(false);
+    expect(render.mock.calls.at(-1)?.[0].props.presentation.selectors).toEqual({
+      inclusionSelectors: ["main"],
+      exclusionSelectors: [".ad"],
+    });
+
+    render.mock.calls.at(-1)?.[0].props.onPreview();
+    await flushEntrypointWork();
+    expect(render.mock.calls.at(-1)?.[0].props.presentation.temporarilyDisabledOverlay).toBe(true);
+
+    render.mock.calls.at(-1)?.[0].props.onSave();
+    await flushEntrypointWork();
+    expect(tabsSendMessage).toHaveBeenCalledWith(77, { type: "deactivateContentMain" });
+    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      name: "config.save",
+      target: "background",
+      payload: expect.objectContaining({
+        baseUrl: "https://example.com",
+        selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
+      }),
+    }));
+  });
+
+  it("does not reuse a captured AI snapshot after rebinding to another page", async () => {
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const render = vi.fn();
+    vi.doMock("react-dom/client", () => ({
+      createRoot: vi.fn(() => ({ render })),
+    }));
+    const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/a" }]);
+    const snapshotA = {
+      baseUrl: "https://example.com",
+      renderMode: "rendered" as const,
+      defaultExclusionSelectors: ["IMG", "INPUT", "NOSCRIPT", "SELECT", "TITLE", "STYLE", "SCRIPT", "TEMPLATE", "IFRAME", "VIDEO", "SVG"] as const,
+      pages: [{ url: "https://example.com/a", renderedHtml: "<html>a</html>", renderedXPaths: [{ xpath: "/html[1]/body[1]/main[1]", excluded: false }] }],
+    };
+    const snapshotB = {
+      ...snapshotA,
+      pages: [{ url: "https://example.com/b", renderedHtml: "<html>b</html>", renderedXPaths: [{ xpath: "/html[1]/body[1]/main[2]", excluded: false }] }],
+    };
+    const tabsSendMessage = vi.fn(async (_tabId: number, message: { type?: string }) => {
+      if (message.type === "captureSubmissionSnapshot") {
+        return { ok: true, snapshot: query.mock.calls.length > 1 ? snapshotB : snapshotA, rows: [] };
+      }
+      return { ok: true, initialized: true, tree: "rewrite" };
+    });
+    let signalSeq = 0;
+    let activeUrl = "https://example.com/a";
+    let rehydratedB = false;
+    const runtime = makeRuntime(async (message) => {
+      if (message.name === "signals.emit") {
+        const request = message.payload as { tabId: number; signal: { name?: string; payload?: unknown } };
+        signalSeq += 1;
+        return replyFrame(message, [{
+          kind: "uf-signal/1",
+          tabId: request.tabId,
+          seq: signalSeq,
+          name: request.signal?.name,
+          source: "brain",
+          cause: "test",
+          at: signalSeq,
+          payload: request.signal?.payload ?? {},
+        }]);
+      }
+      if (message.name === "ai.run") {
+        return replyFrame(message, {
+          status: "ok",
+          sessionId: "ai-1",
+          selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
+        });
+      }
+      if (message.name === "config.save") {
+        return replyFrame(message, { status: "ok" });
+      }
+      if (message.name === "signals.pull" && activeUrl === "https://example.com/b" && !rehydratedB) {
+        rehydratedB = true;
+        signalSeq += 2;
+        return replyFrame(message, [{
+          kind: "uf-signal/1",
+          tabId: 77,
+          seq: signalSeq - 1,
+          name: "marking.enabled",
+          source: "brain",
+          cause: "rehydrate",
+          at: signalSeq - 1,
+          payload: { pageUrl: "https://example.com/b" },
+        }, {
+          kind: "uf-signal/1",
+          tabId: 77,
+          seq: signalSeq,
+          name: "run.completed",
+          source: "brain",
+          cause: "rehydrate",
+          at: signalSeq,
+          payload: {
+            pageUrl: "https://example.com/b",
+            sessionId: "ai-b",
+            selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
+          },
+        }]);
+      }
+      return replyFrame(message, []);
+    });
+    globalThis.chrome = {
+      runtime: {
+        ...runtime,
+      },
+      tabs: {
+        query,
+        sendMessage: tabsSendMessage,
+      },
+    } as unknown as typeof chrome;
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    render.mock.calls.at(-1)?.[0].props.onEnableChange(true);
+    await flushEntrypointWork();
+    render.mock.calls.at(-1)?.[0].props.onRunAi();
+    await flushEntrypointWork();
+    query.mockResolvedValue([{ id: 77, url: "https://example.com/b" }]);
+    activeUrl = "https://example.com/b";
+    const poll = globalThis.window.setInterval.mock.calls[0]?.[0] as () => void;
+    poll();
+    await flushEntrypointWork();
+    render.mock.calls.at(-1)?.[0].props.onSave();
+    await flushEntrypointWork();
+
+    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      name: "config.save",
+      payload: expect.objectContaining({
+        pageMarkings: expect.objectContaining({
+          "https://example.com/b": expect.objectContaining({ renderedHtml: "<html>b</html>" }),
+        }),
+      }),
+    }));
+  });
+
+  it("drains pending dirty signals and aborts stale Save", async () => {
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const render = vi.fn();
+    vi.doMock("react-dom/client", () => ({
+      createRoot: vi.fn(() => ({ render })),
+    }));
+    const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/page" }]);
+    const snapshot = {
+      baseUrl: "https://example.com",
+      renderMode: "rendered" as const,
+      defaultExclusionSelectors: ["IMG", "INPUT", "NOSCRIPT", "SELECT", "TITLE", "STYLE", "SCRIPT", "TEMPLATE", "IFRAME", "VIDEO", "SVG"] as const,
+      pages: [{ url: "https://example.com/page", renderedHtml: "<html></html>", renderedXPaths: [{ xpath: "/html[1]/body[1]/main[1]", excluded: false }] }],
+    };
+    const tabsSendMessage = vi.fn(async (_tabId: number, message: { type?: string }) => {
+      if (message.type === "captureSubmissionSnapshot") {
+        return { ok: true, snapshot, rows: [] };
+      }
+      return { ok: true, initialized: true, tree: "rewrite" };
+    });
+    let signalSeq = 0;
+    let dirtyReady = false;
+    const runtime = makeRuntime(async (message) => {
+      if (message.name === "signals.emit") {
+        const request = message.payload as { tabId: number; signal: { name?: string; payload?: unknown } };
+        signalSeq += 1;
+        return replyFrame(message, [{
+          kind: "uf-signal/1",
+          tabId: request.tabId,
+          seq: signalSeq,
+          name: request.signal?.name,
+          source: "brain",
+          cause: "test",
+          at: signalSeq,
+          payload: request.signal?.payload ?? {},
+        }]);
+      }
+      if (message.name === "ai.run") {
+        return replyFrame(message, {
+          status: "ok",
+          sessionId: "ai-1",
+          selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
+        });
+      }
+      if (message.name === "signals.pull" && dirtyReady) {
+        dirtyReady = false;
+        signalSeq += 1;
+        return replyFrame(message, [{
+          kind: "uf-signal/1",
+          tabId: 77,
+          seq: signalSeq,
+          name: "markings.changed",
+          source: "content",
+          cause: "content-click",
+          at: signalSeq,
+          payload: { pageUrl: "https://example.com/page", markedCount: 1 },
+        }]);
+      }
+      return replyFrame(message, []);
+    });
+    globalThis.chrome = {
+      runtime: {
+        ...runtime,
+      },
+      tabs: {
+        query,
+        sendMessage: tabsSendMessage,
+      },
+    } as unknown as typeof chrome;
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    render.mock.calls.at(-1)?.[0].props.onEnableChange(true);
+    await flushEntrypointWork();
+    render.mock.calls.at(-1)?.[0].props.onRunAi();
+    await flushEntrypointWork();
+    dirtyReady = true;
+    render.mock.calls.at(-1)?.[0].props.onSave();
+    await flushEntrypointWork();
+
+    expect(runtime.sendMessage).not.toHaveBeenCalledWith(expect.objectContaining({ name: "config.save" }));
+    expect(render.mock.calls.at(-1)?.[0].props.presentation.saveDisabled).toBe(true);
+    expect(render.mock.calls.at(-1)?.[0].props.presentation.discardDisabled).toBe(false);
+  });
+
+  it("does not let session.saved skip an intervening dirty signal", async () => {
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const render = vi.fn();
+    vi.doMock("react-dom/client", () => ({
+      createRoot: vi.fn(() => ({ render })),
+    }));
+    const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/page" }]);
+    const snapshot = {
+      baseUrl: "https://example.com",
+      renderMode: "rendered" as const,
+      defaultExclusionSelectors: ["IMG", "INPUT", "NOSCRIPT", "SELECT", "TITLE", "STYLE", "SCRIPT", "TEMPLATE", "IFRAME", "VIDEO", "SVG"] as const,
+      pages: [{ url: "https://example.com/page", renderedHtml: "<html></html>", renderedXPaths: [{ xpath: "/html[1]/body[1]/main[1]", excluded: false }] }],
+    };
+    const tabsSendMessage = vi.fn(async (_tabId: number, message: { type?: string }) => {
+      if (message.type === "captureSubmissionSnapshot") {
+        return { ok: true, snapshot, rows: [] };
+      }
+      return { ok: true, initialized: true, tree: "rewrite" };
+    });
+    let signalSeq = 0;
+    let dirtyOnSaveTail = false;
+    const runtime = makeRuntime(async (message) => {
+      if (message.name === "signals.emit") {
+        const request = message.payload as { tabId: number; signal: { name?: string; payload?: unknown } };
+        signalSeq += 1;
+        return replyFrame(message, [{
+          kind: "uf-signal/1",
+          tabId: request.tabId,
+          seq: signalSeq,
+          name: request.signal?.name,
+          source: "brain",
+          cause: "test",
+          at: signalSeq,
+          payload: request.signal?.payload ?? {},
+        }]);
+      }
+      if (message.name === "ai.run") {
+        return replyFrame(message, { status: "ok", sessionId: "ai-1", selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] } });
+      }
+      if (message.name === "config.save") {
+        dirtyOnSaveTail = true;
+        return replyFrame(message, { status: "ok" });
+      }
+      if (message.name === "signals.pull" && dirtyOnSaveTail) {
+        dirtyOnSaveTail = false;
+        signalSeq += 1;
+        return replyFrame(message, [{
+          kind: "uf-signal/1",
+          tabId: 77,
+          seq: signalSeq,
+          name: "markings.changed",
+          source: "content",
+          cause: "content-click",
+          at: signalSeq,
+          payload: { pageUrl: "https://example.com/page", markedCount: 1 },
+        }]);
+      }
+      return replyFrame(message, []);
+    });
+    globalThis.chrome = {
+      runtime: { ...runtime },
+      tabs: { query, sendMessage: tabsSendMessage },
+    } as unknown as typeof chrome;
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    render.mock.calls.at(-1)?.[0].props.onEnableChange(true);
+    await flushEntrypointWork();
+    render.mock.calls.at(-1)?.[0].props.onRunAi();
+    await flushEntrypointWork();
+    render.mock.calls.at(-1)?.[0].props.onSave();
+    await flushEntrypointWork();
+
+    expect(render.mock.calls.at(-1)?.[0].props.presentation.discardDisabled).toBe(false);
+    expect(tabsSendMessage).not.toHaveBeenCalledWith(77, { type: "deactivateContentMain" });
+  });
+
+  it("does not enable Save when markings change during AI snapshot capture", async () => {
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const render = vi.fn();
+    vi.doMock("react-dom/client", () => ({
+      createRoot: vi.fn(() => ({ render })),
+    }));
+    const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/page" }]);
+    const snapshot = {
+      baseUrl: "https://example.com",
+      renderMode: "rendered" as const,
+      defaultExclusionSelectors: ["IMG", "INPUT", "NOSCRIPT", "SELECT", "TITLE", "STYLE", "SCRIPT", "TEMPLATE", "IFRAME", "VIDEO", "SVG"] as const,
+      pages: [{ url: "https://example.com/page", renderedHtml: "<html></html>", renderedXPaths: [{ xpath: "/html[1]/body[1]/main[1]", excluded: false }] }],
+    };
+    let dirtyReady = false;
+    const tabsSendMessage = vi.fn(async (_tabId: number, message: { type?: string }) => {
+      if (message.type === "captureSubmissionSnapshot") {
+        dirtyReady = true;
+        return { ok: true, snapshot, rows: [] };
+      }
+      return { ok: true, initialized: true, tree: "rewrite" };
+    });
+    let signalSeq = 0;
+    const runtime = makeRuntime(async (message) => {
+      if (message.name === "signals.emit") {
+        const request = message.payload as { tabId: number; signal: { name?: string; payload?: unknown } };
+        signalSeq += 1;
+        return replyFrame(message, [{
+          kind: "uf-signal/1",
+          tabId: request.tabId,
+          seq: signalSeq,
+          name: request.signal?.name,
+          source: "brain",
+          cause: "test",
+          at: signalSeq,
+          payload: request.signal?.payload ?? {},
+        }]);
+      }
+      if (message.name === "signals.pull" && dirtyReady) {
+        dirtyReady = false;
+        signalSeq += 1;
+        return replyFrame(message, [{
+          kind: "uf-signal/1",
+          tabId: 77,
+          seq: signalSeq,
+          name: "markings.changed",
+          source: "content",
+          cause: "content-click",
+          at: signalSeq,
+          payload: { pageUrl: "https://example.com/page", markedCount: 1 },
+        }]);
+      }
+      if (message.name === "ai.run") {
+        return replyFrame(message, {
+          status: "ok",
+          sessionId: "ai-1",
+          selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
+        });
+      }
+      return replyFrame(message, []);
+    });
+    globalThis.chrome = {
+      runtime: {
+        ...runtime,
+      },
+      tabs: {
+        query,
+        sendMessage: tabsSendMessage,
+      },
+    } as unknown as typeof chrome;
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    render.mock.calls.at(-1)?.[0].props.onEnableChange(true);
+    await flushEntrypointWork();
+    render.mock.calls.at(-1)?.[0].props.onRunAi();
+    await flushEntrypointWork();
+
+    expect(render.mock.calls.at(-1)?.[0].props.presentation.saveDisabled).toBe(true);
+    expect(render.mock.calls.at(-1)?.[0].props.presentation.discardDisabled).toBe(false);
+  });
+
+  it("opens silent preview with silent origin", async () => {
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const render = vi.fn();
+    vi.doMock("react-dom/client", () => ({
+      createRoot: vi.fn(() => ({ render })),
+    }));
+    const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/page" }]);
+    const runtime = makeRuntime(async (message) => {
+      if (message.name === "signals.emit") {
+        const request = message.payload as { tabId: number; signal: { name?: string; payload?: unknown } };
+        return replyFrame(message, [{
+          kind: "uf-signal/1",
+          tabId: request.tabId,
+          seq: 1,
+          name: request.signal?.name,
+          source: "brain",
+          cause: "test",
+          at: 1,
+          payload: request.signal?.payload ?? {},
+        }]);
+      }
+      return replyFrame(message, []);
+    });
+    globalThis.chrome = {
+      runtime: {
+        ...runtime,
+      },
+      tabs: {
+        query,
+        sendMessage: vi.fn().mockResolvedValue({ ok: true, active: false, pageUrl: "https://example.com/page" }),
+      },
+    } as unknown as typeof chrome;
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    await flushEntrypointWork();
+    render.mock.calls.at(-1)?.[0].props.onPreview();
+    await flushEntrypointWork();
+
+    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      name: "signals.emit",
+      payload: expect.objectContaining({
+        signal: expect.objectContaining({
+          name: "preview.opened",
+          payload: { pageUrl: "https://example.com/page", origin: "silent" },
+        }),
+      }),
+    }));
+    expect(render.mock.calls.at(-1)?.[0].props.presentation.enableToggleChecked).toBe(false);
+  });
+
+  it("drains pending dirty signals and aborts stale Preview", async () => {
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const render = vi.fn();
+    vi.doMock("react-dom/client", () => ({
+      createRoot: vi.fn(() => ({ render })),
+    }));
+    const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/page" }]);
+    let dirtyReady = false;
+    let signalSeq = 0;
+    const runtime = makeRuntime(async (message) => {
+      if (message.name === "signals.emit") {
+        const request = message.payload as { tabId: number; signal: { name?: string; payload?: unknown } };
+        signalSeq += 1;
+        return replyFrame(message, [{
+          kind: "uf-signal/1",
+          tabId: request.tabId,
+          seq: signalSeq,
+          name: request.signal?.name,
+          source: "brain",
+          cause: "test",
+          at: signalSeq,
+          payload: request.signal?.payload ?? {},
+        }]);
+      }
+      if (message.name === "signals.pull" && dirtyReady) {
+        dirtyReady = false;
+        signalSeq += 1;
+        return replyFrame(message, [{
+          kind: "uf-signal/1",
+          tabId: 77,
+          seq: signalSeq,
+          name: "markings.changed",
+          source: "content",
+          cause: "content-click",
+          at: signalSeq,
+          payload: { pageUrl: "https://example.com/page", markedCount: 1 },
+        }]);
+      }
+      return replyFrame(message, []);
+    });
+    globalThis.chrome = {
+      runtime: {
+        ...runtime,
+      },
+      tabs: {
+        query,
+        sendMessage: vi.fn().mockResolvedValue({ ok: true, active: false, pageUrl: "https://example.com/page" }),
+      },
+    } as unknown as typeof chrome;
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    await flushEntrypointWork();
+    await (runtime.sendMessage as ReturnType<typeof vi.fn>)({
+      kind: "uf-bus/1",
+      frameType: "request",
+      id: "seed",
+      seq: 0,
+      name: "signals.emit",
+      source: "test" as never,
+      target: "background",
+      payload: {
+        tabId: 77,
+        signal: {
+          name: "marking.enabled",
+          source: "popup",
+          cause: "test",
+          payload: { pageUrl: "https://example.com/page" },
+        },
+      },
+    });
+    render.mock.calls.at(-1)?.[0].props.onEnableChange(true);
+    await flushEntrypointWork();
+    render.mock.calls.at(-1)?.[0].props.onRunAi?.();
+    await flushEntrypointWork();
+    dirtyReady = true;
+    render.mock.calls.at(-1)?.[0].props.onPreview();
+    await flushEntrypointWork();
+
+    expect(runtime.sendMessage).not.toHaveBeenCalledWith(expect.objectContaining({
+      name: "signals.emit",
+      payload: expect.objectContaining({
+        signal: expect.objectContaining({ name: "preview.opened" }),
+      }),
+    }));
+    expect(render.mock.calls.at(-1)?.[0].props.presentation.showPreviewDisabled).toBe(true);
+  });
+
+  it("does not enable Save when markings change while an AI run is in flight", async () => {
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const render = vi.fn();
+    vi.doMock("react-dom/client", () => ({
+      createRoot: vi.fn(() => ({ render })),
+    }));
+    const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/page" }]);
+    const snapshot = {
+      baseUrl: "https://example.com",
+      renderMode: "rendered" as const,
+      defaultExclusionSelectors: ["IMG", "INPUT", "NOSCRIPT", "SELECT", "TITLE", "STYLE", "SCRIPT", "TEMPLATE", "IFRAME", "VIDEO", "SVG"] as const,
+      pages: [{ url: "https://example.com/page", renderedHtml: "<html></html>", renderedXPaths: [{ xpath: "/html[1]/body[1]/main[1]", excluded: false }] }],
+    };
+    const tabsSendMessage = vi.fn(async (_tabId: number, message: { type?: string }) => {
+      if (message.type === "captureSubmissionSnapshot") {
+        return { ok: true, snapshot, rows: [] };
+      }
+      return { ok: true, initialized: true, tree: "rewrite" };
+    });
+    let signalSeq = 0;
+    let releaseAi: ((value: BusFrame) => void) | null = null;
+    let dirtyReady = false;
+    const runtime = makeRuntime(async (message) => {
+      if (message.name === "signals.emit") {
+        const request = message.payload as { tabId: number; signal: { name?: string; payload?: unknown } };
+        signalSeq += 1;
+        return replyFrame(message, [{
+          kind: "uf-signal/1",
+          tabId: request.tabId,
+          seq: signalSeq,
+          name: request.signal?.name,
+          source: "brain",
+          cause: "test",
+          at: signalSeq,
+          payload: request.signal?.payload ?? {},
+        }]);
+      }
+      if (message.name === "signals.pull") {
+        if (!dirtyReady) {
+          return replyFrame(message, []);
+        }
+        dirtyReady = false;
+        signalSeq += 1;
+        return replyFrame(message, [{
+          kind: "uf-signal/1",
+          tabId: 77,
+          seq: signalSeq,
+          name: "markings.changed",
+          source: "content",
+          cause: "content-click",
+          at: signalSeq,
+          payload: { pageUrl: "https://example.com/page", markedCount: 2 },
+        }]);
+      }
+      if (message.name === "ai.run") {
+        dirtyReady = true;
+        return await new Promise<BusFrame>((resolve) => {
+          releaseAi = resolve;
+        });
+      }
+      return replyFrame(message, []);
+    });
+    globalThis.chrome = {
+      runtime: {
+        ...runtime,
+      },
+      tabs: {
+        query,
+        sendMessage: tabsSendMessage,
+      },
+    } as unknown as typeof chrome;
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    render.mock.calls.at(-1)?.[0].props.onEnableChange(true);
+    await flushEntrypointWork();
+    render.mock.calls.at(-1)?.[0].props.onRunAi();
+    await flushEntrypointWork();
+    releaseAi?.(replyFrame(runtime.sendMessage.mock.calls.find(([frame]) => (frame as BusFrame).name === "ai.run")?.[0] as BusFrame, {
+      status: "ok",
+      sessionId: "ai-1",
+      selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
+    }));
+    await flushEntrypointWork();
+
+    expect(render.mock.calls.at(-1)?.[0].props.presentation.saveDisabled).toBe(true);
+    expect(render.mock.calls.at(-1)?.[0].props.presentation.discardDisabled).toBe(false);
   });
 
   it("reconciles startup state from active content when the signal log is empty", async () => {
@@ -228,7 +902,7 @@ describe("rewrite popup entrypoint", () => {
         name: "markings.changed",
         source: "popup",
         cause: "popup-entrypoint",
-        payload: { pageUrl: "https://example.com", markedCount: 2 },
+        payload: { pageUrl: "https://example.com", markedCount: 2, contentRows: [] },
       },
       },
       target: "background",
@@ -358,7 +1032,7 @@ describe("rewrite popup entrypoint", () => {
         name: "markings.changed",
         source: "popup",
         cause: "popup-entrypoint",
-        payload: { pageUrl: "https://example.com", markedCount: 0 },
+        payload: { pageUrl: "https://example.com", markedCount: 0, contentRows: [] },
       },
       },
       target: "background",

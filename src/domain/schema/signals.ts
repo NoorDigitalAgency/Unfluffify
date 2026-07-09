@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+type SignalJsonValue = string | number | boolean | null | SignalJsonValue[] | { [key: string]: SignalJsonValue };
+
 export const BrainSignalNameSchema = z.enum([
   "marking.enabled",
   "marking.disabled",
@@ -21,11 +23,14 @@ export const BrainSignalNameSchema = z.enum([
 
 export const BrainSignalSourceSchema = z.enum(["brain", "content", "popup"]);
 
-export const SignalPayloadValueSchema = z.union([
+export const SignalPayloadValueSchema: z.ZodType<SignalJsonValue> = z.lazy(() => z.union([
   z.string(),
   z.number(),
   z.boolean(),
-]);
+  z.null(),
+  z.array(SignalPayloadValueSchema),
+  z.record(z.string(), SignalPayloadValueSchema),
+]));
 
 export const BrainSignalSchema = z.object({
   kind: z.literal("uf-signal/1"),

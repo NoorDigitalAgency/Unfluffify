@@ -20,12 +20,20 @@ const spaGuard = createSpaGuard((url) => {
 let markingEngine: ReturnType<typeof createMarkingEngine> | null = null;
 let markingActive = false;
 let userMarkingDirty = false;
+let markingInteractionsPaused = false;
 let spacePassthroughActive = false;
 let removeMarkingListeners: (() => void) | null = null;
 let navigationWatcherInstalled = false;
 let lastKnownPageUrl = typeof location !== "undefined" ? location.href : "";
 let contentBus: RewriteSignalBus | null = null;
 let pageWorldSessionNonce = "";
+
+function contentRowsFromEngine(): Array<{ xpath: string; classification: "included" | "excluded" }> {
+  return (markingEngine?.rows() ?? []).map((row) => ({
+    xpath: row.xpath,
+    classification: row.excluded ? "excluded" : "included",
+  }));
+}
 
 function getRuntimeBrowser() {
   return getInstalledBrowserApi() ?? browser;
@@ -136,6 +144,7 @@ function emitMarkingChanged(): void {
   emitContentBrainSignal("markings.changed", "content-click", {
     pageUrl: typeof location !== "undefined" ? location.href : "",
     markedCount: userMarkingDirty ? markingEngine?.rows().length ?? 0 : 0,
+    contentRows: contentRowsFromEngine(),
   });
 }
 
@@ -151,7 +160,7 @@ function emitContentBrainSignal(name: BrainSignal["name"], cause: string, payloa
 }
 
 function ensureMarkingListeners(): void {
-  if (removeMarkingListeners || typeof document === "undefined") {
+  if (markingInteractionsPaused || removeMarkingListeners || typeof document === "undefined") {
     return;
   }
   const handleClick = (event: MouseEvent): void => {
@@ -204,11 +213,30 @@ function ensureMarkingListeners(): void {
 function deactivateMarking(): void {
   markingActive = false;
   userMarkingDirty = false;
+  markingInteractionsPaused = false;
   spaGuard.disarm();
   destroyPageWorldSession();
   removeMarkingListeners?.();
   markingEngine?.dispose();
   markingEngine = null;
+}
+
+function pauseMarkingInteractions(): boolean {
+  if (!markingActive) {
+    return false;
+  }
+  markingInteractionsPaused = true;
+  removeMarkingListeners?.();
+  return true;
+}
+
+function resumeMarkingInteractions(): boolean {
+  if (!markingActive) {
+    return false;
+  }
+  markingInteractionsPaused = false;
+  ensureMarkingListeners();
+  return true;
 }
 
 function handleUrlChanged(nextUrl?: string): void {
@@ -310,6 +338,45 @@ export default defineContentScript({
           dirty: userMarkingDirty,
           pageUrl: typeof location !== "undefined" ? location.href : "",
           markedCount: userMarkingDirty ? markingEngine?.rows().length ?? 0 : 0,
+          contentRows: contentRowsFromEngine(),
+          tree: "rewrite",
+        });
+        return true;
+      }
+      if (request.type === "pauseContentMainInteractions") {
+        sendResponse({ ok: pauseMarkingInteractions(), active: markingActive, dirty: userMarkingDirty, tree: "rewrite" });
+        return true;
+      }
+      if (request.type === "resumeContentMainInteractions") {
+        sendResponse({ ok: resumeMarkingInteractions(), active: markingActive, dirty: userMarkingDirty, tree: "rewrite" });
+        return true;
+      }
+      if (request.type === "captureSubmissionSnapshot") {
+        if (!markingEngine) {
+          sendResponse({ ok: false, reason: "marking-inactive", tree: "rewrite" });
+          return true;
+        }
+        const capture = request as { baseUrl?: unknown; renderMode?: unknown; pageUrl?: unknown; rawHtml?: unknown };
+        const pageUrl = typeof capture.pageUrl === "string"
+          ? capture.pageUrl
+          : typeof location !== "undefined"
+            ? location.href
+            : "";
+        const baseUrl = typeof capture.baseUrl === "string"
+          ? capture.baseUrl
+          : pageUrl
+            ? new URL(pageUrl).origin
+            : "";
+        const renderMode = capture.renderMode === "static" ? "static" : "rendered";
+        sendResponse({
+          ok: true,
+          snapshot: markingEngine.buildSubmission({
+            baseUrl,
+            renderMode,
+            pageUrl,
+            rawHtml: typeof capture.rawHtml === "string" ? capture.rawHtml : undefined,
+          }),
+          rows: contentRowsFromEngine(),
           tree: "rewrite",
         });
         return true;

@@ -5,18 +5,61 @@ import {
   createLockIdentityRepo,
   createMemoryStore,
   createRunRecordRepo,
+  createSettingsRepo,
   createTabStateRepo,
 } from "../storage";
+import { SelectorSetSchema } from "../storage/config";
 import type { JsonTransport } from "../lynx";
 import { getAiRunResult, getAiRunStatus, startAiRun } from "../lynx/ai";
+import { pollAiJob } from "../lynx/ai-job";
 import { buildCssInfoRequest, buildUpdateScrapingConditionsRequest, buildUrlSearchInfoRequest } from "../lynx/graphql";
 import { loadConfigSnapshot, saveConfigSnapshot } from "../lynx/rest";
 import { persistDurableFacts, rehydrateDurableFacts, reDeriveVolatile } from "./persistence";
+
+type EndpointSettings = Readonly<{
+  configEndpoint?: string;
+  aiEndpoint?: string;
+  token?: string;
+}>;
 
 function createBackgroundStore() {
   return typeof globalThis.indexedDB === "undefined"
     ? createMemoryStore()
     : createIndexedDbStore();
+}
+
+function resolveEndpoint(base: string | undefined, path: string): string {
+  if (!base) {
+    return "";
+  }
+  return new URL(path, base.endsWith("/") ? base : `${base}/`).toString();
+}
+
+export function createFetchJsonTransport(settings: () => EndpointSettings): JsonTransport {
+  return async (request) => {
+    const current = settings();
+    const base = request.path.startsWith("/get_selectors")
+      ? current.aiEndpoint
+      : current.configEndpoint;
+    const url = resolveEndpoint(base, request.path.replace(/^\//, ""));
+    if (!url) {
+      return { status: 503, body: { error: "endpoint_unconfigured" }, headers: {} };
+    }
+    const response = await fetch(url, {
+      method: request.method,
+      headers: {
+        "content-type": "application/json",
+        ...(current.token ? { authorization: "Bearer " + current.token } : {}),
+      },
+      body: request.body === undefined ? undefined : JSON.stringify(request.body),
+    });
+    const text = await response.text();
+    return {
+      status: response.status,
+      body: text ? JSON.parse(text) : null,
+      headers: Object.fromEntries(response.headers.entries()),
+    };
+  };
 }
 
 function createNoopSocket(): WebSocketLike {
@@ -36,7 +79,15 @@ export function createRewriteBackgroundServices(input: Readonly<{
   const configRepo = createConfigRepo(store);
   const runRecordRepo = createRunRecordRepo(store);
   const lockIdentityRepo = createLockIdentityRepo(store);
-  const transport = input.transport ?? (async () => ({ status: 503, body: null, headers: {} }));
+  const settingsStore = createSettingsRepo(store);
+  const loadSettings = async (): Promise<EndpointSettings> => {
+    const result = await settingsStore.load();
+    return result.ok && result.value ? result.value : {};
+  };
+  const transport = input.transport ?? (async (request) => {
+    const currentSettings = await loadSettings();
+    return await createFetchJsonTransport(() => currentSettings)(request);
+  });
 
   return {
     repos: {
@@ -44,6 +95,7 @@ export function createRewriteBackgroundServices(input: Readonly<{
       configRepo,
       runRecordRepo,
       lockIdentityRepo,
+      settingsStore,
     },
     persistence: {
       persistDurableFacts: (facts: Parameters<typeof persistDurableFacts>[1]) =>
@@ -57,6 +109,56 @@ export function createRewriteBackgroundServices(input: Readonly<{
       startAiRun: (snapshot: Parameters<typeof startAiRun>[1]) => startAiRun(transport, snapshot),
       getAiRunStatus: (sessionId: string) => getAiRunStatus(transport, sessionId),
       getAiRunResult: (sessionId: string) => getAiRunResult(transport, sessionId),
+      async runAiJob(snapshot: Parameters<typeof startAiRun>[1]) {
+        const started = await startAiRun(transport, snapshot);
+        if (started.status !== "ok") {
+          return started;
+        }
+        const startedAt = Date.now();
+        await runRecordRepo.save({
+          sessionId: started.sessionId,
+          tabId: 0,
+          phase: "running",
+          startedAt,
+          updatedAt: startedAt,
+          deadlineAt: startedAt + 480_000,
+        });
+        const polled = await pollAiJob(started.sessionId, {
+          now: Date.now,
+          sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+          getStatus: (sessionId) => getAiRunStatus(transport, sessionId),
+          getResult: (sessionId) => getAiRunResult(transport, sessionId),
+          heartbeat: (state) => runRecordRepo.save({
+            sessionId: state.sessionId,
+            tabId: 0,
+            phase: state.phase,
+            startedAt,
+            updatedAt: state.updatedAt,
+            deadlineAt: state.deadlineAt,
+          }),
+          acquireComputeLock: async () => () => undefined,
+        });
+        if (polled.status === "fresh") {
+          const selectors = SelectorSetSchema.parse(polled.selectors);
+          await runRecordRepo.save({
+            sessionId: started.sessionId,
+            tabId: 0,
+            phase: "fresh",
+            startedAt,
+            updatedAt: Date.now(),
+          });
+          return { status: "ok" as const, sessionId: started.sessionId, selectors };
+        }
+        await runRecordRepo.save({
+          sessionId: started.sessionId,
+          tabId: 0,
+          phase: "failed",
+          startedAt,
+          updatedAt: Date.now(),
+          error: polled.status,
+        });
+        return { status: polled.status, sessionId: started.sessionId };
+      },
       buildUrlSearchInfoRequest,
       buildCssInfoRequest,
       buildUpdateScrapingConditionsRequest,

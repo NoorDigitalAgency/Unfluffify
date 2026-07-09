@@ -10,7 +10,7 @@ export type SignalLogOptions = Readonly<{
 export type EmitSignalInput = Readonly<{
   name: BrainSignalName;
   cause: string;
-  payload?: Readonly<Record<string, string | number | boolean>>;
+  payload?: BrainSignal["payload"];
   source?: "brain" | "content" | "popup";
 }>;
 
