@@ -631,6 +631,7 @@ async function runAi(): Promise<void> {
     render();
     return;
   }
+  await pullSignals(context.tabId, requestKey);
   nextRunId += 1;
   const localRunId = `local-run-${nextRunId}`;
   activeRunSessionId = localRunId;
