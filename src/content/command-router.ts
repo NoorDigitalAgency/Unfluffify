@@ -65,6 +65,10 @@ const DATA_AFFECTING_COMMANDS = new Set([
   "captureSubmissionSnapshot",
   "resetContentMain",
 ]);
+const DIRECTIVE_EDIT_BLOCKED_COMMANDS = new Set([
+  "activateContentMain",
+  "captureSubmissionSnapshot",
+]);
 
 function baseUrlFor(url: string): string {
   try {
@@ -111,7 +115,7 @@ function gateCommand(command: CommandEnvelope, context: ContentCommandContext): 
   if (context.directive.reconciliationPending) {
     return failure("reconciliation-pending", "Content command is blocked while reconciliation is pending");
   }
-  if (context.directive.content.markingEditsBlocked) {
+  if (context.directive.content.markingEditsBlocked && DIRECTIVE_EDIT_BLOCKED_COMMANDS.has(command.name)) {
     return failure(context.directive.content.blockedReason || "directive-blocked", "Content directive currently blocks marking edits");
   }
   return null;

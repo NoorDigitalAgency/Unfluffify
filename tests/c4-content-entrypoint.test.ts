@@ -314,6 +314,28 @@ describe("C4 rewrite content entrypoints", () => {
     expect(paused).toEqual({ ok: true, data: { ok: true, active: true, dirty: true, tree: "rewrite" } });
     const clean = await dispatchContentCommand(listener, "markContentMainClean");
     expect(clean).toEqual({ ok: true, data: { ok: true, active: true, dirty: false, tree: "rewrite" } });
+    await dispatchContentCommand(listener, "directive.content", {
+      content: {
+        markingEditsBlocked: true,
+        blockedReason: "post_ai",
+        blockOwner: "popup",
+        curtain: { visible: true, text: "Post AI" },
+        banner: { visible: false, text: "" },
+      },
+    });
+    await expect(dispatchContentCommand(listener, "resetContentMain")).resolves.toMatchObject({
+      ok: true,
+      data: { ok: true, initialized: true, tree: "rewrite" },
+    });
+    await dispatchContentCommand(listener, "directive.content", {
+      content: {
+        markingEditsBlocked: false,
+        blockedReason: "",
+        blockOwner: "popup",
+        curtain: { visible: false, text: "" },
+        banner: { visible: false, text: "" },
+      },
+    });
     await dispatchContentCommand(listener, "resumeContentMainInteractions");
     expect(documentListeners.has("click")).toBe(true);
   });
