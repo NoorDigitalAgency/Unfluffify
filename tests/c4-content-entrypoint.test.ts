@@ -2,8 +2,64 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { BusFrame } from "../src/messaging/contract";
 
 const REPO_ROOT = resolve(import.meta.dirname, "..");
+let commandSeq = 0;
+
+function commandFrame(name: string, payload: Record<string, unknown> = {}, tabId = 77): BusFrame {
+  commandSeq += 1;
+  return {
+    kind: "uf-bus/1",
+    frameType: "request",
+    id: `test-${name}-${Math.random()}`,
+    seq: commandSeq,
+    name: "command.dispatch",
+    source: "popup",
+    sourceInstance: "popup:test",
+    target: "content",
+    payload: {
+      kind: "uf-command/1",
+      name,
+      tabId,
+      payload,
+    },
+  };
+}
+
+async function dispatchContentCommand(
+  listener: (message: unknown, sender: unknown, sendResponse: (value: unknown) => void) => unknown,
+  name: string,
+  payload: Record<string, unknown> = {},
+) {
+  const response = vi.fn();
+  expect(listener(commandFrame(name, payload), {}, response)).toBe(true);
+  for (let index = 0; index < 20 && response.mock.calls.length === 0; index += 1) {
+    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  const reply = response.mock.calls.at(-1)?.[0] as BusFrame;
+  expect(reply).toMatchObject({ frameType: "reply", ok: true });
+  return reply.payload as { ok: boolean; data?: unknown; failure?: unknown };
+}
+
+async function applyReadyDirective(
+  listener: (message: unknown, sender: unknown, sendResponse: (value: unknown) => void) => unknown,
+  baseUrl?: string,
+) {
+  return await dispatchContentCommand(listener, "directive.content", {
+    ...(baseUrl ? { baseUrl } : {}),
+    configPresent: true,
+    lockRole: "editor",
+    reconciliationPending: false,
+    content: {
+      markingEditsBlocked: false,
+      blockedReason: "",
+      curtain: { visible: false, text: "" },
+      banner: { visible: false, text: "" },
+    },
+  });
+}
 
 describe("C4 rewrite content entrypoints", () => {
   afterEach(() => {
@@ -20,6 +76,7 @@ describe("C4 rewrite content entrypoints", () => {
     globalThis.chrome = {
       runtime: {
         onMessage: { addListener },
+        sendMessage: vi.fn().mockResolvedValue(undefined),
       },
     } as unknown as typeof chrome;
     vi.doMock("wxt/utils/define-content-script", () => ({
@@ -39,13 +96,13 @@ describe("C4 rewrite content entrypoints", () => {
     expect(addListener).toHaveBeenCalledTimes(1);
 
     const listener = addListener.mock.calls[0]?.[0] as (
-      message: { type?: string; pageUrl?: string; realEditorActivation?: boolean },
+      message: unknown,
       sender: unknown,
       sendResponse: (value: unknown) => void
     ) => unknown;
-    const response = vi.fn();
-    expect(listener({ type: "activateContentMain" }, {}, response)).toBe(true);
-    expect(response).toHaveBeenCalledWith({ ok: true, initialized: true, tree: "rewrite" });
+    await applyReadyDirective(listener);
+    const response = await dispatchContentCommand(listener, "activateContentMain");
+    expect(response).toEqual({ ok: true, data: { ok: true, initialized: true, tree: "rewrite" } });
   });
 
   it("keeps the MAIN-world page-world entrypoint bound to the new program", () => {
@@ -117,16 +174,16 @@ describe("C4 rewrite content entrypoints", () => {
     };
     contentScript.main();
     const listener = addListener.mock.calls[0]?.[0] as (
-      message: { type?: string },
+      message: unknown,
       sender: unknown,
       sendResponse: (value: unknown) => void
     ) => unknown;
-    const response = vi.fn();
 
-    expect(listener({ type: "activateContentMain" }, {}, response)).toBe(true);
-    expect(listener({ type: "activateContentMain" }, {}, response)).toBe(true);
-    expect(listener({ type: "getContentMainStatus" }, {}, response)).toBe(true);
-    expect(response).toHaveBeenLastCalledWith({
+    await applyReadyDirective(listener);
+    await dispatchContentCommand(listener, "activateContentMain");
+    await dispatchContentCommand(listener, "activateContentMain");
+    const status = await dispatchContentCommand(listener, "getContentMainStatus");
+    expect(status.data).toMatchObject({
       ok: true,
       active: true,
       dirty: false,
@@ -201,7 +258,7 @@ describe("C4 rewrite content entrypoints", () => {
     expect(unresolvedClick.preventDefault).toHaveBeenCalledTimes(1);
     expect(unresolvedClick.stopPropagation).toHaveBeenCalledTimes(1);
     expect(engine.toggle).toHaveBeenCalledTimes(1);
-    expect(listener({ type: "deactivateContentMain" }, {}, response)).toBe(true);
+    const deactivate = await dispatchContentCommand(listener, "deactivateContentMain");
     expect(engine.dispose).toHaveBeenCalledTimes(1);
     expect(window.postMessage).toHaveBeenCalledWith(expect.objectContaining({
       command: "DESTROY",
@@ -209,7 +266,7 @@ describe("C4 rewrite content entrypoints", () => {
     }), "*");
     expect(documentListeners.has("click")).toBe(false);
     expect(windowListeners.has("blur")).toBe(false);
-    expect(response).toHaveBeenLastCalledWith({ ok: true, initialized: false, tree: "rewrite" });
+    expect(deactivate).toEqual({ ok: true, data: { ok: true, initialized: false, tree: "rewrite" } });
   });
 
   it("pauses and resumes marking interactions without clearing dirty state", async () => {
@@ -246,15 +303,15 @@ describe("C4 rewrite content entrypoints", () => {
 
     const entrypoint = await import("../src/entrypoints/content-loader.content.ts");
     (entrypoint.default as { main: () => void }).main();
-    const listener = addListener.mock.calls[0]?.[0] as (message: { type?: string }, sender: unknown, sendResponse: (value: unknown) => void) => unknown;
-    const response = vi.fn();
+    const listener = addListener.mock.calls[0]?.[0] as (message: unknown, sender: unknown, sendResponse: (value: unknown) => void) => unknown;
 
-    listener({ type: "activateContentMain" }, {}, response);
+    await applyReadyDirective(listener);
+    await dispatchContentCommand(listener, "activateContentMain");
     documentListeners.get("click")?.({ clientX: 1, clientY: 1, altKey: false, shiftKey: false, preventDefault: vi.fn(), stopPropagation: vi.fn() } as unknown as Event);
-    expect(listener({ type: "pauseContentMainInteractions" }, {}, response)).toBe(true);
+    const paused = await dispatchContentCommand(listener, "pauseContentMainInteractions");
     expect(documentListeners.has("click")).toBe(false);
-    expect(response).toHaveBeenLastCalledWith({ ok: true, active: true, dirty: true, tree: "rewrite" });
-    expect(listener({ type: "resumeContentMainInteractions" }, {}, response)).toBe(true);
+    expect(paused).toEqual({ ok: true, data: { ok: true, active: true, dirty: true, tree: "rewrite" } });
+    await dispatchContentCommand(listener, "resumeContentMainInteractions");
     expect(documentListeners.has("click")).toBe(true);
   });
 
@@ -264,6 +321,7 @@ describe("C4 rewrite content entrypoints", () => {
     globalThis.chrome = {
       runtime: {
         onMessage: { addListener },
+        sendMessage: vi.fn().mockResolvedValue(undefined),
       },
     } as unknown as typeof chrome;
     Object.defineProperty(globalThis, "document", {
@@ -289,15 +347,15 @@ describe("C4 rewrite content entrypoints", () => {
     const contentScript = entrypoint.default as { main: () => void };
     contentScript.main();
     const listener = addListener.mock.calls[0]?.[0] as (
-      message: { type?: string; pageUrl?: string },
+      message: unknown,
       sender: unknown,
       sendResponse: (value: unknown) => void
     ) => unknown;
-    const response = vi.fn();
 
-    expect(listener({ type: "activateContentMain", pageUrl: "https://example.com/old" }, {}, response)).toBe(true);
+    await applyReadyDirective(listener, "https://example.com");
+    const response = await dispatchContentCommand(listener, "activateContentMain", { pageUrl: "https://example.com/old" });
     expect(createMarkingEngine).not.toHaveBeenCalled();
-    expect(response).toHaveBeenCalledWith({ ok: false, initialized: false, tree: "rewrite", reason: "page-url-mismatch" });
+    expect(response).toEqual({ ok: true, data: { ok: false, initialized: false, tree: "rewrite", reason: "page-url-mismatch" } });
   });
 
   it("deactivates active marking on same-document URL changes without popup polling", async () => {
@@ -355,7 +413,7 @@ describe("C4 rewrite content entrypoints", () => {
     const contentScript = entrypoint.default as { main: () => void };
     contentScript.main();
     const listener = addListener.mock.calls[0]?.[0] as (
-      message: { type?: string; pageUrl?: string },
+      message: unknown,
       sender: unknown,
       sendResponse: (value: unknown) => void
     ) => unknown;
@@ -363,7 +421,8 @@ describe("C4 rewrite content entrypoints", () => {
       source: windowObject,
       data: { kind: "uf-page-url-changed/1", toUrl: "https://example.com/b" },
     } as unknown as Event);
-    listener({ type: "activateContentMain", pageUrl: "https://example.com/a" }, {}, vi.fn());
+    await applyReadyDirective(listener, "https://example.com");
+    await dispatchContentCommand(listener, "activateContentMain", { pageUrl: "https://example.com/a" });
     locationValue.href = "https://example.com/b";
     windowListeners.get("message")?.({
       source: windowObject,
@@ -393,5 +452,142 @@ describe("C4 rewrite content entrypoints", () => {
     }));
     expect(windowListeners.has("popstate")).toBe(true);
     expect(windowListeners.has("hashchange")).toBe(true);
+  });
+
+  it("applies directive.content and gates data-affecting commands by baseUrl config lock and reconciliation", async () => {
+    const addListener = vi.fn();
+    const elements: Array<{
+      tag: string;
+      attributes: Record<string, string>;
+      style: Record<string, string>;
+      children: unknown[];
+      textContent: string;
+      isConnected: boolean;
+      setAttribute: (name: string, value: string) => void;
+      appendChild: (child: unknown) => unknown;
+      replaceChildren: (...children: unknown[]) => void;
+      remove: () => void;
+    }> = [];
+    const createElement = vi.fn((tag: string) => {
+      const element = {
+        tag,
+        attributes: {} as Record<string, string>,
+        style: {} as Record<string, string>,
+        children: [] as unknown[],
+        textContent: "",
+        isConnected: true,
+        setAttribute(name: string, value: string) {
+          this.attributes[name] = value;
+        },
+        appendChild(child: unknown) {
+          this.children.push(child);
+          return child;
+        },
+        replaceChildren(...children: unknown[]) {
+          this.children = children;
+        },
+        remove() {
+          this.isConnected = false;
+        },
+      };
+      elements.push(element);
+      return element;
+    });
+    const createMarkingEngine = vi.fn();
+    globalThis.chrome = {
+      runtime: {
+        onMessage: { addListener },
+        sendMessage: vi.fn().mockResolvedValue(undefined),
+      },
+    } as unknown as typeof chrome;
+    Object.defineProperty(globalThis, "location", {
+      configurable: true,
+      value: { href: "https://example.com/page" },
+    });
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: {
+        documentElement: {
+          nodeType: 1,
+          tagName: "HTML",
+          scrollHeight: 1000,
+          appendChild: vi.fn((child: unknown) => child),
+        },
+        createElement,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      },
+    });
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: { innerHeight: 500, scrollY: 0, scrollTo: vi.fn(), postMessage: vi.fn(), addEventListener: vi.fn(), removeEventListener: vi.fn() },
+    });
+    vi.doMock("wxt/utils/define-content-script", () => ({ defineContentScript: (config: unknown) => config }));
+    vi.doMock("../src/content/marking", () => ({ createMarkingEngine }));
+
+    const entrypoint = await import("../src/entrypoints/content-loader.content.ts");
+    (entrypoint.default as { main: () => void }).main();
+    const listener = addListener.mock.calls[0]?.[0] as (message: unknown, sender: unknown, sendResponse: (value: unknown) => void) => unknown;
+
+    const configBlocked = await dispatchContentCommand(listener, "directive.content", {
+      baseUrl: "https://example.com",
+      configPresent: false,
+      lockRole: "editor",
+      reconciliationPending: false,
+      content: {
+        markingEditsBlocked: true,
+        blockedReason: "config-missing",
+        curtain: { visible: true, text: "Config missing" },
+        banner: { visible: true, text: "Config missing" },
+      },
+    });
+    expect(configBlocked).toMatchObject({ ok: true, data: { ok: true } });
+    expect(elements.some((element) => element.attributes["data-uf-content-curtain"] === "true")).toBe(true);
+    expect(elements.some((element) => element.attributes["data-uf-content-banner"] === "true")).toBe(true);
+    expect(await dispatchContentCommand(listener, "activateContentMain", { pageUrl: "https://example.com/page" })).toMatchObject({
+      ok: false,
+      failure: { code: "config-missing" },
+    });
+
+    await dispatchContentCommand(listener, "directive.content", { configPresent: true, lockRole: "passive" });
+    expect(await dispatchContentCommand(listener, "activateContentMain", { pageUrl: "https://example.com/page" })).toMatchObject({
+      ok: false,
+      failure: { code: "property-lock" },
+    });
+
+    await dispatchContentCommand(listener, "directive.content", { lockRole: "editor", reconciliationPending: true });
+    expect(await dispatchContentCommand(listener, "activateContentMain", { pageUrl: "https://example.com/page" })).toMatchObject({
+      ok: false,
+      failure: { code: "reconciliation-pending" },
+    });
+
+    await dispatchContentCommand(listener, "directive.content", {
+      reconciliationPending: false,
+      content: {
+        markingEditsBlocked: true,
+        blockedReason: "post_ai",
+        curtain: { visible: true, text: "Post AI" },
+        banner: { visible: false, text: "" },
+      },
+    });
+    expect(await dispatchContentCommand(listener, "activateContentMain", { pageUrl: "https://example.com/page" })).toMatchObject({
+      ok: false,
+      failure: { code: "post_ai" },
+    });
+
+    await dispatchContentCommand(listener, "directive.content", {
+      baseUrl: "https://other.example",
+      content: {
+        markingEditsBlocked: false,
+        blockedReason: "",
+        curtain: { visible: false, text: "" },
+        banner: { visible: false, text: "" },
+      },
+    });
+    expect(await dispatchContentCommand(listener, "activateContentMain", { pageUrl: "https://example.com/page" })).toMatchObject({
+      ok: false,
+      failure: { code: "base-url-mismatch" },
+    });
+    expect(createMarkingEngine).not.toHaveBeenCalled();
   });
 });

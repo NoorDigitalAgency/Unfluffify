@@ -2,9 +2,17 @@ import { defineContentScript } from "wxt/utils/define-content-script";
 
 import { browser, getInstalledBrowserApi } from "../common/browser";
 import { createActivationGate } from "../content/activation";
+import {
+  createContentCommandRouter,
+  createDefaultContentDirective,
+  mergeContentDirective,
+  type ContentDirectivePatch,
+  type ContentDirectiveState,
+} from "../content/command-router";
 import { createMarkingEngine } from "../content/marking";
 import { createFreezeController, createRevealVisitController, createSpaGuard } from "../content/stabilization";
 import type { BrainSignal } from "../domain/schema/signals";
+import type { CommandEnvelope } from "../messaging/contracts";
 import { createRealmBus } from "../messaging/realms";
 import { createRuntimeTransport } from "../messaging/transports/runtime";
 import { emitRewriteSignal, type RewriteSignalBus } from "../messaging/rewrite-signals";
@@ -27,6 +35,26 @@ let navigationWatcherInstalled = false;
 let lastKnownPageUrl = typeof location !== "undefined" ? location.href : "";
 let contentBus: RewriteSignalBus | null = null;
 let pageWorldSessionNonce = "";
+let contentDirective: ContentDirectiveState = createDefaultContentDirective(lastKnownPageUrl);
+let directiveRoot: HTMLElement | null = null;
+
+function currentPageUrl(): string {
+  return typeof location !== "undefined" ? location.href : "";
+}
+
+function baseUrlFor(url: string): string {
+  try {
+    return url ? new URL(url).origin : "";
+  } catch {
+    return "";
+  }
+}
+
+function payloadObject(payload: unknown): Record<string, unknown> {
+  return payload && typeof payload === "object" && !Array.isArray(payload)
+    ? payload as Record<string, unknown>
+    : {};
+}
 
 function contentRowsFromEngine(): Array<{ xpath: string; classification: "included" | "excluded" }> {
   return (markingEngine?.rows() ?? []).map((row) => ({
@@ -159,8 +187,111 @@ function emitContentBrainSignal(name: BrainSignal["name"], cause: string, payloa
   });
 }
 
+async function reportContentFact(reason: string, facts: Record<string, unknown>): Promise<void> {
+  const tabId = 0;
+  await getContentBus().emit("fact.reported", {
+    kind: "uf-fact/1",
+    sensation: {
+      tabId,
+      source: "content",
+      reason,
+      facts: {
+        tabId,
+        pageUrl: currentPageUrl() || undefined,
+        baseUrl: baseUrlFor(currentPageUrl()) || undefined,
+        markingEnabled: markingActive,
+        lockRole: contentDirective.lockRole,
+        configPresent: contentDirective.configPresent,
+        reconciliationPending: contentDirective.reconciliationPending,
+        ...facts,
+      },
+    },
+  }, { target: "background" });
+}
+
+async function pingContentActivity(_command: CommandEnvelope): Promise<void> {
+  try {
+    await reportContentFact("activity-ping", {
+      candidate: true,
+      markingEnabled: markingActive,
+      pageUrl: currentPageUrl() || undefined,
+      baseUrl: baseUrlFor(currentPageUrl()) || undefined,
+    });
+  } catch (error) {
+    console.error("[Unfluffify][rewrite] Unable to report content activity", error);
+  }
+}
+
+function ensureDirectiveRoot(): HTMLElement | null {
+  if (typeof document === "undefined" || !document.documentElement) {
+    return null;
+  }
+  if (directiveRoot?.isConnected) {
+    return directiveRoot;
+  }
+  directiveRoot = document.createElement("div");
+  directiveRoot.setAttribute("data-uf-content-directive-root", "true");
+  directiveRoot.style.position = "fixed";
+  directiveRoot.style.inset = "0";
+  directiveRoot.style.pointerEvents = "none";
+  directiveRoot.style.zIndex = "2147483646";
+  document.documentElement.appendChild(directiveRoot);
+  return directiveRoot;
+}
+
+function renderDirectiveSurface(): void {
+  const root = ensureDirectiveRoot();
+  if (!root) {
+    return;
+  }
+  root.replaceChildren();
+  const blockedReason = contentDirective.content.blockedReason;
+  const curtain = contentDirective.content.curtain;
+  const banner = contentDirective.content.banner;
+  const showCurtain = curtain.visible || contentDirective.content.markingEditsBlocked;
+  if (showCurtain) {
+    const curtainElement = document.createElement("section");
+    curtainElement.setAttribute("role", "status");
+    curtainElement.setAttribute("data-uf-content-curtain", "true");
+    curtainElement.textContent = curtain.text || blockedReason;
+    curtainElement.style.position = "absolute";
+    curtainElement.style.inset = "0";
+    curtainElement.style.display = "grid";
+    curtainElement.style.placeItems = "center";
+    curtainElement.style.background = "rgba(15, 23, 42, 0.18)";
+    curtainElement.style.color = "#0f172a";
+    root.appendChild(curtainElement);
+  }
+  if (banner.visible || blockedReason) {
+    const bannerElement = document.createElement("aside");
+    bannerElement.setAttribute("role", "status");
+    bannerElement.setAttribute("data-uf-content-banner", "true");
+    bannerElement.textContent = banner.text || blockedReason;
+    bannerElement.style.position = "fixed";
+    bannerElement.style.left = "16px";
+    bannerElement.style.right = "16px";
+    bannerElement.style.bottom = "16px";
+    bannerElement.style.padding = "8px 12px";
+    bannerElement.style.borderRadius = "8px";
+    bannerElement.style.background = "rgba(15, 23, 42, 0.92)";
+    bannerElement.style.color = "white";
+    root.appendChild(bannerElement);
+  }
+}
+
+function applyContentDirective(patch: ContentDirectivePatch): ContentDirectiveState {
+  contentDirective = mergeContentDirective(contentDirective, patch);
+  if (contentDirective.content.markingEditsBlocked) {
+    pauseMarkingInteractions();
+  } else if (markingInteractionsPaused) {
+    resumeMarkingInteractions();
+  }
+  renderDirectiveSurface();
+  return contentDirective;
+}
+
 function ensureMarkingListeners(): void {
-  if (markingInteractionsPaused || removeMarkingListeners || typeof document === "undefined") {
+  if (contentDirective.content.markingEditsBlocked || markingInteractionsPaused || removeMarkingListeners || typeof document === "undefined") {
     return;
   }
   const handleClick = (event: MouseEvent): void => {
@@ -219,22 +350,27 @@ function deactivateMarking(): void {
   removeMarkingListeners?.();
   markingEngine?.dispose();
   markingEngine = null;
+  directiveRoot?.remove();
+  directiveRoot = null;
 }
 
 function pauseMarkingInteractions(): boolean {
+  markingInteractionsPaused = true;
   if (!markingActive) {
     return false;
   }
-  markingInteractionsPaused = true;
   removeMarkingListeners?.();
   return true;
 }
 
 function resumeMarkingInteractions(): boolean {
-  if (!markingActive) {
+  if (contentDirective.content.markingEditsBlocked) {
     return false;
   }
   markingInteractionsPaused = false;
+  if (!markingActive) {
+    return false;
+  }
   ensureMarkingListeners();
   return true;
 }
@@ -289,9 +425,104 @@ function resetMarking(): boolean {
   lastKnownPageUrl = typeof location !== "undefined" ? location.href : lastKnownPageUrl;
   markingEngine.refresh();
   markingEngine.renderReadOnly();
+  if (activation.state().silentHighlightArmed) {
+    markingEngine.renderSilentHighlights?.();
+  }
   markingActive = true;
   ensureMarkingListeners();
   return true;
+}
+
+function activateContentMain(payload: unknown): Record<string, unknown> {
+  const request = payloadObject(payload);
+  const requestPageUrl = typeof request.pageUrl === "string" ? request.pageUrl : "";
+  const pageUrl = currentPageUrl();
+  if (requestPageUrl && pageUrl && requestPageUrl !== pageUrl) {
+    return { ok: false, initialized: false, tree: "rewrite", reason: "page-url-mismatch" };
+  }
+  const nextPageUrl = requestPageUrl || pageUrl;
+  activation.arm(
+    nextPageUrl,
+    request.realEditorActivation !== false,
+  );
+  runActivationStabilization(nextPageUrl);
+  if (typeof document !== "undefined" && document.documentElement) {
+    lastKnownPageUrl = nextPageUrl || lastKnownPageUrl;
+    if (!markingActive) {
+      userMarkingDirty = false;
+    }
+    markingEngine ??= createMarkingEngine(document.documentElement);
+    markingEngine.refresh();
+    markingEngine.renderReadOnly();
+    if (activation.state().silentHighlightArmed) {
+      markingEngine.renderSilentHighlights?.();
+    }
+    markingActive = true;
+    ensureMarkingListeners();
+  }
+  return { ok: true, initialized: true, tree: "rewrite" };
+}
+
+function contentStatus(): Record<string, unknown> {
+  return {
+    ok: true,
+    active: markingActive,
+    dirty: userMarkingDirty,
+    pageUrl: currentPageUrl(),
+    markedCount: userMarkingDirty ? markingEngine?.rows().length ?? 0 : 0,
+    contentRows: contentRowsFromEngine(),
+    directive: contentDirective,
+    tree: "rewrite",
+  };
+}
+
+function captureSubmissionSnapshot(payload: unknown): Record<string, unknown> {
+  if (!markingEngine) {
+    return { ok: false, reason: "marking-inactive", tree: "rewrite" };
+  }
+  const capture = payloadObject(payload);
+  const pageUrl = typeof capture.pageUrl === "string" ? capture.pageUrl : currentPageUrl();
+  const baseUrl = typeof capture.baseUrl === "string" ? capture.baseUrl : baseUrlFor(pageUrl);
+  const renderMode = capture.renderMode === "static" ? "static" : contentDirective.content.renderMode;
+  return {
+    ok: true,
+    snapshot: markingEngine.buildSubmission({
+      baseUrl,
+      renderMode,
+      pageUrl,
+      rawHtml: typeof capture.rawHtml === "string" ? capture.rawHtml : undefined,
+    }),
+    rows: contentRowsFromEngine(),
+    tree: "rewrite",
+  };
+}
+
+function createContentRouter() {
+  return createContentCommandRouter({
+    currentContext() {
+      return {
+        pageUrl: currentPageUrl(),
+        baseUrl: baseUrlFor(currentPageUrl()),
+        directive: contentDirective,
+      };
+    },
+    handlers: {
+      activateContentMain,
+      getContentMainStatus: () => contentStatus(),
+      pauseContentMainInteractions: () => ({ ok: pauseMarkingInteractions(), active: markingActive, dirty: userMarkingDirty, tree: "rewrite" }),
+      resumeContentMainInteractions: () => contentDirective.content.markingEditsBlocked
+        ? { ok: false, active: markingActive, dirty: userMarkingDirty, tree: "rewrite", reason: "directive-blocked" }
+        : { ok: resumeMarkingInteractions(), active: markingActive, dirty: userMarkingDirty, tree: "rewrite" },
+      captureSubmissionSnapshot,
+      deactivateContentMain: () => {
+        deactivateMarking();
+        return { ok: true, initialized: false, tree: "rewrite" };
+      },
+      resetContentMain: () => ({ ok: resetMarking(), initialized: true, tree: "rewrite" }),
+    },
+    applyDirective: applyContentDirective,
+    pingActivity: pingContentActivity,
+  });
 }
 
 export default defineContentScript({
@@ -299,98 +530,6 @@ export default defineContentScript({
   runAt: "document_start",
   main() {
     installNavigationWatcher();
-    const runtimeBrowser = getRuntimeBrowser();
-    runtimeBrowser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-      if (!message || typeof message !== "object" || Array.isArray(message)) {
-        return false;
-      }
-      const request = message as { type?: unknown; pageUrl?: unknown; realEditorActivation?: unknown; signal?: unknown };
-      if (request.type === "activateContentMain") {
-        const requestPageUrl = typeof request.pageUrl === "string" ? request.pageUrl : "";
-        const currentPageUrl = typeof location !== "undefined" ? location.href : "";
-        if (requestPageUrl && currentPageUrl && requestPageUrl !== currentPageUrl) {
-          sendResponse({ ok: false, initialized: false, tree: "rewrite", reason: "page-url-mismatch" });
-          return true;
-        }
-        activation.arm(
-          requestPageUrl || currentPageUrl,
-          request.realEditorActivation !== false,
-        );
-        runActivationStabilization(requestPageUrl || currentPageUrl);
-        if (typeof document !== "undefined" && document.documentElement) {
-          lastKnownPageUrl = requestPageUrl || currentPageUrl || lastKnownPageUrl;
-          if (!markingActive) {
-            userMarkingDirty = false;
-          }
-          markingEngine ??= createMarkingEngine(document.documentElement);
-          markingEngine.refresh();
-          markingEngine.renderReadOnly();
-          markingActive = true;
-          ensureMarkingListeners();
-        }
-        sendResponse({ ok: true, initialized: true, tree: "rewrite" });
-        return true;
-      }
-      if (request.type === "getContentMainStatus") {
-        sendResponse({
-          ok: true,
-          active: markingActive,
-          dirty: userMarkingDirty,
-          pageUrl: typeof location !== "undefined" ? location.href : "",
-          markedCount: userMarkingDirty ? markingEngine?.rows().length ?? 0 : 0,
-          contentRows: contentRowsFromEngine(),
-          tree: "rewrite",
-        });
-        return true;
-      }
-      if (request.type === "pauseContentMainInteractions") {
-        sendResponse({ ok: pauseMarkingInteractions(), active: markingActive, dirty: userMarkingDirty, tree: "rewrite" });
-        return true;
-      }
-      if (request.type === "resumeContentMainInteractions") {
-        sendResponse({ ok: resumeMarkingInteractions(), active: markingActive, dirty: userMarkingDirty, tree: "rewrite" });
-        return true;
-      }
-      if (request.type === "captureSubmissionSnapshot") {
-        if (!markingEngine) {
-          sendResponse({ ok: false, reason: "marking-inactive", tree: "rewrite" });
-          return true;
-        }
-        const capture = request as { baseUrl?: unknown; renderMode?: unknown; pageUrl?: unknown; rawHtml?: unknown };
-        const pageUrl = typeof capture.pageUrl === "string"
-          ? capture.pageUrl
-          : typeof location !== "undefined"
-            ? location.href
-            : "";
-        const baseUrl = typeof capture.baseUrl === "string"
-          ? capture.baseUrl
-          : pageUrl
-            ? new URL(pageUrl).origin
-            : "";
-        const renderMode = capture.renderMode === "static" ? "static" : "rendered";
-        sendResponse({
-          ok: true,
-          snapshot: markingEngine.buildSubmission({
-            baseUrl,
-            renderMode,
-            pageUrl,
-            rawHtml: typeof capture.rawHtml === "string" ? capture.rawHtml : undefined,
-          }),
-          rows: contentRowsFromEngine(),
-          tree: "rewrite",
-        });
-        return true;
-      }
-      if (request.type === "deactivateContentMain") {
-        deactivateMarking();
-        sendResponse({ ok: true, initialized: false, tree: "rewrite" });
-        return true;
-      }
-      if (request.type === "resetContentMain") {
-        sendResponse({ ok: resetMarking(), initialized: true, tree: "rewrite" });
-        return true;
-      }
-      return false;
-    });
+    getContentBus().onCommand("command.dispatch", (command) => createContentRouter().dispatch(command));
   },
 });

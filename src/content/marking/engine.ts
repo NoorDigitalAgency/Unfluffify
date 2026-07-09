@@ -7,9 +7,11 @@ import { isPaintReachableAt } from "./paint-reachability";
 import { createMarkingStore } from "./store";
 import { resolveTarget, type MarkingCandidate } from "./resolve";
 import { createOverlayRenderer } from "./renderer";
+import { buildSilentHighlights } from "./silent-highlight";
 import { buildSubmissionSnapshot } from "./submit";
 import type { RenderMode } from "../../domain/schema/property";
 import { isToggleableDefaultTag } from "../../domain/taxonomy";
+import type { VisibilityGeometry } from "../../domain/visibility";
 
 function toCandidate(
   node: EvaluationNode,
@@ -109,6 +111,36 @@ function collectDefaultExclusionRows(node: EvaluationNode, rows: MarkRow[] = [])
   return rows;
 }
 
+function geometryForElement(element: Element): VisibilityGeometry {
+  const rect = element.getBoundingClientRect();
+  const view = element.ownerDocument.defaultView;
+  const style = view?.getComputedStyle(element);
+  const htmlElement = element as HTMLElement;
+  const lineClamp = style?.webkitLineClamp ? Number.parseInt(style.webkitLineClamp, 10) : 0;
+  return {
+    rect: {
+      left: rect.left,
+      top: rect.top,
+      width: rect.width,
+      height: rect.height,
+    },
+    style: {
+      display: style?.display,
+      visibility: style?.visibility,
+      opacity: style?.opacity === undefined ? undefined : Number(style.opacity),
+      hidden: htmlElement.hidden === true,
+      ariaHidden: element.getAttribute("aria-hidden") === "true",
+      overflowY: style?.overflowY,
+      clientHeight: htmlElement.clientHeight,
+      scrollHeight: htmlElement.scrollHeight,
+      webkitLineClamp: Number.isFinite(lineClamp) ? lineClamp : 0,
+      textContent: element.textContent ?? "",
+    },
+    viewportWidth: view?.innerWidth,
+    pageHeight: element.ownerDocument.documentElement.scrollHeight,
+  };
+}
+
 function mergeDefaultExclusions(root: EvaluationNode, markSet: CanonicalMarkSet = { rows: [] }): CanonicalMarkSet {
   const rows = [...markSet.rows];
   const existing = new Set(rows.map((row) => row.xpath));
@@ -162,6 +194,13 @@ export function createMarkingEngine(rootElement: Element) {
     },
     renderReadOnly(): void {
       renderer.render(store.currentEvaluation(), new Map([...bridge.byXpath].map(([xpath, value]) => [xpath, value.element])));
+    },
+    renderSilentHighlights(): readonly string[] {
+      const byXpath = new Map([...bridge.byXpath].map(([xpath, value]) => [xpath, value.element]));
+      const geometryByXpath = new Map([...byXpath].map(([xpath, element]) => [xpath, geometryForElement(element)]));
+      const xpaths = buildSilentHighlights(store.currentEvaluation(), geometryByXpath);
+      renderer.renderSilentHighlights(xpaths, byXpath);
+      return xpaths;
     },
     clearOverlays(): void {
       renderer.clear();

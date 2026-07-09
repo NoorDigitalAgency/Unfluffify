@@ -85,6 +85,24 @@ export function startRewriteBackground(): void {
     runtime.getBrain(request.tabId).markConsumed(request.organId, request.seq);
     return { ok: true as const };
   });
+  bus.on("fact.reported", (envelope, meta) => {
+    const tabId = envelope.sensation.tabId === 0
+      ? parseSenderTabId(meta.sourceInstance) ?? 0
+      : envelope.sensation.tabId;
+    const brain = runtime.getBrain(tabId);
+    brain.observe({
+      ...envelope.sensation,
+      tabId,
+      facts: {
+        ...envelope.sensation.facts,
+        tabId,
+      },
+    });
+    const snapshot = brain.snapshot();
+    if (snapshot) {
+      void services.persistence.persistDurableFacts(snapshot);
+    }
+  });
   bus.onCommand("ai.run", async (snapshot) => {
     const result = await services.lynx.runAiJob(snapshot);
     return result.status === "ok"

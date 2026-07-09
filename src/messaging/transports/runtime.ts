@@ -89,6 +89,10 @@ export function createRuntimeTransport(runtime: RuntimeLike): Transport {
     if (result === undefined) {
       return undefined;
     }
+    if (frame.frameType === "event") {
+      void Promise.resolve(result).catch(() => undefined);
+      return undefined;
+    }
     void Promise.resolve(result).then((reply) => {
       if (reply !== undefined) {
         sendResponse?.(reply);
@@ -100,6 +104,10 @@ export function createRuntimeTransport(runtime: RuntimeLike): Transport {
 
   return {
     async send(frame: BusFrame): Promise<BusFrame | void> {
+      if (frame.frameType === "event") {
+        void Promise.resolve(runtime.sendMessage(frame)).catch(() => undefined);
+        return undefined;
+      }
       const response = await runtime.sendMessage(frame);
       return parseFrame(response) ?? undefined;
     },

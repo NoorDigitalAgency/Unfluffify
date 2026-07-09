@@ -42,6 +42,45 @@ function replyFrame(frame: BusFrame, payload: unknown): BusFrame {
   };
 }
 
+function contentReplyFrame(frame: BusFrame, data: unknown): BusFrame {
+  return {
+    ...frame,
+    frameType: "reply",
+    source: "content",
+    target: frame.source,
+    ok: true,
+    payload: { ok: true, data },
+  };
+}
+
+function contentCommand(name: string, payload?: unknown) {
+  return expect.objectContaining({
+    kind: "uf-bus/1",
+    frameType: "request",
+    name: "command.dispatch",
+    target: "content",
+    payload: expect.objectContaining({
+      kind: "uf-command/1",
+      name,
+      ...(payload === undefined ? {} : { payload }),
+    }),
+  });
+}
+
+function makeTabsSendMessage(
+  handler: (tabId: number, message: { type?: string } & Record<string, unknown>) => Promise<unknown> | unknown,
+) {
+  return vi.fn(async (tabId: number, message: unknown) => {
+    const frame = message as BusFrame;
+    if (frame?.kind === "uf-bus/1" && frame.name === "command.dispatch") {
+      const command = frame.payload as { name: string; payload?: Record<string, unknown> };
+      const data = await handler(tabId, { type: command.name, ...(command.payload ?? {}) });
+      return contentReplyFrame(frame, data);
+    }
+    return await handler(tabId, message as { type?: string } & Record<string, unknown>);
+  });
+}
+
 function makeRuntime(handler: (frame: BusFrame) => Promise<unknown> | unknown) {
   return {
     sendMessage: vi.fn((message: unknown) => handler(message as BusFrame)),
@@ -69,7 +108,7 @@ describe("rewrite popup entrypoint", () => {
       createRoot: vi.fn(() => ({ render })),
     }));
     const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com" }]);
-    const tabsSendMessage = vi.fn().mockResolvedValue({ ok: true, initialized: true, tree: "rewrite" });
+    const tabsSendMessage = makeTabsSendMessage(() => ({ ok: true, initialized: true, tree: "rewrite" }));
     let signalSeq = 0;
     let pulledDirty = false;
     const runtime = makeRuntime(async (message) => {
@@ -132,18 +171,22 @@ describe("rewrite popup entrypoint", () => {
     await flushEntrypointWork();
 
     expect(query).toHaveBeenCalledWith({ active: true, currentWindow: true });
-    expect(tabsSendMessage).toHaveBeenNthCalledWith(1, 77, { type: "getContentMainStatus" });
-    expect(tabsSendMessage).toHaveBeenNthCalledWith(2, 77, {
-      type: "activateContentMain",
+    expect(tabsSendMessage).toHaveBeenNthCalledWith(1, 77, contentCommand("getContentMainStatus", {}));
+    expect(tabsSendMessage).toHaveBeenNthCalledWith(2, 77, contentCommand("directive.content", expect.objectContaining({
+      baseUrl: "https://example.com",
+      configPresent: true,
+      lockRole: "editor",
+    })));
+    expect(tabsSendMessage).toHaveBeenNthCalledWith(3, 77, contentCommand("activateContentMain", {
       pageUrl: "https://example.com",
       realEditorActivation: true,
-    });
+    }));
     expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
       name: "signals.pull",
       payload: { tabId: 77, afterSeq: 1 },
       target: "background",
     }));
-    expect(tabsSendMessage).toHaveBeenNthCalledWith(3, 77, { type: "resetContentMain" });
+    expect(tabsSendMessage).toHaveBeenNthCalledWith(4, 77, contentCommand("resetContentMain", {}));
     expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
       name: "signals.emit",
       payload: {
@@ -157,7 +200,7 @@ describe("rewrite popup entrypoint", () => {
       },
       target: "background",
     }));
-    expect(tabsSendMessage).toHaveBeenNthCalledWith(4, 77, { type: "deactivateContentMain" });
+    expect(tabsSendMessage).toHaveBeenNthCalledWith(5, 77, contentCommand("deactivateContentMain", {}));
   });
 
   it("runs AI, opens preview, and saves through typed commands", async () => {
@@ -173,7 +216,7 @@ describe("rewrite popup entrypoint", () => {
       defaultExclusionSelectors: ["IMG", "INPUT", "NOSCRIPT", "SELECT", "TITLE", "STYLE", "SCRIPT", "TEMPLATE", "IFRAME", "VIDEO", "SVG"],
       pages: [{ url: "https://example.com/page", renderedHtml: "<html></html>", renderedXPaths: [{ xpath: "/html[1]/body[1]/main[1]", excluded: false }] }],
     };
-    const tabsSendMessage = vi.fn(async (_tabId: number, message: { type?: string }) => {
+    const tabsSendMessage = makeTabsSendMessage(async (_tabId: number, message) => {
       if (message.type === "captureSubmissionSnapshot") {
         return { ok: true, snapshot, rows: [{ xpath: "/html[1]/body[1]/main[1]", classification: "included" }] };
       }
@@ -223,8 +266,7 @@ describe("rewrite popup entrypoint", () => {
     render.mock.calls.at(-1)?.[0].props.onRunAi();
     await flushEntrypointWork();
 
-    expect(tabsSendMessage).toHaveBeenCalledWith(77, expect.objectContaining({
-      type: "captureSubmissionSnapshot",
+    expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("captureSubmissionSnapshot", {
       baseUrl: "https://example.com",
       renderMode: "rendered",
       pageUrl: "https://example.com/page",
@@ -246,7 +288,7 @@ describe("rewrite popup entrypoint", () => {
 
     render.mock.calls.at(-1)?.[0].props.onSave();
     await flushEntrypointWork();
-    expect(tabsSendMessage).toHaveBeenCalledWith(77, { type: "deactivateContentMain" });
+    expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("deactivateContentMain", {}));
     expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
       name: "config.save",
       target: "background",
@@ -274,7 +316,7 @@ describe("rewrite popup entrypoint", () => {
       ...snapshotA,
       pages: [{ url: "https://example.com/b", renderedHtml: "<html>b</html>", renderedXPaths: [{ xpath: "/html[1]/body[1]/main[2]", excluded: false }] }],
     };
-    const tabsSendMessage = vi.fn(async (_tabId: number, message: { type?: string }) => {
+    const tabsSendMessage = makeTabsSendMessage(async (_tabId: number, message) => {
       if (message.type === "captureSubmissionSnapshot") {
         return { ok: true, snapshot: query.mock.calls.length > 1 ? snapshotB : snapshotA, rows: [] };
       }
@@ -393,7 +435,7 @@ describe("rewrite popup entrypoint", () => {
       defaultExclusionSelectors: ["IMG", "INPUT", "NOSCRIPT", "SELECT", "TITLE", "STYLE", "SCRIPT", "TEMPLATE", "IFRAME", "VIDEO", "SVG"] as const,
       pages: [{ url: "https://example.com/page", renderedHtml: "<html></html>", renderedXPaths: [{ xpath: "/html[1]/body[1]/main[1]", excluded: false }] }],
     };
-    const tabsSendMessage = vi.fn(async (_tabId: number, message: { type?: string }) => {
+    const tabsSendMessage = makeTabsSendMessage(async (_tabId: number, message) => {
       if (message.type === "captureSubmissionSnapshot") {
         return { ok: true, snapshot, rows: [] };
       }
@@ -476,7 +518,7 @@ describe("rewrite popup entrypoint", () => {
       defaultExclusionSelectors: ["IMG", "INPUT", "NOSCRIPT", "SELECT", "TITLE", "STYLE", "SCRIPT", "TEMPLATE", "IFRAME", "VIDEO", "SVG"] as const,
       pages: [{ url: "https://example.com/page", renderedHtml: "<html></html>", renderedXPaths: [{ xpath: "/html[1]/body[1]/main[1]", excluded: false }] }],
     };
-    const tabsSendMessage = vi.fn(async (_tabId: number, message: { type?: string }) => {
+    const tabsSendMessage = makeTabsSendMessage(async (_tabId: number, message) => {
       if (message.type === "captureSubmissionSnapshot") {
         return { ok: true, snapshot, rows: [] };
       }
@@ -536,7 +578,7 @@ describe("rewrite popup entrypoint", () => {
     await flushEntrypointWork();
 
     expect(render.mock.calls.at(-1)?.[0].props.presentation.discardDisabled).toBe(false);
-    expect(tabsSendMessage).not.toHaveBeenCalledWith(77, { type: "deactivateContentMain" });
+    expect(tabsSendMessage).not.toHaveBeenCalledWith(77, contentCommand("deactivateContentMain", {}));
   });
 
   it("does not enable Save when markings change during AI snapshot capture", async () => {
@@ -553,7 +595,7 @@ describe("rewrite popup entrypoint", () => {
       pages: [{ url: "https://example.com/page", renderedHtml: "<html></html>", renderedXPaths: [{ xpath: "/html[1]/body[1]/main[1]", excluded: false }] }],
     };
     let dirtyReady = false;
-    const tabsSendMessage = vi.fn(async (_tabId: number, message: { type?: string }) => {
+    const tabsSendMessage = makeTabsSendMessage(async (_tabId: number, message) => {
       if (message.type === "captureSubmissionSnapshot") {
         dirtyReady = true;
         return { ok: true, snapshot, rows: [] };
@@ -630,7 +672,7 @@ describe("rewrite popup entrypoint", () => {
       defaultExclusionSelectors: ["IMG", "INPUT", "NOSCRIPT", "SELECT", "TITLE", "STYLE", "SCRIPT", "TEMPLATE", "IFRAME", "VIDEO", "SVG"] as const,
       pages: [{ url: "https://example.com/page", renderedHtml: "<html></html>", renderedXPaths: [{ xpath: "/html[1]/body[1]/main[1]", excluded: false }] }],
     };
-    const tabsSendMessage = vi.fn(async (_tabId: number, message: { type?: string }) =>
+    const tabsSendMessage = makeTabsSendMessage(async (_tabId: number, message) =>
       message.type === "captureSubmissionSnapshot"
         ? { ok: true, snapshot, rows: [] }
         : { ok: true, initialized: true, tree: "rewrite" }
@@ -710,7 +752,7 @@ describe("rewrite popup entrypoint", () => {
       },
       tabs: {
         query,
-        sendMessage: vi.fn().mockResolvedValue({ ok: true, active: false, pageUrl: "https://example.com/page" }),
+        sendMessage: makeTabsSendMessage(() => ({ ok: true, active: false, pageUrl: "https://example.com/page" })),
       },
     } as unknown as typeof chrome;
 
@@ -777,7 +819,7 @@ describe("rewrite popup entrypoint", () => {
       },
       tabs: {
         query,
-        sendMessage: vi.fn().mockResolvedValue({ ok: true, active: false, pageUrl: "https://example.com/page" }),
+        sendMessage: makeTabsSendMessage(() => ({ ok: true, active: false, pageUrl: "https://example.com/page" })),
       },
     } as unknown as typeof chrome;
 
@@ -831,7 +873,7 @@ describe("rewrite popup entrypoint", () => {
       defaultExclusionSelectors: ["IMG", "INPUT", "NOSCRIPT", "SELECT", "TITLE", "STYLE", "SCRIPT", "TEMPLATE", "IFRAME", "VIDEO", "SVG"] as const,
       pages: [{ url: "https://example.com/page", renderedHtml: "<html></html>", renderedXPaths: [{ xpath: "/html[1]/body[1]/main[1]", excluded: false }] }],
     };
-    const tabsSendMessage = vi.fn(async (_tabId: number, message: { type?: string }) => {
+    const tabsSendMessage = makeTabsSendMessage(async (_tabId: number, message) => {
       if (message.type === "captureSubmissionSnapshot") {
         return { ok: true, snapshot, rows: [] };
       }
@@ -913,14 +955,14 @@ describe("rewrite popup entrypoint", () => {
       createRoot: vi.fn(() => ({ render })),
     }));
     const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com" }]);
-    const tabsSendMessage = vi.fn().mockResolvedValue({
+    const tabsSendMessage = makeTabsSendMessage(() => ({
       ok: true,
       active: true,
       dirty: true,
       pageUrl: "https://example.com",
       markedCount: 2,
       tree: "rewrite",
-    });
+    }));
     let signalSeq = 0;
     const runtime = makeRuntime(async (message) => {
       if (message.name === "signals.emit") {
@@ -952,7 +994,7 @@ describe("rewrite popup entrypoint", () => {
     await import("../../../src/entrypoints/popup/main.tsx");
     await flushEntrypointWork();
 
-    expect(tabsSendMessage).toHaveBeenCalledWith(77, { type: "getContentMainStatus" });
+    expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("getContentMainStatus", {}));
     expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
       name: "signals.emit",
       payload: {
@@ -989,14 +1031,14 @@ describe("rewrite popup entrypoint", () => {
       createRoot: vi.fn(() => ({ render })),
     }));
     const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com" }]);
-    const tabsSendMessage = vi.fn().mockResolvedValue({
+    const tabsSendMessage = makeTabsSendMessage(() => ({
       ok: true,
       active: true,
       dirty: false,
       pageUrl: "https://example.com",
       markedCount: 25,
       tree: "rewrite",
-    });
+    }));
     let signalSeq = 0;
     const runtime = makeRuntime(async (message) => {
       if (message.name === "signals.emit") {
@@ -1057,14 +1099,14 @@ describe("rewrite popup entrypoint", () => {
       createRoot: vi.fn(() => ({ render })),
     }));
     const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com" }]);
-    const tabsSendMessage = vi.fn().mockResolvedValue({
+    const tabsSendMessage = makeTabsSendMessage(() => ({
       ok: true,
       active: true,
       dirty: true,
       pageUrl: "https://example.com",
       markedCount: 0,
       tree: "rewrite",
-    });
+    }));
     let signalSeq = 0;
     const runtime = makeRuntime(async (message) => {
       if (message.name === "signals.emit") {
@@ -1119,7 +1161,7 @@ describe("rewrite popup entrypoint", () => {
       createRoot: vi.fn(() => ({ render })),
     }));
     const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/a" }]);
-    const tabsSendMessage = vi.fn().mockResolvedValue({ ok: true, initialized: false, tree: "rewrite" });
+    const tabsSendMessage = makeTabsSendMessage(() => ({ ok: true, initialized: false, tree: "rewrite" }));
     const runtime = makeRuntime(async (message) => {
       if (message.name === "signals.emit") {
         const request = message.payload as { tabId: number; signal: { name?: string; payload?: unknown } };
@@ -1153,7 +1195,7 @@ describe("rewrite popup entrypoint", () => {
     poll();
     await flushEntrypointWork();
 
-    expect(tabsSendMessage).toHaveBeenCalledWith(77, { type: "deactivateContentMain" });
+    expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("deactivateContentMain", {}));
     expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
       name: "signals.emit",
       payload: {
@@ -1176,7 +1218,7 @@ describe("rewrite popup entrypoint", () => {
       createRoot: vi.fn(() => ({ render })),
     }));
     const query = vi.fn();
-    const tabsSendMessage = vi.fn().mockResolvedValue({ ok: true, initialized: true, tree: "rewrite" });
+    const tabsSendMessage = makeTabsSendMessage(() => ({ ok: true, initialized: true, tree: "rewrite" }));
     const runtime = makeRuntime((message) => replyFrame(message, []));
     globalThis.chrome = {
       runtime: {
@@ -1193,10 +1235,9 @@ describe("rewrite popup entrypoint", () => {
     await flushEntrypointWork();
 
     expect(query).not.toHaveBeenCalled();
-    expect(tabsSendMessage).toHaveBeenCalledWith(123, {
-      type: "activateContentMain",
+    expect(tabsSendMessage).toHaveBeenCalledWith(123, contentCommand("activateContentMain", {
       pageUrl: "",
       realEditorActivation: true,
-    });
+    }));
   });
 });

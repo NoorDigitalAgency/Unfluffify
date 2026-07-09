@@ -13,6 +13,7 @@ import type { BrainSignal } from "../../domain/schema/signals";
 import type { AiRunPayloadSnapshot } from "../../domain/schema/submission";
 import { browser, getInstalledBrowserApi } from "../../common/browser";
 import { createRealmBus } from "../../messaging/realms";
+import { createTabTransport } from "../../messaging/transports/tabs";
 import { createRuntimeTransport } from "../../messaging/transports/runtime";
 import { emitRewriteSignal, pullRewriteSignals, type RewriteSignalBus } from "../../messaging/rewrite-signals";
 import type { ConfigSnapshot, SelectorSet } from "../../storage/config";
@@ -253,26 +254,66 @@ async function initializePopupSignals(): Promise<void> {
 }
 
 async function sendContentMessage(tabId: number, message: Record<string, unknown>): Promise<boolean> {
-  try {
-    const response = await getRuntimeBrowser().tabs.sendMessage(tabId, message);
-    return Boolean(response && typeof response === "object" && "ok" in response && response.ok === true);
-  } catch (error) {
-    console.error("[Unfluffify][rewrite] Unable to update content marking state", error);
-    return false;
-  }
+  const response = await requestContentMessage(tabId, message);
+  return Boolean(response && typeof response === "object" && "ok" in response && response.ok === true);
 }
 
 async function requestContentMessage(tabId: number, message: Record<string, unknown>): Promise<unknown> {
   try {
-    return await getRuntimeBrowser().tabs.sendMessage(tabId, message);
+    const commandName = typeof message.type === "string" ? message.type : "";
+    const bus = createRealmBus({
+      realm: "popup",
+      transport: createTabTransport(getRuntimeBrowser().tabs, tabId),
+    });
+    const response = await bus.request("command.dispatch", {
+      kind: "uf-command/1",
+      name: commandName,
+      tabId,
+      payload: Object.fromEntries(Object.entries(message).filter(([key]) => key !== "type")),
+    }, { target: "content" });
+    bus.dispose();
+    if (!response.ok) {
+      console.error("[Unfluffify][rewrite] Content command transport failed", response.failure);
+      return null;
+    }
+    if (!response.data.ok) {
+      return { ok: false, failure: response.data.failure, tree: "rewrite" };
+    }
+    return response.data.data;
   } catch (error) {
-    console.error("[Unfluffify][rewrite] Unable to request content data", error);
+    console.error("[Unfluffify][rewrite] Unable to request content command", error);
     return null;
   }
 }
 
 function baseUrlFor(url: string): string {
   return url ? new URL(url).origin : "https://example.com";
+}
+
+function contentDirectiveForContext(context: TargetTabContext): Record<string, unknown> {
+  const presentation = store.getPresentation();
+  const bannerText = presentation.lockBanner.visible ? presentation.lockBanner.text : "";
+  const blockedReason = presentation.blockedReason || presentation.saveBlockedReason || presentation.runAiBlockedReason || "";
+  return {
+    type: "directive.content",
+    baseUrl: baseUrlFor(context.url),
+    configPresent: true,
+    lockRole: "editor",
+    reconciliationPending: store.getState().name === "reconciling",
+    content: {
+      markingEditsBlocked: presentation.temporarilyDisabledOverlay,
+      blockedReason,
+      curtain: {
+        visible: presentation.curtainVisible,
+        text: presentation.curtainText,
+      },
+      banner: {
+        visible: presentation.lockBanner.visible,
+        text: bannerText,
+      },
+      renderMode: presentation.desktopPreviewChecked ? "static" : "rendered",
+    },
+  };
 }
 
 async function captureSubmission(context: TargetTabContext): Promise<AiRunPayloadSnapshot | null> {
@@ -312,10 +353,9 @@ function configFromSubmission(snapshot: AiRunPayloadSnapshot, selectors: Selecto
 }
 
 async function reconcileContentStatus(context: TargetTabContext, requestKey = boundTabKey): Promise<void> {
-  const runtimeBrowser = getRuntimeBrowser();
   let response: unknown;
   try {
-    response = await runtimeBrowser.tabs.sendMessage(context.tabId, { type: "getContentMainStatus" });
+    response = await requestContentMessage(context.tabId, { type: "getContentMainStatus" });
   } catch {
     return;
   }
@@ -362,6 +402,7 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
   if (enabled) {
     ensureSignalPolling(context);
     await pullSignals(context.tabId, requestKey);
+    await sendContentMessage(context.tabId, contentDirectiveForContext(context));
     const activated = await sendContentMessage(context.tabId, {
       type: "activateContentMain",
       pageUrl: context.url,

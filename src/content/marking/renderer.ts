@@ -73,6 +73,28 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
         root.appendChild(overlay);
       }
     },
+    renderSilentHighlights(xpaths: readonly string[], byXpath: ReadonlyMap<string, Element>): void {
+      for (const xpath of xpaths) {
+        const element = byXpath.get(xpath);
+        if (!element) {
+          continue;
+        }
+        const rect = element.getBoundingClientRect();
+        const overlay = options.document.createElement("div");
+        overlay.className = "uf-silent-highlight";
+        overlay.setAttribute("data-uf-silent-highlight", xpath);
+        overlay.style.position = "absolute";
+        overlay.style.pointerEvents = "none";
+        overlay.style.boxSizing = "border-box";
+        overlay.style.border = "1px solid rgba(59, 130, 246, 0.8)";
+        overlay.style.backgroundColor = "rgba(59, 130, 246, 0.12)";
+        overlay.style.left = `${rect.left}px`;
+        overlay.style.top = `${rect.top}px`;
+        overlay.style.width = `${rect.width}px`;
+        overlay.style.height = `${rect.height}px`;
+        root.appendChild(overlay);
+      }
+    },
     clear(): void {
       root.replaceChildren();
     },

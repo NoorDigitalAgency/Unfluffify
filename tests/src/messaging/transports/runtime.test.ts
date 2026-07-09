@@ -55,10 +55,10 @@ describe("P1 runtime transports", () => {
       return { ...message, frameType: "reply", ok: true, payload: { ack: true } };
     });
 
-    await expect(transport.send(frame())).resolves.toEqual(frame());
+    await expect(transport.send(frame())).resolves.toBeUndefined();
     expect(fake.dispatch({ not: "bus" })).toBeUndefined();
     let response: unknown;
-    expect(fake.dispatch(frame(), (value) => {
+    expect(fake.dispatch({ ...frame(), frameType: "request" }, (value) => {
       response = value;
     })).toBe(true);
     await Promise.resolve();
@@ -67,7 +67,8 @@ describe("P1 runtime transports", () => {
       ok: true,
       payload: { ack: true },
     });
-    expect(seen).toEqual(["diag.event"]);
+    expect(fake.dispatch(frame())).toBeUndefined();
+    expect(seen).toEqual(["diag.event", "diag.event"]);
   });
 
   it("does not claim runtime responses when the inbound handler ignores a frame", () => {
