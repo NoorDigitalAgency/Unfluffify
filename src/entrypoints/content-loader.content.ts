@@ -312,6 +312,13 @@ function ensureMarkingListeners(): void {
     userMarkingDirty = true;
     emitMarkingChanged();
   };
+  const handleMouseMove = (event: MouseEvent): void => {
+    if (!markingActive || !markingEngine) {
+      return;
+    }
+    markingEngine.hoverAtPoint(event.clientX, event.clientY);
+  };
+  const handleMouseLeave = (): void => markingEngine?.clearHover();
   const handleKeyDown = (event: KeyboardEvent): void => setSpacePassthrough(event, true);
   const handleKeyUp = (event: KeyboardEvent): void => setSpacePassthrough(event, false);
   const resetPassthrough = (): void => {
@@ -322,6 +329,8 @@ function ensureMarkingListeners(): void {
     }
   };
   document.addEventListener("click", handleClick, true);
+  document.addEventListener("mousemove", handleMouseMove, true);
+  document.addEventListener("mouseleave", handleMouseLeave, true);
   document.addEventListener("keydown", handleKeyDown, true);
   document.addEventListener("keyup", handleKeyUp, true);
   if (typeof window !== "undefined") {
@@ -330,6 +339,8 @@ function ensureMarkingListeners(): void {
   document.addEventListener("visibilitychange", resetPassthrough, true);
   removeMarkingListeners = () => {
     document.removeEventListener("click", handleClick, true);
+    document.removeEventListener("mousemove", handleMouseMove, true);
+    document.removeEventListener("mouseleave", handleMouseLeave, true);
     document.removeEventListener("keydown", handleKeyDown, true);
     document.removeEventListener("keyup", handleKeyUp, true);
     if (typeof window !== "undefined") {

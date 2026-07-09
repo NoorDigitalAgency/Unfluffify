@@ -166,6 +166,7 @@ describe("C4 rewrite content entrypoints", () => {
     }));
     vi.doMock("../src/content/marking", () => ({
       createMarkingEngine,
+      installClosedShadowHostInstrumentation: vi.fn(() => vi.fn()),
     }));
 
     const entrypoint = await import("../src/entrypoints/content-loader.content.ts");
@@ -299,7 +300,7 @@ describe("C4 rewrite content entrypoints", () => {
       value: { innerHeight: 500, scrollY: 0, scrollTo: vi.fn(), postMessage: vi.fn(), addEventListener: vi.fn(), removeEventListener: vi.fn() },
     });
     vi.doMock("wxt/utils/define-content-script", () => ({ defineContentScript: (config: unknown) => config }));
-    vi.doMock("../src/content/marking", () => ({ createMarkingEngine: vi.fn(() => engine) }));
+    vi.doMock("../src/content/marking", () => ({ createMarkingEngine: vi.fn(() => engine), installClosedShadowHostInstrumentation: vi.fn(() => vi.fn()) }));
 
     const entrypoint = await import("../src/entrypoints/content-loader.content.ts");
     (entrypoint.default as { main: () => void }).main();
@@ -341,6 +342,7 @@ describe("C4 rewrite content entrypoints", () => {
     }));
     vi.doMock("../src/content/marking", () => ({
       createMarkingEngine,
+      installClosedShadowHostInstrumentation: vi.fn(() => vi.fn()),
     }));
 
     const entrypoint = await import("../src/entrypoints/content-loader.content.ts");
@@ -407,6 +409,7 @@ describe("C4 rewrite content entrypoints", () => {
     }));
     vi.doMock("../src/content/marking", () => ({
       createMarkingEngine,
+      installClosedShadowHostInstrumentation: vi.fn(() => vi.fn()),
     }));
 
     const entrypoint = await import("../src/entrypoints/content-loader.content.ts");
@@ -523,7 +526,7 @@ describe("C4 rewrite content entrypoints", () => {
       value: { innerHeight: 500, scrollY: 0, scrollTo: vi.fn(), postMessage: vi.fn(), addEventListener: vi.fn(), removeEventListener: vi.fn() },
     });
     vi.doMock("wxt/utils/define-content-script", () => ({ defineContentScript: (config: unknown) => config }));
-    vi.doMock("../src/content/marking", () => ({ createMarkingEngine }));
+    vi.doMock("../src/content/marking", () => ({ createMarkingEngine, installClosedShadowHostInstrumentation: vi.fn(() => vi.fn()) }));
 
     const entrypoint = await import("../src/entrypoints/content-loader.content.ts");
     (entrypoint.default as { main: () => void }).main();

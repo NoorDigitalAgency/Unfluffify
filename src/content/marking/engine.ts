@@ -157,11 +157,84 @@ export function createMarkingEngine(rootElement: Element) {
   let bridge: DomBridgeView = createDomBridgeView(rootElement);
   let store = createMarkingStore({ root: bridge.root }, mergeDefaultExclusions(bridge.root));
   const renderer = createOverlayRenderer({ document: rootElement.ownerDocument });
+  let observerCleanup: (() => void) | null = null;
+  let renderScheduled = false;
+  let silentHighlightsArmed = false;
 
   const refreshBridge = (): void => {
     bridge = createDomBridgeView(rootElement);
     store = createMarkingStore({ root: bridge.root }, mergeDefaultExclusions(bridge.root, store.canonicalSet()));
   };
+  const byXpathElements = (): Map<string, Element> => new Map([...bridge.byXpath].map(([xpath, value]) => [xpath, value.element]));
+  const renderSilent = (): readonly string[] => {
+    const byXpath = byXpathElements();
+    const geometryByXpath = new Map([...byXpath].map(([xpath, element]) => [xpath, geometryForElement(element)]));
+    const xpaths = buildSilentHighlights(store.currentEvaluation(), geometryByXpath);
+    renderer.renderSilentHighlights(xpaths, byXpath);
+    return xpaths;
+  };
+  const renderCurrent = (): void => {
+    renderer.render(store.currentEvaluation(), byXpathElements());
+    if (silentHighlightsArmed) {
+      renderSilent();
+    }
+  };
+  const scheduleRender = (): void => {
+    if (renderScheduled) {
+      return;
+    }
+    renderScheduled = true;
+    const view = rootElement.ownerDocument.defaultView;
+    const run = (): void => {
+      renderScheduled = false;
+      refreshBridge();
+      renderCurrent();
+    };
+    if (view?.requestAnimationFrame) {
+      view.requestAnimationFrame(run);
+    } else {
+      setTimeout(run, 0);
+    }
+  };
+  const installObservers = (): (() => void) => {
+    const view = rootElement.ownerDocument.defaultView;
+    const cleanups: Array<() => void> = [];
+    const isExtensionNode = (node: Node): boolean => {
+      const element = node.nodeType === 1 ? node as Element : node.parentElement;
+      return Boolean(element?.closest?.('[data-uf-extension-ui="true"]'));
+    };
+    if (view?.MutationObserver) {
+      const observer = new view.MutationObserver((records) => {
+        if (records.every((record) =>
+          isExtensionNode(record.target) &&
+          [...record.addedNodes, ...record.removedNodes].every((node) => isExtensionNode(node))
+        )) {
+          return;
+        }
+        scheduleRender();
+      });
+      observer.observe(rootElement, { childList: true, subtree: true, attributes: true, characterData: true });
+      cleanups.push(() => observer.disconnect());
+    }
+    if (view?.ResizeObserver) {
+      const observer = new view.ResizeObserver(scheduleRender);
+      observer.observe(rootElement);
+      cleanups.push(() => observer.disconnect());
+    }
+    if (view?.IntersectionObserver) {
+      const observer = new view.IntersectionObserver(scheduleRender);
+      observer.observe(rootElement);
+      cleanups.push(() => observer.disconnect());
+    }
+    view?.addEventListener?.("scroll", scheduleRender, true);
+    view?.addEventListener?.("resize", scheduleRender);
+    cleanups.push(() => {
+      view?.removeEventListener?.("scroll", scheduleRender, true);
+      view?.removeEventListener?.("resize", scheduleRender);
+    });
+    return () => cleanups.forEach((cleanup) => cleanup());
+  };
+  observerCleanup = installObservers();
 
   return {
     refresh(): void {
@@ -190,22 +263,30 @@ export function createMarkingEngine(rootElement: Element) {
     },
     toggle(node: EvaluationNode, mode: Exclude<MarkMode, "disabled" | "passthrough">): void {
       store.toggle(node, mode);
-      renderer.render(store.currentEvaluation(), new Map([...bridge.byXpath].map(([xpath, value]) => [xpath, value.element])));
+      renderCurrent();
     },
     renderReadOnly(): void {
-      renderer.render(store.currentEvaluation(), new Map([...bridge.byXpath].map(([xpath, value]) => [xpath, value.element])));
+      renderCurrent();
+    },
+    hoverAtPoint(x: number, y: number): void {
+      const node = this.resolveAtPoint(x, y, "exclude");
+      const element = node ? bridge.byXpath.get(node.xpath)?.element ?? null : null;
+      renderer.setHover(element, node?.xpath ?? "");
+    },
+    clearHover(): void {
+      renderer.setHover(null);
     },
     renderSilentHighlights(): readonly string[] {
-      const byXpath = new Map([...bridge.byXpath].map(([xpath, value]) => [xpath, value.element]));
-      const geometryByXpath = new Map([...byXpath].map(([xpath, element]) => [xpath, geometryForElement(element)]));
-      const xpaths = buildSilentHighlights(store.currentEvaluation(), geometryByXpath);
-      renderer.renderSilentHighlights(xpaths, byXpath);
-      return xpaths;
+      silentHighlightsArmed = true;
+      return renderSilent();
     },
     clearOverlays(): void {
+      silentHighlightsArmed = false;
       renderer.clear();
     },
     dispose(): void {
+      observerCleanup?.();
+      observerCleanup = null;
       renderer.dispose();
     },
     captureRenderedHtml(): string {

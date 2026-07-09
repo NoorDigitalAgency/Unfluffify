@@ -27,6 +27,7 @@
     cancelAnimationFrame: globalThis.cancelAnimationFrame,
     IntersectionObserver: globalThis.IntersectionObserver,
     ResizeObserver: globalThis.ResizeObserver,
+    attachShadow: globalThis.Element && globalThis.Element.prototype.attachShadow,
     addEventListener: globalThis.EventTarget && globalThis.EventTarget.prototype.addEventListener,
     removeEventListener: globalThis.EventTarget && globalThis.EventTarget.prototype.removeEventListener,
   };
@@ -34,6 +35,19 @@
   const timeoutTokens = new Map();
   const rafTokens = new Map();
   let lastKnownUrl = globalThis.location && globalThis.location.href ? String(globalThis.location.href) : "";
+
+  function installClosedShadowInstrumentation() {
+    if (!globalThis.Element || typeof originals.attachShadow !== "function") return;
+    if (globalThis.Element.prototype.attachShadow.__ufClosedShadowInstrumented) return;
+    const patched = function patchedAttachShadow(init) {
+      if (init && init.mode === "closed") {
+        this.setAttribute?.("data-uf-closed-shadow-host", "true");
+      }
+      return originals.attachShadow.call(this, init);
+    };
+    patched.__ufClosedShadowInstrumented = true;
+    globalThis.Element.prototype.attachShadow = patched;
+  }
 
   function emitUrlChanged() {
     const currentUrl = globalThis.location && globalThis.location.href ? String(globalThis.location.href) : "";
@@ -305,6 +319,7 @@
 
   installTimerBridge();
   installNavigationBridge();
+  installClosedShadowInstrumentation();
 
   globalThis.addEventListener("message", (event) => {
     const request = event.data;

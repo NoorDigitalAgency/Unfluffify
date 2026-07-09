@@ -18,6 +18,8 @@ test("single page-world program is a classic script with the production relay pr
   assert.match(pageWorldSource, /unfluffify:page-world-relay:v1/);
   assert.match(pageWorldSource, /PAGE_WORLD_SET_MOTION_PAUSED/);
   assert.match(pageWorldSource, /SET_MOTION_PAUSED/);
+  assert.match(pageWorldSource, /installClosedShadowInstrumentation/);
+  assert.match(pageWorldSource, /data-uf-closed-shadow-host/);
 });
 
 test("new page-world program is registered at document_start in the MAIN world", () => {
