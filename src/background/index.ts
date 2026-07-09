@@ -1,5 +1,6 @@
 import { createRewriteBrainRuntime } from "./rewrite-brain-runtime";
 import { createPropertyLockRuntime } from "./lock-runtime";
+import { createRenderEmulationRuntime } from "./render-emulation-runtime";
 import { createRewriteBackgroundServices } from "./services";
 import { getInstalledBrowserApi } from "../common/browser";
 import { createRealmBus } from "../messaging/realms";
@@ -16,6 +17,10 @@ type RewriteSidePanelApi = Readonly<{
 type InstalledBrowserApi = NonNullable<ReturnType<typeof getInstalledBrowserApi>>;
 type RewriteExtensionApi = InstalledBrowserApi & Readonly<{
   sidePanel?: RewriteSidePanelApi;
+  offscreen?: Readonly<{
+    hasDocument?: () => Promise<boolean> | boolean;
+    createDocument?: (options: { url: string; reasons: string[]; justification: string }) => Promise<void> | void;
+  }>;
 }>;
 
 function reportActionOpenFailure(error: unknown): void {
@@ -33,6 +38,21 @@ async function openRewriteSidePanelForTab(tab: Readonly<{ id?: number }>, api: R
     enabled: true,
   })).catch(reportActionOpenFailure);
   await api.sidePanel.open({ tabId: tab.id });
+}
+
+async function ensureOffscreenDocument(api: RewriteExtensionApi): Promise<void> {
+  if (!api.offscreen?.createDocument) {
+    return;
+  }
+  const hasDocument = await Promise.resolve(api.offscreen.hasDocument?.() ?? false);
+  if (hasDocument) {
+    return;
+  }
+  await Promise.resolve(api.offscreen.createDocument({
+    url: "offscreen.html",
+    reasons: ["DOM_PARSER"],
+    justification: "Refine Unfluffify XPath rows against captured HTML",
+  }));
 }
 
 let rewriteBackgroundStarted = false;
@@ -61,6 +81,10 @@ export function startRewriteBackground(): void {
   const bus = createRealmBus({
     realm: "background",
     transport: createRuntimeTransport(api.runtime),
+  });
+  const renderEmulation = createRenderEmulationRuntime({
+    debuggerApi: api.debugger,
+    tabs: api.tabs,
   });
   const lockRuntime = createPropertyLockRuntime({
     services,
@@ -133,6 +157,17 @@ export function startRewriteBackground(): void {
     }
   });
   bus.onCommand("lock.directive", (request) => lockRuntime.directive(request));
+  bus.onCommand("emulation.apply", (request) => renderEmulation.apply(request.tabId, request.mode, request.scale));
+  bus.onCommand("emulation.clear", async (request) => {
+    await renderEmulation.clear(request.tabId);
+    return { status: "ok" as const };
+  });
+  bus.onCommand("renderMode.inspect", (request) => renderEmulation.inspect(request));
+  bus.onCommand("offscreen.refineXpaths", async (request) => {
+    await ensureOffscreenDocument(api);
+    const response = await bus.request("offscreen.refineXpaths", request, { target: "offscreen" });
+    return response.ok ? response.data : { rows: request.rows };
+  });
   bus.onCommand("ai.run", async (snapshot) => {
     const result = await services.lynx.runAiJob(snapshot);
     return result.status === "ok"

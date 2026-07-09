@@ -105,6 +105,22 @@ function makeRuntime(handler: (frame: BusFrame) => Promise<unknown> | unknown) {
           lockBanner: { visible: false, text: "" },
         });
       }
+      if (frame.name === "emulation.apply") {
+        return replyFrame(frame, {
+          mode: "mobile",
+          width: 412,
+          height: 960,
+          scale: 1,
+          active: true,
+        });
+      }
+      if (frame.name === "emulation.clear") {
+        return replyFrame(frame, { status: "ok" });
+      }
+      if (frame.name === "offscreen.refineXpaths") {
+        const payload = frame.payload as { rows?: unknown };
+        return replyFrame(frame, { rows: Array.isArray(payload.rows) ? payload.rows : [] });
+      }
       return handler(frame);
     }),
     onMessage: {

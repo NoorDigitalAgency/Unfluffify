@@ -182,4 +182,71 @@ describe("rewrite background startup", () => {
       },
     });
   });
+
+  it("serves CDP device emulation through the shipped typed bus", async () => {
+    const addMessageListener = vi.fn();
+    const debuggerCalls: unknown[] = [];
+    globalThis.chrome = {
+      runtime: {
+        sendMessage: vi.fn(),
+        onMessage: { addListener: addMessageListener },
+      },
+      debugger: {
+        attach(target: unknown, version: string, callback: () => void) {
+          debuggerCalls.push({ method: "attach", target, version });
+          callback();
+        },
+        sendCommand(target: unknown, method: string, params: unknown, callback: () => void) {
+          debuggerCalls.push({ method, target, params });
+          callback();
+        },
+        detach(target: unknown, callback: () => void) {
+          debuggerCalls.push({ method: "detach", target });
+          callback();
+        },
+      },
+      tabs: {
+        sendMessage: vi.fn(),
+      },
+      action: {
+        onClicked: { addListener: vi.fn() },
+      },
+      alarms: {
+        create: vi.fn(),
+        clear: vi.fn(),
+        onAlarm: { addListener: vi.fn() },
+      },
+    } as unknown as typeof chrome;
+
+    const { startRewriteBackground } = await import("../../../src/background/index");
+    startRewriteBackground();
+    const runtimeListener = addMessageListener.mock.calls[0]?.[0] as (message: unknown, sender: unknown, sendResponse: (value: unknown) => void) => unknown;
+    let response: unknown;
+    runtimeListener({
+      kind: "uf-bus/1",
+      frameType: "request",
+      id: "emu-1",
+      seq: 1,
+      name: "emulation.apply",
+      source: "popup",
+      sourceInstance: "popup:test",
+      target: "background",
+      payload: { tabId: 5, mode: "mobile", scale: 2 },
+    }, {}, (value: unknown) => {
+      response = value;
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(response).toMatchObject({
+      frameType: "reply",
+      ok: true,
+      payload: { mode: "mobile", width: 412, height: 960, scale: 1, active: true },
+    });
+    expect(debuggerCalls).toEqual(expect.arrayContaining([
+      expect.objectContaining({ method: "attach", target: { tabId: 5 } }),
+      expect.objectContaining({ method: "Emulation.setDeviceMetricsOverride", params: expect.objectContaining({ width: 412, height: 960 }) }),
+    ]));
+  });
 });

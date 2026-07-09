@@ -214,6 +214,7 @@ async function emitPopupSignal(tabId: number, name: BrainSignal["name"], payload
 async function handleBoundContext(context: TargetTabContext): Promise<string> {
   const binding = bindToTab(context);
   if (binding.sameTabNavigation) {
+    await clearSessionEmulation(context);
     await sendContentMessage(context.tabId, { type: "deactivateContentMain" });
     await emitPopupSignal(context.tabId, "session.navigated", { pageUrl: context.url }, binding.key);
   }
@@ -291,6 +292,41 @@ async function requestContentMessage(tabId: number, message: Record<string, unkn
 
 function baseUrlFor(url: string): string {
   return url ? new URL(url).origin : "https://example.com";
+}
+
+async function applySessionEmulation(context: TargetTabContext): Promise<boolean> {
+  const presentation = store.getPresentation();
+  const response = await getPopupBus().request("emulation.apply", {
+    tabId: context.tabId,
+    mode: presentation.desktopPreviewChecked ? "desktop" : "mobile",
+    scale: 1,
+  }, { target: "background" });
+  return response.ok && response.data.active === true;
+}
+
+async function clearSessionEmulation(context: TargetTabContext): Promise<void> {
+  await getPopupBus().request("emulation.clear", { tabId: context.tabId }, { target: "background" });
+}
+
+async function refineSubmissionXpaths(snapshot: AiRunPayloadSnapshot): Promise<AiRunPayloadSnapshot> {
+  const page = snapshot.pages[0];
+  if (!page) {
+    return snapshot;
+  }
+  const response = await getPopupBus().request("offscreen.refineXpaths", {
+    html: page.rawHtml ?? page.renderedHtml,
+    rows: page.renderedXPaths,
+  }, { target: "background" });
+  if (!response.ok) {
+    return snapshot;
+  }
+  return {
+    ...snapshot,
+    pages: [{
+      ...page,
+      renderedXPaths: response.data.rows,
+    }],
+  };
 }
 
 type LockDirectiveResponse = Readonly<{
@@ -458,6 +494,9 @@ async function refreshLockDirective(context: TargetTabContext, requestKey = boun
 }
 
 async function captureSubmission(context: TargetTabContext): Promise<AiRunPayloadSnapshot | null> {
+  if (!await applySessionEmulation(context)) {
+    return null;
+  }
   const response = await requestContentMessage(context.tabId, {
     type: "captureSubmissionSnapshot",
     baseUrl: baseUrlFor(context.url),
@@ -467,7 +506,7 @@ async function captureSubmission(context: TargetTabContext): Promise<AiRunPayloa
   if (!response || typeof response !== "object" || !("ok" in response) || response.ok !== true || !("snapshot" in response)) {
     return null;
   }
-  return response.snapshot as AiRunPayloadSnapshot;
+  return await refineSubmissionXpaths(response.snapshot as AiRunPayloadSnapshot);
 }
 
 function configFromSubmission(snapshot: AiRunPayloadSnapshot, selectors: SelectorSet): ConfigSnapshot {
@@ -548,11 +587,19 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
       render();
       return;
     }
+    if (!await applySessionEmulation(context)) {
+      await emitPopupSignal(context.tabId, "marking.disabled", { baseUrl: "", pageUrl: context.url, cause: "emulation-failed" }, requestKey);
+      render();
+      return;
+    }
     const activated = await sendContentMessage(context.tabId, {
       type: "activateContentMain",
       pageUrl: context.url,
       realEditorActivation: true,
     });
+    if (!activated) {
+      await clearSessionEmulation(context);
+    }
     await emitPopupSignal(context.tabId, activated ? "marking.enabled" : "marking.disabled", {
       baseUrl: "",
       pageUrl: context.url,
@@ -560,6 +607,7 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
     }, requestKey);
     await pullSignals(context.tabId, requestKey);
   } else {
+    await clearSessionEmulation(context);
     await sendContentMessage(context.tabId, { type: "deactivateContentMain" });
     lastSubmissionSnapshot = null;
     lastSubmissionKey = null;
@@ -705,6 +753,7 @@ async function saveSession(): Promise<void> {
     return;
   }
   if (response.ok && response.data.status === "ok") {
+    await clearSessionEmulation(context);
     await sendContentMessage(context.tabId, { type: "deactivateContentMain" });
     lastSubmissionSnapshot = null;
     lastSubmissionKey = null;
@@ -754,6 +803,7 @@ async function discardMarkings(): Promise<void> {
   if (!reset) {
     return;
   }
+  await clearSessionEmulation(context);
   await emitPopupSignal(context.tabId, "session.discarded", { baseUrl: "", pageUrl: context.url }, requestKey);
   await pullSignals(context.tabId, requestKey);
   render();

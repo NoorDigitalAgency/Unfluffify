@@ -13,6 +13,7 @@ import { z } from "zod";
 import { AiRunPayloadSnapshotSchema } from "../domain/schema/submission";
 import { LockRoleSchema } from "../domain/schema/facts";
 import { ConfigSnapshotSchema, SelectorSetSchema } from "../storage/config";
+import { MarkRowSchema } from "../domain/schema/marking";
 
 const LockDirectiveRequestSchema = z.object({
   tabId: z.number().int().nonnegative(),
@@ -32,6 +33,39 @@ const LockDirectiveResponseSchema = z.object({
     text: z.string(),
     countdownSeconds: z.number().optional(),
   }),
+});
+
+const EmulationApplyRequestSchema = z.object({
+  tabId: z.number().int().positive(),
+  mode: z.enum(["mobile", "desktop"]),
+  scale: z.number(),
+});
+
+const EmulationStateResponseSchema = z.object({
+  mode: z.enum(["mobile", "desktop"]),
+  width: z.number().int().positive(),
+  height: z.number().int().positive(),
+  scale: z.number(),
+  active: z.boolean(),
+});
+
+const RenderModeInspectRequestSchema = z.object({
+  tabId: z.number().int().positive(),
+  pageUrl: z.string().url(),
+  baseUrl: z.string().url(),
+  deviceSimulationEnabled: z.boolean(),
+});
+
+const RenderModeInspectResponseSchema = z.object({
+  status: z.string(),
+  renderedHtml: z.string().optional(),
+  rawHtml: z.string().optional(),
+  reclaimLockAfterReload: z.boolean().optional(),
+});
+
+const OffscreenRefineXpathsRequestSchema = z.object({
+  html: z.string(),
+  rows: z.array(MarkRowSchema),
 });
 
 export const applicationContract = defineContract({
@@ -71,6 +105,22 @@ export const applicationContract = defineContract({
     "lock.directive": {
       request: LockDirectiveRequestSchema,
       response: LockDirectiveResponseSchema,
+    },
+    "emulation.apply": {
+      request: EmulationApplyRequestSchema,
+      response: EmulationStateResponseSchema,
+    },
+    "emulation.clear": {
+      request: z.object({ tabId: z.number().int().positive() }),
+      response: z.object({ status: z.literal("ok") }),
+    },
+    "renderMode.inspect": {
+      request: RenderModeInspectRequestSchema,
+      response: RenderModeInspectResponseSchema,
+    },
+    "offscreen.refineXpaths": {
+      request: OffscreenRefineXpathsRequestSchema,
+      response: z.object({ rows: z.array(MarkRowSchema) }),
     },
   },
   events: {
