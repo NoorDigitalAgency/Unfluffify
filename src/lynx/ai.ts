@@ -52,7 +52,7 @@ export async function startAiRun(transport: JsonTransport, snapshot: GetSelector
   if (response.status === 401 || response.status === 403) {
     return { status: "auth_error", httpStatus: response.status };
   }
-  if (response.status !== 200) {
+  if (response.status !== 200 && response.status !== 202) {
     return { status: "error", httpStatus: response.status };
   }
   const sessionId = parseAiRunStartResponse(response.body);

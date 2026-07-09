@@ -16,6 +16,7 @@ import {
   toDomainRenderMode,
   URL_SEARCH_INFO_QUERY,
 } from "../../../src/lynx/graphql";
+import type { JsonTransport } from "../../../src/lynx/transport";
 import { DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS } from "../../../src/domain/constants";
 import { okJson, type JsonRequest } from "../../../src/lynx/transport";
 
@@ -88,5 +89,20 @@ describe("P4 locked AI and GraphQL shapes", () => {
       excludeCss: ".ad",
       renderMode: "other",
     }).variables.renderingMode).toBeNull();
+  });
+
+  it("accepts HTTP 202 AI run starts from the live selector endpoint", async () => {
+    const transport: JsonTransport = async () => ({ status: 202, body: { session_id: "session-202" } });
+
+    await expect(startAiRun(transport, {
+      baseUrl: "https://example.com",
+      renderMode: "rendered",
+      defaultExclusionSelectors: ["IMG", "INPUT", "NOSCRIPT", "SELECT", "TITLE", "STYLE", "SCRIPT", "TEMPLATE", "IFRAME", "VIDEO", "SVG"],
+      pages: [{
+        url: "https://example.com",
+        renderedHtml: "<html></html>",
+        renderedXPaths: [],
+      }],
+    })).resolves.toEqual({ status: "ok", sessionId: "session-202" });
   });
 });
