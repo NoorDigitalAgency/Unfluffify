@@ -12,7 +12,7 @@ type RuntimeOnMessage = Readonly<{
 }>;
 
 type RuntimeLike = Readonly<{
-  sendMessage(message: unknown): Promise<unknown> | unknown;
+  sendMessage(message: unknown, responseCallback?: (response: unknown) => void): Promise<unknown> | unknown;
   onMessage: RuntimeOnMessage;
 }>;
 
@@ -73,6 +73,40 @@ function withPeerInstance(frame: BusFrame, peerInstanceId: string | undefined): 
   };
 }
 
+function isPromiseLike<T>(value: unknown): value is PromiseLike<T> {
+  return Boolean(value) && typeof (value as PromiseLike<T>).then === "function";
+}
+
+function sendRuntimeMessage(runtime: RuntimeLike, frame: BusFrame): Promise<BusFrame | void> {
+  const nativeCallbackApi = runtime.sendMessage.length === 0 && /\[native code\]/.test(String(runtime.sendMessage));
+  if (!nativeCallbackApi) {
+    return Promise.resolve(runtime.sendMessage(frame)).then((response) => parseFrame(response) ?? undefined);
+  }
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (callback: () => void): void => {
+      if (settled) return;
+      settled = true;
+      callback();
+    };
+    try {
+      const maybePromise = runtime.sendMessage(frame, (response) => {
+        finish(() => resolve(parseFrame(response) ?? undefined));
+      });
+      if (isPromiseLike<unknown>(maybePromise)) {
+        void maybePromise.then(
+          (response) => finish(() => resolve(parseFrame(response) ?? undefined)),
+          (error) => finish(() => reject(error)),
+        );
+      } else if (maybePromise !== undefined) {
+        finish(() => resolve(parseFrame(maybePromise) ?? undefined));
+      }
+    } catch (error) {
+      finish(() => reject(error));
+    }
+  });
+}
+
 export function createRuntimeTransport(runtime: RuntimeLike): Transport {
   const listeners = new Set<(frame: BusFrame) => Promise<BusFrame | void> | BusFrame | void>();
   const runtimeListener = (message: unknown, sender: RuntimeMessageSender, sendResponse?: (response: unknown) => void) => {
@@ -105,11 +139,10 @@ export function createRuntimeTransport(runtime: RuntimeLike): Transport {
   return {
     async send(frame: BusFrame): Promise<BusFrame | void> {
       if (frame.frameType === "event") {
-        void Promise.resolve(runtime.sendMessage(frame)).catch(() => undefined);
+        void sendRuntimeMessage(runtime, frame).catch(() => undefined);
         return undefined;
       }
-      const response = await runtime.sendMessage(frame);
-      return parseFrame(response) ?? undefined;
+      return await sendRuntimeMessage(runtime, frame);
     },
     onReceive(handler): Unsubscribe {
       listeners.add(handler);

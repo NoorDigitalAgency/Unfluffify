@@ -79,6 +79,26 @@ describe("P1 runtime transports", () => {
     expect(fake.dispatch(frame())).toBeUndefined();
   });
 
+  it("waits for Chrome callback-style sendMessage replies", async () => {
+    const reply = { ...frame(), frameType: "reply" as const, ok: true, payload: { ack: true } };
+    const sendMessage = function (...args: unknown[]) {
+        const callback = args[1] as ((response: unknown) => void) | undefined;
+        setTimeout(() => callback?.(reply), 0);
+        return undefined;
+    };
+    sendMessage.toString = () => "function sendMessage() { [native code] }";
+    const fake = {
+      sendMessage,
+      onMessage: {
+        addListener() {},
+        removeListener() {},
+      },
+    };
+    const transport = createRuntimeTransport(fake);
+
+    await expect(transport.send({ ...frame(), frameType: "request" })).resolves.toEqual(reply);
+  });
+
   it("combines runtime sender identity with the bus instance", async () => {
     const fake = runtimeLike();
     const transport = createRuntimeTransport(fake.api);
