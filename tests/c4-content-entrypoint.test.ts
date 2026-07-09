@@ -312,6 +312,8 @@ describe("C4 rewrite content entrypoints", () => {
     const paused = await dispatchContentCommand(listener, "pauseContentMainInteractions");
     expect(documentListeners.has("click")).toBe(false);
     expect(paused).toEqual({ ok: true, data: { ok: true, active: true, dirty: true, tree: "rewrite" } });
+    const clean = await dispatchContentCommand(listener, "markContentMainClean");
+    expect(clean).toEqual({ ok: true, data: { ok: true, active: true, dirty: false, tree: "rewrite" } });
     await dispatchContentCommand(listener, "resumeContentMainInteractions");
     expect(documentListeners.has("click")).toBe(true);
   });

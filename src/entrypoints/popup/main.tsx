@@ -680,6 +680,7 @@ async function runAi(): Promise<void> {
   }
   await pullSignals(context.tabId, requestKey);
   if (response.data.selectors) {
+    await sendContentMessage(context.tabId, { type: "markContentMainClean" });
     await emitPopupSignalAndPullTail(context.tabId, "run.completed", {
       pageUrl: context.url,
       sessionId: localRunId,

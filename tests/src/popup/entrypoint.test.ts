@@ -320,6 +320,7 @@ describe("rewrite popup entrypoint", () => {
       inclusionSelectors: ["main"],
       exclusionSelectors: [".ad"],
     });
+    expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("markContentMainClean", {}));
 
     render.mock.calls.at(-1)?.[0].props.onPreview();
     await flushEntrypointWork();

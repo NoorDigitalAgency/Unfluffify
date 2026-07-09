@@ -487,6 +487,11 @@ function contentStatus(): Record<string, unknown> {
   };
 }
 
+function markContentClean(): Record<string, unknown> {
+  userMarkingDirty = false;
+  return { ok: true, active: markingActive, dirty: userMarkingDirty, tree: "rewrite" };
+}
+
 function captureSubmissionSnapshot(payload: unknown): Record<string, unknown> {
   if (!markingEngine) {
     return { ok: false, reason: "marking-inactive", tree: "rewrite" };
@@ -524,6 +529,7 @@ function createContentRouter() {
       resumeContentMainInteractions: () => contentDirective.content.markingEditsBlocked
         ? { ok: false, active: markingActive, dirty: userMarkingDirty, tree: "rewrite", reason: "directive-blocked" }
         : { ok: resumeMarkingInteractions(), active: markingActive, dirty: userMarkingDirty, tree: "rewrite" },
+      markContentMainClean: () => markContentClean(),
       captureSubmissionSnapshot,
       deactivateContentMain: () => {
         deactivateMarking();
