@@ -36,11 +36,18 @@ function resolveEndpoint(base: string | undefined, path: string): string {
   return new URL(path, base.endsWith("/") ? base : `${base}/`).toString();
 }
 
+function graphqlEndpointBase(stageBase: string | undefined): string | undefined {
+  const host = stageBase?.trim();
+  return host ? `https://api.${host}` : undefined;
+}
+
 export function createFetchJsonTransport(settings: () => EndpointSettings): JsonTransport {
   return async (request) => {
     const current = settings();
     const base = request.path.startsWith("/get_selectors")
       ? current.aiEndpoint
+      : request.path === "/graphql"
+        ? graphqlEndpointBase(current.stageBase)
       : current.configEndpoint;
     const url = resolveEndpoint(base, request.path.replace(/^\//, ""));
     if (!url) {

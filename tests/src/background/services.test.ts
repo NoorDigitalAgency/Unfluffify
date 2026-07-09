@@ -48,15 +48,18 @@ describe("rewrite background services", () => {
       const transport = createFetchJsonTransport(() => ({
         configEndpoint: "https://config.example.com/base",
         aiEndpoint: "https://ai.example.com:8443",
+        stageBase: "a.example.com",
         token: "token",
       }));
 
       await transport({ method: "POST", path: "/save", body: { ok: true } });
       await transport({ method: "POST", path: "/get_selectors", body: { ok: true } });
+      await transport({ method: "POST", path: "/graphql", body: { ok: true } });
 
       expect(calls.map((call) => call.url)).toEqual([
         "https://config.example.com/base/save",
         "https://ai.example.com:8443/get_selectors",
+        "https://api.a.example.com/graphql",
       ]);
       expect(calls[0].init.headers).toMatchObject({ authorization: "Bearer token" });
     } finally {
