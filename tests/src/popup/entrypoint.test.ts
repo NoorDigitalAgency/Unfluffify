@@ -338,6 +338,7 @@ describe("rewrite popup entrypoint", () => {
       target: "background",
       payload: expect.objectContaining({
         baseUrl: "https://example.com",
+        siteId: 1,
         selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
       }),
     }));

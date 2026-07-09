@@ -42,6 +42,7 @@ let lastSubmissionKey: string | null = null;
 let activeRunSessionId: string | null = null;
 let nextRunId = 0;
 let preLockPopupState: ReturnType<typeof store.getState> | null = null;
+let activeSiteId: number | null = null;
 
 type TargetTabContext = Readonly<{
   tabId: number;
@@ -137,6 +138,7 @@ function bindToTab(context: TargetTabContext): { changed: boolean; sameTabNaviga
   lastSubmissionKey = null;
   activeRunSessionId = null;
   preLockPopupState = null;
+  activeSiteId = null;
   store.reset({ name: "silent", lastConsumedSeq: 0, reconciliationReason: "" });
   return { changed: true, sameTabNavigation, key: nextKey };
 }
@@ -488,6 +490,7 @@ async function refreshLockDirective(context: TargetTabContext, requestKey = boun
   if (!lock || boundTabId !== context.tabId || boundTabKey !== requestKey) {
     return null;
   }
+  activeSiteId = lock.siteId;
   applyLockPresentation(lock, requestKey);
   await sendContentMessage(context.tabId, composeContentDirective(context, lock));
   return lock;
@@ -515,7 +518,7 @@ function configFromSubmission(snapshot: AiRunPayloadSnapshot, selectors: Selecto
   return {
     version: 1,
     baseUrl: snapshot.baseUrl,
-    siteId: null,
+    siteId: activeSiteId,
     renderMode: snapshot.renderMode,
     renderModeUpdatedAt: now,
     selectors,
