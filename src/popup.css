@@ -1,3 +1,11 @@
+/* The theme defines --bg but nothing painted it, so the popup inherited the
+   user agent canvas — which `color-scheme: light dark` turns dark, leaving light
+   theme cards stranded on a black page. Painting the token keeps the surface
+   consistent, and follows whichever theme is selected later. */
+body {
+  background: var(--bg);
+}
+
 body.is-busy {
   overflow: hidden;
 }
