@@ -249,4 +249,105 @@ describe("rewrite background startup", () => {
       expect.objectContaining({ method: "Emulation.setDeviceMetricsOverride", params: expect.objectContaining({ width: 412, height: 960 }) }),
     ]));
   });
+
+  it("round-trips connection settings so the popup can configure the endpoints", async () => {
+    const addMessageListener = vi.fn();
+    globalThis.chrome = {
+      runtime: {
+        sendMessage: vi.fn(),
+        onMessage: { addListener: addMessageListener },
+      },
+      alarms: {
+        create: vi.fn(),
+        clear: vi.fn(),
+        onAlarm: { addListener: vi.fn() },
+      },
+    } as unknown as typeof chrome;
+
+    const { startRewriteBackground } = await import("../../../src/background/index");
+    startRewriteBackground();
+    const runtimeListener = addMessageListener.mock.calls[0]?.[0] as (message: unknown, sender: unknown, sendResponse: (value: unknown) => void) => unknown;
+
+    const call = async (name: string, payload: unknown, id: string, seq: number): Promise<unknown> => {
+      let response: unknown;
+      runtimeListener({
+        kind: "uf-bus/1",
+        frameType: "request",
+        id,
+        seq,
+        name,
+        source: "popup",
+        sourceInstance: "popup:test",
+        target: "background",
+        payload,
+      }, {}, (value: unknown) => {
+        response = value;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      return response;
+    };
+
+    expect(await call("settings.load", {}, "settings-load-1", 1)).toMatchObject({
+      ok: true,
+      payload: { settings: {} },
+    });
+
+    const settings = {
+      configEndpoint: "https://config.example.com/",
+      aiEndpoint: "https://ai.example.com/",
+      stageBase: "stage.example.com",
+      token: "tok_abc",
+    };
+    expect(await call("settings.save", settings, "settings-save-1", 2)).toMatchObject({
+      ok: true,
+      payload: { status: "ok", settings },
+    });
+    expect(await call("settings.load", {}, "settings-load-2", 3)).toMatchObject({
+      ok: true,
+      payload: { settings },
+    });
+  });
+
+  it("rejects a settings payload whose endpoints are not URLs", async () => {
+    const addMessageListener = vi.fn();
+    globalThis.chrome = {
+      runtime: {
+        sendMessage: vi.fn(),
+        onMessage: { addListener: addMessageListener },
+      },
+      alarms: {
+        create: vi.fn(),
+        clear: vi.fn(),
+        onAlarm: { addListener: vi.fn() },
+      },
+    } as unknown as typeof chrome;
+
+    const { startRewriteBackground } = await import("../../../src/background/index");
+    startRewriteBackground();
+    const runtimeListener = addMessageListener.mock.calls[0]?.[0] as (message: unknown, sender: unknown, sendResponse: (value: unknown) => void) => unknown;
+
+    let response: unknown;
+    runtimeListener({
+      kind: "uf-bus/1",
+      frameType: "request",
+      id: "settings-bad-1",
+      seq: 1,
+      name: "settings.save",
+      // An empty string is what a cleared input yields; it must not be stored as
+      // an endpoint, or every later request resolves against a broken base.
+      source: "popup",
+      sourceInstance: "popup:test",
+      target: "background",
+      payload: { configEndpoint: "" },
+    }, {}, (value: unknown) => {
+      response = value;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(response).toMatchObject({
+      frameType: "reply",
+      ok: false,
+      failure: { code: "INVALID_PAYLOAD" },
+    });
+  });
 });

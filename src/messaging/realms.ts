@@ -14,6 +14,7 @@ import { AiRunPayloadSnapshotSchema } from "../domain/schema/submission";
 import { LockRoleSchema } from "../domain/schema/facts";
 import { ConfigSnapshotSchema, SelectorSetSchema } from "../storage/config";
 import { MarkRowSchema } from "../domain/schema/marking";
+import { SettingsSchema } from "../storage/settings";
 
 const LockDirectiveRequestSchema = z.object({
   tabId: z.number().int().nonnegative(),
@@ -101,6 +102,14 @@ export const applicationContract = defineContract({
         status: z.string(),
         httpStatus: z.number().optional(),
       }),
+    },
+    "settings.load": {
+      request: z.object({}),
+      response: z.object({ settings: SettingsSchema }),
+    },
+    "settings.save": {
+      request: SettingsSchema,
+      response: z.object({ status: z.literal("ok"), settings: SettingsSchema }),
     },
     "lock.directive": {
       request: LockDirectiveRequestSchema,

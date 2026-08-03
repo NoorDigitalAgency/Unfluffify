@@ -45,6 +45,23 @@ describe("corrective messaging application contracts", () => {
     })).resolves.toEqual({ ok: true, data: { ok: true, data: { accepted: true } } });
   });
 
+  it("carries connection settings over the bus and rejects non-URL endpoints", () => {
+    const save = applicationContract.commands["settings.save"];
+
+    expect(save.request.parse({
+      configEndpoint: "https://config.example.com/",
+      aiEndpoint: "https://ai.example.com/",
+      stageBase: "stage.example.com",
+      token: "tok_abc",
+    })).toMatchObject({ stageBase: "stage.example.com" });
+    // Omitted, not blank: a cleared input must drop the key so the transport
+    // falls back to "endpoint_unconfigured" instead of a malformed base URL.
+    expect(save.request.parse({})).toEqual({});
+    expect(save.request.safeParse({ configEndpoint: "" }).success).toBe(false);
+    expect(save.request.safeParse({ aiEndpoint: "not-a-url" }).success).toBe(false);
+    expect(applicationContract.commands["settings.load"].response.safeParse({ settings: {} }).success).toBe(true);
+  });
+
   it("allows initial signal cursor pulls from afterSeq zero", () => {
     expect(applicationContract.commands["signals.pull"].request.parse({
       tabId: 1,

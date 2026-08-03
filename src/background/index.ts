@@ -180,6 +180,14 @@ export function startRewriteBackground(): void {
       ? { status: result.status }
       : { status: result.status, httpStatus: result.httpStatus };
   });
+  bus.onCommand("settings.load", async () => {
+    const result = await services.repos.settingsStore.load();
+    return { settings: result.ok && result.value ? result.value : {} };
+  });
+  bus.onCommand("settings.save", async (settings) => {
+    await services.repos.settingsStore.save(settings);
+    return { status: "ok" as const, settings };
+  });
   void Promise.resolve(api.sidePanel?.setOptions?.({
     path: "popup.html",
     enabled: true,
