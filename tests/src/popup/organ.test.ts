@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { BrainSignal } from "../../../src/domain/schema/signals";
 import { transitionPopupState } from "../../../src/popup/organ/machine";
+import { createPopupStore } from "../../../src/popup/store";
 
 function signal(seq: number, name: BrainSignal["name"], payload: BrainSignal["payload"] = {}): BrainSignal {
   return {
@@ -67,5 +68,38 @@ describe("rewrite popup FSM", () => {
     state = transitionPopupState(state, signal(3, "run.failed", { pageUrl: "https://example.com", sessionId: "old-run" }));
 
     expect(state.name).toBe("running");
+  });
+});
+
+describe("popup store desktop preview preference", () => {
+  it("projects the preference and notifies subscribers", () => {
+    const store = createPopupStore({ name: "pre_ai_clean", lastConsumedSeq: 0, reconciliationReason: "" });
+    const seen: boolean[] = [];
+    store.subscribe((state) => seen.push(state.desktopPreviewChecked === true));
+
+    expect(store.getPresentation().desktopPreviewChecked).toBe(false);
+    store.setDesktopPreview(true);
+
+    expect(seen).toEqual([true]);
+    expect(store.getPresentation().desktopPreviewChecked).toBe(true);
+  });
+
+  it("does not notify when the preference is unchanged", () => {
+    const store = createPopupStore({ name: "pre_ai_clean", lastConsumedSeq: 0, reconciliationReason: "", desktopPreviewChecked: true });
+    const seen: boolean[] = [];
+    store.subscribe((state) => seen.push(state.desktopPreviewChecked === true));
+
+    store.setDesktopPreview(true);
+
+    expect(seen).toEqual([]);
+  });
+
+  it("keeps the preference out of the matrix states that force the enable toggle off", () => {
+    const store = createPopupStore({ name: "silent", lastConsumedSeq: 0, reconciliationReason: "" });
+    store.setDesktopPreview(true);
+
+    const presentation = store.getPresentation();
+    expect(presentation.enableToggleChecked).toBe(false);
+    expect(presentation.desktopPreviewChecked).toBe(true);
   });
 });

@@ -9,6 +9,69 @@ export type PopupActionAvailability = Readonly<{
   preview?: boolean;
 }>;
 
+export type PopupSettingsForm = Readonly<{
+  configEndpoint: string;
+  aiEndpoint: string;
+  stageBase: string;
+  token: string;
+}>;
+
+export type PopupSettingsField = keyof PopupSettingsForm;
+
+export type PopupLogEntry = Readonly<{
+  at: number;
+  label: string;
+  detail: string;
+  tone: "info" | "success" | "warn" | "danger";
+}>;
+
+/** Everything the popup knows that the brain projection does not carry — the
+ *  operator-facing facts a tester needs to see to tell "blocked" from "broken". */
+export type PopupDiagnostics = Readonly<{
+  stateName: string;
+  pageUrl: string;
+  baseUrl: string;
+  siteId: number | null;
+  lockStatus: string;
+  lockRole: string;
+  configPresent: boolean;
+  contentActive: boolean;
+  contentDirty: boolean;
+  runSessionId: string;
+  /** False until a settings read succeeds; the form must stay read-only so an
+   *  unread store is never mistaken for an empty one and overwritten. */
+  settingsLoaded: boolean;
+  settingsSaved: boolean;
+  settingsDirty: boolean;
+  settingsBusy: boolean;
+  log: readonly PopupLogEntry[];
+}>;
+
+export const EMPTY_POPUP_DIAGNOSTICS: PopupDiagnostics = {
+  stateName: "",
+  pageUrl: "",
+  baseUrl: "",
+  siteId: null,
+  lockStatus: "",
+  lockRole: "",
+  configPresent: false,
+  contentActive: false,
+  contentDirty: false,
+  runSessionId: "",
+  settingsLoaded: false,
+  settingsSaved: false,
+  settingsDirty: false,
+  settingsBusy: false,
+  log: [],
+};
+
+export const EMPTY_POPUP_SETTINGS_FORM: PopupSettingsForm = {
+  configEndpoint: "",
+  aiEndpoint: "",
+  stageBase: "",
+  token: "",
+};
+
 export function resolvePopupActionButtons(presentation: PopupPresentation, availability: PopupActionAvailability) {
   return {
     compute: {
@@ -30,13 +93,107 @@ export function resolvePopupActionButtons(presentation: PopupPresentation, avail
   };
 }
 
-export function App({ presentation, onEnableChange, onRunAi, onSave, onDiscard, onPreview }: Readonly<{
+export type PopupCurtainKind = "none" | "busy" | "blocked";
+
+/** A busy curtain is transient, so it earns a blocking scrim. A lock block can
+ *  outlast the session, and scrimming it would bury the setup form that is the
+ *  only way out of it — so that flavor narrates inline instead. */
+export function resolvePopupCurtainKind(presentation: PopupPresentation): PopupCurtainKind {
+  if (!presentation.curtainVisible) {
+    return "none";
+  }
+  return presentation.lockBanner.visible ? "blocked" : "busy";
+}
+
+const CLASSIFICATION_LABEL: Readonly<Record<string, string>> = {
+  included: "Included",
+  excluded: "Excluded",
+  immutable: "Immutable",
+  "closed-shadow": "Closed shadow",
+};
+
+const CLASSIFICATION_TONE: Readonly<Record<string, string>> = {
+  included: "u-color-success",
+  excluded: "u-color-danger",
+  immutable: "u-color-muted",
+  "closed-shadow": "u-color-warning",
+};
+
+const SETTINGS_FIELDS: readonly Readonly<{
+  field: PopupSettingsField;
+  label: string;
+  placeholder: string;
+  type: "text" | "password";
+}>[] = [
+  { field: "configEndpoint", label: "Config endpoint", placeholder: "https://config.example.com", type: "text" },
+  { field: "aiEndpoint", label: "AI endpoint", placeholder: "https://ai.example.com", type: "text" },
+  { field: "stageBase", label: "Stage base host", placeholder: "stage.example.com", type: "text" },
+  { field: "token", label: "Bearer token", placeholder: "Paste the API token", type: "password" },
+];
+
+function countRows(rows: PopupPresentation["contentRows"], classification: string): number {
+  return rows.filter((row) => row.classification === classification).length;
+}
+
+function lockToneClass(presentation: PopupPresentation, diagnostics: PopupDiagnostics): string {
+  if (!presentation.lockBanner.visible && diagnostics.lockRole === "editor") {
+    return "u-tone-success";
+  }
+  return diagnostics.lockStatus === "unavailable" || diagnostics.lockStatus === "not_candidate"
+    ? "u-tone-danger"
+    : "u-tone-warning";
+}
+
+function lockStatusText(presentation: PopupPresentation, diagnostics: PopupDiagnostics): string {
+  if (presentation.lockBanner.text) {
+    return presentation.lockBanner.text;
+  }
+  return diagnostics.lockRole === "editor" ? "You hold the editor lock" : "Property lock pending";
+}
+
+function StatRow({ icon, label, value, tone }: Readonly<{
+  icon: string;
+  label: string;
+  value: string;
+  tone?: string;
+}>) {
+  return (
+    <div className="row">
+      <span className="row-label">
+        <i className={`mdi ${icon} row-icon`} aria-hidden="true" />
+        <span>{label}</span>
+      </span>
+      <span className={`u-font-mono ${tone ?? "u-color-muted"}`} data-stat={label}>{value}</span>
+    </div>
+  );
+}
+
+export function App({
+  presentation,
+  diagnostics = EMPTY_POPUP_DIAGNOSTICS,
+  settings = EMPTY_POPUP_SETTINGS_FORM,
+  onEnableChange,
+  onDesktopPreviewChange,
+  onRunAi,
+  onSave,
+  onDiscard,
+  onPreview,
+  onRefresh,
+  onSettingsChange,
+  onSettingsSave,
+}: Readonly<{
   presentation: PopupPresentation;
+  diagnostics?: PopupDiagnostics;
+  settings?: PopupSettingsForm;
   onEnableChange?: (enabled: boolean) => void;
+  onDesktopPreviewChange?: (enabled: boolean) => void;
   onRunAi?: () => void;
   onSave?: () => void;
   onDiscard?: () => void;
   onPreview?: () => void;
+  onRefresh?: () => void;
+  onSettingsChange?: (field: PopupSettingsField, value: string) => void;
+  onSettingsSave?: () => void;
 }>) {
   const buttons = resolvePopupActionButtons(presentation, {
     runAi: Boolean(onRunAi),
@@ -44,24 +201,402 @@ export function App({ presentation, onEnableChange, onRunAi, onSave, onDiscard, 
     discard: Boolean(onDiscard),
     preview: Boolean(onPreview),
   });
+  const curtainKind = resolvePopupCurtainKind(presentation);
+  const includedCount = countRows(presentation.contentRows, "included");
+  const excludedCount = countRows(presentation.contentRows, "excluded");
+  const selectorCount = presentation.selectors.inclusionSelectors.length + presentation.selectors.exclusionSelectors.length;
+  /* "Nothing configured", "configured but unreachable" and "could not read the
+     store" look identical in the lock strip, and the fix differs for each — so
+     name which one it is. */
+  const setupProblem = !diagnostics.settingsLoaded
+    ? "unreadable"
+    : !diagnostics.settingsSaved
+      ? "unconfigured"
+      : diagnostics.lockStatus === "unavailable" ? "unreachable" : "";
+
+  if (presentation.mainUiHidden) {
+    return (
+      <main className="app" data-main-hidden={presentation.mainUiHidden}>
+        <div className="popup-loading-view" role="status">
+          <span className="popup-loading-view__spinner" aria-hidden="true" />
+          <span className="popup-loading-view__title">{presentation.curtainText || "Starting Unfluffify"}</span>
+        </div>
+      </main>
+    );
+  }
+
   return (
-    <main data-main-hidden={presentation.mainUiHidden}>
-      {presentation.curtainVisible ? <section role="status">{presentation.curtainText}</section> : null}
-      <button id="compute" disabled={buttons.compute.disabled} data-blocked-reason={buttons.compute.blockedReason} onClick={onRunAi}>Run AI</button>
-      <button id="page-save" disabled={buttons.save.disabled} data-blocked-reason={buttons.save.blockedReason} onClick={onSave}>Save</button>
-      <button id="page-revert" disabled={buttons.discard.disabled} data-blocked-reason={buttons.discard.blockedReason} onClick={onDiscard}>Discard</button>
-      <button id="marking-preview" disabled={buttons.preview.disabled} data-blocked-reason={buttons.preview.blockedReason} onClick={onPreview}>Show Content List</button>
-      <label>Enable Marking<input id="toggle-enabled" type="checkbox" checked={presentation.enableToggleChecked} onChange={(event) => onEnableChange?.(event.currentTarget.checked)} /></label>
-      <label>Desktop Preview<input id="desktop-preview" type="checkbox" checked={presentation.desktopPreviewChecked} readOnly /></label>
-      {presentation.countdownText ? <time data-run-countdown={presentation.countdownText}>{presentation.countdownText}</time> : null}
-      {presentation.lockBanner.visible ? <aside data-lock-banner>{presentation.lockBanner.text}{presentation.lockBanner.countdownSeconds ? ` (${presentation.lockBanner.countdownSeconds})` : ""}</aside> : null}
-      <section aria-label="Marked rows">
-        {presentation.contentRows.map((row) => <div key={row.xpath} data-row-classification={row.classification}>{row.xpath}</div>)}
+    <main className="app" data-main-hidden={presentation.mainUiHidden} data-state-name={diagnostics.stateName}>
+      <header className="app-header">
+        <div className="header-text">
+          <span className="section-title">
+            <i className="mdi mdi-broom btn-icon" aria-hidden="true" />
+            <span>Unfluffify</span>
+          </span>
+          <span className="hint status-text" data-session-phase={diagnostics.stateName}>
+            {diagnostics.stateName || "unknown"}
+            {presentation.silentModeActive ? " · idle" : ""}
+            {presentation.temporarilyDisabledOverlay ? " · marking suspended" : ""}
+          </span>
+        </div>
+        <div className="header-property-url">
+          <span className="control-label">
+            <i className="mdi mdi-link-variant field-icon" aria-hidden="true" />
+            <span className="control-label-text">Page</span>
+          </span>
+          <span className="readout" id="page-url-readout" title={diagnostics.pageUrl}>
+            {diagnostics.pageUrl || "No page bound"}
+          </span>
+        </div>
+      </header>
+
+      {/* When the lock is what blocks the session, this strip *is* the curtain
+          narration — repeating it in a separate alert only adds noise. */}
+      <section
+        className={`property-lock u-surface-tone ${lockToneClass(presentation, diagnostics)}`}
+        aria-label="Property lock"
+        data-curtain-kind={curtainKind}
+        {...(presentation.lockBanner.visible ? { "data-lock-banner": "true" } : {})}
+      >
+        <span className="property-lock__icon">
+          <i
+            className={`mdi ${presentation.lockBanner.visible ? "mdi-lock" : "mdi-lock-open-variant"} btn-icon`}
+            aria-hidden="true"
+          />
+        </span>
+        <span className="property-lock__text">
+          <span className="property-lock__status">
+            {lockStatusText(presentation, diagnostics)}
+            {presentation.lockBanner.countdownSeconds ? ` (${presentation.lockBanner.countdownSeconds}s)` : ""}
+          </span>
+          <span className="property-lock__detail">
+            {`status ${diagnostics.lockStatus || "pending"} · role ${diagnostics.lockRole || "unknown"} · site ${diagnostics.siteId ?? "—"}`}
+          </span>
+        </span>
+        <span className="property-lock__actions">
+          <button
+            id="lock-refresh"
+            type="button"
+            className="property-lock__button u-btn-secondary"
+            disabled={!onRefresh}
+            onClick={onRefresh}
+          >
+            <i className="mdi mdi-refresh btn-icon" aria-hidden="true" />
+            Refresh
+          </button>
+        </span>
       </section>
-      <section aria-label="AI selectors">
-        {presentation.selectors.inclusionSelectors.map((selector) => <code key={`include:${selector}`} data-selector-kind="include">{selector}</code>)}
-        {presentation.selectors.exclusionSelectors.map((selector) => <code key={`exclude:${selector}`} data-selector-kind="exclude">{selector}</code>)}
+
+      {setupProblem ? (
+        <div
+          className={`u-alert ${setupProblem === "unreadable" ? "u-alert-warn" : "u-alert-danger"}`}
+          role="status"
+          data-setup-required={setupProblem}
+        >
+          {setupProblem === "unreadable"
+            ? "Reading the stored connection… if this persists, the background service worker is not answering."
+            : setupProblem === "unconfigured"
+              ? "Set the endpoints and token below — without them the site lookup, AI run and save all fail."
+              : "The saved endpoints did not answer the site lookup. Check the stage base host and token below."}
+        </div>
+      ) : null}
+
+      <section className="card" aria-label="Session controls">
+        <div className="section-header">
+          <span className="section-title">
+            <i className="mdi mdi-cursor-default-click btn-icon" aria-hidden="true" />
+            <span>Marking session</span>
+          </span>
+          {presentation.countdownText ? (
+            <time className="hint u-font-mono" data-run-countdown={presentation.countdownText}>
+              {presentation.countdownText}
+            </time>
+          ) : null}
+        </div>
+
+        <label className="row" htmlFor="toggle-enabled">
+          <span className="row-label">
+            <i className="mdi mdi-pencil-ruler row-icon" aria-hidden="true" />
+            <span>Enable marking</span>
+          </span>
+          <input
+            id="toggle-enabled"
+            type="checkbox"
+            checked={presentation.enableToggleChecked}
+            /* A lock block is the one case where enabling can never succeed. */
+            disabled={!onEnableChange || presentation.lockBanner.visible}
+            onChange={(event) => onEnableChange?.(event.currentTarget.checked)}
+          />
+        </label>
+
+        <label className="row" htmlFor="desktop-preview-enabled">
+          <span className="row-label">
+            <i
+              className={`mdi ${presentation.desktopPreviewChecked ? "mdi-monitor" : "mdi-cellphone"} row-icon`}
+              aria-hidden="true"
+            />
+            <span>Desktop preview</span>
+          </span>
+          <input
+            id="desktop-preview-enabled"
+            type="checkbox"
+            checked={presentation.desktopPreviewChecked}
+            disabled={!onDesktopPreviewChange}
+            onChange={(event) => onDesktopPreviewChange?.(event.currentTarget.checked)}
+          />
+        </label>
+
+        <div className="section-divider" />
+
+        <div className="button-row">
+          <button
+            id="compute"
+            type="button"
+            disabled={buttons.compute.disabled}
+            data-blocked-reason={buttons.compute.blockedReason}
+            title={buttons.compute.blockedReason}
+            onClick={onRunAi}
+          >
+            <i className="mdi mdi-robot btn-icon" aria-hidden="true" />
+            Run AI
+          </button>
+          <button
+            id="page-save"
+            type="button"
+            disabled={buttons.save.disabled}
+            data-blocked-reason={buttons.save.blockedReason}
+            title={buttons.save.blockedReason}
+            onClick={onSave}
+          >
+            <i className="mdi mdi-content-save btn-icon" aria-hidden="true" />
+            Save
+          </button>
+          <button
+            id="page-revert"
+            type="button"
+            className="u-btn-danger"
+            disabled={buttons.discard.disabled}
+            data-blocked-reason={buttons.discard.blockedReason}
+            title={buttons.discard.blockedReason}
+            onClick={onDiscard}
+          >
+            <i className="mdi mdi-undo btn-icon" aria-hidden="true" />
+            Discard
+          </button>
+          <button
+            id="marking-preview"
+            type="button"
+            className="u-btn-secondary"
+            disabled={buttons.preview.disabled}
+            data-blocked-reason={buttons.preview.blockedReason}
+            title={buttons.preview.blockedReason}
+            onClick={onPreview}
+          >
+            <i className="mdi mdi-format-list-bulleted btn-icon" aria-hidden="true" />
+            Content list
+          </button>
+        </div>
+
+        {presentation.blockedReason && curtainKind === "none" ? (
+          <p className="hint" data-blocked-reason={presentation.blockedReason}>
+            Blocked: {presentation.blockedReason}
+          </p>
+        ) : null}
       </section>
+
+      <section className="card" aria-label="Diagnostics">
+        <div className="section-header">
+          <span className="section-title">
+            <i className="mdi mdi-information-outline btn-icon" aria-hidden="true" />
+            <span>Status</span>
+          </span>
+        </div>
+        <StatRow icon="mdi-link-variant" label="Base URL" value={diagnostics.baseUrl || "—"} />
+        <StatRow
+          icon="mdi-cog"
+          label="Config"
+          value={diagnostics.configPresent ? "loaded" : "missing"}
+          tone={diagnostics.configPresent ? "u-color-success" : "u-color-danger"}
+        />
+        <StatRow
+          icon="mdi-eye"
+          label="Content script"
+          value={diagnostics.contentActive ? (diagnostics.contentDirty ? "active · unsaved" : "active · clean") : "inactive"}
+          tone={diagnostics.contentActive ? "u-color-success" : "u-color-muted"}
+        />
+        <StatRow
+          icon="mdi-selection-marker"
+          label="Marked rows"
+          value={`${presentation.contentRows.length} (${includedCount} in / ${excludedCount} out)`}
+        />
+        <StatRow
+          icon="mdi-robot"
+          label="AI selectors"
+          value={`${selectorCount} (${presentation.selectors.inclusionSelectors.length} in / ${presentation.selectors.exclusionSelectors.length} out)`}
+          tone={selectorCount > 0 ? "u-color-success" : "u-color-muted"}
+        />
+        <StatRow icon="mdi-history" label="Run session" value={diagnostics.runSessionId || "—"} />
+      </section>
+
+      <section className="card" aria-label="Marked rows">
+        <div className="section-header">
+          <span className="section-title">
+            <i className="mdi mdi-format-list-bulleted btn-icon" aria-hidden="true" />
+            <span>Marked rows</span>
+          </span>
+          <span className="hint u-font-mono">{presentation.contentRows.length}</span>
+        </div>
+        {presentation.contentRows.length === 0 ? (
+          <p className="preview-sidebar__empty">
+            Nothing marked yet. Enable marking, then alt-click to include and click to exclude.
+          </p>
+        ) : (
+          <ul className="preview-sidebar__list">
+            {presentation.contentRows.map((row, index) => (
+              <li
+                key={row.xpath}
+                className={`preview-sidebar__item preview-sidebar__item--${row.classification}`}
+                data-row-classification={row.classification}
+              >
+                <div className="preview-sidebar__item-button" aria-disabled="true">
+                  <span className="preview-sidebar__item-index">{index + 1}</span>
+                  <span className="preview-sidebar__item-text">
+                    <span className={`u-d-block ${CLASSIFICATION_TONE[row.classification] ?? "u-color-muted"}`}>
+                      {CLASSIFICATION_LABEL[row.classification] ?? row.classification}
+                    </span>
+                    <span className="u-font-mono">{row.xpath}</span>
+                  </span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="card" aria-label="AI selectors">
+        <div className="section-header">
+          <span className="section-title">
+            <i className="mdi mdi-robot btn-icon" aria-hidden="true" />
+            <span>AI selectors</span>
+          </span>
+          <span className="hint u-font-mono">{selectorCount}</span>
+        </div>
+        {selectorCount === 0 ? (
+          <p className="hint">No selectors yet — they arrive when a Run AI completes.</p>
+        ) : (
+          /* Selector text first: the theme's `.list li` rule pushes the second
+             child to the right edge, which is where the badge belongs. */
+          <ul className="list">
+            {presentation.selectors.inclusionSelectors.map((selector) => (
+              <li key={`include:${selector}`}>
+                <span data-selector-kind="include">{selector}</span>
+                <span className="status u-color-success">include</span>
+              </li>
+            ))}
+            {presentation.selectors.exclusionSelectors.map((selector) => (
+              <li key={`exclude:${selector}`}>
+                <span data-selector-kind="exclude">{selector}</span>
+                <span className="status u-color-danger">exclude</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <details className="collapsible" open={setupProblem !== ""} data-settings-panel="true">
+        <summary>
+          <i className="mdi mdi-tune btn-icon" aria-hidden="true" />
+          Connection
+          <span className={`hint u-ms-auto ${!diagnostics.settingsLoaded ? "u-color-warning" : diagnostics.settingsSaved ? "u-color-success" : "u-color-danger"}`}>
+            {!diagnostics.settingsLoaded ? "unread" : diagnostics.settingsSaved ? "configured" : "not configured"}
+          </span>
+        </summary>
+        <div className="collapsible-body">
+          {SETTINGS_FIELDS.map(({ field, label, placeholder, type }) => (
+            <div className="field field--compact" key={field}>
+              <label className="control-label" htmlFor={`settings-${field}`}>
+                <span className="control-label-text">{label}</span>
+              </label>
+              <input
+                id={`settings-${field}`}
+                name={field}
+                type={type}
+                value={settings[field]}
+                placeholder={placeholder}
+                autoComplete="off"
+                spellCheck={false}
+                disabled={!onSettingsChange || !diagnostics.settingsLoaded}
+                onChange={(event) => onSettingsChange?.(field, event.currentTarget.value)}
+              />
+            </div>
+          ))}
+          <div className="endpoint-row">
+            <span className="token-status">
+              {!diagnostics.settingsLoaded
+                ? "Could not read the stored connection"
+                : diagnostics.settingsBusy
+                  ? "Saving…"
+                  : diagnostics.settingsDirty
+                    ? "Unsaved changes"
+                    : diagnostics.settingsSaved
+                      ? "Saved"
+                      : "Nothing stored yet"}
+            </span>
+            <button
+              id="settings-save"
+              type="button"
+              disabled={!onSettingsSave || diagnostics.settingsBusy || !diagnostics.settingsDirty || !diagnostics.settingsLoaded}
+              onClick={onSettingsSave}
+            >
+              <i className="mdi mdi-content-save btn-icon" aria-hidden="true" />
+              Save connection
+            </button>
+          </div>
+          <p className="hint">
+            The stage base host backs the GraphQL site lookup, which decides whether this page is a
+            managed property at all.
+          </p>
+        </div>
+      </details>
+
+      <div className="trace-events-panel" data-event-log="true">
+        <div className="trace-events-panel__header">
+          <i className="mdi mdi-history trace-events-panel__icon" aria-hidden="true" />
+          <span className="trace-events-panel__label">Activity</span>
+          <span className="trace-events-panel__badge">{diagnostics.log.length}</span>
+        </div>
+        <ul className="preview-sidebar__list">
+          {diagnostics.log.length === 0 ? (
+            <li className="preview-sidebar__empty">No activity recorded yet.</li>
+          ) : (
+            diagnostics.log.map((entry) => (
+              <li key={`${entry.at}:${entry.label}`} className="preview-sidebar__item">
+                <div className="preview-sidebar__item-button" aria-disabled="true">
+                  <span className="preview-sidebar__item-index">{new Date(entry.at).toLocaleTimeString()}</span>
+                  <span className="preview-sidebar__item-text">
+                    <span className={`u-d-block u-color-${entry.tone === "warn" ? "warning" : entry.tone === "info" ? "muted" : entry.tone}`}>
+                      {entry.label}
+                    </span>
+                    {entry.detail ? <span className="u-font-mono">{entry.detail}</span> : null}
+                  </span>
+                </div>
+              </li>
+            ))
+          )}
+        </ul>
+      </div>
+
+      {curtainKind === "busy" ? (
+        <div className="ui-curtain" role="status">
+          <div className="ui-curtain__content">
+            <span className="ui-curtain__spinner" aria-hidden="true" />
+            <span className="ui-curtain__title">{presentation.curtainText}</span>
+            {presentation.blockedReason ? <span className="ui-curtain__hint">{presentation.blockedReason}</span> : null}
+            {presentation.countdownText ? <span className="ui-curtain__timer">{presentation.countdownText}</span> : null}
+          </div>
+        </div>
+      ) : null}
+
       <output data-silent-mode={presentation.silentModeActive} data-temp-disabled={presentation.temporarilyDisabledOverlay} />
     </main>
   );

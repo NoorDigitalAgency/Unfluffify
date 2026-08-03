@@ -13,7 +13,12 @@ describe("C3 popup contract", () => {
       "utf8",
     );
 
-    expect(entrypointSource).toContain('import { App, resolvePopupActionButtons } from "../../popup/App";');
+    // Formatting-agnostic: the contract is what the entrypoint binds to, not how
+    // the import statement happens to wrap.
+    const appImport = entrypointSource.match(/import\s*\{([\s\S]*?)\}\s*from\s*"\.\.\/\.\.\/popup\/App";/);
+    expect(appImport).not.toBeNull();
+    expect(appImport?.[1]).toMatch(/\bApp\b/);
+    expect(appImport?.[1]).toMatch(/\bresolvePopupActionButtons\b/);
     expect(entrypointSource).toContain("createRoot(rootElement)");
     expect(entrypointSource).not.toContain("../../popup.js");
     expect(popupHtml).toContain('<script type="module" src="./main.tsx"></script>');

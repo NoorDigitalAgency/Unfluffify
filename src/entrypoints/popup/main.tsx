@@ -7,7 +7,15 @@ import "../../public/assets/materialdesignicons.min.css";
 import React from "react";
 import { createRoot } from "react-dom/client";
 
-import { App, resolvePopupActionButtons } from "../../popup/App";
+import {
+  App,
+  EMPTY_POPUP_SETTINGS_FORM,
+  resolvePopupActionButtons,
+  type PopupDiagnostics,
+  type PopupLogEntry,
+  type PopupSettingsField,
+  type PopupSettingsForm,
+} from "../../popup/App";
 import { createPopupStore } from "../../popup/store";
 import type { BrainSignal } from "../../domain/schema/signals";
 import type { AiRunPayloadSnapshot } from "../../domain/schema/submission";
@@ -17,6 +25,7 @@ import { createTabTransport } from "../../messaging/transports/tabs";
 import { createRuntimeTransport } from "../../messaging/transports/runtime";
 import { emitRewriteSignal, pullRewriteSignals, type RewriteSignalBus } from "../../messaging/rewrite-signals";
 import type { ConfigSnapshot, SelectorSet } from "../../storage/config";
+import type { Settings } from "../../storage/settings";
 
 type PopupDebugApi = Readonly<{
   getViewState: () => Record<string, unknown>;
@@ -43,6 +52,91 @@ let activeRunSessionId: string | null = null;
 let nextRunId = 0;
 let preLockPopupState: ReturnType<typeof store.getState> | null = null;
 let activeSiteId: number | null = null;
+let settingsForm: PopupSettingsForm = EMPTY_POPUP_SETTINGS_FORM;
+/** Null until a load succeeds. The form stays read-only that whole time so a
+ *  failed read can never be mistaken for "nothing stored" and saved over. */
+let storedSettingsForm: PopupSettingsForm | null = null;
+let settingsBusy = false;
+let settingsLoadReported = false;
+let settingsFormDirty = false;
+/** Kept outside the store so the preference survives the resets that a lock
+ *  takeover or a tab rebinding performs on the projected state. */
+let desktopPreviewEnabled = false;
+let boundTabUrl = "";
+let lockStatus = "";
+let lockRole = "";
+let configPresent = false;
+let contentActive = false;
+let contentDirty = false;
+let eventLog: readonly PopupLogEntry[] = [];
+
+const MAX_LOG_ENTRIES = 40;
+
+function logEvent(label: string, detail = "", tone: PopupLogEntry["tone"] = "info"): void {
+  eventLog = [{ at: Date.now(), label, detail, tone }, ...eventLog].slice(0, MAX_LOG_ENTRIES);
+}
+
+function safeOrigin(url: string): string {
+  try {
+    return url ? new URL(url).origin : "";
+  } catch {
+    return "";
+  }
+}
+
+/** Every reset must carry the local view preferences forward — they are not
+ *  brain facts, so nothing downstream would restore them. */
+function resetPopupState(next: Parameters<typeof store.reset>[0]): void {
+  store.reset(next ? { ...next, desktopPreviewChecked: desktopPreviewEnabled } : next);
+}
+
+function settingsFormFrom(settings: Settings): PopupSettingsForm {
+  return {
+    configEndpoint: settings.configEndpoint ?? "",
+    aiEndpoint: settings.aiEndpoint ?? "",
+    stageBase: settings.stageBase ?? "",
+    token: settings.token ?? "",
+  };
+}
+
+/** Zod rejects "" for the URL fields, so blank inputs must drop out entirely. */
+function settingsFromForm(form: PopupSettingsForm): Settings {
+  const trimmed = {
+    configEndpoint: form.configEndpoint.trim(),
+    aiEndpoint: form.aiEndpoint.trim(),
+    stageBase: form.stageBase.trim(),
+    token: form.token.trim(),
+  };
+  return Object.fromEntries(
+    Object.entries(trimmed).filter(([, value]) => value !== ""),
+  ) as Settings;
+}
+
+function settingsFormsMatch(left: PopupSettingsForm, right: PopupSettingsForm): boolean {
+  return (["configEndpoint", "aiEndpoint", "stageBase", "token"] as const)
+    .every((field) => left[field].trim() === right[field].trim());
+}
+
+function buildDiagnostics(): PopupDiagnostics {
+  const state = store.getState();
+  return {
+    stateName: state.name,
+    pageUrl: boundTabUrl,
+    baseUrl: safeOrigin(boundTabUrl),
+    siteId: activeSiteId,
+    lockStatus,
+    lockRole,
+    configPresent,
+    contentActive,
+    contentDirty,
+    runSessionId: activeRunSessionId ?? state.runSessionId ?? "",
+    settingsLoaded: storedSettingsForm !== null,
+    settingsSaved: storedSettingsForm !== null && !settingsFormsMatch(storedSettingsForm, EMPTY_POPUP_SETTINGS_FORM),
+    settingsDirty: storedSettingsForm !== null && !settingsFormsMatch(storedSettingsForm, settingsForm),
+    settingsBusy,
+    log: eventLog,
+  };
+}
 
 type TargetTabContext = Readonly<{
   tabId: number;
@@ -103,9 +197,25 @@ async function resolveTargetTabContext(): Promise<TargetTabContext | null> {
     : null;
 }
 
+const SIGNAL_TONES: Readonly<Partial<Record<BrainSignal["name"], PopupLogEntry["tone"]>>> = {
+  "run.completed": "success",
+  "session.saved": "success",
+  "run.failed": "danger",
+};
+
 function dispatchSignal(signal: BrainSignal): void {
+  const before = store.getState().name;
   store.dispatch(signal);
   seq = Math.max(seq, signal.seq);
+  if (signal.name === "markings.changed") {
+    contentDirty = true;
+  }
+  const after = store.getState().name;
+  logEvent(
+    signal.name,
+    before === after ? `#${signal.seq} · ${signal.source}` : `#${signal.seq} · ${before} → ${after}`,
+    SIGNAL_TONES[signal.name] ?? "info",
+  );
 }
 
 function signalMatchesBinding(signal: BrainSignal, tabId: number, requestKey: string | null): boolean {
@@ -133,13 +243,20 @@ function bindToTab(context: TargetTabContext): { changed: boolean; sameTabNaviga
   const sameTabNavigation = boundTabId === context.tabId && boundTabKey !== null;
   boundTabId = context.tabId;
   boundTabKey = nextKey;
+  boundTabUrl = context.url;
   lastPulledBrainSeq = 0;
   lastSubmissionSnapshot = null;
   lastSubmissionKey = null;
   activeRunSessionId = null;
   preLockPopupState = null;
   activeSiteId = null;
-  store.reset({ name: "silent", lastConsumedSeq: 0, reconciliationReason: "" });
+  lockStatus = "";
+  lockRole = "";
+  configPresent = false;
+  contentActive = false;
+  contentDirty = false;
+  logEvent(sameTabNavigation ? "Page navigated" : "Tab bound", context.url);
+  resetPopupState({ name: "silent", lastConsumedSeq: 0, reconciliationReason: "" });
   return { changed: true, sameTabNavigation, key: nextKey };
 }
 
@@ -245,6 +362,9 @@ async function pollCurrentTabSignals(): Promise<void> {
   const requestKey = await handleBoundContext(context);
   await pullSignals(context.tabId, requestKey);
   await refreshLockDirective(context, requestKey);
+  if (storedSettingsForm === null) {
+    await loadStoredSettings();
+  }
   render();
 }
 
@@ -465,15 +585,17 @@ function unavailableLockDirective(context: TargetTabContext): LockDirectiveRespo
 function applyLockPresentation(lock: LockDirectiveResponse, requestKey = boundTabKey): void {
   if (lockAllowsEditing(lock)) {
     if (store.getState().name === "locked") {
-      store.reset(preLockPopupState ?? { name: "silent", lastConsumedSeq: store.getState().lastConsumedSeq, reconciliationReason: "" });
+      logEvent("Editor lock acquired", `site ${lock.siteId ?? "—"}`, "success");
+      resetPopupState(preLockPopupState ?? { name: "silent", lastConsumedSeq: store.getState().lastConsumedSeq, reconciliationReason: "" });
     }
     preLockPopupState = null;
     return;
   }
   if (store.getState().name !== "locked" && preLockPopupState === null) {
     preLockPopupState = store.getState();
+    logEvent("Editing blocked", lock.lockBanner.text || lock.status, lock.status === "ok" ? "warn" : "danger");
   }
-  store.reset({
+  resetPopupState({
     name: "locked",
     lastConsumedSeq: store.getState().lastConsumedSeq,
     reconciliationReason: "",
@@ -491,6 +613,9 @@ async function refreshLockDirective(context: TargetTabContext, requestKey = boun
     return null;
   }
   activeSiteId = lock.siteId;
+  lockStatus = lock.status;
+  lockRole = lock.lockRole;
+  configPresent = isRecord(lock.directive) && lock.directive.configPresent === true;
   applyLockPresentation(lock, requestKey);
   await sendContentMessage(context.tabId, composeContentDirective(context, lock));
   return lock;
@@ -552,6 +677,8 @@ async function reconcileContentStatus(context: TargetTabContext, requestKey = bo
   if (status.pageUrl && status.pageUrl !== context.url) {
     return;
   }
+  contentActive = status.active === true;
+  contentDirty = status.dirty === true;
   if (status.active === true && store.getState().name === "silent") {
     await emitPopupSignal(context.tabId, "marking.enabled", {
       baseUrl: "",
@@ -587,10 +714,12 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
     await pullSignals(context.tabId, requestKey);
     const lock = await refreshLockDirective(context, requestKey);
     if (!lock || !lockAllowsEditing(lock)) {
+      logEvent("Enable marking refused", lock ? lock.lockBanner.text || lock.status : "lock unavailable", "danger");
       render();
       return;
     }
     if (!await applySessionEmulation(context)) {
+      logEvent("Enable marking failed", "device emulation could not be applied", "danger");
       await emitPopupSignal(context.tabId, "marking.disabled", { baseUrl: "", pageUrl: context.url, cause: "emulation-failed" }, requestKey);
       render();
       return;
@@ -603,6 +732,12 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
     if (!activated) {
       await clearSessionEmulation(context);
     }
+    contentActive = activated;
+    logEvent(
+      activated ? "Marking enabled" : "Marking activation failed",
+      activated ? context.url : "content script refused activation",
+      activated ? "success" : "danger",
+    );
     await emitPopupSignal(context.tabId, activated ? "marking.enabled" : "marking.disabled", {
       baseUrl: "",
       pageUrl: context.url,
@@ -615,8 +750,93 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
     lastSubmissionSnapshot = null;
     lastSubmissionKey = null;
     activeRunSessionId = null;
+    contentActive = false;
+    contentDirty = false;
+    logEvent("Marking disabled", "toggle");
     await emitPopupSignal(context.tabId, "marking.disabled", { baseUrl: "", pageUrl: context.url, cause: "toggle" }, requestKey);
   }
+  render();
+}
+
+async function setDesktopPreviewEnabled(enabled: boolean): Promise<void> {
+  desktopPreviewEnabled = enabled;
+  store.setDesktopPreview(enabled);
+  logEvent("Device preview", enabled ? "desktop" : "mobile");
+  render();
+  const context = await resolveTargetTabContext();
+  if (context === null || !contentActive) {
+    return;
+  }
+  if (!await applySessionEmulation(context)) {
+    logEvent("Device preview failed", "emulation could not be re-applied", "warn");
+  }
+  render();
+}
+
+async function refreshPopup(): Promise<void> {
+  const context = await resolveTargetTabContext();
+  if (context === null) {
+    logEvent("Refresh failed", "no active tab", "danger");
+    render();
+    return;
+  }
+  const requestKey = await handleBoundContext(context);
+  await pullSignals(context.tabId, requestKey);
+  const lock = await refreshLockDirective(context, requestKey);
+  await reconcileContentStatus(context, requestKey);
+  logEvent("Refreshed", lock ? `lock ${lock.status} · role ${lock.lockRole}` : "lock unavailable", lock ? "info" : "warn");
+  render();
+}
+
+/** The service worker may still be waking when the popup mounts, so the first
+ *  read can lose the race. The poll loop retries until one lands. */
+async function loadStoredSettings(): Promise<void> {
+  if (settingsBusy) {
+    return;
+  }
+  const response = await getPopupBus().request("settings.load", {}, { target: "background" });
+  if (!response.ok) {
+    if (!settingsLoadReported) {
+      settingsLoadReported = true;
+      logEvent("Settings unavailable", `${response.failure.code} · retrying`, "warn");
+    }
+    render();
+    return;
+  }
+  if (settingsLoadReported) {
+    logEvent("Settings loaded", "retry succeeded", "success");
+    settingsLoadReported = false;
+  }
+  storedSettingsForm = settingsFormFrom(response.data.settings);
+  // Never clobber what the operator has already typed while a retry was pending.
+  if (!settingsFormDirty) {
+    settingsForm = storedSettingsForm;
+  }
+  render();
+}
+
+async function saveStoredSettings(): Promise<void> {
+  const payload = settingsFromForm(settingsForm);
+  settingsBusy = true;
+  render();
+  const response = await getPopupBus().request("settings.save", payload, { target: "background" });
+  settingsBusy = false;
+  if (!response.ok) {
+    logEvent("Connection save failed", response.failure.code, "danger");
+    render();
+    return;
+  }
+  storedSettingsForm = settingsFormFrom(response.data.settings);
+  settingsForm = storedSettingsForm;
+  settingsFormDirty = false;
+  logEvent("Connection saved", Object.keys(payload).join(", ") || "cleared", "success");
+  render();
+  await refreshPopup();
+}
+
+function updateSettingsField(field: PopupSettingsField, value: string): void {
+  settingsForm = { ...settingsForm, [field]: value };
+  settingsFormDirty = true;
   render();
 }
 
@@ -639,6 +859,7 @@ async function runAi(): Promise<void> {
   const localRunId = `local-run-${nextRunId}`;
   activeRunSessionId = localRunId;
   const startedAt = Date.now();
+  logEvent("Run AI started", localRunId);
   await emitPopupSignal(context.tabId, "run.started", {
     pageUrl: context.url,
     sessionId: localRunId,
@@ -647,6 +868,7 @@ async function runAi(): Promise<void> {
   const snapshot = await captureSubmission(context);
   if (!snapshot) {
     if (activeRunSessionId === localRunId) {
+      logEvent("Run AI failed", "page snapshot capture failed", "danger");
       await emitPopupSignalAndPullTail(context.tabId, "run.failed", { pageUrl: context.url, sessionId: localRunId, reason: "capture-failed" }, requestKey);
       settlePreLockAiRun(localRunId, { status: "failed" });
       if (activeRunSessionId === localRunId) {
@@ -664,6 +886,7 @@ async function runAi(): Promise<void> {
   const response = await getPopupBus().request("ai.run", snapshot, { target: "background" });
   if (!response.ok || response.data.status !== "ok") {
     if (activeRunSessionId === localRunId) {
+      logEvent("Run AI failed", response.ok ? response.data.status : response.failure.code, "danger");
       await emitPopupSignalAndPullTail(context.tabId, "run.failed", {
         pageUrl: context.url,
         sessionId: localRunId,
@@ -684,6 +907,12 @@ async function runAi(): Promise<void> {
   await pullSignals(context.tabId, requestKey);
   if (response.data.selectors) {
     await sendContentMessage(context.tabId, { type: "markContentMainClean" });
+    contentDirty = false;
+    logEvent(
+      "Run AI completed",
+      `${response.data.selectors.inclusionSelectors.length} include · ${response.data.selectors.exclusionSelectors.length} exclude`,
+      "success",
+    );
     await emitPopupSignalAndPullTail(context.tabId, "run.completed", {
       pageUrl: context.url,
       sessionId: localRunId,
@@ -762,8 +991,12 @@ async function saveSession(): Promise<void> {
     await sendContentMessage(context.tabId, { type: "deactivateContentMain" });
     lastSubmissionSnapshot = null;
     lastSubmissionKey = null;
+    contentActive = false;
+    contentDirty = false;
+    logEvent("Session saved", snapshot.baseUrl, "success");
     await emitPopupSignalAndPullTail(context.tabId, "session.saved", { pageUrl: context.url, baseUrl: snapshot.baseUrl }, requestKey);
   } else {
+    logEvent("Save failed", response.ok ? response.data.status : response.failure.code, "danger");
     await sendContentMessage(context.tabId, { type: "resumeContentMainInteractions" });
   }
   await emitPopupSignalAndPullTail(context.tabId, "reconciliation.ended", { pageUrl: context.url, reason: response.ok ? response.data.status : response.failure.code }, requestKey);
@@ -806,9 +1039,13 @@ async function discardMarkings(): Promise<void> {
   const requestKey = await handleBoundContext(context);
   const reset = await sendContentMessage(context.tabId, { type: "resetContentMain" });
   if (!reset) {
+    logEvent("Discard failed", "content script refused the reset", "danger");
+    render();
     return;
   }
   await clearSessionEmulation(context);
+  contentDirty = false;
+  logEvent("Markings discarded", context.url);
   await emitPopupSignal(context.tabId, "session.discarded", { baseUrl: "", pageUrl: context.url }, requestKey);
   await pullSignals(context.tabId, requestKey);
   render();
@@ -829,6 +1066,7 @@ function getDebugViewState(): Record<string, unknown> {
     sessionPhase: state.name,
     stateName: state.name,
     toggleEnabled: presentation.enableToggleChecked,
+    diagnostics: buildDiagnostics(),
     buttons: {
       compute: actionButtons.compute,
       save: actionButtons.save,
@@ -844,11 +1082,17 @@ function render(): void {
   root.render(
     <App
       presentation={store.getPresentation()}
+      diagnostics={buildDiagnostics()}
+      settings={settingsForm}
       onEnableChange={(enabled) => { void setMarkingEnabled(enabled); }}
+      onDesktopPreviewChange={(enabled) => { void setDesktopPreviewEnabled(enabled); }}
       onRunAi={() => { void runAi(); }}
       onSave={() => { void saveSession(); }}
       onDiscard={() => { void discardMarkings(); }}
       onPreview={() => { void showPreview(); }}
+      onRefresh={() => { void refreshPopup(); }}
+      onSettingsChange={updateSettingsField}
+      onSettingsSave={() => { void saveStoredSettings(); }}
     />,
   );
 }
@@ -858,6 +1102,9 @@ if (typeof window !== "undefined") {
 }
 store.subscribe(render);
 render();
+void loadStoredSettings().catch((error: unknown) => {
+  console.error("[Unfluffify][rewrite] Unable to load stored settings", error);
+});
 void initializePopupSignals().catch((error: unknown) => {
   console.error("[Unfluffify][rewrite] Unable to initialize popup signal state", error);
 });

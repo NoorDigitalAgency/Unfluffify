@@ -20,6 +20,15 @@ export function createPopupStore(initialState: PopupState = INITIAL_POPUP_STATE)
     getPresentation(): PopupPresentation {
       return memoryFor(state);
     },
+    /** Local view preference — not a brain fact, so it never rides a signal. */
+    setDesktopPreview(checked: boolean): PopupState {
+      if (state.desktopPreviewChecked === checked) {
+        return state;
+      }
+      state = { ...state, desktopPreviewChecked: checked };
+      listeners.forEach((listener) => listener(state));
+      return state;
+    },
     reset(nextState: PopupState = INITIAL_POPUP_STATE): PopupState {
       state = nextState;
       listeners.forEach((listener) => listener(state));

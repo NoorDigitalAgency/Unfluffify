@@ -3,8 +3,57 @@ body.is-busy {
 }
 
 .app {
-  max-width: 100%;
+  display: grid;
+  gap: 6px;
+  /* The real surface is a side panel. The QA flow opens popup.html as a full
+     browser tab, so cap the width there to keep both views identical. */
+  width: 100%;
+  max-width: 460px;
+  margin-inline: auto;
   overflow: visible;
+}
+
+/* Structure only — the theme layer owns the look of everything inside. */
+.app > .card,
+.app > .collapsible,
+.app > .app-header,
+.app > .property-lock {
+  min-width: 0;
+}
+
+/* Diagnostic values are unbounded (origins, session ids, xpaths); without this
+   a long one widens the whole panel and the popup scrolls sideways. */
+.app [data-stat] {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app .row > .row-label {
+  flex: 0 0 auto;
+}
+
+.preview-sidebar__item--included .preview-sidebar__item-button {
+  border-color: color-mix(in srgb, var(--success) 34%, var(--line));
+  background: color-mix(in srgb, var(--success) 10%, transparent);
+}
+
+.preview-sidebar__item--included .preview-sidebar__item-index {
+  color: color-mix(in srgb, var(--success) 78%, var(--muted) 22%);
+}
+
+.preview-sidebar__item--immutable .preview-sidebar__item-button {
+  border-style: dashed;
+}
+
+.preview-sidebar__item--closed-shadow .preview-sidebar__item-button {
+  border-color: color-mix(in srgb, var(--warn) 58%, var(--line));
+  background: color-mix(in srgb, var(--warn) 16%, transparent);
+}
+
+.preview-sidebar__item--closed-shadow .preview-sidebar__item-index {
+  color: var(--warn-ink);
 }
 
 .preview-sidebar__toggle {
