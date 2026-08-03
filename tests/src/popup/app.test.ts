@@ -4,9 +4,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   App,
+  EMPTY_POPUP_CREDENTIALS_FORM,
   EMPTY_POPUP_DIAGNOSTICS,
   EMPTY_POPUP_SETTINGS_FORM,
   resolvePopupCurtainKind,
+  type PopupCredentialsForm,
   type PopupDiagnostics,
   type PopupSettingsForm,
 } from "../../../src/popup/App";
@@ -25,6 +27,10 @@ const FULL_HANDLERS = {
   onRefresh: NOOP,
   onSettingsChange: NOOP,
   onSettingsSave: NOOP,
+  onCredentialsChange: NOOP,
+  onLogin: NOOP,
+  onLogout: NOOP,
+  onValidateToken: NOOP,
 };
 
 function renderApp(
@@ -32,14 +38,24 @@ function renderApp(
   diagnostics: Partial<PopupDiagnostics> = {},
   settings: PopupSettingsForm = EMPTY_POPUP_SETTINGS_FORM,
   handlers: Record<string, unknown> = FULL_HANDLERS,
+  credentials: PopupCredentialsForm = EMPTY_POPUP_CREDENTIALS_FORM,
 ): string {
   return renderToStaticMarkup(createElement(App, {
     presentation: memoryFor(state),
     diagnostics: { ...EMPTY_POPUP_DIAGNOSTICS, ...diagnostics },
     settings,
+    credentials,
     ...handlers,
   }));
 }
+
+/** The fully-provisioned baseline: store read, endpoints saved, token held. */
+const SIGNED_IN: Partial<PopupDiagnostics> = {
+  settingsLoaded: true,
+  settingsSaved: true,
+  stageBaseSet: true,
+  authState: "signed_in",
+};
 
 const SILENT: PopupState = { name: "silent", lastConsumedSeq: 0, reconciliationReason: "" };
 
@@ -94,18 +110,28 @@ describe("popup App surface", () => {
   });
 
   it("renders a settings field for every stored connection setting", () => {
-    const markup = renderApp(SILENT, {}, {
+    const markup = renderApp(SILENT, SIGNED_IN, {
       configEndpoint: "https://config.example.com",
       aiEndpoint: "https://ai.example.com",
       stageBase: "stage.example.com",
-      token: "tok_abc",
     });
 
-    for (const field of ["configEndpoint", "aiEndpoint", "stageBase", "token"]) {
+    for (const field of ["configEndpoint", "aiEndpoint", "stageBase"]) {
       expect(markup, `missing settings field ${field}`).toContain(`id="settings-${field}"`);
     }
     expect(markup).toContain("https://config.example.com");
     expect(markup).toContain("stage.example.com");
+  });
+
+  it("never renders an input for the JWT — it is fetched, not typed", () => {
+    const markup = renderApp(SILENT, SIGNED_IN, {
+      configEndpoint: "https://config.example.com",
+      aiEndpoint: "https://ai.example.com",
+      stageBase: "stage.example.com",
+    });
+
+    expect(markup).not.toContain('id="settings-token"');
+    expect(markup).not.toContain("Bearer token");
   });
 
   it("keeps the connection form read-only until a settings read succeeds", () => {
@@ -117,15 +143,15 @@ describe("popup App surface", () => {
     expect(markup).toContain("Reading the stored connection");
     expect(markup).toContain("Could not read the stored connection");
     expect(markup).toContain("unread");
-    for (const field of ["configEndpoint", "aiEndpoint", "stageBase", "token"]) {
+    for (const field of ["configEndpoint", "aiEndpoint", "stageBase"]) {
       expect(markup, `${field} must be disabled`).toMatch(new RegExp(`id="settings-${field}"[^>]*disabled`));
     }
     expect(markup).toMatch(/id="settings-save"[^>]*disabled/);
   });
 
   it("enables saving only once the store has been read and the form differs", () => {
-    const clean = renderApp(SILENT, { settingsLoaded: true, settingsSaved: true, settingsDirty: false });
-    const dirty = renderApp(SILENT, { settingsLoaded: true, settingsSaved: true, settingsDirty: true });
+    const clean = renderApp(SILENT, { ...SIGNED_IN, settingsDirty: false });
+    const dirty = renderApp(SILENT, { ...SIGNED_IN, settingsDirty: true });
 
     expect(clean).toMatch(/id="settings-save"[^>]*disabled/);
     expect(clean).toContain("Saved");
@@ -133,36 +159,106 @@ describe("popup App surface", () => {
     expect(dirty).toContain("Unsaved changes");
   });
 
-  it("opens the connection panel and warns while the endpoints are unset", () => {
-    const markup = renderApp(SILENT, { settingsLoaded: true, settingsSaved: false });
+  it("asks for a stage base first, since sign-in is derived from it", () => {
+    const markup = renderApp(SILENT, { settingsLoaded: true, stageBaseSet: false });
 
     expect(markup).toContain('data-setup-required="unconfigured"');
-    expect(markup).toContain("Set the endpoints and token below");
+    expect(markup).toContain("Set the stage base host below");
+    expect(markup).toContain("Save a stage base host first.");
+    expect(markup).toMatch(/id="account-login"[^>]*disabled/);
     expect(markup).toMatch(/<details class="collapsible" open/);
     expect(markup).toContain("not configured");
   });
 
-  it("distinguishes saved-but-unreachable endpoints from unset ones", () => {
-    const markup = renderApp(SILENT, { settingsLoaded: true, settingsSaved: true, lockStatus: "unavailable" });
+  it("asks for a sign-in once the stage base is stored but no token is", () => {
+    const markup = renderApp(SILENT, {
+      settingsLoaded: true,
+      settingsSaved: true,
+      stageBaseSet: true,
+      authState: "signed_out",
+    });
+
+    expect(markup).toContain('data-setup-required="signed_out"');
+    expect(markup).toContain("Sign in below");
+    expect(markup).toMatch(/<details class="collapsible" open/);
+    expect(markup).toContain('data-auth-state="signed_out"');
+  });
+
+  it("distinguishes signed-in-but-unreachable endpoints from an unset stage base", () => {
+    const markup = renderApp(SILENT, { ...SIGNED_IN, lockStatus: "unavailable" });
 
     expect(markup).toContain('data-setup-required="unreachable"');
     expect(markup).toContain("did not answer the site lookup");
-    expect(markup).not.toContain("Set the endpoints and token below");
+    expect(markup).not.toContain("Set the stage base host below");
     expect(markup).toMatch(/<details class="collapsible" open/);
   });
 
   it("does not flag setup when the page simply is not a managed property", () => {
-    const markup = renderApp(SILENT, { settingsLoaded: true, settingsSaved: true, lockStatus: "not_candidate" });
+    const markup = renderApp(SILENT, { ...SIGNED_IN, lockStatus: "not_candidate" });
 
     expect(markup).not.toContain("data-setup-required");
   });
 
-  it("leaves the connection panel closed once settings are stored and the lock resolves", () => {
-    const markup = renderApp(SILENT, { settingsLoaded: true, settingsSaved: true, lockStatus: "ok", lockRole: "editor" });
+  it("leaves the connection panel closed once signed in and the lock resolves", () => {
+    const markup = renderApp(SILENT, { ...SIGNED_IN, lockStatus: "ok", lockRole: "editor" });
 
     expect(markup).not.toContain("data-setup-required");
     expect(markup).not.toMatch(/<details class="collapsible" open/);
-    expect(markup).toContain("configured");
+    expect(markup).toContain("signed in");
+  });
+
+  it("swaps the credential fields for session actions once signed in", () => {
+    const markup = renderApp(SILENT, { ...SIGNED_IN, lockStatus: "ok", lockRole: "editor" });
+
+    expect(markup).not.toContain('id="account-email"');
+    expect(markup).not.toContain('id="account-password"');
+    expect(markup).toContain('id="token-validate"');
+    expect(markup).toContain('id="account-logout"');
+    expect(markup).toContain('data-stat="Account"');
+  });
+
+  it("enables Sign in only with a stage base and both credentials filled", () => {
+    const base = { settingsLoaded: true, settingsSaved: true, stageBaseSet: true, authState: "signed_out" as const };
+    const empty = renderApp(SILENT, base);
+    const emailOnly = renderApp(SILENT, base, EMPTY_POPUP_SETTINGS_FORM, FULL_HANDLERS, { email: "a@b.c", password: "" });
+    const both = renderApp(SILENT, base, EMPTY_POPUP_SETTINGS_FORM, FULL_HANDLERS, { email: "a@b.c", password: "pw" });
+    const noStage = renderApp(SILENT, { ...base, stageBaseSet: false }, EMPTY_POPUP_SETTINGS_FORM, FULL_HANDLERS, { email: "a@b.c", password: "pw" });
+
+    expect(empty).toMatch(/id="account-login"[^>]*disabled/);
+    expect(emailOnly).toMatch(/id="account-login"[^>]*disabled/);
+    expect(noStage).toMatch(/id="account-login"[^>]*disabled/);
+    expect(both).not.toMatch(/id="account-login"[^>]*disabled/);
+  });
+
+  it("locks the credential fields while a sign-in is in flight", () => {
+    const markup = renderApp(SILENT, {
+      settingsLoaded: true,
+      stageBaseSet: true,
+      authState: "signed_out",
+      authBusy: true,
+    });
+
+    expect(markup).toMatch(/id="account-email"[^>]*disabled/);
+    expect(markup).toMatch(/id="account-password"[^>]*disabled/);
+    expect(markup).toMatch(/id="account-login"[^>]*disabled/);
+    expect(markup).toContain("Signing in…");
+  });
+
+  it("shows a rejected token as its own state, not as signed out", () => {
+    const markup = renderApp(SILENT, {
+      settingsLoaded: true,
+      settingsSaved: true,
+      stageBaseSet: true,
+      authState: "invalid",
+      authMessage: "The stored token was rejected. Sign in again.",
+    });
+
+    expect(markup).toContain('data-auth-state="invalid"');
+    expect(markup).toContain("token rejected");
+    expect(markup).toContain('data-auth-message="true"');
+    expect(markup).toContain("Sign in again");
+    // An invalid token still blocks the backend, so setup must stay flagged.
+    expect(markup).toContain('data-setup-required="signed_out"');
   });
 
   it("counts marked rows by classification and lists each one", () => {

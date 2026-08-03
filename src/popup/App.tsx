@@ -13,10 +13,20 @@ export type PopupSettingsForm = Readonly<{
   configEndpoint: string;
   aiEndpoint: string;
   stageBase: string;
-  token: string;
 }>;
 
 export type PopupSettingsField = keyof PopupSettingsForm;
+
+/** Login inputs are deliberately not part of the settings form: the password is
+ *  never persisted and the JWT is fetched by the background, never typed. */
+export type PopupCredentialsForm = Readonly<{
+  email: string;
+  password: string;
+}>;
+
+export type PopupCredentialsField = keyof PopupCredentialsForm;
+
+export type PopupAuthState = "unknown" | "signed_out" | "signed_in" | "invalid" | "checking";
 
 export type PopupLogEntry = Readonly<{
   at: number;
@@ -44,6 +54,11 @@ export type PopupDiagnostics = Readonly<{
   settingsSaved: boolean;
   settingsDirty: boolean;
   settingsBusy: boolean;
+  /** Gates login itself — the accounts host is derived from the stage base. */
+  stageBaseSet: boolean;
+  authState: PopupAuthState;
+  authBusy: boolean;
+  authMessage: string;
   log: readonly PopupLogEntry[];
 }>;
 
@@ -62,6 +77,10 @@ export const EMPTY_POPUP_DIAGNOSTICS: PopupDiagnostics = {
   settingsSaved: false,
   settingsDirty: false,
   settingsBusy: false,
+  stageBaseSet: false,
+  authState: "unknown",
+  authBusy: false,
+  authMessage: "",
   log: [],
 };
 
@@ -69,7 +88,11 @@ export const EMPTY_POPUP_SETTINGS_FORM: PopupSettingsForm = {
   configEndpoint: "",
   aiEndpoint: "",
   stageBase: "",
-  token: "",
+};
+
+export const EMPTY_POPUP_CREDENTIALS_FORM: PopupCredentialsForm = {
+  email: "",
+  password: "",
 };
 
 export function resolvePopupActionButtons(presentation: PopupPresentation, availability: PopupActionAvailability) {
@@ -123,13 +146,27 @@ const SETTINGS_FIELDS: readonly Readonly<{
   field: PopupSettingsField;
   label: string;
   placeholder: string;
-  type: "text" | "password";
 }>[] = [
-  { field: "configEndpoint", label: "Config endpoint", placeholder: "https://config.example.com", type: "text" },
-  { field: "aiEndpoint", label: "AI endpoint", placeholder: "https://ai.example.com", type: "text" },
-  { field: "stageBase", label: "Stage base host", placeholder: "stage.example.com", type: "text" },
-  { field: "token", label: "Bearer token", placeholder: "Paste the API token", type: "password" },
+  { field: "configEndpoint", label: "Config endpoint", placeholder: "https://config.example.com" },
+  { field: "aiEndpoint", label: "AI endpoint", placeholder: "https://ai.example.com" },
+  { field: "stageBase", label: "Stage base host", placeholder: "stage.example.com" },
 ];
+
+const AUTH_LABEL: Readonly<Record<PopupAuthState, string>> = {
+  unknown: "unknown",
+  signed_out: "signed out",
+  signed_in: "signed in",
+  invalid: "token rejected",
+  checking: "checking…",
+};
+
+const AUTH_TONE: Readonly<Record<PopupAuthState, string>> = {
+  unknown: "u-color-muted",
+  signed_out: "u-color-danger",
+  signed_in: "u-color-success",
+  invalid: "u-color-danger",
+  checking: "u-color-muted",
+};
 
 function countRows(rows: PopupPresentation["contentRows"], classification: string): number {
   return rows.filter((row) => row.classification === classification).length;
@@ -172,6 +209,7 @@ export function App({
   presentation,
   diagnostics = EMPTY_POPUP_DIAGNOSTICS,
   settings = EMPTY_POPUP_SETTINGS_FORM,
+  credentials = EMPTY_POPUP_CREDENTIALS_FORM,
   onEnableChange,
   onDesktopPreviewChange,
   onRunAi,
@@ -181,10 +219,15 @@ export function App({
   onRefresh,
   onSettingsChange,
   onSettingsSave,
+  onCredentialsChange,
+  onLogin,
+  onLogout,
+  onValidateToken,
 }: Readonly<{
   presentation: PopupPresentation;
   diagnostics?: PopupDiagnostics;
   settings?: PopupSettingsForm;
+  credentials?: PopupCredentialsForm;
   onEnableChange?: (enabled: boolean) => void;
   onDesktopPreviewChange?: (enabled: boolean) => void;
   onRunAi?: () => void;
@@ -194,6 +237,10 @@ export function App({
   onRefresh?: () => void;
   onSettingsChange?: (field: PopupSettingsField, value: string) => void;
   onSettingsSave?: () => void;
+  onCredentialsChange?: (field: PopupCredentialsField, value: string) => void;
+  onLogin?: () => void;
+  onLogout?: () => void;
+  onValidateToken?: () => void;
 }>) {
   const buttons = resolvePopupActionButtons(presentation, {
     runAi: Boolean(onRunAi),
@@ -205,14 +252,23 @@ export function App({
   const includedCount = countRows(presentation.contentRows, "included");
   const excludedCount = countRows(presentation.contentRows, "excluded");
   const selectorCount = presentation.selectors.inclusionSelectors.length + presentation.selectors.exclusionSelectors.length;
-  /* "Nothing configured", "configured but unreachable" and "could not read the
-     store" look identical in the lock strip, and the fix differs for each — so
-     name which one it is. */
+  /* Every one of these renders as the same "Property lock unavailable" in the
+     lock strip, and each needs a different fix — so name which one it is. The
+     order is the order they block in: read the store, set a stage base, sign
+     in, then reach the backend. */
   const setupProblem = !diagnostics.settingsLoaded
     ? "unreadable"
-    : !diagnostics.settingsSaved
+    : !diagnostics.stageBaseSet
       ? "unconfigured"
-      : diagnostics.lockStatus === "unavailable" ? "unreachable" : "";
+      : diagnostics.authState === "signed_out" || diagnostics.authState === "invalid"
+        ? "signed_out"
+        : diagnostics.lockStatus === "unavailable" ? "unreachable" : "";
+  const canLogin = Boolean(onLogin)
+    && diagnostics.settingsLoaded
+    && diagnostics.stageBaseSet
+    && !diagnostics.authBusy
+    && credentials.email.trim() !== ""
+    && credentials.password !== "";
 
   if (presentation.mainUiHidden) {
     return (
@@ -296,8 +352,10 @@ export function App({
           {setupProblem === "unreadable"
             ? "Reading the stored connection… if this persists, the background service worker is not answering."
             : setupProblem === "unconfigured"
-              ? "Set the endpoints and token below — without them the site lookup, AI run and save all fail."
-              : "The saved endpoints did not answer the site lookup. Check the stage base host and token below."}
+              ? "Set the stage base host below and save — the site lookup and sign-in are both derived from it."
+              : setupProblem === "signed_out"
+                ? "Sign in below. Without a token the site lookup, AI run and save all fail."
+                : "The saved endpoints did not answer the site lookup. Check the stage base host below."}
         </div>
       ) : null}
 
@@ -413,6 +471,12 @@ export function App({
         </div>
         <StatRow icon="mdi-link-variant" label="Base URL" value={diagnostics.baseUrl || "—"} />
         <StatRow
+          icon="mdi-account-key"
+          label="Account"
+          value={AUTH_LABEL[diagnostics.authState]}
+          tone={AUTH_TONE[diagnostics.authState]}
+        />
+        <StatRow
           icon="mdi-cog"
           label="Config"
           value={diagnostics.configPresent ? "loaded" : "missing"}
@@ -507,12 +571,16 @@ export function App({
         <summary>
           <i className="mdi mdi-tune btn-icon" aria-hidden="true" />
           Connection
-          <span className={`hint u-ms-auto ${!diagnostics.settingsLoaded ? "u-color-warning" : diagnostics.settingsSaved ? "u-color-success" : "u-color-danger"}`}>
-            {!diagnostics.settingsLoaded ? "unread" : diagnostics.settingsSaved ? "configured" : "not configured"}
+          <span className={`hint u-ms-auto ${!diagnostics.settingsLoaded ? "u-color-warning" : AUTH_TONE[diagnostics.authState]}`}>
+            {!diagnostics.settingsLoaded
+              ? "unread"
+              : !diagnostics.stageBaseSet
+                ? "not configured"
+                : AUTH_LABEL[diagnostics.authState]}
           </span>
         </summary>
         <div className="collapsible-body">
-          {SETTINGS_FIELDS.map(({ field, label, placeholder, type }) => (
+          {SETTINGS_FIELDS.map(({ field, label, placeholder }) => (
             <div className="field field--compact" key={field}>
               <label className="control-label" htmlFor={`settings-${field}`}>
                 <span className="control-label-text">{label}</span>
@@ -520,7 +588,7 @@ export function App({
               <input
                 id={`settings-${field}`}
                 name={field}
-                type={type}
+                type="text"
                 value={settings[field]}
                 placeholder={placeholder}
                 autoComplete="off"
@@ -553,9 +621,115 @@ export function App({
             </button>
           </div>
           <p className="hint">
-            The stage base host backs the GraphQL site lookup, which decides whether this page is a
-            managed property at all.
+            The stage base host backs the GraphQL site lookup and the accounts host, so save it before
+            signing in.
           </p>
+
+          <div className="section-divider" />
+
+          <div className="section-header">
+            <span className="section-title">
+              <i className="mdi mdi-account-key btn-icon" aria-hidden="true" />
+              <span>Sign in</span>
+            </span>
+            <span className={`hint ${AUTH_TONE[diagnostics.authState]}`} data-auth-state={diagnostics.authState}>
+              {AUTH_LABEL[diagnostics.authState]}
+            </span>
+          </div>
+
+          {diagnostics.authState === "signed_in" ? (
+            <>
+              <p className="hint">
+                A token is stored. The backend may rotate it silently; re-check it if calls start failing.
+              </p>
+              <div className="endpoint-row">
+                <button
+                  id="token-validate"
+                  type="button"
+                  className="u-btn-secondary"
+                  disabled={!onValidateToken || diagnostics.authBusy}
+                  onClick={onValidateToken}
+                >
+                  <i className="mdi mdi-shield-check btn-icon" aria-hidden="true" />
+                  Check token
+                </button>
+                <button
+                  id="account-logout"
+                  type="button"
+                  className="u-btn-danger"
+                  disabled={!onLogout || diagnostics.authBusy}
+                  onClick={onLogout}
+                >
+                  <i className="mdi mdi-logout btn-icon" aria-hidden="true" />
+                  Sign out
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              {/* The password is held in popup memory only and cleared on success —
+                  it is never written to storage and never leaves this form. */}
+              <div className="field field--compact">
+                <label className="control-label" htmlFor="account-email">
+                  <span className="control-label-text">Email</span>
+                </label>
+                <input
+                  id="account-email"
+                  name="email"
+                  type="email"
+                  value={credentials.email}
+                  placeholder="you@example.com"
+                  autoComplete="username"
+                  spellCheck={false}
+                  disabled={!onCredentialsChange || diagnostics.authBusy}
+                  onChange={(event) => onCredentialsChange?.("email", event.currentTarget.value)}
+                />
+              </div>
+              <div className="field field--compact">
+                <label className="control-label" htmlFor="account-password">
+                  <span className="control-label-text">Password</span>
+                </label>
+                <input
+                  id="account-password"
+                  name="password"
+                  type="password"
+                  value={credentials.password}
+                  placeholder="Your account password"
+                  autoComplete="current-password"
+                  disabled={!onCredentialsChange || diagnostics.authBusy}
+                  onChange={(event) => onCredentialsChange?.("password", event.currentTarget.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && canLogin) {
+                      onLogin?.();
+                    }
+                  }}
+                />
+              </div>
+              <div className="endpoint-row">
+                <span className="token-status">
+                  {diagnostics.authBusy
+                    ? "Signing in…"
+                    : diagnostics.stageBaseSet
+                      ? "The token is fetched and stored for you."
+                      : "Save a stage base host first."}
+                </span>
+                <button id="account-login" type="button" disabled={!canLogin} onClick={onLogin}>
+                  <i className="mdi mdi-login btn-icon" aria-hidden="true" />
+                  Sign in
+                </button>
+              </div>
+            </>
+          )}
+
+          {diagnostics.authMessage ? (
+            <p
+              className={`u-alert ${diagnostics.authState === "signed_in" ? "u-alert-success" : "u-alert-danger"}`}
+              role="status"
+              data-auth-message="true"
+            >
+              {diagnostics.authMessage}
+            </p>
+          ) : null}
         </div>
       </details>
 

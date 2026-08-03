@@ -14,7 +14,7 @@ import { AiRunPayloadSnapshotSchema } from "../domain/schema/submission";
 import { LockRoleSchema } from "../domain/schema/facts";
 import { ConfigSnapshotSchema, SelectorSetSchema } from "../storage/config";
 import { MarkRowSchema } from "../domain/schema/marking";
-import { SettingsSchema } from "../storage/settings";
+import { ConnectionSettingsSchema } from "../storage/settings";
 
 const LockDirectiveRequestSchema = z.object({
   tabId: z.number().int().nonnegative(),
@@ -103,13 +103,53 @@ export const applicationContract = defineContract({
         httpStatus: z.number().optional(),
       }),
     },
+    /* The JWT never crosses this boundary: the popup reads and writes only the
+       endpoint fields, and learns about the credential as a boolean. */
     "settings.load": {
       request: z.object({}),
-      response: z.object({ settings: SettingsSchema }),
+      response: z.object({
+        settings: ConnectionSettingsSchema,
+        hasToken: z.boolean(),
+      }),
     },
     "settings.save": {
-      request: SettingsSchema,
-      response: z.object({ status: z.literal("ok"), settings: SettingsSchema }),
+      request: ConnectionSettingsSchema,
+      response: z.object({
+        status: z.literal("ok"),
+        settings: ConnectionSettingsSchema,
+        hasToken: z.boolean(),
+      }),
+    },
+    "accounts.login": {
+      request: z.object({
+        email: z.string().min(1),
+        password: z.string().min(1),
+      }),
+      response: z.object({
+        status: z.enum(["ok", "skipped", "missing_token", "rejected"]),
+        httpStatus: z.number().optional(),
+        message: z.string().optional(),
+      }),
+    },
+    "accounts.logout": {
+      request: z.object({}),
+      response: z.object({ status: z.literal("ok") }),
+    },
+    "accounts.validate": {
+      request: z.object({}),
+      response: z.object({
+        status: z.enum(["valid", "invalid", "skipped", "error"]),
+        httpStatus: z.number().optional(),
+      }),
+    },
+    /* The cached verdict from the periodic monitor, so a popup opening after a
+       background check learns the token is dead without re-validating. */
+    "accounts.status": {
+      request: z.object({}),
+      response: z.object({
+        state: z.enum(["unknown", "valid", "invalid"]),
+        checkedAt: z.number().int().nonnegative(),
+      }),
     },
     "lock.directive": {
       request: LockDirectiveRequestSchema,

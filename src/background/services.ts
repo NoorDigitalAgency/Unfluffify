@@ -9,13 +9,23 @@ import {
   createTabStateRepo,
 } from "../storage";
 import { SelectorSetSchema } from "../storage/config";
+import type { Settings } from "../storage/settings";
 import type { JsonTransport } from "../lynx";
+import {
+  buildAccountsEndpointBase,
+  isAccountsPath,
+  isUnauthenticatedPath,
+  requestAuthLogin,
+  validateAuthToken,
+} from "../lynx/accounts";
 import { getAiRunResult, getAiRunStatus, startAiRun } from "../lynx/ai";
+import { withTokenRotation } from "../lynx/token-rotation";
 import { pollAiJob } from "../lynx/ai-job";
 import { buildCssInfoRequest, buildUpdateScrapingConditionsRequest, buildUrlSearchInfoRequest, parseUrlSearchInfo } from "../lynx/graphql";
 import { loadConfigSnapshot, saveConfigSnapshot } from "../lynx/rest";
 import { persistDurableFacts, rehydrateDurableFacts, reDeriveVolatile } from "./persistence";
 
+/** The subset createFetchJsonTransport needs to resolve a base URL and auth. */
 type EndpointSettings = Readonly<{
   configEndpoint?: string;
   aiEndpoint?: string;
@@ -48,16 +58,19 @@ export function createFetchJsonTransport(settings: () => EndpointSettings): Json
       ? current.aiEndpoint
       : request.path === "/graphql"
         ? graphqlEndpointBase(current.stageBase)
+        : isAccountsPath(request.path)
+          ? buildAccountsEndpointBase(current.stageBase ?? "")
       : current.configEndpoint;
     const url = resolveEndpoint(base, request.path.replace(/^\//, ""));
     if (!url) {
       return { status: 503, body: { error: "endpoint_unconfigured" }, headers: {} };
     }
+    const sendToken = current.token && !isUnauthenticatedPath(request.path);
     const response = await fetch(url, {
       method: request.method,
       headers: {
         "content-type": "application/json",
-        ...(current.token ? { authorization: "Bearer " + current.token } : {}),
+        ...(sendToken ? { authorization: "Bearer " + current.token } : {}),
       },
       body: request.body === undefined ? undefined : JSON.stringify(request.body),
     });
@@ -96,13 +109,36 @@ export function createRewriteBackgroundServices(input: Readonly<{
   const runRecordRepo = createRunRecordRepo(store);
   const lockIdentityRepo = createLockIdentityRepo(store);
   const settingsStore = createSettingsRepo(store);
-  const loadSettings = async (): Promise<EndpointSettings> => {
+  const loadSettings = async (): Promise<Settings> => {
     const result = await settingsStore.load();
     return result.ok && result.value ? result.value : {};
   };
-  const transport = input.transport ?? (async (request) => {
+  /** Settings are read-modify-written from several places (an endpoint save, a
+   *  login, a silent token rotation). Serializing them keeps a concurrent pair
+   *  from each reading the same baseline and one losing the other's field. */
+  let settingsWrites: Promise<unknown> = Promise.resolve();
+  const updateSettings = (mutate: (current: Settings) => Settings): Promise<Settings> => {
+    const run = async (): Promise<Settings> => {
+      const next = mutate(await loadSettings());
+      await settingsStore.save(next);
+      return next;
+    };
+    const queued = settingsWrites.then(run, run);
+    settingsWrites = queued.catch(() => undefined);
+    return queued;
+  };
+  const baseTransport = input.transport ?? (async (request) => {
     const currentSettings = await loadSettings();
     return await createFetchJsonTransport(() => currentSettings)(request);
+  });
+  const transport = withTokenRotation(baseTransport, {
+    currentToken: async () => (await loadSettings()).token ?? "",
+    persistToken: async (token) => {
+      await updateSettings((current) => ({ ...current, token }));
+    },
+    onPersistError: (error) => {
+      console.error("[Unfluffify][rewrite] Unable to persist a rotated token", error);
+    },
   });
 
   return {
@@ -112,6 +148,11 @@ export function createRewriteBackgroundServices(input: Readonly<{
       runRecordRepo,
       lockIdentityRepo,
       settingsStore,
+    },
+    settings: {
+      load: loadSettings,
+      /** The only safe way to write settings: every writer shares one queue. */
+      update: updateSettings,
     },
     persistence: {
       persistDurableFacts: (facts: Parameters<typeof persistDurableFacts>[1]) =>
@@ -197,6 +238,29 @@ export function createRewriteBackgroundServices(input: Readonly<{
       buildUrlSearchInfoRequest,
       buildCssInfoRequest,
       buildUpdateScrapingConditionsRequest,
+    },
+    accounts: {
+      /** On success the JWT is persisted here rather than returned to the
+       *  caller — the popup never needs to hold the credential. */
+      async login(credentials: Readonly<{ email: string; password: string }>) {
+        const result = await requestAuthLogin(transport, credentials);
+        if (result.status !== "ok") {
+          return result;
+        }
+        // Queued behind any rotation the login response itself triggered, so the
+        // freshly issued token is the one that lands last.
+        await updateSettings((current) => ({ ...current, token: result.token }));
+        return result;
+      },
+      async logout() {
+        await updateSettings(({ token: _discarded, ...withoutToken }) => withoutToken);
+      },
+      async validate() {
+        const current = await loadSettings();
+        return await validateAuthToken(transport, {
+          hasToken: Boolean(current.token?.trim()),
+        });
+      },
     },
     async createLockClient(inputContext: Readonly<{
       tabId: number;

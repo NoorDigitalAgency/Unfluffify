@@ -9,8 +9,12 @@ import { createRoot } from "react-dom/client";
 
 import {
   App,
+  EMPTY_POPUP_CREDENTIALS_FORM,
   EMPTY_POPUP_SETTINGS_FORM,
   resolvePopupActionButtons,
+  type PopupAuthState,
+  type PopupCredentialsField,
+  type PopupCredentialsForm,
   type PopupDiagnostics,
   type PopupLogEntry,
   type PopupSettingsField,
@@ -25,7 +29,7 @@ import { createTabTransport } from "../../messaging/transports/tabs";
 import { createRuntimeTransport } from "../../messaging/transports/runtime";
 import { emitRewriteSignal, pullRewriteSignals, type RewriteSignalBus } from "../../messaging/rewrite-signals";
 import type { ConfigSnapshot, SelectorSet } from "../../storage/config";
-import type { Settings } from "../../storage/settings";
+import type { ConnectionSettings } from "../../storage/settings";
 
 type PopupDebugApi = Readonly<{
   getViewState: () => Record<string, unknown>;
@@ -59,6 +63,13 @@ let storedSettingsForm: PopupSettingsForm | null = null;
 let settingsBusy = false;
 let settingsLoadReported = false;
 let settingsFormDirty = false;
+/** Login inputs live only here. The password is never persisted, never sent to
+ *  the brain, and is dropped as soon as a token comes back. */
+let credentialsForm: PopupCredentialsForm = EMPTY_POPUP_CREDENTIALS_FORM;
+let hasStoredToken = false;
+let authState: PopupAuthState = "unknown";
+let authBusy = false;
+let authMessage = "";
 /** Kept outside the store so the preference survives the resets that a lock
  *  takeover or a tab rebinding performs on the projected state. */
 let desktopPreviewEnabled = false;
@@ -90,31 +101,37 @@ function resetPopupState(next: Parameters<typeof store.reset>[0]): void {
   store.reset(next ? { ...next, desktopPreviewChecked: desktopPreviewEnabled } : next);
 }
 
-function settingsFormFrom(settings: Settings): PopupSettingsForm {
+const SETTINGS_FORM_FIELDS = ["configEndpoint", "aiEndpoint", "stageBase"] as const;
+
+function settingsFormFrom(settings: ConnectionSettings): PopupSettingsForm {
   return {
     configEndpoint: settings.configEndpoint ?? "",
     aiEndpoint: settings.aiEndpoint ?? "",
     stageBase: settings.stageBase ?? "",
-    token: settings.token ?? "",
   };
 }
 
 /** Zod rejects "" for the URL fields, so blank inputs must drop out entirely. */
-function settingsFromForm(form: PopupSettingsForm): Settings {
-  const trimmed = {
-    configEndpoint: form.configEndpoint.trim(),
-    aiEndpoint: form.aiEndpoint.trim(),
-    stageBase: form.stageBase.trim(),
-    token: form.token.trim(),
-  };
+function settingsFromForm(form: PopupSettingsForm): ConnectionSettings {
   return Object.fromEntries(
-    Object.entries(trimmed).filter(([, value]) => value !== ""),
-  ) as Settings;
+    SETTINGS_FORM_FIELDS
+      .map((field) => [field, form[field].trim()] as const)
+      .filter(([, value]) => value !== ""),
+  ) as ConnectionSettings;
 }
 
 function settingsFormsMatch(left: PopupSettingsForm, right: PopupSettingsForm): boolean {
-  return (["configEndpoint", "aiEndpoint", "stageBase", "token"] as const)
-    .every((field) => left[field].trim() === right[field].trim());
+  return SETTINGS_FORM_FIELDS.every((field) => left[field].trim() === right[field].trim());
+}
+
+function resolveAuthState(): PopupAuthState {
+  if (authBusy) {
+    return "checking";
+  }
+  if (authState === "invalid") {
+    return "invalid";
+  }
+  return hasStoredToken ? "signed_in" : storedSettingsForm === null ? "unknown" : "signed_out";
 }
 
 function buildDiagnostics(): PopupDiagnostics {
@@ -134,6 +151,10 @@ function buildDiagnostics(): PopupDiagnostics {
     settingsSaved: storedSettingsForm !== null && !settingsFormsMatch(storedSettingsForm, EMPTY_POPUP_SETTINGS_FORM),
     settingsDirty: storedSettingsForm !== null && !settingsFormsMatch(storedSettingsForm, settingsForm),
     settingsBusy,
+    stageBaseSet: (storedSettingsForm?.stageBase ?? "").trim() !== "",
+    authState: resolveAuthState(),
+    authBusy,
+    authMessage,
     log: eventLog,
   };
 }
@@ -364,6 +385,12 @@ async function pollCurrentTabSignals(): Promise<void> {
   await refreshLockDirective(context, requestKey);
   if (storedSettingsForm === null) {
     await loadStoredSettings();
+  }
+  // A cached in-memory read, so polling it costs nothing next to the lock
+  // directive already going out on this tick — and it means a token that dies
+  // while the popup sits open is named as rejected rather than just unreachable.
+  if (hasStoredToken) {
+    await adoptAuthStatus();
   }
   render();
 }
@@ -784,12 +811,30 @@ async function refreshPopup(): Promise<void> {
   await pullSignals(context.tabId, requestKey);
   const lock = await refreshLockDirective(context, requestKey);
   await reconcileContentStatus(context, requestKey);
+  await adoptAuthStatus();
   logEvent("Refreshed", lock ? `lock ${lock.status} · role ${lock.lockRole}` : "lock unavailable", lock ? "info" : "warn");
   render();
 }
 
 /** The service worker may still be waking when the popup mounts, so the first
  *  read can lose the race. The poll loop retries until one lands. */
+/** Adopts the background monitor's verdict so a popup opening after a periodic
+ *  check already knows the token is dead, without re-validating. */
+async function adoptAuthStatus(): Promise<void> {
+  const response = await getPopupBus().request("accounts.status", {}, { target: "background" });
+  if (!response.ok) {
+    return;
+  }
+  if (response.data.state === "invalid") {
+    if (authState !== "invalid") {
+      logEvent("Token rejected", "reported by the background check", "danger");
+    }
+    authState = "invalid";
+  } else if (response.data.state === "valid" && authState === "invalid") {
+    authState = "signed_in";
+  }
+}
+
 async function loadStoredSettings(): Promise<void> {
   if (settingsBusy) {
     return;
@@ -807,10 +852,17 @@ async function loadStoredSettings(): Promise<void> {
     logEvent("Settings loaded", "retry succeeded", "success");
     settingsLoadReported = false;
   }
+  hasStoredToken = response.data.hasToken;
+  if (!hasStoredToken && authState === "signed_in") {
+    authState = "signed_out";
+  }
   storedSettingsForm = settingsFormFrom(response.data.settings);
   // Never clobber what the operator has already typed while a retry was pending.
   if (!settingsFormDirty) {
     settingsForm = storedSettingsForm;
+  }
+  if (hasStoredToken) {
+    await adoptAuthStatus();
   }
   render();
 }
@@ -829,6 +881,7 @@ async function saveStoredSettings(): Promise<void> {
   storedSettingsForm = settingsFormFrom(response.data.settings);
   settingsForm = storedSettingsForm;
   settingsFormDirty = false;
+  hasStoredToken = response.data.hasToken;
   logEvent("Connection saved", Object.keys(payload).join(", ") || "cleared", "success");
   render();
   await refreshPopup();
@@ -837,6 +890,103 @@ async function saveStoredSettings(): Promise<void> {
 function updateSettingsField(field: PopupSettingsField, value: string): void {
   settingsForm = { ...settingsForm, [field]: value };
   settingsFormDirty = true;
+  render();
+}
+
+function updateCredentialsField(field: PopupCredentialsField, value: string): void {
+  credentialsForm = { ...credentialsForm, [field]: value };
+  authMessage = "";
+  render();
+}
+
+const LOGIN_FAILURE_TEXT: Readonly<Record<string, string>> = {
+  skipped: "Enter an email and password.",
+  missing_token: "The accounts backend accepted the sign-in but returned no token.",
+};
+
+async function login(): Promise<void> {
+  const email = credentialsForm.email.trim();
+  if (!email || !credentialsForm.password) {
+    authMessage = LOGIN_FAILURE_TEXT.skipped;
+    render();
+    return;
+  }
+  authBusy = true;
+  authMessage = "";
+  render();
+  const response = await getPopupBus().request("accounts.login", {
+    email,
+    password: credentialsForm.password,
+  }, { target: "background" });
+  authBusy = false;
+  if (!response.ok) {
+    authMessage = `Sign-in could not be sent (${response.failure.code}).`;
+    logEvent("Sign-in failed", response.failure.code, "danger");
+    render();
+    return;
+  }
+  if (response.data.status !== "ok") {
+    authMessage = response.data.message
+      || LOGIN_FAILURE_TEXT[response.data.status]
+      || `Sign-in failed (${response.data.status}).`;
+    logEvent("Sign-in failed", authMessage, "danger");
+    render();
+    return;
+  }
+  // Drop the password the moment it is no longer needed.
+  credentialsForm = EMPTY_POPUP_CREDENTIALS_FORM;
+  hasStoredToken = true;
+  authState = "signed_in";
+  authMessage = `Signed in as ${email}.`;
+  logEvent("Signed in", email, "success");
+  render();
+  await refreshPopup();
+}
+
+async function logout(): Promise<void> {
+  authBusy = true;
+  render();
+  const response = await getPopupBus().request("accounts.logout", {}, { target: "background" });
+  authBusy = false;
+  if (!response.ok) {
+    authMessage = `Sign-out failed (${response.failure.code}).`;
+    render();
+    return;
+  }
+  hasStoredToken = false;
+  authState = "signed_out";
+  authMessage = "";
+  credentialsForm = EMPTY_POPUP_CREDENTIALS_FORM;
+  logEvent("Signed out", "token discarded");
+  render();
+  await refreshPopup();
+}
+
+async function validateToken(): Promise<void> {
+  authBusy = true;
+  authMessage = "";
+  render();
+  const response = await getPopupBus().request("accounts.validate", {}, { target: "background" });
+  authBusy = false;
+  if (!response.ok) {
+    authMessage = `Token check could not be sent (${response.failure.code}).`;
+    render();
+    return;
+  }
+  if (response.data.status === "valid") {
+    authState = "signed_in";
+    authMessage = "Token is valid.";
+    logEvent("Token valid", "", "success");
+  } else if (response.data.status === "invalid") {
+    authState = "invalid";
+    authMessage = "The stored token was rejected. Sign in again.";
+    logEvent("Token rejected", `HTTP ${response.data.httpStatus ?? 0}`, "danger");
+  } else if (response.data.status === "skipped") {
+    authMessage = "Nothing to check — set a stage base host and sign in first.";
+  } else {
+    authMessage = `Token check failed (HTTP ${response.data.httpStatus ?? 0}).`;
+    logEvent("Token check failed", `HTTP ${response.data.httpStatus ?? 0}`, "warn");
+  }
   render();
 }
 
@@ -1084,6 +1234,7 @@ function render(): void {
       presentation={store.getPresentation()}
       diagnostics={buildDiagnostics()}
       settings={settingsForm}
+      credentials={credentialsForm}
       onEnableChange={(enabled) => { void setMarkingEnabled(enabled); }}
       onDesktopPreviewChange={(enabled) => { void setDesktopPreviewEnabled(enabled); }}
       onRunAi={() => { void runAi(); }}
@@ -1093,6 +1244,10 @@ function render(): void {
       onRefresh={() => { void refreshPopup(); }}
       onSettingsChange={updateSettingsField}
       onSettingsSave={() => { void saveStoredSettings(); }}
+      onCredentialsChange={updateCredentialsField}
+      onLogin={() => { void login(); }}
+      onLogout={() => { void logout(); }}
+      onValidateToken={() => { void validateToken(); }}
     />,
   );
 }

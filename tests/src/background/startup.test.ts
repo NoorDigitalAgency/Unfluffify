@@ -289,23 +289,154 @@ describe("rewrite background startup", () => {
 
     expect(await call("settings.load", {}, "settings-load-1", 1)).toMatchObject({
       ok: true,
-      payload: { settings: {} },
+      payload: { settings: {}, hasToken: false },
     });
 
     const settings = {
       configEndpoint: "https://config.example.com/",
       aiEndpoint: "https://ai.example.com/",
       stageBase: "stage.example.com",
-      token: "tok_abc",
     };
     expect(await call("settings.save", settings, "settings-save-1", 2)).toMatchObject({
       ok: true,
-      payload: { status: "ok", settings },
+      payload: { status: "ok", settings, hasToken: false },
     });
     expect(await call("settings.load", {}, "settings-load-2", 3)).toMatchObject({
       ok: true,
-      payload: { settings },
+      payload: { settings, hasToken: false },
     });
+  });
+
+  it("carries the stored JWT through an endpoint save", async () => {
+    const addMessageListener = vi.fn();
+    globalThis.chrome = {
+      runtime: {
+        sendMessage: vi.fn(),
+        onMessage: { addListener: addMessageListener },
+      },
+      alarms: {
+        create: vi.fn(),
+        clear: vi.fn(),
+        onAlarm: { addListener: vi.fn() },
+      },
+    } as unknown as typeof chrome;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () => new Response(JSON.stringify({ token: "jwt-abc" }), { status: 200 })) as typeof fetch;
+
+    try {
+      const { startRewriteBackground } = await import("../../../src/background/index");
+      startRewriteBackground();
+      const runtimeListener = addMessageListener.mock.calls[0]?.[0] as (message: unknown, sender: unknown, sendResponse: (value: unknown) => void) => unknown;
+
+      const call = async (name: string, payload: unknown, id: string, seq: number): Promise<unknown> => {
+        let response: unknown;
+        runtimeListener({
+          kind: "uf-bus/1",
+          frameType: "request",
+          id,
+          seq,
+          name,
+          source: "popup",
+          sourceInstance: "popup:test",
+          target: "background",
+          payload,
+        }, {}, (value: unknown) => {
+          response = value;
+        });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        return response;
+      };
+
+      await call("settings.save", { stageBase: "a.example.com" }, "s-1", 1);
+      await call("accounts.login", { email: "a@b.c", password: "pw" }, "s-2", 2);
+      expect(await call("settings.load", {}, "s-3", 3)).toMatchObject({
+        ok: true,
+        payload: { hasToken: true },
+      });
+
+      // Saving endpoints again must not clear the token the login just stored.
+      await call("settings.save", { stageBase: "a.example.com", aiEndpoint: "https://ai.example.com" }, "s-4", 4);
+      expect(await call("settings.load", {}, "s-5", 5)).toMatchObject({
+        ok: true,
+        payload: {
+          settings: { stageBase: "a.example.com", aiEndpoint: "https://ai.example.com" },
+          hasToken: true,
+        },
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("registers the auth-token alarm and reports the cached verdict over the bus", async () => {
+    const addMessageListener = vi.fn();
+    const addAlarmListener = vi.fn();
+    const createAlarm = vi.fn();
+    globalThis.chrome = {
+      runtime: {
+        sendMessage: vi.fn(),
+        onMessage: { addListener: addMessageListener },
+      },
+      alarms: {
+        create: createAlarm,
+        clear: vi.fn(),
+        onAlarm: { addListener: addAlarmListener },
+      },
+    } as unknown as typeof chrome;
+    const originalFetch = globalThis.fetch;
+    // Login succeeds so a token gets stored; validate then rejects it, which is
+    // the only outcome that counts as "signed out".
+    globalThis.fetch = (async (url: RequestInfo | URL) => String(url).includes("/api/account/login")
+      ? new Response(JSON.stringify({ token: "jwt-abc" }), { status: 200 })
+      : new Response("{}", { status: 401 })) as typeof fetch;
+
+    try {
+      const { startRewriteBackground } = await import("../../../src/background/index");
+      startRewriteBackground();
+
+      expect(createAlarm).toHaveBeenCalledWith("uf-rewrite-auth-token-check", { periodInMinutes: 10 });
+
+      const runtimeListener = addMessageListener.mock.calls[0]?.[0] as (message: unknown, sender: unknown, sendResponse: (value: unknown) => void) => unknown;
+      const call = async (name: string, payload: unknown, id: string, seq: number): Promise<unknown> => {
+        let response: unknown;
+        runtimeListener({
+          kind: "uf-bus/1",
+          frameType: "request",
+          id,
+          seq,
+          name,
+          source: "popup",
+          sourceInstance: "popup:test",
+          target: "background",
+          payload,
+        }, {}, (value: unknown) => {
+          response = value;
+        });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        return response;
+      };
+
+      // Nothing checked yet.
+      expect(await call("accounts.status", {}, "a-1", 1)).toMatchObject({
+        ok: true,
+        payload: { state: "unknown", checkedAt: 0 },
+      });
+
+      await call("settings.save", { stageBase: "a.example.com" }, "a-2", 2);
+      await call("accounts.login", { email: "a@b.c", password: "pw" }, "a-3", 3);
+
+      // Firing the alarm must drive a real check through the monitor.
+      const alarmListener = addAlarmListener.mock.calls.at(-1)?.[0] as (alarm: { name: string }) => void;
+      alarmListener({ name: "uf-rewrite-auth-token-check" });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(await call("accounts.status", {}, "a-4", 4)).toMatchObject({
+        ok: true,
+        payload: { state: "invalid" },
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   it("rejects a settings payload whose endpoints are not URLs", async () => {

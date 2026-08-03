@@ -2,6 +2,8 @@ import { createRewriteBrainRuntime } from "./rewrite-brain-runtime";
 import { createPropertyLockRuntime } from "./lock-runtime";
 import { createRenderEmulationRuntime } from "./render-emulation-runtime";
 import { createRewriteBackgroundServices } from "./services";
+import { createAuthTokenMonitor } from "./auth-token-monitor";
+import { connectionSettingsOf } from "../storage/settings";
 import { getInstalledBrowserApi } from "../common/browser";
 import { createRealmBus } from "../messaging/realms";
 import { createRuntimeTransport } from "../messaging/transports/runtime";
@@ -77,7 +79,26 @@ export function startRewriteBackground(): void {
     },
   });
   runtime.keepAlive.clearIfIdle();
-  api.alarms?.onAlarm?.addListener((alarm) => runtime.keepAlive.handleAlarm(alarm));
+  const authTokenMonitor = createAuthTokenMonitor({
+    validate: () => services.accounts.validate(),
+    createAlarm(name, info) {
+      api.alarms?.create(name, info);
+    },
+    clearAlarm(name) {
+      api.alarms?.clear(name);
+    },
+    onInvalid() {
+      console.warn("[Unfluffify][rewrite] Stored auth token was rejected; sign in again");
+    },
+    onError(error) {
+      console.error("[Unfluffify][rewrite] Auth token check failed", error);
+    },
+  });
+  void authTokenMonitor.start();
+  api.alarms?.onAlarm?.addListener((alarm) => {
+    runtime.keepAlive.handleAlarm(alarm);
+    void authTokenMonitor.handleAlarm(alarm);
+  });
   const bus = createRealmBus({
     realm: "background",
     transport: createRuntimeTransport(api.runtime),
@@ -181,13 +202,50 @@ export function startRewriteBackground(): void {
       : { status: result.status, httpStatus: result.httpStatus };
   });
   bus.onCommand("settings.load", async () => {
-    const result = await services.repos.settingsStore.load();
-    return { settings: result.ok && result.value ? result.value : {} };
+    const stored = await services.settings.load();
+    return {
+      settings: connectionSettingsOf(stored),
+      hasToken: Boolean(stored.token?.trim()),
+    };
   });
   bus.onCommand("settings.save", async (settings) => {
-    await services.repos.settingsStore.save(settings);
-    return { status: "ok" as const, settings };
+    // Endpoints come wholly from the request so clearing a field clears it, but
+    // the token is carried forward — the popup has no way to supply one. Going
+    // through services.settings.update keeps this from racing a rotation that
+    // lands mid-save.
+    const saved = await services.settings.update((current) => ({
+      ...settings,
+      ...(current.token?.trim() ? { token: current.token } : {}),
+    }));
+    return {
+      status: "ok" as const,
+      settings: connectionSettingsOf(saved),
+      hasToken: Boolean(saved.token?.trim()),
+    };
   });
+  bus.onCommand("accounts.login", async (credentials) => {
+    const result = await services.accounts.login(credentials);
+    return result.status === "ok"
+      ? { status: result.status }
+      : result.status === "skipped"
+        ? { status: result.status }
+        : result.status === "missing_token"
+          ? { status: result.status, httpStatus: result.httpStatus }
+          : { status: result.status, httpStatus: result.httpStatus, message: result.message };
+  });
+  bus.onCommand("accounts.logout", async () => {
+    await services.accounts.logout();
+    return { status: "ok" as const };
+  });
+  // Routed through the monitor so the manual check and the alarm share one
+  // verdict rather than drifting apart.
+  bus.onCommand("accounts.validate", async () => {
+    const result = await authTokenMonitor.check();
+    return result.status === "skipped"
+      ? { status: result.status }
+      : { status: result.status, httpStatus: result.httpStatus };
+  });
+  bus.onCommand("accounts.status", () => authTokenMonitor.status());
   void Promise.resolve(api.sidePanel?.setOptions?.({
     path: "popup.html",
     enabled: true,

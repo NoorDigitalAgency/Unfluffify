@@ -67,6 +67,233 @@ describe("rewrite background services", () => {
     }
   });
 
+  it("routes accounts paths to the stage-derived accounts host", async () => {
+    const calls: Array<{ url: string; init: RequestInit }> = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(url), init: init ?? {} });
+      return new Response(JSON.stringify({ token: "jwt" }), { status: 200 });
+    }) as typeof fetch;
+    try {
+      const transport = createFetchJsonTransport(() => ({
+        configEndpoint: "https://config.example.com/base",
+        aiEndpoint: "https://ai.example.com:8443",
+        stageBase: "a.example.com",
+        token: "token",
+      }));
+
+      await transport({ method: "POST", path: "/api/account/login", body: { email: "a@b.c", password: "pw" } });
+      await transport({ method: "GET", path: "/api/account/validate" });
+
+      expect(calls.map((call) => call.url)).toEqual([
+        "https://accounts.a.example.com/api/account/login",
+        "https://accounts.a.example.com/api/account/validate",
+      ]);
+      // Login must go out unauthenticated; validate is the call that proves the token.
+      expect(calls[0].init.headers).not.toHaveProperty("authorization");
+      expect(calls[1].init.headers).toMatchObject({ authorization: "Bearer token" });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("reports accounts calls as unconfigured when no stage base is stored", async () => {
+    const originalFetch = globalThis.fetch;
+    let fetched = false;
+    globalThis.fetch = (async () => {
+      fetched = true;
+      return new Response("{}", { status: 200 });
+    }) as typeof fetch;
+    try {
+      const transport = createFetchJsonTransport(() => ({ configEndpoint: "https://config.example.com" }));
+
+      await expect(transport({ method: "POST", path: "/api/account/login", body: {} }))
+        .resolves.toMatchObject({ status: 503, body: { error: "endpoint_unconfigured" } });
+      expect(fetched).toBe(false);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("stores the JWT on a successful login and drops it on logout", async () => {
+    const originalIndexedDb = globalThis.indexedDB;
+    const originalFetch = globalThis.fetch;
+    Object.defineProperty(globalThis, "indexedDB", { configurable: true, value: undefined });
+    globalThis.fetch = (async () => new Response(JSON.stringify({ token: "jwt-from-backend" }), { status: 200 })) as typeof fetch;
+    try {
+      const services = createRewriteBackgroundServices();
+      await services.repos.settingsStore.save({ stageBase: "a.example.com" });
+
+      await expect(services.accounts.login({ email: "a@b.c", password: "pw" }))
+        .resolves.toEqual({ status: "ok", token: "jwt-from-backend" });
+
+      const afterLogin = await services.repos.settingsStore.load();
+      expect(afterLogin.ok && afterLogin.value).toMatchObject({
+        stageBase: "a.example.com",
+        token: "jwt-from-backend",
+      });
+
+      await services.accounts.logout();
+      const afterLogout = await services.repos.settingsStore.load();
+      expect(afterLogout.ok && afterLogout.value).toEqual({ stageBase: "a.example.com" });
+    } finally {
+      globalThis.fetch = originalFetch;
+      Object.defineProperty(globalThis, "indexedDB", { configurable: true, value: originalIndexedDb });
+    }
+  });
+
+  it("adopts an x-update-token rotation from any authed response", async () => {
+    const originalIndexedDb = globalThis.indexedDB;
+    Object.defineProperty(globalThis, "indexedDB", { configurable: true, value: undefined });
+    try {
+      const services = createRewriteBackgroundServices({
+        transport: async () => ({
+          status: 200,
+          body: { data: { urlSearchInfo: { domainId: 42 } } },
+          headers: { "x-update-token": "rotated-jwt" },
+        }),
+      });
+      await services.repos.settingsStore.save({ stageBase: "a.example.com", token: "original-jwt" });
+
+      await services.lynx.getSiteIdForUrl("https://example.com/page");
+
+      const stored = await services.settings.load();
+      expect(stored).toEqual({ stageBase: "a.example.com", token: "rotated-jwt" });
+    } finally {
+      Object.defineProperty(globalThis, "indexedDB", { configurable: true, value: originalIndexedDb });
+    }
+  });
+
+  it("leaves the stored token alone when a response repeats or omits the header", async () => {
+    const originalIndexedDb = globalThis.indexedDB;
+    Object.defineProperty(globalThis, "indexedDB", { configurable: true, value: undefined });
+    try {
+      let headers: Record<string, string> = {};
+      const services = createRewriteBackgroundServices({
+        transport: async () => ({ status: 200, body: { data: { urlSearchInfo: { domainId: 42 } } }, headers }),
+      });
+      await services.repos.settingsStore.save({ stageBase: "a.example.com", token: "original-jwt" });
+
+      for (headers of [{}, { "x-update-token": "" }, { "x-update-token": "original-jwt" }]) {
+        await services.lynx.getSiteIdForUrl("https://example.com/page");
+        await expect(services.settings.load()).resolves.toEqual({
+          stageBase: "a.example.com",
+          token: "original-jwt",
+        });
+      }
+    } finally {
+      Object.defineProperty(globalThis, "indexedDB", { configurable: true, value: originalIndexedDb });
+    }
+  });
+
+  it("serializes concurrent settings writes so neither loses the other's field", async () => {
+    const originalIndexedDb = globalThis.indexedDB;
+    Object.defineProperty(globalThis, "indexedDB", { configurable: true, value: undefined });
+    try {
+      const services = createRewriteBackgroundServices({
+        transport: async () => ({ status: 200, body: {}, headers: {} }),
+      });
+      await services.repos.settingsStore.save({ token: "original-jwt" });
+
+      // Issued in the same tick, so without a shared queue both read the same
+      // baseline and whichever saves last silently drops the other's field.
+      await Promise.all([
+        services.settings.update((current) => ({ ...current, aiEndpoint: "https://ai.example.com" })),
+        services.settings.update((current) => ({ ...current, configEndpoint: "https://config.example.com" })),
+      ]);
+
+      await expect(services.settings.load()).resolves.toEqual({
+        token: "original-jwt",
+        aiEndpoint: "https://ai.example.com",
+        configEndpoint: "https://config.example.com",
+      });
+    } finally {
+      Object.defineProperty(globalThis, "indexedDB", { configurable: true, value: originalIndexedDb });
+    }
+  });
+
+  it("keeps a rotation and an endpoint save from losing each other", async () => {
+    const originalIndexedDb = globalThis.indexedDB;
+    Object.defineProperty(globalThis, "indexedDB", { configurable: true, value: undefined });
+    try {
+      const services = createRewriteBackgroundServices({
+        transport: async () => ({
+          status: 200,
+          body: { data: { urlSearchInfo: { domainId: 42 } } },
+          headers: { "x-update-token": "rotated-jwt" },
+        }),
+      });
+      await services.repos.settingsStore.save({ stageBase: "a.example.com", token: "original-jwt" });
+
+      await Promise.all([
+        services.lynx.getSiteIdForUrl("https://example.com/page"),
+        services.settings.update((current) => ({ ...current, aiEndpoint: "https://ai.example.com" })),
+      ]);
+
+      await expect(services.settings.load()).resolves.toEqual({
+        stageBase: "a.example.com",
+        aiEndpoint: "https://ai.example.com",
+        token: "rotated-jwt",
+      });
+    } finally {
+      Object.defineProperty(globalThis, "indexedDB", { configurable: true, value: originalIndexedDb });
+    }
+  });
+
+  it("gives the property-lock socket the rotated token on its next connect", async () => {
+    const originalIndexedDb = globalThis.indexedDB;
+    Object.defineProperty(globalThis, "indexedDB", { configurable: true, value: undefined });
+    const urls: string[] = [];
+    try {
+      const services = createRewriteBackgroundServices({
+        transport: async () => ({
+          status: 200,
+          body: { data: { urlSearchInfo: { domainId: 42 } } },
+          headers: { "x-update-token": "rotated-jwt" },
+        }),
+        socketFactory(url: string) {
+          urls.push(url);
+          return fakeSocket().socket;
+        },
+      });
+      await services.repos.settingsStore.save({ configEndpoint: "https://lock.example.com", token: "original-jwt" });
+
+      // The WS is exempt from rotation: it has no response headers and carries
+      // its token in the connect query string, so it picks up a rotation only
+      // by reading settings again on the next connect.
+      await services.createLockClient({ tabId: 1, siteId: 42, pageUrl: "https://example.com/a" });
+      await services.lynx.getSiteIdForUrl("https://example.com/a");
+      await services.createLockClient({ tabId: 2, siteId: 42, pageUrl: "https://example.com/b" });
+
+      expect(urls).toEqual([
+        "wss://lock.example.com/property-lock?token=original-jwt",
+        "wss://lock.example.com/property-lock?token=rotated-jwt",
+      ]);
+    } finally {
+      Object.defineProperty(globalThis, "indexedDB", { configurable: true, value: originalIndexedDb });
+    }
+  });
+
+  it("leaves the stored token untouched when a login is rejected", async () => {
+    const originalIndexedDb = globalThis.indexedDB;
+    const originalFetch = globalThis.fetch;
+    Object.defineProperty(globalThis, "indexedDB", { configurable: true, value: undefined });
+    globalThis.fetch = (async () => new Response(JSON.stringify({ error: "Bad credentials" }), { status: 401 })) as typeof fetch;
+    try {
+      const services = createRewriteBackgroundServices();
+      await services.repos.settingsStore.save({ stageBase: "a.example.com", token: "existing-jwt" });
+
+      await expect(services.accounts.login({ email: "a@b.c", password: "wrong" }))
+        .resolves.toMatchObject({ status: "rejected", httpStatus: 401, message: "Bad credentials" });
+
+      const stored = await services.repos.settingsStore.load();
+      expect(stored.ok && stored.value).toMatchObject({ token: "existing-jwt" });
+    } finally {
+      globalThis.fetch = originalFetch;
+      Object.defineProperty(globalThis, "indexedDB", { configurable: true, value: originalIndexedDb });
+    }
+  });
+
   it("loads default transport settings before each request", async () => {
     const originalIndexedDb = globalThis.indexedDB;
     const originalFetch = globalThis.fetch;

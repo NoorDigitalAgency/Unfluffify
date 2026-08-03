@@ -52,14 +52,42 @@ describe("corrective messaging application contracts", () => {
       configEndpoint: "https://config.example.com/",
       aiEndpoint: "https://ai.example.com/",
       stageBase: "stage.example.com",
-      token: "tok_abc",
     })).toMatchObject({ stageBase: "stage.example.com" });
     // Omitted, not blank: a cleared input must drop the key so the transport
     // falls back to "endpoint_unconfigured" instead of a malformed base URL.
     expect(save.request.parse({})).toEqual({});
     expect(save.request.safeParse({ configEndpoint: "" }).success).toBe(false);
     expect(save.request.safeParse({ aiEndpoint: "not-a-url" }).success).toBe(false);
-    expect(applicationContract.commands["settings.load"].response.safeParse({ settings: {} }).success).toBe(true);
+  });
+
+  it("keeps the JWT off the settings commands entirely", () => {
+    // The token is owned by the login flow. A settings write that could carry
+    // one could also drop one, so the field must not exist on this surface.
+    const save = applicationContract.commands["settings.save"];
+    const load = applicationContract.commands["settings.load"];
+
+    expect(save.request.parse({ stageBase: "stage.example.com", token: "tok_abc" }))
+      .toEqual({ stageBase: "stage.example.com" });
+    expect(save.response.safeParse({ status: "ok", settings: {}, hasToken: true }).success).toBe(true);
+    expect(load.response.safeParse({ settings: {}, hasToken: false }).success).toBe(true);
+    // hasToken is how the popup learns about the credential — it is required.
+    expect(load.response.safeParse({ settings: {} }).success).toBe(false);
+    expect(load.response.parse({ settings: { token: "tok_abc" }, hasToken: true }))
+      .toEqual({ settings: {}, hasToken: true });
+  });
+
+  it("accepts the accounts login, logout and validate commands", () => {
+    const login = applicationContract.commands["accounts.login"];
+
+    expect(login.request.parse({ email: "user@example.com", password: "pw" }))
+      .toEqual({ email: "user@example.com", password: "pw" });
+    expect(login.request.safeParse({ email: "", password: "pw" }).success).toBe(false);
+    expect(login.request.safeParse({ email: "user@example.com", password: "" }).success).toBe(false);
+    // The reply never carries the token — it is stored background-side.
+    expect(login.response.parse({ status: "ok", token: "tok_abc" })).toEqual({ status: "ok" });
+    expect(login.response.safeParse({ status: "rejected", httpStatus: 401, message: "Bad password" }).success).toBe(true);
+    expect(applicationContract.commands["accounts.validate"].response.safeParse({ status: "invalid", httpStatus: 401 }).success).toBe(true);
+    expect(applicationContract.commands["accounts.logout"].response.safeParse({ status: "ok" }).success).toBe(true);
   });
 
   it("allows initial signal cursor pulls from afterSeq zero", () => {
