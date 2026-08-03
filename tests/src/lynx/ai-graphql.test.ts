@@ -13,6 +13,7 @@ import {
   buildUpdateScrapingConditionsRequest,
   buildUrlSearchInfoRequest,
   parseUrlSearchInfo,
+  readGraphqlErrorCode,
   toDomainRenderMode,
   URL_SEARCH_INFO_QUERY,
 } from "../../../src/lynx/graphql";
@@ -79,6 +80,14 @@ describe("P4 locked AI and GraphQL shapes", () => {
       .toEqual({ siteId: 123, notFound: false });
     expect(parseUrlSearchInfo({ errors: [{ extensions: { code: "NotFound" } }] }))
       .toEqual({ siteId: null, notFound: true });
+    // Read alongside the locked parse, so a non-NotFound error is separable from
+    // a genuine miss rather than collapsing into "no site id".
+    expect(readGraphqlErrorCode({ errors: [{ extensions: { code: "UNAUTHENTICATED" } }] })).toBe("UNAUTHENTICATED");
+    expect(readGraphqlErrorCode({ errors: [{ message: "Token expired" }] })).toBe("Token expired");
+    expect(readGraphqlErrorCode({ errors: [{}] })).toBe("graphql_error");
+    expect(readGraphqlErrorCode({ data: { urlSearchInfo: null } })).toBe("");
+    expect(readGraphqlErrorCode({ errors: [] })).toBe("");
+    expect(readGraphqlErrorCode(null)).toBe("");
     expect(buildPropertyPageTypesRequest(123).variables).toEqual({ domainId: 123 });
     expect(buildCssInfoRequest("https://example.com/a").variables).toEqual({ url: "https://example.com/a" });
     expect(toDomainRenderMode("static")).toBe("STATIC");

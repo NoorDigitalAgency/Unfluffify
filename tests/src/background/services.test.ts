@@ -372,6 +372,73 @@ describe("rewrite background services", () => {
     }]);
   });
 
+  it("does not call a rejected token an unmanaged property", async () => {
+    // GraphQL answers an expired token with HTTP 200 plus an errors envelope and
+    // no urlSearchInfo. Before, that read as `ok` with a null site id, which the
+    // lock runtime then announced as not_candidate — the operator was told the
+    // page was out of scope when the real problem was their token.
+    const services = createRewriteBackgroundServices({
+      transport: async () => ({
+        status: 200,
+        body: { errors: [{ extensions: { code: "UNAUTHENTICATED" }, message: "Token expired" }] },
+      }),
+    });
+
+    await expect(services.lynx.getSiteIdForUrl("https://managed.example.com/page"))
+      .resolves.toEqual({ status: "network_error", siteId: null });
+
+    const directive = await createPropertyLockRuntime({ services }).directive({
+      tabId: 9,
+      pageUrl: "https://managed.example.com/page",
+      baseUrl: "https://managed.example.com",
+    });
+    expect(directive).toMatchObject({
+      status: "unavailable",
+      lockBanner: { text: "Property lock unavailable" },
+    });
+  });
+
+  it("still reports a genuine miss as not found", async () => {
+    const explicitCode = createRewriteBackgroundServices({
+      transport: async () => ({ status: 200, body: { errors: [{ extensions: { code: "NotFound" } }] } }),
+    });
+    const nullDomain = createRewriteBackgroundServices({
+      transport: async () => ({ status: 200, body: { data: { urlSearchInfo: null } } }),
+    });
+
+    await expect(explicitCode.lynx.getSiteIdForUrl("https://nope.example.com/a"))
+      .resolves.toEqual({ status: "not_found", siteId: null });
+    // No error envelope at all: the backend answered and simply has no domain.
+    await expect(nullDomain.lynx.getSiteIdForUrl("https://nope.example.com/a"))
+      .resolves.toEqual({ status: "not_found", siteId: null });
+  });
+
+  it("names why there is no lock instead of blaming the connection", async () => {
+    // All three arrive with no lock state to project, and an operator sent
+    // looking for a connection fault on a page that is simply out of scope has
+    // been misdirected.
+    const notCandidate = createRewriteBackgroundServices({
+      transport: async () => ({ status: 200, body: { data: { urlSearchInfo: null } } }),
+    });
+    const unavailable = createRewriteBackgroundServices({
+      transport: async () => { throw new Error("network down"); },
+    });
+    const request = { tabId: 7, pageUrl: "https://out-of-scope.example.com/page", baseUrl: "https://out-of-scope.example.com" };
+
+    const outOfScope = await createPropertyLockRuntime({ services: notCandidate }).directive(request);
+    expect(outOfScope).toMatchObject({
+      status: "not_candidate",
+      siteId: null,
+      lockBanner: { visible: true, text: "Not a managed property" },
+    });
+
+    const offline = await createPropertyLockRuntime({ services: unavailable }).directive(request);
+    expect(offline).toMatchObject({
+      status: "unavailable",
+      lockBanner: { visible: true, text: "Property lock unavailable" },
+    });
+  });
+
   it("keeps lock.directive idempotent and recreates clients after socket close", async () => {
     const sockets: ReturnType<typeof fakeSocket>[] = [];
     const tabMessages: unknown[] = [];

@@ -25,6 +25,18 @@ function baseUrlFor(url: string): string {
   }
 }
 
+/** There is no lock state to project when the site never resolved, and the
+ *  reasons are not interchangeable: "this page is not a managed property" is a
+ *  normal outcome on any other site, whereas an unreachable backend or a missing
+ *  config is something to fix. Reporting all three as "unavailable" sends the
+ *  operator looking for a connection fault that is not there. */
+const NO_LOCK_STATE_TEXT: Readonly<Record<"ok" | "not_configured" | "not_candidate" | "unavailable", string>> = {
+  ok: "Property lock connecting",
+  not_configured: "Property lock not configured",
+  not_candidate: "Not a managed property",
+  unavailable: "Property lock unavailable",
+};
+
 function directiveFromState(input: Readonly<{
   pageUrl: string;
   baseUrl: string;
@@ -32,7 +44,9 @@ function directiveFromState(input: Readonly<{
   state: PropertyLockState | null;
   status: "ok" | "not_configured" | "not_candidate" | "unavailable";
 }>) {
-  const view = input.state ? projectPropertyLockView(input.state) : { bannerVisible: true, text: "Property lock unavailable", canEdit: false };
+  const view = input.state
+    ? projectPropertyLockView(input.state)
+    : { bannerVisible: true, text: NO_LOCK_STATE_TEXT[input.status], canEdit: false };
   const lockRole = input.state?.role ?? "unknown";
   const blockedReason = view.canEdit ? "" : input.status === "not_candidate" ? "not-candidate" : "property-lock";
   return {

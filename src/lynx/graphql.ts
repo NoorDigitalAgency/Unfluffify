@@ -76,6 +76,25 @@ export function parseUrlSearchInfo(payload: unknown): { siteId: number | null; n
   };
 }
 
+/** GraphQL answers an auth failure with HTTP 200 and an `errors` envelope, which
+ *  `parseUrlSearchInfo` cannot distinguish from a genuine miss — it reports both
+ *  as "no site id". Reading the error code separately keeps a rejected token from
+ *  being announced as "this page is not a managed property". Returns "" when the
+ *  payload carries no error envelope. */
+export function readGraphqlErrorCode(payload: unknown): string {
+  const parsed = z.object({
+    errors: z.array(z.object({
+      extensions: z.object({ code: z.string() }).passthrough().optional(),
+      message: z.string().optional(),
+    }).passthrough()).min(1),
+  }).safeParse(payload);
+  if (!parsed.success) {
+    return "";
+  }
+  const first = parsed.data.errors[0];
+  return first.extensions?.code || first.message || "graphql_error";
+}
+
 export function buildPropertyPageTypesRequest(domainId: number) {
   return { query: PROPERTY_PAGE_TYPES_QUERY, variables: { domainId } };
 }

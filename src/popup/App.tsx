@@ -176,9 +176,12 @@ function lockToneClass(presentation: PopupPresentation, diagnostics: PopupDiagno
   if (!presentation.lockBanner.visible && diagnostics.lockRole === "editor") {
     return "u-tone-success";
   }
-  return diagnostics.lockStatus === "unavailable" || diagnostics.lockStatus === "not_candidate"
-    ? "u-tone-danger"
-    : "u-tone-warning";
+  // A page outside the managed set is not a fault — only an unreachable or
+  // unconfigured backend is worth alarming about.
+  if (diagnostics.lockStatus === "not_candidate") {
+    return "u-tone-muted";
+  }
+  return diagnostics.lockStatus === "unavailable" ? "u-tone-danger" : "u-tone-warning";
 }
 
 function lockStatusText(presentation: PopupPresentation, diagnostics: PopupDiagnostics): string {

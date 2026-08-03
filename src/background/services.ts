@@ -21,7 +21,7 @@ import {
 import { getAiRunResult, getAiRunStatus, startAiRun } from "../lynx/ai";
 import { withTokenRotation } from "../lynx/token-rotation";
 import { pollAiJob } from "../lynx/ai-job";
-import { buildCssInfoRequest, buildUpdateScrapingConditionsRequest, buildUrlSearchInfoRequest, parseUrlSearchInfo } from "../lynx/graphql";
+import { buildCssInfoRequest, buildUpdateScrapingConditionsRequest, buildUrlSearchInfoRequest, parseUrlSearchInfo, readGraphqlErrorCode } from "../lynx/graphql";
 import { loadConfigSnapshot, saveConfigSnapshot } from "../lynx/rest";
 import { persistDurableFacts, rehydrateDurableFacts, reDeriveVolatile } from "./persistence";
 
@@ -181,9 +181,19 @@ export function createRewriteBackgroundServices(input: Readonly<{
           return { status: "network_error" as const, siteId: null };
         }
         const parsed = parseUrlSearchInfo(response.body);
-        return parsed.notFound
-          ? { status: "not_found" as const, siteId: null }
-          : { status: "ok" as const, siteId: parsed.siteId };
+        if (parsed.notFound) {
+          return { status: "not_found" as const, siteId: null };
+        }
+        if (parsed.siteId !== null) {
+          return { status: "ok" as const, siteId: parsed.siteId };
+        }
+        // No site id and no explicit NotFound. A GraphQL error envelope here
+        // (an expired token answers 200 + UNAUTHENTICATED) is a fault, and
+        // reporting it as "not a managed property" sends the operator looking
+        // at the wrong thing entirely.
+        return readGraphqlErrorCode(response.body)
+          ? { status: "network_error" as const, siteId: null }
+          : { status: "not_found" as const, siteId: null };
       },
       async runAiJob(snapshot: Parameters<typeof startAiRun>[1]) {
         const started = await startAiRun(transport, snapshot);

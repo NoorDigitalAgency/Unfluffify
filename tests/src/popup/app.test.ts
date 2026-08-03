@@ -199,6 +199,23 @@ describe("popup App surface", () => {
     expect(markup).not.toContain("data-setup-required");
   });
 
+  it("tones an out-of-scope page as informational, not as a fault", () => {
+    const outOfScope = renderApp(
+      { ...LOCKED, projectionBlockedReason: "Not a managed property", lockBanner: { visible: true, text: "Not a managed property" } },
+      { ...SIGNED_IN, lockStatus: "not_candidate", siteId: null },
+    );
+    const offline = renderApp(
+      { ...LOCKED, projectionBlockedReason: "Property lock unavailable", lockBanner: { visible: true, text: "Property lock unavailable" } },
+      { ...SIGNED_IN, lockStatus: "unavailable", siteId: null },
+    );
+
+    expect(outOfScope).toContain("Not a managed property");
+    expect(outOfScope).toContain("u-tone-muted");
+    expect(outOfScope).not.toContain("u-tone-danger");
+    // An unreachable backend is a real fault and still reads as one.
+    expect(offline).toContain("u-tone-danger");
+  });
+
   it("leaves the connection panel closed once signed in and the lock resolves", () => {
     const markup = renderApp(SILENT, { ...SIGNED_IN, lockStatus: "ok", lockRole: "editor" });
 
