@@ -18,8 +18,16 @@
  *   5. Navigates the first tab to <target-url>.
  *   6. Resolves the loaded extension id from the service worker (and verifies it
  *      against the deterministic path-hash id).
- *   7. Resolves the target page's Chrome tab id via the service worker.
- *   8. Opens a SECOND tab `popup.html?debugTabId=<pageTabId>` so the extension
+ *   7. Reloads the extension, then reloads the target page. Both are required:
+ *      the persistent profile keeps serving the service worker registered on a
+ *      previous run (the manifest version never changes, so Chrome sees no
+ *      update) which makes any newly added bus command answer NO_HANDLER; and
+ *      reloading the extension orphans content scripts in already-open tabs,
+ *      which Chrome will not re-inject, so marking cannot arm until the page
+ *      reloads. Skipping either one produces a browser that looks fine and
+ *      silently runs stale code.
+ *   8. Resolves the target page's Chrome tab id via the service worker.
+ *   9. Opens a SECOND tab `popup.html?debugTabId=<pageTabId>` so the extension
  *      binds to the target page.
  *
  * The browser stays open until this process is stopped (Ctrl-C / kill <pid>).
@@ -177,6 +185,36 @@ const BIND_SCRIPT = `async (page) => {
   let worker = ctx.serviceWorkers()[0];
   if (!worker) worker = await ctx.waitForEvent('serviceworker', { timeout: 15000 });
   const extId = String(worker.url()).split('/')[2];
+
+  // Probe every worker handle rather than trusting index 0: after a reload the
+  // dead handle can linger, and evaluating on it throws.
+  const liveWorker = async () => {
+    for (let i = 0; i < 60; i++) {
+      for (const candidate of ctx.serviceWorkers()) {
+        try {
+          if (await candidate.evaluate(() => Boolean(chrome && chrome.runtime && chrome.runtime.id))) {
+            return candidate;
+          }
+        } catch (_) { /* handle belongs to a torn-down worker */ }
+      }
+      await page.waitForTimeout(500);
+    }
+    throw new Error('No live extension service worker after reload');
+  };
+
+  // The profile is persistent and the manifest version never changes, so Chrome
+  // keeps serving the service worker it registered on a previous run — any bus
+  // command added since then answers NO_HANDLER against freshly built files.
+  // Reloading re-registers the worker from disk.
+  await worker.evaluate(() => chrome.runtime.reload()).catch(() => {});
+  worker = await liveWorker();
+
+  // The reload orphans content scripts in already-open tabs and Chrome does not
+  // re-inject them, so the page must be reloaded too or every content command
+  // fails with "Receiving end does not exist" and marking cannot arm.
+  await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
+  await page.waitForTimeout(1500);
+
   const pageUrl = page.url();
   let tabId = null;
   for (let i = 0; i < 40; i++) {
@@ -197,7 +235,7 @@ const BIND_SCRIPT = `async (page) => {
   const boundUrl = 'chrome-extension://' + extId + '/popup.html?debugTabId=' + tabId;
   await popup.goto(boundUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
   await popup.waitForTimeout(1000);
-  return JSON.stringify({ extId: extId, tabId: tabId, boundUrl: boundUrl, pageUrl: pageUrl });
+  return JSON.stringify({ extId: extId, tabId: tabId, boundUrl: boundUrl, pageUrl: pageUrl, refreshed: true });
 }`;
 
 function makeClient(child) {
@@ -787,6 +825,9 @@ if (extId && tabId && boundUrl) {
   console.log(`  extension id: ${extId}${extId === predictedId ? " (matches path hash)" : " (WARNING: differs from path hash)"}`);
   console.log(`  page tabId  : ${tabId}`);
   console.log(`  popup (tab2): ${boundUrl}`);
+  console.log(`  freshness   : ${bindClean.includes('"refreshed":true')
+    ? "extension + page reloaded (worker and content script are current)"
+    : "WARNING: not refreshed; the worker may be running a previous build"}`);
   console.log("=========================================================");
   console.log("Browser is open. Stop with Ctrl-C or `kill <pid>` to close it.");
   controlChannel = makeControlChannel(client);

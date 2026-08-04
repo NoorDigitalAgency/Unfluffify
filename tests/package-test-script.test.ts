@@ -42,3 +42,28 @@ test("public pnpm browser launcher is node-native", () => {
   assert.equal(launchScript.includes(legacyRuntimeToken), false);
   assert.equal(launchScript.includes('spawn("npx", ["-y", "@playwright/mcp@latest"'), true);
 });
+
+test("browser launcher refreshes both the service worker and the content script", () => {
+  // The profile is persistent and the manifest version never changes, so Chrome
+  // serves the worker registered on a previous run and every newly added bus
+  // command answers NO_HANDLER. Reloading the extension fixes that but orphans
+  // content scripts in open tabs, which Chrome will not re-inject — so the page
+  // reload is required too, and it has to come after the extension reload.
+  const launchScript = readFileSync(
+    new URL("../scripts/launch-test-browser.mjs", import.meta.url),
+    "utf8",
+  );
+
+  const reloadExtension = launchScript.indexOf("chrome.runtime.reload()");
+  const reloadPage = launchScript.indexOf("page.reload(");
+
+  assert.ok(reloadExtension > 0, "launcher must reload the extension so the worker re-registers from disk");
+  assert.ok(reloadPage > 0, "launcher must reload the target page so the content script is re-injected");
+  assert.ok(
+    reloadExtension < reloadPage,
+    "the page reload must come after the extension reload, or the content script is orphaned again",
+  );
+  // Waiting for a live worker before using it: the pre-reload handle is dead.
+  assert.ok(launchScript.includes("No live extension service worker after reload"));
+  assert.ok(launchScript.includes("refreshed"), "the ready banner must report freshness");
+});
