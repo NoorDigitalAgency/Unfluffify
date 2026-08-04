@@ -1,5 +1,5 @@
 import type { BrainSignal } from "../domain/schema/signals";
-import { INITIAL_POPUP_STATE, transitionPopupState, type PopupState } from "./organ/machine";
+import { INITIAL_POPUP_STATE, transitionPopupState, type PopupContentRow, type PopupState } from "./organ/machine";
 import { memoryFor, type PopupPresentation } from "./organ/memory";
 
 export function createPopupStore(initialState: PopupState = INITIAL_POPUP_STATE) {
@@ -19,6 +19,14 @@ export function createPopupStore(initialState: PopupState = INITIAL_POPUP_STATE)
     },
     getPresentation(): PopupPresentation {
       return memoryFor(state);
+    },
+    /** Display-only row refresh. Seeded marks are the session's starting point,
+     *  not an operator edit, so they must reach the panel without the dirty
+     *  transition a markings.changed signal would cause. */
+    setContentRows(rows: readonly PopupContentRow[]): PopupState {
+      state = { ...state, contentRows: rows };
+      listeners.forEach((listener) => listener(state));
+      return state;
     },
     /** Local view preference — not a brain fact, so it never rides a signal. */
     setDesktopPreview(checked: boolean): PopupState {

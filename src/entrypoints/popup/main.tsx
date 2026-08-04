@@ -866,6 +866,11 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
       await clearSessionEmulation(context);
     }
     contentActive = activated;
+    if (activated) {
+      // The seeded marks are the session's starting point, so show them without
+      // pretending the operator has edited anything.
+      await adoptContentRows(context.tabId, requestKey);
+    }
     logEvent(
       activated ? "Marking enabled" : "Marking activation failed",
       activated
@@ -893,6 +898,21 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
     await emitPopupSignal(context.tabId, "marking.disabled", { baseUrl: "", pageUrl: context.url, cause: "toggle" }, requestKey);
   }
   render();
+}
+
+/** Pulls the engine's current rows into the projection for display only. Used
+ *  after activation, where the rows come from the selector seed rather than from
+ *  an operator edit and so must not mark the session dirty. */
+async function adoptContentRows(tabId: number, requestKey = boundTabKey): Promise<void> {
+  const response = await requestContentMessage(tabId, { type: "getContentMainStatus" });
+  if (boundTabKey !== requestKey || !response || typeof response !== "object" || !("ok" in response) || response.ok !== true) {
+    return;
+  }
+  const rows = (response as { contentRows?: unknown }).contentRows;
+  if (Array.isArray(rows)) {
+    store.setContentRows(rows.filter((row): row is { xpath: string; classification: "included" | "excluded" } =>
+      Boolean(row) && typeof row === "object" && typeof (row as { xpath?: unknown }).xpath === "string"));
+  }
 }
 
 /** The unchecking half of the discard confirmation. The navigation half is the
