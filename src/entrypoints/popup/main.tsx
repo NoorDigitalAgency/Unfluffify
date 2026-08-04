@@ -33,7 +33,7 @@ import type { ConfigSnapshot, SelectorSet } from "../../storage/config";
 import type { ConnectionSettings } from "../../storage/settings";
 import type { RenderMode } from "../../domain/schema/property";
 import { isRenderModeConfirmed } from "../../storage/config";
-import { resolvePopupView, type PopupView } from "../../popup/view";
+import { resolvePopupView, type PopupView, type PopupViewRequest } from "../../popup/view";
 
 type PopupDebugApi = Readonly<{
   getViewState: () => Record<string, unknown>;
@@ -97,7 +97,7 @@ let configStatus = "";
 let renderModeSource: "backend" | "local" = "local";
 /** The view the operator asked for, and the lock that lets an incomplete setup
  *  force the configuration view without stranding them there once it is fixed. */
-let requestedView: PopupView | null = null;
+let requestedView: PopupViewRequest | null = null;
 let configViewLocked = false;
 /** The property's stored selectors. Shown in silent mode and used to seed a
  *  clean marking session; never stored locally — they are backend property data
@@ -187,6 +187,8 @@ function currentView(): PopupView {
     settingsLoaded: storedSettingsForm !== null,
     configurationComplete: isConfigurationComplete(),
     configViewLocked,
+    renderModeSet: renderModeSet(),
+    silentModeActive: store.getPresentation().silentModeActive,
   });
   configViewLocked = resolution.configViewLocked;
   return resolution.view;
@@ -1008,6 +1010,20 @@ function continueFromConfiguration(): void {
   render();
 }
 
+/** Legacy's renderModeEditMode: a mode that is already set can still be revisited,
+ *  and asking for the view is the whole of that request. */
+function openRenderMode(): void {
+  requestedView = "render-mode";
+  render();
+}
+
+/** Leaving is only offered once a mode exists, so there is always a session to
+ *  return to; which of the two it is follows from the session, not from here. */
+function leaveRenderMode(): void {
+  requestedView = null;
+  render();
+}
+
 function confirmDiscardMarkings(): boolean {
   const confirmFn = typeof window !== "undefined" ? window.confirm : undefined;
   if (typeof confirmFn !== "function") {
@@ -1637,6 +1653,8 @@ function render(): void {
       onInspectRenderMode={(javascriptEnabled) => { void loadRenderModeView(javascriptEnabled); }}
       onOpenConfiguration={openConfiguration}
       onConfigurationContinue={continueFromConfiguration}
+      onOpenRenderMode={openRenderMode}
+      onRenderModeDone={leaveRenderMode}
     />,
   );
 }

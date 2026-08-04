@@ -36,6 +36,8 @@ const FULL_HANDLERS = {
   onInspectRenderMode: NOOP,
   onOpenConfiguration: NOOP,
   onConfigurationContinue: NOOP,
+  onOpenRenderMode: NOOP,
+  onRenderModeDone: NOOP,
 };
 
 function renderApp(
@@ -64,6 +66,24 @@ function renderConfigurationView(
   credentials: PopupCredentialsForm = EMPTY_POPUP_CREDENTIALS_FORM,
 ): string {
   return renderApp(SILENT, diagnostics, settings, FULL_HANDLERS, credentials, "configuration");
+}
+
+/** The render-mode editor is its own view: until a mode is established there is
+ *  nothing else worth showing, and it stays reachable afterwards. */
+function renderRenderModeView(
+  diagnostics: Partial<PopupDiagnostics> = {},
+  state: PopupState = SILENT,
+): string {
+  return renderApp(state, diagnostics, EMPTY_POPUP_SETTINGS_FORM, FULL_HANDLERS, EMPTY_POPUP_CREDENTIALS_FORM, "render-mode");
+}
+
+/** Silent mode: the stored selectors drive the page and there are no markings, so
+ *  the selector list and the device preview live here rather than in a session. */
+function renderSilentView(
+  diagnostics: Partial<PopupDiagnostics> = {},
+  state: PopupState = SILENT,
+): string {
+  return renderApp(state, diagnostics, EMPTY_POPUP_SETTINGS_FORM, FULL_HANDLERS, EMPTY_POPUP_CREDENTIALS_FORM, "silent");
 }
 
 /** The fully-provisioned baseline: store read, endpoints saved, token held. */
@@ -99,17 +119,23 @@ const LOCKED: PopupState = {
 describe("popup App surface", () => {
   it("exposes the marking control ids the live QA and orchestration scripts drive", () => {
     const markup = renderApp(SILENT);
+    const silent = renderSilentView();
 
     for (const id of [
       "toggle-enabled",
-      "desktop-preview-enabled",
       "compute",
       "page-save",
       "page-revert",
       "marking-preview",
       "lock-refresh",
+      "render-mode-open",
     ]) {
       expect(markup, `missing #${id}`).toContain(`id="${id}"`);
+    }
+    // The device preview belongs to silent mode, where legacy also kept it.
+    expect(silent).toContain('id="desktop-preview-enabled"');
+    for (const id of ["toggle-enabled", "lock-refresh", "render-mode-open"]) {
+      expect(silent, `missing #${id}`).toContain(`id="${id}"`);
     }
     expect(markup).toContain('class="property-lock');
     expect(markup).toContain("property-lock__status");
@@ -137,6 +163,54 @@ describe("popup App surface", () => {
     }
     // And a way back, once the setup is complete enough to leave.
     expect(configuration).toContain('id="config-header-back"');
+  });
+
+  it("gives the render mode, the marking session and silent mode a view each", () => {
+    // They are not one screen with some controls greyed out: each can do things
+    // the others cannot, and showing all three at once invites an operator to
+    // drive a session that is not ready.
+    const renderMode = renderRenderModeView(SIGNED_IN);
+    const marking = renderApp(SILENT, { ...SIGNED_IN, renderMode: "rendered" });
+    const silent = renderSilentView({ ...SIGNED_IN, renderMode: "rendered" });
+
+    expect(renderMode).toContain('data-view="render-mode"');
+    expect(marking).toContain('data-view="marking"');
+    expect(silent).toContain('data-view="silent"');
+
+    // The render-mode view is only about establishing the mode: no session
+    // controls at all, which is what legacy's renderModeReady gate achieved.
+    for (const id of ["toggle-enabled", "compute", "page-save", "page-revert", "marking-preview", "desktop-preview-enabled"]) {
+      expect(renderMode, `#${id} must not be on the render-mode view`).not.toContain(`id="${id}"`);
+    }
+
+    // Run AI, Save and Discard act on the operator's markings; silent mode has
+    // none, so they are absent there rather than disabled.
+    for (const id of ["compute", "page-save", "page-revert", "marking-preview"]) {
+      expect(marking, `#${id} belongs to the marking session`).toContain(`id="${id}"`);
+      expect(silent, `#${id} must not be on the silent view`).not.toContain(`id="${id}"`);
+    }
+
+    // Selectors and the device preview are the silent-mode surface.
+    expect(silent).toContain('aria-label="AI selectors"');
+    expect(silent).toContain('id="desktop-preview-enabled"');
+    expect(marking).not.toContain('aria-label="AI selectors"');
+    expect(marking).not.toContain('id="desktop-preview-enabled"');
+
+    // Marked rows are the marking session's subject.
+    expect(marking).toContain('aria-label="Marked rows"');
+    expect(silent).not.toContain('aria-label="Marked rows"');
+
+    // The render-mode editor appears on its own view only, and both session
+    // views offer the way back to it.
+    expect(renderMode).toContain('id="render-mode-with-js"');
+    for (const session of [marking, silent]) {
+      expect(session).not.toContain('id="render-mode-with-js"');
+      expect(session).toContain('id="render-mode-open"');
+    }
+    // Done only exists once there is a session to go back to: on the first visit
+    // there is no mode yet, so leaving would strand the operator.
+    expect(renderMode).not.toContain('id="render-mode-done"');
+    expect(renderRenderModeView({ ...SIGNED_IN, renderMode: "rendered" })).toContain('id="render-mode-done"');
   });
 
   it("shows only a spinner on the loading view", () => {
@@ -263,7 +337,7 @@ describe("popup App surface", () => {
   it("keeps the render-mode radios focusable rather than display:none", () => {
     // A display:none radio is out of the tab order, which would make the choice
     // mouse-only; the theme class of that name is for the legacy sentinel.
-    const markup = renderApp(SILENT, { ...SIGNED_IN, renderMode: "rendered" });
+    const markup = renderRenderModeView({ ...SIGNED_IN, renderMode: "rendered" });
 
     expect(markup).not.toContain("render-mode-radio-hidden");
     expect(markup).toMatch(/id="render-mode-rendered"[^>]*type="radio"|type="radio"[^>]*id="render-mode-rendered"/);
@@ -272,7 +346,7 @@ describe("popup App surface", () => {
   it("starts with no render mode chosen and neither option selected", () => {
     // Picking a default would label every submission with a mode nobody
     // established, which is worse than refusing to proceed.
-    const markup = renderApp(SILENT, SIGNED_IN);
+    const markup = renderRenderModeView(SIGNED_IN);
 
     expect(markup).toContain('data-render-mode="unset"');
     expect(markup).toContain("Not set");
@@ -281,23 +355,28 @@ describe("popup App surface", () => {
   });
 
   it("blocks marking, Run AI and Save until a mode is chosen", () => {
+    // The resolver sends an unset mode to the render-mode view, so this is what
+    // an operator actually meets: the editor, saying what is blocked and why.
+    const unsetView = renderRenderModeView(SIGNED_IN);
+    // App still takes `view` as a prop, so a marking view with no mode set must
+    // keep explaining its dead controls rather than silently disabling them.
     const unset = renderApp(SILENT, SIGNED_IN);
     const chosen = renderApp(
       { name: "pre_ai_clean", lastConsumedSeq: 1, reconciliationReason: "", enableToggleChecked: true },
       { ...SIGNED_IN, renderMode: "rendered" },
     );
 
+    expect(unsetView).toContain("Marking, Run AI and Save stay blocked until you choose.");
     expect(unset).toMatch(/id="toggle-enabled"[^>]*disabled/);
     expect(unset).toContain('data-blocked-reason="render-mode-not-set"');
-    expect(unset).toContain("Choose a render mode below before marking.");
-    expect(unset).toContain("Marking, Run AI and Save stay blocked until you choose.");
+    expect(unset).toContain("Choose a render mode before marking.");
     // With a mode chosen the toggle is free again and Run AI is reachable.
     expect(chosen).not.toMatch(/id="toggle-enabled"[^>]*disabled/);
     expect(chosen).not.toContain('data-blocked-reason="render-mode-not-set"');
   });
 
   it("shows the render mode and offers both choices", () => {
-    const markup = renderApp(SILENT, { ...SIGNED_IN, renderMode: "rendered" });
+    const markup = renderRenderModeView({ ...SIGNED_IN, renderMode: "rendered" });
 
     expect(markup).toContain('aria-label="Render mode"');
     expect(markup).toContain('data-render-mode="rendered"');
@@ -306,7 +385,7 @@ describe("popup App surface", () => {
   });
 
   it("offers a load for each JavaScript mode rather than an automated verdict", () => {
-    const markup = renderApp(SILENT, SIGNED_IN);
+    const markup = renderRenderModeView(SIGNED_IN);
 
     expect(markup).toContain('id="render-mode-with-js"');
     expect(markup).toContain('id="render-mode-without-js"');
@@ -318,8 +397,8 @@ describe("popup App surface", () => {
   });
 
   it("says which view the tab is showing, and warns while JavaScript is off", () => {
-    const withJs = renderApp(SILENT, { ...SIGNED_IN, renderModeView: "with_javascript" });
-    const withoutJs = renderApp(SILENT, { ...SIGNED_IN, renderModeView: "without_javascript" });
+    const withJs = renderRenderModeView({ ...SIGNED_IN, renderModeView: "with_javascript" });
+    const withoutJs = renderRenderModeView({ ...SIGNED_IN, renderModeView: "without_javascript" });
 
     expect(withJs).toContain('data-render-mode-view="with_javascript"');
     expect(withJs).toContain("Showing the page with JavaScript.");
@@ -330,7 +409,7 @@ describe("popup App surface", () => {
   });
 
   it("locks both loads while one is in flight", () => {
-    const markup = renderApp(SILENT, { ...SIGNED_IN, renderModeBusy: true });
+    const markup = renderRenderModeView({ ...SIGNED_IN, renderModeBusy: true });
 
     expect(markup).toMatch(/id="render-mode-with-js"[^>]*disabled/);
     expect(markup).toMatch(/id="render-mode-without-js"[^>]*disabled/);
@@ -339,7 +418,7 @@ describe("popup App surface", () => {
   });
 
   it("surfaces a failed load instead of leaving the buttons silent", () => {
-    const markup = renderApp(SILENT, { ...SIGNED_IN, renderModeDetail: "The page could not be reloaded in that mode." });
+    const markup = renderRenderModeView({ ...SIGNED_IN, renderModeDetail: "The page could not be reloaded in that mode." });
 
     expect(markup).toContain("could not be reloaded");
     expect(markup).toContain("u-color-warning");
@@ -347,7 +426,7 @@ describe("popup App surface", () => {
 
   it("refuses to reload while the lock blocks editing", () => {
     // Reloading the page needs the editor lock.
-    const markup = renderApp(LOCKED, { ...SIGNED_IN, lockStatus: "ok", lockRole: "passive" });
+    const markup = renderRenderModeView({ ...SIGNED_IN, lockStatus: "ok", lockRole: "passive" }, LOCKED);
 
     expect(markup).toMatch(/id="render-mode-with-js"[^>]*disabled/);
     expect(markup).toMatch(/id="render-mode-without-js"[^>]*disabled/);
@@ -356,9 +435,9 @@ describe("popup App surface", () => {
   it("says when a chosen render mode is only held locally", () => {
     // A choice kept because the backend has no configuration is not the same as
     // one the backend confirmed, and the difference decides whether it survives.
-    const local = renderApp(SILENT, { ...SIGNED_IN, renderMode: "static", renderModeSource: "local" });
-    const backend = renderApp(SILENT, { ...SIGNED_IN, renderMode: "static", renderModeSource: "backend" });
-    const unset = renderApp(SILENT, { ...SIGNED_IN, renderModeSource: "local" });
+    const local = renderRenderModeView({ ...SIGNED_IN, renderMode: "static", renderModeSource: "local" });
+    const backend = renderRenderModeView({ ...SIGNED_IN, renderMode: "static", renderModeSource: "backend" });
+    const unset = renderRenderModeView({ ...SIGNED_IN, renderModeSource: "local" });
 
     expect(local).toContain('data-render-mode-source="local"');
     expect(local).toContain("not saved yet");
@@ -508,21 +587,26 @@ describe("popup App surface", () => {
   });
 
   it("counts and labels the AI selectors once a run lands", () => {
-    const markup = renderApp({
-      name: "post_ai_clean",
+    const withSelectors = {
+      name: "silent" as const,
       lastConsumedSeq: 9,
       reconciliationReason: "",
-      enableToggleChecked: true,
       selectors: {
         inclusionSelectors: ["main article p"],
         exclusionSelectors: ["header nav", ".cookie-banner"],
       },
-    });
+    };
+    // The list itself belongs to silent mode — legacy's cssSelectorsVisible was
+    // exactly silentModeActive — while the Status count is on every view.
+    const silent = renderSilentView({}, withSelectors);
+    const marking = renderApp(withSelectors);
 
-    expect(markup).toContain("3 (1 in / 2 out)");
-    expect(markup).toContain('data-selector-kind="include"');
-    expect(markup).toContain('data-selector-kind="exclude"');
-    expect(markup).toContain(".cookie-banner");
+    expect(silent).toContain("3 (1 in / 2 out)");
+    expect(silent).toContain('data-selector-kind="include"');
+    expect(silent).toContain('data-selector-kind="exclude"');
+    expect(silent).toContain(".cookie-banner");
+    expect(marking).toContain("3 (1 in / 2 out)");
+    expect(marking).not.toContain('data-selector-kind="include"');
   });
 
   it("surfaces the lock status, role and site id a tester needs to tell blocked from broken", () => {

@@ -335,6 +335,8 @@ export function App({
   onInspectRenderMode,
   onOpenConfiguration,
   onConfigurationContinue,
+  onOpenRenderMode,
+  onRenderModeDone,
 }: Readonly<{
   presentation: PopupPresentation;
   view?: PopupView;
@@ -358,6 +360,8 @@ export function App({
   onInspectRenderMode?: (javascriptEnabled: boolean) => void;
   onOpenConfiguration?: () => void;
   onConfigurationContinue?: () => void;
+  onOpenRenderMode?: () => void;
+  onRenderModeDone?: () => void;
 }>) {
   const buttons = resolvePopupActionButtons(presentation, {
     runAi: Boolean(onRunAi),
@@ -391,7 +395,12 @@ export function App({
     && credentials.password !== "";
 
   const markingView = view === "marking";
+  const silentView = view === "silent";
+  const renderModeView = view === "render-mode";
   const configurationView = view === "configuration";
+  /** Both session views carry the enable toggle — it is the way into one and out
+   *  of the other — and legacy showed it on exactly the same condition. */
+  const sessionView = markingView || silentView;
 
   if (presentation.mainUiHidden || view === "loading") {
     return (
@@ -518,12 +527,12 @@ export function App({
         </div>
       ) : null}
 
-      {markingView ? (
+      {sessionView ? (
       <section className="card" aria-label="Session controls">
         <div className="section-header">
           <span className="section-title">
-            <i className="mdi mdi-cursor-default-click btn-icon" aria-hidden="true" />
-            <span>Marking session</span>
+            <i className={`mdi ${silentView ? "mdi-eye-off-outline" : "mdi-cursor-default-click"} btn-icon`} aria-hidden="true" />
+            <span>{silentView ? "Silent mode" : "Marking session"}</span>
           </span>
           {presentation.countdownText ? (
             <time className="hint u-font-mono" data-run-countdown={presentation.countdownText}>
@@ -549,6 +558,10 @@ export function App({
           />
         </label>
 
+        {/* Legacy gated the device preview on silentModeActive: it re-renders the
+            page to compare what a desktop crawl would see, which is a thing to do
+            between sessions, not during one. */}
+        {silentView ? (
         <label className="row" htmlFor="desktop-preview-enabled">
           <span className="row-label">
             <i
@@ -565,9 +578,31 @@ export function App({
             onChange={(event) => onDesktopPreviewChange?.(event.currentTarget.checked)}
           />
         </label>
+        ) : null}
+
+        {/* The mode every capture is taken as, and the way back to changing it. */}
+        <label className="row" htmlFor="render-mode-open">
+          <span className="row-label">
+            <i className={`mdi ${renderModeIcon(diagnostics.renderMode)} row-icon`} aria-hidden="true" />
+            <span>Render mode</span>
+          </span>
+          <button
+            id="render-mode-open"
+            type="button"
+            className="u-btn-secondary"
+            disabled={!onOpenRenderMode}
+            onClick={onOpenRenderMode}
+          >
+            <span data-render-mode={diagnostics.renderMode ?? "unset"}>{renderModeLabel(diagnostics.renderMode)}</span>
+            <i className="mdi mdi-pencil btn-icon" aria-hidden="true" />
+          </button>
+        </label>
 
         <div className="section-divider" />
 
+        {/* Run AI, Save and Discard act on the operator's markings, and silent mode
+            has none — legacy hid this whole group outside marking mode. */}
+        {markingView ? (
         <div className="button-row">
           <button
             id="compute"
@@ -616,10 +651,20 @@ export function App({
             Content list
           </button>
         </div>
+        ) : null}
 
+        {silentView ? (
+          <p className="hint u-color-muted" data-silent-mode="active">
+            The stored selectors are applied to the page. Enable marking to make changes.
+          </p>
+        ) : null}
+
+        {/* Unreachable while the resolver picks the view — it sends an unset mode
+            to the render-mode view — but App takes `view` as a prop, so a caller
+            can still land here, and a dead Run AI needs its reason. */}
         {!renderModeSet ? (
           <p className="hint u-color-warning" data-blocked-reason={RENDER_MODE_NOT_SET_REASON}>
-            Choose a render mode below before marking.
+            Choose a render mode before marking.
           </p>
         ) : null}
 
@@ -677,7 +722,7 @@ export function App({
         <StatRow icon="mdi-history" label="Run session" value={diagnostics.runSessionId || "—"} />
       </section>
 
-      {markingView ? (
+      {renderModeView ? (
       <section className="card render-mode-section" aria-label="Render mode">
         <div className="section-header">
           <span className="section-title">
@@ -779,6 +824,20 @@ export function App({
             ))}
           </div>
         </div>
+
+        {/* Only once a mode is established is there a session to go back to. */}
+        {renderModeSet ? (
+          <button
+            id="render-mode-done"
+            type="button"
+            className="u-full-width"
+            disabled={!onRenderModeDone}
+            onClick={onRenderModeDone}
+          >
+            <i className="mdi mdi-check btn-icon" aria-hidden="true" />
+            Done
+          </button>
+        ) : null}
       </section>
       ) : null}
 
@@ -819,7 +878,10 @@ export function App({
       </section>
       ) : null}
 
-      {markingView ? (
+      {/* Legacy's cssSelectorsVisible was exactly silentModeActive: the stored
+          selectors are what drives the page while no marking session is open, and
+          during one the operator's own marks are the subject instead. */}
+      {silentView ? (
       <section className="card" aria-label="AI selectors">
         <div className="section-header">
           <span className="section-title">
