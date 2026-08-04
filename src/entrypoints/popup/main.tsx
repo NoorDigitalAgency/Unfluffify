@@ -33,6 +33,7 @@ import type { ConfigSnapshot, SelectorSet } from "../../storage/config";
 import type { ConnectionSettings } from "../../storage/settings";
 import type { RenderMode } from "../../domain/schema/property";
 import { isRenderModeConfirmed } from "../../storage/config";
+import { resolvePopupView, type PopupView } from "../../popup/view";
 
 type PopupDebugApi = Readonly<{
   getViewState: () => Record<string, unknown>;
@@ -94,6 +95,10 @@ let configStatus = "";
 /** Where the effective render mode came from, so a locally-held choice is not
  *  presented as a backend decision. */
 let renderModeSource: "backend" | "local" = "local";
+/** The view the operator asked for, and the lock that lets an incomplete setup
+ *  force the configuration view without stranding them there once it is fixed. */
+let requestedView: PopupView | null = null;
+let configViewLocked = false;
 /** The property's stored selectors. Shown in silent mode and used to seed a
  *  clean marking session; never stored locally — they are backend property data
  *  with no exemption, so a 404 leaves none. */
@@ -165,6 +170,28 @@ function resolveAuthState(): PopupAuthState {
   return hasStoredToken ? "signed_in" : storedSettingsForm === null ? "unknown" : "signed_out";
 }
 
+/** Legacy's configurationComplete: all three endpoints stored and a token held.
+ *  A rejected token counts as absent — it cannot authorise anything. */
+function isConfigurationComplete(): boolean {
+  const stored = storedSettingsForm;
+  if (stored === null) {
+    return false;
+  }
+  const endpointsSet = SETTINGS_FORM_FIELDS.every((field) => stored[field].trim() !== "");
+  return endpointsSet && hasStoredToken && authState !== "invalid";
+}
+
+function currentView(): PopupView {
+  const resolution = resolvePopupView({
+    requested: requestedView,
+    settingsLoaded: storedSettingsForm !== null,
+    configurationComplete: isConfigurationComplete(),
+    configViewLocked,
+  });
+  configViewLocked = resolution.configViewLocked;
+  return resolution.view;
+}
+
 function buildDiagnostics(): PopupDiagnostics {
   const state = store.getState();
   return {
@@ -176,6 +203,7 @@ function buildDiagnostics(): PopupDiagnostics {
     lockRole,
     configPresent,
     configStatus,
+    configurationComplete: isConfigurationComplete(),
     renderModeSource,
     contentActive,
     contentDirty,
@@ -960,6 +988,26 @@ async function adoptContentRows(tabId: number, requestKey = boundTabKey): Promis
 /** The unchecking half of the discard confirmation. The navigation half is the
  *  native beforeunload gate, armed by the content script on the page itself —
  *  nothing here can interrupt a navigation the operator started. */
+/** Legacy's handleOpenConfigurationView. */
+function openConfiguration(): void {
+  requestedView = "configuration";
+  logEvent("Opened connection settings");
+  render();
+}
+
+/** Legacy's handleConfigurationContinue: leaving is only possible once the setup
+ *  is actually complete, so a half-configured extension cannot be dismissed. */
+function continueFromConfiguration(): void {
+  if (!isConfigurationComplete()) {
+    logEvent("Cannot continue", "finish the connection setup first", "warn");
+    render();
+    return;
+  }
+  requestedView = "marking";
+  configViewLocked = false;
+  render();
+}
+
 function confirmDiscardMarkings(): boolean {
   const confirmFn = typeof window !== "undefined" ? window.confirm : undefined;
   if (typeof confirmFn !== "function") {
@@ -1568,6 +1616,7 @@ function render(): void {
   root.render(
     <App
       presentation={store.getPresentation()}
+      view={currentView()}
       diagnostics={buildDiagnostics()}
       settings={settingsForm}
       credentials={credentialsForm}
@@ -1586,6 +1635,8 @@ function render(): void {
       onValidateToken={() => { void validateToken(); }}
       onRenderModeChange={setRenderMode}
       onInspectRenderMode={(javascriptEnabled) => { void loadRenderModeView(javascriptEnabled); }}
+      onOpenConfiguration={openConfiguration}
+      onConfigurationContinue={continueFromConfiguration}
     />,
   );
 }

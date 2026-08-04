@@ -12,6 +12,7 @@ import {
   type PopupDiagnostics,
   type PopupSettingsForm,
 } from "../../../src/popup/App";
+import type { PopupView } from "../../../src/popup/view";
 import { memoryFor } from "../../../src/popup/organ/memory";
 import type { PopupState } from "../../../src/popup/organ/machine";
 
@@ -31,6 +32,10 @@ const FULL_HANDLERS = {
   onLogin: NOOP,
   onLogout: NOOP,
   onValidateToken: NOOP,
+  onRenderModeChange: NOOP,
+  onInspectRenderMode: NOOP,
+  onOpenConfiguration: NOOP,
+  onConfigurationContinue: NOOP,
 };
 
 function renderApp(
@@ -39,14 +44,26 @@ function renderApp(
   settings: PopupSettingsForm = EMPTY_POPUP_SETTINGS_FORM,
   handlers: Record<string, unknown> = FULL_HANDLERS,
   credentials: PopupCredentialsForm = EMPTY_POPUP_CREDENTIALS_FORM,
+  view: PopupView = "marking",
 ): string {
   return renderToStaticMarkup(createElement(App, {
     presentation: memoryFor(state),
+    view,
     diagnostics: { ...EMPTY_POPUP_DIAGNOSTICS, ...diagnostics },
     settings,
     credentials,
     ...handlers,
   }));
+}
+
+/** Connection controls live on the configuration view only, so a test about them
+ *  has to say so — which is the point of the view split. */
+function renderConfigurationView(
+  diagnostics: Partial<PopupDiagnostics> = {},
+  settings: PopupSettingsForm = EMPTY_POPUP_SETTINGS_FORM,
+  credentials: PopupCredentialsForm = EMPTY_POPUP_CREDENTIALS_FORM,
+): string {
+  return renderApp(SILENT, diagnostics, settings, FULL_HANDLERS, credentials, "configuration");
 }
 
 /** The fully-provisioned baseline: store read, endpoints saved, token held. */
@@ -80,7 +97,7 @@ const LOCKED: PopupState = {
 };
 
 describe("popup App surface", () => {
-  it("exposes the control ids the live QA and orchestration scripts drive", () => {
+  it("exposes the marking control ids the live QA and orchestration scripts drive", () => {
     const markup = renderApp(SILENT);
 
     for (const id of [
@@ -91,13 +108,57 @@ describe("popup App surface", () => {
       "page-revert",
       "marking-preview",
       "lock-refresh",
-      "settings-save",
     ]) {
       expect(markup, `missing #${id}`).toContain(`id="${id}"`);
     }
     expect(markup).toContain('class="property-lock');
     expect(markup).toContain("property-lock__status");
     expect(markup).toContain("property-lock__detail");
+  });
+
+  it("keeps each view's controls off the other view", () => {
+    // The point of the split: a half-built setup cannot be used to drive a
+    // marking session, and marking controls do not clutter the repair screen.
+    const marking = renderApp(SILENT);
+    const configuration = renderConfigurationView(SIGNED_IN);
+
+    expect(marking).toContain('data-view="marking"');
+    expect(marking).not.toContain('id="settings-save"');
+    expect(marking).not.toContain('id="account-email"');
+    expect(marking).not.toContain('id="configuration-continue"');
+    // A way in is always offered from marking.
+    expect(marking).toContain('id="config-header-open"');
+
+    expect(configuration).toContain('data-view="configuration"');
+    expect(configuration).toContain('id="settings-save"');
+    expect(configuration).toContain('id="configuration-continue"');
+    for (const id of ["toggle-enabled", "compute", "page-save", "page-revert", "marking-preview"]) {
+      expect(configuration, `#${id} must not be on the configuration view`).not.toContain(`id="${id}"`);
+    }
+    // And a way back, once the setup is complete enough to leave.
+    expect(configuration).toContain('id="config-header-back"');
+  });
+
+  it("shows only a spinner on the loading view", () => {
+    const markup = renderApp(SILENT, {}, EMPTY_POPUP_SETTINGS_FORM, FULL_HANDLERS, EMPTY_POPUP_CREDENTIALS_FORM, "loading");
+
+    expect(markup).toContain('data-view="loading"');
+    expect(markup).toContain("popup-loading-view");
+    for (const id of ["toggle-enabled", "compute", "settings-save", "config-header-open"]) {
+      expect(markup, `#${id} must not be on the loading view`).not.toContain(`id="${id}"`);
+    }
+  });
+
+  it("refuses to leave configuration until the setup is complete", () => {
+    const incomplete = renderConfigurationView({ settingsLoaded: true, configurationComplete: false });
+    const complete = renderConfigurationView({ ...SIGNED_IN, configurationComplete: true });
+
+    expect(incomplete).toMatch(/id="configuration-continue"[^>]*disabled/);
+    expect(incomplete).toMatch(/id="config-header-back"[^>]*disabled/);
+    expect(incomplete).toContain("still missing");
+    expect(complete).not.toMatch(/id="configuration-continue"[^>]*disabled/);
+    expect(complete).not.toMatch(/id="config-header-back"[^>]*disabled/);
+    expect(complete).toContain("Ready to mark.");
   });
 
   it("keeps the blocked-reason and projection data hooks on every action", () => {
@@ -110,7 +171,7 @@ describe("popup App surface", () => {
   });
 
   it("renders a settings field for every stored connection setting", () => {
-    const markup = renderApp(SILENT, SIGNED_IN, {
+    const markup = renderConfigurationView(SIGNED_IN, {
       configEndpoint: "https://config.example.com",
       aiEndpoint: "https://ai.example.com",
       stageBase: "stage.example.com",
@@ -137,7 +198,7 @@ describe("popup App surface", () => {
   it("keeps the connection form read-only until a settings read succeeds", () => {
     // A failed read must never look like an empty store, or saving from this
     // state would overwrite real endpoints with a blank form.
-    const markup = renderApp(SILENT, { settingsLoaded: false });
+    const markup = renderConfigurationView({ settingsLoaded: false });
 
     expect(markup).toContain('data-setup-required="unreadable"');
     expect(markup).toContain("Reading the stored connection");
@@ -150,8 +211,8 @@ describe("popup App surface", () => {
   });
 
   it("enables saving only once the store has been read and the form differs", () => {
-    const clean = renderApp(SILENT, { ...SIGNED_IN, settingsDirty: false });
-    const dirty = renderApp(SILENT, { ...SIGNED_IN, settingsDirty: true });
+    const clean = renderConfigurationView({ ...SIGNED_IN, settingsDirty: false });
+    const dirty = renderConfigurationView({ ...SIGNED_IN, settingsDirty: true });
 
     expect(clean).toMatch(/id="settings-save"[^>]*disabled/);
     expect(clean).toContain("Saved");
@@ -160,7 +221,7 @@ describe("popup App surface", () => {
   });
 
   it("asks for a stage base first, since sign-in is derived from it", () => {
-    const markup = renderApp(SILENT, { settingsLoaded: true, stageBaseSet: false });
+    const markup = renderConfigurationView({ settingsLoaded: true, stageBaseSet: false });
 
     expect(markup).toContain('data-setup-required="unconfigured"');
     expect(markup).toContain("Set the stage base host below");
@@ -171,7 +232,7 @@ describe("popup App surface", () => {
   });
 
   it("asks for a sign-in once the stage base is stored but no token is", () => {
-    const markup = renderApp(SILENT, {
+    const markup = renderConfigurationView({
       settingsLoaded: true,
       settingsSaved: true,
       stageBaseSet: true,
@@ -185,7 +246,7 @@ describe("popup App surface", () => {
   });
 
   it("distinguishes signed-in-but-unreachable endpoints from an unset stage base", () => {
-    const markup = renderApp(SILENT, { ...SIGNED_IN, lockStatus: "unavailable" });
+    const markup = renderConfigurationView({ ...SIGNED_IN, lockStatus: "unavailable" });
 
     expect(markup).toContain('data-setup-required="unreachable"');
     expect(markup).toContain("did not answer the site lookup");
@@ -367,7 +428,7 @@ describe("popup App surface", () => {
   });
 
   it("swaps the credential fields for session actions once signed in", () => {
-    const markup = renderApp(SILENT, { ...SIGNED_IN, lockStatus: "ok", lockRole: "editor" });
+    const markup = renderConfigurationView({ ...SIGNED_IN, lockStatus: "ok", lockRole: "editor" });
 
     expect(markup).not.toContain('id="account-email"');
     expect(markup).not.toContain('id="account-password"');
@@ -378,10 +439,10 @@ describe("popup App surface", () => {
 
   it("enables Sign in only with a stage base and both credentials filled", () => {
     const base = { settingsLoaded: true, settingsSaved: true, stageBaseSet: true, authState: "signed_out" as const };
-    const empty = renderApp(SILENT, base);
-    const emailOnly = renderApp(SILENT, base, EMPTY_POPUP_SETTINGS_FORM, FULL_HANDLERS, { email: "a@b.c", password: "" });
-    const both = renderApp(SILENT, base, EMPTY_POPUP_SETTINGS_FORM, FULL_HANDLERS, { email: "a@b.c", password: "pw" });
-    const noStage = renderApp(SILENT, { ...base, stageBaseSet: false }, EMPTY_POPUP_SETTINGS_FORM, FULL_HANDLERS, { email: "a@b.c", password: "pw" });
+    const empty = renderConfigurationView(base);
+    const emailOnly = renderConfigurationView(base, EMPTY_POPUP_SETTINGS_FORM, { email: "a@b.c", password: "" });
+    const both = renderConfigurationView(base, EMPTY_POPUP_SETTINGS_FORM, { email: "a@b.c", password: "pw" });
+    const noStage = renderConfigurationView({ ...base, stageBaseSet: false }, EMPTY_POPUP_SETTINGS_FORM, { email: "a@b.c", password: "pw" });
 
     expect(empty).toMatch(/id="account-login"[^>]*disabled/);
     expect(emailOnly).toMatch(/id="account-login"[^>]*disabled/);
@@ -390,7 +451,7 @@ describe("popup App surface", () => {
   });
 
   it("locks the credential fields while a sign-in is in flight", () => {
-    const markup = renderApp(SILENT, {
+    const markup = renderConfigurationView({
       settingsLoaded: true,
       stageBaseSet: true,
       authState: "signed_out",
@@ -404,7 +465,7 @@ describe("popup App surface", () => {
   });
 
   it("shows a rejected token as its own state, not as signed out", () => {
-    const markup = renderApp(SILENT, {
+    const markup = renderConfigurationView({
       settingsLoaded: true,
       settingsSaved: true,
       stageBaseSet: true,
@@ -487,10 +548,9 @@ describe("popup App surface", () => {
 
     expect(running).toContain('class="ui-curtain"');
     expect(running).toContain("Computing selectors");
-    // A scrim over the locked state would bury the connection form that is the
-    // only way out of an unconfigured install.
+    // A scrim over the locked state would bury the way to the connection form.
     expect(locked).not.toContain('class="ui-curtain"');
-    expect(locked).toContain('id="settings-configEndpoint"');
+    expect(locked).toContain('id="config-header-open"');
   });
 
   it("disables the enable toggle while the lock blocks editing", () => {

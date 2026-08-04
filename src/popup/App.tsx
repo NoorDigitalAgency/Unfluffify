@@ -1,6 +1,7 @@
 import React from "react";
 
 import type { RenderMode } from "../domain/schema/property";
+import { DEFAULT_POPUP_VIEW, type PopupView } from "./view";
 import type { PopupPresentation } from "./organ/memory";
 
 export type PopupActionAvailability = Readonly<{
@@ -57,6 +58,10 @@ export type PopupDiagnostics = Readonly<{
   /** The outcome of the stored-config read, so a failed one is visible instead
    *  of looking the same as a property that simply has nothing stored. */
   configStatus: string;
+  /** Legacy's configurationComplete: config endpoint, AI endpoint, stage base and
+   *  a token. All four, or the extension cannot do its job — and the popup is
+   *  held on the configuration view until they are there. */
+  configurationComplete: boolean;
   /** Whether the effective render mode came from the backend or is a local
    *  choice held only because the backend has no configuration yet. */
   renderModeSource: "backend" | "local";
@@ -96,6 +101,7 @@ export const EMPTY_POPUP_DIAGNOSTICS: PopupDiagnostics = {
   lockRole: "",
   configPresent: false,
   configStatus: "",
+  configurationComplete: false,
   renderModeSource: "local",
   contentActive: false,
   contentDirty: false,
@@ -307,6 +313,7 @@ function StatRow({ icon, label, value, tone }: Readonly<{
 
 export function App({
   presentation,
+  view = DEFAULT_POPUP_VIEW,
   diagnostics = EMPTY_POPUP_DIAGNOSTICS,
   settings = EMPTY_POPUP_SETTINGS_FORM,
   credentials = EMPTY_POPUP_CREDENTIALS_FORM,
@@ -325,8 +332,11 @@ export function App({
   onValidateToken,
   onRenderModeChange,
   onInspectRenderMode,
+  onOpenConfiguration,
+  onConfigurationContinue,
 }: Readonly<{
   presentation: PopupPresentation;
+  view?: PopupView;
   diagnostics?: PopupDiagnostics;
   settings?: PopupSettingsForm;
   credentials?: PopupCredentialsForm;
@@ -345,6 +355,8 @@ export function App({
   onValidateToken?: () => void;
   onRenderModeChange?: (mode: RenderMode) => void;
   onInspectRenderMode?: (javascriptEnabled: boolean) => void;
+  onOpenConfiguration?: () => void;
+  onConfigurationContinue?: () => void;
 }>) {
   const buttons = resolvePopupActionButtons(presentation, {
     runAi: Boolean(onRunAi),
@@ -377,9 +389,12 @@ export function App({
     && credentials.email.trim() !== ""
     && credentials.password !== "";
 
-  if (presentation.mainUiHidden) {
+  const markingView = view === "marking";
+  const configurationView = view === "configuration";
+
+  if (presentation.mainUiHidden || view === "loading") {
     return (
-      <main className="app" data-main-hidden={presentation.mainUiHidden}>
+      <main className="app" data-main-hidden={presentation.mainUiHidden} data-view="loading">
         <div className="popup-loading-view" role="status">
           <span className="popup-loading-view__spinner" aria-hidden="true" />
           <span className="popup-loading-view__title">{presentation.curtainText || "Starting Unfluffify"}</span>
@@ -389,7 +404,7 @@ export function App({
   }
 
   return (
-    <main className="app" data-main-hidden={presentation.mainUiHidden} data-state-name={diagnostics.stateName}>
+    <main className="app" data-main-hidden={presentation.mainUiHidden} data-state-name={diagnostics.stateName} data-view={view}>
       <header className="app-header">
         <div className="header-text">
           <span className="section-title">
@@ -401,6 +416,35 @@ export function App({
             {presentation.silentModeActive ? " · idle" : ""}
             {presentation.temporarilyDisabledOverlay ? " · marking suspended" : ""}
           </span>
+        </div>
+        {/* Legacy's header-actions: a way into configuration, and a way back that
+            only appears once setup is complete enough to leave. */}
+        <div className="header-actions">
+          {configurationView ? (
+            <button
+              id="config-header-back"
+              type="button"
+              className="header-menu-toggle"
+              title="Back to marking"
+              aria-label="Back to marking"
+              disabled={!onConfigurationContinue || !diagnostics.configurationComplete}
+              onClick={onConfigurationContinue}
+            >
+              <i className="mdi mdi-arrow-left btn-icon" aria-hidden="true" />
+            </button>
+          ) : (
+            <button
+              id="config-header-open"
+              type="button"
+              className="header-menu-toggle"
+              title="Connection settings"
+              aria-label="Connection settings"
+              disabled={!onOpenConfiguration}
+              onClick={onOpenConfiguration}
+            >
+              <i className="mdi mdi-cog btn-icon" aria-hidden="true" />
+            </button>
+          )}
         </div>
         <div className="header-property-url">
           <span className="control-label">
@@ -473,6 +517,7 @@ export function App({
         </div>
       ) : null}
 
+      {markingView ? (
       <section className="card" aria-label="Session controls">
         <div className="section-header">
           <span className="section-title">
@@ -583,6 +628,7 @@ export function App({
           </p>
         ) : null}
       </section>
+      ) : null}
 
       <section className="card" aria-label="Diagnostics">
         <div className="section-header">
@@ -630,6 +676,7 @@ export function App({
         <StatRow icon="mdi-history" label="Run session" value={diagnostics.runSessionId || "—"} />
       </section>
 
+      {markingView ? (
       <section className="card render-mode-section" aria-label="Render mode">
         <div className="section-header">
           <span className="section-title">
@@ -732,7 +779,9 @@ export function App({
           </div>
         </div>
       </section>
+      ) : null}
 
+      {markingView ? (
       <section className="card" aria-label="Marked rows">
         <div className="section-header">
           <span className="section-title">
@@ -767,7 +816,9 @@ export function App({
           </ul>
         )}
       </section>
+      ) : null}
 
+      {markingView ? (
       <section className="card" aria-label="AI selectors">
         <div className="section-header">
           <span className="section-title">
@@ -797,8 +848,12 @@ export function App({
           </ul>
         )}
       </section>
+      ) : null}
 
-      <details className="collapsible" open={setupProblem !== ""} data-settings-panel="true">
+      {/* Legacy keeps the connection fields on the configuration view only, so a
+          marking session cannot be driven from a half-built setup. */}
+      {configurationView ? (
+      <details className="collapsible" open data-settings-panel="true">
         <summary>
           <i className="mdi mdi-tune btn-icon" aria-hidden="true" />
           Connection
@@ -961,8 +1016,30 @@ export function App({
               {diagnostics.authMessage}
             </p>
           ) : null}
+
+          <div className="section-divider" />
+
+          {/* Legacy's Continue: only leaves once the setup is genuinely complete,
+              so a half-configured extension cannot be dismissed. */}
+          <div className="endpoint-row">
+            <span className="token-status">
+              {diagnostics.configurationComplete
+                ? "Ready to mark."
+                : "An endpoint or the sign-in is still missing."}
+            </span>
+            <button
+              id="configuration-continue"
+              type="button"
+              disabled={!onConfigurationContinue || !diagnostics.configurationComplete}
+              onClick={onConfigurationContinue}
+            >
+              <i className="mdi mdi-arrow-right btn-icon" aria-hidden="true" />
+              Continue
+            </button>
+          </div>
         </div>
       </details>
+      ) : null}
 
       <div className="trace-events-panel" data-event-log="true">
         <div className="trace-events-panel__header">
