@@ -219,19 +219,16 @@ function markModeForClick(event: MouseEvent): "passthrough" | "include" | "exclu
   return event.altKey ? "include" : "exclude";
 }
 
-function emitMarkingChanged(): void {
-  // Report the toggle count as a fact too, so the brain can decide
-  // markings.changed itself after a worker restart rather than depending on this
-  // signal having been seen.
+/** Reports the toggle as a fact and nothing more. The brain is the only producer
+ *  of markings.changed: an organ that also emitted it would be a second source of
+ *  truth for one decision, and the two could disagree. Rows are display data and
+ *  are fetched from getContentMainStatus when the popup wants them, rather than
+ *  riding a signal. */
+function reportMarkingToggle(): void {
   void reportContentFact("marking-toggle", { markingToggleSeq: userToggleCount })
     .catch((error: unknown) => {
       console.error("[Unfluffify][rewrite] Unable to report a marking toggle", error);
     });
-  emitContentBrainSignal("markings.changed", "content-click", {
-    pageUrl: typeof location !== "undefined" ? location.href : "",
-    markedCount: userToggleCount,
-    contentRows: contentRowsFromEngine(),
-  });
 }
 
 function emitContentBrainSignal(name: BrainSignal["name"], cause: string, payload: BrainSignal["payload"]): void {
@@ -368,7 +365,7 @@ function ensureMarkingListeners(): void {
     }
     markingEngine.toggle(target, mode);
     userToggleCount += 1;
-    emitMarkingChanged();
+    reportMarkingToggle();
   };
   const handleMouseMove = (event: MouseEvent): void => {
     if (!markingActive || !markingEngine) {

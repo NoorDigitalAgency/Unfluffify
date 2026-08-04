@@ -226,26 +226,31 @@ describe("C4 rewrite content entrypoints", () => {
     expect(engine.resolveAtPoint).toHaveBeenCalledWith(10, 20, "exclude", true);
     expect(engine.toggle).toHaveBeenCalledWith({ xpath: "/html[1]/body[1]/p[1]" }, "exclude");
     expect(click.preventDefault).toHaveBeenCalledTimes(1);
+    // bus.emit defers its transport send by a microtask, unlike bus.request which
+    // sends synchronously, so the fact needs a flush before it is observable.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    // The toggle reports a fact and nothing else. markings.changed has exactly one
+    // producer — the brain — so an organ emitting it too would be a second source
+    // of truth for one decision.
     expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({
       kind: "uf-bus/1",
-      frameType: "request",
-      name: "signals.emit",
+      name: "fact.reported",
       target: "background",
       source: "content",
-      payload: {
-        tabId: 0,
-        signal: {
-          name: "markings.changed",
+      payload: expect.objectContaining({
+        kind: "uf-fact/1",
+        sensation: expect.objectContaining({
           source: "content",
-          cause: "content-click",
-          payload: {
-            pageUrl: "",
-            markedCount: 1,
-            contentRows: [{ xpath: "/html[1]/body[1]/p[1]", classification: "excluded" }],
-          },
-        },
-      },
+          reason: "marking-toggle",
+          facts: expect.objectContaining({ markingToggleSeq: 1 }),
+        }),
+      }),
     }));
+    const emittedSignalNames = sendMessage.mock.calls
+      .map(([frame]) => frame as { name?: string; payload?: { signal?: { name?: string } } })
+      .filter((frame) => frame.name === "signals.emit")
+      .map((frame) => frame.payload?.signal?.name);
+    expect(emittedSignalNames).not.toContain("markings.changed");
     engine.resolveAtPoint.mockReturnValueOnce(null);
     const unresolvedClick = {
       clientX: 1,

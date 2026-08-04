@@ -55,30 +55,6 @@ export const INITIAL_POPUP_STATE: PopupState = {
   reconciliationReason: "",
 };
 
-function parseContentRows(value: unknown): readonly PopupContentRow[] | undefined {
-  if (!Array.isArray(value)) {
-    return undefined;
-  }
-  return value.flatMap((row) => {
-    if (!row || typeof row !== "object") {
-      return [];
-    }
-    const candidate = row as { xpath?: unknown; classification?: unknown };
-    if (typeof candidate.xpath !== "string") {
-      return [];
-    }
-    if (
-      candidate.classification !== "included" &&
-      candidate.classification !== "excluded" &&
-      candidate.classification !== "immutable" &&
-      candidate.classification !== "closed-shadow"
-    ) {
-      return [];
-    }
-    return [{ xpath: candidate.xpath, classification: candidate.classification }];
-  });
-}
-
 function parseSelectors(value: unknown): PopupSelectorList | undefined {
   if (!value || typeof value !== "object") {
     return undefined;
@@ -105,7 +81,6 @@ export function transitionPopupState(state: PopupState, signal: BrainSignal): Po
       if (state.name === "running") {
         return {
           ...base,
-          contentRows: parseContentRows(signal.payload.contentRows) ?? state.contentRows,
           runDirtyDuringRun: true,
         };
       }
@@ -115,19 +90,17 @@ export function transitionPopupState(state: PopupState, signal: BrainSignal): Po
           name: "pre_ai_dirty",
           priorState: undefined,
           reconciliationReason: "",
-          contentRows: parseContentRows(signal.payload.contentRows) ?? state.contentRows,
         };
       }
       if (state.name === "reconciling") {
         return {
           ...base,
-          contentRows: parseContentRows(signal.payload.contentRows) ?? state.contentRows,
           reconciliationDirty: true,
         };
       }
       return state.name === "pre_ai_clean" || state.name === "post_ai_clean"
-        ? { ...base, name: "pre_ai_dirty", contentRows: parseContentRows(signal.payload.contentRows) ?? state.contentRows }
-        : { ...base, contentRows: parseContentRows(signal.payload.contentRows) ?? state.contentRows };
+        ? { ...base, name: "pre_ai_dirty" }
+        : base;
     case "run.started":
       return {
         ...base,

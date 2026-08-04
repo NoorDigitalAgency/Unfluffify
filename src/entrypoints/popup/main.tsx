@@ -335,13 +335,20 @@ async function pullSignals(tabId: number, requestKey = boundTabKey, afterSeq = l
     return 0;
   }
   let applied = 0;
+  let markingChanged = false;
   for (const signal of response.data) {
     if (signal && typeof signal === "object" && (signal as BrainSignal).kind === "uf-signal/1" && signalMatchesBinding(signal as BrainSignal, tabId, requestKey)) {
       const brainSignal = signal as BrainSignal;
       lastPulledBrainSeq = Math.max(lastPulledBrainSeq, brainSignal.seq);
       dispatchSignal(brainSignal);
+      markingChanged = markingChanged || brainSignal.name === "markings.changed";
       applied += 1;
     }
+  }
+  if (markingChanged) {
+    // Rows no longer ride the signal, so fetch them once for the whole batch
+    // rather than once per signal.
+    await adoptContentRows(tabId, requestKey);
   }
   return applied;
 }
@@ -804,17 +811,20 @@ async function reconcileContentStatus(context: TargetTabContext, requestKey = bo
       cause: "content-reconciliation",
     }, requestKey);
   }
-  const markedCount = typeof status.markedCount === "number" ? status.markedCount : 0;
-  if (
-    status.active === true &&
-    status.dirty === true &&
-    ["silent", "pre_ai_clean", "post_ai_clean"].includes(store.getState().name)
-  ) {
-    await emitPopupSignal(context.tabId, "markings.changed", {
-      pageUrl: context.url,
-      markedCount,
-      contentRows: Array.isArray(status.contentRows) ? status.contentRows : [],
-    }, requestKey);
+  // No markings.changed from here — the brain is the only producer of it. When a
+  // popup opens onto a session the brain has no record of (its signal log lives
+  // in worker memory), the honest move is to relay the content's toggle count as
+  // a fact and let the brain decide, rather than mint a second signal that could
+  // disagree with the brain's own.
+  if (status.active === true) {
+    const toggleSeq = typeof status.markedCount === "number" ? status.markedCount : 0;
+    if (status.dirty === true && toggleSeq > 0) {
+      await reportPopupFact(context, "marking-toggle-observed", { markingToggleSeq: toggleSeq }, requestKey);
+      // Pull straight away so the brain's decision lands on this open rather than
+      // on the next poll tick half a second later.
+      await pullSignals(context.tabId, requestKey);
+    }
+    await adoptContentRows(context.tabId, requestKey);
   }
 }
 
@@ -898,6 +908,38 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
     await emitPopupSignal(context.tabId, "marking.disabled", { baseUrl: "", pageUrl: context.url, cause: "toggle" }, requestKey);
   }
   render();
+}
+
+/** Relays a fact the popup observed to the brain. A relay, not a decision: the
+ *  brain still folds it and decides what signal it implies. Keys are omitted
+ *  rather than passed as undefined, since the fold spreads the patch over the
+ *  previous facts and an explicit undefined would erase a known value. */
+async function reportPopupFact(
+  context: TargetTabContext,
+  reason: string,
+  facts: Record<string, unknown>,
+  requestKey = boundTabKey,
+): Promise<void> {
+  if (boundTabKey !== requestKey) {
+    return;
+  }
+  try {
+    await getPopupBus().emit("fact.reported", {
+      kind: "uf-fact/1",
+      sensation: {
+        tabId: context.tabId,
+        source: "popup",
+        reason,
+        facts: {
+          tabId: context.tabId,
+          ...(context.url ? { pageUrl: context.url, baseUrl: safeOrigin(context.url) || undefined } : {}),
+          ...facts,
+        },
+      },
+    }, { target: "background" });
+  } catch (error) {
+    console.error("[Unfluffify][rewrite] Unable to report a popup fact", error);
+  }
 }
 
 /** Pulls the engine's current rows into the projection for display only. Used

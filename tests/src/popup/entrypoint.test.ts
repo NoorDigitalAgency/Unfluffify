@@ -1169,7 +1169,29 @@ describe("rewrite popup entrypoint", () => {
       tree: "rewrite",
     }));
     let signalSeq = 0;
+    // markings.changed has exactly one producer now — the brain — so the stub has
+    // to play that part: it folds the relayed toggle fact and decides the signal,
+    // which is what the real decide.ts does.
+    let decidedFromFact: Record<string, unknown> | null = null;
     const runtime = makeRuntime(async (message) => {
+      if (message.name === "fact.reported") {
+        const envelope = message.payload as { sensation?: { tabId?: number; facts?: { markingToggleSeq?: number } } };
+        const seq = envelope.sensation?.facts?.markingToggleSeq ?? 0;
+        if (seq > 0) {
+          signalSeq += 1;
+          decidedFromFact = {
+            kind: "uf-signal/1",
+            tabId: envelope.sensation?.tabId ?? 77,
+            seq: signalSeq,
+            name: "markings.changed",
+            source: "brain",
+            cause: "marking-toggle",
+            at: signalSeq,
+            payload: { pageUrl: "https://example.com", markedCount: seq },
+          };
+        }
+        return undefined;
+      }
       if (message.name === "signals.emit") {
         const request = message.payload as { tabId: number; signal: { name?: string; payload?: unknown } };
         signalSeq += 1;
@@ -1184,6 +1206,11 @@ describe("rewrite popup entrypoint", () => {
             payload: request.signal?.payload ?? {},
           }]);
       }
+      if (message.name === "signals.pull" && decidedFromFact) {
+        const pending = decidedFromFact;
+        decidedFromFact = null;
+        return replyFrame(message, [pending]);
+      }
       return replyFrame(message, []);
     });
     globalThis.chrome = {
@@ -1197,6 +1224,7 @@ describe("rewrite popup entrypoint", () => {
     } as unknown as typeof chrome;
 
     await import("../../../src/entrypoints/popup/main.tsx");
+    await flushEntrypointWork();
     await flushEntrypointWork();
 
     expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("getContentMainStatus", {}));
@@ -1213,19 +1241,22 @@ describe("rewrite popup entrypoint", () => {
       },
       target: "background",
     }));
+    // The popup relays what it observed as a fact and never mints the signal.
     expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
-      name: "signals.emit",
-      payload: {
-        tabId: 77,
-        signal: {
-        name: "markings.changed",
-        source: "popup",
-        cause: "popup-entrypoint",
-        payload: { pageUrl: "https://example.com", markedCount: 2, contentRows: [] },
-      },
-      },
-      target: "background",
+      name: "fact.reported",
+      payload: expect.objectContaining({
+        sensation: expect.objectContaining({
+          source: "popup",
+          reason: "marking-toggle-observed",
+          facts: expect.objectContaining({ markingToggleSeq: 2 }),
+        }),
+      }),
     }));
+    const emittedSignalNames = runtime.sendMessage.mock.calls
+      .map(([frame]) => frame as { name?: string; payload?: { signal?: { name?: string } } })
+      .filter((frame) => frame.name === "signals.emit")
+      .map((frame) => frame.payload?.signal?.name);
+    expect(emittedSignalNames).not.toContain("markings.changed");
     expect(render.mock.calls.at(-1)?.[0].props.presentation.discardDisabled).toBe(false);
   });
 
@@ -1297,19 +1328,26 @@ describe("rewrite popup entrypoint", () => {
     expect(render.mock.calls.at(-1)?.[0].props.presentation.discardDisabled).toBe(true);
   });
 
-  it("treats dirty active content as dirty even when submitted row count is zero", async () => {
+  it("does not call a seeded session dirty, however many rows it has", async () => {
     installEntrypointDom("chrome-extension://extension-id/popup.html");
     const render = vi.fn();
     vi.doMock("react-dom/client", () => ({
       createRoot: vi.fn(() => ({ render })),
     }));
     const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com" }]);
+    // A clean session seeded from the AI selectors: hundreds of rows, no toggles.
+    // Dirtiness follows the operator's toggle count and nothing else, so a row
+    // count — however large — must not imply an edit.
     const tabsSendMessage = makeTabsSendMessage(() => ({
       ok: true,
       active: true,
-      dirty: true,
+      dirty: false,
       pageUrl: "https://example.com",
       markedCount: 0,
+      contentRows: Array.from({ length: 300 }, (_, index) => ({
+        xpath: `/html[1]/body[1]/div[1]/p[${index + 1}]`,
+        classification: index % 2 === 0 ? "included" : "excluded",
+      })),
       tree: "rewrite",
     }));
     let signalSeq = 0;
@@ -1318,45 +1356,40 @@ describe("rewrite popup entrypoint", () => {
         const request = message.payload as { tabId: number; signal: { name?: string; payload?: unknown } };
         signalSeq += 1;
         return replyFrame(message, [{
-            kind: "uf-signal/1",
-            tabId: request.tabId,
-            seq: signalSeq,
-            name: request.signal?.name,
-            source: "brain",
-            cause: "test",
-            at: signalSeq,
-            payload: request.signal?.payload ?? {},
-          }]);
+          kind: "uf-signal/1",
+          tabId: request.tabId,
+          seq: signalSeq,
+          name: request.signal?.name,
+          source: "brain",
+          cause: "test",
+          at: signalSeq,
+          payload: request.signal?.payload ?? {},
+        }]);
       }
       return replyFrame(message, []);
     });
     globalThis.chrome = {
-      runtime: {
-        ...runtime,
-      },
-      tabs: {
-        query,
-        sendMessage: tabsSendMessage,
-      },
+      runtime: { ...runtime },
+      tabs: { query, sendMessage: tabsSendMessage },
     } as unknown as typeof chrome;
 
     await import("../../../src/entrypoints/popup/main.tsx");
     await flushEntrypointWork();
+    await flushEntrypointWork();
 
-    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
-      name: "signals.emit",
-      payload: {
-        tabId: 77,
-        signal: {
-        name: "markings.changed",
-        source: "popup",
-        cause: "popup-entrypoint",
-        payload: { pageUrl: "https://example.com", markedCount: 0, contentRows: [] },
-      },
-      },
-      target: "background",
-    }));
-    expect(render.mock.calls.at(-1)?.[0].props.presentation.discardDisabled).toBe(false);
+    const frames = runtime.sendMessage.mock.calls.map(([frame]) => frame as {
+      name?: string;
+      payload?: { signal?: { name?: string }; sensation?: { reason?: string } };
+    });
+    // No signal minted, and no toggle fact relayed: nothing was toggled.
+    expect(frames.filter((f) => f.name === "signals.emit").map((f) => f.payload?.signal?.name))
+      .not.toContain("markings.changed");
+    expect(frames.filter((f) => f.name === "fact.reported").map((f) => f.payload?.sensation?.reason))
+      .not.toContain("marking-toggle-observed");
+    // The rows still show, because they are display data.
+    const props = render.mock.calls.at(-1)?.[0].props;
+    expect(props.presentation.contentRows).toHaveLength(300);
+    expect(props.presentation.discardDisabled).toBe(true);
   });
 
   it("deactivates content and emits navigation when the bound tab URL changes", async () => {
