@@ -79,6 +79,11 @@ let lockRole = "";
 let configPresent = false;
 let contentActive = false;
 let contentDirty = false;
+/** Whether anything answers on the tab at all, as distinct from whether marking
+ *  is armed — an uninjected content script and an idle one look identical
+ *  otherwise, and only one of them is fixed by reloading the page. */
+let contentReachable = true;
+let contentUnreachableReported = false;
 let eventLog: readonly PopupLogEntry[] = [];
 
 const MAX_LOG_ENTRIES = 40;
@@ -146,6 +151,7 @@ function buildDiagnostics(): PopupDiagnostics {
     configPresent,
     contentActive,
     contentDirty,
+    contentReachable,
     runSessionId: activeRunSessionId ?? state.runSessionId ?? "",
     settingsLoaded: storedSettingsForm !== null,
     settingsSaved: storedSettingsForm !== null && !settingsFormsMatch(storedSettingsForm, EMPTY_POPUP_SETTINGS_FORM),
@@ -276,6 +282,8 @@ function bindToTab(context: TargetTabContext): { changed: boolean; sameTabNaviga
   configPresent = false;
   contentActive = false;
   contentDirty = false;
+  contentReachable = true;
+  contentUnreachableReported = false;
   logEvent(sameTabNavigation ? "Page navigated" : "Tab bound", context.url);
   resetPopupState({ name: "silent", lastConsumedSeq: 0, reconciliationReason: "" });
   return { changed: true, sameTabNavigation, key: nextKey };
@@ -426,9 +434,21 @@ async function requestContentMessage(tabId: number, message: Record<string, unkn
     }, { target: "content" });
     bus.dispose();
     if (!response.ok) {
-      console.error("[Unfluffify][rewrite] Content command transport failed", response.failure);
+      // Nothing answered on the tab. The usual cause is that the page has not
+      // been loaded since the extension was installed or reloaded, so the
+      // declarative content script was never injected — Chrome does not
+      // re-inject into already-open tabs. Report it once per binding rather
+      // than on every 500ms poll, which buries every other error.
+      contentReachable = false;
+      if (!contentUnreachableReported) {
+        contentUnreachableReported = true;
+        console.warn("[Unfluffify][rewrite] No content script answered on this tab; reload the page", response.failure);
+        logEvent("Content script unreachable", "reload the page to inject it", "warn");
+      }
       return null;
     }
+    contentReachable = true;
+    contentUnreachableReported = false;
     if (!response.data.ok) {
       return { ok: false, failure: response.data.failure, tree: "rewrite" };
     }
@@ -762,7 +782,11 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
     contentActive = activated;
     logEvent(
       activated ? "Marking enabled" : "Marking activation failed",
-      activated ? context.url : "content script refused activation",
+      activated
+        ? context.url
+        : contentReachable
+          ? "the content script refused activation"
+          : "no content script on this tab — reload the page",
       activated ? "success" : "danger",
     );
     await emitPopupSignal(context.tabId, activated ? "marking.enabled" : "marking.disabled", {

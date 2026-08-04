@@ -199,6 +199,27 @@ describe("popup App surface", () => {
     expect(markup).not.toContain("data-setup-required");
   });
 
+  it("says the content script is missing and names the fix", () => {
+    // An uninjected content script and an idle one both used to read "inactive",
+    // so the toggle appeared to do nothing with no hint that only a page reload
+    // would help.
+    const markup = renderApp(SILENT, { ...SIGNED_IN, contentReachable: false });
+
+    expect(markup).toContain('data-content-unreachable="true"');
+    expect(markup).toContain("Reload the page");
+    expect(markup).toContain("not loaded");
+    expect(markup).toMatch(/data-stat="Content script"[^>]*>not loaded/);
+  });
+
+  it("separates an idle content script from an absent one", () => {
+    const idle = renderApp(SILENT, { ...SIGNED_IN, contentReachable: true, contentActive: false });
+    const armed = renderApp(SILENT, { ...SIGNED_IN, contentReachable: true, contentActive: true });
+
+    expect(idle).not.toContain("data-content-unreachable");
+    expect(idle).toMatch(/data-stat="Content script"[^>]*>inactive/);
+    expect(armed).toMatch(/data-stat="Content script"[^>]*>active · clean/);
+  });
+
   it("tones an out-of-scope page as informational, not as a fault", () => {
     const outOfScope = renderApp(
       { ...LOCKED, projectionBlockedReason: "Not a managed property", lockBanner: { visible: true, text: "Not a managed property" } },

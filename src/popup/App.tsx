@@ -47,6 +47,9 @@ export type PopupDiagnostics = Readonly<{
   configPresent: boolean;
   contentActive: boolean;
   contentDirty: boolean;
+  /** False when nothing answers on the tab — the content script was never
+   *  injected, which only a page reload fixes. Distinct from merely idle. */
+  contentReachable: boolean;
   runSessionId: string;
   /** False until a settings read succeeds; the form must stay read-only so an
    *  unread store is never mistaken for an empty one and overwritten. */
@@ -72,6 +75,7 @@ export const EMPTY_POPUP_DIAGNOSTICS: PopupDiagnostics = {
   configPresent: false,
   contentActive: false,
   contentDirty: false,
+  contentReachable: true,
   runSessionId: "",
   settingsLoaded: false,
   settingsSaved: false,
@@ -346,6 +350,13 @@ export function App({
         </span>
       </section>
 
+      {!diagnostics.contentReachable ? (
+        <div className="u-alert u-alert-warn" role="status" data-content-unreachable="true">
+          No content script on this tab. Reload the page — Chrome does not inject
+          into tabs that were already open when the extension loaded.
+        </div>
+      ) : null}
+
       {setupProblem ? (
         <div
           className={`u-alert ${setupProblem === "unreadable" ? "u-alert-warn" : "u-alert-danger"}`}
@@ -488,8 +499,14 @@ export function App({
         <StatRow
           icon="mdi-eye"
           label="Content script"
-          value={diagnostics.contentActive ? (diagnostics.contentDirty ? "active · unsaved" : "active · clean") : "inactive"}
-          tone={diagnostics.contentActive ? "u-color-success" : "u-color-muted"}
+          value={!diagnostics.contentReachable
+            ? "not loaded"
+            : diagnostics.contentActive
+              ? (diagnostics.contentDirty ? "active · unsaved" : "active · clean")
+              : "inactive"}
+          tone={!diagnostics.contentReachable
+            ? "u-color-danger"
+            : diagnostics.contentActive ? "u-color-success" : "u-color-muted"}
         />
         <StatRow
           icon="mdi-selection-marker"
