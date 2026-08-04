@@ -39,6 +39,11 @@ export type PopupAuthState = "unknown" | "signed_out" | "signed_in" | "invalid" 
 export type RenderModeView = "unknown" | "with_javascript" | "without_javascript";
 
 export type PopupLogEntry = Readonly<{
+  /** Identity for the list. A timestamp is not one: a replayed backlog logs
+   *  several entries in the same millisecond, often under the same label, and
+   *  React given colliding keys reuses the wrong row — which reads as the same
+   *  event having happened several times. */
+  id: number;
   at: number;
   label: string;
   detail: string;
@@ -1115,7 +1120,7 @@ export function App({
             <li className="preview-sidebar__empty">No activity recorded yet.</li>
           ) : (
             diagnostics.log.map((entry) => (
-              <li key={`${entry.at}:${entry.label}`} className="preview-sidebar__item">
+              <li key={entry.id} className="preview-sidebar__item">
                 <div className="preview-sidebar__item-button" aria-disabled="true">
                   <span className="preview-sidebar__item-index">{new Date(entry.at).toLocaleTimeString()}</span>
                   <span className="preview-sidebar__item-text">

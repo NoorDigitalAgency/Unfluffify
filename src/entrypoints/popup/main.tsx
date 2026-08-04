@@ -34,6 +34,8 @@ import type { ConnectionSettings } from "../../storage/settings";
 import type { RenderMode } from "../../domain/schema/property";
 import { isRenderModeConfirmed } from "../../storage/config";
 import { resolvePopupView, type PopupView, type PopupViewRequest } from "../../popup/view";
+import { createSignalCursor } from "../../popup/signal-cursor";
+import { createEventLog } from "../../popup/event-log";
 
 type PopupDebugApi = Readonly<{
   getViewState: () => Record<string, unknown>;
@@ -52,7 +54,9 @@ let seq = 0;
 let boundTabId: number | null = null;
 let boundTabKey: string | null = null;
 let signalPollHandle: ReturnType<Window["setInterval"]> | null = null;
-let lastPulledBrainSeq = 0;
+/** Which decided signals have already been consumed, and the queue that keeps
+ *  concurrent arrivals from consuming the same ones twice. */
+const brainSignals = createSignalCursor();
 let popupBus: RewriteSignalBus | null = null;
 let lastSubmissionSnapshot: AiRunPayloadSnapshot | null = null;
 let lastSubmissionKey: string | null = null;
@@ -115,12 +119,10 @@ let contentDirty = false;
  *  otherwise, and only one of them is fixed by reloading the page. */
 let contentReachable = true;
 let contentUnreachableReported = false;
-let eventLog: readonly PopupLogEntry[] = [];
-
-const MAX_LOG_ENTRIES = 40;
+const eventLog = createEventLog();
 
 function logEvent(label: string, detail = "", tone: PopupLogEntry["tone"] = "info"): void {
-  eventLog = [{ at: Date.now(), label, detail, tone }, ...eventLog].slice(0, MAX_LOG_ENTRIES);
+  eventLog.add({ label, detail, tone, at: Date.now() });
 }
 
 function safeOrigin(url: string): string {
@@ -223,7 +225,7 @@ function buildDiagnostics(): PopupDiagnostics {
     renderModeView,
     renderModeDetail,
     renderModeBusy,
-    log: eventLog,
+    log: eventLog.entries(),
   };
 }
 
@@ -333,7 +335,7 @@ function bindToTab(context: TargetTabContext): { changed: boolean; sameTabNaviga
   boundTabId = context.tabId;
   boundTabKey = nextKey;
   boundTabUrl = context.url;
-  lastPulledBrainSeq = 0;
+  brainSignals.reset();
   lastSubmissionSnapshot = null;
   lastSubmissionKey = null;
   activeRunSessionId = null;
@@ -353,38 +355,52 @@ function bindToTab(context: TargetTabContext): { changed: boolean; sameTabNaviga
   return { changed: true, sameTabNavigation, key: nextKey };
 }
 
-async function pullSignals(tabId: number, requestKey = boundTabKey, afterSeq = lastPulledBrainSeq): Promise<number> {
-  const response = await pullRewriteSignals(getPopupBus(), {
-    tabId,
-    afterSeq,
-  });
-  if (!response.ok) {
-    return 0;
+/** A decided signal is consumed once, and the cursor is the only record of what
+ *  already has been — so every delivery path claims it here rather than trusting a
+ *  value captured before an await, which another path may since have advanced. */
+function consumeSignal(signal: BrainSignal, tabId: number, requestKey: string | null): boolean {
+  if (!signalMatchesBinding(signal, tabId, requestKey) || !brainSignals.claim(signal.seq)) {
+    return false;
   }
-  if (boundTabId !== tabId || boundTabKey !== requestKey) {
-    return 0;
-  }
-  let applied = 0;
-  let markingChanged = false;
-  for (const signal of response.data) {
-    if (signal && typeof signal === "object" && (signal as BrainSignal).kind === "uf-signal/1" && signalMatchesBinding(signal as BrainSignal, tabId, requestKey)) {
+  dispatchSignal(signal);
+  return true;
+}
+
+async function pullSignals(tabId: number, requestKey = boundTabKey): Promise<number> {
+  return await brainSignals.serialize(async (consumedThrough) => {
+    const response = await pullRewriteSignals(getPopupBus(), {
+      tabId,
+      afterSeq: consumedThrough,
+    });
+    if (!response.ok) {
+      return 0;
+    }
+    if (boundTabId !== tabId || boundTabKey !== requestKey) {
+      return 0;
+    }
+    let applied = 0;
+    let markingChanged = false;
+    for (const signal of response.data) {
+      if (!(signal && typeof signal === "object" && (signal as BrainSignal).kind === "uf-signal/1")) {
+        continue;
+      }
       const brainSignal = signal as BrainSignal;
-      lastPulledBrainSeq = Math.max(lastPulledBrainSeq, brainSignal.seq);
-      dispatchSignal(brainSignal);
+      if (!consumeSignal(brainSignal, tabId, requestKey)) {
+        continue;
+      }
       markingChanged = markingChanged || brainSignal.name === "markings.changed";
       applied += 1;
     }
-  }
-  if (markingChanged) {
-    // Rows no longer ride the signal, so fetch them once for the whole batch
-    // rather than once per signal.
-    await adoptContentRows(tabId, requestKey);
-  }
-  return applied;
+    if (markingChanged) {
+      // Rows no longer ride the signal, so fetch them once for the whole batch
+      // rather than once per signal.
+      await adoptContentRows(tabId, requestKey);
+    }
+    return applied;
+  });
 }
 
 async function emitPopupSignalAndPullTail(tabId: number, name: BrainSignal["name"], payload: BrainSignal["payload"], requestKey = boundTabKey): Promise<void> {
-  const afterSeq = lastPulledBrainSeq;
   const response = await emitRewriteSignal(getPopupBus(), tabId, {
     name,
     source: "popup",
@@ -394,13 +410,13 @@ async function emitPopupSignalAndPullTail(tabId: number, name: BrainSignal["name
   if (!response.ok || boundTabId !== tabId || boundTabKey !== requestKey) {
     return;
   }
-  const applied = await pullSignals(tabId, requestKey, afterSeq);
+  const applied = await pullSignals(tabId, requestKey);
   if (applied === 0) {
+    // The pull found nothing, so this emit's own decisions are still unconsumed —
+    // unless the pull that ran ahead of it in the queue took them, which the
+    // cursor check settles.
     for (const signal of response.data) {
-      if (signalMatchesBinding(signal, tabId, requestKey)) {
-        lastPulledBrainSeq = Math.max(lastPulledBrainSeq, signal.seq);
-        dispatchSignal(signal);
-      }
+      consumeSignal(signal, tabId, requestKey);
     }
   }
 }
@@ -417,10 +433,7 @@ async function emitPopupSignal(tabId: number, name: BrainSignal["name"], payload
   }
   if (response.ok) {
     for (const signal of response.data) {
-      if (signalMatchesBinding(signal, tabId, requestKey)) {
-        lastPulledBrainSeq = Math.max(lastPulledBrainSeq, signal.seq);
-        dispatchSignal(signal);
-      }
+      consumeSignal(signal, tabId, requestKey);
     }
     return;
   }
