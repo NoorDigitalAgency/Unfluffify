@@ -12,7 +12,9 @@ export const TabFactsPatchSchema = z.object({
   renderMode: z.enum(["rendered", "static"]).nullable().optional(),
   candidate: z.boolean().optional(),
   markingEnabled: z.boolean().optional(),
-  markingChangeSeq: z.number().int().nonnegative().optional(),
+  /** Monotonic count of operator toggles. Never a row count: the page moves
+   *  that on its own. */
+  markingToggleSeq: z.number().int().nonnegative().optional(),
   runPhase: z.enum(["idle", "running", "completed", "failed"]).optional(),
   runSessionId: z.string().optional(),
   previewActive: z.boolean().optional(),

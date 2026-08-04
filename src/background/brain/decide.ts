@@ -32,11 +32,16 @@ export function decideSignals(prev: TabFacts | null, next: TabFacts): readonly S
       payload: { baseUrl: next.baseUrl ?? "", pageUrl: next.pageUrl ?? prev.pageUrl ?? "", cause: "fold" },
     });
   }
-  if ((prev?.markingChangeSeq ?? 0) < (next.markingChangeSeq ?? 0)) {
+  /* Driven by a count of the operator's toggles, never by how many rows the page
+     currently has. A dynamic page moves its own row count, which would be wrong
+     in both directions: rows the page grows would read as an edit, and a toggle
+     that removes rows would not read as one at all. A toggle count only ever goes
+     up, and only when the operator marks something. */
+  if ((prev?.markingToggleSeq ?? 0) < (next.markingToggleSeq ?? 0)) {
     decisions.push({
       name: "markings.changed",
-      cause: "marking-change",
-      payload: { pageUrl, markedCount: next.markingChangeSeq ?? 0 },
+      cause: "marking-toggle",
+      payload: { pageUrl, markedCount: next.markingToggleSeq ?? 0 },
     });
   }
   if (prev?.runPhase !== "running" && next.runPhase === "running") {

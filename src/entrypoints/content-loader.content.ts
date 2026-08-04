@@ -27,7 +27,11 @@ const spaGuard = createSpaGuard((url) => {
 });
 let markingEngine: ReturnType<typeof createMarkingEngine> | null = null;
 let markingActive = false;
-let userMarkingDirty = false;
+/** Counts the operator's toggles, and nothing else. The page mutates on its own,
+ *  so any measure derived from the live row count would drift: rows the page grows
+ *  would read as an edit, and a toggle that removes rows would not. One toggle is
+ *  one change, which is the only definition that holds on a dynamic page. */
+let userToggleCount = 0;
 let markingInteractionsPaused = false;
 let spacePassthroughActive = false;
 let removeMarkingListeners: (() => void) | null = null;
@@ -41,6 +45,10 @@ let contentDirective: ContentDirectiveState = createDefaultContentDirective(last
 let selectorsSeeded = false;
 let removeNavigationGate: (() => void) | null = null;
 let directiveRoot: HTMLElement | null = null;
+
+function isUserMarkingDirty(): boolean {
+  return userToggleCount > 0;
+}
 
 function currentPageUrl(): string {
   return typeof location !== "undefined" ? location.href : "";
@@ -85,7 +93,7 @@ function armNavigationGate(): void {
     return;
   }
   const onBeforeUnload = (event: BeforeUnloadEvent): void => {
-    if (!markingActive || !userMarkingDirty) {
+    if (!markingActive || !isUserMarkingDirty()) {
       return;
     }
     event.preventDefault();
@@ -212,9 +220,16 @@ function markModeForClick(event: MouseEvent): "passthrough" | "include" | "exclu
 }
 
 function emitMarkingChanged(): void {
+  // Report the toggle count as a fact too, so the brain can decide
+  // markings.changed itself after a worker restart rather than depending on this
+  // signal having been seen.
+  void reportContentFact("marking-toggle", { markingToggleSeq: userToggleCount })
+    .catch((error: unknown) => {
+      console.error("[Unfluffify][rewrite] Unable to report a marking toggle", error);
+    });
   emitContentBrainSignal("markings.changed", "content-click", {
     pageUrl: typeof location !== "undefined" ? location.href : "",
-    markedCount: userMarkingDirty ? markingEngine?.rows().length ?? 0 : 0,
+    markedCount: userToggleCount,
     contentRows: contentRowsFromEngine(),
   });
 }
@@ -352,7 +367,7 @@ function ensureMarkingListeners(): void {
       return;
     }
     markingEngine.toggle(target, mode);
-    userMarkingDirty = true;
+    userToggleCount += 1;
     emitMarkingChanged();
   };
   const handleMouseMove = (event: MouseEvent): void => {
@@ -397,7 +412,7 @@ function ensureMarkingListeners(): void {
 
 function deactivateMarking(): void {
   markingActive = false;
-  userMarkingDirty = false;
+  userToggleCount = 0;
   selectorsSeeded = false;
   removeNavigationGate?.();
   markingInteractionsPaused = false;
@@ -477,7 +492,7 @@ function resetMarking(): boolean {
   markingEngine?.dispose();
   destroyPageWorldSession();
   markingEngine = createMarkingEngine(document.documentElement);
-  userMarkingDirty = false;
+  userToggleCount = 0;
   selectorsSeeded = false;
   lastKnownPageUrl = typeof location !== "undefined" ? location.href : lastKnownPageUrl;
   markingEngine.refresh();
@@ -506,7 +521,7 @@ function activateContentMain(payload: unknown): Record<string, unknown> {
   if (typeof document !== "undefined" && document.documentElement) {
     lastKnownPageUrl = nextPageUrl || lastKnownPageUrl;
     if (!markingActive) {
-      userMarkingDirty = false;
+      userToggleCount = 0;
     }
     markingEngine ??= createMarkingEngine(document.documentElement);
     markingEngine.refresh();
@@ -514,7 +529,7 @@ function activateContentMain(payload: unknown): Record<string, unknown> {
     // them. Only once, and only while the operator has not marked anything: after
     // this the selectors play no further part.
     const selectors = selectorSetFrom(request);
-    if (selectors && !selectorsSeeded && !userMarkingDirty) {
+    if (selectors && !selectorsSeeded && !isUserMarkingDirty()) {
       selectorsSeeded = markingEngine.seedFromSelectors(selectors);
     }
     markingEngine.renderReadOnly();
@@ -562,9 +577,9 @@ function contentStatus(): Record<string, unknown> {
   return {
     ok: true,
     active: markingActive,
-    dirty: userMarkingDirty,
+    dirty: isUserMarkingDirty(),
     pageUrl: currentPageUrl(),
-    markedCount: userMarkingDirty ? markingEngine?.rows().length ?? 0 : 0,
+    markedCount: userToggleCount,
     contentRows: contentRowsFromEngine(),
     directive: contentDirective,
     tree: "rewrite",
@@ -572,8 +587,8 @@ function contentStatus(): Record<string, unknown> {
 }
 
 function markContentClean(): Record<string, unknown> {
-  userMarkingDirty = false;
-  return { ok: true, active: markingActive, dirty: userMarkingDirty, tree: "rewrite" };
+  userToggleCount = 0;
+  return { ok: true, active: markingActive, dirty: isUserMarkingDirty(), tree: "rewrite" };
 }
 
 function captureSubmissionSnapshot(payload: unknown): Record<string, unknown> {
@@ -609,10 +624,10 @@ function createContentRouter() {
     handlers: {
       activateContentMain,
       getContentMainStatus: () => contentStatus(),
-      pauseContentMainInteractions: () => ({ ok: pauseMarkingInteractions(), active: markingActive, dirty: userMarkingDirty, tree: "rewrite" }),
+      pauseContentMainInteractions: () => ({ ok: pauseMarkingInteractions(), active: markingActive, dirty: isUserMarkingDirty(), tree: "rewrite" }),
       resumeContentMainInteractions: () => contentDirective.content.markingEditsBlocked
-        ? { ok: false, active: markingActive, dirty: userMarkingDirty, tree: "rewrite", reason: "directive-blocked" }
-        : { ok: resumeMarkingInteractions(), active: markingActive, dirty: userMarkingDirty, tree: "rewrite" },
+        ? { ok: false, active: markingActive, dirty: isUserMarkingDirty(), tree: "rewrite", reason: "directive-blocked" }
+        : { ok: resumeMarkingInteractions(), active: markingActive, dirty: isUserMarkingDirty(), tree: "rewrite" },
       markContentMainClean: () => markContentClean(),
       captureSubmissionSnapshot,
       deactivateContentMain: () => {

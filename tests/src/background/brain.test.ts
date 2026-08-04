@@ -312,6 +312,32 @@ describe("P3 background brain", () => {
     expect(response).toMatchObject({ ok: true });
   });
 
+  it("treats an operator toggle as the marking change, not the row count", () => {
+    const runtime = createRewriteBrainRuntime({ addMessageListener() {} });
+    const observe = (facts: Record<string, unknown>) => runtime.handle({
+      type: "uf.rewriteBrain.observe",
+      tabId: 7,
+      sensation: {
+        tabId: 7,
+        source: "content",
+        reason: "marking-toggle",
+        facts: { tabId: 7, pageUrl: "https://example.com/page", baseUrl: "https://example.com", markingEnabled: true, ...facts },
+      },
+    });
+
+    // Arriving at the session emits nothing about markings.
+    const first = observe({ markingToggleSeq: 0 });
+    expect((first.signals ?? []).map((signal: { name?: string }) => signal.name)).not.toContain("markings.changed");
+
+    // One toggle, one change.
+    const second = observe({ markingToggleSeq: 1 });
+    expect((second.signals ?? []).map((signal: { name?: string }) => signal.name)).toContain("markings.changed");
+
+    // The same count again is not a new change, however much the page mutated.
+    const third = observe({ markingToggleSeq: 1 });
+    expect((third.signals ?? []).map((signal: { name?: string }) => signal.name)).not.toContain("markings.changed");
+  });
+
   it("emits born-at-source signals through the runtime", () => {
     const runtime = createRewriteBrainRuntime({ addMessageListener() {} });
     const result = runtime.handle({
