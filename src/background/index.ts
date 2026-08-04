@@ -197,12 +197,26 @@ export function startRewriteBackground(): void {
   });
   bus.onCommand("config.load", async (request) => {
     const result = await services.lynx.loadConfigSnapshot(request.siteId);
-    return result.status === "ok"
+    // The rule lives in services, not here and not in the popup: one place
+    // decides what local data survives a backend answer.
+    const applied = await services.property.applyBackendLoad(request.siteId, result.status === "ok"
       ? { status: result.status, config: result.data }
-      : { status: result.status, httpStatus: result.httpStatus };
+      : { status: result.status });
+    return {
+      status: result.status,
+      ...(result.status === "ok" ? { config: result.data } : { httpStatus: result.httpStatus }),
+      ...(applied.renderMode ? { renderMode: applied.renderMode } : {}),
+      renderModeSource: applied.source,
+    };
   });
+  bus.onCommand("renderMode.remember", (request) =>
+    services.property.rememberRenderMode(request.siteId, request.renderMode));
   bus.onCommand("config.save", async (snapshot) => {
     const result = await services.lynx.saveConfigSnapshot(snapshot);
+    if (result.status === "ok" && snapshot.siteId !== null) {
+      // The backend holds it now, so the local copy has served its purpose.
+      await services.property.applyBackendSave(snapshot.siteId);
+    }
     return result.status === "ok"
       ? { status: result.status }
       : { status: result.status, httpStatus: result.httpStatus };

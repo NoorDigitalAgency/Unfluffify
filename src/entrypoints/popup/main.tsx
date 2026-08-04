@@ -91,6 +91,9 @@ let renderModeBusy = false;
  *  poll. The Refresh button clears this to retry deliberately. */
 let configLoadAttemptedSiteId: number | null = null;
 let configStatus = "";
+/** Where the effective render mode came from, so a locally-held choice is not
+ *  presented as a backend decision. */
+let renderModeSource: "backend" | "local" = "local";
 let boundTabUrl = "";
 let lockStatus = "";
 let lockRole = "";
@@ -168,6 +171,7 @@ function buildDiagnostics(): PopupDiagnostics {
     lockRole,
     configPresent,
     configStatus,
+    renderModeSource,
     contentActive,
     contentDirty,
     contentReachable,
@@ -915,19 +919,31 @@ async function loadPropertyConfig(siteId: number): Promise<void> {
   }
   configStatus = response.data.status;
   if (response.data.status !== "ok" || !response.data.config) {
+    // On a 404 the backend has nothing, and the render mode is the one thing the
+    // authority rule lets survive locally — the reply carries whatever did.
+    confirmedRenderMode = response.data.renderMode ?? null;
+    renderModeSource = response.data.renderModeSource;
     logEvent(
       "Config not loaded",
-      response.data.status === "not_found" ? "no stored config for this property" : response.data.status,
+      response.data.status === "not_found"
+        ? response.data.renderMode
+          ? `no stored config · kept local render mode ${response.data.renderMode}`
+          : "no stored config for this property"
+        : response.data.status,
       response.data.status === "not_found" ? "info" : "warn",
     );
     render();
     return;
   }
+  renderModeSource = response.data.renderModeSource;
   const config = response.data.config;
   if (isRenderModeConfirmed(config)) {
     confirmedRenderMode = config.renderMode;
-    logEvent("Render mode restored", `${config.renderMode} · set ${config.renderModeUpdatedAt}`, "success");
+    logEvent("Render mode restored", `${config.renderMode} · backend`, "success");
   } else {
+    // The backend answered and its config carries no decided mode, so there is
+    // nothing to adopt — and per the authority rule any local copy is gone.
+    confirmedRenderMode = null;
     logEvent("Render mode not stored", "choose one for this property", "info");
   }
   render();
@@ -951,6 +967,19 @@ function setRenderMode(mode: RenderMode): void {
   confirmedRenderMode = mode;
   logEvent("Render mode set", mode);
   render();
+  // The background decides whether this may be stored locally: only a property
+  // with no backend configuration qualifies.
+  if (activeSiteId !== null) {
+    void getPopupBus().request("renderMode.remember", { siteId: activeSiteId, renderMode: mode }, { target: "background" })
+      .then((response) => {
+        if (response.ok && !response.data.stored) {
+          logEvent("Render mode not stored locally", response.data.reason ?? "backend config present");
+        }
+      })
+      .catch((error: unknown) => {
+        console.error("[Unfluffify][rewrite] Unable to remember the render mode", error);
+      });
+  }
   // The content script gates on the directive's render mode, so push it now
   // rather than waiting for the next poll tick.
   void resolveTargetTabContext()
@@ -1319,6 +1348,10 @@ async function saveSession(): Promise<void> {
     lastSubmissionKey = null;
     contentActive = false;
     contentDirty = false;
+    // The backend holds the configuration now, so the render mode is its
+    // decision and the local copy has been cleared background-side.
+    renderModeSource = "backend";
+    configStatus = "ok";
     logEvent("Session saved", snapshot.baseUrl, "success");
     await emitPopupSignalAndPullTail(context.tabId, "session.saved", { pageUrl: context.url, baseUrl: snapshot.baseUrl }, requestKey);
   } else {

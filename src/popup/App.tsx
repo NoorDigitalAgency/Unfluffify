@@ -57,6 +57,9 @@ export type PopupDiagnostics = Readonly<{
   /** The outcome of the stored-config read, so a failed one is visible instead
    *  of looking the same as a property that simply has nothing stored. */
   configStatus: string;
+  /** Whether the effective render mode came from the backend or is a local
+   *  choice held only because the backend has no configuration yet. */
+  renderModeSource: "backend" | "local";
   contentActive: boolean;
   contentDirty: boolean;
   /** False when nothing answers on the tab — the content script was never
@@ -93,6 +96,7 @@ export const EMPTY_POPUP_DIAGNOSTICS: PopupDiagnostics = {
   lockRole: "",
   configPresent: false,
   configStatus: "",
+  renderModeSource: "local",
   contentActive: false,
   contentDirty: false,
   contentReachable: true,
@@ -640,6 +644,11 @@ export function App({
             >
               {renderModeLabel(diagnostics.renderMode)}
             </span>
+            {/* A choice held locally because the backend has no configuration is
+                not the same as one the backend confirmed; say which. */}
+            {diagnostics.renderMode && diagnostics.renderModeSource === "local" ? (
+              <span className="hint u-color-muted" data-render-mode-source="local">not saved yet</span>
+            ) : null}
           </span>
         </div>
 

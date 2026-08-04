@@ -3,13 +3,15 @@ import {
   createConfigRepo,
   createIndexedDbStore,
   createLockIdentityRepo,
+  createLocalPropertyRepo,
   createMemoryStore,
   createRunRecordRepo,
   createSettingsRepo,
   createTabStateRepo,
 } from "../storage";
-import { SelectorSetSchema } from "../storage/config";
+import { SelectorSetSchema, type ConfigSnapshot } from "../storage/config";
 import type { Settings } from "../storage/settings";
+import type { RenderMode } from "../domain/schema/property";
 import type { JsonTransport } from "../lynx";
 import {
   buildAccountsEndpointBase,
@@ -108,6 +110,7 @@ export function createRewriteBackgroundServices(input: Readonly<{
   const configRepo = createConfigRepo(store);
   const runRecordRepo = createRunRecordRepo(store);
   const lockIdentityRepo = createLockIdentityRepo(store);
+  const localPropertyRepo = createLocalPropertyRepo(store);
   const settingsStore = createSettingsRepo(store);
   const loadSettings = async (): Promise<Settings> => {
     const result = await settingsStore.load();
@@ -147,7 +150,73 @@ export function createRewriteBackgroundServices(input: Readonly<{
       configRepo,
       runRecordRepo,
       lockIdentityRepo,
+      localPropertyRepo,
       settingsStore,
+    },
+    property: {
+      /** Applies the backend-authority rule to a load outcome.
+       *
+       *  A 200 and a 404 are both answers, so both remove local property data;
+       *  the render mode survives a 404 only, because until a configuration
+       *  exists there is nowhere else for the operator's choice to live. A
+       *  transport or auth failure is not an answer — it says nothing about what
+       *  the backend holds, so it must leave local data exactly as it was. */
+      async applyBackendLoad(siteId: number, outcome: Readonly<{
+        status: "ok" | "auth_error" | "not_found" | "error";
+        config?: ConfigSnapshot;
+      }>) {
+        if (outcome.status === "auth_error" || outcome.status === "error") {
+          const existing = await localPropertyRepo.load(siteId);
+          return {
+            renderMode: existing.ok ? existing.value?.renderMode : undefined,
+            source: "local" as const,
+          };
+        }
+        // Both answers invalidate the local mirror of the configuration.
+        await configRepo.clear(siteId);
+        if (outcome.status === "ok") {
+          await localPropertyRepo.save({
+            siteId,
+            backendConfigPresent: true,
+            updatedAt: new Date().toISOString(),
+          });
+          return { renderMode: outcome.config?.renderMode, source: "backend" as const };
+        }
+        const existing = await localPropertyRepo.load(siteId);
+        const keptRenderMode = existing.ok ? existing.value?.renderMode : undefined;
+        await localPropertyRepo.save({
+          siteId,
+          backendConfigPresent: false,
+          ...(keptRenderMode ? { renderMode: keptRenderMode } : {}),
+          updatedAt: new Date().toISOString(),
+        });
+        return { renderMode: keptRenderMode, source: "local" as const };
+      },
+      /** The backend now holds the configuration, so the local copy has served
+       *  its purpose and must go. */
+      async applyBackendSave(siteId: number) {
+        await configRepo.clear(siteId);
+        await localPropertyRepo.save({
+          siteId,
+          backendConfigPresent: true,
+          updatedAt: new Date().toISOString(),
+        });
+      },
+      /** Refused when the backend already has a configuration for the property:
+       *  local storage is only permitted while it does not. */
+      async rememberRenderMode(siteId: number, renderMode: RenderMode) {
+        const existing = await localPropertyRepo.load(siteId);
+        if (existing.ok && existing.value?.backendConfigPresent) {
+          return { stored: false as const, reason: "backend-config-present" as const };
+        }
+        await localPropertyRepo.save({
+          siteId,
+          backendConfigPresent: false,
+          renderMode,
+          updatedAt: new Date().toISOString(),
+        });
+        return { stored: true as const };
+      },
     },
     settings: {
       load: loadSettings,

@@ -3,6 +3,7 @@ export * from "./durable";
 export * from "./repositories/config";
 export * from "./repositories/key-value";
 export * from "./repositories/lock-identity";
+export * from "./repositories/local-property";
 export * from "./repositories/run-records";
 export * from "./repositories/tab-state";
 export * from "./session";

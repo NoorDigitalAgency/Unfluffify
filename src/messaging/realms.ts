@@ -12,6 +12,7 @@ import { defineBus, type DefineBusOptions } from "./bus";
 import { z } from "zod";
 import { AiRunPayloadSnapshotSchema } from "../domain/schema/submission";
 import { LockRoleSchema } from "../domain/schema/facts";
+import { RenderModeSchema } from "../domain/schema/property";
 import { ConfigSnapshotSchema, SelectorSetSchema } from "../storage/config";
 import { MarkRowSchema } from "../domain/schema/marking";
 import { ConnectionSettingsSchema } from "../storage/settings";
@@ -102,6 +103,22 @@ export const applicationContract = defineContract({
         status: z.enum(["ok", "auth_error", "not_found", "error"]),
         httpStatus: z.number().optional(),
         config: ConfigSnapshotSchema.optional(),
+        /* The effective mode after the backend-authority rule has been applied,
+           so the popup adopts a decision rather than making one. */
+        renderMode: RenderModeSchema.optional(),
+        renderModeSource: z.enum(["backend", "local"]),
+      }),
+    },
+    /* Stores an operator's choice for a property the backend has no
+       configuration for. Refused otherwise — see local-property.ts. */
+    "renderMode.remember": {
+      request: z.object({
+        siteId: z.number().int().positive(),
+        renderMode: RenderModeSchema,
+      }),
+      response: z.object({
+        stored: z.boolean(),
+        reason: z.string().optional(),
       }),
     },
     "config.save": {

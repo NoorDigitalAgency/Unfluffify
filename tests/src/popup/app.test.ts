@@ -292,6 +292,20 @@ describe("popup App surface", () => {
     expect(markup).toMatch(/id="render-mode-without-js"[^>]*disabled/);
   });
 
+  it("says when a chosen render mode is only held locally", () => {
+    // A choice kept because the backend has no configuration is not the same as
+    // one the backend confirmed, and the difference decides whether it survives.
+    const local = renderApp(SILENT, { ...SIGNED_IN, renderMode: "static", renderModeSource: "local" });
+    const backend = renderApp(SILENT, { ...SIGNED_IN, renderMode: "static", renderModeSource: "backend" });
+    const unset = renderApp(SILENT, { ...SIGNED_IN, renderModeSource: "local" });
+
+    expect(local).toContain('data-render-mode-source="local"');
+    expect(local).toContain("not saved yet");
+    expect(backend).not.toContain("data-render-mode-source");
+    // Nothing chosen yet is not "unsaved"; it is simply absent.
+    expect(unset).not.toContain("data-render-mode-source");
+  });
+
   it("distinguishes a stored config from none stored and from a failed read", () => {
     // "not_found" is normal for a property nobody has saved; a transport code is
     // a fault, and the two used to render identically as "missing".
