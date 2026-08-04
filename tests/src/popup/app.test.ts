@@ -199,6 +199,63 @@ describe("popup App surface", () => {
     expect(markup).not.toContain("data-setup-required");
   });
 
+  it("shows the render mode and offers both choices", () => {
+    const markup = renderApp(SILENT, { ...SIGNED_IN, renderMode: "rendered" });
+
+    expect(markup).toContain('aria-label="Render mode"');
+    expect(markup).toContain('data-render-mode="rendered"');
+    expect(markup).toMatch(/id="render-mode-rendered"[^>]*checked/);
+    expect(markup).not.toMatch(/id="render-mode-static"[^>]*checked/);
+  });
+
+  it("offers a load for each JavaScript mode rather than an automated verdict", () => {
+    const markup = renderApp(SILENT, SIGNED_IN);
+
+    expect(markup).toContain('id="render-mode-with-js"');
+    expect(markup).toContain('id="render-mode-without-js"');
+    expect(markup).toContain("With JavaScript");
+    expect(markup).toContain("Without JavaScript");
+    // No confidence score, no suggested mode, nothing to accept.
+    expect(markup).not.toContain("confidence");
+    expect(markup).not.toContain('id="render-mode-accept"');
+  });
+
+  it("says which view the tab is showing, and warns while JavaScript is off", () => {
+    const withJs = renderApp(SILENT, { ...SIGNED_IN, renderModeView: "with_javascript" });
+    const withoutJs = renderApp(SILENT, { ...SIGNED_IN, renderModeView: "without_javascript" });
+
+    expect(withJs).toContain('data-render-mode-view="with_javascript"');
+    expect(withJs).toContain("Showing the page with JavaScript.");
+    // Leaving a tab stuck with scripts disabled is a trap worth flagging.
+    expect(withoutJs).toContain('data-render-mode-view="without_javascript"');
+    expect(withoutJs).toContain("Load it back with JavaScript");
+    expect(withoutJs).toContain("u-color-warning");
+  });
+
+  it("locks both loads while one is in flight", () => {
+    const markup = renderApp(SILENT, { ...SIGNED_IN, renderModeBusy: true });
+
+    expect(markup).toMatch(/id="render-mode-with-js"[^>]*disabled/);
+    expect(markup).toMatch(/id="render-mode-without-js"[^>]*disabled/);
+    expect(markup).toMatch(/id="render-mode-rendered"[^>]*disabled/);
+    expect(markup).toContain("Reloading the page…");
+  });
+
+  it("surfaces a failed load instead of leaving the buttons silent", () => {
+    const markup = renderApp(SILENT, { ...SIGNED_IN, renderModeDetail: "The page could not be reloaded in that mode." });
+
+    expect(markup).toContain("could not be reloaded");
+    expect(markup).toContain("u-color-warning");
+  });
+
+  it("refuses to reload while the lock blocks editing", () => {
+    // Reloading the page needs the editor lock.
+    const markup = renderApp(LOCKED, { ...SIGNED_IN, lockStatus: "ok", lockRole: "passive" });
+
+    expect(markup).toMatch(/id="render-mode-with-js"[^>]*disabled/);
+    expect(markup).toMatch(/id="render-mode-without-js"[^>]*disabled/);
+  });
+
   it("says the content script is missing and names the fix", () => {
     // An uninjected content script and an idle one both used to read "inactive",
     // so the toggle appeared to do nothing with no hint that only a page reload

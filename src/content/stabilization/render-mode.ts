@@ -1,18 +1,3 @@
-export type RenderModeInspectionInput = Readonly<{
-  captureRenderedHtml: () => Promise<string> | string;
-  reloadWithoutJavascript: () => Promise<void> | void;
-  captureStaticHtml: () => Promise<string> | string;
-  restoreJavascript: () => Promise<void> | void;
-  deviceSimulationEnabled: boolean;
-}>;
-
-export type RenderModeInspectionResult = Readonly<{
-  renderedHtml: string;
-  rawHtml: string;
-  deviceSimulationEnabled: boolean;
-  reclaimLockAfterReload: true;
-}>;
-
 export type RenderModeCdpClient = Readonly<{
   send(method: string, params?: Record<string, unknown>): Promise<unknown>;
 }>;
@@ -29,20 +14,15 @@ export async function restoreJavascriptViaCdp(client: RenderModeCdpClient): Prom
   await client.send("Emulation.setScriptExecutionDisabled", { value: false });
 }
 
-export async function inspectRenderMode(input: RenderModeInspectionInput): Promise<RenderModeInspectionResult> {
-  const renderedHtml = await input.captureRenderedHtml();
-  let rawHtml: string;
-  try {
-    await input.reloadWithoutJavascript();
-    rawHtml = await input.captureStaticHtml();
-  } finally {
-    await input.restoreJavascript();
-  }
-
-  return {
-    renderedHtml,
-    rawHtml,
-    deviceSimulationEnabled: input.deviceSimulationEnabled,
-    reclaimLockAfterReload: true,
-  };
+/** Loads the tab with JavaScript on or off so the operator can compare the two
+ *  views and decide the render mode themselves. Their eyes are the judge here —
+ *  there is no automated verdict to second-guess. */
+export async function loadPageWithJavascript(
+  client: RenderModeCdpClient,
+  reload: () => Promise<void> | void,
+  javascriptEnabled: boolean,
+): Promise<void> {
+  await client.send("Emulation.setScriptExecutionDisabled", { value: !javascriptEnabled });
+  await reload();
 }
+

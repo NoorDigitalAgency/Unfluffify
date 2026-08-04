@@ -9,7 +9,7 @@ import {
   createFreezeController,
   createRevealVisitController,
   createSpaGuard,
-  inspectRenderMode,
+  loadPageWithJavascript,
   reloadWithoutJavascriptViaCdp,
   restoreJavascriptViaCdp,
   runReveal,
@@ -128,70 +128,21 @@ describe("P5 page stabilization", () => {
     expect(cleared.active).toBe(false);
   });
 
-  it("captures rendered then static HTML while preserving device simulation and requesting lock reclaim", async () => {
-    const calls: string[] = [];
-    await expect(inspectRenderMode({
-      captureRenderedHtml: () => {
-        calls.push("rendered");
-        return "<html>rendered</html>";
-      },
-      reloadWithoutJavascript: () => {
-        calls.push("reload-no-js");
-      },
-      captureStaticHtml: () => {
-        calls.push("static");
-        return "<html>static</html>";
-      },
-      restoreJavascript: () => {
-        calls.push("restore-js");
-      },
-      deviceSimulationEnabled: true,
-    })).resolves.toEqual({
-      renderedHtml: "<html>rendered</html>",
-      rawHtml: "<html>static</html>",
-      deviceSimulationEnabled: true,
-      reclaimLockAfterReload: true,
-    });
-    expect(calls).toEqual(["rendered", "reload-no-js", "static", "restore-js"]);
-  });
+  it("toggles script execution and reloads so the operator can compare views", async () => {
+    const sent: Array<{ method: string; params?: Record<string, unknown> }> = [];
+    const reloads: string[] = [];
+    const client = { send: async (method: string, params?: Record<string, unknown>) => { sent.push({ method, params }); } };
 
-  it("always restores JavaScript when static capture fails", async () => {
-    const calls: string[] = [];
-    await expect(inspectRenderMode({
-      captureRenderedHtml: () => "<html>rendered</html>",
-      reloadWithoutJavascript: () => {
-        calls.push("reload-no-js");
-      },
-      captureStaticHtml: () => {
-        calls.push("static");
-        throw new Error("capture failed");
-      },
-      restoreJavascript: () => {
-        calls.push("restore-js");
-      },
-      deviceSimulationEnabled: true,
-    })).rejects.toThrow("capture failed");
-    expect(calls).toEqual(["reload-no-js", "static", "restore-js"]);
-  });
+    await loadPageWithJavascript(client, () => { reloads.push("reload"); }, false);
+    await loadPageWithJavascript(client, () => { reloads.push("reload"); }, true);
 
-  it("always restores JavaScript when the no-JS reload fails", async () => {
-    const calls: string[] = [];
-    await expect(inspectRenderMode({
-      captureRenderedHtml: () => "<html>rendered</html>",
-      reloadWithoutJavascript: () => {
-        calls.push("reload-no-js");
-        throw new Error("reload failed");
-      },
-      captureStaticHtml: () => {
-        calls.push("static");
-        return "<html>static</html>";
-      },
-      restoreJavascript: () => {
-        calls.push("restore-js");
-      },
-      deviceSimulationEnabled: true,
-    })).rejects.toThrow("reload failed");
-    expect(calls).toEqual(["reload-no-js", "restore-js"]);
+    // Disable-then-reload, and enable-then-reload: the override has to be in
+    // place before the load or the page renders in the previous mode.
+    expect(sent).toEqual([
+      { method: "Emulation.setScriptExecutionDisabled", params: { value: true } },
+      { method: "Emulation.setScriptExecutionDisabled", params: { value: false } },
+    ]);
+    expect(reloads).toEqual(["reload", "reload"]);
   });
 
   it("uses CDP to disable and restore JavaScript around reload", async () => {

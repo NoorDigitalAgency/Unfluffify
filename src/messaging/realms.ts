@@ -50,18 +50,16 @@ const EmulationStateResponseSchema = z.object({
   active: z.boolean(),
 });
 
+/* Comparing the two views is the operator's job, so the command only reloads
+   the tab in the requested JavaScript mode; nothing is captured or judged. */
 const RenderModeInspectRequestSchema = z.object({
   tabId: z.number().int().positive(),
-  pageUrl: z.string().url(),
-  baseUrl: z.string().url(),
-  deviceSimulationEnabled: z.boolean(),
+  javascriptEnabled: z.boolean(),
 });
 
 const RenderModeInspectResponseSchema = z.object({
-  status: z.string(),
-  renderedHtml: z.string().optional(),
-  rawHtml: z.string().optional(),
-  reclaimLockAfterReload: z.boolean().optional(),
+  status: z.enum(["ok", "unavailable", "error"]),
+  reclaimLockAfterReload: z.boolean(),
 });
 
 const OffscreenRefineXpathsRequestSchema = z.object({

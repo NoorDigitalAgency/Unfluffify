@@ -1,7 +1,5 @@
 import { getBrowserRuntimeLastError } from "../common/browser";
-import { applyEmulationViaCdp, clearEmulationViaCdp, inspectRenderMode, reloadWithoutJavascriptViaCdp, restoreJavascriptViaCdp, type EmulationMode } from "../content/stabilization";
-import { createRealmBus } from "../messaging/realms";
-import { createTabTransport } from "../messaging/transports/tabs";
+import { applyEmulationViaCdp, clearEmulationViaCdp, loadPageWithJavascript, restoreJavascriptViaCdp, type EmulationMode } from "../content/stabilization";
 
 type Debuggee = Readonly<{ tabId?: number }>;
 type DebuggerApi = Readonly<{
@@ -94,31 +92,6 @@ export function createRenderEmulationRuntime(input: Readonly<{
       attachedTabs.delete(tabId);
     }
   };
-  const captureSubmissionHtml = async (tabId: number, pageUrl: string, baseUrl: string, renderMode: "rendered" | "static"): Promise<string> => {
-    if (!input.tabs) {
-      return "";
-    }
-    const bus = createRealmBus({
-      realm: "background",
-      transport: createTabTransport(input.tabs, tabId),
-    });
-    try {
-      const response = await bus.request("command.dispatch", {
-        kind: "uf-command/1",
-        name: "captureSubmissionSnapshot",
-        tabId,
-        payload: { pageUrl, baseUrl, renderMode },
-      }, { target: "content" });
-      if (!response.ok || !response.data.ok || !response.data.data || typeof response.data.data !== "object") {
-        return "";
-      }
-      const data = response.data.data as { snapshot?: { pages?: Array<{ renderedHtml?: string; rawHtml?: string }> } };
-      const page = data.snapshot?.pages?.[0];
-      return renderMode === "static" ? page?.rawHtml ?? page?.renderedHtml ?? "" : page?.renderedHtml ?? "";
-    } finally {
-      bus.dispose();
-    }
-  };
   return {
     apply(tabId: number, mode: EmulationMode, scale: number) {
       return applyEmulationViaCdp({ send: (method, params) => send(tabId, method, params) }, mode, scale);
@@ -134,29 +107,25 @@ export function createRenderEmulationRuntime(input: Readonly<{
       await detach(tabId);
       return cleared;
     },
-    async inspect(inputRequest: Readonly<{ tabId: number; pageUrl: string; baseUrl: string; deviceSimulationEnabled: boolean }>) {
+    /** Loads the tab with JavaScript on or off so the operator can compare the
+     *  two views themselves. The reload drops the property lock and the content
+     *  script, so the caller has to re-establish both. */
+    async inspect(inputRequest: Readonly<{ tabId: number; javascriptEnabled: boolean }>) {
       const tabs = input.tabs;
       if (!tabs) {
-        return { status: "unavailable" as const };
+        return { status: "unavailable" as const, reclaimLockAfterReload: false };
       }
       try {
-        const result = await inspectRenderMode({
-          captureRenderedHtml: () => captureSubmissionHtml(inputRequest.tabId, inputRequest.pageUrl, inputRequest.baseUrl, "rendered"),
-          reloadWithoutJavascript: () => reloadWithoutJavascriptViaCdp(
-            { send: (method, params) => send(inputRequest.tabId, method, params) },
-            () => callbackToPromise<void>((callback) => tabs.reload(inputRequest.tabId, { bypassCache: true }, callback)),
-          ),
-          captureStaticHtml: async () => {
-            const captured = await captureSubmissionHtml(inputRequest.tabId, inputRequest.pageUrl, inputRequest.baseUrl, "static");
-            if (captured) return captured;
-            return await fetch(inputRequest.pageUrl).then((response) => response.text());
-          },
-          restoreJavascript: () => restoreJavascriptViaCdp({ send: (method, params) => send(inputRequest.tabId, method, params) }),
-          deviceSimulationEnabled: inputRequest.deviceSimulationEnabled,
-        });
-        return { status: "ok" as const, ...result };
-      } finally {
+        await loadPageWithJavascript(
+          { send: (method, params) => send(inputRequest.tabId, method, params) },
+          () => callbackToPromise<void>((callback) => tabs.reload(inputRequest.tabId, { bypassCache: true }, callback)),
+          inputRequest.javascriptEnabled,
+        );
+        return { status: "ok" as const, reclaimLockAfterReload: true };
+      } catch {
+        // Leave the tab usable rather than stuck with scripts disabled.
         await restoreJavascriptViaCdp({ send: (method, params) => send(inputRequest.tabId, method, params) }).catch(() => undefined);
+        return { status: "error" as const, reclaimLockAfterReload: true };
       }
     },
   };

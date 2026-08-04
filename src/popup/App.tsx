@@ -1,5 +1,6 @@
 import React from "react";
 
+import type { RenderMode } from "../domain/schema/property";
 import type { PopupPresentation } from "./organ/memory";
 
 export type PopupActionAvailability = Readonly<{
@@ -27,6 +28,11 @@ export type PopupCredentialsForm = Readonly<{
 export type PopupCredentialsField = keyof PopupCredentialsForm;
 
 export type PopupAuthState = "unknown" | "signed_out" | "signed_in" | "invalid" | "checking";
+
+/** Which view the tab is currently showing. The operator loads the page both
+ *  ways, compares them by eye, and picks the mode — no automated verdict is
+ *  involved, because a human reading the two renders is the better judge. */
+export type RenderModeView = "unknown" | "with_javascript" | "without_javascript";
 
 export type PopupLogEntry = Readonly<{
   at: number;
@@ -62,6 +68,11 @@ export type PopupDiagnostics = Readonly<{
   authState: PopupAuthState;
   authBusy: boolean;
   authMessage: string;
+  /** What every later capture and AI submission is taken as. */
+  renderMode: RenderMode;
+  renderModeView: RenderModeView;
+  renderModeDetail: string;
+  renderModeBusy: boolean;
   log: readonly PopupLogEntry[];
 }>;
 
@@ -85,6 +96,10 @@ export const EMPTY_POPUP_DIAGNOSTICS: PopupDiagnostics = {
   authState: "unknown",
   authBusy: false,
   authMessage: "",
+  renderMode: "rendered",
+  renderModeView: "unknown",
+  renderModeDetail: "",
+  renderModeBusy: false,
   log: [],
 };
 
@@ -156,6 +171,16 @@ const SETTINGS_FIELDS: readonly Readonly<{
   { field: "stageBase", label: "Stage base host", placeholder: "stage.example.com" },
 ];
 
+const RENDER_MODE_LABEL: Readonly<Record<RenderMode, string>> = {
+  rendered: "Rendered (JavaScript on)",
+  static: "Static (JavaScript off)",
+};
+
+const RENDER_MODE_ICON: Readonly<Record<RenderMode, string>> = {
+  rendered: "mdi-language-javascript",
+  static: "mdi-language-html5",
+};
+
 const AUTH_LABEL: Readonly<Record<PopupAuthState, string>> = {
   unknown: "unknown",
   signed_out: "signed out",
@@ -170,6 +195,12 @@ const AUTH_TONE: Readonly<Record<PopupAuthState, string>> = {
   signed_in: "u-color-success",
   invalid: "u-color-danger",
   checking: "u-color-muted",
+};
+
+const RENDER_MODE_VIEW_LABEL: Readonly<Record<RenderModeView, string>> = {
+  unknown: "",
+  with_javascript: "Showing the page with JavaScript.",
+  without_javascript: "Showing the page with JavaScript disabled. Load it back with JavaScript when you are done.",
 };
 
 function countRows(rows: PopupPresentation["contentRows"], classification: string): number {
@@ -230,6 +261,8 @@ export function App({
   onLogin,
   onLogout,
   onValidateToken,
+  onRenderModeChange,
+  onInspectRenderMode,
 }: Readonly<{
   presentation: PopupPresentation;
   diagnostics?: PopupDiagnostics;
@@ -248,6 +281,8 @@ export function App({
   onLogin?: () => void;
   onLogout?: () => void;
   onValidateToken?: () => void;
+  onRenderModeChange?: (mode: RenderMode) => void;
+  onInspectRenderMode?: (javascriptEnabled: boolean) => void;
 }>) {
   const buttons = resolvePopupActionButtons(presentation, {
     runAi: Boolean(onRunAi),
@@ -256,6 +291,7 @@ export function App({
     preview: Boolean(onPreview),
   });
   const curtainKind = resolvePopupCurtainKind(presentation);
+  const renderModeViewText = diagnostics.renderModeDetail || RENDER_MODE_VIEW_LABEL[diagnostics.renderModeView];
   const includedCount = countRows(presentation.contentRows, "included");
   const excludedCount = countRows(presentation.contentRows, "excluded");
   const selectorCount = presentation.selectors.inclusionSelectors.length + presentation.selectors.exclusionSelectors.length;
@@ -520,6 +556,94 @@ export function App({
           tone={selectorCount > 0 ? "u-color-success" : "u-color-muted"}
         />
         <StatRow icon="mdi-history" label="Run session" value={diagnostics.runSessionId || "—"} />
+      </section>
+
+      <section className="card render-mode-section" aria-label="Render mode">
+        <div className="section-header">
+          <span className="section-title">
+            <i className="mdi mdi-monitor-dashboard btn-icon" aria-hidden="true" />
+            <span>Render mode</span>
+          </span>
+          <span className="render-mode-selected-value">
+            <i className={`mdi ${RENDER_MODE_ICON[diagnostics.renderMode]} render-mode-selected-value__icon`} aria-hidden="true" />
+            <span className="render-mode-selected-value__text" data-render-mode={diagnostics.renderMode}>
+              {RENDER_MODE_LABEL[diagnostics.renderMode]}
+            </span>
+          </span>
+        </div>
+
+        <div className="render-mode-step">
+          <div className="render-mode-step-header">
+            <span className="render-mode-step-index">1</span>
+            <span className="hint">
+              Load the page each way and compare them. Whichever view carries the content the
+              crawler needs is the mode to pick.
+            </span>
+          </div>
+          {/* Two loads, one per JavaScript mode — the operator compares the
+              renders by eye, which reads a page better than a similarity score. */}
+          <div className="render-mode-inspect-actions">
+            <button
+              id="render-mode-with-js"
+              type="button"
+              className={diagnostics.renderModeView === "with_javascript" ? "" : "u-btn-secondary"}
+              disabled={!onInspectRenderMode || diagnostics.renderModeBusy || presentation.lockBanner.visible}
+              title={presentation.lockBanner.visible ? presentation.lockBanner.text : ""}
+              onClick={() => onInspectRenderMode?.(true)}
+            >
+              <i className="mdi mdi-language-javascript btn-icon" aria-hidden="true" />
+              With JavaScript
+            </button>
+            <button
+              id="render-mode-without-js"
+              type="button"
+              className={diagnostics.renderModeView === "without_javascript" ? "" : "u-btn-secondary"}
+              disabled={!onInspectRenderMode || diagnostics.renderModeBusy || presentation.lockBanner.visible}
+              title={presentation.lockBanner.visible ? presentation.lockBanner.text : ""}
+              onClick={() => onInspectRenderMode?.(false)}
+            >
+              <i className="mdi mdi-language-html5 btn-icon" aria-hidden="true" />
+              Without JavaScript
+            </button>
+          </div>
+          {diagnostics.renderModeBusy ? (
+            <p className="hint u-color-muted" data-render-mode-view="loading">Reloading the page…</p>
+          ) : renderModeViewText ? (
+            <p
+              className={`hint ${diagnostics.renderModeDetail ? "u-color-warning" : diagnostics.renderModeView === "without_javascript" ? "u-color-warning" : "u-color-muted"}`}
+              data-render-mode-view={diagnostics.renderModeView}
+            >
+              {renderModeViewText}
+            </p>
+          ) : null}
+        </div>
+
+        <div className="render-mode-step">
+          <div className="render-mode-step-header">
+            <span className="render-mode-step-index">2</span>
+            <span className="hint">Confirm what every capture and AI submission is taken as.</span>
+          </div>
+          {/* A low-confidence verdict is never auto-applied — the mode decides
+              what all later captures contain, so the operator confirms it. */}
+          <div className="render-mode-radio-group" role="radiogroup" aria-label="Render mode choice">
+            {(["rendered", "static"] as const).map((mode) => (
+              <label className="render-mode-radio-option" key={mode}>
+                <input
+                  className="render-mode-radio-hidden"
+                  type="radio"
+                  name="render-mode"
+                  id={`render-mode-${mode}`}
+                  value={mode}
+                  checked={diagnostics.renderMode === mode}
+                  disabled={!onRenderModeChange || diagnostics.renderModeBusy}
+                  onChange={() => onRenderModeChange?.(mode)}
+                />
+                <i className={`mdi ${RENDER_MODE_ICON[mode]} row-icon`} aria-hidden="true" />
+                <span>{RENDER_MODE_LABEL[mode]}</span>
+              </label>
+            ))}
+          </div>
+        </div>
       </section>
 
       <section className="card" aria-label="Marked rows">

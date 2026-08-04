@@ -19,6 +19,7 @@ import {
   type PopupLogEntry,
   type PopupSettingsField,
   type PopupSettingsForm,
+  type RenderModeView,
 } from "../../popup/App";
 import { createPopupStore } from "../../popup/store";
 import type { BrainSignal } from "../../domain/schema/signals";
@@ -30,6 +31,7 @@ import { createRuntimeTransport } from "../../messaging/transports/runtime";
 import { emitRewriteSignal, pullRewriteSignals, type RewriteSignalBus } from "../../messaging/rewrite-signals";
 import type { ConfigSnapshot, SelectorSet } from "../../storage/config";
 import type { ConnectionSettings } from "../../storage/settings";
+import type { RenderMode } from "../../domain/schema/property";
 
 type PopupDebugApi = Readonly<{
   getViewState: () => Record<string, unknown>;
@@ -73,6 +75,18 @@ let authMessage = "";
 /** Kept outside the store so the preference survives the resets that a lock
  *  takeover or a tab rebinding performs on the projected state. */
 let desktopPreviewEnabled = false;
+/** Device size and JavaScript execution are independent axes; the legacy client
+ *  conflated them here, so a desktop preview silently captured static HTML.
+ *
+ *  Deliberately "rendered" rather than legacy's DEFAULT_RENDER_MODE of "static":
+ *  legacy paired that default with an auto-detect pass that immediately tried to
+ *  replace it, and with a config load that supplied the backend's real value.
+ *  Neither is wired here yet, so inheriting "static" would silently relabel
+ *  every submission for anyone who never runs an inspection. */
+let confirmedRenderMode: RenderMode = "rendered";
+let renderModeView: RenderModeView = "unknown";
+let renderModeDetail = "";
+let renderModeBusy = false;
 let boundTabUrl = "";
 let lockStatus = "";
 let lockRole = "";
@@ -161,6 +175,10 @@ function buildDiagnostics(): PopupDiagnostics {
     authState: resolveAuthState(),
     authBusy,
     authMessage,
+    renderMode: confirmedRenderMode,
+    renderModeView,
+    renderModeDetail,
+    renderModeBusy,
     log: eventLog,
   };
 }
@@ -540,7 +558,7 @@ function composeContentDirective(context: TargetTabContext, lock: LockDirectiveR
         text: lock.lockBanner.text || bannerText,
       },
       blockOwner: lockBlocked ? "lock" : presentation.temporarilyDisabledOverlay ? "popup" : undefined,
-      renderMode: presentation.desktopPreviewChecked ? "static" : "rendered",
+      renderMode: confirmedRenderMode,
     },
   };
 }
@@ -675,7 +693,7 @@ async function captureSubmission(context: TargetTabContext): Promise<AiRunPayloa
   const response = await requestContentMessage(context.tabId, {
     type: "captureSubmissionSnapshot",
     baseUrl: baseUrlFor(context.url),
-    renderMode: "rendered",
+    renderMode: confirmedRenderMode,
     pageUrl: context.url,
   });
   if (!response || typeof response !== "object" || !("ok" in response) || response.ok !== true || !("snapshot" in response)) {
@@ -856,6 +874,67 @@ async function adoptAuthStatus(): Promise<void> {
     authState = "invalid";
   } else if (response.data.state === "valid" && authState === "invalid") {
     authState = "signed_in";
+  }
+}
+
+function setRenderMode(mode: RenderMode): void {
+  if (confirmedRenderMode === mode) {
+    return;
+  }
+  confirmedRenderMode = mode;
+  logEvent("Render mode set", mode);
+  render();
+  // The content script gates on the directive's render mode, so push it now
+  // rather than waiting for the next poll tick.
+  void resolveTargetTabContext()
+    .then(async (context) => {
+      if (context !== null) {
+        await refreshLockDirective(context);
+      }
+      render();
+    })
+    .catch((error: unknown) => {
+      console.error("[Unfluffify][rewrite] Unable to publish the render mode", error);
+    });
+}
+
+/** Loads the tab with JavaScript on or off so the operator can compare the two
+ *  renders and choose the mode. The reload drops the property lock and the
+ *  content script, so both are re-established afterwards. */
+async function loadRenderModeView(javascriptEnabled: boolean): Promise<void> {
+  const context = await resolveTargetTabContext();
+  if (context === null) {
+    return;
+  }
+  const requestKey = await handleBoundContext(context);
+  const lock = await refreshLockDirective(context, requestKey);
+  if (!lock || !lockAllowsEditing(lock)) {
+    renderModeDetail = "Editing is blocked, so the page cannot be reloaded.";
+    render();
+    return;
+  }
+  renderModeBusy = true;
+  renderModeDetail = "";
+  render();
+  try {
+    const response = await getPopupBus().request("renderMode.inspect", {
+      tabId: context.tabId,
+      javascriptEnabled,
+    }, { target: "background" });
+    if (!response.ok || response.data.status !== "ok") {
+      renderModeDetail = "The page could not be reloaded in that mode.";
+      logEvent("Render-mode view failed", response.ok ? response.data.status : response.failure.code, "warn");
+      return;
+    }
+    renderModeView = javascriptEnabled ? "with_javascript" : "without_javascript";
+    logEvent("Render-mode view loaded", javascriptEnabled ? "with JavaScript" : "without JavaScript");
+    if (response.data.reclaimLockAfterReload) {
+      await refreshLockDirective(context, requestKey);
+    }
+  } finally {
+    renderModeBusy = false;
+    await reconcileContentStatus(context, requestKey);
+    render();
   }
 }
 
@@ -1272,6 +1351,8 @@ function render(): void {
       onLogin={() => { void login(); }}
       onLogout={() => { void logout(); }}
       onValidateToken={() => { void validateToken(); }}
+      onRenderModeChange={setRenderMode}
+      onInspectRenderMode={(javascriptEnabled) => { void loadRenderModeView(javascriptEnabled); }}
     />,
   );
 }
