@@ -78,12 +78,11 @@ let desktopPreviewEnabled = false;
 /** Device size and JavaScript execution are independent axes; the legacy client
  *  conflated them here, so a desktop preview silently captured static HTML.
  *
- *  Deliberately "rendered" rather than legacy's DEFAULT_RENDER_MODE of "static":
- *  legacy paired that default with an auto-detect pass that immediately tried to
- *  replace it, and with a config load that supplied the backend's real value.
- *  Neither is wired here yet, so inheriting "static" would silently relabel
- *  every submission for anyone who never runs an inspection. */
-let confirmedRenderMode: RenderMode = "rendered";
+ *  Null until the operator compares the two loads and chooses. No default is
+ *  correct: picking one would label every submission with a mode nobody
+ *  established, which is worse than refusing to proceed. Legacy called this
+ *  "undetermined" and blocked the same actions on it. */
+let confirmedRenderMode: RenderMode | null = null;
 let renderModeView: RenderModeView = "unknown";
 let renderModeDetail = "";
 let renderModeBusy = false;
@@ -558,7 +557,7 @@ function composeContentDirective(context: TargetTabContext, lock: LockDirectiveR
         text: lock.lockBanner.text || bannerText,
       },
       blockOwner: lockBlocked ? "lock" : presentation.temporarilyDisabledOverlay ? "popup" : undefined,
-      renderMode: confirmedRenderMode,
+      ...(confirmedRenderMode === null ? {} : { renderMode: confirmedRenderMode }),
     },
   };
 }
@@ -687,6 +686,11 @@ async function refreshLockDirective(context: TargetTabContext, requestKey = boun
 }
 
 async function captureSubmission(context: TargetTabContext): Promise<AiRunPayloadSnapshot | null> {
+  if (confirmedRenderMode === null) {
+    // The snapshot carries the render mode; there is nothing honest to put here.
+    logEvent("Capture refused", "choose a render mode first", "warn");
+    return null;
+  }
   if (!await applySessionEmulation(context)) {
     return null;
   }
@@ -774,6 +778,11 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
     return;
   }
   const requestKey = await handleBoundContext(context);
+  if (enabled && !renderModeSet()) {
+    logEvent("Enable marking refused", "choose a render mode first", "warn");
+    render();
+    return;
+  }
   if (enabled) {
     ensureSignalPolling(context);
     await pullSignals(context.tabId, requestKey);
@@ -875,6 +884,10 @@ async function adoptAuthStatus(): Promise<void> {
   } else if (response.data.state === "valid" && authState === "invalid") {
     authState = "signed_in";
   }
+}
+
+function renderModeSet(): boolean {
+  return confirmedRenderMode !== null;
 }
 
 function setRenderMode(mode: RenderMode): void {
@@ -1102,6 +1115,11 @@ async function runAi(): Promise<void> {
   if (store.getState().name === "running") {
     return;
   }
+  if (!renderModeSet()) {
+    logEvent("Run AI refused", "choose a render mode first", "warn");
+    render();
+    return;
+  }
   const lock = await refreshLockDirective(context, requestKey);
   if (!lock || !lockAllowsEditing(lock)) {
     render();
@@ -1196,6 +1214,7 @@ async function saveSession(): Promise<void> {
     save: true,
     discard: true,
     preview: true,
+    renderModeSet: renderModeSet(),
   }).save;
   if (saveButton.disabled) {
     render();
@@ -1273,6 +1292,7 @@ async function showPreview(): Promise<void> {
     save: true,
     discard: true,
     preview: true,
+    renderModeSet: renderModeSet(),
   }).preview;
   if (previewButton.disabled) {
     render();
@@ -1312,6 +1332,7 @@ function getDebugViewState(): Record<string, unknown> {
     save: true,
     discard: true,
     preview: true,
+    renderModeSet: renderModeSet(),
   });
   return {
     ...presentation,

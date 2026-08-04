@@ -199,6 +199,42 @@ describe("popup App surface", () => {
     expect(markup).not.toContain("data-setup-required");
   });
 
+  it("keeps the render-mode radios focusable rather than display:none", () => {
+    // A display:none radio is out of the tab order, which would make the choice
+    // mouse-only; the theme class of that name is for the legacy sentinel.
+    const markup = renderApp(SILENT, { ...SIGNED_IN, renderMode: "rendered" });
+
+    expect(markup).not.toContain("render-mode-radio-hidden");
+    expect(markup).toMatch(/id="render-mode-rendered"[^>]*type="radio"|type="radio"[^>]*id="render-mode-rendered"/);
+  });
+
+  it("starts with no render mode chosen and neither option selected", () => {
+    // Picking a default would label every submission with a mode nobody
+    // established, which is worse than refusing to proceed.
+    const markup = renderApp(SILENT, SIGNED_IN);
+
+    expect(markup).toContain('data-render-mode="unset"');
+    expect(markup).toContain("Not set");
+    expect(markup).not.toMatch(/id="render-mode-rendered"[^>]*checked/);
+    expect(markup).not.toMatch(/id="render-mode-static"[^>]*checked/);
+  });
+
+  it("blocks marking, Run AI and Save until a mode is chosen", () => {
+    const unset = renderApp(SILENT, SIGNED_IN);
+    const chosen = renderApp(
+      { name: "pre_ai_clean", lastConsumedSeq: 1, reconciliationReason: "", enableToggleChecked: true },
+      { ...SIGNED_IN, renderMode: "rendered" },
+    );
+
+    expect(unset).toMatch(/id="toggle-enabled"[^>]*disabled/);
+    expect(unset).toContain('data-blocked-reason="render-mode-not-set"');
+    expect(unset).toContain("Choose a render mode below before marking.");
+    expect(unset).toContain("Marking, Run AI and Save stay blocked until you choose.");
+    // With a mode chosen the toggle is free again and Run AI is reachable.
+    expect(chosen).not.toMatch(/id="toggle-enabled"[^>]*disabled/);
+    expect(chosen).not.toContain('data-blocked-reason="render-mode-not-set"');
+  });
+
   it("shows the render mode and offers both choices", () => {
     const markup = renderApp(SILENT, { ...SIGNED_IN, renderMode: "rendered" });
 
@@ -429,18 +465,18 @@ describe("popup App surface", () => {
     expect(locked).toContain('id="settings-configEndpoint"');
   });
 
-  it("disables the enable toggle only while the lock blocks editing", () => {
-    const locked = renderApp(LOCKED, { lockStatus: "ok", lockRole: "passive" });
-    const silent = renderApp(SILENT);
+  it("disables the enable toggle while the lock blocks editing", () => {
+    const locked = renderApp(LOCKED, { ...SIGNED_IN, renderMode: "rendered", lockStatus: "ok", lockRole: "passive" });
+    const free = renderApp(SILENT, { ...SIGNED_IN, renderMode: "rendered" });
 
     expect(locked).toMatch(/id="toggle-enabled"[^>]*disabled/);
-    expect(silent).not.toMatch(/id="toggle-enabled"[^>]*disabled/);
+    expect(free).not.toMatch(/id="toggle-enabled"[^>]*disabled/);
   });
 
   it("marks actions as not-implemented when no handler is wired", () => {
     const markup = renderApp(
       { name: "post_ai_clean", lastConsumedSeq: 9, reconciliationReason: "", enableToggleChecked: true },
-      {},
+      { renderMode: "rendered" },
       EMPTY_POPUP_SETTINGS_FORM,
       {},
     );

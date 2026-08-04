@@ -196,6 +196,7 @@ describe("rewrite popup entrypoint", () => {
     } as unknown as typeof chrome;
 
     await import("../../../src/entrypoints/popup/main.tsx");
+    render.mock.calls.at(-1)?.[0].props.onRenderModeChange("rendered");
     render.mock.calls.at(-1)?.[0].props.onEnableChange(true);
     await flushEntrypointWork();
     expect(render.mock.calls.at(-1)?.[0].props.presentation.discardDisabled).toBe(false);
@@ -210,22 +211,34 @@ describe("rewrite popup entrypoint", () => {
     await flushEntrypointWork();
 
     expect(query).toHaveBeenCalledWith({ active: true, currentWindow: true });
-    expect(tabsSendMessage).toHaveBeenNthCalledWith(1, 77, contentCommand("getContentMainStatus", {}));
-    expect(tabsSendMessage).toHaveBeenNthCalledWith(2, 77, contentCommand("directive.content", expect.objectContaining({
+    // Asserted by content, not by call index: choosing a render mode publishes a
+    // directive of its own, and how many directives precede activation is not
+    // part of the contract.
+    const sentCommandNames = tabsSendMessage.mock.calls.map(
+      ([, message]) => (message as { payload?: { name?: string } }).payload?.name,
+    );
+    expect(sentCommandNames[0]).toBe("getContentMainStatus");
+    expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("directive.content", expect.objectContaining({
       baseUrl: "https://example.com",
       configPresent: true,
       lockRole: "editor",
     })));
-    expect(tabsSendMessage).toHaveBeenNthCalledWith(3, 77, contentCommand("activateContentMain", {
+    expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("activateContentMain", {
       pageUrl: "https://example.com",
       realEditorActivation: true,
     }));
+    // The directive has to reach the content script before activation, or the
+    // command is gated on a stale one.
+    expect(sentCommandNames.indexOf("directive.content"))
+      .toBeLessThan(sentCommandNames.indexOf("activateContentMain"));
+    expect(sentCommandNames.indexOf("activateContentMain"))
+      .toBeLessThan(sentCommandNames.indexOf("resetContentMain"));
     expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
       name: "signals.pull",
       payload: { tabId: 77, afterSeq: 1 },
       target: "background",
     }));
-    expect(tabsSendMessage).toHaveBeenNthCalledWith(4, 77, contentCommand("resetContentMain", {}));
+    expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("resetContentMain", {}));
     expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
       name: "signals.emit",
       payload: {
@@ -239,7 +252,12 @@ describe("rewrite popup entrypoint", () => {
       },
       target: "background",
     }));
-    expect(tabsSendMessage).toHaveBeenNthCalledWith(5, 77, contentCommand("deactivateContentMain", {}));
+    expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("deactivateContentMain", {}));
+    // Disabling comes last: the reset happens while marking is still armed.
+    expect(sentCommandNames.lastIndexOf("resetContentMain"))
+      .toBeLessThan(tabsSendMessage.mock.calls
+        .map(([, m]) => (m as { payload?: { name?: string } }).payload?.name)
+        .lastIndexOf("deactivateContentMain"));
   });
 
   it("runs AI, opens preview, and saves through typed commands", async () => {
@@ -300,6 +318,7 @@ describe("rewrite popup entrypoint", () => {
     } as unknown as typeof chrome;
 
     await import("../../../src/entrypoints/popup/main.tsx");
+    render.mock.calls.at(-1)?.[0].props.onRenderModeChange("rendered");
     render.mock.calls.at(-1)?.[0].props.onEnableChange(true);
     await flushEntrypointWork();
     render.mock.calls.at(-1)?.[0].props.onRunAi();
@@ -445,6 +464,7 @@ describe("rewrite popup entrypoint", () => {
     } as unknown as typeof chrome;
 
     await import("../../../src/entrypoints/popup/main.tsx");
+    render.mock.calls.at(-1)?.[0].props.onRenderModeChange("rendered");
     render.mock.calls.at(-1)?.[0].props.onEnableChange(true);
     await flushEntrypointWork();
     render.mock.calls.at(-1)?.[0].props.onRunAi();
@@ -537,6 +557,7 @@ describe("rewrite popup entrypoint", () => {
     } as unknown as typeof chrome;
 
     await import("../../../src/entrypoints/popup/main.tsx");
+    render.mock.calls.at(-1)?.[0].props.onRenderModeChange("rendered");
     render.mock.calls.at(-1)?.[0].props.onEnableChange(true);
     await flushEntrypointWork();
     render.mock.calls.at(-1)?.[0].props.onRunAi();
@@ -615,6 +636,7 @@ describe("rewrite popup entrypoint", () => {
     } as unknown as typeof chrome;
 
     await import("../../../src/entrypoints/popup/main.tsx");
+    render.mock.calls.at(-1)?.[0].props.onRenderModeChange("rendered");
     render.mock.calls.at(-1)?.[0].props.onEnableChange(true);
     await flushEntrypointWork();
     render.mock.calls.at(-1)?.[0].props.onRunAi();
@@ -697,6 +719,7 @@ describe("rewrite popup entrypoint", () => {
     } as unknown as typeof chrome;
 
     await import("../../../src/entrypoints/popup/main.tsx");
+    render.mock.calls.at(-1)?.[0].props.onRenderModeChange("rendered");
     render.mock.calls.at(-1)?.[0].props.onEnableChange(true);
     await flushEntrypointWork();
     render.mock.calls.at(-1)?.[0].props.onRunAi();
@@ -769,6 +792,7 @@ describe("rewrite popup entrypoint", () => {
     } as unknown as typeof chrome;
 
     await import("../../../src/entrypoints/popup/main.tsx");
+    render.mock.calls.at(-1)?.[0].props.onRenderModeChange("rendered");
     render.mock.calls.at(-1)?.[0].props.onEnableChange(true);
     await flushEntrypointWork();
     dirtyReady = true;
@@ -826,6 +850,7 @@ describe("rewrite popup entrypoint", () => {
     } as unknown as typeof chrome;
 
     await import("../../../src/entrypoints/popup/main.tsx");
+    render.mock.calls.at(-1)?.[0].props.onRenderModeChange("rendered");
     render.mock.calls.at(-1)?.[0].props.onEnableChange(true);
     await flushEntrypointWork();
     render.mock.calls.at(-1)?.[0].props.onRunAi();
@@ -964,6 +989,7 @@ describe("rewrite popup entrypoint", () => {
         },
       },
     });
+    render.mock.calls.at(-1)?.[0].props.onRenderModeChange("rendered");
     render.mock.calls.at(-1)?.[0].props.onEnableChange(true);
     await flushEntrypointWork();
     render.mock.calls.at(-1)?.[0].props.onRunAi?.();
@@ -1054,6 +1080,7 @@ describe("rewrite popup entrypoint", () => {
     } as unknown as typeof chrome;
 
     await import("../../../src/entrypoints/popup/main.tsx");
+    render.mock.calls.at(-1)?.[0].props.onRenderModeChange("rendered");
     render.mock.calls.at(-1)?.[0].props.onEnableChange(true);
     await flushEntrypointWork();
     render.mock.calls.at(-1)?.[0].props.onRunAi();
@@ -1352,6 +1379,7 @@ describe("rewrite popup entrypoint", () => {
     } as unknown as typeof chrome;
 
     await import("../../../src/entrypoints/popup/main.tsx");
+    render.mock.calls.at(-1)?.[0].props.onRenderModeChange("rendered");
     render.mock.calls.at(-1)?.[0].props.onEnableChange(true);
     await flushEntrypointWork();
 

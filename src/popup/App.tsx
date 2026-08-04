@@ -8,6 +8,9 @@ export type PopupActionAvailability = Readonly<{
   save?: boolean;
   discard?: boolean;
   preview?: boolean;
+  /** False until a render mode is chosen. Kept here so the buttons and the
+   *  entrypoint's own guards cannot disagree about whether an action is allowed. */
+  renderModeSet?: boolean;
 }>;
 
 export type PopupSettingsForm = Readonly<{
@@ -68,8 +71,10 @@ export type PopupDiagnostics = Readonly<{
   authState: PopupAuthState;
   authBusy: boolean;
   authMessage: string;
-  /** What every later capture and AI submission is taken as. */
-  renderMode: RenderMode;
+  /** What every later capture and AI submission is taken as. Null until the
+   *  operator has compared the two loads and chosen — marks made under an
+   *  unestablished render mode describe a page nobody has looked at. */
+  renderMode: RenderMode | null;
   renderModeView: RenderModeView;
   renderModeDetail: string;
   renderModeBusy: boolean;
@@ -96,7 +101,7 @@ export const EMPTY_POPUP_DIAGNOSTICS: PopupDiagnostics = {
   authState: "unknown",
   authBusy: false,
   authMessage: "",
-  renderMode: "rendered",
+  renderMode: null,
   renderModeView: "unknown",
   renderModeDetail: "",
   renderModeBusy: false,
@@ -114,15 +119,24 @@ export const EMPTY_POPUP_CREDENTIALS_FORM: PopupCredentialsForm = {
   password: "",
 };
 
+export const RENDER_MODE_NOT_SET_REASON = "render-mode-not-set";
+
 export function resolvePopupActionButtons(presentation: PopupPresentation, availability: PopupActionAvailability) {
+  // A submission carries the render mode, so guessing one would ship ground
+  // truth for a page nobody established. Legacy blocked the same two actions.
+  const renderModeMissing = availability.renderModeSet === false;
   return {
     compute: {
-      disabled: presentation.runAiDisabled || !availability.runAi,
-      blockedReason: presentation.runAiDisabled ? presentation.runAiBlockedReason : availability.runAi ? "" : "not-implemented",
+      disabled: presentation.runAiDisabled || !availability.runAi || renderModeMissing,
+      blockedReason: presentation.runAiDisabled
+        ? presentation.runAiBlockedReason
+        : !availability.runAi ? "not-implemented" : renderModeMissing ? RENDER_MODE_NOT_SET_REASON : "",
     },
     save: {
-      disabled: presentation.saveDisabled || !availability.save,
-      blockedReason: presentation.saveDisabled ? presentation.saveBlockedReason : availability.save ? "" : "not-implemented",
+      disabled: presentation.saveDisabled || !availability.save || renderModeMissing,
+      blockedReason: presentation.saveDisabled
+        ? presentation.saveBlockedReason
+        : !availability.save ? "not-implemented" : renderModeMissing ? RENDER_MODE_NOT_SET_REASON : "",
     },
     discard: {
       disabled: presentation.discardDisabled || !availability.discard,
@@ -176,10 +190,22 @@ const RENDER_MODE_LABEL: Readonly<Record<RenderMode, string>> = {
   static: "Static (JavaScript off)",
 };
 
+/** Legacy's undetermined label and default icon, for the not-yet-chosen state. */
+const RENDER_MODE_UNSET_LABEL = "Not set";
+const RENDER_MODE_UNSET_ICON = "mdi-monitor-dashboard";
+
 const RENDER_MODE_ICON: Readonly<Record<RenderMode, string>> = {
   rendered: "mdi-language-javascript",
   static: "mdi-language-html5",
 };
+
+function renderModeLabel(mode: RenderMode | null): string {
+  return mode ? RENDER_MODE_LABEL[mode] : RENDER_MODE_UNSET_LABEL;
+}
+
+function renderModeIcon(mode: RenderMode | null): string {
+  return mode ? RENDER_MODE_ICON[mode] : RENDER_MODE_UNSET_ICON;
+}
 
 const AUTH_LABEL: Readonly<Record<PopupAuthState, string>> = {
   unknown: "unknown",
@@ -289,9 +315,11 @@ export function App({
     save: Boolean(onSave),
     discard: Boolean(onDiscard),
     preview: Boolean(onPreview),
+    renderModeSet: diagnostics.renderMode !== null,
   });
   const curtainKind = resolvePopupCurtainKind(presentation);
   const renderModeViewText = diagnostics.renderModeDetail || RENDER_MODE_VIEW_LABEL[diagnostics.renderModeView];
+  const renderModeSet = diagnostics.renderMode !== null;
   const includedCount = countRows(presentation.contentRows, "included");
   const excludedCount = countRows(presentation.contentRows, "excluded");
   const selectorCount = presentation.selectors.inclusionSelectors.length + presentation.selectors.exclusionSelectors.length;
@@ -431,8 +459,10 @@ export function App({
             id="toggle-enabled"
             type="checkbox"
             checked={presentation.enableToggleChecked}
-            /* A lock block is the one case where enabling can never succeed. */
-            disabled={!onEnableChange || presentation.lockBanner.visible}
+            /* A lock block and an unchosen render mode are the two cases where
+               enabling can never succeed — marks taken under an unestablished
+               render mode describe a page nobody has looked at. */
+            disabled={!onEnableChange || presentation.lockBanner.visible || !renderModeSet}
             onChange={(event) => onEnableChange?.(event.currentTarget.checked)}
           />
         </label>
@@ -505,6 +535,12 @@ export function App({
           </button>
         </div>
 
+        {!renderModeSet ? (
+          <p className="hint u-color-warning" data-blocked-reason={RENDER_MODE_NOT_SET_REASON}>
+            Choose a render mode below before marking.
+          </p>
+        ) : null}
+
         {presentation.blockedReason && curtainKind === "none" ? (
           <p className="hint" data-blocked-reason={presentation.blockedReason}>
             Blocked: {presentation.blockedReason}
@@ -565,9 +601,12 @@ export function App({
             <span>Render mode</span>
           </span>
           <span className="render-mode-selected-value">
-            <i className={`mdi ${RENDER_MODE_ICON[diagnostics.renderMode]} render-mode-selected-value__icon`} aria-hidden="true" />
-            <span className="render-mode-selected-value__text" data-render-mode={diagnostics.renderMode}>
-              {RENDER_MODE_LABEL[diagnostics.renderMode]}
+            <i className={`mdi ${renderModeIcon(diagnostics.renderMode)} render-mode-selected-value__icon`} aria-hidden="true" />
+            <span
+              className={`render-mode-selected-value__text ${diagnostics.renderMode ? "" : "u-color-warning"}`}
+              data-render-mode={diagnostics.renderMode ?? "unset"}
+            >
+              {renderModeLabel(diagnostics.renderMode)}
             </span>
           </span>
         </div>
@@ -621,15 +660,22 @@ export function App({
         <div className="render-mode-step">
           <div className="render-mode-step-header">
             <span className="render-mode-step-index">2</span>
-            <span className="hint">Confirm what every capture and AI submission is taken as.</span>
+            <span className={`hint ${diagnostics.renderMode ? "" : "u-color-warning"}`}>
+              {diagnostics.renderMode
+                ? "This is what every capture and AI submission is taken as."
+                : "Marking, Run AI and Save stay blocked until you choose."}
+            </span>
           </div>
           {/* A low-confidence verdict is never auto-applied — the mode decides
               what all later captures contain, so the operator confirms it. */}
           <div className="render-mode-radio-group" role="radiogroup" aria-label="Render mode choice">
             {(["rendered", "static"] as const).map((mode) => (
               <label className="render-mode-radio-option" key={mode}>
+                {/* Visible, not `render-mode-radio-hidden`: that class is for the
+                    legacy non-interactive "undetermined" sentinel, and hiding a
+                    real radio with display:none takes it out of the tab order,
+                    leaving the group mouse-only. */}
                 <input
-                  className="render-mode-radio-hidden"
                   type="radio"
                   name="render-mode"
                   id={`render-mode-${mode}`}
