@@ -1,6 +1,6 @@
 import { projectPropertyLockView, type PropertyLockState } from "../lock";
 import type { RewriteBackgroundServices } from "./services";
-import { createRealmBus } from "../messaging/realms";
+import { createRealmBus, type LockStatus } from "../messaging/realms";
 import { createTabTransport } from "../messaging/transports/tabs";
 
 export type LockDirectiveRequest = Readonly<{
@@ -27,13 +27,15 @@ function baseUrlFor(url: string): string {
 
 /** There is no lock state to project when the site never resolved, and the
  *  reasons are not interchangeable: "this page is not a managed property" is a
- *  normal outcome on any other site, whereas an unreachable backend or a missing
- *  config is something to fix. Reporting all three as "unavailable" sends the
+ *  normal outcome on any other site, and "you are signed out" is a thing the
+ *  operator can fix in one step, whereas an unreachable backend or a missing
+ *  config is something else again. Reporting them all as "unavailable" sends the
  *  operator looking for a connection fault that is not there. */
-const NO_LOCK_STATE_TEXT: Readonly<Record<"ok" | "not_configured" | "not_candidate" | "unavailable", string>> = {
+const NO_LOCK_STATE_TEXT: Readonly<Record<LockStatus, string>> = {
   ok: "Property lock connecting",
   not_configured: "Property lock not configured",
   not_candidate: "Not a managed property",
+  signed_out: "Sign in to use the property lock",
   unavailable: "Property lock unavailable",
 };
 
@@ -42,13 +44,19 @@ function directiveFromState(input: Readonly<{
   baseUrl: string;
   siteId: number | null;
   state: PropertyLockState | null;
-  status: "ok" | "not_configured" | "not_candidate" | "unavailable";
+  status: LockStatus;
 }>) {
   const view = input.state
     ? projectPropertyLockView(input.state)
     : { bannerVisible: true, text: NO_LOCK_STATE_TEXT[input.status], canEdit: false };
   const lockRole = input.state?.role ?? "unknown";
-  const blockedReason = view.canEdit ? "" : input.status === "not_candidate" ? "not-candidate" : "property-lock";
+  const blockedReason = view.canEdit
+    ? ""
+    : input.status === "not_candidate"
+      ? "not-candidate"
+      : input.status === "signed_out"
+        ? "signed-out"
+        : "property-lock";
   return {
     status: input.status,
     siteId: input.siteId,
@@ -175,6 +183,15 @@ export function createPropertyLockRuntime(input: Readonly<{
   return {
     async directive(request: LockDirectiveRequest) {
       const baseUrl = request.baseUrl ?? baseUrlFor(request.pageUrl);
+      // Resolving a site id needs an authenticated call, and the lock socket
+      // authenticates with the same token. With none stored there is nothing to
+      // ask, so asking anyway would spend a request per page activation to be
+      // told what is already known — and would surface as a connection fault.
+      // Any lock held before signing out is released here.
+      if (!await input.services.accounts.hasToken()) {
+        releaseActiveForTab(request.tabId);
+        return directiveFromState({ pageUrl: request.pageUrl, baseUrl, siteId: null, state: null, status: "signed_out" });
+      }
       const siteCacheKey = `${request.tabId}:${request.pageUrl}`;
       const cachedSite = siteCache.get(siteCacheKey);
       const resolvedSite = request.siteId === undefined

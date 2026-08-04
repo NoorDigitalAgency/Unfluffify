@@ -419,6 +419,23 @@ describe("popup App surface", () => {
     expect(offline).toContain("u-tone-danger");
   });
 
+  it("does not alarm about a lock the operator has not signed in for", () => {
+    // Being signed out is not a fault on the screen that offers the sign-in, and
+    // it must not be dressed as an unreachable backend.
+    const signedOut = renderApp(
+      {
+        ...LOCKED,
+        projectionBlockedReason: "Sign in to use the property lock",
+        lockBanner: { visible: true, text: "Sign in to use the property lock" },
+      },
+      { ...SIGNED_IN, hasToken: false, lockStatus: "signed_out", siteId: null },
+    );
+
+    expect(signedOut).toContain("Sign in to use the property lock");
+    expect(signedOut).toContain("u-tone-muted");
+    expect(signedOut).not.toContain("u-tone-danger");
+  });
+
   it("leaves the connection panel closed once signed in and the lock resolves", () => {
     const markup = renderApp(SILENT, { ...SIGNED_IN, lockStatus: "ok", lockRole: "editor" });
 

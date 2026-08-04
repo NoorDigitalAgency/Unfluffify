@@ -167,17 +167,23 @@ describe("rewrite background startup", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(keepOpen).toBe(true);
+    // This background was just started with an empty store, so it holds no
+    // token — and the lock socket cannot authenticate without one. The point
+    // being made here is the wiring: the request reaches the lock runtime and a
+    // well-formed reply comes back over the shipped bus. That an authenticated
+    // request goes on to resolve a site and hold a lock is covered where the
+    // runtime is exercised directly, in services.test.ts.
     expect(response).toMatchObject({
       kind: "uf-bus/1",
       frameType: "reply",
       ok: true,
       payload: {
-        status: "ok",
-        siteId: 5542,
+        status: "signed_out",
+        siteId: null,
         lockRole: "unknown",
         directive: expect.objectContaining({
           lockRole: "unknown",
-          content: expect.objectContaining({ markingEditsBlocked: true }),
+          content: expect.objectContaining({ markingEditsBlocked: true, blockedReason: "signed-out" }),
         }),
       },
     });

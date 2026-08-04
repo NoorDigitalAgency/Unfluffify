@@ -279,9 +279,10 @@ function lockToneClass(presentation: PopupPresentation, diagnostics: PopupDiagno
   if (!presentation.lockBanner.visible && diagnostics.lockRole === "editor") {
     return "u-tone-success";
   }
-  // A page outside the managed set is not a fault — only an unreachable or
+  // A page outside the managed set is not a fault, and neither is being signed
+  // out on the very screen that offers the sign-in — only an unreachable or
   // unconfigured backend is worth alarming about.
-  if (diagnostics.lockStatus === "not_candidate") {
+  if (diagnostics.lockStatus === "not_candidate" || diagnostics.lockStatus === "signed_out") {
     return "u-tone-muted";
   }
   return diagnostics.lockStatus === "unavailable" ? "u-tone-danger" : "u-tone-warning";

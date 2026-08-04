@@ -383,6 +383,9 @@ describe("rewrite background services", () => {
         body: { errors: [{ extensions: { code: "UNAUTHENTICATED" }, message: "Token expired" }] },
       }),
     });
+    // A rejected token is still a stored token: this is the expired case, not
+    // the signed-out one, and the runtime must get as far as asking.
+    await services.settings.update((current) => ({ ...current, token: "expired" }));
 
     await expect(services.lynx.getSiteIdForUrl("https://managed.example.com/page"))
       .resolves.toEqual({ status: "network_error", siteId: null });
@@ -414,7 +417,7 @@ describe("rewrite background services", () => {
   });
 
   it("names why there is no lock instead of blaming the connection", async () => {
-    // All three arrive with no lock state to project, and an operator sent
+    // All of these arrive with no lock state to project, and an operator sent
     // looking for a connection fault on a page that is simply out of scope has
     // been misdirected.
     const notCandidate = createRewriteBackgroundServices({
@@ -424,6 +427,9 @@ describe("rewrite background services", () => {
       transport: async () => { throw new Error("network down"); },
     });
     const request = { tabId: 7, pageUrl: "https://out-of-scope.example.com/page", baseUrl: "https://out-of-scope.example.com" };
+    // Both cases are about what the backend said, so both need to get that far.
+    await notCandidate.settings.update((current) => ({ ...current, token: "live" }));
+    await unavailable.settings.update((current) => ({ ...current, token: "live" }));
 
     const outOfScope = await createPropertyLockRuntime({ services: notCandidate }).directive(request);
     expect(outOfScope).toMatchObject({
@@ -437,6 +443,76 @@ describe("rewrite background services", () => {
       status: "unavailable",
       lockBanner: { visible: true, text: "Property lock unavailable" },
     });
+  });
+
+  it("says signed out rather than unavailable, and asks the backend nothing", async () => {
+    // Resolving a site id needs the same token the lock socket connects with.
+    // With none stored the answer is already known, so spending a request per
+    // page activation to be refused is waste — and "unavailable" reads as a
+    // connection fault, sending the operator after a problem that is not there.
+    const requests: JsonRequest[] = [];
+    const sockets: ReturnType<typeof fakeSocket>[] = [];
+    const services = createRewriteBackgroundServices({
+      transport: async (request) => {
+        requests.push(request);
+        return { status: 200, body: { data: { urlSearchInfo: { domainId: 5542 } } } };
+      },
+      socketFactory() {
+        const ws = fakeSocket();
+        sockets.push(ws);
+        return ws.socket;
+      },
+    });
+    const runtime = createPropertyLockRuntime({ services });
+    const request = { tabId: 4, pageUrl: "https://managed.example.com/page", baseUrl: "https://managed.example.com" };
+
+    const signedOut = await runtime.directive(request);
+    expect(signedOut).toMatchObject({
+      status: "signed_out",
+      siteId: null,
+      lockRole: "unknown",
+      lockBanner: { visible: true, text: "Sign in to use the property lock" },
+    });
+    // Nothing was asked and no socket was opened with an empty token.
+    expect(requests).toEqual([]);
+    expect(sockets).toEqual([]);
+    // Editing stays blocked, and the content side is told which of the two
+    // reasons it is, so the curtain does not blame the lock.
+    expect(signedOut.directive).toMatchObject({
+      configPresent: false,
+      content: { markingEditsBlocked: true, blockedReason: "signed-out" },
+    });
+
+    // Signing in makes it ask, on the same runtime.
+    await services.settings.update((current) => ({ ...current, token: "live" }));
+    await expect(runtime.directive(request)).resolves.toMatchObject({ status: "ok", siteId: 5542 });
+    expect(requests).toHaveLength(1);
+  });
+
+  it("releases a held lock when the token goes away", async () => {
+    // Signing out must not leave the tab holding an editor lock nobody can see,
+    // blocking the next operator until the backend times it out.
+    const sockets: ReturnType<typeof fakeSocket>[] = [];
+    const services = createRewriteBackgroundServices({
+      transport: async () => ({ status: 200, body: { data: { urlSearchInfo: { domainId: 5542 } } } }),
+      socketFactory() {
+        const ws = fakeSocket();
+        sockets.push(ws);
+        return ws.socket;
+      },
+    });
+    const runtime = createPropertyLockRuntime({ services });
+    const request = { tabId: 6, pageUrl: "https://managed.example.com/page", baseUrl: "https://managed.example.com" };
+    await services.settings.update((current) => ({ ...current, token: "live" }));
+
+    await runtime.directive(request);
+    sockets[0].emit("open");
+    sockets[0].emit("message", JSON.stringify({ type: "subscribed", identity: "backend-1" }));
+    expect(sockets[0].sent.map((frame) => JSON.parse(frame).type)).toContain("take_lock");
+
+    await services.accounts.logout();
+    await expect(runtime.directive(request)).resolves.toMatchObject({ status: "signed_out" });
+    expect(sockets[0].sent.map((frame) => JSON.parse(frame).type)).toContain("release_lock");
   });
 
   it("keeps lock.directive idempotent and recreates clients after socket close", async () => {
@@ -465,6 +541,7 @@ describe("rewrite background services", () => {
       },
     });
     const request = { tabId: 5, pageUrl: "https://example.com/page", baseUrl: "https://example.com", hasUnsavedChanges: false };
+    await services.settings.update((current) => ({ ...current, token: "live" }));
 
     await runtime.directive(request);
     sockets[0].emit("open");
@@ -523,17 +600,17 @@ describe("rewrite background services", () => {
         ? { status: 503, body: null }
         : { status: 200, body: { data: { urlSearchInfo: { domainId: 5542 } } } };
     };
-    const runtime = createPropertyLockRuntime({
-      services: createRewriteBackgroundServices({
-        transport,
-        socketFactory() {
-          const ws = fakeSocket();
-          sockets.push(ws);
-          return ws.socket;
-        },
-      }),
+    const services = createRewriteBackgroundServices({
+      transport,
+      socketFactory() {
+        const ws = fakeSocket();
+        sockets.push(ws);
+        return ws.socket;
+      },
     });
+    const runtime = createPropertyLockRuntime({ services });
     const request = { tabId: 5, pageUrl: "https://example.com/page", baseUrl: "https://example.com", hasUnsavedChanges: false };
+    await services.settings.update((current) => ({ ...current, token: "live" }));
 
     await expect(runtime.directive(request)).resolves.toMatchObject({ status: "unavailable" });
     await expect(runtime.directive(request)).resolves.toMatchObject({ status: "ok", siteId: 5542 });

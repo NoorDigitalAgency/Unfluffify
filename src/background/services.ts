@@ -319,6 +319,12 @@ export function createRewriteBackgroundServices(input: Readonly<{
       buildUpdateScrapingConditionsRequest,
     },
     accounts: {
+      /** Whether a token is stored at all. Answered from the settings store
+       *  with no round-trip, so callers that need auth can decline to ask the
+       *  backend a question it will only refuse. */
+      async hasToken(): Promise<boolean> {
+        return Boolean((await loadSettings()).token?.trim());
+      },
       /** On success the JWT is persisted here rather than returned to the
        *  caller — the popup never needs to hold the credential. */
       async login(credentials: Readonly<{ email: string; password: string }>) {

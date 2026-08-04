@@ -25,8 +25,13 @@ const LockDirectiveRequestSchema = z.object({
   hasUnsavedChanges: z.boolean().optional(),
 });
 
+/** Why there is or is not a lock. Declared once here so the runtime that
+ *  produces these and the surfaces that read them cannot drift apart. */
+export const LockStatusSchema = z.enum(["ok", "not_configured", "not_candidate", "signed_out", "unavailable"]);
+export type LockStatus = z.infer<typeof LockStatusSchema>;
+
 const LockDirectiveResponseSchema = z.object({
-  status: z.enum(["ok", "not_configured", "not_candidate", "unavailable"]),
+  status: LockStatusSchema,
   siteId: z.number().int().positive().nullable(),
   lockRole: LockRoleSchema,
   directive: z.unknown(),
