@@ -32,6 +32,7 @@ import { emitRewriteSignal, pullRewriteSignals, type RewriteSignalBus } from "..
 import type { ConfigSnapshot, SelectorSet } from "../../storage/config";
 import type { ConnectionSettings } from "../../storage/settings";
 import type { RenderMode } from "../../domain/schema/property";
+import { isRenderModeConfirmed } from "../../storage/config";
 
 type PopupDebugApi = Readonly<{
   getViewState: () => Record<string, unknown>;
@@ -86,6 +87,10 @@ let confirmedRenderMode: RenderMode | null = null;
 let renderModeView: RenderModeView = "unknown";
 let renderModeDetail = "";
 let renderModeBusy = false;
+/** Attempted, not loaded: a failed read must not re-request on every 500ms
+ *  poll. The Refresh button clears this to retry deliberately. */
+let configLoadAttemptedSiteId: number | null = null;
+let configStatus = "";
 let boundTabUrl = "";
 let lockStatus = "";
 let lockRole = "";
@@ -162,6 +167,7 @@ function buildDiagnostics(): PopupDiagnostics {
     lockStatus,
     lockRole,
     configPresent,
+    configStatus,
     contentActive,
     contentDirty,
     contentReachable,
@@ -297,6 +303,8 @@ function bindToTab(context: TargetTabContext): { changed: boolean; sameTabNaviga
   lockStatus = "";
   lockRole = "";
   configPresent = false;
+  configLoadAttemptedSiteId = null;
+  configStatus = "";
   contentActive = false;
   contentDirty = false;
   contentReachable = true;
@@ -417,6 +425,9 @@ async function pollCurrentTabSignals(): Promise<void> {
   if (hasStoredToken) {
     await adoptAuthStatus();
   }
+  // Guarded by the attempted-site id, so this is one request per property once
+  // the site resolves — not one per tick.
+  await maybeLoadPropertyConfig();
   render();
 }
 
@@ -863,6 +874,9 @@ async function refreshPopup(): Promise<void> {
   const lock = await refreshLockDirective(context, requestKey);
   await reconcileContentStatus(context, requestKey);
   await adoptAuthStatus();
+  // An explicit refresh is the retry for a config read that failed.
+  configLoadAttemptedSiteId = null;
+  await maybeLoadPropertyConfig();
   logEvent("Refreshed", lock ? `lock ${lock.status} · role ${lock.lockRole}` : "lock unavailable", lock ? "info" : "warn");
   render();
 }
@@ -884,6 +898,46 @@ async function adoptAuthStatus(): Promise<void> {
   } else if (response.data.state === "valid" && authState === "invalid") {
     authState = "signed_in";
   }
+}
+
+/** Reads the property's stored config so a render mode decided in an earlier
+ *  session is not re-asked. Only a confirmed mode is adopted — an unset one is
+ *  just the schema default, and treating it as a decision is the very thing the
+ *  unset state exists to prevent. */
+async function loadPropertyConfig(siteId: number): Promise<void> {
+  configLoadAttemptedSiteId = siteId;
+  const response = await getPopupBus().request("config.load", { siteId }, { target: "background" });
+  if (!response.ok) {
+    configStatus = response.failure.code;
+    logEvent("Config load failed", response.failure.code, "warn");
+    render();
+    return;
+  }
+  configStatus = response.data.status;
+  if (response.data.status !== "ok" || !response.data.config) {
+    logEvent(
+      "Config not loaded",
+      response.data.status === "not_found" ? "no stored config for this property" : response.data.status,
+      response.data.status === "not_found" ? "info" : "warn",
+    );
+    render();
+    return;
+  }
+  const config = response.data.config;
+  if (isRenderModeConfirmed(config)) {
+    confirmedRenderMode = config.renderMode;
+    logEvent("Render mode restored", `${config.renderMode} · set ${config.renderModeUpdatedAt}`, "success");
+  } else {
+    logEvent("Render mode not stored", "choose one for this property", "info");
+  }
+  render();
+}
+
+async function maybeLoadPropertyConfig(): Promise<void> {
+  if (activeSiteId === null || configLoadAttemptedSiteId === activeSiteId) {
+    return;
+  }
+  await loadPropertyConfig(activeSiteId);
 }
 
 function renderModeSet(): boolean {

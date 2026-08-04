@@ -195,6 +195,12 @@ export function startRewriteBackground(): void {
       ? { status: result.status, sessionId: result.sessionId, selectors: result.selectors }
       : { status: result.status, httpStatus: "httpStatus" in result ? result.httpStatus : undefined };
   });
+  bus.onCommand("config.load", async (request) => {
+    const result = await services.lynx.loadConfigSnapshot(request.siteId);
+    return result.status === "ok"
+      ? { status: result.status, config: result.data }
+      : { status: result.status, httpStatus: result.httpStatus };
+  });
   bus.onCommand("config.save", async (snapshot) => {
     const result = await services.lynx.saveConfigSnapshot(snapshot);
     return result.status === "ok"

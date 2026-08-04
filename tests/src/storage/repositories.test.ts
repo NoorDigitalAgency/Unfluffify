@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { parseConfigSnapshot } from "../../../src/storage/config";
+import { RENDER_MODE_NEVER_DECIDED_AT, isRenderModeConfirmed } from "../../../src/storage/config";
 import {
   createConfigRepo,
   createLockIdentityRepo,
@@ -232,5 +233,24 @@ describe("P2 storage repositories", () => {
       token: "token",
     })).toMatchObject({ stageBase: "a.lynxdev.se" });
     expect(() => parseSettings({ configEndpoint: "not a url" })).toThrow();
+  });
+});
+
+describe("render-mode confirmation", () => {
+  it("treats only a real timestamp as a decided render mode", () => {
+    // The schema default is "static" with an epoch timestamp; adopting that
+    // would present a guess as a decision.
+    expect(isRenderModeConfirmed({ renderModeUpdatedAt: "2026-08-04T10:00:00Z" })).toBe(true);
+    expect(isRenderModeConfirmed({ renderModeUpdatedAt: RENDER_MODE_NEVER_DECIDED_AT })).toBe(false);
+    expect(isRenderModeConfirmed({ renderModeUpdatedAt: "1970-01-01T00:00:00.000Z" })).toBe(false);
+  });
+
+  it("treats a missing or unusable timestamp as never decided", () => {
+    expect(isRenderModeConfirmed({ renderModeUpdatedAt: "" })).toBe(false);
+    expect(isRenderModeConfirmed({ renderModeUpdatedAt: "   " })).toBe(false);
+    expect(isRenderModeConfirmed({ renderModeUpdatedAt: "not-a-date" })).toBe(false);
+    expect(isRenderModeConfirmed({})).toBe(false);
+    expect(isRenderModeConfirmed(null)).toBe(false);
+    expect(isRenderModeConfirmed(undefined)).toBe(false);
   });
 });

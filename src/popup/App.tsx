@@ -54,6 +54,9 @@ export type PopupDiagnostics = Readonly<{
   lockStatus: string;
   lockRole: string;
   configPresent: boolean;
+  /** The outcome of the stored-config read, so a failed one is visible instead
+   *  of looking the same as a property that simply has nothing stored. */
+  configStatus: string;
   contentActive: boolean;
   contentDirty: boolean;
   /** False when nothing answers on the tab — the content script was never
@@ -89,6 +92,7 @@ export const EMPTY_POPUP_DIAGNOSTICS: PopupDiagnostics = {
   lockStatus: "",
   lockRole: "",
   configPresent: false,
+  configStatus: "",
   contentActive: false,
   contentDirty: false,
   contentReachable: true,
@@ -228,6 +232,34 @@ const RENDER_MODE_VIEW_LABEL: Readonly<Record<RenderModeView, string>> = {
   with_javascript: "Showing the page with JavaScript.",
   without_javascript: "Showing the page with JavaScript disabled. Load it back with JavaScript when you are done.",
 };
+
+/** "ok" means a stored config was read; "not_found" is a normal state for a
+ *  property nobody has saved yet; anything else is a fault worth naming. */
+function configStatusValue(diagnostics: PopupDiagnostics): string {
+  if (diagnostics.configStatus === "ok") {
+    return "loaded";
+  }
+  if (diagnostics.configStatus === "not_found") {
+    return "none stored";
+  }
+  if (diagnostics.configStatus) {
+    return diagnostics.configStatus;
+  }
+  return diagnostics.configPresent ? "site resolved" : "missing";
+}
+
+function configStatusTone(diagnostics: PopupDiagnostics): string {
+  if (diagnostics.configStatus === "ok") {
+    return "u-color-success";
+  }
+  if (diagnostics.configStatus === "not_found") {
+    return "u-color-muted";
+  }
+  if (diagnostics.configStatus) {
+    return "u-color-danger";
+  }
+  return diagnostics.configPresent ? "u-color-muted" : "u-color-danger";
+}
 
 function countRows(rows: PopupPresentation["contentRows"], classification: string): number {
   return rows.filter((row) => row.classification === classification).length;
@@ -565,8 +597,8 @@ export function App({
         <StatRow
           icon="mdi-cog"
           label="Config"
-          value={diagnostics.configPresent ? "loaded" : "missing"}
-          tone={diagnostics.configPresent ? "u-color-success" : "u-color-danger"}
+          value={configStatusValue(diagnostics)}
+          tone={configStatusTone(diagnostics)}
         />
         <StatRow
           icon="mdi-eye"

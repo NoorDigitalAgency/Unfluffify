@@ -36,3 +36,23 @@ export type ConfigSnapshot = z.infer<typeof ConfigSnapshotSchema>;
 export function parseConfigSnapshot(value: unknown): ConfigSnapshot {
   return ConfigSnapshotSchema.parse(value);
 }
+
+/** The timestamp a config carries until something actually decides the render
+ *  mode. Legacy called this PAGE_TIMESTAMP_FALLBACK. */
+export const RENDER_MODE_NEVER_DECIDED_AT = "1970-01-01T00:00:00Z";
+
+/** A stored render mode only counts once something set it. Otherwise the value
+ *  is just the schema default, and adopting it would present a guess as a
+ *  decision — the same reason the popup starts unset. An unparseable timestamp
+ *  is treated as never-decided, matching legacy's normalize-then-compare. */
+export function isRenderModeConfirmed(config: Readonly<{ renderModeUpdatedAt?: unknown }> | null | undefined): boolean {
+  if (!config || typeof config !== "object") {
+    return false;
+  }
+  const raw = config.renderModeUpdatedAt;
+  if (typeof raw !== "string" || raw.trim() === "") {
+    return false;
+  }
+  const parsed = Date.parse(raw);
+  return Number.isFinite(parsed) && parsed !== Date.parse(RENDER_MODE_NEVER_DECIDED_AT);
+}

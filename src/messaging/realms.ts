@@ -94,6 +94,16 @@ export const applicationContract = defineContract({
         selectors: SelectorSetSchema.optional(),
       }),
     },
+    /* Reads a property's stored settings back, so a render mode decided in an
+       earlier session is not re-asked on every popup open. */
+    "config.load": {
+      request: z.object({ siteId: z.number().int().positive() }),
+      response: z.object({
+        status: z.enum(["ok", "auth_error", "not_found", "error"]),
+        httpStatus: z.number().optional(),
+        config: ConfigSnapshotSchema.optional(),
+      }),
+    },
     "config.save": {
       request: ConfigSnapshotSchema,
       response: z.object({

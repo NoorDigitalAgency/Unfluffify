@@ -292,6 +292,20 @@ describe("popup App surface", () => {
     expect(markup).toMatch(/id="render-mode-without-js"[^>]*disabled/);
   });
 
+  it("distinguishes a stored config from none stored and from a failed read", () => {
+    // "not_found" is normal for a property nobody has saved; a transport code is
+    // a fault, and the two used to render identically as "missing".
+    const loaded = renderApp(SILENT, { ...SIGNED_IN, configStatus: "ok", configPresent: true });
+    const none = renderApp(SILENT, { ...SIGNED_IN, configStatus: "not_found", configPresent: true });
+    const failed = renderApp(SILENT, { ...SIGNED_IN, configStatus: "auth_error", configPresent: true });
+    const unread = renderApp(SILENT, { ...SIGNED_IN, configPresent: true });
+
+    expect(loaded).toMatch(/data-stat="Config"[^>]*>loaded/);
+    expect(none).toMatch(/data-stat="Config"[^>]*>none stored/);
+    expect(failed).toMatch(/data-stat="Config"[^>]*>auth_error/);
+    expect(unread).toMatch(/data-stat="Config"[^>]*>site resolved/);
+  });
+
   it("says the content script is missing and names the fix", () => {
     // An uninjected content script and an idle one both used to read "inactive",
     // so the toggle appeared to do nothing with no hint that only a page reload

@@ -368,6 +368,58 @@ describe("rewrite background startup", () => {
     }
   });
 
+  it("reads a property's stored config back over the bus", async () => {
+    const addMessageListener = vi.fn();
+    globalThis.chrome = {
+      runtime: { sendMessage: vi.fn(), onMessage: { addListener: addMessageListener } },
+      alarms: { create: vi.fn(), clear: vi.fn(), onAlarm: { addListener: vi.fn() } },
+    } as unknown as typeof chrome;
+    const stored = {
+      version: 1,
+      baseUrl: "https://shop.example.com",
+      siteId: 4821,
+      renderMode: "static",
+      renderModeUpdatedAt: "2026-08-04T10:00:00Z",
+      selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
+      selectorsUpdatedAt: "2026-08-04T10:00:00Z",
+      submittedSelectorsFingerprint: "",
+      pageMarkings: {},
+    };
+    const requests: Array<{ url: string; body: unknown }> = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({ url: String(url), body: JSON.parse(String(init?.body ?? "null")) });
+      return new Response(JSON.stringify(stored), { status: 200 });
+    }) as typeof fetch;
+
+    try {
+      const { startRewriteBackground } = await import("../../../src/background/index");
+      startRewriteBackground();
+      const runtimeListener = addMessageListener.mock.calls[0]?.[0] as (message: unknown, sender: unknown, sendResponse: (value: unknown) => void) => unknown;
+      const call = async (name: string, payload: unknown, id: string, seq: number): Promise<unknown> => {
+        let response: unknown;
+        runtimeListener({
+          kind: "uf-bus/1", frameType: "request", id, seq, name,
+          source: "popup", sourceInstance: "popup:test", target: "background", payload,
+        }, {}, (value: unknown) => { response = value; });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        return response;
+      };
+
+      await call("settings.save", { configEndpoint: "https://config.example.com" }, "c-1", 1);
+      expect(await call("config.load", { siteId: 4821 }, "c-2", 2)).toMatchObject({
+        ok: true,
+        payload: { status: "ok", config: { renderMode: "static", renderModeUpdatedAt: "2026-08-04T10:00:00Z" } },
+      });
+      expect(requests.at(-1)).toEqual({
+        url: "https://config.example.com/load",
+        body: { siteId: 4821 },
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it("registers the auth-token alarm and reports the cached verdict over the bus", async () => {
     const addMessageListener = vi.fn();
     const addAlarmListener = vi.fn();
