@@ -94,6 +94,11 @@ let configStatus = "";
 /** Where the effective render mode came from, so a locally-held choice is not
  *  presented as a backend decision. */
 let renderModeSource: "backend" | "local" = "local";
+/** The property's stored selectors. Shown in silent mode and used to seed a
+ *  clean marking session; never stored locally — they are backend property data
+ *  with no exemption, so a 404 leaves none. */
+let loadedSelectors: SelectorSet | null = null;
+let silentSelectorsAppliedKey: string | null = null;
 let boundTabUrl = "";
 let lockStatus = "";
 let lockRole = "";
@@ -432,7 +437,36 @@ async function pollCurrentTabSignals(): Promise<void> {
   // Guarded by the attempted-site id, so this is one request per property once
   // the site resolves — not one per tick.
   await maybeLoadPropertyConfig();
+  await refreshSilentSelectorPreview(context, requestKey);
   render();
+}
+
+/** The latest loaded selectors show as silent highlights with no AI run needed.
+ *  Keyed on the page and the selector set, so a repaint only happens when one of
+ *  them actually changes rather than on every poll tick. */
+async function refreshSilentSelectorPreview(context: TargetTabContext, requestKey = boundTabKey): Promise<void> {
+  const inSilentMode = store.getState().name === "silent";
+  const selectors = loadedSelectors;
+  const key = inSilentMode && selectors
+    ? [context.url, selectors.inclusionSelectors.join(","), selectors.exclusionSelectors.join(",")].join("|")
+    : "";
+  if (key === (silentSelectorsAppliedKey ?? "")) {
+    return;
+  }
+  silentSelectorsAppliedKey = key;
+  const applied = key
+    ? await sendContentMessage(context.tabId, { type: "applySilentSelectors", selectors })
+    : await sendContentMessage(context.tabId, { type: "clearSilentSelectors" });
+  if (boundTabKey !== requestKey) {
+    return;
+  }
+  if (key && applied) {
+    logEvent("Selectors applied", "silent highlights from the stored selectors");
+  }
+  if (!applied) {
+    // Retry on the next tick rather than pinning a state that never landed.
+    silentSelectorsAppliedKey = null;
+  }
 }
 
 async function initializePopupSignals(): Promise<void> {
@@ -798,6 +832,13 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
     render();
     return;
   }
+  // Turning marking off discards the markings, so ask first — but only when
+  // there is something to lose. Confirming an empty session is just noise.
+  if (!enabled && contentDirty && !confirmDiscardMarkings()) {
+    logEvent("Marking kept", "discard cancelled");
+    render();
+    return;
+  }
   if (enabled) {
     ensureSignalPolling(context);
     await pullSignals(context.tabId, requestKey);
@@ -817,6 +858,9 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
       type: "activateContentMain",
       pageUrl: context.url,
       realEditorActivation: true,
+      // Seeds a clean session: the defaults first, then these laid over them.
+      // The content script applies them once and then ignores them.
+      ...(loadedSelectors ? { selectors: loadedSelectors } : {}),
     });
     if (!activated) {
       await clearSessionEmulation(context);
@@ -849,6 +893,18 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
     await emitPopupSignal(context.tabId, "marking.disabled", { baseUrl: "", pageUrl: context.url, cause: "toggle" }, requestKey);
   }
   render();
+}
+
+/** The unchecking half of the discard confirmation. The navigation half is the
+ *  native beforeunload gate, armed by the content script on the page itself —
+ *  nothing here can interrupt a navigation the operator started. */
+function confirmDiscardMarkings(): boolean {
+  const confirmFn = typeof window !== "undefined" ? window.confirm : undefined;
+  if (typeof confirmFn !== "function") {
+    // No way to ask, so do not silently discard.
+    return false;
+  }
+  return confirmFn.call(window, "Turning marking off discards your unsaved markings. Continue?");
 }
 
 async function setDesktopPreviewEnabled(enabled: boolean): Promise<void> {
@@ -923,6 +979,10 @@ async function loadPropertyConfig(siteId: number): Promise<void> {
     // authority rule lets survive locally — the reply carries whatever did.
     confirmedRenderMode = response.data.renderMode ?? null;
     renderModeSource = response.data.renderModeSource;
+    // Selectors are backend property data with no local exemption, so nothing
+    // survives a 404 to apply.
+    loadedSelectors = null;
+    silentSelectorsAppliedKey = null;
     logEvent(
       "Config not loaded",
       response.data.status === "not_found"
@@ -937,6 +997,9 @@ async function loadPropertyConfig(siteId: number): Promise<void> {
   }
   renderModeSource = response.data.renderModeSource;
   const config = response.data.config;
+  loadedSelectors = config.selectors;
+  // Repaint the silent preview on the next tick.
+  silentSelectorsAppliedKey = null;
   if (isRenderModeConfirmed(config)) {
     confirmedRenderMode = config.renderMode;
     logEvent("Render mode restored", `${config.renderMode} · backend`, "success");

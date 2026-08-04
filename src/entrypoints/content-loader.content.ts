@@ -36,6 +36,10 @@ let lastKnownPageUrl = typeof location !== "undefined" ? location.href : "";
 let contentBus: RewriteSignalBus | null = null;
 let pageWorldSessionNonce = "";
 let contentDirective: ContentDirectiveState = createDefaultContentDirective(lastKnownPageUrl);
+/** Selectors seed a clean session once and then stop mattering; this guards the
+ *  "once" across re-activations of the same session. */
+let selectorsSeeded = false;
+let removeNavigationGate: (() => void) | null = null;
 let directiveRoot: HTMLElement | null = null;
 
 function currentPageUrl(): string {
@@ -54,6 +58,45 @@ function payloadObject(payload: unknown): Record<string, unknown> {
   return payload && typeof payload === "object" && !Array.isArray(payload)
     ? payload as Record<string, unknown>
     : {};
+}
+
+function selectorSetFrom(payload: Record<string, unknown>): { inclusionSelectors: string[]; exclusionSelectors: string[] } | null {
+  const raw = payload.selectors;
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+  const candidate = raw as { inclusionSelectors?: unknown; exclusionSelectors?: unknown };
+  const inclusionSelectors = Array.isArray(candidate.inclusionSelectors)
+    ? candidate.inclusionSelectors.filter((value): value is string => typeof value === "string")
+    : [];
+  const exclusionSelectors = Array.isArray(candidate.exclusionSelectors)
+    ? candidate.exclusionSelectors.filter((value): value is string => typeof value === "string")
+    : [];
+  return inclusionSelectors.length === 0 && exclusionSelectors.length === 0
+    ? null
+    : { inclusionSelectors, exclusionSelectors };
+}
+
+/** Markings never outlive the marking session, so leaving the page throws them
+ *  away. The native gate is the only thing that can interrupt a navigation the
+ *  operator started, so it is armed exactly while there is something to lose. */
+function armNavigationGate(): void {
+  if (removeNavigationGate || typeof window === "undefined") {
+    return;
+  }
+  const onBeforeUnload = (event: BeforeUnloadEvent): void => {
+    if (!markingActive || !userMarkingDirty) {
+      return;
+    }
+    event.preventDefault();
+    // Chrome shows its own wording; a non-empty returnValue is what triggers it.
+    event.returnValue = "Leaving this page discards your unsaved markings.";
+  };
+  window.addEventListener("beforeunload", onBeforeUnload);
+  removeNavigationGate = () => {
+    window.removeEventListener("beforeunload", onBeforeUnload);
+    removeNavigationGate = null;
+  };
 }
 
 function contentRowsFromEngine(): Array<{ xpath: string; classification: "included" | "excluded" }> {
@@ -355,6 +398,8 @@ function ensureMarkingListeners(): void {
 function deactivateMarking(): void {
   markingActive = false;
   userMarkingDirty = false;
+  selectorsSeeded = false;
+  removeNavigationGate?.();
   markingInteractionsPaused = false;
   spaGuard.disarm();
   destroyPageWorldSession();
@@ -433,6 +478,7 @@ function resetMarking(): boolean {
   destroyPageWorldSession();
   markingEngine = createMarkingEngine(document.documentElement);
   userMarkingDirty = false;
+  selectorsSeeded = false;
   lastKnownPageUrl = typeof location !== "undefined" ? location.href : lastKnownPageUrl;
   markingEngine.refresh();
   markingEngine.renderReadOnly();
@@ -464,14 +510,52 @@ function activateContentMain(payload: unknown): Record<string, unknown> {
     }
     markingEngine ??= createMarkingEngine(document.documentElement);
     markingEngine.refresh();
+    // A clean session starts from the defaults with the AI selectors laid over
+    // them. Only once, and only while the operator has not marked anything: after
+    // this the selectors play no further part.
+    const selectors = selectorSetFrom(request);
+    if (selectors && !selectorsSeeded && !userMarkingDirty) {
+      selectorsSeeded = markingEngine.seedFromSelectors(selectors);
+    }
     markingEngine.renderReadOnly();
     if (activation.state().silentHighlightArmed) {
       markingEngine.renderSilentHighlights?.();
     }
     markingActive = true;
     ensureMarkingListeners();
+    armNavigationGate();
   }
   return { ok: true, initialized: true, tree: "rewrite" };
+}
+
+/** Silent mode: show what the stored selectors keep, without arming marking.
+ *  Read-only by construction — no listeners, no dirty flag, no navigation gate —
+ *  so nothing here is a user marking. */
+function applySilentSelectors(payload: unknown): Record<string, unknown> {
+  if (typeof document === "undefined" || !document.documentElement) {
+    return { ok: false, reason: "no-document", tree: "rewrite" };
+  }
+  if (markingActive) {
+    // A live session owns the overlay; overwriting it would discard real marks.
+    return { ok: false, reason: "marking-active", tree: "rewrite" };
+  }
+  const selectors = selectorSetFrom(payloadObject(payload));
+  markingEngine?.dispose();
+  markingEngine = createMarkingEngine(document.documentElement);
+  markingEngine.refresh();
+  const seeded = selectors ? markingEngine.seedFromSelectors(selectors) : false;
+  const highlighted = markingEngine.renderSilentHighlights();
+  return { ok: true, seeded, highlighted: highlighted.length, tree: "rewrite" };
+}
+
+function clearSilentSelectors(): Record<string, unknown> {
+  if (markingActive) {
+    return { ok: false, reason: "marking-active", tree: "rewrite" };
+  }
+  markingEngine?.clearOverlays();
+  markingEngine?.dispose();
+  markingEngine = null;
+  return { ok: true, tree: "rewrite" };
 }
 
 function contentStatus(): Record<string, unknown> {
@@ -536,6 +620,8 @@ function createContentRouter() {
         return { ok: true, initialized: false, tree: "rewrite" };
       },
       resetContentMain: () => ({ ok: resetMarking(), initialized: true, tree: "rewrite" }),
+      applySilentSelectors,
+      clearSilentSelectors: () => clearSilentSelectors(),
     },
     applyDirective: applyContentDirective,
     pingActivity: pingContentActivity,

@@ -71,6 +71,54 @@ describe("rewrite popup FSM", () => {
   });
 });
 
+describe("markings never outlive the marking session", () => {
+  const withRows = (name: "pre_ai_dirty" | "post_ai_clean" | "reconciling"): Parameters<typeof transitionPopupState>[0] => ({
+    name,
+    lastConsumedSeq: 1,
+    reconciliationReason: "",
+    contentRows: [
+      { xpath: "/html[1]/body[1]/div[1]/nav[1]", classification: "excluded" },
+      { xpath: "/html[1]/body[1]/div[1]/p[1]", classification: "included" },
+    ],
+  });
+
+  it("drops the rows when marking is turned off", () => {
+    const state = transitionPopupState(withRows("pre_ai_dirty"), signal(2, "marking.disabled", {}));
+
+    expect(state.name).toBe("silent");
+    expect(state.contentRows).toEqual([]);
+  });
+
+  it("drops the rows when the page navigates", () => {
+    // Same wipe as unchecking: the markings were in the page and the page is gone.
+    const state = transitionPopupState(withRows("pre_ai_dirty"), signal(2, "session.navigated", {}));
+
+    expect(state.name).toBe("silent");
+    expect(state.contentRows).toEqual([]);
+  });
+
+  it("drops the rows once the session is saved to the backend", () => {
+    const state = transitionPopupState(withRows("post_ai_clean"), signal(2, "session.saved", { pageUrl: "https://example.com" }));
+
+    expect(state.name).toBe("silent");
+    expect(state.contentRows).toEqual([]);
+  });
+
+  it("drops the rows on discard, which resets the page to a clean session", () => {
+    const state = transitionPopupState(withRows("pre_ai_dirty"), signal(2, "session.discarded", {}));
+
+    expect(state.name).toBe("pre_ai_clean");
+    expect(state.contentRows).toEqual([]);
+  });
+
+  it("keeps the rows while the session is still live", () => {
+    const state = transitionPopupState(withRows("pre_ai_dirty"), signal(2, "run.started", { sessionId: "run-1" }));
+
+    expect(state.name).toBe("running");
+    expect(state.contentRows).toHaveLength(2);
+  });
+});
+
 describe("popup store desktop preview preference", () => {
   it("projects the preference and notifies subscribers", () => {
     const store = createPopupStore({ name: "pre_ai_clean", lastConsumedSeq: 0, reconciliationReason: "" });

@@ -20,6 +20,9 @@ function installEntrypointDom(href: string): void {
     value: {
       setInterval: vi.fn(() => 1),
       clearInterval: vi.fn(),
+      // Discarding markings asks first; default to accepting so the existing
+      // flows read as an operator who confirmed.
+      confirm: vi.fn(() => true),
     },
   });
 }
@@ -138,6 +141,60 @@ describe("rewrite popup entrypoint", () => {
     Reflect.deleteProperty(globalThis, "document");
     Reflect.deleteProperty(globalThis, "location");
     Reflect.deleteProperty(globalThis, "window");
+  });
+
+  it("asks before discarding markings and keeps them when the operator declines", async () => {
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    // The operator says no to the discard prompt.
+    (globalThis.window as unknown as { confirm: () => boolean }).confirm = vi.fn(() => false);
+    const render = vi.fn();
+    vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
+    const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com" }]);
+    const tabsSendMessage = makeTabsSendMessage(() => ({ ok: true, initialized: true, dirty: true, tree: "rewrite" }));
+    let signalSeq = 0;
+    let pulledDirty = false;
+    const runtime = makeRuntime(async (message) => {
+      if (message.name === "signals.emit") {
+        const request = message.payload as { tabId: number; signal: { name?: string; payload?: unknown } };
+        signalSeq += 1;
+        return replyFrame(message, [{
+          kind: "uf-signal/1", tabId: request.tabId, seq: signalSeq, name: request.signal?.name,
+          source: "brain", cause: "test", at: signalSeq, payload: request.signal?.payload ?? {},
+        }]);
+      }
+      if (message.name === "signals.pull" && !pulledDirty && (message.payload as { afterSeq?: number }).afterSeq !== 0) {
+        const request = message.payload as { tabId: number };
+        pulledDirty = true;
+        signalSeq += 1;
+        return replyFrame(message, [{
+          kind: "uf-signal/1", tabId: request.tabId, seq: signalSeq, name: "markings.changed",
+          source: "content", cause: "content-click", at: signalSeq,
+          payload: { pageUrl: "https://example.com", markedCount: 1 },
+        }]);
+      }
+      return replyFrame(message, []);
+    });
+    globalThis.chrome = {
+      runtime: { ...runtime },
+      tabs: { query, sendMessage: tabsSendMessage },
+    } as unknown as typeof chrome;
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    render.mock.calls.at(-1)?.[0].props.onRenderModeChange("rendered");
+    render.mock.calls.at(-1)?.[0].props.onEnableChange(true);
+    await flushEntrypointWork();
+
+    const commandsBefore = tabsSendMessage.mock.calls
+      .map(([, m]) => (m as { payload?: { name?: string } }).payload?.name);
+    render.mock.calls.at(-1)?.[0].props.onEnableChange(false);
+    await flushEntrypointWork();
+    const commandsAfter = tabsSendMessage.mock.calls
+      .map(([, m]) => (m as { payload?: { name?: string } }).payload?.name);
+
+    expect((globalThis.window as unknown as { confirm: ReturnType<typeof vi.fn> }).confirm).toHaveBeenCalled();
+    // Declining must not deactivate, because deactivating is the wipe.
+    expect(commandsAfter.filter((name) => name === "deactivateContentMain"))
+      .toEqual(commandsBefore.filter((name) => name === "deactivateContentMain"));
   });
 
   it("binds production popup toggles to the active tab and clears content on disable", async () => {

@@ -212,12 +212,17 @@ export function transitionPopupState(state: PopupState, signal: BrainSignal): Po
     case "session.saved":
       return state.name === "reconciling" && state.reconciliationDirty
         ? { ...base, name: "pre_ai_dirty", reconciliationReason: "", priorState: undefined, runDeadlineAt: undefined, reconciliationDirty: undefined }
-        : { ...base, name: "silent", reconciliationReason: "", priorState: undefined, runDeadlineAt: undefined, reconciliationDirty: undefined };
+        // Saving hands the markings to the backend and ends the session, so the
+        // local rows go with it.
+        : { ...base, name: "silent", reconciliationReason: "", priorState: undefined, runDeadlineAt: undefined, reconciliationDirty: undefined, contentRows: [] };
     case "marking.disabled":
     case "session.navigated":
-      return { ...base, name: "silent", reconciliationReason: "", priorState: undefined, runDeadlineAt: undefined };
+      // Markings live only while marking mode is active, so leaving it must not
+      // keep showing rows the page no longer has.
+      return { ...base, name: "silent", reconciliationReason: "", priorState: undefined, runDeadlineAt: undefined, contentRows: [] };
     case "session.discarded":
-      return state.name === "silent" ? base : { ...base, name: "pre_ai_clean", reconciliationReason: "" };
+      // Discard resets the page to a clean session; the rows it had are gone.
+      return state.name === "silent" ? base : { ...base, name: "pre_ai_clean", reconciliationReason: "", contentRows: [] };
     case "inspection.started":
       return { ...base, name: "inspecting", priorState: state.name };
     case "inspection.ended":

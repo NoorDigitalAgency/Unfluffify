@@ -1,4 +1,6 @@
 import { chooseWidenTarget, type WidenNode } from "../../domain/widening";
+import { applySelectorSeed } from "../../domain/selector-seed";
+import type { SelectorSet } from "../../storage/config";
 import type { CanonicalMarkSet, Classification, MarkMode, MarkRow } from "../../domain/schema/marking";
 import type { EvaluationNode } from "../../domain/evaluate";
 import { captureFlattenedHtml, createDomBridgeView, type DomBridgeView } from "./dom-view";
@@ -236,9 +238,48 @@ export function createMarkingEngine(rootElement: Element) {
   };
   observerCleanup = installObservers();
 
+  /** Resolves a CSS selector to the xpaths the evaluation actually knows about.
+   *  Matches outside the evaluated tree (invisible, chrome, closed shadow) have
+   *  no row to seed and are skipped. */
+  const xpathsMatching = (selectors: readonly string[]): string[] => {
+    const found: string[] = [];
+    for (const selector of selectors) {
+      let matches: ArrayLike<Element>;
+      try {
+        matches = rootElement.ownerDocument.querySelectorAll(selector);
+      } catch {
+        // A backend selector the browser rejects must not abort the whole seed.
+        continue;
+      }
+      for (const element of Array.from(matches)) {
+        const xpath = bridge.byElement.get(element)?.evaluationNode.xpath;
+        if (xpath) {
+          found.push(xpath);
+        }
+      }
+    }
+    return found;
+  };
+
   return {
     refresh(): void {
       refreshBridge();
+    },
+    /** One-time: seeds a clean session from the defaults plus the AI selectors.
+     *  Returns false when there is nothing to seed from. */
+    seedFromSelectors(selectors: SelectorSet): boolean {
+      refreshBridge();
+      const excludeXpaths = xpathsMatching(selectors.exclusionSelectors);
+      const includeXpaths = xpathsMatching(selectors.inclusionSelectors);
+      if (excludeXpaths.length === 0 && includeXpaths.length === 0) {
+        return false;
+      }
+      store = createMarkingStore(
+        { root: bridge.root },
+        applySelectorSeed(store.canonicalSet(), { excludeXpaths, includeXpaths }),
+      );
+      renderCurrent();
+      return true;
     },
     resolveAtPoint(x: number, y: number, mode: MarkMode, shiftActive = false): EvaluationNode | null {
       const hits = getComposedHitElements(rootElement.ownerDocument, x, y)
