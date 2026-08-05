@@ -43,27 +43,48 @@ test("public pnpm browser launcher is node-native", () => {
   assert.equal(launchScript.includes('spawn("npx", ["-y", "@playwright/mcp@latest"'), true);
 });
 
-test("browser launcher refreshes both the service worker and the content script", () => {
-  // The profile is persistent and the manifest version never changes, so Chrome
-  // serves the worker registered on a previous run and every newly added bus
-  // command answers NO_HANDLER. Reloading the extension fixes that but orphans
-  // content scripts in open tabs, which Chrome will not re-inject — so the page
-  // reload is required too, and it has to come after the extension reload.
+test("browser launcher never reloads the extension, and reloads the page", () => {
+  // chrome.runtime.reload() began UNLOADING the unpacked extension outright in the
+  // MCP-managed Chromium (2026-08-05, 1.62.0-alpha): no worker returns, extension
+  // targets vanish, popup.html answers ERR_BLOCKED_BY_CLIENT. A browser with no
+  // extension tests nothing, so freshness comes from starting Chrome anew against
+  // the build this script just produced. The page reload stays — the tab was
+  // navigated before binding and a missed injection window leaves every content
+  // command failing with "Receiving end does not exist".
   const launchScript = readFileSync(
     new URL("../scripts/launch-test-browser.mjs", import.meta.url),
     "utf8",
   );
 
-  const reloadExtension = launchScript.indexOf("chrome.runtime.reload()");
-  const reloadPage = launchScript.indexOf("page.reload(");
-
-  assert.ok(reloadExtension > 0, "launcher must reload the extension so the worker re-registers from disk");
-  assert.ok(reloadPage > 0, "launcher must reload the target page so the content script is re-injected");
-  assert.ok(
-    reloadExtension < reloadPage,
-    "the page reload must come after the extension reload, or the content script is orphaned again",
+  // Match the call form, not the words: the comment above the removal names the
+  // API deliberately, and a guard that a comment can trip teaches nothing.
+  assert.equal(
+    /(await|void|;|\{)\s*worker\.evaluate\(\(\)\s*=>\s*chrome\.runtime\.reload/.test(launchScript),
+    false,
+    "the extension reload unloads the extension in this Chromium; freshness must come from the fresh process",
   );
-  // Waiting for a live worker before using it: the pre-reload handle is dead.
-  assert.ok(launchScript.includes("No live extension service worker after reload"));
-  assert.ok(launchScript.includes("refreshed"), "the ready banner must report freshness");
+  assert.ok(launchScript.indexOf("page.reload(") > 0, "the target page must still be reloaded");
+  // Whatever the reason, a launch must still refuse to proceed without a worker.
+  assert.ok(launchScript.includes("No live extension service worker"));
 });
+
+test("browser launcher does not claim freshness a reused profile cannot give", () => {
+  // A reused profile can still serve a worker from a previous registration. The
+  // banner is evidence of what is running, so it has to say which case this is.
+  const launchScript = readFileSync(
+    new URL("../scripts/launch-test-browser.mjs", import.meta.url),
+    "utf8",
+  );
+
+  assert.ok(
+    /PROFILE_EXISTED\s*=\s*await stat\(PROFILE_DIR\)/.test(launchScript),
+    "freshness must be decided from the profile on disk at start, not after Chrome creates it",
+  );
+  assert.ok(launchScript.includes("refreshed"), "the ready banner must report freshness");
+  assert.ok(
+    launchScript.includes("profile REUSED"),
+    "a reused profile must be named in the banner, not silently treated as fresh",
+  );
+});
+
+

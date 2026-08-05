@@ -91,6 +91,10 @@ export type PopupDiagnostics = Readonly<{
    *  operator has compared the two loads and chosen — marks made under an
    *  unestablished render mode describe a page nobody has looked at. */
   renderMode: RenderMode | null;
+  /** The operator's pick, not yet confirmed. Legacy kept the same distinction:
+   *  the control edits a pending value and `Set` is what commits it, so a stray
+   *  click on a radio cannot silently relabel every later capture. */
+  renderModePending: RenderMode | null;
   renderModeView: RenderModeView;
   renderModeDetail: string;
   renderModeBusy: boolean;
@@ -121,6 +125,7 @@ export const EMPTY_POPUP_DIAGNOSTICS: PopupDiagnostics = {
   authBusy: false,
   authMessage: "",
   renderMode: null,
+  renderModePending: null,
   renderModeView: "unknown",
   renderModeDetail: "",
   renderModeBusy: false,
@@ -336,12 +341,13 @@ export function App({
   onLogin,
   onLogout,
   onValidateToken,
-  onRenderModeChange,
+  onRenderModePick,
+  onRenderModeCommit,
+  onRenderModeCancel,
   onInspectRenderMode,
   onOpenConfiguration,
   onConfigurationContinue,
   onOpenRenderMode,
-  onRenderModeDone,
 }: Readonly<{
   presentation: PopupPresentation;
   view?: PopupView;
@@ -361,12 +367,14 @@ export function App({
   onLogin?: () => void;
   onLogout?: () => void;
   onValidateToken?: () => void;
-  onRenderModeChange?: (mode: RenderMode) => void;
+  /** Selects without deciding. Committing is a separate act. */
+  onRenderModePick?: (mode: RenderMode) => void;
+  onRenderModeCommit?: () => void;
+  onRenderModeCancel?: () => void;
   onInspectRenderMode?: (javascriptEnabled: boolean) => void;
   onOpenConfiguration?: () => void;
   onConfigurationContinue?: () => void;
   onOpenRenderMode?: () => void;
-  onRenderModeDone?: () => void;
 }>) {
   const buttons = resolvePopupActionButtons(presentation, {
     runAi: Boolean(onRunAi),
@@ -406,6 +414,9 @@ export function App({
   /** Both session views carry the enable toggle — it is the way into one and out
    *  of the other — and legacy showed it on exactly the same condition. */
   const sessionView = markingView || silentView;
+  /** What the radios show: the unconfirmed pick if there is one, otherwise the
+   *  mode in force. Null means nothing is selected and there is nothing to set. */
+  const selectedRenderMode = diagnostics.renderModePending ?? diagnostics.renderMode;
 
   if (presentation.mainUiHidden || view === "loading") {
     return (
@@ -819,9 +830,9 @@ export function App({
                   name="render-mode"
                   id={`render-mode-${mode}`}
                   value={mode}
-                  checked={diagnostics.renderMode === mode}
-                  disabled={!onRenderModeChange || diagnostics.renderModeBusy}
-                  onChange={() => onRenderModeChange?.(mode)}
+                  checked={selectedRenderMode === mode}
+                  disabled={!onRenderModePick || diagnostics.renderModeBusy}
+                  onChange={() => onRenderModePick?.(mode)}
                 />
                 <i className={`mdi ${RENDER_MODE_ICON[mode]} row-icon`} aria-hidden="true" />
                 <span>{RENDER_MODE_LABEL[mode]}</span>
@@ -830,19 +841,34 @@ export function App({
           </div>
         </div>
 
-        {/* Only once a mode is established is there a session to go back to. */}
-        {renderModeSet ? (
+        {/* Legacy's `Set`: the pick is not the decision, confirming it is. The
+            same button serves the first choice and every later edit. */}
+        <div className="button-row">
           <button
-            id="render-mode-done"
+            id="render-mode-set"
             type="button"
-            className="u-full-width"
-            disabled={!onRenderModeDone}
-            onClick={onRenderModeDone}
+            disabled={!onRenderModeCommit || selectedRenderMode === null || diagnostics.renderModeBusy}
+            data-blocked-reason={selectedRenderMode === null ? RENDER_MODE_NOT_SET_REASON : ""}
+            onClick={onRenderModeCommit}
           >
             <i className="mdi mdi-check btn-icon" aria-hidden="true" />
-            Done
+            {renderModeSet ? "Set render mode" : "Confirm render mode"}
           </button>
-        ) : null}
+          {/* Cancel only once a mode is established: with none set there is no
+              session to return to and nothing to fall back on. */}
+          {renderModeSet ? (
+            <button
+              id="render-mode-cancel"
+              type="button"
+              className="u-btn-secondary"
+              disabled={!onRenderModeCancel}
+              onClick={onRenderModeCancel}
+            >
+              <i className="mdi mdi-close btn-icon" aria-hidden="true" />
+              Cancel
+            </button>
+          ) : null}
+        </div>
       </section>
       ) : null}
 

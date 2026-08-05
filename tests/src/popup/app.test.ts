@@ -32,12 +32,13 @@ const FULL_HANDLERS = {
   onLogin: NOOP,
   onLogout: NOOP,
   onValidateToken: NOOP,
-  onRenderModeChange: NOOP,
+  onRenderModePick: NOOP,
+  onRenderModeCommit: NOOP,
+  onRenderModeCancel: NOOP,
   onInspectRenderMode: NOOP,
   onOpenConfiguration: NOOP,
   onConfigurationContinue: NOOP,
   onOpenRenderMode: NOOP,
-  onRenderModeDone: NOOP,
 };
 
 function renderApp(
@@ -207,10 +208,11 @@ describe("popup App surface", () => {
       expect(session).not.toContain('id="render-mode-with-js"');
       expect(session).toContain('id="render-mode-open"');
     }
-    // Done only exists once there is a session to go back to: on the first visit
-    // there is no mode yet, so leaving would strand the operator.
-    expect(renderMode).not.toContain('id="render-mode-done"');
-    expect(renderRenderModeView({ ...SIGNED_IN, renderMode: "rendered" })).toContain('id="render-mode-done"');
+    // The CTA is always there — it is what finalizes the choice — but cancel only
+    // exists once a mode does: on the first visit there is nothing to fall back on.
+    expect(renderMode).toContain('id="render-mode-set"');
+    expect(renderMode).not.toContain('id="render-mode-cancel"');
+    expect(renderRenderModeView({ ...SIGNED_IN, renderMode: "rendered" })).toContain('id="render-mode-cancel"');
   });
 
   it("shows only a spinner on the loading view", () => {
@@ -341,6 +343,52 @@ describe("popup App surface", () => {
 
     expect(markup).not.toContain("render-mode-radio-hidden");
     expect(markup).toMatch(/id="render-mode-rendered"[^>]*type="radio"|type="radio"[^>]*id="render-mode-rendered"/);
+  });
+
+  it("does not treat picking a render mode as setting it", () => {
+    // Legacy edited a pending value and made `Set` the decision. A radio that
+    // commits on click would relabel every later capture on a stray click, and
+    // there would be no way to look at both loads before deciding.
+    const nothingPicked = renderRenderModeView(SIGNED_IN);
+    const picked = renderRenderModeView({ ...SIGNED_IN, renderModePending: "static" });
+    const inForce = renderRenderModeView({ ...SIGNED_IN, renderMode: "rendered" });
+    const editing = renderRenderModeView({ ...SIGNED_IN, renderMode: "rendered", renderModePending: "static" });
+
+    // Nothing to set until something is selected.
+    expect(nothingPicked).toMatch(/id="render-mode-set"[^>]*disabled/);
+    expect(nothingPicked).toContain('data-blocked-reason="render-mode-not-set"');
+    expect(nothingPicked).not.toMatch(/id="render-mode-rendered"[^>]*checked/);
+    expect(nothingPicked).not.toMatch(/id="render-mode-static"[^>]*checked/);
+
+    // A pick shows on the radios and frees the CTA, without becoming the mode:
+    // the status line still reports nothing in force.
+    expect(picked).toMatch(/id="render-mode-static"[^>]*checked/);
+    expect(picked).not.toMatch(/id="render-mode-set"[^>]*disabled/);
+    expect(picked).toContain('data-render-mode="unset"');
+
+    // With no pick, the radios show the mode in force.
+    expect(inForce).toMatch(/id="render-mode-rendered"[^>]*checked/);
+
+    // A pick outranks the mode in force while editing, and only one is checked.
+    expect(editing).toMatch(/id="render-mode-static"[^>]*checked/);
+    expect(editing).not.toMatch(/id="render-mode-rendered"[^>]*checked/);
+    expect(editing).toContain('data-render-mode="rendered"');
+  });
+
+  it("offers cancel only when there is a mode to fall back on", () => {
+    // First visit: cancelling would leave the operator with no mode and no view
+    // to return to, so the CTA is the only way out.
+    expect(renderRenderModeView(SIGNED_IN)).not.toContain('id="render-mode-cancel"');
+    expect(renderRenderModeView({ ...SIGNED_IN, renderMode: "static" })).toContain('id="render-mode-cancel"');
+    // And a pending pick does not conjure one up — it is not established yet.
+    expect(renderRenderModeView({ ...SIGNED_IN, renderModePending: "static" }))
+      .not.toContain('id="render-mode-cancel"');
+  });
+
+  it("locks the CTA while a load is in flight", () => {
+    const busy = renderRenderModeView({ ...SIGNED_IN, renderModePending: "static", renderModeBusy: true });
+
+    expect(busy).toMatch(/id="render-mode-set"[^>]*disabled/);
   });
 
   it("starts with no render mode chosen and neither option selected", () => {

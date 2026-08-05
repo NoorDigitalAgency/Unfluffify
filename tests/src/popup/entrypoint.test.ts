@@ -27,6 +27,18 @@ function installEntrypointDom(href: string): void {
   });
 }
 
+/** Establishing the render mode is two acts, as legacy had it: pick, then
+ *  confirm. Tests that only need a mode in force before doing something else say
+ *  so through this rather than repeating both calls. */
+function confirmRenderMode(
+  render: { mock: { calls: { at(index: number): [{ props: Record<string, (value?: unknown) => void> }] | undefined } } },
+  mode: "rendered" | "static" = "rendered",
+): void {
+  const props = () => render.mock.calls.at(-1)?.[0].props;
+  props()?.onRenderModePick(mode);
+  props()?.onRenderModeCommit();
+}
+
 async function flushEntrypointWork(): Promise<void> {
   for (let index = 0; index < 10; index += 1) {
     await Promise.resolve();
@@ -143,6 +155,57 @@ describe("rewrite popup entrypoint", () => {
     Reflect.deleteProperty(globalThis, "window");
   });
 
+  it("does not adopt a render mode until the operator confirms it", async () => {
+    // Picking edits a pending value; only the CTA decides. Otherwise a stray
+    // click relabels every later capture, and there is no way to look at both
+    // loads before committing.
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const render = vi.fn();
+    vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
+    const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com" }]);
+    const tabsSendMessage = makeTabsSendMessage(() => ({ ok: true, initialized: true, tree: "rewrite" }));
+    const remembered: unknown[] = [];
+    const runtime = makeRuntime(async (message) => {
+      if (message.name === "renderMode.remember") {
+        remembered.push(message.payload);
+        return replyFrame(message, { stored: true });
+      }
+      return replyFrame(message, []);
+    });
+    globalThis.chrome = {
+      runtime: { ...runtime },
+      tabs: { query, sendMessage: tabsSendMessage },
+    } as unknown as typeof chrome;
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    const props = () => render.mock.calls.at(-1)?.[0].props;
+
+    props().onRenderModePick("static");
+    await flushEntrypointWork();
+    // Pending, not in force — and nothing has been asked to remember it.
+    expect(props().diagnostics.renderModePending).toBe("static");
+    expect(props().diagnostics.renderMode).toBe(null);
+    expect(remembered).toEqual([]);
+
+    // Cancelling drops the pick and leaves the mode unset.
+    props().onRenderModeCancel();
+    await flushEntrypointWork();
+    expect(props().diagnostics.renderModePending).toBe(null);
+    expect(props().diagnostics.renderMode).toBe(null);
+    expect(remembered).toEqual([]);
+
+    // Confirming is what adopts it.
+    props().onRenderModePick("static");
+    props().onRenderModeCommit();
+    await flushEntrypointWork();
+    expect(props().diagnostics.renderMode).toBe("static");
+    expect(props().diagnostics.renderModePending).toBe(null);
+    // Local persistence is a separate question — it needs a resolved site id,
+    // which this test deliberately does not set up, so the point being made here
+    // is only that the pick alone never reached the background at all.
+    expect(remembered).toEqual([]);
+  });
+
   it("asks before discarding markings and keeps them when the operator declines", async () => {
     installEntrypointDom("chrome-extension://extension-id/popup.html");
     // The operator says no to the discard prompt.
@@ -180,7 +243,7 @@ describe("rewrite popup entrypoint", () => {
     } as unknown as typeof chrome;
 
     await import("../../../src/entrypoints/popup/main.tsx");
-    render.mock.calls.at(-1)?.[0].props.onRenderModeChange("rendered");
+    confirmRenderMode(render);
     render.mock.calls.at(-1)?.[0].props.onEnableChange(true);
     await flushEntrypointWork();
 
@@ -253,7 +316,7 @@ describe("rewrite popup entrypoint", () => {
     } as unknown as typeof chrome;
 
     await import("../../../src/entrypoints/popup/main.tsx");
-    render.mock.calls.at(-1)?.[0].props.onRenderModeChange("rendered");
+    confirmRenderMode(render);
     render.mock.calls.at(-1)?.[0].props.onEnableChange(true);
     await flushEntrypointWork();
     expect(render.mock.calls.at(-1)?.[0].props.presentation.discardDisabled).toBe(false);
@@ -375,7 +438,7 @@ describe("rewrite popup entrypoint", () => {
     } as unknown as typeof chrome;
 
     await import("../../../src/entrypoints/popup/main.tsx");
-    render.mock.calls.at(-1)?.[0].props.onRenderModeChange("rendered");
+    confirmRenderMode(render);
     render.mock.calls.at(-1)?.[0].props.onEnableChange(true);
     await flushEntrypointWork();
     render.mock.calls.at(-1)?.[0].props.onRunAi();
@@ -521,7 +584,7 @@ describe("rewrite popup entrypoint", () => {
     } as unknown as typeof chrome;
 
     await import("../../../src/entrypoints/popup/main.tsx");
-    render.mock.calls.at(-1)?.[0].props.onRenderModeChange("rendered");
+    confirmRenderMode(render);
     render.mock.calls.at(-1)?.[0].props.onEnableChange(true);
     await flushEntrypointWork();
     render.mock.calls.at(-1)?.[0].props.onRunAi();
@@ -614,7 +677,7 @@ describe("rewrite popup entrypoint", () => {
     } as unknown as typeof chrome;
 
     await import("../../../src/entrypoints/popup/main.tsx");
-    render.mock.calls.at(-1)?.[0].props.onRenderModeChange("rendered");
+    confirmRenderMode(render);
     render.mock.calls.at(-1)?.[0].props.onEnableChange(true);
     await flushEntrypointWork();
     render.mock.calls.at(-1)?.[0].props.onRunAi();
@@ -693,7 +756,7 @@ describe("rewrite popup entrypoint", () => {
     } as unknown as typeof chrome;
 
     await import("../../../src/entrypoints/popup/main.tsx");
-    render.mock.calls.at(-1)?.[0].props.onRenderModeChange("rendered");
+    confirmRenderMode(render);
     render.mock.calls.at(-1)?.[0].props.onEnableChange(true);
     await flushEntrypointWork();
     render.mock.calls.at(-1)?.[0].props.onRunAi();
@@ -776,7 +839,7 @@ describe("rewrite popup entrypoint", () => {
     } as unknown as typeof chrome;
 
     await import("../../../src/entrypoints/popup/main.tsx");
-    render.mock.calls.at(-1)?.[0].props.onRenderModeChange("rendered");
+    confirmRenderMode(render);
     render.mock.calls.at(-1)?.[0].props.onEnableChange(true);
     await flushEntrypointWork();
     render.mock.calls.at(-1)?.[0].props.onRunAi();
@@ -849,7 +912,7 @@ describe("rewrite popup entrypoint", () => {
     } as unknown as typeof chrome;
 
     await import("../../../src/entrypoints/popup/main.tsx");
-    render.mock.calls.at(-1)?.[0].props.onRenderModeChange("rendered");
+    confirmRenderMode(render);
     render.mock.calls.at(-1)?.[0].props.onEnableChange(true);
     await flushEntrypointWork();
     dirtyReady = true;
@@ -907,7 +970,7 @@ describe("rewrite popup entrypoint", () => {
     } as unknown as typeof chrome;
 
     await import("../../../src/entrypoints/popup/main.tsx");
-    render.mock.calls.at(-1)?.[0].props.onRenderModeChange("rendered");
+    confirmRenderMode(render);
     render.mock.calls.at(-1)?.[0].props.onEnableChange(true);
     await flushEntrypointWork();
     render.mock.calls.at(-1)?.[0].props.onRunAi();
@@ -1046,7 +1109,7 @@ describe("rewrite popup entrypoint", () => {
         },
       },
     });
-    render.mock.calls.at(-1)?.[0].props.onRenderModeChange("rendered");
+    confirmRenderMode(render);
     render.mock.calls.at(-1)?.[0].props.onEnableChange(true);
     await flushEntrypointWork();
     render.mock.calls.at(-1)?.[0].props.onRunAi?.();
@@ -1137,7 +1200,7 @@ describe("rewrite popup entrypoint", () => {
     } as unknown as typeof chrome;
 
     await import("../../../src/entrypoints/popup/main.tsx");
-    render.mock.calls.at(-1)?.[0].props.onRenderModeChange("rendered");
+    confirmRenderMode(render);
     render.mock.calls.at(-1)?.[0].props.onEnableChange(true);
     await flushEntrypointWork();
     render.mock.calls.at(-1)?.[0].props.onRunAi();
@@ -1469,7 +1532,7 @@ describe("rewrite popup entrypoint", () => {
     } as unknown as typeof chrome;
 
     await import("../../../src/entrypoints/popup/main.tsx");
-    render.mock.calls.at(-1)?.[0].props.onRenderModeChange("rendered");
+    confirmRenderMode(render);
     render.mock.calls.at(-1)?.[0].props.onEnableChange(true);
     await flushEntrypointWork();
 

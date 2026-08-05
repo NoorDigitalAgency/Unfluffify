@@ -89,6 +89,10 @@ let desktopPreviewEnabled = false;
  *  established, which is worse than refusing to proceed. Legacy called this
  *  "undetermined" and blocked the same actions on it. */
 let confirmedRenderMode: RenderMode | null = null;
+/** The operator's pick before they confirm it. Legacy kept the same separation:
+ *  the control edits a pending value and `Set` commits it, so a stray click
+ *  cannot relabel every later capture. Cleared on commit, cancel and rebind. */
+let pendingRenderMode: RenderMode | null = null;
 let renderModeView: RenderModeView = "unknown";
 let renderModeDetail = "";
 let renderModeBusy = false;
@@ -222,6 +226,7 @@ function buildDiagnostics(): PopupDiagnostics {
     authBusy,
     authMessage,
     renderMode: confirmedRenderMode,
+    renderModePending: pendingRenderMode,
     renderModeView,
     renderModeDetail,
     renderModeBusy,
@@ -336,6 +341,7 @@ function bindToTab(context: TargetTabContext): { changed: boolean; sameTabNaviga
   boundTabKey = nextKey;
   boundTabUrl = context.url;
   brainSignals.reset();
+  pendingRenderMode = null;
   lastSubmissionSnapshot = null;
   lastSubmissionKey = null;
   activeRunSessionId = null;
@@ -1024,15 +1030,41 @@ function continueFromConfiguration(): void {
 }
 
 /** Legacy's renderModeEditMode: a mode that is already set can still be revisited,
- *  and asking for the view is the whole of that request. */
+ *  and asking for the view is the whole of that request. The pick starts from
+ *  whatever is in force, so opening the editor changes nothing by itself. */
 function openRenderMode(): void {
   requestedView = "render-mode";
+  pendingRenderMode = null;
   render();
 }
 
-/** Leaving is only offered once a mode exists, so there is always a session to
- *  return to; which of the two it is follows from the session, not from here. */
-function leaveRenderMode(): void {
+/** Selecting is not deciding. Nothing is persisted, nothing is pushed to the
+ *  content script, and the mode in force is untouched until it is confirmed. */
+function pickRenderMode(mode: RenderMode): void {
+  pendingRenderMode = mode;
+  render();
+}
+
+/** Legacy's `Set`. Serves the first choice and every later edit alike. */
+function commitRenderMode(): void {
+  const chosen = pendingRenderMode ?? confirmedRenderMode;
+  if (chosen === null) {
+    logEvent("Cannot set the render mode", "choose one of the two first", "warn");
+    render();
+    return;
+  }
+  pendingRenderMode = null;
+  requestedView = null;
+  // Re-confirming the mode already in force is a no-op for setRenderMode, which
+  // is why leaving the view happens here rather than inside it.
+  setRenderMode(chosen);
+  render();
+}
+
+/** Only offered once a mode exists, so there is always something to fall back
+ *  on and a session to return to. */
+function cancelRenderMode(): void {
+  pendingRenderMode = null;
   requestedView = null;
   render();
 }
@@ -1662,12 +1694,13 @@ function render(): void {
       onLogin={() => { void login(); }}
       onLogout={() => { void logout(); }}
       onValidateToken={() => { void validateToken(); }}
-      onRenderModeChange={setRenderMode}
       onInspectRenderMode={(javascriptEnabled) => { void loadRenderModeView(javascriptEnabled); }}
       onOpenConfiguration={openConfiguration}
       onConfigurationContinue={continueFromConfiguration}
       onOpenRenderMode={openRenderMode}
-      onRenderModeDone={leaveRenderMode}
+      onRenderModePick={pickRenderMode}
+      onRenderModeCommit={commitRenderMode}
+      onRenderModeCancel={cancelRenderMode}
     />,
   );
 }

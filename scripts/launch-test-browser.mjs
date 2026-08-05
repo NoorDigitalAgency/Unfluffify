@@ -18,14 +18,11 @@
  *   5. Navigates the first tab to <target-url>.
  *   6. Resolves the loaded extension id from the service worker (and verifies it
  *      against the deterministic path-hash id).
- *   7. Reloads the extension, then reloads the target page. Both are required:
- *      the persistent profile keeps serving the service worker registered on a
- *      previous run (the manifest version never changes, so Chrome sees no
- *      update) which makes any newly added bus command answer NO_HANDLER; and
- *      reloading the extension orphans content scripts in already-open tabs,
- *      which Chrome will not re-inject, so marking cannot arm until the page
- *      reloads. Skipping either one produces a browser that looks fine and
- *      silently runs stale code.
+ *   7. Reloads the target page (never the extension — see the bind script: the
+ *      extension reload unloads the extension outright in the current managed
+ *      Chromium). Freshness comes from starting Chrome anew against the build
+ *      step above; the ready banner says whether the profile was reused, because
+ *      a reused one can still serve a worker from a previous registration.
  *   8. Resolves the target page's Chrome tab id via the service worker.
  *   9. Opens a SECOND tab `popup.html?debugTabId=<pageTabId>` so the extension
  *      binds to the target page.
@@ -44,6 +41,10 @@ const selfPath = fileURLToPath(import.meta.url);
 const repoRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const EXT_DIR = join(repoRoot, ".output", "chrome-mv3");
 const PROFILE_DIR = join(repoRoot, ".wxt", "browser-profile");
+/** Whether a profile was already on disk when this run started. A profile this
+ *  run created cannot be serving a service worker from a previous registration,
+ *  so only a reused one needs the freshness caveat in the ready banner. */
+const PROFILE_EXISTED = await stat(PROFILE_DIR).then(() => true, () => false);
 const TEMP_DIR = join(repoRoot, ".temp");
 const TEMP_CONFIG = join(TEMP_DIR, "browser-mcp.config.json");
 const TEMP_OUT = join(TEMP_DIR, "out");
@@ -199,19 +200,31 @@ const BIND_SCRIPT = `async (page) => {
       }
       await page.waitForTimeout(500);
     }
-    throw new Error('No live extension service worker after reload');
+    throw new Error('No live extension service worker');
   };
 
-  // The profile is persistent and the manifest version never changes, so Chrome
-  // keeps serving the service worker it registered on a previous run — any bus
-  // command added since then answers NO_HANDLER against freshly built files.
-  // Reloading re-registers the worker from disk.
-  await worker.evaluate(() => chrome.runtime.reload()).catch(() => {});
+  // NO chrome.runtime.reload() here, deliberately, and it is not an oversight.
+  //
+  // The reload used to exist because a profile that survives between runs keeps
+  // serving the service worker it registered last time — the manifest version
+  // never changes, so a bus command added since then answers NO_HANDLER against
+  // freshly built files. But on 2026-08-05 that reload began UNLOADING the
+  // unpacked extension outright in the MCP-managed Chromium (observed twice,
+  // deterministically, on 1.62.0-alpha): no worker comes back, extension targets
+  // vanish, and popup.html answers ERR_BLOCKED_BY_CLIENT. A browser with no
+  // extension cannot test anything, which is strictly worse than one that might
+  // be running a worker from a previous registration.
+  //
+  // Freshness therefore comes from the process, not from a reload: Chrome is
+  // started anew on every launch with --load-extension pointing at the build this
+  // script just produced. That is airtight for a profile this run created, and
+  // for a reused profile the banner says so rather than pretending otherwise — a
+  // cleared profile is the fix if a new bus command answers NO_HANDLER.
   worker = await liveWorker();
 
-  // The reload orphans content scripts in already-open tabs and Chrome does not
-  // re-inject them, so the page must be reloaded too or every content command
-  // fails with "Receiving end does not exist" and marking cannot arm.
+  // The page must still be reloaded: it was navigated before this ran, and a
+  // content script that missed its injection window leaves every content command
+  // failing with "Receiving end does not exist" so marking cannot arm.
   await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.waitForTimeout(1500);
 
@@ -825,8 +838,13 @@ if (extId && tabId && boundUrl) {
   console.log(`  extension id: ${extId}${extId === predictedId ? " (matches path hash)" : " (WARNING: differs from path hash)"}`);
   console.log(`  page tabId  : ${tabId}`);
   console.log(`  popup (tab2): ${boundUrl}`);
+  // The banner is evidence of what is actually running, so it must not claim more
+  // than the launch can guarantee. A reused profile can still serve a worker from
+  // a previous registration; only a fresh one rules that out.
   console.log(`  freshness   : ${bindClean.includes('"refreshed":true')
-    ? "extension + page reloaded (worker and content script are current)"
+    ? PROFILE_EXISTED
+      ? "page reloaded; profile REUSED — if a new bus command answers NO_HANDLER, relaunch with a cleared profile"
+      : "new profile: extension loaded from this build, page reloaded"
     : "WARNING: not refreshed; the worker may be running a previous build"}`);
   console.log("=========================================================");
   console.log("Browser is open. Stop with Ctrl-C or `kill <pid>` to close it.");
