@@ -39,6 +39,18 @@ function confirmRenderMode(
   props()?.onRenderModeCommit();
 }
 
+/** Waits for work the entrypoint kicked off without awaiting — the standing
+ *  emulation posture is applied fire-and-forget on binding, so a fixed number of
+ *  flushes cannot be relied on to have seen it. */
+async function waitFor(condition: () => boolean, what: string): Promise<void> {
+  for (let index = 0; index < 50 && !condition(); index += 1) {
+    await flushEntrypointWork();
+  }
+  if (!condition()) {
+    throw new Error(`timed out waiting for ${what}`);
+  }
+}
+
 async function flushEntrypointWork(): Promise<void> {
   for (let index = 0; index < 10; index += 1) {
     await Promise.resolve();
@@ -153,6 +165,80 @@ describe("rewrite popup entrypoint", () => {
     Reflect.deleteProperty(globalThis, "document");
     Reflect.deleteProperty(globalThis, "location");
     Reflect.deleteProperty(globalThis, "window");
+  });
+
+  it("keeps the tab in mobile simulation from the moment it is bound", async () => {
+    // Mobile is the standing posture, not something marking switches on: the
+    // crawler reads the mobile render, so that is the render every decision has to
+    // be made against. Before, emulation only arrived with an armed session.
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const render = vi.fn();
+    vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
+    const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com" }]);
+    const tabsSendMessage = makeTabsSendMessage(() => ({ ok: true, initialized: true, tree: "rewrite" }));
+    // makeRuntime answers emulation itself, before the per-test handler, so the
+    // record of what was asked for is the shared mock's own call log.
+    const runtime = makeRuntime(async (message) => replyFrame(message, []));
+    globalThis.chrome = {
+      runtime: { ...runtime },
+      tabs: { query, sendMessage: tabsSendMessage },
+    } as unknown as typeof chrome;
+    const emulationFrames = () => runtime.sendMessage.mock.calls
+      .map(([frame]) => frame as { name?: string; payload?: unknown })
+      .filter((frame) => frame.name === "emulation.apply" || frame.name === "emulation.clear");
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    await waitFor(() => emulationFrames().length > 0, "the standing emulation posture");
+
+    // No marking, no render mode, no session — and the tab is already mobile.
+    expect(emulationFrames()).toEqual([
+      { name: "emulation.apply", payload: { tabId: 77, mode: "mobile", scale: 1 } },
+    ].map((expected) => expect.objectContaining(expected)));
+  });
+
+  it("returns the tab to mobile when marking ends rather than releasing it", async () => {
+    // Leaving marking does not end the extension's presence on the tab, so the
+    // posture holds. Releasing emulation there left the page at desktop width while
+    // the operator was still looking at it through the extension.
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const render = vi.fn();
+    vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
+    const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com" }]);
+    const tabsSendMessage = makeTabsSendMessage(() => ({ ok: true, initialized: true, tree: "rewrite" }));
+    let signalSeq = 0;
+    const runtime = makeRuntime(async (message) => {
+      if (message.name === "signals.emit") {
+        const request = message.payload as { tabId: number; signal: { name?: string; payload?: unknown } };
+        signalSeq += 1;
+        return replyFrame(message, [{
+          kind: "uf-signal/1", tabId: request.tabId, seq: signalSeq, name: request.signal?.name,
+          source: "brain", cause: "test", at: signalSeq, payload: request.signal?.payload ?? {},
+        }]);
+      }
+      return replyFrame(message, []);
+    });
+    globalThis.chrome = {
+      runtime: { ...runtime },
+      tabs: { query, sendMessage: tabsSendMessage },
+    } as unknown as typeof chrome;
+    const emulationNames = () => runtime.sendMessage.mock.calls
+      .map(([frame]) => frame as { name?: string; payload?: { mode?: string } })
+      .filter((frame) => frame.name === "emulation.apply" || frame.name === "emulation.clear")
+      .map((frame) => (frame.name === "emulation.clear" ? "cleared" : String(frame.payload?.mode)));
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    confirmRenderMode(render);
+    await waitFor(() => emulationNames().length > 0, "the initial posture");
+    render.mock.calls.at(-1)?.[0].props.onEnableChange(true);
+    await flushEntrypointWork();
+    render.mock.calls.at(-1)?.[0].props.onEnableChange(false);
+    await flushEntrypointWork();
+
+    // Assert the evidence exists before asserting what it says: `every` on an empty
+    // array is vacuously true and would pass with emulation removed altogether.
+    expect(emulationNames().length).toBeGreaterThan(0);
+    expect(emulationNames()).not.toContain("cleared");
+    expect(emulationNames().every((mode) => mode === "mobile")).toBe(true);
   });
 
   it("does not adopt a render mode until the operator confirms it", async () => {

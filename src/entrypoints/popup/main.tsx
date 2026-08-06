@@ -81,6 +81,10 @@ let authMessage = "";
 /** Kept outside the store so the preference survives the resets that a lock
  *  takeover or a tab rebinding performs on the projected state. */
 let desktopPreviewEnabled = false;
+/** What the tab is currently emulating, so the standing posture can be re-asserted
+ *  after a reload without re-attaching the debugger on every poll tick. Null means
+ *  unknown — set on binding, and after anything that drops CDP overrides. */
+let appliedEmulationMode: "mobile" | "desktop" | null = null;
 /** Device size and JavaScript execution are independent axes; the legacy client
  *  conflated them here, so a desktop preview silently captured static HTML.
  *
@@ -341,6 +345,7 @@ function bindToTab(context: TargetTabContext): { changed: boolean; sameTabNaviga
   boundTabKey = nextKey;
   boundTabUrl = context.url;
   brainSignals.reset();
+  appliedEmulationMode = null;
   pendingRenderMode = null;
   lastSubmissionSnapshot = null;
   lastSubmissionKey = null;
@@ -451,6 +456,14 @@ async function emitPopupSignal(tabId: number, name: BrainSignal["name"], payload
 
 async function handleBoundContext(context: TargetTabContext): Promise<string> {
   const binding = bindToTab(context);
+  // The standing posture applies from the moment the extension is active on the
+  // tab. bindToTab cleared the record, so this re-applies after a navigation too.
+  void ensureSessionEmulation(context).then((active) => {
+    if (!active) {
+      logEvent("Device emulation failed", "the page is not in mobile simulation", "warn");
+      render();
+    }
+  }).catch(() => undefined);
   if (binding.sameTabNavigation) {
     await clearSessionEmulation(context);
     await sendContentMessage(context.tabId, { type: "deactivateContentMain" });
@@ -585,14 +598,37 @@ function baseUrlFor(url: string): string {
   return url ? new URL(url).origin : "https://example.com";
 }
 
+/** Mobile is the standing posture for any tab the extension is active on, not
+ *  something marking switches on: the crawler reads the mobile render, so that is
+ *  the render every decision has to be made against — the inspection comparison,
+ *  the marks, the capture. Desktop is a deliberate opt-out and it lives on the
+ *  silent-highlighting view alone, which is why it is conditioned on marking being
+ *  off rather than on the toggle by itself. Arming marking returns the tab to
+ *  mobile even if desktop was left on. */
+function desiredEmulationMode(): "mobile" | "desktop" {
+  return desktopPreviewEnabled && !contentActive ? "desktop" : "mobile";
+}
+
 async function applySessionEmulation(context: TargetTabContext): Promise<boolean> {
-  const presentation = store.getPresentation();
+  const mode = desiredEmulationMode();
   const response = await getPopupBus().request("emulation.apply", {
     tabId: context.tabId,
-    mode: presentation.desktopPreviewChecked ? "desktop" : "mobile",
+    mode,
     scale: 1,
   }, { target: "background" });
-  return response.ok && response.data.active === true;
+  const active = response.ok && response.data.active === true;
+  appliedEmulationMode = active ? mode : null;
+  return active;
+}
+
+/** Re-asserts the standing posture, and says nothing to the debugger when it is
+ *  already right — a page reload drops CDP overrides, so this has to be reachable
+ *  from every path that follows one, but it must not re-attach on every poll. */
+async function ensureSessionEmulation(context: TargetTabContext): Promise<boolean> {
+  if (appliedEmulationMode === desiredEmulationMode()) {
+    return true;
+  }
+  return await applySessionEmulation(context);
 }
 
 async function clearSessionEmulation(context: TargetTabContext): Promise<void> {
@@ -921,10 +957,12 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
       // The content script applies them once and then ignores them.
       ...(loadedSelectors ? { selectors: loadedSelectors } : {}),
     });
-    if (!activated) {
-      await clearSessionEmulation(context);
-    }
     contentActive = activated;
+    if (!activated) {
+      // Marking never armed, so the tab is silent again — and silent still means
+      // mobile, not released.
+      await ensureSessionEmulation(context);
+    }
     if (activated) {
       // The seeded marks are the session's starting point, so show them without
       // pretending the operator has edited anything.
@@ -946,13 +984,15 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
     }, requestKey);
     await pullSignals(context.tabId, requestKey);
   } else {
-    await clearSessionEmulation(context);
     await sendContentMessage(context.tabId, { type: "deactivateContentMain" });
     lastSubmissionSnapshot = null;
     lastSubmissionKey = null;
     activeRunSessionId = null;
     contentActive = false;
     contentDirty = false;
+    // Leaving marking does not release the tab: the extension is still active on
+    // it, so the posture holds — and desktop preview only becomes available now.
+    await ensureSessionEmulation(context);
     logEvent("Marking disabled", "toggle");
     await emitPopupSignal(context.tabId, "marking.disabled", { baseUrl: "", pageUrl: context.url, cause: "toggle" }, requestKey);
   }
@@ -1045,6 +1085,19 @@ function pickRenderMode(mode: RenderMode): void {
   render();
 }
 
+/** A tab must never be left with scripts disabled. The inspection deliberately
+ *  loads the page both ways, so every exit from that view — confirming or
+ *  cancelling — puts JavaScript back if the last load was the static one. The
+ *  chosen render mode is a fact about the property, not a posture for the tab:
+ *  a static property is still browsed with scripts on. */
+async function restoreJavascriptView(): Promise<void> {
+  if (renderModeView !== "without_javascript") {
+    return;
+  }
+  logEvent("Restoring the page", "reloading with JavaScript");
+  await loadRenderModeView(true);
+}
+
 /** Legacy's `Set`. Serves the first choice and every later edit alike. */
 function commitRenderMode(): void {
   const chosen = pendingRenderMode ?? confirmedRenderMode;
@@ -1059,6 +1112,7 @@ function commitRenderMode(): void {
   // is why leaving the view happens here rather than inside it.
   setRenderMode(chosen);
   render();
+  void restoreJavascriptView();
 }
 
 /** Only offered once a mode exists, so there is always something to fall back
@@ -1067,6 +1121,7 @@ function cancelRenderMode(): void {
   pendingRenderMode = null;
   requestedView = null;
   render();
+  void restoreJavascriptView();
 }
 
 function confirmDiscardMarkings(): boolean {
@@ -1084,11 +1139,13 @@ async function setDesktopPreviewEnabled(enabled: boolean): Promise<void> {
   logEvent("Device preview", enabled ? "desktop" : "mobile");
   render();
   const context = await resolveTargetTabContext();
-  if (context === null || !contentActive) {
+  if (context === null) {
     return;
   }
+  // No armed-session requirement: this control lives on the silent view, which is
+  // precisely where marking is off. Turning it off returns the tab to mobile.
   if (!await applySessionEmulation(context)) {
-    logEvent("Device preview failed", "emulation could not be re-applied", "warn");
+    logEvent("Device preview failed", "emulation could not be applied", "warn");
   }
   render();
 }
@@ -1576,12 +1633,13 @@ async function saveSession(): Promise<void> {
     return;
   }
   if (response.ok && response.data.status === "ok") {
-    await clearSessionEmulation(context);
     await sendContentMessage(context.tabId, { type: "deactivateContentMain" });
     lastSubmissionSnapshot = null;
     lastSubmissionKey = null;
     contentActive = false;
     contentDirty = false;
+    // Saving ends the session, not the extension's presence on the tab.
+    await ensureSessionEmulation(context);
     // The backend holds the configuration now, so the render mode is its
     // decision and the local copy has been cleared background-side.
     renderModeSource = "backend";
@@ -1637,8 +1695,8 @@ async function discardMarkings(): Promise<void> {
     render();
     return;
   }
-  await clearSessionEmulation(context);
   contentDirty = false;
+  await ensureSessionEmulation(context);
   logEvent("Markings discarded", context.url);
   await emitPopupSignal(context.tabId, "session.discarded", { baseUrl: "", pageUrl: context.url }, requestKey);
   await pullSignals(context.tabId, requestKey);

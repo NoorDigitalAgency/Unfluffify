@@ -9,6 +9,7 @@ import {
   type ContentDirectivePatch,
   type ContentDirectiveState,
 } from "../content/command-router";
+import { hideConsentOverlays } from "../content/consent";
 import { createMarkingEngine } from "../content/marking";
 import { createFreezeController, createRevealVisitController, createSpaGuard } from "../content/stabilization";
 import type { BrainSignal } from "../domain/schema/signals";
@@ -44,6 +45,10 @@ let contentDirective: ContentDirectiveState = createDefaultContentDirective(last
  *  "once" across re-activations of the same session. */
 let selectorsSeeded = false;
 let removeNavigationGate: (() => void) | null = null;
+/** Watches for consent chrome injected after the first sweep, which is the norm:
+ *  most frameworks mount their dialog once their own script has loaded. */
+let consentObserver: MutationObserver | null = null;
+let consentSweptForUrl = "";
 let directiveRoot: HTMLElement | null = null;
 
 function isUserMarkingDirty(): boolean {
@@ -334,7 +339,54 @@ function renderDirectiveSurface(): void {
   }
 }
 
+/** Legacy's durable contract: consent hiding runs on every property page,
+ *  decoupled from candidacy, marking mode, stored selectors and the reveal/freeze
+ *  directives — and it runs BEFORE any of them can bail out. A directive arriving
+ *  is what says this tab is in scope; nothing about its contents gates this.
+ *
+ *  A consent dialog covers the content being marked, ruins a render-mode
+ *  comparison, and can be dismissed by a stray click — which records a consent
+ *  decision that changes what every later load looks like. */
+function sweepConsentOverlays(): void {
+  if (typeof document === "undefined") {
+    return;
+  }
+  const result = hideConsentOverlays(document);
+  if (result.hidden > 0) {
+    console.debug(`[Unfluffify][rewrite] Hid ${result.hidden} consent element(s)`);
+  }
+  observeLateConsentOverlays();
+}
+
+/** Re-sweeps on DOM growth. Cheap by construction: the sweep skips everything it
+ *  has already hidden, so a busy page costs a query and no writes. */
+function observeLateConsentOverlays(): void {
+  if (consentObserver !== null || typeof document === "undefined" || typeof MutationObserver === "undefined") {
+    return;
+  }
+  const target = document.documentElement ?? document.body;
+  if (!target) {
+    return;
+  }
+  consentObserver = new MutationObserver(() => {
+    hideConsentOverlays(document);
+  });
+  consentObserver.observe(target, { childList: true, subtree: true });
+}
+
+function stopConsentObserver(): void {
+  consentObserver?.disconnect();
+  consentObserver = null;
+  consentSweptForUrl = "";
+}
+
 function applyContentDirective(patch: ContentDirectivePatch): ContentDirectiveState {
+  // First, before the merge and before anything below can return early.
+  const pageUrl = currentPageUrl();
+  if (consentSweptForUrl !== pageUrl) {
+    consentSweptForUrl = pageUrl;
+    sweepConsentOverlays();
+  }
   contentDirective = mergeContentDirective(contentDirective, patch);
   if (contentDirective.content.markingEditsBlocked) {
     pauseMarkingInteractions();
@@ -451,6 +503,10 @@ function handleUrlChanged(nextUrl?: string): void {
   const previousUrl = lastKnownPageUrl;
   lastKnownPageUrl = currentUrl;
   spaGuard.onUrlChange(currentUrl);
+  // A same-document navigation keeps this script alive, so the sweep has to be
+  // re-armed for the new URL — the next page's consent chrome is a fresh mount and
+  // the observer is watching a document that has been rewritten underneath it.
+  stopConsentObserver();
   if (!markingActive) {
     return;
   }
