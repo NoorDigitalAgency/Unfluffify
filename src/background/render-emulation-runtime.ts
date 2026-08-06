@@ -1,5 +1,5 @@
 import { getBrowserRuntimeLastError } from "../common/browser";
-import { applyEmulationViaCdp, clearEmulationViaCdp, loadPageWithJavascript, restoreJavascriptViaCdp, type EmulationMode } from "../content/stabilization";
+import { applyEmulationViaCdp, clearEmulationViaCdp, deriveMobileUserAgent, loadPageWithJavascript, restoreJavascriptViaCdp, type EmulationMode } from "../content/stabilization";
 
 type Debuggee = Readonly<{ tabId?: number }>;
 type DebuggerApi = Readonly<{
@@ -48,9 +48,14 @@ export function createRenderEmulationRuntime(input: Readonly<{
   tabs?: TabsApi;
 }>) {
   const attachedTabs = new Set<number>();
+  /** The browser's own user agent, per tab, read BEFORE anything overrides it —
+   *  read afterwards it would return our own spoof and the mobile UA would be
+   *  derived from itself, compounding on every re-apply. */
+  const realUserAgents = new Map<number, string>();
   input.debuggerApi?.onDetach?.addListener((source) => {
     if (typeof source.tabId === "number") {
       attachedTabs.delete(source.tabId);
+      realUserAgents.delete(source.tabId);
     }
   });
   const targetFor = (tabId: number): Debuggee => ({ tabId });
@@ -92,9 +97,66 @@ export function createRenderEmulationRuntime(input: Readonly<{
       attachedTabs.delete(tabId);
     }
   };
+  const realUserAgentFor = async (tabId: number): Promise<string> => {
+    const known = realUserAgents.get(tabId);
+    if (known !== undefined) {
+      return known;
+    }
+    try {
+      const result = await send(tabId, "Runtime.evaluate", {
+        expression: "navigator.userAgent",
+        returnByValue: true,
+      });
+      const value = (result as { result?: { value?: unknown } } | undefined)?.result?.value;
+      const userAgent = typeof value === "string" ? value : "";
+      // Only a real answer is cached. Caching the empty one looked like a way to
+      // avoid re-probing a page that cannot be evaluated, but the probe can fail
+      // transiently — a debugger that has only just attached, a document still
+      // loading — and a cached failure then disables the spoof for the life of the
+      // tab. One extra evaluate per apply is the cheaper mistake.
+      if (userAgent) {
+        realUserAgents.set(tabId, userAgent);
+      }
+      return userAgent;
+    } catch {
+      return "";
+    }
+  };
+  /** What the CURRENT document believes its user agent is. Chrome fixes
+   *  `navigator.userAgent` when a document is created, so an override applied
+   *  afterwards changes what the next load sees and nothing about this one. */
+  const documentUserAgent = async (tabId: number): Promise<string> => {
+    try {
+      const result = await send(tabId, "Runtime.evaluate", {
+        expression: "navigator.userAgent",
+        returnByValue: true,
+      });
+      const value = (result as { result?: { value?: unknown } } | undefined)?.result?.value;
+      return typeof value === "string" ? value : "";
+    } catch {
+      return "";
+    }
+  };
   return {
-    apply(tabId: number, mode: EmulationMode, scale: number) {
-      return applyEmulationViaCdp({ send: (method, params) => send(tabId, method, params) }, mode, scale);
+    async apply(tabId: number, mode: EmulationMode, scale: number, allowReload = false) {
+      const realUserAgent = await realUserAgentFor(tabId);
+      const state = await applyEmulationViaCdp(
+        { send: (method, params) => send(tabId, method, params) },
+        mode,
+        scale,
+        { realUserAgent },
+      );
+      // The override is in place for the NEXT load, so the document the operator
+      // is looking at was still fetched under the old identity — and a site that
+      // serves by user agent gave it the desktop page. Forcing the posture means
+      // reloading once so the document itself is the mobile one. Self-terminating:
+      // after the reload the document's own UA matches, so nothing asks again.
+      const intended = mode === "mobile" ? deriveMobileUserAgent(realUserAgent) : realUserAgent;
+      const identityStale = Boolean(intended) && await documentUserAgent(tabId) !== intended;
+      if (identityStale && allowReload && input.tabs) {
+        await callbackToPromise<void>((callback) => input.tabs?.reload(tabId, {}, callback)).catch(() => undefined);
+      }
+      return { ...state, identityStale };
     },
     async clear(tabId: number) {
       const cleared = await clearEmulationViaCdp({ send: (method, params) => send(tabId, method, params) }, {
@@ -104,7 +166,10 @@ export function createRenderEmulationRuntime(input: Readonly<{
         scale: 1,
         active: true,
       });
+      // Detaching drops every override with it, including the user agent, so the
+      // next attach must read the browser's own identity again.
       await detach(tabId);
+      realUserAgents.delete(tabId);
       return cleared;
     },
     /** Loads the tab with JavaScript on or off so the operator can compare the

@@ -68,23 +68,28 @@ test("browser launcher never reloads the extension, and reloads the page", () =>
   assert.ok(launchScript.includes("No live extension service worker"));
 });
 
-test("browser launcher does not claim freshness a reused profile cannot give", () => {
-  // A reused profile can still serve a worker from a previous registration. The
-  // banner is evidence of what is running, so it has to say which case this is.
+test("browser launcher makes Chrome re-register the worker by bumping the version", () => {
+  // Chrome keeps serving the service worker it registered for this profile until it
+  // sees a new VERSION. Without the bump a rebuilt background silently answers with
+  // the previous build's code — the failure that cost two misdiagnoses, because
+  // every visible surface looks correct while the logic behind it is stale.
   const launchScript = readFileSync(
     new URL("../scripts/launch-test-browser.mjs", import.meta.url),
     "utf8",
   );
 
   assert.ok(
-    /PROFILE_EXISTED\s*=\s*await stat\(PROFILE_DIR\)/.test(launchScript),
-    "freshness must be decided from the profile on disk at start, not after Chrome creates it",
+    launchScript.includes("async function stampBuildVersion()"),
+    "the launcher must stamp a fresh manifest version so the worker re-registers",
   );
+  // Monotonic, and written where the next run can read it.
+  assert.ok(/build-counter/.test(launchScript), "the counter must persist between runs");
+  assert.ok(/% 65536/.test(launchScript), "manifest version components are bounded at 65535");
+  // Stamped after the build, or the build would overwrite it.
+  const build = launchScript.indexOf('await run("pnpm", ["build"])');
+  const stamp = launchScript.indexOf("await stampBuildVersion()");
+  assert.ok(build > 0 && stamp > build, "the stamp must come after the build that writes the manifest");
   assert.ok(launchScript.includes("refreshed"), "the ready banner must report freshness");
-  assert.ok(
-    launchScript.includes("profile REUSED"),
-    "a reused profile must be named in the banner, not silently treated as fresh",
-  );
 });
 
 

@@ -178,7 +178,7 @@ export function startRewriteBackground(): void {
     }
   });
   bus.onCommand("lock.directive", (request) => lockRuntime.directive(request));
-  bus.onCommand("emulation.apply", (request) => renderEmulation.apply(request.tabId, request.mode, request.scale));
+  bus.onCommand("emulation.apply", (request) => renderEmulation.apply(request.tabId, request.mode, request.scale, request.allowReload === true));
   bus.onCommand("emulation.clear", async (request) => {
     await renderEmulation.clear(request.tabId);
     return { status: "ok" as const };

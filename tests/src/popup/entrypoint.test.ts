@@ -191,8 +191,10 @@ describe("rewrite popup entrypoint", () => {
     await waitFor(() => emulationFrames().length > 0, "the standing emulation posture");
 
     // No marking, no render mode, no session — and the tab is already mobile.
+    // allowReload is true here because no marking session is armed: establishing a
+    // spoofed identity needs a load, and there is nothing to lose to one yet.
     expect(emulationFrames()).toEqual([
-      { name: "emulation.apply", payload: { tabId: 77, mode: "mobile", scale: 1 } },
+      { name: "emulation.apply", payload: { tabId: 77, mode: "mobile", scale: 1, allowReload: true } },
     ].map((expected) => expect.objectContaining(expected)));
   });
 

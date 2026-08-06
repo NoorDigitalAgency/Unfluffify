@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   applyEmulation,
   applyEmulationViaCdp,
+  deriveMobileUserAgent,
+  deriveMobileUserAgentMetadata,
   clearEmulation,
   clearEmulationViaCdp,
   clampDeviceScale,
@@ -126,6 +128,103 @@ describe("P5 page stabilization", () => {
       { method: "Emulation.clearDeviceMetricsOverride", params: undefined },
     ]);
     expect(cleared.active).toBe(false);
+  });
+
+  it("spoofs a mobile identity carrying the browser's own Chrome version", async () => {
+    // A UA claiming a version this browser is not gets caught by any server that
+    // cross-checks it, and it rots with every Chrome release. So the version is
+    // carried across from the real UA rather than written down here.
+    const real = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.7390.65 Safari/537.36";
+
+    const mobile = deriveMobileUserAgent(real);
+
+    expect(mobile).toContain("Chrome/141.0.7390.65");
+    expect(mobile).toContain("Android 13");
+    expect(mobile).toContain("Mobile Safari/537.36");
+    expect(mobile).not.toContain("X11");
+    expect(mobile).not.toContain("Linux x86_64");
+  });
+
+  it("matches the client hints to the spoofed user agent", async () => {
+    // Sites increasingly read navigator.userAgentData.mobile instead of parsing
+    // the string; one of the two saying "desktop" defeats spoofing the other.
+    const real = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.7390.65 Safari/537.36";
+
+    const metadata = deriveMobileUserAgentMetadata(real);
+
+    expect(metadata).toMatchObject({
+      mobile: true,
+      platform: "Android",
+      platformVersion: "13",
+      model: "Pixel 7",
+      fullVersion: "141.0.7390.65",
+    });
+    // Brand versions are the major; the full list carries the exact build.
+    expect(metadata?.brands).toEqual(expect.arrayContaining([
+      { brand: "Google Chrome", version: "141" },
+    ]));
+    expect(metadata?.fullVersionList).toEqual(expect.arrayContaining([
+      { brand: "Google Chrome", version: "141.0.7390.65" },
+    ]));
+  });
+
+  it("leaves the user agent alone rather than inventing a version", async () => {
+    // No Chrome token means no version was read. Asserting one anyway would be a
+    // claim about a browser nobody looked at.
+    expect(deriveMobileUserAgent("Mozilla/5.0 (compatible; SomeBot/1.0)")).toBe("");
+    expect(deriveMobileUserAgentMetadata("Mozilla/5.0 (compatible; SomeBot/1.0)")).toBe(null);
+
+    const calls: Array<{ method: string }> = [];
+    const client = { send: async (method: string) => { calls.push({ method }); } };
+    await applyEmulationViaCdp(client, "mobile", 1, { realUserAgent: "Mozilla/5.0 (compatible; SomeBot/1.0)" });
+
+    expect(calls.map((call) => call.method)).toEqual(["Emulation.setDeviceMetricsOverride"]);
+  });
+
+  it("does not override the user agent when the real one is unknown", async () => {
+    // Reading the real UA can fail on a page that refuses evaluation; spoofing
+    // from nothing would derive a mobile UA from our own previous spoof.
+    const calls: Array<{ method: string }> = [];
+    const client = { send: async (method: string) => { calls.push({ method }); } };
+
+    await applyEmulationViaCdp(client, "mobile", 1);
+
+    expect(calls.map((call) => call.method)).toEqual(["Emulation.setDeviceMetricsOverride"]);
+  });
+
+  it("restores the browser's own user agent for desktop", async () => {
+    // Desktop is the truth, not a second fiction: the real UA goes back, and with
+    // the metadata omitted the real client hints come back with it.
+    const real = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.7390.65 Safari/537.36";
+    const calls: Array<{ method: string; params?: Record<string, unknown> }> = [];
+    const client = { send: async (method: string, params?: Record<string, unknown>) => { calls.push({ method, params }); } };
+
+    await applyEmulationViaCdp(client, "desktop", 1, { realUserAgent: real });
+
+    expect(calls.map((call) => call.method)).toEqual([
+      "Emulation.setDeviceMetricsOverride",
+      "Emulation.setUserAgentOverride",
+    ]);
+    expect(calls[1].params).toEqual({ userAgent: real });
+  });
+
+  it("sends the mobile identity alongside the mobile metrics", async () => {
+    const real = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.7390.65 Safari/537.36";
+    const calls: Array<{ method: string; params?: Record<string, unknown> }> = [];
+    const client = { send: async (method: string, params?: Record<string, unknown>) => { calls.push({ method, params }); } };
+
+    await applyEmulationViaCdp(client, "mobile", 1, { realUserAgent: real });
+
+    expect(calls.map((call) => call.method)).toEqual([
+      "Emulation.setDeviceMetricsOverride",
+      "Emulation.setUserAgentOverride",
+    ]);
+    const params = calls[1].params as { userAgent: string; platform: string; userAgentMetadata: { mobile: boolean } };
+    expect(params.userAgent).toContain("Mobile Safari");
+    expect(params.platform).toBe("Android");
+    expect(params.userAgentMetadata.mobile).toBe(true);
+    // Metrics still say mobile: the two halves of the claim must agree.
+    expect(calls[0].params).toMatchObject({ mobile: true, width: 412 });
   });
 
   it("toggles script execution and reloads so the operator can compare views", async () => {

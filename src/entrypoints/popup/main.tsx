@@ -615,6 +615,10 @@ async function applySessionEmulation(context: TargetTabContext): Promise<boolean
     tabId: context.tabId,
     mode,
     scale: 1,
+    // A reload is what makes a spoofed identity real, and it is only safe while
+    // there are no markings to lose. During a session the override still governs
+    // every later load; it just does not disturb the one being worked on.
+    allowReload: !contentActive,
   }, { target: "background" });
   const active = response.ok && response.data.active === true;
   appliedEmulationMode = active ? mode : null;

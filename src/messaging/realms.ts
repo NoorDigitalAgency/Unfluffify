@@ -46,6 +46,10 @@ const EmulationApplyRequestSchema = z.object({
   tabId: z.number().int().positive(),
   mode: z.enum(["mobile", "desktop"]),
   scale: z.number(),
+  /** Whether the caller is in a position to survive a page reload. Establishing a
+   *  spoofed identity needs one — Chrome fixes navigator.userAgent per document —
+   *  and only the popup knows whether a marking session would lose work to it. */
+  allowReload: z.boolean().optional(),
 });
 
 const EmulationStateResponseSchema = z.object({
@@ -54,6 +58,9 @@ const EmulationStateResponseSchema = z.object({
   height: z.number().int().positive(),
   scale: z.number(),
   active: z.boolean(),
+  /** True when the document was loaded under a different identity than the one now
+   *  in force, so what the operator is looking at is not what the override says. */
+  identityStale: z.boolean().optional(),
 });
 
 /* Comparing the two views is the operator's job, so the command only reloads

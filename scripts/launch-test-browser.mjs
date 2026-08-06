@@ -18,13 +18,15 @@
  *   5. Navigates the first tab to <target-url>.
  *   6. Resolves the loaded extension id from the service worker (and verifies it
  *      against the deterministic path-hash id).
- *   7. Reloads the target page (never the extension — see the bind script: the
+ *   7. Stamps a monotonic build counter into the manifest version, so Chrome sees
+ *      an update and re-registers the service worker from disk. Without it a
+ *      reused profile keeps serving the worker it registered on a previous run,
+ *      and a rebuilt background silently answers with the previous build's code.
+ *   8. Reloads the target page (never the extension — see the bind script: the
  *      extension reload unloads the extension outright in the current managed
- *      Chromium). Freshness comes from starting Chrome anew against the build
- *      step above; the ready banner says whether the profile was reused, because
- *      a reused one can still serve a worker from a previous registration.
- *   8. Resolves the target page's Chrome tab id via the service worker.
- *   9. Opens a SECOND tab `popup.html?debugTabId=<pageTabId>` so the extension
+ *      Chromium).
+ *   9. Resolves the target page's Chrome tab id via the service worker.
+ *  10. Opens a SECOND tab `popup.html?debugTabId=<pageTabId>` so the extension
  *      binds to the target page.
  *
  * The browser stays open until this process is stopped (Ctrl-C / kill <pid>).
@@ -731,6 +733,38 @@ if (doBuild) {
   console.log(`[launch] sourcemaps: ${process.env.UNFLUFFIFY_SOURCEMAP}`);
   await run("pnpm", ["build"]);
 }
+/** Chrome re-registers an unpacked extension's service worker when it sees a new
+ *  VERSION. Without that it keeps serving the worker it registered for this
+ *  profile on a previous run — so a rebuilt background answers with the previous
+ *  build's code, and the only tells are a NO_HANDLER on a newly added bus command
+ *  or, worse, a command that silently behaves the old way. That cost two
+ *  misdiagnoses before it was understood.
+ *
+ *  Reloading the extension used to paper over this, until the reload started
+ *  unloading the extension outright (see the bind script). Bumping the version is
+ *  the honest fix: Chrome treats it as an update and re-reads everything from disk,
+ *  with nothing to unload and no profile to throw away. The base version is left
+ *  alone and a monotonic build counter occupies the fourth component, which the
+ *  manifest format allows (four integers, each 0..65535). */
+async function stampBuildVersion() {
+  const manifestPath = join(EXT_DIR, "manifest.json");
+  const counterPath = join(TEMP_DIR, "build-counter");
+  let manifest;
+  try {
+    manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+  } catch {
+    return null;
+  }
+  const base = String(manifest.version ?? "0.0.0").split(".").slice(0, 3).join(".");
+  const previous = Number.parseInt(await readFile(counterPath, "utf8").catch(() => "0"), 10);
+  const counter = (Number.isFinite(previous) ? previous + 1 : 1) % 65536;
+  const stamped = `${base}.${counter}`;
+  await mkdir(TEMP_DIR, { recursive: true });
+  await writeFile(counterPath, String(counter), "utf8");
+  await writeFile(manifestPath, JSON.stringify({ ...manifest, version: stamped }), "utf8");
+  return stamped;
+}
+
 try {
   await stat(join(EXT_DIR, "manifest.json"));
 } catch {
@@ -743,6 +777,13 @@ try {
 
 await mkdir(TEMP_DIR, { recursive: true });
 await mkdir(TEMP_OUT, { recursive: true });
+
+const stampedVersion = await stampBuildVersion();
+if (stampedVersion) {
+  console.log(`[launch] stamped manifest version ${stampedVersion} so Chrome re-registers the worker`);
+} else {
+  console.warn("[launch] WARNING: could not stamp the manifest version; a reused profile may serve a stale worker");
+}
 
 const rawConfig = await readFile(COMMITTED_CONFIG, "utf8");
 const config = JSON.parse(rawConfig.replaceAll("__UNFLUFFIFY_REPO_ROOT__", repoRoot));
@@ -842,9 +883,8 @@ if (extId && tabId && boundUrl) {
   // than the launch can guarantee. A reused profile can still serve a worker from
   // a previous registration; only a fresh one rules that out.
   console.log(`  freshness   : ${bindClean.includes('"refreshed":true')
-    ? PROFILE_EXISTED
-      ? "page reloaded; profile REUSED — if a new bus command answers NO_HANDLER, relaunch with a cleared profile"
-      : "new profile: extension loaded from this build, page reloaded"
+    ? `${stampedVersion ? `version ${stampedVersion} forces a worker re-registration` : "WARNING: version not stamped, the worker may be stale"}`
+      + `; page reloaded; profile ${PROFILE_EXISTED ? "reused" : "new"}`
     : "WARNING: not refreshed; the worker may be running a previous build"}`);
   console.log("=========================================================");
   console.log("Browser is open. Stop with Ctrl-C or `kill <pid>` to close it.");
