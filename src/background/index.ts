@@ -208,7 +208,7 @@ export function startRewriteBackground(): void {
         return "";
       }
     })();
-    const empty = { property: false, baseUrl, siteId: null, renderModeSet: false, candidatePage: false };
+    const empty = { property: false, baseUrl, siteId: null, renderModeSet: false, candidatePage: false, hasPageRecords: false };
     if (!baseUrl) {
       return { ...empty, reason: "unparseable-url" };
     }
@@ -220,6 +220,7 @@ export function startRewriteBackground(): void {
         siteId: cached.siteId,
         renderModeSet: cached.renderModeSet,
         candidatePage: cached.pageMarkings.includes(request.pageUrl),
+        hasPageRecords: cached.pageMarkings.length > 0,
         reason: cached.reason,
       };
     }
@@ -264,6 +265,7 @@ export function startRewriteBackground(): void {
       siteId: entry.siteId,
       renderModeSet: entry.renderModeSet,
       candidatePage: entry.pageMarkings.includes(request.pageUrl),
+      hasPageRecords: entry.pageMarkings.length > 0,
       reason: entry.reason,
     };
   });

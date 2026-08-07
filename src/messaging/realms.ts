@@ -96,6 +96,10 @@ const PageContextResponseSchema = z.object({
   /** Whether this exact page carries a stored marking record — legacy's candidate
    *  page. The ritual prepares pages the crawler actually wants. */
   candidatePage: z.boolean(),
+  /** Whether the property has any page records at all. A property with none has no
+   *  way to say which pages matter, so candidacy cannot be required of it — and
+   *  requiring it anyway means such a property is never prepared, on any load. */
+  hasPageRecords: z.boolean(),
   /** Why the answer is what it is, for the operator-facing log. */
   reason: z.string(),
 });

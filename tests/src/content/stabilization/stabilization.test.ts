@@ -357,3 +357,29 @@ describe("page-visit reveal ritual", () => {
     expect((await controller.run({ ...base, hasVerticalScrollRoom: true, activationStale: false })).skipped).toBe(false);
   });
 });
+
+describe("reveal attempt bookkeeping", () => {
+  it("keeps the attempt when the page had nothing to walk yet", async () => {
+    // The failure this encodes: the ritual is triggered at document_start, where the
+    // document is empty and there is no scroll room, so the walk skips. Recording
+    // that skip as a completed ritual blocks the real one for the rest of the visit
+    // — which read as the ritual never running at all.
+    const controller = createRevealVisitController();
+    const walkable = {
+      hasVerticalScrollRoom: true,
+      activationStale: false,
+      initialScrollHeight: 5000,
+      scrollTo: () => undefined,
+      suppressLazyLoading: () => undefined,
+      freezeAtBottom: () => undefined,
+    };
+
+    // Empty document: nothing to reveal.
+    const early = await controller.run({ ...walkable, hasVerticalScrollRoom: false, initialScrollHeight: 0 });
+    expect(early.skipped).toBe(true);
+
+    // Once loaded, the attempt is still there — and it is the only one.
+    expect((await controller.run(walkable)).skipped).toBe(false);
+    expect((await controller.run(walkable)).skipped).toBe(true);
+  });
+});

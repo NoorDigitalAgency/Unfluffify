@@ -51,8 +51,14 @@ let consentObserver: MutationObserver | null = null;
 /** The page URL the background has already been asked about, so one page load costs
  *  one question. Cleared on navigation, and on a failed ask so it can be retried. */
 let pageContextProbedUrl = "";
-/** The page URL the reveal/freeze ritual has run for. One visit, one ritual. */
+/** The page URL the reveal/freeze ritual has RUN for. One visit, one ritual — and
+ *  set only once it actually ran, never when it skipped. */
 let ritualRanForUrl = "";
+/** The page URL a ritual is waiting on the load event for, so a second trigger in
+ *  the meantime does not queue a second walk of the same page. */
+let ritualPendingForUrl = "";
+/** How long to wait for a load event before walking anyway. */
+const RITUAL_READY_TIMEOUT_MS = 8000;
 let directiveRoot: HTMLElement | null = null;
 
 function isUserMarkingDirty(): boolean {
@@ -145,7 +151,7 @@ function refreshActiveMarking(): void {
   markingEngine.renderReadOnly();
 }
 
-function runActivationStabilization(pageUrl: string): void {
+async function runActivationStabilization(pageUrl: string): Promise<{ skipped: boolean } | null> {
   spaGuard.arm(pageUrl);
   destroyPageWorldSession();
   const sessionNonce = `rewrite-stabilization-${Date.now()}`;
@@ -165,7 +171,7 @@ function runActivationStabilization(pageUrl: string): void {
     }, "*");
   };
   postPageCommand("ARM", {});
-  void revealController.run({
+  return await revealController.run({
     hasVerticalScrollRoom: typeof document !== "undefined" && typeof window !== "undefined"
       ? document.documentElement.scrollHeight > window.innerHeight
       : false,
@@ -190,6 +196,7 @@ function runActivationStabilization(pageUrl: string): void {
     },
   }).catch((error: unknown) => {
     console.error("[Unfluffify][rewrite] Page stabilization failed", error);
+    return null;
   });
 }
 
@@ -425,12 +432,13 @@ async function establishPageContext(options: Readonly<{ ritualRequiresCandidate?
     return;
   }
   sweepConsentOverlays();
-  // At page load the ritual is for pages the crawler actually wants, so a stored
-  // marking record is required. Asked for after the operator has just established a
-  // render mode, it is not: a property that had no mode has no configuration either,
-  // so it has no page records at all, and requiring one would mean a brand-new
-  // property never gets its page prepared.
-  if (response.data.renderModeSet && (response.data.candidatePage || !requireCandidate)) {
+  // The ritual prepares pages the crawler wants, so a stored marking record is what
+  // picks them out — but only where the property HAS records. One with none has no
+  // way to say which pages matter, and requiring a record of it would mean such a
+  // property is never prepared on any load, which is the same trap as demanding one
+  // the moment a render mode is first established.
+  const wanted = response.data.candidatePage || !response.data.hasPageRecords;
+  if (response.data.renderModeSet && wanted) {
     runPageVisitRitual(pageUrl, requireCandidate ? "page-load" : "render-mode-established");
   }
 }
@@ -444,15 +452,78 @@ async function establishPageContext(options: Readonly<{ ritualRequiresCandidate?
  *  scroll-linked animation and lazy image on the way down, and a second walk over
  *  an already-revealed page would find nothing to reveal while costing the operator
  *  another full scroll of their page. */
+/** Whether there is a document worth walking yet.
+ *
+ *  This gate is why the ritual appeared not to run at all on a page load. The probe
+ *  that triggers it happens at document_start, where the document is still empty:
+ *  scrollHeight is a viewport or less, so the walk finds no scroll room and skips —
+ *  and the skip was being recorded as a completed ritual, which then blocked the
+ *  real one for the rest of the visit.
+ *
+ *  An absent readyState means an environment that does not model loading at all, so
+ *  there is nothing to wait for. */
+function readyToWalk(): boolean {
+  if (typeof document === "undefined") {
+    return false;
+  }
+  const state = document.readyState;
+  return state === undefined || state === "complete";
+}
+
+/** Runs the ritual, once a page has actually loaded and once per visit.
+ *
+ *  Latches on a real run only. A skip — no scroll room yet, or an activation that
+ *  has been overtaken by a navigation — leaves the attempt available, because the
+ *  page still has not been prepared and something later will ask again. */
 function runPageVisitRitual(pageUrl: string, cause: string): void {
   // Only a real URL can be deduplicated against. Comparing empty strings would
   // make the very first ritual on a page with no resolvable URL look like a repeat.
-  if (pageUrl && ritualRanForUrl === pageUrl) {
+  if (pageUrl && (ritualRanForUrl === pageUrl || ritualPendingForUrl === pageUrl)) {
     return;
   }
-  ritualRanForUrl = pageUrl;
-  console.debug(`[Unfluffify][rewrite] Page-visit reveal/freeze (${cause})`);
-  runActivationStabilization(pageUrl);
+  const attempt = (): void => {
+    ritualPendingForUrl = "";
+    if (pageUrl && currentPageUrl() !== pageUrl) {
+      // The page moved on while waiting; this ritual describes a document that is
+      // no longer here, and the new one has its own trigger.
+      return;
+    }
+    // Started synchronously so the page-world bridge is armed before anything else
+    // this tick can look for it; the walk's outcome settles later.
+    void runActivationStabilization(pageUrl).then((result) => {
+      if (result && !result.skipped) {
+        ritualRanForUrl = pageUrl;
+        console.debug(`[Unfluffify][rewrite] Page-visit reveal/freeze ran (${cause})`);
+        return;
+      }
+      console.debug(`[Unfluffify][rewrite] Page-visit reveal/freeze skipped (${cause}) — attempt kept`);
+    }).catch(() => {
+      // A failed walk has not prepared the page either, so the attempt stays free.
+    });
+  };
+  if (readyToWalk()) {
+    attempt();
+    return;
+  }
+  if (typeof window === "undefined") {
+    return;
+  }
+  // Wait for the load event rather than giving up: a reload triggers this at
+  // document_start every time, and that is exactly when the ritual is due.
+  ritualPendingForUrl = pageUrl;
+  let settled = false;
+  const onReady = (): void => {
+    if (settled) {
+      return;
+    }
+    settled = true;
+    window.removeEventListener("load", onReady);
+    attempt();
+  };
+  window.addEventListener("load", onReady, { once: true });
+  // A page whose load event never fires — an aborted subresource is enough — must
+  // not strand the ritual for the whole visit.
+  setTimeout(onReady, RITUAL_READY_TIMEOUT_MS);
 }
 
 function applyContentDirective(patch: ContentDirectivePatch): ContentDirectiveState {
@@ -581,6 +652,8 @@ function handleUrlChanged(nextUrl?: string): void {
   stopConsentObserver();
   pageContextProbedUrl = "";
   ritualRanForUrl = "";
+  ritualPendingForUrl = "";
+  revealController.resetForNavigation();
   void establishPageContext();
   if (!markingActive) {
     return;
