@@ -272,3 +272,88 @@ describe("P5 page stabilization", () => {
     expect(reloads).toEqual(["https://example.com/b"]);
   });
 });
+
+describe("page-visit reveal ritual", () => {
+  it("walks top, half, bottom then back, freezing at the bottom", async () => {
+    // The legacy contract: one full ritual per page visit — top, half (which is
+    // where the lazyloader is capped), the true bottom, freeze, then return under
+    // the freeze. The order is the point: freezing before the bottom would lock the
+    // page down before the scroll-linked content had been triggered.
+    // One ordered log, not one per kind: two lists cannot show that the freeze
+    // happened after the bottom was reached, which is the whole claim.
+    const log: string[] = [];
+
+    const result = await runReveal({
+      hasVerticalScrollRoom: true,
+      activationStale: false,
+      initialScrollHeight: 2000,
+      expandedScrollHeight: 3000,
+      scrollTo: (position) => log.push(`scroll:${position}`),
+      suppressLazyLoading: () => log.push("suppress-lazy"),
+      freezeAtBottom: () => log.push("freeze"),
+    });
+
+    expect(log).toEqual([
+      "scroll:top",
+      "scroll:half",
+      "suppress-lazy",
+      "scroll:bottom",
+      "freeze",
+      "scroll:restore",
+    ]);
+    expect(result).toEqual({ skipped: false, lazyExpansions: 1, frozenAtBottom: true });
+  });
+
+  it("runs once per visit, however often it is asked", async () => {
+    // Asked again by a second activation on the same page, the walk would find
+    // nothing left to reveal while costing the operator another full scroll.
+    const controller = createRevealVisitController();
+    const input = {
+      hasVerticalScrollRoom: true,
+      activationStale: false,
+      initialScrollHeight: 1000,
+      scrollTo: () => undefined,
+      suppressLazyLoading: () => undefined,
+      freezeAtBottom: () => undefined,
+    };
+
+    expect((await controller.run(input)).skipped).toBe(false);
+    expect((await controller.run(input)).skipped).toBe(true);
+    expect((await controller.run(input)).skipped).toBe(true);
+  });
+
+  it("frees the attempt again after a navigation", async () => {
+    // One ritual per VISIT, not per tab: the next page is a fresh page.
+    const controller = createRevealVisitController();
+    const input = {
+      hasVerticalScrollRoom: true,
+      activationStale: false,
+      initialScrollHeight: 1000,
+      scrollTo: () => undefined,
+      suppressLazyLoading: () => undefined,
+      freezeAtBottom: () => undefined,
+    };
+    await controller.run(input);
+    controller.resetForNavigation();
+
+    expect((await controller.run(input)).skipped).toBe(false);
+  });
+
+  it("does not spend the attempt on a page it cannot walk", async () => {
+    // A page with no scroll room has nothing to reveal, and a stale activation
+    // describes a page that has already been navigated away from. Neither should
+    // consume the one attempt this visit gets.
+    const controller = createRevealVisitController();
+    const base = {
+      initialScrollHeight: 1000,
+      scrollTo: () => undefined,
+      suppressLazyLoading: () => undefined,
+      freezeAtBottom: () => undefined,
+    };
+
+    expect((await controller.run({ ...base, hasVerticalScrollRoom: false, activationStale: false })).skipped).toBe(true);
+    expect((await controller.run({ ...base, hasVerticalScrollRoom: true, activationStale: true })).skipped).toBe(true);
+    // The attempt survived both, so the real one still runs.
+    expect((await controller.run({ ...base, hasVerticalScrollRoom: true, activationStale: false })).skipped).toBe(false);
+  });
+});

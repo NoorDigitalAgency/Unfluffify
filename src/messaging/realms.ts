@@ -75,6 +75,31 @@ const RenderModeInspectResponseSchema = z.object({
   reclaimLockAfterReload: z.boolean(),
 });
 
+/** What a content script needs to know about the page it just loaded, before any
+ *  popup is open. Consent hiding and the reveal/freeze ritual are both page-load
+ *  behaviours, so waiting for an operator to open the popup is too late. */
+const PageContextRequestSchema = z.object({
+  tabId: z.number().int().nonnegative().optional(),
+  pageUrl: z.string(),
+});
+
+const PageContextResponseSchema = z.object({
+  /** Whether this URL belongs to a managed property at all. The only gate on
+   *  consent hiding — not candidacy, not the render mode. */
+  property: z.boolean(),
+  baseUrl: z.string(),
+  siteId: z.number().int().positive().nullable(),
+  /** Whether the property has an established render mode. Marks taken under an
+   *  unestablished one describe a page nobody has looked at, and the ritual is part
+   *  of preparing the page to be marked. */
+  renderModeSet: z.boolean(),
+  /** Whether this exact page carries a stored marking record — legacy's candidate
+   *  page. The ritual prepares pages the crawler actually wants. */
+  candidatePage: z.boolean(),
+  /** Why the answer is what it is, for the operator-facing log. */
+  reason: z.string(),
+});
+
 const OffscreenRefineXpathsRequestSchema = z.object({
   html: z.string(),
   rows: z.array(MarkRowSchema),
@@ -199,6 +224,10 @@ export const applicationContract = defineContract({
     "emulation.clear": {
       request: z.object({ tabId: z.number().int().positive() }),
       response: z.object({ status: z.literal("ok") }),
+    },
+    "page.context": {
+      request: PageContextRequestSchema,
+      response: PageContextResponseSchema,
     },
     "renderMode.inspect": {
       request: RenderModeInspectRequestSchema,

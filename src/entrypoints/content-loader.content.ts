@@ -48,7 +48,11 @@ let removeNavigationGate: (() => void) | null = null;
 /** Watches for consent chrome injected after the first sweep, which is the norm:
  *  most frameworks mount their dialog once their own script has loaded. */
 let consentObserver: MutationObserver | null = null;
-let consentSweptForUrl = "";
+/** The page URL the background has already been asked about, so one page load costs
+ *  one question. Cleared on navigation, and on a failed ask so it can be retried. */
+let pageContextProbedUrl = "";
+/** The page URL the reveal/freeze ritual has run for. One visit, one ritual. */
+let ritualRanForUrl = "";
 let directiveRoot: HTMLElement | null = null;
 
 function isUserMarkingDirty(): boolean {
@@ -377,16 +381,84 @@ function observeLateConsentOverlays(): void {
 function stopConsentObserver(): void {
   consentObserver?.disconnect();
   consentObserver = null;
-  consentSweptForUrl = "";
+}
+
+/** Asks the background what this page is, and acts on the answer. Runs at document
+ *  start and once per page URL — waiting for a popup to open would be too late for
+ *  both behaviours it gates.
+ *
+ *  Consent hiding is gated on ONE thing: this being a property page. Not the render
+ *  mode, not candidacy. An operator browsing a property must never be able to
+ *  dismiss a consent dialog by accident, because that records a decision which
+ *  changes what every later load of that property looks like.
+ *
+ *  The reveal/freeze ritual is gated further, and on what the ritual is for: it
+ *  prepares a page to be marked, so it needs a property whose render mode is
+ *  established (marks under an unestablished one describe a page nobody has looked
+ *  at) and a page the crawler actually wants. For a property with no render mode
+ *  yet, the popup asks for the ritual once the operator sets one and leaves the
+ *  inspection — there is nothing useful to prepare before that. */
+async function establishPageContext(options: Readonly<{ ritualRequiresCandidate?: boolean }> = {}): Promise<void> {
+  const requireCandidate = options.ritualRequiresCandidate !== false;
+  const pageUrl = currentPageUrl();
+  if (!pageUrl || pageContextProbedUrl === pageUrl) {
+    return;
+  }
+  pageContextProbedUrl = pageUrl;
+  let response;
+  try {
+    response = await getContentBus().request("page.context", { pageUrl }, { target: "background" });
+  } catch {
+    // A worker that is not up yet: let the next trigger re-probe.
+    pageContextProbedUrl = "";
+    return;
+  }
+  if (!response.ok) {
+    pageContextProbedUrl = "";
+    return;
+  }
+  if (currentPageUrl() !== pageUrl) {
+    // Navigated while asking; the answer describes a page that is gone.
+    return;
+  }
+  if (!response.data.property) {
+    return;
+  }
+  sweepConsentOverlays();
+  // At page load the ritual is for pages the crawler actually wants, so a stored
+  // marking record is required. Asked for after the operator has just established a
+  // render mode, it is not: a property that had no mode has no configuration either,
+  // so it has no page records at all, and requiring one would mean a brand-new
+  // property never gets its page prepared.
+  if (response.data.renderModeSet && (response.data.candidatePage || !requireCandidate)) {
+    runPageVisitRitual(pageUrl, requireCandidate ? "page-load" : "render-mode-established");
+  }
+}
+
+/** THE REVEAL/FREEZE CONTRACT, ported from legacy (architect, 2026-07-03): one full
+ *  ritual per page visit — scroll to top, walk to the true bottom with the
+ *  lazyloader capped so at most one lazy expansion happens for the whole ritual,
+ *  then freeze; the return scroll happens under the freeze.
+ *
+ *  Once and only once per page load is the whole point. The walk triggers every
+ *  scroll-linked animation and lazy image on the way down, and a second walk over
+ *  an already-revealed page would find nothing to reveal while costing the operator
+ *  another full scroll of their page. */
+function runPageVisitRitual(pageUrl: string, cause: string): void {
+  // Only a real URL can be deduplicated against. Comparing empty strings would
+  // make the very first ritual on a page with no resolvable URL look like a repeat.
+  if (pageUrl && ritualRanForUrl === pageUrl) {
+    return;
+  }
+  ritualRanForUrl = pageUrl;
+  console.debug(`[Unfluffify][rewrite] Page-visit reveal/freeze (${cause})`);
+  runActivationStabilization(pageUrl);
 }
 
 function applyContentDirective(patch: ContentDirectivePatch): ContentDirectiveState {
-  // First, before the merge and before anything below can return early.
-  const pageUrl = currentPageUrl();
-  if (consentSweptForUrl !== pageUrl) {
-    consentSweptForUrl = pageUrl;
-    sweepConsentOverlays();
-  }
+  // A directive means a popup is bound, which is one of several ways to learn this
+  // is a property page — but not the earliest. The page-load probe below is.
+  void establishPageContext();
   contentDirective = mergeContentDirective(contentDirective, patch);
   if (contentDirective.content.markingEditsBlocked) {
     pauseMarkingInteractions();
@@ -507,6 +579,9 @@ function handleUrlChanged(nextUrl?: string): void {
   // re-armed for the new URL — the next page's consent chrome is a fresh mount and
   // the observer is watching a document that has been rewritten underneath it.
   stopConsentObserver();
+  pageContextProbedUrl = "";
+  ritualRanForUrl = "";
+  void establishPageContext();
   if (!markingActive) {
     return;
   }
@@ -570,7 +645,9 @@ function activateContentMain(payload: unknown): Record<string, unknown> {
     nextPageUrl,
     request.realEditorActivation !== false,
   );
-  runActivationStabilization(nextPageUrl);
+  // Through the same guard as the page-load path: a page prepared at load must not
+  // be walked again because marking was then armed on it.
+  runPageVisitRitual(nextPageUrl, "marking-activation");
   if (typeof document !== "undefined" && document.documentElement) {
     lastKnownPageUrl = nextPageUrl || lastKnownPageUrl;
     if (!markingActive) {
@@ -690,6 +767,16 @@ function createContentRouter() {
       resetContentMain: () => ({ ok: resetMarking(), initialized: true, tree: "rewrite" }),
       applySilentSelectors,
       clearSilentSelectors: () => clearSilentSelectors(),
+      /** Asked for by the popup when a render mode has just been established and the
+       *  operator has left the inspection: until then there was nothing worth
+       *  preparing, and the inspection's own reloads would have wasted the one
+       *  ritual this visit gets. Re-probes first, because setting the mode is
+       *  exactly what changes the answer the page-load probe got. */
+      preparePageVisit: async () => {
+        pageContextProbedUrl = "";
+        await establishPageContext({ ritualRequiresCandidate: false });
+        return { ok: true, prepared: ritualRanForUrl === currentPageUrl() };
+      },
     },
     applyDirective: applyContentDirective,
     pingActivity: pingContentActivity,
@@ -702,5 +789,7 @@ export default defineContentScript({
   main() {
     installNavigationWatcher();
     getContentBus().onCommand("command.dispatch", (command) => createContentRouter().dispatch(command));
+    // Page-load behaviours, asked for at page load rather than when a popup opens.
+    void establishPageContext();
   },
 });

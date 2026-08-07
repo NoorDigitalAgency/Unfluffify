@@ -1102,6 +1102,21 @@ async function restoreJavascriptView(): Promise<void> {
   await loadRenderModeView(true);
 }
 
+/** A property with no render mode had nothing worth preparing at page load, and the
+ *  inspection's own reloads would have spent the one ritual this visit gets. So the
+ *  moment a mode exists and the operator has left the inspection, ask for it. */
+async function preparePageAfterRenderMode(): Promise<void> {
+  const context = await resolveTargetTabContext();
+  if (context === null) {
+    return;
+  }
+  const prepared = await sendContentMessage(context.tabId, { type: "preparePageVisit" });
+  if (!prepared) {
+    logEvent("Page preparation skipped", contentReachable ? "not a candidate page" : "no content script on this tab");
+  }
+  render();
+}
+
 /** Legacy's `Set`. Serves the first choice and every later edit alike. */
 function commitRenderMode(): void {
   const chosen = pendingRenderMode ?? confirmedRenderMode;
@@ -1116,7 +1131,9 @@ function commitRenderMode(): void {
   // is why leaving the view happens here rather than inside it.
   setRenderMode(chosen);
   render();
-  void restoreJavascriptView();
+  // Order matters: restore the page first, because the ritual has to run on the
+  // document the operator will actually be marking.
+  void restoreJavascriptView().then(() => preparePageAfterRenderMode());
 }
 
 /** Only offered once a mode exists, so there is always something to fall back
@@ -1125,7 +1142,9 @@ function cancelRenderMode(): void {
   pendingRenderMode = null;
   requestedView = null;
   render();
-  void restoreJavascriptView();
+  // Cancelling leaves an established mode in place, so the page still wants
+  // preparing — the ritual's own guard makes this a no-op if it already ran.
+  void restoreJavascriptView().then(() => preparePageAfterRenderMode());
 }
 
 function confirmDiscardMarkings(): boolean {

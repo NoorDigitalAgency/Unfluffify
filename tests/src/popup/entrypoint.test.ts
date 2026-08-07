@@ -420,12 +420,12 @@ describe("rewrite popup entrypoint", () => {
 
     expect(query).toHaveBeenCalledWith({ active: true, currentWindow: true });
     // Asserted by content, not by call index: choosing a render mode publishes a
-    // directive of its own, and how many directives precede activation is not
-    // part of the contract.
+    // directive of its own and now also asks the page to be prepared, and how many
+    // of those precede activation is not part of the contract.
     const sentCommandNames = tabsSendMessage.mock.calls.map(
       ([, message]) => (message as { payload?: { name?: string } }).payload?.name,
     );
-    expect(sentCommandNames[0]).toBe("getContentMainStatus");
+    expect(sentCommandNames).toContain("getContentMainStatus");
     expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("directive.content", expect.objectContaining({
       baseUrl: "https://example.com",
       configPresent: true,

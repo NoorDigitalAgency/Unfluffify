@@ -92,4 +92,34 @@ test("browser launcher makes Chrome re-register the worker by bumping the versio
   assert.ok(launchScript.includes("refreshed"), "the ready banner must report freshness");
 });
 
+test("browser launcher drops the worker registration without dropping the data", () => {
+  // The version bump alone was measured not to dislodge an already-registered
+  // worker. Dropping `Default/Service Worker/` does, and the extension's own store
+  // lives in a different directory — so the operator keeps their endpoints, token
+  // and property state instead of re-doing setup for a code change they did not make.
+  const launchScript = readFileSync(
+    new URL("../scripts/launch-test-browser.mjs", import.meta.url),
+    "utf8",
+  );
+
+  assert.ok(
+    /join\(PROFILE_DIR, "Default", "Service Worker"\)/.test(launchScript),
+    "only the service-worker directory may be removed",
+  );
+  // Every removal in the script must target that one directory — asserted on the
+  // calls, not on the words, since the comments explaining this name other paths.
+  const removals = [...launchScript.matchAll(/\brm\(([^)]*)\)/g)].map((match) => match[1]);
+  assert.ok(removals.length > 0, "the removal must exist to be constrained");
+  for (const argument of removals) {
+    assert.ok(
+      argument.includes("swDir"),
+      `rm(${argument}) removes something other than the service-worker directory`,
+    );
+  }
+  // Before Chrome starts, or it will have reused the registration already.
+  const drop = launchScript.indexOf("await dropServiceWorkerRegistration()");
+  const launch = launchScript.indexOf("spawnPlaywrightMcp([");
+  assert.ok(drop > 0 && launch > 0 && drop < launch, "the drop must happen before Chrome is started");
+});
+
 

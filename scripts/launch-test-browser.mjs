@@ -18,10 +18,13 @@
  *   5. Navigates the first tab to <target-url>.
  *   6. Resolves the loaded extension id from the service worker (and verifies it
  *      against the deterministic path-hash id).
- *   7. Stamps a monotonic build counter into the manifest version, so Chrome sees
- *      an update and re-registers the service worker from disk. Without it a
- *      reused profile keeps serving the worker it registered on a previous run,
- *      and a rebuilt background silently answers with the previous build's code.
+ *   7. Drops the profile's service-worker registration and stamps a monotonic build
+ *      counter into the manifest version. Both exist for one reason: Chrome keeps
+ *      serving the worker it registered for this profile, so a rebuilt background
+ *      silently answers with the previous build's code. The version bump alone was
+ *      measured NOT to dislodge an already-registered worker; dropping the
+ *      registration does, and it keeps the extension's stored data — the operator's
+ *      endpoints, token and property state all survive.
  *   8. Reloads the target page (never the extension — see the bind script: the
  *      extension reload unloads the extension outright in the current managed
  *      Chromium).
@@ -32,7 +35,7 @@
  * The browser stays open until this process is stopped (Ctrl-C / kill <pid>).
  */
 import { spawn, spawnSync } from "node:child_process";
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
@@ -746,6 +749,31 @@ if (doBuild) {
  *  with nothing to unload and no profile to throw away. The base version is left
  *  alone and a monotonic build counter occupies the fourth component, which the
  *  manifest format allows (four integers, each 0..65535). */
+/** Drops ONLY the profile's service-worker registration and script cache.
+ *
+ *  Chrome keeps serving the worker it registered for a profile, and neither a
+ *  version bump nor a fresh browser process reliably dislodges one that is already
+ *  registered — measured, not assumed: a rebuilt background answered with the
+ *  previous build's code through both. The alternative was throwing the whole
+ *  profile away, which also throws away the operator's endpoints, their token and
+ *  every property's stored state, and costs them a full re-setup for a code change
+ *  they did not make.
+ *
+ *  The registration lives in `Default/Service Worker/` and the extension's own data
+ *  in `Default/IndexedDB/chrome-extension_<id>_0…`. They are separate directories,
+ *  so the registration can go while the data stays. ~500KB against ~40MB, and the
+ *  operator keeps their session. */
+async function dropServiceWorkerRegistration() {
+  const swDir = join(PROFILE_DIR, "Default", "Service Worker");
+  try {
+    await stat(swDir);
+  } catch {
+    return false;
+  }
+  await rm(swDir, { recursive: true, force: true });
+  return true;
+}
+
 async function stampBuildVersion() {
   const manifestPath = join(EXT_DIR, "manifest.json");
   const counterPath = join(TEMP_DIR, "build-counter");
@@ -777,6 +805,12 @@ try {
 
 await mkdir(TEMP_DIR, { recursive: true });
 await mkdir(TEMP_OUT, { recursive: true });
+
+// Before Chrome starts, so it finds nothing to reuse.
+const droppedWorker = await dropServiceWorkerRegistration();
+if (droppedWorker) {
+  console.log("[launch] dropped the profile's service-worker registration (extension data kept)");
+}
 
 const stampedVersion = await stampBuildVersion();
 if (stampedVersion) {
@@ -883,8 +917,9 @@ if (extId && tabId && boundUrl) {
   // than the launch can guarantee. A reused profile can still serve a worker from
   // a previous registration; only a fresh one rules that out.
   console.log(`  freshness   : ${bindClean.includes('"refreshed":true')
-    ? `${stampedVersion ? `version ${stampedVersion} forces a worker re-registration` : "WARNING: version not stamped, the worker may be stale"}`
-      + `; page reloaded; profile ${PROFILE_EXISTED ? "reused" : "new"}`
+    ? `${droppedWorker ? "worker registration dropped" : "no prior worker registration"}`
+      + `${stampedVersion ? `, version ${stampedVersion}` : ", WARNING: version not stamped"}`
+      + `; page reloaded; profile ${PROFILE_EXISTED ? "reused (data kept)" : "new"}`
     : "WARNING: not refreshed; the worker may be running a previous build"}`);
   console.log("=========================================================");
   console.log("Browser is open. Stop with Ctrl-C or `kill <pid>` to close it.");

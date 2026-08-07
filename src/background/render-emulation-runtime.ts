@@ -6,7 +6,7 @@ type DebuggerApi = Readonly<{
   attach(target: Debuggee, version: string, callback?: () => void): Promise<void> | void;
   detach(target: Debuggee, callback?: () => void): Promise<void> | void;
   sendCommand(target: Debuggee, method: string, params?: Record<string, unknown>, callback?: (result?: unknown) => void): Promise<unknown> | void;
-  onDetach?: Readonly<{ addListener(listener: (source: Debuggee) => void): void }>;
+  onDetach?: Readonly<{ addListener(listener: (source: Debuggee, reason?: string) => void): void }>;
 }>;
 type TabsApi = Readonly<{
   reload(tabId: number, options?: Record<string, unknown>, callback?: () => void): Promise<void> | void;
@@ -52,11 +52,30 @@ export function createRenderEmulationRuntime(input: Readonly<{
    *  read afterwards it would return our own spoof and the mobile UA would be
    *  derived from itself, compounding on every re-apply. */
   const realUserAgents = new Map<number, string>();
-  input.debuggerApi?.onDetach?.addListener((source) => {
-    if (typeof source.tabId === "number") {
-      attachedTabs.delete(source.tabId);
-      realUserAgents.delete(source.tabId);
+  /** The posture each tab is meant to hold, so it can be re-established without
+   *  the popup being asked. Emulation is not a request that was granted once; it is
+   *  a state the tab is supposed to be in. */
+  const heldPostures = new Map<number, Readonly<{ mode: EmulationMode; scale: number }>>();
+  /** Reasons the operator did not choose. A closing tab has nothing to restore, and
+   *  a replaced target means the tab is being taken over by something else. */
+  const TERMINAL_DETACH_REASONS = new Set(["target_closed", "target_crashed", "replaced_with_devtools"]);
+  input.debuggerApi?.onDetach?.addListener((source, reason) => {
+    const tabId = source.tabId;
+    if (typeof tabId !== "number") {
+      return;
     }
+    attachedTabs.delete(tabId);
+    realUserAgents.delete(tabId);
+    const held = heldPostures.get(tabId);
+    if (!held || (reason && TERMINAL_DETACH_REASONS.has(reason))) {
+      heldPostures.delete(tabId);
+      return;
+    }
+    // Detaching drops every override at once — viewport, identity, the lot — so a
+    // dismissed debugging banner silently returns the tab to a desktop-shaped page
+    // the operator is still marking against. Re-establish it rather than waiting
+    // for the next thing that happens to re-apply.
+    void reassertPosture(tabId, held);
   });
   const targetFor = (tabId: number): Debuggee => ({ tabId });
   const attach = async (tabId: number): Promise<void> => {
@@ -137,8 +156,28 @@ export function createRenderEmulationRuntime(input: Readonly<{
       return "";
     }
   };
+  /** Puts a dropped posture back. Deliberately does not reload: the operator is
+   *  looking at the page, and the identity for the current document was settled
+   *  when it loaded — re-establishing the viewport is what is urgent here. */
+  const reassertPosture = async (tabId: number, held: Readonly<{ mode: EmulationMode; scale: number }>): Promise<void> => {
+    try {
+      const realUserAgent = await realUserAgentFor(tabId);
+      await applyEmulationViaCdp(
+        { send: (method, params) => send(tabId, method, params) },
+        held.mode,
+        held.scale,
+        { realUserAgent },
+      );
+    } catch {
+      // The tab may be gone, or attaching may be refused. Nothing else to try, and
+      // the next apply from the popup will re-establish it.
+      heldPostures.delete(tabId);
+    }
+  };
+
   return {
     async apply(tabId: number, mode: EmulationMode, scale: number, allowReload = false) {
+      heldPostures.set(tabId, { mode, scale });
       const realUserAgent = await realUserAgentFor(tabId);
       const state = await applyEmulationViaCdp(
         { send: (method, params) => send(tabId, method, params) },
@@ -168,6 +207,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
       });
       // Detaching drops every override with it, including the user agent, so the
       // next attach must read the browser's own identity again.
+      heldPostures.delete(tabId);
       await detach(tabId);
       realUserAgents.delete(tabId);
       return cleared;

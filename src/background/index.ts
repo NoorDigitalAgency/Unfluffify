@@ -183,6 +183,90 @@ export function startRewriteBackground(): void {
     await renderEmulation.clear(request.tabId);
     return { status: "ok" as const };
   });
+  /** What a freshly loaded page is, answered without the popup being open.
+   *
+   *  Consent hiding and the reveal/freeze ritual are page-load behaviours, and
+   *  legacy made that explicit: consent runs on every property page regardless of
+   *  candidacy or render mode, and the ritual runs once per visit for a page the
+   *  crawler actually wants. Both need this answer before an operator does anything.
+   *
+   *  Cached per origin. Resolving a site id is a backend round-trip, and a page load
+   *  is not a reason to make one per page — but it is a reason to make one per
+   *  property per worker lifetime. */
+  const pageContextCache = new Map<string, Readonly<{
+    property: boolean;
+    siteId: number | null;
+    renderModeSet: boolean;
+    pageMarkings: readonly string[];
+    reason: string;
+  }>>();
+  bus.onCommand("page.context", async (request) => {
+    const baseUrl = (() => {
+      try {
+        return request.pageUrl ? new URL(request.pageUrl).origin : "";
+      } catch {
+        return "";
+      }
+    })();
+    const empty = { property: false, baseUrl, siteId: null, renderModeSet: false, candidatePage: false };
+    if (!baseUrl) {
+      return { ...empty, reason: "unparseable-url" };
+    }
+    const cached = pageContextCache.get(baseUrl);
+    if (cached) {
+      return {
+        property: cached.property,
+        baseUrl,
+        siteId: cached.siteId,
+        renderModeSet: cached.renderModeSet,
+        candidatePage: cached.pageMarkings.includes(request.pageUrl),
+        reason: cached.reason,
+      };
+    }
+    // Signed out there is nothing to ask and no property to confirm, and the
+    // answer must not be cached — signing in changes it.
+    if (!await services.accounts.hasToken()) {
+      return { ...empty, reason: "signed-out" };
+    }
+    const site = await services.lynx.getSiteIdForUrl(request.pageUrl);
+    if (site.siteId === null) {
+      // A genuine miss is worth remembering; a network fault says nothing about
+      // whether this is a property, so it is not cached.
+      const reason = site.status === "not_found" ? "not-a-property" : "lookup-unavailable";
+      if (site.status === "not_found") {
+        pageContextCache.set(baseUrl, { property: false, siteId: null, renderModeSet: false, pageMarkings: [], reason });
+      }
+      return { ...empty, reason };
+    }
+    const loaded = await services.lynx.loadConfigSnapshot(site.siteId);
+    // Same adaptation as config.load: the authority rule takes {status, config}.
+    const authority = await services.property.applyBackendLoad(site.siteId, loaded.status === "ok"
+      ? { status: loaded.status, config: loaded.data }
+      : { status: loaded.status });
+    const pageMarkings = loaded.status === "ok" ? Object.keys(loaded.data.pageMarkings) : [];
+    const entry = {
+      property: true,
+      siteId: site.siteId,
+      // The effective mode after the authority rule, so a locally-held choice for a
+      // property with no backend configuration counts as set.
+      renderModeSet: authority.renderMode !== undefined,
+      pageMarkings,
+      reason: loaded.status === "ok" ? "configured" : `config-${loaded.status}`,
+    };
+    // Only a settled answer is cached: a failed config read would otherwise freeze
+    // "no render mode, no candidate pages" in for the worker's lifetime.
+    if (loaded.status === "ok" || loaded.status === "not_found") {
+      pageContextCache.set(baseUrl, entry);
+    }
+    return {
+      property: true,
+      baseUrl,
+      siteId: entry.siteId,
+      renderModeSet: entry.renderModeSet,
+      candidatePage: entry.pageMarkings.includes(request.pageUrl),
+      reason: entry.reason,
+    };
+  });
   bus.onCommand("renderMode.inspect", (request) => renderEmulation.inspect(request));
   bus.onCommand("offscreen.refineXpaths", async (request) => {
     await ensureOffscreenDocument(api);
