@@ -1,6 +1,6 @@
 /**
  * Launch the live test browser for the Unfluffify extension and bind the popup
- * to a target page — using ONLY the `npm:@playwright/mcp@latest` MCP server and
+ * to a target page — using ONLY the pinned `npm:@playwright/mcp` MCP server and
  * its own managed Chromium. This never touches the OS Chrome/Chromium install.
  *
  * Usage:
@@ -13,7 +13,7 @@
  *      (substituting the repo root and dropping `executablePath` so Playwright
  *      uses its managed Chromium).
  *   3. Ensures the MCP-managed Chromium is installed (idempotent).
- *   4. Starts the `npm:@playwright/mcp@latest` server over stdio (single client
+ *   4. Starts the pinned `npm:@playwright/mcp` server over stdio (single client
  *      = no profile-lock) bound to `.wxt/browser-profile`.
  *   5. Navigates the first tab to <target-url>.
  *   6. Resolves the loaded extension id from the service worker (and verifies it
@@ -54,6 +54,18 @@ const TEMP_DIR = join(repoRoot, ".temp");
 const TEMP_CONFIG = join(TEMP_DIR, "browser-mcp.config.json");
 const TEMP_OUT = join(TEMP_DIR, "out");
 const COMMITTED_CONFIG = join(repoRoot, ".vscode", "browser-mcp.config.json");
+/** The MCP server is PINNED, not floating.
+ *
+ *  `@latest` broke this harness twice in one day. First the Chromium it bundles
+ *  began unloading the unpacked extension on chrome.runtime.reload(); then its
+ *  browser_run_code_unsafe stopped answering altogether, which hangs the popup
+ *  binding — the page loads and nothing else works, with no error that names the
+ *  cause. Both cost real diagnosis time and neither was a change to this repo.
+ *
+ *  A test harness that silently changes under you is worse than an old one. Bump
+ *  this deliberately, and verify the bind step still completes when you do. */
+const PLAYWRIGHT_MCP_VERSION = "0.0.78";
+const PLAYWRIGHT_MCP_PACKAGE = `@playwright/mcp@${PLAYWRIGHT_MCP_VERSION}`;
 const CDP_PORT = 9222;
 const CONTROL_STATE_TIMEOUT_MS = 30_000;
 const CONTROL_OBSERVE_TIMEOUT_MS = 10_000;
@@ -162,7 +174,7 @@ async function run(cmd, args) {
 }
 
 function spawnPlaywrightMcp(extraArgs, stdio) {
-  return spawn("npx", ["-y", "@playwright/mcp@latest", ...extraArgs], {
+  return spawn("npx", ["-y", PLAYWRIGHT_MCP_PACKAGE, ...extraArgs], {
    cwd: repoRoot,
    env: process.env,
    stdio,
@@ -846,14 +858,14 @@ await writeFile(TEMP_CONFIG, serializedConfig);
 console.log(`[launch] wrote ${TEMP_CONFIG}`);
 
 console.log("[launch] ensuring MCP-managed Chromium is installed (idempotent)…");
-await run("npx", ["-y", "@playwright/mcp@latest", "install-browser", "chromium"]);
+await run("npx", ["-y", PLAYWRIGHT_MCP_PACKAGE, "install-browser", "chromium"]);
 
 const predictedId = await deterministicExtensionId(EXT_DIR);
 console.log(`[launch] deterministic extension id for ${EXT_DIR}: ${predictedId}`);
 console.log(`[launch] CDP endpoint: http://127.0.0.1:${CDP_PORT} (for same-browser debug/control)`);
 
 // --- launch MCP server + drive -------------------------------------------
-console.log("[launch] starting npm:@playwright/mcp@latest (managed Chromium)…");
+console.log(`[launch] starting npm:${PLAYWRIGHT_MCP_PACKAGE} (managed Chromium, pinned)…`);
 const server = spawnPlaywrightMcp([
   `--user-data-dir=${PROFILE_DIR}`,
   `--config=${TEMP_CONFIG}`,

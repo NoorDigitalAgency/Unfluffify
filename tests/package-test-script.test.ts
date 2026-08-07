@@ -40,7 +40,19 @@ test("public pnpm browser launcher is node-native", () => {
   assert.equal(packageJson.scripts["browser:live"], "node ./scripts/launch-test-browser.mjs");
   assert.equal(launchScript.includes("resolveDenoExecutable"), false);
   assert.equal(launchScript.includes(legacyRuntimeToken), false);
-  assert.equal(launchScript.includes('spawn("npx", ["-y", "@playwright/mcp@latest"'), true);
+  // Pinned, never floating: @latest broke this harness twice in one day — the
+  // bundled Chromium started unloading the unpacked extension, then
+  // browser_run_code_unsafe stopped answering and hung the popup binding. Neither
+  // was a change to this repo, and neither announced itself.
+  assert.equal(launchScript.includes("@playwright/mcp@latest"), false);
+  assert.ok(
+    /const PLAYWRIGHT_MCP_VERSION = "\d+\.\d+\.\d+";/.test(launchScript),
+    "the MCP server version must be pinned to an exact release",
+  );
+  assert.ok(
+    launchScript.includes('spawn("npx", ["-y", PLAYWRIGHT_MCP_PACKAGE'),
+    "the server must be started from the pinned package",
+  );
 });
 
 test("browser launcher never reloads the extension, and reloads the page", () => {
