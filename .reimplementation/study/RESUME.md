@@ -161,7 +161,27 @@ of work as it completes, and commit it.
 
 ---
 
-## 7. Next actions (in order)
+## ✅ STUDY COMPLETE — the plan exists. Go read it.
+
+**All 14 agents finished (2026-08-14, second run, zero failures).** All four deliverables are
+committed:
+
+1. **The plan: [`../parity-plan.md`](../parity-plan.md)** — the active plan. Start there.
+2. `qa-decisions.md` — the architect's binding decisions D1–D12 from three Q&A rounds.
+3. `verdicts-weakness-resolution.md` — all 49 legacy weaknesses judged against rewrite code
+   (19 solved-by-design, 8 solved-in-code, 13 partial, 8 unsolved, 1 n/a).
+4. `catalog-ux-bring-over.md` — every legacy visual/interaction/string with rewrite status and
+   a porting note naming the owning organ.
+
+Plus `critique-completeness.md` (which caught a wrong premise behind decision D1 — see the
+correction note in `qa-decisions.md`) and `patch-1..4.md` for the gaps it found.
+
+**The sections below are the historical record of how this was resumed.** Everything in §7 is
+now done; the live next actions are the Phase A slices in `parity-plan.md` §6.
+
+---
+
+## 7. Next actions (in order) — SUPERSEDED, kept for provenance
 
 0. **Check budget first.** The org spend limit has now killed agents on two consecutive
    runs (2026-08-13 and 2026-08-14). If subagents still fail, do the remaining work inline
