@@ -28,6 +28,10 @@ contract and design. It is the provenance for every decision in `plan.md`,
 
 ## T1 — Domain model & vocabulary — LOCKED
 
+> **Amended by A2 / D13:** identity is now `(environmentKey, siteId)` and candidate storage uses
+> the GraphQL-derived relative `pageKey`. Observed origins are informational; Hub-delegated GraphQL
+> owns canonical property facts.
+
 - **CORRECTED — Property identity** = the backend `siteId` returned by a GraphQL query given the raw
   URL. **No** frontend base-URL normalization / longest-match speculation. Base URL is a backend
   **attribute** only (the frontend never computes/normalizes/matches it).
@@ -89,6 +93,10 @@ contract and design. It is the provenance for every decision in `plan.md`,
 
 ## T4 — Session lifecycle invariants — LOCKED
 
+> **Amended by A2 / D14–D16:** the historical full-property request below is superseded by a
+> singular current-page partial upsert with a full authoritative response. The AI corpus remains
+> multi-page.
+
 - **CONFIRMED:** AI-fresh gate — after any marking change, Run AI must re-run before Save enables; any
   post-AI edit drops back to dirty and re-requires a run; marking cannot be disabled until Save or
   Discard. Save uploads ALL locally-marked pages as ONE property snapshot to `/save`, then replaces
@@ -115,6 +123,10 @@ contract and design. It is the provenance for every decision in `plan.md`,
   countdown.
 
 ## T6 — Property lock — LOCKED
+
+> **Amended by A2 / D20–D23:** retain this section as original provenance. The binding model now
+> separates `editorSessionId` from fenced `lockToken`, qualifies renewal by focused/non-idle
+> presence, gives candidate suspensions a 10-minute grace, and permits explicit recovery polling.
 
 - **CORRECTED — identity:** the BACKEND issues a unique lock identity for the property; the page persists
   it to the current tab's storage to hold the lock. On a lock-lease / handoff event the backend
@@ -241,3 +253,33 @@ initial deliverable was pushed:
   OWNED backend is adapted to the single unified `rows[]` shape.
 - **Remaining external items** reduce to: the OWNED config/lock backend adaptation (the architect's own
   work, gates cutover not design) + the MV3/CSP page-world spike + the SPA force-reload scope confirm.
+
+---
+
+## Amendment A2 (post-study Q&A) — partial save, GraphQL authority, fencing, and publication
+
+**Binding record:**
+[`study/qa-decisions-save-contract.md`](./study/qa-decisions-save-contract.md). It supersedes
+conflicting T1/T4/T6/T8/T10/T11 and Amendment A1 details. The important corrections are:
+
+- Identity is `(environmentKey, siteId)` and candidate pages use GraphQL-derived relative
+  `pageKey` values. GraphQL, not observed URL origins or config `/load`, owns canonical property
+  facts.
+- The Hub calls GraphQL with the exact client JWT through an environment allowlist and classifies
+  GraphQL payloads independently of misleading HTTP status codes.
+- `/save` is structurally singular: current page + domain-wide selectors. It is a partial upsert,
+  preserves absent pages, and returns the complete authoritative snapshot. The whole marked-page
+  corpus is used for AI only.
+- Successful complete candidate feeds drive fenced reconciliation. Disappearing keys delete
+  markings; type relabels preserve them; cross-type duplicate keys block the property without
+  mutation. Empty page types are silently non-actionable.
+- Every mutation is idempotent and guarded by a backend-rotated fencing token. A stale but
+  untransferred editor session may reacquire; an actual transfer destroys the old draft.
+- Candidate removal and feed conflict suspend/preserve an active draft and recover via 15-second
+  client-driven Hub checks plus a 10-minute loss-of-presence grace. Save is never auto-replayed.
+- A hidden/forgotten tab does not renew the property lock. Qualifying presence requires the visible
+  selected tab, focused browser window, and a non-idle user.
+- The Hub owns the complete Send-to-Lynx transaction and advances
+  `submittedSelectorsFingerprint` only after definitive GraphQL success.
+- Final normalized domain-wide selector values are the semantic product. Do not add a marking-corpus
+  calculation-basis fingerprint or stale selectors solely because instrumental markings changed.

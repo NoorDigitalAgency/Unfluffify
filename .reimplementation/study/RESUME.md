@@ -5,7 +5,7 @@ killed once mid-flight by a spend limit. This file exists so a fresh session (or
 agent) can pick the work up exactly where it stopped **without re-deriving anything**. Read
 this first, then read only what the "Next actions" section tells you to read.
 
-Last updated: 2026-08-14, by the session that re-ran the study after the 2026-08-13 failure.
+Last updated: 2026-08-14, after the independent Codex audit and architect Q&A amendment.
 
 ---
 
@@ -57,8 +57,10 @@ can replace main. Any note claiming "PR #48 open" or "rewrite complete and shipp
   `src/content/core.ts` (14,312), `src/popup.ts` (10,003), `src/content-main.ts` (7,557),
   `src/background.ts` (4,301). The rewrite has no god-file of that class; its largest are
   `src/entrypoints/popup/main.tsx` (1,799) and `src/popup/App.tsx` (1,179).
-- **Gate on `re-write` is GREEN** as of 2026-08-14: 485/485 tests, `pnpm lint` and
-  `pnpm check` clean. Commands: `pnpm test`, `pnpm lint`, `pnpm check`, full `pnpm verify`.
+- **Gate on `re-write` is GREEN after the independent amendment:** `pnpm verify` passed on
+  2026-08-14 (58 test files / 485 tests, lint, TypeScript, production build, and 5 generated-manifest
+  tests). The amendment also fixed the committed `study/study-workflow.js` lint integration by
+  declaring its intended orchestration-host globals.
 - **A red gate was fixed to get there** (`8ac44ae6`): commit `5c21aaaf` pinned the Playwright
   MCP server and taught `tests/package-test-script.test.ts` that the launcher must NOT
   contain `@playwright/mcp@latest`, but left `tests/playwright-mcp-config.test.ts:39`
@@ -78,11 +80,13 @@ can replace main. Any note claiming "PR #48 open" or "rewrite complete and shipp
 
 Read in this order; earlier documents win conflicts:
 
-1. `.reimplementation/decisions-log.md` — the architect-led Q&A record (T1–T12 + Amendment
-   A1). Provenance for everything.
-2. `.reimplementation/contract-invariants.md` — INV-1.1 … INV-10.14, the "must never
+1. `.reimplementation/study/qa-decisions-save-contract.md` — binding independent Q&A amendment
+   D13–D24 for save, GraphQL, reconciliation, locking, drafts, and Lynx publication.
+2. `.reimplementation/contract-invariants.md` — the "must never
    regress" register. Tagged CONFIRMED (carried forward) or CORRECTED (old behavior was
    wrong).
+3. `.reimplementation/decisions-log.md` — the original architect-led record (T1–T12 +
+   Amendments A1/A2). Provenance for the older architecture decisions.
 3. `.reimplementation/architecture.md` — the reflex-arc target architecture.
 4. `.reimplementation/remote-api.md` — remote API contract. Config + property-lock are
    OWNED design targets (adapt the backend); AI + GraphQL + accounts are LOCKED to current
@@ -161,23 +165,25 @@ of work as it completes, and commit it.
 
 ---
 
-## ✅ STUDY COMPLETE — the plan exists. Go read it.
+## ✅ STUDY + INDEPENDENT Q&A COMPLETE — the amended plan exists
 
 **All 14 agents finished (2026-08-14, second run, zero failures).** All four deliverables are
 committed:
 
 1. **The plan: [`../parity-plan.md`](../parity-plan.md)** — the active plan. Start there.
-2. `qa-decisions.md` — the architect's binding decisions D1–D12 from three Q&A rounds.
-3. `verdicts-weakness-resolution.md` — all 49 legacy weaknesses judged against rewrite code
+2. **`qa-decisions-save-contract.md`** — binding D13–D24, produced by the independent audit/Q&A
+   and authoritative over conflicts in the original study.
+3. `qa-decisions.md` — the architect's original D1–D12 from three Q&A rounds.
+4. `verdicts-weakness-resolution.md` — all 49 legacy weaknesses judged against rewrite code
    (19 solved-by-design, 8 solved-in-code, 13 partial, 8 unsolved, 1 n/a).
-4. `catalog-ux-bring-over.md` — every legacy visual/interaction/string with rewrite status and
+5. `catalog-ux-bring-over.md` — every legacy visual/interaction/string with rewrite status and
    a porting note naming the owning organ.
 
 Plus `critique-completeness.md` (which caught a wrong premise behind decision D1 — see the
 correction note in `qa-decisions.md`) and `patch-1..4.md` for the gaps it found.
 
-**The sections below are the historical record of how this was resumed.** Everything in §7 is
-now done; the live next actions are the Phase A slices in `parity-plan.md` §6.
+**The sections below are historical.** Live work starts at Phase H and the first dependency-ready
+extension slice in `parity-plan.md` §6.
 
 ---
 

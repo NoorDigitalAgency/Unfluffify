@@ -2,7 +2,10 @@
 
 **Status:** Authoritative spec for the big-bang rewrite. This is the "what must never regress" bible.
 
-**Source of truth:** the verified decisions log (`decisions-log.md`, T1–T12). Where this register cites the legacy docs `MARKING_AND_HIGHLIGHTING_LOGIC.md` and `PROPERTY_LOCK.md`, the register's **CORRECTED** items override them.
+**Source of truth:** the verified decisions log (`decisions-log.md`, T1–T12), as amended by
+[`study/qa-decisions-save-contract.md`](./study/qa-decisions-save-contract.md), which wins over
+conflicting older rows in this register. Where this register cites the legacy docs
+`MARKING_AND_HIGHLIGHTING_LOGIC.md` and `PROPERTY_LOCK.md`, the register's **CORRECTED** items override them.
 
 **How to read this document**
 - Every invariant is stated as a **testable rule** — a property a conformance test can assert.
@@ -20,13 +23,13 @@
 
 | ID | Rule | Tag |
 |----|------|-----|
-| INV-1.1 | **Property identity is the backend `siteId`.** The frontend obtains identity by a GraphQL lookup (`urlSearchInfo`, **locked to current** — returns `domainId`) of the **raw** page URL. The frontend MUST NOT compute, normalize, or longest-match a base URL to establish identity. | **CORRECTED** — old model did frontend base-URL normalization / longest-match. Removed: identity is purely the backend `siteId`. |
-| INV-1.2 | **Base URL is a backend attribute only.** The property's `baseUrl` is delivered on the **config `/load` response** (an OWNED, designed surface — not GraphQL, which exposes no base-URL field). Any "does this page belong to the property" gate compares against that backend-provided `baseUrl`; the frontend never derives it from the URL itself. | **CORRECTED** — sourced from `/load`, never derived. |
+| INV-1.1 | **Property identity is `(environmentKey, siteId)`.** The Hub obtains `siteId` from GraphQL `urlSearchInfo` using the client-selected registered environment and exact delegated JWT. The frontend never normalizes/longest-matches an observed origin to establish identity. | **CORRECTED** — stage is part of identity; the Hub now performs the GraphQL lookup. |
+| INV-1.2 | **GraphQL owns canonical property facts; observed origins are informational.** `siteId` and canonical property/base-URL facts come from the authoritative GraphQL context. Scheme, credentials, host/`www`, port, and redirects do not determine page identity. Candidate pages use a GraphQL-derived relative `pageKey` (path + query + fragment). | **CORRECTED** — supersedes config-`/load` base-URL sourcing and full-URL page keys. |
 | INV-1.3 | **One editor per property.** Exactly one client holds the editor role for a `siteId` at a time, enforced by a backend-coordinated lock (see §9). Everyone else is passive, even the same authenticated user in another tab. | CONFIRMED |
 | INV-1.4 | **A page is a marking candidate only when the backend says so.** Live Page candidacy comes from backend candidate lists (`propertyPageTypes` / candidate feed) keyed by `siteId`; the frontend never invents candidacy. | CONFIRMED |
 | INV-1.5 | **Vocabulary is inclusion-centric** (see §2). The domain speaks in *inclusions* (implicit/explicit) and *exceptions* (unified exclusions), plus a permanent *immutable* blanket list. The terms "implicit exclusion" and "default-exclusion layer as a source of truth" are retired. | **CORRECTED** — retired the implicit-exclusion vocabulary. |
 | INV-1.6 | **Render mode** is a per-baseUrl backend-confirmed attribute with two values: `rendered` (JS-on capture) and `static` (JS-disabled capture). It gates what HTML is submitted (§5). | CONFIRMED |
-| INV-1.7 | **Session working draft vs backend baseline.** The backend is the single source of truth for saved state; the local per-session draft is fully sourced on `/load` and fully replaced by the `/save` response. Timestamp-merge only ever happens *within* one editing session. | CONFIRMED |
+| INV-1.7 | **Session working draft vs backend baseline.** The Hub is the source of truth for saved state. The background retains the complete validated `/load` corpus; a current marking-session draft is a separate overlay. Successful mutation responses replace the authoritative baseline atomically; failures preserve the last valid baseline. | **CORRECTED** — authority is background-owned, not popup-local. |
 
 ---
 
@@ -145,12 +148,15 @@
 | INV-6.2 | **Dirty only on explicit toggle.** The session becomes dirty only when the user makes an explicit marking change; auto-seeding does not dirty it. | CONFIRMED |
 | INV-6.3 | **AI-fresh-before-save gate.** After any marking change, Run AI must re-run before Save enables. Any post-AI edit drops back to dirty and re-requires a run. Marking cannot be disabled until Save or Discard. | CONFIRMED |
 | INV-6.4 | **The AI-run gate is `sessionRequiresAiRun`, not a second fingerprint.** Save gating composes pending session changes + page-controls visibility + reconciliation state + `sessionRequiresAiRun`. The Run-AI fingerprint (`aiRunUpToDate`) only disables *Run AI* while the last output still matches the current include/exclude XPaths; CSS-selector-only edits don't change that fingerprint. | CONFIRMED |
-| INV-6.5 | **Save = one property snapshot, replaced from server.** Save uploads **all** locally-marked pages for the current property as one snapshot to `/save`, then **replaces** local state from the `/save` response. The saved state lands in **silent** mode (`D-SAVE`). Ordinary config syncs never upload local draft page markings — only `/save` does. | CONFIRMED |
+| INV-6.5 | **Save = one-page partial upsert, full authoritative response.** The request structurally carries exactly the current page plus domain-wide selectors; it never uploads a page map or the full corpus. The Hub preserves absent pages and returns the complete snapshot, which atomically replaces the background baseline. Save clears the draft only after response adoption and lands in silent mode (`D-SAVE`). | **CORRECTED** — full corpus is for AI, not Save. |
 | INV-6.6 | **Discard = clean computed baseline.** Discard throws away the session's uncommitted edits and returns to the **clean, freshly-computed baseline** — the same defaults + CSS/AI-selector seed a fresh enable produces, from the property config `/load`. It does **not** restore a prior saved user-markings draft. **Marking stays active and clean.** | **CORRECTED** — old Discard reloaded/reverted to a saved user-markings draft (and disabled marking); now it resets to the computed baseline and stays active. |
 | INV-6.7 | **Navigation/reload disables marking.** Any navigation or reload — same page/property or not — disables marking; no unsaved-draft cache survives a disable. | CONFIRMED |
-| INV-6.8 | **Editor-local view is the popup's source of truth** while on an eligible Live Page: Todo List, candidate `Marked` badges, marked-pages list, and Lynx coverage read from the editor-local session, not from a separate backend fetch. | CONFIRMED |
-| INV-6.9 | **Send-to-Lynx is silent-only.** It stays hidden/disabled/handler-guarded while marking mode is active, and reads coverage from the same editor-local view while the editor owns the property. | CONFIRMED |
+| INV-6.8 | **The background authoritative corpus is the UI source.** Todo, candidate badges, marked-page counts, and Lynx coverage are projections of the last validated full Hub snapshot plus the current session overlay where appropriate; popup memory is never authority. | **CORRECTED** |
+| INV-6.9 | **Send-to-Lynx is silent-only and Hub-orchestrated.** It stays hidden/disabled/handler-guarded while marking is active. The Hub refreshes GraphQL, validates lock/feed/completeness/fingerprint, performs `updateScrapingConditions` with the delegated JWT, and advances the submitted fingerprint only on definitive success. | **CORRECTED** |
 | INV-6.10 | **Preview Contents never dirties a draft.** Both entry points (silent Preview from stored selectors; marking-mode post-AI verification) open/close without creating or mutating page-marking drafts; exiting returns to the origin mode. | CONFIRMED |
+| INV-6.11 | **Candidate loss/conflict suspends an active draft.** Preserve it visibly, disable writes, explain the reason, and poll Hub context every 15s while focused/non-idle or within the 10-minute recovery grace. Candidate return resumes the same session but never auto-replays Save. | **CORRECTED** |
+| INV-6.12 | **Draft terminal events are explicit.** Successful save, discard, marking exit, navigation/reload, tab close, definitive property loss/change, or actual lock transfer destroys the draft. Temporary authority failures and a stale-but-untransferred lease do not. | **CORRECTED** |
+| INV-6.13 | **Selector values are the semantic product.** Marking/candidate changes do not create a second calculation-basis fingerprint or automatically stale saved selectors. Only a normalized selector-value change updates `selectorsUpdatedAt`; only definitive Lynx success updates `submittedSelectorsFingerprint`. | **CORRECTED** |
 
 ---
 
@@ -191,20 +197,20 @@
 
 | ID | Rule | Tag |
 |----|------|-----|
-| INV-9.1 | **Backend-issued identity.** The backend issues a unique lock identity for the property; the page persists it to the **current tab's** storage to hold the lock. The frontend does **not** generate lock identity. | **CORRECTED** — supersedes the old "stable sessionStorage client-session id" frontend mechanism. |
-| INV-9.2 | **Backend-rotated identity.** On a lock-lease/handoff, the backend **invalidates the old identity and issues a fresh one** to the new holder; the previous holder's identity becomes invalid → passive. The frontend does **not** run cloned-tab UUID rotation. | **CORRECTED** — removed frontend cloned-tab UUID rotation; backend owns issuance + rotation. |
+| INV-9.1 | **Distinct editor session and fencing token.** Every tab/window/browser editor has an `editorSessionId`; the Hub issues a separate opaque `lockToken` for the `(environmentKey, siteId)` lease. Authentication identity is not editor-session identity. | **CORRECTED** |
+| INV-9.2 | **Backend-rotated fencing.** Grant, transfer, and takeover rotate `lockToken`. Every mutation presents the current token; a stale token returns conflict and performs no mutation. The frontend never mints or collision-rotates lock authority. | **CORRECTED** |
 | INV-9.3 | **Immediate claim on candidacy.** Landing on an eligible Live Page candidate queues the editor claim immediately for the tab session — it does **not** wait for marking to be enabled. | CONFIRMED |
 | INV-9.4 | **First grantee is editor; all others are passive.** Every other client for the property shows the locked UI, even the same authenticated user in another tab. | CONFIRMED |
-| INV-9.5 | **Editor is the single source of truth.** Ordinary periodic `/load` never replaces the editor's local draft. Passive→editor promotion fetches upstream once, fully replaces local property data, then **stops `/load`** until Save. Passive observers `/load` at most once per minute (silent apart from a short "updated from server" toast). | CONFIRMED |
+| INV-9.5 | **The Hub snapshot is authoritative; the draft is isolated.** Refreshes never overwrite a draft. Promotion/reacquisition loads and adopts the current full snapshot; explicit suspended-state polling may continue without making popup memory authoritative. | **CORRECTED** |
 
 ### 9.2 Timings (backend-authoritative)
 
 | ID | Rule | Tag |
 |----|------|-----|
 | INV-9.6 | **Backend owns lease expiry + countdown deadlines**; the client mirrors/displays them from backend-provided state. The client does not invent timings. | **CORRECTED** — timings are now explicitly backend-authoritative; the client displays, never computes, deadlines. |
-| INV-9.7 | **Heartbeat: 30s**, sent only while the editor has interacted within the last **30 min**. After 30 min of no interaction, heartbeats stop and the editor loses the lock after the server's warning window. | CONFIRMED |
+| INV-9.7 | **Heartbeat requires qualifying presence.** The backend owns the cadence/deadline. Renewal counts only when the property page is the visible selected tab in the focused browser window and the browser is not idle. Merely open hidden tabs/background windows cannot retain a lock. | **CORRECTED** |
 | INV-9.8 | **Connection-loss: 70s** countdown ("editor role lost unless connection recovers"). Suppressed during render-mode inspection (INV-8.7). | CONFIRMED |
-| INV-9.9 | **Off-candidate: 70s** countdown on a same-property non-candidate page; on expiry the extension sends `release_lock` for the current editor session. | CONFIRMED |
+| INV-9.9 | **Off-candidate and suspended timing differ.** Existing same-property non-candidate deadlines remain backend-authoritative. Candidate-removal/feed-conflict suspension receives a 10-minute recovery grace after qualifying presence is lost, then the ordinary inactivity countdown begins. | **CORRECTED** |
 | INV-9.10 | **Cross-property cooldown: 30s.** Navigating to a different property keeps the previous property's editor session recoverable for 30s (metadata: `siteId`, `baseUrl`, `clientId`, cooldown deadline). Returning within the window restores the same session; expiry releases the old property lock (by stored `siteId` + `clientId`). | CONFIRMED |
 | INV-9.11 | **Port-disconnect dispose grace: 70s**, but tab close **bypasses** it — the background immediately sends `release_lock` for that tab's editor runtime and disposes the connection. | CONFIRMED |
 | INV-9.12 | **Passive-observer release countdown: 60s.** In the last 60s before release, passive subscribers see a "property will be released for editing" countdown; if the editor recovers, the passive UI returns to the ordinary locked banner. | CONFIRMED |
@@ -217,10 +223,13 @@
 |----|------|-----|
 | INV-9.15 | **`Extension context invalidated` is terminal.** The old script instance stops reconnect work: clear reconnect timers, disconnect the port without notifying background, reset local lock UI, and wait for a fresh content-script instance — never retry Chrome APIs from the invalidated context. | CONFIRMED |
 | INV-9.16 | **Ordinary port disconnects are transient.** Reset the local UI and schedule a reconnect so transient SW/WebSocket interruptions recover automatically. | CONFIRMED |
-| INV-9.17 | **Same-user transfer.** With no unsaved changes, a passive same-user tab can `Continue editing here`. With unsaved changes in the editor, that action is disabled and shows `Other tab has unsaved changes`; `Continue editing here anyway` transfers while discarding the previous tab's unsaved draft. | CONFIRMED |
+| INV-9.17 | **Same-user transfer.** Another editor session for the same authenticated user can choose `Continue here`. If the holder reports (or may have) unsaved work, show a destructive warning; confirmation transfers immediately, rotates the fence, and discards the previous session's draft with no recovery. | **CORRECTED** |
 | INV-9.18 | **Takeover suggestion.** Passive subscribers see `Suggest to take over`; the editor sees the requester's name with accept/reject. Reject notifies the requester. Accept with unsaved changes prompts save-first-or-discard; saving must complete backend sync + reload reconciliation before the transfer is accepted. | CONFIRMED |
 | INV-9.19 | **Transfer state shown to both parties** (`Editing is being transferred from User A to User B`); after transfer the new editor gets a confirming toast and the previous editor becomes passive and sees the new editor on the banner. | CONFIRMED |
 | INV-9.20 | **Render-mode reload re-claim.** Render-mode inspection reloads are expected short reloads; after re-injection the popup explicitly re-claims the lock, then polls the snapshot until connected/inactive. | CONFIRMED |
+| INV-9.21 | **Stale is not transferred.** The same `editorSessionId` may renew/reacquire a stale, untransferred lease and retain its draft. Actual transfer terminates and destroys the old session's work. | **CORRECTED** |
+| INV-9.22 | **Unsaved status is metadata only.** Heartbeat reports `hasUnsavedWork` for dirty marking, unsaved post-AI, Ready-to-save, in-flight, or unknown-outcome save; it never sends draft content. Saved-but-unpublished selectors are not unsaved local work. | **CORRECTED** |
+| INV-9.23 | **All mutations are idempotent and fenced.** Save, remove, reconciliation, publication acknowledgement, and transfer carry `operationId`, `editorSessionId`, `lockToken`, and expected revisions. Duplicate delivery returns the original result. | **CORRECTED** |
 
 ---
 
@@ -261,7 +270,7 @@
 
 | Area | Old behavior (forbidden) | New rule |
 |------|--------------------------|----------|
-| Property identity | Frontend base-URL normalization / longest-match | Backend `siteId` from GraphQL (locked); base URL is a backend attribute from config `/load` (INV-1.1/1.2) |
+| Property identity | Frontend base-URL normalization / longest-match | `(environmentKey, siteId)` from Hub-delegated GraphQL; GraphQL-derived relative `pageKey`; observed origins informational (INV-1.1/1.2) |
 | Exclusion model | "Implicit exclusion" + default/selector layer as ongoing authority | One unified exception kind; seed-then-step-aside (INV-2.6/2.7/2.8) |
 | Blank element | Global/config-merge re-derivation re-caught un-excluded elements | Branch-scoped, action-triggered only; un-excluded → implicit content (INV-2.9, INV-4.1/4.4) |
 | Parity audit | `incremental == full` corpus audit + trailing full reconcile | Removed; branch-scoped derivation is the definition of correct (INV-4.5) |
@@ -280,7 +289,7 @@
 | Config REST (`/load`, `/save`, `/remove`) | USER | 🟢 **OWNED — DESIGN TARGET**: the rewrite defines the ideal schema (unified `rows[]`, `baseUrl` attribute); the backend is adapted to match |
 | Property-lock (WS/HTTP) | USER | 🟢 **OWNED — DESIGN TARGET**: backend-issued/rotated identity + backend-authoritative timers; backend adapted |
 | AI (`/get_selectors`) | Separate team | 🟠 **LOCKED — CONFORM EXACTLY** to current code; no team dependency, no blocker |
-| GraphQL (`urlSearchInfo`, `propertyPageTypes`, `cssInfo`, `updateScrapingConditions`) | Separate team | 🟠 **LOCKED — CONFORM EXACTLY**; base URL is NOT sourced here (comes from `/load`) |
+| GraphQL (`urlSearchInfo`, `propertyPageTypes`, `cssInfo`, `updateScrapingConditions`) | Separate team | 🟠 **LOCKED SCHEMA — HUB CALLER** with exact delegated JWT and registered environment; payload-first error classification |
 | Accounts (`validate`, `login`) | Separate team | 🟠 **LOCKED — CONFORM EXACTLY** |
 
 See [remote-API contract](./remote-api.md) for the designed target schemas (owned) and the locked schemas.

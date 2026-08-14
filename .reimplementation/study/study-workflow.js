@@ -1,3 +1,5 @@
+/* global agent, log, parallel, phase */
+
 export const meta = {
   name: 'unfluffify-legacy-vs-rewrite-study',
   description: 'Exhaustive comparative study of the legacy extension (main) vs the reflex-arc rewrite (re-write): architecture weaknesses, UX/visual inventory, gap analysis',

@@ -2,10 +2,11 @@
 
 > **Status:** the executable plan for bringing branch `re-write` to production parity with the
 > legacy extension and to conformance with the reimplementation contract.
-> **Authority:** [`contract-invariants.md`](./contract-invariants.md) →
-> [`decisions-log.md`](./decisions-log.md) → [`study/qa-decisions.md`](./study/qa-decisions.md).
-> Where this plan conflicts with those, they win. Where the architect's Q&A decisions (D1–D12)
-> conflict with the older documents, **D1–D12 win** and the older document is to be amended.
+> **Authority:** [`study/qa-decisions-save-contract.md`](./study/qa-decisions-save-contract.md) →
+> [`contract-invariants.md`](./contract-invariants.md) → [`decisions-log.md`](./decisions-log.md) →
+> [`study/qa-decisions.md`](./study/qa-decisions.md). Where this plan conflicts with those, the
+> earlier item in that chain wins. D13–D24 are the latest architect decisions and supersede every
+> conflicting full-snapshot save, popup authority, URL identity, lock, or GraphQL-caller statement.
 > **Predecessor:** [`plan.md`](./plan.md) is the original P0–P10 greenfield build plan and is
 > **complete**. This is a sibling, not an edit of it.
 
@@ -28,7 +29,9 @@ plan.
 3. It names the **test that proves it**. A slice is not done until that test exists and fails
    without the fix.
 4. It ends **green**: `pnpm lint && pnpm check && pnpm test`.
-5. It is **one commit**, pushed to `re-write`, message stating what changed and why.
+5. It is **one commit in the repository it changes**: extension slices push `re-write`; H slices
+   push the agreed `UnfluffifyHub` implementation branch. Record both SHAs when a cross-repo
+   acceptance scenario becomes green.
 
 **Do not batch slices.** The study found the current damage was done by ~15 commits of feature
 work accreting onto one file with no corrective pass between them. One slice, one commit, gate
@@ -58,10 +61,11 @@ brief) and out of scope except where the *backend itself* must change (§5).
 
 ---
 
-## 2. What was decided (D1–D12)
+## 2. What was decided (D1–D24)
 
-The architect's answers, in force. Full text and rationale in
-[`study/qa-decisions.md`](./study/qa-decisions.md).
+The architect's answers, in force. D1–D12 are in
+[`study/qa-decisions.md`](./study/qa-decisions.md); D13–D24 are in the later
+[`study/qa-decisions-save-contract.md`](./study/qa-decisions-save-contract.md).
 
 | # | Decision |
 |---|----------|
@@ -77,8 +81,21 @@ The architect's answers, in force. Full text and rationale in
 | **D10** | **Save ends the marking session and drops to silent** (legacy behavior, INV-6.5 D-SAVE). |
 | **D11** | **The freeze stays page-visit-sticky** until navigation. |
 | **D12** | **Device emulation targets Googlebot-smartphone parity** — UA + client hints + touch/pointer media, above the 412×960 viewport. |
+| **D13** | **Identity is `(environmentKey, siteId, relative pageKey)`.** The Hub derives registered GraphQL endpoints; observed origins are informational. |
+| **D14** | **The background owns the full authoritative corpus.** Popup views are projections; drafts are separate session overlays. |
+| **D15** | **`/save` is structurally singular.** It sends current page + domain selectors, partially upserts, preserves absent pages, and returns the full snapshot. |
+| **D16** | **The server owns timestamps and selector semantics.** Only normalized selector-value changes matter; no marking-basis fingerprint. |
+| **D17** | **The Hub fetches/validates GraphQL with the exact client JWT.** Payload classification beats misleading HTTP status. |
+| **D18** | **Complete-feed reconciliation is deterministic.** Missing keys delete, relabels preserve, duplicate cross-type keys block, empty types are silent. |
+| **D19** | **Snapshot shrink requires explicit reconciliation proof.** Anything else is an integrity stop. |
+| **D20** | **Candidate loss/conflict suspends a session.** Preserve the draft, poll every 15s, use a 10-minute recovery grace, and never auto-replay Save. |
+| **D21** | **The lock is fenced and presence-qualified.** Hidden/idle tabs do not renew; stale-untransferred may reacquire; transfer destroys the draft. |
+| **D22** | **Same-user `Continue here` is explicit and destructive.** Warn from `hasUnsavedWork`; rotate the fence; no merge/recovery. |
+| **D23** | **Every mutation is idempotent** by operation id and expected fence/revisions. |
+| **D24** | **The Hub owns Send to Lynx** and advances the submitted fingerprint only on definitive GraphQL success. |
 
-**Still open, with defaults proposed here (§7).** None block execution.
+**No product/design questions remain open for this plan.** §7 records closed implementation
+choices so resumption does not silently reopen them.
 
 ---
 
@@ -87,7 +104,8 @@ The architect's answers, in force. Full text and rationale in
 - **Branch topology.** `main` == `origin/legacy-main` == `28974c2a` (legacy v1.10.0 + 3 fixes).
   PR #48 merged the rewrite and **main was then reset back to legacy**, so the rewrite ships
   nowhere. `re-write` is the live line, 69 commits off the legacy base.
-- **Gate:** green — 485 tests / 58 files, lint + typecheck clean.
+- **Gate:** green after this amendment — `pnpm verify` passes: 485 tests / 58 files, lint,
+  typecheck, production build, and 5 generated-manifest tests.
 - **Size:** legacy ≈43k lines of real code; rewrite ≈13k (both excluding the vendored 29,930-line
   icon CSS and theme CSS).
 - **The backend is already ahead of the extension.** `UnfluffifyHub@develop` (`4a4878e`) has
@@ -123,7 +141,7 @@ these is either silent or destructive.
 | ID | Defect | Evidence | Contract |
 |----|--------|----------|----------|
 | **A1** | **Page-shell rejection is back, and now suppresses exclusion rows.** `isPageShell` again treats `broadViewportFootprint` (width ≥ 0.9 × innerWidth) as a shell disjunct — the exact rule the architect **deleted on 2026-07-05** after the bonliva footer bug. Worse, the rewrite wired the shell test into default-exclusion collection, so a full-width or landmark-bearing FOOTER/HEADER/NAV holding its text in children gets **no exclusion row at all**, and its descendants classify `implicit-include` and **ship to the AI as content**. Silent in the UI. | `domain/boundary.ts:41`, `content/marking/dom-view.ts:225,228`, `content/marking/engine.ts:99-107`, `domain/evaluate.ts:62-64`, `boundary.ts:52` | INV-3.18/3.19, C-MARK-6 |
-| **A2** | **Destructive save, now deterministic.** `configFromSubmission` builds `pageMarkings` with exactly one key; `loadPropertyConfig` discards the loaded `pageMarkings`; `config.save` posts it verbatim; the backend deletes every page absent from the request. Legacy's wipe was intermittent — this one happens **on every save**. No guard, no page-count check, no two-page save test. | `main.tsx:866-873, :1250-1251`, `background/index.ts:300-309`, `lynx/rest.ts:49-69`; backend `SiteRepository.cs:153-170` | INV-6.5, D2, D3 |
+| **A2** | **Destructive save, now deterministic.** `configFromSubmission` builds a one-key `pageMarkings` map and the backend currently treats the map as full replacement. The correction is **not** to merge the full corpus into the client request: D15 requires a singular `page` request, partial server upsert, full authoritative response, fenced/idempotent execution, and explicit shrink proof. | `main.tsx:866-873, :1250-1251`, `background/index.ts:300-309`, `lynx/rest.ts:49-69`; backend `SiteRepository.cs:153-170` | INV-6.5, D15, D19, D23 |
 | **A3** | **Shift-widening picks a different element than legacy.** `chooseWidenTarget` climbs straight to the outermost eligible ancestor, implementing only step 4 of C-TGT-4's locked four-step ladder. | `domain/widening.ts:66-77` | C-TGT-4, INV-3.19 |
 | **A4** | **Static properties cannot be marked at all.** Schema requires `rawHtml` iff `renderMode === "static"`; `buildSubmissionSnapshot` parses eagerly and throws; **nothing anywhere fetches static HTML**. Run AI and Save fail at capture for a whole property class. | `domain/schema/submission.ts:42-48`, `content/marking/submit.ts:15`, `background/services.ts:71` | D5, INV-8.6 |
 | **A5** | **Synthetic XPath segment.** `dom-view.ts` emits a `/__closed-shadow[n]` segment, which may violate the "purely positional `/tag[index]`" rule and cannot resolve against the captured HTML. **Verify before fixing** — confirm against the capture path. | `content/marking/dom-view.ts:200-206` | C-SUB-4, INV-5.3 |
@@ -160,43 +178,71 @@ these is either silent or destructive.
 
 ## 5. Backend work (`UnfluffifyHub`, branch `develop`)
 
-Owned by the architect. **Gates cutover, not design** — the extension can be built and tested
-against the target semantics before this lands.
+Owned by the architect. **These changes gate cutover.** Implement them in
+`UnfluffifyHub@develop` as separately tested backend commits; the extension may use a contract
+fixture/fake until they land. The exact contract is D13–D24 and `remote-api.md` A/B/D.
 
-### 5.1 Make `/save` keyed per-page (required by D2 + D3)
+### 5.1 Stage-aware delegated GraphQL context
 
-Today `MergePageMarkings` iterates **only** `incoming`, so any page in the database but absent
-from the request is dropped by the `DELETE … WHERE SiteId` + re-insert that follows. It is
-deliberate and pinned by `ConfigSyncContractTests.MergePageMarkings_DropsMarkings_AbsentFromIncomingRequest`.
+- Add an explicit deployment environment registry keyed by normalized `stageBase`; derive only
+  registered GraphQL endpoints. Reject arbitrary URLs.
+- Add the Hub context resolver around the locked `urlSearchInfo` and `propertyPageTypes` queries.
+  Forward the **exact** client JWT for authorization; never store/log it or substitute a service
+  credential. Forward `x-update-token` to the extension.
+- Classify GraphQL payloads before status: auth and permission payloads may arrive as HTTP 500;
+  partial data+errors and malformed payloads are invalid, never empty feeds.
+- Canonicalize candidate URLs to relative path+query+fragment, and return membership and assignment
+  fingerprints. State is keyed by `(environmentKey, siteId)`.
 
-Seed the merge from the existing rows so a request can only affect the pages it names:
+### 5.2 Fenced, idempotent property mutations
 
-```csharp
-Dictionary<string, PageMarkingEntity> merged = new(existingByUrl, StringComparer.Ordinal);
-foreach ((string pageUrl, PageMarking dto) in incoming) { /* newer-wins, unchanged */ }
-```
+- Separate `editorSessionId` from opaque backend `lockToken`. Grant/transfer/takeover rotates the
+  fence; every mutation rejects stale tokens before touching storage.
+- Standardize `operationId`, expected property revision, and expected feed revision on save,
+  remove, reconcile, publish acknowledgement, and transfer. Duplicate delivery returns the recorded
+  outcome.
+- A stale but untransferred editor session may reacquire; an actual transfer irreversibly destroys
+  the old session draft. Persist only `hasUnsavedWork` metadata for cross-browser warnings.
+- Renew only from visible selected tabs in a focused, non-idle browser. Add the 10-minute
+  candidate-suspension recovery grace before the ordinary inactivity countdown.
 
-- Deliberate deletion keeps its own door: `/remove` already uses `RemovePageMarking`.
-- **Invert the pinned test** to assert preservation, and add one asserting that an empty
-  `pageMarkings` map changes nothing.
-- `SaveRequest.Validate()` accepts an empty `pageMarkings` map — with the merge fixed that
-  becomes harmless, but reject it anyway as defence in depth.
+### 5.3 Singular partial `/save` and authoritative responses
 
-### 5.2 Wire-conformance items to settle
+- Replace `SaveRequest.PageMarkings` with required singular `Page`. `siteId:null`, missing page,
+  and empty-map/full-replace forms are structurally impossible.
+- Upsert the named `(environmentKey, siteId, pageKey)` only; preserve absent records. `/remove`
+  remains the explicit ordinary deletion door.
+- Assign page/render-mode/selector timestamps server-side. Compare selector sets semantically;
+  preserve `selectorsUpdatedAt` for identical values and never blank
+  `submittedSelectorsFingerprint` on save.
+- Return the complete property snapshot from save/remove/reconcile/publish. Include property/feed
+  revisions and exact reconciliation removal/relabel proof so the client can reject unexplained
+  shrink.
 
-- The rewrite sends `siteId: activeSiteId` where `activeSiteId: number | null`, into a
-  **non-nullable** `int SiteId`. Confirm `null` is unreachable on the save path, or make it so.
-- `C-SAVE-1` ("`pageType` is `[JsonRequired]`") is **stale** — `PageMarking.cs` makes it
-  optional. Amend the contract register.
-- The rewrite never sends `pageType` and never reads `GET /page-types`, yet D4 ships the Todo
-  list and page-type coverage. Define that data path (§6.C).
+### 5.4 Complete-feed reconciliation and operational block
 
-### 5.3 Deploy ordering (hard cutover)
+- Before lock grant, Run AI, Save, Remove, and Publish, fetch the complete property feed with the
+  delegated JWT.
+- Remove stored markings for missing keys; preserve rows/HTML/timestamps when only page-type labels
+  change. Reconciliation is idempotent by feed fingerprint and fenced like every mutation.
+- A key assigned to different page types persists `candidate_feed_conflict`, rejects mutations,
+  lists the offending key/types and recovery instruction, and changes no data. Clear only after a
+  later valid feed. Ignore empty page types in the editor workflow.
 
-`develop` already rejects legacy v5 payloads. Therefore: **do not deploy `develop` to a stage
-that still serves legacy v1.10.0 clients.** Either cut both over together, or keep a
-version-5-compatible endpoint alive until the extension is replaced. State the chosen order
-before deploying.
+### 5.5 Hub-owned Lynx publication
+
+- Add one publish operation that refreshes feed/auth, validates fence/revisions/Todo coverage/
+  normalized selector fingerprint and the existing `cssInfo` gate, then calls the locked
+  `updateScrapingConditions` mutation with the delegated JWT.
+- Advance `submittedSelectorsFingerprint` only on definitive payload success. Preserve it on
+  failure; persist `publication_unknown` for ambiguous transport and retry only under the same
+  idempotency key with identical replace-state values.
+
+### 5.6 Deploy ordering (hard cutover)
+
+`develop` already rejects legacy v5 payloads, and D15 introduces another intentional wire break.
+Do not deploy this Hub contract to a stage still serving legacy v1.10.0. Cut both over together or
+keep a version-5 endpoint alive until extension replacement. State the chosen order before release.
 
 ---
 
@@ -204,12 +250,26 @@ before deploying.
 
 Prerequisite notation: a slice may start when the slices in **Needs** are ticked.
 
+### Phase H — owned Hub contract (`UnfluffifyHub@develop`)
+
+These are cross-repository prerequisites. Each is one backend commit with Hub tests green; record
+its SHA here and in the extension integration slice. Extension work may proceed against exact
+versioned fixtures, but live acceptance waits for the corresponding H slice.
+
+| ✅ | ID | Slice | Needs | Test that proves it |
+|----|----|-------|-------|---------------------|
+| ☐ | **H1** | Environment registry + delegated-JWT `/context`: locked GraphQL queries, payload-first error classification, token rotation forwarding, relative page keys, membership/assignment fingerprints. | — | HTTP 500 auth payload maps to auth; partial data never reconciles; two stages with the same `siteId` remain isolated. |
+| ☐ | **H2** | Fenced/idempotent lock and mutation envelope: `editorSessionId`, rotated `lockToken`, operation log, expected revisions, qualifying-presence heartbeat, same-user destructive transfer. | H1 | Stale token mutates nothing; duplicate transfer rotates once; hidden/idle heartbeat cannot extend lease; stale-untransferred same session reacquires. |
+| ☐ | **H3** | Full `/load`, singular partial `/save`, explicit `/remove`, server timestamps, normalized selector comparison, full authoritative responses. | H2 | Save B request contains no A; response contains A+B; duplicate operation has one timestamp; identical selectors preserve timestamps/fingerprint. |
+| ☐ | **H4** | Complete-feed reconciliation + persisted conflict block + explicit shrink/relabel proof. | H1, H2, H3 | Missing key deletes; relabel preserves; duplicate cross-type key blocks without mutation; invalid feed deletes nothing. |
+| ☐ | **H5** | Hub-owned `/publish`: feed/fence/completeness/`cssInfo` gates, exact-JWT GraphQL mutation, idempotent definitive/unknown outcomes. | H4 | Submitted fingerprint advances only on definitive success; timeout never reports success; same operation safely resolves/retries. |
+
 ### Phase A — stop the bleeding (data correctness)
 
 | ✅ | ID | Slice | Needs | Test that proves it |
 |----|----|-------|-------|---------------------|
 | ☐ | **A1** | Remove `broadViewportFootprint` from the shell disjunct and unwire the shell test from `collectDefaultExclusionRows`. Restores INV-3.18's width-independence. | — | A full-width landmark-bearing `<footer>` whose text lives in children **gets an exclusion row** and does not classify `implicit-include`. |
-| ☐ | **A2** | Client-side destructive-save guard: refuse to post a snapshot whose page set shrinks against the loaded config; assemble the save body from the **loaded corpus + current page** rather than the current page alone. | — | Two-page property: saving page B leaves page A's rows intact in the posted body; a zero-page body is refused. |
+| ☐ | **A2** | Implement D14/D15 client authority: background persists the full validated corpus, AI overlays the live current page, and Save sends a structurally singular current-page request plus selectors. Adopt only a validated full response; require reconciliation proof for shrink. | H3, H4 (or exact fixtures) | Two-page property: saving B sends no A, response/adopted baseline contains A+B; unexplained shrink is rejected without losing baseline/draft. |
 | ☐ | **A3** | Implement C-TGT-4's four-step widening ladder in `chooseWidenTarget`. | — | Golden fixture: Shift+Click on a known page selects the same element as legacy's ladder, not the outermost ancestor. |
 | ☐ | **A4** | Verify `/__closed-shadow[n]`: confirm whether it reaches a submitted row. If it can, replace with a positional segment or exclude the host per INV-5.11. | — | No submitted XPath contains a non-`/tag[index]` segment; closed-shadow host renders its distinct overlay category. |
 | ☐ | **A5** | Persist AI selectors in `runRecordRepo` at `run.completed` (background-side), not popup memory; add the resume path. | — | Panel closed mid-run: the completed run's selectors are readable on next open. |
@@ -234,9 +294,9 @@ Prerequisite notation: a slice may start when the slices in **Needs** are ticked
 |----|----|-------|-------|---------------------|
 | ☐ | **C1** | Stamp `data-theme` / `data-theme-mode` + `style.colorScheme` at panel boot (legacy forced `nordic`). **One-line fix for a visible brand mismatch.** | — | Panel renders nordic tokens, not the `:root` indigo fallback. |
 | ☐ | **C2** | Define the three tokens `popup.css` references that no theme provides (`--surface`, `--surface-2`, `--ink-soft`) — invisible in legacy behind a dark flag, always visible now in the Activity log. | C1 | Activity log renders with background and label colour in every theme. |
-| ☐ | **C3** | Restore GraphQL `propertyPageTypes` candidacy (D6) and the page-type data path. | B2 | A property with no config record is still a candidate and can bootstrap. |
-| ☐ | **C4** | Todo list + candidate badges from the page-type feed (D4). | C3 | Coverage counts reflect backend-saved markings only. |
-| ☐ | **C5** | Lynx checklist modal + fail-closed `cssInfo` staleness gate + Send to Lynx publish (D4). Builders exist, tested, callerless. | C4 | Send is disabled until the gate returns clear; publish calls `updateScrapingConditions` and writes the fingerprint. |
+| ☐ | **C3** | Replace direct/stale classification with Hub `/context`: generation-scoped page load/SPA/auth/settings recovery, registered environment, canonical relative page key, typed managed/unmanaged/suspended outcomes. | B2, H1 | Late navigation result is discarded; misleading GraphQL status is typed correctly; definitive property change terminates while transient failure preserves. |
+| ☐ | **C4** | Todo + candidate badges from the background's last valid canonical feed: header `covered/actionable`; per-type `marked/1` uncapped; silent empty-type exclusion; conflict/removal suspension surfaces and 15s recovery checks. | C3, H4 | `4/6`, `6/6`, `0/1`, `1/1`, `3/1` states/color semantics pass; empty vs error is distinct; candidate return yields Ready-to-save without auto-write. |
+| ☐ | **C5** | Lynx checklist + Hub `/publish`: fail-closed authority/`cssInfo` gate, one saved mark per non-empty type, publication unknown/retry UI, authoritative response adoption. | C4, H5 | Client never calls GraphQL publication directly; submitted fingerprint changes only after definitive Hub success; empty-only feed cannot publish. |
 | ☐ | **C6** | Preview surface: emit `preview.exit.requested` / `preview.exited`; add the exit control. Today preview is a **one-way door**. | B3 | Entering and exiting preview returns to the origin mode without dirtying a draft (INV-6.10). |
 | ☐ | **C7** | Theme customization UI over the existing 16-theme token catalog (D4). | C1 | Theme selection persists and applies. |
 
@@ -260,11 +320,11 @@ single box overlapping unmarked siblings.
 
 | ✅ | ID | Slice | Needs | Test that proves it |
 |----|----|-------|-------|---------------------|
-| ☐ | **E1** | Move the lock lifecycle into the background: claim on candidacy, heartbeat independent of the panel. | B2 | Heartbeats continue with the panel closed. |
-| ☐ | **E2** | Tab lifecycle: add the `tabs.onRemoved` / `onUpdated` / `onActivated` / `webNavigation` listeners — **grep confirms none exist anywhere in `src/`** — with tab-close release and dispose grace. | E1 | Closing a tab releases the lock immediately. |
-| ☐ | **E3** | Reconnect with backoff + independent HTTP reachability probes (`isNetworkReachable` is dead code today). | E1 | A dropped socket recovers without losing the lock. |
-| ☐ | **E4** | The countdown family: connection-loss 70 s, off-candidate 70 s, cross-property cooldown 30 s, passive release 60 s — all mirrored from backend-authoritative deadlines (INV-9.6). | E3 | Each countdown displays and expires per contract. |
-| ☐ | **E5** | Takeover / transfer UI, both parties (INV-9.17–9.19). | E4 | Same-user transfer and takeover accept/reject behave per contract. |
+| ☐ | **E1** | Move the lock lifecycle into background and adopt H2's split identity: per-editor `editorSessionId`, backend `lockToken`, environment-scoped lease, fenced command envelope. Panel closure does not end the editor session. | B2, H2 | Every write carries the current fence; panel close preserves; stale fence is typed conflict with zero mutation. |
+| ☐ | **E2** | Add `tabs.onRemoved` / `onUpdated` / `onActivated` / `windows.onFocusChanged` / `webNavigation` + browser-idle integration. Only visible selected tab + focused window + non-idle status qualifies renewal; tab close/navigation enforce draft terminal rules. | E1 | Forgotten hidden tab cannot keep lock; focused active page can; navigation/reload destroys draft; tab close releases. |
+| ☐ | **E3** | Reconnect/backoff + independent HTTP reachability. Distinguish uncertain disconnect, stale-untransferred reacquisition, and authoritative transfer. | E1 | Same session reacquires stale lease with draft; rotated fence immediately discards old draft; network failure alone does not. |
+| ☐ | **E4** | Mirror backend deadlines: existing connection/off-candidate/cross-property/passive timers plus 10-minute candidate-removal/conflict recovery grace and 15-second client-driven context polling only while focused or in grace. | E2, E3, C3 | Recovery poll stops after grace, refocus checks immediately, then ordinary inactivity expiry makes the lock takeover-eligible. |
+| ☐ | **E5** | Same-user `Continue here` and takeover UI. Heartbeat publishes `hasUnsavedWork` for dirty/post-AI/Ready/in-flight/unknown save; missing/stale status warns conservatively; saved-unpublished selectors do not. | E4 | Cross-tab and cross-browser transfer rotate once, warn correctly, discard old work, and leave the previous tab locked/passive as ownership changes. |
 
 ### Phase F — static properties (D5)
 
@@ -281,23 +341,23 @@ single box overlapping unmarked siblings.
 | ☐ | **G1** | Googlebot-smartphone parity (D12): UA + client hints + touch/pointer media over 412×960. | — | Emulated identity matches the target profile; posture re-asserts after navigation. |
 | ☐ | **G2** | **Contract parity matrix** — the critic's gap 1: 70 of 112 locked `C-*` contracts have **no verdict in any report**, including all 3 `C-SHDW`, 12 of 17 `C-MARK`, 6 of 7 `C-SAVE`. Produce one PASS/PARTIAL/FAIL row per contract with `file:line` on both sides. Two regressions (A1, A3) were already found in this gap, so it is not bookkeeping. | Phase A | The matrix exists and every FAIL has a slice. |
 | ☐ | **G3** | **Regression net** — the critic's gap 3: legacy has 203 test files, the rewrite 64. Identify which legacy tests encode *behavior* (not the 77 that regex production source) and port them as the parity net. | G2 | Named legacy behavioral tests pass against the rewrite. |
-| ☐ | **G4** | Live-round validation on a throwaway site id — **never against a production property** (see `study/` and the live-QA findings). | G3 | Full lifecycle passes end to end. |
-| ☐ | **G5** | Cutover: deploy ordering per §5.3, version bump, replace `main`. | G4, §5.1 | — |
+| ☐ | **G4** | Live-round validation on a throwaway environment/site id — **never against a production property** (see `study/` and the live-QA findings). | G3, H5 | Full fenced lifecycle and Lynx publication pass end to end. |
+| ☐ | **G5** | Cutover: deploy ordering per §5.6, version bump, replace `main`. | G4, H5 | — |
 
 ---
 
-## 7. Open questions, with defaults
+## 7. Closed implementation choices
 
-**Each default is reversible without restructuring the plan.** Overturn any of them by editing
-this section and the affected slice.
+These are either faithful legacy parity, a prior architect answer, D13–D24, or a safety consequence
+of the target architecture. They are not unresolved plan blockers.
 
-| Q | Default taken | Change costs |
+| Topic | Decision | Source / change cost |
 |---|---------------|--------------|
 | Reveal timings (10 passes × 1 s dwell) | **Port legacy's timings**, but make the walk interruptible on navigation | D2 only |
-| Right-click commits a mark | **Do not port** — reserve right-click for the browser menu | D1 only |
+| Right-click commits a mark | **Port the established legacy interaction** while marking; parity is the default when no removal was requested | D1 only |
 | Silent-mode click-to-copy tooltip | **Port it** — cheap, and editors rely on it for reporting | D1 only |
 | Native `window.confirm` for destructive actions | **Move to in-panel confirmation** — legacy's blocking dialogs freeze the fact pipeline and break automation | C6-adjacent |
-| Render-mode change silently invalidating selectors | **Keep the invalidation, but tell the user** | C3 |
+| Render-mode change silently invalidating selectors | **Do not stale selector values.** Surface render-mode publication state separately if Lynx must receive it. | C3/C5 |
 | Send-to-Lynx blocking an identical re-send | **Keep fail-closed** | C5 |
 | Fail-open API audit (legacy task #18, never resolved) | **Fail closed on anything that writes; fail open on anything that only displays** | Cross-cutting; record per call site in G2 |
 | Deleted backend config record recovery | **Explicit re-onboarding** (render-mode re-inspection), not silent auto-recreation | C3 |
@@ -316,12 +376,22 @@ The rewrite may replace `main` when **all** hold:
 2. **No `source:"popup"` signal frame exists**; one logical edge produces exactly one signal.
 3. **Content consumes signals** and renders from its own per-state memory; no directive push.
 4. **The contract parity matrix (G2) is complete**, with no unexplained FAIL.
-5. **A two-page property survives a per-page save** — verified against the fixed backend.
+5. **A two-page property survives a singular per-page save** — request for B contains no A;
+   authoritative response contains A+B; unexplained shrink is rejected.
 6. **A static property completes Run AI and Save.**
-7. **The lock survives the panel closing** and releases on tab close.
-8. **The operator loop closes**: mark → Run AI → preview → save → Todo coverage → Send to Lynx.
-9. **Gate green** (`pnpm verify`), plus the ported legacy behavioral net (G3).
-10. **A live round passes on a throwaway site id.**
+7. **The lock survives panel closing but not forgotten-tab abuse**: hidden/idle tabs cannot renew;
+   stale-untransferred same session may reacquire; transfer destroys its draft.
+8. **Candidate removal/conflict suspends without data loss**, recovers on a 15-second context check,
+   and restores Ready-to-save without automatic mutation replay.
+9. **Every mutation is fenced and idempotent**, including a response-lost retry and transfer race.
+10. **The Hub owns GraphQL context and publication** with exact-JWT delegation, registered stages,
+    payload-first error classification, and token-rotation forwarding.
+11. **Feed reconciliation is deterministic**: missing key deletes with proof, relabel preserves,
+    duplicate cross-type key blocks without mutation, and empty types are non-actionable.
+12. **The operator loop closes**: mark → Run AI → preview → save → Todo counters → Hub Send to Lynx.
+    Submitted fingerprint advances only on definitive Lynx success.
+13. **Gate green** (`pnpm verify`), plus the ported legacy behavioral net (G3).
+14. **A live round passes on a throwaway site id.**
 
 ---
 
@@ -332,8 +402,12 @@ The rewrite may replace `main` when **all** hold:
 - **A1 is invisible.** Nothing in the UI reveals that a footer's text is being submitted as
   content; only the parity matrix (G2) or a payload diff catches it. Treat any marking-output
   change as high-severity even when the screen looks right.
-- **Backend and extension must cut over together** (§5.3), or legacy clients break the moment
+- **Backend and extension must cut over together** (§5.6), or legacy clients break the moment
   `develop` deploys.
+- **Delegated GraphQL is an authority boundary.** Never log/persist the JWT, trust a client-supplied
+  feed/conflict flag, or classify authorization solely by HTTP status.
+- **The shrink guard is expected never to fire** outside explicit reconciliation. Treat it as an
+  incident, not an invitation to merge or auto-repair.
 - **The 500 ms poll currently masks bugs.** Removing it (B3) may expose latent ordering
   assumptions elsewhere; expect fallout in the slices immediately after.
 - **Live rounds have already destroyed production data once.** Use a throwaway site id (G4).

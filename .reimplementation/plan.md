@@ -1,5 +1,11 @@
 # Unfluffify Reimplementation — Make-Plan
 
+> **Historical build plan:** P0–P10 has already been implemented. Resume current correction/parity
+> work from [`parity-plan.md`](./parity-plan.md), applying the binding
+> [`study/qa-decisions-save-contract.md`](./study/qa-decisions-save-contract.md). D13–D24 supersede
+> this document's older full-snapshot Save, config-sourced base URL, client-owned GraphQL, and lock
+> identity details.
+>
 > **Keystone document.** This is the executable build order for a **greenfield, big-bang
 > clean rewrite** of the Unfluffify Chrome extension (MV3 · WXT · TypeScript · React
 > side-panel).
@@ -146,8 +152,8 @@ this is the load-bearing summary.
 
 - **AI-fresh gate**: any marking change re-requires a Run AI before Save enables; marking cannot be
   disabled until Save or Discard.
-- **Save** uploads all locally-marked pages as **one property snapshot** to `/save`, then replaces
-  local state from the server response; saved lands in **SILENT**.
+- **Save (superseded by D15)** sends the current page + domain selectors as a singular partial upsert;
+  the Hub preserves absent pages, returns the full snapshot, and saved lands in **SILENT**.
 - **Fresh session**: every enable re-seeds from defaults+selectors (never starts dirty); any
   navigation/reload disables marking.
 - **Discard (corrected)**: returns to the **CLEAN, freshly-COMPUTED baseline** (defaults + CSS/AI
@@ -417,13 +423,11 @@ designed safety net — verify it independently in P10 live.
 ### P4 — Lynx-client (config + lock = OWNED design target; AI + GraphQL + accounts = LOCKED) + AI-job state machine
 
 **Create:**
-- `src/lynx/rest.ts` — `/load`, `/save`, `/remove` (**OWNED — design target**: `/load` returns a `baseUrl`
-  attribute + unified `rows[]`; backend adapted to match). `/save` uploads **all** locally-marked pages as
-  one property snapshot (unified `rows[]`), returns the new baseline. **Remote-layer obligation (INV-6.5,
-  last clause):** ordinary config syncs **never** upload local draft page markings — **only `/save` does**.
+- `src/lynx/rest.ts` — historical `/load`, `/save`, `/remove` implementation; current target is
+  `remote-api.md` A.1–A.8 (singular partial Save, full authoritative response, fenced/idempotent Hub).
 - `src/lynx/ai.ts` — `/get_selectors` (**LOCKED** to current code; conform exactly).
-- `src/lynx/graphql.ts` — `urlSearchInfo` (→ siteId; **baseUrl comes from `/load`**, not here),
-  `propertyPageTypes`, `cssInfo`, `updateScrapingConditions` (**LOCKED**; conform exactly).
+- `src/lynx/graphql.ts` — locked GraphQL schemas remain exact, but D17/D24 move property/feed and
+  publication calls behind the Hub with exact-JWT delegation.
 - `src/lynx/ai-job.ts` — AI-job FSM: `idle → running → fresh → stale-on-edit`; enforces the **AI-fresh
   gate** (any marking change re-requires Run AI before Save enables). **Two DISTINCT Save gates (INV-6.4):**
   `sessionRequiresAiRun` is the composite **save** gate (pending changes + page-controls visibility +

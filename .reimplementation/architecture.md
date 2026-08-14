@@ -2,8 +2,9 @@
 
 > **Status:** target design for the big-bang rewrite (`rewrite/reimplementation-plan`).
 > **Authority:** this document realizes the verified decisions in the
-> [decisions log](./decisions-log.md) and the [invariant register](./contract-invariants.md).
-> Where any statement here conflicts with those, they win.
+> [save/lock/feed Q&A amendment](./study/qa-decisions-save-contract.md),
+> [decisions log](./decisions-log.md), and [invariant register](./contract-invariants.md), in that
+> order. The amendment supersedes older full-snapshot save and client-owned GraphQL descriptions.
 > **Delivery model:** clean rewrite in a fresh tree. The current `src/` is **reference/inspiration**
 > and a source of isolated reusable snippets only — **no logic, contracts, or module shapes are carried
 > over wholesale**. Citations to current files below are for provenance, not for porting.
@@ -147,7 +148,7 @@ src/
 │
 └── storage/                       # three lifetime-tiered Zod-backed repositories
     ├── durable.ts                # survives SW suspension: per-tab state, run records, backend lock identity
-    ├── session.ts                # editing-session working draft (IndexedDB); fully sourced on /load, replaced by /save
+    ├── session.ts                # short-lived current marking-session draft, separate from authoritative corpus
     └── settings.ts               # long-lived config: endpoints, feature flags, taxonomy cache, auth token
 ```
 
@@ -169,18 +170,17 @@ derive from one definition. This kills the type-vs-normalizer drift that today l
 
 ### 4.1 Data authority — backend-authoritative + session working draft
 
-- **Backend is the single source of truth** for saved state. The property config from `/load` seeds
-  a fresh session; `/save` uploads all locally-marked pages as **one property snapshot** and its
-  response **fully replaces** local state.
-- **Local is a session-scoped working draft** only. Timestamp-merge applies **within one editing
-  session**, never across the backend boundary.
-- **Property identity = backend `siteId`** from a GraphQL lookup of the raw URL. The frontend does
-  **not** normalize/longest-match base URLs; base URL is a **backend attribute** carried in config.
-- **Property lock identity is backend-issued and backend-rotated.** The `PropertyLockClient` persists
-  the identity the backend hands it to the current tab's storage; on lease/handoff the backend
-  invalidates the old identity and issues a fresh one (old holder becomes passive). The frontend
-  generates no UUID and runs no cloned-tab rotation. **Lock timings are backend-authoritative**
-  (client mirrors/displays lease deadlines).
+- **Hub state is authoritative** for saved data. The background retains the complete validated
+  `/load` corpus and atomically adopts full mutation responses. A current marking-session draft is
+  an isolated overlay; popup memory is never authority.
+- **Save is a singular partial upsert.** It sends only the current page plus domain selectors; the
+  Hub preserves absent pages and returns the full snapshot. The full stored corpus is assembled only
+  for AI, with the live current page overlaid.
+- **Property identity = `(environmentKey, siteId)`** from Hub-delegated GraphQL. Candidate storage
+  uses GraphQL-derived relative `pageKey`; the observed URL origin is informational.
+- **Lock authority is a backend-issued fencing token**, distinct from per-editor session identity.
+  Grant/transfer/takeover rotates it; every mutation validates it. Renewal requires visible,
+  focused, non-idle presence and all deadlines remain backend-authoritative.
 
 ### 4.2 MV3 suspension policy
 
