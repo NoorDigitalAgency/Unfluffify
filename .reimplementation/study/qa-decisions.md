@@ -10,9 +10,26 @@ inputs to the plan. Questions still open are listed at the end.
 The popup-as-orchestrator drift is a **defect to fix, not a new target to document**. The
 plan's first phase is the corrective mandate:
 
-- Signal birth moves **into the brain**. `main.tsx` must stop emitting the 12 signal names it
-  currently emits with `source:"popup"`; the brain's `fold → decide` loop becomes the live
-  path and its already-tested deciders stop being dead code.
+> **PREMISE CORRECTION (verified in code after the decision was taken).** The question was put
+> to the architect saying the brain's deciders are *dead code in the live path*. **That was
+> wrong**, and I confirmed it directly: `brain.observe` runs live on every reported fact
+> (`background/index.ts:158,163` and `:113,115`), and `decide.ts:14-35` genuinely births
+> `session.navigated`, `marking.enabled` and `marking.disabled` from fact edges.
+>
+> The real defect is **dual birth with no dedup**. The popup independently births those same
+> three names — `session.navigated` (`main.tsx:470`), `marking.enabled` (`:897, :984`),
+> `marking.disabled` (`:952, :984, :1001`) — plus `run.*`, `preview.opened`, `session.saved`,
+> `session.discarded` and `reconciliation.*`, all with `source:"popup"`, while
+> `signals.ts:24-40` appends **unconditionally**. One logical edge therefore produces two
+> signals, and the popup FSM consumes both.
+>
+> **The decision below is unaffected and if anything more urgent** — duplicate edges into a
+> state machine are worse than an unused code path. Only the mechanism changes: Phase 1 is
+> *remove the duplicate birthplaces*, not *switch on a dead path*.
+
+- Signal birth moves **into the brain**. `main.tsx` must stop emitting the signal names it
+  currently emits with `source:"popup"`, leaving the brain's `fold → decide` loop as the sole
+  birthplace, so each logical edge is born exactly once.
 - **Popup-composed content directives are removed.** The 500 ms poll that pushes a composed
   curtain/banner surface to content is the retired dictation model and must go; content
   becomes a signal consumer.
@@ -148,7 +165,53 @@ around the page while marking. The tab-rebinding lifecycle is an accepted cost.
 
 ---
 
-## Still open (carried to Q&A round 3)
+---
 
-All of Tier 3 (Q8–Q18 UX fidelity, minus the side-panel question now settled as D8) and Tier 4
-(inherited decisions legacy never resolved) remain unasked.
+# Q&A round 3 — decisions
+
+## D9 — Consent hiding stays on EVERY configured property page at load. ✅ (legacy behavior kept)
+
+Faithful port: consent/cookie chrome is suppressed on all configured property pages regardless
+of whether anyone is editing, so a banner can never contaminate a capture. It stays visual-only
+(opacity / visibility / pointer-events plus `dialog.close()`, DOM intact) with scroll-lock
+repair and the aria-hidden pointer-events bypass. `REMOVABLE_ELEMENT_SELECTORS` remains a
+**high-precision allowlist** — never widen it to `banner`/`notice`/`toast`/`paywall`/`cmp`.
+
+## D10 — Save ENDS the marking session and drops to silent. ✅ (legacy behavior kept)
+
+Faithful port, and consistent with INV-6.5's D-SAVE rule that saved state lands in silent.
+Marking must be re-enabled to continue. Note this composes with D3's per-page saves: finishing
+a page is an explicit boundary, and the next page starts a fresh session (INV-6.1).
+
+## D11 — The freeze stays page-visit-sticky until navigation. ✅
+
+Disabling marking does **not** release the page. The freeze is what guarantees that what the
+editor marked matches what was captured; releasing it mid-visit would let the page reflow out
+of correspondence with the saved snapshot and the silent overlays. Only navigation lifts it
+(INV-7.6), and per-subsystem resumes must never drop it.
+
+## D12 — Device emulation targets GOOGLEBOT-SMARTPHONE PARITY. ✅
+
+Stronger than both legacy (viewport only) and the rewrite's current Pixel 7 / Android 13
+spoofing. The target is what Google's mobile crawler sees: user-agent, client hints, **and**
+touch/pointer media characteristics, on top of the 412×960 viewport. Rationale: the product
+exists to produce ground truth for an SEO content extractor, so the editor must mark what the
+crawler sees. This also settles what a saved snapshot represents, and it pairs with the
+existing shadow-DOM Googlebot-parity flattening (INV-5.9).
+
+---
+
+## Still open (defaults will be proposed in the plan)
+
+Remaining Tier 3: reveal-ritual timings (up to 10 scroll passes × 1 s dwell); right-click
+committing a mark; silent-mode click-to-copy tooltips; native `window.confirm` vs in-panel
+confirmation; render-mode change silently invalidating computed selectors; Send-to-Lynx
+`cssInfo` gate blocking an identical re-send.
+
+Tier 4 (legacy never resolved these): the fail-open API audit decision table; recovery UX for a
+deleted backend config record; whether a background AI run completing after the panel closes
+should persist and surface later; whether marking should survive a same-URL reload; page-block
+scope; and the widening F2 over-widening tradeoff.
+
+**These are not blocking.** The plan will carry an explicit default for each, marked as a
+reversible decision the architect can overturn without restructuring the plan.

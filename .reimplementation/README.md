@@ -21,6 +21,13 @@ and for isolated reusable snippets — **no logic or contracts are carried over 
    accounts (separate team) are **locked to the current code** and conformed to exactly.
 5. **[plan.md](./plan.md)** — the make-plan: goal, current facts, decisions, non-goals, greenfield build
    order, test matrix, regression risks, acceptance criteria, and the todo chain.
+   **This plan is COMPLETE** (P0–P10 built and cut over); it is history, not the active plan.
+6. **[parity-plan.md](./parity-plan.md)** — **the ACTIVE plan.** Brings the built rewrite to
+   production parity with the legacy extension and back into conformance with the contract:
+   the correction backlog (data-correctness regressions, doctrine drift, performance, the inert
+   reveal ritual), the required backend change, and the slice-by-slice execution order. Start here.
+7. **[study/](./study/)** — the legacy-vs-rewrite comparative study this plan was written from:
+   nine analysis reports, the architect Q&A decisions (`qa-decisions.md`), and `RESUME.md`.
 
 ## The essentials at a glance
 
