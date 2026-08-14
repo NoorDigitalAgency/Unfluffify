@@ -109,13 +109,46 @@ Consequences for the plan:
 
 ---
 
-## Still open (carried to Q&A round 2)
+---
 
-Tier 2 leftovers: **Q5** static-render-mode properties in scope for first cutover (Run AI and
-Save are structurally impossible on them today — no static-HTML fetcher exists); **Q6**
-candidacy from stored page records vs GraphQL `propertyPageTypes` (D4 shipping page-type
-assignments pushes toward the GraphQL feed); **Q7** must the editor lock be held while the
-side panel is closed (D4 shipping property-lock makes this load-bearing).
+# Q&A round 2 — decisions
 
-All of Tier 3 (Q8–Q18, UX fidelity) and Tier 4 (inherited unresolved decisions) remain
-unasked.
+## D5 — Static-render-mode properties are IN SCOPE for first cutover. ✅
+
+Port a `fetchStaticPageHtml` equivalent plus the offscreen DOMParser XPath refinement, so a
+static property can Run AI and Save. Excluding them would be a capability regression against
+the shipping legacy product. Until this lands, the rewrite cannot serve any static property at
+all — today the failure surfaces late, at Run AI time, because the schema requires `rawHtml`
+iff `renderMode === 'static'` and no fetcher exists.
+
+## D6 — Restore GraphQL `propertyPageTypes` candidacy. ✅
+
+Candidacy returns to the backend feed as INV-1.4 requires, replacing the rewrite's
+"has a stored `pageMarkings` record" rule. This:
+
+- fixes the live-observed bug where a property whose config record was deleted becomes
+  permanently un-editable (no record → not a candidate → cannot bootstrap), and
+- is a prerequisite for the Todo list, candidate badges, and page-type coverage chosen in D4.
+
+## D7 — The property lock is TAB-SCOPED and survives the side panel closing. ✅
+
+The lock lifecycle moves out of the popup and into the background/brain: claim immediately on
+landing on a candidate page, heartbeat every 30 s while the editor has interacted within 30
+min, independent of whether the panel is open. In scope as a direct consequence: reconnect
+with backoff, independent HTTP reachability probes, off-candidate (70 s), connection-loss
+(70 s), cross-property cooldown (30 s), port-disconnect dispose grace (70 s) with tab-close
+bypassing it, passive-observer release countdown (60 s), and the takeover/transfer UI. The
+current popup-tethered heartbeat is therefore a **bug**, not a simplification.
+
+## D8 — Keep the side-panel surface. ✅
+
+The per-tab Chrome side panel (opened via `action.onClicked`; no `default_popup`) stays. It
+persists across tab switches and navigations, which suits a workflow where the operator clicks
+around the page while marking. The tab-rebinding lifecycle is an accepted cost.
+
+---
+
+## Still open (carried to Q&A round 3)
+
+All of Tier 3 (Q8–Q18 UX fidelity, minus the side-panel question now settled as D8) and Tier 4
+(inherited decisions legacy never resolved) remain unasked.
