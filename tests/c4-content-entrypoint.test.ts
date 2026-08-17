@@ -27,6 +27,20 @@ function commandFrame(name: string, payload: Record<string, unknown> = {}, tabId
   };
 }
 
+function replyFrame(request: BusFrame, payload: unknown): BusFrame {
+  return {
+    kind: "uf-bus/1",
+    frameType: "reply",
+    id: request.id,
+    seq: request.seq,
+    name: request.name,
+    source: request.target === "broadcast" ? request.source : request.target,
+    target: request.source,
+    payload,
+    ok: true,
+  };
+}
+
 async function dispatchContentCommand(
   listener: (message: unknown, sender: unknown, sendResponse: (value: unknown) => void) => unknown,
   name: string,
@@ -67,6 +81,7 @@ describe("C4 rewrite content entrypoints", () => {
     Reflect.deleteProperty(globalThis, "document");
     Reflect.deleteProperty(globalThis, "location");
     Reflect.deleteProperty(globalThis, "window");
+    Reflect.deleteProperty(globalThis, "MutationObserver");
   });
 
   it("registers the rewrite activation bridge without loading legacy content-main", async () => {
@@ -109,6 +124,99 @@ describe("C4 rewrite content entrypoints", () => {
       "utf8",
     );
     expect(pageWorldEntrypointSource).toContain('import "../page-world/program.js";');
+  });
+
+  it("sweeps a managed non-candidate before render-mode gates and re-sweeps late insertions", async () => {
+    const hideConsentOverlays = vi.fn(() => ({ hidden: 0, bypassInstalled: false }));
+    vi.doMock("../src/content/consent", () => ({ hideConsentOverlays }));
+    vi.doMock("wxt/utils/define-content-script", () => ({
+      defineContentScript: (config: unknown) => config,
+    }));
+
+    let onMutation: MutationCallback | null = null;
+    const observe = vi.fn();
+    Object.defineProperty(globalThis, "MutationObserver", {
+      configurable: true,
+      value: class {
+        constructor(callback: MutationCallback) {
+          onMutation = callback;
+        }
+        observe = observe;
+        disconnect = vi.fn();
+      },
+    });
+    Object.defineProperty(globalThis, "location", {
+      configurable: true,
+      value: { href: "https://example.com/not-a-candidate" },
+    });
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: { documentElement: { nodeType: 1 }, body: { nodeType: 1 } },
+    });
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: {
+        addEventListener: vi.fn(),
+        setInterval: vi.fn(() => 1),
+      },
+    });
+    const sendMessage = vi.fn(async (message: BusFrame) => {
+      if (message.name === "page.context") {
+        return replyFrame(message, {
+          status: "managed_non_candidate",
+          generation: 1,
+          observedUrl: "https://example.com/not-a-candidate",
+          draftDisposition: "preserve",
+          environmentKey: "example.com",
+          siteId: 1,
+          baseUrl: "https://example.com",
+          pageKey: "/not-a-candidate",
+          pageTypes: [{
+            pageType: "detail",
+            pages: [{ pageKey: "/candidate", wordsCount: 42 }],
+          }],
+          membershipFingerprint: "membership",
+          assignmentFingerprint: "assignment",
+          conflicts: [],
+          upstreamCode: null,
+          renderModeSet: false,
+          todo: {
+            covered: 1,
+            actionable: 1,
+            pageTypes: [{
+              pageType: "detail",
+              markedCount: 1,
+              current: false,
+              candidates: [{ pageKey: "/candidate", wordsCount: 42, marked: true, current: false }],
+            }],
+          },
+        });
+      }
+      if (message.name === "signals.pull") {
+        return replyFrame(message, []);
+      }
+      return undefined;
+    });
+    globalThis.chrome = {
+      runtime: {
+        onMessage: { addListener: vi.fn() },
+        sendMessage,
+      },
+    } as unknown as typeof chrome;
+
+    const entrypoint = await import("../src/entrypoints/content-loader.content.ts");
+    const contentScript = entrypoint.default as { main: () => void };
+    contentScript.main();
+    for (let index = 0; index < 20 && hideConsentOverlays.mock.calls.length === 0; index += 1) {
+      await Promise.resolve();
+    }
+
+    expect(hideConsentOverlays).toHaveBeenCalledTimes(1);
+    expect(observe).toHaveBeenCalledWith(document.documentElement, { childList: true, subtree: true });
+
+    onMutation?.([], {} as MutationObserver);
+
+    expect(hideConsentOverlays).toHaveBeenCalledTimes(2);
   });
 
   it("reuses one marking engine while enabled and disposes overlays on deactivate", async () => {
